@@ -21,7 +21,7 @@ import type { NodeConnection } from "./connection.ts";
 import { getNode, markNodeSeen, type NodeRow, updateNodeFacts } from "./nodes.ts";
 import { OUTPUT_KEEP_BYTES, OUTPUT_KEEP_LINES, StreamAccumulator } from "./output.ts";
 import { connect as connectSsh, SshError, type SshRoute, type SshSession } from "./ssh/connection.ts";
-import { runSshExec, SshConnectionLost, type SshExecSink } from "./ssh/exec.ts";
+import { runSshExec, SshConnectionLost, type SshExecSink, shellQuote } from "./ssh/exec.ts";
 import { FileTaskError, runSftpFileTask } from "./ssh/file-task.ts";
 
 /** Who asked for a task; see doc/access-control.md#操作者. */
@@ -60,6 +60,11 @@ export interface TaskView {
 	stderrHead: string;
 	stderrTail: string;
 	outputFile: string | null;
+	/** One line describing what ran: the command line or the path. */
+	summary: string;
+	actorType: string;
+	actorId: string;
+	onBehalfOfUserId: string;
 	createdAt: string;
 	finishedAt: string | null;
 }
@@ -661,6 +666,10 @@ function toView(row: Selectable<TasksTable>, live: LiveTask | undefined): TaskVi
 		id: row.id,
 		nodeId: row.node_id,
 		kind: row.kind,
+		summary: summarize(row.spec),
+		actorType: row.actor_type,
+		actorId: row.actor_id,
+		onBehalfOfUserId: row.on_behalf_of_user_id,
 		state: row.state,
 		exitCode: row.exit_code,
 		signal: row.signal,
@@ -678,6 +687,22 @@ function toView(row: Selectable<TasksTable>, live: LiveTask | undefined): TaskVi
 		createdAt: row.created_at,
 		finishedAt: row.finished_at,
 	};
+}
+
+/** Spec JSON (protobuf JSON form) to a short description. */
+export function summarize(specJson: string): string {
+	try {
+		const spec = JSON.parse(specJson) as Record<string, Record<string, unknown>>;
+		const exec = spec.exec;
+		if (exec) {
+			if (typeof exec.shell === "string") return exec.shell;
+			return ((exec.argv as string[] | undefined) ?? []).map(shellQuote).join(" ");
+		}
+		for (const value of Object.values(spec)) {
+			if (typeof value?.path === "string") return value.path;
+		}
+	} catch {}
+	return "";
 }
 
 function now(): string {

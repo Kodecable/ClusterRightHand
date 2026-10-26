@@ -40,6 +40,21 @@ export function userRoutes(db: Db) {
 		return c.json({ user: toPublicUser(rest) });
 	});
 
+	// Everyone in the organization can look up whom to share with; only names, nothing else.
+	app.get("/directory", async (c) => {
+		const users = await db
+			.selectFrom("users")
+			.select(["id", "username", "display_name"])
+			.where("status", "=", "active")
+			.orderBy("username")
+			.execute();
+		const groups = await db.selectFrom("user_groups").select(["id", "name"]).orderBy("name").execute();
+		return c.json({
+			users: users.map((u) => ({ id: u.id, username: u.username, displayName: u.display_name })),
+			userGroups: groups,
+		});
+	});
+
 	app.use("/users/*", requireAdmin);
 	app.use("/users", requireAdmin);
 	app.use("/user-groups/*", requireAdmin);

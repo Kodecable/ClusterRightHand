@@ -36,6 +36,8 @@ export interface NodeShare {
 	nodeId: string;
 	granteeType: GranteeType;
 	granteeId: string;
+	/** Username or user group name, for display. */
+	granteeName: string | null;
 	access: ShareAccess;
 	createdByUserId: string;
 	createdAt: string;
@@ -239,12 +241,13 @@ export async function markNodeSeen(db: Db, nodeId: string, now = new Date()): Pr
 	await db.updateTable("nodes").set({ last_seen_at: now.toISOString() }).where("id", "=", nodeId).execute();
 }
 
-function toNodeShare(row: Selectable<SharesTable>): NodeShare {
+function toNodeShare(row: Selectable<SharesTable>, granteeName: string | null = null): NodeShare {
 	return {
 		id: row.id,
 		nodeId: row.resource_id,
 		granteeType: row.grantee_type,
 		granteeId: row.grantee_id,
+		granteeName,
 		access: row.access as ShareAccess,
 		createdByUserId: row.created_by_user_id,
 		createdAt: row.created_at,
@@ -316,5 +319,13 @@ export async function listNodeShares(db: Db, nodeId: string): Promise<NodeShare[
 		.orderBy("created_at")
 		.orderBy("id")
 		.execute();
-	return rows.map(toNodeShare);
+	const users = new Map(
+		(await db.selectFrom("users").select(["id", "username"]).execute()).map((u) => [u.id, u.username]),
+	);
+	const groups = new Map(
+		(await db.selectFrom("user_groups").select(["id", "name"]).execute()).map((g) => [g.id, g.name]),
+	);
+	return rows.map((r) =>
+		toNodeShare(r, (r.grantee_type === "user" ? users.get(r.grantee_id) : groups.get(r.grantee_id)) ?? null),
+	);
 }
