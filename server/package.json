@@ -14,9 +14,11 @@
 		"test": "vitest run"
 	},
 	"devDependencies": {
-		"@types/pg": "^8.23.1"
+		"@types/pg": "^8.23.1",
+		"@types/ws": "^8.18.2"
 	},
 	"dependencies": {
+		"@bufbuild/protobuf": "^2.16.0",
 		"@crh/noise": "workspace:*",
 		"@crh/protocol": "workspace:*",
 		"@hono/node-server": "^2.1.5",
@@ -24,6 +26,7 @@
 		"hono": "^4.13.14",
 		"kysely": "^0.29.7",
 		"pg": "^8.23.1",
-		"smol-toml": "^1.9.1"
+		"smol-toml": "^1.9.1",
+		"ws": "^8.22.0"
 	}
 }

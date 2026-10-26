@@ -23,7 +23,7 @@ func TestCommandPaths(t *testing.T) {
 
 func TestNotImplemented(t *testing.T) {
 	root := NewRootCmd()
-	root.SetArgs([]string{"status"})
+	root.SetArgs([]string{"pending"})
 	if err := root.Execute(); err != errNotImplemented {
 		t.Fatalf("got %v, want errNotImplemented", err)
 	}

@@ -6,6 +6,9 @@ import { getConnInfo } from "@hono/node-server/conninfo";
 import { createApp } from "./api/app.ts";
 import { deleteExpiredWebSessions } from "./auth/sessions.ts";
 import { readSecret } from "./cli/prompt.ts";
+import { AgentServer } from "./cluster/agent-server.ts";
+import { Cluster } from "./cluster/cluster.ts";
+import { loadServerIdentity } from "./cluster/identity.ts";
 import { type Config, DEFAULT_CONFIG_PATH, loadConfig } from "./config.ts";
 import { buildKeyExport, decryptKeyExport, encryptKeyExport, verifyKeyExportAgainstDb } from "./keys/export.ts";
 import { bindMasterKey, KeyError, MasterKey, readMasterKeyFile, writeMasterKeyFile } from "./keys/master-key.ts";
@@ -55,7 +58,7 @@ try {
 	if (command === "serve") {
 		const masterKey = await readMasterKeyFile(config.masterKeyFile);
 		await bindMasterKey(db, masterKey);
-		runServer(config, db);
+		await runServer(config, db, masterKey);
 	} else if (command === "keys" && args[0] === "init") {
 		await initKeys(config, db);
 	} else if (command === "keys" && args[0] === "export" && values.out) {
@@ -141,15 +144,28 @@ async function importKeys(config: Config, db: Db, file: string): Promise<void> {
 	await db.destroy();
 }
 
-function runServer(config: Config, db: Db): void {
-	const app = createApp(db, { clientAddress: (c) => getConnInfo(c).remote.address });
+async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<void> {
+	const identity = await loadServerIdentity(db, masterKey);
+	const cluster = new Cluster(db);
+	const agents = new AgentServer(db, identity, cluster);
+	const app = createApp(db, {
+		clientAddress: (c) => getConnInfo(c).remote.address,
+		serverFingerprint: identity.fingerprint,
+		serverPublicKey: identity.keyPair.publicKey,
+		cluster,
+	});
 	const server = serve({ fetch: app.fetch, hostname: config.listen.host, port: config.listen.port }, (info) => {
-		console.log(`crhs listening on http://${info.address}:${info.port}`);
+		console.log(`crhs listening on http://${info.address}:${info.port} (identity ${identity.fingerprint})`);
+	});
+	server.on("upgrade", (req, socket, head) => {
+		if (!agents.handleUpgrade(req, socket, head)) socket.destroy();
 	});
 	const sweep = setInterval(() => void deleteExpiredWebSessions(db), 60 * 60 * 1000);
 	for (const signal of ["SIGINT", "SIGTERM"] as const) {
 		process.once(signal, () => {
 			clearInterval(sweep);
+			cluster.close();
+			agents.close();
 			server.close();
 			void db.destroy();
 		});

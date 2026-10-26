@@ -115,6 +115,45 @@ export interface EnrollmentTokensTable {
 	created_at: CreatedAt;
 }
 
+export type TaskState = "dispatched" | "running" | "exited" | "failed" | "rejected" | "unknown";
+
+export interface TasksTable {
+	id: string;
+	org_id: string;
+	node_id: string;
+	task_group_id: string | null;
+	kind: string;
+	/** TaskSpec in protobuf JSON form, without the input bytes. */
+	spec: string;
+	input_size: number | null;
+	input_sha256: string | null;
+	privileged: number;
+	timeout_ms: number | null;
+	state: TaskState;
+	exit_code: number | null;
+	signal: string | null;
+	timed_out: number;
+	cancelled: number;
+	/** Executor error code, client rejection, or the unknown reason. */
+	error_code: string | null;
+	error_message: string | null;
+	actor_type: string;
+	actor_id: string;
+	on_behalf_of_user_id: string;
+	created_at: CreatedAt;
+	dispatched_at: string | null;
+	accepted_at: string | null;
+	finished_at: string | null;
+	stdout_bytes: ColumnType<string | number, string | number, string | number>;
+	stderr_bytes: ColumnType<string | number, string | number, string | number>;
+	stdout_head: string | null;
+	stdout_tail: string | null;
+	stderr_head: string | null;
+	stderr_tail: string | null;
+	output_file: string | null;
+	late_result: string | null;
+}
+
 export interface Database {
 	orgs: OrgsTable;
 	users: UsersTable;
@@ -127,4 +166,5 @@ export interface Database {
 	nodes: NodesTable;
 	node_groups: NodeGroupsTable;
 	enrollment_tokens: EnrollmentTokensTable;
+	tasks: TasksTable;
 }

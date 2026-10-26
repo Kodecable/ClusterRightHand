@@ -73,6 +73,8 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const row = await getNode(db, id);
 		if (row?.status !== "pending") return jsonError(c, 409, "node is not pending");
 		const node = await approveNode(db, id, c.get("user").userId);
+		// The pending connection only carried facts; crha reconnects as an active node.
+		options.cluster?.disconnect(id, "approved");
 		return c.json({ node: toPublicNode(node, m.level, (await nodeGroupNames(db, [id])).get(id) ?? []) });
 	});
 
@@ -92,6 +94,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const m = await manageable(c, id);
 		if (m.error) return jsonError(c, m.error.status, m.error.message);
 		await deleteNode(db, id);
+		options.cluster?.disconnect(id, "node deleted");
 		return c.json({ ok: true });
 	});
 

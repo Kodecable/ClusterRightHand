@@ -4,6 +4,7 @@ import * as m0001 from "./migrations/0001_init.ts";
 import * as m0002 from "./migrations/0002_users_and_sharing.ts";
 import * as m0003 from "./migrations/0003_keys.ts";
 import * as m0004 from "./migrations/0004_nodes.ts";
+import * as m0005 from "./migrations/0005_tasks.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -11,6 +12,7 @@ const migrations: Record<string, Migration> = {
 	"0002_users_and_sharing": m0002,
 	"0003_keys": m0003,
 	"0004_nodes": m0004,
+	"0005_tasks": m0005,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };
