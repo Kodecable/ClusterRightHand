@@ -207,6 +207,9 @@ importers:
 
   server:
     dependencies:
+      '@crh/noise':
+        specifier: workspace:*
+        version: link:../packages/noise
       '@crh/protocol':
         specifier: workspace:*
         version: link:../packages/protocol

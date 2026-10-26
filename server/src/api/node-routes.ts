@@ -1,0 +1,131 @@
+import { Hono } from "hono";
+import { createEnrollmentToken } from "../cluster/enrollment.ts";
+import {
+	approveNode,
+	deleteNode,
+	getNode,
+	listNodeShares,
+	listNodesForUser,
+	type NodeAccess,
+	nodeAccess,
+	nodeGroupNames,
+	renameNode,
+	shareNode,
+	toPublicNode,
+	unshareNode,
+} from "../cluster/nodes.ts";
+import type { Db } from "../storage/db.ts";
+import { NotFoundError, UserError } from "../users/service.ts";
+import type { AppOptions } from "./app.ts";
+import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
+
+/** Expects requireUser to have run. */
+export function nodeRoutes(db: Db, options: AppOptions = {}) {
+	const app = new Hono<AppEnv>();
+
+	app.onError((err, c) => {
+		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
+		if (err instanceof UserError || err instanceof TypeError) return jsonError(c, 400, err.message);
+		throw err;
+	});
+
+	/** The caller's access to the node, or undefined when the node is hidden from them. */
+	const access = (c: { get(k: "user"): AppEnv["Variables"]["user"] }, id: string) => nodeAccess(db, c.get("user"), id);
+	const canManage = (a: NodeAccess) => a === "owner" || a === "admin";
+
+	app.get("/nodes", async (c) => c.json({ nodes: await listNodesForUser(db, c.get("user")) }));
+
+	app.get("/nodes/:id", async (c) => {
+		const id = c.req.param("id");
+		const level = await access(c, id);
+		const row = level ? await getNode(db, id) : undefined;
+		if (!level || !row) return jsonError(c, 404, "no such node");
+		const groups = (await nodeGroupNames(db, [id])).get(id) ?? [];
+		const node = toPublicNode(row, level, groups);
+		return c.json(canManage(level) ? { node, shares: await listNodeShares(db, id) } : { node });
+	});
+
+	app.post("/enrollment-tokens", async (c) => {
+		if (!options.serverFingerprint) return c.json({ error: "server fingerprint is not configured" }, 500);
+		const body = await readJsonObject(c);
+		if (!body) return jsonError(c, 400, "expected a JSON object");
+		const created = await createEnrollmentToken(db, {
+			userId: c.get("user").userId,
+			nameHint: optionalString(body, "nameHint"),
+			serverFingerprint: options.serverFingerprint,
+		});
+		return c.json({ token: created.token, expiresAt: created.expiresAt }, 201);
+	});
+
+	/** Resolves the node for a manage-only route: 404 without access, 403 for shared users. */
+	const manageable = async (c: Parameters<typeof access>[0], id: string) => {
+		const level = await access(c, id);
+		if (!level) return { error: { status: 404 as const, message: "no such node" } };
+		if (!canManage(level))
+			return { error: { status: 403 as const, message: "only the owner or an administrator can do this" } };
+		return { level };
+	};
+
+	app.post("/nodes/:id/approve", async (c) => {
+		const id = c.req.param("id");
+		const m = await manageable(c, id);
+		if (m.error) return jsonError(c, m.error.status, m.error.message);
+		const row = await getNode(db, id);
+		if (row?.status !== "pending") return jsonError(c, 409, "node is not pending");
+		const node = await approveNode(db, id, c.get("user").userId);
+		return c.json({ node: toPublicNode(node, m.level, (await nodeGroupNames(db, [id])).get(id) ?? []) });
+	});
+
+	app.patch("/nodes/:id", async (c) => {
+		const id = c.req.param("id");
+		const m = await manageable(c, id);
+		if (m.error) return jsonError(c, m.error.status, m.error.message);
+		const body = await readJsonObject(c);
+		const name = body ? optionalString(body, "name") : undefined;
+		if (!name) return jsonError(c, 400, "name is required");
+		const node = await renameNode(db, id, name);
+		return c.json({ node: toPublicNode(node, m.level, (await nodeGroupNames(db, [id])).get(id) ?? []) });
+	});
+
+	app.delete("/nodes/:id", async (c) => {
+		const id = c.req.param("id");
+		const m = await manageable(c, id);
+		if (m.error) return jsonError(c, m.error.status, m.error.message);
+		await deleteNode(db, id);
+		return c.json({ ok: true });
+	});
+
+	app.put("/nodes/:id/shares", async (c) => {
+		const id = c.req.param("id");
+		const m = await manageable(c, id);
+		if (m.error) return jsonError(c, m.error.status, m.error.message);
+		const body = await readJsonObject(c);
+		if (!body) return jsonError(c, 400, "expected a JSON object");
+		const granteeType = optionalString(body, "granteeType");
+		const granteeId = optionalString(body, "granteeId");
+		const shareAccess = optionalString(body, "access");
+		if (granteeType !== "user" && granteeType !== "user_group") {
+			return jsonError(c, 400, "granteeType must be user or user_group");
+		}
+		if (!granteeId) return jsonError(c, 400, "granteeId is required");
+		if (shareAccess !== "view" && shareAccess !== "operate") return jsonError(c, 400, "access must be view or operate");
+		const share = await shareNode(db, {
+			nodeId: id,
+			granteeType,
+			granteeId,
+			access: shareAccess,
+			createdBy: c.get("user").userId,
+		});
+		return c.json({ share });
+	});
+
+	app.delete("/nodes/:id/shares/:shareId", async (c) => {
+		const id = c.req.param("id");
+		const m = await manageable(c, id);
+		if (m.error) return jsonError(c, m.error.status, m.error.message);
+		await unshareNode(db, id, c.req.param("shareId"));
+		return c.json({ ok: true });
+	});
+
+	return app;
+}

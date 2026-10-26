@@ -33,7 +33,7 @@ shares            (id, org_id, resource_type[node|session], resource_id,
 ## 节点
 
 ```
-nodes             (id, org_id, owner_user_id, name, transport[client|ssh], status[pending|online|offline|disabled],
+nodes             (id, org_id, owner_user_id, name, transport[client|ssh], status[pending|active|disabled],  -- 在线与否由连接推出，不存表
                    public_key,                 -- client 节点
                    ssh_host, ssh_port, ssh_user, ssh_host_key, ssh_credential_id,   -- ssh 节点
                    ssh_jumps json,                                                   -- 跳板列表，每一跳带自己的主机密钥和凭证

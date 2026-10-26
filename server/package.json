@@ -17,6 +17,7 @@
 		"@types/pg": "^8.23.1"
 	},
 	"dependencies": {
+		"@crh/noise": "workspace:*",
 		"@crh/protocol": "workspace:*",
 		"@hono/node-server": "^2.1.5",
 		"age-encryption": "0.3.1",

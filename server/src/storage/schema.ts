@@ -76,6 +76,45 @@ export interface SecretsTable {
 	created_at: CreatedAt;
 }
 
+export interface NodesTable {
+	id: string;
+	org_id: string;
+	owner_user_id: string;
+	name: string;
+	transport: "client" | "ssh";
+	status: "pending" | "active" | "disabled";
+	/** Base64 of the node's 32-byte X25519 static key. */
+	public_key: string | null;
+	hostname: string | null;
+	/** JSON text. */
+	facts: string | null;
+	client_version: string | null;
+	privileged_mode: string | null;
+	last_seen_at: string | null;
+	created_at: CreatedAt;
+	approved_at: string | null;
+	approved_by_user_id: string | null;
+}
+
+export interface NodeGroupsTable {
+	node_id: string;
+	group_name: string;
+	refreshed_at: string;
+}
+
+export interface EnrollmentTokensTable {
+	id: string;
+	org_id: string;
+	created_by_user_id: string;
+	/** Hex SHA-256 of the token secret. */
+	token_hash: string;
+	name_hint: string | null;
+	expires_at: string;
+	used_at: string | null;
+	used_by_node_id: string | null;
+	created_at: CreatedAt;
+}
+
 export interface Database {
 	orgs: OrgsTable;
 	users: UsersTable;
@@ -85,4 +124,7 @@ export interface Database {
 	shares: SharesTable;
 	server_meta: ServerMetaTable;
 	secrets: SecretsTable;
+	nodes: NodesTable;
+	node_groups: NodeGroupsTable;
+	enrollment_tokens: EnrollmentTokensTable;
 }
