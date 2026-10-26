@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package crh.v1;
+
+import "crh/v1/facts.proto";
+
+option go_package = "github.com/Kodecable/ClusterRightHand/client/internal/proto/crhv1;crhv1";
+
+// Payload of the first Noise IK message (crha -> crhs). See doc/execution-plane.md#握手.
+message HandshakeInit {
+  string crha_version = 1;
+  // Diagnostics only (clock offset); never used for authentication.
+  int64 client_time_unix_ms = 2;
+  // Present only when enrolling with a token; the static key is then unknown to crhs.
+  Enrollment enroll = 3;
+}
+
+message Enrollment {
+  // The secret part of the enrollment token.
+  string token_secret = 1;
+  string hostname = 2;
+  Facts facts = 3;
+}
+
+// Payload of the second Noise IK message (crhs -> crha).
+message HandshakeResponse {
+  string connection_id = 1;
+  int64 server_time_unix_ms = 2;
+  NodeState node_state = 3;
+  string node_id = 4;
+}
+
+enum NodeState {
+  NODE_STATE_UNSPECIFIED = 0;
+  // Approved: the connection carries tasks.
+  NODE_STATE_ACTIVE = 1;
+  // Waiting for confirmation: restricted connection (Facts and status only).
+  NODE_STATE_PENDING = 2;
+}

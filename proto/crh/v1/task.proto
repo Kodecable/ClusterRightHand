@@ -1,0 +1,168 @@
+syntax = "proto3";
+
+package crh.v1;
+
+option go_package = "github.com/Kodecable/ClusterRightHand/client/internal/proto/crhv1;crhv1";
+
+// Sent at most once per task id. See doc/execution-plane.md#不重复执行.
+message TaskStart {
+  string task_id = 1;
+  TaskSpec spec = 2;
+  bool privileged = 3;
+  // Authorization and optional cosign for privileged tasks (format defined in M4).
+  repeated bytes authorizations = 4;
+  // SIGTERM to the process group after this, SIGKILL after the grace period. 0 = no timeout.
+  uint64 timeout_ms = 5;
+  uint64 kill_grace_ms = 6;
+  // Output beyond either threshold is saved to a file on the node; see doc/execution-plane.md#输出.
+  uint64 spill_bytes = 7;
+  uint64 spill_lines = 8;
+}
+
+message TaskSpec {
+  oneof kind {
+    ExecSpec exec = 1;
+    FileReadSpec file_read = 2;
+    FileWriteSpec file_write = 3;
+    FileEditSpec file_edit = 4;
+    FileStatSpec file_stat = 5;
+    FileListSpec file_list = 6;
+  }
+}
+
+// Inputs larger than one message (stdin, file contents) follow TaskStart as TaskInput chunks.
+// The spec carries their size and SHA-256 so that authorizations can bind them.
+message InputRef {
+  uint64 size = 1;
+  bytes sha256 = 2;
+}
+
+message ExecSpec {
+  // Exactly one of argv and shell.
+  repeated string argv = 1;
+  // Run as /bin/sh -c <shell>.
+  string shell = 2;
+  map<string, string> env = 3;
+  string cwd = 4;
+  InputRef stdin = 5;
+}
+
+message FileReadSpec {
+  string path = 1;
+  uint64 offset = 2;
+  // 0 = to the end of the file.
+  uint64 limit = 3;
+}
+
+message FileWriteSpec {
+  string path = 1;
+  InputRef content = 2;
+  // Fails if the file exists unless set.
+  bool overwrite = 3;
+  // 0 = 0644 for new files, unchanged for existing ones.
+  uint32 mode = 4;
+  // Empty = unchanged (existing) or the executor's identity (new).
+  string owner = 5;
+  string group = 6;
+}
+
+message FileEditSpec {
+  string path = 1;
+  repeated Edit edits = 2;
+}
+
+// Same semantics as pi's edit tool: old_text must occur exactly once in the original content.
+message Edit {
+  string old_text = 1;
+  string new_text = 2;
+}
+
+message FileStatSpec {
+  string path = 1;
+}
+
+message FileListSpec {
+  string path = 1;
+  uint32 limit = 2;
+}
+
+message TaskInput {
+  string task_id = 1;
+  uint64 offset = 2;
+  bytes data = 3;
+}
+
+message TaskAccepted {
+  string task_id = 1;
+}
+
+message TaskRejected {
+  string task_id = 1;
+  string reason = 2;
+}
+
+enum Stream {
+  STREAM_UNSPECIFIED = 0;
+  STREAM_STDOUT = 1;
+  STREAM_STDERR = 2;
+}
+
+// file.read writes the file content to stdout; file.stat and file.list write JSON to stdout.
+message TaskOutput {
+  string task_id = 1;
+  Stream stream = 2;
+  uint64 offset = 3;
+  bytes data = 4;
+}
+
+message OutputAck {
+  string task_id = 1;
+  uint64 stdout_offset = 2;
+  uint64 stderr_offset = 3;
+}
+
+message TaskExit {
+  string task_id = 1;
+  oneof outcome {
+    int32 exit_code = 2;
+    // Signal name without the SIG prefix, e.g. "KILL".
+    string signal = 3;
+    TaskError error = 4;
+  }
+  bool timed_out = 5;
+  bool cancelled = 6;
+  uint64 stdout_end = 7;
+  uint64 stderr_end = 8;
+  // Full output saved on the node when it exceeded the spill thresholds.
+  string output_file = 9;
+}
+
+message TaskError {
+  // Stable identifier, e.g. "not_found", "exists", "edit_no_match", "edit_ambiguous", "spawn_failed".
+  string code = 1;
+  string message = 2;
+}
+
+message TaskCancel {
+  string task_id = 1;
+}
+
+message TaskQuery {
+  string task_id = 1;
+}
+
+message TaskStatus {
+  string task_id = 1;
+  TaskState state = 2;
+  uint64 stdout_end = 3;
+  uint64 stderr_end = 4;
+}
+
+enum TaskState {
+  TASK_STATE_UNSPECIFIED = 0;
+  TASK_STATE_RUNNING = 1;
+  // Finished; TaskExit is (re)sent until acknowledged.
+  TASK_STATE_EXITED = 2;
+  // The client does not know this task id.
+  TASK_STATE_UNKNOWN = 3;
+}
