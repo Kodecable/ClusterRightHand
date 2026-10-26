@@ -1,0 +1,26 @@
+{
+	"name": "clusterrighthand",
+	"private": true,
+	"type": "module",
+	"license": "MIT",
+	"engines": {
+		"node": ">=24"
+	},
+	"scripts": {
+		"check": "biome check . && pnpm -r run typecheck && pnpm check:go",
+		"check:go": "cd client && test -z \"$(gofmt -l .)\" && go vet ./...",
+		"format": "biome check --write . && gofmt -w client",
+		"test": "pnpm -r run test && pnpm test:go",
+		"test:go": "cd client && go test ./...",
+		"gen:proto": "buf lint && buf generate"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.6.3",
+		"@bufbuild/buf": "^1.75.0",
+		"@bufbuild/protoc-gen-es": "^2.16.0",
+		"@types/node": "^26.6.5",
+		"typescript": "^7.0.2",
+		"vitest": "^5.0.5"
+	},
+	"packageManager": "pnpm@12.15.0"
+}

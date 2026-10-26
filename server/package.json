@@ -1,0 +1,27 @@
+{
+	"name": "@crh/server",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"license": "MIT",
+	"bin": {
+		"crhs": "./src/main.ts"
+	},
+	"scripts": {
+		"dev": "node --watch src/main.ts",
+		"start": "node src/main.ts",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"@types/pg": "^8.23.1"
+	},
+	"dependencies": {
+		"@crh/protocol": "workspace:*",
+		"@hono/node-server": "^2.1.5",
+		"hono": "^4.13.14",
+		"kysely": "^0.29.7",
+		"pg": "^8.23.1",
+		"smol-toml": "^1.9.1"
+	}
+}

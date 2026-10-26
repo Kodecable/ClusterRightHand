@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: crh
+          POSTGRES_PASSWORD: crh
+          POSTGRES_DB: crh_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U crh" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CRH_TEST_PG_URL: postgres://crh:crh@localhost:5432/crh_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: client/go.mod
+          cache-dependency-path: client/go.sum
+      - run: pnpm install --frozen-lockfile
+      - name: generated code is up to date
+        run: pnpm gen:proto && git diff --exit-code
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm --filter @crh/web build

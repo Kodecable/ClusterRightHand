@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package crh.v1;
+
+option go_package = "github.com/Kodecable/ClusterRightHand/client/internal/proto/crhv1;crhv1";
+
+// Envelope is the unit carried by one Noise transport message.
+// New message types are added to the oneof; peers ignore unknown ones
+// unless negotiated in Hello.capabilities.
+message Envelope {
+  oneof body {
+    Hello hello = 1;
+    Welcome welcome = 2;
+    Ping ping = 3;
+    Pong pong = 4;
+  }
+}
+
+message Hello {
+  string crha_version = 1;
+  repeated string capabilities = 2;
+}
+
+message Welcome {
+  string connection_id = 1;
+  repeated string capabilities = 2;
+}
+
+message Ping {
+  uint64 seq = 1;
+}
+
+message Pong {
+  uint64 seq = 1;
+}

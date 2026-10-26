@@ -1,0 +1,13 @@
+version: v2
+# clean: true empties every `out` directory before generating; keep them dedicated to generated code.
+clean: true
+plugins:
+  - local: protoc-gen-es
+    out: packages/protocol/src/gen
+    opt:
+      - target=ts
+      - import_extension=ts
+  - local: ["go", "tool", "-C", "client", "protoc-gen-go"]
+    out: client/internal/proto
+    opt:
+      - module=github.com/Kodecable/ClusterRightHand/client/internal/proto
