@@ -1,8 +1,347 @@
+:root {
+	color-scheme: light dark;
+	--bg: #f6f7f9;
+	--surface: #fff;
+	--text: #1c2026;
+	--muted: #667085;
+	--border: #d8dde4;
+	--accent: #2554d6;
+	--accent-text: #fff;
+	--danger: #c62828;
+	--ok: #1b7f3b;
+	--warn: #a66200;
+	--code-bg: #f0f2f5;
+}
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #14171c;
+		--surface: #1c2027;
+		--text: #e4e7ec;
+		--muted: #98a2b3;
+		--border: #333a45;
+		--accent: #5b8cff;
+		--accent-text: #0b1220;
+		--danger: #ef6a6a;
+		--ok: #4ec97a;
+		--warn: #e0a243;
+		--code-bg: #11141a;
+	}
+}
+* {
+	box-sizing: border-box;
+}
 body {
 	margin: 0;
-	font-family: system-ui, sans-serif;
+	background: var(--bg);
+	color: var(--text);
+	font:
+		14px / 1.45 system-ui,
+		-apple-system,
+		"Segoe UI",
+		sans-serif;
+}
+main {
+	max-width: 1100px;
+	margin: 0 auto;
+	padding: 12px 16px 48px;
+}
+h1 {
+	font-size: 20px;
+	margin: 12px 0;
+}
+h2 {
+	font-size: 16px;
+	margin: 20px 0 8px;
+}
+h3 {
+	font-size: 14px;
+	margin: 0;
+}
+h4 {
+	font-size: 12px;
+	margin: 10px 0 4px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+a {
+	color: var(--accent);
+}
+code,
+.mono,
+pre,
+textarea.mono {
+	font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+	font-size: 12.5px;
+}
+code {
+	background: var(--code-bg);
+	padding: 0 4px;
+	border-radius: 3px;
+}
+.muted {
+	color: var(--muted);
+}
+.error {
+	color: var(--danger);
+	margin: 4px 0;
+}
+.pad {
+	padding: 16px;
+}
+.spacer {
+	flex: 1;
 }
 
-main {
-	padding: 1rem 2rem;
+.top {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	padding: 8px 16px;
+	background: var(--surface);
+	border-bottom: 1px solid var(--border);
+}
+.top nav {
+	display: flex;
+	gap: 12px;
+}
+.top a {
+	text-decoration: none;
+}
+.top a[aria-current="page"] {
+	font-weight: 600;
+	text-decoration: underline;
+}
+.brand {
+	font-weight: 700;
+	color: var(--text);
+}
+
+button,
+input,
+select,
+textarea {
+	font: inherit;
+	color: inherit;
+}
+button {
+	padding: 4px 10px;
+	border: 1px solid var(--border);
+	border-radius: 5px;
+	background: var(--surface);
+	cursor: pointer;
+}
+button:hover:not(:disabled) {
+	border-color: var(--accent);
+}
+button:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+button.primary {
+	background: var(--accent);
+	color: var(--accent-text);
+	border-color: var(--accent);
+}
+button.danger {
+	color: var(--danger);
+	border-color: var(--danger);
+	background: transparent;
+}
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}
+input,
+select,
+textarea {
+	padding: 4px 8px;
+	border: 1px solid var(--border);
+	border-radius: 5px;
+	background: var(--surface);
+	max-width: 100%;
+}
+label {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	font-size: 12px;
+	color: var(--muted);
+}
+label.inline {
+	flex-direction: row;
+	align-items: center;
+	gap: 6px;
+	font-size: 14px;
+	color: var(--text);
+}
+label input[type="radio"],
+label input[type="checkbox"] {
+	margin: 0;
+}
+textarea {
+	width: 100%;
+	resize: vertical;
+}
+
+.row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.row.wrap {
+	flex-wrap: wrap;
+	align-items: flex-end;
+}
+.row.end {
+	justify-content: flex-end;
+}
+.stack {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.card {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 12px;
+}
+.grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+	gap: 12px;
+	margin-top: 10px;
+}
+.login {
+	max-width: 340px;
+	padding-top: 12vh;
+}
+.login h1 {
+	margin-top: 0;
+}
+
+.scroll-x {
+	overflow-x: auto;
+}
+table {
+	width: 100%;
+	border-collapse: collapse;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	margin: 8px 0;
+}
+th,
+td {
+	padding: 6px 10px;
+	text-align: left;
+	border-bottom: 1px solid var(--border);
+	vertical-align: top;
+}
+th {
+	font-size: 12px;
+	color: var(--muted);
+	font-weight: 600;
+}
+td.actions {
+	white-space: nowrap;
+	text-align: right;
+}
+td.actions > * + * {
+	margin-left: 6px;
+}
+
+.badge {
+	display: inline-block;
+	padding: 0 8px;
+	border-radius: 9px;
+	font-size: 12px;
+	border: 1px solid currentColor;
+}
+.badge-active,
+.badge-ok {
+	color: var(--ok);
+}
+.badge-pending,
+.badge-busy {
+	color: var(--warn);
+}
+.badge-disabled,
+.badge-bad {
+	color: var(--danger);
+}
+
+.kv {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 2px 16px;
+	margin: 8px 0;
+}
+.kv dt {
+	color: var(--muted);
+}
+.kv dd {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+.kv-row {
+	display: contents;
+}
+details {
+	margin: 8px 0;
+}
+summary {
+	cursor: pointer;
+}
+
+pre.output {
+	margin: 0;
+	padding: 8px 10px;
+	background: var(--code-bg);
+	border: 1px solid var(--border);
+	border-radius: 5px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	max-height: 360px;
+	overflow: auto;
+}
+.omitted {
+	color: var(--muted);
+	font-style: italic;
+}
+.task-result {
+	margin-top: 12px;
+}
+
+.chips {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+.chips li {
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	padding: 0 4px 0 10px;
+}
+.chips li button {
+	border: 0;
+	background: none;
+	padding: 0 4px;
+}
+
+dialog {
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--surface);
+	color: var(--text);
+	width: min(560px, calc(100vw - 32px));
+	padding: 16px;
+}
+dialog::backdrop {
+	background: rgba(0, 0, 0, 0.45);
+}
+dialog h2 {
+	margin-top: 0;
 }

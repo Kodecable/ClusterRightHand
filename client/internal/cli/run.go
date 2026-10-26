@@ -6,12 +6,15 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/agent"
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/facts"
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
+	"github.com/Kodecable/ClusterRightHand/client/internal/janitor"
 	"github.com/Kodecable/ClusterRightHand/client/internal/proto/crhv1"
 	"github.com/Kodecable/ClusterRightHand/client/internal/transport"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
@@ -53,6 +56,17 @@ func newRunCmd() *cobra.Command {
 				PrivilegedMode: cfg.Privilege.Mode,
 				Logger:         log,
 			})
+			outputDir, err := filepath.Abs(cfg.Output.Dir)
+			if err != nil {
+				return err
+			}
+			go janitor.Run(ctx, janitor.Options{
+				Dir:      outputDir,
+				MaxAge:   cfg.Output.MaxAge,
+				MaxTotal: cfg.Output.MaxTotal,
+				InUse:    a.OutputFilesInUse,
+				Logger:   log,
+			}, time.Hour)
 			log.Info("crha starting", "server", cfg.AgentURL(), "identity", identity.Fingerprint(key.Public))
 			if err := a.Run(ctx); err != nil && ctx.Err() == nil {
 				return err

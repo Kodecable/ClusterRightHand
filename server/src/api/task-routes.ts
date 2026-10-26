@@ -3,7 +3,9 @@ import { TaskSpecSchema } from "@crh/protocol";
 import { Hono } from "hono";
 import type { Cluster, TaskView } from "../cluster/cluster.ts";
 import { nodeAccess } from "../cluster/nodes.ts";
+import { resolveTargets, type TaskGroups } from "../cluster/task-groups.ts";
 import type { Db } from "../storage/db.ts";
+import { UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 
 const MAX_WAIT_MS = 10 * 60 * 1000;
@@ -12,11 +14,11 @@ const MAX_INPUT_BYTES = 64 * 1024 * 1024;
 class BadRequest extends Error {}
 
 /** Expects requireUser to have run. Policy and approval come with the authorization rules (M2). */
-export function taskRoutes(db: Db, cluster: Cluster) {
+export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 	const app = new Hono<AppEnv>();
 
 	app.onError((err, c) => {
-		if (err instanceof BadRequest) return jsonError(c, 400, err.message);
+		if (err instanceof BadRequest || err instanceof UserError) return jsonError(c, 400, err.message);
 		throw err;
 	});
 
@@ -43,6 +45,56 @@ export function taskRoutes(db: Db, cluster: Cluster) {
 		if (wait > 0) task = (await cluster.waitTask(task.id, wait, c.req.raw.signal)) ?? task;
 		return c.json({ task }, 201);
 	});
+
+	// Batch execution: one task per target node; see doc/agent-runtime.md#批量执行.
+	app.post("/task-groups", async (c) => {
+		const user = c.get("user");
+		const body = await readJsonObject(c);
+		if (!body) return jsonError(c, 400, "expected a JSON object");
+		if (body.privileged === true) return jsonError(c, 400, "privileged tasks are not supported yet");
+		const targets = body.targets;
+		if (!Array.isArray(targets) || !targets.every((t) => typeof t === "string")) {
+			throw new BadRequest("targets must be an array of node names and group:<name>");
+		}
+		const nodeIds = await resolveTargets(db, user, targets);
+		const { spec, input } = parseTask(body);
+		const id = await groups.create({
+			targets,
+			nodeIds,
+			spec: create(TaskSpecSchema, spec),
+			input,
+			timeoutMs: optionalInt(body, "timeoutMs"),
+			parallel: optionalInt(body, "parallel"),
+			failFast: body.failFast === true,
+			actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
+		});
+		const wait = Math.min(optionalInt(body, "waitMs") ?? 0, MAX_WAIT_MS);
+		return c.json({ group: await groups.wait(id, wait) }, 201);
+	});
+
+	app.get("/task-groups/:id", async (c) => {
+		const group = await visibleGroup(c.get("user"), c.req.param("id"));
+		return group ? c.json({ group }) : jsonError(c, 404, "no such task group");
+	});
+
+	app.get("/task-groups/:id/wait", async (c) => {
+		const group = await visibleGroup(c.get("user"), c.req.param("id"));
+		if (!group) return jsonError(c, 404, "no such task group");
+		const timeout = Math.min(Number(c.req.query("timeoutMs") ?? 30_000) || 0, MAX_WAIT_MS);
+		return c.json({ group: await groups.wait(group.id, timeout) });
+	});
+
+	/** A group is visible to its creator and to administrators. */
+	const visibleGroup = async (user: AppEnv["Variables"]["user"], id: string) => {
+		const group = await groups.get(id);
+		if (!group) return undefined;
+		const row = await db
+			.selectFrom("task_groups")
+			.select("on_behalf_of_user_id")
+			.where("id", "=", id)
+			.executeTakeFirst();
+		return user.kind === "admin" || row?.on_behalf_of_user_id === user.userId ? group : undefined;
+	};
 
 	app.get("/nodes/:id/tasks", async (c) => {
 		const nodeId = c.req.param("id");

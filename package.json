@@ -11,6 +11,7 @@
 		"check:go": "cd client && test -z \"$(gofmt -l .)\" && go vet ./...",
 		"format": "biome check --write . && gofmt -w client",
 		"test": "pnpm -r run test && pnpm test:go",
+		"test:e2e": "pnpm --filter @crh/server test:e2e",
 		"test:go": "cd client && go test ./...",
 		"gen:proto": "buf lint && buf generate"
 	},

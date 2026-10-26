@@ -1,0 +1,87 @@
+import type { TaskView } from "../api.ts";
+import { formatTime, isTerminal, joinOutput } from "../lib.ts";
+import { Badge } from "./Feedback.tsx";
+
+export function OutputBlock({
+	label,
+	head,
+	tail,
+	bytes,
+}: {
+	label: string;
+	head: string;
+	tail: string;
+	bytes: number;
+}) {
+	if (bytes === 0 && !head && !tail) return null;
+	const { before, after, omitted } = joinOutput(head, tail, bytes);
+	return (
+		<section>
+			<h4>
+				{label} <span className="muted">({bytes} bytes)</span>
+			</h4>
+			<pre className="output">
+				{before}
+				{omitted > 0 && <span className="omitted">{`\n… ${omitted} bytes omitted …\n`}</span>}
+				{after}
+			</pre>
+		</section>
+	);
+}
+
+export function stateKind(state: string): string {
+	if (state === "exited") return "ok";
+	if (isTerminal(state)) return "bad";
+	return "busy";
+}
+
+export function TaskResult({ task }: { task: TaskView }) {
+	return (
+		<div className="task-result">
+			<dl className="kv">
+				<dt>Task</dt>
+				<dd className="mono">{task.id}</dd>
+				<dt>Kind</dt>
+				<dd>{task.kind}</dd>
+				<dt>State</dt>
+				<dd>
+					<Badge kind={stateKind(task.state)}>{task.state}</Badge>
+					{task.timedOut && " timed out"}
+					{task.cancelled && " cancelled"}
+				</dd>
+				{task.exitCode !== null && (
+					<>
+						<dt>Exit code</dt>
+						<dd>{task.exitCode}</dd>
+					</>
+				)}
+				{task.signal && (
+					<>
+						<dt>Signal</dt>
+						<dd>{task.signal}</dd>
+					</>
+				)}
+				{(task.errorCode || task.errorMessage) && (
+					<>
+						<dt>Error</dt>
+						<dd className="error">
+							{task.errorCode} {task.errorMessage}
+						</dd>
+					</>
+				)}
+				<dt>Created</dt>
+				<dd>{formatTime(task.createdAt)}</dd>
+				<dt>Finished</dt>
+				<dd>{formatTime(task.finishedAt)}</dd>
+				{task.outputFile && (
+					<>
+						<dt>Output file</dt>
+						<dd className="mono">{task.outputFile}</dd>
+					</>
+				)}
+			</dl>
+			<OutputBlock label="stdout" head={task.stdoutHead} tail={task.stdoutTail} bytes={task.stdoutBytes} />
+			<OutputBlock label="stderr" head={task.stderrHead} tail={task.stderrTail} bytes={task.stderrBytes} />
+		</div>
+	);
+}

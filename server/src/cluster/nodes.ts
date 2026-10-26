@@ -5,6 +5,7 @@ import type { NodesTable, SharesTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { newId } from "../util/id.ts";
 import { uniqueNodeName } from "./enrollment.ts";
+import { keyFingerprint } from "./identity.ts";
 
 export type NodeRow = Selectable<NodesTable>;
 export type NodeAccess = "admin" | "owner" | "operate" | "view";
@@ -26,6 +27,8 @@ export interface PublicNode {
 	groups: string[];
 	access: NodeAccess;
 	facts: unknown;
+	/** base64url(SHA-256(public key)), as printed by `crha enroll` and `crha status`. */
+	keyFingerprint: string | null;
 }
 
 export interface NodeShare {
@@ -115,6 +118,7 @@ export function toPublicNode(row: NodeRow, access: NodeAccess, groups: string[])
 		groups,
 		access,
 		facts,
+		keyFingerprint: row.public_key ? keyFingerprint(Buffer.from(row.public_key, "base64")) : null,
 	};
 }
 

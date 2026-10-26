@@ -9,6 +9,7 @@ import { readSecret } from "./cli/prompt.ts";
 import { AgentServer } from "./cluster/agent-server.ts";
 import { Cluster } from "./cluster/cluster.ts";
 import { loadServerIdentity } from "./cluster/identity.ts";
+import { TaskGroups } from "./cluster/task-groups.ts";
 import { type Config, DEFAULT_CONFIG_PATH, loadConfig } from "./config.ts";
 import { buildKeyExport, decryptKeyExport, encryptKeyExport, verifyKeyExportAgainstDb } from "./keys/export.ts";
 import { bindMasterKey, KeyError, MasterKey, readMasterKeyFile, writeMasterKeyFile } from "./keys/master-key.ts";
@@ -148,11 +149,14 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	const identity = await loadServerIdentity(db, masterKey);
 	const cluster = new Cluster(db);
 	const agents = new AgentServer(db, identity, cluster);
+	const taskGroups = new TaskGroups(db, cluster);
+	await taskGroups.recover();
 	const app = createApp(db, {
 		clientAddress: (c) => getConnInfo(c).remote.address,
 		serverFingerprint: identity.fingerprint,
 		serverPublicKey: identity.keyPair.publicKey,
 		cluster,
+		taskGroups,
 	});
 	const server = serve({ fetch: app.fetch, hostname: config.listen.host, port: config.listen.port }, (info) => {
 		console.log(`crhs listening on http://${info.address}:${info.port} (identity ${identity.fingerprint})`);

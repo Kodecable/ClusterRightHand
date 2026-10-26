@@ -154,6 +154,23 @@ export interface TasksTable {
 	late_result: string | null;
 }
 
+export interface TaskGroupsTable {
+	id: string;
+	org_id: string;
+	targets: string;
+	node_ids: string;
+	kind: string;
+	parallel: number;
+	fail_fast: number;
+	skipped: string;
+	state: "running" | "finished" | "interrupted";
+	actor_type: string;
+	actor_id: string;
+	on_behalf_of_user_id: string;
+	created_at: CreatedAt;
+	finished_at: string | null;
+}
+
 export interface Database {
 	orgs: OrgsTable;
 	users: UsersTable;
@@ -167,4 +184,5 @@ export interface Database {
 	node_groups: NodeGroupsTable;
 	enrollment_tokens: EnrollmentTokensTable;
 	tasks: TasksTable;
+	task_groups: TaskGroupsTable;
 }

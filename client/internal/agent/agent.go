@@ -495,3 +495,17 @@ func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
 	a.mu.Unlock()
 	a.wake()
 }
+
+// OutputFilesInUse lists the spill files of tasks still held (running, or exit not yet acknowledged),
+// which the output janitor must keep.
+func (a *Agent) OutputFilesInUse() map[string]bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	inUse := map[string]bool{}
+	for _, t := range a.tasks {
+		if p := t.output.Path(); p != "" {
+			inUse[p] = true
+		}
+	}
+	return inUse
+}

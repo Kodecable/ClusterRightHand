@@ -66,6 +66,11 @@ export interface ClusterOptions {
 	reconnectGraceMs?: number;
 	/** TaskInput chunk size; one envelope must stay under 60 KiB. */
 	inputChunkBytes?: number;
+	/**
+	 * A connection with no message for this long is closed. crha pings every 30 s; this catches hung
+	 * clients and half-open links that never deliver a close.
+	 */
+	idleTimeoutMs?: number;
 }
 
 const TERMINAL: ReadonlySet<TaskRowState> = new Set(["exited", "failed", "rejected", "unknown"]);
@@ -103,6 +108,7 @@ export class Cluster {
 	readonly #db: Db;
 	readonly #graceMs: number;
 	readonly #chunk: number;
+	readonly #idleMs: number;
 	readonly #links = new Map<string, NodeLink>();
 	readonly #live = new Map<string, LiveTask>();
 	readonly #graceTimers = new Map<string, NodeJS.Timeout>();
@@ -114,6 +120,7 @@ export class Cluster {
 		this.#db = db;
 		this.#graceMs = options.reconnectGraceMs ?? 120_000;
 		this.#chunk = options.inputChunkBytes ?? 48 * 1024;
+		this.#idleMs = options.idleTimeoutMs ?? 90_000;
 	}
 
 	isConnected(nodeId: string): boolean {
@@ -130,12 +137,17 @@ export class Cluster {
 		if (timer) clearTimeout(timer);
 		this.#graceTimers.delete(node.id);
 
+		const idle = setTimeout(() => conn.close("idle timeout"), this.#idleMs);
 		conn.onEnvelope((env) => {
+			idle.refresh();
 			this.#handle(link, env).catch((err: unknown) => {
 				conn.close(`internal error: ${(err as Error).message}`);
 			});
 		});
-		conn.onClose(() => this.#detach(link));
+		conn.onClose(() => {
+			clearTimeout(idle);
+			this.#detach(link);
+		});
 		void markNodeSeen(this.#db, node.id);
 		void init;
 	}

@@ -59,6 +59,10 @@ created ──▶ awaiting_approval ──▶ dispatched ──▶ running ─�
 
 向 agent 报告的内容是："失败，状态未知，原因是 xxx"。是否重试、重试前要不要先检查机器状态，由 agent 或使用者决定。
 
+### 节点不在线
+
+创建任务时节点没有连接，任务直接以 `failed(node_offline)` 结束，不排队等待节点上线：任务从未下发，不属于 `unknown`。
+
 ### 不重复执行
 
 - 同一个任务 id 的 `start` **最多下发一次**。
@@ -70,8 +74,8 @@ created ──▶ awaiting_approval ──▶ dispatched ──▶ running ─�
 ## 输出
 
 - 输出按流（stdout/stderr）分开，每个分片带字节偏移 `offset`，实时推送给 crhs。
-- **crhs 只保存截断后的输出**：头部和尾部各一段（各 2000 行或 50KB，先到为准），不保存完整输出，也没有输出保留策略。
-- **过长的输出由 crha 在节点上保存为普通文件**：输出超过 2000 行或 50KB（与交给模型的截断阈值相同，因此只要模型看到的输出被截断，就一定有完整输出文件；阈值随 `TaskStart` 下发）时，crha 非特权模式把完整输出写入 `[output].dir`（默认 `/var/lib/crha/output/<task_id>.log`，stdout 和 stderr 按时间顺序交错，每段带流标记），`TaskExit` 中带上文件路径和总字节数。文件权限 0600，属主为非特权模式的运行用户（输出可能包含敏感内容）。agent 需要完整输出时，用普通的 `read_file` 读取。
+- **crhs 只保存截断后的输出**：stdout 和 stderr 各自的头部和尾部（各 2000 行或 50KB，先到为准），不保存完整输出，也没有输出保留策略。
+- **过长的输出由 crha 在节点上保存为普通文件**：输出超过 2000 行或 50KB（与交给模型的截断阈值相同，因此只要模型看到的输出被截断，就一定有完整输出文件；阈值随 `TaskStart` 下发）时，crha 非特权模式把完整输出写入 `[output].dir`（默认 `/var/lib/crha/output/<task_id>.log`，stdout 和 stderr 按到达顺序交错写入，与终端里 `2>&1` 看到的一致；crha 在内存中保留分段索引，用于按流续传），`TaskExit` 中带上文件路径和总字节数。文件权限 0600，属主为非特权模式的运行用户（输出可能包含敏感内容）。agent 需要完整输出时，用普通的 `read_file` 读取。
   - 特权任务的输出本来就经由非特权模式转发，所以同样由非特权模式保存，不会因此多暴露什么。
   - 这些文件的清理由 crha 负责，按 `crha.toml` 中 `[output]` 的 `max_age` 和 `max_total` 配置（默认 7 天、1GB）。
 - **断线续传**：任务运行期间，以及结束后到 crhs 确认（`OutputAck`）之前，crha 保留未确认的输出：输出较短时在内存中，已经写入文件的直接从文件中补发。所以不会因为缓冲溢出而丢失输出。
@@ -116,7 +120,9 @@ created ──▶ awaiting_approval ──▶ dispatched ──▶ running ─�
 - 网络中断时客户端进程还在，任务继续运行，输出继续缓冲。
 - 客户端以指数退避重连，在 `Hello` 中带上运行中的任务列表；服务端回复各任务的确认偏移，客户端从该偏移补发输出。
 - 服务端发现有未终结的任务不在客户端的列表中，就发 `TaskQuery` 确认；客户端回复 `unknown_task` 后，任务标记为 `unknown(executor_restarted)`。
-- 断线超过一定时间（可配置），服务端先把这些任务对上层报告为 `unknown(connection_lost)`；如果之后客户端重连并报告了结果，再以"迟到结果"补记到审计和任务记录中，但不会改变已经返回给 agent 的结论。
+- crhs 重启后内存中的输出已经丢失，Welcome 中的确认偏移为 0，crha 从头补发（crha 在收到 `TaskExitAck` 之前一直保留输出），所以 crhs 重启也不会丢输出。
+- 大的输入（exec 的 stdin、文件内容）在 `TaskStart` 之后以 `TaskInput` 分块发送，`TaskStart` 中只带大小和 SHA-256；输入发送途中断线无法续传（`TaskStart` 只发一次），crha 发现输入不完整，任务失败。
+- 断线超过一定时间（默认 2 分钟），服务端先把这些任务对上层报告为 `unknown(connection_lost)`（尚未确认接受的为 `unknown(dispatch_unconfirmed)`）；如果之后客户端重连并报告了结果，再以"迟到结果"补记到审计和任务记录中，但不会改变已经返回给 agent 的结论。
 
 ## 通信安全
 

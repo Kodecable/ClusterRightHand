@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { sql } from "kysely";
 import type { Cluster } from "../cluster/cluster.ts";
+import { TaskGroups } from "../cluster/task-groups.ts";
 import type { Db } from "../storage/db.ts";
 import { type AuthRoutesOptions, authRoutes } from "./auth-routes.ts";
 import type { AppEnv } from "./context.ts";
@@ -15,6 +16,7 @@ export interface AppOptions extends AuthRoutesOptions {
 	/** crhs's Noise static public key, served to `crha enroll`. */
 	serverPublicKey?: Uint8Array;
 	cluster?: Cluster;
+	taskGroups?: TaskGroups;
 }
 
 export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
@@ -41,7 +43,9 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	app.use("/api/*", requireUser(db));
 	app.route("/api", userRoutes(db));
 	app.route("/api", nodeRoutes(db, options));
-	if (options.cluster) app.route("/api", taskRoutes(db, options.cluster));
+	if (options.cluster) {
+		app.route("/api", taskRoutes(db, options.cluster, options.taskGroups ?? new TaskGroups(db, options.cluster)));
+	}
 
 	return app;
 }
