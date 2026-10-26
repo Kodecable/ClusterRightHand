@@ -6,6 +6,7 @@ import { Modal } from "../components/Modal.tsx";
 import { useAction, useLoad } from "../hooks.ts";
 import { formatTime, osName } from "../lib.ts";
 import { AddNodeDialog } from "./AddNodeDialog.tsx";
+import { AddSshNodeDialog } from "./AddSshNodeDialog.tsx";
 
 type Pending = { node: PublicNode; action: "approve" | "reject" };
 
@@ -56,6 +57,7 @@ export function Nodes() {
 	const user = useUser();
 	const { data, error, loading, reload } = useLoad(() => api.listNodes(), []);
 	const [adding, setAdding] = useState(false);
+	const [addingSsh, setAddingSsh] = useState(false);
 	const [pending, setPending] = useState<Pending>();
 	const canDecide = (n: PublicNode) => n.status === "pending" && (n.access === "owner" || user.kind === "admin");
 	return (
@@ -65,6 +67,9 @@ export function Nodes() {
 				<span className="spacer" />
 				<button type="button" onClick={reload}>
 					Refresh
+				</button>
+				<button type="button" onClick={() => setAddingSsh(true)}>
+					Add SSH node
 				</button>
 				<button type="button" className="primary" onClick={() => setAdding(true)}>
 					Add node
@@ -91,6 +96,12 @@ export function Nodes() {
 								<tr key={n.id}>
 									<td>
 										<a href={`#/nodes/${n.id}`}>{n.name}</a>
+										{n.transport === "ssh" && (
+											<>
+												{" "}
+												<Badge kind="ssh">SSH</Badge>
+											</>
+										)}
 									</td>
 									<td>
 										<Badge kind={n.status}>{n.status}</Badge>
@@ -137,6 +148,14 @@ export function Nodes() {
 				<AddNodeDialog
 					onClose={() => {
 						setAdding(false);
+						reload();
+					}}
+				/>
+			)}
+			{addingSsh && (
+				<AddSshNodeDialog
+					onClose={() => {
+						setAddingSsh(false);
 						reload();
 					}}
 				/>

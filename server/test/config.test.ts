@@ -7,6 +7,7 @@ describe("parseConfig", () => {
 			listen: { host: "127.0.0.1", port: 8080 },
 			database: { driver: "sqlite", path: "/var/lib/crhs/crhs.db" },
 			masterKeyFile: "/etc/crhs/master.key",
+			webRoot: expect.stringMatching(/web\/dist$/),
 		});
 	});
 

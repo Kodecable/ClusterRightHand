@@ -43,6 +43,12 @@ export function TaskResult({ task }: { task: TaskView }) {
 				<dd className="mono">{task.id}</dd>
 				<dt>Kind</dt>
 				<dd>{task.kind}</dd>
+				{task.summary && (
+					<>
+						<dt>Summary</dt>
+						<dd className="mono">{task.summary}</dd>
+					</>
+				)}
 				<dt>State</dt>
 				<dd>
 					<Badge kind={stateKind(task.state)}>{task.state}</Badge>

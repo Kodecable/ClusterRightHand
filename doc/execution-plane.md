@@ -209,7 +209,10 @@ created ──▶ awaiting_approval ──▶ dispatched ──▶ running ─�
 
 ## crha 的重载与升级
 
-- **reload**：`crha reload`（或者给进程发 SIGHUP）让两种模式重新读取配置。特权模式重载信任配置后，向 crhs 推送新的 `TrustSummary`。新配置校验失败时继续使用旧配置，并向 crhs 报告错误。涉及连接的配置（服务端地址、身份密钥）变化时，非特权模式重新连接。
+- **reload**：`crha reload`（或者给进程发 SIGHUP）让两种模式重新读取配置。特权模式重载信任配置后，向 crhs 推送新的 `TrustSummary`。
+  - `crha reload` 先校验配置文件，有错误就直接报告给执行者，不发信号；`crha run` 写 `<state_dir>/crha.pid` 供它查找。
+  - 运行中的进程收到 SIGHUP 但新配置无效时，继续使用旧配置并记录错误。
+  - 组、笔记路径变化：重新上报 `Facts`；服务端地址、`tls_verify` 变化：重新连接；`state_dir`、`[output]`、`[privileged]` 的变化要重启才生效（会记录警告）。
 - **修改配置**：就是普通的特权任务：`file.write` 写配置文件，再执行 `crha reload`。
 - **升级**：同样是普通的特权任务：
   1. `file.write` 写入新的二进制（或者 `exec` 调用包管理器安装）；
@@ -222,7 +225,7 @@ SSH 节点不安装任何东西，服务端通过 SshTransport 执行，对上�
 
 | 能力 | 自有客户端 | SSH |
 |---|---|---|
-| exec / 文件操作 | ✅ | ✅（exec 走 exec channel；文件操作优先用 SFTP，没有 SFTP 时退回到 exec；`file.edit` 由 crhs 读取、替换后写临时文件再 rename，读写之间隔着网络，竞态窗口比自有客户端大，接受） |
+| exec / 文件操作 | ✅ | ✅（exec 走 exec channel；文件操作走 SFTP，语义、JSON 输出和错误码与 crha 一致，差异见下文） |
 | 断线续传 | ✅ | ❌ 连接一断，任务即为 `unknown(connection_lost)` |
 | 反向连接 | ✅ | ❌ 服务端必须能访问节点的 SSH 端口 |
 | 特权任务 | 四种处理方式（见 privilege.md） | 只支持 `native`（`sudo -n` / `doas -n` / `run0`，非交互）、`ignore`（SSH 用户本身就是目标身份时）、`reject` |
@@ -233,13 +236,26 @@ SSH 节点不安装任何东西，服务端通过 SshTransport 执行，对上�
 SSH 节点可以配置一个或多个跳板（等价于 OpenSSH 的 `ProxyJump`）：
 
 - 每一跳单独配置主机、端口、用户、凭证，并**分别固定主机密钥**；
-- 跳板可以引用另一个已登记的 SSH 节点，也可以是只用于跳转的独立配置；
+- v1 中所有跳使用同一个凭证；
 - 实现上用 `ssh2` 在上一跳上 `forwardOut` 出到下一跳的 TCP 通道，逐级建立连接；
 - 任何一跳断开，都等同于连接中断，任务为 `unknown(connection_lost)`。
 
-实现要点：
+### 添加 SSH 节点
 
-- 主机密钥固定：首次连接时展示指纹，由添加节点的用户确认后存储；之后严格校验。
-- 凭证：私钥加密存储在数据库中，或者使用服务端进程可访问的 ssh-agent。
-- 取消与超时：命令外层包一层 wrapper，先输出进程组 id，再 `exec` 真正的命令；需要取消时另开 channel 执行 `kill -TERM -<pgid>`。
-- 每个节点复用一条 SSH 连接，在上面开多个 channel。
+1. **凭证**：crhs 生成 ed25519 密钥对，私钥用主密钥加密存入 `secrets`，只把公钥交给用户，由用户加到每一跳目标用户的 `authorized_keys`。凭证属于创建者，管理员可以使用任何凭证。
+2. **探测主机密钥**：`POST /api/ssh-nodes/probe` 每次返回第一个尚未固定的跳的主机密钥指纹（`SHA256:…`，与 `ssh-keygen -lf` 一致），只握手、不认证；用户在那台主机上核对后固定，再探测下一跳。
+3. **创建**：每一跳都已固定主机密钥才能创建。SSH 节点没有 crha，它的组在 crhs 中直接维护。
+
+### 执行
+
+- **进程组**：sshd 启动命令时已经为它新建会话，命令所在 shell 的 pid 就是进程组 id。远端命令是 `cd <cwd> || exit 127; exec [env -- K=V…] /bin/sh -c '<wrapper>' crh <argv…>`，wrapper 先在 stderr 第一行输出 `$$`（crhs 解析后剥掉），再 `exec` 真正的命令。不用 `setsid(1)`：调用者已经是进程组组长时它会 fork，退出码就丢了。
+- **取消与超时**：另开 exec channel 执行 `kill -TERM -- -<pgid>`，宽限期后 `kill -KILL`；与 crha 相同，结果报告为 signal。
+- **退出状态**：短命令的输出和退出状态可能与 channel 打开确认在同一个包里到达，监听器必须在 channel 打开的回调中同步挂上。
+- **连接**：每个节点复用一条连接（keepalive 10 秒、3 次），任何一跳断开都关闭整条连接。池中的连接已失效而任务尚未开始时，换新连接重试一次。
+- **结果**：连接失败（远端还没开始执行）为 `failed(connect_failed | host_key_mismatch)`；远端开始执行后连接断开为 `unknown(connection_lost)`。输出只有 crhs 保存的头尾，没有输出文件。
+
+### SFTP 文件操作与 crha 的差异
+
+- 不支持按名称设置属主（`owner`/`group` 非空时为 `invalid_spec`）；`stat` 只返回数字 uid/gid。
+- 非覆盖写入是"先检查再 rename"，不像 `RENAME_NOREPLACE` 那样原子；覆盖写入使用 `posix-rename@openssh.com`，服务端不支持时退化为 unlink + rename。
+- 不做 fsync；mtime 只有秒级精度。

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { parse } from "smol-toml";
 
 export type DatabaseConfig = { driver: "sqlite"; path: string } | { driver: "postgres"; url: string };
@@ -7,6 +8,8 @@ export interface Config {
 	listen: { host: string; port: number };
 	database: DatabaseConfig;
 	masterKeyFile: string;
+	/** Built WebUI (web/dist); served at /. */
+	webRoot: string;
 }
 
 export const DEFAULT_CONFIG_PATH = "/etc/crhs/crhs.toml";
@@ -17,7 +20,7 @@ export async function loadConfig(path: string): Promise<Config> {
 
 export function parseConfig(text: string): Config {
 	const raw = parse(text);
-	rejectUnknown(raw, "", ["listen", "database", "master_key_file"]);
+	rejectUnknown(raw, "", ["listen", "database", "master_key_file", "web_root"]);
 	const listen = table(raw, "listen");
 	const database = table(raw, "database");
 	rejectUnknown(listen, "listen.", ["host", "port"]);
@@ -42,6 +45,7 @@ export function parseConfig(text: string): Config {
 		listen: { host: str(listen, "host", "listen.host", "127.0.0.1"), port },
 		database: db,
 		masterKeyFile: str(raw, "master_key_file", "master_key_file", "/etc/crhs/master.key"),
+		webRoot: str(raw, "web_root", "web_root", fileURLToPath(new URL("../../web/dist", import.meta.url))),
 	};
 }
 

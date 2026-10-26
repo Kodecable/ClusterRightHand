@@ -159,6 +159,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		cluster,
 		taskGroups,
 		masterKey,
+		webRoot: config.webRoot,
 	});
 	const server = serve({ fetch: app.fetch, hostname: config.listen.host, port: config.listen.port }, (info) => {
 		console.log(`crhs listening on http://${info.address}:${info.port} (identity ${identity.fingerprint})`);

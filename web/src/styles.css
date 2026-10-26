@@ -261,6 +261,9 @@ td.actions > * + * {
 .badge-ok {
 	color: var(--ok);
 }
+.badge-ssh {
+	color: var(--accent);
+}
 .badge-pending,
 .badge-busy {
 	color: var(--warn);
@@ -344,4 +347,41 @@ dialog::backdrop {
 }
 dialog h2 {
 	margin-top: 0;
+}
+
+.top {
+	flex-wrap: wrap;
+}
+.pick {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+	gap: 4px 12px;
+}
+.hop {
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	padding: 8px;
+}
+.fingerprint {
+	font-size: 15px;
+	font-weight: 600;
+}
+.steps {
+	display: flex;
+	gap: 12px;
+	margin: 0 0 8px;
+	padding: 0;
+	list-style: none;
+	color: var(--muted);
+}
+.steps li[aria-current="step"] {
+	color: var(--text);
+	font-weight: 600;
+}
+fieldset {
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
 }

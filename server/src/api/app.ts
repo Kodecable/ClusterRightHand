@@ -1,3 +1,4 @@
+import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { sql } from "kysely";
 import type { Cluster } from "../cluster/cluster.ts";
@@ -21,6 +22,8 @@ export interface AppOptions extends AuthRoutesOptions {
 	taskGroups?: TaskGroups;
 	/** Needed for SSH credentials and nodes. */
 	masterKey?: MasterKey;
+	/** Directory of the built WebUI; served for every path outside /api and /agent. */
+	webRoot?: string;
 }
 
 export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
@@ -50,6 +53,16 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	if (options.masterKey) app.route("/api", sshRoutes(db, options.masterKey));
 	if (options.cluster) {
 		app.route("/api", taskRoutes(db, options.cluster, options.taskGroups ?? new TaskGroups(db, options.cluster)));
+	}
+
+	if (options.webRoot) {
+		const root = options.webRoot;
+		const isApi = (path: string) => path.startsWith("/api/") || path.startsWith("/agent");
+		app.use("/*", async (c, next) => (isApi(c.req.path) ? next() : serveStatic({ root })(c, next)));
+		// Client-side routes: anything else gets the app shell.
+		app.get("*", async (c, next) =>
+			isApi(c.req.path) ? c.json({ error: "not found" }, 404) : serveStatic({ root, path: "index.html" })(c, next),
+		);
 	}
 
 	return app;

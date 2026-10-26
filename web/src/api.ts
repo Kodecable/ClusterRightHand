@@ -28,7 +28,7 @@ export type NodeAccess = "owner" | "admin" | "operate" | "view";
 export interface PublicNode {
 	id: string;
 	name: string;
-	transport: string;
+	transport: "client" | "ssh";
 	status: "pending" | "active" | "disabled";
 	hostname: string | null;
 	ownerUserId: string;
@@ -49,6 +49,7 @@ export interface NodeShare {
 	nodeId: string;
 	granteeType: GranteeType;
 	granteeId: string;
+	granteeName: string;
 	access: ShareAccess;
 	createdByUserId: string;
 	createdAt: string;
@@ -58,6 +59,10 @@ export interface TaskView {
 	id: string;
 	nodeId: string;
 	kind: string;
+	summary: string;
+	actorType: string;
+	actorId: string;
+	onBehalfOfUserId: string | null;
 	state: TaskState;
 	exitCode: number | null;
 	signal: string | null;
@@ -72,6 +77,37 @@ export interface TaskView {
 	stderrHead: string;
 	stderrTail: string;
 	outputFile: string | null;
+	createdAt: string;
+	finishedAt: string | null;
+}
+export interface Directory {
+	users: { id: string; username: string; displayName: string }[];
+	userGroups: { id: string; name: string }[];
+}
+export interface SshCredential {
+	id: string;
+	name: string;
+	publicKey: string;
+}
+export interface SshHopInput {
+	host: string;
+	port?: number;
+	user: string;
+	hostKey?: string;
+}
+export interface SshTargetBody extends SshHopInput {
+	credentialId: string;
+	jumps?: SshHopInput[];
+}
+export interface TaskGroupView {
+	id: string;
+	state: "running" | "finished" | "interrupted";
+	targets: string[];
+	nodeIds: string[];
+	parallel: number;
+	failFast: boolean;
+	skipped: string[];
+	tasks: TaskView[];
 	createdAt: string;
 	finishedAt: string | null;
 }
@@ -130,6 +166,29 @@ export const api = {
 			(r) => r.task,
 		),
 	cancelTask: (id: string) => request<{ cancelled: boolean }>("POST", `/tasks/${enc(id)}/cancel`),
+
+	changePassword: (currentPassword: string, newPassword: string) =>
+		request<{ ok: true }>("POST", "/auth/password", { currentPassword, newPassword }),
+	directory: () => request<Directory>("GET", "/directory"),
+
+	createTaskGroup: (body: TaskRequest & { targets: string[]; parallel?: number; failFast?: boolean }) =>
+		request<{ group: TaskGroupView }>("POST", "/task-groups", body).then((r) => r.group),
+	waitTaskGroup: (id: string, timeoutMs: number, signal?: AbortSignal) =>
+		request<{ group: TaskGroupView }>(
+			"GET",
+			`/task-groups/${enc(id)}/wait?timeoutMs=${timeoutMs}`,
+			undefined,
+			signal,
+		).then((r) => r.group),
+
+	listSshCredentials: () =>
+		request<{ credentials: SshCredential[] }>("GET", "/ssh-credentials").then((r) => r.credentials),
+	createSshCredential: (name: string) =>
+		request<{ credential: SshCredential }>("POST", "/ssh-credentials", { name }).then((r) => r.credential),
+	probeSshHost: (body: SshTargetBody) =>
+		request<{ hop: number; fingerprint: string }>("POST", "/ssh-nodes/probe", body),
+	createSshNode: (body: SshTargetBody & { name: string; groups: string[] }) =>
+		request<{ node: PublicNode }>("POST", "/ssh-nodes", body).then((r) => r.node),
 
 	listUsers: () => request<{ users: User[] }>("GET", "/users").then((r) => r.users),
 	createUser: (u: { username: string; displayName?: string; kind: UserKind; password?: string }) =>

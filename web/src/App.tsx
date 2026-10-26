@@ -3,6 +3,7 @@ import { api, setUnauthorizedHandler, type User } from "./api.ts";
 import { UserProvider } from "./auth.tsx";
 import { Header } from "./components/Header.tsx";
 import { appTitle } from "./meta.ts";
+import { Batch } from "./pages/Batch.tsx";
 import { Login } from "./pages/Login.tsx";
 import { NodeDetail } from "./pages/NodeDetail.tsx";
 import { Nodes } from "./pages/Nodes.tsx";
@@ -41,6 +42,7 @@ export function App() {
 	let page = <Nodes />;
 	if (section === "nodes" && id) page = <NodeDetail key={id} id={id} />;
 	else if (section === "tasks" && id) page = <TaskPage key={id} id={id} />;
+	else if (section === "batch") page = <Batch />;
 	else if (section === "users")
 		page = auth.user.kind === "admin" ? <Users /> : <p className="error">Administrators only.</p>;
 

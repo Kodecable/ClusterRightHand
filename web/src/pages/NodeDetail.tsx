@@ -2,6 +2,7 @@ import { api } from "../api.ts";
 import { Badge, Loading } from "../components/Feedback.tsx";
 import { useLoad } from "../hooks.ts";
 import { formatTime, osName } from "../lib.ts";
+import { RenameNode } from "./RenameNode.tsx";
 import { RunPanel } from "./RunPanel.tsx";
 import { Shares } from "./Shares.tsx";
 import { TaskList } from "./TaskList.tsx";
@@ -27,20 +28,34 @@ export function NodeDetail({ id }: { id: string }) {
 					<div className="row">
 						<h1>{n.name}</h1>
 						<Badge kind={n.status}>{n.status}</Badge>
+						{n.transport === "ssh" && <Badge kind="ssh">SSH</Badge>}
+						{(n.access === "owner" || n.access === "admin") && <RenameNode node={n} onDone={node.reload} />}
 					</div>
 					<dl className="kv">
+						<dt>Transport</dt>
+						<dd>{n.transport === "ssh" ? "SSH" : "crha client"}</dd>
 						<dt>Hostname</dt>
 						<dd>{n.hostname ?? "-"}</dd>
-						<dt>OS</dt>
-						<dd>{osName(n.facts)}</dd>
+						{n.facts && (
+							<>
+								<dt>OS</dt>
+								<dd>{osName(n.facts)}</dd>
+							</>
+						)}
 						<dt>Access</dt>
 						<dd>{n.access}</dd>
 						<dt>Groups</dt>
 						<dd>{n.groups.join(", ") || "-"}</dd>
-						<dt>Client</dt>
-						<dd>{n.clientVersion ?? "-"}</dd>
-						<dt>Last seen</dt>
-						<dd>{formatTime(n.lastSeenAt)}</dd>
+						{n.transport === "client" && (
+							<>
+								<dt>Client</dt>
+								<dd>{n.clientVersion ?? "-"}</dd>
+								<dt>Last seen</dt>
+								<dd>{formatTime(n.lastSeenAt)}</dd>
+								<dt>Key fingerprint</dt>
+								<dd className="mono">{n.keyFingerprint ?? "-"}</dd>
+							</>
+						)}
 						<dt>Node id</dt>
 						<dd className="mono">{n.id}</dd>
 					</dl>

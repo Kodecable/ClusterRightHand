@@ -35,13 +35,14 @@ shares            (id, org_id, resource_type[node|session], resource_id,
 ```
 nodes             (id, org_id, owner_user_id, name, transport[client|ssh], status[pending|active|disabled],  -- 在线与否由连接推出，不存表
                    public_key,                 -- client 节点
-                   ssh_host, ssh_port, ssh_user, ssh_host_key, ssh_credential_id,   -- ssh 节点
+                   ssh_host, ssh_port, ssh_user, ssh_host_key, ssh_credential_id,   -- ssh 节点；ssh_host_key 为 SHA256 指纹
                    ssh_jumps json,                                                   -- 跳板列表，每一跳带自己的主机密钥和凭证
                    privileged_mode[forward|native|ignore|reject], run_identities json,          -- 两种模式各自的运行身份
                    trust_summary json, trust_digest,                                   -- 特权模式上报
                    notes_path,                                                         -- 节点笔记路径（Facts 上报，SSH 节点手动配置）
                    facts json, client_version, last_seen_at, created_at)
 node_groups       (node_id, group_name, refreshed_at)  -- crha 节点：crha 上报的缓存；SSH 节点：在 crhs 中维护
+ssh_credentials   (id, org_id, owner_user_id, name, public_key, secret_id, created_at)  -- 私钥在 secrets 中
 enrollment_tokens (id, org_id, created_by_user_id, token_hash, name_hint, expires_at, used_at, used_by_node_id)
                   -- 节点归令牌创建者所有；注册后先处于 pending 状态，由所有者或管理员确认后才变为可用
 server_meta       (key, value)                                        -- 例如 master_key_id：防止配错主密钥文件
@@ -52,16 +53,22 @@ secrets           (id, org_id, kind, ciphertext, created_at)          -- 用主�
 ## 任务
 
 ```
-task_groups       (id, org_id, targets json, spec json, parallel, fail_fast,
-                   actor_type, actor_id, on_behalf_of_user_id, created_at)
-tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json, spec_sha256, privileged,
-                   state, exit_code, signal, reason,                 -- reason：unknown/failed/denied 等的原因
+task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail_fast,
+                   skipped json,                                      -- 因 fail_fast 或中断而未启动的节点
+                   state[running|finished|interrupted],
+                   actor_type, actor_id, on_behalf_of_user_id, created_at, finished_at)
+tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json, input_size, input_sha256,
+                   privileged, timeout_ms,
+                   state[dispatched|running|exited|failed|rejected|unknown],
+                   exit_code, signal, timed_out, cancelled,
+                   error_code, error_message,                         -- 执行器错误码、拒绝原因或 unknown 的原因
                    actor_type, actor_id, on_behalf_of_user_id,
-                   approval_id nullable, authorization json nullable,
-                   created_at, dispatched_at, started_at, finished_at,
+                   approval_id nullable, authorization json nullable, -- M2/M4
+                   created_at, dispatched_at, accepted_at, finished_at,
                    stdout_bytes, stderr_bytes,
-                   output_head bytes, output_tail bytes,              -- crhs 只保存截断后的头尾
-                   output_file nullable)                              -- 完整输出在节点上的路径（crha 保存）
+                   stdout_head, stdout_tail, stderr_head, stderr_tail, -- crhs 只保存截断后的头尾（base64）
+                   output_file nullable,                              -- 完整输出在节点上的路径（crha 保存）
+                   late_result nullable)                              -- 已报告 unknown 之后才到达的真实结果
 ```
 
 crhs 不保存完整输出。过长的输出由 crha 在节点上保存为普通文件并负责清理，见 [execution-plane.md](execution-plane.md#输出)。

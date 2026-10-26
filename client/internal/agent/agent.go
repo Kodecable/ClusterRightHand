@@ -48,6 +48,8 @@ type Agent struct {
 	mu    sync.Mutex
 	tasks map[string]*task
 	kick  chan struct{}
+	// The current active connection, for Refresh and Reconnect.
+	conn *transport.Conn
 }
 
 type task struct {
@@ -135,6 +137,16 @@ func (a *Agent) session(ctx context.Context, conn *transport.Conn) error {
 		return fmt.Errorf("expected Welcome, got %T", env.Body)
 	}
 	a.resume(welcome.Acks)
+	a.mu.Lock()
+	a.conn = conn
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		if a.conn == conn {
+			a.conn = nil
+		}
+		a.mu.Unlock()
+	}()
 	facts := a.facts(conn)
 	if err := conn.Send(ctx, &crhv1.Envelope{Body: &crhv1.Envelope_Facts{Facts: facts}}); err != nil {
 		return err
@@ -508,4 +520,25 @@ func (a *Agent) OutputFilesInUse() map[string]bool {
 		}
 	}
 	return inUse
+}
+
+// RefreshFacts reports facts again on the current connection, e.g. after a reload changed the groups.
+func (a *Agent) RefreshFacts(ctx context.Context) error {
+	a.mu.Lock()
+	conn := a.conn
+	a.mu.Unlock()
+	if conn == nil {
+		return nil // sent on the next connection anyway
+	}
+	return conn.Send(ctx, &crhv1.Envelope{Body: &crhv1.Envelope_Facts{Facts: a.facts(conn)}})
+}
+
+// Reconnect drops the current connection; Run dials again (with the current dial settings).
+func (a *Agent) Reconnect() {
+	a.mu.Lock()
+	conn := a.conn
+	a.mu.Unlock()
+	if conn != nil {
+		_ = conn.Close("reconnecting after reload")
+	}
 }

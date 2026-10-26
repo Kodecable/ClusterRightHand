@@ -11,7 +11,7 @@
 - LICENSE（MIT）。
 - buf 生成 Go 和 TS 协议代码。
 
-## M1 执行平面
+## M1 执行平面（已完成，见下文"进度"）
 
 - crha：注册（含所有者或管理员确认）、WSS + Noise 通道、`exec` 和文件操作、输出缓冲、断线续传。
 - Noise 的 TS 实现：官方测试向量 + 与 Go 实现的交叉测试。
@@ -68,3 +68,15 @@
 - 打包（bash 脚本）：deb/rpm、systemd unit（crha 非特权模式和特权模式分开）、客户端自升级。
 - MCP 的"委托给会话"工具。
 - 监控、告警、仪表盘：暂不安排，见 architecture.md 的"扩展预留"。
+
+## 进度
+
+- **M0**：完成。
+- **M1**：完成。
+  - crha：注册、WSS + Noise、exec 与文件任务、输出落盘与清理、断线续传、reload。
+  - crhs：任务状态机与 `unknown` 语义、任务组、SSH（含跳板机）、WebUI 第一版。
+  - 自动化测试：Go/TS 单元测试（SQLite + PG）、Noise 互操作 fixture、真实 crha 二进制的 e2e 套件、SSH/SFTP 测试（需要测试 sshd）。
+  - 未完成：
+    - `crha upgrade --apply` 留到 M4（升级本身是特权任务）；
+    - toxiproxy 网络故障注入改用 e2e 中的 SIGSTOP / 杀进程 / 重启场景覆盖；
+    - CI 中尚未跑 SSH 测试（需要 sshd 服务容器）。

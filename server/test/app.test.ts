@@ -14,3 +14,26 @@ describe("api", () => {
 		}
 	});
 });
+
+describe("web root", () => {
+	it("serves files, falls back to index.html, and keeps /api and /agent out of the fallback", async () => {
+		const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+		const { join } = await import("node:path");
+		const { tmpdir } = await import("node:os");
+		const root = await mkdtemp(join(tmpdir(), "crh-web-"));
+		await writeFile(join(root, "index.html"), "<html>shell</html>");
+		await mkdir(join(root, "assets"));
+		await writeFile(join(root, "assets", "a.js"), "console.log(1)");
+		const db = openDb({ driver: "sqlite", path: ":memory:" });
+		try {
+			const app = createApp(db, { webRoot: root });
+			expect(await (await app.request("/")).text()).toContain("shell");
+			expect(await (await app.request("/nodes/x")).text()).toContain("shell");
+			expect(await (await app.request("/assets/a.js")).text()).toContain("console.log");
+			expect((await app.request("/api/unknown")).status).toBe(401);
+			expect((await app.request("/agent/unknown")).status).toBe(404);
+		} finally {
+			await db.destroy();
+		}
+	});
+});

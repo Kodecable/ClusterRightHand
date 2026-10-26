@@ -93,3 +93,19 @@ export function osName(facts: Record<string, unknown> | null): string {
 export function enrollCommand(origin: string, token: string): string {
 	return `crha enroll ${origin} ${token}`;
 }
+
+/** Splits a comma/whitespace separated list, dropping empties and duplicates. */
+export function parseList(s: string): string[] {
+	return [...new Set(s.split(/[\s,]+/).filter(Boolean))];
+}
+
+/** Batch targets: checked node names, plus free-text groups ("web" or "group:web") and raw targets. */
+export function buildTargets(nodeNames: string[], extra: string): string[] {
+	return [...new Set([...nodeNames, ...parseList(extra)])];
+}
+
+/** The task's origin: the user it acted for (resolved via the directory), else the actor. */
+export function taskActor(t: TaskView, userName: (id: string) => string | undefined): string {
+	if (t.onBehalfOfUserId) return userName(t.onBehalfOfUserId) ?? t.onBehalfOfUserId;
+	return `${t.actorType} ${t.actorId}`;
+}

@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
@@ -173,12 +175,33 @@ func newStatusCmd() *cobra.Command {
 }
 
 func newReloadCmd() *cobra.Command {
-	return &cobra.Command{
+	var configPath string
+	cmd := &cobra.Command{
 		Use:   "reload",
-		Short: "Ask the running crha to reload its configuration",
+		Short: "Make the running crha re-read its configuration",
 		Args:  cobra.NoArgs,
-		RunE:  notImplemented,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				return err
+			}
+			data, err := os.ReadFile(filepath.Join(cfg.StateDir, "crha.pid"))
+			if err != nil {
+				return fmt.Errorf("is crha running? %w", err)
+			}
+			pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+			if err != nil {
+				return fmt.Errorf("bad pid file: %w", err)
+			}
+			if err := syscall.Kill(pid, syscall.SIGHUP); err != nil {
+				return fmt.Errorf("signal crha (pid %d): %w", pid, err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "sent SIGHUP to crha (pid %d); see its log for the result\n", pid)
+			return nil
+		},
 	}
+	cmd.Flags().StringVar(&configPath, "config", config.DefaultPath, "path to the config file")
+	return cmd
 }
 
 func newRotateKeyCmd() *cobra.Command {

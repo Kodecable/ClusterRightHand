@@ -1,13 +1,18 @@
 import { type FormEvent, useState } from "react";
 import { api, type GranteeType, type NodeShare, type ShareAccess } from "../api.ts";
 import { ErrorText } from "../components/Feedback.tsx";
-import { useAction } from "../hooks.ts";
+import { useAction, useDirectory } from "../hooks.ts";
 
 export function Shares({ nodeId, shares, onChange }: { nodeId: string; shares: NodeShare[]; onChange: () => void }) {
 	const [type, setType] = useState<GranteeType>("user");
 	const [id, setId] = useState("");
 	const [access, setAccess] = useState<ShareAccess>("view");
 	const { busy, error, run } = useAction();
+	const dir = useDirectory();
+	const options =
+		type === "user"
+			? dir.users.map((u) => ({ id: u.id, label: u.displayName || u.username }))
+			: dir.userGroups.map((g) => ({ id: g.id, label: g.name }));
 	const add = async (e: FormEvent) => {
 		e.preventDefault();
 		if (await run(() => api.shareNode(nodeId, type, id.trim(), access))) {
@@ -34,7 +39,8 @@ export function Shares({ nodeId, shares, onChange }: { nodeId: string; shares: N
 						{shares.map((s) => (
 							<tr key={s.id}>
 								<td>
-									{s.granteeType === "user" ? "user" : "group"} <span className="mono">{s.granteeId}</span>
+									{s.granteeType === "user" ? "user" : "group"}{" "}
+									{s.granteeName || <span className="mono">{s.granteeId}</span>}
 								</td>
 								<td>{s.access}</td>
 								<td className="actions">
@@ -52,14 +58,27 @@ export function Shares({ nodeId, shares, onChange }: { nodeId: string; shares: N
 			<form onSubmit={add} className="row wrap">
 				<label>
 					Type
-					<select value={type} onChange={(e) => setType(e.target.value as GranteeType)}>
+					<select
+						value={type}
+						onChange={(e) => {
+							setType(e.target.value as GranteeType);
+							setId("");
+						}}
+					>
 						<option value="user">user</option>
 						<option value="user_group">user group</option>
 					</select>
 				</label>
 				<label>
-					Grantee id
-					<input value={id} onChange={(e) => setId(e.target.value)} required />
+					Grantee
+					<select value={id} onChange={(e) => setId(e.target.value)} required>
+						<option value="">Select…</option>
+						{options.map((o) => (
+							<option key={o.id} value={o.id}>
+								{o.label}
+							</option>
+						))}
+					</select>
 				</label>
 				<label>
 					Access

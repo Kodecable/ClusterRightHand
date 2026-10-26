@@ -1,6 +1,16 @@
 import { expect, test } from "vitest";
 import type { TaskView } from "./api.ts";
-import { enrollCommand, isTerminal, joinOutput, outputText, splitArgv, taskOutcome } from "./lib.ts";
+import {
+	buildTargets,
+	enrollCommand,
+	isTerminal,
+	joinOutput,
+	outputText,
+	parseList,
+	splitArgv,
+	taskActor,
+	taskOutcome,
+} from "./lib.ts";
 
 test("isTerminal", () => {
 	for (const s of ["exited", "failed", "rejected", "unknown"]) expect(isTerminal(s)).toBe(true);
@@ -56,4 +66,17 @@ import { parseHash } from "./router.ts";
 test("parseHash", () => {
 	expect(parseHash("#/nodes/a%20b")).toEqual(["nodes", "a b"]);
 	expect(parseHash("")).toEqual([]);
+});
+
+test("parseList and buildTargets", () => {
+	expect(parseList("a, b  c,,a")).toEqual(["a", "b", "c"]);
+	expect(buildTargets(["n1"], "group:web, n1")).toEqual(["n1", "group:web"]);
+	expect(buildTargets([], "")).toEqual([]);
+});
+
+test("taskActor", () => {
+	const t = { onBehalfOfUserId: "u1", actorType: "agent", actorId: "a1" } as TaskView;
+	expect(taskActor(t, (id) => (id === "u1" ? "Alice" : undefined))).toBe("Alice");
+	expect(taskActor(t, () => undefined)).toBe("u1");
+	expect(taskActor({ ...t, onBehalfOfUserId: null }, () => undefined)).toBe("agent a1");
 });

@@ -1,4 +1,5 @@
 import { type DependencyList, useCallback, useEffect, useRef, useState } from "react";
+import { api } from "./api.ts";
 
 export interface Loaded<T> {
 	data: T | undefined;
@@ -61,4 +62,17 @@ export function useAction() {
 		}
 	}, []);
 	return { busy, error, run, setError };
+}
+
+/** The user/group directory plus a lookup for user display names; empty until loaded or if it fails. */
+export function useDirectory() {
+	const { data } = useLoad(() => api.directory(), []);
+	const userName = useCallback(
+		(id: string) => {
+			const u = data?.users.find((x) => x.id === id);
+			return u ? u.displayName || u.username : undefined;
+		},
+		[data],
+	);
+	return { users: data?.users ?? [], userGroups: data?.userGroups ?? [], userName };
 }
