@@ -2,11 +2,13 @@ import { Hono } from "hono";
 import { sql } from "kysely";
 import type { Cluster } from "../cluster/cluster.ts";
 import { TaskGroups } from "../cluster/task-groups.ts";
+import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import { type AuthRoutesOptions, authRoutes } from "./auth-routes.ts";
 import type { AppEnv } from "./context.ts";
 import { csrfGuard, requireUser } from "./middleware.ts";
 import { nodeRoutes } from "./node-routes.ts";
+import { sshRoutes } from "./ssh-routes.ts";
 import { taskRoutes } from "./task-routes.ts";
 import { userRoutes } from "./user-routes.ts";
 
@@ -17,6 +19,8 @@ export interface AppOptions extends AuthRoutesOptions {
 	serverPublicKey?: Uint8Array;
 	cluster?: Cluster;
 	taskGroups?: TaskGroups;
+	/** Needed for SSH credentials and nodes. */
+	masterKey?: MasterKey;
 }
 
 export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
@@ -43,6 +47,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	app.use("/api/*", requireUser(db));
 	app.route("/api", userRoutes(db));
 	app.route("/api", nodeRoutes(db, options));
+	if (options.masterKey) app.route("/api", sshRoutes(db, options.masterKey));
 	if (options.cluster) {
 		app.route("/api", taskRoutes(db, options.cluster, options.taskGroups ?? new TaskGroups(db, options.cluster)));
 	}

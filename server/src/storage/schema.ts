@@ -94,6 +94,14 @@ export interface NodesTable {
 	created_at: CreatedAt;
 	approved_at: string | null;
 	approved_by_user_id: string | null;
+	ssh_host: string | null;
+	ssh_port: number | null;
+	ssh_user: string | null;
+	/** Pinned host key fingerprint, "SHA256:…". */
+	ssh_host_key: string | null;
+	ssh_credential_id: string | null;
+	/** JSON [{ host, port, user, hostKey }], the jump hosts in order. */
+	ssh_jumps: string | null;
 }
 
 export interface NodeGroupsTable {
@@ -171,6 +179,16 @@ export interface TaskGroupsTable {
 	finished_at: string | null;
 }
 
+export interface SshCredentialsTable {
+	id: string;
+	org_id: string;
+	owner_user_id: string;
+	name: string;
+	public_key: string;
+	secret_id: string;
+	created_at: CreatedAt;
+}
+
 export interface Database {
 	orgs: OrgsTable;
 	users: UsersTable;
@@ -185,4 +203,5 @@ export interface Database {
 	enrollment_tokens: EnrollmentTokensTable;
 	tasks: TasksTable;
 	task_groups: TaskGroupsTable;
+	ssh_credentials: SshCredentialsTable;
 }

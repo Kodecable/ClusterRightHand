@@ -131,6 +131,12 @@ export async function enrollNode(
 			created_at: now,
 			approved_at: null,
 			approved_by_user_id: null,
+			ssh_host: null,
+			ssh_port: null,
+			ssh_user: null,
+			ssh_host_key: null,
+			ssh_credential_id: null,
+			ssh_jumps: null,
 		};
 		await trx.insertInto("nodes").values(node).execute();
 		await trx.updateTable("enrollment_tokens").set({ used_by_node_id: node.id }).where("id", "=", token.id).execute();

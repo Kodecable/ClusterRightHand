@@ -36,6 +36,12 @@ describeBackends("task groups", (backend) => {
 				created_at: now,
 				approved_at: now,
 				approved_by_user_id: null,
+				ssh_host: null,
+				ssh_port: null,
+				ssh_user: null,
+				ssh_host_key: null,
+				ssh_credential_id: null,
+				ssh_jumps: null,
 			})
 			.execute();
 		for (const g of groups) {

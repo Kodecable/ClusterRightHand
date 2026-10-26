@@ -20,6 +20,9 @@ import { newId } from "../util/id.ts";
 import type { NodeConnection } from "./connection.ts";
 import { getNode, markNodeSeen, type NodeRow, updateNodeFacts } from "./nodes.ts";
 import { OUTPUT_KEEP_BYTES, OUTPUT_KEEP_LINES, StreamAccumulator } from "./output.ts";
+import { connect as connectSsh, SshError, type SshRoute, type SshSession } from "./ssh/connection.ts";
+import { runSshExec, SshConnectionLost, type SshExecSink } from "./ssh/exec.ts";
+import { FileTaskError, runSftpFileTask } from "./ssh/file-task.ts";
 
 /** Who asked for a task; see doc/access-control.md#操作者. */
 export interface Actor {
@@ -71,6 +74,8 @@ export interface ClusterOptions {
 	 * clients and half-open links that never deliver a close.
 	 */
 	idleTimeoutMs?: number;
+	/** Resolves an SSH node's route (hosts, pinned keys, private key). Without it SSH nodes are offline. */
+	sshRoute?: (node: NodeRow) => Promise<SshRoute>;
 }
 
 const TERMINAL: ReadonlySet<TaskRowState> = new Set(["exited", "failed", "rejected", "unknown"]);
@@ -109,6 +114,9 @@ export class Cluster {
 	readonly #graceMs: number;
 	readonly #chunk: number;
 	readonly #idleMs: number;
+	readonly #sshRoute: ClusterOptions["sshRoute"];
+	readonly #sshSessions = new Map<string, Promise<SshSession>>();
+	readonly #sshCancels = new Map<string, AbortController>();
 	readonly #links = new Map<string, NodeLink>();
 	readonly #live = new Map<string, LiveTask>();
 	readonly #graceTimers = new Map<string, NodeJS.Timeout>();
@@ -121,6 +129,7 @@ export class Cluster {
 		this.#graceMs = options.reconnectGraceMs ?? 120_000;
 		this.#chunk = options.inputChunkBytes ?? 48 * 1024;
 		this.#idleMs = options.idleTimeoutMs ?? 90_000;
+		this.#sshRoute = options.sshRoute;
 	}
 
 	isConnected(nodeId: string): boolean {
@@ -158,6 +167,12 @@ export class Cluster {
 	}
 
 	close(): void {
+		for (const ac of this.#sshCancels.values()) ac.abort();
+		for (const s of this.#sshSessions.values())
+			s.then(
+				(x) => x.close(),
+				() => {},
+			);
 		for (const link of this.#links.values()) link.conn.close("server shutting down");
 		for (const t of this.#graceTimers.values()) clearTimeout(t);
 	}
@@ -341,8 +356,10 @@ export class Cluster {
 		const inputSha = createHash("sha256").update(inputBytes).digest();
 		const spec = withInputRef(input.spec, input.input ? { size: inputBytes.length, sha256: inputSha } : undefined);
 
+		const ssh = node.transport === "ssh";
 		const link = this.#links.get(node.id);
-		const online = node.status === "active" && link?.ready === true && !link.conn.closed;
+		const online =
+			node.status === "active" && (ssh ? this.#sshRoute !== undefined : link?.ready === true && !link.conn.closed);
 		await this.#db
 			.insertInto("tasks")
 			.values({
@@ -380,7 +397,10 @@ export class Cluster {
 				late_result: null,
 			})
 			.execute();
-		if (online && link) {
+		if (online && ssh) {
+			this.#newLive(id, node.id);
+			void this.#runSsh(id, node, spec, input.input, input.timeoutMs);
+		} else if (online && link) {
 			this.#newLive(id, node.id);
 			// TaskStart goes out exactly once; a failure here surfaces as a closed connection.
 			try {
@@ -441,10 +461,125 @@ export class Cluster {
 	async cancelTask(id: string): Promise<boolean> {
 		const row = await this.#row(id);
 		if (!row || TERMINAL.has(row.state)) return false;
+		const ssh = this.#sshCancels.get(id);
+		if (ssh) {
+			ssh.abort();
+			return true;
+		}
 		const link = this.#links.get(row.node_id);
 		if (!link?.ready) return false;
 		link.conn.send({ case: "taskCancel", value: { taskId: id } });
 		return true;
+	}
+
+	// ---- SSH nodes: no crha, no resume; see doc/execution-plane.md#ssh-传输 ----
+
+	#sshSession(node: NodeRow): Promise<SshSession> {
+		const existing = this.#sshSessions.get(node.id);
+		if (existing) return existing;
+		const route = this.#sshRoute as NonNullable<ClusterOptions["sshRoute"]>;
+		const session = route(node).then(connectSsh);
+		this.#sshSessions.set(node.id, session);
+		session.then(
+			(s) => s.onClose(() => this.#sshSessions.get(node.id) === session && this.#sshSessions.delete(node.id)),
+			() => this.#sshSessions.delete(node.id),
+		);
+		return session;
+	}
+
+	async #runSsh(
+		id: string,
+		node: NodeRow,
+		spec: TaskSpec,
+		input: Uint8Array | undefined,
+		timeoutMs: number | undefined,
+	): Promise<void> {
+		const live = this.#live.get(id) as LiveTask;
+		let isStarted = false;
+		const sink = {
+			stdout: (d: Uint8Array) => void live.stdout.append(live.stdout.end, d),
+			stderr: (d: Uint8Array) => void live.stderr.append(live.stderr.end, d),
+			started: () => {
+				isStarted = true;
+				void this.#serial(id, () => this.#onAccepted(node.id, id));
+			},
+		};
+		const ac = new AbortController();
+		this.#sshCancels.set(id, ac);
+		const outputFields = () => ({
+			stdout_bytes: live.stdout.end,
+			stderr_bytes: live.stderr.end,
+			stdout_head: live.stdout.head().toString("base64"),
+			stdout_tail: live.stdout.tail().toString("base64"),
+			stderr_head: live.stderr.head().toString("base64"),
+			stderr_tail: live.stderr.tail().toString("base64"),
+		});
+		try {
+			let fields: Updateable<TasksTable>;
+			// A pooled connection may have died without notice; nothing has run yet, so retry once fresh.
+			for (let attempt = 0; ; attempt++) {
+				const session = await this.#sshSession(node);
+				try {
+					fields = await this.#sshTask(session, spec, input, timeoutMs, ac.signal, sink);
+					break;
+				} catch (err) {
+					if (isStarted || attempt > 0 || !(err instanceof SshError)) throw err;
+					session.close();
+				}
+			}
+			await this.#serial(id, () => this.#finish(node.id, id, { ...fields, ...outputFields() }));
+		} catch (err) {
+			// Once the remote side started, the outcome is unknown; before that, nothing ran.
+			if (isStarted) {
+				await this.#serial(id, () => this.#markUnknown(id, "connection_lost"));
+			} else {
+				const code = err instanceof SshError ? err.code : "connect_failed";
+				await this.#serial(id, () =>
+					this.#finish(node.id, id, { state: "failed", error_code: code, error_message: (err as Error).message }),
+				);
+			}
+		} finally {
+			this.#sshCancels.delete(id);
+			if (this.#live.get(id) === live) this.#live.delete(id);
+		}
+	}
+
+	async #sshTask(
+		session: SshSession,
+		spec: TaskSpec,
+		input: Uint8Array | undefined,
+		timeoutMs: number | undefined,
+		signal: AbortSignal,
+		sink: SshExecSink,
+	): Promise<Updateable<TasksTable>> {
+		if (spec.kind.case === "exec") {
+			const res = await runSshExec(session, spec.kind.value, input, sink, { timeoutMs, signal });
+			return {
+				state: res.error ? "failed" : "exited",
+				exit_code: res.exitCode ?? null,
+				signal: res.signal ?? null,
+				error_code: res.error?.code ?? null,
+				error_message: res.error?.message ?? null,
+				timed_out: res.timedOut ? 1 : 0,
+				cancelled: res.cancelled ? 1 : 0,
+			};
+		}
+		const sftp = await session.sftp();
+		sink.started();
+		try {
+			await runSftpFileTask(sftp, spec, input, sink.stdout, signal);
+			return { state: "exited", exit_code: 0 };
+		} catch (err) {
+			if (!(err instanceof FileTaskError) || session.closed) throw new SshConnectionLost("connection lost");
+			return {
+				state: "failed",
+				error_code: err.code,
+				error_message: err.message,
+				cancelled: err.code === "cancelled" ? 1 : 0,
+			};
+		} finally {
+			sftp.end();
+		}
 	}
 
 	// ---- helpers ----
