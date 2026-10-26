@@ -1,0 +1,152 @@
+import { PostgresAdapter, type Selectable } from "kysely";
+import { hashPassword } from "../auth/password.ts";
+import type { Db } from "../storage/db.ts";
+import type { UsersTable } from "../storage/schema.ts";
+import { newId } from "../util/id.ts";
+
+export type UserKind = UsersTable["kind"];
+export type UserStatus = UsersTable["status"];
+
+/** The fields of a user that may leave the server. */
+export interface PublicUser {
+	id: string;
+	username: string;
+	displayName: string;
+	email: string | null;
+	kind: UserKind;
+	status: UserStatus;
+	createdAt: string;
+}
+
+const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+export const MIN_PASSWORD_LENGTH = 8;
+
+export class UserError extends Error {}
+export class NotFoundError extends UserError {}
+
+export function toPublicUser(row: Omit<Selectable<UsersTable>, "password_hash">): PublicUser {
+	return {
+		id: row.id,
+		username: row.username,
+		displayName: row.display_name,
+		email: row.email,
+		kind: row.kind,
+		status: row.status,
+		createdAt: row.created_at,
+	};
+}
+
+/** v1 has exactly one organization; it is created on first use. */
+export async function defaultOrgId(db: Db): Promise<string> {
+	const existing = await db.selectFrom("orgs").select("id").orderBy("created_at").executeTakeFirst();
+	if (existing) return existing.id;
+	const id = newId();
+	await db.insertInto("orgs").values({ id, name: "default", created_at: new Date().toISOString() }).execute();
+	return id;
+}
+
+export function validatePassword(password: string): void {
+	if ([...password].length < MIN_PASSWORD_LENGTH) {
+		throw new UserError(`password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+	}
+}
+
+export async function createUser(
+	db: Db,
+	input: { username: string; displayName?: string; email?: string | null; kind: UserKind; password?: string },
+): Promise<PublicUser> {
+	const username = input.username.trim().toLowerCase();
+	if (!USERNAME_RE.test(username)) {
+		throw new UserError(
+			"username must be 1-64 characters of a-z, 0-9, '.', '_' or '-', starting with a letter or digit",
+		);
+	}
+	if (input.password !== undefined) validatePassword(input.password);
+	const orgId = await defaultOrgId(db);
+	const taken = await db
+		.selectFrom("users")
+		.select("id")
+		.where("org_id", "=", orgId)
+		.where("username", "=", username)
+		.executeTakeFirst();
+	if (taken) throw new UserError(`user ${username} already exists`);
+
+	const row = {
+		id: newId(),
+		org_id: orgId,
+		username,
+		display_name: input.displayName?.trim() || username,
+		email: input.email?.trim() || null,
+		kind: input.kind,
+		password_hash: input.password === undefined ? null : await hashPassword(input.password),
+		status: "active" as const,
+		created_at: new Date().toISOString(),
+	};
+	await db.insertInto("users").values(row).execute();
+	return toPublicUser(row);
+}
+
+export async function setPassword(db: Db, userId: string, password: string): Promise<void> {
+	validatePassword(password);
+	const result = await db
+		.updateTable("users")
+		.set({ password_hash: await hashPassword(password) })
+		.where("id", "=", userId)
+		.executeTakeFirst();
+	if (result.numUpdatedRows === 0n) throw new NotFoundError("no such user");
+}
+
+export async function findUserByUsername(db: Db, username: string) {
+	const orgId = await defaultOrgId(db);
+	return db
+		.selectFrom("users")
+		.selectAll()
+		.where("org_id", "=", orgId)
+		.where("username", "=", username.trim().toLowerCase())
+		.executeTakeFirst();
+}
+
+export async function listUsers(db: Db): Promise<PublicUser[]> {
+	const rows = await db.selectFrom("users").selectAll().orderBy("username").execute();
+	return rows.map(toPublicUser);
+}
+
+export async function updateUser(
+	db: Db,
+	userId: string,
+	patch: { displayName?: string; email?: string | null; kind?: UserKind; status?: UserStatus },
+): Promise<PublicUser> {
+	const set: Partial<Pick<UsersTable, "display_name" | "email" | "kind" | "status">> = {};
+	if (patch.displayName !== undefined) set.display_name = patch.displayName.trim();
+	if (patch.email !== undefined) set.email = patch.email?.trim() || null;
+	if (patch.kind !== undefined) set.kind = patch.kind;
+	if (patch.status !== undefined) set.status = patch.status;
+
+	return db.transaction().execute(async (trx) => {
+		// Serialize changes to administrators (PostgreSQL; SQLite transactions are already serialized), so two
+		// concurrent demotions cannot both pass the "one active administrator" check below.
+		if (isPostgres(trx)) {
+			const orgId = await trx.selectFrom("users").select("org_id").where("id", "=", userId).executeTakeFirst();
+			if (orgId) await trx.selectFrom("orgs").select("id").where("id", "=", orgId.org_id).forUpdate().execute();
+		}
+		if (Object.keys(set).length > 0) {
+			await trx.updateTable("users").set(set).where("id", "=", userId).execute();
+		}
+		const row = await trx.selectFrom("users").selectAll().where("id", "=", userId).executeTakeFirst();
+		if (!row) throw new NotFoundError("no such user");
+		// Never leave the organization without an active administrator.
+		const admins = await trx
+			.selectFrom("users")
+			.select((eb) => eb.fn.countAll<number | string | bigint>().as("n"))
+			.where("org_id", "=", row.org_id)
+			.where("kind", "=", "admin")
+			.where("status", "=", "active")
+			.executeTakeFirstOrThrow();
+		if (Number(admins.n) === 0) throw new UserError("at least one active administrator is required");
+		return toPublicUser(row);
+	});
+}
+
+function isPostgres(db: Db): boolean {
+	return db.getExecutor().adapter instanceof PostgresAdapter;
+}

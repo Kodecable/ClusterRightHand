@@ -17,8 +17,11 @@ export async function loadConfig(path: string): Promise<Config> {
 
 export function parseConfig(text: string): Config {
 	const raw = parse(text);
+	rejectUnknown(raw, "", ["listen", "database", "master_key_file"]);
 	const listen = table(raw, "listen");
 	const database = table(raw, "database");
+	rejectUnknown(listen, "listen.", ["host", "port"]);
+	rejectUnknown(database, "database.", ["driver", "path", "url"]);
 
 	const driver = database.driver ?? "sqlite";
 	let db: DatabaseConfig;
@@ -40,6 +43,13 @@ export function parseConfig(text: string): Config {
 		database: db,
 		masterKeyFile: str(raw, "master_key_file", "master_key_file", "/etc/crhs/master.key"),
 	};
+}
+
+/** Unknown keys are errors: a misplaced key (e.g. a top-level key written after a [table]) must not be ignored. */
+function rejectUnknown(obj: Record<string, unknown>, prefix: string, known: string[]): void {
+	for (const key of Object.keys(obj)) {
+		if (!known.includes(key)) throw new Error(`unknown configuration key ${prefix}${key}`);
+	}
 }
 
 function table(raw: Record<string, unknown>, key: string): Record<string, unknown> {

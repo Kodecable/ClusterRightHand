@@ -176,8 +176,9 @@ created ──▶ awaiting_approval ──▶ dispatched ──▶ running ─�
 
 数据库备份只包含加密后的私钥，没有主密钥就无法恢复。所以 crhs 从一开始就提供密钥导出和导入：
 
+- `crhs keys init`：生成主密钥文件（0600），并把主密钥的标识（HMAC 派生，不泄露密钥）记入数据库；之后 crhs 启动时发现密钥文件与数据库不匹配就拒绝启动，密钥文件对组或其他用户可读时也拒绝启动。
 - `crhs keys export --out crhs-keys.age`：导出主密钥、crhs 身份私钥（含轮换中的旧密钥）、授权签名私钥。签名密钥由 ssh-agent 托管时只导出公钥，并在导出结果中注明。
-- 导出文件用 [age](https://age-encryption.org/) 格式、口令加密（scrypt），口令在导出时交互输入。可以用标准的 `age` 工具解密核对，不依赖 crhs。
+- 导出文件用 [age](https://age-encryption.org/) 格式（ASCII armor）、口令加密（scrypt），口令在导出时交互输入（也可从 stdin 读入一行）。可以用标准的 `age` 工具解密核对，不依赖 crhs。
 - `crhs keys import crhs-keys.age`：在新部署（或重建）时导入，配合数据库备份完成恢复。导入时检查数据库中的公钥与导出文件一致。
 - 只提供本地命令行，不通过 WebUI 或 API 导出：需要能读取 `crhs.toml` 和主密钥文件，也就是能登录 crhs 所在的主机。每次导出都写入审计。
 - 恢复 = 数据库备份 + 密钥导出文件。crha 节点不需要导出：节点身份密钥丢失时重新注册即可。

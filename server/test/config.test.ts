@@ -20,4 +20,11 @@ describe("parseConfig", () => {
 		expect(() => parseConfig("[listen]\nport = 70000\n")).toThrow(/listen.port/);
 		expect(() => parseConfig('[database]\ndriver = "postgres"\n')).toThrow(/database.url/);
 	});
+
+	it("rejects unknown and misplaced keys", () => {
+		expect(() => parseConfig('[database]\npath = "x"\nmaster_key_file = "y"\n')).toThrow(
+			/unknown configuration key database.master_key_file/,
+		);
+		expect(() => parseConfig("listne = 1\n")).toThrow(/listne/);
+	});
 });

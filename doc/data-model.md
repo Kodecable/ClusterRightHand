@@ -16,10 +16,11 @@ orgs              (id, name, created_at)
 users             (id, org_id, username, display_name, email, kind[admin|member],
                    password_hash nullable, status, created_at)        -- 以后的 OIDC 用户可以没有密码
 user_groups       (id, org_id, name, source, created_at)              -- source：local；以后可以是外部来源（OIDC）
-user_group_members(group_id, user_id)
+user_group_members(group_id, user_id, created_at)
 user_credentials  (id, user_id, kind[ssh|webauthn], public_key, fingerprint, label, created_at, last_used_at)
 api_tokens        (id, user_id, name, token_hash, expires_at, revoked_at, last_used_at)  -- 规则和预算在 rule_sets
-web_sessions      (id, user_id, created_at, expires_at, ip, user_agent)
+web_sessions      (id, token_hash, user_id, created_at, expires_at, last_seen_at, ip, user_agent)
+                  -- cookie 中是随机令牌，表中只存它的 SHA-256
 shares            (id, org_id, resource_type[node|session], resource_id,
                    grantee_type[user|user_group], grantee_id,
                    access,                                             -- 节点：view|operate；会话：view|chat
@@ -43,6 +44,7 @@ nodes             (id, org_id, owner_user_id, name, transport[client|ssh], statu
 node_groups       (node_id, group_name, refreshed_at)  -- crha 节点：crha 上报的缓存；SSH 节点：在 crhs 中维护
 enrollment_tokens (id, org_id, created_by_user_id, token_hash, name_hint, expires_at, used_at, used_by_node_id)
                   -- 节点归令牌创建者所有；注册后先处于 pending 状态，由所有者或管理员确认后才变为可用
+server_meta       (key, value)                                        -- 例如 master_key_id：防止配错主密钥文件
 secrets           (id, org_id, kind, ciphertext, created_at)          -- 用主密钥加密：SSH 私钥、模型 API key、
                                                                        -- crhs 身份私钥、授权签名私钥（不用 ssh-agent 时）
 ```

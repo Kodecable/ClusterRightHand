@@ -7,7 +7,7 @@
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["**", "!**/gen", "!doc"]
+		"includes": ["**", "!**/gen", "!doc", "!pnpm-lock.yaml"]
 	},
 	"formatter": {
 		"enabled": true,
