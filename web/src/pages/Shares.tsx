@@ -24,7 +24,7 @@ export function Shares({ nodeId, shares, onChange }: { nodeId: string; shares: N
 		if (await run(() => api.unshareNode(nodeId, shareId))) onChange();
 	};
 	return (
-		<section>
+		<section aria-label="Shares">
 			<h2>Shares</h2>
 			{shares.length > 0 ? (
 				<table>

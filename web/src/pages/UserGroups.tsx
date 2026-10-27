@@ -8,8 +8,13 @@ function GroupCard({ g, users, onChange }: { g: UserGroup; users: User[]; onChan
 	const { busy, error, run } = useAction();
 	const names = new Map(users.map((u) => [u.id, u.username]));
 	const candidates = users.filter((u) => !g.memberIds.includes(u.id));
+	// run() yields undefined both on failure and for actions without a result; report success explicitly.
 	const act = async (fn: () => Promise<unknown>) => {
-		if (await run(fn)) onChange();
+		const ok = await run(async () => {
+			await fn();
+			return true;
+		});
+		if (ok) onChange();
 	};
 	return (
 		<div className="card stack">

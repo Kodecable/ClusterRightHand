@@ -16,7 +16,7 @@ export function OutputBlock({
 	if (bytes === 0 && !head && !tail) return null;
 	const { before, after, omitted } = joinOutput(head, tail, bytes);
 	return (
-		<section>
+		<section aria-label={label}>
 			<h4>
 				{label} <span className="muted">({bytes} bytes)</span>
 			</h4>
