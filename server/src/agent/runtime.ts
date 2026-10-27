@@ -40,18 +40,17 @@ import { defaultOrgId, NotFoundError, UserError } from "../users/service.ts";
 import { derivedId, newId } from "../util/id.ts";
 import type { ModelConfig, ModelRef } from "./models.ts";
 import {
-	cancelQuotaRequests,
-	denyQuota,
-	ensureQuotaRequest,
+	awaitingQuotaChildren,
+	awaitingQuotaSessions,
 	exhaustedLevel,
 	grantQuota,
-	latestQuotaRequest,
+	markSessionsStopped,
 	parseQuota,
-	pendingQuotaRequests,
-	pendingQuotaRequestsFor,
 	recordUsage,
+	type SessionState,
+	sessionStateOf,
 	setQuota,
-	settleQuotaRequests,
+	setSessionState,
 	spentTokens,
 } from "./quota.ts";
 import { Reviewer } from "./review.ts";
@@ -72,6 +71,8 @@ export interface SessionView {
 	createdAt: string;
 	updatedAt: string;
 	rules: StoredRuleSet | null;
+	/** Subagent state (roots stay active). */
+	state: SessionState;
 	/** Remaining token quota; null: unlimited. Signed: a response may overspend it. */
 	quota: number | null;
 	/** Tokens spent by this session and its subagents. */
@@ -132,6 +133,9 @@ type Row = {
 	updated_at: string;
 	last_submission_id: string | null;
 	quota_tokens: string | number | null;
+	state: SessionState;
+	waiting_level_id: string | null;
+	state_changed_at: string | null;
 };
 
 export class AgentRuntime {
@@ -273,6 +277,9 @@ export class AgentRuntime {
 					archived_at: null,
 					// Root sessions have no quota (0) and are never charged; quotas manage subagents (D76).
 					quota_tokens: 0,
+					state: "active",
+					waiting_level_id: null,
+					state_changed_at: now,
 				})
 				.execute();
 			await createRootRuleSet(trx, orgId, { type: "session", id }, input.preset);
@@ -321,6 +328,7 @@ export class AgentRuntime {
 			createdAt: row.created_at,
 			updatedAt: row.updated_at,
 			rules,
+			state: row.state,
 			quota: row.quota_tokens === null ? null : Number(row.quota_tokens),
 			spentTokens: await spentTokens(this.#db, row.id),
 		};
@@ -403,7 +411,7 @@ export class AgentRuntime {
 				}
 			}
 		}
-		await cancelQuotaRequests(this.#db, sessions);
+		await markSessionsStopped(this.#db, sessions);
 		// Subagents are ownerless conversations, so their abort is explicit (doc/agent-runtime.md#abort).
 		for (const id of sessions.slice(1)) {
 			const row = await this.#db
@@ -565,6 +573,9 @@ export class AgentRuntime {
 					updated_at: now,
 					archived_at: null,
 					quota_tokens: input.quota,
+					state: "active",
+					waiting_level_id: null,
+					state_changed_at: now,
 				})
 				.execute();
 			await createRuleSet(trx, parent.org_id, { type: "session", id: childId }, input.rules);
@@ -718,14 +729,14 @@ export class AgentRuntime {
 				createdAt: row.created_at,
 			});
 		}
-		for (const request of await pendingQuotaRequestsFor(this.#db, sessionId)) {
+		for (const wait of await awaitingQuotaChildren(this.#db, sessionId)) {
 			out.push({
 				kind: "quota",
-				id: request.id,
-				sessionId: request.sessionId,
-				summary: `${request.levelTitle} is at ${request.levelQuota ?? "unlimited"} tokens; the subagent is paused`,
+				id: wait.sessionId,
+				sessionId: wait.sessionId,
+				summary: `${wait.levelTitle} is at ${wait.levelQuota ?? "unlimited"} tokens; the subagent is paused`,
 				nodeId: null,
-				createdAt: request.createdAt,
+				createdAt: wait.since,
 			});
 		}
 		return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -771,33 +782,28 @@ export class AgentRuntime {
 			}
 			return "task";
 		}
-		const quota = await this.#db
-			.selectFrom("quota_requests")
-			.selectAll()
-			.where("id", "=", requestId)
-			.executeTakeFirst();
-		if (quota) {
-			if (quota.state !== "pending" || quota.handler_session_id !== sessionId) {
-				throw new UserError("this quota request is not waiting for this session's agent");
+		const waiting = await this.#db.selectFrom("sessions").selectAll().where("id", "=", requestId).executeTakeFirst();
+		if (waiting?.state === "awaiting_quota" && waiting.waiting_level_id) {
+			const levelId = waiting.waiting_level_id;
+			if ((await this.#parentOf(levelId)) !== sessionId) {
+				throw new UserError("this quota wait is not handled by this session's agent");
 			}
 			if (decision === "escalate") {
-				throw new UserError("a quota request goes to the direct parent only; approve or deny it");
-			} else if (decision === "deny") {
-				if (!(await denyQuota(this.#db, requestId))) throw new UserError("the request is no longer waiting");
+				throw new UserError("a quota wait goes to the direct parent only; approve or deny it");
+			}
+			if (decision === "deny") {
+				await markSessionsStopped(this.#db, [requestId]);
 			} else {
-				if (tokens === undefined) throw new UserError("give the quota request tokens to grant");
-				if (!Number.isInteger(tokens) || tokens <= 0) throw new UserError("tokens must be a positive integer");
+				if (tokens === undefined) throw new UserError("give the quota wait tokens to grant");
 				// No cap: the whole chain is charged for every response, so the parent's own remainder does
 				// not limit what it can add for its child (D77).
-				if (!(await grantQuota(this.#db, requestId, tokens))) {
-					throw new UserError("the request is no longer waiting");
-				}
+				await grantQuota(this.#db, levelId, tokens);
 			}
 			void this.#audit?.record({
 				actor: by,
-				action: "quota.request_decided",
-				target: { type: "quota_request", id: requestId },
-				detail: { decision, ...(reason ? { reason } : {}), ...(tokens ? { tokens } : {}) },
+				action: decision === "deny" ? "quota.denied" : "quota.granted",
+				target: { type: "session", id: requestId },
+				detail: { level: levelId, ...(reason ? { reason } : {}), ...(tokens ? { tokens } : {}) },
 			});
 			return "quota";
 		}
@@ -835,28 +841,19 @@ export class AgentRuntime {
 		for (;;) {
 			const level = await exhaustedLevel(this.#db, sessionId);
 			if (!level) {
-				await settleQuotaRequests(this.#db, sessionId);
+				await setSessionState(this.#db, sessionId, "active", null);
 				return "ok";
 			}
-			const latest = await latestQuotaRequest(this.#db, sessionId, level);
-			if (latest?.state === "denied" || latest?.state === "cancelled") return "denied";
-			// Only the direct parent handles a request, like an approval (D77). Root sessions have no quota but
-			// can always decide for their children; no grant is capped.
 			const parent = await this.#parentOf(level);
-			if (!parent) return "ok";
-			const request =
-				latest?.state === "pending"
-					? latest
-					: await ensureQuotaRequest(this.#db, { sessionId, levelId: level, handlerSessionId: parent });
-			if (request.handlerSessionId) {
-				await this.#wakeQuota(request.handlerSessionId, request.id);
-			}
+			await setSessionState(this.#db, sessionId, "awaiting_quota", level);
+			if (parent) await this.#wakeQuota(parent, sessionId, level);
 			await new Promise((r) => setTimeout(r, 300));
 			if (context.abortSignal?.aborted) throw new Error("the quota wait was aborted");
+			if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
 		}
 	}
 
-	/** The direct parent of a level; the only session that handles its quota request. */
+	/** The direct parent of a level; the only session that handles its quota wait. */
 	async #parentOf(levelId: string): Promise<string | null> {
 		const row = await this.#db
 			.selectFrom("sessions")
@@ -867,21 +864,26 @@ export class AgentRuntime {
 	}
 
 	/** Wakes an idle handler with a follow-up input; a running one sees the request through afterTool. */
-	async #wakeQuota(handlerId: string, requestId: string): Promise<void> {
+	async #wakeQuota(handlerId: string, sessionId: string, levelId: string): Promise<void> {
 		await this.#wake(
 			handlerId,
-			`quota-request:${requestId}`,
-			`A subagent is paused: its token quota is used up (request ${requestId}). ` +
-				`Check it with subagent_list, then subagent_decide("${requestId}", "approve", tokens: <positive integer>) ` +
+			`quota-request:${sessionId}:${levelId}`,
+			`A subagent is paused: its token quota is used up (session ${sessionId}, level ${levelId}). ` +
+				`Check it with subagent_list, then subagent_decide("${sessionId}", "approve", tokens: <positive integer>) ` +
 				'to add quota, or "deny" to stop it.',
 		);
 	}
 
 	/** The session's subagents, newest first, with what waits for this session's agent. */
-	async subagentSessions(
-		sessionId: string,
-	): Promise<
-		{ id: string; title: string; createdAt: string; lastSubmissionId: string | null; pending: AgentRequestView[] }[]
+	async subagentSessions(sessionId: string): Promise<
+		{
+			id: string;
+			title: string;
+			state: SessionState;
+			createdAt: string;
+			lastSubmissionId: string | null;
+			pending: AgentRequestView[];
+		}[]
 	> {
 		const pending = await this.pendingAgentRequests(sessionId);
 		const rows = await this.#db
@@ -893,6 +895,7 @@ export class AgentRuntime {
 		return rows.map((r) => ({
 			id: r.id,
 			title: r.title,
+			state: r.state,
 			createdAt: r.created_at,
 			lastSubmissionId: r.last_submission_id,
 			pending: pending.filter((p) => p.sessionId === r.id),
@@ -978,12 +981,13 @@ export class AgentRuntime {
 				console.error("agent runtime: waking for a subagent request failed:", err);
 			}
 		}
-		for (const request of await pendingQuotaRequests(this.#db)) {
-			if (!request.handlerSessionId) continue;
+		for (const wait of await awaitingQuotaSessions(this.#db)) {
+			const parent = await this.#parentOf(wait.levelId);
+			if (!parent) continue;
 			try {
-				await this.#wakeQuota(request.handlerSessionId, request.id);
+				await this.#wakeQuota(parent, wait.sessionId, wait.levelId);
 			} catch (err) {
-				console.error("agent runtime: waking for a quota request failed:", err);
+				console.error("agent runtime: waking for a quota wait failed:", err);
 			}
 		}
 	}
@@ -1351,7 +1355,9 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 			"Quota requests (add tokens: N) are approved or denied only. Only requests listed by subagent_list or " +
 			"attached to a tool result are yours.",
 		parameters: Type.Object({
-			request_id: Type.String({ description: "The task, task group or quota request id" }),
+			request_id: Type.String({
+				description: "The task or task group id, or the paused subagent's session id for a quota wait",
+			}),
 			decision: Type.Union([Type.Literal("approve"), Type.Literal("deny"), Type.Literal("escalate")]),
 			reason: Type.Optional(Type.String({ description: "Why; shown to the subagent and in the audit log" })),
 			tokens: Type.Optional(

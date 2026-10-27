@@ -286,6 +286,8 @@ export interface SessionView {
 	/** The caller's access: the owner, an administrator, or a user the session is shared with. */
 	access: SessionAccess;
 	ownerUsername: string | null;
+	/** Subagent state: active, awaiting_quota, stopped (roots stay active). */
+	state: "active" | "awaiting_quota" | "stopped";
 	/** Remaining token quota (null: unlimited; negative after an overspending response). */
 	quota: number | null;
 	/** Tokens spent by the session and its subagents. */

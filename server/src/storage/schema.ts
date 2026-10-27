@@ -260,25 +260,15 @@ export interface SessionsTable {
 	archived_at: string | null;
 	/** Durable submission of the last input, for a parent waiting on this session's answer. */
 	last_submission_id: string | null;
+	/** Subagent state (doc/agent-runtime.md#subagent): active, awaiting_quota, stopped. Roots stay active. */
+	state: "active" | "awaiting_quota" | "stopped";
+	/** While awaiting_quota: the exhausted level to top up. */
+	waiting_level_id: string | null;
+	state_changed_at: string | null;
 	/** Remaining token quota (doc/agent-runtime.md#配额); null: unlimited. Signed: one response may overspend it. */
 	quota_tokens: ColumnType<string | number | null, string | number | null | undefined, string | number | null>;
 	/** Spent by this session and its subagents. */
 	used_tokens: ColumnType<string | number, string | number | undefined, string | number>;
-}
-
-export interface QuotaRequestsTable {
-	id: string;
-	org_id: string;
-	/** The paused session whose tool call waits. */
-	session_id: string;
-	/** The exhausted level to top up (the session itself or an ancestor). */
-	level_id: string;
-	/** Its direct parent session; its agent decides. */
-	handler_session_id: string | null;
-	state: "pending" | "granted" | "denied" | "cancelled";
-	granted_tokens: number | null;
-	created_at: CreatedAt;
-	resolved_at: string | null;
 }
 
 export interface ModelProvidersTable {
@@ -328,5 +318,4 @@ export interface Database {
 	audit_events: AuditEventsTable;
 	sessions: SessionsTable;
 	model_providers: ModelProvidersTable;
-	quota_requests: QuotaRequestsTable;
 }

@@ -88,6 +88,6 @@
   - 测试：规则引擎、审计链、token、审批 API、审计事件；MCP e2e（MCP 客户端 + 真实 crha）；WebUI 浏览器测试（token、审批、审计）。
   - 未完成：Auto Review（需要模型，M3）；审计链头外送（后续）。
 - **M3**：已完成（2026-10-27）。
-  - durable 运行时（SQLite 官方存储、PostgreSQL `PgStorage`，均通过官方一致性测试）；会话与 cluster 工具（`replay: "safe"`，重启后重新挂接）；模型配置（内置 provider、OpenAI 兼容端点、额外请求头）；WebUI 会话页（SSE 流式）与模型设置；配额与配额请求（根不扣减，D72、D76、D77）；subagent（前台/后台、`subagent_wait` / `list` / `cancel` / `decide`，父会话 agent 处理子会话审批，D75）；Auto Review；节点笔记；会话分享（view / chat）；停止会话时取消其任务和子会话；存储失败后重新打开 Harness；故障注入（工具执行中 SIGKILL、模型流式输出中 SIGKILL）与性能回归测试。
+  - durable 运行时（SQLite 官方存储、PostgreSQL `PgStorage`，均通过官方一致性测试）；会话与 cluster 工具（`replay: "safe"`，重启后重新挂接）；模型配置（内置 provider、OpenAI 兼容端点、额外请求头）；WebUI 会话页（SSE 流式）与模型设置；配额与子会话状态（根不扣减，D72、D76、D77）；subagent（前台/后台、`subagent_wait` / `list` / `cancel` / `decide`，父会话 agent 处理子会话审批，D75）；Auto Review；节点笔记；会话分享（view / chat）；停止会话时取消其任务和子会话；存储失败后重新打开 Harness；故障注入（工具执行中 SIGKILL、模型流式输出中 SIGKILL）与性能回归测试。
   - 真实模型冒烟（opencode zen `deepseek-v4.1-flash`）与 WebUI 浏览器走查手工完成，不在 CI 中。
   - 配额只管理 subagent，根会话固定 0 且不扣减；不足时暂停工具调用并只向直接父请求；durable 1.4.0 没有请求前的拦截点，检查发生在响应之后（D72）。

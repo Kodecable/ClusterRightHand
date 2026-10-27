@@ -8,12 +8,13 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import {
-	ensureQuotaRequest,
+	awaitingQuotaChildren,
 	exhaustedLevel,
 	parseQuota,
-	pendingQuotaRequestsFor,
 	recordUsage,
+	sessionStateOf,
 	setQuota,
+	setSessionState,
 	spentTokens,
 } from "../src/agent/quota.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
@@ -122,11 +123,13 @@ it("a paused child asks its direct parent, which grants without a cap", async ()
 	const c = await child(p.id, "pause-c", 10);
 	await recordUsage(db, c.id, 20);
 	const waiting = runtime.waitForQuota(c.id, BACKGROUND_CONTEXT);
-	const request = await waitFor("the quota request", async () => (await pendingQuotaRequestsFor(db, p.id))[0]);
-	expect(request).toMatchObject({ sessionId: c.id, levelId: c.id, handlerSessionId: p.id });
+	const request = await waitFor("the quota wait", async () => (await awaitingQuotaChildren(db, p.id))[0]);
+	expect(request).toMatchObject({ sessionId: c.id, levelId: c.id });
+	expect(await sessionStateOf(db, c.id)).toBe("awaiting_quota");
 	// No cap: the parent's own remainder does not limit what it adds for its child.
-	expect(await runtime.decideAgentRequest(p.id, request.id, "approve", undefined, 50_000_000)).toBe("quota");
+	expect(await runtime.decideAgentRequest(p.id, request.sessionId, "approve", undefined, 50_000_000)).toBe("quota");
 	expect(await waiting).toBe("ok");
+	expect(await sessionStateOf(db, c.id)).toBe("active");
 	expect((await runtime.getSession(c.id))?.quota).toBe(50_000_000 - 10);
 });
 
@@ -136,9 +139,10 @@ it("a denied request stops the paused run", async () => {
 	const c = await child(p.id, "deny-c", 10);
 	await recordUsage(db, c.id, 20);
 	const waiting = runtime.waitForQuota(c.id, BACKGROUND_CONTEXT);
-	const request = await waitFor("the quota request", async () => (await pendingQuotaRequestsFor(db, p.id))[0]);
-	expect(await runtime.decideAgentRequest(p.id, request.id, "deny")).toBe("quota");
+	const request = await waitFor("the quota wait", async () => (await awaitingQuotaChildren(db, p.id))[0]);
+	expect(await runtime.decideAgentRequest(p.id, request.sessionId, "deny")).toBe("quota");
 	expect(await waiting).toBe("denied");
+	expect(await sessionStateOf(db, c.id)).toBe("stopped");
 });
 
 it("an exhausted ancestor's request goes to its own direct parent", async () => {
@@ -148,13 +152,13 @@ it("an exhausted ancestor's request goes to its own direct parent", async () => 
 	await recordUsage(db, c.id, 150);
 	const waiting = runtime.waitForQuota(c.id, BACKGROUND_CONTEXT);
 	// Highest exhausted subagent level first: the parent P, handled by the root.
-	const toRoot = await waitFor("the parent's request", async () => (await pendingQuotaRequestsFor(db, r.id))[0]);
-	expect(toRoot).toMatchObject({ sessionId: c.id, levelId: p.id, handlerSessionId: r.id });
-	expect(await runtime.decideAgentRequest(r.id, toRoot.id, "approve", undefined, 1_000_000)).toBe("quota");
+	const toRoot = await waitFor("the parent's wait", async () => (await awaitingQuotaChildren(db, r.id))[0]);
+	expect(toRoot).toMatchObject({ sessionId: c.id, levelId: p.id });
+	expect(await runtime.decideAgentRequest(r.id, toRoot.sessionId, "approve", undefined, 1_000_000)).toBe("quota");
 	// Then C itself, handled by P.
-	const toParent = await waitFor("the child's request", async () => (await pendingQuotaRequestsFor(db, p.id))[0]);
-	expect(toParent).toMatchObject({ sessionId: c.id, levelId: c.id, handlerSessionId: p.id });
-	expect(await runtime.decideAgentRequest(p.id, toParent.id, "approve", undefined, 1_000_000)).toBe("quota");
+	const toParent = await waitFor("the child's wait", async () => (await awaitingQuotaChildren(db, p.id))[0]);
+	expect(toParent).toMatchObject({ sessionId: c.id, levelId: c.id });
+	expect(await runtime.decideAgentRequest(p.id, toParent.sessionId, "approve", undefined, 1_000_000)).toBe("quota");
 	expect(await waiting).toBe("ok");
 });
 
@@ -220,11 +224,7 @@ it("wakes a quota handler after a restart", async () => {
 			quota: 10,
 		});
 		await recordUsage(localDb, c.id, 20);
-		const request = await ensureQuotaRequest(localDb, {
-			sessionId: c.id,
-			levelId: c.id,
-			handlerSessionId: p.id,
-		});
+		await setSessionState(localDb, c.id, "awaiting_quota", c.id);
 		faux.setResponses([fauxAssistantMessage([fauxText("noted")])]);
 		await first.close();
 		// A new process opens the same storage: the pending request wakes its handler.
@@ -241,7 +241,7 @@ it("wakes a quota handler after a restart", async () => {
 		}
 		stop();
 		expect(seen).toContain("token quota is used up");
-		expect(seen).toContain(request.id);
+		expect(seen).toContain(c.id);
 	} finally {
 		await second?.close().catch(() => {});
 		await first.close().catch(() => {});

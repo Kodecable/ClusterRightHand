@@ -161,6 +161,7 @@ export function SessionPage({ id }: { id: string }) {
 				<p className="muted">
 					A subagent of{" "}
 					<a href={`#/sessions/${encodeURIComponent(session.data.parentSessionId)}`}>its parent session</a>.
+					{session.data.state !== "active" && ` It is ${session.data.state.replace("_", " ")}.`}
 				</p>
 			)}
 			{session.data.access !== "owner" && (

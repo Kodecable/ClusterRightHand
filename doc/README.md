@@ -133,4 +133,4 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D74 | OpenAI 兼容端点可以在 provider 上配置额外请求头（`model_providers.headers`，迁移 0011）；凭据仍只放在加密的 API key 里 | 网关常要求路由头（opencode zen 的 `x-opencode-session`），但不应把密钥往头里塞 |
 | D75 | subagent 的子会话是 ownerless 会话（`sessions.parent_session_id`），不用 durable 的"任务拥有的对话"；前台等待在子会话的请求交给父会话 agent 时提前返回，父会话用 `subagent_wait` / `subagent_decide` / `subagent_list` / `subagent_cancel` 处理；父会话 abort 时显式取消整棵子树 | durable 1.4.0 的前台子会话无法在工具返回后存活；ownerless + 显式取消让"打断后转后台"和重启恢复都可控 |
 | D76 | 配额只用于 subagent（管理子会话、防止循环/空跑）：`sessions.quota_tokens` 是有符号 64 位剩余 token，可以不给（null 不限）；根会话固定 0 且从不扣减；只计 token，不计算货币成本；设置子会话配额即替换剩余量 | 根不需要额度；每次响应扣整条 subagent 链，负余量准确记录超支 |
-| D77 | 配额不足时暂停工具调用，只向**直接父会话**报告（像审批/状态变化）：它的 agent 给这个子会话**增加** token（不按自己的剩余封顶）或拒绝；父是根时由根会话的 agent 决定；每次响应仍扣整条 subagent 链 | 不跳过层级；封顶没有意义，因为同一笔用量本来就扣整条链；增加而不是转移，避免重复扣减 |
+| D77 | 配额不足时暂停工具调用，子会话状态变为 `awaiting_quota`（不是单独的请求表），只向**直接父会话**报告：它的 agent 给这个子会话**增加** token（不按自己的剩余封顶）或拒绝；拒绝或 abort 置为 `stopped`；父是根时由根会话的 agent 决定；每次响应仍扣整条 subagent 链 | 不跳过层级；封顶没有意义，因为同一笔用量本来就扣整条链；状态在会话上，重启用它恢复并唤醒处理者 |

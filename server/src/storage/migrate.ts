@@ -14,6 +14,7 @@ import * as m0011 from "./migrations/0011_model_provider_headers.ts";
 import * as m0012 from "./migrations/0012_session_submission.ts";
 import * as m0013 from "./migrations/0013_session_quota.ts";
 import * as m0014 from "./migrations/0014_quota_requests.ts";
+import * as m0015 from "./migrations/0015_session_state.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -31,6 +32,7 @@ const migrations: Record<string, Migration> = {
 	"0012_session_submission": m0012,
 	"0013_session_quota": m0013,
 	"0014_quota_requests": m0014,
+	"0015_session_state": m0015,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };
