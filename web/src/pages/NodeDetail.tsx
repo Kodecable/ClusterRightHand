@@ -79,7 +79,7 @@ export function NodeDetail({ id }: { id: string }) {
 						<SshNodeSection node={n} details={node.data?.ssh} canRun={!!canRun} onChange={node.reload} />
 					)}
 					{canRun && <RunPanel nodeId={n.id} onDone={tasks.reload} />}
-					{node.data?.shares && <Shares nodeId={n.id} shares={node.data.shares} onChange={node.reload} />}
+					{node.data?.shares && <Shares target="node" id={n.id} shares={node.data.shares} onChange={node.reload} />}
 					<section>
 						<div className="row">
 							<h2>Recent tasks</h2>

@@ -56,6 +56,17 @@ export interface NodeShare {
 	createdByUserId: string;
 	createdAt: string;
 }
+export type SessionAccess = "owner" | "admin" | "chat" | "view";
+export interface SessionShare {
+	id: string;
+	sessionId: string;
+	granteeType: GranteeType;
+	granteeId: string;
+	granteeName: string | null;
+	access: "view" | "chat";
+	createdByUserId: string;
+	createdAt: string;
+}
 export type TaskState = "awaiting_approval" | "denied" | "exited" | "failed" | "rejected" | "unknown" | (string & {});
 export type RuleAction = "allow" | "deny" | "require-approval";
 export type RuleMethod = "exec" | "file.read" | "file.write";
@@ -272,7 +283,10 @@ export interface SessionView {
 	createdAt: string;
 	updatedAt: string;
 	rules: StoredRuleSet | null;
-	/** Newer servers: the session's limit (null: unlimited) and what it has spent. */
+	/** The caller's access: the owner, an administrator, or a user the session is shared with. */
+	access: SessionAccess;
+	ownerUsername: string | null;
+	/** The session's limit (null: unlimited) and what it has spent. */
 	budget?: { tokens?: number; costUsd?: number } | null;
 	spend?: { tokens: number; costUsd: number };
 }
@@ -407,7 +421,16 @@ export const api = {
 	listSessions: () => request<{ sessions: SessionView[] }>("GET", "/sessions").then((r) => r.sessions),
 	createSession: (body: { title?: string; model: ModelRef; preset: Preset }) =>
 		request<{ session: SessionView }>("POST", "/sessions", body).then((r) => r.session),
-	getSession: (id: string) => request<{ session: SessionView }>("GET", `/sessions/${enc(id)}`).then((r) => r.session),
+	getSession: (id: string) =>
+		request<{ session: SessionView; shares?: SessionShare[] }>("GET", `/sessions/${enc(id)}`).then(
+			(r) => ({ ...r.session, shares: r.shares }) as SessionView & { shares?: SessionShare[] },
+		),
+	listSessionShares: (id: string) =>
+		request<{ shares: SessionShare[] }>("GET", `/sessions/${enc(id)}/shares`).then((r) => r.shares),
+	shareSession: (id: string, granteeType: GranteeType, granteeId: string, access: "view" | "chat") =>
+		request<{ share: SessionShare }>("PUT", `/sessions/${enc(id)}/shares`, { granteeType, granteeId, access }),
+	unshareSession: (id: string, shareId: string) =>
+		request<{ ok: true }>("DELETE", `/sessions/${enc(id)}/shares/${enc(shareId)}`),
 	patchSession: (id: string, body: SessionPatch) =>
 		request<{ session: SessionView }>("PATCH", `/sessions/${enc(id)}`, body).then((r) => r.session),
 	sendMessage: (id: string, text: string, requestId: string) =>

@@ -6,6 +6,7 @@ import { ToolCard } from "../components/ToolCard.tsx";
 import { useAction, useLoad } from "../hooks.ts";
 import { transcript, usageTotals } from "../sessionState.ts";
 import { useSessionEvents } from "../useSessionEvents.ts";
+import { Shares } from "./Shares.tsx";
 
 function Settings({
 	session,
@@ -55,7 +56,7 @@ function Settings({
 	);
 }
 
-function Composer({ id, running }: { id: string; running: boolean }) {
+function Composer({ id, running, canChat }: { id: string; running: boolean; canChat: boolean }) {
 	const [text, setText] = useState("");
 	const { busy, error, run } = useAction();
 	const send = async () => {
@@ -65,6 +66,8 @@ function Composer({ id, running }: { id: string; running: boolean }) {
 		if (await run(() => api.sendMessage(id, t, requestId))) setText("");
 	};
 	const stop = useAction();
+	if (!canChat)
+		return <p className="muted">You have view access: the owner can let you send messages by sharing it for chat.</p>;
 	const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
 			e.preventDefault();
@@ -147,7 +150,14 @@ export function SessionPage({ id }: { id: string }) {
 				<a href="#/sessions">Sessions</a>
 			</p>
 			<h1>{session.data.title}</h1>
-			<Settings session={session.data} models={models.data ?? []} onChange={session.reload} />
+			{session.data.access !== "owner" && (
+				<p className="muted">
+					Shared by {session.data.ownerUsername ?? "another user"} ({session.data.access} access).
+				</p>
+			)}
+			{session.data.access === "owner" && (
+				<Settings session={session.data} models={models.data ?? []} onChange={session.reload} />
+			)}
 			<div className="row wrap muted" role="status">
 				{connection !== "live" && <span>{connection === "connecting" ? "Connecting…" : "Reconnecting…"}</span>}
 				{state.running && <span>Working…</span>}
@@ -198,7 +208,14 @@ export function SessionPage({ id }: { id: string }) {
 					}
 				})}
 			</div>
-			<Composer id={id} running={state.running} />
+			<Composer
+				id={id}
+				running={state.running}
+				canChat={session.data.access === "owner" || session.data.access === "chat"}
+			/>
+			{(session.data.access === "owner" || session.data.access === "admin") && (
+				<Shares target="session" id={id} shares={session.data.shares ?? []} onChange={session.reload} />
+			)}
 		</>
 	);
 }

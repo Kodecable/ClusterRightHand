@@ -40,6 +40,7 @@ import { derivedId, newId } from "../util/id.ts";
 import { type Budget, exhaustedLevel, parseBudget, recordSpend, type Spend, setBudget, spendOf } from "./budget.ts";
 import type { ModelConfig, ModelRef } from "./models.ts";
 import { Reviewer } from "./review.ts";
+import { sharedSessionAccess } from "./sharing.ts";
 
 /**
  * The agent runtime behind our own interface (doc/agent-runtime.md#agentruntime-抽象): pi-durable types do not
@@ -239,14 +240,21 @@ export class AgentRuntime {
 		return row ? this.#view(row) : undefined;
 	}
 
-	/** Root sessions the user owns (administrators: everyone's), newest first. */
+	/** Root sessions the user owns or that are shared with them (administrators: everyone's), newest first. */
 	async listSessions(user: SessionUser): Promise<SessionView[]> {
 		let q = this.#db
 			.selectFrom("sessions")
 			.selectAll()
 			.where("parent_session_id", "is", null)
 			.orderBy("created_at", "desc");
-		if (user.kind !== "admin") q = q.where("owner_user_id", "=", user.userId);
+		if (user.kind !== "admin") {
+			const shared = [...(await sharedSessionAccess(this.#db, user.userId)).keys()];
+			q = q.where((eb) =>
+				shared.length > 0
+					? eb.or([eb("owner_user_id", "=", user.userId), eb("id", "in", shared)])
+					: eb("owner_user_id", "=", user.userId),
+			);
+		}
 		return Promise.all((await q.execute()).map((r) => this.#view(r)));
 	}
 

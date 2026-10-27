@@ -79,6 +79,7 @@ export function Sessions() {
 						<thead>
 							<tr>
 								<th>Title</th>
+								<th>Owner</th>
 								<th>Model</th>
 								<th>Preset</th>
 								<th>Updated</th>
@@ -91,7 +92,9 @@ export function Sessions() {
 									<tr key={s.id}>
 										<td>
 											<a href={`#/sessions/${encodeURIComponent(s.id)}`}>{s.title}</a>
+											{s.access !== "owner" && <span className="muted"> · shared ({s.access})</span>}
 										</td>
+										<td>{s.ownerUsername ?? "-"}</td>
 										<td>
 											{s.model.provider}/{s.model.modelId}
 										</td>

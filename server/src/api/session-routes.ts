@@ -12,6 +12,15 @@ import {
 } from "../agent/models.ts";
 import { getReviewModel, setReviewModel } from "../agent/review.ts";
 import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
+import {
+	listSessionShares,
+	type SessionAccess,
+	type SessionShareAccess,
+	sessionAccess,
+	sharedSessionAccess,
+	shareSession,
+	unshareSession,
+} from "../agent/sharing.ts";
 import { userActor } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
@@ -129,20 +138,44 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		return c.json({ model });
 	});
 
-	// ---- sessions: the owner (and administrators) use them; sharing comes later ----
+	// ---- sessions: the owner, users it is shared with (view / chat), and administrators (look, do not drive) ----
 
-	const visible = async (c: Context<AppEnv>, id: string): Promise<SessionView | undefined> => {
-		const s = await runtime.getSession(id);
+	type Visible = { session: SessionView; access: SessionAccess };
+
+	/** The session and what the caller may do with it; undefined when they cannot see it. */
+	const visible = async (c: Context<AppEnv>, id: string): Promise<Visible | undefined> => {
+		const access = await sessionAccess(db, c.get("user"), id);
+		if (!access) return undefined;
+		const session = await runtime.getSession(id);
+		return session ? { session, access } : undefined;
+	};
+	const usernames = async (ids: string[]): Promise<Map<string, string>> =>
+		new Map(
+			ids.length === 0
+				? []
+				: (await db.selectFrom("users").select(["id", "username"]).where("id", "in", ids).execute()).map((u) => [
+						u.id,
+						u.username,
+					]),
+		);
+	const decorate = async (c: Context<AppEnv>, views: SessionView[]) => {
 		const user = c.get("user");
-		return s && (s.ownerUserId === user.userId || user.kind === "admin") ? s : undefined;
-	};
-	/** Changes: only the owner; a session acts for its owner, an administrator looking in does not drive it. */
-	const owned = async (c: Context<AppEnv>, id: string): Promise<SessionView | undefined> => {
-		const s = await runtime.getSession(id);
-		return s && s.ownerUserId === c.get("user").userId ? s : undefined;
+		const names = await usernames([...new Set(views.map((v) => v.ownerUserId))]);
+		const shared =
+			user.kind === "admin" ? new Map<string, SessionShareAccess>() : await sharedSessionAccess(db, user.userId);
+		return views.map((v) => ({
+			...v,
+			access:
+				v.ownerUserId === user.userId
+					? ("owner" as const)
+					: user.kind === "admin"
+						? ("admin" as const)
+						: (shared.get(v.id) ?? ("view" as const)),
+			ownerUsername: names.get(v.ownerUserId) ?? null,
+		}));
 	};
 
-	app.get("/sessions", async (c) => c.json({ sessions: await runtime.listSessions(c.get("user")) }));
+	app.get("/sessions", async (c) => c.json({ sessions: await decorate(c, await runtime.listSessions(c.get("user"))) }));
 
 	app.post("/sessions", async (c) => {
 		const body = (await readJsonObject(c)) ?? {};
@@ -152,17 +185,76 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			...(typeof body.title === "string" ? { title: body.title } : {}),
 			...(body.budget !== undefined ? { budget: parseBudget(body.budget) } : {}),
 		});
-		return c.json({ session }, 201);
+		return c.json({ session: (await decorate(c, [session]))[0] }, 201);
 	});
 
 	app.get("/sessions/:id", async (c) => {
-		const s = await visible(c, c.req.param("id"));
-		return s ? c.json({ session: s }) : jsonError(c, 404, "no such session");
+		const v = await visible(c, c.req.param("id"));
+		if (!v) return jsonError(c, 404, "no such session");
+		const canShare = v.access === "owner" || c.get("user").kind === "admin";
+		return c.json({
+			session: (await decorate(c, [v.session]))[0],
+			...(canShare ? { shares: await listSessionShares(db, v.session.id) } : {}),
+		});
+	});
+
+	app.get("/sessions/:id/shares", async (c) => {
+		const v = await visible(c, c.req.param("id"));
+		if (!v) return jsonError(c, 404, "no such session");
+		if (v.access !== "owner" && c.get("user").kind !== "admin") return jsonError(c, 403, "the owner only");
+		return c.json({ shares: await listSessionShares(db, v.session.id) });
+	});
+
+	app.put("/sessions/:id/shares", async (c) => {
+		const v = await visible(c, c.req.param("id"));
+		if (!v) return jsonError(c, 404, "no such session");
+		if (v.access !== "owner" && c.get("user").kind !== "admin") return jsonError(c, 403, "the owner only");
+		const body = await readJsonObject(c);
+		if (body?.granteeType !== "user" && body?.granteeType !== "user_group")
+			return jsonError(c, 400, "granteeType must be user or user_group");
+		if (typeof body?.granteeId !== "string" || !body.granteeId) return jsonError(c, 400, "granteeId is required");
+		if (body?.access !== "view" && body?.access !== "chat") return jsonError(c, 400, "access must be view or chat");
+		const share = await shareSession(db, {
+			sessionId: v.session.id,
+			granteeType: body.granteeType,
+			granteeId: body.granteeId,
+			access: body.access,
+			createdBy: c.get("user").userId,
+		});
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "session.shared",
+			target: { type: "session", id: v.session.id },
+			detail: { grantee_type: body.granteeType, grantee_id: body.granteeId, access: body.access },
+		});
+		return c.json({ share });
+	});
+
+	app.delete("/sessions/:id/shares/:shareId", async (c) => {
+		const v = await visible(c, c.req.param("id"));
+		if (!v) return jsonError(c, 404, "no such session");
+		if (v.access !== "owner" && c.get("user").kind !== "admin") return jsonError(c, 403, "the owner only");
+		const share = (await listSessionShares(db, v.session.id)).find((s) => s.id === c.req.param("shareId"));
+		await unshareSession(db, v.session.id, c.req.param("shareId"));
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "session.unshared",
+			target: { type: "session", id: v.session.id },
+			detail: {
+				share_id: c.req.param("shareId"),
+				grantee_type: share?.granteeType,
+				grantee_id: share?.granteeId,
+				access: share?.access,
+			},
+		});
+		return c.json({ ok: true });
 	});
 
 	app.patch("/sessions/:id", async (c) => {
-		const s = await owned(c, c.req.param("id"));
-		if (!s) return jsonError(c, 404, "no such session");
+		const v = await visible(c, c.req.param("id"));
+		if (!v) return jsonError(c, 404, "no such session");
+		if (v.access !== "owner") return jsonError(c, 403, "the owner only");
+		const s = v.session;
 		const body = (await readJsonObject(c)) ?? {};
 		const preset = body.preset === undefined ? undefined : parsePreset(body.preset);
 		const session = await runtime.configure(s.id, {
@@ -191,39 +283,41 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			await options.cluster.reevaluate(ref);
 			await options.groups.reevaluate(ref);
 		}
-		return c.json({ session });
+		return c.json({ session: (await decorate(c, [session]))[0] });
 	});
 
-	/** `{ text, requestId }`: requestId makes a retried send land once. */
+	/** `{ text, requestId }`: requestId makes a retried send land once. The session acts for its owner. */
 	app.post("/sessions/:id/messages", async (c) => {
-		const s = await owned(c, c.req.param("id"));
-		if (!s) return jsonError(c, 404, "no such session");
+		const v = await visible(c, c.req.param("id"));
+		if (!v) return jsonError(c, 404, "no such session");
+		if (v.access !== "owner" && v.access !== "chat") return jsonError(c, 403, "chat access is required");
 		const body = await readJsonObject(c);
 		const text = typeof body?.text === "string" ? body.text.trim() : "";
 		const requestId = typeof body?.requestId === "string" && body.requestId ? body.requestId.slice(0, 200) : undefined;
 		if (!text) return jsonError(c, 400, "text is required");
 		if (!requestId) return jsonError(c, 400, "requestId is required");
-		const submissionId = await runtime.submit(s.id, c.get("user"), text, requestId);
+		const submissionId = await runtime.submit(v.session.id, c.get("user"), text, requestId);
 		return c.json({ submissionId }, 202);
 	});
 
 	app.post("/sessions/:id/abort", async (c) => {
-		const s = await owned(c, c.req.param("id"));
-		if (!s) return jsonError(c, 404, "no such session");
-		await runtime.abort(s.id, c.get("user"));
+		const v = await visible(c, c.req.param("id"));
+		if (!v) return jsonError(c, 404, "no such session");
+		if (v.access !== "owner" && v.access !== "chat") return jsonError(c, 403, "chat access is required");
+		await runtime.abort(v.session.id, c.get("user"));
 		return c.json({ ok: true });
 	});
 
 	/** Server-sent events: `snapshot` first, then `events` batches as the session changes. */
 	app.get("/sessions/:id/events", async (c) => {
-		const s = await visible(c, c.req.param("id"));
-		if (!s) return jsonError(c, 404, "no such session");
+		const v = await visible(c, c.req.param("id"));
+		if (!v) return jsonError(c, 404, "no such session");
 		return streamSSE(c, async (stream) => {
 			const abort = new AbortController();
 			stream.onAbort(() => abort.abort());
 			let queue = Promise.resolve();
 			const stop = await runtime.watch(
-				s.id,
+				v.session.id,
 				(events) => {
 					queue = queue.then(() => stream.writeSSE({ event: "events", data: JSON.stringify(events) }));
 					return queue;

@@ -1,12 +1,38 @@
 import { type FormEvent, useState } from "react";
-import { api, type GranteeType, type NodeShare, type ShareAccess } from "../api.ts";
+import { api, type GranteeType, type NodeShare, type SessionShare } from "../api.ts";
 import { ErrorText } from "../components/Feedback.tsx";
 import { useAction, useDirectory } from "../hooks.ts";
 
-export function Shares({ nodeId, shares, onChange }: { nodeId: string; shares: NodeShare[]; onChange: () => void }) {
+/** What a share row must show, whichever kind of resource it belongs to. */
+interface ShareRow {
+	id: string;
+	granteeType: GranteeType;
+	granteeId: string;
+	granteeName: string | null;
+	access: string;
+}
+type ShareTarget = "node" | "session";
+type Access = "view" | "operate" | "chat";
+
+/**
+ * Shares of a node or a session (doc/access-control.md#归属与分享): the same table and form, with the access
+ * levels of the resource.
+ */
+export function Shares({
+	target,
+	id,
+	shares,
+	onChange,
+}: {
+	target: ShareTarget;
+	id: string;
+	shares: (NodeShare | SessionShare)[];
+	onChange: () => void;
+}) {
+	const levels: Access[] = target === "node" ? ["view", "operate"] : ["view", "chat"];
 	const [type, setType] = useState<GranteeType>("user");
-	const [id, setId] = useState("");
-	const [access, setAccess] = useState<ShareAccess>("view");
+	const [grantee, setGrantee] = useState("");
+	const [access, setAccess] = useState<Access>("view");
 	const { busy, error, run } = useAction();
 	const dir = useDirectory();
 	const options =
@@ -15,18 +41,27 @@ export function Shares({ nodeId, shares, onChange }: { nodeId: string; shares: N
 			: dir.userGroups.map((g) => ({ id: g.id, label: g.name }));
 	const add = async (e: FormEvent) => {
 		e.preventDefault();
-		if (await run(() => api.shareNode(nodeId, type, id.trim(), access))) {
-			setId("");
+		const done =
+			target === "node"
+				? await run(() => api.shareNode(id, type, grantee.trim(), access as "view" | "operate"))
+				: await run(() => api.shareSession(id, type, grantee.trim(), access as "view" | "chat"));
+		if (done) {
+			setGrantee("");
 			onChange();
 		}
 	};
 	const remove = async (shareId: string) => {
-		if (await run(() => api.unshareNode(nodeId, shareId))) onChange();
+		const done =
+			target === "node"
+				? await run(() => api.unshareNode(id, shareId))
+				: await run(() => api.unshareSession(id, shareId));
+		if (done) onChange();
 	};
+	const rows = shares as ShareRow[];
 	return (
 		<section aria-label="Shares">
 			<h2>Shares</h2>
-			{shares.length > 0 ? (
+			{rows.length > 0 ? (
 				<table>
 					<thead>
 						<tr>
@@ -36,7 +71,7 @@ export function Shares({ nodeId, shares, onChange }: { nodeId: string; shares: N
 						</tr>
 					</thead>
 					<tbody>
-						{shares.map((s) => (
+						{rows.map((s) => (
 							<tr key={s.id}>
 								<td>
 									{s.granteeType === "user" ? "user" : "group"}{" "}
@@ -62,7 +97,7 @@ export function Shares({ nodeId, shares, onChange }: { nodeId: string; shares: N
 						value={type}
 						onChange={(e) => {
 							setType(e.target.value as GranteeType);
-							setId("");
+							setGrantee("");
 						}}
 					>
 						<option value="user">user</option>
@@ -71,7 +106,7 @@ export function Shares({ nodeId, shares, onChange }: { nodeId: string; shares: N
 				</label>
 				<label>
 					Grantee
-					<select value={id} onChange={(e) => setId(e.target.value)} required>
+					<select value={grantee} onChange={(e) => setGrantee(e.target.value)} required>
 						<option value="">Select…</option>
 						{options.map((o) => (
 							<option key={o.id} value={o.id}>
@@ -82,9 +117,12 @@ export function Shares({ nodeId, shares, onChange }: { nodeId: string; shares: N
 				</label>
 				<label>
 					Access
-					<select value={access} onChange={(e) => setAccess(e.target.value as ShareAccess)}>
-						<option value="view">view</option>
-						<option value="operate">operate</option>
+					<select value={access} onChange={(e) => setAccess(e.target.value as Access)}>
+						{levels.map((l) => (
+							<option key={l} value={l}>
+								{l}
+							</option>
+						))}
 					</select>
 				</label>
 				<button type="submit" disabled={busy}>
