@@ -75,7 +75,7 @@ export interface ClusterOptions {
 	/** TaskInput chunk size; one envelope must stay under 60 KiB. */
 	inputChunkBytes?: number;
 	/**
-	 * A connection with no message for this long is closed. crha pings every 30 s; this catches hung
+	 * A connection with no message for this long is closed. crha must ping at least every 45 s (crhs only answers); this catches hung
 	 * clients and half-open links that never deliver a close.
 	 */
 	idleTimeoutMs?: number;

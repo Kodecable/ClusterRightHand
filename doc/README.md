@@ -113,7 +113,7 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D54 | 服务端的执行核心层命名为 Cluster（Cluster API、Cluster 核心），与产品名统一 | 原名 Fleet |
 | D55 | crha 的命令行用 cobra；发布用自己的 bash 脚本，不用 goreleaser | |
 | D56 | 创建任务时节点不在线，任务直接 `failed(node_offline)`，不排队 | 任务从未下发，不属于 unknown；排队会让调用方长时间等一个可能不会上线的节点 |
-| D57 | crhs 对每条 crha 连接做空闲检测（默认 90 秒无消息即断开） | crha 每 30 秒 ping；否则挂起的客户端或半开连接永远不会触发断线宽限期（e2e 测试发现） |
+| D57 | crhs 对每条 crha 连接做空闲检测（默认 90 秒无消息即断开） | crha 有义务至少每 45 秒 ping（推荐 30±5 秒），crhs 只回 pong 不主动 ping；否则挂起的客户端或半开连接永远不会触发断线宽限期（e2e 测试发现） |
 | D58 | SSH 节点的凭证由 crhs 生成（ed25519），私钥用主密钥加密，只交出公钥；主机密钥逐跳探测、由用户核对后固定 | 不接收用户上传的私钥，避免私钥在别处另有副本 |
 | D59 | SSH 执行不用 `setsid(1)`，依赖 sshd 已为命令新建会话：`exec` 保持 pid，pid 即进程组 id | `setsid` 在调用者已是组长时会 fork，退出码丢失（实测发现） |
 | D60 | crhs 同时提供 WebUI 的静态文件（`web_root`，默认仓库内 `web/dist`），`/api`、`/agent` 之外的路径回退到 `index.html` | 单进程部署 |

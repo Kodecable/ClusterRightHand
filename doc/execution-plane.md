@@ -113,7 +113,13 @@ created ──▶ awaiting_approval ──▶ dispatched ──▶ running ─�
 | S→C | `TrustQuery` / C→S `TrustSummary` | 查询特权模式的信任配置；配置变化时客户端主动推送，见 privilege.md |
 | S→C | `Preflight` / C→S `PreflightResult` | 询问特权模式哪些信任项可以授权某个任务 |
 | S→C | `Revocations` | 下发吊销列表，由非特权模式转交特权模式 |
-| 双向 | `Ping` / `Pong` | 心跳，用于更快发现断线 |
+| C→S | `Ping` / S→C `Pong` | 心跳，只由 crha 发起，规则见下 |
+
+### 心跳
+
+- crha 有义务至少每 45 秒发一次 `Ping`，推荐间隔为 30 秒加 ±5 秒的随机波动（避免大量节点同时 ping）。crhs 不主动 ping，只回 `Pong`。
+- 任何一方超过 90 秒（两个最大间隔）收不到对方的任何消息，就断开连接并进入断线处理。crhs 靠这条规则发现挂起的 crha 和不会送达关闭的半开连接；crha 靠 `Pong` 发现 crhs 已失联。
+- 心跳走 Noise 通道内的应用层消息，不用 WebSocket 控制帧：它能证明整条会话路径（解密、分发、回包）还在工作，也不受中间代理自行处理控制帧的影响。
 
 ### 断线恢复
 

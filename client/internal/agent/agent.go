@@ -22,8 +22,12 @@ import (
 )
 
 const (
-	outputChunk     = 32 << 10
+	outputChunk = 32 << 10
+	// The protocol obliges crha to ping at least every 45 s (crhs only answers); 30 s ± 5 s is the
+	// recommended interval. crhs closes a connection after 90 s without a message, and so does crha,
+	// since every ping is answered.
 	pingInterval    = 30 * time.Second
+	pingJitter      = 5 * time.Second
 	idleTimeout     = 90 * time.Second
 	maxConnLifetime = 24 * time.Hour // instead of Noise rekeying
 	minBackoff      = time.Second
@@ -288,20 +292,25 @@ func (a *Agent) nextOutbound() *crhv1.Envelope {
 }
 
 func (a *Agent) keepalive(ctx context.Context, conn *transport.Conn) error {
-	tick := time.NewTicker(pingInterval)
-	defer tick.Stop()
+	timer := time.NewTimer(nextPing())
+	defer timer.Stop()
 	var seq uint64
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-tick.C:
+		case <-timer.C:
+			timer.Reset(nextPing())
 			seq++
 			if err := conn.Send(ctx, &crhv1.Envelope{Body: &crhv1.Envelope_Ping{Ping: &crhv1.Ping{Seq: seq}}}); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+func nextPing() time.Duration {
+	return pingInterval - pingJitter + rand.N(2*pingJitter+1)
 }
 
 func (a *Agent) receive(ctx context.Context, conn *transport.Conn) error {
