@@ -161,7 +161,8 @@ interface AgentRuntime {
 
 - 预算是授权规则的一部分，见 [access-control.md](access-control.md#预算)。
 - durable 1.4.0 不能拒绝一次模型请求（`beforeRequest` 只能改写消息），所以在**每次模型响应之后**检查：`afterResponse` 钩子把这次响应的用量（token 数、费用）累加到会话以及它上面的每一级（`sessions.used_tokens` / `used_cost_microusd`），任何一级超出后，这次响应里的工具调用不再执行，并以 `control.terminate` 结束本次运行，不再发起下一次请求。因此一次运行最多超出一次响应的用量。
-- 预算用尽后，向该会话发新消息会被拒绝，直到所有者提高预算（`PATCH /api/sessions/:id { budget }`）。子会话的"向上申请追加预算"随 subagent 一起实现。
+- 预算用尽后，向该会话发新消息会被拒绝，直到所有者提高预算（`PATCH /api/sessions/:id { budget }`）。
+- **尚未实现**：子会话的"向上申请追加预算"。审批能沿链交给父会话的 agent，预算不能：durable 1.4.0 没有请求前的拦截点，检查发生在响应之后（D72），一次"申请"仍要先花掉一次请求。
 
 ## 节点笔记
 

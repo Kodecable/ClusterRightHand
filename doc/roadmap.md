@@ -33,7 +33,7 @@
 
 **完成标志**：Claude Code 通过 MCP 管理节点，所有操作都能在审计中查到。
 
-## M3 Agent 运行时（已完成，见下文"进度"）
+## M3 Agent 运行时（已完成，预算追加除外，见下文"进度"）
 
 - `SqlStorage` 实现，官方一致性测试在 SQLite 和 PG 上通过。
 - `AgentRuntime` 接口与 durable 实现；cluster 工具适配；exec 的 `replay: "safe"` 与重新挂接。
@@ -90,3 +90,4 @@
 - **M3**：已完成（2026-10-27）。
   - durable 运行时（SQLite 官方存储、PostgreSQL `PgStorage`，均通过官方一致性测试）；会话与 cluster 工具（`replay: "safe"`，重启后重新挂接）；模型配置（内置 provider、OpenAI 兼容端点、额外请求头）；WebUI 会话页（SSE 流式）与模型设置；预算（D72）；subagent（前台/后台、`subagent_wait` / `list` / `cancel` / `decide`，父会话 agent 处理子会话审批，D75）；Auto Review；节点笔记；会话分享（view / chat）；停止会话时取消其任务和子会话；存储失败后重新打开 Harness；故障注入（工具执行中 SIGKILL、模型流式输出中 SIGKILL）与性能回归测试。
   - 真实模型冒烟（opencode zen `deepseek-v4.1-flash`）与 WebUI 浏览器走查手工完成，不在 CI 中。
+  - 已知缺口：预算不足时**不向上申请追加**，直接拒绝新输入（durable 1.4.0 没有请求前的拦截点，只能在响应后检查，D72）。审批已经按链向上传递，预算还没有。
