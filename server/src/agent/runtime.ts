@@ -868,27 +868,12 @@ export class AgentRuntime {
 
 	/** Wakes an idle handler with a follow-up input; a running one sees the request through afterTool. */
 	async #wakeQuota(handlerId: string, requestId: string): Promise<void> {
-		const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", handlerId).executeTakeFirst();
-		if (!row) return;
-		const conversation = await this.#harness.conversation(
-			Number(row.conversation_id) as unknown as ConversationId,
-			this.#context,
-		);
-		if (!conversation) return;
-		const state = await conversation.viewState(this.#context);
-		const live = state.value.docs["pi.live"] as { run?: unknown } | undefined;
-		state.dispose();
-		if (live?.run) return;
-		await conversation.submit(
-			{
-				type: "input",
-				content:
-					`A subagent is paused: its token quota is used up (request ${requestId}). ` +
-					`Check it with subagent_list, then subagent_decide("${requestId}", "approve", tokens: <positive integer>) ` +
-					'to add quota, or "deny" to stop it.',
-				requestId: `quota-request:${requestId}`,
-			},
-			this.#context,
+		await this.#wake(
+			handlerId,
+			`quota-request:${requestId}`,
+			`A subagent is paused: its token quota is used up (request ${requestId}). ` +
+				`Check it with subagent_list, then subagent_decide("${requestId}", "approve", tokens: <positive integer>) ` +
+				'to add quota, or "deny" to stop it.',
 		);
 	}
 
@@ -993,12 +978,32 @@ export class AgentRuntime {
 				console.error("agent runtime: waking for a subagent request failed:", err);
 			}
 		}
+		for (const request of await pendingQuotaRequests(this.#db)) {
+			if (!request.handlerSessionId) continue;
+			try {
+				await this.#wakeQuota(request.handlerSessionId, request.id);
+			} catch (err) {
+				console.error("agent runtime: waking for a quota request failed:", err);
+			}
+		}
 	}
 
 	/** Wakes an idle parent with a follow-up input; a running parent sees the request through afterTool. */
 	async #wakeParent(parent: Row, kind: "task" | "group", requestId: string): Promise<void> {
+		await this.#wake(
+			parent.id,
+			`agent-request:${kind}:${requestId}`,
+			`A subagent request is waiting for you: ${kind} ${requestId}. ` +
+				`Check it with subagent_list, then call subagent_decide("${requestId}", "approve" | "deny" | "escalate", reason?).`,
+		);
+	}
+
+	/** One wake path for every subagent request: a follow-up input to an idle handler. */
+	async #wake(handlerId: string, requestId: string, content: string): Promise<void> {
+		const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", handlerId).executeTakeFirst();
+		if (!row) return;
 		const conversation = await this.#harness.conversation(
-			Number(parent.conversation_id) as unknown as ConversationId,
+			Number(row.conversation_id) as unknown as ConversationId,
 			this.#context,
 		);
 		if (!conversation) return;
@@ -1006,13 +1011,7 @@ export class AgentRuntime {
 		const live = state.value.docs["pi.live"] as { run?: unknown } | undefined;
 		state.dispose();
 		if (live?.run) return;
-		const text =
-			`A subagent request is waiting for you: ${kind} ${requestId}. ` +
-			`Check it with subagent_list, then call subagent_decide("${requestId}", "approve" | "deny" | "escalate", reason?).`;
-		await conversation.submit(
-			{ type: "input", content: text, requestId: `agent-request:${kind}:${requestId}` },
-			this.#context,
-		);
+		await conversation.submit({ type: "input", content, requestId }, this.#context);
 	}
 
 	/** Waits for a submission to settle: the answer's text, or why it went unanswered. */

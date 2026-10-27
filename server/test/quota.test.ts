@@ -1,9 +1,14 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { fauxProvider } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import {
+	ensureQuotaRequest,
 	exhaustedLevel,
 	parseQuota,
 	pendingQuotaRequestsFor,
@@ -18,6 +23,8 @@ import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
+import { openDb } from "../src/storage/db.ts";
+import { migrateToLatest } from "../src/storage/migrate.ts";
 import { createUser } from "../src/users/service.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
@@ -173,6 +180,74 @@ it("the API refuses a quota on a root session and allows one on a subagent", asy
 	});
 	expect(patchChild.status).toBe(200);
 	expect((await runtime.getSession(c.id))?.quota).toBe(500);
+});
+
+it("wakes a quota handler after a restart", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "crh-quota-restart-"));
+	const localDb = openDb({ driver: "sqlite", path: join(dir, "crhs.db") });
+	await migrateToLatest(localDb);
+	const user = await createUser(localDb, { username: "owner", kind: "member", password: "password-123" });
+	const localOwner: SessionUser = { sessionId: "test", userId: user.id, username: user.username, kind: "member" };
+	const audit = new Audit(localDb);
+	const cluster = new Cluster(localDb, { audit });
+	const models = new ModelConfig(localDb, MasterKey.generate());
+	models.addProvider(faux.provider);
+	await models.reload();
+	const options = {
+		db: localDb,
+		models,
+		cluster,
+		groups: new TaskGroups(localDb, cluster, { audit }),
+		audit,
+	};
+	const first = await AgentRuntime.open({
+		...options,
+		storage: await openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" }),
+	});
+	let second: AgentRuntime | undefined;
+	try {
+		const r = await first.createSession(localOwner, { model: model(), preset: "yolo" });
+		const p = await first.createSubagent(r.id, {
+			callKey: "restart-parent",
+			task: "parent work",
+			rules: { default: "inherit", rules: [] },
+			quota: 1_000,
+		});
+		const c = await first.createSubagent(p.id, {
+			callKey: "restart-child",
+			task: "child work",
+			rules: { default: "inherit", rules: [] },
+			quota: 10,
+		});
+		await recordUsage(localDb, c.id, 20);
+		const request = await ensureQuotaRequest(localDb, {
+			sessionId: c.id,
+			levelId: c.id,
+			handlerSessionId: p.id,
+		});
+		faux.setResponses([fauxAssistantMessage([fauxText("noted")])]);
+		await first.close();
+		// A new process opens the same storage: the pending request wakes its handler.
+		second = await AgentRuntime.open({
+			...options,
+			storage: await openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" }),
+		});
+		let seen = "";
+		const stop = await second.watch(p.id, (events) => {
+			seen += JSON.stringify(events);
+		});
+		for (let i = 0; i < 40 && !seen.includes("token quota is used up"); i++) {
+			await new Promise((r) => setTimeout(r, 50));
+		}
+		stop();
+		expect(seen).toContain("token quota is used up");
+		expect(seen).toContain(request.id);
+	} finally {
+		await second?.close().catch(() => {});
+		await first.close().catch(() => {});
+		await localDb.destroy();
+		await rm(dir, { recursive: true, force: true });
+	}
 });
 
 async function waitFor<T>(what: string, probe: () => Promise<T | undefined>, timeoutMs = 5000): Promise<T> {
