@@ -89,13 +89,17 @@ export class AgentRuntime {
 	readonly #harness: Harness;
 	readonly #models: ModelConfig;
 	readonly #audit: Audit | undefined;
+	readonly #cluster: Cluster;
+	readonly #groups: TaskGroups;
 	readonly #context: Context = BACKGROUND_CONTEXT;
 
-	private constructor(db: Db, harness: Harness, models: ModelConfig, audit: Audit | undefined) {
-		this.#db = db;
+	private constructor(harness: Harness, options: AgentRuntimeOptions) {
+		this.#db = options.db;
 		this.#harness = harness;
-		this.#models = models;
-		this.#audit = audit;
+		this.#models = options.models;
+		this.#audit = options.audit;
+		this.#cluster = options.cluster;
+		this.#groups = options.groups;
 	}
 
 	static async open(options: AgentRuntimeOptions): Promise<AgentRuntime> {
@@ -115,7 +119,7 @@ export class AgentRuntime {
 			},
 			BACKGROUND_CONTEXT,
 		);
-		const runtime = new AgentRuntime(options.db, harness, options.models, options.audit);
+		const runtime = new AgentRuntime(harness, options);
 		harness.resume(); // runs and tool calls the last process left unfinished
 		return runtime;
 	}
@@ -247,9 +251,52 @@ export class AgentRuntime {
 	}
 
 	/** Stops the current run: queued inputs are withdrawn and running tool calls aborted. */
-	async abort(sessionId: string): Promise<void> {
+	async abort(sessionId: string, by?: SessionUser): Promise<void> {
 		const { conversation } = await this.#conversation(sessionId);
 		await conversation.abort(this.#context);
+		// Stopping means stopping the work too. This is done here, not on the tool's abort signal, which also fires
+		// when crhs shuts down: after a restart the call reattaches to its task instead.
+		const sessions = [sessionId, ...(await this.#descendants(sessionId))];
+		const decision = {
+			decision: "rejected" as const,
+			by: { type: "user", id: by?.userId ?? "system", ...(by ? { onBehalfOfUserId: by.userId } : {}) },
+			at: new Date().toISOString(),
+			reason: "the session was stopped",
+		};
+		for (const table of ["tasks", "task_groups"] as const) {
+			const rows = await this.#db
+				.selectFrom(table)
+				.select(["id", "state"])
+				.where("actor_id", "in", sessions)
+				.where("state", "in", ["awaiting_approval", "dispatched", "running"])
+				.execute();
+			for (const row of rows) {
+				if (row.state === "awaiting_approval") {
+					await (table === "tasks" ? this.#cluster.decide(row.id, decision) : this.#groups.decide(row.id, decision));
+				} else if (table === "tasks") {
+					await this.#cluster.cancelTask(row.id);
+				} else {
+					const tasks = await this.#db
+						.selectFrom("tasks")
+						.select("id")
+						.where("task_group_id", "=", row.id)
+						.where("state", "in", ["dispatched", "running"])
+						.execute();
+					for (const t of tasks) await this.#cluster.cancelTask(t.id);
+				}
+			}
+		}
+	}
+
+	async #descendants(sessionId: string): Promise<string[]> {
+		const children = await this.#db
+			.selectFrom("sessions")
+			.select("id")
+			.where("parent_session_id", "=", sessionId)
+			.execute();
+		const out: string[] = [];
+		for (const c of children) out.push(c.id, ...(await this.#descendants(c.id)));
+		return out;
 	}
 
 	async configure(

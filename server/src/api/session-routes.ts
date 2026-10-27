@@ -188,7 +188,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.post("/sessions/:id/abort", async (c) => {
 		const s = await owned(c, c.req.param("id"));
 		if (!s) return jsonError(c, 404, "no such session");
-		await runtime.abort(s.id);
+		await runtime.abort(s.id, c.get("user"));
 		return c.json({ ok: true });
 	});
 
