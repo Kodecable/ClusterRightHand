@@ -258,15 +258,66 @@ const listNodes = define({
 	},
 });
 
+/** Node notes shown by node_info are cut here; read_file gives the rest (doc/agent-runtime.md#节点笔记). */
+const NOTES_BYTES = 8 * 1024;
+
+/**
+ * The node's notes file, read through an ordinary (audited) file.read task, but only when the rules allow
+ * that read outright: node_info never leaves an approval request behind.
+ */
+async function readNotes(ctx: ToolContext, nodeId: string, path: string): Promise<Record<string, unknown>> {
+	const node = await getNode(ctx.db, nodeId);
+	if (node?.status !== "active") return { path, content: null, note: "the node is not active" };
+	const spec = create(TaskSpecSchema, {
+		kind: { case: "fileRead", value: { path, offset: 0n, limit: BigInt(NOTES_BYTES + 1) } },
+	});
+	if ((await ctx.cluster.evaluateFor(node, spec, ctx.chain)).result !== "allow") {
+		return { path, content: null, note: "reading it needs approval here; use read_file" };
+	}
+	const id = ctx.callKey ? derivedId(`notes:${ctx.callKey}`) : undefined;
+	const created = await ctx.cluster.createTask({
+		nodeId,
+		spec,
+		actor: ctx.actor,
+		chain: ctx.chain,
+		...(id ? { id } : {}),
+	});
+	const t = (await ctx.cluster.waitTask(created.id, 15_000, ctx.signal)) ?? created;
+	if (t.state !== "exited") {
+		const missing = t.errorCode === "not_found";
+		return {
+			path,
+			content: null,
+			note: missing ? "no notes yet; create the file with write_file" : `could not read: ${t.errorCode ?? t.state}`,
+		};
+	}
+	const text = t.stdoutHead;
+	const cut = Buffer.byteLength(text) > NOTES_BYTES;
+	return {
+		path,
+		content: cut
+			? Buffer.from(text)
+					.subarray(0, NOTES_BYTES)
+					.toString("utf8")
+					.replace(/\uFFFD+$/, "")
+			: text,
+		...(cut ? { truncated: `first ${NOTES_BYTES} bytes shown; read the whole file with read_file` } : {}),
+	};
+}
+
 const nodeInfo = define({
 	name: "node_info",
-	description: "Facts about one node: OS, kernel, architecture, init system, package manager, groups.",
+	description:
+		"Facts about one node (OS, kernel, architecture, init system, package managers, groups) and its notes: a " +
+		"Markdown file on the node that people and agents keep up to date. Edit the notes with edit_file/write_file.",
 	input: z.object({ node: nodeField }),
 	readOnly: true,
 	handler: async (args, ctx) => {
 		const node = (await listNodesForUser(ctx.db, ctx.user)).find((n) => n.name === args.node || n.id === args.node);
 		if (!node) throw new UserError(`no node ${args.node} that you can see`);
 		const row = await getNode(ctx.db, node.id);
+		const notesPath = (node.facts as { notesPath?: string } | null)?.notesPath;
+		const canRun = node.access !== "view";
 		return {
 			name: node.name,
 			id: node.id,
@@ -278,6 +329,7 @@ const nodeInfo = define({
 			last_seen_at: node.lastSeenAt,
 			facts: node.facts,
 			ssh: row?.transport === "ssh" ? { user: row.ssh_user, host: row.ssh_host } : undefined,
+			notes: notesPath && canRun ? await readNotes(ctx, node.id, notesPath) : notesPath ? { path: notesPath } : null,
 		};
 	},
 });

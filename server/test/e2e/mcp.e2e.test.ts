@@ -88,6 +88,42 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 		await client.close();
 	});
 
+	it("node_info returns the node's notes", async () => {
+		const client = await connect((await token("yolo")).token);
+		const before = await call(client, "node_info", { node: nodeName });
+		expect(before.notes).toMatchObject({ content: null, note: expect.stringContaining("no notes yet") });
+		const path = before.notes.path as string;
+		await call(client, "write_file", {
+			node: nodeName,
+			path,
+			content: "# web-1\n\nnginx config lives in /etc/nginx.\n",
+		});
+		const after = await call(client, "node_info", { node: nodeName });
+		expect(after.notes).toEqual({ path, content: "# web-1\n\nnginx config lives in /etc/nginx.\n" });
+		await client.close();
+	});
+
+	it("node_info does not read the notes when that would need approval", async () => {
+		const client = await connect((await token("ask")).token);
+		// ask allows reads, so the notes are read...
+		expect((await call(client, "node_info", { node: nodeName })).notes.content).toContain("nginx");
+		await client.close();
+		// ...but with a rule requiring approval for that path, node_info leaves it alone.
+		const t = await token("ask");
+		const path = (await env.crhs.api(`/api/nodes/${env.nodeId}`)).json.node.facts.notesPath;
+		await env.crhs.api(`/api/api-tokens/${t.id}/rules`, {
+			method: "PUT",
+			body: { rules: [{ action: "require-approval", method: "file.read", exact: path }] },
+		});
+		const strict = await connect(t.token);
+		expect((await call(strict, "node_info", { node: nodeName })).notes).toMatchObject({
+			content: null,
+			note: expect.stringContaining("approval"),
+		});
+		expect((await env.crhs.api("/api/approvals")).json.tasks).toEqual([]);
+		await strict.close();
+	});
+
 	it("waits for approval under ask, then finishes once the user approves", async () => {
 		const t = await token("ask");
 		const client = await connect(t.token);
