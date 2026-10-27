@@ -5,7 +5,7 @@ import { Badge, ErrorText, Loading } from "../components/Feedback.tsx";
 import { TaskFormFields } from "../components/TaskFormFields.tsx";
 import { stateKind, TaskResult } from "../components/TaskResult.tsx";
 import { errMsg, useLoad } from "../hooks.ts";
-import { buildTargets, formatTime, taskOutcome } from "../lib.ts";
+import { buildTargets, taskOutcome } from "../lib.ts";
 import { buildTaskRequest, emptyForm, type TaskForm } from "../taskForm.ts";
 
 const canOperate = (n: PublicNode) => n.status === "active" && n.access !== "view";
