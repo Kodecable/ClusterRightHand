@@ -82,9 +82,7 @@ export function TaskResult({ task }: { task: TaskView }) {
 					<>
 						<dt>Approval</dt>
 						<dd>
-							Waiting for approval
-							{task.approvalExpiresAt && <> until {formatTime(task.approvalExpiresAt)}</>}.{" "}
-							<a href={`#/approvals/tasks/${task.id}`}>Open approval page</a>
+							Waiting for approval. <a href={`#/approvals/tasks/${task.id}`}>Open approval page</a>
 						</dd>
 					</>
 				)}

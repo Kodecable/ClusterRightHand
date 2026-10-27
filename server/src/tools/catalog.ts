@@ -95,7 +95,6 @@ export function taskResult(t: TaskView, nodeName: string, ctx: ToolContext): Rec
 		out.approval = {
 			status: "waiting for the user's approval",
 			url: ctx.approvalUrl("task", t.id),
-			expires_at: t.approvalExpiresAt,
 			next: "call task_wait with this task_id to keep waiting",
 		};
 		return out;
@@ -133,7 +132,6 @@ function groupResult(g: TaskGroupView, names: Map<string, string>, ctx: ToolCont
 		out.approval = {
 			status: "waiting for the user's approval",
 			url: ctx.approvalUrl("task_group", g.id),
-			expires_at: g.approvalExpiresAt,
 			next: "call task_wait with this task_group_id to keep waiting",
 		};
 	}

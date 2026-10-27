@@ -23,8 +23,10 @@ export interface SshCredential {
 }
 
 /**
- * An ed25519 key pair that ssh2 can load again: about 1 in 250 keys ssh2 generates fail its own parser
- * ("Malformed OpenSSH private key"), and such a credential would never connect.
+ * An ed25519 key pair that ssh2 can load again. ssh2's keygen strips every leading zero byte of the DER
+ * BIT STRING, not just the unused-bits byte, so a public key starting with 0x00 (1 in 256) comes out
+ * 31 bytes long and both halves are unusable ("Malformed OpenSSH private key"; OpenSSH rejects them too).
+ * Upstream: https://github.com/mscdex/ssh2/issues/1514 — drop the retry once that is fixed.
  */
 export function generateKeyPair(comment: string): { private: string; public: string } {
 	for (let attempt = 0; attempt < 20; attempt++) {

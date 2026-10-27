@@ -57,7 +57,7 @@ secrets           (id, org_id, kind, ciphertext, created_at)          -- 用主�
 task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail_fast,
                    skipped json,                                      -- 因 fail_fast 或中断而未启动的节点
                    rule_chain json nullable, approval json nullable,  -- 一个任务组只审批一次
-                   approval_expires_at nullable, spec json nullable, timeout_ms nullable, pending_input nullable,
+                   spec json nullable, timeout_ms nullable, pending_input nullable,
                                                                       -- 等待审批时暂存要执行的内容
                    state[awaiting_approval|running|finished|interrupted|rejected],
                    actor_type, actor_id, on_behalf_of_user_id, created_at, finished_at)
@@ -69,7 +69,7 @@ tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json,
                    actor_type, actor_id, on_behalf_of_user_id,
                    rule_chain json nullable,                          -- 从根开始的规则链；用户本人操作时为空
                    approval json nullable,                            -- 规则判断记录（每一级），以及审批决定：结果、决定者、时间、理由
-                   approval_expires_at nullable, pending_input nullable, -- 等待审批时暂存的输入（base64）
+                   pending_input nullable,                            -- 等待审批时暂存的输入（base64）
                    authorization json nullable,                       -- M4：授权
                    created_at, dispatched_at, accepted_at, finished_at,
                    stdout_bytes, stderr_bytes,

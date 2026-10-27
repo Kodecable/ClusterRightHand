@@ -212,17 +212,6 @@ describe("approvals api (sqlite)", () => {
 		await cluster.decide(d.id, { decision: "rejected", by: { type: "user", id: "x" }, at: new Date().toISOString() });
 	});
 
-	it("expired approvals are rejected", async () => {
-		const tok = await newToken();
-		const t = await mkTask(tok, execSpec("slow"));
-		await cluster.expireApprovals();
-		expect((await task(t.id)).state).toBe("awaiting_approval");
-		await cluster.expireApprovals(new Date(Date.now() + 365 * 86_400_000));
-		const v = await task(t.id);
-		expect(v.state).toBe("rejected");
-		expect(v.errorCode).toBe("approval_expired");
-	});
-
 	it("file.read under ask is allowed without waiting", async () => {
 		const tok = await newToken();
 		const spec = create(TaskSpecSchema, { kind: { case: "fileRead", value: { path: "/etc/hostname" } } });

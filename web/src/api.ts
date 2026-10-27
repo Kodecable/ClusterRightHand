@@ -83,7 +83,7 @@ export interface Evaluation {
 	levels: LevelResult[];
 }
 export interface ApprovalDecision {
-	decision: "approved" | "rejected" | "expired";
+	decision: "approved" | "rejected";
 	by: { type: string; id: string; onBehalfOfUserId?: string };
 	at: string;
 	reason?: string;
@@ -164,7 +164,6 @@ export interface TaskView {
 	taskGroupId?: string | null;
 	ruleChain?: RuleRef[] | null;
 	approval?: ApprovalRecord | null;
-	approvalExpiresAt?: string | null;
 }
 export interface Directory {
 	users: { id: string; username: string; displayName: string }[];
@@ -200,7 +199,6 @@ export interface TaskGroupView {
 	kind?: string;
 	ruleChain?: RuleRef[] | null;
 	approval?: GroupApprovalRecord | null;
-	approvalExpiresAt?: string | null;
 	actorType?: string;
 	actorId?: string;
 	onBehalfOfUserId?: string;

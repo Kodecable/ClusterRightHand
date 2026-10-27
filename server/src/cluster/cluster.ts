@@ -51,7 +51,7 @@ export interface CreateTaskInput {
 
 /** How an approval was settled. */
 export interface ApprovalDecision {
-	decision: "approved" | "rejected" | "expired";
+	decision: "approved" | "rejected";
 	by: { type: string; id: string; onBehalfOfUserId?: string };
 	at: string;
 	reason?: string;
@@ -95,7 +95,6 @@ export interface TaskView {
 	taskGroupId: string | null;
 	ruleChain: RuleRef[] | null;
 	approval: ApprovalRecord | null;
-	approvalExpiresAt: string | null;
 }
 
 export interface ClusterOptions {
@@ -111,12 +110,9 @@ export interface ClusterOptions {
 	/** Resolves an SSH node's route (hosts, pinned keys, private key). Without it SSH nodes are offline. */
 	sshRoute?: (node: NodeRow) => Promise<SshRoute>;
 	audit?: Audit;
-	/** How long a task may wait for approval (default 24 h). */
-	approvalTtlMs?: number;
 }
 
 export const TERMINAL: ReadonlySet<TaskRowState> = new Set(["exited", "failed", "rejected", "unknown", "denied"]);
-export const DEFAULT_APPROVAL_TTL_MS = 24 * 3_600_000;
 const KINDS: Record<string, string> = {
 	exec: "exec",
 	fileRead: "file.read",
@@ -156,7 +152,6 @@ export class Cluster {
 	readonly #idleMs: number;
 	readonly #sshRoute: ClusterOptions["sshRoute"];
 	readonly #audit: Audit | undefined;
-	readonly #approvalTtlMs: number;
 	readonly #sshSessions = new Map<string, Promise<SshSession>>();
 	readonly #sshCancels = new Map<string, AbortController>();
 	readonly #links = new Map<string, NodeLink>();
@@ -173,7 +168,6 @@ export class Cluster {
 		this.#idleMs = options.idleTimeoutMs ?? 90_000;
 		this.#sshRoute = options.sshRoute;
 		this.#audit = options.audit;
-		this.#approvalTtlMs = options.approvalTtlMs ?? DEFAULT_APPROVAL_TTL_MS;
 	}
 
 	isConnected(nodeId: string): boolean {
@@ -477,7 +471,6 @@ export class Cluster {
 				late_result: null,
 				rule_chain: input.chain ? JSON.stringify(input.chain) : null,
 				approval: approval ? JSON.stringify(approval) : null,
-				approval_expires_at: waiting ? new Date(Date.now() + this.#approvalTtlMs).toISOString() : null,
 				pending_input: waiting && input.input ? Buffer.from(inputBytes).toString("base64") : null,
 			})
 			.execute();
@@ -597,9 +590,8 @@ export class Cluster {
 				.updateTable("tasks")
 				.set({
 					state: "rejected",
-					error_code: decision.decision === "expired" ? "approval_expired" : "approval_rejected",
-					error_message:
-						decision.reason ?? (decision.decision === "expired" ? "approval expired" : "approval rejected"),
+					error_code: "approval_rejected",
+					error_message: decision.reason ?? "approval rejected",
 					approval: JSON.stringify(record),
 					pending_input: null,
 					finished_at: now(),
@@ -660,19 +652,6 @@ export class Cluster {
 					}
 				});
 			}
-		}
-	}
-
-	/** Ends tasks whose approval wait ran out (rejected(approval_expired)). Task groups expire their own. */
-	async expireApprovals(at = new Date()): Promise<void> {
-		const rows = await this.#db
-			.selectFrom("tasks")
-			.select("id")
-			.where("state", "=", "awaiting_approval")
-			.where("approval_expires_at", "<", at.toISOString())
-			.execute();
-		for (const { id } of rows) {
-			await this.decide(id, { decision: "expired", by: { type: "system", id: "approval-expiry" }, at: now() });
 		}
 	}
 
@@ -979,7 +958,6 @@ function toView(row: Selectable<TasksTable>, live: LiveTask | undefined): TaskVi
 		taskGroupId: row.task_group_id,
 		ruleChain: row.rule_chain ? (JSON.parse(row.rule_chain) as RuleRef[]) : null,
 		approval: row.approval ? (JSON.parse(row.approval) as ApprovalRecord) : null,
-		approvalExpiresAt: row.approval_expires_at,
 	};
 }
 

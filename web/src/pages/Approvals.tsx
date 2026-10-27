@@ -185,8 +185,6 @@ function Card({ item, lookups, onSettled }: { item: Item; lookups: Lookups; onSe
 				)}
 				<dt>Requested</dt>
 				<dd>{formatTime(subject.createdAt)}</dd>
-				<dt>Expires</dt>
-				<dd>{formatTime(subject.approvalExpiresAt ?? null)}</dd>
 			</dl>
 			{evaluations.map((e) => (
 				<div key={e.label ?? "task"}>

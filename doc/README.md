@@ -125,3 +125,4 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D66 | crhs 的授权规则只有 `exact` / `prefix`，没有 `regex` | 规则在 crhs 事件循环中执行，回溯严重的正则能卡住整个服务；规则可能由 agent 编写 |
 | D67 | `allow file.write` 同时放行读；`deny` / `require-approval` 的 `file.write` 只匹配写 | 与 crha 的能力包含关系一致，又不让"禁止修改"变成"禁止查看" |
 | D68 | 工具定义（ToolCatalog）使用 zod v4 schema；MCP 用官方 SDK v2 的无状态 `createMcpHandler` | SDK 直接接受 zod；M3 的 durable 工具可以从同一个 schema 转换 |
+| D69 | 审批没有期限，不做定时清理；等待项只在用户决定、规则变化或 token 吊销时结束 | 审批是用户的决定，系统不替用户放弃；省掉定时任务 |

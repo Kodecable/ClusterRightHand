@@ -58,7 +58,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		// JSON [{ type, id }]: the rule chain from the root down; null for a user acting in person.
 		await db.schema.alterTable(table).addColumn("rule_chain", "text").execute();
 		await db.schema.alterTable(table).addColumn("approval", "text").execute();
-		await db.schema.alterTable(table).addColumn("approval_expires_at", "text").execute();
 		// Base64 input kept only while waiting for approval.
 		await db.schema.alterTable(table).addColumn("pending_input", "text").execute();
 	}
@@ -73,7 +72,7 @@ export async function down(db: Kysely<unknown>): Promise<void> {
 	await db.schema.alterTable("task_groups").dropColumn("timeout_ms").execute();
 	await db.schema.alterTable("task_groups").dropColumn("spec").execute();
 	for (const table of ["tasks", "task_groups"]) {
-		for (const col of ["pending_input", "approval_expires_at", "approval", "rule_chain"]) {
+		for (const col of ["pending_input", "approval", "rule_chain"]) {
 			await db.schema.alterTable(table).dropColumn(col).execute();
 		}
 	}

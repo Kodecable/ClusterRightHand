@@ -14,7 +14,6 @@ import {
 	type ApprovalDecision,
 	type Cluster,
 	type CreateTaskInput,
-	DEFAULT_APPROVAL_TTL_MS,
 	summarize,
 	type TaskView,
 	TERMINAL,
@@ -80,7 +79,6 @@ export interface TaskGroupView {
 	kind: string;
 	ruleChain: RuleRef[] | null;
 	approval: GroupApprovalRecord | null;
-	approvalExpiresAt: string | null;
 	actorType: string;
 	actorId: string;
 	onBehalfOfUserId: string;
@@ -101,16 +99,14 @@ export class TaskGroups {
 	readonly #db: Db;
 	readonly #cluster: Cluster;
 	readonly #audit: Audit | undefined;
-	readonly #approvalTtlMs: number;
 	readonly #running = new Map<string, Promise<void>>();
 	/** Resolved when a waiting group is settled. */
 	readonly #settled = new Map<string, Deferred>();
 
-	constructor(db: Db, cluster: Cluster, options: { audit?: Audit; approvalTtlMs?: number } = {}) {
+	constructor(db: Db, cluster: Cluster, options: { audit?: Audit } = {}) {
 		this.#db = db;
 		this.#cluster = cluster;
 		this.#audit = options.audit;
-		this.#approvalTtlMs = options.approvalTtlMs ?? DEFAULT_APPROVAL_TTL_MS;
 	}
 
 	/** Groups left running by a previous process can no longer start their remaining nodes. */
@@ -164,7 +160,6 @@ export class TaskGroups {
 				finished_at: null,
 				rule_chain: input.chain ? JSON.stringify(input.chain) : null,
 				approval: approval ? JSON.stringify(approval) : null,
-				approval_expires_at: waiting ? new Date(Date.now() + this.#approvalTtlMs).toISOString() : null,
 				pending_input: waiting && input.input ? Buffer.from(input.input).toString("base64") : null,
 				spec: JSON.stringify(toJson(TaskSpecSchema, input.spec)),
 				timeout_ms: input.timeoutMs ?? null,
@@ -311,18 +306,6 @@ export class TaskGroups {
 		}
 	}
 
-	async expireApprovals(at = new Date()): Promise<void> {
-		const rows = await this.#db
-			.selectFrom("task_groups")
-			.select("id")
-			.where("state", "=", "awaiting_approval")
-			.where("approval_expires_at", "<", at.toISOString())
-			.execute();
-		for (const { id } of rows) {
-			await this.decide(id, { decision: "expired", by: { type: "system", id: "approval-expiry" }, at: now() });
-		}
-	}
-
 	#inputFromRow(row: Selectable<TaskGroupsTable>): CreateTaskGroupInput {
 		return {
 			targets: JSON.parse(row.targets) as string[],
@@ -372,7 +355,6 @@ export class TaskGroups {
 			kind: row.kind,
 			ruleChain: row.rule_chain ? (JSON.parse(row.rule_chain) as RuleRef[]) : null,
 			approval: row.approval ? (JSON.parse(row.approval) as GroupApprovalRecord) : null,
-			approvalExpiresAt: row.approval_expires_at,
 			actorType: row.actor_type,
 			actorId: row.actor_id,
 			onBehalfOfUserId: row.on_behalf_of_user_id,

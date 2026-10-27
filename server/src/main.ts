@@ -171,14 +171,9 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		if (!agents.handleUpgrade(req, socket, head)) socket.destroy();
 	});
 	const sweep = setInterval(() => void deleteExpiredWebSessions(db), 60 * 60 * 1000);
-	const expire = setInterval(() => {
-		void cluster.expireApprovals();
-		void taskGroups.expireApprovals();
-	}, 60 * 1000);
 	for (const signal of ["SIGINT", "SIGTERM"] as const) {
 		process.once(signal, () => {
 			clearInterval(sweep);
-			clearInterval(expire);
 			cluster.close();
 			agents.close();
 			server.close();

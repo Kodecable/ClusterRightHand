@@ -139,7 +139,6 @@ interface ApprovalColumns {
 	rule_chain: string | null;
 	/** JSON ApprovalRecord: the evaluation, then the decision. */
 	approval: string | null;
-	approval_expires_at: string | null;
 	/** Base64 input, kept only while waiting for approval. */
 	pending_input: string | null;
 }

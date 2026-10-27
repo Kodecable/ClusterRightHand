@@ -25,9 +25,7 @@ function GroupResult({ group, names }: { group: TaskGroupView; names: Map<string
 			</h2>
 			{group.state === "awaiting_approval" && (
 				<p>
-					Waiting for approval
-					{group.approvalExpiresAt && <> until {formatTime(group.approvalExpiresAt)}</>}.{" "}
-					<a href={`#/approvals/task-groups/${group.id}`}>Open approval page</a>
+					Waiting for approval. <a href={`#/approvals/task-groups/${group.id}`}>Open approval page</a>
 				</p>
 			)}
 			{group.state === "rejected" && group.approval?.decision && <DecisionView decision={group.approval.decision} />}
