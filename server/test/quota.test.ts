@@ -240,6 +240,44 @@ it("a second pause on the same level wakes the parent again", async () => {
 	}
 });
 
+it("flushes a quota wake when a running parent becomes idle", async () => {
+	const r = await root();
+	const p = await child(r.id, "idle-flush-p", null);
+	const c = await child(p.id, "idle-flush-c", 10);
+	await recordUsage(db, c.id, 20);
+	let parentStarted!: () => void;
+	const started = new Promise<void>((resolve) => {
+		parentStarted = resolve;
+	});
+	faux.setResponses([
+		async () => {
+			parentStarted();
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			return fauxAssistantMessage([fauxText("parent done")]);
+		},
+		fauxAssistantMessage([fauxToolCall("exec", { node: "missing", cmd: "true" }, { id: "idle-q1" })], {
+			stopReason: "toolUse",
+		}),
+		fauxAssistantMessage([fauxText("wake handled")]),
+	]);
+	let seen = "";
+	const stop = await runtime.watch(p.id, (events) => {
+		seen += JSON.stringify(events);
+	});
+	try {
+		await runtime.submit(p.id, owner, "be busy for a moment", "idle-flush-parent");
+		await started;
+		// The parent is live; the quota request must be queued, not dropped, and delivered when the run ends.
+		await runtime.startSubagent(c.id, "work", "idle-flush-child");
+		await waitFor("the flushed wake", async () => (seen.includes("token quota is used up") ? true : undefined));
+		expect(faux.getPendingResponseCount()).toBe(0);
+		expect(await runtime.decideAgentRequest(p.id, c.id, "approve", undefined, 1_000)).toBe("quota");
+	} finally {
+		stop();
+		await runtime.abort(r.id).catch(() => {});
+	}
+});
+
 it("an exhausted ancestor's request goes to its own direct parent", async () => {
 	const r = await root();
 	const p = await child(r.id, "anc-p", 100);

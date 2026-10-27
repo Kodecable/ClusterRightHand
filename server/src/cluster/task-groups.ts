@@ -112,6 +112,8 @@ export class TaskGroups {
 	readonly #running = new Map<string, Promise<void>>();
 	/** Called once for every group that starts waiting for approval (Auto Review hooks in here). */
 	onAwaitingApproval: ((group: TaskGroupView) => Promise<void>) | undefined;
+	/** Called after a group starts waiting or its approval state/handler changes (the runtime refreshes its inbox). */
+	onChange: (() => void) | undefined;
 	/** Resolved when a waiting group is settled. */
 	readonly #settled = new Map<string, Deferred>();
 
@@ -195,6 +197,7 @@ export class TaskGroups {
 			},
 		});
 		if (waiting) {
+			this.onChange?.();
 			// Denied nodes get their (denied) task now, so the group shows why they will not run.
 			for (const n of approval?.nodes ?? []) {
 				if (n.evaluation.result === "deny") await this.#cluster.createTask(this.#taskInput(input, id, n.nodeId));
@@ -282,6 +285,7 @@ export class TaskGroups {
 			.where("state", "=", "awaiting_approval")
 			.executeTakeFirst();
 		if (res.numUpdatedRows === 0n) return false;
+		this.onChange?.();
 		void this.#audit?.record({
 			actor: {
 				type: decision.by.type,
@@ -334,6 +338,7 @@ export class TaskGroups {
 			.where("state", "=", "awaiting_approval")
 			.executeTakeFirst();
 		if (res.numUpdatedRows === 0n) return false;
+		this.onChange?.();
 		void this.#audit?.record({
 			actor: { type: "system", id: "agent-routing" },
 			action: "task_group.agent_request",
@@ -358,6 +363,7 @@ export class TaskGroups {
 			.where("state", "=", "awaiting_approval")
 			.executeTakeFirst();
 		if (res.numUpdatedRows === 0n) return false;
+		this.onChange?.();
 		void this.#audit?.record({
 			actor: { type: "system", id: "agent-routing" },
 			action: "task_group.agent_escalated",
@@ -402,6 +408,7 @@ export class TaskGroups {
 				});
 			}
 		}
+		this.onChange?.();
 	}
 
 	#inputFromRow(row: Selectable<TaskGroupsTable>): CreateTaskGroupInput {

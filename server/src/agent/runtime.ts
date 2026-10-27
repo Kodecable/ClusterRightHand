@@ -106,6 +106,30 @@ export interface AgentRequestView {
 	createdAt: string;
 }
 
+/** Requests waiting for one handler's agent, loaded from the database and invalidated on approval changes. */
+interface Inbox {
+	requests: Map<string, AgentRequestView>;
+	loaded: boolean;
+	/** Resolved when the pending set may have changed; `waitSubagent` uses this instead of polling. */
+	waiters: Set<() => void>;
+}
+
+function requestKey(request: AgentRequestView): string {
+	return `${request.kind}:${request.id}`;
+}
+
+/** Request key behind a wake request id, for checking that the request is still pending before flushing. */
+function wakeRequestKey(requestId: string): string | undefined {
+	if (requestId.startsWith("agent-request:task:")) return `task:${requestId.slice("agent-request:task:".length)}`;
+	if (requestId.startsWith("agent-request:group:")) return `group:${requestId.slice("agent-request:group:".length)}`;
+	if (requestId.startsWith("quota-request:")) {
+		const rest = requestId.slice("quota-request:".length);
+		const end = rest.indexOf(":");
+		if (end > 0) return `quota:${rest.slice(0, end)}`;
+	}
+	return undefined;
+}
+
 /** What a UI receives: a snapshot to start from, then batches of events (pi-durable's agent events, for now). */
 export type SessionEvent = AgentEvent;
 
@@ -175,6 +199,14 @@ export class AgentRuntime {
 	>();
 	/** Sessions known to have subagents; checked once per session, then cheap. */
 	#subagentParents = new Set<string>();
+	/** Pending requests by handler, a cache over tasks/task_groups/quota waits. */
+	#inboxes = new Map<string, Inbox>();
+	/** Waiters for a quota wait's session; grant/deny/abort/quota edit wakes them. */
+	#quotaWaiters = new Map<string, Set<() => void>>();
+	/** Follow-up inputs held while the handler runs; flushed once it is idle. */
+	#pendingWakes = new Map<string, Map<string, string>>();
+	/** Handlers with a `waitForIdle` observer attached. */
+	#idleWatchers = new Set<string>();
 
 	private constructor(harness: Harness, options: AgentRuntimeOptions) {
 		this.#db = options.db;
@@ -229,6 +261,9 @@ export class AgentRuntime {
 			await runtime.#routeAwaiting("group", group.actorId, group.id, group.approval);
 			await runtime.refreshState(group.actorId);
 		};
+		// The cluster owns the durable approval rows; the runtime only caches the request lists and waiters.
+		options.cluster.onChange = () => runtime.#invalidateInboxes();
+		options.groups.onChange = () => runtime.#invalidateInboxes();
 		runtime.#supervise();
 		// A restart may have queued nothing for requests that were already waiting: wake idle parents now.
 		await runtime.#wakePendingAgents();
@@ -244,6 +279,7 @@ export class AgentRuntime {
 				await new Promise((r) => setTimeout(r, Math.min(30_000, 500 * 2 ** attempt)));
 				try {
 					this.#harness = await AgentRuntime.#openHarness(this.#options, this.#runtimeRef);
+					this.#invalidateInboxes();
 					this.reopened++;
 					this.#supervise();
 					return;
@@ -444,6 +480,9 @@ export class AgentRuntime {
 			}
 		}
 		await markSessionsStopped(this.#db, sessions);
+		this.#notifyQuotaWaiters();
+		this.#invalidateInboxes();
+		for (const id of sessions) this.#pendingWakes.delete(id);
 		// Subagents are ownerless conversations, so their abort is explicit (doc/agent-runtime.md#abort).
 		for (const id of sessions.slice(1)) {
 			const row = await this.#db
@@ -493,6 +532,8 @@ export class AgentRuntime {
 			if (row.parent_session_id === null)
 				throw new UserError("a root session has no quota; give one to a subagent instead");
 			await setQuota(this.#db, sessionId, change.quota);
+			this.#notifyQuotaWaiters();
+			this.#invalidateInboxes();
 		}
 		await this.#db
 			.updateTable("sessions")
@@ -669,7 +710,11 @@ export class AgentRuntime {
 		});
 		void submission
 			.wait(this.#context)
-			.then(() => setSessionState(this.#db, childId, "stopped", null))
+			.then(async () => {
+				// A stopped session is a handler only if it runs again; drop its request cache.
+				this.#inboxes.delete(childId);
+				await setSessionState(this.#db, childId, "stopped", null);
+			})
 			.catch(() => {});
 		return String(submission.id);
 	}
@@ -696,25 +741,12 @@ export class AgentRuntime {
 		const settled = submission.wait(context);
 		if (!options.attention) return this.#answerOf(childId, await settled);
 
-		let stopped = false;
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		const attention = new Promise<AgentRequestView[]>((resolve) => {
-			const poll = async () => {
-				if (stopped) return;
-				try {
-					const requests = await this.pendingAgentRequests(row.parent_session_id ?? childId);
-					if (requests.length > 0) return resolve(requests);
-				} catch {}
-				if (!stopped) timer = setTimeout(poll, 300);
-			};
-			timer = setTimeout(poll, 300);
-		});
-		const first = await Promise.race([
-			settled.then((s) => ({ kind: "settled" as const, s })),
-			attention.then((requests) => ({ kind: "attention" as const, requests })),
-		]);
-		stopped = true;
-		if (timer) clearTimeout(timer);
+		const abort = new AbortController();
+		const attentionRun = this.#nextRequests(row.parent_session_id ?? childId, abort.signal);
+		void attentionRun.catch(() => {});
+		const attention = attentionRun.then((requests) => ({ kind: "attention" as const, requests }));
+		const first = await Promise.race([settled.then((s) => ({ kind: "settled" as const, s })), attention]);
+		abort.abort();
 		if (first.kind === "attention") {
 			void settled.catch(() => {});
 			return { status: "attention", requests: first.requests };
@@ -747,13 +779,40 @@ export class AgentRuntime {
 
 	/** Requests waiting for this session's agent (doc/access-control.md#审批). */
 	async pendingAgentRequests(sessionId: string): Promise<AgentRequestView[]> {
+		const inbox = await this.#ensureInbox(sessionId);
+		return [...inbox.requests.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+	}
+
+	#inboxOf(handlerId: string): Inbox {
+		let inbox = this.#inboxes.get(handlerId);
+		if (!inbox) {
+			inbox = { requests: new Map(), loaded: false, waiters: new Set() };
+			this.#inboxes.set(handlerId, inbox);
+		}
+		return inbox;
+	}
+
+	async #ensureInbox(handlerId: string): Promise<Inbox> {
+		for (;;) {
+			const inbox = this.#inboxOf(handlerId);
+			if (inbox.loaded) return inbox;
+			const requests = await this.#queryRequests(handlerId);
+			// An approval change during the read deleted the entry; load the replacement instead of caching stale data.
+			if (this.#inboxes.get(handlerId) !== inbox) continue;
+			inbox.requests = new Map(requests.map((request) => [requestKey(request), request]));
+			inbox.loaded = true;
+			return inbox;
+		}
+	}
+
+	async #queryRequests(handlerId: string): Promise<AgentRequestView[]> {
 		const out: AgentRequestView[] = [];
 		const tasks = await this.#db
 			.selectFrom("tasks")
 			.select(["id", "actor_id", "node_id", "spec", "created_at"])
 			.where("state", "=", "awaiting_approval")
 			.where("handler_type", "=", "agent")
-			.where("handler_session_id", "=", sessionId)
+			.where("handler_session_id", "=", handlerId)
 			.execute();
 		for (const row of tasks) {
 			out.push({
@@ -770,7 +829,7 @@ export class AgentRuntime {
 			.select(["id", "actor_id", "spec", "created_at"])
 			.where("state", "=", "awaiting_approval")
 			.where("handler_type", "=", "agent")
-			.where("handler_session_id", "=", sessionId)
+			.where("handler_session_id", "=", handlerId)
 			.execute();
 		for (const row of groups) {
 			out.push({
@@ -782,7 +841,7 @@ export class AgentRuntime {
 				createdAt: row.created_at,
 			});
 		}
-		for (const wait of await awaitingQuotaChildren(this.#db, sessionId)) {
+		for (const wait of await awaitingQuotaChildren(this.#db, handlerId)) {
 			out.push({
 				kind: "quota",
 				id: wait.sessionId,
@@ -792,7 +851,45 @@ export class AgentRuntime {
 				createdAt: wait.since,
 			});
 		}
-		return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+		return out;
+	}
+
+	/** Drops cached request lists and wakes `waitSubagent`; the cluster calls this on any approval change. */
+	#invalidateInboxes(): void {
+		for (const [handlerId, inbox] of [...this.#inboxes]) {
+			for (const wake of inbox.waiters) wake();
+			inbox.waiters.clear();
+			// Caches are cheap to rebuild; dropping them keeps stopped handlers out of memory.
+			this.#inboxes.delete(handlerId);
+		}
+	}
+
+	/** Resolves with the handler's next pending requests; no polling (the inbox notifies it). */
+	async #nextRequests(handlerId: string, signal: AbortSignal): Promise<AgentRequestView[]> {
+		for (;;) {
+			if (signal.aborted) throw new Error("aborted");
+			const inbox = this.#inboxOf(handlerId);
+			let resolve!: () => void;
+			const changed = new Promise<void>((r) => {
+				resolve = r;
+				inbox.waiters.add(r);
+			});
+			let onAbort: (() => void) | undefined;
+			const aborted = new Promise<"aborted">((r) => {
+				onAbort = () => r("aborted");
+				if (signal.aborted) onAbort();
+				else signal.addEventListener("abort", onAbort, { once: true });
+			});
+			try {
+				const requests = await this.pendingAgentRequests(handlerId);
+				if (requests.length > 0) return requests;
+				const outcome = await Promise.race([changed.then(() => "changed" as const), aborted]);
+				if (outcome === "aborted") throw new Error("aborted");
+			} finally {
+				inbox.waiters.delete(resolve);
+				if (onAbort) signal.removeEventListener("abort", onAbort);
+			}
+		}
 	}
 
 	/** The agent of `sessionId` settles a request it owns: approve, deny, or pass it on to the user. */
@@ -833,6 +930,7 @@ export class AgentRuntime {
 				});
 				if (!ok) throw new UserError("the request is no longer waiting");
 			}
+			this.#dropWake(sessionId, `agent-request:task:${requestId}`);
 			await this.refreshState(task.actor_id);
 			return "task";
 		}
@@ -859,6 +957,9 @@ export class AgentRuntime {
 				target: { type: "session", id: requestId },
 				detail: { level: levelId, ...(reason ? { reason } : {}), ...(tokens ? { tokens } : {}) },
 			});
+			this.#dropWakePrefix(sessionId, `quota-request:${requestId}:`);
+			this.#notifyQuotaWaiters();
+			this.#invalidateInboxes();
 			// A denial already left the session stopped; do not recompute it while the paused tool is still live.
 			if (decision !== "deny") await this.refreshState(requestId);
 			return "quota";
@@ -885,6 +986,7 @@ export class AgentRuntime {
 			});
 			if (!ok) throw new UserError("the request is no longer waiting");
 		}
+		this.#dropWake(sessionId, `agent-request:group:${requestId}`);
 		await this.refreshState(group.actor_id);
 		return "group";
 	}
@@ -896,20 +998,57 @@ export class AgentRuntime {
 	 */
 	async waitForQuota(sessionId: string, context: Context): Promise<"ok" | "denied"> {
 		for (;;) {
-			// A denied wait (or an abort) set `stopped`: end the paused call before writing `awaiting` again.
-			if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
-			const level = await exhaustedLevel(this.#db, sessionId);
-			if (!level) {
-				await setSessionState(this.#db, sessionId, "active", null);
-				return "ok";
+			const waiter = this.#quotaWaiter(sessionId, context.abortSignal);
+			try {
+				// A denied wait (or an abort) set `stopped`: end the paused call before writing `awaiting` again.
+				if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
+				const level = await exhaustedLevel(this.#db, sessionId);
+				if (!level) {
+					await setSessionState(this.#db, sessionId, "active", null);
+					return "ok";
+				}
+				const parent = await this.#parentOf(level);
+				const since = await setSessionState(this.#db, sessionId, "awaiting", level);
+				// A deny/abort could have landed between the check and the write; do not wake for a stopped wait.
+				if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
+				// The parent's inbox cache must see the new quota request.
+				this.#invalidateInboxes();
+				if (parent) await this.#wakeQuota(parent, sessionId, level, since);
+				// Grant/deny/abort/quota edit resolves this; the next loop re-checks the durable state.
+				await waiter.promise;
+				if (context.abortSignal?.aborted) throw new Error("the quota wait was aborted");
+			} finally {
+				waiter.cancel();
 			}
-			const parent = await this.#parentOf(level);
-			const since = await setSessionState(this.#db, sessionId, "awaiting", level);
-			if (parent) await this.#wakeQuota(parent, sessionId, level, since);
-			await new Promise((r) => setTimeout(r, 300));
-			if (context.abortSignal?.aborted) throw new Error("the quota wait was aborted");
-			if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
 		}
+	}
+
+	/** Resolves when the quota wait may have changed (grant, deny, abort, or a quota edit). */
+	#quotaWaiter(sessionId: string, signal: AbortSignal | undefined): { promise: Promise<void>; cancel: () => void } {
+		let resolve!: () => void;
+		const promise = new Promise<void>((r) => {
+			resolve = r;
+		});
+		const waiters = this.#quotaWaiters.get(sessionId) ?? new Set<() => void>();
+		waiters.add(resolve);
+		this.#quotaWaiters.set(sessionId, waiters);
+		const onAbort = () => resolve();
+		if (signal) {
+			if (signal.aborted) resolve();
+			else signal.addEventListener("abort", onAbort, { once: true });
+		}
+		return {
+			promise,
+			cancel: () => {
+				waiters.delete(resolve);
+				if (waiters.size === 0) this.#quotaWaiters.delete(sessionId);
+				signal?.removeEventListener("abort", onAbort);
+			},
+		};
+	}
+
+	#notifyQuotaWaiters(): void {
+		for (const waiters of this.#quotaWaiters.values()) for (const wake of waiters) wake();
 	}
 
 	/**
@@ -992,7 +1131,6 @@ export class AgentRuntime {
 			pending: AgentRequestView[];
 		}[]
 	> {
-		const pending = await this.pendingAgentRequests(sessionId);
 		const rows = await this.#db
 			.selectFrom("sessions")
 			.selectAll()
@@ -1001,6 +1139,7 @@ export class AgentRuntime {
 			.execute();
 		const states = new Map<string, SessionState>();
 		for (const r of rows) states.set(r.id, await this.refreshState(r.id));
+		const pending = await this.pendingAgentRequests(sessionId);
 		return rows.map((r) => ({
 			id: r.id,
 			title: r.title,
@@ -1128,7 +1267,7 @@ export class AgentRuntime {
 		);
 	}
 
-	/** One wake path for every subagent request: a follow-up input to an idle handler. */
+	/** One wake path for every subagent request: a follow-up input to an idle handler, or one queued until idle. */
 	async #wake(handlerId: string, requestId: string, content: string): Promise<void> {
 		const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", handlerId).executeTakeFirst();
 		if (!row) return;
@@ -1140,9 +1279,108 @@ export class AgentRuntime {
 		const state = await conversation.viewState(this.#context);
 		const live = state.value.docs["pi.live"] as { run?: unknown } | undefined;
 		state.dispose();
-		if (live?.run) return;
+		if (live?.run) {
+			// The handler is running; afterTool shows the request. If it ends without handling it, flush the wake.
+			this.#queueWake(handlerId, requestId, content);
+			this.#watchIdle(handlerId);
+			return;
+		}
+		this.#dropWake(handlerId, requestId);
+		await this.#submitWake(handlerId, requestId, content);
+	}
+
+	async #submitWake(handlerId: string, requestId: string, content: string): Promise<void> {
+		const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", handlerId).executeTakeFirst();
+		if (!row) return;
+		const conversation = await this.#harness.conversation(
+			Number(row.conversation_id) as unknown as ConversationId,
+			this.#context,
+		);
+		if (!conversation) return;
 		const submission = await conversation.submit({ type: "input", content, requestId }, this.#context);
 		await this.#reviveOnInput(handlerId, submission);
+	}
+
+	#queueWake(handlerId: string, requestId: string, content: string): void {
+		const wakes = this.#pendingWakes.get(handlerId) ?? new Map<string, string>();
+		wakes.set(requestId, content);
+		this.#pendingWakes.set(handlerId, wakes);
+	}
+
+	#dropWake(handlerId: string, requestId: string): void {
+		const wakes = this.#pendingWakes.get(handlerId);
+		if (!wakes) return;
+		wakes.delete(requestId);
+		if (wakes.size === 0) this.#pendingWakes.delete(handlerId);
+	}
+
+	#dropWakePrefix(handlerId: string, prefix: string): void {
+		const wakes = this.#pendingWakes.get(handlerId);
+		if (!wakes) return;
+		for (const requestId of wakes.keys()) if (requestId.startsWith(prefix)) wakes.delete(requestId);
+		if (wakes.size === 0) this.#pendingWakes.delete(handlerId);
+	}
+
+	/** Watches a running handler once; `waitForIdle` resolves when its own run ends, not by polling. */
+	#watchIdle(handlerId: string): void {
+		if (this.#idleWatchers.has(handlerId)) return;
+		this.#idleWatchers.add(handlerId);
+		void (async () => {
+			try {
+				const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", handlerId).executeTakeFirst();
+				if (!row) return;
+				const conversation = await this.#harness.conversation(
+					Number(row.conversation_id) as unknown as ConversationId,
+					this.#context,
+				);
+				if (!conversation) return;
+				await conversation.waitForIdle(this.#context);
+			} finally {
+				this.#idleWatchers.delete(handlerId);
+			}
+			await this.#flushWakes(handlerId);
+		})().catch((err: unknown) => {
+			this.#idleWatchers.delete(handlerId);
+			console.error("agent runtime: flushing a subagent wake failed:", err);
+		});
+	}
+
+	async #flushWakes(handlerId: string): Promise<void> {
+		const wakes = this.#pendingWakes.get(handlerId);
+		if (!wakes?.size) return;
+		const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", handlerId).executeTakeFirst();
+		if (!row) {
+			this.#pendingWakes.delete(handlerId);
+			return;
+		}
+		const conversation = await this.#harness.conversation(
+			Number(row.conversation_id) as unknown as ConversationId,
+			this.#context,
+		);
+		if (!conversation) {
+			this.#pendingWakes.delete(handlerId);
+			return;
+		}
+		const state = await conversation.viewState(this.#context);
+		const live = state.value.docs["pi.live"] as { run?: unknown } | undefined;
+		state.dispose();
+		if (live?.run) {
+			// A new run started between idle and the flush; wait for that one too.
+			this.#watchIdle(handlerId);
+			return;
+		}
+		// A rule change, token revoke or a decision may have settled the request after it was queued.
+		const pending = new Set((await this.pendingAgentRequests(handlerId)).map(requestKey));
+		this.#pendingWakes.delete(handlerId);
+		for (const [requestId, content] of wakes) {
+			const key = wakeRequestKey(requestId);
+			if (key && !pending.has(key)) continue;
+			try {
+				await this.#submitWake(handlerId, requestId, content);
+			} catch (err) {
+				console.error("agent runtime: waking a subagent handler failed:", err);
+			}
+		}
 	}
 
 	/** Waits for a submission to settle: the answer's text, or why it went unanswered. */

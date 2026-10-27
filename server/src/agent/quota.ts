@@ -188,6 +188,8 @@ export async function setSessionState(
 		.where("id", "=", sessionId)
 		.executeTakeFirst();
 	if (!row) return "";
+	// A stopped session is revived only by a new input, never by a wait being written again.
+	if (state === "awaiting" && row.state === "stopped") return row.state_changed_at ?? "";
 	// A quota wait is handled by the exhausted level's direct parent; store it so the handler can find it.
 	let handlerId: string | null = null;
 	if (state === "awaiting" && levelId) {
