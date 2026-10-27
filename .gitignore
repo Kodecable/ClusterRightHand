@@ -11,3 +11,6 @@ coverage/
 /client/bin/
 /build/
 .DS_Store
+.playwright-mcp/
+/web/test-results/
+/web/playwright-report/

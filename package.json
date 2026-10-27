@@ -13,7 +13,8 @@
 		"test": "pnpm -r run test && pnpm test:go",
 		"test:e2e": "pnpm --filter @crh/server test:e2e",
 		"test:go": "cd client && go test ./...",
-		"gen:proto": "buf lint && buf generate"
+		"gen:proto": "buf lint && buf generate",
+		"test:ui": "pnpm --filter @crh/web test:ui"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.6.3",

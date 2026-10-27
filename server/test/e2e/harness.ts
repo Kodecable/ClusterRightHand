@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { serve } from "@hono/node-server";
-import { createApp } from "../../src/api/app.ts";
+import { type AppOptions, createApp } from "../../src/api/app.ts";
 import { LoginLimiter } from "../../src/auth/login-limiter.ts";
 import { AgentServer } from "../../src/cluster/agent-server.ts";
 import { Cluster, type ClusterOptions } from "../../src/cluster/cluster.ts";
@@ -70,6 +70,7 @@ export class InProcessCrhs {
 	readonly db: Db;
 	readonly masterKey = MasterKey.generate();
 	readonly clusterOptions: ClusterOptions;
+	readonly appOptions: Partial<AppOptions>;
 	identity!: ServerIdentity;
 	cluster!: Cluster;
 	port = 0;
@@ -77,13 +78,15 @@ export class InProcessCrhs {
 	#agents!: AgentServer;
 	#server?: ReturnType<typeof serve>;
 
-	private constructor(db: Db, clusterOptions: ClusterOptions) {
+	private constructor(db: Db, clusterOptions: ClusterOptions, appOptions: Partial<AppOptions>) {
 		this.db = db;
 		this.clusterOptions = clusterOptions;
+		this.appOptions = appOptions;
 	}
 
-	static async create(opts: ClusterOptions = {}): Promise<InProcessCrhs> {
-		const crhs = new InProcessCrhs(await openTestDb("sqlite"), opts);
+	/** `appOptions` adds to the createApp options (e.g. webRoot for the WebUI tests). */
+	static async create(opts: ClusterOptions = {}, appOptions: Partial<AppOptions> = {}): Promise<InProcessCrhs> {
+		const crhs = new InProcessCrhs(await openTestDb("sqlite"), opts, appOptions);
 		crhs.identity = await loadServerIdentity(crhs.db, crhs.masterKey);
 		await crhs.#listen(0);
 		return crhs;
@@ -100,7 +103,9 @@ export class InProcessCrhs {
 			serverFingerprint: this.identity.fingerprint,
 			serverPublicKey: this.identity.keyPair.publicKey,
 			cluster: this.cluster,
+			masterKey: this.masterKey,
 			limiter: new LoginLimiter(),
+			...this.appOptions,
 		});
 		const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
 		server.on("upgrade", (req, socket, head) => {
@@ -210,11 +215,16 @@ export class Env {
 	#crha?: ChildProcess;
 	crhaLog = "";
 
-	static async create(bin: string, dir: string, opts: ClusterOptions = {}): Promise<Env> {
+	static async create(
+		bin: string,
+		dir: string,
+		opts: ClusterOptions = {},
+		appOptions: Partial<AppOptions> = {},
+	): Promise<Env> {
 		const env = new Env();
 		env.bin = bin;
 		env.dir = await mkdtemp(join(dir, "env-"));
-		env.crhs = await InProcessCrhs.create(opts);
+		env.crhs = await InProcessCrhs.create(opts, appOptions);
 		await env.crhs.loginAdmin();
 		await writeFile(join(env.dir, "crha.toml"), `server = "${env.crhs.url}"\nstate_dir = "${join(env.dir, "crha")}"\n`);
 		env.configPath = join(env.dir, "crha.toml");
