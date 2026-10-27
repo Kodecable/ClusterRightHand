@@ -118,6 +118,11 @@ model_providers   (id, org_id, provider_id, kind[builtin|openai-compatible], bui
 ## 计划任务
 
 ```
+quota_requests    (id, org_id, session_id,        -- 暂停等待配额的会话
+                   level_id,                     -- 余额不足、要增加的那一级
+                   handler_session_id nullable,  -- 处理它的祖先会话的 agent；null 表示所有者
+                   state[pending|granted|denied|cancelled], granted_tokens, created_at, resolved_at)
+
 schedules         (id, org_id, owner_user_id, name, kind[command|agent],
                    spec json,                         -- command：任务规格 + 目标（节点和组）；agent：提示词 + 会话策略
                    cron, timezone, misfire[skip|run_once], overlap[skip|allow],

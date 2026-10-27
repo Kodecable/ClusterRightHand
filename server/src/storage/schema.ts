@@ -266,6 +266,21 @@ export interface SessionsTable {
 	used_tokens: ColumnType<string | number, string | number | undefined, string | number>;
 }
 
+export interface QuotaRequestsTable {
+	id: string;
+	org_id: string;
+	/** The paused session whose tool call waits. */
+	session_id: string;
+	/** The exhausted level to top up (the session itself or an ancestor). */
+	level_id: string;
+	/** The ancestor session whose agent decides; null: the owner. */
+	handler_session_id: string | null;
+	state: "pending" | "granted" | "denied" | "cancelled";
+	granted_tokens: number | null;
+	created_at: CreatedAt;
+	resolved_at: string | null;
+}
+
 export interface ModelProvidersTable {
 	id: string;
 	org_id: string;
@@ -313,4 +328,5 @@ export interface Database {
 	audit_events: AuditEventsTable;
 	sessions: SessionsTable;
 	model_providers: ModelProvidersTable;
+	quota_requests: QuotaRequestsTable;
 }

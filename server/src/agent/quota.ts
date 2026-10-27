@@ -1,6 +1,8 @@
 import { sql } from "kysely";
 import type { Db } from "../storage/db.ts";
+import type { QuotaRequestsTable } from "../storage/schema.ts";
 import { UserError } from "../users/service.ts";
+import { newId } from "../util/id.ts";
 
 /**
  * Token quotas (doc/agent-runtime.md#配额): one signed integer of remaining tokens per session, null for unlimited.
@@ -64,4 +66,226 @@ export async function exhaustedLevel(db: Db, sessionId: string): Promise<string 
 		if (Number(row.quota_tokens) <= 0) return id;
 	}
 	return undefined;
+}
+
+// ---- quota requests: a paused tool call asking an ancestor's agent, or the owner, for more quota ----
+
+export type QuotaRequestState = "pending" | "granted" | "denied" | "cancelled";
+
+export interface QuotaRequestView {
+	id: string;
+	/** The paused session whose tool call waits. */
+	sessionId: string;
+	/** The exhausted level to top up. */
+	levelId: string;
+	/** The session whose agent decides; null: the owner. */
+	handlerSessionId: string | null;
+	state: QuotaRequestState;
+	grantedTokens: number | null;
+	createdAt: string;
+	sessionTitle: string;
+	levelTitle: string;
+	levelQuota: number | null;
+	ownerUserId: string;
+}
+
+async function viewOf(
+	db: Db,
+	row: {
+		id: string;
+		session_id: string;
+		level_id: string;
+		handler_session_id: string | null;
+		state: string;
+		granted_tokens: number | bigint | null;
+		created_at: string;
+	},
+): Promise<QuotaRequestView> {
+	const [session, level] = await Promise.all([
+		db.selectFrom("sessions").select(["title", "owner_user_id"]).where("id", "=", row.session_id).executeTakeFirst(),
+		db.selectFrom("sessions").select(["title", "quota_tokens"]).where("id", "=", row.level_id).executeTakeFirst(),
+	]);
+	return {
+		id: row.id,
+		sessionId: row.session_id,
+		levelId: row.level_id,
+		handlerSessionId: row.handler_session_id,
+		state: row.state as QuotaRequestState,
+		grantedTokens: row.granted_tokens === null ? null : Number(row.granted_tokens),
+		createdAt: row.created_at,
+		sessionTitle: session?.title ?? "(deleted session)",
+		levelTitle: level?.title ?? row.level_id,
+		levelQuota: level?.quota_tokens === null || level?.quota_tokens === undefined ? null : Number(level.quota_tokens),
+		ownerUserId: session?.owner_user_id ?? "",
+	};
+}
+
+type QuotaRequestRow = {
+	id: string;
+	session_id: string;
+	level_id: string;
+	handler_session_id: string | null;
+	state: QuotaRequestsTable["state"];
+	granted_tokens: number | bigint | null;
+	created_at: string;
+};
+
+/** The pending request for this paused call, created on first ask (a rerun after a restart finds it). */
+export async function ensureQuotaRequest(
+	db: Db,
+	input: { sessionId: string; levelId: string; handlerSessionId: string | null },
+): Promise<QuotaRequestView> {
+	const existing = await db
+		.selectFrom("quota_requests")
+		.selectAll()
+		.where("session_id", "=", input.sessionId)
+		.where("level_id", "=", input.levelId)
+		.where("state", "=", "pending")
+		.orderBy("created_at", "desc")
+		.executeTakeFirst();
+	let row: QuotaRequestRow = existing as QuotaRequestRow;
+	if (!row) {
+		const session = await db
+			.selectFrom("sessions")
+			.select("org_id")
+			.where("id", "=", input.sessionId)
+			.executeTakeFirst();
+		if (!session) throw new Error("the session of a quota request is missing");
+		row = {
+			id: newId(),
+			session_id: input.sessionId,
+			level_id: input.levelId,
+			handler_session_id: input.handlerSessionId,
+			state: "pending",
+			granted_tokens: null,
+			created_at: new Date().toISOString(),
+		};
+		await db
+			.insertInto("quota_requests")
+			.values({ ...row, granted_tokens: null, org_id: session.org_id, resolved_at: null })
+			.execute();
+	}
+	return viewOf(db, row);
+}
+
+export async function quotaRequestById(db: Db, id: string): Promise<QuotaRequestView | undefined> {
+	const row = await db.selectFrom("quota_requests").selectAll().where("id", "=", id).executeTakeFirst();
+	return row ? viewOf(db, row) : undefined;
+}
+
+/** Pending requests that this session's agent must settle. */
+export async function pendingQuotaRequestsFor(db: Db, handlerSessionId: string): Promise<QuotaRequestView[]> {
+	const rows = await db
+		.selectFrom("quota_requests")
+		.selectAll()
+		.where("handler_session_id", "=", handlerSessionId)
+		.where("state", "=", "pending")
+		.orderBy("created_at")
+		.execute();
+	return Promise.all(rows.map((row) => viewOf(db, row)));
+}
+
+/** Pending requests that reached the owner: no ancestor's agent could settle them. */
+export async function ownerQuotaRequests(db: Db, ownerUserId: string): Promise<QuotaRequestView[]> {
+	const rows = await db
+		.selectFrom("quota_requests")
+		.selectAll()
+		.where("handler_session_id", "is", null)
+		.where("state", "=", "pending")
+		.orderBy("created_at")
+		.execute();
+	const views = await Promise.all(rows.map((row) => viewOf(db, row)));
+	return views.filter((v) => v.ownerUserId === ownerUserId);
+}
+
+/** Adds tokens to the exhausted level; the request must still be pending. */
+export async function grantQuota(db: Db, requestId: string, tokens: number): Promise<QuotaRequestView | undefined> {
+	if (!Number.isInteger(tokens) || tokens <= 0) throw new UserError("tokens must be a positive integer");
+	const row = await db.selectFrom("quota_requests").selectAll().where("id", "=", requestId).executeTakeFirst();
+	if (!row || row.state !== "pending") return undefined;
+	await db.transaction().execute(async (trx) => {
+		await trx
+			.updateTable("sessions")
+			.set({ quota_tokens: sql`case when quota_tokens is null then null else quota_tokens + ${tokens} end` })
+			.where("id", "=", row.level_id)
+			.execute();
+		await trx
+			.updateTable("quota_requests")
+			.set({ state: "granted", granted_tokens: tokens, resolved_at: new Date().toISOString() })
+			.where("id", "=", requestId)
+			.where("state", "=", "pending")
+			.execute();
+	});
+	return quotaRequestById(db, requestId);
+}
+
+export async function denyQuota(db: Db, requestId: string): Promise<QuotaRequestView | undefined> {
+	const res = await db
+		.updateTable("quota_requests")
+		.set({ state: "denied", resolved_at: new Date().toISOString() })
+		.where("id", "=", requestId)
+		.where("state", "=", "pending")
+		.executeTakeFirst();
+	if (res.numUpdatedRows === 0n) return undefined;
+	return quotaRequestById(db, requestId);
+}
+
+/** Passes the request from the ancestor's agent to the owner. */
+export async function escalateQuota(db: Db, requestId: string): Promise<QuotaRequestView | undefined> {
+	const res = await db
+		.updateTable("quota_requests")
+		.set({ handler_session_id: null })
+		.where("id", "=", requestId)
+		.where("state", "=", "pending")
+		.executeTakeFirst();
+	if (res.numUpdatedRows === 0n) return undefined;
+	return quotaRequestById(db, requestId);
+}
+
+/** Cancels the pending requests of stopped sessions, so their paused tools do not keep asking. */
+export async function cancelQuotaRequests(db: Db, sessionIds: string[]): Promise<void> {
+	if (sessionIds.length === 0) return;
+	await db
+		.updateTable("quota_requests")
+		.set({ state: "cancelled", resolved_at: new Date().toISOString() })
+		.where("session_id", "in", sessionIds)
+		.where("state", "=", "pending")
+		.execute();
+}
+
+/** The pause woke up because some quota is now available (a grant or the owner's own change). */
+export async function settleQuotaRequests(db: Db, sessionId: string): Promise<void> {
+	await db
+		.updateTable("quota_requests")
+		.set({ state: "granted", resolved_at: new Date().toISOString() })
+		.where("session_id", "=", sessionId)
+		.where("state", "=", "pending")
+		.execute();
+}
+
+/** Every pending quota request (waking handlers after a restart). */
+export async function pendingQuotaRequests(db: Db): Promise<QuotaRequestView[]> {
+	const rows = await db
+		.selectFrom("quota_requests")
+		.selectAll()
+		.where("state", "=", "pending")
+		.orderBy("created_at")
+		.execute();
+	return Promise.all(rows.map((row) => viewOf(db, row)));
+}
+
+/** The newest request for this paused call, whatever its state. */
+export async function latestQuotaRequest(
+	db: Db,
+	sessionId: string,
+	levelId: string,
+): Promise<QuotaRequestView | undefined> {
+	const row = await db
+		.selectFrom("quota_requests")
+		.selectAll()
+		.where("session_id", "=", sessionId)
+		.where("level_id", "=", levelId)
+		.orderBy("created_at", "desc")
+		.executeTakeFirst();
+	return row ? viewOf(db, row) : undefined;
 }

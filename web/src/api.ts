@@ -125,6 +125,21 @@ export interface ApiTokenView {
 	lastUsedAt: string | null;
 	rules: StoredRuleSet | null;
 }
+export interface QuotaRequest {
+	id: string;
+	/** The paused session whose tool call waits. */
+	sessionId: string;
+	/** The exhausted level to top up. */
+	levelId: string;
+	handlerSessionId: string | null;
+	state: "pending" | "granted" | "denied" | "cancelled";
+	grantedTokens: number | null;
+	createdAt: string;
+	sessionTitle: string;
+	levelTitle: string;
+	levelQuota: number | null;
+	ownerUserId: string;
+}
 export interface AuditEvent {
 	seq: number;
 	id: string;
@@ -432,6 +447,11 @@ export const api = {
 		request<{ share: SessionShare }>("PUT", `/sessions/${enc(id)}/shares`, { granteeType, granteeId, access }),
 	unshareSession: (id: string, shareId: string) =>
 		request<{ ok: true }>("DELETE", `/sessions/${enc(id)}/shares/${enc(shareId)}`),
+	listQuotaRequests: () => request<{ requests: QuotaRequest[] }>("GET", "/quota-requests").then((r) => r.requests),
+	grantQuotaRequest: (id: string, tokens: number) =>
+		request<{ request: QuotaRequest }>("POST", `/quota-requests/${enc(id)}/grant`, { tokens }).then((r) => r.request),
+	denyQuotaRequest: (id: string) =>
+		request<{ request: QuotaRequest }>("POST", `/quota-requests/${enc(id)}/deny`).then((r) => r.request),
 	patchSession: (id: string, body: SessionPatch) =>
 		request<{ session: SessionView }>("PATCH", `/sessions/${enc(id)}`, body).then((r) => r.session),
 	sendMessage: (id: string, text: string, requestId: string) =>

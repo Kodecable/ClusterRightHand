@@ -132,4 +132,5 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D73 | M3 的 subagent 只有前台方式，子会话的审批直接交给用户；由父会话 agent 判断（D37、D41）留到后台 subagent 一起做 | 前台等待中的父会话无法处理请求；先保证规则收紧、配额和恢复正确（D75 已补上） |
 | D74 | OpenAI 兼容端点可以在 provider 上配置额外请求头（`model_providers.headers`，迁移 0011）；凭据仍只放在加密的 API key 里 | 网关常要求路由头（opencode zen 的 `x-opencode-session`），但不应把密钥往头里塞 |
 | D75 | subagent 的子会话是 ownerless 会话（`sessions.parent_session_id`），不用 durable 的"任务拥有的对话"；前台等待在子会话的请求交给父会话 agent 时提前返回，父会话用 `subagent_wait` / `subagent_decide` / `subagent_list` / `subagent_cancel` 处理；父会话 abort 时显式取消整棵子树 | durable 1.4.0 的前台子会话无法在工具返回后存活；ownerless + 显式取消让"打断后转后台"和重启恢复都可控 |
-| D76 | 配额是会话上的有符号 64 位整数（`sessions.quota_tokens`，剩余 token，null 不限），不是规则的一部分；只计 token，不计算任何货币成本；设置配额即替换剩余量；子会话配额不超过上级剩余；不足时停止，不向上申请 | 响应后检查已足够（D72），负余量能准确记录超支；货币成本随 provider 和价格变化，不作为配额 |
+| D76 | 配额是会话上的有符号 64 位整数（`sessions.quota_tokens`，剩余 token，null 不限），不是规则的一部分；只计 token，不计算任何货币成本；设置配额即替换剩余量；子会话配额不超过上级剩余 | 响应后检查已足够（D72），负余量能准确记录超支；货币成本随 provider 和价格变化，不作为配额 |
+| D77 | 配额不足时暂停工具调用并向上报告：请求交给第一个有余额的祖先会话的 agent，它给不足的那一级**增加** token（不超过自己的剩余）、拒绝或交给用户；没有祖先能处理时由所有者处理；每次响应仍扣整条链 | 不终止后重新开始，子会话的上下文不丢；增加而不是转移，避免同一笔用量在链上被扣两次 |

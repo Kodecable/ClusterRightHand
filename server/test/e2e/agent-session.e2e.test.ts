@@ -5,6 +5,7 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@ear
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ModelConfig } from "../../src/agent/models.ts";
+import { denyQuota, pendingQuotaRequests } from "../../src/agent/quota.ts";
 import { AgentRuntime } from "../../src/agent/runtime.ts";
 import type { SessionUser } from "../../src/auth/sessions.ts";
 import { TaskGroups } from "../../src/cluster/task-groups.ts";
@@ -104,19 +105,24 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		}
 	});
 
-	it("stops a run once the token quota is used up, and refuses new messages until it is raised", async () => {
+	it("pauses a run when the quota is used up, and refuses new messages until it is raised", async () => {
 		const runtime = await open();
 		try {
 			const session = await runtime.createSession(owner, { model, preset: "yolo", quota: 100 });
-			// One response that uses up the budget and asks for a tool call that must not run.
+			// One response that uses up the quota and asks for a tool call: the call pauses for a quota request.
 			const costly = fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, cmd: "echo nope" }, { id: "c1" })], {
 				stopReason: "toolUse",
 			});
 			faux.setResponses([costly, fauxAssistantMessage([fauxText("should not get here")])]);
 			const calls = faux.state.callCount;
 			const sub = await runtime.submit(session.id, owner, "spend", "r1");
+			// This instance's HTTP app has no agent routes (the runtime is opened by the test), so read the
+			// request from the database the way the approvals page would.
+			const request = await waitFor("the quota request", async () => (await pendingQuotaRequests(env.crhs.db))[0]);
+			expect(request).toMatchObject({ sessionId: session.id, levelId: session.id, handlerSessionId: null });
+			// Denying ends the paused run without another request and without running the tool.
+			expect(await denyQuota(env.crhs.db, request.id)).toBeTruthy();
 			expect((await runtime.waitSubmission(session.id, sub)).status).toBe("done");
-			// The run ended after the costly response: no second request, and the tool ran nothing.
 			expect(faux.state.callCount - calls).toBe(1);
 			const view = await runtime.getSession(session.id);
 			// faux reports its own usage estimate, well above the quota: it is now a signed negative remainder.
@@ -125,7 +131,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 			const tasks = await env.crhs.db.selectFrom("tasks").select("id").where("actor_id", "=", session.id).execute();
 			expect(tasks).toEqual([]);
 			await expect(runtime.submit(session.id, owner, "more", "r2")).rejects.toThrow(/quota/);
-			// Raising the budget lets the session continue.
+			// Raising the quota lets the session continue.
 			await runtime.configure(session.id, { quota: 10_000 });
 			faux.setResponses([fauxAssistantMessage([fauxText("back")])]);
 			const again = await runtime.submit(session.id, owner, "more", "r3");

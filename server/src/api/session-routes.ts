@@ -9,7 +9,7 @@ import {
 	type ModelRef,
 	saveModelProvider,
 } from "../agent/models.ts";
-import { parseQuota } from "../agent/quota.ts";
+import { denyQuota, grantQuota, ownerQuotaRequests, parseQuota, quotaRequestById } from "../agent/quota.ts";
 import { getReviewModel, setReviewModel } from "../agent/review.ts";
 import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
 import {
@@ -136,6 +136,56 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			detail: { model },
 		});
 		return c.json({ model });
+	});
+
+	// ---- quota requests that reached the owner (doc/agent-runtime.md#配额) ----
+
+	app.get("/quota-requests", async (c) => {
+		const user = c.get("user");
+		return c.json({ requests: await ownerQuotaRequests(db, user.userId) });
+	});
+
+	const ownerRequest = async (c: Context<AppEnv>, id: string) => {
+		const request = await quotaRequestById(db, id);
+		if (!request) return { error: jsonError(c, 404, "no such quota request") };
+		if (request.handlerSessionId !== null)
+			return { error: jsonError(c, 400, "this request waits for an agent, not for you") };
+		const user = c.get("user");
+		if (user.kind !== "admin" && request.ownerUserId !== user.userId)
+			return { error: jsonError(c, 403, "the session's owner only") };
+		return { request };
+	};
+
+	app.post("/quota-requests/:id/grant", async (c) => {
+		const found = await ownerRequest(c, c.req.param("id"));
+		if ("error" in found) return found.error;
+		const body = await readJsonObject(c);
+		const tokens = body?.tokens;
+		if (!Number.isInteger(tokens) || (tokens as number) <= 0)
+			return jsonError(c, 400, "tokens must be a positive integer");
+		const granted = await grantQuota(db, found.request.id, tokens as number);
+		if (!granted) return jsonError(c, 409, "the request is no longer waiting");
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "quota.granted",
+			target: { type: "quota_request", id: found.request.id },
+			detail: { tokens, level: found.request.levelId, session: found.request.sessionId },
+		});
+		return c.json({ request: granted });
+	});
+
+	app.post("/quota-requests/:id/deny", async (c) => {
+		const found = await ownerRequest(c, c.req.param("id"));
+		if ("error" in found) return found.error;
+		const denied = await denyQuota(db, found.request.id);
+		if (!denied) return jsonError(c, 409, "the request is no longer waiting");
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "quota.denied",
+			target: { type: "quota_request", id: found.request.id },
+			detail: { level: found.request.levelId, session: found.request.sessionId },
+		});
+		return c.json({ request: denied });
 	});
 
 	// ---- sessions: the owner, users it is shared with (view / chat), and administrators (look, do not drive) ----

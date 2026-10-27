@@ -4,6 +4,7 @@ import {
 	api,
 	type Evaluation,
 	type PublicNode,
+	type QuotaRequest,
 	type Rule,
 	type TaskGroupView,
 	type TaskView,
@@ -213,11 +214,69 @@ function Card({ item, lookups, onSettled }: { item: Item; lookups: Lookups; onSe
 	);
 }
 
+/** A paused subagent that no ancestor's agent could top up: the owner grants tokens or denies. */
+function QuotaCard({ request, onSettled }: { request: QuotaRequest; onSettled: () => void }) {
+	const [tokens, setTokens] = useState("100000");
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string>();
+	const act = async (grant: boolean) => {
+		const n = Number(tokens);
+		if (grant && (!Number.isInteger(n) || n <= 0)) return setError("tokens must be a positive integer");
+		setBusy(true);
+		setError(undefined);
+		try {
+			if (grant) await api.grantQuotaRequest(request.id, n);
+			else await api.denyQuotaRequest(request.id);
+			window.dispatchEvent(new Event(APPROVALS_CHANGED));
+			onSettled();
+		} catch (e) {
+			setError(errMsg(e));
+		} finally {
+			setBusy(false);
+		}
+	};
+	return (
+		<section className="card" aria-label={`Quota request ${request.id}`}>
+			<h2>
+				Quota request <span className="mono">{request.id}</span>
+			</h2>
+			<dl className="kv">
+				<dt>Paused session</dt>
+				<dd>
+					<a href={`#/sessions/${encodeURIComponent(request.sessionId)}`}>{request.sessionTitle}</a>
+				</dd>
+				<dt>Level to top up</dt>
+				<dd>
+					<a href={`#/sessions/${encodeURIComponent(request.levelId)}`}>{request.levelTitle}</a> (
+					{request.levelQuota === null ? "unlimited" : `${request.levelQuota} tokens left`})
+				</dd>
+				<dt>Requested</dt>
+				<dd>{formatTime(request.createdAt)}</dd>
+			</dl>
+			<label>
+				Tokens to add
+				<input inputMode="numeric" value={tokens} onChange={(e) => setTokens(e.target.value)} />
+			</label>
+			<div className="row wrap">
+				<button type="button" className="primary" disabled={busy} onClick={() => act(true)}>
+					Grant
+				</button>
+				<button type="button" className="danger" disabled={busy} onClick={() => act(false)}>
+					Deny and stop it
+				</button>
+			</div>
+			<ErrorText error={error} />
+		</section>
+	);
+}
+
 export function Approvals() {
 	const { data, error, loading, reload } = useLoad(() => api.listApprovals(), []);
+	const quota = useLoad(() => api.listQuotaRequests(), []);
 	usePolling(reload, 5000);
+	usePolling(quota.reload, 5000);
 	const lookups = useLookups();
-	const count = (data?.tasks.length ?? 0) + (data?.taskGroups.length ?? 0);
+	const count = (data?.tasks.length ?? 0) + (data?.taskGroups.length ?? 0) + (quota.data?.length ?? 0);
 	return (
 		<>
 			<h1>Approvals</h1>
@@ -228,6 +287,9 @@ export function Approvals() {
 			))}
 			{data?.taskGroups.map((group) => (
 				<Card key={group.id} item={{ kind: "group", group }} lookups={lookups} onSettled={reload} />
+			))}
+			{quota.data?.map((request) => (
+				<QuotaCard key={request.id} request={request} onSettled={quota.reload} />
 			))}
 		</>
 	);

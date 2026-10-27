@@ -39,7 +39,22 @@ import { TOOLS, type ToolContext } from "../tools/catalog.ts";
 import { defaultOrgId, NotFoundError, UserError } from "../users/service.ts";
 import { derivedId, newId } from "../util/id.ts";
 import type { ModelConfig, ModelRef } from "./models.ts";
-import { exhaustedLevel, parseQuota, recordUsage, setQuota, spentTokens } from "./quota.ts";
+import {
+	cancelQuotaRequests,
+	denyQuota,
+	ensureQuotaRequest,
+	escalateQuota,
+	exhaustedLevel,
+	grantQuota,
+	latestQuotaRequest,
+	parseQuota,
+	pendingQuotaRequests,
+	pendingQuotaRequestsFor,
+	recordUsage,
+	setQuota,
+	settleQuotaRequests,
+	spentTokens,
+} from "./quota.ts";
 import { Reviewer } from "./review.ts";
 import { sharedSessionAccess } from "./sharing.ts";
 
@@ -66,7 +81,7 @@ export interface SessionView {
 
 /** An approval handed to an ancestor session's agent (doc/agent-runtime.md#处理子会话的请求). */
 export interface AgentRequestView {
-	kind: "task" | "group";
+	kind: "task" | "group" | "quota";
 	id: string;
 	/** The subagent session whose task waits. */
 	sessionId: string;
@@ -388,6 +403,7 @@ export class AgentRuntime {
 				}
 			}
 		}
+		await cancelQuotaRequests(this.#db, sessions);
 		// Subagents are ownerless conversations, so their abort is explicit (doc/agent-runtime.md#abort).
 		for (const id of sessions.slice(1)) {
 			const row = await this.#db
@@ -698,6 +714,16 @@ export class AgentRuntime {
 				createdAt: row.created_at,
 			});
 		}
+		for (const request of await pendingQuotaRequestsFor(this.#db, sessionId)) {
+			out.push({
+				kind: "quota",
+				id: request.id,
+				sessionId: request.sessionId,
+				summary: `${request.levelTitle} is at ${request.levelQuota ?? "unlimited"} tokens; the subagent is paused`,
+				nodeId: null,
+				createdAt: request.createdAt,
+			});
+		}
 		return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 	}
 
@@ -707,7 +733,8 @@ export class AgentRuntime {
 		requestId: string,
 		decision: "approve" | "deny" | "escalate",
 		reason?: string,
-	): Promise<"task" | "group"> {
+		tokens?: number,
+	): Promise<"task" | "group" | "quota"> {
 		const session = await this.#db.selectFrom("sessions").selectAll().where("id", "=", sessionId).executeTakeFirst();
 		if (!session) throw new NotFoundError("no such session");
 		const by = {
@@ -740,6 +767,39 @@ export class AgentRuntime {
 			}
 			return "task";
 		}
+		const quota = await this.#db
+			.selectFrom("quota_requests")
+			.selectAll()
+			.where("id", "=", requestId)
+			.executeTakeFirst();
+		if (quota) {
+			if (quota.state !== "pending" || quota.handler_session_id !== sessionId) {
+				throw new UserError("this quota request is not waiting for this session's agent");
+			}
+			if (decision === "escalate") {
+				if (!(await escalateQuota(this.#db, requestId))) throw new UserError("the request is no longer waiting");
+			} else if (decision === "deny") {
+				if (!(await denyQuota(this.#db, requestId))) throw new UserError("the request is no longer waiting");
+			} else {
+				if (tokens === undefined) throw new UserError("give the quota request tokens to grant");
+				if (!Number.isInteger(tokens) || tokens <= 0) throw new UserError("tokens must be a positive integer");
+				if (session.quota_tokens !== null) {
+					const left = Number(session.quota_tokens);
+					if (left <= 0) throw new UserError("this session has no quota left to grant");
+					if (tokens > left) throw new UserError(`cannot grant more than the session has left (${left})`);
+				}
+				if (!(await grantQuota(this.#db, requestId, tokens))) {
+					throw new UserError("the request is no longer waiting");
+				}
+			}
+			void this.#audit?.record({
+				actor: by,
+				action: "quota.request_decided",
+				target: { type: "quota_request", id: requestId },
+				detail: { decision, ...(reason ? { reason } : {}), ...(tokens ? { tokens } : {}) },
+			});
+			return "quota";
+		}
 		const group = await this.#db
 			.selectFrom("task_groups")
 			.select(["id", "state", "approval", "on_behalf_of_user_id"])
@@ -763,6 +823,79 @@ export class AgentRuntime {
 			if (!ok) throw new UserError("the request is no longer waiting");
 		}
 		return "group";
+	}
+
+	/**
+	 * Pauses a tool call whose chain quota is used up (doc/agent-runtime.md#配额): asks the first ancestor with
+	 * quota to spare (its agent), or the owner, and waits until the whole chain is above zero or the request is
+	 * denied. A rerun after a restart finds the same request.
+	 */
+	async waitForQuota(sessionId: string, context: Context): Promise<"ok" | "denied"> {
+		for (;;) {
+			const level = await exhaustedLevel(this.#db, sessionId);
+			if (!level) {
+				await settleQuotaRequests(this.#db, sessionId);
+				return "ok";
+			}
+			const latest = await latestQuotaRequest(this.#db, sessionId, level);
+			if (latest?.state === "denied" || latest?.state === "cancelled") return "denied";
+			const handler = await this.#quotaHandler(level);
+			const request =
+				latest?.state === "pending"
+					? latest
+					: await ensureQuotaRequest(this.#db, { sessionId, levelId: level, handlerSessionId: handler });
+			if (request.handlerSessionId) {
+				await this.#wakeQuota(request.handlerSessionId, request.id);
+			}
+			await new Promise((r) => setTimeout(r, 300));
+			if (context.abortSignal?.aborted) throw new Error("the quota wait was aborted");
+		}
+	}
+
+	/** The first ancestor of the exhausted level whose quota is unlimited or above zero. */
+	async #quotaHandler(levelId: string): Promise<string | null> {
+		let row = await this.#db
+			.selectFrom("sessions")
+			.select(["parent_session_id", "quota_tokens"])
+			.where("id", "=", levelId)
+			.executeTakeFirst();
+		for (let id: string | null = row?.parent_session_id ?? null; id; ) {
+			row = await this.#db
+				.selectFrom("sessions")
+				.select(["parent_session_id", "quota_tokens"])
+				.where("id", "=", id)
+				.executeTakeFirst();
+			if (!row) return null;
+			if (row.quota_tokens === null || Number(row.quota_tokens) > 0) return id;
+			id = row.parent_session_id;
+		}
+		return null;
+	}
+
+	/** Wakes an idle handler with a follow-up input; a running one sees the request through afterTool. */
+	async #wakeQuota(handlerId: string, requestId: string): Promise<void> {
+		const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", handlerId).executeTakeFirst();
+		if (!row) return;
+		const conversation = await this.#harness.conversation(
+			Number(row.conversation_id) as unknown as ConversationId,
+			this.#context,
+		);
+		if (!conversation) return;
+		const state = await conversation.viewState(this.#context);
+		const live = state.value.docs["pi.live"] as { run?: unknown } | undefined;
+		state.dispose();
+		if (live?.run) return;
+		await conversation.submit(
+			{
+				type: "input",
+				content:
+					`A subagent is paused: its token quota is used up (request ${requestId}). ` +
+					`Check it with subagent_list, then subagent_decide("${requestId}", "approve", tokens: <positive integer>) ` +
+					'to add quota, or "deny" / "escalate" to the user.',
+				requestId: `quota-request:${requestId}`,
+			},
+			this.#context,
+		);
 	}
 
 	/** The session's subagents, newest first, with what waits for this session's agent. */
@@ -994,7 +1127,7 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 				const lines = pending.map((r) => `${r.kind} ${r.id}: ${r.summary}`);
 				const hint =
 					`\n\nSubagent requests waiting for your decision:\n- ${lines.join("\n- ")}\n` +
-					'Call subagent_decide(request_id, "approve" | "deny" | "escalate", reason?).';
+					'Call subagent_decide(request_id, "approve" | "deny" | "escalate", reason?, tokens?).';
 				return { ...result, output: [...(result.output ?? []), { type: "text", text: hint }] };
 			},
 		}),
@@ -1026,12 +1159,21 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 			replay: "safe",
 			execute: async (args, api, context) => {
 				const base = await toolContextFor(options, String(api.conversationId));
-				// Quota at or below zero: run nothing and end the run without another model request.
+				// Quota at or below zero: pause this call and ask an ancestor's agent, or the owner, for more
+				// (doc/agent-runtime.md#配额). A denial ends the run without another model request.
 				if (await exhaustedLevel(options.db, base.actor.id)) {
-					return {
-						output: [{ type: "text", text: "The token quota is used up; nothing was run and the run ends here." }],
-						control: { terminate: true },
-					};
+					const outcome = runtimeRef.current ? await runtimeRef.current.waitForQuota(base.actor.id, context) : "denied";
+					if (outcome === "denied") {
+						return {
+							output: [
+								{
+									type: "text",
+									text: "The token quota is used up and no more was granted; nothing was run and the run ends here.",
+								},
+							],
+							control: { terminate: true },
+						};
+					}
 				}
 				void options.audit?.record({
 					actor: { type: base.actor.type, id: base.actor.id, onBehalfOfUserId: base.actor.onBehalfOfUserId },
@@ -1112,14 +1254,16 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 			}
 			const result = await runtime.waitSubagent(child.id, { attention: true, signal: context.abortSignal });
 			if (result.status === "attention") {
-				const what = result.requests.map((r) => `${r.kind} ${r.id} (${r.summary})`).join("; ");
+				const what = result.requests
+					.map((r) => `${r.kind} ${r.id} (${r.summary})${r.kind === "quota" ? "; approve with tokens: N" : ""}`)
+					.join("; ");
 				return {
 					output: [
 						{
 							type: "text",
 							text:
 								`The subagent is waiting for your decision: ${what}. ` +
-								`Call subagent_decide(request_id, "approve" | "deny" | "escalate", reason?), then ` +
+								`Call subagent_decide(request_id, "approve" | "deny" | "escalate", reason?, tokens?), then ` +
 								`subagent_wait("${child.id}") for its answer.`,
 						},
 					],
@@ -1154,7 +1298,9 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 				signal: context.abortSignal,
 			});
 			if (result.status === "attention") {
-				const what = result.requests.map((r) => `${r.kind} ${r.id} (${r.summary})`).join("; ");
+				const what = result.requests
+					.map((r) => `${r.kind} ${r.id} (${r.summary})${r.kind === "quota" ? "; approve with tokens: N" : ""}`)
+					.join("; ");
 				return {
 					output: [{ type: "text", text: `Still waiting for your decision: ${what}.` }],
 					details: { requests: result.requests.map(requestJson) },
@@ -1203,16 +1349,28 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 			"Settle a subagent request that was handed to you: approve, deny, or escalate it to the user. " +
 			"Only requests listed by subagent_list or attached to a tool result are yours.",
 		parameters: Type.Object({
-			request_id: Type.String({ description: "The task or task group id of the request" }),
+			request_id: Type.String({ description: "The task, task group or quota request id" }),
 			decision: Type.Union([Type.Literal("approve"), Type.Literal("deny"), Type.Literal("escalate")]),
 			reason: Type.Optional(Type.String({ description: "Why; shown to the subagent and in the audit log" })),
+			tokens: Type.Optional(
+				Type.Integer({
+					minimum: 1,
+					description: "Quota requests only: tokens to add, at most what this session has left",
+				}),
+			),
 		}),
 		execute: async (args, api) => {
 			const runtime = runtimeRef.current;
 			if (!runtime) throw new Error("the agent runtime is not ready");
 			const session = await runtime.sessionAt(String(api.conversationId));
 			if (!session) throw new Error("this conversation is not a ClusterRightHand session");
-			const kind = await runtime.decideAgentRequest(session.id, args.request_id, args.decision, args.reason);
+			const kind = await runtime.decideAgentRequest(
+				session.id,
+				args.request_id,
+				args.decision,
+				args.reason,
+				args.tokens,
+			);
 			const what =
 				args.decision === "escalate" ? "passed to the user" : args.decision === "approve" ? "approved" : "denied";
 			return { output: [{ type: "text", text: `The ${kind} request ${args.request_id} was ${what}.` }] };

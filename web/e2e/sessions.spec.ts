@@ -40,6 +40,37 @@ test("create a session, send a message and see the streamed answer", async ({ ad
 	await expect(page.getByRole("log", { name: "Conversation" })).toContainText("Hello from the faux model.");
 });
 
+test("a tool call paused for quota is granted from the approvals page", async ({ adminPage: page, crhs }) => {
+	const created = await crhs.api("/api/sessions", {
+		body: {
+			title: "Quota",
+			preset: "yolo",
+			quota: 100,
+			model: { provider: crhs.faux.provider.id, modelId: crhs.faux.getModel().id },
+		},
+	});
+	expect(created.status).toBe(201);
+	const id = created.json.session.id as string;
+	crhs.faux.setResponses([
+		fauxAssistantMessage([fauxToolCall("list_nodes", {}, { id: "qa" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("resumed after the grant")]),
+	]);
+	await page.goto(`/#/sessions/${id}`);
+	await page.getByLabel("Message").fill("list the nodes");
+	await page.getByLabel("Message").press("Enter");
+
+	await page.getByRole("link", { name: "Approvals" }).click();
+	const card = page.getByRole("region", { name: /Quota request/ });
+	await expect(card).toBeVisible();
+	await expect(card).toContainText("tokens left");
+	await card.getByLabel("Tokens to add").fill("10000");
+	await card.getByRole("button", { name: "Grant" }).click();
+	await expect(card).toHaveCount(0);
+
+	await page.goto(`/#/sessions/${id}`);
+	await expect(page.getByRole("log", { name: "Conversation" })).toContainText("resumed after the grant");
+});
+
 test("title and preset can be changed", async ({ adminPage: page, crhs }) => {
 	await newSession(page, crhs, "Rename me");
 	await page.getByLabel("Title", { exact: true }).fill("Renamed");
