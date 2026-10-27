@@ -94,7 +94,7 @@ interface AgentRuntime {
 
 ## 会话
 
-- 会话属于创建它的用户。会话能做什么，由操作者链上的授权规则和它的 token 配额决定，见 [access-control.md](access-control.md#授权规则)。
+- 会话属于创建它的用户。会话能做什么，由操作者链上的授权规则决定；subagent 还受它的 token 配额（父会话给的管理额度）限制，见 [access-control.md](access-control.md#授权规则)。
 - 会话记录在业务表 `sessions` 中，`conversation_id` 关联 durable 的 Conversation。
 - WebUI 通过 `watch` 订阅会话视图，经 SSE（`/api/sessions/:id/events`）推送增量。
 - 开启自动压缩，阈值由模型的上下文窗口决定（参数见下文"默认值"）。
@@ -105,7 +105,7 @@ interface AgentRuntime {
 基于 durable 的"由任务拥有的子会话"（参考官方 `test/examples/21-subagent-foreground.ts` 和 `22-subagent-background.ts`）：
 
 - 每个 subagent 都是独立的会话，有自己的授权规则和配额，挂在父会话的操作者链下面。父会话可以给子会话加规则来收紧权限；按照链上"取最严格"的判定方式，子会话无论如何都无法超出父会话的权限。
-- 子会话的配额不能超过父会话的剩余配额，用量同时计入父会话和根。
+- 配额只用来管理子会话（防止循环、空跑）；父会话给子会话一个 token 配额即可，不按父级剩余封顶，因为每次响应本来就扣整条链。
 - 嵌套深度有上限（默认 2）。
 - 父会话 abort 时，子会话一并 abort，它们正在运行的任务被取消、等待审批的任务被拒绝。
 
@@ -115,7 +115,7 @@ interface AgentRuntime {
 - 前台方式等待答案；子会话的请求交给父会话的 agent 时，等待提前返回，父会话处理后再 `subagent_wait`。`background: true` 立即返回会话 id。
 - `subagent_wait(id)`、`subagent_list()`、`subagent_cancel(id)`、`subagent_decide(request_id, decision, reason?, tokens?)` 都已实现；配额请求用 `tokens` 给出要增加的 token 数。
 - 工具 `replay: "safe"`：重启后按 durable 任务 id 找回同一个子会话和提交（`sessions.last_submission_id`）。
-- 规则是完整的非根规则集，只能收紧；配额不能超过上面每一级的剩余；嵌套最多两层。
+- 规则是完整的非根规则集，只能收紧；配额是父会话给的管理额度；嵌套最多两层。
 
 ### 前台与后台
 
@@ -132,7 +132,7 @@ interface AgentRuntime {
 - 父会话的 agent 用 `subagent_decide(request_id, "approve" | "deny" | "escalate", reason?, tokens?)` 处理：批准/拒绝直接落到任务上（审计里 actor 是父会话）；`escalate` 把请求交还用户，审批页照常显示。
 - **任何工具调用返回时**，只要还有属于它的待处理请求，结果末尾会附上提示（任务/任务组 id、摘要），所以父会话不会错过；实现用 durable 的 `afterTool` 钩子。
 - 父会话空闲（没有正在进行的运行）时，以 follow-up 输入的方式提交一条提示并唤醒它；如果父会话正在等这次的子会话，则靠前台等待的提前返回，不再额外提交。
-- 配额不足时子会话的工具调用暂停，请求先交父会话的 agent；必要时一路交到所有者。
+- 配额不足时子会话的工具调用暂停，请求只交它的直接父会话的 agent；父会话是根时由根会话的 agent 决定，不再向上。
 
 ### 后台与生命周期
 
@@ -159,15 +159,14 @@ interface AgentRuntime {
 
 ## 配额
 
-- 每个会话有一个 token 配额：`sessions.quota_tokens`，有符号 64 位整数，表示**剩余** token；`null` 表示不限。
-- 每次模型响应之后（durable 1.4.0 没有请求前的拦截点，D72），把这次响应的 `totalTokens` 从会话以及链上每一级的剩余配额中扣减。配额可以为负：一次响应可以超出余额，负值被记录下来。
-- 只要链上所有级别的剩余配额都 **> 0**，运行继续。任何一级不满足时，下一次工具调用**暂停**并向上发起 quota request（见下文）；工具不会执行，也不会再请求模型。配额恢复前，向该会话提交新消息会被拒绝。
-- 设置配额是**替换剩余量**：超支后设为 100，表示从这里开始还有 100 token，而不是追加 100。
-- 只计算 token，不计算任何货币成本。
-- 子会话的配额在创建时给出，不能超过上面每一级的剩余；用量同时计入父会话和根。
-- 不设用户级或组织级配额；以后需要限制用户总用量时，另加与规则无关的用户配额。
-- **不足时暂停并向上报告**：下一次工具调用不再直接终止，而是挂起为一条 **quota request**。沿链向上找第一个"配额不限或剩余 > 0"的祖先会话，由它的 agent 处理：`subagent_decide(request_id, "approve", tokens: N)` 给**余额不足的那一级**增加 N（增加量不能超过处理者自己的剩余；每此响应仍然同时扣整条链），`deny` 结束暂停的运行，`escalate` 交给用户。没有祖先能处理（例如根配额不足）时，请求出现在 WebUI 的审批页，由所有者增加配额或拒绝。
-- 暂停是工具调用在等待：服务重启后工具重跑会找回同一条请求；所有级别的配额恢复 > 0 后调用继续，被拒绝则以 `terminate` 结束运行。
+- 配额只用于 **subagent**，是管理子会话（防止循环、空跑）的手段：`sessions.quota_tokens` 是有符号 64 位整数，表示剩余 token；子会话可以不给（`null` 不限）。**根会话的配额固定为 0，并且从不扣减**。
+- 每次模型响应之后（durable 1.4.0 没有请求前的拦截点，D72），把这次响应的 `totalTokens` 从该会话以及链上**每一个 subagent 级别**扣减；根不扣。配额可以为负，负值准确记录这次超出。`used_tokens` 在所有级别累计，只用于展示。
+- 所有 subagent 级别的剩余都 **> 0** 才继续。任何一级不满足，下一次工具调用**暂停**并**只向它的直接父会话**报告（像审批或状态变化，不跳过任何一级）：
+  - 父会话的 agent 用 `subagent_decide(request_id, "approve", tokens: N)` 给这个子会话**增加** N（加法；**不按父级剩余封顶**——每次响应本来就扣整条链，封顶没有意义），或者 `deny` 结束暂停的运行。
+  - 父会话是根时，由根会话的 agent 决定；根没有配额，不受限。
+- 请求不会上交给更远的祖先，也没有"所有者配额审批页"：根本身永远不会耗尽。
+- 子会话的配额可以在创建时给出，也可以由所有者用 `PATCH /api/sessions/:id { quota }` 替换剩余量；根会话不能设置配额（`POST /api/sessions` 带 quota 会返回 400）。
+- 只计算 token，不计算任何货币成本；不设用户级或组织级配额。
 
 ## 节点笔记
 

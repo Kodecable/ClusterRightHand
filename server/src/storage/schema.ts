@@ -273,7 +273,7 @@ export interface QuotaRequestsTable {
 	session_id: string;
 	/** The exhausted level to top up (the session itself or an ancestor). */
 	level_id: string;
-	/** The ancestor session whose agent decides; null: the owner. */
+	/** Its direct parent session; its agent decides. */
 	handler_session_id: string | null;
 	state: "pending" | "granted" | "denied" | "cancelled";
 	granted_tokens: number | null;

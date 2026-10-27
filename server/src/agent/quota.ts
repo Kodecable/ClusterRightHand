@@ -23,19 +23,19 @@ export async function setQuota(db: Db, sessionId: string, quota: number | null):
 	await db.updateTable("sessions").set({ quota_tokens: quota }).where("id", "=", sessionId).execute();
 }
 
-/** The session and its ancestors, this session first, root last. */
-async function lineage(db: Db, sessionId: string): Promise<string[]> {
-	const ids: string[] = [];
+/** The session and its ancestors, this session first, root last; `root` marks the session without a parent. */
+async function lineage(db: Db, sessionId: string): Promise<{ id: string; root: boolean }[]> {
+	const out: { id: string; root: boolean }[] = [];
 	for (let id: string | null = sessionId; id; ) {
-		ids.push(id);
 		const row: { parent_session_id: string | null } | undefined = await db
 			.selectFrom("sessions")
 			.select("parent_session_id")
 			.where("id", "=", id)
 			.executeTakeFirst();
+		out.push({ id, root: row?.parent_session_id === null || row === undefined });
 		id = row?.parent_session_id ?? null;
 	}
-	return ids;
+	return out;
 }
 
 /** Tokens spent by the session and its subagents. */
@@ -44,26 +44,38 @@ export async function spentTokens(db: Db, sessionId: string): Promise<number> {
 	return Number(row?.used_tokens ?? 0);
 }
 
-/** Charges one response's tokens to the session and every level above it; quotas may go negative. */
+/**
+ * Charges one response's tokens to every subagent level of the chain (root sessions have no quota and are not
+ * charged); quotas may go negative. `used_tokens` still grows everywhere, for display.
+ */
 export async function recordUsage(db: Db, sessionId: string, tokens: number): Promise<void> {
 	const used = Math.max(0, Math.round(tokens));
-	const ids = await lineage(db, sessionId);
+	const levels = await lineage(db, sessionId);
 	await db
 		.updateTable("sessions")
-		.set({
-			quota_tokens: sql`case when quota_tokens is null then null else quota_tokens - ${used} end`,
-			used_tokens: sql`used_tokens + ${used}`,
-		})
-		.where("id", "in", ids)
+		.set({ used_tokens: sql`used_tokens + ${used}` })
+		.where(
+			"id",
+			"in",
+			levels.map((l) => l.id),
+		)
+		.execute();
+	const charged = levels.filter((l) => !l.root).map((l) => l.id);
+	if (charged.length === 0) return;
+	await db
+		.updateTable("sessions")
+		.set({ quota_tokens: sql`case when quota_tokens is null then null else quota_tokens - ${used} end` })
+		.where("id", "in", charged)
 		.execute();
 }
 
-/** The highest level of the chain (root first) whose quota is not above zero, if any. */
+/** The highest subagent level of the chain (root first) whose quota is not above zero, if any. */
 export async function exhaustedLevel(db: Db, sessionId: string): Promise<string | undefined> {
-	for (const id of (await lineage(db, sessionId)).reverse()) {
-		const row = await db.selectFrom("sessions").select("quota_tokens").where("id", "=", id).executeTakeFirst();
+	for (const level of (await lineage(db, sessionId)).reverse()) {
+		if (level.root) continue;
+		const row = await db.selectFrom("sessions").select("quota_tokens").where("id", "=", level.id).executeTakeFirst();
 		if (!row || row.quota_tokens === null) continue;
-		if (Number(row.quota_tokens) <= 0) return id;
+		if (Number(row.quota_tokens) <= 0) return level.id;
 	}
 	return undefined;
 }
@@ -86,7 +98,6 @@ export interface QuotaRequestView {
 	sessionTitle: string;
 	levelTitle: string;
 	levelQuota: number | null;
-	ownerUserId: string;
 }
 
 async function viewOf(
@@ -102,7 +113,7 @@ async function viewOf(
 	},
 ): Promise<QuotaRequestView> {
 	const [session, level] = await Promise.all([
-		db.selectFrom("sessions").select(["title", "owner_user_id"]).where("id", "=", row.session_id).executeTakeFirst(),
+		db.selectFrom("sessions").select("title").where("id", "=", row.session_id).executeTakeFirst(),
 		db.selectFrom("sessions").select(["title", "quota_tokens"]).where("id", "=", row.level_id).executeTakeFirst(),
 	]);
 	return {
@@ -116,7 +127,6 @@ async function viewOf(
 		sessionTitle: session?.title ?? "(deleted session)",
 		levelTitle: level?.title ?? row.level_id,
 		levelQuota: level?.quota_tokens === null || level?.quota_tokens === undefined ? null : Number(level.quota_tokens),
-		ownerUserId: session?.owner_user_id ?? "",
 	};
 }
 
@@ -185,19 +195,6 @@ export async function pendingQuotaRequestsFor(db: Db, handlerSessionId: string):
 	return Promise.all(rows.map((row) => viewOf(db, row)));
 }
 
-/** Pending requests that reached the owner: no ancestor's agent could settle them. */
-export async function ownerQuotaRequests(db: Db, ownerUserId: string): Promise<QuotaRequestView[]> {
-	const rows = await db
-		.selectFrom("quota_requests")
-		.selectAll()
-		.where("handler_session_id", "is", null)
-		.where("state", "=", "pending")
-		.orderBy("created_at")
-		.execute();
-	const views = await Promise.all(rows.map((row) => viewOf(db, row)));
-	return views.filter((v) => v.ownerUserId === ownerUserId);
-}
-
 /** Adds tokens to the exhausted level; the request must still be pending. */
 export async function grantQuota(db: Db, requestId: string, tokens: number): Promise<QuotaRequestView | undefined> {
 	if (!Number.isInteger(tokens) || tokens <= 0) throw new UserError("tokens must be a positive integer");
@@ -223,18 +220,6 @@ export async function denyQuota(db: Db, requestId: string): Promise<QuotaRequest
 	const res = await db
 		.updateTable("quota_requests")
 		.set({ state: "denied", resolved_at: new Date().toISOString() })
-		.where("id", "=", requestId)
-		.where("state", "=", "pending")
-		.executeTakeFirst();
-	if (res.numUpdatedRows === 0n) return undefined;
-	return quotaRequestById(db, requestId);
-}
-
-/** Passes the request from the ancestor's agent to the owner. */
-export async function escalateQuota(db: Db, requestId: string): Promise<QuotaRequestView | undefined> {
-	const res = await db
-		.updateTable("quota_requests")
-		.set({ handler_session_id: null })
 		.where("id", "=", requestId)
 		.where("state", "=", "pending")
 		.executeTakeFirst();

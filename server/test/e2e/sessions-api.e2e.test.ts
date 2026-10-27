@@ -330,35 +330,6 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 		});
 	});
 
-	it("token quota: a response may overspend it, then new messages are refused until it is set again", async () => {
-		const created = await as(crhs().cookie, "/api/sessions", {
-			body: { model: model(), preset: "yolo", quota: 10, title: "quota" },
-		});
-		expect(created.status).toBe(201);
-		const s = created.json.session as { id: string; quota: number };
-		expect(s.quota).toBe(10);
-		// faux usage is well above 10: the run ends with a negative (signed) remainder.
-		crhs().faux.setResponses([fauxAssistantMessage([fauxText("over")])]);
-		expect((await send(s.id, "hi", "q1")).status).toBe(202);
-		await idle();
-		const view = (await as(crhs().cookie, `/api/sessions/${s.id}`)).json.session as {
-			quota: number;
-			spentTokens: number;
-		};
-		expect(view.quota).toBeLessThan(0);
-		expect(view.spentTokens).toBeGreaterThan(10);
-		expect((await send(s.id, "more", "q2")).status).toBe(400);
-
-		// Setting the quota replaces the remaining amount; it is not an add.
-		const patched = await as(crhs().cookie, `/api/sessions/${s.id}`, { method: "PATCH", body: { quota: 10_000 } });
-		expect(patched.status).toBe(200);
-		expect((patched.json.session as { quota: number }).quota).toBe(10_000);
-		crhs().faux.setResponses([fauxAssistantMessage([fauxText("again")])]);
-		expect((await send(s.id, "more", "q3")).status).toBe(202);
-		await idle();
-		expect((await as(crhs().cookie, `/api/sessions/${s.id}`)).json.session.quota).toBeLessThan(10_000);
-	});
-
 	describe("access", () => {
 		it("another member cannot see or drive a session, and lists none", async () => {
 			const s = await newSession("ask");

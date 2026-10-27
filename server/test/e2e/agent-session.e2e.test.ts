@@ -5,7 +5,6 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@ear
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ModelConfig } from "../../src/agent/models.ts";
-import { denyQuota, pendingQuotaRequests } from "../../src/agent/quota.ts";
 import { AgentRuntime } from "../../src/agent/runtime.ts";
 import type { SessionUser } from "../../src/auth/sessions.ts";
 import { TaskGroups } from "../../src/cluster/task-groups.ts";
@@ -100,42 +99,6 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 			expect(res.status).toBe(200);
 			expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "ok" });
 			expect(JSON.parse(seen)).toMatchObject({ task_id: waiting.id, state: "exited", stdout: "approved\n" });
-		} finally {
-			await runtime.close();
-		}
-	});
-
-	it("pauses a run when the quota is used up, and refuses new messages until it is raised", async () => {
-		const runtime = await open();
-		try {
-			const session = await runtime.createSession(owner, { model, preset: "yolo", quota: 100 });
-			// One response that uses up the quota and asks for a tool call: the call pauses for a quota request.
-			const costly = fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, cmd: "echo nope" }, { id: "c1" })], {
-				stopReason: "toolUse",
-			});
-			faux.setResponses([costly, fauxAssistantMessage([fauxText("should not get here")])]);
-			const calls = faux.state.callCount;
-			const sub = await runtime.submit(session.id, owner, "spend", "r1");
-			// This instance's HTTP app has no agent routes (the runtime is opened by the test), so read the
-			// request from the database the way the approvals page would.
-			const request = await waitFor("the quota request", async () => (await pendingQuotaRequests(env.crhs.db))[0]);
-			expect(request).toMatchObject({ sessionId: session.id, levelId: session.id, handlerSessionId: null });
-			// Denying ends the paused run without another request and without running the tool.
-			expect(await denyQuota(env.crhs.db, request.id)).toBeTruthy();
-			expect((await runtime.waitSubmission(session.id, sub)).status).toBe("done");
-			expect(faux.state.callCount - calls).toBe(1);
-			const view = await runtime.getSession(session.id);
-			// faux reports its own usage estimate, well above the quota: it is now a signed negative remainder.
-			expect(view?.quota).toBeLessThan(0);
-			expect(view?.spentTokens).toBeGreaterThanOrEqual(100);
-			const tasks = await env.crhs.db.selectFrom("tasks").select("id").where("actor_id", "=", session.id).execute();
-			expect(tasks).toEqual([]);
-			await expect(runtime.submit(session.id, owner, "more", "r2")).rejects.toThrow(/quota/);
-			// Raising the quota lets the session continue.
-			await runtime.configure(session.id, { quota: 10_000 });
-			faux.setResponses([fauxAssistantMessage([fauxText("back")])]);
-			const again = await runtime.submit(session.id, owner, "more", "r3");
-			expect(await runtime.waitSubmission(session.id, again)).toEqual({ status: "done", answer: "back" });
 		} finally {
 			await runtime.close();
 		}
@@ -300,6 +263,71 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 			}
 		});
 
+		it("pauses a child whose quota runs out and lets the parent grant more", async () => {
+			const runtime = await open();
+			try {
+				const session = await runtime.createSession(owner, { model, preset: "yolo" });
+				let n = 0;
+				// Context-driven: the child and the parent consume responses in an order the test does not control.
+				const next = (context: { messages: { role: string; content: unknown }[] }) => {
+					const text = lastText(context);
+					const all = context.messages
+						.map((m) =>
+							typeof m.content === "string"
+								? m.content
+								: ((m.content as { text?: string }[]).map((c) => c.text ?? "").join("") ?? ""),
+						)
+						.join("\n");
+					const childId = /subagent_wait\("([0-9a-f-]{36})"\)/.exec(all)?.[1];
+					if (text.includes("waiting for your decision")) {
+						const requestId = /quota ([0-9a-f-]{36})/.exec(text)?.[1];
+						return fauxAssistantMessage(
+							[
+								fauxToolCall(
+									"subagent_decide",
+									{ request_id: requestId ?? "", decision: "approve", tokens: 1_000_000 },
+									{ id: `d${++n}` },
+								),
+							],
+							{ stopReason: "toolUse" },
+						);
+					}
+					if (text.includes("was granted")) {
+						return fauxAssistantMessage([fauxToolCall("subagent_wait", { id: childId ?? "" }, { id: `w${++n}` })], {
+							stopReason: "toolUse",
+						});
+					}
+					if (text.includes("child-ran")) return fauxAssistantMessage([fauxText("child done")]);
+					if (text.includes("child done")) return fauxAssistantMessage([fauxText("all done")]);
+					return fauxAssistantMessage([fauxText("unexpected")]);
+				};
+				faux.setResponses([
+					fauxAssistantMessage([fauxToolCall("subagent", { task: "run it", quota: 1 }, { id: "s1" })], {
+						stopReason: "toolUse",
+					}),
+					fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, cmd: "echo child-ran" }, { id: "e1" })], {
+						stopReason: "toolUse",
+					}),
+					next,
+					next,
+					next,
+					next,
+					next,
+				]);
+				const sub = await runtime.submit(session.id, owner, "delegate", "q1");
+				expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "all done" });
+				const children = await env.crhs.db
+					.selectFrom("sessions")
+					.selectAll()
+					.where("parent_session_id", "=", session.id)
+					.execute();
+				expect(children).toHaveLength(1);
+				expect(children[0]?.quota_tokens).toBeGreaterThan(0);
+			} finally {
+				await runtime.close();
+			}
+		});
+
 		it("sends a child's approval to the user", async () => {
 			const runtime = await open();
 			try {
@@ -320,28 +348,6 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 				expect(waiting.ruleChain[0]).toEqual({ type: "session", id: session.id });
 				await env.crhs.api(`/api/tasks/${waiting.id}/approval`, { body: { decision: "approve" } });
 				expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "parent ok" });
-			} finally {
-				await runtime.close();
-			}
-		});
-
-		it("refuses a child quota larger than what the parent has left", async () => {
-			const runtime = await open();
-			try {
-				const session = await runtime.createSession(owner, { model, preset: "yolo", quota: 1_000_000 });
-				let saw = "";
-				faux.setResponses([
-					fauxAssistantMessage([fauxToolCall("subagent", { task: "x", quota: 5_000_000 }, { id: "p1" })], {
-						stopReason: "toolUse",
-					}),
-					(context) => {
-						saw = lastText(context);
-						return fauxAssistantMessage([fauxText("ok")]);
-					},
-				]);
-				const sub = await runtime.submit(session.id, owner, "delegate", "r1");
-				await runtime.waitSubmission(session.id, sub);
-				expect(saw).toMatch(/exceeds what is left/);
 			} finally {
 				await runtime.close();
 			}

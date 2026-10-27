@@ -179,7 +179,9 @@ export function SessionPage({ id }: { id: string }) {
 				{totals && (
 					<span>
 						{totals.tokens.toLocaleString()} tokens
-						{session.data.quota !== null && ` · ${session.data.quota.toLocaleString()} quota left`}
+						{session.data.parentSessionId !== null &&
+							session.data.quota !== null &&
+							` · ${session.data.quota.toLocaleString()} quota left`}
 					</span>
 				)}
 			</div>

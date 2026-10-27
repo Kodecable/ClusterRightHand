@@ -2,7 +2,7 @@ import type { Kysely } from "kysely";
 
 /**
  * A paused tool call asking for more token quota (doc/agent-runtime.md#配额). `level_id` is the exhausted level
- * to top up; `handler_session_id` is the ancestor session whose agent decides, or null for the owner.
+ * to top up; `handler_session_id` is its direct parent session, whose agent decides.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await db.schema

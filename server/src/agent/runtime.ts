@@ -43,7 +43,6 @@ import {
 	cancelQuotaRequests,
 	denyQuota,
 	ensureQuotaRequest,
-	escalateQuota,
 	exhaustedLevel,
 	grantQuota,
 	latestQuotaRequest,
@@ -240,7 +239,7 @@ export class AgentRuntime {
 
 	async createSession(
 		owner: SessionUser,
-		input: { title?: string; model: ModelRef; preset: Preset; instructions?: string; quota?: number | null },
+		input: { title?: string; model: ModelRef; preset: Preset; instructions?: string },
 	): Promise<SessionView> {
 		this.#models.assertAvailable(input.model);
 		const conversation = await this.#harness.createConversation(
@@ -272,7 +271,8 @@ export class AgentRuntime {
 					created_at: now,
 					updated_at: now,
 					archived_at: null,
-					quota_tokens: input.quota ?? null,
+					// Root sessions have no quota (0) and are never charged; quotas manage subagents (D76).
+					quota_tokens: 0,
 				})
 				.execute();
 			await createRootRuleSet(trx, orgId, { type: "session", id }, input.preset);
@@ -448,7 +448,12 @@ export class AgentRuntime {
 		}
 		if (change.preset && row.parent_session_id === null)
 			await setPreset(this.#db, { type: "session", id: sessionId }, change.preset);
-		if (change.quota !== undefined) await setQuota(this.#db, sessionId, change.quota);
+		if (change.quota !== undefined) {
+			// Only subagents carry a quota; a root session is never charged (D76).
+			if (row.parent_session_id === null)
+				throw new UserError("a root session has no quota; give one to a subagent instead");
+			await setQuota(this.#db, sessionId, change.quota);
+		}
 		await this.#db
 			.updateTable("sessions")
 			.set({
@@ -529,7 +534,6 @@ export class AgentRuntime {
 					?.parent_session_id ?? null;
 		}
 		if (depth >= MAX_SUBAGENT_DEPTH) throw new UserError(`subagents nest at most ${MAX_SUBAGENT_DEPTH} levels deep`);
-		await checkChildQuota(this.#db, parentId, input.quota);
 
 		const childId = derivedId(`subagent:${input.callKey}`);
 		if (await this.#db.selectFrom("sessions").select("id").where("id", "=", childId).executeTakeFirst()) {
@@ -777,17 +781,14 @@ export class AgentRuntime {
 				throw new UserError("this quota request is not waiting for this session's agent");
 			}
 			if (decision === "escalate") {
-				if (!(await escalateQuota(this.#db, requestId))) throw new UserError("the request is no longer waiting");
+				throw new UserError("a quota request goes to the direct parent only; approve or deny it");
 			} else if (decision === "deny") {
 				if (!(await denyQuota(this.#db, requestId))) throw new UserError("the request is no longer waiting");
 			} else {
 				if (tokens === undefined) throw new UserError("give the quota request tokens to grant");
 				if (!Number.isInteger(tokens) || tokens <= 0) throw new UserError("tokens must be a positive integer");
-				if (session.quota_tokens !== null) {
-					const left = Number(session.quota_tokens);
-					if (left <= 0) throw new UserError("this session has no quota left to grant");
-					if (tokens > left) throw new UserError(`cannot grant more than the session has left (${left})`);
-				}
+				// No cap: the whole chain is charged for every response, so the parent's own remainder does
+				// not limit what it can add for its child (D77).
 				if (!(await grantQuota(this.#db, requestId, tokens))) {
 					throw new UserError("the request is no longer waiting");
 				}
@@ -839,11 +840,14 @@ export class AgentRuntime {
 			}
 			const latest = await latestQuotaRequest(this.#db, sessionId, level);
 			if (latest?.state === "denied" || latest?.state === "cancelled") return "denied";
-			const handler = await this.#quotaHandler(level);
+			// Only the direct parent handles a request, like an approval (D77). Root sessions have no quota but
+			// can always decide for their children; no grant is capped.
+			const parent = await this.#parentOf(level);
+			if (!parent) return "ok";
 			const request =
 				latest?.state === "pending"
 					? latest
-					: await ensureQuotaRequest(this.#db, { sessionId, levelId: level, handlerSessionId: handler });
+					: await ensureQuotaRequest(this.#db, { sessionId, levelId: level, handlerSessionId: parent });
 			if (request.handlerSessionId) {
 				await this.#wakeQuota(request.handlerSessionId, request.id);
 			}
@@ -852,24 +856,14 @@ export class AgentRuntime {
 		}
 	}
 
-	/** The first ancestor of the exhausted level whose quota is unlimited or above zero. */
-	async #quotaHandler(levelId: string): Promise<string | null> {
-		let row = await this.#db
+	/** The direct parent of a level; the only session that handles its quota request. */
+	async #parentOf(levelId: string): Promise<string | null> {
+		const row = await this.#db
 			.selectFrom("sessions")
-			.select(["parent_session_id", "quota_tokens"])
+			.select("parent_session_id")
 			.where("id", "=", levelId)
 			.executeTakeFirst();
-		for (let id: string | null = row?.parent_session_id ?? null; id; ) {
-			row = await this.#db
-				.selectFrom("sessions")
-				.select(["parent_session_id", "quota_tokens"])
-				.where("id", "=", id)
-				.executeTakeFirst();
-			if (!row) return null;
-			if (row.quota_tokens === null || Number(row.quota_tokens) > 0) return id;
-			id = row.parent_session_id;
-		}
-		return null;
+		return row?.parent_session_id ?? null;
 	}
 
 	/** Wakes an idle handler with a follow-up input; a running one sees the request through afterTool. */
@@ -891,7 +885,7 @@ export class AgentRuntime {
 				content:
 					`A subagent is paused: its token quota is used up (request ${requestId}). ` +
 					`Check it with subagent_list, then subagent_decide("${requestId}", "approve", tokens: <positive integer>) ` +
-					'to add quota, or "deny" / "escalate" to the user.',
+					'to add quota, or "deny" to stop it.',
 				requestId: `quota-request:${requestId}`,
 			},
 			this.#context,
@@ -1255,7 +1249,11 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 			const result = await runtime.waitSubagent(child.id, { attention: true, signal: context.abortSignal });
 			if (result.status === "attention") {
 				const what = result.requests
-					.map((r) => `${r.kind} ${r.id} (${r.summary})${r.kind === "quota" ? "; approve with tokens: N" : ""}`)
+					.map((r) =>
+						r.kind === "quota"
+							? `${r.kind} ${r.id} (${r.summary}; approve with tokens: N or deny)`
+							: `${r.kind} ${r.id} (${r.summary})`,
+					)
 					.join("; ");
 				return {
 					output: [
@@ -1299,7 +1297,11 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 			});
 			if (result.status === "attention") {
 				const what = result.requests
-					.map((r) => `${r.kind} ${r.id} (${r.summary})${r.kind === "quota" ? "; approve with tokens: N" : ""}`)
+					.map((r) =>
+						r.kind === "quota"
+							? `${r.kind} ${r.id} (${r.summary}; approve with tokens: N or deny)`
+							: `${r.kind} ${r.id} (${r.summary})`,
+					)
 					.join("; ");
 				return {
 					output: [{ type: "text", text: `Still waiting for your decision: ${what}.` }],
@@ -1346,8 +1348,9 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 	const subagentDecide: ToolRegistration = defineTool({
 		name: "subagent_decide",
 		description:
-			"Settle a subagent request that was handed to you: approve, deny, or escalate it to the user. " +
-			"Only requests listed by subagent_list or attached to a tool result are yours.",
+			"Settle a subagent request that was handed to you: approve it, deny it, or escalate an approval to the user. " +
+			"Quota requests (add tokens: N) are approved or denied only. Only requests listed by subagent_list or " +
+			"attached to a tool result are yours.",
 		parameters: Type.Object({
 			request_id: Type.String({ description: "The task, task group or quota request id" }),
 			decision: Type.Union([Type.Literal("approve"), Type.Literal("deny"), Type.Literal("escalate")]),
@@ -1372,7 +1375,13 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 				args.tokens,
 			);
 			const what =
-				args.decision === "escalate" ? "passed to the user" : args.decision === "approve" ? "approved" : "denied";
+				args.decision === "escalate"
+					? "passed to the user"
+					: args.decision === "approve"
+						? kind === "quota"
+							? `granted ${args.tokens ?? 0} tokens`
+							: "approved"
+						: "denied";
 			return { output: [{ type: "text", text: `The ${kind} request ${args.request_id} was ${what}.` }] };
 		},
 	}) as unknown as ToolRegistration;
@@ -1387,20 +1396,3 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 
 /** Subagent sessions nest at most this deep below a root session (doc/agent-runtime.md#subagent). */
 export const MAX_SUBAGENT_DEPTH = 2;
-
-/** A child's quota cannot exceed what is left of every level above it. */
-async function checkChildQuota(db: Db, parentId: string, quota: number | null): Promise<void> {
-	for (let id: string | null = parentId; id; ) {
-		const row = await db
-			.selectFrom("sessions")
-			.select(["parent_session_id", "quota_tokens"])
-			.where("id", "=", id)
-			.executeTakeFirst();
-		if (row?.quota_tokens !== null && row?.quota_tokens !== undefined) {
-			const left = Number(row.quota_tokens);
-			if (quota === null) throw new Error("give the subagent a quota: a session above it has one");
-			if (quota > left) throw new Error(`the subagent's quota exceeds what is left above it (${left})`);
-		}
-		id = row?.parent_session_id ?? null;
-	}
-}
