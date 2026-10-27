@@ -252,6 +252,14 @@ SSH 节点可以配置一个或多个跳板（等价于 OpenSSH 的 `ProxyJump`�
 2. **探测主机密钥**：`POST /api/ssh-nodes/probe` 每次返回第一个尚未固定的跳的主机密钥指纹（`SHA256:…`，与 `ssh-keygen -lf` 一致），只握手、不认证；用户在那台主机上核对后固定，再探测下一跳。
 3. **创建**：每一跳都已固定主机密钥才能创建。SSH 节点没有 crha，它的组在 crhs 中直接维护。
 
+### 对节点的要求
+
+- 登录 shell 能解析 POSIX 风格的 `cd … || exit 127; exec …`：bash、zsh、dash、ash、ksh 可以；fish、nushell、csh 系列，以及设置了 `ForceCommand`、受限 shell（`rbash`）或 `command=` 限制的账户不支持。
+- 有 `/bin/sh` 和 `env`；取消要用 shell 内建或 `/bin/kill` 的 `kill -<SIG> -- -<pgid>`。
+- 文件任务要求 sshd 启用 SFTP 子系统。
+- 不分配 pty，环境就是非交互 SSH 会话的环境：bash 作为登录 shell 时会读 `~/.bashrc`，其他 shell 基本不读任何配置文件，所以 `PATH` 等可能与交互登录时不同。需要的变量请在任务的 `env` 中给出，或使用绝对路径。
+- 特权任务（`native`）要求 `sudo -n` / `doas -n` 免密可用，见 privilege.md。
+
 ### 执行
 
 - **进程组**：sshd 启动命令时已经为它新建会话，命令所在 shell 的 pid 就是进程组 id。远端命令是 `cd <cwd> || exit 127; exec [env -- K=V…] /bin/sh -c '<wrapper>' crh <argv…>`，wrapper 先在 stderr 第一行输出 `$$`（crhs 解析后剥掉），再 `exec` 真正的命令。不用 `setsid(1)`：调用者已经是进程组组长时它会 fork，退出码就丢了。
