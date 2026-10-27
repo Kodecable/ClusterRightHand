@@ -192,10 +192,16 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.get("/sessions/:id", async (c) => {
 		const v = await visible(c, c.req.param("id"));
 		if (!v) return jsonError(c, 404, "no such session");
+		// The subagent's state is a cache; refresh it from its tool calls and quota before showing it.
+		let session = v.session;
+		if (session.parentSessionId) {
+			await runtime.refreshState(session.id);
+			session = (await runtime.getSession(session.id)) ?? session;
+		}
 		const canShare = v.access === "owner" || c.get("user").kind === "admin";
 		return c.json({
-			session: (await decorate(c, [v.session]))[0],
-			...(canShare ? { shares: await listSessionShares(db, v.session.id) } : {}),
+			session: (await decorate(c, [session]))[0],
+			...(canShare ? { shares: await listSessionShares(db, session.id) } : {}),
 		});
 	});
 

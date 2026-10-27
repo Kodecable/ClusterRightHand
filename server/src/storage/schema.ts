@@ -260,9 +260,9 @@ export interface SessionsTable {
 	archived_at: string | null;
 	/** Durable submission of the last input, for a parent waiting on this session's answer. */
 	last_submission_id: string | null;
-	/** Subagent state (doc/agent-runtime.md#subagent): active, awaiting_quota, stopped. Roots stay active. */
-	state: "active" | "awaiting_quota" | "stopped";
-	/** While awaiting_quota: the exhausted level to top up. */
+	/** Subagent state (doc/agent-runtime.md#subagent): active, awaiting, stopped. Roots stay active. */
+	state: "active" | "awaiting" | "stopped";
+	/** While awaiting: the exhausted level to top up. */
 	waiting_level_id: string | null;
 	state_changed_at: string | null;
 	/** Remaining token quota (doc/agent-runtime.md#配额); null: unlimited. Signed: one response may overspend it. */

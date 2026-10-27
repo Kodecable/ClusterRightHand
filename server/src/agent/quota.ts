@@ -9,7 +9,7 @@ import { UserError } from "../users/service.ts";
  * is above zero. The subagent's state says when it is paused on an exhausted level.
  */
 
-export type SessionState = "active" | "awaiting_quota" | "stopped";
+export type SessionState = "active" | "awaiting" | "stopped";
 
 export function parseQuota(raw: unknown): number | null {
 	if (raw === null) return null;
@@ -127,7 +127,7 @@ export async function awaitingQuotaChildren(db: Db, handlerSessionId: string): P
 	const rows = await db
 		.selectFrom("sessions")
 		.select(["id", "waiting_level_id", "title", "state_changed_at"])
-		.where("state", "=", "awaiting_quota")
+		.where("state", "=", "awaiting")
 		.where("waiting_level_id", "is not", null)
 		.execute();
 	const out: QuotaWaitView[] = [];
@@ -150,7 +150,7 @@ export async function awaitingQuotaSessions(db: Db): Promise<QuotaWaitView[]> {
 	const rows = await db
 		.selectFrom("sessions")
 		.select(["id", "waiting_level_id", "title", "state_changed_at"])
-		.where("state", "=", "awaiting_quota")
+		.where("state", "=", "awaiting")
 		.where("waiting_level_id", "is not", null)
 		.execute();
 	const out: QuotaWaitView[] = [];

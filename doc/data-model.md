@@ -107,8 +107,8 @@ sessions          (id, org_id, owner_user_id, conversation_id, parent_session_id
                    title, model json, status, created_at, updated_at, archived_at,
                    last_submission_id nullable,         -- 最近一次输入；父会话靠它 subagent_wait
                    quota_tokens,                        -- 子会话的剩余 token 配额，有符号；根固定 0 且不扣
-                   state[active|awaiting_quota|stopped], -- 子会话状态（根始终 active）
-                   waiting_level_id nullable,           -- awaiting_quota 时：要补的那一级
+                   state[active|awaiting|stopped],    -- 子会话状态缓存（根始终 active）
+                   waiting_level_id nullable,           -- awaiting 且因配额时：要补的那一级
                    state_changed_at,
                    used_tokens)                         -- 本会话及其 subagent 已用；规则在 rule_sets
 usage_ledger      (id, org_id, session_id, chain json, input_tokens, output_tokens, cost, created_at)

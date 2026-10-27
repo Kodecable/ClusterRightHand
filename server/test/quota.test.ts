@@ -125,12 +125,21 @@ it("a paused child asks its direct parent, which grants without a cap", async ()
 	const waiting = runtime.waitForQuota(c.id, BACKGROUND_CONTEXT);
 	const request = await waitFor("the quota wait", async () => (await awaitingQuotaChildren(db, p.id))[0]);
 	expect(request).toMatchObject({ sessionId: c.id, levelId: c.id });
-	expect(await sessionStateOf(db, c.id)).toBe("awaiting_quota");
+	expect(await sessionStateOf(db, c.id)).toBe("awaiting");
 	// No cap: the parent's own remainder does not limit what it adds for its child.
 	expect(await runtime.decideAgentRequest(p.id, request.sessionId, "approve", undefined, 50_000_000)).toBe("quota");
 	expect(await waiting).toBe("ok");
 	expect(await sessionStateOf(db, c.id)).toBe("active");
 	expect((await runtime.getSession(c.id))?.quota).toBe(50_000_000 - 10);
+});
+
+it("a finished subagent is stopped until the next input", async () => {
+	const r = await root();
+	const c = await child(r.id, "done-child", null);
+	faux.setResponses([fauxAssistantMessage([fauxText("done")])]);
+	await runtime.startSubagent(c.id, "work", "sub-1");
+	expect(await runtime.waitSubagent(c.id)).toEqual({ status: "done", answer: "done" });
+	await waitFor("stopped", async () => ((await sessionStateOf(db, c.id)) === "stopped" ? true : undefined));
 });
 
 it("a denied request stops the paused run", async () => {
@@ -224,7 +233,7 @@ it("wakes a quota handler after a restart", async () => {
 			quota: 10,
 		});
 		await recordUsage(localDb, c.id, 20);
-		await setSessionState(localDb, c.id, "awaiting_quota", c.id);
+		await setSessionState(localDb, c.id, "awaiting", c.id);
 		faux.setResponses([fauxAssistantMessage([fauxText("noted")])]);
 		await first.close();
 		// A new process opens the same storage: the pending request wakes its handler.

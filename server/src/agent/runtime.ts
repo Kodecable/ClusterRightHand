@@ -206,10 +206,12 @@ export class AgentRuntime {
 		options.cluster.onAwaitingApproval = async (task) => {
 			await reviewer.reviewTask(task);
 			await runtime.#routeAwaiting("task", task.actorId, task.id, task.approval);
+			await runtime.refreshState(task.actorId);
 		};
 		options.groups.onAwaitingApproval = async (group) => {
 			await reviewer.reviewGroup(group);
 			await runtime.#routeAwaiting("group", group.actorId, group.id, group.approval);
+			await runtime.refreshState(group.actorId);
 		};
 		runtime.#supervise();
 		// A restart may have queued nothing for requests that were already waiting: wake idle parents now.
@@ -615,6 +617,10 @@ export class AgentRuntime {
 			target: { type: "session", id: childId },
 			detail: { submission_id: String(submission.id), chars: text.length },
 		});
+		void submission
+			.wait(this.#context)
+			.then(() => setSessionState(this.#db, childId, "stopped", null))
+			.catch(() => {});
 		return String(submission.id);
 	}
 
@@ -691,7 +697,9 @@ export class AgentRuntime {
 
 	/** Requests waiting for this session's agent, and those of all its subagents. */
 	async pendingAgentRequests(sessionId: string): Promise<AgentRequestView[]> {
-		const ids = [sessionId, ...(await this.#descendants(sessionId))];
+		const descendants = await this.#descendants(sessionId);
+		const ids: string[] = [];
+		for (const id of descendants) if ((await this.refreshState(id)) === "awaiting") ids.push(id);
 		const out: AgentRequestView[] = [];
 		const tasks = await this.#db
 			.selectFrom("tasks")
@@ -759,7 +767,7 @@ export class AgentRuntime {
 		};
 		const task = await this.#db
 			.selectFrom("tasks")
-			.select(["id", "state", "approval", "on_behalf_of_user_id"])
+			.select(["id", "state", "approval", "on_behalf_of_user_id", "actor_id"])
 			.where("id", "=", requestId)
 			.executeTakeFirst();
 		if (task) {
@@ -780,10 +788,11 @@ export class AgentRuntime {
 				});
 				if (!ok) throw new UserError("the request is no longer waiting");
 			}
+			await this.refreshState(task.actor_id);
 			return "task";
 		}
 		const waiting = await this.#db.selectFrom("sessions").selectAll().where("id", "=", requestId).executeTakeFirst();
-		if (waiting?.state === "awaiting_quota" && waiting.waiting_level_id) {
+		if (waiting?.state === "awaiting" && waiting.waiting_level_id) {
 			const levelId = waiting.waiting_level_id;
 			if ((await this.#parentOf(levelId)) !== sessionId) {
 				throw new UserError("this quota wait is not handled by this session's agent");
@@ -805,11 +814,12 @@ export class AgentRuntime {
 				target: { type: "session", id: requestId },
 				detail: { level: levelId, ...(reason ? { reason } : {}), ...(tokens ? { tokens } : {}) },
 			});
+			await this.refreshState(requestId);
 			return "quota";
 		}
 		const group = await this.#db
 			.selectFrom("task_groups")
-			.select(["id", "state", "approval", "on_behalf_of_user_id"])
+			.select(["id", "state", "approval", "on_behalf_of_user_id", "actor_id"])
 			.where("id", "=", requestId)
 			.executeTakeFirst();
 		if (!group) throw new NotFoundError("no such request");
@@ -829,6 +839,7 @@ export class AgentRuntime {
 			});
 			if (!ok) throw new UserError("the request is no longer waiting");
 		}
+		await this.refreshState(group.actor_id);
 		return "group";
 	}
 
@@ -845,12 +856,57 @@ export class AgentRuntime {
 				return "ok";
 			}
 			const parent = await this.#parentOf(level);
-			await setSessionState(this.#db, sessionId, "awaiting_quota", level);
+			await setSessionState(this.#db, sessionId, "awaiting", level);
 			if (parent) await this.#wakeQuota(parent, sessionId, level);
 			await new Promise((r) => setTimeout(r, 300));
 			if (context.abortSignal?.aborted) throw new Error("the quota wait was aborted");
 			if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
 		}
+	}
+
+	/**
+	 * Recomputes a subagent's cached state (doc/agent-runtime.md#subagent): `awaiting` when one of its tool calls
+	 * waits for approval or its quota is exhausted while it runs, `stopped` once its run has ended (sticky until a
+	 * new input), `active` otherwise. Roots stay active.
+	 */
+	async refreshState(sessionId: string): Promise<SessionState> {
+		const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", sessionId).executeTakeFirst();
+		if (!row || row.parent_session_id === null) return "active";
+		const live = await this.#isLive(row);
+		if (row.state === "stopped" && !live) return "stopped";
+		const approval =
+			(await this.#db
+				.selectFrom("tasks")
+				.select("id")
+				.where("actor_id", "=", sessionId)
+				.where("state", "=", "awaiting_approval")
+				.executeTakeFirst()) ??
+			(await this.#db
+				.selectFrom("task_groups")
+				.select("id")
+				.where("actor_id", "=", sessionId)
+				.where("state", "=", "awaiting_approval")
+				.executeTakeFirst());
+		const level = await exhaustedLevel(this.#db, sessionId);
+		// A quota wait set by the paused tool stays until the quota is restored; a live run also counts.
+		const quotaWait = level !== undefined && (row.waiting_level_id !== null || live);
+		const awaiting = approval !== undefined || quotaWait;
+		const state: SessionState = awaiting ? "awaiting" : "active";
+		await setSessionState(this.#db, sessionId, state, quotaWait ? (level ?? null) : null);
+		return state;
+	}
+
+	/** Whether the session's conversation has a live run. */
+	async #isLive(row: Row): Promise<boolean> {
+		const conversation = await this.#harness.conversation(
+			Number(row.conversation_id) as unknown as ConversationId,
+			this.#context,
+		);
+		if (!conversation) return false;
+		const state = await conversation.viewState(this.#context);
+		const live = state.value.docs["pi.live"] as { run?: unknown } | undefined;
+		state.dispose();
+		return live?.run !== undefined;
 	}
 
 	/** The direct parent of a level; the only session that handles its quota wait. */
@@ -892,6 +948,7 @@ export class AgentRuntime {
 			.where("parent_session_id", "=", sessionId)
 			.orderBy("created_at", "desc")
 			.execute();
+		for (const r of rows) await this.refreshState(r.id);
 		return rows.map((r) => ({
 			id: r.id,
 			title: r.title,
@@ -945,6 +1002,27 @@ export class AgentRuntime {
 
 	/** After a restart, wakes the parents of requests that were already waiting (deduplicated by requestId). */
 	async #wakePendingAgents(): Promise<void> {
+		// Reconcile cached states with durable truth: a run that ended while the process was down is stopped,
+		// and the quota/approval sources decide active vs awaiting.
+		const children = await this.#db
+			.selectFrom("sessions")
+			.selectAll()
+			.where("parent_session_id", "is not", null)
+			.execute();
+		for (const child of children) {
+			if (child.last_submission_id) {
+				const submission = await this.#harness.submission(
+					Number(child.last_submission_id) as unknown as SubmissionId,
+					this.#context,
+				);
+				const settled = await submission?.status(this.#context);
+				if (settled?.status === "done" || settled?.status === "unanswered") {
+					await setSessionState(this.#db, child.id, "stopped", null);
+					continue;
+				}
+			}
+			await this.refreshState(child.id);
+		}
 		const requests: { kind: "task" | "group"; id: string; session: string }[] = [];
 		const tasks = await this.#db
 			.selectFrom("tasks")

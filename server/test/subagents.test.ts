@@ -203,6 +203,17 @@ it("does not hand a request to an agent whose own rules demand approval", async 
 	expect((await approvalOf(task.id))?.agent).toBeUndefined();
 });
 
+it("a subagent waiting for approval is awaiting, and active again once settled", async () => {
+	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const parent = await subagent(root.id, "state-parent", { default: "inherit", rules: [] });
+	const child = await subagent(parent.id, "state-child", { default: "require-approval", rules: [] });
+	const task = await execTask([root.id, parent.id, child.id]);
+	await waitFor("awaiting", async () => ((await runtime.refreshState(child.id)) === "awaiting" ? true : undefined));
+	expect((await runtime.getSession(child.id))?.state).toBe("awaiting");
+	expect(await runtime.decideAgentRequest(parent.id, task.id, "approve")).toBe("task");
+	expect(await runtime.refreshState(child.id)).toBe("active");
+});
+
 it("stopping a session stops its subagents", async () => {
 	const parent = await runtime.createSession(owner, { model: model(), preset: "yolo" });
 	const child = await subagent(parent.id, "cancel-child", { default: "inherit", rules: [] });
