@@ -43,7 +43,9 @@ function fakeModel(steps: ((body: { messages: { role: string; content: unknown }
 				const text = delta.content;
 				const first = text.slice(0, 3);
 				const rest = text.slice(3);
-				res.write(chunk({ choices: [{ index: 0, delta: { role: "assistant", content: first }, finish_reason: null }] }));
+				res.write(
+					chunk({ choices: [{ index: 0, delta: { role: "assistant", content: first }, finish_reason: null }] }),
+				);
 				streaming.push(requests.length);
 				setTimeout(() => {
 					if (res.destroyed) return;
@@ -297,10 +299,14 @@ describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 		crhs.start();
 		await up();
 
-		const texts = await waitFor("the recovered answer", async () => {
-			const snap = await snapshot(session.id);
-			return assistantTexts(snap).some((text) => text.includes("recovered answer")) ? snap : undefined;
-		}, 60_000);
+		const texts = await waitFor(
+			"the recovered answer",
+			async () => {
+				const snap = await snapshot(session.id);
+				return assistantTexts(snap).some((text) => text.includes("recovered answer")) ? snap : undefined;
+			},
+			60_000,
+		);
 		expect(assistantTexts(texts).filter((text) => text.includes("recovered answer"))).toHaveLength(1);
 		// The run finished; the session is idle again.
 		const final = await snapshot(session.id);

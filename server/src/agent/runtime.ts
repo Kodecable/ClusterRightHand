@@ -133,6 +133,13 @@ export class AgentRuntime {
 	reopened = 0;
 	/** The instance the tools call back into; set once the Harness is open. */
 	#runtimeRef: { current?: AgentRuntime } = {};
+	/** conversation id -> session, for the tools' per-call lookups (the mapping never changes). */
+	#sessionsByConversation = new Map<
+		string,
+		{ id: string; ownerUserId: string; orgId: string; parentSessionId: string | null }
+	>();
+	/** Sessions known to have subagents; checked once per session, then cheap. */
+	#subagentParents = new Set<string>();
 
 	private constructor(harness: Harness, options: AgentRuntimeOptions) {
 		this.#db = options.db;
@@ -453,22 +460,36 @@ export class AgentRuntime {
 	/** The session a conversation belongs to, for tool calls that only know their conversation id. */
 	async sessionAt(
 		conversationId: string,
-	): Promise<
-		{ id: string; ownerUserId: string; orgId: string; parentSessionId: string | null; model: ModelRef } | undefined
-	> {
+	): Promise<{ id: string; ownerUserId: string; orgId: string; parentSessionId: string | null } | undefined> {
+		const cached = this.#sessionsByConversation.get(conversationId);
+		if (cached) return cached;
 		const row = await this.#db
 			.selectFrom("sessions")
-			.selectAll()
+			.select(["id", "owner_user_id", "org_id", "parent_session_id"])
 			.where("conversation_id", "=", conversationId)
 			.executeTakeFirst();
 		if (!row) return undefined;
-		return {
+		const session = {
 			id: row.id,
 			ownerUserId: row.owner_user_id,
 			orgId: row.org_id,
 			parentSessionId: row.parent_session_id,
-			model: JSON.parse(row.model) as ModelRef,
 		};
+		this.#sessionsByConversation.set(conversationId, session);
+		return session;
+	}
+
+	/** Whether the session's tools need to look for subagent requests; cached after the first check. */
+	async hasSubagents(sessionId: string): Promise<boolean> {
+		if (this.#subagentParents.has(sessionId)) return true;
+		const row = await this.#db
+			.selectFrom("sessions")
+			.select("id")
+			.where("parent_session_id", "=", sessionId)
+			.limit(1)
+			.executeTakeFirst();
+		if (row) this.#subagentParents.add(sessionId);
+		return row !== undefined;
 	}
 
 	/**
@@ -525,6 +546,7 @@ export class AgentRuntime {
 			await createRuleSet(trx, parent.org_id, { type: "session", id: childId }, input.rules);
 			if (input.budget) await setBudget(trx, { type: "session", id: childId }, input.budget);
 		});
+		this.#subagentParents.add(parent.id);
 		void this.#audit?.record({
 			actor: {
 				type: parent.parent_session_id ? "subagent" : "session",
@@ -923,7 +945,7 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 				const runtime = runtimeRef.current;
 				if (!runtime) return undefined;
 				const session = await runtime.sessionAt(String(api.conversationId));
-				if (!session) return undefined;
+				if (!session || !(await runtime.hasSubagents(session.id))) return undefined;
 				const pending = await runtime.pendingAgentRequests(session.id);
 				if (pending.length === 0) return undefined;
 				const lines = pending.map((r) => `${r.kind} ${r.id}: ${r.summary}`);

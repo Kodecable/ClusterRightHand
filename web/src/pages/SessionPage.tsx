@@ -150,6 +150,12 @@ export function SessionPage({ id }: { id: string }) {
 				<a href="#/sessions">Sessions</a>
 			</p>
 			<h1>{session.data.title}</h1>
+			{session.data.parentSessionId && (
+				<p className="muted">
+					A subagent of{" "}
+					<a href={`#/sessions/${encodeURIComponent(session.data.parentSessionId)}`}>its parent session</a>.
+				</p>
+			)}
 			{session.data.access !== "owner" && (
 				<p className="muted">
 					Shared by {session.data.ownerUsername ?? "another user"} ({session.data.access} access).

@@ -33,6 +33,8 @@ function ResultText({ text, isError }: { text: string; isError: boolean }) {
 export function ToolCard({ tool, running }: { tool: Tool; running: boolean }) {
 	const wait = tool.result ? undefined : approvalWait(tool.details);
 	const link = wait && safeHashLink(wait.url);
+	const details = tool.details as { sessionId?: unknown } | undefined;
+	const subagent = typeof details?.sessionId === "string" ? details.sessionId : undefined;
 	const hasArgs = Object.keys(tool.args).length > 0;
 	const status = tool.result
 		? tool.result.isError
@@ -68,6 +70,11 @@ export function ToolCard({ tool, running }: { tool: Tool; running: boolean }) {
 					<summary>Output so far</summary>
 					<pre className="output">{tool.output}</pre>
 				</details>
+			)}
+			{subagent && (
+				<p>
+					<a href={`#/sessions/${encodeURIComponent(subagent)}`}>Open the subagent's session</a>
+				</p>
 			)}
 			{tool.result && <ResultText text={tool.result.text} isError={tool.result.isError} />}
 		</section>
