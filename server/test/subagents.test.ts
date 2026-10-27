@@ -89,7 +89,7 @@ async function waitFor<T>(what: string, probe: () => Promise<T | undefined>, tim
 }
 
 const subagent = (parentId: string, callKey: string, rules: { default: string; rules: unknown[] }) =>
-	runtime.createSubagent(parentId, { callKey, task: `task ${callKey}`, rules: rules as never, budget: null });
+	runtime.createSubagent(parentId, { callKey, task: `task ${callKey}`, rules: rules as never, quota: null });
 
 const execTask = (chain: string[]) =>
 	cluster.createTask({

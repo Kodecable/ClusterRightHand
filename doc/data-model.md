@@ -92,8 +92,8 @@ authorizations    (id,                                   -- SHA-256(JCS(payload)
                    revoked_at nullable, created_at)
 rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,
                    preset[ask|auto_review|yolo] nullable,          -- 只有根有，决定 default 和基础规则
-                   default_action[allow|inherit|require-approval|deny], rules json, budget json nullable, updated_at)
-                  -- 授权规则与预算，见 access-control.md；用户和组织没有规则
+                   default_action[allow|inherit|require-approval|deny], rules json, updated_at)
+                  -- 授权规则，见 access-control.md；用户和组织没有规则；配额在 sessions
 ```
 
 审批结果保存在工具调用（`tasks` / `task_groups`）上，不单独建表；"以后都允许"是对 `rule_sets` 的修改。
@@ -106,9 +106,10 @@ rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,
 sessions          (id, org_id, owner_user_id, conversation_id, parent_session_id nullable,
                    title, model json, status, created_at, updated_at, archived_at,
                    last_submission_id nullable,         -- 最近一次输入；父会话靠它 subagent_wait
-                   used_tokens, used_cost_microusd)     -- 本会话及其 subagent 的累计消耗；规则和预算在 rule_sets
+                   quota_tokens nullable,               -- 剩余 token 配额，有符号；null 不限
+                   used_tokens)                         -- 本会话及其 subagent 已用；规则在 rule_sets
 usage_ledger      (id, org_id, session_id, chain json, input_tokens, output_tokens, cost, created_at)
-                  -- 按链逐级汇总，用于预算检查
+                  -- 按链逐级汇总，用于配额检查
 model_providers   (id, org_id, provider_id, kind[builtin|openai-compatible], builtin, name, base_url,
                    secret_id, models json, headers json, enabled)
                   -- key 在 secrets；headers 只放网关路由头，不放凭据

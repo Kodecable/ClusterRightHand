@@ -94,7 +94,7 @@ interface AgentRuntime {
 
 ## 会话
 
-- 会话属于创建它的用户。会话能做什么，由操作者链上的授权规则和预算决定，见 [access-control.md](access-control.md#授权规则)。
+- 会话属于创建它的用户。会话能做什么，由操作者链上的授权规则和它的 token 配额决定，见 [access-control.md](access-control.md#授权规则)。
 - 会话记录在业务表 `sessions` 中，`conversation_id` 关联 durable 的 Conversation。
 - WebUI 通过 `watch` 订阅会话视图，经 SSE（`/api/sessions/:id/events`）推送增量。
 - 开启自动压缩，阈值由模型的上下文窗口决定（参数见下文"默认值"）。
@@ -104,24 +104,24 @@ interface AgentRuntime {
 
 基于 durable 的"由任务拥有的子会话"（参考官方 `test/examples/21-subagent-foreground.ts` 和 `22-subagent-background.ts`）：
 
-- 每个 subagent 都是独立的会话，有自己的授权规则和预算，挂在父会话的操作者链下面。父会话可以给子会话加规则来收紧权限；按照链上"取最严格"的判定方式，子会话无论如何都无法超出父会话的权限。
-- 子会话的预算不能超过父会话的剩余预算，用量同时计入父会话和用户。
+- 每个 subagent 都是独立的会话，有自己的授权规则和配额，挂在父会话的操作者链下面。父会话可以给子会话加规则来收紧权限；按照链上"取最严格"的判定方式，子会话无论如何都无法超出父会话的权限。
+- 子会话的配额不能超过父会话的剩余配额，用量同时计入父会话和根。
 - 嵌套深度有上限（默认 2）。
 - 父会话 abort 时，子会话一并 abort，它们正在运行的任务被取消、等待审批的任务被拒绝。
 
 **当前实现（M3）**：
 
-- `subagent(task, rules?, budget?, background?)` 建立独立会话（`sessions.parent_session_id`），对话是 **ownerless** 的，因此父会话停止等待不会连带终止它；父会话 abort 时由运行时显式取消整棵子树（D75）。
+- `subagent(task, rules?, quota?, background?)` 建立独立会话（`sessions.parent_session_id`），对话是 **ownerless** 的，因此父会话停止等待不会连带终止它；父会话 abort 时由运行时显式取消整棵子树（D75）。
 - 前台方式等待答案；子会话的请求交给父会话的 agent 时，等待提前返回，父会话处理后再 `subagent_wait`。`background: true` 立即返回会话 id。
 - `subagent_wait(id)`、`subagent_list()`、`subagent_cancel(id)`、`subagent_decide(request_id, decision, reason?)` 都已实现。
 - 工具 `replay: "safe"`：重启后按 durable 任务 id 找回同一个子会话和提交（`sessions.last_submission_id`）。
-- 规则是完整的非根规则集，只能收紧；预算不能超过上面每一级的剩余；嵌套最多两层。
+- 规则是完整的非根规则集，只能收紧；配额不能超过上面每一级的剩余；嵌套最多两层。
 
 ### 前台与后台
 
-- `subagent(task, rules?, budget?, model?)` 以前台方式启动子会话，等待它完成并返回答案。
+- `subagent(task, rules?, quota?, model?)` 以前台方式启动子会话，等待它完成并返回答案。
 - 前台等待**可以被打断**，打断后子会话自动转入后台继续运行（或暂停等待处理），工具立即返回子会话 id 和打断原因。打断的原因包括：
-  - 子会话需要父会话处理的请求（审批、追加预算）；
+  - 子会话需要父会话处理的请求（审批）；
   - 用户在 WebUI 中打断；
   - 等待超过时限。
 - 父会话处理完之后，显式调用 `subagent_wait(id)` 继续等待。
@@ -132,7 +132,7 @@ interface AgentRuntime {
 - 父会话的 agent 用 `subagent_decide(request_id, "approve" | "deny" | "escalate", reason?)` 处理：批准/拒绝直接落到任务上（审计里 actor 是父会话）；`escalate` 把请求交还用户，审批页照常显示。
 - **任何工具调用返回时**，只要还有属于它的待处理请求，结果末尾会附上提示（任务/任务组 id、摘要），所以父会话不会错过；实现用 durable 的 `afterTool` 钩子。
 - 父会话空闲（没有正在进行的运行）时，以 follow-up 输入的方式提交一条提示并唤醒它；如果父会话正在等这次的子会话，则靠前台等待的提前返回，不再额外提交。
-- 预算的"追加"还没有实现：预算不足时仍直接拒绝（D73 只覆盖了审批这条路径）。
+- 配额不足时子会话直接结束；父会话可以重新创建子会话，或让所有者提高根配额后再委派。
 
 ### 后台与生命周期
 
@@ -157,12 +157,16 @@ interface AgentRuntime {
 
 节点笔记在 `node_info` 中截断到 8KB（pi 没有对应项），因为每次调用都会返回。
 
-## 预算
+## 配额
 
-- 预算是授权规则的一部分，见 [access-control.md](access-control.md#预算)。
-- durable 1.4.0 不能拒绝一次模型请求（`beforeRequest` 只能改写消息），所以在**每次模型响应之后**检查：`afterResponse` 钩子把这次响应的用量（token 数、费用）累加到会话以及它上面的每一级（`sessions.used_tokens` / `used_cost_microusd`），任何一级超出后，这次响应里的工具调用不再执行，并以 `control.terminate` 结束本次运行，不再发起下一次请求。因此一次运行最多超出一次响应的用量。
-- 预算用尽后，向该会话发新消息会被拒绝，直到所有者提高预算（`PATCH /api/sessions/:id { budget }`）。
-- **尚未实现**：子会话的"向上申请追加预算"。审批能沿链交给父会话的 agent，预算不能：durable 1.4.0 没有请求前的拦截点，检查发生在响应之后（D72），一次"申请"仍要先花掉一次请求。
+- 每个会话有一个 token 配额：`sessions.quota_tokens`，有符号 64 位整数，表示**剩余** token；`null` 表示不限。
+- 每次模型响应之后（durable 1.4.0 没有请求前的拦截点，D72），把这次响应的 `totalTokens` 从会话以及链上每一级的剩余配额中扣减。配额可以为负：一次响应可以超出余额，负值被记录下来。
+- 只要链上所有级别的剩余配额都 **> 0**，运行继续；任何一级不满足，这次响应里的工具调用不执行，运行以 `terminate` 结束，新消息被拒绝，直到所有者设置新的配额（`PATCH /api/sessions/:id { quota }`）。
+- 设置配额是**替换剩余量**：超支后设为 100，表示从这里开始还有 100 token，而不是追加 100。
+- 只计算 token，不计算任何货币成本。
+- 子会话的配额在创建时给出，不能超过上面每一级的剩余；用量同时计入父会话和根。
+- 不设用户级或组织级配额；以后需要限制用户总用量时，另加与规则无关的用户配额。
+- 配额不足时**不向上申请**：运行结束，所有者提高配额后用新消息继续。审批能沿链交给父会话的 agent，配额不能（没有请求前的暂停点，见 D72）。
 
 ## 节点笔记
 

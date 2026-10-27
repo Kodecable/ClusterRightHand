@@ -1,6 +1,5 @@
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { parseBudget } from "../agent/budget.ts";
 import {
 	builtinProviderIds,
 	type CompatibleModel,
@@ -10,6 +9,7 @@ import {
 	type ModelRef,
 	saveModelProvider,
 } from "../agent/models.ts";
+import { parseQuota } from "../agent/quota.ts";
 import { getReviewModel, setReviewModel } from "../agent/review.ts";
 import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
 import {
@@ -183,7 +183,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			model: parseModel(body.model),
 			preset: parsePreset(body.preset ?? "ask"),
 			...(typeof body.title === "string" ? { title: body.title } : {}),
-			...(body.budget !== undefined ? { budget: parseBudget(body.budget) } : {}),
+			...(body.quota !== undefined ? { quota: parseQuota(body.quota) } : {}),
 		});
 		return c.json({ session: (await decorate(c, [session]))[0] }, 201);
 	});
@@ -261,14 +261,14 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			...(typeof body.title === "string" ? { title: body.title } : {}),
 			...(body.model !== undefined ? { model: parseModel(body.model) } : {}),
 			...(preset ? { preset } : {}),
-			...(body.budget !== undefined ? { budget: parseBudget(body.budget) } : {}),
+			...(body.quota !== undefined ? { quota: parseQuota(body.quota) } : {}),
 		});
-		if (body.budget !== undefined) {
+		if (body.quota !== undefined) {
 			void c.get("audit").record({
 				actor: userActor(c.get("user")),
-				action: "rules.changed",
+				action: "session.quota",
 				target: { type: "session", id: s.id },
-				detail: { budget: body.budget },
+				detail: { quota: body.quota },
 			});
 		}
 		if (preset) {

@@ -38,8 +38,8 @@ import type { Db } from "../storage/db.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
 import { defaultOrgId, NotFoundError, UserError } from "../users/service.ts";
 import { derivedId, newId } from "../util/id.ts";
-import { type Budget, exhaustedLevel, parseBudget, recordSpend, type Spend, setBudget, spendOf } from "./budget.ts";
 import type { ModelConfig, ModelRef } from "./models.ts";
+import { exhaustedLevel, parseQuota, recordUsage, setQuota, spentTokens } from "./quota.ts";
 import { Reviewer } from "./review.ts";
 import { sharedSessionAccess } from "./sharing.ts";
 
@@ -58,10 +58,10 @@ export interface SessionView {
 	createdAt: string;
 	updatedAt: string;
 	rules: StoredRuleSet | null;
-	/** From the session's rule set; null: unlimited. */
-	budget: Budget | null;
-	/** Spent by this session and its subagents. */
-	spend: Spend;
+	/** Remaining token quota; null: unlimited. Signed: a response may overspend it. */
+	quota: number | null;
+	/** Tokens spent by this session and its subagents. */
+	spentTokens: number;
 }
 
 /** An approval handed to an ancestor session's agent (doc/agent-runtime.md#处理子会话的请求). */
@@ -117,6 +117,7 @@ type Row = {
 	created_at: string;
 	updated_at: string;
 	last_submission_id: string | null;
+	quota_tokens: string | number | null;
 };
 
 export class AgentRuntime {
@@ -224,7 +225,7 @@ export class AgentRuntime {
 
 	async createSession(
 		owner: SessionUser,
-		input: { title?: string; model: ModelRef; preset: Preset; instructions?: string; budget?: Budget | null },
+		input: { title?: string; model: ModelRef; preset: Preset; instructions?: string; quota?: number | null },
 	): Promise<SessionView> {
 		this.#models.assertAvailable(input.model);
 		const conversation = await this.#harness.createConversation(
@@ -256,10 +257,10 @@ export class AgentRuntime {
 					created_at: now,
 					updated_at: now,
 					archived_at: null,
+					quota_tokens: input.quota ?? null,
 				})
 				.execute();
 			await createRootRuleSet(trx, orgId, { type: "session", id }, input.preset);
-			if (input.budget) await setBudget(trx, { type: "session", id }, input.budget);
 		});
 		void this.#audit?.record({
 			actor: { type: "user", id: owner.userId, onBehalfOfUserId: owner.userId },
@@ -305,8 +306,8 @@ export class AgentRuntime {
 			createdAt: row.created_at,
 			updatedAt: row.updated_at,
 			rules,
-			budget: (rules?.budget as Budget | undefined) ?? null,
-			spend: await spendOf(this.#db, row.id),
+			quota: row.quota_tokens === null ? null : Number(row.quota_tokens),
+			spentTokens: await spentTokens(this.#db, row.id),
 		};
 	}
 
@@ -332,8 +333,8 @@ export class AgentRuntime {
 		if (over) {
 			throw new UserError(
 				over === sessionId
-					? "the session's budget is used up; raise it to continue"
-					: "a parent session's budget is used up",
+					? "the session's token quota is used up; raise it to continue"
+					: "a parent session's token quota is used up",
 			);
 		}
 		const submission = await conversation.submit({ type: "input", content: text, requestId }, this.#context);
@@ -416,7 +417,7 @@ export class AgentRuntime {
 
 	async configure(
 		sessionId: string,
-		change: { title?: string; model?: ModelRef; preset?: Preset; budget?: Budget | null },
+		change: { title?: string; model?: ModelRef; preset?: Preset; quota?: number | null },
 	): Promise<SessionView> {
 		const { row, conversation } = await this.#conversation(sessionId);
 		if (change.model) {
@@ -431,7 +432,7 @@ export class AgentRuntime {
 		}
 		if (change.preset && row.parent_session_id === null)
 			await setPreset(this.#db, { type: "session", id: sessionId }, change.preset);
-		if (change.budget !== undefined) await setBudget(this.#db, { type: "session", id: sessionId }, change.budget);
+		if (change.quota !== undefined) await setQuota(this.#db, sessionId, change.quota);
 		await this.#db
 			.updateTable("sessions")
 			.set({
@@ -496,12 +497,12 @@ export class AgentRuntime {
 
 	/**
 	 * Creates (or, on a rerun of the same tool call, finds) a subagent's session: its own conversation, rule set and
-	 * budget, below the parent's chain (doc/agent-runtime.md#subagent). The child is ownerless so that a parent's
+	 * quota, below the parent's chain (doc/agent-runtime.md#subagent). The child is ownerless so that a parent's
 	 * earlier return or abort does not kill it; the runtime cancels it explicitly.
 	 */
 	async createSubagent(
 		parentId: string,
-		input: { callKey: string; task: string; rules: RuleSet; budget: Budget | null },
+		input: { callKey: string; task: string; rules: RuleSet; quota: number | null },
 	): Promise<{ id: string; created: boolean }> {
 		const parent = await this.#db.selectFrom("sessions").selectAll().where("id", "=", parentId).executeTakeFirst();
 		if (!parent) throw new NotFoundError("no such session");
@@ -512,7 +513,7 @@ export class AgentRuntime {
 					?.parent_session_id ?? null;
 		}
 		if (depth >= MAX_SUBAGENT_DEPTH) throw new UserError(`subagents nest at most ${MAX_SUBAGENT_DEPTH} levels deep`);
-		await checkChildBudget(this.#db, parentId, input.budget);
+		await checkChildQuota(this.#db, parentId, input.quota);
 
 		const childId = derivedId(`subagent:${input.callKey}`);
 		if (await this.#db.selectFrom("sessions").select("id").where("id", "=", childId).executeTakeFirst()) {
@@ -543,10 +544,10 @@ export class AgentRuntime {
 					created_at: now,
 					updated_at: now,
 					archived_at: null,
+					quota_tokens: input.quota,
 				})
 				.execute();
 			await createRuleSet(trx, parent.org_id, { type: "session", id: childId }, input.rules);
-			if (input.budget) await setBudget(trx, { type: "session", id: childId }, input.budget);
 		});
 		this.#subagentParents.add(parent.id);
 		void this.#audit?.record({
@@ -557,7 +558,7 @@ export class AgentRuntime {
 			},
 			action: "session.subagent_created",
 			target: { type: "session", id: childId },
-			detail: { rules: input.rules, budget: input.budget },
+			detail: { rules: input.rules, quota: input.quota },
 		});
 		return { id: childId, created: true };
 	}
@@ -998,17 +999,17 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 			},
 		}),
 		hook(GenerationTask, {
-			// Spend counts at every level; a level over budget stops its whole subtree (doc/agent-runtime.md#预算).
+			// Usage counts at every level; a level whose quota is not above zero stops its whole subtree (doc/agent-runtime.md#配额).
 			afterResponse: async (message, api) => {
 				const sessionId = await sessionOf(api.conversationId);
 				if (!sessionId || !message.usage) return;
-				await recordSpend(options.db, sessionId, message.usage.totalTokens, message.usage.cost.total);
+				await recordUsage(options.db, sessionId, message.usage.totalTokens);
 				const over = await exhaustedLevel(options.db, sessionId);
 				// The tool calls of this response end the run (below); a response without them ends it anyway.
 				if (over) {
 					void options.audit?.record({
-						actor: { type: "system", id: "budget" },
-						action: "session.budget_exhausted",
+						actor: { type: "system", id: "quota" },
+						action: "session.quota_exhausted",
 						target: { type: "session", id: over },
 					});
 				}
@@ -1025,10 +1026,10 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 			replay: "safe",
 			execute: async (args, api, context) => {
 				const base = await toolContextFor(options, String(api.conversationId));
-				// Over budget: run nothing and end the run without another model request.
+				// Quota at or below zero: run nothing and end the run without another model request.
 				if (await exhaustedLevel(options.db, base.actor.id)) {
 					return {
-						output: [{ type: "text", text: "The budget is used up; nothing was run and the run ends here." }],
+						output: [{ type: "text", text: "The token quota is used up; nothing was run and the run ends here." }],
 						control: { terminate: true },
 					};
 				}
@@ -1070,8 +1071,11 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 						"actions allow|deny|require-approval, methods exec|file.read|file.write, nodes, exact|prefix",
 				}),
 			),
-			budget: Type.Optional(
-				Type.Object({ tokens: Type.Optional(Type.Integer()), costUsd: Type.Optional(Type.Number()) }),
+			quota: Type.Optional(
+				Type.Integer({
+					minimum: 0,
+					description: "Token quota for the subagent; required when a session above it has a quota",
+				}),
 			),
 			background: Type.Optional(
 				Type.Boolean({ description: "Return at once with the session id; fetch the answer with subagent_wait" }),
@@ -1085,12 +1089,12 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 			const parent = await runtime.sessionAt(String(api.conversationId));
 			if (!parent) throw new Error("this conversation is not a ClusterRightHand session");
 			const rules = args.rules ? parseRuleSet(args.rules, false) : { default: "inherit" as const, rules: [] };
-			const budget = args.budget ? parseBudget(args.budget) : null;
+			const quota = args.quota === undefined ? null : parseQuota(args.quota);
 			const child = await runtime.createSubagent(parent.id, {
 				callKey: String(api.taskId),
 				task: args.task,
 				rules,
-				budget,
+				quota,
 			});
 			// A UI watching the parent finds the child here.
 			await api.details({ sessionId: child.id }, context);
@@ -1226,29 +1230,19 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 /** Subagent sessions nest at most this deep below a root session (doc/agent-runtime.md#subagent). */
 export const MAX_SUBAGENT_DEPTH = 2;
 
-/** A child's budget cannot exceed what is left of every level above it. */
-async function checkChildBudget(db: Db, parentId: string, budget: Budget | null): Promise<void> {
+/** A child's quota cannot exceed what is left of every level above it. */
+async function checkChildQuota(db: Db, parentId: string, quota: number | null): Promise<void> {
 	for (let id: string | null = parentId; id; ) {
-		const rules = await db
-			.selectFrom("rule_sets")
-			.select("budget")
-			.where("scope_type", "=", "session")
-			.where("scope_id", "=", id)
+		const row = await db
+			.selectFrom("sessions")
+			.select(["parent_session_id", "quota_tokens"])
+			.where("id", "=", id)
 			.executeTakeFirst();
-		if (rules?.budget) {
-			const limit = JSON.parse(rules.budget) as Budget;
-			const spend = await spendOf(db, id);
-			const left = {
-				tokens: (limit.tokens ?? Infinity) - spend.tokens,
-				costUsd: (limit.costUsd ?? Infinity) - spend.costUsd,
-			};
-			if (!budget) throw new Error("give the subagent a budget: a session above it has one");
-			if ((budget.tokens ?? Infinity) > left.tokens || (budget.costUsd ?? Infinity) > left.costUsd) {
-				throw new Error(`the subagent's budget exceeds what is left above it (${JSON.stringify(left)})`);
-			}
+		if (row?.quota_tokens !== null && row?.quota_tokens !== undefined) {
+			const left = Number(row.quota_tokens);
+			if (quota === null) throw new Error("give the subagent a quota: a session above it has one");
+			if (quota > left) throw new Error(`the subagent's quota exceeds what is left above it (${left})`);
 		}
-		id =
-			(await db.selectFrom("sessions").select("parent_session_id").where("id", "=", id).executeTakeFirst())
-				?.parent_session_id ?? null;
+		id = row?.parent_session_id ?? null;
 	}
 }

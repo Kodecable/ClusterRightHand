@@ -62,7 +62,7 @@ test("a snapshot builds the transcript and the in-flight message", () => {
 		["text", "hello"],
 		["text", "par"],
 	]);
-	expect(usageTotals(s.usage)).toEqual({ tokens: 1500, cost: 1.5 });
+	expect(usageTotals(s.usage)).toEqual({ tokens: 1500 });
 });
 
 test("a reconnect snapshot resets the state", () => {

@@ -17,8 +17,6 @@ export interface StoredRuleSet {
 	/** The rules added on top of the preset's (roots), or all rules (sub-levels). */
 	rules: Rule[];
 	default: RuleSet["default"];
-	/** JSON budget ({ tokens?, costUsd? }), sessions only. */
-	budget: unknown;
 	updatedAt: string;
 }
 
@@ -28,7 +26,6 @@ function fromRow(row: RuleSetsTable): StoredRuleSet {
 		preset: row.preset as Preset | null,
 		rules: JSON.parse(row.rules) as Rule[],
 		default: row.default_action as RuleSet["default"],
-		budget: row.budget ? JSON.parse(row.budget) : null,
 		updatedAt: row.updated_at,
 	};
 }
@@ -62,7 +59,6 @@ export async function createRootRuleSet(db: Db, orgId: string, ref: RuleRef, pre
 			preset,
 			default_action: presetRuleSet(preset).default,
 			rules: "[]",
-			budget: null,
 			updated_at: new Date().toISOString(),
 		})
 		.execute();
@@ -80,7 +76,6 @@ export async function createRuleSet(db: Db, orgId: string, ref: RuleRef, set: Ru
 			preset: null,
 			default_action: set.default,
 			rules: JSON.stringify(set.rules),
-			budget: null,
 			updated_at: new Date().toISOString(),
 		})
 		.execute();

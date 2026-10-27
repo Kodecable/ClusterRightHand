@@ -286,9 +286,10 @@ export interface SessionView {
 	/** The caller's access: the owner, an administrator, or a user the session is shared with. */
 	access: SessionAccess;
 	ownerUsername: string | null;
-	/** The session's limit (null: unlimited) and what it has spent. */
-	budget?: { tokens?: number; costUsd?: number } | null;
-	spend?: { tokens: number; costUsd: number };
+	/** Remaining token quota (null: unlimited; negative after an overspending response). */
+	quota: number | null;
+	/** Tokens spent by the session and its subagents. */
+	spentTokens: number;
 }
 export interface SessionPatch {
 	title?: string;

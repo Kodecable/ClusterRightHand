@@ -414,16 +414,12 @@ export function transcript(state: SessionState): TranscriptItem[] {
 	return items;
 }
 
-/** Total cost and tokens over all models. */
-export function usageTotals(usage: UsageState | undefined): { tokens: number; cost: number } | undefined {
+/** Total tokens over all models; no monetary cost is computed (doc/agent-runtime.md#配额). */
+export function usageTotals(usage: UsageState | undefined): { tokens: number } | undefined {
 	if (!usage) return undefined;
 	let tokens = 0;
-	let cost = 0;
-	for (const u of [...Object.values(usage.models), ...Object.values(usage.tools)]) {
-		tokens += u.totalTokens ?? 0;
-		cost += u.cost?.total ?? 0;
-	}
-	return tokens > 0 || cost > 0 ? { tokens, cost } : undefined;
+	for (const u of [...Object.values(usage.models), ...Object.values(usage.tools)]) tokens += u.totalTokens ?? 0;
+	return tokens > 0 ? { tokens } : undefined;
 }
 
 /** `details.state === "awaiting_approval"` with an approval link, as cluster tools publish while waiting. */

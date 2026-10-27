@@ -104,10 +104,10 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		}
 	});
 
-	it("stops a run once the budget is used up, and refuses new messages until it is raised", async () => {
+	it("stops a run once the token quota is used up, and refuses new messages until it is raised", async () => {
 		const runtime = await open();
 		try {
-			const session = await runtime.createSession(owner, { model, preset: "yolo", budget: { tokens: 100 } });
+			const session = await runtime.createSession(owner, { model, preset: "yolo", quota: 100 });
 			// One response that uses up the budget and asks for a tool call that must not run.
 			const costly = fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, cmd: "echo nope" }, { id: "c1" })], {
 				stopReason: "toolUse",
@@ -119,13 +119,14 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 			// The run ended after the costly response: no second request, and the tool ran nothing.
 			expect(faux.state.callCount - calls).toBe(1);
 			const view = await runtime.getSession(session.id);
-			// faux reports its own usage estimate, well above the budget.
-			expect(view?.spend.tokens).toBeGreaterThanOrEqual(100);
+			// faux reports its own usage estimate, well above the quota: it is now a signed negative remainder.
+			expect(view?.quota).toBeLessThan(0);
+			expect(view?.spentTokens).toBeGreaterThanOrEqual(100);
 			const tasks = await env.crhs.db.selectFrom("tasks").select("id").where("actor_id", "=", session.id).execute();
 			expect(tasks).toEqual([]);
-			await expect(runtime.submit(session.id, owner, "more", "r2")).rejects.toThrow(/budget/);
+			await expect(runtime.submit(session.id, owner, "more", "r2")).rejects.toThrow(/quota/);
 			// Raising the budget lets the session continue.
-			await runtime.configure(session.id, { budget: { tokens: 10_000 } });
+			await runtime.configure(session.id, { quota: 10_000 });
 			faux.setResponses([fauxAssistantMessage([fauxText("back")])]);
 			const again = await runtime.submit(session.id, owner, "more", "r3");
 			expect(await runtime.waitSubmission(session.id, again)).toEqual({ status: "done", answer: "back" });
@@ -318,13 +319,13 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 			}
 		});
 
-		it("refuses a child budget larger than what the parent has left", async () => {
+		it("refuses a child quota larger than what the parent has left", async () => {
 			const runtime = await open();
 			try {
-				const session = await runtime.createSession(owner, { model, preset: "yolo", budget: { tokens: 1_000_000 } });
+				const session = await runtime.createSession(owner, { model, preset: "yolo", quota: 1_000_000 });
 				let saw = "";
 				faux.setResponses([
-					fauxAssistantMessage([fauxToolCall("subagent", { task: "x", budget: { tokens: 5_000_000 } }, { id: "p1" })], {
+					fauxAssistantMessage([fauxToolCall("subagent", { task: "x", quota: 5_000_000 }, { id: "p1" })], {
 						stopReason: "toolUse",
 					}),
 					(context) => {

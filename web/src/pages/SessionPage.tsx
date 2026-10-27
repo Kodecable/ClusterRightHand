@@ -132,6 +132,13 @@ export function SessionPage({ id }: { id: string }) {
 		return () => window.removeEventListener("scroll", on);
 	}, []);
 	const totals = usageTotals(state.usage);
+	const wasRunning = useRef(false);
+	// The quota and spend live on the session: refresh them when a run ends.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reload only on the running -> idle edge
+	useEffect(() => {
+		if (wasRunning.current && !state.running) session.reload();
+		wasRunning.current = state.running;
+	}, [state.running]);
 
 	if (session.error) {
 		return (
@@ -171,7 +178,8 @@ export function SessionPage({ id }: { id: string }) {
 				{state.queued > 0 && <span>{state.queued} message(s) queued</span>}
 				{totals && (
 					<span>
-						{totals.tokens.toLocaleString()} tokens, ${totals.cost.toFixed(4)}
+						{totals.tokens.toLocaleString()} tokens
+						{session.data.quota !== null && ` · ${session.data.quota.toLocaleString()} quota left`}
 					</span>
 				)}
 			</div>

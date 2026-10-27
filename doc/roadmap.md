@@ -33,13 +33,13 @@
 
 **完成标志**：Claude Code 通过 MCP 管理节点，所有操作都能在审计中查到。
 
-## M3 Agent 运行时（已完成，预算追加除外，见下文"进度"）
+## M3 Agent 运行时（已完成，见下文"进度"）
 
 - `SqlStorage` 实现，官方一致性测试在 SQLite 和 PG 上通过。
 - `AgentRuntime` 接口与 durable 实现；cluster 工具适配；exec 的 `replay: "safe"` 与重新挂接。
 - 会话管理、WebUI 聊天（流式）、模型配置。
-- 预算（规则的一部分，不足时向上反馈）。
-- 审批和追加预算沿会话链向上传递。
+- 配额（会话上的有符号 token 余量，响应后扣减，全部 > 0 才继续）。
+- 审批沿会话链向上传递；配额不足时停止，不向上申请。
 - 节点笔记（节点上的文件；`node_info` 自动返回）。
 - 性能回归测试与故障注入测试（见 [agent-runtime.md](agent-runtime.md#测试策略)）。
 
@@ -58,7 +58,7 @@
 ## M5 计划任务与 subagent
 
 - 调度器（触发与提交分两步，启动时恢复 `pending`）、`command` 和 `agent` 两类计划任务、为计划任务签发授权。
-- subagent：独立会话，规则和预算挂在父会话的操作者链下；前台等待可以被打断并自动转入后台，父会话处理请求后再显式等待；其他工具返回时自动提示待处理的子会话。
+- subagent：独立会话，规则和配额挂在父会话的操作者链下；前台等待可以被打断并自动转入后台，父会话处理请求后再显式等待；其他工具返回时自动提示待处理的子会话。
 - 通知（webhook）。
 
 ## M6 完善
@@ -88,6 +88,6 @@
   - 测试：规则引擎、审计链、token、审批 API、审计事件；MCP e2e（MCP 客户端 + 真实 crha）；WebUI 浏览器测试（token、审批、审计）。
   - 未完成：Auto Review（需要模型，M3）；审计链头外送（后续）。
 - **M3**：已完成（2026-10-27）。
-  - durable 运行时（SQLite 官方存储、PostgreSQL `PgStorage`，均通过官方一致性测试）；会话与 cluster 工具（`replay: "safe"`，重启后重新挂接）；模型配置（内置 provider、OpenAI 兼容端点、额外请求头）；WebUI 会话页（SSE 流式）与模型设置；预算（D72）；subagent（前台/后台、`subagent_wait` / `list` / `cancel` / `decide`，父会话 agent 处理子会话审批，D75）；Auto Review；节点笔记；会话分享（view / chat）；停止会话时取消其任务和子会话；存储失败后重新打开 Harness；故障注入（工具执行中 SIGKILL、模型流式输出中 SIGKILL）与性能回归测试。
+  - durable 运行时（SQLite 官方存储、PostgreSQL `PgStorage`，均通过官方一致性测试）；会话与 cluster 工具（`replay: "safe"`，重启后重新挂接）；模型配置（内置 provider、OpenAI 兼容端点、额外请求头）；WebUI 会话页（SSE 流式）与模型设置；配额（D72、D76）；subagent（前台/后台、`subagent_wait` / `list` / `cancel` / `decide`，父会话 agent 处理子会话审批，D75）；Auto Review；节点笔记；会话分享（view / chat）；停止会话时取消其任务和子会话；存储失败后重新打开 Harness；故障注入（工具执行中 SIGKILL、模型流式输出中 SIGKILL）与性能回归测试。
   - 真实模型冒烟（opencode zen `deepseek-v4.1-flash`）与 WebUI 浏览器走查手工完成，不在 CI 中。
-  - 已知缺口：预算不足时**不向上申请追加**，直接拒绝新输入（durable 1.4.0 没有请求前的拦截点，只能在响应后检查，D72）。审批已经按链向上传递，预算还没有。
+  - 配额不足时停止而不向上申请（durable 1.4.0 没有请求前的拦截点，只能在响应后检查，D72）；这是设计选择，不是缺口。

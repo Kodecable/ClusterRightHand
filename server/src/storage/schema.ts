@@ -225,7 +225,6 @@ export interface RuleSetsTable {
 	default_action: string;
 	/** JSON Rule[], the rules added on top of the preset's. */
 	rules: string;
-	budget: string | null;
 	updated_at: string;
 }
 
@@ -261,9 +260,10 @@ export interface SessionsTable {
 	archived_at: string | null;
 	/** Durable submission of the last input, for a parent waiting on this session's answer. */
 	last_submission_id: string | null;
-	/** Spent by this session and its subagents: tokens, and cost in millionths of a US dollar. */
+	/** Remaining token quota (doc/agent-runtime.md#配额); null: unlimited. Signed: one response may overspend it. */
+	quota_tokens: ColumnType<string | number | null, string | number | null | undefined, string | number | null>;
+	/** Spent by this session and its subagents. */
 	used_tokens: ColumnType<string | number, string | number | undefined, string | number>;
-	used_cost_microusd: ColumnType<string | number, string | number | undefined, string | number>;
 }
 
 export interface ModelProvidersTable {
