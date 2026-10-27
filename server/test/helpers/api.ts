@@ -1,13 +1,13 @@
 import type { Hono } from "hono";
-import { createApp } from "../../src/api/app.ts";
+import { type AppOptions, createApp } from "../../src/api/app.ts";
 import type { AppEnv } from "../../src/api/context.ts";
 import { LoginLimiter } from "../../src/auth/login-limiter.ts";
 import type { Db } from "../../src/storage/db.ts";
 
 export type App = Hono<AppEnv>;
 
-export function makeApp(db: Db, limiter = new LoginLimiter()): App {
-	return createApp(db, { limiter, clientAddress: () => "198.51.100.7" });
+export function makeApp(db: Db, limiter = new LoginLimiter(), extra: Partial<AppOptions> = {}): App {
+	return createApp(db, { limiter, clientAddress: () => "198.51.100.7", ...extra });
 }
 
 export interface Req {

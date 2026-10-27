@@ -15,6 +15,7 @@ import {
 	toPublicNode,
 	unshareNode,
 } from "../cluster/nodes.ts";
+import { sshNodeDetails } from "../cluster/ssh/nodes.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import type { AppOptions } from "./app.ts";
@@ -46,7 +47,8 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		if (!level || !row) return jsonError(c, 404, "no such node");
 		const groups = (await nodeGroupNames(db, [id])).get(id) ?? [];
 		const node = live(toPublicNode(row, level, groups));
-		return c.json(canManage(level) ? { node, shares: await listNodeShares(db, id) } : { node });
+		if (!canManage(level)) return c.json({ node });
+		return c.json({ node, shares: await listNodeShares(db, id), ssh: (await sshNodeDetails(db, row)) ?? null });
 	});
 
 	app.post("/enrollment-tokens", async (c) => {

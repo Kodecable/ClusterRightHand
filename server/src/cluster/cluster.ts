@@ -532,6 +532,8 @@ export class Cluster {
 					session.close();
 				}
 			}
+			// For SSH nodes "last seen" is the last task that reached the node.
+			void markNodeSeen(this.#db, node.id);
 			await this.#serial(id, () => this.#finish(node.id, id, { ...fields, ...outputFields() }));
 		} catch (err) {
 			// Once the remote side started, the outcome is unknown; before that, nothing ran.

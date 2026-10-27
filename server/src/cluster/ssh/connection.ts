@@ -141,6 +141,31 @@ export async function connect(route: SshRoute): Promise<SshSession> {
 }
 
 /**
+ * Connects over a fully pinned route, authenticates on every hop and runs `true` on the last one: catches a
+ * public key that was not installed, or an account that cannot run commands (ForceCommand, nologin).
+ */
+export async function testRoute(route: SshRoute): Promise<void> {
+	const session = await connect(route);
+	try {
+		const code = await new Promise<number | null>((resolve, reject) => {
+			session
+				.exec("true", (ch) => {
+					let status: number | null = null;
+					ch.on("exit", (c: number | null) => {
+						status = c;
+					});
+					ch.on("close", () => resolve(status));
+					ch.resume();
+				})
+				.catch(reject);
+		});
+		if (code !== 0) throw new SshError("connect_failed", `running a command failed (exit status ${code})`);
+	} finally {
+		session.close();
+	}
+}
+
+/**
  * Reaches the first hop without a pinned key (all earlier hops must be pinned) and returns its host key
  * fingerprint, without authenticating to it. The user confirms it before the node is saved.
  */

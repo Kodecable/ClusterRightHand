@@ -3,7 +3,7 @@ import { api, type PublicNode } from "../api.ts";
 import { useUser } from "../auth.tsx";
 import { Badge, ErrorText, LinkBadge, Loading } from "../components/Feedback.tsx";
 import { Modal } from "../components/Modal.tsx";
-import { useAction, useLoad } from "../hooks.ts";
+import { useAction, useLoad, usePolling } from "../hooks.ts";
 import { formatTime, osName } from "../lib.ts";
 import { AddNodeDialog } from "./AddNodeDialog.tsx";
 import { AddSshNodeDialog } from "./AddSshNodeDialog.tsx";
@@ -56,6 +56,8 @@ function ConfirmPending({ p, onClose, onDone }: { p: Pending; onClose: () => voi
 export function Nodes() {
 	const user = useUser();
 	const { data, error, loading, reload } = useLoad(() => api.listNodes(), []);
+	// New pending nodes and online/offline changes show up without pressing Refresh.
+	usePolling(reload);
 	const [adding, setAdding] = useState(false);
 	const [addingSsh, setAddingSsh] = useState(false);
 	const [pending, setPending] = useState<Pending>();

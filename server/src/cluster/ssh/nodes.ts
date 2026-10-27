@@ -12,6 +12,7 @@ import type { SshHop, SshRoute } from "./connection.ts";
 const SECRET_KIND = "ssh_private_key";
 const HOST_KEY = /^SHA256:[A-Za-z0-9+/]{43}$/;
 const MAX_JUMPS = 5;
+const GROUP_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 export interface SshCredential {
 	id: string;
@@ -158,12 +159,51 @@ export async function createSshNode(
 	await db.transaction().execute(async (trx) => {
 		await trx.insertInto("nodes").values(node).execute();
 		// SSH nodes have no crha to report groups; crhs maintains them (doc/access-control.md).
-		for (const g of new Set(input.groups ?? [])) {
-			if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(g)) throw new UserError(`invalid group name ${g}`);
-			await trx.insertInto("node_groups").values({ node_id: node.id, group_name: g, refreshed_at: now }).execute();
-		}
+		await replaceGroups(trx, node.id, input.groups ?? [], now);
 	});
 	return node;
+}
+
+async function replaceGroups(trx: Db, nodeId: string, groups: string[], now: string): Promise<void> {
+	const names = [...new Set(groups)];
+	for (const g of names) if (!GROUP_NAME.test(g)) throw new UserError(`invalid group name ${g}`);
+	await trx.deleteFrom("node_groups").where("node_id", "=", nodeId).execute();
+	if (names.length > 0) {
+		await trx
+			.insertInto("node_groups")
+			.values(names.map((group_name) => ({ node_id: nodeId, group_name, refreshed_at: now })))
+			.execute();
+	}
+}
+
+/** Replaces an SSH node's groups (crha nodes report their own). */
+export async function setSshNodeGroups(db: Db, node: NodeRow, groups: string[]): Promise<void> {
+	if (node.transport !== "ssh") throw new UserError("a crha node's groups come from its own configuration");
+	const now = new Date().toISOString();
+	await db.transaction().execute((trx) => replaceGroups(trx, node.id, groups, now));
+}
+
+export interface SshNodeDetails {
+	/** Jump hosts in order, then the node itself; every host key is pinned. */
+	hops: SshHop[];
+	credential: { id: string; name: string | null };
+}
+
+/** How crhs reaches an SSH node, for its owner and administrators. */
+export async function sshNodeDetails(db: Db, node: NodeRow): Promise<SshNodeDetails | undefined> {
+	if (node.transport !== "ssh" || !node.ssh_host || !node.ssh_user || !node.ssh_credential_id) return undefined;
+	const cred = await db
+		.selectFrom("ssh_credentials")
+		.select("name")
+		.where("id", "=", node.ssh_credential_id)
+		.executeTakeFirst();
+	return {
+		hops: [
+			...(JSON.parse(node.ssh_jumps ?? "[]") as SshHop[]),
+			{ host: node.ssh_host, port: node.ssh_port ?? 22, user: node.ssh_user, hostKey: node.ssh_host_key ?? "" },
+		],
+		credential: { id: node.ssh_credential_id, name: cred?.name ?? null },
+	};
 }
 
 /** The connection route of an SSH node, for the transport. */

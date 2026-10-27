@@ -145,7 +145,9 @@ export function Batch() {
 				<ErrorText error={error} />
 				<div className="row">
 					<button type="submit" className="primary" disabled={busy}>
-						Run on {buildTargets(picked, extra).length || "…"} target(s)
+						{buildTargets(picked, extra).length === 0
+							? "Choose targets"
+							: `Run on ${buildTargets(picked, extra).length} target(s)`}
 					</button>
 				</div>
 			</form>

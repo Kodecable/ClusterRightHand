@@ -41,6 +41,16 @@ export function useLoad<T>(fn: () => Promise<T>, deps: DependencyList): Loaded<T
 	return { data, error, loading, reload };
 }
 
+/** Calls `reload` every `ms` while the page is visible (until live updates replace polling). */
+export function usePolling(reload: () => void, ms = 10_000): void {
+	useEffect(() => {
+		const timer = setInterval(() => {
+			if (document.visibilityState === "visible") reload();
+		}, ms);
+		return () => clearInterval(timer);
+	}, [reload, ms]);
+}
+
 export function errMsg(e: unknown): string {
 	return e instanceof Error ? e.message : String(e);
 }

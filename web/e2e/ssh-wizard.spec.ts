@@ -31,8 +31,20 @@ test("walks the Add SSH node wizard through credential, target and host key conf
 	await dialog.getByRole("button", { name: "Next" }).click();
 
 	await expect(dialog.getByText(`crh@${host}:${port}`)).toBeVisible();
+	// The new key is not in the server's authorized_keys, so the test must say so before creating.
+	await dialog.getByRole("button", { name: "Test connection" }).click();
+	await expect(dialog.getByRole("alert")).toContainText(/authentication|connect/i, { timeout: 15_000 });
 	await dialog.getByRole("button", { name: "Create node" }).click();
 	await expect(page.getByRole("heading", { name: "ssh-e2e" })).toBeVisible();
+
+	// The node page shows the route with its pinned key, and the owner can change the groups.
+	const section = page.getByRole("region", { name: "SSH" });
+	await expect(section.getByRole("row", { name: /target/ })).toContainText(`crh@${host}:${port}`);
+	await expect(section.getByRole("row", { name: /target/ })).toContainText("SHA256:");
+	await section.getByRole("button", { name: "Edit groups" }).click();
+	await section.getByLabel("Groups").fill("edge, lab");
+	await section.getByRole("button", { name: "Save" }).click();
+	await expect(page.getByRole("definition").filter({ hasText: "edge, lab" })).toBeVisible();
 	const { json } = await crhs.api("/api/nodes");
 	expect(json.nodes.map((n: { name: string; transport: string }) => `${n.name}:${n.transport}`)).toContain(
 		"ssh-e2e:ssh",

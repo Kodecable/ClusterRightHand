@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../api.ts";
 import { ErrorText } from "../components/Feedback.tsx";
 import { Modal } from "../components/Modal.tsx";
+import { TestConnection } from "../components/TestConnection.tsx";
 import { useAction } from "../hooks.ts";
 import { parseList } from "../lib.ts";
 import { emptyHop, firstUnpinned, type Hop, hopBodies, validateHops } from "../sshHops.ts";
@@ -77,8 +78,10 @@ export function AddSshNodeDialog({ onClose }: { onClose: () => void }) {
 							<dd>{parseList(groups.replaceAll(",", " ")).join(", ") || "-"}</dd>
 						</dl>
 						<p className="muted">
-							The node is active as soon as it is created; the pinned host keys are enforced on every connection.
+							The node is active as soon as it is created; the pinned host keys are enforced on every connection. Test
+							first to check that the key is installed on every hop and the account can run commands.
 						</p>
+						<TestConnection test={() => api.testSshRoute({ ...hopBodies(hops), credentialId })} />
 					</div>
 				)}
 				<ErrorText error={stepError ?? error} />

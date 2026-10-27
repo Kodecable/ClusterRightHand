@@ -116,6 +116,13 @@ export interface TaskGroupView {
 /** Body of POST /nodes/:id/tasks: `kind` plus the kind's fields. */
 export type TaskRequest = { kind: string; timeoutMs?: number; waitMs?: number } & Record<string, unknown>;
 
+/** How crhs reaches an SSH node (owner and administrators only). */
+export interface SshNodeDetails {
+	/** Jump hosts in order, then the node itself. */
+	hops: { host: string; port: number; user: string; hostKey: string }[];
+	credential: { id: string; name: string | null };
+}
+
 let onUnauthorized: () => void = () => {};
 export function setUnauthorizedHandler(fn: () => void): void {
 	onUnauthorized = fn;
@@ -148,7 +155,8 @@ export const api = {
 	me: () => request<{ user: User }>("GET", "/me").then((r) => r.user),
 
 	listNodes: () => request<{ nodes: PublicNode[] }>("GET", "/nodes").then((r) => r.nodes),
-	getNode: (id: string) => request<{ node: PublicNode; shares?: NodeShare[] }>("GET", `/nodes/${enc(id)}`),
+	getNode: (id: string) =>
+		request<{ node: PublicNode; shares?: NodeShare[]; ssh?: SshNodeDetails | null }>("GET", `/nodes/${enc(id)}`),
 	approveNode: (id: string) => request<{ node: PublicNode }>("POST", `/nodes/${enc(id)}/approve`),
 	deleteNode: (id: string) => request<{ ok: true }>("DELETE", `/nodes/${enc(id)}`),
 	renameNode: (id: string, name: string) => request<{ node: PublicNode }>("PATCH", `/nodes/${enc(id)}`, { name }),
@@ -191,6 +199,10 @@ export const api = {
 		request<{ hop: number; fingerprint: string }>("POST", "/ssh-nodes/probe", body),
 	createSshNode: (body: SshTargetBody & { name: string; groups: string[] }) =>
 		request<{ node: PublicNode }>("POST", "/ssh-nodes", body).then((r) => r.node),
+	testSshRoute: (body: SshTargetBody) => request<{ ok: true }>("POST", "/ssh-nodes/test", body),
+	testSshNode: (id: string) => request<{ ok: true }>("POST", `/nodes/${enc(id)}/ssh-test`),
+	setNodeGroups: (id: string, groups: string[]) =>
+		request<{ groups: string[] }>("PUT", `/nodes/${enc(id)}/groups`, { groups }).then((r) => r.groups),
 
 	listUsers: () => request<{ users: User[] }>("GET", "/users").then((r) => r.users),
 	createUser: (u: { username: string; displayName?: string; kind: UserKind; password?: string }) =>

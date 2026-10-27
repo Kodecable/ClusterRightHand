@@ -1,10 +1,11 @@
 import { api } from "../api.ts";
 import { Badge, LinkBadge, Loading } from "../components/Feedback.tsx";
-import { useLoad } from "../hooks.ts";
+import { useLoad, usePolling } from "../hooks.ts";
 import { formatTime, osName } from "../lib.ts";
 import { RenameNode } from "./RenameNode.tsx";
 import { RunPanel } from "./RunPanel.tsx";
 import { Shares } from "./Shares.tsx";
+import { SshNodeSection } from "./SshNodeSection.tsx";
 import { TaskList } from "./TaskList.tsx";
 
 function factValue(v: unknown): string {
@@ -14,6 +15,7 @@ function factValue(v: unknown): string {
 export function NodeDetail({ id }: { id: string }) {
 	const node = useLoad(() => api.getNode(id), [id]);
 	const tasks = useLoad(() => api.listNodeTasks(id), [id]);
+	usePolling(node.reload);
 	const n = node.data?.node;
 	const canRun = n && n.status === "active" && (n.access === "owner" || n.access === "admin" || n.access === "operate");
 	const facts = n?.facts ? Object.entries(n.facts) : [];
@@ -72,6 +74,9 @@ export function NodeDetail({ id }: { id: string }) {
 								))}
 							</dl>
 						</details>
+					)}
+					{n.transport === "ssh" && (
+						<SshNodeSection node={n} details={node.data?.ssh} canRun={!!canRun} onChange={node.reload} />
 					)}
 					{canRun && <RunPanel nodeId={n.id} onDone={tasks.reload} />}
 					{node.data?.shares && <Shares nodeId={n.id} shares={node.data.shares} onChange={node.reload} />}
