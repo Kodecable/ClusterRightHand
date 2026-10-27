@@ -158,10 +158,17 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	await taskGroups.recover();
 	const models = new ModelConfig(db, masterKey);
 	await models.reload();
-	const agentStorage = await openAgentStorage(config.database);
+	// A function, so that a Harness a storage error closed is reopened on fresh storage.
+	let closeAgentStorage = async () => {};
+	const openStorage = async () => {
+		await closeAgentStorage();
+		const opened = await openAgentStorage(config.database);
+		closeAgentStorage = opened.close;
+		return opened.storage;
+	};
 	const runtime = await AgentRuntime.open({
 		db,
-		storage: agentStorage.storage,
+		storage: openStorage,
 		models,
 		cluster,
 		groups: taskGroups,
@@ -188,7 +195,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	for (const signal of ["SIGINT", "SIGTERM"] as const) {
 		process.once(signal, () => {
 			clearInterval(sweep);
-			void runtime.close().then(() => agentStorage.close());
+			void runtime.close().then(() => closeAgentStorage());
 			cluster.close();
 			agents.close();
 			server.close();

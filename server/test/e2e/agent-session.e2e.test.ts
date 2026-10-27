@@ -134,6 +134,49 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		}
 	});
 
+	it("reopens the Harness after a storage failure and carries on", async () => {
+		let failNext = false;
+		// The official SQLite storage, with one commit made to fail on demand.
+		const storage = async () => {
+			const real = await openNodeSqliteStorage(join(tmp, "durable.sqlite"), { prefix: "pi_" });
+			return new Proxy(real, {
+				get(target, prop, receiver) {
+					const value = Reflect.get(target, prop, receiver);
+					if (typeof value !== "function") return value;
+					if (prop !== "commit") return value.bind(target);
+					return (...args: unknown[]) => {
+						if (failNext) {
+							failNext = false;
+							return Promise.reject(new Error("injected storage failure"));
+						}
+						return value.apply(target, args);
+					};
+				},
+			});
+		};
+		const models = new ModelConfig(env.crhs.db, env.crhs.masterKey);
+		models.addProvider(faux.provider);
+		await models.reload();
+		const runtime = await AgentRuntime.open({
+			db: env.crhs.db,
+			storage,
+			models,
+			cluster: env.crhs.cluster,
+			groups: new TaskGroups(env.crhs.db, env.crhs.cluster),
+		});
+		try {
+			const session = await runtime.createSession(owner, { model, preset: "yolo" });
+			failNext = true;
+			await expect(runtime.submit(session.id, owner, "boom", "r1")).rejects.toThrow();
+			await waitFor("the Harness reopened", () => runtime.reopened === 1, 15_000);
+			faux.setResponses([fauxAssistantMessage([fauxText("recovered")])]);
+			const sub = await runtime.submit(session.id, owner, "again", "r2");
+			expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "recovered" });
+		} finally {
+			await runtime.close();
+		}
+	});
+
 	describe("auto review", () => {
 		it("lets the reviewer approve a safe command, and leaves a risky one for the user", async () => {
 			const runtime = await open();

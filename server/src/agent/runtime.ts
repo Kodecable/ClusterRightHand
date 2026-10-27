@@ -67,7 +67,11 @@ export type SessionEvent = AgentEvent;
 
 export interface AgentRuntimeOptions {
 	db: Db;
-	storage: Storage;
+	/**
+	 * The durable storage, or a function that opens it. With a function, a Harness that fails (a storage error
+	 * closes it, doc/agent-runtime.md#测试策略) is reopened on fresh storage, with backoff.
+	 */
+	storage: Storage | (() => Promise<Storage>);
 	models: ModelConfig;
 	cluster: Cluster;
 	groups: TaskGroups;
@@ -97,27 +101,33 @@ type Row = {
 
 export class AgentRuntime {
 	readonly #db: Db;
-	readonly #harness: Harness;
+	#harness: Harness;
+	readonly #options: AgentRuntimeOptions;
 	readonly #models: ModelConfig;
 	readonly #audit: Audit | undefined;
 	readonly #cluster: Cluster;
 	readonly #groups: TaskGroups;
 	readonly #context: Context = BACKGROUND_CONTEXT;
+	#closing = false;
+	/** Times the Harness was reopened after a failure (tests, diagnostics). */
+	reopened = 0;
 
 	private constructor(harness: Harness, options: AgentRuntimeOptions) {
 		this.#db = options.db;
 		this.#harness = harness;
+		this.#options = options;
 		this.#models = options.models;
 		this.#audit = options.audit;
 		this.#cluster = options.cluster;
 		this.#groups = options.groups;
 	}
 
-	static async open(options: AgentRuntimeOptions): Promise<AgentRuntime> {
+	static async #openHarness(options: AgentRuntimeOptions): Promise<Harness> {
 		const registry = createRegistry();
 		registry.install(clusterExtension(options));
+		const storage = typeof options.storage === "function" ? await options.storage() : options.storage;
 		const harness = await Harness.open(
-			options.storage,
+			storage,
 			{
 				models: options.models.models,
 				registry,
@@ -130,16 +140,41 @@ export class AgentRuntime {
 			},
 			BACKGROUND_CONTEXT,
 		);
-		const runtime = new AgentRuntime(harness, options);
+		harness.resume(); // runs and tool calls the last process left unfinished
+		return harness;
+	}
+
+	static async open(options: AgentRuntimeOptions): Promise<AgentRuntime> {
+		const runtime = new AgentRuntime(await AgentRuntime.#openHarness(options), options);
 		// Auto Review for roots whose preset asks for it (tokens and sessions alike).
 		const reviewer = new Reviewer(options.db, options.models, options.cluster, options.groups);
 		options.cluster.onAwaitingApproval = (task) => reviewer.reviewTask(task);
 		options.groups.onAwaitingApproval = (group) => reviewer.reviewGroup(group);
-		harness.resume(); // runs and tool calls the last process left unfinished
+		runtime.#supervise();
 		return runtime;
 	}
 
+	/** Reopens a Harness that failed; commits are atomic, so the store is consistent and work resumes. */
+	#supervise(): void {
+		void this.#harness.closed.then(async (end) => {
+			if (end.reason !== "failed" || this.#closing || typeof this.#options.storage !== "function") return;
+			console.error("agent runtime: the Harness failed, reopening:", end.error);
+			for (let attempt = 0; !this.#closing; attempt++) {
+				await new Promise((r) => setTimeout(r, Math.min(30_000, 500 * 2 ** attempt)));
+				try {
+					this.#harness = await AgentRuntime.#openHarness(this.#options);
+					this.reopened++;
+					this.#supervise();
+					return;
+				} catch (err) {
+					console.error("agent runtime: reopening failed:", err);
+				}
+			}
+		});
+	}
+
 	async close(): Promise<void> {
+		this.#closing = true;
 		await this.#harness.close(this.#context);
 	}
 
