@@ -11,8 +11,9 @@
 		"dev": "node --watch src/main.ts",
 		"start": "node src/main.ts",
 		"typecheck": "tsc --noEmit",
-		"test": "vitest run --exclude 'test/e2e/**' --exclude '**/node_modules/**'",
-		"test:e2e": "vitest run test/e2e"
+		"test": "vitest run --exclude 'test/e2e/**' --exclude 'test/perf/**' --exclude '**/node_modules/**'",
+		"test:e2e": "vitest run test/e2e",
+		"test:perf": "NODE_OPTIONS=--expose-gc vitest run test/perf --no-file-parallelism"
 	},
 	"devDependencies": {
 		"@modelcontextprotocol/client": "2.3.1",

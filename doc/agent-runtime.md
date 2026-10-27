@@ -198,11 +198,13 @@ CI 中用官方的 `registerStorageConformance`（`@earendil-works/pi-durable/te
 
 PG 存储需要单独用官方的 `storage-benchmark` 测试，因为每次提交都有网络往返。
 
+实现：`server/test/perf/agent.perf.test.ts`（`pnpm --filter @crh/server test:perf`，不在常规测试中运行）。M3 完成时的结果：20 会话 × 10 轮 161 轮/s，关闭缓存后堆内存 38→46 MiB；单会话 120 轮单轮 8.0→10.4 ms；重启打开 3 ms，老会话第一轮 15 ms。
+
 ### 3. 故障注入
 
-- 工具执行中杀掉服务端进程，重启后验证：exec 重新挂接到同一个 Cluster 任务；结果正确写回会话。
-- 模型流式输出中杀进程，验证会话可以继续。
-- 存储写入失败，验证 Harness 关闭并由我们的监督逻辑重新打开。
+- 工具执行中杀掉服务端进程，重启后验证：exec 重新挂接到同一个 Cluster 任务；结果正确写回会话。（`test/e2e/crash.e2e.test.ts`：真实 crhs 进程 SIGKILL，模型是 OpenAI 兼容的假服务器；`agent-session.e2e.test.ts`：进程内关闭再打开）
+- 模型流式输出中杀进程，验证会话可以继续。（尚未覆盖）
+- 存储写入失败，验证 Harness 关闭并由我们的监督逻辑重新打开。（`agent-session.e2e.test.ts`，注入一次提交失败）
 
 ### 4. 真实模型冒烟
 

@@ -33,7 +33,7 @@
 
 **完成标志**：Claude Code 通过 MCP 管理节点，所有操作都能在审计中查到。
 
-## M3 Agent 运行时
+## M3 Agent 运行时（进行中，见下文"进度"）
 
 - `SqlStorage` 实现，官方一致性测试在 SQLite 和 PG 上通过。
 - `AgentRuntime` 接口与 durable 实现；cluster 工具适配；exec 的 `replay: "safe"` 与重新挂接。
@@ -87,3 +87,6 @@
   - API token 与 `/mcp`（官方 SDK v2，无状态）；ToolCatalog（zod）供 M3 复用。
   - 测试：规则引擎、审计链、token、审批 API、审计事件；MCP e2e（MCP 客户端 + 真实 crha）；WebUI 浏览器测试（token、审批、审计）。
   - 未完成：Auto Review（需要模型，M3）；审计链头外送（后续）。
+- **M3**：进行中。
+  - 已完成：durable 运行时（SQLite 官方存储、PostgreSQL `PgStorage`，均通过官方一致性测试）；会话与 cluster 工具（`replay: "safe"`，重启后重新挂接）；模型配置（内置 provider、OpenAI 兼容端点）；WebUI 会话页（SSE 流式）与模型设置；预算（D72）；前台 subagent（D73）；Auto Review；节点笔记；停止会话时取消其任务；存储失败后重新打开 Harness；故障注入（SIGKILL）与性能回归测试。
+  - 未完成：真实模型冒烟测试；会话分享（view / chat）；后台 subagent 与父会话 agent 处理子会话请求（`subagent_wait` / `subagent_decide`）；模型流式输出中杀进程的测试。

@@ -76,6 +76,11 @@ export interface AgentRuntimeOptions {
 	cluster: Cluster;
 	groups: TaskGroups;
 	audit?: Audit;
+	/**
+	 * How long idle conversations keep their context and documents in memory (durable's default: 10 minutes).
+	 * Memory grows with what was active within this window (doc/agent-runtime.md#2-性能和内存回归).
+	 */
+	retentionMs?: number;
 }
 
 const SYSTEM_PROMPT = `You are ClusterRightHand, an assistant that operates the user's servers ("nodes") through the cluster tools.
@@ -136,6 +141,9 @@ export class AgentRuntime {
 					// pi's coding-agent defaults (doc/agent-runtime.md#默认值).
 					compaction: { reserveTokens: 16384, keepRecentTokens: 20000 },
 					retry: { maxRetries: 3 },
+					...(options.retentionMs !== undefined
+						? { contextRetentionMs: options.retentionMs, documentRetentionMs: options.retentionMs }
+						: {}),
 				},
 			},
 			BACKGROUND_CONTEXT,
