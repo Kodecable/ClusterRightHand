@@ -104,6 +104,8 @@ export function taskResult(t: TaskView, nodeName: string, ctx: ToolContext): Rec
 	if (t.timedOut) out.timed_out = true;
 	if (t.cancelled) out.cancelled = true;
 	if (t.errorCode) out.error = { code: t.errorCode, message: t.errorMessage };
+	// Denied or rejected before running: there is no output to show.
+	if ((t.state === "denied" || t.state === "rejected") && t.stdoutBytes === 0 && t.stderrBytes === 0) return out;
 	const stdout = streamOf(t.stdoutHead, t.stdoutTail, t.stdoutBytes);
 	const stderr = streamOf(t.stderrHead, t.stderrTail, t.stderrBytes);
 	out.stdout = stdout.text;
