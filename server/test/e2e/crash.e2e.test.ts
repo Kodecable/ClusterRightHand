@@ -18,6 +18,8 @@ const MAIN = resolve(import.meta.dirname, "../../src/main.ts");
  */
 function fakeModel(steps: ((body: { messages: { role: string; content: unknown }[] }) => object)[]) {
 	const requests: { messages: { role: string; content: unknown }[] }[] = [];
+	/** Request indexes whose response started streaming; a test can kill crhs once one is here. */
+	const streaming: number[] = [];
 	const server: Server = createServer((req, res) => {
 		let raw = "";
 		req.on("data", (d) => {
@@ -31,18 +33,34 @@ function fakeModel(steps: ((body: { messages: { role: string; content: unknown }
 				res.writeHead(500).end("no more scripted responses");
 				return;
 			}
-			const delta = step(body);
+			const delta = step(body) as { content?: unknown; __slow?: number };
 			const chunk = (o: object) =>
 				`data: ${JSON.stringify({ id: "x", object: "chat.completion.chunk", created: 0, model: "fake", ...o })}\n\n`;
 			const toolCall = "tool_calls" in delta;
 			res.writeHead(200, { "content-type": "text/event-stream" });
+			// __slow: send a first piece, then pause, so a test can kill crhs in the middle of the model's answer.
+			if (typeof delta.content === "string" && delta.__slow) {
+				const text = delta.content;
+				const first = text.slice(0, 3);
+				const rest = text.slice(3);
+				res.write(chunk({ choices: [{ index: 0, delta: { role: "assistant", content: first }, finish_reason: null }] }));
+				streaming.push(requests.length);
+				setTimeout(() => {
+					if (res.destroyed) return;
+					res.write(chunk({ choices: [{ index: 0, delta: { content: rest }, finish_reason: null }] }));
+					res.write(chunk({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }));
+					res.write(chunk({ choices: [], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }));
+					res.end("data: [DONE]\n\n");
+				}, delta.__slow);
+				return;
+			}
 			res.write(chunk({ choices: [{ index: 0, delta: { role: "assistant", ...delta }, finish_reason: null }] }));
 			res.write(chunk({ choices: [{ index: 0, delta: {}, finish_reason: toolCall ? "tool_calls" : "stop" }] }));
 			res.write(chunk({ choices: [], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }));
 			res.end("data: [DONE]\n\n");
 		});
 	});
-	return { server, requests };
+	return { server, requests, streaming, steps };
 }
 
 /** crhs as a real child process, on a fixed port and database, so it can be killed with SIGKILL and started again. */
@@ -82,19 +100,12 @@ describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 	let crhs: CrhsProcess;
 	let port = 0;
 	let cookie = "";
-	const model = fakeModel([
-		() => ({
-			tool_calls: [
-				{
-					index: 0,
-					id: "call_1",
-					type: "function",
-					function: { name: "exec", arguments: JSON.stringify({ node: "crash-node", cmd: "sleep 4; echo survived" }) },
-				},
-			],
-		}),
-		() => ({ content: "the command finished" }),
-	]);
+	const model = fakeModel([]);
+	/** Replace the fake model's script; test order must not leak steps into the next test. */
+	const script = (...steps: ((body: { messages: { role: string; content: unknown }[] }) => object)[]) => {
+		model.steps.splice(0, model.steps.length);
+		model.steps.push(...steps);
+	};
 
 	const url = () => `http://127.0.0.1:${port}`;
 	const api = async (path: string, init: { method?: string; body?: unknown } = {}) => {
@@ -108,6 +119,52 @@ describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 	};
 	const up = () =>
 		waitFor("crhs up", async () => (await fetch(`${url()}/api/health`).catch(() => undefined))?.ok, 30_000);
+
+	/** The first event of the session's stream: the snapshot, with its entries and whether a run is live. */
+	const snapshot = async (id: string) => {
+		const ctl = new AbortController();
+		const timer = setTimeout(() => ctl.abort(), 10_000);
+		try {
+			const res = await fetch(`${url()}/api/sessions/${id}/events`, { headers: { cookie }, signal: ctl.signal });
+			const reader = res.body?.getReader();
+			if (!reader) return undefined;
+			const decoder = new TextDecoder();
+			let buf = "";
+			for (;;) {
+				const { value, done } = await reader.read();
+				if (done) return undefined;
+				buf += decoder.decode(value);
+				const end = buf.indexOf("\n\n");
+				if (end < 0) continue;
+				const data = buf
+					.slice(0, end)
+					.split("\n")
+					.find((line) => line.startsWith("data:"));
+				if (!data) continue;
+				void reader.cancel();
+				const events = JSON.parse(data.slice(5)) as {
+					type: string;
+					snapshot?: {
+						entries: { model?: { role: string; content: unknown }[] }[];
+						run?: unknown;
+					};
+				}[];
+				return events.find((e) => e.type === "snapshot")?.snapshot;
+			}
+		} finally {
+			clearTimeout(timer);
+		}
+	};
+	const assistantTexts = (snap: { entries: { model?: { role: string; content: unknown }[] }[] } | undefined) =>
+		(snap?.entries ?? []).flatMap((entry) =>
+			(entry.model ?? [])
+				.filter((m) => m.role === "assistant")
+				.map((m) =>
+					typeof m.content === "string"
+						? m.content
+						: (m.content as { text?: string }[]).map((c) => c.text ?? "").join(""),
+				),
+		);
 
 	beforeAll(async () => {
 		tmp = await mkdtemp(join(tmpdir(), "crh-crash-"));
@@ -175,6 +232,22 @@ describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 	});
 
 	it("finishes the session with the command's real output after a SIGKILL restart", async () => {
+		script(
+			() => ({
+				tool_calls: [
+					{
+						index: 0,
+						id: "call_1",
+						type: "function",
+						function: {
+							name: "exec",
+							arguments: JSON.stringify({ node: "crash-node", cmd: "sleep 4; echo survived" }),
+						},
+					},
+				],
+			}),
+			() => ({ content: "the command finished" }),
+		);
 		const session = (
 			await api("/api/sessions", { body: { model: { provider: "fake", modelId: "fake-1" }, preset: "yolo" } })
 		).json.session;
@@ -205,5 +278,32 @@ describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 		const tasks = await tasksOf();
 		expect(tasks.map((t: { id: string }) => t.id)).toEqual([running.id]);
 		expect(tasks[0]).toMatchObject({ state: "exited", exitCode: 0 });
+	}, 120_000);
+	it("continues after a SIGKILL in the middle of the model's answer", async () => {
+		script(
+			() => ({ content: "recovered answer", __slow: 5000 }),
+			() => ({ content: "recovered answer" }),
+		);
+		const session = (
+			await api("/api/sessions", { body: { model: { provider: "fake", modelId: "fake-1" }, preset: "yolo" } })
+		).json.session;
+		const before = model.streaming.length;
+		expect(
+			(await api(`/api/sessions/${session.id}/messages`, { body: { text: "say it", requestId: "stream-r1" } })).status,
+		).toBe(202);
+
+		await waitFor("the answer streaming", () => model.streaming.length > before, 30_000);
+		await crhs.kill();
+		crhs.start();
+		await up();
+
+		const texts = await waitFor("the recovered answer", async () => {
+			const snap = await snapshot(session.id);
+			return assistantTexts(snap).some((text) => text.includes("recovered answer")) ? snap : undefined;
+		}, 60_000);
+		expect(assistantTexts(texts).filter((text) => text.includes("recovered answer"))).toHaveLength(1);
+		// The run finished; the session is idle again.
+		const final = await snapshot(session.id);
+		expect(final?.run).toBeUndefined();
 	}, 120_000);
 });
