@@ -1,10 +1,14 @@
 import { api } from "../api.ts";
 import { Loading } from "../components/Feedback.tsx";
 import { TaskResult } from "../components/TaskResult.tsx";
-import { useLoad } from "../hooks.ts";
+import { useLoad, usePolling } from "../hooks.ts";
 
 export function TaskPage({ id }: { id: string }) {
-	const { data, error, loading } = useLoad(() => api.getTask(id), [id]);
+	const { data, error, loading, reload } = useLoad(() => api.getTask(id), [id]);
+	// A task waiting for approval changes state elsewhere.
+	usePolling(() => {
+		if (data?.state === "awaiting_approval") reload();
+	}, 3000);
 	return (
 		<>
 			<p>

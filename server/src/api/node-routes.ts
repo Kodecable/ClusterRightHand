@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { userActor } from "../audit/audit.ts";
 import { createEnrollmentToken } from "../cluster/enrollment.ts";
 import {
 	approveNode,
@@ -60,6 +61,12 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			nameHint: optionalString(body, "nameHint"),
 			serverFingerprint: options.serverFingerprint,
 		});
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "enrollment_token.created",
+			target: { type: "enrollment_token", id: created.id },
+			detail: { name_hint: optionalString(body, "nameHint"), expires_at: created.expiresAt },
+		});
 		return c.json({ token: created.token, expiresAt: created.expiresAt }, 201);
 	});
 
@@ -81,6 +88,12 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const node = await approveNode(db, id, c.get("user").userId);
 		// The pending connection only carried facts; crha reconnects as an active node.
 		options.cluster?.disconnect(id, "approved");
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "node.approved",
+			target: { type: "node", id },
+			detail: { name: node.name },
+		});
 		return c.json({ node: toPublicNode(node, m.level, (await nodeGroupNames(db, [id])).get(id) ?? []) });
 	});
 
@@ -91,7 +104,14 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const body = await readJsonObject(c);
 		const name = body ? optionalString(body, "name") : undefined;
 		if (!name) return jsonError(c, 400, "name is required");
+		const before = await getNode(db, id);
 		const node = await renameNode(db, id, name);
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "node.renamed",
+			target: { type: "node", id },
+			detail: { old_name: before?.name, new_name: node.name },
+		});
 		return c.json({ node: live(toPublicNode(node, m.level, (await nodeGroupNames(db, [id])).get(id) ?? [])) });
 	});
 
@@ -99,7 +119,14 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const id = c.req.param("id");
 		const m = await manageable(c, id);
 		if (m.error) return jsonError(c, m.error.status, m.error.message);
+		const before = await getNode(db, id);
 		await deleteNode(db, id);
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "node.deleted",
+			target: { type: "node", id },
+			detail: { name: before?.name, was_pending: before?.status === "pending", rejected: before?.status === "pending" },
+		});
 		options.cluster?.disconnect(id, "node deleted");
 		return c.json({ ok: true });
 	});
@@ -125,6 +152,12 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			access: shareAccess,
 			createdBy: c.get("user").userId,
 		});
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "node.shared",
+			target: { type: "node", id },
+			detail: { grantee_type: granteeType, grantee_id: granteeId, access: shareAccess },
+		});
 		return c.json({ share });
 	});
 
@@ -132,7 +165,19 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const id = c.req.param("id");
 		const m = await manageable(c, id);
 		if (m.error) return jsonError(c, m.error.status, m.error.message);
+		const share = (await listNodeShares(db, id)).find((s) => s.id === c.req.param("shareId"));
 		await unshareNode(db, id, c.req.param("shareId"));
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "node.unshared",
+			target: { type: "node", id },
+			detail: {
+				share_id: c.req.param("shareId"),
+				grantee_type: share?.granteeType,
+				grantee_id: share?.granteeId,
+				access: share?.access,
+			},
+		});
 		return c.json({ ok: true });
 	});
 

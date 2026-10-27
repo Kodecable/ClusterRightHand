@@ -1,6 +1,6 @@
-import type { TaskView } from "./api.ts";
+import type { Operation, Rule, TaskView } from "./api.ts";
 
-const TERMINAL = new Set(["exited", "failed", "rejected", "unknown"]);
+const TERMINAL = new Set(["exited", "failed", "rejected", "unknown", "denied"]);
 
 export function isTerminal(state: string): boolean {
 	return TERMINAL.has(state);
@@ -108,4 +108,33 @@ export function buildTargets(nodeNames: string[], extra: string): string[] {
 export function taskActor(t: TaskView, userName: (id: string) => string | undefined): string {
 	if (t.onBehalfOfUserId) return userName(t.onBehalfOfUserId) ?? t.onBehalfOfUserId;
 	return `${t.actorType} ${t.actorId}`;
+}
+
+/** POSIX single quoting as the server renders command lines: plain words stay bare. */
+export function shellQuote(s: string): string {
+	return /^[A-Za-z0-9_@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`;
+}
+
+/** The allow rule offered by "Approve and always allow", from the operation the server reports. */
+export function alwaysRule(
+	op: Operation | null | undefined,
+	nodes: string[],
+	mode: "exact" | "prefix",
+): Rule | undefined {
+	if (!op) return undefined;
+	return { action: "allow", method: op.method, nodes, [mode]: op.target };
+}
+
+export function actorLabel(type: string, id: string, tokenNames: Map<string, string>): string {
+	return type === "api_token" ? `API token ${tokenNames.get(id) ?? id}` : `${type} ${id}`;
+}
+
+export function tokenStatus(t: { revokedAt: string | null; expiresAt: string | null }, now = Date.now()) {
+	if (t.revokedAt) return "revoked";
+	if (t.expiresAt && new Date(t.expiresAt).getTime() <= now) return "expired";
+	return "active";
+}
+
+export function mcpCommand(origin: string, token: string): string {
+	return `claude mcp add --transport http crh ${origin}/mcp --header "Authorization: Bearer ${token}"`;
 }

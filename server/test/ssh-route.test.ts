@@ -19,8 +19,16 @@ describe.skipIf(!target || !keyPath)("testRoute against a live sshd", () => {
 	});
 
 	it("fails with a key the server does not know", async () => {
-		const { utils } = await import("ssh2");
-		const route = { ...(await pinned()), privateKey: utils.generateKeyPairSync("ed25519").private };
+		const { generateKeyPair } = await import("../src/cluster/ssh/nodes.ts");
+		const route = { ...(await pinned()), privateKey: generateKeyPair("crh:unknown").private };
 		await expect(testRoute(route)).rejects.toMatchObject({ code: "connect_failed" });
+	});
+});
+
+describe("generateKeyPair", () => {
+	it("only returns keys that ssh2 can load", async () => {
+		const { utils } = await import("ssh2");
+		const { generateKeyPair } = await import("../src/cluster/ssh/nodes.ts");
+		for (let i = 0; i < 2000; i++) expect(utils.parseKey(generateKeyPair("crh:t").private)).not.toBeInstanceOf(Error);
 	});
 });

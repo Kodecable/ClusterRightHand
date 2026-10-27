@@ -99,7 +99,7 @@ crhs 的授权规则决定"这个操作者能不能发起这个任务"，与特�
   | Auto Review | 同 Ask，但审批先交给审查模型：判定安全则批准，有风险或不确定时交给用户（需要配置模型，M3） |
   | Yolo | `default = allow` |
 
-  用户可以随时修改根的选项；审批时选择"以后都允许"，会在根上追加一条 `allow` 规则（方法 + 节点 + 前缀）。这些修改都记入审计。
+  用户可以随时修改根的选项；审批时选择"以后都允许"，会在根上追加一条 `allow` 规则（方法 + 节点 + `exact` 或 `prefix`，预填为这次的目标，用户可以修改）。这些修改都记入审计。
 - **子会话**由父会话（agent）用完整的规则配置创建，用于细粒度地限制 subagent，只能在上一级的基础上收紧。
 
 ### 规则
@@ -110,6 +110,7 @@ crhs 的授权规则决定"这个操作者能不能发起这个任务"，与特�
   "rules": [
     { "action": "deny",             "method": "file.write", "nodes": ["group:prod"], "prefix": "/etc/crha/" },
     { "action": "allow",            "method": "exec", "nodes": ["group:web"], "prefix": "systemctl status " },
+    { "action": "allow",            "method": "exec", "nodes": ["web-1"], "exact": "systemctl restart nginx" },
     { "action": "require-approval", "method": "exec" },
     { "action": "allow",            "method": "file.read" }
   ],
@@ -120,9 +121,9 @@ crhs 的授权规则决定"这个操作者能不能发起这个任务"，与特�
 | 字段 | 说明 |
 |---|---|
 | `action` | `allow` / `deny` / `require-approval` |
-| `method` | `exec` / `file.read` / `file.write`，与 crha 相同，`file.write` 包含 `file.read`；省略表示所有方法。stat、列目录属于 `file.read`，编辑属于 `file.write` |
+| `method` | `exec` / `file.read` / `file.write`，与 crha 相同；省略表示所有方法。stat、列目录属于 `file.read`，编辑属于 `file.write`。`allow file.write` 同时放行对同一目标的读；`deny` 和 `require-approval` 只匹配写本身，`deny file.write /etc/x` 不会连读也禁止 |
 | `nodes` | 节点和组的列表；省略表示所有节点 |
-| `prefix` / `regex` | 作用于目标（exec 为命令行，文件操作为路径，同 [privilege.md](privilege.md#方法与目标)）；省略表示任意目标 |
+| `exact` / `prefix` | 作用于目标（exec 为渲染后的 argv，文件操作为规范化后的路径，同 [privilege.md](privilege.md#方法与目标)）；`exact` 要求完全相等，`prefix` 要求前缀相等；省略表示任意目标。crhs 的规则**不支持 `regex`**：它在 crhs 的事件循环里执行，一个回溯严重的表达式就能卡住整个服务（crha 的信任规则用 RE2，不受影响） |
 | `default` | 这一级没有规则命中时的结果。根：`allow` / `require-approval` / `deny`（由选项决定）；子会话：`inherit`（默认，不额外限制）/ `require-approval` / `deny` |
 | `budget` | 这一级的预算（token 数和/或费用） |
 

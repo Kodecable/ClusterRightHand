@@ -22,6 +22,18 @@ export interface SshCredential {
 	createdAt: string;
 }
 
+/**
+ * An ed25519 key pair that ssh2 can load again: about 1 in 250 keys ssh2 generates fail its own parser
+ * ("Malformed OpenSSH private key"), and such a credential would never connect.
+ */
+export function generateKeyPair(comment: string): { private: string; public: string } {
+	for (let attempt = 0; attempt < 20; attempt++) {
+		const pair = ssh2.utils.generateKeyPairSync("ed25519", { comment });
+		if (!(ssh2.utils.parseKey(pair.private) instanceof Error)) return pair;
+	}
+	throw new Error("could not generate a usable SSH key");
+}
+
 /** crhs generates the key; only the public half ever leaves it (for authorized_keys). */
 export async function createSshCredential(
 	db: Db,
@@ -30,7 +42,7 @@ export async function createSshCredential(
 	name: string,
 ): Promise<SshCredential> {
 	const label = name.trim() || "crh";
-	const pair = ssh2.utils.generateKeyPairSync("ed25519", { comment: `crh:${label}` });
+	const pair = generateKeyPair(`crh:${label}`);
 	const orgId = await defaultOrgId(db);
 	const secretId = newId();
 	const now = new Date().toISOString();

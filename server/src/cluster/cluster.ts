@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { clone, create, toJson } from "@bufbuild/protobuf";
+import { clone, create, fromJson, toJson } from "@bufbuild/protobuf";
 import {
 	type Envelope,
 	type Facts,
@@ -14,11 +14,14 @@ import {
 	type TaskStatus,
 } from "@crh/protocol";
 import type { Selectable, Updateable } from "kysely";
+import type { Audit } from "../audit/audit.ts";
+import { type Evaluation, evaluate, operationOf } from "../policy/rules.ts";
+import { loadChain, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import type { TaskState as TaskRowState, TasksTable } from "../storage/schema.ts";
 import { newId } from "../util/id.ts";
 import type { NodeConnection } from "./connection.ts";
-import { getNode, markNodeSeen, type NodeRow, updateNodeFacts } from "./nodes.ts";
+import { getNode, markNodeSeen, type NodeRow, nodeGroupNames, updateNodeFacts } from "./nodes.ts";
 import { OUTPUT_KEEP_BYTES, OUTPUT_KEEP_LINES, StreamAccumulator } from "./output.ts";
 import { connect as connectSsh, SshError, type SshRoute, type SshSession } from "./ssh/connection.ts";
 import { runSshExec, SshConnectionLost, type SshExecSink, shellQuote } from "./ssh/exec.ts";
@@ -40,6 +43,26 @@ export interface CreateTaskInput {
 	timeoutMs?: number;
 	actor: Actor;
 	taskGroupId?: string;
+	/** The rule chain, root first; omitted when a user acts in person (doc/access-control.md#规则链). */
+	chain?: RuleRef[];
+	/** Set for the tasks of an approved task group: a require-approval result counts as approved. */
+	approvedBy?: ApprovalDecision;
+}
+
+/** How an approval was settled. */
+export interface ApprovalDecision {
+	decision: "approved" | "rejected" | "expired";
+	by: { type: string; id: string; onBehalfOfUserId?: string };
+	at: string;
+	reason?: string;
+	/** The task group whose approval covered this task. */
+	taskGroupId?: string;
+}
+
+/** The approval state of a tool call: how the rules judged it, then how it was settled. */
+export interface ApprovalRecord {
+	evaluation: Evaluation;
+	decision?: ApprovalDecision;
 }
 
 export interface TaskView {
@@ -62,11 +85,17 @@ export interface TaskView {
 	outputFile: string | null;
 	/** One line describing what ran: the command line or the path. */
 	summary: string;
+	/** What authorization rules match on (doc/privilege.md#方法与目标); null if the spec cannot be read. */
+	operation: { method: string; target: string } | null;
 	actorType: string;
 	actorId: string;
 	onBehalfOfUserId: string;
 	createdAt: string;
 	finishedAt: string | null;
+	taskGroupId: string | null;
+	ruleChain: RuleRef[] | null;
+	approval: ApprovalRecord | null;
+	approvalExpiresAt: string | null;
 }
 
 export interface ClusterOptions {
@@ -81,9 +110,13 @@ export interface ClusterOptions {
 	idleTimeoutMs?: number;
 	/** Resolves an SSH node's route (hosts, pinned keys, private key). Without it SSH nodes are offline. */
 	sshRoute?: (node: NodeRow) => Promise<SshRoute>;
+	audit?: Audit;
+	/** How long a task may wait for approval (default 24 h). */
+	approvalTtlMs?: number;
 }
 
-const TERMINAL: ReadonlySet<TaskRowState> = new Set(["exited", "failed", "rejected", "unknown"]);
+export const TERMINAL: ReadonlySet<TaskRowState> = new Set(["exited", "failed", "rejected", "unknown", "denied"]);
+export const DEFAULT_APPROVAL_TTL_MS = 24 * 3_600_000;
 const KINDS: Record<string, string> = {
 	exec: "exec",
 	fileRead: "file.read",
@@ -104,6 +137,8 @@ interface LiveTask {
 interface NodeLink {
 	conn: NodeConnection;
 	active: boolean;
+	/** The node's owner, for the audit trail of connect/disconnect. */
+	ownerUserId: string | null;
 	/** Set once Hello has been reconciled; tasks are dispatched only after that. */
 	ready: boolean;
 	/** Task ids we asked about with TaskQuery after Hello. */
@@ -120,6 +155,8 @@ export class Cluster {
 	readonly #chunk: number;
 	readonly #idleMs: number;
 	readonly #sshRoute: ClusterOptions["sshRoute"];
+	readonly #audit: Audit | undefined;
+	readonly #approvalTtlMs: number;
 	readonly #sshSessions = new Map<string, Promise<SshSession>>();
 	readonly #sshCancels = new Map<string, AbortController>();
 	readonly #links = new Map<string, NodeLink>();
@@ -135,6 +172,8 @@ export class Cluster {
 		this.#chunk = options.inputChunkBytes ?? 48 * 1024;
 		this.#idleMs = options.idleTimeoutMs ?? 90_000;
 		this.#sshRoute = options.sshRoute;
+		this.#audit = options.audit;
+		this.#approvalTtlMs = options.approvalTtlMs ?? DEFAULT_APPROVAL_TTL_MS;
 	}
 
 	isConnected(nodeId: string): boolean {
@@ -144,7 +183,13 @@ export class Cluster {
 	/** Called by AgentServer after a successful handshake. */
 	attach(conn: NodeConnection, node: NodeRow, init: HandshakeInit): void {
 		const previous = this.#links.get(node.id);
-		const link: NodeLink = { conn, active: node.status === "active", ready: false, queried: new Set() };
+		const link: NodeLink = {
+			conn,
+			active: node.status === "active",
+			ownerUserId: node.owner_user_id,
+			ready: false,
+			queried: new Set(),
+		};
 		this.#links.set(node.id, link);
 		previous?.conn.close("replaced by a new connection");
 		const timer = this.#graceTimers.get(node.id);
@@ -163,6 +208,7 @@ export class Cluster {
 			this.#detach(link);
 		});
 		void markNodeSeen(this.#db, node.id);
+		if (link.active) this.#auditConnection(link, "node.connected");
 		void init;
 	}
 
@@ -187,6 +233,7 @@ export class Cluster {
 		if (this.#links.get(nodeId) !== link) return; // already replaced
 		this.#links.delete(nodeId);
 		if (!link.active) return;
+		this.#auditConnection(link, "node.disconnected");
 		void markNodeSeen(this.#db, nodeId);
 		this.#graceTimers.set(
 			nodeId,
@@ -195,6 +242,14 @@ export class Cluster {
 				void this.#expireNode(nodeId);
 			}, this.#graceMs),
 		);
+	}
+
+	#auditConnection(link: NodeLink, action: "node.connected" | "node.disconnected"): void {
+		void this.#audit?.record({
+			actor: { type: "system", id: "cluster", onBehalfOfUserId: link.ownerUserId },
+			action,
+			target: { type: "node", id: link.conn.nodeId },
+		});
 	}
 
 	/** The node did not come back in time: its unfinished tasks become unknown. */
@@ -350,7 +405,17 @@ export class Cluster {
 
 	// ---- task API ----
 
-	/** Creates and dispatches a task. A node that is not connected fails it at once with node_offline. */
+	/** How the rule chain judges running `spec` on a node. */
+	async evaluateFor(node: NodeRow, spec: TaskSpec, chain: RuleRef[]): Promise<Evaluation> {
+		const groups = (await nodeGroupNames(this.#db, [node.id])).get(node.id) ?? [];
+		const levels = await loadChain(this.#db, chain);
+		return evaluate(levels, { ...operationOf(spec), node: { id: node.id, name: node.name, groups } });
+	}
+
+	/**
+	 * Creates a task. With a rule chain it is first judged: denied, left waiting for approval, or
+	 * dispatched. A node that is not connected at dispatch fails it at once with node_offline.
+	 */
 	async createTask(input: CreateTaskInput): Promise<TaskView> {
 		const node = await getNode(this.#db, input.nodeId);
 		if (!node) throw new Error(`no such node: ${input.nodeId}`);
@@ -361,10 +426,19 @@ export class Cluster {
 		const inputSha = createHash("sha256").update(inputBytes).digest();
 		const spec = withInputRef(input.spec, input.input ? { size: inputBytes.length, sha256: inputSha } : undefined);
 
-		const ssh = node.transport === "ssh";
-		const link = this.#links.get(node.id);
-		const online =
-			node.status === "active" && (ssh ? this.#sshRoute !== undefined : link?.ready === true && !link.conn.closed);
+		let approval: ApprovalRecord | undefined;
+		let verdict: "allow" | "deny" | "require-approval" = "allow";
+		if (input.chain) {
+			const evaluation = await this.evaluateFor(node, input.spec, input.chain);
+			approval = { evaluation };
+			verdict = evaluation.result;
+			if (verdict === "require-approval" && input.approvedBy) {
+				approval.decision = input.approvedBy;
+				verdict = "allow";
+			}
+		}
+		const waiting = verdict === "require-approval";
+		const denied = verdict === "deny";
 		await this.#db
 			.insertInto("tasks")
 			.values({
@@ -378,20 +452,21 @@ export class Cluster {
 				input_sha256: input.input ? inputSha.toString("hex") : null,
 				privileged: input.privileged ? 1 : 0,
 				timeout_ms: input.timeoutMs ?? null,
-				state: online ? "dispatched" : "failed",
+				// Allowed tasks pass through awaiting_approval only for the instant before dispatch.
+				state: denied ? "denied" : "awaiting_approval",
 				exit_code: null,
 				signal: null,
 				timed_out: 0,
 				cancelled: 0,
-				error_code: online ? null : "node_offline",
-				error_message: online ? null : "the node is not connected",
+				error_code: denied ? "policy_denied" : null,
+				error_message: denied ? "denied by the authorization rules" : null,
 				actor_type: input.actor.type,
 				actor_id: input.actor.id,
 				on_behalf_of_user_id: input.actor.onBehalfOfUserId,
 				created_at: now(),
-				dispatched_at: online ? now() : null,
+				dispatched_at: null,
 				accepted_at: null,
-				finished_at: online ? null : now(),
+				finished_at: denied ? now() : null,
 				stdout_bytes: 0,
 				stderr_bytes: 0,
 				stdout_head: null,
@@ -400,12 +475,69 @@ export class Cluster {
 				stderr_tail: null,
 				output_file: null,
 				late_result: null,
+				rule_chain: input.chain ? JSON.stringify(input.chain) : null,
+				approval: approval ? JSON.stringify(approval) : null,
+				approval_expires_at: waiting ? new Date(Date.now() + this.#approvalTtlMs).toISOString() : null,
+				pending_input: waiting && input.input ? Buffer.from(inputBytes).toString("base64") : null,
 			})
 			.execute();
-		if (online && ssh) {
+		void this.#audit?.record({
+			actor: auditActor(input.actor),
+			action: "task.created",
+			target: { type: "task", id },
+			detail: {
+				node_id: node.id,
+				kind,
+				summary: summarize(JSON.stringify(toJson(TaskSpecSchema, spec))),
+				task_group_id: input.taskGroupId,
+				input_sha256: input.input ? inputSha.toString("hex") : undefined,
+				policy: approval ? approval.evaluation.result : "none",
+				approved_by_group: approval?.decision ? input.taskGroupId : undefined,
+			},
+		});
+		if (!waiting && !denied) await this.#serial(id, () => this.#dispatch(id, node, spec, inputBytes, input));
+		return this.getTask(id) as Promise<TaskView>;
+	}
+
+	/** Moves a task out of awaiting_approval and sends it, or fails it if the node is offline. */
+	async #dispatch(
+		id: string,
+		node: NodeRow,
+		spec: TaskSpec,
+		inputBytes: Uint8Array,
+		opts: { privileged?: boolean; timeoutMs?: number },
+	): Promise<void> {
+		const ssh = node.transport === "ssh";
+		const link = this.#links.get(node.id);
+		const fresh = await getNode(this.#db, node.id);
+		const online =
+			fresh?.status === "active" && (ssh ? this.#sshRoute !== undefined : link?.ready === true && !link.conn.closed);
+		const res = await this.#db
+			.updateTable("tasks")
+			.set(
+				online
+					? { state: "dispatched", dispatched_at: now(), pending_input: null }
+					: {
+							state: "failed",
+							error_code: "node_offline",
+							error_message: "the node is not connected",
+							finished_at: now(),
+							pending_input: null,
+						},
+			)
+			.where("id", "=", id)
+			.where("state", "=", "awaiting_approval")
+			.executeTakeFirst();
+		if (res.numUpdatedRows === 0n) return;
+		if (!online) {
+			this.#notify(id);
+			return this.#auditFinish(id);
+		}
+		this.#notify(id);
+		if (ssh) {
 			this.#newLive(id, node.id);
-			void this.#runSsh(id, node, spec, input.input, input.timeoutMs);
-		} else if (online && link) {
+			void this.#runSsh(id, node, spec, inputBytes.length > 0 ? inputBytes : undefined, opts.timeoutMs);
+		} else if (link) {
 			this.#newLive(id, node.id);
 			// TaskStart goes out exactly once; a failure here surfaces as a closed connection.
 			try {
@@ -414,9 +546,9 @@ export class Cluster {
 					value: {
 						taskId: id,
 						spec,
-						privileged: input.privileged ?? false,
+						privileged: opts.privileged ?? false,
 						authorizations: [],
-						timeoutMs: BigInt(input.timeoutMs ?? 0),
+						timeoutMs: BigInt(opts.timeoutMs ?? 0),
 						killGraceMs: 0n,
 						spillBytes: BigInt(OUTPUT_KEEP_BYTES),
 						spillLines: BigInt(OUTPUT_KEEP_LINES),
@@ -432,7 +564,116 @@ export class Cluster {
 				link.conn.close("send failed");
 			}
 		}
-		return this.getTask(id) as Promise<TaskView>;
+	}
+
+	/**
+	 * Settles a task waiting for approval. Returns false if it is not waiting (already settled, or never
+	 * needed approval). Who may decide is checked by the caller.
+	 */
+	decide(id: string, decision: ApprovalDecision): Promise<boolean> {
+		return this.#serialResult(id, async () => {
+			const row = await this.#row(id);
+			if (row?.state !== "awaiting_approval") return false;
+			const record: ApprovalRecord = { ...(JSON.parse(row.approval ?? "{}") as ApprovalRecord), decision };
+			if (decision.decision === "approved") {
+				await this.#db
+					.updateTable("tasks")
+					.set({ approval: JSON.stringify(record) })
+					.where("id", "=", id)
+					.execute();
+				const node = await getNode(this.#db, row.node_id);
+				const spec = fromJson(TaskSpecSchema, JSON.parse(row.spec));
+				const input = row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0);
+				void this.#auditApproval(row, decision);
+				if (node) {
+					await this.#dispatch(id, node, spec, input, {
+						privileged: row.privileged === 1,
+						timeoutMs: row.timeout_ms ?? undefined,
+					});
+				}
+				return true;
+			}
+			const res = await this.#db
+				.updateTable("tasks")
+				.set({
+					state: "rejected",
+					error_code: decision.decision === "expired" ? "approval_expired" : "approval_rejected",
+					error_message:
+						decision.reason ?? (decision.decision === "expired" ? "approval expired" : "approval rejected"),
+					approval: JSON.stringify(record),
+					pending_input: null,
+					finished_at: now(),
+				})
+				.where("id", "=", id)
+				.where("state", "=", "awaiting_approval")
+				.executeTakeFirst();
+			if (res.numUpdatedRows === 0n) return false;
+			void this.#auditApproval(row, decision);
+			this.#notify(id);
+			return true;
+		});
+	}
+
+	/**
+	 * Judges waiting tasks again after rules on their chain changed (doc/access-control.md#审批): allow
+	 * dispatches them, deny ends them, require-approval leaves them waiting.
+	 */
+	async reevaluate(ref: RuleRef): Promise<void> {
+		const rows = await this.#db
+			.selectFrom("tasks")
+			.selectAll()
+			.where("state", "=", "awaiting_approval")
+			.where("rule_chain", "is not", null)
+			.execute();
+		for (const row of rows) {
+			const chain = JSON.parse(row.rule_chain ?? "[]") as RuleRef[];
+			if (!chain.some((r) => r.type === ref.type && r.id === ref.id)) continue;
+			const node = await getNode(this.#db, row.node_id);
+			if (!node) continue;
+			let evaluation: Evaluation;
+			try {
+				evaluation = await this.evaluateFor(node, fromJson(TaskSpecSchema, JSON.parse(row.spec)), chain);
+			} catch {
+				continue; // a level is gone (e.g. a revoked token); expiry ends the task
+			}
+			const by = { type: "system", id: "rules" };
+			if (evaluation.result === "allow") {
+				await this.decide(row.id, { decision: "approved", by, at: now(), reason: "allowed by changed rules" });
+			} else if (evaluation.result === "deny") {
+				await this.#serial(row.id, async () => {
+					const res = await this.#db
+						.updateTable("tasks")
+						.set({
+							state: "denied",
+							error_code: "policy_denied",
+							error_message: "denied by the authorization rules",
+							approval: JSON.stringify({ evaluation }),
+							pending_input: null,
+							finished_at: now(),
+						})
+						.where("id", "=", row.id)
+						.where("state", "=", "awaiting_approval")
+						.executeTakeFirst();
+					if (res.numUpdatedRows > 0n) {
+						this.#notify(row.id);
+						await this.#auditFinish(row.id);
+					}
+				});
+			}
+		}
+	}
+
+	/** Ends tasks whose approval wait ran out (rejected(approval_expired)). Task groups expire their own. */
+	async expireApprovals(at = new Date()): Promise<void> {
+		const rows = await this.#db
+			.selectFrom("tasks")
+			.select("id")
+			.where("state", "=", "awaiting_approval")
+			.where("approval_expires_at", "<", at.toISOString())
+			.execute();
+		for (const { id } of rows) {
+			await this.decide(id, { decision: "expired", by: { type: "system", id: "approval-expiry" }, at: now() });
+		}
 	}
 
 	async getTask(id: string): Promise<TaskView | undefined> {
@@ -624,15 +865,54 @@ export class Cluster {
 	}
 
 	async #finish(nodeId: string, id: string, fields: Updateable<TasksTable>): Promise<void> {
-		await this.#db
+		const res = await this.#db
 			.updateTable("tasks")
 			.set({ ...fields, finished_at: now() })
 			.where("id", "=", id)
 			.where("node_id", "=", nodeId)
 			.where("state", "in", ["dispatched", "running"])
-			.execute();
+			.executeTakeFirst();
 		if (fields.state !== "unknown") this.#live.delete(id);
 		this.#notify(id);
+		if (res.numUpdatedRows > 0n) await this.#auditFinish(id);
+	}
+
+	/** task.finished: the outcome, as recorded (the system acts, on behalf of the task's user). */
+	async #auditFinish(id: string): Promise<void> {
+		if (!this.#audit) return;
+		const row = await this.#row(id);
+		if (!row) return;
+		const outputHash = createHash("sha256")
+			.update(`${row.stdout_head ?? ""}\n${row.stdout_tail ?? ""}\n${row.stderr_head ?? ""}\n${row.stderr_tail ?? ""}`)
+			.digest("hex");
+		void this.#audit.record({
+			actor: { type: "system", id: "cluster", onBehalfOfUserId: row.on_behalf_of_user_id },
+			action: "task.finished",
+			target: { type: "task", id },
+			detail: {
+				node_id: row.node_id,
+				state: row.state,
+				exit_code: row.exit_code,
+				signal: row.signal,
+				error_code: row.error_code,
+				timed_out: row.timed_out === 1,
+				cancelled: row.cancelled === 1,
+				stdout_bytes: Number(row.stdout_bytes),
+				stderr_bytes: Number(row.stderr_bytes),
+				// Of the kept head and tail; crhs never has the full output.
+				kept_output_sha256: outputHash,
+				output_file: row.output_file,
+			},
+		});
+	}
+
+	async #auditApproval(row: Selectable<TasksTable>, d: ApprovalDecision): Promise<void> {
+		void this.#audit?.record({
+			actor: { type: d.by.type, id: d.by.id, onBehalfOfUserId: d.by.onBehalfOfUserId ?? row.on_behalf_of_user_id },
+			action: "task.approval",
+			target: { type: "task", id: row.id },
+			detail: { decision: d.decision, reason: d.reason },
+		});
 	}
 
 	#notify(id: string): void {
@@ -641,8 +921,15 @@ export class Cluster {
 	}
 
 	#serial(taskId: string, fn: () => Promise<void>): Promise<void> {
+		return this.#serialResult(taskId, fn);
+	}
+
+	#serialResult<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
 		const next = (this.#queues.get(taskId) ?? Promise.resolve()).then(fn);
-		const tail = next.catch(() => {});
+		const tail: Promise<void> = next.then(
+			() => {},
+			() => {},
+		);
 		this.#queues.set(taskId, tail);
 		void tail.then(() => {
 			if (this.#queues.get(taskId) === tail) this.#queues.delete(taskId);
@@ -669,6 +956,7 @@ function toView(row: Selectable<TasksTable>, live: LiveTask | undefined): TaskVi
 		nodeId: row.node_id,
 		kind: row.kind,
 		summary: summarize(row.spec),
+		operation: operationOfJson(row.spec),
 		actorType: row.actor_type,
 		actorId: row.actor_id,
 		onBehalfOfUserId: row.on_behalf_of_user_id,
@@ -688,7 +976,23 @@ function toView(row: Selectable<TasksTable>, live: LiveTask | undefined): TaskVi
 		outputFile: row.output_file,
 		createdAt: row.created_at,
 		finishedAt: row.finished_at,
+		taskGroupId: row.task_group_id,
+		ruleChain: row.rule_chain ? (JSON.parse(row.rule_chain) as RuleRef[]) : null,
+		approval: row.approval ? (JSON.parse(row.approval) as ApprovalRecord) : null,
+		approvalExpiresAt: row.approval_expires_at,
 	};
+}
+
+function operationOfJson(specJson: string): { method: string; target: string } | null {
+	try {
+		return operationOf(fromJson(TaskSpecSchema, JSON.parse(specJson)));
+	} catch {
+		return null;
+	}
+}
+
+function auditActor(actor: Actor) {
+	return { type: actor.type, id: actor.id, onBehalfOfUserId: actor.onBehalfOfUserId };
 }
 
 /** Spec JSON (protobuf JSON form) to a short description. */

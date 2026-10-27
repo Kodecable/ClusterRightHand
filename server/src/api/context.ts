@@ -1,8 +1,9 @@
 import type { Context } from "hono";
+import type { Audit } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 
 export interface AppEnv {
-	Variables: { user: SessionUser };
+	Variables: { user: SessionUser; audit: Audit };
 }
 
 export function jsonError(c: Context, status: 400 | 401 | 403 | 404 | 409 | 429, message: string) {

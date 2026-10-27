@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { serve } from "@hono/node-server";
 import { type AppOptions, createApp } from "../../src/api/app.ts";
+import { Audit } from "../../src/audit/audit.ts";
 import { LoginLimiter } from "../../src/auth/login-limiter.ts";
 import { AgentServer } from "../../src/cluster/agent-server.ts";
 import { Cluster, type ClusterOptions } from "../../src/cluster/cluster.ts";
@@ -73,6 +74,7 @@ export class InProcessCrhs {
 	readonly appOptions: Partial<AppOptions>;
 	identity!: ServerIdentity;
 	cluster!: Cluster;
+	audit!: Audit;
 	port = 0;
 	cookie = "";
 	#agents!: AgentServer;
@@ -97,13 +99,15 @@ export class InProcessCrhs {
 	}
 
 	async #listen(port: number): Promise<void> {
-		this.cluster = new Cluster(this.db, this.clusterOptions);
-		this.#agents = new AgentServer(this.db, this.identity, this.cluster);
+		this.audit = new Audit(this.db);
+		this.cluster = new Cluster(this.db, { ...this.clusterOptions, audit: this.audit });
+		this.#agents = new AgentServer(this.db, this.identity, this.cluster, this.audit);
 		const app = createApp(this.db, {
 			serverFingerprint: this.identity.fingerprint,
 			serverPublicKey: this.identity.keyPair.publicKey,
 			cluster: this.cluster,
 			masterKey: this.masterKey,
+			audit: this.audit,
 			limiter: new LoginLimiter(),
 			...this.appOptions,
 		});

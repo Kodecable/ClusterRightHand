@@ -4,6 +4,7 @@ import { parseArgs } from "node:util";
 import { serve } from "@hono/node-server";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { createApp } from "./api/app.ts";
+import { Audit } from "./audit/audit.ts";
 import { deleteExpiredWebSessions } from "./auth/sessions.ts";
 import { readSecret } from "./cli/prompt.ts";
 import { AgentServer } from "./cluster/agent-server.ts";
@@ -148,9 +149,10 @@ async function importKeys(config: Config, db: Db, file: string): Promise<void> {
 
 async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<void> {
 	const identity = await loadServerIdentity(db, masterKey);
-	const cluster = new Cluster(db, { sshRoute: (node) => nodeRoute(db, masterKey, node) });
-	const agents = new AgentServer(db, identity, cluster);
-	const taskGroups = new TaskGroups(db, cluster);
+	const audit = new Audit(db);
+	const cluster = new Cluster(db, { sshRoute: (node) => nodeRoute(db, masterKey, node), audit });
+	const agents = new AgentServer(db, identity, cluster, audit);
+	const taskGroups = new TaskGroups(db, cluster, { audit });
 	await taskGroups.recover();
 	const app = createApp(db, {
 		clientAddress: (c) => getConnInfo(c).remote.address,
@@ -160,6 +162,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		taskGroups,
 		masterKey,
 		webRoot: config.webRoot,
+		audit,
 	});
 	const server = serve({ fetch: app.fetch, hostname: config.listen.host, port: config.listen.port }, (info) => {
 		console.log(`crhs listening on http://${info.address}:${info.port} (identity ${identity.fingerprint})`);
@@ -168,9 +171,14 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		if (!agents.handleUpgrade(req, socket, head)) socket.destroy();
 	});
 	const sweep = setInterval(() => void deleteExpiredWebSessions(db), 60 * 60 * 1000);
+	const expire = setInterval(() => {
+		void cluster.expireApprovals();
+		void taskGroups.expireApprovals();
+	}, 60 * 1000);
 	for (const signal of ["SIGINT", "SIGTERM"] as const) {
 		process.once(signal, () => {
 			clearInterval(sweep);
+			clearInterval(expire);
 			cluster.close();
 			agents.close();
 			server.close();

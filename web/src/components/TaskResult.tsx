@@ -1,5 +1,6 @@
 import type { TaskView } from "../api.ts";
 import { formatTime, isTerminal, joinOutput } from "../lib.ts";
+import { DecisionView, EvaluationView } from "./Approval.tsx";
 import { Badge } from "./Feedback.tsx";
 
 export function OutputBlock({
@@ -32,6 +33,7 @@ export function OutputBlock({
 /** Badge kind: a non-zero exit is the command's own failure (warn), not the platform's (bad). */
 export function stateKind(task: Pick<TaskView, "state" | "exitCode" | "signal">): string {
 	if (task.state === "exited") return task.exitCode === 0 && !task.signal ? "ok" : "warn";
+	if (task.state === "awaiting_approval") return "busy";
 	if (isTerminal(task.state)) return "bad";
 	return "busy";
 }
@@ -76,6 +78,24 @@ export function TaskResult({ task }: { task: TaskView }) {
 						</dd>
 					</>
 				)}
+				{task.state === "awaiting_approval" && (
+					<>
+						<dt>Approval</dt>
+						<dd>
+							Waiting for approval
+							{task.approvalExpiresAt && <> until {formatTime(task.approvalExpiresAt)}</>}.{" "}
+							<a href={`#/approvals/tasks/${task.id}`}>Open approval page</a>
+						</dd>
+					</>
+				)}
+				{task.approval?.decision && (
+					<>
+						<dt>Approval decision</dt>
+						<dd>
+							<DecisionView decision={task.approval.decision} />
+						</dd>
+					</>
+				)}
 				<dt>Created</dt>
 				<dd>{formatTime(task.createdAt)}</dd>
 				<dt>Finished</dt>
@@ -87,6 +107,12 @@ export function TaskResult({ task }: { task: TaskView }) {
 					</>
 				)}
 			</dl>
+			{task.approval && task.state !== "exited" && (
+				<details>
+					<summary>Rule chain evaluation</summary>
+					<EvaluationView evaluation={task.approval.evaluation} />
+				</details>
+			)}
 			<OutputBlock label="stdout" head={task.stdoutHead} tail={task.stdoutTail} bytes={task.stdoutBytes} />
 			<OutputBlock label="stderr" head={task.stderrHead} tail={task.stderrTail} bytes={task.stderrBytes} />
 		</div>

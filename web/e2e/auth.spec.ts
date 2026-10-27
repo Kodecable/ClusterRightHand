@@ -47,3 +47,12 @@ test("mismatching new passwords are rejected in the dialog", async ({ adminPage:
 	await dialog.getByRole("button", { name: "Change", exact: true }).click();
 	await expect(dialog.getByRole("alert")).toHaveText("the new passwords do not match");
 });
+
+test("signing in keeps the link that led to the sign-in form", async ({ page }) => {
+	await page.goto("/#/approvals");
+	await page.getByLabel("Username").fill(ADMIN.username);
+	await page.getByLabel("Password").fill(ADMIN.password);
+	await page.getByRole("button", { name: "Sign in" }).click();
+	await expect(page.getByRole("heading", { name: "Approvals" })).toBeVisible();
+	expect(new URL(page.url()).hash).toBe("#/approvals");
+});

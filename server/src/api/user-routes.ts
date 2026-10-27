@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { userActor } from "../audit/audit.ts";
 import { revokeUserWebSessions } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import {
@@ -76,6 +77,12 @@ export function userRoutes(db: Db) {
 			email: optionalString(body, "email"),
 			password: optionalString(body, "password"),
 		});
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "user.created",
+			target: { type: "user", id: user.id },
+			detail: { username: user.username, kind: user.kind, display_name: user.displayName },
+		});
 		return c.json({ user }, 201);
 	});
 
@@ -94,6 +101,17 @@ export function userRoutes(db: Db) {
 			status: status as "active" | "disabled" | undefined,
 		});
 		if (status === "disabled") await revokeUserWebSessions(db, id);
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "user.updated",
+			target: { type: "user", id },
+			detail: {
+				kind,
+				status,
+				display_name: body.displayName === undefined ? undefined : user.displayName,
+				email_changed: body.email === undefined ? undefined : true,
+			},
+		});
 		return c.json({ user });
 	});
 
@@ -104,6 +122,11 @@ export function userRoutes(db: Db) {
 		const id = c.req.param("id");
 		await setPassword(db, id, password);
 		await revokeUserWebSessions(db, id);
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "user.password_reset",
+			target: { type: "user", id },
+		});
 		return c.json({ ok: true });
 	});
 
@@ -113,21 +136,45 @@ export function userRoutes(db: Db) {
 		const body = await readJsonObject(c);
 		const name = body ? optionalString(body, "name") : undefined;
 		if (!name) return jsonError(c, 400, "name is required");
-		return c.json({ group: await createUserGroup(db, name) }, 201);
+		const group = await createUserGroup(db, name);
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "user_group.created",
+			target: { type: "user_group", id: group.id },
+			detail: { name: group.name },
+		});
+		return c.json({ group }, 201);
 	});
 
 	app.delete("/user-groups/:id", async (c) => {
 		await deleteUserGroup(db, c.req.param("id"));
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "user_group.deleted",
+			target: { type: "user_group", id: c.req.param("id") },
+		});
 		return c.json({ ok: true });
 	});
 
 	app.put("/user-groups/:id/members/:userId", async (c) => {
 		await addGroupMember(db, c.req.param("id"), c.req.param("userId"));
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "user_group.member_added",
+			target: { type: "user_group", id: c.req.param("id") },
+			detail: { user_id: c.req.param("userId") },
+		});
 		return c.json({ ok: true });
 	});
 
 	app.delete("/user-groups/:id/members/:userId", async (c) => {
 		await removeGroupMember(db, c.req.param("id"), c.req.param("userId"));
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "user_group.member_removed",
+			target: { type: "user_group", id: c.req.param("id") },
+			detail: { user_id: c.req.param("userId") },
+		});
 		return c.json({ ok: true });
 	});
 

@@ -1,21 +1,36 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api, type PublicNode, type TaskGroupView } from "../api.ts";
+import { DecisionView } from "../components/Approval.tsx";
 import { Badge, ErrorText, Loading } from "../components/Feedback.tsx";
 import { TaskFormFields } from "../components/TaskFormFields.tsx";
 import { stateKind, TaskResult } from "../components/TaskResult.tsx";
 import { errMsg, useLoad } from "../hooks.ts";
-import { buildTargets, taskOutcome } from "../lib.ts";
+import { buildTargets, formatTime, taskOutcome } from "../lib.ts";
 import { buildTaskRequest, emptyForm, type TaskForm } from "../taskForm.ts";
 
 const canOperate = (n: PublicNode) => n.status === "active" && n.access !== "view";
+
+export function groupStateKind(state: string): string {
+	if (state === "finished") return "ok";
+	if (state === "rejected" || state === "interrupted") return "bad";
+	return "busy";
+}
 
 function GroupResult({ group, names }: { group: TaskGroupView; names: Map<string, string> }) {
 	const name = (id: string) => names.get(id) ?? id;
 	return (
 		<section>
 			<h2>
-				Result <Badge kind={group.state === "running" ? "busy" : "ok"}>{group.state}</Badge>
+				Result <Badge kind={groupStateKind(group.state)}>{group.state}</Badge>
 			</h2>
+			{group.state === "awaiting_approval" && (
+				<p>
+					Waiting for approval
+					{group.approvalExpiresAt && <> until {formatTime(group.approvalExpiresAt)}</>}.{" "}
+					<a href={`#/approvals/task-groups/${group.id}`}>Open approval page</a>
+				</p>
+			)}
+			{group.state === "rejected" && group.approval?.decision && <DecisionView decision={group.approval.decision} />}
 			<div className="scroll-x">
 				<table>
 					<thead>
@@ -95,7 +110,7 @@ export function Batch() {
 				...(p !== undefined ? { parallel: p } : {}),
 			});
 			setGroup(g);
-			while (g.state === "running" && !ctl.signal.aborted) {
+			while ((g.state === "running" || g.state === "awaiting_approval") && !ctl.signal.aborted) {
 				g = await api.waitTaskGroup(g.id, 20000, ctl.signal);
 				setGroup(g);
 			}

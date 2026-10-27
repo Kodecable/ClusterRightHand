@@ -6,6 +6,12 @@
 
 - 传输：Streamable HTTP，路径 `/mcp`。
 - 鉴权：`Authorization: Bearer <api-token>`，见 [access-control.md](access-control.md#api-token)。OAuth 后续再加。
+- 在 WebUI 的"API tokens"页面创建 token（选择 Ask 或 Yolo），然后在 Claude Code 中添加：
+
+  ```sh
+  claude mcp add --transport http crh https://<crhs>/mcp --header "Authorization: Bearer crh_…"
+  ```
+- 实现：`@modelcontextprotocol/server` v2 的 `createMcpHandler`，无状态（每个请求一个 `McpServer` 实例），同时服务 2026-07-28 和 2025 年版本的客户端。
 - 只支持 stdio 的客户端可以使用通用的 stdio ↔ HTTP 桥（例如 `mcp-remote`），CRH 不提供自己的桥。
 
 ## 工具

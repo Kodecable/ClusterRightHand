@@ -123,9 +123,28 @@ export interface EnrollmentTokensTable {
 	created_at: CreatedAt;
 }
 
-export type TaskState = "dispatched" | "running" | "exited" | "failed" | "rejected" | "unknown";
+export type TaskState =
+	| "awaiting_approval"
+	| "denied"
+	| "dispatched"
+	| "running"
+	| "exited"
+	| "failed"
+	| "rejected"
+	| "unknown";
 
-export interface TasksTable {
+/** Columns shared by tasks and task groups for the rule chain and approval (doc/access-control.md#审批). */
+interface ApprovalColumns {
+	/** JSON [{ type, id }], root first; null for a user acting in person. */
+	rule_chain: string | null;
+	/** JSON ApprovalRecord: the evaluation, then the decision. */
+	approval: string | null;
+	approval_expires_at: string | null;
+	/** Base64 input, kept only while waiting for approval. */
+	pending_input: string | null;
+}
+
+export interface TasksTable extends ApprovalColumns {
 	id: string;
 	org_id: string;
 	node_id: string;
@@ -162,7 +181,7 @@ export interface TasksTable {
 	late_result: string | null;
 }
 
-export interface TaskGroupsTable {
+export interface TaskGroupsTable extends ApprovalColumns {
 	id: string;
 	org_id: string;
 	targets: string;
@@ -171,12 +190,61 @@ export interface TaskGroupsTable {
 	parallel: number;
 	fail_fast: number;
 	skipped: string;
-	state: "running" | "finished" | "interrupted";
+	state: TaskGroupState;
 	actor_type: string;
 	actor_id: string;
 	on_behalf_of_user_id: string;
 	created_at: CreatedAt;
 	finished_at: string | null;
+	/** TaskSpec JSON, kept while waiting for approval. */
+	spec: string | null;
+	timeout_ms: number | null;
+}
+
+export type TaskGroupState = "awaiting_approval" | "running" | "finished" | "interrupted" | "rejected";
+
+export interface ApiTokensTable {
+	id: string;
+	org_id: string;
+	user_id: string;
+	name: string;
+	token_hash: string;
+	created_at: CreatedAt;
+	expires_at: string | null;
+	revoked_at: string | null;
+	last_used_at: string | null;
+}
+
+export type RuleScopeType = "session" | "schedule" | "api_token";
+
+export interface RuleSetsTable {
+	id: string;
+	org_id: string;
+	scope_type: RuleScopeType;
+	scope_id: string;
+	preset: string | null;
+	default_action: string;
+	/** JSON Rule[], the rules added on top of the preset's. */
+	rules: string;
+	budget: string | null;
+	updated_at: string;
+}
+
+export interface AuditEventsTable {
+	seq: number;
+	id: string;
+	org_id: string;
+	ts: string;
+	actor_type: string;
+	actor_id: string;
+	on_behalf_of_user_id: string | null;
+	action: string;
+	target_type: string | null;
+	target_id: string | null;
+	/** Canonical JSON. */
+	detail: string;
+	prev_hash: string;
+	hash: string;
 }
 
 export interface SshCredentialsTable {
@@ -204,4 +272,7 @@ export interface Database {
 	tasks: TasksTable;
 	task_groups: TaskGroupsTable;
 	ssh_credentials: SshCredentialsTable;
+	api_tokens: ApiTokensTable;
+	rule_sets: RuleSetsTable;
+	audit_events: AuditEventsTable;
 }

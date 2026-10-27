@@ -1,11 +1,28 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api.ts";
 import { useUser } from "../auth.tsx";
+import { useLoad, usePolling } from "../hooks.ts";
 import { APP_NAME } from "../meta.ts";
 import { ChangePassword } from "./ChangePassword.tsx";
 
+const APPROVALS_CHANGED = "crh:approvals-changed";
+
+/** Number of tool calls waiting for the user's approval; refreshed every 10 s and after decisions. */
+function usePendingCount(path: string): number {
+	const { data, reload } = useLoad(() => api.listApprovals(), []);
+	usePolling(reload, 10_000);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: refresh when the page changes
+	useEffect(reload, [path, reload]);
+	useEffect(() => {
+		window.addEventListener(APPROVALS_CHANGED, reload);
+		return () => window.removeEventListener(APPROVALS_CHANGED, reload);
+	}, [reload]);
+	return (data?.tasks.length ?? 0) + (data?.taskGroups.length ?? 0);
+}
+
 export function Header({ route, onLogout }: { route: string[]; onLogout: () => void }) {
 	const user = useUser();
+	const pending = usePendingCount(route.join("/"));
 	const [changing, setChanging] = useState(false);
 	const logout = async () => {
 		try {
@@ -25,6 +42,20 @@ export function Header({ route, onLogout }: { route: string[]; onLogout: () => v
 				</a>
 				<a href="#/batch" aria-current={route[0] === "batch" ? "page" : undefined}>
 					Batch
+				</a>
+				<a href="#/approvals" aria-current={route[0] === "approvals" ? "page" : undefined}>
+					Approvals
+					{pending > 0 && (
+						<span className="count" role="status" aria-label={`${pending} pending`}>
+							{pending}
+						</span>
+					)}
+				</a>
+				<a href="#/tokens" aria-current={route[0] === "tokens" ? "page" : undefined}>
+					API tokens
+				</a>
+				<a href="#/audit" aria-current={route[0] === "audit" ? "page" : undefined}>
+					Audit
 				</a>
 				{user.kind === "admin" && (
 					<a href="#/users" aria-current={route[0] === "users" ? "page" : undefined}>

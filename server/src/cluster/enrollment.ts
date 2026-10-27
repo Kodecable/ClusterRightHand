@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Selectable } from "kysely";
+import type { Audit } from "../audit/audit.ts";
 import type { Db } from "../storage/db.ts";
 import type { NodesTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
@@ -92,11 +93,12 @@ export async function enrollNode(
 		facts: unknown;
 		clientVersion: string;
 		now?: Date;
+		audit?: Audit;
 	},
 ): Promise<Selectable<NodesTable>> {
 	const now = (input.now ?? new Date()).toISOString();
 	const publicKey = Buffer.from(input.publicKey).toString("base64");
-	return db.transaction().execute(async (trx) => {
+	const enrolled = await db.transaction().execute(async (trx) => {
 		if (await trx.selectFrom("nodes").select("id").where("public_key", "=", publicKey).executeTakeFirst()) {
 			throw new EnrollmentError("public key is already registered");
 		}
@@ -142,4 +144,11 @@ export async function enrollNode(
 		await trx.updateTable("enrollment_tokens").set({ used_by_node_id: node.id }).where("id", "=", token.id).execute();
 		return node;
 	});
+	void input.audit?.record({
+		actor: { type: "system", id: "enrollment", onBehalfOfUserId: enrolled.owner_user_id },
+		action: "node.enrollment_requested",
+		target: { type: "node", id: enrolled.id },
+		detail: { name: enrolled.name, hostname: input.hostname, client_version: input.clientVersion },
+	});
+	return enrolled;
 }

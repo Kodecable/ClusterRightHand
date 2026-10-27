@@ -1,0 +1,176 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { buildCrha, Env, goAvailable, waitFor } from "./harness.ts";
+
+const hasGo = await goAvailable();
+
+// The M2 completion check: an MCP client manages a real node, and every step shows up in the audit log.
+describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
+	let tmp = "";
+	let env: Env;
+	let nodeName = "";
+
+	beforeAll(async () => {
+		tmp = await mkdtemp(join(tmpdir(), "crh-mcp-"));
+		env = await Env.create(await buildCrha(tmp), tmp);
+		await env.bringUp();
+		nodeName = (await env.crhs.api(`/api/nodes/${env.nodeId}`)).json.node.name;
+	}, 180_000);
+
+	afterAll(async () => {
+		await env?.destroy();
+		await rm(tmp, { recursive: true, force: true });
+	});
+
+	const token = async (preset: string) => {
+		const res = await env.crhs.api("/api/api-tokens", { body: { name: `mcp-${preset}`, preset } });
+		expect(res.status).toBe(201);
+		return { token: res.json.token as string, id: res.json.apiToken.id as string };
+	};
+
+	const connect = async (bearer: string) => {
+		const client = new Client({ name: "crh-test", version: "0.0.0" });
+		await client.connect(
+			new StreamableHTTPClientTransport(new URL(`${env.crhs.url}/mcp`), {
+				requestInit: { headers: { Authorization: `Bearer ${bearer}` } },
+			}),
+		);
+		return client;
+	};
+
+	// biome-ignore lint/suspicious/noExplicitAny: tool results are JSON text
+	const call = async (client: Client, name: string, args: Record<string, unknown>): Promise<any> => {
+		const res = await client.callTool({ name, arguments: args });
+		const text = (res.content as { type: string; text: string }[])[0]?.text ?? "";
+		if (res.isError) throw new Error(`tool error: ${text}`);
+		return JSON.parse(text);
+	};
+
+	it("lists the cluster tools and the node", async () => {
+		const client = await connect((await token("yolo")).token);
+		const tools = (await client.listTools()).tools.map((t) => t.name).sort();
+		expect(tools).toEqual(
+			[
+				"edit_file",
+				"exec",
+				"list_dir",
+				"list_nodes",
+				"node_info",
+				"read_file",
+				"task_cancel",
+				"task_wait",
+				"write_file",
+			].sort(),
+		);
+		const { nodes } = await call(client, "list_nodes", {});
+		expect(nodes).toEqual([expect.objectContaining({ name: nodeName, connected: true, can_run_tasks: true })]);
+		await client.close();
+	});
+
+	it("runs commands and file operations under yolo", async () => {
+		const client = await connect((await token("yolo")).token);
+		const r = await call(client, "exec", { node: nodeName, cmd: "echo hello; echo oops >&2; exit 3" });
+		expect(r).toMatchObject({ state: "exited", exit_code: 3, stdout: "hello\n", stderr: "oops\n" });
+
+		const path = join(env.dir, "mcp-file.txt");
+		expect(await call(client, "write_file", { node: nodeName, path, content: "one\ntwo\n" })).toMatchObject({
+			state: "exited",
+		});
+		await call(client, "edit_file", { node: nodeName, path, edits: [{ oldText: "two", newText: "three" }] });
+		expect(await call(client, "read_file", { node: nodeName, path })).toMatchObject({ stdout: "one\nthree\n" });
+		// write_file refuses to overwrite by default
+		expect(await call(client, "write_file", { node: nodeName, path, content: "x" })).toMatchObject({
+			state: "failed",
+		});
+		await client.close();
+	});
+
+	it("waits for approval under ask, then finishes once the user approves", async () => {
+		const t = await token("ask");
+		const client = await connect(t.token);
+		// Reads are allowed by the ask preset.
+		expect(await call(client, "read_file", { node: nodeName, path: "/etc/hostname" })).toMatchObject({
+			state: "exited",
+		});
+		const pending = await call(client, "exec", { node: nodeName, argv: ["echo", "approved"], wait: 1 });
+		expect(pending).toMatchObject({
+			state: "awaiting_approval",
+			approval: { url: expect.stringContaining(pending.task_id) },
+		});
+
+		const approvals = (await env.crhs.api("/api/approvals")).json;
+		expect(approvals.tasks.map((x: { id: string }) => x.id)).toEqual([pending.task_id]);
+		const decided = await env.crhs.api(`/api/tasks/${pending.task_id}/approval`, {
+			body: { decision: "approve", always: { action: "allow", method: "exec", exact: "echo approved" } },
+		});
+		expect(decided.status).toBe(200);
+		expect(await call(client, "task_wait", { task_id: pending.task_id })).toMatchObject({
+			state: "exited",
+			exit_code: 0,
+			stdout: "approved\n",
+		});
+		// "Always allow" took effect: the same command now runs at once.
+		expect(await call(client, "exec", { node: nodeName, argv: ["echo", "approved"] })).toMatchObject({
+			state: "exited",
+		});
+		// Rejection reaches the client as the task's outcome.
+		const second = await call(client, "exec", { node: nodeName, cmd: "rm -rf /tmp/nothing", wait: 0 });
+		await env.crhs.api(`/api/tasks/${second.task_id}/approval`, { body: { decision: "reject", reason: "no" } });
+		expect(await call(client, "task_wait", { task_id: second.task_id })).toMatchObject({
+			state: "rejected",
+			error: { code: "approval_rejected", message: "no" },
+		});
+		await client.close();
+	});
+
+	it("runs a batch as one approval for the group", async () => {
+		const t = await token("ask");
+		const client = await connect(t.token);
+		const g = await call(client, "exec", { targets: [nodeName], cmd: "echo batch", wait: 0 });
+		expect(g).toMatchObject({ state: "awaiting_approval", nodes: [] });
+		await env.crhs.api(`/api/task-groups/${g.task_group_id}/approval`, { body: { decision: "approve" } });
+		const done = await call(client, "task_wait", { task_group_id: g.task_group_id });
+		expect(done).toMatchObject({
+			state: "finished",
+			nodes: [expect.objectContaining({ exit_code: 0, stdout: "batch\n" })],
+		});
+		await client.close();
+	});
+
+	it("rejects missing, bad and revoked tokens", async () => {
+		const t = await token("yolo");
+		await env.crhs.api(`/api/api-tokens/${t.id}/revoke`, { body: {} });
+		for (const auth of [undefined, "Bearer crh_nope", `Bearer ${t.token}`]) {
+			const res = await fetch(`${env.crhs.url}/mcp`, {
+				method: "POST",
+				headers: { "content-type": "application/json", ...(auth ? { authorization: auth } : {}) },
+				body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+			});
+			expect(res.status).toBe(401);
+		}
+	});
+
+	it("records every step in the audit log, with an intact hash chain", async () => {
+		await env.crhs.audit.flush();
+		const { events } = (await env.crhs.api("/api/audit?limit=500")).json;
+		const actions = new Set(events.map((e: { action: string }) => e.action));
+		for (const a of [
+			"api_token.created",
+			"tool.call",
+			"task.created",
+			"task.approval",
+			"task.finished",
+			"rules.changed",
+			"task_group.created",
+			"task_group.approval",
+		]) {
+			expect(actions, a).toContain(a);
+		}
+		const check = await waitFor("chain check", async () => (await env.crhs.api("/api/audit/verify")).json);
+		expect(check).toMatchObject({ ok: true });
+		expect(check.count).toBe(events.length);
+	});
+});

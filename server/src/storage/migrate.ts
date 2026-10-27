@@ -7,6 +7,7 @@ import * as m0004 from "./migrations/0004_nodes.ts";
 import * as m0005 from "./migrations/0005_tasks.ts";
 import * as m0006 from "./migrations/0006_task_groups.ts";
 import * as m0007 from "./migrations/0007_ssh.ts";
+import * as m0008 from "./migrations/0008_policy_and_audit.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -17,6 +18,7 @@ const migrations: Record<string, Migration> = {
 	"0005_tasks": m0005,
 	"0006_task_groups": m0006,
 	"0007_ssh": m0007,
+	"0008_policy_and_audit": m0008,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };

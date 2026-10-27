@@ -11,6 +11,7 @@ import {
 	NodeState,
 } from "@crh/protocol";
 import { type WebSocket, WebSocketServer } from "ws";
+import type { Audit } from "../audit/audit.ts";
 import type { Db } from "../storage/db.ts";
 import { newId } from "../util/id.ts";
 import type { Cluster } from "./cluster.ts";
@@ -32,9 +33,11 @@ export class AgentServer {
 	readonly #db: Db;
 	readonly #identity: ServerIdentity;
 	readonly #cluster: Cluster;
+	readonly #audit: Audit | undefined;
 	readonly #wss = new WebSocketServer({ noServer: true, maxPayload: MAX_NOISE_MESSAGE });
 
-	constructor(db: Db, identity: ServerIdentity, cluster: Cluster) {
+	constructor(db: Db, identity: ServerIdentity, cluster: Cluster, audit?: Audit) {
+		this.#audit = audit;
 		this.#db = db;
 		this.#identity = identity;
 		this.#cluster = cluster;
@@ -97,6 +100,7 @@ export class AgentServer {
 					hostname: init.enroll.hostname,
 					facts: init.enroll.facts ? toJson(FactsSchema, init.enroll.facts) : null,
 					clientVersion: init.crhaVersion,
+					audit: this.#audit,
 				});
 			} catch (err) {
 				if (err instanceof EnrollmentError) return reject(ws, err.message);

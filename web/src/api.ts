@@ -56,12 +56,92 @@ export interface NodeShare {
 	createdByUserId: string;
 	createdAt: string;
 }
-export type TaskState = "exited" | "failed" | "rejected" | "unknown" | (string & {});
+export type TaskState = "awaiting_approval" | "denied" | "exited" | "failed" | "rejected" | "unknown" | (string & {});
+export type RuleAction = "allow" | "deny" | "require-approval";
+export type RuleMethod = "exec" | "file.read" | "file.write";
+export type Preset = "ask" | "auto_review" | "yolo";
+export interface Rule {
+	action: RuleAction;
+	method?: RuleMethod;
+	nodes?: string[];
+	exact?: string;
+	prefix?: string;
+}
+export interface RuleRef {
+	type: string;
+	id: string;
+}
+export interface LevelResult {
+	scope: RuleRef;
+	own: RuleAction | "inherit";
+	rule?: number;
+	matched?: Rule;
+	effective: RuleAction;
+}
+export interface Evaluation {
+	result: RuleAction;
+	levels: LevelResult[];
+}
+export interface ApprovalDecision {
+	decision: "approved" | "rejected" | "expired";
+	by: { type: string; id: string; onBehalfOfUserId?: string };
+	at: string;
+	reason?: string;
+	taskGroupId?: string;
+}
+export interface ApprovalRecord {
+	evaluation: Evaluation;
+	decision?: ApprovalDecision;
+}
+export interface GroupApprovalRecord {
+	nodes: { nodeId: string; evaluation: Evaluation }[];
+	decision?: ApprovalDecision;
+}
+export interface StoredRuleSet {
+	scope: RuleRef;
+	preset: Preset | null;
+	rules: Rule[];
+	default: string;
+	updatedAt: string;
+}
+export interface ApiTokenView {
+	id: string;
+	name: string;
+	userId: string;
+	createdAt: string;
+	expiresAt: string | null;
+	revokedAt: string | null;
+	lastUsedAt: string | null;
+	rules: StoredRuleSet | null;
+}
+export interface AuditEvent {
+	seq: number;
+	id: string;
+	ts: string;
+	actorType: string;
+	actorId: string;
+	onBehalfOfUserId: string | null;
+	action: string;
+	targetType: string | null;
+	targetId: string | null;
+	detail: Record<string, unknown>;
+	hash: string;
+}
+export interface AuditQuery {
+	action?: string;
+	targetType?: string;
+	targetId?: string;
+	beforeSeq?: number;
+	limit?: number;
+}
+export type VerifyResult = { ok: true; count: number } | { ok: false; count: number; brokenAt: number; reason: string };
 export interface TaskView {
 	id: string;
 	nodeId: string;
 	kind: string;
 	summary: string;
+	/** What authorization rules match on: the rendered argv or the normalized path. */
+	operation: Operation | null;
 	actorType: string;
 	actorId: string;
 	onBehalfOfUserId: string | null;
@@ -81,6 +161,10 @@ export interface TaskView {
 	outputFile: string | null;
 	createdAt: string;
 	finishedAt: string | null;
+	taskGroupId?: string | null;
+	ruleChain?: RuleRef[] | null;
+	approval?: ApprovalRecord | null;
+	approvalExpiresAt?: string | null;
 }
 export interface Directory {
 	users: { id: string; username: string; displayName: string }[];
@@ -103,7 +187,7 @@ export interface SshTargetBody extends SshHopInput {
 }
 export interface TaskGroupView {
 	id: string;
-	state: "running" | "finished" | "interrupted";
+	state: "awaiting_approval" | "running" | "finished" | "interrupted" | "rejected";
 	targets: string[];
 	nodeIds: string[];
 	parallel: number;
@@ -112,6 +196,25 @@ export interface TaskGroupView {
 	tasks: TaskView[];
 	createdAt: string;
 	finishedAt: string | null;
+	summary?: string;
+	kind?: string;
+	ruleChain?: RuleRef[] | null;
+	approval?: GroupApprovalRecord | null;
+	approvalExpiresAt?: string | null;
+	actorType?: string;
+	actorId?: string;
+	onBehalfOfUserId?: string;
+	operation?: Operation | null;
+}
+
+export interface Operation {
+	method: RuleMethod;
+	target: string;
+}
+export interface ApprovalBody {
+	decision: "approve" | "reject";
+	reason?: string;
+	always?: Rule;
 }
 /** Body of POST /nodes/:id/tasks: `kind` plus the kind's fields. */
 export type TaskRequest = { kind: string; timeoutMs?: number; waitMs?: number } & Record<string, unknown>;
@@ -203,6 +306,26 @@ export const api = {
 	testSshNode: (id: string) => request<{ ok: true }>("POST", `/nodes/${enc(id)}/ssh-test`),
 	setNodeGroups: (id: string, groups: string[]) =>
 		request<{ groups: string[] }>("PUT", `/nodes/${enc(id)}/groups`, { groups }).then((r) => r.groups),
+
+	listApiTokens: () => request<{ tokens: ApiTokenView[] }>("GET", "/api-tokens").then((r) => r.tokens),
+	createApiToken: (body: { name: string; preset: Preset; days: number | null }) =>
+		request<{ token: string; apiToken: ApiTokenView }>("POST", "/api-tokens", body),
+	revokeApiToken: (id: string) => request<{ apiToken: ApiTokenView }>("POST", `/api-tokens/${enc(id)}/revoke`),
+	deleteApiToken: (id: string) => request<{ ok: true }>("DELETE", `/api-tokens/${enc(id)}`),
+	setTokenRules: (id: string, body: { preset?: Preset; rules?: Rule[] }) =>
+		request<{ apiToken: ApiTokenView }>("PUT", `/api-tokens/${enc(id)}/rules`, body).then((r) => r.apiToken),
+	listApprovals: () => request<{ tasks: TaskView[]; taskGroups: TaskGroupView[] }>("GET", "/approvals"),
+	getTaskGroup: (id: string) =>
+		request<{ group: TaskGroupView }>("GET", `/task-groups/${enc(id)}`).then((r) => r.group),
+	decideTask: (id: string, body: ApprovalBody) => request<{ ok: true }>("POST", `/tasks/${enc(id)}/approval`, body),
+	decideTaskGroup: (id: string, body: ApprovalBody) =>
+		request<{ ok: true }>("POST", `/task-groups/${enc(id)}/approval`, body),
+	listAudit: (q: AuditQuery) => {
+		const p = new URLSearchParams();
+		for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") p.set(k, String(v));
+		return request<{ events: AuditEvent[] }>("GET", `/audit?${p}`).then((r) => r.events);
+	},
+	verifyAudit: () => request<VerifyResult>("GET", "/audit/verify"),
 
 	listUsers: () => request<{ users: User[] }>("GET", "/users").then((r) => r.users),
 	createUser: (u: { username: string; displayName?: string; kind: UserKind; password?: string }) =>

@@ -1,4 +1,5 @@
 import { type Context, Hono } from "hono";
+import { userActor } from "../audit/audit.ts";
 import { getNode, nodeAccess, nodeGroupNames, toPublicNode } from "../cluster/nodes.ts";
 import { probeHostKey, SshError, testRoute } from "../cluster/ssh/connection.ts";
 import {
@@ -34,7 +35,14 @@ export function sshRoutes(db: Db, masterKey: MasterKey) {
 	app.post("/ssh-credentials", async (c) => {
 		const body = await readJsonObject(c);
 		const name = typeof body?.name === "string" ? body.name : "";
-		return c.json({ credential: await createSshCredential(db, masterKey, c.get("user"), name) }, 201);
+		const credential = await createSshCredential(db, masterKey, c.get("user"), name);
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "ssh_credential.created",
+			target: { type: "ssh_credential", id: credential.id },
+			detail: { name: credential.name, public_key: credential.publicKey },
+		});
+		return c.json({ credential }, 201);
 	});
 
 	app.post("/ssh-nodes/probe", async (c) => {
@@ -84,6 +92,12 @@ export function sshRoutes(db: Db, masterKey: MasterKey) {
 		if (!Array.isArray(groups) || !groups.every((g) => typeof g === "string"))
 			return jsonError(c, 400, "groups must be a list of names");
 		await setSshNodeGroups(db, r.node, groups);
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "node.groups_changed",
+			target: { type: "node", id: r.node.id },
+			detail: { groups },
+		});
 		return c.json({ groups: (await nodeGroupNames(db, [r.node.id])).get(r.node.id) ?? [] });
 	});
 
@@ -93,6 +107,17 @@ export function sshRoutes(db: Db, masterKey: MasterKey) {
 		const input = body as unknown as SshTargetInput & { name: string; groups?: string[] };
 		const node = await createSshNode(db, masterKey, c.get("user"), input);
 		const groups = (await nodeGroupNames(db, [node.id])).get(node.id) ?? [];
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "ssh_node.created",
+			target: { type: "node", id: node.id },
+			detail: {
+				name: node.name,
+				credential_id: input.credentialId,
+				route: [...(input.jumps ?? []), input].map((h) => `${h.user}@${h.host}:${h.port ?? 22}`),
+				groups,
+			},
+		});
 		return c.json({ node: toPublicNode(node, "owner", groups) }, 201);
 	});
 

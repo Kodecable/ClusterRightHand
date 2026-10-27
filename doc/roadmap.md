@@ -24,7 +24,7 @@
 
 **完成标志**：可以在 WebUI 中对自有客户端节点和 SSH 节点执行命令；拔网线再恢复后，输出完整续传。
 
-## M2 MCP + 审计
+## M2 MCP + 审计（已完成，见下文"进度"）
 
 - ToolCatalog 与 MCP 门面（Streamable HTTP）。
 - API token。
@@ -80,3 +80,10 @@
     - `crha upgrade --apply` 留到 M4（升级本身是特权任务）；
     - toxiproxy 网络故障注入改用 e2e 中的 SIGSTOP / 杀进程 / 重启场景覆盖；
     - CI 中尚未跑 SSH 测试（需要 sshd 服务容器）。
+- **M2**：完成（Claude Code 实机接入待验证）。
+  - 授权规则引擎（规则链、Ask / Auto Review / Yolo 映射、逐级收紧；`exact` / `prefix`，无 `regex`，见 D66）。
+  - 审批：`awaiting_approval` / `denied`，结果保存在任务和任务组上，规则变化后重新判定，24 小时过期，token 吊销时拒绝它的等待项；WebUI 审批页（含"以后都允许"）。
+  - 审计：哈希链、查询与整链校验，覆盖认证、用户、节点、分享、SSH、任务、审批、规则、token、MCP 工具调用。
+  - API token 与 `/mcp`（官方 SDK v2，无状态）；ToolCatalog（zod）供 M3 复用。
+  - 测试：规则引擎、审计链、token、审批 API、审计事件；MCP e2e（MCP 客户端 + 真实 crha）；WebUI 浏览器测试（token、审批、审计）。
+  - 未完成：Auto Review（需要模型，M3）；审计链头外送（后续）。

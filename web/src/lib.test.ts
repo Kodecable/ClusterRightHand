@@ -1,20 +1,24 @@
 import { expect, test } from "vitest";
 import type { TaskView } from "./api.ts";
 import {
+	alwaysRule,
 	buildTargets,
 	enrollCommand,
 	isTerminal,
 	joinOutput,
+	mcpCommand,
 	outputText,
 	parseList,
+	shellQuote,
 	splitArgv,
 	taskActor,
 	taskOutcome,
+	tokenStatus,
 } from "./lib.ts";
 
 test("isTerminal", () => {
-	for (const s of ["exited", "failed", "rejected", "unknown"]) expect(isTerminal(s)).toBe(true);
-	for (const s of ["dispatched", "running", "accepted"]) expect(isTerminal(s)).toBe(false);
+	for (const s of ["exited", "failed", "rejected", "unknown", "denied"]) expect(isTerminal(s)).toBe(true);
+	for (const s of ["dispatched", "running", "accepted", "awaiting_approval"]) expect(isTerminal(s)).toBe(false);
 });
 
 test("joinOutput without gap", () => {
@@ -79,4 +83,40 @@ test("taskActor", () => {
 	expect(taskActor(t, (id) => (id === "u1" ? "Alice" : undefined))).toBe("Alice");
 	expect(taskActor(t, () => undefined)).toBe("u1");
 	expect(taskActor({ ...t, onBehalfOfUserId: null }, () => undefined)).toBe("agent a1");
+});
+
+test("shellQuote", () => {
+	expect(shellQuote("a/b-c_d.e:f,g=h+i@j%k")).toBe("a/b-c_d.e:f,g=h+i@j%k");
+	expect(shellQuote("a b")).toBe("'a b'");
+	expect(shellQuote("it's")).toBe("'it'\\''s'");
+	expect(shellQuote("")).toBe("''");
+});
+
+test("alwaysRule", () => {
+	expect(alwaysRule({ method: "exec", target: "/bin/sh -c 'echo hi; ls'" }, ["n1"], "exact")).toEqual({
+		action: "allow",
+		method: "exec",
+		nodes: ["n1"],
+		exact: "/bin/sh -c 'echo hi; ls'",
+	});
+	expect(alwaysRule({ method: "file.write", target: "/etc/x" }, ["n1", "n2"], "prefix")).toEqual({
+		action: "allow",
+		method: "file.write",
+		nodes: ["n1", "n2"],
+		prefix: "/etc/x",
+	});
+	expect(alwaysRule(null, ["n"], "exact")).toBeUndefined();
+});
+
+test("tokenStatus", () => {
+	const now = Date.parse("2026-01-01T00:00:00Z");
+	expect(tokenStatus({ revokedAt: "x", expiresAt: null }, now)).toBe("revoked");
+	expect(tokenStatus({ revokedAt: null, expiresAt: "2025-01-01T00:00:00Z" }, now)).toBe("expired");
+	expect(tokenStatus({ revokedAt: null, expiresAt: null }, now)).toBe("active");
+});
+
+test("mcpCommand", () => {
+	expect(mcpCommand("http://h:1", "crh_x")).toBe(
+		'claude mcp add --transport http crh http://h:1/mcp --header "Authorization: Bearer crh_x"',
+	);
 });

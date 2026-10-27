@@ -49,6 +49,11 @@ created ──▶ awaiting_approval ──▶ dispatched ──▶ running ─�
                                       └─────────────┴──▶ unknown(reason)
 ```
 
+- 没有规则链（用户本人在 WebUI 中操作）的任务直接下发。
+- `denied` 的 `error_code` 为 `policy_denied`；审批被拒绝或过期时为 `rejected`，`error_code` 为 `approval_rejected` / `approval_expired`（crha 拒绝任务同样是 `rejected`，`error_code` 为 `rejected`）。
+- 等待审批的任务把输入（stdin、写入内容）暂存在 `tasks.pending_input`，下发时取出并清空；批准时节点不在线，任务以 `failed(node_offline)` 结束，不再排队等节点。
+- 任务组需要审批时整组等待（`task_groups.state = awaiting_approval`），还没有创建任务，规格和输入暂存在任务组上；被规则拒绝的节点立即得到一个 `denied` 任务。批准后剩余节点照常按并发数执行。
+
 `unknown` 是执行平面唯一的"结果不确定"状态，reason 取值：
 
 | reason | 触发条件 |
