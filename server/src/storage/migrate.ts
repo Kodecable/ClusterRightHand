@@ -10,6 +10,7 @@ import * as m0007 from "./migrations/0007_ssh.ts";
 import * as m0008 from "./migrations/0008_policy_and_audit.ts";
 import * as m0009 from "./migrations/0009_agent.ts";
 import * as m0010 from "./migrations/0010_session_usage.ts";
+import * as m0011 from "./migrations/0011_model_provider_headers.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -23,6 +24,7 @@ const migrations: Record<string, Migration> = {
 	"0008_policy_and_audit": m0008,
 	"0009_agent": m0009,
 	"0010_session_usage": m0010,
+	"0011_model_provider_headers": m0011,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };

@@ -35,6 +35,8 @@ export interface ModelProviderView {
 	baseUrl: string | null;
 	hasApiKey: boolean;
 	models: CompatibleModel[] | null;
+	/** Extra request headers (openai-compatible only). */
+	headers: Record<string, string> | null;
 	enabled: boolean;
 }
 
@@ -58,6 +60,7 @@ function toView(row: Selectable<ModelProvidersTable>): ModelProviderView {
 		baseUrl: row.base_url,
 		hasApiKey: row.secret_id !== null,
 		models: row.models ? (JSON.parse(row.models) as CompatibleModel[]) : null,
+		headers: row.headers ? (JSON.parse(row.headers) as Record<string, string>) : null,
 		enabled: row.enabled === 1,
 	};
 }
@@ -75,6 +78,8 @@ export interface ModelProviderInput {
 	/** Omitted: unchanged on update; null: remove. */
 	apiKey?: string | null;
 	models?: CompatibleModel[];
+	/** Extra request headers; an empty object or null removes them. */
+	headers?: Record<string, string> | null;
 	enabled?: boolean;
 }
 
@@ -96,6 +101,22 @@ function validate(input: ModelProviderInput): void {
 		throw new UserError("kind must be builtin or openai-compatible");
 	}
 	if (input.baseUrl && !/^https?:\/\//.test(input.baseUrl)) throw new UserError("base URL must be http(s)");
+	if (input.headers) validateHeaders(input.headers);
+}
+
+const HEADER_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
+
+/** Headers go on the wire: no CR/LF, and nothing that would break the request (doc/agent-runtime.md#模型). */
+function validateHeaders(headers: Record<string, string>): void {
+	const names = Object.keys(headers);
+	if (names.length > 32) throw new UserError("at most 32 headers");
+	for (const name of names) {
+		if (!HEADER_NAME.test(name)) throw new UserError(`invalid header name ${JSON.stringify(name)}`);
+		const value = headers[name];
+		if (typeof value !== "string") throw new UserError(`header ${name} must be a string`);
+		if (/[\r\n]/.test(value)) throw new UserError(`header ${name} must not contain line breaks`);
+		if (value.length > 2000) throw new UserError(`header ${name} is too long`);
+	}
 }
 
 /** Creates or replaces the provider with this provider id (administrators only; checked by the caller). */
@@ -131,6 +152,12 @@ export async function saveModelProvider(
 				})
 				.execute();
 		}
+		const headers =
+			input.kind === "openai-compatible" && input.headers !== undefined
+				? input.headers && Object.keys(input.headers).length > 0
+					? JSON.stringify(input.headers)
+					: null
+				: (existing?.headers ?? null);
 		const values = {
 			kind: input.kind,
 			builtin: input.kind === "builtin" ? input.providerId : null,
@@ -138,6 +165,7 @@ export async function saveModelProvider(
 			base_url: input.baseUrl ?? null,
 			secret_id: secretId,
 			models: input.kind === "openai-compatible" ? JSON.stringify(input.models) : null,
+			headers: input.kind === "openai-compatible" ? headers : null,
 			enabled: input.enabled === false ? 0 : 1,
 			updated_at: now,
 		};
@@ -182,6 +210,7 @@ function withKey(provider: Provider, key: string | undefined, baseUrl: string | 
 
 function compatibleProvider(row: Selectable<ModelProvidersTable>): Provider {
 	const baseUrl = row.base_url as string;
+	const headers = row.headers ? (JSON.parse(row.headers) as Record<string, string>) : undefined;
 	const models = (JSON.parse(row.models ?? "[]") as CompatibleModel[]).map((m) => ({
 		id: m.id,
 		name: m.name ?? m.id,
@@ -193,6 +222,7 @@ function compatibleProvider(row: Selectable<ModelProvidersTable>): Provider {
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: m.contextWindow,
 		maxTokens: m.maxTokens,
+		...(headers ? { headers } : {}),
 		type: "chat" as const,
 	}));
 	return createProvider({

@@ -274,6 +274,8 @@ export interface ModelProvidersTable {
 	base_url: string | null;
 	secret_id: string | null;
 	models: string | null;
+	/** openai-compatible: JSON Record<string, string>, extra request headers. */
+	headers: string | null;
 	enabled: number;
 	created_at: CreatedAt;
 	updated_at: string;

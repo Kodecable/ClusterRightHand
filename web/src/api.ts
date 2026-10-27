@@ -248,6 +248,7 @@ export interface ModelProviderView {
 	baseUrl: string | null;
 	hasApiKey: boolean;
 	models: CompatibleModel[] | null;
+	headers: Record<string, string> | null;
 	enabled: boolean;
 }
 export interface ModelProviderInput {
@@ -257,6 +258,8 @@ export interface ModelProviderInput {
 	/** Omitted: keep the current key; null: remove it. */
 	apiKey?: string | null;
 	models?: CompatibleModel[];
+	/** Extra request headers (openai-compatible); null removes them. */
+	headers?: Record<string, string> | null;
 	enabled?: boolean;
 }
 export interface SessionView {

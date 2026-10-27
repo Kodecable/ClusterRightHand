@@ -53,6 +53,9 @@ function ProviderDialog({
 	const [baseUrl, setBaseUrl] = useState(existing?.baseUrl ?? "");
 	const [apiKey, setApiKey] = useState("");
 	const [removeKey, setRemoveKey] = useState(false);
+	const [headersText, setHeadersText] = useState(() =>
+		existing?.headers ? JSON.stringify(existing.headers, null, 2) : "",
+	);
 	const [enabled, setEnabled] = useState(existing?.enabled ?? true);
 	const [rows, setRows] = useState<ModelRow[]>(() =>
 		existing?.models?.length
@@ -75,6 +78,9 @@ function ProviderDialog({
 			body.name = name.trim() || providerId;
 			body.baseUrl = baseUrl.trim();
 			body.models = parsed.models;
+			const headers = parseHeaders(headersText);
+			if ("error" in headers) return setError(headers.error);
+			body.headers = headers.headers;
 		}
 		if (removeKey) body.apiKey = null;
 		else if (apiKey) body.apiKey = apiKey;
@@ -206,6 +212,17 @@ function ProviderDialog({
 						</fieldset>
 					</>
 				)}
+				{compatible && (
+					<label>
+						Request headers (JSON, optional)
+						<textarea
+							rows={3}
+							value={headersText}
+							onChange={(e) => setHeadersText(e.target.value)}
+							placeholder={'{"x-opencode-session": "crhs"}'}
+						/>
+					</label>
+				)}
 				<label>
 					API key
 					<input
@@ -278,6 +295,25 @@ function DeleteDialog({
 			</div>
 		</Modal>
 	);
+}
+
+/** `{}` / empty clears them; credentials belong in the API key field, not here. */
+function parseHeaders(text: string): { headers: Record<string, string> | null } | { error: string } {
+	if (!text.trim()) return { headers: null };
+	let value: unknown;
+	try {
+		value = JSON.parse(text);
+	} catch {
+		return { error: "request headers must be valid JSON" };
+	}
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return { error: "request headers must be a JSON object" };
+	}
+	const entries = Object.entries(value);
+	if (entries.some(([, v]) => typeof v !== "string")) {
+		return { error: "every request header value must be a string" };
+	}
+	return { headers: Object.fromEntries(entries) as Record<string, string> };
 }
 
 export function ModelSettings() {

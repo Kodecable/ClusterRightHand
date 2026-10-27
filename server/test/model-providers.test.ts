@@ -21,6 +21,7 @@ describeBackends("model providers api", (backend) => {
 	let audit: Audit;
 	let cluster: Cluster;
 	let runtime: AgentRuntime;
+	let models: ModelConfig;
 	let admin = "";
 	let member = "";
 
@@ -53,7 +54,7 @@ describeBackends("model providers api", (backend) => {
 		audit = new Audit(db);
 		cluster = new Cluster(db, { audit });
 		const masterKey = MasterKey.generate();
-		const models = new ModelConfig(db, masterKey);
+		models = new ModelConfig(db, masterKey);
 		await models.reload();
 		runtime = await AgentRuntime.open({
 			db,
@@ -156,6 +157,38 @@ describeBackends("model providers api", (backend) => {
 		];
 		for (const body of bad) expect((await put("bad-proxy", body)).status).toBe(400);
 		expect((await providers()).providers.map((p) => p.providerId)).not.toContain("bad-proxy");
+	});
+
+	it("extra request headers: on the provider and its models, kept on update, cleared by null", async () => {
+		const headers = { "x-opencode-session": "crhs", "User-Agent": "crhs/0.1" };
+		expect((await put("my-proxy", proxy({ headers }))).status).toBe(200);
+		const list = async () =>
+			(
+				(await (await call(app, "/api/model-providers", { cookie: admin })).json()) as {
+					providers: { providerId: string; headers: Record<string, string> | null }[];
+				}
+			).providers.find((p) => p.providerId === "my-proxy");
+		expect((await list())?.headers).toEqual(headers);
+		expect(models.models.getModel("my-proxy", "m-1")?.headers).toEqual(headers);
+		// Omitted: unchanged (an edit of the models or the name must not drop them).
+		await put("my-proxy", proxy({ name: "My proxy" }));
+		expect((await list())?.headers).toEqual(headers);
+		// null: removed, from the provider and from its models.
+		await put("my-proxy", proxy({ headers: null }));
+		expect((await list())?.headers).toBeNull();
+		expect(models.models.getModel("my-proxy", "m-1")?.headers).toBeUndefined();
+	});
+
+	it("rejects headers that would break the request", async () => {
+		for (const headers of [
+			{ bad: 42 },
+			{ "x-bad": "a\r\nInjected: 1" },
+			{ "bad name": "v" },
+			{ "x-long": "a".repeat(2001) },
+			Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`x-${i}`, "v"])),
+		]) {
+			expect((await put("bad-proxy", proxy({ headers }))).status).toBe(400);
+		}
 	});
 
 	it("apiKey null removes the key and its secret; omitting it keeps the key", async () => {

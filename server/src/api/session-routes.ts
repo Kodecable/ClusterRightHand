@@ -79,6 +79,9 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			...(body.baseUrl === null || typeof body.baseUrl === "string" ? { baseUrl: body.baseUrl as string | null } : {}),
 			...(body.apiKey === null || typeof body.apiKey === "string" ? { apiKey: body.apiKey as string | null } : {}),
 			...(Array.isArray(body.models) ? { models: body.models as CompatibleModel[] } : {}),
+			...(body.headers === null || (typeof body.headers === "object" && !Array.isArray(body.headers))
+				? { headers: body.headers as Record<string, string> | null }
+				: {}),
 			...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}),
 		});
 		await models.reload();
