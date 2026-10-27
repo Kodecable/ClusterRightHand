@@ -126,5 +126,5 @@ schedule_runs     (id, schedule_id, fire_time, status[pending|submitted|succeede
 ```
 audit_events      (seq, id, org_id, ts, actor_type, actor_id, on_behalf_of_user_id,
                    action, target_type, target_id, detail json, prev_hash, hash)
-                  -- seq 单调递增；应用账号只有 INSERT/SELECT 权限
+                  -- seq 单调递增；哈希链用于发现绕过 crhs 的改动，见 access-control.md#防篡改
 ```
