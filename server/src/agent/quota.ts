@@ -167,25 +167,31 @@ export async function sessionStateOf(db: Db, sessionId: string): Promise<Session
 	return row?.state;
 }
 
-/** Sets the subagent's state; unchanged states are not rewritten (keeps `since` meaningful). */
+/**
+ * Sets the subagent's state; unchanged states are not rewritten (keeps `since` meaningful). Returns the
+ * state's timestamp, which identifies this wait: a new pause gets a new one, so the parent's wake is not
+ * deduplicated against the previous pause.
+ */
 export async function setSessionState(
 	db: Db,
 	sessionId: string,
 	state: SessionState,
 	levelId: string | null,
-): Promise<void> {
+): Promise<string> {
 	const row = await db
 		.selectFrom("sessions")
-		.select(["state", "waiting_level_id"])
+		.select(["state", "waiting_level_id", "state_changed_at"])
 		.where("id", "=", sessionId)
 		.executeTakeFirst();
-	if (!row) return;
-	if (row.state === state && row.waiting_level_id === levelId) return;
+	if (!row) return "";
+	if (row.state === state && row.waiting_level_id === levelId) return row.state_changed_at ?? "";
+	const at = new Date().toISOString();
 	await db
 		.updateTable("sessions")
-		.set({ state, waiting_level_id: levelId, state_changed_at: new Date().toISOString() })
+		.set({ state, waiting_level_id: levelId, state_changed_at: at })
 		.where("id", "=", sessionId)
 		.execute();
+	return at;
 }
 
 /** Marks subagent sessions stopped (cancelled, or a quota wait denied). */

@@ -4,6 +4,7 @@ import {
 	AssistantEntry,
 	type ConversationId,
 	createRegistry,
+	defineDocFamily,
 	defineExtension,
 	defineTool,
 	type Extension,
@@ -12,6 +13,7 @@ import {
 	hook,
 	type SettledSubmissionRecord,
 	type Storage,
+	type Submission,
 	type SubmissionId,
 	section,
 	type ToolRegistration,
@@ -60,6 +62,20 @@ import { sharedSessionAccess } from "./sharing.ts";
  * The agent runtime behind our own interface (doc/agent-runtime.md#agentruntime-抽象): pi-durable types do not
  * leave this module. One Harness over one Storage holds every session as a conversation.
  */
+
+/**
+ * Durable link from a subagent tool call (the key is its tool task id) to the ownerless conversation it created.
+ * The conversation and the link are committed together, so a rerun after a crash reuses the conversation instead
+ * of starting another one.
+ */
+const SubagentConversationLink = defineDocFamily<{ conversationId: string | null }, null>({
+	kind: "crh.subagent_conversation",
+	version: 1,
+	scope: "session",
+	family: true,
+	initial: () => ({ conversationId: null }),
+	checkpointWhen: () => true,
+});
 
 export interface SessionView {
 	id: string;
@@ -363,6 +379,7 @@ export class AgentRuntime {
 			);
 		}
 		const submission = await conversation.submit({ type: "input", content: text, requestId }, this.#context);
+		await this.#reviveOnInput(sessionId, submission);
 		await this.#db
 			.updateTable("sessions")
 			.set({ updated_at: new Date().toISOString() })
@@ -375,6 +392,18 @@ export class AgentRuntime {
 			detail: { submission_id: String(submission.id), chars: text.length },
 		});
 		return String(submission.id);
+	}
+
+	/**
+	 * A new input revives a stopped subagent (`stopped` is sticky until the next input). A retried submission that
+	 * is already settled is not new work and leaves the state alone.
+	 */
+	async #reviveOnInput(sessionId: string, submission: Submission): Promise<void> {
+		const { status } = await submission.status(this.#context);
+		if (status !== "queued" && status !== "placed") return;
+		// Only a stopped subagent is revived; an input must not clear an approval or quota wait.
+		if ((await sessionStateOf(this.#db, sessionId)) !== "stopped") return;
+		await setSessionState(this.#db, sessionId, "active", null);
 	}
 
 	/** Stops the current run: queued inputs are withdrawn and running tool calls aborted. */
@@ -550,7 +579,25 @@ export class AgentRuntime {
 			return { id: childId, created: false };
 		}
 		const model = JSON.parse(parent.model) as ModelRef;
-		const conversation = await this.#harness.createConversation({ ownership: { kind: "ownerless" } }, this.#context);
+		const parentConversation = await this.#harness.conversation(
+			Number(parent.conversation_id) as unknown as ConversationId,
+			this.#context,
+		);
+		if (!parentConversation) throw new NotFoundError("the parent's conversation is missing");
+		// Create the ownerless conversation and the link to it in one commit; a rerun after a crash finds the link
+		// instead of creating a second, orphaned conversation.
+		const conversationId = await parentConversation.commit(async (tx) => {
+			const link = await tx.doc(SubagentConversationLink, input.callKey, null);
+			if (link.conversationId) return link.conversationId;
+			const created = await tx.createConversation({ ownership: { kind: "ownerless" } });
+			link.conversationId = String(created.id);
+			return String(created.id);
+		}, this.#context);
+		const conversation = await this.#harness.conversation(
+			Number(conversationId) as unknown as ConversationId,
+			this.#context,
+		);
+		if (!conversation) throw new NotFoundError("the subagent's conversation is missing");
 		await conversation.configure(
 			{
 				model: { provider: model.provider, modelId: model.modelId },
@@ -606,6 +653,7 @@ export class AgentRuntime {
 		);
 		if (!conversation) throw new NotFoundError("the subagent's conversation is missing");
 		const submission = await conversation.submit({ type: "input", content: text, requestId }, this.#context);
+		await this.#reviveOnInput(childId, submission);
 		await this.#db
 			.updateTable("sessions")
 			.set({ last_submission_id: String(submission.id), updated_at: new Date().toISOString() })
@@ -701,12 +749,16 @@ export class AgentRuntime {
 		const ids: string[] = [];
 		for (const id of descendants) if ((await this.refreshState(id)) === "awaiting") ids.push(id);
 		const out: AgentRequestView[] = [];
-		const tasks = await this.#db
-			.selectFrom("tasks")
-			.select(["id", "actor_id", "node_id", "spec", "approval", "created_at"])
-			.where("state", "=", "awaiting_approval")
-			.where("actor_id", "in", ids)
-			.execute();
+		// `in ()` is valid in SQLite but not in PostgreSQL; no ids means no owned approval can be waiting.
+		const tasks =
+			ids.length === 0
+				? []
+				: await this.#db
+						.selectFrom("tasks")
+						.select(["id", "actor_id", "node_id", "spec", "approval", "created_at"])
+						.where("state", "=", "awaiting_approval")
+						.where("actor_id", "in", ids)
+						.execute();
 		for (const row of tasks) {
 			const approval = JSON.parse(row.approval ?? "{}") as ApprovalRecord;
 			if (approval.agent?.state !== "pending" || approval.agent.session !== sessionId) continue;
@@ -719,12 +771,15 @@ export class AgentRuntime {
 				createdAt: row.created_at,
 			});
 		}
-		const groups = await this.#db
-			.selectFrom("task_groups")
-			.select(["id", "actor_id", "spec", "approval", "created_at"])
-			.where("state", "=", "awaiting_approval")
-			.where("actor_id", "in", ids)
-			.execute();
+		const groups =
+			ids.length === 0
+				? []
+				: await this.#db
+						.selectFrom("task_groups")
+						.select(["id", "actor_id", "spec", "approval", "created_at"])
+						.where("state", "=", "awaiting_approval")
+						.where("actor_id", "in", ids)
+						.execute();
 		for (const row of groups) {
 			const approval = JSON.parse(row.approval ?? "{}") as GroupApprovalRecord;
 			if (approval.agent?.state !== "pending" || approval.agent.session !== sessionId) continue;
@@ -814,7 +869,8 @@ export class AgentRuntime {
 				target: { type: "session", id: requestId },
 				detail: { level: levelId, ...(reason ? { reason } : {}), ...(tokens ? { tokens } : {}) },
 			});
-			await this.refreshState(requestId);
+			// A denial already left the session stopped; do not recompute it while the paused tool is still live.
+			if (decision !== "deny") await this.refreshState(requestId);
 			return "quota";
 		}
 		const group = await this.#db
@@ -850,14 +906,16 @@ export class AgentRuntime {
 	 */
 	async waitForQuota(sessionId: string, context: Context): Promise<"ok" | "denied"> {
 		for (;;) {
+			// A denied wait (or an abort) set `stopped`: end the paused call before writing `awaiting` again.
+			if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
 			const level = await exhaustedLevel(this.#db, sessionId);
 			if (!level) {
 				await setSessionState(this.#db, sessionId, "active", null);
 				return "ok";
 			}
 			const parent = await this.#parentOf(level);
-			await setSessionState(this.#db, sessionId, "awaiting", level);
-			if (parent) await this.#wakeQuota(parent, sessionId, level);
+			const since = await setSessionState(this.#db, sessionId, "awaiting", level);
+			if (parent) await this.#wakeQuota(parent, sessionId, level, since);
 			await new Promise((r) => setTimeout(r, 300));
 			if (context.abortSignal?.aborted) throw new Error("the quota wait was aborted");
 			if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
@@ -873,7 +931,10 @@ export class AgentRuntime {
 		const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", sessionId).executeTakeFirst();
 		if (!row || row.parent_session_id === null) return "active";
 		const live = await this.#isLive(row);
-		if (row.state === "stopped" && !live) return "stopped";
+		const level = await exhaustedLevel(this.#db, sessionId);
+		// `stopped` is sticky until a new input (#reviveOnInput). A denied quota wait is still live while its tool
+		// call ends, so the live run alone does not revive it; an exhausted level keeps it stopped meanwhile.
+		if (row.state === "stopped" && (!live || level !== undefined)) return "stopped";
 		const approval =
 			(await this.#db
 				.selectFrom("tasks")
@@ -887,7 +948,6 @@ export class AgentRuntime {
 				.where("actor_id", "=", sessionId)
 				.where("state", "=", "awaiting_approval")
 				.executeTakeFirst());
-		const level = await exhaustedLevel(this.#db, sessionId);
 		// A quota wait set by the paused tool stays until the quota is restored; a live run also counts.
 		const quotaWait = level !== undefined && (row.waiting_level_id !== null || live);
 		const awaiting = approval !== undefined || quotaWait;
@@ -920,10 +980,11 @@ export class AgentRuntime {
 	}
 
 	/** Wakes an idle handler with a follow-up input; a running one sees the request through afterTool. */
-	async #wakeQuota(handlerId: string, sessionId: string, levelId: string): Promise<void> {
+	async #wakeQuota(handlerId: string, sessionId: string, levelId: string, since: string): Promise<void> {
+		// `since` keeps one pause's wake stable across polls and restarts, and makes the next pause a new request.
 		await this.#wake(
 			handlerId,
-			`quota-request:${sessionId}:${levelId}`,
+			`quota-request:${sessionId}:${levelId}:${since}`,
 			`A subagent is paused: its token quota is used up (session ${sessionId}, level ${levelId}). ` +
 				`Check it with subagent_list, then subagent_decide("${sessionId}", "approve", tokens: <positive integer>) ` +
 				'to add quota, or "deny" to stop it.',
@@ -1063,7 +1124,7 @@ export class AgentRuntime {
 			const parent = await this.#parentOf(wait.levelId);
 			if (!parent) continue;
 			try {
-				await this.#wakeQuota(parent, wait.sessionId, wait.levelId);
+				await this.#wakeQuota(parent, wait.sessionId, wait.levelId, wait.since);
 			} catch (err) {
 				console.error("agent runtime: waking for a quota wait failed:", err);
 			}
@@ -1093,7 +1154,8 @@ export class AgentRuntime {
 		const live = state.value.docs["pi.live"] as { run?: unknown } | undefined;
 		state.dispose();
 		if (live?.run) return;
-		await conversation.submit({ type: "input", content, requestId }, this.#context);
+		const submission = await conversation.submit({ type: "input", content, requestId }, this.#context);
+		await this.#reviveOnInput(handlerId, submission);
 	}
 
 	/** Waits for a submission to settle: the answer's text, or why it went unanswered. */
@@ -1291,7 +1353,7 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 			quota: Type.Optional(
 				Type.Integer({
 					minimum: 0,
-					description: "Token quota for the subagent; required when a session above it has a quota",
+					description: "Token quota for the subagent; omitted means unlimited",
 				}),
 			),
 			background: Type.Optional(
@@ -1441,7 +1503,7 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 			tokens: Type.Optional(
 				Type.Integer({
 					minimum: 1,
-					description: "Quota requests only: tokens to add, at most what this session has left",
+					description: "Quota requests only: tokens to add; not capped by this session's own remainder",
 				}),
 			),
 		}),

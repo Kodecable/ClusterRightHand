@@ -132,6 +132,28 @@ it("nests at most two levels below a root session", async () => {
 	await expect(subagent(second.id, "depth-3", { default: "inherit", rules: [] })).rejects.toThrow(/at most 2/);
 });
 
+it("reuses the subagent conversation after a crash before the session row", async () => {
+	const parent = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const first = await subagent(parent.id, "idem-crash", { default: "inherit", rules: [] });
+	const before = await db
+		.selectFrom("sessions")
+		.select("conversation_id")
+		.where("id", "=", first.id)
+		.executeTakeFirstOrThrow();
+	// Simulate a crash between committing the conversation and inserting the session.
+	await db.deleteFrom("rule_sets").where("scope_type", "=", "session").where("scope_id", "=", first.id).execute();
+	await db.deleteFrom("sessions").where("id", "=", first.id).execute();
+
+	const again = await subagent(parent.id, "idem-crash", { default: "inherit", rules: [] });
+	expect(again.created).toBe(true);
+	const after = await db
+		.selectFrom("sessions")
+		.select("conversation_id")
+		.where("id", "=", again.id)
+		.executeTakeFirstOrThrow();
+	expect(after.conversation_id).toBe(before.conversation_id);
+});
+
 it("hands a grandchild's approval to the parent agent and wakes it", async () => {
 	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
 	const parent = await subagent(root.id, "route-parent", { default: "inherit", rules: [] });

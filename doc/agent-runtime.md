@@ -165,7 +165,7 @@ interface AgentRuntime {
 - 所有 subagent 级别的剩余都 **> 0** 才继续。任何一级不满足，下一次工具调用**暂停**，子会话的状态变为 **`awaiting`**（`sessions.state`，`waiting_level_id` 指向那一级），并**只向它的直接父会话**报告（不跳过任何一级）：
   - 父会话的 agent 用 `subagent_decide(request_id, "approve", tokens: N)` 给这个子会话**增加** N（加法；**不按父级剩余封顶**——每次响应本来就扣整条链，封顶没有意义），或者 `deny` 结束暂停的运行。
   - 父会话是根时，由根会话的 agent 决定；根没有配额，不受限。
-- 请求不会上交给更远的祖先，也没有"所有者配额审批页"：根本身永远不会耗尽。子会话的状态只有 `active`、`awaiting`、`stopped`；运行结束（正常完成、拒绝配额或 abort）都置为 `stopped`，等下一次输入。
+- 请求不会上交给更远的祖先，也没有"所有者配额审批页"：根本身永远不会耗尽。子会话的状态只有 `active`、`awaiting`、`stopped`；运行结束（正常完成、拒绝配额或 abort）都置为 `stopped`，等下一次输入。拒绝后暂停的工具调用立即结束，读取或重算不会把 `stopped` 改回 `awaiting`；每次重新耗尽都是新的一次暂停，会再次唤醒直接父会话。
 - 子会话的配额可以在创建时给出，也可以由所有者用 `PATCH /api/sessions/:id { quota }` 替换剩余量；根会话不能设置配额（`POST /api/sessions` 带 quota 会返回 400）。
 - 只计算 token，不计算任何货币成本；不设用户级或组织级配额。
 

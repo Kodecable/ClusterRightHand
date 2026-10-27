@@ -199,8 +199,10 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			session = (await runtime.getSession(session.id)) ?? session;
 		}
 		const canShare = v.access === "owner" || c.get("user").kind === "admin";
+		// A subagent inherits its root's share; `decorate` only knows direct shares, so use what `visible` resolved.
+		const viewed = (await decorate(c, [session]))[0];
 		return c.json({
-			session: (await decorate(c, [session]))[0],
+			session: { ...viewed, access: v.access },
 			...(canShare ? { shares: await listSessionShares(db, session.id) } : {}),
 		});
 	});

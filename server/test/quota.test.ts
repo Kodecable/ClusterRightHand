@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
@@ -152,6 +152,70 @@ it("a denied request stops the paused run", async () => {
 	expect(await runtime.decideAgentRequest(p.id, request.sessionId, "deny")).toBe("quota");
 	expect(await waiting).toBe("denied");
 	expect(await sessionStateOf(db, c.id)).toBe("stopped");
+});
+
+it("a denial stops a run that is still paused in waitForQuota", async () => {
+	const r = await root();
+	const p = await child(r.id, "live-deny-p", null);
+	const c = await child(p.id, "live-deny-c", 10);
+	await recordUsage(db, c.id, 20);
+	faux.setResponses([
+		fauxAssistantMessage([fauxToolCall("exec", { node: "missing", cmd: "true" }, { id: "q1" })], {
+			stopReason: "toolUse",
+		}),
+		fauxAssistantMessage([fauxText("noted")]),
+	]);
+	await runtime.startSubagent(c.id, "work", "live-deny-submit");
+	try {
+		const request = await waitFor("the live quota wait", async () => (await awaitingQuotaChildren(db, p.id))[0]);
+		expect(await sessionStateOf(db, c.id)).toBe("awaiting");
+		expect(await runtime.decideAgentRequest(p.id, request.sessionId, "deny")).toBe("quota");
+		// The run is still live while its tool call ends; a read must not turn the stop back into a wait.
+		expect(await runtime.refreshState(c.id)).toBe("stopped");
+		expect(await sessionStateOf(db, c.id)).toBe("stopped");
+		const result = await Promise.race([
+			runtime.waitSubagent(c.id),
+			new Promise((resolve) => setTimeout(() => resolve("still-waiting"), 2000)),
+		]);
+		expect(result).not.toBe("still-waiting");
+		expect(await sessionStateOf(db, c.id)).toBe("stopped");
+	} finally {
+		await runtime.abort(c.id).catch(() => {});
+	}
+});
+
+it("a second pause on the same level wakes the parent again", async () => {
+	const r = await root();
+	const p = await child(r.id, "again-p", null);
+	const c = await child(p.id, "again-c", 10);
+	let seen = "";
+	const stop = await runtime.watch(p.id, (events) => {
+		seen += JSON.stringify(events);
+	});
+	try {
+		faux.setResponses([fauxAssistantMessage([fauxText("wake one")]), fauxAssistantMessage([fauxText("wake two")])]);
+		await recordUsage(db, c.id, 20);
+		const first = runtime.waitForQuota(c.id, BACKGROUND_CONTEXT);
+		await waitFor("the first pause", async () => (await awaitingQuotaChildren(db, p.id))[0]);
+		await waitFor("the first wake", async () =>
+			(seen.match(/token quota is used up/g)?.length ?? 0) >= 1 ? true : undefined,
+		);
+		expect(await runtime.decideAgentRequest(p.id, c.id, "approve", undefined, 20)).toBe("quota");
+		expect(await first).toBe("ok");
+		expect(await sessionStateOf(db, c.id)).toBe("active");
+
+		// The same level runs out again: this is a new pause, so the parent must hear about it again.
+		await recordUsage(db, c.id, 20);
+		const second = runtime.waitForQuota(c.id, BACKGROUND_CONTEXT);
+		await waitFor("the second pause", async () => (await awaitingQuotaChildren(db, p.id))[0]);
+		await waitFor("the second wake", async () =>
+			(seen.match(/token quota is used up/g)?.length ?? 0) >= 2 ? true : undefined,
+		);
+		expect(await runtime.decideAgentRequest(p.id, c.id, "approve", undefined, 1_000)).toBe("quota");
+		expect(await second).toBe("ok");
+	} finally {
+		stop();
+	}
 });
 
 it("an exhausted ancestor's request goes to its own direct parent", async () => {

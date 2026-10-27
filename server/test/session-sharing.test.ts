@@ -148,6 +148,23 @@ it("shares to a group reach its members only", async () => {
 	expect((await get(s.id, carol)).status).toBe(404);
 });
 
+it("a share on the root reaches its subagents", async () => {
+	const s = await newSession(alice, "with a subagent", "yolo");
+	const child = await runtime.createSubagent(s.id, {
+		callKey: `share-child-${++seq}`,
+		task: "child work",
+		rules: { default: "inherit", rules: [] },
+		quota: null,
+	});
+	expect((await get(child.id, bob)).status).toBe(404);
+
+	expect((await share(s.id, alice, { granteeType: "user", granteeId: bobId, access: "chat" })).status).toBe(200);
+	const res = await get(child.id, bob);
+	expect(res.status).toBe(200);
+	expect(((await res.json()) as { session: { access: string } }).session.access).toBe("chat");
+	expect((await get(child.id, carol)).status).toBe(404);
+});
+
 it("administrators look and may share, but do not drive", async () => {
 	const s = await newSession(alice, "admin looks");
 	const res = await get(s.id, admin);

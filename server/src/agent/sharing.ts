@@ -64,13 +64,27 @@ export async function sharedSessionAccess(
 	return out;
 }
 
-/** What the user may do with the session: undefined if they cannot see it. */
+/** What the user may do with the session: undefined if they cannot see it. Shares on an ancestor reach it. */
 export async function sessionAccess(db: Db, user: SessionUser, sessionId: string): Promise<SessionAccess | undefined> {
-	const row = await db.selectFrom("sessions").select("owner_user_id").where("id", "=", sessionId).executeTakeFirst();
+	const row = await db
+		.selectFrom("sessions")
+		.select(["owner_user_id", "parent_session_id"])
+		.where("id", "=", sessionId)
+		.executeTakeFirst();
 	if (!row) return undefined;
 	if (row.owner_user_id === user.userId) return "owner";
 	if (user.kind === "admin") return "admin";
-	return (await sharedSessionAccess(db, user.userId, sessionId)).get(sessionId);
+	// A subagent is shared through its root: shares live on sessions, and the root's share covers its subtree.
+	const shares = await sharedSessionAccess(db, user.userId);
+	let access: SessionShareAccess | undefined;
+	for (let id: string | null = sessionId; id; ) {
+		const found = shares.get(id);
+		if (found) access = stronger(access, found);
+		if (access === "chat") break;
+		const parent = await db.selectFrom("sessions").select("parent_session_id").where("id", "=", id).executeTakeFirst();
+		id = parent?.parent_session_id ?? null;
+	}
+	return access;
 }
 
 export async function listSessionShares(db: Db, sessionId: string): Promise<SessionShare[]> {
