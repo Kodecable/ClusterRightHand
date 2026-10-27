@@ -193,6 +193,8 @@ export class AgentRuntime {
 			await runtime.#routeAwaiting("group", group.actorId, group.id, group.approval);
 		};
 		runtime.#supervise();
+		// A restart may have queued nothing for requests that were already waiting: wake idle parents now.
+		await runtime.#wakePendingAgents();
 		return runtime;
 	}
 
@@ -822,6 +824,46 @@ export class AgentRuntime {
 				return;
 			}
 			id = parent.parent_session_id;
+		}
+	}
+
+	/** After a restart, wakes the parents of requests that were already waiting (deduplicated by requestId). */
+	async #wakePendingAgents(): Promise<void> {
+		const requests: { kind: "task" | "group"; id: string; session: string }[] = [];
+		const tasks = await this.#db
+			.selectFrom("tasks")
+			.select(["id", "approval"])
+			.where("state", "=", "awaiting_approval")
+			.execute();
+		for (const row of tasks) {
+			const approval = JSON.parse(row.approval ?? "{}") as ApprovalRecord;
+			if (approval.agent?.state === "pending") {
+				requests.push({ kind: "task", id: row.id, session: approval.agent.session });
+			}
+		}
+		const groups = await this.#db
+			.selectFrom("task_groups")
+			.select(["id", "approval"])
+			.where("state", "=", "awaiting_approval")
+			.execute();
+		for (const row of groups) {
+			const approval = JSON.parse(row.approval ?? "{}") as GroupApprovalRecord;
+			if (approval.agent?.state === "pending") {
+				requests.push({ kind: "group", id: row.id, session: approval.agent.session });
+			}
+		}
+		for (const request of requests) {
+			const parent = await this.#db
+				.selectFrom("sessions")
+				.selectAll()
+				.where("id", "=", request.session)
+				.executeTakeFirst();
+			if (!parent) continue;
+			try {
+				await this.#wakeParent(parent, request.kind, request.id);
+			} catch (err) {
+				console.error("agent runtime: waking for a subagent request failed:", err);
+			}
 		}
 	}
 
