@@ -24,6 +24,9 @@
 		"@bufbuild/protobuf": "^2.16.0",
 		"@crh/noise": "workspace:*",
 		"@crh/protocol": "workspace:*",
+		"@earendil-works/chord": "1.4.0",
+		"@earendil-works/pi-ai": "1.4.0",
+		"@earendil-works/pi-durable": "1.4.0",
 		"@hono/node-server": "^2.1.5",
 		"@modelcontextprotocol/server": "2.3.1",
 		"age-encryption": "0.3.1",
@@ -32,6 +35,7 @@
 		"pg": "^8.23.1",
 		"smol-toml": "^1.9.1",
 		"ssh2": "^1.17.0",
+		"typebox": "1.3.27",
 		"ws": "^8.22.0",
 		"zod": "4.6.7"
 	}

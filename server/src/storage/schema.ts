@@ -246,6 +246,36 @@ export interface AuditEventsTable {
 	hash: string;
 }
 
+export interface SessionsTable {
+	id: string;
+	org_id: string;
+	owner_user_id: string;
+	conversation_id: string;
+	parent_session_id: string | null;
+	title: string;
+	/** JSON ModelRef. */
+	model: string;
+	status: "active" | "archived";
+	created_at: CreatedAt;
+	updated_at: string;
+	archived_at: string | null;
+}
+
+export interface ModelProvidersTable {
+	id: string;
+	org_id: string;
+	provider_id: string;
+	kind: "builtin" | "openai-compatible";
+	builtin: string | null;
+	name: string;
+	base_url: string | null;
+	secret_id: string | null;
+	models: string | null;
+	enabled: number;
+	created_at: CreatedAt;
+	updated_at: string;
+}
+
 export interface SshCredentialsTable {
 	id: string;
 	org_id: string;
@@ -274,4 +304,6 @@ export interface Database {
 	api_tokens: ApiTokensTable;
 	rule_sets: RuleSetsTable;
 	audit_events: AuditEventsTable;
+	sessions: SessionsTable;
+	model_providers: ModelProvidersTable;
 }

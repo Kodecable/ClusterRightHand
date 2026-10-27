@@ -45,10 +45,11 @@ interface AgentRuntime {
 
 ## 存储
 
-- 实现 durable 的 `Storage` 接口（16 个方法），命名为 `SqlStorage`，基于 Kysely，同时支持 SQLite 和 PG。
-- 参考官方 `storage/sqlite/storage.ts`（约 960 行）移植。
+- **SQLite**：直接使用 durable 官方的 `SqliteStorage`（`openNodeSqliteStorage(path, { prefix: "pi_" })`），与业务表在同一个数据库文件中，用自己的连接（双方都设置了 busy timeout）。不移植，跟随上游维护。
+- **PostgreSQL**：`PgStorage`（`server/src/agent/pg-storage.ts`），从官方 1.4.0 的 `storage/sqlite/storage.ts` 移植到 `pg`：记录仍以 TEXT 保存 JSON（JSONB 会拒绝孤立代理项并重排键），ID 用 BIGINT，事务内一次提交一个批次。
+- 两者都在 CI 中跑官方的 `registerStorageConformance`（各 25 个用例）。
 - 表名统一加 `pi_` 前缀，与业务表放在同一个库。
-- durable 要求同一存储只被一个进程打开：PG 下启动时获取 `pg_advisory_lock`，SQLite 下依赖文件锁；拿不到锁就拒绝启动。
+- durable 要求同一存储只被一个进程打开：PG 下 `PgStorage` 在独立连接上持有 `pg_try_advisory_lock`，拿不到就拒绝打开，锁连接断开后存储拒绝一切操作；SQLite 下 crhs 本身是单进程。
 - durable 的提交不能和业务写入放进同一个事务。两边的一致性通过幂等保证：`requestId`、由 durable 工具任务 id 派生的 Cluster 任务 id。
 
 ## Cluster 工具

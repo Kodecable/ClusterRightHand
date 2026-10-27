@@ -47,6 +47,11 @@ export interface CreateTaskInput {
 	chain?: RuleRef[];
 	/** Set for the tasks of an approved task group: a require-approval result counts as approved. */
 	approvedBy?: ApprovalDecision;
+	/**
+	 * A caller-chosen id. If a task with it exists, createTask returns that task instead of creating one: a tool
+	 * call that reruns after a crash reattaches to the task its first attempt started (doc/agent-runtime.md).
+	 */
+	id?: string;
 }
 
 /** How an approval was settled. */
@@ -415,7 +420,11 @@ export class Cluster {
 		if (!node) throw new Error(`no such node: ${input.nodeId}`);
 		const kind = KINDS[input.spec.kind.case ?? ""];
 		if (!kind) throw new Error("task spec has no kind");
-		const id = newId();
+		if (input.id) {
+			const existing = await this.getTask(input.id);
+			if (existing) return existing;
+		}
+		const id = input.id ?? newId();
 		const inputBytes = input.input ?? new Uint8Array(0);
 		const inputSha = createHash("sha256").update(inputBytes).digest();
 		const spec = withInputRef(input.spec, input.input ? { size: inputBytes.length, sha256: inputSha } : undefined);

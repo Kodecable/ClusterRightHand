@@ -8,6 +8,7 @@ import { resolveTargets, type TaskGroups, type TaskGroupView } from "../cluster/
 import type { RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { UserError } from "../users/service.ts";
+import { derivedId } from "../util/id.ts";
 
 /**
  * The cluster tools, defined once and adapted to MCP (now) and to agent sessions (M3); see
@@ -26,6 +27,44 @@ export interface ToolContext {
 	/** Where the user approves a waiting task or task group in the WebUI. */
 	approvalUrl: (kind: "task" | "task_group", id: string) => string;
 	signal?: AbortSignal;
+	/** Stable per tool call: tasks get ids derived from it, so a rerun after a crash reattaches to them. */
+	callKey?: string;
+	/** Seconds a call waits for its result when the caller gives no `wait` (MCP: 30; agents: 600). */
+	defaultWaitS?: number;
+	/** Agents keep waiting while a task waits for approval (MCP returns and follows up with task_wait). */
+	waitThroughApproval?: boolean;
+	/** Progress for a UI, e.g. "waiting for approval". */
+	onStatus?: (status: Record<string, unknown>) => Promise<void>;
+}
+
+/** setTimeout cannot wait longer than ~24.8 days, so long waits loop. */
+const HOUR = 3_600_000;
+
+async function waitTaskFor(ctx: ToolContext, id: string, waitMs: number): Promise<TaskView | undefined> {
+	let t = await ctx.cluster.waitTask(id, waitMs, ctx.signal);
+	if (!ctx.waitThroughApproval || t?.state !== "awaiting_approval") return t;
+	await ctx.onStatus?.({ task_id: id, state: "awaiting_approval", approval_url: ctx.approvalUrl("task", id) });
+	// waitTask returns at a final state; poll for the move out of awaiting_approval.
+	while (t?.state === "awaiting_approval" && !ctx.signal?.aborted) {
+		await new Promise((r) => setTimeout(r, 1000));
+		t = await ctx.cluster.getTask(id);
+	}
+	await ctx.onStatus?.({ task_id: id, state: t?.state });
+	return t && !ctx.signal?.aborted ? ctx.cluster.waitTask(id, waitMs, ctx.signal) : t;
+}
+
+async function waitGroupFor(ctx: ToolContext, id: string, waitMs: number): Promise<TaskGroupView> {
+	let g = (await ctx.groups.wait(id, waitMs)) as TaskGroupView;
+	if (!ctx.waitThroughApproval || g.state !== "awaiting_approval") return g;
+	await ctx.onStatus?.({
+		task_group_id: id,
+		state: "awaiting_approval",
+		approval_url: ctx.approvalUrl("task_group", id),
+	});
+	while (g.state === "awaiting_approval" && !ctx.signal?.aborted)
+		g = (await ctx.groups.wait(id, HOUR)) as TaskGroupView;
+	await ctx.onStatus?.({ task_group_id: id, state: g.state });
+	return ctx.signal?.aborted ? g : ((await ctx.groups.wait(id, waitMs)) as TaskGroupView);
 }
 
 export interface ClusterTool<S extends z.ZodType = z.ZodType> {
@@ -55,7 +94,7 @@ const waitField = z
 	.min(0)
 	.max(MAX_WAIT_S)
 	.optional()
-	.describe(`Seconds to wait for the result (default ${DEFAULT_WAIT_S}); after that, follow up with task_wait`);
+	.describe("Seconds to wait for the result; after that the task keeps running and task_wait follows it up");
 const batchFields = {
 	parallel: z.number().int().min(1).max(100).optional().describe("Batch: nodes run at once (default 10)"),
 	fail_fast: z.boolean().optional().describe("Batch: start no more nodes after one fails"),
@@ -166,13 +205,14 @@ async function run(
 	input?: Uint8Array,
 ): Promise<unknown> {
 	if ((args.node === undefined) === (args.targets === undefined)) throw new UserError("give either node or targets");
-	const waitMs = (args.wait ?? DEFAULT_WAIT_S) * 1000;
+	const waitMs = (args.wait ?? ctx.defaultWaitS ?? DEFAULT_WAIT_S) * 1000;
 	const timeoutMs = args.timeout ? args.timeout * 1000 : undefined;
 	const common = { spec: create(TaskSpecSchema, spec), input, timeoutMs, actor: ctx.actor, chain: ctx.chain };
 	if (args.node !== undefined) {
 		const [nodeId] = await resolveTargets(ctx.db, ctx.user, [args.node]);
-		const created = await ctx.cluster.createTask({ ...common, nodeId: nodeId as string });
-		const task = (await ctx.cluster.waitTask(created.id, waitMs, ctx.signal)) ?? created;
+		const id = ctx.callKey ? derivedId(`task:${ctx.callKey}`) : undefined;
+		const created = await ctx.cluster.createTask({ ...common, nodeId: nodeId as string, ...(id ? { id } : {}) });
+		const task = (await waitTaskFor(ctx, created.id, waitMs)) ?? created;
 		return taskResult(task, args.node, ctx);
 	}
 	const targets = args.targets as string[];
@@ -183,8 +223,9 @@ async function run(
 		nodeIds,
 		parallel: args.parallel,
 		failFast: args.fail_fast,
+		...(ctx.callKey ? { id: derivedId(`group:${ctx.callKey}`) } : {}),
 	});
-	const group = (await ctx.groups.wait(id, waitMs)) as TaskGroupView;
+	const group = await waitGroupFor(ctx, id, waitMs);
 	return groupResult(group, await nodeNames(ctx, nodeIds), ctx);
 }
 
@@ -375,16 +416,16 @@ const taskWait = define({
 	}),
 	readOnly: true,
 	handler: async (args, ctx) => {
-		const waitMs = (args.wait ?? DEFAULT_WAIT_S) * 1000;
+		const waitMs = (args.wait ?? ctx.defaultWaitS ?? DEFAULT_WAIT_S) * 1000;
 		if (args.task_group_id) {
 			const g = await ctx.groups.get(args.task_group_id);
 			if (!g || g.onBehalfOfUserId !== ctx.user.userId) throw new UserError("no such task group");
-			const done = (await ctx.groups.wait(g.id, waitMs)) as TaskGroupView;
+			const done = await waitGroupFor(ctx, g.id, waitMs);
 			return groupResult(done, await nodeNames(ctx, done.nodeIds), ctx);
 		}
 		if (!args.task_id) throw new UserError("give task_id or task_group_id");
 		const t = await ownTask(ctx, args.task_id);
-		const done = (await ctx.cluster.waitTask(t.id, waitMs, ctx.signal)) ?? t;
+		const done = (await waitTaskFor(ctx, t.id, waitMs)) ?? t;
 		return taskResult(done, (await nodeNames(ctx, [t.nodeId])).get(t.nodeId) ?? t.nodeId, ctx);
 	},
 });

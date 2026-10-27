@@ -8,7 +8,7 @@ import type { RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import type { TaskGroupState, TaskGroupsTable } from "../storage/schema.ts";
 import { UserError } from "../users/service.ts";
-import { newId } from "../util/id.ts";
+import { derivedId, newId } from "../util/id.ts";
 import {
 	type Actor,
 	type ApprovalDecision,
@@ -55,6 +55,8 @@ export interface CreateTaskGroupInput extends Omit<CreateTaskInput, "nodeId" | "
 	parallel?: number;
 	failFast?: boolean;
 	actor: Actor;
+	/** A caller-chosen id; an existing group with it is returned as is (see CreateTaskInput.id). */
+	id?: string;
 }
 
 /** The approval state of a task group: per-node evaluations, then the one decision for the group. */
@@ -125,7 +127,8 @@ export class TaskGroups {
 
 	async create(input: CreateTaskGroupInput): Promise<string> {
 		const parallel = Math.min(Math.max(input.parallel ?? DEFAULT_PARALLEL, 1), MAX_PARALLEL);
-		const id = newId();
+		if (input.id && (await this.#row(input.id))) return input.id;
+		const id = input.id ?? newId();
 		const nodes = await this.#db.selectFrom("nodes").selectAll().where("id", "in", input.nodeIds).execute();
 		const first = nodes[0];
 		if (!first) throw new UserError("no nodes");
@@ -188,8 +191,10 @@ export class TaskGroups {
 	}
 
 	#taskInput(input: CreateTaskGroupInput, groupId: string, nodeId: string, approvedBy?: ApprovalDecision) {
-		const { nodeIds: _n, targets: _t, parallel: _p, failFast: _f, ...task } = input;
-		return { ...task, nodeId, taskGroupId: groupId, ...(approvedBy ? { approvedBy } : {}) };
+		const { nodeIds: _n, targets: _t, parallel: _p, failFast: _f, id: _i, ...task } = input;
+		// A group with a stable id gives its tasks stable ids too, so a rerun reattaches to them.
+		const id = input.id ? derivedId(`${input.id}/${nodeId}`) : undefined;
+		return { ...task, nodeId, taskGroupId: groupId, ...(id ? { id } : {}), ...(approvedBy ? { approvedBy } : {}) };
 	}
 
 	#start(id: string, input: CreateTaskGroupInput, nodeIds: string[], parallel: number, approvedBy?: ApprovalDecision) {
