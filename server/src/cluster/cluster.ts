@@ -68,6 +68,8 @@ export interface ApprovalDecision {
 export interface ApprovalRecord {
 	evaluation: Evaluation;
 	decision?: ApprovalDecision;
+	/** Auto Review's verdict, when the root's preset asked for one. */
+	review?: { decision: "approve" | "escalate"; reason: string; model: string };
 }
 
 export interface TaskView {
@@ -157,6 +159,8 @@ export class Cluster {
 	readonly #idleMs: number;
 	readonly #sshRoute: ClusterOptions["sshRoute"];
 	readonly #audit: Audit | undefined;
+	/** Called once for every task that starts waiting for approval (Auto Review hooks in here). */
+	onAwaitingApproval: ((task: TaskView) => Promise<void>) | undefined;
 	readonly #sshSessions = new Map<string, Promise<SshSession>>();
 	readonly #sshCancels = new Map<string, AbortController>();
 	readonly #links = new Map<string, NodeLink>();
@@ -498,7 +502,11 @@ export class Cluster {
 			},
 		});
 		if (!waiting && !denied) await this.#serial(id, () => this.#dispatch(id, node, spec, inputBytes, input));
-		return this.getTask(id) as Promise<TaskView>;
+		const view = (await this.getTask(id)) as TaskView;
+		if (waiting && this.onAwaitingApproval) {
+			void this.onAwaitingApproval(view).catch((err: unknown) => console.error("review:", err));
+		}
+		return view;
 	}
 
 	/** Moves a task out of awaiting_approval and sends it, or fails it if the node is offline. */
@@ -612,6 +620,26 @@ export class Cluster {
 			void this.#auditApproval(row, decision);
 			this.#notify(id);
 			return true;
+		});
+	}
+
+	/** Stores Auto Review's verdict on a waiting task. */
+	async recordReview(id: string, review: NonNullable<ApprovalRecord["review"]>): Promise<void> {
+		await this.#serial(id, async () => {
+			const row = await this.#row(id);
+			if (row?.state !== "awaiting_approval") return;
+			const record: ApprovalRecord = { ...(JSON.parse(row.approval ?? "{}") as ApprovalRecord), review };
+			await this.#db
+				.updateTable("tasks")
+				.set({ approval: JSON.stringify(record) })
+				.where("id", "=", id)
+				.execute();
+			void this.#audit?.record({
+				actor: { type: "system", id: "auto-review", onBehalfOfUserId: row.on_behalf_of_user_id },
+				action: "task.review",
+				target: { type: "task", id },
+				detail: review,
+			});
 		});
 	}
 

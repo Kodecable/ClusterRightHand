@@ -134,6 +134,58 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		}
 	});
 
+	describe("auto review", () => {
+		it("lets the reviewer approve a safe command, and leaves a risky one for the user", async () => {
+			const runtime = await open();
+			try {
+				const session = await runtime.createSession(owner, { model, preset: "auto_review" });
+				const prompts: string[] = [];
+				faux.setResponses([
+					fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, argv: ["uptime"] }, { id: "c1" })], {
+						stopReason: "toolUse",
+					}),
+					// the reviewer, which sees only the operation
+					(context) => {
+						prompts.push(JSON.stringify(context.messages));
+						return fauxAssistantMessage([fauxText('{"decision":"approve","reason":"read-only"}')]);
+					},
+					fauxAssistantMessage(
+						[fauxToolCall("exec", { node: nodeName, argv: ["rm", "-rf", "/tmp/x"] }, { id: "c2" })],
+						{
+							stopReason: "toolUse",
+						},
+					),
+					fauxAssistantMessage([fauxText('{"decision":"escalate","reason":"deletes files"}')]),
+					fauxAssistantMessage([fauxText("all done")]),
+				]);
+				const sub = await runtime.submit(session.id, owner, "check and clean", "r1");
+				const waiting = await waitFor("the risky task waiting with a review", async () => {
+					const { tasks } = (await env.crhs.api("/api/approvals")).json;
+					const t = tasks.find((x: { actorId: string }) => x.actorId === session.id);
+					return t?.approval?.review ? t : undefined;
+				});
+				expect(waiting.approval.review).toMatchObject({ decision: "escalate", reason: "deletes files" });
+				expect(waiting.operation).toEqual({ method: "exec", target: "rm -rf /tmp/x" });
+				// The first one was approved by the reviewer, without the user.
+				const first = await env.crhs.db
+					.selectFrom("tasks")
+					.selectAll()
+					.where("actor_id", "=", session.id)
+					.where("id", "!=", waiting.id)
+					.executeTakeFirstOrThrow();
+				expect(first.state).toBe("exited");
+				expect(JSON.parse(first.approval ?? "{}").decision).toMatchObject({ by: { id: "auto-review" } });
+				// The reviewer saw the operation only, not the conversation.
+				expect(prompts[0]).toContain("uptime");
+				expect(prompts[0]).not.toContain("check and clean");
+				await env.crhs.api(`/api/tasks/${waiting.id}/approval`, { body: { decision: "approve" } });
+				expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "all done" });
+			} finally {
+				await runtime.close();
+			}
+		});
+	});
+
 	describe("subagents", () => {
 		const lastText = (context: { messages: { role: string; content: unknown }[] }) => {
 			const m = context.messages.at(-1) as { content: { type: string; text?: string }[] | string };

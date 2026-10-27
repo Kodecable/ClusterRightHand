@@ -287,6 +287,9 @@ importers:
       '@crh/protocol':
         specifier: workspace:*
         version: link:../packages/protocol
+      '@earendil-works/pi-ai':
+        specifier: 1.4.0
+        version: 1.4.0(@aws-sdk/credential-provider-node@3.972.88)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.7)
       '@playwright/test':
         specifier: 1.64.0
         version: 1.64.0

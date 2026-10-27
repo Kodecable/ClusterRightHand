@@ -37,6 +37,9 @@ export function Header({ route, onLogout }: { route: string[]; onLogout: () => v
 				{APP_NAME}
 			</a>
 			<nav>
+				<a href="#/sessions" aria-current={route[0] === "sessions" ? "page" : undefined}>
+					Sessions
+				</a>
 				<a href="#/nodes" aria-current={route[0] === "nodes" || !route[0] ? "page" : undefined}>
 					Nodes
 				</a>
@@ -57,6 +60,11 @@ export function Header({ route, onLogout }: { route: string[]; onLogout: () => v
 				<a href="#/audit" aria-current={route[0] === "audit" ? "page" : undefined}>
 					Audit
 				</a>
+				{user.kind === "admin" && (
+					<a href="#/settings/models" aria-current={route[0] === "settings" ? "page" : undefined}>
+						Models
+					</a>
+				)}
 				{user.kind === "admin" && (
 					<a href="#/users" aria-current={route[0] === "users" ? "page" : undefined}>
 						Users

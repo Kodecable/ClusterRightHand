@@ -224,6 +224,61 @@ export interface SshNodeDetails {
 	credential: { id: string; name: string | null };
 }
 
+export interface ModelRef {
+	provider: string;
+	modelId: string;
+}
+export interface AvailableModel extends ModelRef {
+	name: string;
+	contextWindow: number;
+}
+export interface CompatibleModel {
+	id: string;
+	name?: string;
+	contextWindow: number;
+	maxTokens: number;
+	reasoning?: boolean;
+}
+export interface ModelProviderView {
+	id: string;
+	providerId: string;
+	kind: "builtin" | "openai-compatible";
+	builtin: string | null;
+	name: string;
+	baseUrl: string | null;
+	hasApiKey: boolean;
+	models: CompatibleModel[] | null;
+	enabled: boolean;
+}
+export interface ModelProviderInput {
+	kind: "builtin" | "openai-compatible";
+	name?: string;
+	baseUrl?: string | null;
+	/** Omitted: keep the current key; null: remove it. */
+	apiKey?: string | null;
+	models?: CompatibleModel[];
+	enabled?: boolean;
+}
+export interface SessionView {
+	id: string;
+	title: string;
+	ownerUserId: string;
+	parentSessionId: string | null;
+	model: ModelRef & { thinkingLevel?: string };
+	status: "active" | "archived";
+	createdAt: string;
+	updatedAt: string;
+	rules: StoredRuleSet | null;
+	/** Newer servers: the session's limit (null: unlimited) and what it has spent. */
+	budget?: { tokens?: number; costUsd?: number } | null;
+	spend?: { tokens: number; costUsd: number };
+}
+export interface SessionPatch {
+	title?: string;
+	model?: ModelRef;
+	preset?: Preset;
+}
+
 let onUnauthorized: () => void = () => {};
 export function setUnauthorizedHandler(fn: () => void): void {
 	onUnauthorized = fn;
@@ -339,4 +394,20 @@ export const api = {
 		request<{ ok: true }>("PUT", `/user-groups/${enc(groupId)}/members/${enc(userId)}`),
 	removeMember: (groupId: string, userId: string) =>
 		request<{ ok: true }>("DELETE", `/user-groups/${enc(groupId)}/members/${enc(userId)}`),
+	listModels: () => request<{ models: AvailableModel[] }>("GET", "/models").then((r) => r.models),
+	listModelProviders: () => request<{ providers: ModelProviderView[]; builtin: string[] }>("GET", "/model-providers"),
+	saveModelProvider: (providerId: string, body: ModelProviderInput) =>
+		request<{ provider: ModelProviderView }>("PUT", `/model-providers/${enc(providerId)}`, body).then(
+			(r) => r.provider,
+		),
+	deleteModelProvider: (providerId: string) => request<{ ok: true }>("DELETE", `/model-providers/${enc(providerId)}`),
+	listSessions: () => request<{ sessions: SessionView[] }>("GET", "/sessions").then((r) => r.sessions),
+	createSession: (body: { title?: string; model: ModelRef; preset: Preset }) =>
+		request<{ session: SessionView }>("POST", "/sessions", body).then((r) => r.session),
+	getSession: (id: string) => request<{ session: SessionView }>("GET", `/sessions/${enc(id)}`).then((r) => r.session),
+	patchSession: (id: string, body: SessionPatch) =>
+		request<{ session: SessionView }>("PATCH", `/sessions/${enc(id)}`, body).then((r) => r.session),
+	sendMessage: (id: string, text: string, requestId: string) =>
+		request<{ submissionId: string }>("POST", `/sessions/${enc(id)}/messages`, { text, requestId }),
+	abortSession: (id: string) => request<{ ok: true }>("POST", `/sessions/${enc(id)}/abort`),
 };

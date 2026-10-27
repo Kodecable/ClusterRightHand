@@ -12,6 +12,8 @@ export const ADMIN = { username: "root", password: "admin-password" };
 interface Options {
 	/** Also enroll, approve and connect a real crha node (`test.use({ withNode: true })`). */
 	withNode: boolean;
+	/** Run the agent runtime (sessions) with the faux model: `crhs.faux` scripts it (`test.use({ withAgent: true })`). */
+	withAgent: boolean;
 }
 
 interface Fixtures {
@@ -25,10 +27,11 @@ interface Fixtures {
 
 export const test = base.extend<Options & Fixtures>({
 	withNode: [false, { option: true }],
-	env: async ({ withNode }, use) => {
+	withAgent: [false, { option: true }],
+	env: async ({ withNode, withAgent }, use) => {
 		if (!withNode) return use(undefined);
 		const dir = await mkdtemp(join(tmpdir(), "crh-ui-"));
-		const env = await Env.create(CRHA_BIN, dir, {}, { webRoot: WEB_DIST });
+		const env = await Env.create(CRHA_BIN, dir, {}, { webRoot: WEB_DIST }, { agent: withAgent });
 		try {
 			await env.bringUp();
 			await use(env);
@@ -37,12 +40,14 @@ export const test = base.extend<Options & Fixtures>({
 			await rm(dir, { recursive: true, force: true });
 		}
 	},
-	crhs: async ({ env }, use) => {
+	crhs: async ({ env, withAgent }, use) => {
 		if (env) return use(env.crhs);
-		const crhs = await InProcessCrhs.create({}, { webRoot: WEB_DIST });
+		const dir = await mkdtemp(join(tmpdir(), "crh-ui-agent-"));
+		const crhs = await InProcessCrhs.create({}, { webRoot: WEB_DIST }, withAgent ? dir : undefined);
 		await crhs.loginAdmin();
 		await use(crhs);
 		await crhs.destroy();
+		await rm(dir, { recursive: true, force: true });
 	},
 	baseURL: async ({ crhs }, use) => use(crhs.url),
 	adminPage: async ({ page, crhs }, use) => {

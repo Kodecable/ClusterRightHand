@@ -10,6 +10,7 @@ import {
 	type ModelRef,
 	saveModelProvider,
 } from "../agent/models.ts";
+import { getReviewModel, setReviewModel } from "../agent/review.ts";
 import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
 import { userActor } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
@@ -105,6 +106,24 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			target: { type: "model_provider", id: c.req.param("providerId") },
 		});
 		return c.json({ ok: true });
+	});
+
+	app.get("/settings/review-model", async (c) => c.json({ model: await getReviewModel(db) }));
+
+	/** `{ model: ModelRef | null }`: the model Auto Review uses; null: each session's own model (tokens: none). */
+	app.put("/settings/review-model", async (c) => {
+		if (!admin(c)) return jsonError(c, 403, "administrators only");
+		const body = await readJsonObject(c);
+		const model = body?.model === null ? null : parseModel(body?.model);
+		if (model) models.assertAvailable(model);
+		await setReviewModel(db, model);
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "settings.review_model",
+			target: { type: "settings", id: "review_model" },
+			detail: { model },
+		});
+		return c.json({ model });
 	});
 
 	// ---- sessions: the owner (and administrators) use them; sharing comes later ----

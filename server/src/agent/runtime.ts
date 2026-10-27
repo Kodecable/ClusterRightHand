@@ -39,6 +39,7 @@ import { defaultOrgId, NotFoundError, UserError } from "../users/service.ts";
 import { derivedId, newId } from "../util/id.ts";
 import { type Budget, exhaustedLevel, parseBudget, recordSpend, type Spend, setBudget, spendOf } from "./budget.ts";
 import type { ModelConfig, ModelRef } from "./models.ts";
+import { Reviewer } from "./review.ts";
 
 /**
  * The agent runtime behind our own interface (doc/agent-runtime.md#agentruntime-抽象): pi-durable types do not
@@ -130,6 +131,10 @@ export class AgentRuntime {
 			BACKGROUND_CONTEXT,
 		);
 		const runtime = new AgentRuntime(harness, options);
+		// Auto Review for roots whose preset asks for it (tokens and sessions alike).
+		const reviewer = new Reviewer(options.db, options.models, options.cluster, options.groups);
+		options.cluster.onAwaitingApproval = (task) => reviewer.reviewTask(task);
+		options.groups.onAwaitingApproval = (group) => reviewer.reviewGroup(group);
 		harness.resume(); // runs and tool calls the last process left unfinished
 		return runtime;
 	}
@@ -348,7 +353,9 @@ export class AgentRuntime {
 		const context = signal ? withAbortSignal(signal, this.#context) : this.#context;
 		const stream = await watchEvents(this.#harness, Number(row.conversation_id) as unknown as ConversationId, context);
 		await onEvents([{ type: "snapshot", snapshot: stream.snapshot } as unknown as SessionEvent]);
-		stream.start(async (events) => onEvents(events as SessionEvent[]));
+		// The system prompt and tool schemas come as system messages: large, and nothing a chat UI shows.
+		const shown = (e: AgentEvent) => (e as { message?: { role?: string } }).message?.role !== "system";
+		stream.start(async (events) => onEvents((events as SessionEvent[]).filter(shown)));
 		return () => stream.stop();
 	}
 

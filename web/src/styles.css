@@ -423,3 +423,47 @@ fieldset {
 	margin-top: 0;
 	font-size: 16px;
 }
+
+/* Sessions */
+.chat {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin: 14px 0;
+}
+.msg {
+	max-width: 80ch;
+	padding: 8px 12px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--surface);
+}
+.msg.user {
+	align-self: flex-end;
+	background: var(--code-bg);
+}
+.who-label {
+	font-size: 12px;
+	color: var(--muted);
+}
+pre.chat-text {
+	margin: 2px 0 0;
+	font: inherit;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.thinking {
+	color: var(--muted);
+}
+.card.tool pre.output.error {
+	color: var(--danger);
+}
+.composer {
+	position: sticky;
+	bottom: 0;
+	padding: 10px 0;
+	background: var(--bg);
+}
+.composer textarea {
+	width: 100%;
+}

@@ -63,6 +63,7 @@ export interface CreateTaskGroupInput extends Omit<CreateTaskInput, "nodeId" | "
 export interface GroupApprovalRecord {
 	nodes: { nodeId: string; evaluation: Evaluation }[];
 	decision?: ApprovalDecision;
+	review?: { decision: "approve" | "escalate"; reason: string; model: string };
 }
 
 export interface TaskGroupView {
@@ -102,6 +103,8 @@ export class TaskGroups {
 	readonly #cluster: Cluster;
 	readonly #audit: Audit | undefined;
 	readonly #running = new Map<string, Promise<void>>();
+	/** Called once for every group that starts waiting for approval (Auto Review hooks in here). */
+	onAwaitingApproval: ((group: TaskGroupView) => Promise<void>) | undefined;
 	/** Resolved when a waiting group is settled. */
 	readonly #settled = new Map<string, Deferred>();
 
@@ -183,6 +186,11 @@ export class TaskGroups {
 			// Denied nodes get their (denied) task now, so the group shows why they will not run.
 			for (const n of approval?.nodes ?? []) {
 				if (n.evaluation.result === "deny") await this.#cluster.createTask(this.#taskInput(input, id, n.nodeId));
+			}
+			const hook = this.onAwaitingApproval;
+			if (hook) {
+				const view = await this.get(id);
+				if (view) void hook(view).catch((err: unknown) => console.error("review:", err));
 			}
 		} else {
 			this.#start(id, input, input.nodeIds, parallel);
@@ -272,6 +280,23 @@ export class TaskGroups {
 		this.#settled.get(id)?.resolve();
 		this.#settled.delete(id);
 		return true;
+	}
+
+	async recordReview(id: string, review: NonNullable<GroupApprovalRecord["review"]>): Promise<void> {
+		const row = await this.#row(id);
+		if (row?.state !== "awaiting_approval") return;
+		const record: GroupApprovalRecord = { ...(JSON.parse(row.approval ?? "{}") as GroupApprovalRecord), review };
+		await this.#db
+			.updateTable("task_groups")
+			.set({ approval: JSON.stringify(record) })
+			.where("id", "=", id)
+			.execute();
+		void this.#audit?.record({
+			actor: { type: "system", id: "auto-review", onBehalfOfUserId: row.on_behalf_of_user_id },
+			action: "task_group.review",
+			target: { type: "task_group", id },
+			detail: review,
+		});
 	}
 
 	/** Re-judges waiting groups on a chain whose rules changed; settles those that no longer need approval. */

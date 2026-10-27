@@ -253,9 +253,10 @@ export class ModelConfig {
 	}
 
 	/** Models sessions may pick: those of enabled providers. */
-	available(): { provider: string; modelId: string; name: string; contextWindow: number }[] {
+	available(): { provider: string; providerName: string; modelId: string; name: string; contextWindow: number }[] {
 		return this.models.getModels().map((m) => ({
 			provider: m.provider,
+			providerName: this.models.getProvider(m.provider)?.name ?? m.provider,
 			modelId: m.id,
 			name: m.name,
 			contextWindow: m.contextWindow,

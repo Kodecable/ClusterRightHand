@@ -7,8 +7,11 @@ import { ApprovalDetail, Approvals } from "./pages/Approvals.tsx";
 import { Audit } from "./pages/Audit.tsx";
 import { Batch } from "./pages/Batch.tsx";
 import { Login } from "./pages/Login.tsx";
+import { ModelSettings } from "./pages/ModelSettings.tsx";
 import { NodeDetail } from "./pages/NodeDetail.tsx";
 import { Nodes } from "./pages/Nodes.tsx";
+import { SessionPage } from "./pages/SessionPage.tsx";
+import { Sessions } from "./pages/Sessions.tsx";
 import { TaskPage } from "./pages/TaskPage.tsx";
 import { Tokens } from "./pages/Tokens.tsx";
 import { Users } from "./pages/Users.tsx";
@@ -45,6 +48,10 @@ export function App() {
 	const [, id] = route;
 	let page = <Nodes />;
 	if (section === "nodes" && id) page = <NodeDetail key={id} id={id} />;
+	else if (section === "sessions" && id) page = <SessionPage key={id} id={id} />;
+	else if (section === "sessions") page = <Sessions />;
+	else if (section === "settings" && id === "models")
+		page = auth.user.kind === "admin" ? <ModelSettings /> : <p className="error">Administrators only.</p>;
 	else if (section === "tasks" && id) page = <TaskPage key={id} id={id} />;
 	else if (section === "batch") page = <Batch />;
 	else if (section === "tokens") page = <Tokens />;

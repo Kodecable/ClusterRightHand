@@ -41,29 +41,33 @@ export interface ToolContext {
 const HOUR = 3_600_000;
 
 async function waitTaskFor(ctx: ToolContext, id: string, waitMs: number): Promise<TaskView | undefined> {
-	let t = await ctx.cluster.waitTask(id, waitMs, ctx.signal);
-	if (!ctx.waitThroughApproval || t?.state !== "awaiting_approval") return t;
-	await ctx.onStatus?.({ task_id: id, state: "awaiting_approval", approval_url: ctx.approvalUrl("task", id) });
-	// waitTask returns at a final state; poll for the move out of awaiting_approval.
-	while (t?.state === "awaiting_approval" && !ctx.signal?.aborted) {
-		await new Promise((r) => setTimeout(r, 1000));
-		t = await ctx.cluster.getTask(id);
+	if (!ctx.waitThroughApproval) return ctx.cluster.waitTask(id, waitMs, ctx.signal);
+	// A waiting task is not final, so waitTask would sit through the whole wait: look first.
+	let t = await ctx.cluster.getTask(id);
+	if (t?.state === "awaiting_approval") {
+		await ctx.onStatus?.({ task_id: id, state: "awaiting_approval", approval_url: ctx.approvalUrl("task", id) });
+		while (t?.state === "awaiting_approval" && !ctx.signal?.aborted) {
+			await new Promise((r) => setTimeout(r, 1000));
+			t = await ctx.cluster.getTask(id);
+		}
+		await ctx.onStatus?.({ task_id: id, state: t?.state });
 	}
-	await ctx.onStatus?.({ task_id: id, state: t?.state });
 	return t && !ctx.signal?.aborted ? ctx.cluster.waitTask(id, waitMs, ctx.signal) : t;
 }
 
 async function waitGroupFor(ctx: ToolContext, id: string, waitMs: number): Promise<TaskGroupView> {
-	let g = (await ctx.groups.wait(id, waitMs)) as TaskGroupView;
-	if (!ctx.waitThroughApproval || g.state !== "awaiting_approval") return g;
-	await ctx.onStatus?.({
-		task_group_id: id,
-		state: "awaiting_approval",
-		approval_url: ctx.approvalUrl("task_group", id),
-	});
-	while (g.state === "awaiting_approval" && !ctx.signal?.aborted)
-		g = (await ctx.groups.wait(id, HOUR)) as TaskGroupView;
-	await ctx.onStatus?.({ task_group_id: id, state: g.state });
+	if (!ctx.waitThroughApproval) return (await ctx.groups.wait(id, waitMs)) as TaskGroupView;
+	let g = (await ctx.groups.get(id)) as TaskGroupView;
+	if (g.state === "awaiting_approval") {
+		await ctx.onStatus?.({
+			task_group_id: id,
+			state: "awaiting_approval",
+			approval_url: ctx.approvalUrl("task_group", id),
+		});
+		while (g.state === "awaiting_approval" && !ctx.signal?.aborted)
+			g = (await ctx.groups.wait(id, HOUR)) as TaskGroupView;
+		await ctx.onStatus?.({ task_group_id: id, state: g.state });
+	}
 	return ctx.signal?.aborted ? g : ((await ctx.groups.wait(id, waitMs)) as TaskGroupView);
 }
 
