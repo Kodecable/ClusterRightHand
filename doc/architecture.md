@@ -41,7 +41,7 @@
 | SshTransport | 通过 SSH 执行任务，对上层提供同样的任务接口 |
 | crha 非特权模式 | 节点守护进程：主动连接 crhs，执行普通任务；特权任务按配置转给特权模式、用 sudo 执行、直接执行或拒绝 |
 | crha 特权模式 | 只监听本地 unix socket，校验授权后执行特权任务；通常以 root 运行，但模式与 Linux 身份无关，见 [privilege.md](privilege.md) |
-| crha 用户子命令 | `crha grant`（在用户工作站上签发授权）、`crha approve`/`crha pending`（在节点上本地批准）、`crha mcp`（MCP stdio 桥接，可选） |
+| crha 用户子命令 | `crha grant`（在用户工作站上签发授权）、`crha approve`/`crha pending`（在节点上本地批准） |
 
 ## 技术栈
 
@@ -86,7 +86,7 @@ ClusterRightHand/
 
 1. 会话中的模型调用 `exec(node="web-1", cmd="systemctl restart nginx", privileged=true)`。
 2. 工具处理函数调用 Cluster API 创建任务，Cluster 核心记录来源（会话 S，代表用户 U）。
-3. 策略引擎判断：U 能否访问 web-1（自己的节点，或被分享了 `operate`）；再沿操作者链（U → S）逐级判定授权规则，结果为 allow / deny / require-approval。
+3. 策略引擎判断：U 能否访问 web-1（自己的节点，或被分享了 `operate`）；再沿规则链（根会话 S → …）逐级判定授权规则，结果为 allow / deny / require-approval。
 4. 根据 web-1 的非特权模式如何处理特权任务（`[privileged].mode`）决定授权路径：
    - `native` / `ignore`：只需要 crhs 策略放行；`reject`：直接拒绝；
    - `forward`：向 crha 特权模式发 preflight，询问哪些信任项能授权这条命令——

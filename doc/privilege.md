@@ -297,7 +297,7 @@ crhs 根据公钥指纹在 `user_credentials` 中把 `user` 信任项对应到 c
 
 收到一个特权任务后：
 
-1. **crhs 授权规则**：沿操作者链判定（见 [access-control.md](access-control.md#授权规则)），再加可选的 auto review。deny 就直接结束；需要审批则先按链向上完成审批。
+1. **crhs 授权规则**：沿规则链判定（见 [access-control.md](access-control.md#授权规则)；用户本人在 WebUI 中操作时跳过），再加可选的 auto review。deny 就直接结束；需要审批则先按链向上完成审批。
 2. **非特权模式的处理方式**：`native` / `ignore` 只需要第 1 步放行；`reject` 直接拒绝；`forward` 继续第 3 步。
 3. **preflight**：
    - crhs 信任项可以单独授权：crhs 签发 `exact` + `task_id` + 短 `deadline` 的授权，下发；

@@ -29,7 +29,7 @@
 - ToolCatalog 与 MCP 门面（Streamable HTTP）。
 - API token。
 - 审计表（哈希链），审计查询页面。
-- 授权规则（操作者链，allow / deny / require-approval），WebUI 中审批。
+- 授权规则（规则链从根会话 / 计划任务 / API token 开始，根的选项 Ask / Yolo 映射为规则；allow / deny / require-approval），审批结果保存在任务上，WebUI 中审批。
 
 **完成标志**：Claude Code 通过 MCP 管理节点，所有操作都能在审计中查到。
 

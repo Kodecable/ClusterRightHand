@@ -18,7 +18,7 @@ users             (id, org_id, username, display_name, email, kind[admin|member]
 user_groups       (id, org_id, name, source, created_at)              -- source：local；以后可以是外部来源（OIDC）
 user_group_members(group_id, user_id, created_at)
 user_credentials  (id, user_id, kind[ssh|webauthn], public_key, fingerprint, label, created_at, last_used_at)
-api_tokens        (id, user_id, name, token_hash, expires_at, revoked_at, last_used_at)  -- 规则和预算在 rule_sets
+api_tokens        (id, user_id, name, token_hash, expires_at, revoked_at, last_used_at)  -- MCP 规则链的根，规则在 rule_sets
 web_sessions      (id, token_hash, user_id, created_at, expires_at, last_seen_at, ip, user_agent)
                   -- cookie 中是随机令牌，表中只存它的 SHA-256
 shares            (id, org_id, resource_type[node|session], resource_id,
@@ -55,6 +55,7 @@ secrets           (id, org_id, kind, ciphertext, created_at)          -- 用主�
 ```
 task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail_fast,
                    skipped json,                                      -- 因 fail_fast 或中断而未启动的节点
+                   approval json nullable,                            -- 一个任务组只审批一次
                    state[running|finished|interrupted],
                    actor_type, actor_id, on_behalf_of_user_id, created_at, finished_at)
 tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json, input_size, input_sha256,
@@ -63,7 +64,8 @@ tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json,
                    exit_code, signal, timed_out, cancelled,
                    error_code, error_message,                         -- 执行器错误码、拒绝原因或 unknown 的原因
                    actor_type, actor_id, on_behalf_of_user_id,
-                   approval_id nullable, authorization json nullable, -- M2/M4
+                   approval json nullable,                            -- 审批决定：结果、决定者、时间、理由、每一级的判断记录
+                   approval_expires_at nullable, authorization json nullable, -- M4：授权
                    created_at, dispatched_at, accepted_at, finished_at,
                    stdout_bytes, stderr_bytes,
                    stdout_head, stdout_tail, stderr_head, stderr_tail, -- crhs 只保存截断后的头尾（base64）
@@ -73,16 +75,9 @@ tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json,
 
 crhs 不保存完整输出。过长的输出由 crha 在节点上保存为普通文件并负责清理，见 [execution-plane.md](execution-plane.md#输出)。
 
-## 审批与授权
+## 规则与授权
 
 ```
-approvals         (id, org_id, subject[task|task_group|budget], task_id nullable, task_group_id nullable,
-                   schedule_id nullable, kind[crhs|user|local],                -- 由谁完成授权
-                   current_level, escalation json,                           -- 当前在链上的哪一级；每一级的判断记录
-                   requested_by_actor_type, requested_by_actor_id, on_behalf_of_user_id,
-                   status[pending|approved|rejected|expired], decided_by_user_id, decided_at,
-                   review json nullable,                                -- auto review 结论
-                   created_at, expires_at)
 authorizations    (id,                                   -- SHA-256(JCS(payload))
                    org_id, issuer[server|user], user_id nullable, credential_fingerprint,
                    payload json, signature, format[sshsig|webauthn],
@@ -90,10 +85,13 @@ authorizations    (id,                                   -- SHA-256(JCS(payload)
                    cosign_of nullable, task_id nullable,              -- task_id：一次性授权绑定的任务
                    schedule_id nullable,
                    revoked_at nullable, created_at)
-rule_sets         (id, org_id, scope_type[org|user|session|schedule|api_token], scope_id,
-                   default_action[inherit|require-approval|deny], rules json, budget json nullable, updated_at)
-                  -- 授权规则与预算，见 access-control.md
+rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,
+                   preset[ask|auto_review|yolo] nullable,          -- 只有根有，决定 default 和基础规则
+                   default_action[allow|inherit|require-approval|deny], rules json, budget json nullable, updated_at)
+                  -- 授权规则与预算，见 access-control.md；用户和组织没有规则
 ```
+
+审批结果保存在工具调用（`tasks` / `task_groups`）上，不单独建表；"以后都允许"是对 `rule_sets` 的修改。
 
 `authorizations` 同时记录 crhs 签发的单条命令授权、联署，以及用户签发的授权。吊销时设置 `revoked_at`，并把授权 id 推送给相关节点的 crha 特权模式（见 [privilege.md](privilege.md#吊销)）；离线节点在重连后收到。
 

@@ -30,7 +30,7 @@ durable 标注为 Experimental，每个版本都有 breaking change。所以服�
 
 ```ts
 interface AgentRuntime {
-  createSession(opts: { owner: UserId; title?: string; rules?: RuleSet;
+  createSession(opts: { owner: UserId; title?: string; rules: RootPreset | RuleSet; // 根会话：选项；子会话：规则
                         model: ModelRef; instructions?: string }): Promise<SessionId>;
   submit(session: SessionId, input: string, requestId: string): Promise<SubmissionId>;
   abort(session: SessionId): Promise<void>;
