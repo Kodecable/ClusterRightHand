@@ -146,6 +146,7 @@ crhs 的授权规则决定"这个操作者能不能发起这个任务"，与特�
   - 上一级的有效结果是 require-approval：直接继续向上交。
   - 到达根：选项为 Auto Review 时先交给审查模型；最终由根的所有者在 WebUI 中审批。
 - 上一级 agent 在自己的会话中处理请求：前台 subagent 的等待会被打断并转入后台，父会话处理后再显式等待，见 [agent-runtime.md](agent-runtime.md#处理子会话的请求)。处理结果记入审计（actor 是父会话），`escalate` 之后由用户在审批页决定。
+- 等待项带 `root_session_id`（所属会话树）和 `handler_type` / `handler_session_id`（当前由哪个 agent 会话处理；由用户处理时是 `on_behalf_of_user_id`）。用户审批页只列 `handler_type = "user"` 的请求，agent 正在处理的请求在会话侧处理，不重复出现在用户页。
 - 审批请求中始终展示完整的规则链和每一级的判断记录。节点只信任用户签名时，用户签名这一步同时也算作对 crhs 审批的批准，用户不需要操作两次。
 
 ### 配额

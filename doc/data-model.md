@@ -59,6 +59,9 @@ task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail
                    rule_chain json nullable, approval json nullable,  -- 一个任务组只审批一次
                    spec json nullable, timeout_ms nullable, pending_input nullable,
                                                                       -- 等待审批时暂存要执行的内容
+                   root_session_id nullable,                          -- 规则链根会话，按会话树查等待项
+                   handler_type[agent|user] nullable,                 -- 等审批时谁处理；user 即 on_behalf_of_user_id
+                   handler_session_id nullable,                       -- handler_type=agent 时处理的会话
                    state[awaiting_approval|running|finished|interrupted|rejected],
                    actor_type, actor_id, on_behalf_of_user_id, created_at, finished_at)
 tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json, input_size, input_sha256,
@@ -70,6 +73,9 @@ tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json,
                    rule_chain json nullable,                          -- 从根开始的规则链；用户本人操作时为空
                    approval json nullable,                            -- 规则判断记录（每一级），以及审批决定：结果、决定者、时间、理由
                    pending_input nullable,                            -- 等待审批时暂存的输入（base64）
+                   root_session_id nullable,                          -- 规则链根会话，按会话树查等待项
+                   handler_type[agent|user] nullable,                 -- 等审批时谁处理；user 即 on_behalf_of_user_id
+                   handler_session_id nullable,                       -- handler_type=agent 时处理的会话
                    authorization json nullable,                       -- M4：授权
                    created_at, dispatched_at, accepted_at, finished_at,
                    stdout_bytes, stderr_bytes,
@@ -96,7 +102,7 @@ rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,
                   -- 授权规则，见 access-control.md；用户和组织没有规则；配额在 sessions
 ```
 
-审批结果保存在工具调用（`tasks` / `task_groups`）上，不单独建表；"以后都允许"是对 `rule_sets` 的修改。
+审批结果保存在工具调用（`tasks` / `task_groups`）上，不单独建表；"以后都允许"是对 `rule_sets` 的修改。等待中的审批用 `root_session_id` 归属会话树，用 `handler_type` / `handler_session_id` 记录当前处理者（agent 会话，或 `on_behalf_of_user_id` 用户），前端和重启重建都按它查询。
 
 `authorizations` 同时记录 crhs 签发的单条命令授权、联署，以及用户签发的授权。吊销时设置 `revoked_at`，并把授权 id 推送给相关节点的 crha 特权模式（见 [privilege.md](privilege.md#吊销)）；离线节点在重连后收到。
 
@@ -109,6 +115,7 @@ sessions          (id, org_id, owner_user_id, conversation_id, parent_session_id
                    quota_tokens,                        -- 子会话的剩余 token 配额，有符号；根固定 0 且不扣
                    state[active|awaiting|stopped],    -- 子会话状态缓存（根始终 active）
                    waiting_level_id nullable,           -- awaiting 且因配额时：要补的那一级
+                   waiting_handler_id nullable,         -- 该等待的直接父会话（处理它的 agent）
                    state_changed_at,
                    used_tokens)                         -- 本会话及其 subagent 已用；规则在 rule_sets
 usage_ledger      (id, org_id, session_id, chain json, input_tokens, output_tokens, cost, created_at)

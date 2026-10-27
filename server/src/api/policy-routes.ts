@@ -117,18 +117,20 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 
 	app.get("/approvals", async (c) => {
 		const user = c.get("user");
+		// Only requests whose handler is the user; requests routed to an agent are decided in that session.
 		const taskRows = await db
 			.selectFrom("tasks")
 			.select("id")
 			.where("state", "=", "awaiting_approval")
+			.where("handler_type", "=", "user")
 			.where("on_behalf_of_user_id", "=", user.userId)
-			.where("rule_chain", "is not", null)
 			.orderBy("created_at")
 			.execute();
 		const groupRows = await db
 			.selectFrom("task_groups")
 			.select("id")
 			.where("state", "=", "awaiting_approval")
+			.where("handler_type", "=", "user")
 			.where("on_behalf_of_user_id", "=", user.userId)
 			.orderBy("created_at")
 			.execute();
@@ -143,11 +145,19 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 	 */
 	const decide = async (
 		c: Context<AppEnv>,
-		subject: { kind: "task" | "task_group"; id: string; userId: string; chain: RuleRef[] | null; waiting: boolean },
+		subject: {
+			kind: "task" | "task_group";
+			id: string;
+			userId: string;
+			chain: RuleRef[] | null;
+			waiting: boolean;
+			handlerType: "agent" | "user" | null;
+		},
 	) => {
 		const user = c.get("user");
 		if (subject.userId !== user.userId || !subject.chain) return jsonError(c, 404, "no such approval");
 		if (!subject.waiting) return jsonError(c, 409, "it is no longer waiting for approval");
+		if (subject.handlerType !== "user") return jsonError(c, 409, "an agent is handling this request");
 		const body = await readJsonObject(c);
 		if (!body || (body.decision !== "approve" && body.decision !== "reject")) {
 			return jsonError(c, 400, 'decision must be "approve" or "reject"');
@@ -185,6 +195,7 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 			userId: t.onBehalfOfUserId,
 			chain: t.ruleChain,
 			waiting: t.state === "awaiting_approval",
+			handlerType: t.handlerType,
 		});
 	});
 
@@ -197,6 +208,7 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 			userId: g.onBehalfOfUserId,
 			chain: g.ruleChain,
 			waiting: g.state === "awaiting_approval",
+			handlerType: g.handlerType,
 		});
 	});
 

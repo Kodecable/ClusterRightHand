@@ -297,6 +297,7 @@ export class AgentRuntime {
 					quota_tokens: 0,
 					state: "active",
 					waiting_level_id: null,
+					waiting_handler_id: null,
 					state_changed_at: now,
 				})
 				.execute();
@@ -624,6 +625,7 @@ export class AgentRuntime {
 					quota_tokens: input.quota,
 					state: "active",
 					waiting_level_id: null,
+					waiting_handler_id: null,
 					state_changed_at: now,
 				})
 				.execute();
@@ -743,25 +745,17 @@ export class AgentRuntime {
 		return { status: "done", answer };
 	}
 
-	/** Requests waiting for this session's agent, and those of all its subagents. */
+	/** Requests waiting for this session's agent (doc/access-control.md#审批). */
 	async pendingAgentRequests(sessionId: string): Promise<AgentRequestView[]> {
-		const descendants = await this.#descendants(sessionId);
-		const ids: string[] = [];
-		for (const id of descendants) if ((await this.refreshState(id)) === "awaiting") ids.push(id);
 		const out: AgentRequestView[] = [];
-		// `in ()` is valid in SQLite but not in PostgreSQL; no ids means no owned approval can be waiting.
-		const tasks =
-			ids.length === 0
-				? []
-				: await this.#db
-						.selectFrom("tasks")
-						.select(["id", "actor_id", "node_id", "spec", "approval", "created_at"])
-						.where("state", "=", "awaiting_approval")
-						.where("actor_id", "in", ids)
-						.execute();
+		const tasks = await this.#db
+			.selectFrom("tasks")
+			.select(["id", "actor_id", "node_id", "spec", "created_at"])
+			.where("state", "=", "awaiting_approval")
+			.where("handler_type", "=", "agent")
+			.where("handler_session_id", "=", sessionId)
+			.execute();
 		for (const row of tasks) {
-			const approval = JSON.parse(row.approval ?? "{}") as ApprovalRecord;
-			if (approval.agent?.state !== "pending" || approval.agent.session !== sessionId) continue;
 			out.push({
 				kind: "task",
 				id: row.id,
@@ -771,18 +765,14 @@ export class AgentRuntime {
 				createdAt: row.created_at,
 			});
 		}
-		const groups =
-			ids.length === 0
-				? []
-				: await this.#db
-						.selectFrom("task_groups")
-						.select(["id", "actor_id", "spec", "approval", "created_at"])
-						.where("state", "=", "awaiting_approval")
-						.where("actor_id", "in", ids)
-						.execute();
+		const groups = await this.#db
+			.selectFrom("task_groups")
+			.select(["id", "actor_id", "spec", "created_at"])
+			.where("state", "=", "awaiting_approval")
+			.where("handler_type", "=", "agent")
+			.where("handler_session_id", "=", sessionId)
+			.execute();
 		for (const row of groups) {
-			const approval = JSON.parse(row.approval ?? "{}") as GroupApprovalRecord;
-			if (approval.agent?.state !== "pending" || approval.agent.session !== sessionId) continue;
 			out.push({
 				kind: "group",
 				id: row.id,
@@ -1009,11 +999,12 @@ export class AgentRuntime {
 			.where("parent_session_id", "=", sessionId)
 			.orderBy("created_at", "desc")
 			.execute();
-		for (const r of rows) await this.refreshState(r.id);
+		const states = new Map<string, SessionState>();
+		for (const r of rows) states.set(r.id, await this.refreshState(r.id));
 		return rows.map((r) => ({
 			id: r.id,
 			title: r.title,
-			state: r.state,
+			state: states.get(r.id) ?? r.state,
 			createdAt: r.created_at,
 			lastSubmissionId: r.last_submission_id,
 			pending: pending.filter((p) => p.sessionId === r.id),
@@ -1087,25 +1078,21 @@ export class AgentRuntime {
 		const requests: { kind: "task" | "group"; id: string; session: string }[] = [];
 		const tasks = await this.#db
 			.selectFrom("tasks")
-			.select(["id", "approval"])
+			.select(["id", "handler_session_id"])
 			.where("state", "=", "awaiting_approval")
+			.where("handler_type", "=", "agent")
 			.execute();
 		for (const row of tasks) {
-			const approval = JSON.parse(row.approval ?? "{}") as ApprovalRecord;
-			if (approval.agent?.state === "pending") {
-				requests.push({ kind: "task", id: row.id, session: approval.agent.session });
-			}
+			if (row.handler_session_id) requests.push({ kind: "task", id: row.id, session: row.handler_session_id });
 		}
 		const groups = await this.#db
 			.selectFrom("task_groups")
-			.select(["id", "approval"])
+			.select(["id", "handler_session_id"])
 			.where("state", "=", "awaiting_approval")
+			.where("handler_type", "=", "agent")
 			.execute();
 		for (const row of groups) {
-			const approval = JSON.parse(row.approval ?? "{}") as GroupApprovalRecord;
-			if (approval.agent?.state === "pending") {
-				requests.push({ kind: "group", id: row.id, session: approval.agent.session });
-			}
+			if (row.handler_session_id) requests.push({ kind: "group", id: row.id, session: row.handler_session_id });
 		}
 		for (const request of requests) {
 			const parent = await this.#db
@@ -1121,7 +1108,7 @@ export class AgentRuntime {
 			}
 		}
 		for (const wait of await awaitingQuotaSessions(this.#db)) {
-			const parent = await this.#parentOf(wait.levelId);
+			const parent = wait.handlerId || (await this.#parentOf(wait.levelId));
 			if (!parent) continue;
 			try {
 				await this.#wakeQuota(parent, wait.sessionId, wait.levelId, wait.since);

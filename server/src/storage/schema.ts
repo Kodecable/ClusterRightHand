@@ -133,6 +133,9 @@ export type TaskState =
 	| "rejected"
 	| "unknown";
 
+/** Who must handle a waiting approval: an agent session, or the user (the task's on_behalf user). */
+export type ApprovalHandlerType = "agent" | "user";
+
 /** Columns shared by tasks and task groups for the rule chain and approval (doc/access-control.md#审批). */
 interface ApprovalColumns {
 	/** JSON [{ type, id }], root first; null for a user acting in person. */
@@ -141,6 +144,12 @@ interface ApprovalColumns {
 	approval: string | null;
 	/** Base64 input, kept only while waiting for approval. */
 	pending_input: string | null;
+	/** The root session of the rule chain, when it starts with one; for grouping by session tree. */
+	root_session_id: string | null;
+	/** Who handles the waiting approval; null unless the task is waiting. A user is on_behalf_of_user_id. */
+	handler_type: ApprovalHandlerType | null;
+	/** The agent session that handles it; null when the user does. */
+	handler_session_id: string | null;
 }
 
 export interface TasksTable extends ApprovalColumns {
@@ -264,6 +273,8 @@ export interface SessionsTable {
 	state: "active" | "awaiting" | "stopped";
 	/** While awaiting: the exhausted level to top up. */
 	waiting_level_id: string | null;
+	/** While awaiting a quota: the session whose agent handles the wait (the exhausted level's parent). */
+	waiting_handler_id: string | null;
 	state_changed_at: string | null;
 	/** Remaining token quota (doc/agent-runtime.md#配额); null: unlimited. Signed: one response may overspend it. */
 	quota_tokens: ColumnType<string | number | null, string | number | null | undefined, string | number | null>;

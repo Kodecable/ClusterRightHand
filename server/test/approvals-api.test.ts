@@ -117,6 +117,17 @@ describe("approvals api (sqlite)", () => {
 		await cluster.decide(t.id, { decision: "rejected", by: { type: "user", id: "x" }, at: new Date().toISOString() });
 	});
 
+	it("hides a request routed to an agent and refuses a user decision", async () => {
+		const tok = await newToken();
+		const t = await mkTask(tok);
+		expect(await cluster.requestAgentDecision(t.id, "agent-session")).toBe(true);
+		expect((await pending("alice")).tasks.map((x) => x.id)).not.toContain(t.id);
+		const res = await decide("alice", `/api/tasks/${t.id}/approval`, { decision: "approve" });
+		expect(res.status).toBe(409);
+		expect(((await res.json()) as { error: string }).error).toMatch(/agent/);
+		await cluster.decide(t.id, { decision: "rejected", by: { type: "user", id: "x" }, at: new Date().toISOString() });
+	});
+
 	it("only the owner decides; reject ends the task", async () => {
 		const tok = await newToken();
 		const t = await mkTask(tok);
@@ -253,11 +264,23 @@ describe("approvals api (sqlite)", () => {
 			const g = (await groups.get(id)) as TaskGroupView;
 			expect(g.state).toBe("awaiting_approval");
 			expect(g.tasks).toEqual([]);
+			const waiting = await db
+				.selectFrom("task_groups")
+				.select(["root_session_id", "handler_type", "handler_session_id"])
+				.where("id", "=", id)
+				.executeTakeFirstOrThrow();
+			expect(waiting).toMatchObject({ root_session_id: null, handler_type: "user", handler_session_id: null });
 			const list = await pending("alice");
 			expect(list.taskGroups.map((x) => x.id)).toContain(id);
 			expect((await pending("bob")).taskGroups).toEqual([]);
 			expect((await decide("bob", `/api/task-groups/${id}/approval`, { decision: "approve" })).status).toBe(404);
 			expect((await decide("alice", `/api/task-groups/${id}/approval`, { decision: "approve" })).status).toBe(200);
+			const decided = await db
+				.selectFrom("task_groups")
+				.select(["handler_type", "handler_session_id"])
+				.where("id", "=", id)
+				.executeTakeFirstOrThrow();
+			expect(decided).toMatchObject({ handler_type: null, handler_session_id: null });
 			const done = (await groups.wait(id, 10000)) as TaskGroupView;
 			expect(done.state).toBe("finished");
 			expect(done.tasks).toHaveLength(2);

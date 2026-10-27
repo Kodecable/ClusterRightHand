@@ -26,6 +26,7 @@ import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
 import { openDb } from "../src/storage/db.ts";
 import { migrateToLatest } from "../src/storage/migrate.ts";
+import { backfillHandlers } from "../src/storage/migrations/0018_approval_handler.ts";
 import { createUser } from "../src/users/service.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
@@ -126,10 +127,31 @@ it("a paused child asks its direct parent, which grants without a cap", async ()
 	const request = await waitFor("the quota wait", async () => (await awaitingQuotaChildren(db, p.id))[0]);
 	expect(request).toMatchObject({ sessionId: c.id, levelId: c.id });
 	expect(await sessionStateOf(db, c.id)).toBe("awaiting");
+	const waitingRow = await db
+		.selectFrom("sessions")
+		.select(["waiting_level_id", "waiting_handler_id"])
+		.where("id", "=", c.id)
+		.executeTakeFirstOrThrow();
+	expect(waitingRow).toMatchObject({ waiting_level_id: c.id, waiting_handler_id: p.id });
+	await db.updateTable("sessions").set({ waiting_handler_id: null }).where("id", "=", c.id).execute();
+	await backfillHandlers(db);
+	expect(await sessionStateOf(db, c.id)).toBe("awaiting");
+	const restored = await db
+		.selectFrom("sessions")
+		.select("waiting_handler_id")
+		.where("id", "=", c.id)
+		.executeTakeFirstOrThrow();
+	expect(restored.waiting_handler_id).toBe(p.id);
 	// No cap: the parent's own remainder does not limit what it adds for its child.
 	expect(await runtime.decideAgentRequest(p.id, request.sessionId, "approve", undefined, 50_000_000)).toBe("quota");
 	expect(await waiting).toBe("ok");
 	expect(await sessionStateOf(db, c.id)).toBe("active");
+	const resumed = await db
+		.selectFrom("sessions")
+		.select(["waiting_level_id", "waiting_handler_id"])
+		.where("id", "=", c.id)
+		.executeTakeFirstOrThrow();
+	expect(resumed).toMatchObject({ waiting_level_id: null, waiting_handler_id: null });
 	expect((await runtime.getSession(c.id))?.quota).toBe(50_000_000 - 10);
 });
 

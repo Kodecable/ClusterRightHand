@@ -11,6 +11,7 @@ import { Cluster, type TaskView } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
+import { backfillHandlers } from "../src/storage/migrations/0018_approval_handler.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
@@ -234,6 +235,74 @@ it("a subagent waiting for approval is awaiting, and active again once settled",
 	expect((await runtime.getSession(child.id))?.state).toBe("awaiting");
 	expect(await runtime.decideAgentRequest(parent.id, task.id, "approve")).toBe("task");
 	expect(await runtime.refreshState(child.id)).toBe("active");
+});
+
+it("records the handler and root session of a waiting approval", async () => {
+	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const parent = await subagent(root.id, "handler-parent", { default: "inherit", rules: [] });
+	const child = await subagent(parent.id, "handler-child", { default: "require-approval", rules: [] });
+	const task = await execTask([root.id, parent.id, child.id]);
+	await waitFor("the routed request", async () =>
+		(await runtime.pendingAgentRequests(parent.id)).find((r) => r.id === task.id),
+	);
+	const row = await db
+		.selectFrom("tasks")
+		.select(["root_session_id", "handler_type", "handler_session_id"])
+		.where("id", "=", task.id)
+		.executeTakeFirstOrThrow();
+	expect(row).toMatchObject({ root_session_id: root.id, handler_type: "agent", handler_session_id: parent.id });
+
+	// An upgraded database keeps its pending requests: the backfill restores the columns from rule_chain/approval.
+	await db
+		.updateTable("tasks")
+		.set({ root_session_id: null, handler_type: null, handler_session_id: null })
+		.where("id", "=", task.id)
+		.execute();
+	await backfillHandlers(db);
+	const restored = await db
+		.selectFrom("tasks")
+		.select(["root_session_id", "handler_type", "handler_session_id"])
+		.where("id", "=", task.id)
+		.executeTakeFirstOrThrow();
+	expect(restored).toMatchObject({ root_session_id: root.id, handler_type: "agent", handler_session_id: parent.id });
+
+	expect(await runtime.decideAgentRequest(parent.id, task.id, "escalate")).toBe("task");
+	const escalated = await db
+		.selectFrom("tasks")
+		.select(["handler_type", "handler_session_id"])
+		.where("id", "=", task.id)
+		.executeTakeFirstOrThrow();
+	expect(escalated).toMatchObject({ handler_type: "user", handler_session_id: null });
+	expect(await runtime.pendingAgentRequests(parent.id)).toHaveLength(0);
+
+	await cluster.decide(task.id, {
+		decision: "rejected",
+		by: { type: "user", id: owner.userId },
+		at: new Date().toISOString(),
+	});
+	const done = await db
+		.selectFrom("tasks")
+		.select(["handler_type", "handler_session_id"])
+		.where("id", "=", task.id)
+		.executeTakeFirstOrThrow();
+	expect(done).toMatchObject({ handler_type: null, handler_session_id: null });
+});
+
+it("a task from a root session waits for its owner, not its agent", async () => {
+	const root = await runtime.createSession(owner, { model: model(), preset: "ask" });
+	const task = await execTask([root.id]);
+	const row = await db
+		.selectFrom("tasks")
+		.select(["root_session_id", "handler_type", "handler_session_id"])
+		.where("id", "=", task.id)
+		.executeTakeFirstOrThrow();
+	expect(row).toMatchObject({ root_session_id: root.id, handler_type: "user", handler_session_id: null });
+	expect(await runtime.pendingAgentRequests(root.id)).toHaveLength(0);
+	await cluster.decide(task.id, {
+		decision: "rejected",
+		by: { type: "user", id: owner.userId },
+		at: new Date().toISOString(),
+	});
 });
 
 it("stopping a session stops its subagents", async () => {

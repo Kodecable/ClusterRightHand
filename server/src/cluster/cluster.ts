@@ -115,6 +115,11 @@ export interface TaskView {
 	taskGroupId: string | null;
 	ruleChain: RuleRef[] | null;
 	approval: ApprovalRecord | null;
+	/** Root session of the rule chain, for grouping approvals by session tree. */
+	rootSessionId: string | null;
+	/** Who handles a waiting approval; null when it is not waiting. */
+	handlerType: "agent" | "user" | null;
+	handlerSessionId: string | null;
 }
 
 export interface ClusterOptions {
@@ -459,6 +464,7 @@ export class Cluster {
 		}
 		const waiting = verdict === "require-approval";
 		const denied = verdict === "deny";
+		const root = input.chain?.[0];
 		await this.#db
 			.insertInto("tasks")
 			.values({
@@ -498,6 +504,10 @@ export class Cluster {
 				rule_chain: input.chain ? JSON.stringify(input.chain) : null,
 				approval: approval ? JSON.stringify(approval) : null,
 				pending_input: waiting && input.input ? Buffer.from(inputBytes).toString("base64") : null,
+				root_session_id: root?.type === "session" ? root.id : null,
+				// Until an ancestor agent is routed, the user (the task's on_behalf user) is the handler.
+				handler_type: waiting ? "user" : null,
+				handler_session_id: null,
 			})
 			.execute();
 		void this.#audit?.record({
@@ -539,13 +549,21 @@ export class Cluster {
 			.updateTable("tasks")
 			.set(
 				online
-					? { state: "dispatched", dispatched_at: now(), pending_input: null }
+					? {
+							state: "dispatched",
+							dispatched_at: now(),
+							pending_input: null,
+							handler_type: null,
+							handler_session_id: null,
+						}
 					: {
 							state: "failed",
 							error_code: "node_offline",
 							error_message: "the node is not connected",
 							finished_at: now(),
 							pending_input: null,
+							handler_type: null,
+							handler_session_id: null,
 						},
 			)
 			.where("id", "=", id)
@@ -625,6 +643,8 @@ export class Cluster {
 					approval: JSON.stringify(record),
 					pending_input: null,
 					finished_at: now(),
+					handler_type: null,
+					handler_session_id: null,
 				})
 				.where("id", "=", id)
 				.where("state", "=", "awaiting_approval")
@@ -670,7 +690,11 @@ export class Cluster {
 			};
 			await this.#db
 				.updateTable("tasks")
-				.set({ approval: JSON.stringify(record) })
+				.set({
+					approval: JSON.stringify(record),
+					handler_type: "agent",
+					handler_session_id: session,
+				})
 				.where("id", "=", id)
 				.execute();
 			void this.#audit?.record({
@@ -694,7 +718,11 @@ export class Cluster {
 			};
 			await this.#db
 				.updateTable("tasks")
-				.set({ approval: JSON.stringify(record) })
+				.set({
+					approval: JSON.stringify(record),
+					handler_type: "user",
+					handler_session_id: null,
+				})
 				.where("id", "=", id)
 				.execute();
 			void this.#audit?.record({
@@ -743,6 +771,8 @@ export class Cluster {
 							approval: JSON.stringify({ evaluation }),
 							pending_input: null,
 							finished_at: now(),
+							handler_type: null,
+							handler_session_id: null,
 						})
 						.where("id", "=", row.id)
 						.where("state", "=", "awaiting_approval")
@@ -1059,6 +1089,9 @@ function toView(row: Selectable<TasksTable>, live: LiveTask | undefined): TaskVi
 		taskGroupId: row.task_group_id,
 		ruleChain: row.rule_chain ? (JSON.parse(row.rule_chain) as RuleRef[]) : null,
 		approval: row.approval ? (JSON.parse(row.approval) as ApprovalRecord) : null,
+		rootSessionId: row.root_session_id,
+		handlerType: row.handler_type,
+		handlerSessionId: row.handler_session_id,
 	};
 }
 

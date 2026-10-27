@@ -99,12 +99,20 @@ export interface QuotaWaitView {
 	sessionTitle: string;
 	levelTitle: string;
 	levelQuota: number | null;
+	/** The session whose agent handles the wait (the level's parent). */
+	handlerId: string;
 	since: string;
 }
 
 async function waitView(
 	db: Db,
-	row: { id: string; waiting_level_id: string; title: string; state_changed_at: string | null },
+	row: {
+		id: string;
+		waiting_level_id: string;
+		waiting_handler_id: string | null;
+		title: string;
+		state_changed_at: string | null;
+	},
 ): Promise<QuotaWaitView | undefined> {
 	const level = await db
 		.selectFrom("sessions")
@@ -118,6 +126,7 @@ async function waitView(
 		sessionTitle: row.title,
 		levelTitle: level.title,
 		levelQuota: level.quota_tokens === null ? null : Number(level.quota_tokens),
+		handlerId: row.waiting_handler_id ?? level.parent_session_id ?? "",
 		since: row.state_changed_at ?? "",
 	};
 }
@@ -126,21 +135,16 @@ async function waitView(
 export async function awaitingQuotaChildren(db: Db, handlerSessionId: string): Promise<QuotaWaitView[]> {
 	const rows = await db
 		.selectFrom("sessions")
-		.select(["id", "waiting_level_id", "title", "state_changed_at"])
+		.select(["id", "waiting_level_id", "waiting_handler_id", "title", "state_changed_at"])
 		.where("state", "=", "awaiting")
 		.where("waiting_level_id", "is not", null)
+		.where("waiting_handler_id", "=", handlerSessionId)
 		.execute();
 	const out: QuotaWaitView[] = [];
 	for (const row of rows) {
 		if (!row.waiting_level_id) continue;
 		const view = await waitView(db, { ...row, waiting_level_id: row.waiting_level_id });
-		if (!view) continue;
-		const level = await db
-			.selectFrom("sessions")
-			.select("parent_session_id")
-			.where("id", "=", row.waiting_level_id)
-			.executeTakeFirst();
-		if (level?.parent_session_id === handlerSessionId) out.push(view);
+		if (view) out.push(view);
 	}
 	return out;
 }
@@ -149,7 +153,7 @@ export async function awaitingQuotaChildren(db: Db, handlerSessionId: string): P
 export async function awaitingQuotaSessions(db: Db): Promise<QuotaWaitView[]> {
 	const rows = await db
 		.selectFrom("sessions")
-		.select(["id", "waiting_level_id", "title", "state_changed_at"])
+		.select(["id", "waiting_level_id", "waiting_handler_id", "title", "state_changed_at"])
 		.where("state", "=", "awaiting")
 		.where("waiting_level_id", "is not", null)
 		.execute();
@@ -180,18 +184,36 @@ export async function setSessionState(
 ): Promise<string> {
 	const row = await db
 		.selectFrom("sessions")
-		.select(["state", "waiting_level_id", "state_changed_at"])
+		.select(["state", "waiting_level_id", "waiting_handler_id", "state_changed_at"])
 		.where("id", "=", sessionId)
 		.executeTakeFirst();
 	if (!row) return "";
-	if (row.state === state && row.waiting_level_id === levelId) return row.state_changed_at ?? "";
+	// A quota wait is handled by the exhausted level's direct parent; store it so the handler can find it.
+	let handlerId: string | null = null;
+	if (state === "awaiting" && levelId) {
+		handlerId =
+			row.waiting_level_id === levelId && row.waiting_handler_id
+				? row.waiting_handler_id
+				: ((await parentOf(db, levelId)) ?? null);
+	}
+	if (row.state === state && row.waiting_level_id === levelId && row.waiting_handler_id === handlerId)
+		return row.state_changed_at ?? "";
 	const at = new Date().toISOString();
 	await db
 		.updateTable("sessions")
-		.set({ state, waiting_level_id: levelId, state_changed_at: at })
+		.set({ state, waiting_level_id: levelId, waiting_handler_id: handlerId, state_changed_at: at })
 		.where("id", "=", sessionId)
 		.execute();
 	return at;
+}
+
+async function parentOf(db: Db, sessionId: string): Promise<string | null | undefined> {
+	const row = await db
+		.selectFrom("sessions")
+		.select("parent_session_id")
+		.where("id", "=", sessionId)
+		.executeTakeFirst();
+	return row?.parent_session_id;
 }
 
 /** Marks subagent sessions stopped (cancelled, or a quota wait denied). */
@@ -199,7 +221,12 @@ export async function markSessionsStopped(db: Db, sessionIds: string[]): Promise
 	if (sessionIds.length === 0) return;
 	await db
 		.updateTable("sessions")
-		.set({ state: "stopped", waiting_level_id: null, state_changed_at: new Date().toISOString() })
+		.set({
+			state: "stopped",
+			waiting_level_id: null,
+			waiting_handler_id: null,
+			state_changed_at: new Date().toISOString(),
+		})
 		.where("id", "in", sessionIds)
 		// Only subagents carry a state; a root session stays active when its subtree is aborted.
 		.where("parent_session_id", "is not", null)

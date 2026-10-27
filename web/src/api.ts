@@ -175,6 +175,9 @@ export interface TaskView {
 	taskGroupId?: string | null;
 	ruleChain?: RuleRef[] | null;
 	approval?: ApprovalRecord | null;
+	rootSessionId?: string | null;
+	handlerType?: "agent" | "user" | null;
+	handlerSessionId?: string | null;
 }
 export interface Directory {
 	users: { id: string; username: string; displayName: string }[];
@@ -214,6 +217,9 @@ export interface TaskGroupView {
 	actorId?: string;
 	onBehalfOfUserId?: string;
 	operation?: Operation | null;
+	rootSessionId?: string | null;
+	handlerType?: "agent" | "user" | null;
+	handlerSessionId?: string | null;
 }
 
 export interface Operation {

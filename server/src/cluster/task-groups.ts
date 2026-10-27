@@ -89,6 +89,11 @@ export interface TaskGroupView {
 	onBehalfOfUserId: string;
 	/** What authorization rules match on, the same for every node. */
 	operation: { method: string; target: string } | null;
+	/** Root session of the rule chain, for grouping approvals by session tree. */
+	rootSessionId: string | null;
+	/** Who handles a waiting approval; null when it is not waiting. */
+	handlerType: "agent" | "user" | null;
+	handlerSessionId: string | null;
 }
 
 interface Deferred {
@@ -149,6 +154,7 @@ export class TaskGroups {
 			}
 		}
 		const waiting = approval?.nodes.some((n) => n.evaluation.result === "require-approval") ?? false;
+		const root = input.chain?.[0];
 		await this.#db
 			.insertInto("task_groups")
 			.values({
@@ -171,6 +177,10 @@ export class TaskGroups {
 				pending_input: waiting && input.input ? Buffer.from(input.input).toString("base64") : null,
 				spec: JSON.stringify(toJson(TaskSpecSchema, input.spec)),
 				timeout_ms: input.timeoutMs ?? null,
+				root_session_id: root?.type === "session" ? root.id : null,
+				// Until an ancestor agent is routed, the user (the group's on_behalf user) is the handler.
+				handler_type: waiting ? "user" : null,
+				handler_session_id: null,
 			})
 			.execute();
 		void this.#audit?.record({
@@ -237,7 +247,13 @@ export class TaskGroups {
 		} finally {
 			await this.#db
 				.updateTable("task_groups")
-				.set({ state: "finished", skipped: JSON.stringify(queue), finished_at: now() })
+				.set({
+					state: "finished",
+					skipped: JSON.stringify(queue),
+					finished_at: now(),
+					handler_type: null,
+					handler_session_id: null,
+				})
 				.where("id", "=", id)
 				.execute();
 		}
@@ -258,6 +274,8 @@ export class TaskGroups {
 				state: approved ? "running" : "rejected",
 				approval: JSON.stringify(record),
 				pending_input: null,
+				handler_type: null,
+				handler_session_id: null,
 				...(approved ? {} : { finished_at: now() }),
 			})
 			.where("id", "=", id)
@@ -311,7 +329,7 @@ export class TaskGroups {
 		};
 		const res = await this.#db
 			.updateTable("task_groups")
-			.set({ approval: JSON.stringify(record) })
+			.set({ approval: JSON.stringify(record), handler_type: "agent", handler_session_id: session })
 			.where("id", "=", id)
 			.where("state", "=", "awaiting_approval")
 			.executeTakeFirst();
@@ -335,7 +353,7 @@ export class TaskGroups {
 		};
 		const res = await this.#db
 			.updateTable("task_groups")
-			.set({ approval: JSON.stringify(record) })
+			.set({ approval: JSON.stringify(record), handler_type: "user", handler_session_id: null })
 			.where("id", "=", id)
 			.where("state", "=", "awaiting_approval")
 			.executeTakeFirst();
@@ -439,6 +457,9 @@ export class TaskGroups {
 			actorId: row.actor_id,
 			onBehalfOfUserId: row.on_behalf_of_user_id,
 			operation: row.spec ? operationOf(fromJson(TaskSpecSchema, JSON.parse(row.spec))) : null,
+			rootSessionId: row.root_session_id,
+			handlerType: row.handler_type,
+			handlerSessionId: row.handler_session_id,
 		};
 	}
 
