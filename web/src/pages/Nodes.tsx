@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api, type PublicNode } from "../api.ts";
 import { useUser } from "../auth.tsx";
-import { Badge, ErrorText, Loading } from "../components/Feedback.tsx";
+import { Badge, ErrorText, LinkBadge, Loading } from "../components/Feedback.tsx";
 import { Modal } from "../components/Modal.tsx";
 import { useAction, useLoad } from "../hooks.ts";
 import { formatTime, osName } from "../lib.ts";
@@ -104,7 +104,8 @@ export function Nodes() {
 										)}
 									</td>
 									<td>
-										<Badge kind={n.status}>{n.status}</Badge>
+										<Badge kind={n.status}>{n.status}</Badge>{" "}
+										{n.status === "active" && <LinkBadge connected={n.connected} />}
 									</td>
 									<td>{n.hostname ?? "-"}</td>
 									<td>{osName(n.facts)}</td>

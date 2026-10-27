@@ -41,6 +41,8 @@ export interface PublicNode {
 	access: NodeAccess;
 	facts: Record<string, unknown> | null;
 	keyFingerprint: string | null;
+	/** Whether crha is connected now; null for SSH nodes (they connect per task). */
+	connected: boolean | null;
 }
 export type GranteeType = "user" | "user_group";
 export type ShareAccess = "view" | "operate";

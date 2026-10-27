@@ -50,8 +50,8 @@ export function SshHostKeyStep({
 					</p>
 					<p className="fingerprint mono">{candidate.fingerprint}</p>
 					<p className="muted">
-						Compare with <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> on that host. Only confirm if
-						they match.
+						Compare with the output of <code>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</code> on
+						that host (the server picks one of its keys, usually ED25519). Only confirm if one of them matches.
 					</p>
 					<div className="row">
 						<button type="button" className="primary" onClick={confirm}>

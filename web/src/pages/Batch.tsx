@@ -33,7 +33,7 @@ function GroupResult({ group, names }: { group: TaskGroupView; names: Map<string
 									<a href={`#/nodes/${t.nodeId}`}>{name(t.nodeId)}</a>
 								</td>
 								<td>
-									<Badge kind={stateKind(t.state)}>{t.state}</Badge>
+									<Badge kind={stateKind(t)}>{t.state}</Badge>
 								</td>
 								<td>{taskOutcome(t)}</td>
 								<td>

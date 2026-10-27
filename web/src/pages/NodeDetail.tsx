@@ -1,5 +1,5 @@
 import { api } from "../api.ts";
-import { Badge, Loading } from "../components/Feedback.tsx";
+import { Badge, LinkBadge, Loading } from "../components/Feedback.tsx";
 import { useLoad } from "../hooks.ts";
 import { formatTime, osName } from "../lib.ts";
 import { RenameNode } from "./RenameNode.tsx";
@@ -28,6 +28,7 @@ export function NodeDetail({ id }: { id: string }) {
 					<div className="row">
 						<h1>{n.name}</h1>
 						<Badge kind={n.status}>{n.status}</Badge>
+						{n.status === "active" && <LinkBadge connected={n.connected} />}
 						{n.transport === "ssh" && <Badge kind="ssh">SSH</Badge>}
 						{(n.access === "owner" || n.access === "admin") && <RenameNode node={n} onDone={node.reload} />}
 					</div>

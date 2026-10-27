@@ -29,9 +29,10 @@ export function OutputBlock({
 	);
 }
 
-export function stateKind(state: string): string {
-	if (state === "exited") return "ok";
-	if (isTerminal(state)) return "bad";
+/** Badge kind: a non-zero exit is the command's own failure (warn), not the platform's (bad). */
+export function stateKind(task: Pick<TaskView, "state" | "exitCode" | "signal">): string {
+	if (task.state === "exited") return task.exitCode === 0 && !task.signal ? "ok" : "warn";
+	if (isTerminal(task.state)) return "bad";
 	return "busy";
 }
 
@@ -51,7 +52,7 @@ export function TaskResult({ task }: { task: TaskView }) {
 				)}
 				<dt>State</dt>
 				<dd>
-					<Badge kind={stateKind(task.state)}>{task.state}</Badge>
+					<Badge kind={stateKind(task)}>{task.state}</Badge>
 					{task.timedOut && " timed out"}
 					{task.cancelled && " cancelled"}
 				</dd>

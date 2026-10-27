@@ -34,7 +34,7 @@ export function SshRouteStep(props: {
 		<div className="stack">
 			{hops.slice(0, last).map((h, i) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: jumps have no identity beyond their position
-				<div key={i} className="hop stack">
+				<fieldset key={i} className="hop stack" aria-label={`Jump host ${i + 1}`}>
 					<div className="row">
 						<strong>Jump host {i + 1}</strong>
 						<span className="spacer" />
@@ -49,15 +49,15 @@ export function SshRouteStep(props: {
 						</button>
 					</div>
 					<HopFields hop={h} onChange={(p) => onHops(editHop(hops, i, p))} />
-				</div>
+				</fieldset>
 			))}
 			<button type="button" onClick={() => onHops(addJump(hops, emptyHop((hops[last] as Hop).user)))}>
 				Add jump host
 			</button>
-			<div className="hop stack">
+			<fieldset className="hop stack" aria-label="Target">
 				<strong>Target</strong>
 				<HopFields hop={hops[last] as Hop} onChange={(p) => onHops(editHop(hops, last, p))} />
-			</div>
+			</fieldset>
 			<label>
 				Node name (optional, defaults to the host)
 				<input value={props.name} onChange={(e) => props.onName(e.target.value)} />

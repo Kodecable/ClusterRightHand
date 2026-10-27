@@ -11,7 +11,8 @@ test("runs a shell command and shows stdout, stderr and the exit code", async ({
 	await page.getByRole("textbox", { name: "Shell command" }).fill("echo hello; echo oops >&2; exit 3");
 	await page.getByRole("button", { name: "Run", exact: true }).click();
 	const result = page.locator(".task-result");
-	await expect(result.getByText("exited")).toBeVisible();
+	// A non-zero exit is flagged, not shown like a success.
+	await expect(result.getByText("exited")).toHaveClass(/badge-warn/);
 	await expect(result.getByText("Exit code")).toBeVisible();
 	await expect(result.locator("dd", { hasText: /^3$/ })).toBeVisible();
 	await expect(result.getByRole("region", { name: /stdout/ })).toContainText("hello");

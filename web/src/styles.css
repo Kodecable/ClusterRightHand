@@ -123,6 +123,12 @@ textarea {
 	font: inherit;
 	color: inherit;
 }
+/* Labels are muted; what the user typed is not. */
+input,
+select,
+textarea {
+	color: var(--text);
+}
 button {
 	padding: 4px 10px;
 	border: 1px solid var(--border);
@@ -265,8 +271,12 @@ td.actions > * + * {
 	color: var(--accent);
 }
 .badge-pending,
-.badge-busy {
+.badge-busy,
+.badge-warn {
 	color: var(--warn);
+}
+.badge-off {
+	color: var(--muted);
 }
 .badge-disabled,
 .badge-bad {
@@ -361,6 +371,8 @@ dialog h2 {
 	border: 1px solid var(--border);
 	border-radius: 6px;
 	padding: 8px;
+	margin: 0;
+	min-width: 0;
 }
 .fingerprint {
 	font-size: 15px;

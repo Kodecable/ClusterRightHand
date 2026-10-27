@@ -34,3 +34,9 @@ export function CopyButton({ text, label = "Copy" }: { text: string; label?: str
 export function Badge({ kind, children }: { kind: string; children: string }) {
 	return <span className={`badge badge-${kind}`}>{children}</span>;
 }
+
+/** Online/offline for crha nodes; nothing for SSH nodes. */
+export function LinkBadge({ connected }: { connected: boolean | null }) {
+	if (connected === null) return null;
+	return connected ? <Badge kind="ok">online</Badge> : <Badge kind="off">offline</Badge>;
+}

@@ -18,6 +18,11 @@ export function AddSshNodeDialog({ onClose }: { onClose: () => void }) {
 	const [name, setName] = useState("");
 	const [groups, setGroups] = useState("");
 	const [stepError, setStepError] = useState<string>();
+	// A step error is about the state when Next was pressed; any edit makes it stale.
+	const onHops = (h: Hop[]) => {
+		setStepError(undefined);
+		setHops(h);
+	};
 	const { busy, error, run } = useAction();
 
 	const go = (to: number) => {
@@ -58,16 +63,9 @@ export function AddSshNodeDialog({ onClose }: { onClose: () => void }) {
 				</ol>
 				{step === 0 && <SshCredentialStep value={credentialId} onChange={setCredentialId} />}
 				{step === 1 && (
-					<SshRouteStep
-						hops={hops}
-						onHops={setHops}
-						name={name}
-						onName={setName}
-						groups={groups}
-						onGroups={setGroups}
-					/>
+					<SshRouteStep hops={hops} onHops={onHops} name={name} onName={setName} groups={groups} onGroups={setGroups} />
 				)}
-				{step === 2 && <SshHostKeyStep hops={hops} credentialId={credentialId} onHops={setHops} />}
+				{step === 2 && <SshHostKeyStep hops={hops} credentialId={credentialId} onHops={onHops} />}
 				{step === 3 && (
 					<div className="stack">
 						<dl className="kv">

@@ -30,7 +30,7 @@ export function TaskList({ tasks }: { tasks: TaskView[] }) {
 							</td>
 							<td>{taskActor(t, userName)}</td>
 							<td>
-								<Badge kind={stateKind(t.state)}>{t.state}</Badge>
+								<Badge kind={stateKind(t)}>{t.state}</Badge>
 							</td>
 							<td>{taskOutcome(t)}</td>
 							<td className="actions">

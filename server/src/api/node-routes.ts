@@ -9,6 +9,7 @@ import {
 	type NodeAccess,
 	nodeAccess,
 	nodeGroupNames,
+	type PublicNode,
 	renameNode,
 	shareNode,
 	toPublicNode,
@@ -33,7 +34,10 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	const access = (c: { get(k: "user"): AppEnv["Variables"]["user"] }, id: string) => nodeAccess(db, c.get("user"), id);
 	const canManage = (a: NodeAccess) => a === "owner" || a === "admin";
 
-	app.get("/nodes", async (c) => c.json({ nodes: await listNodesForUser(db, c.get("user")) }));
+	const live = (n: PublicNode): PublicNode =>
+		n.connected === null ? n : { ...n, connected: options.cluster?.isConnected(n.id) ?? false };
+
+	app.get("/nodes", async (c) => c.json({ nodes: (await listNodesForUser(db, c.get("user"))).map(live) }));
 
 	app.get("/nodes/:id", async (c) => {
 		const id = c.req.param("id");
@@ -41,7 +45,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const row = level ? await getNode(db, id) : undefined;
 		if (!level || !row) return jsonError(c, 404, "no such node");
 		const groups = (await nodeGroupNames(db, [id])).get(id) ?? [];
-		const node = toPublicNode(row, level, groups);
+		const node = live(toPublicNode(row, level, groups));
 		return c.json(canManage(level) ? { node, shares: await listNodeShares(db, id) } : { node });
 	});
 
@@ -86,7 +90,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const name = body ? optionalString(body, "name") : undefined;
 		if (!name) return jsonError(c, 400, "name is required");
 		const node = await renameNode(db, id, name);
-		return c.json({ node: toPublicNode(node, m.level, (await nodeGroupNames(db, [id])).get(id) ?? []) });
+		return c.json({ node: live(toPublicNode(node, m.level, (await nodeGroupNames(db, [id])).get(id) ?? [])) });
 	});
 
 	app.delete("/nodes/:id", async (c) => {

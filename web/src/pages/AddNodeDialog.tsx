@@ -16,7 +16,13 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 	const command = created ? enrollCommand(window.location.origin, created.token) : "";
 	return (
 		<Modal title="Add node" onClose={onClose}>
-			<div className="stack">
+			<form
+				className="stack"
+				onSubmit={(e) => {
+					e.preventDefault();
+					if (!created) void create();
+				}}
+			>
 				{created ? (
 					<>
 						<p>Run this on the node:</p>
@@ -29,7 +35,7 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 					</>
 				) : (
 					<label>
-						Name hint (optional)
+						Node name (optional, defaults to the hostname)
 						<input value={hint} onChange={(e) => setHint(e.target.value)} />
 					</label>
 				)}
@@ -38,7 +44,7 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 					{created ? (
 						<CopyButton text={command} label="Copy command" />
 					) : (
-						<button type="button" className="primary" onClick={create} disabled={busy}>
+						<button type="submit" className="primary" disabled={busy}>
 							Create token
 						</button>
 					)}
@@ -46,7 +52,7 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 						Close
 					</button>
 				</div>
-			</div>
+			</form>
 		</Modal>
 	);
 }

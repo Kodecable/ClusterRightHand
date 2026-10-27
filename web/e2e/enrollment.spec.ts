@@ -27,8 +27,9 @@ test("enrolls a node with a token from the UI and approves it after checking the
 	await page.goto("/");
 	await page.getByRole("button", { name: "Add node" }).click();
 	const dialog = page.getByRole("dialog", { name: "Add node" });
-	await dialog.getByLabel("Name hint").fill("ui-enrolled");
-	await dialog.getByRole("button", { name: "Create token" }).click();
+	// Enter submits the dialog.
+	await dialog.getByLabel("Node name").fill("ui-enrolled");
+	await dialog.getByLabel("Node name").press("Enter");
 	await expect(dialog.getByText("Run this on the node:")).toBeVisible();
 	const command = ((await dialog.locator("pre").textContent()) ?? "").trim();
 	const match = /^crha enroll (\S+) (\S+)$/.exec(command);
@@ -62,4 +63,12 @@ test("enrolls a node with a token from the UI and approves it after checking the
 	}).toPass({ timeout: 20_000 });
 	await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(0);
 	await expect.poll(() => env.crhs.cluster.isConnected(node.id), { timeout: 20_000 }).toBe(true);
+	await page.getByRole("button", { name: "Refresh" }).click();
+	await expect(page.getByRole("row", { name: /ui-enrolled/ }).getByText("online")).toBeVisible();
+
+	// Once crha stops, the node shows offline.
+	await env.killCrha();
+	await expect.poll(() => env.crhs.cluster.isConnected(node.id), { timeout: 20_000 }).toBe(false);
+	await page.getByRole("button", { name: "Refresh" }).click();
+	await expect(page.getByRole("row", { name: /ui-enrolled/ }).getByText("offline")).toBeVisible();
 });

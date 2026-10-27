@@ -29,6 +29,8 @@ export interface PublicNode {
 	facts: unknown;
 	/** base64url(SHA-256(public key)), as printed by `crha enroll` and `crha status`. */
 	keyFingerprint: string | null;
+	/** Whether crha is connected right now; null for SSH nodes, which connect per task. Set by the API layer. */
+	connected: boolean | null;
 }
 
 export interface NodeShare {
@@ -121,6 +123,7 @@ export function toPublicNode(row: NodeRow, access: NodeAccess, groups: string[])
 		access,
 		facts,
 		keyFingerprint: row.public_key ? keyFingerprint(Buffer.from(row.public_key, "base64")) : null,
+		connected: row.transport === "ssh" ? null : false,
 	};
 }
 
