@@ -259,6 +259,8 @@ export interface SessionsTable {
 	created_at: CreatedAt;
 	updated_at: string;
 	archived_at: string | null;
+	/** Durable submission of the last input, for a parent waiting on this session's answer. */
+	last_submission_id: string | null;
 	/** Spent by this session and its subagents: tokens, and cost in millionths of a US dollar. */
 	used_tokens: ColumnType<string | number, string | number | undefined, string | number>;
 	used_cost_microusd: ColumnType<string | number, string | number | undefined, string | number>;

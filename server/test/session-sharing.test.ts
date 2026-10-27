@@ -75,7 +75,7 @@ afterAll(async () => {
 async function newSession(cookie: string, title: string, preset = "ask") {
 	const res = await call(app, "/api/sessions", { cookie, body: { title, model: model(), preset } });
 	expect(res.status).toBe(201);
-	return (await res.json()).session as { id: string; access: string; ownerUserId: string };
+	return ((await res.json()) as { session: { id: string; access: string; ownerUserId: string } }).session;
 }
 
 const share = (id: string, cookie: string, body: Record<string, unknown>) =>

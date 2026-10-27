@@ -11,6 +11,7 @@ import { UserError } from "../users/service.ts";
 import { derivedId, newId } from "../util/id.ts";
 import {
 	type Actor,
+	type AgentRequest,
 	type ApprovalDecision,
 	type Cluster,
 	type CreateTaskInput,
@@ -64,6 +65,7 @@ export interface GroupApprovalRecord {
 	nodes: { nodeId: string; evaluation: Evaluation }[];
 	decision?: ApprovalDecision;
 	review?: { decision: "approve" | "escalate"; reason: string; model: string };
+	agent?: AgentRequest;
 }
 
 export interface TaskGroupView {
@@ -297,6 +299,54 @@ export class TaskGroups {
 			target: { type: "task_group", id },
 			detail: review,
 		});
+	}
+
+	/** Hands a waiting group's approval to an ancestor session's agent (doc/agent-runtime.md#处理子会话的请求). */
+	async requestAgentDecision(id: string, session: string): Promise<boolean> {
+		const row = await this.#row(id);
+		if (row?.state !== "awaiting_approval") return false;
+		const record: GroupApprovalRecord = {
+			...(JSON.parse(row.approval ?? "{}") as GroupApprovalRecord),
+			agent: { session, state: "pending" },
+		};
+		const res = await this.#db
+			.updateTable("task_groups")
+			.set({ approval: JSON.stringify(record) })
+			.where("id", "=", id)
+			.where("state", "=", "awaiting_approval")
+			.executeTakeFirst();
+		if (res.numUpdatedRows === 0n) return false;
+		void this.#audit?.record({
+			actor: { type: "system", id: "agent-routing" },
+			action: "task_group.agent_request",
+			target: { type: "task_group", id },
+			detail: { session },
+		});
+		return true;
+	}
+
+	/** The agent passed the request on to the user: the approval page takes it from here. */
+	async escalateAgentDecision(id: string, session: string): Promise<boolean> {
+		const row = await this.#row(id);
+		if (row?.state !== "awaiting_approval") return false;
+		const record: GroupApprovalRecord = {
+			...(JSON.parse(row.approval ?? "{}") as GroupApprovalRecord),
+			agent: { session, state: "escalated" },
+		};
+		const res = await this.#db
+			.updateTable("task_groups")
+			.set({ approval: JSON.stringify(record) })
+			.where("id", "=", id)
+			.where("state", "=", "awaiting_approval")
+			.executeTakeFirst();
+		if (res.numUpdatedRows === 0n) return false;
+		void this.#audit?.record({
+			actor: { type: "system", id: "agent-routing" },
+			action: "task_group.agent_escalated",
+			target: { type: "task_group", id },
+			detail: { session },
+		});
+		return true;
 	}
 
 	/** Re-judges waiting groups on a chain whose rules changed; settles those that no longer need approval. */

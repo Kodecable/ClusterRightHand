@@ -352,11 +352,12 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			const got = await crhs().api(`/api/sessions/${s.id}`);
 			expect(got.status).toBe(200);
 			expect((await crhs().api("/api/sessions")).json.sessions.map((x: { id: string }) => x.id)).toContain(s.id);
-			expect((await send(s.id, "hi", "r-a")).status).toBe(404);
+			// Visible, but looking in does not drive it (doc/access-control.md#归属与分享).
+			expect((await send(s.id, "hi", "r-a")).status).toBe(403);
 			expect((await crhs().api(`/api/sessions/${s.id}`, { method: "PATCH", body: { preset: "yolo" } })).status).toBe(
-				404,
+				403,
 			);
-			expect((await crhs().api(`/api/sessions/${s.id}/abort`, { method: "POST", body: {} })).status).toBe(404);
+			expect((await crhs().api(`/api/sessions/${s.id}/abort`, { method: "POST", body: {} })).status).toBe(403);
 			expect((await as(member, `/api/sessions/${s.id}`)).json.session.rules.preset).toBe("ask");
 			// Watching is allowed for the administrator.
 			const stream = await openEvents(s.id);

@@ -64,12 +64,25 @@ export interface ApprovalDecision {
 	taskGroupId?: string;
 }
 
+/**
+ * A request handed to the agent of an ancestor session instead of going straight to the user
+ * (doc/agent-runtime.md#处理子会话的请求).
+ */
+export interface AgentRequest {
+	/** The session whose agent decides; its agent calls subagent_decide. */
+	session: string;
+	/** `escalated`: its agent passed it on to the user. */
+	state: "pending" | "escalated";
+}
+
 /** The approval state of a tool call: how the rules judged it, then how it was settled. */
 export interface ApprovalRecord {
 	evaluation: Evaluation;
 	decision?: ApprovalDecision;
 	/** Auto Review's verdict, when the root's preset asked for one. */
 	review?: { decision: "approve" | "escalate"; reason: string; model: string };
+	/** Set while (or after) an ancestor's agent had the request. */
+	agent?: AgentRequest;
 }
 
 export interface TaskView {
@@ -640,6 +653,57 @@ export class Cluster {
 				target: { type: "task", id },
 				detail: review,
 			});
+		});
+	}
+
+	/**
+	 * Hands a waiting task's approval to an ancestor session's agent. False when it is no longer waiting (Auto Review
+	 * or the user settled it first).
+	 */
+	requestAgentDecision(id: string, session: string): Promise<boolean> {
+		return this.#serialResult(id, async () => {
+			const row = await this.#row(id);
+			if (row?.state !== "awaiting_approval") return false;
+			const record: ApprovalRecord = {
+				...(JSON.parse(row.approval ?? "{}") as ApprovalRecord),
+				agent: { session, state: "pending" },
+			};
+			await this.#db
+				.updateTable("tasks")
+				.set({ approval: JSON.stringify(record) })
+				.where("id", "=", id)
+				.execute();
+			void this.#audit?.record({
+				actor: { type: "system", id: "agent-routing" },
+				action: "task.agent_request",
+				target: { type: "task", id },
+				detail: { session },
+			});
+			return true;
+		});
+	}
+
+	/** The agent passed the request on to the user: the approval page takes it from here. */
+	escalateAgentDecision(id: string, session: string): Promise<boolean> {
+		return this.#serialResult(id, async () => {
+			const row = await this.#row(id);
+			if (row?.state !== "awaiting_approval") return false;
+			const record: ApprovalRecord = {
+				...(JSON.parse(row.approval ?? "{}") as ApprovalRecord),
+				agent: { session, state: "escalated" },
+			};
+			await this.#db
+				.updateTable("tasks")
+				.set({ approval: JSON.stringify(record) })
+				.where("id", "=", id)
+				.execute();
+			void this.#audit?.record({
+				actor: { type: "system", id: "agent-routing" },
+				action: "task.agent_escalated",
+				target: { type: "task", id },
+				detail: { session },
+			});
+			return true;
 		});
 	}
 

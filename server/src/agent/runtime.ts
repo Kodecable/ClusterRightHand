@@ -3,7 +3,6 @@ import {
 	type AgentEvent,
 	AssistantEntry,
 	type ConversationId,
-	configure,
 	createRegistry,
 	defineExtension,
 	defineTool,
@@ -11,19 +10,21 @@ import {
 	GenerationTask,
 	Harness,
 	hook,
+	type SettledSubmissionRecord,
 	type Storage,
 	type SubmissionId,
 	section,
 	type ToolRegistration,
+	ToolTask,
 	watchEvents,
 } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import * as z from "zod/v4";
 import type { Audit } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
-import type { Actor, Cluster } from "../cluster/cluster.ts";
-import type { TaskGroups } from "../cluster/task-groups.ts";
-import type { Preset } from "../policy/rules.ts";
+import { type Actor, type ApprovalRecord, type Cluster, summarize } from "../cluster/cluster.ts";
+import type { GroupApprovalRecord, TaskGroups } from "../cluster/task-groups.ts";
+import type { Preset, RuleSet } from "../policy/rules.ts";
 import { parseRuleSet } from "../policy/rules.ts";
 import {
 	createRootRuleSet,
@@ -63,6 +64,17 @@ export interface SessionView {
 	spend: Spend;
 }
 
+/** An approval handed to an ancestor session's agent (doc/agent-runtime.md#处理子会话的请求). */
+export interface AgentRequestView {
+	kind: "task" | "group";
+	id: string;
+	/** The subagent session whose task waits. */
+	sessionId: string;
+	summary: string;
+	nodeId: string | null;
+	createdAt: string;
+}
+
 /** What a UI receives: a snapshot to start from, then batches of events (pi-durable's agent events, for now). */
 export type SessionEvent = AgentEvent;
 
@@ -91,6 +103,7 @@ const SYSTEM_PROMPT = `You are ClusterRightHand, an assistant that operates the 
 - Commands and file changes may wait for the user's approval; a rejected task comes back with the user's reason. Respect it and do not try to get around it.
 - exec returns the end of long outputs and, when truncated, the path of the full output on the node; read it with read_file when needed.
 - A task can end "unknown": its outcome could not be confirmed. Check the node's state before retrying.
+- Delegate self-contained work to subagent; settle a subagent's requests with subagent_decide, and fetch a background subagent's answer with subagent_wait.
 - Be concise.`;
 
 type Row = {
@@ -103,6 +116,7 @@ type Row = {
 	status: "active" | "archived";
 	created_at: string;
 	updated_at: string;
+	last_submission_id: string | null;
 };
 
 export class AgentRuntime {
@@ -117,6 +131,8 @@ export class AgentRuntime {
 	#closing = false;
 	/** Times the Harness was reopened after a failure (tests, diagnostics). */
 	reopened = 0;
+	/** The instance the tools call back into; set once the Harness is open. */
+	#runtimeRef: { current?: AgentRuntime } = {};
 
 	private constructor(harness: Harness, options: AgentRuntimeOptions) {
 		this.#db = options.db;
@@ -128,9 +144,9 @@ export class AgentRuntime {
 		this.#groups = options.groups;
 	}
 
-	static async #openHarness(options: AgentRuntimeOptions): Promise<Harness> {
+	static async #openHarness(options: AgentRuntimeOptions, ref: { current?: AgentRuntime }): Promise<Harness> {
 		const registry = createRegistry();
-		registry.install(clusterExtension(options));
+		registry.install(clusterExtension(options, ref));
 		const storage = typeof options.storage === "function" ? await options.storage() : options.storage;
 		const harness = await Harness.open(
 			storage,
@@ -154,11 +170,21 @@ export class AgentRuntime {
 	}
 
 	static async open(options: AgentRuntimeOptions): Promise<AgentRuntime> {
-		const runtime = new AgentRuntime(await AgentRuntime.#openHarness(options), options);
-		// Auto Review for roots whose preset asks for it (tokens and sessions alike).
+		const ref: { current?: AgentRuntime } = {};
+		const runtime = new AgentRuntime(await AgentRuntime.#openHarness(options, ref), options);
+		runtime.#runtimeRef = ref;
+		ref.current = runtime;
+		// Auto Review for roots whose preset asks for it (tokens and sessions alike), then route child approvals
+		// to an ancestor's agent where the chain allows it.
 		const reviewer = new Reviewer(options.db, options.models, options.cluster, options.groups);
-		options.cluster.onAwaitingApproval = (task) => reviewer.reviewTask(task);
-		options.groups.onAwaitingApproval = (group) => reviewer.reviewGroup(group);
+		options.cluster.onAwaitingApproval = async (task) => {
+			await reviewer.reviewTask(task);
+			await runtime.#routeAwaiting("task", task.actorId, task.id, task.approval);
+		};
+		options.groups.onAwaitingApproval = async (group) => {
+			await reviewer.reviewGroup(group);
+			await runtime.#routeAwaiting("group", group.actorId, group.id, group.approval);
+		};
 		runtime.#supervise();
 		return runtime;
 	}
@@ -171,7 +197,7 @@ export class AgentRuntime {
 			for (let attempt = 0; !this.#closing; attempt++) {
 				await new Promise((r) => setTimeout(r, Math.min(30_000, 500 * 2 ** attempt)));
 				try {
-					this.#harness = await AgentRuntime.#openHarness(this.#options);
+					this.#harness = await AgentRuntime.#openHarness(this.#options, this.#runtimeRef);
 					this.reopened++;
 					this.#supervise();
 					return;
@@ -352,6 +378,20 @@ export class AgentRuntime {
 				}
 			}
 		}
+		// Subagents are ownerless conversations, so their abort is explicit (doc/agent-runtime.md#abort).
+		for (const id of sessions.slice(1)) {
+			const row = await this.#db
+				.selectFrom("sessions")
+				.select("conversation_id")
+				.where("id", "=", id)
+				.executeTakeFirst();
+			if (!row) continue;
+			const conversation = await this.#harness.conversation(
+				Number(row.conversation_id) as unknown as ConversationId,
+				this.#context,
+			);
+			await conversation?.abort(this.#context);
+		}
 	}
 
 	async #descendants(sessionId: string): Promise<string[]> {
@@ -408,6 +448,379 @@ export class AgentRuntime {
 		const shown = (e: AgentEvent) => (e as { message?: { role?: string } }).message?.role !== "system";
 		stream.start(async (events) => onEvents((events as SessionEvent[]).filter(shown)));
 		return () => stream.stop();
+	}
+
+	/** The session a conversation belongs to, for tool calls that only know their conversation id. */
+	async sessionAt(
+		conversationId: string,
+	): Promise<
+		{ id: string; ownerUserId: string; orgId: string; parentSessionId: string | null; model: ModelRef } | undefined
+	> {
+		const row = await this.#db
+			.selectFrom("sessions")
+			.selectAll()
+			.where("conversation_id", "=", conversationId)
+			.executeTakeFirst();
+		if (!row) return undefined;
+		return {
+			id: row.id,
+			ownerUserId: row.owner_user_id,
+			orgId: row.org_id,
+			parentSessionId: row.parent_session_id,
+			model: JSON.parse(row.model) as ModelRef,
+		};
+	}
+
+	/**
+	 * Creates (or, on a rerun of the same tool call, finds) a subagent's session: its own conversation, rule set and
+	 * budget, below the parent's chain (doc/agent-runtime.md#subagent). The child is ownerless so that a parent's
+	 * earlier return or abort does not kill it; the runtime cancels it explicitly.
+	 */
+	async createSubagent(
+		parentId: string,
+		input: { callKey: string; task: string; rules: RuleSet; budget: Budget | null },
+	): Promise<{ id: string; created: boolean }> {
+		const parent = await this.#db.selectFrom("sessions").selectAll().where("id", "=", parentId).executeTakeFirst();
+		if (!parent) throw new NotFoundError("no such session");
+		let depth = 0;
+		for (let id = parent.parent_session_id; id; depth++) {
+			id =
+				(await this.#db.selectFrom("sessions").select("parent_session_id").where("id", "=", id).executeTakeFirst())
+					?.parent_session_id ?? null;
+		}
+		if (depth >= MAX_SUBAGENT_DEPTH) throw new UserError(`subagents nest at most ${MAX_SUBAGENT_DEPTH} levels deep`);
+		await checkChildBudget(this.#db, parentId, input.budget);
+
+		const childId = derivedId(`subagent:${input.callKey}`);
+		if (await this.#db.selectFrom("sessions").select("id").where("id", "=", childId).executeTakeFirst()) {
+			return { id: childId, created: false };
+		}
+		const model = JSON.parse(parent.model) as ModelRef;
+		const conversation = await this.#harness.createConversation({ ownership: { kind: "ownerless" } }, this.#context);
+		await conversation.configure(
+			{
+				model: { provider: model.provider, modelId: model.modelId },
+				...(model.thinkingLevel ? { thinkingLevel: model.thinkingLevel } : {}),
+			},
+			this.#context,
+		);
+		const now = new Date().toISOString();
+		await this.#db.transaction().execute(async (trx) => {
+			await trx
+				.insertInto("sessions")
+				.values({
+					id: childId,
+					org_id: parent.org_id,
+					owner_user_id: parent.owner_user_id,
+					conversation_id: String(conversation.id),
+					parent_session_id: parent.id,
+					title: input.task.slice(0, 80),
+					model: parent.model,
+					status: "active",
+					created_at: now,
+					updated_at: now,
+					archived_at: null,
+				})
+				.execute();
+			await createRuleSet(trx, parent.org_id, { type: "session", id: childId }, input.rules);
+			if (input.budget) await setBudget(trx, { type: "session", id: childId }, input.budget);
+		});
+		void this.#audit?.record({
+			actor: {
+				type: parent.parent_session_id ? "subagent" : "session",
+				id: parent.id,
+				onBehalfOfUserId: parent.owner_user_id,
+			},
+			action: "session.subagent_created",
+			target: { type: "session", id: childId },
+			detail: { rules: input.rules, budget: input.budget },
+		});
+		return { id: childId, created: true };
+	}
+
+	/** Hands the parent's task text to the child; a rerun with the same requestId does not send it twice. */
+	async startSubagent(childId: string, text: string, requestId: string): Promise<string> {
+		const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", childId).executeTakeFirst();
+		if (!row) throw new NotFoundError("no such session");
+		const conversation = await this.#harness.conversation(
+			Number(row.conversation_id) as unknown as ConversationId,
+			this.#context,
+		);
+		if (!conversation) throw new NotFoundError("the subagent's conversation is missing");
+		const submission = await conversation.submit({ type: "input", content: text, requestId }, this.#context);
+		await this.#db
+			.updateTable("sessions")
+			.set({ last_submission_id: String(submission.id), updated_at: new Date().toISOString() })
+			.where("id", "=", childId)
+			.execute();
+		void this.#audit?.record({
+			actor: { type: "subagent", id: row.parent_session_id ?? childId, onBehalfOfUserId: row.owner_user_id },
+			action: "session.message",
+			target: { type: "session", id: childId },
+			detail: { submission_id: String(submission.id), chars: text.length },
+		});
+		return String(submission.id);
+	}
+
+	/**
+	 * Waits for the child's answer. With `attention`, an approval handed to this session's agent ends the wait early:
+	 * the parent decides with subagent_decide() and then waits again.
+	 */
+	async waitSubagent(
+		childId: string,
+		options: { attention?: boolean; signal?: AbortSignal } = {},
+	): Promise<
+		| { status: "done"; answer: string }
+		| { status: "unanswered"; reason: string }
+		| { status: "attention"; requests: AgentRequestView[] }
+	> {
+		const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", childId).executeTakeFirst();
+		if (!row) throw new NotFoundError("no such subagent session");
+		const submissionId = row.last_submission_id;
+		if (!submissionId) return { status: "unanswered", reason: "the subagent was never started" };
+		const context = options.signal ? withAbortSignal(options.signal, this.#context) : this.#context;
+		const submission = await this.#harness.submission(Number(submissionId) as unknown as SubmissionId, context);
+		if (!submission) return { status: "unanswered", reason: "the subagent's input is gone" };
+		const settled = submission.wait(context);
+		if (!options.attention) return this.#answerOf(childId, await settled);
+
+		let stopped = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const attention = new Promise<AgentRequestView[]>((resolve) => {
+			const poll = async () => {
+				if (stopped) return;
+				try {
+					const requests = await this.pendingAgentRequests(row.parent_session_id ?? childId);
+					if (requests.length > 0) return resolve(requests);
+				} catch {}
+				if (!stopped) timer = setTimeout(poll, 300);
+			};
+			timer = setTimeout(poll, 300);
+		});
+		const first = await Promise.race([
+			settled.then((s) => ({ kind: "settled" as const, s })),
+			attention.then((requests) => ({ kind: "attention" as const, requests })),
+		]);
+		stopped = true;
+		if (timer) clearTimeout(timer);
+		if (first.kind === "attention") {
+			void settled.catch(() => {});
+			return { status: "attention", requests: first.requests };
+		}
+		return this.#answerOf(childId, first.s);
+	}
+
+	async #answerOf(
+		childId: string,
+		settled: SettledSubmissionRecord,
+	): Promise<{ status: "done"; answer: string } | { status: "unanswered"; reason: string }> {
+		if (settled.status !== "done" || settled.type !== "input") {
+			return {
+				status: "unanswered",
+				reason: settled.status === "unanswered" ? String(settled.reason) : settled.status,
+			};
+		}
+		const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", childId).executeTakeFirst();
+		if (!row) throw new NotFoundError("no such subagent session");
+		const conversation = await this.#harness.conversation(
+			Number(row.conversation_id) as unknown as ConversationId,
+			this.#context,
+		);
+		if (!conversation) throw new NotFoundError("the subagent's conversation is missing");
+		const entry = await conversation.commit((tx) => tx.entry(AssistantEntry, settled.answer), this.#context);
+		const message = entry?.model?.[0] as { content?: { type: string; text?: string }[] } | undefined;
+		const answer = (message?.content ?? []).flatMap((c) => (c.type === "text" && c.text ? [c.text] : [])).join("");
+		return { status: "done", answer };
+	}
+
+	/** Requests waiting for this session's agent, and those of all its subagents. */
+	async pendingAgentRequests(sessionId: string): Promise<AgentRequestView[]> {
+		const ids = [sessionId, ...(await this.#descendants(sessionId))];
+		const out: AgentRequestView[] = [];
+		const tasks = await this.#db
+			.selectFrom("tasks")
+			.select(["id", "actor_id", "node_id", "spec", "approval", "created_at"])
+			.where("state", "=", "awaiting_approval")
+			.where("actor_id", "in", ids)
+			.execute();
+		for (const row of tasks) {
+			const approval = JSON.parse(row.approval ?? "{}") as ApprovalRecord;
+			if (approval.agent?.state !== "pending" || approval.agent.session !== sessionId) continue;
+			out.push({
+				kind: "task",
+				id: row.id,
+				sessionId: row.actor_id,
+				summary: summarize(row.spec),
+				nodeId: row.node_id,
+				createdAt: row.created_at,
+			});
+		}
+		const groups = await this.#db
+			.selectFrom("task_groups")
+			.select(["id", "actor_id", "spec", "approval", "created_at"])
+			.where("state", "=", "awaiting_approval")
+			.where("actor_id", "in", ids)
+			.execute();
+		for (const row of groups) {
+			const approval = JSON.parse(row.approval ?? "{}") as GroupApprovalRecord;
+			if (approval.agent?.state !== "pending" || approval.agent.session !== sessionId) continue;
+			out.push({
+				kind: "group",
+				id: row.id,
+				sessionId: row.actor_id,
+				summary: row.spec ? summarize(row.spec) : "",
+				nodeId: null,
+				createdAt: row.created_at,
+			});
+		}
+		return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+	}
+
+	/** The agent of `sessionId` settles a request it owns: approve, deny, or pass it on to the user. */
+	async decideAgentRequest(
+		sessionId: string,
+		requestId: string,
+		decision: "approve" | "deny" | "escalate",
+		reason?: string,
+	): Promise<"task" | "group"> {
+		const session = await this.#db.selectFrom("sessions").selectAll().where("id", "=", sessionId).executeTakeFirst();
+		if (!session) throw new NotFoundError("no such session");
+		const by = {
+			type: session.parent_session_id ? "subagent" : "session",
+			id: sessionId,
+			onBehalfOfUserId: session.owner_user_id,
+		};
+		const task = await this.#db
+			.selectFrom("tasks")
+			.select(["id", "state", "approval", "on_behalf_of_user_id"])
+			.where("id", "=", requestId)
+			.executeTakeFirst();
+		if (task) {
+			const approval = JSON.parse(task.approval ?? "{}") as ApprovalRecord;
+			if (approval.agent?.session !== sessionId || approval.agent.state !== "pending") {
+				throw new UserError("this request is not waiting for this session's agent");
+			}
+			if (decision === "escalate") {
+				if (!(await this.#cluster.escalateAgentDecision(requestId, sessionId)))
+					throw new UserError("the request is no longer waiting");
+			} else {
+				const at = new Date().toISOString();
+				const ok = await this.#cluster.decide(requestId, {
+					decision: decision === "approve" ? "approved" : "rejected",
+					by: { ...by, onBehalfOfUserId: task.on_behalf_of_user_id },
+					at,
+					...(reason ? { reason } : {}),
+				});
+				if (!ok) throw new UserError("the request is no longer waiting");
+			}
+			return "task";
+		}
+		const group = await this.#db
+			.selectFrom("task_groups")
+			.select(["id", "state", "approval", "on_behalf_of_user_id"])
+			.where("id", "=", requestId)
+			.executeTakeFirst();
+		if (!group) throw new NotFoundError("no such request");
+		const approval = JSON.parse(group.approval ?? "{}") as GroupApprovalRecord;
+		if (approval.agent?.session !== sessionId || approval.agent.state !== "pending") {
+			throw new UserError("this request is not waiting for this session's agent");
+		}
+		if (decision === "escalate") {
+			if (!(await this.#groups.escalateAgentDecision(requestId, sessionId)))
+				throw new UserError("the request is no longer waiting");
+		} else {
+			const ok = await this.#groups.decide(requestId, {
+				decision: decision === "approve" ? "approved" : "rejected",
+				by: { ...by, onBehalfOfUserId: group.on_behalf_of_user_id },
+				at: new Date().toISOString(),
+				...(reason ? { reason } : {}),
+			});
+			if (!ok) throw new UserError("the request is no longer waiting");
+		}
+		return "group";
+	}
+
+	/** The session's subagents, newest first, with what waits for this session's agent. */
+	async subagentSessions(
+		sessionId: string,
+	): Promise<
+		{ id: string; title: string; createdAt: string; lastSubmissionId: string | null; pending: AgentRequestView[] }[]
+	> {
+		const pending = await this.pendingAgentRequests(sessionId);
+		const rows = await this.#db
+			.selectFrom("sessions")
+			.selectAll()
+			.where("parent_session_id", "=", sessionId)
+			.orderBy("created_at", "desc")
+			.execute();
+		return rows.map((r) => ({
+			id: r.id,
+			title: r.title,
+			createdAt: r.created_at,
+			lastSubmissionId: r.last_submission_id,
+			pending: pending.filter((p) => p.sessionId === r.id),
+		}));
+	}
+
+	/** True when `childId` is this session's own subagent or below one (so it may wait for or stop it). */
+	async isDescendant(sessionId: string, childId: string): Promise<boolean> {
+		return (await this.#descendants(sessionId)).includes(childId);
+	}
+
+	/**
+	 * Routes a waiting approval up the chain (doc/agent-runtime.md#处理子会话的请求): the first ancestor whose effective
+	 * result is allow decides through its agent; the root's owner always decides.
+	 */
+	async #routeAwaiting(
+		kind: "task" | "group",
+		actorId: string,
+		requestId: string,
+		approval: ApprovalRecord | GroupApprovalRecord | null,
+	): Promise<void> {
+		if (!approval) return;
+		const evaluations = "evaluation" in approval ? [approval.evaluation] : approval.nodes.map((n) => n.evaluation);
+		if (evaluations.length === 0) return;
+		const actor = await this.#db.selectFrom("sessions").selectAll().where("id", "=", actorId).executeTakeFirst();
+		if (!actor?.parent_session_id) return;
+		// Walk up from the immediate parent; the root's approvals always go to its owner.
+		for (let id: string | null = actor.parent_session_id; id; ) {
+			const parent = await this.#db.selectFrom("sessions").selectAll().where("id", "=", id).executeTakeFirst();
+			if (!parent) return;
+			if (parent.parent_session_id === null) return;
+			const allows = evaluations.every((evaluation) => {
+				const level = evaluation.levels.find((l) => l.scope.type === "session" && l.scope.id === parent.id);
+				return level?.effective === "allow";
+			});
+			if (allows) {
+				const routed =
+					kind === "task"
+						? await this.#cluster.requestAgentDecision(requestId, parent.id)
+						: await this.#groups.requestAgentDecision(requestId, parent.id);
+				if (routed) await this.#wakeParent(parent, kind, requestId);
+				return;
+			}
+			id = parent.parent_session_id;
+		}
+	}
+
+	/** Wakes an idle parent with a follow-up input; a running parent sees the request through afterTool. */
+	async #wakeParent(parent: Row, kind: "task" | "group", requestId: string): Promise<void> {
+		const conversation = await this.#harness.conversation(
+			Number(parent.conversation_id) as unknown as ConversationId,
+			this.#context,
+		);
+		if (!conversation) return;
+		const state = await conversation.viewState(this.#context);
+		const live = state.value.docs["pi.live"] as { run?: unknown } | undefined;
+		state.dispose();
+		if (live?.run) return;
+		const text =
+			`A subagent request is waiting for you: ${kind} ${requestId}. ` +
+			`Check it with subagent_list, then call subagent_decide("${requestId}", "approve" | "deny" | "escalate", reason?).`;
+		await conversation.submit(
+			{ type: "input", content: text, requestId: `agent-request:${kind}:${requestId}` },
+			this.#context,
+		);
 	}
 
 	/** Waits for a submission to settle: the answer's text, or why it went unanswered. */
@@ -485,7 +898,15 @@ async function toolContextFor(
 	};
 }
 
-function clusterExtension(options: AgentRuntimeOptions): Extension {
+function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: AgentRuntime }): Extension {
+	const requestJson = (r: AgentRequestView) => ({
+		kind: r.kind,
+		id: r.id,
+		session_id: r.sessionId,
+		summary: r.summary,
+		node_id: r.nodeId,
+		created_at: r.createdAt,
+	});
 	const sessionOf = async (conversationId: unknown) =>
 		(
 			await options.db
@@ -495,6 +916,23 @@ function clusterExtension(options: AgentRuntimeOptions): Extension {
 				.executeTakeFirst()
 		)?.id;
 	const hooks = [
+		hook(ToolTask, {
+			// Every tool result reminds the parent of subagent requests it must settle (doc/agent-runtime.md#处理子会话的请求).
+			afterTool: async (call, result, api) => {
+				if (call.parent) return undefined;
+				const runtime = runtimeRef.current;
+				if (!runtime) return undefined;
+				const session = await runtime.sessionAt(String(api.conversationId));
+				if (!session) return undefined;
+				const pending = await runtime.pendingAgentRequests(session.id);
+				if (pending.length === 0) return undefined;
+				const lines = pending.map((r) => `${r.kind} ${r.id}: ${r.summary}`);
+				const hint =
+					`\n\nSubagent requests waiting for your decision:\n- ${lines.join("\n- ")}\n` +
+					'Call subagent_decide(request_id, "approve" | "deny" | "escalate", reason?).';
+				return { ...result, output: [...(result.output ?? []), { type: "text", text: hint }] };
+			},
+		}),
 		hook(GenerationTask, {
 			// Spend counts at every level; a level over budget stops its whole subtree (doc/agent-runtime.md#预算).
 			afterResponse: async (message, api) => {
@@ -555,9 +993,9 @@ function clusterExtension(options: AgentRuntimeOptions): Extension {
 	const subagent: ToolRegistration = defineTool({
 		name: "subagent",
 		description:
-			"Delegate a self-contained task to a subagent: a separate session that uses the same tools and answers " +
-			"back. Give it rules to narrow what it may do (it can never do more than you); its approvals go to the " +
-			"user. Returns the subagent's answer.",
+			"Delegate a self-contained task to a subagent: a separate session with the same tools that answers back. " +
+			"Give it rules to narrow what it may do (it can never do more than you). Its approvals may come to you " +
+			"(subagent_decide); in the background it returns at once and the answer comes with subagent_wait.",
 		parameters: Type.Object({
 			task: Type.String({ description: "What the subagent should do, with all the context it needs" }),
 			rules: Type.Optional(
@@ -571,86 +1009,151 @@ function clusterExtension(options: AgentRuntimeOptions): Extension {
 			budget: Type.Optional(
 				Type.Object({ tokens: Type.Optional(Type.Integer()), costUsd: Type.Optional(Type.Number()) }),
 			),
+			background: Type.Optional(
+				Type.Boolean({ description: "Return at once with the session id; fetch the answer with subagent_wait" }),
+			),
 		}),
-		// A rerun after a restart finds the child session, conversation and submission it made before.
+		// A rerun after a restart finds the child session and submission it made before.
 		replay: "safe",
 		execute: async (args, api, context) => {
-			const parent = await options.db
-				.selectFrom("sessions")
-				.selectAll()
-				.where("conversation_id", "=", String(api.conversationId))
-				.executeTakeFirst();
+			const runtime = runtimeRef.current;
+			if (!runtime) throw new Error("the agent runtime is not ready");
+			const parent = await runtime.sessionAt(String(api.conversationId));
 			if (!parent) throw new Error("this conversation is not a ClusterRightHand session");
-			let depth = 0;
-			for (let id = parent.parent_session_id; id; depth++) {
-				id =
-					(await options.db.selectFrom("sessions").select("parent_session_id").where("id", "=", id).executeTakeFirst())
-						?.parent_session_id ?? null;
-			}
-			if (depth >= MAX_SUBAGENT_DEPTH) throw new Error(`subagents nest at most ${MAX_SUBAGENT_DEPTH} levels deep`);
 			const rules = args.rules ? parseRuleSet(args.rules, false) : { default: "inherit" as const, rules: [] };
 			const budget = args.budget ? parseBudget(args.budget) : null;
-			await checkChildBudget(options.db, parent.id, budget);
-
-			const childId = derivedId(`subagent:${String(api.taskId)}`);
-			const conversationId = await api.commit(async (tx) => {
-				const existing = (await tx.scanConversations({ ownerTaskId: api.taskId }, 1)).items[0];
-				if (existing !== undefined) return existing.id;
-				// A copy of this conversation's agent; the subagent tool is gone at the depth limit.
-				const created = await tx.createConversation({ ownership: { kind: "task", taskId: api.taskId } });
-				if (depth + 1 >= MAX_SUBAGENT_DEPTH) await configure(tx, created.id, { tools: { remove: [subagent] } });
-				return created.id;
-			}, context);
-			if (!(await options.db.selectFrom("sessions").select("id").where("id", "=", childId).executeTakeFirst())) {
-				const now = new Date().toISOString();
-				await options.db.transaction().execute(async (trx) => {
-					await trx
-						.insertInto("sessions")
-						.values({
-							id: childId,
-							org_id: parent.org_id,
-							owner_user_id: parent.owner_user_id,
-							conversation_id: String(conversationId),
-							parent_session_id: parent.id,
-							title: args.task.slice(0, 80),
-							model: parent.model,
-							status: "active",
-							created_at: now,
-							updated_at: now,
-							archived_at: null,
-						})
-						.execute();
-					await createRuleSet(trx, parent.org_id, { type: "session", id: childId }, rules);
-					if (budget) await setBudget(trx, { type: "session", id: childId }, budget);
-				});
-				void options.audit?.record({
-					actor: { type: "session", id: parent.id, onBehalfOfUserId: parent.owner_user_id },
-					action: "session.subagent_created",
-					target: { type: "session", id: childId },
-					detail: { rules, budget },
-				});
-			}
+			const child = await runtime.createSubagent(parent.id, {
+				callKey: String(api.taskId),
+				task: args.task,
+				rules,
+				budget,
+			});
 			// A UI watching the parent finds the child here.
-			await api.details({ sessionId: childId }, context);
-			const child = await api.conversation(conversationId, context);
-			if (!child) throw new Error("the subagent's conversation is missing");
-			const request = { type: "input", content: args.task, requestId: `subagent:${String(api.taskId)}` } as const;
-			const settled = await (await child.submit(request, context)).wait(context);
-			if (settled.status !== "done" || settled.type !== "input") {
-				throw new Error(
-					`the subagent did not answer (${settled.status === "unanswered" ? settled.reason : settled.status})`,
-				);
+			await api.details({ sessionId: child.id }, context);
+			await runtime.startSubagent(child.id, args.task, `subagent:${String(api.taskId)}`);
+			if (args.background) {
+				return {
+					output: [
+						{
+							type: "text",
+							text: `Subagent started in the background (session ${child.id}). Get its answer with subagent_wait("${child.id}").`,
+						},
+					],
+					details: { sessionId: child.id, requests: [] },
+				};
 			}
-			const entry = await api.commit((tx) => tx.entry(AssistantEntry, settled.answer), context);
-			const message = entry?.model?.[0] as { content?: { type: string; text?: string }[] } | undefined;
-			const text = (message?.content ?? []).flatMap((c) => (c.type === "text" && c.text ? [c.text] : [])).join("");
-			return { output: [{ type: "text", text: text || "(no answer)" }], details: { sessionId: childId } };
+			const result = await runtime.waitSubagent(child.id, { attention: true, signal: context.abortSignal });
+			if (result.status === "attention") {
+				const what = result.requests.map((r) => `${r.kind} ${r.id} (${r.summary})`).join("; ");
+				return {
+					output: [
+						{
+							type: "text",
+							text:
+								`The subagent is waiting for your decision: ${what}. ` +
+								`Call subagent_decide(request_id, "approve" | "deny" | "escalate", reason?), then ` +
+								`subagent_wait("${child.id}") for its answer.`,
+						},
+					],
+					details: { sessionId: child.id, requests: result.requests.map(requestJson) },
+				};
+			}
+			if (result.status === "unanswered") throw new Error(`the subagent did not answer (${result.reason})`);
+			return {
+				output: [{ type: "text", text: result.answer || "(no answer)" }],
+				details: { sessionId: child.id, requests: [] },
+			};
+		},
+	}) as unknown as ToolRegistration;
+
+	const subagentWait: ToolRegistration = defineTool({
+		name: "subagent_wait",
+		description: "Wait for a subagent's answer; returns at once if it waits for your decision.",
+		parameters: Type.Object({
+			id: Type.String({ description: "The subagent's session id" }),
+			attention: Type.Optional(
+				Type.Boolean({ description: "Stop waiting when it needs your decision (default true)" }),
+			),
+		}),
+		execute: async (args, api, context) => {
+			const runtime = runtimeRef.current;
+			if (!runtime) throw new Error("the agent runtime is not ready");
+			const session = await runtime.sessionAt(String(api.conversationId));
+			if (!session) throw new Error("this conversation is not a ClusterRightHand session");
+			if (!(await runtime.isDescendant(session.id, args.id))) throw new Error("not one of your subagents");
+			const result = await runtime.waitSubagent(args.id, {
+				attention: args.attention !== false,
+				signal: context.abortSignal,
+			});
+			if (result.status === "attention") {
+				const what = result.requests.map((r) => `${r.kind} ${r.id} (${r.summary})`).join("; ");
+				return {
+					output: [{ type: "text", text: `Still waiting for your decision: ${what}.` }],
+					details: { requests: result.requests.map(requestJson) },
+				};
+			}
+			if (result.status === "unanswered") throw new Error(`the subagent did not answer (${result.reason})`);
+			return { output: [{ type: "text", text: result.answer || "(no answer)" }] };
+		},
+	}) as unknown as ToolRegistration;
+
+	const subagentList: ToolRegistration = defineTool({
+		name: "subagent_list",
+		description: "List your subagents and the requests waiting for your decision.",
+		parameters: Type.Object({}),
+		execute: async (_args, api) => {
+			const runtime = runtimeRef.current;
+			if (!runtime) throw new Error("the agent runtime is not ready");
+			const session = await runtime.sessionAt(String(api.conversationId));
+			if (!session) throw new Error("this conversation is not a ClusterRightHand session");
+			return {
+				output: [
+					{ type: "text", text: JSON.stringify({ subagents: await runtime.subagentSessions(session.id) }, null, 2) },
+				],
+			};
+		},
+	}) as unknown as ToolRegistration;
+
+	const subagentCancel: ToolRegistration = defineTool({
+		name: "subagent_cancel",
+		description: "Stop one of your subagents and its running work.",
+		parameters: Type.Object({ id: Type.String({ description: "The subagent's session id" }) }),
+		execute: async (args, api) => {
+			const runtime = runtimeRef.current;
+			if (!runtime) throw new Error("the agent runtime is not ready");
+			const session = await runtime.sessionAt(String(api.conversationId));
+			if (!session) throw new Error("this conversation is not a ClusterRightHand session");
+			if (!(await runtime.isDescendant(session.id, args.id))) throw new Error("not one of your subagents");
+			await runtime.abort(args.id);
+			return { output: [{ type: "text", text: `Stopped subagent ${args.id}.` }] };
+		},
+	}) as unknown as ToolRegistration;
+
+	const subagentDecide: ToolRegistration = defineTool({
+		name: "subagent_decide",
+		description:
+			"Settle a subagent request that was handed to you: approve, deny, or escalate it to the user. " +
+			"Only requests listed by subagent_list or attached to a tool result are yours.",
+		parameters: Type.Object({
+			request_id: Type.String({ description: "The task or task group id of the request" }),
+			decision: Type.Union([Type.Literal("approve"), Type.Literal("deny"), Type.Literal("escalate")]),
+			reason: Type.Optional(Type.String({ description: "Why; shown to the subagent and in the audit log" })),
+		}),
+		execute: async (args, api) => {
+			const runtime = runtimeRef.current;
+			if (!runtime) throw new Error("the agent runtime is not ready");
+			const session = await runtime.sessionAt(String(api.conversationId));
+			if (!session) throw new Error("this conversation is not a ClusterRightHand session");
+			const kind = await runtime.decideAgentRequest(session.id, args.request_id, args.decision, args.reason);
+			const what =
+				args.decision === "escalate" ? "passed to the user" : args.decision === "approve" ? "approved" : "denied";
+			return { output: [{ type: "text", text: `The ${kind} request ${args.request_id} was ${what}.` }] };
 		},
 	}) as unknown as ToolRegistration;
 
 	return defineExtension({
 		name: "crh",
-		tools: [...tools, subagent],
+		tools: [...tools, subagent, subagentWait, subagentList, subagentCancel, subagentDecide],
 		sections: [section("crh", () => SYSTEM_PROMPT, { tag: false })],
 		hooks,
 	});
