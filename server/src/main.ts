@@ -3,6 +3,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { serve } from "@hono/node-server";
 import { getConnInfo } from "@hono/node-server/conninfo";
+import { ModelConfig } from "./agent/models.ts";
+import { AgentRuntime } from "./agent/runtime.ts";
 import { createApp } from "./api/app.ts";
 import { Audit } from "./audit/audit.ts";
 import { deleteExpiredWebSessions } from "./auth/sessions.ts";
@@ -15,7 +17,7 @@ import { TaskGroups } from "./cluster/task-groups.ts";
 import { type Config, DEFAULT_CONFIG_PATH, loadConfig } from "./config.ts";
 import { buildKeyExport, decryptKeyExport, encryptKeyExport, verifyKeyExportAgainstDb } from "./keys/export.ts";
 import { bindMasterKey, KeyError, MasterKey, readMasterKeyFile, writeMasterKeyFile } from "./keys/master-key.ts";
-import { type Db, openDb } from "./storage/db.ts";
+import { type Db, openAgentStorage, openDb } from "./storage/db.ts";
 import { migrateToLatest } from "./storage/migrate.ts";
 import { createUser, findUserByUsername, setPassword, UserError } from "./users/service.ts";
 
@@ -154,6 +156,17 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	const agents = new AgentServer(db, identity, cluster, audit);
 	const taskGroups = new TaskGroups(db, cluster, { audit });
 	await taskGroups.recover();
+	const models = new ModelConfig(db, masterKey);
+	await models.reload();
+	const agentStorage = await openAgentStorage(config.database);
+	const runtime = await AgentRuntime.open({
+		db,
+		storage: agentStorage.storage,
+		models,
+		cluster,
+		groups: taskGroups,
+		audit,
+	});
 	const app = createApp(db, {
 		clientAddress: (c) => getConnInfo(c).remote.address,
 		serverFingerprint: identity.fingerprint,
@@ -163,6 +176,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		masterKey,
 		webRoot: config.webRoot,
 		audit,
+		agent: { runtime, models },
 	});
 	const server = serve({ fetch: app.fetch, hostname: config.listen.host, port: config.listen.port }, (info) => {
 		console.log(`crhs listening on http://${info.address}:${info.port} (identity ${identity.fingerprint})`);
@@ -174,6 +188,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	for (const signal of ["SIGINT", "SIGTERM"] as const) {
 		process.once(signal, () => {
 			clearInterval(sweep);
+			void runtime.close().then(() => agentStorage.close());
 			cluster.close();
 			agents.close();
 			server.close();

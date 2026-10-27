@@ -3,13 +3,18 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { fauxProvider } from "@earendil-works/pi-ai/providers/faux";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { serve } from "@hono/node-server";
+import { ModelConfig } from "../../src/agent/models.ts";
+import { AgentRuntime } from "../../src/agent/runtime.ts";
 import { type AppOptions, createApp } from "../../src/api/app.ts";
 import { Audit } from "../../src/audit/audit.ts";
 import { LoginLimiter } from "../../src/auth/login-limiter.ts";
 import { AgentServer } from "../../src/cluster/agent-server.ts";
 import { Cluster, type ClusterOptions } from "../../src/cluster/cluster.ts";
 import { loadServerIdentity, type ServerIdentity } from "../../src/cluster/identity.ts";
+import { TaskGroups } from "../../src/cluster/task-groups.ts";
 import { MasterKey } from "../../src/keys/master-key.ts";
 import type { Db } from "../../src/storage/db.ts";
 import { createUser } from "../../src/users/service.ts";
@@ -79,16 +84,34 @@ export class InProcessCrhs {
 	cookie = "";
 	#agents!: AgentServer;
 	#server?: ReturnType<typeof serve>;
+	/** With `agentDir`: the agent runtime, on durable storage in that directory, with pi-ai's faux model. */
+	readonly agentDir: string | undefined;
+	readonly faux = fauxProvider();
+	runtime: AgentRuntime | undefined;
+	models: ModelConfig | undefined;
 
-	private constructor(db: Db, clusterOptions: ClusterOptions, appOptions: Partial<AppOptions>) {
+	private constructor(
+		db: Db,
+		clusterOptions: ClusterOptions,
+		appOptions: Partial<AppOptions>,
+		agentDir: string | undefined,
+	) {
 		this.db = db;
 		this.clusterOptions = clusterOptions;
 		this.appOptions = appOptions;
+		this.agentDir = agentDir;
 	}
 
-	/** `appOptions` adds to the createApp options (e.g. webRoot for the WebUI tests). */
-	static async create(opts: ClusterOptions = {}, appOptions: Partial<AppOptions> = {}): Promise<InProcessCrhs> {
-		const crhs = new InProcessCrhs(await openTestDb("sqlite"), opts, appOptions);
+	/**
+	 * `appOptions` adds to the createApp options (e.g. webRoot for the WebUI tests); `agentDir` enables sessions
+	 * (the faux model is `faux/<this.faux.getModel().id>`; script it with `this.faux.setResponses`).
+	 */
+	static async create(
+		opts: ClusterOptions = {},
+		appOptions: Partial<AppOptions> = {},
+		agentDir?: string,
+	): Promise<InProcessCrhs> {
+		const crhs = new InProcessCrhs(await openTestDb("sqlite"), opts, appOptions, agentDir);
 		crhs.identity = await loadServerIdentity(crhs.db, crhs.masterKey);
 		await crhs.#listen(0);
 		return crhs;
@@ -102,7 +125,25 @@ export class InProcessCrhs {
 		this.audit = new Audit(this.db);
 		this.cluster = new Cluster(this.db, { ...this.clusterOptions, audit: this.audit });
 		this.#agents = new AgentServer(this.db, this.identity, this.cluster, this.audit);
+		const taskGroups = new TaskGroups(this.db, this.cluster, { audit: this.audit });
+		let agent: AppOptions["agent"];
+		if (this.agentDir) {
+			this.models = new ModelConfig(this.db, this.masterKey);
+			this.models.addProvider(this.faux.provider);
+			await this.models.reload();
+			this.runtime = await AgentRuntime.open({
+				db: this.db,
+				storage: await openNodeSqliteStorage(join(this.agentDir, "durable.sqlite"), { prefix: "pi_" }),
+				models: this.models,
+				cluster: this.cluster,
+				groups: taskGroups,
+				audit: this.audit,
+			});
+			agent = { runtime: this.runtime, models: this.models };
+		}
 		const app = createApp(this.db, {
+			taskGroups,
+			...(agent ? { agent } : {}),
 			serverFingerprint: this.identity.fingerprint,
 			serverPublicKey: this.identity.keyPair.publicKey,
 			cluster: this.cluster,
@@ -127,6 +168,8 @@ export class InProcessCrhs {
 	async stop(): Promise<void> {
 		const server = this.#server;
 		this.#server = undefined;
+		await this.runtime?.close();
+		this.runtime = undefined;
 		this.cluster.close();
 		this.#agents.close();
 		if (server) {
@@ -224,11 +267,12 @@ export class Env {
 		dir: string,
 		opts: ClusterOptions = {},
 		appOptions: Partial<AppOptions> = {},
+		{ agent = false }: { agent?: boolean } = {},
 	): Promise<Env> {
 		const env = new Env();
 		env.bin = bin;
 		env.dir = await mkdtemp(join(dir, "env-"));
-		env.crhs = await InProcessCrhs.create(opts, appOptions);
+		env.crhs = await InProcessCrhs.create(opts, appOptions, agent ? join(env.dir, "agent") : undefined);
 		await env.crhs.loginAdmin();
 		await writeFile(join(env.dir, "crha.toml"), `server = "${env.crhs.url}"\nstate_dir = "${join(env.dir, "crha")}"\n`);
 		env.configPath = join(env.dir, "crha.toml");

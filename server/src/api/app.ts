@@ -1,6 +1,8 @@
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { sql } from "kysely";
+import type { ModelConfig } from "../agent/models.ts";
+import type { AgentRuntime } from "../agent/runtime.ts";
 import { Audit } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import { TaskGroups } from "../cluster/task-groups.ts";
@@ -12,6 +14,7 @@ import type { AppEnv } from "./context.ts";
 import { csrfGuard, requireUser } from "./middleware.ts";
 import { nodeRoutes } from "./node-routes.ts";
 import { policyRoutes } from "./policy-routes.ts";
+import { sessionRoutes } from "./session-routes.ts";
 import { sshRoutes } from "./ssh-routes.ts";
 import { taskRoutes } from "./task-routes.ts";
 import { userRoutes } from "./user-routes.ts";
@@ -29,6 +32,8 @@ export interface AppOptions extends AuthRoutesOptions {
 	webRoot?: string;
 	/** The audit log; one is created when omitted. */
 	audit?: Audit;
+	/** The agent runtime and its models; without them there are no sessions. */
+	agent?: { runtime: AgentRuntime; models: ModelConfig };
 }
 
 export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
@@ -65,6 +70,12 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 		const groups = options.taskGroups ?? new TaskGroups(db, options.cluster, { audit });
 		app.route("/api", taskRoutes(db, options.cluster, groups));
 		app.route("/api", policyRoutes(db, options.cluster, groups, audit));
+		if (options.agent && options.masterKey) {
+			app.route(
+				"/api",
+				sessionRoutes(db, { ...options.agent, masterKey: options.masterKey, cluster: options.cluster, groups }),
+			);
+		}
 		// Bearer-token authenticated, outside /api's cookie sessions and CSRF guard.
 		app.route("/", mcpRoutes(db, { cluster: options.cluster, groups, audit }));
 	}
