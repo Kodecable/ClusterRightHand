@@ -52,6 +52,13 @@ interface AgentRuntime {
 - durable 要求同一存储只被一个进程打开：PG 下 `PgStorage` 在独立连接上持有 `pg_try_advisory_lock`，拿不到就拒绝打开，锁连接断开后存储拒绝一切操作；SQLite 下 crhs 本身是单进程。
 - durable 的提交不能和业务写入放进同一个事务。两边的一致性通过幂等保证：`requestId`、由 durable 工具任务 id 派生的 Cluster 任务 id。
 
+## 模型配置
+
+- 管理员在 WebUI 的模型设置里添加 provider：pi-ai 内置的 provider（DeepSeek、Anthropic 等），或任意 OpenAI 兼容端点（`base_url` + 模型列表）。
+- API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引用，接口从不返回 key 本身。
+- OpenAI 兼容端点可以配置额外请求头（`model_providers.headers`，迁移 0011），用于网关必需的路由头，例如 opencode zen 的 `x-opencode-session`；凭据仍放在 API key 字段。
+- crhs 只从数据库读配置，不读环境变量，避免部署环境的变量悄悄改变行为。
+
 ## Cluster 工具
 
 工具只定义一次（`ToolCatalog`：名称、描述、参数 JSON Schema、处理函数），分别适配为 durable 的 `defineTool` 和 MCP 工具。
@@ -89,7 +96,7 @@ interface AgentRuntime {
 
 - 会话属于创建它的用户。会话能做什么，由操作者链上的授权规则和预算决定，见 [access-control.md](access-control.md#授权规则)。
 - 会话记录在业务表 `sessions` 中，`conversation_id` 关联 durable 的 Conversation。
-- WebUI 通过 `watch` 订阅会话视图，经 WebSocket 推送增量。
+- WebUI 通过 `watch` 订阅会话视图，经 SSE（`/api/sessions/:id/events`）推送增量。
 - 开启自动压缩，阈值由模型的上下文窗口决定（参数见下文"默认值"）。
 - 会话可以分享给其他用户或用户组（`view` / `chat`）。被分享的用户发消息时，会话仍以所有者的身份行事，见 [access-control.md](access-control.md#归属与分享)；实际发消息的用户记录在审计中。
 
@@ -102,7 +109,13 @@ interface AgentRuntime {
 - 嵌套深度有上限（默认 2）。
 - 父会话 abort 时，子会话一并 abort，它们正在运行的任务被取消、等待审批的任务被拒绝。
 
-**当前实现（M3）**：`subagent(task, rules?, budget?)` 只有前台方式。子会话是独立的会话（`sessions.parent_session_id`），对话由这次工具调用的 durable 任务拥有，工具 `replay: "safe"`，重启后找回同一个子会话和提交；规则是完整的非根规则集，只能收紧；预算不能超过上面每一级的剩余。子会话的审批**直接交给用户**（审批页），父会话的 agent 暂不参与判断；下面"前台与后台""处理子会话的请求"所述的打断、`subagent_wait`、`subagent_decide` 留到后续。
+**当前实现（M3）**：
+
+- `subagent(task, rules?, budget?, background?)` 建立独立会话（`sessions.parent_session_id`），对话是 **ownerless** 的，因此父会话停止等待不会连带终止它；父会话 abort 时由运行时显式取消整棵子树（D75）。
+- 前台方式等待答案；子会话的请求交给父会话的 agent 时，等待提前返回，父会话处理后再 `subagent_wait`。`background: true` 立即返回会话 id。
+- `subagent_wait(id)`、`subagent_list()`、`subagent_cancel(id)`、`subagent_decide(request_id, decision, reason?)` 都已实现。
+- 工具 `replay: "safe"`：重启后按 durable 任务 id 找回同一个子会话和提交（`sessions.last_submission_id`）。
+- 规则是完整的非根规则集，只能收紧；预算不能超过上面每一级的剩余；嵌套最多两层。
 
 ### 前台与后台
 
@@ -115,10 +128,17 @@ interface AgentRuntime {
 
 ### 处理子会话的请求
 
-- 子会话的审批和追加预算请求，按 [access-control.md](access-control.md#审批向上传递) 向上传递到父会话时，由父会话的 agent **在自己的会话中**处理，调用 `subagent_decide(request_id, approve | deny | escalate, …)`。
-- **其他任何工具调用返回时**，如果有子会话在等待处理，都会在结果末尾自动附上提示（哪个子会话、什么请求），所以父会话不会错过。实现上使用 durable 的 `afterTool` 钩子。
-- 父会话空闲（没有正在进行的运行）时，以 follow-up 输入的方式把提示提交给父会话，唤醒它处理。
-- 其他工具：`subagent_list`（列出子会话及其状态、待处理请求）、`subagent_cancel(id)`。
+- 任务开始等待审批后，运行时沿规则链向上找第一个"对这一操作的有效结果是 allow"的祖先会话；若它本身也是 subagent（不是根），请求交给它的 agent（`approval.agent = { session, state: "pending" }`）。
+- 父会话的 agent 用 `subagent_decide(request_id, "approve" | "deny" | "escalate", reason?)` 处理：批准/拒绝直接落到任务上（审计里 actor 是父会话）；`escalate` 把请求交还用户，审批页照常显示。
+- **任何工具调用返回时**，只要还有属于它的待处理请求，结果末尾会附上提示（任务/任务组 id、摘要），所以父会话不会错过；实现用 durable 的 `afterTool` 钩子。
+- 父会话空闲（没有正在进行的运行）时，以 follow-up 输入的方式提交一条提示并唤醒它；如果父会话正在等这次的子会话，则靠前台等待的提前返回，不再额外提交。
+- 预算的"追加"还没有实现：预算不足时仍直接拒绝（D73 只覆盖了审批这条路径）。
+
+### 后台与生命周期
+
+- 子会话是 ownerless 对话：父会话的 abort 不会自动到达它们。`AgentRuntime.abort` 遍历 `parent_session_id` 子树，取消任务并 abort 各自的对话。
+- 前台等待被打断后，子会话继续运行；父会话可以在同一轮里先 `subagent_decide`，再 `subagent_wait`。
+- 重启后，父会话的 `subagent` 工具重跑（`replay: "safe"`），按同一个 `requestId` 重新挂到已有提交；`subagent_wait` 用 `sessions.last_submission_id` 找回它。
 
 ## 默认值
 
@@ -203,9 +223,11 @@ PG 存储需要单独用官方的 `storage-benchmark` 测试，因为每次提�
 ### 3. 故障注入
 
 - 工具执行中杀掉服务端进程，重启后验证：exec 重新挂接到同一个 Cluster 任务；结果正确写回会话。（`test/e2e/crash.e2e.test.ts`：真实 crhs 进程 SIGKILL，模型是 OpenAI 兼容的假服务器；`agent-session.e2e.test.ts`：进程内关闭再打开）
-- 模型流式输出中杀进程，验证会话可以继续。（尚未覆盖）
+- 模型流式输出中杀进程，验证会话可以继续，且最终只有一个答案（`test/e2e/crash.e2e.test.ts`：假 OpenAI 服务器先发一段再停顿，SIGKILL 后重启，等待恢复出的答案）。
 - 存储写入失败，验证 Harness 关闭并由我们的监督逻辑重新打开。（`agent-session.e2e.test.ts`，注入一次提交失败）
 
 ### 4. 真实模型冒烟
 
 用便宜的模型跑少量端到端用例，覆盖 faux 测不到的真实 provider 流式和解析路径。changelog 中"500KB 工具参数耗 20 秒 CPU"的问题在 faux 下无法复现，需要在这里验证。
+
+2026-10-27 用 opencode zen 的 `deepseek-v4.1-flash` 手工跑过：在 WebUI 里新建会话、模型调用 `list_nodes`、读回工具结果并作答，流式输出、思考块和工具卡片都正常；网关要求的 `x-opencode-session` 请求头通过 provider 的额外请求头配置（迁移 0011）发送。冒烟不在 CI 中运行（需要外部 key）。

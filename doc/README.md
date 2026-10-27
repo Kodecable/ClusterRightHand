@@ -129,4 +129,6 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D70 | durable 存储：SQLite 用官方 `SqliteStorage`（`pi_` 前缀，同一数据库文件）；PostgreSQL 用从官方 1.4.0 移植的 `PgStorage`；两者都跑官方一致性测试 | 默认后端不承担移植风险；PG 没有官方实现 |
 | D71 | durable 工具全部声明 `replay: "safe"`：Cluster 任务 id 由 durable 任务 id 派生（UUIDv8），重跑时找到同一个任务；agent 的工具调用一直等待审批，默认等待结果 10 分钟 | 服务端重启后工具重跑不会重复执行命令 |
 | D72 | 预算在每次模型响应后检查（durable 1.4.0 没有请求前的拦截点）；超出后工具不执行并以 `terminate` 结束运行，最多超出一次响应 | 不依赖异步 abort 的时序 |
-| D73 | M3 的 subagent 只有前台方式，子会话的审批直接交给用户；由父会话 agent 判断（D37、D41）留到后台 subagent 一起做 | 前台等待中的父会话无法处理请求；先保证规则收紧、预算和恢复正确 |
+| D73 | M3 的 subagent 只有前台方式，子会话的审批直接交给用户；由父会话 agent 判断（D37、D41）留到后台 subagent 一起做 | 前台等待中的父会话无法处理请求；先保证规则收紧、预算和恢复正确（D75 已补上） |
+| D74 | OpenAI 兼容端点可以在 provider 上配置额外请求头（`model_providers.headers`，迁移 0011）；凭据仍只放在加密的 API key 里 | 网关常要求路由头（opencode zen 的 `x-opencode-session`），但不应把密钥往头里塞 |
+| D75 | subagent 的子会话是 ownerless 会话（`sessions.parent_session_id`），不用 durable 的"任务拥有的对话"；前台等待在子会话的请求交给父会话 agent 时提前返回，父会话用 `subagent_wait` / `subagent_decide` / `subagent_list` / `subagent_cancel` 处理；父会话 abort 时显式取消整棵子树 | durable 1.4.0 的前台子会话无法在工具返回后存活；ownerless + 显式取消让"打断后转后台"和重启恢复都可控 |

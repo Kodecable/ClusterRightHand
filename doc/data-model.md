@@ -104,11 +104,14 @@ rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,
 
 ```
 sessions          (id, org_id, owner_user_id, conversation_id, parent_session_id nullable,
-                   actor_chain json,                    -- 从用户到本会话的完整链
-                   title, model_ref, status, created_at, archived_at)   -- 规则和预算在 rule_sets
+                   title, model json, status, created_at, updated_at, archived_at,
+                   last_submission_id nullable,         -- 最近一次输入；父会话靠它 subagent_wait
+                   used_tokens, used_cost_microusd)     -- 本会话及其 subagent 的累计消耗；规则和预算在 rule_sets
 usage_ledger      (id, org_id, session_id, chain json, input_tokens, output_tokens, cost, created_at)
                   -- 按链逐级汇总，用于预算检查
-model_providers   (id, org_id, provider, config json, secret_id, enabled)
+model_providers   (id, org_id, provider_id, kind[builtin|openai-compatible], builtin, name, base_url,
+                   secret_id, models json, headers json, enabled)
+                  -- key 在 secrets；headers 只放网关路由头，不放凭据
 ```
 
 ## 计划任务

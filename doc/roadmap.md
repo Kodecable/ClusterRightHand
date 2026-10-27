@@ -33,7 +33,7 @@
 
 **完成标志**：Claude Code 通过 MCP 管理节点，所有操作都能在审计中查到。
 
-## M3 Agent 运行时（进行中，见下文"进度"）
+## M3 Agent 运行时（已完成，见下文"进度"）
 
 - `SqlStorage` 实现，官方一致性测试在 SQLite 和 PG 上通过。
 - `AgentRuntime` 接口与 durable 实现；cluster 工具适配；exec 的 `replay: "safe"` 与重新挂接。
@@ -43,7 +43,7 @@
 - 节点笔记（节点上的文件；`node_info` 自动返回）。
 - 性能回归测试与故障注入测试（见 [agent-runtime.md](agent-runtime.md#测试策略)）。
 
-**完成标志**：在 WebUI 中通过会话管理多台节点；服务端在工具执行中途重启后，会话能继续，结果正确。
+**完成标志**：在 WebUI 中通过会话管理多台节点；服务端在工具执行中途重启后，会话能继续，结果正确。已完成（2026-10-27）：真实模型冒烟与浏览器走查手工执行，其余有自动化测试。
 
 ## M4 提权
 
@@ -87,6 +87,6 @@
   - API token 与 `/mcp`（官方 SDK v2，无状态）；ToolCatalog（zod）供 M3 复用。
   - 测试：规则引擎、审计链、token、审批 API、审计事件；MCP e2e（MCP 客户端 + 真实 crha）；WebUI 浏览器测试（token、审批、审计）。
   - 未完成：Auto Review（需要模型，M3）；审计链头外送（后续）。
-- **M3**：进行中。
-  - 已完成：durable 运行时（SQLite 官方存储、PostgreSQL `PgStorage`，均通过官方一致性测试）；会话与 cluster 工具（`replay: "safe"`，重启后重新挂接）；模型配置（内置 provider、OpenAI 兼容端点）；WebUI 会话页（SSE 流式）与模型设置；预算（D72）；前台 subagent（D73）；Auto Review；节点笔记；停止会话时取消其任务；存储失败后重新打开 Harness；故障注入（SIGKILL）与性能回归测试。
-  - 未完成：真实模型冒烟测试；会话分享（view / chat）；后台 subagent 与父会话 agent 处理子会话请求（`subagent_wait` / `subagent_decide`）；模型流式输出中杀进程的测试。
+- **M3**：已完成（2026-10-27）。
+  - durable 运行时（SQLite 官方存储、PostgreSQL `PgStorage`，均通过官方一致性测试）；会话与 cluster 工具（`replay: "safe"`，重启后重新挂接）；模型配置（内置 provider、OpenAI 兼容端点、额外请求头）；WebUI 会话页（SSE 流式）与模型设置；预算（D72）；subagent（前台/后台、`subagent_wait` / `list` / `cancel` / `decide`，父会话 agent 处理子会话审批，D75）；Auto Review；节点笔记；会话分享（view / chat）；停止会话时取消其任务和子会话；存储失败后重新打开 Harness；故障注入（工具执行中 SIGKILL、模型流式输出中 SIGKILL）与性能回归测试。
+  - 真实模型冒烟（opencode zen `deepseek-v4.1-flash`）与 WebUI 浏览器走查手工完成，不在 CI 中。
