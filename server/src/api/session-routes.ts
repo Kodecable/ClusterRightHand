@@ -1,5 +1,6 @@
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { parseBudget } from "../agent/budget.ts";
 import {
 	builtinProviderIds,
 	type CompatibleModel,
@@ -127,6 +128,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			model: parseModel(body.model),
 			preset: parsePreset(body.preset ?? "ask"),
 			...(typeof body.title === "string" ? { title: body.title } : {}),
+			...(body.budget !== undefined ? { budget: parseBudget(body.budget) } : {}),
 		});
 		return c.json({ session }, 201);
 	});
@@ -145,7 +147,16 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			...(typeof body.title === "string" ? { title: body.title } : {}),
 			...(body.model !== undefined ? { model: parseModel(body.model) } : {}),
 			...(preset ? { preset } : {}),
+			...(body.budget !== undefined ? { budget: parseBudget(body.budget) } : {}),
 		});
+		if (body.budget !== undefined) {
+			void c.get("audit").record({
+				actor: userActor(c.get("user")),
+				action: "rules.changed",
+				target: { type: "session", id: s.id },
+				detail: { budget: body.budget },
+			});
+		}
 		if (preset) {
 			void c.get("audit").record({
 				actor: userActor(c.get("user")),

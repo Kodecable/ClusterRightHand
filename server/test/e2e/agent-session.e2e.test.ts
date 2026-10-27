@@ -104,6 +104,36 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		}
 	});
 
+	it("stops a run once the budget is used up, and refuses new messages until it is raised", async () => {
+		const runtime = await open();
+		try {
+			const session = await runtime.createSession(owner, { model, preset: "yolo", budget: { tokens: 100 } });
+			// One response that uses up the budget and asks for a tool call that must not run.
+			const costly = fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, cmd: "echo nope" }, { id: "c1" })], {
+				stopReason: "toolUse",
+			});
+			faux.setResponses([costly, fauxAssistantMessage([fauxText("should not get here")])]);
+			const calls = faux.state.callCount;
+			const sub = await runtime.submit(session.id, owner, "spend", "r1");
+			expect((await runtime.waitSubmission(session.id, sub)).status).toBe("done");
+			// The run ended after the costly response: no second request, and the tool ran nothing.
+			expect(faux.state.callCount - calls).toBe(1);
+			const view = await runtime.getSession(session.id);
+			// faux reports its own usage estimate, well above the budget.
+			expect(view?.spend.tokens).toBeGreaterThanOrEqual(100);
+			const tasks = await env.crhs.db.selectFrom("tasks").select("id").where("actor_id", "=", session.id).execute();
+			expect(tasks).toEqual([]);
+			await expect(runtime.submit(session.id, owner, "more", "r2")).rejects.toThrow(/budget/);
+			// Raising the budget lets the session continue.
+			await runtime.configure(session.id, { budget: { tokens: 10_000 } });
+			faux.setResponses([fauxAssistantMessage([fauxText("back")])]);
+			const again = await runtime.submit(session.id, owner, "more", "r3");
+			expect(await runtime.waitSubmission(session.id, again)).toEqual({ status: "done", answer: "back" });
+		} finally {
+			await runtime.close();
+		}
+	});
+
 	it("reattaches to the same Cluster task after crhs restarts mid-call", async () => {
 		let runtime = await open();
 		const session = await runtime.createSession(owner, { model, preset: "yolo" });

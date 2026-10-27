@@ -7,7 +7,9 @@ import {
 	defineExtension,
 	defineTool,
 	type Extension,
+	GenerationTask,
 	Harness,
+	hook,
 	type Storage,
 	type SubmissionId,
 	section,
@@ -25,6 +27,7 @@ import type { Db } from "../storage/db.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
 import { defaultOrgId, NotFoundError, UserError } from "../users/service.ts";
 import { newId } from "../util/id.ts";
+import { type Budget, exhaustedLevel, recordSpend, type Spend, setBudget, spendOf } from "./budget.ts";
 import type { ModelConfig, ModelRef } from "./models.ts";
 
 /**
@@ -42,6 +45,10 @@ export interface SessionView {
 	createdAt: string;
 	updatedAt: string;
 	rules: StoredRuleSet | null;
+	/** From the session's rule set; null: unlimited. */
+	budget: Budget | null;
+	/** Spent by this session and its subagents. */
+	spend: Spend;
 }
 
 /** What a UI receives: a snapshot to start from, then batches of events (pi-durable's agent events, for now). */
@@ -119,7 +126,7 @@ export class AgentRuntime {
 
 	async createSession(
 		owner: SessionUser,
-		input: { title?: string; model: ModelRef; preset: Preset; instructions?: string },
+		input: { title?: string; model: ModelRef; preset: Preset; instructions?: string; budget?: Budget | null },
 	): Promise<SessionView> {
 		this.#models.assertAvailable(input.model);
 		const conversation = await this.#harness.createConversation(
@@ -154,6 +161,7 @@ export class AgentRuntime {
 				})
 				.execute();
 			await createRootRuleSet(trx, orgId, { type: "session", id }, input.preset);
+			if (input.budget) await setBudget(trx, { type: "session", id }, input.budget);
 		});
 		void this.#audit?.record({
 			actor: { type: "user", id: owner.userId, onBehalfOfUserId: owner.userId },
@@ -181,6 +189,7 @@ export class AgentRuntime {
 	}
 
 	async #view(row: Row): Promise<SessionView> {
+		const rules = (await getRuleSet(this.#db, { type: "session", id: row.id })) ?? null;
 		return {
 			id: row.id,
 			title: row.title,
@@ -190,7 +199,9 @@ export class AgentRuntime {
 			status: row.status,
 			createdAt: row.created_at,
 			updatedAt: row.updated_at,
-			rules: (await getRuleSet(this.#db, { type: "session", id: row.id })) ?? null,
+			rules,
+			budget: (rules?.budget as Budget | undefined) ?? null,
+			spend: await spendOf(this.#db, row.id),
 		};
 	}
 
@@ -212,6 +223,14 @@ export class AgentRuntime {
 	async submit(sessionId: string, by: SessionUser, text: string, requestId: string): Promise<string> {
 		const { row, conversation } = await this.#conversation(sessionId);
 		if (row.status !== "active") throw new UserError("the session is archived");
+		const over = await exhaustedLevel(this.#db, sessionId);
+		if (over) {
+			throw new UserError(
+				over === sessionId
+					? "the session's budget is used up; raise it to continue"
+					: "a parent session's budget is used up",
+			);
+		}
 		const submission = await conversation.submit({ type: "input", content: text, requestId }, this.#context);
 		await this.#db
 			.updateTable("sessions")
@@ -235,7 +254,7 @@ export class AgentRuntime {
 
 	async configure(
 		sessionId: string,
-		change: { title?: string; model?: ModelRef; preset?: Preset },
+		change: { title?: string; model?: ModelRef; preset?: Preset; budget?: Budget | null },
 	): Promise<SessionView> {
 		const { row, conversation } = await this.#conversation(sessionId);
 		if (change.model) {
@@ -250,6 +269,7 @@ export class AgentRuntime {
 		}
 		if (change.preset && row.parent_session_id === null)
 			await setPreset(this.#db, { type: "session", id: sessionId }, change.preset);
+		if (change.budget !== undefined) await setBudget(this.#db, { type: "session", id: sessionId }, change.budget);
 		await this.#db
 			.updateTable("sessions")
 			.set({
@@ -351,6 +371,33 @@ async function toolContextFor(
 }
 
 function clusterExtension(options: AgentRuntimeOptions): Extension {
+	const sessionOf = async (conversationId: unknown) =>
+		(
+			await options.db
+				.selectFrom("sessions")
+				.select("id")
+				.where("conversation_id", "=", String(conversationId))
+				.executeTakeFirst()
+		)?.id;
+	const hooks = [
+		hook(GenerationTask, {
+			// Spend counts at every level; a level over budget stops its whole subtree (doc/agent-runtime.md#预算).
+			afterResponse: async (message, api) => {
+				const sessionId = await sessionOf(api.conversationId);
+				if (!sessionId || !message.usage) return;
+				await recordSpend(options.db, sessionId, message.usage.totalTokens, message.usage.cost.total);
+				const over = await exhaustedLevel(options.db, sessionId);
+				// The tool calls of this response end the run (below); a response without them ends it anyway.
+				if (over) {
+					void options.audit?.record({
+						actor: { type: "system", id: "budget" },
+						action: "session.budget_exhausted",
+						target: { type: "session", id: over },
+					});
+				}
+			},
+		}),
+	];
 	const tools = TOOLS.map((tool) =>
 		defineTool({
 			name: tool.name,
@@ -361,6 +408,13 @@ function clusterExtension(options: AgentRuntimeOptions): Extension {
 			replay: "safe",
 			execute: async (args, api, context) => {
 				const base = await toolContextFor(options, String(api.conversationId));
+				// Over budget: run nothing and end the run without another model request.
+				if (await exhaustedLevel(options.db, base.actor.id)) {
+					return {
+						output: [{ type: "text", text: "The budget is used up; nothing was run and the run ends here." }],
+						control: { terminate: true },
+					};
+				}
 				void options.audit?.record({
 					actor: { type: base.actor.type, id: base.actor.id, onBehalfOfUserId: base.actor.onBehalfOfUserId },
 					action: "tool.call",
@@ -387,5 +441,6 @@ function clusterExtension(options: AgentRuntimeOptions): Extension {
 		name: "crh",
 		tools,
 		sections: [section("crh", () => SYSTEM_PROMPT, { tag: false })],
+		hooks,
 	});
 }
