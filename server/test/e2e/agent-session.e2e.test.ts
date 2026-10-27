@@ -134,6 +134,118 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		}
 	});
 
+	describe("subagents", () => {
+		const lastText = (context: { messages: { role: string; content: unknown }[] }) => {
+			const m = context.messages.at(-1) as { content: { type: string; text?: string }[] | string };
+			return typeof m.content === "string" ? m.content : (m.content[0]?.text ?? "");
+		};
+
+		it("runs a child session whose rules can only tighten the parent's", async () => {
+			const runtime = await open();
+			try {
+				const session = await runtime.createSession(owner, { model, preset: "yolo" });
+				let childSaw = "";
+				let parentSaw = "";
+				faux.setResponses([
+					// parent: delegate with a read-only rule set
+					fauxAssistantMessage(
+						[
+							fauxToolCall(
+								"subagent",
+								{
+									task: "check the node",
+									rules: { default: "deny", rules: [{ action: "allow", method: "file.read" }] },
+								},
+								{ id: "p1" },
+							),
+						],
+						{ stopReason: "toolUse" },
+					),
+					// child: tries a command, which its own rules deny although the parent is yolo
+					fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, cmd: "echo child" }, { id: "k1" })], {
+						stopReason: "toolUse",
+					}),
+					(context) => {
+						childSaw = lastText(context);
+						return fauxAssistantMessage([fauxText("child: denied")]);
+					},
+					(context) => {
+						parentSaw = lastText(context);
+						return fauxAssistantMessage([fauxText("parent done")]);
+					},
+				]);
+				const sub = await runtime.submit(session.id, owner, "delegate", "r1");
+				expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "parent done" });
+				expect(JSON.parse(childSaw)).toMatchObject({ state: "denied", error: { code: "policy_denied" } });
+				expect(parentSaw).toBe("child: denied");
+				const child = await env.crhs.db
+					.selectFrom("sessions")
+					.selectAll()
+					.where("parent_session_id", "=", session.id)
+					.executeTakeFirstOrThrow();
+				const task = await env.crhs.db
+					.selectFrom("tasks")
+					.selectAll()
+					.where("actor_id", "=", child.id)
+					.executeTakeFirstOrThrow();
+				expect(task).toMatchObject({ actor_type: "subagent", state: "denied" });
+				expect(JSON.parse(task.rule_chain ?? "[]")).toEqual([
+					{ type: "session", id: session.id },
+					{ type: "session", id: child.id },
+				]);
+			} finally {
+				await runtime.close();
+			}
+		});
+
+		it("sends a child's approval to the user", async () => {
+			const runtime = await open();
+			try {
+				const session = await runtime.createSession(owner, { model, preset: "ask" });
+				faux.setResponses([
+					fauxAssistantMessage([fauxToolCall("subagent", { task: "say hi" }, { id: "p1" })], { stopReason: "toolUse" }),
+					fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, argv: ["echo", "from-child"] }, { id: "k1" })], {
+						stopReason: "toolUse",
+					}),
+					fauxAssistantMessage([fauxText("child ok")]),
+					fauxAssistantMessage([fauxText("parent ok")]),
+				]);
+				const sub = await runtime.submit(session.id, owner, "delegate", "r1");
+				const waiting = await waitFor("the child's task waiting", async () => {
+					const { tasks } = (await env.crhs.api("/api/approvals")).json;
+					return tasks.find((t: { actorType: string }) => t.actorType === "subagent");
+				});
+				expect(waiting.ruleChain[0]).toEqual({ type: "session", id: session.id });
+				await env.crhs.api(`/api/tasks/${waiting.id}/approval`, { body: { decision: "approve" } });
+				expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "parent ok" });
+			} finally {
+				await runtime.close();
+			}
+		});
+
+		it("refuses a child budget larger than what the parent has left", async () => {
+			const runtime = await open();
+			try {
+				const session = await runtime.createSession(owner, { model, preset: "yolo", budget: { tokens: 1_000_000 } });
+				let saw = "";
+				faux.setResponses([
+					fauxAssistantMessage([fauxToolCall("subagent", { task: "x", budget: { tokens: 5_000_000 } }, { id: "p1" })], {
+						stopReason: "toolUse",
+					}),
+					(context) => {
+						saw = lastText(context);
+						return fauxAssistantMessage([fauxText("ok")]);
+					},
+				]);
+				const sub = await runtime.submit(session.id, owner, "delegate", "r1");
+				await runtime.waitSubmission(session.id, sub);
+				expect(saw).toMatch(/exceeds what is left/);
+			} finally {
+				await runtime.close();
+			}
+		});
+	});
+
 	it("reattaches to the same Cluster task after crhs restarts mid-call", async () => {
 		let runtime = await open();
 		const session = await runtime.createSession(owner, { model, preset: "yolo" });

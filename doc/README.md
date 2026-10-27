@@ -129,3 +129,4 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D70 | durable 存储：SQLite 用官方 `SqliteStorage`（`pi_` 前缀，同一数据库文件）；PostgreSQL 用从官方 1.4.0 移植的 `PgStorage`；两者都跑官方一致性测试 | 默认后端不承担移植风险；PG 没有官方实现 |
 | D71 | durable 工具全部声明 `replay: "safe"`：Cluster 任务 id 由 durable 任务 id 派生（UUIDv8），重跑时找到同一个任务；agent 的工具调用一直等待审批，默认等待结果 10 分钟 | 服务端重启后工具重跑不会重复执行命令 |
 | D72 | 预算在每次模型响应后检查（durable 1.4.0 没有请求前的拦截点）；超出后工具不执行并以 `terminate` 结束运行，最多超出一次响应 | 不依赖异步 abort 的时序 |
+| D73 | M3 的 subagent 只有前台方式，子会话的审批直接交给用户；由父会话 agent 判断（D37、D41）留到后台 subagent 一起做 | 前台等待中的父会话无法处理请求；先保证规则收紧、预算和恢复正确 |

@@ -3,6 +3,7 @@ import {
 	type AgentEvent,
 	AssistantEntry,
 	type ConversationId,
+	configure,
 	createRegistry,
 	defineExtension,
 	defineTool,
@@ -13,6 +14,7 @@ import {
 	type Storage,
 	type SubmissionId,
 	section,
+	type ToolRegistration,
 	watchEvents,
 } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
@@ -22,12 +24,20 @@ import type { SessionUser } from "../auth/sessions.ts";
 import type { Actor, Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import type { Preset } from "../policy/rules.ts";
-import { createRootRuleSet, getRuleSet, type RuleRef, type StoredRuleSet, setPreset } from "../policy/store.ts";
+import { parseRuleSet } from "../policy/rules.ts";
+import {
+	createRootRuleSet,
+	createRuleSet,
+	getRuleSet,
+	type RuleRef,
+	type StoredRuleSet,
+	setPreset,
+} from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
 import { defaultOrgId, NotFoundError, UserError } from "../users/service.ts";
-import { newId } from "../util/id.ts";
-import { type Budget, exhaustedLevel, recordSpend, type Spend, setBudget, spendOf } from "./budget.ts";
+import { derivedId, newId } from "../util/id.ts";
+import { type Budget, exhaustedLevel, parseBudget, recordSpend, type Spend, setBudget, spendOf } from "./budget.ts";
 import type { ModelConfig, ModelRef } from "./models.ts";
 
 /**
@@ -484,10 +494,136 @@ function clusterExtension(options: AgentRuntimeOptions): Extension {
 			},
 		}),
 	);
+	const subagent: ToolRegistration = defineTool({
+		name: "subagent",
+		description:
+			"Delegate a self-contained task to a subagent: a separate session that uses the same tools and answers " +
+			"back. Give it rules to narrow what it may do (it can never do more than you); its approvals go to the " +
+			"user. Returns the subagent's answer.",
+		parameters: Type.Object({
+			task: Type.String({ description: "What the subagent should do, with all the context it needs" }),
+			rules: Type.Optional(
+				Type.Unsafe<Record<string, unknown>>({
+					type: "object",
+					description:
+						'Rules on top of yours, e.g. {"default":"deny","rules":[{"action":"allow","method":"file.read"}]}; ' +
+						"actions allow|deny|require-approval, methods exec|file.read|file.write, nodes, exact|prefix",
+				}),
+			),
+			budget: Type.Optional(
+				Type.Object({ tokens: Type.Optional(Type.Integer()), costUsd: Type.Optional(Type.Number()) }),
+			),
+		}),
+		// A rerun after a restart finds the child session, conversation and submission it made before.
+		replay: "safe",
+		execute: async (args, api, context) => {
+			const parent = await options.db
+				.selectFrom("sessions")
+				.selectAll()
+				.where("conversation_id", "=", String(api.conversationId))
+				.executeTakeFirst();
+			if (!parent) throw new Error("this conversation is not a ClusterRightHand session");
+			let depth = 0;
+			for (let id = parent.parent_session_id; id; depth++) {
+				id =
+					(await options.db.selectFrom("sessions").select("parent_session_id").where("id", "=", id).executeTakeFirst())
+						?.parent_session_id ?? null;
+			}
+			if (depth >= MAX_SUBAGENT_DEPTH) throw new Error(`subagents nest at most ${MAX_SUBAGENT_DEPTH} levels deep`);
+			const rules = args.rules ? parseRuleSet(args.rules, false) : { default: "inherit" as const, rules: [] };
+			const budget = args.budget ? parseBudget(args.budget) : null;
+			await checkChildBudget(options.db, parent.id, budget);
+
+			const childId = derivedId(`subagent:${String(api.taskId)}`);
+			const conversationId = await api.commit(async (tx) => {
+				const existing = (await tx.scanConversations({ ownerTaskId: api.taskId }, 1)).items[0];
+				if (existing !== undefined) return existing.id;
+				// A copy of this conversation's agent; the subagent tool is gone at the depth limit.
+				const created = await tx.createConversation({ ownership: { kind: "task", taskId: api.taskId } });
+				if (depth + 1 >= MAX_SUBAGENT_DEPTH) await configure(tx, created.id, { tools: { remove: [subagent] } });
+				return created.id;
+			}, context);
+			if (!(await options.db.selectFrom("sessions").select("id").where("id", "=", childId).executeTakeFirst())) {
+				const now = new Date().toISOString();
+				await options.db.transaction().execute(async (trx) => {
+					await trx
+						.insertInto("sessions")
+						.values({
+							id: childId,
+							org_id: parent.org_id,
+							owner_user_id: parent.owner_user_id,
+							conversation_id: String(conversationId),
+							parent_session_id: parent.id,
+							title: args.task.slice(0, 80),
+							model: parent.model,
+							status: "active",
+							created_at: now,
+							updated_at: now,
+							archived_at: null,
+						})
+						.execute();
+					await createRuleSet(trx, parent.org_id, { type: "session", id: childId }, rules);
+					if (budget) await setBudget(trx, { type: "session", id: childId }, budget);
+				});
+				void options.audit?.record({
+					actor: { type: "session", id: parent.id, onBehalfOfUserId: parent.owner_user_id },
+					action: "session.subagent_created",
+					target: { type: "session", id: childId },
+					detail: { rules, budget },
+				});
+			}
+			// A UI watching the parent finds the child here.
+			await api.details({ sessionId: childId }, context);
+			const child = await api.conversation(conversationId, context);
+			if (!child) throw new Error("the subagent's conversation is missing");
+			const request = { type: "input", content: args.task, requestId: `subagent:${String(api.taskId)}` } as const;
+			const settled = await (await child.submit(request, context)).wait(context);
+			if (settled.status !== "done" || settled.type !== "input") {
+				throw new Error(
+					`the subagent did not answer (${settled.status === "unanswered" ? settled.reason : settled.status})`,
+				);
+			}
+			const entry = await api.commit((tx) => tx.entry(AssistantEntry, settled.answer), context);
+			const message = entry?.model?.[0] as { content?: { type: string; text?: string }[] } | undefined;
+			const text = (message?.content ?? []).flatMap((c) => (c.type === "text" && c.text ? [c.text] : [])).join("");
+			return { output: [{ type: "text", text: text || "(no answer)" }], details: { sessionId: childId } };
+		},
+	}) as unknown as ToolRegistration;
+
 	return defineExtension({
 		name: "crh",
-		tools,
+		tools: [...tools, subagent],
 		sections: [section("crh", () => SYSTEM_PROMPT, { tag: false })],
 		hooks,
 	});
+}
+
+/** Subagent sessions nest at most this deep below a root session (doc/agent-runtime.md#subagent). */
+export const MAX_SUBAGENT_DEPTH = 2;
+
+/** A child's budget cannot exceed what is left of every level above it. */
+async function checkChildBudget(db: Db, parentId: string, budget: Budget | null): Promise<void> {
+	for (let id: string | null = parentId; id; ) {
+		const rules = await db
+			.selectFrom("rule_sets")
+			.select("budget")
+			.where("scope_type", "=", "session")
+			.where("scope_id", "=", id)
+			.executeTakeFirst();
+		if (rules?.budget) {
+			const limit = JSON.parse(rules.budget) as Budget;
+			const spend = await spendOf(db, id);
+			const left = {
+				tokens: (limit.tokens ?? Infinity) - spend.tokens,
+				costUsd: (limit.costUsd ?? Infinity) - spend.costUsd,
+			};
+			if (!budget) throw new Error("give the subagent a budget: a session above it has one");
+			if ((budget.tokens ?? Infinity) > left.tokens || (budget.costUsd ?? Infinity) > left.costUsd) {
+				throw new Error(`the subagent's budget exceeds what is left above it (${JSON.stringify(left)})`);
+			}
+		}
+		id =
+			(await db.selectFrom("sessions").select("parent_session_id").where("id", "=", id).executeTakeFirst())
+				?.parent_session_id ?? null;
+	}
 }

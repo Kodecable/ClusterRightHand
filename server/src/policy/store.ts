@@ -68,6 +68,24 @@ export async function createRootRuleSet(db: Db, orgId: string, ref: RuleRef, pre
 		.execute();
 }
 
+/** Creates the rule set of a lower level (a subagent): full rules, no preset; it can only tighten. */
+export async function createRuleSet(db: Db, orgId: string, ref: RuleRef, set: RuleSet): Promise<void> {
+	await db
+		.insertInto("rule_sets")
+		.values({
+			id: newId(),
+			org_id: orgId,
+			scope_type: ref.type,
+			scope_id: ref.id,
+			preset: null,
+			default_action: set.default,
+			rules: JSON.stringify(set.rules),
+			budget: null,
+			updated_at: new Date().toISOString(),
+		})
+		.execute();
+}
+
 /** Changes a root's preset; the rules added on top are kept. */
 export async function setPreset(db: Db, ref: RuleRef, preset: Preset): Promise<void> {
 	const res = await db
