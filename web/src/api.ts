@@ -291,6 +291,8 @@ export interface SessionView {
 	rules: StoredRuleSet | null;
 	/** The caller's access: the owner, an administrator, or a user the session is shared with. */
 	access: SessionAccess;
+	/** Whether the caller may send messages (owner, chat share, or an administrator explicitly shared chat). */
+	canChat: boolean;
 	ownerUsername: string | null;
 	/** Subagent state: active, awaiting, stopped (roots stay active). */
 	state: "active" | "awaiting" | "stopped";

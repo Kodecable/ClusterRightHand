@@ -15,8 +15,8 @@ import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
 import {
 	listSessionShares,
 	type SessionAccess,
-	type SessionShareAccess,
 	sessionAccess,
+	sessionCanChat,
 	sharedSessionAccess,
 	shareSession,
 	unshareSession,
@@ -149,16 +149,21 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		return c.json({ model });
 	});
 
-	// ---- sessions: the owner, users it is shared with (view / chat), and administrators (look, do not drive) ----
+	// ---- sessions: the owner, users it is shared with (view / chat), and administrators (view unless shared chat) ----
 
-	type Visible = { session: SessionView; access: SessionAccess };
+	type Visible = { session: SessionView; access: SessionAccess; canChat: boolean };
 
 	/** The session and what the caller may do with it; undefined when they cannot see it. */
 	const visible = async (c: Context<AppEnv>, id: string): Promise<Visible | undefined> => {
-		const access = await sessionAccess(db, c.get("user"), id);
+		const user = c.get("user");
+		const access = await sessionAccess(db, user, id);
 		if (!access) return undefined;
 		const session = await runtime.getSession(id);
-		return session ? { session, access } : undefined;
+		if (!session) return undefined;
+		// Administrators are view-only by default; an explicit chat share is needed to drive.
+		const canChat =
+			access === "owner" || access === "chat" || (access === "admin" && (await sessionCanChat(db, user, id)));
+		return { session, access, canChat };
 	};
 	const usernames = async (ids: string[]): Promise<Map<string, string>> =>
 		new Map(
@@ -172,8 +177,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	const decorate = async (c: Context<AppEnv>, views: SessionView[]) => {
 		const user = c.get("user");
 		const names = await usernames([...new Set(views.map((v) => v.ownerUserId))]);
-		const shared =
-			user.kind === "admin" ? new Map<string, SessionShareAccess>() : await sharedSessionAccess(db, user.userId);
+		const shared = await sharedSessionAccess(db, user.userId);
 		return views.map((v) => ({
 			...v,
 			access:
@@ -182,6 +186,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 					: user.kind === "admin"
 						? ("admin" as const)
 						: (shared.get(v.id) ?? ("view" as const)),
+			canChat: v.ownerUserId === user.userId || shared.get(v.id) === "chat",
 			ownerUsername: names.get(v.ownerUserId) ?? null,
 		}));
 	};
@@ -213,7 +218,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		// A subagent inherits its root's share; `decorate` only knows direct shares, so use what `visible` resolved.
 		const viewed = (await decorate(c, [session]))[0];
 		return c.json({
-			session: { ...viewed, access: v.access },
+			session: { ...viewed, access: v.access, canChat: v.canChat },
 			...(canShare ? { shares: await listSessionShares(db, session.id) } : {}),
 		});
 	});
@@ -311,7 +316,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.post("/sessions/:id/messages", async (c) => {
 		const v = await visible(c, c.req.param("id"));
 		if (!v) return jsonError(c, 404, "no such session");
-		if (v.access !== "owner" && v.access !== "chat") return jsonError(c, 403, "chat access is required");
+		if (!v.canChat) return jsonError(c, 403, "chat access is required");
 		const body = await readJsonObject(c);
 		const text = typeof body?.text === "string" ? body.text.trim() : "";
 		const requestId = typeof body?.requestId === "string" && body.requestId ? body.requestId.slice(0, 200) : undefined;
@@ -324,7 +329,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.post("/sessions/:id/abort", async (c) => {
 		const v = await visible(c, c.req.param("id"));
 		if (!v) return jsonError(c, 404, "no such session");
-		if (v.access !== "owner" && v.access !== "chat") return jsonError(c, 403, "chat access is required");
+		if (!v.canChat) return jsonError(c, 403, "chat access is required");
 		await runtime.abort(v.session.id, c.get("user"));
 		return c.json({ ok: true });
 	});

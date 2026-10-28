@@ -225,11 +225,7 @@ export function SessionPage({ id }: { id: string }) {
 					}
 				})}
 			</div>
-			<Composer
-				id={id}
-				running={state.running}
-				canChat={session.data.access === "owner" || session.data.access === "chat"}
-			/>
+			<Composer id={id} running={state.running} canChat={session.data.canChat} />
 			{(session.data.access === "owner" || session.data.access === "admin") && (
 				<Shares target="session" id={id} shares={session.data.shares ?? []} onChange={session.reload} />
 			)}

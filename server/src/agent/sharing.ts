@@ -64,6 +64,23 @@ export async function sharedSessionAccess(
 	return out;
 }
 
+/** Strongest share on the session or one of its ancestors; a subagent is reached through its root. */
+async function shareAccessFor(
+	db: Db,
+	shares: Map<string, SessionShareAccess>,
+	sessionId: string,
+): Promise<SessionShareAccess | undefined> {
+	let access: SessionShareAccess | undefined;
+	for (let id: string | null = sessionId; id; ) {
+		const found = shares.get(id);
+		if (found) access = stronger(access, found);
+		if (access === "chat") break;
+		const parent = await db.selectFrom("sessions").select("parent_session_id").where("id", "=", id).executeTakeFirst();
+		id = parent?.parent_session_id ?? null;
+	}
+	return access;
+}
+
 /** What the user may do with the session: undefined if they cannot see it. Shares on an ancestor reach it. */
 export async function sessionAccess(db: Db, user: SessionUser, sessionId: string): Promise<SessionAccess | undefined> {
 	const row = await db
@@ -74,17 +91,22 @@ export async function sessionAccess(db: Db, user: SessionUser, sessionId: string
 	if (!row) return undefined;
 	if (row.owner_user_id === user.userId) return "owner";
 	if (user.kind === "admin") return "admin";
-	// A subagent is shared through its root: shares live on sessions, and the root's share covers its subtree.
-	const shares = await sharedSessionAccess(db, user.userId);
-	let access: SessionShareAccess | undefined;
-	for (let id: string | null = sessionId; id; ) {
-		const found = shares.get(id);
-		if (found) access = stronger(access, found);
-		if (access === "chat") break;
-		const parent = await db.selectFrom("sessions").select("parent_session_id").where("id", "=", id).executeTakeFirst();
-		id = parent?.parent_session_id ?? null;
-	}
-	return access;
+	return shareAccessFor(db, await sharedSessionAccess(db, user.userId), sessionId);
+}
+
+/**
+ * Whether the user may drive the session: the owner, or a share with `chat` on the session or an ancestor.
+ * Administrators are view-only unless they are explicitly shared chat (or own the session).
+ */
+export async function sessionCanChat(db: Db, user: SessionUser, sessionId: string): Promise<boolean> {
+	const row = await db
+		.selectFrom("sessions")
+		.select(["owner_user_id", "parent_session_id"])
+		.where("id", "=", sessionId)
+		.executeTakeFirst();
+	if (!row) return false;
+	if (row.owner_user_id === user.userId) return true;
+	return (await shareAccessFor(db, await sharedSessionAccess(db, user.userId), sessionId)) === "chat";
 }
 
 export async function listSessionShares(db: Db, sessionId: string): Promise<SessionShare[]> {

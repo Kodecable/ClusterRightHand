@@ -24,6 +24,7 @@ let alice = "";
 let bob = "";
 let carol = "";
 let admin = "";
+let adminId = "";
 let aliceId = "";
 let bobId = "";
 let carolId = "";
@@ -55,6 +56,7 @@ beforeAll(async () => {
 	const a = await createUser(db, { username: "alice", kind: "member", password: PASSWORD });
 	const b = await createUser(db, { username: "bob", kind: "member", password: PASSWORD });
 	const c = await createUser(db, { username: "carol", kind: "member", password: PASSWORD });
+	adminId = root.id;
 	aliceId = a.id;
 	bobId = b.id;
 	carolId = c.id;
@@ -202,6 +204,23 @@ it("administrators look and may share, but do not drive", async () => {
 	// Administrators may manage shares (doc/access-control.md#归属与分享).
 	expect((await share(s.id, admin, { granteeType: "user", granteeId: carolId, access: "view" })).status).toBe(200);
 	expect((await get(s.id, carol)).status).toBe(200);
+});
+
+it("an administrator chats only when explicitly shared chat", async () => {
+	const s = await newSession(alice, "admin chat", "yolo");
+	const before = (await (await get(s.id, admin)).json()) as { session: { access: string; canChat: boolean } };
+	expect(before.session).toMatchObject({ access: "admin", canChat: false });
+	expect((await messages(s.id, admin)).status).toBe(403);
+
+	expect((await share(s.id, alice, { granteeType: "user", granteeId: adminId, access: "chat" })).status).toBe(200);
+	const after = (await (await get(s.id, admin)).json()) as { session: { access: string; canChat: boolean } };
+	expect(after.session).toMatchObject({ access: "admin", canChat: true });
+	expect(await answer(s.id, admin)).toBe("an answer");
+	// Still an administrator, not the owner: settings stay owner-only, share management stays available.
+	expect(
+		(await call(app, `/api/sessions/${s.id}`, { method: "PATCH", cookie: admin, body: { title: "mine" } })).status,
+	).toBe(403);
+	expect((await call(app, `/api/sessions/${s.id}/shares`, { cookie: admin })).status).toBe(200);
 });
 
 it("rejects bad shares and keeps the owner supreme", async () => {
