@@ -120,12 +120,15 @@ async function waitView(
 		.where("id", "=", row.waiting_level_id)
 		.executeTakeFirst();
 	if (!level) return undefined;
+	const quota = level.quota_tokens === null ? null : Number(level.quota_tokens);
+	// The wait is over as soon as the level is above zero (or unlimited); the state write may not have landed yet.
+	if (quota === null || quota > 0) return undefined;
 	return {
 		sessionId: row.id,
 		levelId: row.waiting_level_id,
 		sessionTitle: row.title,
 		levelTitle: level.title,
-		levelQuota: level.quota_tokens === null ? null : Number(level.quota_tokens),
+		levelQuota: quota,
 		handlerId: row.waiting_handler_id ?? level.parent_session_id ?? "",
 		since: row.state_changed_at ?? "",
 	};
@@ -188,8 +191,8 @@ export async function setSessionState(
 		.where("id", "=", sessionId)
 		.executeTakeFirst();
 	if (!row) return "";
-	// A stopped session is revived only by a new input, never by a wait being written again.
-	if (state === "awaiting" && row.state === "stopped") return row.state_changed_at ?? "";
+	// A stopped session is revived only by a new input (which updates last_submission_id atomically), never by a state write.
+	if (row.state === "stopped") return row.state_changed_at ?? "";
 	// A quota wait is handled by the exhausted level's direct parent; store it so the handler can find it.
 	let handlerId: string | null = null;
 	if (state === "awaiting" && levelId) {
@@ -201,12 +204,14 @@ export async function setSessionState(
 	if (row.state === state && row.waiting_level_id === levelId && row.waiting_handler_id === handlerId)
 		return row.state_changed_at ?? "";
 	const at = new Date().toISOString();
-	await db
+	let update = db
 		.updateTable("sessions")
 		.set({ state, waiting_level_id: levelId, waiting_handler_id: handlerId, state_changed_at: at })
-		.where("id", "=", sessionId)
-		.execute();
-	return at;
+		.where("id", "=", sessionId);
+	// A concurrent settle/abort may have written stopped after our read; never overwrite it here.
+	if (state !== "stopped") update = update.where("state", "!=", "stopped");
+	const res = await update.executeTakeFirst();
+	return res.numUpdatedRows === 0n ? (row.state_changed_at ?? "") : at;
 }
 
 async function parentOf(db: Db, sessionId: string): Promise<string | null | undefined> {

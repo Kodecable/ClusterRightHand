@@ -155,6 +155,20 @@ it("a paused child asks its direct parent, which grants without a cap", async ()
 	expect((await runtime.getSession(c.id))?.quota).toBe(50_000_000 - 10);
 });
 
+it("drops a quota request as soon as its level is restored", async () => {
+	const r = await root();
+	const p = await child(r.id, "restored-p", null);
+	const c = await child(p.id, "restored-c", 10);
+	await recordUsage(db, c.id, 20);
+	const waiting = runtime.waitForQuota(c.id, BACKGROUND_CONTEXT);
+	await waitFor("the pause", async () => (await awaitingQuotaChildren(db, p.id))[0]);
+	// Restore the level directly; the cached request must not survive the state write.
+	await setQuota(db, c.id, 1_000);
+	expect(await awaitingQuotaChildren(db, p.id)).toEqual([]);
+	expect(await runtime.decideAgentRequest(p.id, c.id, "approve", undefined, 1_000)).toBe("quota");
+	expect(await waiting).toBe("ok");
+});
+
 it("a finished subagent is stopped until the next input", async () => {
 	const r = await root();
 	const c = await child(r.id, "done-child", null);
@@ -265,15 +279,50 @@ it("flushes a quota wake when a running parent becomes idle", async () => {
 		seen += JSON.stringify(events);
 	});
 	try {
-		await runtime.submit(p.id, owner, "be busy for a moment", "idle-flush-parent");
+		const first = await runtime.submit(p.id, owner, "be busy for a moment", "idle-flush-parent");
 		await started;
 		// The parent is live; the quota request must be queued, not dropped, and delivered when the run ends.
 		await runtime.startSubagent(c.id, "work", "idle-flush-child");
 		await waitFor("the flushed wake", async () => (seen.includes("token quota is used up") ? true : undefined));
 		expect(faux.getPendingResponseCount()).toBe(0);
+		// The wake is a new input: it becomes the last submission, and its run ends as stopped.
+		await waitFor("the parent stopped", async () =>
+			(await sessionStateOf(db, p.id)) === "stopped" ? true : undefined,
+		);
+		const parentRow = await db
+			.selectFrom("sessions")
+			.select("last_submission_id")
+			.where("id", "=", p.id)
+			.executeTakeFirstOrThrow();
+		expect(parentRow.last_submission_id).not.toBe(first);
+		expect(await runtime.waitSubagent(p.id, { attention: false })).toEqual({ status: "done", answer: "wake handled" });
 		expect(await runtime.decideAgentRequest(p.id, c.id, "approve", undefined, 1_000)).toBe("quota");
 	} finally {
 		stop();
+		await runtime.abort(r.id).catch(() => {});
+	}
+});
+
+it("subagent_wait watches the caller's inbox, not the waited session's parent", async () => {
+	const r = await root();
+	const a = await child(r.id, "grand-parent", 0);
+	const b = await child(a.id, "grand-child", 100);
+	faux.setResponses([
+		fauxAssistantMessage([fauxToolCall("exec", { node: "missing", cmd: "true" }, { id: "grand-q1" })], {
+			stopReason: "toolUse",
+		}),
+		fauxAssistantMessage([fauxText("noted")]),
+	]);
+	try {
+		await runtime.startSubagent(b.id, "work", "grand-wait");
+		const request = await waitFor("the root's quota request", async () => (await awaitingQuotaChildren(db, r.id))[0]);
+		expect(request).toMatchObject({ sessionId: b.id, levelId: a.id });
+		const result = await runtime.waitSubagent(b.id, { attention: true, handler: r.id });
+		expect(result.status).toBe("attention");
+		if (result.status === "attention")
+			expect(result.requests).toContainEqual(expect.objectContaining({ kind: "quota", id: b.id }));
+		expect(await runtime.decideAgentRequest(r.id, b.id, "approve", undefined, 1_000)).toBe("quota");
+	} finally {
 		await runtime.abort(r.id).catch(() => {});
 	}
 });

@@ -180,7 +180,7 @@ export class Cluster {
 	/** Called once for every task that starts waiting for approval (Auto Review hooks in here). */
 	onAwaitingApproval: ((task: TaskView) => Promise<void>) | undefined;
 	/** Called after a task starts waiting or its approval state/handler changes (the runtime refreshes its inbox). */
-	onChange: (() => void) | undefined;
+	onChange: ((actorId: string) => void) | undefined;
 	readonly #sshSessions = new Map<string, Promise<SshSession>>();
 	readonly #sshCancels = new Map<string, AbortController>();
 	readonly #links = new Map<string, NodeLink>();
@@ -529,7 +529,7 @@ export class Cluster {
 		if (!waiting && !denied) await this.#serial(id, () => this.#dispatch(id, node, spec, inputBytes, input));
 		const view = (await this.getTask(id)) as TaskView;
 		if (waiting) {
-			this.onChange?.();
+			this.onChange?.(view.actorId);
 			if (this.onAwaitingApproval) {
 				void this.onAwaitingApproval(view).catch((err: unknown) => console.error("review:", err));
 			}
@@ -637,7 +637,7 @@ export class Cluster {
 						timeoutMs: row.timeout_ms ?? undefined,
 					});
 				}
-				this.onChange?.();
+				this.onChange?.(row.actor_id);
 				return true;
 			}
 			const res = await this.#db
@@ -656,7 +656,7 @@ export class Cluster {
 				.where("state", "=", "awaiting_approval")
 				.executeTakeFirst();
 			if (res.numUpdatedRows === 0n) return false;
-			this.onChange?.();
+			this.onChange?.(row.actor_id);
 			void this.#auditApproval(row, decision);
 			this.#notify(id);
 			return true;
@@ -704,7 +704,7 @@ export class Cluster {
 				})
 				.where("id", "=", id)
 				.execute();
-			this.onChange?.();
+			this.onChange?.(row.actor_id);
 			void this.#audit?.record({
 				actor: { type: "system", id: "agent-routing" },
 				action: "task.agent_request",
@@ -733,7 +733,7 @@ export class Cluster {
 				})
 				.where("id", "=", id)
 				.execute();
-			this.onChange?.();
+			this.onChange?.(row.actor_id);
 			void this.#audit?.record({
 				actor: { type: "system", id: "agent-routing" },
 				action: "task.agent_escalated",
@@ -787,13 +787,13 @@ export class Cluster {
 						.where("state", "=", "awaiting_approval")
 						.executeTakeFirst();
 					if (res.numUpdatedRows > 0n) {
+						this.onChange?.(row.actor_id);
 						this.#notify(row.id);
 						await this.#auditFinish(row.id);
 					}
 				});
 			}
 		}
-		this.onChange?.();
 	}
 
 	async getTask(id: string): Promise<TaskView | undefined> {

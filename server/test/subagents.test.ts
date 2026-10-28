@@ -4,6 +4,7 @@ import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
+import { markSessionsStopped, sessionStateOf } from "../src/agent/quota.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
@@ -131,6 +132,57 @@ it("nests at most two levels below a root session", async () => {
 	const first = await subagent(root.id, "depth-1", { default: "inherit", rules: [] });
 	const second = await subagent(first.id, "depth-2", { default: "inherit", rules: [] });
 	await expect(subagent(second.id, "depth-3", { default: "inherit", rules: [] })).rejects.toThrow(/at most 2/);
+});
+
+it("a stopped session is not revived by a live run", async () => {
+	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const child = await subagent(root.id, "sticky-stop", { default: "inherit", rules: [] });
+	let started!: () => void;
+	const running = new Promise<void>((resolve) => {
+		started = resolve;
+	});
+	faux.setResponses([
+		async () => {
+			started();
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			return fauxAssistantMessage([fauxText("too late")]);
+		},
+	]);
+	await runtime.startSubagent(child.id, "work", "sticky-stop-1");
+	try {
+		await running;
+		await markSessionsStopped(db, [child.id]);
+		expect(await runtime.refreshState(child.id)).toBe("stopped");
+	} finally {
+		await runtime.abort(root.id).catch(() => {});
+	}
+});
+
+it("a user message to a stopped subagent runs and stops again", async () => {
+	const parent = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const child = await subagent(parent.id, "user-message", { default: "inherit", rules: [] });
+	faux.setResponses([fauxAssistantMessage([fauxText("first answer")])]);
+	await runtime.startSubagent(child.id, "one", "user-message-1");
+	expect(await runtime.waitSubagent(child.id)).toEqual({ status: "done", answer: "first answer" });
+	await waitFor("stopped after the first input", async () =>
+		(await sessionStateOf(db, child.id)) === "stopped" ? true : undefined,
+	);
+	const firstLast = (
+		await db.selectFrom("sessions").select("last_submission_id").where("id", "=", child.id).executeTakeFirstOrThrow()
+	).last_submission_id;
+
+	faux.setResponses([fauxAssistantMessage([fauxText("second answer")])]);
+	const second = await runtime.submit(child.id, owner, "two", "user-message-2");
+	expect(await runtime.waitSubmission(child.id, second)).toEqual({ status: "done", answer: "second answer" });
+	await waitFor("stopped after the second input", async () =>
+		(await sessionStateOf(db, child.id)) === "stopped" ? true : undefined,
+	);
+	const last = (
+		await db.selectFrom("sessions").select("last_submission_id").where("id", "=", child.id).executeTakeFirstOrThrow()
+	).last_submission_id;
+	expect(last).toBe(second);
+	expect(last).not.toBe(firstLast);
+	expect(await runtime.waitSubagent(child.id)).toEqual({ status: "done", answer: "second answer" });
 });
 
 it("reuses the subagent conversation after a crash before the session row", async () => {
@@ -286,6 +338,9 @@ it("records the handler and root session of a waiting approval", async () => {
 		.where("id", "=", task.id)
 		.executeTakeFirstOrThrow();
 	expect(done).toMatchObject({ handler_type: null, handler_session_id: null });
+	await waitFor("active after the user decision", async () =>
+		(await sessionStateOf(db, child.id)) === "active" ? true : undefined,
+	);
 });
 
 it("a task from a root session waits for its owner, not its agent", async () => {

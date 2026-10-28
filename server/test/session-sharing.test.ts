@@ -165,6 +165,33 @@ it("a share on the root reaches its subagents", async () => {
 	expect((await get(child.id, carol)).status).toBe(404);
 });
 
+it("closing a share ends an already open event stream", async () => {
+	const s = await newSession(alice, "streamed", "yolo");
+	expect((await share(s.id, alice, { granteeType: "user", granteeId: bobId, access: "view" })).status).toBe(200);
+	const res = await call(app, `/api/sessions/${s.id}/events`, { cookie: bob });
+	const reader = res.body?.getReader();
+	expect(reader).toBeTruthy();
+	const first = await reader?.read();
+	expect(first?.done).toBe(false);
+	const shares = (
+		(await (await call(app, `/api/sessions/${s.id}/shares`, { cookie: alice })).json()) as {
+			shares: { id: string }[];
+		}
+	).shares;
+	await call(app, `/api/sessions/${s.id}/shares/${shares[0]?.id}`, { method: "DELETE", cookie: alice, body: {} });
+	const closed = await Promise.race([
+		(async () => {
+			for (;;) {
+				const chunk = await reader?.read();
+				if (chunk?.done) return true;
+			}
+		})(),
+		new Promise((resolve) => setTimeout(() => resolve(false), 1000)),
+	]);
+	expect(closed).toBe(true);
+	await reader?.cancel();
+});
+
 it("administrators look and may share, but do not drive", async () => {
 	const s = await newSession(alice, "admin looks");
 	const res = await get(s.id, admin);

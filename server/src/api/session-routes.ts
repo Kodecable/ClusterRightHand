@@ -22,6 +22,7 @@ import {
 	unshareSession,
 } from "../agent/sharing.ts";
 import { userActor } from "../audit/audit.ts";
+import type { SessionUser } from "../auth/sessions.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import type { MasterKey } from "../keys/master-key.ts";
@@ -57,6 +58,16 @@ function parseModel(raw: unknown): ModelRef {
 
 /** Sessions (chat with the agent) and model configuration; doc/agent-runtime.md. Expects requireUser. */
 export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
+	type LiveStream = { user: SessionUser; sessionId: string; abort: () => void };
+	const streams = new Set<LiveStream>();
+	/** A share change can remove access to a session or to a root whose subagents are being watched. */
+	const revalidateStreams = async () => {
+		for (const stream of [...streams]) {
+			if (await sessionAccess(db, stream.user, stream.sessionId)) continue;
+			streams.delete(stream);
+			stream.abort();
+		}
+	};
 	const { runtime, models } = options;
 	const app = new Hono<AppEnv>();
 
@@ -245,6 +256,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		if (v.access !== "owner" && c.get("user").kind !== "admin") return jsonError(c, 403, "the owner only");
 		const share = (await listSessionShares(db, v.session.id)).find((s) => s.id === c.req.param("shareId"));
 		await unshareSession(db, v.session.id, c.req.param("shareId"));
+		await revalidateStreams();
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "session.unshared",
@@ -323,7 +335,12 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		if (!v) return jsonError(c, 404, "no such session");
 		return streamSSE(c, async (stream) => {
 			const abort = new AbortController();
-			stream.onAbort(() => abort.abort());
+			const live: LiveStream = { user: c.get("user"), sessionId: v.session.id, abort: () => stream.abort() };
+			streams.add(live);
+			stream.onAbort(() => {
+				streams.delete(live);
+				abort.abort();
+			});
 			let queue = Promise.resolve();
 			const stop = await runtime.watch(
 				v.session.id,

@@ -116,7 +116,7 @@ interface AgentRuntime {
 - `subagent_wait(id)`、`subagent_list()`、`subagent_cancel(id)`、`subagent_decide(request_id, decision, reason?, tokens?)` 都已实现；配额请求用 `tokens` 给出要增加的 token 数。
 - 工具 `replay: "safe"`：重启后按 durable 任务 id 找回同一个子会话和提交（`sessions.last_submission_id`）。
 - 规则是完整的非根规则集，只能收紧；配额是父会话给的管理额度；嵌套最多两层。
-- 状态：`active` 在跑，`awaiting` 有工具调用在等审批或配额，`stopped` 运行已结束、等下一次输入。`active ↔ awaiting` 由工具调用状态和配额重算；`stopped` 在运行结束时写入（正常完成、拒绝、abort 都一样，不区分原因，看最后一条消息即可）。`sessions.state` 是缓存，读取时重算 active/awaiting，父会话的提示和打断都以它为准。
+- 状态：`active` 在跑，`awaiting` 有工具调用在等审批或配额，`stopped` 运行已结束、等下一次输入。`active ↔ awaiting` 由工具调用状态和配额重算；`stopped` 在运行结束时写入（正常完成、拒绝、abort 都一样，不区分原因，看最后一条消息即可）。只有**新的输入**能把它改回 `active`：输入写入时同时更新 `last_submission_id`，只有最新一次输入结束时才会写 `stopped`；读取或重算永远不能复活 `stopped`。`sessions.state` 是缓存，父会话的提示和打断都以它为准。
 
 ### 前台与后台
 
@@ -131,7 +131,7 @@ interface AgentRuntime {
 
 - 任务开始等待审批后，运行时沿规则链向上找第一个"对这一操作的有效结果是 allow"的祖先会话；若它本身也是 subagent（不是根），请求交给它的 agent（`approval.agent = { session, state: "pending" }`，并记入 `handler_type` / `handler_session_id`）。
 - 父会话的 agent 用 `subagent_decide(request_id, "approve" | "deny" | "escalate", reason?, tokens?)` 处理：批准/拒绝直接落到任务上（审计里 actor 是父会话）；`escalate` 把请求交还用户，审批页照常显示。
-- **任何工具调用返回时**，只要还有属于它的待处理请求，结果末尾会附上提示（任务/任务组 id、摘要），所以父会话不会错过；实现用 durable 的 `afterTool` 钩子。待处理请求按 handler 索引，运行时按 handler 维护内存 inbox，并在审批/配额变化时使其失效，不再遍历所有后代。
+- **任何工具调用返回时**，只要还有属于它的待处理请求，结果末尾会附上提示（任务/任务组 id、摘要），所以父会话不会错过；实现用 durable 的 `afterTool` 钩子。待处理请求按 handler 索引，运行时按 handler 维护内存 inbox，并在审批/配额变化时使其失效，不再遍历所有后代。用户审批、规则重判也会通过同一个变化回调刷新 actor 的缓存状态。
 - 父会话空闲（没有正在进行的运行）时，以 follow-up 输入的方式提交一条提示并唤醒它；如果父会话正在运行，提示只随下一批工具结果附带，若这一轮结束仍未处理，运行结束（`Conversation.waitForIdle`）时再投递一次，不会 300ms 轮询。配额等待由 grant/deny/abort/配额修改唤醒，`subagent_wait` 的 attention 也由 inbox 通知，不再轮询。
 - 配额不足时子会话的工具调用暂停，请求只交它的直接父会话的 agent；父会话是根时由根会话的 agent 决定，不再向上。
 

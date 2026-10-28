@@ -20,6 +20,7 @@ import {
 	ToolTask,
 	watchEvents,
 } from "@earendil-works/pi-durable";
+import { sql } from "kysely";
 import { Type } from "typebox";
 import * as z from "zod/v4";
 import type { Audit } from "../audit/audit.ts";
@@ -116,6 +117,15 @@ interface Inbox {
 
 function requestKey(request: AgentRequestView): string {
 	return `${request.kind}:${request.id}`;
+}
+
+function isNewerSubmission(candidate: string, current: string | null): boolean {
+	if (current === null) return true;
+	try {
+		return BigInt(candidate) > BigInt(current);
+	} catch {
+		return false;
+	}
 }
 
 /** Request key behind a wake request id, for checking that the request is still pending before flushing. */
@@ -261,9 +271,15 @@ export class AgentRuntime {
 			await runtime.#routeAwaiting("group", group.actorId, group.id, group.approval);
 			await runtime.refreshState(group.actorId);
 		};
-		// The cluster owns the durable approval rows; the runtime only caches the request lists and waiters.
-		options.cluster.onChange = () => runtime.#invalidateInboxes();
-		options.groups.onChange = () => runtime.#invalidateInboxes();
+		// The cluster owns the durable approval rows; refresh the actor's cached state and request lists.
+		const approvalChanged = (actorId: string) => {
+			runtime.#invalidateInboxes();
+			void runtime.refreshState(actorId).catch((err: unknown) => {
+				console.error("agent runtime: refreshing a subagent after an approval change failed:", err);
+			});
+		};
+		options.cluster.onChange = approvalChanged;
+		options.groups.onChange = approvalChanged;
 		runtime.#supervise();
 		// A restart may have queued nothing for requests that were already waiting: wake idle parents now.
 		await runtime.#wakePendingAgents();
@@ -416,12 +432,7 @@ export class AgentRuntime {
 			);
 		}
 		const submission = await conversation.submit({ type: "input", content: text, requestId }, this.#context);
-		await this.#reviveOnInput(sessionId, submission);
-		await this.#db
-			.updateTable("sessions")
-			.set({ updated_at: new Date().toISOString() })
-			.where("id", "=", sessionId)
-			.execute();
+		await this.#recordInput(sessionId, submission);
 		void this.#audit?.record({
 			actor: { type: "user", id: by.userId, onBehalfOfUserId: row.owner_user_id },
 			action: "session.message",
@@ -432,15 +443,70 @@ export class AgentRuntime {
 	}
 
 	/**
-	 * A new input revives a stopped subagent (`stopped` is sticky until the next input). A retried submission that
-	 * is already settled is not new work and leaves the state alone.
+	 * Records a new input and revives a stopped subagent in one row update. A retried older submission is ignored,
+	 * so it cannot roll `last_submission_id` back or revive a session that a newer input is driving.
 	 */
-	async #reviveOnInput(sessionId: string, submission: Submission): Promise<void> {
-		const { status } = await submission.status(this.#context);
-		if (status !== "queued" && status !== "placed") return;
-		// Only a stopped subagent is revived; an input must not clear an approval or quota wait.
-		if ((await sessionStateOf(this.#db, sessionId)) !== "stopped") return;
-		await setSessionState(this.#db, sessionId, "active", null);
+	async #recordInput(sessionId: string, submission: Submission): Promise<boolean> {
+		const id = String(submission.id);
+		for (let attempt = 0; attempt < 3; attempt++) {
+			const row = await this.#db
+				.selectFrom("sessions")
+				.select(["parent_session_id", "last_submission_id"])
+				.where("id", "=", sessionId)
+				.executeTakeFirst();
+			if (!row || !isNewerSubmission(id, row.last_submission_id)) return false;
+			const at = new Date().toISOString();
+			let update = this.#db
+				.updateTable("sessions")
+				.set({
+					last_submission_id: id,
+					updated_at: at,
+					// A stopped session is revived by a new input; awaiting (approval/quota) stays as it is.
+					state: sql`case when state = 'stopped' then 'active' else state end`,
+					waiting_level_id: sql`case when state = 'stopped' then null else waiting_level_id end`,
+					waiting_handler_id: sql`case when state = 'stopped' then null else waiting_handler_id end`,
+					state_changed_at: sql`case when state = 'stopped' then ${at} else state_changed_at end`,
+				})
+				.where("id", "=", sessionId);
+			update =
+				row.last_submission_id === null
+					? update.where("last_submission_id", "is", null)
+					: update.where("last_submission_id", "=", row.last_submission_id);
+			const res = await update.executeTakeFirst();
+			if (res.numUpdatedRows === 0n) continue;
+			if (row.parent_session_id !== null) {
+				void submission
+					.wait(this.#context)
+					.then(() => this.#settleInput(sessionId, id))
+					.catch(() => {});
+			}
+			return true;
+		}
+		return false;
+	}
+
+	/** Stops a subagent when its latest input settles; a newer input keeps the session running. */
+	async #settleInput(sessionId: string, submissionId: string): Promise<void> {
+		const row = await this.#db
+			.selectFrom("sessions")
+			.select(["parent_session_id", "last_submission_id"])
+			.where("id", "=", sessionId)
+			.executeTakeFirst();
+		if (!row || row.parent_session_id === null || row.last_submission_id !== submissionId) return;
+		await this.#db
+			.updateTable("sessions")
+			.set({
+				state: "stopped",
+				waiting_level_id: null,
+				waiting_handler_id: null,
+				state_changed_at: new Date().toISOString(),
+			})
+			.where("id", "=", sessionId)
+			.where("last_submission_id", "=", submissionId)
+			.where("parent_session_id", "is not", null)
+			.where("state", "!=", "stopped")
+			.execute();
+		this.#forgetInbox(sessionId);
 	}
 
 	/** Stops the current run: queued inputs are withdrawn and running tool calls aborted. */
@@ -696,26 +762,13 @@ export class AgentRuntime {
 		);
 		if (!conversation) throw new NotFoundError("the subagent's conversation is missing");
 		const submission = await conversation.submit({ type: "input", content: text, requestId }, this.#context);
-		await this.#reviveOnInput(childId, submission);
-		await this.#db
-			.updateTable("sessions")
-			.set({ last_submission_id: String(submission.id), updated_at: new Date().toISOString() })
-			.where("id", "=", childId)
-			.execute();
+		await this.#recordInput(childId, submission);
 		void this.#audit?.record({
 			actor: { type: "subagent", id: row.parent_session_id ?? childId, onBehalfOfUserId: row.owner_user_id },
 			action: "session.message",
 			target: { type: "session", id: childId },
 			detail: { submission_id: String(submission.id), chars: text.length },
 		});
-		void submission
-			.wait(this.#context)
-			.then(async () => {
-				// A stopped session is a handler only if it runs again; drop its request cache.
-				this.#inboxes.delete(childId);
-				await setSessionState(this.#db, childId, "stopped", null);
-			})
-			.catch(() => {});
 		return String(submission.id);
 	}
 
@@ -725,7 +778,7 @@ export class AgentRuntime {
 	 */
 	async waitSubagent(
 		childId: string,
-		options: { attention?: boolean; signal?: AbortSignal } = {},
+		options: { attention?: boolean; signal?: AbortSignal; handler?: string } = {},
 	): Promise<
 		| { status: "done"; answer: string }
 		| { status: "unanswered"; reason: string }
@@ -742,7 +795,7 @@ export class AgentRuntime {
 		if (!options.attention) return this.#answerOf(childId, await settled);
 
 		const abort = new AbortController();
-		const attentionRun = this.#nextRequests(row.parent_session_id ?? childId, abort.signal);
+		const attentionRun = this.#nextRequests(options.handler ?? row.parent_session_id ?? childId, abort.signal);
 		void attentionRun.catch(() => {});
 		const attention = attentionRun.then((requests) => ({ kind: "attention" as const, requests }));
 		const first = await Promise.race([settled.then((s) => ({ kind: "settled" as const, s })), attention]);
@@ -854,14 +907,18 @@ export class AgentRuntime {
 		return out;
 	}
 
+	/** Forgets one handler's request cache; waiters are woken before the entry disappears. */
+	#forgetInbox(handlerId: string): void {
+		const inbox = this.#inboxes.get(handlerId);
+		if (!inbox) return;
+		for (const wake of inbox.waiters) wake();
+		inbox.waiters.clear();
+		this.#inboxes.delete(handlerId);
+	}
+
 	/** Drops cached request lists and wakes `waitSubagent`; the cluster calls this on any approval change. */
 	#invalidateInboxes(): void {
-		for (const [handlerId, inbox] of [...this.#inboxes]) {
-			for (const wake of inbox.waiters) wake();
-			inbox.waiters.clear();
-			// Caches are cheap to rebuild; dropping them keeps stopped handlers out of memory.
-			this.#inboxes.delete(handlerId);
-		}
+		for (const handlerId of [...this.#inboxes.keys()]) this.#forgetInbox(handlerId);
 	}
 
 	/** Resolves with the handler's next pending requests; no polling (the inbox notifies it). */
@@ -1005,6 +1062,9 @@ export class AgentRuntime {
 				const level = await exhaustedLevel(this.#db, sessionId);
 				if (!level) {
 					await setSessionState(this.#db, sessionId, "active", null);
+					// The quota request is gone; drop it from the handler's cache before returning.
+					this.#invalidateInboxes();
+					if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
 					return "ok";
 				}
 				const parent = await this.#parentOf(level);
@@ -1059,11 +1119,10 @@ export class AgentRuntime {
 	async refreshState(sessionId: string): Promise<SessionState> {
 		const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", sessionId).executeTakeFirst();
 		if (!row || row.parent_session_id === null) return "active";
+		// Only a new input revives a stopped subagent (see #recordInput); a live run alone does not.
+		if (row.state === "stopped") return "stopped";
 		const live = await this.#isLive(row);
 		const level = await exhaustedLevel(this.#db, sessionId);
-		// `stopped` is sticky until a new input (#reviveOnInput). A denied quota wait is still live while its tool
-		// call ends, so the live run alone does not revive it; an exhausted level keeps it stopped meanwhile.
-		if (row.state === "stopped" && (!live || level !== undefined)) return "stopped";
 		const approval =
 			(await this.#db
 				.selectFrom("tasks")
@@ -1081,7 +1140,10 @@ export class AgentRuntime {
 		const quotaWait = level !== undefined && (row.waiting_level_id !== null || live);
 		const awaiting = approval !== undefined || quotaWait;
 		const state: SessionState = awaiting ? "awaiting" : "active";
-		await setSessionState(this.#db, sessionId, state, quotaWait ? (level ?? null) : null);
+		const nextLevel = quotaWait ? (level ?? null) : null;
+		await setSessionState(this.#db, sessionId, state, nextLevel);
+		// Approval/quota changes alter the handler's inbox; write-state and cache invalidation are adjacent.
+		if (row.state !== state || row.waiting_level_id !== nextLevel) this.#invalidateInboxes();
 		return state;
 	}
 
@@ -1298,7 +1360,7 @@ export class AgentRuntime {
 		);
 		if (!conversation) return;
 		const submission = await conversation.submit({ type: "input", content, requestId }, this.#context);
-		await this.#reviveOnInput(handlerId, submission);
+		await this.#recordInput(handlerId, submission);
 	}
 
 	#queueWake(handlerId: string, requestId: string, content: string): void {
@@ -1614,7 +1676,11 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 					details: { sessionId: child.id, requests: [] },
 				};
 			}
-			const result = await runtime.waitSubagent(child.id, { attention: true, signal: context.abortSignal });
+			const result = await runtime.waitSubagent(child.id, {
+				attention: true,
+				signal: context.abortSignal,
+				handler: parent.id,
+			});
 			if (result.status === "attention") {
 				const what = result.requests
 					.map((r) =>
@@ -1662,6 +1728,7 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 			const result = await runtime.waitSubagent(args.id, {
 				attention: args.attention !== false,
 				signal: context.abortSignal,
+				handler: session.id,
 			});
 			if (result.status === "attention") {
 				const what = result.requests
