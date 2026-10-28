@@ -2,6 +2,7 @@ import { BACKGROUND_CONTEXT, type Context, withAbortSignal } from "@earendil-wor
 import {
 	type AgentEvent,
 	AssistantEntry,
+	type Conversation,
 	type ConversationId,
 	createRegistry,
 	defineDocFamily,
@@ -159,6 +160,8 @@ export interface AgentRuntimeOptions {
 	 * Memory grows with what was active within this window (doc/agent-runtime.md#2-性能和内存回归).
 	 */
 	retentionMs?: number;
+	/** Set by clusterExtension; removed from a conversation that has reached the subagent depth limit. */
+	subagentTool?: ToolRegistration;
 }
 
 const SYSTEM_PROMPT = `You are ClusterRightHand, an assistant that operates the user's servers ("nodes") through the cluster tools.
@@ -485,6 +488,20 @@ export class AgentRuntime {
 		return false;
 	}
 
+	/** Keeps a conversation at the depth limit from offering the subagent tool to its model. */
+	async #hideSubagentTool(conversation: Conversation): Promise<void> {
+		const tool = this.#options.subagentTool;
+		if (!tool) return;
+		await conversation.configure({ tools: { remove: [tool] } }, this.#context);
+	}
+
+	/** The tool names offered to a session's model (diagnostics and tests). */
+	async toolNames(sessionId: string): Promise<string[]> {
+		const { conversation } = await this.#conversation(sessionId);
+		const agent = await conversation.agent(this.#context);
+		return agent.tools.map((tool) => tool.name);
+	}
+
 	/** Stops a subagent when its latest input settles; a newer input keeps the session running. */
 	async #settleInput(sessionId: string, submissionId: string): Promise<void> {
 		const row = await this.#db
@@ -680,10 +697,30 @@ export class AgentRuntime {
 				(await this.#db.selectFrom("sessions").select("parent_session_id").where("id", "=", id).executeTakeFirst())
 					?.parent_session_id ?? null;
 		}
-		if (depth >= MAX_SUBAGENT_DEPTH) throw new UserError(`subagents nest at most ${MAX_SUBAGENT_DEPTH} levels deep`);
+		if (depth >= MAX_SUBAGENT_DEPTH) {
+			// Also fix a session created before the tool was removed at the limit.
+			const parentConversation = await this.#harness.conversation(
+				Number(parent.conversation_id) as unknown as ConversationId,
+				this.#context,
+			);
+			if (parentConversation) await this.#hideSubagentTool(parentConversation);
+			throw new UserError(`subagents nest at most ${MAX_SUBAGENT_DEPTH} levels deep`);
+		}
 
 		const childId = derivedId(`subagent:${input.callKey}`);
-		if (await this.#db.selectFrom("sessions").select("id").where("id", "=", childId).executeTakeFirst()) {
+		const existing = await this.#db
+			.selectFrom("sessions")
+			.select(["id", "conversation_id"])
+			.where("id", "=", childId)
+			.executeTakeFirst();
+		if (existing) {
+			if (depth + 1 >= MAX_SUBAGENT_DEPTH) {
+				const existingConversation = await this.#harness.conversation(
+					Number(existing.conversation_id) as unknown as ConversationId,
+					this.#context,
+				);
+				if (existingConversation) await this.#hideSubagentTool(existingConversation);
+			}
 			return { id: childId, created: false };
 		}
 		const model = JSON.parse(parent.model) as ModelRef;
@@ -713,6 +750,7 @@ export class AgentRuntime {
 			},
 			this.#context,
 		);
+		if (depth + 1 >= MAX_SUBAGENT_DEPTH) await this.#hideSubagentTool(conversation);
 		const now = new Date().toISOString();
 		await this.#db.transaction().execute(async (trx) => {
 			await trx
@@ -1823,6 +1861,7 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 		},
 	}) as unknown as ToolRegistration;
 
+	options.subagentTool = subagent;
 	return defineExtension({
 		name: "crh",
 		tools: [...tools, subagent, subagentWait, subagentList, subagentCancel, subagentDecide],

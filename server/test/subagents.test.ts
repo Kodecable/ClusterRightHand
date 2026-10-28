@@ -185,6 +185,16 @@ it("a user message to a stopped subagent runs and stops again", async () => {
 	expect(await runtime.waitSubagent(child.id)).toEqual({ status: "done", answer: "second answer" });
 });
 
+it("removes the subagent tool at the depth limit", async () => {
+	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const first = await subagent(root.id, "depth-tool-1", { default: "inherit", rules: [] });
+	expect(await runtime.toolNames(first.id)).toContain("subagent");
+	const second = await subagent(first.id, "depth-tool-2", { default: "inherit", rules: [] });
+	expect(await runtime.toolNames(second.id)).not.toContain("subagent");
+	await expect(subagent(second.id, "depth-tool-3", { default: "inherit", rules: [] })).rejects.toThrow(/at most 2/);
+	expect(await runtime.toolNames(second.id)).not.toContain("subagent");
+});
+
 it("reuses the subagent conversation after a crash before the session row", async () => {
 	const parent = await runtime.createSession(owner, { model: model(), preset: "yolo" });
 	const first = await subagent(parent.id, "idem-crash", { default: "inherit", rules: [] });
