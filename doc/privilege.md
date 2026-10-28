@@ -27,7 +27,7 @@
 **暂不考虑主机内的威胁**，即本机其他用户或进程攻击特权模式，以及非特权模式被攻破后的伪造。因此：
 
 - 特权模式没有身份密钥；两种模式之间的 unix socket 不加密；
-- 特权模式的查询结果（信任摘要、preflight）不签名。
+- 特权模式的 TrustSummary 查询结果不签名。
 
 非特权模式即使伪造请求，没有有效授权也无法让特权模式执行任何命令。
 
@@ -88,24 +88,33 @@ crha 特权模式（不联网）
 
 所有授权都使用同一种结构：**本体 + 可选的指令限制 + 可选的截止时间**。
 
+授权本体是 CBOR payload，签名和联署是同一对象上的 `signatures` 数组：
+
 ```json
 {
-  "v": 1,
-  "nodes": ["01JB…", "group:web"],          // 节点 id 和组；或 "*"：签名者被信任的所有节点
-  "command": {                              // 可选；省略 = 任意方法、任意目标
-    "method": "exec",
-    "exact": "systemctl restart nginx",     // 或 "prefix": "…"
-    "spec_sha256": "…"                      // exact 时必填，见下文
+  "payload": {
+    "v": 1,
+    "nodes": ["01JB…", "group:web"],        // 节点 id 和组；或 "*"：签名者被信任的所有节点
+    "command": {                            // 可选；省略 = 任意方法、任意目标
+      "method": "exec",
+      "exact": "systemctl restart nginx",   // 或 "prefix": "…"
+      "spec_sha256": "…"                    // exact 时必填，见下文
+    },
+    "issued_at": "2026-10-26T12:00:00Z",
+    "deadline":  "2026-10-26T12:05:00Z",    // 可选；省略 = 不过期（受信任项的 max_ttl 约束）
+    "task_id":   "01JB…",                   // 可选；设置后只能用于这一个任务，且只能使用一次
+    "note": "重启 nginx 以加载新证书"         // 可选，人类可读，也在签名范围内
   },
-  "issued_at": "2026-10-26T12:00:00Z",
-  "deadline":  "2026-10-26T12:05:00Z",      // 可选；省略 = 不过期（受信任项的 max_ttl 约束）
-  "task_id":   "01JB…",                     // 可选；设置后只能用于这一个任务，且只能使用一次
-  "cosign_of": "…",                         // 仅联署：被联署授权的 id
-  "note": "重启 nginx 以加载新证书"           // 可选，人类可读，也在签名范围内
+  "signatures": [
+    { "format": "sshsig", "signature": "…" },
+    { "format": "webauthn", "credential_id": "…", "assertion": { "…": "…" } }
+  ]
 }
 ```
 
-- **授权 id** = `SHA-256(JCS(payload))`，用于吊销、审计和联署引用。
+- **授权 id** = `SHA-256(CBOR(payload))`，用于吊销、审计和引用。
+- 用户签名和 crhs 联署签的是**同一份 CBOR payload**，不再使用 `cosign_of`，也不存在两个 payload 字段不一致的问题。
+- `require-cosign` 只要求同一对象上同时存在合格的 user 签名和 `role=crhs` 的 cosign 签名。
 - **发给组的授权**：特权模式在本机配置了这个组（`privileged.toml` 中的 `groups`）时，就认为这个授权是发给自己的。组成员关系只以本机配置为准（crhs 侧只是缓存），crhs 无法绕过授权改变它。批量执行时，用户对一个组签一次授权就可以覆盖组内所有节点。
 - **`exact`**：方法和目标完全相等，并且 `spec_sha256` 必须等于完整任务规格的规范化哈希。完整规格包括 env、cwd、stdin 哈希，文件写入还包括内容哈希、mode、owner 和 `overwrite`，文件编辑还包括全部 `edits`。也就是说，批准"写 `/etc/nginx/nginx.conf`"时，批准的是写入这一份内容；批准一次编辑时，批准的是这几处替换，而不是任意内容。
 - **`prefix`**：方法匹配（`file.write` 包含 `file.read`），目标前缀相等。只约束目标，不约束 stdin 和写入内容。cwd 固定为 `/`，env 受信任项的 `env_allow` 约束。
@@ -119,11 +128,11 @@ crha 特权模式（不联网）
 
 | 签名方 | 格式 | 被签名的内容 | 在哪里签 |
 |---|---|---|---|
-| crhs | SSHSIG（`ssh-ed25519`，namespace `crh-auth-v1`，哈希 sha512） | `JCS(payload)` | crhs 内部；私钥可以放在 ssh-agent 托管的设备中（gpg-agent、PKCS#11、HSM），crhs 进程本身不接触私钥 |
-| 用户 SSH key | SSHSIG（同上；支持 `ssh-ed25519`、`sk-ssh-ed25519@openssh.com`、`ecdsa-sha2-nistp256` 及其 sk 版本） | `JCS(payload)` | 用户工作站：`crha grant`，或者直接用 `ssh-keygen -Y sign -n crh-auth-v1` |
-| 用户 Passkey | WebAuthn assertion | `challenge = SHA-256("crh-auth-v1\0" ‖ JCS(payload))` | WebUI |
+| crhs | SSHSIG（`ssh-ed25519`，namespace `crh-auth-v1`，哈希 sha512） | `CBOR(payload)` | crhs 内部；私钥可以放在 ssh-agent 托管的设备中（gpg-agent、PKCS#11、HSM），crhs 进程本身不接触私钥 |
+| 用户 SSH key | SSHSIG（同上；支持 `ssh-ed25519`、`sk-ssh-ed25519@openssh.com`、`ecdsa-sha2-nistp256` 及其 sk 版本） | `CBOR(payload)` | 用户工作站：`crha grant`，或者直接用 `ssh-keygen -Y sign -n crh-auth-v1` |
+| 用户 Passkey | WebAuthn assertion | `challenge = SHA-256("crh-auth-v1\0" ‖ CBOR(payload))` | WebUI |
 
-- 规范化使用 JSON + RFC 8785（JCS）。选 JSON 是因为人类可读，`crha grant` 可以把原文展示给用户确认后再签。
+- 规范化使用 CBOR 确定性编码（固定 map key 顺序、最短整数、无 indefinite length）。`crha grant` 会把 CBOR 解码成 JSON 展示给用户确认后再签。
 - 用 SSHSIG 签名的授权，都可以用 `ssh-keygen -Y verify` 人工核验。
 - WebAuthn 的校验项：`type = webauthn.get`、challenge、origin 在白名单中、rpIdHash、UP 标志（UV 可配置为必须）、签名（ES256 或 EdDSA）。签名计数器忽略（同步型 passkey 的计数恒为 0）。
 - 信任 Passkey 即接受这样的风险：crhs 被控制时，审批页面可以诱导用户签下与显示内容不同的授权。
@@ -227,9 +236,10 @@ kinds = ["execute"]
 
 ### 联署
 
-用户信任项的 `kinds` 中包含 `require-cosign` 时，这个用户的授权**每次使用都必须附带一个联署**：
+用户信任项的 `kinds` 中包含 `require-cosign` 时，这个用户的授权**每次使用都必须附带一个 crhs 联署**：
 
-- 联署本身也是一个授权，由 `role = "crhs"` 且 `kinds` 含 `cosign` 的信任项签名，满足：`cosign_of` = 被联署授权的 id，`command` 为本次任务的 `exact`（含 `spec_sha256`），`task_id` 为本次任务，`nodes` 包含本节点，`deadline` 未过期。
+- 联署是同一 payload 的 `signatures` 中的另一个签名，由 `role = "crhs"` 且 `kinds` 含 `cosign` 的信任项签发。
+- 两个签名覆盖完全相同的 nodes、command、spec hash、task_id 和 deadline，不存在第二个 payload。
 - **该 crhs 信任项的其他限制（require_exact、max_ttl、allow/deny）在联署时不生效**，只检查角色和 `cosign` 能力。
 - 效果：用户授权和 crhs 的单次确认都齐备时才能执行。crhs 无法单独执行特权任务，用户授权也不能绕过 crhs 的策略单独使用。
 
@@ -237,13 +247,13 @@ kinds = ["execute"]
 
 1. 用 `SO_PEERCRED` 检查对端 uid：提交任务必须是 `unprivileged_uid`；本地批准必须在某个 `local` 信任项的 `uids` 中。
 2. 检查任务本身：文件操作的路径满足"方法与目标"一节的要求。
-3. 按公钥（或 credential id）找到信任项，验证签名。
+3. 对 payload 上的每个签名，按公钥（或 credential id）找到信任项并验证签名。
 4. 检查授权本体：`nodes` 包含本机的 node_id 或本机配置的某个组（或为 `"*"`）；`issued_at ≤ now + skew`；`deadline`（如果有）`≥ now - skew`；`max_ttl` 和 `require_exact`。这里的 `now` 是节点时钟，见下文"时钟"。
 5. 检查一次性约束：授权带 `task_id` 时必须等于本任务 id，且授权 id 不在已用列表中；`role = "crhs"` 的授权和联署必须带 `task_id`；信任项有 `require_task` 时同样必须带。任何情况下，本任务 id 都不能已经执行过。
 6. 检查授权中的指令限制：`exact` 时方法、目标和 `spec_sha256` 都相等；`prefix` 时方法匹配（`file.write` 包含 `file.read`）且目标前缀相等。
 7. 检查信任项：`kinds` 包含 `execute`；`deny` 和 `allow`；`env_allow`。
-8. 如果信任项包含 `require-cosign`：按上一节校验联署。
-9. 检查授权 id（以及联署 id）不在吊销列表中。
+8. 如果用户信任项包含 `require-cosign`：在同一 payload 上找 `role = "crhs"` 且含 `cosign` 的签名并验证。
+9. 检查 payload 的授权 id 不在吊销列表中。
 10. 把任务 id 和一次性授权 id 记入已用列表（持久化）→ 写本地日志 → 执行 → 写结果日志。
 
 任何一步失败都返回 `TaskRejected`，并附上原因（第几步、哪个信任项）。
@@ -280,33 +290,36 @@ kinds = ["execute"]
 
 ## crhs 侧
 
-### 查询信任配置
+### 信任缓存
 
-特权模式提供两个只读查询，经非特权模式转发：
+crhs 在 `nodes` 中缓存特权模式上报的 `TrustSummary`、`trust_digest` 和 `run_identities`：
 
-| 查询 | 返回 | 用途 |
-|---|---|---|
-| `TrustSummary` | 每个信任项的 name、role、format、公钥指纹、kinds、max_ttl、require_exact、规则原文；本机配置的组；特权模式的运行身份；配置摘要（配置变化时主动推送） | WebUI 展示"这个节点信任谁"；审计记录信任配置的变化 |
-| `Preflight{task}` | 能授权这个任务的信任项，以及每一项是否需要联署 | crhs 决定走哪条授权路径 |
+- 节点连接后查询一次 TrustSummary；
+- 特权模式 reload 导致配置变化时主动推送；
+- crhs 收到后更新缓存、写审计；
+- WebUI 展示"这个节点信任谁"，并可以导出 `privileged.toml` 片段；
+- 任务授权时记录使用的 digest；等待期间 digest 变化就重新计算。
 
-**规则判定只在特权模式里做**，crhs 不复刻规则引擎（JS 正则和 RE2 的语义不同，两边结论可能不一致）。preflight 的结果按 `(配置摘要, 任务规格哈希)` 缓存。
+crhs 从缓存计算授权方案：用 RE2（Node 包 `re2`）匹配信任项的 `allow`/`deny`、`exact`/`prefix`、`max_ttl`、`require_exact`、`require_task` 等。**只考虑任务所有者**（`on_behalf_of_user_id`）的 `user` 信任项和凭据；共享用户、其他管理员不参与。
 
-crhs 根据公钥指纹在 `user_credentials` 中把 `user` 信任项对应到 crhs 用户。
+crhs 的选择不是最终放行：crha 特权模式在执行前仍按当前配置完整复验；crhs 的规则匹配失败只会导致多等用户或拒绝，不会越权。
 
 ### 授权路径
 
 收到一个特权任务后：
 
 1. **crhs 授权规则**：沿规则链判定（见 [access-control.md](access-control.md#授权规则)；用户本人在 WebUI 中操作时跳过），再加可选的 auto review。deny 就直接结束；需要审批则先按链向上完成审批。
-2. **非特权模式的处理方式**：`native` / `ignore` 只需要第 1 步放行；`reject` 直接拒绝；`forward` 继续第 3 步。
-3. **preflight**：
-   - crhs 信任项可以单独授权：crhs 签发 `exact` + `task_id` + 短 `deadline` 的授权，下发；
-   - 有 `user` 信任项可以授权：
-     - 先查找这个用户已经签发、仍然有效、并且覆盖本次任务的授权（按 nodes、指令限制、deadline 匹配）；
-     - 没有就创建审批请求，**只推送给能授权的那些用户**，等待签名（WebUI 中用 Passkey，或用 `crha grant`），或者在节点上本地批准；
-     - 如果需要联署，crhs 在策略通过后再签一个联署，一起下发；
-   - 有 `local` 信任项可以授权：在审批请求中提示"也可以在节点上执行 `crha approve`"；
+2. **非特权模式的处理方式**：`native` / `ignore` 只需要第 1 步放行；`reject` 直接拒绝；SSH 节点按 `ignore` 处理并加输出提示；`forward` 继续第 3 步。
+3. **用缓存的 TrustSummary 计算授权方案**（只为任务所有者）：
+   - crhs 信任项可以单独授权：crhs 签发 `exact` + `task_id` + 短 `deadline` 的授权，放进同一 payload 的 `signatures`，下发；
+   - 所有者的 user 信任项可以授权：
+     - 先查找这个所有者已经签发、仍然有效、并且覆盖本次任务的授权（按 nodes、指令限制、deadline 匹配）；
+     - 没有就创建授权等待，只给所有者显示（WebUI Passkey 或 `crha grant`），或等待节点本地批准；
+     - 如果需要联署，crhs 在同一 payload 上再追加自己的签名；
+   - 有 `local` 信任项可以授权：在授权等待中提示"也可以在节点上执行 `crha approve`"；
    - 没有任何信任项可以授权：直接拒绝，并告诉调用方"这个节点上没有人能授权这条命令"。
+
+授权等待与规则审批分开：策略已经通过但尚未拿到签名时，任务处于 `awaiting_authorization`，不是 `awaiting_approval`。
 
 ### 授权签名密钥
 

@@ -38,8 +38,8 @@ nodes             (id, org_id, owner_user_id, name, transport[client|ssh], statu
                    public_key,                 -- client 节点
                    ssh_host, ssh_port, ssh_user, ssh_host_key, ssh_credential_id,   -- ssh 节点；ssh_host_key 为 SHA256 指纹
                    ssh_jumps json,                                                   -- 跳板列表，每一跳带自己的主机密钥和凭证
-                   privileged_mode[forward|native|ignore|reject], run_identities json,          -- 两种模式各自的运行身份
-                   trust_summary json, trust_digest,                                   -- 特权模式上报
+                   privileged_mode[forward|native|ignore|reject], run_identities json,  -- 两种模式各自的运行身份
+                   trust_summary json, trust_digest,                                   -- crhs 缓存的 TrustSummary；连接时查询、变化时推送
                    notes_path,                                                         -- 节点笔记路径（Facts 上报，SSH 节点手动配置）
                    facts json, client_version, last_seen_at, created_at)
 node_groups       (node_id, group_name, refreshed_at)  -- crha 节点：crha 上报的缓存；SSH 节点：在 crhs 中维护
@@ -55,6 +55,7 @@ secrets           (id, org_id, kind, ciphertext, created_at)          -- 用主�
 
 ```
 task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail_fast,
+                   output_mode[status|text],                          -- 批量输出模式；默认 status
                    skipped json,                                      -- 因 fail_fast 或中断而未启动的节点
                    rule_chain json nullable, approval json nullable,  -- 一个任务组只审批一次
                    spec json nullable, timeout_ms nullable, pending_input nullable,
@@ -65,18 +66,18 @@ task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail
                    state[awaiting_approval|running|finished|interrupted|rejected],
                    actor_type, actor_id, on_behalf_of_user_id, created_at, finished_at)
 tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json, input_size, input_sha256,
-                   privileged, timeout_ms,
-                   state[awaiting_approval|denied|dispatched|running|exited|failed|rejected|unknown],
+                   privileged, timeout_ms, output_mode[status|text],
+                   state[awaiting_approval|awaiting_authorization|denied|dispatched|running|exited|failed|rejected|unknown],
                    exit_code, signal, timed_out, cancelled,
                    error_code, error_message,                         -- 执行器错误码、拒绝原因或 unknown 的原因
                    actor_type, actor_id, on_behalf_of_user_id,
                    rule_chain json nullable,                          -- 从根开始的规则链；用户本人操作时为空
                    approval json nullable,                            -- 规则判断记录（每一级），以及审批决定：结果、决定者、时间、理由
-                   pending_input nullable,                            -- 等待审批时暂存的输入（base64）
+                   pending_input nullable,                            -- 等待审批/授权时暂存的输入（base64）
                    root_session_id nullable,                          -- 规则链根会话，按会话树查等待项
                    handler_type[agent|user] nullable,                 -- 等审批时谁处理；user 即 on_behalf_of_user_id
                    handler_session_id nullable,                       -- handler_type=agent 时处理的会话
-                   authorization json nullable,                       -- M4：授权
+                   authorization json nullable,                       -- M4：授权状态、方案、payload id、trust digest
                    created_at, dispatched_at, accepted_at, finished_at,
                    stdout_bytes, stderr_bytes,
                    stdout_head, stdout_tail, stderr_head, stderr_tail, -- crhs 只保存截断后的头尾（base64）
@@ -84,16 +85,15 @@ tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json,
                    late_result nullable)                              -- 已报告 unknown 之后才到达的真实结果
 ```
 
-crhs 不保存完整输出。过长的输出由 crha 在节点上保存为普通文件并负责清理，见 [execution-plane.md](execution-plane.md#输出)。
+crhs 不保存完整输出。批量默认 `status` 只保存状态和输出文件路径；`text` 受单节点和总预算限制。完整输出由 crha 在节点上保存为普通文件并负责清理，见 [execution-plane.md](execution-plane.md#输出)。SSH 不保存完整输出。
 
 ## 规则与授权
 
 ```
-authorizations    (id,                                   -- SHA-256(JCS(payload))
-                   org_id, issuer[server|user], user_id nullable, credential_fingerprint,
-                   payload json, signature, format[sshsig|webauthn],
+authorizations    (id,                                   -- SHA-256(CBOR(payload))
+                   org_id, payload blob, signatures json, -- 同一 payload 上的多个签名；用户 + crhs 联署
                    nodes json, command_match json nullable, deadline nullable,
-                   cosign_of nullable, task_id nullable,              -- task_id：一次性授权绑定的任务
+                   task_id nullable,                      -- task_id：一次性授权绑定的任务
                    schedule_id nullable,
                    revoked_at nullable, created_at)
 rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,
@@ -104,7 +104,7 @@ rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,
 
 审批结果保存在工具调用（`tasks` / `task_groups`）上，不单独建表；"以后都允许"是对 `rule_sets` 的修改。等待中的审批用 `root_session_id` 归属会话树，用 `handler_type` / `handler_session_id` 记录当前处理者（agent 会话，或 `on_behalf_of_user_id` 用户），前端和重启重建都按它查询。
 
-`authorizations` 同时记录 crhs 签发的单条命令授权、联署，以及用户签发的授权。吊销时设置 `revoked_at`，并把授权 id 推送给相关节点的 crha 特权模式（见 [privilege.md](privilege.md#吊销)）；离线节点在重连后收到。
+`authorizations` 每个 payload 一行，`signatures` 保存同一对象上的用户签名和 crhs 联署，不再有 `cosign_of`。吊销时设置 `revoked_at`，并把授权 id 推送给相关节点的 crha 特权模式（见 [privilege.md](privilege.md#吊销)）；离线节点在重连后收到。
 
 ## Agent
 

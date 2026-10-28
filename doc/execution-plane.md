@@ -34,22 +34,24 @@ task_id        UUIDv7
 node_id
 kind, spec     见上
 privileged     true | false             # true 时为特权任务，走授权链路，见 privilege.md
-authorization  可选：特权任务的授权（一个授权，需要联署时再加一个联署；本地批准时为空），见 privilege.md
+authorization  可选：特权任务的一个授权对象（payload + signatures[]）；本地批准时为空，见 privilege.md
 timeout_ms     超时后先发 SIGTERM，宽限期过后发 SIGKILL（杀整个进程组）
+output_mode    status | text：批量默认 status；单任务默认 text
 output_limit   客户端为该任务缓冲输出的上限
 ```
 
 ### 状态机（服务端视角）
 
 ```
-created ──▶ awaiting_approval ──▶ dispatched ──▶ running ──▶ exited(code)
-   │               │                  │             │
-   │               └──▶ rejected      │             ├──▶ failed(reason)      执行器层面的错误，例如命令不存在、授权校验失败
-   └──▶ denied(策略拒绝)              │             ├──▶ cancelled
-                                      └─────────────┴──▶ unknown(reason)
+created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ dispatched ──▶ running ──▶ exited(code)
+   │               │                        │                    │             │
+   │               └──▶ rejected            └──▶ rejected        │             ├──▶ failed(reason)
+   └──▶ denied(策略拒绝)                                         │             ├──▶ cancelled
+                                                                 └─────────────┴──▶ unknown(reason)
 ```
 
-- 没有规则链（用户本人在 WebUI 中操作）的任务直接下发。
+- 没有规则链（用户本人在 WebUI 中操作）的任务直接进入授权/下发。
+- 策略已通过但特权任务还需要用户或本地签名时，任务进入 `awaiting_authorization`；拿到授权后下发。
 - `denied` 的 `error_code` 为 `policy_denied`；审批被拒绝（包括 token 吊销）时为 `rejected`，`error_code` 为 `approval_rejected`（crha 拒绝任务同样是 `rejected`，`error_code` 为 `rejected`）。
 - 等待审批的任务把输入（stdin、写入内容）暂存在 `tasks.pending_input`，下发时取出并清空；批准时节点不在线，任务以 `failed(node_offline)` 结束，不再排队等节点。
 - 任务组需要审批时整组等待（`task_groups.state = awaiting_approval`），还没有创建任务，规格和输入暂存在任务组上；被规则拒绝的节点立即得到一个 `denied` 任务。批准后剩余节点照常按并发数执行。
@@ -78,62 +80,92 @@ created ──▶ awaiting_approval ──▶ dispatched ──▶ running ─�
 
 ## 输出
 
-- 输出按流（stdout/stderr）分开，每个分片带字节偏移 `offset`，实时推送给 crhs。
-- **crhs 只保存截断后的输出**：stdout 和 stderr 各自的头部和尾部（各 2000 行或 50KB，先到为准），不保存完整输出，也没有输出保留策略。
-- **过长的输出由 crha 在节点上保存为普通文件**：输出超过 2000 行或 50KB（与交给模型的截断阈值相同，因此只要模型看到的输出被截断，就一定有完整输出文件；阈值随 `TaskStart` 下发）时，crha 非特权模式把完整输出写入 `[output].dir`（默认 `/var/lib/crha/output/<task_id>.log`，stdout 和 stderr 按到达顺序交错写入，与终端里 `2>&1` 看到的一致；crha 在内存中保留分段索引，用于按流续传），`TaskExit` 中带上文件路径和总字节数。文件权限 0600，属主为非特权模式的运行用户（输出可能包含敏感内容）。agent 需要完整输出时，用普通的 `read_file` 读取。
+- 输出按流（stdout/stderr）分开，每个分片带字节偏移 `offset`；单任务和批量 `text` 模式下实时推送给 crhs，批量 `status` 模式不推送。
+- **crhs 只保存截断后的输出**：单任务和批量 `text` 模式保存 stdout/stderr 的头部和尾部（合计受 2000 行或 50KB 预算约束），不保存完整输出；批量 `status` 模式完全不保存输出，只保存状态和节点文件路径。
+- **完整输出由 crha 在节点上保存为普通文件**：单任务文本模式下，输出超过 2000 行或 50KB 时落盘；批量 `text` 和 `status` 模式**总是**落盘。crha 非特权模式把完整输出写入 `[output].dir`（默认 `/var/lib/crha/output/<task_id>.log`，stdout 和 stderr 按到达顺序交错写入，与终端里 `2>&1` 看到的一致；crha 在内存中保留分段索引，用于按流续传），`task.exit` 中带上文件路径和总字节数。文件权限 0600，属主为非特权模式的运行用户（输出可能包含敏感内容）。agent 需要完整输出时，用普通的 `read_file` 读取。
   - 特权任务的输出本来就经由非特权模式转发，所以同样由非特权模式保存，不会因此多暴露什么。
   - 这些文件的清理由 crha 负责，按 `crha.toml` 中 `[output]` 的 `max_age` 和 `max_total` 配置（默认 7 天、1GB）。
-- **断线续传**：任务运行期间，以及结束后到 crhs 确认（`OutputAck`）之前，crha 保留未确认的输出：输出较短时在内存中，已经写入文件的直接从文件中补发。所以不会因为缓冲溢出而丢失输出。
-- **SSH 节点**：强制截断，只有 crhs 保存的头尾，不支持保存完整输出。
+- **断线续传**：任务运行期间，以及结束后到 crhs 确认（`task.output.ack` / `task.exit.ack`）之前，crha 保留未确认的输出：输出较短时在内存中，已经写入文件的直接从文件中补发。所以不会因为缓冲溢出而丢失输出。
+- **批量执行**：
+  - `status`（批量默认）：只返回状态、退出码和完整输出文件路径；不向 crhs 发送 stdout/stderr，完整输出留在节点文件。
+  - `text`：每节点最多 8KB/128 行，所有节点共享单任务总预算（50KB/2000 行）；按**输出到达顺序**分配，预算耗尽后忽略后续节点，允许整个节点被丢弃；完整输出仍然留在节点文件。
+  - 预算在接收端 append 时检查，不能先把每个任务收满再裁剪；内存上限固定为总预算加少量元数据，不随节点数增长。
+  - SSH 节点不保存完整输出：`status` 只返回状态，`text` 只返回受单节点和总预算限制的尾部输出。
 
-## 自有协议
+## 自有协议（M3.5）
+
+M3.5 完整替换原来的 protobuf 消息层。Web API、数据库和 WebUI 仍使用 JSON；协议不保证旧版本兼容。
 
 ### 分层
 
 ```
-消息层     Protobuf 消息（proto/ 下定义）
-会话层     Hello / 心跳 / 断线恢复
-安全层     Noise_IK 端到端加密通道（双向认证），见"通信安全"
-传输层     任意可靠有序的消息流：
-           v1：WebSocket over TLS（客户端主动连服务端，即"反向连接"，默认方式）
-           后续：由服务端主动连客户端（节点有公网入口、服务端在内网时使用）
+消息层     CBOR（确定性编码；授权 payload 也使用 CBOR）
+会话层     版本协商 / hello / 心跳 / 断线恢复
+抽象       命令 → 响应；客户端推送事件
+安全层     Noise_IK 端到端加密通道
+传输层     任意可靠有序的消息流（v1：WebSocket over TLS）
 ```
 
-消息层、会话层和安全层都与传输解耦，新增传输方式时不需要改协议，也不需要重新设计认证。
+### 版本协商
 
-### 消息草案
+- 版本只在握手时协商：`protocol_major`、`protocol_minor` 和双方支持的命令集合。
+- 大版本不匹配直接拒绝并说明；小版本取双方交集。
+- 握手完成后，后续帧**不再携带** `v` 字段；命令名和固定结构已经由协商结果约束。
+- 大版本内不修改已有命令/响应的结构。需要替换时新增命令，例如 `task.start.v2`；旧命令保留到下一个大版本。
+- 新命令只有在双方握手都声明支持时才使用；否则回退到旧命令或返回 `unsupported_command`。
 
-| 方向 | 消息 | 说明 |
-|---|---|---|
-| C→S | `Hello` | node_id、客户端版本、能力（支持的 kind、特权任务的处理方式、两种模式各自的运行身份）、运行中任务列表 `{task_id, state, stdout_end, stderr_end}` |
-| S→C | `Welcome` | 附带对运行中任务的输出确认偏移，客户端从这里续传（双向认证已在 Noise 握手中完成） |
-| C→S | `Facts` | 系统信息：发行版、内核、架构、init 系统、包管理器、sudo/doas/run0 是否可用；节点笔记路径；节点所属的组（配置变化时主动推送）；与 crhs 的时钟偏差 |
-| S→C | `TaskStart` | 任务规格 + 授权凭证 |
-| C→S | `TaskAccepted` / `TaskRejected` | 接受，或拒绝（附原因，例如不支持的 kind、授权校验失败） |
-| C→S | `TaskOutput` | `{task_id, stream, offset, data}` |
-| S→C | `OutputAck` | `{task_id, stream, offset}`，确认后客户端可以释放缓冲 |
-| C→S | `TaskExit` | 退出码 / 信号 / 执行器错误，最终输出偏移；完整输出文件的路径（如果有） |
-| S→C | `TaskCancel` | 取消（TERM → 宽限期 → KILL） |
-| S→C | `TaskQuery` / C→S `TaskStatus` | 查询状态；不认识的任务回复 `unknown_task` |
-| S→C | `TrustQuery` / C→S `TrustSummary` | 查询特权模式的信任配置；配置变化时客户端主动推送，见 privilege.md |
-| S→C | `Preflight` / C→S `PreflightResult` | 询问特权模式哪些信任项可以授权某个任务 |
-| S→C | `Revocations` | 下发吊销列表，由非特权模式转交特权模式 |
-| C→S | `Ping` / S→C `Pong` | 心跳，只由 crha 发起，规则见下 |
+### 帧
+
+帧使用固定元组，不使用可选的兼容 map：
+
+```text
+request   = [0, id, cmd, body]
+response  = [1, id, cmd, ok, body]
+event     = [2, event, body]
+```
+
+- `id`：发送方分配的整数，响应用同一个 `id`；事件没有 `id`。
+- `ok = false` 时 `body = [code, message]`；`ok = true` 时 body 是该命令定义的固定结构。
+- 命令/事件 body 使用该命令自己的固定类型（数组、元组或必要的结构 map），不再为“以后可能加字段”保留可选字段。
+- 命令/事件名是稳定的；新版本使用新名字，不原地改结构。
+- 连接关闭时，所有未完成命令以连接错误结束。
+
+### 命令与事件
+
+| 方向 | 形式 | 名称 | 说明 |
+|---|---|---|---|
+| C→S | command | `hello` | 版本后的第一帧：节点、能力、运行中任务；响应 `welcome` |
+| C→S | command | `ping` | 心跳；响应 `pong` |
+| S→C | command | `task.start` | 任务规格 + 授权；响应接受/拒绝 |
+| S→C | command | `task.input` | 输入分块；响应 ack |
+| S→C | command | `task.cancel` | 取消；响应结果 |
+| S→C | command | `task.query` | 查询任务状态；响应当前状态 |
+| S→C | command | `trust.query` | 查询 TrustSummary；响应摘要 |
+| S→C | command | `revocations.set` | 下发吊销列表；响应 ack |
+| S→C | command | `task.output.ack` | 确认输出偏移；响应 ack |
+| S→C | command | `task.exit.ack` | 确认任务结束，可释放输出；响应 ack |
+| C→S | event | `task.output` | `{task_id, stream, offset, data}` |
+| C→S | event | `task.exit` | 退出码/信号/错误、最终偏移、输出文件路径 |
+| C→S | event | `facts` | 系统信息、组、时钟偏差、特权模式信息 |
+| C→S | event | `trust.summary` | 特权模式配置变化时主动推送 |
+| S→C | event | `node.status` | pending/active 等状态变化 |
+
+`task.start` 的接受/拒绝、`task.query` 的状态、`hello`/`welcome` 的断线恢复都是命令响应；任务输出和退出是客户端推送，不再作为“响应”发送。
 
 ### 心跳
 
-- crha 有义务至少每 45 秒发一次 `Ping`，推荐间隔为 30 秒加 ±5 秒的随机波动（避免大量节点同时 ping）。crhs 不主动 ping，只回 `Pong`。
-- 任何一方超过 90 秒（两个最大间隔）收不到对方的任何消息，就断开连接并进入断线处理。crhs 靠这条规则发现挂起的 crha 和不会送达关闭的半开连接；crha 靠 `Pong` 发现 crhs 已失联。
-- 心跳走 Noise 通道内的应用层消息，不用 WebSocket 控制帧：它能证明整条会话路径（解密、分发、回包）还在工作，也不受中间代理自行处理控制帧的影响。
+- crha 有义务至少每 45 秒发一次 `ping`，推荐间隔为 30 秒加 ±5 秒的随机波动（避免大量节点同时 ping）。crhs 只回 `pong`。
+- 任何一方超过 90 秒（两个最大间隔）收不到对方的任何消息，就断开连接并进入断线处理。
+- 心跳走 Noise 通道内的应用层命令，不用 WebSocket 控制帧：它能证明整条会话路径还在工作，也不受中间代理自行处理控制帧的影响。
 
 ### 断线恢复
 
 - 网络中断时客户端进程还在，任务继续运行，输出继续缓冲。
-- 客户端以指数退避重连，在 `Hello` 中带上运行中的任务列表；服务端回复各任务的确认偏移，客户端从该偏移补发输出。
-- 服务端发现有未终结的任务不在客户端的列表中，就发 `TaskQuery` 确认；客户端回复 `unknown_task` 后，任务标记为 `unknown(executor_restarted)`。
-- crhs 重启后内存中的输出已经丢失，Welcome 中的确认偏移为 0，crha 从头补发（crha 在收到 `TaskExitAck` 之前一直保留输出），所以 crhs 重启也不会丢输出。
-- 大的输入（exec 的 stdin、文件内容）在 `TaskStart` 之后以 `TaskInput` 分块发送，`TaskStart` 中只带大小和 SHA-256；输入发送途中断线无法续传（`TaskStart` 只发一次），crha 发现输入不完整，任务失败。
-- 断线超过一定时间（默认 2 分钟），服务端先把这些任务对上层报告为 `unknown(connection_lost)`（尚未确认接受的为 `unknown(dispatch_unconfirmed)`）；如果之后客户端重连并报告了结果，再以"迟到结果"补记到审计和任务记录中，但不会改变已经返回给 agent 的结论。
+- 客户端以指数退避重连，在 `hello` 中带上运行中的任务列表；crhs 在 `welcome` 中回复各任务的确认偏移，客户端从这里补发输出。
+- crhs 发现有未终结的任务不在客户端的列表中，就发 `task.query`；客户端返回不认识的 task id，任务标记为 `unknown(executor_restarted)`。
+- crhs 重启后内存中的输出已经丢失，`welcome` 中的确认偏移为 0，crha 从头补发（crha 在收到 `task.exit.ack` 之前一直保留输出），所以 crhs 重启也不会丢输出。
+- 大的输入（exec 的 stdin、文件内容）在 `task.start` 之后以 `task.input` 分块发送，`task.start` 中只带大小和 SHA-256；输入发送途中断线无法续传（`task.start` 只发一次），crha 发现输入不完整，任务失败。
+- 断线超过一定时间（默认 2 分钟），服务端先把这些任务对上层报告为 `unknown(connection_lost)`（尚未确认接受的为 `unknown(dispatch_unconfirmed)`）；如果之后客户端重连并报告了结果，再以“迟到结果”补记到审计和任务记录中，但不会改变已经返回给 agent 的结论。
 
 ## 通信安全
 
@@ -147,7 +179,7 @@ created ──▶ awaiting_approval ──▶ dispatched ──▶ running ─�
 | 被攻破的节点 | 只能看到发给自己的任务，也只能操作这些任务；无法冒充其他节点 |
 | 被攻破的 crhs | 可以向节点下发普通命令；提权受 crha 特权模式的信任配置约束，见 privilege.md |
 
-如果只用 TLS，终结 TLS 的一方就能看到全部明文，还能注入 `TaskStart`，等于拿到所有节点的普通用户 RCE。所以在 TLS 之内再加一层端到端加密。
+如果只用 TLS，终结 TLS 的一方就能看到全部明文，还能注入 `task.start`，等于拿到所有节点的普通用户 RCE。所以在 TLS 之内再加一层端到端加密。
 
 ### 两层结构
 
@@ -157,12 +189,12 @@ created ──▶ awaiting_approval ──▶ dispatched ──▶ running ─�
 ### 握手
 
 0. WebSocket 建立后，crhs 立即发送第一帧：32 字节随机**挑战**。它和 101 响应一起到达，不增加往返。
-1. crha → crhs：携带客户端静态公钥（加密传输），载荷为 `{crha 版本, 客户端时间, enroll?}`。crhs 按公钥查找节点：
+1. crha → crhs：携带客户端静态公钥（加密传输），载荷是固定 CBOR：`{protocol_major, protocol_minor, commands, crha_version, client_time_ms, enroll?}`。crhs 按公钥查找节点：
    - 找到已批准的节点：正常连接。
-   - 找到 pending 的节点：建立**受限连接**，只能上报 Facts 和查询注册状态，不接收任务。
-   - 找不到，且载荷带有 `enroll`（注册令牌密钥、主机名、Facts）、令牌有效：消耗令牌，创建绑定这把公钥的 pending 节点，同样建立受限连接。见下文"注册"。
+   - 找到 pending 的节点：建立**受限连接**，只能上报 facts 和查询注册状态，不接收任务。
+   - 找不到，且载荷带有 `enroll`（注册令牌密钥、主机名、facts）、令牌有效：消耗令牌，创建绑定这把公钥的 pending 节点，同样建立受限连接。见下文"注册"。
    - 其余情况断开。
-2. crhs → crha：载荷为 `{连接 id, 服务端时间}`。crha 据此算出与服务端的时钟偏差，之后在 `Facts` 中上报；偏差过大时双方都写警告日志，WebUI 显示警告（见 [privilege.md](privilege.md#时钟)）。之后进入 `Hello` 和断线恢复流程。
+2. crhs → crha：载荷是固定 CBOR：`{protocol_major, protocol_minor, commands, connection_id, server_time_ms, node_state, node_id}`。crha 据此算出与服务端的时钟偏差，之后在 `facts` 中上报；偏差过大时双方都写警告日志，WebUI 显示警告（见 [privilege.md](privilege.md#时钟)）。之后进入 `hello` 和断线恢复流程。
 
 - **防重放**：IK 的第一条消息本身可以被重放。被重放时攻击者没有客户端的临时私钥，解不开后续流量，但可以让 crhs 以为节点重新连上了（例如顶掉真实连接）。CRH 把服务端挑战放进 prologue：prologue 参与握手哈希，并作为载荷加密的附加数据，所以第一条消息只在发出它的那条连接上有效，换一条连接重放时载荷解密失败。
   - 不使用 WireGuard 的时间戳方案（crhs 记住每个节点最后一次握手的时间戳，拒绝不更新的）。那个方案只比较客户端自己前后两次的时间，不受双方时钟差影响，但依赖客户端时钟不回退：NTP 向后校正、RTC 电池失效、虚拟机快照回滚都会让节点在追上旧时间之前无法连接；时钟一旦误跳到未来再校正回来，节点会被锁定到那个未来时间。改用持久化计数器则在磁盘回滚、身份密钥被复制到新机器时出现同样的问题。另外 crhs 还要为每个节点持久化状态。
@@ -173,8 +205,9 @@ created ──▶ awaiting_approval ──▶ dispatched ──▶ running ─�
 
 ### 实现
 
-- Go：`flynn/noise`。
-- TS：基于 Node 内置的 `crypto`（x25519、chacha20-poly1305、blake2s256）实现握手状态机，用 Noise 官方测试向量验证，并在 CI 中与 Go 实现交叉测试。
+- Go：`flynn/noise`；CBOR 使用 `fxamacker/cbor` 的确定性编码模式。
+- TS：基于 Node 内置的 `crypto`（x25519、chacha20-poly1305、blake2s256）实现握手状态机，用 Noise 官方测试向量验证，并在 CI 中与 Go 实现交叉测试；CBOR 使用纯 JS 库，不使用非标准 record 扩展。
+- 删除 protobuf、buf 和生成代码；TS/Go 类型手写，用 golden CBOR fixture 保证一致。
 
 ### 密钥
 
@@ -205,7 +238,7 @@ created ──▶ awaiting_approval ──▶ dispatched ──▶ running ─�
 1. 用户在 WebUI 创建注册令牌（节点将归这个用户所有），格式为 `crh1.<服务端身份公钥指纹>.<随机密钥>`。令牌只能使用一次，有效期默认 1 小时，可以限定节点名。
 2. 在节点上执行 `crha enroll https://crh.example.com crh1.xxxx.yyyy`：
    - 通过 HTTPS 获取服务端身份公钥，**检查它与令牌中的指纹一致**，然后固定下来。令牌本身就完成了信任引导，做法与 kubeadm 的 `--discovery-token-ca-cert-hash` 相同。
-   - 生成节点身份密钥，发起 Noise IK 握手，在第一条消息的载荷中带上 `enroll`（令牌密钥、主机名和 Facts）。这是唯一允许未知公钥完成握手的情况。令牌密钥在 Noise 通道内传输，终结 TLS 的一方看不到；第一条消息即使被重放，令牌也已经被消耗。
+   - 生成节点身份密钥，发起 Noise IK 握手，在第一条消息的载荷中带上 `enroll`（令牌密钥、主机名和 facts）。这是唯一允许未知公钥完成握手的情况。令牌密钥在 Noise 通道内传输，终结 TLS 的一方看不到；第一条消息即使被重放，令牌也已经被消耗。
 3. crhs 校验令牌后，节点进入 **pending** 状态。**注册必须经过确认**：令牌的创建者（节点所有者）或管理员在 WebUI 核对主机名和节点公钥指纹（节点上可以用 `crha status` 查看指纹）后批准，节点才能接收任务。在此之前，节点用自己的公钥重连时只能建立受限连接；被拒绝时删除这把公钥。
 
 ### 轮换与吊销
@@ -223,7 +256,7 @@ created ──▶ awaiting_approval ──▶ dispatched ──▶ running ─�
 - **reload**：`crha reload`（或者给进程发 SIGHUP）让两种模式重新读取配置。特权模式重载信任配置后，向 crhs 推送新的 `TrustSummary`。
   - `crha reload` 先校验配置文件，有错误就直接报告给执行者，不发信号；`crha run` 写 `<state_dir>/crha.pid` 供它查找。
   - 运行中的进程收到 SIGHUP 但新配置无效时，继续使用旧配置并记录错误。
-  - 组、笔记路径变化：重新上报 `Facts`；服务端地址、`tls_verify` 变化：重新连接；`state_dir`、`[output]`、`[privileged]` 的变化要重启才生效（会记录警告）。
+  - 组、笔记路径变化：重新上报 `facts`；服务端地址、`tls_verify` 变化：重新连接；`state_dir`、`[output]`、`[privileged]` 的变化要重启才生效（会记录警告）。
 - **修改配置**：就是普通的特权任务：`file.write` 写配置文件，再执行 `crha reload`。
 - **升级**：同样是普通的特权任务：
   1. `file.write` 写入新的二进制（或者 `exec` 调用包管理器安装）；
@@ -239,7 +272,7 @@ SSH 节点不安装任何东西，服务端通过 SshTransport 执行，对上�
 | exec / 文件操作 | ✅ | ✅（exec 走 exec channel；文件操作走 SFTP，语义、JSON 输出和错误码与 crha 一致，差异见下文） |
 | 断线续传 | ✅ | ❌ 连接一断，任务即为 `unknown(connection_lost)` |
 | 反向连接 | ✅ | ❌ 服务端必须能访问节点的 SSH 端口 |
-| 特权任务 | 四种处理方式（见 privilege.md） | 只支持 `native`（`sudo -n` / `doas -n` / `run0`，非交互）、`ignore`（SSH 用户本身就是目标身份时）、`reject` |
+| 特权任务 | 四种处理方式（见 privilege.md） | 不参与提权：`privileged` 被忽略，按 SSH 用户执行，并在任务输出中提示；保留 SFTP `file.*` |
 | 节点本地日志 | 特权模式本地日志 + journald | 只有系统自带日志（sshd、sudo） |
 
 ### 跳板机

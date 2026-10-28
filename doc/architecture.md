@@ -53,7 +53,7 @@
 | WebUI | React |
 | 客户端 | Go，单一静态二进制，交叉编译 linux/amd64、linux/arm64；命令行用 cobra；模块路径 `github.com/Kodecable/ClusterRightHand/client` |
 | 发布 | 自己写 bash 脚本完成交叉编译、打包（deb/rpm 用 nfpm 之类的单一工具，或直接脚本）、校验和与签名；不使用 goreleaser |
-| 协议 | Protobuf 消息，使用 buf 生成 Go 和 TS 代码（`@bufbuild/protobuf`） |
+| 协议 | CBOR（M3.5；完整替换原 protobuf），命令 → 响应 + 客户端推送；TS/Go 手写类型和 codec，golden vector 交叉验证 |
 | SSH（服务端侧） | `ssh2`（Node） |
 
 ## 仓库结构
@@ -61,9 +61,8 @@
 ```
 ClusterRightHand/
 ├── doc/                设计文档
-├── proto/crh/v1/       协议定义（.proto）；buf.yaml、buf.gen.yaml 在仓库根目录
 ├── packages/
-│   ├── protocol/       @crh/protocol：生成的 TS 协议代码（src/gen）+ 编解码
+│   ├── protocol/       @crh/protocol：CBOR 协议类型、codec 和 golden vectors
 │   └── noise/          @crh/noise：Noise IK 的 TS 实现
 ├── server/             @crh/server：crhs
 │   ├── src/cluster/        Cluster 核心、传输适配
@@ -74,12 +73,12 @@ ClusterRightHand/
 ├── web/                @crh/web：WebUI（Vite + React）
 ├── client/             Go 模块 github.com/Kodecable/ClusterRightHand/client
 │   ├── cmd/crha/           单一二进制（cobra）
-│   └── internal/           cli、config、transport、noise、executor、privileged、proto（生成）
+│   └── internal/           cli、config、transport、noise、executor、privileged、protocol（CBOR）
 └── scripts/            发布等 bash 脚本
 ```
 
 - TS 部分是一个 pnpm workspace，Node 直接运行 `.ts`（类型剥离），`tsc --noEmit` 只做类型检查；lint 与格式化用 Biome，测试用 Vitest。
-- 生成的协议代码提交进仓库（`pnpm gen:proto`），CI 检查它与 .proto 一致；`protoc-gen-go` 作为 Go tool 锁定在 `client/go.mod` 中。
+- M3.5 后不再有 protobuf/buf/生成代码；CBOR 类型和 codec 手写，golden vector 提交进仓库，CI 运行双端一致性测试。
 - 根目录命令：`pnpm check`（Biome、tsc、gofmt、go vet）、`pnpm test`（Vitest、go test；设置 `CRH_TEST_PG_URL` 时同时测试 PostgreSQL）。
 
 ## 关键流程：agent 执行一条特权命令
@@ -89,17 +88,18 @@ ClusterRightHand/
 3. 策略引擎判断：U 能否访问 web-1（自己的节点，或被分享了 `operate`）；再沿规则链（根会话 S → …）逐级判定授权规则，结果为 allow / deny / require-approval。
 4. 根据 web-1 的非特权模式如何处理特权任务（`[privileged].mode`）决定授权路径：
    - `native` / `ignore`：只需要 crhs 策略放行；`reject`：直接拒绝；
-   - `forward`：向 crha 特权模式发 preflight，询问哪些信任项能授权这条命令——
+   - `forward`：crhs 从缓存的特权模式 `TrustSummary` 计算授权方案——
      - crhs 信任项可以单独授权：auto review 通过后，crhs 签发单条命令授权；
-     - 只有用户信任项可以：使用该用户已签发的有效授权，或者向这些用户发起审批，等待 Passkey / SSH key 签名或本地批准；用户信任项要求联署时，crhs 再签一个联署。
-5. 任务连同授权下发给 crha 非特权模式 → 转给特权模式校验 → 执行 → 输出经非特权模式流式返回 → crhs 保存头尾并推送给会话。
+     - 只有所有者的用户信任项可以：使用该所有者已签发的有效授权，或者等待 Passkey / SSH key 签名或本地批准；要求联署时，crhs 在同一 payload 上追加签名；
+     - 只用 `on_behalf_of_user_id`，不考虑共享用户或其他管理员。
+5. 任务连同授权下发给 crha 非特权模式 → 转给特权模式校验 → 执行 → 输出经非特权模式流式返回 → crhs 按单任务/批量输出模式保存或只留文件路径。SSH 节点忽略特权标志，按 SSH 用户执行并在输出中提示。
 6. 审计记录：crhs 写入 Cluster 审计表（哈希链）；特权模式写入节点本地日志。
 
 ## 扩展预留：监控、告警、仪表盘
 
 暂不实现，但现有设计不能阻塞它们：
 
-- **协议**：消息用 Protobuf 的 `oneof` 承载，新增消息类型（例如 `MetricsBatch`）不影响旧客户端；`Hello` 中的能力协商决定是否启用。
+- **协议**：消息用固定结构的 CBOR 命令/事件承载；新功能用新命令（例如 `metrics.batch`），旧命令不原地改结构。握手协商双方支持的命令集合。
 - **采集**：crha 内部按"采集器"组织（v1 只有 `Facts`），以后加入周期性指标采集时不需要改执行链路。
 - **存储**：指标不放进业务表；以后通过独立的存储接口接入时序库（或 PG/SQLite 中的降采样表），不影响现有数据模型。
 - **告警**：Cluster 核心内部的事件（节点上下线、任务结束、审批）统一经过一个事件总线发出；告警规则、通知和"告警触发 agent 会话"以后都作为它的订阅者实现。

@@ -4,12 +4,12 @@
 
 ## M0 骨架
 
-- 仓库结构：`proto/`、`server/`、`web/`、`client/`。
+- 仓库结构：`server/`、`web/`、`client/`（M0 时含 `proto/`；M3.5 删除）。
 - Kysely + 迁移（SQLite 和 PG），CI 中两种数据库都跑。
 - 用户（管理员 / 普通用户）、用户组、登录（本地密码）、节点与会话的归属和分享。
 - `crhs keys export` / `import`（age 口令加密）。
 - LICENSE（MIT）。
-- buf 生成 Go 和 TS 协议代码。
+- （历史）最初用 buf 生成 Go 和 TS protobuf 协议代码；M3.5 计划改为 CBOR，见下文。
 
 ## M1 执行平面（已完成，见下文"进度"）
 
@@ -45,15 +45,39 @@
 
 **完成标志**：在 WebUI 中通过会话管理多台节点；服务端在工具执行中途重启后，会话能继续，结果正确。已完成（2026-10-27）：真实模型冒烟与浏览器走查手工执行，其余有自动化测试。
 
-## M4 提权
+## M3.5 协议重构：protobuf → CBOR（计划中）
+
+- 完整替换 crhs ↔ crha 的 protobuf 协议；Web API、数据库和 WebUI 继续使用 JSON。
+- 不保证旧协议兼容：握手协商协议版本，版本不匹配直接拒绝；开发期内没有滚动升级负担。
+- 版本协商只在握手完成；握手决定协议大版本、小版本和双方支持的命令后，后续帧不再携带单独的 `v` 字段。
+- 消息抽象为“命令 → 响应”加“客户端推送”：
+  - 命令和响应有稳定的命令名与固定结构；
+  - 推送事件只有事件名和固定结构；
+  - 大版本内不修改已有命令/响应的结构；小版本通过新增 `foo.v2` 之类的命令替换，旧命令保留到下一个大版本。
+- 命令 body 使用该命令定义的固定类型（数组/元组/结构），不为兼容性塞可选 map 字段。
+- 授权 payload 和任务规格哈希使用确定性 CBOR；SSHSIG/WebAuthn 签同一份 CBOR bytes，不再使用 JCS。
+- 删除 `proto/`、buf、`@bufbuild/protobuf`、Go protobuf 生成代码和 CI 的 `gen:proto`；`packages/protocol` 改为手写的 TS 类型/CBOR codec，Go 侧同步手写类型，并用 golden vector 交叉验证。
+- 批量执行输出改为两档：
+  - `status`（批量默认）：只返回状态，完整输出留在节点文件；
+  - `text`：每节点最多 8KB/128 行，所有节点共享单任务总预算，按输出到达顺序丢弃，完整输出仍留在节点；
+  - SSH 不保留完整输出，遵守其余规则。
+- 现有 M1/M3 的传输、任务、断线恢复、SSH 和 e2e 测试全部在 CBOR 上重跑。
+
+**完成标志**：删掉 protobuf 后所有 M1/M3 功能、e2e、故障注入和批量输出预算测试通过；协议无旧兼容路径。
+
+## M4 提权（计划中，见 [m4.md](m4.md)）
 
 - `native` 模式（sudo/doas/run0）。
 - crha 特权模式：unix socket、`SO_PEERCRED`、信任数组、目标字符串规范化与防护规则、授权与联署校验、一次性授权（已用列表）、吊销、本地日志。
-- `TrustSummary` 与 `Preflight` 查询；crhs 按 preflight 选择授权路径。
+- crhs 缓存 crha 的 `TrustSummary` 和 digest（连接时查询、变化时推送）；crhs 从自己的缓存计算授权方案，不再依赖 `Preflight`。
+- 只为会话所有者（`on_behalf_of_user_id`）计算 user 信任项和凭据；crhs 用 RE2（`re2`）匹配规则，crha 执行前仍完整复验。
+- 授权和联署是同一个 CBOR payload 上的多个签名，不再使用 `cosign_of`。
 - crhs 授权签名（SSHSIG，支持 ssh-agent）；auto review。
 - 用户授权：`crha grant` 签发 SSHSIG；WebUI 用 Passkey 签发；`crha approve` 本地批准。
+- WebUI 可以导出可粘贴进 `privileged.toml` 的 trust 片段。
+- SSH 节点不参与提权：`privileged` 被忽略，按 SSH 用户执行并在输出中提示；保留现有 SFTP `file.*` 任务。
 
-**完成标志**：同一节点可以分别配置为"信任服务端"和"只信任用户"，两条路径都能跑通，且在"只信任用户"时服务端无法提权（有专门的测试）。
+**完成标志**：同一节点可以分别配置为“信任服务端”和“只信任用户”，两条路径都能跑通，且在“只信任用户”时服务端无法提权（有专门的测试）；SSH 忽略特权且不破坏 file 任务。
 
 ## M5 计划任务与 subagent
 
@@ -91,3 +115,5 @@
   - durable 运行时（SQLite 官方存储、PostgreSQL `PgStorage`，均通过官方一致性测试）；会话与 cluster 工具（`replay: "safe"`，重启后重新挂接）；模型配置（内置 provider、OpenAI 兼容端点、额外请求头）；WebUI 会话页（SSE 流式）与模型设置；配额与子会话状态（根不扣减，D72、D76、D77）；subagent（前台/后台、`subagent_wait` / `list` / `cancel` / `decide`，父会话 agent 处理子会话审批，D75）；Auto Review；节点笔记；会话分享（view / chat）；停止会话时取消其任务和子会话；存储失败后重新打开 Harness；故障注入（工具执行中 SIGKILL、模型流式输出中 SIGKILL）与性能回归测试。
   - 真实模型冒烟（opencode zen `deepseek-v4.1-flash`）与 WebUI 浏览器走查手工完成，不在 CI 中。
   - 配额只管理 subagent，根会话固定 0 且不扣减；不足时暂停工具调用并只向直接父请求；durable 1.4.0 没有请求前的拦截点，检查发生在响应之后（D72）。
+- **M3.5**：计划中，未开始。完整替换 crhs ↔ crha 的 protobuf 为 CBOR，版本在握手协商，命令→响应 + 客户端推送，删除 protobuf/buf/生成代码；Web API/数据库 JSON 不变。详见 [m4.md](m4.md) 和 [execution-plane.md](execution-plane.md#自有协议m35)。
+- **M4**：计划中，未开始。细节、阶段和测试矩阵见 [m4.md](m4.md)。

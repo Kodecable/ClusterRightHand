@@ -11,13 +11,14 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | 文档 | 内容 |
 |---|---|
 | [architecture.md](architecture.md) | 总体架构、组件划分、技术栈、仓库结构 |
-| [execution-plane.md](execution-plane.md) | 执行平面：任务模型与语义、客户端协议、通信安全（WSS + Noise）、节点注册、SSH 传输 |
-| [privilege.md](privilege.md) | 提权与授权：特权任务的四种处理方式、crha 特权模式、方法与目标、授权结构、信任数组、联署、preflight |
+| [execution-plane.md](execution-plane.md) | 执行平面：任务模型与语义、CBOR 客户端协议（M3.5）、通信安全（WSS + Noise）、节点注册、SSH 传输、批量输出 |
+| [privilege.md](privilege.md) | 提权与授权：特权任务的四种处理方式、crha 特权模式、方法与目标、授权结构、信任缓存、联署 |
 | [agent-runtime.md](agent-runtime.md) | Agent 运行时：pi-durable 集成、cluster 工具、会话、subagent、测试策略 |
 | [access-control.md](access-control.md) | 用户模型（管理员 / 普通用户、用户组）、归属与分享、授权规则、API token、审计 |
 | [scheduling.md](scheduling.md) | 计划任务 |
 | [mcp.md](mcp.md) | MCP 门面 |
 | [data-model.md](data-model.md) | 数据表草案 |
+| [m4.md](m4.md) | M4 提权的实现计划、阶段和测试矩阵 |
 | [roadmap.md](roadmap.md) | 里程碑 |
 
 ## 产品定位
@@ -70,7 +71,7 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D21 | crhs 的授权签名与用户 SSH key 一样使用 SSHSIG | 特权模式只剩 SSHSIG 和 WebAuthn 两条校验路径；crhs 私钥可以交给 ssh-agent 托管 |
 | D22 | 用户信任项可以要求联署（`kinds` 中加 `require-cosign`）：每次使用都必须附带 crhs 的联署，此时该 crhs 信任项除角色和 `cosign` 能力之外的限制不生效 | |
 | D23 | 暂不考虑主机内威胁：特权模式没有身份密钥，socket 不加密，查询结果不签名 | 非特权模式的伪造无法让特权模式执行未授权的命令 |
-| D24 | 规则判定只在特权模式里做；crhs 通过 `TrustSummary` 和 `Preflight` 查询信任配置 | 避免 JS 与 RE2 语义不一致；审批只推送给能授权的用户 |
+| D24 | crha 特权模式上报 `TrustSummary`，crhs 缓存并据此计算授权方案；执行前 crha 仍完整复验（被 D78/D79 修订） | crhs 不再为每条任务发 Preflight；缓存与命令版本由 M3.5 协议承载 |
 | D25 | 信任 Passkey 即接受"crhs 被控制时 Passkey 不提供保护"，不对 Passkey 的能力单独区分 | |
 | D26 | 签名信任包暂不实现，设计上预留 | 见 privilege.md 的"扩展预留" |
 | D27 | `kinds`：`execute`（可以单独授权特权任务）；crhs 角色另有 `cosign`（可以联署）；user 角色另有 `require-cosign`（每次使用必须联署）。联署只能来自 crhs 角色 | 用户之间互相联署在结构上就不可能出现；crhs 的单独授权和联署是两种独立的能力 |
@@ -134,3 +135,8 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D75 | subagent 的子会话是 ownerless 会话（`sessions.parent_session_id`），不用 durable 的"任务拥有的对话"；前台等待在子会话的请求交给父会话 agent 时提前返回，父会话用 `subagent_wait` / `subagent_decide` / `subagent_list` / `subagent_cancel` 处理；父会话 abort 时显式取消整棵子树 | durable 1.4.0 的前台子会话无法在工具返回后存活；ownerless + 显式取消让"打断后转后台"和重启恢复都可控 |
 | D76 | 配额只用于 subagent（管理子会话、防止循环/空跑）：`sessions.quota_tokens` 是有符号 64 位剩余 token，可以不给（null 不限）；根会话固定 0 且从不扣减；只计 token，不计算货币成本；设置子会话配额即替换剩余量 | 根不需要额度；每次响应扣整条 subagent 链，负余量准确记录超支 |
 | D77 | 子会话状态只有 `active` / `awaiting` / `stopped`，是缓存：`active ↔ awaiting` 由工具调用状态（等审批）和配额状态重算，`stopped` 在运行结束时写入（正常完成、拒绝、abort 都一样，不区分原因；最后一条消息说明发生了什么），等待下一次输入。配额不足时暂停工具调用，只向**直接父会话**报告；它的 agent 给这个子会话**增加** token（不按自己的剩余封顶）或拒绝；父是根时由根会话的 agent 决定；每次响应仍扣整条 subagent 链 | 不跳过层级；封顶没有意义，因为同一笔用量本来就扣整条链；父会话的提示/打断只看子会话状态，细节从工具调用和配额里取 |
+| D78 | M3.5 完整替换 crhs ↔ crha 的 protobuf 为 CBOR；Web API/数据库继续 JSON；不保证旧协议兼容。版本只在握手协商（大/小版本和支持的命令），之后帧不再带 `v`；消息抽象为命令→响应和客户端推送；大版本内命令/响应结构固定，小版本用 `foo.v2` 新命令替换 | 去掉 protobuf/buf 依赖；CBOR 有确定编码规范；版本化命令比 oneof 字段演进更可控 |
+| D79 | M4 的 crhs 只缓存 `TrustSummary`，据此计算授权方案；只用 `on_behalf_of_user_id` 的凭据，不考虑共享用户或其他管理员；规则匹配用 RE2（Node 包 `re2`），crha 执行前仍完整复验 | 去掉 Preflight 往返；所有者和 RE2 使 crhs 判断与 crha 语义一致；缓存不是授权 |
+| D80 | 授权和联署是同一 CBOR payload 上的多个签名（`signatures[]`），不再使用 `cosign_of` 或两个 payload | 两个签名覆盖完全相同的 nodes/command/task_id/deadline；少一次一致性校验，授权 id 和吊销也只有一个 |
+| D81 | SSH 节点不参与提权：`privileged` 被忽略，按 SSH 用户执行并在任务输出中提示；保留现有 SFTP `file.*` 任务，不做 SSH native/forward | SSH 没有可验证的特权边界；忽略而不是假装拒绝/提权；file 任务仍有价值 |
+| D82 | 批量执行默认 `status`：只返回状态，完整输出留在节点；显式 `text`：每节点 8KB/128 行，所有节点共享单任务 50KB/2000 行预算，按输出到达顺序丢弃；预算在接收端 append 时检查 | 不在内存里先收完再裁；节点数增长不增加内存；完整输出仍可读文件 |

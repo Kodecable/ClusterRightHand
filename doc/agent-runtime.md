@@ -67,7 +67,7 @@ interface AgentRuntime {
 |---|---|
 | `list_nodes` | 列出会话所有者能访问的节点（自己的、分享给自己的）和组，以及节点状态、特权任务的处理方式 |
 | `node_info` | 节点 Facts，以及节点笔记的路径和内容（截断） |
-| `exec` | 执行命令；参数：`node`、`cmd` 或 `argv`、`cwd`、`env`、`privileged`、`timeout`、`wait`（最长等待时间） |
+| `exec` | 执行命令；参数：`node`、`cmd` 或 `argv`、`cwd`、`env`、`privileged`、`timeout`、`wait`（最长等待时间）；批量时 `text` 控制是否返回文本输出 |
 | `read_file` / `write_file` / `edit_file` / `list_dir` | 文件操作；`edit_file` 的参数与 pi 的 edit 工具相同（`edits[]`，每项 `oldText` / `newText`，`oldText` 必须在文件中唯一），由 crha 在节点上完成；`write_file` 默认只创建新文件，`overwrite: true` 才覆盖 |
 | `task_wait` | 继续等待一个仍在运行的任务，返回当前的输出尾部 |
 | `task_cancel` | 取消任务 |
@@ -76,10 +76,12 @@ interface AgentRuntime {
 
 `exec`、`read_file`、`write_file` 原生支持多个目标：`targets` 参数是节点和组的列表，例如 `["web-1", "group:prod"]`。
 
-- 可选参数：`parallel`（并发数，默认 10）、`fail_fast`（出现失败后不再启动剩余节点）。
+- 可选参数：`parallel`（并发数，默认 10）、`fail_fast`（出现失败后不再启动剩余节点）、`text`（是否返回文本输出）。
 - Cluster 核心为一次批量调用创建一个**任务组**，每个节点一个任务，审计中可以按任务组查询。
-- 返回值按节点汇总：状态、退出码、输出尾部（每个节点单独截断，所有节点合计同样不超过 2000 行或 50KB），以及各节点的 task_id 和完整输出文件的路径（如果有）。
-- 授权规则逐节点判定；需要审批时，同一个任务组合并成一个审批请求。特权任务可以由用户对组签一个授权，覆盖组内所有节点。
+- 默认 `status`：只返回状态、退出码、task_id 和完整输出文件路径；不返回 stdout/stderr。完整输出留在节点文件。
+- `text: true`：每节点最多 8KB/128 行；所有节点共享单任务 50KB/2000 行预算；按输出到达顺序分配，预算耗尽后忽略后续节点，允许整个节点被丢弃；完整输出仍在节点文件。
+- 预算在接收端追加时检查，内存不随节点数增长。
+- 授权规则逐节点判定；需要审批时，同一个任务组合并成一个审批请求。特权任务组第一阶段不做，先支持单任务特权。
 
 ### exec 工具的语义
 
@@ -90,7 +92,7 @@ interface AgentRuntime {
 
 ### 交给模型的输出
 
-与 pi 的 bash 工具一致：只返回**尾部** 2000 行或 50KB（先到为准），并注明"显示的是第 X–Y 行，共 N 行，完整输出：<路径>"。输出被截断时，crha 已经把完整输出保存在节点上（见 [execution-plane.md](execution-plane.md#输出)），结果中附上文件路径，agent 需要时用 `read_file` 分段读取。SSH 节点没有完整输出。
+单任务文本模式与 pi 的 bash 工具一致：只返回**尾部** 2000 行或 50KB（先到为准），并注明"显示的是第 X–Y 行，共 N 行，完整输出：<路径>"。输出被截断时，crha 已经把完整输出保存在节点上（见 [execution-plane.md](execution-plane.md#输出)），结果中附上文件路径，agent 需要时用 `read_file` 分段读取。批量默认只返回状态和文件路径；显式 `text` 时按每节点和总预算截断。SSH 节点没有完整输出。
 
 ## 会话
 
