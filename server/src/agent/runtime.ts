@@ -284,6 +284,8 @@ export class AgentRuntime {
 		options.cluster.onChange = approvalChanged;
 		options.groups.onChange = approvalChanged;
 		runtime.#supervise();
+		// Sessions created before the per-conversation tool filter existed may still offer subagent at the limit.
+		await runtime.#enforceDepthToolLimits();
 		// A restart may have queued nothing for requests that were already waiting: wake idle parents now.
 		await runtime.#wakePendingAgents();
 		return runtime;
@@ -486,6 +488,30 @@ export class AgentRuntime {
 			return true;
 		}
 		return false;
+	}
+
+	/** Reconciles old conversations with the depth limit; new children are handled in createSubagent. */
+	async #enforceDepthToolLimits(): Promise<void> {
+		const rows = await this.#db
+			.selectFrom("sessions")
+			.select(["id", "parent_session_id", "conversation_id"])
+			.where("parent_session_id", "is not", null)
+			.execute();
+		if (rows.length === 0) return;
+		const all = await this.#db.selectFrom("sessions").select(["id", "parent_session_id"]).execute();
+		const parentOf = new Map(all.map((row) => [row.id, row.parent_session_id]));
+		for (const row of rows) {
+			let depth = 0;
+			for (let id = row.parent_session_id; id; depth++) id = parentOf.get(id) ?? null;
+			if (depth < MAX_SUBAGENT_DEPTH) continue;
+			const conversation = await this.#harness.conversation(
+				Number(row.conversation_id) as unknown as ConversationId,
+				this.#context,
+			);
+			if (!conversation) continue;
+			const agent = await conversation.agent(this.#context);
+			if (agent.tools.some((tool) => tool.name === "subagent")) await this.#hideSubagentTool(conversation);
+		}
 	}
 
 	/** Keeps a conversation at the depth limit from offering the subagent tool to its model. */
