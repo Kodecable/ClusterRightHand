@@ -56,7 +56,13 @@ export interface NodeShare {
 	createdByUserId: string;
 	createdAt: string;
 }
-export type SessionAccess = "owner" | "admin" | "chat" | "view";
+export type SessionRelationship = "owner" | "admin" | "shared";
+export interface SessionCapabilities {
+	view: boolean;
+	chat: boolean;
+	manageShares: boolean;
+	configure: boolean;
+}
 export interface SessionShare {
 	id: string;
 	sessionId: string;
@@ -289,10 +295,10 @@ export interface SessionView {
 	createdAt: string;
 	updatedAt: string;
 	rules: StoredRuleSet | null;
-	/** The caller's access: the owner, an administrator, or a user the session is shared with. */
-	access: SessionAccess;
-	/** Whether the caller may send messages (owner, chat share, or an administrator explicitly shared chat). */
-	canChat: boolean;
+	/** How the caller relates to the session; display only, authorization uses `capabilities`. */
+	relationship: SessionRelationship;
+	/** Effective capabilities of the caller on this session. */
+	capabilities: SessionCapabilities;
 	ownerUsername: string | null;
 	/** Subagent state: active, awaiting, stopped (roots stay active). */
 	state: "active" | "awaiting" | "stopped";

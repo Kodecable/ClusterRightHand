@@ -13,10 +13,10 @@ import { parseQuota } from "../agent/quota.ts";
 import { getReviewModel, setReviewModel } from "../agent/review.ts";
 import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
 import {
+	capabilitiesFor,
 	listSessionShares,
-	type SessionAccess,
-	sessionAccess,
-	sessionCanChat,
+	type SessionPermissions,
+	sessionCapabilities,
 	sharedSessionAccess,
 	shareSession,
 	unshareSession,
@@ -63,7 +63,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	/** A share change can remove access to a session or to a root whose subagents are being watched. */
 	const revalidateStreams = async () => {
 		for (const stream of [...streams]) {
-			if (await sessionAccess(db, stream.user, stream.sessionId)) continue;
+			if (await sessionCapabilities(db, stream.user, stream.sessionId)) continue;
 			streams.delete(stream);
 			stream.abort();
 		}
@@ -151,19 +151,14 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 
 	// ---- sessions: the owner, users it is shared with (view / chat), and administrators (view unless shared chat) ----
 
-	type Visible = { session: SessionView; access: SessionAccess; canChat: boolean };
+	type Visible = { session: SessionView } & SessionPermissions;
 
-	/** The session and what the caller may do with it; undefined when they cannot see it. */
+	/** The session and its capabilities for the caller; undefined when they cannot see it. */
 	const visible = async (c: Context<AppEnv>, id: string): Promise<Visible | undefined> => {
-		const user = c.get("user");
-		const access = await sessionAccess(db, user, id);
-		if (!access) return undefined;
+		const info = await sessionCapabilities(db, c.get("user"), id);
+		if (!info) return undefined;
 		const session = await runtime.getSession(id);
-		if (!session) return undefined;
-		// Administrators are view-only by default; an explicit chat share is needed to drive.
-		const canChat =
-			access === "owner" || access === "chat" || (access === "admin" && (await sessionCanChat(db, user, id)));
-		return { session, access, canChat };
+		return session ? { session, ...info } : undefined;
 	};
 	const usernames = async (ids: string[]): Promise<Map<string, string>> =>
 		new Map(
@@ -178,17 +173,17 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		const user = c.get("user");
 		const names = await usernames([...new Set(views.map((v) => v.ownerUserId))]);
 		const shared = await sharedSessionAccess(db, user.userId);
-		return views.map((v) => ({
-			...v,
-			access:
-				v.ownerUserId === user.userId
-					? ("owner" as const)
-					: user.kind === "admin"
-						? ("admin" as const)
-						: (shared.get(v.id) ?? ("view" as const)),
-			canChat: v.ownerUserId === user.userId || shared.get(v.id) === "chat",
-			ownerUsername: names.get(v.ownerUserId) ?? null,
-		}));
+		return views.map((v) => {
+			const isOwner = v.ownerUserId === user.userId;
+			const isAdmin = user.kind === "admin";
+			const share = shared.get(v.id);
+			return {
+				...v,
+				relationship: isOwner ? ("owner" as const) : isAdmin ? ("admin" as const) : ("shared" as const),
+				capabilities: capabilitiesFor(isOwner, isAdmin, share),
+				ownerUsername: names.get(v.ownerUserId) ?? null,
+			};
+		});
 	};
 
 	app.get("/sessions", async (c) => c.json({ sessions: await decorate(c, await runtime.listSessions(c.get("user"))) }));
@@ -214,11 +209,11 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			await runtime.refreshState(session.id);
 			session = (await runtime.getSession(session.id)) ?? session;
 		}
-		const canShare = v.access === "owner" || c.get("user").kind === "admin";
+		const canShare = v.capabilities.manageShares;
 		// A subagent inherits its root's share; `decorate` only knows direct shares, so use what `visible` resolved.
 		const viewed = (await decorate(c, [session]))[0];
 		return c.json({
-			session: { ...viewed, access: v.access, canChat: v.canChat },
+			session: { ...viewed, relationship: v.relationship, capabilities: v.capabilities },
 			...(canShare ? { shares: await listSessionShares(db, session.id) } : {}),
 		});
 	});
@@ -226,14 +221,14 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.get("/sessions/:id/shares", async (c) => {
 		const v = await visible(c, c.req.param("id"));
 		if (!v) return jsonError(c, 404, "no such session");
-		if (v.access !== "owner" && c.get("user").kind !== "admin") return jsonError(c, 403, "the owner only");
+		if (!v.capabilities.manageShares) return jsonError(c, 403, "the owner only");
 		return c.json({ shares: await listSessionShares(db, v.session.id) });
 	});
 
 	app.put("/sessions/:id/shares", async (c) => {
 		const v = await visible(c, c.req.param("id"));
 		if (!v) return jsonError(c, 404, "no such session");
-		if (v.access !== "owner" && c.get("user").kind !== "admin") return jsonError(c, 403, "the owner only");
+		if (!v.capabilities.manageShares) return jsonError(c, 403, "the owner only");
 		const body = await readJsonObject(c);
 		if (body?.granteeType !== "user" && body?.granteeType !== "user_group")
 			return jsonError(c, 400, "granteeType must be user or user_group");
@@ -258,7 +253,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.delete("/sessions/:id/shares/:shareId", async (c) => {
 		const v = await visible(c, c.req.param("id"));
 		if (!v) return jsonError(c, 404, "no such session");
-		if (v.access !== "owner" && c.get("user").kind !== "admin") return jsonError(c, 403, "the owner only");
+		if (!v.capabilities.manageShares) return jsonError(c, 403, "the owner only");
 		const share = (await listSessionShares(db, v.session.id)).find((s) => s.id === c.req.param("shareId"));
 		await unshareSession(db, v.session.id, c.req.param("shareId"));
 		await revalidateStreams();
@@ -279,7 +274,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.patch("/sessions/:id", async (c) => {
 		const v = await visible(c, c.req.param("id"));
 		if (!v) return jsonError(c, 404, "no such session");
-		if (v.access !== "owner") return jsonError(c, 403, "the owner only");
+		if (!v.capabilities.configure) return jsonError(c, 403, "the owner only");
 		const s = v.session;
 		const body = (await readJsonObject(c)) ?? {};
 		const preset = body.preset === undefined ? undefined : parsePreset(body.preset);
@@ -316,7 +311,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.post("/sessions/:id/messages", async (c) => {
 		const v = await visible(c, c.req.param("id"));
 		if (!v) return jsonError(c, 404, "no such session");
-		if (!v.canChat) return jsonError(c, 403, "chat access is required");
+		if (!v.capabilities.chat) return jsonError(c, 403, "chat access is required");
 		const body = await readJsonObject(c);
 		const text = typeof body?.text === "string" ? body.text.trim() : "";
 		const requestId = typeof body?.requestId === "string" && body.requestId ? body.requestId.slice(0, 200) : undefined;
@@ -329,7 +324,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.post("/sessions/:id/abort", async (c) => {
 		const v = await visible(c, c.req.param("id"));
 		if (!v) return jsonError(c, 404, "no such session");
-		if (!v.canChat) return jsonError(c, 403, "chat access is required");
+		if (!v.capabilities.chat) return jsonError(c, 403, "chat access is required");
 		await runtime.abort(v.session.id, c.get("user"));
 		return c.json({ ok: true });
 	});

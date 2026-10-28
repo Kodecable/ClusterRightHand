@@ -164,12 +164,16 @@ export function SessionPage({ id }: { id: string }) {
 					{session.data.state !== "active" && ` It is ${session.data.state.replace("_", " ")}.`}
 				</p>
 			)}
-			{session.data.access !== "owner" && (
+			{session.data.relationship !== "owner" && (
 				<p className="muted">
-					Shared by {session.data.ownerUsername ?? "another user"} ({session.data.access} access).
+					Shared by {session.data.ownerUsername ?? "another user"} (
+					{session.data.relationship === "shared"
+						? `${session.data.capabilities.chat ? "chat" : "view"} access`
+						: "administrator access"}
+					).
 				</p>
 			)}
-			{session.data.access === "owner" && (
+			{session.data.capabilities.configure && (
 				<Settings session={session.data} models={models.data ?? []} onChange={session.reload} />
 			)}
 			<div className="row wrap muted" role="status">
@@ -225,8 +229,8 @@ export function SessionPage({ id }: { id: string }) {
 					}
 				})}
 			</div>
-			<Composer id={id} running={state.running} canChat={session.data.canChat} />
-			{(session.data.access === "owner" || session.data.access === "admin") && (
+			<Composer id={id} running={state.running} canChat={session.data.capabilities.chat} />
+			{session.data.capabilities.manageShares && (
 				<Shares target="session" id={id} shares={session.data.shares ?? []} onChange={session.reload} />
 			)}
 		</>

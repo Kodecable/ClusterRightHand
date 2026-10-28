@@ -11,8 +11,35 @@ import { newId } from "../util/id.ts";
  */
 
 export type SessionShareAccess = "view" | "chat";
-/** `admin` may look, but does not drive someone else's session. */
-export type SessionAccess = "owner" | "admin" | "chat" | "view";
+
+/** Effective capabilities of one user on one session; computed per request, never stored. */
+export interface SessionCapabilities {
+	view: boolean;
+	chat: boolean;
+	manageShares: boolean;
+	configure: boolean;
+}
+
+export type SessionRelationship = "owner" | "admin" | "shared";
+
+export interface SessionPermissions {
+	relationship: SessionRelationship;
+	capabilities: SessionCapabilities;
+}
+
+/** The single capability rule: owner, administrator, and the strongest share level. */
+export function capabilitiesFor(
+	isOwner: boolean,
+	isAdmin: boolean,
+	share: SessionShareAccess | undefined,
+): SessionCapabilities {
+	return {
+		view: isOwner || isAdmin || share !== undefined,
+		chat: isOwner || share === "chat",
+		manageShares: isOwner || isAdmin,
+		configure: isOwner,
+	};
+}
 
 export interface SessionShare {
 	id: string;
@@ -81,32 +108,29 @@ async function shareAccessFor(
 	return access;
 }
 
-/** What the user may do with the session: undefined if they cannot see it. Shares on an ancestor reach it. */
-export async function sessionAccess(db: Db, user: SessionUser, sessionId: string): Promise<SessionAccess | undefined> {
+/**
+ * What the user may do with the session; undefined if they cannot see it. Shares on an ancestor reach it.
+ * Administrators view everything and manage shares, but chat only through an explicit chat share.
+ */
+export async function sessionCapabilities(
+	db: Db,
+	user: SessionUser,
+	sessionId: string,
+): Promise<SessionPermissions | undefined> {
 	const row = await db
 		.selectFrom("sessions")
 		.select(["owner_user_id", "parent_session_id"])
 		.where("id", "=", sessionId)
 		.executeTakeFirst();
 	if (!row) return undefined;
-	if (row.owner_user_id === user.userId) return "owner";
-	if (user.kind === "admin") return "admin";
-	return shareAccessFor(db, await sharedSessionAccess(db, user.userId), sessionId);
-}
-
-/**
- * Whether the user may drive the session: the owner, or a share with `chat` on the session or an ancestor.
- * Administrators are view-only unless they are explicitly shared chat (or own the session).
- */
-export async function sessionCanChat(db: Db, user: SessionUser, sessionId: string): Promise<boolean> {
-	const row = await db
-		.selectFrom("sessions")
-		.select(["owner_user_id", "parent_session_id"])
-		.where("id", "=", sessionId)
-		.executeTakeFirst();
-	if (!row) return false;
-	if (row.owner_user_id === user.userId) return true;
-	return (await shareAccessFor(db, await sharedSessionAccess(db, user.userId), sessionId)) === "chat";
+	const isOwner = row.owner_user_id === user.userId;
+	const isAdmin = user.kind === "admin";
+	const share = isOwner ? undefined : await shareAccessFor(db, await sharedSessionAccess(db, user.userId), sessionId);
+	if (!isOwner && !isAdmin && !share) return undefined;
+	return {
+		relationship: isOwner ? "owner" : isAdmin ? "admin" : "shared",
+		capabilities: capabilitiesFor(isOwner, isAdmin, share),
+	};
 }
 
 export async function listSessionShares(db: Db, sessionId: string): Promise<SessionShare[]> {

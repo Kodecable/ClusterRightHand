@@ -92,7 +92,14 @@ export function Sessions() {
 									<tr key={s.id}>
 										<td>
 											<a href={`#/sessions/${encodeURIComponent(s.id)}`}>{s.title}</a>
-											{s.access !== "owner" && <span className="muted"> · shared ({s.access})</span>}
+											{s.relationship !== "owner" && (
+												<span className="muted">
+													{" · "}
+													{s.relationship === "shared"
+														? `shared (${s.capabilities.chat ? "chat" : "view"})`
+														: s.relationship}
+												</span>
+											)}
 										</td>
 										<td>{s.ownerUsername ?? "-"}</td>
 										<td>
