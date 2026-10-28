@@ -103,6 +103,7 @@ crha 特权模式（不联网）
     "issued_at": "2026-10-26T12:00:00Z",
     "deadline":  "2026-10-26T12:05:00Z",    // 可选；省略 = 不过期（受信任项的 max_ttl 约束）
     "task_id":   "01JB…",                   // 可选；设置后只能用于这一个任务，且只能使用一次
+    "attempt":   0,                           // 同一 task_id 的授权尝试；重试时递增
     "note": "重启 nginx 以加载新证书"         // 可选，人类可读，也在签名范围内
   },
   "signatures": [
@@ -115,7 +116,7 @@ crha 特权模式（不联网）
 - **授权 id** = `SHA-256(CBOR(payload))`，用于吊销、审计和引用。
 - 用户签名和 crhs 联署签的是**同一份 CBOR payload**，不再使用 `cosign_of`，也不存在两个 payload 字段不一致的问题。
 - `require-cosign` 只要求同一对象上同时存在合格的 user 签名和 `role=crhs` 的 cosign 签名。
-- **发给组的授权**：特权模式在本机配置了这个组（`privileged.toml` 中的 `groups`）时，就认为这个授权是发给自己的。组成员关系只以本机配置为准（crhs 侧只是缓存），crhs 无法绕过授权改变它。批量执行时，用户对一个组签一次授权就可以覆盖组内所有节点。
+- **发给组的授权**：特权模式在本机配置了这个组（`privileged.toml` 中的 `groups`）时，就认为这个授权是发给自己的。组成员关系只以本机配置为准（crhs 侧只是缓存），crhs 无法绕过授权改变它。对组签一次授权覆盖组内节点属于 M4 后段；第一阶段只做单任务特权，群组特权任务推迟。
 - **`exact`**：方法和目标完全相等，并且 `spec_sha256` 必须等于完整任务规格的规范化哈希。完整规格包括 env、cwd、stdin 哈希，文件写入还包括内容哈希、mode、owner 和 `overwrite`，文件编辑还包括全部 `edits`。也就是说，批准"写 `/etc/nginx/nginx.conf`"时，批准的是写入这一份内容；批准一次编辑时，批准的是这几处替换，而不是任意内容。
 - **`prefix`**：方法匹配（`file.write` 包含 `file.read`），目标前缀相等。只约束目标，不约束 stdin 和写入内容。cwd 固定为 `/`，env 受信任项的 `env_allow` 约束。
 - **`task_id`（一次性授权）**：授权只对这个任务 id 有效。特权模式在执行之前把它记入本地的已用列表（`/var/lib/crha/privileged/used`，先持久化再执行），同一个授权不能再用第二次，同一个任务 id 也不能再执行第二次。带 `task_id` 的授权必须有 `deadline`，已用记录保留到 `deadline` 之后 7 天再清理（留出时钟回退的余量，见"时钟"）。
@@ -132,7 +133,7 @@ crha 特权模式（不联网）
 | 用户 SSH key | SSHSIG（同上；支持 `ssh-ed25519`、`sk-ssh-ed25519@openssh.com`、`ecdsa-sha2-nistp256` 及其 sk 版本） | `CBOR(payload)` | 用户工作站：`crha grant`，或者直接用 `ssh-keygen -Y sign -n crh-auth-v1` |
 | 用户 Passkey | WebAuthn assertion | `challenge = SHA-256("crh-auth-v1\0" ‖ CBOR(payload))` | WebUI |
 
-- 规范化使用 CBOR 确定性编码（固定 map key 顺序、最短整数、无 indefinite length）。`crha grant` 会把 CBOR 解码成 JSON 展示给用户确认后再签。
+- 规范化使用 `CBOR-CORE-INT-v1`（RFC 8949 §4.2.1、最短整数、无 indefinite length、禁 float/tag、时间整数毫秒）。`crha grant` 会把 CBOR 解码成 JSON 展示给用户确认后再签。
 - 用 SSHSIG 签名的授权，都可以用 `ssh-keygen -Y verify` 人工核验。
 - WebAuthn 的校验项：`type = webauthn.get`、challenge、origin 在白名单中、rpIdHash、UP 标志（UV 可配置为必须）、签名（ES256 或 EdDSA）。签名计数器忽略（同步型 passkey 的计数恒为 0）。
 - 信任 Passkey 即接受这样的风险：crhs 被控制时，审批页面可以诱导用户签下与显示内容不同的授权。
@@ -248,7 +249,7 @@ kinds = ["execute"]
 1. 用 `SO_PEERCRED` 检查对端 uid：提交任务必须是 `unprivileged_uid`；本地批准必须在某个 `local` 信任项的 `uids` 中。
 2. 检查任务本身：文件操作的路径满足"方法与目标"一节的要求。
 3. 对 payload 上的每个签名，按公钥（或 credential id）找到信任项并验证签名。
-4. 检查授权本体：`nodes` 包含本机的 node_id 或本机配置的某个组（或为 `"*"`）；`issued_at ≤ now + skew`；`deadline`（如果有）`≥ now - skew`；`max_ttl` 和 `require_exact`。这里的 `now` 是节点时钟，见下文"时钟"。
+4. 检查授权本体：`nodes` 包含本机的 node_id 或本机配置的某个组（或为 `"*"`）；`attempt` 等于 `task.start` 的 attempt；`issued_at ≤ now + skew`；`deadline`（如果有）`≥ now - skew`；`max_ttl` 和 `require_exact`。这里的 `now` 是节点时钟，见下文"时钟"。
 5. 检查一次性约束：授权带 `task_id` 时必须等于本任务 id，且授权 id 不在已用列表中；`role = "crhs"` 的授权和联署必须带 `task_id`；信任项有 `require_task` 时同样必须带。任何情况下，本任务 id 都不能已经执行过。
 6. 检查授权中的指令限制：`exact` 时方法、目标和 `spec_sha256` 都相等；`prefix` 时方法匹配（`file.write` 包含 `file.read`）且目标前缀相等。
 7. 检查信任项：`kinds` 包含 `execute`；`deny` 和 `allow`；`env_allow`。
@@ -256,7 +257,9 @@ kinds = ["execute"]
 9. 检查 payload 的授权 id 不在吊销列表中。
 10. 把任务 id 和一次性授权 id 记入已用列表（持久化）→ 写本地日志 → 执行 → 写结果日志。
 
-任何一步失败都返回 `TaskRejected`，并附上原因（第几步、哪个信任项）。
+任何一步失败都通过 `task.start` 的错误响应返回：`[1, id, "task.start", false, [code, message]]`。`code` 区分授权失败、授权过期、联署缺失、路径/规则拒绝等；本地批准走 socket 的独立响应，不走 `task.start`。
+
+特权模式必须在发送 `task.accepted` **之前**完成授权验证；拒绝时任务没有执行、没有写 used、没有副作用，所以同一 task id 可以用更高的 attempt 重试。`task.input` 只在 accepted 后接收。
 
 **执行环境**：
 - 以特权模式自身的 Linux 身份执行；
@@ -279,7 +282,7 @@ kinds = ["execute"]
 
 用户 SSH 登录节点后执行 `crha pending` 查看待批准的任务，再执行 `crha approve <task-id>` 放行。CLI 直接连接特权模式的 socket，由匹配的 `local` 信任项按上面的流程校验（第 3、4、6 步不适用；任务 id 同样不能重复执行）。这条路径不经过 crhs，也不需要任何密钥。
 
-待批准任务由特权模式持有，超时作废。
+待批准任务由特权模式持有；不自动超时，取消、拒绝或特权模式重启结束。
 
 ## 吊销
 
@@ -320,6 +323,15 @@ crhs 的选择不是最终放行：crha 特权模式在执行前仍按当前配�
    - 没有任何信任项可以授权：直接拒绝，并告诉调用方"这个节点上没有人能授权这条命令"。
 
 授权等待与规则审批分开：策略已经通过但尚未拿到签名时，任务处于 `awaiting_authorization`，不是 `awaiting_approval`。
+
+**预演与 fallback**：crhs 的规则计算只是预演，不是最终授权。若 crha 在 `task.accepted` 之前拒绝授权：
+
+1. 使该节点的 TrustSummary 缓存失效并重新查询；
+2. 用 `attempt + 1` 重新计算方案，但不再重复尝试相同的 crhs 签名路径，优先回退到所有者的 user/local 路径；
+3. 没有可用的 user/local 路径时，任务最终 `rejected`，error code 为 `authorization_required` / `authorization_invalid` / `authorization_expired`；
+4. 已 accepted 的任务、已执行的其他节点任务不回滚。
+
+crhs 误判“没有路径”时不会创建任务，因此也无法被 crha 拒绝后的 fallback 修复；Go/TS 必须共用同一套授权判定用例，覆盖规则匹配、prefix/RE2、env、组、trust digest 和边界时间。
 
 ### 授权签名密钥
 

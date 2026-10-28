@@ -18,7 +18,7 @@
 
 1. **触发**：调度循环按 `next_run_at` 取到期的计划任务，在一个事务中写入 `schedule_runs`（状态 `pending`，`(schedule_id, fire_time)` 唯一）并计算下一次运行时间。重复触发会被唯一约束挡住。
 2. **提交**：执行器领取 `pending` 的记录，向 Cluster（`command`）或 durable（`agent`）提交，成功后把状态改为 `submitted`。提交使用由运行记录派生的**稳定 id**，重复提交是幂等的：
-   - `command`：任务组 id 和每个节点的任务 id 由 `(run_id, node_id)` 确定性派生（UUIDv5）。Cluster 按 id 创建任务，已存在就直接返回已有的任务。同一个任务 id 的 `start` 最多下发一次（见 [execution-plane.md](execution-plane.md#不重复执行)），所以不会重复执行。
+   - `command`：任务组 id 和每个节点的任务 id 由 `(run_id, node_id)` 确定性派生（UUIDv5）。Cluster 按 id 创建任务，已存在就直接返回已有的任务。同一个任务 id 最多 accepted/executed 一次；accepted 之前的明确授权拒绝可用 `attempt + 1` 重试（见 [execution-plane.md](execution-plane.md#不重复执行与授权重试)）。
    - `agent`：`requestId = schedule:<id>:<fire_time>`，durable 按它去重。
 3. **恢复**：crhs 启动时扫描 `pending` 的记录，用同样的稳定 id 重新提交。提交后、写 `submitted` 之前崩溃的情况，也由幂等提交覆盖。
 4. **结束**：任务组或会话运行结束后，状态改为 `succeeded` / `failed`，失败时发通知（v1 先做 webhook）。

@@ -63,10 +63,10 @@ task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail
                    root_session_id nullable,                          -- 规则链根会话，按会话树查等待项
                    handler_type[agent|user] nullable,                 -- 等审批时谁处理；user 即 on_behalf_of_user_id
                    handler_session_id nullable,                       -- handler_type=agent 时处理的会话
-                   state[awaiting_approval|running|finished|interrupted|rejected],
+                   state[awaiting_approval|awaiting_authorization|running|finished|interrupted|rejected],
                    actor_type, actor_id, on_behalf_of_user_id, created_at, finished_at)
 tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json, input_size, input_sha256,
-                   privileged, timeout_ms, output_mode[status|text],
+                   privileged, attempt, timeout_ms, output_mode[status|text],
                    state[awaiting_approval|awaiting_authorization|denied|dispatched|running|exited|failed|rejected|unknown],
                    exit_code, signal, timed_out, cancelled,
                    error_code, error_message,                         -- 执行器错误码、拒绝原因或 unknown 的原因
@@ -94,6 +94,7 @@ authorizations    (id,                                   -- SHA-256(CBOR(payload
                    org_id, payload blob, signatures json, -- 同一 payload 上的多个签名；用户 + crhs 联署
                    nodes json, command_match json nullable, deadline nullable,
                    task_id nullable,                      -- task_id：一次性授权绑定的任务
+                   attempt,                               -- 同一 task_id 的授权尝试
                    schedule_id nullable,
                    revoked_at nullable, created_at)
 rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,

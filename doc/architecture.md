@@ -53,7 +53,7 @@
 | WebUI | React |
 | 客户端 | Go，单一静态二进制，交叉编译 linux/amd64、linux/arm64；命令行用 cobra；模块路径 `github.com/Kodecable/ClusterRightHand/client` |
 | 发布 | 自己写 bash 脚本完成交叉编译、打包（deb/rpm 用 nfpm 之类的单一工具，或直接脚本）、校验和与签名；不使用 goreleaser |
-| 协议 | CBOR（M3.5；完整替换原 protobuf），命令 → 响应 + 客户端推送；TS/Go 手写类型和 codec，golden vector 交叉验证 |
+| 协议 | CBOR（M3.5；完整替换原 protobuf），双向命令/事件；TS/Go 手写类型和 codec，golden vector 交叉验证 |
 | SSH（服务端侧） | `ssh2`（Node） |
 
 ## 仓库结构

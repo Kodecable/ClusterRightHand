@@ -54,7 +54,7 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D4 | pi-durable 使用自研存储后端，基于 D2 的 SQL 抽象层实现 | 与业务数据同库；官方只提供 SQLite/JSONL/IndexedDB 等后端，没有 PG |
 | D5 | Agent 和 MCP 都只是 Cluster 核心的调用方；策略、审批、审计都在 Cluster 核心里执行 | MCP 模式不应成为绕过审计的后门 |
 | D6 | 执行平面只有一种失败语义：连接中断或客户端不认识任务 id 时，任务状态为 `unknown` | SSH 与自有客户端接口统一；不重放，避免重复执行 |
-| D7 | 同一个任务 id 的 `start` 最多下发一次；重连后只用 `query` 查询 | 由此保证不会重复执行；否决 boot id 方案（多余） |
+| D7 | 同一个任务 id 最多 accepted/executed 一次；accepted 前的明确授权拒绝可用 `attempt + 1` 重试；重连后只用 `query` 查询（被 D83 修订） | 由此保证不会重复执行；否决 boot id 方案（多余） |
 | D8 | SSH 模式不上传客户端二进制 | 避免处理目标架构的分发问题；代价是 SSH 节点没有续传、反连和特权模式 |
 | D9 | 提权 IPC 使用 unix socket + `SO_PEERCRED` | 零依赖；否决 D-Bus（服务器上不一定有，且无必要） |
 | D10 | 每个节点的 crha 特权模式在本地配置一个信任数组，用 `role`（`crhs` / `user` / `local`）区分角色、`format`（`sshsig` / `webauthn`）区分签名格式，每项可带防护规则 | "crhs 无法单独执行特权任务"就是 crhs 信任项不含 `execute`，或者不配置 crhs 信任项 |
@@ -87,9 +87,9 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D37 | 需要审批时沿链向上传递：上一级对该操作为 allow 的 agent 会话可以判断（批准 / 拒绝 / 上交），否则继续向上，最终到用户（被 D62 修订） | 上一级 agent 在自己的会话中处理，见 D41 |
 | D38 | 原生支持批量执行：`exec`、`read_file`、`write_file` 接受节点和组的列表，Cluster 核心以任务组管理 | |
 | D39 | 节点用组组织，取代标签；组只在 crha 本地配置中定义，crhs 侧只是缓存（连接时上报、变化时推送）；特权模式本地配置的组是授权依据（发给组的授权视为发给自己） | 组成员关系以节点本地配置为准，crhs 无法绕过授权扩大授权范围；SSH 节点的组在 crhs 中维护 |
-| D40 | crhs 只保存截断后的输出头尾；过长的输出由 crha 在节点上保存为普通文件并负责清理，agent 用 `read_file` 读取；SSH 节点强制截断，不保存完整输出 | 去掉 crhs 的输出存储和保留策略；断线续传可以直接从文件补发 |
+| D40 | crhs 只保存截断后的输出头尾；过长的输出由 crha 在节点上保存为普通文件并负责清理，agent 用 `read_file` 读取；SSH 节点强制截断，不保存完整输出（被 D82 修订：批量 `status` 模式不保存输出，批量 `text` 受共享预算） | 去掉 crhs 的输出存储和保留策略；断线续传可以直接从文件补发 |
 | D41 | 前台 subagent 的等待可以被打断并自动转入后台，父会话处理请求后显式调用 `subagent_wait`；父会话的其他工具返回时自动提示待处理的子会话 | 父会话在自己的上下文中处理子会话的审批请求 |
-| D42 | 工具和会话的默认值沿用 pi 作为 coding agent 时的默认值：输出交给模型时保留尾部 2000 行或 50KB，超过即落盘；读文件 2000 行或 50KB 分页；无默认超时；压缩与重试参数相同 | 见 agent-runtime.md 的"默认值"；落盘阈值与模型截断阈值相同，模型看到截断时一定有完整输出文件 |
+| D42 | 工具和会话的默认值沿用 pi 作为 coding agent 时的默认值：输出交给模型时保留尾部 2000 行或 50KB，超过即落盘；读文件 2000 行或 50KB 分页；无默认超时；压缩与重试参数相同（被 D82 修订：批量 `text`/`status` 总是保留完整输出文件） | 见 agent-runtime.md 的"默认值"；落盘阈值与模型截断阈值相同，模型看到截断时一定有完整输出文件 |
 | D43 | OIDC 暂不实现，设计上预留：登录方式与用户身份分开，密码可以为空，预留外部身份关联表和用户组来源字段 | 见 access-control.md 的"扩展预留：OIDC" |
 | D44 | 节点和会话都明确属于一个用户，可以分享给额外的用户或用户组（节点：`view` / `operate`；会话：`view` / `chat`）；会话始终以所有者的身份行事 | 计划任务、API token 属于创建者，暂不分享 |
 | D45 | 许可证：MIT | |
@@ -135,8 +135,9 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D75 | subagent 的子会话是 ownerless 会话（`sessions.parent_session_id`），不用 durable 的"任务拥有的对话"；前台等待在子会话的请求交给父会话 agent 时提前返回，父会话用 `subagent_wait` / `subagent_decide` / `subagent_list` / `subagent_cancel` 处理；父会话 abort 时显式取消整棵子树 | durable 1.4.0 的前台子会话无法在工具返回后存活；ownerless + 显式取消让"打断后转后台"和重启恢复都可控 |
 | D76 | 配额只用于 subagent（管理子会话、防止循环/空跑）：`sessions.quota_tokens` 是有符号 64 位剩余 token，可以不给（null 不限）；根会话固定 0 且从不扣减；只计 token，不计算货币成本；设置子会话配额即替换剩余量 | 根不需要额度；每次响应扣整条 subagent 链，负余量准确记录超支 |
 | D77 | 子会话状态只有 `active` / `awaiting` / `stopped`，是缓存：`active ↔ awaiting` 由工具调用状态（等审批）和配额状态重算，`stopped` 在运行结束时写入（正常完成、拒绝、abort 都一样，不区分原因；最后一条消息说明发生了什么），等待下一次输入。配额不足时暂停工具调用，只向**直接父会话**报告；它的 agent 给这个子会话**增加** token（不按自己的剩余封顶）或拒绝；父是根时由根会话的 agent 决定；每次响应仍扣整条 subagent 链 | 不跳过层级；封顶没有意义，因为同一笔用量本来就扣整条链；父会话的提示/打断只看子会话状态，细节从工具调用和配额里取 |
-| D78 | M3.5 完整替换 crhs ↔ crha 的 protobuf 为 CBOR；Web API/数据库继续 JSON；不保证旧协议兼容。版本只在握手协商（大/小版本和支持的命令），之后帧不再带 `v`；消息抽象为命令→响应和客户端推送；大版本内命令/响应结构固定，小版本用 `foo.v2` 新命令替换 | 去掉 protobuf/buf 依赖；CBOR 有确定编码规范；版本化命令比 oneof 字段演进更可控 |
+| D78 | M3.5 完整替换 crhs ↔ crha 的 protobuf 为 CBOR；Web API/数据库继续 JSON；不保证旧协议兼容。版本只在握手协商（大/小版本和支持的命令集合），之后帧不再带 `v`；抽象为双向命令/事件；大版本内命令/事件结构固定，小版本只允许新增命令（如 `task.start.v2`），兼容性看命令集合交集而非 minor 数字。CBOR 用 `CBOR-CORE-INT-v1`：RFC 8949 §4.2.1、cborg/fxamacker、禁 float/tag/indefinite、时间整数毫秒；ack 是事件 | 去掉 protobuf/buf 依赖；CBOR 有确定编码规范；版本化命令比 oneof 字段演进更可控 |
 | D79 | M4 的 crhs 只缓存 `TrustSummary`，据此计算授权方案；只用 `on_behalf_of_user_id` 的凭据，不考虑共享用户或其他管理员；规则匹配用 RE2（Node 包 `re2`），crha 执行前仍完整复验 | 去掉 Preflight 往返；所有者和 RE2 使 crhs 判断与 crha 语义一致；缓存不是授权 |
-| D80 | 授权和联署是同一 CBOR payload 上的多个签名（`signatures[]`），不再使用 `cosign_of` 或两个 payload | 两个签名覆盖完全相同的 nodes/command/task_id/deadline；少一次一致性校验，授权 id 和吊销也只有一个 |
+| D80 | 授权和联署是同一 CBOR payload 上的多个签名（`signatures[]`），不再使用 `cosign_of` 或两个 payload | 两个签名覆盖完全相同的 nodes/command/task_id/attempt/deadline；少一次一致性校验，授权 id 和吊销也只有一个 |
 | D81 | SSH 节点不参与提权：`privileged` 被忽略，按 SSH 用户执行并在任务输出中提示；保留现有 SFTP `file.*` 任务，不做 SSH native/forward | SSH 没有可验证的特权边界；忽略而不是假装拒绝/提权；file 任务仍有价值 |
-| D82 | 批量执行默认 `status`：只返回状态，完整输出留在节点；显式 `text`：每节点 8KB/128 行，所有节点共享单任务 50KB/2000 行预算，按输出到达顺序丢弃；预算在接收端 append 时检查 | 不在内存里先收完再裁；节点数增长不增加内存；完整输出仍可读文件 |
+| D82 | 批量执行默认 `status`：只返回状态，完整输出留在节点；显式 `text`：每节点保留尾部 8KB/128 行，所有节点共享单任务 50KB/2000 行预算，按输出到达顺序丢弃；预算在接收端 append 时检查；丢弃仍发 ack；不优先保留失败节点 | 不在内存里先收完再裁；节点数增长不增加内存；完整输出仍可读文件；失败输出可见性是可接受的取舍 |
+| D83 | 任务 id 最多 accepted/executed 一次；只有 crha 在 `task.accepted` 之前明确拒绝授权时，允许同一 task id 用 `attempt + 1` 重试。部分节点通过、部分拒绝时任务彼此独立，不回滚已执行任务；`fail_fast` 只影响未启动节点；授权等待不自动超时。crhs 的规则引擎只是预演，crha 授权拒绝后优先回退到所有者 user/local 路径 | 保留 durable task id 和工具重放；明确拒绝前无副作用可安全重试；网络 unknown 绝不重试；避免把部分成功伪装成整体成功 |
