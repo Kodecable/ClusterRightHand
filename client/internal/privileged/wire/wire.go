@@ -1,7 +1,7 @@
 // Package wire implements crh-priv, the framed command/event protocol between crha's
-// non-privileged mode and a privileged peer: the native helper over stdio and, later, the
-// privileged mode over a unix socket. It reuses protocol's frames, command bodies and Peer; only
-// the transport (a 4-byte length prefix instead of Noise) and the handshake differ. See
+// non-privileged mode and a privileged peer: the native helper over stdio and the privileged
+// daemon over a unix socket. It reuses protocol's frames, command bodies and Peer; only the
+// transport (a 4-byte length prefix instead of Noise) and the handshake differ. See
 // doc/protocol.md "crh-priv：非特权模式 ↔ 特权模式".
 package wire
 
@@ -58,9 +58,24 @@ func (r *Role) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-// Names returns the crh-priv command and event names implemented by this phase, sorted. It is the
-// commands list of the handshake and the set both sides must be able to use.
+// crh-priv commands that are not part of the crhs <-> crha registry: trust.query is the
+// forward role's explicit query, pending.list and local.approve / local.deny are the local
+// role's. They are registered on the Peer that needs them instead of in
+// client/internal/protocol, so crha's crhs-facing handshake never advertises them.
+const (
+	CmdTrustQuery   = "trust.query"
+	CmdPendingList  = "pending.list"
+	CmdLocalApprove = "local.approve"
+	CmdLocalDeny    = "local.deny"
+)
+
+// Names returns the task command and event names shared by every crh-priv role, sorted. It is
+// the native helper's complete set; forward and local add their own names (NamesFor).
 func Names() []string {
+	return coreNames()
+}
+
+func coreNames() []string {
 	names := []string{
 		protocol.CmdTaskStart,
 		protocol.CmdTaskInput,
@@ -73,12 +88,59 @@ func Names() []string {
 	return names
 }
 
-// negotiate intersects the local names with the peer's advertised list. A name this phase requires
-// but the peer does not implement leaves no usable protocol, so it fails the handshake.
-func negotiate(theirs []string) (protocol.Set, error) {
-	set := protocol.NewSet(Names()...).Intersect(protocol.NewSet(theirs...))
+// NamesFor returns the command and event names a role implements, sorted, including the
+// protocol 1.1 names that role needs. The handshake advertises this list.
+func NamesFor(role Role) []string {
+	switch role {
+	case RoleForward:
+		names := append(coreNames(),
+			CmdTrustQuery,
+			protocol.EventTrustSummary,
+			protocol.CmdRevocationsAdd,
+			protocol.CmdLocalRequest,
+			protocol.CmdLocalWithdraw,
+			protocol.EventLocalDecision,
+		)
+		slices.Sort(names)
+		return names
+	case RoleLocal:
+		names := []string{
+			CmdPendingList,
+			CmdLocalApprove,
+			CmdLocalDeny,
+			protocol.CmdRevocationsAdd,
+		}
+		slices.Sort(names)
+		return names
+	default:
+		return coreNames()
+	}
+}
+
+// requiredNamesFor returns the names a handshake with role must negotiate. They are part of
+// crh-priv 1.0; the later additions of the forward role stay optional, so an older peer that
+// only implements the 1.0 subset still connects. The local role is new in this phase and
+// requires its whole set.
+func requiredNamesFor(role Role) []string {
+	switch role {
+	case RoleForward:
+		return []string{
+			protocol.CmdTaskStart, protocol.CmdTaskInput, protocol.CmdTaskCancel, protocol.CmdTaskQuery,
+			protocol.EventTaskOutput, protocol.EventTaskExit,
+			CmdTrustQuery, protocol.EventTrustSummary,
+		}
+	default:
+		return NamesFor(role)
+	}
+}
+
+// negotiate intersects the local names for role with the peer's advertised list. A name the
+// role requires but the peer does not implement leaves no usable protocol, so it fails the
+// handshake.
+func negotiate(role Role, theirs []string) (protocol.Set, error) {
+	set := protocol.NewSet(NamesFor(role)...).Intersect(protocol.NewSet(theirs...))
 	var missing []string
-	for _, name := range Names() {
+	for _, name := range requiredNamesFor(role) {
 		if !set.Has(name) {
 			missing = append(missing, name)
 		}
@@ -87,6 +149,32 @@ func negotiate(theirs []string) (protocol.Set, error) {
 		return nil, protocolErrorf("peer does not implement %v", missing)
 	}
 	return set, nil
+}
+
+// RegisterSchemas adds the crh-priv-only command bodies of role to peer. Call it before the
+// stream starts receiving; the protocol package's registry does not contain them because they
+// are not part of the crhs <-> crha protocol.
+func RegisterSchemas(peer *protocol.Peer, role Role) {
+	register := func(cmd string, request, response func() any) {
+		peer.RegisterCommand(cmd, request, response)
+	}
+	switch role {
+	case RoleForward:
+		register(CmdTrustQuery,
+			func() any { return new(protocol.Empty) },
+			func() any { return new(protocol.TrustSummary) })
+	case RoleLocal:
+		register(CmdPendingList,
+			func() any { return new(protocol.Empty) },
+			func() any { return new([]protocol.PendingEntry) })
+		registerVerdict := func(cmd string) {
+			register(cmd,
+				func() any { return new(protocol.LocalVerdict) },
+				func() any { return new(protocol.Empty) })
+		}
+		registerVerdict(CmdLocalApprove)
+		registerVerdict(CmdLocalDeny)
+	}
 }
 
 // WriteFrame writes one frame preceded by its 4-byte big-endian length.

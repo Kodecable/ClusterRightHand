@@ -1,0 +1,466 @@
+package daemon
+
+import (
+	"context"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/fxamacker/cbor/v2"
+
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/audit"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/state"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/taskrun"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+)
+
+// handshakeTimeout bounds the crh-priv handshake of one socket connection. A local command
+// that connects and says nothing must not pin a goroutine forever, especially during
+// shutdown.
+const handshakeTimeout = 10 * time.Second
+
+// conn is one accepted unix-socket connection and the role it negotiated.
+type conn struct {
+	s    *Server
+	nc   net.Conn
+	uid  uint32
+	role wire.Role
+
+	stream *wire.Stream
+	peer   *protocol.Peer
+
+	mu    sync.Mutex
+	tasks map[string]*connTask
+
+	closeOnce sync.Once
+}
+
+// connTask is one accepted task of a connection. launch starts the task at most once; it is
+// called by Deferred.After after the task.start success response, or by the connection
+// teardown when that response could not be sent (the acceptance already stands).
+type connTask struct {
+	task   *taskrun.Task
+	launch func()
+}
+
+// serveConn authenticates the peer with SO_PEERCRED, negotiates a role and serves the
+// connection until it ends.
+func (s *Server) serveConn(nc net.Conn) {
+	unixConn, ok := nc.(*net.UnixConn)
+	if !ok {
+		_ = nc.Close()
+		return
+	}
+	c := &conn{s: s, nc: nc, tasks: make(map[string]*connTask)}
+	s.registerConn(c)
+	defer s.unregisterConn(c)
+
+	uid, _, err := peerCredential(unixConn)
+	if err != nil {
+		s.log.Warn("cannot read the peer uid of a privileged socket connection", "err", err)
+		c.close()
+		return
+	}
+	c.uid = uid
+
+	// The privileged mode's own user is not implicitly a local approver: a local role needs
+	// a matching local trust entry, exactly like every other uid (doc/privilege.md 校验流程).
+	cfg := s.Config()
+	roles := make([]wire.Role, 0, 2)
+	if uid == cfg.UnprivilegedUID {
+		roles = append(roles, wire.RoleForward)
+	}
+	if cfg.LocalEntry(uid) != nil {
+		roles = append(roles, wire.RoleLocal)
+	}
+	if len(roles) == 0 {
+		s.log.Warn("rejecting socket connection from an untrusted uid", "uid", uid)
+		c.close()
+		return
+	}
+
+	_ = nc.SetDeadline(time.Now().Add(handshakeTimeout))
+	hello, negotiated, err := wire.ServerHandshake(nc, nc, wire.ServerOptions{
+		Roles:       roles,
+		CRHAVersion: s.opts.Version,
+	})
+	if err != nil {
+		s.log.Warn("crh-priv handshake failed", "uid", uid, "err", err)
+		c.close()
+		return
+	}
+	_ = nc.SetDeadline(time.Time{})
+	c.role = hello.Role
+	c.stream = wire.NewStreamFor(nc, nc, negotiated, hello.Role)
+	c.peer = c.stream.Peer()
+	if hello.Role == wire.RoleForward {
+		s.addForward(c)
+	}
+	c.registerHandlers()
+
+	if err := c.stream.Run(); err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
+		var protocolErr *wire.ProtocolError
+		if errors.As(err, &protocolErr) {
+			s.log.Warn("crh-priv connection violated the protocol", "role", c.role, "err", err)
+		}
+	}
+	c.close()
+	// A task whose task.start success response could not be sent is still accepted: run it,
+	// with its output dropped and its outcome in the local log (doc/protocol.md crh-priv
+	// 断开). Task.Start runs at most once, so a Deferred.After that already ran is a no-op.
+	c.launchAccepted()
+}
+
+// close tears down the connection. It is idempotent.
+func (c *conn) close() {
+	c.closeOnce.Do(func() {
+		// Close the socket first: Peer.Close waits for an in-flight frame write, and a peer
+		// that stopped reading must not hold the connection or daemon shutdown open.
+		_ = c.nc.Close()
+		if c.peer != nil {
+			c.peer.Close(errors.New("connection closed"))
+		}
+	})
+}
+
+// addForward adds c to the set of connections that receive trust.summary and local.decision.
+func (s *Server) addForward(c *conn) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forwards[c] = struct{}{}
+}
+
+// registerHandlers installs the role's crh-priv command handlers.
+func (c *conn) registerHandlers() {
+	p := c.peer
+	switch c.role {
+	case wire.RoleForward:
+		p.HandleRequest(protocol.CmdTaskStart, c.handleTaskStart)
+		p.HandleRequest(protocol.CmdTaskInput, c.handleTaskInput)
+		p.HandleRequest(protocol.CmdTaskCancel, c.handleTaskCancel)
+		p.HandleRequest(protocol.CmdTaskQuery, c.handleTaskQuery)
+		p.HandleRequest(wire.CmdTrustQuery, c.handleTrustQuery)
+		p.HandleRequest(protocol.CmdRevocationsAdd, c.handleRevocationsAdd)
+		p.HandleRequest(protocol.CmdLocalRequest, c.handleLocalRequest)
+		p.HandleRequest(protocol.CmdLocalWithdraw, c.handleLocalWithdraw)
+	case wire.RoleLocal:
+		p.HandleRequest(wire.CmdPendingList, c.handlePendingList)
+		p.HandleRequest(wire.CmdLocalApprove, c.handleLocalApprove)
+		p.HandleRequest(wire.CmdLocalDeny, c.handleLocalDeny)
+		p.HandleRequest(protocol.CmdRevocationsAdd, c.handleRevocationsAdd)
+	}
+}
+
+// launchAccepted handles the tasks of a connection that just ended. An accepted task whose
+// Deferred.After did not run because the response could not be sent still executes. An input
+// that can no longer be completed is failed, as with a native helper whose stdin closed;
+// otherwise a task reading stdin would never finish.
+func (c *conn) launchAccepted() {
+	c.mu.Lock()
+	tasks := make([]*connTask, 0, len(c.tasks))
+	for _, ct := range c.tasks {
+		tasks = append(tasks, ct)
+	}
+	c.mu.Unlock()
+	for _, ct := range tasks {
+		ct.task.EndInput()
+		ct.launch()
+	}
+}
+
+// task returns the connection's task with id, or nil.
+func (c *conn) task(id string) *taskrun.Task {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if ct := c.tasks[id]; ct != nil {
+		return ct.task
+	}
+	return nil
+}
+
+// handleTaskStart verifies an authorization, persists the used records, logs the acceptance
+// and starts the task after the success response (doc/privilege.md 校验流程 steps 2–10).
+func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, error) {
+	var ts protocol.TaskStart
+	if err := protocol.Unmarshal(raw, &ts); err != nil {
+		return nil, err
+	}
+	decided, refusal := c.s.decide(&ts)
+	if refusal != nil {
+		c.s.logRefusal(&ts, refusal)
+		return nil, refusal
+	}
+
+	now := c.s.now()
+	record := state.Record{
+		TaskID:       ts.TaskID,
+		Attempt:      uint64(ts.Attempt),
+		SpecSHA256:   hex.EncodeToString(decided.specHash[:]),
+		AcceptedAtMS: now.UnixMilli(),
+	}
+	if decided.authorization != nil {
+		record.AuthorizationID = hex.EncodeToString(decided.authorizationID[:])
+		if decided.payload.DeadlineMS != nil {
+			deadline := int64(*decided.payload.DeadlineMS)
+			record.DeadlineMS = &deadline
+		}
+	}
+	if err := c.s.store.AddUsed(record); err != nil {
+		if errors.Is(err, state.ErrAlreadyRecorded) {
+			refusal := &protocol.RemoteError{
+				Code:    string(resultAlreadyAccepted),
+				Message: fmt.Sprintf("step %d: task %s already ran on this node", 5, ts.TaskID),
+			}
+			c.s.logRefusal(&ts, refusal)
+			return nil, refusal
+		}
+		c.s.log.Error("persist used record", "task", ts.TaskID, "err", err)
+		return nil, &protocol.RemoteError{Code: "internal_error", Message: "persist used record: " + err.Error()}
+	}
+
+	runStart := executionStart(&ts, decided)
+	entry := decided.decision.Entry
+	authID := ""
+	if decided.authorization != nil {
+		authID = record.AuthorizationID
+	}
+	if err := c.s.opts.Log.Log(audit.Record{
+		Event:           "task.accepted",
+		TaskID:          ts.TaskID,
+		Attempt:         ts.Attempt,
+		Entry:           entry,
+		AuthorizationID: authID,
+		SpecSHA256:      record.SpecSHA256,
+		Spec:            &ts.Spec,
+	}); err != nil {
+		// The acceptance is already persisted, so the task id is burned either way. Do not
+		// execute a privileged task whose acceptance could not be audited.
+		c.s.log.Error("write the local log; refusing to execute", "task", ts.TaskID, "err", err)
+		return nil, &protocol.RemoteError{Code: "internal_error", Message: "local log: " + err.Error()}
+	}
+
+	task, err := taskrun.New(runStart, c.outputEmitter(ts.TaskID))
+	if err != nil {
+		c.s.log.Error("prepare an accepted task", "task", ts.TaskID, "err", err)
+		return nil, &protocol.RemoteError{Code: "internal_error", Message: err.Error()}
+	}
+	ct := &connTask{task: task}
+	ct.launch = func() { c.startTask(ct) }
+	c.mu.Lock()
+	c.tasks[ts.TaskID] = ct
+	c.mu.Unlock()
+	c.s.registerTask(task)
+	if decided.approval != nil {
+		c.s.consumeApproval(approvalKey{taskID: ts.TaskID, attempt: uint64(ts.Attempt)})
+	}
+	return protocol.Deferred{Body: protocol.Empty{}, After: ct.launch}, nil
+}
+
+// executionStart prepares the task.start the executor receives. The cwd of a task that was
+// not authorized with an exact command (or by a local approval) is fixed to "/"
+// (doc/privilege.md 执行环境).
+func executionStart(ts *protocol.TaskStart, decided *decidedTask) protocol.TaskStart {
+	out := *ts
+	if decided.exact || ts.Spec.Kind != protocol.TaskSpecExec || ts.Spec.Exec == nil {
+		return out
+	}
+	exec := *ts.Spec.Exec
+	exec.Cwd = "/"
+	out.Spec = protocol.TaskSpec{Kind: protocol.TaskSpecExec, Exec: &exec}
+	return out
+}
+
+// outputEmitter turns the task's output into crh-priv task.output events.
+func (c *conn) outputEmitter(taskID string) taskrun.Emit {
+	return func(stream protocol.Stream, off uint64, data []byte) error {
+		return c.peer.Emit(protocol.EventTaskOutput, protocol.TaskOutput{
+			TaskID: taskID, Stream: stream, Offset: protocol.Uint(off), Data: data,
+		})
+	}
+}
+
+// startTask runs an accepted task and records its outcome. It is called exactly once per
+// task by taskrun.Task.Start's own once.
+func (c *conn) startTask(ct *connTask) {
+	var started time.Time
+	ct.task.Start(
+		func() { started = time.Now() },
+		func(exit *protocol.TaskExit) {
+			ts := ct.task.TaskStart()
+			_ = c.s.opts.Log.Log(audit.Record{
+				Event:      "task.finished",
+				TaskID:     ts.TaskID,
+				Attempt:    ts.Attempt,
+				Outcome:    taskrun.OutcomeText(exit.Outcome),
+				TimedOut:   exit.TimedOut,
+				Cancelled:  exit.Cancelled,
+				StdoutEnd:  uint64(exit.StdoutEnd),
+				StderrEnd:  uint64(exit.StderrEnd),
+				DurationMS: time.Since(started).Milliseconds(),
+			})
+			if err := c.peer.Emit(protocol.EventTaskExit, exit); err != nil {
+				// The forward connection is gone; the task still ran and is in the local log.
+				_ = c.s.opts.Log.Log(audit.Record{
+					Event: "task.exit.undelivered", TaskID: ts.TaskID, Detail: err.Error(),
+				})
+			}
+			c.s.unregisterTask(ct.task)
+		},
+	)
+}
+
+func (c *conn) handleTaskInput(_ context.Context, raw cbor.RawMessage) (any, error) {
+	var in protocol.TaskInput
+	if err := protocol.Unmarshal(raw, &in); err != nil {
+		return nil, err
+	}
+	task := c.task(in.TaskID)
+	if task == nil {
+		return nil, &protocol.RemoteError{Code: "unknown_task", Message: "unknown task " + in.TaskID}
+	}
+	return task.Input(in)
+}
+
+func (c *conn) handleTaskCancel(_ context.Context, raw cbor.RawMessage) (any, error) {
+	var cancel protocol.TaskCancel
+	if err := protocol.Unmarshal(raw, &cancel); err != nil {
+		return nil, err
+	}
+	if task := c.task(cancel.TaskID); task != nil {
+		task.Cancel(cancel.TaskID)
+	}
+	return protocol.Empty{}, nil
+}
+
+func (c *conn) handleTaskQuery(_ context.Context, raw cbor.RawMessage) (any, error) {
+	var query protocol.TaskQuery
+	if err := protocol.Unmarshal(raw, &query); err != nil {
+		return nil, err
+	}
+	if task := c.task(query.TaskID); task != nil {
+		return task.Status(query), nil
+	}
+	return protocol.TaskStatus{TaskID: query.TaskID, State: protocol.TaskUnknown}, nil
+}
+
+func (c *conn) handleTrustQuery(_ context.Context, raw cbor.RawMessage) (any, error) {
+	var empty protocol.Empty
+	if err := protocol.Unmarshal(raw, &empty); err != nil {
+		return nil, err
+	}
+	return c.s.Config().Summary(), nil
+}
+
+func (c *conn) handleRevocationsAdd(_ context.Context, raw cbor.RawMessage) (any, error) {
+	var add protocol.RevocationsAdd
+	if err := protocol.Unmarshal(raw, &add); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(add.Entries))
+	for i := range add.Entries {
+		entry := &add.Entries[i]
+		id := [32]byte(entry.AuthorizationID)
+		var deadline *int64
+		if entry.DeadlineMS != nil {
+			value := int64(*entry.DeadlineMS)
+			deadline = &value
+		}
+		if err := c.s.store.AddRevoked(id, deadline); err != nil {
+			c.s.log.Error("persist revocation", "authorization", hex.EncodeToString(id[:]), "err", err)
+			return nil, &protocol.RemoteError{Code: "internal_error", Message: "persist revocation: " + err.Error()}
+		}
+		ids = append(ids, hex.EncodeToString(id[:]))
+	}
+	if len(ids) > 0 {
+		if err := c.s.opts.Log.Log(audit.Record{Event: "revocations.added", AuthorizationIDs: ids}); err != nil {
+			c.s.log.Warn("write local log", "err", err)
+		}
+	}
+	return protocol.Empty{}, nil
+}
+
+// logRefusal records a refused task.start in the local log. The code, step and message are
+// the ones returned to the caller.
+func (s *Server) logRefusal(ts *protocol.TaskStart, refusal *protocol.RemoteError) {
+	step := 0
+	message := refusal.Message
+	if rest, ok := strings.CutPrefix(message, "step "); ok {
+		if n, _, found := strings.Cut(rest, ": "); found {
+			if parsed, err := parseStep(n); err == nil {
+				step, message = parsed, rest[len(n)+2:]
+			}
+		}
+	}
+	if err := s.opts.Log.Log(audit.Record{
+		Event:   "task.refused",
+		TaskID:  ts.TaskID,
+		Attempt: ts.Attempt,
+		Code:    refusal.Code,
+		Step:    step,
+		Message: message,
+	}); err != nil {
+		s.log.Warn("write local log", "err", err)
+	}
+}
+
+// parseStep parses the step number of a "step N: ..." refusal message.
+func parseStep(text string) (int, error) {
+	return strconv.Atoi(text)
+}
+
+func (c *conn) handlePendingList(_ context.Context, raw cbor.RawMessage) (any, error) {
+	var empty protocol.Empty
+	if err := protocol.Unmarshal(raw, &empty); err != nil {
+		return nil, err
+	}
+	return c.s.pendingEntries(), nil
+}
+
+func (c *conn) handleLocalRequest(_ context.Context, raw cbor.RawMessage) (any, error) {
+	var req protocol.LocalRequest
+	if err := protocol.Unmarshal(raw, &req); err != nil {
+		return nil, err
+	}
+	state, refusal := c.s.requestLocal(&req)
+	if refusal != nil {
+		return nil, refusal
+	}
+	return state, nil
+}
+
+func (c *conn) handleLocalWithdraw(_ context.Context, raw cbor.RawMessage) (any, error) {
+	var withdraw protocol.LocalWithdraw
+	if err := protocol.Unmarshal(raw, &withdraw); err != nil {
+		return nil, err
+	}
+	c.s.withdrawLocal(withdraw.TaskID, uint64(withdraw.Attempt))
+	return protocol.Empty{}, nil
+}
+
+func (c *conn) handleLocalApprove(_ context.Context, raw cbor.RawMessage) (any, error) {
+	return c.decideLocal(raw, true)
+}
+
+func (c *conn) handleLocalDeny(_ context.Context, raw cbor.RawMessage) (any, error) {
+	return c.decideLocal(raw, false)
+}
+
+func (c *conn) decideLocal(raw cbor.RawMessage, approve bool) (any, error) {
+	var verdict protocol.LocalVerdict
+	if err := protocol.Unmarshal(raw, &verdict); err != nil {
+		return nil, err
+	}
+	if _, refusal := c.s.decideLocal(c.uid, &verdict, approve); refusal != nil {
+		return nil, refusal
+	}
+	// The decision itself reaches crhs as the local.decision event; the command's success
+	// response is empty (doc/protocol.md crh-priv table).
+	return protocol.Empty{}, nil
+}

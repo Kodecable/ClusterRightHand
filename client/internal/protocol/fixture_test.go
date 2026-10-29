@@ -155,6 +155,15 @@ func decodeFixtureBody(frame *Frame) (any, error) {
 		case CmdTaskQuery:
 			var v TaskQuery
 			return v, Unmarshal(frame.Body, &v)
+		case CmdRevocationsAdd:
+			var v RevocationsAdd
+			return v, Unmarshal(frame.Body, &v)
+		case CmdLocalRequest:
+			var v LocalRequest
+			return v, Unmarshal(frame.Body, &v)
+		case CmdLocalWithdraw:
+			var v LocalWithdraw
+			return v, Unmarshal(frame.Body, &v)
 		}
 	case FrameResponse:
 		switch frame.Name {
@@ -169,6 +178,12 @@ func decodeFixtureBody(frame *Frame) (any, error) {
 			return v, Unmarshal(frame.Body, &v)
 		case CmdTaskQuery:
 			var v TaskStatus
+			return v, Unmarshal(frame.Body, &v)
+		case CmdRevocationsAdd, CmdLocalWithdraw:
+			var v Empty
+			return v, Unmarshal(frame.Body, &v)
+		case CmdLocalRequest:
+			var v LocalState
 			return v, Unmarshal(frame.Body, &v)
 		}
 	case FrameEvent:
@@ -190,6 +205,12 @@ func decodeFixtureBody(frame *Frame) (any, error) {
 			return v, Unmarshal(frame.Body, &v)
 		case EventTaskExitAck:
 			var v TaskExitAck
+			return v, Unmarshal(frame.Body, &v)
+		case EventTrustSummary:
+			var v TrustReport
+			return v, Unmarshal(frame.Body, &v)
+		case EventLocalDecision:
+			var v LocalDecision
 			return v, Unmarshal(frame.Body, &v)
 		}
 	}
@@ -223,10 +244,13 @@ func encodeFixtureValue(value any) ([]byte, error) {
 // The hand-written expectations below are transcribed from doc/protocol.md and the
 // description of each fixture entry, independently of the TypeScript generator.
 
+// fixtureCommands is the handshake command list of the fixture, in its wire order: the
+// protocol 1.0 names followed by the 1.1 additions.
 func fixtureCommands() []string {
 	return []string{
 		CmdHello, CmdPing, CmdTaskStart, CmdTaskInput, CmdTaskCancel, CmdTaskQuery,
 		EventTaskOutput, EventTaskExit, EventFacts, EventNodeStatus, EventOutputAck, EventTaskExitAck,
+		CmdRevocationsAdd, CmdLocalRequest, CmdLocalWithdraw, EventTrustSummary, EventLocalDecision,
 	}
 }
 
@@ -245,6 +269,12 @@ func fixtureFacts() Facts {
 		Groups:          []string{"sudo", "docker"},
 		ClockOffsetMS:   -1234,
 	}
+}
+
+// fixtureCredentialID is the 32-byte credential id of the passkey trust entry.
+func fixtureCredentialID() []byte {
+	h := fixtureHash(0x11)
+	return h[:]
 }
 
 func fixtureHash(value byte) Hash {
@@ -294,6 +324,14 @@ var fixtureExpectedIDs = []string{
 	"event.node.status.disabled",
 	"event.task.output.ack",
 	"event.task.exit.ack",
+	"request.revocations.add",
+	"response.revocations.add",
+	"request.local.request",
+	"response.local.request",
+	"request.local.withdraw",
+	"response.local.withdraw",
+	"event.trust.summary",
+	"event.local.decision",
 }
 
 func expectedFixtureValue(id string) (any, bool) {
@@ -615,6 +653,124 @@ func expectedFixtureValue(id string) (any, bool) {
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventTaskExitAck,
 			Body: TaskExitAck{TaskID: "t-exec-argv"},
+		}, true
+
+	case "request.revocations.add":
+		return fixtureFrame{
+			Kind: FrameRequest, ID: 13, Name: CmdRevocationsAdd,
+			Body: RevocationsAdd{Entries: []Revocation{
+				{AuthorizationID: fixtureHash(0x11), DeadlineMS: ptr(Int(1793016300000))},
+			}},
+		}, true
+	case "response.revocations.add":
+		return fixtureFrame{
+			Kind: FrameResponse, ID: 13, Name: CmdRevocationsAdd, OK: true,
+			Body: Empty{},
+		}, true
+	case "request.local.request":
+		return fixtureFrame{
+			Kind: FrameRequest, ID: 14, Name: CmdLocalRequest,
+			Body: LocalRequest{
+				TaskID:  "t-read",
+				Attempt: 1,
+				Spec: TaskSpec{Kind: TaskSpecFileRead, FileRead: &FileReadSpec{
+					Path: "/etc/hosts", Offset: 0, Limit: 0,
+				}},
+				Note: "restart nginx",
+			},
+		}, true
+	case "response.local.request":
+		return fixtureFrame{
+			Kind: FrameResponse, ID: 14, Name: CmdLocalRequest, OK: true,
+			Body: LocalState{Kind: LocalStatePending},
+		}, true
+	case "request.local.withdraw":
+		return fixtureFrame{
+			Kind: FrameRequest, ID: 15, Name: CmdLocalWithdraw,
+			Body: LocalWithdraw{TaskID: "t-read", Attempt: 1},
+		}, true
+	case "response.local.withdraw":
+		return fixtureFrame{
+			Kind: FrameResponse, ID: 15, Name: CmdLocalWithdraw, OK: true,
+			Body: Empty{},
+		}, true
+	case "event.trust.summary":
+		return fixtureFrame{
+			Kind: FrameEvent, Name: EventTrustSummary,
+			Body: TrustReport{Kind: TrustReportOK, Summary: &TrustSummary{
+				NodeID:      "node-1",
+				Groups:      []string{"web"},
+				ClockSkewMS: 60000,
+				Identities: Identities{
+					Unprivileged: Identity{UID: 998, GID: 998, User: "crha"},
+					Privileged:   Identity{UID: 0, GID: 0, User: "root"},
+				},
+				Trust: []TrustEntry{
+					{
+						Name:   "crhs",
+						Source: TrustSourceLocal,
+						Role:   TrustRoleCRHS,
+						Key: TrustKey{Kind: TrustKeySSHSig, SSHSig: &SSHTrustKey{
+							PublicKey:   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEjcrhssigningkeyexample crhs-signing",
+							Fingerprint: "SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU",
+						}},
+						Kinds:        []TrustKind{TrustKindExecute, TrustKindCosign},
+						RequireExact: true,
+						RequireTask:  true,
+						RequireUV:    false,
+						MaxTTLMS:     ptr(Uint(300000)),
+						Allow: []GuardRule{
+							{Method: MethodExec, Match: GuardMatchPrefix, Pattern: "systemctl restart "},
+						},
+						Deny:     []GuardRule{},
+						EnvAllow: []string{},
+					},
+					{
+						Name:   "alice-passkey",
+						Source: TrustSourceLocal,
+						Role:   TrustRoleUser,
+						Key: TrustKey{Kind: TrustKeyWebAuthn, WebAuthn: &WebAuthnTrustKey{
+							CredentialID: fixtureCredentialID(),
+							COSEKey:      []byte{0xa5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20},
+							RPID:         "crh.example.com",
+							Origins:      []string{"https://crh.example.com"},
+						}},
+						Kinds:        []TrustKind{TrustKindExecute},
+						RequireExact: false,
+						RequireTask:  true,
+						RequireUV:    true,
+						MaxTTLMS:     nil,
+						Allow:        []GuardRule{},
+						Deny:         []GuardRule{},
+						EnvAllow:     []string{"DEBIAN_FRONTEND"},
+					},
+					{
+						Name:   "local-admins",
+						Source: TrustSourceLocal,
+						Role:   TrustRoleLocal,
+						Key: TrustKey{Kind: TrustKeyLocal, Local: &LocalTrustKey{
+							UIDs: []Uint{0, 1000},
+						}},
+						Kinds:        []TrustKind{TrustKindExecute},
+						RequireExact: false,
+						RequireTask:  false,
+						RequireUV:    false,
+						MaxTTLMS:     nil,
+						Allow:        []GuardRule{},
+						Deny:         []GuardRule{},
+						EnvAllow:     []string{},
+					},
+				},
+			}},
+		}, true
+	case "event.local.decision":
+		return fixtureFrame{
+			Kind: FrameEvent, Name: EventLocalDecision,
+			Body: LocalDecision{
+				TaskID:  "t-read",
+				Attempt: 1,
+				State:   LocalState{Kind: LocalStateDenied, Message: "not now"},
+			},
 		}, true
 	}
 	return nil, false

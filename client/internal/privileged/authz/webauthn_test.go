@@ -37,11 +37,15 @@ func TestWebAuthnVectors(t *testing.T) {
 		vector := &fixture.WebAuthn[i]
 		t.Run(vector.ID, func(t *testing.T) {
 			payload := decodeHex(t, vector.PayloadHex)
-			err := VerifyWebAuthn(payload, webauthnSignature(t, vector), webauthnTrust(t, vector), vector.Trust.RequireUV)
-			if vector.Valid && err != nil {
-				t.Fatalf("rejected: %s: %v", vector.Description, err)
+			userVerified, err := VerifyWebAuthn(payload, webauthnSignature(t, vector), webauthnTrust(t, vector))
+			// User verification is not a signature error any more; a trust entry that
+			// requires it is checked by Decide's step 7, so the vector is accepted only
+			// when the flag satisfies require_uv as well.
+			valid := err == nil && (!vector.Trust.RequireUV || userVerified)
+			if vector.Valid && !valid {
+				t.Fatalf("rejected: %s: %v (user verified %v)", vector.Description, err, userVerified)
 			}
-			if !vector.Valid && err == nil {
+			if !vector.Valid && valid {
 				t.Fatalf("accepted: %s", vector.Description)
 			}
 		})
@@ -93,7 +97,7 @@ func TestWebAuthnRejectsMismatchedCOSEKeys(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			key := rewrite(t, test.mutate)
-			if err := VerifyWebAuthn(payload, signature, key, true); err == nil {
+			if _, err := VerifyWebAuthn(payload, signature, key); err == nil {
 				t.Fatal("mismatched COSE key accepted")
 			}
 		})
@@ -102,7 +106,7 @@ func TestWebAuthnRejectsMismatchedCOSEKeys(t *testing.T) {
 	t.Run("malformed cose key", func(t *testing.T) {
 		key := webauthnTrust(t, es256)
 		key.COSEKey = []byte{0xff}
-		if err := VerifyWebAuthn(payload, signature, key, true); err == nil {
+		if _, err := VerifyWebAuthn(payload, signature, key); err == nil {
 			t.Fatal("malformed COSE key accepted")
 		}
 	})

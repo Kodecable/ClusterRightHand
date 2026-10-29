@@ -412,7 +412,10 @@ func TestRunQuery(t *testing.T) {
 
 func TestRunSecondTaskRejected(t *testing.T) {
 	s := startSession(t, testVersion)
-	if err := s.start(execTask("one", "true")); err != nil {
+	// Keep the first task running until the second request arrives: with an immediate task
+	// the helper may exit after task.exit (it serves exactly one task) before the second
+	// task.start is read, which would test a closed stream instead of the rejection.
+	if err := s.start(execTask("one", "sleep 0.5; true")); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
 	err := s.start(execTask("two", "true"))

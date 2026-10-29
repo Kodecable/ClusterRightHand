@@ -6,33 +6,22 @@
 package helper
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
 
-	"github.com/Kodecable/ClusterRightHand/client/internal/executor"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/taskrun"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/fxamacker/cbor/v2"
 )
-
-// outputChunk bounds one task.output event: a 64 KiB read from the executor would not fit a crh-priv
-// frame.
-const outputChunk = 32 << 10
-
-// emptyInputHash is the SHA-256 of empty input, which an InputRef of size 0 must declare.
-var emptyInputHash = protocol.Hash(sha256.Sum256(nil))
 
 // Options configures Run.
 type Options struct {
@@ -122,7 +111,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
 func (h *helper) completed() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.task != nil && h.task.finished
+	return h.task != nil && h.task.Finished()
 }
 
 // helper is one native helper session. The task is set once and never replaced.
@@ -132,31 +121,9 @@ type helper struct {
 	done   chan struct{}
 
 	mu   sync.Mutex
-	task *task
+	task *taskrun.Task
 
 	logMu sync.Mutex
-}
-
-// task is the one task this helper executes, with the input accounting the crh-priv task.input
-// chunks need. Fields under the helper's mu.
-type task struct {
-	id     string
-	start  protocol.TaskStart
-	sink   *streamSink
-	in     *executor.Input
-	ctx    context.Context
-	cancel context.CancelFunc
-
-	inputOff  uint64
-	inputSize uint64
-	inputHash protocol.Hash
-	hasher    hash.Hash
-	inputErr  *protocol.Error
-	finished  bool
-
-	// startOnce makes the execution start exactly once: normally from Deferred.After, or from Run
-	// when the task.start response could not be sent.
-	startOnce sync.Once
 }
 
 func (h *helper) accepted() bool {
@@ -175,28 +142,13 @@ func (h *helper) handleStart(_ context.Context, body cbor.RawMessage) (any, erro
 	if h.task != nil {
 		return nil, &protocol.RemoteError{Code: "already_accepted", Message: "the native helper executes exactly one task"}
 	}
-	if ts.TaskID == "" {
-		return nil, &protocol.RemoteError{Code: "invalid_spec", Message: "task id must not be empty"}
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	t := &task{id: ts.TaskID, start: ts, ctx: ctx, cancel: cancel}
-	t.sink = newStreamSink(func(stream protocol.Stream, off uint64, data []byte) error {
+	t, err := taskrun.New(ts, func(stream protocol.Stream, off uint64, data []byte) error {
 		return h.stream.Peer().Emit(protocol.EventTaskOutput, protocol.TaskOutput{
 			TaskID: ts.TaskID, Stream: stream, Offset: protocol.Uint(off), Data: data,
 		})
 	})
-	if ref := inputRef(&ts.Spec); ref != nil {
-		// A zero-size input still commits crhs to the SHA-256 of empty input; a different hash can
-		// never match, so refuse it before the task is accepted.
-		if ref.Size == 0 && ref.SHA256 != emptyInputHash {
-			cancel()
-			return nil, &protocol.RemoteError{Code: "invalid_spec", Message: "input size 0 requires the sha256 of empty input"}
-		}
-		t.in = executor.NewInput()
-		t.inputSize, t.inputHash, t.hasher = uint64(ref.Size), ref.SHA256, sha256.New()
-		if ref.Size == 0 {
-			t.in.Close()
-		}
+	if err != nil {
+		return nil, err
 	}
 	h.task = t
 	return protocol.Deferred{Body: protocol.Empty{}, After: func() { h.launch(t) }}, nil
@@ -205,12 +157,27 @@ func (h *helper) handleStart(_ context.Context, body cbor.RawMessage) (any, erro
 // launch starts the accepted task's execution exactly once. Peer calls Deferred.After only after the
 // task.start success response went out; when that send fails, the acceptance already stands and the
 // task must still run, with its outcome recorded in the local log.
-func (h *helper) launch(t *task) {
-	t.startOnce.Do(func() { go h.execute(t) })
+func (h *helper) launch(t *taskrun.Task) {
+	var started time.Time
+	t.Start(
+		func() {
+			started = time.Now()
+			h.logStart(t)
+		},
+		func(exit *protocol.TaskExit) {
+			h.logExit(t, exit, time.Since(started))
+			if err := h.stream.Peer().Emit(protocol.EventTaskExit, exit); err != nil {
+				// The parent is gone. The task itself has finished and is recorded in the local log;
+				// there is nobody left to tell.
+				h.logLine(logRecord{Event: "task.exit.undelivered", TaskID: t.ID(), Detail: err.Error()})
+			}
+			close(h.done)
+		},
+	)
 }
 
 // launchAccepted launches the accepted task if Deferred.After never ran because the response could
-// not be sent.
+// not be sent. taskrun.Task.Start runs the task at most once, so a racing Deferred.After is safe.
 func (h *helper) launchAccepted() {
 	h.mu.Lock()
 	t := h.task
@@ -226,47 +193,12 @@ func (h *helper) handleInput(_ context.Context, body cbor.RawMessage) (any, erro
 		return nil, err
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	t := h.task
-	if t == nil || in.TaskID != t.id {
+	h.mu.Unlock()
+	if t == nil {
 		return nil, &protocol.RemoteError{Code: "unknown_task", Message: "unknown task " + in.TaskID}
 	}
-	tooLarge := func(size uint64) (any, error) {
-		return nil, &protocol.RemoteError{
-			Code:    "input_too_large",
-			Message: fmt.Sprintf("task %s input exceeds the declared %d bytes", in.TaskID, size),
-		}
-	}
-	if uint64(in.Offset) != t.inputOff {
-		return nil, &protocol.RemoteError{
-			Code:    "input_out_of_order",
-			Message: fmt.Sprintf("task %s input offset %d, want %d", in.TaskID, in.Offset, t.inputOff),
-		}
-	}
-	if t.in == nil || t.inputOff >= t.inputSize {
-		if len(in.Data) == 0 {
-			return protocol.Empty{}, nil
-		}
-		return tooLarge(t.inputSize)
-	}
-	if t.inputOff+uint64(len(in.Data)) > t.inputSize {
-		t.inputOff += uint64(len(in.Data))
-		h.failInputLocked(t, "input_mismatch",
-			fmt.Sprintf("task %s input is longer than the declared %d bytes", in.TaskID, t.inputSize))
-		return tooLarge(t.inputSize)
-	}
-	t.inputOff += uint64(len(in.Data))
-	_, _ = t.hasher.Write(in.Data)
-	if t.inputOff == t.inputSize && !bytes.Equal(t.hasher.Sum(nil), t.inputHash[:]) {
-		h.failInputLocked(t, "input_mismatch",
-			fmt.Sprintf("task %s input does not match the declared sha256", in.TaskID))
-		return protocol.Empty{}, nil
-	}
-	t.in.Push(in.Data)
-	if t.inputOff >= t.inputSize {
-		t.in.Close()
-	}
-	return protocol.Empty{}, nil
+	return t.Input(in)
 }
 
 func (h *helper) handleCancel(_ context.Context, body cbor.RawMessage) (any, error) {
@@ -275,14 +207,10 @@ func (h *helper) handleCancel(_ context.Context, body cbor.RawMessage) (any, err
 		return nil, err
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if t := h.task; t != nil && t.id == c.TaskID && !t.finished {
-		t.cancel()
-		if t.in != nil {
-			// A file.write blocked in its input read only notices the cancellation through the
-			// reader, and the read error must not mask it: cancel first, then wake the reader.
-			t.in.Fail(errors.New("task cancelled"))
-		}
+	t := h.task
+	h.mu.Unlock()
+	if t != nil {
+		t.Cancel(c.TaskID)
 	}
 	return protocol.Empty{}, nil
 }
@@ -293,81 +221,23 @@ func (h *helper) handleQuery(_ context.Context, body cbor.RawMessage) (any, erro
 		return nil, err
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	t := h.task
-	if t == nil || t.id != q.TaskID {
+	h.mu.Unlock()
+	if t == nil {
 		return protocol.TaskStatus{TaskID: q.TaskID, State: protocol.TaskUnknown}, nil
 	}
-	state := protocol.TaskRunning
-	if t.finished {
-		state = protocol.TaskExited
-	}
-	return protocol.TaskStatus{
-		TaskID:    t.id,
-		State:     state,
-		StdoutEnd: protocol.Uint(t.sink.End(protocol.StreamStdout)),
-		StderrEnd: protocol.Uint(t.sink.End(protocol.StreamStderr)),
-	}, nil
-}
-
-// execute runs the accepted task with the privileged executor and streams its outcome. It is started
-// only after the task.start success response went out, so no task event can precede it.
-func (h *helper) execute(t *task) {
-	started := time.Now()
-	h.logStart(t)
-	res := executor.RunTask(t.ctx, &t.start.Spec, t.reader(), t.sink, executor.TaskOptions{
-		Timeout:    time.Duration(t.start.TimeoutMS) * time.Millisecond,
-		KillGrace:  time.Duration(t.start.KillGraceMS) * time.Millisecond,
-		Privileged: true,
-	})
-	t.sink.Close()
-	exit := &protocol.TaskExit{
-		TaskID:    t.id,
-		Outcome:   res.Outcome(),
-		TimedOut:  res.TimedOut,
-		Cancelled: res.Cancelled,
-		StdoutEnd: protocol.Uint(t.sink.End(protocol.StreamStdout)),
-		StderrEnd: protocol.Uint(t.sink.End(protocol.StreamStderr)),
-	}
-	h.mu.Lock()
-	if t.inputErr != nil {
-		// The input, not the process, decided this task (a truncated stdin may look successful).
-		exit.Outcome = protocol.Outcome{
-			Kind:  protocol.OutcomeError,
-			Error: &protocol.Error{Code: t.inputErr.Code, Message: protocol.ErrorMessage(t.inputErr.Message)},
-		}
-		exit.Cancelled = false
-	}
-	t.finished = true
-	h.mu.Unlock()
-
-	h.logExit(t, exit, time.Since(started))
-	if err := h.stream.Peer().Emit(protocol.EventTaskExit, exit); err != nil {
-		// The parent is gone. The task itself has finished and is recorded in the local log; there is
-		// nobody left to tell.
-		h.logLine(logRecord{Event: "task.exit.undelivered", TaskID: t.id, Detail: err.Error()})
-	}
-	close(h.done)
-}
-
-// reader returns the task's stdin/content reader, or nil when the task declares no input.
-func (t *task) reader() io.Reader {
-	if t.in == nil {
-		return nil
-	}
-	return t.in
+	return t.Status(q), nil
 }
 
 // endInput fails an input that can no longer be completed because the stream ended; the task cannot
 // read the rest, and leaving the reader blocked would keep the helper alive forever.
 func (h *helper) endInput() {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	t := h.task
-	if t == nil || t.finished || t.in == nil || t.inputOff >= t.inputSize {
-		return
+	h.mu.Unlock()
+	if t != nil {
+		t.EndInput()
 	}
-	h.failInputLocked(t, "input_incomplete", "the crh-priv stream ended before the task input was complete")
 }
 
 // abort cancels the running task, e.g. when the helper itself is asked to stop.
@@ -375,102 +245,9 @@ func (h *helper) abort() {
 	h.mu.Lock()
 	t := h.task
 	h.mu.Unlock()
-	if t == nil {
-		return
+	if t != nil {
+		t.Abort()
 	}
-	t.cancel()
-	if t.in != nil {
-		t.in.Fail(errors.New("the native helper is stopping"))
-	}
-}
-
-// failInputLocked records why a task's input failed and cancels the task so a running process stops
-// and a blocked reader returns. The first input error wins. h.mu must be held.
-func (h *helper) failInputLocked(t *task, code, message string) {
-	if t.inputErr == nil {
-		t.inputErr = &protocol.Error{Code: code, Message: message}
-	}
-	if t.in != nil {
-		t.in.Fail(errors.New(message))
-	}
-	t.cancel()
-}
-
-func inputRef(spec *protocol.TaskSpec) *protocol.InputRef {
-	switch spec.Kind {
-	case protocol.TaskSpecExec:
-		if spec.Exec != nil {
-			return spec.Exec.Stdin
-		}
-	case protocol.TaskSpecFileWrite:
-		if spec.FileWrite != nil {
-			return &spec.FileWrite.Content
-		}
-	}
-	return nil
-}
-
-// streamSink turns task output into task.output events as it is produced. Unlike executor.Output it
-// keeps nothing: the non-privileged mode owns the output file and the replay after a reconnect, and
-// crh-priv task.output has no acknowledgement.
-type streamSink struct {
-	mu     sync.Mutex
-	emit   func(protocol.Stream, uint64, []byte) error
-	offs   [executor.StreamSlots]uint64
-	closed bool
-}
-
-func newStreamSink(emit func(protocol.Stream, uint64, []byte) error) *streamSink {
-	return &streamSink{emit: emit}
-}
-
-// Writer implements executor.Sink.
-func (s *streamSink) Writer(stream protocol.Stream) io.Writer { return sinkWriter{s, stream} }
-
-type sinkWriter struct {
-	s      *streamSink
-	stream protocol.Stream
-}
-
-func (w sinkWriter) Write(p []byte) (int, error) {
-	w.s.write(w.stream, p)
-	return len(p), nil
-}
-
-func (s *streamSink) write(stream protocol.Stream, p []byte) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed || len(p) == 0 {
-		return
-	}
-	idx := executor.StreamIndex(stream)
-	for len(p) > 0 {
-		n := min(len(p), outputChunk)
-		off := s.offs[idx]
-		if err := s.emit(stream, off, p[:n]); err != nil {
-			// Nobody is left to receive the output. Stop emitting and let the task run to its end;
-			// the local log still records the outcome.
-			s.closed = true
-			return
-		}
-		s.offs[idx] += uint64(n)
-		p = p[n:]
-	}
-}
-
-// Close stops emitting. Output that arrives afterwards is dropped, so task.exit is always the last
-// frame of the stream.
-func (s *streamSink) Close() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.closed = true
-}
-
-// End returns how many bytes of a stream were emitted.
-func (s *streamSink) End(stream protocol.Stream) uint64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.offs[executor.StreamIndex(stream)]
 }
 
 // logRecord is one line of the helper's local audit log on stderr. The native helper is the only
@@ -493,48 +270,34 @@ type logRecord struct {
 	Detail     string             `json:"detail,omitempty"`
 }
 
-func (h *helper) logStart(t *task) {
-	spec := t.start.Spec
+func (h *helper) logStart(t *taskrun.Task) {
+	ts := t.TaskStart()
+	spec := ts.Spec
 	h.logLine(logRecord{
 		Event:      "task.start",
 		Time:       time.Now().UTC().Format(time.RFC3339Nano),
-		TaskID:     t.id,
-		Attempt:    t.start.Attempt,
-		Privileged: t.start.Privileged,
+		TaskID:     ts.TaskID,
+		Attempt:    ts.Attempt,
+		Privileged: ts.Privileged,
 		Spec:       &spec,
 	})
 }
 
-func (h *helper) logExit(t *task, exit *protocol.TaskExit, took time.Duration) {
+func (h *helper) logExit(t *taskrun.Task, exit *protocol.TaskExit, took time.Duration) {
+	ts := t.TaskStart()
 	h.logLine(logRecord{
 		Event:      "task.exit",
 		Time:       time.Now().UTC().Format(time.RFC3339Nano),
-		TaskID:     t.id,
-		Attempt:    t.start.Attempt,
-		Privileged: t.start.Privileged,
-		Outcome:    outcomeText(exit.Outcome),
+		TaskID:     ts.TaskID,
+		Attempt:    ts.Attempt,
+		Privileged: ts.Privileged,
+		Outcome:    taskrun.OutcomeText(exit.Outcome),
 		TimedOut:   exit.TimedOut,
 		Cancelled:  exit.Cancelled,
 		StdoutEnd:  exit.StdoutEnd,
 		StderrEnd:  exit.StderrEnd,
 		DurationMS: took.Milliseconds(),
 	})
-}
-
-func outcomeText(o protocol.Outcome) string {
-	switch o.Kind {
-	case protocol.OutcomeCode:
-		return "exit " + strconv.FormatInt(int64(o.Code), 10)
-	case protocol.OutcomeSignal:
-		return "signal " + o.Signal
-	case protocol.OutcomeError:
-		if o.Error == nil {
-			return "error"
-		}
-		return "error " + o.Error.Code + ": " + o.Error.Message
-	default:
-		return "unknown"
-	}
 }
 
 // logLine writes one JSON line. A write failure is ignored: stderr may already be gone, and the task
