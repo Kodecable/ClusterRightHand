@@ -54,7 +54,7 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 - 没有规则链（用户本人在 WebUI 中操作）的任务直接进入授权/下发。
 - 没有待审批策略、但特权任务还需要签名的，`created` 直接进入 `awaiting_authorization`。
 - 策略已通过但特权任务还需要用户或本地签名时，任务进入 `awaiting_authorization`；拿到授权后下发。
-- crha 在 `task.accepted` **之前**因授权拒绝时，明确允许用 `attempt + 1` 重试：任务回到 `awaiting_authorization`，不是终态；不会重发已接受的任务。
+- crha 在 `task.start` 成功响应（accepted）**之前**因授权拒绝时，明确允许用 `attempt + 1` 重试：任务回到 `awaiting_authorization`，不是终态；不会重发已接受的任务。
 - `awaiting_authorization` 没有自动超时；由用户拒绝、取消任务或规则变化结束。
 - `denied` 的 `error_code` 为 `policy_denied`；审批被拒绝（包括 token 吊销）时为 `rejected`，`error_code` 为 `approval_rejected`。
 - `awaiting_authorization` 最终失败时为 `rejected`，error code 取 `authorization_required`、`authorization_invalid`、`authorization_expired` 或 `authorization_rejected`（用户/本地最终拒绝）。
@@ -69,7 +69,7 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 |---|---|
 | `connection_lost` | 已下发的任务在终态之前连接断开，且断线恢复失败（SSH 节点一断即是） |
 | `executor_restarted` | 重连后查询任务，客户端不认识这个任务 id（客户端进程重启过） |
-| `dispatch_unconfirmed` | `start` 已发出但未收到 `accepted`，连接就断了 |
+| `dispatch_unconfirmed` | `task.start` 已发出但未收到响应，连接就断了 |
 
 向 agent 报告的内容是："失败，状态未知，原因是 xxx"。是否重试、重试前要不要先检查机器状态，由 agent 或使用者决定。
 
@@ -80,10 +80,10 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 ### 不重复执行与授权重试
 
 - 同一个任务 id 最多被 **accepted/executed 一次**，不是“start 最多发送一次”。
-- 只有一种重试：crha 在发送 `task.accepted` **之前**明确拒绝了授权（`authorization_*`），任务回到 `awaiting_authorization`，下一次用 `attempt + 1` 重新下发；旧授权不能用于新 attempt。
+- 只有一种重试：crha 在发出 `task.start` 成功响应（accepted）**之前**明确拒绝了授权（`authorization_*`），任务回到 `awaiting_authorization`，下一次用 `attempt + 1` 重新下发；旧授权不能用于新 attempt。
 - 如果 `task.start` 已发出但连接断开、没收到明确拒绝，**绝不重试**，按 `dispatch_unconfirmed` / `connection_lost` 处理，避免重复执行。
 - 已 accepted 的任务即使之后失败/unknown，也不重发；重连后只发 `task.query`。
-- 客户端收到不认识的 `query` 时回复 `unknown_task`。
+- 客户端收到不认识 task id 的 `task.query` 时，正常响应（`ok = true`）状态 `unknown`；这不是错误。
 - 客户端不持久化任务，也不做任何重放；task id 的 accepted/executed 记录只在客户端内存中，重启后靠 `query` 得到 `unknown(executor_restarted)`。
 
 ## 输出
@@ -98,6 +98,8 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
   - `status`（批量默认）：只返回状态、退出码和完整输出文件路径；不向 crhs 发送 stdout/stderr，完整输出留在节点文件。
   - `text`：每个节点保留**尾部** 8KB/128 行；所有节点共享单任务总预算（50KB/2000 行）；按**输出到达顺序**分配，预算耗尽后忽略后续节点，允许整个节点被丢弃；完整输出仍然留在节点文件。
   - 预算在接收端 append 时检查，不能先把每个任务收满再裁剪；内存上限固定为总预算加少量元数据，不随节点数增长。
+  - 预算按**额度**发放：节点的输出到达时，从剩余总预算中给它追加额度，直到达到单节点上限（8KB/128 行）或总预算耗尽。额度只增不减：尾部滚动挤掉的旧字节不退回总预算。
+  - 总预算耗尽后，已经拿到额度的节点继续接收输出，在自己的额度内滚动保留尾部；没有额度的节点输出全部丢弃。所以内存上限就是已发放额度之和，不会超过总预算。
   - 即使某个节点的输出被丢弃，crhs 仍按已收到的偏移发送 `task.output.ack`/`task.exit.ack`，让 crha 释放缓冲。
   - 不为失败节点预留额外预算：失败节点也按到达顺序参与；需要完整错误输出时使用节点文件，或对单个任务改用完整输出模式。这是内存上限优先的已知取舍。
   - SSH 节点不保存完整输出：`status` 只返回状态，`text` 只返回受单节点和总预算限制的尾部输出。
@@ -140,6 +142,8 @@ event     = [2, event, body]
 - 命令/事件 body 使用该命令自己的固定类型（数组、元组或必要的结构 map），不再为“以后可能加字段”保留可选字段。
 - 命令/事件名是稳定的；新版本使用新名字，不原地改结构。
 - 连接关闭时，所有未完成命令以连接错误结束。
+- 两个方向都会发请求，`id` **按方向各自独立**：响应中的 `id` 属于发出该请求的一方。
+- 握手中的 `commands` 集合同时包含命令名和事件名。收到未协商的命令返回 `unsupported_command`；事件没有响应，收到未协商或无法解码的事件按协议错误断开连接。
 
 ### 命令与事件
 
@@ -151,15 +155,26 @@ event     = [2, event, body]
 | S→C | command | `task.input` | 输入分块；响应 ack |
 | S→C | command | `task.cancel` | 取消；响应结果 |
 | S→C | command | `task.query` | 查询任务状态；响应当前状态 |
-| S→C | command | `trust.query` | 查询 TrustSummary；响应摘要 |
-| S→C | command | `revocations.set` | 下发吊销列表；响应 ack |
+| S→C | command | `trust.query` | 查询 TrustSummary；响应摘要（M4 启用） |
+| S→C | command | `revocations.set` | 下发吊销列表；响应 ack（M4 启用） |
 | S→C | event | `task.output.ack` | 确认已收到的输出偏移；客户端可用它释放缓冲 |
 | S→C | event | `task.exit.ack` | 确认任务结束，可释放输出 |
 | C→S | event | `task.output` | `{task_id, stream, offset, data}` |
 | C→S | event | `task.exit` | 退出码/信号/错误、最终偏移、输出文件路径 |
 | C→S | event | `facts` | 系统信息、组、时钟偏差、特权模式信息 |
-| C→S | event | `trust.summary` | 特权模式配置变化时主动推送 |
+| C→S | event | `trust.summary` | 特权模式配置变化时主动推送（M4 启用） |
 | S→C | event | `node.status` | pending/active 等状态变化 |
+
+标“M4 启用”的命令/事件在 M3.5 只保留名称，结构在 M4 定义；M3.5 不声明、不实现它们。线上格式见 [protocol.md](protocol.md)。
+
+命令响应的语义：
+
+- **`task.start`**：`ok = true` 就是 accepted。crha 发出成功响应前，必须已在内存中把这个 task id 记为 accepted；该任务的 `task.output`/`task.exit` 一定排在这个响应之后（crha 先发响应再启动进程，消息流有序）。`ok = false` 的错误码分两类：
+  - `authorization_*`：可重试。crha 不记录这个 task id，crhs 把任务转回 `awaiting_authorization`，之后用 `attempt + 1` 重新下发。
+  - 其他（`unsupported_kind`、`local_policy_denied`、`invalid_spec` 等）：终态，任务结束为 `failed`。
+  - 同一 task id 已经 accepted 过时返回 `already_accepted`，按协议 bug 处理，绝不再次执行。
+- **`task.cancel`**：响应只表示已收到并发出信号（任务已结束也返回 ok）；最终结果以 `task.exit`（`cancelled = true`）为准。
+- **`task.query`**：`ok = true`，状态为 `running` / `exited` / `unknown`（客户端不认识这个 task id）；`ok = false` 只用于格式错误等真正的错误。
 
 `task.start` 的接受/拒绝、`task.query` 的状态、`hello`/`welcome` 的断线恢复都是命令响应；任务输出、退出、facts、trust summary、node status 和两个 ack 都是事件。抽象是“双向命令/事件”，不是只有客户端推送。
 
@@ -202,7 +217,7 @@ event     = [2, event, body]
 0. WebSocket 建立后，crhs 立即发送第一帧：32 字节随机**挑战**。它和 101 响应一起到达，不增加往返。
 1. crha → crhs：携带客户端静态公钥（加密传输），载荷是固定 CBOR：`{protocol_major, protocol_minor, commands, crha_version, client_time_ms, enroll?}`。crhs 按公钥查找节点：
    - 找到已批准的节点：正常连接。
-   - 找到 pending 的节点：建立**受限连接**，只能上报 facts 和查询注册状态，不接收任务。
+   - 找到 pending 的节点：建立**受限连接**，不接收任务，规则见下文"注册"。
    - 找不到，且载荷带有 `enroll`（注册令牌密钥、主机名、facts）、令牌有效：消耗令牌，创建绑定这把公钥的 pending 节点，同样建立受限连接。见下文"注册"。
    - 其余情况断开。
 2. crhs → crha：载荷是固定 CBOR：`{protocol_major, protocol_minor, commands, connection_id, server_time_ms, node_state, node_id}`。crha 据此算出与服务端的时钟偏差，之后在 `facts` 中上报；偏差过大时双方都写警告日志，WebUI 显示警告（见 [privilege.md](privilege.md#时钟)）。之后进入 `hello` 和断线恢复流程。
@@ -224,8 +239,8 @@ event     = [2, event, body]
 - 整数只允许 CBOR major 0/1 的原生范围，不用 bignum tag；
 - 时间统一为 Unix epoch **毫秒整数**，不使用 ISO 字符串、`Date`、`time.Time` 自动编码或 tag 1；
 - 严格解码（重复 key、非最短编码、未知字段、尾随 bytes 都拒绝），授权 payload 解码后重编码对比原始 bytes；
-- 两端共用 `test/interop/cbor_core_golden_vectors.json`（来自调查结果）的正例和拒绝例；
-- UTF-8；是否强制 NFC 由协议 schema 固定。
+- 两端共用 `test/interop/cbor_core_golden_vectors.json` 的正例和拒绝例；
+- 文本字符串必须是合法 UTF-8，不做 Unicode 规范化（不强制 NFC），原样保留：Linux 路径是字节序列，规范化可能指向另一个文件；签名覆盖原始 bytes，规则按精确字节匹配。非 UTF-8 路径暂不支持，需要时新增以 byte string 传路径的 `.v2` 命令。
 
 ### 实现
 
@@ -264,6 +279,11 @@ event     = [2, event, body]
    - 通过 HTTPS 获取服务端身份公钥，**检查它与令牌中的指纹一致**，然后固定下来。令牌本身就完成了信任引导，做法与 kubeadm 的 `--discovery-token-ca-cert-hash` 相同。
    - 生成节点身份密钥，发起 Noise IK 握手，在第一条消息的载荷中带上 `enroll`（令牌密钥、主机名和 facts）。这是唯一允许未知公钥完成握手的情况。令牌密钥在 Noise 通道内传输，终结 TLS 的一方看不到；第一条消息即使被重放，令牌也已经被消耗。
 3. crhs 校验令牌后，节点进入 **pending** 状态。**注册必须经过确认**：令牌的创建者（节点所有者）或管理员在 WebUI 核对主机名和节点公钥指纹（节点上可以用 `crha status` 查看指纹）后批准，节点才能接收任务。在此之前，节点用自己的公钥重连时只能建立受限连接；被拒绝时删除这把公钥。
+4. **受限连接**：握手响应的 `node_state = pending` 已经告诉 crha 自己的状态，不另设“查询注册状态”的命令，状态变化全部由 crhs 推送。
+   - 只允许 C→S 的 `hello`（任务列表为空）、`ping`、`facts` 和 S→C 的 `node.status`；其他命令由 crhs 返回 `node_pending`。
+   - 批准：crhs 推送 `node.status{active}` 后关闭连接；crha 不退避立即重连，握手得到完整连接。不在已有连接上原地切换权限，与普通重连走同一条路径。
+   - 拒绝：crhs 删除公钥，推送 `node.status{rejected}` 后关闭连接；crha 停止重连，`crha status` 显示被拒绝。
+   - 已批准节点被禁用（active → disabled）同样先推送 `node.status{disabled}` 再断开，之后握手失败。
 
 ### 轮换与吊销
 

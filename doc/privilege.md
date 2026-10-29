@@ -259,7 +259,7 @@ kinds = ["execute"]
 
 任何一步失败都通过 `task.start` 的错误响应返回：`[1, id, "task.start", false, [code, message]]`。`code` 区分授权失败、授权过期、联署缺失、路径/规则拒绝等；本地批准走 socket 的独立响应，不走 `task.start`。
 
-特权模式必须在发送 `task.accepted` **之前**完成授权验证；拒绝时任务没有执行、没有写 used、没有副作用，所以同一 task id 可以用更高的 attempt 重试。`task.input` 只在 accepted 后接收。
+特权模式必须在发出 `task.start` 成功响应（accepted）**之前**完成授权验证；拒绝时任务没有执行、没有写 used、没有副作用，所以同一 task id 可以用更高的 attempt 重试。`task.input` 只在 accepted 后接收。
 
 **执行环境**：
 - 以特权模式自身的 Linux 身份执行；
@@ -324,7 +324,7 @@ crhs 的选择不是最终放行：crha 特权模式在执行前仍按当前配�
 
 授权等待与规则审批分开：策略已经通过但尚未拿到签名时，任务处于 `awaiting_authorization`，不是 `awaiting_approval`。
 
-**预演与 fallback**：crhs 的规则计算只是预演，不是最终授权。若 crha 在 `task.accepted` 之前拒绝授权：
+**预演与 fallback**：crhs 的规则计算只是预演，不是最终授权。若 crha 在 `task.start` 成功响应（accepted）之前拒绝授权：
 
 1. 使该节点的 TrustSummary 缓存失效并重新查询；
 2. 用 `attempt + 1` 重新计算方案，但不再重复尝试相同的 crhs 签名路径，优先回退到所有者的 user/local 路径；

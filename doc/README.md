@@ -12,6 +12,7 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 |---|---|
 | [architecture.md](architecture.md) | 总体架构、组件划分、技术栈、仓库结构 |
 | [execution-plane.md](execution-plane.md) | 执行平面：任务模型与语义、CBOR 客户端协议（M3.5）、通信安全（WSS + Noise）、节点注册、SSH 传输、批量输出 |
+| [protocol.md](protocol.md) | crhs ↔ crha 协议的线上格式（M3.5）：CBOR 元组 schema、握手载荷、帧、命令/事件、JSON 存储形式、fixture |
 | [privilege.md](privilege.md) | 提权与授权：特权任务的四种处理方式、crha 特权模式、方法与目标、授权结构、信任缓存、联署 |
 | [agent-runtime.md](agent-runtime.md) | Agent 运行时：pi-durable 集成、cluster 工具、会话、subagent、测试策略 |
 | [access-control.md](access-control.md) | 用户模型（管理员 / 普通用户、用户组）、归属与分享、授权规则、API token、审计 |
@@ -140,4 +141,5 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D80 | 授权和联署是同一 CBOR payload 上的多个签名（`signatures[]`），不再使用 `cosign_of` 或两个 payload | 两个签名覆盖完全相同的 nodes/command/task_id/attempt/deadline；少一次一致性校验，授权 id 和吊销也只有一个 |
 | D81 | SSH 节点不参与提权：`privileged` 被忽略，按 SSH 用户执行并在任务输出中提示；保留现有 SFTP `file.*` 任务，不做 SSH native/forward | SSH 没有可验证的特权边界；忽略而不是假装拒绝/提权；file 任务仍有价值 |
 | D82 | 批量执行默认 `status`：只返回状态，完整输出留在节点；显式 `text`：每节点保留尾部 8KB/128 行，所有节点共享单任务 50KB/2000 行预算，按输出到达顺序丢弃；预算在接收端 append 时检查；丢弃仍发 ack；不优先保留失败节点 | 不在内存里先收完再裁；节点数增长不增加内存；完整输出仍可读文件；失败输出可见性是可接受的取舍 |
-| D83 | 任务 id 最多 accepted/executed 一次；只有 crha 在 `task.accepted` 之前明确拒绝授权时，允许同一 task id 用 `attempt + 1` 重试。部分节点通过、部分拒绝时任务彼此独立，不回滚已执行任务；`fail_fast` 只影响未启动节点；授权等待不自动超时。crhs 的规则引擎只是预演，crha 授权拒绝后优先回退到所有者 user/local 路径 | 保留 durable task id 和工具重放；明确拒绝前无副作用可安全重试；网络 unknown 绝不重试；避免把部分成功伪装成整体成功 |
+| D83 | 任务 id 最多 accepted/executed 一次；只有 crha 在 `task.start` 成功响应（accepted）之前明确拒绝授权时，允许同一 task id 用 `attempt + 1` 重试。部分节点通过、部分拒绝时任务彼此独立，不回滚已执行任务；`fail_fast` 只影响未启动节点；授权等待不自动超时。crhs 的规则引擎只是预演，crha 授权拒绝后优先回退到所有者 user/local 路径 | 保留 durable task id 和工具重放；明确拒绝前无副作用可安全重试；网络 unknown 绝不重试；避免把部分成功伪装成整体成功 |
+| D84 | M3.5 协议语义补全：`task.start` 成功响应即 accepted（取代独立的 accepted/rejected 消息），失败码分可重试的 `authorization_*` 与终态错误；`task.query` 对未知 id 正常响应 `unknown`；请求 id 按方向独立；未协商事件断开连接。pending 受限连接不设查询命令，靠 `node.status` 推送，批准后断开重连。批量 `text` 预算按只增不减的额度发放，已获额度的节点在额度内滚动尾部。文本只校验 UTF-8，不做 NFC 规范化 | 消除命令/响应抽象下的命名残留；状态切换走普通重连路径；内存上限等于已发额度之和、实现只需环形缓冲 + 计数器；路径是字节序列，规范化会改变目标 |
