@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/executor"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/transport"
@@ -115,8 +116,17 @@ type Options struct {
 	Facts     func() protocol.Facts
 	OutputDir string
 	Logger    *slog.Logger
-	// PrivilegedMode is reported in Hello; privileged tasks are rejected until M4.
+	// PrivilegedMode is the [privileged] mode from the configuration and is reported in Hello:
+	// reject, ignore, forward or native (doc/privilege.md). An empty mode behaves like reject.
 	PrivilegedMode string
+	// NativePrefix is the argv prefix that runs the native helper as the target identity, for
+	// example ["sudo", "-n"]; the helper's executable and "privileged stdio" are appended. It is
+	// empty when no escalation tool runs the helper directly, which is only useful to tests (there
+	// the helper is this very binary) and to deployments where crha already runs as the target user.
+	NativePrefix []string
+	// NativeTimeout bounds spawning the escalation tool, the crh-priv handshake and the forwarded
+	// task.start. 0 = DefaultNativeTimeout.
+	NativeTimeout time.Duration
 }
 
 type Agent struct {
@@ -152,14 +162,22 @@ type task struct {
 	suppressOutput bool
 
 	// TaskInput chunks for the executor (stdin or file content), queued by the receive loop for the
-	// executor's reader. queue is nil when the task declares no input; inputErr records why an input
-	// failed and overrides the task's outcome.
-	queue     *inputQueue
+	// executor's reader. queue is nil for tasks without input and for native tasks, whose chunks are
+	// forwarded to the helper; hasInput records whether the task declared any. inputErr records why
+	// an input failed and overrides the task's outcome.
+	queue     *executor.Input
+	hasInput  bool
 	inputErr  *protocol.Error
 	inputOff  uint64
 	inputSize uint64
 	inputHash protocol.Hash
 	hasher    hash.Hash
+
+	// native is the crh-priv connection to the helper of a privileged native task, nil otherwise.
+	native *nativeConn
+	// finishOnce makes the one call that completes the task win: a native task can be finished by
+	// the helper's task.exit and by the stream breaking at the same time.
+	finishOnce sync.Once
 
 	done   bool
 	result *protocol.TaskExit
@@ -570,8 +588,18 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 	if dup {
 		return reject("already_accepted", "task "+ts.TaskID+" was already accepted")
 	}
+	native := false
 	if ts.Privileged {
-		return reject("privileged_unsupported", "privileged tasks are not supported by this crha")
+		switch a.opts.PrivilegedMode {
+		case config.ModeIgnore:
+			// Ignore the privileged flag and run the task as crha's own user.
+		case config.ModeNative:
+			native = true
+		case config.ModeForward:
+			return reject("privileged_unsupported", "forward mode is not implemented yet")
+		default:
+			return reject("privileged_unsupported", "privileged tasks are not supported by this crha")
+		}
 	}
 	if err := checkTaskKind(ts.Spec); err != nil {
 		return nil, err
@@ -590,15 +618,30 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 		if ref.Size == 0 && ref.SHA256 != emptyInputHash {
 			return reject("invalid_spec", "input size 0 requires the sha256 of empty input")
 		}
-		q := newInputQueue()
-		t.queue, t.inputSize, t.inputHash, t.hasher = q, uint64(ref.Size), ref.SHA256, sha256.New()
-		if ref.Size == 0 {
-			q.close()
+		t.hasInput = true
+		t.inputSize, t.inputHash, t.hasher = uint64(ref.Size), ref.SHA256, sha256.New()
+		if !native {
+			q := executor.NewInput()
+			t.queue = q
+			if ref.Size == 0 {
+				q.Close()
+			}
+			in = q
 		}
-		in = q
 	}
 	runCtx, cancel := context.WithCancel(context.Background()) // tasks outlive connections
 	t.cancel, t.runCtx, t.in = cancel, runCtx, in
+	if native {
+		// The helper must accept the task before this agent does: a tool that cannot run (a password
+		// is required, no sudoers rule, a version mismatch) makes the task privileged_unsupported,
+		// never a fall back to unprivileged execution (doc/privilege.md "native").
+		n, err := a.startNative(ts)
+		if err != nil {
+			cancel()
+			return reject("privileged_unsupported", err.Error())
+		}
+		t.native = n
+	}
 	a.mu.Lock()
 	a.acceptLocked(t.id)
 	a.tasks[t.id] = t
@@ -625,12 +668,19 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 // winner starts the goroutines: a double start would run the task twice.
 func (a *Agent) launch(t *task) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	if t.started {
+		a.mu.Unlock()
 		return
 	}
 	t.started = true
+	native := t.native
+	a.mu.Unlock()
 	go a.forward(t)
+	if native != nil {
+		go a.nativeRun(t)
+		go a.nativeForward(t)
+		return
+	}
 	go a.execute(t.runCtx, t, t.in)
 }
 
@@ -764,7 +814,7 @@ func (a *Agent) input(in *protocol.TaskInput) (any, error) {
 			Message: fmt.Sprintf("task %s input offset %d, want %d", in.TaskID, in.Offset, t.inputOff),
 		}
 	}
-	if t.queue == nil || t.inputOff >= t.inputSize {
+	if !t.hasInput || t.inputOff >= t.inputSize {
 		// The task declared no input, or it is already complete: only an empty chunk is harmless.
 		if len(in.Data) == 0 {
 			return protocol.Empty{}, nil
@@ -784,22 +834,31 @@ func (a *Agent) input(in *protocol.TaskInput) (any, error) {
 			fmt.Sprintf("task %s input does not match the declared sha256", in.TaskID))
 		return protocol.Empty{}, nil
 	}
-	t.queue.push(in.Data)
-	if t.inputOff >= t.inputSize {
-		t.queue.close()
+	if t.native != nil {
+		t.native.inputs.push(in)
+	} else {
+		t.queue.Push(in.Data)
+		if t.inputOff >= t.inputSize {
+			t.queue.Close()
+		}
 	}
 	return protocol.Empty{}, nil
 }
 
 // failInputLocked records why a task's input failed, aborts its queue so a blocked reader returns,
-// and cancels the task so a running process is killed. The first input error wins. a.mu must be
+// and cancels the task so a running process is killed. The first input error wins. a native task is
+// cancelled through the helper (task.cancel) instead: the helper owns the process. a.mu must be
 // held.
 func (a *Agent) failInputLocked(t *task, code, message string) {
 	if t.inputErr == nil {
 		t.inputErr = &protocol.Error{Code: code, Message: message}
 	}
 	if t.queue != nil {
-		t.queue.fail(errors.New(message))
+		t.queue.Fail(errors.New(message))
+	}
+	if t.native != nil {
+		t.native.inputs.pushCancel()
+		return
 	}
 	t.cancel()
 }
@@ -819,10 +878,21 @@ func (a *Agent) abortIncompleteInputs() {
 // abortIncompleteInputLocked aborts the input of one task if it declared one that never completed
 // and the task is still running. a.mu must be held.
 func (a *Agent) abortIncompleteInputLocked(t *task) {
-	if t.queue == nil || t.done || t.queue.complete() {
+	if t.done || t.inputComplete() {
 		return
 	}
 	a.failInputLocked(t, "input_incomplete", "connection closed before the task input was complete")
+}
+
+// inputComplete reports whether every declared input byte arrived, or the task has no input at all.
+func (t *task) inputComplete() bool {
+	if !t.hasInput {
+		return true
+	}
+	if t.queue != nil {
+		return t.queue.Complete()
+	}
+	return t.inputOff >= t.inputSize
 }
 
 func (a *Agent) handleTaskCancel(_ context.Context, body cbor.RawMessage) (any, error) {
@@ -831,12 +901,21 @@ func (a *Agent) handleTaskCancel(_ context.Context, body cbor.RawMessage) (any, 
 		return nil, err
 	}
 	a.mu.Lock()
-	if t := a.tasks[c.TaskID]; t != nil && !t.done {
-		t.cancel()
-		if t.queue != nil {
-			// A file.write blocked in its input read only notices the cancellation through the
-			// reader, and the read error must not mask it: cancel first, then wake the reader.
-			t.queue.fail(errors.New("task cancelled"))
+	t := a.tasks[c.TaskID]
+	if t != nil && !t.done {
+		switch {
+		case t.native != nil:
+			// The helper owns the process and turns task.cancel into a signal inside itself; the
+			// agent never signals it (doc/privilege.md, native). The request is queued so it follows
+			// the input chunks already forwarded.
+			t.native.inputs.pushCancel()
+		default:
+			t.cancel()
+			if t.queue != nil {
+				// A file.write blocked in its input read only notices the cancellation through the
+				// reader, and the read error must not mask it: cancel first, then wake the reader.
+				t.queue.Fail(errors.New("task cancelled"))
+			}
 		}
 	}
 	a.mu.Unlock()
@@ -887,45 +966,13 @@ func (a *Agent) forward(t *task) {
 
 func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
 	exit := &protocol.TaskExit{TaskID: t.id}
-	switch t.spec.Spec.Kind {
-	case protocol.TaskSpecExec:
-		res := executor.RunExec(ctx, t.spec.Spec.Exec, in, t.output, executor.ExecOptions{
-			Timeout:   time.Duration(t.spec.TimeoutMS) * time.Millisecond,
-			KillGrace: time.Duration(t.spec.KillGraceMS) * time.Millisecond,
-		})
-		exit.TimedOut, exit.Cancelled = res.TimedOut, res.Cancelled
-		switch {
-		case res.Err != nil:
-			exit.Outcome = protocol.Outcome{
-				Kind:  protocol.OutcomeError,
-				Error: &protocol.Error{Code: res.Err.Code, Message: protocol.ErrorMessage(res.Err.Message)},
-			}
-		case res.Signal != "":
-			exit.Outcome = protocol.Outcome{Kind: protocol.OutcomeSignal, Signal: protocol.CleanText(res.Signal)}
-		default:
-			exit.Outcome = protocol.Outcome{Kind: protocol.OutcomeCode, Code: protocol.Int(*res.ExitCode)}
-		}
-	default:
-		err := executor.RunFile(ctx, &t.spec.Spec, in, t.output.Writer(protocol.StreamStdout))
-		var e *executor.Error
-		switch {
-		case err == nil:
-			exit.Outcome = protocol.Outcome{Kind: protocol.OutcomeCode, Code: 0}
-		case errors.As(err, &e):
-			exit.Outcome = protocol.Outcome{
-				Kind:  protocol.OutcomeError,
-				Error: &protocol.Error{Code: e.Code, Message: protocol.ErrorMessage(e.Message)},
-			}
-			exit.Cancelled = e.Code == "cancelled"
-		default:
-			exit.Outcome = protocol.Outcome{
-				Kind:  protocol.OutcomeError,
-				Error: &protocol.Error{Code: "io_error", Message: protocol.ErrorMessage(err.Error())},
-			}
-		}
-	}
-	if q, ok := in.(*inputQueue); ok {
-		q.discard() // unblocks a reader the executor left behind
+	res := executor.RunTask(ctx, &t.spec.Spec, in, t.output, executor.TaskOptions{
+		Timeout:   time.Duration(t.spec.TimeoutMS) * time.Millisecond,
+		KillGrace: time.Duration(t.spec.KillGraceMS) * time.Millisecond,
+	})
+	exit.TimedOut, exit.Cancelled, exit.Outcome = res.TimedOut, res.Cancelled, res.Outcome()
+	if q, ok := in.(*executor.Input); ok {
+		q.Discard() // unblocks a reader the executor left behind
 	}
 	t.output.Close()
 	exit.StdoutEnd = protocol.Uint(t.output.End(protocol.StreamStdout))

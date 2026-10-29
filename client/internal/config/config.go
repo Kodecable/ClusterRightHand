@@ -33,6 +33,13 @@ const (
 	ModeReject  = "reject"
 )
 
+// Escalation tools of privileged.mode = "native" (doc/privilege.md, native).
+const (
+	NativeSudo = "sudo"
+	NativeDoas = "doas"
+	NativeRun0 = "run0"
+)
+
 // TLS verification modes.
 const (
 	TLSVerifySystem = "system"
@@ -130,7 +137,7 @@ func build(raw *rawConfig) (*Config, error) {
 		Privilege: Privileged{
 			Mode:   orDefault(raw.Privileged.Mode, ModeReject),
 			Socket: orDefault(raw.Privileged.Socket, DefaultPrivilegedSocket),
-			Native: orDefault(raw.Privileged.Native, "sudo"),
+			Native: orDefault(raw.Privileged.Native, NativeSudo),
 		},
 		Output: Output{Dir: raw.Output.Dir, MaxAge: defaultMaxAge, MaxTotal: defaultMaxTotal},
 	}
@@ -242,7 +249,7 @@ func (c *Config) validatePrivileged() error {
 		return fmt.Errorf("config: privileged.socket: path %q must be absolute", p.Socket)
 	}
 	switch p.Native {
-	case "sudo", "doas", "run0":
+	case NativeSudo, NativeDoas, NativeRun0:
 	default:
 		return fmt.Errorf("config: privileged.native: invalid value %q (want sudo, doas or run0)", p.Native)
 	}

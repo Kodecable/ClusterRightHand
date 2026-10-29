@@ -18,6 +18,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/facts"
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
 	"github.com/Kodecable/ClusterRightHand/client/internal/janitor"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/helper"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/transport"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
@@ -73,6 +74,7 @@ func run(ctx context.Context, configPath string) error {
 		Facts:          func() protocol.Facts { return nodeFacts(cfg.Load()) },
 		OutputDir:      first.Output.Dir,
 		PrivilegedMode: first.Privilege.Mode,
+		NativePrefix:   nativeEscalation(first.Privilege.Native),
 		Logger:         log,
 	})
 	outputDir, err := filepath.Abs(first.Output.Dir)
@@ -147,20 +149,51 @@ func nodeFacts(cfg *config.Config) protocol.Facts {
 	return facts.Clean(f)
 }
 
+// nativeEscalation returns the argv prefix that runs the native helper as the target identity. The
+// helper's executable and "privileged stdio" are appended to it; sudo and doas run non-interactively
+// with -n, and run0 is the experimental systemd backend (doc/privilege.md, native).
+func nativeEscalation(tool string) []string {
+	switch tool {
+	case config.NativeDoas:
+		return []string{"doas", "-n"}
+	case config.NativeRun0:
+		return []string{"run0", "--pipe", "--no-ask-password"}
+	default:
+		return []string{"sudo", "-n"}
+	}
+}
+
 func newPrivilegedCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "privileged",
 		Short: "Privileged mode commands",
 	}
 
-	var config string
+	var configPath string
 	run := &cobra.Command{
 		Use:   "run",
 		Short: "Run crha in privileged mode",
 		Args:  cobra.NoArgs,
 		RunE:  notImplemented,
 	}
-	run.Flags().StringVar(&config, "config", "/etc/crha/privileged.toml", "path to the config file")
+	run.Flags().StringVar(&configPath, "config", "/etc/crha/privileged.toml", "path to the config file")
+
+	stdio := &cobra.Command{
+		Use:   "stdio",
+		Short: "Execute one privileged task for the non-privileged mode (native helper)",
+		Long: `Execute one privileged task over the crh-priv protocol on stdin and stdout.
+
+The non-privileged mode starts this command through sudo -n, doas -n or run0 when
+[privileged] mode = "native". It is not a security boundary: whoever may run it
+non-interactively may submit any task, so the sudoers rule is the real grant. Do not
+run it from a terminal.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+			defer stop()
+			return helper.Stdio(ctx, os.Stdin, os.Stdout, os.Stderr, version.Version)
+		},
+	}
 
 	revoke := &cobra.Command{
 		Use:   "revoke <authorization-id>",
@@ -169,6 +202,6 @@ func newPrivilegedCmd() *cobra.Command {
 		RunE:  notImplemented,
 	}
 
-	cmd.AddCommand(run, revoke)
+	cmd.AddCommand(run, stdio, revoke)
 	return cmd
 }
