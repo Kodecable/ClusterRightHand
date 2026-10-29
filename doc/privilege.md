@@ -52,8 +52,9 @@ native = "sudo"                           # mode = "native" 时使用：sudo | d
 
 - `native` 的作用是**非交互地获得目标身份**，**不是安全边界**：持有免密调用 helper 的权限，就能提交任意任务，等于 crhs 已经拥有目标身份。
 - `native` 不直接执行 `sudo -n -- argv`，而是拉起同一个二进制（`os.Executable()` 解析出的绝对路径）作为 helper，exec 和 `file.*` 都由 helper 以目标身份执行，与特权模式共用执行器和 crh-priv 协议（见 [protocol.md](protocol.md#crh-priv非特权模式--特权模式)），只是不校验授权。原因：
-  - 目标进程以 root 运行后，非特权进程无权给它发信号（kill(2) 的 uid 检查）。sudo 能转发 SIGTERM，但 SIGKILL 不能被转发；doas 直接 exec 成目标进程，没有转发层。取消和超时只能由同样有特权的 helper 负责。
-  - sudo 1.9.14+ 默认 `use_pty`，附着终端时会把输出放进伪终端，stdout / stderr 合并；`env_reset` 也让 env 白名单无法按原样传递。
+  - 目标进程以 root 运行后，非特权进程无权给它发信号（kill(2) 的 uid 检查，实测 `EPERM`）。sudo 和 opendoas（Ubuntu 的 PAM 版本）都会 fork 出目标进程并转发 SIGTERM，但 SIGKILL 发给 sudo / doas 后，以 root 运行的目标进程会成为孤儿继续运行。取消和超时只能由同样有特权的 helper 负责。
+  - sudo 1.9.14+ 默认 `use_pty`，但只在 sudo 附着终端时生效；crha 作为服务运行、没有控制终端时，实测输出仍是三条独立的 pipe。`env_reset` 让 env 白名单无法按原样传递。
+  - 因此 crha 只通过 crh-priv 协议取消 helper 中的任务，不向 helper 发信号。crha 被杀死时 helper 读到 stdin EOF，按"断开"处理：当前任务继续执行到结束，写本地日志后退出。
   - `file.*` 也需要目标身份，直接执行 argv 做不到。
 - 代价：sudoers 只看到 `crha privileged stdio`，**不能按最终命令限制，sudo 的命令日志也只有 helper**。helper 把每个任务的完整规格写入本地日志和 journald。需要按命令限制时用 `forward`。
 - sudoers / doas 配置示例：`crha ALL=(root) NOPASSWD: /usr/bin/crha privileged stdio`，`permit nopass crha as root cmd /usr/bin/crha args privileged stdio`。
