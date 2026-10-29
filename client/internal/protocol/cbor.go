@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"reflect"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -135,7 +136,7 @@ func validateText(v reflect.Value, depth int) error {
 	// example, encodes one branch and ignores the fields of the other branches, so text they
 	// carry must not be rejected. Validate the encoded form instead.
 	if v.CanInterface() && v.Type().Implements(marshalerType) {
-		return validateEncodedText(v.Interface().(cbor.Marshaler))
+		return validateEncodedValue(v.Interface().(cbor.Marshaler))
 	}
 	switch v.Kind() {
 	case reflect.String:
@@ -164,6 +165,9 @@ func validateText(v reflect.Value, depth int) error {
 	case reflect.Map:
 		iter := v.MapRange()
 		for iter.Next() {
+			if err := validateMapKey(iter.Key()); err != nil {
+				return err
+			}
 			if err := validateText(iter.Key(), depth+1); err != nil {
 				return err
 			}
@@ -175,16 +179,58 @@ func validateText(v reflect.Value, depth int) error {
 	return nil
 }
 
-// validateEncodedText checks the CBOR a self-encoding value produced. The encoder accepts
-// invalid UTF-8, but the strict decoder rejects it, so decoding the encoded form catches text
-// a MarshalCBOR implementation failed to validate itself.
-func validateEncodedText(m cbor.Marshaler) error {
+// errMapKeyType is the profile's map key restriction: CBOR-CORE-INT-v1 allows only text
+// (major 3) and integer (major 0/1) map keys.
+var errMapKeyType = errors.New("map key must be text or integer")
+
+// validateMapKey rejects a Go map key whose encoded form would not be CBOR text or an
+// integer. Plain strings and integer kinds are accepted; a self-encoding key such as
+// cbor.ByteString is judged by the major type of its encoding, so a named byte-string type
+// cannot sneak through because its Go kind is string.
+func validateMapKey(v reflect.Value) error {
+	if v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return errMapKeyType
+		}
+		v = v.Elem()
+	}
+	if v.Kind() == reflect.Pointer && v.IsNil() {
+		return errMapKeyType
+	}
+	if v.CanInterface() && v.Type().Implements(marshalerType) {
+		data, err := v.Interface().(cbor.Marshaler).MarshalCBOR()
+		if err != nil {
+			return err
+		}
+		if len(data) == 0 {
+			return errMapKeyType
+		}
+		switch data[0] >> 5 {
+		case 0, 1, 3:
+			return nil
+		}
+		return errMapKeyType
+	}
+	switch v.Kind() {
+	case reflect.String,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return nil
+	}
+	return errMapKeyType
+}
+
+// validateEncodedValue checks the CBOR a self-encoding value produced against the profile.
+// The encoder accepts invalid UTF-8, and a custom MarshalCBOR could encode anything,
+// including a map with a forbidden key type; decoding the encoded form with the profile
+// catches both before the value reaches the wire.
+func validateEncodedValue(m cbor.Marshaler) error {
 	data, err := m.MarshalCBOR()
 	if err != nil {
 		return err
 	}
-	if err := decMode.Unmarshal(data, new(any)); err != nil {
-		return fmt.Errorf("invalid encoded text: %w", err)
+	if _, err := decodeAny(data); err != nil {
+		return fmt.Errorf("invalid encoded value: %w", err)
 	}
 	return nil
 }
@@ -222,13 +268,80 @@ func Unmarshal(data []byte, v any) error {
 	return nil
 }
 
+// profileMapEntry is one key/value pair of a decoded profile map.
+type profileMapEntry struct {
+	key   any
+	value any
+}
+
+// profileMap is how decodeAny represents a CBOR map. A Go map cannot hold every key the
+// profile permits: an integer below math.MinInt64 decodes to *big.Int, which is not
+// comparable and so cannot be a map key. Entries stay in a slice until re-encoding.
+type profileMap []profileMapEntry
+
+// MarshalCBOR encodes m in core deterministic map order. The duplicate check replaces the
+// decoder's DupMapKey option, which cannot apply to a slice: without it a map with
+// duplicate keys would survive the decode-and-re-encode comparison unchanged.
+func (m profileMap) MarshalCBOR() ([]byte, error) {
+	type entry struct{ key, value []byte }
+	entries := make([]entry, 0, len(m))
+	for _, pair := range m {
+		key, err := encMode.Marshal(pair.key)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkMapKeyType(key); err != nil {
+			return nil, err
+		}
+		value, err := encMode.Marshal(pair.value)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry{key: key, value: value})
+	}
+	sort.Slice(entries, func(i, j int) bool { return bytes.Compare(entries[i].key, entries[j].key) < 0 })
+	out := appendMapHead(nil, uint64(len(entries)))
+	for i, entry := range entries {
+		if i > 0 && bytes.Equal(entries[i-1].key, entry.key) {
+			return nil, errors.New("duplicate map key")
+		}
+		out = append(out, entry.key...)
+		out = append(out, entry.value...)
+	}
+	return out, nil
+}
+
+// appendMapHead appends the definite-length map header for n pairs.
+func appendMapHead(dst []byte, n uint64) []byte {
+	switch {
+	case n < 24:
+		return append(dst, 0xa0|byte(n))
+	case n <= 0xff:
+		return append(dst, 0xb8, byte(n))
+	case n <= 0xffff:
+		return binary.BigEndian.AppendUint16(append(dst, 0xb9), uint16(n))
+	case n <= 0xffffffff:
+		return binary.BigEndian.AppendUint32(append(dst, 0xba), uint32(n))
+	default:
+		return binary.BigEndian.AppendUint64(append(dst, 0xbb), n)
+	}
+}
+
 // decodeAny decodes one value according to the CBOR profile and verifies that
 // re-encoding it reproduces the input exactly. It is the profile-level codec used by
 // the golden vector tests and as Unmarshal's first stage.
 func decodeAny(data []byte) (any, error) {
-	var v any
-	if err := decMode.Unmarshal(data, &v); err != nil {
+	var raw cbor.RawMessage
+	rest, err := decMode.UnmarshalFirst(data, &raw)
+	if err != nil {
 		return nil, err
+	}
+	v, err := decodeProfileValue(raw)
+	if err != nil {
+		return nil, err
+	}
+	if len(rest) != 0 {
+		return nil, fmt.Errorf("%d bytes of extraneous data", len(rest))
 	}
 	if err := validateProfileValue(v); err != nil {
 		return nil, err
@@ -243,8 +356,126 @@ func decodeAny(data []byte) (any, error) {
 	return v, nil
 }
 
+// decodeProfileValue decodes one well-formed CBOR item into the profile's Go
+// representation. Arrays and maps are decoded item by item so every map key can be
+// inspected before it becomes a Go value; scalar values are left to decMode.
+func decodeProfileValue(raw []byte) (any, error) {
+	if len(raw) == 0 {
+		return nil, errors.New("empty CBOR value")
+	}
+	switch raw[0] >> 5 {
+	case 4: // array
+		var elems []cbor.RawMessage
+		if err := decMode.Unmarshal(raw, &elems); err != nil {
+			return nil, err
+		}
+		values := make([]any, 0, len(elems))
+		for _, elem := range elems {
+			v, err := decodeProfileValue(elem)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, v)
+		}
+		return values, nil
+	case 5: // map
+		return decodeProfileMap(raw)
+	default:
+		var v any
+		if err := decMode.Unmarshal(raw, &v); err != nil {
+			return nil, err
+		}
+		return v, nil
+	}
+}
+
+// decodeProfileMap decodes a CBOR map after checking that every key is a text string or
+// an integer. The check runs on the raw key item, so a byte-string, array, map, bool or
+// null key gets errMapKeyType instead of a decoder type or hashability error.
+func decodeProfileMap(raw []byte) (profileMap, error) {
+	n, headerLen, err := profileMapHead(raw)
+	if err != nil {
+		return nil, err
+	}
+	if n > uint64(len(raw))/2 {
+		return nil, fmt.Errorf("map declares %d pairs but the input is %d bytes", n, len(raw))
+	}
+	entries := make(profileMap, 0, int(n))
+	rest := raw[headerLen:]
+	for len(rest) > 0 {
+		var rawKey, rawValue cbor.RawMessage
+		if rest, err = decMode.UnmarshalFirst(rest, &rawKey); err != nil {
+			return nil, err
+		}
+		if err := checkMapKeyType(rawKey); err != nil {
+			return nil, err
+		}
+		if rest, err = decMode.UnmarshalFirst(rest, &rawValue); err != nil {
+			return nil, err
+		}
+		key, err := decodeProfileValue(rawKey)
+		if err != nil {
+			return nil, err
+		}
+		value, err := decodeProfileValue(rawValue)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, profileMapEntry{key: key, value: value})
+	}
+	if uint64(len(entries)) != n {
+		return nil, fmt.Errorf("map declares %d pairs but holds %d", n, len(entries))
+	}
+	return entries, nil
+}
+
+// profileMapHead parses the definite-length map header at the start of raw.
+func profileMapHead(raw []byte) (n uint64, headerLen int, err error) {
+	switch ai := raw[0] & 0x1f; {
+	case ai < 24:
+		return uint64(ai), 1, nil
+	case ai == 24:
+		if len(raw) < 2 {
+			return 0, 0, errors.New("truncated map header")
+		}
+		return uint64(raw[1]), 2, nil
+	case ai == 25:
+		if len(raw) < 3 {
+			return 0, 0, errors.New("truncated map header")
+		}
+		return uint64(binary.BigEndian.Uint16(raw[1:3])), 3, nil
+	case ai == 26:
+		if len(raw) < 5 {
+			return 0, 0, errors.New("truncated map header")
+		}
+		return uint64(binary.BigEndian.Uint32(raw[1:5])), 5, nil
+	case ai == 27:
+		if len(raw) < 9 {
+			return 0, 0, errors.New("truncated map header")
+		}
+		return binary.BigEndian.Uint64(raw[1:9]), 9, nil
+	default:
+		return 0, 0, errors.New("map must have a definite length")
+	}
+}
+
+// checkMapKeyType enforces the profile's map key restriction on the raw encoding of a key:
+// only text strings (major 3) and integers (major 0/1) are allowed.
+func checkMapKeyType(raw []byte) error {
+	if len(raw) == 0 {
+		return errMapKeyType
+	}
+	switch raw[0] >> 5 {
+	case 0, 1, 3:
+		return nil
+	default:
+		return errMapKeyType
+	}
+}
+
 // validateProfileValue rejects CBOR values the profile does not allow but the decoder
-// would otherwise accept: floats (finite ones) and custom simple values.
+// would otherwise accept: floats (finite ones) and custom simple values. It also repeats
+// the map key check on decoded values.
 func validateProfileValue(v any) error {
 	switch v := v.(type) {
 	case nil, bool, uint64, int64, string, []byte, *big.Int, big.Int:
@@ -258,12 +489,12 @@ func validateProfileValue(v any) error {
 			}
 		}
 		return nil
-	case map[any]any:
-		for key, elem := range v {
-			if err := validateProfileValue(key); err != nil {
-				return err
+	case profileMap:
+		for _, pair := range v {
+			if !profileMapKey(pair.key) {
+				return errMapKeyType
 			}
-			if err := validateProfileValue(elem); err != nil {
+			if err := validateProfileValue(pair.value); err != nil {
 				return err
 			}
 		}
@@ -272,6 +503,17 @@ func validateProfileValue(v any) error {
 		return fmt.Errorf("simple value %d is not allowed", v)
 	default:
 		return fmt.Errorf("unexpected CBOR value of type %T", v)
+	}
+}
+
+// profileMapKey reports whether a decoded key has one of the Go forms of a text or
+// integer CBOR key.
+func profileMapKey(key any) bool {
+	switch key.(type) {
+	case string, uint64, int64, *big.Int, big.Int:
+		return true
+	default:
+		return false
 	}
 }
 

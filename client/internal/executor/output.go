@@ -90,7 +90,8 @@ func NewOutput(taskID, dir string, opts OutputOptions) *Output {
 	return o
 }
 
-// Notify is signalled (without blocking) whenever output is added or the output is closed.
+// Notify is signalled (without blocking) whenever output is added. The channel is closed by
+// Close, so a watcher that ranges over it ends with the output.
 func (o *Output) Notify() <-chan struct{} { return o.notify }
 
 func (o *Output) Writer(stream protocol.Stream) io.Writer { return streamWriter{o, stream} }
@@ -201,7 +202,12 @@ func (o *Output) spill() {
 	o.fileLen = off
 }
 
+// signal wakes a watcher without blocking. Callers hold o.mu, which also serializes it with
+// Close's close of the channel, and closed keeps it from sending after that close.
 func (o *Output) signal() {
+	if o.closed {
+		return
+	}
 	select {
 	case o.notify <- struct{}{}:
 	default:
@@ -219,7 +225,9 @@ func (o *Output) Close() {
 	if o.file != nil {
 		_ = o.file.Sync()
 	}
-	o.signal()
+	// Closing the channel ends every forward range: the last buffered signal may already
+	// have been consumed, so a final send would leave the watcher blocked forever.
+	close(o.notify)
 }
 
 // Release frees memory and file handles after crhs acknowledged the exit. The spill file stays on disk.

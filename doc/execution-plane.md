@@ -36,7 +36,7 @@ kind, spec     见上
 privileged     true | false             # true 时为特权任务，走授权链路，见 privilege.md
 attempt        1, 2, 3, ...             # 同一 task id 的授权尝试；payload 和 task.start 都带
 authorization  可选：特权任务的一个授权对象（payload + signatures[]）；本地批准时为空，见 privilege.md
-timeout_ms     超时后先发 SIGTERM，宽限期过后发 SIGKILL（杀整个进程组）
+timeout_ms     仅 exec：超时后先发 SIGTERM，宽限期过后发 SIGKILL（杀整个进程组）；file.* 任务没有超时，只能由取消结束
 output_mode    full | text | status：单任务为 full（头尾 + 超阈值落盘）；任务组为 text 或 status，默认 status
 output_limit   客户端为该任务缓冲输出的上限
 ```
@@ -242,6 +242,7 @@ event     = [2, event, body]
 - TS 用 `cborg` 6.x 的 `rfc8949EncodeOptions`；Go 用 `fxamacker/cbor/v2` 的 `CoreDetEncOptions()`；
 - 禁止 float、tag、indefinite-length、undefined 和自定义 simple value；
 - 整数只允许 CBOR major 0/1 的原生范围，不用 bignum tag；
+- map 的键只能是文本或整数（CBOR major 0/1/3）；其他类型的键在编码和解码时都是错误。
 - 时间统一为 Unix epoch **毫秒整数**，不使用 ISO 字符串、`Date`、`time.Time` 自动编码或 tag 1；
 - 严格解码（重复 key、非最短编码、未知字段、尾随 bytes 都拒绝），授权 payload 解码后重编码对比原始 bytes；
 - 两端共用 `test/interop/cbor_core_golden_vectors.json` 的正例和拒绝例；
@@ -299,6 +300,8 @@ event     = [2, event, body]
 ### crha 本地策略（可选）
 
 `/etc/crha/crha.toml` 中可以配置节点自己的限制，例如 `allow_kinds`、`read_only`，用来约束 crhs 能让 crha 非特权模式做什么。即使 crhs 被攻破，这些限制依然有效。
+
+尚未实现：crha 1.0 不读取这些设置，也从不返回 `local_policy_denied`。
 
 ## crha 的重载与升级
 

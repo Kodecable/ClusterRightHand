@@ -301,6 +301,17 @@ export function buildFixture(): CrhFramesFixture {
 		ok: true,
 		body: {},
 	});
+	addFrame(
+		"response.task.start.error",
+		'response id=3 cmd=task.start ok=false body=[code="unsupported_kind", message="kind not supported"]',
+		{
+			kind: "response",
+			id: 3,
+			cmd: "task.start",
+			ok: false,
+			error: { code: "unsupported_kind", message: "kind not supported" },
+		},
+	);
 
 	addFrame(
 		"request.task.input",
@@ -418,11 +429,47 @@ export function buildFixture(): CrhFramesFixture {
 			},
 		},
 	);
+	addFrame(
+		"event.task.exit.error.bom",
+		'event task.exit body=[task_id="t-bom", outcome=["error", [code="io_error", message="\\uFEFFbom"]], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file=""]',
+		{
+			kind: "event",
+			name: "task.exit",
+			body: {
+				taskId: "t-bom",
+				outcome: { kind: "error", code: "io_error", message: "\uFEFFbom" },
+				timedOut: false,
+				cancelled: false,
+				stdoutEnd: 0,
+				stderrEnd: 0,
+				outputFile: "",
+			},
+		},
+	);
 	addFrame("event.facts", `event facts body=${FACTS_TEXT}`, { kind: "event", name: "facts", body: FACTS });
 	addFrame("event.node.status", 'event node.status body=[node_id="node-1", state="active", message="approved"]', {
 		kind: "event",
 		name: "node.status",
 		body: { nodeId: "node-1", state: "active", message: "approved" },
+	});
+	addFrame("event.node.status.pending", 'event node.status body=[node_id="node-1", state="pending", message=""]', {
+		kind: "event",
+		name: "node.status",
+		body: { nodeId: "node-1", state: "pending", message: "" },
+	});
+	addFrame(
+		"event.node.status.rejected",
+		'event node.status body=[node_id="node-1", state="rejected", message="denied"]',
+		{
+			kind: "event",
+			name: "node.status",
+			body: { nodeId: "node-1", state: "rejected", message: "denied" },
+		},
+	);
+	addFrame("event.node.status.disabled", 'event node.status body=[node_id="node-1", state="disabled", message=""]', {
+		kind: "event",
+		name: "node.status",
+		body: { nodeId: "node-1", state: "disabled", message: "" },
 	});
 	addFrame(
 		"event.task.output.ack",
@@ -516,7 +563,85 @@ export function buildFixture(): CrhFramesFixture {
 		encodeCbor([1, 25, "task.cancel", false, [1]]),
 	);
 	addNegative(
-		"request_cmd_too_long",
+		"negative.float_integer_value",
+		"ping sequence number is the float 1.0 (0xf93c00) where uint is required",
+		bytesOf("8400016470696e6781f93c00"),
+	);
+	addNegative(
+		"negative.invalid_utf8_text",
+		"task.cancel request task_id is a text string containing the invalid UTF-8 byte 0xff",
+		bytesOf("8400016b7461736b2e63616e63656c816261ff"),
+	);
+	addNegative(
+		"negative.sha256_33_bytes",
+		"exec stdin InputRef sha256 is 33 bytes instead of 32",
+		encodeCbor([
+			0,
+			30,
+			"task.start",
+			["t-bad", 1, ["exec", [["argv", []], {}, "", [0, new Uint8Array(33)]]], false, [], 0, 0, ["status", []]],
+		]),
+	);
+	addNegative(
+		"negative.null_non_nullable",
+		"task.cancel request task_id is null where text is required",
+		encodeCbor([0, 29, "task.cancel", [null]]),
+	);
+	addNegative(
+		"negative.int_below_min",
+		"task.exit outcome code is -9007199254740992 (-2^53), below the int minimum -(2^53 - 1)",
+		encodeCbor([2, "task.exit", ["t-bad", ["code", -9007199254740992n], false, false, 0, 0, ""]]),
+	);
+	{
+		const source = Buffer.from(
+			encodeFrame({
+				kind: "request",
+				id: 27,
+				cmd: "task.start",
+				body: taskStartWithSpec(
+					"t-bad",
+					{ kind: "exec", command: { argv: [] }, env: { B: "2" }, cwd: "", stdin: null },
+					{ kind: "status" },
+				),
+			}),
+		);
+		const needle = Buffer.from("a161426132", "hex");
+		const at = source.indexOf(needle);
+		if (at < 0) throw new Error("env key-order fixture anchor not found");
+		addNegative(
+			"negative.env_key_order",
+			'exec env map has keys "B" then "A" (non-canonical key order)',
+			Buffer.concat([
+				source.subarray(0, at),
+				Buffer.from("a26142613261416131", "hex"),
+				source.subarray(at + needle.length),
+			]),
+		);
+	}
+	{
+		const source = Buffer.from(
+			encodeFrame({
+				kind: "request",
+				id: 28,
+				cmd: "task.start",
+				body: taskStartWithSpec(
+					"t-bad",
+					{ kind: "exec", command: { argv: [] }, env: { "1": "x" }, cwd: "", stdin: null },
+					{ kind: "status" },
+				),
+			}),
+		);
+		const needle = Buffer.from("a161316178", "hex");
+		const at = source.indexOf(needle);
+		if (at < 0) throw new Error("env integer-key fixture anchor not found");
+		addNegative(
+			"negative.env_key_int",
+			"exec env map has the integer key 1, but env permits only text keys",
+			Buffer.concat([source.subarray(0, at), Buffer.from("a1016178", "hex"), source.subarray(at + needle.length)]),
+		);
+	}
+	addNegative(
+		"negative.request_cmd_too_long",
 		"request cmd is 65 ASCII bytes, over the 64-byte limit",
 		encodeCbor([0, 26, "a".repeat(65), []]),
 	);

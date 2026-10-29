@@ -18,6 +18,7 @@ interface NegativeVector {
 
 interface GoldenVectors {
 	profile: string;
+	map_keys: string;
 	positive: PositiveVector[];
 	negative: NegativeVector[];
 }
@@ -38,6 +39,7 @@ function rejectUnknownFields(map: Map<unknown, unknown>, allowed: readonly unkno
 describe("CBOR-CORE-INT-v1 profile", () => {
 	it("loads the shared golden vectors", () => {
 		expect(vectors.profile).toBe("CBOR-CORE-INT-v1");
+		expect(vectors.map_keys).toBe("text or integer only");
 		expect(vectors.positive.length).toBeGreaterThan(0);
 		expect(vectors.negative.length).toBeGreaterThan(0);
 	});
@@ -107,5 +109,18 @@ describe("CBOR-CORE-INT-v1 profile", () => {
 		expect(() => encode(new Tagged(1, 0))).toThrow(CborError);
 		expect(() => encode(Number.MAX_SAFE_INTEGER + 1)).toThrow(CborError);
 		expect(() => encode("\ud800")).toThrow(CborError);
+	});
+
+	it("permits only text and integer map keys", () => {
+		const keys = new Map<unknown, unknown>([
+			["a", 1],
+			[-1, 2],
+			[18446744073709551615n, 3],
+		]);
+		expect(decode(encode(keys))).toEqual(keys);
+		for (const key of [Uint8Array.of(0), [0], new Map(), true, null, 1.5, {}]) {
+			expect(() => encode(new Map<unknown, number>([[key, 1]]))).toThrow(CborError);
+		}
+		expect(() => encode({ nested: [new Map<unknown, number>([[false, 1]])] })).toThrow(CborError);
 	});
 });

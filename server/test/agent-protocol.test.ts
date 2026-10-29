@@ -48,6 +48,38 @@ const EXEC = {
 	stdin: null,
 };
 
+/**
+ * Wraps `db` so the next node lookup resolves `entered`, waits for `release`, and only then runs. Kysely
+ * returns a new builder from every chained call, so each link is proxied.
+ */
+function blockNextNodeLookup(db: Db): { db: Db; entered: Promise<void>; release: () => void } {
+	const entered = Promise.withResolvers<void>();
+	const released = Promise.withResolvers<void>();
+	const wrap = (query: object): object =>
+		new Proxy(query, {
+			get(target, property) {
+				const value = Reflect.get(target, property, target) as unknown;
+				if (typeof value !== "function") return value;
+				return (...args: unknown[]) => {
+					if (property === "executeTakeFirst") {
+						entered.resolve();
+						return released.promise.then(() => Reflect.apply(value, target, args));
+					}
+					const result = Reflect.apply(value, target, args) as unknown;
+					return result !== null && typeof result === "object" ? wrap(result) : result;
+				};
+			},
+		});
+	const gated = new Proxy(db, {
+		get(target, property) {
+			if (property === "selectFrom") return (table: string) => wrap(target.selectFrom(table as never));
+			const value = Reflect.get(target, property, target) as unknown;
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	}) as Db;
+	return { db: gated, entered: entered.promise, release: () => released.resolve() };
+}
+
 describe("agent wire protocol", () => {
 	let db: Db;
 	let cluster: Cluster;
@@ -143,6 +175,29 @@ describe("agent wire protocol", () => {
 			const commands = SUPPORTED_NAMES.filter((name) => name !== "task.query");
 			ws.send(hs.writeMessage(encodeCbor(handshakeInitCodec.encode(handshakeInit({ commands })))));
 			await expect(closed).resolves.toEqual({ code: 1008, reason: "missing required command: task.query" });
+		});
+
+		it("does not attach a connection that closed during the handshake", async () => {
+			const key = generateKeyPair();
+			const { node, crha: first } = await connectActive("closed-during-handshake", key);
+			const gated = blockNextNodeLookup(db);
+			const second = await TestAgentServer.start(gated.db, agents.identity, cluster);
+			try {
+				const { ws, hs, closed } = await second.prepare(key);
+				ws.send(hs.writeMessage(encodeCbor(handshakeInitCodec.encode(handshakeInit()))));
+				// Hold the server inside findNodeByPublicKey, close the socket, then let it continue.
+				await gated.entered;
+				ws.close();
+				await closed;
+				gated.release();
+				await new Promise((resolve) => setTimeout(resolve, 0));
+				// The dead socket must not replace the node's live connection.
+				expect(cluster.isConnected(node.id)).toBe(true);
+				expect(await first.peer.request("ping", { seq: 5 })).toEqual({ seq: 5 });
+			} finally {
+				gated.release();
+				await second.close();
+			}
 		});
 	});
 

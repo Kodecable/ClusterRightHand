@@ -877,16 +877,11 @@ func (a *Agent) handleTaskExitAck(body cbor.RawMessage) error {
 	return nil
 }
 
-// forward turns output notifications into pump wake-ups.
+// forward turns output notifications into pump wake-ups. execute closes the output when the
+// task ends, which closes the notification channel and ends the range.
 func (a *Agent) forward(t *task) {
 	for range t.output.Notify() {
 		a.wake()
-		a.mu.Lock()
-		done := t.done
-		a.mu.Unlock()
-		if done {
-			return
-		}
 	}
 }
 

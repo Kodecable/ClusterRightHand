@@ -130,6 +130,138 @@ func TestProfileRejections(t *testing.T) {
 	}
 }
 
+// TestProfileMapKeys covers the CBOR-CORE-INT-v1 map key rule at the profile level: a key
+// must be a text string or an integer, including the full uint64 and negative ranges.
+func TestProfileMapKeys(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		hex  string
+	}{
+		{"text", "a1616101"},
+		{"max uint64", "a11bffffffffffffffff01"},
+		{"min int64", "a13b7fffffffffffffff01"},
+		{"max negative", "a13bffffffffffffffff01"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			value, err := decodeAny(mustHex(t, test.hex))
+			if err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			encoded, err := Marshal(value)
+			if err != nil {
+				t.Fatalf("re-encode: %v", err)
+			}
+			if got := hex.EncodeToString(encoded); got != test.hex {
+				t.Fatalf("re-encoded as %s, want %s", got, test.hex)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name string
+		hex  string
+	}{
+		{"byte string", "a1410001"},
+		{"array", "a1810001"},
+		{"map", "a1a00001"},
+		{"map with one key", "a1a1010001"},
+		{"bool", "a1f501"},
+		{"null", "a1f601"},
+		{"nested byte string", "81a1410001"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := decodeAny(mustHex(t, test.hex))
+			if err == nil {
+				t.Fatalf("accepted a map with a %s key", test.name)
+			}
+			if !strings.Contains(err.Error(), "map key must be text or integer") {
+				t.Fatalf("error = %v, want a map key type error", err)
+			}
+		})
+	}
+}
+
+// TestProfileMapHeaders round-trips maps across the one-, two-, three- and five-byte
+// header sizes of profileMap's own encoder.
+func TestProfileMapHeaders(t *testing.T) {
+	for _, n := range []int{0, 23, 24, 255, 256} {
+		value := make(map[uint64]uint64, n)
+		for i := 0; i < n; i++ {
+			value[uint64(i)] = uint64(i)
+		}
+		data, err := Marshal(value)
+		if err != nil {
+			t.Fatalf("%d entries: Marshal: %v", n, err)
+		}
+		decoded, err := decodeAny(data)
+		if err != nil {
+			t.Fatalf("%d entries: decode: %v", n, err)
+		}
+		encoded, err := Marshal(decoded)
+		if err != nil {
+			t.Fatalf("%d entries: re-encode: %v", n, err)
+		}
+		if got, want := hex.EncodeToString(encoded), hex.EncodeToString(data); got != want {
+			t.Fatalf("%d entries: re-encoded as %s, want %s", n, got, want)
+		}
+	}
+}
+
+// boolMapMarshaler is a self-encoding value whose encoded form has a forbidden map key,
+// so Marshal must validate its output as well as plain Go maps.
+type boolMapMarshaler struct{}
+
+func (boolMapMarshaler) MarshalCBOR() ([]byte, error) {
+	return encMode.Marshal(map[bool]uint64{true: 1})
+}
+
+// TestMarshalMapKeyTypes applies the same map key rule to the encode path, which must
+// reject a map the profile decoder would refuse instead of emitting it.
+func TestMarshalMapKeyTypes(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value any
+		hex   string
+	}{
+		{"text", map[string]uint64{"a": 1}, "a1616101"},
+		{"max uint64", map[uint64]uint64{^uint64(0): 1}, "a11bffffffffffffffff01"},
+		{"min int64", map[int64]uint64{-1 << 63: 1}, "a13b7fffffffffffffff01"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			encoded, err := Marshal(test.value)
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			if got := hex.EncodeToString(encoded); got != test.hex {
+				t.Fatalf("encoded as %s, want %s", got, test.hex)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name  string
+		value any
+	}{
+		{"bool", map[bool]uint64{true: 1}},
+		{"array", map[[1]uint64]uint64{{1}: 1}},
+		{"byte string", map[cbor.ByteString]uint64{"\x00": 1}},
+		{"nil", map[any]uint64{nil: 1}},
+		{"nil pointer", map[*Uint]uint64{nil: 1}},
+		{"nested bool", []any{map[bool]uint64{true: 1}}},
+		{"custom marshaler", boolMapMarshaler{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Marshal(test.value)
+			if err == nil {
+				t.Fatalf("Marshal accepted a %s map key", test.name)
+			}
+			if !strings.Contains(err.Error(), "map key must be text or integer") {
+				t.Fatalf("error = %v, want a map key type error", err)
+			}
+		})
+	}
+}
+
 func TestCleanText(t *testing.T) {
 	if got, want := CleanText("ok\xffbad"), "ok\uFFFDbad"; got != want {
 		t.Fatalf("CleanText = %q, want %q", got, want)

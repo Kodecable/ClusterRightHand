@@ -2,6 +2,7 @@
 	"profile": "CBOR-CORE-INT-v1",
 	"rfc": "RFC8949 Section 4.2.1",
 	"map_key_order": "lexicographic CBOR encoded bytes",
+	"map_keys": "text or integer only",
 	"no_float": true,
 	"no_tags": true,
 	"definite_only": true,
@@ -80,6 +81,12 @@
 			"description": "空字节串与 null 不同",
 			"diagnostic": "h''",
 			"hex": "40"
+		},
+		{
+			"id": "map_key_u64",
+			"description": "map 键为 CBOR uint64 最大值，JS 用 bigint",
+			"diagnostic": "{18446744073709551615: 1}",
+			"hex": "a11bffffffffffffffff01"
 		}
 	],
 	"negative": [
@@ -152,6 +159,36 @@
 			"id": "trailing_bytes",
 			"hex": "0001",
 			"reject_reason": "两个顶层 CBOR 数据项（不允许尾随数据）"
+		},
+		{
+			"id": "map_key_bytes",
+			"hex": "a1410001",
+			"reject_reason": "map 键是 byte string，不是文本或整数"
+		},
+		{
+			"id": "map_key_array",
+			"hex": "a1810001",
+			"reject_reason": "map 键是数组，不是文本或整数"
+		},
+		{
+			"id": "map_key_map",
+			"hex": "a1a00001",
+			"reject_reason": "map 键是 map，不是文本或整数"
+		},
+		{
+			"id": "map_key_bool",
+			"hex": "a1f501",
+			"reject_reason": "map 键是 bool，不是文本或整数"
+		},
+		{
+			"id": "map_key_null",
+			"hex": "a1f601",
+			"reject_reason": "map 键是 null，不是文本或整数"
+		},
+		{
+			"id": "nested_map_key_bytes",
+			"hex": "81a1410001",
+			"reject_reason": "数组内的 map 键是 byte string，不是文本或整数"
 		}
 	]
 }

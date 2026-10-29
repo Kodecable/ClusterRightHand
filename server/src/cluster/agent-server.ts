@@ -15,7 +15,7 @@ import {
 	peekProtocolMajor,
 	SUPPORTED_NAMES,
 } from "@crh/protocol";
-import { type WebSocket, WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import type { Audit } from "../audit/audit.ts";
 import type { Db } from "../storage/db.ts";
 import { newId } from "../util/id.ts";
@@ -136,6 +136,10 @@ export class AgentServer {
 		}
 		if (!node) return reject(ws, "unknown node");
 		if (node.status === "disabled") return reject(ws, "node disabled");
+
+		// The lookups above are async, so the client may have closed meanwhile. Attaching now would
+		// replace the same node's newer live connection with this already-dead one.
+		if (ws.readyState !== WebSocket.OPEN) return;
 
 		const connectionId = newId();
 		const response: HandshakeResponse = {

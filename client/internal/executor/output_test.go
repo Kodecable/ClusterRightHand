@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
@@ -179,5 +180,33 @@ func TestOutputNotify(t *testing.T) {
 	case <-o.Notify():
 	default:
 		t.Fatal("no notification")
+	}
+}
+
+// TestOutputNotifyCloses covers the end of the stream: Close must close the notification
+// channel even when the watcher already consumed the last signal, so a forward goroutine
+// ranging over it cannot block forever. Writes after Close are ignored, not panics.
+func TestOutputNotifyCloses(t *testing.T) {
+	o := NewOutput("t9", "", OutputOptions{})
+	done := make(chan struct{})
+	go func() {
+		for range o.Notify() {
+		}
+		close(done)
+	}()
+	o.Writer(stdout).Write([]byte("x"))
+	o.Close()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not end the notification watcher")
+	}
+	if _, ok := <-o.Notify(); ok {
+		t.Fatal("notification channel is still open after Close")
+	}
+	o.Close() // a second Close must be a no-op
+	o.Writer(stdout).Write([]byte("after close"))
+	if got := readAll(t, o, stdout, 0); got != "x" {
+		t.Fatalf("stdout = %q, want %q", got, "x")
 	}
 }

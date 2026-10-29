@@ -81,6 +81,11 @@
 			"hex": "8501036a7461736b2e7374617274f580"
 		},
 		{
+			"id": "response.task.start.error",
+			"description": "response id=3 cmd=task.start ok=false body=[code=\"unsupported_kind\", message=\"kind not supported\"]",
+			"hex": "8501036a7461736b2e7374617274f48270756e737570706f727465645f6b696e64726b696e64206e6f7420737570706f72746564"
+		},
+		{
 			"id": "request.task.input",
 			"description": "request id=10 cmd=task.input body=[task_id=\"t-exec-shell\", offset=0, data=h'000102ff']",
 			"hex": "84000a6a7461736b2e696e707574836c742d657865632d7368656c6c0044000102ff"
@@ -136,6 +141,11 @@
 			"hex": "8302697461736b2e657869748766742d6564697482656572726f72826e696e7465726e616c5f6572726f72666661696c6564f5f40000682f746d702f6f7574"
 		},
 		{
+			"id": "event.task.exit.error.bom",
+			"description": "event task.exit body=[task_id=\"t-bom\", outcome=[\"error\", [code=\"io_error\", message=\"\\uFEFFbom\"]], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"\"]",
+			"hex": "8302697461736b2e657869748765742d626f6d82656572726f728268696f5f6572726f7266efbbbf626f6df4f4000060"
+		},
+		{
 			"id": "event.facts",
 			"description": "event facts body=facts=[hostname=\"node-1\", os_id=\"ubuntu\", os_version_id=\"24.04\", os_pretty_name=\"Ubuntu 24.04 LTS\", kernel=\"6.8.0-31-generic\", arch=\"x86_64\", init_system=\"systemd\", package_managers=[\"apt\",\"snap\"], privilege_tools=[\"sudo\"], notes_path=\"/etc/crh/notes\", groups=[\"sudo\",\"docker\"], clock_offset_ms=-1234]",
 			"hex": "83026566616374738c666e6f64652d31667562756e74756532342e3034705562756e74752032342e3034204c545370362e382e302d33312d67656e65726963667838365f36346773797374656d64826361707464736e617081647375646f6e2f6574632f6372682f6e6f74657382647375646f66646f636b65723904d1"
@@ -144,6 +154,21 @@
 			"id": "event.node.status",
 			"description": "event node.status body=[node_id=\"node-1\", state=\"active\", message=\"approved\"]",
 			"hex": "83026b6e6f64652e73746174757383666e6f64652d316661637469766568617070726f766564"
+		},
+		{
+			"id": "event.node.status.pending",
+			"description": "event node.status body=[node_id=\"node-1\", state=\"pending\", message=\"\"]",
+			"hex": "83026b6e6f64652e73746174757383666e6f64652d316770656e64696e6760"
+		},
+		{
+			"id": "event.node.status.rejected",
+			"description": "event node.status body=[node_id=\"node-1\", state=\"rejected\", message=\"denied\"]",
+			"hex": "83026b6e6f64652e73746174757383666e6f64652d316872656a65637465646664656e696564"
+		},
+		{
+			"id": "event.node.status.disabled",
+			"description": "event node.status body=[node_id=\"node-1\", state=\"disabled\", message=\"\"]",
+			"hex": "83026b6e6f64652e73746174757383666e6f64652d316864697361626c656460"
 		},
 		{
 			"id": "event.task.output.ack",
@@ -228,7 +253,42 @@
 			"hex": "850118196b7461736b2e63616e63656cf48101"
 		},
 		{
-			"id": "request_cmd_too_long",
+			"id": "negative.float_integer_value",
+			"description": "ping sequence number is the float 1.0 (0xf93c00) where uint is required",
+			"hex": "8400016470696e6781f93c00"
+		},
+		{
+			"id": "negative.invalid_utf8_text",
+			"description": "task.cancel request task_id is a text string containing the invalid UTF-8 byte 0xff",
+			"hex": "8400016b7461736b2e63616e63656c816261ff"
+		},
+		{
+			"id": "negative.sha256_33_bytes",
+			"description": "exec stdin InputRef sha256 is 33 bytes instead of 32",
+			"hex": "8400181e6a7461736b2e73746172748865742d626164018264657865638482646172677680a06082005821000000000000000000000000000000000000000000000000000000000000000000f4800000826673746174757380"
+		},
+		{
+			"id": "negative.null_non_nullable",
+			"description": "task.cancel request task_id is null where text is required",
+			"hex": "8400181d6b7461736b2e63616e63656c81f6"
+		},
+		{
+			"id": "negative.int_below_min",
+			"description": "task.exit outcome code is -9007199254740992 (-2^53), below the int minimum -(2^53 - 1)",
+			"hex": "8302697461736b2e657869748765742d6261648264636f64653b001ffffffffffffff4f4000060"
+		},
+		{
+			"id": "negative.env_key_order",
+			"description": "exec env map has keys \"B\" then \"A\" (non-canonical key order)",
+			"hex": "8400181b6a7461736b2e73746172748865742d626164018264657865638482646172677680a2614261326141613160f6f4800000826673746174757380"
+		},
+		{
+			"id": "negative.env_key_int",
+			"description": "exec env map has the integer key 1, but env permits only text keys",
+			"hex": "8400181c6a7461736b2e73746172748865742d626164018264657865638482646172677680a101617860f6f4800000826673746174757380"
+		},
+		{
+			"id": "negative.request_cmd_too_long",
 			"description": "request cmd is 65 ASCII bytes, over the 64-byte limit",
 			"hex": "8400181a7841616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616180"
 		}

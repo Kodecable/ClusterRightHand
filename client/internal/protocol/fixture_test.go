@@ -274,6 +274,7 @@ var fixtureExpectedIDs = []string{
 	"request.task.start.file.stat",
 	"request.task.start.file.list",
 	"response.task.start",
+	"response.task.start.error",
 	"request.task.input",
 	"response.task.input",
 	"request.task.cancel",
@@ -285,8 +286,12 @@ var fixtureExpectedIDs = []string{
 	"event.task.exit.code",
 	"event.task.exit.signal",
 	"event.task.exit.error",
+	"event.task.exit.error.bom",
 	"event.facts",
 	"event.node.status",
+	"event.node.status.pending",
+	"event.node.status.rejected",
+	"event.node.status.disabled",
 	"event.task.output.ack",
 	"event.task.exit.ack",
 }
@@ -478,6 +483,11 @@ func expectedFixtureValue(id string) (any, bool) {
 			Kind: FrameResponse, ID: 3, Name: CmdTaskStart, OK: true,
 			Body: Empty{},
 		}, true
+	case "response.task.start.error":
+		return fixtureFrame{
+			Kind: FrameResponse, ID: 3, Name: CmdTaskStart, OK: false,
+			Err: &Error{Code: "unsupported_kind", Message: "kind not supported"},
+		}, true
 	case "request.task.input":
 		return fixtureFrame{
 			Kind: FrameRequest, ID: 10, Name: CmdTaskInput,
@@ -558,6 +568,19 @@ func expectedFixtureValue(id string) (any, bool) {
 				OutputFile: "/tmp/out",
 			},
 		}, true
+	case "event.task.exit.error.bom":
+		return fixtureFrame{
+			Kind: FrameEvent, Name: EventTaskExit,
+			Body: TaskExit{
+				TaskID:     "t-bom",
+				Outcome:    Outcome{Kind: OutcomeError, Error: &Error{Code: "io_error", Message: "\ufeffbom"}},
+				TimedOut:   false,
+				Cancelled:  false,
+				StdoutEnd:  0,
+				StderrEnd:  0,
+				OutputFile: "",
+			},
+		}, true
 	case "event.facts":
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventFacts,
@@ -567,6 +590,21 @@ func expectedFixtureValue(id string) (any, bool) {
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventNodeStatus,
 			Body: NodeStatus{NodeID: "node-1", State: NodeStatusActive, Message: "approved"},
+		}, true
+	case "event.node.status.pending":
+		return fixtureFrame{
+			Kind: FrameEvent, Name: EventNodeStatus,
+			Body: NodeStatus{NodeID: "node-1", State: NodeStatusPending, Message: ""},
+		}, true
+	case "event.node.status.rejected":
+		return fixtureFrame{
+			Kind: FrameEvent, Name: EventNodeStatus,
+			Body: NodeStatus{NodeID: "node-1", State: NodeStatusRejected, Message: "denied"},
+		}, true
+	case "event.node.status.disabled":
+		return fixtureFrame{
+			Kind: FrameEvent, Name: EventNodeStatus,
+			Body: NodeStatus{NodeID: "node-1", State: NodeStatusDisabled, Message: ""},
 		}, true
 	case "event.task.output.ack":
 		return fixtureFrame{
