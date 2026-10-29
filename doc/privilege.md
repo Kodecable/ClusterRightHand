@@ -253,6 +253,7 @@ kinds = ["execute"]
 - `prefix` 和 `regex` 二选一，都不写表示该方法的任意目标。`prefix` 是语法糖，编译为 `^<转义后的前缀>.*$`；`regex` 使用 RE2 语法，隐式全匹配（`^(?:…)$`），模式不超过 1000 字节。
 - `regex` 只应使用 Go `regexp` 与 C++ RE2 的公共子集（不用 `\C`、`\p{Script=…}` 等写法；字符类、`(?i)`、`\p{Latin}` 可以）。特权模式（Go）是最终裁决；crhs（Node 包 `re2`）只用于预演，编译失败时保守处理：`allow` 视为不命中，`deny` 视为命中，并在 WebUI 的信任摘要中提示。共享用例同时比较编译结果和匹配结果。
 - 判定顺序：先看 `deny`，命中任何一条就拒绝；`allow` 非空时必须命中其中一条。
+- `file.write` 规则同时覆盖 `file.read` 只对 `allow` 成立；`deny` 的 `file.write` 只匹配写，与 crhs 规则一致（D67）。
 - 规则只约束方法和目标，不约束 stdin 和写入内容。例如放行 `{ method = "exec", prefix = "bash" }` 就等于放行任意脚本。需要约束内容时，用 `exact` 授权。
 - 环境变量：任务只能携带 `env_allow` 中列出的变量，PATH 由特权模式固定。否则 `LD_PRELOAD`、`PATH` 之类的变量可以绕过基于命令行的规则。
 
@@ -269,11 +270,13 @@ kinds = ["execute"]
 
 1. 用 `SO_PEERCRED` 检查对端 uid：提交任务必须是 `unprivileged_uid`；本地批准必须在某个 `local` 信任项的 `uids` 中。
 2. 检查任务本身：文件操作的路径满足"方法与目标"一节的要求。
-3. 对 payload 上的每个签名，按公钥（或 credential id）找到信任项并验证签名。
+3. 对 payload 上的每个签名，按公钥（或 credential id）找到信任项并验证签名。找不到信任项的签名忽略（同一授权可能还带着别的节点信任的签名）；能找到信任项但验证失败的签名使整个授权无效。没有任何签名对应到信任项时，授权无效。
+
+   `role = "crhs"` 或 `user` 的签名都是**候选**，按 `signatures` 中的顺序对每个候选依次检查第 4–8 步（这几步依赖候选的信任项），第一个全部通过的候选生效；都不通过时报告**第一个候选**的失败。`role = "crhs"` 且只有 `cosign` 的签名也是候选，会在第 7 步因缺少 `execute` 失败，但它仍可以在第 8 步为别的候选提供联署。
 4. 检查授权本体：`nodes` 包含本机的 node_id 或本机配置的某个组（或为 `["*"]`）；`issued_at ≤ now + skew`；`deadline`（如果有）`≥ now - skew`；`max_ttl` 和 `require_exact`。这里的 `now` 是节点时钟，见下文"时钟"。
 5. 检查一次性约束：授权带 `task_ids` 时本任务 id 必须在其中、`attempt` 等于 `task.start` 的 attempt，且 `(授权 id, 本任务 id)` 不在已用列表中；`role = "crhs"` 的授权和联署必须带 `task_ids`；信任项有 `require_task` 时同样必须带。任何情况下，本任务 id 都不能已经执行过。
 6. 检查授权中的指令限制：`exact` 时方法、目标和 `spec_sha256` 都相等；`prefix` 时方法匹配（`file.write` 包含 `file.read`）且目标前缀相等。
-7. 检查信任项：`kinds` 包含 `execute`；`deny` 和 `allow`；`env_allow`。
+7. 检查信任项：`kinds` 包含 `execute`；`deny` 和 `allow`；`env_allow`；`require_uv` 时该签名带 UV 标志。
 8. 如果用户信任项包含 `require-cosign`：在同一 payload 上找 `role = "crhs"` 且含 `cosign` 的签名并验证。
 9. 检查 payload 的授权 id 不在吊销列表中。
 10. 把任务 id 和 `(授权 id, 任务 id)` 记入已用列表（持久化）→ 写本地日志 → 执行 → 写结果日志。

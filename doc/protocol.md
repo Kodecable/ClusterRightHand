@@ -112,9 +112,9 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
     | 码 | 情况 |
     |---|---|
     | `authorization_required` | 没有授权，也没有可用的本地批准 |
-    | `authorization_invalid` | 授权解码失败、签名无效、找不到对应信任项、节点/组不匹配、`attempt` 不符、多于一项 |
-    | `authorization_expired` | 过期、签发于未来、超出 `max_ttl` |
-    | `authorization_rejected` | 已吊销、已用、防护规则/env/路径拒绝、缺联署、信任项没有 `execute` |
+    | `authorization_invalid` | 授权解码失败、签名无效、找不到对应信任项、节点/组不匹配、任务 id 不在 `task_ids` 中、`attempt` 不符、一次性授权没有 `deadline`、多于一项 |
+    | `authorization_expired` | 过期、签发于未来、超出 `max_ttl`（含设置了 `max_ttl` 却没有 `deadline`） |
+    | `authorization_rejected` | 已吊销、已用、指令限制不覆盖本任务、违反 `require_exact` / `require_task` / `require_uv`、防护规则/env/路径拒绝、缺联署、信任项没有 `execute` |
 
     `message` 写明失败的校验步骤（privilege.md 的“校验流程”编号）。规则和路径拒绝也是可重试的：crhs 签名路径被拒，不代表所有者的签名也会被拒；crhs 重试时不会再走同一条 crhs 签名路径（D83），不会循环。
   - 终态（任务结束为 `failed`，`error_code` 即此码）：`invalid_spec`（空 id、哈希长度不对等、`size` 为 0 但 `sha256` 不是空输入的 SHA-256）、`unsupported_kind`、`privileged_unsupported`（`reject` 模式；`native` 的提权工具不可用或 helper 版本不符；1.0 的 crha）、`privileged_unavailable`（`forward` 但特权模式不可达）、`local_policy_denied`、`already_accepted`。
@@ -184,16 +184,16 @@ TrustSummary = [node_id: text, groups: [text], clock_skew_ms: uint,
                 trust: [TrustEntry]]
 Identity     = [uid: uint, gid: uint, user: text]
 TrustEntry   = [name: text, source: "local", role: "crhs" | "user" | "local", key: TrustKey,
-                kinds: [text], require_exact: bool, require_task: bool, max_ttl_ms: uint?,
+                kinds: [text], require_exact: bool, require_task: bool, require_uv: bool, max_ttl_ms: uint?,
                 allow: [GuardRule], deny: [GuardRule], env_allow: [text]]
 TrustKey     = ["sshsig",   [public_key: text, fingerprint: text]]   ; authorized_keys 形式；SHA256:… 指纹
-             | ["webauthn", [credential_id: bytes, cose_key: bytes, rp_id: text, origins: [text], require_uv: bool]]
+             | ["webauthn", [credential_id: bytes, cose_key: bytes, rp_id: text, origins: [text]]]
              | ["local",    [uids: [uint]]]
 GuardRule    = [method: "exec" | "file.read" | "file.write", match: "any" | "prefix" | "regex", pattern: text]
 ```
 
 - `digest = SHA-256(CBOR(TrustSummary))`，crhs 用它判断缓存是否变化，并记入任务的授权记录。
-- `kinds` 的取值见 privilege.md；`source` 为扩展预留，v1 恒为 `local`。
+- `kinds` 的取值为 `execute`、`cosign`、`require-cosign`（见 privilege.md）；`cose_key` 是凭据的 COSE 公钥原文；`source` 为扩展预留，v1 恒为 `local`。
 - `match = "any"` 时 `pattern` 为空串。
 - 两种模式的运行身份放在这里，不改 `Hello` / `Facts`。
 
@@ -281,5 +281,6 @@ PrivWelcome = [priv_major: 1, priv_minor: 0, commands: [text], crha_version: tex
 ## fixture
 
 - `test/interop/cbor_core_golden_vectors.json`：profile 层正例/拒绝例，两端的 profile codec 都要通过。
-- M4 新增：授权对象、`spec_sha256`、`TrustSummary` digest、SSHSIG（与 `ssh-keygen -Y sign/verify` 互验）、WebAuthn assertion 的 golden vector，以及 crh-priv 握手和帧；授权判定的共享用例见 privilege.md。
+- `test/interop/m4_vectors.json`（M4）：`spec_sha256`、授权 payload（正例和结构负例）、授权对象、M4 的 body（含 `TrustSummary` digest）、crh-priv 的握手和带长度前缀的帧、SSHSIG（`ssh-keygen` 签发的和按本文手工构造的，含 `sk-*`；每项注明 crha 是否接受、`ssh-keygen -Y verify` 的结果）、WebAuthn assertion（ES256 / EdDSA / RS256 正例和反例）。每次生成都用新密钥，所以测试按性质校验（重编码、哈希、参考验证器、`ssh-keygen -Y verify`），不比较字节。注意：OpenSSH 10.6 的 `ssh-keygen -Y verify` 接受不带 UP 标志的 `sk-*` 签名，crha 拒绝。
+- `test/interop/m4_authz_cases.json`（M4）：授权判定的共享用例（privilege.md 的校验流程，签名抽象为"哪个信任项签了、是否有效、UV"），每例给出结果码和失败步骤；另有 `targets`（任务规格 → method / target 的渲染），server 的 `operationOf` 已用它校验。crha 的校验和 crhs 的方案计算都要跑这份用例。
 - `test/interop/crh_frames.json`：由 TS 实现生成、提交进仓库的帧 fixture，每项 `{ "id", "description", "hex" }`，覆盖每一种命令、响应（成功/错误）、事件、握手载荷和每一个联合分支；另有 `"negative"` 列表（长度不符、未知 tag、未知枚举、超长命令名、非规范编码、float 冒充整数、超过 2^53−1 的整数、`sha256` 长度错、尾随 bytes 等）。Go 测试解码每个正例，与按本文**独立手写**的期望值比较，再重编码比对 hex；负例必须全部被拒绝。

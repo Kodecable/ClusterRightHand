@@ -1,4 +1,5 @@
-import type { TaskSpec } from "@crh/protocol";
+import { readFileSync } from "node:fs";
+import { type TaskSpec, taskSpecFromJson } from "@crh/protocol";
 import { describe, expect, it } from "vitest";
 import {
 	type Action,
@@ -281,6 +282,17 @@ describe("presetRuleSet", () => {
 });
 
 describe("operationOf", () => {
+	it("renders the shared M4 targets (test/interop/m4_authz_cases.json)", () => {
+		const fixture = JSON.parse(
+			readFileSync(new URL("../../test/interop/m4_authz_cases.json", import.meta.url), "utf8"),
+		) as {
+			targets: { spec: unknown; method: string; target: string }[];
+		};
+		for (const { spec, method, target } of fixture.targets) {
+			expect(operationOf(taskSpecFromJson(spec))).toEqual({ method, target });
+		}
+	});
+
 	const exec = (init: { argv?: string[]; shell?: string }): TaskSpec => ({
 		kind: "exec",
 		command: init.argv !== undefined ? { argv: init.argv } : { shell: init.shell ?? "" },
