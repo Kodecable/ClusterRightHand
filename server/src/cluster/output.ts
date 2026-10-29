@@ -51,9 +51,21 @@ function limitLines(buf: Buffer, side: "head" | "tail"): Buffer {
 		}
 		return buf;
 	}
-	// A trailing newline ends the last line rather than starting a new one.
+	return tailLines(buf, OUTPUT_KEEP_LINES);
+}
+
+/**
+ * Keeps the last `lines` lines of a tail: a trailing newline ends the last line, so at most `lines`
+ * newline characters remain (none when `lines` is 0). Shared with the batch tail accumulator.
+ */
+export function tailLines(buf: Buffer, lines: number): Buffer {
+	if (lines <= 0) {
+		const nl = buf.lastIndexOf(0x0a);
+		return nl < 0 ? buf : buf.subarray(nl + 1);
+	}
+	let count = 0;
 	for (let i = buf.length - 2; i >= 0; i--) {
-		if (buf[i] === 0x0a && ++count === OUTPUT_KEEP_LINES) return buf.subarray(i + 1);
+		if (buf[i] === 0x0a && ++count === lines) return buf.subarray(i + 1);
 	}
 	return buf;
 }

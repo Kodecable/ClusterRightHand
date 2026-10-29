@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { Db } from "../src/storage/db.ts";
 import { migrateToLatest } from "../src/storage/migrate.ts";
-import { describeBackends, openTestDb } from "./helpers/db.ts";
+import { describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 describeBackends("storage", (backend) => {
 	let db: Db;
@@ -13,7 +13,8 @@ describeBackends("storage", (backend) => {
 	});
 
 	it("migrates idempotently and round-trips a user", async () => {
-		await migrateToLatest(db);
+		// The migrator introspects every schema, so a parallel test dropping its schema must not run now.
+		await withDdlLockOn(backend, () => migrateToLatest(db));
 		const now = new Date().toISOString();
 		await db.insertInto("orgs").values({ id: "o1", name: "default", created_at: now }).execute();
 		await db

@@ -12,9 +12,11 @@ import {
 } from "@crh/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SessionUser } from "../src/auth/sessions.ts";
+import { BATCH_GROUP_BYTES, BATCH_NODE_BYTES } from "../src/cluster/batch-output.ts";
 import { Cluster, type TaskView } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
+import { TaskGroups } from "../src/cluster/task-groups.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
@@ -239,6 +241,184 @@ describe("agent wire protocol", () => {
 		expect(view.stdoutHead).toBe("out");
 		await waitFor("exit ack", () => acks.length === 1);
 		expect(acks[0]).toEqual({ taskId: created.id });
+	});
+
+	it("records a status task from task.exit alone, without any task.output", async () => {
+		const { node, crha } = await connectActive();
+		const starts: TaskStart[] = [];
+		crha.peer.onRequest("task.start", (start) => {
+			starts.push(start);
+			return {};
+		});
+		crha.peer.onEvent("task.exit.ack", () => {});
+		const created = await cluster.createTask({
+			nodeId: node.id,
+			spec: EXEC,
+			outputMode: "status",
+			actor: { type: "system", id: "test", onBehalfOfUserId: owner.userId },
+		});
+		await waitFor("task.start", () => starts.length === 1);
+		expect(starts[0]?.output).toEqual({ kind: "status" });
+
+		crha.peer.emit("task.exit", {
+			taskId: created.id,
+			outcome: { kind: "code", value: 0 },
+			timedOut: false,
+			cancelled: false,
+			stdoutEnd: 1234,
+			stderrEnd: 56,
+			outputFile: "/var/lib/crha/output/t.log",
+		});
+		const view = await waitFor("exited", async () => {
+			const t = await cluster.getTask(created.id);
+			return t?.state === "exited" ? t : undefined;
+		});
+		expect(view).toMatchObject({
+			outputMode: "status",
+			exitCode: 0,
+			stdoutBytes: 1234,
+			stderrBytes: 56,
+			stdoutHead: "",
+			stdoutTail: "",
+			stderrHead: "",
+			stderrTail: "",
+			outputFile: "/var/lib/crha/output/t.log",
+		});
+	});
+
+	it("shares one text output budget across a task group", async () => {
+		const peers: Awaited<ReturnType<typeof connectActive>>[] = [];
+		for (let i = 0; i < 8; i++) peers.push(await connectActive(`text-${i}`));
+		const starts = new Map<string, string>();
+		for (const peer of peers) {
+			peer.crha.peer.onEvent("task.exit.ack", () => {});
+			peer.crha.peer.onRequest("task.start", (start: TaskStart) => {
+				starts.set(start.taskId, peer.node.id);
+				return {};
+			});
+		}
+		const groups = new TaskGroups(db, cluster);
+		const groupId = await groups.create({
+			targets: ["group:text"],
+			nodeIds: peers.map((peer) => peer.node.id),
+			spec: EXEC,
+			actor: { type: "system", id: "test", onBehalfOfUserId: owner.userId },
+			parallel: 8,
+			outputMode: "text",
+		});
+		await waitFor("all task starts", () => starts.size === 8);
+		const taskIdByNode = new Map([...starts].map(([taskId, nodeId]) => [nodeId, taskId]));
+		const data = Buffer.alloc(BATCH_NODE_BYTES + 2 * 1024, 0x61);
+		for (const peer of peers) {
+			const taskId = taskIdByNode.get(peer.node.id) as string;
+			peer.crha.peer.emit("task.output", { taskId, stream: "stdout", offset: 0, data });
+			peer.crha.peer.emit("task.exit", {
+				taskId,
+				outcome: { kind: "code", value: 0 },
+				timedOut: false,
+				cancelled: false,
+				stdoutEnd: data.length,
+				stderrEnd: 0,
+				outputFile: "/tmp/text.log",
+			});
+		}
+		const view = await groups.wait(groupId, 10_000);
+		if (!view) throw new Error("group missing");
+		expect(view.state).toBe("finished");
+		expect(view.outputMode).toBe("text");
+		const byNode = new Map(view.tasks.map((t) => [t.nodeId, t]));
+		const tails = peers.map((peer) => byNode.get(peer.node.id)?.stdoutTail.length ?? 0);
+		// Different sockets arrive in no fixed order, but grants are handed out in arrival order: six nodes
+		// get 8 KiB, the next the remaining 2 KiB of the group budget, and the last one nothing.
+		expect([...tails].sort((a, b) => a - b)).toEqual([0, 2048, 8192, 8192, 8192, 8192, 8192, 8192]);
+		expect(tails.reduce((sum, n) => sum + n, 0)).toBe(BATCH_GROUP_BYTES);
+		for (const peer of peers) {
+			expect(byNode.get(peer.node.id)).toMatchObject({
+				outputMode: "text",
+				stdoutBytes: data.length,
+				stderrBytes: 0,
+				stdoutHead: "",
+				stderrHead: "",
+				stderrTail: "",
+				outputFile: "/tmp/text.log",
+			});
+		}
+	});
+
+	it("keeps a text group's budget until the group ends, even with parallel: 1", async () => {
+		const peers: Awaited<ReturnType<typeof connectActive>>[] = [];
+		for (let i = 0; i < 8; i++) peers.push(await connectActive(`sequential-text-${i}`));
+		const pending: { peer: (typeof peers)[number]; taskId: string }[] = [];
+		for (const peer of peers) {
+			peer.crha.peer.onEvent("task.exit.ack", () => {});
+			peer.crha.peer.onRequest("task.start", (start: TaskStart) => {
+				pending.push({ peer, taskId: start.taskId });
+				return {};
+			});
+		}
+		const groups = new TaskGroups(db, cluster);
+		const nodeIds = peers.map((peer) => peer.node.id);
+		const groupId = await groups.create({
+			targets: ["group:sequential-text"],
+			nodeIds,
+			spec: EXEC,
+			actor: { type: "system", id: "test", onBehalfOfUserId: owner.userId },
+			parallel: 1,
+			outputMode: "text",
+		});
+		const data = Buffer.alloc(BATCH_NODE_BYTES, 0x61);
+		for (let i = 0; i < peers.length; i++) {
+			const next = await waitFor(`task.start ${i + 1}`, () => pending.shift());
+			next.peer.crha.peer.emit("task.output", { taskId: next.taskId, stream: "stdout", offset: 0, data });
+			next.peer.crha.peer.emit("task.exit", {
+				taskId: next.taskId,
+				outcome: { kind: "code", value: 0 },
+				timedOut: false,
+				cancelled: false,
+				stdoutEnd: data.length,
+				stderrEnd: 0,
+				outputFile: "/tmp/text.log",
+			});
+		}
+		const view = await groups.wait(groupId, 10_000);
+		if (!view) throw new Error("group missing");
+		expect(view.state).toBe("finished");
+		const byNode = new Map(view.tasks.map((t) => [t.nodeId, t]));
+		const tails = nodeIds.map((nodeId) => byNode.get(nodeId)?.stdoutTail.length ?? -1);
+		// A fresh budget per node (the old behaviour) would keep 8 KiB for each of the eight. One budget
+		// for the whole group gives six nodes 8 KiB, the seventh the remaining 2 KiB, the eighth nothing.
+		expect(tails).toEqual([
+			...Array.from({ length: 6 }, () => BATCH_NODE_BYTES),
+			BATCH_GROUP_BYTES - 6 * BATCH_NODE_BYTES,
+			0,
+		]);
+		expect(tails.reduce((sum, bytes) => sum + bytes, 0)).toBe(BATCH_GROUP_BYTES);
+		// Release happens when the group itself finishes: a repeated release finds no entry.
+		expect(cluster.releaseGroupBudget(groupId)).toBe(false);
+	});
+
+	it("batch output defaults to status and rejects other modes through the API", async () => {
+		const { node, crha } = await connectActive();
+		const starts: TaskStart[] = [];
+		crha.peer.onRequest("task.start", (start) => {
+			starts.push(start);
+			return {};
+		});
+		const cookie = await login(app, "owner", "password-123");
+		const bad = await call(app, "/api/task-groups", {
+			cookie,
+			body: { kind: "exec", shell: "true", targets: [node.id], outputMode: "full" },
+		});
+		expect(bad.status).toBe(400);
+		const res = await call(app, "/api/task-groups", {
+			cookie,
+			body: { kind: "exec", shell: "true", targets: [node.id], waitMs: 0 },
+		});
+		expect(res.status).toBe(201);
+		const created = (await res.json()) as { group: { outputMode: string } };
+		expect(created.group.outputMode).toBe("status");
+		await waitFor("task.start", () => starts.length === 1);
+		expect(starts[0]?.output).toEqual({ kind: "status" });
 	});
 
 	describe("task.start errors", () => {

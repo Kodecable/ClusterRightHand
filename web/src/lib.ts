@@ -38,6 +38,21 @@ export function outputText(head: string, tail: string, totalBytes: number): stri
 	return j.omitted > 0 ? `${j.before}\n… ${j.omitted} bytes omitted …\n${j.after}` : j.before + j.after;
 }
 
+/** How a task's kept output is shown: full head/tail, one combined tail, or only the node's file. */
+export type BatchOutput =
+	| { kind: "full" }
+	| { kind: "tail"; text: string; bytes: number }
+	| { kind: "status"; file: string | null };
+
+/** Interprets the head/tail fields by the task's output mode (doc/execution-plane.md#输出). */
+export function batchOutput(
+	t: Pick<TaskView, "outputMode" | "stdoutTail" | "stdoutBytes" | "stderrBytes" | "outputFile">,
+): BatchOutput {
+	if (t.outputMode === "text") return { kind: "tail", text: t.stdoutTail, bytes: t.stdoutBytes + t.stderrBytes };
+	if (t.outputMode === "status") return { kind: "status", file: t.outputFile };
+	return { kind: "full" };
+}
+
 export function taskOutcome(t: TaskView): string {
 	if (t.state === "exited") {
 		if (t.timedOut) return "timed out";

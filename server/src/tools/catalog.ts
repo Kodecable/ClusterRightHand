@@ -99,6 +99,14 @@ const waitField = z
 const batchFields = {
 	parallel: z.number().int().min(1).max(100).optional().describe("Batch: nodes run at once (default 10)"),
 	fail_fast: z.boolean().optional().describe("Batch: start no more nodes after one fails"),
+	output: z
+		.enum(["status", "text"])
+		.optional()
+		.describe(
+			"Batch only, default status: status returns just each node's exit status and the path of its full " +
+				"output file on the node, which you can read with read_file; text returns the end of each node's " +
+				"output within one budget shared by the batch",
+		),
 };
 
 /** Keeps the last OUTPUT_BYTES / OUTPUT_LINES of a stream. */
@@ -146,6 +154,33 @@ export function taskResult(t: TaskView, nodeName: string, ctx: ToolContext): Rec
 	if (t.errorCode) out.error = { code: t.errorCode, message: t.errorMessage };
 	// Denied or rejected before running: there is no output to show.
 	if ((t.state === "denied" || t.state === "rejected") && t.stdoutBytes === 0 && t.stderrBytes === 0) return out;
+	if (t.outputMode === "text") {
+		// The group's budget let this node keep one combined tail (stdout and stderr in arrival order).
+		out.output = t.stdoutTail;
+		if (t.stdoutBytes + t.stderrBytes > Buffer.byteLength(t.stdoutTail)) {
+			out.truncated = {
+				stdout_bytes: t.stdoutBytes,
+				stderr_bytes: t.stderrBytes,
+				note: t.outputFile
+					? `only the end is shown; the full output is in ${t.outputFile} on the node (read it with read_file)`
+					: "only the end is shown",
+			};
+		}
+		if (t.state === "dispatched" || t.state === "running") out.next = "still running: call task_wait with this task_id";
+		return out;
+	}
+	if (t.outputMode === "status") {
+		// Nothing was pushed to crhs: only the node's output file has the output (SSH keeps none).
+		if (t.outputFile) {
+			out.output_file = t.outputFile;
+			out.note = "full output is on the node; read it with read_file";
+		} else if (t.state === "dispatched" || t.state === "running") {
+			out.next = "still running: call task_wait with this task_id";
+		} else {
+			out.note = "no output file was reported; SSH nodes keep no output";
+		}
+		return out;
+	}
 	const stdout = streamOf(t.stdoutHead, t.stdoutTail, t.stdoutBytes);
 	const stderr = streamOf(t.stderrHead, t.stderrTail, t.stderrBytes);
 	out.stdout = stdout.text;
@@ -177,22 +212,8 @@ function groupResult(g: TaskGroupView, names: Map<string, string>, ctx: ToolCont
 			next: "call task_wait with this task_group_id to keep waiting",
 		};
 	}
-	// Per node, sharing one output budget across the group.
-	let budget = OUTPUT_BYTES;
-	out.nodes = g.tasks.map((t) => {
-		const r = taskResult(t, names.get(t.nodeId) ?? t.nodeId, ctx);
-		for (const k of ["stdout", "stderr"] as const) {
-			const s = r[k];
-			if (typeof s !== "string") continue;
-			const share = Math.max(1024, Math.floor(budget / 2));
-			if (Buffer.byteLength(s) > share) {
-				r[k] = Buffer.from(s).subarray(-share).toString("utf8").replace(/^�+/, "");
-				r.truncated = { ...(r.truncated as object), note: "only the end is shown (batch output budget)" };
-			}
-			budget = Math.max(0, budget - Buffer.byteLength(r[k] as string));
-		}
-		return r;
-	});
+	// The group budget already decided how much each node keeps (doc/execution-plane.md#输出); no second cut.
+	out.nodes = g.tasks.map((t) => taskResult(t, names.get(t.nodeId) ?? t.nodeId, ctx));
 	if (g.skipped.length > 0) out.skipped = g.skipped.map((id) => names.get(id) ?? id);
 	if (g.state === "running") out.next = "still running: call task_wait with this task_group_id";
 	return out;
@@ -201,7 +222,15 @@ function groupResult(g: TaskGroupView, names: Map<string, string>, ctx: ToolCont
 /** Runs a spec on one node or, with targets, as a task group; waits up to `wait` seconds. */
 async function run(
 	ctx: ToolContext,
-	args: { node?: string; targets?: string[]; wait?: number; timeout?: number; parallel?: number; fail_fast?: boolean },
+	args: {
+		node?: string;
+		targets?: string[];
+		wait?: number;
+		timeout?: number;
+		parallel?: number;
+		fail_fast?: boolean;
+		output?: "status" | "text";
+	},
 	spec: TaskSpec,
 	input?: Uint8Array,
 ): Promise<unknown> {
@@ -222,6 +251,8 @@ async function run(
 		...common,
 		targets,
 		nodeIds,
+		// A single-node run keeps full output; a batch defaults to status.
+		outputMode: args.output ?? "status",
 		parallel: args.parallel,
 		failFast: args.fail_fast,
 		...(ctx.callKey ? { id: derivedId(`group:${ctx.callKey}`) } : {}),

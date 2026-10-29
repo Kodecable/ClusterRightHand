@@ -172,10 +172,13 @@ export interface TaskView {
 	stdoutBytes: number;
 	stderrBytes: number;
 	stdoutHead: string;
+	/** In text mode: the combined stdout/stderr tail; the other head/tail fields are empty. */
 	stdoutTail: string;
 	stderrHead: string;
 	stderrTail: string;
 	outputFile: string | null;
+	/** full for a single task; text or status for a batch node (doc/execution-plane.md#输出). */
+	outputMode: "full" | "text" | "status";
 	createdAt: string;
 	finishedAt: string | null;
 	taskGroupId?: string | null;
@@ -211,6 +214,7 @@ export interface TaskGroupView {
 	nodeIds: string[];
 	parallel: number;
 	failFast: boolean;
+	outputMode: "status" | "text";
 	skipped: string[];
 	tasks: TaskView[];
 	createdAt: string;
@@ -371,8 +375,9 @@ export const api = {
 		request<{ ok: true }>("POST", "/auth/password", { currentPassword, newPassword }),
 	directory: () => request<Directory>("GET", "/directory"),
 
-	createTaskGroup: (body: TaskRequest & { targets: string[]; parallel?: number; failFast?: boolean }) =>
-		request<{ group: TaskGroupView }>("POST", "/task-groups", body).then((r) => r.group),
+	createTaskGroup: (
+		body: TaskRequest & { targets: string[]; parallel?: number; failFast?: boolean; outputMode?: "status" | "text" },
+	) => request<{ group: TaskGroupView }>("POST", "/task-groups", body).then((r) => r.group),
 	waitTaskGroup: (id: string, timeoutMs: number, signal?: AbortSignal) =>
 		request<{ group: TaskGroupView }>(
 			"GET",

@@ -1,5 +1,5 @@
 import type { TaskView } from "../api.ts";
-import { formatTime, isTerminal, joinOutput } from "../lib.ts";
+import { batchOutput, formatTime, isTerminal, joinOutput } from "../lib.ts";
 import { DecisionView, EvaluationView } from "./Approval.tsx";
 import { Badge } from "./Feedback.tsx";
 
@@ -39,6 +39,7 @@ export function stateKind(task: Pick<TaskView, "state" | "exitCode" | "signal">)
 }
 
 export function TaskResult({ task }: { task: TaskView }) {
+	const output = batchOutput(task);
 	return (
 		<div className="task-result">
 			<dl className="kv">
@@ -111,8 +112,27 @@ export function TaskResult({ task }: { task: TaskView }) {
 					<EvaluationView evaluation={task.approval.evaluation} />
 				</details>
 			)}
-			<OutputBlock label="stdout" head={task.stdoutHead} tail={task.stdoutTail} bytes={task.stdoutBytes} />
-			<OutputBlock label="stderr" head={task.stderrHead} tail={task.stderrTail} bytes={task.stderrBytes} />
+			{output.kind === "tail" ? (
+				<OutputBlock label="output" head="" tail={output.text} bytes={output.bytes} />
+			) : output.kind === "status" ? (
+				<p className="muted">
+					Status only;{" "}
+					{output.file ? (
+						<>
+							the full output is in <span className="mono">{output.file}</span> on the node.
+						</>
+					) : isTerminal(task.state) ? (
+						"no output is kept (SSH nodes keep no output)."
+					) : (
+						"the full output stays on the node until the task exits."
+					)}
+				</p>
+			) : (
+				<>
+					<OutputBlock label="stdout" head={task.stdoutHead} tail={task.stdoutTail} bytes={task.stdoutBytes} />
+					<OutputBlock label="stderr" head={task.stderrHead} tail={task.stderrTail} bytes={task.stderrBytes} />
+				</>
+			)}
 		</div>
 	);
 }

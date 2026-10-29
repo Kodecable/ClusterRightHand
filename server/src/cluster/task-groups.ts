@@ -54,6 +54,8 @@ export interface CreateTaskGroupInput extends Omit<CreateTaskInput, "nodeId" | "
 	nodeIds: string[];
 	parallel?: number;
 	failFast?: boolean;
+	/** Batch output mode; defaults to `status` (doc/execution-plane.md#输出). */
+	outputMode?: "status" | "text";
 	actor: Actor;
 	/** A caller-chosen id; an existing group with it is returned as is (see CreateTaskInput.id). */
 	id?: string;
@@ -74,6 +76,8 @@ export interface TaskGroupView {
 	nodeIds: string[];
 	parallel: number;
 	failFast: boolean;
+	/** The mode fixed at creation; every task in the group uses it. */
+	outputMode: "status" | "text";
 	skipped: string[];
 	tasks: TaskView[];
 	createdAt: string;
@@ -133,11 +137,13 @@ export class TaskGroups {
 				.set({ state: "interrupted", skipped: JSON.stringify(skipped), finished_at: now() })
 				.where("id", "=", row.id)
 				.execute();
+			this.#cluster.releaseGroupBudget(row.id);
 		}
 	}
 
 	async create(input: CreateTaskGroupInput): Promise<string> {
 		const parallel = Math.min(Math.max(input.parallel ?? DEFAULT_PARALLEL, 1), MAX_PARALLEL);
+		const outputMode = input.outputMode ?? "status";
 		if (input.id && (await this.#row(input.id))) return input.id;
 		const id = input.id ?? newId();
 		const nodes = await this.#db.selectFrom("nodes").selectAll().where("id", "in", input.nodeIds).execute();
@@ -166,6 +172,7 @@ export class TaskGroups {
 				kind: input.spec.kind,
 				parallel,
 				fail_fast: input.failFast ? 1 : 0,
+				output_mode: outputMode,
 				skipped: "[]",
 				state: waiting ? "awaiting_approval" : "running",
 				actor_type: input.actor.type,
@@ -216,7 +223,15 @@ export class TaskGroups {
 		const { nodeIds: _n, targets: _t, parallel: _p, failFast: _f, id: _i, ...task } = input;
 		// A group with a stable id gives its tasks stable ids too, so a rerun reattaches to them.
 		const id = input.id ? derivedId(`${input.id}/${nodeId}`) : undefined;
-		return { ...task, nodeId, taskGroupId: groupId, ...(id ? { id } : {}), ...(approvedBy ? { approvedBy } : {}) };
+		return {
+			...task,
+			// The group's mode is fixed; a task left waiting keeps it until dispatch.
+			outputMode: input.outputMode ?? "status",
+			nodeId,
+			taskGroupId: groupId,
+			...(id ? { id } : {}),
+			...(approvedBy ? { approvedBy } : {}),
+		};
 	}
 
 	#start(id: string, input: CreateTaskGroupInput, nodeIds: string[], parallel: number, approvedBy?: ApprovalDecision) {
@@ -247,17 +262,22 @@ export class TaskGroups {
 		try {
 			await Promise.all(Array.from({ length: Math.min(parallel, queue.length) }, worker));
 		} finally {
-			await this.#db
-				.updateTable("task_groups")
-				.set({
-					state: "finished",
-					skipped: JSON.stringify(queue),
-					finished_at: now(),
-					handler_type: null,
-					handler_session_id: null,
-				})
-				.where("id", "=", id)
-				.execute();
+			try {
+				await this.#db
+					.updateTable("task_groups")
+					.set({
+						state: "finished",
+						skipped: JSON.stringify(queue),
+						finished_at: now(),
+						handler_type: null,
+						handler_session_id: null,
+					})
+					.where("id", "=", id)
+					.execute();
+			} finally {
+				// The group is done as a whole; its tasks may already have been dropped one by one.
+				this.#cluster.releaseGroupBudget(id);
+			}
 		}
 	}
 
@@ -299,6 +319,9 @@ export class TaskGroups {
 			const started = await this.#startedNodes(id);
 			const remaining = (JSON.parse(row.node_ids) as string[]).filter((n) => !started.has(n));
 			this.#start(id, this.#inputFromRow(row), remaining, row.parallel, { ...decision, taskGroupId: id });
+		} else {
+			// A rejected group never runs; release anything its denied tasks may have held.
+			this.#cluster.releaseGroupBudget(id);
 		}
 		this.#settled.get(id)?.resolve();
 		this.#settled.delete(id);
@@ -414,6 +437,7 @@ export class TaskGroups {
 			targets: JSON.parse(row.targets) as string[],
 			nodeIds: JSON.parse(row.node_ids) as string[],
 			spec: taskSpecFromJson(JSON.parse(row.spec ?? "null")),
+			outputMode: row.output_mode,
 			...(row.pending_input ? { input: Buffer.from(row.pending_input, "base64") } : {}),
 			...(row.timeout_ms !== null ? { timeoutMs: row.timeout_ms } : {}),
 			failFast: row.fail_fast === 1,
@@ -450,6 +474,7 @@ export class TaskGroups {
 			nodeIds: JSON.parse(row.node_ids) as string[],
 			parallel: row.parallel,
 			failFast: row.fail_fast === 1,
+			outputMode: row.output_mode,
 			skipped: JSON.parse(row.skipped) as string[],
 			tasks,
 			createdAt: row.created_at,

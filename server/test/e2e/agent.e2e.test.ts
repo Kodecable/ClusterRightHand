@@ -151,6 +151,61 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 				expect(await readFile(t.outputFile as string, "utf8")).toBe(expected);
 			}));
 
+		it("batch output: text keeps a combined tail, status keeps only the node's file", () =>
+			withLog(async () => {
+				const text = await env.crhs.api("/api/task-groups", {
+					body: {
+						kind: "exec",
+						shell: "echo out; echo err >&2",
+						targets: [env.nodeId],
+						outputMode: "text",
+						waitMs: 20_000,
+					},
+				});
+				expect(text.status).toBe(201);
+				expect(text.json.group.outputMode).toBe("text");
+				const t = text.json.group.tasks[0];
+				expect(t).toMatchObject({
+					state: "exited",
+					exitCode: 0,
+					outputMode: "text",
+					stdoutHead: "",
+					stderrHead: "",
+					stderrTail: "",
+				});
+				// One combined tail in arrival order, and the byte totals stay per stream.
+				expect(t.stdoutTail).toContain("out");
+				expect(t.stdoutTail).toContain("err");
+				expect(t.stdoutBytes).toBeGreaterThan(0);
+				expect(t.stderrBytes).toBeGreaterThan(0);
+				expect(t.outputFile).toBeTruthy();
+
+				const status = await env.crhs.api("/api/task-groups", {
+					body: {
+						kind: "exec",
+						shell: "echo hidden",
+						targets: [env.nodeId],
+						outputMode: "status",
+						waitMs: 20_000,
+					},
+				});
+				expect(status.status).toBe(201);
+				expect(status.json.group.outputMode).toBe("status");
+				const s = status.json.group.tasks[0];
+				expect(s).toMatchObject({
+					state: "exited",
+					exitCode: 0,
+					outputMode: "status",
+					stdoutHead: "",
+					stdoutTail: "",
+					stderrHead: "",
+					stderrTail: "",
+				});
+				expect(s.stdoutBytes).toBe("hidden\n".length);
+				expect(s.outputFile).toBeTruthy();
+				expect(existsSync(s.outputFile as string)).toBe(true);
+			}));
+
 		it("files: write, edit, read, stat, list", () =>
 			withLog(async () => {
 				const dir = await mkdtemp(join(tmp, "files-"));

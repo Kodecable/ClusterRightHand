@@ -31,7 +31,8 @@ func StreamIndex(stream protocol.Stream) int {
 // Output records a task's stdout and stderr for streaming to crhs and for resending after a reconnect.
 // Output stays in memory until it exceeds the spill thresholds; then all of it, from the start, goes to
 // <dir>/<task id>.log, with both streams interleaved in arrival order (as `2>&1` would show them), and
-// only an index of the segments stays in memory. See doc/execution-plane.md#输出.
+// only an index of the segments stays in memory. With OutputOptions.AlwaysSpill the file is opened
+// before the first byte, so even empty or small output gets one. See doc/execution-plane.md#输出.
 type Output struct {
 	mu         sync.Mutex
 	taskID     string
@@ -69,8 +70,24 @@ type segment struct {
 	fileOff   uint64 // inFile only
 }
 
-func NewOutput(taskID, dir string, spillBytes, spillLines uint64) *Output {
-	return &Output{taskID: taskID, dir: dir, spillBytes: spillBytes, spillLines: spillLines, notify: make(chan struct{}, 1)}
+// OutputOptions configures an Output.
+type OutputOptions struct {
+	// SpillBytes and SpillLines are the thresholds above which output moves from memory to the
+	// output file. 0 disables that threshold.
+	SpillBytes uint64
+	SpillLines uint64
+	// AlwaysSpill writes everything to the output file from the first byte, even when the output
+	// is empty or stays below the thresholds, so the file always exists. Batch "text"/"status"
+	// tasks use it. If the file cannot be created, output stays in memory like before.
+	AlwaysSpill bool
+}
+
+func NewOutput(taskID, dir string, opts OutputOptions) *Output {
+	o := &Output{taskID: taskID, dir: dir, spillBytes: opts.SpillBytes, spillLines: opts.SpillLines, notify: make(chan struct{}, 1)}
+	if opts.AlwaysSpill {
+		o.createFile()
+	}
+	return o
 }
 
 // Notify is signalled (without blocking) whenever output is added or the output is closed.
@@ -143,22 +160,34 @@ func (o *Output) memoryBytes() uint64 {
 	return n
 }
 
-// spill moves everything recorded so far into the output file. On failure output stays in memory
-// (up to maxMemoryOutput).
-func (o *Output) spill() {
-	if o.dir == "" {
-		return
+// createFile opens <dir>/<task id>.log and makes it the output file. It returns false and leaves the
+// Output unchanged when no file can be created, in which case output stays in memory. Callers hold
+// o.mu or own o exclusively.
+func (o *Output) createFile() bool {
+	if o.dir == "" || o.file != nil {
+		return false
 	}
 	path := filepath.Join(o.dir, o.taskID+".log")
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
+		return false
+	}
+	o.file, o.path, o.fileLen = f, path, 0
+	return true
+}
+
+// spill moves everything recorded so far into the output file. On failure output stays in memory
+// (up to maxMemoryOutput).
+func (o *Output) spill() {
+	if !o.createFile() {
 		return
 	}
 	var off uint64
 	for _, s := range o.segments {
-		if _, err := f.WriteAt(s.data, int64(off)); err != nil {
-			f.Close()
-			os.Remove(path)
+		if _, err := o.file.WriteAt(s.data, int64(off)); err != nil {
+			o.file.Close()
+			os.Remove(o.path)
+			o.file, o.path, o.fileLen = nil, "", 0
 			return
 		}
 		off += s.length
@@ -169,7 +198,7 @@ func (o *Output) spill() {
 		s.place, s.fileOff, s.data = inFile, off, nil
 		off += s.length
 	}
-	o.file, o.path, o.fileLen = f, path, off
+	o.fileLen = off
 }
 
 func (o *Output) signal() {

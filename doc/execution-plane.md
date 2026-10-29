@@ -37,7 +37,7 @@ privileged     true | false             # true 时为特权任务，走授权链
 attempt        1, 2, 3, ...             # 同一 task id 的授权尝试；payload 和 task.start 都带
 authorization  可选：特权任务的一个授权对象（payload + signatures[]）；本地批准时为空，见 privilege.md
 timeout_ms     超时后先发 SIGTERM，宽限期过后发 SIGKILL（杀整个进程组）
-output_mode    status | text：批量默认 status；单任务默认 text
+output_mode    full | text | status：单任务为 full（头尾 + 超阈值落盘）；任务组为 text 或 status，默认 status
 output_limit   客户端为该任务缓冲输出的上限
 ```
 
@@ -103,6 +103,10 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
   - 即使某个节点的输出被丢弃，crhs 仍按已收到的偏移发送 `task.output.ack`/`task.exit.ack`，让 crha 释放缓冲。
   - 不为失败节点预留额外预算：失败节点也按到达顺序参与；需要完整错误输出时使用节点文件，或对单个任务改用完整输出模式。这是内存上限优先的已知取舍。
   - SSH 节点不保存完整输出：`status` 只返回状态，`text` 只返回受单节点和总预算限制的尾部输出。
+  - `text` 的尾部是**一份合并尾部**：stdout 和 stderr 按到达 crhs 的顺序拼在一起（与节点文件的 `2>&1` 一致），不分流保存；字节数仍按流分别统计。行数按换行符计：滚动时保留最多“额度行数”个换行符之后的内容。
+  - 预算只在 crhs 内存中按任务组维护。crhs 重启后，未结束任务的输出由 crha 从偏移 0 重发，按新的到达顺序重新发放额度；已结束任务的尾部已经存库，不再参与。内存上限不变。
+  - `status` 模式下 crha 不发送 `task.output`，所以 crhs 收到 `task.exit` 时不检查输出是否收全（只有 `full`/`text` 检查）；`task.exit` 中的字节数和文件路径照常记录。
+  - 任务组的输出模式在创建时确定（Web API `outputMode`、MCP `output` 参数，默认 `status`），写入 `task_groups.output_mode` 和其下每个任务的 `tasks.output_mode`；单任务的 `tasks.output_mode` 为 `full`。
 
 ## 自有协议（M3.5）
 

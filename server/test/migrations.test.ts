@@ -4,7 +4,13 @@ import { sql } from "kysely";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Db } from "../src/storage/db.ts";
 import { up } from "../src/storage/migrations/0019_cbor_protocol.ts";
-import { describeBackends, openTestDb } from "./helpers/db.ts";
+import { up as up0020 } from "../src/storage/migrations/0020_output_mode.ts";
+import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
+
+/** Applies a migration's schema changes under the same DDL lock as the migrator. */
+function applyMigration(backend: Backend, db: Db, migration: (db: Kysely<unknown>) => Promise<void>): Promise<void> {
+	return withDdlLockOn(backend, () => migration(db as unknown as Kysely<unknown>));
+}
 
 const SHA = Buffer.alloc(32, 0xab).toString("base64");
 const SHA_HEX = Buffer.alloc(32, 0xab).toString("hex");
@@ -43,29 +49,31 @@ describeBackends("0019 cbor protocol migration", (backend) => {
 
 	beforeEach(async () => {
 		db = await openTestDb(backend, { migrate: false });
-		await db.schema
-			.createTable("tasks")
-			.addColumn("id", "text", (c) => c.primaryKey())
-			.addColumn("spec", "text")
-			.execute();
-		await db.schema
-			.createTable("task_groups")
-			.addColumn("id", "text", (c) => c.primaryKey())
-			.addColumn("spec", "text")
-			.addColumn("kind", "text")
-			.execute();
-		await db.schema
-			.createTable("nodes")
-			.addColumn("id", "text", (c) => c.primaryKey())
-			.addColumn("facts", "text")
-			.execute();
-		for (const [id, spec] of Object.entries(SPECS)) {
-			await sql`insert into tasks (id, spec) values (${id}, ${spec})`.execute(db);
-		}
-		await sql`insert into task_groups (id, spec, kind) values (${"g1"}, ${SPECS["t-read"] as string}, ${"fileRead"})`.execute(
-			db,
-		);
-		await sql`insert into nodes (id, facts) values (${"n1"}, ${FACTS})`.execute(db);
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("tasks")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("spec", "text")
+				.execute();
+			await db.schema
+				.createTable("task_groups")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("spec", "text")
+				.addColumn("kind", "text")
+				.execute();
+			await db.schema
+				.createTable("nodes")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("facts", "text")
+				.execute();
+			for (const [id, spec] of Object.entries(SPECS)) {
+				await sql`insert into tasks (id, spec) values (${id}, ${spec})`.execute(db);
+			}
+			await sql`insert into task_groups (id, spec, kind) values (${"g1"}, ${SPECS["t-read"] as string}, ${"fileRead"})`.execute(
+				db,
+			);
+			await sql`insert into nodes (id, facts) values (${"n1"}, ${FACTS})`.execute(db);
+		});
 	});
 
 	afterEach(async () => {
@@ -75,7 +83,7 @@ describeBackends("0019 cbor protocol migration", (backend) => {
 	it("adds tasks.attempt with a default of 1", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
-			await up(db as unknown as Kysely<unknown>);
+			await applyMigration(backend, db, up);
 		} finally {
 			warn.mockRestore();
 		}
@@ -87,7 +95,7 @@ describeBackends("0019 cbor protocol migration", (backend) => {
 	it("converts every TaskSpec kind, facts and the task group kind", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
-			await up(db as unknown as Kysely<unknown>);
+			await applyMigration(backend, db, up);
 		} finally {
 			warn.mockRestore();
 		}
@@ -172,10 +180,42 @@ describeBackends("0019 cbor protocol migration", (backend) => {
 	it("logs and keeps a row whose spec cannot be converted", async () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
-			await up(db as unknown as Kysely<unknown>);
+			await applyMigration(backend, db, up);
 			expect(warn.mock.calls.some((call) => String(call[0]).includes("leaving task t-bad unchanged"))).toBe(true);
 		} finally {
 			warn.mockRestore();
 		}
+	});
+});
+
+describeBackends("0020 output mode migration", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("tasks")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.execute();
+			await db.schema
+				.createTable("task_groups")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.execute();
+			await sql`insert into tasks (id) values (${"t1"})`.execute(db);
+			await sql`insert into task_groups (id) values (${"g1"})`.execute(db);
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("gives existing tasks full output and existing groups text", async () => {
+		await applyMigration(backend, db, up0020);
+		const tasks = await sql<{ id: string; output_mode: string }>`select id, output_mode from tasks`.execute(db);
+		expect(tasks.rows).toEqual([{ id: "t1", output_mode: "full" }]);
+		const groups = await sql<{ id: string; output_mode: string }>`select id, output_mode from task_groups`.execute(db);
+		expect(groups.rows).toEqual([{ id: "g1", output_mode: "text" }]);
 	});
 });

@@ -11,7 +11,7 @@ import (
 
 func runExec(t *testing.T, ctx context.Context, spec *protocol.ExecSpec, stdin string, opts ExecOptions) (Result, string, string) {
 	t.Helper()
-	o := NewOutput("x", "", 0, 0)
+	o := NewOutput("x", "", OutputOptions{})
 	var in *strings.Reader
 	if stdin != "" {
 		in = strings.NewReader(stdin)

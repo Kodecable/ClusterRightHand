@@ -315,6 +315,139 @@ func execTask(id, shell string) protocol.TaskStart {
 	}
 }
 
+// execTaskMode is execTask with a different output mode.
+func execTaskMode(id, shell string, mode protocol.OutputMode) protocol.TaskStart {
+	t := execTask(id, shell)
+	t.Output = mode
+	return t
+}
+
+// TestBatchOutputModes covers the batch output rules from doc/execution-plane.md#输出: "text" and
+// "status" always create the node output file, "status" never sends task.output, and single-task
+// "full" keeps small output in memory.
+func TestBatchOutputModes(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		mode       protocol.OutputMode
+		wantOutput bool
+		wantFile   bool
+	}{
+		{"full", protocol.OutputMode{Kind: protocol.OutputFull, SpillBytes: 1 << 20, SpillLines: 2000}, true, false},
+		{"text", protocol.OutputMode{Kind: protocol.OutputText}, true, true},
+		{"status", protocol.OutputMode{Kind: protocol.OutputStatus}, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			serverKey, err := noise.GenerateKeypair()
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			id := "batch-" + tc.name
+			log := &frameLog{}
+			exitCh := make(chan protocol.TaskExit, 1)
+			factsReady := make(chan struct{})
+			srv := startFake(t, serverKey, fakeConfig{
+				log: log,
+				setup: func(p *protocol.Peer) {
+					p.HandleEvent(protocol.EventFacts, func(body cbor.RawMessage) error {
+						var f protocol.Facts
+						if err := protocol.Unmarshal(body, &f); err != nil {
+							return err
+						}
+						signal(factsReady)
+						return nil
+					})
+					p.HandleEvent(protocol.EventTaskExit, func(body cbor.RawMessage) error {
+						var exit protocol.TaskExit
+						if err := protocol.Unmarshal(body, &exit); err != nil {
+							return err
+						}
+						select {
+						case exitCh <- exit:
+						default:
+						}
+						return nil
+					})
+				},
+				run: func(ctx context.Context, p *protocol.Peer) {
+					<-factsReady
+					var empty protocol.Empty
+					if err := p.Request(ctx, protocol.CmdTaskStart,
+						execTaskMode(id, "printf out; printf oops >&2", tc.mode), &empty); err != nil {
+						t.Errorf("task.start: %v", err)
+					}
+				},
+			})
+			a := newTestAgent(t, Options{OutputDir: dir})
+			startSession(t, a, dialTo(t, srv, serverKey))
+
+			exit := waitCh(t, exitCh, "task.exit")
+			if exit.TaskID != id {
+				t.Fatalf("task.exit = %+v", exit)
+			}
+			if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
+				t.Fatalf("task.exit outcome = %+v, want code 0", exit.Outcome)
+			}
+			if exit.StdoutEnd != 3 || exit.StderrEnd != 4 {
+				t.Fatalf("ends = %d/%d, want 3/4", exit.StdoutEnd, exit.StderrEnd)
+			}
+			wantPath := filepath.Join(dir, id+".log")
+			if !tc.wantFile {
+				if exit.OutputFile != "" {
+					t.Fatalf("output_file = %q, want empty for small in-memory output", exit.OutputFile)
+				}
+			} else {
+				if exit.OutputFile != wantPath {
+					t.Fatalf("output_file = %q, want %q", exit.OutputFile, wantPath)
+				}
+				data, err := os.ReadFile(wantPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(data) != 7 || !strings.Contains(string(data), "out") || !strings.Contains(string(data), "oops") {
+					t.Fatalf("output file = %q, want stdout and stderr interleaved", data)
+				}
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			files := 0
+			for _, e := range entries {
+				if strings.HasSuffix(e.Name(), ".log") {
+					files++
+				}
+			}
+			wantFiles := 0
+			if tc.wantFile {
+				wantFiles = 1
+			}
+			if files != wantFiles {
+				t.Fatalf("%d output files, want %d", files, wantFiles)
+			}
+			frames := log.snapshot()
+			if sent := indexOf(frames, "event task.output") >= 0; sent != tc.wantOutput {
+				t.Fatalf("task.output sent = %v, want %v (frames: %v)", sent, tc.wantOutput, frames)
+			}
+
+			// Hello keeps reporting the real stream ends in every mode, including "status".
+			hello := a.hello()
+			found := false
+			for _, st := range hello.Tasks {
+				if st.TaskID == id {
+					found = true
+					if st.StdoutEnd != 3 || st.StderrEnd != 4 {
+						t.Fatalf("hello ends = %d/%d, want 3/4", st.StdoutEnd, st.StderrEnd)
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("hello does not list %s: %+v", id, hello.Tasks)
+			}
+		})
+	}
+}
+
 func TestTaskStartResponsePrecedesEvents(t *testing.T) {
 	serverKey, err := noise.GenerateKeypair()
 	if err != nil {

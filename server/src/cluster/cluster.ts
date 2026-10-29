@@ -26,9 +26,10 @@ import { loadChain, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import type { TaskState as TaskRowState, TasksTable } from "../storage/schema.ts";
 import { newId } from "../util/id.ts";
+import { createLiveTask, GroupBudget, type LiveTask, type OutputSnapshot } from "./batch-output.ts";
 import type { NodeConnection } from "./connection.ts";
 import { getNode, markNodeSeen, type NodeRow, nodeGroupNames, updateNodeFacts } from "./nodes.ts";
-import { OUTPUT_KEEP_BYTES, OUTPUT_KEEP_LINES, StreamAccumulator } from "./output.ts";
+import { OUTPUT_KEEP_BYTES, OUTPUT_KEEP_LINES } from "./output.ts";
 import { connect as connectSsh, SshError, type SshRoute, type SshSession } from "./ssh/connection.ts";
 import { runSshExec, SshConnectionLost, type SshExecSink, shellQuote } from "./ssh/exec.ts";
 import { FileTaskError, runSftpFileTask } from "./ssh/file-task.ts";
@@ -47,6 +48,8 @@ export interface CreateTaskInput {
 	input?: Uint8Array;
 	privileged?: boolean;
 	timeoutMs?: number;
+	/** How much output to keep; single tasks use `full`, a group's tasks get its mode. */
+	outputMode?: "full" | "text" | "status";
 	actor: Actor;
 	taskGroupId?: string;
 	/** The rule chain, root first; omitted when a user acts in person (doc/access-control.md#规则链). */
@@ -105,10 +108,16 @@ export interface TaskView {
 	stdoutBytes: number;
 	stderrBytes: number;
 	stdoutHead: string;
+	/**
+	 * For `text` mode this is the combined stdout/stderr tail in arrival order (the only output kept);
+	 * the other head/tail fields are "" then. A trailing newline ends the last line.
+	 */
 	stdoutTail: string;
 	stderrHead: string;
 	stderrTail: string;
 	outputFile: string | null;
+	/** How much output was kept for this task (doc/execution-plane.md#输出). */
+	outputMode: "full" | "text" | "status";
 	/** One line describing what ran: the command line or the path. */
 	summary: string;
 	/** What authorization rules match on (doc/privilege.md#方法与目标); null if the spec cannot be read. */
@@ -160,12 +169,23 @@ const AUTHORIZATION_CODES: ReadonlySet<string> = new Set([
 export const EMPTY_INPUT_REF: InputRef = { size: 0, sha256: createHash("sha256").update(new Uint8Array(0)).digest() };
 
 /** A task between dispatch and its recorded end: output accumulates here, not in the database. */
-interface LiveTask {
+interface Live {
 	id: string;
 	nodeId: string;
-	stdout: StreamAccumulator;
-	stderr: StreamAccumulator;
+	/** The task's group, for the shared batch budget; null for a single task. */
+	groupId: string | null;
+	output: LiveTask;
 }
+
+/** No output at all: a task that never ran, or a status task before task.exit names its file. */
+const EMPTY_OUTPUT: OutputSnapshot = {
+	stdoutBytes: 0,
+	stderrBytes: 0,
+	stdoutHead: null,
+	stdoutTail: null,
+	stderrHead: null,
+	stderrTail: null,
+};
 
 interface NodeLink {
 	conn: NodeConnection;
@@ -196,7 +216,9 @@ export class Cluster {
 	readonly #sshSessions = new Map<string, Promise<SshSession>>();
 	readonly #sshCancels = new Map<string, AbortController>();
 	readonly #links = new Map<string, NodeLink>();
-	readonly #live = new Map<string, LiveTask>();
+	readonly #live = new Map<string, Live>();
+	/** One output budget per running `text` group, created lazily (doc/execution-plane.md#输出). */
+	readonly #budgets = new Map<string, GroupBudget>();
 	readonly #graceTimers = new Map<string, NodeJS.Timeout>();
 	readonly #waiters = new Map<string, Set<() => void>>();
 	/** Serializes database updates per task, since frames are handled asynchronously. */
@@ -323,9 +345,8 @@ export class Cluster {
 		peer.onEvent("task.output", (output) => {
 			const live = this.#ownLive(conn.nodeId, output.taskId);
 			if (!live) return;
-			const stream = output.stream === "stderr" ? live.stderr : live.stdout;
 			// A gap means the client could not resend; keep going, the record shows the byte counts.
-			stream.append(output.offset, output.data);
+			live.output.append(output.stream, output.offset, output.data);
 		});
 		peer.onEvent("task.exit", (exit) => this.#serial(exit.taskId, () => this.#onExit(conn, exit)));
 		peer.onEvent("facts", (facts) => this.#onFacts(conn.nodeId, facts));
@@ -368,8 +389,12 @@ export class Cluster {
 			// It ran because the client had accepted it, but the success response never reached us.
 			if (row.state === "dispatched") await this.#serial(t.taskId, () => this.#onAccepted(nodeId, t.taskId));
 			// After a crhs restart the output is gone from memory: start over and let the client resend it all.
-			const live = this.#live.get(t.taskId) ?? this.#newLive(t.taskId, nodeId);
-			acks.push({ taskId: t.taskId, stdoutOffset: live.stdout.end, stderrOffset: live.stderr.end });
+			const live = this.#live.get(t.taskId) ?? this.#newLive(t.taskId, nodeId, row.output_mode, row.task_group_id);
+			acks.push({
+				taskId: t.taskId,
+				stdoutOffset: live.output.end("stdout"),
+				stderrOffset: live.output.end("stderr"),
+			});
 		}
 		// The queries must not overtake the welcome, so they start only once it has been sent.
 		const open = await this.#db
@@ -419,12 +444,21 @@ export class Cluster {
 	async #onExit(conn: NodeConnection, exit: TaskExit): Promise<void> {
 		const row = await this.#row(exit.taskId);
 		if (!row || row.node_id !== conn.nodeId) return;
-		const live = this.#live.get(exit.taskId) ?? this.#newLive(exit.taskId, conn.nodeId);
+		const live =
+			this.#live.get(exit.taskId) ?? this.#newLive(exit.taskId, conn.nodeId, row.output_mode, row.task_group_id);
 		// TaskExit follows all output on the wire; if bytes are missing, the client will resend after a
-		// reconnect and send TaskExit again. Record what we have only when complete.
-		const complete = live.stdout.end >= exit.stdoutEnd && live.stderr.end >= exit.stderrEnd;
+		// reconnect and send TaskExit again. Record what we have only when complete. A `status` task gets
+		// no task.output at all, so there is nothing to wait for (doc/execution-plane.md#输出).
+		const complete =
+			row.output_mode === "status" ||
+			(live.output.end("stdout") >= exit.stdoutEnd && live.output.end("stderr") >= exit.stderrEnd);
 		if (!complete) return conn.close("output incomplete at exit");
 
+		// A status task's byte totals come from task.exit; the other modes already received the bytes.
+		const output =
+			row.output_mode === "status"
+				? live.output.snapshot({ stdout: exit.stdoutEnd, stderr: exit.stderrEnd })
+				: live.output.snapshot();
 		const outcome = exit.outcome;
 		const fields: Updateable<TasksTable> = {
 			exit_code: outcome.kind === "code" ? outcome.value : null,
@@ -433,12 +467,7 @@ export class Cluster {
 			error_message: outcome.kind === "error" ? outcome.message : null,
 			timed_out: exit.timedOut ? 1 : 0,
 			cancelled: exit.cancelled ? 1 : 0,
-			stdout_bytes: live.stdout.end,
-			stderr_bytes: live.stderr.end,
-			stdout_head: live.stdout.head().toString("base64"),
-			stdout_tail: live.stdout.tail().toString("base64"),
-			stderr_head: live.stderr.head().toString("base64"),
-			stderr_tail: live.stderr.tail().toString("base64"),
+			...outputColumns(output),
 			output_file: exit.outputFile || null,
 		};
 		if (row.state === "unknown") {
@@ -451,7 +480,7 @@ export class Cluster {
 		} else if (!TERMINAL.has(row.state)) {
 			await this.#finish(conn.nodeId, row.id, { ...fields, state: outcome.kind === "error" ? "failed" : "exited" });
 		}
-		this.#live.delete(row.id);
+		this.#dropLive(row.id);
 		conn.peer.emit("task.exit.ack", { taskId: row.id });
 	}
 
@@ -509,6 +538,7 @@ export class Cluster {
 				input_sha256: input.input ? inputSha.toString("hex") : null,
 				privileged: input.privileged ? 1 : 0,
 				timeout_ms: input.timeoutMs ?? null,
+				output_mode: input.outputMode ?? "full",
 				// Allowed tasks pass through awaiting_approval only for the instant before dispatch.
 				state: denied ? "denied" : "awaiting_approval",
 				exit_code: null,
@@ -576,6 +606,7 @@ export class Cluster {
 	): Promise<void> {
 		const ssh = node.transport === "ssh";
 		const link = this.#links.get(node.id);
+		const row = await this.#row(id);
 		const fresh = await getNode(this.#db, node.id);
 		const online =
 			fresh?.status === "active" && (ssh ? this.#sshRoute !== undefined : link?.ready === true && !link.conn.closed);
@@ -610,10 +641,10 @@ export class Cluster {
 		}
 		this.#notify(id);
 		if (ssh) {
-			this.#newLive(id, node.id);
+			this.#newLive(id, node.id, row?.output_mode ?? "full", row?.task_group_id ?? null);
 			void this.#runSsh(id, node, spec, inputBytes.length > 0 ? inputBytes : undefined, opts.timeoutMs);
 		} else if (link) {
-			this.#newLive(id, node.id);
+			this.#newLive(id, node.id, row?.output_mode ?? "full", row?.task_group_id ?? null);
 			// The start may be refused or the link may drop; the state machine follows the response.
 			void this.#dispatchRemote(link, id, spec, inputBytes, opts);
 		}
@@ -632,6 +663,7 @@ export class Cluster {
 	): Promise<void> {
 		const nodeId = link.conn.nodeId;
 		const row = await this.#row(id);
+		const mode = row?.output_mode ?? "full";
 		const start: TaskStart = {
 			taskId: id,
 			attempt: row?.attempt ?? 1,
@@ -640,7 +672,10 @@ export class Cluster {
 			authorizations: [],
 			timeoutMs: opts.timeoutMs ?? 0,
 			killGraceMs: 0,
-			output: { kind: "full", spillBytes: OUTPUT_KEEP_BYTES, spillLines: OUTPUT_KEEP_LINES },
+			output:
+				mode === "full"
+					? { kind: "full", spillBytes: OUTPUT_KEEP_BYTES, spillLines: OUTPUT_KEEP_LINES }
+					: { kind: mode },
 		};
 		try {
 			await link.conn.peer.request("task.start", start);
@@ -904,6 +939,15 @@ export class Cluster {
 		return true;
 	}
 
+	/**
+	 * Releases the output budget a batch `text` group shares. TaskGroups calls this when the group itself is
+	 * done (finished, interrupted or rejected), not when its last task ends: with `parallel: 1` every node
+	 * would otherwise get a fresh budget. Returns whether a budget was still held.
+	 */
+	releaseGroupBudget(groupId: string): boolean {
+		return this.#budgets.delete(groupBudgetKey(groupId));
+	}
+
 	// ---- SSH nodes: no crha, no resume; see doc/execution-plane.md#ssh-传输 ----
 
 	#sshSession(node: NodeRow): Promise<SshSession> {
@@ -926,11 +970,11 @@ export class Cluster {
 		input: Uint8Array | undefined,
 		timeoutMs: number | undefined,
 	): Promise<void> {
-		const live = this.#live.get(id) as LiveTask;
+		const live = this.#live.get(id) as Live;
 		let isStarted = false;
 		const sink = {
-			stdout: (d: Uint8Array) => void live.stdout.append(live.stdout.end, d),
-			stderr: (d: Uint8Array) => void live.stderr.append(live.stderr.end, d),
+			stdout: (d: Uint8Array) => void live.output.append("stdout", live.output.end("stdout"), d),
+			stderr: (d: Uint8Array) => void live.output.append("stderr", live.output.end("stderr"), d),
 			started: () => {
 				isStarted = true;
 				void this.#serial(id, () => this.#onAccepted(node.id, id));
@@ -938,14 +982,8 @@ export class Cluster {
 		};
 		const ac = new AbortController();
 		this.#sshCancels.set(id, ac);
-		const outputFields = () => ({
-			stdout_bytes: live.stdout.end,
-			stderr_bytes: live.stderr.end,
-			stdout_head: live.stdout.head().toString("base64"),
-			stdout_tail: live.stdout.tail().toString("base64"),
-			stderr_head: live.stderr.head().toString("base64"),
-			stderr_tail: live.stderr.tail().toString("base64"),
-		});
+		// SSH keeps no full output (no output file): status saves only byte counts, text its budgeted tail.
+		const outputFields = () => outputColumns(live.output.snapshot());
 		try {
 			let fields: Updateable<TasksTable>;
 			// A pooled connection may have died without notice; nothing has run yet, so retry once fresh.
@@ -974,7 +1012,7 @@ export class Cluster {
 			}
 		} finally {
 			this.#sshCancels.delete(id);
-			if (this.#live.get(id) === live) this.#live.delete(id);
+			if (this.#live.get(id) === live) this.#dropLive(id);
 		}
 	}
 
@@ -1018,13 +1056,32 @@ export class Cluster {
 
 	// ---- helpers ----
 
-	#newLive(id: string, nodeId: string): LiveTask {
-		const live = { id, nodeId, stdout: new StreamAccumulator(), stderr: new StreamAccumulator() };
+	#newLive(id: string, nodeId: string, mode: "full" | "text" | "status", groupId: string | null): Live {
+		const budget = mode === "text" ? this.#budgetFor(budgetKey(groupId, id)) : undefined;
+		const live: Live = { id, nodeId, groupId, output: createLiveTask(mode, budget) };
 		this.#live.set(id, live);
 		return live;
 	}
 
-	#ownLive(nodeId: string, taskId: string): LiveTask | undefined {
+	#budgetFor(key: string): GroupBudget {
+		let budget = this.#budgets.get(key);
+		if (!budget) {
+			budget = new GroupBudget();
+			this.#budgets.set(key, budget);
+		}
+		return budget;
+	}
+
+	/** Drops the live record. A group's budget outlives its tasks and goes with releaseGroupBudget. */
+	#dropLive(id: string): void {
+		const live = this.#live.get(id);
+		if (!live) return;
+		this.#live.delete(id);
+		// A text task outside a group has no group end to release its budget.
+		if (live.groupId === null) this.#budgets.delete(budgetKey(null, live.id));
+	}
+
+	#ownLive(nodeId: string, taskId: string): Live | undefined {
 		const live = this.#live.get(taskId);
 		return live?.nodeId === nodeId ? live : undefined;
 	}
@@ -1036,17 +1093,12 @@ export class Cluster {
 	async #markUnknown(id: string, reason: string): Promise<void> {
 		const row = await this.#row(id);
 		if (!row || TERMINAL.has(row.state)) return;
-		const live = this.#live.get(id);
+		const output = this.#live.get(id)?.output.snapshot() ?? EMPTY_OUTPUT;
 		await this.#finish(row.node_id, id, {
 			state: "unknown",
 			error_code: reason,
 			error_message: "execution status unknown",
-			stdout_bytes: live?.stdout.end ?? 0,
-			stderr_bytes: live?.stderr.end ?? 0,
-			stdout_head: live?.stdout.head().toString("base64") ?? null,
-			stdout_tail: live?.stdout.tail().toString("base64") ?? null,
-			stderr_head: live?.stderr.head().toString("base64") ?? null,
-			stderr_tail: live?.stderr.tail().toString("base64") ?? null,
+			...outputColumns(output),
 		});
 	}
 
@@ -1058,7 +1110,7 @@ export class Cluster {
 			.where("node_id", "=", nodeId)
 			.where("state", "in", ["dispatched", "running"])
 			.executeTakeFirst();
-		if (fields.state !== "unknown") this.#live.delete(id);
+		if (fields.state !== "unknown") this.#dropLive(id);
 		this.#notify(id);
 		if (res.numUpdatedRows > 0n) await this.#auditFinish(id);
 	}
@@ -1138,9 +1190,11 @@ function withInputRef(spec: TaskSpec, ref: { size: number; sha256: Uint8Array } 
 	}
 }
 
-function toView(row: Selectable<TasksTable>, live: LiveTask | undefined): TaskView {
+function toView(row: Selectable<TasksTable>, live: Live | undefined): TaskView {
 	const b64 = (s: string | null) => (s ? Buffer.from(s, "base64").toString("utf8") : "");
 	const fromLive = live && !TERMINAL.has(row.state);
+	const text = (b: Buffer | null) => (b ? b.toString("utf8") : "");
+	const output = fromLive ? live.output.snapshot() : undefined;
 	return {
 		id: row.id,
 		nodeId: row.node_id,
@@ -1157,13 +1211,15 @@ function toView(row: Selectable<TasksTable>, live: LiveTask | undefined): TaskVi
 		cancelled: row.cancelled === 1,
 		errorCode: row.error_code,
 		errorMessage: row.error_message,
-		stdoutBytes: fromLive ? live.stdout.end : Number(row.stdout_bytes),
-		stderrBytes: fromLive ? live.stderr.end : Number(row.stderr_bytes),
-		stdoutHead: fromLive ? live.stdout.head().toString("utf8") : b64(row.stdout_head),
-		stdoutTail: fromLive ? live.stdout.tail().toString("utf8") : b64(row.stdout_tail),
-		stderrHead: fromLive ? live.stderr.head().toString("utf8") : b64(row.stderr_head),
-		stderrTail: fromLive ? live.stderr.tail().toString("utf8") : b64(row.stderr_tail),
+		stdoutBytes: output ? output.stdoutBytes : Number(row.stdout_bytes),
+		stderrBytes: output ? output.stderrBytes : Number(row.stderr_bytes),
+		stdoutHead: output ? text(output.stdoutHead) : b64(row.stdout_head),
+		// Text mode puts the combined tail here; its other head/tail fields are empty.
+		stdoutTail: output ? text(output.stdoutTail) : b64(row.stdout_tail),
+		stderrHead: output ? text(output.stderrHead) : b64(row.stderr_head),
+		stderrTail: output ? text(output.stderrTail) : b64(row.stderr_tail),
 		outputFile: row.output_file,
+		outputMode: row.output_mode,
 		createdAt: row.created_at,
 		finishedAt: row.finished_at,
 		taskGroupId: row.task_group_id,
@@ -1173,6 +1229,27 @@ function toView(row: Selectable<TasksTable>, live: LiveTask | undefined): TaskVi
 		handlerType: row.handler_type,
 		handlerSessionId: row.handler_session_id,
 	};
+}
+
+/** The DB columns of an output snapshot; null fields mean the mode keeps no head/tail there. */
+function outputColumns(out: OutputSnapshot) {
+	return {
+		stdout_bytes: out.stdoutBytes,
+		stderr_bytes: out.stderrBytes,
+		stdout_head: out.stdoutHead?.toString("base64") ?? null,
+		stdout_tail: out.stdoutTail?.toString("base64") ?? null,
+		stderr_head: out.stderrHead?.toString("base64") ?? null,
+		stderr_tail: out.stderrTail?.toString("base64") ?? null,
+	};
+}
+
+/** A group's budget is shared by its tasks; a single text task (not produced by the code) gets its own. */
+function budgetKey(groupId: string | null, taskId: string): string {
+	return groupId ? groupBudgetKey(groupId) : `task:${taskId}`;
+}
+
+function groupBudgetKey(groupId: string): string {
+	return `group:${groupId}`;
 }
 
 function operationOfJson(specJson: string): { method: string; target: string } | null {

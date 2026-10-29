@@ -55,7 +55,7 @@ secrets           (id, org_id, kind, ciphertext, created_at)          -- 用主�
 
 ```
 task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail_fast,
-                   output_mode[status|text],                          -- 批量输出模式；默认 status
+                   output_mode[status|text],                          -- 批量输出模式；新建默认 status，M3.5 之前的组为 text
                    skipped json,                                      -- 因 fail_fast 或中断而未启动的节点
                    rule_chain json nullable, approval json nullable,  -- 一个任务组只审批一次
                    spec json nullable, timeout_ms nullable, pending_input nullable,
@@ -66,7 +66,7 @@ task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail
                    state[awaiting_approval|awaiting_authorization|running|finished|interrupted|rejected],
                    actor_type, actor_id, on_behalf_of_user_id, created_at, finished_at)
 tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json, input_size, input_sha256,
-                   privileged, attempt, timeout_ms, output_mode[status|text],
+                   privileged, attempt, timeout_ms, output_mode[full|text|status],  -- 单任务 full；组内任务随组
                    state[awaiting_approval|awaiting_authorization|denied|dispatched|running|exited|failed|rejected|unknown],
                    exit_code, signal, timed_out, cancelled,
                    error_code, error_message,                         -- 执行器错误码、拒绝原因或 unknown 的原因

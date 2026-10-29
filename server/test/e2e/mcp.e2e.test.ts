@@ -165,13 +165,13 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 	it("runs a batch as one approval for the group", async () => {
 		const t = await token("ask");
 		const client = await connect(t.token);
-		const g = await call(client, "exec", { targets: [nodeName], cmd: "echo batch", wait: 0 });
+		const g = await call(client, "exec", { targets: [nodeName], cmd: "echo batch", output: "text", wait: 0 });
 		expect(g).toMatchObject({ state: "awaiting_approval", nodes: [] });
 		await env.crhs.api(`/api/task-groups/${g.task_group_id}/approval`, { body: { decision: "approve" } });
 		const done = await call(client, "task_wait", { task_group_id: g.task_group_id });
 		expect(done).toMatchObject({
 			state: "finished",
-			nodes: [expect.objectContaining({ exit_code: 0, stdout: "batch\n" })],
+			nodes: [expect.objectContaining({ exit_code: 0, output: "batch\n" })],
 		});
 		await client.close();
 	});

@@ -55,6 +55,7 @@ export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 		if (!Array.isArray(targets) || !targets.every((t) => typeof t === "string")) {
 			throw new BadRequest("targets must be an array of node names and group:<name>");
 		}
+		const outputMode = parseOutputMode(body);
 		const nodeIds = await resolveTargets(db, user, targets);
 		const { spec, input } = parseTask(body);
 		const id = await groups.create({
@@ -62,6 +63,7 @@ export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 			nodeIds,
 			spec,
 			input,
+			outputMode,
 			timeoutMs: optionalInt(body, "timeoutMs"),
 			parallel: optionalInt(body, "parallel"),
 			failFast: body.failFast === true,
@@ -240,5 +242,13 @@ function optionalInt(body: Record<string, unknown>, key: string): number | undef
 	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
 		throw new BadRequest(`${key} must be a non-negative integer`);
 	}
+	return value;
+}
+
+/** The batch output mode; omitted means the group's default (`status`), see doc/execution-plane.md#输出. */
+function parseOutputMode(body: Record<string, unknown>): "status" | "text" | undefined {
+	const value = body.outputMode;
+	if (value === undefined) return undefined;
+	if (value !== "status" && value !== "text") throw new BadRequest('outputMode must be "status" or "text"');
 	return value;
 }

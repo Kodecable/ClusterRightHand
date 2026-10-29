@@ -52,7 +52,7 @@ export async function openTestDb(backend: Backend, { migrate = true } = {}): Pro
  * Kysely's migrator introspects every schema in the database, which fails if a parallel test file drops its
  * schema at the same moment. Test files therefore take turns for DDL.
  */
-async function withDdlLock<T>(fn: () => Promise<T>): Promise<T> {
+export async function withDdlLock<T>(fn: () => Promise<T>): Promise<T> {
 	const client = new pg.Client({ connectionString: pgUrl });
 	await client.connect();
 	try {
@@ -61,4 +61,9 @@ async function withDdlLock<T>(fn: () => Promise<T>): Promise<T> {
 	} finally {
 		await client.end(); // releases the session-level lock
 	}
+}
+
+/** Runs DDL under the lock on PostgreSQL; SQLite has no shared schemas, so it just runs the work. */
+export function withDdlLockOn<T>(backend: Backend, fn: () => Promise<T>): Promise<T> {
+	return backend === "postgres" ? withDdlLock(fn) : fn();
 }

@@ -10,11 +10,26 @@ test("runs a batch on a node picked by name", async ({ adminPage: page, crhs }) 
 	const name: string = json.nodes[0].name;
 	await page.getByRole("checkbox", { name }).check();
 	await page.getByRole("textbox", { name: "Shell command" }).fill("echo batch-by-name");
+	await page.getByLabel("Output").selectOption({ label: "Tail of output" });
 	await page.getByRole("button", { name: "Run on 1 target(s)" }).click();
 	const row = page.getByRole("row").filter({ has: page.getByRole("link", { name }) });
 	await expect(row.getByText("exit 0")).toBeVisible({ timeout: 20_000 });
 	await row.getByText("Show").click();
-	await expect(row.getByRole("region", { name: /stdout/ })).toContainText("batch-by-name");
+	await expect(row.getByRole("region", { name: "output" })).toContainText("batch-by-name");
+});
+
+test("batch status shows the node's output file instead of output", async ({ adminPage: page, crhs }) => {
+	await page.goto("/#/batch");
+	const { json } = await crhs.api("/api/nodes");
+	const name: string = json.nodes[0].name;
+	await page.getByRole("checkbox", { name }).check();
+	await page.getByRole("textbox", { name: "Shell command" }).fill("echo status-only");
+	// Status is the default; crhs keeps no output, only the node's file.
+	await page.getByRole("button", { name: "Run on 1 target(s)" }).click();
+	const row = page.getByRole("row").filter({ has: page.getByRole("link", { name }) });
+	await expect(row.getByText("exit 0")).toBeVisible({ timeout: 20_000 });
+	await row.getByText("Show").click();
+	await expect(row.getByText(/Status only;/)).toBeVisible();
 });
 
 test("runs a batch on a group target", async ({ adminPage: page, crhs, env }) => {

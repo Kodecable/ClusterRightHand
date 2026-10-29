@@ -124,6 +124,7 @@ describeBackends("task groups", (backend) => {
 				kind: "exec",
 				parallel: 1,
 				fail_fast: 0,
+				output_mode: "text",
 				skipped: "[]",
 				state: "running",
 				actor_type: "user",

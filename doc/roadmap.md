@@ -4,12 +4,12 @@
 
 ## M0 骨架
 
-- 仓库结构：`server/`、`web/`、`client/`（M0 时含 `proto/`；M3.5 删除）。
+- 仓库结构：`server/`、`web/`、`client/`（M0 时含 `proto/`；M3.5 已删除）。
 - Kysely + 迁移（SQLite 和 PG），CI 中两种数据库都跑。
 - 用户（管理员 / 普通用户）、用户组、登录（本地密码）、节点与会话的归属和分享。
 - `crhs keys export` / `import`（age 口令加密）。
 - LICENSE（MIT）。
-- （历史）最初用 buf 生成 Go 和 TS protobuf 协议代码；M3.5 计划改为 CBOR，见下文。
+- （历史）最初用 buf 生成 Go 和 TS protobuf 协议代码；M3.5 已改为手写 CBOR，见下文。
 
 ## M1 执行平面（已完成，见下文"进度"）
 
@@ -45,7 +45,7 @@
 
 **完成标志**：在 WebUI 中通过会话管理多台节点；服务端在工具执行中途重启后，会话能继续，结果正确。已完成（2026-10-27）：真实模型冒烟与浏览器走查手工执行，其余有自动化测试。
 
-## M3.5 协议重构：protobuf → CBOR（计划中）
+## M3.5 协议重构：protobuf → CBOR（已完成，见下文"进度"）
 
 - 完整替换 crhs ↔ crha 的 protobuf 协议；Web API、数据库和 WebUI 继续使用 JSON。
 - 不保证旧协议兼容：握手协商协议版本，版本不匹配直接拒绝；开发期内没有滚动升级负担。
@@ -118,5 +118,12 @@
   - durable 运行时（SQLite 官方存储、PostgreSQL `PgStorage`，均通过官方一致性测试）；会话与 cluster 工具（`replay: "safe"`，重启后重新挂接）；模型配置（内置 provider、OpenAI 兼容端点、额外请求头）；WebUI 会话页（SSE 流式）与模型设置；配额与子会话状态（根不扣减，D72、D76、D77）；subagent（前台/后台、`subagent_wait` / `list` / `cancel` / `decide`，父会话 agent 处理子会话审批，D75）；Auto Review；节点笔记；会话分享（view / chat）；停止会话时取消其任务和子会话；存储失败后重新打开 Harness；故障注入（工具执行中 SIGKILL、模型流式输出中 SIGKILL）与性能回归测试。
   - 真实模型冒烟（opencode zen `deepseek-v4.1-flash`）与 WebUI 浏览器走查手工完成，不在 CI 中。
   - 配额只管理 subagent，根会话固定 0 且不扣减；不足时暂停工具调用并只向直接父请求；durable 1.4.0 没有请求前的拦截点，检查发生在响应之后（D72）。
-- **M3.5**：计划中，未开始。完整替换 crhs ↔ crha 的 protobuf 为 CBOR，版本在握手协商，双向命令/事件，删除 protobuf/buf/生成代码；Web API/数据库 JSON 不变。详见 [execution-plane.md](execution-plane.md#自有协议m35)。
+- **M3.5**：已完成（2026-10-29）。
+  - 协议：`CBOR-CORE-INT-v1` 严格编解码（重编码比对），TS（`packages/protocol`）和 Go（`client/internal/protocol`）各自按 [protocol.md](protocol.md) 手写，TS 生成的帧 fixture 由 Go 独立解码校验；握手先读大版本，命令集合取交集；双向命令/事件，`task.start` 成功响应即 accepted，响应先于任务事件。
+  - 语义：crha 记录已接受的 task id（最近 10 万个），响应丢失时任务仍执行，crhs 从下次 `hello` 得知；`authorization_*` 在 M3.5 按最终拒绝处理（M4 改为重试）；pending 节点的受限连接与 `node.status` 推送，被拒绝时 `crha run` 非零退出；外部文本发送前清洗为合法 UTF-8。
+  - 存储：迁移 0019（protobuf JSON → 新 JSON 形式，`tasks.attempt`）、0020（`output_mode`）。
+  - 批量输出：任务组默认 `status`（不推送输出，完整输出在节点文件），`text` 为每节点合并尾部 8KB/128 行、全组共享 50KB/2000 行额度预算；SSH 遵守同样规则但不保存完整输出；MCP `output` 参数、Web API `outputMode`、WebUI 批量页选择。
+  - 已删除 `proto/`、buf、`@bufbuild/*`、Go protobuf 模块和生成代码。
+  - 测试：单元测试（SQLite + PostgreSQL + 真实 sshd）、真实 crha 二进制 e2e（含 SIGSTOP / 杀进程 / 重启）、WebUI 浏览器测试、性能回归全部通过。
+  - 未完成：CI 中仍未跑 SSH 测试（需要 sshd 服务容器，同 M1）；迁移 0019 没有在真实生产数据上演练过（fixture 已与旧 protobuf-es 的实际输出核对）。
 - **M4**：计划中，未开始。细节、阶段和测试矩阵见 [m4.md](m4.md)。

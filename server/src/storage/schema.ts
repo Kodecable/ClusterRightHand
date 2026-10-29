@@ -136,6 +136,11 @@ export type TaskState =
 /** Who must handle a waiting approval: an agent session, or the user (the task's on_behalf user). */
 export type ApprovalHandlerType = "agent" | "user";
 
+/** How much output crhs keeps for a task (doc/execution-plane.md#输出). */
+export type OutputMode = "full" | "text" | "status";
+/** A task group is a batch, so it chooses between the two batch modes only. */
+export type BatchOutputMode = "status" | "text";
+
 /** Columns shared by tasks and task groups for the rule chain and approval (doc/access-control.md#审批). */
 interface ApprovalColumns {
 	/** JSON [{ type, id }], root first; null for a user acting in person. */
@@ -166,6 +171,8 @@ export interface TasksTable extends ApprovalColumns {
 	attempt: number;
 	privileged: number;
 	timeout_ms: number | null;
+	/** `full` for a single task; the group's mode for its tasks. */
+	output_mode: OutputMode;
 	state: TaskState;
 	exit_code: number | null;
 	signal: string | null;
@@ -199,6 +206,8 @@ export interface TaskGroupsTable extends ApprovalColumns {
 	kind: string;
 	parallel: number;
 	fail_fast: number;
+	/** The batch output mode, fixed when the group is created. */
+	output_mode: BatchOutputMode;
 	skipped: string;
 	state: TaskGroupState;
 	actor_type: string;

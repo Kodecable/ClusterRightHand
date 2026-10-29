@@ -77,6 +77,7 @@ export function Batch() {
 	const [extra, setExtra] = useState("");
 	const [parallel, setParallel] = useState("");
 	const [failFast, setFailFast] = useState(false);
+	const [outputMode, setOutputMode] = useState<"status" | "text">("status");
 	const [group, setGroup] = useState<TaskGroupView>();
 	const [error, setError] = useState<string>();
 	const [busy, setBusy] = useState(false);
@@ -105,6 +106,7 @@ export function Batch() {
 				waitMs: 0,
 				targets,
 				failFast,
+				outputMode,
 				...(p !== undefined ? { parallel: p } : {}),
 			});
 			setGroup(g);
@@ -153,6 +155,13 @@ export function Batch() {
 					</label>
 					<label className="inline">
 						<input type="checkbox" checked={failFast} onChange={(e) => setFailFast(e.target.checked)} /> fail fast
+					</label>
+					<label>
+						Output
+						<select value={outputMode} onChange={(e) => setOutputMode(e.target.value as "status" | "text")}>
+							<option value="status">Status only</option>
+							<option value="text">Tail of output</option>
+						</select>
 					</label>
 				</div>
 				<ErrorText error={error} />

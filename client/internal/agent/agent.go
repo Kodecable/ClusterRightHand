@@ -36,8 +36,8 @@ const (
 	maxBackoff      = time.Minute
 
 	// defaultSpillBytes and defaultSpillLines are the single-task output thresholds from
-	// doc/execution-plane.md#输出. Batch "text"/"status" modes use the same thresholds for now;
-	// their real batch behaviour is a later phase.
+	// doc/execution-plane.md#输出. Batch "text"/"status" tasks always spill; they use these only
+	// as the memory thresholds when the output file cannot be created.
 	defaultSpillBytes = 50 << 10
 	defaultSpillLines = 2000
 )
@@ -143,6 +143,9 @@ type task struct {
 	// response usually launches it, but when that response cannot be sent the session-end sweep
 	// does, so both can race and launch must be idempotent.
 	started bool
+	// suppressOutput withholds task.output events for batch "status" tasks, which deliver only
+	// task.exit (with the real stream ends) and the output file.
+	suppressOutput bool
 
 	// TaskInput chunks for the executor (stdin or file content), fed by a goroutine so that a slow
 	// reader never blocks the receive loop.
@@ -423,32 +426,42 @@ func (a *Agent) nextOutbound() *outbound {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for _, t := range a.tasks {
-		for _, s := range [...]protocol.Stream{protocol.StreamStdout, protocol.StreamStderr} {
-			idx := executor.StreamIndex(s)
-			if t.sent[idx] >= t.output.End(s) {
-				continue
+		if !t.suppressOutput {
+			for _, s := range [...]protocol.Stream{protocol.StreamStdout, protocol.StreamStderr} {
+				idx := executor.StreamIndex(s)
+				if t.sent[idx] >= t.output.End(s) {
+					continue
+				}
+				data, err := t.output.ReadAt(s, t.sent[idx], outputChunk)
+				if err != nil || len(data) == 0 {
+					// Lost output (memory cap without a spill file): skip it; TaskExit's ends tell crhs.
+					a.log.Warn("output lost", "task", t.id, "stream", s, "err", err)
+					t.sent[idx] = t.output.End(s)
+					continue
+				}
+				off := t.sent[idx]
+				t.sent[idx] += uint64(len(data))
+				return &outbound{name: protocol.EventTaskOutput, body: protocol.TaskOutput{
+					TaskID: t.id, Stream: s, Offset: protocol.Uint(off), Data: data,
+				}}
 			}
-			data, err := t.output.ReadAt(s, t.sent[idx], outputChunk)
-			if err != nil || len(data) == 0 {
-				// Lost output (memory cap without a spill file): skip it; TaskExit's ends tell crhs.
-				a.log.Warn("output lost", "task", t.id, "stream", s, "err", err)
-				t.sent[idx] = t.output.End(s)
-				continue
-			}
-			off := t.sent[idx]
-			t.sent[idx] += uint64(len(data))
-			return &outbound{name: protocol.EventTaskOutput, body: protocol.TaskOutput{
-				TaskID: t.id, Stream: s, Offset: protocol.Uint(off), Data: data,
-			}}
 		}
-		if t.done && !t.exitSent &&
-			t.sent[executor.StreamIndex(protocol.StreamStdout)] >= uint64(t.result.StdoutEnd) &&
-			t.sent[executor.StreamIndex(protocol.StreamStderr)] >= uint64(t.result.StderrEnd) {
+		if t.done && !t.exitSent && t.exitReady() {
 			t.exitSent = true // resent after every reconnect until acknowledged
 			return &outbound{name: protocol.EventTaskExit, body: t.result}
 		}
 	}
 	return nil
+}
+
+// exitReady reports whether every output byte task.exit reports has been sent. Batch "status" tasks
+// send no output at all, so their exit is ready as soon as the task is done. a.mu must be held.
+func (t *task) exitReady() bool {
+	if t.suppressOutput {
+		return true
+	}
+	return t.sent[executor.StreamIndex(protocol.StreamStdout)] >= uint64(t.result.StdoutEnd) &&
+		t.sent[executor.StreamIndex(protocol.StreamStderr)] >= uint64(t.result.StderrEnd)
 }
 
 func (a *Agent) keepalive(ctx context.Context, peer *protocol.Peer) error {
@@ -514,8 +527,12 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 		return nil, err
 	}
 
-	spillBytes, spillLines := outputLimits(ts.Output)
-	t := &task{id: ts.TaskID, spec: ts, output: executor.NewOutput(ts.TaskID, a.opts.OutputDir, spillBytes, spillLines)}
+	t := &task{
+		id:             ts.TaskID,
+		spec:           ts,
+		output:         executor.NewOutput(ts.TaskID, a.opts.OutputDir, outputOptions(ts.Output)),
+		suppressOutput: ts.Output.Kind == protocol.OutputStatus,
+	}
 	var in io.Reader
 	if ref := inputRef(&ts.Spec); ref != nil {
 		r, w := io.Pipe()
@@ -627,17 +644,22 @@ func checkTaskKind(spec protocol.TaskSpec) *protocol.RemoteError {
 	return nil
 }
 
-// outputLimits returns the spill thresholds for a TaskStart. "full" carries them on the wire.
-func outputLimits(mode protocol.OutputMode) (uint64, uint64) {
+// outputOptions returns the executor output configuration for a TaskStart. "full" carries its spill
+// thresholds on the wire; batch "text" and "status" tasks always write the full output to the node
+// file, so task.exit carries its path even when the output is empty. See
+// doc/execution-plane.md#输出.
+func outputOptions(mode protocol.OutputMode) executor.OutputOptions {
 	switch mode.Kind {
 	case protocol.OutputFull:
-		return uint64(mode.SpillBytes), uint64(mode.SpillLines)
+		return executor.OutputOptions{SpillBytes: uint64(mode.SpillBytes), SpillLines: uint64(mode.SpillLines)}
 	case protocol.OutputText, protocol.OutputStatus:
-		// Batch modes are a later phase; for now use the single-task server defaults, i.e. the
-		// same spill behaviour as "full".
-		return defaultSpillBytes, defaultSpillLines
+		return executor.OutputOptions{
+			SpillBytes:  defaultSpillBytes,
+			SpillLines:  defaultSpillLines,
+			AlwaysSpill: true,
+		}
 	default:
-		return 0, 0
+		return executor.OutputOptions{}
 	}
 }
 

@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import type { TaskView } from "./api.ts";
 import {
 	alwaysRule,
+	batchOutput,
 	buildTargets,
 	enrollCommand,
 	isTerminal,
@@ -36,6 +37,17 @@ test("joinOutput overlapping head and tail", () => {
 
 test("joinOutput counts bytes, not characters", () => {
 	expect(joinOutput("é", "é!", 3).omitted).toBe(0);
+});
+
+test("batchOutput reads the fields by output mode", () => {
+	const base = { stdoutBytes: 100, stderrBytes: 20, stdoutTail: "tail\n", outputFile: "/var/lib/crha/output/t.log" };
+	expect(batchOutput({ ...base, outputMode: "full" })).toEqual({ kind: "full" });
+	expect(batchOutput({ ...base, outputMode: "text" })).toEqual({ kind: "tail", text: "tail\n", bytes: 120 });
+	expect(batchOutput({ ...base, outputMode: "status" })).toEqual({
+		kind: "status",
+		file: "/var/lib/crha/output/t.log",
+	});
+	expect(batchOutput({ ...base, outputMode: "status", outputFile: null })).toEqual({ kind: "status", file: null });
 });
 
 test("splitArgv", () => {
