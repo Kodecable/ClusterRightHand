@@ -1,3 +1,4 @@
+import { factsFromJson } from "@crh/protocol/wire";
 import type { Selectable } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
@@ -104,7 +105,7 @@ export function toPublicNode(row: NodeRow, access: NodeAccess, groups: string[])
 	let facts: unknown = null;
 	if (row.facts !== null) {
 		try {
-			facts = JSON.parse(row.facts);
+			facts = factsFromJson(JSON.parse(row.facts));
 		} catch {}
 	}
 	return {

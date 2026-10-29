@@ -1,18 +1,24 @@
 import { createHash } from "node:crypto";
-import { clone, create, fromJson, toJson } from "@bufbuild/protobuf";
 import {
-	type Envelope,
+	type AfterResponse,
+	afterResponse,
+	ConnectionError,
 	type Facts,
-	FactsSchema,
-	type HandshakeInit,
-	InputRefSchema,
-	Stream,
+	factsToJson,
+	type Hello,
+	type InputRef,
+	type NodeStatus,
+	type OutputAck,
+	ProtocolError,
+	RemoteError,
 	type TaskExit,
 	type TaskSpec,
-	TaskSpecSchema,
-	TaskState,
+	type TaskStart,
 	type TaskStatus,
-} from "@crh/protocol";
+	taskSpecFromJson,
+	taskSpecToJson,
+	type Welcome,
+} from "@crh/protocol/wire";
 import type { Selectable, Updateable } from "kysely";
 import type { Audit } from "../audit/audit.ts";
 import { type Evaluation, evaluate, operationOf } from "../policy/rules.ts";
@@ -125,7 +131,7 @@ export interface TaskView {
 export interface ClusterOptions {
 	/** How long a node may stay disconnected before its tasks are reported unknown(connection_lost). */
 	reconnectGraceMs?: number;
-	/** TaskInput chunk size; one envelope must stay under 60 KiB. */
+	/** TaskInput chunk size; one frame must stay under MAX_FRAME_BYTES (60 KiB). */
 	inputChunkBytes?: number;
 	/**
 	 * A connection with no message for this long is closed. crha must ping at least every 45 s (crhs only answers); this catches hung
@@ -138,14 +144,20 @@ export interface ClusterOptions {
 }
 
 export const TERMINAL: ReadonlySet<TaskRowState> = new Set(["exited", "failed", "rejected", "unknown", "denied"]);
-const KINDS: Record<string, string> = {
-	exec: "exec",
-	fileRead: "file.read",
-	fileWrite: "file.write",
-	fileEdit: "file.edit",
-	fileStat: "file.stat",
-	fileList: "file.list",
-};
+
+/** Codes a crha may answer `task.start` with before accepting; M3.5 records them as a final rejection. */
+const AUTHORIZATION_CODES: ReadonlySet<string> = new Set([
+	"authorization_required",
+	"authorization_invalid",
+	"authorization_expired",
+	"authorization_rejected",
+]);
+
+/**
+ * The ref of an empty input. file.write always carries one; callers set it and createTask overwrites it
+ * from the input actually sent (doc/protocol.md#json-形式服务端存储).
+ */
+export const EMPTY_INPUT_REF: InputRef = { size: 0, sha256: createHash("sha256").update(new Uint8Array(0)).digest() };
 
 /** A task between dispatch and its recorded end: output accumulates here, not in the database. */
 interface LiveTask {
@@ -187,7 +199,7 @@ export class Cluster {
 	readonly #live = new Map<string, LiveTask>();
 	readonly #graceTimers = new Map<string, NodeJS.Timeout>();
 	readonly #waiters = new Map<string, Set<() => void>>();
-	/** Serializes database updates per task, since envelopes are handled asynchronously. */
+	/** Serializes database updates per task, since frames are handled asynchronously. */
 	readonly #queues = new Map<string, Promise<void>>();
 
 	constructor(db: Db, options: ClusterOptions = {}) {
@@ -204,7 +216,7 @@ export class Cluster {
 	}
 
 	/** Called by AgentServer after a successful handshake. */
-	attach(conn: NodeConnection, node: NodeRow, init: HandshakeInit): void {
+	attach(conn: NodeConnection, node: NodeRow): void {
 		const previous = this.#links.get(node.id);
 		const link: NodeLink = {
 			conn,
@@ -220,24 +232,35 @@ export class Cluster {
 		this.#graceTimers.delete(node.id);
 
 		const idle = setTimeout(() => conn.close("idle timeout"), this.#idleMs);
-		conn.onEnvelope((env) => {
-			idle.refresh();
-			this.#handle(link, env).catch((err: unknown) => {
-				conn.close(`internal error: ${(err as Error).message}`);
-			});
-		});
+		conn.onActivity(() => idle.refresh());
+		if (link.active) this.#registerActive(conn, link);
+		else this.#registerRestricted(conn);
 		conn.onClose(() => {
 			clearTimeout(idle);
 			this.#detach(link);
 		});
 		void markNodeSeen(this.#db, node.id);
 		if (link.active) this.#auditConnection(link, "node.connected");
-		void init;
 	}
 
 	/** Closes a node's connection, e.g. after approval (crha reconnects as active) or deletion. */
 	disconnect(nodeId: string, reason: string): void {
 		this.#links.get(nodeId)?.conn.close(reason);
+	}
+
+	/**
+	 * Tells a connected node about a status change, then closes the connection: crha reconnects as an
+	 * active node after approval, or stops (rejected) after deletion. See doc/execution-plane.md#注册.
+	 */
+	notifyNodeStatus(nodeId: string, state: NodeStatus["state"], message: string): void {
+		const link = this.#links.get(nodeId);
+		if (!link) return;
+		try {
+			link.conn.peer.emit("node.status", { nodeId, state, message });
+		} catch {
+			// The peer is already going away; the close below finishes it.
+		}
+		link.conn.close(message);
 	}
 
 	close(): void {
@@ -290,86 +313,92 @@ export class Cluster {
 		}
 	}
 
-	// ---- incoming messages ----
+	// ---- incoming commands and events ----
 
-	async #handle(link: NodeLink, env: Envelope): Promise<void> {
-		const conn = link.conn;
-		const body = env.body;
-		if (body.case === "ping") return conn.send({ case: "pong", value: { seq: body.value.seq } });
-		if (body.case === "pong") return;
-		if (body.case === "facts") return this.#onFacts(conn.nodeId, body.value);
-		if (!link.active) return; // pending nodes may only report facts
+	/** An active node: the full command and event set of doc/protocol.md. */
+	#registerActive(conn: NodeConnection, link: NodeLink): void {
+		const peer = conn.peer;
+		peer.onRequest("hello", (hello: Hello) => this.#onHello(link, hello.tasks));
+		peer.onRequest("ping", (ping) => ping);
+		peer.onEvent("task.output", (output) => {
+			const live = this.#ownLive(conn.nodeId, output.taskId);
+			if (!live) return;
+			const stream = output.stream === "stderr" ? live.stderr : live.stdout;
+			// A gap means the client could not resend; keep going, the record shows the byte counts.
+			stream.append(output.offset, output.data);
+		});
+		peer.onEvent("task.exit", (exit) => this.#serial(exit.taskId, () => this.#onExit(conn, exit)));
+		peer.onEvent("facts", (facts) => this.#onFacts(conn.nodeId, facts));
+	}
 
-		switch (body.case) {
-			case "hello":
-				return this.#onHello(link, body.value.tasks);
-			case "taskAccepted":
-				return this.#serial(body.value.taskId, () => this.#onAccepted(conn.nodeId, body.value.taskId));
-			case "taskRejected":
-				return this.#serial(body.value.taskId, () =>
-					this.#finish(conn.nodeId, body.value.taskId, {
-						state: "rejected",
-						error_code: "rejected",
-						error_message: body.value.reason,
-					}),
-				);
-			case "taskOutput": {
-				const live = this.#ownLive(conn.nodeId, body.value.taskId);
-				if (!live) return;
-				const stream = body.value.stream === Stream.STDERR ? live.stderr : live.stdout;
-				if (!stream.append(Number(body.value.offset), body.value.data)) {
-					// A gap means the client could not resend; keep going, the record shows the byte counts.
-				}
-				return;
-			}
-			case "taskExit":
-				return this.#serial(body.value.taskId, () => this.#onExit(conn, body.value));
-			case "taskStatus":
-				return this.#serial(body.value.taskId, () => this.#onStatus(link, body.value));
-			default:
-				return;
-		}
+	/**
+	 * A pending node may only report facts and ping; hello is answered with an empty welcome. Everything
+	 * else is `node_pending` (doc/protocol.md#受限连接).
+	 */
+	#registerRestricted(conn: NodeConnection): void {
+		const peer = conn.peer;
+		peer.onRequest("hello", () => afterResponse<Welcome>({ acks: [] }, () => {}));
+		peer.onRequest("ping", (ping) => ping);
+		peer.onEvent("facts", (facts) => this.#onFacts(conn.nodeId, facts));
+		const pending = () => {
+			throw new RemoteError("node_pending", "node is pending approval");
+		};
+		peer.onRequest("task.start", pending);
+		peer.onRequest("task.input", pending);
+		peer.onRequest("task.cancel", pending);
+		peer.onRequest("task.query", pending);
 	}
 
 	async #onFacts(nodeId: string, facts: Facts): Promise<void> {
 		await updateNodeFacts(this.#db, nodeId, {
-			facts: toJson(FactsSchema, facts),
+			facts: factsToJson(facts),
 			groups: facts.groups,
 		});
 	}
 
 	/** Reconciles the client's task list with ours, answers with Welcome, then queries the rest. */
-	async #onHello(link: NodeLink, tasks: TaskStatus[]): Promise<void> {
+	async #onHello(link: NodeLink, tasks: TaskStatus[]): Promise<AfterResponse<Welcome>> {
 		const nodeId = link.conn.nodeId;
-		const acks = [];
+		const acks: OutputAck[] = [];
 		const reported = new Set<string>();
 		for (const t of tasks) {
 			const row = await this.#row(t.taskId);
 			if (!row || row.node_id !== nodeId) continue;
 			reported.add(t.taskId);
+			// It ran because the client had accepted it, but the success response never reached us.
+			if (row.state === "dispatched") await this.#serial(t.taskId, () => this.#onAccepted(nodeId, t.taskId));
 			// After a crhs restart the output is gone from memory: start over and let the client resend it all.
 			const live = this.#live.get(t.taskId) ?? this.#newLive(t.taskId, nodeId);
-			acks.push({ taskId: t.taskId, stdoutOffset: BigInt(live.stdout.end), stderrOffset: BigInt(live.stderr.end) });
+			acks.push({ taskId: t.taskId, stdoutOffset: live.stdout.end, stderrOffset: live.stderr.end });
 		}
-		link.conn.send({ case: "welcome", value: { capabilities: [], acks } });
-		link.ready = true;
-
+		// The queries must not overtake the welcome, so they start only once it has been sent.
 		const open = await this.#db
 			.selectFrom("tasks")
 			.select("id")
 			.where("node_id", "=", nodeId)
 			.where("state", "in", ["dispatched", "running"])
 			.execute();
-		for (const { id } of open) {
-			if (reported.has(id)) continue;
-			link.queried.add(id);
-			link.conn.send({ case: "taskQuery", value: { taskId: id } });
-		}
+		return afterResponse({ acks }, () => {
+			link.ready = true;
+			for (const { id } of open) {
+				if (reported.has(id)) continue;
+				link.queried.add(id);
+				link.conn.peer.request("task.query", { taskId: id }).then(
+					(status) => {
+						void this.#serial(id, () => this.#onStatus(link, status));
+					},
+					(err: unknown) => {
+						if (err instanceof ConnectionError) return;
+						console.error("task.query failed:", err);
+					},
+				);
+			}
+		});
 	}
 
 	async #onStatus(link: NodeLink, status: TaskStatus): Promise<void> {
 		if (!link.queried.delete(status.taskId)) return;
-		if (status.state !== TaskState.UNKNOWN) return; // it will show up in the next Hello or send TaskExit
+		if (status.state !== "unknown") return; // it will show up in the next Hello or send TaskExit
 		const row = await this.#row(status.taskId);
 		if (!row || row.node_id !== link.conn.nodeId || TERMINAL.has(row.state)) return;
 		// Not accepted: the start may never have arrived. Accepted: the client restarted and lost it.
@@ -393,15 +422,15 @@ export class Cluster {
 		const live = this.#live.get(exit.taskId) ?? this.#newLive(exit.taskId, conn.nodeId);
 		// TaskExit follows all output on the wire; if bytes are missing, the client will resend after a
 		// reconnect and send TaskExit again. Record what we have only when complete.
-		const complete = live.stdout.end >= Number(exit.stdoutEnd) && live.stderr.end >= Number(exit.stderrEnd);
+		const complete = live.stdout.end >= exit.stdoutEnd && live.stderr.end >= exit.stderrEnd;
 		if (!complete) return conn.close("output incomplete at exit");
 
 		const outcome = exit.outcome;
 		const fields: Updateable<TasksTable> = {
-			exit_code: outcome.case === "exitCode" ? outcome.value : null,
-			signal: outcome.case === "signal" ? outcome.value : null,
-			error_code: outcome.case === "error" ? outcome.value.code : null,
-			error_message: outcome.case === "error" ? outcome.value.message : null,
+			exit_code: outcome.kind === "code" ? outcome.value : null,
+			signal: outcome.kind === "signal" ? outcome.value : null,
+			error_code: outcome.kind === "error" ? outcome.code : null,
+			error_message: outcome.kind === "error" ? outcome.message : null,
 			timed_out: exit.timedOut ? 1 : 0,
 			cancelled: exit.cancelled ? 1 : 0,
 			stdout_bytes: live.stdout.end,
@@ -420,10 +449,10 @@ export class Cluster {
 				.where("id", "=", row.id)
 				.execute();
 		} else if (!TERMINAL.has(row.state)) {
-			await this.#finish(conn.nodeId, row.id, { ...fields, state: outcome.case === "error" ? "failed" : "exited" });
+			await this.#finish(conn.nodeId, row.id, { ...fields, state: outcome.kind === "error" ? "failed" : "exited" });
 		}
 		this.#live.delete(row.id);
-		conn.send({ case: "taskExitAck", value: { taskId: row.id } });
+		conn.peer.emit("task.exit.ack", { taskId: row.id });
 	}
 
 	// ---- task API ----
@@ -442,8 +471,7 @@ export class Cluster {
 	async createTask(input: CreateTaskInput): Promise<TaskView> {
 		const node = await getNode(this.#db, input.nodeId);
 		if (!node) throw new Error(`no such node: ${input.nodeId}`);
-		const kind = KINDS[input.spec.kind.case ?? ""];
-		if (!kind) throw new Error("task spec has no kind");
+		const kind = input.spec.kind;
 		if (input.id) {
 			const existing = await this.getTask(input.id);
 			if (existing) return existing;
@@ -475,7 +503,8 @@ export class Cluster {
 				node_id: node.id,
 				task_group_id: input.taskGroupId ?? null,
 				kind,
-				spec: JSON.stringify(toJson(TaskSpecSchema, spec)),
+				spec: JSON.stringify(taskSpecToJson(spec)),
+				attempt: 1,
 				input_size: input.input ? inputBytes.length : null,
 				input_sha256: input.input ? inputSha.toString("hex") : null,
 				privileged: input.privileged ? 1 : 0,
@@ -519,7 +548,7 @@ export class Cluster {
 			detail: {
 				node_id: node.id,
 				kind,
-				summary: summarize(JSON.stringify(toJson(TaskSpecSchema, spec))),
+				summary: summarize(JSON.stringify(taskSpecToJson(spec))),
 				task_group_id: input.taskGroupId,
 				input_sha256: input.input ? inputSha.toString("hex") : undefined,
 				policy: approval ? approval.evaluation.result : "none",
@@ -585,30 +614,65 @@ export class Cluster {
 			void this.#runSsh(id, node, spec, inputBytes.length > 0 ? inputBytes : undefined, opts.timeoutMs);
 		} else if (link) {
 			this.#newLive(id, node.id);
-			// TaskStart goes out exactly once; a failure here surfaces as a closed connection.
-			try {
-				link.conn.send({
-					case: "taskStart",
-					value: {
-						taskId: id,
-						spec,
-						privileged: opts.privileged ?? false,
-						authorizations: [],
-						timeoutMs: BigInt(opts.timeoutMs ?? 0),
-						killGraceMs: 0n,
-						spillBytes: BigInt(OUTPUT_KEEP_BYTES),
-						spillLines: BigInt(OUTPUT_KEEP_LINES),
-					},
-				});
-				for (let off = 0; off < inputBytes.length; off += this.#chunk) {
-					link.conn.send({
-						case: "taskInput",
-						value: { taskId: id, offset: BigInt(off), data: inputBytes.subarray(off, off + this.#chunk) },
-					});
-				}
-			} catch {
-				link.conn.close("send failed");
+			// The start may be refused or the link may drop; the state machine follows the response.
+			void this.#dispatchRemote(link, id, spec, inputBytes, opts);
+		}
+	}
+
+	/**
+	 * Sends `task.start` exactly once, then, once accepted, the input as pipelined `task.input` requests.
+	 * See doc/execution-plane.md#不重复执行与授权重试.
+	 */
+	async #dispatchRemote(
+		link: NodeLink,
+		id: string,
+		spec: TaskSpec,
+		inputBytes: Uint8Array,
+		opts: { privileged?: boolean; timeoutMs?: number },
+	): Promise<void> {
+		const nodeId = link.conn.nodeId;
+		const row = await this.#row(id);
+		const start: TaskStart = {
+			taskId: id,
+			attempt: row?.attempt ?? 1,
+			spec,
+			privileged: opts.privileged ?? false,
+			authorizations: [],
+			timeoutMs: opts.timeoutMs ?? 0,
+			killGraceMs: 0,
+			output: { kind: "full", spillBytes: OUTPUT_KEEP_BYTES, spillLines: OUTPUT_KEEP_LINES },
+		};
+		try {
+			await link.conn.peer.request("task.start", start);
+		} catch (err) {
+			if (err instanceof ConnectionError) {
+				// The task stays dispatched; the grace timer reports dispatch_unconfirmed.
+				return;
 			}
+			if (err instanceof RemoteError) {
+				const final: Updateable<TasksTable> = AUTHORIZATION_CODES.has(err.code)
+					? { state: "rejected", error_code: err.code, error_message: err.message }
+					: { state: "failed", error_code: err.code, error_message: err.message };
+				await this.#serial(id, () => this.#finish(nodeId, id, final));
+				return;
+			}
+			if (err instanceof ProtocolError) {
+				// Raised locally while encoding: the request was never sent, so nothing can have run.
+				await this.#serial(id, () =>
+					this.#finish(nodeId, id, { state: "failed", error_code: "invalid_spec", error_message: err.message }),
+				);
+				return;
+			}
+			console.error("task.start failed:", err);
+			link.conn.close("send failed");
+			return;
+		}
+		await this.#serial(id, () => this.#onAccepted(nodeId, id));
+		// Pipelined: crha processes the chunks in order; a failed chunk fails the task on its side.
+		for (let off = 0; off < inputBytes.length; off += this.#chunk) {
+			void link.conn.peer
+				.request("task.input", { taskId: id, offset: off, data: inputBytes.subarray(off, off + this.#chunk) })
+				.catch((err: unknown) => console.error(`task.input for ${id} failed:`, err));
 		}
 	}
 
@@ -628,7 +692,7 @@ export class Cluster {
 					.where("id", "=", id)
 					.execute();
 				const node = await getNode(this.#db, row.node_id);
-				const spec = fromJson(TaskSpecSchema, JSON.parse(row.spec));
+				const spec = taskSpecFromJson(JSON.parse(row.spec));
 				const input = row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0);
 				void this.#auditApproval(row, decision);
 				if (node) {
@@ -762,7 +826,7 @@ export class Cluster {
 			if (!node) continue;
 			let evaluation: Evaluation;
 			try {
-				evaluation = await this.evaluateFor(node, fromJson(TaskSpecSchema, JSON.parse(row.spec)), chain);
+				evaluation = await this.evaluateFor(node, taskSpecFromJson(JSON.parse(row.spec)), chain);
 			} catch {
 				continue; // a level is gone (e.g. a revoked token); expiry ends the task
 			}
@@ -834,7 +898,9 @@ export class Cluster {
 		}
 		const link = this.#links.get(row.node_id);
 		if (!link?.ready) return false;
-		link.conn.send({ case: "taskCancel", value: { taskId: id } });
+		void link.conn.peer.request("task.cancel", { taskId: id }).catch((err: unknown) => {
+			if (!(err instanceof ConnectionError)) console.error(`task.cancel for ${id} failed:`, err);
+		});
 		return true;
 	}
 
@@ -920,8 +986,8 @@ export class Cluster {
 		signal: AbortSignal,
 		sink: SshExecSink,
 	): Promise<Updateable<TasksTable>> {
-		if (spec.kind.case === "exec") {
-			const res = await runSshExec(session, spec.kind.value, input, sink, { timeoutMs, signal });
+		if (spec.kind === "exec") {
+			const res = await runSshExec(session, spec, input, sink, { timeoutMs, signal });
 			return {
 				state: res.error ? "failed" : "exited",
 				exit_code: res.exitCode ?? null,
@@ -1058,14 +1124,18 @@ export class Cluster {
 	}
 }
 
+/** Returns a copy with the input ref filled in from the bytes actually sent (doc/protocol.md#json-形式服务端存储). */
 function withInputRef(spec: TaskSpec, ref: { size: number; sha256: Uint8Array } | undefined): TaskSpec {
-	const copy = clone(TaskSpecSchema, spec);
-	if (!ref) return copy;
-	const inputRef = create(InputRefSchema, { size: BigInt(ref.size), sha256: ref.sha256 });
-	if (copy.kind.case === "exec") copy.kind.value.stdin = inputRef;
-	else if (copy.kind.case === "fileWrite") copy.kind.value.content = inputRef;
-	else throw new Error(`${copy.kind.case} takes no input`);
-	return copy;
+	const inputRef: InputRef | undefined = ref ? { size: ref.size, sha256: ref.sha256 } : undefined;
+	switch (spec.kind) {
+		case "exec":
+			return { ...spec, stdin: inputRef ?? null };
+		case "file.write":
+			return { ...spec, content: inputRef ?? EMPTY_INPUT_REF };
+		default:
+			if (inputRef) throw new Error(`${spec.kind} takes no input`);
+			return spec;
+	}
 }
 
 function toView(row: Selectable<TasksTable>, live: LiveTask | undefined): TaskView {
@@ -1107,7 +1177,7 @@ function toView(row: Selectable<TasksTable>, live: LiveTask | undefined): TaskVi
 
 function operationOfJson(specJson: string): { method: string; target: string } | null {
 	try {
-		return operationOf(fromJson(TaskSpecSchema, JSON.parse(specJson)));
+		return operationOf(taskSpecFromJson(JSON.parse(specJson)));
 	} catch {
 		return null;
 	}
@@ -1117,18 +1187,21 @@ function auditActor(actor: Actor) {
 	return { type: actor.type, id: actor.id, onBehalfOfUserId: actor.onBehalfOfUserId };
 }
 
-/** Spec JSON (protobuf JSON form) to a short description. */
+/** Spec JSON (doc/protocol.md#json-形式服务端存储) to a short description. */
 export function summarize(specJson: string): string {
 	try {
-		const spec = JSON.parse(specJson) as Record<string, Record<string, unknown>>;
-		const exec = spec.exec;
-		if (exec) {
-			if (typeof exec.shell === "string") return exec.shell;
-			return ((exec.argv as string[] | undefined) ?? []).map(shellQuote).join(" ");
+		const spec = JSON.parse(specJson) as {
+			kind?: unknown;
+			command?: { argv?: unknown; shell?: unknown };
+			path?: unknown;
+		};
+		if (spec.kind === "exec") {
+			const command = spec.command ?? {};
+			if (Array.isArray(command.argv)) return command.argv.map((arg) => shellQuote(String(arg))).join(" ");
+			if (typeof command.shell === "string") return command.shell;
+			return "";
 		}
-		for (const value of Object.values(spec)) {
-			if (typeof value?.path === "string") return value.path;
-		}
+		if (typeof spec.path === "string") return spec.path;
 	} catch {}
 	return "";
 }

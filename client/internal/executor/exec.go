@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Kodecable/ClusterRightHand/client/internal/proto/crhv1"
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"golang.org/x/sys/unix"
 )
 
@@ -37,7 +37,7 @@ type Result struct {
 
 // RunExec runs an exec task in its own process group. Cancelling ctx (crhs's TaskCancel) or the timeout
 // sends SIGTERM to the group, then SIGKILL after the grace period.
-func RunExec(ctx context.Context, spec *crhv1.ExecSpec, stdin io.Reader, out *Output, opts ExecOptions) Result {
+func RunExec(ctx context.Context, spec *protocol.ExecSpec, stdin io.Reader, out *Output, opts ExecOptions) Result {
 	argv, err := execArgv(spec)
 	if err != nil {
 		return Result{Err: err}
@@ -60,8 +60,8 @@ func RunExec(ctx context.Context, spec *crhv1.ExecSpec, stdin io.Reader, out *Ou
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 	cmd.Stdin = stdin
-	cmd.Stdout = out.Writer(crhv1.Stream_STREAM_STDOUT)
-	cmd.Stderr = out.Writer(crhv1.Stream_STREAM_STDERR)
+	cmd.Stdout = out.Writer(protocol.StreamStdout)
+	cmd.Stderr = out.Writer(protocol.StreamStderr)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = pipeWait
 
@@ -114,16 +114,23 @@ func RunExec(ctx context.Context, spec *crhv1.ExecSpec, stdin io.Reader, out *Ou
 	}
 }
 
-func execArgv(spec *crhv1.ExecSpec) ([]string, *Error) {
+func execArgv(spec *protocol.ExecSpec) ([]string, *Error) {
+	cmd := spec.Command
 	switch {
-	case len(spec.Argv) > 0 && spec.Shell != "":
+	case len(cmd.Argv) > 0 && cmd.Shell != "":
 		return nil, &Error{Code: "invalid_spec", Message: "argv and shell are mutually exclusive"}
-	case len(spec.Argv) > 0:
-		return spec.Argv, nil
-	case spec.Shell != "":
-		return []string{"/bin/sh", "-c", spec.Shell}, nil
+	case cmd.Kind == protocol.CommandArgv:
+		if len(cmd.Argv) == 0 {
+			return nil, &Error{Code: "invalid_spec", Message: "argv must not be empty"}
+		}
+		return cmd.Argv, nil
+	case cmd.Kind == protocol.CommandShell:
+		if cmd.Shell == "" {
+			return nil, &Error{Code: "invalid_spec", Message: "shell must not be empty"}
+		}
+		return []string{"/bin/sh", "-c", cmd.Shell}, nil
 	default:
-		return nil, &Error{Code: "invalid_spec", Message: "argv or shell is required"}
+		return nil, &Error{Code: "invalid_spec", Message: "command must be argv or shell"}
 	}
 }
 

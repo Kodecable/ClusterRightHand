@@ -1,5 +1,4 @@
-import { create } from "@bufbuild/protobuf";
-import { TaskSpecSchema } from "@crh/protocol";
+import type { TaskSpec } from "@crh/protocol/wire";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
@@ -77,7 +76,7 @@ describeBackends("task groups", (backend) => {
 		).rejects.toThrow();
 	});
 
-	const spec = () => create(TaskSpecSchema, { kind: { case: "exec", value: { argv: ["true"] } } });
+	const spec = (): TaskSpec => ({ kind: "exec", command: { argv: ["true"] }, env: {}, cwd: "", stdin: null });
 	const actor = () => ({ type: "user" as const, id: user.userId, onBehalfOfUserId: user.userId });
 
 	it("runs one task per node; offline nodes fail with node_offline", async () => {

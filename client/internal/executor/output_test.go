@@ -7,15 +7,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Kodecable/ClusterRightHand/client/internal/proto/crhv1"
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
 const (
-	stdout = crhv1.Stream_STREAM_STDOUT
-	stderr = crhv1.Stream_STREAM_STDERR
+	stdout = protocol.StreamStdout
+	stderr = protocol.StreamStderr
 )
 
-func readAll(t *testing.T, o *Output, s crhv1.Stream, from uint64) string {
+func readAll(t *testing.T, o *Output, s protocol.Stream, from uint64) string {
 	t.Helper()
 	var buf bytes.Buffer
 	for {

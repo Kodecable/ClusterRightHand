@@ -9,17 +9,17 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Kodecable/ClusterRightHand/client/internal/proto/crhv1"
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
 var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
 
-func fileEdit(s *crhv1.FileEditSpec, stdout io.Writer) error {
-	path := s.GetPath()
+func fileEdit(s *protocol.FileEditSpec, stdout io.Writer) error {
+	path := s.Path
 	if err := checkPath(path); err != nil {
 		return err
 	}
-	if len(s.GetEdits()) == 0 {
+	if len(s.Edits) == 0 {
 		return errf("invalid_spec", "edits must not be empty")
 	}
 	f, err := os.Open(path)
@@ -51,7 +51,7 @@ func fileEdit(s *crhv1.FileEditSpec, stdout io.Writer) error {
 	}
 	text := string(raw)
 	ending := detectLineEnding(text)
-	out, err := applyEdits(normalizeToLF(text), s.GetEdits(), path)
+	out, err := applyEdits(normalizeToLF(text), s.Edits, path)
 	if err != nil {
 		return err
 	}
@@ -83,7 +83,7 @@ func fileEdit(s *crhv1.FileEditSpec, stdout io.Writer) error {
 		return err
 	}
 	ok = true
-	return writeJSON(stdout, map[string]any{"replacements": len(s.GetEdits())})
+	return writeJSON(stdout, map[string]any{"replacements": len(s.Edits)})
 }
 
 func detectLineEnding(s string) string {
@@ -107,10 +107,11 @@ type matchedEdit struct {
 
 // applyEdits matches every edit against the original content (exactly once, without overlap)
 // and applies them all at once.
-func applyEdits(content string, edits []*crhv1.Edit, path string) (string, error) {
+func applyEdits(content string, edits []protocol.Edit, path string) (string, error) {
 	var matched []matchedEdit
-	for i, e := range edits {
-		old := normalizeToLF(e.GetOldText())
+	for i := range edits {
+		e := &edits[i]
+		old := normalizeToLF(e.OldText)
 		if old == "" {
 			return "", errf("invalid_spec", "edits[%d].old_text must not be empty in %s", i, path)
 		}
@@ -121,7 +122,7 @@ func applyEdits(content string, edits []*crhv1.Edit, path string) (string, error
 		if n := strings.Count(content, old); n > 1 {
 			return "", errf("edit_ambiguous", "found %d occurrences of edits[%d] in %s; add more context to make it unique", n, i, path)
 		}
-		matched = append(matched, matchedEdit{i, idx, len(old), normalizeToLF(e.GetNewText())})
+		matched = append(matched, matchedEdit{i, idx, len(old), normalizeToLF(e.NewText)})
 	}
 	sort.Slice(matched, func(a, b int) bool { return matched[a].start < matched[b].start })
 	for i := 1; i < len(matched); i++ {

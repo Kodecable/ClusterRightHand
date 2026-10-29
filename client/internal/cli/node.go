@@ -19,7 +19,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
-	"github.com/Kodecable/ClusterRightHand/client/internal/proto/crhv1"
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/transport"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 	"github.com/spf13/cobra"
@@ -71,9 +71,13 @@ func enroll(ctx context.Context, out io.Writer, configPath, serverURL, token str
 		return err
 	}
 	hostname, _ := os.Hostname()
-	init := &crhv1.HandshakeInit{
-		CrhaVersion: version.Version,
-		Enroll:      &crhv1.Enrollment{TokenSecret: secret, Hostname: hostname, Facts: nodeFacts(cfg)},
+	init := &protocol.HandshakeInit{
+		CRHAVersion: version.Version,
+		Enroll: &protocol.Enrollment{
+			TokenSecret: secret,
+			Hostname:    protocol.CleanText(hostname),
+			Facts:       nodeFacts(cfg),
+		},
 	}
 	conn, err := transport.Dial(ctx, dialOptions(cfg, key, serverKey, init))
 	if err != nil {
@@ -88,7 +92,7 @@ func enroll(ctx context.Context, out io.Writer, configPath, serverURL, token str
 		return err
 	}
 	fmt.Fprintf(out, "enrolled as node %s, waiting for approval\nnode key fingerprint: %s\n",
-		conn.Response.NodeId, identity.Fingerprint(key.Public))
+		conn.Response.NodeID, identity.Fingerprint(key.Public))
 	return nil
 }
 

@@ -34,7 +34,7 @@ task_id        UUIDv7
 node_id
 kind, spec     见上
 privileged     true | false             # true 时为特权任务，走授权链路，见 privilege.md
-attempt        0, 1, 2, ...             # 同一 task id 的授权尝试；payload 和 task.start 都带
+attempt        1, 2, 3, ...             # 同一 task id 的授权尝试；payload 和 task.start 都带
 authorization  可选：特权任务的一个授权对象（payload + signatures[]）；本地批准时为空，见 privilege.md
 timeout_ms     超时后先发 SIGTERM，宽限期过后发 SIGKILL（杀整个进程组）
 output_mode    status | text：批量默认 status；单任务默认 text

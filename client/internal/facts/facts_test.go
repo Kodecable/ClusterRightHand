@@ -5,7 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
 func write(t *testing.T, root, rel, content string) {
@@ -83,7 +86,7 @@ func TestCollect(t *testing.T) {
 		return "", errors.New("not found")
 	}
 	f := collect(root, look)
-	if f.OsId != "fedora" || f.OsVersionId != "40" || f.OsPrettyName != "Fedora Linux 40" || f.InitSystem != "systemd" {
+	if f.OSID != "fedora" || f.OSVersionID != "40" || f.OSPrettyName != "Fedora Linux 40" || f.InitSystem != "systemd" {
 		t.Fatalf("unexpected facts: %v", f)
 	}
 	if !reflect.DeepEqual(f.PackageManagers, []string{"dnf", "nix"}) || !reflect.DeepEqual(f.PrivilegeTools, []string{"doas"}) {
@@ -91,5 +94,31 @@ func TestCollect(t *testing.T) {
 	}
 	if f.Kernel == "" || f.Arch == "" {
 		t.Fatalf("kernel/arch empty: %v", f)
+	}
+}
+
+func TestClean(t *testing.T) {
+	f := Clean(protocol.Facts{
+		Hostname:        "bad\xffhost",
+		OSID:            "os\xff",
+		OSVersionID:     "1",
+		OSPrettyName:    "pretty\xff",
+		Kernel:          "6.0\xff",
+		Arch:            "amd64",
+		InitSystem:      "systemd\xff",
+		PackageManagers: []string{"apt", "dnf\xff"},
+		PrivilegeTools:  []string{"sudo\xff"},
+		NotesPath:       "/etc/notes\xff",
+		Groups:          []string{"users", "grp\xff"},
+	})
+	for _, s := range []string{f.Hostname, f.OSID, f.OSPrettyName, f.Kernel, f.InitSystem, f.NotesPath} {
+		if strings.ContainsRune(s, '\xff') {
+			t.Fatalf("uncleaned text %q", s)
+		}
+	}
+	for _, s := range append(append([]string{}, f.PackageManagers...), append(f.PrivilegeTools, f.Groups...)...) {
+		if strings.ContainsRune(s, '\xff') {
+			t.Fatalf("uncleaned list entry %q", s)
+		}
 	}
 }

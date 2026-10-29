@@ -1,5 +1,5 @@
 import { posix } from "node:path";
-import type { TaskSpec } from "@crh/protocol";
+import type { TaskSpec } from "@crh/protocol/wire";
 import { shellQuote } from "../cluster/ssh/exec.ts";
 import { UserError } from "../users/service.ts";
 
@@ -137,25 +137,24 @@ export function evaluate(chain: ChainLevel[], op: Operation): Evaluation {
 
 const KIND_METHOD: Record<string, Method> = {
 	exec: "exec",
-	fileRead: "file.read",
-	fileStat: "file.read",
-	fileList: "file.read",
-	fileWrite: "file.write",
-	fileEdit: "file.write",
+	"file.read": "file.read",
+	"file.stat": "file.read",
+	"file.list": "file.read",
+	"file.write": "file.write",
+	"file.edit": "file.write",
 };
 
 /** The method and target of a task spec (doc/privilege.md#方法与目标). */
 export function operationOf(spec: TaskSpec): { method: Method; target: string } {
-	const kind = spec.kind;
-	const method = kind.case ? KIND_METHOD[kind.case] : undefined;
-	if (!method || !kind.value) throw new Error("task spec has no kind");
-	if (kind.case === "exec") {
-		const argv = kind.value.argv.length > 0 ? kind.value.argv : ["/bin/sh", "-c", kind.value.shell];
+	const method = KIND_METHOD[spec.kind];
+	if (!method) throw new Error("task spec has no kind");
+	if (spec.kind === "exec") {
+		const argv = "argv" in spec.command ? spec.command.argv : ["/bin/sh", "-c", spec.command.shell];
 		return { method, target: argv.map(shellQuote).join(" ") };
 	}
 	// Normalized, so that "/etc/nginx/../shadow" is matched as "/etc/shadow". Symbolic links are not
 	// resolved here; for privileged tasks crha refuses them (doc/privilege.md).
-	return { method, target: posix.normalize((kind.value as { path: string }).path) };
+	return { method, target: posix.normalize(spec.path) };
 }
 
 /** Parses and validates a rule set from user input; throws UserError. */

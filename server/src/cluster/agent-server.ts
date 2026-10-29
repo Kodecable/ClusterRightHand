@@ -1,15 +1,20 @@
 import { randomBytes } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
-import { create, fromBinary, toBinary, toJson } from "@bufbuild/protobuf";
 import { HandshakeState } from "@crh/noise";
 import {
-	FactsSchema,
+	decode as decodeCbor,
+	encode as encodeCbor,
+	factsToJson,
 	type HandshakeInit,
-	HandshakeInitSchema,
-	HandshakeResponseSchema,
-	NodeState,
-} from "@crh/protocol";
+	type HandshakeResponse,
+	handshakeInitCodec,
+	handshakeResponseCodec,
+	PROTOCOL_MAJOR,
+	PROTOCOL_MINOR,
+	peekProtocolMajor,
+	SUPPORTED_NAMES,
+} from "@crh/protocol/wire";
 import { type WebSocket, WebSocketServer } from "ws";
 import type { Audit } from "../audit/audit.ts";
 import type { Db } from "../storage/db.ts";
@@ -27,7 +32,7 @@ const MAX_NOISE_MESSAGE = 65535;
 
 /**
  * The crha endpoint: WebSocket, server challenge, Noise IK handshake bound to the challenge.
- * See doc/execution-plane.md#握手.
+ * See doc/execution-plane.md#握手 and doc/protocol.md#握手载荷.
  */
 export class AgentServer {
 	readonly #db: Db;
@@ -83,13 +88,35 @@ export class AgentServer {
 			prologue: Buffer.concat([Buffer.from("crh/1"), challenge]),
 			staticKey: this.#identity.keyPair,
 		});
+		let payload: Uint8Array;
+		try {
+			payload = hs.readMessage(message1);
+		} catch {
+			return reject(ws, "handshake failed");
+		}
+		// The major version comes first, so a future client layout is rejected without parsing it.
+		let clientMajor: number;
+		try {
+			clientMajor = peekProtocolMajor(payload);
+		} catch {
+			return reject(ws, "handshake failed");
+		}
+		if (clientMajor !== PROTOCOL_MAJOR) {
+			return reject(ws, `protocol_major mismatch: server ${PROTOCOL_MAJOR}, client ${clientMajor}`);
+		}
 		let init: HandshakeInit;
 		try {
-			init = fromBinary(HandshakeInitSchema, hs.readMessage(message1));
+			init = handshakeInitCodec.decode(decodeCbor(payload));
 		} catch {
 			return reject(ws, "handshake failed");
 		}
 		const clientKey = hs.remoteStaticKey as Uint8Array;
+
+		// Only names both sides implement may be sent; 1.0 requires every name in doc/protocol.md.
+		const offered = new Set(init.commands);
+		const missing = SUPPORTED_NAMES.find((name) => !offered.has(name));
+		if (missing !== undefined) return reject(ws, `missing required command: ${missing}`);
+		const negotiated = SUPPORTED_NAMES.filter((name) => offered.has(name));
 
 		let node = await findNodeByPublicKey(this.#db, clientKey);
 		if (!node && init.enroll) {
@@ -98,7 +125,7 @@ export class AgentServer {
 					secret: init.enroll.tokenSecret,
 					publicKey: clientKey,
 					hostname: init.enroll.hostname,
-					facts: init.enroll.facts ? toJson(FactsSchema, init.enroll.facts) : null,
+					facts: factsToJson(init.enroll.facts),
 					clientVersion: init.crhaVersion,
 					audit: this.#audit,
 				});
@@ -111,15 +138,18 @@ export class AgentServer {
 		if (node.status === "disabled") return reject(ws, "node disabled");
 
 		const connectionId = newId();
-		const response = create(HandshakeResponseSchema, {
+		const response: HandshakeResponse = {
+			protocolMajor: PROTOCOL_MAJOR,
+			protocolMinor: PROTOCOL_MINOR,
+			commands: [...SUPPORTED_NAMES],
 			connectionId,
-			serverTimeUnixMs: BigInt(Date.now()),
-			nodeState: node.status === "active" ? NodeState.ACTIVE : NodeState.PENDING,
+			serverTimeMs: Date.now(),
+			nodeState: node.status === "active" ? "active" : "pending",
 			nodeId: node.id,
-		});
-		ws.send(hs.writeMessage(toBinary(HandshakeResponseSchema, response)));
-		const conn = new NodeConnection(connectionId, node.id, ws, hs.split());
-		this.#cluster.attach(conn, node as NodeRow, init);
+		};
+		ws.send(hs.writeMessage(encodeCbor(handshakeResponseCodec.encode(response))));
+		const conn = new NodeConnection(connectionId, node.id, ws, hs.split(), negotiated);
+		this.#cluster.attach(conn, node as NodeRow);
 	}
 }
 

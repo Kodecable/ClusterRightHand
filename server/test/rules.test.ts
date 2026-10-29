@@ -1,5 +1,4 @@
-import { create } from "@bufbuild/protobuf";
-import { TaskSpecSchema } from "@crh/protocol";
+import type { TaskSpec } from "@crh/protocol/wire";
 import { describe, expect, it } from "vitest";
 import {
 	type Action,
@@ -282,10 +281,13 @@ describe("presetRuleSet", () => {
 });
 
 describe("operationOf", () => {
-	const exec = (init: { argv?: string[]; shell?: string }) =>
-		create(TaskSpecSchema, {
-			kind: { case: "exec", value: { argv: init.argv ?? [], shell: init.shell ?? "", env: {}, cwd: "" } },
-		});
+	const exec = (init: { argv?: string[]; shell?: string }): TaskSpec => ({
+		kind: "exec",
+		command: init.argv !== undefined ? { argv: init.argv } : { shell: init.shell ?? "" },
+		env: {},
+		cwd: "",
+		stdin: null,
+	});
 
 	it("joins plain argv with spaces", () => {
 		expect(operationOf(exec({ argv: ["systemctl", "status", "nginx"] }))).toEqual({
@@ -330,21 +332,21 @@ describe("operationOf", () => {
 
 	it("maps file kinds to methods", () => {
 		const path = "/etc/hosts";
-		const specs: [Parameters<typeof create<typeof TaskSpecSchema>>[1], Method][] = [
-			[{ kind: { case: "fileRead", value: { path, offset: 0n, limit: 0n } } }, "file.read"],
-			[{ kind: { case: "fileStat", value: { path } } }, "file.read"],
-			[{ kind: { case: "fileList", value: { path, limit: 0 } } }, "file.read"],
-			[{ kind: { case: "fileWrite", value: { path, overwrite: true, mode: 0, owner: "", group: "" } } }, "file.write"],
-			[{ kind: { case: "fileEdit", value: { path, edits: [{ oldText: "a", newText: "b" }] } } }, "file.write"],
+		const empty = { size: 0, sha256: new Uint8Array(32) };
+		const specs: [TaskSpec, Method][] = [
+			[{ kind: "file.read", path, offset: 0, limit: 0 }, "file.read"],
+			[{ kind: "file.stat", path }, "file.read"],
+			[{ kind: "file.list", path, limit: 0 }, "file.read"],
+			[{ kind: "file.write", path, content: empty, overwrite: true, mode: 0, owner: "", group: "" }, "file.write"],
+			[{ kind: "file.edit", path, edits: [{ oldText: "a", newText: "b" }] }, "file.write"],
 		];
-		for (const [init, method] of specs) {
-			expect(operationOf(create(TaskSpecSchema, init))).toEqual({ method, target: path });
+		for (const [spec, method] of specs) {
+			expect(operationOf(spec)).toEqual({ method, target: path });
 		}
 	});
 
 	it("normalizes file paths", () => {
-		const read = (path: string) =>
-			operationOf(create(TaskSpecSchema, { kind: { case: "fileStat", value: { path } } })).target;
+		const read = (path: string) => operationOf({ kind: "file.stat", path }).target;
 		expect(read("/etc/nginx/../shadow")).toBe("/etc/shadow");
 		expect(read("/etc//nginx/./nginx.conf")).toBe("/etc/nginx/nginx.conf");
 		expect(read("/etc/nginx/")).toBe("/etc/nginx/");
@@ -352,20 +354,21 @@ describe("operationOf", () => {
 
 	it("path traversal cannot escape a prefix rule", () => {
 		const rule: Rule = { action: "allow", method: "file.write", prefix: "/srv/app/" };
-		const o = operationOf(
-			create(TaskSpecSchema, {
-				kind: {
-					case: "fileWrite",
-					value: { path: "/srv/app/../../etc/passwd", overwrite: true, mode: 0, owner: "", group: "" },
-				},
-			}),
-		);
+		const o = operationOf({
+			kind: "file.write",
+			path: "/srv/app/../../etc/passwd",
+			content: { size: 0, sha256: new Uint8Array(32) },
+			overwrite: true,
+			mode: 0,
+			owner: "",
+			group: "",
+		});
 		expect(o.target).toBe("/etc/passwd");
 		expect(ruleMatches(rule, { ...o, node: NODE })).toBe(false);
 	});
 
 	it("throws for a spec without a kind", () => {
-		expect(() => operationOf(create(TaskSpecSchema, {}))).toThrow();
+		expect(() => operationOf({} as TaskSpec)).toThrow();
 	});
 });
 

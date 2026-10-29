@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { posix } from "node:path";
-import type { FileEditSpec, FileListSpec, FileReadSpec, FileStatSpec, FileWriteSpec, TaskSpec } from "@crh/protocol";
+import type { TaskSpec } from "@crh/protocol/wire";
 import type { SFTPWrapper } from "ssh2";
 import { applyEdits, detectLineEnding, MAX_EDIT_SIZE, normalizeToLF, toBytesString, UTF8_BOM } from "./file-edit.ts";
 import {
@@ -24,6 +24,12 @@ const CHUNK = 32 * 1024;
 const WRITE_WINDOW = 16;
 
 type Out = (data: Uint8Array) => void;
+
+type FileReadSpec = Extract<TaskSpec, { kind: "file.read" }>;
+type FileWriteSpec = Extract<TaskSpec, { kind: "file.write" }>;
+type FileEditSpec = Extract<TaskSpec, { kind: "file.edit" }>;
+type FileStatSpec = Extract<TaskSpec, { kind: "file.stat" }>;
+type FileListSpec = Extract<TaskSpec, { kind: "file.list" }>;
 
 interface Ctx {
 	sftp: Sftp;
@@ -54,18 +60,17 @@ export async function runSftpFileTask(
 	const ctx: Ctx = { sftp: new Sftp(sftp), signal };
 	try {
 		checkAborted(signal);
-		const kind = spec.kind;
-		switch (kind.case) {
-			case "fileRead":
-				return await fileRead(ctx, kind.value, stdout);
-			case "fileWrite":
-				return await fileWrite(ctx, kind.value, input, stdout);
-			case "fileEdit":
-				return await fileEdit(ctx, kind.value, stdout);
-			case "fileStat":
-				return await fileStat(ctx, kind.value, stdout);
-			case "fileList":
-				return await fileList(ctx, kind.value, stdout);
+		switch (spec.kind) {
+			case "file.read":
+				return await fileRead(ctx, spec, stdout);
+			case "file.write":
+				return await fileWrite(ctx, spec, input, stdout);
+			case "file.edit":
+				return await fileEdit(ctx, spec, stdout);
+			case "file.stat":
+				return await fileStat(ctx, spec, stdout);
+			case "file.list":
+				return await fileList(ctx, spec, stdout);
 			default:
 				throw new FileTaskError("invalid_spec", "not a file task");
 		}
@@ -83,8 +88,8 @@ async function fileRead(ctx: Ctx, s: FileReadSpec, stdout: Out): Promise<void> {
 	}
 	const handle = await sftp.open(s.path, "r");
 	try {
-		let pos = Number(s.offset);
-		let remaining = s.limit > 0n ? Number(s.limit) : Number.POSITIVE_INFINITY;
+		let pos = s.offset;
+		let remaining = s.limit > 0 ? s.limit : Number.POSITIVE_INFINITY;
 		while (remaining > 0) {
 			checkAborted(signal);
 			const want = Math.min(CHUNK, remaining);
@@ -191,7 +196,7 @@ async function fileWrite(ctx: Ctx, s: FileWriteSpec, input: Uint8Array | undefin
 	if (existing && (existing.mode & S_IFMT) === S_IFDIR) {
 		throw new FileTaskError("is_directory", `${path} is a directory`);
 	}
-	if (BigInt(data.length) !== s.content.size) {
+	if (data.length !== s.content.size) {
 		throw new FileTaskError("input_mismatch", `content does not match declared size/sha256 (got ${data.length} bytes)`);
 	}
 	const tmp = await createTemp(sftp, path);

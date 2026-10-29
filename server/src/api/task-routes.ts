@@ -1,7 +1,6 @@
-import { create, type MessageInitShape } from "@bufbuild/protobuf";
-import { TaskSpecSchema } from "@crh/protocol";
+import type { TaskSpec } from "@crh/protocol/wire";
 import { Hono } from "hono";
-import type { Cluster, TaskView } from "../cluster/cluster.ts";
+import { type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
 import { nodeAccess } from "../cluster/nodes.ts";
 import { resolveTargets, type TaskGroups } from "../cluster/task-groups.ts";
 import type { Db } from "../storage/db.ts";
@@ -36,7 +35,7 @@ export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 		const timeoutMs = optionalInt(body, "timeoutMs");
 		let task: TaskView = await cluster.createTask({
 			nodeId,
-			spec: create(TaskSpecSchema, spec),
+			spec,
 			input,
 			timeoutMs,
 			actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
@@ -61,7 +60,7 @@ export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 		const id = await groups.create({
 			targets,
 			nodeIds,
-			spec: create(TaskSpecSchema, spec),
+			spec,
 			input,
 			timeoutMs: optionalInt(body, "timeoutMs"),
 			parallel: optionalInt(body, "parallel"),
@@ -140,9 +139,7 @@ export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 	return app;
 }
 
-type SpecInit = MessageInitShape<typeof TaskSpecSchema>;
-
-function parseTask(body: Record<string, unknown>): { spec: SpecInit; input?: Uint8Array } {
+function parseTask(body: Record<string, unknown>): { spec: TaskSpec; input?: Uint8Array } {
 	const kind = str(body, "kind");
 	switch (kind) {
 		case "exec": {
@@ -155,17 +152,16 @@ function parseTask(body: Record<string, unknown>): { spec: SpecInit; input?: Uin
 				throw new BadRequest("env must map names to strings");
 			}
 			const stdin = optionalStr(body, "stdin");
+			const shell = optionalStr(body, "shell") ?? "";
+			// An empty argv falls back to the shell, as the protobuf command did before M3.5.
+			const command = (argv as string[] | undefined)?.length ? { argv: argv as string[] } : { shell };
 			return {
 				spec: {
-					kind: {
-						case: "exec",
-						value: {
-							argv: (argv as string[] | undefined) ?? [],
-							shell: optionalStr(body, "shell") ?? "",
-							env: env as Record<string, string>,
-							cwd: optionalStr(body, "cwd") ?? "",
-						},
-					},
+					kind: "exec",
+					command,
+					env: env as Record<string, string>,
+					cwd: optionalStr(body, "cwd") ?? "",
+					stdin: null,
 				},
 				input: stdin === undefined ? undefined : Buffer.from(stdin),
 			};
@@ -173,14 +169,10 @@ function parseTask(body: Record<string, unknown>): { spec: SpecInit; input?: Uin
 		case "file.read":
 			return {
 				spec: {
-					kind: {
-						case: "fileRead",
-						value: {
-							path: str(body, "path"),
-							offset: BigInt(optionalInt(body, "offset") ?? 0),
-							limit: BigInt(optionalInt(body, "limit") ?? 0),
-						},
-					},
+					kind: "file.read",
+					path: str(body, "path"),
+					offset: optionalInt(body, "offset") ?? 0,
+					limit: optionalInt(body, "limit") ?? 0,
 				},
 			};
 		case "file.write": {
@@ -193,16 +185,13 @@ function parseTask(body: Record<string, unknown>): { spec: SpecInit; input?: Uin
 			if (input.length > MAX_INPUT_BYTES) throw new BadRequest("content too large");
 			return {
 				spec: {
-					kind: {
-						case: "fileWrite",
-						value: {
-							path: str(body, "path"),
-							overwrite: body.overwrite === true,
-							mode: optionalInt(body, "mode") ?? 0,
-							owner: optionalStr(body, "owner") ?? "",
-							group: optionalStr(body, "group") ?? "",
-						},
-					},
+					kind: "file.write",
+					path: str(body, "path"),
+					content: EMPTY_INPUT_REF,
+					overwrite: body.overwrite === true,
+					mode: optionalInt(body, "mode") ?? 0,
+					owner: optionalStr(body, "owner") ?? "",
+					group: optionalStr(body, "group") ?? "",
 				},
 				input,
 			};
@@ -217,21 +206,16 @@ function parseTask(body: Record<string, unknown>): { spec: SpecInit; input?: Uin
 			}
 			return {
 				spec: {
-					kind: {
-						case: "fileEdit",
-						value: { path: str(body, "path"), edits: edits as { oldText: string; newText: string }[] },
-					},
+					kind: "file.edit",
+					path: str(body, "path"),
+					edits: edits as { oldText: string; newText: string }[],
 				},
 			};
 		}
 		case "file.stat":
-			return { spec: { kind: { case: "fileStat", value: { path: str(body, "path") } } } };
+			return { spec: { kind: "file.stat", path: str(body, "path") } };
 		case "file.list":
-			return {
-				spec: {
-					kind: { case: "fileList", value: { path: str(body, "path"), limit: optionalInt(body, "limit") ?? 0 } },
-				},
-			};
+			return { spec: { kind: "file.list", path: str(body, "path"), limit: optionalInt(body, "limit") ?? 0 } };
 		default:
 			throw new BadRequest("kind must be exec, file.read, file.write, file.edit, file.stat or file.list");
 	}

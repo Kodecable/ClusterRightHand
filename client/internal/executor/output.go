@@ -9,11 +9,24 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/Kodecable/ClusterRightHand/client/internal/proto/crhv1"
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
 // maxMemoryOutput bounds the output kept in memory when it cannot be spilled to a file.
 const maxMemoryOutput = 16 << 20
+
+// StreamSlots is the number of output streams the protocol carries: stdout and stderr.
+const StreamSlots = 2
+
+// StreamIndex maps a protocol stream to its offset slot: 0 for stdout, 1 for stderr. The
+// protocol enum has exactly those two values (the decoder rejects anything else), so an
+// unknown value can only come from Go code and is treated as stdout.
+func StreamIndex(stream protocol.Stream) int {
+	if stream == protocol.StreamStderr {
+		return 1
+	}
+	return 0
+}
 
 // Output records a task's stdout and stderr for streaming to crhs and for resending after a reconnect.
 // Output stays in memory until it exceeds the spill thresholds; then all of it, from the start, goes to
@@ -28,8 +41,8 @@ type Output struct {
 
 	totalBytes uint64
 	totalLines uint64
-	ends       [3]uint64 // indexed by crhv1.Stream
-	segments   []segment // in arrival order
+	ends       [StreamSlots]uint64 // indexed by StreamIndex
+	segments   []segment           // in arrival order
 	file       *os.File
 	path       string
 	fileLen    uint64
@@ -48,7 +61,7 @@ const (
 )
 
 type segment struct {
-	stream    crhv1.Stream
+	stream    protocol.Stream
 	streamOff uint64
 	length    uint64
 	place     place
@@ -63,11 +76,11 @@ func NewOutput(taskID, dir string, spillBytes, spillLines uint64) *Output {
 // Notify is signalled (without blocking) whenever output is added or the output is closed.
 func (o *Output) Notify() <-chan struct{} { return o.notify }
 
-func (o *Output) Writer(stream crhv1.Stream) io.Writer { return streamWriter{o, stream} }
+func (o *Output) Writer(stream protocol.Stream) io.Writer { return streamWriter{o, stream} }
 
 type streamWriter struct {
 	o      *Output
-	stream crhv1.Stream
+	stream protocol.Stream
 }
 
 func (w streamWriter) Write(p []byte) (int, error) {
@@ -75,7 +88,7 @@ func (w streamWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (o *Output) append(stream crhv1.Stream, p []byte) {
+func (o *Output) append(stream protocol.Stream, p []byte) {
 	if len(p) == 0 {
 		return
 	}
@@ -84,8 +97,9 @@ func (o *Output) append(stream crhv1.Stream, p []byte) {
 	if o.closed {
 		return
 	}
-	seg := segment{stream: stream, streamOff: o.ends[stream], length: uint64(len(p))}
-	o.ends[stream] += seg.length
+	idx := StreamIndex(stream)
+	seg := segment{stream: stream, streamOff: o.ends[idx], length: uint64(len(p))}
+	o.ends[idx] += seg.length
 	o.totalBytes += seg.length
 	o.totalLines += uint64(bytes.Count(p, []byte{'\n'}))
 
@@ -191,10 +205,10 @@ func (o *Output) Release() {
 }
 
 // End returns the current end offset of a stream.
-func (o *Output) End(stream crhv1.Stream) uint64 {
+func (o *Output) End(stream protocol.Stream) uint64 {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return o.ends[stream]
+	return o.ends[StreamIndex(stream)]
 }
 
 // Path returns the spill file, or "" if output stayed in memory.
@@ -208,7 +222,7 @@ var ErrOutputLost = errors.New("output no longer available")
 
 // ReadAt returns up to max bytes of a stream starting at off. It returns no data at the end of the
 // stream. Bytes discarded under memory pressure come back as ErrOutputLost.
-func (o *Output) ReadAt(stream crhv1.Stream, off uint64, max int) ([]byte, error) {
+func (o *Output) ReadAt(stream protocol.Stream, off uint64, max int) ([]byte, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	var out []byte

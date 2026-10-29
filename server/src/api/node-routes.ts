@@ -86,8 +86,8 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const row = await getNode(db, id);
 		if (row?.status !== "pending") return jsonError(c, 409, "node is not pending");
 		const node = await approveNode(db, id, c.get("user").userId);
-		// The pending connection only carried facts; crha reconnects as an active node.
-		options.cluster?.disconnect(id, "approved");
+		// The pending connection only carried facts; tell crha, then let it reconnect as an active node.
+		options.cluster?.notifyNodeStatus(id, "active", "approved");
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "node.approved",
@@ -127,7 +127,8 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			target: { type: "node", id },
 			detail: { name: before?.name, was_pending: before?.status === "pending", rejected: before?.status === "pending" },
 		});
-		options.cluster?.disconnect(id, "node deleted");
+		// Deleting a pending node rejects its enrollment; an active node is simply disconnected.
+		options.cluster?.notifyNodeStatus(id, "rejected", "node deleted");
 		return c.json({ ok: true });
 	});
 

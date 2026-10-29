@@ -1,5 +1,4 @@
-import { fromJson, toJson } from "@bufbuild/protobuf";
-import { TaskSpecSchema } from "@crh/protocol";
+import { taskSpecFromJson, taskSpecToJson } from "@crh/protocol/wire";
 import type { Selectable } from "kysely";
 import type { Audit } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
@@ -164,7 +163,7 @@ export class TaskGroups {
 				org_id: first.org_id,
 				targets: JSON.stringify(input.targets),
 				node_ids: JSON.stringify(input.nodeIds),
-				kind: input.spec.kind.case ?? "",
+				kind: input.spec.kind,
 				parallel,
 				fail_fast: input.failFast ? 1 : 0,
 				skipped: "[]",
@@ -177,7 +176,7 @@ export class TaskGroups {
 				rule_chain: input.chain ? JSON.stringify(input.chain) : null,
 				approval: approval ? JSON.stringify(approval) : null,
 				pending_input: waiting && input.input ? Buffer.from(input.input).toString("base64") : null,
-				spec: JSON.stringify(toJson(TaskSpecSchema, input.spec)),
+				spec: JSON.stringify(taskSpecToJson(input.spec)),
 				timeout_ms: input.timeoutMs ?? null,
 				root_session_id: root?.type === "session" ? root.id : null,
 				// Until an ancestor agent is routed, the user (the group's on_behalf user) is the handler.
@@ -192,7 +191,7 @@ export class TaskGroups {
 			detail: {
 				targets: input.targets,
 				node_ids: input.nodeIds,
-				kind: input.spec.kind.case,
+				kind: input.spec.kind,
 				policy: waiting ? "require-approval" : approval ? "evaluated" : "none",
 			},
 		});
@@ -384,7 +383,7 @@ export class TaskGroups {
 		for (const row of rows) {
 			const chain = JSON.parse(row.rule_chain ?? "[]") as RuleRef[];
 			if (!chain.some((r) => r.type === ref.type && r.id === ref.id)) continue;
-			const spec = fromJson(TaskSpecSchema, JSON.parse(row.spec ?? "{}"));
+			const spec = taskSpecFromJson(JSON.parse(row.spec ?? "null"));
 			const nodes = await this.#db
 				.selectFrom("nodes")
 				.selectAll()
@@ -414,7 +413,7 @@ export class TaskGroups {
 		return {
 			targets: JSON.parse(row.targets) as string[],
 			nodeIds: JSON.parse(row.node_ids) as string[],
-			spec: fromJson(TaskSpecSchema, JSON.parse(row.spec ?? "{}")),
+			spec: taskSpecFromJson(JSON.parse(row.spec ?? "null")),
 			...(row.pending_input ? { input: Buffer.from(row.pending_input, "base64") } : {}),
 			...(row.timeout_ms !== null ? { timeoutMs: row.timeout_ms } : {}),
 			failFast: row.fail_fast === 1,
@@ -462,7 +461,7 @@ export class TaskGroups {
 			actorType: row.actor_type,
 			actorId: row.actor_id,
 			onBehalfOfUserId: row.on_behalf_of_user_id,
-			operation: row.spec ? operationOf(fromJson(TaskSpecSchema, JSON.parse(row.spec))) : null,
+			operation: row.spec ? operationOf(taskSpecFromJson(JSON.parse(row.spec))) : null,
 			rootSessionId: row.root_session_id,
 			handlerType: row.handler_type,
 			handlerSessionId: row.handler_session_id,

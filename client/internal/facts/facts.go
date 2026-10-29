@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	crhv1 "github.com/Kodecable/ClusterRightHand/client/internal/proto/crhv1"
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
 var (
@@ -23,12 +23,12 @@ var (
 
 // Collect gathers facts about the local system. NotesPath, Groups and
 // ClockOffsetMs are left for the caller.
-func Collect() *crhv1.Facts {
+func Collect() protocol.Facts {
 	return collect("/", exec.LookPath)
 }
 
-func collect(root string, lookPath func(string) (string, error)) *crhv1.Facts {
-	f := &crhv1.Facts{
+func collect(root string, lookPath func(string) (string, error)) protocol.Facts {
+	f := protocol.Facts{
 		InitSystem:      initSystem(root),
 		PackageManagers: found(lookPath, packageManagers),
 		PrivilegeTools:  found(lookPath, privilegeTools),
@@ -43,8 +43,37 @@ func collect(root string, lookPath func(string) (string, error)) *crhv1.Facts {
 		}
 	}
 	osr := osRelease(root)
-	f.OsId, f.OsVersionId, f.OsPrettyName = osr["ID"], osr["VERSION_ID"], osr["PRETTY_NAME"]
+	f.OSID, f.OSVersionID, f.OSPrettyName = osr["ID"], osr["VERSION_ID"], osr["PRETTY_NAME"]
+	return Clean(f)
+}
+
+// Clean returns f with every text field passed through protocol.CleanText. Facts come from
+// outside the process (/etc/os-release, the host name, configured groups), and the protocol
+// encoder rejects invalid UTF-8 instead of letting a frame break the connection.
+func Clean(f protocol.Facts) protocol.Facts {
+	f.Hostname = protocol.CleanText(f.Hostname)
+	f.OSID = protocol.CleanText(f.OSID)
+	f.OSVersionID = protocol.CleanText(f.OSVersionID)
+	f.OSPrettyName = protocol.CleanText(f.OSPrettyName)
+	f.Kernel = protocol.CleanText(f.Kernel)
+	f.Arch = protocol.CleanText(f.Arch)
+	f.InitSystem = protocol.CleanText(f.InitSystem)
+	f.PackageManagers = cleanTexts(f.PackageManagers)
+	f.PrivilegeTools = cleanTexts(f.PrivilegeTools)
+	f.NotesPath = protocol.CleanText(f.NotesPath)
+	f.Groups = cleanTexts(f.Groups)
 	return f
+}
+
+func cleanTexts(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	out := make([]string, len(values))
+	for i, v := range values {
+		out[i] = protocol.CleanText(v)
+	}
+	return out
 }
 
 func unixString(b []byte) string {

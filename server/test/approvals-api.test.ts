@@ -1,5 +1,4 @@
-import { create } from "@bufbuild/protobuf";
-import { TaskSpecSchema } from "@crh/protocol";
+import type { TaskSpec } from "@crh/protocol/wire";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
 import { Cluster, type TaskView } from "../src/cluster/cluster.ts";
@@ -61,7 +60,13 @@ describe("approvals api (sqlite)", () => {
 		const res = await call(app, "/api/api-tokens", { cookie: cookies.alice, body: { name: "t", preset } });
 		return ((await res.json()) as { apiToken: { id: string } }).apiToken.id;
 	};
-	const execSpec = (...argv: string[]) => create(TaskSpecSchema, { kind: { case: "exec", value: { argv } } });
+	const execSpec = (...argv: string[]): TaskSpec => ({
+		kind: "exec",
+		command: { argv },
+		env: {},
+		cwd: "",
+		stdin: null,
+	});
 	const actorOf = (tokenId: string) => ({
 		type: "api_token" as const,
 		id: tokenId,
@@ -225,7 +230,7 @@ describe("approvals api (sqlite)", () => {
 
 	it("file.read under ask is allowed without waiting", async () => {
 		const tok = await newToken();
-		const spec = create(TaskSpecSchema, { kind: { case: "fileRead", value: { path: "/etc/hostname" } } });
+		const spec: TaskSpec = { kind: "file.read", path: "/etc/hostname", offset: 0, limit: 0 };
 		const t = await mkTask(tok, spec);
 		expect(t.state).toBe("failed");
 		expect(t.errorCode).toBe("node_offline");

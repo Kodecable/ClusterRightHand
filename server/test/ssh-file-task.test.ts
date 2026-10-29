@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
+import type { TaskSpec } from "@crh/protocol/wire";
 import { Client, type SFTPWrapper } from "ssh2";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FileTaskError, runSftpFileTask } from "../src/cluster/ssh/file-task.ts";
@@ -72,8 +73,8 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 	};
 	const p = (name: string) => `${dir}/${name}`;
 
-	type Kind = "fileRead" | "fileWrite" | "fileEdit" | "fileStat" | "fileList";
-	const specOf = (kind: Kind, value: object) => ({ kind: { case: kind, value } }) as never;
+	type Kind = "file.read" | "file.write" | "file.edit" | "file.stat" | "file.list";
+	const specOf = (kind: Kind, value: object) => ({ kind, ...value }) as TaskSpec;
 
 	async function runRaw(
 		kind: Kind,
@@ -101,7 +102,7 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 
 	const writeSpec = (path: string, content: string, extra: object = {}) => ({
 		path,
-		content: { size: BigInt(Buffer.byteLength(content)), sha256: createHash("sha256").update(content).digest() },
+		content: { size: Buffer.byteLength(content), sha256: createHash("sha256").update(content).digest() },
 		overwrite: false,
 		mode: 0,
 		owner: "",
@@ -109,45 +110,45 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 		...extra,
 	});
 	const write = (path: string, content: string, extra: object = {}) =>
-		run("fileWrite", writeSpec(path, content, extra), Buffer.from(content));
+		run("file.write", writeSpec(path, content, extra), Buffer.from(content));
 	const edit = (path: string, ...pairs: string[]) => {
 		const edits = [];
 		for (let i = 0; i < pairs.length; i += 2) {
 			edits.push({ oldText: pairs[i], newText: pairs[i + 1] });
 		}
-		return run("fileEdit", { path, edits });
+		return run("file.edit", { path, edits });
 	};
-	const readSpec = (path: string, offset = 0n, limit = 0n) => ({ path, offset, limit });
+	const readSpec = (path: string, offset = 0, limit = 0) => ({ path, offset, limit });
 
 	it("rejects invalid paths", async () => {
 		for (const path of ["rel/path", "/a/../b", "/a//b", "/a/", ""]) {
-			expect(await code(run("fileStat", { path }))).toBe("invalid_spec");
+			expect(await code(run("file.stat", { path }))).toBe("invalid_spec");
 		}
 	});
 
 	it("reads ranges", async () => {
 		await put("r", "0123456789");
-		const read = async (off: bigint, lim: bigint) => (await runRaw("fileRead", readSpec(p("r"), off, lim))).toString();
-		expect(await read(0n, 0n)).toBe("0123456789");
-		expect(await read(3n, 4n)).toBe("3456");
-		expect(await read(8n, 100n)).toBe("89");
-		expect(await read(20n, 0n)).toBe("");
-		expect(await code(run("fileRead", readSpec(dir)))).toBe("is_directory");
-		expect(await code(run("fileRead", readSpec(p("nope"))))).toBe("not_found");
+		const read = async (off: number, lim: number) => (await runRaw("file.read", readSpec(p("r"), off, lim))).toString();
+		expect(await read(0, 0)).toBe("0123456789");
+		expect(await read(3, 4)).toBe("3456");
+		expect(await read(8, 100)).toBe("89");
+		expect(await read(20, 0)).toBe("");
+		expect(await code(run("file.read", readSpec(dir)))).toBe("is_directory");
+		expect(await code(run("file.read", readSpec(p("nope"))))).toBe("not_found");
 	});
 
 	it("reads large files in chunks", async () => {
 		await exec(`head -c 200000 /dev/zero | tr '\\0' 'a' > ${p("big")}`);
-		const out = await runRaw("fileRead", readSpec(p("big")));
+		const out = await runRaw("file.read", readSpec(p("big")));
 		expect(out.length).toBe(200000);
-		expect((await runRaw("fileRead", readSpec(p("big"), 199990n, 50n))).length).toBe(10);
+		expect((await runRaw("file.read", readSpec(p("big"), 199990, 50))).length).toBe(10);
 	});
 
 	it("honours cancellation", async () => {
 		await put("c", "x");
 		const ac = new AbortController();
 		ac.abort();
-		expect(await code(runRaw("fileRead", readSpec(p("c")), undefined, ac.signal))).toBe("cancelled");
+		expect(await code(runRaw("file.read", readSpec(p("c")), undefined, ac.signal))).toBe("cancelled");
 	});
 
 	it("creates files", async () => {
@@ -188,7 +189,7 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 	it("detects input mismatch", async () => {
 		const spec = writeSpec(p("mm"), "hello");
 		for (const input of ["hel", "hello!!"]) {
-			expect(await code(run("fileWrite", spec, Buffer.from(input)))).toBe("input_mismatch");
+			expect(await code(run("file.write", spec, Buffer.from(input)))).toBe("input_mismatch");
 		}
 		expect((await sh("ls mm 2>&1 || true")).includes("No such file")).toBe(true);
 		await noTemps();
@@ -199,7 +200,7 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 		expect(await code(write(dir, "x", { overwrite: true }))).toBe("is_directory");
 		expect(await code(write(p("f"), "x", { owner: "root" }))).toBe("invalid_spec");
 		expect(await code(write(p("f"), "x", { group: "root" }))).toBe("invalid_spec");
-		expect(await code(run("fileWrite", { ...writeSpec(p("f"), "x"), content: undefined }))).toBe("invalid_spec");
+		expect(await code(run("file.write", { ...writeSpec(p("f"), "x"), content: undefined }))).toBe("invalid_spec");
 		await noTemps();
 	});
 
@@ -249,39 +250,39 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 
 	it("stats files, dirs and symlinks", async () => {
 		await put("s", "abc", "640");
-		const out = await run("fileStat", { path: p("s") });
+		const out = await run("file.stat", { path: p("s") });
 		expect(out).toMatchObject({ type: "file", size: 3, mode: "0640", path: p("s"), owner: "", group: "" });
 		expect(out.mtime).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
 		expect("link_target" in out).toBe(false);
-		expect((await run("fileStat", { path: dir })).type).toBe("dir");
+		expect((await run("file.stat", { path: dir })).type).toBe("dir");
 		await sh("ln -s /nonexistent/target sl");
-		expect(await run("fileStat", { path: p("sl") })).toMatchObject({
+		expect(await run("file.stat", { path: p("sl") })).toMatchObject({
 			type: "symlink",
 			link_target: "/nonexistent/target",
 		});
-		expect(await code(run("fileStat", { path: p("nope") }))).toBe("not_found");
+		expect(await code(run("file.stat", { path: p("nope") }))).toBe("not_found");
 	});
 
 	it("lists directories", async () => {
 		const ld = p("ls");
 		await exec(`mkdir ${ld} && cd ${ld} && for n in c a b d; do printf $n > $n; done && mkdir sub && ln -s a ln`);
 		const names = (o: Json) => (o.entries as { name: string }[]).map((e) => e.name);
-		const out = await run("fileList", { path: ld, limit: 0 });
+		const out = await run("file.list", { path: ld, limit: 0 });
 		expect(names(out)).toEqual(["a", "b", "c", "d", "ln", "sub"]);
 		expect(out.truncated).toBe(false);
 		const types = Object.fromEntries((out.entries as { name: string; type: string }[]).map((e) => [e.name, e.type]));
 		expect(types).toMatchObject({ a: "file", sub: "dir", ln: "symlink" });
-		const small = await run("fileList", { path: ld, limit: 2 });
+		const small = await run("file.list", { path: ld, limit: 2 });
 		expect(names(small)).toEqual(["a", "b"]);
 		expect(small.truncated).toBe(true);
-		expect((await run("fileList", { path: ld, limit: 6 })).truncated).toBe(false);
-		expect(await code(run("fileList", { path: `${ld}/a` }))).toBe("not_a_directory");
-		expect(await code(run("fileList", { path: `${ld}/nope` }))).toBe("not_found");
+		expect((await run("file.list", { path: ld, limit: 6 })).truncated).toBe(false);
+		expect(await code(run("file.list", { path: `${ld}/a` }))).toBe("not_a_directory");
+		expect(await code(run("file.list", { path: `${ld}/nope` }))).toBe("not_found");
 	});
 
 	it("lists empty directories", async () => {
 		await sh("mkdir empty");
-		expect(await run("fileList", { path: p("empty"), limit: 0 })).toEqual({ entries: [], truncated: false });
+		expect(await run("file.list", { path: p("empty"), limit: 0 })).toEqual({ entries: [], truncated: false });
 	});
 
 	it("maps permission errors", async () => {

@@ -101,9 +101,10 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
 
 - `attempt` 从 1 开始；只有授权重试（`authorization_*`）才递增。
 - 成功响应就是 accepted。crha 在发出成功响应前，必须已把 `task_id` 记入**已接受集合**；先发响应再启动执行，所以该任务的事件一定在响应之后。
+- 已记入已接受集合、但成功响应没能发出（连接恰好断开）的任务，crha 仍然执行：接受已经决定，crhs 不会重发，它在重连后的 `hello` 中看到这个任务并照常接收输出和 `task.exit`。
 - 已接受集合在 crha 进程内保留（不随 `task.exit.ack` 删除），上限为最近 100 000 个 id；命中时返回 `already_accepted`。crhs 永远不会重发已接受的任务，这是纵深防御。
 - 错误码：
-  - 可重试（任务回到 `awaiting_authorization`）：`authorization_required`、`authorization_invalid`、`authorization_expired`、`authorization_rejected`。1.0 的 crha 不产生它们（M4 实现）。
+  - 可重试（任务回到 `awaiting_authorization`）：`authorization_required`、`authorization_invalid`、`authorization_expired`、`authorization_rejected`。1.0 的 crha 不产生它们（M4 实现）。M3.5 的 crhs 还没有 `awaiting_authorization` 状态和授权来源，收到时按最终失败处理：任务结束为 `rejected`，`error_code` 即此码；M4 再改为重试。
   - 终态（任务结束为 `failed`，`error_code` 即此码）：`invalid_spec`（空 id、哈希长度不对等）、`unsupported_kind`、`privileged_unsupported`（1.0 的 crha 收到 `privileged = true` 时）、`local_policy_denied`、`already_accepted`。
 - `task.input` 只在成功响应之后发送；crhs 可以流水线发送多个分块，不必逐个等待响应；crha 按顺序处理。
 
@@ -151,7 +152,7 @@ Facts    = [hostname: text, os_id: text, os_version_id: text, os_pretty_name: te
   "initSystem": "...", "packageManagers": [], "privilegeTools": [], "notesPath": "...", "groups": [], "clockOffsetMs": 0 }
 ```
 
-已有数据库行中的 protobuf JSON（`tasks.spec`、`task_groups.spec`、`nodes.facts`）由一个迁移转换成上述形式；迁移自带转换代码，不引用 `packages/protocol`。
+已有数据库行中的 protobuf JSON（`tasks.spec`、`task_groups.spec`、`nodes.facts`）由一个迁移转换成上述形式；迁移自带转换代码，不引用 `packages/protocol`。protobuf JSON 中 `exec` 的 `argv` 非空时转为 `{argv}`，否则转为 `{shell}`；省略的默认值补齐；int64 字符串转 number；bytes 的 base64 转 hex；缺失的 `stdin` 为 `null`，缺失的 `file.write` `content` 为空输入（size 0、空串的 SHA-256）。`task_groups.kind` 中的 protobuf 分支名（`fileRead` 等）同时改为线上 tag（`file.read` 等），与 `tasks.kind` 一致。无法解析的行保持原样并在迁移日志中报告，不中断迁移。
 
 ## fixture
 

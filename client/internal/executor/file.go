@@ -22,7 +22,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/Kodecable/ClusterRightHand/client/internal/proto/crhv1"
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
 const (
@@ -44,21 +44,36 @@ func errf(code, format string, args ...any) *Error {
 // RunFile executes a file.* task. stdout receives the task's output stream; input carries the
 // file.write content (nil for other kinds). It returns nil or an *Error (other errors are wrapped
 // into Error{Code: "io_error"}).
-func RunFile(ctx context.Context, spec *crhv1.TaskSpec, input io.Reader, stdout io.Writer) error {
+func RunFile(ctx context.Context, spec *protocol.TaskSpec, input io.Reader, stdout io.Writer) error {
 	var err error
-	switch k := spec.GetKind().(type) {
-	case *crhv1.TaskSpec_FileRead:
-		err = fileRead(ctx, k.FileRead, stdout)
-	case *crhv1.TaskSpec_FileWrite:
-		err = fileWrite(ctx, k.FileWrite, input, stdout)
-	case *crhv1.TaskSpec_FileEdit:
-		err = fileEdit(k.FileEdit, stdout)
-	case *crhv1.TaskSpec_FileStat:
-		err = fileStat(k.FileStat, stdout)
-	case *crhv1.TaskSpec_FileList:
-		err = fileList(ctx, k.FileList, stdout)
+	switch spec.Kind {
+	case protocol.TaskSpecFileRead:
+		if spec.FileRead == nil {
+			return errf("invalid_spec", "file.read task has no spec")
+		}
+		err = fileRead(ctx, spec.FileRead, stdout)
+	case protocol.TaskSpecFileWrite:
+		if spec.FileWrite == nil {
+			return errf("invalid_spec", "file.write task has no spec")
+		}
+		err = fileWrite(ctx, spec.FileWrite, input, stdout)
+	case protocol.TaskSpecFileEdit:
+		if spec.FileEdit == nil {
+			return errf("invalid_spec", "file.edit task has no spec")
+		}
+		err = fileEdit(spec.FileEdit, stdout)
+	case protocol.TaskSpecFileStat:
+		if spec.FileStat == nil {
+			return errf("invalid_spec", "file.stat task has no spec")
+		}
+		err = fileStat(spec.FileStat, stdout)
+	case protocol.TaskSpecFileList:
+		if spec.FileList == nil {
+			return errf("invalid_spec", "file.list task has no spec")
+		}
+		err = fileList(ctx, spec.FileList, stdout)
 	default:
-		err = errf("invalid_spec", "not a file task")
+		err = errf("invalid_spec", "not a file task: %q", spec.Kind)
 	}
 	return normalizeErr(err)
 }
@@ -132,11 +147,11 @@ func copyCtx(ctx context.Context, dst io.Writer, src io.Reader) (int64, error) {
 	}
 }
 
-func fileRead(ctx context.Context, s *crhv1.FileReadSpec, stdout io.Writer) error {
-	if err := checkPath(s.GetPath()); err != nil {
+func fileRead(ctx context.Context, s *protocol.FileReadSpec, stdout io.Writer) error {
+	if err := checkPath(s.Path); err != nil {
 		return err
 	}
-	f, err := os.Open(s.GetPath())
+	f, err := os.Open(s.Path)
 	if err != nil {
 		return err
 	}
@@ -146,11 +161,11 @@ func fileRead(ctx context.Context, s *crhv1.FileReadSpec, stdout io.Writer) erro
 		return err
 	}
 	if fi.IsDir() {
-		return errf("is_directory", "%s is a directory", s.GetPath())
+		return errf("is_directory", "%s is a directory", s.Path)
 	}
-	var r io.Reader = io.NewSectionReader(f, int64(s.GetOffset()), 1<<62)
-	if s.GetLimit() > 0 {
-		r = io.LimitReader(r, int64(s.GetLimit()))
+	var r io.Reader = io.NewSectionReader(f, int64(s.Offset), 1<<62)
+	if s.Limit > 0 {
+		r = io.LimitReader(r, int64(s.Limit))
 	}
 	_, err = copyCtx(ctx, stdout, r)
 	return err
@@ -250,18 +265,15 @@ func lookupIDs(owner, group string) (uid, gid int, err error) {
 	return uid, gid, nil
 }
 
-func fileWrite(ctx context.Context, s *crhv1.FileWriteSpec, input io.Reader, stdout io.Writer) error {
-	path := s.GetPath()
+func fileWrite(ctx context.Context, s *protocol.FileWriteSpec, input io.Reader, stdout io.Writer) error {
+	path := s.Path
 	if err := checkPath(path); err != nil {
 		return err
-	}
-	if s.GetContent() == nil {
-		return errf("invalid_spec", "content is required")
 	}
 	if input == nil {
 		input = strings.NewReader("")
 	}
-	uid, gid, err := lookupIDs(s.GetOwner(), s.GetGroup())
+	uid, gid, err := lookupIDs(s.Owner, s.Group)
 	if err != nil {
 		return err
 	}
@@ -285,20 +297,20 @@ func fileWrite(ctx context.Context, s *crhv1.FileWriteSpec, input io.Reader, std
 		}
 	}()
 
-	want := s.GetContent()
+	want := s.Content
 	h := sha256.New()
-	n, err := copyCtx(ctx, io.MultiWriter(tmp, h), io.LimitReader(input, int64(want.GetSize())+1))
+	n, err := copyCtx(ctx, io.MultiWriter(tmp, h), io.LimitReader(input, int64(want.Size)+1))
 	if err != nil {
 		return err
 	}
-	if uint64(n) != want.GetSize() || !bytes.Equal(h.Sum(nil), want.GetSha256()) {
+	if uint64(n) != uint64(want.Size) || !bytes.Equal(h.Sum(nil), want.SHA256[:]) {
 		return errf("input_mismatch", "content does not match declared size/sha256 (got %d bytes)", n)
 	}
 
 	mode := fs.FileMode(0o644)
 	switch {
-	case s.GetMode() != 0:
-		mode = fs.FileMode(s.GetMode()) & 0o7777
+	case s.Mode != 0:
+		mode = fs.FileMode(s.Mode) & 0o7777
 	case existing != nil:
 		mode = existing.Mode() & 0o7777
 	}
@@ -315,24 +327,24 @@ func fileWrite(ctx context.Context, s *crhv1.FileWriteSpec, input io.Reader, std
 	if err := tmp.Chmod(mode); err != nil {
 		return err
 	}
-	if err := tmp.publish(path, !s.GetOverwrite()); err != nil {
+	if err := tmp.publish(path, !s.Overwrite); err != nil {
 		return err
 	}
 	ok = true
 	return writeJSON(stdout, map[string]any{"bytes": n, "created": existing == nil})
 }
 
-func fileStat(s *crhv1.FileStatSpec, stdout io.Writer) error {
-	if err := checkPath(s.GetPath()); err != nil {
+func fileStat(s *protocol.FileStatSpec, stdout io.Writer) error {
+	if err := checkPath(s.Path); err != nil {
 		return err
 	}
-	fi, err := os.Lstat(s.GetPath())
+	fi, err := os.Lstat(s.Path)
 	if err != nil {
 		return err
 	}
 	uid, gid := statIDs(fi)
 	out := map[string]any{
-		"path":  s.GetPath(),
+		"path":  s.Path,
 		"type":  fileType(fi.Mode()),
 		"size":  fi.Size(),
 		"mode":  modeString(fi.Mode()),
@@ -343,7 +355,7 @@ func fileStat(s *crhv1.FileStatSpec, stdout io.Writer) error {
 		"mtime": mtimeString(fi),
 	}
 	if fi.Mode()&fs.ModeSymlink != 0 {
-		target, err := os.Readlink(s.GetPath())
+		target, err := os.Readlink(s.Path)
 		if err != nil {
 			return err
 		}
@@ -360,24 +372,24 @@ type listEntry struct {
 	Mtime string `json:"mtime"`
 }
 
-func fileList(ctx context.Context, s *crhv1.FileListSpec, stdout io.Writer) error {
-	if err := checkPath(s.GetPath()); err != nil {
+func fileList(ctx context.Context, s *protocol.FileListSpec, stdout io.Writer) error {
+	if err := checkPath(s.Path); err != nil {
 		return err
 	}
-	limit := int(s.GetLimit())
+	limit := int(s.Limit)
 	if limit == 0 {
 		limit = defaultListLimit
 	}
 	limit = min(limit, maxListLimit)
 
-	fi, err := os.Stat(s.GetPath())
+	fi, err := os.Stat(s.Path)
 	if err != nil {
 		return err
 	}
 	if !fi.IsDir() {
-		return errf("not_a_directory", "%s is not a directory", s.GetPath())
+		return errf("not_a_directory", "%s is not a directory", s.Path)
 	}
-	des, err := os.ReadDir(s.GetPath())
+	des, err := os.ReadDir(s.Path)
 	if err != nil {
 		return err
 	}

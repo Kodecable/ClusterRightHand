@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -17,7 +18,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/facts"
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
 	"github.com/Kodecable/ClusterRightHand/client/internal/janitor"
-	"github.com/Kodecable/ClusterRightHand/client/internal/proto/crhv1"
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/transport"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 	"github.com/spf13/cobra"
@@ -67,10 +68,9 @@ func run(ctx context.Context, configPath string) error {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	a := agent.New(agent.Options{
 		Dial: func(ctx context.Context) (*transport.Conn, error) {
-			return transport.Dial(ctx, dialOptions(cfg.Load(), key, serverKey, &crhv1.HandshakeInit{CrhaVersion: version.Version}))
+			return transport.Dial(ctx, dialOptions(cfg.Load(), key, serverKey, &protocol.HandshakeInit{CRHAVersion: version.Version}))
 		},
-		Facts:          func() *crhv1.Facts { return nodeFacts(cfg.Load()) },
-		Version:        version.Version,
+		Facts:          func() protocol.Facts { return nodeFacts(cfg.Load()) },
 		OutputDir:      first.Output.Dir,
 		PrivilegedMode: first.Privilege.Mode,
 		Logger:         log,
@@ -89,8 +89,12 @@ func run(ctx context.Context, configPath string) error {
 	go reloadOnHangup(ctx, log, configPath, &cfg, a)
 
 	log.Info("crha starting", "server", first.AgentURL(), "identity", identity.Fingerprint(key.Public))
-	if err := a.Run(ctx); err != nil && ctx.Err() == nil {
-		return err
+	if err := a.Run(ctx); err != nil {
+		// agent.ErrNodeRejected carries crhs's reason. main prints the returned error to stderr and
+		// exits non-zero; other errors are only reported when we were not shutting down.
+		if errors.Is(err, agent.ErrNodeRejected) || ctx.Err() == nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -126,7 +130,7 @@ func reloadOnHangup(ctx context.Context, log *slog.Logger, path string, cfg *ato
 	}
 }
 
-func dialOptions(cfg *config.Config, key identity.Keypair, serverKey []byte, init *crhv1.HandshakeInit) transport.DialOptions {
+func dialOptions(cfg *config.Config, key identity.Keypair, serverKey []byte, init *protocol.HandshakeInit) transport.DialOptions {
 	return transport.DialOptions{
 		URL:                cfg.AgentURL(),
 		InsecureSkipVerify: cfg.TLSVerify == config.TLSVerifyNone,
@@ -136,11 +140,11 @@ func dialOptions(cfg *config.Config, key identity.Keypair, serverKey []byte, ini
 	}
 }
 
-func nodeFacts(cfg *config.Config) *crhv1.Facts {
+func nodeFacts(cfg *config.Config) protocol.Facts {
 	f := facts.Collect()
 	f.NotesPath = cfg.Notes
 	f.Groups = cfg.Groups
-	return f
+	return facts.Clean(f)
 }
 
 func newPrivilegedCmd() *cobra.Command {

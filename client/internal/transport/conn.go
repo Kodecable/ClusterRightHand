@@ -1,6 +1,6 @@
-// Package transport carries crh envelopes between crha and crhs: a WebSocket connection, the server's
-// challenge, a Noise IK handshake bound to that challenge, then one encrypted envelope per binary message.
-// See doc/execution-plane.md#通信安全.
+// Package transport carries crh frames between crha and crhs: a WebSocket connection, the server's
+// challenge, a Noise IK handshake bound to that challenge, then one encrypted frame per binary message.
+// See doc/execution-plane.md#通信安全 and doc/protocol.md#帧.
 package transport
 
 import (
@@ -13,15 +13,18 @@ import (
 	"time"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
-	"github.com/Kodecable/ClusterRightHand/client/internal/proto/crhv1"
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/coder/websocket"
-	"google.golang.org/protobuf/proto"
 )
 
-// MaxEnvelopeLen bounds one encoded envelope so that it fits a Noise transport message.
-const MaxEnvelopeLen = 60 * 1024
+// MaxEnvelopeLen bounds one encoded frame so that it fits a Noise transport message.
+const MaxEnvelopeLen = protocol.MaxFrameBytes
 
 const handshakeTimeout = 20 * time.Second
+
+// writeTimeout bounds one WebSocket write. A protocol Peer holds its send lock while calling send, so
+// a stalled peer must not be able to block Peer.Close forever. It is a variable so tests can shorten it.
+var writeTimeout = 30 * time.Second
 
 type DialOptions struct {
 	// URL of the agent endpoint, wss://host/agent.
@@ -31,21 +34,36 @@ type DialOptions struct {
 	InsecureSkipVerify bool
 	Identity           noise.Keypair
 	ServerPublic       []byte
-	Init               *crhv1.HandshakeInit
+	// Init is the handshake payload. Dial fills in the protocol version, the supported command and
+	// event names and the client time; CRHAVersion and Enroll come from the caller.
+	Init *protocol.HandshakeInit
 }
 
-// Conn is an authenticated, encrypted envelope stream. Send is safe for concurrent use; Recv is not.
+// wsConn is the part of *websocket.Conn the transport uses. Tests substitute a connection whose
+// writes block, to check the send timeout.
+type wsConn interface {
+	Read(ctx context.Context) (websocket.MessageType, []byte, error)
+	Write(ctx context.Context, typ websocket.MessageType, p []byte) error
+	Close(code websocket.StatusCode, reason string) error
+	SetReadLimit(n int64)
+}
+
+// Conn is an authenticated, encrypted frame stream. Send is safe for concurrent use; Recv is not.
 type Conn struct {
-	ws       *websocket.Conn
+	ws       wsConn
 	session  *noise.Session
-	Response *crhv1.HandshakeResponse
+	Response *protocol.HandshakeResponse
+	// Negotiated is the intersection of both handshakes' command and event names. Only those may be
+	// sent or received.
+	Negotiated protocol.Set
 	// ClockOffset is the local clock minus crhs's clock, measured during the handshake.
 	ClockOffset time.Duration
 
 	sendMu sync.Mutex
 }
 
-// HandshakeError means crhs rejected us (unknown key, bad token, ...) rather than a network failure.
+// HandshakeError means crhs rejected us (unknown key, bad token, incompatible protocol, ...) rather
+// than a network failure.
 type HandshakeError struct{ Err error }
 
 func (e *HandshakeError) Error() string { return "handshake: " + e.Err.Error() }
@@ -75,7 +93,7 @@ func Dial(ctx context.Context, opts DialOptions) (*Conn, error) {
 	return c, nil
 }
 
-func handshake(ctx context.Context, ws *websocket.Conn, opts DialOptions) (*Conn, error) {
+func handshake(ctx context.Context, ws wsConn, opts DialOptions) (*Conn, error) {
 	challenge, err := readBinary(ctx, ws)
 	if err != nil {
 		return nil, fmt.Errorf("read challenge: %w", err)
@@ -87,10 +105,16 @@ func handshake(ctx context.Context, ws *websocket.Conn, opts DialOptions) (*Conn
 	if err != nil {
 		return nil, err
 	}
-	init := proto.Clone(opts.Init).(*crhv1.HandshakeInit)
+	init := protocol.HandshakeInit{}
+	if opts.Init != nil {
+		init = *opts.Init
+	}
+	init.ProtocolMajor = protocol.ProtocolMajor
+	init.ProtocolMinor = protocol.ProtocolMinor
+	init.Commands = protocol.SupportedNames()
 	sent := time.Now()
-	init.ClientTimeUnixMs = sent.UnixMilli()
-	payload, err := proto.Marshal(init)
+	init.ClientTimeMS = protocol.Int(sent.UnixMilli())
+	payload, err := protocol.Marshal(init)
 	if err != nil {
 		return nil, err
 	}
@@ -115,17 +139,34 @@ func handshake(ctx context.Context, ws *websocket.Conn, opts DialOptions) (*Conn
 	if err != nil {
 		return nil, &HandshakeError{err}
 	}
-	var resp crhv1.HandshakeResponse
-	if err := proto.Unmarshal(respPayload, &resp); err != nil {
+	// The first element is always protocol_major. A different major version may have a different
+	// schema after it, so it must not be parsed at all.
+	major, err := protocol.PeekMajor(respPayload)
+	if err != nil {
 		return nil, &HandshakeError{fmt.Errorf("decode response: %w", err)}
+	}
+	if major != protocol.ProtocolMajor {
+		return nil, &HandshakeError{fmt.Errorf("protocol_major mismatch: server %d, client %d", major, protocol.ProtocolMajor)}
+	}
+	var resp protocol.HandshakeResponse
+	if err := protocol.Unmarshal(respPayload, &resp); err != nil {
+		return nil, &HandshakeError{fmt.Errorf("decode response: %w", err)}
+	}
+	negotiated := protocol.SupportedSet().Intersect(protocol.NewSet(resp.Commands...))
+	for _, name := range protocol.SupportedNames() {
+		if negotiated.Has(name) {
+			continue
+		}
+		_ = ws.Close(websocket.StatusPolicyViolation, "missing required command: "+name)
+		return nil, &HandshakeError{fmt.Errorf("missing required command: %s", name)}
 	}
 	// Assume the server stamped its time halfway through the round trip.
 	mid := sent.Add(received.Sub(sent) / 2)
-	offset := mid.Sub(time.UnixMilli(resp.ServerTimeUnixMs))
-	return &Conn{ws: ws, session: session, Response: &resp, ClockOffset: offset}, nil
+	offset := mid.Sub(time.UnixMilli(int64(resp.ServerTimeMS)))
+	return &Conn{ws: ws, session: session, Response: &resp, Negotiated: negotiated, ClockOffset: offset}, nil
 }
 
-func readBinary(ctx context.Context, ws *websocket.Conn) ([]byte, error) {
+func readBinary(ctx context.Context, ws wsConn) ([]byte, error) {
 	typ, data, err := ws.Read(ctx)
 	if err != nil {
 		return nil, err
@@ -136,25 +177,26 @@ func readBinary(ctx context.Context, ws *websocket.Conn) ([]byte, error) {
 	return data, nil
 }
 
-func (c *Conn) Send(ctx context.Context, env *crhv1.Envelope) error {
-	data, err := proto.Marshal(env)
-	if err != nil {
-		return err
-	}
-	if len(data) > MaxEnvelopeLen {
-		return fmt.Errorf("envelope of %d bytes exceeds %d", len(data), MaxEnvelopeLen)
+// Send encrypts and writes one encoded frame. The write is bounded by writeTimeout so a stalled peer
+// cannot hold the Peer's send lock forever.
+func (c *Conn) Send(ctx context.Context, frame []byte) error {
+	if len(frame) > MaxEnvelopeLen {
+		return fmt.Errorf("frame of %d bytes exceeds %d", len(frame), MaxEnvelopeLen)
 	}
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
+	wctx, cancel := context.WithTimeout(ctx, writeTimeout)
+	defer cancel()
 	// Encrypt under the lock: the nonce order must match the wire order.
-	ct, err := c.session.Encrypt(data)
+	ct, err := c.session.Encrypt(frame)
 	if err != nil {
 		return err
 	}
-	return c.ws.Write(ctx, websocket.MessageBinary, ct)
+	return c.ws.Write(wctx, websocket.MessageBinary, ct)
 }
 
-func (c *Conn) Recv(ctx context.Context) (*crhv1.Envelope, error) {
+// Recv reads and decrypts one frame. The returned bytes are still encoded; protocol.Peer decodes them.
+func (c *Conn) Recv(ctx context.Context) ([]byte, error) {
 	ct, err := readBinary(ctx, c.ws)
 	if err != nil {
 		return nil, err
@@ -163,11 +205,10 @@ func (c *Conn) Recv(ctx context.Context) (*crhv1.Envelope, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decrypt: %w", err)
 	}
-	var env crhv1.Envelope
-	if err := proto.Unmarshal(data, &env); err != nil {
-		return nil, fmt.Errorf("decode envelope: %w", err)
+	if len(data) > MaxEnvelopeLen {
+		return nil, fmt.Errorf("frame of %d bytes exceeds %d", len(data), MaxEnvelopeLen)
 	}
-	return &env, nil
+	return data, nil
 }
 
 func (c *Conn) Close(reason string) error {

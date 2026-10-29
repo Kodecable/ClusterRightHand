@@ -1,4 +1,4 @@
-import type { ExecSpec } from "@crh/protocol";
+import type { ExecSpec } from "@crh/protocol/wire";
 import type { SshSession } from "./connection.ts";
 
 export const DEFAULT_KILL_GRACE_MS = 5_000;
@@ -33,11 +33,14 @@ export function shellQuote(s: string): string {
  */
 export function buildCommand(spec: ExecSpec): string {
 	let argv: string[];
-	if (spec.argv.length > 0 && spec.shell)
-		throw new SshExecError("invalid_spec", "argv and shell are mutually exclusive");
-	if (spec.argv.length > 0) argv = spec.argv;
-	else if (spec.shell) argv = ["/bin/sh", "-c", spec.shell];
-	else throw new SshExecError("invalid_spec", "argv or shell is required");
+	if ("argv" in spec.command) {
+		if (spec.command.argv.length === 0) throw new SshExecError("invalid_spec", "argv or shell is required");
+		argv = spec.command.argv;
+	} else if (spec.command.shell) {
+		argv = ["/bin/sh", "-c", spec.command.shell];
+	} else {
+		throw new SshExecError("invalid_spec", "argv or shell is required");
+	}
 	const cwd = spec.cwd || "/";
 	if (!cwd.startsWith("/")) throw new SshExecError("invalid_spec", "cwd must be absolute");
 	const env = Object.entries(spec.env).map(([k, v]) => {

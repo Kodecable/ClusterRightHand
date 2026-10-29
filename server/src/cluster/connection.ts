@@ -1,44 +1,64 @@
-import { create, fromBinary, type MessageInitShape, toBinary } from "@bufbuild/protobuf";
 import type { TransportCiphers } from "@crh/noise";
-import { type Envelope, EnvelopeSchema, MAX_ENVELOPE_BYTES } from "@crh/protocol";
+import { CborError, ConnectionError, Peer, ProtocolError } from "@crh/protocol/wire";
 import type { WebSocket } from "ws";
 
 const EMPTY = new Uint8Array(0);
 
-/** An authenticated, encrypted envelope stream to one crha. Envelopes are delivered in order. */
+/** An authenticated, encrypted frame stream to one crha. Frames are delivered in order. */
 export class NodeConnection {
 	readonly id: string;
 	readonly nodeId: string;
+	/** The wire protocol peer; commands and events are registered on it. */
+	readonly peer: Peer;
 	readonly #ws: WebSocket;
 	readonly #ciphers: TransportCiphers;
-	#onEnvelope: (env: Envelope) => void = () => {};
+	#onActivity: () => void = () => {};
 	#onClose: (reason: string) => void = () => {};
 	#closed = false;
 
-	constructor(id: string, nodeId: string, ws: WebSocket, ciphers: TransportCiphers) {
+	constructor(id: string, nodeId: string, ws: WebSocket, ciphers: TransportCiphers, negotiated: Iterable<string>) {
 		this.id = id;
 		this.nodeId = nodeId;
 		this.#ws = ws;
 		this.#ciphers = ciphers;
+		this.peer = new Peer({
+			negotiated,
+			// Encrypt and hand to the socket synchronously, so nonce order equals wire order.
+			send: (bytes) => {
+				if (this.#closed) throw new ConnectionError("connection closed");
+				this.#ws.send(this.#ciphers.send.encrypt(EMPTY, bytes));
+			},
+			// A throwing event handler leaves the two sides out of step; close as for a protocol error.
+			onError: (error) => this.close(`event handler failed: ${error.message}`),
+		});
 		ws.on("message", (data, isBinary) => {
 			if (this.#closed) return;
 			if (!isBinary) return this.close("text message");
-			let env: Envelope;
+			let plain: Uint8Array;
 			try {
-				const plain = this.#ciphers.receive.decrypt(EMPTY, toBytes(data));
-				env = fromBinary(EnvelopeSchema, plain);
+				plain = this.#ciphers.receive.decrypt(EMPTY, toBytes(data));
 			} catch {
 				// A failed decryption desynchronizes the nonce; the session cannot continue.
 				return this.close("bad message");
 			}
-			this.#onEnvelope(env);
+			this.#onActivity();
+			try {
+				this.peer.receive(plain);
+			} catch (err) {
+				if (err instanceof ProtocolError || err instanceof CborError) {
+					this.close(`protocol error: ${err.message}`);
+				} else {
+					this.close(`internal error: ${(err as Error).message}`);
+				}
+			}
 		});
 		ws.on("close", (_code, reason) => this.#finish(reason.toString() || "closed"));
 		ws.on("error", (err) => this.#finish(err.message));
 	}
 
-	onEnvelope(handler: (env: Envelope) => void): void {
-		this.#onEnvelope = handler;
+	/** Runs on every decrypted frame, before it is dispatched (the idle timeout refreshes here). */
+	onActivity(handler: () => void): void {
+		this.#onActivity = handler;
 	}
 
 	onClose(handler: (reason: string) => void): void {
@@ -50,14 +70,6 @@ export class NodeConnection {
 		return this.#closed;
 	}
 
-	send(body: MessageInitShape<typeof EnvelopeSchema>["body"]): void {
-		if (this.#closed) throw new Error("connection closed");
-		const plain = toBinary(EnvelopeSchema, create(EnvelopeSchema, { body }));
-		if (plain.length > MAX_ENVELOPE_BYTES) throw new RangeError(`envelope too large: ${plain.length} bytes`);
-		// Encrypt and hand to the socket synchronously, so nonce order equals wire order.
-		this.#ws.send(this.#ciphers.send.encrypt(EMPTY, plain));
-	}
-
 	close(reason: string): void {
 		if (!this.#closed) this.#ws.close(1000, reason.slice(0, 120));
 		this.#finish(reason);
@@ -66,6 +78,7 @@ export class NodeConnection {
 	#finish(reason: string): void {
 		if (this.#closed) return;
 		this.#closed = true;
+		this.peer.close(reason);
 		this.#onClose(reason);
 	}
 }

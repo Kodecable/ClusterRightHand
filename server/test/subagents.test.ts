@@ -1,5 +1,4 @@
-import { create } from "@bufbuild/protobuf";
-import { TaskSpecSchema } from "@crh/protocol";
+import type { TaskSpec } from "@crh/protocol/wire";
 import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -96,7 +95,7 @@ const subagent = (parentId: string, callKey: string, rules: { default: string; r
 const execTask = (chain: string[]) =>
 	cluster.createTask({
 		nodeId,
-		spec: create(TaskSpecSchema, { kind: { case: "exec", value: { argv: ["echo", "hi"] } } }),
+		spec: { kind: "exec", command: { argv: ["echo", "hi"] }, env: {}, cwd: "", stdin: null } satisfies TaskSpec,
 		chain: chain.map((id) => ({ type: "session" as const, id })),
 		actor: { type: "subagent", id: chain[chain.length - 1] as string, onBehalfOfUserId: owner.userId },
 	});

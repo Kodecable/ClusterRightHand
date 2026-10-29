@@ -18,6 +18,7 @@ import * as m0015 from "./migrations/0015_session_state.ts";
 import * as m0016 from "./migrations/0016_awaiting_state.ts";
 import * as m0017 from "./migrations/0017_root_session_quota.ts";
 import * as m0018 from "./migrations/0018_approval_handler.ts";
+import * as m0019 from "./migrations/0019_cbor_protocol.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -39,6 +40,7 @@ const migrations: Record<string, Migration> = {
 	"0016_awaiting_state": m0016,
 	"0017_root_session_quota": m0017,
 	"0018_approval_handler": m0018,
+	"0019_cbor_protocol": m0019,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };

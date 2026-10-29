@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { Facts } from "@crh/protocol/wire";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { createEnrollmentToken, EnrollmentError, enrollNode, parseEnrollmentToken } from "../src/cluster/enrollment.ts";
@@ -23,6 +24,20 @@ vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 
 const FP = "dummy-fingerprint";
 const INVALID = "invalid, expired or already used enrollment token";
+const FACTS: Facts = {
+	hostname: "Host",
+	osId: "linux",
+	osVersionId: "1",
+	osPrettyName: "Linux",
+	kernel: "6.1",
+	arch: "x86_64",
+	initSystem: "systemd",
+	packageManagers: ["apt"],
+	privilegeTools: ["sudo"],
+	notesPath: "/etc/crh-notes.md",
+	groups: [],
+	clockOffsetMs: 0,
+};
 
 describeBackends("nodes", (backend) => {
 	let db: Db;
@@ -51,7 +66,7 @@ describeBackends("nodes", (backend) => {
 			secret: secretOf(token),
 			publicKey: opts.publicKey ?? key(),
 			hostname: opts.hostname ?? "Host",
-			facts: { os: "linux" },
+			facts: FACTS,
 			clientVersion: "0.1.0",
 		});
 	};
@@ -256,16 +271,16 @@ describeBackends("nodes", (backend) => {
 				access: "view",
 				createdBy: o.userId,
 			});
-			await updateNodeFacts(db, a.id, { facts: { os: "linux" }, groups: ["web", "db"], privilegedMode: "native" });
+			await updateNodeFacts(db, a.id, { facts: FACTS, groups: ["web", "db"], privilegedMode: "native" });
 
 			const list = await listNodesForUser(db, u);
 			expect(list.map((n) => n.name)).toEqual(["aa-theirs", "zz-mine"]);
-			expect(list[0]).toMatchObject({ access: "view", groups: [], ownerUserId: o.userId, facts: { os: "linux" } });
+			expect(list[0]).toMatchObject({ access: "view", groups: [], ownerUserId: o.userId, facts: FACTS });
 			expect(list[1]).toMatchObject({
 				access: "owner",
 				groups: ["db", "web"],
 				privilegedMode: "native",
-				facts: { os: "linux" },
+				facts: FACTS,
 			});
 			const all = await listNodesForUser(db, admin);
 			expect(all.map((n) => n.id)).toContain(c.id);
@@ -276,11 +291,16 @@ describeBackends("nodes", (backend) => {
 		it("updateNodeFacts replaces groups and sets last_seen_at", async () => {
 			const n = await enroll({ hostname: "facts-node" });
 			const t1 = new Date("2031-01-01T00:00:00Z");
-			await updateNodeFacts(db, n.id, { facts: { v: 1 }, groups: ["a", "b", "a"], clientVersion: "2", now: t1 });
+			await updateNodeFacts(db, n.id, {
+				facts: { ...FACTS, hostname: "first" },
+				groups: ["a", "b", "a"],
+				clientVersion: "2",
+				now: t1,
+			});
 			let row = await getNode(db, n.id);
 			expect(row).toMatchObject({ last_seen_at: t1.toISOString(), client_version: "2" });
-			expect(JSON.parse(row?.facts ?? "null")).toEqual({ v: 1 });
-			await updateNodeFacts(db, n.id, { facts: { v: 2 }, groups: ["c"] });
+			expect(JSON.parse(row?.facts ?? "null")).toEqual({ ...FACTS, hostname: "first" });
+			await updateNodeFacts(db, n.id, { facts: { ...FACTS, hostname: "second" }, groups: ["c"] });
 			const groups = await db.selectFrom("node_groups").select("group_name").where("node_id", "=", n.id).execute();
 			expect(groups.map((g) => g.group_name)).toEqual(["c"]);
 			row = await getNode(db, n.id);
@@ -299,7 +319,7 @@ describeBackends("nodes", (backend) => {
 
 		it("delete removes shares and groups", async () => {
 			const n = await enroll({ hostname: "to-delete" });
-			await updateNodeFacts(db, n.id, { facts: {}, groups: ["g"] });
+			await updateNodeFacts(db, n.id, { facts: FACTS, groups: ["g"] });
 			await shareNode(db, {
 				nodeId: n.id,
 				granteeType: "user",

@@ -1,8 +1,7 @@
-import { create, type MessageInitShape } from "@bufbuild/protobuf";
-import { TaskSpecSchema } from "@crh/protocol";
+import type { TaskSpec } from "@crh/protocol/wire";
 import * as z from "zod/v4";
 import type { SessionUser } from "../auth/sessions.ts";
-import type { Actor, Cluster, TaskView } from "../cluster/cluster.ts";
+import { type Actor, type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
 import { getNode, listNodesForUser } from "../cluster/nodes.ts";
 import { resolveTargets, type TaskGroups, type TaskGroupView } from "../cluster/task-groups.ts";
 import type { RuleRef } from "../policy/store.ts";
@@ -84,8 +83,6 @@ const MAX_WAIT_S = 600;
 /** Output given back per call, as pi's tools do: the tail, at most this many bytes and lines. */
 const OUTPUT_BYTES = 50 * 1024;
 const OUTPUT_LINES = 2000;
-
-type SpecInit = MessageInitShape<typeof TaskSpecSchema>;
 
 const nodeField = z.string().describe("Node name or id");
 const targetsField = z
@@ -205,13 +202,13 @@ function groupResult(g: TaskGroupView, names: Map<string, string>, ctx: ToolCont
 async function run(
 	ctx: ToolContext,
 	args: { node?: string; targets?: string[]; wait?: number; timeout?: number; parallel?: number; fail_fast?: boolean },
-	spec: SpecInit,
+	spec: TaskSpec,
 	input?: Uint8Array,
 ): Promise<unknown> {
 	if ((args.node === undefined) === (args.targets === undefined)) throw new UserError("give either node or targets");
 	const waitMs = (args.wait ?? ctx.defaultWaitS ?? DEFAULT_WAIT_S) * 1000;
 	const timeoutMs = args.timeout ? args.timeout * 1000 : undefined;
-	const common = { spec: create(TaskSpecSchema, spec), input, timeoutMs, actor: ctx.actor, chain: ctx.chain };
+	const common = { spec, input, timeoutMs, actor: ctx.actor, chain: ctx.chain };
 	if (args.node !== undefined) {
 		const [nodeId] = await resolveTargets(ctx.db, ctx.user, [args.node]);
 		const id = ctx.callKey ? derivedId(`task:${ctx.callKey}`) : undefined;
@@ -272,9 +269,7 @@ const NOTES_BYTES = 8 * 1024;
 async function readNotes(ctx: ToolContext, nodeId: string, path: string): Promise<Record<string, unknown>> {
 	const node = await getNode(ctx.db, nodeId);
 	if (node?.status !== "active") return { path, content: null, note: "the node is not active" };
-	const spec = create(TaskSpecSchema, {
-		kind: { case: "fileRead", value: { path, offset: 0n, limit: BigInt(NOTES_BYTES + 1) } },
-	});
+	const spec: TaskSpec = { kind: "file.read", path, offset: 0, limit: NOTES_BYTES + 1 };
 	if ((await ctx.cluster.evaluateFor(node, spec, ctx.chain)).result !== "allow") {
 		return { path, content: null, note: "reading it needs approval here; use read_file" };
 	}
@@ -363,10 +358,11 @@ const exec = define({
 			ctx,
 			args,
 			{
-				kind: {
-					case: "exec",
-					value: { argv: args.argv ?? [], shell: args.cmd ?? "", env: args.env ?? {}, cwd: args.cwd ?? "" },
-				},
+				kind: "exec",
+				command: args.argv !== undefined ? { argv: args.argv } : { shell: args.cmd ?? "" },
+				env: args.env ?? {},
+				cwd: args.cwd ?? "",
+				stdin: null,
 			},
 			args.stdin === undefined ? undefined : Buffer.from(args.stdin),
 		);
@@ -387,12 +383,7 @@ const readFile = define({
 	}),
 	readOnly: true,
 	handler: async (args, ctx) =>
-		run(ctx, args, {
-			kind: {
-				case: "fileRead",
-				value: { path: args.path, offset: BigInt(args.offset ?? 0), limit: BigInt(args.limit ?? 0) },
-			},
-		}),
+		run(ctx, args, { kind: "file.read", path: args.path, offset: args.offset ?? 0, limit: args.limit ?? 0 }),
 });
 
 const writeFile = define({
@@ -416,10 +407,13 @@ const writeFile = define({
 			ctx,
 			args,
 			{
-				kind: {
-					case: "fileWrite",
-					value: { path: args.path, overwrite: args.overwrite === true, mode: args.mode ?? 0 },
-				},
+				kind: "file.write",
+				path: args.path,
+				content: EMPTY_INPUT_REF,
+				overwrite: args.overwrite === true,
+				mode: args.mode ?? 0,
+				owner: "",
+				group: "",
 			},
 			Buffer.from(args.content),
 		),
@@ -439,10 +433,9 @@ const editFile = define({
 	readOnly: false,
 	handler: async (args, ctx) =>
 		run(ctx, args, {
-			kind: {
-				case: "fileEdit",
-				value: { path: args.path, edits: args.edits.map((e) => ({ oldText: e.oldText, newText: e.newText })) },
-			},
+			kind: "file.edit",
+			path: args.path,
+			edits: args.edits.map((e) => ({ oldText: e.oldText, newText: e.newText })),
 		}),
 });
 
@@ -456,8 +449,7 @@ const listDir = define({
 		wait: waitField,
 	}),
 	readOnly: true,
-	handler: async (args, ctx) =>
-		run(ctx, args, { kind: { case: "fileList", value: { path: args.path, limit: args.limit ?? 0 } } }),
+	handler: async (args, ctx) => run(ctx, args, { kind: "file.list", path: args.path, limit: args.limit ?? 0 }),
 });
 
 const taskWait = define({

@@ -158,10 +158,12 @@ export interface TasksTable extends ApprovalColumns {
 	node_id: string;
 	task_group_id: string | null;
 	kind: string;
-	/** TaskSpec in protobuf JSON form, without the input bytes. */
+	/** TaskSpec in the JSON form of doc/protocol.md#json-形式服务端存储, without the input bytes. */
 	spec: string;
 	input_size: number | null;
 	input_sha256: string | null;
+	/** Dispatch attempt, from 1; only an authorization retry increments it (doc/protocol.md#task.start). */
+	attempt: number;
 	privileged: number;
 	timeout_ms: number | null;
 	state: TaskState;
@@ -204,7 +206,7 @@ export interface TaskGroupsTable extends ApprovalColumns {
 	on_behalf_of_user_id: string;
 	created_at: CreatedAt;
 	finished_at: string | null;
-	/** TaskSpec JSON, kept while waiting for approval. */
+	/** TaskSpec JSON (doc/protocol.md#json-形式服务端存储), kept while waiting for approval. */
 	spec: string | null;
 	timeout_ms: number | null;
 }

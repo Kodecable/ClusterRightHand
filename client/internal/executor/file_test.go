@@ -13,23 +13,23 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Kodecable/ClusterRightHand/client/internal/proto/crhv1"
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
 func run(t *testing.T, kind any, input io.Reader) (map[string]any, error) {
 	t.Helper()
-	spec := &crhv1.TaskSpec{}
+	spec := &protocol.TaskSpec{}
 	switch k := kind.(type) {
-	case *crhv1.FileReadSpec:
-		spec.Kind = &crhv1.TaskSpec_FileRead{FileRead: k}
-	case *crhv1.FileWriteSpec:
-		spec.Kind = &crhv1.TaskSpec_FileWrite{FileWrite: k}
-	case *crhv1.FileEditSpec:
-		spec.Kind = &crhv1.TaskSpec_FileEdit{FileEdit: k}
-	case *crhv1.FileStatSpec:
-		spec.Kind = &crhv1.TaskSpec_FileStat{FileStat: k}
-	case *crhv1.FileListSpec:
-		spec.Kind = &crhv1.TaskSpec_FileList{FileList: k}
+	case *protocol.FileReadSpec:
+		spec.Kind, spec.FileRead = protocol.TaskSpecFileRead, k
+	case *protocol.FileWriteSpec:
+		spec.Kind, spec.FileWrite = protocol.TaskSpecFileWrite, k
+	case *protocol.FileEditSpec:
+		spec.Kind, spec.FileEdit = protocol.TaskSpecFileEdit, k
+	case *protocol.FileStatSpec:
+		spec.Kind, spec.FileStat = protocol.TaskSpecFileStat, k
+	case *protocol.FileListSpec:
+		spec.Kind, spec.FileList = protocol.TaskSpecFileList, k
 	}
 	var out bytes.Buffer
 	err := RunFile(context.Background(), spec, input, &out)
@@ -68,9 +68,9 @@ func readFileStr(t *testing.T, path string) string {
 	return string(b)
 }
 
-func writeSpec(path, content string) *crhv1.FileWriteSpec {
+func writeSpec(path, content string) *protocol.FileWriteSpec {
 	sum := sha256.Sum256([]byte(content))
-	return &crhv1.FileWriteSpec{Path: path, Content: &crhv1.InputRef{Size: uint64(len(content)), Sha256: sum[:]}}
+	return &protocol.FileWriteSpec{Path: path, Content: protocol.InputRef{Size: protocol.Uint(len(content)), SHA256: protocol.Hash(sum)}}
 }
 
 func noTemps(t *testing.T, dir string) {
@@ -85,7 +85,7 @@ func noTemps(t *testing.T, dir string) {
 
 func TestFileInvalidPath(t *testing.T) {
 	for _, p := range []string{"rel/path", "/a/../b", "/a//b", "/a/"} {
-		_, err := run(t, &crhv1.FileStatSpec{Path: p}, nil)
+		_, err := run(t, &protocol.FileStatSpec{Path: p}, nil)
 		wantCode(t, err, "invalid_spec")
 	}
 }
@@ -97,7 +97,7 @@ func TestFileRead(t *testing.T) {
 
 	read := func(off, lim uint64) string {
 		var out bytes.Buffer
-		spec := &crhv1.TaskSpec{Kind: &crhv1.TaskSpec_FileRead{FileRead: &crhv1.FileReadSpec{Path: p, Offset: off, Limit: lim}}}
+		spec := &protocol.TaskSpec{Kind: protocol.TaskSpecFileRead, FileRead: &protocol.FileReadSpec{Path: p, Offset: protocol.Uint(off), Limit: protocol.Uint(lim)}}
 		if err := RunFile(context.Background(), spec, nil, &out); err != nil {
 			t.Fatal(err)
 		}
@@ -116,9 +116,9 @@ func TestFileRead(t *testing.T) {
 		t.Fatalf("past eof: %q", got)
 	}
 
-	_, err := run(t, &crhv1.FileReadSpec{Path: dir}, nil)
+	_, err := run(t, &protocol.FileReadSpec{Path: dir}, nil)
 	wantCode(t, err, "is_directory")
-	_, err = run(t, &crhv1.FileReadSpec{Path: filepath.Join(dir, "nope")}, nil)
+	_, err = run(t, &protocol.FileReadSpec{Path: filepath.Join(dir, "nope")}, nil)
 	wantCode(t, err, "not_found")
 }
 
@@ -127,7 +127,7 @@ func TestFileReadCancelled(t *testing.T) {
 	writeFile(t, p, "x", 0o644)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	spec := &crhv1.TaskSpec{Kind: &crhv1.TaskSpec_FileRead{FileRead: &crhv1.FileReadSpec{Path: p}}}
+	spec := &protocol.TaskSpec{Kind: protocol.TaskSpecFileRead, FileRead: &protocol.FileReadSpec{Path: p}}
 	wantCode(t, RunFile(ctx, spec, nil, io.Discard), "cancelled")
 }
 
@@ -230,9 +230,9 @@ func TestFileWriteErrors(t *testing.T) {
 
 func edit(t *testing.T, path string, pairs ...string) (map[string]any, error) {
 	t.Helper()
-	s := &crhv1.FileEditSpec{Path: path}
+	s := &protocol.FileEditSpec{Path: path}
 	for i := 0; i < len(pairs); i += 2 {
-		s.Edits = append(s.Edits, &crhv1.Edit{OldText: pairs[i], NewText: pairs[i+1]})
+		s.Edits = append(s.Edits, protocol.Edit{OldText: pairs[i], NewText: pairs[i+1]})
 	}
 	return run(t, s, nil)
 }
@@ -338,7 +338,7 @@ func TestFileStat(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f")
 	writeFile(t, p, "abc", 0o640)
-	out, err := run(t, &crhv1.FileStatSpec{Path: p}, nil)
+	out, err := run(t, &protocol.FileStatSpec{Path: p}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,12 +352,12 @@ func TestFileStat(t *testing.T) {
 		t.Fatal("mtime")
 	}
 
-	out, _ = run(t, &crhv1.FileStatSpec{Path: dir}, nil)
+	out, _ = run(t, &protocol.FileStatSpec{Path: dir}, nil)
 	if out["type"] != "dir" {
 		t.Fatalf("out: %v", out)
 	}
 
-	_, err = run(t, &crhv1.FileStatSpec{Path: filepath.Join(dir, "nope")}, nil)
+	_, err = run(t, &protocol.FileStatSpec{Path: filepath.Join(dir, "nope")}, nil)
 	wantCode(t, err, "not_found")
 }
 
@@ -367,7 +367,7 @@ func TestFileStatSymlink(t *testing.T) {
 	if err := os.Symlink("/nonexistent/target", l); err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, &crhv1.FileStatSpec{Path: l}, nil)
+	out, err := run(t, &protocol.FileStatSpec{Path: l}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +391,7 @@ func TestFileList(t *testing.T) {
 		}
 		return ns
 	}
-	out, err := run(t, &crhv1.FileListSpec{Path: dir}, nil)
+	out, err := run(t, &protocol.FileListSpec{Path: dir}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,23 +407,23 @@ func TestFileList(t *testing.T) {
 		t.Fatalf("types: %v", types)
 	}
 
-	out, _ = run(t, &crhv1.FileListSpec{Path: dir, Limit: 2}, nil)
+	out, _ = run(t, &protocol.FileListSpec{Path: dir, Limit: 2}, nil)
 	if got := fmt.Sprint(names(out)); got != "[a b]" || out["truncated"] != true {
 		t.Fatalf("got %s %v", got, out["truncated"])
 	}
-	out, _ = run(t, &crhv1.FileListSpec{Path: dir, Limit: 6}, nil)
+	out, _ = run(t, &protocol.FileListSpec{Path: dir, Limit: 6}, nil)
 	if out["truncated"] != false {
 		t.Fatal("exact limit must not truncate")
 	}
 
-	_, err = run(t, &crhv1.FileListSpec{Path: filepath.Join(dir, "a")}, nil)
+	_, err = run(t, &protocol.FileListSpec{Path: filepath.Join(dir, "a")}, nil)
 	wantCode(t, err, "not_a_directory")
-	_, err = run(t, &crhv1.FileListSpec{Path: filepath.Join(dir, "nope")}, nil)
+	_, err = run(t, &protocol.FileListSpec{Path: filepath.Join(dir, "nope")}, nil)
 	wantCode(t, err, "not_found")
 }
 
 func TestFileListEmpty(t *testing.T) {
-	out, err := run(t, &crhv1.FileListSpec{Path: t.TempDir()}, nil)
+	out, err := run(t, &protocol.FileListSpec{Path: t.TempDir()}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
