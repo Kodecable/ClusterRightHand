@@ -21,6 +21,7 @@ import * as m0018 from "./migrations/0018_approval_handler.ts";
 import * as m0019 from "./migrations/0019_cbor_protocol.ts";
 import * as m0020 from "./migrations/0020_output_mode.ts";
 import * as m0021 from "./migrations/0021_task_group_privileged.ts";
+import * as m0022 from "./migrations/0022_m4_privilege.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -45,6 +46,7 @@ const migrations: Record<string, Migration> = {
 	"0019_cbor_protocol": m0019,
 	"0020_output_mode": m0020,
 	"0021_task_group_privileged": m0021,
+	"0022_m4_privilege": m0022,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };

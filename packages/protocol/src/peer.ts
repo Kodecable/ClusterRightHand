@@ -3,7 +3,7 @@
  * reliable ordered message stream. Ids are per direction and start at 1.
  */
 import { decodeFrame, encodeFrame, errorMessage, type Frame, ProtocolError } from "./frame.ts";
-import type { CommandName, CommandRequest, CommandResponse, EventBody, EventName } from "./messages.ts";
+import type { CommandName, CommandRequest, CommandResponse, EventBody, EventName } from "./registry.ts";
 
 export class RemoteError extends Error {
 	override name = "RemoteError";

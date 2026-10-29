@@ -116,7 +116,10 @@ export function Batch() {
 				...(p !== undefined ? { parallel: p } : {}),
 			});
 			setGroup(g);
-			while ((g.state === "running" || g.state === "awaiting_approval") && !ctl.signal.aborted) {
+			while (
+				(g.state === "running" || g.state === "awaiting_approval" || g.state === "awaiting_authorization") &&
+				!ctl.signal.aborted
+			) {
 				g = await api.waitTaskGroup(g.id, 20000, ctl.signal);
 				setGroup(g);
 			}

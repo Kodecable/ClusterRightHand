@@ -3,7 +3,8 @@
  * and [2, name, body] events. See doc/protocol.md.
  */
 import { CborError, decode as decodeCbor, encode as encodeCbor } from "./cbor.ts";
-import { COMMANDS, type CommandName, EVENTS, type EventName, errorCodec, type WireError } from "./messages.ts";
+import { errorCodec, type WireError } from "./messages.ts";
+import { COMMANDS, type CommandName, EVENTS, type EventName } from "./registry.ts";
 import { type Codec, SchemaError, text, uint } from "./schema.ts";
 
 /** Maximum encoded size of one frame (one Noise transport message). */

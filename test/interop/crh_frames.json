@@ -2,8 +2,8 @@
 	"positive": [
 		{
 			"id": "handshake.init.no-enroll",
-			"description": "HandshakeInit protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=null",
-			"hex": "8601008c6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6a302e312e302d746573741b0000018bcfe56800f6"
+			"description": "HandshakeInit protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,revocations.add,local.request,local.withdraw,trust.summary,local.decision] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=null",
+			"hex": "860100916568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6f7265766f636174696f6e732e6164646d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e6a302e312e302d746573741b0000018bcfe56800f6"
 		},
 		{
 			"id": "handshake.init.enroll",
@@ -12,13 +12,13 @@
 		},
 		{
 			"id": "handshake.response.active",
-			"description": "HandshakeResponse protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"active\" node_id=\"node-1\"",
-			"hex": "8701008c6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b66636f6e6e2d311b0000018bcfe56cd266616374697665666e6f64652d31"
+			"description": "HandshakeResponse protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,revocations.add,local.request,local.withdraw,trust.summary,local.decision] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"active\" node_id=\"node-1\"",
+			"hex": "870100916568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6f7265766f636174696f6e732e6164646d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e66636f6e6e2d311b0000018bcfe56cd266616374697665666e6f64652d31"
 		},
 		{
 			"id": "handshake.response.pending",
-			"description": "HandshakeResponse protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"pending\" node_id=\"node-1\"",
-			"hex": "8701008c6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b66636f6e6e2d311b0000018bcfe56cd26770656e64696e67666e6f64652d31"
+			"description": "HandshakeResponse protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,revocations.add,local.request,local.withdraw,trust.summary,local.decision] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"pending\" node_id=\"node-1\"",
+			"hex": "870100916568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6f7265766f636174696f6e732e6164646d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e66636f6e6e2d311b0000018bcfe56cd26770656e64696e67666e6f64652d31"
 		},
 		{
 			"id": "request.hello",
@@ -121,6 +121,36 @@
 			"hex": "85010b6b7461736b2e63616e63656cf4826e696e7465726e616c5f6572726f7264626f6f6d"
 		},
 		{
+			"id": "request.revocations.add",
+			"description": "request id=13 cmd=revocations.add body=[entries=[[authorization_id=32 bytes of 0x11, deadline_ms=1793016300000]]]",
+			"hex": "84000d6f7265766f636174696f6e732e616464818182582011111111111111111111111111111111111111111111111111111111111111111b000001a1781981e0"
+		},
+		{
+			"id": "response.revocations.add",
+			"description": "response id=13 cmd=revocations.add ok=true body=[]",
+			"hex": "85010d6f7265766f636174696f6e732e616464f580"
+		},
+		{
+			"id": "request.local.request",
+			"description": "request id=14 cmd=local.request body=[task_id=\"t-read\", attempt=1, spec=[\"file.read\", [path=\"/etc/hosts\", offset=0, limit=0]], note=\"restart nginx\"]",
+			"hex": "84000e6d6c6f63616c2e726571756573748466742d7265616401826966696c652e72656164836a2f6574632f686f73747300006d72657374617274206e67696e78"
+		},
+		{
+			"id": "response.local.request",
+			"description": "response id=14 cmd=local.request ok=true body=[\"pending\", []]",
+			"hex": "85010e6d6c6f63616c2e72657175657374f5826770656e64696e6780"
+		},
+		{
+			"id": "request.local.withdraw",
+			"description": "request id=15 cmd=local.withdraw body=[task_id=\"t-read\", attempt=1]",
+			"hex": "84000f6e6c6f63616c2e77697468647261778266742d7265616401"
+		},
+		{
+			"id": "response.local.withdraw",
+			"description": "response id=15 cmd=local.withdraw ok=true body=[]",
+			"hex": "85010f6e6c6f63616c2e7769746864726177f580"
+		},
+		{
 			"id": "event.task.output",
 			"description": "event task.output body=[task_id=\"t-exec-argv\", stream=\"stdout\", offset=0, data=h'68656c6c6f0a']",
 			"hex": "83026b7461736b2e6f7574707574846b742d657865632d61726776667374646f7574004668656c6c6f0a"
@@ -179,6 +209,16 @@
 			"id": "event.task.exit.ack",
 			"description": "event task.exit.ack body=[task_id=\"t-exec-argv\"]",
 			"hex": "83026d7461736b2e657869742e61636b816b742d657865632d61726776"
+		},
+		{
+			"id": "event.trust.summary",
+			"description": "event trust.summary body=[\"ok\", [node_id=\"node-1\", groups=[\"web\"], clock_skew_ms=60000, identities=[[uid=998, gid=998, user=\"crha\"], [uid=0, gid=0, user=\"root\"]], trust=[[name=\"crhs\", source=\"local\", role=\"crhs\", key=[\"sshsig\", [public_key=\"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEjcrhssigningkeyexample crhs-signing\", fingerprint=\"SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU\"]], kinds=[\"execute\",\"cosign\"], require_exact=true, require_task=true, require_uv=false, max_ttl_ms=300000, allow=[[\"exec\", \"prefix\", \"systemctl restart \"]], deny=[], env_allow=[]], [name=\"alice-passkey\", source=\"local\", role=\"user\", key=[\"webauthn\", [credential_id=32 bytes of 0x11, cose_key=h'a5010203262001215820', rp_id=\"crh.example.com\", origins=[\"https://crh.example.com\"]]], kinds=[\"execute\"], require_exact=false, require_task=true, require_uv=true, max_ttl_ms=null, allow=[], deny=[], env_allow=[\"DEBIAN_FRONTEND\"]], [name=\"local-admins\", source=\"local\", role=\"local\", key=[\"local\", [uids=[0, 1000]]], kinds=[\"execute\"], require_exact=false, require_task=false, require_uv=false, max_ttl_ms=null, allow=[], deny=[], env_allow=[]]]]]",
+			"hex": "83026d74727573742e73756d6d61727982626f6b85666e6f64652d31816377656219ea6082831903e61903e6646372686183000064726f6f74838c6463726873656c6f63616c646372687382667373687369678278497373682d65643235353139204141414143334e7a6143316c5a4449314e5445354141414149456a637268737369676e696e676b65796578616d706c6520637268732d7369676e696e6778325348413235363a3437444551706a38484253612b2f54496d572b354a4365755165526b6d354e4d704a575a4733685375465582676578656375746566636f7369676ef5f5f41a000493e081836465786563667072656669787273797374656d63746c20726573746172742080808c6d616c6963652d706173736b6579656c6f63616c64757365728268776562617574686e84582011111111111111111111111111111111111111111111111111111111111111114aa50102032620012158206f6372682e6578616d706c652e636f6d817768747470733a2f2f6372682e6578616d706c652e636f6d816765786563757465f4f5f5f68080816f44454249414e5f46524f4e54454e448c6c6c6f63616c2d61646d696e73656c6f63616c656c6f63616c82656c6f63616c8182001903e8816765786563757465f4f4f4f6808080"
+		},
+		{
+			"id": "event.local.decision",
+			"description": "event local.decision body=[task_id=\"t-read\", attempt=1, state=[\"denied\", [message=\"not now\"]]]",
+			"hex": "83026e6c6f63616c2e6465636973696f6e8366742d7265616401826664656e69656481676e6f74206e6f77"
 		}
 	],
 	"negative": [

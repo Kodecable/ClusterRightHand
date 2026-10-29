@@ -10,9 +10,11 @@ import {
 	type HandshakeResponse,
 	handshakeInitCodec,
 	handshakeResponseCodec,
+	OPTIONAL_NAMES,
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
 	peekProtocolMajor,
+	REQUIRED_NAMES,
 	SUPPORTED_NAMES,
 } from "@crh/protocol";
 import { WebSocket, WebSocketServer } from "ws";
@@ -29,6 +31,23 @@ export const AGENT_PATH = "/agent";
 const CHALLENGE_LEN = 32;
 const HANDSHAKE_TIMEOUT_MS = 20_000;
 const MAX_NOISE_MESSAGE = 65535;
+
+/**
+ * The commands and events both sides implement (doc/protocol.md#握手载荷). The 1.0 names are required;
+ * the 1.1 names are optional, so a 1.0 crha still connects. `missing` is the first required name the peer
+ * does not offer.
+ */
+export function negotiateCommands(offered: Iterable<string>): {
+	missing: string | undefined;
+	negotiated: string[];
+	optional: string[];
+} {
+	const have = new Set(offered);
+	const missing = REQUIRED_NAMES.find((name) => !have.has(name));
+	const negotiated = SUPPORTED_NAMES.filter((name) => have.has(name));
+	const optional = OPTIONAL_NAMES.filter((name) => have.has(name));
+	return { missing, negotiated, optional };
+}
 
 /**
  * The crha endpoint: WebSocket, server challenge, Noise IK handshake bound to the challenge.
@@ -112,11 +131,9 @@ export class AgentServer {
 		}
 		const clientKey = hs.remoteStaticKey as Uint8Array;
 
-		// Only names both sides implement may be sent; 1.0 requires every name in doc/protocol.md.
-		const offered = new Set(init.commands);
-		const missing = SUPPORTED_NAMES.find((name) => !offered.has(name));
+		// Only names both sides implement may be sent; the 1.0 names are required, the 1.1 names optional.
+		const { missing, negotiated, optional } = negotiateCommands(init.commands);
 		if (missing !== undefined) return reject(ws, `missing required command: ${missing}`);
-		const negotiated = SUPPORTED_NAMES.filter((name) => offered.has(name));
 
 		let node = await findNodeByPublicKey(this.#db, clientKey);
 		if (!node && init.enroll) {
@@ -152,7 +169,7 @@ export class AgentServer {
 			nodeId: node.id,
 		};
 		ws.send(hs.writeMessage(encodeCbor(handshakeResponseCodec.encode(response))));
-		const conn = new NodeConnection(connectionId, node.id, ws, hs.split(), negotiated);
+		const conn = new NodeConnection(connectionId, node.id, ws, hs.split(), negotiated, optional);
 		this.#cluster.attach(conn, node as NodeRow);
 	}
 }

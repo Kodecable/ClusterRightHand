@@ -1,14 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { decode as decodeCbor, encode as encodeCbor } from "../src/cbor.ts";
 import {
-	COMMANDS,
 	type Command,
-	type CommandRequest,
-	type CommandResponse,
 	commandCodec,
 	type Edit,
 	type Enrollment,
-	EVENTS,
 	type ExecSpec,
 	editCodec,
 	emptyCodec,
@@ -36,7 +32,6 @@ import {
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
 	pingCodec,
-	SUPPORTED_NAMES,
 	type TaskExit,
 	type TaskInput,
 	type TaskOutput,
@@ -55,6 +50,15 @@ import {
 	type Welcome,
 	welcomeCodec,
 } from "../src/messages.ts";
+import {
+	COMMANDS,
+	type CommandRequest,
+	type CommandResponse,
+	EVENTS,
+	OPTIONAL_NAMES,
+	REQUIRED_NAMES,
+	SUPPORTED_NAMES,
+} from "../src/registry.ts";
 import { type Codec, SchemaError } from "../src/schema.ts";
 
 const digest = (fill: number): Uint8Array => new Uint8Array(32).fill(fill);
@@ -198,10 +202,10 @@ describe("message codecs", () => {
 		expect(Buffer.from(encodeCbor(codec.encode(decoded))).toString("hex")).toBe(Buffer.from(encoded).toString("hex"));
 	});
 
-	it("uses the protocol version and complete 1.0 name set", () => {
+	it("uses protocol 1.1 and keeps the 1.0 names required", () => {
 		expect(PROTOCOL_MAJOR).toBe(1);
-		expect(PROTOCOL_MINOR).toBe(0);
-		expect(SUPPORTED_NAMES).toEqual([
+		expect(PROTOCOL_MINOR).toBe(1);
+		expect(REQUIRED_NAMES).toEqual([
 			"hello",
 			"ping",
 			"task.start",
@@ -215,15 +219,25 @@ describe("message codecs", () => {
 			"task.output.ack",
 			"task.exit.ack",
 		]);
+		expect(OPTIONAL_NAMES).toEqual([
+			"revocations.add",
+			"local.request",
+			"local.withdraw",
+			"trust.summary",
+			"local.decision",
+		]);
+		expect(SUPPORTED_NAMES).toEqual([...REQUIRED_NAMES, ...OPTIONAL_NAMES]);
 		expect(SUPPORTED_NAMES).not.toContain("trust.query");
 		expect(SUPPORTED_NAMES).not.toContain("revocations.set");
-		expect(SUPPORTED_NAMES).not.toContain("trust.summary");
 	});
 
-	it("registers exactly the 1.0 commands and events", () => {
+	it("registers the 1.1 commands and events next to the 1.0 ones", () => {
 		expect(Object.keys(COMMANDS).sort()).toEqual([
 			"hello",
+			"local.request",
+			"local.withdraw",
 			"ping",
+			"revocations.add",
 			"task.cancel",
 			"task.input",
 			"task.query",
@@ -231,11 +245,13 @@ describe("message codecs", () => {
 		]);
 		expect(Object.keys(EVENTS).sort()).toEqual([
 			"facts",
+			"local.decision",
 			"node.status",
 			"task.exit",
 			"task.exit.ack",
 			"task.output",
 			"task.output.ack",
+			"trust.summary",
 		]);
 	});
 

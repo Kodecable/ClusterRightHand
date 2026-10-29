@@ -17,6 +17,7 @@ import { TaskGroups } from "./cluster/task-groups.ts";
 import { type Config, DEFAULT_CONFIG_PATH, loadConfig } from "./config.ts";
 import { buildKeyExport, decryptKeyExport, encryptKeyExport, verifyKeyExportAgainstDb } from "./keys/export.ts";
 import { bindMasterKey, KeyError, MasterKey, readMasterKeyFile, writeMasterKeyFile } from "./keys/master-key.ts";
+import { loadAuthorizationSigningKey } from "./privilege/key.ts";
 import { type Db, openAgentStorage, openDb } from "./storage/db.ts";
 import { migrateToLatest } from "./storage/migrate.ts";
 import { createUser, findUserByUsername, setPassword, UserError } from "./users/service.ts";
@@ -151,6 +152,8 @@ async function importKeys(config: Config, db: Db, file: string): Promise<void> {
 
 async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<void> {
 	const identity = await loadServerIdentity(db, masterKey);
+	// Created on first start; its public key is what nodes put in a crhs trust entry (doc/privilege.md).
+	const authorizationKey = await loadAuthorizationSigningKey(db, masterKey);
 	const audit = new Audit(db);
 	const cluster = new Cluster(db, { sshRoute: (node) => nodeRoute(db, masterKey, node), audit });
 	const agents = new AgentServer(db, identity, cluster, audit);
@@ -186,7 +189,9 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		agent: { runtime, models },
 	});
 	const server = serve({ fetch: app.fetch, hostname: config.listen.host, port: config.listen.port }, (info) => {
-		console.log(`crhs listening on http://${info.address}:${info.port} (identity ${identity.fingerprint})`);
+		console.log(
+			`crhs listening on http://${info.address}:${info.port} (identity ${identity.fingerprint}, signing key ${authorizationKey.fingerprint})`,
+		);
 	});
 	server.on("upgrade", (req, socket, head) => {
 		if (!agents.handleUpgrade(req, socket, head)) socket.destroy();

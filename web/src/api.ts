@@ -73,7 +73,15 @@ export interface SessionShare {
 	createdByUserId: string;
 	createdAt: string;
 }
-export type TaskState = "awaiting_approval" | "denied" | "exited" | "failed" | "rejected" | "unknown" | (string & {});
+export type TaskState =
+	| "awaiting_approval"
+	| "awaiting_authorization"
+	| "denied"
+	| "exited"
+	| "failed"
+	| "rejected"
+	| "unknown"
+	| (string & {});
 export type RuleAction = "allow" | "deny" | "require-approval";
 export type RuleMethod = "exec" | "file.read" | "file.write";
 export type Preset = "ask" | "auto_review" | "yolo";
@@ -213,7 +221,7 @@ export interface SshTargetBody extends SshHopInput {
 }
 export interface TaskGroupView {
 	id: string;
-	state: "awaiting_approval" | "running" | "finished" | "interrupted" | "rejected";
+	state: "awaiting_approval" | "awaiting_authorization" | "running" | "finished" | "interrupted" | "rejected";
 	targets: string[];
 	nodeIds: string[];
 	parallel: number;

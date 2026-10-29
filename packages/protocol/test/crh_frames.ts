@@ -10,10 +10,11 @@ import {
 	type HandshakeResponse,
 	handshakeInitCodec,
 	handshakeResponseCodec,
-	SUPPORTED_NAMES,
 	type TaskStart,
 	type TaskStatus,
 } from "../src/messages.ts";
+import type { TrustSummary } from "../src/privileged.ts";
+import { SUPPORTED_NAMES } from "../src/registry.ts";
 
 export interface FixtureCase {
 	id: string;
@@ -53,6 +54,70 @@ const COMMANDS_TEXT = `commands=[${SUPPORTED_NAMES.join(",")}]`;
 const AUTHORIZATION = bytesOf("00ff");
 const SHA_111 = new Uint8Array(32).fill(0x11);
 const SHA_222 = new Uint8Array(32).fill(0x22);
+
+const TRUST_SUMMARY: TrustSummary = {
+	nodeId: "node-1",
+	groups: ["web"],
+	clockSkewMs: 60000,
+	identities: {
+		unprivileged: { uid: 998, gid: 998, user: "crha" },
+		privileged: { uid: 0, gid: 0, user: "root" },
+	},
+	trust: [
+		{
+			name: "crhs",
+			source: "local",
+			role: "crhs",
+			key: {
+				kind: "sshsig",
+				publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEjcrhssigningkeyexample crhs-signing",
+				fingerprint: "SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU",
+			},
+			kinds: ["execute", "cosign"],
+			requireExact: true,
+			requireTask: true,
+			requireUv: false,
+			maxTtlMs: 300000,
+			allow: [{ method: "exec", match: "prefix", pattern: "systemctl restart " }],
+			deny: [],
+			envAllow: [],
+		},
+		{
+			name: "alice-passkey",
+			source: "local",
+			role: "user",
+			key: {
+				kind: "webauthn",
+				credentialId: SHA_111,
+				coseKey: bytesOf("a5010203262001215820"),
+				rpId: "crh.example.com",
+				origins: ["https://crh.example.com"],
+			},
+			kinds: ["execute"],
+			requireExact: false,
+			requireTask: true,
+			requireUv: true,
+			maxTtlMs: null,
+			allow: [],
+			deny: [],
+			envAllow: ["DEBIAN_FRONTEND"],
+		},
+		{
+			name: "local-admins",
+			source: "local",
+			role: "local",
+			key: { kind: "local", uids: [0, 1000] },
+			kinds: ["execute"],
+			requireExact: false,
+			requireTask: false,
+			requireUv: false,
+			maxTtlMs: null,
+			allow: [],
+			deny: [],
+			envAllow: [],
+		},
+	],
+};
 
 const EXEC_ARGV: TaskStart = {
 	taskId: "t-exec-argv",
@@ -368,6 +433,60 @@ export function buildFixture(): CrhFramesFixture {
 		error: { code: "internal_error", message: "boom" },
 	});
 
+	// M4 (protocol 1.1, optional) commands and events.
+	addFrame(
+		"request.revocations.add",
+		"request id=13 cmd=revocations.add body=[entries=[[authorization_id=32 bytes of 0x11, deadline_ms=1793016300000]]]",
+		{
+			kind: "request",
+			id: 13,
+			cmd: "revocations.add",
+			body: { entries: [{ authorizationId: new Uint8Array(32).fill(0x11), deadlineMs: 1793016300000 }] },
+		},
+	);
+	addFrame("response.revocations.add", "response id=13 cmd=revocations.add ok=true body=[]", {
+		kind: "response",
+		id: 13,
+		cmd: "revocations.add",
+		ok: true,
+		body: {},
+	});
+	addFrame(
+		"request.local.request",
+		'request id=14 cmd=local.request body=[task_id="t-read", attempt=1, spec=["file.read", [path="/etc/hosts", offset=0, limit=0]], note="restart nginx"]',
+		{
+			kind: "request",
+			id: 14,
+			cmd: "local.request",
+			body: {
+				taskId: "t-read",
+				attempt: 1,
+				spec: { kind: "file.read", path: "/etc/hosts", offset: 0, limit: 0 },
+				note: "restart nginx",
+			},
+		},
+	);
+	addFrame("response.local.request", 'response id=14 cmd=local.request ok=true body=["pending", []]', {
+		kind: "response",
+		id: 14,
+		cmd: "local.request",
+		ok: true,
+		body: { kind: "pending" },
+	});
+	addFrame("request.local.withdraw", 'request id=15 cmd=local.withdraw body=[task_id="t-read", attempt=1]', {
+		kind: "request",
+		id: 15,
+		cmd: "local.withdraw",
+		body: { taskId: "t-read", attempt: 1 },
+	});
+	addFrame("response.local.withdraw", "response id=15 cmd=local.withdraw ok=true body=[]", {
+		kind: "response",
+		id: 15,
+		cmd: "local.withdraw",
+		ok: true,
+		body: {},
+	});
+
 	// Events.
 	addFrame(
 		"event.task.output",
@@ -485,6 +604,20 @@ export function buildFixture(): CrhFramesFixture {
 		name: "task.exit.ack",
 		body: { taskId: "t-exec-argv" },
 	});
+	addFrame(
+		"event.trust.summary",
+		'event trust.summary body=["ok", [node_id="node-1", groups=["web"], clock_skew_ms=60000, identities=[[uid=998, gid=998, user="crha"], [uid=0, gid=0, user="root"]], trust=[[name="crhs", source="local", role="crhs", key=["sshsig", [public_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEjcrhssigningkeyexample crhs-signing", fingerprint="SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"]], kinds=["execute","cosign"], require_exact=true, require_task=true, require_uv=false, max_ttl_ms=300000, allow=[["exec", "prefix", "systemctl restart "]], deny=[], env_allow=[]], [name="alice-passkey", source="local", role="user", key=["webauthn", [credential_id=32 bytes of 0x11, cose_key=h\'a5010203262001215820\', rp_id="crh.example.com", origins=["https://crh.example.com"]]], kinds=["execute"], require_exact=false, require_task=true, require_uv=true, max_ttl_ms=null, allow=[], deny=[], env_allow=["DEBIAN_FRONTEND"]], [name="local-admins", source="local", role="local", key=["local", [uids=[0, 1000]]], kinds=["execute"], require_exact=false, require_task=false, require_uv=false, max_ttl_ms=null, allow=[], deny=[], env_allow=[]]]]]',
+		{ kind: "event", name: "trust.summary", body: { kind: "ok", summary: TRUST_SUMMARY } },
+	);
+	addFrame(
+		"event.local.decision",
+		'event local.decision body=[task_id="t-read", attempt=1, state=["denied", [message="not now"]]]',
+		{
+			kind: "event",
+			name: "local.decision",
+			body: { taskId: "t-read", attempt: 1, state: { kind: "denied", message: "not now" } },
+		},
+	);
 
 	// Negative cases.
 	addNegative(

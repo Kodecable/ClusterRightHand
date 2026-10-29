@@ -170,6 +170,9 @@ export async function createSshNode(
 		ssh_host_key: target.hostKey,
 		ssh_credential_id: input.credentialId,
 		ssh_jumps: JSON.stringify(route.hops.slice(0, -1)),
+		trust_report: null,
+		trust_digest: null,
+		trust_updated_at: null,
 	};
 	await db.transaction().execute(async (trx) => {
 		await trx.insertInto("nodes").values(node).execute();

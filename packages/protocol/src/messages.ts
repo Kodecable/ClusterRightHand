@@ -5,7 +5,6 @@
 import {
 	bool,
 	bytes,
-	type Codec,
 	enumOf,
 	field,
 	type Infer,
@@ -21,7 +20,7 @@ import {
 } from "./schema.ts";
 
 export const PROTOCOL_MAJOR = 1;
-export const PROTOCOL_MINOR = 0;
+export const PROTOCOL_MINOR = 1;
 
 // ---------------------------------------------------------------------------
 // Handshake payloads (Noise IK messages, not frames)
@@ -252,41 +251,3 @@ export type NodeStatus = Infer<typeof nodeStatusCodec>;
 
 export const taskExitAckCodec = tuple([["taskId", text]]);
 export type TaskExitAck = Infer<typeof taskExitAckCodec>;
-
-// ---------------------------------------------------------------------------
-// Registries
-// ---------------------------------------------------------------------------
-
-export interface CommandDefinition<Q = unknown, R = unknown> {
-	readonly request: Codec<Q>;
-	readonly response: Codec<R>;
-}
-
-/** Every 1.0 command. M4-reserved names are deliberately absent. */
-export const COMMANDS = {
-	hello: { request: helloCodec, response: welcomeCodec },
-	ping: { request: pingCodec, response: pingCodec },
-	"task.start": { request: taskStartCodec, response: emptyCodec },
-	"task.input": { request: taskInputCodec, response: emptyCodec },
-	"task.cancel": { request: taskCancelCodec, response: emptyCodec },
-	"task.query": { request: taskQueryCodec, response: taskStatusCodec },
-} as const satisfies Record<string, CommandDefinition>;
-
-/** Every 1.0 event. M4-reserved names are deliberately absent. */
-export const EVENTS = {
-	"task.output": taskOutputCodec,
-	"task.exit": taskExitCodec,
-	facts: factsCodec,
-	"node.status": nodeStatusCodec,
-	"task.output.ack": outputAckCodec,
-	"task.exit.ack": taskExitAckCodec,
-} as const satisfies Record<string, Codec<unknown>>;
-
-export type CommandName = keyof typeof COMMANDS;
-export type EventName = keyof typeof EVENTS;
-export type CommandRequest<C extends CommandName> = Infer<(typeof COMMANDS)[C]["request"]>;
-export type CommandResponse<C extends CommandName> = Infer<(typeof COMMANDS)[C]["response"]>;
-export type EventBody<E extends EventName> = Infer<(typeof EVENTS)[E]>;
-
-/** All command and event names implemented by protocol 1.0. */
-export const SUPPORTED_NAMES: readonly string[] = Object.freeze([...Object.keys(COMMANDS), ...Object.keys(EVENTS)]);

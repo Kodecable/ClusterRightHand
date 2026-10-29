@@ -2,3 +2,5 @@ packages:
   - packages/*
   - server
   - web
+allowBuilds:
+  re2: true

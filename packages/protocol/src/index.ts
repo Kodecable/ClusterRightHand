@@ -4,4 +4,5 @@ export * from "./json.ts";
 export * from "./messages.ts";
 export * from "./peer.ts";
 export * from "./privileged.ts";
+export * from "./registry.ts";
 export * from "./schema.ts";

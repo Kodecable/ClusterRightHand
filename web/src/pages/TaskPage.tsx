@@ -5,9 +5,9 @@ import { useLoad, usePolling } from "../hooks.ts";
 
 export function TaskPage({ id }: { id: string }) {
 	const { data, error, loading, reload } = useLoad(() => api.getTask(id), [id]);
-	// A task waiting for approval changes state elsewhere.
+	// A task waiting for approval or authorization changes state elsewhere.
 	usePolling(() => {
-		if (data?.state === "awaiting_approval") reload();
+		if (data?.state === "awaiting_approval" || data?.state === "awaiting_authorization") reload();
 	}, 3000);
 	return (
 		<>

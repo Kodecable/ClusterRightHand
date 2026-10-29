@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Db } from "../src/storage/db.ts";
 import { up } from "../src/storage/migrations/0019_cbor_protocol.ts";
 import { up as up0020 } from "../src/storage/migrations/0020_output_mode.ts";
+import { up as up0022 } from "../src/storage/migrations/0022_m4_privilege.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -217,5 +218,149 @@ describeBackends("0020 output mode migration", (backend) => {
 		expect(tasks.rows).toEqual([{ id: "t1", output_mode: "full" }]);
 		const groups = await sql<{ id: string; output_mode: string }>`select id, output_mode from task_groups`.execute(db);
 		expect(groups.rows).toEqual([{ id: "g1", output_mode: "text" }]);
+	});
+});
+
+describeBackends("0022 M4 privilege storage", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("orgs")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.execute();
+			await db.schema
+				.createTable("users")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.execute();
+			await db.schema
+				.createTable("nodes")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.execute();
+			await db.schema
+				.createTable("tasks")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.execute();
+			await sql`insert into orgs (id) values (${"o1"})`.execute(db);
+			await sql`insert into users (id) values (${"u1"})`.execute(db);
+			await sql`insert into nodes (id) values (${"n1"})`.execute(db);
+			await sql`insert into tasks (id) values (${"t1"})`.execute(db);
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("stores authorizations, user credentials and the trust cache", async () => {
+		await applyMigration(backend, db, up0022);
+		const now = new Date().toISOString();
+		await db
+			.insertInto("authorizations")
+			.values({
+				id: "ab".repeat(32),
+				org_id: "o1",
+				payload: Buffer.from("payload").toString("base64"),
+				signatures: JSON.stringify([{ kind: "sshsig", blob: "00" }]),
+				issuer_user_id: "u1",
+				task_ids: JSON.stringify(["t1"]),
+				deadline: now,
+				created_at: now,
+				revoked_at: null,
+			})
+			.execute();
+
+		await db
+			.insertInto("user_credentials")
+			.values([
+				{
+					id: "c1",
+					user_id: "u1",
+					kind: "ssh",
+					name: "yubikey",
+					public_key: "sk-ssh-ed25519@openssh.com AAAA comment",
+					fingerprint: "SHA256:abc",
+					credential_id: null,
+					rp_id: null,
+					created_at: now,
+				},
+				{
+					id: "c2",
+					user_id: "u1",
+					kind: "webauthn",
+					name: "passkey",
+					public_key: Buffer.from("cose").toString("base64"),
+					fingerprint: null,
+					credential_id: "credential-id",
+					rp_id: "crh.example.com",
+					created_at: now,
+				},
+			])
+			.execute();
+
+		await db
+			.updateTable("nodes")
+			.set({ trust_report: JSON.stringify({ kind: "ok" }), trust_digest: "cd".repeat(32), trust_updated_at: now })
+			.where("id", "=", "n1")
+			.execute();
+		await db
+			.updateTable("tasks")
+			.set({ authorization: JSON.stringify({ plan: "crhs", attempt: 1 }) })
+			.where("id", "=", "t1")
+			.execute();
+
+		const node = await db.selectFrom("nodes").selectAll().where("id", "=", "n1").executeTakeFirstOrThrow();
+		expect(node.trust_digest).toBe("cd".repeat(32));
+		expect(node.trust_updated_at).toBe(now);
+		const task = await db.selectFrom("tasks").selectAll().where("id", "=", "t1").executeTakeFirstOrThrow();
+		expect(task.authorization).toBe(JSON.stringify({ plan: "crhs", attempt: 1 }));
+		const credentials = await db.selectFrom("user_credentials").selectAll().orderBy("id").execute();
+		expect(credentials.map((c) => c.kind)).toEqual(["ssh", "webauthn"]);
+	});
+
+	it("keeps one credential per (user, fingerprint) and per (user, credential id)", async () => {
+		await applyMigration(backend, db, up0022);
+		const now = new Date().toISOString();
+		const base = {
+			user_id: "u1",
+			kind: "ssh" as const,
+			name: "key",
+			public_key: "ssh-ed25519 AAAA",
+			credential_id: null,
+			rp_id: null,
+			created_at: now,
+		};
+		await db
+			.insertInto("user_credentials")
+			.values({ ...base, id: "c1", fingerprint: "SHA256:same" })
+			.execute();
+		await expect(
+			db
+				.insertInto("user_credentials")
+				.values({ ...base, id: "c2", fingerprint: "SHA256:same" })
+				.execute(),
+		).rejects.toThrow();
+
+		const web = {
+			user_id: "u1",
+			kind: "webauthn" as const,
+			name: "passkey",
+			public_key: "cose",
+			fingerprint: null,
+			rp_id: "crh.example.com",
+			created_at: now,
+		};
+		await db
+			.insertInto("user_credentials")
+			.values({ ...web, id: "c3", credential_id: "same" })
+			.execute();
+		await expect(
+			db
+				.insertInto("user_credentials")
+				.values({ ...web, id: "c4", credential_id: "same" })
+				.execute(),
+		).rejects.toThrow();
 	});
 });

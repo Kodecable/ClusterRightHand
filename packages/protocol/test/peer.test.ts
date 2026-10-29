@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { encode as encodeCbor } from "../src/cbor.ts";
 import { decodeFrame, encodeFrame, type Frame, MAX_ERROR_MESSAGE_BYTES, ProtocolError } from "../src/frame.ts";
-import { type CommandResponse, type Facts, SUPPORTED_NAMES, type TaskStart, type TaskStatus } from "../src/messages.ts";
+import type { Facts, TaskStart, TaskStatus } from "../src/messages.ts";
 import { afterResponse, ConnectionError, Peer, RemoteError } from "../src/peer.ts";
+import { type CommandResponse, SUPPORTED_NAMES } from "../src/registry.ts";
 
 const FACTS: Facts = {
 	hostname: "node-1",

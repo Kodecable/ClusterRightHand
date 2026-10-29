@@ -102,6 +102,11 @@ export interface NodesTable {
 	ssh_credential_id: string | null;
 	/** JSON [{ host, port, user, hostKey }], the jump hosts in order. */
 	ssh_jumps: string | null;
+	/** JSON TrustReport of the last trust.summary event; null before the first one. */
+	trust_report: ColumnType<string | null, string | null | undefined, string | null>;
+	/** Hex SHA-256(CBOR(TrustSummary)); null before the first trust summary. */
+	trust_digest: ColumnType<string | null, string | null | undefined, string | null>;
+	trust_updated_at: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 export interface NodeGroupsTable {
@@ -125,6 +130,8 @@ export interface EnrollmentTokensTable {
 
 export type TaskState =
 	| "awaiting_approval"
+	/** Policy passed, but a privileged task still needs a signature (doc/privilege.md). */
+	| "awaiting_authorization"
 	| "denied"
 	| "dispatched"
 	| "running"
@@ -170,6 +177,8 @@ export interface TasksTable extends ApprovalColumns {
 	/** Dispatch attempt, from 1; only an authorization retry increments it (doc/protocol.md#task.start). */
 	attempt: number;
 	privileged: number;
+	/** JSON authorization plan/state (doc/m4.md#crhs-侧数据): plan, payload id, attempt, trust digest, tried paths, last rejection. */
+	authorization: ColumnType<string | null, string | null | undefined, string | null>;
 	timeout_ms: number | null;
 	/** `full` for a single task; the group's mode for its tasks. */
 	output_mode: OutputMode;
@@ -222,7 +231,47 @@ export interface TaskGroupsTable extends ApprovalColumns {
 	timeout_ms: number | null;
 }
 
-export type TaskGroupState = "awaiting_approval" | "running" | "finished" | "interrupted" | "rejected";
+export type TaskGroupState =
+	| "awaiting_approval"
+	| "awaiting_authorization"
+	| "running"
+	| "finished"
+	| "interrupted"
+	| "rejected";
+
+export interface AuthorizationsTable {
+	/** Hex SHA-256 of the payload bytes. */
+	id: string;
+	org_id: string;
+	/** Base64 of the CBOR payload bytes, kept verbatim so the id stays verifiable. */
+	payload: string;
+	/** JSON Signature[] (doc/protocol.md#授权对象). */
+	signatures: string;
+	/** The user who signed it; null for a crhs-only authorization. */
+	issuer_user_id: string | null;
+	/** JSON string[] of one-shot task ids; null for a reusable authorization. */
+	task_ids: string | null;
+	/** ISO 8601 UTC, null when the payload has no deadline. */
+	deadline: string | null;
+	created_at: CreatedAt;
+	revoked_at: string | null;
+}
+
+export interface UserCredentialsTable {
+	id: string;
+	user_id: string;
+	kind: "ssh" | "webauthn";
+	name: string;
+	/** ssh: an authorized_keys line; webauthn: base64 COSE public key. */
+	public_key: string;
+	/** ssh: "SHA256:…" fingerprint; null for webauthn. */
+	fingerprint: string | null;
+	/** webauthn: base64url credential id; null for ssh. */
+	credential_id: string | null;
+	/** webauthn only. */
+	rp_id: string | null;
+	created_at: CreatedAt;
+}
 
 export interface ApiTokensTable {
 	id: string;
@@ -337,6 +386,8 @@ export interface Database {
 	tasks: TasksTable;
 	task_groups: TaskGroupsTable;
 	ssh_credentials: SshCredentialsTable;
+	user_credentials: UserCredentialsTable;
+	authorizations: AuthorizationsTable;
 	api_tokens: ApiTokensTable;
 	rule_sets: RuleSetsTable;
 	audit_events: AuditEventsTable;

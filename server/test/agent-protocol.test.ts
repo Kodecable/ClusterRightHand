@@ -6,12 +6,15 @@ import {
 	factsToJson,
 	handshakeInitCodec,
 	MAX_FRAME_BYTES,
+	OPTIONAL_NAMES,
+	REQUIRED_NAMES,
 	RemoteError,
 	SUPPORTED_NAMES,
 	type TaskStart,
 } from "@crh/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SessionUser } from "../src/auth/sessions.ts";
+import { negotiateCommands } from "../src/cluster/agent-server.ts";
 import { BATCH_GROUP_BYTES, BATCH_NODE_BYTES } from "../src/cluster/batch-output.ts";
 import { Cluster, type TaskView } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
@@ -177,6 +180,34 @@ describe("agent wire protocol", () => {
 			await expect(closed).resolves.toEqual({ code: 1008, reason: "missing required command: task.query" });
 		});
 
+		it("accepts a 1.0 peer that does not offer the optional 1.1 names", async () => {
+			const key = generateKeyPair();
+			const node = await addNode("legacy-1", "active", key.publicKey);
+			const crha = await agents.connect(key, handshakeInit({ commands: [...REQUIRED_NAMES] }), REQUIRED_NAMES);
+			expect(crha.response).toMatchObject({ protocolMinor: 1, commands: [...SUPPORTED_NAMES] });
+			expect(await crha.peer.request("hello", HELLO)).toEqual({ acks: [] });
+			await waitFor("legacy link ready", () => cluster.isConnected(node.id));
+			expect(await crha.peer.request("ping", { seq: 3 })).toEqual({ seq: 3 });
+		});
+
+		it("negotiates only the 1.1 names both sides offer", () => {
+			expect(negotiateCommands(REQUIRED_NAMES)).toEqual({
+				missing: undefined,
+				negotiated: [...REQUIRED_NAMES],
+				optional: [],
+			});
+			expect(negotiateCommands(SUPPORTED_NAMES)).toEqual({
+				missing: undefined,
+				negotiated: [...SUPPORTED_NAMES],
+				optional: [...OPTIONAL_NAMES],
+			});
+			expect(negotiateCommands([...REQUIRED_NAMES.filter((n) => n !== "hello"), ...OPTIONAL_NAMES])).toEqual({
+				missing: "hello",
+				negotiated: SUPPORTED_NAMES.filter((name) => name !== "hello"),
+				optional: [...OPTIONAL_NAMES],
+			});
+		});
+
 		it("does not attach a connection that closed during the handshake", async () => {
 			const key = generateKeyPair();
 			const { node, crha: first } = await connectActive("closed-during-handshake", key);
@@ -234,7 +265,7 @@ describe("agent wire protocol", () => {
 		const { node, crha } = await connectActive();
 		expect(crha.response).toMatchObject({
 			protocolMajor: 1,
-			protocolMinor: 0,
+			protocolMinor: 1,
 			nodeState: "active",
 			nodeId: node.id,
 			commands: [...SUPPORTED_NAMES],

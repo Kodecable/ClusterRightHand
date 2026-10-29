@@ -20,7 +20,8 @@ import {
 
 test("isTerminal", () => {
 	for (const s of ["exited", "failed", "rejected", "unknown", "denied"]) expect(isTerminal(s)).toBe(true);
-	for (const s of ["dispatched", "running", "accepted", "awaiting_approval"]) expect(isTerminal(s)).toBe(false);
+	for (const s of ["dispatched", "running", "accepted", "awaiting_approval", "awaiting_authorization"])
+		expect(isTerminal(s)).toBe(false);
 });
 
 test("joinOutput without gap", () => {
