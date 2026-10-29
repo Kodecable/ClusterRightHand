@@ -55,9 +55,10 @@ export function encode(value: unknown): Uint8Array {
 
 // Decoding. cborg's `strict` rejects non-shortest integers and lengths, and
 // the tokenizer below rejects floats, which cborg has no option for. cborg
-// 6.1.3 has no `strictUtf8`; invalid UTF-8 is still rejected by the
-// re-encode comparison in `decode()` (it decodes to U+FFFD and re-encodes to
-// different bytes).
+// 6.1.3 has no `strictUtf8`, and its default TextDecoder strips a leading BOM
+// and substitutes U+FFFD for invalid UTF-8; the tokenizer re-decodes the
+// retained string bytes with a fatal decoder to preserve the BOM and reject
+// invalid UTF-8 before the re-encode comparison.
 const DECODE_OPTIONS: DecodeOptions = {
 	strict: true,
 	allowIndefinite: false,
@@ -67,12 +68,22 @@ const DECODE_OPTIONS: DecodeOptions = {
 	useMaps: true,
 	allowNaN: false,
 	allowInfinity: false,
+	retainStringBytes: true,
 };
+
+const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 class ProfileTokenizer extends Tokenizer {
 	override next(): Token {
 		const token = super.next();
 		if (Type.equals(token.type, Type.float)) reject("floats are not allowed");
+		if (Type.equals(token.type, Type.string) && token.byteValue !== undefined) {
+			try {
+				token.value = UTF8.decode(token.byteValue);
+			} catch {
+				reject("text is not valid UTF-8");
+			}
+		}
 		return token;
 	}
 }

@@ -101,6 +101,7 @@ describe("JSON forms", () => {
 		["command with both argv and shell", { ...execJson, command: { argv: [], shell: "" } }],
 		["command with neither argv nor shell", { ...execJson, command: {} }],
 		["bad env value", { ...execJson, env: { A: 1 } }],
+		["bad env key", { ...execJson, env: { "\ud800": "x" } }],
 		["bad stdin", { ...execJson, stdin: {} }],
 		[
 			"uppercase sha256",

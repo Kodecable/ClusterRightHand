@@ -16,6 +16,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
@@ -870,6 +871,503 @@ func TestTaskInputErrorCodes(t *testing.T) {
 		if !errors.As(err, &remote) || remote.Code != want {
 			t.Fatalf("task.input = %v, want %s", err, want)
 		}
+	}
+}
+
+// TestExecInputMismatchFailsTask covers an exec task whose input does not match its InputRef. The
+// process may already have consumed the truncated stdin and exited successfully; the task must fail
+// as input_mismatch instead of reporting that exit code.
+func TestExecInputMismatchFailsTask(t *testing.T) {
+	serverKey, err := noise.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	factsReady := make(chan struct{})
+	exitCh := make(chan protocol.TaskExit, 1)
+	srv := startFake(t, serverKey, fakeConfig{
+		setup: func(p *protocol.Peer) {
+			p.HandleEvent(protocol.EventFacts, func(body cbor.RawMessage) error {
+				var f protocol.Facts
+				if err := protocol.Unmarshal(body, &f); err != nil {
+					return err
+				}
+				signal(factsReady)
+				return nil
+			})
+			p.HandleEvent(protocol.EventTaskExit, func(body cbor.RawMessage) error {
+				var exit protocol.TaskExit
+				if err := protocol.Unmarshal(body, &exit); err != nil {
+					return err
+				}
+				select {
+				case exitCh <- exit:
+				default:
+				}
+				return nil
+			})
+		},
+		run: func(ctx context.Context, p *protocol.Peer) {
+			<-factsReady
+			// The declared hash belongs to different bytes, so "abcd" + "efgh" complete the
+			// declared size and fail the check.
+			wrong := sha256.Sum256([]byte("01234567"))
+			task := execTask("mismatch-1", "wc -c")
+			task.Spec.Exec.Stdin = &protocol.InputRef{Size: 8, SHA256: protocol.Hash(wrong)}
+			var empty protocol.Empty
+			if err := p.Request(ctx, protocol.CmdTaskStart, task, &empty); err != nil {
+				t.Errorf("task.start: %v", err)
+				return
+			}
+			for i, chunk := range []string{"abcd", "efgh"} {
+				err := p.Request(ctx, protocol.CmdTaskInput, protocol.TaskInput{
+					TaskID: "mismatch-1", Offset: protocol.Uint(i * 4), Data: []byte(chunk),
+				}, &empty)
+				if err != nil {
+					t.Errorf("task.input %q: %v", chunk, err)
+					return
+				}
+			}
+		},
+	})
+	a := newTestAgent(t, Options{})
+	startSession(t, a, dialTo(t, srv, serverKey))
+
+	exit := waitCh(t, exitCh, "task.exit")
+	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil {
+		t.Fatalf("task.exit outcome = %+v, want an error outcome", exit.Outcome)
+	}
+	if exit.Outcome.Error.Code != "input_mismatch" {
+		t.Fatalf("task.exit error code = %q, want input_mismatch", exit.Outcome.Error.Code)
+	}
+	if exit.Cancelled {
+		t.Fatal("input_mismatch task.exit is marked cancelled")
+	}
+}
+
+// TestExecInputIncompleteOnDisconnect covers a connection that drops while task.input chunks are
+// still to come: the input cannot be resumed, so the running task is killed and exits with
+// input_incomplete instead of waiting forever for a reader to finish.
+func TestExecInputIncompleteOnDisconnect(t *testing.T) {
+	serverKey, err := noise.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("0123456789")
+	sum := sha256.Sum256(content)
+	factsReady := make(chan struct{})
+	halfSent := make(chan struct{})
+	firstSrv := startFake(t, serverKey, fakeConfig{
+		setup: func(p *protocol.Peer) {
+			p.HandleEvent(protocol.EventFacts, func(body cbor.RawMessage) error {
+				var f protocol.Facts
+				if err := protocol.Unmarshal(body, &f); err != nil {
+					return err
+				}
+				signal(factsReady)
+				return nil
+			})
+		},
+		run: func(ctx context.Context, p *protocol.Peer) {
+			<-factsReady
+			task := execTask("incomplete-1", "cat")
+			task.Spec.Exec.Stdin = &protocol.InputRef{Size: protocol.Uint(len(content)), SHA256: protocol.Hash(sum)}
+			var empty protocol.Empty
+			if err := p.Request(ctx, protocol.CmdTaskStart, task, &empty); err != nil {
+				t.Errorf("task.start: %v", err)
+				return
+			}
+			if err := p.Request(ctx, protocol.CmdTaskInput, protocol.TaskInput{
+				TaskID: "incomplete-1", Offset: 0, Data: content[:5],
+			}, &empty); err != nil {
+				t.Errorf("task.input: %v", err)
+				return
+			}
+			signal(halfSent)
+		},
+	})
+	a := newTestAgent(t, Options{})
+	firstConn := dialTo(t, firstSrv, serverKey)
+	_, firstDone := startSession(t, a, firstConn)
+	waitCh(t, halfSent, "the first half of the input")
+
+	// Drop the connection with five bytes still missing. crhs sends the start only once, so the
+	// input cannot be resumed; the task must fail rather than wait for chunks that never come.
+	if err := firstConn.Close("input dropped"); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	<-firstDone // the session's deferred sweep has run
+	if st := a.hello(); !helloHasTask(st, "incomplete-1") {
+		t.Fatalf("hello after the drop does not list the task: %+v", st)
+	}
+
+	// task.exit can only be delivered on the next connection, where crhs learns about the task from
+	// hello and receives its output and exit.
+	helloCh := make(chan protocol.Hello, 1)
+	exitCh := make(chan protocol.TaskExit, 1)
+	nextSrv := startFake(t, serverKey, fakeConfig{
+		setup: func(p *protocol.Peer) {
+			p.HandleEvent(protocol.EventFacts, func(cbor.RawMessage) error { return nil })
+			p.HandleRequest(protocol.CmdHello, func(_ context.Context, body cbor.RawMessage) (any, error) {
+				var h protocol.Hello
+				if err := protocol.Unmarshal(body, &h); err != nil {
+					return nil, err
+				}
+				helloCh <- h
+				return protocol.Welcome{}, nil
+			})
+			p.HandleEvent(protocol.EventTaskExit, func(body cbor.RawMessage) error {
+				var exit protocol.TaskExit
+				if err := protocol.Unmarshal(body, &exit); err != nil {
+					return err
+				}
+				select {
+				case exitCh <- exit:
+				default:
+				}
+				return nil
+			})
+		},
+	})
+	startSession(t, a, dialTo(t, nextSrv, serverKey))
+
+	hello := waitCh(t, helloCh, "hello after the input drop")
+	if !helloHasTask(hello, "incomplete-1") {
+		t.Fatalf("hello after the input drop does not list the task: %+v", hello)
+	}
+	exit := waitCh(t, exitCh, "task.exit")
+	if exit.TaskID != "incomplete-1" {
+		t.Fatalf("task.exit = %+v", exit)
+	}
+	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil {
+		t.Fatalf("task.exit outcome = %+v, want an error outcome", exit.Outcome)
+	}
+	if exit.Outcome.Error.Code != "input_incomplete" {
+		t.Fatalf("task.exit error code = %q, want input_incomplete", exit.Outcome.Error.Code)
+	}
+}
+
+// TestFileWriteCancelUnblocksInput covers task.cancel while a file.write waits for the rest of its
+// content: the cancellation must reach the blocked reader, and the task must still exit as
+// cancelled.
+func TestFileWriteCancelUnblocksInput(t *testing.T) {
+	serverKey, err := noise.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("hello, world")
+	sum := sha256.Sum256(content)
+	path := filepath.Join(t.TempDir(), "out.txt")
+	factsReady := make(chan struct{})
+	halfSent := make(chan struct{})
+	cancelResult := make(chan error, 1)
+	exitCh := make(chan protocol.TaskExit, 1)
+	srv := startFake(t, serverKey, fakeConfig{
+		setup: func(p *protocol.Peer) {
+			p.HandleEvent(protocol.EventFacts, func(body cbor.RawMessage) error {
+				var f protocol.Facts
+				if err := protocol.Unmarshal(body, &f); err != nil {
+					return err
+				}
+				signal(factsReady)
+				return nil
+			})
+			p.HandleEvent(protocol.EventTaskExit, func(body cbor.RawMessage) error {
+				var exit protocol.TaskExit
+				if err := protocol.Unmarshal(body, &exit); err != nil {
+					return err
+				}
+				select {
+				case exitCh <- exit:
+				default:
+				}
+				return nil
+			})
+		},
+		run: func(ctx context.Context, p *protocol.Peer) {
+			<-factsReady
+			task := protocol.TaskStart{
+				TaskID:  "write-1",
+				Attempt: 1,
+				Spec: protocol.TaskSpec{Kind: protocol.TaskSpecFileWrite, FileWrite: &protocol.FileWriteSpec{
+					Path:    path,
+					Content: protocol.InputRef{Size: protocol.Uint(len(content)), SHA256: protocol.Hash(sum)},
+				}},
+				Output: protocol.OutputMode{Kind: protocol.OutputFull, SpillBytes: 1 << 20, SpillLines: 2000},
+			}
+			var empty protocol.Empty
+			if err := p.Request(ctx, protocol.CmdTaskStart, task, &empty); err != nil {
+				t.Errorf("task.start: %v", err)
+				return
+			}
+			if err := p.Request(ctx, protocol.CmdTaskInput, protocol.TaskInput{
+				TaskID: "write-1", Offset: 0, Data: content[:5],
+			}, &empty); err != nil {
+				t.Errorf("task.input: %v", err)
+				return
+			}
+			signal(halfSent)
+			cancelResult <- p.Request(ctx, protocol.CmdTaskCancel, protocol.TaskCancel{TaskID: "write-1"}, &empty)
+		},
+	})
+	a := newTestAgent(t, Options{})
+	startSession(t, a, dialTo(t, srv, serverKey))
+
+	waitCh(t, halfSent, "the first half of the file content")
+	if err := waitCh(t, cancelResult, "task.cancel"); err != nil {
+		t.Fatalf("task.cancel: %v", err)
+	}
+	exit := waitCh(t, exitCh, "task.exit")
+	if exit.TaskID != "write-1" {
+		t.Fatalf("task.exit = %+v", exit)
+	}
+	if !exit.Cancelled {
+		t.Fatal("cancelled file.write exit is not marked cancelled")
+	}
+	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "cancelled" {
+		t.Fatalf("task.exit outcome = %+v, want error cancelled", exit.Outcome)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("cancelled file.write published %s (stat: %v)", path, err)
+	}
+}
+
+// TestTaskStartZeroSizeInput covers the InputRef of size 0: a wrong sha256 can never match, so
+// task.start is refused, while the sha256 of empty input is accepted and the task runs with an
+// already closed input.
+func TestTaskStartZeroSizeInput(t *testing.T) {
+	serverKey, err := noise.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	factsReady := make(chan struct{})
+	startErr := make(chan error, 1)
+	exitCh := make(chan protocol.TaskExit, 1)
+	srv := startFake(t, serverKey, fakeConfig{
+		setup: func(p *protocol.Peer) {
+			p.HandleEvent(protocol.EventFacts, func(body cbor.RawMessage) error {
+				var f protocol.Facts
+				if err := protocol.Unmarshal(body, &f); err != nil {
+					return err
+				}
+				signal(factsReady)
+				return nil
+			})
+			p.HandleEvent(protocol.EventTaskExit, func(body cbor.RawMessage) error {
+				var exit protocol.TaskExit
+				if err := protocol.Unmarshal(body, &exit); err != nil {
+					return err
+				}
+				select {
+				case exitCh <- exit:
+				default:
+				}
+				return nil
+			})
+		},
+		run: func(ctx context.Context, p *protocol.Peer) {
+			<-factsReady
+			var empty protocol.Empty
+			wrong := execTask("zero-bad", "true")
+			wrong.Spec.Exec.Stdin = &protocol.InputRef{Size: 0, SHA256: protocol.Hash(sha256.Sum256([]byte("x")))}
+			startErr <- p.Request(ctx, protocol.CmdTaskStart, wrong, &empty)
+
+			ok := execTask("zero-ok", "cat")
+			ok.Spec.Exec.Stdin = &protocol.InputRef{Size: 0, SHA256: protocol.Hash(sha256.Sum256(nil))}
+			if err := p.Request(ctx, protocol.CmdTaskStart, ok, &empty); err != nil {
+				t.Errorf("task.start with empty input: %v", err)
+			}
+		},
+	})
+	a := newTestAgent(t, Options{})
+	startSession(t, a, dialTo(t, srv, serverKey))
+
+	err = waitCh(t, startErr, "task.start with a bad empty input")
+	var remote *protocol.RemoteError
+	if !errors.As(err, &remote) || remote.Code != "invalid_spec" {
+		t.Fatalf("task.start with a bad empty input = %v, want invalid_spec", err)
+	}
+	exit := waitCh(t, exitCh, "task.exit")
+	if exit.TaskID != "zero-ok" {
+		t.Fatalf("task.exit = %+v", exit)
+	}
+	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
+		t.Fatalf("task.exit outcome = %+v, want code 0", exit.Outcome)
+	}
+}
+
+// TestInputDoesNotBlockReceiveLoop covers push never blocking: a process that never reads stdin
+// leaves the input undrained, and many small chunks must not freeze the receive loop (and with it
+// a.mu, which task.query also needs). Two 48 KiB chunks fill the process's stdin pipe, then the
+// 1-byte chunks exceed the queue's buffer if the reader stopped.
+func TestInputDoesNotBlockReceiveLoop(t *testing.T) {
+	serverKey, err := noise.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	factsReady := make(chan struct{})
+	queryResult := make(chan error, 1)
+	srv := startFake(t, serverKey, fakeConfig{
+		setup: func(p *protocol.Peer) {
+			p.HandleEvent(protocol.EventFacts, func(body cbor.RawMessage) error {
+				var f protocol.Facts
+				if err := protocol.Unmarshal(body, &f); err != nil {
+					return err
+				}
+				signal(factsReady)
+				return nil
+			})
+		},
+		run: func(ctx context.Context, p *protocol.Peer) {
+			<-factsReady
+			const declared = 1 << 20
+			task := execTask("no-read-1", "sleep 30")
+			task.Spec.Exec.Stdin = &protocol.InputRef{
+				Size:   declared,
+				SHA256: protocol.Hash(sha256.Sum256(make([]byte, declared))),
+			}
+			var empty protocol.Empty
+			if err := p.Request(ctx, protocol.CmdTaskStart, task, &empty); err != nil {
+				t.Errorf("task.start: %v", err)
+				return
+			}
+			var off protocol.Uint
+			send := func(data []byte) error {
+				err := p.Request(ctx, protocol.CmdTaskInput, protocol.TaskInput{
+					TaskID: "no-read-1", Offset: off, Data: data,
+				}, &empty)
+				off += protocol.Uint(len(data))
+				return err
+			}
+			for range 2 {
+				if err := send(make([]byte, 48<<10)); err != nil {
+					t.Errorf("task.input: %v", err)
+					return
+				}
+			}
+			for range 200 {
+				if err := send([]byte{0}); err != nil {
+					t.Errorf("task.input: %v", err)
+					return
+				}
+			}
+			qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			var st protocol.TaskStatus
+			queryResult <- p.Request(qctx, protocol.CmdTaskQuery, protocol.TaskQuery{TaskID: "no-read-1"}, &st)
+		},
+	})
+	a := newTestAgent(t, Options{})
+	startSession(t, a, dialTo(t, srv, serverKey))
+
+	if err := waitCh(t, queryResult, "task.query while the input is undrained"); err != nil {
+		t.Fatalf("task.query while the input is undrained: %v", err)
+	}
+}
+
+// TestTaskExitWithOversizedErrorIsEmitted covers the sender-side bound on Error.message: a task
+// failure that quotes a very long path must still produce a task.exit that fits in one frame,
+// instead of failing to encode and ending the connection.
+func TestTaskExitWithOversizedErrorIsEmitted(t *testing.T) {
+	serverKey, err := noise.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	factsReady := make(chan struct{})
+	exitCh := make(chan protocol.TaskExit, 1)
+	srv := startFake(t, serverKey, fakeConfig{
+		setup: func(p *protocol.Peer) {
+			p.HandleEvent(protocol.EventFacts, func(body cbor.RawMessage) error {
+				var f protocol.Facts
+				if err := protocol.Unmarshal(body, &f); err != nil {
+					return err
+				}
+				signal(factsReady)
+				return nil
+			})
+			p.HandleEvent(protocol.EventTaskExit, func(body cbor.RawMessage) error {
+				var exit protocol.TaskExit
+				if err := protocol.Unmarshal(body, &exit); err != nil {
+					return err
+				}
+				select {
+				case exitCh <- exit:
+				default:
+				}
+				return nil
+			})
+		},
+		run: func(ctx context.Context, p *protocol.Peer) {
+			<-factsReady
+			task := protocol.TaskStart{
+				TaskID:  "big-path",
+				Attempt: 1,
+				Spec: protocol.TaskSpec{Kind: protocol.TaskSpecFileRead, FileRead: &protocol.FileReadSpec{
+					// A relative path is rejected immediately; quoting it makes the error
+					// message far larger than MaxErrorMessageBytes.
+					Path: strings.Repeat("\x01", 15400),
+				}},
+				Output: protocol.OutputMode{Kind: protocol.OutputFull, SpillBytes: 1 << 20, SpillLines: 2000},
+			}
+			var empty protocol.Empty
+			if err := p.Request(ctx, protocol.CmdTaskStart, task, &empty); err != nil {
+				t.Errorf("task.start: %v", err)
+			}
+		},
+	})
+	a := newTestAgent(t, Options{})
+	startSession(t, a, dialTo(t, srv, serverKey))
+
+	exit := waitCh(t, exitCh, "task.exit")
+	if exit.TaskID != "big-path" {
+		t.Fatalf("task.exit = %+v", exit)
+	}
+	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil {
+		t.Fatalf("outcome = %+v, want an error outcome", exit.Outcome)
+	}
+	if exit.Outcome.Error.Code != "invalid_spec" {
+		t.Fatalf("outcome error code = %q, want invalid_spec", exit.Outcome.Error.Code)
+	}
+	if got := len(exit.Outcome.Error.Message); got == 0 || got > protocol.MaxErrorMessageBytes {
+		t.Fatalf("outcome message has %d bytes, want at most %d", got, protocol.MaxErrorMessageBytes)
+	}
+	if !utf8.ValidString(exit.Outcome.Error.Message) {
+		t.Fatal("outcome message is not valid UTF-8")
+	}
+}
+
+// TestSendReplacesUnencodableTaskExit covers the pump fallback: a task.exit that cannot be encoded
+// is retried with an internal_error outcome instead of ending the session.
+func TestSendReplacesUnencodableTaskExit(t *testing.T) {
+	frames := make(chan []byte, 1)
+	peer := protocol.NewPeer(func(frame []byte) error {
+		frames <- frame
+		return nil
+	}, protocol.NewSet(protocol.EventTaskExit))
+	a := newTestAgent(t, Options{})
+
+	exit := &protocol.TaskExit{
+		TaskID:  "t1",
+		Outcome: protocol.Outcome{Kind: protocol.OutcomeSignal, Signal: "\xff"},
+	}
+	if err := a.send(peer, &outbound{name: protocol.EventTaskExit, body: exit}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	frame, err := protocol.DecodeFrame(waitCh(t, frames, "task.exit frame"))
+	if err != nil {
+		t.Fatalf("DecodeFrame: %v", err)
+	}
+	var got protocol.TaskExit
+	if err := protocol.Unmarshal(frame.Body, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if got.Outcome.Kind != protocol.OutcomeError || got.Outcome.Error == nil ||
+		got.Outcome.Error.Code != "internal_error" {
+		t.Fatalf("outcome = %+v, want the internal_error fallback", got.Outcome)
+	}
+	select {
+	case extra := <-frames:
+		t.Fatalf("unexpected extra frame %x", extra)
+	default:
 	}
 }
 

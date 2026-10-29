@@ -142,6 +142,11 @@ func copyCtx(ctx context.Context, dst io.Writer, src io.Reader) (int64, error) {
 			return total, nil
 		}
 		if rerr != nil {
+			// A cancelled task's input reader fails because the queue was aborted. Report the
+			// cancellation, not the queue error, so the task still exits as cancelled.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return total, ctxErr
+			}
 			return total, rerr
 		}
 	}

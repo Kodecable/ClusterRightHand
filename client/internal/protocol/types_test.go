@@ -403,6 +403,25 @@ func TestStrictRejections(t *testing.T) {
 	}
 }
 
+// TestUnselectedUnionBranchIsNotValidated covers the union encoding rule: only the selected
+// branch reaches the wire, so text carried by another branch must not be rejected.
+func TestUnselectedUnionBranchIsNotValidated(t *testing.T) {
+	argv := Command{Kind: CommandArgv, Argv: []string{"true"}, Shell: "bad\xff"}
+	if _, err := Marshal(argv); err != nil {
+		t.Fatalf("Marshal(argv command with an unused shell): %v", err)
+	}
+	shell := Command{Kind: CommandShell, Shell: "bad\xff"}
+	if _, err := Marshal(shell); err == nil {
+		t.Fatal("Marshal accepted invalid UTF-8 in the selected shell command")
+	}
+	// The same applies one level up: an exec task whose shell command is unused.
+	spec := TaskSpec{Kind: TaskSpecFileRead, FileRead: &FileReadSpec{Path: "/x"},
+		Exec: &ExecSpec{Command: shell}}
+	if _, err := Marshal(spec); err != nil {
+		t.Fatalf("Marshal(file.read task spec with an unused exec branch): %v", err)
+	}
+}
+
 func TestEnumEncodingRejectsUnknown(t *testing.T) {
 	if _, err := Marshal(TaskStatus{State: "bogus"}); err == nil {
 		t.Fatal("Marshal accepted an unknown task state")

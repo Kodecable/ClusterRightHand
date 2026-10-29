@@ -21,9 +21,6 @@ func TestFramesFixture(t *testing.T) {
 	path := filepath.Join("..", "..", "..", "test", "interop", "crh_frames.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			t.Skip("test/interop/crh_frames.json does not exist yet (owned by the TS implementation)")
-		}
 		t.Fatalf("read %s: %v", path, err)
 	}
 	var fixture struct {
@@ -40,6 +37,18 @@ func TestFramesFixture(t *testing.T) {
 	}
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatalf("parse %s: %v", path, err)
+	}
+
+	// The reverse direction: every hand-written expectation must also appear in the fixture,
+	// so an entry that disappears cannot silently shrink the coverage.
+	positive := make(map[string]bool, len(fixture.Positive))
+	for _, entry := range fixture.Positive {
+		positive[entry.ID] = true
+	}
+	for _, id := range fixtureExpectedIDs {
+		if !positive[id] {
+			t.Errorf("hand-written expectation %s is missing from %s", id, path)
+		}
 	}
 
 	for _, entry := range fixture.Positive {
@@ -244,6 +253,42 @@ func fixtureHash(value byte) Hash {
 		h[i] = value
 	}
 	return h
+}
+
+// fixtureExpectedIDs lists the entries expectedFixtureValue has a hand-written value for;
+// TestFramesFixture checks that the fixture still contains every one of them.
+var fixtureExpectedIDs = []string{
+	"handshake.init.no-enroll",
+	"handshake.init.enroll",
+	"handshake.response.active",
+	"handshake.response.pending",
+	"request.hello",
+	"response.hello",
+	"request.ping",
+	"response.ping",
+	"request.task.start.exec.argv",
+	"request.task.start.exec.shell",
+	"request.task.start.file.read",
+	"request.task.start.file.write",
+	"request.task.start.file.edit",
+	"request.task.start.file.stat",
+	"request.task.start.file.list",
+	"response.task.start",
+	"request.task.input",
+	"response.task.input",
+	"request.task.cancel",
+	"response.task.cancel",
+	"request.task.query",
+	"response.task.query",
+	"response.error",
+	"event.task.output",
+	"event.task.exit.code",
+	"event.task.exit.signal",
+	"event.task.exit.error",
+	"event.facts",
+	"event.node.status",
+	"event.task.output.ack",
+	"event.task.exit.ack",
 }
 
 func expectedFixtureValue(id string) (any, bool) {

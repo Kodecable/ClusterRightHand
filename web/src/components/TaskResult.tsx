@@ -1,5 +1,5 @@
 import type { TaskView } from "../api.ts";
-import { batchOutput, formatTime, isTerminal, joinOutput } from "../lib.ts";
+import { batchOutput, formatTime, isTerminal, joinOutput, statusOutputNote } from "../lib.ts";
 import { DecisionView, EvaluationView } from "./Approval.tsx";
 import { Badge } from "./Feedback.tsx";
 
@@ -121,10 +121,8 @@ export function TaskResult({ task }: { task: TaskView }) {
 						<>
 							the full output is in <span className="mono">{output.file}</span> on the node.
 						</>
-					) : isTerminal(task.state) ? (
-						"no output is kept (SSH nodes keep no output)."
 					) : (
-						"the full output stays on the node until the task exits."
+						statusOutputNote(task)
 					)}
 				</p>
 			) : (

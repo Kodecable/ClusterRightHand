@@ -89,9 +89,15 @@ export class TailAccumulator implements LiveTask {
 		const addBytes = Math.max(0, Math.min(fresh.length, BATCH_NODE_BYTES - this.#grantBytes, this.#budget.bytesLeft));
 		this.#grantBytes += addBytes;
 		this.#budget.bytesLeft -= addBytes;
+		// A tail of N bytes holds at most N newlines: never grant lines the node has no bytes for.
 		const addLines = Math.max(
 			0,
-			Math.min(countNewlines(fresh), BATCH_NODE_LINES - this.#grantLines, this.#budget.linesLeft),
+			Math.min(
+				countNewlines(fresh),
+				BATCH_NODE_LINES - this.#grantLines,
+				this.#budget.linesLeft,
+				this.#grantBytes - this.#grantLines,
+			),
 		);
 		this.#grantLines += addLines;
 		this.#budget.linesLeft -= addLines;
@@ -122,7 +128,10 @@ export class TailAccumulator implements LiveTask {
 	/** Trims from the front to the byte grant, then to the line grant; copies so the old tail is released. */
 	#trim(): void {
 		const before = this.#tail;
-		const bytes = before.length > this.#grantBytes ? before.subarray(before.length - this.#grantBytes) : before;
+		let start = before.length > this.#grantBytes ? before.length - this.#grantBytes : 0;
+		// The cut can land inside a multi-byte character: skip its continuation bytes so the tail decodes.
+		while (start < before.length && ((before[start] ?? 0) & 0xc0) === 0x80) start++;
+		const bytes = start > 0 ? before.subarray(start) : before;
 		const tail = tailLines(bytes, this.#grantLines);
 		if (tail !== before) this.#tail = Buffer.from(tail);
 	}

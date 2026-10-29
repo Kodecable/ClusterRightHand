@@ -123,8 +123,15 @@ export const textMap: Codec<Record<string, string>> = make(
 		if (typeof value !== "object" || value === null || Array.isArray(value)) {
 			fail("{text: text}", "not an object");
 		}
+		// A Map or class instance would stringify as an empty object here; only
+		// plain records are accepted.
+		const prototype = Object.getPrototypeOf(value);
+		if (prototype !== Object.prototype && prototype !== null) {
+			fail("{text: text}", "not a plain object");
+		}
 		const entries: [string, string][] = [];
 		for (const [key, item] of Object.entries(value)) {
+			if (!key.isWellFormed()) fail("{text: text}", `key ${JSON.stringify(key)} is not well-formed Unicode`);
 			if (typeof item !== "string") fail("{text: text}", `value for key ${JSON.stringify(key)} is not text`);
 			entries.push([key, item]);
 		}

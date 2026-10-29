@@ -146,6 +146,35 @@ describe("agent wire protocol", () => {
 		});
 	});
 
+	describe("protocol errors", () => {
+		it("disconnects on an unknown non-ASCII event name and keeps serving", async () => {
+			const { node, crha } = await connectActive();
+			crha.sendRaw(encodeCbor([2, "事件".repeat(30), []]));
+			const closed = await crha.closed;
+			expect(closed.code).toBe(1000);
+			expect(closed.reason.startsWith("protocol error: ")).toBe(true);
+			expect(Buffer.byteLength(closed.reason, "utf8")).toBeLessThanOrEqual(123);
+			await waitFor("first link detached", () => !cluster.isConnected(node.id));
+
+			// The server process survived the close: a new link still handshakes and serves requests.
+			const key = generateKeyPair();
+			const secondNode = await addNode("active-2", "active", key.publicKey);
+			const second = await agents.connect(key, handshakeInit());
+			expect(await second.peer.request("hello", HELLO)).toEqual({ acks: [] });
+			await waitFor("second link ready", () => cluster.isConnected(secondNode.id));
+			expect(await second.peer.request("ping", { seq: 9 })).toEqual({ seq: 9 });
+		});
+
+		it("bounds a close reason that embeds peer-controlled non-ASCII text", async () => {
+			const { crha } = await connectActive();
+			crha.sendRaw(encodeCbor([2, "task.output", ["t-1", "事件".repeat(30), 0, new Uint8Array(0)]]));
+			const closed = await crha.closed;
+			expect(closed.code).toBe(1000);
+			expect(Buffer.byteLength(closed.reason, "utf8")).toBeLessThanOrEqual(123);
+			expect(closed.reason.startsWith("protocol error: invalid task.output event body:")).toBe(true);
+		});
+	});
+
 	it("answers ping and performs the active handshake", async () => {
 		const { node, crha } = await connectActive();
 		expect(crha.response).toMatchObject({
@@ -395,6 +424,224 @@ describe("agent wire protocol", () => {
 		expect(tails.reduce((sum, bytes) => sum + bytes, 0)).toBe(BATCH_GROUP_BYTES);
 		// Release happens when the group itself finishes: a repeated release finds no entry.
 		expect(cluster.releaseGroupBudget(groupId)).toBe(false);
+	});
+
+	it("acks a recorded task from the row after reconnect, without charging the budget again", async () => {
+		const peers: Awaited<ReturnType<typeof connectActive>>[] = [];
+		for (let i = 0; i < 8; i++) peers.push(await connectActive(`reconnected-text-${i}`));
+		const starts = new Map<string, string>();
+		for (const peer of peers) {
+			peer.crha.peer.onEvent("task.exit.ack", () => {});
+			peer.crha.peer.onRequest("task.start", (start: TaskStart) => {
+				starts.set(start.taskId, peer.node.id);
+				return {};
+			});
+		}
+		const groups = new TaskGroups(db, cluster);
+		const groupId = await groups.create({
+			targets: ["group:reconnected-text"],
+			nodeIds: peers.map((peer) => peer.node.id),
+			spec: EXEC,
+			actor: { type: "system", id: "test", onBehalfOfUserId: owner.userId },
+			parallel: 8,
+			outputMode: "text",
+		});
+		await waitFor("all task starts", () => starts.size === 8);
+		const taskIdByNode = new Map([...starts].map(([taskId, nodeId]) => [nodeId, taskId]));
+		const data = Buffer.alloc(BATCH_NODE_BYTES, 0x61);
+		const first = peers[0] as (typeof peers)[number];
+		const firstTaskId = taskIdByNode.get(first.node.id) as string;
+		const exit = {
+			taskId: firstTaskId,
+			outcome: { kind: "code" as const, value: 0 },
+			timedOut: false,
+			cancelled: false,
+			stdoutEnd: data.length,
+			stderrEnd: 0,
+			outputFile: "/tmp/text.log",
+		};
+		first.crha.peer.emit("task.output", { taskId: firstTaskId, stream: "stdout", offset: 0, data });
+		first.crha.peer.emit("task.exit", exit);
+		await waitFor("first task recorded", async () => (await cluster.getTask(firstTaskId))?.state === "exited");
+
+		// Its task.exit.ack was lost: the node reconnects and reports the finished task in hello.
+		first.crha.ws.close();
+		await first.crha.closed;
+		await waitFor("first link detached", () => !cluster.isConnected(first.node.id));
+		const reconnected = await agents.connect(first.key, handshakeInit());
+		const exitAcks: { taskId: string }[] = [];
+		reconnected.peer.onEvent("task.exit.ack", (ack) => {
+			exitAcks.push(ack);
+		});
+		expect(
+			await reconnected.peer.request("hello", {
+				tasks: [{ taskId: firstTaskId, state: "exited", stdoutEnd: data.length, stderrEnd: 0 }],
+				taskKinds: [],
+				privilegedMode: "",
+			}),
+		).toEqual({ acks: [{ taskId: firstTaskId, stdoutOffset: data.length, stderrOffset: 0 }] });
+		// It has nothing to resend: sending only task.exit is enough and must not close the connection.
+		reconnected.peer.emit("task.exit", exit);
+		await waitFor("exit ack after reconnect", () => exitAcks.length === 1);
+		expect(exitAcks[0]).toEqual({ taskId: firstTaskId });
+		expect(cluster.isConnected(first.node.id)).toBe(true);
+		expect(await reconnected.peer.request("ping", { seq: 11 })).toEqual({ seq: 11 });
+
+		for (const peer of peers.slice(1)) {
+			const taskId = taskIdByNode.get(peer.node.id) as string;
+			peer.crha.peer.emit("task.output", { taskId, stream: "stdout", offset: 0, data });
+			peer.crha.peer.emit("task.exit", {
+				taskId,
+				outcome: { kind: "code", value: 0 },
+				timedOut: false,
+				cancelled: false,
+				stdoutEnd: data.length,
+				stderrEnd: 0,
+				outputFile: "/tmp/text.log",
+			});
+		}
+		const view = await groups.wait(groupId, 10_000);
+		if (!view) throw new Error("group missing");
+		expect(view.state).toBe("finished");
+		const byNode = new Map(view.tasks.map((t) => [t.nodeId, t]));
+		const tails = peers.map((peer) => byNode.get(peer.node.id)?.stdoutTail.length ?? -1);
+		// The reconnected node's 8 KiB was granted once and does not draw from the budget again: the other
+		// seven nodes share the remaining 43008 bytes, so the group still saves its full 51200 bytes.
+		expect([...tails].sort((a, b) => a - b)).toEqual([0, 2048, 8192, 8192, 8192, 8192, 8192, 8192]);
+		expect(tails.reduce((sum, bytes) => sum + bytes, 0)).toBe(BATCH_GROUP_BYTES);
+	});
+
+	it("records a late result for an unknown task that hello reports again", async () => {
+		const key = generateKeyPair();
+		const { node, crha: first } = await connectActive("late-result-1", key);
+		first.peer.onEvent("task.exit.ack", () => {});
+		first.peer.onRequest("task.start", () => ({}));
+		const created = await createExec(node.id);
+		await waitFor("running", async () => (await cluster.getTask(created.id))?.state === "running");
+		const taskId = created.id;
+
+		// The node drops and comes back without the task: crhs asks, and crha answers unknown.
+		first.ws.close();
+		await first.closed;
+		await waitFor("node link detached", () => !cluster.isConnected(node.id));
+		const second = await agents.connect(key, handshakeInit());
+		second.peer.onEvent("task.exit.ack", () => {});
+		second.peer.onRequest("task.query", (query) => ({
+			taskId: query.taskId,
+			state: "unknown",
+			stdoutEnd: 0,
+			stderrEnd: 0,
+		}));
+		expect(await second.peer.request("hello", HELLO)).toEqual({ acks: [] });
+		const unknown = await waitFor("unknown", async () => {
+			const t = await cluster.getTask(taskId);
+			return t?.state === "unknown" ? t : undefined;
+		});
+		expect(unknown.errorCode).toBe("executor_restarted");
+
+		// It reconnects again, reports the task, resends the output and then the exit.
+		second.ws.close();
+		await second.closed;
+		await waitFor("node link detached again", () => !cluster.isConnected(node.id));
+		const third = await agents.connect(key, handshakeInit());
+		const acks: { taskId: string }[] = [];
+		third.peer.onEvent("task.exit.ack", (ack) => {
+			acks.push(ack);
+		});
+		expect(
+			await third.peer.request("hello", {
+				tasks: [{ taskId, state: "unknown", stdoutEnd: 0, stderrEnd: 0 }],
+				taskKinds: [],
+				privilegedMode: "",
+			}),
+		).toEqual({ acks: [{ taskId, stdoutOffset: 0, stderrOffset: 0 }] });
+		third.peer.emit("task.output", { taskId, stream: "stdout", offset: 0, data: Buffer.from("late") });
+		third.peer.emit("task.exit", {
+			taskId,
+			outcome: { kind: "code", value: 0 },
+			timedOut: false,
+			cancelled: false,
+			stdoutEnd: 4,
+			stderrEnd: 0,
+			outputFile: "",
+		});
+		const late = await waitFor("late result", async () => {
+			const row = await db
+				.selectFrom("tasks")
+				.select(["state", "late_result"])
+				.where("id", "=", taskId)
+				.executeTakeFirst();
+			return row?.late_result ? row : undefined;
+		});
+		expect(late.state).toBe("unknown");
+		expect(JSON.parse(late.late_result as string)).toMatchObject({
+			exit_code: 0,
+			stdout_bytes: 4,
+			stderr_bytes: 0,
+		});
+		await waitFor("exit ack", () => acks.length === 1);
+		expect(acks[0]).toEqual({ taskId });
+		expect(await third.peer.request("ping", { seq: 3 })).toEqual({ seq: 3 });
+	});
+
+	it("records a late result for an unknown task whose live record was lost", async () => {
+		const { node, crha } = await connectActive("late-result-2");
+		const acks: { taskId: string }[] = [];
+		crha.peer.onEvent("task.exit.ack", (ack) => {
+			acks.push(ack);
+		});
+		const starts: TaskStart[] = [];
+		crha.peer.onRequest("task.start", (start) => {
+			starts.push(start);
+			return {};
+		});
+		const created = await createExec(node.id);
+		await waitFor("task.start", () => starts.length === 1);
+
+		// A crhs restart keeps the row but loses the in-memory live record. Build that state from the row
+		// this task left behind: a second unknown task the server has never held live.
+		const source = await db.selectFrom("tasks").selectAll().where("id", "=", created.id).executeTakeFirstOrThrow();
+		const taskId = newId();
+		await db
+			.insertInto("tasks")
+			.values({
+				...source,
+				id: taskId,
+				state: "unknown",
+				error_code: "connection_lost",
+				error_message: "execution status unknown",
+				finished_at: new Date().toISOString(),
+				late_result: null,
+			})
+			.execute();
+
+		// Its exit must still record the late result instead of being acked and dropped as already recorded.
+		crha.peer.emit("task.exit", {
+			taskId,
+			outcome: { kind: "code", value: 0 },
+			timedOut: false,
+			cancelled: false,
+			stdoutEnd: 0,
+			stderrEnd: 0,
+			outputFile: "",
+		});
+		const late = await waitFor("late result without live", async () => {
+			const row = await db
+				.selectFrom("tasks")
+				.select(["state", "late_result"])
+				.where("id", "=", taskId)
+				.executeTakeFirst();
+			return row?.late_result ? row : undefined;
+		});
+		expect(late.state).toBe("unknown");
+		expect(JSON.parse(late.late_result as string)).toMatchObject({
+			exit_code: 0,
+			stdout_bytes: 0,
+			stderr_bytes: 0,
+		});
+		await waitFor("exit ack without live", () => acks.length === 1);
+		expect(acks[0]).toEqual({ taskId });
+		expect(await crha.peer.request("ping", { seq: 9 })).toEqual({ seq: 9 });
 	});
 
 	it("batch output defaults to status and rejects other modes through the API", async () => {

@@ -131,14 +131,17 @@ function editFromJson(value: unknown, what: string): Edit {
 
 function envToJson(value: Record<string, string>): Record<string, string> {
 	return Object.fromEntries(
-		Object.entries(value).map(([key, item]) => [key, text(item, `env[${JSON.stringify(key)}]`)]),
+		Object.entries(value).map(([key, item]) => [text(key, "env key"), text(item, `env[${JSON.stringify(key)}]`)]),
 	);
 }
 
 function envFromJson(value: unknown, what: string): Record<string, string> {
 	if (!isRecord(value)) bad(what, "not an object");
 	return Object.fromEntries(
-		Object.entries(value).map(([key, item]) => [key, text(item, `${what}[${JSON.stringify(key)}]`)]),
+		Object.entries(value).map(([key, item]) => [
+			text(key, `${what} key`),
+			text(item, `${what}[${JSON.stringify(key)}]`),
+		]),
 	);
 }
 

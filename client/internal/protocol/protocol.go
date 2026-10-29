@@ -20,6 +20,11 @@ const (
 	// MaxSafeInteger is the largest integer allowed by the protocol schema: 2^53-1.
 	// The CBOR profile itself allows the full native uint64/int64 range.
 	MaxSafeInteger = 1<<53 - 1
+	// MaxErrorMessageBytes bounds Error.message in UTF-8 bytes. The sender sanitises and
+	// truncates it; the receiver does not check its length.
+	MaxErrorMessageBytes = 1024
+	// MaxNameBytes bounds a command or event name (cmd, name) in UTF-8 bytes.
+	MaxNameBytes = 64
 )
 
 // Command names of protocol 1.0.
@@ -109,6 +114,27 @@ func (s commandSchema) validateRequest(raw cbor.RawMessage) error {
 // validateResponse decodes raw as the command's success response body.
 func (s commandSchema) validateResponse(raw cbor.RawMessage) error {
 	return Unmarshal(raw, s.response())
+}
+
+// eventSchemas names the body type of every event this package knows, so Emit can validate an
+// outgoing body the same way a receiver validates a command body.
+var eventSchemas = map[string]func() any{
+	EventTaskOutput:  func() any { return new(TaskOutput) },
+	EventTaskExit:    func() any { return new(TaskExit) },
+	EventFacts:       func() any { return new(Facts) },
+	EventNodeStatus:  func() any { return new(NodeStatus) },
+	EventOutputAck:   func() any { return new(OutputAck) },
+	EventTaskExitAck: func() any { return new(TaskExitAck) },
+}
+
+// validateEventBody decodes raw as the named event's body. A name outside the schema is
+// completely unknown and its body is not checked.
+func validateEventBody(name string, raw cbor.RawMessage) error {
+	newBody, ok := eventSchemas[name]
+	if !ok {
+		return nil
+	}
+	return Unmarshal(raw, newBody())
 }
 
 // SupportedCommands returns the command names implemented by this package.

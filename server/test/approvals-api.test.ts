@@ -163,6 +163,16 @@ describe("approvals api (sqlite)", () => {
 		expect((await decide("alice", `/api/tasks/${t.id}/approval`, { decision: "approve" })).status).toBe(409);
 	});
 
+	it("approving a task with an unreadable legacy spec is a client error", async () => {
+		const tok = await newToken();
+		const t = await mkTask(tok);
+		await db.updateTable("tasks").set({ spec: "{not json" }).where("id", "=", t.id).execute();
+		const res = await decide("alice", `/api/tasks/${t.id}/approval`, { decision: "approve" });
+		expect(res.status).toBe(400);
+		expect(((await res.json()) as { error: string }).error).toContain("stored spec cannot be read");
+		expect((await task(t.id)).state).toBe("awaiting_approval");
+	});
+
 	it("approve with always appends the rule and releases a similar waiting task", async () => {
 		const tok = await newToken();
 		const spec = execSpec("uptime", "-p");
@@ -300,6 +310,38 @@ describe("approvals api (sqlite)", () => {
 			const g = (await groups.get(id)) as TaskGroupView;
 			expect(g.state).toBe("rejected");
 			expect(g.tasks).toEqual([]);
+		});
+
+		it("keeps the list and view working when a legacy spec cannot be read", async () => {
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			try {
+				const tok = await newToken();
+				const id = await mkGroup(tok);
+				await db.updateTable("task_groups").set({ spec: "{not json" }).where("id", "=", id).execute();
+
+				const list = await call(app, "/api/approvals", { cookie: cookies.alice });
+				expect(list.status).toBe(200);
+				const listed = ((await list.json()) as { taskGroups: TaskGroupView[] }).taskGroups.find((g) => g.id === id);
+				expect(listed).toMatchObject({ id, state: "awaiting_approval", summary: "", operation: null });
+
+				const view = await call(app, `/api/task-groups/${id}`, { cookie: cookies.alice });
+				expect(view.status).toBe(200);
+				expect(((await view.json()) as { group: TaskGroupView }).group).toMatchObject({
+					id,
+					summary: "",
+					operation: null,
+				});
+
+				const res = await decide("alice", `/api/task-groups/${id}/approval`, { decision: "approve" });
+				expect(res.status).toBe(400);
+				expect(((await res.json()) as { error: string }).error).toContain("stored spec cannot be read");
+				expect((await groups.get(id))?.state).toBe("awaiting_approval");
+
+				await groups.reevaluate({ type: "api_token", id: tok });
+				expect(warn.mock.calls.some((call) => String(call[0]).includes("stored spec cannot be read"))).toBe(true);
+			} finally {
+				warn.mockRestore();
+			}
 		});
 	});
 });

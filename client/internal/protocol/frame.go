@@ -31,11 +31,15 @@ type Frame struct {
 	Err  *Error
 }
 
-// Encode serializes f in its canonical wire form and enforces MaxFrameBytes. It rejects
-// an invalid UTF-8 command/event name or Error text; Body is already-encoded CBOR.
+// Encode serializes f in its canonical wire form and enforces MaxFrameBytes. It rejects an
+// invalid UTF-8 or over-long command/event name, or invalid Error text; Body is
+// already-encoded CBOR.
 func (f *Frame) Encode() ([]byte, error) {
 	if err := validateTextValue(f); err != nil {
-		return nil, fmt.Errorf("protocol: encode frame: %w", err)
+		return nil, encodeErrorf("protocol: encode frame: %w", err)
+	}
+	if len(f.Name) > MaxNameBytes {
+		return nil, encodeErrorf("protocol: encode frame: name of %d bytes exceeds %d", len(f.Name), MaxNameBytes)
 	}
 	var elems []any
 	switch f.Kind {
@@ -46,21 +50,21 @@ func (f *Frame) Encode() ([]byte, error) {
 			elems = []any{uint64(FrameResponse), f.ID, f.Name, true, f.Body}
 		} else {
 			if f.Err == nil {
-				return nil, errors.New("protocol: error response without an Error body")
+				return nil, encodeErrorf("protocol: error response without an Error body")
 			}
 			elems = []any{uint64(FrameResponse), f.ID, f.Name, false, f.Err}
 		}
 	case FrameEvent:
 		elems = []any{uint64(FrameEvent), f.Name, f.Body}
 	default:
-		return nil, fmt.Errorf("protocol: unknown frame kind %d", f.Kind)
+		return nil, encodeErrorf("protocol: unknown frame kind %d", f.Kind)
 	}
 	data, err := encMode.Marshal(elems)
 	if err != nil {
-		return nil, fmt.Errorf("protocol: encode frame: %w", err)
+		return nil, encodeErrorf("protocol: encode frame: %w", err)
 	}
 	if len(data) > MaxFrameBytes {
-		return nil, fmt.Errorf("protocol: frame of %d bytes exceeds %d", len(data), MaxFrameBytes)
+		return nil, encodeErrorf("protocol: frame of %d bytes exceeds %d", len(data), MaxFrameBytes)
 	}
 	return data, nil
 }
@@ -95,6 +99,9 @@ func DecodeFrame(data []byte) (*Frame, error) {
 		if err := decMode.Unmarshal(elems[2], &f.Name); err != nil {
 			return nil, &ProtocolError{Err: fmt.Errorf("request command: %w", err)}
 		}
+		if err := checkFrameName("request command", f.Name); err != nil {
+			return nil, err
+		}
 		f.Body = cloneRaw(elems[3])
 	case kind == Uint(FrameResponse) && len(elems) == 5:
 		if err := decMode.Unmarshal(elems[1], &f.ID); err != nil {
@@ -102,6 +109,9 @@ func DecodeFrame(data []byte) (*Frame, error) {
 		}
 		if err := decMode.Unmarshal(elems[2], &f.Name); err != nil {
 			return nil, &ProtocolError{Err: fmt.Errorf("response command: %w", err)}
+		}
+		if err := checkFrameName("response command", f.Name); err != nil {
+			return nil, err
 		}
 		if err := decMode.Unmarshal(elems[3], &f.OK); err != nil {
 			return nil, &ProtocolError{Err: fmt.Errorf("response ok flag: %w", err)}
@@ -118,6 +128,9 @@ func DecodeFrame(data []byte) (*Frame, error) {
 	case kind == Uint(FrameEvent) && len(elems) == 3:
 		if err := decMode.Unmarshal(elems[1], &f.Name); err != nil {
 			return nil, &ProtocolError{Err: fmt.Errorf("event name: %w", err)}
+		}
+		if err := checkFrameName("event", f.Name); err != nil {
+			return nil, err
 		}
 		f.Body = cloneRaw(elems[2])
 	default:
@@ -152,13 +165,14 @@ func EncodeResponse(id Uint, cmd string, body any) ([]byte, error) {
 	return (&Frame{Kind: FrameResponse, ID: id, Name: cmd, OK: true, Body: raw}).Encode()
 }
 
-// EncodeErrorResponse encodes an error response frame.
+// EncodeErrorResponse encodes an error response frame. The message is sanitized and truncated
+// to MaxErrorMessageBytes, so a long error text cannot make the frame exceed MaxFrameBytes.
 func EncodeErrorResponse(id Uint, cmd, code, message string) ([]byte, error) {
 	return (&Frame{
 		Kind: FrameResponse,
 		ID:   id,
 		Name: cmd,
-		Err:  &Error{Code: code, Message: message},
+		Err:  &Error{Code: code, Message: ErrorMessage(message)},
 	}).Encode()
 }
 
@@ -173,4 +187,12 @@ func EncodeEvent(name string, body any) ([]byte, error) {
 
 func cloneRaw(raw cbor.RawMessage) cbor.RawMessage {
 	return append(cbor.RawMessage(nil), raw...)
+}
+
+// checkFrameName rejects a command or event name longer than the schema allows.
+func checkFrameName(what, name string) error {
+	if len(name) > MaxNameBytes {
+		return protocolErrorf("%s name of %d bytes exceeds %d", what, len(name), MaxNameBytes)
+	}
+	return nil
 }

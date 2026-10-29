@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/fxamacker/cbor/v2"
 )
@@ -134,6 +136,25 @@ func TestCleanText(t *testing.T) {
 	}
 	if got := CleanText("already valid"); got != "already valid" {
 		t.Fatalf("CleanText changed valid text to %q", got)
+	}
+}
+
+func TestErrorMessage(t *testing.T) {
+	if got, want := ErrorMessage("ok\xffbad"), "ok\uFFFDbad"; got != want {
+		t.Fatalf("ErrorMessage = %q, want %q", got, want)
+	}
+	long := ErrorMessage(strings.Repeat("a", 4*MaxErrorMessageBytes))
+	if len(long) != MaxErrorMessageBytes {
+		t.Fatalf("ErrorMessage kept %d bytes, want %d", len(long), MaxErrorMessageBytes)
+	}
+	// A multi-byte rune straddling the limit is dropped, not split.
+	straddle := strings.Repeat("a", MaxErrorMessageBytes-1) + "é" + strings.Repeat("a", 10)
+	got := ErrorMessage(straddle)
+	if len(got) != MaxErrorMessageBytes-1 {
+		t.Fatalf("ErrorMessage kept %d bytes, want %d", len(got), MaxErrorMessageBytes-1)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatalf("ErrorMessage produced invalid UTF-8: %q", got)
 	}
 }
 

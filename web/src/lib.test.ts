@@ -12,6 +12,7 @@ import {
 	parseList,
 	shellQuote,
 	splitArgv,
+	statusOutputNote,
 	taskActor,
 	taskOutcome,
 	tokenStatus,
@@ -48,6 +49,15 @@ test("batchOutput reads the fields by output mode", () => {
 		file: "/var/lib/crha/output/t.log",
 	});
 	expect(batchOutput({ ...base, outputMode: "status", outputFile: null })).toEqual({ kind: "status", file: null });
+});
+
+test("statusOutputNote only blames SSH for a task that ran", () => {
+	expect(statusOutputNote({ state: "running", exitCode: null, signal: null })).toContain("until the task exits");
+	expect(statusOutputNote({ state: "failed", exitCode: null, signal: null })).toBe("no output was kept.");
+	expect(statusOutputNote({ state: "exited", exitCode: 0, signal: null })).toContain("SSH nodes keep no output");
+	expect(statusOutputNote({ state: "exited", exitCode: null, signal: "SIGKILL" })).toContain(
+		"SSH nodes keep no output",
+	);
 });
 
 test("splitArgv", () => {

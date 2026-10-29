@@ -84,12 +84,33 @@ func mustDecMode() cbor.DecMode {
 // receiver close the connection.
 func CleanText(s string) string { return strings.ToValidUTF8(s, "�") }
 
+// ErrorMessage prepares a sender-chosen Error.message for the wire: it sanitizes s like
+// CleanText and then truncates it to MaxErrorMessageBytes, never splitting a rune. A message
+// that embedded a path or argv quoted with %q can be megabytes long, and an error frame
+// carrying it would exceed MaxFrameBytes; the receiver does not check the length, so every
+// Error.message this package builds must go through ErrorMessage.
+func ErrorMessage(s string) string {
+	s = CleanText(s)
+	if len(s) <= MaxErrorMessageBytes {
+		return s
+	}
+	cut := MaxErrorMessageBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
+// marshalerType is the CBOR interface a type implements when it encodes itself, such as the
+// union types, whose MarshalCBOR encodes only the selected branch.
+var marshalerType = reflect.TypeOf((*cbor.Marshaler)(nil)).Elem()
+
 // maxTextDepth bounds validateTextValue's recursion. The wire schema nests far below it;
 // the limit only prevents a cyclic caller-supplied value from overflowing the stack.
 const maxTextDepth = 128
 
-// validateTextValue reports an error if any Go string reachable from v is not valid
-// UTF-8. It walks the same shape the CBOR encoder walks: exported struct fields, pointers,
+// validateTextValue reports an error if any Go string that will reach the wire from v is not
+// valid UTF-8. It walks the same shape the CBOR encoder walks: exported struct fields, pointers,
 // interfaces, arrays, slices and maps (keys and values). Byte slices and byte arrays are
 // wire "bytes" values and may contain arbitrary bytes.
 func validateTextValue(v any) error {
@@ -104,15 +125,23 @@ func validateText(v reflect.Value, depth int) error {
 		return errors.New("value nests too deeply")
 	}
 	switch v.Kind() {
-	case reflect.String:
-		if !utf8.ValidString(v.String()) {
-			return fmt.Errorf("invalid UTF-8 text %q", v.String())
-		}
 	case reflect.Interface, reflect.Pointer:
 		if v.IsNil() {
 			return nil
 		}
 		return validateText(v.Elem(), depth+1)
+	}
+	// A value with its own encoder decides what reaches the wire: a union's MarshalCBOR, for
+	// example, encodes one branch and ignores the fields of the other branches, so text they
+	// carry must not be rejected. Validate the encoded form instead.
+	if v.CanInterface() && v.Type().Implements(marshalerType) {
+		return validateEncodedText(v.Interface().(cbor.Marshaler))
+	}
+	switch v.Kind() {
+	case reflect.String:
+		if !utf8.ValidString(v.String()) {
+			return fmt.Errorf("invalid UTF-8 text of %d bytes", len(v.String()))
+		}
 	case reflect.Struct:
 		typ := v.Type()
 		for i := 0; i < v.NumField(); i++ {
@@ -146,15 +175,29 @@ func validateText(v reflect.Value, depth int) error {
 	return nil
 }
 
+// validateEncodedText checks the CBOR a self-encoding value produced. The encoder accepts
+// invalid UTF-8, but the strict decoder rejects it, so decoding the encoded form catches text
+// a MarshalCBOR implementation failed to validate itself.
+func validateEncodedText(m cbor.Marshaler) error {
+	data, err := m.MarshalCBOR()
+	if err != nil {
+		return err
+	}
+	if err := decMode.Unmarshal(data, new(any)); err != nil {
+		return fmt.Errorf("invalid encoded text: %w", err)
+	}
+	return nil
+}
+
 // Marshal encodes v with the protocol's deterministic encoder. It rejects any text value
 // that is not valid UTF-8 before encoding, as doc/protocol.md requires of the sender.
 func Marshal(v any) ([]byte, error) {
 	if err := validateTextValue(v); err != nil {
-		return nil, fmt.Errorf("protocol: encode: %w", err)
+		return nil, encodeErrorf("protocol: encode: %w", err)
 	}
 	data, err := encMode.Marshal(v)
 	if err != nil {
-		return nil, fmt.Errorf("protocol: encode: %w", err)
+		return nil, encodeErrorf("protocol: encode: %w", err)
 	}
 	return data, nil
 }
@@ -392,3 +435,16 @@ func (e *ProtocolError) Unwrap() error { return e.Err }
 func protocolErrorf(format string, args ...any) error {
 	return &ProtocolError{Err: fmt.Errorf(format, args...)}
 }
+
+func encodeErrorf(format string, args ...any) error {
+	return &EncodeError{Err: fmt.Errorf(format, args...)}
+}
+
+// EncodeError is a local failure to encode a value or frame for the wire: invalid UTF-8
+// text, a body that does not match its schema, or a frame over MaxFrameBytes. The frame was
+// not sent, and unlike a ProtocolError it does not mean the connection is broken.
+type EncodeError struct{ Err error }
+
+func (e *EncodeError) Error() string { return e.Err.Error() }
+
+func (e *EncodeError) Unwrap() error { return e.Err }

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { encode as encodeCbor } from "../src/cbor.ts";
+import { CborError, encode as encodeCbor } from "../src/cbor.ts";
 import {
 	decodeFrame,
 	encodeFrame,
+	errorMessage,
 	type Frame,
+	MAX_ERROR_MESSAGE_BYTES,
 	MAX_FRAME_BYTES,
+	MAX_NAME_BYTES,
 	ProtocolError,
 	peekProtocolMajor,
 } from "../src/frame.ts";
@@ -88,6 +91,48 @@ describe("frames", () => {
 		expect(() => encodeFrame({ kind: "request", id: -1, cmd: "ping", body: { seq: 1 } })).toThrow(ProtocolError);
 		expect(() => decodeFrame(bytesOf("8400f93e006470696e678101"))).toThrow(ProtocolError);
 		expect(() => decodeFrame(encodeCbor([1, 1, "ping", 1, [1]]))).toThrow(ProtocolError);
+	});
+
+	it("rejects names longer than MAX_NAME_BYTES", () => {
+		const name = "a".repeat(MAX_NAME_BYTES + 1);
+		expect(() => decodeFrame(encodeCbor([0, 1, name, []]))).toThrow(ProtocolError);
+		// A name over the limit is rejected as a name error even though it is also unknown.
+		expect(() => decodeFrame(encodeCbor([2, name, []]))).toThrow(/event name too long/);
+		expect(() => encodeFrame({ kind: "request", id: 1, cmd: name, body: [] })).toThrow(ProtocolError);
+		expect(() => encodeFrame({ kind: "event", name, body: [] })).toThrow(/event name too long/);
+	});
+
+	it("wraps a CborError while encoding as ProtocolError", () => {
+		const frame: Frame = {
+			kind: "request",
+			id: 1,
+			cmd: "task.start",
+			body: {
+				taskId: "t-1",
+				attempt: 1,
+				spec: { kind: "exec", command: { argv: [] }, env: { "\ud800": "x" }, cwd: "", stdin: null },
+				privileged: false,
+				authorizations: [],
+				timeoutMs: 0,
+				killGraceMs: 0,
+				output: { kind: "status" },
+			},
+		};
+		let error: unknown;
+		try {
+			encodeFrame(frame);
+		} catch (err) {
+			error = err;
+		}
+		expect(error).toBeInstanceOf(ProtocolError);
+		expect(error).not.toBeInstanceOf(CborError);
+	});
+
+	it("bounds error messages on a code point boundary", () => {
+		const message = errorMessage("字".repeat(1000));
+		expect(Buffer.byteLength(message, "utf8")).toBeLessThanOrEqual(MAX_ERROR_MESSAGE_BYTES);
+		expect(message.isWellFormed()).toBe(true);
+		expect("字".repeat(1000).startsWith(message)).toBe(true);
 	});
 });
 

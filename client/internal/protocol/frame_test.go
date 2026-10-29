@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/fxamacker/cbor/v2"
@@ -120,12 +121,108 @@ func TestFrameEncodeRejectsInvalidUTF8(t *testing.T) {
 			}
 		})
 	}
-	if _, err := EncodeErrorResponse(1, CmdPing, "internal_error", "bad\xff"); err == nil {
-		t.Fatal("EncodeErrorResponse accepted an invalid UTF-8 message")
+	// EncodeErrorResponse sanitizes the message rather than refusing the frame.
+	raw, err := EncodeErrorResponse(1, CmdPing, "internal_error", "bad\xff")
+	if err != nil {
+		t.Fatalf("EncodeErrorResponse: %v", err)
+	}
+	frame, err := DecodeFrame(raw)
+	if err != nil {
+		t.Fatalf("DecodeFrame: %v", err)
+	}
+	if frame.Err == nil || frame.Err.Message != "bad\uFFFD" {
+		t.Fatalf("message = %#v, want the invalid byte replaced", frame.Err)
 	}
 	if _, err := EncodeRequest(1, "bad\xff", Empty{}); err == nil {
 		t.Fatal("EncodeRequest accepted an invalid UTF-8 command")
 	}
+}
+
+func TestFrameNameLimit(t *testing.T) {
+	long := strings.Repeat("a", MaxNameBytes+1)
+	if _, err := EncodeRequest(1, long, Ping{Seq: 1}); err == nil {
+		t.Fatal("EncodeRequest accepted an over-long command name")
+	}
+	if _, err := EncodeEvent(long, sampleFacts()); err == nil {
+		t.Fatal("EncodeEvent accepted an over-long event name")
+	}
+	if _, err := EncodeErrorResponse(1, long, "internal_error", "x"); err == nil {
+		t.Fatal("EncodeErrorResponse accepted an over-long command name")
+	}
+
+	// Exactly MaxNameBytes is allowed.
+	name := strings.Repeat("a", MaxNameBytes)
+	raw, err := EncodeRequest(1, name, Ping{Seq: 1})
+	if err != nil {
+		t.Fatalf("EncodeRequest(%d-byte name): %v", MaxNameBytes, err)
+	}
+	if _, err := DecodeFrame(raw); err != nil {
+		t.Fatalf("DecodeFrame(%d-byte name): %v", MaxNameBytes, err)
+	}
+
+	body := mustHex(t, "8101")
+	frames := []struct {
+		name string
+		raw  []byte
+	}{
+		{"request", encodeRaw(t, []any{uint64(FrameRequest), uint64(1), long, cbor.RawMessage(body)})},
+		{"response", encodeRaw(t, []any{uint64(FrameResponse), uint64(1), long, true, cbor.RawMessage(body)})},
+		{"event", encodeRaw(t, []any{uint64(FrameEvent), long, cbor.RawMessage(body)})},
+	}
+	for _, test := range frames {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := DecodeFrame(test.raw)
+			var protocolErr *ProtocolError
+			if !errors.As(err, &protocolErr) {
+				t.Fatalf("DecodeFrame = %v (%T), want *ProtocolError for an over-long name", err, err)
+			}
+		})
+	}
+}
+
+func TestFrameErrorMessageTruncated(t *testing.T) {
+	message := strings.Repeat("x", 4*MaxErrorMessageBytes)
+	raw, err := EncodeErrorResponse(1, CmdPing, "internal_error", message)
+	if err != nil {
+		t.Fatalf("EncodeErrorResponse: %v", err)
+	}
+	frame, err := DecodeFrame(raw)
+	if err != nil {
+		t.Fatalf("DecodeFrame: %v", err)
+	}
+	if frame.Err == nil {
+		t.Fatal("response has no error body")
+	}
+	if frame.Err.Message != message[:MaxErrorMessageBytes] {
+		t.Fatalf("message has %d bytes, want %d", len(frame.Err.Message), MaxErrorMessageBytes)
+	}
+}
+
+func TestFrameDecodeAllowsLongErrorMessage(t *testing.T) {
+	// The sender guarantees the bound; a receiver does not check Error.message's length.
+	message := strings.Repeat("x", 4*MaxErrorMessageBytes)
+	body := encodeRaw(t, []any{"internal_error", message})
+	raw := encodeRaw(t, []any{uint64(FrameResponse), uint64(1), CmdPing, false, cbor.RawMessage(body)})
+	frame, err := DecodeFrame(raw)
+	if err != nil {
+		t.Fatalf("DecodeFrame: %v", err)
+	}
+	if frame.Err == nil {
+		t.Fatal("response has no error body")
+	}
+	if frame.Err.Message != message {
+		t.Fatalf("message has %d bytes, want %d", len(frame.Err.Message), len(message))
+	}
+}
+
+// encodeRaw encodes v with the package encoder, bypassing the frame name checks.
+func encodeRaw(t *testing.T, v any) []byte {
+	t.Helper()
+	raw, err := encMode.Marshal(v)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	return raw
 }
 
 func TestFrameErrorResponseHex(t *testing.T) {

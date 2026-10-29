@@ -1,8 +1,18 @@
 import type { TransportCiphers } from "@crh/noise";
-import { CborError, ConnectionError, Peer, ProtocolError } from "@crh/protocol";
+import { CborError, ConnectionError, Peer, ProtocolError, truncateUtf8 } from "@crh/protocol";
 import type { WebSocket } from "ws";
 
 const EMPTY = new Uint8Array(0);
+// The WebSocket close frame allows at most 123 bytes of reason.
+const MAX_CLOSE_REASON_BYTES = 123;
+
+/**
+ * Make a close reason well-formed and fit it into the 123 UTF-8 bytes the
+ * WebSocket protocol allows; `ws.close` throws synchronously for a longer one.
+ */
+export function closeReason(reason: string): string {
+	return truncateUtf8(reason.toWellFormed(), MAX_CLOSE_REASON_BYTES);
+}
 
 /** An authenticated, encrypted frame stream to one crha. Frames are delivered in order. */
 export class NodeConnection {
@@ -71,7 +81,13 @@ export class NodeConnection {
 	}
 
 	close(reason: string): void {
-		if (!this.#closed) this.#ws.close(1000, reason.slice(0, 120));
+		if (!this.#closed) {
+			try {
+				this.#ws.close(1000, closeReason(reason));
+			} catch {
+				// A failed close must not skip #finish or escape a ws listener.
+			}
+		}
 		this.#finish(reason);
 	}
 

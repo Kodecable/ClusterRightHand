@@ -53,6 +53,16 @@ export function batchOutput(
 	return { kind: "full" };
 }
 
+/**
+ * The line under a status-mode result that has no output file. A task that ran has its output only on the
+ * node (or nowhere, for SSH); a task that never ran has no output to explain.
+ */
+export function statusOutputNote(t: Pick<TaskView, "state" | "exitCode" | "signal">): string {
+	if (!isTerminal(t.state)) return "the full output stays on the node until the task exits.";
+	if (t.exitCode === null && t.signal === null) return "no output was kept.";
+	return "no output is kept (SSH nodes keep no output).";
+}
+
 export function taskOutcome(t: TaskView): string {
 	if (t.state === "exited") {
 		if (t.timedOut) return "timed out";

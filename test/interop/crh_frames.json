@@ -226,6 +226,11 @@
 			"id": "negative.error_body_shape",
 			"description": "ok=false response body is [1] instead of [code, message]",
 			"hex": "850118196b7461736b2e63616e63656cf48101"
+		},
+		{
+			"id": "request_cmd_too_long",
+			"description": "request cmd is 65 ASCII bytes, over the 64-byte limit",
+			"hex": "8400181a7841616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616180"
 		}
 	]
 }

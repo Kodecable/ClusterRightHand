@@ -144,10 +144,10 @@ export class TestAgentServer {
 		const message2 = await messages.next();
 		const response = handshakeResponseCodec.decode(decodeCbor(hs.readMessage(message2)));
 		const ciphers = hs.split();
-		const peer = new Peer({
-			negotiated,
-			send: (bytes) => ws.send(ciphers.send.encrypt(EMPTY, bytes)),
-		});
+		const sendRaw = (bytes: Uint8Array): void => {
+			ws.send(ciphers.send.encrypt(EMPTY, bytes));
+		};
+		const peer = new Peer({ negotiated, send: sendRaw });
 		messages.setSink((bytes) => {
 			let plain: Uint8Array;
 			try {
@@ -158,7 +158,7 @@ export class TestAgentServer {
 			peer.receive(plain);
 		});
 		ws.once("close", (code, reason) => peer.close(reason.toString() || `closed (${code})`));
-		return { ws, peer, response, closed };
+		return { ws, peer, response, closed, sendRaw };
 	}
 }
 
@@ -167,6 +167,8 @@ export interface FakeCrha {
 	peer: Peer;
 	response: HandshakeResponse;
 	closed: Promise<CloseInfo>;
+	/** Send one raw plaintext frame, bypassing Peer's encode and validation. */
+	sendRaw(bytes: Uint8Array): void;
 }
 
 export function handshakeInit(overrides: Partial<HandshakeInit> = {}): HandshakeInit {

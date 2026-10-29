@@ -25,6 +25,7 @@ import { type Evaluation, evaluate, operationOf } from "../policy/rules.ts";
 import { loadChain, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import type { TaskState as TaskRowState, TasksTable } from "../storage/schema.ts";
+import { UserError } from "../users/service.ts";
 import { newId } from "../util/id.ts";
 import { createLiveTask, GroupBudget, type LiveTask, type OutputSnapshot } from "./batch-output.ts";
 import type { NodeConnection } from "./connection.ts";
@@ -153,6 +154,11 @@ export interface ClusterOptions {
 }
 
 export const TERMINAL: ReadonlySet<TaskRowState> = new Set(["exited", "failed", "rejected", "unknown", "denied"]);
+
+/** Whether the row already has a result. `unknown` does not: it still accepts a late result. */
+function recorded(state: TaskRowState): boolean {
+	return TERMINAL.has(state) && state !== "unknown";
+}
 
 /** Codes a crha may answer `task.start` with before accepting; M3.5 records them as a final rejection. */
 const AUTHORIZATION_CODES: ReadonlySet<string> = new Set([
@@ -388,6 +394,17 @@ export class Cluster {
 			reported.add(t.taskId);
 			// It ran because the client had accepted it, but the success response never reached us.
 			if (row.state === "dispatched") await this.#serial(t.taskId, () => this.#onAccepted(nodeId, t.taskId));
+			// A recorded result needs no output: ack the stored totals, so crha drops its buffer instead of
+			// resending it and charging the group budget a second time. An `unknown` task still accepts a late
+			// result, so it keeps the old behaviour and may resend (doc/execution-plane.md#输出).
+			if (recorded(row.state)) {
+				acks.push({
+					taskId: t.taskId,
+					stdoutOffset: Number(row.stdout_bytes),
+					stderrOffset: Number(row.stderr_bytes),
+				});
+				continue;
+			}
 			// After a crhs restart the output is gone from memory: start over and let the client resend it all.
 			const live = this.#live.get(t.taskId) ?? this.#newLive(t.taskId, nodeId, row.output_mode, row.task_group_id);
 			acks.push({
@@ -444,8 +461,14 @@ export class Cluster {
 	async #onExit(conn: NodeConnection, exit: TaskExit): Promise<void> {
 		const row = await this.#row(exit.taskId);
 		if (!row || row.node_id !== conn.nodeId) return;
-		const live =
-			this.#live.get(exit.taskId) ?? this.#newLive(exit.taskId, conn.nodeId, row.output_mode, row.task_group_id);
+		const existing = this.#live.get(exit.taskId);
+		// The result is already recorded and crha resent task.exit after a lost task.exit.ack: there is no
+		// live record to complete, and re-sending the task must not close the connection in a loop.
+		if (recorded(row.state) && !existing) {
+			conn.peer.emit("task.exit.ack", { taskId: row.id });
+			return;
+		}
+		const live = existing ?? this.#newLive(exit.taskId, conn.nodeId, row.output_mode, row.task_group_id);
 		// TaskExit follows all output on the wire; if bytes are missing, the client will resend after a
 		// reconnect and send TaskExit again. Record what we have only when complete. A `status` task gets
 		// no task.output at all, so there is nothing to wait for (doc/execution-plane.md#输出).
@@ -721,13 +744,15 @@ export class Cluster {
 			if (row?.state !== "awaiting_approval") return false;
 			const record: ApprovalRecord = { ...(JSON.parse(row.approval ?? "{}") as ApprovalRecord), decision };
 			if (decision.decision === "approved") {
+				// Read the spec before recording the decision: migration 0019 may have left a row it could not
+				// convert, and the caller gets a client error instead of a half-approved task.
+				const spec = specFromRow(row.spec, "task");
 				await this.#db
 					.updateTable("tasks")
 					.set({ approval: JSON.stringify(record) })
 					.where("id", "=", id)
 					.execute();
 				const node = await getNode(this.#db, row.node_id);
-				const spec = taskSpecFromJson(JSON.parse(row.spec));
 				const input = row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0);
 				void this.#auditApproval(row, decision);
 				if (node) {
@@ -1252,11 +1277,22 @@ function groupBudgetKey(groupId: string): string {
 	return `group:${groupId}`;
 }
 
-function operationOfJson(specJson: string): { method: string; target: string } | null {
+export function operationOfJson(specJson: string): { method: string; target: string } | null {
 	try {
 		return operationOf(taskSpecFromJson(JSON.parse(specJson)));
 	} catch {
 		return null;
+	}
+}
+
+/** A stored spec; migration 0019 may have left one unreadable, which is a client error on approval. */
+export function specFromRow(specJson: string | null, what: string): TaskSpec {
+	try {
+		return taskSpecFromJson(JSON.parse(specJson ?? "null"));
+	} catch (err) {
+		throw new UserError(
+			`the ${what}'s stored spec cannot be read: ${err instanceof Error ? err.message : String(err)}`,
+		);
 	}
 }
 

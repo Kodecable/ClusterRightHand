@@ -1,8 +1,8 @@
-import { taskSpecFromJson, taskSpecToJson } from "@crh/protocol";
+import { type TaskSpec, taskSpecToJson } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import type { Audit } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
-import { type Evaluation, operationOf } from "../policy/rules.ts";
+import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import type { TaskGroupState, TaskGroupsTable } from "../storage/schema.ts";
@@ -14,6 +14,8 @@ import {
 	type ApprovalDecision,
 	type Cluster,
 	type CreateTaskInput,
+	operationOfJson,
+	specFromRow,
 	summarize,
 	type TaskView,
 	TERMINAL,
@@ -47,7 +49,7 @@ export async function resolveTargets(db: Db, user: SessionUser, targets: string[
 		}
 	}
 	if (ids.size === 0) throw new UserError("the targets match no node that you can operate");
-	if (ids.size > MAX_TARGETS) throw new UserError(`at most ${MAX_TARGETS} nodes per batch`);
+	if (ids.size > MAX_TARGETS) throw new UserError(`at most ${MAX_TARGETS} targets per batch`);
 	return [...ids];
 }
 
@@ -297,8 +299,11 @@ export class TaskGroups {
 	async decide(id: string, decision: ApprovalDecision): Promise<boolean> {
 		const row = await this.#row(id);
 		if (row?.state !== "awaiting_approval") return false;
-		const record: GroupApprovalRecord = { ...(JSON.parse(row.approval ?? "{}") as GroupApprovalRecord), decision };
 		const approved = decision.decision === "approved";
+		// Build the input before changing state: a legacy spec that cannot be read must fail the request
+		// without leaving a group that is running but has no tasks.
+		const input = approved ? this.#inputFromRow(row) : undefined;
+		const record: GroupApprovalRecord = { ...(JSON.parse(row.approval ?? "{}") as GroupApprovalRecord), decision };
 		const res = await this.#db
 			.updateTable("task_groups")
 			.set({
@@ -324,10 +329,10 @@ export class TaskGroups {
 			target: { type: "task_group", id },
 			detail: { decision: decision.decision, reason: decision.reason },
 		});
-		if (approved) {
+		if (approved && input) {
 			const started = await this.#startedNodes(id);
 			const remaining = (JSON.parse(row.node_ids) as string[]).filter((n) => !started.has(n));
-			this.#start(id, this.#inputFromRow(row), remaining, row.parallel, { ...decision, taskGroupId: id });
+			this.#start(id, input, remaining, row.parallel, { ...decision, taskGroupId: id });
 		} else {
 			// A rejected group never runs; release anything its denied tasks may have held.
 			this.#cluster.releaseGroupBudget(id);
@@ -415,7 +420,14 @@ export class TaskGroups {
 		for (const row of rows) {
 			const chain = JSON.parse(row.rule_chain ?? "[]") as RuleRef[];
 			if (!chain.some((r) => r.type === ref.type && r.id === ref.id)) continue;
-			const spec = taskSpecFromJson(JSON.parse(row.spec ?? "null"));
+			let spec: TaskSpec;
+			try {
+				spec = specFromRow(row.spec, "task group");
+			} catch (err) {
+				// A row migration 0019 left behind must not stop the other waiting groups from settling.
+				console.warn(`task group ${row.id}: ${err instanceof Error ? err.message : String(err)}`);
+				continue;
+			}
 			const nodes = await this.#db
 				.selectFrom("nodes")
 				.selectAll()
@@ -445,7 +457,7 @@ export class TaskGroups {
 		return {
 			targets: JSON.parse(row.targets) as string[],
 			nodeIds: JSON.parse(row.node_ids) as string[],
-			spec: taskSpecFromJson(JSON.parse(row.spec ?? "null")),
+			spec: specFromRow(row.spec, "task group"),
 			outputMode: row.output_mode,
 			...(row.pending_input ? { input: Buffer.from(row.pending_input, "base64") } : {}),
 			...(row.timeout_ms !== null ? { timeoutMs: row.timeout_ms } : {}),
@@ -495,7 +507,7 @@ export class TaskGroups {
 			actorType: row.actor_type,
 			actorId: row.actor_id,
 			onBehalfOfUserId: row.on_behalf_of_user_id,
-			operation: row.spec ? operationOf(taskSpecFromJson(JSON.parse(row.spec))) : null,
+			operation: row.spec ? operationOfJson(row.spec) : null,
 			rootSessionId: row.root_session_id,
 			handlerType: row.handler_type,
 			handlerSessionId: row.handler_session_id,

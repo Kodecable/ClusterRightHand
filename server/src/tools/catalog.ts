@@ -176,7 +176,8 @@ export function taskResult(t: TaskView, nodeName: string, ctx: ToolContext): Rec
 			out.note = "full output is on the node; read it with read_file";
 		} else if (t.state === "dispatched" || t.state === "running") {
 			out.next = "still running: call task_wait with this task_id";
-		} else {
+		} else if (t.exitCode !== null || t.signal !== null) {
+			// Only a task that actually ran has output on the node (SSH keeps none).
 			out.note = "no output file was reported; SSH nodes keep no output";
 		}
 		return out;

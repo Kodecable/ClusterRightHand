@@ -127,7 +127,8 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			target: { type: "node", id },
 			detail: { name: before?.name, was_pending: before?.status === "pending", rejected: before?.status === "pending" },
 		});
-		// Deleting a pending node rejects its enrollment; an active node is simply disconnected.
+		// Deleting a pending node rejects its enrollment; deleting an active node disconnects it. Both get
+		// node.status{rejected} first, which tells crha to stop and not reconnect.
 		options.cluster?.notifyNodeStatus(id, "rejected", "node deleted");
 		return c.json({ ok: true });
 	});

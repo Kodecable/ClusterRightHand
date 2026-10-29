@@ -104,9 +104,46 @@ describe("TailAccumulator", () => {
 		}
 		expect(newlines).toBeLessThanOrEqual(BATCH_GROUP_LINES);
 		expect(budget.bytesLeft).toBe(0);
-		expect(budget.linesLeft).toBe(0);
+		// Lines cannot be granted without bytes, so the budget's line side need not be exhausted.
+		expect(budget.linesLeft).toBe(BATCH_GROUP_LINES - newlines);
 		// Every node acked the whole chunk even when nothing was kept.
 		expect(nodes.every((node) => node.end("stdout") === chunk.length)).toBe(true);
+	});
+
+	it("does not grant lines to a node with no byte grant", () => {
+		const { budget } = drainedGroup();
+		const linesBefore = budget.linesLeft;
+		for (let i = 0; i < 10; i++) {
+			const node = new TailAccumulator(budget);
+			expect(node.append("stdout", 0, bytes(BATCH_NODE_LINES, 0x0a))).toBe(true);
+			expect(node.grant).toEqual({ bytes: 0, lines: 0 });
+			expect(node.tail()).toEqual(Buffer.alloc(0));
+		}
+		expect(budget.linesLeft).toBe(linesBefore);
+	});
+
+	it("never grants more lines than the node's byte grant", () => {
+		const budget = new GroupBudget();
+		const node = new TailAccumulator(budget);
+		expect(node.append("stdout", 0, Buffer.from("abcdefghij"))).toBe(true);
+		expect(node.grant).toEqual({ bytes: 10, lines: 0 });
+		// The group has no bytes left, so the next chunk can only draw lines within the 10-byte grant.
+		budget.bytesLeft = 0;
+		expect(node.append("stdout", 10, bytes(BATCH_NODE_LINES, 0x0a))).toBe(true);
+		expect(node.grant).toEqual({ bytes: 10, lines: 10 });
+		expect(countNewlines(node.tail())).toBe(10);
+	});
+
+	it("starts the tail on a character boundary after cutting to the byte grant", () => {
+		const budget = new GroupBudget();
+		const node = new TailAccumulator(budget);
+		const data = Buffer.from(`${"é".repeat(5000)}a`);
+		expect(node.append("stdout", 0, data)).toBe(true);
+		expect(node.tail().length).toBeLessThanOrEqual(BATCH_NODE_BYTES);
+		const text = node.tail().toString("utf8");
+		expect(text).not.toContain("\uFFFD");
+		expect(Buffer.byteLength(text)).toBe(node.tail().length);
+		expect(text.endsWith("a")).toBe(true);
 	});
 
 	it("detects gaps and skips overlapping resends", () => {

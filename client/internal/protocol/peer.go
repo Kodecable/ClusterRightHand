@@ -151,6 +151,11 @@ func (p *Peer) Request(ctx context.Context, cmd string, req, resp any) error {
 	if err != nil {
 		return err
 	}
+	if schema, ok := commandSchemas[cmd]; ok {
+		if err := schema.validateRequest(body); err != nil {
+			return encodeErrorf("protocol: request %q body: %w", cmd, err)
+		}
+	}
 	call := &pendingCall{cmd: cmd, resp: resp, done: make(chan callResult, 1)}
 
 	p.mu.Lock()
@@ -193,7 +198,8 @@ func (p *Peer) Request(ctx context.Context, cmd string, req, resp any) error {
 	}
 }
 
-// Emit sends an event. Events have no response.
+// Emit sends an event. Events have no response. A body that does not match the event's
+// schema is rejected before anything is sent.
 func (p *Peer) Emit(name string, body any) error {
 	if !p.negotiated.Has(name) {
 		return fmt.Errorf("protocol: event %q was not negotiated", name)
@@ -201,6 +207,9 @@ func (p *Peer) Emit(name string, body any) error {
 	raw, err := Marshal(body)
 	if err != nil {
 		return err
+	}
+	if err := validateEventBody(name, raw); err != nil {
+		return encodeErrorf("protocol: event %q body: %w", name, err)
 	}
 	frame, err := (&Frame{Kind: FrameEvent, Name: name, Body: raw}).Encode()
 	if err != nil {
@@ -284,6 +293,19 @@ func (p *Peer) handleResponse(f *Frame) error {
 	abandoned := call.abandoned
 	p.mu.Unlock()
 
+	// A successful response of a known command is always validated against the command's
+	// schema, whether the caller wants the body and whether it still waits for it: a
+	// malformed response is a protocol error even for an abandoned call.
+	if f.OK {
+		if schema, ok := commandSchemas[f.Name]; ok {
+			if err := schema.validateResponse(f.Body); err != nil {
+				if !abandoned {
+					call.done <- callResult{err: err}
+				}
+				return err
+			}
+		}
+	}
 	if abandoned {
 		return nil
 	}
@@ -291,20 +313,13 @@ func (p *Peer) handleResponse(f *Frame) error {
 		call.done <- callResult{err: &RemoteError{Code: f.Err.Code, Message: f.Err.Message}}
 		return nil
 	}
-	var decodeErr error
-	switch {
-	case call.resp != nil:
-		decodeErr = Unmarshal(f.Body, call.resp)
-	default:
-		// The caller does not want the body, but a known command's success
-		// response is still validated against its schema.
-		if schema, ok := commandSchemas[f.Name]; ok {
-			decodeErr = schema.validateResponse(f.Body)
+	if call.resp != nil {
+		// The body is valid for the command; failing to decode it into the caller's type
+		// is a caller bug, not a reason to drop the connection.
+		if err := Unmarshal(f.Body, call.resp); err != nil {
+			call.done <- callResult{err: err}
+			return nil
 		}
-	}
-	if decodeErr != nil {
-		call.done <- callResult{err: decodeErr}
-		return decodeErr
 	}
 	call.done <- callResult{}
 	return nil
@@ -326,7 +341,8 @@ func (p *Peer) handleRequest(f *Frame) error {
 	p.mu.Unlock()
 
 	if !negotiated || handler == nil {
-		return p.sendErrorResponse(f.ID, f.Name, "unsupported_command", fmt.Sprintf("command %q is not supported", f.Name))
+		// The cmd field already carries the name; do not repeat it in the message.
+		return p.sendErrorResponse(f.ID, f.Name, "unsupported_command", "command is not supported")
 	}
 
 	result, err := handler(p.ctx, f.Body)
@@ -339,18 +355,25 @@ func (p *Peer) handleRequest(f *Frame) error {
 		if errors.As(err, &protocolErr) {
 			return protocolErr
 		}
-		return p.sendErrorResponse(f.ID, f.Name, "internal_error", CleanText(err.Error()))
+		return p.sendErrorResponse(f.ID, f.Name, "internal_error", err.Error())
 	}
 
 	result, after := unwrapDeferred(result)
 
 	raw, err := Marshal(result)
 	if err != nil {
-		return p.sendErrorResponse(f.ID, f.Name, "internal_error", CleanText(err.Error()))
+		return p.sendErrorResponse(f.ID, f.Name, "internal_error", err.Error())
+	}
+	// A success body must be valid for the command's schema even if the caller ignores it;
+	// a handler result that is not cannot be sent as a success response.
+	if schema, ok := commandSchemas[f.Name]; ok {
+		if err := schema.validateResponse(raw); err != nil {
+			return p.sendErrorResponse(f.ID, f.Name, "internal_error", err.Error())
+		}
 	}
 	frame, err := (&Frame{Kind: FrameResponse, ID: f.ID, Name: f.Name, OK: true, Body: raw}).Encode()
 	if err != nil {
-		return p.sendErrorResponse(f.ID, f.Name, "internal_error", CleanText(err.Error()))
+		return p.sendErrorResponse(f.ID, f.Name, "internal_error", err.Error())
 	}
 	if err := p.sendFrame(frame); err != nil {
 		return err
@@ -401,7 +424,7 @@ func (p *Peer) handleEvent(f *Frame) error {
 }
 
 func (p *Peer) sendErrorResponse(id Uint, cmd, code, message string) error {
-	frame, err := EncodeErrorResponse(id, cmd, code, message)
+	frame, err := EncodeErrorResponse(id, cmd, code, ErrorMessage(message))
 	if err != nil {
 		return err
 	}

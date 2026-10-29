@@ -8,9 +8,37 @@ import { type Codec, SchemaError, text, uint } from "./schema.ts";
 
 /** Maximum encoded size of one frame (one Noise transport message). */
 export const MAX_FRAME_BYTES = 61440;
+/** Maximum UTF-8 size of an Error message. Senders truncate; receivers do not check. */
+export const MAX_ERROR_MESSAGE_BYTES = 1024;
+/** Maximum UTF-8 size of a command or event name. */
+export const MAX_NAME_BYTES = 64;
 
 export class ProtocolError extends Error {
 	override name = "ProtocolError";
+}
+
+/** Fit an Error message: make it well-formed, then truncate on a code point boundary. */
+export function errorMessage(value: string): string {
+	return truncateUtf8(value.toWellFormed(), MAX_ERROR_MESSAGE_BYTES);
+}
+
+/** Fit `value` into `maxBytes` UTF-8 bytes, truncating on a code point boundary. */
+export function truncateUtf8(value: string, maxBytes: number): string {
+	let bytes = 0;
+	let end = 0;
+	for (const char of value) {
+		bytes += Buffer.byteLength(char, "utf8");
+		if (bytes > maxBytes) break;
+		end += char.length;
+	}
+	return value.slice(0, end);
+}
+
+function checkName(name: string, what: string): void {
+	const bytes = Buffer.byteLength(name, "utf8");
+	if (bytes > MAX_NAME_BYTES) {
+		throw new ProtocolError(`${what} too long: ${bytes} bytes (max ${MAX_NAME_BYTES})`);
+	}
 }
 
 export type Frame =
@@ -44,6 +72,7 @@ function decodeRequest(value: unknown[]): Frame {
 	if (value.length !== 4) throw new ProtocolError(`request: expected 4 elements, got ${value.length}`);
 	const id = decodeField(uint, value[1], "request id");
 	const cmd = decodeField(text, value[2], "request cmd");
+	checkName(cmd, "request cmd");
 	const definition = command(cmd);
 	if (definition === undefined) return { kind: "request.unsupported", id, cmd };
 	try {
@@ -57,6 +86,7 @@ function decodeResponse(value: unknown[]): Frame {
 	if (value.length !== 5) throw new ProtocolError(`response: expected 5 elements, got ${value.length}`);
 	const id = decodeField(uint, value[1], "response id");
 	const cmd = decodeField(text, value[2], "response cmd");
+	checkName(cmd, "response cmd");
 	const ok = value[3];
 	if (ok !== true && ok !== false) throw new ProtocolError("response: ok is not a boolean");
 	if (!ok) {
@@ -76,6 +106,7 @@ function decodeResponse(value: unknown[]): Frame {
 function decodeEvent(value: unknown[]): Frame {
 	if (value.length !== 3) throw new ProtocolError(`event: expected 3 elements, got ${value.length}`);
 	const name = decodeField(text, value[1], "event name");
+	checkName(name, "event name");
 	const definition = event(name);
 	if (definition === undefined) throw new ProtocolError(`unknown event: ${name}`);
 	try {
@@ -124,6 +155,7 @@ export function encodeFrame(frame: Frame): Uint8Array {
 		throw new ProtocolError("cannot encode an unsupported request");
 	}
 	if (frame.kind === "request") {
+		checkName(frame.cmd, "request cmd");
 		const definition = command(frame.cmd);
 		if (definition === undefined) throw new ProtocolError(`unknown command: ${frame.cmd}`);
 		value = [
@@ -134,19 +166,28 @@ export function encodeFrame(frame: Frame): Uint8Array {
 		];
 	} else if (frame.kind === "response") {
 		const id = encode(uint, frame.id, "response id");
+		checkName(frame.cmd, "response cmd");
 		if (!frame.ok) {
-			value = [1, id, frame.cmd, false, encode(errorCodec, frame.error, "error")];
+			const error = { code: frame.error.code, message: errorMessage(frame.error.message) };
+			value = [1, id, frame.cmd, false, encode(errorCodec, error, "error")];
 		} else {
 			const definition = command(frame.cmd);
 			if (definition === undefined) throw new ProtocolError(`unknown command: ${frame.cmd}`);
 			value = [1, id, frame.cmd, true, encode(definition.response, frame.body, `${frame.cmd} response`)];
 		}
 	} else {
+		checkName(frame.name, "event name");
 		const definition = event(frame.name);
 		if (definition === undefined) throw new ProtocolError(`unknown event: ${frame.name}`);
 		value = [2, frame.name, encode(definition, frame.body, `${frame.name} event`)];
 	}
-	const bytes = encodeCbor(value);
+	let bytes: Uint8Array;
+	try {
+		bytes = encodeCbor(value);
+	} catch (err) {
+		// A CborError here (e.g. a lone surrogate the schema did not catch) makes the frame invalid.
+		throw new ProtocolError(`invalid frame: ${message(err)}`);
+	}
 	if (bytes.length > MAX_FRAME_BYTES) {
 		throw new ProtocolError(`frame too large: ${bytes.length} bytes (max ${MAX_FRAME_BYTES})`);
 	}

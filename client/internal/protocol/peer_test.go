@@ -400,6 +400,174 @@ func TestPeerInternalErrorSanitizesMessage(t *testing.T) {
 	}
 }
 
+func TestPeerHandlerResultMustMatchResponseSchema(t *testing.T) {
+	newPingPeer := func(t *testing.T, handler RequestHandler) *testPeer {
+		t.Helper()
+		tp := newTestPeer(t, CmdPing)
+		tp.peer.HandleRequest(CmdPing, handler)
+		request, err := EncodeRequest(24, CmdPing, Ping{Seq: 1})
+		if err != nil {
+			t.Fatalf("EncodeRequest: %v", err)
+		}
+		if err := tp.peer.Receive(request); err != nil {
+			t.Fatalf("Receive: %v", err)
+		}
+		return tp
+	}
+	expectInternalError := func(t *testing.T, tp *testPeer) {
+		t.Helper()
+		frame, err := DecodeFrame(tp.nextFrame())
+		if err != nil {
+			t.Fatalf("DecodeFrame: %v", err)
+		}
+		if frame.Kind != FrameResponse || frame.ID != 24 || frame.OK || frame.Err == nil || frame.Err.Code != "internal_error" {
+			t.Fatalf("response = %#v, want an internal_error response", frame)
+		}
+	}
+
+	t.Run("nil result", func(t *testing.T) {
+		// A null body encodes fine, but it is not a valid ping response.
+		tp := newPingPeer(t, func(context.Context, cbor.RawMessage) (any, error) {
+			return nil, nil
+		})
+		expectInternalError(t, tp)
+	})
+	t.Run("after not run", func(t *testing.T) {
+		afterRan := false
+		tp := newPingPeer(t, func(context.Context, cbor.RawMessage) (any, error) {
+			return Deferred{Body: nil, After: func() { afterRan = true }}, nil
+		})
+		expectInternalError(t, tp)
+		if afterRan {
+			t.Fatal("After ran although the result was not a valid success body")
+		}
+	})
+}
+
+func TestPeerValidatesAbandonedResponse(t *testing.T) {
+	tp := newTestPeer(t, CmdPing)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := startRequest(ctx, tp.peer, CmdPing, Ping{Seq: 1}, &Ping{})
+	id := tp.requestID(t, tp.nextFrame())
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("request error = %v, want context.Canceled", err)
+	}
+
+	// "x" is not a valid ping response. The call is abandoned, but the peer must still
+	// report the malformed response instead of swallowing it.
+	response, err := EncodeResponse(id, CmdPing, "x")
+	if err != nil {
+		t.Fatalf("EncodeResponse: %v", err)
+	}
+	err = tp.peer.Receive(response)
+	var protocolErr *ProtocolError
+	if !errors.As(err, &protocolErr) {
+		t.Fatalf("Receive = %v (%T), want *ProtocolError", err, err)
+	}
+}
+
+func TestPeerSchemaValidationPrecedesCallerDestination(t *testing.T) {
+	tp := newTestPeer(t, CmdPing)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var anyVar any
+	done := startRequest(ctx, tp.peer, CmdPing, Ping{Seq: 1}, &anyVar)
+	id := tp.requestID(t, tp.nextFrame())
+	response, err := EncodeResponse(id, CmdPing, "x")
+	if err != nil {
+		t.Fatalf("EncodeResponse: %v", err)
+	}
+	err = tp.peer.Receive(response)
+	var protocolErr *ProtocolError
+	if !errors.As(err, &protocolErr) {
+		t.Fatalf("Receive = %v (%T), want *ProtocolError", err, err)
+	}
+	if requestErr := <-done; !errors.As(requestErr, &protocolErr) {
+		t.Fatalf("request error = %v (%T), want *ProtocolError", requestErr, requestErr)
+	}
+}
+
+func TestPeerCallerDecodeErrorIsNotProtocolError(t *testing.T) {
+	tp := newTestPeer(t, CmdPing)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// The ping response body is a valid [seq: uint], but it cannot decode into an int.
+	var notAnArray int
+	done := startRequest(ctx, tp.peer, CmdPing, Ping{Seq: 1}, &notAnArray)
+	id := tp.requestID(t, tp.nextFrame())
+	response, err := EncodeResponse(id, CmdPing, Ping{Seq: 7})
+	if err != nil {
+		t.Fatalf("EncodeResponse: %v", err)
+	}
+	if err := tp.peer.Receive(response); err != nil {
+		t.Fatalf("Receive = %v, want nil: a caller's destination type is not a protocol error", err)
+	}
+	if requestErr := <-done; requestErr == nil {
+		t.Fatal("request succeeded although the response did not decode into its destination")
+	}
+}
+
+func TestPeerInternalErrorTruncatesMessage(t *testing.T) {
+	tp := newTestPeer(t, CmdPing)
+	tp.peer.HandleRequest(CmdPing, func(context.Context, cbor.RawMessage) (any, error) {
+		return nil, errors.New(strings.Repeat("x", 4*MaxErrorMessageBytes))
+	})
+	request, err := EncodeRequest(25, CmdPing, Ping{Seq: 1})
+	if err != nil {
+		t.Fatalf("EncodeRequest: %v", err)
+	}
+	if err := tp.peer.Receive(request); err != nil {
+		t.Fatalf("Receive: %v", err)
+	}
+	frame, err := DecodeFrame(tp.nextFrame())
+	if err != nil {
+		t.Fatalf("DecodeFrame: %v", err)
+	}
+	if frame.Err == nil || frame.Err.Code != "internal_error" {
+		t.Fatalf("response = %#v, want internal_error", frame)
+	}
+	if len(frame.Err.Message) != MaxErrorMessageBytes {
+		t.Fatalf("internal_error message has %d bytes, want %d", len(frame.Err.Message), MaxErrorMessageBytes)
+	}
+}
+
+func TestPeerValidatesOutgoingBodies(t *testing.T) {
+	tp := newTestPeer(t, CmdPing, EventFacts)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Welcome is not a valid ping request body.
+	if err := tp.peer.Request(ctx, CmdPing, Welcome{}, &Ping{}); err == nil {
+		t.Fatal("Request sent a body that does not match the command schema")
+	}
+	// Ping is not a valid facts event body.
+	if err := tp.peer.Emit(EventFacts, Ping{Seq: 1}); err == nil {
+		t.Fatal("Emit sent a body that does not match the event schema")
+	}
+	select {
+	case frame := <-tp.out:
+		t.Fatalf("sent a frame despite an invalid body: %x", frame)
+	default:
+	}
+
+	// The peer is still usable and the connection was not torn down.
+	done := startRequest(ctx, tp.peer, CmdPing, Ping{Seq: 1}, &Ping{})
+	id := tp.requestID(t, tp.nextFrame())
+	response, err := EncodeResponse(id, CmdPing, Ping{Seq: 1})
+	if err != nil {
+		t.Fatalf("EncodeResponse: %v", err)
+	}
+	if err := tp.peer.Receive(response); err != nil {
+		t.Fatalf("Receive: %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("request after a rejected body: %v", err)
+	}
+}
+
 func TestPeerDeferred(t *testing.T) {
 	t.Run("After runs after the response frame", func(t *testing.T) {
 		tp := newTestPeer(t, CmdTaskCancel, EventTaskExitAck)

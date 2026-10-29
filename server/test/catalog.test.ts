@@ -178,6 +178,22 @@ describe("taskResult output modes", () => {
 		expect(r.note).toContain("SSH nodes keep no output");
 	});
 
+	it("does not blame SSH when a status task never ran", () => {
+		const r = taskResult(
+			task({
+				outputMode: "status",
+				state: "failed",
+				exitCode: null,
+				errorCode: "node_offline",
+				errorMessage: "the node is not connected",
+			}),
+			"web-1",
+			ctx,
+		);
+		expect(r.note).toBeUndefined();
+		expect(r.error).toEqual({ code: "node_offline", message: "the node is not connected" });
+	});
+
 	it("leaves full-mode results as they were", () => {
 		const r = taskResult(task({ stdoutHead: "hello\n", stdoutBytes: 6 }), "web-1", ctx);
 		expect(r).toMatchObject({ stdout: "hello\n" });

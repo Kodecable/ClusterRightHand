@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { encode as encodeCbor } from "../src/cbor.ts";
-import { decodeFrame, encodeFrame, type Frame, ProtocolError } from "../src/frame.ts";
+import { decodeFrame, encodeFrame, type Frame, MAX_ERROR_MESSAGE_BYTES, ProtocolError } from "../src/frame.ts";
 import { type CommandResponse, type Facts, SUPPORTED_NAMES, type TaskStart, type TaskStatus } from "../src/messages.ts";
 import { afterResponse, ConnectionError, Peer, RemoteError } from "../src/peer.ts";
 
@@ -121,6 +121,36 @@ describe("Peer", () => {
 			code: "internal_error",
 			message: "boom",
 		});
+	});
+
+	it("sends exactly one error response with a bounded message", async () => {
+		const { a, b, fromB } = makePair();
+		b.onRequest("task.cancel", () => {
+			throw new RemoteError("internal_error", "x".repeat(100_000));
+		});
+		await expect(a.request("task.cancel", { taskId: "t-1" })).rejects.toMatchObject({
+			name: "RemoteError",
+			code: "internal_error",
+		});
+		const errors = fromB.flatMap((frame) => (frame.kind === "response" && !frame.ok ? [frame.error] : []));
+		expect(errors).toHaveLength(1);
+		expect(Buffer.byteLength(errors[0]?.message ?? "", "utf8")).toBeLessThanOrEqual(MAX_ERROR_MESSAGE_BYTES);
+		expect(errors[0]?.message.length).toBe(MAX_ERROR_MESSAGE_BYTES);
+	});
+
+	it("makes a lone surrogate in a handler error message well-formed", async () => {
+		const { a, b, fromB } = makePair();
+		b.onRequest("task.cancel", () => {
+			throw new Error("bad \ud800 name");
+		});
+		await expect(a.request("task.cancel", { taskId: "t-1" })).rejects.toMatchObject({
+			name: "RemoteError",
+			code: "internal_error",
+			message: "bad \uFFFD name",
+		});
+		const errors = fromB.flatMap((frame) => (frame.kind === "response" && !frame.ok ? [frame.error] : []));
+		expect(errors).toHaveLength(1);
+		expect(errors[0]?.message.isWellFormed()).toBe(true);
 	});
 
 	it("answers unregistered and non-negotiated commands with unsupported_command", async () => {
@@ -288,6 +318,32 @@ describe("Peer", () => {
 		peer.onRequest("task.start", () => afterResponse({}, () => order.push("after")));
 		peer.receive(encodeFrame({ kind: "request", id: 1, cmd: "task.start", body: TASK_START }));
 		expect(order).toEqual(["send:response", "after"]);
+	});
+
+	it("reports a throwing afterResponse hook through onError", async () => {
+		const errors: Error[] = [];
+		const { a, b } = makePair(SUPPORTED_NAMES, undefined, undefined, (error) => errors.push(error));
+		b.onRequest("ping", () =>
+			afterResponse({ seq: 1 }, () => {
+				throw new Error("sync hook bug");
+			}),
+		);
+		await expect(a.request("ping", { seq: 1 })).resolves.toEqual({ seq: 1 });
+		expect(errors.map((error) => error.message)).toEqual(["sync hook bug"]);
+	});
+
+	it("reports a throwing async afterResponse hook through onError", async () => {
+		const errors: Error[] = [];
+		const { a, b } = makePair(SUPPORTED_NAMES, undefined, undefined, (error) => errors.push(error));
+		b.onRequest("ping", async () => {
+			await delay(1);
+			return afterResponse({ seq: 2 }, () => {
+				throw new Error("async hook bug");
+			});
+		});
+		await expect(a.request("ping", { seq: 2 })).resolves.toEqual({ seq: 2 });
+		await delay(0);
+		expect(errors.map((error) => error.message)).toEqual(["async hook bug"]);
 	});
 
 	it("answers internal_error when a plain success response body violates the schema", async () => {

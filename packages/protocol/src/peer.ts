@@ -2,7 +2,7 @@
  * Transport-agnostic RPC peer: commands (request/response) and events over one
  * reliable ordered message stream. Ids are per direction and start at 1.
  */
-import { decodeFrame, encodeFrame, type Frame, ProtocolError } from "./frame.ts";
+import { decodeFrame, encodeFrame, errorMessage, type Frame, ProtocolError } from "./frame.ts";
 import type { CommandName, CommandRequest, CommandResponse, EventBody, EventName } from "./messages.ts";
 
 export class RemoteError extends Error {
@@ -280,17 +280,27 @@ export class Peer {
 		if (isPromiseLike(sent)) {
 			Promise.resolve(sent).then(
 				() => {
-					if (!this.#closed) after?.();
+					this.#runAfter(after);
 				},
 				() => {},
 			);
 			return;
 		}
-		if (!this.#closed) after?.();
+		this.#runAfter(after);
+	}
+
+	/** A throwing after-response hook is a handler bug: report it, never throw out of receive(). */
+	#runAfter(after: (() => void) | undefined): void {
+		if (this.#closed || after === undefined) return;
+		try {
+			after();
+		} catch (err) {
+			this.#onError?.(toError(err));
+		}
 	}
 
 	#replyError(id: number, cmd: string, code: string, message: string): void {
-		this.#sendQuietly({ kind: "response", id, cmd, ok: false, error: { code, message } });
+		this.#sendQuietly({ kind: "response", id, cmd, ok: false, error: { code, message: errorMessage(message) } });
 	}
 
 	#replyHandlerError(id: number, cmd: string, err: unknown): void {
@@ -304,8 +314,17 @@ export class Peer {
 
 	#sendQuietly(frame: Frame): void {
 		if (this.#closed) return;
+		let bytes: Uint8Array;
 		try {
-			const sent = this.#sendFn(encodeFrame(frame));
+			bytes = encodeFrame(frame);
+		} catch (err) {
+			// An error response that cannot be encoded is a bug: close the connection rather
+			// than leaving the remote request pending forever.
+			this.#onError?.(toError(err));
+			return;
+		}
+		try {
+			const sent = this.#sendFn(bytes);
 			if (isPromiseLike(sent)) Promise.resolve(sent).catch(() => {});
 		} catch {
 			// A transport failure is reported by close(); nothing more to do here.

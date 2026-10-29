@@ -515,6 +515,11 @@ export function buildFixture(): CrhFramesFixture {
 		"ok=false response body is [1] instead of [code, message]",
 		encodeCbor([1, 25, "task.cancel", false, [1]]),
 	);
+	addNegative(
+		"request_cmd_too_long",
+		"request cmd is 65 ASCII bytes, over the 64-byte limit",
+		encodeCbor([0, 26, "a".repeat(65), []]),
+	);
 
 	return { positive, negative };
 }

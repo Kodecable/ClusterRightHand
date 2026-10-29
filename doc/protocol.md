@@ -48,6 +48,8 @@ event    = [2, name: text, body]
 Error    = [code: text, message: text]
 ```
 
+- `Error` 的 `message` 由发送方保证不超过 1024 字节 UTF-8（清洗为合法 UTF-8 后按字符边界截断）；接收方不检查长度。
+- 命令名和事件名（`cmd`、`name`）不超过 64 字节；解码帧时超过即协议错误（不回 `unsupported_command`）。
 - `id` 由请求方分配，从 1 开始递增；两个方向的 id 空间各自独立，响应的 `id` 属于请求方。
 - 响应的 `cmd` 必须等于对应请求的 `cmd`。收到未知 `id` 或 `cmd` 不符的响应是协议错误。
 - 响应可以乱序到达（按 `id` 匹配）。连接关闭时所有未完成请求以连接错误结束；请求本身没有超时（连接的空闲超时兜底）。
@@ -105,7 +107,7 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
 - 已接受集合在 crha 进程内保留（不随 `task.exit.ack` 删除），上限为最近 100 000 个 id；命中时返回 `already_accepted`。crhs 永远不会重发已接受的任务，这是纵深防御。
 - 错误码：
   - 可重试（任务回到 `awaiting_authorization`）：`authorization_required`、`authorization_invalid`、`authorization_expired`、`authorization_rejected`。1.0 的 crha 不产生它们（M4 实现）。M3.5 的 crhs 还没有 `awaiting_authorization` 状态和授权来源，收到时按最终失败处理：任务结束为 `rejected`，`error_code` 即此码；M4 再改为重试。
-  - 终态（任务结束为 `failed`，`error_code` 即此码）：`invalid_spec`（空 id、哈希长度不对等）、`unsupported_kind`、`privileged_unsupported`（1.0 的 crha 收到 `privileged = true` 时）、`local_policy_denied`、`already_accepted`。
+  - 终态（任务结束为 `failed`，`error_code` 即此码）：`invalid_spec`（空 id、哈希长度不对等、`size` 为 0 但 `sha256` 不是空输入的 SHA-256）、`unsupported_kind`、`privileged_unsupported`（1.0 的 crha 收到 `privileged = true` 时）、`local_policy_denied`、`already_accepted`。
 - `task.input` 只在成功响应之后发送；crhs 可以流水线发送多个分块，不必逐个等待响应；crha 按顺序处理。
 
 ## 事件
@@ -128,6 +130,8 @@ Facts    = [hostname: text, os_id: text, os_version_id: text, os_pretty_name: te
             arch: text, init_system: text, package_managers: [text], privilege_tools: [text],
             notes_path: text, groups: [text], clock_offset_ms: int]
 ```
+
+- 输入类错误码（`Outcome` 的 `error` 分支）：`input_mismatch`（输入与 `InputRef` 不符：比声明的大小长，或 SHA-256 不同；任务若在运行则被杀掉）、`input_incomplete`（连接在输入收齐前断开；任务被杀掉）。
 
 ## 受限连接
 
@@ -157,4 +161,4 @@ Facts    = [hostname: text, os_id: text, os_version_id: text, os_pretty_name: te
 ## fixture
 
 - `test/interop/cbor_core_golden_vectors.json`：profile 层正例/拒绝例，两端的 profile codec 都要通过。
-- `test/interop/crh_frames.json`：由 TS 实现生成、提交进仓库的帧 fixture，每项 `{ "id", "description", "hex" }`，覆盖每一种命令、响应（成功/错误）、事件、握手载荷和每一个联合分支；另有 `"negative"` 列表（长度不符、未知 tag、未知枚举、非规范编码、float 冒充整数、超过 2^53−1 的整数、`sha256` 长度错、尾随 bytes 等）。Go 测试解码每个正例，与按本文**独立手写**的期望值比较，再重编码比对 hex；负例必须全部被拒绝。
+- `test/interop/crh_frames.json`：由 TS 实现生成、提交进仓库的帧 fixture，每项 `{ "id", "description", "hex" }`，覆盖每一种命令、响应（成功/错误）、事件、握手载荷和每一个联合分支；另有 `"negative"` 列表（长度不符、未知 tag、未知枚举、超长命令名、非规范编码、float 冒充整数、超过 2^53−1 的整数、`sha256` 长度错、尾随 bytes 等）。Go 测试解码每个正例，与按本文**独立手写**的期望值比较，再重编码比对 hex；负例必须全部被拒绝。

@@ -46,6 +46,9 @@ const (
 // so tests can lower it.
 var maxAcceptedTasks = 100_000
 
+// emptyInputHash is the SHA-256 of empty input, which an InputRef of size 0 must declare.
+var emptyInputHash = protocol.Hash(sha256.Sum256(nil))
+
 // ErrNodeRejected reports that crhs rejected this node during enrollment. Run returns it wrapped
 // with crhs's node.status message.
 var ErrNodeRejected = errors.New("node rejected by crhs")
@@ -54,12 +57,13 @@ var ErrNodeRejected = errors.New("node rejected by crhs")
 // closing the restricted connection.
 var errReconnectNow = errors.New("reconnect requested by crhs")
 
-// nodeRejectedError wraps crhs's explanation in ErrNodeRejected, cleaning it for the terminal.
+// nodeRejectedError wraps crhs's explanation in ErrNodeRejected, sanitizing and bounding it for the
+// terminal.
 func nodeRejectedError(message string) error {
 	if message == "" {
 		return ErrNodeRejected
 	}
-	return fmt.Errorf("%w: %s", ErrNodeRejected, protocol.CleanText(message))
+	return fmt.Errorf("%w: %s", ErrNodeRejected, protocol.ErrorMessage(message))
 }
 
 // nodeStatus records the last node.status event of one connection.
@@ -147,9 +151,11 @@ type task struct {
 	// task.exit (with the real stream ends) and the output file.
 	suppressOutput bool
 
-	// TaskInput chunks for the executor (stdin or file content), fed by a goroutine so that a slow
-	// reader never blocks the receive loop.
-	inputCh   chan []byte
+	// TaskInput chunks for the executor (stdin or file content), queued by the receive loop for the
+	// executor's reader. queue is nil when the task declares no input; inputErr records why an input
+	// failed and overrides the task's outcome.
+	queue     *inputQueue
+	inputErr  *protocol.Error
 	inputOff  uint64
 	inputSize uint64
 	inputHash protocol.Hash
@@ -234,6 +240,7 @@ func (a *Agent) session(ctx context.Context, conn *transport.Conn) error {
 		// send is still in flight.
 		peer.Close(nil)
 		a.launchUnstarted()
+		a.abortIncompleteInputs()
 	}()
 
 	// The receive goroutine must run before the hello request: its response is processed there.
@@ -268,6 +275,11 @@ func (a *Agent) session(ctx context.Context, conn *transport.Conn) error {
 	err := <-errc
 	cancel()
 	peer.Close(err)
+	// Wait for the remaining goroutines before returning: an old pump could otherwise run
+	// nextOutbound after the next connection's resume and corrupt a task's send position.
+	for range 2 {
+		<-errc
+	}
 	return rejectionError(err, ns)
 }
 
@@ -284,10 +296,12 @@ func (a *Agent) pendingSession(ctx context.Context, conn *transport.Conn) error 
 	defer peer.Close(nil)
 
 	errc := make(chan error, 2)
+	recvdone := make(chan struct{})
 	go func() {
 		err := a.receive(ctx, conn, peer)
 		peer.Close(err)
 		errc <- err
+		close(recvdone)
 	}()
 	go func() { errc <- a.keepalive(ctx, peer) }()
 
@@ -295,8 +309,14 @@ func (a *Agent) pendingSession(ctx context.Context, conn *transport.Conn) error 
 		return rejectionError(err, ns)
 	}
 	err := <-errc
-	if errors.Is(err, ErrNodeRejected) {
-		return rejectionError(err, ns)
+	cancel()
+	peer.Close(err)
+	// crhs sends node.status{rejected} and closes at once, and the resulting receive error races the
+	// keepalive error the close also produces. Wait for the receive goroutine so the recorded node
+	// status decides, instead of reconnecting on whichever error came first.
+	<-recvdone
+	if state, message := ns.get(); state == protocol.NodeStatusRejected {
+		return nodeRejectedError(message)
 	}
 	if state, _ := ns.get(); state == protocol.NodeStatusActive {
 		return errReconnectNow
@@ -410,7 +430,7 @@ func (a *Agent) pump(ctx context.Context, peer *protocol.Peer) error {
 			if ob == nil {
 				break
 			}
-			if err := peer.Emit(ob.name, ob.body); err != nil {
+			if err := a.send(peer, ob); err != nil {
 				return err
 			}
 		}
@@ -420,6 +440,36 @@ func (a *Agent) pump(ctx context.Context, peer *protocol.Peer) error {
 		case <-a.kick:
 		}
 	}
+}
+
+// send emits one outbound event. A frame that cannot be encoded is a local failure: the connection
+// is fine, so it must not end the session. task.exit falls back to an internal_error outcome and is
+// retried once; a task.output chunk that cannot be encoded is dropped, since task.exit's end offsets
+// tell crhs what it missed. Connection errors are still returned.
+func (a *Agent) send(peer *protocol.Peer, ob *outbound) error {
+	err := peer.Emit(ob.name, ob.body)
+	var encodeErr *protocol.EncodeError
+	if err == nil || !errors.As(err, &encodeErr) {
+		return err
+	}
+	a.log.Warn("event could not be encoded", "event", ob.name, "err", err)
+	exit, ok := ob.body.(*protocol.TaskExit)
+	if ob.name != protocol.EventTaskExit || !ok {
+		return nil
+	}
+	exit.Outcome = protocol.Outcome{
+		Kind:  protocol.OutcomeError,
+		Error: &protocol.Error{Code: "internal_error", Message: "task.exit could not be encoded"},
+	}
+	retryErr := peer.Emit(ob.name, ob.body)
+	if retryErr == nil {
+		return nil
+	}
+	if !errors.As(retryErr, &encodeErr) {
+		return retryErr
+	}
+	a.log.Warn("task.exit could not be encoded", "task", exit.TaskID, "err", retryErr)
+	return nil
 }
 
 func (a *Agent) nextOutbound() *outbound {
@@ -535,16 +585,17 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 	}
 	var in io.Reader
 	if ref := inputRef(&ts.Spec); ref != nil {
-		r, w := io.Pipe()
-		in = r
-		t.inputSize, t.inputHash, t.hasher = uint64(ref.Size), ref.SHA256, sha256.New()
-		// Room for every chunk crhs may send (it sends <= 48 KiB chunks), so queuing never blocks
-		// while holding a.mu; the input itself is bounded by crhs.
-		t.inputCh = make(chan []byte, min(ref.Size/(16<<10)+2, 1<<14))
-		go feed(w, t.inputCh)
-		if ref.Size == 0 {
-			close(t.inputCh)
+		// A zero-size input still commits crhs to the SHA-256 of empty input. A different hash can
+		// never match, so refuse the task before accepting it.
+		if ref.Size == 0 && ref.SHA256 != emptyInputHash {
+			return reject("invalid_spec", "input size 0 requires the sha256 of empty input")
 		}
+		q := newInputQueue()
+		t.queue, t.inputSize, t.inputHash, t.hasher = q, uint64(ref.Size), ref.SHA256, sha256.New()
+		if ref.Size == 0 {
+			q.close()
+		}
+		in = q
 	}
 	runCtx, cancel := context.WithCancel(context.Background()) // tasks outlive connections
 	t.cancel, t.runCtx, t.in = cancel, runCtx, in
@@ -559,6 +610,11 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 	// and the session's sweep starts it.
 	if ctx.Err() != nil {
 		a.launch(t)
+		// The peer is closed, so no task.input can follow on this connection: a task whose input
+		// never completed cannot run to completion and would wait for a reader forever.
+		a.mu.Lock()
+		a.abortIncompleteInputLocked(t)
+		a.mu.Unlock()
 	}
 	return protocol.Deferred{Body: protocol.Empty{}, After: func() { a.launch(t) }}, nil
 }
@@ -686,7 +742,9 @@ func (a *Agent) handleTaskInput(_ context.Context, body cbor.RawMessage) (any, e
 }
 
 // input queues a TaskInput chunk. Chunks arrive in order on one connection; a reconnect mid-input
-// cannot be resumed (crhs sends the start once), so the executor then sees a short input and fails.
+// cannot be resumed (crhs sends the start once), so the session-end sweep fails the input and the
+// task. A chunk that overflows or completes the input with the wrong hash fails the task too, since
+// a process that already read the truncated input may otherwise exit successfully.
 func (a *Agent) input(in *protocol.TaskInput) (any, error) {
 	tooLarge := func(size uint64) (any, error) {
 		return nil, &protocol.RemoteError{
@@ -706,7 +764,7 @@ func (a *Agent) input(in *protocol.TaskInput) (any, error) {
 			Message: fmt.Sprintf("task %s input offset %d, want %d", in.TaskID, in.Offset, t.inputOff),
 		}
 	}
-	if t.inputCh == nil || t.inputOff >= t.inputSize {
+	if t.queue == nil || t.inputOff >= t.inputSize {
 		// The task declared no input, or it is already complete: only an empty chunk is harmless.
 		if len(in.Data) == 0 {
 			return protocol.Empty{}, nil
@@ -715,39 +773,56 @@ func (a *Agent) input(in *protocol.TaskInput) (any, error) {
 	}
 	if t.inputOff+uint64(len(in.Data)) > t.inputSize {
 		t.inputOff += uint64(len(in.Data))
-		t.inputCh <- nil // poison: input longer than declared
-		close(t.inputCh)
+		a.failInputLocked(t, "input_mismatch",
+			fmt.Sprintf("task %s input is longer than the declared %d bytes", in.TaskID, t.inputSize))
 		return tooLarge(t.inputSize)
 	}
 	t.inputOff += uint64(len(in.Data))
 	_, _ = t.hasher.Write(in.Data)
 	if t.inputOff == t.inputSize && !bytes.Equal(t.hasher.Sum(nil), t.inputHash[:]) {
-		t.inputCh <- nil
-	} else {
-		t.inputCh <- in.Data
+		a.failInputLocked(t, "input_mismatch",
+			fmt.Sprintf("task %s input does not match the declared sha256", in.TaskID))
+		return protocol.Empty{}, nil
 	}
+	t.queue.push(in.Data)
 	if t.inputOff >= t.inputSize {
-		close(t.inputCh)
+		t.queue.close()
 	}
 	return protocol.Empty{}, nil
 }
 
-// feed copies queued input into the executor's pipe. A nil chunk aborts the input.
-func feed(w *io.PipeWriter, ch <-chan []byte) {
-	for chunk := range ch {
-		if chunk == nil {
-			w.CloseWithError(errors.New("input does not match its declared size and hash"))
-			for range ch {
-			}
-			return
-		}
-		if _, err := w.Write(chunk); err != nil {
-			for range ch { // the executor stopped reading; drain
-			}
-			return
-		}
+// failInputLocked records why a task's input failed, aborts its queue so a blocked reader returns,
+// and cancels the task so a running process is killed. The first input error wins. a.mu must be
+// held.
+func (a *Agent) failInputLocked(t *task, code, message string) {
+	if t.inputErr == nil {
+		t.inputErr = &protocol.Error{Code: code, Message: message}
 	}
-	_ = w.Close()
+	if t.queue != nil {
+		t.queue.fail(errors.New(message))
+	}
+	t.cancel()
+}
+
+// abortIncompleteInputs fails every task whose input never completed. A connection that ends before
+// all task.input chunks arrived cannot resume the input, so those tasks fail with input_incomplete;
+// the queue failure and the cancel also unblock a reader the executor left waiting. A session calls
+// it once its peer is closed, after launching accepted tasks that never started.
+func (a *Agent) abortIncompleteInputs() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, t := range a.tasks {
+		a.abortIncompleteInputLocked(t)
+	}
+}
+
+// abortIncompleteInputLocked aborts the input of one task if it declared one that never completed
+// and the task is still running. a.mu must be held.
+func (a *Agent) abortIncompleteInputLocked(t *task) {
+	if t.queue == nil || t.done || t.queue.complete() {
+		return
+	}
+	a.failInputLocked(t, "input_incomplete", "connection closed before the task input was complete")
 }
 
 func (a *Agent) handleTaskCancel(_ context.Context, body cbor.RawMessage) (any, error) {
@@ -758,6 +833,11 @@ func (a *Agent) handleTaskCancel(_ context.Context, body cbor.RawMessage) (any, 
 	a.mu.Lock()
 	if t := a.tasks[c.TaskID]; t != nil && !t.done {
 		t.cancel()
+		if t.queue != nil {
+			// A file.write blocked in its input read only notices the cancellation through the
+			// reader, and the read error must not mask it: cancel first, then wake the reader.
+			t.queue.fail(errors.New("task cancelled"))
+		}
 	}
 	a.mu.Unlock()
 	return protocol.Empty{}, nil
@@ -823,7 +903,7 @@ func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
 		case res.Err != nil:
 			exit.Outcome = protocol.Outcome{
 				Kind:  protocol.OutcomeError,
-				Error: &protocol.Error{Code: res.Err.Code, Message: protocol.CleanText(res.Err.Message)},
+				Error: &protocol.Error{Code: res.Err.Code, Message: protocol.ErrorMessage(res.Err.Message)},
 			}
 		case res.Signal != "":
 			exit.Outcome = protocol.Outcome{Kind: protocol.OutcomeSignal, Signal: protocol.CleanText(res.Signal)}
@@ -839,18 +919,18 @@ func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
 		case errors.As(err, &e):
 			exit.Outcome = protocol.Outcome{
 				Kind:  protocol.OutcomeError,
-				Error: &protocol.Error{Code: e.Code, Message: protocol.CleanText(e.Message)},
+				Error: &protocol.Error{Code: e.Code, Message: protocol.ErrorMessage(e.Message)},
 			}
 			exit.Cancelled = e.Code == "cancelled"
 		default:
 			exit.Outcome = protocol.Outcome{
 				Kind:  protocol.OutcomeError,
-				Error: &protocol.Error{Code: "io_error", Message: protocol.CleanText(err.Error())},
+				Error: &protocol.Error{Code: "io_error", Message: protocol.ErrorMessage(err.Error())},
 			}
 		}
 	}
-	if pr, ok := in.(*io.PipeReader); ok {
-		_ = pr.CloseWithError(errors.New("task finished")) // unblocks feed
+	if q, ok := in.(*inputQueue); ok {
+		q.discard() // unblocks a reader the executor left behind
 	}
 	t.output.Close()
 	exit.StdoutEnd = protocol.Uint(t.output.End(protocol.StreamStdout))
@@ -858,6 +938,16 @@ func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
 	exit.OutputFile = protocol.CleanText(t.output.Path())
 
 	a.mu.Lock()
+	if t.inputErr != nil {
+		// The input, not the process, decided this task: a process may have consumed a truncated
+		// stdin and exited successfully, or a file.write may report the cancellation that only
+		// accompanied the input failure.
+		exit.Outcome = protocol.Outcome{
+			Kind:  protocol.OutcomeError,
+			Error: &protocol.Error{Code: t.inputErr.Code, Message: protocol.ErrorMessage(t.inputErr.Message)},
+		}
+		exit.Cancelled = false
+	}
 	t.done, t.result = true, exit
 	a.mu.Unlock()
 	a.wake()

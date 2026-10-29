@@ -56,6 +56,16 @@ describe("CBOR-CORE-INT-v1 profile", () => {
 		expect(decode(bytesOf("63e4b8ad"))).toBe("中");
 	});
 
+	it("preserves a leading BOM in text", () => {
+		const text = "\uFEFFab";
+		expect(decode(encode(text))).toBe(text);
+	});
+
+	it("rejects text containing invalid UTF-8 bytes", () => {
+		// text(2 bytes) = 0x61 0xff; a UTF-8 decoder would otherwise produce U+FFFD.
+		expect(() => decode(bytesOf("6261ff"))).toThrow(CborError);
+	});
+
 	it.each(vectors.negative.filter((vector) => vector.id !== "unknown_field"))("rejects $id", (vector) => {
 		expect(() => decode(bytesOf(vector.hex))).toThrow(CborError);
 	});

@@ -20,7 +20,7 @@ import type { Audit } from "../audit/audit.ts";
 import type { Db } from "../storage/db.ts";
 import { newId } from "../util/id.ts";
 import type { Cluster } from "./cluster.ts";
-import { NodeConnection, toBytes } from "./connection.ts";
+import { closeReason, NodeConnection, toBytes } from "./connection.ts";
 import { EnrollmentError, enrollNode } from "./enrollment.ts";
 import type { ServerIdentity } from "./identity.ts";
 import { findNodeByPublicKey, type NodeRow } from "./nodes.ts";
@@ -155,5 +155,5 @@ export class AgentServer {
 
 function reject(ws: WebSocket, reason: string): void {
 	// Policy violation; the reason tells crha whether retrying can help.
-	ws.close(1008, reason.slice(0, 120));
+	ws.close(1008, closeReason(reason));
 }
