@@ -155,7 +155,11 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	// Created on first start; its public key is what nodes put in a crhs trust entry (doc/privilege.md).
 	const authorizationKey = await loadAuthorizationSigningKey(db, masterKey);
 	const audit = new Audit(db);
-	const cluster = new Cluster(db, { sshRoute: (node) => nodeRoute(db, masterKey, node), audit });
+	const cluster = new Cluster(db, {
+		sshRoute: (node) => nodeRoute(db, masterKey, node),
+		authorizationKey,
+		audit,
+	});
 	const agents = new AgentServer(db, identity, cluster, audit);
 	const taskGroups = new TaskGroups(db, cluster, { audit });
 	await taskGroups.recover();
@@ -183,6 +187,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		serverPublicKey: identity.keyPair.publicKey,
 		cluster,
 		taskGroups,
+		authorizationKey,
 		masterKey,
 		webRoot: config.webRoot,
 		audit,

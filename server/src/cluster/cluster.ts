@@ -1,39 +1,59 @@
 import { createHash } from "node:crypto";
 import {
 	type AfterResponse,
+	type Authorization,
 	afterResponse,
+	authorizationCodec,
 	ConnectionError,
+	encode as encodeCbor,
 	type Facts,
 	factsToJson,
 	type Hello,
 	type InputRef,
+	MAX_FRAME_BYTES,
 	type NodeStatus,
 	type OutputAck,
 	ProtocolError,
 	RemoteError,
+	type Revocation,
+	type Signature,
 	type TaskExit,
 	type TaskSpec,
 	type TaskStart,
 	type TaskStatus,
+	type TrustReport,
 	taskSpecFromJson,
 	taskSpecToJson,
 	type Welcome,
 } from "@crh/protocol";
 import type { Selectable, Updateable } from "kysely";
-import type { Audit } from "../audit/audit.ts";
+import type { Audit, AuditActor } from "../audit/audit.ts";
 import { type Evaluation, evaluate, operationOf } from "../policy/rules.ts";
 import { loadChain, type RuleRef } from "../policy/store.ts";
+import { ownerCredentials } from "../privilege/credentials.ts";
+import type { AuthorizationSigningKey } from "../privilege/key.ts";
+import type { BuiltAuthorization } from "../privilege/payload.ts";
+import { planAuthorization } from "../privilege/planner.ts";
 import type { Db } from "../storage/db.ts";
 import type { TaskState as TaskRowState, TasksTable } from "../storage/schema.ts";
 import { UserError } from "../users/service.ts";
 import { newId } from "../util/id.ts";
+import {
+	parseTaskAuthorization,
+	planView,
+	serializeTaskAuthorization,
+	signatureToJson,
+	type TaskAuthorizationRecord,
+} from "./authorization.ts";
 import { createLiveTask, GroupBudget, type LiveTask, type OutputSnapshot } from "./batch-output.ts";
 import type { NodeConnection } from "./connection.ts";
 import { getNode, markNodeSeen, type NodeRow, nodeGroupNames, updateNodeFacts } from "./nodes.ts";
 import { OUTPUT_KEEP_BYTES, OUTPUT_KEEP_LINES } from "./output.ts";
+import { batchRevocations, listRevocations, revokeAuthorizationRow } from "./revocations.ts";
 import { connect as connectSsh, SshError, type SshRoute, type SshSession } from "./ssh/connection.ts";
 import { runSshExec, SshConnectionLost, type SshExecSink, shellQuote, sshPrivilegedNotice } from "./ssh/exec.ts";
 import { FileTaskError, runSftpFileTask } from "./ssh/file-task.ts";
+import { parseTrustReport, recordTrustReport, trustUnavailableMessage } from "./trust.ts";
 
 /** Who asked for a task; see doc/access-control.md#操作者. */
 export interface Actor {
@@ -122,6 +142,8 @@ export interface TaskView {
 	outputMode: "full" | "text" | "status";
 	/** Whether this is a privileged task (doc/privilege.md). */
 	privileged: boolean;
+	/** The authorization plan and its history for a privileged task; null for the others (doc/m4.md#crhs-侧数据). */
+	authorization: TaskAuthorizationRecord | null;
 	/** One line describing what ran: the command line or the path. */
 	summary: string;
 	/** What authorization rules match on (doc/privilege.md#方法与目标); null if the spec cannot be read. */
@@ -153,6 +175,13 @@ export interface ClusterOptions {
 	idleTimeoutMs?: number;
 	/** Resolves an SSH node's route (hosts, pinned keys, private key). Without it SSH nodes are offline. */
 	sshRoute?: (node: NodeRow) => Promise<SshRoute>;
+	/**
+	 * crhs's authorization signing key (doc/privilege.md#授权签名密钥). Without it no crhs-signed
+	 * authorization can be issued, so only the owner's user/local paths remain available.
+	 */
+	authorizationKey?: AuthorizationSigningKey;
+	/** How long a forward dispatch waits for the first trust.summary of its connection. */
+	trustWaitMs?: number;
 	audit?: Audit;
 }
 
@@ -163,8 +192,11 @@ function recorded(state: TaskRowState): boolean {
 	return TERMINAL.has(state) && state !== "unknown";
 }
 
-/** Codes a crha may answer `task.start` with before accepting; M3.5 records them as a final rejection. */
-const AUTHORIZATION_CODES: ReadonlySet<string> = new Set([
+/**
+ * Codes a crha answers `task.start` with before accepting, for which the task may be retried with a
+ * higher attempt (doc/protocol.md#taskstart). Other codes are terminal.
+ */
+export const AUTHORIZATION_CODES: ReadonlySet<string> = new Set([
 	"authorization_required",
 	"authorization_invalid",
 	"authorization_expired",
@@ -205,6 +237,10 @@ interface NodeLink {
 	ready: boolean;
 	/** Task ids we asked about with TaskQuery after Hello. */
 	queried: Set<string>;
+	/** Whether this connection has reported its trust summary; the cached report is stale until then. */
+	trustFresh: boolean;
+	/** Dispatches waiting for the first trust summary of this connection. */
+	trustWaiters: Set<() => void>;
 }
 
 /**
@@ -218,6 +254,8 @@ export class Cluster {
 	readonly #idleMs: number;
 	readonly #sshRoute: ClusterOptions["sshRoute"];
 	readonly #audit: Audit | undefined;
+	readonly #authorizationKey: AuthorizationSigningKey | undefined;
+	readonly #trustWaitMs: number;
 	/** Called once for every task that starts waiting for approval (Auto Review hooks in here). */
 	onAwaitingApproval: ((task: TaskView) => Promise<void>) | undefined;
 	/** Called after a task starts waiting or its approval state/handler changes (the runtime refreshes its inbox). */
@@ -232,6 +270,8 @@ export class Cluster {
 	readonly #waiters = new Map<string, Set<() => void>>();
 	/** Serializes database updates per task, since frames are handled asynchronously. */
 	readonly #queues = new Map<string, Promise<void>>();
+	/** Serializes trust.summary processing per node, so a rejection never plans against an older report. */
+	readonly #trustQueues = new Map<string, Promise<void>>();
 
 	constructor(db: Db, options: ClusterOptions = {}) {
 		this.#db = db;
@@ -240,10 +280,44 @@ export class Cluster {
 		this.#idleMs = options.idleTimeoutMs ?? 90_000;
 		this.#sshRoute = options.sshRoute;
 		this.#audit = options.audit;
+		this.#authorizationKey = options.authorizationKey;
+		this.#trustWaitMs = options.trustWaitMs ?? 5_000;
 	}
 
 	isConnected(nodeId: string): boolean {
 		return this.#links.get(nodeId)?.ready === true;
+	}
+
+	/** Whether the cached trust report of the node came from the current connection (otherwise it is stale). */
+	trustFresh(nodeId: string): boolean {
+		return this.#links.get(nodeId)?.trustFresh === true;
+	}
+
+	/**
+	 * Revokes an authorization, audits it and pushes `revocations.add` to every connected node of its
+	 * organization (doc/privilege.md#吊销). Idempotent: a second call changes nothing and pushes nothing.
+	 */
+	async revokeAuthorization(
+		id: string,
+		actor: AuditActor,
+	): Promise<{ id: string; revokedAt: string; changed: boolean }> {
+		const { row, changed } = await revokeAuthorizationRow(this.#db, id);
+		const revokedAt = row.revoked_at as string;
+		if (!changed) return { id, revokedAt, changed };
+		await this.#audit?.record({
+			actor,
+			action: "authorization.revoked",
+			target: { type: "authorization", id },
+			detail: { issuer_user_id: row.issuer_user_id, deadline: row.deadline, task_ids: row.task_ids },
+		});
+		// The privileged mode accepts pushed revocations without a signature; the push is best effort,
+		// the next `ok` report sends the whole list again (doc/protocol.md#revocationsadd).
+		const entries = await listRevocations(this.#db, row.org_id);
+		for (const link of this.#links.values()) {
+			const node = await getNode(this.#db, link.conn.nodeId);
+			if (node?.org_id === row.org_id) this.#sendRevocations(link, entries);
+		}
+		return { id, revokedAt, changed };
 	}
 
 	/** Called by AgentServer after a successful handshake. */
@@ -255,6 +329,8 @@ export class Cluster {
 			ownerUserId: node.owner_user_id,
 			ready: false,
 			queried: new Set(),
+			trustFresh: false,
+			trustWaiters: new Set(),
 		};
 		this.#links.set(node.id, link);
 		previous?.conn.close("replaced by a new connection");
@@ -359,6 +435,8 @@ export class Cluster {
 		});
 		peer.onEvent("task.exit", (exit) => this.#serial(exit.taskId, () => this.#onExit(conn, exit)));
 		peer.onEvent("facts", (facts) => this.#onFacts(conn.nodeId, facts));
+		// Pushed once after hello and again on every change (doc/protocol.md#新增命令和事件11可选).
+		peer.onEvent("trust.summary", (report) => this.#onTrustSummary(link, report));
 	}
 
 	/**
@@ -384,6 +462,99 @@ export class Cluster {
 			facts: factsToJson(facts),
 			groups: facts.groups,
 		});
+	}
+
+	// ---- trust cache and revocations ----
+
+	/**
+	 * Applies a pushed trust report, then resends the organization's revocations and re-plans the tasks
+	 * that wait for an authorization signature (doc/privilege.md#信任缓存, #吊销).
+	 */
+	async #onTrustSummary(link: NodeLink, report: TrustReport): Promise<void> {
+		const nodeId = link.conn.nodeId;
+		const change = await this.#queueTrust(nodeId, async () => {
+			const result = await recordTrustReport(this.#db, nodeId, report, { audit: this.#audit });
+			if (!link.trustFresh) {
+				link.trustFresh = true;
+				for (const wake of [...link.trustWaiters]) wake();
+				link.trustWaiters.clear();
+			}
+			return result;
+		});
+		if (report.kind === "ok" && !link.conn.closed) {
+			const node = await getNode(this.#db, nodeId);
+			if (node) this.#sendRevocations(link, await listRevocations(this.#db, node.org_id));
+		}
+		// Only an `ok` report carries a digest worth re-planning against: a privileged mode that went
+		// away must not fail the tasks that wait for a signature (it may come back with the same trust).
+		if (change.changed && report.kind === "ok") await this.#replanAwaiting(nodeId);
+	}
+
+	/** Serializes trust processing per node, so a dispatch never plans against an older report. */
+	#queueTrust<T>(nodeId: string, fn: () => Promise<T>): Promise<T> {
+		const next = (this.#trustQueues.get(nodeId) ?? Promise.resolve()).then(fn);
+		const tail: Promise<void> = next.then(
+			() => {},
+			() => {},
+		);
+		this.#trustQueues.set(nodeId, tail);
+		void tail.then(() => {
+			if (this.#trustQueues.get(nodeId) === tail) this.#trustQueues.delete(nodeId);
+		});
+		return next;
+	}
+
+	/** Waits for the trust summaries that arrived before this call to be stored (doc/protocol.md#taskstart). */
+	async #awaitTrustQueue(nodeId: string): Promise<void> {
+		await this.#trustQueues.get(nodeId);
+	}
+
+	/** Waits for this connection's first trust summary; crhs does not query it itself. */
+	async #waitTrust(link: NodeLink): Promise<void> {
+		if (link.trustFresh) return;
+		await new Promise<void>((resolve) => {
+			const wake = () => {
+				clearTimeout(timer);
+				link.trustWaiters.delete(wake);
+				resolve();
+			};
+			const timer = setTimeout(wake, this.#trustWaitMs);
+			link.trustWaiters.add(wake);
+		});
+	}
+
+	#sendRevocations(link: NodeLink, entries: readonly Revocation[]): void {
+		if (entries.length === 0 || link.conn.closed || !link.conn.optional.has("revocations.add")) return;
+		for (const batch of batchRevocations(entries)) {
+			void link.conn.peer.request("revocations.add", { entries: [...batch] }).catch((err: unknown) => {
+				// Retried after the node's next `ok` report; a gone connection needs no log line.
+				if (!(err instanceof ConnectionError)) console.error("revocations.add failed:", err);
+			});
+		}
+	}
+
+	/** Re-plans the node's tasks that wait for an authorization signature after its trust digest changed. */
+	async #replanAwaiting(nodeId: string): Promise<void> {
+		const rows = await this.#db
+			.selectFrom("tasks")
+			.select("id")
+			.where("node_id", "=", nodeId)
+			.where("state", "=", "awaiting_authorization")
+			.execute();
+		for (const { id } of rows) await this.#serial(id, () => this.#replan(id));
+	}
+
+	async #replan(id: string): Promise<void> {
+		const row = await this.#row(id);
+		if (row?.state !== "awaiting_authorization") return;
+		const node = await getNode(this.#db, row.node_id);
+		const link = this.#links.get(row.node_id);
+		if (!node || !link || link.conn.closed || !link.ready) return;
+		const spec = specFromRow(row.spec, "task");
+		const input = row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0);
+		await this.#planPrivileged(id, node, link, spec, input, { timeoutMs: row.timeout_ms ?? undefined }, [
+			"awaiting_authorization",
+		]);
 	}
 
 	/** Reconciles the client's task list with ours, answers with Welcome, then queries the rest. */
@@ -636,7 +807,7 @@ export class Cluster {
 		return view;
 	}
 
-	/** Moves a task out of awaiting_approval and sends it, or fails it if the node is offline. */
+	/** Moves a task out of awaiting_approval: sends it, parks it for authorization, or fails it. */
 	async #dispatch(
 		id: string,
 		node: NodeRow,
@@ -650,35 +821,45 @@ export class Cluster {
 		const fresh = await getNode(this.#db, node.id);
 		const online =
 			fresh?.status === "active" && (ssh ? this.#sshRoute !== undefined : link?.ready === true && !link.conn.closed);
+		if (!online) {
+			const res = await this.#db
+				.updateTable("tasks")
+				.set({
+					state: "failed",
+					error_code: "node_offline",
+					error_message: "the node is not connected",
+					finished_at: now(),
+					pending_input: null,
+					handler_type: null,
+					handler_session_id: null,
+				})
+				.where("id", "=", id)
+				.where("state", "=", "awaiting_approval")
+				.executeTakeFirst();
+			if (res.numUpdatedRows === 0n) return;
+			this.#notify(id);
+			void this.#syncGroupState(row?.task_group_id ?? null);
+			return this.#auditFinish(id);
+		}
+		// A privileged task on a forward node needs an authorization before task.start (doc/privilege.md#授权路径).
+		// native/ignore/reject nodes, SSH nodes and ordinary tasks keep the plain dispatch below.
+		if (!ssh && link && row?.privileged === 1 && fresh?.privileged_mode === "forward") {
+			await this.#planPrivileged(id, fresh, link, spec, inputBytes, opts, ["awaiting_approval"]);
+			return;
+		}
 		const res = await this.#db
 			.updateTable("tasks")
-			.set(
-				online
-					? {
-							state: "dispatched",
-							dispatched_at: now(),
-							pending_input: null,
-							handler_type: null,
-							handler_session_id: null,
-						}
-					: {
-							state: "failed",
-							error_code: "node_offline",
-							error_message: "the node is not connected",
-							finished_at: now(),
-							pending_input: null,
-							handler_type: null,
-							handler_session_id: null,
-						},
-			)
+			.set({
+				state: "dispatched",
+				dispatched_at: now(),
+				pending_input: null,
+				handler_type: null,
+				handler_session_id: null,
+			})
 			.where("id", "=", id)
 			.where("state", "=", "awaiting_approval")
 			.executeTakeFirst();
 		if (res.numUpdatedRows === 0n) return;
-		if (!online) {
-			this.#notify(id);
-			return this.#auditFinish(id);
-		}
 		this.#notify(id);
 		if (ssh) {
 			this.#newLive(id, node.id, row?.output_mode ?? "full", row?.task_group_id ?? null);
@@ -695,6 +876,396 @@ export class Cluster {
 			// The start may be refused or the link may drop; the state machine follows the response.
 			void this.#dispatchRemote(link, id, spec, inputBytes, opts);
 		}
+	}
+
+	/**
+	 * Computes the authorization plan of a privileged task and acts on it: signs and dispatches through
+	 * crhs, waits for the owner's signature, or rejects (doc/privilege.md#授权路径, #预演与 fallback).
+	 */
+	async #planPrivileged(
+		id: string,
+		node: NodeRow,
+		link: NodeLink,
+		spec: TaskSpec,
+		inputBytes: Uint8Array,
+		opts: { timeoutMs?: number },
+		from: readonly TaskRowState[],
+	): Promise<void> {
+		const row = await this.#row(id);
+		if (!row || !from.includes(row.state)) return;
+		if (!link.conn.supportsForward) {
+			// A 1.0 crha cannot take part in forward whatever its reported mode says (doc/protocol.md#握手载荷).
+			await this.#finishAuthorization(
+				id,
+				row,
+				"failed",
+				"privileged_unsupported",
+				"the node's crha does not support forward",
+				null,
+			);
+			return;
+		}
+		await this.#waitTrust(link);
+		const fresh = await getNode(this.#db, node.id);
+		const report = fresh ? parseTrustReport(fresh.trust_report) : null;
+		// A report kept from a previous connection is stale until this connection reports again: the node's
+		// trust configuration may have changed while it was away (doc/privilege.md#信任缓存).
+		if (!fresh || !link.trustFresh || report?.kind !== "ok") {
+			const message = link.trustFresh
+				? trustUnavailableMessage(report)
+				: "the node has not reported a trust summary on this connection";
+			await this.#finishAuthorization(id, row, "failed", "privileged_unavailable", message, null);
+			return;
+		}
+		const previous = parseTaskAuthorization(row.authorization);
+		const tried = previous ? [...previous.tried] : [];
+		// Without a signing key crhs cannot take its own path; treating it as tried keeps the plan honest.
+		if (!this.#authorizationKey && !tried.includes("crhs")) tried.push("crhs");
+		const plan = planAuthorization({
+			summary: report.summary,
+			nodeId: node.id,
+			nodeGroups: report.summary.groups,
+			task: { id, attempt: row.attempt, spec, privileged: true },
+			taskGroup: row.task_group_id !== null,
+			owner: await ownerCredentials(this.#db, row.on_behalf_of_user_id),
+			...(this.#authorizationKey ? { crhsFingerprint: this.#authorizationKey.fingerprint } : {}),
+			tried,
+			now: Date.now(),
+		});
+		const record: TaskAuthorizationRecord = {
+			plan: planView(plan),
+			tried,
+			dispatchedPath: previous?.dispatchedPath ?? null,
+			payloadId: previous?.payloadId ?? null,
+			attempt: row.attempt,
+			trustDigest: fresh.trust_digest,
+			lastRejection: previous?.lastRejection ?? null,
+			updatedAt: new Date().toISOString(),
+		};
+		const crhsPath = plan.paths.find((path) => path.path === "crhs");
+		if (crhsPath?.path === "crhs") {
+			await this.#dispatchCrhs(id, row, node, link, spec, inputBytes, opts, record, crhsPath.authorization, from);
+			return;
+		}
+		if (plan.paths.length > 0) {
+			// The owner's user entries and/or local approval remain: the next wave signs (M4.4), so for now
+			// the task waits and keeps its input; nothing is sent to the node yet.
+			const updated = await this.#updateTask(id, from, {
+				state: "awaiting_authorization",
+				authorization: serializeTaskAuthorization({ ...record, dispatchedPath: null }),
+				pending_input: inputBytes.length > 0 ? Buffer.from(inputBytes).toString("base64") : null,
+				dispatched_at: null,
+				handler_type: "user",
+				handler_session_id: null,
+			});
+			if (!updated) return;
+			void this.#syncGroupState(row.task_group_id);
+			this.onChange?.(row.actor_id);
+			return;
+		}
+		const code = record.lastRejection?.code ?? "authorization_required";
+		const reason = plan.reason ?? "no one on this node can authorize this command";
+		const message = record.lastRejection === null ? reason : `${record.lastRejection.message}; ${reason}`;
+		await this.#finishAuthorization(id, row, "rejected", code, message, { ...record, dispatchedPath: null });
+	}
+
+	/** Signs the planned payload with crhs's key, stores it and sends it inside task.start. */
+	async #dispatchCrhs(
+		id: string,
+		row: Selectable<TasksTable>,
+		node: NodeRow,
+		link: NodeLink,
+		spec: TaskSpec,
+		inputBytes: Uint8Array,
+		opts: { timeoutMs?: number },
+		record: TaskAuthorizationRecord,
+		authorization: BuiltAuthorization,
+		from: readonly TaskRowState[],
+	): Promise<void> {
+		const key = this.#authorizationKey;
+		if (!key) {
+			await this.#finishAuthorization(
+				id,
+				row,
+				"rejected",
+				"authorization_required",
+				"crhs has no authorization signing key",
+				record,
+			);
+			return;
+		}
+		let encoded: Uint8Array;
+		let signatures: Signature[];
+		try {
+			signatures = [{ kind: "sshsig", blob: key.sign(authorization.bytes) }];
+			const wire: Authorization = { payload: authorization.bytes, signatures };
+			encoded = encodeCbor(authorizationCodec.encode(wire));
+		} catch (err) {
+			await this.#finishAuthorization(
+				id,
+				row,
+				"failed",
+				"invalid_spec",
+				`cannot encode the authorization: ${errorText(err)}`,
+				record,
+			);
+			return;
+		}
+		// An authorization may take at most half a frame so the rest of task.start still fits (doc/protocol.md#授权对象).
+		if (encoded.length > MAX_FRAME_BYTES / 2) {
+			await this.#finishAuthorization(
+				id,
+				row,
+				"failed",
+				"invalid_spec",
+				`the authorization is ${encoded.length} bytes, more than half a frame`,
+				record,
+			);
+			return;
+		}
+		if (await this.#storeAuthorization(node, authorization, signatures)) {
+			// crhs-signed authorizations are audited like user ones (doc/access-control.md#记录内容).
+			void this.#audit?.record({
+				actor: { type: "system", id: "cluster", onBehalfOfUserId: row.on_behalf_of_user_id },
+				action: "authorization.issued",
+				target: { type: "authorization", id: authorization.id },
+				detail: {
+					node_id: node.id,
+					task_id: id,
+					attempt: row.attempt,
+					deadline:
+						authorization.payload.deadlineMs === null ? null : new Date(authorization.payload.deadlineMs).toISOString(),
+					trust_digest: record.trustDigest,
+				},
+			});
+		}
+		const updated: TaskAuthorizationRecord = {
+			...record,
+			dispatchedPath: "crhs",
+			payloadId: authorization.id,
+			attempt: row.attempt,
+			updatedAt: new Date().toISOString(),
+		};
+		const claimed = await this.#updateTask(id, from, {
+			state: "dispatched",
+			dispatched_at: now(),
+			authorization: serializeTaskAuthorization(updated),
+			pending_input: null,
+			handler_type: null,
+			handler_session_id: null,
+		});
+		if (!claimed) return;
+		this.#newLive(id, node.id, row.output_mode, row.task_group_id);
+		void this.#syncGroupState(row.task_group_id);
+		const start: TaskStart = {
+			taskId: id,
+			attempt: row.attempt,
+			spec,
+			privileged: true,
+			authorizations: [encoded],
+			timeoutMs: opts.timeoutMs ?? row.timeout_ms ?? 0,
+			killGraceMs: 0,
+			output: outputModeOf(row.output_mode),
+		};
+		await this.#sendAuthorizedStart(link, node.id, id, spec, inputBytes, start, updated);
+	}
+
+	/**
+	 * Sends an authorized task.start and follows up: accepted, terminal failure, or a retryable
+	 * authorization rejection that re-plans with `attempt + 1` (doc/execution-plane.md#不重复执行与授权重试).
+	 */
+	async #sendAuthorizedStart(
+		link: NodeLink,
+		nodeId: string,
+		id: string,
+		spec: TaskSpec,
+		inputBytes: Uint8Array,
+		start: TaskStart,
+		record: TaskAuthorizationRecord,
+	): Promise<void> {
+		try {
+			await link.conn.peer.request("task.start", start);
+		} catch (err) {
+			if (err instanceof ConnectionError) {
+				// The task stays dispatched; the grace timer reports dispatch_unconfirmed, never a retry.
+				return;
+			}
+			if (err instanceof RemoteError && AUTHORIZATION_CODES.has(err.code)) {
+				await this.#retryAuthorization(link, id, spec, inputBytes, record, err.code, err.message);
+				return;
+			}
+			if (err instanceof RemoteError) {
+				await this.#finish(nodeId, id, { state: "failed", error_code: err.code, error_message: err.message });
+				return;
+			}
+			if (err instanceof ProtocolError) {
+				// Raised locally while encoding: the request was never sent, so nothing can have run.
+				await this.#finish(nodeId, id, { state: "failed", error_code: "invalid_spec", error_message: err.message });
+				return;
+			}
+			console.error("task.start failed:", err);
+			link.conn.close("send failed");
+			return;
+		}
+		await this.#onAccepted(nodeId, id);
+		for (let off = 0; off < inputBytes.length; off += this.#chunk) {
+			void link.conn.peer
+				.request("task.input", { taskId: id, offset: off, data: inputBytes.subarray(off, off + this.#chunk) })
+				.catch((err: unknown) => console.error(`task.input for ${id} failed:`, err));
+		}
+	}
+
+	/**
+	 * A crha rejected the authorization before accepting, so nothing ran: the path that was sent is
+	 * ruled out, the attempt advances and the plan is recomputed from the refreshed trust summary.
+	 */
+	async #retryAuthorization(
+		link: NodeLink,
+		id: string,
+		spec: TaskSpec,
+		inputBytes: Uint8Array,
+		record: TaskAuthorizationRecord,
+		code: string,
+		message: string,
+	): Promise<void> {
+		// crha refreshes its trust summary before sending an authorization_* error on the same connection.
+		await this.#awaitTrustQueue(link.conn.nodeId);
+		const row = await this.#row(id);
+		if (row?.state !== "dispatched") return; // accepted (or ended) meanwhile: never retried
+		const attempt = row.attempt + 1;
+		const updated: TaskAuthorizationRecord = {
+			...record,
+			tried: [...new Set([...record.tried, record.dispatchedPath ?? "crhs"])],
+			attempt,
+			lastRejection: { code, message, attempt: row.attempt, at: new Date().toISOString() },
+			updatedAt: new Date().toISOString(),
+		};
+		const res = await this.#db
+			.updateTable("tasks")
+			.set({
+				state: "awaiting_authorization",
+				attempt,
+				authorization: serializeTaskAuthorization(updated),
+				pending_input: inputBytes.length > 0 ? Buffer.from(inputBytes).toString("base64") : null,
+				dispatched_at: null,
+				handler_type: "user",
+				handler_session_id: null,
+			})
+			.where("id", "=", id)
+			.where("state", "=", "dispatched")
+			.executeTakeFirst();
+		if (res.numUpdatedRows === 0n) return;
+		this.#dropLive(id);
+		this.#notify(id);
+		void this.#syncGroupState(row.task_group_id);
+		const node = await getNode(this.#db, row.node_id);
+		const current = this.#links.get(row.node_id);
+		if (!node || !current || current.conn.closed || !current.ready) return;
+		await this.#planPrivileged(id, node, current, spec, inputBytes, { timeoutMs: row.timeout_ms ?? undefined }, [
+			"awaiting_authorization",
+		]);
+	}
+
+	/** Ends a task that could not be authorized, with the plan and the reason on its record. */
+	async #finishAuthorization(
+		id: string,
+		row: Selectable<TasksTable>,
+		state: "failed" | "rejected",
+		code: string,
+		message: string,
+		record: TaskAuthorizationRecord | null,
+	): Promise<void> {
+		const res = await this.#db
+			.updateTable("tasks")
+			.set({
+				state,
+				error_code: code,
+				error_message: message,
+				...(record ? { authorization: serializeTaskAuthorization(record) } : {}),
+				pending_input: null,
+				dispatched_at: null,
+				finished_at: now(),
+				handler_type: null,
+				handler_session_id: null,
+			})
+			.where("id", "=", id)
+			.where("state", "=", row.state)
+			.executeTakeFirst();
+		if (res.numUpdatedRows === 0n) return;
+		this.#dropLive(id);
+		this.#notify(id);
+		void this.#syncGroupState(row.task_group_id);
+		this.onChange?.(row.actor_id);
+		await this.#auditFinish(id);
+	}
+
+	/**
+	 * Stores the signed payload, verbatim, for display, lookup and revocation (doc/m4.md#crhs-侧数据).
+	 * Returns whether this call inserted it (an id already present is left alone).
+	 */
+	async #storeAuthorization(
+		node: NodeRow,
+		authorization: BuiltAuthorization,
+		signatures: readonly Signature[],
+	): Promise<boolean> {
+		const existing = await this.#db
+			.selectFrom("authorizations")
+			.select("id")
+			.where("id", "=", authorization.id)
+			.executeTakeFirst();
+		if (existing) return false;
+		const { deadlineMs, taskIds } = authorization.payload;
+		await this.#db
+			.insertInto("authorizations")
+			.values({
+				id: authorization.id,
+				org_id: node.org_id,
+				payload: Buffer.from(authorization.bytes).toString("base64"),
+				signatures: JSON.stringify(signatures.map(signatureToJson)),
+				issuer_user_id: null,
+				task_ids: taskIds === null ? null : JSON.stringify(taskIds),
+				deadline: deadlineMs === null ? null : new Date(deadlineMs).toISOString(),
+				created_at: now(),
+				revoked_at: null,
+			})
+			.execute();
+		return true;
+	}
+
+	/** Updates a task only from the states the caller has observed, so a settled task is never rewritten. */
+	async #updateTask(id: string, from: readonly TaskRowState[], set: Updateable<TasksTable>): Promise<boolean> {
+		const res = await this.#db
+			.updateTable("tasks")
+			.set(set)
+			.where("id", "=", id)
+			.where("state", "in", [...from])
+			.executeTakeFirst();
+		if (res.numUpdatedRows === 0n) return false;
+		this.#notify(id);
+		return true;
+	}
+
+	/**
+	 * A task group shows awaiting_authorization while every unfinished task of it waits for a signature,
+	 * and running otherwise (doc/execution-plane.md#状态机). The group's own end states are left alone.
+	 */
+	async #syncGroupState(groupId: string | null): Promise<void> {
+		if (!groupId) return;
+		const group = await this.#db.selectFrom("task_groups").select("state").where("id", "=", groupId).executeTakeFirst();
+		if (!group || (group.state !== "running" && group.state !== "awaiting_authorization")) return;
+		const rows = await this.#db.selectFrom("tasks").select("state").where("task_group_id", "=", groupId).execute();
+		const unfinished = rows.filter((row) => !TERMINAL.has(row.state));
+		const next =
+			unfinished.length > 0 && unfinished.every((row) => row.state === "awaiting_authorization")
+				? "awaiting_authorization"
+				: "running";
+		if (next === group.state) return;
+		await this.#db
+			.updateTable("task_groups")
+			.set({ state: next })
+			.where("id", "=", groupId)
+			.where("state", "=", group.state)
+			.execute();
 	}
 
 	/**
@@ -719,10 +1290,7 @@ export class Cluster {
 			authorizations: [],
 			timeoutMs: opts.timeoutMs ?? 0,
 			killGraceMs: 0,
-			output:
-				mode === "full"
-					? { kind: "full", spillBytes: OUTPUT_KEEP_BYTES, spillLines: OUTPUT_KEEP_LINES }
-					: { kind: mode },
+			output: outputModeOf(mode),
 		};
 		try {
 			await link.conn.peer.request("task.start", start);
@@ -971,10 +1539,37 @@ export class Cluster {
 		}
 	}
 
-	/** Asks the node to cancel a running task. Returns false if it is not running or the node is offline. */
+	/**
+	 * Asks the node to cancel a running task. A task that still waits for its approval or its
+	 * authorization signature was never dispatched, so it ends here instead (there is no node-side task).
+	 * Returns false if the task already ended or the node is offline.
+	 */
 	async cancelTask(id: string): Promise<boolean> {
 		const row = await this.#row(id);
 		if (!row || TERMINAL.has(row.state)) return false;
+		if (row.state === "awaiting_approval" || row.state === "awaiting_authorization") {
+			const res = await this.#db
+				.updateTable("tasks")
+				.set({
+					state: "rejected",
+					error_code: "cancelled",
+					error_message: "the task was cancelled before it was dispatched",
+					cancelled: 1,
+					finished_at: now(),
+					pending_input: null,
+					handler_type: null,
+					handler_session_id: null,
+				})
+				.where("id", "=", id)
+				.where("state", "=", row.state)
+				.executeTakeFirst();
+			if (res.numUpdatedRows === 0n) return false;
+			this.#notify(id);
+			void this.#syncGroupState(row.task_group_id);
+			this.onChange?.(row.actor_id);
+			await this.#auditFinish(id);
+			return true;
+		}
 		const ssh = this.#sshCancels.get(id);
 		if (ssh) {
 			ssh.abort();
@@ -1171,7 +1766,15 @@ export class Cluster {
 			.executeTakeFirst();
 		if (fields.state !== "unknown") this.#dropLive(id);
 		this.#notify(id);
-		if (res.numUpdatedRows > 0n) await this.#auditFinish(id);
+		if (res.numUpdatedRows === 0n) return;
+		await this.#syncGroupOfTask(id);
+		await this.#auditFinish(id);
+	}
+
+	/** Re-derives the state of the task's group after the task settled. */
+	async #syncGroupOfTask(id: string): Promise<void> {
+		const row = await this.#db.selectFrom("tasks").select("task_group_id").where("id", "=", id).executeTakeFirst();
+		if (row?.task_group_id) await this.#syncGroupState(row.task_group_id);
 	}
 
 	/** task.finished: the outcome, as recorded (the system acts, on behalf of the task's user). */
@@ -1280,6 +1883,7 @@ function toView(row: Selectable<TasksTable>, live: Live | undefined): TaskView {
 		outputFile: row.output_file,
 		outputMode: row.output_mode,
 		privileged: row.privileged === 1,
+		authorization: parseTaskAuthorization(row.authorization),
 		createdAt: row.created_at,
 		finishedAt: row.finished_at,
 		taskGroupId: row.task_group_id,
@@ -1310,6 +1914,17 @@ function budgetKey(groupId: string | null, taskId: string): string {
 
 function groupBudgetKey(groupId: string): string {
 	return `group:${groupId}`;
+}
+
+/** The wire output mode of a task row (doc/protocol.md#taskstart). */
+function outputModeOf(mode: "full" | "text" | "status"): TaskStart["output"] {
+	return mode === "full"
+		? { kind: "full", spillBytes: OUTPUT_KEEP_BYTES, spillLines: OUTPUT_KEEP_LINES }
+		: { kind: mode };
+}
+
+function errorText(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
 }
 
 export function operationOfJson(specJson: string): { method: string; target: string } | null {

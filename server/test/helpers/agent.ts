@@ -8,8 +8,13 @@ import {
 	type HandshakeResponse,
 	handshakeInitCodec,
 	handshakeResponseCodec,
+	type LocalRequest,
 	Peer,
+	type Revocation,
 	SUPPORTED_NAMES,
+	type TaskExit,
+	type TaskStart,
+	type TrustReport,
 } from "@crh/protocol";
 import { WebSocket } from "ws";
 import { AgentServer } from "../../src/cluster/agent-server.ts";
@@ -158,17 +163,88 @@ export class TestAgentServer {
 			peer.receive(plain);
 		});
 		ws.once("close", (code, reason) => peer.close(reason.toString() || `closed (${code})`));
-		return { ws, peer, response, closed, sendRaw };
+		return new FakeCrha(ws, peer, response, closed, sendRaw);
 	}
 }
 
-export interface FakeCrha {
-	ws: WebSocket;
-	peer: Peer;
-	response: HandshakeResponse;
-	closed: Promise<CloseInfo>;
+/**
+ * A fake crha that speaks protocol 1.1 (doc/protocol.md#m4提权). It records everything crhs sends to a
+ * node and answers the optional commands like a node would; tests override `answerStart` (or register
+ * their own handler) to script a rejection, and push trust summaries with `trust`.
+ */
+export class FakeCrha {
+	readonly ws: WebSocket;
+	readonly peer: Peer;
+	readonly response: HandshakeResponse;
+	readonly closed: Promise<CloseInfo>;
 	/** Send one raw plaintext frame, bypassing Peer's encode and validation. */
-	sendRaw(bytes: Uint8Array): void;
+	readonly sendRaw: (bytes: Uint8Array) => void;
+	/** Every task.start the server sent, in order. */
+	readonly starts: TaskStart[] = [];
+	/** Every revocations.add batch, in order. */
+	readonly revocations: Revocation[][] = [];
+	/** Every local.request the server sent, in order. */
+	readonly localRequests: LocalRequest[] = [];
+	/** The task ids of every task.exit.ack, in order. */
+	readonly exitAcks: string[] = [];
+	/**
+	 * Answers task.start; throw RemoteError(code, message) to reject it before acceptance. The start is
+	 * recorded first, so a test sees it even when it is rejected.
+	 */
+	answerStart: (start: TaskStart) => void | Promise<void> = () => {};
+
+	constructor(
+		ws: WebSocket,
+		peer: Peer,
+		response: HandshakeResponse,
+		closed: Promise<CloseInfo>,
+		sendRaw: (bytes: Uint8Array) => void,
+	) {
+		this.ws = ws;
+		this.peer = peer;
+		this.response = response;
+		this.closed = closed;
+		this.sendRaw = sendRaw;
+		peer.onRequest("task.start", async (start) => {
+			this.starts.push(start);
+			await this.answerStart(start);
+			return {};
+		});
+		peer.onRequest("task.input", () => ({}));
+		peer.onRequest("task.cancel", () => ({}));
+		peer.onRequest("revocations.add", (body) => {
+			this.revocations.push(body.entries);
+			return {};
+		});
+		peer.onRequest("local.request", (request) => {
+			this.localRequests.push(request);
+			return { kind: "pending" };
+		});
+		peer.onRequest("local.withdraw", () => ({}));
+		peer.onEvent("task.exit.ack", (ack) => {
+			this.exitAcks.push(ack.taskId);
+		});
+		peer.onEvent("local.decision", () => {});
+	}
+
+	/** Pushes a trust.summary event (doc/protocol.md#trustsummary). */
+	trust(report: TrustReport): void {
+		this.peer.emit("trust.summary", report);
+	}
+
+	/** Reports a finished task to crhs, as the node would after task.start was accepted. */
+	exit(taskId: string, outcome: TaskExit["outcome"] = { kind: "code", value: 0 }, extra: Partial<TaskExit> = {}): void {
+		this.peer.emit("task.exit", {
+			taskId,
+			outcome,
+			timedOut: false,
+			cancelled: false,
+			stdoutEnd: 0,
+			stderrEnd: 0,
+			outputFile: "",
+			...extra,
+		});
+	}
 }
 
 export function handshakeInit(overrides: Partial<HandshakeInit> = {}): HandshakeInit {

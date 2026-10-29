@@ -1,0 +1,64 @@
+/**
+ * Pushed revocations (doc/privilege.md#吊销, doc/protocol.md#新增命令和事件11可选): crhs sends every
+ * non-expired revoked authorization of the node's organization after an `ok` trust report and again
+ * when a user revokes one. `revocations.add` is idempotent; the privileged mode prunes expired rows.
+ */
+import { encode as encodeCbor, MAX_FRAME_BYTES, type Revocation, revocationsAddCodec } from "@crh/protocol";
+import type { Selectable } from "kysely";
+import type { Db } from "../storage/db.ts";
+import type { AuthorizationsTable } from "../storage/schema.ts";
+import { NotFoundError } from "../users/service.ts";
+
+/** The revocation entry of an authorization row. */
+export function revocationOf(row: Pick<AuthorizationsTable, "id" | "deadline">): Revocation {
+	return {
+		authorizationId: Uint8Array.from(Buffer.from(row.id, "hex")),
+		deadlineMs: row.deadline === null ? null : new Date(row.deadline).getTime(),
+	};
+}
+
+/** Revoked authorizations of an organization whose deadline has not passed, oldest first. */
+export async function listRevocations(db: Db, orgId: string, now = Date.now()): Promise<Revocation[]> {
+	const rows = await db
+		.selectFrom("authorizations")
+		.select(["id", "deadline"])
+		.where("org_id", "=", orgId)
+		.where("revoked_at", "is not", null)
+		.orderBy("created_at")
+		.execute();
+	return rows.map(revocationOf).filter((entry) => entry.deadlineMs === null || entry.deadlineMs > now);
+}
+
+/** Marks an authorization revoked; returns the row and whether this call changed it. */
+export async function revokeAuthorizationRow(
+	db: Db,
+	id: string,
+	now = new Date(),
+): Promise<{ row: Selectable<AuthorizationsTable>; changed: boolean }> {
+	const row = await db.selectFrom("authorizations").selectAll().where("id", "=", id).executeTakeFirst();
+	if (!row) throw new NotFoundError("no such authorization");
+	if (row.revoked_at !== null) return { row, changed: false };
+	const revokedAt = now.toISOString();
+	await db.updateTable("authorizations").set({ revoked_at: revokedAt }).where("id", "=", id).execute();
+	return { row: { ...row, revoked_at: revokedAt }, changed: true };
+}
+
+/**
+ * Splits entries into frames well under MAX_FRAME_BYTES. There is at least one entry per batch (a
+ * single entry is far smaller than a frame), and the small margin covers the frame header.
+ */
+export function batchRevocations(entries: readonly Revocation[], maxBodyBytes = MAX_FRAME_BYTES - 512): Revocation[][] {
+	const batches: Revocation[][] = [];
+	let current: Revocation[] = [];
+	for (const entry of entries) {
+		const next = [...current, entry];
+		if (current.length > 0 && encodeCbor(revocationsAddCodec.encode({ entries: next })).length > maxBodyBytes) {
+			batches.push(current);
+			current = [entry];
+		} else {
+			current = next;
+		}
+	}
+	if (current.length > 0) batches.push(current);
+	return batches;
+}

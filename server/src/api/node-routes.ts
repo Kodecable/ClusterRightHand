@@ -17,6 +17,7 @@ import {
 	unshareNode,
 } from "../cluster/nodes.ts";
 import { sshNodeDetails } from "../cluster/ssh/nodes.ts";
+import { trustView } from "../cluster/trust.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import type { AppOptions } from "./app.ts";
@@ -50,6 +51,15 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const node = live(toPublicNode(row, level, groups));
 		if (!canManage(level)) return c.json({ node });
 		return c.json({ node, shares: await listNodeShares(db, id), ssh: (await sshNodeDetails(db, row)) ?? null });
+	});
+
+	/** The node's trust panel (doc/privilege.md#信任缓存): the last TrustReport, its digest and its entries. */
+	app.get("/nodes/:id/trust", async (c) => {
+		const id = c.req.param("id");
+		const level = await access(c, id);
+		const row = level ? await getNode(db, id) : undefined;
+		if (!level || !row) return jsonError(c, 404, "no such node");
+		return c.json({ trust: trustView(row, options.cluster?.trustFresh(id) ?? false) });
 	});
 
 	app.post("/enrollment-tokens", async (c) => {

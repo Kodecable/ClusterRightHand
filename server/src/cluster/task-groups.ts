@@ -134,7 +134,11 @@ export class TaskGroups {
 
 	/** Groups left running by a previous process can no longer start their remaining nodes. */
 	async recover(): Promise<void> {
-		const rows = await this.#db.selectFrom("task_groups").selectAll().where("state", "=", "running").execute();
+		const rows = await this.#db
+			.selectFrom("task_groups")
+			.selectAll()
+			.where("state", "in", ["running", "awaiting_authorization"])
+			.execute();
 		for (const row of rows) {
 			const started = await this.#startedNodes(row.id);
 			const skipped = (JSON.parse(row.node_ids) as string[]).filter((id) => !started.has(id));
@@ -263,6 +267,9 @@ export class TaskGroups {
 		approvedBy?: ApprovalDecision,
 	): Promise<void> {
 		const queue = [...nodeIds];
+		// Tasks that wait for an authorization signature do not hold a worker slot: another node may still
+		// start, and the group waits for them only at the end (doc/execution-plane.md#状态机).
+		const parked: TaskView[] = [];
 		let failed = false;
 		const worker = async () => {
 			for (;;) {
@@ -270,13 +277,25 @@ export class TaskGroups {
 				const nodeId = queue.shift();
 				if (nodeId === undefined) return;
 				const created = await this.#cluster.createTask(this.#taskInput(input, id, nodeId, approvedBy));
+				if (created.state === "awaiting_authorization") {
+					parked.push(created);
+					continue;
+				}
 				let done = await this.#cluster.waitTask(created.id, HOUR);
 				while (done && !TERMINAL.has(done.state)) done = await this.#cluster.waitTask(created.id, HOUR);
-				if (done?.state !== "exited" || done.exitCode !== 0) failed = true;
+				if (done && countsAsFailure(done)) failed = true;
 			}
+		};
+		const settleParked = async (task: TaskView) => {
+			// waitTask returns on every state change, so keep waiting until the task is final.
+			let done: TaskView | undefined = task;
+			while (done && !TERMINAL.has(done.state)) done = await this.#cluster.waitTask(task.id, HOUR);
+			if (done && countsAsFailure(done)) failed = true;
 		};
 		try {
 			await Promise.all(Array.from({ length: Math.min(parallel, queue.length) }, worker));
+			// A parked task still belongs to the group, so the group is not finished while it waits.
+			for (let task = parked.shift(); task !== undefined; task = parked.shift()) await settleParked(task);
 		} finally {
 			try {
 				await this.#db
@@ -550,4 +569,11 @@ export class TaskGroups {
 
 function now(): string {
 	return new Date().toISOString();
+}
+
+/** Whether a settled task makes fail_fast stop the remaining nodes. */
+function countsAsFailure(task: TaskView): boolean {
+	// A retryable authorization rejection never settles a task (it goes back to awaiting_authorization), so a
+	// settled task with an authorization code was finally rejected and counts (doc/execution-plane.md#状态机).
+	return task.state !== "exited" || task.exitCode !== 0;
 }

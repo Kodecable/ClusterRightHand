@@ -34,6 +34,9 @@ function GroupResult({ group, names }: { group: TaskGroupView; names: Map<string
 					Waiting for approval. <a href={`#/approvals/task-groups/${group.id}`}>Open approval page</a>
 				</p>
 			)}
+			{group.state === "awaiting_authorization" && (
+				<p>Waiting for an authorization signature; open a waiting task below to see its plan.</p>
+			)}
 			{group.state === "rejected" && group.approval?.decision && <DecisionView decision={group.approval.decision} />}
 			<div className="scroll-x">
 				<table>

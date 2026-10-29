@@ -8,12 +8,14 @@ import type { Cluster } from "../cluster/cluster.ts";
 import { TaskGroups } from "../cluster/task-groups.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import { mcpRoutes } from "../mcp/mcp.ts";
+import type { AuthorizationSigningKey } from "../privilege/key.ts";
 import type { Db } from "../storage/db.ts";
 import { type AuthRoutesOptions, authRoutes } from "./auth-routes.ts";
 import type { AppEnv } from "./context.ts";
 import { csrfGuard, requireUser } from "./middleware.ts";
 import { nodeRoutes } from "./node-routes.ts";
 import { policyRoutes } from "./policy-routes.ts";
+import { privilegeRoutes } from "./privilege-routes.ts";
 import { sessionRoutes } from "./session-routes.ts";
 import { sshRoutes } from "./ssh-routes.ts";
 import { taskRoutes } from "./task-routes.ts";
@@ -26,6 +28,8 @@ export interface AppOptions extends AuthRoutesOptions {
 	serverPublicKey?: Uint8Array;
 	cluster?: Cluster;
 	taskGroups?: TaskGroups;
+	/** crhs's authorization signing key, for the crhs trust entry and its snippet (doc/privilege.md#crhs-侧). */
+	authorizationKey?: AuthorizationSigningKey;
 	/** Needed for SSH credentials and nodes. */
 	masterKey?: MasterKey;
 	/** Directory of the built WebUI; served for every path outside /api, /agent and /mcp. */
@@ -65,6 +69,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	app.use("/api/*", requireUser(db));
 	app.route("/api", userRoutes(db));
 	app.route("/api", nodeRoutes(db, options));
+	app.route("/api", privilegeRoutes({ cluster: options.cluster, authorizationKey: options.authorizationKey }));
 	if (options.masterKey) app.route("/api", sshRoutes(db, options.masterKey));
 	if (options.cluster) {
 		const groups = options.taskGroups ?? new TaskGroups(db, options.cluster, { audit });

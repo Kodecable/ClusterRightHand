@@ -168,3 +168,38 @@ export function tokenStatus(t: { revokedAt: string | null; expiresAt: string | n
 export function mcpCommand(origin: string, token: string): string {
 	return `claude mcp add --transport http crh ${origin}/mcp --header "Authorization: Bearer ${token}"`;
 }
+
+/** A TOML basic string; the only characters that need escaping are the quote and the backslash. */
+function tomlString(value: string): string {
+	return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+/**
+ * The `[[trust]]` block for a node's privileged.toml that trusts crhs's signing key
+ * (doc/privilege.md#信任配置). The allow/deny lists are examples: the operator narrows them to what
+ * crhs may do on that node, and denying `/etc/crha/` keeps crhs out of the trust configuration.
+ */
+export function trustSnippet(authorizedKey: string): string {
+	return [
+		"[[trust]]",
+		'name          = "crhs"',
+		'role          = "crhs"',
+		'format        = "sshsig"',
+		`key           = ${tomlString(authorizedKey)}`,
+		'kinds         = ["execute", "cosign"]',
+		"require_exact = true",
+		'max_ttl       = "5m"',
+		"",
+		"# Allow the commands crhs may authorize on this node.",
+		"allow = [",
+		'\t{ method = "exec", prefix = "systemctl restart " },',
+		'\t{ method = "file.read", prefix = "/var/log/" },',
+		"]",
+		"",
+		"# crhs must not be able to change this node's privileged configuration.",
+		"deny = [",
+		'\t{ method = "file.write", prefix = "/etc/crha/" },',
+		"]",
+		"",
+	].join("\n");
+}

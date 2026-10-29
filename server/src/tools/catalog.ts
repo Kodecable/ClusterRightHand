@@ -1,6 +1,7 @@
 import type { TaskSpec } from "@crh/protocol";
 import * as z from "zod/v4";
 import type { SessionUser } from "../auth/sessions.ts";
+import type { TaskAuthorizationRecord } from "../cluster/authorization.ts";
 import { type Actor, type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
 import { getNode, listNodesForUser } from "../cluster/nodes.ts";
 import { resolveTargets, type TaskGroups, type TaskGroupView } from "../cluster/task-groups.ts";
@@ -51,6 +52,15 @@ async function waitTaskFor(ctx: ToolContext, id: string, waitMs: number): Promis
 		}
 		await ctx.onStatus?.({ task_id: id, state: t?.state });
 	}
+	if (t?.state === "awaiting_authorization") {
+		// The owner signs in the WebUI or with `crha grant`; the task has no automatic timeout.
+		await ctx.onStatus?.({ task_id: id, state: "awaiting_authorization" });
+		while (t?.state === "awaiting_authorization" && !ctx.signal?.aborted) {
+			await new Promise((r) => setTimeout(r, 1000));
+			t = await ctx.cluster.getTask(id);
+		}
+		await ctx.onStatus?.({ task_id: id, state: t?.state });
+	}
 	return t && !ctx.signal?.aborted ? ctx.cluster.waitTask(id, waitMs, ctx.signal) : t;
 }
 
@@ -64,6 +74,12 @@ async function waitGroupFor(ctx: ToolContext, id: string, waitMs: number): Promi
 			approval_url: ctx.approvalUrl("task_group", id),
 		});
 		while (g.state === "awaiting_approval" && !ctx.signal?.aborted)
+			g = (await ctx.groups.wait(id, HOUR)) as TaskGroupView;
+		await ctx.onStatus?.({ task_group_id: id, state: g.state });
+	}
+	if (g.state === "awaiting_authorization") {
+		await ctx.onStatus?.({ task_group_id: id, state: "awaiting_authorization" });
+		while (g.state === "awaiting_authorization" && !ctx.signal?.aborted)
 			g = (await ctx.groups.wait(id, HOUR)) as TaskGroupView;
 		await ctx.onStatus?.({ task_group_id: id, state: g.state });
 	}
@@ -155,6 +171,11 @@ export function taskResult(t: TaskView, nodeName: string, ctx: ToolContext): Rec
 		};
 		return out;
 	}
+	if (t.state === "awaiting_authorization") {
+		out.authorization = authorizationResult(t.authorization);
+		out.next = "call task_wait with this task_id to keep waiting";
+		return out;
+	}
 	if (t.exitCode !== null) out.exit_code = t.exitCode;
 	if (t.signal) out.signal = t.signal;
 	if (t.timedOut) out.timed_out = true;
@@ -212,6 +233,26 @@ async function nodeNames(ctx: ToolContext, ids: string[]): Promise<Map<string, s
 	return new Map(nodes.filter((n) => ids.includes(n.id)).map((n) => [n.id, n.name]));
 }
 
+/** The authorization plan of a waiting task, for the model (doc/m4.md#crhs-侧数据). */
+function authorizationResult(record: TaskAuthorizationRecord | null): Record<string, unknown> {
+	if (!record) return { status: "waiting for an authorization signature" };
+	return {
+		status: "waiting for an authorization signature",
+		attempt: record.attempt,
+		paths: record.plan.paths.map((path) => `${path.path}: ${path.entries.map((entry) => entry.name).join(", ")}`),
+		...(record.plan.reason === undefined ? {} : { reason: record.plan.reason }),
+		...(record.lastRejection === null
+			? {}
+			: {
+					last_rejection: {
+						code: record.lastRejection.code,
+						message: record.lastRejection.message,
+						attempt: record.lastRejection.attempt,
+					},
+				}),
+	};
+}
+
 function groupResult(g: TaskGroupView, names: Map<string, string>, ctx: ToolContext): Record<string, unknown> {
 	const out: Record<string, unknown> = { task_group_id: g.id, state: g.state };
 	if (g.privileged) out.privileged = true;
@@ -219,6 +260,15 @@ function groupResult(g: TaskGroupView, names: Map<string, string>, ctx: ToolCont
 		out.approval = {
 			status: "waiting for the user's approval",
 			url: ctx.approvalUrl("task_group", g.id),
+			next: "call task_wait with this task_group_id to keep waiting",
+		};
+	}
+	if (g.state === "awaiting_authorization") {
+		// Only the nodes whose task waits for a signature; the others may have finished already.
+		const waiting = g.tasks.filter((t) => t.state === "awaiting_authorization");
+		out.authorization = {
+			status: "waiting for an authorization signature",
+			nodes: waiting.map((t) => names.get(t.nodeId) ?? t.nodeId),
 			next: "call task_wait with this task_group_id to keep waiting",
 		};
 	}

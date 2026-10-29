@@ -16,6 +16,7 @@ import {
 	taskActor,
 	taskOutcome,
 	tokenStatus,
+	trustSnippet,
 } from "./lib.ts";
 
 test("isTerminal", () => {
@@ -144,4 +145,26 @@ test("mcpCommand", () => {
 	expect(mcpCommand("http://h:1", "crh_x")).toBe(
 		'claude mcp add --transport http crh http://h:1/mcp --header "Authorization: Bearer crh_x"',
 	);
+});
+
+test("trustSnippet builds the crhs trust entry for privileged.toml", () => {
+	const snippet = trustSnippet("ssh-ed25519 AAAAkey crhs-signing");
+	expect(snippet).toContain("[[trust]]");
+	expect(snippet).toContain('name          = "crhs"');
+	expect(snippet).toContain('role          = "crhs"');
+	expect(snippet).toContain('format        = "sshsig"');
+	expect(snippet).toContain('key           = "ssh-ed25519 AAAAkey crhs-signing"');
+	expect(snippet).toContain('kinds         = ["execute", "cosign"]');
+	expect(snippet).toContain("require_exact = true");
+	expect(snippet).toContain('max_ttl       = "5m"');
+	expect(snippet).toContain("# Allow the commands crhs may authorize on this node.");
+	expect(snippet).toContain('{ method = "exec", prefix = "systemctl restart " },');
+	expect(snippet).toContain('{ method = "file.read", prefix = "/var/log/" },');
+	expect(snippet).toContain('{ method = "file.write", prefix = "/etc/crha/" },');
+	expect(snippet.endsWith("\n")).toBe(true);
+});
+
+test("trustSnippet escapes the TOML basic string", () => {
+	const snippet = trustSnippet('ssh-ed25519 AA"AA\\key comment');
+	expect(snippet).toContain('key           = "ssh-ed25519 AA\\"AA\\\\key comment"');
 });

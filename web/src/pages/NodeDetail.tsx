@@ -2,6 +2,8 @@ import { api } from "../api.ts";
 import { Badge, LinkBadge, Loading } from "../components/Feedback.tsx";
 import { useLoad, usePolling } from "../hooks.ts";
 import { formatTime, osName } from "../lib.ts";
+import { CrhsKeyPanel } from "./CrhsKeyPanel.tsx";
+import { NodeTrust } from "./NodeTrust.tsx";
 import { RenameNode } from "./RenameNode.tsx";
 import { RunPanel } from "./RunPanel.tsx";
 import { Shares } from "./Shares.tsx";
@@ -80,6 +82,8 @@ export function NodeDetail({ id }: { id: string }) {
 					{n.transport === "ssh" && (
 						<SshNodeSection node={n} details={node.data?.ssh} canRun={!!canRun} onChange={node.reload} />
 					)}
+					{n.transport === "client" && <NodeTrust nodeId={n.id} />}
+					{n.transport === "client" && (n.access === "owner" || n.access === "admin") && <CrhsKeyPanel />}
 					{canRun && <RunPanel nodeId={n.id} onDone={tasks.reload} />}
 					{node.data?.shares && <Shares target="node" id={n.id} shares={node.data.shares} onChange={node.reload} />}
 					<section>

@@ -162,6 +162,81 @@ export interface AuditQuery {
 	limit?: number;
 }
 export type VerifyResult = { ok: true; count: number } | { ok: false; count: number; brokenAt: number; reason: string };
+/** One path of a task's authorization plan (doc/privilege.md#授权路径). */
+export interface PlannedPathView {
+	path: "crhs" | "user" | "local";
+	entries: {
+		name: string;
+		role: "crhs" | "user" | "local";
+		credential?: "sshsig" | "webauthn";
+		cosign?: "required" | "available" | "missing";
+	}[];
+}
+/** The authorization state of a privileged task (doc/m4.md#crhs-侧数据). */
+export interface TaskAuthorizationView {
+	plan: { paths: PlannedPathView[]; reason?: string };
+	tried: string[];
+	dispatchedPath: string | null;
+	payloadId: string | null;
+	attempt: number;
+	trustDigest: string | null;
+	lastRejection: { code: string; message: string; attempt: number; at: string } | null;
+	updatedAt: string;
+}
+export type TrustStatus = "ok" | "unavailable" | "not_forward";
+export type GuardRule = { method: RuleMethod; match: "any" | "prefix" | "regex"; pattern: string };
+export interface TrustEntryKey {
+	kind: "sshsig" | "webauthn" | "local";
+	/** sshsig. */
+	publicKey?: string;
+	fingerprint?: string;
+	/** webauthn (base64). */
+	credentialId?: string;
+	coseKey?: string;
+	rpId?: string;
+	origins?: string[];
+	/** local. */
+	uids?: number[];
+}
+export interface TrustEntry {
+	name: string;
+	source: "local";
+	role: "crhs" | "user" | "local";
+	key: TrustEntryKey;
+	kinds: string[];
+	requireExact: boolean;
+	requireTask: boolean;
+	requireUv: boolean;
+	maxTtlMs: number | null;
+	allow: GuardRule[];
+	deny: GuardRule[];
+	envAllow: string[];
+}
+export interface TrustSummary {
+	nodeId: string;
+	groups: string[];
+	clockSkewMs: number;
+	identities: {
+		unprivileged: { uid: number; gid: number; user: string };
+		privileged: { uid: number; gid: number; user: string };
+	};
+	trust: TrustEntry[];
+}
+/** The trust panel of a node (doc/privilege.md#信任缓存). */
+export interface NodeTrust {
+	status: TrustStatus | null;
+	message: string | null;
+	digest: string | null;
+	updatedAt: string | null;
+	/** The last report is kept after a disconnect but is stale until the connection reports again. */
+	stale: boolean;
+	summary: TrustSummary | null;
+}
+/** What to paste into ~/privileged.toml as the crhs trust entry. */
+export interface CrhsKey {
+	authorizedKey: string;
+	fingerprint: string;
+}
 export interface TaskView {
 	id: string;
 	nodeId: string;
@@ -191,6 +266,8 @@ export interface TaskView {
 	outputMode: "full" | "text" | "status";
 	/** Whether this is a privileged task (doc/privilege.md). */
 	privileged: boolean;
+	/** The authorization plan and its history for a privileged task. */
+	authorization?: TaskAuthorizationView | null;
 	createdAt: string;
 	finishedAt: string | null;
 	taskGroupId?: string | null;
@@ -371,6 +448,12 @@ export const api = {
 	listNodes: () => request<{ nodes: PublicNode[] }>("GET", "/nodes").then((r) => r.nodes),
 	getNode: (id: string) =>
 		request<{ node: PublicNode; shares?: NodeShare[]; ssh?: SshNodeDetails | null }>("GET", `/nodes/${enc(id)}`),
+	getNodeTrust: (id: string) => request<{ trust: NodeTrust }>("GET", `/nodes/${enc(id)}/trust`).then((r) => r.trust),
+	/** The crhs authorization signing key and its fingerprint (doc/privilege.md#crhs-侧). */
+	getCrhsKey: () => request<{ key: CrhsKey }>("GET", "/privilege/crhs-key").then((r) => r.key),
+	/** Revokes an authorization; the nodes get the revocation with revocations.add (doc/privilege.md#吊销). */
+	revokeAuthorization: (id: string) =>
+		request<{ authorization: { id: string; revokedAt: string } }>("POST", `/authorizations/${enc(id)}/revoke`),
 	approveNode: (id: string) => request<{ node: PublicNode }>("POST", `/nodes/${enc(id)}/approve`),
 	deleteNode: (id: string) => request<{ ok: true }>("DELETE", `/nodes/${enc(id)}`),
 	renameNode: (id: string, name: string) => request<{ node: PublicNode }>("PATCH", `/nodes/${enc(id)}`, { name }),

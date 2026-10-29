@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionUser } from "../src/auth/sessions.ts";
+import type { TaskAuthorizationRecord } from "../src/cluster/authorization.ts";
 import type { Cluster, TaskView } from "../src/cluster/cluster.ts";
 import type { TaskGroups } from "../src/cluster/task-groups.ts";
 import { TOOLS, type ToolContext, taskResult } from "../src/tools/catalog.ts";
@@ -37,6 +38,7 @@ function task(overrides: Partial<TaskView>): TaskView {
 		outputFile: null,
 		outputMode: "full",
 		privileged: false,
+		authorization: null,
 		createdAt: "2026-01-01T00:00:00.000Z",
 		finishedAt: null,
 		taskGroupId: null,
@@ -204,6 +206,30 @@ describe("taskResult output modes", () => {
 	it("shows that a task was privileged", () => {
 		expect(taskResult(task({ privileged: true }), "web-1", ctx)).toMatchObject({ privileged: true });
 		expect(taskResult(task({ privileged: false }), "web-1", ctx).privileged).toBeUndefined();
+	});
+
+	it("shows the authorization plan of a task that waits for a signature", () => {
+		const authorization: TaskAuthorizationRecord = {
+			plan: {
+				paths: [{ path: "user", entries: [{ name: "alice", role: "user", credential: "sshsig" }] }],
+			},
+			tried: ["crhs"],
+			dispatchedPath: null,
+			payloadId: "6d4a",
+			attempt: 2,
+			trustDigest: "abc",
+			lastRejection: { code: "authorization_rejected", message: "denied", attempt: 1, at: "2026-01-01T00:00:00.000Z" },
+			updatedAt: "2026-01-01T00:00:00.000Z",
+		};
+		const r = taskResult(task({ state: "awaiting_authorization", privileged: true, authorization }), "web-1", ctx);
+		expect(r).toMatchObject({ state: "awaiting_authorization", privileged: true });
+		expect(r.authorization).toEqual({
+			status: "waiting for an authorization signature",
+			attempt: 2,
+			paths: ["user: alice"],
+			last_rejection: { code: "authorization_rejected", message: "denied", attempt: 1 },
+		});
+		expect(r.next).toBe("call task_wait with this task_id to keep waiting");
 	});
 });
 

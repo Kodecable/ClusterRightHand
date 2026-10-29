@@ -1,7 +1,37 @@
-import type { TaskView } from "../api.ts";
+import type { TaskAuthorizationView, TaskView } from "../api.ts";
 import { batchOutput, formatTime, isTerminal, joinOutput, statusOutputNote } from "../lib.ts";
 import { DecisionView, EvaluationView } from "./Approval.tsx";
 import { Badge } from "./Feedback.tsx";
+
+/** The authorization plan of a task that waits for a signature (doc/privilege.md#授权路径). */
+function AuthorizationPlan({ record }: { record: TaskAuthorizationView }) {
+	return (
+		<>
+			<ul>
+				{record.plan.paths.map((path) => (
+					<li key={path.path}>
+						{path.path}
+						{path.entries.length > 0 && (
+							<>
+								: {path.entries.map((entry) => `${entry.name} (${entry.role})`).join(", ")}
+								{path.entries.some((entry) => entry.cosign)
+									? ` — cosignature ${path.entries.some((entry) => entry.cosign === "missing") ? "unavailable" : "available"}`
+									: ""}
+							</>
+						)}
+					</li>
+				))}
+			</ul>
+			{record.plan.reason && <p className="muted">{record.plan.reason}</p>}
+			{record.lastRejection && (
+				<p className="error">
+					Last rejection {record.lastRejection.code} (attempt {record.lastRejection.attempt}):{" "}
+					{record.lastRejection.message}
+				</p>
+			)}
+		</>
+	);
+}
 
 export function OutputBlock({
 	label,
@@ -92,6 +122,16 @@ export function TaskResult({ task }: { task: TaskView }) {
 						<dt>Approval</dt>
 						<dd>
 							Waiting for approval. <a href={`#/approvals/tasks/${task.id}`}>Open approval page</a>
+						</dd>
+					</>
+				)}
+				{task.state === "awaiting_authorization" && (
+					<>
+						<dt>Authorization</dt>
+						<dd>
+							Waiting for an authorization signature
+							{task.authorization ? ` (attempt ${task.authorization.attempt})` : ""}.
+							{task.authorization && <AuthorizationPlan record={task.authorization} />}
 						</dd>
 					</>
 				)}
