@@ -1,4 +1,4 @@
-import { factsFromJson } from "@crh/protocol/wire";
+import { factsFromJson } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";

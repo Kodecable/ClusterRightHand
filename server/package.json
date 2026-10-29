@@ -22,7 +22,6 @@
 		"@types/ws": "^8.18.2"
 	},
 	"dependencies": {
-		"@bufbuild/protobuf": "^2.16.0",
 		"@crh/noise": "workspace:*",
 		"@crh/protocol": "workspace:*",
 		"@earendil-works/chord": "1.4.0",

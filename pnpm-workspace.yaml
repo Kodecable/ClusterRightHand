@@ -2,6 +2,3 @@ packages:
   - packages/*
   - server
   - web
-
-allowBuilds:
-  "@bufbuild/buf": true

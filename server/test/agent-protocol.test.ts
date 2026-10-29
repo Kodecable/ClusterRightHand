@@ -9,7 +9,7 @@ import {
 	RemoteError,
 	SUPPORTED_NAMES,
 	type TaskStart,
-} from "@crh/protocol/wire";
+} from "@crh/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster, type TaskView } from "../src/cluster/cluster.ts";

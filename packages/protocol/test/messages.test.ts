@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decode as decodeCbor, encode as encodeCbor } from "../src/wire/cbor.ts";
+import { decode as decodeCbor, encode as encodeCbor } from "../src/cbor.ts";
 import {
 	COMMANDS,
 	type Command,
@@ -54,8 +54,8 @@ import {
 	taskStatusCodec,
 	type Welcome,
 	welcomeCodec,
-} from "../src/wire/messages.ts";
-import { type Codec, SchemaError } from "../src/wire/schema.ts";
+} from "../src/messages.ts";
+import { type Codec, SchemaError } from "../src/schema.ts";
 
 const digest = (fill: number): Uint8Array => new Uint8Array(32).fill(fill);
 

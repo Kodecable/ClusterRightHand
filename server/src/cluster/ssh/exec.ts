@@ -1,4 +1,4 @@
-import type { ExecSpec } from "@crh/protocol/wire";
+import type { ExecSpec } from "@crh/protocol";
 import type { SshSession } from "./connection.ts";
 
 export const DEFAULT_KILL_GRACE_MS = 5_000;

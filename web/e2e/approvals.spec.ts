@@ -1,5 +1,4 @@
-import { create } from "@bufbuild/protobuf";
-import { TaskSpecSchema } from "@crh/protocol";
+import type { TaskSpec } from "@crh/protocol";
 import type { Page } from "@playwright/test";
 import type { InProcessCrhs } from "../../server/test/e2e/harness.ts";
 import { expect, test } from "./fixtures.ts";
@@ -27,11 +26,16 @@ async function createToken(page: Page, crhs: InProcessCrhs, name: string) {
 async function waitingTask(crhs: InProcessCrhs, nodeId: string, tokenId: string, word: string) {
 	const me = await crhs.api("/api/me");
 	const userId: string = me.json.user.id;
+	const spec: TaskSpec = {
+		kind: "exec",
+		command: { argv: ["echo", word] },
+		env: {},
+		cwd: "",
+		stdin: null,
+	};
 	return crhs.cluster.createTask({
 		nodeId,
-		spec: create(TaskSpecSchema, {
-			kind: { case: "exec", value: { argv: ["echo", word], shell: "", env: {}, cwd: "" } },
-		}),
+		spec,
 		actor: { type: "api_token", id: tokenId, onBehalfOfUserId: userId },
 		chain: [{ type: "api_token", id: tokenId }],
 	});

@@ -1,4 +1,4 @@
-import type { TaskSpec } from "@crh/protocol/wire";
+import type { TaskSpec } from "@crh/protocol";
 import { Hono } from "hono";
 import { type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
 import { nodeAccess } from "../cluster/nodes.ts";

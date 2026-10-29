@@ -1,4 +1,4 @@
-import type { TaskSpec } from "@crh/protocol/wire";
+import type { TaskSpec } from "@crh/protocol";
 import { describe, expect, it } from "vitest";
 import {
 	type Action,

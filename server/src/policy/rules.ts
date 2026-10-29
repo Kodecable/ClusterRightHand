@@ -1,5 +1,5 @@
 import { posix } from "node:path";
-import type { TaskSpec } from "@crh/protocol/wire";
+import type { TaskSpec } from "@crh/protocol";
 import { shellQuote } from "../cluster/ssh/exec.ts";
 import { UserError } from "../users/service.ts";
 

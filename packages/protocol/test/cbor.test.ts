@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Tagged } from "cborg";
 import { describe, expect, it } from "vitest";
-import { CborError, decode, encode } from "../src/wire/cbor.ts";
+import { CborError, decode, encode } from "../src/cbor.ts";
 
 interface PositiveVector {
 	id: string;

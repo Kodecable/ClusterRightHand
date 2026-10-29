@@ -1,4 +1,4 @@
-import type { TaskSpec } from "@crh/protocol/wire";
+import type { TaskSpec } from "@crh/protocol";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
 import { Cluster, type TaskView } from "../src/cluster/cluster.ts";

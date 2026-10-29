@@ -32,8 +32,6 @@ jobs:
           go-version-file: client/go.mod
           cache-dependency-path: client/go.sum
       - run: pnpm install --frozen-lockfile
-      - name: generated code is up to date
-        run: pnpm gen:proto && git diff --exit-code
       - run: pnpm check
       - run: pnpm test
       - run: pnpm --filter @crh/web build

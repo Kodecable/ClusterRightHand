@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { encode as encodeCbor } from "../src/wire/cbor.ts";
+import { encode as encodeCbor } from "../src/cbor.ts";
 import {
 	decodeFrame,
 	encodeFrame,
@@ -7,7 +7,7 @@ import {
 	MAX_FRAME_BYTES,
 	ProtocolError,
 	peekProtocolMajor,
-} from "../src/wire/frame.ts";
+} from "../src/frame.ts";
 
 const bytesOf = (hex: string): Uint8Array => Uint8Array.from(Buffer.from(hex, "hex"));
 const hexOf = (bytes: Uint8Array): string => Buffer.from(bytes).toString("hex");

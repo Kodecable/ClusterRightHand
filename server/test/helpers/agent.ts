@@ -10,7 +10,7 @@ import {
 	handshakeResponseCodec,
 	Peer,
 	SUPPORTED_NAMES,
-} from "@crh/protocol/wire";
+} from "@crh/protocol";
 import { WebSocket } from "ws";
 import { AgentServer } from "../../src/cluster/agent-server.ts";
 import type { Cluster } from "../../src/cluster/cluster.ts";

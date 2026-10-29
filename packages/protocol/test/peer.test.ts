@@ -1,14 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { encode as encodeCbor } from "../src/wire/cbor.ts";
-import { decodeFrame, encodeFrame, type Frame, ProtocolError } from "../src/wire/frame.ts";
-import {
-	type CommandResponse,
-	type Facts,
-	SUPPORTED_NAMES,
-	type TaskStart,
-	type TaskStatus,
-} from "../src/wire/messages.ts";
-import { afterResponse, ConnectionError, Peer, RemoteError } from "../src/wire/peer.ts";
+import { encode as encodeCbor } from "../src/cbor.ts";
+import { decodeFrame, encodeFrame, type Frame, ProtocolError } from "../src/frame.ts";
+import { type CommandResponse, type Facts, SUPPORTED_NAMES, type TaskStart, type TaskStatus } from "../src/messages.ts";
+import { afterResponse, ConnectionError, Peer, RemoteError } from "../src/peer.ts";
 
 const FACTS: Facts = {
 	hostname: "node-1",

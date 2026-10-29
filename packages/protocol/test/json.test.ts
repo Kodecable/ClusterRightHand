@@ -6,8 +6,8 @@ import {
 	type JsonTaskSpec,
 	taskSpecFromJson,
 	taskSpecToJson,
-} from "../src/wire/json.ts";
-import type { Facts, TaskSpec } from "../src/wire/messages.ts";
+} from "../src/json.ts";
+import type { Facts, TaskSpec } from "../src/messages.ts";
 
 const digest = (fill: number): Uint8Array => new Uint8Array(32).fill(fill);
 

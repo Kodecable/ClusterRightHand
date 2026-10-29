@@ -2,8 +2,8 @@
  * Generates test/interop/crh_frames.json. The vitest suite asserts that the
  * committed file is byte-for-byte the result of this generator.
  */
-import { encode as encodeCbor } from "../src/wire/cbor.ts";
-import { encodeFrame, type Frame } from "../src/wire/frame.ts";
+import { encode as encodeCbor } from "../src/cbor.ts";
+import { encodeFrame, type Frame } from "../src/frame.ts";
 import {
 	type Facts,
 	type HandshakeInit,
@@ -13,7 +13,7 @@ import {
 	SUPPORTED_NAMES,
 	type TaskStart,
 	type TaskStatus,
-} from "../src/wire/messages.ts";
+} from "../src/messages.ts";
 
 export interface FixtureCase {
 	id: string;

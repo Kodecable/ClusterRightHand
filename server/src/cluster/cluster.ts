@@ -18,7 +18,7 @@ import {
 	taskSpecFromJson,
 	taskSpecToJson,
 	type Welcome,
-} from "@crh/protocol/wire";
+} from "@crh/protocol";
 import type { Selectable, Updateable } from "kysely";
 import type { Audit } from "../audit/audit.ts";
 import { type Evaluation, evaluate, operationOf } from "../policy/rules.ts";

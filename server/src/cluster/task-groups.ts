@@ -1,4 +1,4 @@
-import { taskSpecFromJson, taskSpecToJson } from "@crh/protocol/wire";
+import { taskSpecFromJson, taskSpecToJson } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import type { Audit } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";

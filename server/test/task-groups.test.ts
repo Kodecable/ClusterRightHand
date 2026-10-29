@@ -1,4 +1,4 @@
-import type { TaskSpec } from "@crh/protocol/wire";
+import type { TaskSpec } from "@crh/protocol";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";

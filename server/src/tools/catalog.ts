@@ -1,4 +1,4 @@
-import type { TaskSpec } from "@crh/protocol/wire";
+import type { TaskSpec } from "@crh/protocol";
 import * as z from "zod/v4";
 import type { SessionUser } from "../auth/sessions.ts";
 import { type Actor, type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { Facts } from "@crh/protocol/wire";
+import type { Facts } from "@crh/protocol";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { createEnrollmentToken, EnrollmentError, enrollNode, parseEnrollmentToken } from "../src/cluster/enrollment.ts";

@@ -1,5 +1,5 @@
 import type { TransportCiphers } from "@crh/noise";
-import { CborError, ConnectionError, Peer, ProtocolError } from "@crh/protocol/wire";
+import { CborError, ConnectionError, Peer, ProtocolError } from "@crh/protocol";
 import type { WebSocket } from "ws";
 
 const EMPTY = new Uint8Array(0);

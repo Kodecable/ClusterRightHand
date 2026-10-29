@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { posix } from "node:path";
-import type { TaskSpec } from "@crh/protocol/wire";
+import type { TaskSpec } from "@crh/protocol";
 import type { SFTPWrapper } from "ssh2";
 import { applyEdits, detectLineEnding, MAX_EDIT_SIZE, normalizeToLF, toBytesString, UTF8_BOM } from "./file-edit.ts";
 import {

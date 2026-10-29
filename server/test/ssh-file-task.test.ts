@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
-import type { TaskSpec } from "@crh/protocol/wire";
+import type { TaskSpec } from "@crh/protocol";
 import { Client, type SFTPWrapper } from "ssh2";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FileTaskError, runSftpFileTask } from "../src/cluster/ssh/file-task.ts";

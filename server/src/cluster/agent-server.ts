@@ -14,7 +14,7 @@ import {
 	PROTOCOL_MINOR,
 	peekProtocolMajor,
 	SUPPORTED_NAMES,
-} from "@crh/protocol/wire";
+} from "@crh/protocol";
 import { type WebSocket, WebSocketServer } from "ws";
 import type { Audit } from "../audit/audit.ts";
 import type { Db } from "../storage/db.ts";
