@@ -55,6 +55,13 @@ export function TaskFormFields({
 						onChange={(e) => set("timeoutSec", e.target.value)}
 					/>
 				</label>
+				<label
+					className="inline"
+					title="Run with elevated privileges according to the node's privileged mode; SSH nodes ignore it and run as the SSH user"
+				>
+					<input type="checkbox" checked={form.privileged} onChange={(e) => set("privileged", e.target.checked)} />{" "}
+					Privileged
+				</label>
 			</div>
 			{form.kind === "exec" && (
 				<>

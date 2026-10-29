@@ -27,6 +27,12 @@ export function TaskList({ tasks }: { tasks: TaskView[] }) {
 							<td>
 								<span className="mono">{t.summary || t.kind}</span>
 								{t.summary && <span className="muted"> ({t.kind})</span>}
+								{t.privileged && (
+									<>
+										{" "}
+										<Badge kind="priv">privileged</Badge>
+									</>
+								)}
 							</td>
 							<td>{taskActor(t, userName)}</td>
 							<td>

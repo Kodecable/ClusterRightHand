@@ -247,6 +247,24 @@ describe("approvals api (sqlite)", () => {
 		expect(t.approval?.decision).toBeUndefined();
 	});
 
+	it("a privileged file.read under ask still waits (D86)", async () => {
+		const tok = await newToken();
+		const spec: TaskSpec = { kind: "file.read", path: "/etc/hostname", offset: 0, limit: 0 };
+		const t = await cluster.createTask({
+			nodeId: nodes[0] as string,
+			spec,
+			privileged: true,
+			chain: [{ type: "api_token", id: tok }],
+			actor: actorOf(tok),
+		});
+		expect(t.privileged).toBe(true);
+		expect(t.state).toBe("awaiting_approval");
+		expect(t.approval?.evaluation.result).toBe("require-approval");
+		// The matched rule was the preset's ordinary-read allow, which does not cover privileged reads.
+		expect(t.approval?.evaluation.levels[0]?.own).toBe("require-approval");
+		await cluster.decide(t.id, { decision: "rejected", by: { type: "user", id: "x" }, at: new Date().toISOString() });
+	});
+
 	it("records task.created, task.approval and task.finished in the audit log", async () => {
 		const tok = await newToken();
 		const t = await mkTask(tok, execSpec("audited"));
@@ -301,6 +319,28 @@ describe("approvals api (sqlite)", () => {
 			expect(done.tasks).toHaveLength(2);
 			expect(done.tasks.every((t) => t.errorCode === "node_offline")).toBe(true);
 			expect((await decide("alice", `/api/task-groups/${id}/approval`, { decision: "approve" })).status).toBe(409);
+		});
+
+		it("an approved privileged group keeps the flag on its tasks (D86)", async () => {
+			const tok = await newToken();
+			const spec: TaskSpec = { kind: "file.read", path: "/etc/hostname", offset: 0, limit: 0 };
+			const id = await groups.create({
+				targets: ["n1", "n2"],
+				nodeIds: [...nodes],
+				spec,
+				privileged: true,
+				actor: actorOf(tok),
+				chain: [{ type: "api_token", id: tok }],
+			});
+			const g = (await groups.get(id)) as TaskGroupView;
+			expect(g.privileged).toBe(true);
+			// The preset's ordinary-read allow does not cover a privileged read.
+			expect(g.state).toBe("awaiting_approval");
+			expect(g.approval?.nodes.every((n) => n.evaluation.result === "require-approval")).toBe(true);
+			expect((await decide("alice", `/api/task-groups/${id}/approval`, { decision: "approve" })).status).toBe(200);
+			const done = (await groups.wait(id, 10000)) as TaskGroupView;
+			expect(done.tasks).toHaveLength(2);
+			expect(done.tasks.every((t) => t.privileged)).toBe(true);
 		});
 
 		it("can be rejected", async () => {

@@ -69,6 +69,7 @@ export interface TaskJson {
 	stderrHead: string;
 	stderrTail: string;
 	outputFile: string | null;
+	privileged: boolean;
 }
 
 /** crhs assembled the way runServer does, in this process, restartable on the same port and database. */

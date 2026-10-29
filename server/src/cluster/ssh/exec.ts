@@ -26,6 +26,17 @@ export function shellQuote(s: string): string {
 }
 
 /**
+ * The first stderr line of a privileged task on an SSH node: SSH has no privileged mode, so the task
+ * runs as the SSH user and says so (doc/execution-plane.md#ssh-传输). Ordinary tasks get nothing.
+ */
+export const SSH_PRIVILEGED_NOTICE = "crh: privileged was ignored: SSH nodes run tasks as the SSH user\n";
+
+/** The notice to write before a task's own output, or undefined for an ordinary task. */
+export function sshPrivilegedNotice(privileged: boolean): Uint8Array | undefined {
+	return privileged ? Buffer.from(SSH_PRIVILEGED_NOTICE) : undefined;
+}
+
+/**
  * The remote command line. sshd starts every command as a session leader, so the shell's pid is also its
  * process group id; `exec` keeps that pid through env and the wrapper, which reports it on stderr's first
  * line so that cancel and timeout can signal the whole group. (setsid(1) would fork here, because the

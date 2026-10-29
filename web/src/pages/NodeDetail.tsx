@@ -47,6 +47,8 @@ export function NodeDetail({ id }: { id: string }) {
 						)}
 						<dt>Access</dt>
 						<dd>{n.access}</dd>
+						<dt>Privileged mode</dt>
+						<dd>{n.transport === "ssh" ? "ignored (SSH)" : (n.privilegedMode ?? "-")}</dd>
 						<dt>Groups</dt>
 						<dd>{n.groups.join(", ") || "-"}</dd>
 						{n.transport === "client" && (

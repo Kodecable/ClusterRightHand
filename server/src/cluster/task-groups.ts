@@ -82,6 +82,8 @@ export interface TaskGroupView {
 	failFast: boolean;
 	/** The mode fixed at creation; every task in the group uses it. */
 	outputMode: "status" | "text";
+	/** Whether the group's tasks are privileged tasks (doc/privilege.md). */
+	privileged: boolean;
 	skipped: string[];
 	tasks: TaskView[];
 	createdAt: string;
@@ -162,12 +164,13 @@ export class TaskGroups {
 		if (!first) throw new UserError("no nodes");
 
 		let approval: GroupApprovalRecord | undefined;
+		const privileged = input.privileged === true;
 		if (input.chain) {
 			approval = { nodes: [] };
 			for (const node of nodes) {
 				approval.nodes.push({
 					nodeId: node.id,
-					evaluation: await this.#cluster.evaluateFor(node, input.spec, input.chain),
+					evaluation: await this.#cluster.evaluateFor(node, input.spec, input.chain, privileged),
 				});
 			}
 		}
@@ -184,6 +187,7 @@ export class TaskGroups {
 				parallel,
 				fail_fast: input.failFast ? 1 : 0,
 				output_mode: outputMode,
+				privileged: privileged ? 1 : 0,
 				skipped: "[]",
 				state: waiting ? "awaiting_approval" : "running",
 				actor_type: input.actor.type,
@@ -210,6 +214,7 @@ export class TaskGroups {
 				targets: input.targets,
 				node_ids: nodeIds,
 				kind: input.spec.kind,
+				privileged,
 				policy: waiting ? "require-approval" : approval ? "evaluated" : "none",
 			},
 		});
@@ -436,7 +441,8 @@ export class TaskGroups {
 			let stillWaiting = false;
 			try {
 				for (const node of nodes) {
-					if ((await this.#cluster.evaluateFor(node, spec, chain)).result === "require-approval") stillWaiting = true;
+					const evaluation = await this.#cluster.evaluateFor(node, spec, chain, row.privileged === 1);
+					if (evaluation.result === "require-approval") stillWaiting = true;
 				}
 			} catch {
 				continue; // a level is gone; expiry ends the group
@@ -459,6 +465,7 @@ export class TaskGroups {
 			nodeIds: JSON.parse(row.node_ids) as string[],
 			spec: specFromRow(row.spec, "task group"),
 			outputMode: row.output_mode,
+			privileged: row.privileged === 1,
 			...(row.pending_input ? { input: Buffer.from(row.pending_input, "base64") } : {}),
 			...(row.timeout_ms !== null ? { timeoutMs: row.timeout_ms } : {}),
 			failFast: row.fail_fast === 1,
@@ -496,6 +503,7 @@ export class TaskGroups {
 			parallel: row.parallel,
 			failFast: row.fail_fast === 1,
 			outputMode: row.output_mode,
+			privileged: row.privileged === 1,
 			skipped: JSON.parse(row.skipped) as string[],
 			tasks,
 			createdAt: row.created_at,

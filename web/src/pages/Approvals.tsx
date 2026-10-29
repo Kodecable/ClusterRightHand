@@ -45,6 +45,7 @@ function AlwaysAllow({
 	busy: boolean;
 }) {
 	const operation = item.kind === "task" ? item.task.operation : item.group.operation;
+	const privileged = item.kind === "task" ? item.task.privileged : item.group.privileged;
 	const nodeName =
 		item.kind === "task"
 			? (lookups.nodeNames.get(item.task.nodeId) ?? item.task.nodeId)
@@ -55,7 +56,7 @@ function AlwaysAllow({
 	const nodeList = nodeName.split(",").filter(Boolean);
 	const [mode, setMode] = useState<"exact" | "prefix">("exact");
 	const build = (m: "exact" | "prefix") => {
-		const rule = alwaysRule(operation, nodeList, m);
+		const rule = alwaysRule(operation, nodeList, m, privileged);
 		return rule ? JSON.stringify(rule, null, 2) : "";
 	};
 	const [text, setText] = useState(() => build("exact"));
@@ -165,6 +166,14 @@ function Card({ item, lookups, onSettled }: { item: Item; lookups: Lookups; onSe
 			<dl className="kv">
 				<dt>What</dt>
 				<dd>{what}</dd>
+				{subject.privileged && (
+					<>
+						<dt>Privileged</dt>
+						<dd>
+							<Badge kind="priv">privileged</Badge>
+						</dd>
+					</>
+				)}
 				<dt>Command / path</dt>
 				<dd className="mono">{item.kind === "task" ? item.task.summary : item.group.summary}</dd>
 				{item.kind === "task" && (

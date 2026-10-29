@@ -32,7 +32,7 @@ import type { NodeConnection } from "./connection.ts";
 import { getNode, markNodeSeen, type NodeRow, nodeGroupNames, updateNodeFacts } from "./nodes.ts";
 import { OUTPUT_KEEP_BYTES, OUTPUT_KEEP_LINES } from "./output.ts";
 import { connect as connectSsh, SshError, type SshRoute, type SshSession } from "./ssh/connection.ts";
-import { runSshExec, SshConnectionLost, type SshExecSink, shellQuote } from "./ssh/exec.ts";
+import { runSshExec, SshConnectionLost, type SshExecSink, shellQuote, sshPrivilegedNotice } from "./ssh/exec.ts";
 import { FileTaskError, runSftpFileTask } from "./ssh/file-task.ts";
 
 /** Who asked for a task; see doc/access-control.md#操作者. */
@@ -47,6 +47,7 @@ export interface CreateTaskInput {
 	spec: TaskSpec;
 	/** stdin for exec, content for file.write; sent as TaskInput chunks. */
 	input?: Uint8Array;
+	/** A privileged task: rules see the flag and crha decides by its privileged mode (doc/privilege.md). */
 	privileged?: boolean;
 	timeoutMs?: number;
 	/** How much output to keep; single tasks use `full`, a group's tasks get its mode. */
@@ -119,6 +120,8 @@ export interface TaskView {
 	outputFile: string | null;
 	/** How much output was kept for this task (doc/execution-plane.md#输出). */
 	outputMode: "full" | "text" | "status";
+	/** Whether this is a privileged task (doc/privilege.md). */
+	privileged: boolean;
 	/** One line describing what ran: the command line or the path. */
 	summary: string;
 	/** What authorization rules match on (doc/privilege.md#方法与目标); null if the spec cannot be read. */
@@ -346,7 +349,7 @@ export class Cluster {
 	/** An active node: the full command and event set of doc/protocol.md. */
 	#registerActive(conn: NodeConnection, link: NodeLink): void {
 		const peer = conn.peer;
-		peer.onRequest("hello", (hello: Hello) => this.#onHello(link, hello.tasks));
+		peer.onRequest("hello", (hello: Hello) => this.#onHello(link, hello));
 		peer.onRequest("ping", (ping) => ping);
 		peer.onEvent("task.output", (output) => {
 			const live = this.#ownLive(conn.nodeId, output.taskId);
@@ -384,11 +387,19 @@ export class Cluster {
 	}
 
 	/** Reconciles the client's task list with ours, answers with Welcome, then queries the rest. */
-	async #onHello(link: NodeLink, tasks: TaskStatus[]): Promise<AfterResponse<Welcome>> {
+	async #onHello(link: NodeLink, hello: Hello): Promise<AfterResponse<Welcome>> {
 		const nodeId = link.conn.nodeId;
+		// How the node handles privileged tasks is reported here and nowhere else (doc/protocol.md#hello).
+		if (hello.privilegedMode) {
+			await this.#db
+				.updateTable("nodes")
+				.set({ privileged_mode: hello.privilegedMode })
+				.where("id", "=", nodeId)
+				.execute();
+		}
 		const acks: OutputAck[] = [];
 		const reported = new Set<string>();
-		for (const t of tasks) {
+		for (const t of hello.tasks) {
 			const row = await this.#row(t.taskId);
 			if (!row || row.node_id !== nodeId) continue;
 			reported.add(t.taskId);
@@ -510,10 +521,14 @@ export class Cluster {
 	// ---- task API ----
 
 	/** How the rule chain judges running `spec` on a node. */
-	async evaluateFor(node: NodeRow, spec: TaskSpec, chain: RuleRef[]): Promise<Evaluation> {
+	async evaluateFor(node: NodeRow, spec: TaskSpec, chain: RuleRef[], privileged: boolean): Promise<Evaluation> {
 		const groups = (await nodeGroupNames(this.#db, [node.id])).get(node.id) ?? [];
 		const levels = await loadChain(this.#db, chain);
-		return evaluate(levels, { ...operationOf(spec), node: { id: node.id, name: node.name, groups } });
+		return evaluate(levels, {
+			...operationOf(spec),
+			node: { id: node.id, name: node.name, groups },
+			privileged,
+		});
 	}
 
 	/**
@@ -535,8 +550,9 @@ export class Cluster {
 
 		let approval: ApprovalRecord | undefined;
 		let verdict: "allow" | "deny" | "require-approval" = "allow";
+		const privileged = input.privileged === true;
 		if (input.chain) {
-			const evaluation = await this.evaluateFor(node, input.spec, input.chain);
+			const evaluation = await this.evaluateFor(node, input.spec, input.chain, privileged);
 			approval = { evaluation };
 			verdict = evaluation.result;
 			if (verdict === "require-approval" && input.approvedBy) {
@@ -604,6 +620,7 @@ export class Cluster {
 				summary: summarize(JSON.stringify(taskSpecToJson(spec))),
 				task_group_id: input.taskGroupId,
 				input_sha256: input.input ? inputSha.toString("hex") : undefined,
+				privileged,
 				policy: approval ? approval.evaluation.result : "none",
 				approved_by_group: approval?.decision ? input.taskGroupId : undefined,
 			},
@@ -665,7 +682,14 @@ export class Cluster {
 		this.#notify(id);
 		if (ssh) {
 			this.#newLive(id, node.id, row?.output_mode ?? "full", row?.task_group_id ?? null);
-			void this.#runSsh(id, node, spec, inputBytes.length > 0 ? inputBytes : undefined, opts.timeoutMs);
+			void this.#runSsh(
+				id,
+				node,
+				spec,
+				inputBytes.length > 0 ? inputBytes : undefined,
+				opts.timeoutMs,
+				opts.privileged === true,
+			);
 		} else if (link) {
 			this.#newLive(id, node.id, row?.output_mode ?? "full", row?.task_group_id ?? null);
 			// The start may be refused or the link may drop; the state machine follows the response.
@@ -886,7 +910,7 @@ export class Cluster {
 			if (!node) continue;
 			let evaluation: Evaluation;
 			try {
-				evaluation = await this.evaluateFor(node, taskSpecFromJson(JSON.parse(row.spec)), chain);
+				evaluation = await this.evaluateFor(node, taskSpecFromJson(JSON.parse(row.spec)), chain, row.privileged === 1);
 			} catch {
 				continue; // a level is gone (e.g. a revoked token); expiry ends the task
 			}
@@ -994,9 +1018,14 @@ export class Cluster {
 		spec: TaskSpec,
 		input: Uint8Array | undefined,
 		timeoutMs: number | undefined,
+		privileged: boolean,
 	): Promise<void> {
 		const live = this.#live.get(id) as Live;
 		let isStarted = false;
+		// SSH has no privileged mode: the task runs as the SSH user, and its output says so before
+		// anything else (doc/execution-plane.md#ssh-传输). Written once, before the first run, so a
+		// stale pooled connection that is replaced does not repeat it.
+		let noticeWritten = false;
 		const sink = {
 			stdout: (d: Uint8Array) => void live.output.append("stdout", live.output.end("stdout"), d),
 			stderr: (d: Uint8Array) => void live.output.append("stderr", live.output.end("stderr"), d),
@@ -1014,6 +1043,11 @@ export class Cluster {
 			// A pooled connection may have died without notice; nothing has run yet, so retry once fresh.
 			for (let attempt = 0; ; attempt++) {
 				const session = await this.#sshSession(node);
+				if (!noticeWritten) {
+					const notice = sshPrivilegedNotice(privileged);
+					if (notice) live.output.append("stderr", live.output.end("stderr"), notice);
+					noticeWritten = true;
+				}
 				try {
 					fields = await this.#sshTask(session, spec, input, timeoutMs, ac.signal, sink);
 					break;
@@ -1245,6 +1279,7 @@ function toView(row: Selectable<TasksTable>, live: Live | undefined): TaskView {
 		stderrTail: output ? text(output.stderrTail) : b64(row.stderr_tail),
 		outputFile: row.output_file,
 		outputMode: row.output_mode,
+		privileged: row.privileged === 1,
 		createdAt: row.created_at,
 		finishedAt: row.finished_at,
 		taskGroupId: row.task_group_id,
