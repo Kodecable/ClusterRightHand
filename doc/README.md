@@ -122,7 +122,7 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D61 | 数据库只用一个应用账号，拥有迁移、安装和运行所需的全部权限；审计哈希链只用于发现绕过 crhs 的改动 | 部署简单；只追加账号挡不住被攻破的 crhs 本身，真正的防护要靠把链头外送到另一个信任域 |
 | D62 | 用户和组织没有长期规则；规则链的根是根会话、计划任务或 API token，用户为根选择 Ask / Auto Review / Yolo，映射为实际规则；子会话用完整规则配置，逐级收紧。用户在 WebUI 中本人操作只检查节点访问 | 规则是"授权给代理"的边界，用户本人不需要；简单选项给人用，细粒度规则给 subagent 用 |
 | D63 | 审批结果是工具调用（任务 / 任务组）本身的状态，不单独建表；"以后都允许"才修改规则；规则变化后重新判定该链上所有等待中的任务 | 一次性的决定不是策略，写成规则会污染规则集 |
-| D64 | 授权规则与特权解耦：规则不区分特权和普通任务，特权只由 crha 的信任配置决定 | 两套机制各管一件事 |
+| D64 | 授权规则与特权解耦：规则不区分特权和普通任务，特权只由 crha 的信任配置决定（被 D86 修订） | 两套机制各管一件事 |
 | D65 | 不提供 `crha mcp` stdio 桥 | 主流客户端都支持 HTTP；crha 部署在节点上，不在 MCP 客户端所在的机器上 |
 | D66 | crhs 的授权规则只有 `exact` / `prefix`，没有 `regex` | 规则在 crhs 事件循环中执行，回溯严重的正则能卡住整个服务；规则可能由 agent 编写 |
 | D67 | `allow file.write` 同时放行读；`deny` / `require-approval` 的 `file.write` 只匹配写 | 与 crha 的能力包含关系一致，又不让"禁止修改"变成"禁止查看" |
@@ -144,3 +144,9 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D83 | 任务 id 最多 accepted/executed 一次；只有 crha 在 `task.start` 成功响应（accepted）之前明确拒绝授权时，允许同一 task id 用 `attempt + 1` 重试。部分节点通过、部分拒绝时任务彼此独立，不回滚已执行任务；`fail_fast` 只影响未启动节点；授权等待不自动超时。crhs 的规则引擎只是预演，crha 授权拒绝后优先回退到所有者 user/local 路径 | 保留 durable task id 和工具重放；明确拒绝前无副作用可安全重试；网络 unknown 绝不重试；避免把部分成功伪装成整体成功 |
 | D84 | M3.5 协议语义补全：`task.start` 成功响应即 accepted（取代独立的 accepted/rejected 消息），失败码分可重试的 `authorization_*` 与终态错误；`task.query` 对未知 id 正常响应 `unknown`；请求 id 按方向独立；未协商事件断开连接。pending 受限连接不设查询命令，靠 `node.status` 推送，批准后断开重连。批量 `text` 预算按只增不减的额度发放，已获额度的节点在额度内滚动尾部。文本只校验 UTF-8，不做 NFC 规范化 | 消除命令/响应抽象下的命名残留；状态切换走普通重连路径；内存上限等于已发额度之和、实现只需环形缓冲 + 计数器；路径是字节序列，规范化会改变目标 |
 | D85 | 一个任务组最多 512 个节点（target 展开去重后计数，含离线节点），超过时拒绝创建并提示拆分 | 每节点的状态信息不受输出预算约束，节点多时返回给模型的结果会线性膨胀；512 × 80B 一行 < 50KB，常见批量命令在 `text` 预算内能全部看到；被否决：静默截断到前 512 个（调用方会误以为全部执行了） |
+| D86 | 授权规则增加 `privileged` 匹配维度，MCP / agent 工具暴露 `privileged`（修订 D64） | `native` / `ignore` 下 crhs 策略是唯一关口，不能区分特权就无法单独收紧特权任务；`forward` 的最终决定仍在 crha 信任配置 |
+| D87 | `native` 用 `sudo -n` / `doas -n` 拉起同一二进制 `crha privileged stdio` 作为 helper，exec 和 `file.*` 都由它执行，走 crh-priv 协议、不校验授权；`run0` 为实验性后端 | 非特权进程无法给提权后的进程发 SIGKILL（kill(2) 的 uid 检查），sudo 的 `use_pty` 会合并输出、`env_reset` 让 env 白名单无法传递；被否决：exec 直接 `sudo -n -- argv`（保留 sudoers 按命令限制，但取消和超时不可靠、doas 无法取消） |
+| D88 | 授权 payload 是定长数组；一次性约束为 `task_ids` 列表，一个用户签名覆盖任务组的多个节点；已用列表的键为 `(授权 id, 任务 id)` | 任务组的用户签名只需一次；`task_ids` 固定具体任务，签发时把组展开成节点 id，签名后范围不变 |
+| D89 | 本地批准只用于单任务，不占用 `task.start`：`local.request` 登记、`local.decision` 通知、批准后再发 `task.start`。任务组不走本地批准，没有其他路径时直接失败；crhs 签名被拒后回退到 local 时用 `attempt + 1` 登记，流程相同 | 长时间挂起的 `task.start` 一断线就是 `unknown`；分开后执行只由 `task.start` 触发，等待期间断线安全；逐节点登录批准与批量执行相悖，排除后 crhs 不必为任务组跟踪本地状态 |
+| D90 | crhs ↔ crha 只推送 `trust.summary`，不查询；非特权模式转发 `authorization_*` 前先刷新摘要。吊销用幂等的 `revocations.add`，摘要可用时重发全部未过期项 | 推送 + 拒绝前刷新保证 crhs 处理拒绝时缓存最新；幂等追加让离线节点重连后自然补齐 |
+| D91 | crhs 签名用 `node:crypto` ed25519 + 手写 SSHSIG；`crha grant` 调用 `ssh-keygen -Y sign`；crha 用 `x/crypto/ssh` + 手写 SSHSIG codec 验证，WebAuthn 手写验证（ES256 / EdDSA / RS256）；crhs 的 WebAuthn 用 `@simplewebauthn`；ssh-agent 签名为可选项目 | 不引入新的 Go 模块；OpenSSH 负责加密私钥、agent 和 FIDO 触摸；RS256 用标准库验证成本很低，避免注册出无法校验的凭据 |

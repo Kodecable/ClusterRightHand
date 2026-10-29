@@ -69,14 +69,14 @@
 
 ## M4 提权（计划中，见 [m4.md](m4.md)）
 
-- `native` 模式（sudo/doas/run0）。
+- `native` 模式（`sudo -n` / `doas -n` 拉起 `crha privileged stdio` helper；run0 为实验性后端）。
 - crha 特权模式：unix socket、`SO_PEERCRED`、信任数组、目标字符串规范化与防护规则、授权与联署校验、一次性授权（已用列表）、吊销、本地日志。
-- crhs 缓存 crha 的 `TrustSummary` 和 digest（连接时查询、变化时推送）；crhs 从自己的缓存计算授权方案，不再依赖 `Preflight`。
+- crhs 缓存 crha 推送的 `TrustSummary` 和 digest（握手后推送、变化时再推送）；crhs 从自己的缓存计算授权方案，不再依赖 `Preflight`。
 - 只为会话所有者（`on_behalf_of_user_id`）计算 user 信任项和凭据；crhs 用 RE2（`re2`）匹配规则，crha 执行前仍完整复验。crhs 只是预演；crha 在 accepted 前拒绝授权时，任务回到 `awaiting_authorization`，优先回退到 owner 的 user/local 路径。
 - 授权和联署是同一个 CBOR payload（含 attempt）上的多个签名，不再使用 `cosign_of`。
 - 部分节点通过、部分拒绝时任务彼此独立：已执行任务不回滚；`fail_fast` 只影响尚未启动的节点；授权等待不自动超时。
-- crhs 授权签名（SSHSIG，支持 ssh-agent）；auto review。
-- 用户授权：`crha grant` 签发 SSHSIG；WebUI 用 Passkey 签发；`crha approve` 本地批准。
+- crhs 授权签名（SSHSIG，`node:crypto`；ssh-agent 为可选项目）；auto review；规则的 `privileged` 维度，MCP / agent 暴露 `privileged`。
+- 用户授权：`crha grant` 签发 SSHSIG；WebUI 用 Passkey 签发；`crha approve` 本地批准；任务组一个签名覆盖多个节点。
 - WebUI 可以导出可粘贴进 `privileged.toml` 的 trust 片段。
 - SSH 节点不参与提权：`privileged` 被忽略，按 SSH 用户执行并在输出中提示；保留现有 SFTP `file.*` 任务。
 
@@ -92,7 +92,7 @@
 
 - 服务端主动连接客户端的传输方式。
 - PTY 与 WebUI 终端。
-- 打包（bash 脚本）：deb/rpm、systemd unit（crha 非特权模式和特权模式分开）、客户端自升级。
+- 打包（bash 脚本）：deb/rpm、systemd unit（crha 非特权模式和特权模式分开）、客户端自升级（含从 M4 移来的 `crha upgrade --apply`）。
 - MCP 的"委托给会话"工具。
 - 监控、告警、仪表盘：暂不安排，见 architecture.md 的"扩展预留"。
 
@@ -104,7 +104,7 @@
   - crhs：任务状态机与 `unknown` 语义、任务组、SSH（含跳板机）、WebUI 第一版。
   - 自动化测试：Go/TS 单元测试（SQLite + PG）、Noise 互操作 fixture、真实 crha 二进制的 e2e 套件、SSH/SFTP 测试（需要测试 sshd）。
   - 未完成：
-    - `crha upgrade --apply` 留到 M4（升级本身是特权任务）；
+    - `crha upgrade --apply` 留到 M6（与打包、自升级一起做；升级本身是特权任务）；
     - toxiproxy 网络故障注入改用 e2e 中的 SIGSTOP / 杀进程 / 重启场景覆盖；
     - CI 中尚未跑 SSH 测试（需要 sshd 服务容器）。
 - **M2**：完成（Claude Code 实机接入待验证）。
@@ -126,4 +126,4 @@
   - 已删除 `proto/`、buf、`@bufbuild/*`、Go protobuf 模块和生成代码。
   - 测试：单元测试（SQLite + PostgreSQL + 真实 sshd）、真实 crha 二进制 e2e（含 SIGSTOP / 杀进程 / 重启）、WebUI 浏览器测试、性能回归全部通过。
   - 未完成：CI 中仍未跑 SSH 测试（需要 sshd 服务容器，同 M1）；迁移 0019 没有在真实生产数据上演练过（fixture 已与旧 protobuf-es 的实际输出核对）。
-- **M4**：计划中，未开始。细节、阶段和测试矩阵见 [m4.md](m4.md)。
+- **M4**：M4.0 规格已定稿（protocol.md 1.1、privilege.md、D86–D91），测试向量和原型待做。细节、阶段和测试矩阵见 [m4.md](m4.md)。

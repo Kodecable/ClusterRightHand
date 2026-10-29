@@ -160,17 +160,18 @@ event     = [2, event, body]
 | S→C | command | `task.input` | 输入分块；响应 ack |
 | S→C | command | `task.cancel` | 取消；响应结果 |
 | S→C | command | `task.query` | 查询任务状态；响应当前状态 |
-| S→C | command | `trust.query` | 查询 TrustSummary；响应摘要（M4 启用） |
-| S→C | command | `revocations.set` | 下发吊销列表；响应 ack（M4 启用） |
+| S→C | command | `revocations.add` | 追加吊销项（幂等）；响应 ack（M4，1.1） |
+| S→C | command | `local.request` / `local.withdraw` | 请求 / 撤回节点本地批准；不触发执行（M4，1.1） |
 | S→C | event | `task.output.ack` | 确认已收到的输出偏移；客户端可用它释放缓冲 |
 | S→C | event | `task.exit.ack` | 确认任务结束，可释放输出 |
 | C→S | event | `task.output` | `{task_id, stream, offset, data}` |
 | C→S | event | `task.exit` | 退出码/信号/错误、最终偏移、输出文件路径 |
 | C→S | event | `facts` | 系统信息、组、时钟偏差、特权模式信息 |
-| C→S | event | `trust.summary` | 特权模式配置变化时主动推送（M4 启用） |
+| C→S | event | `trust.summary` | 握手后推送一次，信任摘要变化或特权模式连上/断开时再推送（M4，1.1） |
+| C→S | event | `local.decision` | 本地批准或拒绝的结果（M4，1.1） |
 | S→C | event | `node.status` | pending/active 等状态变化 |
 
-标“M4 启用”的命令/事件在 M3.5 只保留名称，结构在 M4 定义；M3.5 不声明、不实现它们。线上格式见 [protocol.md](protocol.md)。
+标“M4，1.1”的命令/事件是协议小版本 1.1 新增的可选名字；交集里没有它们的节点不支持 `forward`。线上格式见 [protocol.md](protocol.md)。
 
 命令响应的语义：
 
@@ -352,7 +353,7 @@ SSH 节点可以配置一个或多个跳板（等价于 OpenSSH 的 `ProxyJump`�
 - 有 `/bin/sh` 和 `env`；取消要用 shell 内建或 `/bin/kill` 的 `kill -<SIG> -- -<pgid>`。
 - 文件任务要求 sshd 启用 SFTP 子系统。
 - 不分配 pty，环境就是非交互 SSH 会话的环境：bash 作为登录 shell 时会读 `~/.bashrc`，其他 shell 基本不读任何配置文件，所以 `PATH` 等可能与交互登录时不同。需要的变量请在任务的 `env` 中给出，或使用绝对路径。
-- 不参与特权任务：`privileged` 标志被忽略，按 SSH 用户执行；SSH 没有 `native`/`forward`/`Preflight`。
+- 不参与特权任务：`privileged` 标志被忽略，按 SSH 用户执行；SSH 没有 `native`/`forward`/信任配置。
 
 ### 执行
 

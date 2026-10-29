@@ -1,8 +1,8 @@
-# crhs ↔ crha 协议 schema（M3.5）
+# crhs ↔ crha 协议 schema（M3.5 / M4）
 
 [execution-plane.md](execution-plane.md#自有协议m35) 规定协议的语义；本文规定**线上格式**，TS（`packages/protocol`）和 Go（`client/internal/protocol`）都按本文手写，用 `test/interop/` 的 fixture 交叉验证。两者不一致时以本文为准；本文有歧义时先改本文。
 
-协议版本：`protocol_major = 1`，`protocol_minor = 0`。Noise prologue 仍为 `"crh/1" ‖ 挑战`。
+协议版本：`protocol_major = 1`，`protocol_minor = 1`（M4 新增命令，见 [M4：提权](#m4提权)；`minor = 0` 是 M3.5 的命令集合）。Noise prologue 仍为 `"crh/1" ‖ 挑战`。
 
 ## 编码规则
 
@@ -35,7 +35,7 @@ HandshakeResponse = [protocol_major: uint, protocol_minor: uint, commands: [text
 
 - `commands` 是本方实现的**全部命令名和事件名**（两个方向都算）。双方之后只发送交集中的命令/事件。
 - 大版本不匹配：crhs 以 WebSocket close 1008、reason `protocol_major mismatch: server 1, client N` 拒绝；crha 收到不同大版本的响应时关闭连接并报告。两者都按握手失败处理（`HandshakeError`）。
-- 交集缺少本文列为**必需**的名字时同样拒绝握手（reason `missing required command: <name>`）。1.0 中下文表格列出的全部名字都是必需的。
+- 交集缺少本文列为**必需**的名字时同样拒绝握手（reason `missing required command: <name>`）。1.0 中下文表格列出的全部名字都是必需的；1.1 新增的名字是可选的，交集里没有时 crhs 视该节点不支持 `forward`（见 [M4：提权](#m4提权)）。
 
 ## 帧
 
@@ -70,7 +70,7 @@ Error    = [code: text, message: text]
 | `task.cancel` | S→C | `[task_id: text]` | `[]` | 无（未知或已结束的任务也返回成功） |
 | `task.query` | S→C | `[task_id: text]` | `TaskStatus` | 无（未知任务返回 `state = "unknown"`） |
 
-M4 保留的名字（1.0 不声明、不实现，结构在 M4 定义）：`trust.query`、`revocations.set`（命令），`trust.summary`（事件）。
+M4（1.1）新增的命令和事件见 [M4：提权](#m4提权)。
 
 ```text
 Hello      = [tasks: [TaskStatus], task_kinds: [text], privileged_mode: text]
@@ -105,9 +105,20 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
 - 成功响应就是 accepted。crha 在发出成功响应前，必须已把 `task_id` 记入**已接受集合**；先发响应再启动执行，所以该任务的事件一定在响应之后。
 - 已记入已接受集合、但成功响应没能发出（连接恰好断开）的任务，crha 仍然执行：接受已经决定，crhs 不会重发，它在重连后的 `hello` 中看到这个任务并照常接收输出和 `task.exit`。
 - 已接受集合在 crha 进程内保留（不随 `task.exit.ack` 删除），上限为最近 100 000 个 id；命中时返回 `already_accepted`。crhs 永远不会重发已接受的任务，这是纵深防御。
+- `authorizations` 的每一项是一个 `CBOR(Authorization)`（见 [授权对象](#授权对象)）；非特权任务、`native` / `ignore` 和本地批准时为空。M4 中最多一项，多于一项返回 `authorization_invalid`。
 - 错误码：
-  - 可重试（任务回到 `awaiting_authorization`）：`authorization_required`、`authorization_invalid`、`authorization_expired`、`authorization_rejected`。1.0 的 crha 不产生它们（M4 实现）。M3.5 的 crhs 还没有 `awaiting_authorization` 状态和授权来源，收到时按最终失败处理：任务结束为 `rejected`，`error_code` 即此码；M4 再改为重试。
-  - 终态（任务结束为 `failed`，`error_code` 即此码）：`invalid_spec`（空 id、哈希长度不对等、`size` 为 0 但 `sha256` 不是空输入的 SHA-256）、`unsupported_kind`、`privileged_unsupported`（1.0 的 crha 收到 `privileged = true` 时）、`local_policy_denied`、`already_accepted`。
+  - 可重试（任务回到 `awaiting_authorization`）：
+
+    | 码 | 情况 |
+    |---|---|
+    | `authorization_required` | 没有授权，也没有可用的本地批准 |
+    | `authorization_invalid` | 授权解码失败、签名无效、找不到对应信任项、节点/组不匹配、`attempt` 不符、多于一项 |
+    | `authorization_expired` | 过期、签发于未来、超出 `max_ttl` |
+    | `authorization_rejected` | 已吊销、已用、防护规则/env/路径拒绝、缺联署、信任项没有 `execute` |
+
+    `message` 写明失败的校验步骤（privilege.md 的“校验流程”编号）。规则和路径拒绝也是可重试的：crhs 签名路径被拒，不代表所有者的签名也会被拒；crhs 重试时不会再走同一条 crhs 签名路径（D83），不会循环。
+  - 终态（任务结束为 `failed`，`error_code` 即此码）：`invalid_spec`（空 id、哈希长度不对等、`size` 为 0 但 `sha256` 不是空输入的 SHA-256）、`unsupported_kind`、`privileged_unsupported`（`reject` 模式；`native` 的提权工具不可用或 helper 版本不符；1.0 的 crha）、`privileged_unavailable`（`forward` 但特权模式不可达）、`local_policy_denied`、`already_accepted`。
+- `forward` 时非特权模式把 `task.start` 原样转给特权模式（见 [crh-priv](#crh-priv非特权模式--特权模式)），特权模式的响应就是这里的响应。非特权模式在转发 `authorization_*` 错误之前，先向特权模式重新查询 `TrustSummary`，digest 变化时先发 `trust.summary` 事件，再发错误响应；因此 crhs 处理错误时缓存已经是最新的。
 - `task.input` 只在成功响应之后发送；crhs 可以流水线发送多个分块，不必逐个等待响应；crha 按顺序处理。
 
 ## 事件
@@ -132,6 +143,115 @@ Facts    = [hostname: text, os_id: text, os_version_id: text, os_pretty_name: te
 ```
 
 - 输入类错误码（`Outcome` 的 `error` 分支）：`input_mismatch`（输入与 `InputRef` 不符：比声明的大小长，或 SHA-256 不同；任务若在运行则被杀掉）、`input_incomplete`（连接在输入收齐前断开；任务被杀掉）。
+
+## M4：提权
+
+语义见 [privilege.md](privilege.md)。本节规定线上格式；Go 和 TS 同样按本文手写，用 `test/interop/` 的 fixture 交叉验证。
+
+### 新增命令和事件（1.1，可选）
+
+| 名称 | 方向 | 形式 | body | 成功响应 body |
+|---|---|---|---|---|
+| `trust.summary` | C→S | 事件 | `TrustReport` | |
+| `revocations.add` | S→C | 命令 | `[entries: [Revocation]]` | `[]` |
+| `local.request` | S→C | 命令 | `LocalRequest` | `LocalState` |
+| `local.withdraw` | S→C | 命令 | `[task_id: text, attempt: uint]` | `[]` |
+| `local.decision` | C→S | 事件 | `[task_id: text, attempt: uint, state: LocalState]` | |
+
+```text
+TrustReport  = ["ok", TrustSummary] | ["unavailable", [message: text]] | ["not_forward", []]
+Revocation   = [authorization_id: bytes, deadline_ms: int?]       ; id 恰好 32 字节
+LocalRequest = [task_id: text, attempt: uint, spec: TaskSpec, note: text]
+LocalState   = ["pending", []] | ["approved", []] | ["denied", [message: text]]
+```
+
+- **`trust.summary`**：crha 在 `hello` 的响应之后发送一次，之后每当报告变化（digest 变化、特权模式连上或断开）时再发送。crhs 不主动查询。`privileged_mode` 不是 `forward` 时报告 `not_forward`。
+- **`revocations.add`**：幂等地追加吊销项。crhs 在 `trust.summary` 为 `ok` 后发送该节点全部未过期的吊销项（按帧大小分批），之后在用户吊销时增量发送。没有删除操作：过期清理由特权模式本地完成（privilege.md 的“吊销”）。特权模式不可达时返回 `privileged_unavailable`，crhs 在下一次 `ok` 后重发。
+- **本地批准**只用于单任务（任务组中的任务不发送 `local.request`），且不占用 `task.start`：
+  1. crhs 发送 `local.request`，特权模式把 `(task_id, attempt, spec)` 加入待批准列表，响应当前状态（同一 `(task_id, attempt)` 重复请求是幂等的，返回已有状态）；
+  2. 有人执行 `crha approve` / `crha deny` 后，crha 发送 `local.decision`；
+  3. 状态为 `approved` 后，crhs 用同一 `attempt` 发送 `task.start`，`authorizations` 为空；特权模式核对 `spec` 的 `spec_sha256` 与批准时相同，消耗这条批准记录。
+  - 用户改在 WebUI 中签名，或任务被取消时，crhs 发送 `local.withdraw`。
+  - 待批准和已批准的记录只保存在特权模式的内存中，特权模式重启后丢失。crhs 每次收到 `trust.summary`（`ok`）时，对该节点仍在等待本地批准的任务重新发送 `local.request`；记录丢失时 `task.start` 返回 `authorization_required`，按普通重试处理。
+  - 这样任何时刻断线都是安全的：没有 `task.start` 就不会执行，等待期间断线不会让任务变成 `unknown`。
+  - 错误码：`privileged_unavailable`、`local_not_trusted`（本机没有 `local` 信任项；终态）、`invalid_spec`。
+
+### TrustSummary
+
+```text
+TrustSummary = [node_id: text, groups: [text], clock_skew_ms: uint,
+                identities: [unprivileged: Identity, privileged: Identity],
+                trust: [TrustEntry]]
+Identity     = [uid: uint, gid: uint, user: text]
+TrustEntry   = [name: text, source: "local", role: "crhs" | "user" | "local", key: TrustKey,
+                kinds: [text], require_exact: bool, require_task: bool, max_ttl_ms: uint?,
+                allow: [GuardRule], deny: [GuardRule], env_allow: [text]]
+TrustKey     = ["sshsig",   [public_key: text, fingerprint: text]]   ; authorized_keys 形式；SHA256:… 指纹
+             | ["webauthn", [credential_id: bytes, cose_key: bytes, rp_id: text, origins: [text], require_uv: bool]]
+             | ["local",    [uids: [uint]]]
+GuardRule    = [method: "exec" | "file.read" | "file.write", match: "any" | "prefix" | "regex", pattern: text]
+```
+
+- `digest = SHA-256(CBOR(TrustSummary))`，crhs 用它判断缓存是否变化，并记入任务的授权记录。
+- `kinds` 的取值见 privilege.md；`source` 为扩展预留，v1 恒为 `local`。
+- `match = "any"` 时 `pattern` 为空串。
+- 两种模式的运行身份放在这里，不改 `Hello` / `Facts`。
+
+### 授权对象
+
+```text
+Authorization        = [payload: bytes, signatures: [Signature]]       ; payload 是 CBOR(AuthorizationPayload) 的原文
+AuthorizationPayload = [v: 1, nodes: [text], command: AuthCommand?,
+                        issued_at_ms: int, deadline_ms: int?,
+                        task_ids: [text]?, attempt: uint?, note: text]
+AuthCommand          = [method: "exec" | "file.read" | "file.write", match: AuthMatch]
+AuthMatch            = ["exact", [target: text, spec_sha256: bytes]]    ; spec_sha256 恰好 32 字节
+                     | ["prefix", [target: text]]
+Signature            = ["sshsig", [blob: bytes]]
+                     | ["webauthn", [credential_id: bytes, authenticator_data: bytes,
+                                     client_data_json: bytes, signature: bytes]]
+```
+
+- **授权 id** = `SHA-256(payload)`，对原文 bytes 求哈希。校验方解码 payload 后重编码，与原文逐字节比较。
+- `nodes`：节点 id、`group:<name>`，或恰好 `["*"]`。不能为空。
+- `command` 为 `null` 表示任意方法、任意目标。
+- `task_ids` 与 `attempt` 同时为 `null`（可复用授权），或同时非 `null`（一次性授权，`task_ids` 非空、无重复，`attempt ≥ 1`）。一次性授权覆盖多个节点时，`task_ids` 列出各节点的任务 id；`task.start` 的 `task_id` 必须在列表中，`attempt` 必须相等。
+- `note` 没有时为空串。
+- **`spec_sha256`** = `SHA-256(CBOR(TaskSpec))`，`TaskSpec` 即 `task.start` 中的结构（stdin 和文件内容已经是 `InputRef`）。
+- **SSHSIG**：`blob` 是 OpenSSH SSHSIG 的二进制形式（去掉 `-----BEGIN SSH SIGNATURE-----` 装甲后 base64 解码的 bytes）。version 必须为 1，namespace 必须为 `crh-auth-v1`，reserved 必须为空，hash 为 `sha512`（`ssh-keygen` 默认值；`sha256` 也接受）。**被签名的 message 是 payload 原文 bytes**，由 SSHSIG 自己做哈希，不预先哈希。
+- **WebAuthn**：challenge = `SHA-256("crh-auth-v1\0" ‖ payload)`（32 字节）；浏览器中的 `challenge` 是它的 base64url，`client_data_json` 里的 `challenge` 解码后必须逐字节相等。支持的 COSE 算法：ES256（`-7`）、EdDSA / Ed25519（`-8`）、RS256（`-257`）。
+- 一个 `Authorization` 编码后不超过 `MAX_FRAME_BYTES` 的一半，为 `TaskStart` 其余部分留出空间；512 个任务 id 约 14 KiB。
+
+### crh-priv：非特权模式 ↔ 特权模式
+
+非特权模式与特权模式之间（`forward`：unix socket；`native`：helper 的 stdin/stdout）使用同一套帧、命令/事件抽象和严格解码规则，但**不是同一个协议**：
+
+- 没有 Noise。主机内的威胁不在范围内（privilege.md 的“威胁模型”），对端身份由 `SO_PEERCRED`（socket）或进程关系（stdio）确定。
+- 流式传输，每帧前加 4 字节大端长度；长度为 0 或超过 `MAX_FRAME_BYTES` 是协议错误。
+- 握手是第一对帧，不经过 Noise：
+
+```text
+PrivHello   = [priv_major: 1, priv_minor: 0, commands: [text], crha_version: text,
+               role: "forward" | "native" | "local"]
+PrivWelcome = [priv_major: 1, priv_minor: 0, commands: [text], crha_version: text]
+```
+
+- `role` 必须与对端身份一致：`forward` 要求 peer uid 等于 `unprivileged_uid`；`local` 要求 peer uid 在某个 `local` 信任项的 `uids` 中；`native` 只在 stdio 上出现，此时要求 `crha_version` 完全相等。不一致时特权侧关闭连接。
+
+| 名称 | 方向 | role | 说明 |
+|---|---|---|---|
+| `task.start` / `task.input` / `task.cancel` / `task.query` | U→P | forward、native | 与 crhs ↔ crha 同结构；`native` 跳过授权校验 |
+| `task.output` / `task.exit` | P→U | forward、native | 同结构；没有 ack，非特权模式写入自己的输出文件，沿用原有的落盘和续传 |
+| `trust.query` | U→P | forward | 请求 `[]`，响应 `TrustSummary` |
+| `trust.summary` | P→U | forward | 事件 `TrustSummary`，reload 后 digest 变化时推送 |
+| `revocations.add` / `local.request` / `local.withdraw` | U→P | forward | 同上文 |
+| `local.decision` | P→U | forward | 同上文 |
+| `pending.list` | L→P | local | 请求 `[]`，响应 `[[task_id: text, attempt: uint, spec: TaskSpec, note: text, received_at_ms: int]]` |
+| `local.approve` / `local.deny` | L→P | local | 请求 `[task_id: text, attempt: uint, message: text]`，响应 `[]` |
+| `revocations.add` | L→P | local | `crha privileged revoke` |
+
+- **断开**：`forward` 的连接断开时，特权模式中已 accepted 的任务继续运行到结束，结果写入本地日志；它们的输出不再回传。非特权模式重连后不认识这些任务，crhs 照常按 `unknown` 处理。`native` 的 stdin 关闭时，helper 等当前任务结束后退出。
+- **native helper** 每个进程只执行一个任务：握手、一个 `task.start`、输入、输出、`task.exit`，然后退出。stdin 是 tty 时拒绝启动。
 
 ## 受限连接
 
@@ -161,4 +281,5 @@ Facts    = [hostname: text, os_id: text, os_version_id: text, os_pretty_name: te
 ## fixture
 
 - `test/interop/cbor_core_golden_vectors.json`：profile 层正例/拒绝例，两端的 profile codec 都要通过。
+- M4 新增：授权对象、`spec_sha256`、`TrustSummary` digest、SSHSIG（与 `ssh-keygen -Y sign/verify` 互验）、WebAuthn assertion 的 golden vector，以及 crh-priv 握手和帧；授权判定的共享用例见 privilege.md。
 - `test/interop/crh_frames.json`：由 TS 实现生成、提交进仓库的帧 fixture，每项 `{ "id", "description", "hex" }`，覆盖每一种命令、响应（成功/错误）、事件、握手载荷和每一个联合分支；另有 `"negative"` 列表（长度不符、未知 tag、未知枚举、超长命令名、非规范编码、float 冒充整数、超过 2^53−1 的整数、`sha256` 长度错、尾随 bytes 等）。Go 测试解码每个正例，与按本文**独立手写**的期望值比较，再重编码比对 hex；负例必须全部被拒绝。
