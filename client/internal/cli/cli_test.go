@@ -2,13 +2,16 @@ package cli
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 )
 
 func TestCommandPaths(t *testing.T) {
 	paths := [][]string{
-		{"run"}, {"privileged"}, {"privileged", "run"}, {"privileged", "revoke"},
+		{"run"}, {"privileged"}, {"privileged", "run"}, {"privileged", "revoke"}, {"privileged", "stdio"},
 		{"enroll"}, {"status"}, {"reload"}, {"rotate-key"}, {"upgrade"},
 		{"grant"}, {"pending"}, {"approve"}, {"mcp"}, {"version"},
 	}
@@ -26,6 +29,18 @@ func TestNotImplemented(t *testing.T) {
 	root.SetArgs([]string{"pending"})
 	if err := root.Execute(); err != errNotImplemented {
 		t.Fatalf("got %v, want errNotImplemented", err)
+	}
+}
+
+func TestNativeEscalation(t *testing.T) {
+	for tool, want := range map[string][]string{
+		config.NativeSudo: {"sudo", "-n"},
+		config.NativeDoas: {"doas", "-n"},
+		config.NativeRun0: {"run0", "--pipe", "--no-ask-password"},
+	} {
+		if got := nativeEscalation(tool); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: got %v, want %v", tool, got, want)
+		}
 	}
 }
 

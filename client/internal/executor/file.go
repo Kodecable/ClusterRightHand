@@ -339,17 +339,11 @@ func fileWrite(ctx context.Context, s *protocol.FileWriteSpec, input io.Reader, 
 	return writeJSON(stdout, map[string]any{"bytes": n, "created": existing == nil})
 }
 
-func fileStat(s *protocol.FileStatSpec, stdout io.Writer) error {
-	if err := checkPath(s.Path); err != nil {
-		return err
-	}
-	fi, err := os.Lstat(s.Path)
-	if err != nil {
-		return err
-	}
+// statValues is the JSON body of a file.stat task for an already stat'ed file.
+func statValues(path string, fi fs.FileInfo) map[string]any {
 	uid, gid := statIDs(fi)
-	out := map[string]any{
-		"path":  s.Path,
+	return map[string]any{
+		"path":  path,
 		"type":  fileType(fi.Mode()),
 		"size":  fi.Size(),
 		"mode":  modeString(fi.Mode()),
@@ -359,6 +353,17 @@ func fileStat(s *protocol.FileStatSpec, stdout io.Writer) error {
 		"group": groupName(gid),
 		"mtime": mtimeString(fi),
 	}
+}
+
+func fileStat(s *protocol.FileStatSpec, stdout io.Writer) error {
+	if err := checkPath(s.Path); err != nil {
+		return err
+	}
+	fi, err := os.Lstat(s.Path)
+	if err != nil {
+		return err
+	}
+	out := statValues(s.Path, fi)
 	if fi.Mode()&fs.ModeSymlink != 0 {
 		target, err := os.Readlink(s.Path)
 		if err != nil {
