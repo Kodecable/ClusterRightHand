@@ -21,6 +21,8 @@ import {
 import { listNodesForUser } from "./nodes.ts";
 
 export const DEFAULT_PARALLEL = 10;
+/** One task group targets at most this many nodes, after target expansion and de-duplication (D85). */
+export const MAX_GROUP_NODES = 512;
 const MAX_PARALLEL = 100;
 const MAX_TARGETS = 1000;
 // setTimeout cannot wait longer than ~24.8 days, so long waits loop.
@@ -145,8 +147,15 @@ export class TaskGroups {
 		const parallel = Math.min(Math.max(input.parallel ?? DEFAULT_PARALLEL, 1), MAX_PARALLEL);
 		const outputMode = input.outputMode ?? "status";
 		if (input.id && (await this.#row(input.id))) return input.id;
+		// Reject before writing anything: truncating would make the caller think every node ran (D85).
+		const nodeIds = [...new Set(input.nodeIds)];
+		if (nodeIds.length > MAX_GROUP_NODES) {
+			throw new UserError(
+				`task group targets ${nodeIds.length} nodes (max ${MAX_GROUP_NODES}); split it into smaller batches`,
+			);
+		}
 		const id = input.id ?? newId();
-		const nodes = await this.#db.selectFrom("nodes").selectAll().where("id", "in", input.nodeIds).execute();
+		const nodes = await this.#db.selectFrom("nodes").selectAll().where("id", "in", nodeIds).execute();
 		const first = nodes[0];
 		if (!first) throw new UserError("no nodes");
 
@@ -168,7 +177,7 @@ export class TaskGroups {
 				id,
 				org_id: first.org_id,
 				targets: JSON.stringify(input.targets),
-				node_ids: JSON.stringify(input.nodeIds),
+				node_ids: JSON.stringify(nodeIds),
 				kind: input.spec.kind,
 				parallel,
 				fail_fast: input.failFast ? 1 : 0,
@@ -197,7 +206,7 @@ export class TaskGroups {
 			target: { type: "task_group", id },
 			detail: {
 				targets: input.targets,
-				node_ids: input.nodeIds,
+				node_ids: nodeIds,
 				kind: input.spec.kind,
 				policy: waiting ? "require-approval" : approval ? "evaluated" : "none",
 			},
@@ -214,7 +223,7 @@ export class TaskGroups {
 				if (view) void hook(view).catch((err: unknown) => console.error("review:", err));
 			}
 		} else {
-			this.#start(id, input, input.nodeIds, parallel);
+			this.#start(id, input, nodeIds, parallel);
 		}
 		return id;
 	}
