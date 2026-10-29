@@ -26,10 +26,27 @@ func TestSupportedNames(t *testing.T) {
 	if got := len(SupportedSet()); got != len(want) {
 		t.Fatalf("SupportedSet has %d names, want %d", got, len(want))
 	}
-	for _, reserved := range []string{"trust.query", "revocations.set", "trust.summary"} {
-		if SupportedSet().Has(reserved) {
-			t.Fatalf("M4-reserved name %q is declared in 1.0", reserved)
+	if got := RequiredNames(); !slices.Equal(got, want) {
+		t.Fatalf("RequiredNames() = %v, want %v", got, want)
+	}
+	// The protocol 1.1 names are known but not advertised yet: only the forward
+	// implementation of M4.3 sends and handles them.
+	optional := []string{"local.decision", "local.request", "local.withdraw", "revocations.add", "trust.summary"}
+	if got := OptionalNames(); !slices.Equal(got, optional) {
+		t.Fatalf("OptionalNames() = %v, want %v", got, optional)
+	}
+	for _, name := range optional {
+		if SupportedSet().Has(name) {
+			t.Fatalf("protocol 1.1 name %q is advertised in the 1.0 handshake", name)
 		}
+	}
+	// trust.query is crh-priv's own command; it is not part of the crhs <-> crha
+	// protocol at all.
+	if SupportedSet().Has("trust.query") {
+		t.Fatal("crh-priv name trust.query is declared in the crhs <-> crha handshake")
+	}
+	if Minor := ProtocolMinor; Minor != 1 {
+		t.Fatalf("ProtocolMinor = %d, want 1", Minor)
 	}
 }
 

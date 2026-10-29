@@ -80,10 +80,11 @@ type callResult struct{ err error }
 // every received frame to Receive. A Receive error is fatal for the connection; the
 // caller must close it and call Close.
 type Peer struct {
-	send       func([]byte) error
-	negotiated Set
-	ctx        context.Context
-	cancel     context.CancelFunc
+	send           func([]byte) error
+	negotiated     Set
+	commandSchemas map[string]commandSchema
+	ctx            context.Context
+	cancel         context.CancelFunc
 
 	sendMu sync.Mutex // serializes send and Close
 	recvMu sync.Mutex // serializes Receive
@@ -104,6 +105,7 @@ func NewPeer(send func([]byte) error, negotiated Set) *Peer {
 	return &Peer{
 		send:            send,
 		negotiated:      negotiated.Clone(),
+		commandSchemas:  cloneCommandSchemas(),
 		ctx:             ctx,
 		cancel:          cancel,
 		pending:         make(map[Uint]*pendingCall),
@@ -136,6 +138,38 @@ func (p *Peer) HandleEvent(name string, handler EventHandler) {
 	p.eventHandlers[name] = handler
 }
 
+// RegisterCommand adds the request and response body schemas of a command to this Peer.
+// It exists for protocols that reuse Peer's frames and bodies but have commands of their
+// own: crh-priv's trust.query, pending.list, local.approve and local.deny are not part of
+// the crhs <-> crha registry, so they are registered on the peering that needs them.
+// Register schemas before the first Receive.
+func (p *Peer) RegisterCommand(cmd string, request, response func() any) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.commandSchemas == nil {
+		p.commandSchemas = make(map[string]commandSchema)
+	}
+	p.commandSchemas[cmd] = commandSchema{request: request, response: response}
+}
+
+// schemas returns the body schemas of a command this Peer knows, if any.
+func (p *Peer) schemas(cmd string) (commandSchema, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	schema, ok := p.commandSchemas[cmd]
+	return schema, ok
+}
+
+// cloneCommandSchemas copies the package registry into a Peer's own map, so extensions
+// stay local to one peer.
+func cloneCommandSchemas() map[string]commandSchema {
+	out := make(map[string]commandSchema, len(commandSchemas))
+	for name, schema := range commandSchemas {
+		out[name] = schema
+	}
+	return out
+}
+
 // Request sends one command and waits for its response. ids start at 1 and are private
 // to this Peer. An error response is returned as *RemoteError. If Close is called while
 // the request is pending, the request returns an error wrapping ErrClosed. Cancelling
@@ -151,7 +185,7 @@ func (p *Peer) Request(ctx context.Context, cmd string, req, resp any) error {
 	if err != nil {
 		return err
 	}
-	if schema, ok := commandSchemas[cmd]; ok {
+	if schema, ok := p.schemas(cmd); ok {
 		if err := schema.validateRequest(body); err != nil {
 			return encodeErrorf("protocol: request %q body: %w", cmd, err)
 		}
@@ -297,7 +331,7 @@ func (p *Peer) handleResponse(f *Frame) error {
 	// schema, whether the caller wants the body and whether it still waits for it: a
 	// malformed response is a protocol error even for an abandoned call.
 	if f.OK {
-		if schema, ok := commandSchemas[f.Name]; ok {
+		if schema, ok := p.schemas(f.Name); ok {
 			if err := schema.validateResponse(f.Body); err != nil {
 				if !abandoned {
 					call.done <- callResult{err: err}
@@ -329,7 +363,7 @@ func (p *Peer) handleRequest(f *Frame) error {
 	// A command this package knows is decoded before the negotiation and handler
 	// checks, even if nobody is going to handle it; only a completely unknown name
 	// is answered without inspecting its body.
-	if schema, ok := commandSchemas[f.Name]; ok {
+	if schema, ok := p.schemas(f.Name); ok {
 		if err := schema.validateRequest(f.Body); err != nil {
 			return err
 		}
@@ -366,7 +400,7 @@ func (p *Peer) handleRequest(f *Frame) error {
 	}
 	// A success body must be valid for the command's schema even if the caller ignores it;
 	// a handler result that is not cannot be sent as a success response.
-	if schema, ok := commandSchemas[f.Name]; ok {
+	if schema, ok := p.schemas(f.Name); ok {
 		if err := schema.validateResponse(raw); err != nil {
 			return p.sendErrorResponse(f.ID, f.Name, "internal_error", err.Error())
 		}

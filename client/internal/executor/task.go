@@ -15,9 +15,9 @@ type Sink interface {
 	Writer(stream protocol.Stream) io.Writer
 }
 
-// TaskOptions is the execution environment of one task. Privileged execution (the native helper and,
-// later, the privileged daemon) fixes PATH and resolves file paths with openat2; unprivileged
-// execution keeps the process environment and the path-based file operations.
+// TaskOptions is the execution environment of one task. Privileged execution (the native helper and
+// the privileged daemon) fixes PATH and resolves file paths with openat2; unprivileged execution
+// keeps the process environment and the path-based file operations.
 type TaskOptions struct {
 	Timeout    time.Duration // exec timeout; 0 = none
 	KillGrace  time.Duration // SIGTERM-to-SIGKILL grace of exec; 0 = DefaultKillGrace

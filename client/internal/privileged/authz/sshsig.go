@@ -45,21 +45,9 @@ type SSHSIGResult struct {
 // ecdsa-sha2-nistp256 and their sk-* variants. An sk-* signature must assert user
 // presence; OpenSSH's ssh-keygen -Y verify does not enforce that, but crha does.
 func VerifySSHSIG(blob, message []byte) (*SSHSIGResult, error) {
-	if len(blob) < 6 || !bytes.Equal(blob[:6], []byte("SSHSIG")) {
-		return nil, errors.New("authz: sshsig: bad magic")
-	}
-	reader := &sshReader{data: blob, off: 6}
-
-	version, err := reader.uint32()
+	key, reader, err := parseSSHSIGKey(blob)
 	if err != nil {
-		return nil, fmt.Errorf("authz: sshsig: version: %w", err)
-	}
-	if version != 1 {
-		return nil, fmt.Errorf("authz: sshsig: unsupported version %d", version)
-	}
-	keyBlob, err := reader.string()
-	if err != nil {
-		return nil, fmt.Errorf("authz: sshsig: public key: %w", err)
+		return nil, err
 	}
 	namespace, err := reader.string()
 	if err != nil {
@@ -92,10 +80,6 @@ func VerifySSHSIG(blob, message []byte) (*SSHSIGResult, error) {
 		return nil, err
 	}
 
-	key, err := ssh.ParsePublicKey(keyBlob)
-	if err != nil {
-		return nil, fmt.Errorf("authz: sshsig: parse public key: %w", err)
-	}
 	if !supportedSSHSIGKey(key.Type()) {
 		return nil, fmt.Errorf("authz: sshsig: unsupported key type %q", key.Type())
 	}
@@ -145,6 +129,40 @@ func VerifySSHSIG(blob, message []byte) (*SSHSIGResult, error) {
 		return nil, fmt.Errorf("authz: sshsig: %w", err)
 	}
 	return result, nil
+}
+
+// SignerKey returns the public key embedded in an SSHSIG blob without verifying the
+// signature. A verifier uses it to tell a failed signature by a trusted key, which
+// invalidates the whole authorization, from a signature by a key no trust entry knows,
+// which is ignored (doc/privilege.md 校验流程, step 3).
+func SignerKey(blob []byte) (ssh.PublicKey, error) {
+	key, _, err := parseSSHSIGKey(blob)
+	return key, err
+}
+
+// parseSSHSIGKey reads the magic, version and signer key of an SSHSIG blob and returns the
+// reader positioned at the namespace.
+func parseSSHSIGKey(blob []byte) (ssh.PublicKey, *sshReader, error) {
+	if len(blob) < 6 || !bytes.Equal(blob[:6], []byte("SSHSIG")) {
+		return nil, nil, errors.New("authz: sshsig: bad magic")
+	}
+	reader := &sshReader{data: blob, off: 6}
+	version, err := reader.uint32()
+	if err != nil {
+		return nil, nil, fmt.Errorf("authz: sshsig: version: %w", err)
+	}
+	if version != 1 {
+		return nil, nil, fmt.Errorf("authz: sshsig: unsupported version %d", version)
+	}
+	keyBlob, err := reader.string()
+	if err != nil {
+		return nil, nil, fmt.Errorf("authz: sshsig: public key: %w", err)
+	}
+	key, err := ssh.ParsePublicKey(keyBlob)
+	if err != nil {
+		return nil, nil, fmt.Errorf("authz: sshsig: parse public key: %w", err)
+	}
+	return key, reader, nil
 }
 
 // sshsigHash hashes the message with the SSHSIG-declared algorithm.

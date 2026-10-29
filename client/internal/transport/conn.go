@@ -153,7 +153,7 @@ func handshake(ctx context.Context, ws wsConn, opts DialOptions) (*Conn, error) 
 		return nil, &HandshakeError{fmt.Errorf("decode response: %w", err)}
 	}
 	negotiated := protocol.SupportedSet().Intersect(protocol.NewSet(resp.Commands...))
-	for _, name := range protocol.SupportedNames() {
+	for _, name := range protocol.RequiredNames() {
 		if negotiated.Has(name) {
 			continue
 		}

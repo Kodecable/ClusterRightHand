@@ -29,6 +29,7 @@ func NewRootCmd() *cobra.Command {
 		newGrantCmd(),
 		newPendingCmd(),
 		newApproveCmd(),
+		newDenyCmd(),
 		newMCPCmd(),
 		newVersionCmd(),
 	)

@@ -3,6 +3,7 @@ package wire
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
@@ -38,12 +39,40 @@ type ClientOptions struct {
 
 // ServerOptions configures ServerHandshake.
 type ServerOptions struct {
-	// Role is the only role the server accepts. Identifying the peer itself (peer uid for forward
-	// and local) is the caller's job: it happens before or around the handshake.
+	// Role is the only role the server accepts. Roles, when Role is empty, is the set of
+	// accepted roles: the privileged daemon accepts forward for the unprivileged uid and
+	// local for a uid in some local trust entry, and the one connection may claim either.
 	Role Role
+	// Roles is the accepted role set used when Role is empty.
+	Roles []Role
 	// CRHAVersion is this build's version. For the native role the peer's version must equal it
 	// (doc/protocol.md: native 只在 stdio 上出现，此时要求 crha_version 完全相等).
 	CRHAVersion string
+}
+
+// allows reports whether the server accepts hello's role.
+func (o ServerOptions) allows(role Role) bool {
+	if o.Role != "" {
+		return role == o.Role
+	}
+	for _, allowed := range o.Roles {
+		if role == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+// describeAllowed renders the accepted roles for an error message.
+func (o ServerOptions) describeAllowed() string {
+	if o.Role != "" {
+		return string(o.Role)
+	}
+	roles := make([]string, 0, len(o.Roles))
+	for _, role := range o.Roles {
+		roles = append(roles, string(role))
+	}
+	return strings.Join(roles, " or ")
 }
 
 // ClientHandshake sends hello and reads the privileged peer's welcome. It returns the welcome and
@@ -52,7 +81,7 @@ func ClientHandshake(r io.Reader, w io.Writer, opts ClientOptions) (*PrivWelcome
 	hello := PrivHello{
 		PrivMajor:   PrivMajor,
 		PrivMinor:   PrivMinor,
-		Commands:    Names(),
+		Commands:    NamesFor(opts.Role),
 		CRHAVersion: opts.CRHAVersion,
 		Role:        opts.Role,
 	}
@@ -76,7 +105,7 @@ func ClientHandshake(r io.Reader, w io.Writer, opts ClientOptions) (*PrivWelcome
 	if err := protocol.Unmarshal(frame, &welcome); err != nil {
 		return nil, nil, fmt.Errorf("crh-priv: welcome: %w", err)
 	}
-	negotiated, err := negotiate(welcome.Commands)
+	negotiated, err := negotiate(opts.Role, welcome.Commands)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -99,20 +128,20 @@ func ServerHandshake(r io.Reader, w io.Writer, opts ServerOptions) (*PrivHello, 
 	if err := protocol.Unmarshal(frame, &hello); err != nil {
 		return nil, nil, fmt.Errorf("crh-priv: hello: %w", err)
 	}
-	if hello.Role != opts.Role {
-		return nil, nil, fmt.Errorf("crh-priv: peer role %q is not allowed here (want %q)", hello.Role, opts.Role)
+	if !opts.allows(hello.Role) {
+		return nil, nil, fmt.Errorf("crh-priv: peer role %q is not allowed here (want %s)", hello.Role, opts.describeAllowed())
 	}
 	if opts.Role == RoleNative && hello.CRHAVersion != opts.CRHAVersion {
 		return nil, nil, fmt.Errorf("crh-priv: peer crha version %q, want %q", hello.CRHAVersion, opts.CRHAVersion)
 	}
-	negotiated, err := negotiate(hello.Commands)
+	negotiated, err := negotiate(hello.Role, hello.Commands)
 	if err != nil {
 		return nil, nil, err
 	}
 	welcome := PrivWelcome{
 		PrivMajor:   PrivMajor,
 		PrivMinor:   PrivMinor,
-		Commands:    Names(),
+		Commands:    NamesFor(hello.Role),
 		CRHAVersion: opts.CRHAVersion,
 	}
 	body, err := protocol.Marshal(welcome)

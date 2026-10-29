@@ -157,6 +157,11 @@ func Decide(in Input) Decision {
 // decideLocal handles a task.start after crha approve: the local approval takes the place
 // of the authorization object, so steps 3, 4 and the command part of step 6 do not apply.
 func decideLocal(in Input, method, target string, specHash [32]byte) Decision {
+	// A task id that already ran is already accepted, whether or not an approval is still
+	// recorded: crhs never resends an accepted task, and a consumed approval is gone.
+	if in.taskExecuted(in.Task.ID) {
+		return failure(ResultAlreadyAccepted, StepOneShot, "task %s already ran on this node", in.Task.ID)
+	}
 	approval := in.LocalApproval
 	if approval == nil {
 		return failure(ResultRequired, StepSignatures, "no authorization and no local approval")

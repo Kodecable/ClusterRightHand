@@ -13,8 +13,10 @@ import (
 
 const (
 	// ProtocolMajor and ProtocolMinor are the versions advertised in the handshake.
+	// Protocol 1.1 adds the M4 privilege commands and events; they are optional in the
+	// handshake, so a 1.0 peer still connects (doc/protocol.md, M4：提权).
 	ProtocolMajor = 1
-	ProtocolMinor = 0
+	ProtocolMinor = 1
 	// MaxFrameBytes bounds one encoded frame so that it fits a Noise transport message.
 	MaxFrameBytes = 61440
 	// MaxSafeInteger is the largest integer allowed by the protocol schema: 2^53-1.
@@ -47,9 +49,18 @@ const (
 	EventTaskExitAck = "task.exit.ack"
 )
 
-// commandNames and eventNames are the names implemented by this package. M4-reserved
-// names (trust.query, revocations.set, trust.summary) are deliberately absent: 1.0 does
-// not declare or implement them.
+// Command and event names added in protocol 1.1 (M4, doc/protocol.md#m4提权). They are
+// optional in the handshake: a 1.0 peer that does not offer them still connects.
+const (
+	CmdRevocationsAdd  = "revocations.add"
+	CmdLocalRequest    = "local.request"
+	CmdLocalWithdraw   = "local.withdraw"
+	EventTrustSummary  = "trust.summary"
+	EventLocalDecision = "local.decision"
+)
+
+// commandNames and eventNames are the protocol 1.0 names: the required set, and (until
+// forward mode implements the 1.1 commands) the set crha advertises in its handshake.
 var (
 	commandNames = []string{
 		CmdHello,
@@ -66,6 +77,21 @@ var (
 		EventNodeStatus,
 		EventOutputAck,
 		EventTaskExitAck,
+	}
+)
+
+// optionalCommandNames and optionalEventNames are the protocol 1.1 names this package
+// knows the bodies of. They are not advertised yet: only the M4 forward implementation
+// sends and handles them.
+var (
+	optionalCommandNames = []string{
+		CmdRevocationsAdd,
+		CmdLocalRequest,
+		CmdLocalWithdraw,
+	}
+	optionalEventNames = []string{
+		EventTrustSummary,
+		EventLocalDecision,
 	}
 )
 
@@ -104,6 +130,18 @@ var commandSchemas = map[string]commandSchema{
 		request:  func() any { return new(TaskQuery) },
 		response: func() any { return new(TaskStatus) },
 	},
+	CmdRevocationsAdd: {
+		request:  func() any { return new(RevocationsAdd) },
+		response: func() any { return new(Empty) },
+	},
+	CmdLocalRequest: {
+		request:  func() any { return new(LocalRequest) },
+		response: func() any { return new(LocalState) },
+	},
+	CmdLocalWithdraw: {
+		request:  func() any { return new(LocalWithdraw) },
+		response: func() any { return new(Empty) },
+	},
 }
 
 // validateRequest decodes raw as the command's request body.
@@ -119,12 +157,14 @@ func (s commandSchema) validateResponse(raw cbor.RawMessage) error {
 // eventSchemas names the body type of every event this package knows, so Emit can validate an
 // outgoing body the same way a receiver validates a command body.
 var eventSchemas = map[string]func() any{
-	EventTaskOutput:  func() any { return new(TaskOutput) },
-	EventTaskExit:    func() any { return new(TaskExit) },
-	EventFacts:       func() any { return new(Facts) },
-	EventNodeStatus:  func() any { return new(NodeStatus) },
-	EventOutputAck:   func() any { return new(OutputAck) },
-	EventTaskExitAck: func() any { return new(TaskExitAck) },
+	EventTaskOutput:    func() any { return new(TaskOutput) },
+	EventTaskExit:      func() any { return new(TaskExit) },
+	EventFacts:         func() any { return new(Facts) },
+	EventNodeStatus:    func() any { return new(NodeStatus) },
+	EventOutputAck:     func() any { return new(OutputAck) },
+	EventTaskExitAck:   func() any { return new(TaskExitAck) },
+	EventTrustSummary:  func() any { return new(TrustReport) },
+	EventLocalDecision: func() any { return new(LocalDecision) },
 }
 
 // validateEventBody decodes raw as the named event's body. A name outside the schema is
@@ -137,14 +177,15 @@ func validateEventBody(name string, raw cbor.RawMessage) error {
 	return Unmarshal(raw, newBody())
 }
 
-// SupportedCommands returns the command names implemented by this package.
+// SupportedCommands returns the command names this package advertises in a handshake.
 func SupportedCommands() []string { return slices.Clone(commandNames) }
 
-// SupportedEvents returns the event names implemented by this package.
+// SupportedEvents returns the event names this package advertises in a handshake.
 func SupportedEvents() []string { return slices.Clone(eventNames) }
 
-// SupportedNames returns every command and event name, sorted. This is the list to put
-// in a handshake's commands field.
+// SupportedNames returns every advertised command and event name, sorted. This is the
+// list to put in a handshake's commands field; the protocol 1.1 names are not in it yet,
+// because crha does not implement their forward side.
 func SupportedNames() []string {
 	names := append(SupportedCommands(), SupportedEvents()...)
 	slices.Sort(names)
@@ -153,6 +194,22 @@ func SupportedNames() []string {
 
 // SupportedSet returns SupportedNames as a Set.
 func SupportedSet() Set { return NewSet(SupportedNames()...) }
+
+// RequiredNames returns the protocol 1.0 command and event names, sorted. A handshake
+// whose negotiated intersection lacks one of them is rejected (doc/protocol.md, 握手载荷).
+func RequiredNames() []string {
+	names := append(slices.Clone(commandNames), eventNames...)
+	slices.Sort(names)
+	return names
+}
+
+// OptionalNames returns the protocol 1.1 command and event names, sorted. They are
+// optional in the handshake: a 1.0 peer that does not implement them still connects.
+func OptionalNames() []string {
+	names := append(slices.Clone(optionalCommandNames), optionalEventNames...)
+	slices.Sort(names)
+	return names
+}
 
 // Set is a set of command and event names. The handshake intersects the two peers' sets;
 // only names in the intersection may be sent.

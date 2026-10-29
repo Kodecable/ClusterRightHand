@@ -2,6 +2,7 @@ package wire
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -17,10 +18,10 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
-// hasAllNames reports whether commands lists every name this phase requires.
-func hasAllNames(commands []string) bool {
+// hasAllNames reports whether commands lists every name role's handshake requires.
+func hasAllNames(commands []string, role Role) bool {
 	set := protocol.NewSet(commands...)
-	for _, name := range Names() {
+	for _, name := range requiredNamesFor(role) {
 		if !set.Has(name) {
 			return false
 		}
@@ -209,11 +210,14 @@ func TestHandshakeFromVectors(t *testing.T) {
 	if res.err != nil {
 		t.Fatalf("server: %v", res.err)
 	}
-	if res.hello.Role != RoleForward || !hasAllNames(res.hello.Commands) {
+	if res.hello.Role != RoleForward || !hasAllNames(res.hello.Commands, RoleForward) {
 		t.Fatalf("hello = %+v", res.hello)
 	}
-	if !reflect.DeepEqual(res.set.Names(), []string{"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start"}) {
-		t.Fatalf("negotiated %v", res.set.Names())
+	if want := []string{
+		"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start",
+		"trust.query", "trust.summary",
+	}; !reflect.DeepEqual(res.set.Names(), want) {
+		t.Fatalf("negotiated %v, want %v", res.set.Names(), want)
 	}
 
 	// The fixture welcome answers a client handshake.
@@ -238,7 +242,7 @@ func TestHandshakeFromVectors(t *testing.T) {
 	if err := protocol.Unmarshal(helloFrame, &hello); err != nil {
 		t.Fatalf("hello: %v", err)
 	}
-	if hello.Role != RoleForward || hello.PrivMajor != PrivMajor || !reflect.DeepEqual(hello.Commands, Names()) {
+	if hello.Role != RoleForward || hello.PrivMajor != PrivMajor || !reflect.DeepEqual(hello.Commands, NamesFor(RoleForward)) {
 		t.Fatalf("client hello = %+v", hello)
 	}
 	if err := WriteFrame(server2, vectors["priv.welcome"]); err != nil {
@@ -248,7 +252,11 @@ func TestHandshakeFromVectors(t *testing.T) {
 	if cres.err != nil {
 		t.Fatalf("client: %v", cres.err)
 	}
-	if cres.welcome.CRHAVersion != "0.4.0" || len(cres.negotiated) != len(Names()) {
+	wantNegotiated := []string{
+		"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start",
+		"trust.query", "trust.summary",
+	}
+	if cres.welcome.CRHAVersion != "0.4.0" || !reflect.DeepEqual(cres.negotiated.Names(), wantNegotiated) {
 		t.Fatalf("welcome = %+v negotiated %v", cres.welcome, cres.negotiated.Names())
 	}
 }
@@ -445,5 +453,99 @@ func TestClientHandshakeRejections(t *testing.T) {
 				t.Fatalf("got %v, want an error containing %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// TestRoleNames covers the per-role command sets: native keeps the 1.0 task set, forward adds
+// the forward-only names and local adds its approval names.
+func TestRoleNames(t *testing.T) {
+	core := []string{"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start"}
+	if got := Names(); !reflect.DeepEqual(got, core) {
+		t.Fatalf("Names() = %v, want %v", got, core)
+	}
+	if got := NamesFor(RoleNative); !reflect.DeepEqual(got, core) {
+		t.Fatalf("native names = %v", got)
+	}
+	cases := []struct {
+		role Role
+		want []string
+	}{
+		{RoleForward, []string{
+			"local.decision", "local.request", "local.withdraw", "revocations.add",
+			"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start",
+			"trust.query", "trust.summary",
+		}},
+		{RoleLocal, []string{"local.approve", "local.deny", "pending.list", "revocations.add"}},
+	}
+	for _, tc := range cases {
+		if got := NamesFor(tc.role); !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("%s names = %v, want %v", tc.role, got, tc.want)
+		}
+	}
+}
+
+// TestLocalHandshake completes a local-role handshake and checks that the role's private
+// command schemas are registered on both peers.
+func TestLocalHandshake(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	type result struct {
+		hello *PrivHello
+		set   protocol.Set
+		err   error
+	}
+	results := make(chan result, 1)
+	go func() {
+		hello, set, err := ServerHandshake(server, server, ServerOptions{Roles: []Role{RoleForward, RoleLocal}, CRHAVersion: "0.4.0-test"})
+		results <- result{hello, set, err}
+	}()
+	_, negotiated, err := ClientHandshake(client, client, ClientOptions{Role: RoleLocal, CRHAVersion: "0.4.0-test"})
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+	if got := negotiated.Names(); !reflect.DeepEqual(got, NamesFor(RoleLocal)) {
+		t.Fatalf("negotiated %v", got)
+	}
+	res := <-results
+	if res.err != nil {
+		t.Fatalf("server: %v", res.err)
+	}
+	if res.hello.Role != RoleLocal || !reflect.DeepEqual(res.set.Names(), NamesFor(RoleLocal)) {
+		t.Fatalf("server hello %+v set %v", res.hello, res.set.Names())
+	}
+	// NewStreamFor must register the private schemas; a request with a wrong body is
+	// rejected locally by Peer.Request before anything is written.
+	stream := NewStreamFor(client, client, negotiated, RoleLocal)
+	var empty protocol.Empty
+	err = stream.Peer().Request(context.Background(), CmdLocalApprove, protocol.Empty{}, &empty)
+	if err == nil || !strings.Contains(err.Error(), "body") {
+		t.Fatalf("local.approve with an empty body = %v, want a local schema rejection", err)
+	}
+}
+
+// TestForwardHandshakeAdditions covers a full forward handshake with both peers advertising
+// every forward name, so the optional additions are negotiated too.
+func TestForwardHandshakeAdditions(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	type result struct {
+		err error
+	}
+	results := make(chan result, 1)
+	go func() {
+		_, _, err := ServerHandshake(server, server, ServerOptions{Roles: []Role{RoleForward}, CRHAVersion: "0.4.0-test"})
+		results <- result{err}
+	}()
+	_, negotiated, err := ClientHandshake(client, client, ClientOptions{Role: RoleForward, CRHAVersion: "0.4.0-test"})
+	if err != nil {
+		t.Fatalf("client: %v", err)
+	}
+	if got := negotiated.Names(); !reflect.DeepEqual(got, NamesFor(RoleForward)) {
+		t.Fatalf("negotiated %v, want %v", got, NamesFor(RoleForward))
+	}
+	if res := <-results; res.err != nil {
+		t.Fatalf("server: %v", res.err)
 	}
 }

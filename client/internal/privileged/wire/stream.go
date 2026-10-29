@@ -22,6 +22,14 @@ func NewStream(r io.Reader, w io.Writer, negotiated protocol.Set) *Stream {
 	return s
 }
 
+// NewStreamFor is NewStream plus the role's crh-priv-only command schemas, so Peer.Request and
+// Peer.Receive validate trust.query or pending.list bodies like any registered command.
+func NewStreamFor(r io.Reader, w io.Writer, negotiated protocol.Set, role Role) *Stream {
+	s := NewStream(r, w, negotiated)
+	RegisterSchemas(s.peer, role)
+	return s
+}
+
 // Peer returns the underlying protocol.Peer, for registering handlers and sending requests and
 // events. Its send function writes length-prefixed frames.
 func (s *Stream) Peer() *protocol.Peer { return s.peer }
