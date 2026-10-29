@@ -30,3 +30,13 @@ test("validation", () => {
 	expect(() => buildTaskRequest({ ...emptyForm, kind: "file.stat" })).toThrow("path is required");
 	expect(() => buildTaskRequest({ ...emptyForm, command: "x", timeoutSec: "-1" })).toThrow("timeout");
 });
+
+test("the privileged flag is sent only when checked", () => {
+	expect(buildTaskRequest({ ...emptyForm, command: "true" }).privileged).toBeUndefined();
+	expect(buildTaskRequest({ ...emptyForm, command: "true", privileged: true })).toMatchObject({ privileged: true });
+	// It applies to every kind, not only exec.
+	expect(buildTaskRequest({ ...emptyForm, kind: "file.read", path: "/etc/hosts", privileged: true })).toMatchObject({
+		kind: "file.read",
+		privileged: true,
+	});
+});

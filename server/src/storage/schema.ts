@@ -208,6 +208,8 @@ export interface TaskGroupsTable extends ApprovalColumns {
 	fail_fast: number;
 	/** The batch output mode, fixed when the group is created. */
 	output_mode: BatchOutputMode;
+	/** 1 when the group's tasks are privileged tasks (doc/privilege.md). */
+	privileged: number;
 	skipped: string;
 	state: TaskGroupState;
 	actor_type: string;

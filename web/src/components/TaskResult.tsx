@@ -46,7 +46,15 @@ export function TaskResult({ task }: { task: TaskView }) {
 				<dt>Task</dt>
 				<dd className="mono">{task.id}</dd>
 				<dt>Kind</dt>
-				<dd>{task.kind}</dd>
+				<dd>
+					{task.kind}
+					{task.privileged && (
+						<>
+							{" "}
+							<Badge kind="priv">privileged</Badge>
+						</>
+					)}
+				</dd>
 				{task.summary && (
 					<>
 						<dt>Summary</dt>

@@ -22,6 +22,12 @@ function GroupResult({ group, names }: { group: TaskGroupView; names: Map<string
 		<section>
 			<h2>
 				Result <Badge kind={groupStateKind(group.state)}>{group.state}</Badge>
+				{group.privileged && (
+					<>
+						{" "}
+						<Badge kind="priv">privileged</Badge>
+					</>
+				)}
 			</h2>
 			{group.state === "awaiting_approval" && (
 				<p>

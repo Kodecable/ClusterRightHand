@@ -115,19 +115,21 @@ test("shellQuote", () => {
 });
 
 test("alwaysRule", () => {
-	expect(alwaysRule({ method: "exec", target: "/bin/sh -c 'echo hi; ls'" }, ["n1"], "exact")).toEqual({
+	expect(alwaysRule({ method: "exec", target: "/bin/sh -c 'echo hi; ls'" }, ["n1"], "exact", true)).toEqual({
 		action: "allow",
 		method: "exec",
 		nodes: ["n1"],
+		privileged: true,
 		exact: "/bin/sh -c 'echo hi; ls'",
 	});
-	expect(alwaysRule({ method: "file.write", target: "/etc/x" }, ["n1", "n2"], "prefix")).toEqual({
+	expect(alwaysRule({ method: "file.write", target: "/etc/x" }, ["n1", "n2"], "prefix", false)).toEqual({
 		action: "allow",
 		method: "file.write",
 		nodes: ["n1", "n2"],
+		privileged: false,
 		prefix: "/etc/x",
 	});
-	expect(alwaysRule(null, ["n"], "exact")).toBeUndefined();
+	expect(alwaysRule(null, ["n"], "exact", true)).toBeUndefined();
 });
 
 test("tokenStatus", () => {

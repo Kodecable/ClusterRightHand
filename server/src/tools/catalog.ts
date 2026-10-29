@@ -96,6 +96,13 @@ const waitField = z
 	.max(MAX_WAIT_S)
 	.optional()
 	.describe("Seconds to wait for the result; after that the task keeps running and task_wait follows it up");
+const privilegedField = z
+	.boolean()
+	.optional()
+	.describe(
+		"Run with elevated privileges according to the node's privileged mode (forward, native, ignore or " +
+			"reject); SSH nodes ignore it and run as the SSH user",
+	);
 const batchFields = {
 	parallel: z.number().int().min(1).max(100).optional().describe("Batch: nodes run at once (default 10)"),
 	fail_fast: z.boolean().optional().describe("Batch: start no more nodes after one fails"),
@@ -139,6 +146,7 @@ function streamOf(head: string, tail: string, bytes: number): { text: string; tr
 /** A task as the model sees it. */
 export function taskResult(t: TaskView, nodeName: string, ctx: ToolContext): Record<string, unknown> {
 	const out: Record<string, unknown> = { task_id: t.id, node: nodeName, state: t.state };
+	if (t.privileged) out.privileged = true;
 	if (t.state === "awaiting_approval") {
 		out.approval = {
 			status: "waiting for the user's approval",
@@ -206,6 +214,7 @@ async function nodeNames(ctx: ToolContext, ids: string[]): Promise<Map<string, s
 
 function groupResult(g: TaskGroupView, names: Map<string, string>, ctx: ToolContext): Record<string, unknown> {
 	const out: Record<string, unknown> = { task_group_id: g.id, state: g.state };
+	if (g.privileged) out.privileged = true;
 	if (g.state === "awaiting_approval") {
 		out.approval = {
 			status: "waiting for the user's approval",
@@ -231,6 +240,7 @@ async function run(
 		parallel?: number;
 		fail_fast?: boolean;
 		output?: "status" | "text";
+		privileged?: boolean;
 	},
 	spec: TaskSpec,
 	input?: Uint8Array,
@@ -238,7 +248,7 @@ async function run(
 	if ((args.node === undefined) === (args.targets === undefined)) throw new UserError("give either node or targets");
 	const waitMs = (args.wait ?? ctx.defaultWaitS ?? DEFAULT_WAIT_S) * 1000;
 	const timeoutMs = args.timeout ? args.timeout * 1000 : undefined;
-	const common = { spec, input, timeoutMs, actor: ctx.actor, chain: ctx.chain };
+	const common = { spec, input, timeoutMs, actor: ctx.actor, chain: ctx.chain, privileged: args.privileged === true };
 	if (args.node !== undefined) {
 		const [nodeId] = await resolveTargets(ctx.db, ctx.user, [args.node]);
 		const id = ctx.callKey ? derivedId(`task:${ctx.callKey}`) : undefined;
@@ -302,7 +312,7 @@ async function readNotes(ctx: ToolContext, nodeId: string, path: string): Promis
 	const node = await getNode(ctx.db, nodeId);
 	if (node?.status !== "active") return { path, content: null, note: "the node is not active" };
 	const spec: TaskSpec = { kind: "file.read", path, offset: 0, limit: NOTES_BYTES + 1 };
-	if ((await ctx.cluster.evaluateFor(node, spec, ctx.chain)).result !== "allow") {
+	if ((await ctx.cluster.evaluateFor(node, spec, ctx.chain, false)).result !== "allow") {
 		return { path, content: null, note: "reading it needs approval here; use read_file" };
 	}
 	const id = ctx.callKey ? derivedId(`notes:${ctx.callKey}`) : undefined;
@@ -380,6 +390,7 @@ const exec = define({
 		env: z.record(z.string(), z.string()).optional(),
 		stdin: z.string().optional(),
 		timeout: z.number().int().min(1).optional().describe("Seconds before the command is killed"),
+		privileged: privilegedField,
 		wait: waitField,
 		...batchFields,
 	}),
@@ -410,6 +421,7 @@ const readFile = define({
 		path: z.string().describe("Absolute path"),
 		offset: z.number().int().min(0).optional().describe("Byte offset to start at"),
 		limit: z.number().int().min(1).optional().describe("Bytes to read (default: to the end)"),
+		privileged: privilegedField,
 		wait: waitField,
 		...batchFields,
 	}),
@@ -430,6 +442,7 @@ const writeFile = define({
 		content: z.string(),
 		overwrite: z.boolean().optional(),
 		mode: z.number().int().min(0).max(0o7777).optional().describe("Permission bits for a new file, e.g. 420 (0644)"),
+		privileged: privilegedField,
 		wait: waitField,
 		...batchFields,
 	}),
@@ -460,6 +473,7 @@ const editFile = define({
 		node: nodeField,
 		path: z.string().describe("Absolute path"),
 		edits: z.array(z.object({ oldText: z.string().min(1), newText: z.string() })).min(1),
+		privileged: privilegedField,
 		wait: waitField,
 	}),
 	readOnly: false,
@@ -478,6 +492,7 @@ const listDir = define({
 		node: nodeField,
 		path: z.string().describe("Absolute path"),
 		limit: z.number().int().min(1).max(10_000).optional(),
+		privileged: privilegedField,
 		wait: waitField,
 	}),
 	readOnly: true,

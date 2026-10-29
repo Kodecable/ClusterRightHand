@@ -18,6 +18,7 @@ export interface TaskForm {
 	oldText: string;
 	newText: string;
 	timeoutSec: string;
+	privileged: boolean;
 }
 
 export const emptyForm: TaskForm = {
@@ -34,6 +35,7 @@ export const emptyForm: TaskForm = {
 	oldText: "",
 	newText: "",
 	timeoutSec: "",
+	privileged: false,
 };
 
 function num(s: string, what: string): number | undefined {
@@ -46,6 +48,7 @@ function num(s: string, what: string): number | undefined {
 /** Builds the POST body; throws an Error with a user-facing message on invalid input. */
 export function buildTaskRequest(f: TaskForm): TaskRequest {
 	const body: TaskRequest = { kind: f.kind, waitMs: 0 };
+	if (f.privileged) body.privileged = true;
 	const timeout = num(f.timeoutSec, "timeout");
 	if (timeout !== undefined) body.timeoutMs = timeout * 1000;
 	const need = (v: string, what: string) => {

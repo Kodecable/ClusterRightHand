@@ -140,14 +140,19 @@ export function shellQuote(s: string): string {
 	return /^[A-Za-z0-9_@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`;
 }
 
-/** The allow rule offered by "Approve and always allow", from the operation the server reports. */
+/**
+ * The allow rule offered by "Approve and always allow", from the operation the server reports. It carries
+ * the task's `privileged` value, so that allowing a privileged call does not also allow ordinary ones
+ * (doc/access-control.md#规则).
+ */
 export function alwaysRule(
 	op: Operation | null | undefined,
 	nodes: string[],
 	mode: "exact" | "prefix",
+	privileged: boolean,
 ): Rule | undefined {
 	if (!op) return undefined;
-	return { action: "allow", method: op.method, nodes, [mode]: op.target };
+	return { action: "allow", method: op.method, nodes, privileged, [mode]: op.target };
 }
 
 export function actorLabel(type: string, id: string, tokenNames: Map<string, string>): string {

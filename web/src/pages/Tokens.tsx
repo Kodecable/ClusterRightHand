@@ -6,7 +6,7 @@ import { useAction, useLoad } from "../hooks.ts";
 import { formatTime, mcpCommand, tokenStatus } from "../lib.ts";
 
 const PRESET_HELP: Record<Preset, string> = {
-	ask: "Ask: reads run, everything else waits for your approval",
+	ask: "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval",
 	yolo: "Yolo: everything runs without asking",
 	auto_review: "Auto Review: needs a model, coming later",
 };
@@ -61,7 +61,9 @@ function CreateToken({ onClose, onCreated }: { onClose: () => void; onCreated: (
 				<label>
 					Preset
 					<select value={preset} onChange={(e) => setPreset(e.target.value as Preset)}>
-						<option value="ask">Ask - reads run, everything else waits for your approval</option>
+						<option value="ask">
+							Ask - ordinary reads run, everything else (including privileged tasks) waits for your approval
+						</option>
 						<option value="yolo">Yolo - everything runs without asking</option>
 						<option value="auto_review" disabled>
 							Auto Review (needs a model, coming later)

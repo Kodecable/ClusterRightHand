@@ -36,6 +36,7 @@ function task(overrides: Partial<TaskView>): TaskView {
 		stderrTail: "",
 		outputFile: null,
 		outputMode: "full",
+		privileged: false,
 		createdAt: "2026-01-01T00:00:00.000Z",
 		finishedAt: null,
 		taskGroupId: null,
@@ -198,5 +199,128 @@ describe("taskResult output modes", () => {
 		const r = taskResult(task({ stdoutHead: "hello\n", stdoutBytes: 6 }), "web-1", ctx);
 		expect(r).toMatchObject({ stdout: "hello\n" });
 		expect(r.output).toBeUndefined();
+	});
+
+	it("shows that a task was privileged", () => {
+		expect(taskResult(task({ privileged: true }), "web-1", ctx)).toMatchObject({ privileged: true });
+		expect(taskResult(task({ privileged: false }), "web-1", ctx).privileged).toBeUndefined();
+	});
+});
+
+describe("the privileged tool parameter", () => {
+	const tool = (name: string) => {
+		const found = TOOLS.find((t) => t.name === name);
+		if (!found) throw new Error(`${name} tool missing`);
+		return found;
+	};
+	const valid: Record<string, Record<string, unknown>> = {
+		exec: { node: "web-1", cmd: "true" },
+		read_file: { node: "web-1", path: "/etc/hosts" },
+		write_file: { node: "web-1", path: "/tmp/x", content: "x" },
+		edit_file: { node: "web-1", path: "/tmp/x", edits: [{ oldText: "a", newText: "b" }] },
+		list_dir: { node: "web-1", path: "/tmp" },
+	};
+
+	it("is an optional boolean on every task tool", () => {
+		for (const [name, body] of Object.entries(valid)) {
+			const t = tool(name);
+			expect(t.input.safeParse(body).success, name).toBe(true);
+			expect(t.input.safeParse({ ...body, privileged: true }).success, name).toBe(true);
+			expect(t.input.safeParse({ ...body, privileged: "true" }).success, name).toBe(false);
+		}
+	});
+
+	it("passes it to task creation and reports it in the result", async () => {
+		const db = await openTestDb("sqlite");
+		try {
+			const user = await createUser(db, { username: "priv-tool-user", kind: "member" });
+			const sessionUser: SessionUser = {
+				sessionId: "s",
+				userId: user.id,
+				username: user.username,
+				kind: "member",
+			};
+			const nodeId = newId();
+			const now = new Date().toISOString();
+			await db
+				.insertInto("nodes")
+				.values({
+					id: nodeId,
+					org_id: await defaultOrgId(db),
+					owner_user_id: user.id,
+					name: "web-1",
+					transport: "client",
+					status: "active",
+					public_key: null,
+					hostname: "web-1",
+					facts: null,
+					client_version: null,
+					privileged_mode: null,
+					last_seen_at: null,
+					created_at: now,
+					approved_at: now,
+					approved_by_user_id: null,
+					ssh_host: null,
+					ssh_port: null,
+					ssh_user: null,
+					ssh_host_key: null,
+					ssh_credential_id: null,
+					ssh_jumps: null,
+				})
+				.execute();
+			const created: { privileged?: boolean }[] = [];
+			const cluster = {
+				createTask: async (input: { privileged?: boolean }) => {
+					created.push(input);
+					return task({ id: "t1", privileged: input.privileged === true });
+				},
+				waitTask: async () => task({ id: "t1", privileged: true }),
+			} as unknown as Cluster;
+			const groups = {
+				create: async () => "g1",
+				wait: async () => ({
+					id: "g1",
+					state: "finished",
+					targets: ["web-1"],
+					nodeIds: [nodeId],
+					parallel: 1,
+					failFast: false,
+					outputMode: "status",
+					privileged: true,
+					skipped: [],
+					tasks: [task({ id: "t1", privileged: true })],
+					createdAt: now,
+					finishedAt: now,
+				}),
+			} as unknown as TaskGroups;
+			const toolCtx = {
+				db,
+				cluster,
+				groups,
+				user: sessionUser,
+				actor: { type: "system", id: "test", onBehalfOfUserId: user.id },
+				chain: [],
+				approvalUrl: () => "http://crh.test/",
+			} as unknown as ToolContext;
+
+			await tool("exec").handler({ node: "web-1", cmd: "true", privileged: true }, toolCtx);
+			await tool("exec").handler({ node: "web-1", cmd: "true" }, toolCtx);
+			expect(created.map((input) => input.privileged)).toEqual([true, false]);
+
+			const single = (await tool("read_file").handler(
+				{ node: "web-1", path: "/etc/hosts", privileged: true },
+				toolCtx,
+			)) as Record<string, unknown>;
+			expect(single.privileged).toBe(true);
+
+			const batch = (await tool("exec").handler(
+				{ targets: ["web-1"], cmd: "true", privileged: true },
+				toolCtx,
+			)) as Record<string, unknown>;
+			expect(batch.privileged).toBe(true);
+			expect((batch.nodes as Record<string, unknown>[])[0]?.privileged).toBe(true);
+		} finally {
+			await db.destroy();
+		}
 	});
 });

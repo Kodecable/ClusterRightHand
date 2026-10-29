@@ -19,8 +19,8 @@ import { UserError } from "../src/users/service.ts";
 
 const NODE = { id: "node-id-1", name: "web-1", groups: ["web", "prod"] };
 
-function op(method: Method, target: string, node = NODE): Operation {
-	return { method, target, node };
+function op(method: Method, target: string, node = NODE, privileged = false): Operation {
+	return { method, target, node, privileged };
 }
 
 function level(id: string, def: RuleSet["default"], rules: Rule[] = []): ChainLevel {
@@ -87,6 +87,21 @@ describe("ruleMatches", () => {
 		expect(ruleMatches(rule, op("file.read", "/etc/crha/a"))).toBe(false);
 		expect(ruleMatches(rule, op("file.write", "/etc/crha/a", { ...NODE, groups: ["web"] }))).toBe(false);
 	});
+
+	it("matches the privileged flag when it is set and both values when it is omitted", () => {
+		const privileged = op("exec", "systemctl restart nginx", NODE, true);
+		const ordinary = op("exec", "systemctl restart nginx");
+		expect(ruleMatches({ action: "allow", privileged: true }, privileged)).toBe(true);
+		expect(ruleMatches({ action: "allow", privileged: true }, ordinary)).toBe(false);
+		expect(ruleMatches({ action: "allow", privileged: false }, privileged)).toBe(false);
+		expect(ruleMatches({ action: "allow", privileged: false }, ordinary)).toBe(true);
+		// Fail closed for a rule that does not look at the flag would be wrong here: omitted means both.
+		expect(ruleMatches({ action: "deny" }, privileged)).toBe(true);
+		expect(ruleMatches({ action: "deny" }, ordinary)).toBe(true);
+		// The flag is one more condition, not a replacement: the other fields still have to match.
+		expect(ruleMatches({ action: "allow", privileged: true, prefix: "uptime" }, privileged)).toBe(false);
+		expect(ruleMatches({ action: "allow", privileged: true, nodes: ["group:web"] }, privileged)).toBe(true);
+	});
 });
 
 describe("evaluate: a single level", () => {
@@ -123,6 +138,19 @@ describe("evaluate: a single level", () => {
 		const root = level("root", "deny", [{ action: "allow", method: "exec", prefix: "uptime" }]);
 		expect(result([root], op("exec", "uptime"))).toBe("allow");
 		expect(result([root], op("exec", "reboot"))).toBe("deny");
+	});
+
+	it("a privileged rule decides only privileged tasks", () => {
+		const forPrivileged = level("root", "deny", [{ action: "allow", method: "exec", privileged: true }]);
+		expect(result([forPrivileged], op("exec", "uptime", NODE, true))).toBe("allow");
+		expect(result([forPrivileged], op("exec", "uptime"))).toBe("deny");
+		const forOrdinary = level("root", "deny", [{ action: "allow", method: "exec", privileged: false }]);
+		expect(result([forOrdinary], op("exec", "uptime"))).toBe("allow");
+		expect(result([forOrdinary], op("exec", "uptime", NODE, true))).toBe("deny");
+		// Without the field a rule matches both, so the deny still catches the privileged task.
+		const forBoth = level("root", "allow", [{ action: "deny", method: "exec" }]);
+		expect(result([forBoth], op("exec", "uptime"))).toBe("deny");
+		expect(result([forBoth], op("exec", "uptime", NODE, true))).toBe("deny");
 	});
 
 	it("the first of equally strict rules is the deciding one", () => {
@@ -258,9 +286,22 @@ describe("presetRuleSet", () => {
 		for (const p of ["ask", "auto_review"] as const) {
 			expect(presetRuleSet(p)).toEqual({
 				default: "require-approval",
-				rules: [{ action: "allow", method: "file.read" }],
+				rules: [{ action: "allow", method: "file.read", privileged: false }],
 			});
 		}
+	});
+
+	it("ask and auto review let ordinary reads pass but never a privileged task (D86)", () => {
+		for (const p of ["ask", "auto_review"] as const) {
+			const chain = [{ scope: { type: "session", id: "r" }, set: presetRuleSet(p) }];
+			expect(result(chain, op("file.read", "/etc/hosts", NODE, true))).toBe("require-approval");
+			expect(result(chain, op("file.read", "/etc/hosts"))).toBe("allow");
+			expect(result(chain, op("file.write", "/etc/hosts", NODE, true))).toBe("require-approval");
+			expect(result(chain, op("exec", "uptime", NODE, true))).toBe("require-approval");
+		}
+		// Yolo allows everything, privileged or not.
+		const yolo = [{ scope: { type: "session", id: "r" }, set: presetRuleSet("yolo") }];
+		expect(result(yolo, op("exec", "uptime", NODE, true))).toBe("allow");
 	});
 
 	it("user rules appended to a preset can tighten or extend it", () => {
@@ -330,16 +371,16 @@ describe("operationOf", () => {
 	it("a prefix rule for an argv command does not match a shell-mode task", () => {
 		const rule: Rule = { action: "allow", method: "exec", prefix: "systemctl restart " };
 		const shell = operationOf(exec({ shell: "systemctl restart nginx; rm -rf /" }));
-		expect(ruleMatches(rule, { ...shell, node: NODE })).toBe(false);
+		expect(ruleMatches(rule, { ...shell, node: NODE, privileged: false })).toBe(false);
 		const argv = operationOf(exec({ argv: ["systemctl", "restart", "nginx"] }));
-		expect(ruleMatches(rule, { ...argv, node: NODE })).toBe(true);
+		expect(ruleMatches(rule, { ...argv, node: NODE, privileged: false })).toBe(true);
 	});
 
 	it("an argv with a hostile argument stays one word", () => {
 		const rule: Rule = { action: "allow", prefix: "systemctl restart " };
 		const o = operationOf(exec({ argv: ["systemctl", "restart", "nginx; rm -rf /"] }));
 		expect(o.target).toBe("systemctl restart 'nginx; rm -rf /'");
-		expect(ruleMatches(rule, { ...o, node: NODE })).toBe(true);
+		expect(ruleMatches(rule, { ...o, node: NODE, privileged: false })).toBe(true);
 	});
 
 	it("maps file kinds to methods", () => {
@@ -376,7 +417,7 @@ describe("operationOf", () => {
 			group: "",
 		});
 		expect(o.target).toBe("/etc/passwd");
-		expect(ruleMatches(rule, { ...o, node: NODE })).toBe(false);
+		expect(ruleMatches(rule, { ...o, node: NODE, privileged: false })).toBe(false);
 	});
 
 	it("throws for a spec without a kind", () => {
@@ -392,7 +433,8 @@ describe("parseRuleSet", () => {
 			default: "require-approval",
 			rules: [
 				{ action: "deny", method: "file.write", nodes: ["group:prod"], prefix: "/etc/crha/" },
-				{ action: "allow", method: "exec", exact: "uptime" },
+				{ action: "allow", method: "exec", exact: "uptime", privileged: true },
+				{ action: "allow", privileged: false },
 				{ action: "allow" },
 			],
 		};
@@ -435,6 +477,20 @@ describe("parseRuleSet", () => {
 		bad({ default: "allow", rules: [{ action: "allow", method: "file.read.x" }] }, true);
 		bad({ default: "allow", rules: [{ action: "allow", method: "file.stat" }] }, true);
 		bad({ default: "allow", rules: [{ action: "allow", method: 3 }] }, true);
+	});
+
+	it("rejects a non-boolean privileged flag", () => {
+		bad({ default: "allow", rules: [{ action: "allow", privileged: "true" }] }, true);
+		bad({ default: "allow", rules: [{ action: "allow", privileged: 1 }] }, true);
+		bad({ default: "allow", rules: [{ action: "allow", privileged: null }] }, true);
+		expect(parseRuleSet({ default: "allow", rules: [{ action: "allow", privileged: true }] }, true).rules[0]).toEqual({
+			action: "allow",
+			privileged: true,
+		});
+		expect(parseRuleSet({ default: "allow", rules: [{ action: "allow", privileged: false }] }, true).rules[0]).toEqual({
+			action: "allow",
+			privileged: false,
+		});
 	});
 
 	it("rejects bad nodes lists", () => {

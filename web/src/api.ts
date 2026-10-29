@@ -81,6 +81,8 @@ export interface Rule {
 	action: RuleAction;
 	method?: RuleMethod;
 	nodes?: string[];
+	/** true only matches privileged tasks, false only ordinary ones; omitted matches both. */
+	privileged?: boolean;
 	exact?: string;
 	prefix?: string;
 }
@@ -179,6 +181,8 @@ export interface TaskView {
 	outputFile: string | null;
 	/** full for a single task; text or status for a batch node (doc/execution-plane.md#输出). */
 	outputMode: "full" | "text" | "status";
+	/** Whether this is a privileged task (doc/privilege.md). */
+	privileged: boolean;
 	createdAt: string;
 	finishedAt: string | null;
 	taskGroupId?: string | null;
@@ -215,6 +219,8 @@ export interface TaskGroupView {
 	parallel: number;
 	failFast: boolean;
 	outputMode: "status" | "text";
+	/** Whether the group's tasks are privileged tasks (doc/privilege.md). */
+	privileged: boolean;
 	skipped: string[];
 	tasks: TaskView[];
 	createdAt: string;
@@ -242,7 +248,13 @@ export interface ApprovalBody {
 	always?: Rule;
 }
 /** Body of POST /nodes/:id/tasks: `kind` plus the kind's fields. */
-export type TaskRequest = { kind: string; timeoutMs?: number; waitMs?: number } & Record<string, unknown>;
+export type TaskRequest = {
+	kind: string;
+	timeoutMs?: number;
+	waitMs?: number;
+	/** Run as a privileged task (doc/privilege.md). */
+	privileged?: boolean;
+} & Record<string, unknown>;
 
 /** How crhs reaches an SSH node (owner and administrators only). */
 export interface SshNodeDetails {

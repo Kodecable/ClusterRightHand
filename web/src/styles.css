@@ -267,7 +267,8 @@ td.actions > * + * {
 .badge-ok {
 	color: var(--ok);
 }
-.badge-ssh {
+.badge-ssh,
+.badge-priv {
 	color: var(--accent);
 }
 .badge-pending,

@@ -29,7 +29,6 @@ export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 		if (access === "view") return jsonError(c, 403, "view access only");
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
-		if (body.privileged === true) return jsonError(c, 400, "privileged tasks are not supported yet");
 
 		const { spec, input } = parseTask(body);
 		const timeoutMs = optionalInt(body, "timeoutMs");
@@ -38,6 +37,7 @@ export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 			spec,
 			input,
 			timeoutMs,
+			privileged: optionalBool(body, "privileged") === true,
 			actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
 		});
 		const wait = Math.min(optionalInt(body, "waitMs") ?? 0, MAX_WAIT_MS);
@@ -50,7 +50,6 @@ export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 		const user = c.get("user");
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
-		if (body.privileged === true) return jsonError(c, 400, "privileged tasks are not supported yet");
 		const targets = body.targets;
 		if (!Array.isArray(targets) || !targets.every((t) => typeof t === "string")) {
 			throw new BadRequest("targets must be an array of node names and group:<name>");
@@ -67,6 +66,7 @@ export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 			timeoutMs: optionalInt(body, "timeoutMs"),
 			parallel: optionalInt(body, "parallel"),
 			failFast: body.failFast === true,
+			privileged: optionalBool(body, "privileged") === true,
 			actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
 		});
 		const wait = Math.min(optionalInt(body, "waitMs") ?? 0, MAX_WAIT_MS);
@@ -242,6 +242,14 @@ function optionalInt(body: Record<string, unknown>, key: string): number | undef
 	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
 		throw new BadRequest(`${key} must be a non-negative integer`);
 	}
+	return value;
+}
+
+/** Stricter than the other flags: a privileged task is a security decision, not a UI convenience. */
+function optionalBool(body: Record<string, unknown>, key: string): boolean | undefined {
+	const value = body[key];
+	if (value === undefined) return undefined;
+	if (typeof value !== "boolean") throw new BadRequest(`${key} must be a boolean`);
 	return value;
 }
 

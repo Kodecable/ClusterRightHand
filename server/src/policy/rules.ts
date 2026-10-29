@@ -24,6 +24,8 @@ export interface Rule {
 	method?: Method;
 	/** Node names, node ids and "group:<name>"; omitted means every node. */
 	nodes?: string[];
+	/** true matches only privileged tasks, false only ordinary ones; omitted matches both (D86). */
+	privileged?: boolean;
 	exact?: string;
 	prefix?: string;
 	// No regex: crhs would run it on its event loop, where one backtracking pattern stalls everything.
@@ -47,6 +49,8 @@ export interface Operation {
 	/** exec: the rendered argv; files: the normalized absolute path. */
 	target: string;
 	node: { id: string; name: string; groups: string[] };
+	/** The task's privileged flag; a rule with `privileged` matches only that value. */
+	privileged: boolean;
 }
 
 export interface LevelResult {
@@ -68,8 +72,12 @@ export interface Evaluation {
 /** The rules a root preset stands for; rules the user adds come after these. */
 export function presetRuleSet(preset: Preset): RuleSet {
 	if (preset === "yolo") return { default: "allow", rules: [] };
-	// ask and auto_review differ in who answers the approval, not in the rules.
-	return { default: "require-approval", rules: [{ action: "allow", method: "file.read" }] };
+	// ask and auto_review differ in who answers the approval, not in the rules. Reads may pass, but a
+	// privileged read still waits: native and ignore nodes have no other gate than these rules (D86).
+	return {
+		default: "require-approval",
+		rules: [{ action: "allow", method: "file.read", privileged: false }],
+	};
 }
 
 const STRICTNESS: Record<Action, number> = { allow: 0, "require-approval": 1, deny: 2 };
@@ -98,8 +106,12 @@ function targetMatches(rule: Rule, op: Operation): boolean {
 	return true;
 }
 
+function privilegedMatches(rule: Rule, op: Operation): boolean {
+	return rule.privileged === undefined || rule.privileged === op.privileged;
+}
+
 export function ruleMatches(rule: Rule, op: Operation): boolean {
-	return methodMatches(rule, op) && nodeMatches(rule, op) && targetMatches(rule, op);
+	return methodMatches(rule, op) && nodeMatches(rule, op) && privilegedMatches(rule, op) && targetMatches(rule, op);
 }
 
 /** A level's own result: the strictest matching rule, else its default. */
@@ -179,7 +191,7 @@ function parseRule(raw: unknown, where: string): Rule {
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new UserError(`${where}: not an object`);
 	const o = raw as Record<string, unknown>;
 	for (const k of Object.keys(o)) {
-		if (!["action", "method", "nodes", "exact", "prefix"].includes(k)) {
+		if (!["action", "method", "nodes", "privileged", "exact", "prefix"].includes(k)) {
 			throw new UserError(`${where}: unknown field ${k}`);
 		}
 	}
@@ -187,6 +199,10 @@ function parseRule(raw: unknown, where: string): Rule {
 		throw new UserError(`${where}: action must be one of ${ACTIONS.join(", ")}`);
 	}
 	const rule: Rule = { action: o.action as Action };
+	if (o.privileged !== undefined) {
+		if (typeof o.privileged !== "boolean") throw new UserError(`${where}: privileged must be a boolean`);
+		rule.privileged = o.privileged;
+	}
 	if (o.method !== undefined) {
 		if (typeof o.method !== "string" || !(METHODS as readonly string[]).includes(o.method)) {
 			throw new UserError(`${where}: method must be one of ${METHODS.join(", ")}`);
