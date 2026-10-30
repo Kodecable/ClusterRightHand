@@ -19,7 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -79,6 +79,8 @@ type Options struct {
 	// Now returns the current time; nil means time.Now. Tests use it to exercise the
 	// retention rules.
 	Now func() time.Time
+	// Logger receives warnings, such as a torn final record that was ignored; nil discards them.
+	Logger *slog.Logger
 }
 
 // Store is the persistent used and revoked state of the privileged mode. It is safe for
@@ -88,6 +90,7 @@ type Store struct {
 	usedPath    string
 	revokedPath string
 	now         func() time.Time
+	log         *slog.Logger
 
 	mu          sync.Mutex
 	usedFile    *os.File
@@ -119,9 +122,13 @@ func Open(dir string, opts Options) (*Store, error) {
 		usedPath:    filepath.Join(dir, usedFileName),
 		revokedPath: filepath.Join(dir, revokedFileName),
 		now:         opts.Now,
+		log:         opts.Logger,
 	}
 	if s.now == nil {
 		s.now = time.Now
+	}
+	if s.log == nil {
+		s.log = slog.New(slog.DiscardHandler)
 	}
 	if err := s.load(); err != nil {
 		return nil, err
@@ -153,10 +160,10 @@ func (s *Store) load() error {
 	if err := forEachLine(s.usedPath, func(line []byte, n int, torn bool) error {
 		var rec Record
 		if err := json.Unmarshal(line, &rec); err != nil {
-			return tolerateTorn(s.usedPath, n, torn, err)
+			return s.tolerateTorn(s.usedPath, n, torn, err)
 		}
 		if rec.TaskID == "" {
-			return tolerateTorn(s.usedPath, n, torn, errors.New("missing task_id"))
+			return s.tolerateTorn(s.usedPath, n, torn, errors.New("missing task_id"))
 		}
 		if !keepUsed(rec, now) {
 			return nil
@@ -170,7 +177,7 @@ func (s *Store) load() error {
 		}
 		id, err := parseID(rec.AuthorizationID)
 		if err != nil {
-			return tolerateTorn(s.usedPath, n, torn, err)
+			return s.tolerateTorn(s.usedPath, n, torn, err)
 		}
 		s.pairs[pair{authorizationID: id, taskID: rec.TaskID}] = struct{}{}
 		return nil
@@ -181,11 +188,11 @@ func (s *Store) load() error {
 	if err := forEachLine(s.revokedPath, func(line []byte, n int, torn bool) error {
 		var rec revocationRecord
 		if err := json.Unmarshal(line, &rec); err != nil {
-			return tolerateTorn(s.revokedPath, n, torn, err)
+			return s.tolerateTorn(s.revokedPath, n, torn, err)
 		}
 		id, err := parseID(rec.AuthorizationID)
 		if err != nil {
-			return tolerateTorn(s.revokedPath, n, torn, err)
+			return s.tolerateTorn(s.revokedPath, n, torn, err)
 		}
 		if rec.DeadlineMS != nil && now.After(time.UnixMilli(*rec.DeadlineMS).Add(usedRetention)) {
 			// The authorization the revocation belonged to expired more than the retention
@@ -420,11 +427,11 @@ func forEachLine(path string, fn func(line []byte, n int, torn bool) error) erro
 // tolerateTorn turns the parse error of a file's final, newline-less line into a warning: the
 // append that produced it never returned, so the task or revocation it records never took
 // effect, and compact rewrites the file without it. Any other malformed line stays an error.
-func tolerateTorn(path string, n int, torn bool, err error) error {
+func (s *Store) tolerateTorn(path string, n int, torn bool, err error) error {
 	if !torn {
 		return fmt.Errorf("line %d: %w", n, err)
 	}
-	log.Printf("state: %s: ignoring a torn final record at line %d: %v", path, n, err)
+	s.log.Warn("ignoring a torn final state record", "file", path, "line", n, "err", err)
 	return nil
 }
 

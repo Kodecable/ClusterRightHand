@@ -87,7 +87,7 @@ func New(cfg *config.Config, opts Options) (*Server, error) {
 	if now == nil {
 		now = time.Now
 	}
-	store, err := state.Open(cfg.StateDir, state.Options{Now: now})
+	store, err := state.Open(cfg.StateDir, state.Options{Now: now, Logger: logger})
 	if err != nil {
 		return nil, err
 	}
