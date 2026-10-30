@@ -1,0 +1,47 @@
+# Test image of the M4 podman end-to-end matrix (doc/m4.md 测试矩阵, server/test/m4/README.md).
+#
+# It has the two escalation tools crha's native mode can use, a user crha (uid 998) for the
+# non-privileged mode, and an sshd that listens on 127.0.0.1:2222 for the SSH node tests. crha itself
+# is not built here: the host builds a static binary and the tests bind-mount it at /usr/local/bin/crha,
+# so the sudoers/doas rules can name it by its final path.
+FROM docker.io/library/ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      opendoas \
+      openssh-server \
+      sudo \
+      util-linux \
+ && rm -rf /var/lib/apt/lists/*
+
+# Non-privileged mode account, fixed uid/gid so privileged.toml can say unprivileged_uid = 998.
+RUN groupadd -g 998 crha \
+ && useradd -u 998 -g 998 -m -d /home/crha -s /bin/sh crha
+
+# native mode: allow exactly the helper, nothing else (doc/privilege.md#非特权模式如何处理特权任务).
+# Do not touch sudo's use_pty: with no controlling terminal the helper still gets three pipes (REPORT.md
+# of crh-m4-proto/sys).
+RUN printf '%s\n' 'crha ALL=(root) NOPASSWD: /usr/local/bin/crha privileged stdio' > /etc/sudoers.d/crha \
+ && chmod 0440 /etc/sudoers.d/crha \
+ && visudo -cf /etc/sudoers
+RUN printf '%s\n' 'permit nopass crha as root cmd /usr/local/bin/crha args privileged stdio' > /etc/doas.conf \
+ && chmod 0400 /etc/doas.conf
+
+# Directories and the mode-0 sshd drop-in. The host keys and authorized_keys are bind-mounted at
+# /opt/m4/ssh by the harness; nothing secret is baked into the image.
+RUN mkdir -p /run/crha /run/sshd /var/lib/crha/privileged /var/log/crha /opt/m4/ssh \
+ && chown crha:crha /var/lib/crha /var/log/crha /home/crha \
+ && chown root:root /var/lib/crha/privileged \
+ && chmod 0755 /run/crha /run/sshd /opt/m4/ssh
+COPY fixtures/sshd_config /etc/ssh/sshd_config.m4
+
+# M4 process control (start/stop/restart the three processes) and the boot sequence.
+COPY entrypoint.sh m4ctl.sh /usr/local/bin/
+RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/m4ctl.sh
+
+EXPOSE 2222
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

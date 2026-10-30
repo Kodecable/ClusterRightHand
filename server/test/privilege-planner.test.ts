@@ -257,6 +257,14 @@ describe("authorization planner", () => {
 		expect(result.reason).toMatch(/no one on this node can authorize this command/);
 	});
 
+	it("judges a repeated key only by its first trust entry, as crha does", () => {
+		const readOnly = { ...ALICE, allow: [{ method: "file.read", match: "any", pattern: "" } as GuardRule] };
+		const repeated = { ...ALICE, name: "alice-again" };
+		const result = plan({ summary: summary([readOnly, repeated]) });
+		expect(result.paths).toEqual([]);
+		expect(plan({ summary: summary([repeated, readOnly]) }).paths.map((path) => path.path)).toEqual(["user"]);
+	});
+
 	it("rejects an invalid privileged target before planning anything", () => {
 		const result = plan({
 			task: { id: TASK, attempt: 1, spec: { kind: "file.stat", path: "etc/shadow" }, privileged: true },
