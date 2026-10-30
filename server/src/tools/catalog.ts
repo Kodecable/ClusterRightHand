@@ -26,6 +26,8 @@ export interface ToolContext {
 	chain: RuleRef[];
 	/** Where the user approves a waiting task or task group in the WebUI. */
 	approvalUrl: (kind: "task" | "task_group", id: string) => string;
+	/** Where the owner sees a waiting task's authorization payload in the WebUI (absolute for MCP). */
+	taskUrl?: (id: string) => string;
 	signal?: AbortSignal;
 	/** Stable per tool call: tasks get ids derived from it, so a rerun after a crash reattaches to them. */
 	callKey?: string;
@@ -172,7 +174,7 @@ export function taskResult(t: TaskView, nodeName: string, ctx: ToolContext): Rec
 		return out;
 	}
 	if (t.state === "awaiting_authorization") {
-		out.authorization = authorizationResult(t.authorization);
+		out.authorization = authorizationResult(t.authorization, ctx, t.id);
 		out.next = "call task_wait with this task_id to keep waiting";
 		return out;
 	}
@@ -233,11 +235,24 @@ async function nodeNames(ctx: ToolContext, ids: string[]): Promise<Map<string, s
 	return new Map(nodes.filter((n) => ids.includes(n.id)).map((n) => [n.id, n.name]));
 }
 
-/** The authorization plan of a waiting task, for the model (doc/m4.md#crhs-侧数据). */
-function authorizationResult(record: TaskAuthorizationRecord | null): Record<string, unknown> {
-	if (!record) return { status: "waiting for an authorization signature" };
+/**
+ * The authorization plan of a waiting task, for the model (doc/m4.md#crhs-侧数据). The owner has to
+ * act: sign in the WebUI or, when a local path is planned, run `crha approve` on the node.
+ */
+function authorizationResult(
+	record: TaskAuthorizationRecord | null,
+	ctx: ToolContext,
+	taskId: string,
+): Record<string, unknown> {
+	const url = ctx.taskUrl?.(taskId);
+	const local = record?.plan.paths.some((path) => path.path === "local") ?? false;
+	const where = url ? `the WebUI (${url})` : "the WebUI";
+	const next = `the task owner must authorize it in ${where}${
+		local ? `, or run "crha approve ${taskId}" on the node` : ""
+	}`;
+	if (!record) return { status: "waiting for the owner's authorization", ...(url ? { url } : {}), next };
 	return {
-		status: "waiting for an authorization signature",
+		status: "waiting for the owner's authorization",
 		attempt: record.attempt,
 		paths: record.plan.paths.map((path) => `${path.path}: ${path.entries.map((entry) => entry.name).join(", ")}`),
 		...(record.plan.reason === undefined ? {} : { reason: record.plan.reason }),
@@ -250,6 +265,8 @@ function authorizationResult(record: TaskAuthorizationRecord | null): Record<str
 						attempt: record.lastRejection.attempt,
 					},
 				}),
+		...(url ? { url } : {}),
+		next,
 	};
 }
 
@@ -267,9 +284,14 @@ function groupResult(g: TaskGroupView, names: Map<string, string>, ctx: ToolCont
 		// Only the nodes whose task waits for a signature; the others may have finished already.
 		const waiting = g.tasks.filter((t) => t.state === "awaiting_authorization");
 		out.authorization = {
-			status: "waiting for an authorization signature",
+			status: "waiting for the authorization of the task group's owner",
 			nodes: waiting.map((t) => names.get(t.nodeId) ?? t.nodeId),
-			next: "call task_wait with this task_group_id to keep waiting",
+			tasks: waiting.map((t) => ({
+				task_id: t.id,
+				node: names.get(t.nodeId) ?? t.nodeId,
+				...(ctx.taskUrl ? { url: ctx.taskUrl(t.id) } : {}),
+			})),
+			next: "the owner signs once for the whole group in the WebUI; call task_wait with this task_group_id to keep waiting",
 		};
 	}
 	// The group budget already decided how much each node keeps (doc/execution-plane.md#输出); no second cut.

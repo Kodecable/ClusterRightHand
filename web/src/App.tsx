@@ -5,7 +5,9 @@ import { Header } from "./components/Header.tsx";
 import { appTitle } from "./meta.ts";
 import { ApprovalDetail, Approvals } from "./pages/Approvals.tsx";
 import { Audit } from "./pages/Audit.tsx";
+import { Authorizations } from "./pages/Authorizations.tsx";
 import { Batch } from "./pages/Batch.tsx";
+import { Credentials } from "./pages/Credentials.tsx";
 import { Login } from "./pages/Login.tsx";
 import { ModelSettings } from "./pages/ModelSettings.tsx";
 import { NodeDetail } from "./pages/NodeDetail.tsx";
@@ -54,6 +56,8 @@ export function App() {
 		page = auth.user.kind === "admin" ? <ModelSettings /> : <p className="error">Administrators only.</p>;
 	else if (section === "tasks" && id) page = <TaskPage key={id} id={id} />;
 	else if (section === "batch") page = <Batch />;
+	else if (section === "credentials") page = <Credentials />;
+	else if (section === "authorizations") page = <Authorizations />;
 	else if (section === "tokens") page = <Tokens />;
 	else if (section === "approvals" && (id === "tasks" || id === "task-groups") && route[2])
 		page = <ApprovalDetail key={`${id}/${route[2]}`} kind={id} id={route[2]} />;

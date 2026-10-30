@@ -1579,6 +1579,7 @@ async function toolContextFor(
 		actor,
 		chain,
 		approvalUrl: (kind, id) => `#/approvals/${kind === "task" ? "tasks" : "task-groups"}/${id}`,
+		taskUrl: (id) => `#/tasks/${id}`,
 		defaultWaitS: 600,
 		waitThroughApproval: true,
 	};

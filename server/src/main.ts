@@ -158,6 +158,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	const cluster = new Cluster(db, {
 		sshRoute: (node) => nodeRoute(db, masterKey, node),
 		authorizationKey,
+		clockWarnMs: config.clockWarnMs,
 		audit,
 	});
 	const agents = new AgentServer(db, identity, cluster, audit);
@@ -189,6 +190,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		taskGroups,
 		authorizationKey,
 		masterKey,
+		webauthn: config.webauthn,
+		clockWarnMs: config.clockWarnMs,
 		webRoot: config.webRoot,
 		audit,
 		agent: { runtime, models },

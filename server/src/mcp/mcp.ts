@@ -65,6 +65,7 @@ function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { origin: 
 		actor: { type: "api_token", id: id.tokenId, onBehalfOfUserId: id.user.userId },
 		chain: [{ type: "api_token", id: id.tokenId }],
 		approvalUrl: (kind, taskId) => `${id.origin}/#/approvals/${kind === "task" ? "tasks" : "task-groups"}/${taskId}`,
+		taskUrl: (taskId) => `${id.origin}/#/tasks/${taskId}`,
 	};
 	for (const tool of TOOLS) {
 		server.registerTool(

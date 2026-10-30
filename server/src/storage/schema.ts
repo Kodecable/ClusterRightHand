@@ -270,6 +270,8 @@ export interface UserCredentialsTable {
 	credential_id: string | null;
 	/** webauthn only. */
 	rp_id: string | null;
+	/** webauthn only: JSON string[] of the origins the credential was registered for. */
+	origins: ColumnType<string | null, string | null | undefined, string | null>;
 	created_at: CreatedAt;
 }
 

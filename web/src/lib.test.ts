@@ -1,9 +1,10 @@
 import { expect, test } from "vitest";
-import type { TaskView } from "./api.ts";
+import type { CredentialView, TaskView } from "./api.ts";
 import {
 	alwaysRule,
 	batchOutput,
 	buildTargets,
+	credentialTrustSnippet,
 	enrollCommand,
 	isTerminal,
 	joinOutput,
@@ -167,4 +168,65 @@ test("trustSnippet builds the crhs trust entry for privileged.toml", () => {
 test("trustSnippet escapes the TOML basic string", () => {
 	const snippet = trustSnippet('ssh-ed25519 AA"AA\\key comment');
 	expect(snippet).toContain('key           = "ssh-ed25519 AA\\"AA\\\\key comment"');
+});
+
+const sshCredential: CredentialView = {
+	id: "c1",
+	kind: "ssh",
+	name: "laptop",
+	createdAt: "2026-01-01T00:00:00.000Z",
+	publicKey: "ssh-ed25519 AAAAC3Nza laptop",
+	fingerprint: "SHA256:abc",
+	credentialId: null,
+	rpId: null,
+	origins: [],
+};
+
+const passkeyCredential: CredentialView = {
+	id: "c2",
+	kind: "webauthn",
+	name: "yubikey",
+	createdAt: "2026-01-01T00:00:00.000Z",
+	// "/" and "+" become "_" and "-" in the trust config, and the padding goes away.
+	publicKey: "o2NmbXRkbm9uZQ+/",
+	fingerprint: null,
+	credentialId: "AAECAwQ",
+	rpId: "crh.example.com",
+	origins: ["https://crh.example.com"],
+};
+
+test("credentialTrustSnippet builds a user entry for an SSH key", () => {
+	const snippet = credentialTrustSnippet(sshCredential);
+	expect(snippet).toContain("[[trust]]");
+	expect(snippet).toContain('name          = "laptop"');
+	expect(snippet).toContain('role          = "user"');
+	expect(snippet).toContain('format        = "sshsig"');
+	expect(snippet).toContain('key           = "ssh-ed25519 AAAAC3Nza laptop"');
+	expect(snippet).toContain('kinds         = ["execute"]');
+	expect(snippet).toContain("# Require user verification (a FIDO touch with PIN); only sk-* SSH keys can assert it.");
+	expect(snippet).toContain("# require_uv = true");
+	expect(snippet).toContain('# max_ttl   = "24h"');
+	expect(snippet).toContain('{ method = "exec", prefix = "systemctl restart " },');
+	expect(snippet).toContain('{ method = "file.write", prefix = "/etc/crha/" },');
+	expect(snippet.endsWith("\n")).toBe(true);
+});
+
+test("credentialTrustSnippet builds a webauthn entry with the COSE key and RP", () => {
+	const snippet = credentialTrustSnippet(passkeyCredential);
+	expect(snippet).toContain('format        = "webauthn"');
+	expect(snippet).toContain('rp_id         = "crh.example.com"');
+	expect(snippet).toContain('origins       = ["https://crh.example.com"]');
+	expect(snippet).toContain('credential_id = "AAECAwQ"');
+	expect(snippet).toContain('key           = "cose:o2NmbXRkbm9uZQ-_"');
+	expect(snippet).not.toContain("o2NmbXRkbm9uZQ+/");
+});
+
+test("credentialTrustSnippet escapes names, keys and origins as TOML strings", () => {
+	const snippet = credentialTrustSnippet({
+		...sshCredential,
+		name: 'a "b" \\c',
+		publicKey: 'ssh-ed25519 AA"AA',
+	});
+	expect(snippet).toContain('name          = "a \\"b\\" \\\\c"');
+	expect(snippet).toContain('key           = "ssh-ed25519 AA\\"AA"');
 });

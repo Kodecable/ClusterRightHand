@@ -2,14 +2,20 @@ import { createHash } from "node:crypto";
 import {
 	type AfterResponse,
 	type Authorization,
+	type AuthorizationPayload,
 	afterResponse,
 	authorizationCodec,
 	ConnectionError,
+	decodeAuthorizationPayload,
 	encode as encodeCbor,
 	type Facts,
 	factsToJson,
 	type Hello,
 	type InputRef,
+	type LocalDecision,
+	type LocalRequest,
+	type LocalState,
+	type LocalWithdraw,
 	MAX_FRAME_BYTES,
 	type NodeStatus,
 	type OutputAck,
@@ -22,23 +28,46 @@ import {
 	type TaskStart,
 	type TaskStatus,
 	type TrustReport,
+	type TrustSummary,
 	taskSpecFromJson,
 	taskSpecToJson,
 	type Welcome,
 } from "@crh/protocol";
 import type { Selectable, Updateable } from "kysely";
 import type { Audit, AuditActor } from "../audit/audit.ts";
+import type { SessionUser } from "../auth/sessions.ts";
 import { type Evaluation, evaluate, operationOf } from "../policy/rules.ts";
 import { loadChain, type RuleRef } from "../policy/store.ts";
+import { type AuthzDecision, type AuthzSignature, authzEntryFromTrust, decide, STEP } from "../privilege/authz.ts";
 import { ownerCredentials } from "../privilege/credentials.ts";
 import type { AuthorizationSigningKey } from "../privilege/key.ts";
 import type { BuiltAuthorization } from "../privilege/payload.ts";
-import { planAuthorization } from "../privilege/planner.ts";
+import {
+	type AuthorizationPath,
+	buildTaskGroupAuthorization,
+	type PlannedLocalPath,
+	type PlannedUserPath,
+	planAuthorization,
+	USER_AUTHORIZATION_TTL_MS,
+} from "../privilege/planner.ts";
+import {
+	assertSubmittingUser,
+	encodeAuthorization,
+	entryBelongsToUser,
+	loadUserSigningMaterial,
+	type SubmittedAuthorization,
+	signaturesFromJson,
+	signaturesToJson,
+	type UserSigningMaterial,
+	verifyAgainstTrust,
+} from "../privilege/submission.ts";
 import type { Db } from "../storage/db.ts";
 import type { TaskState as TaskRowState, TasksTable } from "../storage/schema.ts";
-import { UserError } from "../users/service.ts";
+import { defaultOrgId, UserError } from "../users/service.ts";
 import { newId } from "../util/id.ts";
 import {
+	authorizationView,
+	type PendingPayloadView,
 	parseTaskAuthorization,
 	planView,
 	serializeTaskAuthorization,
@@ -182,6 +211,8 @@ export interface ClusterOptions {
 	authorizationKey?: AuthorizationSigningKey;
 	/** How long a forward dispatch waits for the first trust.summary of its connection. */
 	trustWaitMs?: number;
+	/** Warn when a node's clock differs by more than this; 0 disables (doc/privilege.md#时钟). */
+	clockWarnMs?: number;
 	audit?: Audit;
 }
 
@@ -243,6 +274,33 @@ interface NodeLink {
 	trustWaiters: Set<() => void>;
 }
 
+/** A task claimed for an owner authorization and ready to be sent. */
+interface ClaimedAuthorization {
+	start: TaskStart;
+	record: TaskAuthorizationRecord;
+	input: Uint8Array;
+	cosigned: boolean;
+}
+
+/** A waiting task of a submission, judged against its node's trust summary before anything is claimed. */
+interface JudgedSubmission {
+	row: Selectable<TasksTable>;
+	node: NodeRow;
+	link: NodeLink;
+	/** The user's signatures plus the cosignature this node needed (when one was needed). */
+	signatures: Signature[];
+	cosigned: boolean;
+}
+
+/** A waiting task of a submission that was judged and claimed; sending happens after all of them. */
+interface PreparedSubmission {
+	link: NodeLink;
+	nodeId: string;
+	claim: ClaimedAuthorization;
+	/** Every signature the Authorization carries (the union of the group's cosignatures included). */
+	signatures: Signature[];
+}
+
 /**
  * The Cluster core's execution side: node connections, task dispatch, the task state machine and its
  * failure semantics. See doc/execution-plane.md.
@@ -256,6 +314,7 @@ export class Cluster {
 	readonly #audit: Audit | undefined;
 	readonly #authorizationKey: AuthorizationSigningKey | undefined;
 	readonly #trustWaitMs: number;
+	readonly #clockWarnMs: number;
 	/** Called once for every task that starts waiting for approval (Auto Review hooks in here). */
 	onAwaitingApproval: ((task: TaskView) => Promise<void>) | undefined;
 	/** Called after a task starts waiting or its approval state/handler changes (the runtime refreshes its inbox). */
@@ -272,6 +331,8 @@ export class Cluster {
 	readonly #queues = new Map<string, Promise<void>>();
 	/** Serializes trust.summary processing per node, so a rejection never plans against an older report. */
 	readonly #trustQueues = new Map<string, Promise<void>>();
+	/** Serializes the shared payload of a task group's waiting tasks. */
+	readonly #groupQueues = new Map<string, Promise<void>>();
 
 	constructor(db: Db, options: ClusterOptions = {}) {
 		this.#db = db;
@@ -282,6 +343,7 @@ export class Cluster {
 		this.#audit = options.audit;
 		this.#authorizationKey = options.authorizationKey;
 		this.#trustWaitMs = options.trustWaitMs ?? 5_000;
+		this.#clockWarnMs = options.clockWarnMs ?? 60_000;
 	}
 
 	isConnected(nodeId: string): boolean {
@@ -437,6 +499,7 @@ export class Cluster {
 		peer.onEvent("facts", (facts) => this.#onFacts(conn.nodeId, facts));
 		// Pushed once after hello and again on every change (doc/protocol.md#新增命令和事件11可选).
 		peer.onEvent("trust.summary", (report) => this.#onTrustSummary(link, report));
+		peer.onEvent("local.decision", (decision) => this.#onLocalDecision(link, decision));
 	}
 
 	/**
@@ -462,6 +525,13 @@ export class Cluster {
 			facts: factsToJson(facts),
 			groups: facts.groups,
 		});
+		// A clock far from crhs only makes authorization deadlines unreliable; warn, do nothing else
+		// (doc/privilege.md#时钟).
+		if (this.#clockWarnMs > 0 && Math.abs(facts.clockOffsetMs) > this.#clockWarnMs) {
+			const ms = Math.abs(facts.clockOffsetMs);
+			const seconds = ms % 1000 === 0 ? String(ms / 1000) : (ms / 1000).toFixed(1);
+			console.warn(`node ${nodeId}: clock differs from crhs by ${seconds} s (more than ${this.#clockWarnMs / 1000} s)`);
+		}
 	}
 
 	// ---- trust cache and revocations ----
@@ -484,6 +554,10 @@ export class Cluster {
 		if (report.kind === "ok" && !link.conn.closed) {
 			const node = await getNode(this.#db, nodeId);
 			if (node) this.#sendRevocations(link, await listRevocations(this.#db, node.org_id));
+			// A privileged mode that restarted lost its in-memory approval requests (doc/protocol.md#taskstart).
+			await this.#resendLocalRequests(link);
+			// A signature the owner submitted while the node was away is used now.
+			await this.#useStoredAuthorizations(nodeId);
 		}
 		// Only an `ok` report carries a digest worth re-planning against: a privileged mode that went
 		// away must not fail the tasks that wait for a signature (it may come back with the same trust).
@@ -531,6 +605,43 @@ export class Cluster {
 				if (!(err instanceof ConnectionError)) console.error("revocations.add failed:", err);
 			});
 		}
+	}
+
+	/**
+	 * Dispatches a waiting task with an authorization the owner already stored (submitted while the node
+	 * was offline, or a reusable one): the same reuse lookup the planner does, without re-planning the
+	 * payload, so a signature survives a reconnect.
+	 */
+	async #useStoredAuthorizations(nodeId: string): Promise<void> {
+		const rows = await this.#db
+			.selectFrom("tasks")
+			.select("id")
+			.where("node_id", "=", nodeId)
+			.where("state", "=", "awaiting_authorization")
+			.execute();
+		for (const { id } of rows) await this.#serial(id, () => this.#dispatchStored(id));
+	}
+
+	async #dispatchStored(id: string): Promise<void> {
+		const row = await this.#row(id);
+		if (row?.state !== "awaiting_authorization") return;
+		const node = await getNode(this.#db, row.node_id);
+		const link = this.#links.get(row.node_id);
+		if (!node || !link || link.conn.closed || !link.ready || !link.trustFresh) return;
+		const report = parseTrustReport(node.trust_report);
+		if (report?.kind !== "ok") return;
+		const previous = parseTaskAuthorization(row.authorization);
+		const skip = new Set<string>();
+		if (previous?.lastRejection && previous.payloadId) skip.add(previous.payloadId);
+		const reusable = await this.#findReusableAuthorization(
+			row,
+			node,
+			report.summary,
+			specFromRow(row.spec, "task"),
+			skip,
+		);
+		if (!reusable) return;
+		await this.#dispatchOwnerAuthorization(row, node, link, reusable.submitted, reusable.cosigned);
 	}
 
 	/** Re-plans the node's tasks that wait for an authorization signature after its trust digest changed. */
@@ -879,8 +990,10 @@ export class Cluster {
 	}
 
 	/**
-	 * Computes the authorization plan of a privileged task and acts on it: signs and dispatches through
-	 * crhs, waits for the owner's signature, or rejects (doc/privilege.md#授权路径, #预演与 fallback).
+	 * Computes the authorization plan of a privileged task and acts on it, in this order
+	 * (doc/privilege.md#授权路径): an authorization the owner already stored that covers the task,
+	 * crhs's own signature, the owner's signature or a local approval. With no usable path the task
+	 * ends rejected and says why.
 	 */
 	async #planPrivileged(
 		id: string,
@@ -917,14 +1030,15 @@ export class Cluster {
 			await this.#finishAuthorization(id, row, "failed", "privileged_unavailable", message, null);
 			return;
 		}
+		const summary = report.summary;
 		const previous = parseTaskAuthorization(row.authorization);
 		const tried = previous ? [...previous.tried] : [];
 		// Without a signing key crhs cannot take its own path; treating it as tried keeps the plan honest.
 		if (!this.#authorizationKey && !tried.includes("crhs")) tried.push("crhs");
 		const plan = planAuthorization({
-			summary: report.summary,
+			summary,
 			nodeId: node.id,
-			nodeGroups: report.summary.groups,
+			nodeGroups: summary.groups,
 			task: { id, attempt: row.attempt, spec, privileged: true },
 			taskGroup: row.task_group_id !== null,
 			owner: await ownerCredentials(this.#db, row.on_behalf_of_user_id),
@@ -939,6 +1053,8 @@ export class Cluster {
 			payloadId: previous?.payloadId ?? null,
 			attempt: row.attempt,
 			trustDigest: fresh.trust_digest,
+			pending: previous?.pending ?? null,
+			local: previous?.local ?? null,
 			lastRejection: previous?.lastRejection ?? null,
 			updatedAt: new Date().toISOString(),
 		};
@@ -947,26 +1063,727 @@ export class Cluster {
 			await this.#dispatchCrhs(id, row, node, link, spec, inputBytes, opts, record, crhsPath.authorization, from);
 			return;
 		}
-		if (plan.paths.length > 0) {
-			// The owner's user entries and/or local approval remain: the next wave signs (M4.4), so for now
-			// the task waits and keeps its input; nothing is sent to the node yet.
-			const updated = await this.#updateTask(id, from, {
-				state: "awaiting_authorization",
-				authorization: serializeTaskAuthorization({ ...record, dispatchedPath: null }),
-				pending_input: inputBytes.length > 0 ? Buffer.from(inputBytes).toString("base64") : null,
-				dispatched_at: null,
-				handler_type: "user",
-				handler_session_id: null,
-			});
-			if (!updated) return;
-			void this.#syncGroupState(row.task_group_id);
-			this.onChange?.(row.actor_id);
+		// The owner may already have signed a reusable authorization that covers this command
+		// (doc/privilege.md#授权路径 step 3): use it instead of asking for a signature again. A payload
+		// crha already rejected is not retried automatically, or the retry would loop.
+		const skip = new Set<string>();
+		if (previous?.lastRejection && previous.payloadId) skip.add(previous.payloadId);
+		const reusable = await this.#findReusableAuthorization(row, node, summary, spec, skip);
+		if (reusable) {
+			const dispatched = await this.#dispatchOwnerAuthorization(
+				row,
+				node,
+				link,
+				reusable.submitted,
+				reusable.cosigned,
+				from,
+			);
+			if (dispatched) return;
+		}
+		const userPath = plan.paths.find((path): path is PlannedUserPath => path.path === "user");
+		const localPath = plan.paths.find((path): path is PlannedLocalPath => path.path === "local");
+		if (!userPath && !(localPath && row.task_group_id === null)) {
+			const code = record.lastRejection?.code ?? "authorization_required";
+			const reason = plan.reason ?? "no one on this node can authorize this command";
+			const message = record.lastRejection === null ? reason : `${record.lastRejection.message}; ${reason}`;
+			await this.#finishAuthorization(id, row, "rejected", code, message, { ...record, pending: null, local: null });
 			return;
 		}
-		const code = record.lastRejection?.code ?? "authorization_required";
-		const reason = plan.reason ?? "no one on this node can authorize this command";
-		const message = record.lastRejection === null ? reason : `${record.lastRejection.message}; ${reason}`;
-		await this.#finishAuthorization(id, row, "rejected", code, message, { ...record, dispatchedPath: null });
+		await this.#parkForAuthorization(id, row, link, spec, inputBytes, record, userPath, localPath, from);
+	}
+
+	/**
+	 * Parks the task in `awaiting_authorization`: for a single task it records the exact payload the
+	 * owner must sign and, when the node offers local approval, requests that too. A task group's
+	 * shared payload is built across all of the group's waiting tasks (#refreshGroupPending).
+	 */
+	async #parkForAuthorization(
+		id: string,
+		row: Selectable<TasksTable>,
+		link: NodeLink,
+		spec: TaskSpec,
+		inputBytes: Uint8Array,
+		record: TaskAuthorizationRecord,
+		userPath: PlannedUserPath | undefined,
+		localPath: PlannedLocalPath | undefined,
+		from: readonly TaskRowState[],
+	): Promise<void> {
+		const single = row.task_group_id === null;
+		const pending = single && userPath ? pendingOf(userPath.authorization) : null;
+		const local = single && localPath ? { attempt: row.attempt } : null;
+		// The last task.start was rejected (or none was sent): nothing is in flight while the task waits.
+		const updated: TaskAuthorizationRecord = {
+			...record,
+			pending,
+			local,
+			dispatchedPath: null,
+			updatedAt: new Date().toISOString(),
+		};
+		const parked = await this.#updateTask(id, from, {
+			state: "awaiting_authorization",
+			authorization: serializeTaskAuthorization(updated),
+			pending_input: inputBytes.length > 0 ? Buffer.from(inputBytes).toString("base64") : null,
+			dispatched_at: null,
+			handler_type: "user",
+			handler_session_id: null,
+		});
+		if (!parked) return;
+		void this.#syncGroupState(row.task_group_id);
+		this.onChange?.(row.actor_id);
+		if (row.task_group_id !== null) {
+			// Every waiting task of the group signs one payload covering all of them (D88).
+			await this.#refreshGroupPending(row.task_group_id);
+			return;
+		}
+		if (localPath) await this.#sendLocalRequest(id, link, spec, updated);
+	}
+
+	// ---- local approval (doc/privilege.md#本地批准) ----
+
+	/** Sends `local.request` and follows the answer: pending, approved (dispatch) or denied (reject). */
+	async #sendLocalRequest(id: string, link: NodeLink, spec: TaskSpec, record: TaskAuthorizationRecord): Promise<void> {
+		const attempt = record.attempt;
+		let state: LocalState;
+		try {
+			const request: LocalRequest = { taskId: id, attempt, spec, note: LOCAL_REQUEST_NOTE };
+			state = (await link.conn.peer.request("local.request", request)) as LocalState;
+		} catch (err) {
+			if (err instanceof RemoteError && err.code === "local_not_trusted") {
+				// The node has no local trust entry after all: drop that path and plan again.
+				await this.#dropLocalPath(id);
+				return;
+			}
+			if (!(err instanceof ConnectionError)) console.error(`local.request for ${id} failed:`, err);
+			// Otherwise the request is sent again after the node's next `ok` trust report.
+			return;
+		}
+		await this.#onLocalState(id, attempt, state);
+	}
+
+	/** `local.decision`: the node's local approval or denial, for the attempt it was requested for. */
+	async #onLocalDecision(link: NodeLink, decision: LocalDecision): Promise<void> {
+		await this.#serial(decision.taskId, async () => {
+			const row = await this.#row(decision.taskId);
+			if (!row || row.node_id !== link.conn.nodeId || row.state !== "awaiting_authorization") return;
+			const record = parseTaskAuthorization(row.authorization);
+			if (record?.attempt !== decision.attempt) return;
+			await this.#onLocalState(decision.taskId, decision.attempt, decision.state);
+		});
+	}
+
+	async #onLocalState(id: string, attempt: number, state: LocalState): Promise<void> {
+		const row = await this.#row(id);
+		if (row?.state !== "awaiting_authorization" || row.attempt !== attempt) return;
+		if (state.kind === "pending") return;
+		const record = parseTaskAuthorization(row.authorization);
+		if (state.kind === "denied") {
+			const updated = record ? { ...record, pending: null, local: null, updatedAt: new Date().toISOString() } : null;
+			await this.#finishAuthorization(id, row, "rejected", "authorization_rejected", state.message, updated);
+			return;
+		}
+		// Approved: task.start with the approval instead of an authorization (doc/protocol.md#taskstart).
+		const node = await getNode(this.#db, row.node_id);
+		const link = this.#links.get(row.node_id);
+		if (!node || !link || link.conn.closed || !link.ready || !record) return;
+		const spec = specFromRow(row.spec, "task");
+		const input = row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0);
+		const updated: TaskAuthorizationRecord = {
+			...record,
+			pending: null,
+			local: null,
+			dispatchedPath: "local",
+			attempt,
+			updatedAt: new Date().toISOString(),
+		};
+		const claimed = await this.#updateTask(id, ["awaiting_authorization"], {
+			state: "dispatched",
+			dispatched_at: now(),
+			authorization: serializeTaskAuthorization(updated),
+			pending_input: null,
+			handler_type: null,
+			handler_session_id: null,
+		});
+		if (!claimed) return;
+		this.#newLive(id, node.id, row.output_mode, row.task_group_id);
+		void this.#syncGroupState(row.task_group_id);
+		const start: TaskStart = {
+			taskId: id,
+			attempt,
+			spec,
+			privileged: true,
+			authorizations: [],
+			timeoutMs: row.timeout_ms ?? 0,
+			killGraceMs: 0,
+			output: outputModeOf(row.output_mode),
+		};
+		await this.#sendAuthorizedStart(link, node.id, id, spec, input, start, updated);
+	}
+
+	/** Drops the local path after the node refused it, then plans again without it. */
+	async #dropLocalPath(id: string): Promise<void> {
+		const row = await this.#row(id);
+		if (row?.state !== "awaiting_authorization") return;
+		const record = parseTaskAuthorization(row.authorization);
+		if (!record) return;
+		const updated: TaskAuthorizationRecord = {
+			...record,
+			local: null,
+			tried: [...new Set<AuthorizationPath>([...record.tried, "local"])],
+			updatedAt: new Date().toISOString(),
+		};
+		const res = await this.#db
+			.updateTable("tasks")
+			.set({ authorization: serializeTaskAuthorization(updated) })
+			.where("id", "=", id)
+			.where("state", "=", "awaiting_authorization")
+			.executeTakeFirst();
+		if (res.numUpdatedRows === 0n) return;
+		const node = await getNode(this.#db, row.node_id);
+		const link = this.#links.get(row.node_id);
+		if (!node || !link || link.conn.closed || !link.ready) return;
+		const spec = specFromRow(row.spec, "task");
+		const input = row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0);
+		await this.#planPrivileged(id, node, link, spec, input, { timeoutMs: row.timeout_ms ?? undefined }, [
+			"awaiting_authorization",
+		]);
+	}
+
+	/** Sends local.request again for the node's tasks whose approval request the privileged mode lost. */
+	async #resendLocalRequests(link: NodeLink): Promise<void> {
+		const rows = await this.#db
+			.selectFrom("tasks")
+			.select("id")
+			.where("node_id", "=", link.conn.nodeId)
+			.where("state", "=", "awaiting_authorization")
+			.execute();
+		for (const { id } of rows) await this.#serial(id, () => this.#resendLocalRequest(id, link));
+	}
+
+	async #resendLocalRequest(id: string, link: NodeLink): Promise<void> {
+		const row = await this.#row(id);
+		if (row?.state !== "awaiting_authorization" || link.conn.closed || !link.ready) return;
+		const record = parseTaskAuthorization(row.authorization);
+		if (!record || record.local === null) return;
+		await this.#sendLocalRequest(id, link, specFromRow(row.spec, "task"), record);
+	}
+
+	/** Withdraws a pending local request (the owner signed, the task was cancelled or re-planned). */
+	#withdrawLocal(link: NodeLink | undefined, taskId: string, record: TaskAuthorizationRecord | null): void {
+		if (!record?.local || !link || link.conn.closed) return;
+		const withdraw: LocalWithdraw = { taskId, attempt: record.local.attempt };
+		void link.conn.peer.request("local.withdraw", withdraw).catch((err: unknown) => {
+			if (!(err instanceof ConnectionError)) console.error(`local.withdraw for ${taskId} failed:`, err);
+		});
+	}
+
+	// ---- task groups: one payload for every waiting task (D88) ----
+
+	/** Rebuilds the shared payload of a group's waiting tasks from their plans, one signature for all. */
+	async #refreshGroupPending(groupId: string): Promise<void> {
+		await this.#queueGroup(groupId, async () => {
+			const group = await this.#db.selectFrom("task_groups").selectAll().where("id", "=", groupId).executeTakeFirst();
+			if (!group) return;
+			const rows = await this.#db
+				.selectFrom("tasks")
+				.selectAll()
+				.where("task_group_id", "=", groupId)
+				.orderBy("created_at")
+				.execute();
+			const entries = rows
+				.filter((row) => row.state === "awaiting_authorization")
+				.map((row) => ({ row, record: parseTaskAuthorization(row.authorization) }));
+			const withUser = entries.filter((entry) => entry.record?.plan.paths.some((path) => path.path === "user"));
+			if (withUser.length === 0) {
+				for (const entry of entries) await this.#clearGroupPending(entry.row, entry.record);
+				return;
+			}
+			// The protocol ties a task.start to the payload's attempt, so all covered tasks move to the
+			// highest attempt (doc/protocol.md#授权对象, D88).
+			const attempt = Math.max(...withUser.map((entry) => entry.row.attempt));
+			const ttlMs = Math.min(...withUser.map((entry) => userPathTtl(entry.record)));
+			let spec: TaskSpec;
+			try {
+				spec = specFromRow(group.spec ?? withUser[0]?.row.spec ?? null, "task group");
+			} catch (err) {
+				console.warn(`task group ${groupId}: ${err instanceof Error ? err.message : String(err)}`);
+				return;
+			}
+			const authorization = buildTaskGroupAuthorization({
+				nodeIds: withUser.map((entry) => entry.row.node_id),
+				taskIds: withUser.map((entry) => entry.row.id),
+				attempt,
+				spec,
+				ttlMs,
+			});
+			const pending = pendingOf(authorization);
+			const covered = new Set(withUser.map((entry) => entry.row.id));
+			for (const row of rows) {
+				if (row.state !== "awaiting_authorization") continue;
+				const record = parseTaskAuthorization(row.authorization);
+				if (!covered.has(row.id)) {
+					await this.#clearGroupPending(row, record);
+					continue;
+				}
+				if (!record) continue;
+				const updated: TaskAuthorizationRecord = {
+					...record,
+					attempt,
+					pending,
+					updatedAt: new Date().toISOString(),
+				};
+				const set: Updateable<TasksTable> = { authorization: serializeTaskAuthorization(updated) };
+				if (row.attempt !== attempt) set.attempt = attempt;
+				const res = await this.#db
+					.updateTable("tasks")
+					.set(set)
+					.where("id", "=", row.id)
+					.where("state", "=", "awaiting_authorization")
+					.executeTakeFirst();
+				if (res.numUpdatedRows === 0n) continue;
+				if (row.attempt !== attempt) this.#notify(row.id);
+			}
+		});
+	}
+
+	async #clearGroupPending(row: Selectable<TasksTable>, record: TaskAuthorizationRecord | null): Promise<void> {
+		if (!record?.pending) return;
+		const updated: TaskAuthorizationRecord = { ...record, pending: null, updatedAt: new Date().toISOString() };
+		await this.#db
+			.updateTable("tasks")
+			.set({ authorization: serializeTaskAuthorization(updated) })
+			.where("id", "=", row.id)
+			.where("state", "=", "awaiting_authorization")
+			.execute();
+	}
+
+	/** Serializes the shared payload rebuild of one group. */
+	#queueGroup<T>(groupId: string, fn: () => Promise<T>): Promise<T> {
+		const next = (this.#groupQueues.get(groupId) ?? Promise.resolve()).then(fn);
+		const tail: Promise<void> = next.then(
+			() => {},
+			() => {},
+		);
+		this.#groupQueues.set(groupId, tail);
+		void tail.then(() => {
+			if (this.#groupQueues.get(groupId) === tail) this.#groupQueues.delete(groupId);
+		});
+		return next;
+	}
+
+	// ---- the owner's stored and submitted authorizations ----
+
+	/**
+	 * Finds a stored authorization of the task's owner that covers it and that the node's trust
+	 * summary would accept (doc/privilege.md#授权路径). Reusable ones (no task ids) and one-shot ones
+	 * for this task with the same attempt qualify; a cosignature is added when the accepting entry
+	 * needs one and the payload is one-shot.
+	 */
+	async #findReusableAuthorization(
+		row: Selectable<TasksTable>,
+		node: NodeRow,
+		summary: TrustSummary,
+		spec: TaskSpec,
+		skip: ReadonlySet<string>,
+	): Promise<{ submitted: SubmittedAuthorization; cosigned: boolean } | null> {
+		const ownerId = row.on_behalf_of_user_id;
+		const stored = await this.#db
+			.selectFrom("authorizations")
+			.selectAll()
+			.where("issuer_user_id", "=", ownerId)
+			.where("org_id", "=", node.org_id)
+			.where("revoked_at", "is", null)
+			.orderBy("created_at")
+			.execute();
+		if (stored.length === 0) return null;
+		const material = await loadUserSigningMaterial(this.#db, ownerId);
+		for (const candidate of stored) {
+			if (skip.has(candidate.id)) continue;
+			const payloadBytes = Uint8Array.from(Buffer.from(candidate.payload, "base64"));
+			let payload: AuthorizationPayload;
+			try {
+				payload = decodeAuthorizationPayload(payloadBytes);
+			} catch {
+				continue; // a damaged row is never usable (fail closed)
+			}
+			if (payload.taskIds !== null) {
+				if (!payload.taskIds.includes(row.id)) continue;
+				if (payload.attempt !== row.attempt) continue;
+			}
+			const signatures = signaturesFromJson(candidate.signatures);
+			if (signatures.length === 0) continue;
+			const judged = await this.#judgeOwnerAuthorization({
+				payload,
+				payloadBytes,
+				signatures,
+				summary,
+				nodeId: node.id,
+				task: { id: row.id, attempt: row.attempt, spec },
+				material,
+			});
+			if (!judged.accepted) continue;
+			return {
+				submitted: { payload, payloadBytes, signatures: judged.signatures, id: candidate.id },
+				cosigned: judged.cosigned,
+			};
+		}
+		return null;
+	}
+
+	/**
+	 * Judges one owner authorization for one task with the real decision port: which trust entry
+	 * verifies which signature, whether the node would accept it, and whether a crhs cosignature has
+	 * to be appended first (doc/privilege.md#联署).
+	 */
+	async #judgeOwnerAuthorization(input: {
+		payload: AuthorizationPayload;
+		payloadBytes: Uint8Array;
+		signatures: Signature[];
+		summary: TrustSummary;
+		nodeId: string;
+		task: { id: string; attempt: number; spec: TaskSpec };
+		material: UserSigningMaterial;
+	}): Promise<{
+		accepted: boolean;
+		signatures: Signature[];
+		entry: string | null;
+		cosigned: boolean;
+		reason: string;
+	}> {
+		const trust = input.summary.trust;
+		let signatures = [...input.signatures];
+		const judge = (candidates: readonly AuthzSignature[]) =>
+			decideOwnerAuthorization({
+				now: Date.now(),
+				summary: input.summary,
+				nodeId: input.nodeId,
+				task: input.task,
+				payload: input.payload,
+				payloadBytes: input.payloadBytes,
+				signatures: candidates,
+			});
+		let authz = await verifyAgainstTrust(signatures, input.payloadBytes, trust);
+		let decision = judge(authz);
+		let cosigned = false;
+		if (decision.result !== "accepted" && decision.step === STEP.cosign && input.payload.taskIds !== null) {
+			const cosign = this.#cosignature(input.payloadBytes, input.summary);
+			if (cosign) {
+				signatures = [...signatures, cosign];
+				authz = await verifyAgainstTrust(signatures, input.payloadBytes, trust);
+				const again = judge(authz);
+				if (again.result === "accepted") {
+					decision = again;
+					cosigned = true;
+				}
+			}
+		}
+		if (decision.result !== "accepted") {
+			return {
+				accepted: false,
+				signatures,
+				entry: null,
+				cosigned,
+				reason: decision.step === null ? decision.message : `step ${decision.step}: ${decision.message}`,
+			};
+		}
+		if (!entryBelongsToUser(decision.entry, trust, input.material)) {
+			return {
+				accepted: false,
+				signatures,
+				entry: decision.entry,
+				cosigned,
+				reason: "the accepting trust entry does not belong to the owner's credentials",
+			};
+		}
+		return { accepted: true, signatures, entry: decision.entry, cosigned, reason: "" };
+	}
+
+	/** crhs's cosignature for a payload, when the node trusts its signing key with the cosign kind. */
+	#cosignature(payloadBytes: Uint8Array, summary: TrustSummary): Signature | null {
+		const key = this.#authorizationKey;
+		if (!key) return null;
+		const entry = summary.trust.find(
+			(trustee) =>
+				trustee.role === "crhs" &&
+				trustee.kinds.includes("cosign") &&
+				trustee.key.kind === "sshsig" &&
+				trustee.key.fingerprint === key.fingerprint,
+		);
+		if (!entry) return null;
+		return { kind: "sshsig", blob: key.sign(payloadBytes) };
+	}
+
+	/**
+	 * Claims a task for an owner authorization: the attempt is fixed, the pending payload is cleared
+	 * and the local approval request withdrawn. Sending is separate, so a whole task group can be
+	 * claimed before the first task.start is sent and a rejection cannot change a sibling's attempt.
+	 */
+	async #claimOwnerAuthorization(
+		row: Selectable<TasksTable>,
+		node: NodeRow,
+		link: NodeLink,
+		submitted: SubmittedAuthorization,
+		cosigned: boolean,
+		from: readonly TaskRowState[] = ["awaiting_authorization"],
+	): Promise<ClaimedAuthorization | null> {
+		if (!from.includes(row.state)) return null;
+		const oneShot = submitted.payload.taskIds !== null;
+		const attempt = oneShot ? (submitted.payload.attempt as number) : row.attempt;
+		if (oneShot && attempt !== row.attempt) return null;
+		let encoded: Uint8Array;
+		try {
+			encoded = encodeAuthorization(submitted.payloadBytes, submitted.signatures);
+		} catch (err) {
+			console.error(`authorization ${submitted.id} cannot be encoded:`, err);
+			return null;
+		}
+		if (encoded.length > MAX_FRAME_BYTES / 2) return null;
+		const record = parseTaskAuthorization(row.authorization);
+		const updated: TaskAuthorizationRecord = {
+			plan: record?.plan ?? { paths: [] },
+			tried: record?.tried ?? [],
+			dispatchedPath: "user",
+			payloadId: submitted.id,
+			attempt,
+			trustDigest: record?.trustDigest ?? null,
+			pending: null,
+			local: null,
+			lastRejection: record?.lastRejection ?? null,
+			updatedAt: new Date().toISOString(),
+		};
+		this.#withdrawLocal(link, row.id, record);
+		const claimed = await this.#updateTask(row.id, from, {
+			state: "dispatched",
+			attempt,
+			dispatched_at: now(),
+			authorization: serializeTaskAuthorization(updated),
+			pending_input: null,
+			handler_type: null,
+			handler_session_id: null,
+		});
+		if (!claimed) return null;
+		this.#newLive(row.id, node.id, row.output_mode, row.task_group_id);
+		void this.#syncGroupState(row.task_group_id);
+		if (cosigned) {
+			void this.#audit?.record({
+				actor: { type: "system", id: "cluster", onBehalfOfUserId: row.on_behalf_of_user_id },
+				action: "authorization.cosigned",
+				target: { type: "authorization", id: submitted.id },
+				detail: { node_id: node.id, task_id: row.id, attempt },
+			});
+		}
+		const spec = specFromRow(row.spec, "task");
+		const input = row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0);
+		const start: TaskStart = {
+			taskId: row.id,
+			attempt,
+			spec,
+			privileged: true,
+			authorizations: [encoded],
+			timeoutMs: row.timeout_ms ?? 0,
+			killGraceMs: 0,
+			output: outputModeOf(row.output_mode),
+		};
+		return { start, record: updated, input, cosigned };
+	}
+
+	/** Sends the task.start of a claimed authorization and follows the response. */
+	async #sendClaimed(
+		link: NodeLink,
+		nodeId: string,
+		prepared: {
+			start: TaskStart;
+			record: TaskAuthorizationRecord;
+			input: Uint8Array;
+		},
+	): Promise<void> {
+		await this.#sendAuthorizedStart(
+			link,
+			nodeId,
+			prepared.start.taskId,
+			prepared.start.spec,
+			prepared.input,
+			prepared.start,
+			prepared.record,
+		);
+	}
+
+	/** Claims and sends one owner authorization (the reuse path of a single task). */
+	async #dispatchOwnerAuthorization(
+		row: Selectable<TasksTable>,
+		node: NodeRow,
+		link: NodeLink,
+		submitted: SubmittedAuthorization,
+		cosigned: boolean,
+		from: readonly TaskRowState[] = ["awaiting_authorization"],
+	): Promise<boolean> {
+		const prepared = await this.#claimOwnerAuthorization(row, node, link, submitted, cosigned, from);
+		if (!prepared) return false;
+		await this.#sendClaimed(link, node.id, prepared);
+		return true;
+	}
+
+	/**
+	 * POST /api/authorizations: checks a user's authorization, stores it (for display, revocation and
+	 * reuse) and dispatches every waiting task of that user it covers (doc/m4.md M4.4).
+	 */
+	async submitAuthorization(
+		user: SessionUser,
+		submitted: SubmittedAuthorization,
+	): Promise<{ id: string; dispatched: string[] }> {
+		const material = await loadUserSigningMaterial(this.#db, user.userId);
+		await assertSubmittingUser(material, submitted.payloadBytes, submitted.signatures);
+		const now = Date.now();
+		const { deadlineMs } = submitted.payload;
+		if (deadlineMs !== null && deadlineMs < now) {
+			throw new UserError(`the authorization expired at ${new Date(deadlineMs).toISOString()}`);
+		}
+		if (submitted.payload.issuedAtMs > now + SUBMISSION_CLOCK_SKEW_MS) {
+			throw new UserError("the authorization was issued in the future");
+		}
+		const stored = await this.#insertOwnerAuthorization(user, submitted);
+		void this.#audit?.record({
+			actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
+			action: "authorization.submitted",
+			target: { type: "authorization", id: submitted.id },
+			detail: {
+				nodes: submitted.payload.nodes,
+				command: commandForAudit(submitted.payload.command),
+				task_ids: submitted.payload.taskIds,
+				attempt: submitted.payload.attempt,
+				deadline: deadlineMs === null ? null : new Date(deadlineMs).toISOString(),
+				duplicate: !stored,
+			},
+		});
+		// A revoked authorization is stored but never used (revocation only ever takes permissions away).
+		if (await this.#isRevoked(submitted.id)) return { id: submitted.id, dispatched: [] };
+		const rows = await this.#db
+			.selectFrom("tasks")
+			.select("id")
+			.where("state", "=", "awaiting_authorization")
+			.where("on_behalf_of_user_id", "=", user.userId)
+			.orderBy("created_at")
+			.execute();
+		// Judge every covered task first, then claim all of them, then send: a rejection of one
+		// task.start must not re-plan (and change the attempt of) a sibling still about to be sent.
+		const judged: JudgedSubmission[] = [];
+		for (const { id } of rows) {
+			const entry = await this.#serialResult(id, () => this.#judgeSubmitted(id, submitted, material));
+			if (entry) judged.push(entry);
+		}
+		// The Authorization is one object for the whole group (D88), so it carries the union of the
+		// cosignatures the covered nodes need; a node ignores a signature of a key it does not trust.
+		const keys = new Set(submitted.signatures.map(signatureKey));
+		const cosignatures: Signature[] = [];
+		for (const entry of judged) {
+			for (const signature of entry.signatures) {
+				const key = signatureKey(signature);
+				if (keys.has(key)) continue;
+				keys.add(key);
+				cosignatures.push(signature);
+			}
+		}
+		const signatures = [...submitted.signatures, ...cosignatures];
+		const prepared: PreparedSubmission[] = [];
+		for (const entry of judged) {
+			const claim = await this.#serialResult(entry.row.id, () =>
+				this.#claimOwnerAuthorization(entry.row, entry.node, entry.link, { ...submitted, signatures }, entry.cosigned),
+			);
+			if (!claim) continue;
+			prepared.push({ link: entry.link, nodeId: entry.node.id, claim, signatures });
+		}
+		const dispatched: string[] = [];
+		for (const entry of prepared) {
+			await this.#sendClaimed(entry.link, entry.nodeId, entry.claim);
+			dispatched.push(entry.claim.start.taskId);
+		}
+		if (cosignatures.length > 0) await this.#storeCosignatures(submitted, cosignatures);
+		return { id: submitted.id, dispatched };
+	}
+
+	/** One waiting task of the submitting user, judged against its node's fresh trust summary. */
+	async #judgeSubmitted(
+		id: string,
+		submitted: SubmittedAuthorization,
+		material: UserSigningMaterial,
+	): Promise<JudgedSubmission | null> {
+		const row = await this.#row(id);
+		if (row?.state !== "awaiting_authorization") return null;
+		const payload = submitted.payload;
+		if (payload.taskIds !== null) {
+			if (!payload.taskIds.includes(id) || payload.attempt !== row.attempt) return null;
+		}
+		const node = await getNode(this.#db, row.node_id);
+		const link = this.#links.get(row.node_id);
+		if (!node || !link || link.conn.closed || !link.ready || !link.trustFresh) return null;
+		const report = parseTrustReport(node.trust_report);
+		if (report?.kind !== "ok") return null;
+		const judged = await this.#judgeOwnerAuthorization({
+			payload,
+			payloadBytes: submitted.payloadBytes,
+			signatures: submitted.signatures,
+			summary: report.summary,
+			nodeId: node.id,
+			task: { id, attempt: row.attempt, spec: specFromRow(row.spec, "task") },
+			material,
+		});
+		if (!judged.accepted) return null;
+		return { row, node, link, signatures: judged.signatures, cosigned: judged.cosigned };
+	}
+
+	async #insertOwnerAuthorization(user: SessionUser, submitted: SubmittedAuthorization): Promise<boolean> {
+		const existing = await this.#db
+			.selectFrom("authorizations")
+			.select("id")
+			.where("id", "=", submitted.id)
+			.executeTakeFirst();
+		if (existing) return false;
+		await this.#db
+			.insertInto("authorizations")
+			.values({
+				id: submitted.id,
+				org_id: await defaultOrgId(this.#db),
+				payload: Buffer.from(submitted.payloadBytes).toString("base64"),
+				signatures: signaturesToJson(submitted.signatures),
+				issuer_user_id: user.userId,
+				task_ids: submitted.payload.taskIds === null ? null : JSON.stringify(submitted.payload.taskIds),
+				deadline: submitted.payload.deadlineMs === null ? null : new Date(submitted.payload.deadlineMs).toISOString(),
+				created_at: now(),
+				revoked_at: null,
+			})
+			.execute();
+		return true;
+	}
+
+	async #storeCosignatures(submitted: SubmittedAuthorization, cosignatures: Signature[]): Promise<void> {
+		const row = await this.#db
+			.selectFrom("authorizations")
+			.select(["signatures", "revoked_at"])
+			.where("id", "=", submitted.id)
+			.executeTakeFirst();
+		if (!row || row.revoked_at !== null) return;
+		const stored = signaturesFromJson(row.signatures);
+		const keys = new Set(stored.map(signatureKey));
+		const combined = [...stored];
+		for (const signature of cosignatures) {
+			const key = signatureKey(signature);
+			if (keys.has(key)) continue;
+			keys.add(key);
+			combined.push(signature);
+		}
+		await this.#db
+			.updateTable("authorizations")
+			.set({ signatures: signaturesToJson(combined) })
+			.where("id", "=", submitted.id)
+			.execute();
+	}
+
+	async #isRevoked(id: string): Promise<boolean> {
+		const row = await this.#db
+			.selectFrom("authorizations")
+			.select("revoked_at")
+			.where("id", "=", id)
+			.executeTakeFirst();
+		return row?.revoked_at != null;
 	}
 
 	/** Signs the planned payload with crhs's key, stores it and sends it inside task.start. */
@@ -1044,8 +1861,11 @@ export class Cluster {
 			dispatchedPath: "crhs",
 			payloadId: authorization.id,
 			attempt: row.attempt,
+			pending: null,
+			local: null,
 			updatedAt: new Date().toISOString(),
 		};
+		this.#withdrawLocal(link, id, record);
 		const claimed = await this.#updateTask(id, from, {
 			state: "dispatched",
 			dispatched_at: now(),
@@ -1133,13 +1953,20 @@ export class Cluster {
 		const row = await this.#row(id);
 		if (row?.state !== "dispatched") return; // accepted (or ended) meanwhile: never retried
 		const attempt = row.attempt + 1;
+		// Only crhs's own signature path is ruled out for good (D83): the owner may sign again for the
+		// new attempt, and so may a local approver.
+		const tried =
+			record.dispatchedPath === "crhs" ? [...new Set<AuthorizationPath>([...record.tried, "crhs"])] : record.tried;
 		const updated: TaskAuthorizationRecord = {
 			...record,
-			tried: [...new Set([...record.tried, record.dispatchedPath ?? "crhs"])],
+			tried,
 			attempt,
+			pending: null,
+			local: null,
 			lastRejection: { code, message, attempt: row.attempt, at: new Date().toISOString() },
 			updatedAt: new Date().toISOString(),
 		};
+		this.#withdrawLocal(link, id, record);
 		const res = await this.#db
 			.updateTable("tasks")
 			.set({
@@ -1175,6 +2002,7 @@ export class Cluster {
 		message: string,
 		record: TaskAuthorizationRecord | null,
 	): Promise<void> {
+		this.#withdrawLocal(this.#links.get(row.node_id), id, record);
 		const res = await this.#db
 			.updateTable("tasks")
 			.set({
@@ -1564,6 +2392,7 @@ export class Cluster {
 				.where("state", "=", row.state)
 				.executeTakeFirst();
 			if (res.numUpdatedRows === 0n) return false;
+			this.#withdrawLocal(this.#links.get(row.node_id), id, parseTaskAuthorization(row.authorization));
 			this.#notify(id);
 			void this.#syncGroupState(row.task_group_id);
 			this.onChange?.(row.actor_id);
@@ -1883,7 +2712,7 @@ function toView(row: Selectable<TasksTable>, live: Live | undefined): TaskView {
 		outputFile: row.output_file,
 		outputMode: row.output_mode,
 		privileged: row.privileged === 1,
-		authorization: parseTaskAuthorization(row.authorization),
+		authorization: authorizationView(row.authorization),
 		createdAt: row.created_at,
 		finishedAt: row.finished_at,
 		taskGroupId: row.task_group_id,
@@ -1944,6 +2773,69 @@ export function specFromRow(specJson: string | null, what: string): TaskSpec {
 			`the ${what}'s stored spec cannot be read: ${err instanceof Error ? err.message : String(err)}`,
 		);
 	}
+}
+
+/** A task's local approval request note, shown by `crha pending`. */
+const LOCAL_REQUEST_NOTE = "crhs asks for this task to be approved on the node";
+/** How far an authorization's issued_at may be ahead of crhs's clock before it is refused. */
+const SUBMISSION_CLOCK_SKEW_MS = 60_000;
+
+/** The payload the owner signs, in the form stored on the task and shown by the API. */
+function pendingOf(authorization: BuiltAuthorization): PendingPayloadView {
+	return {
+		payload: Buffer.from(authorization.bytes).toString("base64"),
+		id: authorization.id,
+		deadline:
+			authorization.payload.deadlineMs === null ? null : new Date(authorization.payload.deadlineMs).toISOString(),
+		taskIds: authorization.payload.taskIds ?? [],
+		attempt: authorization.payload.attempt ?? 0,
+	};
+}
+
+/** The lifetime of the user path of a stored plan; the default when the plan has none. */
+function userPathTtl(record: TaskAuthorizationRecord | null): number {
+	const path = record?.plan.paths.find((candidate) => candidate.path === "user");
+	return path?.ttlMs ?? USER_AUTHORIZATION_TTL_MS;
+}
+
+/** The decision port (`authz.ts`) fed with an owner authorization and a node's trust summary. */
+function decideOwnerAuthorization(input: {
+	now: number;
+	summary: TrustSummary;
+	nodeId: string;
+	task: { id: string; attempt: number; spec: TaskSpec };
+	payload: AuthorizationPayload;
+	payloadBytes: Uint8Array;
+	signatures: readonly AuthzSignature[];
+}): AuthzDecision {
+	return decide({
+		now: input.now,
+		clockSkewMs: input.summary.clockSkewMs,
+		nodeId: input.nodeId,
+		nodeGroups: input.summary.groups,
+		trust: input.summary.trust.map(authzEntryFromTrust),
+		task: input.task,
+		authorization: { payload: input.payloadBytes, decoded: input.payload, signatures: input.signatures },
+		localApproval: null,
+	});
+}
+
+/** An authorization command with its byte hash as hex, for the audit detail. */
+function commandForAudit(command: AuthorizationPayload["command"]): Record<string, unknown> | null {
+	if (command === null) return null;
+	return command.match.kind === "exact"
+		? {
+				method: command.method,
+				match: "exact",
+				target: command.match.target,
+				spec_sha256: Buffer.from(command.match.specSha256).toString("hex"),
+			}
+		: { method: command.method, match: "prefix", target: command.match.target };
+}
+
+/** Content identity of a signature, so a stored cosignature is not appended twice. */
+function signatureKey(signature: Signature): string {
+	return signaturesToJson([signature]);
 }
 
 function auditActor(actor: Actor) {

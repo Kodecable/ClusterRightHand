@@ -63,6 +63,12 @@ export function NodeDetail({ id }: { id: string }) {
 								<dd className="mono">{n.keyFingerprint ?? "-"}</dd>
 							</>
 						)}
+						{n.clockWarning && (
+							<>
+								<dt>Clock</dt>
+								<dd className="error">{n.clockWarning}</dd>
+							</>
+						)}
 						<dt>Node id</dt>
 						<dd className="mono">{n.id}</dd>
 					</dl>

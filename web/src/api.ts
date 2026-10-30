@@ -43,6 +43,8 @@ export interface PublicNode {
 	keyFingerprint: string | null;
 	/** Whether crha is connected now; null for SSH nodes (they connect per task). */
 	connected: boolean | null;
+	/** A clock warning when the node's clock is too far from crhs's; null when it is fine. */
+	clockWarning: string | null;
 }
 export type GranteeType = "user" | "user_group";
 export type ShareAccess = "view" | "operate";
@@ -236,6 +238,86 @@ export interface NodeTrust {
 export interface CrhsKey {
 	authorizedKey: string;
 	fingerprint: string;
+}
+/** One of the user's signing credentials (doc/m4.md M4.4). */
+export interface CredentialView {
+	id: string;
+	kind: "ssh" | "webauthn";
+	name: string;
+	createdAt: string;
+	/** ssh: the authorized_keys line; webauthn: the COSE public key, base64. */
+	publicKey: string;
+	/** ssh only: the fingerprint a trust entry's key carries. */
+	fingerprint: string | null;
+	/** webauthn only. */
+	credentialId: string | null;
+	rpId: string | null;
+	origins: string[];
+}
+/** The decoded form of a pending authorization payload. */
+export interface DecodedAuthorizationPayload {
+	nodes: string[];
+	command:
+		| { method: RuleMethod; match: "exact"; target: string; specSha256: string }
+		| { method: RuleMethod; match: "prefix"; target: string }
+		| null;
+	issuedAt: string;
+	deadline: string | null;
+	taskIds: string[] | null;
+	attempt: number | null;
+	note: string;
+}
+/** One of the owner's Passkeys the node trusts for the payload. */
+export interface PendingPasskey {
+	credentialId: string;
+	name: string;
+	rpId: string;
+	origins: string[];
+	requireUv: boolean;
+	entry: string;
+}
+/** The payload a waiting task's owner has to sign. */
+export interface PendingAuthorization {
+	id: string;
+	payload: string;
+	decoded: DecodedAuthorizationPayload;
+	challenge: string;
+	deadline: string | null;
+	taskIds: string[];
+	attempt: number;
+	passkeys: PendingPasskey[];
+	localRequested: boolean;
+	lastRejection: TaskAuthorizationView["lastRejection"];
+	tried: string[];
+}
+export interface GroupPendingTask {
+	id: string;
+	nodeId: string;
+	nodeName: string;
+	attempt: number;
+	state: TaskState;
+	localRequested: boolean;
+	lastRejection: TaskAuthorizationView["lastRejection"];
+	tried: string[];
+}
+export interface GroupPending {
+	authorization: PendingAuthorization;
+	tasks: GroupPendingTask[];
+}
+/** One stored authorization (doc/m4.md M4.4). */
+export interface AuthorizationSummary {
+	id: string;
+	issuerUserId: string | null;
+	issuerUsername: string | null;
+	nodes: string[];
+	command: DecodedAuthorizationPayload["command"];
+	taskIds: string[] | null;
+	attempt: number | null;
+	note: string;
+	issuedAt: string | null;
+	deadline: string | null;
+	createdAt: string;
+	revokedAt: string | null;
 }
 export interface TaskView {
 	id: string;
@@ -454,6 +536,37 @@ export const api = {
 	/** Revokes an authorization; the nodes get the revocation with revocations.add (doc/privilege.md#吊销). */
 	revokeAuthorization: (id: string) =>
 		request<{ authorization: { id: string; revokedAt: string } }>("POST", `/authorizations/${enc(id)}/revoke`),
+	/** The caller's own authorizations; administrators see their organization's. */
+	listAuthorizations: () =>
+		request<{ authorizations: AuthorizationSummary[] }>("GET", "/authorizations").then((r) => r.authorizations),
+
+	/** The user's signing credentials and their trust snippets (doc/m4.md M4.4). */
+	listCredentials: () =>
+		request<{ credentials: CredentialView[] }>("GET", "/me/credentials").then((r) => r.credentials),
+	addSshCredential: (publicKey: string, name?: string) =>
+		request<{ credential: CredentialView }>("POST", "/me/credentials/ssh", { publicKey, name }).then(
+			(r) => r.credential,
+		),
+	deleteCredential: (id: string) => request<{ ok: true }>("DELETE", `/me/credentials/${enc(id)}`),
+	/** WebAuthn registration options; the challenge is remembered server-side and used once. */
+	passkeyOptions: () => request<{ options: Record<string, unknown> }>("POST", "/me/credentials/webauthn/options", {}),
+	registerPasskey: (response: unknown, name?: string) =>
+		request<{ credential: CredentialView }>("POST", "/me/credentials/webauthn", { response, name }).then(
+			(r) => r.credential,
+		),
+
+	/** The pending payload of a waiting task, for its owner only. */
+	getTaskAuthorization: (id: string) =>
+		request<{ authorization: PendingAuthorization | null }>("GET", `/tasks/${enc(id)}/authorization`).then(
+			(r) => r.authorization,
+		),
+	getTaskGroupAuthorization: (id: string) =>
+		request<{ group: GroupPending | null }>("GET", `/task-groups/${enc(id)}/authorization`).then((r) => r.group),
+	/** Submits a signed authorization: pasted `crha grant` output, or a Passkey assertion. */
+	submitAuthorization: (body: { authorization: string } | { payloadId: string; webauthn: unknown }) =>
+		request<{ authorization: { id: string; dispatched: string[] } }>("POST", "/authorizations", body).then(
+			(r) => r.authorization,
+		),
 	approveNode: (id: string) => request<{ node: PublicNode }>("POST", `/nodes/${enc(id)}/approve`),
 	deleteNode: (id: string) => request<{ ok: true }>("DELETE", `/nodes/${enc(id)}`),
 	renameNode: (id: string, name: string) => request<{ node: PublicNode }>("PATCH", `/nodes/${enc(id)}`, { name }),

@@ -1,6 +1,8 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api, type PublicNode, type TaskGroupView } from "../api.ts";
+import { useUser } from "../auth.tsx";
 import { DecisionView } from "../components/Approval.tsx";
+import { AuthorizationWait } from "../components/AuthorizationWait.tsx";
 import { Badge, ErrorText, Loading } from "../components/Feedback.tsx";
 import { TaskFormFields } from "../components/TaskFormFields.tsx";
 import { stateKind, TaskResult } from "../components/TaskResult.tsx";
@@ -16,8 +18,18 @@ export function groupStateKind(state: string): string {
 	return "busy";
 }
 
-function GroupResult({ group, names }: { group: TaskGroupView; names: Map<string, string> }) {
+function GroupResult({
+	group,
+	names,
+	onChanged,
+}: {
+	group: TaskGroupView;
+	names: Map<string, string>;
+	onChanged: () => void;
+}) {
+	const user = useUser();
 	const name = (id: string) => names.get(id) ?? id;
+	const owner = group.onBehalfOfUserId === user.id;
 	return (
 		<section>
 			<h2>
@@ -34,8 +46,11 @@ function GroupResult({ group, names }: { group: TaskGroupView; names: Map<string
 					Waiting for approval. <a href={`#/approvals/task-groups/${group.id}`}>Open approval page</a>
 				</p>
 			)}
-			{group.state === "awaiting_authorization" && (
-				<p>Waiting for an authorization signature; open a waiting task below to see its plan.</p>
+			{group.state === "awaiting_authorization" && owner && (
+				<AuthorizationWait kind="group" id={group.id} onChanged={onChanged} />
+			)}
+			{group.state === "awaiting_authorization" && !owner && (
+				<p className="muted">Waiting for the owner's authorization.</p>
 			)}
 			{group.state === "rejected" && group.approval?.decision && <DecisionView decision={group.approval.decision} />}
 			<div className="scroll-x">
@@ -185,7 +200,7 @@ export function Batch() {
 					</button>
 				</div>
 			</form>
-			{group && <GroupResult group={group} names={names} />}
+			{group && <GroupResult group={group} names={names} onChanged={() => setGroup({ ...group })} />}
 		</>
 	);
 }

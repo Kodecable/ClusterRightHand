@@ -32,6 +32,8 @@ export interface PublicNode {
 	keyFingerprint: string | null;
 	/** Whether crha is connected right now; null for SSH nodes, which connect per task. Set by the API layer. */
 	connected: boolean | null;
+	/** A clock warning when the node's clock is too far from crhs's (doc/privilege.md#时钟). */
+	clockWarning: string | null;
 }
 
 export interface NodeShare {
@@ -44,6 +46,19 @@ export interface NodeShare {
 	access: ShareAccess;
 	createdByUserId: string;
 	createdAt: string;
+}
+
+/**
+ * A warning line when a node's clock differs from crhs's by more than `warnMs`
+ * (doc/privilege.md#时钟); 0 turns the warning off. `facts` is the JSON form of the node's Facts.
+ */
+export function clockWarning(facts: unknown, warnMs: number): string | null {
+	if (warnMs <= 0) return null;
+	const offset = (facts as { clockOffsetMs?: unknown } | null)?.clockOffsetMs;
+	if (typeof offset !== "number" || !Number.isFinite(offset) || Math.abs(offset) <= warnMs) return null;
+	const ms = Math.abs(offset);
+	const seconds = ms % 1000 === 0 ? String(ms / 1000) : (ms / 1000).toFixed(1);
+	return `the node's clock differs from crhs by ${seconds} s`;
 }
 
 export async function getNode(db: Db, id: string): Promise<NodeRow | undefined> {
@@ -125,6 +140,7 @@ export function toPublicNode(row: NodeRow, access: NodeAccess, groups: string[])
 		facts,
 		keyFingerprint: row.public_key ? keyFingerprint(Buffer.from(row.public_key, "base64")) : null,
 		connected: row.transport === "ssh" ? null : false,
+		clockWarning: null,
 	};
 }
 

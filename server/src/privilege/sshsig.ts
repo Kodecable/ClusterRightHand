@@ -109,6 +109,21 @@ export function sshFingerprint(publicKeyBlob: Uint8Array): string {
 	return `SHA256:${digest.replace(/=+$/, "")}`;
 }
 
+/**
+ * The public key blob an SSHSIG names, for matching a signature to the trust entries that might own
+ * it. Only the header is read; `verifySshsig` is what decides whether the signature is good.
+ */
+export function sshsigKeyBlob(blob: Uint8Array): Uint8Array | null {
+	try {
+		const sig = new Reader(blob);
+		if (Buffer.from(sig.raw(6)).toString("utf8") !== "SSHSIG") return null;
+		sig.u32();
+		return sig.string();
+	} catch {
+		return null;
+	}
+}
+
 /** The `authorized_keys` line of a public key blob, with an optional comment. */
 export function authorizedKeyLine(keyType: string, publicKeyBlob: Uint8Array, comment?: string): string {
 	const base = `${keyType} ${Buffer.from(publicKeyBlob).toString("base64")}`;
@@ -117,7 +132,9 @@ export function authorizedKeyLine(keyType: string, publicKeyBlob: Uint8Array, co
 
 /**
  * Parses an `authorized_keys` line: `type base64 [comment]`. Options in front of the type are not
- * part of the trust configuration's format (doc/protocol.md#trustsummary), so they are rejected.
+ * part of the trust configuration's format (doc/protocol.md#trustsummary), so they are rejected. The
+ * blob must really be of the named type: a mistyped line would otherwise be stored as a credential
+ * that can never verify anything, and a wrong key type in a trust entry is easier to spot here.
  */
 export function parseAuthorizedKey(line: string): ParsedAuthorizedKey {
 	const fields = line.trim().split(/\s+/);
@@ -126,6 +143,27 @@ export function parseAuthorizedKey(line: string): ParsedAuthorizedKey {
 	if (!isSshKeyType(keyType)) throw new Error(`unsupported key type ${keyType}`);
 	const blob = Uint8Array.from(Buffer.from(body, "base64"));
 	if (blob.length === 0) throw new Error("empty public key");
+	const key = new Reader(blob);
+	if (key.text() !== keyType) throw new Error(`the key blob is not of type ${keyType}`);
+	switch (keyType) {
+		case "ssh-ed25519":
+			if (key.string().length !== 32) throw new Error("an ed25519 public key is 32 bytes");
+			break;
+		case "ecdsa-sha2-nistp256":
+			if (key.text() !== "nistp256") throw new Error("only the P-256 curve is supported");
+			if (key.string().length !== 65) throw new Error("a P-256 public key is 65 bytes");
+			break;
+		case "sk-ssh-ed25519@openssh.com":
+			if (key.string().length !== 32) throw new Error("an ed25519 public key is 32 bytes");
+			key.text(); // application
+			break;
+		case "sk-ecdsa-sha2-nistp256@openssh.com":
+			if (key.text() !== "nistp256") throw new Error("only the P-256 curve is supported");
+			if (key.string().length !== 65) throw new Error("a P-256 public key is 65 bytes");
+			key.text(); // application
+			break;
+	}
+	key.end();
 	return { keyType, blob };
 }
 
