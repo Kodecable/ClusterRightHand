@@ -304,6 +304,9 @@ func checkCandidate(in Input, auth *Authorization, signature *Signature, authori
 		if !slices.Contains(*payload.TaskIDs, in.Task.ID) {
 			return failure(ResultInvalid, StepOneShot, "task id is not in task_ids"), false
 		}
+		if err := oneShotNodeCheck(payload.Nodes, *payload.TaskIDs, in.Task.ID, in.NodeID); err != nil {
+			return failure(ResultInvalid, StepOneShot, "one-shot authorization: %v", err), false
+		}
 		if payload.Attempt == nil || uint64(*payload.Attempt) != in.Task.Attempt {
 			return failure(ResultInvalid, StepOneShot, "attempt does not match task.start"), false
 		}
@@ -383,6 +386,31 @@ func hasCosign(auth *Authorization) bool {
 		}
 	}
 	return false
+}
+
+// oneShotNodeCheck verifies that a one-shot authorization binds every task id to one node id
+// (doc/protocol.md#授权对象): nodes lists only node ids, has exactly one entry per task id, and
+// the task's id sits at the position of this node. A compromised crhs cannot send all task ids
+// of a group authorization to one node and run the command there several times.
+func oneShotNodeCheck(nodes, taskIDs []string, taskID, nodeID string) error {
+	if len(nodes) != len(taskIDs) {
+		return fmt.Errorf("nodes has %d entries but task_ids has %d", len(nodes), len(taskIDs))
+	}
+	for _, node := range nodes {
+		if node == "*" || strings.HasPrefix(node, "group:") {
+			return fmt.Errorf("nodes must contain node ids, not %q", node)
+		}
+	}
+	for i, id := range taskIDs {
+		if id != taskID {
+			continue
+		}
+		if nodes[i] != nodeID {
+			return fmt.Errorf("task %q belongs to node %q, not this node", taskID, nodes[i])
+		}
+		return nil
+	}
+	return fmt.Errorf("task id is not in task_ids")
 }
 
 // addressedTo reports whether the payload's nodes cover this node: its id, a configured

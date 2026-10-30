@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -372,5 +375,117 @@ func TestResultOutcome(t *testing.T) {
 	}
 	if got := fileResult(errf("cancelled", "x")); got.Err == nil || !got.Cancelled {
 		t.Fatalf("cancelled file task: %+v", got)
+	}
+}
+
+// fileModeBits renders the permission, setuid, setgid and sticky bits of path as octal.
+func fileModeBits(t *testing.T, path string) string {
+	t.Helper()
+	var st unix.Stat_t
+	if err := unix.Stat(path, &st); err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf("%04o", st.Mode&0o7777)
+}
+
+// TestFileWriteSpecialModes covers the mode of a file.write: setuid, setgid and sticky are kept,
+// both when the request names them and when an existing file's mode is reused
+// (doc/privilege.md 方法与目标).
+func TestFileWriteSpecialModes(t *testing.T) {
+	test := func(t *testing.T, run func(t *testing.T, spec *protocol.FileWriteSpec, input io.Reader) error) {
+		dir := privateDir(t)
+		for _, tc := range []struct {
+			name string
+			mode uint32
+		}{
+			{"setuid", 0o4755},
+			{"setgid", 0o2755},
+			{"sticky", 0o1777},
+			{"all", 0o7755},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				path := filepath.Join(dir, "mode-"+tc.name)
+				spec := writeSpec(path, "content")
+				spec.Mode = protocol.Uint(tc.mode)
+				if err := run(t, spec, strings.NewReader("content")); err != nil {
+					t.Fatalf("write: %v", err)
+				}
+				if got := fileModeBits(t, path); got != fmt.Sprintf("%04o", tc.mode) {
+					t.Fatalf("mode = %s, want %04o", got, tc.mode)
+				}
+				noTemps(t, dir)
+
+				// Overwriting with mode 0 keeps the existing bits.
+				overwrite := writeSpec(path, "other")
+				overwrite.Overwrite = true
+				if err := run(t, overwrite, strings.NewReader("other")); err != nil {
+					t.Fatalf("overwrite: %v", err)
+				}
+				if got := fileModeBits(t, path); got != fmt.Sprintf("%04o", tc.mode) {
+					t.Fatalf("overwrite mode = %s, want the existing %04o", got, tc.mode)
+				}
+				noTemps(t, dir)
+			})
+		}
+	}
+
+	t.Run("unprivileged", func(t *testing.T) {
+		test(t, func(t *testing.T, spec *protocol.FileWriteSpec, input io.Reader) error {
+			_, err := run(t, spec, input)
+			return err
+		})
+	})
+	t.Run("privileged", func(t *testing.T) {
+		test(t, func(t *testing.T, spec *protocol.FileWriteSpec, input io.Reader) error {
+			_, err := runPrivileged(t, spec, input)
+			return err
+		})
+	})
+}
+
+// TestPrivilegedFileSpecialFiles covers FIFOs and sockets: opening one for reading must not block
+// a privileged file task forever, so both are refused with not_regular_file
+// (doc/privilege.md 方法与目标).
+func TestPrivilegedFileSpecialFiles(t *testing.T) {
+	dir := privateDir(t)
+	fifo := filepath.Join(dir, "fifo")
+	if err := unix.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(dir, "socket")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	runSpecial := func(t *testing.T, spec *protocol.TaskSpec) error {
+		t.Helper()
+		done := make(chan error, 1)
+		go func() {
+			var out bytes.Buffer
+			done <- RunFilePrivileged(context.Background(), spec, nil, &out)
+		}()
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(5 * time.Second):
+			t.Fatal("a special file blocked the task")
+			return nil
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{"fifo", fifo},
+		{"socket", socket},
+	} {
+		t.Run(tc.name+"/read", func(t *testing.T) {
+			wantCode(t, runSpecial(t, privilegedSpec(&protocol.FileReadSpec{Path: tc.path})), "not_regular_file")
+		})
+		t.Run(tc.name+"/list", func(t *testing.T) {
+			wantCode(t, runSpecial(t, privilegedSpec(&protocol.FileListSpec{Path: tc.path})), "not_regular_file")
+		})
 	}
 }

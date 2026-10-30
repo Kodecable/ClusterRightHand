@@ -1,13 +1,20 @@
 /**
  * Pushed revocations (doc/privilege.md#吊销, doc/protocol.md#新增命令和事件11可选): crhs sends every
- * non-expired revoked authorization of the node's organization after an `ok` trust report and again
- * when a user revokes one. `revocations.add` is idempotent; the privileged mode prunes expired rows.
+ * revoked authorization of the node's organization after an `ok` trust report and again when a user
+ * revokes one. `revocations.add` is idempotent; the privileged mode prunes expired rows.
  */
 import { encode as encodeCbor, MAX_FRAME_BYTES, type Revocation, revocationsAddCodec } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import type { Db } from "../storage/db.ts";
 import type { AuthorizationsTable } from "../storage/schema.ts";
 import { NotFoundError } from "../users/service.ts";
+
+/**
+ * How long a revocation is resent past its authorization's deadline. crha keeps revocation records
+ * for the same margin, which covers a clock that stepped back: the node accepts an authorization
+ * until its deadline plus the clock skew (doc/privilege.md#吊销).
+ */
+export const REVOCATION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** The revocation entry of an authorization row. */
 export function revocationOf(row: Pick<AuthorizationsTable, "id" | "deadline">): Revocation {
@@ -17,7 +24,10 @@ export function revocationOf(row: Pick<AuthorizationsTable, "id" | "deadline">):
 	};
 }
 
-/** Revoked authorizations of an organization whose deadline has not passed, oldest first. */
+/**
+ * Revoked authorizations of an organization that crha may still accept, oldest first: everything
+ * without a deadline, and everything whose deadline is less than the retention margin in the past.
+ */
 export async function listRevocations(db: Db, orgId: string, now = Date.now()): Promise<Revocation[]> {
 	const rows = await db
 		.selectFrom("authorizations")
@@ -26,7 +36,9 @@ export async function listRevocations(db: Db, orgId: string, now = Date.now()): 
 		.where("revoked_at", "is not", null)
 		.orderBy("created_at")
 		.execute();
-	return rows.map(revocationOf).filter((entry) => entry.deadlineMs === null || entry.deadlineMs > now);
+	return rows
+		.map(revocationOf)
+		.filter((entry) => entry.deadlineMs === null || entry.deadlineMs + REVOCATION_RETENTION_MS >= now);
 }
 
 /** Marks an authorization revoked; returns the row and whether this call changed it. */

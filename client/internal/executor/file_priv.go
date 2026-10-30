@@ -119,7 +119,7 @@ func fileReadPrivileged(ctx context.Context, s *protocol.FileReadSpec, stdout io
 		return err
 	}
 	defer root.Close()
-	f, err := root.open(s.Path, unix.O_RDONLY)
+	f, err := openReadNoBlock(root, s.Path)
 	if err != nil {
 		return err
 	}
@@ -131,11 +131,55 @@ func fileReadPrivileged(ctx context.Context, s *protocol.FileReadSpec, stdout io
 	if fi.IsDir() {
 		return errf("is_directory", "%s is a directory", s.Path)
 	}
+	if err := checkNotSpecial(fi, s.Path); err != nil {
+		return err
+	}
+	if fi.Mode().IsRegular() {
+		if err := clearNonblocking(f); err != nil {
+			return err
+		}
+	}
 	var r io.Reader = io.NewSectionReader(f, int64(s.Offset), 1<<62)
 	if s.Limit > 0 {
 		r = io.LimitReader(r, int64(s.Limit))
 	}
 	_, err = copyCtx(ctx, stdout, r)
+	return err
+}
+
+// openReadNoBlock opens p for reading without blocking on a FIFO: opening one with O_RDONLY
+// waits for a writer, which a cancellation cannot interrupt. A socket inode cannot be opened
+// for reading at all (ENXIO); it is no more a regular file, so it is refused the same way.
+func openReadNoBlock(root *privilegedFileRoot, path string) (*os.File, error) {
+	f, err := root.open(path, unix.O_RDONLY|unix.O_NONBLOCK)
+	if err != nil {
+		if errors.Is(err, unix.ENXIO) {
+			return nil, errf("not_regular_file", "%s is not a regular file", path)
+		}
+		return nil, err
+	}
+	return f, nil
+}
+
+// checkNotSpecial refuses a FIFO or socket: neither can be read to its end, and reading a FIFO
+// may block forever even when the task is cancelled (doc/privilege.md 方法与目标).
+func checkNotSpecial(fi fs.FileInfo, path string) error {
+	if fi.Mode()&fs.ModeNamedPipe != 0 || fi.Mode()&fs.ModeSocket != 0 {
+		return errf("not_regular_file", "%s is not a regular file", path)
+	}
+	return nil
+}
+
+// clearNonblocking restores blocking reads on a regular file opened with O_NONBLOCK.
+func clearNonblocking(f *os.File) error {
+	flags, err := unix.FcntlInt(f.Fd(), unix.F_GETFL, 0)
+	if err != nil {
+		return err
+	}
+	if flags&unix.O_NONBLOCK == 0 {
+		return nil
+	}
+	_, err = unix.FcntlInt(f.Fd(), unix.F_SETFL, flags&^unix.O_NONBLOCK)
 	return err
 }
 
@@ -176,7 +220,7 @@ func fileListPrivileged(ctx context.Context, s *protocol.FileListSpec, stdout io
 		return err
 	}
 	defer root.Close()
-	dir, err := root.open(s.Path, unix.O_RDONLY)
+	dir, err := openReadNoBlock(root, s.Path)
 	if err != nil {
 		return err
 	}
@@ -185,8 +229,14 @@ func fileListPrivileged(ctx context.Context, s *protocol.FileListSpec, stdout io
 	if err != nil {
 		return err
 	}
+	if err := checkNotSpecial(fi, s.Path); err != nil {
+		return err
+	}
 	if !fi.IsDir() {
 		return errf("not_a_directory", "%s is not a directory", s.Path)
+	}
+	if err := clearNonblocking(dir); err != nil {
+		return err
 	}
 	des, err := dir.ReadDir(-1)
 	if err != nil {
@@ -296,9 +346,9 @@ func fileWritePrivileged(ctx context.Context, s *protocol.FileWriteSpec, input i
 	mode := fs.FileMode(0o644)
 	switch {
 	case s.Mode != 0:
-		mode = fs.FileMode(s.Mode) & 0o7777
+		mode = editMode(uint32(s.Mode))
 	case existing != nil:
-		mode = fs.FileMode(existing.Mode) & 0o7777
+		mode = editMode(existing.Mode)
 	}
 	if existing != nil && uid < 0 && gid < 0 {
 		if err := tmp.Chown(int(existing.Uid), int(existing.Gid)); err != nil && !errors.Is(err, syscall.EPERM) {

@@ -23,6 +23,7 @@ import * as m0020 from "./migrations/0020_output_mode.ts";
 import * as m0021 from "./migrations/0021_task_group_privileged.ts";
 import * as m0022 from "./migrations/0022_m4_privilege.ts";
 import * as m0023 from "./migrations/0023_credential_origins.ts";
+import * as m0024 from "./migrations/0024_rule_privileged_flag.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -49,6 +50,7 @@ const migrations: Record<string, Migration> = {
 	"0021_task_group_privileged": m0021,
 	"0022_m4_privilege": m0022,
 	"0023_credential_origins": m0023,
+	"0024_rule_privileged_flag": m0024,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };

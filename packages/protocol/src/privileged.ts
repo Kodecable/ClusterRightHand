@@ -254,6 +254,8 @@ export type PendingEntry = Infer<typeof pendingEntryCodec>;
 export const localVerdictCodec = tuple([
 	["taskId", text],
 	["attempt", uint],
+	/** The spec the approver saw; the privileged mode refuses a verdict with another hash. */
+	["specSha256", sha256],
 	["message", text],
 ]);
 export type LocalVerdict = Infer<typeof localVerdictCodec>;

@@ -326,4 +326,23 @@ describe("task group authorization", () => {
 		});
 		expect(decodeAuthorizationPayload(built.bytes)).toEqual(built.payload);
 	});
+
+	it("refuses a payload whose nodes and task ids do not line up", () => {
+		// One node per task id, by position (doc/protocol.md#授权对象): a payload that violates the
+		// binding would only be refused by the node later, so the builder fails closed.
+		expect(() =>
+			buildTaskGroupAuthorization({
+				nodeIds: [NODE, "01JB0000000000000000000002"],
+				taskIds: [TASK],
+				attempt: 1,
+				spec: RESTART,
+			}),
+		).toThrow(/one node per task id/);
+		expect(() =>
+			buildTaskGroupAuthorization({ nodeIds: ["group:web"], taskIds: [TASK], attempt: 1, spec: RESTART }),
+		).toThrow(/node ids/);
+		expect(() => buildTaskGroupAuthorization({ nodeIds: ["*"], taskIds: [TASK], attempt: 1, spec: RESTART })).toThrow(
+			/node ids/,
+		);
+	});
 });

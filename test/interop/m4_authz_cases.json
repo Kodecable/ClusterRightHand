@@ -843,7 +843,7 @@
 		},
 		{
 			"id": "crhs.group",
-			"description": "payload addressed to a group configured on this node",
+			"description": "a one-shot payload must list node ids, not a group (doc/protocol.md 授权对象)",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -962,8 +962,8 @@
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
-				"result": "accepted",
-				"step": null
+				"result": "authorization_invalid",
+				"step": 5
 			}
 		},
 		{
@@ -1093,7 +1093,7 @@
 		},
 		{
 			"id": "crhs.star",
-			"description": "\"*\" covers every node that trusts the signer",
+			"description": "a one-shot payload must list node ids, not \"*\" (doc/protocol.md 授权对象)",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -1212,8 +1212,8 @@
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
-				"result": "accepted",
-				"step": null
+				"result": "authorization_invalid",
+				"step": 5
 			}
 		},
 		{
@@ -5786,6 +5786,803 @@
 			"expect": {
 				"result": "authorization_rejected",
 				"step": 5
+			}
+		},
+		{
+			"id": "oneshot.aligned-multi-node",
+			"description": "the task at its node's position of an aligned multi-node payload",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "01JB0000000000000000000001",
+				"groups": ["web", "prod"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000002",
+				"attempt": 2,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["01JB0000000000000000000002", "01JB0000000000000000000001"],
+					"command": {
+						"method": "exec",
+						"exact": "systemctl restart nginx",
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001", "0192f000-0000-7000-8000-000000000002"],
+					"attempt": 2
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				],
+				"revoked": false
+			},
+			"local_approval": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
+			}
+		},
+		{
+			"id": "oneshot.misaligned-node",
+			"description": "the task id sits at another node's position",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "01JB0000000000000000000001",
+				"groups": ["web", "prod"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["01JB0000000000000000000002", "01JB0000000000000000000001"],
+					"command": {
+						"method": "exec",
+						"exact": "systemctl restart nginx",
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001", "0192f000-0000-7000-8000-000000000002"],
+					"attempt": 2
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				],
+				"revoked": false
+			},
+			"local_approval": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_invalid",
+				"step": 5
+			}
+		},
+		{
+			"id": "oneshot.length-mismatch",
+			"description": "nodes and task_ids differ in length",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "01JB0000000000000000000001",
+				"groups": ["web", "prod"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["01JB0000000000000000000001"],
+					"command": {
+						"method": "exec",
+						"exact": "systemctl restart nginx",
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001", "0192f000-0000-7000-8000-000000000002"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				],
+				"revoked": false
+			},
+			"local_approval": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_invalid",
+				"step": 5
+			}
+		},
+		{
+			"id": "oneshot.group-node",
+			"description": "one-shot payloads cannot fold a group into nodes",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "01JB0000000000000000000001",
+				"groups": ["web", "prod"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["group:web"],
+					"command": {
+						"method": "exec",
+						"exact": "systemctl restart nginx",
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				],
+				"revoked": false
+			},
+			"local_approval": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_invalid",
+				"step": 5
+			}
+		},
+		{
+			"id": "oneshot.star-node",
+			"description": "one-shot payloads cannot use \"*\"",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "01JB0000000000000000000001",
+				"groups": ["web", "prod"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["*"],
+					"command": {
+						"method": "exec",
+						"exact": "systemctl restart nginx",
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				],
+				"revoked": false
+			},
+			"local_approval": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_invalid",
+				"step": 5
+			}
+		},
+		{
+			"id": "guard.broken-regex-allow",
+			"description": "a regex that cannot compile alone never matches (allow fails closed)",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "01JB0000000000000000000001",
+				"groups": ["web", "prod"]
+			},
+			"trust": [
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "a)|(b"
+						}
+					],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["a"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["01JB0000000000000000000001"],
+					"command": {
+						"method": "exec",
+						"exact": "a",
+						"spec_sha256": "95251c769ab931ca5274adde9dbc16674214e2e02d8e097c88f156fa534d4851"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				],
+				"revoked": false
+			},
+			"local_approval": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 7
+			}
+		},
+		{
+			"id": "guard.broken-regex-deny",
+			"description": "a regex that cannot compile alone denies everything (deny fails closed)",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "01JB0000000000000000000001",
+				"groups": ["web", "prod"]
+			},
+			"trust": [
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "a)|(b"
+						}
+					],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["01JB0000000000000000000001"],
+					"command": {
+						"method": "exec",
+						"exact": "systemctl restart nginx",
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				],
+				"revoked": false
+			},
+			"local_approval": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 7
 			}
 		},
 		{

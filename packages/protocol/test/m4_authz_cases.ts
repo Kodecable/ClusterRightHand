@@ -97,6 +97,8 @@ const RESTART_SHELL: TaskSpec = {
 	cwd: "",
 	stdin: null,
 };
+// A target the broken guard pattern below matches when the implicit full match is escaped.
+const A_ONLY: TaskSpec = { ...RESTART, command: { argv: ["a"] } } as TaskSpec;
 const WRITE_NGINX: TaskSpec = {
 	kind: "file.write",
 	path: "/etc/nginx/nginx.conf",
@@ -212,15 +214,17 @@ function cases(): Case[] {
 			authorization: signedBy(crhsPayload({ nodes: [OTHER_NODE] }), "crhs"),
 			...reject("authorization_invalid", 4),
 		}),
-		base("crhs.group", "payload addressed to a group configured on this node", {
+		base("crhs.group", "a one-shot payload must list node ids, not a group (doc/protocol.md 授权对象)", {
 			authorization: signedBy(crhsPayload({ nodes: ["group:web"] }), "crhs"),
+			...reject("authorization_invalid", 5),
 		}),
 		base("crhs.other-group", "payload addressed to a group not configured on this node", {
 			authorization: signedBy(crhsPayload({ nodes: ["group:db"] }), "crhs"),
 			...reject("authorization_invalid", 4),
 		}),
-		base("crhs.star", '"*" covers every node that trusts the signer', {
+		base("crhs.star", 'a one-shot payload must list node ids, not "*" (doc/protocol.md 授权对象)', {
 			authorization: signedBy(crhsPayload({ nodes: ["*"] }), "crhs"),
+			...reject("authorization_invalid", 5),
 		}),
 		base("crhs.expired", "deadline more than clock_skew in the past", {
 			now_ms: NOW + 300_000 + 60_001,
@@ -480,6 +484,50 @@ function cases(): Case[] {
 			),
 			used_pairs: [OTHER_TASK],
 			...reject("authorization_rejected", 5),
+		}),
+
+		// --- one-shot node binding (doc/protocol.md 授权对象) ---------------------------------
+		base("oneshot.aligned-multi-node", "the task at its node's position of an aligned multi-node payload", {
+			task: { task_id: OTHER_TASK, attempt: 2, spec: taskSpecToJson(RESTART) },
+			authorization: signedBy(
+				userOneShot({ nodes: [OTHER_NODE, NODE], task_ids: [TASK, OTHER_TASK], attempt: 2 }),
+				"alice",
+			),
+		}),
+		base("oneshot.misaligned-node", "the task id sits at another node's position", {
+			authorization: signedBy(
+				userOneShot({ nodes: [OTHER_NODE, NODE], task_ids: [TASK, OTHER_TASK], attempt: 2 }),
+				"alice",
+			),
+			...reject("authorization_invalid", 5),
+		}),
+		base("oneshot.length-mismatch", "nodes and task_ids differ in length", {
+			authorization: signedBy(userOneShot({ nodes: [NODE], task_ids: [TASK, OTHER_TASK] }), "alice"),
+			...reject("authorization_invalid", 5),
+		}),
+		base("oneshot.group-node", "one-shot payloads cannot fold a group into nodes", {
+			authorization: signedBy(userOneShot({ nodes: ["group:web"] }), "alice"),
+			...reject("authorization_invalid", 5),
+		}),
+		base("oneshot.star-node", 'one-shot payloads cannot use "*"', {
+			authorization: signedBy(userOneShot({ nodes: ["*"] }), "alice"),
+			...reject("authorization_invalid", 5),
+		}),
+
+		// --- guard rules ---------------------------------------------------------------------
+		base("guard.broken-regex-allow", "a regex that cannot compile alone never matches (allow fails closed)", {
+			trust: [{ ...USER, allow: [{ method: "exec", match: "regex", pattern: "a)|(b" }] }, LOCAL],
+			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(A_ONLY) },
+			authorization: signedBy(
+				userOneShot({ command: { method: "exec", exact: "a", spec_sha256: specHash(A_ONLY) } }),
+				"alice",
+			),
+			...reject("authorization_rejected", 7),
+		}),
+		base("guard.broken-regex-deny", "a regex that cannot compile alone denies everything (deny fails closed)", {
+			trust: [{ ...USER, deny: [{ method: "exec", match: "regex", pattern: "a)|(b" }] }, LOCAL],
+			authorization: signedBy(userOneShot(), "alice"),
+			...reject("authorization_rejected", 7),
 		}),
 
 		// --- cosign --------------------------------------------------------------------------

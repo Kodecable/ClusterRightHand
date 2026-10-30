@@ -15,6 +15,12 @@ import (
 
 const resultAlreadyAccepted = authz.ResultAlreadyAccepted
 
+// maxApprovals bounds the pending and approved local requests a daemon keeps in memory. A
+// compromised crhs can send local.request for arbitrary task ids, so the list must not grow
+// without limit; reaching the cap refuses new requests until the approver withdraws or decides
+// one of them (doc/privilege.md 本地批准).
+const maxApprovals = 1024
+
 // decidedTask is a task.start that passed verification, with everything the caller needs to
 // persist and execute it.
 type decidedTask struct {
@@ -182,6 +188,17 @@ func (s *Server) approvedApproval(taskID string, attempt uint64) *approval {
 	return rec.clone()
 }
 
+// liveApprovalsLocked counts the pending and approved requests. t.approvalMu must be held.
+func (s *Server) liveApprovalsLocked() int {
+	live := 0
+	for _, rec := range s.approvals {
+		if rec.state.Kind == protocol.LocalStatePending || rec.state.Kind == protocol.LocalStateApproved {
+			live++
+		}
+	}
+	return live
+}
+
 // localRequest is the body an approval record reports.
 type localRequest struct {
 	taskID     string
@@ -256,6 +273,13 @@ func (s *Server) requestLocal(req *protocol.LocalRequest) (protocol.LocalState, 
 		s.approvalMu.Unlock()
 		return state, nil
 	}
+	if live := s.liveApprovalsLocked(); live >= maxApprovals {
+		s.approvalMu.Unlock()
+		return protocol.LocalState{}, &protocol.RemoteError{
+			Code:    "privileged_unavailable",
+			Message: fmt.Sprintf("too many pending local approvals (%d); decide or withdraw one first", live),
+		}
+	}
 	rec := &approval{localRequest: localRequest{
 		taskID:     req.TaskID,
 		attempt:    uint64(req.Attempt),
@@ -297,6 +321,15 @@ func (s *Server) decideLocal(uid uint32, verdict *protocol.LocalVerdict, approve
 		return protocol.LocalState{}, &protocol.RemoteError{
 			Code:    "unknown_task",
 			Message: fmt.Sprintf("no local request for task %s attempt %d", verdict.TaskID, verdict.Attempt),
+		}
+	}
+	if [32]byte(verdict.SpecSHA256) != rec.specHash {
+		// The approver decided on a spec that is no longer the pending one: crhs withdrew and
+		// re-requested the same key with different content, or the verdict is for another task.
+		s.approvalMu.Unlock()
+		return protocol.LocalState{}, &protocol.RemoteError{
+			Code:    "invalid_spec",
+			Message: fmt.Sprintf("the spec of task %s attempt %d differs from the one that was shown", verdict.TaskID, verdict.Attempt),
 		}
 	}
 	if rec.state.Kind != protocol.LocalStatePending {

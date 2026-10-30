@@ -304,21 +304,30 @@ describe("privileged forward dispatch", () => {
 			expect(JSON.parse(events[1]?.detail as string)).toMatchObject({ new_digest: null, status: "unavailable" });
 		});
 
-		it("pushes only the non-expired revoked authorizations of the node's organization", async () => {
+		it("pushes revoked authorizations until seven days past their deadline", async () => {
 			const { node, crha } = await connect("trust-3");
 			const live = await seedAuthorization({ revoked: true });
-			const expired = await seedAuthorization({ revoked: true });
+			const recentlyExpired = await seedAuthorization({ revoked: true });
+			const longExpired = await seedAuthorization({ revoked: true });
 			await db
 				.updateTable("authorizations")
 				.set({ deadline: new Date(Date.now() - 1000).toISOString() })
-				.where("id", "=", expired)
+				.where("id", "=", recentlyExpired)
+				.execute();
+			// crha keeps a revocation record until deadline+7d, so the push must cover the same
+			// window (doc/privilege.md#吊销).
+			await db
+				.updateTable("authorizations")
+				.set({ deadline: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() })
+				.where("id", "=", longExpired)
 				.execute();
 			await seedAuthorization({ revoked: false });
 
 			crha.trust({ kind: "ok", summary: summaryOf(node.id, [crhsEntry()]) });
 			await waitFor("revocations pushed", () => crha.revocations.length === 1);
 			const entries = crha.revocations[0] ?? [];
-			expect(entries.map((entry) => Buffer.from(entry.authorizationId).toString("hex"))).toEqual([live]);
+			const pushed = entries.map((entry) => Buffer.from(entry.authorizationId).toString("hex")).sort();
+			expect(pushed).toEqual([live, recentlyExpired].sort());
 		});
 
 		it("batches a large revocation list below the frame limit", () => {

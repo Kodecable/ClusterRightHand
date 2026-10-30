@@ -85,22 +85,26 @@ func (c *Client) Pending(ctx context.Context) ([]protocol.PendingEntry, error) {
 	return entries, nil
 }
 
-// Approve approves one pending task.
-func (c *Client) Approve(ctx context.Context, taskID string, attempt uint64, message string) error {
-	return c.verdict(ctx, wire.CmdLocalApprove, taskID, attempt, message)
+// Approve approves one pending task. specSHA256 is the hash of the spec the approver saw: the
+// privileged mode refuses the verdict when the pending record has another hash
+// (doc/privilege.md 本地批准).
+func (c *Client) Approve(ctx context.Context, taskID string, attempt uint64, specSHA256 [32]byte, message string) error {
+	return c.verdict(ctx, wire.CmdLocalApprove, taskID, attempt, specSHA256, message)
 }
 
-// Deny denies one pending task with an optional message.
-func (c *Client) Deny(ctx context.Context, taskID string, attempt uint64, message string) error {
-	return c.verdict(ctx, wire.CmdLocalDeny, taskID, attempt, message)
+// Deny denies one pending task with an optional message. specSHA256 binds the verdict to the
+// spec the approver saw, as with Approve.
+func (c *Client) Deny(ctx context.Context, taskID string, attempt uint64, specSHA256 [32]byte, message string) error {
+	return c.verdict(ctx, wire.CmdLocalDeny, taskID, attempt, specSHA256, message)
 }
 
-func (c *Client) verdict(ctx context.Context, cmd, taskID string, attempt uint64, message string) error {
+func (c *Client) verdict(ctx context.Context, cmd, taskID string, attempt uint64, specSHA256 [32]byte, message string) error {
 	var empty protocol.Empty
 	return c.peer.Request(ctx, cmd, protocol.LocalVerdict{
-		TaskID:  taskID,
-		Attempt: protocol.Uint(attempt),
-		Message: message,
+		TaskID:     taskID,
+		Attempt:    protocol.Uint(attempt),
+		SpecSHA256: protocol.Hash(specSHA256),
+		Message:    message,
 	}, &empty)
 }
 

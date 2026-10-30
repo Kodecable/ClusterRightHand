@@ -5,8 +5,10 @@
 // it describes starts, so a crash can lose neither the fact that an authorization was
 // used nor a revocation. At startup the lists are loaded and compacted: used records are
 // dropped once they are older than the authorization deadline plus seven days (or, for a
-// task id without a deadline, once they are 30 days old), and expired revocations are
-// dropped. Everything is kept in memory for the lookups the authorization decision does.
+// task id without a deadline, once they are 30 days old), and revocations are kept until
+// seven days past their authorization's deadline. A final line that was torn by a crash
+// and does not parse is ignored, because that append never became durable. Everything is
+// kept in memory for the lookups the authorization decision does.
 package state
 
 import (
@@ -16,6 +18,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,10 +29,11 @@ import (
 const (
 	usedFileName    = "used"
 	revokedFileName = "revoked"
-	// usedRetention is how long a used record is kept past the authorization's deadline.
-	// The margin covers a clock that stepped back by up to seven days: without it, a
-	// one-shot authorization could be used again after the clock recovers
-	// (doc/privilege.md 时钟).
+	// usedRetention is how long a used or revoked record is kept past the authorization's
+	// deadline. The margin covers a clock that stepped back by up to seven days: without it, a
+	// one-shot authorization could be used again after the clock recovers, and a revocation
+	// could be dropped while the node would still accept the authorization
+	// (doc/privilege.md 时钟, 吊销).
 	usedRetention = 7 * 24 * time.Hour
 	// taskRetention bounds a used record without a deadline: such a task id is remembered
 	// for 30 days. crhs never resends an accepted task, so this list is a defence in depth
@@ -135,20 +140,23 @@ func Open(dir string, opts Options) (*Store, error) {
 }
 
 // load reads both lists and applies the retention rules. A line that cannot be parsed is a
-// hard error: silently dropping it could forget a used authorization or a revocation.
+// hard error: silently dropping it could forget a used authorization or a revocation. The one
+// exception is the final line of a file written without a trailing newline and not parseable:
+// it is the torn remains of an append that never completed, so its task never ran and the
+// record can be ignored and compacted away.
 func (s *Store) load() error {
 	s.executed = make(map[string]Record)
 	s.pairs = make(map[pair]struct{})
 	s.revoked = make(map[[32]byte]*int64)
 	now := s.now()
 
-	if err := forEachLine(s.usedPath, func(line []byte, n int) error {
+	if err := forEachLine(s.usedPath, func(line []byte, n int, torn bool) error {
 		var rec Record
 		if err := json.Unmarshal(line, &rec); err != nil {
-			return fmt.Errorf("line %d: %w", n, err)
+			return tolerateTorn(s.usedPath, n, torn, err)
 		}
 		if rec.TaskID == "" {
-			return fmt.Errorf("line %d: missing task_id", n)
+			return tolerateTorn(s.usedPath, n, torn, errors.New("missing task_id"))
 		}
 		if !keepUsed(rec, now) {
 			return nil
@@ -162,7 +170,7 @@ func (s *Store) load() error {
 		}
 		id, err := parseID(rec.AuthorizationID)
 		if err != nil {
-			return fmt.Errorf("line %d: %w", n, err)
+			return tolerateTorn(s.usedPath, n, torn, err)
 		}
 		s.pairs[pair{authorizationID: id, taskID: rec.TaskID}] = struct{}{}
 		return nil
@@ -170,17 +178,19 @@ func (s *Store) load() error {
 		return fmt.Errorf("state: %s: %w", s.usedPath, err)
 	}
 
-	if err := forEachLine(s.revokedPath, func(line []byte, n int) error {
+	if err := forEachLine(s.revokedPath, func(line []byte, n int, torn bool) error {
 		var rec revocationRecord
 		if err := json.Unmarshal(line, &rec); err != nil {
-			return fmt.Errorf("line %d: %w", n, err)
+			return tolerateTorn(s.revokedPath, n, torn, err)
 		}
 		id, err := parseID(rec.AuthorizationID)
 		if err != nil {
-			return fmt.Errorf("line %d: %w", n, err)
+			return tolerateTorn(s.revokedPath, n, torn, err)
 		}
-		if rec.DeadlineMS != nil && now.After(time.UnixMilli(*rec.DeadlineMS)) {
-			return nil // the authorization the revocation belonged to has expired
+		if rec.DeadlineMS != nil && now.After(time.UnixMilli(*rec.DeadlineMS).Add(usedRetention)) {
+			// The authorization the revocation belonged to expired more than the retention
+			// margin ago; the authorization decision accepts until deadline + clock_skew.
+			return nil
 		}
 		if existing, ok := s.revoked[id]; ok {
 			s.revoked[id] = strongerDeadline(existing, rec.DeadlineMS)
@@ -371,8 +381,13 @@ func writeLine(buf *bytes.Buffer, v any) error {
 	return err
 }
 
-// forEachLine calls fn for every non-empty line of path. A missing file has no lines.
-func forEachLine(path string, fn func(line []byte, n int) error) error {
+// maxLine bounds one line of a state file.
+const maxLine = 1 << 20
+
+// forEachLine calls fn for every non-empty line of path. A missing file has no lines. torn
+// reports a line that ended without a trailing newline: only the file's final line can, and it
+// is the remains of an append that was never fsync'd.
+func forEachLine(path string, fn func(line []byte, n int, torn bool) error) error {
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -381,18 +396,36 @@ func forEachLine(path string, fn func(line []byte, n int) error) error {
 		return err
 	}
 	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64<<10), 1<<20)
-	for n := 1; scanner.Scan(); n++ {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
+	reader := bufio.NewReaderSize(f, 64<<10)
+	for n := 1; ; n++ {
+		line, readErr := reader.ReadBytes('\n')
+		if len(line) > maxLine {
+			return fmt.Errorf("line %d: longer than %d bytes", n, maxLine)
 		}
-		if err := fn(line, n); err != nil {
-			return err
+		torn := readErr == io.EOF
+		if trimmed := bytes.TrimSpace(line); len(trimmed) > 0 {
+			if err := fn(trimmed, n, torn); err != nil {
+				return err
+			}
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return nil
+			}
+			return readErr
 		}
 	}
-	return scanner.Err()
+}
+
+// tolerateTorn turns the parse error of a file's final, newline-less line into a warning: the
+// append that produced it never returned, so the task or revocation it records never took
+// effect, and compact rewrites the file without it. Any other malformed line stays an error.
+func tolerateTorn(path string, n int, torn bool, err error) error {
+	if !torn {
+		return fmt.Errorf("line %d: %w", n, err)
+	}
+	log.Printf("state: %s: ignoring a torn final record at line %d: %v", path, n, err)
+	return nil
 }
 
 // openAppend opens path for appending, creating it with mode 0600.
