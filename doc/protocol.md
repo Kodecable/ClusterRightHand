@@ -251,7 +251,7 @@ PrivWelcome = [priv_major: 1, priv_minor: 0, commands: [text], crha_version: tex
 | `local.approve` / `local.deny` | L→P | local | 请求 `[task_id: text, attempt: uint, message: text]`，响应 `[]` |
 | `revocations.add` | L→P | local | `crha privileged revoke` |
 
-- **断开**：`forward` 的连接断开时，特权模式中已 accepted 的任务继续运行到结束，结果写入本地日志；它们的输出不再回传。非特权模式重连后不认识这些任务，crhs 照常按 `unknown` 处理。`native` 的 stdin 关闭时，helper 等当前任务结束后退出。
+- **断开**：`forward` 的连接断开时，特权模式中已 accepted 的任务继续运行到结束，结果写入本地日志；它们的输出不再回传。非特权模式以 `error`、`code = helper_lost`（“任务可能仍在运行”）结束这些任务；`task.start` 已发出但响应因断开丢失时同样按 accepted 处理并以 `helper_lost` 结束，避免 crhs 重试一个可能已执行的任务。非特权模式自身重启时不认识这些任务，crhs 照常按 `unknown` 处理。`native` 的 stdin 关闭时，helper 等当前任务结束后退出。
 - **native helper** 每个进程只执行一个任务：握手、一个 `task.start`、输入、输出、`task.exit`，然后退出。stdin 是 tty 时拒绝启动。helper 在 accepted 之后、`task.exit` 之前意外退出或断开时，非特权模式以 `error`、`code = helper_lost` 结束任务（任务可能已部分执行，不重试）。
 
 ## 受限连接
