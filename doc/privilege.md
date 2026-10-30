@@ -234,6 +234,10 @@ uids  = [0, 1000]
 kinds = ["execute"]
 ```
 
+- 配置文件属主必须是特权模式的运行用户，组和其他用户不可写，否则拒绝加载；未知字段是错误。
+- 多个信任项含有相同的公钥或 credential id 时，签名对应到其中第一项。
+- `SIGHUP` 重新加载；加载失败时保留旧配置并写日志。已建立的连接不因 reload 而断开，即使对端 uid 已不在新配置中；新连接按新配置检查。
+
 ### 字段
 
 | 字段 | 适用 | 说明 |
@@ -280,7 +284,7 @@ kinds = ["execute"]
 7. 检查信任项：`kinds` 包含 `execute`；`deny` 和 `allow`；`env_allow`；`require_uv` 时该签名带 UV 标志。
 8. 如果用户信任项包含 `require-cosign`：在同一 payload 上找 `role = "crhs"` 且含 `cosign` 的签名并验证。
 9. 检查 payload 的授权 id 不在吊销列表中。
-10. 把任务 id 和 `(授权 id, 任务 id)` 记入已用列表（持久化）→ 写本地日志 → 执行 → 写结果日志。
+10. 把任务 id 和 `(授权 id, 任务 id)` 记入已用列表（持久化）→ 写本地日志 → 执行 → 写结果日志。本地日志写入失败时拒绝执行（不留下没有日志的特权执行），但已用记录已经写入，这个任务 id 不能再用，crhs 需要以新任务重新提交。
 
 任何一步失败都通过 `task.start` 的错误响应返回：`[1, id, "task.start", false, [code, message]]`。`code` 取 `authorization_required` / `invalid` / `expired` / `rejected`（对应关系见 [protocol.md](protocol.md#taskstart)），`message` 写明失败的步骤编号。规则和路径拒绝也是可重试的 `authorization_rejected`，因为换一个签名者（例如所有者本人）可能通过。
 
@@ -312,8 +316,8 @@ kinds = ["execute"]
 **只用于单任务**：任务组（批量执行）中的任务不走本地批准，crhs 不发送 `local.request`；没有其他路径时该节点的任务直接以 `authorization_required` 失败，消息提示改为对单个节点执行。逐节点登录批准与批量执行的初衷相悖，也避免 crhs 为任务组逐节点跟踪本地批准状态。
 
 1. crhs 选择本地批准路径时，向节点发送 `local.request`（任务 id、attempt、规格），任务进入待批准列表；**此时不发送 `task.start`**。
-2. 批准时，特权模式按上面的流程校验，其中第 3、4、6 步不适用（没有授权对象），第 7 步使用该 `local` 信任项的规则；拒绝则直接记录拒绝。结果通过 `local.decision` 事件告诉 crhs。
-3. crhs 收到 `approved` 后，用同一 attempt 发送 `task.start`（`authorizations` 为空）；特权模式核对规格哈希与批准时相同，消耗这条批准记录，任务 id 同样记入已用列表。
+2. `crha approve` / `crha deny` 记录批准人的 uid 和规格哈希（拒绝则直接记录拒绝），结果通过 `local.decision` 事件告诉 crhs。
+3. crhs 收到 `approved` 后，用同一 attempt 发送 `task.start`（`authorizations` 为空）。特权模式此时按上面的流程校验：第 3、4 步不适用（没有授权对象）；第 5 步只检查本任务 id 未执行过；第 6 步核对规格哈希与批准时相同；第 7 步使用批准人所在 `local` 信任项的规则。通过后消耗这条批准记录，任务 id 同样记入已用列表。
 
 待批准和已批准的记录只在特权模式的内存中，不自动超时；crhs 撤回（`local.withdraw`）、拒绝或特权模式重启时结束。特权模式重启后，crhs 会重新发送 `local.request`。等待期间断线不会让任务变成 `unknown`，因为执行只由 `task.start` 触发。
 
@@ -337,6 +341,10 @@ crhs 在 `nodes` 中缓存特权模式上报的 `TrustSummary`、`trust_digest` 
 - 任务授权时记录使用的 digest；等待期间 digest 变化就重新计算。
 
 crhs 从缓存计算授权方案：用 RE2（Node 包 `re2`）匹配信任项的 `allow`/`deny`、`exact`/`prefix`、`max_ttl`、`require_exact`、`require_task` 等。**只考虑任务所有者**（`on_behalf_of_user_id`）的 `user` 信任项和凭据；共享用户、其他管理员不参与。
+
+- crhs 只考虑公钥与自己当前签名密钥相同的 crhs 信任项（节点可能在轮换期间同时信任新旧两把）。
+- 所有者在 WebUI 审批具体任务时签发的一次性授权，`deadline` 默认为签发后 24 小时，并受信任项 `max_ttl` 约束；crhs 自己签发的为 5 分钟。
+- 信任报告不是 `ok`，或节点断线后尚未重新报告（缓存视为过期）时，`forward` 节点的特权任务以 `privileged_unavailable` 失败。
 
 crhs 的选择不是最终放行：crha 特权模式在执行前仍按当前配置完整复验；crhs 的规则匹配失败只会导致多等用户或拒绝，不会越权。
 

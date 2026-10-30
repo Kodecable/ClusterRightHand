@@ -117,7 +117,7 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
     | `authorization_rejected` | 已吊销、已用、指令限制不覆盖本任务、违反 `require_exact` / `require_task` / `require_uv`、防护规则/env/路径拒绝、缺联署、信任项没有 `execute` |
 
     `message` 写明失败的校验步骤（privilege.md 的“校验流程”编号）。规则和路径拒绝也是可重试的：crhs 签名路径被拒，不代表所有者的签名也会被拒；crhs 重试时不会再走同一条 crhs 签名路径（D83），不会循环。
-  - 终态（任务结束为 `failed`，`error_code` 即此码）：`invalid_spec`（空 id、哈希长度不对等、`size` 为 0 但 `sha256` 不是空输入的 SHA-256）、`unsupported_kind`、`privileged_unsupported`（`reject` 模式；`native` 的提权工具不可用或 helper 版本不符；1.0 的 crha）、`privileged_unavailable`（`forward` 但特权模式不可达）、`local_policy_denied`、`already_accepted`。
+  - 终态（任务结束为 `failed`，`error_code` 即此码）：`invalid_spec`（空 id、哈希长度不对等、`size` 为 0 但 `sha256` 不是空输入的 SHA-256）、`unsupported_kind`、`privileged_unsupported`（`reject` 模式；`native` 的提权工具不可用或 helper 版本不符；1.0 的 crha）、`privileged_unavailable`（`forward` 但特权模式不可达）、`local_policy_denied`、`already_accepted`（校验第 5 步：本任务 id 已在本机执行过）。
 - `forward` 时非特权模式把 `task.start` 原样转给特权模式（见 [crh-priv](#crh-priv非特权模式--特权模式)），特权模式的响应就是这里的响应。非特权模式在转发 `authorization_*` 错误之前，先向特权模式重新查询 `TrustSummary`，digest 变化时先发 `trust.summary` 事件，再发错误响应；因此 crhs 处理错误时缓存已经是最新的。
 - `task.input` 只在成功响应之后发送；crhs 可以流水线发送多个分块，不必逐个等待响应；crha 按顺序处理。
 
@@ -236,6 +236,7 @@ PrivHello   = [priv_major: 1, priv_minor: 0, commands: [text], crha_version: tex
 PrivWelcome = [priv_major: 1, priv_minor: 0, commands: [text], crha_version: text]
 ```
 
+- 必需的名字：`native` 是 `task.*` 这一组；`forward` 是 `task.*`、`trust.query`、`trust.summary`，其余（`revocations.add`、`local.*`）可选，缺少时非特权模式不提供对应功能；`local` 是该角色的全部名字。之后新增的名字都是可选的，`priv_minor` 保持 0，靠名字协商。
 - `role` 必须与对端身份一致：`forward` 要求 peer uid 等于 `unprivileged_uid`；`local` 要求 peer uid 在某个 `local` 信任项的 `uids` 中；`native` 只在 stdio 上出现，此时要求 `crha_version` 完全相等。不一致时特权侧关闭连接。
 
 | 名称 | 方向 | role | 说明 |
@@ -243,7 +244,7 @@ PrivWelcome = [priv_major: 1, priv_minor: 0, commands: [text], crha_version: tex
 | `task.start` / `task.input` / `task.cancel` / `task.query` | U→P | forward、native | 与 crhs ↔ crha 同结构；`native` 跳过授权校验 |
 | `task.output` / `task.exit` | P→U | forward、native | 同结构；没有 ack，非特权模式写入自己的输出文件，沿用原有的落盘和续传 |
 | `trust.query` | U→P | forward | 请求 `[]`，响应 `TrustSummary` |
-| `trust.summary` | P→U | forward | 事件 `TrustSummary`，reload 后 digest 变化时推送 |
+| `trust.summary` | P→U | forward | 事件 `TrustReport`（特权模式发出的恒为 `ok`），reload 后 digest 变化时推送；非特权模式原样转给 crhs |
 | `revocations.add` / `local.request` / `local.withdraw` | U→P | forward | 同上文 |
 | `local.decision` | P→U | forward | 同上文 |
 | `pending.list` | L→P | local | 请求 `[]`，响应 `[[task_id: text, attempt: uint, spec: TaskSpec, note: text, received_at_ms: int]]` |
@@ -251,7 +252,7 @@ PrivWelcome = [priv_major: 1, priv_minor: 0, commands: [text], crha_version: tex
 | `revocations.add` | L→P | local | `crha privileged revoke` |
 
 - **断开**：`forward` 的连接断开时，特权模式中已 accepted 的任务继续运行到结束，结果写入本地日志；它们的输出不再回传。非特权模式重连后不认识这些任务，crhs 照常按 `unknown` 处理。`native` 的 stdin 关闭时，helper 等当前任务结束后退出。
-- **native helper** 每个进程只执行一个任务：握手、一个 `task.start`、输入、输出、`task.exit`，然后退出。stdin 是 tty 时拒绝启动。
+- **native helper** 每个进程只执行一个任务：握手、一个 `task.start`、输入、输出、`task.exit`，然后退出。stdin 是 tty 时拒绝启动。helper 在 accepted 之后、`task.exit` 之前意外退出或断开时，非特权模式以 `error`、`code = helper_lost` 结束任务（任务可能已部分执行，不重试）。
 
 ## 受限连接
 
