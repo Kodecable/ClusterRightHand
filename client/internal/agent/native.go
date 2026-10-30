@@ -229,46 +229,13 @@ func (a *Agent) taskDone(t *task) bool {
 	return t.done
 }
 
-// finishNative completes a native task from the helper's task.exit. Closing the output here makes
-// the pump send every byte the exit reports before task.exit, exactly like the local executor.
-func (a *Agent) finishNative(t *task, exit *protocol.TaskExit) {
-	t.finishOnce.Do(func() {
-		t.output.Close()
-		exit.StdoutEnd = protocol.Uint(t.output.End(protocol.StreamStdout))
-		exit.StderrEnd = protocol.Uint(t.output.End(protocol.StreamStderr))
-		exit.OutputFile = protocol.CleanText(t.output.Path())
-
-		a.mu.Lock()
-		if t.inputErr != nil {
-			// The input, not the process, decided this task (see execute).
-			exit.Outcome = protocol.Outcome{
-				Kind:  protocol.OutcomeError,
-				Error: &protocol.Error{Code: t.inputErr.Code, Message: protocol.ErrorMessage(t.inputErr.Message)},
-			}
-			exit.Cancelled = false
-		}
-		t.done, t.result = true, exit
-		a.mu.Unlock()
-
-		t.native.inputs.close()
-		t.native.signalDone()
-		a.wake()
-	})
-}
-
 // nativeLost completes a native task whose helper connection broke before task.exit.
 func (a *Agent) nativeLost(t *task, err error) {
 	message := "the native helper disconnected before task.exit"
 	if err != nil && !errors.Is(err, io.EOF) {
 		message = err.Error()
 	}
-	a.finishNative(t, &protocol.TaskExit{
-		TaskID: t.id,
-		Outcome: protocol.Outcome{
-			Kind:  protocol.OutcomeError,
-			Error: &protocol.Error{Code: "helper_lost", Message: protocol.ErrorMessage(message)},
-		},
-	})
+	a.finishRelayed(t, helperLostExit(t.id, message))
 }
 
 // nativeOutput writes the helper's output into the task's own executor.Output, so the spill file,
@@ -282,11 +249,7 @@ func (a *Agent) nativeOutput(t *task) protocol.EventHandler {
 		if out.TaskID != t.id {
 			return fmt.Errorf("native helper sent output for task %q, want %q", out.TaskID, t.id)
 		}
-		if end := t.output.End(out.Stream); uint64(out.Offset) != end {
-			return fmt.Errorf("native helper sent %s output at offset %d, want %d", out.Stream, out.Offset, end)
-		}
-		_, _ = t.output.Writer(out.Stream).Write(out.Data)
-		return nil
+		return a.relayOutput(t, &out)
 	}
 }
 
@@ -299,7 +262,7 @@ func (a *Agent) nativeExit(t *task) protocol.EventHandler {
 		if exit.TaskID != t.id {
 			return fmt.Errorf("native helper sent task.exit for %q, want %q", exit.TaskID, t.id)
 		}
-		a.finishNative(t, &exit)
+		a.finishRelayed(t, &exit)
 		return nil
 	}
 }

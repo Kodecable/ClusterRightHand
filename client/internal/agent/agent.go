@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
@@ -127,6 +128,12 @@ type Options struct {
 	// NativeTimeout bounds spawning the escalation tool, the crh-priv handshake and the forwarded
 	// task.start. 0 = DefaultNativeTimeout.
 	NativeTimeout time.Duration
+	// PrivilegedSocket is the [privileged] socket of forward mode: the unix socket the
+	// privileged mode listens on. It is unused in the other modes.
+	PrivilegedSocket string
+	// ClockWarn is the [clock_warn] threshold: after every successful crhs handshake a clock
+	// offset larger than it is logged as a warning. 0 disables the warning.
+	ClockWarn time.Duration
 }
 
 type Agent struct {
@@ -143,6 +150,18 @@ type Agent struct {
 	// The current active connection, for RefreshFacts and Reconnect.
 	conn *transport.Conn
 	peer *protocol.Peer
+
+	// forwardStarted guards startForward so the daemon connection is dialed once per process.
+	forwardStarted atomic.Bool
+	// fwd is the crh-priv connection to the privileged mode (forward mode), nil while it is
+	// down; fwdErr is the reason.
+	fwdMu  sync.Mutex
+	fwd    *forwardConn
+	fwdErr error
+	// relay routes the daemon's task events to their tasks, and trust tracks the trust report
+	// crhs was told.
+	relay *relayRouter
+	trust trustReporter
 }
 
 type task struct {
@@ -175,6 +194,9 @@ type task struct {
 
 	// native is the crh-priv connection to the helper of a privileged native task, nil otherwise.
 	native *nativeConn
+	// fwd is the daemon connection a privileged forward-mode task was accepted on, nil otherwise.
+	// Its events arrive on that connection and are routed to relay by task id.
+	fwd *forwardConn
 	// finishOnce makes the one call that completes the task win: a native task can be finished by
 	// the helper's task.exit and by the stream breaking at the same time.
 	finishOnce sync.Once
@@ -192,18 +214,30 @@ func New(opts Options) *Agent {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
-	return &Agent{
+	a := &Agent{
 		opts:     opts,
 		log:      opts.Logger,
 		tasks:    map[string]*task{},
 		accepted: map[string]struct{}{},
 		kick:     make(chan struct{}, 1),
+		relay:    newRelayRouter(),
 	}
+	if opts.PrivilegedMode == config.ModeForward {
+		// The first connection attempt has not finished yet; crhs must not wait for it.
+		a.trust.report = unavailableReport(nil)
+	} else {
+		a.trust.report = protocol.TrustReport{Kind: protocol.TrustReportNotForward}
+	}
+	a.trust.have = true
+	return a
 }
 
 // Run connects and reconnects until ctx is cancelled or crhs rejects this node. Running tasks survive
 // disconnects.
 func (a *Agent) Run(ctx context.Context) error {
+	if a.opts.PrivilegedMode == config.ModeForward {
+		a.startForward(ctx)
+	}
 	backoff := minBackoff
 	for ctx.Err() == nil {
 		conn, err := a.opts.Dial(ctx)
@@ -242,6 +276,7 @@ func (a *Agent) session(ctx context.Context, conn *transport.Conn) error {
 	defer cancel()
 	defer conn.Close("bye")
 
+	a.checkClock(conn)
 	if conn.Response.NodeState == protocol.NodePending {
 		return a.pendingSession(ctx, conn)
 	}
@@ -277,6 +312,9 @@ func (a *Agent) session(ctx context.Context, conn *transport.Conn) error {
 	a.mu.Lock()
 	a.conn, a.peer = conn, peer
 	a.mu.Unlock()
+	// The trust report follows the hello response, once per connection (doc/protocol.md
+	// trust.summary).
+	a.announceTrust()
 	defer func() {
 		a.mu.Lock()
 		if a.conn == conn {
@@ -350,6 +388,9 @@ func (a *Agent) newPeer(ctx context.Context, conn *transport.Conn, ns *nodeStatu
 	if !tasks {
 		return peer
 	}
+	peer.HandleRequest(protocol.CmdRevocationsAdd, a.handleRevocationsAdd)
+	peer.HandleRequest(protocol.CmdLocalRequest, a.handleLocalRequest)
+	peer.HandleRequest(protocol.CmdLocalWithdraw, a.handleLocalWithdraw)
 	peer.HandleRequest(protocol.CmdTaskStart, a.handleTaskStart)
 	peer.HandleRequest(protocol.CmdTaskInput, a.handleTaskInput)
 	peer.HandleRequest(protocol.CmdTaskCancel, a.handleTaskCancel)
@@ -588,15 +629,15 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 	if dup {
 		return reject("already_accepted", "task "+ts.TaskID+" was already accepted")
 	}
-	native := false
+	native, forward := false, false
 	if ts.Privileged {
-		switch a.opts.PrivilegedMode {
+		switch a.mode() {
 		case config.ModeIgnore:
 			// Ignore the privileged flag and run the task as crha's own user.
 		case config.ModeNative:
 			native = true
 		case config.ModeForward:
-			return reject("privileged_unsupported", "forward mode is not implemented yet")
+			forward = true
 		default:
 			return reject("privileged_unsupported", "privileged tasks are not supported by this crha")
 		}
@@ -619,8 +660,13 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 			return reject("invalid_spec", "input size 0 requires the sha256 of empty input")
 		}
 		t.hasInput = true
-		t.inputSize, t.inputHash, t.hasher = uint64(ref.Size), ref.SHA256, sha256.New()
-		if !native {
+		t.inputSize = uint64(ref.Size)
+		if !forward {
+			// A forwarded task relays its input to the privileged mode, which does the
+			// accounting itself.
+			t.inputHash, t.hasher = ref.SHA256, sha256.New()
+		}
+		if !native && !forward {
 			q := executor.NewInput()
 			t.queue = q
 			if ref.Size == 0 {
@@ -642,10 +688,27 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 		}
 		t.native = n
 	}
+	if forward {
+		// The daemon must refuse an unauthorized task before this agent accepts it: an accepted
+		// task is never retried (doc/protocol.md task.start).
+		fc, err := a.startForwardTask(ctx, ts)
+		if err != nil {
+			cancel()
+			var remote *protocol.RemoteError
+			if errors.As(err, &remote) {
+				return nil, remote
+			}
+			return nil, err
+		}
+		t.fwd = fc
+	}
 	a.mu.Lock()
 	a.acceptLocked(t.id)
 	a.tasks[t.id] = t
 	a.mu.Unlock()
+	if forward {
+		a.attachForward(t)
+	}
 	// The peer may have been closed while this request was handled, and the sweep after the session
 	// ends may already have run without seeing this task: the response cannot be sent any more
 	// (Close sets the peer closed before it cancels its context), so start the task here. While the
@@ -660,6 +723,29 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 		a.mu.Unlock()
 	}
 	return protocol.Deferred{Body: protocol.Empty{}, After: func() { a.launch(t) }}, nil
+}
+
+// mode returns the configured privileged mode. An empty mode behaves like reject, which is also
+// the configuration default (doc/privilege.md 非特权模式如何处理特权任务).
+func (a *Agent) mode() string {
+	if a.opts.PrivilegedMode == "" {
+		return config.ModeReject
+	}
+	return a.opts.PrivilegedMode
+}
+
+// checkClock logs a warning when the clock offset measured in the crhs handshake exceeds
+// [clock_warn] (doc/privilege.md 时钟). Nothing else depends on the offset.
+func (a *Agent) checkClock(conn *transport.Conn) {
+	threshold := a.opts.ClockWarn
+	if threshold <= 0 {
+		return
+	}
+	offset := conn.ClockOffset
+	if offset > threshold || offset < -threshold {
+		a.log.Warn("clock offset from crhs exceeds clock_warn",
+			"offset", offset.Round(time.Millisecond), "threshold", threshold)
+	}
 }
 
 // launch starts a task's forwarding and execution goroutines exactly once. Deferred.After calls it
@@ -679,6 +765,16 @@ func (a *Agent) launch(t *task) {
 	if native != nil {
 		go a.nativeRun(t)
 		go a.nativeForward(t)
+		return
+	}
+	if t.fwd != nil {
+		// A forwarded task is executed by the privileged mode; its events arrive on the daemon
+		// connection and are routed to the handlers attached by start. The connection can have
+		// ended between its accepted response and this launch, in which case crha can no longer
+		// learn the outcome (the daemon keeps the task running).
+		if !a.forwardAlive(t.fwd) {
+			a.finishRelayed(t, helperLostExit(t.id, forwardLostMessage))
+		}
 		return
 	}
 	go a.execute(t.runCtx, t, t.in)
@@ -783,19 +879,19 @@ func inputRef(spec *protocol.TaskSpec) *protocol.InputRef {
 	return nil
 }
 
-func (a *Agent) handleTaskInput(_ context.Context, body cbor.RawMessage) (any, error) {
+func (a *Agent) handleTaskInput(ctx context.Context, body cbor.RawMessage) (any, error) {
 	var in protocol.TaskInput
 	if err := protocol.Unmarshal(body, &in); err != nil {
 		return nil, err
 	}
-	return a.input(&in)
+	return a.input(ctx, &in)
 }
 
 // input queues a TaskInput chunk. Chunks arrive in order on one connection; a reconnect mid-input
 // cannot be resumed (crhs sends the start once), so the session-end sweep fails the input and the
 // task. A chunk that overflows or completes the input with the wrong hash fails the task too, since
 // a process that already read the truncated input may otherwise exit successfully.
-func (a *Agent) input(in *protocol.TaskInput) (any, error) {
+func (a *Agent) input(ctx context.Context, in *protocol.TaskInput) (any, error) {
 	tooLarge := func(size uint64) (any, error) {
 		return nil, &protocol.RemoteError{
 			Code:    "input_too_large",
@@ -803,11 +899,19 @@ func (a *Agent) input(in *protocol.TaskInput) (any, error) {
 		}
 	}
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	t := a.tasks[in.TaskID]
 	if t == nil {
+		a.mu.Unlock()
 		return nil, &protocol.RemoteError{Code: "unknown_task", Message: "unknown task " + in.TaskID}
 	}
+	if t.fwd != nil {
+		// The privileged mode owns the input accounting of a forwarded task: relay the chunk and
+		// its response unchanged. Only how much arrived is tracked here, so a session that ends
+		// mid-input can cancel a task that could never read the rest.
+		a.mu.Unlock()
+		return a.forwardInput(ctx, t, in)
+	}
+	defer a.mu.Unlock()
 	if uint64(in.Offset) != t.inputOff {
 		return nil, &protocol.RemoteError{
 			Code:    "input_out_of_order",
@@ -860,6 +964,12 @@ func (a *Agent) failInputLocked(t *task, code, message string) {
 		t.native.inputs.pushCancel()
 		return
 	}
+	if t.fwd != nil {
+		// The daemon owns the process; cancelling it also unblocks the reader waiting for the
+		// rest of the input. Its task.exit ends the task here.
+		go a.cancelForwardTask(t.id)
+		return
+	}
 	t.cancel()
 }
 
@@ -895,41 +1005,61 @@ func (t *task) inputComplete() bool {
 	return t.inputOff >= t.inputSize
 }
 
-func (a *Agent) handleTaskCancel(_ context.Context, body cbor.RawMessage) (any, error) {
+func (a *Agent) handleTaskCancel(ctx context.Context, body cbor.RawMessage) (any, error) {
 	var c protocol.TaskCancel
 	if err := protocol.Unmarshal(body, &c); err != nil {
 		return nil, err
 	}
 	a.mu.Lock()
 	t := a.tasks[c.TaskID]
-	if t != nil && !t.done {
-		switch {
-		case t.native != nil:
-			// The helper owns the process and turns task.cancel into a signal inside itself; the
-			// agent never signals it (doc/privilege.md, native). The request is queued so it follows
-			// the input chunks already forwarded.
-			t.native.inputs.pushCancel()
-		default:
-			t.cancel()
-			if t.queue != nil {
-				// A file.write blocked in its input read only notices the cancellation through the
-				// reader, and the read error must not mask it: cancel first, then wake the reader.
-				t.queue.Fail(errors.New("task cancelled"))
-			}
+	running := t != nil && !t.done
+	native := running && t.native != nil
+	forward := running && t.fwd != nil
+	if running && !native && !forward {
+		t.cancel()
+		if t.queue != nil {
+			// A file.write blocked in its input read only notices the cancellation through the
+			// reader, and the read error must not mask it: cancel first, then wake the reader.
+			t.queue.Fail(errors.New("task cancelled"))
 		}
 	}
 	a.mu.Unlock()
+
+	switch {
+	case native:
+		// The helper owns the process and turns task.cancel into a signal inside itself; the
+		// agent never signals it (doc/privilege.md, native). The request is queued so it follows
+		// the input chunks already forwarded.
+		t.native.inputs.pushCancel()
+	case forward:
+		// The daemon owns the process; cancel it there. task.cancel never fails on an unknown or
+		// finished task, and an unreachable daemon ends the task as helper_lost anyway.
+		if err := a.relayForward(ctx, protocol.CmdTaskCancel, c, nil); err != nil {
+			a.log.Debug("cancel a forwarded task", "task", c.TaskID, "err", err)
+		}
+	}
 	return protocol.Empty{}, nil
 }
 
-func (a *Agent) handleTaskQuery(_ context.Context, body cbor.RawMessage) (any, error) {
+func (a *Agent) handleTaskQuery(ctx context.Context, body cbor.RawMessage) (any, error) {
 	var q protocol.TaskQuery
 	if err := protocol.Unmarshal(body, &q); err != nil {
 		return nil, err
 	}
 	a.mu.Lock()
+	t := a.tasks[q.TaskID]
+	a.mu.Unlock()
+	if t != nil && t.fwd != nil {
+		// The daemon knows the state and the output ends of a forwarded task even when its
+		// connection was lost here; answer from it when it can be reached.
+		var status protocol.TaskStatus
+		if err := a.relayForward(ctx, protocol.CmdTaskQuery, q, &status); err == nil {
+			return status, nil
+		}
+	}
+	a.mu.Lock()
 	defer a.mu.Unlock()
-	if t := a.tasks[q.TaskID]; t != nil {
+	if t != nil {
 		return t.status(), nil
 	}
 	return protocol.TaskStatus{TaskID: q.TaskID, State: protocol.TaskUnknown}, nil
@@ -953,6 +1083,7 @@ func (a *Agent) handleTaskExitAck(body cbor.RawMessage) error {
 	}
 	// The id stays in the accepted set: a duplicate task.start is still refused.
 	a.mu.Unlock()
+	a.relay.discard(ack.TaskID)
 	return nil
 }
 

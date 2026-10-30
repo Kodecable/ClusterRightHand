@@ -80,11 +80,13 @@ func run(ctx context.Context, configPath string) error {
 		Dial: func(ctx context.Context) (*transport.Conn, error) {
 			return transport.Dial(ctx, dialOptions(cfg.Load(), key, serverKey, &protocol.HandshakeInit{CRHAVersion: version.Version}))
 		},
-		Facts:          func() protocol.Facts { return nodeFacts(cfg.Load()) },
-		OutputDir:      first.Output.Dir,
-		PrivilegedMode: first.Privilege.Mode,
-		NativePrefix:   nativeEscalation(first.Privilege.Native),
-		Logger:         log,
+		Facts:            func() protocol.Facts { return nodeFacts(cfg.Load()) },
+		OutputDir:        first.Output.Dir,
+		PrivilegedMode:   first.Privilege.Mode,
+		PrivilegedSocket: first.Privilege.Socket,
+		NativePrefix:     nativeEscalation(first.Privilege.Native),
+		ClockWarn:        first.ClockWarn,
+		Logger:           log,
 	})
 	outputDir, err := filepath.Abs(first.Output.Dir)
 	if err != nil {
@@ -129,8 +131,9 @@ func reloadOnHangup(ctx context.Context, log *slog.Logger, path string, cfg *ato
 			continue
 		}
 		prev := cfg.Swap(next)
-		if next.StateDir != prev.StateDir || next.Output != prev.Output || next.Privilege != prev.Privilege {
-			log.Warn("state_dir, [output] and [privileged] changes take effect after a restart")
+		if next.StateDir != prev.StateDir || next.Output != prev.Output || next.Privilege != prev.Privilege ||
+			next.ClockWarn != prev.ClockWarn {
+			log.Warn("state_dir, clock_warn, [output] and [privileged] changes take effect after a restart")
 		}
 		log.Info("configuration reloaded")
 		if next.Server != prev.Server || next.TLSVerify != prev.TLSVerify {
