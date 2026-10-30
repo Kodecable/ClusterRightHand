@@ -51,6 +51,10 @@ const (
 	defaultMaxTotal = int64(1) << 30
 )
 
+// DefaultClockWarn is the threshold of the clock offset warning: the offset a crhs handshake
+// measures is compared against it (doc/privilege.md 时钟).
+const DefaultClockWarn = 60 * time.Second
+
 var groupRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 // Config is the validated crha configuration.
@@ -62,6 +66,9 @@ type Config struct {
 	Groups    []string
 	Privilege Privileged
 	Output    Output
+	// ClockWarn is the threshold above which the clock offset measured in a crhs handshake
+	// is logged as a warning. 0 disables the warning.
+	ClockWarn time.Duration
 }
 
 // Privileged configures handling of privileged tasks.
@@ -84,6 +91,7 @@ type rawConfig struct {
 	StateDir   string   `toml:"state_dir"`
 	Notes      string   `toml:"notes"`
 	Groups     []string `toml:"groups"`
+	ClockWarn  string   `toml:"clock_warn"`
 	Privileged struct {
 		Mode   string `toml:"mode"`
 		Socket string `toml:"socket"`
@@ -139,7 +147,8 @@ func build(raw *rawConfig) (*Config, error) {
 			Socket: orDefault(raw.Privileged.Socket, DefaultPrivilegedSocket),
 			Native: orDefault(raw.Privileged.Native, NativeSudo),
 		},
-		Output: Output{Dir: raw.Output.Dir, MaxAge: defaultMaxAge, MaxTotal: defaultMaxTotal},
+		Output:    Output{Dir: raw.Output.Dir, MaxAge: defaultMaxAge, MaxTotal: defaultMaxTotal},
+		ClockWarn: DefaultClockWarn,
 	}
 	if err := validateServer(c.Server); err != nil {
 		return nil, err
@@ -167,6 +176,9 @@ func build(raw *rawConfig) (*Config, error) {
 	}
 	c.Groups = groups
 	if err := c.validatePrivileged(); err != nil {
+		return nil, err
+	}
+	if err := c.parseClockWarn(raw.ClockWarn); err != nil {
 		return nil, err
 	}
 	if err := c.parseOutput(&raw.Output.MaxAge, &raw.Output.MaxTotal); err != nil {
@@ -253,6 +265,22 @@ func (c *Config) validatePrivileged() error {
 	default:
 		return fmt.Errorf("config: privileged.native: invalid value %q (want sudo, doas or run0)", p.Native)
 	}
+	return nil
+}
+
+// parseClockWarn parses clock_warn. "0s" (or any other zero duration) disables the warning.
+func (c *Config) parseClockWarn(value string) error {
+	if value == "" {
+		return nil
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return fmt.Errorf("config: clock_warn: %w", err)
+	}
+	if d < 0 {
+		return fmt.Errorf("config: clock_warn: must not be negative")
+	}
+	c.ClockWarn = d
 	return nil
 }
 

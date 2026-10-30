@@ -192,6 +192,16 @@ func registerCore(peer *protocol.Peer) {
 		var exit protocol.TaskExit
 		return protocol.Unmarshal(body, &exit)
 	})
+	// crha reports its trust summary after every hello response and relays the privileged mode's
+	// local decisions; a fake crhs must consume them like the real one.
+	peer.HandleEvent(protocol.EventTrustSummary, func(body cbor.RawMessage) error {
+		var report protocol.TrustReport
+		return protocol.Unmarshal(body, &report)
+	})
+	peer.HandleEvent(protocol.EventLocalDecision, func(body cbor.RawMessage) error {
+		var decision protocol.LocalDecision
+		return protocol.Unmarshal(body, &decision)
+	})
 }
 
 func signal(ch chan struct{}) {
@@ -1451,5 +1461,65 @@ func TestRunReturnsNodeRejected(t *testing.T) {
 				t.Fatalf("Run error %q does not carry crhs's reason", err)
 			}
 		})
+	}
+}
+
+// recordHandler keeps the log records of a test.
+type recordHandler struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (h *recordHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *recordHandler) Handle(_ context.Context, record slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.records = append(h.records, record)
+	return nil
+}
+
+func (h *recordHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *recordHandler) WithGroup(string) slog.Handler      { return h }
+
+func (h *recordHandler) all() []slog.Record {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]slog.Record(nil), h.records...)
+}
+
+// TestClockWarn covers the clock offset warning of doc/privilege.md 时钟: an offset beyond
+// clock_warn is logged with the offset and the threshold, and 0 disables the warning.
+func TestClockWarn(t *testing.T) {
+	handler := &recordHandler{}
+	a := newTestAgent(t, Options{Logger: slog.New(handler), ClockWarn: 5 * time.Second})
+
+	a.checkClock(&transport.Conn{ClockOffset: -10 * time.Second})
+	records := handler.all()
+	if len(records) != 1 || records[0].Level != slog.LevelWarn {
+		t.Fatalf("records = %+v, want one warning", records)
+	}
+	attrs := map[string]string{}
+	records[0].Attrs(func(attr slog.Attr) bool {
+		attrs[attr.Key] = attr.Value.String()
+		return true
+	})
+	if attrs["offset"] != "-10s" || attrs["threshold"] != "5s" {
+		t.Fatalf("warning attributes = %v, want the offset and the threshold", attrs)
+	}
+	if !strings.Contains(records[0].Message, "clock") {
+		t.Fatalf("message = %q", records[0].Message)
+	}
+
+	a.checkClock(&transport.Conn{ClockOffset: 5 * time.Second})
+	a.checkClock(&transport.Conn{ClockOffset: -4 * time.Second})
+	if got := len(handler.all()); got != 1 {
+		t.Fatalf("%d warnings for offsets within the threshold", got)
+	}
+
+	a.opts.ClockWarn = 0
+	a.checkClock(&transport.Conn{ClockOffset: time.Hour})
+	if got := len(handler.all()); got != 1 {
+		t.Fatalf("%d warnings with clock_warn = 0", got)
 	}
 }

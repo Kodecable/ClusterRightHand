@@ -6,7 +6,7 @@ import (
 )
 
 func TestSupportedNames(t *testing.T) {
-	want := []string{
+	required := []string{
 		"facts",
 		"hello",
 		"node.status",
@@ -20,24 +20,29 @@ func TestSupportedNames(t *testing.T) {
 		"task.query",
 		"task.start",
 	}
+	// The protocol 1.1 names are optional for the peer but advertised by crha in every
+	// privileged mode: non-forward modes answer the commands with privileged_unsupported.
+	optional := []string{"local.decision", "local.request", "local.withdraw", "revocations.add", "trust.summary"}
+	want := slices.Concat(required, optional)
+	slices.Sort(want)
 	if got := SupportedNames(); !slices.Equal(got, want) {
 		t.Fatalf("SupportedNames() = %v, want %v", got, want)
 	}
 	if got := len(SupportedSet()); got != len(want) {
 		t.Fatalf("SupportedSet has %d names, want %d", got, len(want))
 	}
-	if got := RequiredNames(); !slices.Equal(got, want) {
-		t.Fatalf("RequiredNames() = %v, want %v", got, want)
+	if got := RequiredNames(); !slices.Equal(got, required) {
+		t.Fatalf("RequiredNames() = %v, want %v", got, required)
 	}
-	// The protocol 1.1 names are known but not advertised yet: only the forward
-	// implementation of M4.3 sends and handles them.
-	optional := []string{"local.decision", "local.request", "local.withdraw", "revocations.add", "trust.summary"}
 	if got := OptionalNames(); !slices.Equal(got, optional) {
 		t.Fatalf("OptionalNames() = %v, want %v", got, optional)
 	}
 	for _, name := range optional {
-		if SupportedSet().Has(name) {
-			t.Fatalf("protocol 1.1 name %q is advertised in the 1.0 handshake", name)
+		if !SupportedSet().Has(name) {
+			t.Fatalf("protocol 1.1 name %q is not advertised", name)
+		}
+		if slices.Contains(RequiredNames(), name) {
+			t.Fatalf("protocol 1.1 name %q is required", name)
 		}
 	}
 	// trust.query is crh-priv's own command; it is not part of the crhs <-> crha

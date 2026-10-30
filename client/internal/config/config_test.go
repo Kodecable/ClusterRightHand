@@ -21,6 +21,7 @@ func TestParseDefaults(t *testing.T) {
 		Notes:     "/var/lib/crha/NOTES.md",
 		Privilege: Privileged{Mode: "reject", Socket: "/run/crha/privileged.sock", Native: "sudo"},
 		Output:    Output{Dir: "/var/lib/crha/output", MaxAge: 168 * time.Hour, MaxTotal: 1 << 30},
+		ClockWarn: 60 * time.Second,
 	}
 	if !reflect.DeepEqual(c, want) {
 		t.Fatalf("got %+v want %+v", c, want)
@@ -35,6 +36,7 @@ func TestParseFull(t *testing.T) {
 tls_verify = "none"
 notes = "/n.md"
 groups = ["web", "prod", "web"]
+clock_warn = "90s"
 [privileged]
 mode = "native"
 native = "doas"
@@ -49,7 +51,8 @@ max_total = "2MiB"
 	}
 	if c.TLSVerify != "none" || c.Notes != "/n.md" || !reflect.DeepEqual(c.Groups, []string{"web", "prod"}) ||
 		c.Privilege != (Privileged{"native", "/run/s.sock", "doas"}) ||
-		c.Output != (Output{"/o", time.Hour, 2 << 20}) {
+		c.Output != (Output{"/o", time.Hour, 2 << 20}) ||
+		c.ClockWarn != 90*time.Second {
 		t.Fatalf("got %+v", c)
 	}
 }
@@ -64,6 +67,8 @@ func TestParseErrors(t *testing.T) {
 		{"relative state_dir", "server = \"https://a.b\"\nstate_dir = \"x\"\n", "absolute"},
 		{"relative notes", minimal + "notes = \"n.md\"\n", "notes"},
 		{"bad group", minimal + "groups = [\"Web\"]\n", "invalid group"},
+		{"bad clock_warn", minimal + "clock_warn = \"x\"\n", "clock_warn"},
+		{"negative clock_warn", minimal + "clock_warn = \"-1s\"\n", "clock_warn"},
 		{"bad mode", minimal + "[privileged]\nmode = \"x\"\n", "privileged.mode"},
 		{"bad native", minimal + "[privileged]\nnative = \"su\"\n", "privileged.native"},
 		{"relative socket", minimal + "[privileged]\nsocket = \"s\"\n", "privileged.socket"},
@@ -108,6 +113,30 @@ func TestAgentURL(t *testing.T) {
 		if got := c.AgentURL(); got != tc.want {
 			t.Errorf("%s: got %s want %s", tc.server, got, tc.want)
 		}
+	}
+}
+
+// TestClockWarn covers the clock offset warning threshold: 60 s by default, a duration string
+// when set, and "0s" to disable the warning (doc/privilege.md 时钟).
+func TestClockWarn(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+		want time.Duration
+	}{
+		{"default", minimal, 60 * time.Second},
+		{"set", minimal + "clock_warn = \"5m\"\n", 5 * time.Minute},
+		{"zero", minimal + "clock_warn = \"0s\"\n", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := Parse([]byte(tc.in))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.ClockWarn != tc.want {
+				t.Fatalf("clock_warn = %v, want %v", c.ClockWarn, tc.want)
+			}
+		})
 	}
 }
 

@@ -395,7 +395,8 @@ func TestPrivilegedIgnore(t *testing.T) {
 	}
 }
 
-// TestPrivilegedModeRejections covers mode = reject and the not-yet-implemented forward mode.
+// TestPrivilegedModeRejections covers mode = reject and an unset mode, which behaves like reject.
+// forward mode is covered by the tests in forward_test.go.
 func TestPrivilegedModeRejections(t *testing.T) {
 	for _, tc := range []struct {
 		mode  string
@@ -403,7 +404,6 @@ func TestPrivilegedModeRejections(t *testing.T) {
 		match string
 	}{
 		{config.ModeReject, "privileged_unsupported", "privileged tasks are not supported"},
-		{config.ModeForward, "privileged_unsupported", "forward mode is not implemented yet"},
 		{"", "privileged_unsupported", "privileged tasks are not supported"},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {

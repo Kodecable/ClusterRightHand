@@ -59,8 +59,8 @@ const (
 	EventLocalDecision = "local.decision"
 )
 
-// commandNames and eventNames are the protocol 1.0 names: the required set, and (until
-// forward mode implements the 1.1 commands) the set crha advertises in its handshake.
+// commandNames and eventNames are the protocol 1.0 names: the set every peer must implement
+// and therefore the required set of a handshake.
 var (
 	commandNames = []string{
 		CmdHello,
@@ -81,8 +81,9 @@ var (
 )
 
 // optionalCommandNames and optionalEventNames are the protocol 1.1 names this package
-// knows the bodies of. They are not advertised yet: only the M4 forward implementation
-// sends and handles them.
+// knows the bodies of. crha advertises them in every privileged mode: non-forward modes
+// answer the commands with privileged_unsupported and report not_forward instead of a
+// trust summary (doc/protocol.md M4：提权).
 var (
 	optionalCommandNames = []string{
 		CmdRevocationsAdd,
@@ -177,17 +178,24 @@ func validateEventBody(name string, raw cbor.RawMessage) error {
 	return Unmarshal(raw, newBody())
 }
 
-// SupportedCommands returns the command names this package advertises in a handshake.
-func SupportedCommands() []string { return slices.Clone(commandNames) }
+// SupportedCommands returns the command names this package advertises in a handshake,
+// including the optional protocol 1.1 commands.
+func SupportedCommands() []string {
+	return slices.Concat(commandNames, optionalCommandNames)
+}
 
-// SupportedEvents returns the event names this package advertises in a handshake.
-func SupportedEvents() []string { return slices.Clone(eventNames) }
+// SupportedEvents returns the event names this package advertises in a handshake, including
+// the optional protocol 1.1 events.
+func SupportedEvents() []string {
+	return slices.Concat(eventNames, optionalEventNames)
+}
 
-// SupportedNames returns every advertised command and event name, sorted. This is the
-// list to put in a handshake's commands field; the protocol 1.1 names are not in it yet,
-// because crha does not implement their forward side.
+// SupportedNames returns every command and event name crha advertises in a handshake,
+// sorted. It is the list to put in a handshake's commands field. The protocol 1.1 names are
+// optional for the peer: a 1.0 crhs that does not offer them still connects, and crha then
+// only sends and answers the 1.0 names.
 func SupportedNames() []string {
-	names := append(SupportedCommands(), SupportedEvents()...)
+	names := slices.Concat(SupportedCommands(), SupportedEvents())
 	slices.Sort(names)
 	return names
 }
