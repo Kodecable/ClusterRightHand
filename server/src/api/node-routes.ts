@@ -3,6 +3,7 @@ import { userActor } from "../audit/audit.ts";
 import { createEnrollmentToken } from "../cluster/enrollment.ts";
 import {
 	approveNode,
+	clockWarning,
 	deleteNode,
 	getNode,
 	listNodeShares,
@@ -37,8 +38,14 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	const access = (c: { get(k: "user"): AppEnv["Variables"]["user"] }, id: string) => nodeAccess(db, c.get("user"), id);
 	const canManage = (a: NodeAccess) => a === "owner" || a === "admin";
 
-	const live = (n: PublicNode): PublicNode =>
-		n.connected === null ? n : { ...n, connected: options.cluster?.isConnected(n.id) ?? false };
+	const clockWarnMs = options.clockWarnMs ?? 60_000;
+
+	/** Fills in what only the live server knows: the connection state and the clock warning. */
+	const live = (n: PublicNode): PublicNode => ({
+		...n,
+		connected: n.connected === null ? null : (options.cluster?.isConnected(n.id) ?? false),
+		clockWarning: clockWarning(n.facts, clockWarnMs),
+	});
 
 	app.get("/nodes", async (c) => c.json({ nodes: (await listNodesForUser(db, c.get("user"))).map(live) }));
 

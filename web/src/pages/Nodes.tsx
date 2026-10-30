@@ -108,6 +108,14 @@ export function Nodes() {
 									<td>
 										<Badge kind={n.status}>{n.status}</Badge>{" "}
 										{n.status === "active" && <LinkBadge connected={n.connected} />}
+										{n.clockWarning && (
+											<>
+												{" "}
+												<span className="warn" title={n.clockWarning}>
+													⚠ clock
+												</span>
+											</>
+										)}
 									</td>
 									<td>{n.hostname ?? "-"}</td>
 									<td>{osName(n.facts)}</td>

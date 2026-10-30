@@ -9,6 +9,7 @@ import {
 	handshakeInitCodec,
 	handshakeResponseCodec,
 	type LocalRequest,
+	type LocalState,
 	Peer,
 	type Revocation,
 	SUPPORTED_NAMES,
@@ -185,6 +186,8 @@ export class FakeCrha {
 	readonly revocations: Revocation[][] = [];
 	/** Every local.request the server sent, in order. */
 	readonly localRequests: LocalRequest[] = [];
+	/** Every local.withdraw the server sent, in order. */
+	readonly localWithdrawals: { taskId: string; attempt: number }[] = [];
 	/** The task ids of every task.exit.ack, in order. */
 	readonly exitAcks: string[] = [];
 	/**
@@ -192,6 +195,8 @@ export class FakeCrha {
 	 * recorded first, so a test sees it even when it is rejected.
 	 */
 	answerStart: (start: TaskStart) => void | Promise<void> = () => {};
+	/** Answers local.request; the request is recorded first. */
+	answerLocal: (request: LocalRequest) => LocalState | Promise<LocalState> = () => ({ kind: "pending" });
 
 	constructor(
 		ws: WebSocket,
@@ -216,11 +221,14 @@ export class FakeCrha {
 			this.revocations.push(body.entries);
 			return {};
 		});
-		peer.onRequest("local.request", (request) => {
+		peer.onRequest("local.request", async (request) => {
 			this.localRequests.push(request);
-			return { kind: "pending" };
+			return this.answerLocal(request);
 		});
-		peer.onRequest("local.withdraw", () => ({}));
+		peer.onRequest("local.withdraw", (withdraw) => {
+			this.localWithdrawals.push(withdraw);
+			return {};
+		});
 		peer.onEvent("task.exit.ack", (ack) => {
 			this.exitAcks.push(ack.taskId);
 		});

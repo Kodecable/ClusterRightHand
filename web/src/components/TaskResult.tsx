@@ -1,4 +1,5 @@
 import type { TaskAuthorizationView, TaskView } from "../api.ts";
+import { useUser } from "../auth.tsx";
 import { batchOutput, formatTime, isTerminal, joinOutput, statusOutputNote } from "../lib.ts";
 import { DecisionView, EvaluationView } from "./Approval.tsx";
 import { Badge } from "./Feedback.tsx";
@@ -69,6 +70,7 @@ export function stateKind(task: Pick<TaskView, "state" | "exitCode" | "signal">)
 }
 
 export function TaskResult({ task }: { task: TaskView }) {
+	const user = useUser();
 	const output = batchOutput(task);
 	return (
 		<div className="task-result">
@@ -129,8 +131,18 @@ export function TaskResult({ task }: { task: TaskView }) {
 					<>
 						<dt>Authorization</dt>
 						<dd>
-							Waiting for an authorization signature
-							{task.authorization ? ` (attempt ${task.authorization.attempt})` : ""}.
+							{task.onBehalfOfUserId === user.id ? (
+								<>
+									Waiting for your signature
+									{task.authorization ? ` (attempt ${task.authorization.attempt})` : ""}. Sign it in the waiting section
+									above.
+								</>
+							) : (
+								<>
+									Waiting for the owner's authorization
+									{task.authorization ? ` (attempt ${task.authorization.attempt})` : ""}.
+								</>
+							)}
 							{task.authorization && <AuthorizationPlan record={task.authorization} />}
 						</dd>
 					</>

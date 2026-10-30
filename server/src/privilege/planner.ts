@@ -85,6 +85,11 @@ export interface PlannedUserPath {
 	 * and tasks instead (buildTaskGroupAuthorization), so this payload is not used there.
 	 */
 	authorization: BuiltAuthorization;
+	/**
+	 * How long that payload is valid: the smaller of the 24 h default and the strictest accepting
+	 * entry's max_ttl. A task group's shared payload uses the strictest ttl of its tasks.
+	 */
+	ttlMs: number;
 }
 
 export interface PlannedLocalPath {
@@ -292,6 +297,7 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 				entries: acceptable.map((candidate) => candidate.planned),
 				taskGroup: input.taskGroup,
 				authorization,
+				ttlMs: ttl,
 			});
 		} else {
 			const ownerEntries = summary.trust.filter(

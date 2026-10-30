@@ -6,12 +6,15 @@ import type { AgentRuntime } from "../agent/runtime.ts";
 import { Audit } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import { TaskGroups } from "../cluster/task-groups.ts";
+import type { WebauthnConfig } from "../config.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import { mcpRoutes } from "../mcp/mcp.ts";
 import type { AuthorizationSigningKey } from "../privilege/key.ts";
 import type { Db } from "../storage/db.ts";
 import { type AuthRoutesOptions, authRoutes } from "./auth-routes.ts";
+import { authorizationRoutes } from "./authorization-routes.ts";
 import type { AppEnv } from "./context.ts";
+import { credentialRoutes } from "./credential-routes.ts";
 import { csrfGuard, requireUser } from "./middleware.ts";
 import { nodeRoutes } from "./node-routes.ts";
 import { policyRoutes } from "./policy-routes.ts";
@@ -32,6 +35,10 @@ export interface AppOptions extends AuthRoutesOptions {
 	authorizationKey?: AuthorizationSigningKey;
 	/** Needed for SSH credentials and nodes. */
 	masterKey?: MasterKey;
+	/** `[webauthn]` from crhs.toml; unset means Passkey registration follows the request's Origin. */
+	webauthn?: WebauthnConfig;
+	/** Warn when a node's clock differs by more than this; 0 disables (doc/privilege.md#时钟). */
+	clockWarnMs?: number;
 	/** Directory of the built WebUI; served for every path outside /api, /agent and /mcp. */
 	webRoot?: string;
 	/** The audit log; one is created when omitted. */
@@ -69,7 +76,9 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	app.use("/api/*", requireUser(db));
 	app.route("/api", userRoutes(db));
 	app.route("/api", nodeRoutes(db, options));
-	app.route("/api", privilegeRoutes({ cluster: options.cluster, authorizationKey: options.authorizationKey }));
+	app.route("/api", privilegeRoutes({ authorizationKey: options.authorizationKey }));
+	app.route("/api", credentialRoutes(db, { webauthn: options.webauthn }));
+	app.route("/api", authorizationRoutes(db, { cluster: options.cluster }));
 	if (options.masterKey) app.route("/api", sshRoutes(db, options.masterKey));
 	if (options.cluster) {
 		const groups = options.taskGroups ?? new TaskGroups(db, options.cluster, { audit });

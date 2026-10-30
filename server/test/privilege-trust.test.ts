@@ -144,6 +144,8 @@ describe("task authorization record", () => {
 		},
 		tried: ["crhs"],
 		dispatchedPath: null,
+		pending: null,
+		local: null,
 		payloadId: "6d4a",
 		attempt: 2,
 		trustDigest: trustDigest(SUMMARY),

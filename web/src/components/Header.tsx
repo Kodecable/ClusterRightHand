@@ -54,6 +54,12 @@ export function Header({ route, onLogout }: { route: string[]; onLogout: () => v
 						</span>
 					)}
 				</a>
+				<a href="#/credentials" aria-current={route[0] === "credentials" ? "page" : undefined}>
+					Credentials
+				</a>
+				<a href="#/authorizations" aria-current={route[0] === "authorizations" ? "page" : undefined}>
+					Authorizations
+				</a>
 				<a href="#/tokens" aria-current={route[0] === "tokens" ? "page" : undefined}>
 					API tokens
 				</a>

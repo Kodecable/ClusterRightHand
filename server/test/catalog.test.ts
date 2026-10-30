@@ -218,18 +218,43 @@ describe("taskResult output modes", () => {
 			payloadId: "6d4a",
 			attempt: 2,
 			trustDigest: "abc",
+			pending: null,
+			local: null,
 			lastRejection: { code: "authorization_rejected", message: "denied", attempt: 1, at: "2026-01-01T00:00:00.000Z" },
 			updatedAt: "2026-01-01T00:00:00.000Z",
 		};
 		const r = taskResult(task({ state: "awaiting_authorization", privileged: true, authorization }), "web-1", ctx);
 		expect(r).toMatchObject({ state: "awaiting_authorization", privileged: true });
-		expect(r.authorization).toEqual({
-			status: "waiting for an authorization signature",
+		expect(r.authorization).toMatchObject({
+			status: "waiting for the owner's authorization",
 			attempt: 2,
 			paths: ["user: alice"],
 			last_rejection: { code: "authorization_rejected", message: "denied", attempt: 1 },
 		});
+		expect((r.authorization as Record<string, unknown>).next).toContain("authorize it in the WebUI");
 		expect(r.next).toBe("call task_wait with this task_id to keep waiting");
+
+		// With a local path and a task URL the model is told both ways to authorize it.
+		const withLocal: TaskAuthorizationRecord = {
+			...authorization,
+			plan: {
+				paths: [
+					{ path: "user", entries: [{ name: "alice", role: "user", credential: "sshsig" }] },
+					{ path: "local", entries: [{ name: "local-admins", role: "local" }] },
+				],
+			},
+		};
+		const withUrl = {
+			approvalUrl: (kind: string, id: string) => `http://crh.test/#/approvals/${kind}/${id}`,
+			taskUrl: (id: string) => `http://crh.test/#/tasks/${id}`,
+		} as unknown as ToolContext;
+		const local = taskResult(
+			task({ state: "awaiting_authorization", privileged: true, authorization: withLocal }),
+			"web-1",
+			withUrl,
+		);
+		expect((local.authorization as Record<string, unknown>).url).toBe("http://crh.test/#/tasks/t1");
+		expect((local.authorization as Record<string, unknown>).next).toContain('"crha approve t1"');
 	});
 });
 
