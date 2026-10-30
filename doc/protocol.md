@@ -151,7 +151,7 @@ Facts    = {text: any}                    ; CBOR map，文本键，见下表
 | `clock_offset_ms` | `int` | 否 |
 | `shells` | `{text: any}`：`sh: text`（必需）、`bash: text?`（缺失或 `null` 表示没有 bash） | 否；节点发现的 sh 和 bash 的绝对路径，见 [execution-plane.md](execution-plane.md#exec-的执行环境) |
 
-- 缺失的可选键表示"未知"，不是空值；未知键忽略（`shells` 内部同样）。已知键的类型不对、缺少必需键时，整个 `Facts` 解码失败，不部分采用。
+- 缺失的可选键表示"未知"，不是空值；未知的文本键忽略（`shells` 内部同样）。非文本的键（例如整数键）、已知键的类型不对、缺少必需键时，整个 `Facts` 解码失败，不部分采用。
 - 严格解码照常：profile 层拒绝重复键、非规范 map 顺序、非最短编码等；逐字节比较针对通用 CBOR 值的重新编码（保留未知键），而不是针对按 schema 解出的结构。
 - 以后增加事实只加新的可选键，不升 `protocol_minor`；删除键或改变已有键的类型需要新的大版本。
 - 线上键名用 snake_case；JSON 形式（`factsToJson` / `factsFromJson`）是 camelCase 对象，缺失的键省略。crhs 数据库中已有的 `nodes.facts`（旧的完整对象，没有 `shells`）照常可读。SSH 节点的 facts 只有 `shells`（来自连接探测，见 [execution-plane.md](execution-plane.md#执行)），不经过线上编码。
