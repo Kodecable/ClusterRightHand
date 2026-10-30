@@ -51,20 +51,20 @@ crha 节点上的 exec（非特权模式、特权模式、native helper）不原
 | `HOME`、`USER`、`LOGNAME` | 运行账户（`os/user.Current()`） | root（`os/user.LookupId("0")`） |
 | `SHELL` | 发现到的 sh（见下） | 发现到的 sh |
 | `LANG`、`LC_ALL` | `C.UTF-8` | `C.UTF-8` |
-| 任务的 `env` | 追加，可以覆盖上面除 `PATH` 外的变量（非特权时 `PATH` 也可以） | 只保留信任项 `env_allow` 中允许的，可以覆盖上面除 `PATH` 外的变量 |
+| 任务的 `env` | 追加，可以覆盖上面所有变量，包括 `PATH` | 可以覆盖上面除 `PATH` 外的变量；`forward` 时只允许信任项 `env_allow` 中的名字，native helper 没有信任配置，不做这项限制（native 不是安全边界） |
 
 固定 PATH 是 `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`。crha 进程的其他环境变量都不传给任务。
 
-**覆盖**：`CRHA_TASK_HOME`、`CRHA_TASK_USER`、`CRHA_TASK_LOGNAME`、`CRHA_TASK_SHELL` 是对应进程（`crha run`、`crha privileged run`、`crha privileged stdio`）自己的环境变量，非空时取代解析结果，`CRHA_TASK_SHELL` 同时决定执行 `shell` 命令用的 sh。名字以 `CRHA_TASK_` 开头的变量一律不传给任务，任务的 `env` 中带了也会被丢弃。
+**覆盖**：`CRHA_TASK_HOME`、`CRHA_TASK_USER`、`CRHA_TASK_LOGNAME`、`CRHA_TASK_SHELL` 是对应进程（`crha run`、`crha privileged run`、`crha privileged stdio`）自己的环境变量，非空时取代解析结果，`CRHA_TASK_SHELL` 同时决定执行 `shell` 命令用的 sh。`CRHA_TASK_SHELL` 必须是存在且可执行的绝对路径，否则进程启动失败。名字以 `CRHA_TASK_` 开头的变量一律不传给任务，任务的 `env` 中带了也会被丢弃。
 
 - 解析在进程启动时完成（native helper 每次拉起时）。没有覆盖且解析失败时进程启动失败：`crha run` 退出；特权模式退出；native helper 失败时该节点的特权任务以 `privileged_unsupported` 失败，非特权任务不受影响。
 - crha 是 `CGO_ENABLED=0` 静态编译的，`os/user` 只读 `/etc/passwd`，不经过 NSS（LDAP、SSSD 中的账户查不到）。`user.Current()` 查不到时会退回 `$HOME` / `$USER`；`LookupId("0")` 没有这个退路。账户不在 `/etc/passwd` 中时用 `CRHA_TASK_*` 覆盖。
 - native helper 由 sudo / doas 拉起，`env_reset` 默认会去掉 `CRHA_TASK_*`；需要覆盖时在 sudoers 中 `env_keep += "CRHA_TASK_*"`，或在 doas 中用 `setenv`。
 
-**sh 的发现**：进程启动时依次尝试：`CRHA_TASK_SHELL`；`/etc/shells` 中第一个文件名为 `sh` 的绝对路径（文件存在且可执行）；`exec.LookPath("sh")`（非特权模式用自己的 `PATH`，特权模式和 native helper 用固定 PATH）。都失败时进程启动失败。`shell` 命令以 `<sh> -c <cmd>` 执行。
+**sh 的发现**：进程启动时依次尝试：`CRHA_TASK_SHELL`；`/etc/shells` 中第一个文件名为 `sh` 的绝对路径（文件存在且可执行）；在 PATH 中查找 `sh`（非特权模式用自己的 `PATH`，特权模式和 native helper 用固定 PATH；PATH 中的空项和相对路径跳过，结果必须是绝对路径）。都失败时进程启动失败。`shell` 命令以 `<sh> -c <cmd>` 执行。
 
 - **授权和显示**：签名、规则匹配（`exact` / `prefix` / RE2）、`spec_sha256` 和界面显示中，`shell` 命令仍渲染为 `/bin/sh -c '<cmd>'`。这里的 `/bin/sh` 表示"节点发现的 sh"，不是字面路径；crhs 和 crha 的渲染不因节点而变。
-- 同样的方法（`/etc/shells` 中文件名为 `bash` 的第一个路径，然后 `LookPath("bash")`）发现 bash，找不到不算错误。两者都由非特权模式在 `facts` 的 `shells` 中上报（见 [protocol.md](protocol.md#命令与事件)），agent 用它判断能否 `bash -c`。
+- 同样的方法（`/etc/shells` 中文件名为 `bash` 的第一个路径，然后在 PATH 中查找 `bash`）发现 bash，找不到不算错误。两者都由非特权模式在 `facts` 的 `shells` 中上报（见 [protocol.md](protocol.md#命令与事件)），agent 用它判断能否 `bash -c`。
 - `C.UTF-8` 在 glibc 2.35 起内置；更老的系统可能没有这个 locale，程序会退回 C locale 并可能在 stderr 打印警告。crha 不检测。
 
 ### 状态机（服务端视角）
