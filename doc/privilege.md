@@ -91,7 +91,7 @@ crha 特权模式（不联网）
 | `file.write` | `file.write`、`file.edit`，**并包含 `file.read` 的全部能力** | 绝对路径 |
 
 - argv 的渲染方式是唯一的，后面的参数无法伪装成前面参数的一部分。shell 模式的目标以 `/bin/sh -c` 开头，所以 `prefix = "systemctl restart "` 这类规则**不会匹配 shell 模式**，也就无法用 `;`、`&&`、`$()` 绕过。要放行 shell 脚本，必须显式写针对 `/bin/sh -c` 的规则。
-- 特权文件操作的路径必须是绝对路径、已规范化（不含 `.`、`..`、重复的 `/`），且**任何一级都不能是符号链接**。用 `openat2(RESOLVE_NO_SYMLINKS)` 打开，不满足就拒绝。否则 `/etc/nginx/x` 可能是指向 `/etc/shadow` 的链接，绕过基于路径的规则。
+- 特权文件操作的路径必须是绝对路径、已规范化（不含 `.`、`..`、重复的 `/`），且**任何一级都不能是符号链接**。用 `openat2(RESOLVE_NO_SYMLINKS)` 打开，不满足就拒绝。符号链接只有在打开时才能发现，所以这一步发生在 accepted 之后：任务以 `error`、`code = symlink_not_allowed` 结束，不作为可重试的授权拒绝（换签名者也不会让这个路径变安全）。否则 `/etc/nginx/x` 可能是指向 `/etc/shadow` 的链接，绕过基于路径的规则。
   - 从 `/` 的目录 fd 出发，用相对路径和 `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS` 打开；之后的 stat / read / list 都基于得到的 fd，不再按路径重新解析。
   - 写入：用同样方式打开父目录，在父目录 fd 下创建临时文件，写完后 `renameat2`（`overwrite = false` 时用 `RENAME_NOREPLACE`）。
   - **fail closed**：`openat2` 返回 `ENOSYS`（内核早于 5.6）或 `EPERM`（seccomp）时拒绝特权文件操作并说明环境不支持，不降级为 `lstat` + `open`。
@@ -323,7 +323,7 @@ kinds = ["execute"]
 
 ## 吊销
 
-- 吊销只会减少权限，所以特权模式接受经非特权模式转发的吊销项（`revocations.add`），不要求签名；本地也可以执行 `crha privileged revoke <授权 id>`。
+- 吊销只会减少权限，所以特权模式接受经非特权模式转发的吊销项（`revocations.add`），不要求签名；本地也可以执行 `crha privileged revoke <授权 id>`，它走 crh-priv 的 `local` 角色，所以执行者的 uid 必须在某个 `local` 信任项中。
 - crhs 在用户吊销授权后，把吊销项增量推送给相关节点；节点每次报告信任摘要可用时，crhs 重发该节点全部未过期的吊销项（幂等）。
 - 吊销列表持久化保存；带 `deadline` 的授权过期后，对应的吊销记录可以清理；不过期的授权，其吊销记录永久保留。
 - 节点离线期间，吊销无法送达。所以长期有效的授权要谨慎签发，建议用 `max_ttl` 限制。

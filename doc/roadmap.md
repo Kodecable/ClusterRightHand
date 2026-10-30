@@ -67,7 +67,7 @@
 
 **完成标志**：删掉 protobuf 后所有 M1/M3 功能、e2e、故障注入和批量输出预算测试通过；协议无旧兼容路径。
 
-## M4 提权（计划中，见 [m4.md](m4.md)）
+## M4 提权（实现完成，见 [m4.md](m4.md)）
 
 - `native` 模式（`sudo -n` / `doas -n` 拉起 `crha privileged stdio` helper；run0 为实验性后端）。
 - crha 特权模式：unix socket、`SO_PEERCRED`、信任数组、目标字符串规范化与防护规则、授权与联署校验、一次性授权（已用列表）、吊销、本地日志。
@@ -126,4 +126,8 @@
   - 已删除 `proto/`、buf、`@bufbuild/*`、Go protobuf 模块和生成代码。
   - 测试：单元测试（SQLite + PostgreSQL + 真实 sshd）、真实 crha 二进制 e2e（含 SIGSTOP / 杀进程 / 重启）、WebUI 浏览器测试、性能回归全部通过。
   - 未完成：CI 中仍未跑 SSH 测试（需要 sshd 服务容器，同 M1）；迁移 0019 没有在真实生产数据上演练过（fixture 已与旧 protobuf-es 的实际输出核对）。
-- **M4**：M4.0 规格已定稿（protocol.md 1.1、privilege.md、D86–D91），测试向量和原型待做。细节、阶段和测试矩阵见 [m4.md](m4.md)。
+- **M4**：实现完成（2026-10-30）。细节、阶段和测试矩阵见 [m4.md](m4.md)。
+  - native / ignore / reject / forward 四种处理方式；crha 特权模式（信任配置、授权与联署校验、已用列表、吊销、本地批准、本地日志）；crhs 签名、信任缓存、方案预演与 fallback；用户 SSH key（`crha grant`）与 Passkey 签名、授权等待页、复用、任务组一次签名；吊销页；`clock_warn`。
+  - 测试：Go/TS 共享测试向量与授权判定用例；单元与集成测试；真实 crha e2e；podman e2e 矩阵 11 项全部通过（`CRH_TEST_PODMAN=1 pnpm --filter @crh/server test:m4`，真实 sudo / doas / sshd / 特权模式进程）。
+  - 未完成：Passkey 只用软件认证器测过，未在真实设备上验证 COSE 算法；`crha grant` 未用加密私钥、ssh-agent、FIDO 硬件 key 实测；run0 未验证（实验性）；podman e2e 未进 CI。
+  - 已知问题：crhs 签名路径创建特权任务时，`POST /api/nodes/:id/tasks` 会等节点对 `task.start` 的响应，特权模式卡住时最多阻塞约 30 秒，超过调用方的 `waitMs`。
