@@ -139,8 +139,11 @@ Outcome  = ["code", int] | ["signal", text] | ["error", Error]      ; signal 不
 
 Facts    = [hostname: text, os_id: text, os_version_id: text, os_pretty_name: text, kernel: text,
             arch: text, init_system: text, package_managers: [text], privilege_tools: [text],
-            notes_path: text, groups: [text], clock_offset_ms: int]
+            notes_path: text, groups: [text], clock_offset_ms: int, shells: Shells]
+Shells   = [sh: text, bash: text?]          ; 节点发现的 sh 和 bash 的绝对路径，见 execution-plane.md#exec-的执行环境
 ```
+
+- `shells` 是 M4 之后补上的字段。尚未发布过版本，所以直接改定长元组，不升 `protocol_minor`；新旧 crha / crhs 不能混用。crhs 数据库中已有的 `nodes.facts` 没有 `shells`，读出时按 `null` 处理，直到节点重新上报。
 
 - 输入类错误码（`Outcome` 的 `error` 分支）：`input_mismatch`（输入与 `InputRef` 不符：比声明的大小长，或 SHA-256 不同；任务若在运行则被杀掉）、`input_incomplete`（连接在输入收齐前断开；任务被杀掉）。
 

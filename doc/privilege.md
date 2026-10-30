@@ -294,7 +294,7 @@ kinds = ["execute"]
 
 **执行环境**：
 - 以特权模式自身的 Linux 身份执行；
-- 环境变量只保留 `env_allow` 中允许、且任务提供了的，PATH 固定；
+- 环境变量：固定 PATH，`HOME`/`USER`/`LOGNAME` 取 root 账户，`SHELL` 为发现到的 sh，`LANG`/`LC_ALL` 为 `C.UTF-8`；任务的变量只保留 `env_allow` 中允许、且任务提供了的，可以覆盖除 PATH 以外的这些变量（见 [execution-plane.md](execution-plane.md#exec-的执行环境)）；
 - 有 stdin 的任务：特权模式先把 stdin 完整写入 0600 临时文件并核对大小和 `sha256`，通过后才启动进程，否则 `exact` 授权批准的 stdin 可以在校验前就被进程读到；
 - 非 `exact` 授权时 cwd 固定为 `/`；
 - 进程放进新的进程组；
@@ -370,6 +370,12 @@ crhs 的选择不是最终放行：crha 特权模式在执行前仍按当前配�
    - 没有任何信任项可以授权：直接拒绝，并告诉调用方"这个节点上没有人能授权这条命令"。
 
 授权等待与规则审批分开：策略已经通过但尚未拿到签名时，任务处于 `awaiting_authorization`，不是 `awaiting_approval`。
+
+两者在 WebUI 中有同一个入口：
+
+- 审批页除了待审批的请求，另列"等待你签名"的任务和任务组（`awaiting_authorization`，且所有者是当前用户），点进去是任务页或任务组页的签名区。顶部导航的待办计数是两者之和。
+- 会话的工具卡片在任务或任务组处于 `awaiting_authorization` 时显示"等待你的签名"和指向签名区的链接，与等待审批时的提示并列。agent 的工具在等待时上报的状态带上这个链接。
+- 顶部导航有任务页，跨节点列出当前用户能看到的任务（`GET /api/tasks`，按状态、节点、发起方筛选，分页），等待当前用户处理的任务排在前面。
 
 **预演与 fallback**：crhs 的规则计算只是预演，不是最终授权。若 crha 在 `task.start` 成功响应（accepted）之前拒绝授权：
 

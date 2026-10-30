@@ -41,6 +41,32 @@ output_mode    full | text | status：单任务为 full（头尾 + 超阈值落�
 output_limit   客户端为该任务缓冲输出的上限
 ```
 
+### exec 的执行环境
+
+crha 节点上的 exec（非特权模式、特权模式、native helper）不原样传递 crha 进程自己的环境，而是按下表构造；SSH 节点见[执行](#执行)。
+
+| 变量 | 非特权模式 | 特权模式 / native helper |
+|---|---|---|
+| `PATH` | 继承 crha 进程的 `PATH`；为空时用固定 PATH | 固定 PATH，任务不能覆盖 |
+| `HOME`、`USER`、`LOGNAME` | 运行账户（`os/user.Current()`） | root（`os/user.LookupId("0")`） |
+| `SHELL` | 发现到的 sh（见下） | 发现到的 sh |
+| `LANG`、`LC_ALL` | `C.UTF-8` | `C.UTF-8` |
+| 任务的 `env` | 追加，可以覆盖上面除 `PATH` 外的变量（非特权时 `PATH` 也可以） | 只保留信任项 `env_allow` 中允许的，可以覆盖上面除 `PATH` 外的变量 |
+
+固定 PATH 是 `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`。crha 进程的其他环境变量都不传给任务。
+
+**覆盖**：`CRHA_TASK_HOME`、`CRHA_TASK_USER`、`CRHA_TASK_LOGNAME`、`CRHA_TASK_SHELL` 是对应进程（`crha run`、`crha privileged run`、`crha privileged stdio`）自己的环境变量，非空时取代解析结果，`CRHA_TASK_SHELL` 同时决定执行 `shell` 命令用的 sh。名字以 `CRHA_TASK_` 开头的变量一律不传给任务，任务的 `env` 中带了也会被丢弃。
+
+- 解析在进程启动时完成（native helper 每次拉起时）。没有覆盖且解析失败时进程启动失败：`crha run` 退出；特权模式退出；native helper 失败时该节点的特权任务以 `privileged_unsupported` 失败，非特权任务不受影响。
+- crha 是 `CGO_ENABLED=0` 静态编译的，`os/user` 只读 `/etc/passwd`，不经过 NSS（LDAP、SSSD 中的账户查不到）。`user.Current()` 查不到时会退回 `$HOME` / `$USER`；`LookupId("0")` 没有这个退路。账户不在 `/etc/passwd` 中时用 `CRHA_TASK_*` 覆盖。
+- native helper 由 sudo / doas 拉起，`env_reset` 默认会去掉 `CRHA_TASK_*`；需要覆盖时在 sudoers 中 `env_keep += "CRHA_TASK_*"`，或在 doas 中用 `setenv`。
+
+**sh 的发现**：进程启动时依次尝试：`CRHA_TASK_SHELL`；`/etc/shells` 中第一个文件名为 `sh` 的绝对路径（文件存在且可执行）；`exec.LookPath("sh")`（非特权模式用自己的 `PATH`，特权模式和 native helper 用固定 PATH）。都失败时进程启动失败。`shell` 命令以 `<sh> -c <cmd>` 执行。
+
+- **授权和显示**：签名、规则匹配（`exact` / `prefix` / RE2）、`spec_sha256` 和界面显示中，`shell` 命令仍渲染为 `/bin/sh -c '<cmd>'`。这里的 `/bin/sh` 表示"节点发现的 sh"，不是字面路径；crhs 和 crha 的渲染不因节点而变。
+- 同样的方法（`/etc/shells` 中文件名为 `bash` 的第一个路径，然后 `LookPath("bash")`）发现 bash，找不到不算错误。两者都由非特权模式在 `facts` 的 `shells` 中上报（见 [protocol.md](protocol.md#命令与事件)），agent 用它判断能否 `bash -c`。
+- `C.UTF-8` 在 glibc 2.35 起内置；更老的系统可能没有这个 locale，程序会退回 C locale 并可能在 stderr 打印警告。crha 不检测。
+
 ### 状态机（服务端视角）
 
 ```
@@ -350,14 +376,15 @@ SSH 节点可以配置一个或多个跳板（等价于 OpenSSH 的 `ProxyJump`�
 ### 对节点的要求
 
 - 登录 shell 能解析 POSIX 风格的 `cd … || exit 127; exec …`：bash、zsh、dash、ash、ksh 可以；fish、nushell、csh 系列，以及设置了 `ForceCommand`、受限 shell（`rbash`）或 `command=` 限制的账户不支持。
-- 有 `/bin/sh` 和 `env`；取消要用 shell 内建或 `/bin/kill` 的 `kill -<SIG> -- -<pgid>`。
+- 有 sh 和 `env`；取消要用 shell 内建或 `/bin/kill` 的 `kill -<SIG> -- -<pgid>`。
 - 文件任务要求 sshd 启用 SFTP 子系统。
-- 不分配 pty，环境就是非交互 SSH 会话的环境：bash 作为登录 shell 时会读 `~/.bashrc`，其他 shell 基本不读任何配置文件，所以 `PATH` 等可能与交互登录时不同。需要的变量请在任务的 `env` 中给出，或使用绝对路径。
+- 不分配 pty，环境就是非交互 SSH 会话的环境：bash 作为登录 shell 时会读 `~/.bashrc`，其他 shell 基本不读任何配置文件，所以 `PATH` 等可能与交互登录时不同。`HOME`、`USER`、`LOGNAME`、`SHELL` 由 sshd 按账户设置；crhs 只额外设置 `LANG=C.UTF-8`、`LC_ALL=C.UTF-8`（任务的 `env` 可以覆盖）。需要的变量请在任务的 `env` 中给出，或使用绝对路径。名字以 `CRHA_TASK_` 开头的变量与 crha 节点一样被丢弃。
 - 不参与特权任务：`privileged` 标志被忽略，按 SSH 用户执行；SSH 没有 `native`/`forward`/信任配置。
 
 ### 执行
 
-- **进程组**：sshd 启动命令时已经为它新建会话，命令所在 shell 的 pid 就是进程组 id。远端命令是 `cd <cwd> || exit 127; exec [env -- K=V…] /bin/sh -c '<wrapper>' crh <argv…>`，wrapper 先在 stderr 第一行输出 `$$`（crhs 解析后剥掉），再 `exec` 真正的命令。不用 `setsid(1)`：调用者已经是进程组组长时它会 fork，退出码就丢了。
+- **sh 的发现**：每条新建的连接（连接池换新连接时也一样）先执行一次探测，按与 crha 相同的顺序找 sh 和 bash：`/etc/shells` 中第一个文件名为 `sh` / `bash` 的存在且可执行的绝对路径，然后 `command -v`。结果写入节点 `facts` 的 `shells`（SSH 节点的 facts 只有这一项），之后这条连接上的任务都用探测到的 sh；探测不到 sh 时用 `/bin/sh`。授权和显示的渲染与 crha 节点相同，仍是 `/bin/sh -c '<cmd>'`。
+- **进程组**：sshd 启动命令时已经为它新建会话，命令所在 shell 的 pid 就是进程组 id。远端命令是 `cd <cwd> || exit 127; exec env -- LANG=C.UTF-8 LC_ALL=C.UTF-8 [K=V…] <sh> -c '<wrapper>' crh <argv…>`（`shell` 命令的 argv 是 `<sh> -c <cmd>`），wrapper 先在 stderr 第一行输出 `$$`（crhs 解析后剥掉），再 `exec` 真正的命令。不用 `setsid(1)`：调用者已经是进程组组长时它会 fork，退出码就丢了。
 - **取消与超时**：另开 exec channel 执行 `kill -TERM -- -<pgid>`，宽限期后 `kill -KILL`；与 crha 相同，结果报告为 signal。
 - **退出状态**：短命令的输出和退出状态可能与 channel 打开确认在同一个包里到达，监听器必须在 channel 打开的回调中同步挂上。
 - **连接**：每个节点复用一条连接（keepalive 10 秒、3 次），任何一跳断开都关闭整条连接。池中的连接已失效而任务尚未开始时，换新连接重试一次。
