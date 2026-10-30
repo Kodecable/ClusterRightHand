@@ -96,6 +96,8 @@ crha 特权模式（不联网）
   - 写入：用同样方式打开父目录，在父目录 fd 下创建临时文件，写完后 `renameat2`（`overwrite = false` 时用 `RENAME_NOREPLACE`）。
   - **fail closed**：`openat2` 返回 `ENOSYS`（内核早于 5.6）或 `EPERM`（seccomp）时拒绝特权文件操作并说明环境不支持，不降级为 `lstat` + `open`。
   - `RESOLVE_NO_SYMLINKS` 不防硬链接和 bind mount。规则放行的目录应当只有目标身份可写。
+  - 读取和列目录时以非阻塞方式打开，目标是 FIFO 或 socket 时拒绝（`code = not_regular_file`），否则读 FIFO 会永久阻塞，取消也无法打断。
+  - `file.write` 的 `mode` 原样保留 setuid、setgid、sticky 位；`prefix` 授权和防护规则不约束 `mode` / `owner`，需要约束时用 `exact`。
 
 ## 授权
 
@@ -130,7 +132,7 @@ crha 特权模式（不联网）
 - 用户签名和 crhs 联署签的是**同一份 CBOR payload**，不再使用 `cosign_of`，也不存在两个 payload 字段不一致的问题。
 - `require-cosign` 只要求同一对象上同时存在合格的 user 签名和 `role=crhs` 的 cosign 签名。
 - **发给组的授权**：特权模式在本机配置了这个组（`privileged.toml` 中的 `groups`）时，就认为这个授权是发给自己的。组成员关系只以本机配置为准（crhs 侧只是缓存），crhs 无法绕过授权改变它。
-- **覆盖多个节点的一次性授权**（任务组）：任务组为每个节点建一个任务，payload 的 `task_ids` 列出全部任务 id，`nodes` 列出对应节点 id（crhs 签发时把组展开成节点 id，签名后覆盖范围不再随组成员变化）。每个节点的 `task.start` 携带同一个授权对象，用户只签一次。部分节点在 accepted 前被拒时，crhs 只为这些节点构造新 payload（`attempt + 1`，`task_ids` 缩小为被拒节点），需要重新签名；已执行的节点不受影响。
+- **覆盖多个节点的一次性授权**（任务组）：任务组为每个节点建一个任务，payload 的 `task_ids` 列出全部任务 id，`nodes` 列出对应节点 id（crhs 签发时把组展开成节点 id，签名后覆盖范围不再随组成员变化）。每个节点的 `task.start` 携带同一个授权对象，用户只签一次。一次性授权的 `nodes` 与 `task_ids` 按位置一一对应（见 [protocol.md](protocol.md#授权对象)），特权模式只接受对应本机的那个任务 id，因此被控制的 crhs 不能把其他节点的任务 id 发到同一个节点上重复执行。部分节点在 accepted 前被拒时，crhs 只为这些节点构造新 payload（`attempt + 1`，`task_ids` 缩小为被拒节点），需要重新签名；已执行的节点不受影响。
 - **`exact`**：方法和目标完全相等，并且 `spec_sha256` 必须等于完整任务规格的哈希 `SHA-256(CBOR(TaskSpec))`（见 [protocol.md](protocol.md#授权对象)）。完整规格包括 env、cwd、stdin 哈希，文件写入还包括内容哈希、mode、owner 和 `overwrite`，文件编辑还包括全部 `edits`。也就是说，批准"写 `/etc/nginx/nginx.conf`"时，批准的是写入这一份内容；批准一次编辑时，批准的是这几处替换，而不是任意内容。任务组的各节点使用同一份 spec，所以共用一个 `spec_sha256`。
 - **`prefix`**：方法匹配（`file.write` 包含 `file.read`），目标前缀相等。只约束目标，不约束 stdin 和写入内容。cwd 固定为 `/`，env 受信任项的 `env_allow` 约束。
 - **`task_ids`（一次性授权）**：授权只对列出的任务 id 有效，`attempt` 必须等于 `task.start` 的 attempt。特权模式在执行之前把 `(授权 id, 任务 id)` 和任务 id 记入本地的已用列表（`/var/lib/crha/privileged/used`，先持久化再执行），同一个授权不能在同一个任务上再用第二次，同一个任务 id 也不能再执行第二次。带 `task_ids` 的授权必须有 `deadline`，已用记录保留到 `deadline` 之后 7 天再清理（留出时钟回退的余量，见"时钟"）。
@@ -255,7 +257,7 @@ kinds = ["execute"]
 规则只做简单的过滤，不是规则引擎。每条规则写成 `{ method = …, prefix = … }` 或 `{ method = …, regex = … }`：
 
 - `method` 必填（`allow` 和 `deny` 都是），取值为 `exec`、`file.read`、`file.write`。`file.write` 规则同时覆盖 `file.read`。
-- `prefix` 和 `regex` 二选一，都不写表示该方法的任意目标。`prefix` 是语法糖，编译为 `^<转义后的前缀>.*$`；`regex` 使用 RE2 语法，隐式全匹配（`^(?:…)$`），模式不超过 1000 字节。
+- `prefix` 和 `regex` 二选一，都不写表示该方法的任意目标。`prefix` 是语法糖，编译为 `^<转义后的前缀>.*$`；`regex` 使用 RE2 语法，隐式全匹配（`^(?:…)$`），模式不超过 1000 字节；模式必须能单独编译（括号不配对的 `a)|(b` 会破坏隐式全匹配，配置时报错）。
 - `regex` 只应使用 Go `regexp` 与 C++ RE2 的公共子集（不用 `\C`、`\p{Script=…}` 等写法；字符类、`(?i)`、`\p{Latin}` 可以）。特权模式（Go）是最终裁决；crhs（Node 包 `re2`）只用于预演，编译失败时保守处理：`allow` 视为不命中，`deny` 视为命中，并在 WebUI 的信任摘要中提示。共享用例同时比较编译结果和匹配结果。
 - 判定顺序：先看 `deny`，命中任何一条就拒绝；`allow` 非空时必须命中其中一条。
 - `file.write` 规则同时覆盖 `file.read` 只对 `allow` 成立；`deny` 的 `file.write` 只匹配写，与 crhs 规则一致（D67）。
@@ -293,6 +295,7 @@ kinds = ["execute"]
 **执行环境**：
 - 以特权模式自身的 Linux 身份执行；
 - 环境变量只保留 `env_allow` 中允许、且任务提供了的，PATH 固定；
+- 有 stdin 的任务：特权模式先把 stdin 完整写入 0600 临时文件并核对大小和 `sha256`，通过后才启动进程，否则 `exact` 授权批准的 stdin 可以在校验前就被进程读到；
 - 非 `exact` 授权时 cwd 固定为 `/`；
 - 进程放进新的进程组；
 - 特权模式自己执行超时控制。
@@ -316,7 +319,7 @@ kinds = ["execute"]
 **只用于单任务**：任务组（批量执行）中的任务不走本地批准，crhs 不发送 `local.request`；没有其他路径时该节点的任务直接以 `authorization_required` 失败，消息提示改为对单个节点执行。逐节点登录批准与批量执行的初衷相悖，也避免 crhs 为任务组逐节点跟踪本地批准状态。
 
 1. crhs 选择本地批准路径时，向节点发送 `local.request`（任务 id、attempt、规格），任务进入待批准列表；**此时不发送 `task.start`**。
-2. `crha approve` / `crha deny` 记录批准人的 uid 和规格哈希（拒绝则直接记录拒绝），结果通过 `local.decision` 事件告诉 crhs。
+2. `crha pending` 显示完整规格（方法、目标、argv、env、cwd、stdin 或内容的大小和哈希、mode、owner、overwrite、edits）和 `spec_sha256`。`crha approve` / `crha deny` 再次显示将要批准的规格并要求确认（`--yes` 跳过），请求中带上这个 `spec_sha256`；特权模式与待批准记录的哈希比较，不一致就拒绝，所以 crhs 不能在管理员查看之后换掉规格。特权模式记录批准人的 uid（拒绝则直接记录拒绝），结果通过 `local.decision` 事件告诉 crhs。
 3. crhs 收到 `approved` 后，用同一 attempt 发送 `task.start`（`authorizations` 为空）。特权模式此时按上面的流程校验：第 3、4 步不适用（没有授权对象）；第 5 步只检查本任务 id 未执行过；第 6 步核对规格哈希与批准时相同；第 7 步使用批准人所在 `local` 信任项的规则。通过后消耗这条批准记录，任务 id 同样记入已用列表。
 
 待批准和已批准的记录只在特权模式的内存中，不自动超时；crhs 撤回（`local.withdraw`）、拒绝或特权模式重启时结束。特权模式重启后，crhs 会重新发送 `local.request`。等待期间断线不会让任务变成 `unknown`，因为执行只由 `task.start` 触发。
@@ -325,7 +328,7 @@ kinds = ["execute"]
 
 - 吊销只会减少权限，所以特权模式接受经非特权模式转发的吊销项（`revocations.add`），不要求签名；本地也可以执行 `crha privileged revoke <授权 id>`，它走 crh-priv 的 `local` 角色，所以执行者的 uid 必须在某个 `local` 信任项中。
 - crhs 在用户吊销授权后，把吊销项增量推送给相关节点；节点每次报告信任摘要可用时，crhs 重发该节点全部未过期的吊销项（幂等）。
-- 吊销列表持久化保存；带 `deadline` 的授权过期后，对应的吊销记录可以清理；不过期的授权，其吊销记录永久保留。
+- 吊销列表持久化保存；带 `deadline` 的授权，吊销记录保留到 `deadline` 之后 7 天再清理（与已用记录相同，覆盖 `clock_skew` 和时钟回退）；不过期的授权，其吊销记录永久保留。crhs 重发吊销项时使用同样的期限。
 - 节点离线期间，吊销无法送达。所以长期有效的授权要谨慎签发，建议用 `max_ttl` 限制。
 
 ## crhs 侧

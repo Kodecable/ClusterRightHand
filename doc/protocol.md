@@ -215,7 +215,7 @@ Signature            = ["sshsig", [blob: bytes]]
 - **授权 id** = `SHA-256(payload)`，对原文 bytes 求哈希。校验方解码 payload 后重编码，与原文逐字节比较。
 - `nodes`：节点 id、`group:<name>`，或恰好 `["*"]`。不能为空。
 - `command` 为 `null` 表示任意方法、任意目标。
-- `task_ids` 与 `attempt` 同时为 `null`（可复用授权），或同时非 `null`（一次性授权，`task_ids` 非空、无重复，`attempt ≥ 1`）。一次性授权覆盖多个节点时，`task_ids` 列出各节点的任务 id；`task.start` 的 `task_id` 必须在列表中，`attempt` 必须相等。
+- `task_ids` 与 `attempt` 同时为 `null`（可复用授权），或同时非 `null`（一次性授权，`task_ids` 非空、无重复，`attempt ≥ 1`）。一次性授权的 `nodes` 只能是节点 id（不能是 `group:` 或 `*`），与 `task_ids` 等长并按位置一一对应：`task_ids[i]` 只能在 `nodes[i]` 上执行。`task.start` 的 `task_id` 必须在列表中、对应位置的节点 id 等于本机 node_id，`attempt` 必须相等；不满足时为 `authorization_invalid`（第 5 步）。
 - `note` 没有时为空串。
 - **`spec_sha256`** = `SHA-256(CBOR(TaskSpec))`，`TaskSpec` 即 `task.start` 中的结构（stdin 和文件内容已经是 `InputRef`）。
 - **SSHSIG**：`blob` 是 OpenSSH SSHSIG 的二进制形式（去掉 `-----BEGIN SSH SIGNATURE-----` 装甲后 base64 解码的 bytes）。version 必须为 1，namespace 必须为 `crh-auth-v1`，reserved 必须为空，hash 为 `sha512`（`ssh-keygen` 默认值；`sha256` 也接受）。**被签名的 message 是 payload 原文 bytes**，由 SSHSIG 自己做哈希，不预先哈希。
@@ -248,7 +248,7 @@ PrivWelcome = [priv_major: 1, priv_minor: 0, commands: [text], crha_version: tex
 | `revocations.add` / `local.request` / `local.withdraw` | U→P | forward | 同上文 |
 | `local.decision` | P→U | forward | 同上文 |
 | `pending.list` | L→P | local | 请求 `[]`，响应 `[[task_id: text, attempt: uint, spec: TaskSpec, note: text, received_at_ms: int]]` |
-| `local.approve` / `local.deny` | L→P | local | 请求 `[task_id: text, attempt: uint, message: text]`，响应 `[]` |
+| `local.approve` / `local.deny` | L→P | local | 请求 `[task_id: text, attempt: uint, spec_sha256: bytes, message: text]`（`spec_sha256` 恰好 32 字节，必须等于待批准记录的规格哈希，否则 `invalid_spec`），响应 `[]` |
 | `revocations.add` | L→P | local | `crha privileged revoke` |
 
 - **断开**：`forward` 的连接断开时，特权模式中已 accepted 的任务继续运行到结束，结果写入本地日志；它们的输出不再回传。非特权模式以 `error`、`code = helper_lost`（“任务可能仍在运行”）结束这些任务；`task.start` 已发出但响应因断开丢失时同样按 accepted 处理并以 `helper_lost` 结束，避免 crhs 重试一个可能已执行的任务。非特权模式自身重启时不认识这些任务，crhs 照常按 `unknown` 处理。`native` 的 stdin 关闭时，helper 等当前任务结束后退出。
