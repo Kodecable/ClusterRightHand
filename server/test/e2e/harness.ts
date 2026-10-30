@@ -14,8 +14,10 @@ import { LoginLimiter } from "../../src/auth/login-limiter.ts";
 import { AgentServer } from "../../src/cluster/agent-server.ts";
 import { Cluster, type ClusterOptions } from "../../src/cluster/cluster.ts";
 import { loadServerIdentity, type ServerIdentity } from "../../src/cluster/identity.ts";
+import { nodeRoute } from "../../src/cluster/ssh/nodes.ts";
 import { TaskGroups } from "../../src/cluster/task-groups.ts";
 import { MasterKey } from "../../src/keys/master-key.ts";
+import { type AuthorizationSigningKey, loadAuthorizationSigningKey } from "../../src/privilege/key.ts";
 import type { Db } from "../../src/storage/db.ts";
 import { createUser } from "../../src/users/service.ts";
 import { openTestDb } from "../helpers/db.ts";
@@ -53,6 +55,20 @@ export async function waitFor<T>(
 	}
 }
 
+/** The authorization bookkeeping of a privileged task (doc/m4.md#crhs-侧数据). */
+export interface TaskAuthorizationJson {
+	plan: { paths: { path: "crhs" | "user" | "local"; entries?: unknown[] }[]; reason?: string };
+	tried: string[];
+	dispatchedPath: string | null;
+	payloadId: string | null;
+	attempt: number;
+	trustDigest: string | null;
+	pending: unknown;
+	local: { attempt: number } | null;
+	lastRejection: { code: string; message: string; attempt: number; at: string } | null;
+	updatedAt: string;
+}
+
 export interface TaskJson {
 	id: string;
 	state: string;
@@ -70,6 +86,8 @@ export interface TaskJson {
 	stderrTail: string;
 	outputFile: string | null;
 	privileged: boolean;
+	/** Null for ordinary tasks (the API's view; the harness's own task types leave it unset). */
+	authorization?: TaskAuthorizationJson | null;
 }
 
 /** crhs assembled the way runServer does, in this process, restartable on the same port and database. */
@@ -79,6 +97,8 @@ export class InProcessCrhs {
 	readonly clusterOptions: ClusterOptions;
 	readonly appOptions: Partial<AppOptions>;
 	identity!: ServerIdentity;
+	/** As in `main.ts`: every server signs authorizations with this key (doc/privilege.md#授权签名密钥). */
+	authorizationKey!: AuthorizationSigningKey;
 	cluster!: Cluster;
 	audit!: Audit;
 	port = 0;
@@ -114,6 +134,7 @@ export class InProcessCrhs {
 	): Promise<InProcessCrhs> {
 		const crhs = new InProcessCrhs(await openTestDb("sqlite"), opts, appOptions, agentDir);
 		crhs.identity = await loadServerIdentity(crhs.db, crhs.masterKey);
+		crhs.authorizationKey = await loadAuthorizationSigningKey(crhs.db, crhs.masterKey);
 		await crhs.#listen(0);
 		return crhs;
 	}
@@ -124,7 +145,13 @@ export class InProcessCrhs {
 
 	async #listen(port: number): Promise<void> {
 		this.audit = new Audit(this.db);
-		this.cluster = new Cluster(this.db, { ...this.clusterOptions, audit: this.audit });
+		this.cluster = new Cluster(this.db, {
+			...this.clusterOptions,
+			// As in `main.ts`: SSH nodes are reachable through a route built from their stored key.
+			sshRoute: this.clusterOptions.sshRoute ?? ((node) => nodeRoute(this.db, this.masterKey, node)),
+			authorizationKey: this.authorizationKey,
+			audit: this.audit,
+		});
 		this.#agents = new AgentServer(this.db, this.identity, this.cluster, this.audit);
 		const taskGroups = new TaskGroups(this.db, this.cluster, { audit: this.audit });
 		let agent: AppOptions["agent"];
@@ -147,6 +174,7 @@ export class InProcessCrhs {
 			...(agent ? { agent } : {}),
 			serverFingerprint: this.identity.fingerprint,
 			serverPublicKey: this.identity.keyPair.publicKey,
+			authorizationKey: this.authorizationKey,
 			cluster: this.cluster,
 			masterKey: this.masterKey,
 			audit: this.audit,

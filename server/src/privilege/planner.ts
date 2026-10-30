@@ -156,6 +156,25 @@ function firstCosignEntry(summary: TrustSummary, crhsFingerprint: string | undef
 	return entry ? authzEntryFromTrust(entry) : undefined;
 }
 
+/**
+ * crha maps a signature to the first trust entry with its key (doc/privilege.md#信任配置), so later
+ * entries repeating a key never take part in a decision there; dropping them here keeps the preview
+ * from planning a path crha would refuse. Local entries are matched by uid and all take part.
+ */
+function firstEntryPerKey(trust: readonly TrustEntry[]): TrustEntry[] {
+	const seen = new Set<string>();
+	return trust.filter((entry) => {
+		let key: string;
+		if (entry.key.kind === "sshsig") key = `sshsig:${entry.key.fingerprint}`;
+		else if (entry.key.kind === "webauthn")
+			key = `webauthn:${Buffer.from(entry.key.credentialId).toString("base64url")}`;
+		else return true;
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
+}
+
 /** Runs the real decision with hypothetical signatures to see whether one entry would be accepted. */
 function entryAccepts(
 	summary: TrustSummary,
@@ -185,11 +204,11 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 	if (!input.task.privileged) {
 		return { paths: [], reason: "the task is not privileged and needs no authorization" };
 	}
-	const { summary } = input;
-	if (summary === null) {
+	if (input.summary === null) {
 		const detail = input.summaryUnavailable ?? "the node has not reported a usable trust summary";
 		return { paths: [], reason: `${NOBODY}: ${detail}` };
 	}
+	const summary = { ...input.summary, trust: firstEntryPerKey(input.summary.trust) };
 	let method: "exec" | "file.read" | "file.write";
 	let target: string;
 	try {
