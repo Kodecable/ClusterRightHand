@@ -43,12 +43,48 @@ const FACTS: Facts = {
 	notesPath: "/etc/crh/notes",
 	groups: ["sudo", "docker"],
 	clockOffsetMs: -1234,
+	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
 };
 
 const FACTS_TEXT =
-	'facts=[hostname="node-1", os_id="ubuntu", os_version_id="24.04", os_pretty_name="Ubuntu 24.04 LTS", ' +
-	'kernel="6.8.0-31-generic", arch="x86_64", init_system="systemd", package_managers=["apt","snap"], ' +
-	'privilege_tools=["sudo"], notes_path="/etc/crh/notes", groups=["sudo","docker"], clock_offset_ms=-1234]';
+	'facts={hostname="node-1", groups=["sudo","docker"], os_id="ubuntu", os_version_id="24.04", ' +
+	'os_pretty_name="Ubuntu 24.04 LTS", kernel="6.8.0-31-generic", arch="x86_64", init_system="systemd", ' +
+	'package_managers=["apt","snap"], privilege_tools=["sudo"], notes_path="/etc/crh/notes", ' +
+	'clock_offset_ms=-1234, shells={sh="/bin/sh", bash="/usr/bin/bash"}}';
+
+/**
+ * The fixture Facts as the wire map. A Map, unlike the typed object, can carry keys the codec does
+ * not know, which Facts must ignore (doc/protocol.md Facts); the encoder sorts the keys.
+ */
+function factsMap(overrides: readonly (readonly [string, unknown])[] = []): Map<string, unknown> {
+	return new Map<string, unknown>([
+		["hostname", "node-1"],
+		["groups", ["sudo", "docker"]],
+		["os_id", "ubuntu"],
+		["os_version_id", "24.04"],
+		["os_pretty_name", "Ubuntu 24.04 LTS"],
+		["kernel", "6.8.0-31-generic"],
+		["arch", "x86_64"],
+		["init_system", "systemd"],
+		["package_managers", ["apt", "snap"]],
+		["privilege_tools", ["sudo"]],
+		["notes_path", "/etc/crh/notes"],
+		["clock_offset_ms", -1234],
+		[
+			"shells",
+			new Map<string, unknown>([
+				["sh", "/bin/sh"],
+				["bash", "/usr/bin/bash"],
+			]),
+		],
+		...overrides,
+	]);
+}
+
+/** A facts event frame around a raw facts map. */
+function factsEvent(body: ReadonlyMap<unknown, unknown>): Uint8Array {
+	return encodeCbor([2, "facts", body]);
+}
 
 const COMMANDS_TEXT = `commands=[${SUPPORTED_NAMES.join(",")}]`;
 const AUTHORIZATION = bytesOf("00ff");
@@ -566,6 +602,44 @@ export function buildFixture(): CrhFramesFixture {
 		},
 	);
 	addFrame("event.facts", `event facts body=${FACTS_TEXT}`, { kind: "event", name: "facts", body: FACTS });
+	// Facts is the protocol's one map (doc/protocol.md Facts): unknown keys are ignored, absent
+	// optionals are accepted, and shells is itself a map with an optional bash.
+	addPositive(
+		"event.facts.unknown_key",
+		"event facts map with an unknown fact key (ignored)",
+		factsEvent(factsMap([["future_fact", "ignored"]])),
+	);
+	addPositive(
+		"event.facts.minimal",
+		"event facts map with only the required keys hostname and groups, every optional absent",
+		factsEvent(
+			new Map<string, unknown>([
+				["groups", ["sudo"]],
+				["hostname", "node-1"],
+			]),
+		),
+	);
+	addPositive(
+		"event.facts.shells_unknown_key",
+		"event facts map whose shells map has an unknown inner key zsh (ignored)",
+		factsEvent(
+			factsMap([
+				[
+					"shells",
+					new Map<string, unknown>([
+						["sh", "/bin/sh"],
+						["bash", "/usr/bin/bash"],
+						["zsh", "/usr/bin/zsh"],
+					]),
+				],
+			]),
+		),
+	);
+	addPositive(
+		"event.facts.shells_without_bash",
+		"event facts map whose shells map has no bash key at all",
+		factsEvent(factsMap([["shells", new Map<string, unknown>([["sh", "/bin/sh"]])]])),
+	);
 	addFrame("event.node.status", 'event node.status body=[node_id="node-1", state="active", message="approved"]', {
 		kind: "event",
 		name: "node.status",
@@ -771,6 +845,111 @@ export function buildFixture(): CrhFramesFixture {
 			"negative.env_key_int",
 			"exec env map has the integer key 1, but env permits only text keys",
 			Buffer.concat([source.subarray(0, at), Buffer.from("a1016178", "hex"), source.subarray(at + needle.length)]),
+		);
+	}
+	// Facts: the map rules are enforced by the schema, the profile and the shells map.
+	addNegative(
+		"negative.facts_missing_groups",
+		"event facts map without the required groups key",
+		factsEvent(new Map<string, unknown>([["hostname", "node-1"]])),
+	);
+	addNegative(
+		"negative.facts_missing_hostname",
+		"event facts map without the required hostname key",
+		factsEvent(new Map<string, unknown>([["groups", ["sudo"]]])),
+	);
+	addNegative(
+		"negative.facts_wrong_type",
+		"event facts map whose hostname is the uint 1 instead of text",
+		factsEvent(
+			new Map<string, unknown>([
+				["groups", ["sudo"]],
+				["hostname", 1],
+			]),
+		),
+	);
+	addNegative(
+		"negative.facts_shells_without_sh",
+		"event facts map whose shells map has bash but no required sh",
+		factsEvent(factsMap([["shells", new Map<string, unknown>([["bash", "/usr/bin/bash"]])]])),
+	);
+	addNegative(
+		"negative.facts_not_a_map",
+		"event facts body is an array instead of a text-keyed map",
+		encodeCbor([2, "facts", ["node-1"]]),
+	);
+	addNegative(
+		"negative.facts_integer_key",
+		"event facts map has the integer key 1 among its text keys",
+		factsEvent(
+			new Map<unknown, unknown>([
+				["hostname", "node-1"],
+				["groups", ["sudo"]],
+				[1, "x"],
+			]),
+		),
+	);
+	addNegative(
+		"negative.facts_shells_integer_key",
+		"event facts map whose shells map has the integer key 1 among its text keys",
+		factsEvent(
+			factsMap([
+				[
+					"shells",
+					new Map<unknown, unknown>([
+						["sh", "/bin/sh"],
+						[1, "x"],
+					]),
+				],
+			]),
+		),
+	);
+	{
+		// The body map has two hostname pairs: the profile rejects duplicate keys even though the
+		// pairs are adjacent and otherwise in canonical order.
+		const canonical = Buffer.from(
+			factsEvent(
+				new Map<string, unknown>([
+					["groups", ["sudo"]],
+					["hostname", "node-1"],
+				]),
+			),
+		);
+		const needle = Buffer.from("a26667726f75707381647375646f68686f73746e616d65666e6f64652d31", "hex");
+		if (canonical.indexOf(needle) < 0) throw new Error("duplicate-key facts fixture anchor not found");
+		addNegative(
+			"negative.facts_duplicate_key",
+			'event facts map has two hostname keys with "node-1"',
+			Buffer.concat([
+				canonical.subarray(0, canonical.indexOf(needle)),
+				Buffer.from(
+					"a36667726f75707381647375646f68686f73746e616d65666e6f64652d3168686f73746e616d65666e6f64652d31",
+					"hex",
+				),
+				canonical.subarray(canonical.indexOf(needle) + needle.length),
+			]),
+		);
+	}
+	{
+		// hostname sorts before groups here, so the map is not in canonical key order.
+		const canonical = Buffer.from(
+			factsEvent(
+				new Map<string, unknown>([
+					["groups", ["sudo"]],
+					["hostname", "node-1"],
+				]),
+			),
+		);
+		const needle = Buffer.from("a26667726f75707381647375646f68686f73746e616d65666e6f64652d31", "hex");
+		if (canonical.indexOf(needle) < 0) throw new Error("key-order facts fixture anchor not found");
+		addNegative(
+			"negative.facts_key_order",
+			"event facts map has hostname before groups (non-canonical key order)",
+			Buffer.concat([
+				canonical.subarray(0, canonical.indexOf(needle)),
+				Buffer.from("a268686f73746e616d65666e6f64652d316667726f75707381647375646f", "hex"),
+				canonical.subarray(canonical.indexOf(needle) + needle.length),
+			]),
 		);
 	}
 	addNegative(

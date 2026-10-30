@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/executor"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
@@ -44,6 +45,7 @@ type Emit func(stream protocol.Stream, offset uint64, data []byte) error
 type Task struct {
 	id    string
 	start protocol.TaskStart
+	env   *execenv.Environment
 	sink  *streamSink
 	// in is the streaming input of a file.write task, which the file task itself verifies
 	// before publishing the file. It is nil for an exec task.
@@ -86,13 +88,15 @@ func Validate(ts protocol.TaskStart) error {
 	return nil
 }
 
-// New prepares a task. It validates task.start with Validate.
-func New(ts protocol.TaskStart, emit Emit) (*Task, error) {
+// New prepares a task. It validates task.start with Validate. env is the environment the privileged
+// process resolved when it started (execenv.Resolve); nil resolves it per task, which only tests and
+// programmatic callers do.
+func New(ts protocol.TaskStart, emit Emit, env *execenv.Environment) (*Task, error) {
 	if err := Validate(ts); err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t := &Task{id: ts.TaskID, start: ts, ctx: ctx, abort: cancel, done: make(chan struct{})}
+	t := &Task{id: ts.TaskID, start: ts, env: env, ctx: ctx, abort: cancel, done: make(chan struct{})}
 	t.sink = newStreamSink(emit)
 	if ref := inputRef(&ts.Spec); ref != nil {
 		t.inputSize, t.inputHash, t.hasher = uint64(ref.Size), ref.SHA256, sha256.New()
@@ -217,6 +221,7 @@ func (t *Task) run() executor.Result {
 		Timeout:    timeout,
 		KillGrace:  time.Duration(t.start.KillGraceMS) * time.Millisecond,
 		Privileged: true,
+		Env:        t.env,
 	})
 }
 

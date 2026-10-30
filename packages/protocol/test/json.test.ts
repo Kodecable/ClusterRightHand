@@ -24,6 +24,7 @@ const facts: Facts = {
 	notesPath: "/etc/notes",
 	groups: ["sudo"],
 	clockOffsetMs: -1234,
+	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
 };
 
 const specs: TaskSpec[] = [
@@ -153,17 +154,38 @@ describe("JSON forms", () => {
 	});
 
 	const factsJson = factsToJson(facts);
-	const withoutHostname = Object.fromEntries(Object.entries(factsJson).filter(([key]) => key !== "hostname"));
 	const badFacts: [string, unknown][] = [
-		["missing hostname", withoutHostname],
-		["extra field", { ...factsJson, extra: 1 }],
 		["bad groups", { ...factsJson, groups: "sudo" }],
 		["bad group item", { ...factsJson, groups: ["sudo", 1] }],
 		["float clock offset", { ...factsJson, clockOffsetMs: 1.5 }],
+		["bad shells", { ...factsJson, shells: "bash" }],
+		["bad shells.sh", { ...factsJson, shells: { sh: 1 } }],
+		["bad shells.bash", { ...factsJson, shells: { sh: "/bin/sh", bash: 1 } }],
 		["non-object", "facts"],
 	];
 
 	it.each(badFacts)("rejects bad Facts: %s", (_name, value) => {
 		expect(() => factsFromJson(value)).toThrow(JsonError);
+	});
+
+	it("omits absent facts and keeps a missing shells.bash absent", () => {
+		const minimal: Facts = { hostname: "node-1", groups: ["sudo"] };
+		expect(factsToJson(minimal)).toEqual(minimal);
+		const noBash: Facts = { ...facts, shells: { sh: "/bin/sh" } };
+		expect(factsToJson(noBash)).toEqual({ ...factsJson, shells: { sh: "/bin/sh" } });
+		expect(factsFromJson(factsToJson(noBash))).toEqual(noBash);
+		// null is a valid spelling of "no bash" and round-trips through storage.
+		const nullBash: Facts = { ...facts, shells: { sh: "/bin/sh", bash: null } };
+		expect(factsFromJson(factsToJson(nullBash))).toEqual(nullBash);
+	});
+
+	it("reads partial stored rows: no shells, or shells only for an SSH node", () => {
+		const { shells: _shells, osId: _osId, ...legacy } = factsJson;
+		expect(factsFromJson(legacy)).toEqual(legacy);
+		const ssh = { shells: { sh: "/bin/sh", bash: null } };
+		expect(factsFromJson(ssh)).toEqual(ssh);
+		// A legacy row with shells: null reads as no shells, and unknown keys are ignored.
+		expect(factsFromJson({ ...legacy, shells: null })).toEqual(legacy);
+		expect(factsFromJson({ ...factsJson, futureFact: "ignored" })).toEqual(factsJson);
 	});
 });

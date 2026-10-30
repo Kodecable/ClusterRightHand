@@ -1,4 +1,4 @@
-import { approvalWait, prettyJson, safeHashLink, type TranscriptItem } from "../sessionState.ts";
+import { approvalWait, authorizationWait, prettyJson, safeHashLink, type TranscriptItem } from "../sessionState.ts";
 import { Badge } from "./Feedback.tsx";
 import { stateKind } from "./TaskResult.tsx";
 
@@ -33,6 +33,8 @@ function ResultText({ text, isError }: { text: string; isError: boolean }) {
 export function ToolCard({ tool, running }: { tool: Tool; running: boolean }) {
 	const wait = tool.result ? undefined : approvalWait(tool.details);
 	const link = wait && safeHashLink(wait.url);
+	const signature = tool.result ? undefined : authorizationWait(tool.details);
+	const signatureLink = signature && safeHashLink(signature.url);
 	const details = tool.details as { sessionId?: unknown } | undefined;
 	const subagent = typeof details?.sessionId === "string" ? details.sessionId : undefined;
 	const hasArgs = Object.keys(tool.args).length > 0;
@@ -63,6 +65,16 @@ export function ToolCard({ tool, running }: { tool: Tool; running: boolean }) {
 				<p className="warn" role="status">
 					Waiting for your approval.{" "}
 					{link ? <a href={link}>Review and approve</a> : <span className="muted">Open the Approvals page.</span>}
+				</p>
+			)}
+			{signature && (
+				<p className="warn" role="status">
+					Waiting for your signature.{" "}
+					{signatureLink ? (
+						<a href={signatureLink}>Open the signing page</a>
+					) : (
+						<span className="muted">Open the task page.</span>
+					)}
 				</p>
 			)}
 			{!tool.result && tool.output && (

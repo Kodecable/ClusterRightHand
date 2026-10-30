@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -64,6 +65,15 @@ func TestFramesFixture(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("decoded value mismatch:\n got %#v\nwant %#v", got, want)
+			}
+			if isFactsBody(got) {
+				// Facts is the protocol's one map: the schema value drops keys this implementation does
+				// not know, so the byte-for-byte comparison is the profile's, on the generic value
+				// (doc/protocol.md Facts).
+				if err := checkProfileReencode(raw); err != nil {
+					t.Fatalf("profile re-encode: %v", err)
+				}
+				return
 			}
 			encoded, err := encodeFixtureValue(got)
 			if err != nil {
@@ -217,6 +227,33 @@ func decodeFixtureBody(frame *Frame) (any, error) {
 	return nil, fmt.Errorf("no body type for frame kind %d name %q", frame.Kind, frame.Name)
 }
 
+// isFactsBody reports whether a decoded fixture value is an event frame whose body is Facts.
+func isFactsBody(value any) bool {
+	frame, ok := value.(fixtureFrame)
+	if !ok || frame.Kind != FrameEvent || frame.Name != EventFacts {
+		return false
+	}
+	_, ok = frame.Body.(Facts)
+	return ok
+}
+
+// checkProfileReencode verifies that the strict profile decoder reproduces raw byte for byte. That
+// is the comparison Unmarshal applies to a Facts body, where the schema value loses unknown keys.
+func checkProfileReencode(raw []byte) error {
+	value, err := decodeAny(raw)
+	if err != nil {
+		return err
+	}
+	encoded, err := encMode.Marshal(value)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(encoded, raw) {
+		return fmt.Errorf("re-encoded as %x", encoded)
+	}
+	return nil
+}
+
 func encodeFixtureValue(value any) ([]byte, error) {
 	switch v := value.(type) {
 	case HandshakeInit:
@@ -257,17 +294,18 @@ func fixtureCommands() []string {
 func fixtureFacts() Facts {
 	return Facts{
 		Hostname:        "node-1",
-		OSID:            "ubuntu",
-		OSVersionID:     "24.04",
-		OSPrettyName:    "Ubuntu 24.04 LTS",
-		Kernel:          "6.8.0-31-generic",
-		Arch:            "x86_64",
-		InitSystem:      "systemd",
+		OSID:            ptr("ubuntu"),
+		OSVersionID:     ptr("24.04"),
+		OSPrettyName:    ptr("Ubuntu 24.04 LTS"),
+		Kernel:          ptr("6.8.0-31-generic"),
+		Arch:            ptr("x86_64"),
+		InitSystem:      ptr("systemd"),
 		PackageManagers: []string{"apt", "snap"},
 		PrivilegeTools:  []string{"sudo"},
-		NotesPath:       "/etc/crh/notes",
+		NotesPath:       ptr("/etc/crh/notes"),
 		Groups:          []string{"sudo", "docker"},
-		ClockOffsetMS:   -1234,
+		ClockOffsetMS:   ptr(Int(-1234)),
+		Shells:          &Shells{Sh: "/bin/sh", Bash: ptr("/usr/bin/bash")},
 	}
 }
 
@@ -318,6 +356,10 @@ var fixtureExpectedIDs = []string{
 	"event.task.exit.error",
 	"event.task.exit.error.bom",
 	"event.facts",
+	"event.facts.unknown_key",
+	"event.facts.minimal",
+	"event.facts.shells_unknown_key",
+	"event.facts.shells_without_bash",
 	"event.node.status",
 	"event.node.status.pending",
 	"event.node.status.rejected",
@@ -619,10 +661,34 @@ func expectedFixtureValue(id string) (any, bool) {
 				OutputFile: "",
 			},
 		}, true
-	case "event.facts":
+	case "event.facts", "event.facts.unknown_key", "event.facts.shells_unknown_key":
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventFacts,
 			Body: fixtureFacts(),
+		}, true
+	case "event.facts.minimal":
+		return fixtureFrame{
+			Kind: FrameEvent, Name: EventFacts,
+			Body: Facts{Hostname: "node-1", Groups: []string{"sudo"}},
+		}, true
+	case "event.facts.shells_without_bash":
+		return fixtureFrame{
+			Kind: FrameEvent, Name: EventFacts,
+			Body: Facts{
+				Hostname:        "node-1",
+				Groups:          []string{"sudo", "docker"},
+				OSID:            ptr("ubuntu"),
+				OSVersionID:     ptr("24.04"),
+				OSPrettyName:    ptr("Ubuntu 24.04 LTS"),
+				Kernel:          ptr("6.8.0-31-generic"),
+				Arch:            ptr("x86_64"),
+				InitSystem:      ptr("systemd"),
+				PackageManagers: []string{"apt", "snap"},
+				PrivilegeTools:  []string{"sudo"},
+				NotesPath:       ptr("/etc/crh/notes"),
+				ClockOffsetMS:   ptr(Int(-1234)),
+				Shells:          &Shells{Sh: "/bin/sh"},
+			},
 		}, true
 	case "event.node.status":
 		return fixtureFrame{

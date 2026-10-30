@@ -110,6 +110,27 @@ export function splitArgv(line: string): string[] {
 	return out;
 }
 
+/**
+ * What the approvals page and the header count as pending: the requests this user must approve, plus
+ * the tasks and task groups waiting for its signature. A group waiting for a signature is one entry,
+ * not one per member task (doc/privilege.md).
+ */
+interface PendingLists {
+	tasks: readonly unknown[];
+	taskGroups: readonly unknown[];
+	authorizations: { tasks: readonly unknown[]; taskGroups: readonly unknown[] };
+}
+
+export function pendingCount(data: PendingLists | undefined): number {
+	if (!data) return 0;
+	return (
+		data.tasks.length +
+		data.taskGroups.length +
+		data.authorizations.tasks.length +
+		data.authorizations.taskGroups.length
+	);
+}
+
 export function osName(facts: Record<string, unknown> | null): string {
 	const v = facts?.osPrettyName;
 	return typeof v === "string" && v ? v : "-";

@@ -258,6 +258,12 @@ func Unmarshal(data []byte, v any) error {
 	if err := decMode.Unmarshal(data, v); err != nil {
 		return &ProtocolError{Err: fmt.Errorf("decode: %w", err)}
 	}
+	if _, ok := v.(profileValue); ok {
+		// decodeAny above already compared the generic CBOR value byte for byte. Facts keeps keys
+		// this implementation does not know in that value but not in the struct, so re-encoding the
+		// struct would differ from data (doc/protocol.md, Facts).
+		return nil
+	}
 	encoded, err := Marshal(v)
 	if err != nil {
 		return &ProtocolError{Err: fmt.Errorf("re-encode: %w", err)}
@@ -267,6 +273,15 @@ func Unmarshal(data []byte, v any) error {
 	}
 	return nil
 }
+
+// profileValue marks the body types whose strict decode compares the generic CBOR value rather than
+// the schema-decoded struct: the two map structures, Facts and its Shells. Both may carry keys or
+// null values the schema decode drops, so re-encoding the struct would differ from the input. Every
+// other structure keeps the tuple rule and its schema comparison.
+type profileValue interface{ isProfileValue() }
+
+func (*Facts) isProfileValue()  {}
+func (*Shells) isProfileValue() {}
 
 // profileMapEntry is one key/value pair of a decoded profile map.
 type profileMapEntry struct {

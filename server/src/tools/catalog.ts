@@ -28,6 +28,8 @@ export interface ToolContext {
 	approvalUrl: (kind: "task" | "task_group", id: string) => string;
 	/** Where the owner sees a waiting task's authorization payload in the WebUI (absolute for MCP). */
 	taskUrl?: (id: string) => string;
+	/** The task-group page, where a waiting group is signed (absolute for MCP). */
+	groupUrl?: (id: string) => string;
 	signal?: AbortSignal;
 	/** Stable per tool call: tasks get ids derived from it, so a rerun after a crash reattaches to them. */
 	callKey?: string;
@@ -56,7 +58,11 @@ async function waitTaskFor(ctx: ToolContext, id: string, waitMs: number): Promis
 	}
 	if (t?.state === "awaiting_authorization") {
 		// The owner signs in the WebUI or with `crha grant`; the task has no automatic timeout.
-		await ctx.onStatus?.({ task_id: id, state: "awaiting_authorization" });
+		await ctx.onStatus?.({
+			task_id: id,
+			state: "awaiting_authorization",
+			authorization_url: ctx.taskUrl?.(id) ?? `#/tasks/${id}`,
+		});
 		while (t?.state === "awaiting_authorization" && !ctx.signal?.aborted) {
 			await new Promise((r) => setTimeout(r, 1000));
 			t = await ctx.cluster.getTask(id);
@@ -80,7 +86,11 @@ async function waitGroupFor(ctx: ToolContext, id: string, waitMs: number): Promi
 		await ctx.onStatus?.({ task_group_id: id, state: g.state });
 	}
 	if (g.state === "awaiting_authorization") {
-		await ctx.onStatus?.({ task_group_id: id, state: "awaiting_authorization" });
+		await ctx.onStatus?.({
+			task_group_id: id,
+			state: "awaiting_authorization",
+			authorization_url: ctx.groupUrl?.(id) ?? `#/task-groups/${id}`,
+		});
 		while (g.state === "awaiting_authorization" && !ctx.signal?.aborted)
 			g = (await ctx.groups.wait(id, HOUR)) as TaskGroupView;
 		await ctx.onStatus?.({ task_group_id: id, state: g.state });
@@ -244,13 +254,12 @@ function authorizationResult(
 	ctx: ToolContext,
 	taskId: string,
 ): Record<string, unknown> {
-	const url = ctx.taskUrl?.(taskId);
+	const url = ctx.taskUrl?.(taskId) ?? `#/tasks/${taskId}`;
 	const local = record?.plan.paths.some((path) => path.path === "local") ?? false;
-	const where = url ? `the WebUI (${url})` : "the WebUI";
-	const next = `the task owner must authorize it in ${where}${
+	const next = `the task owner must authorize it in the WebUI (${url})${
 		local ? `, or run "crha approve ${taskId}" on the node` : ""
 	}`;
-	if (!record) return { status: "waiting for the owner's authorization", ...(url ? { url } : {}), next };
+	if (!record) return { status: "waiting for the owner's authorization", url, next };
 	return {
 		status: "waiting for the owner's authorization",
 		attempt: record.attempt,
@@ -265,7 +274,7 @@ function authorizationResult(
 						attempt: record.lastRejection.attempt,
 					},
 				}),
-		...(url ? { url } : {}),
+		url,
 		next,
 	};
 }
@@ -285,6 +294,7 @@ function groupResult(g: TaskGroupView, names: Map<string, string>, ctx: ToolCont
 		const waiting = g.tasks.filter((t) => t.state === "awaiting_authorization");
 		out.authorization = {
 			status: "waiting for the authorization of the task group's owner",
+			url: ctx.groupUrl?.(g.id) ?? `#/task-groups/${g.id}`,
 			nodes: waiting.map((t) => names.get(t.nodeId) ?? t.nodeId),
 			tasks: waiting.map((t) => ({
 				task_id: t.id,
@@ -366,7 +376,7 @@ const listNodes = define({
 				connected: n.transport === "ssh" ? undefined : ctx.cluster.isConnected(n.id),
 				groups: n.groups,
 				hostname: n.hostname,
-				os: (n.facts as { os?: unknown } | null)?.os,
+				os: n.facts?.osPrettyName ?? n.facts?.osId,
 				can_run_tasks: n.access !== "view" && n.status === "active",
 			})),
 		};
@@ -429,7 +439,7 @@ const nodeInfo = define({
 		const node = (await listNodesForUser(ctx.db, ctx.user)).find((n) => n.name === args.node || n.id === args.node);
 		if (!node) throw new UserError(`no node ${args.node} that you can see`);
 		const row = await getNode(ctx.db, node.id);
-		const notesPath = (node.facts as { notesPath?: string } | null)?.notesPath;
+		const notesPath = node.facts?.notesPath;
 		const canRun = node.access !== "view";
 		return {
 			name: node.name,
@@ -450,13 +460,19 @@ const nodeInfo = define({
 const exec = define({
 	name: "exec",
 	description:
-		"Run a command on a node, or on several nodes with targets. Give cmd (run with /bin/sh -c) or argv. " +
-		"Returns the exit code and the end of stdout/stderr; long-running tasks return a task_id to follow with " +
-		"task_wait. The task may first need the user's approval.",
+		"Run a command on a node, or on several nodes with targets. Give cmd (run with the node's POSIX sh) or " +
+		"argv. Returns the exit code and the end of stdout/stderr; long-running tasks return a task_id to follow " +
+		"with task_wait. The task may first need the user's approval.",
 	input: z.object({
 		node: nodeField.optional(),
 		targets: targetsField.optional(),
-		cmd: z.string().optional().describe("Shell command, run with /bin/sh -c"),
+		cmd: z
+			.string()
+			.optional()
+			.describe(
+				'Shell command, run with sh -c; for bash syntax use argv ["bash", "-c", …] after checking ' +
+					"node_info facts.shells.bash",
+			),
 		argv: z.array(z.string()).min(1).optional().describe("Program and arguments, run without a shell"),
 		cwd: z.string().optional().describe("Absolute working directory (default /)"),
 		env: z.record(z.string(), z.string()).optional(),

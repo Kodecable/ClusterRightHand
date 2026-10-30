@@ -18,7 +18,7 @@ export function groupStateKind(state: string): string {
 	return "busy";
 }
 
-function GroupResult({
+export function GroupResult({
 	group,
 	names,
 	onChanged,

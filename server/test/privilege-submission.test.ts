@@ -835,6 +835,7 @@ describe("user authorizations", () => {
 			notesPath: "",
 			groups: [],
 			clockOffsetMs,
+			shells: { sh: "/bin/sh", bash: null },
 		});
 		crha.peer.emit("facts", facts(120_000));
 		const warned = await waitFor("clock warning", async () => {

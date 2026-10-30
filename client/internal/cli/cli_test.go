@@ -2,14 +2,19 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"io"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
+	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
@@ -192,5 +197,28 @@ func TestParseAuthorizationID(t *testing.T) {
 		if _, err := parseAuthorizationID(bad); err == nil {
 			t.Fatalf("accepted %q", bad)
 		}
+	}
+}
+
+// TestStartupFailsWithoutShell checks that both modes refuse to start when no sh can be resolved:
+// a node that cannot say which shell runs its `shell` tasks must not run tasks at all.
+func TestStartupFailsWithoutShell(t *testing.T) {
+	old := resolveEnv
+	resolveEnv = func(execenv.Options) (*execenv.Environment, error) {
+		return nil, errors.New("no sh to run tasks")
+	}
+	defer func() { resolveEnv = old }()
+
+	if err := run(context.Background(), filepath.Join(t.TempDir(), "missing.toml")); err == nil ||
+		!strings.Contains(err.Error(), "no sh") {
+		t.Fatalf("crha run error = %v, want the shell resolution failure", err)
+	}
+	if err := runPrivileged(context.Background(), filepath.Join(t.TempDir(), "missing.toml")); err == nil ||
+		!strings.Contains(err.Error(), "no sh") {
+		t.Fatalf("crha privileged run error = %v, want the shell resolution failure", err)
+	}
+	if err := enroll(context.Background(), io.Discard, filepath.Join(t.TempDir(), "missing.toml"),
+		"http://127.0.0.1:1", "crh1.abc.secret"); err == nil || !strings.Contains(err.Error(), "no sh") {
+		t.Fatalf("crha enroll error = %v, want the shell resolution failure", err)
 	}
 }

@@ -122,6 +122,16 @@ export async function ensureImage(): Promise<string> {
 	return tag;
 }
 
+/** Parses the output of `/usr/bin/env` into a map, for the constructed-environment assertions. */
+export function parseEnv(output: string): Record<string, string> {
+	const env: Record<string, string> = {};
+	for (const line of output.split("\n")) {
+		const eq = line.indexOf("=");
+		if (eq > 0) env[line.slice(0, eq)] = line.slice(eq + 1);
+	}
+	return env;
+}
+
 /** Copies a public key line into the container's authorized_keys (read by sshd per connection). */
 export function sshKeygen(path: string): Promise<void> {
 	return execFileAsync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", path]).then(() => undefined);

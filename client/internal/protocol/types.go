@@ -95,21 +95,257 @@ type TaskExit struct {
 	OutputFile string
 }
 
-// Facts is the facts event body.
+// Facts is the facts event body. It is the protocol's one map-structured body: hostname and groups
+// are required, every other key is optional and its Go field is nil when the node did not report it
+// (doc/protocol.md Facts). A peer may send text keys this implementation does not know; they are
+// ignored, while a non-text key fails the whole Facts.
 type Facts struct {
-	_               struct{} `cbor:",toarray"`
-	Hostname        string
-	OSID            string
-	OSVersionID     string
-	OSPrettyName    string
-	Kernel          string
-	Arch            string
-	InitSystem      string
+	Hostname string
+	Groups   []string
+
+	OSID            *string
+	OSVersionID     *string
+	OSPrettyName    *string
+	Kernel          *string
+	Arch            *string
+	InitSystem      *string
 	PackageManagers []string
 	PrivilegeTools  []string
-	NotesPath       string
-	Groups          []string
-	ClockOffsetMS   Int
+	NotesPath       *string
+	ClockOffsetMS   *Int
+	Shells          *Shells
+}
+
+// Shells is the shells a node discovered when crha started (doc/execution-plane.md#exec-的执行环境).
+// Sh is always present. Bash is nil when the node has none and is then omitted from the map: an
+// absent optional value is omitted, not encoded as null (doc/protocol.md Facts).
+type Shells struct {
+	Sh   string
+	Bash *string
+}
+
+// MarshalCBOR encodes Facts as the protocol's text-keyed map (doc/protocol.md Facts). Only keys
+// with a known value are emitted: an absent optional value is omitted rather than encoded as null,
+// and so is shells.bash when the node has no bash.
+func (f Facts) MarshalCBOR() ([]byte, error) {
+	m := profileMap{
+		{key: "hostname", value: f.Hostname},
+		{key: "groups", value: f.Groups},
+	}
+	text := func(key string, value *string) {
+		if value != nil {
+			m = append(m, profileMapEntry{key: key, value: *value})
+		}
+	}
+	text("os_id", f.OSID)
+	text("os_version_id", f.OSVersionID)
+	text("os_pretty_name", f.OSPrettyName)
+	text("kernel", f.Kernel)
+	text("arch", f.Arch)
+	text("init_system", f.InitSystem)
+	if f.PackageManagers != nil {
+		m = append(m, profileMapEntry{key: "package_managers", value: f.PackageManagers})
+	}
+	if f.PrivilegeTools != nil {
+		m = append(m, profileMapEntry{key: "privilege_tools", value: f.PrivilegeTools})
+	}
+	text("notes_path", f.NotesPath)
+	if f.ClockOffsetMS != nil {
+		m = append(m, profileMapEntry{key: "clock_offset_ms", value: *f.ClockOffsetMS})
+	}
+	if f.Shells != nil {
+		m = append(m, profileMapEntry{key: "shells", value: *f.Shells})
+	}
+	return m.MarshalCBOR()
+}
+
+// UnmarshalCBOR decodes the facts map strictly: a non-text key, a missing required key or a known
+// key of the wrong type fails the whole Facts, while unknown text keys are ignored
+// (doc/protocol.md Facts).
+func (f *Facts) UnmarshalCBOR(data []byte) error {
+	value, err := decodeAny(data)
+	if err != nil {
+		return err
+	}
+	m, ok := value.(profileMap)
+	if !ok {
+		return errors.New("facts: not a map")
+	}
+	var out Facts
+	var hostname, groups bool
+	for _, entry := range m {
+		key, ok := entry.key.(string)
+		if !ok {
+			return fmt.Errorf("facts: map key %v is not text", entry.key)
+		}
+		switch key {
+		case "hostname":
+			out.Hostname, err = factText(entry.value, key)
+			hostname = true
+		case "groups":
+			out.Groups, err = factTexts(entry.value, key)
+			groups = true
+		case "os_id":
+			out.OSID, err = factTextPtr(entry.value, key)
+		case "os_version_id":
+			out.OSVersionID, err = factTextPtr(entry.value, key)
+		case "os_pretty_name":
+			out.OSPrettyName, err = factTextPtr(entry.value, key)
+		case "kernel":
+			out.Kernel, err = factTextPtr(entry.value, key)
+		case "arch":
+			out.Arch, err = factTextPtr(entry.value, key)
+		case "init_system":
+			out.InitSystem, err = factTextPtr(entry.value, key)
+		case "package_managers":
+			out.PackageManagers, err = factTexts(entry.value, key)
+		case "privilege_tools":
+			out.PrivilegeTools, err = factTexts(entry.value, key)
+		case "notes_path":
+			out.NotesPath, err = factTextPtr(entry.value, key)
+		case "clock_offset_ms":
+			out.ClockOffsetMS, err = factIntPtr(entry.value, key)
+		case "shells":
+			var shells Shells
+			if shells, err = shellsFromProfile(entry.value); err == nil {
+				out.Shells = &shells
+			}
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if !hostname {
+		return errors.New("facts: missing hostname")
+	}
+	if !groups {
+		return errors.New("facts: missing groups")
+	}
+	*f = out
+	return nil
+}
+
+// MarshalCBOR encodes a Shells fact as a text-keyed map: sh always, bash only when there is one.
+func (s Shells) MarshalCBOR() ([]byte, error) {
+	m := profileMap{{key: "sh", value: s.Sh}}
+	if s.Bash != nil {
+		m = append(m, profileMapEntry{key: "bash", value: *s.Bash})
+	}
+	return m.MarshalCBOR()
+}
+
+// UnmarshalCBOR decodes a Shells fact: sh is required, bash is text, null or absent, unknown inner
+// text keys are ignored, and a non-text inner key fails the whole Facts (doc/protocol.md Facts).
+func (s *Shells) UnmarshalCBOR(data []byte) error {
+	value, err := decodeAny(data)
+	if err != nil {
+		return err
+	}
+	shells, err := shellsFromProfile(value)
+	if err != nil {
+		return err
+	}
+	*s = shells
+	return nil
+}
+
+// factText reads a text fact value.
+func factText(value any, key string) (string, error) {
+	s, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("facts: %s is not text", key)
+	}
+	return s, nil
+}
+
+// factTextPtr reads an optional text fact value.
+func factTextPtr(value any, key string) (*string, error) {
+	s, err := factText(value, key)
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// factTexts reads a [text] fact value.
+func factTexts(value any, key string) ([]string, error) {
+	items, ok := value.([]any)
+	if !ok {
+		return nil, fmt.Errorf("facts: %s is not an array", key)
+	}
+	out := make([]string, len(items))
+	for i, item := range items {
+		s, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("facts: %s[%d] is not text", key, i)
+		}
+		out[i] = s
+	}
+	return out, nil
+}
+
+// factInt reads an int fact value.
+func factInt(value any, key string) (Int, error) {
+	switch n := value.(type) {
+	case uint64:
+		if n > MaxSafeInteger {
+			return 0, fmt.Errorf("facts: %s exceeds 2^53-1", key)
+		}
+		return Int(n), nil
+	case int64:
+		if n > MaxSafeInteger || n < -MaxSafeInteger {
+			return 0, fmt.Errorf("facts: %s exceeds 2^53-1 in magnitude", key)
+		}
+		return Int(n), nil
+	default:
+		return 0, fmt.Errorf("facts: %s is not an integer", key)
+	}
+}
+
+// factIntPtr reads an optional int fact value.
+func factIntPtr(value any, key string) (*Int, error) {
+	n, err := factInt(value, key)
+	if err != nil {
+		return nil, err
+	}
+	return &n, nil
+}
+
+// shellsFromProfile reads a Shells value from its decoded CBOR map.
+func shellsFromProfile(value any) (Shells, error) {
+	m, ok := value.(profileMap)
+	if !ok {
+		return Shells{}, errors.New("facts: shells is not a map")
+	}
+	var shells Shells
+	var sh bool
+	for _, entry := range m {
+		key, ok := entry.key.(string)
+		if !ok {
+			return Shells{}, fmt.Errorf("facts: shells map key %v is not text", entry.key)
+		}
+		switch key {
+		case "sh":
+			text, err := factText(entry.value, "shells.sh")
+			if err != nil {
+				return Shells{}, err
+			}
+			shells.Sh, sh = text, true
+		case "bash":
+			if entry.value == nil {
+				continue // null means the node has no bash
+			}
+			text, err := factText(entry.value, "shells.bash")
+			if err != nil {
+				return Shells{}, err
+			}
+			shells.Bash = &text
+		}
+	}
+	if !sh {
+		return Shells{}, errors.New("facts: shells has no sh")
+	}
+	return shells, nil
 }
 
 // Error is the body of an error response and of Outcome's "error" branch.

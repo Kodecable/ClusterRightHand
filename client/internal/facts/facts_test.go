@@ -86,32 +86,44 @@ func TestCollect(t *testing.T) {
 		return "", errors.New("not found")
 	}
 	f := collect(root, look)
-	if f.OSID != "fedora" || f.OSVersionID != "40" || f.OSPrettyName != "Fedora Linux 40" || f.InitSystem != "systemd" {
+	if text(f.OSID) != "fedora" || text(f.OSVersionID) != "40" || text(f.OSPrettyName) != "Fedora Linux 40" ||
+		text(f.InitSystem) != "systemd" {
 		t.Fatalf("unexpected facts: %v", f)
 	}
 	if !reflect.DeepEqual(f.PackageManagers, []string{"dnf", "nix"}) || !reflect.DeepEqual(f.PrivilegeTools, []string{"doas"}) {
 		t.Fatalf("tools: %v %v", f.PackageManagers, f.PrivilegeTools)
 	}
-	if f.Kernel == "" || f.Arch == "" {
+	if text(f.Kernel) == "" || text(f.Arch) == "" {
 		t.Fatalf("kernel/arch empty: %v", f)
 	}
 }
 
+// text dereferences an optional text fact, "" when absent.
+func text(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
 func TestClean(t *testing.T) {
+	bash := "/bin/bash\xff"
 	f := Clean(protocol.Facts{
 		Hostname:        "bad\xffhost",
-		OSID:            "os\xff",
-		OSVersionID:     "1",
-		OSPrettyName:    "pretty\xff",
-		Kernel:          "6.0\xff",
-		Arch:            "amd64",
-		InitSystem:      "systemd\xff",
+		OSID:            ptr("os\xff"),
+		OSVersionID:     ptr("1"),
+		OSPrettyName:    ptr("pretty\xff"),
+		Kernel:          ptr("6.0\xff"),
+		Arch:            ptr("amd64"),
+		InitSystem:      ptr("systemd\xff"),
 		PackageManagers: []string{"apt", "dnf\xff"},
 		PrivilegeTools:  []string{"sudo\xff"},
-		NotesPath:       "/etc/notes\xff",
+		NotesPath:       ptr("/etc/notes\xff"),
 		Groups:          []string{"users", "grp\xff"},
+		Shells:          &protocol.Shells{Sh: "/bin/sh\xff", Bash: &bash},
 	})
-	for _, s := range []string{f.Hostname, f.OSID, f.OSPrettyName, f.Kernel, f.InitSystem, f.NotesPath} {
+	texts := []string{f.Hostname, text(f.OSID), text(f.OSPrettyName), text(f.Kernel), text(f.InitSystem), text(f.NotesPath)}
+	for _, s := range texts {
 		if strings.ContainsRune(s, '\xff') {
 			t.Fatalf("uncleaned text %q", s)
 		}
@@ -121,4 +133,14 @@ func TestClean(t *testing.T) {
 			t.Fatalf("uncleaned list entry %q", s)
 		}
 	}
+	if f.Shells == nil || strings.ContainsRune(f.Shells.Sh, '\xff') || f.Shells.Bash == nil ||
+		strings.ContainsRune(*f.Shells.Bash, '\xff') {
+		t.Fatalf("uncleaned shells %+v", f.Shells)
+	}
+	// An absent optional fact stays absent.
+	if Clean(protocol.Facts{Hostname: "h"}).OSID != nil {
+		t.Fatal("Clean invented an absent fact")
+	}
 }
+
+func ptr[T any](v T) *T { return &v }

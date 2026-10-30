@@ -2,7 +2,7 @@
  * JSON forms used by the database and Web API. The wire types keep sha256 as
  * bytes; JSON stores lowercase 64-character hex.
  */
-import type { Command, Edit, Facts, InputRef, TaskSpec } from "./messages.ts";
+import type { Command, Edit, Facts, InputRef, Shells, TaskSpec } from "./messages.ts";
 
 export class JsonError extends Error {
 	override name = "JsonError";
@@ -37,20 +37,12 @@ export type JsonTaskSpec =
 	| { kind: "file.stat"; path: string }
 	| { kind: "file.list"; path: string; limit: number };
 
-export interface JsonFacts {
-	hostname: string;
-	osId: string;
-	osVersionId: string;
-	osPrettyName: string;
-	kernel: string;
-	arch: string;
-	initSystem: string;
-	packageManagers: string[];
-	privilegeTools: string[];
-	notesPath: string;
-	groups: string[];
-	clockOffsetMs: number;
-}
+/**
+ * The JSON form of Facts: the camelCase fields that are present (doc/protocol.md Facts). Every key
+ * is optional because a stored row may be partial: an SSH node keeps only its shells, and a row
+ * written before a fact existed lacks it.
+ */
+export type JsonFacts = Partial<Facts>;
 
 function bad(what: string, detail: string): never {
 	throw new JsonError(`${what}: ${detail}`);
@@ -267,54 +259,59 @@ export function taskSpecFromJson(value: unknown): TaskSpec {
 	}
 }
 
-/** Convert Facts to JSON (already camelCase; numbers stay numbers). */
-export function factsToJson(value: Facts): JsonFacts {
-	return {
-		hostname: text(value.hostname, "hostname"),
-		osId: text(value.osId, "osId"),
-		osVersionId: text(value.osVersionId, "osVersionId"),
-		osPrettyName: text(value.osPrettyName, "osPrettyName"),
-		kernel: text(value.kernel, "kernel"),
-		arch: text(value.arch, "arch"),
-		initSystem: text(value.initSystem, "initSystem"),
-		packageManagers: texts(value.packageManagers, "packageManagers"),
-		privilegeTools: texts(value.privilegeTools, "privilegeTools"),
-		notesPath: text(value.notesPath, "notesPath"),
-		groups: texts(value.groups, "groups"),
-		clockOffsetMs: int(value.clockOffsetMs, "clockOffsetMs"),
-	};
+function shellsToJson(value: Shells): Shells {
+	const out: Shells = { sh: text(value.sh, "shells.sh") };
+	if (value.bash !== undefined) out.bash = value.bash === null ? null : text(value.bash, "shells.bash");
+	return out;
 }
 
-const FACTS_KEYS = [
-	"hostname",
-	"osId",
-	"osVersionId",
-	"osPrettyName",
-	"kernel",
-	"arch",
-	"initSystem",
-	"packageManagers",
-	"privilegeTools",
-	"notesPath",
-	"groups",
-	"clockOffsetMs",
-] as const;
+function shellsFromJson(value: unknown): Shells {
+	if (!isRecord(value)) bad("shells", "not an object");
+	const out: Shells = { sh: text(value.sh, "shells.sh") };
+	if (Object.hasOwn(value, "bash")) out.bash = value.bash === null ? null : text(value.bash, "shells.bash");
+	return out;
+}
 
-/** Strictly parse the JSON form of Facts. */
-export function factsFromJson(value: unknown): Facts {
-	const object = record(value, "facts", FACTS_KEYS);
-	return {
-		hostname: text(object.hostname, "hostname"),
-		osId: text(object.osId, "osId"),
-		osVersionId: text(object.osVersionId, "osVersionId"),
-		osPrettyName: text(object.osPrettyName, "osPrettyName"),
-		kernel: text(object.kernel, "kernel"),
-		arch: text(object.arch, "arch"),
-		initSystem: text(object.initSystem, "initSystem"),
-		packageManagers: texts(object.packageManagers, "packageManagers"),
-		privilegeTools: texts(object.privilegeTools, "privilegeTools"),
-		notesPath: text(object.notesPath, "notesPath"),
-		groups: texts(object.groups, "groups"),
-		clockOffsetMs: int(object.clockOffsetMs, "clockOffsetMs"),
+/** Convert Facts to the camelCase JSON form stored on the node row; absent facts stay absent. */
+export function factsToJson(value: Facts): JsonFacts {
+	const out: JsonFacts = {
+		hostname: text(value.hostname, "hostname"),
+		groups: texts(value.groups, "groups"),
 	};
+	if (value.osId !== undefined) out.osId = text(value.osId, "osId");
+	if (value.osVersionId !== undefined) out.osVersionId = text(value.osVersionId, "osVersionId");
+	if (value.osPrettyName !== undefined) out.osPrettyName = text(value.osPrettyName, "osPrettyName");
+	if (value.kernel !== undefined) out.kernel = text(value.kernel, "kernel");
+	if (value.arch !== undefined) out.arch = text(value.arch, "arch");
+	if (value.initSystem !== undefined) out.initSystem = text(value.initSystem, "initSystem");
+	if (value.packageManagers !== undefined) out.packageManagers = texts(value.packageManagers, "packageManagers");
+	if (value.privilegeTools !== undefined) out.privilegeTools = texts(value.privilegeTools, "privilegeTools");
+	if (value.notesPath !== undefined) out.notesPath = text(value.notesPath, "notesPath");
+	if (value.clockOffsetMs !== undefined) out.clockOffsetMs = int(value.clockOffsetMs, "clockOffsetMs");
+	if (value.shells !== undefined) out.shells = shellsToJson(value.shells);
+	return out;
+}
+
+/**
+ * Parse the JSON form of Facts as stored on a node row. Every key is optional (see JsonFacts), so a
+ * partial row reads as the facts it has instead of failing the record; a key that is present is type
+ * checked. Unknown keys are ignored, as on the wire: facts grow by adding keys (doc/protocol.md).
+ */
+export function factsFromJson(value: unknown): JsonFacts {
+	if (!isRecord(value)) bad("facts", "not an object");
+	const out: JsonFacts = {};
+	if (Object.hasOwn(value, "hostname")) out.hostname = text(value.hostname, "hostname");
+	if (Object.hasOwn(value, "groups")) out.groups = texts(value.groups, "groups");
+	if (Object.hasOwn(value, "osId")) out.osId = text(value.osId, "osId");
+	if (Object.hasOwn(value, "osVersionId")) out.osVersionId = text(value.osVersionId, "osVersionId");
+	if (Object.hasOwn(value, "osPrettyName")) out.osPrettyName = text(value.osPrettyName, "osPrettyName");
+	if (Object.hasOwn(value, "kernel")) out.kernel = text(value.kernel, "kernel");
+	if (Object.hasOwn(value, "arch")) out.arch = text(value.arch, "arch");
+	if (Object.hasOwn(value, "initSystem")) out.initSystem = text(value.initSystem, "initSystem");
+	if (Object.hasOwn(value, "packageManagers")) out.packageManagers = texts(value.packageManagers, "packageManagers");
+	if (Object.hasOwn(value, "privilegeTools")) out.privilegeTools = texts(value.privilegeTools, "privilegeTools");
+	if (Object.hasOwn(value, "notesPath")) out.notesPath = text(value.notesPath, "notesPath");
+	if (Object.hasOwn(value, "clockOffsetMs")) out.clockOffsetMs = int(value.clockOffsetMs, "clockOffsetMs");
+	if (Object.hasOwn(value, "shells") && value.shells !== null) out.shells = shellsFromJson(value.shells);
+	return out;
 }

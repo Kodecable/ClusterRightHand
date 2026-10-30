@@ -246,7 +246,7 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 		return nil, &protocol.RemoteError{Code: "internal_error", Message: "local log: " + err.Error()}
 	}
 
-	task, err := taskrun.New(runStart, c.outputEmitter(ts.TaskID))
+	task, err := taskrun.New(runStart, c.outputEmitter(ts.TaskID), c.s.opts.Env)
 	if err != nil {
 		c.s.log.Error("prepare an accepted task", "task", ts.TaskID, "err", err)
 		return nil, &protocol.RemoteError{Code: "internal_error", Message: err.Error()}

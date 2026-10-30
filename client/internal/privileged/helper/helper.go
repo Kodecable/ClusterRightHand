@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/taskrun"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
@@ -30,6 +31,16 @@ type Options struct {
 	Version string
 	// Log receives one JSON line per task start and finish. nil discards them.
 	Log io.Writer
+	// Env is the task environment the helper resolved when it started. nil resolves it per task,
+	// which only tests do (doc/execution-plane.md#exec-的执行环境).
+	Env *execenv.Environment
+}
+
+// resolveEnv resolves the helper's execution environment when it starts. It is a variable so tests
+// can exercise a node without a shell, which must fail the handshake (and with it the node's
+// privileged tasks) rather than run them with a guessed shell.
+var resolveEnv = func() (*execenv.Environment, error) {
+	return execenv.Resolve(execenv.Options{Privileged: true})
 }
 
 // Stdio runs the helper on the process's standard streams. stdin must be the crh-priv stream; a
@@ -38,7 +49,14 @@ func Stdio(ctx context.Context, in *os.File, out, log io.Writer, crhaVersion str
 	if IsTerminal(in) {
 		return errors.New("refusing to run the native helper on a terminal: stdin must be the crh-priv stream from crha's non-privileged mode")
 	}
-	return Run(ctx, in, out, Options{Version: crhaVersion, Log: log})
+	// The helper is root; it resolves its own environment each time it is started, and a failure
+	// here fails the crh-priv handshake, so privileged tasks of the node fail with
+	// privileged_unsupported while ordinary tasks keep working.
+	env, err := resolveEnv()
+	if err != nil {
+		return err
+	}
+	return Run(ctx, in, out, Options{Version: crhaVersion, Log: log, Env: env})
 }
 
 // IsTerminal reports whether f is a terminal.
@@ -64,7 +82,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
 		return err
 	}
 	stream := wire.NewStream(in, out, negotiated)
-	h := &helper{stream: stream, log: logw, done: make(chan struct{})}
+	h := &helper{stream: stream, log: logw, env: opts.Env, done: make(chan struct{})}
 	peer := stream.Peer()
 	peer.HandleRequest(protocol.CmdTaskStart, h.handleStart)
 	peer.HandleRequest(protocol.CmdTaskInput, h.handleInput)
@@ -118,6 +136,7 @@ func (h *helper) completed() bool {
 type helper struct {
 	stream *wire.Stream
 	log    io.Writer
+	env    *execenv.Environment
 	done   chan struct{}
 
 	mu   sync.Mutex
@@ -146,7 +165,7 @@ func (h *helper) handleStart(_ context.Context, body cbor.RawMessage) (any, erro
 		return h.stream.Peer().Emit(protocol.EventTaskOutput, protocol.TaskOutput{
 			TaskID: ts.TaskID, Stream: stream, Offset: protocol.Uint(off), Data: data,
 		})
-	})
+	}, h.env)
 	if err != nil {
 		return nil, err
 	}

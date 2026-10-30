@@ -103,3 +103,19 @@ func TestCheckPath(t *testing.T) {
 		}
 	}
 }
+
+// TestTargetShellCommandRendersBinSh pins the authorization and display rendering of a `shell`
+// command: it stays /bin/sh -c '<cmd>' whatever shell the node discovered for execution
+// (doc/execution-plane.md#exec-的执行环境).
+func TestTargetShellCommandRendersBinSh(t *testing.T) {
+	spec := &protocol.TaskSpec{Kind: protocol.TaskSpecExec, Exec: &protocol.ExecSpec{
+		Command: protocol.Command{Kind: protocol.CommandShell, Shell: "systemctl restart nginx"},
+	}}
+	method, target, err := Target(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if method != "exec" || target != "/bin/sh -c 'systemctl restart nginx'" {
+		t.Fatalf("got (%q, %q), want (exec, /bin/sh -c 'systemctl restart nginx')", method, target)
+	}
+}

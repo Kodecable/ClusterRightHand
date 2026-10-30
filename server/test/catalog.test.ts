@@ -231,6 +231,8 @@ describe("taskResult output modes", () => {
 			paths: ["user: alice"],
 			last_rejection: { code: "authorization_rejected", message: "denied", attempt: 1 },
 		});
+		// The implicit context has no absolute URLs: the session UI gets the in-app hash link.
+		expect((r.authorization as Record<string, unknown>).url).toBe("#/tasks/t1");
 		expect((r.authorization as Record<string, unknown>).next).toContain("authorize it in the WebUI");
 		expect(r.next).toBe("call task_wait with this task_id to keep waiting");
 
@@ -256,6 +258,263 @@ describe("taskResult output modes", () => {
 		expect((local.authorization as Record<string, unknown>).url).toBe("http://crh.test/#/tasks/t1");
 		expect((local.authorization as Record<string, unknown>).next).toContain('"crha approve t1"');
 	});
+});
+
+describe("node facts", () => {
+	/** A node of the user with stored facts JSON; returns the db, its node_info result and its list_nodes entry. */
+	async function withNode(name: string, facts: Record<string, unknown>) {
+		const db = await openTestDb("sqlite");
+		const user = await createUser(db, { username: `${name}-user`, kind: "member" });
+		const now = new Date().toISOString();
+		await db
+			.insertInto("nodes")
+			.values({
+				id: newId(),
+				org_id: await defaultOrgId(db),
+				owner_user_id: user.id,
+				name,
+				transport: "client",
+				status: "active",
+				public_key: null,
+				hostname: name,
+				facts: JSON.stringify(facts),
+				client_version: null,
+				privileged_mode: null,
+				last_seen_at: null,
+				created_at: now,
+				approved_at: now,
+				approved_by_user_id: null,
+				ssh_host: null,
+				ssh_port: null,
+				ssh_user: null,
+				ssh_host_key: null,
+				ssh_credential_id: null,
+				ssh_jumps: null,
+			})
+			.execute();
+		const toolCtx = {
+			db,
+			cluster: { isConnected: () => false } as unknown as Cluster,
+			groups: {} as TaskGroups,
+			user: {
+				sessionId: "s",
+				userId: user.id,
+				username: user.username,
+				kind: "member",
+			} satisfies SessionUser,
+			actor: { type: "user", id: user.id, onBehalfOfUserId: user.id },
+			chain: [],
+			approvalUrl: () => "http://crh.test/",
+		} as unknown as ToolContext;
+		const info = (await (
+			TOOLS.find((tool) => tool.name === "node_info") as { handler: (a: unknown, c: ToolContext) => Promise<unknown> }
+		).handler({ node: name }, toolCtx)) as { facts: Record<string, unknown>; notes: unknown };
+		const nodes = (await (
+			TOOLS.find((tool) => tool.name === "list_nodes") as {
+				handler: (a: unknown, c: ToolContext) => Promise<unknown>;
+			}
+		).handler({}, toolCtx)) as { nodes: { name: string; os?: string }[] };
+		const listed = nodes.nodes.find((n) => n.name === name);
+		if (!listed) throw new Error(`list_nodes does not list ${name}`);
+		return { db, info, listed };
+	}
+
+	it("shows the shells a node reported", async () => {
+		const { db, info } = await withNode("web-1", {
+			hostname: "web-1",
+			osId: "ubuntu",
+			osVersionId: "24.04",
+			osPrettyName: "Ubuntu 24.04",
+			kernel: "6.8",
+			arch: "x86_64",
+			initSystem: "systemd",
+			packageManagers: ["apt"],
+			privilegeTools: ["sudo"],
+			notesPath: "",
+			groups: [],
+			clockOffsetMs: 0,
+			shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
+		});
+		try {
+			expect(info.facts.shells).toEqual({ sh: "/bin/sh", bash: "/usr/bin/bash" });
+		} finally {
+			await db.destroy();
+		}
+	});
+
+	it("leaves facts the node did not report absent", async () => {
+		const { db, info } = await withNode("web-2", {
+			hostname: "web-2",
+			groups: ["db"],
+			shells: { sh: "/bin/sh" },
+		});
+		try {
+			// The absent optional keys stay absent: no notes path, no bash, no clock offset.
+			expect(info.facts).toEqual({ hostname: "web-2", groups: ["db"], shells: { sh: "/bin/sh" } });
+			expect(info.notes).toBeNull();
+		} finally {
+			await db.destroy();
+		}
+	});
+
+	it("reports the OS pretty name in list_nodes", async () => {
+		const { db, listed } = await withNode("web-3", {
+			hostname: "web-3",
+			groups: [],
+			osId: "ubuntu",
+			osPrettyName: "Ubuntu 24.04",
+		});
+		try {
+			expect(listed.os).toBe("Ubuntu 24.04");
+		} finally {
+			await db.destroy();
+		}
+	});
+
+	it("falls back to the OS id in list_nodes when the pretty name is absent", async () => {
+		const { db, listed } = await withNode("web-4", { hostname: "web-4", groups: [], osId: "debian" });
+		try {
+			expect(listed.os).toBe("debian");
+		} finally {
+			await db.destroy();
+		}
+	});
+
+	it("has no OS in list_nodes for a node whose facts do not carry one", async () => {
+		const { db, listed } = await withNode("web-5", { shells: { sh: "/bin/sh" } });
+		try {
+			expect(listed.os).toBeUndefined();
+		} finally {
+			await db.destroy();
+		}
+	});
+});
+
+describe("the authorization wait status", () => {
+	/** A node of the user, so resolveTargets finds it. */
+	async function setup() {
+		const db = await openTestDb("sqlite");
+		const user = await createUser(db, { username: "wait-user", kind: "member" });
+		const nodeId = newId();
+		const now = new Date().toISOString();
+		await db
+			.insertInto("nodes")
+			.values({
+				id: nodeId,
+				org_id: await defaultOrgId(db),
+				owner_user_id: user.id,
+				name: "web-1",
+				transport: "client",
+				status: "active",
+				public_key: null,
+				hostname: "web-1",
+				facts: null,
+				client_version: null,
+				privileged_mode: null,
+				last_seen_at: null,
+				created_at: now,
+				approved_at: now,
+				approved_by_user_id: null,
+				ssh_host: null,
+				ssh_port: null,
+				ssh_user: null,
+				ssh_host_key: null,
+				ssh_credential_id: null,
+				ssh_jumps: null,
+			})
+			.execute();
+		const sessionUser: SessionUser = { sessionId: "s", userId: user.id, username: user.username, kind: "member" };
+		return { db, nodeId, now, user: sessionUser };
+	}
+
+	it("reports the signing page while a task waits for the user's signature", async () => {
+		const { db, nodeId, now, user } = await setup();
+		try {
+			const states = ["awaiting_authorization", "exited"];
+			let reads = 0;
+			const cluster = {
+				createTask: async () => task({ id: "t1", nodeId, state: "awaiting_authorization" }),
+				getTask: async (id: string) => task({ id, nodeId, state: (states[Math.min(reads++, 1)] ?? "exited") as never }),
+				waitTask: async (id: string) => task({ id, nodeId, state: "exited" }),
+			};
+			const statuses: Record<string, unknown>[] = [];
+			const toolCtx = {
+				db,
+				cluster: cluster as unknown as Cluster,
+				groups: {} as TaskGroups,
+				user,
+				actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
+				chain: [],
+				approvalUrl: (kind: string, id: string) => `#/approvals/${kind}/${id}`,
+				taskUrl: (id: string) => `#/tasks/${id}`,
+				waitThroughApproval: true,
+				onStatus: async (status: Record<string, unknown>) => {
+					statuses.push(status);
+				},
+			} as unknown as ToolContext;
+			const exec = TOOLS.find((t) => t.name === "exec");
+			if (!exec) throw new Error("exec tool missing");
+			await exec.handler({ node: "web-1", cmd: "true", wait: 1 }, toolCtx);
+			expect(statuses[0]).toEqual({
+				task_id: "t1",
+				state: "awaiting_authorization",
+				authorization_url: "#/tasks/t1",
+			});
+			expect(statuses.at(-1)).toEqual({ task_id: "t1", state: "exited" });
+			expect(now).toBeDefined();
+		} finally {
+			await db.destroy();
+		}
+	}, 15_000);
+
+	it("reports the group page while a group waits for the user's signature", async () => {
+		const { db, nodeId, now, user } = await setup();
+		try {
+			const group = {
+				id: "g1",
+				state: "awaiting_authorization",
+				targets: ["web-1"],
+				nodeIds: [nodeId],
+				parallel: 1,
+				failFast: false,
+				outputMode: "status",
+				skipped: [],
+				tasks: [task({ id: "t1", nodeId, state: "awaiting_authorization" })],
+				createdAt: now,
+				finishedAt: null,
+			};
+			const groups = {
+				create: async () => "g1",
+				get: async () => group,
+				wait: async () => ({ ...group, state: "finished", tasks: [{ ...group.tasks[0], state: "exited" }] }),
+			};
+			const statuses: Record<string, unknown>[] = [];
+			const toolCtx = {
+				db,
+				cluster: {} as Cluster,
+				groups: groups as unknown as TaskGroups,
+				user,
+				actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
+				chain: [],
+				approvalUrl: (kind: string, id: string) => `#/approvals/${kind}/${id}`,
+				groupUrl: (id: string) => `#/task-groups/${id}`,
+				waitThroughApproval: true,
+				onStatus: async (status: Record<string, unknown>) => {
+					statuses.push(status);
+				},
+			} as unknown as ToolContext;
+			const exec = TOOLS.find((t) => t.name === "exec");
+			if (!exec) throw new Error("exec tool missing");
+			await exec.handler({ targets: ["web-1"], cmd: "true", wait: 1 }, toolCtx);
+			expect(statuses[0]).toEqual({
+				task_group_id: "g1",
+				state: "awaiting_authorization",
+				authorization_url: "#/task-groups/g1",
+			});
+		} finally {
+			await db.destroy();
+		}
+	}, 15_000);
 });
 
 describe("the privileged tool parameter", () => {

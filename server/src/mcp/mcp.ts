@@ -66,6 +66,7 @@ function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { origin: 
 		chain: [{ type: "api_token", id: id.tokenId }],
 		approvalUrl: (kind, taskId) => `${id.origin}/#/approvals/${kind === "task" ? "tasks" : "task-groups"}/${taskId}`,
 		taskUrl: (taskId) => `${id.origin}/#/tasks/${taskId}`,
+		groupUrl: (taskGroupId) => `${id.origin}/#/task-groups/${taskGroupId}`,
 	};
 	for (const tool of TOOLS) {
 		server.registerTool(

@@ -26,6 +26,7 @@ import {
 	authorizeWithCli,
 	buildStaticCrha,
 	M4Node,
+	parseEnv,
 	pendingAuthorization,
 	podmanAvailable,
 	publicKeyOf,
@@ -38,6 +39,12 @@ import {
 
 const describePodman = describe.skipIf(!podmanAvailable);
 const runFile = promisify(execFile);
+const FIXED_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
+/** Variables that must never reach a task: the container's own and crha's overrides. */
+function leaked(env: Record<string, string>): string[] {
+	return Object.keys(env).filter((k) => k.startsWith("M4_") || k.startsWith("CRHA_TASK_") || k === "container");
+}
 
 describePodman("M4 podman: forward", () => {
 	let tmp = "";
@@ -158,6 +165,39 @@ describePodman("M4 podman: forward", () => {
 			const done = await node.taskState(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: false });
 			expect(done.stdoutHead).toBe("998\n");
+		}, 60_000);
+
+		it("gives an ordinary task the crha account's identity, not the container's environment", async () => {
+			const t = await crhs.runTask(node.nodeId, { kind: "exec", argv: ["/usr/bin/env"] });
+			const done = await node.taskState(t.id);
+			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: false });
+			const env = parseEnv(done.stdoutHead + done.stdoutTail);
+			expect(env).toMatchObject({
+				HOME: "/home/crha",
+				USER: "crha",
+				LOGNAME: "crha",
+				SHELL: "/bin/sh",
+				LANG: "C.UTF-8",
+				LC_ALL: "C.UTF-8",
+			});
+			expect(leaked(env)).toEqual([]);
+		}, 60_000);
+
+		it("gives a privileged task root's identity, the fixed PATH and the discovered shell", async () => {
+			const t = await task({ kind: "exec", argv: ["/usr/bin/env"] });
+			const done = await node.taskState(t.id);
+			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: true });
+			const env = parseEnv(done.stdoutHead + done.stdoutTail);
+			expect(env).toMatchObject({
+				HOME: "/root",
+				USER: "root",
+				LOGNAME: "root",
+				SHELL: "/bin/sh",
+				LANG: "C.UTF-8",
+				LC_ALL: "C.UTF-8",
+				PATH: FIXED_PATH,
+			});
+			expect(leaked(env)).toEqual([]);
 		}, 60_000);
 	});
 
@@ -562,6 +602,18 @@ describePodman("M4 podman: forward", () => {
 			await authorizeWithCli(node, allowed.id);
 			expect((await waitTerminal(allowed.id)).state).toBe("exited");
 		}, 90_000);
+
+		it("lets a privileged task override HOME when env_allow permits it", async () => {
+			await node.setTrust([userEntry({ allow: [{ method: "exec" }], envAllow: ["HOME"] })]);
+			const t = await task({ kind: "exec", argv: ["/usr/bin/env"], env: { HOME: "/tmp/m4-home" } });
+			await waitAwaiting(t.id);
+			await authorizeWithCli(node, t.id);
+			const done = await waitTerminal(t.id);
+			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
+			const env = parseEnv(done.stdoutHead + done.stdoutTail);
+			expect(env.HOME).toBe("/tmp/m4-home");
+			expect(env.PATH).toBe(FIXED_PATH);
+		}, 120_000);
 
 		it("refuses environment variables the trust entry does not allow", async () => {
 			await node.setTrust([userEntry({ allow: [{ method: "exec" }], envAllow: ["M4_SAFE"] })]);

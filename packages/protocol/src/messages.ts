@@ -1,14 +1,17 @@
 /**
  * Wire types from doc/protocol.md. All field names are camelCase; the encoded
- * form is always a fixed-length array in the order declared here.
+ * form is a fixed-length array in the order declared here, except Facts, the
+ * protocol's one text-keyed map.
  */
 import {
 	bool,
 	bytes,
+	type Codec,
 	enumOf,
 	field,
 	type Infer,
 	int,
+	keyedMap,
 	list,
 	nullable,
 	sha256,
@@ -26,21 +29,67 @@ export const PROTOCOL_MINOR = 1;
 // Handshake payloads (Noise IK messages, not frames)
 // ---------------------------------------------------------------------------
 
-export const factsCodec = tuple([
-	["hostname", text],
-	["osId", text],
-	["osVersionId", text],
-	["osPrettyName", text],
-	["kernel", text],
-	["arch", text],
-	["initSystem", text],
-	["packageManagers", list(text)],
-	["privilegeTools", list(text)],
-	["notesPath", text],
-	["groups", list(text)],
-	["clockOffsetMs", int],
+/**
+ * The `shells` fact: the sh and bash a node discovered when crha started. `bash` is text, null or
+ * absent when the node has none; the encoder omits it (doc/protocol.md Facts).
+ */
+export interface Shells {
+	sh: string;
+	bash?: string | null;
+}
+
+const shellsMap = keyedMap<Shells>("shells", [
+	{ wire: "sh", field: "sh", codec: text, required: true },
+	{ wire: "bash", field: "bash", codec: nullable(text) },
 ]);
-export type Facts = Infer<typeof factsCodec>;
+
+export const shellsCodec: Codec<Shells> = {
+	name: shellsMap.name,
+	encode(value) {
+		// No bash is encoded as an absent key, not as null (doc/protocol.md Facts).
+		return shellsMap.encode(value.bash === null ? { ...value, bash: undefined } : value);
+	},
+	decode(value) {
+		return shellsMap.decode(value);
+	},
+};
+
+/**
+ * Facts is the protocol's one map body (doc/protocol.md Facts). hostname and groups are required;
+ * every other field is optional and absent when the node did not report it — absent means unknown,
+ * not empty. Text keys a peer does not know are ignored; a non-text key is a decode error.
+ */
+export interface Facts {
+	hostname: string;
+	groups: string[];
+	osId?: string;
+	osVersionId?: string;
+	osPrettyName?: string;
+	kernel?: string;
+	arch?: string;
+	initSystem?: string;
+	packageManagers?: string[];
+	privilegeTools?: string[];
+	notesPath?: string;
+	clockOffsetMs?: number;
+	shells?: Shells;
+}
+
+export const factsCodec = keyedMap<Facts>("facts", [
+	{ wire: "hostname", field: "hostname", codec: text, required: true },
+	{ wire: "groups", field: "groups", codec: list(text), required: true },
+	{ wire: "os_id", field: "osId", codec: text },
+	{ wire: "os_version_id", field: "osVersionId", codec: text },
+	{ wire: "os_pretty_name", field: "osPrettyName", codec: text },
+	{ wire: "kernel", field: "kernel", codec: text },
+	{ wire: "arch", field: "arch", codec: text },
+	{ wire: "init_system", field: "initSystem", codec: text },
+	{ wire: "package_managers", field: "packageManagers", codec: list(text) },
+	{ wire: "privilege_tools", field: "privilegeTools", codec: list(text) },
+	{ wire: "notes_path", field: "notesPath", codec: text },
+	{ wire: "clock_offset_ms", field: "clockOffsetMs", codec: int },
+	{ wire: "shells", field: "shells", codec: shellsCodec },
+]);
 
 export const enrollmentCodec = tuple([
 	["tokenSecret", text],

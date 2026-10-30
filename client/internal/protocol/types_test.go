@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -46,17 +47,18 @@ func checkRoundTrip[T any](t *testing.T, wantHex string, v T) {
 func sampleFacts() Facts {
 	return Facts{
 		Hostname:        "node-1",
-		OSID:            "ubuntu",
-		OSVersionID:     "24.04",
-		OSPrettyName:    "Ubuntu 24.04 LTS",
-		Kernel:          "6.8.0",
-		Arch:            "amd64",
-		InitSystem:      "systemd",
+		OSID:            ptr("ubuntu"),
+		OSVersionID:     ptr("24.04"),
+		OSPrettyName:    ptr("Ubuntu 24.04 LTS"),
+		Kernel:          ptr("6.8.0"),
+		Arch:            ptr("amd64"),
+		InitSystem:      ptr("systemd"),
 		PackageManagers: []string{"apt"},
 		PrivilegeTools:  []string{"sudo"},
-		NotesPath:       "/var/lib/crha/notes",
+		NotesPath:       ptr("/var/lib/crha/notes"),
 		Groups:          []string{"wheel"},
-		ClockOffsetMS:   Int(12),
+		ClockOffsetMS:   ptr(Int(12)),
+		Shells:          &Shells{Sh: "/bin/sh", Bash: ptr("/usr/bin/bash")},
 	}
 }
 
@@ -455,5 +457,164 @@ func TestUnionEncodingRejectsIncomplete(t *testing.T) {
 	}
 	if _, err := Marshal(Outcome{Kind: "bogus"}); err == nil {
 		t.Fatal("Marshal accepted an unknown outcome kind")
+	}
+}
+
+// TestFactsMapKeys pins the wire form of Facts: the protocol's one text-keyed map, in canonical
+// key order, with an absent optional value omitted rather than encoded as null (doc/protocol.md).
+func TestFactsMapKeys(t *testing.T) {
+	f := sampleFacts()
+	data, err := Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"arch", "clock_offset_ms", "groups", "hostname", "init_system", "kernel", "notes_path",
+		"os_id", "os_pretty_name", "os_version_id", "package_managers", "privilege_tools", "shells",
+	}
+	if len(raw) != len(want) {
+		t.Fatalf("Facts has %d keys, want %d: %v", len(raw), len(want), raw)
+	}
+	for _, key := range want {
+		if _, ok := raw[key]; !ok {
+			t.Fatalf("Facts has no %q: %v", key, raw)
+		}
+	}
+	shells, ok := raw["shells"].(map[any]any)
+	if !ok || len(shells) != 2 || shells["sh"] != "/bin/sh" || shells["bash"] != "/usr/bin/bash" {
+		t.Fatalf("shells = %#v, want {sh: /bin/sh, bash: /usr/bin/bash}", raw["shells"])
+	}
+	if raw["clock_offset_ms"] != uint64(12) {
+		t.Fatalf("clock_offset_ms = %#v", raw["clock_offset_ms"])
+	}
+
+	// An absent optional value is omitted, not encoded as null.
+	minimal := Facts{Hostname: "node-1", Groups: []string{"wheel"}}
+	data, err = Marshal(minimal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys map[string]any
+	if err := Unmarshal(data, &keys); err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 2 || keys["hostname"] != "node-1" {
+		t.Fatalf("minimal facts = %#v", keys)
+	}
+	if groups, ok := keys["groups"].([]any); !ok || len(groups) != 1 || groups[0] != "wheel" {
+		t.Fatalf("groups = %#v", keys["groups"])
+	}
+}
+
+// TestFactsUnknownKeys pins that a fact this implementation does not know is accepted: the strict
+// comparison is on the generic CBOR value, which keeps the unknown key (doc/protocol.md Facts).
+func TestFactsUnknownKeys(t *testing.T) {
+	data := mustHex(t, "a36667726f7570738165776865656c68686f73746e616d65666e6f64652d316b6675747572655f6661637461"+
+		"78")
+	var f Facts
+	if err := Unmarshal(data, &f); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if f.Hostname != "node-1" || len(f.Groups) != 1 || f.Groups[0] != "wheel" {
+		t.Fatalf("decoded %#v", f)
+	}
+	// Re-encoding the schema value drops the unknown key; only the profile comparison keeps it.
+	again, err := Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(again, data) {
+		t.Fatalf("re-encoding kept the unknown key: %x", again)
+	}
+}
+
+// TestFactsNonTextKey pins that a non-text key fails the whole Facts, also inside shells, while an
+// unknown text key is ignored (doc/protocol.md Facts).
+func TestFactsNonTextKey(t *testing.T) {
+	for name, data := range map[string]string{
+		// {1: "x", "groups": ["sudo"], "hostname": "node-1"}
+		"facts key": "a30161786667726f75707381647375646f68686f73746e616d65666e6f64652d31",
+		// {"groups": ["sudo"], "shells": {1: "x", "sh": "/bin/sh"}, "hostname": "node-1"}
+		"shells key": "a36667726f75707381647375646f667368656c6c73a2016178627368672f62696e2f736868686f7374" +
+			"6e616d65666e6f64652d31",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var f Facts
+			err := Unmarshal(mustHex(t, data), &f)
+			if err == nil {
+				t.Fatalf("decoded %#v with a non-text key", f)
+			}
+			if !strings.Contains(err.Error(), "not text") {
+				t.Fatalf("error does not name the non-text key: %v", err)
+			}
+		})
+	}
+}
+
+func TestFactsRequiredKeys(t *testing.T) {
+	for name, data := range map[string]string{
+		"no groups":   "a168686f73746e616d65666e6f64652d31",
+		"no hostname": "a16667726f7570738165776865656c",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var f Facts
+			if err := Unmarshal(mustHex(t, data), &f); err == nil {
+				t.Fatalf("decoded %#v without a required key", f)
+			}
+		})
+	}
+}
+
+func TestFactsWrongType(t *testing.T) {
+	// hostname is text, groups is [text], clock_offset_ms is int.
+	for name, data := range map[string]string{
+		"uint hostname": "a26667726f7570738165776865656c68686f73746e616d6500",
+		"text groups":   "a26667726f757073646e6f6e6568686f73746e616d65666e6f64652d31",
+		"text offset":   "a36667726f7570738165776865656c68686f73746e616d65666e6f64652d316f636c6f636b5f6f66667365745f6d736130",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var f Facts
+			if err := Unmarshal(mustHex(t, data), &f); err == nil {
+				t.Fatalf("decoded %#v with a wrong type", f)
+			}
+		})
+	}
+}
+
+func TestShellsMap(t *testing.T) {
+	// sh without bash: bash is omitted, not null.
+	data, err := Marshal(Shells{Sh: "/bin/sh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "a1627368672f62696e2f7368"; hex.EncodeToString(data) != want {
+		t.Fatalf("encoded as %x, want %s", data, want)
+	}
+	var back Shells
+	if err := Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Sh != "/bin/sh" || back.Bash != nil {
+		t.Fatalf("round trip = %#v", back)
+	}
+	// bash null is accepted on decode (protocol.md allows text or null).
+	if err := Unmarshal(mustHex(t, "a2627368672f62696e2f73686462617368f6"), &back); err != nil {
+		t.Fatalf("Unmarshal bash null: %v", err)
+	}
+	if back.Bash != nil {
+		t.Fatalf("bash = %q, want nil", *back.Bash)
+	}
+	// A shells map without sh is rejected.
+	if err := Unmarshal(mustHex(t, "a164626173686d2f7573722f62696e2f62617368"), &back); err == nil {
+		t.Fatal("decoded shells without sh")
+	}
+	// Unknown inner keys are ignored.
+	unknown := mustHex(t, "a2627368672f62696e2f7368637a73686c2f7573722f62696e2f7a7368")
+	if err := Unmarshal(unknown, &back); err != nil || back.Sh != "/bin/sh" {
+		t.Fatalf("unknown inner key: %#v, %v", back, err)
 	}
 }

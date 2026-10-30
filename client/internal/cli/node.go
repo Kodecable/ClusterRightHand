@@ -17,6 +17,7 @@ import (
 	"syscall"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
+	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
@@ -61,6 +62,11 @@ func enroll(ctx context.Context, out io.Writer, configPath, serverURL, token str
 	if _, err := os.Stat(cfg.IdentityKeyPath()); err == nil {
 		return fmt.Errorf("%s exists: this node is already enrolled (remove it to enroll again)", cfg.IdentityKeyPath())
 	}
+	// The enrollment facts carry the shells the node discovered; a node without sh cannot run tasks.
+	env, err := resolveEnv(execenv.Options{})
+	if err != nil {
+		return err
+	}
 
 	serverKey, err := fetchServerKey(ctx, cfg, fingerprint)
 	if err != nil {
@@ -76,7 +82,7 @@ func enroll(ctx context.Context, out io.Writer, configPath, serverURL, token str
 		Enroll: &protocol.Enrollment{
 			TokenSecret: secret,
 			Hostname:    protocol.CleanText(hostname),
-			Facts:       nodeFacts(cfg),
+			Facts:       nodeFacts(cfg, env),
 		},
 	}
 	conn, err := transport.Dial(ctx, dialOptions(cfg, key, serverKey, init))

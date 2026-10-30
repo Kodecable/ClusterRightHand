@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SSH_PRIVILEGED_NOTICE } from "../../src/cluster/ssh/exec.ts";
 import { InProcessCrhs } from "../e2e/harness.ts";
-import { buildStaticCrha, freePort, M4Node, podmanAvailable } from "./harness.ts";
+import { buildStaticCrha, freePort, M4Node, parseEnv, podmanAvailable } from "./harness.ts";
 
 const describePodman = describe.skipIf(!podmanAvailable);
 
@@ -82,6 +82,52 @@ describePodman("M4 podman: SSH nodes", () => {
 		expect(read.state).toBe("exited");
 		expect(read.stdoutHead + read.stdoutTail).toContain("sftp-content");
 		expect(read.stderrHead).toBe(SSH_PRIVILEGED_NOTICE);
+	}, 60_000);
+
+	it("sets LANG and LC_ALL, keeps sshd's identity and drops CRHA_TASK_*", async () => {
+		const t = await crhs.runTask(sshNodeId, {
+			kind: "exec",
+			argv: ["/usr/bin/env"],
+			env: { CRHA_TASK_HOME: "/tmp/leak" },
+		});
+		expect(t).toMatchObject({ state: "exited", exitCode: 0 });
+		const env = parseEnv(t.stdoutHead + t.stdoutTail);
+		expect(env).toMatchObject({
+			HOME: "/root",
+			USER: "root",
+			LOGNAME: "root",
+			LANG: "C.UTF-8",
+			LC_ALL: "C.UTF-8",
+		});
+		expect(env.CRHA_TASK_HOME).toBeUndefined();
+		expect(Object.keys(env).filter((k) => k.startsWith("M4_") || k === "container")).toEqual([]);
+	}, 60_000);
+
+	it("lets a task's own LANG win over the default", async () => {
+		const t = await crhs.runTask(sshNodeId, {
+			kind: "exec",
+			argv: ["/usr/bin/env"],
+			env: { LANG: "de_DE.UTF-8" },
+		});
+		expect(t.state).toBe("exited");
+		expect(parseEnv(t.stdoutHead + t.stdoutTail).LANG).toBe("de_DE.UTF-8");
+	}, 60_000);
+
+	it("reports the probed shells and runs a shell command on the probed sh", async () => {
+		const node = (await crhs.api(`/api/nodes/${sshNodeId}`)).json.node as {
+			facts: { shells: { sh: string | null; bash: string | null } };
+		};
+		expect(node.facts.shells.sh).toMatch(/^\//);
+		expect(node.facts.shells.bash).toMatch(/^\//);
+		// The inner shell's $0 is the shell the connection probed; the authorization target still
+		// renders /bin/sh -c, whatever sh the node discovered (doc/execution-plane.md#执行).
+		const t = await crhs.runTask(sshNodeId, { kind: "exec", shell: 'printf %s "$0"' });
+		expect(t).toMatchObject({ state: "exited", exitCode: 0 });
+		expect(t.stdoutHead.trim()).toBe(node.facts.shells.sh);
+		const view = (await crhs.api(`/api/tasks/${t.id}`)).json.task as {
+			operation: { method: string; target: string };
+		};
+		expect(view.operation).toEqual({ method: "exec", target: `/bin/sh -c 'printf %s "$0"'` });
 	}, 60_000);
 
 	it("reports the SSH user's uid, not a privileged one", async () => {

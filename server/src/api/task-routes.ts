@@ -1,14 +1,33 @@
 import type { TaskSpec } from "@crh/protocol";
 import { Hono } from "hono";
+import { sql } from "kysely";
 import { type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
-import { nodeAccess } from "../cluster/nodes.ts";
+import { nodeAccess, visibleNodeIds } from "../cluster/nodes.ts";
 import { resolveTargets, type TaskGroups } from "../cluster/task-groups.ts";
 import type { Db } from "../storage/db.ts";
+import type { TaskState } from "../storage/schema.ts";
 import { UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 
 const MAX_WAIT_MS = 10 * 60 * 1000;
 const MAX_INPUT_BYTES = 64 * 1024 * 1024;
+/** Page size of GET /tasks: 50 by default, never more than 100. */
+const DEFAULT_PAGE = 50;
+const MAX_PAGE = 100;
+
+const TASK_STATES: ReadonlySet<string> = new Set<TaskState>([
+	"awaiting_approval",
+	"awaiting_authorization",
+	"denied",
+	"dispatched",
+	"running",
+	"exited",
+	"failed",
+	"rejected",
+	"unknown",
+]);
+/** The stored actor types of doc/access-control.md#操作者. */
+const ACTOR_TYPES: ReadonlySet<string> = new Set(["user", "session", "subagent", "schedule", "api_token", "system"]);
 
 class BadRequest extends Error {}
 
@@ -117,6 +136,53 @@ export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 		const access = await nodeAccess(db, userId, task.nodeId);
 		return access ? { task, access } : undefined;
 	};
+
+	/**
+	 * Every task on a node the user can see, newest first. Tasks that wait for this user come first
+	 * unless a state was given: `awaiting_approval` ones it handles and `awaiting_authorization` ones
+	 * it owns (doc/privilege.md, the WebUI's task page). Offset pagination, 50 per page at most.
+	 */
+	app.get("/tasks", async (c) => {
+		const user = c.get("user");
+		const state = c.req.query("state");
+		if (state !== undefined && !TASK_STATES.has(state)) return jsonError(c, 400, `unknown state ${state}`);
+		const actorType = c.req.query("actorType");
+		if (actorType !== undefined && !ACTOR_TYPES.has(actorType)) {
+			return jsonError(c, 400, `unknown actorType ${actorType}`);
+		}
+		const filterNode = c.req.query("nodeId");
+		const nodeIds = await visibleNodeIds(db, user);
+		if (filterNode !== undefined && !nodeIds.includes(filterNode)) return jsonError(c, 404, "no such node");
+		const limit = pageSize(c.req.query("limit"));
+		const offset = pageOffset(c.req.query("offset"));
+		if (nodeIds.length === 0) return c.json({ tasks: [], offset, limit, nextOffset: null });
+
+		let query = db
+			.selectFrom("tasks")
+			.select("id")
+			.where("node_id", "in", filterNode === undefined ? nodeIds : [filterNode]);
+		if (state !== undefined) query = query.where("state", "=", state as TaskState);
+		if (actorType !== undefined) query = query.where("actor_type", "=", actorType);
+		if (state === undefined) {
+			// A task waiting for this user first: an approval it handles, or a signature it owns and signs
+			// on the task page. A group member task is signed through the group (`/approvals` lists the
+			// group), so it keeps its place in the list instead of jumping ahead once per node.
+			query = query.orderBy(
+				sql<number>`case when state = 'awaiting_approval' and handler_type = 'user' and on_behalf_of_user_id = ${user.userId} then 0
+					when state = 'awaiting_authorization' and on_behalf_of_user_id = ${user.userId} and task_group_id is null then 0 else 1 end`,
+				"asc",
+			);
+		}
+		const rows = await query
+			.orderBy("created_at", "desc")
+			.orderBy("id", "desc")
+			.limit(limit + 1)
+			.offset(offset)
+			.execute();
+		const page = rows.slice(0, limit);
+		const tasks = (await Promise.all(page.map((r) => cluster.getTask(r.id)))).filter(Boolean) as TaskView[];
+		return c.json({ tasks, offset, limit, nextOffset: rows.length > limit ? offset + limit : null });
+	});
 
 	app.get("/tasks/:id", async (c) => {
 		const found = await visibleTask(c.get("user"), c.req.param("id"));
@@ -251,6 +317,20 @@ function optionalBool(body: Record<string, unknown>, key: string): boolean | und
 	if (value === undefined) return undefined;
 	if (typeof value !== "boolean") throw new BadRequest(`${key} must be a boolean`);
 	return value;
+}
+
+/** The page size of GET /tasks: 50 by default and never above the cap. */
+function pageSize(value: string | undefined): number {
+	const n = Number(value ?? DEFAULT_PAGE);
+	if (!Number.isSafeInteger(n) || n < 1) throw new BadRequest("limit must be a positive integer");
+	return Math.min(n, MAX_PAGE);
+}
+
+/** The offset of GET /tasks; pages are positions in the same newest-first order. */
+function pageOffset(value: string | undefined): number {
+	const n = Number(value ?? 0);
+	if (!Number.isSafeInteger(n) || n < 0) throw new BadRequest("offset must be a non-negative integer");
+	return n;
 }
 
 /** The batch output mode; omitted means the group's default (`status`), see doc/execution-plane.md#输出. */

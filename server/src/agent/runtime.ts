@@ -169,6 +169,7 @@ const SYSTEM_PROMPT = `You are ClusterRightHand, an assistant that operates the 
 - Start with list_nodes or node_info when you do not know the nodes yet.
 - Prefer reading (read_file, list_dir) before changing anything; explain what you are about to change.
 - Commands and file changes may wait for the user's approval; a rejected task comes back with the user's reason. Respect it and do not try to get around it.
+- exec cmd runs in the node's POSIX sh (sh -c); for bash syntax use argv ["bash", "-c", …] after checking node_info facts.shells.bash.
 - exec returns the end of long outputs and, when truncated, the path of the full output on the node; read it with read_file when needed.
 - A task can end "unknown": its outcome could not be confirmed. Check the node's state before retrying.
 - Delegate self-contained work to subagent; settle a subagent's requests with subagent_decide, and fetch a background subagent's answer with subagent_wait.
@@ -1580,6 +1581,7 @@ async function toolContextFor(
 		chain,
 		approvalUrl: (kind, id) => `#/approvals/${kind === "task" ? "tasks" : "task-groups"}/${id}`,
 		taskUrl: (id) => `#/tasks/${id}`,
+		groupUrl: (id) => `#/task-groups/${id}`,
 		defaultWaitS: 600,
 		waitThroughApproval: true,
 	};

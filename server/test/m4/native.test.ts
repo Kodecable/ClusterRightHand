@@ -13,7 +13,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { InProcessCrhs, waitFor } from "../e2e/harness.ts";
-import { buildStaticCrha, M4Node, podmanAvailable } from "./harness.ts";
+import { buildStaticCrha, M4Node, parseEnv, podmanAvailable } from "./harness.ts";
+
+const FIXED_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
+/** Variables that must never reach a task: the container's own and crha's overrides. */
+function leaked(env: Record<string, string>): string[] {
+	return Object.keys(env).filter((k) => k.startsWith("M4_") || k.startsWith("CRHA_TASK_") || k === "container");
+}
 
 describe.skipIf(!podmanAvailable)("M4 podman: native, ignore and reject", () => {
 	let tmp = "";
@@ -37,6 +44,66 @@ describe.skipIf(!podmanAvailable)("M4 podman: native, ignore and reject", () => 
 		await node?.destroy();
 		await crhs?.destroy();
 		await rm(tmp, { recursive: true, force: true });
+	});
+
+	describe("exec environment", () => {
+		it("gives an ordinary task the crha account's identity, not the container's environment", async () => {
+			const t = await crhs.runTask(node.nodeId, { kind: "exec", argv: ["/usr/bin/env"] });
+			const done = await node.taskState(t.id);
+			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: false });
+			const env = parseEnv(done.stdoutHead + done.stdoutTail);
+			expect(env).toMatchObject({
+				HOME: "/home/crha",
+				USER: "crha",
+				LOGNAME: "crha",
+				SHELL: "/bin/sh",
+				LANG: "C.UTF-8",
+				LC_ALL: "C.UTF-8",
+			});
+			expect(leaked(env)).toEqual([]);
+		}, 60_000);
+
+		it("gives a privileged task root's identity and the fixed PATH", async () => {
+			const t = await node.task({ kind: "exec", argv: ["/usr/bin/env"] });
+			const done = await node.taskState(t.id);
+			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: true });
+			const env = parseEnv(done.stdoutHead + done.stdoutTail);
+			expect(env).toMatchObject({
+				HOME: "/root",
+				USER: "root",
+				LOGNAME: "root",
+				SHELL: "/bin/sh",
+				LANG: "C.UTF-8",
+				LC_ALL: "C.UTF-8",
+				PATH: FIXED_PATH,
+			});
+			expect(leaked(env)).toEqual([]);
+		}, 60_000);
+
+		it("lets both modes override HOME through the task's env", async () => {
+			const plain = await crhs.runTask(node.nodeId, {
+				kind: "exec",
+				argv: ["/usr/bin/env"],
+				env: { HOME: "/tmp/m4-unprivileged-home" },
+			});
+			const plainDone = await node.taskState(plain.id);
+			expect(plainDone.state).toBe("exited");
+			expect(parseEnv(plainDone.stdoutHead + plainDone.stdoutTail).HOME).toBe("/tmp/m4-unprivileged-home");
+
+			const privileged = await node.task({
+				kind: "exec",
+				argv: ["/usr/bin/env"],
+				env: { HOME: "/tmp/m4-privileged-home" },
+			});
+			const privilegedDone = await node.taskState(privileged.id);
+			expect(privilegedDone.state).toBe("exited");
+			expect(parseEnv(privilegedDone.stdoutHead + privilegedDone.stdoutTail).HOME).toBe("/tmp/m4-privileged-home");
+		}, 60_000);
+
+		it("reports the shells it discovered in facts", async () => {
+			const res = await crhs.api(`/api/nodes/${node.nodeId}`);
+			expect(res.json.node.facts.shells).toEqual({ sh: "/bin/sh", bash: "/bin/bash" });
+		});
 	});
 
 	describe("native with sudo", () => {

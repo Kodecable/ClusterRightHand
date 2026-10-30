@@ -202,6 +202,52 @@ export function enumOf<const V extends readonly string[]>(...values: V): Codec<V
 	return make(name, check, check);
 }
 
+/** One known key of a map codec: the wire key, the object field, and how to codec the value. */
+export interface MapField<T> {
+	readonly wire: string;
+	readonly field: keyof T & string;
+	readonly codec: Codec<unknown>;
+	/** A required key: decoding fails when it is missing (doc/protocol.md Facts). */
+	readonly required?: boolean;
+}
+
+/**
+ * A CBOR map with a fixed set of text keys: the protocol's one map structure (Facts). Encoding
+ * writes only fields whose value is not `undefined`, so an absent optional value is omitted rather
+ * than encoded as null. Decoding ignores text keys this codec does not know, and rejects a non-text
+ * key, a missing required key or a known key whose value has the wrong type.
+ */
+export function keyedMap<T>(name: string, fields: readonly MapField<T>[]): Codec<T> {
+	const encode = (value: T): unknown => {
+		const entries: [string, unknown][] = [];
+		for (const field of fields) {
+			const item = (value as Record<string, unknown>)[field.field];
+			if (item === undefined) continue;
+			entries.push([field.wire, field.codec.encode(item)]);
+		}
+		return new Map(entries);
+	};
+	const decode = (value: unknown): T => {
+		if (!(value instanceof Map)) fail(name, "not a map");
+		// A non-text key fails the whole map; unknown text keys are ignored (doc/protocol.md Facts).
+		for (const key of value.keys()) {
+			if (typeof key !== "string") fail(name, "map key is not text");
+		}
+		const out: Record<string, unknown> = {};
+		for (const field of fields) {
+			if (!value.has(field.wire)) continue;
+			out[field.field] = field.codec.decode(value.get(field.wire));
+		}
+		for (const field of fields) {
+			if (field.required === true && !(field.field in out)) {
+				fail(name, `missing field ${JSON.stringify(field.wire)}`);
+			}
+		}
+		return out as T;
+	};
+	return make(name, encode, decode);
+}
+
 type UnionBranch = Codec<unknown>;
 type UnionMap = Record<string, UnionBranch>;
 

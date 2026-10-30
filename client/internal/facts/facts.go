@@ -29,22 +29,41 @@ func Collect() protocol.Facts {
 
 func collect(root string, lookPath func(string) (string, error)) protocol.Facts {
 	f := protocol.Facts{
-		InitSystem:      initSystem(root),
-		PackageManagers: found(lookPath, packageManagers),
-		PrivilegeTools:  found(lookPath, privilegeTools),
-		Arch:            runtime.GOARCH,
+		InitSystem:      optionalText(initSystem(root)),
+		PackageManagers: optionalTexts(found(lookPath, packageManagers)),
+		PrivilegeTools:  optionalTexts(found(lookPath, privilegeTools)),
+		Arch:            optionalText(runtime.GOARCH),
 	}
 	f.Hostname, _ = os.Hostname()
 	var u unix.Utsname
 	if unix.Uname(&u) == nil {
-		f.Kernel = unixString(u.Release[:])
+		f.Kernel = optionalText(unixString(u.Release[:]))
 		if m := unixString(u.Machine[:]); m != "" {
-			f.Arch = m
+			f.Arch = optionalText(m)
 		}
 	}
 	osr := osRelease(root)
-	f.OSID, f.OSVersionID, f.OSPrettyName = osr["ID"], osr["VERSION_ID"], osr["PRETTY_NAME"]
+	f.OSID = optionalText(osr["ID"])
+	f.OSVersionID = optionalText(osr["VERSION_ID"])
+	f.OSPrettyName = optionalText(osr["PRETTY_NAME"])
 	return Clean(f)
+}
+
+// optionalText is an optional text fact. The node reports a value it did not find as absent, which
+// the protocol omits instead of sending an empty string (doc/protocol.md Facts).
+func optionalText(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// optionalTexts is an optional list fact; an empty list is absent.
+func optionalTexts(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	return values
 }
 
 // Clean returns f with every text field passed through protocol.CleanText. Facts come from
@@ -52,17 +71,35 @@ func collect(root string, lookPath func(string) (string, error)) protocol.Facts 
 // encoder rejects invalid UTF-8 instead of letting a frame break the connection.
 func Clean(f protocol.Facts) protocol.Facts {
 	f.Hostname = protocol.CleanText(f.Hostname)
-	f.OSID = protocol.CleanText(f.OSID)
-	f.OSVersionID = protocol.CleanText(f.OSVersionID)
-	f.OSPrettyName = protocol.CleanText(f.OSPrettyName)
-	f.Kernel = protocol.CleanText(f.Kernel)
-	f.Arch = protocol.CleanText(f.Arch)
-	f.InitSystem = protocol.CleanText(f.InitSystem)
+	f.OSID = cleanTextPtr(f.OSID)
+	f.OSVersionID = cleanTextPtr(f.OSVersionID)
+	f.OSPrettyName = cleanTextPtr(f.OSPrettyName)
+	f.Kernel = cleanTextPtr(f.Kernel)
+	f.Arch = cleanTextPtr(f.Arch)
+	f.InitSystem = cleanTextPtr(f.InitSystem)
 	f.PackageManagers = cleanTexts(f.PackageManagers)
 	f.PrivilegeTools = cleanTexts(f.PrivilegeTools)
-	f.NotesPath = protocol.CleanText(f.NotesPath)
+	f.NotesPath = cleanTextPtr(f.NotesPath)
 	f.Groups = cleanTexts(f.Groups)
+	if f.Shells != nil {
+		shells := *f.Shells
+		shells.Sh = protocol.CleanText(shells.Sh)
+		if shells.Bash != nil {
+			bash := protocol.CleanText(*shells.Bash)
+			shells.Bash = &bash
+		}
+		f.Shells = &shells
+	}
 	return f
+}
+
+// cleanTextPtr cleans an optional text fact, keeping an absent one absent.
+func cleanTextPtr(p *string) *string {
+	if p == nil {
+		return nil
+	}
+	cleaned := protocol.CleanText(*p)
+	return &cleaned
 }
 
 func cleanTexts(values []string) []string {

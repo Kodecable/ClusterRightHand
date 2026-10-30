@@ -76,6 +76,7 @@ const facts: Facts = {
 	notesPath: "/etc/notes",
 	groups: ["sudo"],
 	clockOffsetMs: -5,
+	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
 };
 
 const status: TaskStatus = { taskId: "t-1", state: "running", stdoutEnd: 10, stderrEnd: 2 };
@@ -200,6 +201,124 @@ describe("message codecs", () => {
 		const decoded = codec.decode(decodeCbor(encoded));
 		expect(decoded).toEqual(value);
 		expect(Buffer.from(encodeCbor(codec.encode(decoded))).toString("hex")).toBe(Buffer.from(encoded).toString("hex"));
+	});
+
+	it("encodes Facts as a snake_case map and omits absent facts", () => {
+		const encoded = decodeCbor(encodeCbor(factsCodec.encode(facts))) as Map<string, unknown>;
+		expect(encoded).toBeInstanceOf(Map);
+		expect([...encoded.keys()].sort()).toEqual([
+			"arch",
+			"clock_offset_ms",
+			"groups",
+			"hostname",
+			"init_system",
+			"kernel",
+			"notes_path",
+			"os_id",
+			"os_pretty_name",
+			"os_version_id",
+			"package_managers",
+			"privilege_tools",
+			"shells",
+		]);
+		expect(encoded.get("shells")).toEqual(
+			new Map([
+				["sh", "/bin/sh"],
+				["bash", "/usr/bin/bash"],
+			]),
+		);
+		const minimal: Facts = { hostname: "node-1", groups: ["sudo"] };
+		const minimalWire = decodeCbor(encodeCbor(factsCodec.encode(minimal))) as Map<string, unknown>;
+		expect([...minimalWire.keys()].sort()).toEqual(["groups", "hostname"]);
+		expect(factsCodec.decode(minimalWire)).toEqual(minimal);
+	});
+
+	it("omits shells.bash when there is none, and accepts bash: null", () => {
+		for (const shells of [{ sh: "/bin/sh" }, { sh: "/bin/sh", bash: null }]) {
+			const wire = encodeCbor(factsCodec.encode({ ...facts, shells }));
+			const decodedShells = (decodeCbor(wire) as Map<string, unknown>).get("shells") as Map<string, unknown>;
+			expect(decodedShells.has("bash")).toBe(false);
+			expect(factsCodec.decode(decodeCbor(wire))).toEqual({ ...facts, shells: { sh: "/bin/sh" } });
+		}
+		// bash: null is accepted on decode too (doc/protocol.md Facts).
+		const nullBash = new Map<string, unknown>([
+			["hostname", "node-1"],
+			["groups", []],
+			[
+				"shells",
+				new Map<string, unknown>([
+					["sh", "/bin/sh"],
+					["bash", null],
+				]),
+			],
+		]);
+		expect(factsCodec.decode(nullBash)).toEqual({
+			hostname: "node-1",
+			groups: [],
+			shells: { sh: "/bin/sh", bash: null },
+		});
+	});
+
+	it("ignores unknown Facts keys and rejects missing or mistyped ones", () => {
+		const accepted = new Map<string, unknown>([
+			["hostname", "node-1"],
+			["groups", ["sudo"]],
+			["future_fact", "ignored"],
+			[
+				"shells",
+				new Map<string, unknown>([
+					["sh", "/bin/sh"],
+					["zsh", "/usr/bin/zsh"],
+				]),
+			],
+		]);
+		expect(factsCodec.decode(accepted)).toEqual({ hostname: "node-1", groups: ["sudo"], shells: { sh: "/bin/sh" } });
+		for (const bad of [
+			new Map<string, unknown>([["hostname", "node-1"]]),
+			new Map<string, unknown>([["groups", []]]),
+			new Map<string, unknown>([
+				["hostname", 1],
+				["groups", []],
+			]),
+			new Map<string, unknown>([
+				["hostname", "node-1"],
+				["groups", "sudo"],
+			]),
+			new Map<string, unknown>([
+				["hostname", "node-1"],
+				["groups", []],
+				["clock_offset_ms", "0"],
+			]),
+			new Map<string, unknown>([
+				["hostname", "node-1"],
+				["groups", []],
+				["shells", new Map<string, unknown>([["bash", "/bin/bash"]])],
+			]),
+			[],
+		]) {
+			expect(() => factsCodec.decode(bad)).toThrow(SchemaError);
+		}
+	});
+
+	it("rejects a non-text Facts key, also inside shells", () => {
+		const factsWithIntegerKey = new Map<unknown, unknown>([
+			["hostname", "node-1"],
+			["groups", ["sudo"]],
+			[1, "x"],
+		]);
+		expect(() => factsCodec.decode(factsWithIntegerKey)).toThrow(SchemaError);
+		const shellsWithIntegerKey = new Map<unknown, unknown>([
+			["hostname", "node-1"],
+			["groups", ["sudo"]],
+			[
+				"shells",
+				new Map<unknown, unknown>([
+					["sh", "/bin/sh"],
+					[1, "x"],
+				]),
+			],
+		]);
+		expect(() => factsCodec.decode(shellsWithIntegerKey)).toThrow(SchemaError);
 	});
 
 	it("uses protocol 1.1 and keeps the 1.0 names required", () => {

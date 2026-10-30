@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback, useState } from "react";
 import {
 	type ApiTokenView,
+	type ApprovalList,
 	api,
 	type Evaluation,
 	type PublicNode,
@@ -12,7 +13,7 @@ import { DecisionView, EvaluationView } from "../components/Approval.tsx";
 import { Badge, ErrorText, Loading } from "../components/Feedback.tsx";
 import { stateKind } from "../components/TaskResult.tsx";
 import { errMsg, useLoad, usePolling } from "../hooks.ts";
-import { actorLabel, alwaysRule, formatTime } from "../lib.ts";
+import { actorLabel, alwaysRule, formatTime, pendingCount } from "../lib.ts";
 
 /** Fired after a decision so that the header's pending count refreshes at once. */
 export const APPROVALS_CHANGED = "crh:approvals-changed";
@@ -222,22 +223,58 @@ function Card({ item, lookups, onSettled }: { item: Item; lookups: Lookups; onSe
 	);
 }
 
+/**
+ * The tasks and groups that already passed their rules but still wait for this user's signature
+ * (doc/privilege.md: the same entry point as approvals). They are signed on their own page.
+ */
+function WaitingForSignature({ data, lookups }: { data: ApprovalList; lookups: Lookups }) {
+	const tasks = data.authorizations.tasks;
+	const groups = data.authorizations.taskGroups;
+	if (tasks.length + groups.length === 0) return null;
+	return (
+		<section aria-label="Waiting for your signature">
+			<h2>Waiting for your signature</h2>
+			<p className="muted">These passed their rules; they run once you sign them.</p>
+			<ul>
+				{tasks.map((task) => (
+					<li key={task.id}>
+						<a href={`#/tasks/${task.id}`}>
+							{task.summary || task.kind} on {lookups.nodeNames.get(task.nodeId) ?? task.nodeId}
+						</a>{" "}
+						<Badge kind="priv">task</Badge>
+					</li>
+				))}
+				{groups.map((group) => (
+					<li key={group.id}>
+						<a href={`#/task-groups/${group.id}`}>
+							{group.summary || group.kind || "task group"} on {group.nodeIds.length} node(s):{" "}
+							{group.nodeIds.map((n) => lookups.nodeNames.get(n) ?? n).join(", ")}
+						</a>{" "}
+						<Badge kind="priv">task group</Badge>
+					</li>
+				))}
+			</ul>
+		</section>
+	);
+}
+
 export function Approvals() {
 	const { data, error, loading, reload } = useLoad(() => api.listApprovals(), []);
 	usePolling(reload, 5000);
 	const lookups = useLookups();
-	const count = (data?.tasks.length ?? 0) + (data?.taskGroups.length ?? 0);
+	const count = pendingCount(data);
 	return (
 		<>
 			<h1>Approvals</h1>
 			<Loading loading={loading && !data} error={error} />
-			{data && count === 0 && <p className="muted">Nothing is waiting for your approval.</p>}
+			{data && count === 0 && <p className="muted">Nothing is waiting for your approval or signature.</p>}
 			{data?.tasks.map((task) => (
 				<Card key={task.id} item={{ kind: "task", task }} lookups={lookups} onSettled={reload} />
 			))}
 			{data?.taskGroups.map((group) => (
 				<Card key={group.id} item={{ kind: "group", group }} lookups={lookups} onSettled={reload} />
 			))}
+			{data && <WaitingForSignature data={data} lookups={lookups} />}
 		</>
 	);
 }

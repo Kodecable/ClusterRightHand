@@ -37,6 +37,7 @@ const FACTS: Facts = {
 	notesPath: "/etc/crh-notes.md",
 	groups: [],
 	clockOffsetMs: 0,
+	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
 };
 
 describeBackends("nodes", (backend) => {
@@ -286,6 +287,29 @@ describeBackends("nodes", (backend) => {
 			expect(all.map((n) => n.id)).toContain(c.id);
 			expect(all.every((n) => n.access === "admin")).toBe(true);
 			expect((await listNodesForUser(db, carol)).map((n) => n.id)).not.toContain(a.id);
+		});
+
+		it("reads a facts row stored before shells existed", async () => {
+			const u = session(await createUser(db, { username: "legacy", kind: "member" }));
+			const n = await enroll({ user: u });
+			const { shells: _shells, ...legacy } = FACTS;
+			await updateNodeFacts(db, n.id, { facts: legacy, groups: [] });
+			const [node] = await listNodesForUser(db, u);
+			// The absent key stays absent: an optional fact the row does not have is unknown.
+			expect(node?.facts).toEqual(legacy);
+		});
+
+		it("shows an SSH node's probed shells as its only facts", async () => {
+			const u = session(await createUser(db, { username: "sshowner", kind: "member" }));
+			const n = await enroll({ user: u });
+			const shells = { sh: "/usr/bin/sh", bash: "/usr/bin/bash" };
+			await db
+				.updateTable("nodes")
+				.set({ transport: "ssh", facts: JSON.stringify({ shells }) })
+				.where("id", "=", n.id)
+				.execute();
+			const [node] = await listNodesForUser(db, u);
+			expect(node?.facts).toEqual({ shells });
 		});
 
 		it("updateNodeFacts replaces groups and sets last_seen_at", async () => {

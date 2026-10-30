@@ -22,6 +22,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/audit"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/state"
@@ -46,6 +47,10 @@ type Options struct {
 	Logger *slog.Logger
 	// Now returns the current time; nil means time.Now.
 	Now func() time.Time
+	// Env is the task environment resolved when `crha privileged run` started
+	// (doc/execution-plane.md#exec-的执行环境). nil resolves it per task, which only tests and
+	// programmatic callers do.
+	Env *execenv.Environment
 }
 
 // Server is one privileged-mode daemon.

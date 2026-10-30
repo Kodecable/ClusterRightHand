@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
+	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/executor"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/transport"
@@ -134,6 +135,9 @@ type Options struct {
 	// ClockWarn is the [clock_warn] threshold: after every successful crhs handshake a clock
 	// offset larger than it is logged as a warning. 0 disables the warning.
 	ClockWarn time.Duration
+	// Env is the task environment resolved when `crha run` started (execenv.Resolve). nil resolves it
+	// per task, which only tests and programmatic callers do.
+	Env *execenv.Environment
 }
 
 type Agent struct {
@@ -419,7 +423,8 @@ func (a *Agent) facts(conn *transport.Conn) protocol.Facts {
 	if a.opts.Facts != nil {
 		f = a.opts.Facts()
 	}
-	f.ClockOffsetMS = protocol.Int(conn.ClockOffset.Milliseconds())
+	offset := protocol.Int(conn.ClockOffset.Milliseconds())
+	f.ClockOffsetMS = &offset
 	return f
 }
 
@@ -1100,6 +1105,7 @@ func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
 	res := executor.RunTask(ctx, &t.spec.Spec, in, t.output, executor.TaskOptions{
 		Timeout:   time.Duration(t.spec.TimeoutMS) * time.Millisecond,
 		KillGrace: time.Duration(t.spec.KillGraceMS) * time.Millisecond,
+		Env:       a.opts.Env,
 	})
 	exit.TimedOut, exit.Cancelled, exit.Outcome = res.TimedOut, res.Cancelled, res.Outcome()
 	if q, ok := in.(*executor.Input); ok {

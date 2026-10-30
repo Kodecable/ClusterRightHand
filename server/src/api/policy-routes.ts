@@ -134,9 +134,34 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 			.where("on_behalf_of_user_id", "=", user.userId)
 			.orderBy("created_at")
 			.execute();
+		// Tasks and groups that passed their rules but still wait for this user's signature. Both entry
+		// points share this one list: the approvals page shows them in their own section and the header
+		// count adds them up (doc/privilege.md). A task that belongs to a group is signed through the
+		// group, so only the group is listed: one signature, one entry.
+		const signatureRows = await db
+			.selectFrom("tasks")
+			.select("id")
+			.where("state", "=", "awaiting_authorization")
+			.where("on_behalf_of_user_id", "=", user.userId)
+			.where("task_group_id", "is", null)
+			.orderBy("created_at")
+			.execute();
+		const signatureGroupRows = await db
+			.selectFrom("task_groups")
+			.select("id")
+			.where("state", "=", "awaiting_authorization")
+			.where("on_behalf_of_user_id", "=", user.userId)
+			.orderBy("created_at")
+			.execute();
 		const tasks = (await Promise.all(taskRows.map((r) => cluster.getTask(r.id)))).filter(Boolean) as TaskView[];
 		const taskGroups = (await Promise.all(groupRows.map((r) => groups.get(r.id)))).filter(Boolean) as TaskGroupView[];
-		return c.json({ tasks, taskGroups });
+		const signatureTasks = (await Promise.all(signatureRows.map((r) => cluster.getTask(r.id)))).filter(
+			Boolean,
+		) as TaskView[];
+		const signatureTaskGroups = (await Promise.all(signatureGroupRows.map((r) => groups.get(r.id)))).filter(
+			Boolean,
+		) as TaskGroupView[];
+		return c.json({ tasks, taskGroups, authorizations: { tasks: signatureTasks, taskGroups: signatureTaskGroups } });
 	});
 
 	/**

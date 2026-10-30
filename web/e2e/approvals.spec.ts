@@ -59,7 +59,7 @@ test("approve and always allow adds a rule to the token and runs the task", asyn
 	await card.getByLabel("prefix").check();
 	await expect(rule).toHaveValue(/"prefix": "echo hi"/);
 	await card.getByRole("button", { name: "Approve and always allow", exact: true }).click();
-	await expect(page.getByText("Nothing is waiting for your approval.")).toBeVisible();
+	await expect(page.getByText("Nothing is waiting for your approval or signature.")).toBeVisible();
 
 	await page.goto(`/#/tasks/${task.id}`);
 	await expect(page.getByText("exited")).toBeVisible({ timeout: 20_000 });

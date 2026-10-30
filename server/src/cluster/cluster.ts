@@ -76,11 +76,19 @@ import {
 } from "./authorization.ts";
 import { createLiveTask, GroupBudget, type LiveTask, type OutputSnapshot } from "./batch-output.ts";
 import type { NodeConnection } from "./connection.ts";
-import { getNode, markNodeSeen, type NodeRow, nodeGroupNames, updateNodeFacts } from "./nodes.ts";
+import { getNode, markNodeSeen, type NodeRow, nodeGroupNames, setSshNodeFacts, updateNodeFacts } from "./nodes.ts";
 import { OUTPUT_KEEP_BYTES, OUTPUT_KEEP_LINES } from "./output.ts";
 import { batchRevocations, listRevocations, revokeAuthorizationRow } from "./revocations.ts";
 import { connect as connectSsh, SshError, type SshRoute, type SshSession } from "./ssh/connection.ts";
-import { runSshExec, SshConnectionLost, type SshExecSink, shellQuote, sshPrivilegedNotice } from "./ssh/exec.ts";
+import {
+	probeShells,
+	runSshExec,
+	SshConnectionLost,
+	type SshExecSink,
+	type SshShells,
+	shellQuote,
+	sshPrivilegedNotice,
+} from "./ssh/exec.ts";
 import { FileTaskError, runSftpFileTask } from "./ssh/file-task.ts";
 import { parseTrustReport, recordTrustReport, trustUnavailableMessage } from "./trust.ts";
 
@@ -274,6 +282,12 @@ interface NodeLink {
 	trustWaiters: Set<() => void>;
 }
 
+/** One pooled SSH connection and the shell its probe found (doc/execution-plane.md#执行). */
+interface SshConnection {
+	session: SshSession;
+	sh: string;
+}
+
 /** A task claimed for an owner authorization and ready to be sent. */
 interface ClaimedAuthorization {
 	start: TaskStart;
@@ -319,7 +333,7 @@ export class Cluster {
 	onAwaitingApproval: ((task: TaskView) => Promise<void>) | undefined;
 	/** Called after a task starts waiting or its approval state/handler changes (the runtime refreshes its inbox). */
 	onChange: ((actorId: string) => void) | undefined;
-	readonly #sshSessions = new Map<string, Promise<SshSession>>();
+	readonly #sshSessions = new Map<string, Promise<SshConnection>>();
 	readonly #sshCancels = new Map<string, AbortController>();
 	readonly #links = new Map<string, NodeLink>();
 	readonly #live = new Map<string, Live>();
@@ -436,7 +450,7 @@ export class Cluster {
 		for (const ac of this.#sshCancels.values()) ac.abort();
 		for (const s of this.#sshSessions.values())
 			s.then(
-				(x) => x.close(),
+				(x) => x.session.close(),
 				() => {},
 			);
 		for (const link of this.#links.values()) link.conn.close("server shutting down");
@@ -526,9 +540,10 @@ export class Cluster {
 			groups: facts.groups,
 		});
 		// A clock far from crhs only makes authorization deadlines unreliable; warn, do nothing else
-		// (doc/privilege.md#时钟).
-		if (this.#clockWarnMs > 0 && Math.abs(facts.clockOffsetMs) > this.#clockWarnMs) {
-			const ms = Math.abs(facts.clockOffsetMs);
+		// (doc/privilege.md#时钟). The offset is an optional fact: an absent one says nothing.
+		const offset = facts.clockOffsetMs;
+		if (this.#clockWarnMs > 0 && offset !== undefined && Math.abs(offset) > this.#clockWarnMs) {
+			const ms = Math.abs(offset);
 			const seconds = ms % 1000 === 0 ? String(ms / 1000) : (ms / 1000).toFixed(1);
 			console.warn(`node ${nodeId}: clock differs from crhs by ${seconds} s (more than ${this.#clockWarnMs / 1000} s)`);
 		}
@@ -2423,17 +2438,38 @@ export class Cluster {
 
 	// ---- SSH nodes: no crha, no resume; see doc/execution-plane.md#ssh-传输 ----
 
-	#sshSession(node: NodeRow): Promise<SshSession> {
+	/**
+	 * The pooled connection of an SSH node, after its first-time shell probe. Every new connection probes
+	 * before its first task: its tasks run on the sh it found, and the node's facts carry the result
+	 * (doc/execution-plane.md#执行). A probe that fails keeps the previous facts and falls back to /bin/sh;
+	 * it never fails a task.
+	 */
+	#sshSession(node: NodeRow): Promise<SshConnection> {
 		const existing = this.#sshSessions.get(node.id);
 		if (existing) return existing;
 		const route = this.#sshRoute as NonNullable<ClusterOptions["sshRoute"]>;
-		const session = route(node).then(connectSsh);
-		this.#sshSessions.set(node.id, session);
-		session.then(
-			(s) => s.onClose(() => this.#sshSessions.get(node.id) === session && this.#sshSessions.delete(node.id)),
+		const link = (async (): Promise<SshConnection> => {
+			const session = await connectSsh(await route(node));
+			let shells: SshShells | null = null;
+			try {
+				shells = await probeShells(session);
+			} catch (err) {
+				console.warn(`node ${node.id}: shell probe failed: ${err instanceof Error ? err.message : String(err)}`);
+			}
+			const sh = shells?.sh ?? "/bin/sh";
+			if (shells !== null) {
+				await setSshNodeFacts(this.#db, node.id, { sh, bash: shells.bash }).catch((err: unknown) =>
+					console.warn(`node ${node.id}: store shell facts: ${err instanceof Error ? err.message : String(err)}`),
+				);
+			}
+			return { session, sh };
+		})();
+		this.#sshSessions.set(node.id, link);
+		link.then(
+			(l) => l.session.onClose(() => this.#sshSessions.get(node.id) === link && this.#sshSessions.delete(node.id)),
 			() => this.#sshSessions.delete(node.id),
 		);
-		return session;
+		return link;
 	}
 
 	async #runSsh(
@@ -2466,18 +2502,18 @@ export class Cluster {
 			let fields: Updateable<TasksTable>;
 			// A pooled connection may have died without notice; nothing has run yet, so retry once fresh.
 			for (let attempt = 0; ; attempt++) {
-				const session = await this.#sshSession(node);
+				const link = await this.#sshSession(node);
 				if (!noticeWritten) {
 					const notice = sshPrivilegedNotice(privileged);
 					if (notice) live.output.append("stderr", live.output.end("stderr"), notice);
 					noticeWritten = true;
 				}
 				try {
-					fields = await this.#sshTask(session, spec, input, timeoutMs, ac.signal, sink);
+					fields = await this.#sshTask(link, spec, input, timeoutMs, ac.signal, sink);
 					break;
 				} catch (err) {
 					if (isStarted || attempt > 0 || !(err instanceof SshError)) throw err;
-					session.close();
+					link.session.close();
 				}
 			}
 			// For SSH nodes "last seen" is the last task that reached the node.
@@ -2500,15 +2536,16 @@ export class Cluster {
 	}
 
 	async #sshTask(
-		session: SshSession,
+		link: SshConnection,
 		spec: TaskSpec,
 		input: Uint8Array | undefined,
 		timeoutMs: number | undefined,
 		signal: AbortSignal,
 		sink: SshExecSink,
 	): Promise<Updateable<TasksTable>> {
+		const session = link.session;
 		if (spec.kind === "exec") {
-			const res = await runSshExec(session, spec, input, sink, { timeoutMs, signal });
+			const res = await runSshExec(session, spec, input, sink, { timeoutMs, signal, sh: link.sh });
 			return {
 				state: res.error ? "failed" : "exited",
 				exit_code: res.exitCode ?? null,

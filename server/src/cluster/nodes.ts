@@ -1,4 +1,4 @@
-import { factsFromJson } from "@crh/protocol";
+import { factsFromJson, type JsonFacts } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
@@ -27,7 +27,8 @@ export interface PublicNode {
 	approvedAt: string | null;
 	groups: string[];
 	access: NodeAccess;
-	facts: unknown;
+	/** The JSON form of the node's facts; null until it reported any. */
+	facts: JsonFacts | null;
 	/** base64url(SHA-256(public key)), as printed by `crha enroll` and `crha status`. */
 	keyFingerprint: string | null;
 	/** Whether crha is connected right now; null for SSH nodes, which connect per task. Set by the API layer. */
@@ -117,9 +118,11 @@ export async function nodeAccess(db: Db, user: SessionUser, nodeId: string): Pro
 }
 
 export function toPublicNode(row: NodeRow, access: NodeAccess, groups: string[]): PublicNode {
-	let facts: unknown = null;
+	let facts: JsonFacts | null = null;
 	if (row.facts !== null) {
 		try {
+			// A stored row may be partial: an SSH node keeps only the shells its connection probe found,
+			// and a row written before a fact existed lacks it (doc/protocol.md Facts).
 			facts = factsFromJson(JSON.parse(row.facts));
 		} catch {}
 	}
@@ -155,6 +158,25 @@ export async function nodeGroupNames(db: Db, nodeIds: string[]): Promise<Map<str
 		.execute();
 	for (const r of rows) out.set(r.node_id, [...(out.get(r.node_id) ?? []), r.group_name]);
 	return out;
+}
+
+/** The ids of every node the user can see: own, shared with them or their groups, or all as admin. */
+export async function visibleNodeIds(db: Db, user: SessionUser): Promise<string[]> {
+	if (user.kind === "admin") {
+		return (await db.selectFrom("nodes").select("id").execute()).map((r) => r.id);
+	}
+	const shared = await sharedAccess(db, user.userId);
+	const ids = [...shared.keys()];
+	const rows = await db
+		.selectFrom("nodes")
+		.select("id")
+		.where((eb) =>
+			ids.length > 0
+				? eb.or([eb("owner_user_id", "=", user.userId), eb("id", "in", ids)])
+				: eb("owner_user_id", "=", user.userId),
+		)
+		.execute();
+	return rows.map((r) => r.id);
 }
 
 export async function listNodesForUser(db: Db, user: SessionUser): Promise<PublicNode[]> {
@@ -255,6 +277,24 @@ export async function updateNodeFacts(
 				.execute();
 		}
 	});
+}
+
+/**
+ * Records the shells an SSH connection probe found (doc/execution-plane.md#执行). SSH nodes have no
+ * other facts; their groups are maintained by crhs and are left alone.
+ */
+export async function setSshNodeFacts(
+	db: Db,
+	nodeId: string,
+	shells: { sh: string; bash: string | null },
+): Promise<void> {
+	// No bash is an absent fact, not a null one (doc/protocol.md Facts).
+	const { bash } = shells;
+	await db
+		.updateTable("nodes")
+		.set({ facts: JSON.stringify({ shells: bash === null ? { sh: shells.sh } : shells }) })
+		.where("id", "=", nodeId)
+		.execute();
 }
 
 export async function markNodeSeen(db: Db, nodeId: string, now = new Date()): Promise<void> {

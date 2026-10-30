@@ -21,6 +21,13 @@ function checkPositive(vector: FixtureCase): void {
 		expect(hexOf(encodeCbor(handshakeResponseCodec.encode(value)))).toBe(vector.hex);
 	} else {
 		const frame = decodeFrame(bytes);
+		if (frame.kind === "event" && frame.name === "facts") {
+			// Facts is the protocol's one map: the schema decode ignores unknown fact keys, so the
+			// byte-for-byte comparison is the profile's re-encode of the generic value, which keeps
+			// them (doc/protocol.md Facts).
+			expect(hexOf(encodeCbor(decodeCbor(bytes)))).toBe(vector.hex);
+			return;
+		}
 		expect(hexOf(encodeFrame(frame))).toBe(vector.hex);
 	}
 }

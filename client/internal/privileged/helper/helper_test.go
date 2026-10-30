@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/fxamacker/cbor/v2"
@@ -695,6 +696,24 @@ func TestRunVersionMismatch(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("helper did not stop")
+	}
+}
+
+// TestStdioFailsWithoutShell: when the helper cannot resolve sh, it fails before the handshake, so
+// the non-privileged mode reports privileged_unsupported for the node's privileged tasks.
+func TestStdioFailsWithoutShell(t *testing.T) {
+	old := resolveEnv
+	resolveEnv = func() (*execenv.Environment, error) { return nil, errors.New("no sh to run tasks") }
+	defer func() { resolveEnv = old }()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	err = Stdio(context.Background(), r, io.Discard, io.Discard, testVersion)
+	if err == nil || !strings.Contains(err.Error(), "no sh") {
+		t.Fatalf("Stdio = %v, want the shell resolution failure", err)
 	}
 }
 

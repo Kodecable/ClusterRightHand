@@ -17,6 +17,7 @@ import (
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/agent"
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
+	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/facts"
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
 	"github.com/Kodecable/ClusterRightHand/client/internal/janitor"
@@ -34,6 +35,10 @@ import (
 // privilegedConfigPath is the default privileged.toml location of `crha privileged run`.
 const privilegedConfigPath = privconfig.DefaultPath
 
+// resolveEnv resolves the task environment of a process. It is a variable so tests can exercise a
+// node without a shell, whose modes must not start at all.
+var resolveEnv = execenv.Resolve
+
 func newRunCmd() *cobra.Command {
 	var configPath string
 	cmd := &cobra.Command{
@@ -50,6 +55,12 @@ func newRunCmd() *cobra.Command {
 }
 
 func run(ctx context.Context, configPath string) error {
+	// The task environment is resolved once for the process: a node that cannot give its tasks a
+	// shell and an identity must not run tasks at all (doc/execution-plane.md#exec-的执行环境).
+	env, err := resolveEnv(execenv.Options{})
+	if err != nil {
+		return err
+	}
 	first, err := config.Load(configPath)
 	if err != nil {
 		return err
@@ -80,12 +91,13 @@ func run(ctx context.Context, configPath string) error {
 		Dial: func(ctx context.Context) (*transport.Conn, error) {
 			return transport.Dial(ctx, dialOptions(cfg.Load(), key, serverKey, &protocol.HandshakeInit{CRHAVersion: version.Version}))
 		},
-		Facts:            func() protocol.Facts { return nodeFacts(cfg.Load()) },
+		Facts:            func() protocol.Facts { return nodeFacts(cfg.Load(), env) },
 		OutputDir:        first.Output.Dir,
 		PrivilegedMode:   first.Privilege.Mode,
 		PrivilegedSocket: first.Privilege.Socket,
 		NativePrefix:     nativeEscalation(first.Privilege.Native),
 		ClockWarn:        first.ClockWarn,
+		Env:              env,
 		Logger:           log,
 	})
 	outputDir, err := filepath.Abs(first.Output.Dir)
@@ -154,10 +166,20 @@ func dialOptions(cfg *config.Config, key identity.Keypair, serverKey []byte, ini
 	}
 }
 
-func nodeFacts(cfg *config.Config) protocol.Facts {
+// nodeFacts collects this node's facts; the shells are the ones the process discovered, since that
+// is what `shell` commands run on (doc/protocol.md Facts).
+func nodeFacts(cfg *config.Config, env *execenv.Environment) protocol.Facts {
 	f := facts.Collect()
-	f.NotesPath = cfg.Notes
+	if cfg.Notes != "" {
+		notes := cfg.Notes
+		f.NotesPath = &notes
+	}
 	f.Groups = cfg.Groups
+	f.Shells = &protocol.Shells{Sh: env.Shell}
+	if env.Bash != "" {
+		bash := env.Bash
+		f.Shells.Bash = &bash
+	}
 	return facts.Clean(f)
 }
 
@@ -229,6 +251,12 @@ run it from a terminal.`,
 // runPrivileged is `crha privileged run`: load the trust configuration, open the local log and
 // serve the socket until SIGINT/SIGTERM.
 func runPrivileged(ctx context.Context, configPath string) error {
+	// The privileged process resolves its own environment: the fixed PATH, root's identity and the
+	// shells it discovered. A failure keeps the privileged mode from starting at all.
+	env, err := resolveEnv(execenv.Options{Privileged: true})
+	if err != nil {
+		return err
+	}
 	cfg, err := privconfig.Load(configPath)
 	if err != nil {
 		return err
@@ -242,6 +270,7 @@ func runPrivileged(ctx context.Context, configPath string) error {
 		ConfigPath: configPath,
 		Version:    version.Version,
 		Log:        log,
+		Env:        env,
 		Logger:     slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	})
 	if err != nil {

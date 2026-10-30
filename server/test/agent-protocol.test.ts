@@ -40,6 +40,7 @@ const FACTS: Facts = {
 	notesPath: "/etc/crh-notes.md",
 	groups: ["sudo"],
 	clockOffsetMs: 12,
+	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
 };
 
 const HELLO = { tasks: [], taskKinds: [], privilegedMode: "" };
@@ -281,6 +282,18 @@ describe("agent wire protocol", () => {
 			return r?.facts ? r : undefined;
 		});
 		expect(JSON.parse(row.facts as string)).toEqual(factsToJson(FACTS));
+	});
+
+	it("accepts a facts event with only the required keys", async () => {
+		const { node, crha } = await connectActive();
+		const minimal: Facts = { hostname: "node-1", groups: ["sudo"] };
+		crha.peer.emit("facts", minimal);
+		const row = await waitFor("minimal facts stored", async () => {
+			const r = await db.selectFrom("nodes").select("facts").where("id", "=", node.id).executeTakeFirst();
+			return r?.facts ? r : undefined;
+		});
+		// Absent optional facts stay absent instead of being stored as nulls.
+		expect(JSON.parse(row.facts as string)).toEqual({ hostname: "node-1", groups: ["sudo"] });
 	});
 
 	it("sends the input only after task.start is accepted, then records the exit", async () => {

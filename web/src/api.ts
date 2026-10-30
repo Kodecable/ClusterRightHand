@@ -405,6 +405,13 @@ export interface TaskGroupView {
 	handlerSessionId?: string | null;
 }
 
+/** GET /approvals: waiting approvals, plus the tasks and groups waiting for this user's signature. */
+export interface ApprovalList {
+	tasks: TaskView[];
+	taskGroups: TaskGroupView[];
+	authorizations: { tasks: TaskView[]; taskGroups: TaskGroupView[] };
+}
+
 export interface Operation {
 	method: RuleMethod;
 	target: string;
@@ -581,6 +588,15 @@ export const api = {
 	createTask: (nodeId: string, body: TaskRequest) =>
 		request<{ task: TaskView }>("POST", `/nodes/${enc(nodeId)}/tasks`, body).then((r) => r.task),
 	getTask: (id: string) => request<{ task: TaskView }>("GET", `/tasks/${enc(id)}`).then((r) => r.task),
+	/** Every task on a node the user can see; tasks waiting for them come first (server order). */
+	listTasks: (q: { state?: string; nodeId?: string; actorType?: string; limit?: number; offset?: number } = {}) => {
+		const p = new URLSearchParams();
+		for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") p.set(k, String(v));
+		return request<{ tasks: TaskView[]; offset: number; limit: number; nextOffset: number | null }>(
+			"GET",
+			`/tasks?${p}`,
+		);
+	},
 	waitTask: (id: string, timeoutMs: number, signal?: AbortSignal) =>
 		request<{ task: TaskView }>("GET", `/tasks/${enc(id)}/wait?timeoutMs=${timeoutMs}`, undefined, signal).then(
 			(r) => r.task,
@@ -622,7 +638,8 @@ export const api = {
 	deleteApiToken: (id: string) => request<{ ok: true }>("DELETE", `/api-tokens/${enc(id)}`),
 	setTokenRules: (id: string, body: { preset?: Preset; rules?: Rule[] }) =>
 		request<{ apiToken: ApiTokenView }>("PUT", `/api-tokens/${enc(id)}/rules`, body).then((r) => r.apiToken),
-	listApprovals: () => request<{ tasks: TaskView[]; taskGroups: TaskGroupView[] }>("GET", "/approvals"),
+	/** Approvals this user handles, plus the tasks and groups that wait for their signature. */
+	listApprovals: () => request<ApprovalList>("GET", "/approvals"),
 	getTaskGroup: (id: string) =>
 		request<{ group: TaskGroupView }>("GET", `/task-groups/${enc(id)}`).then((r) => r.group),
 	decideTask: (id: string, body: ApprovalBody) => request<{ ok: true }>("POST", `/tasks/${enc(id)}/approval`, body),

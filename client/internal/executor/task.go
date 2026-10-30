@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
@@ -17,11 +18,13 @@ type Sink interface {
 
 // TaskOptions is the execution environment of one task. Privileged execution (the native helper and
 // the privileged daemon) fixes PATH and resolves file paths with openat2; unprivileged execution
-// keeps the process environment and the path-based file operations.
+// keeps the path-based file operations. Env is the environment the crha process resolved when it
+// started (doc/execution-plane.md#exec-的执行环境).
 type TaskOptions struct {
 	Timeout    time.Duration // exec timeout; 0 = none
 	KillGrace  time.Duration // SIGTERM-to-SIGKILL grace of exec; 0 = DefaultKillGrace
 	Privileged bool
+	Env        *execenv.Environment
 }
 
 // RunTask executes spec to completion and writes its output to out. The Result carries the outcome
@@ -33,7 +36,7 @@ func RunTask(ctx context.Context, spec *protocol.TaskSpec, in io.Reader, out Sin
 			return Result{Err: errf("invalid_spec", "exec task has no spec")}
 		}
 		return RunExec(ctx, spec.Exec, in, out, ExecOptions{
-			Timeout: opts.Timeout, KillGrace: opts.KillGrace, Privileged: opts.Privileged,
+			Timeout: opts.Timeout, KillGrace: opts.KillGrace, Privileged: opts.Privileged, Env: opts.Env,
 		})
 	}
 	var err error

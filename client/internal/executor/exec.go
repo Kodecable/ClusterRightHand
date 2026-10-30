@@ -6,12 +6,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"golang.org/x/sys/unix"
 )
@@ -19,10 +19,8 @@ import (
 // DefaultKillGrace is how long a process group gets between SIGTERM and SIGKILL.
 const DefaultKillGrace = 5 * time.Second
 
-// PrivilegedPath is the fixed PATH of privileged execution. It is not inherited from crha's
-// environment, so a bare command name always resolves the same way and a task cannot point PATH at
-// a binary of its own (doc/privilege.md "方法与目标").
-const PrivilegedPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+// PrivilegedPath is the fixed PATH of privileged execution, owned by the environment package.
+const PrivilegedPath = execenv.PrivilegedPath
 
 // pipeWait bounds how long we keep reading output after the main process exited, when a background
 // child still holds stdout or stderr open.
@@ -31,11 +29,15 @@ const pipeWait = 2 * time.Second
 type ExecOptions struct {
 	Timeout   time.Duration // 0 = none
 	KillGrace time.Duration // 0 = DefaultKillGrace
-	// Privileged selects the privileged execution environment: a fixed PATH, the task's env applied
-	// on top of it instead of crha's environment, and bare command names resolved against
-	// PrivilegedPath. The caller is responsible for the target identity; this option does not
-	// change the uid the process runs as.
+	// Privileged selects the privileged execution environment: a fixed PATH, the root identity and
+	// the task's env applied on top of it instead of crha's environment, with bare command names
+	// resolved against PrivilegedPath. The caller is responsible for the target identity; this option
+	// does not change the uid the process runs as.
 	Privileged bool
+	// Env is the environment resolved when the crha process started (execenv.Resolve). nil resolves
+	// it for this task, which only tests and programmatic callers do: the modes themselves resolve at
+	// start and let a failure end the process (doc/execution-plane.md#exec-的执行环境).
+	Env *execenv.Environment
 }
 
 // Result is the outcome of a finished task.
@@ -50,7 +52,15 @@ type Result struct {
 // RunExec runs an exec task in its own process group. Cancelling ctx (crhs's TaskCancel) or the timeout
 // sends SIGTERM to the group, then SIGKILL after the grace period.
 func RunExec(ctx context.Context, spec *protocol.ExecSpec, stdin io.Reader, out Sink, opts ExecOptions) Result {
-	argv, err := execArgv(spec)
+	environment := opts.Env
+	if environment == nil {
+		resolved, err := execenv.Resolve(execenv.Options{Privileged: opts.Privileged})
+		if err != nil {
+			return Result{Err: &Error{Code: "internal_error", Message: err.Error()}}
+		}
+		environment = resolved
+	}
+	argv, err := execArgv(spec, environment.Shell)
 	if err != nil {
 		return Result{Err: err}
 	}
@@ -63,18 +73,13 @@ func RunExec(ctx context.Context, spec *protocol.ExecSpec, stdin io.Reader, out 
 	}
 
 	name := argv[0]
-	var env []string
+	env, err := taskEnv(environment, spec.Env, opts.Privileged)
+	if err != nil {
+		return Result{Err: err}
+	}
 	if opts.Privileged {
-		if env, err = privilegedEnv(spec.Env); err != nil {
-			return Result{Err: err}
-		}
 		if name, err = resolvePrivileged(argv[0]); err != nil {
 			return Result{Err: err}
-		}
-	} else {
-		env = os.Environ()
-		for k, v := range spec.Env {
-			env = append(env, k+"="+v)
 		}
 	}
 
@@ -139,28 +144,46 @@ func RunExec(ctx context.Context, spec *protocol.ExecSpec, stdin io.Reader, out 
 	}
 }
 
-// privilegedEnv builds the environment of a privileged task: the fixed PATH plus the task's own
-// variables, never PATH from the task. Variables are sorted so the environment does not depend on
-// map iteration order.
-func privilegedEnv(taskEnv map[string]string) ([]string, *Error) {
-	env := make([]string, 0, len(taskEnv)+1)
-	env = append(env, "PATH="+PrivilegedPath)
-	keys := make([]string, 0, len(taskEnv))
-	for k, v := range taskEnv {
+// taskEnv builds the environment of one task from the resolved environment and the task's own
+// variables (doc/execution-plane.md#exec-的执行环境). A privileged task keeps the fixed PATH and never
+// receives crha's own CRHA_TASK_* variables; a non-privileged task may override everything, PATH
+// included. Variables are sorted so the environment does not depend on map iteration order.
+func taskEnv(environment *execenv.Environment, extra map[string]string, privileged bool) ([]string, *Error) {
+	values := map[string]string{
+		"PATH":    environment.Path,
+		"HOME":    environment.Home,
+		"USER":    environment.User,
+		"LOGNAME": environment.Logname,
+		"SHELL":   environment.Shell,
+		"LANG":    execenv.Locale,
+		"LC_ALL":  execenv.Locale,
+	}
+	if privileged {
+		values["PATH"] = PrivilegedPath
+	}
+	for k, v := range extra {
 		if k == "" || strings.ContainsAny(k, "=\x00") {
 			return nil, errf("invalid_spec", "invalid environment variable name %q", k)
 		}
 		if strings.ContainsRune(v, 0) {
 			return nil, errf("invalid_spec", "environment variable %q contains a NUL byte", k)
 		}
-		if k == "PATH" {
+		if execenv.IsOverride(k) {
+			continue // crha's own variables never reach a task
+		}
+		if privileged && k == "PATH" {
 			continue // the fixed PATH always wins
 		}
+		values[k] = v
+	}
+	keys := make([]string, 0, len(values))
+	for k := range values {
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
+	env := make([]string, 0, len(keys))
 	for _, k := range keys {
-		env = append(env, k+"="+taskEnv[k])
+		env = append(env, k+"="+values[k])
 	}
 	return env, nil
 }
@@ -171,18 +194,17 @@ func resolvePrivileged(name string) (string, *Error) {
 	if strings.ContainsRune(name, '/') {
 		return name, nil
 	}
-	for _, dir := range filepath.SplitList(PrivilegedPath) {
-		candidate := filepath.Join(dir, name)
-		fi, err := os.Stat(candidate)
-		if err != nil || fi.IsDir() || fi.Mode()&0o111 == 0 {
-			continue
-		}
-		return candidate, nil
+	found, err := execenv.LookPathIn(PrivilegedPath, name)
+	if err != nil {
+		return "", errf("not_found", "executable %q not found in PATH", name)
 	}
-	return "", errf("not_found", "executable %q not found in PATH", name)
+	return found, nil
 }
 
-func execArgv(spec *protocol.ExecSpec) ([]string, *Error) {
+// execArgv returns the argv of the task. A `shell` command runs on the shell this node discovered
+// (doc/execution-plane.md#exec-的执行环境); authorization, rule matching and display keep rendering it
+// as /bin/sh -c, which is done by those layers, not here.
+func execArgv(spec *protocol.ExecSpec, sh string) ([]string, *Error) {
 	cmd := spec.Command
 	switch {
 	case len(cmd.Argv) > 0 && cmd.Shell != "":
@@ -196,7 +218,7 @@ func execArgv(spec *protocol.ExecSpec) ([]string, *Error) {
 		if cmd.Shell == "" {
 			return nil, &Error{Code: "invalid_spec", Message: "shell must not be empty"}
 		}
-		return []string{"/bin/sh", "-c", cmd.Shell}, nil
+		return []string{sh, "-c", cmd.Shell}, nil
 	default:
 		return nil, &Error{Code: "invalid_spec", Message: "command must be argv or shell"}
 	}

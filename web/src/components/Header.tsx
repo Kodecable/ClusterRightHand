@@ -2,12 +2,16 @@ import { useEffect, useState } from "react";
 import { api } from "../api.ts";
 import { useUser } from "../auth.tsx";
 import { useLoad, usePolling } from "../hooks.ts";
+import { pendingCount } from "../lib.ts";
 import { APP_NAME } from "../meta.ts";
 import { ChangePassword } from "./ChangePassword.tsx";
 
 const APPROVALS_CHANGED = "crh:approvals-changed";
 
-/** Number of tool calls waiting for the user's approval; refreshed every 10 s and after decisions. */
+/**
+ * Number of requests waiting for the user: approvals it handles, plus the tasks and groups that wait
+ * for its signature (doc/privilege.md). Refreshed every 10 s and after decisions.
+ */
 function usePendingCount(path: string): number {
 	const { data, reload } = useLoad(() => api.listApprovals(), []);
 	usePolling(reload, 10_000);
@@ -17,7 +21,7 @@ function usePendingCount(path: string): number {
 		window.addEventListener(APPROVALS_CHANGED, reload);
 		return () => window.removeEventListener(APPROVALS_CHANGED, reload);
 	}, [reload]);
-	return (data?.tasks.length ?? 0) + (data?.taskGroups.length ?? 0);
+	return pendingCount(data);
 }
 
 export function Header({ route, onLogout }: { route: string[]; onLogout: () => void }) {
@@ -42,6 +46,9 @@ export function Header({ route, onLogout }: { route: string[]; onLogout: () => v
 				</a>
 				<a href="#/nodes" aria-current={route[0] === "nodes" || !route[0] ? "page" : undefined}>
 					Nodes
+				</a>
+				<a href="#/tasks" aria-current={route[0] === "tasks" || route[0] === "task-groups" ? "page" : undefined}>
+					Tasks
 				</a>
 				<a href="#/batch" aria-current={route[0] === "batch" ? "page" : undefined}>
 					Batch

@@ -130,5 +130,6 @@
   - native / ignore / reject / forward 四种处理方式；crha 特权模式（信任配置、授权与联署校验、已用列表、吊销、本地批准、本地日志）；crhs 签名、信任缓存、方案预演与 fallback；用户 SSH key（`crha grant`）与 Passkey 签名、授权等待页、复用、任务组一次签名；吊销页；`clock_warn`。
   - 测试：Go/TS 共享测试向量与授权判定用例；单元与集成测试；真实 crha e2e；podman e2e 矩阵 11 项全部通过（`CRH_TEST_PODMAN=1 pnpm --filter @crh/server test:m4`，真实 sudo / doas / sshd / 特权模式进程）。
   - 独立安全审计（无上下文的审计 agent）发现 9 项问题，已全部修复并补负向测试：特权 exec 的 stdin 先落盘校验再启动进程；本地批准绑定规格哈希；一次性授权的 `task_ids` 与 `nodes` 按位置绑定；native 丢失 `task.start` 响应按已接受处理；setuid 等权限位、FIFO、吊销保留期、待批准上限、写坏的状态文件末行；另修正防护规则正则的括号注入，迁移 0024 把 M4 之前的规则设为 `privileged = false`。
+  - 人工验收后的修正（2026-10-31）：exec 不再透传 crha 自身的环境，按运行账户设置 `HOME`/`USER`/`LOGNAME`，`SHELL` 和执行 `cmd` 用的 sh 从 `/etc/shells` 或 PATH 发现，`LANG`/`LC_ALL=C.UTF-8`，`CRHA_TASK_*` 覆盖；SSH 节点按连接探测 sh/bash；`Facts` 改为文本键 map 并上报 `shells`；WebUI 增加任务页、审批页的"等待你签名"、会话工具卡片的签名提示。
   - 未完成：Passkey 只用软件认证器测过，未在真实设备上验证 COSE 算法；`crha grant` 未用加密私钥、ssh-agent、FIDO 硬件 key 实测；run0 未验证（实验性）；podman e2e 未进 CI。
   - 已知问题：crhs 签名路径创建特权任务时，`POST /api/nodes/:id/tasks` 会等节点对 `task.start` 的响应，特权模式卡住时最多阻塞约 30 秒，超过调用方的 `waitMs`。

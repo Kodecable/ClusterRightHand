@@ -18,6 +18,7 @@ const FACTS: Facts = {
 	notesPath: "/etc/notes",
 	groups: ["sudo"],
 	clockOffsetMs: 0,
+	shells: { sh: "/bin/sh", bash: null },
 };
 
 const TASK_START: TaskStart = {

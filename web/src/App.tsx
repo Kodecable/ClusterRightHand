@@ -14,7 +14,9 @@ import { NodeDetail } from "./pages/NodeDetail.tsx";
 import { Nodes } from "./pages/Nodes.tsx";
 import { SessionPage } from "./pages/SessionPage.tsx";
 import { Sessions } from "./pages/Sessions.tsx";
+import { TaskGroupPage } from "./pages/TaskGroupPage.tsx";
 import { TaskPage } from "./pages/TaskPage.tsx";
+import { Tasks } from "./pages/Tasks.tsx";
 import { Tokens } from "./pages/Tokens.tsx";
 import { Users } from "./pages/Users.tsx";
 import { navigate, parseHash, useRoute } from "./router.ts";
@@ -55,6 +57,8 @@ export function App() {
 	else if (section === "settings" && id === "models")
 		page = auth.user.kind === "admin" ? <ModelSettings /> : <p className="error">Administrators only.</p>;
 	else if (section === "tasks" && id) page = <TaskPage key={id} id={id} />;
+	else if (section === "tasks") page = <Tasks />;
+	else if (section === "task-groups" && id) page = <TaskGroupPage key={id} id={id} />;
 	else if (section === "batch") page = <Batch />;
 	else if (section === "credentials") page = <Credentials />;
 	else if (section === "authorizations") page = <Authorizations />;
