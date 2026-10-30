@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -59,7 +60,7 @@ func TestLocalApprovalFlow(t *testing.T) {
 		t.Fatalf("pending target = %s %q, %v", method, target, err)
 	}
 
-	if err := local.Approve(ctx, "local-1", 1, ""); err != nil {
+	if err := local.Approve(ctx, "local-1", 1, specHash(t, &ts.Spec), ""); err != nil {
 		t.Fatalf("local.approve: %v", err)
 	}
 	decision := forward.waitDecision(10 * time.Second)
@@ -104,7 +105,7 @@ func TestLocalApprovalSpecChangeRefused(t *testing.T) {
 		t.Fatalf("local dial: %v", err)
 	}
 	defer local.Close()
-	if err := local.Approve(ctx, "local-2", 1, ""); err != nil {
+	if err := local.Approve(ctx, "local-2", 1, specHash(t, &ts.Spec), ""); err != nil {
 		t.Fatalf("local.approve: %v", err)
 	}
 	forward.waitDecision(10 * time.Second)
@@ -141,7 +142,7 @@ func TestLocalDeny(t *testing.T) {
 		t.Fatalf("local dial: %v", err)
 	}
 	defer local.Close()
-	if err := local.Deny(ctx, "local-3", 1, "not now"); err != nil {
+	if err := local.Deny(ctx, "local-3", 1, specHash(t, &ts.Spec), "not now"); err != nil {
 		t.Fatalf("local.deny: %v", err)
 	}
 	decision := forward.waitDecision(10 * time.Second)
@@ -152,7 +153,7 @@ func TestLocalDeny(t *testing.T) {
 
 	// A second, conflicting decision is refused.
 	var remote *protocol.RemoteError
-	if err := local.Approve(ctx, "local-3", 1, ""); err == nil || !errors.As(err, &remote) || remote.Code != "already_decided" {
+	if err := local.Approve(ctx, "local-3", 1, specHash(t, &ts.Spec), ""); err == nil || !errors.As(err, &remote) || remote.Code != "already_decided" {
 		t.Fatalf("approve after deny = %v", err)
 	}
 }
@@ -185,7 +186,7 @@ func TestLocalWithdraw(t *testing.T) {
 	}
 	// Approving a withdrawn request is unknown.
 	var remote *protocol.RemoteError
-	if err := local.Approve(ctx, "local-4", 1, ""); err == nil || !errors.As(err, &remote) || remote.Code != "unknown_task" {
+	if err := local.Approve(ctx, "local-4", 1, specHash(t, &ts.Spec), ""); err == nil || !errors.As(err, &remote) || remote.Code != "unknown_task" {
 		t.Fatalf("approve after withdraw = %v", err)
 	}
 }
@@ -239,4 +240,159 @@ func TestLocalRevoke(t *testing.T) {
 	if !found {
 		t.Fatalf("no revocations.added record in %v", records)
 	}
+}
+
+// TestLocalApprovalSwappedSpecRefused covers the binding between a local verdict and the spec
+// the approver saw: after crhs withdraws the request and asks again with a different spec, the
+// approval that carries the old hash is refused (doc/privilege.md 本地批准).
+func TestLocalApprovalSwappedSpecRefused(t *testing.T) {
+	keys := newTestKeys(t)
+	env := localEnv(t, keys)
+	forward := dialForward(t, env.paths.Socket)
+	ctx := requestContext(t)
+
+	shown := execTask("local-swap", 1, "/bin/echo", "shown")
+	if _, err := forward.localRequest(ctx, protocol.LocalRequest{
+		TaskID: "local-swap", Attempt: 1, Spec: shown.Spec,
+	}); err != nil {
+		t.Fatalf("local.request: %v", err)
+	}
+	local, err := localclient.Dial(ctx, env.paths.Socket, "test")
+	if err != nil {
+		t.Fatalf("local dial: %v", err)
+	}
+	defer local.Close()
+	entries, err := local.Pending(ctx)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("pending.list = %+v, %v", entries, err)
+	}
+	shownHash, err := protocol.SpecSHA256(&entries[0].Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The task is re-planned: the request is withdrawn and the same key asks for another spec.
+	if err := forward.withdrawLocal(ctx, "local-swap", 1); err != nil {
+		t.Fatalf("local.withdraw: %v", err)
+	}
+	swapped := execTask("local-swap", 1, "/bin/echo", "swapped")
+	if _, err := forward.localRequest(ctx, protocol.LocalRequest{
+		TaskID: "local-swap", Attempt: 1, Spec: swapped.Spec,
+	}); err != nil {
+		t.Fatalf("second local.request: %v", err)
+	}
+	// The hash of the spec that was shown no longer matches the pending record.
+	remote := expectRemoteCode(t, local.Approve(ctx, "local-swap", 1, shownHash, ""), "invalid_spec")
+	if remote.Message == "" {
+		t.Fatal("the refusal has no message")
+	}
+	// Nothing was approved: the task cannot run yet.
+	expectRemoteCode(t, forward.start(ctx, swapped), "authorization_required")
+	// The hash of the pending spec is accepted, and the approval covers exactly that spec.
+	if err := local.Approve(ctx, "local-swap", 1, specHash(t, &swapped.Spec), ""); err != nil {
+		t.Fatalf("local.approve with the current hash: %v", err)
+	}
+	decision := forward.waitDecision(10 * time.Second)
+	if decision.State.Kind != protocol.LocalStateApproved {
+		t.Fatalf("local.decision = %+v", decision)
+	}
+	expectRemoteCode(t, forward.start(ctx, shown), "authorization_rejected")
+	if err := forward.start(ctx, swapped); err != nil {
+		t.Fatalf("task.start of the approved spec: %v", err)
+	}
+	if exit := forward.waitExit(15 * time.Second); exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
+		t.Fatalf("task.exit = %+v", exit)
+	}
+}
+
+// TestLocalDenySwappedSpecRefused covers the same binding on the deny path.
+func TestLocalDenySwappedSpecRefused(t *testing.T) {
+	keys := newTestKeys(t)
+	env := localEnv(t, keys)
+	forward := dialForward(t, env.paths.Socket)
+	ctx := requestContext(t)
+
+	shown := execTask("local-deny-swap", 1, "/bin/echo", "shown")
+	if _, err := forward.localRequest(ctx, protocol.LocalRequest{
+		TaskID: "local-deny-swap", Attempt: 1, Spec: shown.Spec,
+	}); err != nil {
+		t.Fatalf("local.request: %v", err)
+	}
+	local, err := localclient.Dial(ctx, env.paths.Socket, "test")
+	if err != nil {
+		t.Fatalf("local dial: %v", err)
+	}
+	defer local.Close()
+	shownHash, err := protocol.SpecSHA256(&shown.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := forward.withdrawLocal(ctx, "local-deny-swap", 1); err != nil {
+		t.Fatalf("local.withdraw: %v", err)
+	}
+	swapped := execTask("local-deny-swap", 1, "/bin/echo", "swapped")
+	if _, err := forward.localRequest(ctx, protocol.LocalRequest{
+		TaskID: "local-deny-swap", Attempt: 1, Spec: swapped.Spec,
+	}); err != nil {
+		t.Fatalf("second local.request: %v", err)
+	}
+	expectRemoteCode(t, local.Deny(ctx, "local-deny-swap", 1, shownHash, "no"), "invalid_spec")
+	if err := local.Deny(ctx, "local-deny-swap", 1, specHash(t, &swapped.Spec), "not today"); err != nil {
+		t.Fatalf("local.deny with the current hash: %v", err)
+	}
+	decision := forward.waitDecision(10 * time.Second)
+	if decision.State.Kind != protocol.LocalStateDenied || decision.State.Message != "not today" {
+		t.Fatalf("local.decision = %+v", decision)
+	}
+	expectRemoteCode(t, forward.start(ctx, swapped), "authorization_required")
+}
+
+// TestLocalApprovalCap bounds the pending and approved requests a compromised crhs can make:
+// beyond the cap a new local.request is refused, and a decided record frees a slot.
+func TestLocalApprovalCap(t *testing.T) {
+	keys := newTestKeys(t)
+	env := localEnv(t, keys)
+	server := env.server
+	spec := execTask("over-cap", 1, "/bin/echo", "over").Spec
+	hash, err := protocol.SpecSHA256(&spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	server.approvalMu.Lock()
+	for i := 0; i < maxApprovals; i++ {
+		key := approvalKey{taskID: fmt.Sprintf("fill-%d", i), attempt: 1}
+		server.approvals[key] = &approval{
+			localRequest: localRequest{taskID: key.taskID, attempt: 1, spec: spec, specHash: hash, receivedAt: now},
+			state:        protocol.LocalState{Kind: protocol.LocalStatePending},
+		}
+	}
+	server.approvalMu.Unlock()
+
+	_, refusal := server.requestLocal(&protocol.LocalRequest{TaskID: "over-cap", Attempt: 1, Spec: spec})
+	if refusal == nil || refusal.Code != "privileged_unavailable" {
+		t.Fatalf("local.request at the cap = %+v, want privileged_unavailable", refusal)
+	}
+	// A repeated request for a key that is already pending stays idempotent.
+	if _, refusal := server.requestLocal(&protocol.LocalRequest{TaskID: "fill-0", Attempt: 1, Spec: spec}); refusal != nil {
+		t.Fatalf("repeated local.request at the cap = %+v", refusal)
+	}
+	// A denied record is no live approval; it must not keep the cap full.
+	server.approvalMu.Lock()
+	server.approvals[approvalKey{taskID: "fill-0", attempt: 1}].state = protocol.LocalState{Kind: protocol.LocalStateDenied}
+	server.approvalMu.Unlock()
+	state, refusal := server.requestLocal(&protocol.LocalRequest{TaskID: "over-cap", Attempt: 1, Spec: spec})
+	if refusal != nil || state.Kind != protocol.LocalStatePending {
+		t.Fatalf("local.request after a denial = %+v, %+v", state, refusal)
+	}
+}
+
+// specHash computes the spec hash a local approval is bound to, exactly as the daemon does.
+func specHash(t *testing.T, spec *protocol.TaskSpec) [32]byte {
+	t.Helper()
+	hash, err := protocol.SpecSHA256(spec)
+	if err != nil {
+		t.Fatalf("spec hash: %v", err)
+	}
+	return hash
 }

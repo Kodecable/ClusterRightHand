@@ -55,8 +55,9 @@ type nativeConn struct {
 }
 
 // startNative spawns the helper through the escalation tool, completes the crh-priv handshake and
-// sends it the task.start, all within the native timeout. The task is only accepted by the agent
-// when the helper accepted it.
+// sends it the task.start, all within the native timeout. The agent accepts the task unless the
+// helper refused it: a response lost after acceptance must not make crhs retry a task that may
+// have run (doc/protocol.md crh-priv 断开).
 func (a *Agent) startNative(ts *protocol.TaskStart) (*nativeConn, error) {
 	argv, err := a.nativeArgv()
 	if err != nil {
@@ -121,8 +122,19 @@ func (a *Agent) startNative(ts *protocol.TaskStart) (*nativeConn, error) {
 	defer cancel()
 	var empty protocol.Empty
 	if err := peer.Request(startCtx, protocol.CmdTaskStart, *ts, &empty); err != nil {
-		n.abort()
-		return nil, nativeFailure(argv, stderr, err)
+		var remote *protocol.RemoteError
+		if errors.As(err, &remote) {
+			n.abort()
+			return nil, nativeFailure(argv, stderr, err)
+		}
+		// The helper may have accepted the task before the response was lost (a timeout, a broken
+		// stream), and it runs an accepted task even when its stdin closes (doc/protocol.md
+		// crh-priv 断开). Refusing it here would let crhs retry a task that may have run, so keep
+		// the helper and report the task accepted; nativeRun delivers its events or ends it with
+		// helper_lost.
+		n.log.Warn("the native helper did not answer task.start; treating the task as accepted",
+			"task", ts.TaskID, "err", err)
+		return n, nil
 	}
 	return n, nil
 }

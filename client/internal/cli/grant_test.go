@@ -72,7 +72,7 @@ func TestGrantBuildPayload(t *testing.T) {
 	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	hash := strings.Repeat("ab", 32)
 	opts := &grantOptions{
-		nodes:      []string{"node-1", "group:web"},
+		nodes:      []string{"node-1", "node-2"},
 		method:     "exec",
 		exact:      "systemctl restart nginx",
 		specSHA256: hash,
@@ -144,6 +144,10 @@ func TestGrantBuildPayload(t *testing.T) {
 		{"bad method", grantOptions{nodes: []string{"n"}, method: "run", exact: "x", specSHA256: hash, key: "k"}, "is not exec"},
 		{"bad hash", grantOptions{nodes: []string{"n"}, method: "exec", exact: "x", specSHA256: "zz", key: "k"}, "32 bytes of hex"},
 		{"task without deadline", grantOptions{nodes: []string{"n"}, anyCommand: true, tasks: []string{"t"}, key: "k"}, "requires --deadline"},
+		{"task with a group node", grantOptions{nodes: []string{"group:web"}, anyCommand: true, deadline: "1h", tasks: []string{"t"}, key: "k"}, "needs node ids"},
+		{"task with a star node", grantOptions{nodes: []string{"*"}, anyCommand: true, deadline: "1h", tasks: []string{"t"}, key: "k"}, "needs node ids"},
+		{"task with too few nodes", grantOptions{nodes: []string{"n"}, anyCommand: true, deadline: "1h", tasks: []string{"t1", "t2"}, key: "k"}, "one --nodes node id per task"},
+		{"task with too many nodes", grantOptions{nodes: []string{"n1", "n2"}, anyCommand: true, deadline: "1h", tasks: []string{"t"}, key: "k"}, "one --nodes node id per task"},
 		{"attempt without task", grantOptions{nodes: []string{"n"}, anyCommand: true, attempt: 2, key: "k"}, "--attempt requires --task"},
 		{"deadline in the past", grantOptions{nodes: []string{"n"}, anyCommand: true,
 			deadline: time.Now().Add(-time.Hour).Format(time.RFC3339), key: "k"}, "in the past"},
@@ -198,6 +202,63 @@ func TestGrantPayloadMode(t *testing.T) {
 	}
 	if _, _, err := grantPayloadOf(t, base64.StdEncoding.EncodeToString([]byte{1, 2, 3})); err == nil {
 		t.Fatal("invalid payload accepted")
+	}
+}
+
+// TestGrantPayloadOneShotNodes covers the per-position node binding of a one-shot payload given
+// as base64: a group, "*" or a length mismatch is refused (doc/protocol.md 授权对象).
+func TestGrantPayloadOneShotNodes(t *testing.T) {
+	attempt := protocol.Uint(1)
+	for _, tc := range []struct {
+		name  string
+		nodes []string
+		tasks []string
+		want  string
+	}{
+		{"group", []string{"group:web"}, []string{"t1"}, "needs node ids"},
+		{"star", []string{"*"}, []string{"t1"}, "needs node ids"},
+		{"short", []string{"n1"}, []string{"t1", "t2"}, "one --nodes node id per task"},
+		{"long", []string{"n1", "n2"}, []string{"t1"}, "one --nodes node id per task"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			taskIDs := append([]string{}, tc.tasks...)
+			payload := &protocol.AuthorizationPayload{
+				V:          protocol.AuthPayloadVersion,
+				Nodes:      tc.nodes,
+				IssuedAtMS: protocol.Int(1700000000000),
+				TaskIDs:    &taskIDs,
+				Attempt:    &attempt,
+			}
+			raw, err := protocol.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := grantPayloadOf(t, base64.StdEncoding.EncodeToString(raw)); err == nil {
+				t.Fatalf("accepted a one-shot payload with %s", tc.name)
+			} else if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error %q does not contain %q", err, tc.want)
+			}
+		})
+	}
+	// The aligned multi-node payload is accepted and keeps its bytes.
+	taskIDs := []string{"t1", "t2"}
+	payload := &protocol.AuthorizationPayload{
+		V:          protocol.AuthPayloadVersion,
+		Nodes:      []string{"n1", "n2"},
+		IssuedAtMS: protocol.Int(1700000000000),
+		TaskIDs:    &taskIDs,
+		Attempt:    &attempt,
+	}
+	raw, err := protocol.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, gotRaw, err := grantPayloadOf(t, base64.StdEncoding.EncodeToString(raw))
+	if err != nil {
+		t.Fatalf("aligned payload refused: %v", err)
+	}
+	if !bytes.Equal(gotRaw, raw) || len(*got.TaskIDs) != 2 {
+		t.Fatalf("payload = %+v", got)
 	}
 }
 
@@ -412,7 +473,7 @@ func TestGrantLongFlags(t *testing.T) {
 	useSSHKeygen(t, "ssh-keygen")
 
 	stdout, _, err := runCLI(t, "grant",
-		"--nodes", "node-1", "--nodes", "group:web",
+		"--nodes", "node-1", "--nodes", "node-2",
 		"--method", "exec", "--prefix", "systemctl restart ",
 		"--task", "task-1", "--task", "task-2", "--attempt", "2",
 		"--deadline", "30m",

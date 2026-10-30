@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -28,6 +29,12 @@ const OutputChunk = 32 << 10
 // emptyInputHash is the SHA-256 of empty input, which an InputRef of size 0 must declare.
 var emptyInputHash = protocol.Hash(sha256.Sum256(nil))
 
+// Errors that end a task before its process starts.
+var (
+	errInputCancelled = errors.New("the task was cancelled before its input was complete")
+	errInputTimeout   = errors.New("the task timed out before its input was complete")
+)
+
 // Emit sends one task.output chunk. The offset is the stream offset of the first byte of
 // data. An error means nobody is left to receive the output; the task keeps running and the
 // caller records its outcome in the local log.
@@ -38,10 +45,20 @@ type Task struct {
 	id    string
 	start protocol.TaskStart
 	sink  *streamSink
-	in    *executor.Input
-	ctx   context.Context
-	abort context.CancelFunc
-	done  chan struct{}
+	// in is the streaming input of a file.write task, which the file task itself verifies
+	// before publishing the file. It is nil for an exec task.
+	in *executor.Input
+	// spool is the private temporary file that collects the stdin of a privileged exec task.
+	// The process only starts with it as stdin once the input matched its declared size and
+	// SHA-256, so a compromised crhs cannot have a different chunk read by the process
+	// (doc/privilege.md 执行环境).
+	spool     *os.File
+	spoolPath string
+	// inputReady is closed once the declared input was received completely and verified.
+	inputReady chan struct{}
+	ctx        context.Context
+	abort      context.CancelFunc
+	done       chan struct{}
 
 	mu        sync.Mutex
 	inputOff  uint64
@@ -78,10 +95,30 @@ func New(ts protocol.TaskStart, emit Emit) (*Task, error) {
 	t := &Task{id: ts.TaskID, start: ts, ctx: ctx, abort: cancel, done: make(chan struct{})}
 	t.sink = newStreamSink(emit)
 	if ref := inputRef(&ts.Spec); ref != nil {
-		t.in = executor.NewInput()
 		t.inputSize, t.inputHash, t.hasher = uint64(ref.Size), ref.SHA256, sha256.New()
-		if ref.Size == 0 {
-			t.in.Close()
+		switch {
+		case ts.Spec.Kind == protocol.TaskSpecFileWrite:
+			t.in = executor.NewInput()
+			if ref.Size == 0 {
+				t.in.Close()
+			}
+		default:
+			// os.CreateTemp creates the file with O_EXCL and mode 0600 in a private directory;
+			// the contents are only ever read back through this fd. The file is removed once
+			// the task ends, and a task whose input never completes never starts.
+			spool, err := os.CreateTemp("", "crh-stdin-")
+			if err != nil {
+				cancel()
+				return nil, &protocol.RemoteError{
+					Code:    "internal_error",
+					Message: "spool the task input: " + err.Error(),
+				}
+			}
+			t.spool, t.spoolPath = spool, spool.Name()
+			t.inputReady = make(chan struct{})
+			if ref.Size == 0 {
+				close(t.inputReady)
+			}
 		}
 	}
 	return t, nil
@@ -120,11 +157,7 @@ func (t *Task) Done() <-chan struct{} { return t.done }
 // execute runs the task with the privileged executor and streams its outcome. t.startOnce
 // guarantees no task event can precede the task.start success response.
 func (t *Task) execute() *protocol.TaskExit {
-	res := executor.RunTask(t.ctx, &t.start.Spec, t.reader(), t.sink, executor.TaskOptions{
-		Timeout:    time.Duration(t.start.TimeoutMS) * time.Millisecond,
-		KillGrace:  time.Duration(t.start.KillGraceMS) * time.Millisecond,
-		Privileged: true,
-	})
+	res := t.run()
 	t.sink.Close()
 	exit := &protocol.TaskExit{
 		TaskID:    t.id,
@@ -148,12 +181,103 @@ func (t *Task) execute() *protocol.TaskExit {
 	return exit
 }
 
-// reader returns the task's stdin/content reader, or nil when the task declares no input.
-func (t *Task) reader() io.Reader {
-	if t.in == nil {
-		return nil
+// run waits for the declared stdin of a privileged exec task and then runs the task. The
+// process must not read the input before its size and SHA-256 were verified, so the chunks are
+// spooled to a temporary file and the process only starts with that file as stdin.
+func (t *Task) run() executor.Result {
+	timeout := time.Duration(t.start.TimeoutMS) * time.Millisecond
+	started := time.Now()
+	var deadline <-chan time.Time
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		deadline = timer.C
 	}
-	return t.in
+	if t.spool != nil {
+		// The spool is removed however the task ends, including a cancel or timeout while the
+		// input was still incomplete and a task whose process never started.
+		defer func() {
+			_ = t.spool.Close()
+			_ = os.Remove(t.spoolPath)
+		}()
+		if err := t.awaitInput(deadline); err != nil {
+			return t.beforeStart(err)
+		}
+		// The timeout covers waiting for the input too; hand the process what is left of it.
+		if timeout > 0 {
+			if timeout -= time.Since(started); timeout <= 0 {
+				return t.beforeStart(errInputTimeout)
+			}
+		}
+		if _, err := t.spool.Seek(0, io.SeekStart); err != nil {
+			return executor.Result{Err: &executor.Error{Code: "io_error", Message: "rewind the task input: " + err.Error()}}
+		}
+	}
+	return executor.RunTask(t.ctx, &t.start.Spec, t.reader(), t.sink, executor.TaskOptions{
+		Timeout:    timeout,
+		KillGrace:  time.Duration(t.start.KillGraceMS) * time.Millisecond,
+		Privileged: true,
+	})
+}
+
+// awaitInput blocks until the spooled input is complete and verified, the task is cancelled or
+// the timeout expires. An input failure (input_mismatch, input_incomplete) stays in t.inputErr
+// and is reported by execute; the sentinel errors cover a task that ended before its input.
+func (t *Task) awaitInput(deadline <-chan time.Time) error {
+	select {
+	case <-t.inputReady:
+		return nil
+	default:
+	}
+	for {
+		select {
+		case <-t.inputReady:
+			return nil
+		case <-t.ctx.Done():
+			t.mu.Lock()
+			inputErr := t.inputErr
+			t.mu.Unlock()
+			if inputErr != nil {
+				return errors.New(inputErr.Message)
+			}
+			return errInputCancelled
+		case <-deadline:
+			return errInputTimeout
+		}
+	}
+}
+
+// beforeStart builds the result of a task whose process must not start. An input failure keeps
+// its error for execute to apply; a cancel or timeout is reported with its own outcome.
+func (t *Task) beforeStart(err error) executor.Result {
+	t.mu.Lock()
+	failed := t.inputErr != nil
+	t.mu.Unlock()
+	if failed {
+		return executor.Result{}
+	}
+	if errors.Is(err, errInputCancelled) {
+		return executor.Result{
+			Cancelled: true,
+			Err:       &executor.Error{Code: "cancelled", Message: err.Error()},
+		}
+	}
+	return executor.Result{
+		TimedOut: true,
+		Err:      &executor.Error{Code: "timeout", Message: err.Error()},
+	}
+}
+
+// reader returns the task's stdin/content reader: the spooled stdin of an exec task (already
+// rewound) or the streaming content of a file.write task, and nil when the task has no input.
+func (t *Task) reader() io.Reader {
+	if t.in != nil {
+		return t.in
+	}
+	if t.spool != nil {
+		return t.spool
+	}
+	return nil
 }
 
 // Input applies one task.input chunk and returns the command's response body. The error codes
@@ -176,7 +300,7 @@ func (t *Task) Input(in protocol.TaskInput) (any, error) {
 			Message: fmt.Sprintf("task %s input offset %d, want %d", in.TaskID, in.Offset, t.inputOff),
 		}
 	}
-	if t.in == nil || t.inputOff >= t.inputSize {
+	if t.inputOff >= t.inputSize {
 		if len(in.Data) == 0 {
 			return protocol.Empty{}, nil
 		}
@@ -190,14 +314,32 @@ func (t *Task) Input(in protocol.TaskInput) (any, error) {
 	}
 	t.inputOff += uint64(len(in.Data))
 	_, _ = t.hasher.Write(in.Data)
+	if t.spool != nil {
+		if _, err := t.spool.Write(in.Data); err != nil {
+			// The spool is gone once the task ended or was aborted; a late chunk has nowhere to
+			// go and must not replace the task's outcome.
+			if !t.finished && t.inputErr == nil && t.ctx.Err() == nil {
+				t.failInputLocked("io_error", "spool the task input: "+err.Error())
+			}
+			return protocol.Empty{}, nil
+		}
+	} else if t.in != nil {
+		t.in.Push(in.Data)
+	}
 	if t.inputOff == t.inputSize && !bytes.Equal(t.hasher.Sum(nil), t.inputHash[:]) {
 		t.failInputLocked("input_mismatch",
 			fmt.Sprintf("task %s input does not match the declared sha256", in.TaskID))
 		return protocol.Empty{}, nil
 	}
-	t.in.Push(in.Data)
 	if t.inputOff >= t.inputSize {
-		t.in.Close()
+		if t.in != nil {
+			t.in.Close()
+		}
+		if t.inputReady != nil {
+			// The input is complete and verified, so the spooled stdin may be handed to the
+			// process. The bounds check above keeps a second call from closing it again.
+			close(t.inputReady)
+		}
 	}
 	return protocol.Empty{}, nil
 }
@@ -233,7 +375,7 @@ func (t *Task) abortTask() {
 func (t *Task) EndInput() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.finished || t.in == nil || t.inputOff >= t.inputSize {
+	if t.finished || (t.in == nil && t.spool == nil) || t.inputOff >= t.inputSize {
 		return
 	}
 	t.failInputLocked("input_incomplete", "the crh-priv stream ended before the task input was complete")

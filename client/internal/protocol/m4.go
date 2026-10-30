@@ -651,12 +651,15 @@ type PendingEntry struct {
 	ReceivedAtMS Int
 }
 
-// LocalVerdict is the crh-priv local.approve / local.deny request body.
+// LocalVerdict is the crh-priv local.approve / local.deny request body. SpecSHA256 binds the
+// verdict to the exact spec the approver saw: the privileged mode refuses it when the pending
+// record's hash differs (doc/protocol.md crh-priv table, doc/privilege.md 本地批准).
 type LocalVerdict struct {
-	_       struct{} `cbor:",toarray"`
-	TaskID  string
-	Attempt Uint
-	Message string
+	_          struct{} `cbor:",toarray"`
+	TaskID     string
+	Attempt    Uint
+	SpecSHA256 Hash
+	Message    string
 }
 
 // DecodeAuthorizationPayload strictly decodes payload bytes and enforces the structural

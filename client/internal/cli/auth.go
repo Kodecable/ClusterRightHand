@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -199,8 +198,26 @@ func (o *grantOptions) validate() error {
 		if o.deadline == "" {
 			return errors.New("grant: a one-shot authorization (--task) requires --deadline")
 		}
+		if err := checkOneShotNodes(o.nodes, o.tasks); err != nil {
+			return err
+		}
 	} else if o.attempt != 0 {
 		return errors.New("grant: --attempt requires --task")
+	}
+	return nil
+}
+
+// checkOneShotNodes enforces the per-position node binding of a one-shot authorization
+// (doc/protocol.md 授权对象): every task id needs exactly one node id, in the same order, and
+// no group or "*" can stand for a node.
+func checkOneShotNodes(nodes, tasks []string) error {
+	if len(nodes) != len(tasks) {
+		return fmt.Errorf("grant: --task needs one --nodes node id per task, got %d node(s) for %d task(s)", len(nodes), len(tasks))
+	}
+	for _, node := range nodes {
+		if node == "*" || strings.HasPrefix(node, "group:") {
+			return fmt.Errorf("grant: --task needs node ids in --nodes, not %q", node)
+		}
 	}
 	return nil
 }
@@ -215,6 +232,11 @@ func decodeGrantPayload(text string) (*protocol.AuthorizationPayload, []byte, er
 	payload, err := protocol.DecodeAuthorizationPayload(raw)
 	if err != nil {
 		return nil, nil, fmt.Errorf("grant: --payload: %w", err)
+	}
+	if payload.TaskIDs != nil {
+		if err := checkOneShotNodes(payload.Nodes, *payload.TaskIDs); err != nil {
+			return nil, nil, fmt.Errorf("grant: --payload: %w", err)
+		}
 	}
 	return payload, raw, nil
 }
@@ -515,40 +537,51 @@ func newPendingCmd() *cobra.Command {
 func newApproveCmd() *cobra.Command {
 	var socketPath string
 	var attempt uint64
+	var yes bool
 	cmd := &cobra.Command{
 		Use:   "approve <task-id>",
 		Short: "Approve a pending task locally",
-		Long: `Approve the local request of one task. When several attempts of the task are pending, the
-highest attempt is approved unless --attempt is given.`,
+		Long: `Approve the local request of one task. The complete specification and its spec_sha256 are
+shown, and the same hash is sent with the approval; the privileged mode refuses it if the
+pending specification changed in the meantime. When several attempts of the task are pending,
+the highest attempt is approved unless --attempt is given. The verdict is confirmed on the
+terminal; --yes skips the confirmation.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return decidePending(cmd.Context(), cmd.OutOrStdout(), socketPath, args[0], attempt, "", true)
+			return decidePending(cmd.Context(), cmd.OutOrStdout(), socketPath, args[0], attempt, "", true, yes)
 		},
 	}
 	cmd.Flags().StringVar(&socketPath, "socket", privconfig.DefaultSocket, "path to the privileged mode's socket")
 	cmd.Flags().Uint64Var(&attempt, "attempt", 0, "approve this attempt instead of the highest pending one")
+	cmd.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
 	return cmd
 }
 
 func newDenyCmd() *cobra.Command {
 	var socketPath, message string
 	var attempt uint64
+	var yes bool
 	cmd := &cobra.Command{
 		Use:   "deny <task-id>",
 		Short: "Deny a pending task locally",
-		Args:  cobra.ExactArgs(1),
+		Long: `Deny the local request of one task. The complete specification and its spec_sha256 are shown,
+and the same hash is sent with the denial; the privileged mode refuses it if the pending
+specification changed in the meantime. The verdict is confirmed on the terminal; --yes skips
+the confirmation.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return decidePending(cmd.Context(), cmd.OutOrStdout(), socketPath, args[0], attempt, message, false)
+			return decidePending(cmd.Context(), cmd.OutOrStdout(), socketPath, args[0], attempt, message, false, yes)
 		},
 	}
 	cmd.Flags().StringVar(&socketPath, "socket", privconfig.DefaultSocket, "path to the privileged mode's socket")
 	cmd.Flags().Uint64Var(&attempt, "attempt", 0, "deny this attempt instead of the highest pending one")
 	cmd.Flags().StringVar(&message, "message", "", "reason shown to crhs and the user")
+	cmd.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
 	return cmd
 }
 
-// showPending prints the tasks waiting for local approval: task id, attempt, method and
-// target, note and age.
+// showPending prints the tasks waiting for local approval with their complete specification
+// and spec_sha256, which `crha approve` and `crha deny` need to bind the verdict.
 func showPending(ctx context.Context, out io.Writer, socket string) error {
 	client, err := localclient.Dial(ctx, socket, version.Version)
 	if err != nil {
@@ -563,23 +596,15 @@ func showPending(ctx context.Context, out io.Writer, socket string) error {
 		fmt.Fprintln(out, "no tasks are pending local approval")
 		return nil
 	}
-	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "TASK ID\tATTEMPT\tMETHOD\tTARGET\tNOTE\tAGE")
-	now := time.Now()
 	for i := range entries {
-		entry := &entries[i]
-		method, target := "-", "-"
-		if m, t, err := authz.Target(&entry.Spec); err == nil {
-			method, target = m, t
+		fmt.Fprintf(out, "task %s attempt %d (received %s, note %s)\n",
+			entries[i].TaskID, entries[i].Attempt,
+			formatMillis(int64(entries[i].ReceivedAtMS)), noteText(entries[i].Note))
+		if err := printApproval(out, approvalViewFor(&entries[i])); err != nil {
+			return err
 		}
-		age := now.Sub(time.UnixMilli(int64(entry.ReceivedAtMS))).Round(time.Second)
-		if age < 0 {
-			age = 0
-		}
-		fmt.Fprintf(w, "%s\t%d\t%s\t%s\t%s\t%s\n",
-			entry.TaskID, entry.Attempt, method, target, noteText(entry.Note), age)
 	}
-	return w.Flush()
+	return nil
 }
 
 // noteText keeps a note on one line and quotes it when it has spaces.
@@ -590,9 +615,9 @@ func noteText(note string) string {
 	return fmt.Sprintf("%q", note)
 }
 
-// decidePending approves or denies one task. attempt 0 selects the highest pending attempt of
-// that task, as the brief for `crha approve` requires.
-func decidePending(ctx context.Context, out io.Writer, socket, taskID string, attempt uint64, message string, approve bool) error {
+// decidePending approves or denies one task after showing the complete specification. attempt
+// 0 selects the highest pending attempt of that task, as the brief for `crha approve` requires.
+func decidePending(ctx context.Context, out io.Writer, socket, taskID string, attempt uint64, message string, approve, yes bool) error {
 	client, err := localclient.Dial(ctx, socket, version.Version)
 	if err != nil {
 		return err
@@ -602,52 +627,63 @@ func decidePending(ctx context.Context, out io.Writer, socket, taskID string, at
 	if err != nil {
 		return err
 	}
-	chosen, ok := chooseAttempt(entries, taskID, attempt)
+	entry, ok := chooseEntry(entries, taskID, attempt)
 	if !ok {
 		if attempt != 0 {
 			return fmt.Errorf("no pending local request for task %s attempt %d", taskID, attempt)
 		}
 		return fmt.Errorf("no pending local request for task %s", taskID)
 	}
+	view := approvalViewFor(entry)
+	if err := printApproval(out, view); err != nil {
+		return err
+	}
+	hash, err := protocol.SpecSHA256(&entry.Spec)
+	if err != nil {
+		return fmt.Errorf("hash the task spec: %w", err)
+	}
+	action, verb := "approve", "Approve"
+	if !approve {
+		action, verb = "deny", "Deny"
+	}
+	question := fmt.Sprintf("%s task %s attempt %d with spec_sha256 %s?", verb, taskID, entry.Attempt, view.SpecSHA256)
+	if err := confirmApproval(question, yes); err != nil {
+		return fmt.Errorf("%s task %s: %w", action, taskID, err)
+	}
 	if approve {
-		err = client.Approve(ctx, taskID, chosen, message)
+		err = client.Approve(ctx, taskID, uint64(entry.Attempt), hash, message)
 	} else {
-		err = client.Deny(ctx, taskID, chosen, message)
+		err = client.Deny(ctx, taskID, uint64(entry.Attempt), hash, message)
 	}
 	if err != nil {
 		return err
 	}
-	action := "approved"
+	decided := "approved"
 	if !approve {
-		action = "denied"
+		decided = "denied"
 	}
-	fmt.Fprintf(out, "%s task %s attempt %d\n", action, taskID, chosen)
+	fmt.Fprintf(out, "%s task %s attempt %d\n", decided, taskID, entry.Attempt)
 	return nil
 }
 
-// chooseAttempt returns the requested attempt or, when attempt is 0, the highest pending
+// chooseEntry returns the requested pending attempt or, when attempt is 0, the highest pending
 // attempt of taskID.
-func chooseAttempt(entries []protocol.PendingEntry, taskID string, attempt uint64) (uint64, bool) {
-	var best uint64
-	found := false
+func chooseEntry(entries []protocol.PendingEntry, taskID string, attempt uint64) (*protocol.PendingEntry, bool) {
+	var best *protocol.PendingEntry
 	for i := range entries {
 		entry := &entries[i]
 		if entry.TaskID != taskID {
 			continue
 		}
-		value := uint64(entry.Attempt)
 		if attempt != 0 {
-			if value == attempt {
-				return value, true
+			if uint64(entry.Attempt) == attempt {
+				return entry, true
 			}
 			continue
 		}
-		if !found || value > best {
-			best, found = value, true
+		if best == nil || uint64(entry.Attempt) > uint64(best.Attempt) {
+			best = entry
 		}
 	}
-	if attempt != 0 {
-		return 0, false
-	}
-	return best, found
+	return best, best != nil
 }

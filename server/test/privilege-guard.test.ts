@@ -72,6 +72,13 @@ describe("guard rules", () => {
 		expect(guardAllows(mixed, "exec", "ls -l")).toBe(false);
 	});
 
+	it("rejects a pattern that would break out of the implicit full match", () => {
+		// "(?s)^(?:a)|(b)$" would match "a"; the pattern must compile on its own instead.
+		expect(() => validateGuardRules([regex("a)|(b")])).toThrow(GuardRuleError);
+		expect(guardAllows(entry([regex("a)|(b")]), "exec", "a")).toBe(false);
+		expect(guardAllows(entry([], [regex("a)|(b")]), "exec", "systemctl restart nginx")).toBe(false);
+	});
+
 	it("rejects rules over the size limit and invalid any/pattern combinations", () => {
 		expect(() => validateGuardRules([regex("a".repeat(MAX_GUARD_PATTERN_BYTES))])).not.toThrow();
 		expect(() => validateGuardRules([regex("a".repeat(MAX_GUARD_PATTERN_BYTES + 1))])).toThrow(GuardRuleError);

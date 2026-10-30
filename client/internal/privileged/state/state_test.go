@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -191,15 +192,26 @@ func TestRevokedRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Two hours later the authorizations are past their deadline, but the seven-day retention
+	// margin keeps the revocations: the node accepts the authorization until deadline+skew.
 	later := openAt(t, dir, now.Add(2*time.Hour))
-	defer later.Close()
-	if later.Revoked(testID(0x11)) {
-		t.Fatal("an expired revocation was kept")
-	}
-	if later.Revoked(testID(0x22)) {
-		t.Fatal("an already expired revocation was kept")
+	if !later.Revoked(testID(0x11)) || !later.Revoked(testID(0x22)) {
+		t.Fatal("a revocation inside the seven-day margin was dropped")
 	}
 	if !later.Revoked(testID(0x33)) {
+		t.Fatal("a revocation without a deadline was dropped")
+	}
+	if err := later.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Eight days past the deadlines the revocations are cleaned up.
+	after := openAt(t, dir, now.Add(8*24*time.Hour))
+	defer after.Close()
+	if after.Revoked(testID(0x11)) || after.Revoked(testID(0x22)) {
+		t.Fatal("a revocation past deadline+7d was kept")
+	}
+	if !after.Revoked(testID(0x33)) {
 		t.Fatal("a revocation without a deadline was dropped")
 	}
 }
@@ -293,10 +305,117 @@ func TestAddRevokedExtendsDeadline(t *testing.T) {
 		t.Fatal("the later deadline did not extend the revocation")
 	}
 
-	// Past both deadlines the record is cleaned up.
-	after := openAt(t, dir, now.Add(3*time.Hour))
+	// Past both deadlines the revocation is kept inside the seven-day retention margin.
+	soon := openAt(t, dir, now.Add(3*time.Hour))
+	if !soon.Revoked(id) {
+		t.Fatal("a revocation inside the seven-day margin was dropped")
+	}
+	if err := soon.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Past deadline+7d it is cleaned up.
+	after := openAt(t, dir, now.Add(8*24*time.Hour))
 	defer after.Close()
 	if after.Revoked(id) {
-		t.Fatal("an expired revocation was kept")
+		t.Fatal("a revocation past deadline+7d was kept")
+	}
+}
+
+// TestTornLastLineIsIgnored covers a crash in the middle of an append: a final line without a
+// trailing newline that does not parse is the remains of a write that never returned, so its
+// task never ran. It is ignored and the compacted file no longer contains it.
+func TestTornLastLineIsIgnored(t *testing.T) {
+	dir := t.TempDir()
+	now := time.UnixMilli(1_793_016_000_000)
+	good := fmt.Sprintf(`{"task_id":"t1","accepted_at_ms":%d}`, now.UnixMilli()) + "\n"
+	torn := `{"task_id":"torn","attempt":`
+	if err := os.WriteFile(filepath.Join(dir, usedFileName), []byte(good+torn), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := openAt(t, dir, now)
+	if !s.Executed("t1") {
+		t.Fatal("the complete record before the torn tail was dropped")
+	}
+	if s.Executed("torn") {
+		t.Fatal("a torn record was loaded")
+	}
+	if err := s.AddUsed(Record{TaskID: "t2", AcceptedAtMS: now.UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, usedFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "t1") || !strings.Contains(text, "t2") {
+		t.Fatalf("kept records are missing: %q", text)
+	}
+	if strings.Contains(text, "torn") {
+		t.Fatalf("the torn record survived the compaction: %q", text)
+	}
+	if !strings.HasSuffix(text, "\n") {
+		t.Fatalf("the compacted file does not end with a newline: %q", text)
+	}
+}
+
+// TestTornRevocationLineIsIgnored covers the same tolerance on the revocation list.
+func TestTornRevocationLineIsIgnored(t *testing.T) {
+	dir := t.TempDir()
+	now := time.UnixMilli(1_793_016_000_000)
+	deadline := now.Add(time.Hour).UnixMilli()
+	good := fmt.Sprintf(`{"authorization_id":%q,"deadline_ms":%d}`, testIDHex(0x11), deadline) + "\n"
+	torn := `{"authorization_id":"` + testIDHex(0x22) + `"`
+	if err := os.WriteFile(filepath.Join(dir, revokedFileName), []byte(good+torn), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := openAt(t, dir, now)
+	defer s.Close()
+	if !s.Revoked(testID(0x11)) {
+		t.Fatal("the complete revocation before the torn tail was dropped")
+	}
+	if s.Revoked(testID(0x22)) {
+		t.Fatal("a torn revocation was loaded")
+	}
+}
+
+// TestTornLineThatParsesIsKept covers a final line without a newline that is a complete record:
+// the write may have been interrupted after the data reached the file, and the record is valid.
+func TestTornLineThatParsesIsKept(t *testing.T) {
+	dir := t.TempDir()
+	now := time.UnixMilli(1_793_016_000_000)
+	line := fmt.Sprintf(`{"task_id":"t1","accepted_at_ms":%d}`, now.UnixMilli())
+	if err := os.WriteFile(filepath.Join(dir, usedFileName), []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := openAt(t, dir, now)
+	defer s.Close()
+	if !s.Executed("t1") {
+		t.Fatal("a complete final line without a newline was dropped")
+	}
+}
+
+// TestMalformedMiddleLineIsRefused covers the other side: any malformed line that is not the
+// final, newline-less one stays a hard error.
+func TestMalformedMiddleLineIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	now := time.UnixMilli(1_793_016_000_000)
+	good := fmt.Sprintf(`{"task_id":"t1","accepted_at_ms":%d}`, now.UnixMilli()) + "\n"
+	if err := os.WriteFile(filepath.Join(dir, usedFileName), []byte("{not json\n"+good), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(dir, Options{Now: func() time.Time { return now }}); err == nil || !strings.Contains(err.Error(), "line 1") {
+		t.Fatalf("a malformed middle line: %v", err)
+	}
+	// A malformed final line that does end with a newline was written completely.
+	dir2 := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir2, revokedFileName), []byte("{not json\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(dir2, Options{}); err == nil || !strings.Contains(err.Error(), "line 1") {
+		t.Fatalf("a malformed final line with a newline: %v", err)
 	}
 }

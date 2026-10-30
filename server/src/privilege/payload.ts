@@ -56,6 +56,20 @@ export interface BuildAuthorizationInput {
 
 /** Builds a payload and its signed bytes; throws SchemaError for values outside the wire schema. */
 export function buildAuthorization(input: BuildAuthorizationInput): BuiltAuthorization {
+	const taskIds = input.taskIds === undefined || input.taskIds === null ? null : [...input.taskIds];
+	if (taskIds !== null) {
+		// A one-shot authorization binds every task id to one node id, by position
+		// (doc/protocol.md#授权对象). Building a payload that violates the binding would only be
+		// refused by the node, so fail here instead.
+		if (taskIds.length !== input.nodes.length) {
+			throw new Error("a one-shot authorization needs exactly one node per task id");
+		}
+		for (const node of input.nodes) {
+			if (node === "*" || node.startsWith("group:")) {
+				throw new Error(`the nodes of a one-shot authorization must be node ids, not "${node}"`);
+			}
+		}
+	}
 	const command: AuthorizationPayload["command"] =
 		input.command === null
 			? null
@@ -78,7 +92,7 @@ export function buildAuthorization(input: BuildAuthorizationInput): BuiltAuthori
 		command,
 		issuedAtMs: input.issuedAtMs,
 		deadlineMs: input.deadlineMs,
-		taskIds: input.taskIds === undefined || input.taskIds === null ? null : [...input.taskIds],
+		taskIds,
 		attempt: input.attempt ?? null,
 		note: input.note ?? "",
 	};

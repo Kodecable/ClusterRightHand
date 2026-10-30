@@ -355,6 +355,151 @@ func TestRunInputMismatch(t *testing.T) {
 	}
 }
 
+// inputExecTask is an exec task with a declared stdin; argv runs as /bin/sh -c script with
+// arg as $1.
+func inputExecTask(id, script, arg string, size int, data string) protocol.TaskStart {
+	sum := sha256.Sum256([]byte(data))
+	ts := execTask(id, "")
+	ts.Spec.Exec.Command = protocol.Command{
+		Kind: protocol.CommandArgv,
+		Argv: []string{"/bin/sh", "-c", script, "crha-test", arg},
+	}
+	ts.Spec.Exec.Stdin = &protocol.InputRef{Size: protocol.Uint(size), SHA256: protocol.Hash(sum)}
+	return ts
+}
+
+// TestRunInputMismatchNeverStarts covers the spooled stdin of a privileged exec task: a chunk
+// that differs from the declared hash must not reach a process, so the argv never runs
+// (doc/privilege.md 执行环境). The process would create the marker file immediately.
+func TestRunInputMismatchNeverStarts(t *testing.T) {
+	dir := privateDir(t)
+	marker := filepath.Join(dir, "started")
+	s := startSession(t, testVersion)
+	ts := inputExecTask("mismatch-start", `touch "$1"`, marker, 4, "abcd")
+	if err := s.start(ts); err != nil {
+		t.Fatalf("task.start: %v", err)
+	}
+	// Give a process the chance to start before the first chunk is even sent.
+	time.Sleep(300 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("the process started before its input was verified (marker %v)", err)
+	}
+	var empty protocol.Empty
+	if err := s.request(protocol.CmdTaskInput, protocol.TaskInput{TaskID: ts.TaskID, Offset: 0, Data: []byte("abce")}, &empty); err != nil {
+		t.Fatalf("task.input: %v", err)
+	}
+	_, _, exit := s.finish()
+	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "input_mismatch" {
+		t.Fatalf("task.exit = %+v", exit)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("the process ran a mismatching input (marker %v)", err)
+	}
+	s.waitRun()
+}
+
+// TestRunInputWaitsForComplete covers a correct multi-chunk input: the process starts only once
+// the whole input matched, then reads exactly that stdin.
+func TestRunInputWaitsForComplete(t *testing.T) {
+	dir := privateDir(t)
+	marker := filepath.Join(dir, "started")
+	data := []byte("hello input")
+	s := startSession(t, testVersion)
+	ts := inputExecTask("spool-1", `touch "$1"; cat`, marker, len(data), string(data))
+	if err := s.start(ts); err != nil {
+		t.Fatalf("task.start: %v", err)
+	}
+	var empty protocol.Empty
+	if err := s.request(protocol.CmdTaskInput, protocol.TaskInput{
+		TaskID: ts.TaskID, Offset: 0, Data: data[:5],
+	}, &empty); err != nil {
+		t.Fatalf("task.input: %v", err)
+	}
+	// The first chunk is correct but incomplete, so the process must still be waiting.
+	time.Sleep(300 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("the process started before the input was complete (marker %v)", err)
+	}
+	if err := s.request(protocol.CmdTaskInput, protocol.TaskInput{
+		TaskID: ts.TaskID, Offset: 5, Data: data[5:],
+	}, &empty); err != nil {
+		t.Fatalf("task.input: %v", err)
+	}
+	stdout, _, exit := s.finish()
+	if string(stdout) != string(data) {
+		t.Fatalf("stdout %q, want %q", stdout, data)
+	}
+	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
+		t.Fatalf("task.exit = %+v", exit)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("the process did not run after a complete input: %v", err)
+	}
+	s.waitRun()
+}
+
+// TestRunCancelWhileWaitingForInput covers cancelling a task whose stdin never completes: the
+// process is never started, and the task ends as cancelled.
+func TestRunCancelWhileWaitingForInput(t *testing.T) {
+	dir := privateDir(t)
+	marker := filepath.Join(dir, "started")
+	s := startSession(t, testVersion)
+	ts := inputExecTask("spool-cancel", `touch "$1"; sleep 30`, marker, 10, "0123456789")
+	if err := s.start(ts); err != nil {
+		t.Fatalf("task.start: %v", err)
+	}
+	var empty protocol.Empty
+	if err := s.request(protocol.CmdTaskInput, protocol.TaskInput{
+		TaskID: ts.TaskID, Offset: 0, Data: []byte("012"),
+	}, &empty); err != nil {
+		t.Fatalf("task.input: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("the process started before its input was complete (marker %v)", err)
+	}
+	if err := s.request(protocol.CmdTaskCancel, protocol.TaskCancel{TaskID: ts.TaskID}, &empty); err != nil {
+		t.Fatalf("task.cancel: %v", err)
+	}
+	_, _, exit := s.finish()
+	if !exit.Cancelled || exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "cancelled" {
+		t.Fatalf("task.exit = %+v, want a cancelled task", exit)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("a cancelled task started its process (marker %v)", err)
+	}
+	s.waitRun()
+}
+
+// TestRunTimeoutWhileWaitingForInput covers the task timeout before a single chunk arrived: the
+// task ends as timed out and the process is never started.
+func TestRunTimeoutWhileWaitingForInput(t *testing.T) {
+	dir := privateDir(t)
+	marker := filepath.Join(dir, "started")
+	s := startSession(t, testVersion)
+	ts := inputExecTask("spool-timeout", `touch "$1"; sleep 30`, marker, 10, "0123456789")
+	ts.TimeoutMS = 200
+	ts.KillGraceMS = 5000
+	start := time.Now()
+	if err := s.start(ts); err != nil {
+		t.Fatalf("task.start: %v", err)
+	}
+	_, _, exit := s.finish()
+	if !exit.TimedOut {
+		t.Fatalf("task.exit = %+v, want timed out", exit)
+	}
+	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "timeout" {
+		t.Fatalf("task.exit = %+v, want a timeout error", exit)
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Fatalf("the timeout took %v", time.Since(start))
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("a timed-out task started its process (marker %v)", err)
+	}
+	s.waitRun()
+}
+
 func TestRunCancel(t *testing.T) {
 	s := startSession(t, testVersion)
 	if err := s.start(execTask("cancel-1", "sleep 30")); err != nil {

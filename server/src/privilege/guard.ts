@@ -49,6 +49,16 @@ function compileRule(rule: GuardRule): CompiledRule {
 		if (rule.pattern !== "") throw new GuardRuleError('guard rule with match "any" has a non-empty pattern');
 		return { method: rule.method, any: true, re: null };
 	}
+	if (rule.match === "regex") {
+		// Compile the pattern on its own first: an unbalanced pattern like "a)|(b" breaks out of
+		// the implicit full match and would turn "(?s)^(?:a)|(b)$" into an alternation. It is a
+		// configuration error, not a rule.
+		try {
+			new RE2(rule.pattern);
+		} catch (err) {
+			throw new GuardRuleError(`cannot compile guard rule (${err instanceof Error ? err.message : String(err)})`);
+		}
+	}
 	try {
 		// (?s) keeps "." matching a target that contains a newline, as in crha's Go regexp.
 		const source = rule.match === "prefix" ? `(?s)^${quoteMeta(rule.pattern)}.*$` : `(?s)^(?:${rule.pattern})$`;

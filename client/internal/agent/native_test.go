@@ -14,6 +14,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/helper"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 	"github.com/fxamacker/cbor/v2"
@@ -21,7 +22,8 @@ import (
 
 // TestMain lets the test binary act as `crha privileged stdio`. The native tests start the helper
 // the way production does, only without an escalation tool: the helper is this very binary, re-run
-// with the helper's arguments, so no sudo or doas is needed (doc/privilege.md, native).
+// with the helper's arguments, so no sudo or doas is needed (doc/privilege.md, native). The
+// fake-helper mode is a stand-in helper for the lost task.start response tests.
 func TestMain(m *testing.M) {
 	if len(os.Args) >= 3 && os.Args[1] == "privileged" && os.Args[2] == "stdio" {
 		err := helper.Stdio(context.Background(), os.Stdin, os.Stdout, os.Stderr, version.Version)
@@ -31,7 +33,53 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
+	if len(os.Args) >= 3 && os.Args[1] == "fake-helper" {
+		if err := runFakeHelper(os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, "fake helper:", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	os.Exit(m.Run())
+}
+
+// runFakeHelper is the helper side of the lost task.start response tests. It speaks the crh-priv
+// handshake and accepts one task.start, but answers it only after the agent's native timeout:
+// "delayed" then reports the task's output and exit, "silent" exits without answering at all.
+func runFakeHelper(mode string) error {
+	_, negotiated, err := wire.ServerHandshake(os.Stdin, os.Stdout, wire.ServerOptions{
+		Role:        wire.RoleNative,
+		CRHAVersion: version.Version,
+	})
+	if err != nil {
+		return err
+	}
+	stream := wire.NewStreamFor(os.Stdin, os.Stdout, negotiated, wire.RoleNative)
+	peer := stream.Peer()
+	peer.HandleRequest(protocol.CmdTaskStart, func(_ context.Context, body cbor.RawMessage) (any, error) {
+		var ts protocol.TaskStart
+		if err := protocol.Unmarshal(body, &ts); err != nil {
+			return nil, err
+		}
+		if mode == "silent" {
+			time.Sleep(400 * time.Millisecond)
+			os.Exit(0)
+		}
+		go func() {
+			time.Sleep(600 * time.Millisecond)
+			_ = peer.Emit(protocol.EventTaskOutput, protocol.TaskOutput{
+				TaskID: ts.TaskID, Stream: protocol.StreamStdout, Offset: 0, Data: []byte("ran"),
+			})
+			_ = peer.Emit(protocol.EventTaskExit, protocol.TaskExit{
+				TaskID:    ts.TaskID,
+				Outcome:   protocol.Outcome{Kind: protocol.OutcomeCode, Code: 0},
+				StdoutEnd: 3,
+			})
+		}()
+		time.Sleep(800 * time.Millisecond)
+		return protocol.Empty{}, nil
+	})
+	return stream.Run()
 }
 
 // nativeWatch records what a fake crhs received from the agent.
@@ -416,5 +464,58 @@ func TestPrivilegedModeRejections(t *testing.T) {
 				t.Fatalf("task.start = %v, want %s containing %q", err, tc.want, tc.match)
 			}
 		})
+	}
+}
+
+// fakeHelperAgent runs the test binary in fake-helper mode as the native helper, with a short
+// native timeout so the lost task.start response is reached quickly.
+func fakeHelperAgent(t *testing.T, mode string) *Agent {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exe, err = filepath.EvalSymlinks(exe); err != nil {
+		t.Fatal(err)
+	}
+	return nativeAgent(t, Options{
+		NativePrefix:  []string{exe, "fake-helper", mode},
+		NativeTimeout: 200 * time.Millisecond,
+	})
+}
+
+// TestPrivilegedNativeLostStartResponse covers a helper that accepted the task but whose response
+// did not arrive within the native timeout: the task must be reported accepted (crhs would retry
+// otherwise) and its events must still end it normally.
+func TestPrivilegedNativeLostStartResponse(t *testing.T) {
+	w := newNativeWatch()
+	a := fakeHelperAgent(t, "delayed")
+	serveNative(t, a, w, sendStart(w, privilegedTask("native-lost-response", "true")))
+
+	if err := waitCh(t, w.started, "task.start response"); err != nil {
+		t.Fatalf("task.start = %v, want it accepted: the helper may have run the task", err)
+	}
+	stdout, _, exit := waitNativeExit(t, w)
+	if stdout != "ran" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
+		t.Fatalf("task.exit = %+v", exit)
+	}
+}
+
+// TestPrivilegedNativeSilentHelperLost covers a helper that accepted the task, never answered and
+// then died: the task is accepted and ends with helper_lost, never as a refusal.
+func TestPrivilegedNativeSilentHelperLost(t *testing.T) {
+	w := newNativeWatch()
+	a := fakeHelperAgent(t, "silent")
+	serveNative(t, a, w, sendStart(w, privilegedTask("native-silent-helper", "true")))
+
+	if err := waitCh(t, w.started, "task.start response"); err != nil {
+		t.Fatalf("task.start = %v, want it accepted", err)
+	}
+	_, _, exit := waitNativeExit(t, w)
+	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "helper_lost" {
+		t.Fatalf("task.exit = %+v, want helper_lost", exit)
 	}
 }

@@ -291,7 +291,7 @@ describePodman("M4 podman: forward", () => {
 			const listed = await node.execAs(0, ["/usr/local/bin/crha", "pending"]);
 			expect(listed.code).toBe(0);
 			expect(listed.stdout).toContain(t.id);
-			const approved = await node.execAs(0, ["/usr/local/bin/crha", "approve", t.id]);
+			const approved = await node.execAs(0, ["/usr/local/bin/crha", "approve", t.id, "--yes"]);
 			expect(approved.code).toBe(0);
 			const done = await waitTerminal(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
@@ -302,7 +302,7 @@ describePodman("M4 podman: forward", () => {
 		it("denies a pending task", async () => {
 			const t = await task({ kind: "exec", argv: ["true"] });
 			await waitAwaiting(t.id);
-			const denied = await node.execAs(0, ["/usr/local/bin/crha", "deny", t.id, "--message", "not today"]);
+			const denied = await node.execAs(0, ["/usr/local/bin/crha", "deny", t.id, "--message", "not today", "--yes"]);
 			expect(denied.code).toBe(0);
 			const done = await waitTerminal(t.id);
 			expect(done.state).toBe("rejected");
@@ -323,7 +323,7 @@ describePodman("M4 podman: forward", () => {
 				},
 				30_000,
 			);
-			const approved = await node.execAs(0, ["/usr/local/bin/crha", "approve", t.id]);
+			const approved = await node.execAs(0, ["/usr/local/bin/crha", "approve", t.id, "--yes"]);
 			expect(approved.code).toBe(0);
 			const done = await waitTerminal(t.id);
 			expect(done.state).toBe("exited");
@@ -351,7 +351,7 @@ describePodman("M4 podman: forward", () => {
 				},
 				30_000,
 			);
-			const approved = await node.execAs(0, ["/usr/local/bin/crha", "approve", t.id]);
+			const approved = await node.execAs(0, ["/usr/local/bin/crha", "approve", t.id, "--yes"]);
 			expect(approved.code).toBe(0);
 			const done = await waitTerminal(t.id);
 			expect(done.state).toBe("exited");
@@ -383,7 +383,7 @@ describePodman("M4 podman: forward", () => {
 			expect(retried.authorization?.lastRejection?.code).toMatch(/^authorization_/);
 			expect(retried.authorization?.pending).toBeNull();
 			expect(retried.authorization?.local).toEqual({ attempt: 2 });
-			const approved = await node.execAs(0, ["/usr/local/bin/crha", "approve", t.id]);
+			const approved = await node.execAs(0, ["/usr/local/bin/crha", "approve", t.id, "--yes"]);
 			expect(approved.code).toBe(0);
 			const done = await waitTerminal(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });

@@ -70,6 +70,12 @@ func compileRule(rule protocol.GuardRule) (compiledRule, error) {
 		}
 		return compiledRule{method: rule.Method, re: re}, nil
 	case protocol.GuardMatchRegex:
+		// Compile the pattern on its own first. A pattern like "a)|(b" is unbalanced and breaks
+		// out of the implicit full match: compiled as "(?s)^(?:a)|(b)$" it would match "a" and
+		// anything ending in "b" instead of nothing. It is a configuration error, not a rule.
+		if _, err := regexp.Compile(rule.Pattern); err != nil {
+			return compiledRule{}, fmt.Errorf("authz: compile regex rule: %w", err)
+		}
 		re, err := regexp.Compile("(?s)^(?:" + rule.Pattern + ")$")
 		if err != nil {
 			return compiledRule{}, fmt.Errorf("authz: compile regex rule: %w", err)

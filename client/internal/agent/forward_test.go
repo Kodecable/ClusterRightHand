@@ -893,7 +893,11 @@ func TestForwardLocalApproval(t *testing.T) {
 	if len(entries) != 1 || entries[0].TaskID != ts.TaskID {
 		t.Fatalf("pending.list = %+v", entries)
 	}
-	if err := client.Approve(ctx, ts.TaskID, 1, ""); err != nil {
+	hash, err := protocol.SpecSHA256(&entries[0].Spec)
+	if err != nil {
+		t.Fatalf("spec hash: %v", err)
+	}
+	if err := client.Approve(ctx, ts.TaskID, 1, hash, ""); err != nil {
 		t.Fatalf("local.approve: %v", err)
 	}
 	if err := waitCh(t, replies, "task.start response"); err != nil {

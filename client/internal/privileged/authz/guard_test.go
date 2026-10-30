@@ -93,6 +93,8 @@ func TestGuardFailsClosed(t *testing.T) {
 		rule protocol.GuardRule
 	}{
 		{"bad regex", rule(protocol.MethodExec, protocol.GuardMatchRegex, "(")},
+		// Unbalanced parentheses would close the implicit group and break the full match.
+		{"parenthesis injection", rule(protocol.MethodExec, protocol.GuardMatchRegex, "a)|(b")},
 		{"unknown method", protocol.GuardRule{Method: "file.chmod", Match: protocol.GuardMatchAny}},
 		{"unknown match", protocol.GuardRule{Method: protocol.MethodExec, Match: "glob", Pattern: "*"}},
 		{"any with pattern", rule(protocol.MethodExec, protocol.GuardMatchAny, "x")},
@@ -126,9 +128,24 @@ func TestValidateRules(t *testing.T) {
 	if err := ValidateRules(valid); err != nil {
 		t.Fatalf("valid rules rejected: %v", err)
 	}
-	invalid := []protocol.GuardRule{rule(protocol.MethodExec, protocol.GuardMatchRegex, "(")}
-	if err := ValidateRules(invalid); err == nil {
-		t.Fatal("invalid rules accepted")
+	for _, pattern := range []string{"(", "a)|(b"} {
+		invalid := []protocol.GuardRule{rule(protocol.MethodExec, protocol.GuardMatchRegex, pattern)}
+		if err := ValidateRules(invalid); err == nil {
+			t.Fatalf("pattern %q accepted", pattern)
+		}
+	}
+}
+
+// TestGuardRejectsParenthesisInjection covers a pattern that escapes the implicit full match:
+// compiled as "(?s)^(?:a)|(b)$" it matches "a", so the allow rule must not match and the deny
+// rule must deny (doc/privilege.md 防护规则).
+func TestGuardRejectsParenthesisInjection(t *testing.T) {
+	broken := rule(protocol.MethodExec, protocol.GuardMatchRegex, "a)|(b")
+	if guardAllows(&Entry{Allow: []protocol.GuardRule{broken}}, "exec", "a") {
+		t.Fatal("a broken allow regex matched")
+	}
+	if !compileRules([]protocol.GuardRule{broken}).denies("exec", "systemctl restart nginx") {
+		t.Fatal("a broken deny regex did not fail closed")
 	}
 }
 

@@ -300,6 +300,10 @@ function checkCandidate(
 		if (!payload.taskIds.includes(input.task.id)) {
 			return no("authorization_invalid", STEP.oneShot, "task id is not in task_ids");
 		}
+		const binding = oneShotNodeCheck(payload.nodes, payload.taskIds, input.task.id, input.nodeId);
+		if (binding !== null) {
+			return no("authorization_invalid", STEP.oneShot, `one-shot authorization: ${binding}`);
+		}
 		if (payload.attempt === null || payload.attempt !== input.task.attempt) {
 			return no("authorization_invalid", STEP.oneShot, "attempt does not match task.start");
 		}
@@ -367,6 +371,29 @@ function hasCosign(authorization: AuthzAuthorization): boolean {
 	return authorization.signatures.some(
 		(signature) => signature.entry?.role === "crhs" && signature.valid && signature.entry.kinds.includes("cosign"),
 	);
+}
+
+/**
+ * The per-position node binding of a one-shot authorization (doc/protocol.md#授权对象): nodes lists
+ * only node ids, has one entry per task id, and the task's id sits at this node's position. Returns
+ * the failure reason, or null when the binding holds.
+ */
+function oneShotNodeCheck(
+	nodes: readonly string[],
+	taskIds: readonly string[],
+	taskId: string,
+	nodeId: string,
+): string | null {
+	if (nodes.length !== taskIds.length) {
+		return `nodes has ${nodes.length} entries but task_ids has ${taskIds.length}`;
+	}
+	for (const node of nodes) {
+		if (node === "*" || node.startsWith("group:")) return `nodes must contain node ids, not "${node}"`;
+	}
+	const index = taskIds.indexOf(taskId);
+	if (index < 0) return "task id is not in task_ids";
+	if (nodes[index] !== nodeId) return `task "${taskId}" belongs to node "${nodes[index]}", not this node`;
+	return null;
 }
 
 /** Whether the payload's nodes cover this node: its id, a configured group, or "*". */

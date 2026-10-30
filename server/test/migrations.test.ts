@@ -6,6 +6,7 @@ import type { Db } from "../src/storage/db.ts";
 import { up } from "../src/storage/migrations/0019_cbor_protocol.ts";
 import { up as up0020 } from "../src/storage/migrations/0020_output_mode.ts";
 import { up as up0022 } from "../src/storage/migrations/0022_m4_privilege.ts";
+import { up as up0024 } from "../src/storage/migrations/0024_rule_privileged_flag.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -362,5 +363,78 @@ describeBackends("0022 M4 privilege storage", (backend) => {
 				.values({ ...web, id: "c4", credential_id: "same" })
 				.execute(),
 		).rejects.toThrow();
+	});
+});
+
+describeBackends("0024 rule privileged flag", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("rule_sets")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("rules", "text", (c) => c.notNull())
+				.execute();
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("pins every rule without a privileged value to false", async () => {
+		const rows: [string, string][] = [
+			[
+				"root",
+				JSON.stringify([
+					{ action: "allow", method: "exec", exact: "ls" },
+					{ action: "deny", method: "exec", prefix: "rm", privileged: true },
+					{ action: "require-approval", method: "file.write", prefix: "/etc/", privileged: false },
+					{ action: "allow", method: "file.read" },
+				]),
+			],
+			["always", JSON.stringify([{ action: "allow", method: "exec", exact: "id" }])],
+			["empty", "[]"],
+		];
+		for (const [id, rules] of rows) {
+			await sql`insert into rule_sets (id, rules) values (${id}, ${rules})`.execute(db);
+		}
+
+		await applyMigration(backend, db, up0024);
+
+		const read = async (id: string): Promise<Record<string, unknown>[]> => {
+			const row = await db.selectFrom("rule_sets").select("rules").where("id", "=", id).executeTakeFirstOrThrow();
+			return JSON.parse(row.rules) as Record<string, unknown>[];
+		};
+		const root = await read("root");
+		expect(root[0]?.privileged).toBe(false);
+		expect(root[1]?.privileged).toBe(true);
+		expect(root[2]?.privileged).toBe(false);
+		expect(root[3]?.privileged).toBe(false);
+		// "Always allow" rules are appended to the same list and get the same treatment.
+		expect((await read("always"))[0]?.privileged).toBe(false);
+		expect(await read("empty")).toEqual([]);
+
+		// The rest of the rule is untouched.
+		expect(root[0]).toEqual({ action: "allow", method: "exec", exact: "ls", privileged: false });
+
+		// Running the migration again is a no-op: explicit values stay explicit.
+		await applyMigration(backend, db, up0024);
+		expect((await read("root"))[1]?.privileged).toBe(true);
+		expect((await read("always"))[0]?.privileged).toBe(false);
+	});
+
+	it("leaves a rule set whose rules cannot be parsed unchanged", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			await sql`insert into rule_sets (id, rules) values (${"broken"}, ${"{not json"})`.execute(db);
+			await applyMigration(backend, db, up0024);
+		} finally {
+			warn.mockRestore();
+		}
+		const row = await db.selectFrom("rule_sets").select("rules").where("id", "=", "broken").executeTakeFirstOrThrow();
+		expect(row.rules).toBe("{not json");
 	});
 });

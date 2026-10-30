@@ -251,6 +251,15 @@ func statIDs(fi fs.FileInfo) (uid, gid int) {
 	return -1, -1
 }
 
+// statMode returns the raw mode of fi, including setuid, setgid and sticky, which fs.FileMode
+// keeps as separate flags instead of permission bits.
+func statMode(fi fs.FileInfo) uint32 {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return uint32(st.Mode)
+	}
+	return uint32(fi.Mode().Perm())
+}
+
 func lookupIDs(owner, group string) (uid, gid int, err error) {
 	uid, gid = -1, -1
 	if owner != "" {
@@ -315,9 +324,9 @@ func fileWrite(ctx context.Context, s *protocol.FileWriteSpec, input io.Reader, 
 	mode := fs.FileMode(0o644)
 	switch {
 	case s.Mode != 0:
-		mode = fs.FileMode(s.Mode) & 0o7777
+		mode = editMode(uint32(s.Mode))
 	case existing != nil:
-		mode = existing.Mode() & 0o7777
+		mode = editMode(statMode(existing))
 	}
 	if existing != nil && uid < 0 && gid < 0 {
 		euid, egid := statIDs(existing)
