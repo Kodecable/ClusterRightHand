@@ -212,8 +212,8 @@ web/src/
   ownerUserId: string; ownerName: string;
   scheduleId: string | null;
   shared: boolean;            // 不是当前用户本人拥有，而是共享给他的
-  state: string;              // sessions.state 原值，前端映射为 idle / running / awaiting
-  waitingLevelId: string | null;
+  state: "idle" | "running" | "awaiting"; // 整棵会话树的汇总：任何会话 awaiting → awaiting；否则任何 running → running；否则 idle
+  waitingKind: "quota" | "approval" | "authorization" | null; // 汇总为 awaiting 时，取树里优先级最高的等待（quota > approval > authorization）
   updatedAt: string;
 }
 ```
@@ -222,7 +222,7 @@ web/src/
 - `event: upsert`，data 为 `SessionListItem`；
 - `event: remove`，data 为 `{ "id": string }`，会话被删除、取消共享或归档时发送；
 - `event: ping`，每 15 秒一次。
-- 只推送当前用户可见的根会话（管理员是全部）。客户端按自己当前的 `scope` 和 `q` 过滤后，打补丁到已加载的列表；断线重连后重新拉取第一页。
+- 只推送当前用户可见的根会话（管理员是全部）。会话树里任何会话的状态变化都推送其根会话。客户端按自己当前的 `scope` 和 `q` 过滤后，打补丁到已加载的列表；断线重连后重新拉取第一页。
 
 **会话事件流** `GET /api/sessions/:id/events`：
 - 第一条 `events` 批次中的 `snapshot` 事件，`entries` 只保留最近的 100 条可显示记录（不含 system 消息），并新增字段 `historyCursor: string | null`（为 null 表示没有更早的记录）。

@@ -114,8 +114,10 @@ sessions          (id, org_id, owner_user_id, conversation_id, parent_session_id
                    schedule_id nullable,                -- 由计划任务创建的根会话；计划任务删除后置空
                    last_submission_id nullable,         -- 最近一次输入；父会话靠它 subagent_wait
                    quota_tokens nullable,               -- 剩余 token 配额，有符号；null 不限且不扣（用户创建的根默认）
-                   state[active|awaiting|stopped],    -- 状态缓存（根除配额等待外始终 active）
-                   waiting_level_id nullable,           -- awaiting 且因配额时：要补的那一级
+                   root_session_id,                     -- 所在会话树的根（根会话为自身），列表按树汇总状态用
+                   state[idle|running|awaiting],        -- 运行状态（见 agent-runtime.md "会话状态"），启动时对账
+                   waiting_kind nullable[quota|approval|authorization], -- awaiting 时在等什么
+                   waiting_level_id nullable,           -- waiting_kind = quota 时：要补的那一级
                    waiting_handler_id nullable,         -- 该等待的直接父会话（处理它的 agent）；根耗尽时为空，由所有者处理
                    state_changed_at,
                    used_tokens)                         -- 本会话及其 subagent 已用；规则在 rule_sets

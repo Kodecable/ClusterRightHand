@@ -107,7 +107,7 @@ interface AgentRuntime {
 
 基于 durable 的"由任务拥有的子会话"（参考官方 `test/examples/21-subagent-foreground.ts` 和 `22-subagent-background.ts`）：
 
-- 每个 subagent 都是独立的会话，有自己的授权规则、配额和状态（`active` / `awaiting` / `stopped`），挂在父会话的操作者链下面。父会话可以给子会话加规则来收紧权限；按照链上"取最严格"的判定方式，子会话无论如何都无法超出父会话的权限。
+- 每个 subagent 都是独立的会话，有自己的授权规则、配额和状态（`idle` / `running` / `awaiting`，见"会话状态"），挂在父会话的操作者链下面。父会话可以给子会话加规则来收紧权限；按照链上"取最严格"的判定方式，子会话无论如何都无法超出父会话的权限。
 - 父会话可以给子会话一个 token 配额（防止循环、空跑），不按父级剩余封顶，因为每次响应本来就扣整条链。
 - 嵌套深度有上限（默认 2）。最深一级的对话不再向模型提供 `subagent` 工具；已有会话在下一次尝试创建或重跑创建时也会被移除该工具。
 - 父会话 abort 时，子会话一并 abort，它们正在运行的任务被取消、等待审批的任务被拒绝。
@@ -119,7 +119,27 @@ interface AgentRuntime {
 - `subagent_wait(id)`、`subagent_list()`、`subagent_cancel(id)`、`subagent_decide(request_id, decision, reason?, tokens?)` 都已实现；配额请求用 `tokens` 给出要增加的 token 数。
 - 工具 `replay: "safe"`：重启后按 durable 任务 id 找回同一个子会话和提交（`sessions.last_submission_id`）。
 - 规则是完整的非根规则集，只能收紧；配额是父会话给的管理额度；嵌套最多两层。
-- 状态：`active` 在跑，`awaiting` 有工具调用在等审批或配额，`stopped` 运行已结束、等下一次输入。`active ↔ awaiting` 由工具调用状态和配额重算；`stopped` 在运行结束时写入（正常完成、拒绝、abort 都一样，不区分原因，看最后一条消息即可）。只有**新的输入**能把它改回 `active`：输入写入时同时更新 `last_submission_id`，只有最新一次输入结束时才会写 `stopped`；读取或重算永远不能复活 `stopped`。`sessions.state` 是缓存，父会话的提示和打断都以它为准。
+- 状态见下文"会话状态"。子会话运行结束（正常完成、拒绝、abort 都一样，不区分原因，看最后一条消息即可）置为 `idle`；只有**新的输入**能把它改回 `running`：输入写入时同时更新 `last_submission_id`，只有最新一次输入结束时才会写 `idle`；读取或重算永远不能把 `idle` 改回 `running` 或 `awaiting`。父会话的提示和打断都以 `sessions.state` 为准。
+
+### 会话状态
+
+根会话和子会话使用同一组状态（`sessions.state`），持久化在数据库中：
+
+| 状态 | 含义 | 进入 | 离开 |
+|---|---|---|---|
+| `idle` | 没有正在进行的运行 | 创建；最新一次输入的运行结束（完成、拒绝、abort） | 新的输入 → `running` |
+| `running` | 有运行在进行 | 输入写入；等待结束 | 运行结束 → `idle`；工具调用开始等待 → `awaiting` |
+| `awaiting` | 运行被阻塞，等别人决定 | 配额耗尽暂停（`waiting_kind = quota`，`waiting_level_id` 指向那一级）；本会话的工具调用卡在等审批（`approval`）或等签名（`authorization`）的任务上 | 决定作出 → `running`；运行被拒绝或中止 → `idle` |
+
+- `waiting_kind` 只在 `awaiting` 时有值；配额相关的判断一律看 `waiting_kind = quota`，不能只看 `awaiting`。同一会话同时有多个等待时，配额优先，其次审批、签名；某个等待结束后按剩下的重算。
+- 审批和签名的等待由 cluster 的任务状态变化驱动：本会话发起的任务进入 `awaiting_approval` / `awaiting_authorization` 时会话进入 `awaiting`，任务离开这些状态且没有其他等待时回到 `running`。
+- `root_session_id` 指向会话树的根，用于 WebUI 会话列表按整棵树汇总状态（见 [webui.md](webui.md) 的 API 约定）。树里任何会话的状态变化都会推送它的根会话。
+- **启动对账**：crhs 启动时（durable 恢复运行之后、开始接受请求之前）逐个修正状态缓存：
+  - 记为 `running` / `awaiting` 的会话，如果 durable 中它最新一次输入已经结束，置为 `idle`；
+  - 有未结束输入的会话，按配额等待、任务表中仍在 `awaiting_approval` / `awaiting_authorization` 的任务重算为 `awaiting`，否则为 `running`；
+  - 记为 `idle` 但 durable 中仍有未结束输入的，置为 `running`。
+
+  对账的每次修正都写日志，不写审计。
 
 ### 前台与后台
 
@@ -166,10 +186,10 @@ interface AgentRuntime {
 - 配额是管理会话用量（防止循环、空跑、无人值守的运行失控）的手段：`sessions.quota_tokens` 是有符号 64 位整数，表示剩余 token；任何一级都可以不设（`null` 不限，也不扣减）。用户创建的根会话默认 `null`；计划任务创建的会话在根上设为 `token_budget`（见 [scheduling.md](scheduling.md#授权规则与配额)）；子会话由父会话在创建时给出（D92，修订 D76）。
 - **口径**：只计模型的**输出 token**（含推理），不计输入和缓存。计入的调用包括会话的每次响应、上下文压缩（durable 的 `CompactionTask`）和 Auto Review（计入被审查任务所属的会话；没有会话的根，例如 API token，不计）。上游没有上报用量（`usage` 缺失，或 `output = 0` 而响应有内容）时，按输出内容（文本、可见的推理文本、工具调用名和参数 JSON）的 UTF-8 字节数 × 0.3 估算，向上取整。预算因此约束的是"做事量"而不是成本：输入（上下文、工具返回）不受限制。M5 之前的 `used_tokens` 按旧口径（输入 + 输出 + 缓存）累计，只用于展示，不迁移。
 - 每次模型调用之后（durable 1.4.0 没有请求前的拦截点，D72），把这次调用按上述口径计得的 token 从该会话以及链上**每一个设了配额的级别**（含根）扣减。配额可以为负，负值准确记录这次超出。`used_tokens` 在所有级别累计，只用于展示。
-- 所有设了配额的级别剩余都 **> 0** 才继续。任何一级不满足，下一次工具调用**暂停**，会话的状态变为 **`awaiting`**（`sessions.state`，`waiting_level_id` 指向那一级），并**只向那一级的直接上级**报告（不跳过任何一级）：
+- 所有设了配额的级别剩余都 **> 0** 才继续。任何一级不满足，下一次工具调用**暂停**，会话的状态变为 **`awaiting`**（`sessions.state`，`waiting_kind = quota`，`waiting_level_id` 指向那一级），并**只向那一级的直接上级**报告（不跳过任何一级）：
   - 耗尽的是子会话：由它的直接父会话的 agent 用 `subagent_decide(request_id, "approve", tokens: N)` **增加** N（加法；**不按父级剩余封顶**——每次响应本来就扣整条链，封顶没有意义），或者 `deny` 结束暂停的运行。父会话是根时，由根会话的 agent 决定。
   - 耗尽的是根：由会话所有者在 WebUI 处理（审批页的"额度用尽"，计入顶部待办数；以及会话页），同样是增加 N 或拒绝；处理记入审计（actor 是用户）。
-- 子会话的状态只有 `active`、`awaiting`、`stopped`；运行结束（正常完成、拒绝配额或 abort）都置为 `stopped`，等下一次输入；根会话除因配额等待时为 `awaiting` 外始终 `active`。拒绝后暂停的工具调用立即结束，读取或重算不会把 `stopped` 改回 `awaiting`；每次重新耗尽都是新的一次暂停，会再次通知那一级的处理者。
+- 拒绝后暂停的工具调用立即结束，运行结束后会话置为 `idle`，读取或重算不会把它改回 `awaiting`；每次重新耗尽都是新的一次暂停，会再次通知那一级的处理者（状态定义见"会话状态"）。
 - 配额可以在创建时给出（`POST /api/sessions { quota }`、`subagent(..., quota)`），也可以由所有者用 `PATCH /api/sessions/:id { quota }` 替换剩余量（含根，`null` 取消限制）。
 - 只计算 token，不计算任何货币成本；不设用户级或组织级配额。
 
