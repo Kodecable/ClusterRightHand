@@ -13,12 +13,11 @@ import {
 	exhaustedLevel,
 	parseQuota,
 	recordUsage,
-	sessionStateOf,
 	setQuota,
-	setSessionState,
 	spentTokens,
 } from "../src/agent/quota.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
+import { sessionStateOf } from "../src/agent/session-state.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
@@ -185,13 +184,13 @@ it("a paused child asks its direct parent, which grants without a cap", async ()
 	// No cap: the parent's own remainder does not limit what it adds for its child.
 	expect(await runtime.decideAgentRequest(p.id, request.sessionId, "approve", undefined, 50_000_000)).toBe("quota");
 	expect(await waiting).toBe("ok");
-	expect(await sessionStateOf(db, c.id)).toBe("active");
+	expect(await sessionStateOf(db, c.id)).toBe("running");
 	const resumed = await db
 		.selectFrom("sessions")
-		.select(["waiting_level_id", "waiting_handler_id"])
+		.select(["waiting_kind", "waiting_level_id", "waiting_handler_id"])
 		.where("id", "=", c.id)
 		.executeTakeFirstOrThrow();
-	expect(resumed).toMatchObject({ waiting_level_id: null, waiting_handler_id: null });
+	expect(resumed).toMatchObject({ waiting_kind: null, waiting_level_id: null, waiting_handler_id: null });
 	expect((await runtime.getSession(c.id))?.quota).toBe(50_000_000 - 10);
 });
 
@@ -209,16 +208,16 @@ it("drops a quota request as soon as its level is restored", async () => {
 	expect(await waiting).toBe("ok");
 });
 
-it("a finished subagent is stopped until the next input", async () => {
+it("a finished subagent is idle until the next input", async () => {
 	const r = await root();
 	const c = await child(r.id, "done-child", null);
 	faux.setResponses([fauxAssistantMessage([fauxText("done")])]);
 	await runtime.startSubagent(c.id, "work", "sub-1");
 	expect(await runtime.waitSubagent(c.id)).toEqual({ status: "done", answer: "done" });
-	await waitFor("stopped", async () => ((await sessionStateOf(db, c.id)) === "stopped" ? true : undefined));
+	await waitFor("idle", async () => ((await sessionStateOf(db, c.id)) === "idle" ? true : undefined));
 });
 
-it("a denied request stops the paused run", async () => {
+it("a denied request ends the paused run and leaves the session idle", async () => {
 	const r = await root();
 	const p = await child(r.id, "deny-p", 10_000_000);
 	const c = await child(p.id, "deny-c", 10);
@@ -227,10 +226,10 @@ it("a denied request stops the paused run", async () => {
 	const request = await waitFor("the quota wait", async () => (await awaitingQuotaChildren(db, p.id))[0]);
 	expect(await runtime.decideAgentRequest(p.id, request.sessionId, "deny")).toBe("quota");
 	expect(await waiting).toBe("denied");
-	expect(await sessionStateOf(db, c.id)).toBe("stopped");
+	expect(await sessionStateOf(db, c.id)).toBe("idle");
 });
 
-it("a denial stops a run that is still paused in waitForQuota", async () => {
+it("a denial ends a run that is still paused in waitForQuota", async () => {
 	const r = await root();
 	const p = await child(r.id, "live-deny-p", null);
 	const c = await child(p.id, "live-deny-c", 10);
@@ -246,15 +245,15 @@ it("a denial stops a run that is still paused in waitForQuota", async () => {
 		const request = await waitFor("the live quota wait", async () => (await awaitingQuotaChildren(db, p.id))[0]);
 		expect(await sessionStateOf(db, c.id)).toBe("awaiting");
 		expect(await runtime.decideAgentRequest(p.id, request.sessionId, "deny")).toBe("quota");
-		// The run is still live while its tool call ends; a read must not turn the stop back into a wait.
-		expect(await runtime.refreshState(c.id)).toBe("stopped");
-		expect(await sessionStateOf(db, c.id)).toBe("stopped");
+		// The run is still live while its tool call ends; a read must not turn the end back into a wait.
+		expect(await runtime.refreshState(c.id)).toBe("idle");
+		expect(await sessionStateOf(db, c.id)).toBe("idle");
 		const result = await Promise.race([
 			runtime.waitSubagent(c.id),
 			new Promise((resolve) => setTimeout(() => resolve("still-waiting"), 2000)),
 		]);
 		expect(result).not.toBe("still-waiting");
-		expect(await sessionStateOf(db, c.id)).toBe("stopped");
+		expect(await sessionStateOf(db, c.id)).toBe("idle");
 	} finally {
 		await runtime.abort(c.id).catch(() => {});
 	}
@@ -278,7 +277,7 @@ it("a second pause on the same level wakes the parent again", async () => {
 		);
 		expect(await runtime.decideAgentRequest(p.id, c.id, "approve", undefined, 20)).toBe("quota");
 		expect(await first).toBe("ok");
-		expect(await sessionStateOf(db, c.id)).toBe("active");
+		expect(await sessionStateOf(db, c.id)).toBe("running");
 
 		// The same level runs out again: this is a new pause, so the parent must hear about it again.
 		await recordUsage(db, c.id, 20);
@@ -325,10 +324,8 @@ it("flushes a quota wake when a running parent becomes idle", async () => {
 		await runtime.startSubagent(c.id, "work", "idle-flush-child");
 		await waitFor("the flushed wake", async () => (seen.includes("token quota is used up") ? true : undefined));
 		expect(faux.getPendingResponseCount()).toBe(0);
-		// The wake is a new input: it becomes the last submission, and its run ends as stopped.
-		await waitFor("the parent stopped", async () =>
-			(await sessionStateOf(db, p.id)) === "stopped" ? true : undefined,
-		);
+		// The wake is a new input: it becomes the last submission, and its run ends as idle.
+		await waitFor("the parent idle", async () => ((await sessionStateOf(db, p.id)) === "idle" ? true : undefined));
 		const parentRow = await db
 			.selectFrom("sessions")
 			.select("last_submission_id")
@@ -485,7 +482,7 @@ it("a root's used-up quota waits for its owner: listed, then granted with an aud
 	});
 	expect(granted.status).toBe(200);
 	expect(await runtime.waitSubmission(session.id, submission)).toEqual({ status: "done", answer: "done" });
-	expect((await runtime.getSession(session.id))?.state).toBe("active");
+	expect((await runtime.getSession(session.id))?.state).toBe("idle");
 
 	const audits = await db
 		.selectFrom("audit_events")
@@ -530,10 +527,10 @@ it("the owner's deny ends the paused root run and audits quota.denied", async ()
 	expect(faux.getPendingResponseCount()).toBe(1);
 	const row = await db
 		.selectFrom("sessions")
-		.select(["state", "waiting_level_id", "waiting_handler_id"])
+		.select(["state", "waiting_kind", "waiting_level_id", "waiting_handler_id"])
 		.where("id", "=", session.id)
 		.executeTakeFirstOrThrow();
-	expect(row).toMatchObject({ state: "active", waiting_level_id: null, waiting_handler_id: null });
+	expect(row).toMatchObject({ state: "idle", waiting_kind: null, waiting_level_id: null, waiting_handler_id: null });
 
 	const audits = await db
 		.selectFrom("audit_events")
@@ -563,12 +560,13 @@ it("a subagent paused on its root's quota is the owner's request, not its parent
 		.where("id", "=", c.id)
 		.executeTakeFirstOrThrow();
 	expect(childRow).toMatchObject({ waiting_level_id: r.id, waiting_handler_id: null });
+	// The root has no run of its own, so it stays idle: the paused child carries the wait on the root level.
 	const rootRow = await db
 		.selectFrom("sessions")
-		.select(["state", "waiting_level_id", "waiting_handler_id"])
+		.select(["state", "waiting_kind", "waiting_level_id", "waiting_handler_id"])
 		.where("id", "=", r.id)
 		.executeTakeFirstOrThrow();
-	expect(rootRow).toMatchObject({ state: "awaiting", waiting_level_id: r.id, waiting_handler_id: null });
+	expect(rootRow).toMatchObject({ state: "idle", waiting_kind: null, waiting_level_id: null });
 	// The root's agent has nothing to decide: the direct parent of the root level is the owner.
 	expect(await runtime.pendingAgentRequests(r.id)).toEqual([]);
 	const mine = (await (await call(app, "/api/approvals", { cookie: ownerCookie })).json()) as {
@@ -579,7 +577,7 @@ it("a subagent paused on its root's quota is the owner's request, not its parent
 	const paused = await runtime.decideRootQuota(r.id, "approve", 100_000);
 	expect(paused).toContain(c.id);
 	expect(await runtime.waitSubagent(c.id)).toEqual({ status: "done", answer: "child done" });
-	expect(await sessionStateOf(db, r.id)).toBe("active");
+	expect(await sessionStateOf(db, r.id)).toBe("idle");
 });
 
 it("wakes a quota handler after a restart", async () => {
@@ -617,18 +615,39 @@ it("wakes a quota handler after a restart", async () => {
 			callKey: "restart-child",
 			task: "child work",
 			rules: { default: "inherit", rules: [] },
-			quota: 10,
+			quota: 0,
 		});
-		await recordUsage(localDb, c.id, 20);
-		await setSessionState(localDb, c.id, "awaiting", c.id);
-		faux.setResponses([fauxAssistantMessage([fauxText("noted")])]);
+		// The child's first tool call pauses on its own exhausted quota; that wait is what a restart restores.
+		faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("list_nodes", {}, { id: "restart-quota-tool" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("noted")]),
+			fauxAssistantMessage([fauxText("noted again")]),
+		]);
+		let seen = "";
+		const stopFirst = await first.watch(p.id, (events) => {
+			seen += JSON.stringify(events);
+		});
+		await first.startSubagent(c.id, "work", "restart-quota-submit");
+		await waitFor("the quota wait", async () =>
+			(await sessionStateOf(localDb, c.id)) === "awaiting" ? true : undefined,
+		);
+		// The request reached the handler; stop the process while the paused call is still pending.
+		await waitFor("the parent's wake", async () => (seen.includes("token quota is used up") ? true : undefined));
+		stopFirst();
 		await first.close();
-		// A new process opens the same storage: the pending request wakes its handler.
+		// A new process opens the same storage: reconciliation keeps the wait (the run is unsettled) and the
+		// parent still holds the request it was woken with.
 		second = await AgentRuntime.open({
 			...options,
 			storage: await openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" }),
 		});
-		let seen = "";
+		const childRow = await localDb
+			.selectFrom("sessions")
+			.select(["state", "waiting_kind", "waiting_level_id"])
+			.where("id", "=", c.id)
+			.executeTakeFirstOrThrow();
+		expect(childRow).toMatchObject({ state: "awaiting", waiting_kind: "quota", waiting_level_id: c.id });
+		seen = "";
 		const stop = await second.watch(p.id, (events) => {
 			seen += JSON.stringify(events);
 		});

@@ -318,12 +318,19 @@ export interface AuditEventsTable {
 	hash: string;
 }
 
+/** A session's run state (doc/agent-runtime.md#会话状态): roots and subagents share it. */
+export type SessionState = "idle" | "running" | "awaiting";
+/** What an awaiting session waits for; quota outranks approval, approval outranks authorization. */
+export type WaitingKind = "quota" | "approval" | "authorization";
+
 export interface SessionsTable {
 	id: string;
 	org_id: string;
 	owner_user_id: string;
 	conversation_id: string;
 	parent_session_id: string | null;
+	/** The root of this session's tree; the session itself for a root (doc/webui.md#会话列表). */
+	root_session_id: string;
 	/** The schedule whose run created this root session; nulled when the schedule is deleted. */
 	schedule_id: string | null;
 	title: string;
@@ -335,8 +342,10 @@ export interface SessionsTable {
 	archived_at: string | null;
 	/** Durable submission of the last input, for a parent waiting on this session's answer. */
 	last_submission_id: string | null;
-	/** Session state (doc/agent-runtime.md#subagent, #配额): active, awaiting, stopped. A root awaits only its quota. */
-	state: "active" | "awaiting" | "stopped";
+	/** The session's own run state (doc/agent-runtime.md#会话状态); the session list aggregates it over the tree. */
+	state: SessionState;
+	/** Why the session waits; null unless `state` is `awaiting`. */
+	waiting_kind: WaitingKind | null;
 	/** While awaiting a quota: the exhausted level to top up. */
 	waiting_level_id: string | null;
 	/** While awaiting a quota: the level's parent agent handles it; null when the level is the root (its owner does). */

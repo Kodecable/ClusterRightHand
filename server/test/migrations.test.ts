@@ -8,6 +8,7 @@ import { up as up0020 } from "../src/storage/migrations/0020_output_mode.ts";
 import { up as up0022 } from "../src/storage/migrations/0022_m4_privilege.ts";
 import { up as up0024 } from "../src/storage/migrations/0024_rule_privileged_flag.ts";
 import { up as up0025 } from "../src/storage/migrations/0025_root_session_quota_null.ts";
+import { up as up0029 } from "../src/storage/migrations/0029_session_state_tree.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -485,5 +486,68 @@ describeBackends("0025 root session quota null", (backend) => {
 		// A subagent's 0 still means "used up".
 		expect(Number(quota.get("child-zero"))).toBe(0);
 		expect(Number(quota.get("child-set"))).toBe(40);
+	});
+});
+
+describeBackends("0029 session state and tree", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("sessions")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("parent_session_id", "text")
+				.addColumn("state", "text", (c) => c.notNull())
+				.addColumn("waiting_level_id", "text")
+				.execute();
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("maps the old states, adds waiting kinds and backfills every tree root", async () => {
+		const rows: [string, string | null, string, string | null][] = [
+			["root-active", null, "active", null],
+			["root-awaiting", null, "awaiting", "root-awaiting"],
+			["root-unplaced", null, "awaiting", null],
+			["child-stopped", "root-active", "stopped", null],
+			["child-active", "root-active", "active", null],
+			["grandchild", "child-active", "active", null],
+		];
+		for (const [id, parent, state, level] of rows) {
+			await sql`insert into sessions (id, parent_session_id, state, waiting_level_id)
+				values (${id}, ${parent}, ${state}, ${level})`.execute(db);
+		}
+
+		await applyMigration(backend, db, up0029);
+
+		const byId = new Map(
+			(await db.selectFrom("sessions").select(["id", "state", "waiting_kind", "root_session_id"]).execute()).map(
+				(row) => [row.id, row],
+			),
+		);
+		// A root's old `active` and a subagent's old `active`/`stopped` are all `idle`; reconciliation corrects
+		// the live ones at the next start (D97).
+		expect(byId.get("root-active")).toMatchObject({ state: "idle", root_session_id: "root-active" });
+		expect(byId.get("child-stopped")).toMatchObject({
+			state: "idle",
+			waiting_kind: null,
+			root_session_id: "root-active",
+		});
+		expect(byId.get("child-active")).toMatchObject({ state: "idle", root_session_id: "root-active" });
+		// Two levels down, the recursive backfill still finds the same root.
+		expect(byId.get("grandchild")).toMatchObject({ state: "idle", root_session_id: "root-active" });
+		// A quota wait is marked; an awaiting row without a level is left for reconciliation.
+		expect(byId.get("root-awaiting")).toMatchObject({
+			state: "awaiting",
+			waiting_kind: "quota",
+			root_session_id: "root-awaiting",
+		});
+		expect(byId.get("root-unplaced")).toMatchObject({ state: "awaiting", waiting_kind: null });
+		expect([...byId.values()].every((row) => row.root_session_id === row.id || row.root_session_id)).toBe(true);
 	});
 });

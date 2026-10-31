@@ -1694,6 +1694,8 @@ export class Cluster {
 		if (!claimed) return null;
 		this.#newLive(row.id, node.id, row.output_mode, row.task_group_id);
 		this.#background("task group state update failed", this.#syncGroupState(row.task_group_id));
+		// The task no longer waits for a signature; the session it belongs to runs again (doc/agent-runtime.md#会话状态).
+		this.onChange?.(row.actor_id);
 		if (cosigned) {
 			this.#auditLater({
 				actor: { type: "system", id: "cluster", onBehalfOfUserId: row.on_behalf_of_user_id },
@@ -2116,6 +2118,8 @@ export class Cluster {
 		this.#dropLive(id);
 		this.#notify(id);
 		this.#background("task group state update failed", this.#syncGroupState(row.task_group_id));
+		// The task waits for a signature again; the session is awaiting it (doc/agent-runtime.md#会话状态).
+		this.onChange?.(row.actor_id);
 		const node = await getNode(this.#db, row.node_id);
 		const current = this.#links.get(row.node_id);
 		if (!node || !current || current.conn.closed || !current.ready) return;

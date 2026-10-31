@@ -327,12 +327,9 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.get("/sessions/:id", async (c) => {
 		const v = await visible(c, c.req.param("id"));
 		if (!v) return jsonError(c, 404, "no such session");
-		// The subagent's state is a cache; refresh it from its tool calls and quota before showing it.
-		let session = v.session;
-		if (session.parentSessionId) {
-			await runtime.refreshState(session.id);
-			session = (await runtime.getSession(session.id)) ?? session;
-		}
+		// The state is a cache of the run and its waits; refresh it from durable and the task table before showing it.
+		await runtime.refreshState(v.session.id);
+		const session = (await runtime.getSession(v.session.id)) ?? v.session;
 		const canShare = v.capabilities.manageShares;
 		// A subagent inherits its root's share; `decorate` only knows direct shares, so use what `visible` resolved.
 		const viewed = (await decorate(c, [session]))[0];

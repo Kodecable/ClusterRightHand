@@ -3,7 +3,6 @@ import { MemoryStorage } from "@earendil-works/pi-durable";
 import { CompiledQuery } from "kysely";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
-import { setSessionState } from "../src/agent/quota.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import {
 	SessionListHub,
@@ -11,6 +10,7 @@ import {
 	type SessionListSubscriber,
 	sessionListQuery,
 } from "../src/agent/session-list.ts";
+import { setSessionState } from "../src/agent/session-state.ts";
 import { shareSession, unshareSession } from "../src/agent/sharing.ts";
 import { RequestDrain } from "../src/api/drain.ts";
 import { Audit } from "../src/audit/audit.ts";
@@ -57,7 +57,7 @@ async function seed(
 	owner: string,
 	title: string,
 	updatedAt: string,
-	extra: { id?: string; scheduleId?: string; parentSessionId?: string } = {},
+	extra: { id?: string; scheduleId?: string; parentSessionId?: string; rootSessionId?: string } = {},
 ): Promise<string> {
 	const sessionId = extra.id ?? newId();
 	await db
@@ -68,6 +68,7 @@ async function seed(
 			owner_user_id: owner,
 			conversation_id: `conv-${sessionId}`,
 			parent_session_id: extra.parentSessionId ?? null,
+			root_session_id: extra.rootSessionId ?? extra.parentSessionId ?? sessionId,
 			schedule_id: extra.scheduleId ?? null,
 			title,
 			model: modelJson,
@@ -76,7 +77,8 @@ async function seed(
 			updated_at: updatedAt,
 			archived_at: null,
 			last_submission_id: null,
-			state: "active",
+			state: "idle",
+			waiting_kind: null,
 			waiting_level_id: null,
 			waiting_handler_id: null,
 			state_changed_at: updatedAt,
@@ -288,8 +290,8 @@ describe("GET /api/sessions", () => {
 			ownerName: "Alice A.",
 			scheduleId: null,
 			shared: false,
-			state: "active",
-			waitingLevelId: null,
+			state: "idle",
+			waitingKind: null,
 			updatedAt: expect.any(String) as string,
 		});
 		expect(mine.items[0]).not.toHaveProperty("rules");
@@ -333,6 +335,54 @@ describe("GET /api/sessions", () => {
 		expect(full.session.capabilities.view).toBe(true);
 		expect(full.session.spentTokens).toBe(0);
 		expect(full.session.rules?.preset).toBe("ask");
+	});
+
+	it("aggregates a tree's state and waiting kind into its root's item", async () => {
+		const rootId = await seed(id.alice as string, "aggregate root", "2026-07-10T00:00:00.000Z");
+		const child = await seed(id.alice as string, "aggregate child", "2026-07-10T00:00:00.000Z", {
+			parentSessionId: rootId,
+			rootSessionId: rootId,
+		});
+		const second = await seed(id.alice as string, "aggregate child two", "2026-07-10T00:00:00.000Z", {
+			parentSessionId: rootId,
+			rootSessionId: rootId,
+		});
+		const item = async () => (await list("alice")).items.find((candidate) => candidate.id === rootId);
+
+		// A background subagent running while its root is idle makes the tree running.
+		await db.updateTable("sessions").set({ state: "running" }).where("id", "=", child).execute();
+		expect(await item()).toMatchObject({ state: "running", waitingKind: null });
+
+		// Any awaiting session makes the tree awaiting; its kind is the tree's.
+		await db
+			.updateTable("sessions")
+			.set({ state: "awaiting", waiting_kind: "authorization" })
+			.where("id", "=", child)
+			.execute();
+		expect(await item()).toMatchObject({ state: "awaiting", waitingKind: "authorization" });
+
+		// Overlapping waits resolve by priority: quota > approval > authorization.
+		await db
+			.updateTable("sessions")
+			.set({ state: "awaiting", waiting_kind: "approval" })
+			.where("id", "=", second)
+			.execute();
+		expect(await item()).toMatchObject({ state: "awaiting", waitingKind: "approval" });
+		await db
+			.updateTable("sessions")
+			.set({ state: "awaiting", waiting_kind: "quota", waiting_level_id: rootId })
+			.where("id", "=", second)
+			.execute();
+		expect(await item()).toMatchObject({ state: "awaiting", waitingKind: "quota" });
+
+		await db
+			.updateTable("sessions")
+			.set({ state: "running", waiting_kind: null, waiting_level_id: null })
+			.where("id", "in", [child, second])
+			.execute();
+		expect(await item()).toMatchObject({ state: "running", waitingKind: null });
+		await db.updateTable("sessions").set({ state: "idle" }).where("id", "in", [child, second]).execute();
+		expect(await item()).toMatchObject({ state: "idle", waitingKind: null });
 	});
 
 	it("scopes shared sessions to direct and group shares, not ownership", async () => {
@@ -492,10 +542,10 @@ describe("GET /api/sessions", () => {
 		expect(Date.parse(ended)).toBeGreaterThanOrEqual(Date.parse(submitted));
 
 		await sleep(10);
-		await setSessionState(db, sessionId, "awaiting", sessionId);
+		await setSessionState(db, sessionId, "awaiting", { kind: "quota", levelId: sessionId });
 		const waiting = await updatedAt();
 		expect(Date.parse(waiting)).toBeGreaterThan(Date.parse(ended));
-		await setSessionState(db, sessionId, "active", null);
+		await setSessionState(db, sessionId, "idle", null);
 	});
 
 	it("bumps updated_at when a deleted schedule unlinks its sessions", async () => {
@@ -776,6 +826,33 @@ describe("SessionListHub coalescing and shares", () => {
 	const bump = async (sessionId: string, title: string, updatedAt: string) => {
 		await db.updateTable("sessions").set({ title, updated_at: updatedAt }).where("id", "=", sessionId).execute();
 	};
+
+	it("publishes a subagent's change as its root's item", async () => {
+		const rootId = await seed(id.alice as string, "tree root", "2026-07-11T00:00:00.000Z");
+		const child = await seed(id.alice as string, "tree child", "2026-07-11T00:00:00.000Z", {
+			parentSessionId: rootId,
+			rootSessionId: rootId,
+		});
+		const hub = new SessionListHub({ db, coalesceMs: 10 });
+		const alice = hubStream("alice");
+		hub.subscribe(alice.subscriber);
+		try {
+			await db
+				.updateTable("sessions")
+				.set({ state: "awaiting", waiting_kind: "approval" })
+				.where("id", "=", child)
+				.execute();
+			hub.publishSession(child);
+			await sleep(80);
+			// The child never appears in the list; its change arrives as the root's aggregated item.
+			expect(upsertsOf(alice.events, rootId)).toEqual([
+				expect.objectContaining({ id: rootId, state: "awaiting", waitingKind: "approval" }),
+			]);
+			expect(alice.events.some((event) => event.data.id === child)).toBe(false);
+		} finally {
+			hub.close();
+		}
+	});
 
 	it("publishes a state change a share removal takes over, and only `remove` to the former grantee", async () => {
 		const sessionId = await seed(id.alice as string, "before removal", "2026-07-01T00:00:00.000Z");

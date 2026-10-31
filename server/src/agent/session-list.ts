@@ -2,8 +2,9 @@ import { type ExpressionBuilder, type SqlBool, sql } from "kysely";
 import { type CursorKey, descendingKeyset, encodeCursor } from "../api/cursor.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
-import type { Database, SessionsTable } from "../storage/schema.ts";
+import type { Database } from "../storage/schema.ts";
 import { UserError } from "../users/service.ts";
+import type { SessionState, WaitingKind } from "./session-state.ts";
 import { userGroupIds } from "./sharing.ts";
 
 /**
@@ -21,9 +22,10 @@ export interface SessionListItem {
 	scheduleId: string | null;
 	/** Owned by someone else and reached through a direct or group share (an administrator too, if shared). */
 	shared: boolean;
-	/** `sessions.state` verbatim; the client maps it to idle / running / awaiting. */
-	state: string;
-	waitingLevelId: string | null;
+	/** The whole session tree's state: any awaiting → awaiting, else any running → running, else idle. */
+	state: SessionState;
+	/** The highest-priority wait among the tree's awaiting sessions; null unless `state` is `awaiting`. */
+	waitingKind: WaitingKind | null;
 	updatedAt: string;
 }
 
@@ -42,9 +44,10 @@ export interface SessionListRow {
 	title: string;
 	owner_user_id: string;
 	parent_session_id: string | null;
+	root_session_id: string | null;
 	schedule_id: string | null;
-	state: SessionsTable["state"];
-	waiting_level_id: string | null;
+	state: SessionState;
+	waiting_kind: WaitingKind | null;
 	updated_at: string;
 	display_name: string;
 	username: string;
@@ -55,6 +58,46 @@ export interface SessionListQueryRow extends SessionListRow {
 	/** `EXISTS (...)` in SQL: 0/1 on SQLite, a boolean on PostgreSQL. */
 	shared: SqlBool;
 }
+
+/**
+ * The tree's aggregate state, computed in SQL over `root_session_id` (doc/webui.md#SessionListItem): any
+ * awaiting session makes the tree awaiting, else any running one makes it running. The second branch of each
+ * condition also counts a root whose own `root_session_id` was never backfilled, so such a row cannot vanish
+ * from its own aggregate. One index lookup per branch (`sessions_root_state_idx`), no per-row query.
+ */
+const TREE_STATE = sql<SessionState>`case
+	when exists (
+		select 1 from sessions as tree
+		where (tree.root_session_id = sessions.id or (tree.id = sessions.id and tree.root_session_id is null))
+			and tree.state = 'awaiting'
+	) then 'awaiting'
+	when exists (
+		select 1 from sessions as tree
+		where (tree.root_session_id = sessions.id or (tree.id = sessions.id and tree.root_session_id is null))
+			and tree.state = 'running'
+	) then 'running'
+	else 'idle'
+end`;
+
+/** The highest-priority wait among the tree's awaiting sessions: quota > approval > authorization. */
+const TREE_WAITING_KIND = sql<WaitingKind | null>`case
+	when exists (
+		select 1 from sessions as tree
+		where (tree.root_session_id = sessions.id or (tree.id = sessions.id and tree.root_session_id is null))
+			and tree.state = 'awaiting' and tree.waiting_kind = 'quota'
+	) then 'quota'
+	when exists (
+		select 1 from sessions as tree
+		where (tree.root_session_id = sessions.id or (tree.id = sessions.id and tree.root_session_id is null))
+			and tree.state = 'awaiting' and tree.waiting_kind = 'approval'
+	) then 'approval'
+	when exists (
+		select 1 from sessions as tree
+		where (tree.root_session_id = sessions.id or (tree.id = sessions.id and tree.root_session_id is null))
+			and tree.state = 'awaiting' and tree.waiting_kind = 'authorization'
+	) then 'authorization'
+	else null
+end`;
 
 /** `%`, `_` and the escape character are matched literally inside a LIKE pattern. */
 export function escapeLike(value: string): string {
@@ -99,9 +142,10 @@ export async function sessionListQuery(db: Db, user: SessionUser, filter: Sessio
 			"sessions.title",
 			"sessions.owner_user_id",
 			"sessions.parent_session_id",
+			"sessions.root_session_id",
 			"sessions.schedule_id",
-			"sessions.state",
-			"sessions.waiting_level_id",
+			TREE_STATE.as("state"),
+			TREE_WAITING_KIND.as("waiting_kind"),
 			"sessions.updated_at",
 			"users.display_name",
 			"users.username",
@@ -148,7 +192,7 @@ export function sessionListItem(row: SessionListRow, viewerUserId: string, share
 		scheduleId: row.schedule_id,
 		shared: shared && !isOwner,
 		state: row.state,
-		waitingLevelId: row.waiting_level_id,
+		waitingKind: row.waiting_kind,
 		updatedAt: row.updated_at,
 	};
 }
@@ -332,8 +376,28 @@ export class SessionListHub {
 
 	async #publishCurrent(sessionId: string): Promise<void> {
 		const row = await this.#row(sessionId);
-		if (!row || row.parent_session_id !== null) return;
-		this.#sendUpsert(row, await this.#visibleUserIds(sessionId));
+		if (!row) return;
+		// A subagent's state is part of its tree's item: every change publishes the root (doc/webui.md#会话列表).
+		const root = row.parent_session_id === null ? row : await this.#row(await this.#rootOf(row));
+		if (!root || root.parent_session_id !== null) return;
+		this.#sendUpsert(root, await this.#visibleUserIds(root.id));
+	}
+
+	/** The root of a row that predates the root_session_id backfill (or a hand-built test row). */
+	async #rootOf(row: SessionListRow): Promise<string> {
+		if (row.root_session_id) return row.root_session_id;
+		let id = row.parent_session_id;
+		for (let depth = 0; id && depth <= 100; depth++) {
+			const parent = await this.#db
+				.selectFrom("sessions")
+				.select(["id", "parent_session_id"])
+				.where("id", "=", id)
+				.executeTakeFirst();
+			if (!parent) break;
+			if (parent.parent_session_id === null) return parent.id;
+			id = parent.parent_session_id;
+		}
+		return row.id;
 	}
 
 	/** The session row with its owner, whatever its parent; undefined when it is gone. */
@@ -346,9 +410,10 @@ export class SessionListHub {
 				"sessions.title",
 				"sessions.owner_user_id",
 				"sessions.parent_session_id",
+				"sessions.root_session_id",
 				"sessions.schedule_id",
-				"sessions.state",
-				"sessions.waiting_level_id",
+				TREE_STATE.as("state"),
+				TREE_WAITING_KIND.as("waiting_kind"),
 				"sessions.updated_at",
 				"users.display_name",
 				"users.username",
