@@ -1,32 +1,10 @@
 import { i18n } from "@lingui/core";
 import { I18nProvider } from "@lingui/react";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { readStorage, writeStorage } from "@/lib/storage";
+import { isLocale, LOCALE_STORAGE_KEY, type Locale } from "@/lib/locale";
+import { writeStorage } from "@/lib/storage";
 
-export const LOCALES = ["en", "zh-CN"] as const;
-export type Locale = (typeof LOCALES)[number];
-
-export const LOCALE_STORAGE_KEY = "crh.locale";
-
-export function isLocale(value: unknown): value is Locale {
-	return value === "en" || value === "zh-CN";
-}
-
-/**
- * Initial language: an explicit user override first, then `navigator.languages`
- * (`zh*` → zh-CN, anything else → en).
- */
-export function resolveInitialLocale(): Locale {
-	const stored = readStorage(LOCALE_STORAGE_KEY);
-	if (isLocale(stored)) return stored;
-	const languages =
-		typeof navigator === "undefined"
-			? ["en"]
-			: navigator.languages !== undefined && navigator.languages.length > 0
-				? navigator.languages
-				: [navigator.language];
-	return languages.some((language) => /^zh/i.test(language)) ? "zh-CN" : "en";
-}
+export { isLocale, LOCALE_STORAGE_KEY, LOCALES, type Locale, resolveInitialLocale } from "@/lib/locale";
 
 async function loadCatalog(locale: Locale): Promise<Record<string, string>> {
 	// The Vite plugin compiles .po catalogs on import. The source locale needs a

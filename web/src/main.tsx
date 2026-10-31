@@ -1,11 +1,13 @@
+// biome-ignore-all assist/source/organizeImports: `./app/startup` must stay the first import so the startup requests begin before the rest of the entry evaluates.
+import { authLoad, initialLocale, initialPath, isSessionsRoute } from "./app/startup";
 import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { AppProviders } from "@/app/providers";
 import { router } from "@/app/router";
-import { authStore } from "@/features/auth/session";
+import { prefetchSessions } from "@/features/sessions/api";
 import { createQueryClient } from "@/lib/api/query";
-import { activateLocale, resolveInitialLocale } from "@/lib/i18n";
+import { activateLocale } from "@/lib/i18n";
 import "./index.css";
 
 declare global {
@@ -15,31 +17,21 @@ declare global {
 	}
 }
 
-/**
- * Old links are `#/sessions/:id` (agent transcripts still contain them,
- * doc/webui.md "路由"). Convert one to a real path before the router sees it.
- */
-function normaliseLegacyHash(): void {
-	const hash = window.location.hash;
-	if (!hash.startsWith("#/")) return;
-	const path = hash.slice(1);
-	// Keep the existing query string (if any) after the converted path.
-	const url = `${path}${window.location.search}`;
-	try {
-		window.history.replaceState(window.history.state, "", url);
-	} catch {
-		// A malformed old link is left alone; the router will show its not-found page.
-	}
-}
-
 async function bootstrap(): Promise<void> {
-	normaliseLegacyHash();
-	// Load and activate the catalogue before the first render so the UI never
-	// flashes message ids; the session is restored in the same step so the
-	// route guard can run on the first navigation.
-	const locale = resolveInitialLocale();
-	await activateLocale(locale);
-	await authStore.load();
+	// `app/startup` already started the session request, the catalogue and the
+	// first route's chunk while this module was being evaluated. Only the first
+	// session-list page needs the auth result, so it starts as soon as that
+	// resolves, in parallel with rendering the shell.
+	const queryClient = createQueryClient();
+	const catalogue = activateLocale(initialLocale);
+	const auth = authLoad.then((state) => {
+		if (state.status === "authenticated" && isSessionsRoute(initialPath)) {
+			void prefetchSessions(queryClient, { scope: "mine", q: "" }).catch(() => undefined);
+		}
+		return state;
+	});
+
+	await Promise.all([catalogue, auth]);
 
 	window.__crhAppMounts = (window.__crhAppMounts ?? 0) + 1;
 
@@ -48,7 +40,7 @@ async function bootstrap(): Promise<void> {
 
 	createRoot(root).render(
 		<StrictMode>
-			<AppProviders queryClient={createQueryClient()} initialLocale={locale}>
+			<AppProviders queryClient={queryClient} initialLocale={initialLocale}>
 				<RouterProvider router={router} />
 			</AppProviders>
 		</StrictMode>,

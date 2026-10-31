@@ -59,21 +59,36 @@ export class TranscriptStreams {
 		}) as unknown as number;
 	}
 
-	/** Publish the streaming text of `state` into the stores and drop the ones whose block ended. */
+	/**
+	 * Publish the streaming text of `state` into the stores and drop the ones
+	 * whose block ended. A store of a message that just ended is finished, not
+	 * dropped: the committed row keeps the same component and store, so its
+	 * incremental Markdown tree survives `message_end` (the row passes the
+	 * committed text to the renderer from then on).
+	 */
 	sync(state: SessionState): void {
 		const live = new Set<string>();
-		state.streaming?.content.forEach((block, index) => {
-			const key = `streaming/${index}`;
-			if (block.type === "text") {
-				live.add(key);
-				this.text(key).setText((block as TextBlock).text);
-			} else if (block.type === "thinking") {
-				live.add(key);
-				this.text(key).setText((block as ThinkingBlock).thinking);
-			}
-		});
+		const prefix = state.liveKey;
+		if (prefix !== undefined) {
+			state.streaming?.content.forEach((block, index) => {
+				const key = `${prefix}/${index}`;
+				if (block.type === "text") {
+					live.add(key);
+					this.text(key).setText((block as TextBlock).text);
+				} else if (block.type === "thinking") {
+					live.add(key);
+					this.text(key).setText((block as ThinkingBlock).thinking);
+				}
+			});
+		}
+		const committed = new Set(Object.values(state.streamedKeys));
 		for (const [key, store] of this.texts) {
 			if (live.has(key)) continue;
+			const owner = key.slice(0, key.lastIndexOf("/"));
+			if (committed.has(owner)) {
+				store.finish();
+				continue;
+			}
 			store.dispose();
 			this.texts.delete(key);
 		}

@@ -97,10 +97,39 @@ test("user message, streamed text and the committed entry", () => {
 	]);
 	expect(s.streaming).toBeUndefined();
 	expect(s.running).toBe(false);
+	// The committed message keeps the render key of the streamed row, so the
+	// Markdown tree is not remounted when `message_end` arrives.
 	expect(transcript(s)).toEqual([
 		{ kind: "user", key: "1", text: "hi" },
-		{ kind: "text", key: "2/0", text: "Hello", streaming: false },
+		{ kind: "text", key: "live/1/0", text: "Hello", streaming: false, live: true },
 	]);
+});
+
+test("a second streamed message gets its own render key", () => {
+	let s = reduceAll(initialState, [
+		emptySnapshot,
+		{ type: "message_start", message: { role: "assistant", content: [] } },
+		{ type: "message_update", changes: [{ type: "text_delta", contentIndex: 0, delta: "one" }] },
+		{ type: "message_end", entry: assistantEntry("1", [{ type: "text", text: "one" }]) },
+		{ type: "message_start", message: { role: "assistant", content: [] } },
+		{ type: "message_update", changes: [{ type: "text_delta", contentIndex: 0, delta: "two" }] },
+	]);
+	expect(transcript(s).map((item) => item.key)).toEqual(["live/1/0", "live/2/0"]);
+	s = reduceAll(s, [{ type: "message_end", entry: assistantEntry("2", [{ type: "text", text: "two" }]) }]);
+	expect(transcript(s).map((item) => item.key)).toEqual(["live/1/0", "live/2/0"]);
+	expect(transcript(s).every((item) => item.kind !== "text" || item.live === true)).toBe(true);
+});
+
+test("a snapshot does not claim live rows", () => {
+	const s = reduceAll(initialState, [
+		{
+			type: "snapshot",
+			entries: [assistantEntry("2", [{ type: "text", text: "hello" }])],
+			tools: [],
+			inbox: [],
+		},
+	]);
+	expect(transcript(s)).toEqual([{ kind: "text", key: "2/0", text: "hello", streaming: false }]);
 });
 
 test("thinking streams into its own item", () => {

@@ -232,8 +232,10 @@ function CompactionDivider({ text }: { text: string }) {
 /**
  * One transcript row (doc/webui.md "消息渲染"): a plain user message, assistant
  * text and thinking through SafeMarkdown, tool cards with their live output,
- * errors and the compaction divider. Only the streaming rows subscribe to a
- * `StreamingTextStore`; committed rows render their committed text.
+ * errors and the compaction divider. A message that arrived through the live
+ * stream keeps its row and store after `message_end` (only the committed text
+ * replaces the live text), so the incremental Markdown tree is not discarded;
+ * messages loaded from a snapshot render their text in one shot.
  */
 export function TranscriptRow({
 	item,
@@ -256,24 +258,29 @@ export function TranscriptRow({
 					</div>
 				</div>
 			)}
-			{item.kind === "text" &&
-				(item.streaming ? (
-					<div className="max-w-[92%] text-sm" data-testid="streaming-text">
-						<StreamingMarkdown store={streams.text(item.key)} />
-					</div>
-				) : (
-					<div className="max-w-[92%] text-sm">
+			{item.kind === "text" && (
+				<div className="max-w-[92%] text-sm" data-testid={item.streaming ? "streaming-text" : undefined}>
+					{item.live ? (
+						// A streamed message keeps the same renderer after it is committed:
+						// the final text replaces the store's live text in place.
+						<StreamingMarkdown store={streams.text(item.key)} text={item.streaming ? undefined : item.text} />
+					) : (
 						<SafeMarkdown text={item.text} />
-					</div>
-				))}
+					)}
+				</div>
+			)}
 			{item.kind === "thinking" && (
 				<details className="max-w-[92%] rounded-md border border-dashed px-2.5 py-1.5 text-sm text-muted-foreground">
 					<summary className="cursor-pointer select-none text-xs font-medium" data-testid="thinking-toggle">
 						<Trans>Thinking</Trans>
 					</summary>
 					<div className="mt-1">
-						{item.streaming ? (
-							<StreamingMarkdown store={streams.text(item.key)} className="text-muted-foreground" />
+						{item.live ? (
+							<StreamingMarkdown
+								store={streams.text(item.key)}
+								text={item.streaming ? undefined : item.text}
+								className="text-muted-foreground"
+							/>
 						) : (
 							<SafeMarkdown text={item.text} className="text-muted-foreground" />
 						)}

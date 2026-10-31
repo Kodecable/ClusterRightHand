@@ -56,6 +56,24 @@ export interface CursorInfiniteOptions<T> {
 export type CursorInfiniteResult<T> = UseInfiniteQueryResult<InfiniteData<CursorPage<T>, string | null>, Error>;
 
 /**
+ * Start a cursor page request before the component that shows it mounts; the
+ * later `useInfiniteQuery` with the same key joins the request instead of
+ * issuing a second one (doc/webui.md "性能与质量目标": the first screen must not
+ * wait for the list request to start after the layout chunk has rendered).
+ */
+export function prefetchCursorInfiniteQuery<T>(
+	queryClient: QueryClient,
+	{ queryKey, fetchPage }: Pick<CursorInfiniteOptions<T>, "queryKey" | "fetchPage">,
+): Promise<void> {
+	return queryClient.prefetchInfiniteQuery({
+		queryKey,
+		queryFn: ({ pageParam, signal }) => fetchPage((pageParam as string | null) ?? undefined, signal),
+		initialPageParam: null as string | null,
+		getNextPageParam: (page: CursorPage<T>) => page.nextCursor,
+	});
+}
+
+/**
  * `useInfiniteQuery` with the contract's `{ items, nextCursor }` pages. The
  * first page has no cursor; the next page's cursor comes from the last one.
  */

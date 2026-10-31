@@ -23,11 +23,30 @@ describe("TranscriptRow", () => {
 
 	test("a streaming block reads its text from the row's store", () => {
 		const streams = new TranscriptStreams();
-		const store = streams.text("streaming/0");
+		const store = streams.text("live/1/0");
 		store.setText("Streamed *text*");
 		store.flush();
-		renderRow({ kind: "text", key: "streaming/0", text: "", streaming: true }, streams);
+		renderRow({ kind: "text", key: "live/1/0", text: "", streaming: true, live: true }, streams);
 		expect(screen.getByTestId("streaming-text")).toHaveTextContent("Streamed text");
+	});
+
+	test("a streamed row keeps its rendered Markdown when it is committed", () => {
+		const streams = new TranscriptStreams();
+		const store = streams.text("live/1/0");
+		store.setText("Hello **wor");
+		store.flush();
+		const { rerender } = renderRow({ kind: "text", key: "live/1/0", text: "", streaming: true, live: true }, streams);
+		const strong = screen.getByText("wor");
+		store.finish();
+		rerender(
+			<TranscriptRow
+				item={{ kind: "text", key: "live/1/0", text: "Hello **world**", streaming: false, live: true }}
+				streams={streams}
+			/>,
+		);
+		expect(screen.queryByTestId("streaming-text")).toBeNull();
+		// The committed text replaced the streamed one in the very same element.
+		expect(screen.getByText("world")).toBe(strong);
 	});
 
 	test("thinking is collapsible and muted", () => {

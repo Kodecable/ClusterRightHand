@@ -148,6 +148,17 @@ export interface SessionState {
 	entries: { id: string; kind: string; message: Message }[];
 	/** The assistant message being generated. */
 	streaming: Extract<Message, { role: "assistant" }> | undefined;
+	/**
+	 * The render key of the message being generated. Its rows keep this key
+	 * after `message_end`, so the committed message is the same React element
+	 * (and the same `TranscriptStreams` store) instead of a one-shot rerender of
+	 * the whole Markdown tree (doc/webui.md "SafeMarkdown" has the block cache).
+	 */
+	liveKey: string | undefined;
+	/** Counter that keeps `liveKey` unique per streamed message in this view. */
+	liveCount: number;
+	/** Entry id → its live render key, for messages that arrived through the stream. */
+	streamedKeys: Record<string, string>;
 	tools: Record<string, LiveTool>;
 	running: boolean;
 	queued: number;
@@ -162,6 +173,9 @@ export const initialState: SessionState = {
 	ready: false,
 	entries: [],
 	streaming: undefined,
+	liveKey: undefined,
+	liveCount: 0,
+	streamedKeys: {},
 	tools: {},
 	running: false,
 	queued: 0,
@@ -216,6 +230,17 @@ export function prependHistory(
 
 function asAssistant(m: Message | undefined): SessionState["streaming"] {
 	return m && m.role === "assistant" ? { ...m, content: [...m.content] } : undefined;
+}
+
+/** The render key for a new streamed message; the previous key stays on its own row. */
+function nextLiveKey(state: SessionState): Pick<SessionState, "liveKey" | "liveCount"> {
+	const liveCount = state.liveCount + 1;
+	return { liveKey: `live/${liveCount}`, liveCount };
+}
+
+/** Make sure a live message created without `message_start` (a bare delta) has a key. */
+function ensureLiveKey(state: SessionState): Pick<SessionState, "liveKey" | "liveCount"> {
+	return state.liveKey === undefined ? nextLiveKey(state) : { liveKey: state.liveKey, liveCount: state.liveCount };
 }
 
 function setAt(root: Json, path: readonly (string | number)[], delta: string): Json {
@@ -295,10 +320,14 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 					...(t.details === undefined ? {} : { details: t.details }),
 				};
 			}
+			const streaming = asAssistant(event.generation?.message);
 			return {
 				ready: true,
 				entries,
-				streaming: asAssistant(event.generation?.message),
+				streaming,
+				liveKey: streaming === undefined ? undefined : "live/1",
+				liveCount: streaming === undefined ? 0 : 1,
+				streamedKeys: {},
 				tools,
 				running: event.run !== undefined,
 				queued: event.inbox.length,
@@ -311,23 +340,32 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 		case "run_start":
 			return { ...state, running: true, failure: undefined };
 		case "run_end":
-			return { ...state, running: false, streaming: undefined, retry: undefined, tools: {} };
+			return { ...state, running: false, streaming: undefined, liveKey: undefined, retry: undefined, tools: {} };
 		case "message_start": {
 			const streaming = asAssistant(event.message);
-			return streaming ? { ...state, streaming, retry: undefined } : state;
+			return streaming ? { ...state, streaming, ...nextLiveKey(state), retry: undefined } : state;
 		}
 		case "message_update": {
 			let streaming = state.streaming ?? { role: "assistant" as const, content: [] };
 			for (const c of event.changes) streaming = applyChange(streaming, c) ?? streaming;
 			if (event.usage) streaming = { ...streaming, usage: event.usage };
-			return { ...state, streaming };
+			return { ...state, streaming, ...ensureLiveKey(state) };
 		}
 		case "message_end": {
 			const isAssistant = event.entry.model?.[0]?.role === "assistant";
+			if (!isAssistant) return { ...state, entries: addEntry(state.entries, event.entry) };
+			// The committed entry takes over the row key of the streamed message, so
+			// nothing remounts when the incremental text becomes the final text.
+			const streamedKeys =
+				state.liveKey === undefined
+					? state.streamedKeys
+					: { ...state.streamedKeys, [String(event.entry.id)]: state.liveKey };
 			return {
 				...state,
 				entries: addEntry(state.entries, event.entry),
-				streaming: isAssistant ? undefined : state.streaming,
+				streaming: undefined,
+				liveKey: undefined,
+				streamedKeys,
 			};
 		}
 		case "entry_appended":
@@ -385,8 +423,22 @@ export function reduceAll(state: SessionState, events: readonly AgentEvent[]): S
 
 export type TranscriptItem =
 	| { kind: "user"; key: string; text: string }
-	| { kind: "text"; key: string; text: string; streaming: boolean }
-	| { kind: "thinking"; key: string; text: string; streaming: boolean }
+	| {
+			kind: "text";
+			key: string;
+			text: string;
+			streaming: boolean;
+			/** The row came from the live stream and keeps its `StreamingTextStore` after commit. */
+			live?: boolean;
+	  }
+	| {
+			kind: "thinking";
+			key: string;
+			text: string;
+			streaming: boolean;
+			/** The row came from the live stream and keeps its `StreamingTextStore` after commit. */
+			live?: boolean;
+	  }
 	| {
 			kind: "tool";
 			key: string;
@@ -412,17 +464,24 @@ export function transcript(state: SessionState): TranscriptItem[] {
 	const results = new Map<string, Extract<Message, { role: "toolResult" }>>();
 	for (const { message } of state.entries) if (message.role === "toolResult") results.set(message.toolCallId, message);
 	const items: TranscriptItem[] = [];
-	const addAssistant = (key: string, m: Extract<Message, { role: "assistant" }>, streaming: boolean) => {
+	const addAssistant = (
+		key: string,
+		m: Extract<Message, { role: "assistant" }>,
+		streaming: boolean,
+		liveRow: boolean,
+	) => {
 		m.content.forEach((b, i) => {
 			const k = `${key}/${i}`;
 			// While streaming, a block is listed from its first delta; its text is
 			// read from the row's own StreamingTextStore, not from this snapshot.
 			if (b.type === "text") {
 				const text = (b as TextBlock).text;
-				if (text || streaming) items.push({ kind: "text", key: k, text, streaming });
+				if (text || streaming)
+					items.push({ kind: "text", key: k, text, streaming, ...(liveRow ? { live: true } : {}) });
 			} else if (b.type === "thinking") {
 				const text = (b as ThinkingBlock).thinking;
-				if (text || streaming) items.push({ kind: "thinking", key: k, text, streaming });
+				if (text || streaming)
+					items.push({ kind: "thinking", key: k, text, streaming, ...(liveRow ? { live: true } : {}) });
 			} else if (b.type === "toolCall") {
 				const call = b as ToolCallBlock;
 				const live = state.tools[call.id];
@@ -453,9 +512,12 @@ export function transcript(state: SessionState): TranscriptItem[] {
 		if (kind === "pi.compaction" && message.role === "user") {
 			items.push({ kind: "compaction", key: id, text: userText(message.content) });
 		} else if (message.role === "user") items.push({ kind: "user", key: id, text: userText(message.content) });
-		else if (message.role === "assistant") addAssistant(id, message, false);
+		else if (message.role === "assistant") {
+			const liveKey = state.streamedKeys[id];
+			addAssistant(liveKey ?? id, message, false, liveKey !== undefined);
+		}
 	}
-	if (state.streaming) addAssistant("streaming", state.streaming, true);
+	if (state.streaming) addAssistant(state.liveKey ?? "streaming", state.streaming, true, true);
 	return items;
 }
 

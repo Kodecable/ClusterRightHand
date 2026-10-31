@@ -78,6 +78,34 @@ export interface CodeBlockProps {
 	code: string;
 	lang?: string;
 	className?: string;
+	/**
+	 * The code will not grow again. A finished block's tokenised lines are then
+	 * kept for the lifetime of the page: a virtualised transcript row that
+	 * scrolled out of and back into the window mounts a new block, and
+	 * re-tokenising a few thousand lines is the largest part of that frame.
+	 */
+	complete?: boolean;
+}
+
+/**
+ * Tokenised lines of finished code blocks, keyed by language and source. The
+ * snapshots are shallow copies (the token objects themselves are immutable),
+ * so the incremental tokenizer of the original block can keep appending
+ * without touching what was cached.
+ */
+const tokenCache = new Map<string, TokenSnapshot>();
+const TOKEN_CACHE_LIMIT = 64;
+
+function cachedSnapshot(key: string, snapshot: TokenSnapshot): TokenSnapshot {
+	if (tokenCache.size >= TOKEN_CACHE_LIMIT) tokenCache.clear();
+	const copy: TokenSnapshot = {
+		lines: snapshot.lines.slice(),
+		partial: snapshot.partial === null ? null : snapshot.partial.slice(),
+		partialText: snapshot.partialText,
+		preStyle: snapshot.preStyle,
+	};
+	tokenCache.set(key, copy);
+	return copy;
 }
 
 /**
@@ -85,7 +113,7 @@ export interface CodeBlockProps {
  * Renders plain text until the language grammar chunk is loaded, and forever
  * for languages outside the supported set. Copy always copies the source.
  */
-export function CodeBlock({ code, lang, className }: CodeBlockProps) {
+export function CodeBlock({ code, lang, className, complete = false }: CodeBlockProps) {
 	const { t } = useLingui();
 	const key = resolveLang(lang);
 	// Subscribe to the language registry so a block re-renders when its grammar
@@ -128,6 +156,11 @@ export function CodeBlock({ code, lang, className }: CodeBlockProps) {
 
 	const snapshot = useMemo<TokenSnapshot | null>(() => {
 		if (!key || failed || !highlighter) return null;
+		const cacheKey = `${key}\u0000${code}`;
+		if (complete) {
+			const hit = tokenCache.get(cacheKey);
+			if (hit !== undefined) return hit;
+		}
 		let current = tokenizerRef.current;
 		if (!current || current.key !== key || current.instance !== highlighter) {
 			current = {
@@ -137,8 +170,9 @@ export function CodeBlock({ code, lang, className }: CodeBlockProps) {
 			};
 			tokenizerRef.current = current;
 		}
-		return current.tokenizer.update(code);
-	}, [key, failed, highlighter, code]);
+		const result = current.tokenizer.update(code);
+		return complete ? cachedSnapshot(cacheKey, result) : result;
+	}, [key, failed, highlighter, code, complete]);
 
 	const lineCount = useMemo(() => {
 		let count = 1;

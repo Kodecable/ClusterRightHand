@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { type Browser, type BrowserContext, expect, type Page, test } from "@playwright/test";
 import {
+	assistantEntry,
 	makeTranscript,
 	mockApi,
 	openSession,
@@ -75,23 +76,33 @@ async function throttledPage(
 	return { page, cdp, close: () => context.close() };
 }
 
-interface FrameRecorder {
-	start: () => Promise<void>;
-	stop: () => Promise<number[]>;
+interface FrameSample {
+	/** `performance.now()` at the start of the frame that ended the gap. */
+	at: number;
+	gap: number;
 }
 
-/** rAF delta sampling, analysed off-page. */
+interface FrameRecorder {
+	start: () => Promise<void>;
+	stop: () => Promise<FrameSample[]>;
+}
+
+/** rAF delta sampling, with the frame start time kept for the completion-frame window. */
 async function frameRecorder(page: Page): Promise<FrameRecorder> {
 	return {
 		start: async () => {
 			await page.evaluate(() => {
-				const target = window as unknown as { __frames: number[]; __framesStop: boolean; __frameLast: number };
+				const target = window as unknown as {
+					__frames: [number, number][];
+					__framesStop: boolean;
+					__frameLast: number;
+				};
 				target.__frames = [];
 				target.__framesStop = false;
 				target.__frameLast = performance.now();
 				const tick = (now: number) => {
 					if (target.__framesStop) return;
-					target.__frames.push(now - target.__frameLast);
+					target.__frames.push([now, now - target.__frameLast]);
 					target.__frameLast = now;
 					requestAnimationFrame(tick);
 				};
@@ -100,13 +111,19 @@ async function frameRecorder(page: Page): Promise<FrameRecorder> {
 		},
 		stop: async () => {
 			const values = await page.evaluate(() => {
-				const target = window as unknown as { __frames: number[]; __framesStop: boolean };
+				const target = window as unknown as { __frames: [number, number][]; __framesStop: boolean };
 				target.__framesStop = true;
 				return target.__frames;
 			});
-			return values.slice(1);
+			return values.slice(1).map(([at, gap]) => ({ at, gap }));
 		},
 	};
+}
+
+/** The largest frame gap that overlaps the [from, to] window, in ms. */
+function worstFrameBetween(frames: FrameSample[], from: number, to: number): number {
+	const window = frames.filter((frame) => frame.at >= from && frame.at <= to);
+	return window.length === 0 ? 0 : Math.max(...window.map((frame) => frame.gap));
 }
 
 function gapSummary(gaps: number[]): { count: number; over50: number; p95: number; max: number; fps: number } {
@@ -153,14 +170,43 @@ function manySessions(count: number) {
 	return { sessions, details: {}, events: {} };
 }
 
-async function listFirstRender(browser: Browser, rate: number): Promise<{ wall: number; afterResponse: number }> {
+interface ResourcePhase {
+	name: string;
+	start: number;
+	end: number;
+}
+
+interface FirstScreen {
+	/** Time from navigation to the frame *after* the one that first painted a session row. */
+	wall: number;
+	/** Time from navigation to the frame that first saw the row in the DOM. */
+	rowInDom: number;
+	afterResponse: number;
+	fcp: number | undefined;
+	phases: ResourcePhase[];
+}
+
+/**
+ * The first screen measured strictly: navigation start → the first painted
+ * session row, on the wall clock, with every startup request's window from the
+ * Performance API. The row is detected on one animation frame and the time is
+ * taken on the next one, so the paint of the row has happened.
+ */
+async function listFirstRender(browser: Browser, rate: number): Promise<FirstScreen> {
 	const { page, close } = await throttledPage(browser, rate);
 	try {
 		await page.addInitScript(() => {
-			const target = window as unknown as { __perfFirstRow?: number };
+			const target = window as unknown as { __perfFirstRow?: number; __perfRowInDom?: number };
+			let seen = false;
 			const tick = () => {
-				if (target.__perfFirstRow === undefined && document.querySelector("[data-session-id]")) {
-					target.__perfFirstRow = performance.now();
+				if (!seen && document.querySelector("[data-session-id]") !== null) {
+					seen = true;
+					target.__perfRowInDom = performance.now();
+					// The browser paints between this frame and the next one.
+					requestAnimationFrame(() => {
+						target.__perfFirstRow ??= performance.now();
+					});
+					return;
 				}
 				requestAnimationFrame(tick);
 			};
@@ -172,17 +218,58 @@ async function listFirstRender(browser: Browser, rate: number): Promise<{ wall: 
 			timeout: 120_000,
 		});
 		const measured = await page.evaluate(() => {
-			const firstRow = (window as unknown as { __perfFirstRow?: number }).__perfFirstRow ?? performance.now();
+			const target = window as unknown as { __perfFirstRow?: number; __perfRowInDom?: number };
+			const firstRow = target.__perfFirstRow ?? performance.now();
+			const rowInDom = target.__perfRowInDom ?? firstRow;
 			const listEntries = (performance.getEntriesByType("resource") as PerformanceResourceTiming[])
 				.filter((entry) => entry.name.includes("/api/sessions?"))
 				.sort((a, b) => a.startTime - b.startTime);
 			const list = listEntries[0];
-			return { firstRow, listEnd: list?.responseEnd ?? firstRow };
+			const phaseName = (name: string): string | undefined => {
+				if (name.includes("/api/me")) return "me";
+				if (name.includes("/api/sessions?")) return "list";
+				if (name.includes("/api/models")) return "models";
+				if (/\/assets\/index-[^/]+\.js$/.test(name)) return "entry";
+				if (/\/assets\/(en|zh-CN)-[^/]+\.js$/.test(name)) return "catalog";
+				if (name.includes("/assets/sessions-layout-")) return "layout";
+				if (name.includes("/assets/sessions-index-page-")) return "index-page";
+				return undefined;
+			};
+			const seen = new Set<string>();
+			const phases: { name: string; start: number; end: number }[] = [];
+			const navigation = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+			if (navigation) phases.push({ name: "html", start: navigation.startTime, end: navigation.responseEnd });
+			for (const entry of (performance.getEntriesByType("resource") as PerformanceResourceTiming[]).sort(
+				(a, b) => a.startTime - b.startTime,
+			)) {
+				const name = phaseName(entry.name);
+				if (name === undefined || seen.has(name)) continue;
+				seen.add(name);
+				phases.push({ name, start: entry.startTime, end: entry.responseEnd });
+			}
+			const fcp = performance.getEntriesByName("first-contentful-paint")[0]?.startTime;
+			return {
+				firstRow,
+				rowInDom,
+				listEnd: list?.responseEnd ?? firstRow,
+				fcp,
+				phases: phases.sort((a, b) => a.start - b.start),
+			};
 		});
-		return { wall: measured.firstRow, afterResponse: measured.firstRow - measured.listEnd };
+		return {
+			wall: measured.firstRow,
+			rowInDom: measured.rowInDom,
+			afterResponse: measured.firstRow - measured.listEnd,
+			fcp: measured.fcp,
+			phases: measured.phases,
+		};
 	} finally {
 		await close();
 	}
+}
+
+function phaseText(phases: ResourcePhase[]): string {
+	return phases.map((phase) => `${phase.name} ${round(phase.start)}–${round(phase.end)}`).join(", ");
 }
 
 test("session list of 100,000 sessions: first render and scrolling frames", async ({ browser }) => {
@@ -190,13 +277,25 @@ test("session list of 100,000 sessions: first render and scrolling frames", asyn
 		const walls: number[] = [];
 		const afterResponse: number[] = [];
 		const minusMock: number[] = [];
+		const runs: FirstScreen[] = [];
 		for (let run = 0; run < RUNS; run++) {
 			const sample = await listFirstRender(browser, rate);
+			runs.push(sample);
 			walls.push(sample.wall);
 			afterResponse.push(sample.afterResponse);
 			minusMock.push(sample.wall - 50);
+			console.log(
+				`first-screen @${rate}x run ${run + 1}: row in DOM ${round(sample.rowInDom)} ms, painted ${round(sample.wall)} ms, FCP ${round(sample.fcp ?? 0)} ms; ${phaseText(sample.phases)}`,
+			);
 		}
-		record("session-list-100k-first-render-total", rate, walls, "wall clock, includes the mocked latency");
+		const sorted = [...runs].sort((a, b) => a.wall - b.wall);
+		const medianRun = sorted[Math.floor(sorted.length / 2)] as FirstScreen;
+		record(
+			"session-list-100k-first-render-total",
+			rate,
+			walls,
+			`nav → first painted row, wall clock incl. the mocked latency; row in DOM ${round(medianRun.rowInDom)} ms, FCP ${round(medianRun.fcp ?? 0)} ms; ${phaseText(medianRun.phases)}`,
+		);
 		record(
 			"session-list-100k-first-render-render",
 			rate,
@@ -220,7 +319,7 @@ test("session list of 100,000 sessions: first render and scrolling frames", asyn
 				await page.mouse.wheel(0, 900);
 				await page.waitForTimeout(30);
 			}
-			gaps.push(...(await recorder.stop()));
+			gaps.push(...(await recorder.stop()).map((frame) => frame.gap));
 		} finally {
 			await close();
 		}
@@ -288,7 +387,7 @@ async function transcriptRun(browser: Browser, rate: number) {
 			await page.waitForTimeout(30);
 		}
 		const gaps = await recorder.stop();
-		return { nodeSpread, drift, gaps: gapSummary(gaps) };
+		return { nodeSpread, drift, gaps: gapSummary(gaps.map((frame) => frame.gap)) };
 	} finally {
 		await close();
 	}
@@ -341,6 +440,8 @@ interface StreamResult {
 	max: number;
 	busyShare: number;
 	gaps: ReturnType<typeof gapSummary>;
+	/** The worst frame gap within [message_end − 20 ms, message_end + 2 s]. */
+	completionFrame: number;
 }
 
 async function streamRun(
@@ -401,8 +502,10 @@ async function streamRun(
 				const target = window as unknown as {
 					__crhSseSources?: Source[];
 					__streamDone?: boolean;
+					__streamDoneAt?: number;
 				};
 				target.__streamDone = false;
+				target.__streamDoneAt = undefined;
 				const sources = (target.__crhSseSources ?? []).filter(
 					(source) => source.url.includes("/sessions/s1/events") && !source.closed,
 				);
@@ -433,6 +536,7 @@ async function streamRun(
 					}
 					if (sent >= text.length) {
 						clearInterval(timer);
+						target.__streamDoneAt = performance.now();
 						send([
 							{
 								type: "message_end",
@@ -467,7 +571,12 @@ async function streamRun(
 			timeout: Math.max(60_000, expectedMs),
 		});
 		await page.waitForTimeout(500);
-		const gaps = gapSummary(await recorder.stop());
+		const frames = await recorder.stop();
+		const gaps = gapSummary(frames.map((frame) => frame.gap));
+		const doneAt = await page.evaluate(
+			() => (window as unknown as { __streamDoneAt?: number }).__streamDoneAt ?? Number.NaN,
+		);
+		const completionFrame = Number.isFinite(doneAt) ? worstFrameBetween(frames, doneAt - 20, doneAt + 2_000) : 0;
 		const after = await cdp.send("Performance.getMetrics");
 		const metric = (list: Metrics, name: string) => list.find((entry) => entry.name === name)?.value ?? 0;
 		const taskSeconds =
@@ -481,6 +590,7 @@ async function streamRun(
 			max: samples.length === 0 ? 0 : Math.max(...samples),
 			busyShare: elapsedSeconds > 0 ? Math.min(1, taskSeconds / elapsedSeconds) : 0,
 			gaps,
+			completionFrame,
 		};
 	} finally {
 		await close();
@@ -498,6 +608,7 @@ test("streaming at 1,500 and 300 characters per second: Stop latency and frames"
 			const maxes: number[] = [];
 			const busy: number[] = [];
 			const worst: number[] = [];
+			const completion: number[] = [];
 			const sampleCounts: number[] = [];
 			for (let run = 0; run < RUNS; run++) {
 				const result = await streamRun(browser, rate, perSecond, chars);
@@ -505,13 +616,109 @@ test("streaming at 1,500 and 300 characters per second: Stop latency and frames"
 				maxes.push(result.max);
 				busy.push(result.busyShare * 100);
 				worst.push(result.gaps.max);
+				completion.push(result.completionFrame);
 				sampleCounts.push(result.samples.length);
 			}
 			record(`stream-${label}-stop-latency-p95`, rate, p95s, `samples per run: ${sampleCounts.join("/")}`);
 			record(`stream-${label}-stop-latency-max`, rate, maxes);
 			record(`stream-${label}-worst-frame`, rate, worst);
+			record(
+				`stream-${label}-completion-frame`,
+				rate,
+				completion,
+				"worst rAF gap at message_end (the completion transition)",
+			);
 			record(`stream-${label}-main-thread-busy`, rate, busy, "% of the streaming wall time");
 		}
+	}
+});
+
+// --- 5. a completed long message remounting ---------------------------------
+
+const REMOUNT_FILLER = 80;
+
+/**
+ * A transcript whose second row is a full 100K Markdown message, followed by
+ * enough short rows that the long one is outside the virtual window at the
+ * bottom. Opening the session lands at the bottom, then the test scrolls back
+ * up until the long row is mounted again.
+ */
+function remountFixture() {
+	const entries = [
+		userEntry("u0", "read the runbook"),
+		assistantEntry("long", fixtureText(100_000)),
+		...makeTranscript(REMOUNT_FILLER, "m"),
+	];
+	const view = sessionView(sessionListItem({ id: "s1", title: "Long message" }));
+	return {
+		sessions: [sessionListItem({ id: "s1", title: "Long message" })],
+		details: { s1: view },
+		events: { s1: snapshotEvent(entries, null) },
+		entryCount: entries.length,
+	};
+}
+
+/** Scroll upwards in steps until `row` is mounted (and stop there). */
+async function scrollUntilVisible(
+	page: Page,
+	scroller: ReturnType<Page["getByTestId"]>,
+	row: ReturnType<Page["locator"]>,
+) {
+	const startedAt = Date.now();
+	while (Date.now() - startedAt < 30_000) {
+		await scroller.evaluate((element) => {
+			element.scrollTop = Math.max(0, element.scrollTop - 800);
+		});
+		await page.waitForTimeout(40);
+		if ((await row.count()) > 0) return;
+	}
+}
+
+async function remountRun(browser: Browser, rate: number): Promise<ReturnType<typeof gapSummary>> {
+	const { page, close } = await throttledPage(browser, rate);
+	try {
+		const state = remountFixture();
+		const api = await mockApi(page, { loggedIn: true, latencyMs: 50, state });
+		await page.goto("/sessions");
+		await openSession(page, api, "s1");
+		const scroller = page.getByTestId("transcript-scroller");
+		await expect(scroller).toHaveAttribute("data-loaded-count", String(state.entryCount), { timeout: 180_000 });
+		const row = page.locator('[data-message-id="long/0"]');
+		// The list settles at the bottom; the long row is far above the window then.
+		await expect(row).toHaveCount(0, { timeout: 30_000 });
+		await scroller.hover();
+		// Warm the page caches: scroll the row into view once, then back to the
+		// bottom so that what is measured below is the second, cached mount.
+		await scrollUntilVisible(page, scroller, row);
+		await page.waitForTimeout(1_000);
+		await scroller.evaluate((element) => {
+			element.scrollTop = element.scrollHeight;
+		});
+		await expect(row).toHaveCount(0, { timeout: 30_000 });
+		const recorder = await frameRecorder(page);
+		await recorder.start();
+		await scrollUntilVisible(page, scroller, row);
+		await page.waitForTimeout(800);
+		return gapSummary((await recorder.stop()).map((frame) => frame.gap));
+	} finally {
+		await close();
+	}
+}
+
+test("a completed 100K message scrolling back into the window does not hitch", async ({ browser }) => {
+	for (const rate of [1, 4]) {
+		const worst: number[] = [];
+		for (let run = 0; run < RUNS; run++) {
+			const summary = await remountRun(browser, rate);
+			worst.push(summary.max);
+			logFrames("transcript-100k-remount", rate, summary);
+		}
+		record(
+			"transcript-100k-remount-worst-frame",
+			rate,
+			worst,
+			"worst rAF gap of the second mount of the completed 100K row, after scrolling it out of and back into the virtual window",
+		);
 	}
 });
 
@@ -568,13 +775,21 @@ test.afterAll(() => {
 		["transcript 20k: prepend anchor drift", "transcript-20k-prepend-drift", "px", "≤ 2 px"],
 		["transcript 20k: scroll, p95 frame gap", "transcript-20k-scroll-p95", "ms", "no visible jank"],
 		["transcript 20k: scroll, worst frame", "transcript-20k-scroll-worst-frame", "ms", ""],
+		[
+			"transcript 100K: remount, worst frame",
+			"transcript-100k-remount-worst-frame",
+			"ms",
+			"regression guard (was 667 ms)",
+		],
 		["stream 1,500 c/s 100K: Stop p95", "stream-1500cps-100k-stop-latency-p95", "ms", "< 100 ms at 4×"],
 		["stream 1,500 c/s 100K: Stop max", "stream-1500cps-100k-stop-latency-max", "ms", ""],
 		["stream 1,500 c/s 100K: worst frame", "stream-1500cps-100k-worst-frame", "ms", ""],
+		["stream 1,500 c/s 100K: completion frame", "stream-1500cps-100k-completion-frame", "ms", "not the worst frame"],
 		["stream 1,500 c/s 100K: main-thread busy", "stream-1500cps-100k-main-thread-busy", "%", ""],
 		["stream 300 c/s 30K: Stop p95", "stream-300cps-30k-stop-latency-p95", "ms", "< 100 ms at 4×"],
 		["stream 300 c/s 30K: Stop max", "stream-300cps-30k-stop-latency-max", "ms", ""],
 		["stream 300 c/s 30K: worst frame", "stream-300cps-30k-worst-frame", "ms", ""],
+		["stream 300 c/s 30K: completion frame", "stream-300cps-30k-completion-frame", "ms", "not the worst frame"],
 		["stream 300 c/s 30K: main-thread busy", "stream-300cps-30k-main-thread-busy", "%", ""],
 	];
 	const cells: string[][] = [];
@@ -600,14 +815,24 @@ test.afterAll(() => {
 		"",
 		"Notes:",
 		"- `first render, wall` is the browser's time from navigation to the first painted session row,",
-		"  so it includes the mocked responses. `after list response` runs from the end of the cursor",
-		"  response to that paint; `minus 50 ms mock` subtracts one mocked response from the wall time.",
+		"  so it includes the mocked responses and all of startup. The row is detected on one animation",
+		"  frame and the time is taken on the next one, so the paint has happened; the note also lists the",
+		"  Performance API window of every startup request (html, entry chunk, locale catalog, /api/me,",
+		"  sessions layout and index chunks, first list page, models). `after list response` runs from the",
+		"  end of the cursor response to that paint; `minus 50 ms mock` subtracts one mocked response. The",
+		"  first list page is requested as soon as auth resolves, so on the mocked run the response lands",
+		"  before the shell has rendered and `after list response` also covers the remaining startup",
+		"  render; the strict wall time is the headline number.",
 		"- Streaming: the full SafeMarkdown `doc-100k` fixture at 1,500 chars/s, and its first 30K",
 		"  characters at 300 chars/s (the brief's allowed variant; 100K at 300 chars/s is ~5.5 min",
 		"  per run). Stop latency is the Event Timing input delay (`processingStart - startTime`),",
 		"  with clicks spread over the stream.",
 		"- `main-thread busy` is CDP `Performance.getMetrics` TaskDuration divided by the streaming",
-		"  wall time. `worst frame` is the largest rAF gap while streaming.",
+		"  wall time. `worst frame` is the largest rAF gap while streaming; `completion frame` is the",
+		"  largest gap in the two seconds after the final `message_end`, i.e. the transition from the",
+		"  incremental streamed render to the committed message.",
+		"- `transcript 100K: remount` scrolls a completed 100K message out of and back into the virtual",
+		"  window and reports the worst frame of that scroll.",
 		"- Transcript scrolling reports the p95 frame gap and the worst frame per run; all raw",
 		"  per-run numbers are in results.json.",
 	);

@@ -10,9 +10,13 @@ import malicious from "./__fixtures__/malicious.md?raw";
 import { SafeMarkdown, StreamingMarkdown } from "./SafeMarkdown";
 import { StreamingTextStore } from "./stream-store";
 
-function renderMarkdown(node: React.ReactElement) {
+function withI18n(node: React.ReactElement) {
 	activateLocale();
-	return render(<I18nProvider i18n={i18n}>{node}</I18nProvider>);
+	return <I18nProvider i18n={i18n}>{node}</I18nProvider>;
+}
+
+function renderMarkdown(node: React.ReactElement) {
+	return render(withI18n(node));
 }
 
 function normalise(text: string | null | undefined): string {
@@ -135,6 +139,32 @@ describe("SafeMarkdown correctness", () => {
 		expect(block?.textContent).toContain("kubectl get pods -n prod");
 		// The fence itself is not rendered as literal text.
 		expect(container.textContent).not.toContain("```");
+	});
+
+	test("a streamed message keeps its rendered blocks when it is committed", () => {
+		const text = doc20k;
+		const oneShot = renderMarkdown(<SafeMarkdown text={text} />);
+		const expected = normalise(oneShot.container.textContent);
+		oneShot.unmount();
+
+		const store = new StreamingTextStore();
+		const view = renderMarkdown(<StreamingMarkdown store={store} />);
+		act(() => {
+			for (let i = 400; i < text.length; i += 400) store.setText(text.slice(0, i));
+			store.flush();
+		});
+		const firstBlock = view.container.querySelector("h2, h1");
+		expect(firstBlock, "the streamed document renders its first heading").not.toBeNull();
+
+		// Completion: the store ends and the row passes the committed text. The
+		// same component instance must keep its block tree (only the last block
+		// re-renders), so the first block's DOM node survives.
+		act(() => {
+			store.finish();
+			view.rerender(withI18n(<StreamingMarkdown store={store} text={text} />));
+		});
+		expect(normalise(view.container.textContent)).toBe(expected);
+		expect(view.container.querySelector("h2, h1")).toBe(firstBlock);
 	});
 
 	const fixtures: [string, string][] = [

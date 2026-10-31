@@ -1,7 +1,14 @@
-import { type InfiniteData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	type InfiniteData,
+	type QueryClient,
+	useMutation,
+	useQueries,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { enc, http, queryString } from "@/lib/api/client";
-import { useCursorInfiniteQuery } from "@/lib/api/query";
+import { prefetchCursorInfiniteQuery, useCursorInfiniteQuery } from "@/lib/api/query";
 import type {
 	CursorPage,
 	SessionListItem,
@@ -25,15 +32,34 @@ export const sessionKeys = {
 };
 
 export interface SessionListParams {
-	scope: SessionListQuery["scope"];
+	scope: NonNullable<SessionListQuery["scope"]>;
 	q: string;
+}
+
+function fetchSessionsPage(
+	{ scope, q }: SessionListParams,
+	cursor: string | undefined,
+	signal: AbortSignal,
+): Promise<CursorPage<SessionListItem>> {
+	return http.get<CursorPage<SessionListItem>>(`/sessions${queryString({ scope, q, cursor })}`, { signal });
 }
 
 export function useSessions({ scope = "mine", q = "" }: SessionListParams) {
 	return useCursorInfiniteQuery<SessionListItem>({
 		queryKey: sessionKeys.listPage(scope, q),
-		fetchPage: (cursor, signal) =>
-			http.get<CursorPage<SessionListItem>>(`/sessions${queryString({ scope, q, cursor })}`, { signal }),
+		fetchPage: (cursor, signal) => fetchSessionsPage({ scope, q }, cursor, signal),
+	});
+}
+
+/**
+ * Start the first session-list page before the sessions layout mounts (the
+ * startup path in `main.tsx`), so the mocked/server round trip overlaps React's
+ * render of the shell. The `useSessions` hook joins the same query.
+ */
+export function prefetchSessions(queryClient: QueryClient, params: SessionListParams): Promise<void> {
+	return prefetchCursorInfiniteQuery<SessionListItem>(queryClient, {
+		queryKey: sessionKeys.listPage(params.scope, params.q),
+		fetchPage: (cursor, signal) => fetchSessionsPage(params, cursor, signal),
 	});
 }
 

@@ -8,6 +8,46 @@
 
 export type DateInput = string | number | Date | null | undefined;
 
+/**
+ * `Intl` constructors are expensive (they build the locale data for the
+ * formatter), and a rendered list calls the helpers once per row and per
+ * refresh tick. Formatters are pure for a locale + options pair, so they are
+ * cached for the lifetime of the page; the key space is the two locales times
+ * the handful of option sets below.
+ */
+const dateTimeFormats = new Map<string, Intl.DateTimeFormat>();
+const relativeTimeFormats = new Map<string, Intl.RelativeTimeFormat>();
+const numberFormats = new Map<string, Intl.NumberFormat>();
+
+function dateTimeFormat(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+	const key = `${locale}|${JSON.stringify(options)}`;
+	let formatter = dateTimeFormats.get(key);
+	if (!formatter) {
+		formatter = new Intl.DateTimeFormat(locale, options);
+		dateTimeFormats.set(key, formatter);
+	}
+	return formatter;
+}
+
+function relativeTimeFormat(locale: string): Intl.RelativeTimeFormat {
+	let formatter = relativeTimeFormats.get(locale);
+	if (!formatter) {
+		formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto", style: "short" });
+		relativeTimeFormats.set(locale, formatter);
+	}
+	return formatter;
+}
+
+function numberFormat(locale: string, options: Intl.NumberFormatOptions | undefined): Intl.NumberFormat {
+	const key = `${locale}|${JSON.stringify(options ?? {})}`;
+	let formatter = numberFormats.get(key);
+	if (!formatter) {
+		formatter = new Intl.NumberFormat(locale, options);
+		numberFormats.set(key, formatter);
+	}
+	return formatter;
+}
+
 function toDate(value: DateInput): Date | null {
 	if (value === null || value === undefined || value === "") return null;
 	const date = value instanceof Date ? value : new Date(value);
@@ -18,7 +58,7 @@ function toDate(value: DateInput): Date | null {
 export function formatDateTime(value: DateInput, locale: string): string {
 	const date = toDate(value);
 	if (!date) return "–";
-	return new Intl.DateTimeFormat(locale, {
+	return dateTimeFormat(locale, {
 		month: "short",
 		day: "numeric",
 		hour: "2-digit",
@@ -30,14 +70,14 @@ export function formatDateTime(value: DateInput, locale: string): string {
 export function formatDate(value: DateInput, locale: string): string {
 	const date = toDate(value);
 	if (!date) return "–";
-	return new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(date);
+	return dateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(date);
 }
 
 /** Seconds precision, e.g. "Oct 31, 2026, 20:08:29". */
 export function formatDateTimeSeconds(value: DateInput, locale: string): string {
 	const date = toDate(value);
 	if (!date) return "–";
-	return new Intl.DateTimeFormat(locale, {
+	return dateTimeFormat(locale, {
 		year: "numeric",
 		month: "short",
 		day: "numeric",
@@ -53,7 +93,7 @@ export function formatRelativeTime(value: DateInput, locale: string, now: number
 	if (!date) return "–";
 	const diffMs = date.getTime() - now;
 	const abs = Math.abs(diffMs);
-	const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto", style: "short" });
+	const formatter = relativeTimeFormat(locale);
 	if (abs < 45_000) return formatter.format(Math.round(diffMs / 1_000), "second");
 	if (abs < 45 * 60_000) return formatter.format(Math.round(diffMs / 60_000), "minute");
 	if (abs < 22 * 3_600_000) return formatter.format(Math.round(diffMs / 3_600_000), "hour");
@@ -63,7 +103,7 @@ export function formatRelativeTime(value: DateInput, locale: string, now: number
 }
 
 export function formatNumber(value: number, locale: string, options?: Intl.NumberFormatOptions): string {
-	return new Intl.NumberFormat(locale, options).format(value);
+	return numberFormat(locale, options).format(value);
 }
 
 /** A byte count with binary units; uses `Intl` for the number part. */
@@ -84,7 +124,7 @@ export function formatBytes(bytes: number, locale: string): string {
 export function formatTime(value: DateInput, locale: string): string {
 	const date = toDate(value);
 	if (!date) return "–";
-	return new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date);
+	return dateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date);
 }
 
 /** A duration in seconds/milliseconds as "1h 02m 03s". */

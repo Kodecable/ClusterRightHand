@@ -19,28 +19,38 @@ function textOf(children: ReactNode): string {
 	return "";
 }
 
-const MARKDOWN_COMPONENTS: Components = {
-	// `pre` only marks its child as a block; the shared CodeBlock renders its own
-	// <pre>, so the wrapper must not be emitted twice.
-	pre: ({ children }) => {
-		if (isValidElement(children)) {
-			return cloneElement(children as ReactElement<Record<string, unknown>>, { "data-block": "true" });
-		}
-		return <pre>{children}</pre>;
-	},
-	code: (props) => {
-		const { className, children } = props;
-		const isBlock = "data-block" in props;
-		if (isBlock) {
-			const code = textOf(children).replace(/\n$/, "");
-			const lang = /language-([^\s]+)/.exec(className ?? "")?.[1];
-			return <CodeBlock code={code} lang={lang} />;
-		}
-		return <code className={className}>{children}</code>;
-	},
-	a: SafeLink,
-	img: TextImage,
-};
+/**
+ * `complete` tells a code block that it will not grow again, which lets it keep
+ * its tokenised lines for a later mount (a virtualised row that scrolled out of
+ * the window). Only the last block of a stream is incomplete.
+ */
+function markdownComponents(complete: boolean): Components {
+	return {
+		// `pre` only marks its child as a block; the shared CodeBlock renders its own
+		// <pre>, so the wrapper must not be emitted twice.
+		pre: ({ children }) => {
+			if (isValidElement(children)) {
+				return cloneElement(children as ReactElement<Record<string, unknown>>, { "data-block": "true" });
+			}
+			return <pre>{children}</pre>;
+		},
+		code: (props) => {
+			const { className, children } = props;
+			const isBlock = "data-block" in props;
+			if (isBlock) {
+				const code = textOf(children).replace(/\n$/, "");
+				const lang = /language-([^\s]+)/.exec(className ?? "")?.[1];
+				return <CodeBlock code={code} lang={lang} complete={complete} />;
+			}
+			return <code className={className}>{children}</code>;
+		},
+		a: SafeLink,
+		img: TextImage,
+	};
+}
+
+const MARKDOWN_COMPONENTS = markdownComponents(true);
+const STREAMING_MARKDOWN_COMPONENTS = markdownComponents(false);
 
 /**
  * `remend` closes the markdown constructs that are still open in the last
@@ -65,6 +75,37 @@ function safeRemend(text: string): string {
 	return result;
 }
 
+/**
+ * The Markdown → React conversion is the expensive half of rendering a long
+ * message: hundreds of blocks, about 120 ms for the 100K fixture on a fast CPU
+ * and several times that under 4× throttling. A virtualised row that scrolled
+ * out of and back into the window is a fresh component instance, which `memo`
+ * cannot help; the converted element of a finished block is cached by its full
+ * source instead. Elements are immutable descriptions, so a hit is safe to
+ * render again. The cache is bounded and cleared as a whole: a session page
+ * only has a handful of long messages on screen at a time.
+ */
+const blockCache = new Map<string, ReactElement>();
+const BLOCK_CACHE_LIMIT = 1_200;
+
+function markdownBlockElement(text: string, reusable: boolean): ReactElement {
+	const hit = reusable ? blockCache.get(text) : undefined;
+	if (hit !== undefined) return hit;
+	const element = ReactMarkdown({
+		remarkPlugins: REMARK_PLUGINS,
+		components: reusable ? MARKDOWN_COMPONENTS : STREAMING_MARKDOWN_COMPONENTS,
+		urlTransform: safeUrlTransform,
+		skipHtml: true,
+		children: text,
+	});
+	// The growing last block of a stream is a new text on every frame; caching
+	// it would only evict the finished blocks the cache exists for.
+	if (!reusable) return element;
+	if (blockCache.size >= BLOCK_CACHE_LIMIT) blockCache.clear();
+	blockCache.set(text, element);
+	return element;
+}
+
 const MarkdownBlockView = memo(function MarkdownBlockView({
 	source,
 	definitions,
@@ -78,20 +119,11 @@ const MarkdownBlockView = memo(function MarkdownBlockView({
 	// Definitions are prepended so references resolve even when the definition
 	// itself arrives later in the message (doc/webui.md item 5).
 	const text = definitions === "" ? repaired : `${definitions}\n\n${repaired}`;
-	return (
-		<ReactMarkdown
-			remarkPlugins={REMARK_PLUGINS}
-			components={MARKDOWN_COMPONENTS}
-			urlTransform={safeUrlTransform}
-			skipHtml
-		>
-			{text}
-		</ReactMarkdown>
-	);
+	return markdownBlockElement(text, !streaming);
 });
 
-const CodeBlockView = memo(function CodeBlockView({ block }: { block: MarkdownBlock }) {
-	return <CodeBlock code={(block.code?.text ?? "").replace(/\n$/, "")} lang={block.code?.lang} />;
+const CodeBlockView = memo(function CodeBlockView({ block, complete }: { block: MarkdownBlock; complete: boolean }) {
+	return <CodeBlock code={(block.code?.text ?? "").replace(/\n$/, "")} lang={block.code?.lang} complete={complete} />;
 });
 
 function MarkdownView({ text, streaming, className }: { text: string; streaming: boolean; className?: string }) {
@@ -104,7 +136,7 @@ function MarkdownView({ text, streaming, className }: { text: string; streaming:
 		<div className={cn("md-body", className)} data-testid="safe-markdown">
 			{result.blocks.map((block, index) =>
 				block.code !== undefined ? (
-					<CodeBlockView key={index} block={block} />
+					<CodeBlockView key={index} block={block} complete={!(streaming && index === lastIndex)} />
 				) : (
 					<MarkdownBlockView
 						key={index}
@@ -138,8 +170,22 @@ export function SafeMarkdown({
 /**
  * The streaming variant: the text lives in an external store (batched to one
  * update per animation frame) and is read with `useSyncExternalStore`.
+ *
+ * A row that outlives its stream passes `text`: from then on the committed
+ * text is the source of truth and the renderer leaves streaming mode, but the
+ * component instance and its incremental block tree stay — only the last block
+ * is re-rendered (without `remend`).
  */
-export function StreamingMarkdown({ store, className }: { store: StreamingTextStore; className?: string }) {
-	const { text, streaming } = useStreamingText(store);
-	return <MarkdownView text={text} streaming={streaming} className={className} />;
+export function StreamingMarkdown({
+	store,
+	text,
+	className,
+}: {
+	store: StreamingTextStore;
+	text?: string;
+	className?: string;
+}) {
+	const live = useStreamingText(store);
+	const value = text ?? live.text;
+	return <MarkdownView text={value} streaming={text === undefined && live.streaming} className={className} />;
 }

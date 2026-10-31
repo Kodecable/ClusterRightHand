@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-router";
 import type { AuthStore } from "@/features/auth/session";
 import { authStore } from "@/features/auth/session";
+import { sessionPageChunk, sessionsIndexPageChunk, sessionsLayoutChunk } from "./lazy-chunks";
 import { AppShell } from "./shell/app-shell";
 
 export interface RouterContext {
@@ -89,19 +90,19 @@ const indexRoute = createRoute({
 const sessionsRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/sessions",
-	component: lazyRouteComponent(() => import("@/features/sessions/sessions-layout"), "SessionsLayout"),
+	component: lazyRouteComponent(sessionsLayoutChunk, "SessionsLayout"),
 });
 
 const sessionsIndexRoute = createRoute({
 	getParentRoute: () => sessionsRoute,
 	path: "/",
-	component: lazyRouteComponent(() => import("@/features/sessions/sessions-index-page"), "SessionsPage"),
+	component: lazyRouteComponent(sessionsIndexPageChunk, "SessionsPage"),
 });
 
 const sessionRoute = createRoute({
 	getParentRoute: () => sessionsRoute,
 	path: "$sessionId",
-	component: lazyRouteComponent(() => import("@/features/sessions/pages"), "SessionPage"),
+	component: lazyRouteComponent(sessionPageChunk, "SessionPage"),
 });
 
 // --- schedules ------------------------------------------------------------
