@@ -25,6 +25,11 @@ export type SessionRelationship = "owner" | "admin" | "shared";
 export interface SessionPermissions {
 	relationship: SessionRelationship;
 	capabilities: SessionCapabilities;
+	/**
+	 * A share reaches the caller on this session or one of its ancestors: what the WebUI's list items call
+	 * `shared` (doc/webui.md#SessionListItem). False for the owner, and for an administrator who is not a grantee.
+	 */
+	shared: boolean;
 }
 
 /** The single capability rule: owner, administrator, and the strongest share level. */
@@ -131,6 +136,7 @@ export async function sessionCapabilities(
 	return {
 		relationship: isOwner ? "owner" : isAdmin ? "admin" : "shared",
 		capabilities: capabilitiesFor(isOwner, isAdmin, share),
+		shared: share !== undefined,
 	};
 }
 

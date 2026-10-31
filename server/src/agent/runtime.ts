@@ -67,8 +67,10 @@ import { Reviewer } from "./review.ts";
 import { SessionListHub } from "./session-list.ts";
 import {
 	markSessionsIdle,
+	nonIdleSessions,
 	type SessionState,
 	type SessionWait,
+	sessionsWithSubmissions,
 	setSessionState,
 	type WaitingKind,
 } from "./session-state.ts";
@@ -665,20 +667,14 @@ export class AgentRuntime {
 		return false;
 	}
 
-	/** Reconciles old conversations with the depth limit; new children are handled in createSubagent. */
+	/**
+	 * Reconciles old conversations with the depth limit; new children are handled in createSubagent. Only a
+	 * session at the limit can be affected, so `depthLimitedSessions` walks up from the subagent rows and finds
+	 * exactly those, instead of loading every session's parent at startup (doc/webui.md: 100,000 sessions).
+	 */
 	async #enforceDepthToolLimits(): Promise<void> {
-		const rows = await this.#db
-			.selectFrom("sessions")
-			.select(["id", "parent_session_id", "conversation_id"])
-			.where("parent_session_id", "is not", null)
-			.execute();
-		if (rows.length === 0) return;
-		const all = await this.#db.selectFrom("sessions").select(["id", "parent_session_id"]).execute();
-		const parentOf = new Map(all.map((row) => [row.id, row.parent_session_id]));
-		for (const row of rows) {
-			let depth = 0;
-			for (let id = row.parent_session_id; id; depth++) id = parentOf.get(id) ?? null;
-			if (depth < MAX_SUBAGENT_DEPTH) continue;
+		const limited = await depthLimitedSessions().execute(this.#db);
+		for (const row of limited.rows) {
 			const conversation = await this.#harness.conversation(
 				Number(row.conversation_id) as unknown as ConversationId,
 				this.#context,
@@ -1713,7 +1709,7 @@ export class AgentRuntime {
 	async #reconcileSessionStates(): Promise<void> {
 		const candidates = new Map<string, Row>();
 		// Candidate 1: rows that claim a live run or a wait.
-		const stale = await this.#db.selectFrom("sessions").selectAll().where("state", "!=", "idle").execute();
+		const stale = await nonIdleSessions(this.#db).execute();
 		for (const row of stale) candidates.set(row.id, row);
 		// Candidate 2: queued and placed submissions are durable's one answer to "what has not settled"; map
 		// them back to their sessions through `last_submission_id`, in chunks, never with a query per row.
@@ -1723,11 +1719,7 @@ export class AgentRuntime {
 		);
 		const unresolved = [...unsettled];
 		for (let start = 0; start < unresolved.length; start += RECONCILE_CHUNK) {
-			const rows = await this.#db
-				.selectFrom("sessions")
-				.selectAll()
-				.where("last_submission_id", "in", unresolved.slice(start, start + RECONCILE_CHUNK))
-				.execute();
+			const rows = await sessionsWithSubmissions(this.#db, unresolved.slice(start, start + RECONCILE_CHUNK)).execute();
 			for (const row of rows) if (!candidates.has(row.id)) candidates.set(row.id, row);
 		}
 		for (const row of candidates.values()) {
@@ -2390,3 +2382,28 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 
 /** Subagent sessions nest at most this deep below a root session (doc/agent-runtime.md#subagent). */
 export const MAX_SUBAGENT_DEPTH = 2;
+
+/**
+ * The sessions at the subagent depth limit, with the conversation that may still offer the subagent tool:
+ * `#enforceDepthToolLimits` fixes them at startup (a session created before the per-conversation filter may
+ * still offer it). Walking up from the subagent rows costs one covering range scan of
+ * `sessions_parent_updated_idx` for the seed, a primary-key lookup per ancestor, and one for each affected
+ * session; roots and unrelated sessions are never read. A session deeper than the limit (data from an older
+ * version) is reported once, at the limit, exactly like the old per-row walk.
+ */
+export function depthLimitedSessions() {
+	return sql<{ id: string; conversation_id: string }>`
+		with recursive ancestry(id, ancestor_id, depth) as (
+			select id, parent_session_id, 1 from sessions where parent_session_id is not null
+			union all
+			select ancestry.id, parent.parent_session_id, ancestry.depth + 1
+			from ancestry
+			join sessions as parent on parent.id = ancestry.ancestor_id
+			where ancestry.depth < ${MAX_SUBAGENT_DEPTH} and parent.parent_session_id is not null
+		)
+		select sessions.id, sessions.conversation_id
+		from ancestry
+		join sessions on sessions.id = ancestry.id
+		where ancestry.depth >= ${MAX_SUBAGENT_DEPTH}
+	`;
+}

@@ -15,6 +15,8 @@ import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
 import {
 	type SessionListScope,
 	type SessionListSubscriber,
+	sessionChildItem,
+	sessionChildrenQuery,
 	sessionListCursor,
 	sessionListItem,
 	sessionListQuery,
@@ -54,8 +56,11 @@ export interface SessionRoutesOptions {
 	scheduler?: Scheduler;
 }
 
-/** The session list's cursor: `updated_at desc, id desc`. */
-const SESSION_LIST_CURSOR: CursorSpec = {
+/**
+ * The cursor of both session lists (`GET /sessions` and `GET /sessions/:id/children`):
+ * `updated_at desc, id desc`.
+ */
+const SESSION_CURSOR: CursorSpec = {
 	columns: [{ name: "sessions.updated_at", type: "string" }],
 	idType: "string",
 	idColumn: "sessions.id",
@@ -248,7 +253,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		if (scope === "all" && user.kind !== "admin") return jsonError(c, 403, "administrators only");
 		const limit = parseLimit(c.req.query("limit"));
 		const rawCursor = c.req.query("cursor");
-		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, SESSION_LIST_CURSOR);
+		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, SESSION_CURSOR);
 		const q = c.req.query("q");
 		const scheduleId = c.req.query("scheduleId");
 		const page = await cursorRows(
@@ -336,6 +341,32 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		return c.json({
 			session: { ...viewed, relationship: v.relationship, capabilities: v.capabilities },
 			...(canShare ? { shares: await listSessionShares(db, session.id) } : {}),
+		});
+	});
+
+	/**
+	 * The session's direct child sessions (subagents), newest activity first, one keyset page at a time
+	 * (doc/webui.md#api-约定). Visibility is `GET /sessions/:id`'s: a share on a session reaches its subagents,
+	 * so every child of a visible session is visible and the items need no per-child check. Unlike the root
+	 * list, an item carries the child's own state and its `parentSessionId`. The session list stream carries
+	 * roots only; a page refetches its children on its session's `snapshot`, on a `tool_execution_update` /
+	 * `tool_execution_end` of the `subagent` tool (the update's `details.sessionId` names the new child), and on
+	 * its tree root's `upsert` on `/api/sessions/stream`, which every session in the tree republishes.
+	 */
+	app.get("/sessions/:id/children", async (c) => {
+		const v = await visible(c, c.req.param("id"));
+		if (!v) return jsonError(c, 404, "no such session");
+		const limit = parseLimit(c.req.query("limit"));
+		const rawCursor = c.req.query("cursor");
+		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, SESSION_CURSOR);
+		const page = await cursorRows(
+			limit,
+			async (limitPlusOne) => (await sessionChildrenQuery(db, v.session.id, cursor)).limit(limitPlusOne).execute(),
+			(row) => sessionListCursor(row.updated_at, row.id),
+		);
+		return c.json({
+			items: page.rows.map((row) => sessionChildItem(row, c.get("user").userId, v.shared)),
+			nextCursor: page.nextCursor,
 		});
 	});
 

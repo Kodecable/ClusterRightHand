@@ -1,3 +1,4 @@
+import { type SqlBool, sql } from "kysely";
 import type { Db } from "../storage/db.ts";
 import type { SessionState, WaitingKind } from "../storage/schema.ts";
 
@@ -88,6 +89,28 @@ export async function markSessionsIdle(db: Db, sessionIds: readonly string[]): P
 		.where("id", "in", [...sessionIds])
 		.where("state", "!=", "idle")
 		.execute();
+}
+
+/**
+ * The startup reconciliation's candidate 1 (runtime.ts `#reconcileSessionStates`): every row that is not
+ * `idle`, so it claims a live run or a wait. The 0030 partial index `sessions_state_live_idx` covers exactly
+ * this predicate, so the lookup costs the non-idle sessions rather than the mostly idle table. The value is
+ * written literally, like the index's predicate, so both SQLite and PostgreSQL recognize it in any plan.
+ */
+export function nonIdleSessions(db: Db) {
+	return db.selectFrom("sessions").selectAll().where(sql<SqlBool>`sessions.state <> 'idle'`);
+}
+
+/**
+ * Candidate 2: the sessions whose latest input is one of these unsettled submissions. The 0030 index
+ * `sessions_last_submission_idx` serves the `IN` lookup, so a chunk costs one index range scan, not a scan of
+ * every session.
+ */
+export function sessionsWithSubmissions(db: Db, submissionIds: readonly string[]) {
+	return db
+		.selectFrom("sessions")
+		.selectAll()
+		.where("last_submission_id", "in", [...submissionIds]);
 }
 
 async function parentOf(db: Db, sessionId: string): Promise<string | null | undefined> {

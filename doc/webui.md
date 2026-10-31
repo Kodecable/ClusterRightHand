@@ -218,6 +218,15 @@ web/src/
 }
 ```
 
+**子会话列表** `GET /api/sessions/:id/children?cursor=&limit=`：
+- 可见性与 `GET /api/sessions/:id` 相同，不可见时返回 404；
+- 按 `updated_at desc, id desc` 排序，返回游标列表；
+- `items` 是 `SessionListItem` 并带 `parentSessionId`；`state` / `waitingKind` 是子会话**自己的**状态，不是汇总；
+- 列表推送不包含子会话，所以客户端在以下事件后重新拉取：
+  - 本会话事件流的 `snapshot`；
+  - `subagent` 工具的 `tool_execution_update` / `tool_execution_end`；
+  - 列表推送中该会话树根会话的 `upsert`。
+
 **会话列表实时推送** `GET /api/sessions/stream`（SSE）：
 - `event: upsert`，data 为 `SessionListItem`；
 - `event: remove`，data 为 `{ "id": string }`，会话被删除、取消共享或归档时发送；

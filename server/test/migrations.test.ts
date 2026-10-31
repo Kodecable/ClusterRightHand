@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import type { Kysely } from "kysely";
-import { sql } from "kysely";
+import { CompiledQuery, type Kysely, sql } from "kysely";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { nonIdleSessions, sessionsWithSubmissions } from "../src/agent/session-state.ts";
 import type { Db } from "../src/storage/db.ts";
 import { up } from "../src/storage/migrations/0019_cbor_protocol.ts";
 import { up as up0020 } from "../src/storage/migrations/0020_output_mode.ts";
@@ -9,6 +9,7 @@ import { up as up0022 } from "../src/storage/migrations/0022_m4_privilege.ts";
 import { up as up0024 } from "../src/storage/migrations/0024_rule_privileged_flag.ts";
 import { up as up0025 } from "../src/storage/migrations/0025_root_session_quota_null.ts";
 import { up as up0029 } from "../src/storage/migrations/0029_session_state_tree.ts";
+import { up as up0030 } from "../src/storage/migrations/0030_session_reconcile_indexes.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -549,5 +550,66 @@ describeBackends("0029 session state and tree", (backend) => {
 		});
 		expect(byId.get("root-unplaced")).toMatchObject({ state: "awaiting", waiting_kind: null });
 		expect([...byId.values()].every((row) => row.root_session_id === row.id || row.root_session_id)).toBe(true);
+	});
+});
+
+describeBackends("0030 session reconciliation indexes", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("sessions")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("state", "text", (c) => c.notNull())
+				.addColumn("last_submission_id", "text")
+				.execute();
+			await sql`insert into sessions (id, state, last_submission_id) values
+				(${"idle"}, ${"idle"}, ${null}),
+				(${"idle-with-input"}, ${"idle"}, ${"input-idle"}),
+				(${"running"}, ${"running"}, ${null}),
+				(${"awaiting"}, ${"awaiting"}, ${"input-awaiting"})`.execute(db);
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("indexes the non-idle states and last_submission_id, and the reconciliation's queries stay correct", async () => {
+		await applyMigration(backend, db, up0030);
+
+		expect((await nonIdleSessions(db).execute()).map((row) => row.id).sort()).toEqual(["awaiting", "running"]);
+		expect(
+			(await sessionsWithSubmissions(db, ["input-idle", "input-awaiting"]).execute()).map((row) => row.id).sort(),
+		).toEqual(["awaiting", "idle-with-input"]);
+		expect(await sessionsWithSubmissions(db, ["no-such-input"]).execute()).toEqual([]);
+
+		if (backend === "sqlite") {
+			const indexes = await sql<{ name: string; sql: string }>`
+				select name, sql from sqlite_master
+				where type = 'index' and tbl_name = 'sessions' and name not like 'sqlite_autoindex%'
+				order by name
+			`.execute(db);
+			expect(indexes.rows.map((row) => row.name)).toEqual(["sessions_last_submission_idx", "sessions_state_live_idx"]);
+			expect(indexes.rows.find((row) => row.name === "sessions_state_live_idx")?.sql).toContain(
+				"where state <> 'idle'",
+			);
+		}
+	});
+
+	it("lets the reconciliation's candidate queries use them", async () => {
+		// EXPLAIN QUERY PLAN is SQLite's; PostgreSQL's equivalent is not exercised here.
+		if (backend !== "sqlite") return;
+		await applyMigration(backend, db, up0030);
+		const plan = async (compiled: { sql: string; parameters: readonly unknown[] }): Promise<string> => {
+			const result = await db.executeQuery<{ detail: string }>(
+				CompiledQuery.raw(`EXPLAIN QUERY PLAN ${compiled.sql}`, [...compiled.parameters]),
+			);
+			return result.rows.map((row) => row.detail).join("\n");
+		};
+		expect(await plan(nonIdleSessions(db).compile())).toContain("sessions_state_live_idx");
+		expect(await plan(sessionsWithSubmissions(db, ["input-1"]).compile())).toContain("sessions_last_submission_idx");
 	});
 });
