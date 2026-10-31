@@ -17,6 +17,7 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | [agent-runtime.md](agent-runtime.md) | Agent 运行时：pi-durable 集成、cluster 工具、会话、subagent、测试策略 |
 | [access-control.md](access-control.md) | 用户模型（管理员 / 普通用户、用户组）、归属与分享、授权规则、API token、审计 |
 | [scheduling.md](scheduling.md) | 计划任务 |
+| [webui.md](webui.md) | WebUI 重构：技术栈、架构、API 约定、分期 |
 | [mcp.md](mcp.md) | MCP 门面 |
 | [data-model.md](data-model.md) | 数据表草案 |
 | [m4.md](m4.md) | M4 提权的实现计划、阶段和测试矩阵 |
@@ -152,3 +153,6 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D91 | crhs 签名用 `node:crypto` ed25519 + 手写 SSHSIG；`crha grant` 调用 `ssh-keygen -Y sign`；crha 用 `x/crypto/ssh` + 手写 SSHSIG codec 验证，WebAuthn 手写验证（ES256 / EdDSA / RS256）；crhs 的 WebAuthn 用 `@simplewebauthn`；ssh-agent 签名为可选项目 | 不引入新的 Go 模块；OpenSSH 负责加密私钥、agent 和 FIDO 触摸；RS256 用标准库验证成本很低，避免注册出无法校验的凭据 |
 | D92 | 配额统一：任何一级会话都可以设 token 配额或不设（`null` 不限、不扣减）；用户创建的根默认不设，计划任务的会话在根上设 `token_budget`；每次模型调用（含压缩和 Auto Review）只计输出 token，上游不上报时按输出 UTF-8 字节 × 0.3 估算，扣链上所有设了配额的级别；耗尽时只报告给那一级的直接上级，根由所有者在审批页增加或拒绝 | 计划任务需要无人值守的用量上限，复用同一套暂停/处理流程，不另做预算机制；只计输出让口径不随上下文长度和缓存命中变化，输入不受预算约束 |
 | D93 | 计划任务只有一种：按 cron 用固定消息新建会话；同一计划任务同时只有一个实例，新运行强制结束上一个；调度的每个决策写审计；可以手动运行，错过的触发可选补跑一次；webhook 通知移到 M6 | 固定命令也交给 agent，规则、审批、提权、配额全部复用会话；强制结束让每次运行只在下一次触发前有效，不会堆积等待 |
+| D94 | WebUI 技术栈：Tailwind CSS v4 + shadcn/ui（底层 Base UI）+ lucide；Lingui 做 i18n（原文英语，加简体中文）；TanStack Router / Query / Table；react-hook-form + zod；virtua 做虚拟列表；Markdown 用 react-markdown + remark-gfm，配合自写的增量切块；代码高亮用 Shiki（JS 正则引擎，增量分词）。版本见 [webui.md](webui.md) | 依据生态调研和两轮 POC：Streamdown 在长文本下卡顿严重且安全配置不足；Markstream 默认会加载外链图片，长文档流式结果不正确；只有 react-markdown 方案同时满足安全和正确性，它的性能问题可以通过增量切块等写法解决；virtua 在流式场景下的帧表现优于 TanStack Virtual |
+| D95 | WebUI 改为路径路由（`/sessions/:id`），旧的 `#/...` 链接在前端转换；服务端生成的链接一并改为路径形式 | crhs 已经把非 API 路径回退到 `index.html`；路径路由支持按页面拆包，链接也更规范 |
+| D96 | 列表接口统一使用 keyset 游标（`{ items, nextCursor }`），删除 offset 分页；会话事件流的 snapshot 只带最近 100 条记录，更早的记录通过 `entries` 接口分页加载；会话列表通过 SSE 推送增量变化 | 按超多会话、超多消息设计：offset 分页在插入新数据时会错位且越翻越慢，全量 snapshot 在 2 万条消息时代价过高 |
