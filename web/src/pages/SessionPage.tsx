@@ -4,6 +4,7 @@ import { ErrorText, Loading } from "../components/Feedback.tsx";
 import { ModelSelect, PresetSelect } from "../components/ModelSelect.tsx";
 import { ToolCard } from "../components/ToolCard.tsx";
 import { useAction, useLoad } from "../hooks.ts";
+import { parseGrantInput, parseQuotaInput, quotaSummary } from "../lib.ts";
 import { transcript, usageTotals } from "../sessionState.ts";
 import { useSessionEvents } from "../useSessionEvents.ts";
 import { Shares } from "./Shares.tsx";
@@ -18,14 +19,28 @@ function Settings({
 	onChange: () => void;
 }) {
 	const [title, setTitle] = useState(session.title);
+	const [quotaText, setQuotaText] = useState(session.quota === null ? "" : String(session.quota));
+	const [quotaError, setQuotaError] = useState<string>();
 	const { busy, error, run } = useAction();
 	useEffect(() => setTitle(session.title), [session.title]);
+	useEffect(() => setQuotaText(session.quota === null ? "" : String(session.quota)), [session.quota]);
 	const patch = async (body: Parameters<typeof api.patchSession>[1]) => {
 		if (await run(() => api.patchSession(session.id, body))) onChange();
 	};
 	const saveTitle = (e: FormEvent) => {
 		e.preventDefault();
 		if (title.trim() && title.trim() !== session.title) void patch({ title: title.trim() });
+	};
+	// Setting a quota replaces what is left; an empty field removes the limit (doc/agent-runtime.md#配额).
+	const saveQuota = (e: FormEvent) => {
+		e.preventDefault();
+		const parsed = parseQuotaInput(quotaText);
+		if ("error" in parsed) {
+			setQuotaError(parsed.error);
+			return;
+		}
+		setQuotaError(undefined);
+		void patch({ quota: parsed.quota });
 	};
 	return (
 		<div className="stack">
@@ -50,9 +65,71 @@ function Settings({
 					disabled={busy}
 					onChange={(p) => void patch({ preset: p })}
 				/>
+				<form onSubmit={saveQuota} className="row">
+					<label>
+						Token quota (remaining; empty = unlimited)
+						<input
+							inputMode="numeric"
+							value={quotaText}
+							onChange={(e) => setQuotaText(e.target.value)}
+							placeholder="unlimited"
+						/>
+					</label>
+					<button type="submit" disabled={busy}>
+						Save quota
+					</button>
+				</form>
 			</div>
-			<ErrorText error={error} />
+			<ErrorText error={quotaError ?? error} />
 		</div>
+	);
+}
+
+/** The owner's add/stop controls for a root whose quota is used up (doc/agent-runtime.md#配额). */
+function QuotaWait({ session, onSettled }: { session: SessionView; onSettled: () => void }) {
+	const [tokens, setTokens] = useState("");
+	const [localError, setLocalError] = useState<string>();
+	const { busy, error, run } = useAction();
+	const decide = async (decision: "approve" | "deny") => {
+		setLocalError(undefined);
+		if (decision === "deny") {
+			if (await run(() => api.decideQuota(session.id, { decision }))) onSettled();
+			return;
+		}
+		const parsed = parseGrantInput(tokens);
+		if ("error" in parsed) {
+			setLocalError(parsed.error);
+			return;
+		}
+		if (await run(() => api.decideQuota(session.id, { decision, tokens: parsed.tokens }))) {
+			setTokens("");
+			onSettled();
+		}
+	};
+	return (
+		<section className="card" aria-label="Token quota used up">
+			<h2>Token quota used up</h2>
+			<p className="muted">The run is paused until you add tokens or stop it.</p>
+			<label>
+				Tokens to add
+				<input
+					inputMode="numeric"
+					value={tokens}
+					onChange={(e) => setTokens(e.target.value)}
+					placeholder="e.g. 1000000"
+					disabled={busy}
+				/>
+			</label>
+			<ErrorText error={localError ?? error} />
+			<div className="row">
+				<button type="button" className="primary" disabled={busy} onClick={() => void decide("approve")}>
+					Add
+				</button>
+				<button type="button" className="danger" disabled={busy} onClick={() => void decide("deny")}>
+					Stop
+				</button>
+			</div>
+		</section>
 	);
 }
 
@@ -181,15 +258,12 @@ export function SessionPage({ id }: { id: string }) {
 				{state.running && <span>Working…</span>}
 				{state.retry && <span>Retrying after an error: {state.retry}</span>}
 				{state.queued > 0 && <span>{state.queued} message(s) queued</span>}
-				{totals && (
-					<span>
-						{totals.tokens.toLocaleString()} tokens
-						{session.data.parentSessionId !== null &&
-							session.data.quota !== null &&
-							` · ${session.data.quota.toLocaleString()} quota left`}
-					</span>
-				)}
+				{totals && <span>{totals.tokens.toLocaleString()} tokens</span>}
+				<span>{quotaSummary(session.data.quota, session.data.spentTokens)}</span>
 			</div>
+			{session.data.capabilities.configure &&
+				session.data.parentSessionId === null &&
+				session.data.state === "awaiting" && <QuotaWait session={session.data} onSettled={session.reload} />}
 			<ErrorText error={state.failure} />
 			<div className="chat" role="log" aria-label="Conversation" aria-live="polite" ref={logRef}>
 				{state.ready && items.length === 0 && <p className="muted">No messages yet.</p>}

@@ -3,10 +3,10 @@ import type { Db } from "../storage/db.ts";
 import { UserError } from "../users/service.ts";
 
 /**
- * Token quotas (doc/agent-runtime.md#配额): a subagent's signed remaining-token balance, null for unlimited.
- * Root sessions keep quota 0 and are never charged. Usage is charged to every subagent level after a response
- * (durable 1.4.0 cannot refuse a request), so a quota can go negative; a run continues only while every level
- * is above zero. The subagent's state says when it is paused on an exhausted level.
+ * Token quotas (doc/agent-runtime.md#配额): every level of a session's chain may have a signed remaining-token
+ * balance; null means unlimited and is never charged. Usage is charged to every level after a model call
+ * (durable 1.4.0 cannot refuse a request), so a quota can go negative; a run continues only while every level is
+ * above zero. The state of a session says when it is paused on an exhausted level.
  */
 
 export type SessionState = "active" | "awaiting" | "stopped";
@@ -23,19 +23,67 @@ export async function setQuota(db: Db, sessionId: string, quota: number | null):
 	await db.updateTable("sessions").set({ quota_tokens: quota }).where("id", "=", sessionId).execute();
 }
 
-/** The session and its ancestors, this session first, root last; `root` marks the session without a parent. */
-async function lineage(db: Db, sessionId: string): Promise<{ id: string; root: boolean }[]> {
-	const out: { id: string; root: boolean }[] = [];
+/** The session and its ancestors, this session first, root last. */
+export async function sessionChain(db: Db, sessionId: string): Promise<string[]> {
+	const chain: string[] = [];
 	for (let id: string | null = sessionId; id; ) {
+		chain.push(id);
 		const row: { parent_session_id: string | null } | undefined = await db
 			.selectFrom("sessions")
 			.select("parent_session_id")
 			.where("id", "=", id)
 			.executeTakeFirst();
-		out.push({ id, root: row?.parent_session_id === null || row === undefined });
 		id = row?.parent_session_id ?? null;
 	}
-	return out;
+	return chain;
+}
+
+/** The parts of an assistant message the account reads; a pi-ai `AssistantMessage` satisfies it. */
+export interface AccountedContent {
+	readonly type: string;
+	readonly text?: string;
+	readonly thinking?: string;
+	readonly name?: string;
+	readonly arguments?: unknown;
+}
+
+export interface AccountedMessage {
+	readonly usage?: { readonly output?: number } | null;
+	readonly content?: readonly AccountedContent[];
+}
+
+const encoder = new TextEncoder();
+
+/**
+ * The tokens one model call is charged (D92, doc/agent-runtime.md#配额): the output the upstream reported
+ * (reasoning included), or, when it reported none (`usage` missing, or `output` 0 for a message with content),
+ * `ceil(bytes × 0.3)` over the message's text, visible thinking text and tool calls (name plus serialized
+ * arguments). Input and cache tokens are never charged.
+ */
+export function accountedOutputTokens(message: AccountedMessage): number {
+	const output = message.usage?.output;
+	if (typeof output === "number" && Number.isFinite(output) && output > 0) return Math.round(output);
+	const bytes = outputBytes(message.content ?? []);
+	return bytes === 0 ? 0 : Math.ceil(bytes * 0.3);
+}
+
+function outputBytes(content: readonly AccountedContent[]): number {
+	let bytes = 0;
+	for (const block of content) {
+		switch (block.type) {
+			case "text":
+				if (block.text) bytes += encoder.encode(block.text).length;
+				break;
+			case "thinking":
+				if (block.thinking) bytes += encoder.encode(block.thinking).length;
+				break;
+			case "toolCall":
+				bytes += encoder.encode(block.name ?? "").length;
+				bytes += encoder.encode(JSON.stringify(block.arguments ?? null)).length;
+				break;
+		}
+	}
+	return bytes;
 }
 
 /** Tokens spent by the session and its subagents. */
@@ -45,37 +93,28 @@ export async function spentTokens(db: Db, sessionId: string): Promise<number> {
 }
 
 /**
- * Charges one response's tokens to every subagent level of the chain (root sessions have no quota and are not
- * charged); quotas may go negative. `used_tokens` still grows everywhere, for display.
+ * Charges one model call's tokens to every level of the chain that has a quota, the root included; quotas may go
+ * negative. `used_tokens` grows at every level, for display.
  */
 export async function recordUsage(db: Db, sessionId: string, tokens: number): Promise<void> {
 	const used = Math.max(0, Math.round(tokens));
-	const levels = await lineage(db, sessionId);
+	const levels = await sessionChain(db, sessionId);
 	await db
 		.updateTable("sessions")
-		.set({ used_tokens: sql`used_tokens + ${used}` })
-		.where(
-			"id",
-			"in",
-			levels.map((l) => l.id),
-		)
-		.execute();
-	const charged = levels.filter((l) => !l.root).map((l) => l.id);
-	if (charged.length === 0) return;
-	await db
-		.updateTable("sessions")
-		.set({ quota_tokens: sql`case when quota_tokens is null then null else quota_tokens - ${used} end` })
-		.where("id", "in", charged)
+		.set({
+			used_tokens: sql`used_tokens + ${used}`,
+			quota_tokens: sql`case when quota_tokens is null then null else quota_tokens - ${used} end`,
+		})
+		.where("id", "in", levels)
 		.execute();
 }
 
-/** The highest subagent level of the chain (root first) whose quota is not above zero, if any. */
+/** The highest level of the chain (root first) whose quota is not above zero, if any. */
 export async function exhaustedLevel(db: Db, sessionId: string): Promise<string | undefined> {
-	for (const level of (await lineage(db, sessionId)).reverse()) {
-		if (level.root) continue;
-		const row = await db.selectFrom("sessions").select("quota_tokens").where("id", "=", level.id).executeTakeFirst();
+	for (const level of (await sessionChain(db, sessionId)).reverse()) {
+		const row = await db.selectFrom("sessions").select("quota_tokens").where("id", "=", level).executeTakeFirst();
 		if (!row || row.quota_tokens === null) continue;
-		if (Number(row.quota_tokens) <= 0) return level.id;
+		if (Number(row.quota_tokens) <= 0) return level;
 	}
 	return undefined;
 }
@@ -90,7 +129,7 @@ export async function grantQuota(db: Db, levelId: string, tokens: number): Promi
 		.execute();
 }
 
-/** A subagent paused on an exhausted quota level. */
+/** A session paused on an exhausted quota level. */
 export interface QuotaWaitView {
 	/** The paused session. */
 	sessionId: string;
@@ -99,7 +138,7 @@ export interface QuotaWaitView {
 	sessionTitle: string;
 	levelTitle: string;
 	levelQuota: number | null;
-	/** The session whose agent handles the wait (the level's parent). */
+	/** The session whose agent handles the wait (the level's parent); empty for a root level, which the owner handles. */
 	handlerId: string;
 	since: string;
 }
@@ -134,7 +173,7 @@ async function waitView(
 	};
 }
 
-/** Subagents paused on a level whose direct parent is `handlerSessionId`. */
+/** Sessions paused on a level whose direct parent is `handlerSessionId`; a root level has no such handler. */
 export async function awaitingQuotaChildren(db: Db, handlerSessionId: string): Promise<QuotaWaitView[]> {
 	const rows = await db
 		.selectFrom("sessions")
@@ -152,7 +191,7 @@ export async function awaitingQuotaChildren(db: Db, handlerSessionId: string): P
 	return out;
 }
 
-/** Every paused subagent (waking their parents after a restart). */
+/** Every paused session (waking their handlers after a restart). */
 export async function awaitingQuotaSessions(db: Db): Promise<QuotaWaitView[]> {
 	const rows = await db
 		.selectFrom("sessions")
@@ -175,9 +214,9 @@ export async function sessionStateOf(db: Db, sessionId: string): Promise<Session
 }
 
 /**
- * Sets the subagent's state; unchanged states are not rewritten (keeps `since` meaningful). Returns the
- * state's timestamp, which identifies this wait: a new pause gets a new one, so the parent's wake is not
- * deduplicated against the previous pause.
+ * Sets the session's state; unchanged states are not rewritten (keeps `since` meaningful). Returns the state's
+ * timestamp, which identifies this wait: a new pause gets a new one, so a handler's wake is not deduplicated
+ * against the previous pause. A root's quota wait has no handler (the owner handles it).
  */
 export async function setSessionState(
 	db: Db,
@@ -223,7 +262,7 @@ async function parentOf(db: Db, sessionId: string): Promise<string | null | unde
 	return row?.parent_session_id;
 }
 
-/** Marks subagent sessions stopped (cancelled, or a quota wait denied). */
+/** Marks subagent sessions stopped (cancelled, or a quota wait denied). Roots stay active and are reset separately. */
 export async function markSessionsStopped(db: Db, sessionIds: string[]): Promise<void> {
 	if (sessionIds.length === 0) return;
 	await db
@@ -235,7 +274,6 @@ export async function markSessionsStopped(db: Db, sessionIds: string[]): Promise
 			state_changed_at: new Date().toISOString(),
 		})
 		.where("id", "in", sessionIds)
-		// Only subagents carry a state; a root session stays active when its subtree is aborted.
 		.where("parent_session_id", "is not", null)
 		.where("state", "!=", "stopped")
 		.execute();

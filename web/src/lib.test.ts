@@ -10,8 +10,11 @@ import {
 	joinOutput,
 	mcpCommand,
 	outputText,
+	parseGrantInput,
 	parseList,
+	parseQuotaInput,
 	pendingCount,
+	quotaSummary,
 	shellQuote,
 	splitArgv,
 	statusOutputNote,
@@ -25,10 +28,43 @@ test("pendingCount counts a waiting task group once, whatever its node count", (
 	expect(pendingCount(undefined)).toBe(0);
 	const group = { id: "g1", nodeIds: ["n1", "n2", "n3"] };
 	// The server lists a waiting group, never its member tasks: three nodes are still one entry.
-	expect(pendingCount({ tasks: [], taskGroups: [], authorizations: { tasks: [], taskGroups: [group] } })).toBe(1);
 	expect(
-		pendingCount({ tasks: [{}, {}], taskGroups: [group], authorizations: { tasks: [{}], taskGroups: [group] } }),
-	).toBe(5);
+		pendingCount({ tasks: [], taskGroups: [], authorizations: { tasks: [], taskGroups: [group] }, quotas: [] }),
+	).toBe(1);
+	const quotas = [{ sessionId: "s1" }, { sessionId: "s2" }];
+	expect(
+		pendingCount({
+			tasks: [{}, {}],
+			taskGroups: [group],
+			authorizations: { tasks: [{}], taskGroups: [group] },
+			quotas,
+		}),
+	).toBe(7);
+});
+
+test("parseQuotaInput leaves the quota unlimited on an empty field", () => {
+	expect(parseQuotaInput("")).toEqual({ quota: null });
+	expect(parseQuotaInput("   ")).toEqual({ quota: null });
+	expect(parseQuotaInput("0")).toEqual({ quota: 0 });
+	expect(parseQuotaInput(" 1250 ")).toEqual({ quota: 1250 });
+	expect(parseQuotaInput("1.5")).toEqual({ error: expect.any(String) });
+	expect(parseQuotaInput("-1")).toEqual({ error: expect.any(String) });
+	expect(parseQuotaInput("1e6")).toEqual({ error: expect.any(String) });
+	expect(parseQuotaInput("9007199254740992")).toEqual({ error: expect.any(String) });
+});
+
+test("parseGrantInput only accepts a positive number to add", () => {
+	expect(parseGrantInput("10")).toEqual({ tokens: 10 });
+	expect(parseGrantInput("")).toEqual({ error: expect.any(String) });
+	expect(parseGrantInput("0")).toEqual({ error: expect.any(String) });
+	expect(parseGrantInput("abc")).toEqual({ error: expect.any(String) });
+});
+
+test("quotaSummary shows unlimited, remaining and used-up quotas", () => {
+	expect(quotaSummary(null, 1234)).toBe("unlimited quota · 1,234 used");
+	expect(quotaSummary(5000, 20)).toBe("5,000 tokens left · 20 used");
+	expect(quotaSummary(0, 20)).toBe("quota used up (0 over) · 20 used");
+	expect(quotaSummary(-300, 20)).toBe("quota used up (300 over) · 20 used");
 });
 
 test("isTerminal", () => {

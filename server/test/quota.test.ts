@@ -8,6 +8,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import {
+	accountedOutputTokens,
 	awaitingQuotaChildren,
 	exhaustedLevel,
 	parseQuota,
@@ -34,8 +35,8 @@ import { openTestDb } from "./helpers/db.ts";
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * Quotas manage subagents (D76): roots have quota 0 and are not charged, each response charges every subagent
- * level, and an exhausted level asks its direct parent only (D77).
+ * Unified quotas (D92): any level may have one, every model call charges every level that has one (the root
+ * included), and an exhausted level asks its direct parent only; a root asks its owner (D77).
  */
 let db: Db;
 let runtime: AgentRuntime;
@@ -83,27 +84,66 @@ it("accepts a non-negative integer quota or null", () => {
 	for (const bad of [-1, 1.5, "100", undefined, Number.NaN]) expect(() => parseQuota(bad)).toThrow();
 });
 
-it("root sessions have quota 0 and are never charged", async () => {
+it("a root session without a quota is unlimited and is never charged", async () => {
 	const r = await root();
-	expect((await runtime.getSession(r.id))?.quota).toBe(0);
+	expect((await runtime.getSession(r.id))?.quota).toBeNull();
 	await recordUsage(db, r.id, 500);
-	expect((await runtime.getSession(r.id))?.quota).toBe(0);
+	expect((await runtime.getSession(r.id))?.quota).toBeNull();
 	expect(await spentTokens(db, r.id)).toBe(500);
 	expect(await exhaustedLevel(db, r.id)).toBeUndefined();
 });
 
-it("each response charges every subagent level of the chain, not the root", async () => {
+it("each model call charges every level of the chain that has a quota, not the unlimited ones", async () => {
 	const r = await root();
 	const p = await child(r.id, "chain-p", 1_000);
 	const c = await child(p.id, "chain-c", 500);
 	await recordUsage(db, c.id, 600);
 	expect((await runtime.getSession(c.id))?.quota).toBe(-100);
 	expect((await runtime.getSession(p.id))?.quota).toBe(400);
-	expect((await runtime.getSession(r.id))?.quota).toBe(0);
+	expect((await runtime.getSession(r.id))?.quota).toBeNull();
 	expect(await exhaustedLevel(db, c.id)).toBe(c.id);
 	await recordUsage(db, c.id, 500);
 	expect(await exhaustedLevel(db, c.id)).toBe(p.id);
 	expect((await runtime.getSession(p.id))?.quota).toBe(-100);
+	expect(await spentTokens(db, r.id)).toBe(1_100);
+});
+
+it("a root with a quota is charged like any other level", async () => {
+	const r = await runtime.createSession(owner, { model: model(), preset: "yolo", title: "charged root", quota: 1_000 });
+	const c = await child(r.id, "charged-root-c", 500);
+	await recordUsage(db, c.id, 600);
+	expect((await runtime.getSession(r.id))?.quota).toBe(400);
+	expect((await runtime.getSession(c.id))?.quota).toBe(-100);
+	expect(await exhaustedLevel(db, c.id)).toBe(c.id);
+	await recordUsage(db, c.id, 500);
+	expect((await runtime.getSession(r.id))?.quota).toBe(-100);
+	// The root is exhausted first: it is the highest level of the chain.
+	expect(await exhaustedLevel(db, c.id)).toBe(r.id);
+	expect(await spentTokens(db, r.id)).toBe(1_100);
+});
+
+it("accountedOutputTokens uses the reported output, then estimates 0.3 × UTF-8 bytes", () => {
+	// Reported output wins, reasoning included; input and cache do not count.
+	expect(accountedOutputTokens({ usage: { output: 42 }, content: [{ type: "text", text: "x".repeat(1_000) }] })).toBe(
+		42,
+	);
+	expect(accountedOutputTokens({ usage: { output: 0 }, content: [] })).toBe(0);
+	// Text: ceil(bytes × 0.3), with multi-byte characters counted as bytes.
+	expect(accountedOutputTokens({ content: [{ type: "text", text: "abcd" }] })).toBe(2);
+	expect(accountedOutputTokens({ usage: { output: 0 }, content: [{ type: "text", text: "é" }] })).toBe(1);
+	// Thinking is visible output too.
+	expect(accountedOutputTokens({ content: [{ type: "thinking", thinking: "1234567890" }] })).toBe(3);
+	// Tool calls: the name and the JSON-serialized arguments.
+	expect(accountedOutputTokens({ content: [{ type: "toolCall", name: "exec", arguments: { cmd: "true" } }] })).toBe(6);
+	expect(
+		accountedOutputTokens({
+			content: [
+				{ type: "text", text: "abcd" },
+				{ type: "thinking", thinking: "12345" },
+				{ type: "toolCall", name: "exec", arguments: {} },
+			],
+		}),
+	).toBe(5);
 });
 
 it("setting a subagent's quota replaces the remaining amount", async () => {
@@ -344,21 +384,39 @@ it("an exhausted ancestor's request goes to its own direct parent", async () => 
 	expect(await waiting).toBe("ok");
 });
 
-it("the API refuses a quota on a root session and allows one on a subagent", async () => {
+it("the API sets a quota on a root at creation and by PATCH, and clears it with null", async () => {
 	const created = await call(app, "/api/sessions", {
 		cookie: ownerCookie,
-		body: { model: model(), preset: "yolo", quota: 100 },
+		body: { model: model(), preset: "yolo", title: "api root quota", quota: 100 },
 	});
-	expect(created.status).toBe(400);
+	expect(created.status).toBe(201);
+	const createdBody = (await created.json()) as { session: { id: string; quota: number | null } };
+	expect(createdBody.session.quota).toBe(100);
+
+	const patched = await call(app, `/api/sessions/${createdBody.session.id}`, {
+		method: "PATCH",
+		cookie: ownerCookie,
+		body: { quota: 500 },
+	});
+	expect(patched.status).toBe(200);
+	expect(((await patched.json()) as { session: { quota: number | null } }).session.quota).toBe(500);
+
+	const cleared = await call(app, `/api/sessions/${createdBody.session.id}`, {
+		method: "PATCH",
+		cookie: ownerCookie,
+		body: { quota: null },
+	});
+	expect(cleared.status).toBe(200);
+	expect(((await cleared.json()) as { session: { quota: number | null } }).session.quota).toBeNull();
+
+	const invalid = await call(app, "/api/sessions", {
+		cookie: ownerCookie,
+		body: { model: model(), preset: "yolo", quota: -5 },
+	});
+	expect(invalid.status).toBe(400);
 
 	const r = await root();
 	const c = await child(r.id, "api-quota", 10);
-	const patchRoot = await call(app, `/api/sessions/${r.id}`, {
-		method: "PATCH",
-		cookie: ownerCookie,
-		body: { quota: 100 },
-	});
-	expect(patchRoot.status).toBe(400);
 	const patchChild = await call(app, `/api/sessions/${c.id}`, {
 		method: "PATCH",
 		cookie: ownerCookie,
@@ -366,6 +424,162 @@ it("the API refuses a quota on a root session and allows one on a subagent", asy
 	});
 	expect(patchChild.status).toBe(200);
 	expect((await runtime.getSession(c.id))?.quota).toBe(500);
+});
+
+it("a root's used-up quota waits for its owner: listed, then granted with an audit", async () => {
+	const session = await runtime.createSession(owner, {
+		model: model(),
+		preset: "yolo",
+		title: "root quota wait",
+		quota: 1,
+	});
+	faux.setResponses([
+		fauxAssistantMessage([fauxToolCall("list_nodes", {}, { id: "root-quota-tool" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("done")]),
+	]);
+	const submission = await runtime.submit(session.id, owner, "go", "root-quota-1");
+	await waitFor("the root's quota wait", async () =>
+		(await sessionStateOf(db, session.id)) === "awaiting" ? true : undefined,
+	);
+	const waitingRow = await db
+		.selectFrom("sessions")
+		.select(["state", "waiting_level_id", "waiting_handler_id"])
+		.where("id", "=", session.id)
+		.executeTakeFirstOrThrow();
+	expect(waitingRow).toMatchObject({ state: "awaiting", waiting_level_id: session.id, waiting_handler_id: null });
+	// No agent handles a root wait: the model has not been asked for the next step.
+	expect(faux.getPendingResponseCount()).toBe(1);
+
+	const mine = (await (await call(app, "/api/approvals", { cookie: ownerCookie })).json()) as {
+		quotas: { sessionId: string; levelId: string; title: string; quota: number; used: number }[];
+	};
+	expect(mine.quotas).toEqual([
+		expect.objectContaining({ sessionId: session.id, levelId: session.id, title: "root quota wait" }),
+	]);
+	expect(mine.quotas[0]?.quota).toBeLessThanOrEqual(0);
+
+	// Only the owner decides: another member does not even see the session, an administrator may see it but not act.
+	await createUser(db, { username: "bob", kind: "member", password: "password-123" });
+	const bobCookie = await login(app, "bob", "password-123");
+	const theirs = (await (await call(app, "/api/approvals", { cookie: bobCookie })).json()) as { quotas: unknown[] };
+	expect(theirs.quotas).toEqual([]);
+	const byBob = await call(app, `/api/sessions/${session.id}/quota`, {
+		method: "POST",
+		cookie: bobCookie,
+		body: { decision: "approve", tokens: 1_000 },
+	});
+	expect(byBob.status).toBe(404);
+	await createUser(db, { username: "rootadmin", kind: "admin", password: "password-123" });
+	const adminCookie = await login(app, "rootadmin", "password-123");
+	const byAdmin = await call(app, `/api/sessions/${session.id}/quota`, {
+		method: "POST",
+		cookie: adminCookie,
+		body: { decision: "approve", tokens: 1_000 },
+	});
+	expect(byAdmin.status).toBe(403);
+
+	const granted = await call(app, `/api/sessions/${session.id}/quota`, {
+		method: "POST",
+		cookie: ownerCookie,
+		body: { decision: "approve", tokens: 100_000 },
+	});
+	expect(granted.status).toBe(200);
+	expect(await runtime.waitSubmission(session.id, submission)).toEqual({ status: "done", answer: "done" });
+	expect((await runtime.getSession(session.id))?.state).toBe("active");
+
+	const audits = await db
+		.selectFrom("audit_events")
+		.selectAll()
+		.where("action", "=", "quota.granted")
+		.where("target_id", "=", session.id)
+		.execute();
+	expect(audits).toHaveLength(1);
+	expect(audits[0]).toMatchObject({
+		actor_type: "user",
+		actor_id: owner.userId,
+		target_type: "session",
+		target_id: session.id,
+	});
+	expect(JSON.parse(audits[0]?.detail ?? "{}")).toMatchObject({ level: session.id, tokens: 100_000 });
+});
+
+it("the owner's deny ends the paused root run and audits quota.denied", async () => {
+	const session = await runtime.createSession(owner, {
+		model: model(),
+		preset: "yolo",
+		title: "root quota deny",
+		quota: 1,
+	});
+	faux.setResponses([
+		fauxAssistantMessage([fauxToolCall("list_nodes", {}, { id: "root-deny-tool" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("should not be requested")]),
+	]);
+	const submission = await runtime.submit(session.id, owner, "go", "root-quota-deny");
+	await waitFor("the root's quota wait", async () =>
+		(await sessionStateOf(db, session.id)) === "awaiting" ? true : undefined,
+	);
+	const denied = await call(app, `/api/sessions/${session.id}/quota`, {
+		method: "POST",
+		cookie: ownerCookie,
+		body: { decision: "deny", reason: "stop spending" },
+	});
+	expect(denied.status).toBe(200);
+	const settled = await runtime.waitSubmission(session.id, submission);
+	expect(settled.status).toBe("done");
+	// The paused tool ended the run instead of asking the model again.
+	expect(faux.getPendingResponseCount()).toBe(1);
+	const row = await db
+		.selectFrom("sessions")
+		.select(["state", "waiting_level_id", "waiting_handler_id"])
+		.where("id", "=", session.id)
+		.executeTakeFirstOrThrow();
+	expect(row).toMatchObject({ state: "active", waiting_level_id: null, waiting_handler_id: null });
+
+	const audits = await db
+		.selectFrom("audit_events")
+		.selectAll()
+		.where("action", "=", "quota.denied")
+		.where("target_id", "=", session.id)
+		.execute();
+	expect(audits).toHaveLength(1);
+	expect(audits[0]).toMatchObject({ actor_type: "user", actor_id: owner.userId, target_id: session.id });
+	expect(JSON.parse(audits[0]?.detail ?? "{}")).toMatchObject({ level: session.id, reason: "stop spending" });
+});
+
+it("a subagent paused on its root's quota is the owner's request, not its parent's", async () => {
+	const r = await runtime.createSession(owner, { model: model(), preset: "yolo", title: "ancestor root", quota: 1 });
+	const c = await child(r.id, "root-ancestor", null);
+	faux.setResponses([
+		fauxAssistantMessage([fauxToolCall("list_nodes", {}, { id: "ancestor-tool" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("child done")]),
+	]);
+	await runtime.startSubagent(c.id, "work", "root-ancestor-submit");
+	await waitFor("the subagent's root wait", async () =>
+		(await sessionStateOf(db, c.id)) === "awaiting" ? true : undefined,
+	);
+	const childRow = await db
+		.selectFrom("sessions")
+		.select(["waiting_level_id", "waiting_handler_id"])
+		.where("id", "=", c.id)
+		.executeTakeFirstOrThrow();
+	expect(childRow).toMatchObject({ waiting_level_id: r.id, waiting_handler_id: null });
+	const rootRow = await db
+		.selectFrom("sessions")
+		.select(["state", "waiting_level_id", "waiting_handler_id"])
+		.where("id", "=", r.id)
+		.executeTakeFirstOrThrow();
+	expect(rootRow).toMatchObject({ state: "awaiting", waiting_level_id: r.id, waiting_handler_id: null });
+	// The root's agent has nothing to decide: the direct parent of the root level is the owner.
+	expect(await runtime.pendingAgentRequests(r.id)).toEqual([]);
+	const mine = (await (await call(app, "/api/approvals", { cookie: ownerCookie })).json()) as {
+		quotas: { sessionId: string }[];
+	};
+	expect(mine.quotas.some((quota) => quota.sessionId === r.id)).toBe(true);
+
+	const paused = await runtime.decideRootQuota(r.id, "approve", 100_000);
+	expect(paused).toContain(c.id);
+	expect(await runtime.waitSubagent(c.id)).toEqual({ status: "done", answer: "child done" });
+	expect(await sessionStateOf(db, r.id)).toBe("active");
 });
 
 it("wakes a quota handler after a restart", async () => {

@@ -405,11 +405,26 @@ export interface TaskGroupView {
 	handlerSessionId?: string | null;
 }
 
-/** GET /approvals: waiting approvals, plus the tasks and groups waiting for this user's signature. */
+/** A root whose token quota is used up and waits for the owner's decision (doc/agent-runtime.md#配额). */
+export interface QuotaApproval {
+	/** The root session to act on (and to link to). */
+	sessionId: string;
+	/** The exhausted level to top up; the root. */
+	levelId: string;
+	title: string;
+	since: string;
+	/** Remaining tokens at the level; zero or negative. */
+	quota: number;
+	/** Tokens the root and its subagents have used. */
+	used: number;
+}
+
+/** GET /approvals: waiting approvals, plus tasks/groups waiting for this user's signature and exhausted quotas. */
 export interface ApprovalList {
 	tasks: TaskView[];
 	taskGroups: TaskGroupView[];
 	authorizations: { tasks: TaskView[]; taskGroups: TaskGroupView[] };
+	quotas: QuotaApproval[];
 }
 
 export interface Operation {
@@ -490,8 +505,10 @@ export interface SessionView {
 	/** Effective capabilities of the caller on this session. */
 	capabilities: SessionCapabilities;
 	ownerUsername: string | null;
-	/** Subagent state: active, awaiting, stopped (roots stay active). */
+	/** Subagent state: active, awaiting, stopped (a root is active except while it waits for its quota). */
 	state: "active" | "awaiting" | "stopped";
+	/** While awaiting a quota: the exhausted level to top up. */
+	waitingLevelId: string | null;
 	/** Remaining token quota (null: unlimited; negative after an overspending response). */
 	quota: number | null;
 	/** Tokens spent by the session and its subagents. */
@@ -501,6 +518,8 @@ export interface SessionPatch {
 	title?: string;
 	model?: ModelRef;
 	preset?: Preset;
+	/** Replaces the remaining quota at any level (null: unlimited). */
+	quota?: number | null;
 }
 
 let onUnauthorized: () => void = () => {};
@@ -674,7 +693,7 @@ export const api = {
 		),
 	deleteModelProvider: (providerId: string) => request<{ ok: true }>("DELETE", `/model-providers/${enc(providerId)}`),
 	listSessions: () => request<{ sessions: SessionView[] }>("GET", "/sessions").then((r) => r.sessions),
-	createSession: (body: { title?: string; model: ModelRef; preset: Preset }) =>
+	createSession: (body: { title?: string; model: ModelRef; preset: Preset; quota?: number | null }) =>
 		request<{ session: SessionView }>("POST", "/sessions", body).then((r) => r.session),
 	getSession: (id: string) =>
 		request<{ session: SessionView; shares?: SessionShare[] }>("GET", `/sessions/${enc(id)}`).then(
@@ -691,4 +710,7 @@ export const api = {
 	sendMessage: (id: string, text: string, requestId: string) =>
 		request<{ submissionId: string }>("POST", `/sessions/${enc(id)}/messages`, { text, requestId }),
 	abortSession: (id: string) => request<{ ok: true }>("POST", `/sessions/${enc(id)}/abort`),
+	/** The owner's answer to a used-up token quota on a root: add tokens, or stop the paused run. */
+	decideQuota: (id: string, body: { decision: "approve" | "deny"; tokens?: number; reason?: string }) =>
+		request<{ ok: true; sessions: string[] }>("POST", `/sessions/${enc(id)}/quota`, body),
 };

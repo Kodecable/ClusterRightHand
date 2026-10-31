@@ -155,13 +155,67 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 			.execute();
 		const tasks = (await Promise.all(taskRows.map((r) => cluster.getTask(r.id)))).filter(Boolean) as TaskView[];
 		const taskGroups = (await Promise.all(groupRows.map((r) => groups.get(r.id)))).filter(Boolean) as TaskGroupView[];
+		// Roots whose quota is used up wait for this user: their own paused run and any subagent paused on the
+		// same root are one request (doc/agent-runtime.md#配额). Shared users cannot decide, so only the owner
+		// sees them; admins see only their own, like the approvals above.
+		const pausedRows = await db
+			.selectFrom("sessions")
+			.select(["waiting_level_id", "owner_user_id"])
+			.where("state", "=", "awaiting")
+			.where("waiting_handler_id", "is", null)
+			.where("waiting_level_id", "is not", null)
+			.execute();
+		const quotas: {
+			sessionId: string;
+			levelId: string;
+			title: string;
+			since: string;
+			quota: number;
+			used: number;
+		}[] = [];
+		const seenRoots = new Set<string>();
+		for (const paused of pausedRows) {
+			const levelId = paused.waiting_level_id;
+			if (!levelId || seenRoots.has(levelId) || paused.owner_user_id !== user.userId) continue;
+			const level = await db
+				.selectFrom("sessions")
+				.select([
+					"id",
+					"title",
+					"parent_session_id",
+					"quota_tokens",
+					"used_tokens",
+					"state_changed_at",
+					"owner_user_id",
+				])
+				.where("id", "=", levelId)
+				.executeTakeFirst();
+			if (!level || level.parent_session_id !== null || level.owner_user_id !== user.userId) continue;
+			if (level.quota_tokens === null) continue;
+			const quota = Number(level.quota_tokens);
+			if (quota > 0) continue;
+			seenRoots.add(levelId);
+			quotas.push({
+				sessionId: level.id,
+				levelId: level.id,
+				title: level.title,
+				since: level.state_changed_at ?? "",
+				quota,
+				used: Number(level.used_tokens),
+			});
+		}
 		const signatureTasks = (await Promise.all(signatureRows.map((r) => cluster.getTask(r.id)))).filter(
 			Boolean,
 		) as TaskView[];
 		const signatureTaskGroups = (await Promise.all(signatureGroupRows.map((r) => groups.get(r.id)))).filter(
 			Boolean,
 		) as TaskGroupView[];
-		return c.json({ tasks, taskGroups, authorizations: { tasks: signatureTasks, taskGroups: signatureTaskGroups } });
+		return c.json({
+			tasks,
+			taskGroups,
+			authorizations: { tasks: signatureTasks, taskGroups: signatureTaskGroups },
+			quotas,
+		});
 	});
 
 	/**

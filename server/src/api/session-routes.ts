@@ -232,12 +232,13 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 
 	app.post("/sessions", async (c) => {
 		const body = (await readJsonObject(c)) ?? {};
-		// Quotas manage subagents; a root session has none (D76).
-		if (body.quota !== undefined) return jsonError(c, 400, "a root session has no quota");
+		// Any level may have a quota; null (or no field) is unlimited and never charged (D92).
+		const quota = body.quota === undefined ? undefined : parseQuota(body.quota);
 		const session = await runtime.createSession(c.get("user"), {
 			model: parseModel(body.model),
 			preset: parsePreset(body.preset ?? "ask"),
 			...(typeof body.title === "string" ? { title: body.title } : {}),
+			...(quota === undefined ? {} : { quota }),
 		});
 		return c.json({ session: (await decorate(c, [session]))[0] }, 201);
 	});
@@ -361,6 +362,38 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		if (!requestId) return jsonError(c, 400, "requestId is required");
 		const submissionId = await runtime.submit(v.session.id, c.get("user"), text, requestId);
 		return c.json({ submissionId }, 202);
+	});
+
+	/**
+	 * `{ decision: "approve" | "deny", tokens?, reason? }`: the owner's answer when a root's quota is used up
+	 * (doc/agent-runtime.md#配额). Only the owner decides, like the approvals on the approvals page.
+	 */
+	app.post("/sessions/:id/quota", async (c) => {
+		const v = await visible(c, c.req.param("id"));
+		if (!v) return jsonError(c, 404, "no such session");
+		const user = c.get("user");
+		if (v.session.ownerUserId !== user.userId) return jsonError(c, 403, "the owner only");
+		const body = await readJsonObject(c);
+		if (body?.decision !== "approve" && body?.decision !== "deny") {
+			return jsonError(c, 400, 'decision must be "approve" or "deny"');
+		}
+		const reason =
+			typeof body.reason === "string" && body.reason.trim() ? body.reason.trim().slice(0, 1000) : undefined;
+		let tokens: number | undefined;
+		if (body.decision === "approve") {
+			if (typeof body.tokens !== "number" || !Number.isInteger(body.tokens) || body.tokens <= 0) {
+				return jsonError(c, 400, "tokens must be a positive integer");
+			}
+			tokens = body.tokens;
+		}
+		const sessions = await runtime.decideRootQuota(v.session.id, body.decision, tokens);
+		void c.get("audit").record({
+			actor: userActor(user),
+			action: body.decision === "deny" ? "quota.denied" : "quota.granted",
+			target: { type: "session", id: v.session.id },
+			detail: { level: v.session.id, sessions, ...(reason ? { reason } : {}), ...(tokens ? { tokens } : {}) },
+		});
+		return c.json({ ok: true, sessions });
 	});
 
 	app.post("/sessions/:id/abort", async (c) => {

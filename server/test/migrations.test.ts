@@ -7,6 +7,7 @@ import { up } from "../src/storage/migrations/0019_cbor_protocol.ts";
 import { up as up0020 } from "../src/storage/migrations/0020_output_mode.ts";
 import { up as up0022 } from "../src/storage/migrations/0022_m4_privilege.ts";
 import { up as up0024 } from "../src/storage/migrations/0024_rule_privileged_flag.ts";
+import { up as up0025 } from "../src/storage/migrations/0025_root_session_quota_null.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -436,5 +437,53 @@ describeBackends("0024 rule privileged flag", (backend) => {
 		}
 		const row = await db.selectFrom("rule_sets").select("rules").where("id", "=", "broken").executeTakeFirstOrThrow();
 		expect(row.rules).toBe("{not json");
+	});
+});
+describeBackends("0025 root session quota null", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("sessions")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("parent_session_id", "text")
+				.addColumn("quota_tokens", "bigint")
+				.execute();
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("makes a root's 0 unlimited and leaves every other quota alone", async () => {
+		await sql`insert into sessions (id, parent_session_id, quota_tokens) values (${"root-zero"}, ${null}, ${0})`.execute(
+			db,
+		);
+		await sql`insert into sessions (id, parent_session_id, quota_tokens) values (${"root-set"}, ${null}, ${500})`.execute(
+			db,
+		);
+		await sql`insert into sessions (id, parent_session_id, quota_tokens) values (${"root-null"}, ${null}, ${null})`.execute(
+			db,
+		);
+		await sql`insert into sessions (id, parent_session_id, quota_tokens) values (${"child-zero"}, ${"root-set"}, ${0})`.execute(
+			db,
+		);
+		await sql`insert into sessions (id, parent_session_id, quota_tokens) values (${"child-set"}, ${"root-set"}, ${40})`.execute(
+			db,
+		);
+
+		await applyMigration(backend, db, up0025);
+
+		const rows = await db.selectFrom("sessions").select(["id", "quota_tokens"]).execute();
+		const quota = new Map(rows.map((row) => [row.id, row.quota_tokens]));
+		expect(quota.get("root-zero")).toBeNull();
+		expect(Number(quota.get("root-set"))).toBe(500);
+		expect(quota.get("root-null")).toBeNull();
+		// A subagent's 0 still means "used up".
+		expect(Number(quota.get("child-zero"))).toBe(0);
+		expect(Number(quota.get("child-set"))).toBe(40);
 	});
 });

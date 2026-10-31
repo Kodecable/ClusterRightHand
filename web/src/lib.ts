@@ -111,14 +111,15 @@ export function splitArgv(line: string): string[] {
 }
 
 /**
- * What the approvals page and the header count as pending: the requests this user must approve, plus
- * the tasks and task groups waiting for its signature. A group waiting for a signature is one entry,
- * not one per member task (doc/privilege.md).
+ * What the approvals page and the header count as pending: the requests this user must approve, the
+ * tasks and task groups waiting for its signature, and roots whose token quota is used up. A group
+ * waiting for a signature is one entry, not one per member task (doc/privilege.md).
  */
 interface PendingLists {
 	tasks: readonly unknown[];
 	taskGroups: readonly unknown[];
 	authorizations: { tasks: readonly unknown[]; taskGroups: readonly unknown[] };
+	quotas: readonly unknown[];
 }
 
 export function pendingCount(data: PendingLists | undefined): number {
@@ -127,8 +128,37 @@ export function pendingCount(data: PendingLists | undefined): number {
 		data.tasks.length +
 		data.taskGroups.length +
 		data.authorizations.tasks.length +
-		data.authorizations.taskGroups.length
+		data.authorizations.taskGroups.length +
+		data.quotas.length
 	);
+}
+
+/** A token amount a user typed in a quota field; an empty field means unlimited (doc/agent-runtime.md#配额). */
+export type QuotaInput = { quota: number | null } | { error: string };
+
+export function parseQuotaInput(text: string): QuotaInput {
+	const trimmed = text.trim();
+	if (trimmed === "") return { quota: null };
+	if (!/^\d+$/.test(trimmed)) return { error: "enter a whole number of tokens, or leave it empty for unlimited" };
+	const quota = Number(trimmed);
+	if (!Number.isSafeInteger(quota)) return { error: "that number is too large" };
+	return { quota };
+}
+
+/** One line for a session's remaining quota against what it has used (doc/agent-runtime.md#配额). */
+export function quotaSummary(quota: number | null, used: number): string {
+	const spent = `${used.toLocaleString("en-US")} used`;
+	if (quota === null) return `unlimited quota · ${spent}`;
+	if (quota <= 0) return `quota used up (${Math.abs(quota).toLocaleString("en-US")} over) · ${spent}`;
+	return `${quota.toLocaleString("en-US")} tokens left · ${spent}`;
+}
+
+/** What a grant field must hold: a positive number of tokens to add. */
+export function parseGrantInput(text: string): { tokens: number } | { error: string } {
+	const parsed = parseQuotaInput(text);
+	if ("error" in parsed) return parsed;
+	if (parsed.quota === null || parsed.quota <= 0) return { error: "enter a positive number of tokens to add" };
+	return { tokens: parsed.quota };
 }
 
 export function osName(facts: Record<string, unknown> | null): string {

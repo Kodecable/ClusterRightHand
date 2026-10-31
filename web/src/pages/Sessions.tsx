@@ -5,7 +5,7 @@ import { ErrorText, Loading } from "../components/Feedback.tsx";
 import { Modal } from "../components/Modal.tsx";
 import { ModelSelect, PresetSelect } from "../components/ModelSelect.tsx";
 import { useAction, useLoad } from "../hooks.ts";
-import { formatTime } from "../lib.ts";
+import { formatTime, parseQuotaInput } from "../lib.ts";
 import { navigate } from "../router.ts";
 
 function NewSession({ models, onClose }: { models: AvailableModel[]; onClose: () => void }) {
@@ -14,11 +14,22 @@ function NewSession({ models, onClose }: { models: AvailableModel[]; onClose: ()
 		models[0] && { provider: models[0].provider, modelId: models[0].modelId },
 	);
 	const [preset, setPreset] = useState<Preset>("ask");
+	const [quotaText, setQuotaText] = useState("");
+	const [quotaError, setQuotaError] = useState<string>();
 	const { busy, error, run } = useAction();
 	const submit = async (e: FormEvent) => {
 		e.preventDefault();
 		if (!model) return;
-		const s = await run(() => api.createSession({ ...(title.trim() ? { title: title.trim() } : {}), model, preset }));
+		// Empty means unlimited; a root without a quota is never charged (doc/agent-runtime.md#配额).
+		const quota = parseQuotaInput(quotaText);
+		if ("error" in quota) {
+			setQuotaError(quota.error);
+			return;
+		}
+		setQuotaError(undefined);
+		const s = await run(() =>
+			api.createSession({ ...(title.trim() ? { title: title.trim() } : {}), model, preset, quota: quota.quota }),
+		);
 		if (s) navigate(`/sessions/${s.id}`);
 	};
 	return (
@@ -30,8 +41,17 @@ function NewSession({ models, onClose }: { models: AvailableModel[]; onClose: ()
 				</label>
 				<ModelSelect models={models} value={model} onChange={setModel} />
 				<PresetSelect value={preset} onChange={(p) => setPreset(p)} />
+				<label>
+					Token quota (empty = unlimited)
+					<input
+						inputMode="numeric"
+						value={quotaText}
+						onChange={(e) => setQuotaText(e.target.value)}
+						placeholder="unlimited"
+					/>
+				</label>
 				{preset === "yolo" && <p className="warn">Yolo lets the agent run anything on your nodes without asking.</p>}
-				<ErrorText error={error} />
+				<ErrorText error={quotaError ?? error} />
 				<div className="row end">
 					<button type="button" onClick={onClose}>
 						Cancel

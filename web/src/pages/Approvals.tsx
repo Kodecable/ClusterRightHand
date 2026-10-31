@@ -5,6 +5,7 @@ import {
 	api,
 	type Evaluation,
 	type PublicNode,
+	type QuotaApproval,
 	type Rule,
 	type TaskGroupView,
 	type TaskView,
@@ -13,7 +14,7 @@ import { DecisionView, EvaluationView } from "../components/Approval.tsx";
 import { Badge, ErrorText, Loading } from "../components/Feedback.tsx";
 import { stateKind } from "../components/TaskResult.tsx";
 import { errMsg, useLoad, usePolling } from "../hooks.ts";
-import { actorLabel, alwaysRule, formatTime, pendingCount } from "../lib.ts";
+import { actorLabel, alwaysRule, formatTime, parseGrantInput, pendingCount, quotaSummary } from "../lib.ts";
 
 /** Fired after a decision so that the header's pending count refreshes at once. */
 export const APPROVALS_CHANGED = "crh:approvals-changed";
@@ -224,6 +225,72 @@ function Card({ item, lookups, onSettled }: { item: Item; lookups: Lookups; onSe
 }
 
 /**
+ * A root whose token quota is used up (doc/agent-runtime.md#配额). The owner adds tokens or stops the paused run;
+ * only the owner sees these, so the same page as its approvals.
+ */
+function QuotaCard({ wait, onSettled }: { wait: QuotaApproval; onSettled: () => void }) {
+	const [tokens, setTokens] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string>();
+	const decide = async (decision: "approve" | "deny") => {
+		setBusy(true);
+		setError(undefined);
+		try {
+			if (decision === "deny") {
+				await api.decideQuota(wait.sessionId, { decision });
+			} else {
+				const parsed = parseGrantInput(tokens);
+				if ("error" in parsed) {
+					setError(parsed.error);
+					return;
+				}
+				await api.decideQuota(wait.sessionId, { decision, tokens: parsed.tokens });
+				setTokens("");
+			}
+			window.dispatchEvent(new Event(APPROVALS_CHANGED));
+			onSettled();
+		} catch (e) {
+			setError(errMsg(e));
+		} finally {
+			setBusy(false);
+		}
+	};
+	return (
+		<section className="card" aria-label={`Token quota ${wait.sessionId}`}>
+			<dl className="kv">
+				<dt>Session</dt>
+				<dd>
+					<a href={`#/sessions/${encodeURIComponent(wait.sessionId)}`}>{wait.title}</a>
+				</dd>
+				<dt>Quota</dt>
+				<dd>{quotaSummary(wait.quota, wait.used)}</dd>
+				<dt>Since</dt>
+				<dd>{formatTime(wait.since)}</dd>
+			</dl>
+			<label>
+				Tokens to add
+				<input
+					inputMode="numeric"
+					value={tokens}
+					onChange={(e) => setTokens(e.target.value)}
+					placeholder="e.g. 1000000"
+					disabled={busy}
+				/>
+			</label>
+			<ErrorText error={error} />
+			<div className="row">
+				<button type="button" className="primary" disabled={busy} onClick={() => void decide("approve")}>
+					Add
+				</button>
+				<button type="button" className="danger" disabled={busy} onClick={() => void decide("deny")}>
+					Stop
+				</button>
+			</div>
+		</section>
+	);
+}
+
+/**
  * The tasks and groups that already passed their rules but still wait for this user's signature
  * (doc/privilege.md: the same entry point as approvals). They are signed on their own page.
  */
@@ -268,6 +335,15 @@ export function Approvals() {
 			<h1>Approvals</h1>
 			<Loading loading={loading && !data} error={error} />
 			{data && count === 0 && <p className="muted">Nothing is waiting for your approval or signature.</p>}
+			{data && data.quotas.length > 0 && (
+				<section aria-label="Token quotas used up">
+					<h2>Token quota used up</h2>
+					<p className="muted">The owner adds tokens or stops the paused run.</p>
+					{data.quotas.map((wait) => (
+						<QuotaCard key={wait.sessionId} wait={wait} onSettled={reload} />
+					))}
+				</section>
+			)}
 			{data?.tasks.map((task) => (
 				<Card key={task.id} item={{ kind: "task", task }} lookups={lookups} onSettled={reload} />
 			))}

@@ -2,6 +2,8 @@ import { BACKGROUND_CONTEXT, type Context, withAbortSignal } from "@earendil-wor
 import {
 	type AgentEvent,
 	AssistantEntry,
+	type CompactionSettings,
+	CompactionTask,
 	type Conversation,
 	type ConversationId,
 	createRegistry,
@@ -12,6 +14,7 @@ import {
 	GenerationTask,
 	Harness,
 	hook,
+	ProviderDoc,
 	type SettledSubmissionRecord,
 	type Storage,
 	type Submission,
@@ -42,8 +45,11 @@ import type { Db } from "../storage/db.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
 import { defaultOrgId, NotFoundError, UserError } from "../users/service.ts";
 import { derivedId, newId } from "../util/id.ts";
+import { meteredModels } from "./metering.ts";
 import type { ModelConfig, ModelRef } from "./models.ts";
 import {
+	type AccountedMessage,
+	accountedOutputTokens,
 	awaitingQuotaChildren,
 	awaitingQuotaSessions,
 	exhaustedLevel,
@@ -52,6 +58,7 @@ import {
 	parseQuota,
 	recordUsage,
 	type SessionState,
+	sessionChain,
 	sessionStateOf,
 	setQuota,
 	setSessionState,
@@ -89,8 +96,10 @@ export interface SessionView {
 	createdAt: string;
 	updatedAt: string;
 	rules: StoredRuleSet | null;
-	/** Subagent state (roots stay active). */
+	/** Subagent state (a root is active except while it waits for a quota decision). */
 	state: SessionState;
+	/** While awaiting a quota: the exhausted level to top up. */
+	waitingLevelId: string | null;
 	/** Remaining token quota; null: unlimited. Signed: a response may overspend it. */
 	quota: number | null;
 	/** Tokens spent by this session and its subagents. */
@@ -162,6 +171,11 @@ export interface AgentRuntimeOptions {
 	retentionMs?: number;
 	/** Set by clusterExtension; removed from a conversation that has reached the subagent depth limit. */
 	subagentTool?: ToolRegistration;
+	/**
+	 * Compaction policy override; the pi defaults when omitted (doc/agent-runtime.md#默认值). Tests use it to
+	 * make a compaction happen with a few messages.
+	 */
+	compaction?: CompactionSettings;
 }
 
 const SYSTEM_PROMPT = `You are ClusterRightHand, an assistant that operates the user's servers ("nodes") through the cluster tools.
@@ -217,6 +231,12 @@ export class AgentRuntime {
 	#inboxes = new Map<string, Inbox>();
 	/** Waiters for a quota wait's session; grant/deny/abort/quota edit wakes them. */
 	#quotaWaiters = new Map<string, Set<() => void>>();
+	/** Provider session id -> session, so a compaction's summarization is charged to its conversation (D92). */
+	#providerSessions = new Map<string, string>();
+	/** Conversations whose provider document was already read. */
+	#learnedProviders = new Set<string>();
+	/** Sessions whose paused call the owner denied but whose tool has not ended yet (a root has no stopped state). */
+	#deniedWaits = new Set<string>();
 	/** Follow-up inputs held while the handler runs; flushed once it is idle. */
 	#pendingWakes = new Map<string, Map<string, string>>();
 	/** Handlers with a `waitForIdle` observer attached. */
@@ -239,12 +259,15 @@ export class AgentRuntime {
 		const harness = await Harness.open(
 			storage,
 			{
-				models: options.models.models,
+				// Compaction's summarization is metered here; Auto Review charges itself (doc/agent-runtime.md#配额).
+				models: meteredModels(options.models.models, async (providerSessionId, message) => {
+					await ref.current?.chargeCompaction(providerSessionId, message);
+				}),
 				registry,
 				identity: { attribution: { name: "ClusterRightHand", url: "https://github.com/Kodecable/ClusterRightHand" } },
 				settings: {
 					// pi's coding-agent defaults (doc/agent-runtime.md#默认值).
-					compaction: { reserveTokens: 16384, keepRecentTokens: 20000 },
+					compaction: { reserveTokens: 16384, keepRecentTokens: 20000, ...options.compaction },
 					retry: { maxRetries: 3 },
 					...(options.retentionMs !== undefined
 						? { contextRetentionMs: options.retentionMs, documentRetentionMs: options.retentionMs }
@@ -253,7 +276,6 @@ export class AgentRuntime {
 			},
 			BACKGROUND_CONTEXT,
 		);
-		harness.resume(); // runs and tool calls the last process left unfinished
 		return harness;
 	}
 
@@ -262,6 +284,8 @@ export class AgentRuntime {
 		const runtime = new AgentRuntime(await AgentRuntime.#openHarness(options, ref), options);
 		runtime.#runtimeRef = ref;
 		ref.current = runtime;
+		// Resume only now: a resumed run must find the runtime (compaction and tool metering look it up).
+		runtime.#harness.resume(); // runs and tool calls the last process left unfinished
 		// Auto Review for roots whose preset asks for it (tokens and sessions alike), then route child approvals
 		// to an ancestor's agent where the chain allows it.
 		const reviewer = new Reviewer(options.db, options.models, options.cluster, options.groups);
@@ -301,6 +325,7 @@ export class AgentRuntime {
 				await new Promise((r) => setTimeout(r, Math.min(30_000, 500 * 2 ** attempt)));
 				try {
 					this.#harness = await AgentRuntime.#openHarness(this.#options, this.#runtimeRef);
+					this.#harness.resume();
 					this.#invalidateInboxes();
 					this.reopened++;
 					this.#supervise();
@@ -324,7 +349,7 @@ export class AgentRuntime {
 
 	async createSession(
 		owner: SessionUser,
-		input: { title?: string; model: ModelRef; preset: Preset; instructions?: string },
+		input: { title?: string; model: ModelRef; preset: Preset; instructions?: string; quota?: number | null },
 	): Promise<SessionView> {
 		this.#models.assertAvailable(input.model);
 		const conversation = await this.#harness.createConversation(
@@ -356,8 +381,8 @@ export class AgentRuntime {
 					created_at: now,
 					updated_at: now,
 					archived_at: null,
-					// Root sessions have no quota (0) and are never charged; quotas manage subagents (D76).
-					quota_tokens: 0,
+					// A root without a quota is unlimited and never charged; any level may have one (D92).
+					quota_tokens: input.quota ?? null,
 					state: "active",
 					waiting_level_id: null,
 					waiting_handler_id: null,
@@ -411,6 +436,7 @@ export class AgentRuntime {
 			updatedAt: row.updated_at,
 			rules,
 			state: row.state,
+			waitingLevelId: row.waiting_level_id,
 			quota: row.quota_tokens === null ? null : Number(row.quota_tokens),
 			spentTokens: await spentTokens(this.#db, row.id),
 		};
@@ -595,6 +621,14 @@ export class AgentRuntime {
 			}
 		}
 		await markSessionsStopped(this.#db, sessions);
+		// A root has no stopped state: end the aborted root's own quota wait, then clear an ancestor's wait that
+		// only the aborted subtree caused.
+		for (const id of sessions) {
+			this.#deniedWaits.delete(id);
+			if ((await this.#parentOf(id)) === null) await setSessionState(this.#db, id, "active", null);
+		}
+		const root = (await sessionChain(this.#db, sessionId)).at(-1);
+		if (root) await this.refreshState(root);
 		this.#notifyQuotaWaiters();
 		this.#invalidateInboxes();
 		for (const id of sessions) this.#pendingWakes.delete(id);
@@ -643,12 +677,12 @@ export class AgentRuntime {
 		if (change.preset && row.parent_session_id === null)
 			await setPreset(this.#db, { type: "session", id: sessionId }, change.preset);
 		if (change.quota !== undefined) {
-			// Only subagents carry a quota; a root session is never charged (D76).
-			if (row.parent_session_id === null)
-				throw new UserError("a root session has no quota; give one to a subagent instead");
+			// Setting a quota replaces the remainder at any level, the root included; null removes the limit (D92).
 			await setQuota(this.#db, sessionId, change.quota);
 			this.#notifyQuotaWaiters();
 			this.#invalidateInboxes();
+			// A wait on this level (or on a root above it) may be over now.
+			await this.refreshState(sessionId);
 		}
 		await this.#db
 			.updateTable("sessions")
@@ -1119,12 +1153,94 @@ export class AgentRuntime {
 	}
 
 	/**
-	 * Pauses a tool call whose chain quota is used up (doc/agent-runtime.md#配额): asks the first ancestor with
-	 * quota to spare (its agent), or the owner, and waits until the whole chain is above zero or the request is
-	 * denied. A rerun after a restart finds the same request.
+	 * The owner's answer to a root whose quota is used up (doc/agent-runtime.md#配额): add N tokens (additive, no
+	 * cap) or deny and stop the paused runs. Returns the sessions that were waiting on the root, for the audit.
+	 */
+	async decideRootQuota(rootId: string, decision: "approve" | "deny", tokens?: number): Promise<string[]> {
+		const root = await this.#db.selectFrom("sessions").selectAll().where("id", "=", rootId).executeTakeFirst();
+		if (!root) throw new NotFoundError("no such session");
+		if (
+			root.parent_session_id !== null ||
+			root.state !== "awaiting" ||
+			root.waiting_level_id !== rootId ||
+			root.quota_tokens === null ||
+			Number(root.quota_tokens) > 0
+		) {
+			throw new UserError("the session is not waiting for a token quota decision");
+		}
+		const paused = await this.#db
+			.selectFrom("sessions")
+			.select("id")
+			.where("state", "=", "awaiting")
+			.where("waiting_level_id", "=", rootId)
+			.execute();
+		if (decision === "deny") {
+			// Subagents stop like an agent's deny; the root has no stopped state, so a root call that is waiting right
+			// now is told by the in-memory mark (with the wait cleared, its next iteration ends instead of waiting).
+			if (this.#quotaWaiters.get(rootId)?.size) this.#deniedWaits.add(rootId);
+			await markSessionsStopped(
+				this.#db,
+				paused.map((row) => row.id),
+			);
+			await setSessionState(this.#db, rootId, "active", null);
+		} else {
+			if (tokens === undefined) throw new UserError("give the quota wait tokens to grant");
+			await grantQuota(this.#db, rootId, tokens);
+		}
+		this.#notifyQuotaWaiters();
+		this.#invalidateInboxes();
+		for (const row of paused) await this.refreshState(row.id);
+		await this.refreshState(rootId);
+		return paused.map((row) => row.id);
+	}
+
+	/** Remembers which session owns a conversation's provider session id, for metering its compaction (D92). */
+	async rememberProviderSession(conversationId: string): Promise<void> {
+		if (this.#learnedProviders.has(conversationId)) return;
+		const provider = await this.#harness.snapshot(
+			ProviderDoc,
+			Number(conversationId) as unknown as ConversationId,
+			this.#context,
+		);
+		const providerSessionId = provider?.sessionId;
+		if (typeof providerSessionId !== "string") return;
+		const row = await this.#db
+			.selectFrom("sessions")
+			.select("id")
+			.where("conversation_id", "=", conversationId)
+			.executeTakeFirst();
+		if (!row) return;
+		this.#providerSessions.set(providerSessionId, row.id);
+		this.#learnedProviders.add(conversationId);
+	}
+
+	/** Charges a compaction's summarization to the session it compacted (D92); the next tool call pauses if it emptied the quota. */
+	async chargeCompaction(providerSessionId: string, message: AccountedMessage): Promise<void> {
+		const sessionId = this.#providerSessions.get(providerSessionId);
+		if (!sessionId) return;
+		const tokens = accountedOutputTokens(message);
+		if (tokens <= 0) return;
+		await recordUsage(this.#db, sessionId, tokens);
+		const over = await exhaustedLevel(this.#db, sessionId);
+		if (over) {
+			void this.#audit?.record({
+				actor: { type: "system", id: "quota" },
+				action: "session.quota_exhausted",
+				target: { type: "session", id: over },
+			});
+		}
+	}
+
+	/**
+	 * Pauses a tool call whose chain quota is used up (doc/agent-runtime.md#配额): asks the exhausted level's direct
+	 * parent (its agent), or, when that level is the root, the owner; waits until the whole chain is above zero or the
+	 * request is denied. A rerun after a restart finds the same request.
 	 */
 	async waitForQuota(sessionId: string, context: Context): Promise<"ok" | "denied"> {
+		let waited = false;
 		for (;;) {
+			// The owner denied while this call was setting up or between waits: end it instead of waiting again.
+			if (this.#deniedWaits.delete(sessionId)) return "denied";
 			const waiter = this.#quotaWaiter(sessionId, context.abortSignal);
 			try {
 				// A denied wait (or an abort) set `stopped`: end the paused call before writing `awaiting` again.
@@ -1137,13 +1253,27 @@ export class AgentRuntime {
 					if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
 					return "ok";
 				}
+				// The owner's deny clears the wait without restoring the level: end the paused call instead of waiting
+				// again. A grant of an ancestor may expose another exhausted level; that keeps this call waiting.
+				if (waited) {
+					const row = await this.#db
+						.selectFrom("sessions")
+						.select(["state", "waiting_level_id"])
+						.where("id", "=", sessionId)
+						.executeTakeFirst();
+					if (row?.state !== "awaiting" || row?.waiting_level_id === null) return "denied";
+				}
 				const parent = await this.#parentOf(level);
 				const since = await setSessionState(this.#db, sessionId, "awaiting", level);
+				// The root has no parent to handle its wait; it shows `awaiting` until its owner grants or denies.
+				if (!parent && level !== sessionId) await setSessionState(this.#db, level, "awaiting", level);
 				// A deny/abort could have landed between the check and the write; do not wake for a stopped wait.
+				if (this.#deniedWaits.delete(sessionId)) return "denied";
 				if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
-				// The parent's inbox cache must see the new quota request.
+				// The handler's inbox cache must see the new quota request.
 				this.#invalidateInboxes();
 				if (parent) await this.#wakeQuota(parent, sessionId, level, since);
+				waited = true;
 				// Grant/deny/abort/quota edit resolves this; the next loop re-checks the durable state.
 				await waiter.promise;
 				if (context.abortSignal?.aborted) throw new Error("the quota wait was aborted");
@@ -1182,13 +1312,24 @@ export class AgentRuntime {
 	}
 
 	/**
-	 * Recomputes a subagent's cached state (doc/agent-runtime.md#subagent): `awaiting` when one of its tool calls
-	 * waits for approval or its quota is exhausted while it runs, `stopped` once its run has ended (sticky until a
-	 * new input), `active` otherwise. Roots stay active.
+	 * Recomputes a session's cached state (doc/agent-runtime.md#subagent, #配额): a subagent is `awaiting` when one of
+	 * its tool calls waits for approval or its quota is exhausted while it runs, and `stopped` once its run has ended
+	 * (sticky until a new input). A root is active except while it waits for its owner to top up its own quota.
 	 */
 	async refreshState(sessionId: string): Promise<SessionState> {
 		const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", sessionId).executeTakeFirst();
-		if (!row || row.parent_session_id === null) return "active";
+		if (!row) return "active";
+		if (row.parent_session_id === null) {
+			// Only an owner's quota wait makes a root await; it is read back from the durable state, never invented.
+			const waiting =
+				row.state === "awaiting" &&
+				row.waiting_level_id === row.id &&
+				(await exhaustedLevel(this.#db, sessionId)) === sessionId &&
+				(await this.#hasQuotaWait(sessionId));
+			await setSessionState(this.#db, sessionId, waiting ? "awaiting" : "active", waiting ? row.id : null);
+			if (!waiting && (row.state !== "active" || row.waiting_level_id !== null)) this.#invalidateInboxes();
+			return waiting ? "awaiting" : "active";
+		}
 		// Only a new input revives a stopped subagent (see #recordInput); a live run alone does not.
 		if (row.state === "stopped") return "stopped";
 		const live = await this.#isLive(row);
@@ -1215,6 +1356,18 @@ export class AgentRuntime {
 		// Approval/quota changes alter the handler's inbox; write-state and cache invalidation are adjacent.
 		if (row.state !== state || row.waiting_level_id !== nextLevel) this.#invalidateInboxes();
 		return state;
+	}
+
+	/** Whether any session is paused on `levelId`; a root's wait may be a descendant's, not its own run. */
+	async #hasQuotaWait(levelId: string): Promise<boolean> {
+		const row = await this.#db
+			.selectFrom("sessions")
+			.select("id")
+			.where("state", "=", "awaiting")
+			.where("waiting_level_id", "=", levelId)
+			.limit(1)
+			.executeTakeFirst();
+		return row !== undefined;
 	}
 
 	/** Whether the session's conversation has a live run. */
@@ -1346,6 +1499,14 @@ export class AgentRuntime {
 			}
 			await this.refreshState(child.id);
 		}
+		// A root may have been waiting for its owner when the process stopped; reconcile it too.
+		const waitingRoots = await this.#db
+			.selectFrom("sessions")
+			.select("id")
+			.where("parent_session_id", "is", null)
+			.where("state", "=", "awaiting")
+			.execute();
+		for (const root of waitingRoots) await this.refreshState(root.id);
 		const requests: { kind: "task" | "group"; id: string; session: string }[] = [];
 		const tasks = await this.#db
 			.selectFrom("tasks")
@@ -1379,6 +1540,7 @@ export class AgentRuntime {
 			}
 		}
 		for (const wait of await awaitingQuotaSessions(this.#db)) {
+			// A root-level wait has no handler: the owner sees it in the approvals API.
 			const parent = wait.handlerId || (await this.#parentOf(wait.levelId));
 			if (!parent) continue;
 			try {
@@ -1628,11 +1790,14 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 			},
 		}),
 		hook(GenerationTask, {
-			// Usage counts at every level; a level whose quota is not above zero stops its whole subtree (doc/agent-runtime.md#配额).
+			// Output tokens count at every level; a level whose quota is not above zero stops its whole subtree (doc/agent-runtime.md#配额).
 			afterResponse: async (message, api) => {
 				const sessionId = await sessionOf(api.conversationId);
-				if (!sessionId || !message.usage) return;
-				await recordUsage(options.db, sessionId, message.usage.totalTokens);
+				if (!sessionId) return;
+				const runtime = runtimeRef.current;
+				// The provider document is written for this request; remember it for metering a later compaction.
+				if (runtime) await runtime.rememberProviderSession(String(api.conversationId));
+				await recordUsage(options.db, sessionId, accountedOutputTokens(message));
 				const over = await exhaustedLevel(options.db, sessionId);
 				// The tool calls of this response end the run (below); a response without them ends it anyway.
 				if (over) {
@@ -1642,6 +1807,13 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 						target: { type: "session", id: over },
 					});
 				}
+			},
+		}),
+		hook(CompactionTask, {
+			// Durable's summarizer runs through the metered Models; remember the session its provider id belongs to.
+			beforeCompact: async (_compaction, api) => {
+				await runtimeRef.current?.rememberProviderSession(String(api.conversationId));
+				return undefined;
 			},
 		}),
 	];

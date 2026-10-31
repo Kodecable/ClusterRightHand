@@ -3,6 +3,7 @@ import type { TaskGroups, TaskGroupView } from "../cluster/task-groups.ts";
 import { getRuleSet, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import type { ModelConfig, ModelRef } from "./models.ts";
+import { accountedOutputTokens, recordUsage } from "./quota.ts";
 
 /**
  * Auto Review (doc/access-control.md#规则链): for a root whose preset is auto_review, a task that needs approval is
@@ -72,20 +73,41 @@ export class Reviewer {
 		return row ? (JSON.parse(row.model) as ModelRef) : null;
 	}
 
-	async #ask(model: ModelRef, operation: string): Promise<ReviewOutcome> {
+	/** Asks the reviewer, and reports what the answer costs so the owning session can be charged (D92). */
+	async #ask(model: ModelRef, operation: string): Promise<{ outcome: ReviewOutcome; tokens: number }> {
 		const resolved = this.#models.models.getModel(model.provider, model.modelId);
 		const name = `${model.provider}/${model.modelId}`;
-		if (!resolved) return { decision: "escalate", reason: `review model ${name} is not configured`, model: name };
+		if (!resolved)
+			return {
+				outcome: { decision: "escalate", reason: `review model ${name} is not configured`, model: name },
+				tokens: 0,
+			};
 		try {
 			const answer = await this.#models.models.completeSimple(resolved, {
 				systemPrompt: SYSTEM,
 				messages: [{ role: "user", content: operation, timestamp: Date.now() }],
 			});
 			const text = answer.content.flatMap((c) => (c.type === "text" ? [c.text] : [])).join("");
-			return { ...parseOutcome(text), model: name };
+			return { outcome: { ...parseOutcome(text), model: name }, tokens: accountedOutputTokens(answer) };
 		} catch (err) {
-			return { decision: "escalate", reason: `review failed: ${(err as Error).message}`.slice(0, 300), model: name };
+			return {
+				outcome: {
+					decision: "escalate",
+					reason: `review failed: ${(err as Error).message}`.slice(0, 300),
+					model: name,
+				},
+				tokens: 0,
+			};
 		}
+	}
+
+	/**
+	 * Charges a review's output to the session whose task it judged, walking up the chain as any other model call
+	 * (doc/agent-runtime.md#配额). A task without a session (an API token) is not charged.
+	 */
+	async #charge(actorType: string, actorId: string, tokens: number): Promise<void> {
+		if (tokens === 0 || (actorType !== "session" && actorType !== "subagent")) return;
+		await recordUsage(this.#db, actorId, tokens);
 	}
 
 	async #wanted(chain: RuleRef[] | null): Promise<ModelRef | null> {
@@ -99,7 +121,8 @@ export class Reviewer {
 	async reviewTask(task: TaskView): Promise<void> {
 		const model = await this.#wanted(task.ruleChain);
 		if (!model || !task.operation) return;
-		const outcome = await this.#ask(model, describe(task.operation, task.nodeId, task.actorType));
+		const { outcome, tokens } = await this.#ask(model, describe(task.operation, task.nodeId, task.actorType));
+		await this.#charge(task.actorType, task.actorId, tokens);
 		await this.#cluster.recordReview(task.id, outcome);
 		if (outcome.decision === "approve") await this.#cluster.decide(task.id, decision(outcome));
 	}
@@ -107,10 +130,11 @@ export class Reviewer {
 	async reviewGroup(group: TaskGroupView): Promise<void> {
 		const model = await this.#wanted(group.ruleChain);
 		if (!model || !group.operation) return;
-		const outcome = await this.#ask(
+		const { outcome, tokens } = await this.#ask(
 			model,
 			describe(group.operation, `${group.nodeIds.length} nodes (${group.targets.join(", ")})`, group.actorType),
 		);
+		await this.#charge(group.actorType, group.actorId, tokens);
 		await this.#groups.recordReview(group.id, outcome);
 		if (outcome.decision === "approve") await this.#groups.decide(group.id, decision(outcome));
 	}
