@@ -1,0 +1,128 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { enc } from "@/lib/api/client";
+import { subscribeSse } from "@/lib/api/sse";
+import {
+	type AgentEvent,
+	type EntryRecord,
+	initialState,
+	prependHistory,
+	reduceAll,
+	type SessionState,
+} from "./sessionState";
+import { TranscriptStreams } from "./transcript-streams";
+
+export type Connection = "connecting" | "live" | "reconnecting";
+
+export interface SessionEvents {
+	/** The structural transcript state; the streaming text itself lives in `streams`. */
+	state: SessionState;
+	connection: Connection;
+	streams: TranscriptStreams;
+	/** Prepends a page loaded from `GET /sessions/:id/entries`, without disturbing the live stream. */
+	applyHistory: (entries: readonly EntryRecord[], historyCursor: string | null) => void;
+}
+
+/** The shape the stream promises; anything else is dropped rather than fed to the reducer. */
+function isAgentEvent(value: unknown): value is AgentEvent {
+	return value !== null && typeof value === "object" && typeof (value as { type?: unknown }).type === "string";
+}
+
+/**
+ * A cheap identity of everything the transcript list has to re-render for.
+ * Deliberately excludes the growing text of the streaming message and of a
+ * running tool: those live in `TranscriptStreams`, subscribed by their row.
+ */
+function structureKey(state: SessionState): string {
+	const first = state.entries[0]?.id ?? "";
+	const last = state.entries[state.entries.length - 1]?.id ?? "";
+	const blocks = state.streaming?.content.map((block) => block.type).join(",") ?? "";
+	const tools = Object.values(state.tools)
+		.map((tool) => `${tool.callId}:${tool.status}`)
+		.sort()
+		.join(",");
+	return [
+		state.ready,
+		state.entries.length,
+		first,
+		last,
+		blocks,
+		tools,
+		state.running,
+		state.queued,
+		state.retry ?? "",
+		state.failure ?? "",
+		state.historyCursor ?? "",
+	].join("|");
+}
+
+/**
+ * Follows `GET /api/sessions/:id/events` (doc/webui.md "会话事件流").
+ *
+ * A reconnect starts with a fresh snapshot, which replaces the state. Event
+ * batches are reduced into a ref; only a change of the transcript's structure
+ * is committed to React, while the growing text goes to the per-row stores, so
+ * a fast stream does not re-render the message list. History pages arrive
+ * through `prependHistory` on the same reducer state, so they can never
+ * overwrite the live message.
+ */
+export function useSessionEvents(id: string | undefined): SessionEvents {
+	const [state, setState] = useState<SessionState>(initialState);
+	const [connection, setConnection] = useState<Connection>("connecting");
+	const stateRef = useRef<SessionState>(initialState);
+	const publishedKey = useRef<string | null>(null);
+	const streamsRef = useRef<TranscriptStreams>(new TranscriptStreams());
+	const streams = streamsRef.current;
+
+	useEffect(() => {
+		stateRef.current = initialState;
+		publishedKey.current = null;
+		streams.disposeAll();
+		setState(initialState);
+		if (id === undefined || id === "") {
+			setConnection("connecting");
+			return;
+		}
+		setConnection("connecting");
+		const unsubscribe = subscribeSse({
+			url: `/api/sessions/${enc(id)}/events`,
+			events: ["events"],
+			onEvent: (name, data) => {
+				if (name !== "events" || !Array.isArray(data)) return;
+				const events = data.filter(isAgentEvent);
+				if (events.length === 0) return;
+				const next = reduceAll(stateRef.current, events);
+				stateRef.current = next;
+				streams.sync(next);
+				const key = structureKey(next);
+				if (key !== publishedKey.current) {
+					publishedKey.current = key;
+					setState(next);
+				}
+				setConnection("live");
+			},
+			onOpen: () => setConnection("live"),
+			onError: () => setConnection("reconnecting"),
+		});
+		return () => {
+			unsubscribe();
+			streams.disposeAll();
+		};
+	}, [id, streams]);
+
+	const applyHistory = useCallback(
+		(entries: readonly EntryRecord[], historyCursor: string | null) => {
+			const next = prependHistory(stateRef.current, entries, historyCursor);
+			if (next === stateRef.current) return;
+			stateRef.current = next;
+			streams.sync(next);
+			const key = structureKey(next);
+			if (key !== publishedKey.current) {
+				publishedKey.current = key;
+				setState(next);
+			}
+		},
+		[streams],
+	);
+
+	return { state, connection, streams, applyHistory };
+}

@@ -17,6 +17,10 @@ msgstr "运维控制台"
 msgid "Pending approvals"
 msgstr "待处理审批"
 
+#: src/features/tasks/task-group-result.tsx
+msgid " (the batch was interrupted)"
+msgstr " （批处理被中断）"
+
 #: src/components/task-result.tsx
 msgid "… {omitted} bytes omitted …"
 msgstr "… 省略 {omitted} 字节 …"
@@ -25,10 +29,40 @@ msgstr "… 省略 {omitted} 字节 …"
 msgid "[image: {label}]"
 msgstr "[图片：{label}]"
 
+#. placeholder {0}: events.state.queued
+#: src/features/sessions/pages.tsx
+msgid "{0, plural, one {# message queued} other {# messages queued}}"
+msgstr "{0, plural, one {已排队 # 条消息} other {已排队 # 条消息}}"
+
 #. placeholder {0}: value.length
 #: src/components/node-picker.tsx
 msgid "{0, plural, one {# node selected} other {# nodes selected}}"
 msgstr "{0, plural, one {已选择 # 个节点} other {已选择 # 个节点}}"
+
+#. placeholder {0}: group.nodeIds.length
+#: src/features/tasks/task-group-result.tsx
+msgid "{0, plural, one {# node} other {# nodes}}"
+msgstr "{0, plural, one {# 个节点} other {# 个节点}}"
+
+#. placeholder {0}: items.length
+#: src/features/sessions/session-list.tsx
+msgid "{0, plural, one {# session} other {# sessions}}"
+msgstr "{0, plural, one {# 个会话} other {# 个会话}}"
+
+#. placeholder {0}: targets.length
+#: src/features/batch/pages.tsx
+msgid "{0, plural, one {# target} other {# targets}}"
+msgstr "{0, plural, one {# 个目标} other {# 个目标}}"
+
+#. placeholder {0}: targets.length
+#: src/features/batch/pages.tsx
+msgid "{0, plural, one {Run on # target} other {Run on # targets}}"
+msgstr "{0, plural, one {在 # 个目标上运行} other {在 # 个目标上运行}}"
+
+#. placeholder {0}: subagentIds.length
+#: src/features/sessions/pages.tsx
+msgid "{0, plural, one {Subagent session} other {Subagent sessions}}"
+msgstr "{0, plural, one {子代理会话} other {子代理会话}}"
 
 #. placeholder {0}: item.task.kind
 #. placeholder {1}: nodeNames.get(item.task.nodeId) ?? item.task.nodeId
@@ -45,6 +79,10 @@ msgstr "剩余 {0} 个 token · 已用 {usedText}"
 msgid "{bytes, plural, one {# byte} other {# bytes}}"
 msgstr "{bytes, plural, one {# 字节} other {# 字节}}"
 
+#: src/features/approvals/pages.tsx
+msgid "{count, plural, one {# waiting} other {# waiting}}"
+msgstr "{count, plural, one {# 项等待中} other {# 项等待中}}"
+
 #. placeholder {0}: item.group.nodeIds.length
 #: src/components/approval-card.tsx
 msgid "{groupKind} on {0} node(s): {nodeList}"
@@ -58,9 +96,57 @@ msgstr "{lineCount, plural, one {# 行} other {# 行}}"
 msgid "{lines, plural, one {# line} other {# lines}}"
 msgstr "{lines, plural, one {# 行} other {# 行}}"
 
+#: src/features/sessions/pages.tsx
+msgid "{ruleCount, plural, one {# rule} other {# rules}}"
+msgstr "{ruleCount, plural, one {# 条规则} other {# 条规则}}"
+
+#: src/features/sessions/pages.tsx
+msgid "{tokenText} tokens"
+msgstr "{tokenText} 个 token"
+
 #: src/components/authorization-card.tsx
 msgid "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
 msgstr "`crha grant` 会解码载荷供你确认，用 `ssh-keygen -Y sign -n crh-auth-v1` 签名，并输出可粘贴到下方的授权。手工操作等价于："
+
+#: src/features/approvals/pages.tsx
+msgid "← Approvals"
+msgstr "← 审批"
+
+#: src/features/tasks/pages.tsx
+msgid "← Tasks"
+msgstr "← 任务"
+
+#: src/features/tasks/taskForm.ts
+msgid "A command is required."
+msgstr "需要填写命令。"
+
+#: src/features/schedules/scheduleForm.ts
+msgid "A cron expression has exactly five fields."
+msgstr "cron 表达式必须正好有五个字段。"
+
+#: src/features/schedules/scheduleForm.ts
+msgid "A cron expression is required."
+msgstr "需要填写 cron 表达式。"
+
+#: src/features/schedules/scheduleForm.ts
+msgid "A name is required."
+msgstr "需要填写名称。"
+
+#: src/features/tasks/taskForm.ts
+msgid "A path is required."
+msgstr "需要填写路径。"
+
+#: src/features/schedules/scheduleForm.ts
+msgid "A prompt is required."
+msgstr "需要填写提示词。"
+
+#: src/features/schedules/scheduleForm.ts
+msgid "A timezone is required."
+msgstr "需要填写时区。"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Access"
+msgstr "访问权限"
 
 #: src/app/shell/user-menu.tsx
 msgid "Account menu"
@@ -70,13 +156,37 @@ msgstr "账户菜单"
 msgid "Active"
 msgstr "活跃"
 
+#: src/features/tasks/pages.tsx
+msgid "Actor type"
+msgstr "操作者类型"
+
 #: src/components/quota-card.tsx
 msgid "Add"
 msgstr "添加"
 
+#: src/features/sessions/share-dialog.tsx
+msgid "Add share"
+msgstr "添加共享"
+
+#: src/features/approvals/pages.tsx
+msgid "Add tokens to the paused run or stop it."
+msgstr "给暂停的运行增加 token，或停止它。"
+
 #: src/app/shell/nav.ts
 msgid "Admin"
 msgstr "管理"
+
+#: src/features/tasks/pages.tsx
+msgid "Agent"
+msgstr "Agent"
+
+#: src/features/sessions/session-list.tsx
+msgid "All"
+msgstr "全部"
+
+#: src/features/approvals/pages.tsx
+msgid "Already settled"
+msgstr "已处理"
 
 #. placeholder {0}: pending.tried.join(", ")
 #: src/components/authorization-card.tsx
@@ -87,11 +197,28 @@ msgstr "已尝试：{0}。"
 msgid "Always allow rule"
 msgstr "始终允许规则"
 
+#: src/features/sessions/pages.tsx
+msgid "another user"
+msgstr "另一位用户"
+
+#: src/features/tasks/pages.tsx
+msgid "Any actor"
+msgstr "任意操作者"
+
 #: src/components/authorization-card.tsx
 msgid "Any method and target"
 msgstr "任意方法与目标"
 
+#: src/features/tasks/pages.tsx
+msgid "Any node"
+msgstr "任意节点"
+
+#: src/features/tasks/pages.tsx
+msgid "Any state"
+msgstr "任意状态"
+
 #: src/components/approval-card.tsx
+#: src/features/tasks/pages.tsx
 msgid "API token"
 msgstr "API 令牌"
 
@@ -101,7 +228,7 @@ msgid "API tokens"
 msgstr "API 令牌"
 
 #: src/components/task-result.tsx
-#: src/features/approvals/pages.tsx
+#: src/features/tasks/pages.tsx
 msgid "Approval"
 msgstr "审批"
 
@@ -130,11 +257,20 @@ msgstr "批准并始终允许…"
 msgid "Approved"
 msgstr "已批准"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "Arguments"
+msgstr "参数"
+
 #: src/components/task-form-fields.tsx
 msgid "argv"
 msgstr "argv"
 
+#: src/features/sessions/composer.tsx
+msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
+msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行。"
+
 #: src/components/approval-card.tsx
+#: src/features/tasks/pages.tsx
 msgid "Asked by"
 msgstr "请求者"
 
@@ -178,10 +314,12 @@ msgstr "等待中"
 
 #: src/components/approval-card.tsx
 #: src/components/status-badge.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Awaiting approval"
 msgstr "等待批准"
 
 #: src/components/status-badge.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Awaiting authorization"
 msgstr "等待授权"
 
@@ -189,13 +327,29 @@ msgstr "等待授权"
 msgid "Awaiting signature"
 msgstr "等待签名"
 
+#: src/features/sessions/pages.tsx
+msgid "Back to the session list"
+msgstr "返回会话列表"
+
 #: src/app/shell/nav.ts
-#: src/features/batch/pages.tsx
 msgid "Batch"
 msgstr "批量"
 
+#: src/features/batch/pages.tsx
+msgid "Batch run"
+msgstr "批量运行"
+
+#: src/features/batch/pages.tsx
+msgid "Batch started."
+msgstr "批量运行已开始。"
+
+#: src/features/tasks/pages.tsx
+msgid "By"
+msgstr "操作者"
+
 #: src/components/dialogs.tsx
 #: src/features/auth/change-password-dialog.tsx
+#: src/features/sessions/pages.tsx
 msgid "Cancel"
 msgstr "取消"
 
@@ -209,9 +363,17 @@ msgstr "已取消"
 msgid "Change password"
 msgstr "修改密码"
 
+#: src/features/sessions/share-dialog.tsx
+msgid "Chat"
+msgstr "聊天"
+
 #: src/components/model-select.tsx
 msgid "Choose a model"
 msgstr "选择模型"
+
+#: src/features/schedules/scheduleForm.ts
+msgid "Choose a model."
+msgstr "请选择模型。"
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Choose a new password for your account."
@@ -221,9 +383,18 @@ msgstr "为你的账户设置新密码。"
 msgid "Choose a node"
 msgstr "选择节点"
 
+#: src/features/batch/pages.tsx
+msgid "Choose at least one target."
+msgstr "请至少选择一个目标。"
+
 #: src/components/node-picker.tsx
+#: src/features/batch/pages.tsx
 msgid "Choose nodes"
 msgstr "选择节点"
+
+#: src/features/batch/pages.tsx
+msgid "Choose targets"
+msgstr "选择目标"
 
 #: src/components/node-picker.tsx
 msgid "Clear"
@@ -253,9 +424,21 @@ msgstr "命令模式"
 msgid "Confirm"
 msgstr "确认"
 
+#: src/features/sessions/pages.tsx
+msgid "Connecting…"
+msgstr "正在连接…"
+
 #: src/components/task-form-fields.tsx
 msgid "Content"
 msgstr "内容"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Context compacted"
+msgstr "上下文已压缩"
+
+#: src/features/sessions/transcript.tsx
+msgid "Conversation"
+msgstr "对话"
 
 #: src/components/copy-button.tsx
 msgid "Copied"
@@ -294,7 +477,12 @@ msgstr "可共同签名"
 msgid "cosignature unavailable"
 msgstr "无法共同签名"
 
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Create session"
+msgstr "创建会话"
+
 #: src/components/task-result.tsx
+#: src/features/tasks/pages.tsx
 msgid "Created"
 msgstr "创建时间"
 
@@ -331,6 +519,13 @@ msgstr "决定者"
 msgid "Decision"
 msgstr "决定"
 
+#: src/features/approvals/pages.tsx
+#: src/features/sessions/session-waits.tsx
+#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-result.tsx
+msgid "Decision recorded."
+msgstr "决定已记录。"
+
 #: src/components/approval-card.tsx
 msgid "default"
 msgstr "默认"
@@ -347,17 +542,30 @@ msgstr "已禁用"
 msgid "Dispatched"
 msgstr "已派发"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "Done"
+msgstr "完成"
+
 #: src/components/approval-card.tsx
 msgid "Effective"
 msgstr "生效结果"
 
 #: src/components/quota-card.tsx
+#: src/features/sessions/new-session-dialog.tsx
+#: src/features/sessions/pages.tsx
 msgid "Enter a positive number of tokens to add."
 msgstr "请输入要添加的正 token 数。"
 
 #: src/components/quota-card.tsx
+#: src/features/schedules/scheduleForm.ts
+#: src/features/sessions/new-session-dialog.tsx
+#: src/features/sessions/pages.tsx
 msgid "Enter a whole number of tokens, or leave it empty for unlimited."
 msgstr "请输入整数 token 数，留空表示不限。"
+
+#: src/features/schedules/scheduleForm.ts
+msgid "Enter at least 1 token, or leave it empty for unlimited."
+msgstr "至少输入 1 个 token，或留空表示不限。"
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Enter your current password."
@@ -374,6 +582,14 @@ msgstr "请输入用户名。"
 #: src/components/task-result.tsx
 msgid "Error"
 msgstr "错误"
+
+#: src/features/tasks/pages.tsx
+msgid "Every task on the nodes you can see, newest first. Requests waiting for you are handled on the Approvals page."
+msgstr "你能看到的所有节点上的任务，最新在前。等待你处理的请求在审批页。"
+
+#: src/features/approvals/pages.tsx
+msgid "Everything that waits for your approval, signature or quota decision."
+msgstr "所有等待你审批、签名或配额决定的事项。"
 
 #: src/components/approval-card.tsx
 msgid "exact"
@@ -396,26 +612,57 @@ msgstr "已退出"
 msgid "Expired"
 msgstr "已过期"
 
+#: src/features/batch/pages.tsx
+msgid "Fail fast"
+msgstr "快速失败"
+
 #: src/components/status-badge.tsx
+#: src/features/sessions/transcript-row.tsx
 msgid "Failed"
 msgstr "失败"
 
 #: src/components/task-result.tsx
+#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Finished"
 msgstr "完成时间"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Generating…"
+msgstr "正在生成…"
 
 #: src/app/router.tsx
 msgid "Go to sessions"
 msgstr "前往会话"
 
+#: src/features/sessions/share-dialog.tsx
+msgid "Grantee"
+msgstr "被授权方"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Group"
+msgstr "用户组"
+
+#: src/features/batch/pages.tsx
+msgid "Groups or raw targets (comma separated, e.g. group:web, node-1)"
+msgstr "分组或原始目标（逗号分隔，例如 group:web, node-1）"
+
 #: src/components/status-badge.tsx
 msgid "Idle"
 msgstr "空闲"
+
+#: src/features/tasks/task-group-result.tsx
+msgid "Interrupted"
+msgstr "已中断"
 
 #: src/components/authorization-card.tsx
 #: src/components/status-badge.tsx
 msgid "Issued"
 msgstr "已签发"
+
+#: src/features/sessions/transcript.tsx
+msgid "Jump to latest"
+msgstr "跳到最新"
 
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
@@ -457,6 +704,31 @@ msgstr "限制"
 msgid "Load more"
 msgstr "加载更多"
 
+#: src/features/sessions/session-list.tsx
+msgid "Loading more sessions…"
+msgstr "正在加载更多会话…"
+
+#: src/features/sessions/transcript.tsx
+msgid "Loading older messages…"
+msgstr "正在加载更早的消息…"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Loading shares…"
+msgstr "正在加载共享…"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Loading task…"
+msgstr "正在加载任务…"
+
+#: src/features/sessions/session-waits.tsx
+msgid "Loading the waiting decisions…"
+msgstr "正在加载等待处理的决定…"
+
+#: src/features/approvals/pages.tsx
+#: src/features/tasks/pages.tsx
+msgid "Loading…"
+msgstr "加载中…"
+
 #: src/app/shell/user-menu.tsx
 msgid "Log out"
 msgstr "退出登录"
@@ -465,7 +737,17 @@ msgstr "退出登录"
 msgid "Matched rule"
 msgstr "匹配规则"
 
+#: src/features/sessions/composer.tsx
+msgid "Message"
+msgstr "消息"
+
+#: src/features/sessions/session-list.tsx
+msgid "Mine"
+msgstr "我的"
+
 #: src/components/model-select.tsx
+#: src/features/sessions/new-session-dialog.tsx
+#: src/features/sessions/pages.tsx
 msgid "Model"
 msgstr "模型"
 
@@ -478,9 +760,22 @@ msgstr "模型"
 msgid "Never run"
 msgstr "从未运行"
 
+#: src/features/sessions/session-list.tsx
+msgid "New"
+msgstr "新建"
+
 #: src/features/auth/change-password-dialog.tsx
 msgid "New password"
 msgstr "新密码"
+
+#: src/features/approvals/pages.tsx
+msgid "New requests appear here and in the sidebar badge."
+msgstr "新的请求会出现在这里和侧边栏角标中。"
+
+#: src/features/sessions/new-session-dialog.tsx
+#: src/features/sessions/session-list.tsx
+msgid "New session"
+msgstr "新会话"
 
 #: src/components/task-form-fields.tsx
 msgid "New text"
@@ -490,6 +785,22 @@ msgstr "新文本"
 msgid "No"
 msgstr "否"
 
+#: src/features/batch/pages.tsx
+msgid "No active nodes you can operate."
+msgstr "没有你可以操作的活跃节点。"
+
+#: src/features/sessions/pages.tsx
+msgid "No messages yet. Start the conversation below."
+msgstr "还没有消息。在下方开始对话。"
+
+#: src/features/sessions/session-list.tsx
+msgid "No model is configured"
+msgstr "尚未配置模型"
+
+#: src/features/sessions/new-session-dialog.tsx
+msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
+msgstr "尚未配置模型，会话无法启动。请让管理员配置一个。"
+
 #: src/components/task-result.tsx
 msgid "No output is kept (SSH nodes keep no output)."
 msgstr "未保留输出（SSH 节点不保留输出）。"
@@ -498,19 +809,46 @@ msgstr "未保留输出（SSH 节点不保留输出）。"
 msgid "No output was kept."
 msgstr "未保留任何输出。"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "No output yet."
+msgstr "还没有输出。"
+
 #: src/components/authorization-card.tsx
 msgid "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
 msgstr "此节点没有信任你的任何 Passkey 可用于此命令；请用下方 SSH 密钥签名。"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "No result yet"
+msgstr "尚无结果"
+
+#: src/features/sessions/session-list.tsx
+msgid "No session matches"
+msgstr "没有匹配的会话"
+
+#: src/features/sessions/pages.tsx
+msgid "No session selected"
+msgstr "未选择会话"
+
+#: src/features/sessions/session-list.tsx
+msgid "No sessions yet"
+msgstr "还没有会话"
+
+#: src/features/tasks/pages.tsx
+msgid "No tasks yet"
+msgstr "还没有任务"
+
 #: src/components/authorization-card.tsx
 #: src/components/node-picker.tsx
 #: src/features/nodes/pages.tsx
+#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Node"
 msgstr "节点"
 
 #: src/app/shell/nav.ts
 #: src/components/authorization-card.tsx
 #: src/components/node-picker.tsx
+#: src/features/batch/pages.tsx
 #: src/features/nodes/pages.tsx
 msgid "Nodes"
 msgstr "节点"
@@ -519,6 +857,10 @@ msgstr "节点"
 msgid "Not a valid rule: {error}"
 msgstr "规则无效：{error}"
 
+#: src/features/sessions/share-dialog.tsx
+msgid "Not shared."
+msgstr "未共享。"
+
 #: src/components/authorization-card.tsx
 msgid "Note"
 msgstr "备注"
@@ -526,6 +868,10 @@ msgstr "备注"
 #: src/components/empty-state.tsx
 msgid "Nothing here yet."
 msgstr "这里还没有内容。"
+
+#: src/features/approvals/pages.tsx
+msgid "Nothing is waiting for you"
+msgstr "没有等待你处理的事项"
 
 #: src/components/data-table.tsx
 msgid "Nothing to show."
@@ -539,22 +885,60 @@ msgstr "偏移"
 msgid "Old text"
 msgstr "旧文本"
 
+#: src/features/approvals/pages.tsx
+msgid "One decision applies to every node in the group."
+msgstr "一个决定会应用到组内所有节点。"
+
 #: src/components/task-result.tsx
 msgid "Open approval page"
 msgstr "打开审批页"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Open the signing page"
+msgstr "打开签名页"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Open the subagent's session"
+msgstr "打开子代理的会话"
+
+#: src/features/approvals/pages.tsx
+msgid "Open the task"
+msgstr "打开任务"
+
+#: src/features/approvals/pages.tsx
+msgid "Open the task group"
+msgstr "打开任务组"
+
+#: src/features/sessions/session-waits.tsx
+msgid "Open the task page"
+msgstr "打开任务页"
 
 #. placeholder {0}: pending.taskIds[0] ?? ""
 #: src/components/authorization-card.tsx
 msgid "Or run <0>crha approve {0}</0> on the node (a user in its `local` trust entries) — the task then runs with that approval instead."
 msgstr "或者在节点上运行 <0>crha approve {0}</0>（该节点 `local` 信任条目中的用户）——任务随后会改用该批准运行。"
 
+#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-result.tsx
+msgid "Outcome"
+msgstr "结果"
+
 #: src/components/task-result.tsx
 msgid "output"
+msgstr "输出"
+
+#: src/features/batch/pages.tsx
+#: src/features/tasks/task-group-result.tsx
+msgid "Output"
 msgstr "输出"
 
 #: src/components/task-result.tsx
 msgid "Output file"
 msgstr "输出文件"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Output so far"
+msgstr "截至目前输出"
 
 #: src/components/task-form-fields.tsx
 msgid "Overwrite if it exists"
@@ -567,6 +951,14 @@ msgstr "自身结果"
 #: src/app/router.tsx
 msgid "Page not found"
 msgstr "页面不存在"
+
+#: src/features/batch/pages.tsx
+msgid "Parallel"
+msgstr "并发数"
+
+#: src/features/batch/pages.tsx
+msgid "Parallel must be a positive whole number."
+msgstr "并发数必须是正整数。"
 
 #: src/components/authorization-card.tsx
 msgid "Passkey signing was cancelled."
@@ -588,6 +980,14 @@ msgstr "路径"
 msgid "Pending"
 msgstr "待处理"
 
+#: src/features/sessions/share-dialog.tsx
+msgid "People you share this session with; view access is read-only, chat access can send messages."
+msgstr "与你共享此会话的人；查看权限只读，聊天权限可以发送消息。"
+
+#: src/features/sessions/pages.tsx
+msgid "Pick a session on the left, or start a new one."
+msgstr "在左侧选择一个会话，或新建一个。"
+
 #: src/components/status-badge.tsx
 msgid "Preempted"
 msgstr "已被抢占"
@@ -596,13 +996,25 @@ msgstr "已被抢占"
 msgid "prefix"
 msgstr "前缀匹配"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "Preparing"
+msgstr "准备中"
+
+#: src/features/sessions/session-waits.tsx
+msgid "Preparing the payload to sign…"
+msgstr "正在准备待签名的载荷…"
+
 #: src/components/preset-select.tsx
+#: src/features/sessions/new-session-dialog.tsx
+#: src/features/sessions/pages.tsx
 msgid "Preset"
 msgstr "预设"
 
 #: src/components/approval-card.tsx
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
+#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Privileged"
 msgstr "特权"
 
@@ -613,6 +1025,15 @@ msgstr "排队中"
 #: src/components/quota-card.tsx
 msgid "Quota"
 msgstr "配额"
+
+#: src/features/approvals/pages.tsx
+#: src/features/sessions/session-waits.tsx
+msgid "Quota decision recorded."
+msgstr "配额决定已记录。"
+
+#: src/features/sessions/pages.tsx
+msgid "Quota saved."
+msgstr "配额已保存。"
 
 #. placeholder {0}: formatNumber(status.over, locale)
 #: src/components/quota-card.tsx
@@ -627,14 +1048,27 @@ msgstr "原因"
 msgid "Reason (optional, used when rejecting)"
 msgstr "原因（可选，拒绝时使用）"
 
+#: src/features/sessions/pages.tsx
+msgid "Reconnecting…"
+msgstr "正在重新连接…"
+
 #: src/components/approval-card.tsx
 msgid "Reject"
 msgstr "拒绝"
 
 #: src/components/approval-card.tsx
 #: src/components/status-badge.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Rejected"
 msgstr "已拒绝"
+
+#: src/features/sessions/pages.tsx
+msgid "Remaining tokens (empty = unlimited)"
+msgstr "剩余 token（留空表示不限）"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Remove share"
+msgstr "移除共享"
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Repeat new password"
@@ -648,12 +1082,27 @@ msgstr "请再次输入新密码。"
 msgid "Requested"
 msgstr "请求时间"
 
+#: src/features/sessions/transcript-row.tsx
+#: src/features/tasks/task-group-result.tsx
+msgid "Result"
+msgstr "结果"
+
+#. placeholder {0}: events.state.retry
+#: src/features/sessions/pages.tsx
+msgid "Retrying after an error: {0}"
+msgstr "出错后正在重试：{0}"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Review and approve"
+msgstr "查看并批准"
+
 #: src/components/status-badge.tsx
 msgid "Revoked"
 msgstr "已吊销"
 
 #: src/components/approval-card.tsx
 #: src/components/task-result.tsx
+#: src/features/tasks/pages.tsx
 msgid "Rule chain evaluation"
 msgstr "规则链评估"
 
@@ -661,11 +1110,22 @@ msgstr "规则链评估"
 msgid "Rule to add to the caller's rule set"
 msgstr "添加到调用方规则集的规则"
 
+#: src/features/batch/pages.tsx
+msgid "Run one task on many nodes and follow each node's result."
+msgstr "在许多节点上运行同一个任务，并跟踪每个节点的结果。"
+
+#: src/features/tasks/pages.tsx
+msgid "Run something on a node, or use the batch page."
+msgstr "在节点上运行点什么，或使用批量页。"
+
 #: src/components/status-badge.tsx
+#: src/features/sessions/transcript-row.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Running"
 msgstr "运行中"
 
 #: src/components/dialogs.tsx
+#: src/features/sessions/pages.tsx
 msgid "Save"
 msgstr "保存"
 
@@ -674,31 +1134,97 @@ msgid "Save password"
 msgstr "保存密码"
 
 #: src/features/schedules/pages.tsx
+#: src/features/tasks/pages.tsx
 msgid "Schedule"
 msgstr "计划任务"
+
+#: src/features/sessions/session-list-item.tsx
+msgid "Scheduled session"
+msgstr "计划会话"
 
 #: src/app/shell/nav.ts
 #: src/features/schedules/pages.tsx
 msgid "Schedules"
 msgstr "计划任务"
 
+#: src/features/sessions/session-list.tsx
+msgid "Scope"
+msgstr "范围"
+
+#: src/features/sessions/session-list.tsx
+msgid "Search sessions"
+msgstr "搜索会话"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Select…"
+msgstr "请选择…"
+
+#: src/features/sessions/composer.tsx
+msgid "Send"
+msgstr "发送"
+
 #: src/components/quota-card.tsx
-#: src/features/sessions/pages.tsx
+#: src/features/tasks/pages.tsx
 msgid "Session"
 msgstr "会话"
+
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Session created."
+msgstr "会话已创建。"
 
 #: src/features/sessions/sessions-layout.tsx
 msgid "Session list"
 msgstr "会话列表"
 
+#: src/features/sessions/pages.tsx
+msgid "Session settings"
+msgstr "会话设置"
+
+#: src/features/sessions/pages.tsx
+msgid "Session title"
+msgstr "会话标题"
+
 #: src/app/shell/nav.ts
 #: src/features/sessions/pages.tsx
+#: src/features/sessions/session-list.tsx
 msgid "Sessions"
 msgstr "会话"
+
+#: src/features/sessions/pages.tsx
+msgid "Share"
+msgstr "共享"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Share removed."
+msgstr "共享已移除。"
+
+#: src/features/sessions/session-list.tsx
+msgid "Shared"
+msgstr "共享"
+
+#: src/features/sessions/pages.tsx
+msgid "Shared by {ownerName}"
+msgstr "由 {ownerName} 共享"
+
+#: src/features/sessions/session-list-item.tsx
+msgid "Shared with you"
+msgstr "共享给你"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Shared."
+msgstr "已共享。"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Shares"
+msgstr "共享"
 
 #: src/components/task-form-fields.tsx
 msgid "Shell command"
 msgstr "Shell 命令"
+
+#: src/features/tasks/task-group-result.tsx
+msgid "Show"
+msgstr "显示"
 
 #: src/components/code-text.tsx
 msgid "Show all"
@@ -763,6 +1289,10 @@ msgstr "已使用 Passkey“{0}”签名。"
 msgid "Since"
 msgstr "自"
 
+#: src/features/tasks/task-group-result.tsx
+msgid "Skipped: {skipped}"
+msgstr "已跳过：{skipped}"
+
 #: src/components/error-state.tsx
 msgid "Something went wrong"
 msgstr "出错了"
@@ -775,10 +1305,24 @@ msgstr "规范哈希"
 msgid "ssh-keygen recipe"
 msgstr "ssh-keygen 命令"
 
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Start a conversation with the agent; it acts on your nodes through the same rules."
+msgstr "与 agent 开始对话；它会按照与其它操作相同的规则在你的节点上执行。"
+
+#: src/features/sessions/session-list.tsx
+msgid "Start one, or wait for a scheduled run."
+msgstr "新建一个，或等待计划任务运行。"
+
 #: src/components/authorization-card.tsx
 #: src/components/task-result.tsx
+#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "State"
 msgstr "状态"
+
+#: src/features/batch/pages.tsx
+msgid "Status only"
+msgstr "仅状态"
 
 #: src/components/task-result.tsx
 msgid "Status only."
@@ -797,8 +1341,19 @@ msgid "stdout"
 msgstr "stdout"
 
 #: src/components/quota-card.tsx
+#: src/features/sessions/composer.tsx
+#: src/features/sessions/pages.tsx
 msgid "Stop"
 msgstr "停止"
+
+#: src/features/sessions/composer.tsx
+#: src/features/sessions/pages.tsx
+msgid "Stopped the run."
+msgstr "已停止运行。"
+
+#: src/features/tasks/pages.tsx
+msgid "Subagent"
+msgstr "子代理"
 
 #: src/components/authorization-card.tsx
 msgid "Submit authorization"
@@ -816,21 +1371,40 @@ msgstr "摘要"
 msgid "System"
 msgstr "跟随系统"
 
+#: src/features/batch/pages.tsx
+msgid "Tail of output"
+msgstr "输出末尾"
+
+#: src/features/batch/pages.tsx
+msgid "Targets"
+msgstr "目标"
+
 #: src/components/approval-card.tsx
 #: src/components/authorization-card.tsx
 #: src/components/task-result.tsx
+#: src/features/approvals/pages.tsx
 #: src/features/tasks/pages.tsx
 msgid "Task"
 msgstr "任务"
 
+#: src/features/approvals/pages.tsx
+msgid "Task approvals"
+msgstr "任务审批"
+
 #: src/components/approval-card.tsx
+#: src/features/approvals/pages.tsx
 msgid "task group"
 msgstr "任务组"
 
 #: src/components/approval-card.tsx
+#: src/features/approvals/pages.tsx
 #: src/features/tasks/pages.tsx
 msgid "Task group"
 msgstr "任务组"
+
+#: src/features/approvals/pages.tsx
+msgid "Task-group approvals"
+msgstr "任务组审批"
 
 #: src/app/shell/nav.ts
 #: src/components/authorization-card.tsx
@@ -843,6 +1417,9 @@ msgid "text"
 msgstr "文本"
 
 #: src/components/quota-card.tsx
+#: src/features/schedules/scheduleForm.ts
+#: src/features/sessions/new-session-dialog.tsx
+#: src/features/sessions/pages.tsx
 msgid "That number is too large."
 msgstr "这个数字太大了。"
 
@@ -855,25 +1432,89 @@ msgstr "完整输出位于节点上的 <0>{0}</0>。"
 msgid "The full output stays on the node until the task exits."
 msgstr "完整输出会保留在节点上，直到任务退出。"
 
+#: src/features/tasks/taskForm.ts
+msgid "The limit must be a non-negative whole number."
+msgstr "限制必须是非负整数。"
+
+#: src/features/schedules/scheduleForm.ts
+msgid "The name must be at most 200 characters."
+msgstr "名称最多 200 个字符。"
+
 #: src/features/auth/change-password-dialog.tsx
 msgid "The new passwords do not match."
 msgstr "两次输入的新密码不一致。"
+
+#: src/features/tasks/taskForm.ts
+msgid "The offset must be a non-negative whole number."
+msgstr "偏移量必须是非负整数。"
 
 #: src/app/router.tsx
 msgid "The page you asked for does not exist."
 msgstr "你访问的页面不存在。"
 
+#: src/features/sessions/session-waits.tsx
+msgid "The pending payload is being prepared…"
+msgstr "待签名的载荷正在准备中…"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "The run failed."
+msgstr "运行失败。"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "The run was stopped."
+msgstr "运行已停止。"
+
+#: src/features/sessions/composer.tsx
+msgid "The session is paused: its token quota is used up."
+msgstr "会话已暂停：token 配额已用完。"
+
+#: src/features/sessions/composer.tsx
+msgid "The session is waiting for a signature."
+msgstr "会话正在等待签名。"
+
+#: src/features/sessions/composer.tsx
+msgid "The session is waiting for an approval."
+msgstr "会话正在等待审批。"
+
 #: src/components/page-not-built.tsx
 msgid "The shell, the shared components and the data layer are in place; the pages are written in the next step of the WebUI rewrite."
 msgstr "外壳、共享组件和数据层已经就绪；页面将在 WebUI 重构的下一步编写。"
+
+#: src/features/tasks/taskForm.ts
+msgid "The text to replace is required."
+msgstr "需要填写要替换的文本。"
+
+#: src/features/tasks/taskForm.ts
+msgid "The timeout must be a non-negative whole number of seconds."
+msgstr "超时时间必须是非负整数秒。"
 
 #: src/app/shell/user-menu.tsx
 msgid "Theme"
 msgstr "主题"
 
+#: src/features/approvals/pages.tsx
+msgid "These passed their rules; they run once you sign them."
+msgstr "这些任务已通过规则检查；签名后就会运行。"
+
+#: src/features/approvals/pages.tsx
+msgid "These tasks were held back by a rule and run once you approve them."
+msgstr "这些任务被规则拦下，批准后就会运行。"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Thinking"
+msgstr "思考"
+
 #: src/components/page-not-built.tsx
 msgid "This page has not been built yet"
 msgstr "此页面尚未构建"
+
+#: src/features/approvals/pages.tsx
+msgid "This request is no longer waiting for approval; it is"
+msgstr "此请求已不再等待审批；当前状态为"
+
+#: src/features/sessions/session-waits.tsx
+msgid "This session is waiting, but there is nothing for you to decide."
+msgstr "此会话正在等待，但没有需要你决定的事项。"
 
 #: src/components/task-result.tsx
 msgid "Timed out"
@@ -883,11 +1524,28 @@ msgstr "已超时"
 msgid "Timeout (s)"
 msgstr "超时（秒）"
 
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Title"
+msgstr "标题"
+
+#: src/features/sessions/pages.tsx
+msgid "Title saved."
+msgstr "标题已保存。"
+
 #: src/app/shell/app-shell.tsx
 msgid "Toggle sidebar"
 msgstr "切换侧边栏"
 
+#: src/features/sessions/pages.tsx
+msgid "Token quota"
+msgstr "Token 配额"
+
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Token quota (empty = unlimited)"
+msgstr "Token 配额（留空表示不限）"
+
 #: src/components/quota-card.tsx
+#: src/features/approvals/pages.tsx
 msgid "Token quota used up"
 msgstr "Token 配额已用尽"
 
@@ -895,21 +1553,56 @@ msgstr "Token 配额已用尽"
 msgid "Tokens to add"
 msgstr "要添加的 token 数"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "Tool arguments"
+msgstr "工具参数"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Tool result"
+msgstr "工具结果"
+
+#: src/features/sessions/session-list.tsx
+msgid "Try a different search."
+msgstr "换个搜索词试试。"
+
 #: src/components/error-state.tsx
 msgid "Try again"
 msgstr "重试"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Type"
+msgstr "类型"
 
 #: src/components/status-badge.tsx
 msgid "Unknown"
 msgstr "未知"
 
+#: src/features/sessions/new-session-dialog.tsx
+#: src/features/sessions/pages.tsx
+msgid "Unlimited"
+msgstr "不限"
+
 #: src/components/quota-card.tsx
 msgid "Unlimited quota · {usedText} used"
 msgstr "无限配额 · 已用 {usedText}"
 
+#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-list-item.tsx
+msgid "Untitled session"
+msgstr "未命名会话"
+
 #: src/features/auth/change-password-dialog.tsx
 msgid "Use at least 8 characters."
 msgstr "至少使用 8 个字符。"
+
+#: src/features/sessions/share-dialog.tsx
+#: src/features/tasks/pages.tsx
+msgid "User"
+msgstr "用户"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "User group"
+msgstr "用户组"
 
 #: src/features/auth/login-page.tsx
 msgid "Username"
@@ -920,19 +1613,56 @@ msgstr "用户名"
 msgid "Users"
 msgstr "用户"
 
+#: src/features/sessions/share-dialog.tsx
+msgid "View"
+msgstr "查看"
+
+#: src/features/sessions/session-item.ts
+msgid "Waiting for a quota decision"
+msgstr "等待配额决定"
+
+#: src/features/sessions/session-item.ts
+msgid "Waiting for a signature"
+msgstr "等待签名"
+
+#: src/features/sessions/session-item.ts
+msgid "Waiting for approval"
+msgstr "等待审批"
+
 #: src/components/task-result.tsx
 msgid "Waiting for approval. {approvalLink}"
 msgstr "等待批准。{approvalLink}"
+
+#: src/features/tasks/pages.tsx
+msgid "Waiting for me"
+msgstr "等待我处理"
+
+#: src/features/tasks/task-group-result.tsx
+msgid "Waiting for the owner's authorization; the payload is being prepared."
+msgstr "等待所有者授权；载荷正在准备中。"
 
 #: src/components/task-result.tsx
 msgid "Waiting for the owner's authorization."
 msgstr "等待所有者授权。"
 
+#: src/features/tasks/pages.tsx
+msgid "Waiting for the payload to sign; the card appears when it is ready."
+msgstr "正在等待可签名的载荷；准备好后会显示卡片。"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Waiting for your approval."
+msgstr "正在等待你的批准。"
+
 #: src/components/authorization-card.tsx
 msgid "Waiting for your authorization"
 msgstr "等待你的授权"
 
+#: src/features/approvals/pages.tsx
+msgid "Waiting for your signature"
+msgstr "等待你签名"
+
 #: src/components/task-result.tsx
+#: src/features/sessions/transcript-row.tsx
 msgid "Waiting for your signature."
 msgstr "等待你的签名。"
 
@@ -948,6 +1678,18 @@ msgstr "工作"
 msgid "Working directory (optional)"
 msgstr "工作目录（可选）"
 
+#: src/features/sessions/pages.tsx
+msgid "Working…"
+msgstr "运行中…"
+
 #: src/components/approval-card.tsx
 msgid "Yes"
 msgstr "是"
+
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Yolo lets the agent run anything on your nodes without asking."
+msgstr "Yolo 允许 agent 不经询问就在你的节点上执行任何操作。"
+
+#: src/features/sessions/composer.tsx
+msgid "You have view access: the owner can let you send messages by sharing it for chat."
+msgstr "你拥有查看权限：所有者可以通过聊天共享让你发送消息。"

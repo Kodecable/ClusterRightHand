@@ -1,5 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { decodeCharacterReferences, inspectUrl, isSafeUrl, safeHashLink, safeUrlTransform } from "./url";
+import {
+	decodeCharacterReferences,
+	inspectUrl,
+	isSafeUrl,
+	safeHashLink,
+	safeInternalPath,
+	safeUrlTransform,
+} from "./url";
 
 describe("inspectUrl", () => {
 	test("allows http, https and mailto case-insensitively", () => {
@@ -78,5 +85,32 @@ describe("safeHashLink", () => {
 		expect(safeHashLink("javascript:alert(1)")).toBeUndefined();
 		expect(safeHashLink("#/tasks/../../etc")).toBeUndefined();
 		expect(safeHashLink("")).toBeUndefined();
+	});
+});
+
+describe("safeInternalPath", () => {
+	test("keeps same-origin absolute paths", () => {
+		expect(safeInternalPath("/approvals/tasks/t-1")).toBe("/approvals/tasks/t-1");
+		expect(safeInternalPath("/sessions/s-1?x=1#y")).toBe("/sessions/s-1?x=1#y");
+		expect(safeInternalPath("  /batch  ")).toBe("/batch");
+	});
+
+	test("rejects schemes, protocol-relative URLs, backslashes and dot segments", () => {
+		for (const value of [
+			"https://evil.example.com/x",
+			"//evil.example.com/x",
+			"/\\evil.example.com",
+			"/a/../../etc/passwd",
+			"/a/./b",
+			"javascript:alert(1)",
+			"relative/path",
+			"/has space",
+			"/has\ttab",
+			"",
+			null,
+			42,
+		]) {
+			expect(safeInternalPath(value), String(value)).toBeUndefined();
+		}
 	});
 });

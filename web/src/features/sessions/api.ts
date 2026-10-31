@@ -1,4 +1,4 @@
-import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type InfiniteData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http, queryString } from "@/lib/api/client";
 import { useCursorInfiniteQuery } from "@/lib/api/query";
 import type {
@@ -17,7 +17,7 @@ export const sessionKeys = {
 	list: () => ["sessions", "list"] as const,
 	listPage: (scope: string, q: string) => ["sessions", "list", { scope, q }] as const,
 	detail: (id: string) => ["sessions", "detail", id] as const,
-	entries: (id: string) => ["sessions", "entries", id] as const,
+	entries: (id: string, before: string) => ["sessions", "entries", id, before] as const,
 	shares: (id: string) => ["sessions", "shares", id] as const,
 };
 
@@ -55,18 +55,22 @@ export interface SessionEntriesPage {
 /**
  * One page of older entries: `before` is the `historyCursor` of the page that
  * follows it. Entries are returned oldest to newest and belong *before* the
- * already loaded ones (the hook consumer prepends).
+ * already loaded ones; the session view's `prependHistory` reducer adds them
+ * without touching the live stream. The query only runs when the reader
+ * scrolls to the top (`enabled`), one page per reach of the top.
  */
-export function useSessionEntries(id: string | undefined, enabled = true) {
-	return useInfiniteQuery({
-		queryKey: sessionKeys.entries(id ?? ""),
-		enabled: enabled && id !== undefined && id !== "",
-		initialPageParam: null as string | null,
-		queryFn: ({ pageParam, signal }) =>
-			http.get<SessionEntriesPage>(`/sessions/${enc(id ?? "")}/entries${queryString({ before: pageParam })}`, {
+export function useSessionHistoryPage(id: string | undefined, before: string | null, enabled: boolean) {
+	return useQuery({
+		queryKey: sessionKeys.entries(id ?? "", before ?? ""),
+		enabled: enabled && id !== undefined && id !== "" && before !== null,
+		queryFn: ({ signal }) =>
+			http.get<SessionEntriesPage>(`/sessions/${enc(id ?? "")}/entries${queryString({ before, limit: 100 })}`, {
 				signal,
 			}),
-		getNextPageParam: (last) => last.historyCursor,
+		// The page must not be taken from a stale cache after the live stream moved
+		// on; it is fetched when requested and kept for the current view only.
+		staleTime: 0,
+		gcTime: 60_000,
 	});
 }
 

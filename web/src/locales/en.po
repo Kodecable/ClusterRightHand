@@ -17,6 +17,10 @@ msgstr "Ops console"
 msgid "Pending approvals"
 msgstr "Pending approvals"
 
+#: src/features/tasks/task-group-result.tsx
+msgid " (the batch was interrupted)"
+msgstr " (the batch was interrupted)"
+
 #: src/components/task-result.tsx
 msgid "… {omitted} bytes omitted …"
 msgstr "… {omitted} bytes omitted …"
@@ -25,10 +29,40 @@ msgstr "… {omitted} bytes omitted …"
 msgid "[image: {label}]"
 msgstr "[image: {label}]"
 
+#. placeholder {0}: events.state.queued
+#: src/features/sessions/pages.tsx
+msgid "{0, plural, one {# message queued} other {# messages queued}}"
+msgstr "{0, plural, one {# message queued} other {# messages queued}}"
+
 #. placeholder {0}: value.length
 #: src/components/node-picker.tsx
 msgid "{0, plural, one {# node selected} other {# nodes selected}}"
 msgstr "{0, plural, one {# node selected} other {# nodes selected}}"
+
+#. placeholder {0}: group.nodeIds.length
+#: src/features/tasks/task-group-result.tsx
+msgid "{0, plural, one {# node} other {# nodes}}"
+msgstr "{0, plural, one {# node} other {# nodes}}"
+
+#. placeholder {0}: items.length
+#: src/features/sessions/session-list.tsx
+msgid "{0, plural, one {# session} other {# sessions}}"
+msgstr "{0, plural, one {# session} other {# sessions}}"
+
+#. placeholder {0}: targets.length
+#: src/features/batch/pages.tsx
+msgid "{0, plural, one {# target} other {# targets}}"
+msgstr "{0, plural, one {# target} other {# targets}}"
+
+#. placeholder {0}: targets.length
+#: src/features/batch/pages.tsx
+msgid "{0, plural, one {Run on # target} other {Run on # targets}}"
+msgstr "{0, plural, one {Run on # target} other {Run on # targets}}"
+
+#. placeholder {0}: subagentIds.length
+#: src/features/sessions/pages.tsx
+msgid "{0, plural, one {Subagent session} other {Subagent sessions}}"
+msgstr "{0, plural, one {Subagent session} other {Subagent sessions}}"
 
 #. placeholder {0}: item.task.kind
 #. placeholder {1}: nodeNames.get(item.task.nodeId) ?? item.task.nodeId
@@ -45,6 +79,10 @@ msgstr "{0} tokens left · {usedText} used"
 msgid "{bytes, plural, one {# byte} other {# bytes}}"
 msgstr "{bytes, plural, one {# byte} other {# bytes}}"
 
+#: src/features/approvals/pages.tsx
+msgid "{count, plural, one {# waiting} other {# waiting}}"
+msgstr "{count, plural, one {# waiting} other {# waiting}}"
+
 #. placeholder {0}: item.group.nodeIds.length
 #: src/components/approval-card.tsx
 msgid "{groupKind} on {0} node(s): {nodeList}"
@@ -58,9 +96,57 @@ msgstr "{lineCount, plural, one {# line} other {# lines}}"
 msgid "{lines, plural, one {# line} other {# lines}}"
 msgstr "{lines, plural, one {# line} other {# lines}}"
 
+#: src/features/sessions/pages.tsx
+msgid "{ruleCount, plural, one {# rule} other {# rules}}"
+msgstr "{ruleCount, plural, one {# rule} other {# rules}}"
+
+#: src/features/sessions/pages.tsx
+msgid "{tokenText} tokens"
+msgstr "{tokenText} tokens"
+
 #: src/components/authorization-card.tsx
 msgid "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
 msgstr "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
+
+#: src/features/approvals/pages.tsx
+msgid "← Approvals"
+msgstr "← Approvals"
+
+#: src/features/tasks/pages.tsx
+msgid "← Tasks"
+msgstr "← Tasks"
+
+#: src/features/tasks/taskForm.ts
+msgid "A command is required."
+msgstr "A command is required."
+
+#: src/features/schedules/scheduleForm.ts
+msgid "A cron expression has exactly five fields."
+msgstr "A cron expression has exactly five fields."
+
+#: src/features/schedules/scheduleForm.ts
+msgid "A cron expression is required."
+msgstr "A cron expression is required."
+
+#: src/features/schedules/scheduleForm.ts
+msgid "A name is required."
+msgstr "A name is required."
+
+#: src/features/tasks/taskForm.ts
+msgid "A path is required."
+msgstr "A path is required."
+
+#: src/features/schedules/scheduleForm.ts
+msgid "A prompt is required."
+msgstr "A prompt is required."
+
+#: src/features/schedules/scheduleForm.ts
+msgid "A timezone is required."
+msgstr "A timezone is required."
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Access"
+msgstr "Access"
 
 #: src/app/shell/user-menu.tsx
 msgid "Account menu"
@@ -70,13 +156,37 @@ msgstr "Account menu"
 msgid "Active"
 msgstr "Active"
 
+#: src/features/tasks/pages.tsx
+msgid "Actor type"
+msgstr "Actor type"
+
 #: src/components/quota-card.tsx
 msgid "Add"
 msgstr "Add"
 
+#: src/features/sessions/share-dialog.tsx
+msgid "Add share"
+msgstr "Add share"
+
+#: src/features/approvals/pages.tsx
+msgid "Add tokens to the paused run or stop it."
+msgstr "Add tokens to the paused run or stop it."
+
 #: src/app/shell/nav.ts
 msgid "Admin"
 msgstr "Admin"
+
+#: src/features/tasks/pages.tsx
+msgid "Agent"
+msgstr "Agent"
+
+#: src/features/sessions/session-list.tsx
+msgid "All"
+msgstr "All"
+
+#: src/features/approvals/pages.tsx
+msgid "Already settled"
+msgstr "Already settled"
 
 #. placeholder {0}: pending.tried.join(", ")
 #: src/components/authorization-card.tsx
@@ -87,11 +197,28 @@ msgstr "Already tried: {0}."
 msgid "Always allow rule"
 msgstr "Always allow rule"
 
+#: src/features/sessions/pages.tsx
+msgid "another user"
+msgstr "another user"
+
+#: src/features/tasks/pages.tsx
+msgid "Any actor"
+msgstr "Any actor"
+
 #: src/components/authorization-card.tsx
 msgid "Any method and target"
 msgstr "Any method and target"
 
+#: src/features/tasks/pages.tsx
+msgid "Any node"
+msgstr "Any node"
+
+#: src/features/tasks/pages.tsx
+msgid "Any state"
+msgstr "Any state"
+
 #: src/components/approval-card.tsx
+#: src/features/tasks/pages.tsx
 msgid "API token"
 msgstr "API token"
 
@@ -101,7 +228,7 @@ msgid "API tokens"
 msgstr "API tokens"
 
 #: src/components/task-result.tsx
-#: src/features/approvals/pages.tsx
+#: src/features/tasks/pages.tsx
 msgid "Approval"
 msgstr "Approval"
 
@@ -130,11 +257,20 @@ msgstr "Approve and always allow…"
 msgid "Approved"
 msgstr "Approved"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "Arguments"
+msgstr "Arguments"
+
 #: src/components/task-form-fields.tsx
 msgid "argv"
 msgstr "argv"
 
+#: src/features/sessions/composer.tsx
+msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
+msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
+
 #: src/components/approval-card.tsx
+#: src/features/tasks/pages.tsx
 msgid "Asked by"
 msgstr "Asked by"
 
@@ -178,10 +314,12 @@ msgstr "Awaiting"
 
 #: src/components/approval-card.tsx
 #: src/components/status-badge.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Awaiting approval"
 msgstr "Awaiting approval"
 
 #: src/components/status-badge.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Awaiting authorization"
 msgstr "Awaiting authorization"
 
@@ -189,13 +327,29 @@ msgstr "Awaiting authorization"
 msgid "Awaiting signature"
 msgstr "Awaiting signature"
 
+#: src/features/sessions/pages.tsx
+msgid "Back to the session list"
+msgstr "Back to the session list"
+
 #: src/app/shell/nav.ts
-#: src/features/batch/pages.tsx
 msgid "Batch"
 msgstr "Batch"
 
+#: src/features/batch/pages.tsx
+msgid "Batch run"
+msgstr "Batch run"
+
+#: src/features/batch/pages.tsx
+msgid "Batch started."
+msgstr "Batch started."
+
+#: src/features/tasks/pages.tsx
+msgid "By"
+msgstr "By"
+
 #: src/components/dialogs.tsx
 #: src/features/auth/change-password-dialog.tsx
+#: src/features/sessions/pages.tsx
 msgid "Cancel"
 msgstr "Cancel"
 
@@ -209,9 +363,17 @@ msgstr "Cancelled"
 msgid "Change password"
 msgstr "Change password"
 
+#: src/features/sessions/share-dialog.tsx
+msgid "Chat"
+msgstr "Chat"
+
 #: src/components/model-select.tsx
 msgid "Choose a model"
 msgstr "Choose a model"
+
+#: src/features/schedules/scheduleForm.ts
+msgid "Choose a model."
+msgstr "Choose a model."
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Choose a new password for your account."
@@ -221,9 +383,18 @@ msgstr "Choose a new password for your account."
 msgid "Choose a node"
 msgstr "Choose a node"
 
+#: src/features/batch/pages.tsx
+msgid "Choose at least one target."
+msgstr "Choose at least one target."
+
 #: src/components/node-picker.tsx
+#: src/features/batch/pages.tsx
 msgid "Choose nodes"
 msgstr "Choose nodes"
+
+#: src/features/batch/pages.tsx
+msgid "Choose targets"
+msgstr "Choose targets"
 
 #: src/components/node-picker.tsx
 msgid "Clear"
@@ -253,9 +424,21 @@ msgstr "Command mode"
 msgid "Confirm"
 msgstr "Confirm"
 
+#: src/features/sessions/pages.tsx
+msgid "Connecting…"
+msgstr "Connecting…"
+
 #: src/components/task-form-fields.tsx
 msgid "Content"
 msgstr "Content"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Context compacted"
+msgstr "Context compacted"
+
+#: src/features/sessions/transcript.tsx
+msgid "Conversation"
+msgstr "Conversation"
 
 #: src/components/copy-button.tsx
 msgid "Copied"
@@ -294,7 +477,12 @@ msgstr "cosignature available"
 msgid "cosignature unavailable"
 msgstr "cosignature unavailable"
 
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Create session"
+msgstr "Create session"
+
 #: src/components/task-result.tsx
+#: src/features/tasks/pages.tsx
 msgid "Created"
 msgstr "Created"
 
@@ -331,6 +519,13 @@ msgstr "Decided by"
 msgid "Decision"
 msgstr "Decision"
 
+#: src/features/approvals/pages.tsx
+#: src/features/sessions/session-waits.tsx
+#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-result.tsx
+msgid "Decision recorded."
+msgstr "Decision recorded."
+
 #: src/components/approval-card.tsx
 msgid "default"
 msgstr "default"
@@ -347,17 +542,30 @@ msgstr "Disabled"
 msgid "Dispatched"
 msgstr "Dispatched"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "Done"
+msgstr "Done"
+
 #: src/components/approval-card.tsx
 msgid "Effective"
 msgstr "Effective"
 
 #: src/components/quota-card.tsx
+#: src/features/sessions/new-session-dialog.tsx
+#: src/features/sessions/pages.tsx
 msgid "Enter a positive number of tokens to add."
 msgstr "Enter a positive number of tokens to add."
 
 #: src/components/quota-card.tsx
+#: src/features/schedules/scheduleForm.ts
+#: src/features/sessions/new-session-dialog.tsx
+#: src/features/sessions/pages.tsx
 msgid "Enter a whole number of tokens, or leave it empty for unlimited."
 msgstr "Enter a whole number of tokens, or leave it empty for unlimited."
+
+#: src/features/schedules/scheduleForm.ts
+msgid "Enter at least 1 token, or leave it empty for unlimited."
+msgstr "Enter at least 1 token, or leave it empty for unlimited."
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Enter your current password."
@@ -374,6 +582,14 @@ msgstr "Enter your username."
 #: src/components/task-result.tsx
 msgid "Error"
 msgstr "Error"
+
+#: src/features/tasks/pages.tsx
+msgid "Every task on the nodes you can see, newest first. Requests waiting for you are handled on the Approvals page."
+msgstr "Every task on the nodes you can see, newest first. Requests waiting for you are handled on the Approvals page."
+
+#: src/features/approvals/pages.tsx
+msgid "Everything that waits for your approval, signature or quota decision."
+msgstr "Everything that waits for your approval, signature or quota decision."
 
 #: src/components/approval-card.tsx
 msgid "exact"
@@ -396,26 +612,57 @@ msgstr "Exited"
 msgid "Expired"
 msgstr "Expired"
 
+#: src/features/batch/pages.tsx
+msgid "Fail fast"
+msgstr "Fail fast"
+
 #: src/components/status-badge.tsx
+#: src/features/sessions/transcript-row.tsx
 msgid "Failed"
 msgstr "Failed"
 
 #: src/components/task-result.tsx
+#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Finished"
 msgstr "Finished"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Generating…"
+msgstr "Generating…"
 
 #: src/app/router.tsx
 msgid "Go to sessions"
 msgstr "Go to sessions"
 
+#: src/features/sessions/share-dialog.tsx
+msgid "Grantee"
+msgstr "Grantee"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Group"
+msgstr "Group"
+
+#: src/features/batch/pages.tsx
+msgid "Groups or raw targets (comma separated, e.g. group:web, node-1)"
+msgstr "Groups or raw targets (comma separated, e.g. group:web, node-1)"
+
 #: src/components/status-badge.tsx
 msgid "Idle"
 msgstr "Idle"
+
+#: src/features/tasks/task-group-result.tsx
+msgid "Interrupted"
+msgstr "Interrupted"
 
 #: src/components/authorization-card.tsx
 #: src/components/status-badge.tsx
 msgid "Issued"
 msgstr "Issued"
+
+#: src/features/sessions/transcript.tsx
+msgid "Jump to latest"
+msgstr "Jump to latest"
 
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
@@ -457,6 +704,31 @@ msgstr "Limit"
 msgid "Load more"
 msgstr "Load more"
 
+#: src/features/sessions/session-list.tsx
+msgid "Loading more sessions…"
+msgstr "Loading more sessions…"
+
+#: src/features/sessions/transcript.tsx
+msgid "Loading older messages…"
+msgstr "Loading older messages…"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Loading shares…"
+msgstr "Loading shares…"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Loading task…"
+msgstr "Loading task…"
+
+#: src/features/sessions/session-waits.tsx
+msgid "Loading the waiting decisions…"
+msgstr "Loading the waiting decisions…"
+
+#: src/features/approvals/pages.tsx
+#: src/features/tasks/pages.tsx
+msgid "Loading…"
+msgstr "Loading…"
+
 #: src/app/shell/user-menu.tsx
 msgid "Log out"
 msgstr "Log out"
@@ -465,7 +737,17 @@ msgstr "Log out"
 msgid "Matched rule"
 msgstr "Matched rule"
 
+#: src/features/sessions/composer.tsx
+msgid "Message"
+msgstr "Message"
+
+#: src/features/sessions/session-list.tsx
+msgid "Mine"
+msgstr "Mine"
+
 #: src/components/model-select.tsx
+#: src/features/sessions/new-session-dialog.tsx
+#: src/features/sessions/pages.tsx
 msgid "Model"
 msgstr "Model"
 
@@ -478,9 +760,22 @@ msgstr "Models"
 msgid "Never run"
 msgstr "Never run"
 
+#: src/features/sessions/session-list.tsx
+msgid "New"
+msgstr "New"
+
 #: src/features/auth/change-password-dialog.tsx
 msgid "New password"
 msgstr "New password"
+
+#: src/features/approvals/pages.tsx
+msgid "New requests appear here and in the sidebar badge."
+msgstr "New requests appear here and in the sidebar badge."
+
+#: src/features/sessions/new-session-dialog.tsx
+#: src/features/sessions/session-list.tsx
+msgid "New session"
+msgstr "New session"
 
 #: src/components/task-form-fields.tsx
 msgid "New text"
@@ -490,6 +785,22 @@ msgstr "New text"
 msgid "No"
 msgstr "No"
 
+#: src/features/batch/pages.tsx
+msgid "No active nodes you can operate."
+msgstr "No active nodes you can operate."
+
+#: src/features/sessions/pages.tsx
+msgid "No messages yet. Start the conversation below."
+msgstr "No messages yet. Start the conversation below."
+
+#: src/features/sessions/session-list.tsx
+msgid "No model is configured"
+msgstr "No model is configured"
+
+#: src/features/sessions/new-session-dialog.tsx
+msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
+msgstr "No models are configured, so sessions cannot start. Ask an administrator to configure one."
+
 #: src/components/task-result.tsx
 msgid "No output is kept (SSH nodes keep no output)."
 msgstr "No output is kept (SSH nodes keep no output)."
@@ -498,19 +809,46 @@ msgstr "No output is kept (SSH nodes keep no output)."
 msgid "No output was kept."
 msgstr "No output was kept."
 
+#: src/features/sessions/transcript-row.tsx
+msgid "No output yet."
+msgstr "No output yet."
+
 #: src/components/authorization-card.tsx
 msgid "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
 msgstr "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
 
+#: src/features/sessions/transcript-row.tsx
+msgid "No result yet"
+msgstr "No result yet"
+
+#: src/features/sessions/session-list.tsx
+msgid "No session matches"
+msgstr "No session matches"
+
+#: src/features/sessions/pages.tsx
+msgid "No session selected"
+msgstr "No session selected"
+
+#: src/features/sessions/session-list.tsx
+msgid "No sessions yet"
+msgstr "No sessions yet"
+
+#: src/features/tasks/pages.tsx
+msgid "No tasks yet"
+msgstr "No tasks yet"
+
 #: src/components/authorization-card.tsx
 #: src/components/node-picker.tsx
 #: src/features/nodes/pages.tsx
+#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Node"
 msgstr "Node"
 
 #: src/app/shell/nav.ts
 #: src/components/authorization-card.tsx
 #: src/components/node-picker.tsx
+#: src/features/batch/pages.tsx
 #: src/features/nodes/pages.tsx
 msgid "Nodes"
 msgstr "Nodes"
@@ -519,6 +857,10 @@ msgstr "Nodes"
 msgid "Not a valid rule: {error}"
 msgstr "Not a valid rule: {error}"
 
+#: src/features/sessions/share-dialog.tsx
+msgid "Not shared."
+msgstr "Not shared."
+
 #: src/components/authorization-card.tsx
 msgid "Note"
 msgstr "Note"
@@ -526,6 +868,10 @@ msgstr "Note"
 #: src/components/empty-state.tsx
 msgid "Nothing here yet."
 msgstr "Nothing here yet."
+
+#: src/features/approvals/pages.tsx
+msgid "Nothing is waiting for you"
+msgstr "Nothing is waiting for you"
 
 #: src/components/data-table.tsx
 msgid "Nothing to show."
@@ -539,22 +885,60 @@ msgstr "Offset"
 msgid "Old text"
 msgstr "Old text"
 
+#: src/features/approvals/pages.tsx
+msgid "One decision applies to every node in the group."
+msgstr "One decision applies to every node in the group."
+
 #: src/components/task-result.tsx
 msgid "Open approval page"
 msgstr "Open approval page"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Open the signing page"
+msgstr "Open the signing page"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Open the subagent's session"
+msgstr "Open the subagent's session"
+
+#: src/features/approvals/pages.tsx
+msgid "Open the task"
+msgstr "Open the task"
+
+#: src/features/approvals/pages.tsx
+msgid "Open the task group"
+msgstr "Open the task group"
+
+#: src/features/sessions/session-waits.tsx
+msgid "Open the task page"
+msgstr "Open the task page"
 
 #. placeholder {0}: pending.taskIds[0] ?? ""
 #: src/components/authorization-card.tsx
 msgid "Or run <0>crha approve {0}</0> on the node (a user in its `local` trust entries) — the task then runs with that approval instead."
 msgstr "Or run <0>crha approve {0}</0> on the node (a user in its `local` trust entries) — the task then runs with that approval instead."
 
+#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-result.tsx
+msgid "Outcome"
+msgstr "Outcome"
+
 #: src/components/task-result.tsx
 msgid "output"
 msgstr "output"
 
+#: src/features/batch/pages.tsx
+#: src/features/tasks/task-group-result.tsx
+msgid "Output"
+msgstr "Output"
+
 #: src/components/task-result.tsx
 msgid "Output file"
 msgstr "Output file"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Output so far"
+msgstr "Output so far"
 
 #: src/components/task-form-fields.tsx
 msgid "Overwrite if it exists"
@@ -567,6 +951,14 @@ msgstr "Own result"
 #: src/app/router.tsx
 msgid "Page not found"
 msgstr "Page not found"
+
+#: src/features/batch/pages.tsx
+msgid "Parallel"
+msgstr "Parallel"
+
+#: src/features/batch/pages.tsx
+msgid "Parallel must be a positive whole number."
+msgstr "Parallel must be a positive whole number."
 
 #: src/components/authorization-card.tsx
 msgid "Passkey signing was cancelled."
@@ -588,6 +980,14 @@ msgstr "Path"
 msgid "Pending"
 msgstr "Pending"
 
+#: src/features/sessions/share-dialog.tsx
+msgid "People you share this session with; view access is read-only, chat access can send messages."
+msgstr "People you share this session with; view access is read-only, chat access can send messages."
+
+#: src/features/sessions/pages.tsx
+msgid "Pick a session on the left, or start a new one."
+msgstr "Pick a session on the left, or start a new one."
+
 #: src/components/status-badge.tsx
 msgid "Preempted"
 msgstr "Preempted"
@@ -596,13 +996,25 @@ msgstr "Preempted"
 msgid "prefix"
 msgstr "prefix"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "Preparing"
+msgstr "Preparing"
+
+#: src/features/sessions/session-waits.tsx
+msgid "Preparing the payload to sign…"
+msgstr "Preparing the payload to sign…"
+
 #: src/components/preset-select.tsx
+#: src/features/sessions/new-session-dialog.tsx
+#: src/features/sessions/pages.tsx
 msgid "Preset"
 msgstr "Preset"
 
 #: src/components/approval-card.tsx
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
+#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Privileged"
 msgstr "Privileged"
 
@@ -613,6 +1025,15 @@ msgstr "Queued"
 #: src/components/quota-card.tsx
 msgid "Quota"
 msgstr "Quota"
+
+#: src/features/approvals/pages.tsx
+#: src/features/sessions/session-waits.tsx
+msgid "Quota decision recorded."
+msgstr "Quota decision recorded."
+
+#: src/features/sessions/pages.tsx
+msgid "Quota saved."
+msgstr "Quota saved."
 
 #. placeholder {0}: formatNumber(status.over, locale)
 #: src/components/quota-card.tsx
@@ -627,14 +1048,27 @@ msgstr "Reason"
 msgid "Reason (optional, used when rejecting)"
 msgstr "Reason (optional, used when rejecting)"
 
+#: src/features/sessions/pages.tsx
+msgid "Reconnecting…"
+msgstr "Reconnecting…"
+
 #: src/components/approval-card.tsx
 msgid "Reject"
 msgstr "Reject"
 
 #: src/components/approval-card.tsx
 #: src/components/status-badge.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Rejected"
 msgstr "Rejected"
+
+#: src/features/sessions/pages.tsx
+msgid "Remaining tokens (empty = unlimited)"
+msgstr "Remaining tokens (empty = unlimited)"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Remove share"
+msgstr "Remove share"
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Repeat new password"
@@ -648,12 +1082,27 @@ msgstr "Repeat the new password."
 msgid "Requested"
 msgstr "Requested"
 
+#: src/features/sessions/transcript-row.tsx
+#: src/features/tasks/task-group-result.tsx
+msgid "Result"
+msgstr "Result"
+
+#. placeholder {0}: events.state.retry
+#: src/features/sessions/pages.tsx
+msgid "Retrying after an error: {0}"
+msgstr "Retrying after an error: {0}"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Review and approve"
+msgstr "Review and approve"
+
 #: src/components/status-badge.tsx
 msgid "Revoked"
 msgstr "Revoked"
 
 #: src/components/approval-card.tsx
 #: src/components/task-result.tsx
+#: src/features/tasks/pages.tsx
 msgid "Rule chain evaluation"
 msgstr "Rule chain evaluation"
 
@@ -661,11 +1110,22 @@ msgstr "Rule chain evaluation"
 msgid "Rule to add to the caller's rule set"
 msgstr "Rule to add to the caller's rule set"
 
+#: src/features/batch/pages.tsx
+msgid "Run one task on many nodes and follow each node's result."
+msgstr "Run one task on many nodes and follow each node's result."
+
+#: src/features/tasks/pages.tsx
+msgid "Run something on a node, or use the batch page."
+msgstr "Run something on a node, or use the batch page."
+
 #: src/components/status-badge.tsx
+#: src/features/sessions/transcript-row.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Running"
 msgstr "Running"
 
 #: src/components/dialogs.tsx
+#: src/features/sessions/pages.tsx
 msgid "Save"
 msgstr "Save"
 
@@ -674,31 +1134,97 @@ msgid "Save password"
 msgstr "Save password"
 
 #: src/features/schedules/pages.tsx
+#: src/features/tasks/pages.tsx
 msgid "Schedule"
 msgstr "Schedule"
+
+#: src/features/sessions/session-list-item.tsx
+msgid "Scheduled session"
+msgstr "Scheduled session"
 
 #: src/app/shell/nav.ts
 #: src/features/schedules/pages.tsx
 msgid "Schedules"
 msgstr "Schedules"
 
+#: src/features/sessions/session-list.tsx
+msgid "Scope"
+msgstr "Scope"
+
+#: src/features/sessions/session-list.tsx
+msgid "Search sessions"
+msgstr "Search sessions"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Select…"
+msgstr "Select…"
+
+#: src/features/sessions/composer.tsx
+msgid "Send"
+msgstr "Send"
+
 #: src/components/quota-card.tsx
-#: src/features/sessions/pages.tsx
+#: src/features/tasks/pages.tsx
 msgid "Session"
 msgstr "Session"
+
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Session created."
+msgstr "Session created."
 
 #: src/features/sessions/sessions-layout.tsx
 msgid "Session list"
 msgstr "Session list"
 
+#: src/features/sessions/pages.tsx
+msgid "Session settings"
+msgstr "Session settings"
+
+#: src/features/sessions/pages.tsx
+msgid "Session title"
+msgstr "Session title"
+
 #: src/app/shell/nav.ts
 #: src/features/sessions/pages.tsx
+#: src/features/sessions/session-list.tsx
 msgid "Sessions"
 msgstr "Sessions"
+
+#: src/features/sessions/pages.tsx
+msgid "Share"
+msgstr "Share"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Share removed."
+msgstr "Share removed."
+
+#: src/features/sessions/session-list.tsx
+msgid "Shared"
+msgstr "Shared"
+
+#: src/features/sessions/pages.tsx
+msgid "Shared by {ownerName}"
+msgstr "Shared by {ownerName}"
+
+#: src/features/sessions/session-list-item.tsx
+msgid "Shared with you"
+msgstr "Shared with you"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Shared."
+msgstr "Shared."
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Shares"
+msgstr "Shares"
 
 #: src/components/task-form-fields.tsx
 msgid "Shell command"
 msgstr "Shell command"
+
+#: src/features/tasks/task-group-result.tsx
+msgid "Show"
+msgstr "Show"
 
 #: src/components/code-text.tsx
 msgid "Show all"
@@ -763,6 +1289,10 @@ msgstr "Signed with Passkey \"{0}\"."
 msgid "Since"
 msgstr "Since"
 
+#: src/features/tasks/task-group-result.tsx
+msgid "Skipped: {skipped}"
+msgstr "Skipped: {skipped}"
+
 #: src/components/error-state.tsx
 msgid "Something went wrong"
 msgstr "Something went wrong"
@@ -775,10 +1305,24 @@ msgstr "Spec hash"
 msgid "ssh-keygen recipe"
 msgstr "ssh-keygen recipe"
 
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Start a conversation with the agent; it acts on your nodes through the same rules."
+msgstr "Start a conversation with the agent; it acts on your nodes through the same rules."
+
+#: src/features/sessions/session-list.tsx
+msgid "Start one, or wait for a scheduled run."
+msgstr "Start one, or wait for a scheduled run."
+
 #: src/components/authorization-card.tsx
 #: src/components/task-result.tsx
+#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "State"
 msgstr "State"
+
+#: src/features/batch/pages.tsx
+msgid "Status only"
+msgstr "Status only"
 
 #: src/components/task-result.tsx
 msgid "Status only."
@@ -797,8 +1341,19 @@ msgid "stdout"
 msgstr "stdout"
 
 #: src/components/quota-card.tsx
+#: src/features/sessions/composer.tsx
+#: src/features/sessions/pages.tsx
 msgid "Stop"
 msgstr "Stop"
+
+#: src/features/sessions/composer.tsx
+#: src/features/sessions/pages.tsx
+msgid "Stopped the run."
+msgstr "Stopped the run."
+
+#: src/features/tasks/pages.tsx
+msgid "Subagent"
+msgstr "Subagent"
 
 #: src/components/authorization-card.tsx
 msgid "Submit authorization"
@@ -816,21 +1371,40 @@ msgstr "Summary"
 msgid "System"
 msgstr "System"
 
+#: src/features/batch/pages.tsx
+msgid "Tail of output"
+msgstr "Tail of output"
+
+#: src/features/batch/pages.tsx
+msgid "Targets"
+msgstr "Targets"
+
 #: src/components/approval-card.tsx
 #: src/components/authorization-card.tsx
 #: src/components/task-result.tsx
+#: src/features/approvals/pages.tsx
 #: src/features/tasks/pages.tsx
 msgid "Task"
 msgstr "Task"
 
+#: src/features/approvals/pages.tsx
+msgid "Task approvals"
+msgstr "Task approvals"
+
 #: src/components/approval-card.tsx
+#: src/features/approvals/pages.tsx
 msgid "task group"
 msgstr "task group"
 
 #: src/components/approval-card.tsx
+#: src/features/approvals/pages.tsx
 #: src/features/tasks/pages.tsx
 msgid "Task group"
 msgstr "Task group"
+
+#: src/features/approvals/pages.tsx
+msgid "Task-group approvals"
+msgstr "Task-group approvals"
 
 #: src/app/shell/nav.ts
 #: src/components/authorization-card.tsx
@@ -843,6 +1417,9 @@ msgid "text"
 msgstr "text"
 
 #: src/components/quota-card.tsx
+#: src/features/schedules/scheduleForm.ts
+#: src/features/sessions/new-session-dialog.tsx
+#: src/features/sessions/pages.tsx
 msgid "That number is too large."
 msgstr "That number is too large."
 
@@ -855,25 +1432,89 @@ msgstr "The full output is in <0>{0}</0> on the node."
 msgid "The full output stays on the node until the task exits."
 msgstr "The full output stays on the node until the task exits."
 
+#: src/features/tasks/taskForm.ts
+msgid "The limit must be a non-negative whole number."
+msgstr "The limit must be a non-negative whole number."
+
+#: src/features/schedules/scheduleForm.ts
+msgid "The name must be at most 200 characters."
+msgstr "The name must be at most 200 characters."
+
 #: src/features/auth/change-password-dialog.tsx
 msgid "The new passwords do not match."
 msgstr "The new passwords do not match."
+
+#: src/features/tasks/taskForm.ts
+msgid "The offset must be a non-negative whole number."
+msgstr "The offset must be a non-negative whole number."
 
 #: src/app/router.tsx
 msgid "The page you asked for does not exist."
 msgstr "The page you asked for does not exist."
 
+#: src/features/sessions/session-waits.tsx
+msgid "The pending payload is being prepared…"
+msgstr "The pending payload is being prepared…"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "The run failed."
+msgstr "The run failed."
+
+#: src/features/sessions/transcript-row.tsx
+msgid "The run was stopped."
+msgstr "The run was stopped."
+
+#: src/features/sessions/composer.tsx
+msgid "The session is paused: its token quota is used up."
+msgstr "The session is paused: its token quota is used up."
+
+#: src/features/sessions/composer.tsx
+msgid "The session is waiting for a signature."
+msgstr "The session is waiting for a signature."
+
+#: src/features/sessions/composer.tsx
+msgid "The session is waiting for an approval."
+msgstr "The session is waiting for an approval."
+
 #: src/components/page-not-built.tsx
 msgid "The shell, the shared components and the data layer are in place; the pages are written in the next step of the WebUI rewrite."
 msgstr "The shell, the shared components and the data layer are in place; the pages are written in the next step of the WebUI rewrite."
+
+#: src/features/tasks/taskForm.ts
+msgid "The text to replace is required."
+msgstr "The text to replace is required."
+
+#: src/features/tasks/taskForm.ts
+msgid "The timeout must be a non-negative whole number of seconds."
+msgstr "The timeout must be a non-negative whole number of seconds."
 
 #: src/app/shell/user-menu.tsx
 msgid "Theme"
 msgstr "Theme"
 
+#: src/features/approvals/pages.tsx
+msgid "These passed their rules; they run once you sign them."
+msgstr "These passed their rules; they run once you sign them."
+
+#: src/features/approvals/pages.tsx
+msgid "These tasks were held back by a rule and run once you approve them."
+msgstr "These tasks were held back by a rule and run once you approve them."
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Thinking"
+msgstr "Thinking"
+
 #: src/components/page-not-built.tsx
 msgid "This page has not been built yet"
 msgstr "This page has not been built yet"
+
+#: src/features/approvals/pages.tsx
+msgid "This request is no longer waiting for approval; it is"
+msgstr "This request is no longer waiting for approval; it is"
+
+#: src/features/sessions/session-waits.tsx
+msgid "This session is waiting, but there is nothing for you to decide."
+msgstr "This session is waiting, but there is nothing for you to decide."
 
 #: src/components/task-result.tsx
 msgid "Timed out"
@@ -883,11 +1524,28 @@ msgstr "Timed out"
 msgid "Timeout (s)"
 msgstr "Timeout (s)"
 
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Title"
+msgstr "Title"
+
+#: src/features/sessions/pages.tsx
+msgid "Title saved."
+msgstr "Title saved."
+
 #: src/app/shell/app-shell.tsx
 msgid "Toggle sidebar"
 msgstr "Toggle sidebar"
 
+#: src/features/sessions/pages.tsx
+msgid "Token quota"
+msgstr "Token quota"
+
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Token quota (empty = unlimited)"
+msgstr "Token quota (empty = unlimited)"
+
 #: src/components/quota-card.tsx
+#: src/features/approvals/pages.tsx
 msgid "Token quota used up"
 msgstr "Token quota used up"
 
@@ -895,21 +1553,56 @@ msgstr "Token quota used up"
 msgid "Tokens to add"
 msgstr "Tokens to add"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "Tool arguments"
+msgstr "Tool arguments"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Tool result"
+msgstr "Tool result"
+
+#: src/features/sessions/session-list.tsx
+msgid "Try a different search."
+msgstr "Try a different search."
+
 #: src/components/error-state.tsx
 msgid "Try again"
 msgstr "Try again"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "Type"
+msgstr "Type"
 
 #: src/components/status-badge.tsx
 msgid "Unknown"
 msgstr "Unknown"
 
+#: src/features/sessions/new-session-dialog.tsx
+#: src/features/sessions/pages.tsx
+msgid "Unlimited"
+msgstr "Unlimited"
+
 #: src/components/quota-card.tsx
 msgid "Unlimited quota · {usedText} used"
 msgstr "Unlimited quota · {usedText} used"
 
+#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-list-item.tsx
+msgid "Untitled session"
+msgstr "Untitled session"
+
 #: src/features/auth/change-password-dialog.tsx
 msgid "Use at least 8 characters."
 msgstr "Use at least 8 characters."
+
+#: src/features/sessions/share-dialog.tsx
+#: src/features/tasks/pages.tsx
+msgid "User"
+msgstr "User"
+
+#: src/features/sessions/share-dialog.tsx
+msgid "User group"
+msgstr "User group"
 
 #: src/features/auth/login-page.tsx
 msgid "Username"
@@ -920,19 +1613,56 @@ msgstr "Username"
 msgid "Users"
 msgstr "Users"
 
+#: src/features/sessions/share-dialog.tsx
+msgid "View"
+msgstr "View"
+
+#: src/features/sessions/session-item.ts
+msgid "Waiting for a quota decision"
+msgstr "Waiting for a quota decision"
+
+#: src/features/sessions/session-item.ts
+msgid "Waiting for a signature"
+msgstr "Waiting for a signature"
+
+#: src/features/sessions/session-item.ts
+msgid "Waiting for approval"
+msgstr "Waiting for approval"
+
 #: src/components/task-result.tsx
 msgid "Waiting for approval. {approvalLink}"
 msgstr "Waiting for approval. {approvalLink}"
+
+#: src/features/tasks/pages.tsx
+msgid "Waiting for me"
+msgstr "Waiting for me"
+
+#: src/features/tasks/task-group-result.tsx
+msgid "Waiting for the owner's authorization; the payload is being prepared."
+msgstr "Waiting for the owner's authorization; the payload is being prepared."
 
 #: src/components/task-result.tsx
 msgid "Waiting for the owner's authorization."
 msgstr "Waiting for the owner's authorization."
 
+#: src/features/tasks/pages.tsx
+msgid "Waiting for the payload to sign; the card appears when it is ready."
+msgstr "Waiting for the payload to sign; the card appears when it is ready."
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Waiting for your approval."
+msgstr "Waiting for your approval."
+
 #: src/components/authorization-card.tsx
 msgid "Waiting for your authorization"
 msgstr "Waiting for your authorization"
 
+#: src/features/approvals/pages.tsx
+msgid "Waiting for your signature"
+msgstr "Waiting for your signature"
+
 #: src/components/task-result.tsx
+#: src/features/sessions/transcript-row.tsx
 msgid "Waiting for your signature."
 msgstr "Waiting for your signature."
 
@@ -948,6 +1678,18 @@ msgstr "Work"
 msgid "Working directory (optional)"
 msgstr "Working directory (optional)"
 
+#: src/features/sessions/pages.tsx
+msgid "Working…"
+msgstr "Working…"
+
 #: src/components/approval-card.tsx
 msgid "Yes"
 msgstr "Yes"
+
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Yolo lets the agent run anything on your nodes without asking."
+msgstr "Yolo lets the agent run anything on your nodes without asking."
+
+#: src/features/sessions/composer.tsx
+msgid "You have view access: the owner can let you send messages by sharing it for chat."
+msgstr "You have view access: the owner can let you send messages by sharing it for chat."

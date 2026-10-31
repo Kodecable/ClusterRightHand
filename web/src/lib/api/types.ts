@@ -96,6 +96,12 @@ export interface SessionShare {
 	createdAt: string;
 }
 
+/** The three states of a session tree (doc/agent-runtime.md "会话状态"). */
+export type SessionRunState = "idle" | "running" | "awaiting";
+
+/** Why an `awaiting` session is blocked; the tree reports its highest-priority wait. */
+export type SessionWaitingKind = "quota" | "approval" | "authorization";
+
 /** The lightweight row of `GET /api/sessions` (doc/webui.md "SessionListItem"). */
 export interface SessionListItem {
 	id: string;
@@ -105,8 +111,11 @@ export interface SessionListItem {
 	scheduleId: string | null;
 	/** Not owned by the current user but shared with them. */
 	shared: boolean;
-	/** Raw `sessions.state`: the UI maps it to idle / running / awaiting. */
-	state: string;
+	/** The whole tree's state: any child awaiting wins, then any running, else idle. */
+	state: SessionRunState;
+	/** The highest-priority wait of the tree while `state` is `awaiting`. */
+	waitingKind: SessionWaitingKind | null;
+	/** The quota level that is exhausted (`state` `awaiting`, `waitingKind` quota). */
 	waitingLevelId: string | null;
 	updatedAt: string;
 }
@@ -141,8 +150,10 @@ export interface SessionView {
 	/** Effective capabilities of the caller on this session. */
 	capabilities: SessionCapabilities;
 	ownerUsername: string | null;
-	/** Subagent state: active, awaiting, stopped (a root is active except while it waits for its quota). */
-	state: "active" | "awaiting" | "stopped";
+	/** The persisted session state (doc/agent-runtime.md "会话状态"). */
+	state: SessionRunState;
+	/** Why the session waits while `state` is `awaiting`. */
+	waitingKind: SessionWaitingKind | null;
 	/** While awaiting a quota: the exhausted level to top up. */
 	waitingLevelId: string | null;
 	/** Remaining token quota (null: unlimited; negative after an overspending response). */

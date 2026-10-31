@@ -40,15 +40,14 @@ describe("taskStatusTone", () => {
 });
 
 describe("sessionUiState", () => {
-	test("maps raw session states to idle / running / awaiting", () => {
+	test("maps the contract's three states without guessing", () => {
 		expect(sessionUiState("awaiting")).toBe("awaiting");
-		expect(sessionUiState("awaiting_quota")).toBe("awaiting");
 		expect(sessionUiState("running")).toBe("running");
-		expect(sessionUiState("active")).toBe("running");
-		expect(sessionUiState("ACTIVE")).toBe("running");
 		expect(sessionUiState("idle")).toBe("idle");
-		expect(sessionUiState("stopped")).toBe("idle");
-		expect(sessionUiState("")).toBe("idle");
+		// States from before the contract change have no defined meaning: no guessing.
+		for (const legacy of ["awaiting_quota", "awaiting_approval", "active", "ACTIVE", "stopped", "busy", ""]) {
+			expect(sessionUiState(legacy), legacy).toBe("idle");
+		}
 		expect(sessionStatusTone("awaiting")).toBe("warn");
 		expect(sessionStatusTone("running")).toBe("info");
 		expect(sessionStatusTone("idle")).toBe("muted");

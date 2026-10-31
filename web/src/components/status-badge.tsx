@@ -1,4 +1,4 @@
-import type { MessageDescriptor } from "@lingui/core";
+import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import {
@@ -7,7 +7,6 @@ import {
 	type StatusTone,
 	scheduleStatusTone,
 	sessionStatusTone,
-	sessionUiState,
 	taskStatusTone,
 	tokenStatusTone,
 } from "@/lib/status";
@@ -55,6 +54,16 @@ export function StatusBadge({
 	);
 }
 
+/**
+ * A known value's translated label; an unknown value stays visible as the raw
+ * server string instead of being flattened to "Unknown" (a new state should be
+ * diagnosable in the UI before its translation lands).
+ */
+function statusLabel(i18n: I18n, labels: Record<string, MessageDescriptor>, value: string): string {
+	const descriptor = labels[value];
+	return descriptor === undefined ? value : i18n._(descriptor);
+}
+
 const NODE_LABELS: Record<string, MessageDescriptor> = {
 	pending: msg`Pending`,
 	active: msg`Active`,
@@ -73,7 +82,7 @@ export function NodeStatusBadge({
 	const { i18n } = useLingui();
 	return (
 		<StatusBadge tone={nodeStatusTone(status)} className={className} dot={dot}>
-			{i18n._(NODE_LABELS[status] ?? msg`Unknown`)}
+			{statusLabel(i18n, NODE_LABELS, status)}
 		</StatusBadge>
 	);
 }
@@ -91,6 +100,11 @@ const TASK_LABELS: Record<string, MessageDescriptor> = {
 	cancelled: msg`Cancelled`,
 };
 
+/** The translated label of a task state, or the raw state when it is unknown. */
+export function taskStateLabel(i18n: I18n, state: string): string {
+	return statusLabel(i18n, TASK_LABELS, state);
+}
+
 export function TaskStatusBadge({
 	state,
 	exitCode = null,
@@ -105,7 +119,7 @@ export function TaskStatusBadge({
 	const { i18n } = useLingui();
 	return (
 		<StatusBadge tone={taskStatusTone(state, exitCode, signal)} className={className}>
-			{i18n._(TASK_LABELS[state] ?? msg`Unknown`)}
+			{statusLabel(i18n, TASK_LABELS, state)}
 			{state === "exited" && exitCode !== null && exitCode !== 0 ? ` (${exitCode})` : ""}
 		</StatusBadge>
 	);
@@ -121,7 +135,7 @@ export function SessionStatusBadge({ state, className }: { state: string; classN
 	const { i18n } = useLingui();
 	return (
 		<StatusBadge tone={sessionStatusTone(state)} className={className}>
-			{i18n._(SESSION_LABELS[sessionUiState(state)])}
+			{statusLabel(i18n, SESSION_LABELS, state)}
 		</StatusBadge>
 	);
 }
@@ -129,7 +143,7 @@ export function SessionStatusBadge({ state, className }: { state: string; classN
 /** The status dot alone, for dense lists (the label is announced to screen readers). */
 export function SessionStatusDot({ state, className }: { state: string; className?: string }) {
 	const { i18n } = useLingui();
-	const label = i18n._(SESSION_LABELS[sessionUiState(state)]);
+	const label = statusLabel(i18n, SESSION_LABELS, state);
 	return <StatusDot tone={sessionStatusTone(state)} label={label} className={className} />;
 }
 
@@ -149,7 +163,7 @@ export function AuthorizationStatusBadge({ status, className }: { status: string
 	const { i18n } = useLingui();
 	return (
 		<StatusBadge tone={authorizationStatusTone(status)} className={className}>
-			{i18n._(AUTHORIZATION_LABELS[status] ?? msg`Unknown`)}
+			{statusLabel(i18n, AUTHORIZATION_LABELS, status)}
 		</StatusBadge>
 	);
 }
@@ -167,7 +181,7 @@ export function ScheduleStatusBadge({ status, className }: { status: string; cla
 	const { i18n } = useLingui();
 	return (
 		<StatusBadge tone={scheduleStatusTone(status)} className={className}>
-			{i18n._(SCHEDULE_LABELS[status] ?? msg`Unknown`)}
+			{statusLabel(i18n, SCHEDULE_LABELS, status)}
 		</StatusBadge>
 	);
 }
@@ -182,7 +196,7 @@ export function TokenStatusBadge({ status, className }: { status: string; classN
 	const { i18n } = useLingui();
 	return (
 		<StatusBadge tone={tokenStatusTone(status)} className={className}>
-			{i18n._(TOKEN_LABELS[status] ?? msg`Unknown`)}
+			{statusLabel(i18n, TOKEN_LABELS, status)}
 		</StatusBadge>
 	);
 }

@@ -14,17 +14,33 @@ export interface SessionListFilter {
 	isAdmin: boolean;
 }
 
-/** Minimal runtime shape check for untrusted stream payloads; anything off is ignored. */
+const STATES = new Set(["idle", "running", "awaiting"]);
+const WAITING_KINDS = new Set(["quota", "approval", "authorization"]);
+
+/**
+ * Minimal runtime shape check for untrusted stream payloads; anything off is
+ * ignored. The state and wait kind are checked against the contract's unions:
+ * a payload with a value this client does not know is dropped rather than
+ * displayed with a guessed meaning.
+ */
 export function isSessionListItem(value: unknown): value is SessionListItem {
 	if (value === null || typeof value !== "object") return false;
 	const item = value as Record<string, unknown>;
+	if (
+		typeof item.id !== "string" ||
+		item.id === "" ||
+		typeof item.title !== "string" ||
+		typeof item.ownerUserId !== "string" ||
+		typeof item.state !== "string" ||
+		!STATES.has(item.state) ||
+		typeof item.updatedAt !== "string"
+	) {
+		return false;
+	}
 	return (
-		typeof item.id === "string" &&
-		item.id !== "" &&
-		typeof item.title === "string" &&
-		typeof item.ownerUserId === "string" &&
-		typeof item.state === "string" &&
-		typeof item.updatedAt === "string"
+		item.waitingKind === null ||
+		item.waitingKind === undefined ||
+		(typeof item.waitingKind === "string" && WAITING_KINDS.has(item.waitingKind))
 	);
 }
 

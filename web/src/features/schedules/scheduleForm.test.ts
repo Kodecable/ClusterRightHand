@@ -41,6 +41,20 @@ describe("parseScheduleForm", () => {
 		expect(parseScheduleForm(form({ name: "  trim me  " }))).toMatchObject({ input: { name: "trim me" } });
 	});
 
+	test("validation failures are codes, not sentences", () => {
+		expect(parseScheduleForm(form({ name: " " }))).toMatchObject({ errors: { name: "name-required" } });
+		expect(parseScheduleForm(form({ name: "x".repeat(201) }))).toMatchObject({ errors: { name: "name-too-long" } });
+		expect(parseScheduleForm(form({ prompt: "" }))).toMatchObject({ errors: { prompt: "prompt-required" } });
+		expect(parseScheduleForm(form({ model: undefined }))).toMatchObject({ errors: { model: "model-required" } });
+		expect(parseScheduleForm(form({ cron: "" }))).toMatchObject({ errors: { cron: "cron-required" } });
+		expect(parseScheduleForm(form({ cron: "0 0 * * * *" }))).toMatchObject({ errors: { cron: "cron-five-fields" } });
+		expect(parseScheduleForm(form({ timezone: "" }))).toMatchObject({ errors: { timezone: "timezone-required" } });
+		expect(parseScheduleForm(form({ tokenBudget: "-1" }))).toMatchObject({
+			errors: { tokenBudget: "budget-whole-number" },
+		});
+		expect(parseScheduleForm(form({ tokenBudget: "0" }))).toMatchObject({ errors: { tokenBudget: "budget-positive" } });
+	});
+
 	test("rejects a form that is missing its required parts", () => {
 		const missing = parseScheduleForm(
 			form({ name: " ", prompt: "", model: undefined, cron: "", timezone: "", tokenBudget: "-1" }),
@@ -60,7 +74,7 @@ describe("parseScheduleForm", () => {
 	test("a budget of one token is accepted and zero is rejected", () => {
 		expect(parseScheduleForm(form({ tokenBudget: "1" }))).toMatchObject({ input: { tokenBudget: 1 } });
 		expect(parseScheduleForm(form({ tokenBudget: "0" }))).toMatchObject({
-			errors: { tokenBudget: expect.stringContaining("at least 1") },
+			errors: { tokenBudget: "budget-positive" },
 		});
 		expect(parseScheduleForm(form({ tokenBudget: "-3" }))).toMatchObject({
 			errors: { tokenBudget: expect.any(String) },

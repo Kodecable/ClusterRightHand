@@ -82,7 +82,10 @@ export interface UsageState {
 
 export interface SnapshotEvent {
 	type: "snapshot";
+	/** The newest page of displayable entries (doc/webui.md "会话事件流"). */
 	entries: EntryRecord[];
+	/** Cursor before the oldest entry above; null when no older entry exists. */
+	historyCursor?: string | null;
 	run?: { inputs: string[] };
 	generation?: { attempt: number; message?: Message; retry?: { at: number; error: string } };
 	tools: ToolSlot[];
@@ -141,8 +144,8 @@ export interface LiveTool {
 export interface SessionState {
 	/** False until the first snapshot arrived. */
 	ready: boolean;
-	/** Committed transcript messages (user, assistant, tool result), in order. */
-	entries: { id: string; message: Message }[];
+	/** Committed transcript messages in order; `kind` keeps the entry type (`pi.compaction` is a divider). */
+	entries: { id: string; kind: string; message: Message }[];
 	/** The assistant message being generated. */
 	streaming: Extract<Message, { role: "assistant" }> | undefined;
 	tools: Record<string, LiveTool>;
@@ -151,6 +154,8 @@ export interface SessionState {
 	retry: string | undefined;
 	failure: string | undefined;
 	usage: UsageState | undefined;
+	/** Cursor of the page before the oldest loaded entry; null when nothing older exists. */
+	historyCursor: string | null;
 }
 
 export const initialState: SessionState = {
@@ -163,17 +168,50 @@ export const initialState: SessionState = {
 	retry: undefined,
 	failure: undefined,
 	usage: undefined,
+	historyCursor: null,
 };
 
-const SHOWN_KINDS = new Set(["pi.user", "pi.assistant", "pi.tool-result"]);
+const SHOWN_KINDS = new Set(["pi.user", "pi.assistant", "pi.tool-result", "pi.compaction"]);
+
+type ShownEntry = SessionState["entries"][number];
+
+function shownEntry(entry: EntryRecord | undefined): ShownEntry | undefined {
+	if (!entry || !SHOWN_KINDS.has(entry.kind)) return undefined;
+	const message = entry.model?.[0];
+	if (!message) return undefined;
+	return { id: String(entry.id), kind: entry.kind, message };
+}
 
 function addEntry(entries: SessionState["entries"], entry: EntryRecord | undefined): SessionState["entries"] {
-	if (!entry || !SHOWN_KINDS.has(entry.kind)) return entries;
-	const message = entry.model?.[0];
-	if (!message) return entries;
-	const id = String(entry.id);
-	if (entries.some((e) => e.id === id)) return entries;
-	return [...entries, { id, message }];
+	const shown = shownEntry(entry);
+	if (!shown || entries.some((e) => e.id === shown.id)) return entries;
+	return [...entries, shown];
+}
+
+/**
+ * Prepends one page of older entries and moves `historyCursor` back
+ * (doc/webui.md "会话事件流和历史"). Purely a prepend: the live streaming
+ * message, the running flag, the tool slots and the usage are left untouched,
+ * and an entry that raced into the live stream is not duplicated. A tool
+ * result on the newly loaded page whose call sits on a page not loaded yet is
+ * kept in the entries; `transcript()` folds it into the call once that page
+ * arrives (and ignores a result without a call), so page order never matters.
+ */
+export function prependHistory(
+	state: SessionState,
+	entries: readonly EntryRecord[],
+	historyCursor: string | null,
+): SessionState {
+	const seen = new Set(state.entries.map((entry) => entry.id));
+	const prepended: ShownEntry[] = [];
+	for (const entry of entries) {
+		const shown = shownEntry(entry);
+		if (!shown || seen.has(shown.id)) continue;
+		seen.add(shown.id);
+		prepended.push(shown);
+	}
+	if (prepended.length === 0 && state.historyCursor === historyCursor) return state;
+	return { ...state, entries: [...prepended, ...state.entries], historyCursor };
 }
 
 function asAssistant(m: Message | undefined): SessionState["streaming"] {
@@ -267,6 +305,7 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 				retry: event.generation?.retry?.error,
 				failure: undefined,
 				usage: event.usage,
+				historyCursor: event.historyCursor ?? null,
 			};
 		}
 		case "run_start":
@@ -347,7 +386,7 @@ export function reduceAll(state: SessionState, events: readonly AgentEvent[]): S
 export type TranscriptItem =
 	| { kind: "user"; key: string; text: string }
 	| { kind: "text"; key: string; text: string; streaming: boolean }
-	| { kind: "thinking"; key: string; text: string }
+	| { kind: "thinking"; key: string; text: string; streaming: boolean }
 	| {
 			kind: "tool";
 			key: string;
@@ -359,7 +398,8 @@ export type TranscriptItem =
 			details: Json | undefined;
 			result: { text: string; isError: boolean; details: Json | undefined } | undefined;
 	  }
-	| { kind: "error"; key: string; reason: "aborted" | "failed"; message: string | null };
+	| { kind: "error"; key: string; reason: "aborted" | "failed"; message: string | null }
+	| { kind: "compaction"; key: string; text: string };
 
 function userText(content: string | { type: string; text?: string }[]): string {
 	return typeof content === "string"
@@ -375,12 +415,14 @@ export function transcript(state: SessionState): TranscriptItem[] {
 	const addAssistant = (key: string, m: Extract<Message, { role: "assistant" }>, streaming: boolean) => {
 		m.content.forEach((b, i) => {
 			const k = `${key}/${i}`;
+			// While streaming, a block is listed from its first delta; its text is
+			// read from the row's own StreamingTextStore, not from this snapshot.
 			if (b.type === "text") {
 				const text = (b as TextBlock).text;
-				if (text) items.push({ kind: "text", key: k, text, streaming });
+				if (text || streaming) items.push({ kind: "text", key: k, text, streaming });
 			} else if (b.type === "thinking") {
 				const text = (b as ThinkingBlock).thinking;
-				if (text) items.push({ kind: "thinking", key: k, text });
+				if (text || streaming) items.push({ kind: "thinking", key: k, text, streaming });
 			} else if (b.type === "toolCall") {
 				const call = b as ToolCallBlock;
 				const live = state.tools[call.id];
@@ -407,8 +449,10 @@ export function transcript(state: SessionState): TranscriptItem[] {
 			});
 		}
 	};
-	for (const { id, message } of state.entries) {
-		if (message.role === "user") items.push({ kind: "user", key: id, text: userText(message.content) });
+	for (const { id, kind, message } of state.entries) {
+		if (kind === "pi.compaction" && message.role === "user") {
+			items.push({ kind: "compaction", key: id, text: userText(message.content) });
+		} else if (message.role === "user") items.push({ kind: "user", key: id, text: userText(message.content) });
 		else if (message.role === "assistant") addAssistant(id, message, false);
 	}
 	if (state.streaming) addAssistant("streaming", state.streaming, true);

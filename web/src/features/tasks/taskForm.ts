@@ -1,3 +1,5 @@
+import type { I18n, MessageDescriptor } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
 import type { TaskRequest } from "@/lib/api/types";
 import { splitArgv } from "./argv";
 
@@ -38,29 +40,67 @@ export const emptyForm: TaskForm = {
 	privileged: false,
 };
 
-function num(value: string, what: string): number | undefined {
+/**
+ * Validation failures of the task form, as codes. The pure builder returns
+ * codes (not English sentences) and components translate them with Lingui.
+ */
+export type TaskFormErrorCode =
+	| "command-required"
+	| "timeout-invalid"
+	| "path-required"
+	| "offset-invalid"
+	| "limit-invalid"
+	| "old-text-required";
+
+export class TaskFormError extends Error {
+	readonly code: TaskFormErrorCode;
+
+	constructor(code: TaskFormErrorCode) {
+		super(code);
+		this.name = "TaskFormError";
+		this.code = code;
+	}
+}
+
+const MESSAGES: Record<TaskFormErrorCode, MessageDescriptor> = {
+	"command-required": msg`A command is required.`,
+	"timeout-invalid": msg`The timeout must be a non-negative whole number of seconds.`,
+	"path-required": msg`A path is required.`,
+	"offset-invalid": msg`The offset must be a non-negative whole number.`,
+	"limit-invalid": msg`The limit must be a non-negative whole number.`,
+	"old-text-required": msg`The text to replace is required.`,
+};
+
+/** The translated text of a `TaskFormError`; other errors are shown verbatim. */
+export function taskFormErrorText(i18n: I18n, error: unknown): string {
+	if (error instanceof TaskFormError) return i18n._(MESSAGES[error.code]);
+	return error instanceof Error ? error.message : String(error);
+}
+
+function num(value: string, code: TaskFormErrorCode): number | undefined {
 	if (value.trim() === "") return undefined;
 	const parsed = Number(value);
-	if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`${what} must be a non-negative integer`);
+	if (!Number.isSafeInteger(parsed) || parsed < 0) throw new TaskFormError(code);
 	return parsed;
 }
 
-/** Builds the POST body; throws an Error with a user-facing message on invalid input. */
+function need(value: string, code: TaskFormErrorCode): string {
+	if (!value) throw new TaskFormError(code);
+	return value;
+}
+
+/** Builds the POST body; throws a `TaskFormError` with a code on invalid input. */
 export function buildTaskRequest(form: TaskForm): TaskRequest {
 	const body: TaskRequest = { kind: form.kind, waitMs: 0 };
 	if (form.privileged) body.privileged = true;
-	const timeout = num(form.timeoutSec, "timeout");
+	const timeout = num(form.timeoutSec, "timeout-invalid");
 	if (timeout !== undefined) body.timeoutMs = timeout * 1000;
-	const need = (value: string, what: string) => {
-		if (!value) throw new Error(`${what} is required`);
-		return value;
-	};
 	switch (form.kind) {
 		case "exec":
-			if (form.execMode === "shell") body.shell = need(form.command.trim(), "command");
+			if (form.execMode === "shell") body.shell = need(form.command.trim(), "command-required");
 			else {
 				const argv = splitArgv(form.command);
-				if (argv.length === 0) throw new Error("command is required");
+				if (argv.length === 0) throw new TaskFormError("command-required");
 				body.argv = argv;
 			}
 			if (form.cwd) body.cwd = form.cwd;
@@ -68,24 +108,24 @@ export function buildTaskRequest(form: TaskForm): TaskRequest {
 			break;
 		case "file.read":
 		case "file.list": {
-			body.path = need(form.path, "path");
-			const offset = form.kind === "file.read" ? num(form.offset, "offset") : undefined;
-			const limit = num(form.limit, "limit");
+			body.path = need(form.path, "path-required");
+			const offset = form.kind === "file.read" ? num(form.offset, "offset-invalid") : undefined;
+			const limit = num(form.limit, "limit-invalid");
 			if (offset !== undefined) body.offset = offset;
 			if (limit !== undefined) body.limit = limit;
 			break;
 		}
 		case "file.write":
-			body.path = need(form.path, "path");
+			body.path = need(form.path, "path-required");
 			body.content = form.content;
 			body.overwrite = form.overwrite;
 			break;
 		case "file.edit":
-			body.path = need(form.path, "path");
-			body.edits = [{ oldText: need(form.oldText, "old text"), newText: form.newText }];
+			body.path = need(form.path, "path-required");
+			body.edits = [{ oldText: need(form.oldText, "old-text-required"), newText: form.newText }];
 			break;
 		case "file.stat":
-			body.path = need(form.path, "path");
+			body.path = need(form.path, "path-required");
 			break;
 	}
 	return body;

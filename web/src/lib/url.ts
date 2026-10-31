@@ -101,3 +101,20 @@ export function safeHashLink(url: string): string | undefined {
 }
 
 export const ALLOWED_SCHEME_LIST: readonly string[] = [...ALLOWED_SCHEMES];
+
+/**
+ * A server-generated WebUI path (the event stream's `approval_url` /
+ * `authorization_url`, doc/webui.md "链接"). Only same-origin absolute paths
+ * are accepted: no scheme, no protocol-relative form, no backslash, no
+ * whitespace or control characters, and no dot segments that would climb out
+ * of the route. Anything else is not turned into a clickable link.
+ */
+export function safeInternalPath(raw: unknown): string | undefined {
+	if (typeof raw !== "string") return undefined;
+	const path = raw.trim();
+	if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return undefined;
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
+	if (/[\u0000-\u0020\u007f]/.test(path)) return undefined;
+	if (/(^|\/)\.\.?(\/|$)/.test(path.split(/[?#]/)[0] ?? "")) return undefined;
+	return path;
+}

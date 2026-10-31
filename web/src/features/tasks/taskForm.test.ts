@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildTaskRequest, emptyForm } from "./taskForm";
+import { buildTaskRequest, emptyForm, TaskFormError } from "./taskForm";
 
 describe("buildTaskRequest", () => {
 	test("exec shell with timeout", () => {
@@ -26,10 +26,22 @@ describe("buildTaskRequest", () => {
 		);
 	});
 
-	test("validation", () => {
-		expect(() => buildTaskRequest(emptyForm)).toThrow("command is required");
-		expect(() => buildTaskRequest({ ...emptyForm, kind: "file.stat" })).toThrow("path is required");
-		expect(() => buildTaskRequest({ ...emptyForm, command: "x", timeoutSec: "-1" })).toThrow("timeout");
+	test("validation returns codes, not English sentences", () => {
+		const code = (form: Parameters<typeof buildTaskRequest>[0]): string | undefined => {
+			try {
+				buildTaskRequest(form);
+				return undefined;
+			} catch (error) {
+				expect(error).toBeInstanceOf(TaskFormError);
+				return error instanceof TaskFormError ? error.code : undefined;
+			}
+		};
+		expect(code(emptyForm)).toBe("command-required");
+		expect(code({ ...emptyForm, kind: "file.stat" })).toBe("path-required");
+		expect(code({ ...emptyForm, command: "x", timeoutSec: "-1" })).toBe("timeout-invalid");
+		expect(code({ ...emptyForm, kind: "file.read", path: "/x", offset: "-1" })).toBe("offset-invalid");
+		expect(code({ ...emptyForm, kind: "file.read", path: "/x", limit: "1.5" })).toBe("limit-invalid");
+		expect(code({ ...emptyForm, kind: "file.edit", path: "/x" })).toBe("old-text-required");
 	});
 
 	test("the privileged flag is sent only when checked, for every kind", () => {

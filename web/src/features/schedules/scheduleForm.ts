@@ -1,3 +1,5 @@
+import type { I18n, MessageDescriptor } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
 import type { ModelRef, Preset, ScheduleRunStatus, ScheduleRunView, ScheduleView } from "@/lib/api/types";
 import { parseQuotaInput } from "@/lib/quota";
 
@@ -15,13 +17,47 @@ export interface ScheduleFormState {
 	enabled: boolean;
 }
 
+/**
+ * Validation failures as codes, translated by the page with Lingui. The pure
+ * helper never produces English sentences.
+ */
+export type ScheduleFormErrorCode =
+	| "name-required"
+	| "name-too-long"
+	| "prompt-required"
+	| "model-required"
+	| "budget-whole-number"
+	| "budget-too-large"
+	| "budget-positive"
+	| "cron-required"
+	| "cron-five-fields"
+	| "timezone-required";
+
 export interface ScheduleFormErrors {
-	name?: string;
-	prompt?: string;
-	model?: string;
-	tokenBudget?: string;
-	cron?: string;
-	timezone?: string;
+	name?: ScheduleFormErrorCode;
+	prompt?: ScheduleFormErrorCode;
+	model?: ScheduleFormErrorCode;
+	tokenBudget?: ScheduleFormErrorCode;
+	cron?: ScheduleFormErrorCode;
+	timezone?: ScheduleFormErrorCode;
+}
+
+const MESSAGES: Record<ScheduleFormErrorCode, MessageDescriptor> = {
+	"name-required": msg`A name is required.`,
+	"name-too-long": msg`The name must be at most 200 characters.`,
+	"prompt-required": msg`A prompt is required.`,
+	"model-required": msg`Choose a model.`,
+	"budget-whole-number": msg`Enter a whole number of tokens, or leave it empty for unlimited.`,
+	"budget-too-large": msg`That number is too large.`,
+	"budget-positive": msg`Enter at least 1 token, or leave it empty for unlimited.`,
+	"cron-required": msg`A cron expression is required.`,
+	"cron-five-fields": msg`A cron expression has exactly five fields.`,
+	"timezone-required": msg`A timezone is required.`,
+};
+
+/** The translated text of a schedule form error code. */
+export function scheduleFormErrorText(i18n: I18n, code: ScheduleFormErrorCode): string {
+	return i18n._(MESSAGES[code]);
 }
 
 export interface ParsedSchedule {
@@ -46,19 +82,19 @@ export function defaultTimezone(): string {
 }
 
 /** The schedule's budget: empty for unlimited, or at least one token (doc/scheduling.md#授权规则与配额). */
-function parseBudgetInput(text: string): { quota: number | null } | { error: string } {
+function parseBudgetInput(text: string): { quota: number | null } | { error: ScheduleFormErrorCode } {
 	const parsed = parseQuotaInput(text);
 	if ("error" in parsed) {
 		return {
 			error:
 				parsed.error === "whole-number"
-					? "enter a whole number of tokens, or leave it empty for unlimited"
+					? "budget-whole-number"
 					: parsed.error === "too-large"
-						? "that number is too large"
-						: "enter at least 1 token, or leave it empty for unlimited",
+						? "budget-too-large"
+						: "budget-positive",
 		};
 	}
-	if (parsed.quota === 0) return { error: "enter at least 1 token, or leave it empty for unlimited" };
+	if (parsed.quota === 0) return { error: "budget-positive" };
 	return parsed;
 }
 
@@ -72,18 +108,18 @@ export function parseScheduleForm(
 ): { input: ParsedSchedule } | { errors: ScheduleFormErrors } {
 	const errors: ScheduleFormErrors = {};
 	const name = state.name.trim();
-	if (!name) errors.name = "name is required";
-	else if (name.length > 200) errors.name = "name must be at most 200 characters";
+	if (!name) errors.name = "name-required";
+	else if (name.length > 200) errors.name = "name-too-long";
 	const prompt = state.prompt;
-	if (!prompt.trim()) errors.prompt = "prompt is required";
-	if (!state.model) errors.model = "choose a model";
+	if (!prompt.trim()) errors.prompt = "prompt-required";
+	if (!state.model) errors.model = "model-required";
 	const budget = parseBudgetInput(state.tokenBudget);
 	if ("error" in budget) errors.tokenBudget = budget.error;
 	const cron = state.cron.trim();
-	if (!cron) errors.cron = "a cron expression is required";
-	else if (cron.split(/\s+/).length !== 5) errors.cron = "a cron expression has exactly five fields";
+	if (!cron) errors.cron = "cron-required";
+	else if (cron.split(/\s+/).length !== 5) errors.cron = "cron-five-fields";
 	const timezone = state.timezone.trim();
-	if (!timezone) errors.timezone = "a timezone is required";
+	if (!timezone) errors.timezone = "timezone-required";
 	if (Object.keys(errors).length > 0 || !state.model || "error" in budget) return { errors };
 	return {
 		input: {

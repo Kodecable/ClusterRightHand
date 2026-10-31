@@ -8,7 +8,7 @@ import {
 	MoonIcon,
 	SunIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { toast } from "sonner";
 import {
 	DropdownMenu,
@@ -25,11 +25,16 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useLogout } from "@/features/auth/api";
-import { ChangePasswordDialog } from "@/features/auth/change-password-dialog";
 import { useAuth } from "@/features/auth/session";
 import { useLocale } from "@/lib/i18n";
 import type { ThemePreference } from "@/lib/theme";
 import { useTheme } from "@/lib/theme";
+
+// The dialog is the only user of react-hook-form and zod; keep them out of the
+// entry chunk by loading it when the menu item is used (WU2a audit fix).
+const ChangePasswordDialog = lazy(() =>
+	import("@/features/auth/change-password-dialog").then((module) => ({ default: module.ChangePasswordDialog })),
+);
 
 function initials(name: string): string {
 	const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -156,7 +161,11 @@ export function UserMenu() {
 				</DropdownMenuContent>
 			</DropdownMenu>
 
-			<ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
+			{passwordOpen && (
+				<Suspense fallback={null}>
+					<ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
+				</Suspense>
+			)}
 		</>
 	);
 }

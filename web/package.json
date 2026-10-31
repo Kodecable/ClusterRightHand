@@ -18,7 +18,7 @@
 	},
 	"dependencies": {
 		"@base-ui/react": "1.9.0",
-		"@hookform/resolvers": "7.0.0",
+		"@hookform/resolvers": "6.0.0",
 		"@lingui/core": "6.11.0",
 		"@lingui/react": "6.11.0",
 		"@shikijs/core": "4.5.0",
@@ -31,7 +31,7 @@
 		"@tanstack/react-table": "9.3.1",
 		"class-variance-authority": "0.7.1",
 		"clsx": "2.1.1",
-		"lucide-react": "1.66.0",
+		"lucide-react": "1.61.0",
 		"marked": "18.1.2",
 		"react": "19.3.1",
 		"react-dom": "19.3.1",

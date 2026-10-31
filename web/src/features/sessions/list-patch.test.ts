@@ -16,6 +16,7 @@ const item = (overrides: Partial<SessionListItem> = {}): SessionListItem => ({
 	scheduleId: null,
 	shared: false,
 	state: "idle",
+	waitingKind: null,
 	waitingLevelId: null,
 	updatedAt: "2026-01-01T00:00:00.000Z",
 	...overrides,
@@ -64,9 +65,33 @@ describe("isSessionListItem", () => {
 			expect(isSessionListItem(value), JSON.stringify(value)).toBe(false);
 		}
 	});
+
+	test("the new state and waiting kind are validated, not guessed", () => {
+		expect(isSessionListItem(item({ state: "running" }))).toBe(true);
+		expect(isSessionListItem(item({ state: "awaiting", waitingKind: "approval" }))).toBe(true);
+		expect(isSessionListItem(item({ state: "awaiting", waitingKind: "authorization" }))).toBe(true);
+		expect(isSessionListItem(item({ state: "awaiting", waitingKind: "quota" }))).toBe(true);
+		// Old states from before the contract change are not displayed as if they had a meaning.
+		for (const state of ["active", "stopped", "busy", "awaiting_approval", ""]) {
+			expect(isSessionListItem(item({ state: state as never })), state).toBe(false);
+		}
+		expect(isSessionListItem({ ...item(), waitingKind: "unknown" })).toBe(false);
+		expect(isSessionListItem({ ...item(), waitingKind: undefined })).toBe(true);
+	});
 });
 
 describe("upsertSessionListItem", () => {
+	test("a stream upsert carries the new state fields and moves the row to the top", () => {
+		const pages = [page([item({ id: "a" }), item({ id: "b", state: "idle" })])];
+		const next = upsertSessionListItem(
+			pages,
+			item({ id: "b", state: "awaiting", waitingKind: "quota", updatedAt: "2026-02-01T00:00:00.000Z" }),
+			filter(),
+		);
+		expect(next[0]?.items[0]).toMatchObject({ id: "b", state: "awaiting", waitingKind: "quota" });
+		expect(next[0]?.items[1]?.id).toBe("a");
+	});
+
 	test("inserts a new matching row at the top", () => {
 		const pages = [page([item({ id: "old" })]), page([item({ id: "older" })], "cursor-2")];
 		const next = upsertSessionListItem(pages, item({ id: "new", title: "New" }), filter());

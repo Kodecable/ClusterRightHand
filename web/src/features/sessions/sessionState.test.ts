@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 import {
 	type AgentEvent,
 	applyOutput,
@@ -6,6 +6,7 @@ import {
 	authorizationWait,
 	type EntryRecord,
 	initialState,
+	prependHistory,
 	prettyJson,
 	reduceAll,
 	type TranscriptItem,
@@ -261,4 +262,121 @@ test("helpers", () => {
 	expect(authorizationWait({ state: "awaiting_authorization" })).toBeUndefined();
 	expect(authorizationWait(undefined)).toBeUndefined();
 	expect(usageTotals(undefined)).toBeUndefined();
+});
+
+describe("history pages", () => {
+	const toolResult = (id: string, callId: string, text: string): EntryRecord => ({
+		id,
+		kind: "pi.tool-result",
+		model: [
+			{
+				role: "toolResult",
+				toolCallId: callId,
+				toolName: "exec",
+				content: [{ type: "text", text }],
+				isError: false,
+			},
+		],
+	});
+	const toolCall = (id: string, callId: string): EntryRecord =>
+		assistantEntry(id, [{ type: "toolCall", id: callId, name: "exec", arguments: { shell: "true" } }], "toolUse");
+
+	test("a snapshot carries the history cursor", () => {
+		const s = reduceAll(initialState, [
+			{ type: "snapshot", snapshot: { entries: [userEntry("2", "b")], tools: [], inbox: [], historyCursor: "h1" } },
+		]);
+		expect(s.historyCursor).toBe("h1");
+	});
+
+	test("prepending keeps the order and moves the cursor without disturbing the live stream", () => {
+		let s = reduceAll(initialState, [
+			{
+				type: "snapshot",
+				snapshot: {
+					entries: [userEntry("10", "newest"), assistantEntry("11", [{ type: "text", text: "answer" }])],
+					run: { inputs: ["s2"] },
+					generation: { attempt: 1, message: { role: "assistant", content: [{ type: "text", text: "par" }] } },
+					tools: [{ callId: "live", name: "exec", status: "running", output: "50%" }],
+					inbox: [],
+					historyCursor: "h2",
+				},
+			},
+		]);
+		const before = s;
+		s = prependHistory(s, [userEntry("8", "older"), assistantEntry("9", [{ type: "text", text: "old" }])], "h1");
+		expect(s.entries.map((entry) => entry.id)).toEqual(["8", "9", "10", "11"]);
+		expect(s.historyCursor).toBe("h1");
+		// The stream, the run and the tool slots are exactly what they were.
+		expect(s.streaming).toEqual(before.streaming);
+		expect(s.running).toBe(true);
+		expect(s.tools).toEqual(before.tools);
+		expect(s.queued).toBe(before.queued);
+		expect(transcript(s).map((item) => item.kind)).toEqual(["user", "text", "user", "text", "text"]);
+	});
+
+	test("an entry that also arrived from the live stream is not duplicated", () => {
+		let s = reduceAll(initialState, [
+			{ type: "snapshot", snapshot: { entries: [userEntry("10", "x")], tools: [], inbox: [], historyCursor: "h1" } },
+		]);
+		s = prependHistory(s, [userEntry("10", "x"), userEntry("9", "y")], "h2");
+		expect(s.entries.map((entry) => entry.id)).toEqual(["9", "10"]);
+		expect(prependHistory(s, [userEntry("9", "y")], "h2")).toBe(s);
+	});
+
+	test("a tool result whose call is on another page is folded once both pages are loaded", () => {
+		// The newest page has a call and its result; the call's sibling result is
+		// older than today's page, and its call is older still.
+		let s = reduceAll(initialState, [
+			{
+				type: "snapshot",
+				snapshot: {
+					entries: [toolCall("10", "c1"), toolResult("11", "c1", '{"state":"exited","exit_code":0}')],
+					tools: [],
+					inbox: [],
+					historyCursor: "h1",
+				},
+			},
+		]);
+		// A page that only carries a result for a call that is not loaded yet:
+		// the result is kept, but no card can be shown.
+		s = prependHistory(s, [toolResult("9", "c0", "first page of output")], "h0");
+		expect(transcript(s).filter((item) => item.kind === "tool")).toHaveLength(1);
+		// The older page brings the call; the result from the newer page is used.
+		s = prependHistory(s, [toolCall("8", "c0")], "h-1");
+		const tools = transcript(s).filter((item) => item.kind === "tool");
+		expect(tools).toHaveLength(2);
+		expect(tools[0]).toMatchObject({
+			kind: "tool",
+			callId: "c0",
+			status: "done",
+			result: { text: "first page of output" },
+		});
+		expect(tools[1]).toMatchObject({ kind: "tool", callId: "c1", status: "done" });
+	});
+
+	test("a compaction entry becomes a divider and is not a user bubble", () => {
+		const s = reduceAll(initialState, [
+			{
+				type: "snapshot",
+				snapshot: {
+					entries: [
+						userEntry("1", "before"),
+						{
+							id: "2",
+							kind: "pi.compaction",
+							model: [{ role: "user", content: "Summary of the earlier conversation" }],
+						},
+						assistantEntry("3", [{ type: "text", text: "after" }]),
+					],
+					tools: [],
+					inbox: [],
+				},
+			},
+		]);
+		expect(transcript(s)).toEqual([
+			{ kind: "user", key: "1", text: "before" },
+			{ kind: "compaction", key: "2", text: "Summary of the earlier conversation" },
+			{ kind: "text", key: "3/0", text: "after", streaming: false },
+		]);
+	});
 });

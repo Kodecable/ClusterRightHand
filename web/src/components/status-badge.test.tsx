@@ -47,15 +47,21 @@ describe("status family mappings", () => {
 		expect(screen.getByText("Awaiting approval")).toBeInTheDocument();
 		rerender(<TaskStatusBadge state="failed" />);
 		expect(screen.getByText("Failed")).toBeInTheDocument();
+		rerender(<TaskStatusBadge state="waiting_elsewhere" />);
+		expect(screen.getByText("waiting_elsewhere")).toBeInTheDocument();
 	});
 
-	test("sessions map the raw state to idle / running / awaiting", () => {
+	test("sessions show the contract's states and keep an unknown one raw", () => {
 		const { rerender } = renderWithI18n(<SessionStatusBadge state="idle" />);
 		expect(screen.getByText("Idle")).toBeInTheDocument();
-		rerender(<SessionStatusBadge state="active" />);
+		rerender(<SessionStatusBadge state="running" />);
 		expect(screen.getByText("Running")).toBeInTheDocument();
 		rerender(<SessionStatusBadge state="awaiting" />);
 		expect(screen.getByText("Awaiting")).toBeInTheDocument();
+		// An unknown value is not flattened to "Unknown" (the WU2a audit fix).
+		rerender(<SessionStatusBadge state="hibernating" />);
+		expect(screen.getByText("hibernating")).toBeInTheDocument();
+		expect(screen.queryByText("Unknown")).not.toBeInTheDocument();
 	});
 
 	test("authorizations, schedules and tokens", () => {

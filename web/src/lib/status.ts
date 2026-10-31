@@ -44,14 +44,18 @@ export function taskStatusTone(
 	}
 }
 
-/** The contract's raw `sessions.state` mapped to the three UI states. */
+/** The contract's raw `sessions.state` mapped to the three UI states, without guessing. */
 export type SessionUiState = "idle" | "running" | "awaiting";
 
 export function sessionUiState(rawState: string): SessionUiState {
-	const value = rawState.toLowerCase();
-	if (value.includes("await")) return "awaiting";
-	if (value.includes("run") || value === "active" || value === "busy") return "running";
-	return "idle";
+	switch (rawState) {
+		case "awaiting":
+			return "awaiting";
+		case "running":
+			return "running";
+		default:
+			return "idle";
+	}
 }
 
 export function sessionStatusTone(rawState: string): StatusTone {

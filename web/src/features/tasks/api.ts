@@ -35,11 +35,22 @@ export function useTasks(filters: TaskFilters = {}) {
 	});
 }
 
-export function useTask(id: string | undefined) {
+/** One task; while it runs or waits, the page polls it so a decision made elsewhere shows up. */
+export function useTask(id: string | undefined, pollWaiting = false) {
 	return useQuery({
 		queryKey: taskKeys.detail(id ?? ""),
 		enabled: id !== undefined && id !== "",
 		queryFn: ({ signal }) => http.get<{ task: TaskView }>(`/tasks/${enc(id ?? "")}`, { signal }).then((r) => r.task),
+		refetchInterval: (query) => {
+			if (!pollWaiting) return false;
+			const state = query.state.data?.state;
+			return state === "awaiting_approval" ||
+				state === "awaiting_authorization" ||
+				state === "dispatched" ||
+				state === "running"
+				? 3_000
+				: false;
+		},
 	});
 }
 
@@ -82,12 +93,17 @@ export function useCreateTaskGroup() {
 	});
 }
 
-export function useTaskGroup(id: string | undefined) {
+export function useTaskGroup(id: string | undefined, pollRunning = false) {
 	return useQuery({
 		queryKey: taskKeys.group(id ?? ""),
 		enabled: id !== undefined && id !== "",
 		queryFn: ({ signal }) =>
 			http.get<{ group: TaskGroupView }>(`/task-groups/${enc(id ?? "")}`, { signal }).then((r) => r.group),
+		refetchInterval: (query) => {
+			if (!pollRunning) return false;
+			const state = query.state.data?.state;
+			return state === "running" || state === "awaiting_approval" || state === "awaiting_authorization" ? 3_000 : false;
+		},
 	});
 }
 
