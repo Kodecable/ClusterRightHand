@@ -19,7 +19,7 @@ describeBackends("audit of API routes", (backend) => {
 	const events = async (action: string): Promise<AuditEvent[]> => {
 		await audit.flush();
 		const res = await call(app, `/api/audit?action=${action}`, { cookie: admin });
-		return ((await res.json()) as { events: AuditEvent[] }).events;
+		return ((await res.json()) as { items: AuditEvent[] }).items;
 	};
 
 	beforeAll(async () => {

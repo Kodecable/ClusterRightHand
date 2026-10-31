@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { SessionListHub } from "../agent/session-list.ts";
 import { userActor } from "../audit/audit.ts";
 import { revokeUserWebSessions } from "../auth/sessions.ts";
 import { Scheduler } from "../scheduler/scheduler.ts";
@@ -25,8 +26,13 @@ import { requireAdmin } from "./middleware.ts";
 const KINDS = new Set(["admin", "member"]);
 const STATUSES = new Set(["active", "disabled"]);
 
+export interface UserRoutesOptions {
+	/** The session list stream: membership and account changes alter what a user may see. */
+	sessions?: SessionListHub;
+}
+
 /** Expects requireUser to have run. */
-export function userRoutes(db: Db) {
+export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 	const app = new Hono<AppEnv>();
 
 	app.onError((err, c) => {
@@ -103,9 +109,13 @@ export function userRoutes(db: Db) {
 		});
 		if (status === "disabled") {
 			await revokeUserWebSessions(db, id);
+			// A disabled user's streams end; their next request is a 401 and the client goes to login.
+			options.sessions?.endUserStreams(id);
 			// A disabled owner's schedules stop firing (doc/scheduling.md#生命周期).
 			await Scheduler.disableForOwner(db, id, c.get("audit"), userActor(c.get("user")));
 		}
+		// Administrator and member see different sessions; a reconnect refetches under the new role.
+		if (kind !== undefined) options.sessions?.endUserStreams(id);
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user.updated",
@@ -152,7 +162,25 @@ export function userRoutes(db: Db) {
 	});
 
 	app.delete("/user-groups/:id", async (c) => {
-		await deleteUserGroup(db, c.req.param("id"));
+		const groupId = c.req.param("id");
+		// Capture who the group's shares reached before deleting it: the share rows and memberships go with it.
+		const members = await db
+			.selectFrom("user_group_members")
+			.select("user_id")
+			.where("group_id", "=", groupId)
+			.execute();
+		const shares = await db
+			.selectFrom("shares")
+			.select("resource_id")
+			.where("resource_type", "=", "session")
+			.where("grantee_type", "=", "user_group")
+			.where("grantee_id", "=", groupId)
+			.execute();
+		await deleteUserGroup(db, groupId);
+		const audience = members.map((member) => member.user_id);
+		for (const sessionId of new Set(shares.map((share) => share.resource_id))) {
+			await options.sessions?.publishShareRemoved(sessionId, audience);
+		}
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user_group.deleted",
@@ -163,6 +191,7 @@ export function userRoutes(db: Db) {
 
 	app.put("/user-groups/:id/members/:userId", async (c) => {
 		await addGroupMember(db, c.req.param("id"), c.req.param("userId"));
+		await options.sessions?.publishGroupMemberChanged(c.req.param("id"), c.req.param("userId"), true);
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user_group.member_added",
@@ -174,6 +203,7 @@ export function userRoutes(db: Db) {
 
 	app.delete("/user-groups/:id/members/:userId", async (c) => {
 		await removeGroupMember(db, c.req.param("id"), c.req.param("userId"));
+		await options.sessions?.publishGroupMemberChanged(c.req.param("id"), c.req.param("userId"), false);
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user_group.member_removed",

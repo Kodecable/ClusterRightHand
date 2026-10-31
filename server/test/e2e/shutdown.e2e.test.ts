@@ -122,8 +122,8 @@ describe.skipIf(!hasGo)("crhs SIGTERM shutdown with a connected node", () => {
 
 		const events = await api("/api/audit?action=node.disconnected");
 		expect(events.status).toBe(200);
-		expect(events.json.events).toHaveLength(1);
-		expect(events.json.events[0]).toMatchObject({ action: "node.disconnected", targetType: "node", targetId: nodeId });
+		expect(events.json.items).toHaveLength(1);
+		expect(events.json.items[0]).toMatchObject({ action: "node.disconnected", targetType: "node", targetId: nodeId });
 	}, 120_000);
 
 	it("ends an open session event stream and exits 0 well under the timeout", async () => {

@@ -170,8 +170,8 @@ export class Scheduler {
 			return (await getRun(this.#db, run.id)) ?? run;
 		}
 		// A manual click in the same millisecond as the previous one lands on the same fire time.
-		const existing = await listRuns(this.#db, scheduleId, 1, 0);
-		const run1 = existing.runs[0];
+		const existing = await listRuns(this.#db, scheduleId, 1);
+		const run1 = existing[0];
 		if (!run1) throw new UserError("the run was not created");
 		return run1;
 	}
@@ -184,7 +184,9 @@ export class Scheduler {
 		const schedule = await getSchedule(this.#db, scheduleId);
 		if (!schedule) throw new NotFoundError("no such schedule");
 		await this.#stopRunning(schedule);
-		await deleteStoredSchedule(this.#db, schedule);
+		const sessions = await deleteStoredSchedule(this.#db, schedule);
+		// The sessions lost their schedule link, which the list shows; publish the new items.
+		for (const sessionId of sessions) this.#runtime.sessionList.publishSession(sessionId);
 	}
 
 	async #stopRunning(schedule: Schedule): Promise<void> {

@@ -193,8 +193,8 @@ describe("ending waits at shutdown", () => {
 			user,
 			actor: actor(),
 			chain: [],
-			approvalUrl: (kind: string, groupId: string) => `#/approvals/${kind}/${groupId}`,
-			groupUrl: (groupId: string) => `#/task-groups/${groupId}`,
+			approvalUrl: (kind: string, groupId: string) => `/approvals/${kind}/${groupId}`,
+			groupUrl: (groupId: string) => `/task-groups/${groupId}`,
 			waitThroughApproval: true,
 			defaultWaitS: 1,
 			onStatus: async (status: Record<string, unknown>) => {

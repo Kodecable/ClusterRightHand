@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Audit, canonicalJson, GENESIS_HASH, listAuditEvents, verifyChain } from "../src/audit/audit.ts";
+import {
+	Audit,
+	type AuditEvent,
+	canonicalJson,
+	GENESIS_HASH,
+	listAuditEvents,
+	verifyChain,
+} from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser } from "../src/users/service.ts";
@@ -149,15 +156,17 @@ describeBackends("audit chain", (backend) => {
 			expect((await listAuditEvents(db, admin, { action: "task" })).map((e) => e.seq)).toEqual([]);
 		});
 
-		it("filters by target and pages with beforeSeq and limit", async () => {
+		it("filters by target and pages with a cursor and limit", async () => {
 			expect((await listAuditEvents(db, admin, { targetType: "task", targetId: "t1" })).map((e) => e.seq)).toEqual([
 				3, 1,
 			]);
 			const p1 = await listAuditEvents(db, admin, { limit: 2 });
 			expect(p1.map((e) => e.seq)).toEqual([6, 5]);
-			const p2 = await listAuditEvents(db, admin, { limit: 2, beforeSeq: 5 });
+			const last1 = p1[1] as AuditEvent;
+			const p2 = await listAuditEvents(db, admin, { limit: 2, before: { seq: last1.seq, id: last1.id } });
 			expect(p2.map((e) => e.seq)).toEqual([4, 3]);
-			const p3 = await listAuditEvents(db, admin, { limit: 2, beforeSeq: 3 });
+			const last2 = p2[1] as AuditEvent;
+			const p3 = await listAuditEvents(db, admin, { limit: 2, before: { seq: last2.seq, id: last2.id } });
 			expect(p3.map((e) => e.seq)).toEqual([2, 1]);
 		});
 	});

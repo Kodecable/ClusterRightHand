@@ -154,12 +154,15 @@ export interface AuditQuery {
 	action?: string;
 	targetType?: string;
 	targetId?: string;
-	/** Page backwards from this seq (exclusive). */
-	beforeSeq?: number;
+	/** Page backwards from this position (exclusive): the `seq` and `id` of the last event of the previous page. */
+	before?: { seq: number; id: string };
 	limit?: number;
 }
 
-/** Newest first. Administrators see everything; other users the events done on their behalf. */
+/**
+ * Newest first. Administrators see everything; other users the events done on their behalf. `seq` is
+ * unique, so it alone is the descending key; the cursor's id is carried for the shared cursor format.
+ */
 export async function listAuditEvents(db: Db, user: SessionUser, q: AuditQuery): Promise<AuditEvent[]> {
 	let sel = db
 		.selectFrom("audit_events")
@@ -171,7 +174,7 @@ export async function listAuditEvents(db: Db, user: SessionUser, q: AuditQuery):
 		sel = q.action.endsWith(".") ? sel.where("action", "like", `${q.action}%`) : sel.where("action", "=", q.action);
 	if (q.targetType) sel = sel.where("target_type", "=", q.targetType);
 	if (q.targetId) sel = sel.where("target_id", "=", q.targetId);
-	if (q.beforeSeq) sel = sel.where("seq", "<", q.beforeSeq);
+	if (q.before) sel = sel.where("seq", "<", q.before.seq);
 	return (await sel.execute()).map((r) => ({
 		seq: r.seq,
 		id: r.id,

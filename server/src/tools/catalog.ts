@@ -62,7 +62,7 @@ async function waitTaskFor(ctx: ToolContext, id: string, waitMs: number): Promis
 		await ctx.onStatus?.({
 			task_id: id,
 			state: "awaiting_authorization",
-			authorization_url: ctx.taskUrl?.(id) ?? `#/tasks/${id}`,
+			authorization_url: ctx.taskUrl?.(id) ?? `/tasks/${id}`,
 		});
 		while (t?.state === "awaiting_authorization" && !ctx.signal?.aborted && !ctx.cluster.waitsEnded) {
 			await new Promise((r) => setTimeout(r, 1000));
@@ -90,7 +90,7 @@ async function waitGroupFor(ctx: ToolContext, id: string, waitMs: number): Promi
 		await ctx.onStatus?.({
 			task_group_id: id,
 			state: "awaiting_authorization",
-			authorization_url: ctx.groupUrl?.(id) ?? `#/task-groups/${id}`,
+			authorization_url: ctx.groupUrl?.(id) ?? `/task-groups/${id}`,
 		});
 		while (g.state === "awaiting_authorization" && !ctx.signal?.aborted && !ctx.groups.waitsEnded)
 			g = (await ctx.groups.wait(id, HOUR, ctx.signal)) as TaskGroupView;
@@ -255,7 +255,7 @@ function authorizationResult(
 	ctx: ToolContext,
 	taskId: string,
 ): Record<string, unknown> {
-	const url = ctx.taskUrl?.(taskId) ?? `#/tasks/${taskId}`;
+	const url = ctx.taskUrl?.(taskId) ?? `/tasks/${taskId}`;
 	const local = record?.plan.paths.some((path) => path.path === "local") ?? false;
 	const next = `the task owner must authorize it in the WebUI (${url})${
 		local ? `, or run "crha approve ${taskId}" on the node` : ""
@@ -295,7 +295,7 @@ function groupResult(g: TaskGroupView, names: Map<string, string>, ctx: ToolCont
 		const waiting = g.tasks.filter((t) => t.state === "awaiting_authorization");
 		out.authorization = {
 			status: "waiting for the authorization of the task group's owner",
-			url: ctx.groupUrl?.(g.id) ?? `#/task-groups/${g.id}`,
+			url: ctx.groupUrl?.(g.id) ?? `/task-groups/${g.id}`,
 			nodes: waiting.map((t) => names.get(t.nodeId) ?? t.nodeId),
 			tasks: waiting.map((t) => ({
 				task_id: t.id,

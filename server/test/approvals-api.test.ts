@@ -81,7 +81,7 @@ describe("approvals api (sqlite)", () => {
 	const events = async (action: string, targetId: string) => {
 		await audit.flush();
 		const r = await call(app, `/api/audit?action=${action}&targetId=${targetId}`, { cookie: cookies.root });
-		return ((await r.json()) as { events: { detail: Record<string, unknown> }[] }).events;
+		return ((await r.json()) as { items: { detail: Record<string, unknown> }[] }).items;
 	};
 	const pending = async (who: string) =>
 		(await (await call(app, "/api/approvals", { cookie: cookies[who] })).json()) as {
@@ -278,7 +278,7 @@ describe("approvals api (sqlite)", () => {
 		expect(fin[0]?.detail.error_code).toBe("node_offline");
 		// bob cannot see alice's events
 		const r = await call(app, `/api/audit?targetId=${t.id}`, { cookie: cookies.bob });
-		expect(((await r.json()) as { events: unknown[] }).events).toEqual([]);
+		expect(((await r.json()) as { items: unknown[] }).items).toEqual([]);
 	});
 
 	describe("task groups", () => {

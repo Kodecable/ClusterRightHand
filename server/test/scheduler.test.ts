@@ -124,7 +124,7 @@ async function setNextRun(scheduleId: string, at: Date): Promise<void> {
 }
 
 const runOf = (id: string) => getRun(db, id);
-const runsOf = async (scheduleId: string) => (await listRuns(db, scheduleId, 100, 0)).runs;
+const runsOf = async (scheduleId: string) => await listRuns(db, scheduleId, 100);
 const sessionRow = (id: string) => db.selectFrom("sessions").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
 
 const cookies = new Map<string, string>();
@@ -377,9 +377,9 @@ it("turns a manual run into a session through the same path, with the user as ac
 	expect(fired[0]).toMatchObject({ actor_type: "user", actor_id: owner.userId });
 	// The history endpoint returns it newest first, with its session.
 	const history = await call(app, `/api/schedules/${schedule.id}/runs`, { cookie: await cookieOf(owner) });
-	const listed = (await history.json()) as { runs: { id: string; status: string; sessionId: string }[] };
-	expect(listed.runs).toHaveLength(1);
-	expect(listed.runs[0]).toMatchObject({ id: body.run.id, status: "succeeded", sessionId: body.run.sessionId });
+	const listed = (await history.json()) as { items: { id: string; status: string; sessionId: string }[] };
+	expect(listed.items).toHaveLength(1);
+	expect(listed.items[0]).toMatchObject({ id: body.run.id, status: "succeeded", sessionId: body.run.sessionId });
 });
 
 it("builds the [schedule, session] chain for approvals and Auto Review", async () => {
@@ -987,7 +987,7 @@ it("validates the API input and keeps schedules owner-only", async () => {
 		.execute();
 	expect(disabledAudit).toHaveLength(1);
 	const filtered = await call(app, `/api/sessions?scheduleId=${id}`, { cookie: ownerCookie });
-	expect(((await filtered.json()) as { sessions: unknown[] }).sessions).toEqual([]);
+	expect(((await filtered.json()) as { items: unknown[] }).items).toEqual([]);
 });
 
 it("follows croner's DST handling for a 02:30 New York schedule", () => {

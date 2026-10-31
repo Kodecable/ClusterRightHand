@@ -27,6 +27,7 @@ import * as m0024 from "./migrations/0024_rule_privileged_flag.ts";
 import * as m0025 from "./migrations/0025_root_session_quota_null.ts";
 import * as m0026 from "./migrations/0026_schedules.ts";
 import * as m0027 from "./migrations/0027_session_schedule.ts";
+import * as m0028 from "./migrations/0028_session_list_indexes.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -57,6 +58,7 @@ const migrations: Record<string, Migration> = {
 	"0025_root_session_quota_null": m0025,
 	"0026_schedules": m0026,
 	"0027_session_schedule": m0027,
+	"0028_session_list_indexes": m0028,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };

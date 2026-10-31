@@ -39,7 +39,7 @@ describeBackends("model providers api", (backend) => {
 	const auditOf = async (action: string) => {
 		await audit.flush();
 		const r = await call(app, `/api/audit?action=${action}`, { cookie: admin });
-		return ((await r.json()) as { events: { targetId: string; detail: Record<string, unknown> }[] }).events;
+		return ((await r.json()) as { items: { targetId: string; detail: Record<string, unknown> }[] }).items;
 	};
 	const proxy = (extra: Record<string, unknown> = {}) => ({
 		kind: "openai-compatible",

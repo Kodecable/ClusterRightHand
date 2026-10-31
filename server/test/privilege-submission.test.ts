@@ -796,7 +796,7 @@ describe("user authorizations", () => {
 		expect(row.revoked_at).not.toBeNull();
 
 		const list = (await (await call(app, "/api/authorizations", { cookie: other.cookie })).json()) as {
-			authorizations: {
+			items: {
 				id: string;
 				revokedAt: string | null;
 				command: { method: string; match: string; target: string; specSha256: string };
@@ -804,20 +804,20 @@ describe("user authorizations", () => {
 				taskIds: string[] | null;
 			}[];
 		};
-		expect(list.authorizations.map((entry) => entry.id)).toEqual([theirs]);
-		expect(list.authorizations[0]?.revokedAt).not.toBeNull();
-		expect(list.authorizations[0]?.command).toEqual({
+		expect(list.items.map((entry) => entry.id)).toEqual([theirs]);
+		expect(list.items[0]?.revokedAt).not.toBeNull();
+		expect(list.items[0]?.command).toEqual({
 			method: "exec",
 			match: "exact",
 			target: "systemctl restart nginx",
 			specSha256: Buffer.from(specSha256(EXEC)).toString("hex"),
 		});
-		expect(list.authorizations[0]?.nodes).toEqual(["another-node"]);
-		expect(list.authorizations[0]?.taskIds).toBeNull();
+		expect(list.items[0]?.nodes).toEqual(["another-node"]);
+		expect(list.items[0]?.taskIds).toBeNull();
 		const adminList = (await (await call(app, "/api/authorizations", { cookie: adminCookie })).json()) as {
-			authorizations: unknown[];
+			items: unknown[];
 		};
-		expect(adminList.authorizations).toHaveLength(2);
+		expect(adminList.items).toHaveLength(2);
 	});
 
 	it("warns about a node whose clock differs from crhs", async () => {

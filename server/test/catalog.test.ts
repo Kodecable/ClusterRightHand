@@ -9,7 +9,7 @@ import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
 
 const ctx = {
-	approvalUrl: (kind: string, id: string) => `http://crh.test/#/approvals/${kind}/${id}`,
+	approvalUrl: (kind: string, id: string) => `http://crh.test/approvals/${kind}/${id}`,
 } as unknown as ToolContext;
 
 function task(overrides: Partial<TaskView>): TaskView {
@@ -232,7 +232,7 @@ describe("taskResult output modes", () => {
 			last_rejection: { code: "authorization_rejected", message: "denied", attempt: 1 },
 		});
 		// The implicit context has no absolute URLs: the session UI gets the in-app hash link.
-		expect((r.authorization as Record<string, unknown>).url).toBe("#/tasks/t1");
+		expect((r.authorization as Record<string, unknown>).url).toBe("/tasks/t1");
 		expect((r.authorization as Record<string, unknown>).next).toContain("authorize it in the WebUI");
 		expect(r.next).toBe("call task_wait with this task_id to keep waiting");
 
@@ -247,15 +247,15 @@ describe("taskResult output modes", () => {
 			},
 		};
 		const withUrl = {
-			approvalUrl: (kind: string, id: string) => `http://crh.test/#/approvals/${kind}/${id}`,
-			taskUrl: (id: string) => `http://crh.test/#/tasks/${id}`,
+			approvalUrl: (kind: string, id: string) => `http://crh.test/approvals/${kind}/${id}`,
+			taskUrl: (id: string) => `http://crh.test/tasks/${id}`,
 		} as unknown as ToolContext;
 		const local = taskResult(
 			task({ state: "awaiting_authorization", privileged: true, authorization: withLocal }),
 			"web-1",
 			withUrl,
 		);
-		expect((local.authorization as Record<string, unknown>).url).toBe("http://crh.test/#/tasks/t1");
+		expect((local.authorization as Record<string, unknown>).url).toBe("http://crh.test/tasks/t1");
 		expect((local.authorization as Record<string, unknown>).next).toContain('"crha approve t1"');
 	});
 });
@@ -445,8 +445,8 @@ describe("the authorization wait status", () => {
 				user,
 				actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
 				chain: [],
-				approvalUrl: (kind: string, id: string) => `#/approvals/${kind}/${id}`,
-				taskUrl: (id: string) => `#/tasks/${id}`,
+				approvalUrl: (kind: string, id: string) => `/approvals/${kind}/${id}`,
+				taskUrl: (id: string) => `/tasks/${id}`,
 				waitThroughApproval: true,
 				onStatus: async (status: Record<string, unknown>) => {
 					statuses.push(status);
@@ -458,7 +458,7 @@ describe("the authorization wait status", () => {
 			expect(statuses[0]).toEqual({
 				task_id: "t1",
 				state: "awaiting_authorization",
-				authorization_url: "#/tasks/t1",
+				authorization_url: "/tasks/t1",
 			});
 			expect(statuses.at(-1)).toEqual({ task_id: "t1", state: "exited" });
 			expect(now).toBeDefined();
@@ -496,8 +496,8 @@ describe("the authorization wait status", () => {
 				user,
 				actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
 				chain: [],
-				approvalUrl: (kind: string, id: string) => `#/approvals/${kind}/${id}`,
-				groupUrl: (id: string) => `#/task-groups/${id}`,
+				approvalUrl: (kind: string, id: string) => `/approvals/${kind}/${id}`,
+				groupUrl: (id: string) => `/task-groups/${id}`,
 				waitThroughApproval: true,
 				onStatus: async (status: Record<string, unknown>) => {
 					statuses.push(status);
@@ -509,7 +509,7 @@ describe("the authorization wait status", () => {
 			expect(statuses[0]).toEqual({
 				task_group_id: "g1",
 				state: "awaiting_authorization",
-				authorization_url: "#/task-groups/g1",
+				authorization_url: "/task-groups/g1",
 			});
 		} finally {
 			await db.destroy();
