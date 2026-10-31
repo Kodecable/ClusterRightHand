@@ -86,7 +86,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	app.route("/api/auth", authRoutes(db, options));
 
 	app.use("/api/*", requireUser(db));
-	app.route("/api", userRoutes(db));
+	app.route("/api", userRoutes(db, { ...(options.agent ? { sessions: options.agent.runtime.sessionList } : {}) }));
 	app.route("/api", nodeRoutes(db, options));
 	app.route("/api", privilegeRoutes({ authorizationKey: options.authorizationKey }));
 	app.route("/api", credentialRoutes(db, { webauthn: options.webauthn }));

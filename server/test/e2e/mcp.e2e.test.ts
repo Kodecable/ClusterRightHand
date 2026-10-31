@@ -191,8 +191,8 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 
 	it("records every step in the audit log, with an intact hash chain", async () => {
 		await env.crhs.audit.flush();
-		const { events } = (await env.crhs.api("/api/audit?limit=500")).json;
-		const actions = new Set(events.map((e: { action: string }) => e.action));
+		const { items } = (await env.crhs.api("/api/audit?limit=200")).json;
+		const actions = new Set(items.map((e: { action: string }) => e.action));
 		for (const a of [
 			"api_token.created",
 			"tool.call",
@@ -207,6 +207,6 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 		}
 		const check = await waitFor("chain check", async () => (await env.crhs.api("/api/audit/verify")).json);
 		expect(check).toMatchObject({ ok: true });
-		expect(check.count).toBe(events.length);
+		expect(check.count).toBe(items.length);
 	});
 });

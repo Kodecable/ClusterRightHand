@@ -128,7 +128,7 @@ describe("task routes: privileged (sqlite)", () => {
 		const { task } = (await res.json()) as { task: TaskView };
 		await audit.flush();
 		const events = await call(app, `/api/audit?action=task.created&targetId=${task.id}`, { cookie });
-		const { events: list } = (await events.json()) as { events: { detail: Record<string, unknown> }[] };
+		const { items: list } = (await events.json()) as { items: { detail: Record<string, unknown> }[] };
 		expect(list[0]?.detail.privileged).toBe(true);
 	});
 });

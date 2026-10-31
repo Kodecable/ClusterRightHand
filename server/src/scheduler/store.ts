@@ -1,5 +1,5 @@
 import { Cron } from "croner";
-import type { Selectable } from "kysely";
+import { type Selectable, sql } from "kysely";
 import type { ModelRef } from "../agent/models.ts";
 import type { AuditActor } from "../audit/audit.ts";
 import type { Preset, Rule } from "../policy/rules.ts";
@@ -277,8 +277,9 @@ export async function updateSchedule(
  * Removes a schedule: its runs go with it (foreign key), its sessions keep no link (foreign key sets the column
  * null). The rule set stays, like an API token's, so the chains of past tasks keep resolving; each session a run
  * created is promoted to a root with the schedule's preset first (its own rule set was an inherit-only level).
+ * Returns the sessions that lost their schedule, so the caller can publish the change to the session list.
  */
-export async function deleteSchedule(db: Db, schedule: Schedule): Promise<void> {
+export async function deleteSchedule(db: Db, schedule: Schedule): Promise<string[]> {
 	const rules = await getRuleSet(db, { type: "schedule", id: schedule.id });
 	const sessions = await db.selectFrom("sessions").select("id").where("schedule_id", "=", schedule.id).execute();
 	for (const session of sessions) {
@@ -286,9 +287,14 @@ export async function deleteSchedule(db: Db, schedule: Schedule): Promise<void> 
 	}
 	await db.transaction().execute(async (trx) => {
 		await trx.deleteFrom("schedule_runs").where("schedule_id", "=", schedule.id).execute();
-		await trx.updateTable("sessions").set({ schedule_id: null }).where("schedule_id", "=", schedule.id).execute();
+		await trx
+			.updateTable("sessions")
+			.set({ schedule_id: null, updated_at: new Date().toISOString() })
+			.where("schedule_id", "=", schedule.id)
+			.execute();
 		await trx.deleteFrom("schedules").where("id", "=", schedule.id).execute();
 	});
+	return sessions.map((session) => session.id);
 }
 
 /** Replaces a scheduled session's rule set with a root-level one that keeps the schedule's policy. */
@@ -310,24 +316,22 @@ export async function getRun(db: Db, id: string): Promise<ScheduleRun | undefine
 	return row ? parseRun(row) : undefined;
 }
 
-/** Newest first, paged like GET /api/tasks. */
+/** Newest first; `before` continues `fire_time desc, id desc` (doc/webui.md#api-约定) for GET /schedules/:id/runs. */
 export async function listRuns(
 	db: Db,
 	scheduleId: string,
 	limit: number,
-	offset: number,
-): Promise<{ runs: ScheduleRun[]; nextOffset: number | null }> {
-	const rows = await db
-		.selectFrom("schedule_runs")
-		.selectAll()
-		.where("schedule_id", "=", scheduleId)
-		.orderBy("fire_time", "desc")
-		.orderBy("id", "desc")
-		.limit(limit + 1)
-		.offset(offset)
-		.execute();
-	const page = rows.slice(0, limit).map(parseRun);
-	return { runs: page, nextOffset: rows.length > limit ? offset + limit : null };
+	before?: { fireTime: string; id: string },
+): Promise<ScheduleRun[]> {
+	let query = db.selectFrom("schedule_runs").selectAll().where("schedule_id", "=", scheduleId);
+	if (before) {
+		// Same keyset shape as the cursor helper writes, kept local so this module has no API import.
+		query = query.where(
+			sql<boolean>`(fire_time < ${before.fireTime} OR (fire_time = ${before.fireTime} AND id < ${before.id}))`,
+		);
+	}
+	const rows = await query.orderBy("fire_time", "desc").orderBy("id", "desc").limit(limit).execute();
+	return rows.map(parseRun);
 }
 
 /** The schedule's latest run (whatever its status). */

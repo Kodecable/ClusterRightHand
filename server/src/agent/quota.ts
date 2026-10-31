@@ -245,7 +245,7 @@ export async function setSessionState(
 	const at = new Date().toISOString();
 	let update = db
 		.updateTable("sessions")
-		.set({ state, waiting_level_id: levelId, waiting_handler_id: handlerId, state_changed_at: at })
+		.set({ state, waiting_level_id: levelId, waiting_handler_id: handlerId, state_changed_at: at, updated_at: at })
 		.where("id", "=", sessionId);
 	// A concurrent settle/abort may have written stopped after our read; never overwrite it here.
 	if (state !== "stopped") update = update.where("state", "!=", "stopped");
@@ -265,13 +265,15 @@ async function parentOf(db: Db, sessionId: string): Promise<string | null | unde
 /** Marks subagent sessions stopped (cancelled, or a quota wait denied). Roots stay active and are reset separately. */
 export async function markSessionsStopped(db: Db, sessionIds: string[]): Promise<void> {
 	if (sessionIds.length === 0) return;
+	const at = new Date().toISOString();
 	await db
 		.updateTable("sessions")
 		.set({
 			state: "stopped",
 			waiting_level_id: null,
 			waiting_handler_id: null,
-			state_changed_at: new Date().toISOString(),
+			state_changed_at: at,
+			updated_at: at,
 		})
 		.where("id", "in", sessionIds)
 		.where("parent_session_id", "is not", null)

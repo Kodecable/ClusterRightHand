@@ -57,7 +57,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 	const auditOf = async (action: string, targetId: string) => {
 		await crhs().audit.flush();
 		const r = await crhs().api(`/api/audit?action=${action}&targetId=${targetId}`);
-		return r.json.events as { actorType: string; actorId: string; detail: Record<string, unknown> }[];
+		return r.json.items as { actorType: string; actorId: string; detail: Record<string, unknown> }[];
 	};
 
 	/** Opens the SSE stream; `next` yields the next message, `close` aborts the stream. */
@@ -142,7 +142,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 		it("creates a yolo session that shows up in the list", async () => {
 			const s = await newSession("yolo");
 			expect(s.rules?.preset).toBe("yolo");
-			const list = (await crhs().api("/api/sessions")).json.sessions as { id: string }[];
+			const list = (await crhs().api("/api/sessions")).json.items as { id: string }[];
 			expect(list.map((x) => x.id)).toContain(s.id);
 			const got = await crhs().api(`/api/sessions/${s.id}`);
 			expect(got.status).toBe(200);
@@ -340,18 +340,18 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			const stream = await openEvents(s.id, member);
 			expect(stream.res.status).toBe(404);
 			stream.close();
-			expect((await as(member, "/api/sessions")).json.sessions).toEqual([]);
+			expect((await as(member, "/api/sessions")).json.items).toEqual([]);
 			// Nothing changed.
 			expect((await crhs().api(`/api/sessions/${s.id}`)).json.session.title).toBe(s.title);
 		});
 
 		it("an administrator sees a member's session but cannot drive it", async () => {
 			const s = await newSession("ask", member);
-			expect((await as(member, "/api/sessions")).json.sessions.map((x: { id: string }) => x.id)).toEqual([s.id]);
-			expect((await as(member2, "/api/sessions")).json.sessions).toEqual([]);
+			expect((await as(member, "/api/sessions")).json.items.map((x: { id: string }) => x.id)).toEqual([s.id]);
+			expect((await as(member2, "/api/sessions")).json.items).toEqual([]);
 			const got = await crhs().api(`/api/sessions/${s.id}`);
 			expect(got.status).toBe(200);
-			expect((await crhs().api("/api/sessions")).json.sessions.map((x: { id: string }) => x.id)).toContain(s.id);
+			expect((await crhs().api("/api/sessions?scope=all")).json.items.map((x: { id: string }) => x.id)).toContain(s.id);
 			// Visible, but looking in does not drive it (doc/access-control.md#归属与分享).
 			expect((await send(s.id, "hi", "r-a")).status).toBe(403);
 			expect((await crhs().api(`/api/sessions/${s.id}`, { method: "PATCH", body: { preset: "yolo" } })).status).toBe(
@@ -399,7 +399,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			expect(messages).toHaveLength(1);
 			expect(messages[0]?.detail).toMatchObject({ submission_id: sub.json.submissionId, chars: "audit me".length });
 			await crhs().audit.flush();
-			const calls = (await crhs().api("/api/audit?action=tool.call&targetId=exec")).json.events as {
+			const calls = (await crhs().api("/api/audit?action=tool.call&targetId=exec")).json.items as {
 				actorType: string;
 				actorId: string;
 				detail: Record<string, unknown>;

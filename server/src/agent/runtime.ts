@@ -6,10 +6,12 @@ import {
 	CompactionTask,
 	type Conversation,
 	type ConversationId,
+	type Cursor,
 	createRegistry,
 	defineDocFamily,
 	defineExtension,
 	defineTool,
+	type EntryRecord,
 	type Extension,
 	GenerationTask,
 	Harness,
@@ -27,6 +29,7 @@ import {
 import { sql } from "kysely";
 import { Type } from "typebox";
 import * as z from "zod/v4";
+import { encodeCursor } from "../api/cursor.ts";
 import type { Audit } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import { type Actor, type ApprovalRecord, type Cluster, summarize } from "../cluster/cluster.ts";
@@ -65,6 +68,7 @@ import {
 	spentTokens,
 } from "./quota.ts";
 import { Reviewer } from "./review.ts";
+import { SessionListHub } from "./session-list.ts";
 import { sharedSessionAccess } from "./sharing.ts";
 
 /**
@@ -155,6 +159,14 @@ function wakeRequestKey(requestId: string): string | undefined {
 /** What a UI receives: a snapshot to start from, then batches of events (pi-durable's agent events, for now). */
 export type SessionEvent = AgentEvent;
 
+/** Entries a snapshot carries; older ones are paged through `GET /api/sessions/:id/entries`. */
+const SNAPSHOT_ENTRIES = 100;
+
+/** System messages (the prompt and tool schemas) are not shown in the chat; neither is the entry that holds them. */
+function isShownEntry(entry: { readonly model?: readonly { readonly role?: string }[] }): boolean {
+	return !(entry.model ?? []).some((message) => message.role === "system");
+}
+
 export interface AgentRuntimeOptions {
 	db: Db;
 	/**
@@ -178,6 +190,8 @@ export interface AgentRuntimeOptions {
 	 * make a compaction happen with a few messages.
 	 */
 	compaction?: CompactionSettings;
+	/** How long session-list writes are coalesced before one SSE upsert; 150 ms by default. */
+	sessionList?: { coalesceMs?: number };
 }
 
 const SYSTEM_PROMPT = `You are ClusterRightHand, an assistant that operates the user's servers ("nodes") through the cluster tools.
@@ -244,6 +258,8 @@ export class AgentRuntime {
 	#pendingWakes = new Map<string, Map<string, string>>();
 	/** Handlers with a `waitForIdle` observer attached. */
 	#idleWatchers = new Set<string>();
+	/** Open WebUI session-list streams; writes publish here, coalesced per session. */
+	readonly #sessionList: SessionListHub;
 
 	private constructor(harness: Harness, options: AgentRuntimeOptions) {
 		this.#db = options.db;
@@ -253,6 +269,7 @@ export class AgentRuntime {
 		this.#audit = options.audit;
 		this.#cluster = options.cluster;
 		this.#groups = options.groups;
+		this.#sessionList = new SessionListHub({ db: options.db, ...(options.sessionList ?? {}) });
 	}
 
 	static async #openHarness(options: AgentRuntimeOptions, ref: { current?: AgentRuntime }): Promise<Harness> {
@@ -345,9 +362,15 @@ export class AgentRuntime {
 		return this.#closing;
 	}
 
+	/** The session list's event hub, for `GET /api/sessions` and `GET /api/sessions/stream`. */
+	get sessionList(): SessionListHub {
+		return this.#sessionList;
+	}
+
 	async close(): Promise<void> {
 		this.#closing = true;
 		await this.#harness.close(this.#context);
+		this.#sessionList.close();
 	}
 
 	async createSession(
@@ -400,6 +423,7 @@ export class AgentRuntime {
 			target: { type: "session", id },
 			detail: { model: input.model, preset: input.preset },
 		});
+		this.#sessionList.publishSession(id);
 		return (await this.getSession(id)) as SessionView;
 	}
 
@@ -465,6 +489,7 @@ export class AgentRuntime {
 			target: { type: "session", id: input.id },
 			detail: { model: input.model, preset: null, schedule_id: input.scheduleId },
 		});
+		this.#sessionList.publishSession(input.id);
 		return (await this.getSession(input.id)) as SessionView;
 	}
 
@@ -610,15 +635,30 @@ export class AgentRuntime {
 					: update.where("last_submission_id", "=", row.last_submission_id);
 			const res = await update.executeTakeFirst();
 			if (res.numUpdatedRows === 0n) continue;
-			if (row.parent_session_id !== null) {
-				void submission
-					.wait(this.#context)
-					.then(() => this.#settleInput(sessionId, id))
-					.catch(() => {});
-			}
+			this.#sessionList.publishSession(sessionId);
+			// The list shows "last activity": a user message at submission, the assistant's at run end. Streaming
+			// commits in between do not touch the row (doc/webui.md#会话列表).
+			void submission
+				.wait(this.#context)
+				.then(async () => {
+					if (row.parent_session_id !== null) await this.#settleInput(sessionId, id);
+					else await this.#touchSession(sessionId);
+				})
+				.catch(() => {});
 			return true;
 		}
 		return false;
+	}
+
+	/** Records activity on a root session: `updated_at` moves it in the list, and the stream gets the new item. */
+	async #touchSession(sessionId: string): Promise<void> {
+		if (this.#closing) return;
+		await this.#db
+			.updateTable("sessions")
+			.set({ updated_at: new Date().toISOString() })
+			.where("id", "=", sessionId)
+			.execute();
+		this.#sessionList.publishSession(sessionId);
 	}
 
 	/** Reconciles old conversations with the depth limit; new children are handled in createSubagent. */
@@ -661,25 +701,29 @@ export class AgentRuntime {
 
 	/** Stops a subagent when its latest input settles; a newer input keeps the session running. */
 	async #settleInput(sessionId: string, submissionId: string): Promise<void> {
+		if (this.#closing) return;
 		const row = await this.#db
 			.selectFrom("sessions")
 			.select(["parent_session_id", "last_submission_id"])
 			.where("id", "=", sessionId)
 			.executeTakeFirst();
 		if (!row || row.parent_session_id === null || row.last_submission_id !== submissionId) return;
+		const at = new Date().toISOString();
 		await this.#db
 			.updateTable("sessions")
 			.set({
 				state: "stopped",
 				waiting_level_id: null,
 				waiting_handler_id: null,
-				state_changed_at: new Date().toISOString(),
+				state_changed_at: at,
+				updated_at: at,
 			})
 			.where("id", "=", sessionId)
 			.where("last_submission_id", "=", submissionId)
 			.where("parent_session_id", "is not", null)
 			.where("state", "!=", "stopped")
 			.execute();
+		this.#sessionList.publishSession(sessionId);
 		this.#forgetInbox(sessionId);
 	}
 
@@ -720,6 +764,7 @@ export class AgentRuntime {
 			}
 		}
 		await markSessionsStopped(this.#db, sessions);
+		for (const id of sessions) this.#sessionList.publishSession(id);
 		// A root has no stopped state: end the aborted root's own quota wait, then clear an ancestor's wait that
 		// only the aborted subtree caused.
 		for (const id of sessions) {
@@ -792,6 +837,7 @@ export class AgentRuntime {
 			})
 			.where("id", "=", sessionId)
 			.execute();
+		this.#sessionList.publishSession(sessionId);
 		return (await this.getSession(sessionId)) as SessionView;
 	}
 
@@ -800,14 +846,91 @@ export class AgentRuntime {
 	 * Returns a function that stops the stream.
 	 */
 	async watch(sessionId: string, onEvents: (events: SessionEvent[]) => Promise<void> | void, signal?: AbortSignal) {
-		const { row } = await this.#conversation(sessionId);
+		const { row, conversation } = await this.#conversation(sessionId);
 		const context = signal ? withAbortSignal(signal, this.#context) : this.#context;
 		const stream = await watchEvents(this.#harness, Number(row.conversation_id) as unknown as ConversationId, context);
-		await onEvents([{ type: "snapshot", snapshot: stream.snapshot } as unknown as SessionEvent]);
+		await onEvents([await this.#snapshotEvent(conversation, stream.snapshot)]);
+		// The client may have gone while the snapshot was being sent; starting the watch then would throw.
+		if (signal?.aborted) return () => stream.stop();
 		// The system prompt and tool schemas come as system messages: large, and nothing a chat UI shows.
 		const shown = (e: AgentEvent) => (e as { message?: { role?: string } }).message?.role !== "system";
 		stream.start(async (events) => onEvents((events as SessionEvent[]).filter(shown)));
 		return () => stream.stop();
+	}
+
+	/**
+	 * The first event of a watch, cut down to what the WebUI renders: the newest `SNAPSHOT_ENTRIES` shown entries
+	 * (system messages are not shown) and a `historyCursor` for `GET /sessions/:id/entries` when older records
+	 * exist (doc/webui.md#会话事件流和历史). The cursor points just before the oldest returned entry, so the
+	 * snapshot and the pages that follow it never overlap or skip.
+	 */
+	async #snapshotEvent(
+		conversation: Conversation,
+		snapshot: { readonly entries: readonly EntryRecord[] },
+	): Promise<SessionEvent> {
+		const entries = snapshot.entries.filter(isShownEntry);
+		const kept = entries.slice(-SNAPSHOT_ENTRIES);
+		let historyCursor: string | null = null;
+		if (entries.length > SNAPSHOT_ENTRIES) {
+			// The kept page starts inside the snapshot: the entries before its oldest one are the next page.
+			const oldestKept = kept[0];
+			if (oldestKept) historyCursor = encodeCursor([], Number(oldestKept.id));
+		} else {
+			// Everything shown in the snapshot is here; history can only start before the whole snapshot.
+			const oldestEntry = snapshot.entries[0];
+			if (oldestEntry && (await this.#hasEntryBefore(conversation, Number(oldestEntry.id)))) {
+				historyCursor = encodeCursor([], Number(oldestEntry.id));
+			}
+		}
+		return {
+			type: "snapshot",
+			snapshot: { ...snapshot, entries: kept, historyCursor },
+		} as unknown as SessionEvent;
+	}
+
+	/** Whether the conversation has any record (shown or not) older than `entryId`; one indexed read. */
+	async #hasEntryBefore(conversation: Conversation, entryId: number): Promise<boolean> {
+		const page = await conversation.entries(
+			{ order: "descending" },
+			1,
+			{ after: entryId, order: "descending" },
+			this.#context,
+		);
+		return page.items.length > 0;
+	}
+
+	/**
+	 * A page of a session's history for `GET /sessions/:id/entries`: shown entries only, oldest first, ending
+	 * immediately before `before`. The durable scan is indexed by (conversation, entry id), so a page costs
+	 * O(page) reads; fork chains are walked segment by segment. New entries append at higher ids and cannot
+	 * disturb pages that walk backwards.
+	 */
+	async entriesPage(
+		sessionId: string,
+		before: number | undefined,
+		limit: number,
+	): Promise<{ entries: EntryRecord[]; historyCursor: string | null }> {
+		const { conversation } = await this.#conversation(sessionId);
+		const wanted = limit + 1;
+		const collected: EntryRecord[] = [];
+		let cursor: Cursor | undefined = before === undefined ? undefined : { after: before, order: "descending" };
+		while (collected.length < wanted) {
+			const page = await conversation.entries(
+				{ order: "descending" },
+				wanted - collected.length,
+				cursor,
+				this.#context,
+			);
+			for (const entry of page.items) if (isShownEntry(entry)) collected.push(entry);
+			if (!page.next) break;
+			cursor = page.next;
+		}
+		const pageEntries = collected.slice(0, limit);
+		const oldest = pageEntries[pageEntries.length - 1];
+		return {
+			entries: pageEntries.reverse(),
+			historyCursor: collected.length > limit && oldest ? encodeCursor([], Number(oldest.id)) : null,
+		};
 	}
 
 	/** The session a conversation belongs to, for tool calls that only know their conversation id. */
@@ -1347,6 +1470,7 @@ export class AgentRuntime {
 				const level = await exhaustedLevel(this.#db, sessionId);
 				if (!level) {
 					await setSessionState(this.#db, sessionId, "active", null);
+					this.#sessionList.publishSession(sessionId);
 					// The quota request is gone; drop it from the handler's cache before returning.
 					this.#invalidateInboxes();
 					if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
@@ -1364,8 +1488,12 @@ export class AgentRuntime {
 				}
 				const parent = await this.#parentOf(level);
 				const since = await setSessionState(this.#db, sessionId, "awaiting", level);
+				this.#sessionList.publishSession(sessionId);
 				// The root has no parent to handle its wait; it shows `awaiting` until its owner grants or denies.
-				if (!parent && level !== sessionId) await setSessionState(this.#db, level, "awaiting", level);
+				if (!parent && level !== sessionId) {
+					await setSessionState(this.#db, level, "awaiting", level);
+					this.#sessionList.publishSession(level);
+				}
 				// A deny/abort could have landed between the check and the write; do not wake for a stopped wait.
 				if (this.#deniedWaits.delete(sessionId)) return "denied";
 				if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
@@ -1426,6 +1554,7 @@ export class AgentRuntime {
 				(await exhaustedLevel(this.#db, sessionId)) === sessionId &&
 				(await this.#hasQuotaWait(sessionId));
 			await setSessionState(this.#db, sessionId, waiting ? "awaiting" : "active", waiting ? row.id : null);
+			this.#sessionList.publishSession(sessionId);
 			if (!waiting && (row.state !== "active" || row.waiting_level_id !== null)) this.#invalidateInboxes();
 			return waiting ? "awaiting" : "active";
 		}
@@ -1452,6 +1581,7 @@ export class AgentRuntime {
 		const state: SessionState = awaiting ? "awaiting" : "active";
 		const nextLevel = quotaWait ? (level ?? null) : null;
 		await setSessionState(this.#db, sessionId, state, nextLevel);
+		this.#sessionList.publishSession(sessionId);
 		// Approval/quota changes alter the handler's inbox; write-state and cache invalidation are adjacent.
 		if (row.state !== state || row.waiting_level_id !== nextLevel) this.#invalidateInboxes();
 		return state;
@@ -1593,6 +1723,7 @@ export class AgentRuntime {
 				const settled = await submission?.status(this.#context);
 				if (settled?.status === "done" || settled?.status === "unanswered") {
 					await setSessionState(this.#db, child.id, "stopped", null);
+					this.#sessionList.publishSession(child.id);
 					continue;
 				}
 			}
@@ -1872,9 +2003,9 @@ async function toolContextFor(
 		user: { userId: owner.id, username: owner.username, kind: owner.kind, sessionId: `session:${session.id}` },
 		actor,
 		chain,
-		approvalUrl: (kind, id) => `#/approvals/${kind === "task" ? "tasks" : "task-groups"}/${id}`,
-		taskUrl: (id) => `#/tasks/${id}`,
-		groupUrl: (id) => `#/task-groups/${id}`,
+		approvalUrl: (kind, id) => `/approvals/${kind === "task" ? "tasks" : "task-groups"}/${id}`,
+		taskUrl: (id) => `/tasks/${id}`,
+		groupUrl: (id) => `/task-groups/${id}`,
 		defaultWaitS: 600,
 		waitThroughApproval: true,
 	};

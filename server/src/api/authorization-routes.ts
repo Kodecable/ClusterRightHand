@@ -19,6 +19,10 @@ import { WebauthnError } from "../privilege/webauthn.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
+import { type CursorSpec, cursorRows, decodeCursor, descendingKeyset, encodeCursor, parseLimit } from "./cursor.ts";
+
+/** `GET /authorizations` pages over `created_at desc, id desc` (doc/webui.md#api-约定). */
+const AUTHORIZATIONS_CURSOR: CursorSpec = { columns: [{ name: "created_at", type: "string" }], idType: "string" };
 
 export interface AuthorizationRoutesOptions {
 	cluster?: Cluster;
@@ -60,21 +64,32 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 		return c.json({ authorization: { id: result.id, dispatched: result.dispatched } });
 	});
 
-	/** The caller's own authorizations; administrators see their organization's (doc/access-control.md#审计). */
+	/**
+	 * The caller's own authorizations; administrators see their organization's (doc/access-control.md#审计).
+	 * Keyset paginated: the old hard cap of 200 rows is gone (doc/webui.md#api-约定).
+	 */
 	app.get("/authorizations", async (c) => {
 		const user = c.get("user");
 		const orgId = await orgOf(db, user.userId);
-		let query = db.selectFrom("authorizations").selectAll().orderBy("created_at", "desc").limit(200);
+		const limit = parseLimit(c.req.query("limit"));
+		const rawCursor = c.req.query("cursor");
+		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, AUTHORIZATIONS_CURSOR);
+		let query = db.selectFrom("authorizations").selectAll();
 		query =
 			user.kind === "admin" && orgId !== undefined
 				? query.where("org_id", "=", orgId)
 				: query.where("issuer_user_id", "=", user.userId);
-		const rows = await query.execute();
+		if (cursor) query = query.where(descendingKeyset(["created_at"], cursor));
+		const page = await cursorRows(
+			limit,
+			(limitPlusOne) => query.orderBy("created_at", "desc").orderBy("id", "desc").limit(limitPlusOne).execute(),
+			(row) => encodeCursor([row.created_at], row.id),
+		);
 		const users = new Map(
 			(await db.selectFrom("users").select(["id", "username"]).execute()).map((row) => [row.id, row.username]),
 		);
 		return c.json({
-			authorizations: rows.map((row) => {
+			items: page.rows.map((row) => {
 				let decoded: ReturnType<typeof decodedPayloadOf> | null = null;
 				try {
 					decoded = decodedPayloadOf(parseStoredPayload(row.payload));
@@ -94,6 +109,7 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 					revokedAt: row.revoked_at,
 				};
 			}),
+			nextCursor: page.nextCursor,
 		});
 	});
 

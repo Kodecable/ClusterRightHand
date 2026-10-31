@@ -24,9 +24,10 @@ import {
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
+import { type CursorSpec, cursorRows, decodeCursor, encodeCursor, parseLimit } from "./cursor.ts";
 
-const DEFAULT_PAGE = 50;
-const MAX_PAGE = 100;
+/** `GET /schedules/:id/runs` pages over `fire_time desc, id desc`. */
+const RUNS_CURSOR: CursorSpec = { columns: [{ name: "fire_time", type: "string" }], idType: "string" };
 const PREVIEW_COUNT = 5;
 
 export interface ScheduleRoutesOptions {
@@ -207,13 +208,24 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 		return c.json({ run }, 202);
 	});
 
-	/** Run history, newest first and paged like GET /api/tasks. */
+	/** Run history, newest first, one keyset page at a time (doc/webui.md#api-约定). */
 	app.get("/schedules/:id/runs", async (c) => {
 		const schedule = await own(c);
-		const limit = pageSize(c.req.query("limit"));
-		const offset = pageOffset(c.req.query("offset"));
-		const { runs, nextOffset } = await listRuns(db, schedule.id, limit, offset);
-		return c.json({ runs, offset, limit, nextOffset });
+		const limit = parseLimit(c.req.query("limit"));
+		const rawCursor = c.req.query("cursor");
+		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, RUNS_CURSOR);
+		const page = await cursorRows(
+			limit,
+			(limitPlusOne) =>
+				listRuns(
+					db,
+					schedule.id,
+					limitPlusOne,
+					cursor ? { fireTime: String(cursor.values[0]), id: String(cursor.id) } : undefined,
+				),
+			(run) => encodeCursor([run.fireTime], run.id),
+		);
+		return c.json({ items: page.rows, nextCursor: page.nextCursor });
 	});
 
 	return app;
@@ -248,14 +260,4 @@ function scheduleDetail(schedule: Schedule, extra: Record<string, unknown> = {})
 		next_run_at: schedule.nextRunAt,
 		...extra,
 	};
-}
-
-function pageSize(raw: string | undefined): number {
-	const value = Number(raw ?? DEFAULT_PAGE);
-	return Number.isFinite(value) && value > 0 ? Math.min(Math.floor(value), MAX_PAGE) : DEFAULT_PAGE;
-}
-
-function pageOffset(raw: string | undefined): number {
-	const value = Number(raw ?? 0);
-	return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }

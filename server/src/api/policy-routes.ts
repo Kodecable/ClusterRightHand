@@ -8,6 +8,10 @@ import { appendRule, parsePreset, type RuleRef, setPreset, setRules } from "../p
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
+import { type CursorSpec, cursorRows, decodeCursor, encodeCursor, parseLimit } from "./cursor.ts";
+
+/** `GET /api/audit` pages over `seq desc` (doc/webui.md#api-约定); the id is carried by the shared format. */
+const AUDIT_CURSOR: CursorSpec = { columns: [{ name: "seq", type: "number" }], idType: "string" };
 
 /**
  * API tokens (with their rules), approvals and the audit log. Management needs a WebUI session: these
@@ -296,14 +300,21 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 	app.get("/audit", async (c) => {
 		const q = c.req.query();
 		const action = q.action && /^[a-z_.]{1,64}$/.test(q.action) ? q.action : undefined;
-		const events = await listAuditEvents(db, c.get("user"), {
-			action,
-			targetType: q.targetType || undefined,
-			targetId: q.targetId || undefined,
-			beforeSeq: q.beforeSeq ? Number(q.beforeSeq) || undefined : undefined,
-			limit: q.limit ? Number(q.limit) || undefined : undefined,
-		});
-		return c.json({ events });
+		const limit = parseLimit(q.limit);
+		const cursor = q.cursor === undefined ? undefined : decodeCursor(q.cursor, AUDIT_CURSOR);
+		const page = await cursorRows(
+			limit,
+			(limitPlusOne) =>
+				listAuditEvents(db, c.get("user"), {
+					action,
+					targetType: q.targetType || undefined,
+					targetId: q.targetId || undefined,
+					...(cursor ? { before: { seq: Number(cursor.values[0]), id: String(cursor.id) } } : {}),
+					limit: limitPlusOne,
+				}),
+			(event) => encodeCursor([event.seq], event.id),
+		);
+		return c.json({ items: page.rows, nextCursor: page.nextCursor });
 	});
 
 	app.get("/audit/verify", async (c) => {

@@ -1,4 +1,5 @@
 import type { TaskSpec } from "@crh/protocol";
+import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cluster, type TaskView } from "../src/cluster/cluster.ts";
 import { shareNode } from "../src/cluster/nodes.ts";
@@ -98,10 +99,8 @@ describe("task list api (sqlite)", () => {
 
 	const list = async (who: string, query = "") =>
 		(await call(app, `/api/tasks${query}`, { cookie: cookies[who] })).json() as Promise<{
-			tasks: TaskView[];
-			offset: number;
-			limit: number;
-			nextOffset: number | null;
+			items: TaskView[];
+			nextCursor: string | null;
 		}>;
 
 	beforeAll(async () => {
@@ -138,12 +137,12 @@ describe("task list api (sqlite)", () => {
 		const own1 = await mkTask({ nodeId: n1 });
 		const own2 = await mkTask({ nodeId: n2 });
 		// A member shared into n1 sees its tasks; one without a share sees none of them.
-		expect((await list("alice")).tasks.map((t) => t.id)).toEqual(expect.arrayContaining([own1.id, own2.id]));
+		expect((await list("alice")).items.map((t) => t.id)).toEqual(expect.arrayContaining([own1.id, own2.id]));
 		const bob = await list("bob");
-		expect(bob.tasks.map((t) => t.id)).toContain(own1.id);
-		expect(bob.tasks.map((t) => t.id)).not.toContain(own2.id);
-		expect((await list("carol")).tasks).toEqual([]);
-		expect((await list("root")).tasks.map((t) => t.id)).toEqual(expect.arrayContaining([own1.id, own2.id]));
+		expect(bob.items.map((t) => t.id)).toContain(own1.id);
+		expect(bob.items.map((t) => t.id)).not.toContain(own2.id);
+		expect((await list("carol")).items).toEqual([]);
+		expect((await list("root")).items.map((t) => t.id)).toEqual(expect.arrayContaining([own1.id, own2.id]));
 	});
 
 	it("lists a waiting task group once, not once per member task", async () => {
@@ -193,9 +192,9 @@ describe("task list api (sqlite)", () => {
 		// The list of tasks still shows the members, but none of them jumps ahead of a newer ordinary
 		// task: the signature is given on the group page, so per-node waits get no priority.
 		const ordinary = await mkTask({ nodeId: nodeIds[0] as string });
-		const onNode = (await list("alice", `?nodeId=${nodeIds[0]}`)).tasks.map((t) => t.id);
+		const onNode = (await list("alice", `?nodeId=${nodeIds[0]}`)).items.map((t) => t.id);
 		expect(onNode[0]).toBe(ordinary.id);
-		const all = (await list("alice")).tasks.map((t) => t.id);
+		const all = (await list("alice")).items.map((t) => t.id);
 		expect(all).toEqual(expect.arrayContaining(members));
 	});
 
@@ -210,19 +209,19 @@ describe("task list api (sqlite)", () => {
 		expect(waiting.state).toBe("awaiting_approval");
 
 		const byState = await list("alice", "?state=awaiting_approval");
-		expect(byState.tasks.map((t) => t.id)).toContain(waiting.id);
-		expect(byState.tasks.every((t) => t.state === "awaiting_approval")).toBe(true);
+		expect(byState.items.map((t) => t.id)).toContain(waiting.id);
+		expect(byState.items.every((t) => t.state === "awaiting_approval")).toBe(true);
 
 		const byNode = await list("alice", `?nodeId=${n2}`);
-		expect(byNode.tasks.length).toBeGreaterThan(0);
-		expect(byNode.tasks.every((t) => t.nodeId === n2)).toBe(true);
+		expect(byNode.items.length).toBeGreaterThan(0);
+		expect(byNode.items.every((t) => t.nodeId === n2)).toBe(true);
 
 		const byActor = await list("alice", "?actorType=api_token");
-		expect(byActor.tasks.map((t) => t.id)).toContain(waiting.id);
-		expect(byActor.tasks.every((t) => t.actorType === "api_token")).toBe(true);
+		expect(byActor.items.map((t) => t.id)).toContain(waiting.id);
+		expect(byActor.items.every((t) => t.actorType === "api_token")).toBe(true);
 
 		const combined = await list("alice", `?state=awaiting_approval&nodeId=${n1}&actorType=api_token`);
-		expect(combined.tasks.map((t) => t.id)).toEqual([waiting.id]);
+		expect(combined.items.map((t) => t.id)).toEqual([waiting.id]);
 		await cluster.decide(waiting.id, {
 			decision: "rejected",
 			by: { type: "user", id: uid.alice as string, onBehalfOfUserId: uid.alice as string },
@@ -230,62 +229,83 @@ describe("task list api (sqlite)", () => {
 		});
 	});
 
-	it("puts the tasks waiting for this user first unless a state is given", async () => {
-		// Older tasks first, so ordering by created_at alone would put the waiting ones last.
-		const old1 = await mkTask({ nodeId: n1 });
-		const old2 = await mkTask({ nodeId: n2 });
+	it("orders only by created_at desc, id desc", async () => {
+		const node = await addNode("order-node");
 		const tok = await newToken("ask");
-		const approval = await cluster.createTask({
-			nodeId: n1,
-			spec: execSpec("echo", "approval"),
+		const waiting = await cluster.createTask({
+			nodeId: node,
+			spec: execSpec("echo", "waiting"),
 			chain: [{ type: "api_token", id: tok }],
 			actor: tokenActor(tok),
 		});
-		// A signature wait: the server only reads the row, so the state is set directly.
-		const signature = await mkTask({ nodeId: n1, actor: tokenActor(tok) });
-		await db.updateTable("tasks").set({ state: "awaiting_authorization" }).where("id", "=", signature.id).execute();
-		// Another user's signature wait must not jump ahead of alice's own.
-		const othersSignature = await mkTask({ nodeId: n1 });
+		expect(waiting.state).toBe("awaiting_approval");
 		await db
 			.updateTable("tasks")
-			.set({ state: "awaiting_authorization", on_behalf_of_user_id: uid.bob as string })
-			.where("id", "=", othersSignature.id)
+			.set({ created_at: sql`'2026-01-01T00:00:00.000Z'` })
+			.where("id", "=", waiting.id)
+			.execute();
+		const normal = await mkTask({ nodeId: node });
+		await db
+			.updateTable("tasks")
+			.set({ created_at: sql`'2026-01-02T00:00:00.000Z'` })
+			.where("id", "=", normal.id)
 			.execute();
 
-		const all = (await list("alice")).tasks.map((t) => t.id);
-		const waiting = new Set([approval.id, signature.id]);
-		expect(new Set(all.slice(0, 2))).toEqual(waiting);
-		expect(all.indexOf(othersSignature.id)).toBeGreaterThan(1);
-		expect(all.indexOf(old1.id)).toBeGreaterThan(1);
-		expect(all.indexOf(old2.id)).toBeGreaterThan(1);
-		await cluster.decide(approval.id, {
+		// Waiting for this user no longer jumps ahead: the newer ordinary task is first.
+		const ordered = (await list("alice", `?nodeId=${node}`)).items.map((t) => t.id);
+		expect(ordered).toEqual([normal.id, waiting.id]);
+
+		// A tie on created_at is broken by the id, descending.
+		await db
+			.updateTable("tasks")
+			.set({ created_at: sql`'2026-01-03T00:00:00.000Z'` })
+			.where("id", "in", [normal.id, waiting.id])
+			.execute();
+		const [first, second] = [normal.id, waiting.id].sort().reverse() as [string, string];
+		expect((await list("alice", `?nodeId=${node}`)).items.map((t) => t.id)).toEqual([first, second]);
+		await cluster.decide(waiting.id, {
 			decision: "rejected",
 			by: { type: "user", id: uid.alice as string, onBehalfOfUserId: uid.alice as string },
 			at: new Date().toISOString(),
 		});
 	});
 
-	it("paginates newest first and caps the page size", async () => {
-		for (let i = 0; i < 5; i++) await mkTask({ nodeId: n1, spec: execSpec("echo", `page-${i}`) });
-		// A state filter keeps the plain newest-first order; the default order moves the waits first.
-		const first = await list("alice", "?state=failed&limit=2");
-		expect(first.tasks).toHaveLength(2);
-		expect(first.limit).toBe(2);
-		expect(first.nextOffset).toBe(2);
-		const second = await list("alice", "?state=failed&limit=2&offset=2");
-		expect(second.tasks).toHaveLength(2);
-		expect(second.nextOffset).toBe(4);
-		expect(second.tasks.map((t) => t.id)).not.toEqual(first.tasks.map((t) => t.id));
-		// Newest first: created_at desc.
-		expect(new Date(first.tasks[0]?.createdAt as string).getTime()).toBeGreaterThanOrEqual(
-			new Date(first.tasks[1]?.createdAt as string).getTime(),
-		);
-		const capped = await list("alice", "?limit=1000");
-		expect(capped.limit).toBe(100);
+	it("pages with a keyset cursor and validates the page size", async () => {
+		const node = await addNode("page-node");
+		const created: string[] = [];
+		for (let index = 0; index < 7; index++) {
+			const task = await mkTask({ nodeId: node, spec: execSpec("echo", `page-${index}`) });
+			await db
+				.updateTable("tasks")
+				.set({ created_at: sql`${`2026-02-01T00:00:0${index}.000Z`}` })
+				.where("id", "=", task.id)
+				.execute();
+			created.push(task.id);
+		}
+		const expected = [...created].reverse();
+		const seen: string[] = [];
+		let cursor: string | null = null;
+		for (let guard = 0; guard < 10; guard++) {
+			const page = await list(
+				"alice",
+				`?nodeId=${node}&limit=3${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+			);
+			expect(page.items.length).toBeLessThanOrEqual(3);
+			seen.push(...page.items.map((t) => t.id));
+			cursor = page.nextCursor;
+			if (!cursor) break;
+		}
+		expect(seen).toEqual(expected);
+		expect(new Set(seen).size).toBe(expected.length);
+
+		expect((await call(app, "/api/tasks?limit=200", { cookie: cookies.alice })).status).toBe(200);
+		for (const query of ["?limit=201", "?limit=0", "?cursor=garbage", "?cursor="]) {
+			expect((await call(app, `/api/tasks${query}`, { cookie: cookies.alice })).status, query).toBe(400);
+		}
 	});
 
-	it("rejects an unknown filter or node and an invalid page", async () => {
-		for (const query of ["?state=bogus", "?actorType=bogus", "?limit=0", "?offset=-1"]) {
+	it("rejects an unknown filter or node", async () => {
+		for (const query of ["?state=bogus", "?actorType=bogus"]) {
 			expect((await call(app, `/api/tasks${query}`, { cookie: cookies.alice })).status, query).toBe(400);
 		}
 		expect((await call(app, `/api/tasks?nodeId=${newId()}`, { cookie: cookies.alice })).status).toBe(404);

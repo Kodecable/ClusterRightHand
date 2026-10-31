@@ -13,6 +13,14 @@ import { parseQuota } from "../agent/quota.ts";
 import { getReviewModel, setReviewModel } from "../agent/review.ts";
 import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
 import {
+	type SessionListScope,
+	type SessionListSubscriber,
+	sessionListCursor,
+	sessionListItem,
+	sessionListQuery,
+	shareAudienceUserIds,
+} from "../agent/session-list.ts";
+import {
 	capabilitiesFor,
 	listSessionShares,
 	type SessionPermissions,
@@ -31,6 +39,7 @@ import type { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
+import { type CursorSpec, cursorRows, decodeCursor, parseLimit } from "./cursor.ts";
 import type { RequestDrain } from "./drain.ts";
 
 export interface SessionRoutesOptions {
@@ -44,6 +53,18 @@ export interface SessionRoutesOptions {
 	/** Tells the scheduler when a scheduled run's root quota was denied, so the run ends failed (doc/scheduling.md). */
 	scheduler?: Scheduler;
 }
+
+/** The session list's cursor: `updated_at desc, id desc`. */
+const SESSION_LIST_CURSOR: CursorSpec = {
+	columns: [{ name: "sessions.updated_at", type: "string" }],
+	idType: "string",
+	idColumn: "sessions.id",
+};
+/** A history cursor is just the entry id to stop before, so it needs no sort column. */
+const HISTORY_CURSOR: CursorSpec = { columns: [], idType: "number" };
+/** History pages default to 100 entries (doc/webui.md#会话事件流和历史). */
+const DEFAULT_HISTORY = 100;
+const SCOPES: ReadonlySet<string> = new Set(["mine", "shared", "all"]);
 
 /** `stream.sleep`, but wakes up when the stream ends, so shutdown need not wait out a ping interval. */
 function sleepFor(ms: number, signal: AbortSignal): Promise<void> {
@@ -81,6 +102,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		"abort",
 		() => {
 			for (const stream of [...streams]) endStream(stream);
+			options.runtime.sessionList.close();
 		},
 		{ once: true },
 	);
@@ -214,11 +236,80 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		});
 	};
 
+	/**
+	 * Root sessions as `SessionListItem`, newest activity first, one keyset page at a time
+	 * (doc/webui.md#会话列表). `scope=all` is administrators only; `shared` means a share reaches the caller,
+	 * not ownership. `GET /sessions/:id` stays the full SessionView.
+	 */
 	app.get("/sessions", async (c) => {
+		const user = c.get("user");
+		const scope = c.req.query("scope") ?? "mine";
+		if (!SCOPES.has(scope)) return jsonError(c, 400, "scope must be mine, shared or all");
+		if (scope === "all" && user.kind !== "admin") return jsonError(c, 403, "administrators only");
+		const limit = parseLimit(c.req.query("limit"));
+		const rawCursor = c.req.query("cursor");
+		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, SESSION_LIST_CURSOR);
+		const q = c.req.query("q");
 		const scheduleId = c.req.query("scheduleId");
-		const sessions = await runtime.listSessions(c.get("user"), scheduleId === undefined ? {} : { scheduleId });
-		return c.json({ sessions: await decorate(c, sessions) });
+		const page = await cursorRows(
+			limit,
+			async (limitPlusOne) =>
+				(
+					await sessionListQuery(db, user, {
+						scope: scope as SessionListScope,
+						...(q ? { q } : {}),
+						...(scheduleId === undefined ? {} : { scheduleId }),
+						...(cursor ? { cursor } : {}),
+					})
+				)
+					.limit(limitPlusOne)
+					.execute(),
+			(row) => sessionListCursor(row.updated_at, row.id),
+		);
+		return c.json({
+			// The query's `shared` EXISTS is 0/1 on SQLite and a boolean on PostgreSQL.
+			items: page.rows.map((row) => sessionListItem(row, user.userId, Boolean(row.shared))),
+			nextCursor: page.nextCursor,
+		});
 	});
+
+	/**
+	 * Session list changes as server-sent events (doc/webui.md#会话列表): `upsert` carries the item as this
+	 * subscriber sees it, `remove` says the session is gone (deleted, no longer shared, archived), and `ping`
+	 * keeps the connection alive. No initial snapshot: the client fetches page one and reconnects after errors.
+	 */
+	app.get("/sessions/stream", (c) =>
+		streamSSE(c, async (stream) => {
+			const abort = new AbortController();
+			let queue: Promise<unknown> = Promise.resolve();
+			const subscriber: SessionListSubscriber = {
+				user: c.get("user"),
+				send: (event, data) => {
+					queue = queue.then(() => stream.writeSSE({ event, data: JSON.stringify(data) }));
+					void queue.catch(() => stream.abort());
+				},
+				close: () => stream.abort(),
+			};
+			const unsubscribe = runtime.sessionList.subscribe(subscriber);
+			stream.onAbort(() => {
+				unsubscribe();
+				abort.abort();
+			});
+			// As with a session's event stream, the connection keeps shutdown waiting until it ends.
+			const release = drain?.hold();
+			try {
+				if (drain?.shutdown.signal.aborted) stream.abort();
+				if (abort.signal.aborted) return;
+				while (!abort.signal.aborted) {
+					await sleepFor(15_000, abort.signal);
+					if (!abort.signal.aborted) await stream.writeSSE({ event: "ping", data: "" });
+				}
+			} finally {
+				unsubscribe();
+				release?.();
+			}
+		}),
+	);
 
 	app.post("/sessions", async (c) => {
 		const body = (await readJsonObject(c)) ?? {};
@@ -274,6 +365,10 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			access: body.access,
 			createdBy: c.get("user").userId,
 		});
+		await runtime.sessionList.publishShareAdded(v.session.id, {
+			granteeType: body.granteeType,
+			granteeId: body.granteeId,
+		});
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "session.shared",
@@ -288,7 +383,12 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		if (!v) return jsonError(c, 404, "no such session");
 		if (!v.capabilities.manageShares) return jsonError(c, 403, "the owner only");
 		const share = (await listSessionShares(db, v.session.id)).find((s) => s.id === c.req.param("shareId"));
+		// Who the share reached, captured before the row goes: losing it may remove the session from their list.
+		const audience = share
+			? await shareAudienceUserIds(db, { granteeType: share.granteeType, granteeId: share.granteeId })
+			: [];
 		await unshareSession(db, v.session.id, c.req.param("shareId"));
+		await runtime.sessionList.publishShareRemoved(v.session.id, audience);
 		await revalidateStreams();
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
@@ -436,6 +536,22 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 				release?.();
 			}
 		});
+	});
+
+	/**
+	 * Older history for a session, one page at a time (doc/webui.md#会话事件流和历史): the shown entries
+	 * immediately before `before`, oldest first, plus the cursor for the page after this one. The snapshot's
+	 * `historyCursor` is the first `before`; a later page's `historyCursor` is the next. Visibility is the
+	 * same as for `/events`.
+	 */
+	app.get("/sessions/:id/entries", async (c) => {
+		const v = await visible(c, c.req.param("id"));
+		if (!v) return jsonError(c, 404, "no such session");
+		const limit = parseLimit(c.req.query("limit"), DEFAULT_HISTORY);
+		const before = c.req.query("before");
+		const beforeId = before === undefined ? undefined : Number(decodeCursor(before, HISTORY_CURSOR).id);
+		const page = await runtime.entriesPage(v.session.id, beforeId, limit);
+		return c.json({ entries: page.entries, historyCursor: page.historyCursor });
 	});
 
 	return app;

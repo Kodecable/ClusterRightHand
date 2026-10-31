@@ -223,11 +223,11 @@ describeBackends("api tokens", (backend) => {
 
 			await audit.flush();
 			const ev = (await (await call(app, `/api/audit?action=rules.changed&targetId=${id}`, ck("alice"))).json()) as {
-				events: { action: string; targetType: string; detail: { preset?: string } }[];
+				items: { action: string; targetType: string; detail: { preset?: string } }[];
 			};
-			expect(ev.events).toHaveLength(3);
-			expect(ev.events[0]).toMatchObject({ action: "rules.changed", targetType: "api_token" });
-			expect(ev.events[2]?.detail.preset).toBe("yolo");
+			expect(ev.items).toHaveLength(3);
+			expect(ev.items[0]).toMatchObject({ action: "rules.changed", targetType: "api_token" });
+			expect(ev.items[2]?.detail.preset).toBe("yolo");
 		});
 
 		it("rejects invalid rules and leaves the token unchanged", async () => {

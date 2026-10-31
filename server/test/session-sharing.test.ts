@@ -92,17 +92,12 @@ async function newSession(cookie: string, title: string, preset = "ask") {
 const share = (id: string, cookie: string, body: Record<string, unknown>) =>
 	call(app, `/api/sessions/${id}/shares`, { method: "PUT", cookie, body });
 
-const list = async (cookie: string) =>
+const list = async (cookie: string, query = "") =>
 	(
-		(await (await call(app, "/api/sessions", { cookie })).json()) as {
-			sessions: {
-				id: string;
-				relationship: string;
-				capabilities: { view: boolean; chat: boolean; manageShares: boolean; configure: boolean };
-				ownerUsername: string | null;
-			}[];
+		(await (await call(app, `/api/sessions${query}`, { cookie })).json()) as {
+			items: { id: string; shared: boolean; ownerName: string; ownerUserId: string }[];
 		}
-	).sessions;
+	).items;
 
 const get = (id: string, cookie: string) => call(app, `/api/sessions/${id}`, { cookie });
 
@@ -125,12 +120,8 @@ it("is invisible until shared, then view can look but not drive", async () => {
 	expect((await list(bob)).map((x) => x.id)).not.toContain(s.id);
 
 	expect((await share(s.id, alice, { granteeType: "user", granteeId: bobId, access: "view" })).status).toBe(200);
-	const seen = (await list(bob)).find((x) => x.id === s.id);
-	expect(seen).toMatchObject({
-		relationship: "shared",
-		capabilities: { view: true, chat: false, manageShares: false, configure: false },
-		ownerUsername: "alice",
-	});
+	const seen = (await list(bob, "?scope=shared")).find((x) => x.id === s.id);
+	expect(seen).toMatchObject({ shared: true, ownerName: "alice" });
 	const res = await get(s.id, bob);
 	expect(res.status).toBe(200);
 	expect(
@@ -169,8 +160,11 @@ it("shares to a group reach its members only", async () => {
 	expect((await share(s.id, alice, { granteeType: "user_group", granteeId: groupId, access: "view" })).status).toBe(
 		200,
 	);
-	expect((await list(bob)).find((x) => x.id === s.id)?.capabilities).toMatchObject({ view: true, chat: false });
-	expect((await list(carol)).map((x) => x.id)).not.toContain(s.id);
+	const member = (await (await get(s.id, bob)).json()) as {
+		session: { capabilities: { view: boolean; chat: boolean } };
+	};
+	expect(member.session.capabilities).toMatchObject({ view: true, chat: false });
+	expect((await list(carol, "?scope=shared")).map((x) => x.id)).not.toContain(s.id);
 	expect((await get(s.id, carol)).status).toBe(404);
 });
 
@@ -239,7 +233,8 @@ it("administrators look and may share, but do not drive", async () => {
 		capabilities: { chat: false, manageShares: true, configure: false },
 	});
 	expect((await messages(s.id, admin)).status).toBe(403);
-	expect((await list(admin)).find((x) => x.id === s.id)?.relationship).toBe("admin");
+	// The administrator sees it in `all`, but no share reaches them, so it is not `shared` (no share icon).
+	expect((await list(admin, "?scope=all")).find((x) => x.id === s.id)?.shared).toBe(false);
 	// Administrators may manage shares (doc/access-control.md#归属与分享).
 	expect((await share(s.id, admin, { granteeType: "user", granteeId: carolId, access: "view" })).status).toBe(200);
 	expect((await get(s.id, carol)).status).toBe(200);
