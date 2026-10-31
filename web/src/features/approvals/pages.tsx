@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { ApprovalCard } from "@/components/approval-card";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { Page } from "@/components/page";
+import { PageHeader } from "@/components/page-header";
 import { QuotaCard } from "@/components/quota-card";
 import { CardSkeleton } from "@/components/skeletons";
 import { TaskStatusBadge } from "@/components/status-badge";
@@ -203,30 +205,26 @@ export function ApprovalsPage() {
 
 	if (approvals.isPending) {
 		return (
-			<div className="mx-auto grid w-full max-w-4xl gap-3 p-4">
+			<Page>
 				<CardSkeleton />
 				<CardSkeleton />
-			</div>
+			</Page>
 		);
 	}
 	if (approvals.error !== null && approvals.error !== undefined) {
 		return (
-			<div className="p-4">
+			<Page>
 				<ErrorState error={approvals.error} retry={() => void approvals.refetch()} />
-			</div>
+			</Page>
 		);
 	}
 
 	return (
-		<div className="mx-auto grid w-full max-w-4xl gap-4 p-4" data-testid="approvals-page">
-			<div>
-				<h1 className="text-xl font-semibold tracking-tight">
-					<Trans>Approvals</Trans>
-				</h1>
-				<p className="text-sm text-muted-foreground">
-					<Trans>Everything that waits for your approval, signature or quota decision.</Trans>
-				</p>
-			</div>
+		<Page data-testid="approvals-page">
+			<PageHeader
+				title={<Trans>Approvals</Trans>}
+				description={<Trans>Everything that waits for your approval, signature or quota decision.</Trans>}
+			/>
 
 			{data && count === 0 && (
 				<EmptyState
@@ -277,7 +275,7 @@ export function ApprovalsPage() {
 					))}
 				</ApprovalSection>
 			)}
-		</div>
+		</Page>
 	);
 }
 
@@ -319,10 +317,15 @@ export function ApprovalTaskPage() {
 	if (!task.data) return null;
 	const pending = task.data.state === "awaiting_approval";
 	return (
-		<div className="mx-auto grid w-full max-w-3xl gap-3 p-4" data-testid="approval-detail">
-			<Link to="/approvals" className="text-sm text-primary underline underline-offset-2">
-				<Trans>← Approvals</Trans>
-			</Link>
+		<Page width="detail" data-testid="approval-detail">
+			<div>
+				<Link
+					to="/approvals"
+					className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+				>
+					<Trans>← Approvals</Trans>
+				</Link>
+			</div>
 			{pending ? (
 				<ApprovalCard
 					item={{ kind: "task", task: task.data }}
@@ -352,7 +355,7 @@ export function ApprovalTaskPage() {
 					</Button>
 				</Settled>
 			)}
-		</div>
+		</Page>
 	);
 }
 
@@ -373,10 +376,15 @@ export function ApprovalTaskGroupPage() {
 	if (!group.data) return null;
 	const pending = group.data.state === "awaiting_approval";
 	return (
-		<div className="mx-auto grid w-full max-w-3xl gap-3 p-4" data-testid="approval-detail">
-			<Link to="/approvals" className="text-sm text-primary underline underline-offset-2">
-				<Trans>← Approvals</Trans>
-			</Link>
+		<Page width="detail" data-testid="approval-detail">
+			<div>
+				<Link
+					to="/approvals"
+					className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+				>
+					<Trans>← Approvals</Trans>
+				</Link>
+			</div>
 			{pending ? (
 				<ApprovalCard
 					item={{ kind: "group", group: group.data }}
@@ -406,6 +414,6 @@ export function ApprovalTaskGroupPage() {
 					</Button>
 				</Settled>
 			)}
-		</div>
+		</Page>
 	);
 }

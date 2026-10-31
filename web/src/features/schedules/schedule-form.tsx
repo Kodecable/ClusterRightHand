@@ -249,7 +249,7 @@ export function ScheduleForm({
 				)}
 			</div>
 
-			<div className="flex flex-wrap gap-x-6 gap-y-2">
+			<div className="grid gap-3 sm:grid-cols-2">
 				<CheckboxField
 					control={form.control}
 					name="catchUp"

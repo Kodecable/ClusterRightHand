@@ -34,7 +34,8 @@ test("title and preset can be changed", async ({ adminPage: page }) => {
 	await title.fill("Renamed");
 	await title.press("Enter");
 	await expect(title).toHaveValue("Renamed");
-	await expect(page.getByTestId("session-header")).toContainText("Renamed");
+	// The title is shown once: a root session has no breadcrumb that repeats it.
+	await expect(page.getByTestId("session-breadcrumb")).toHaveCount(0);
 
 	await page.getByRole("button", { name: "Session settings" }).click();
 	await page.getByLabel("Preset").click();

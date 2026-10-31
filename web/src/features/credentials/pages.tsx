@@ -8,11 +8,12 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { CodeText } from "@/components/code-text";
 import { CopyButton } from "@/components/copy-button";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorText } from "@/components/error-state";
 import { TextareaField, TextField } from "@/components/form";
+import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { RelativeTime } from "@/components/relative-time";
 import { Badge } from "@/components/ui/badge";
@@ -140,18 +141,18 @@ function AddPasskeyCard() {
 						onChange={(event) => setName(event.target.value)}
 					/>
 				</div>
-				<div>
-					<Button type="button" disabled={busy} onClick={() => void add()}>
-						<FingerprintIcon />
-						<Trans>Register Passkey</Trans>
-					</Button>
-				</div>
 				<p className="text-sm text-muted-foreground">
 					<Trans>
 						The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA
 						and RS256 are requested, so a registered Passkey is one the node's privileged mode can verify.
 					</Trans>
 				</p>
+				<div>
+					<Button type="button" disabled={busy} onClick={() => void add()}>
+						<FingerprintIcon />
+						<Trans>Register Passkey</Trans>
+					</Button>
+				</div>
 				{message !== undefined && (
 					<p role="alert" className="text-sm text-danger">
 						{message}
@@ -225,7 +226,7 @@ export function CredentialsPage() {
 				id: "key",
 				header: t`Key`,
 				cell: ({ row }) => (
-					<span className="block truncate font-mono text-xs">{credentialKeyId(row.original) || "–"}</span>
+					<span className="block truncate font-mono text-xs leading-5">{credentialKeyId(row.original) || "–"}</span>
 				),
 			},
 			{
@@ -236,10 +237,10 @@ export function CredentialsPage() {
 			},
 			{
 				id: "actions",
-				header: "",
+				header: actionsHeader,
 				size: 210,
 				cell: ({ row }) => (
-					<span className="flex flex-wrap gap-1">
+					<span className="flex flex-nowrap items-center gap-1">
 						<Button type="button" size="xs" variant="outline" onClick={() => setSnippet(row.original)}>
 							<Trans>Trust snippet</Trans>
 						</Button>
@@ -261,7 +262,7 @@ export function CredentialsPage() {
 	);
 
 	return (
-		<div className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-4" data-testid="credentials-page">
+		<Page data-testid="credentials-page">
 			<PageHeader
 				title={<Trans>Signing credentials</Trans>}
 				description={
@@ -324,6 +325,6 @@ export function CredentialsPage() {
 					});
 				}}
 			/>
-		</div>
+		</Page>
 	);
 }

@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { EmptyHint } from "@/components/empty-state";
 import { ErrorText } from "@/components/error-state";
 import { NodePicker } from "@/components/node-picker";
+import { Page } from "@/components/page";
+import { PageHeader } from "@/components/page-header";
 import { PageSkeleton } from "@/components/skeletons";
 import { TaskFormFields } from "@/components/task-form-fields";
 import { Button } from "@/components/ui/button";
@@ -71,15 +73,11 @@ export function BatchPage() {
 	};
 
 	return (
-		<div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-4" data-testid="batch-page">
-			<div>
-				<h1 className="text-xl font-semibold tracking-tight">
-					<Trans>Batch run</Trans>
-				</h1>
-				<p className="text-sm text-muted-foreground">
-					<Trans>Run one task on many nodes and follow each node's result.</Trans>
-				</p>
-			</div>
+		<Page width="detail" data-testid="batch-page">
+			<PageHeader
+				title={<Trans>Batch run</Trans>}
+				description={<Trans>Run one task on many nodes and follow each node's result.</Trans>}
+			/>
 
 			<form
 				className="grid gap-3 rounded-lg border p-3"
@@ -199,6 +197,6 @@ export function BatchPage() {
 					/>
 				</div>
 			)}
-		</div>
+		</Page>
 	);
 }

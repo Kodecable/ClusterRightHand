@@ -33,15 +33,19 @@ export function StatusBadge({
 	children,
 	className,
 	dot = true,
+	title,
 }: {
 	tone: StatusTone;
 	children: React.ReactNode;
 	className?: string;
 	dot?: boolean;
+	/** The detail behind a merged status, shown on hover. */
+	title?: string;
 }) {
 	return (
 		<span
 			data-tone={tone}
+			title={title}
 			className={cn(
 				"inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5 text-xs font-medium whitespace-nowrap",
 				TONE_CLASSES[tone].badge,
@@ -65,23 +69,47 @@ function statusLabel(i18n: I18n, labels: Record<string, MessageDescriptor>, valu
 }
 
 const NODE_LABELS: Record<string, MessageDescriptor> = {
-	pending: msg`Pending`,
+	pending: msg`Pending approval`,
 	active: msg`Active`,
 	disabled: msg`Disabled`,
 };
 
+/**
+ * The one node status pill (doc/webui.md "Nodes"): enrollment and reachability
+ * folded into a single badge, so a row is one line high. The raw state and the
+ * connection detail sit in the tooltip; `connected` is null for transport
+ * kinds that connect per task (SSH).
+ */
 export function NodeStatusBadge({
 	status,
+	connected = null,
 	className,
 	dot = true,
 }: {
 	status: string;
+	connected?: boolean | null;
 	className?: string;
 	dot?: boolean;
 }) {
 	const { i18n } = useLingui();
+	if (status === "active" && connected !== null) {
+		return connected ? (
+			<StatusBadge tone="ok" className={className} dot={dot} title={i18n._(msg`Active · connected`)}>
+				{i18n._(msg`Connected`)}
+			</StatusBadge>
+		) : (
+			<StatusBadge tone="muted" className={className} dot={dot} title={i18n._(msg`Active · not connected`)}>
+				{i18n._(msg`Offline`)}
+			</StatusBadge>
+		);
+	}
 	return (
-		<StatusBadge tone={nodeStatusTone(status)} className={className} dot={dot}>
+		<StatusBadge
+			tone={nodeStatusTone(status)}
+			className={className}
+			dot={dot}
+			title={status === "pending" ? i18n._(msg`Awaiting approval`) : undefined}
+		>
 			{statusLabel(i18n, NODE_LABELS, status)}
 		</StatusBadge>
 	);

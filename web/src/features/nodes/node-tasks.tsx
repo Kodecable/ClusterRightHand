@@ -1,7 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { RelativeTime } from "@/components/relative-time";
 import { TaskStatusBadge } from "@/components/status-badge";
@@ -36,7 +36,7 @@ export function NodeTaskList({ nodeId }: { nodeId: string }) {
 				header: t`Task`,
 				cell: ({ row }) => (
 					<span className="flex min-w-0 items-center gap-1.5">
-						<span className="truncate font-mono text-xs">{row.original.summary || row.original.kind}</span>
+						<span className="truncate font-mono text-xs leading-5">{row.original.summary || row.original.kind}</span>
 						{row.original.summary !== "" && (
 							<span className="text-xs text-muted-foreground">({row.original.kind})</span>
 						)}
@@ -52,7 +52,14 @@ export function NodeTaskList({ nodeId }: { nodeId: string }) {
 				id: "actor",
 				header: t`By`,
 				size: 130,
-				cell: ({ row }) => <span className="truncate text-xs">{taskActor(row.original, (id) => users.get(id))}</span>,
+				cell: ({ row }) => {
+					const actor = taskActor(row.original, (id) => users.get(id));
+					return (
+						<span className="block truncate text-xs leading-5" title={actor.id}>
+							{actor.name}
+						</span>
+					);
+				},
 			},
 			{
 				id: "state",
@@ -67,14 +74,14 @@ export function NodeTaskList({ nodeId }: { nodeId: string }) {
 				header: t`Outcome`,
 				size: 130,
 				cell: ({ row }) => (
-					<span className="truncate text-xs">
+					<span className="truncate text-xs leading-5">
 						<TaskOutcomeText task={row.original} />
 					</span>
 				),
 			},
 			{
 				id: "details",
-				header: "",
+				header: actionsHeader,
 				size: 80,
 				cell: ({ row }) => (
 					<Link

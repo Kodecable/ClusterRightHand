@@ -55,7 +55,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 			<SidebarInset className="h-svh min-h-0 overflow-hidden">
 				<header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
 					<SidebarTrigger data-testid="sidebar-trigger" aria-label={t`Toggle sidebar`} />
-					<Separator orientation="vertical" className="h-5" />
+					<Separator orientation="vertical" />
 					<h1 className="truncate text-sm font-medium" data-testid="page-title" data-path={pathname}>
 						{title}
 					</h1>

@@ -5,10 +5,11 @@ import { useId, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog, FormDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
 import { SelectField, TextField } from "@/components/form";
+import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { RelativeTime } from "@/components/relative-time";
 import { StatusBadge } from "@/components/status-badge";
@@ -411,14 +412,14 @@ export function UsersPage() {
 			},
 			{
 				id: "actions",
-				header: "",
+				header: actionsHeader,
 				size: 200,
 				cell: ({ row }) => {
 					const user = row.original;
 					const self = user.id === me?.id;
 					const disable = user.status === "active";
 					return (
-						<span className="flex flex-wrap gap-1">
+						<span className="flex flex-nowrap items-center gap-1">
 							<Button
 								type="button"
 								size="xs"
@@ -451,7 +452,7 @@ export function UsersPage() {
 	);
 
 	return (
-		<div className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-4" data-testid="users-page">
+		<Page data-testid="users-page">
 			<PageHeader
 				title={<Trans>Users</Trans>}
 				description={<Trans>Accounts that can sign in to the console; groups carry node access.</Trans>}
@@ -498,6 +499,6 @@ export function UsersPage() {
 					);
 				}}
 			/>
-		</div>
+		</Page>
 	);
 }

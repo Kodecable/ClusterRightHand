@@ -5,8 +5,8 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 
 export default defineConfig({
 	testDir: ".",
-	// The performance runs under perf/ have their own config; they take minutes.
-	testIgnore: ["perf/**"],
+	// The performance runs under perf/ and the review screenshots under review/ have their own configs.
+	testIgnore: ["perf/**", "review/**"],
 	timeout: 60_000,
 	expect: { timeout: 10_000 },
 	fullyParallel: true,

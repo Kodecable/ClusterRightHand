@@ -9,10 +9,11 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { CodeText } from "@/components/code-text";
 import { CopyButton } from "@/components/copy-button";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
 import { TextField } from "@/components/form";
+import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
 import { TokenStatusBadge } from "@/components/status-badge";
@@ -419,13 +420,13 @@ export function TokensPage() {
 			},
 			{
 				id: "actions",
-				header: "",
+				header: actionsHeader,
 				size: 200,
 				cell: ({ row }) => {
 					const token = row.original;
 					const status = tokenStatus(token);
 					return status === "active" ? (
-						<span className="flex flex-wrap gap-1">
+						<span className="flex flex-nowrap items-center gap-1">
 							<Button type="button" size="xs" variant="outline" onClick={() => setRules(token)}>
 								<Trans>Rules</Trans>
 							</Button>
@@ -446,7 +447,7 @@ export function TokensPage() {
 	);
 
 	return (
-		<div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-4" data-testid="tokens-page">
+		<Page data-testid="tokens-page">
 			<PageHeader
 				title={<Trans>API tokens</Trans>}
 				description={
@@ -520,6 +521,6 @@ export function TokensPage() {
 					});
 				}}
 			/>
-		</div>
+		</Page>
 	);
 }

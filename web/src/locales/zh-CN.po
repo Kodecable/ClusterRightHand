@@ -69,8 +69,8 @@ msgstr "{0, plural, one {下次运行：} other {接下来运行：}}"
 msgid "{0, plural, one {Run on # target} other {Run on # targets}}"
 msgstr "{0, plural, one {在 # 个目标上运行} other {在 # 个目标上运行}}"
 
-#. placeholder {0}: subagentIds.length
-#: src/features/sessions/pages.tsx
+#. placeholder {0}: items.length
+#: src/features/sessions/child-sessions.tsx
 msgid "{0, plural, one {Subagent session} other {Subagent sessions}}"
 msgstr "{0, plural, one {子代理会话} other {子代理会话}}"
 
@@ -126,10 +126,6 @@ msgstr "`crha grant` 会解码载荷供你确认，用 `ssh-keygen -Y sign -n cr
 #: src/features/approvals/pages.tsx
 msgid "← Approvals"
 msgstr "← 审批"
-
-#: src/features/tasks/pages.tsx
-msgid "← Tasks"
-msgstr "← 任务"
 
 #: src/features/tokens/pages.tsx
 msgid "30 days"
@@ -254,10 +250,23 @@ msgstr "可以登录控制台的账号；组决定节点访问权限。"
 msgid "Action"
 msgstr "操作"
 
+#: src/components/data-table.tsx
+#: src/features/nodes/pages.tsx
+msgid "Actions"
+msgstr "操作"
+
 #: src/components/status-badge.tsx
 #: src/features/users/pages.tsx
 msgid "Active"
 msgstr "活跃"
+
+#: src/components/status-badge.tsx
+msgid "Active · connected"
+msgstr "活跃 · 已连接"
+
+#: src/components/status-badge.tsx
+msgid "Active · not connected"
+msgstr "活跃 · 未连接"
 
 #: src/features/audit/pages.tsx
 msgid "Actor"
@@ -382,6 +391,10 @@ msgstr "全部节点"
 msgid "All schedules"
 msgstr "全部计划任务"
 
+#: src/features/tasks/pages.tsx
+msgid "All tasks"
+msgstr "全部任务"
+
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Allow"
@@ -502,6 +515,10 @@ msgstr "参数"
 msgid "argv"
 msgstr "argv"
 
+#: src/features/sessions/session-list.tsx
+msgid "Ask an administrator to configure one."
+msgstr "请让管理员配置一个。"
+
 #: src/features/sessions/composer.tsx
 msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
 msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行。"
@@ -515,7 +532,7 @@ msgid "Ask: ordinary reads run, everything else (including every privileged task
 msgstr "Ask：普通读取直接执行，其他操作（包括所有特权任务）都等待你审批。"
 
 #: src/components/approval-card.tsx
-#: src/features/tasks/pages.tsx
+#: src/components/task-result.tsx
 msgid "Asked by"
 msgstr "请求者"
 
@@ -806,6 +823,10 @@ msgstr "命令模式"
 msgid "Compare it with the output of <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> on that host (the server picks one of its keys, usually ED25519). Only confirm if one of them matches."
 msgstr "请与那台主机上 <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> 的输出比对（服务器会选其中一把密钥，通常是 ED25519）。只有匹配时才确认。"
 
+#: src/features/sessions/session-list.tsx
+msgid "Configure a model provider"
+msgstr "配置模型提供方"
+
 #: src/components/dialogs.tsx
 msgid "Confirm"
 msgstr "确认"
@@ -818,7 +839,7 @@ msgstr "请先确认所有主机密钥。"
 msgid "Connect Claude Code with:"
 msgstr "用以下命令连接 Claude Code："
 
-#: src/features/nodes/pages.tsx
+#: src/components/status-badge.tsx
 msgid "Connected"
 msgstr "已连接"
 
@@ -1134,6 +1155,7 @@ msgid "Detail of event {0}"
 msgstr "事件 {0} 的详情"
 
 #: src/features/nodes/node-tasks.tsx
+#: src/features/sessions/pages.tsx
 msgid "Details"
 msgstr "详情"
 
@@ -1408,7 +1430,6 @@ msgid "finished"
 msgstr "完成"
 
 #: src/components/task-result.tsx
-#: src/features/tasks/pages.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Finished"
 msgstr "完成时间"
@@ -1637,6 +1658,7 @@ msgid "List at least one model."
 msgstr "至少列出一个模型。"
 
 #: src/components/data-table.tsx
+#: src/features/sessions/child-sessions.tsx
 msgid "Load more"
 msgstr "加载更多"
 
@@ -1891,6 +1913,10 @@ msgstr "还没有模型提供方"
 msgid "No models are configured, so schedules cannot run."
 msgstr "没有配置模型，计划任务无法运行。"
 
+#: src/features/sessions/session-list.tsx
+msgid "No models are configured, so sessions cannot start."
+msgstr "没有配置模型，会话无法开始。"
+
 #: src/features/sessions/new-session-dialog.tsx
 msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
 msgstr "尚未配置模型，会话无法启动。请让管理员配置一个。"
@@ -1931,7 +1957,7 @@ msgstr "还没有计划任务"
 msgid "No session matches"
 msgstr "没有匹配的会话"
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/sessions-index-page.tsx
 msgid "No session selected"
 msgstr "未选择会话"
 
@@ -1954,6 +1980,7 @@ msgstr "还没有用户"
 
 #: src/components/authorization-card.tsx
 #: src/components/node-picker.tsx
+#: src/components/task-result.tsx
 #: src/features/tasks/pages.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Node"
@@ -2062,7 +2089,7 @@ msgstr "没有符合这些过滤条件的内容。"
 msgid "Nothing to show."
 msgstr "没有可显示的内容。"
 
-#: src/features/nodes/pages.tsx
+#: src/components/status-badge.tsx
 msgid "Offline"
 msgstr "离线"
 
@@ -2267,13 +2294,17 @@ msgstr "负载"
 msgid "Pending"
 msgstr "待处理"
 
+#: src/components/status-badge.tsx
+msgid "Pending approval"
+msgstr "待审批"
+
 #: src/features/sessions/share-dialog.tsx
 msgid "People you share this session with; view access is read-only, chat access can send messages."
 msgstr "与你共享此会话的人；查看权限只读，聊天权限可以发送消息。"
 
-#: src/features/sessions/pages.tsx
-msgid "Pick a session on the left, or start a new one."
-msgstr "在左侧选择一个会话，或新建一个。"
+#: src/features/sessions/sessions-index-page.tsx
+msgid "Pick a session from the list, or start a new one."
+msgstr "从列表中选择一个会话，或新建一个。"
 
 #: src/features/nodes/ssh-node-section.tsx
 msgid "Pinned host key"
@@ -2384,6 +2415,14 @@ msgstr "配额决定已记录。"
 msgid "Quota saved."
 msgstr "配额已保存。"
 
+#: src/components/quota-card.tsx
+msgid "Quota used up"
+msgstr "配额已用尽"
+
+#: src/components/quota-card.tsx
+msgid "Quota used up · {usedText} used"
+msgstr "配额已用尽 · 已用 {usedText}"
+
 #. placeholder {0}: formatNumber(status.over, locale)
 #: src/components/quota-card.tsx
 msgid "Quota used up ({0} over) · {usedText} used"
@@ -2411,6 +2450,7 @@ msgstr "正在重新连接…"
 
 #: src/features/audit/pages.tsx
 #: src/features/authorizations/pages.tsx
+#: src/features/credentials/pages.tsx
 #: src/features/nodes/node-tasks.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/pages.tsx
@@ -2533,6 +2573,7 @@ msgid "Reset the password of {0}"
 msgstr "重置 {0} 的密码"
 
 #: src/features/sessions/transcript-row.tsx
+#: src/features/tasks/pages.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Result"
 msgstr "结果"
@@ -2596,7 +2637,6 @@ msgstr "路由"
 
 #: src/components/approval-card.tsx
 #: src/components/task-result.tsx
-#: src/features/tasks/pages.tsx
 msgid "Rule chain evaluation"
 msgstr "规则链评估"
 
@@ -2758,7 +2798,6 @@ msgstr "请选择…"
 msgid "Send"
 msgstr "发送"
 
-#: src/components/quota-card.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/tasks/pages.tsx
 msgid "Session"
@@ -3018,6 +3057,10 @@ msgstr "停止"
 msgid "Stop it and run now"
 msgstr "停止它并立即运行"
 
+#: src/features/tasks/pages.tsx
+msgid "Stop task"
+msgstr "停止任务"
+
 #: src/features/schedules/scheduleForm.ts
 msgid "stopped by the next run"
 msgstr "被下一次运行停止"
@@ -3030,6 +3073,10 @@ msgstr "已停止运行。"
 #: src/features/tasks/pages.tsx
 msgid "Subagent"
 msgstr "子代理"
+
+#: src/features/sessions/child-sessions.tsx
+msgid "Subagent sessions"
+msgstr "子代理会话"
 
 #: src/components/authorization-card.tsx
 msgid "Submit authorization"
@@ -3083,8 +3130,13 @@ msgid "Task approvals"
 msgstr "任务审批"
 
 #: src/features/nodes/run-panel.tsx
+#: src/features/tasks/pages.tsx
 msgid "Task cancelled."
 msgstr "任务已取消。"
+
+#: src/features/tasks/pages.tsx
+msgid "Task details"
+msgstr "任务详情"
 
 #: src/components/approval-card.tsx
 #: src/features/approvals/pages.tsx
@@ -3217,10 +3269,6 @@ msgstr "会话正在等待签名。"
 msgid "The session is waiting for an approval."
 msgstr "会话正在等待审批。"
 
-#: src/components/page-not-built.tsx
-#~ msgid "The shell, the shared components and the data layer are in place; the pages are written in the next step of the WebUI rewrite."
-#~ msgstr "外壳、共享组件和数据层已经就绪；页面将在 WebUI 重构的下一步编写。"
-
 #: src/features/tasks/taskForm.ts
 msgid "The text to replace is required."
 msgstr "需要填写要替换的文本。"
@@ -3256,10 +3304,6 @@ msgstr "他们会被登出，并且在你启用之前无法再次登录。"
 #: src/features/sessions/transcript-row.tsx
 msgid "Thinking"
 msgstr "思考"
-
-#: src/components/page-not-built.tsx
-#~ msgid "This page has not been built yet"
-#~ msgstr "此页面尚未构建"
 
 #: src/features/approvals/pages.tsx
 msgid "This request is no longer waiting for approval; it is"
@@ -3410,6 +3454,7 @@ msgstr "无限配额 · 已用 {usedText}"
 msgid "Unprivileged identity"
 msgstr "非特权身份"
 
+#: src/features/sessions/child-sessions.tsx
 #: src/features/sessions/pages.tsx
 #: src/features/sessions/session-list-item.tsx
 msgid "Untitled session"

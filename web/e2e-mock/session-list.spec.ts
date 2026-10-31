@@ -96,3 +96,38 @@ test("scope tabs ask the server for the chosen scope and admins get All", async 
 		.toBe(true);
 	await expect(page.getByTestId("scope-shared")).toHaveAttribute("aria-pressed", "true");
 });
+
+test("a narrow screen shows the list as the main view and keeps the session's back button", async ({ page }) => {
+	await page.setViewportSize({ width: 390, height: 844 });
+	const fixture = manySessions();
+	const api = await mockApi(page, { state: fixture });
+	await login(page);
+
+	// The list is the page, not an aside next to an empty "pick a session" panel.
+	await expect(page.getByTestId("session-list-slot")).toBeVisible();
+	await expect(page.getByText("No session selected")).toBeHidden();
+	await expect(page.getByTestId("session-back")).toHaveCount(0);
+
+	await page.locator('[data-session-id="s-2"]').click();
+	await expect(page).toHaveURL(/\/sessions\/s-2$/);
+	await api.waitForStream("/api/sessions/s-2/events");
+	await expect(page.getByTestId("session-page")).toBeVisible();
+	await expect(page.getByTestId("session-list-slot")).toBeHidden();
+	await expect(page.getByTestId("session-header")).toBeVisible();
+
+	await page.getByTestId("session-back").click();
+	await expect(page).toHaveURL(/\/sessions$/);
+	await expect(page.getByTestId("session-list-slot")).toBeVisible();
+	await expect(page.getByTestId("session-page")).toBeHidden();
+});
+
+test("without models the disabled New button is explained in the list column", async ({ page }) => {
+	const api = await mockApi(page);
+	await login(page);
+	await expect(page.getByTestId("new-session-button")).toBeDisabled();
+	const hint = page.getByTestId("no-models-hint");
+	await expect(hint).toContainText("No models are configured, so sessions cannot start.");
+	await hint.getByRole("link", { name: "Configure a model provider" }).click();
+	await expect(page).toHaveURL(/\/settings\/models$/);
+	expect(api.state.requests.some((request) => request.url === "/api/model-providers")).toBe(true);
+});

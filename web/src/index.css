@@ -191,6 +191,30 @@ html[data-theme="dark"] {
 	}
 }
 
+/* -------------------------------------------------------------- DataTable */
+
+/*
+ * One template for the header row and every body row (DataTable sets the
+ * custom properties on its container), so header labels sit above their
+ * values. Below `md` the columns keep their minimum widths and the table
+ * scrolls sideways instead of shrinking to a few characters per cell.
+ */
+[data-slot="data-table-row"] {
+	display: grid;
+	grid-template-columns: var(--dt-columns);
+}
+
+@media (width < 48rem) {
+	[data-slot="data-table-row"] {
+		grid-template-columns: var(--dt-columns-narrow);
+	}
+
+	[data-slot="data-table-scroll"] > [role="table"],
+	[data-slot="data-table-virtual"] {
+		min-width: var(--dt-narrow-width);
+	}
+}
+
 /* ------------------------------------------------------------------ Shiki */
 
 .shiki-block {

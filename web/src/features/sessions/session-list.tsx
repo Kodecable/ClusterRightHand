@@ -1,5 +1,5 @@
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { PlusIcon, SearchIcon } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Virtualizer, type VirtualizerHandle } from "virtua";
@@ -137,6 +137,23 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 					<Trans>New</Trans>
 				</Button>
 			</div>
+
+			{noModels && (
+				<p
+					role="status"
+					data-testid="no-models-hint"
+					className="shrink-0 border-b border-warn/30 bg-warn-bg px-3 py-2 text-xs text-warn"
+				>
+					<Trans>No models are configured, so sessions cannot start.</Trans>{" "}
+					{isAdmin ? (
+						<Link to="/settings/models" className="underline underline-offset-2">
+							<Trans>Configure a model provider</Trans>
+						</Link>
+					) : (
+						<Trans>Ask an administrator to configure one.</Trans>
+					)}
+				</p>
+			)}
 
 			<div className="grid shrink-0 gap-2 border-b px-3 py-2">
 				<div className="relative block">

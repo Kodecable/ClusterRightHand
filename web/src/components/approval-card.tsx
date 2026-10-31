@@ -207,6 +207,8 @@ export function ApprovalCard({
 	onDecide,
 	busy = false,
 	error,
+	showFacts = true,
+	showHeading = true,
 	className,
 }: {
 	item: ApprovalItem;
@@ -215,6 +217,10 @@ export function ApprovalCard({
 	onDecide: (body: ApprovalBody) => void;
 	busy?: boolean;
 	error?: unknown;
+	/** The task page already shows these facts, so it hides the card's own list. */
+	showFacts?: boolean;
+	/** The task page already names the task and its state above the card. */
+	showHeading?: boolean;
 	className?: string;
 }) {
 	const { t } = useLingui();
@@ -271,39 +277,43 @@ export function ApprovalCard({
 			aria-label={`${item.kind === "task" ? t`Task` : t`Task group`} ${id}`}
 			className={cn("grid gap-3 rounded-lg border bg-card p-4 text-card-foreground", className)}
 		>
-			<div className="flex flex-wrap items-center gap-2">
-				<h2 className="text-sm font-semibold">
-					{item.kind === "task" ? <Trans>Task</Trans> : <Trans>Task group</Trans>}{" "}
-					<span className="font-mono text-xs font-normal text-muted-foreground">{id}</span>
-				</h2>
-				<Badge variant="outline">
-					<Trans>Awaiting approval</Trans>
-				</Badge>
-			</div>
+			{showHeading && (
+				<div className="flex flex-wrap items-center gap-2">
+					<h2 className="text-sm font-semibold">
+						{item.kind === "task" ? <Trans>Task</Trans> : <Trans>Task group</Trans>}{" "}
+						<span className="font-mono text-xs font-normal text-muted-foreground">{id}</span>
+					</h2>
+					<Badge variant="outline">
+						<Trans>Awaiting approval</Trans>
+					</Badge>
+				</div>
+			)}
 
-			<KeyValueList
-				items={[
-					{ label: <Trans>What</Trans>, value: what },
-					{
-						label: <Trans>Privileged</Trans>,
-						value: privileged ? <Trans>Yes</Trans> : <Trans>No</Trans>,
-					},
-					{
-						label: <Trans>Command / path</Trans>,
-						value: <span className="font-mono text-xs">{subject.summary ?? ""}</span>,
-					},
-					{
-						label: <Trans>Asked by</Trans>,
-						value:
-							item.kind === "task"
-								? actorLabel(item.task.actorType, item.task.actorId, tokenNames)
-								: item.group.actorType !== undefined && item.group.actorId !== undefined
-									? actorLabel(item.group.actorType, item.group.actorId, tokenNames)
-									: "–",
-					},
-					{ label: <Trans>Requested</Trans>, value: <DateTime value={subject.createdAt} /> },
-				]}
-			/>
+			{showFacts && (
+				<KeyValueList
+					items={[
+						{ label: <Trans>What</Trans>, value: what },
+						{
+							label: <Trans>Privileged</Trans>,
+							value: privileged ? <Trans>Yes</Trans> : <Trans>No</Trans>,
+						},
+						{
+							label: <Trans>Command / path</Trans>,
+							value: <span className="font-mono text-xs">{subject.summary ?? ""}</span>,
+						},
+						{
+							label: <Trans>Asked by</Trans>,
+							value:
+								item.kind === "task"
+									? actorLabel(item.task.actorType, item.task.actorId, tokenNames)
+									: item.group.actorType !== undefined && item.group.actorId !== undefined
+										? actorLabel(item.group.actorType, item.group.actorId, tokenNames)
+										: "–",
+						},
+						{ label: <Trans>Requested</Trans>, value: <DateTime value={subject.createdAt} /> },
+					]}
+				/>
+			)}
 
 			{evaluations.map((entry) => (
 				<div key={entry.label ?? "task"} className="grid gap-1">

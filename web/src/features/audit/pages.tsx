@@ -3,9 +3,10 @@ import { Link } from "@tanstack/react-router";
 import { RefreshCwIcon, ShieldCheckIcon } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { CodeText } from "@/components/code-text";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { FieldShell } from "@/components/form";
+import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
 import { StatusBadge } from "@/components/status-badge";
@@ -17,9 +18,14 @@ import { useDirectory } from "@/features/users/api";
 import type { AuditEvent, AuditQuery } from "@/lib/api/types";
 import { useAuditEvents, useVerifyAudit } from "./api";
 
-function actorText(event: AuditEvent, userName: (id: string) => string | undefined): string {
-	if (event.actorType === "user") return userName(event.actorId) ?? `${event.actorType}:${event.actorId}`;
+/** The actor's id, as a tooltip: the cell itself shows the display name when the directory has one. */
+function actorId(event: AuditEvent): string {
 	return `${event.actorType}:${event.actorId}`;
+}
+
+function actorText(event: AuditEvent, userName: (id: string) => string | undefined): string {
+	if (event.actorType === "user") return userName(event.actorId) ?? actorId(event);
+	return actorId(event);
 }
 
 function TargetCell({ event }: { event: AuditEvent }) {
@@ -116,7 +122,7 @@ export function AuditPage() {
 			{
 				id: "ts",
 				header: t`Time`,
-				size: 190,
+				size: 220,
 				cell: ({ row }) => <DateTime value={row.original.ts} seconds />,
 			},
 			{
@@ -129,7 +135,11 @@ export function AuditPage() {
 				id: "actor",
 				header: t`Actor`,
 				size: 160,
-				cell: ({ row }) => <span className="truncate text-xs">{actorText(row.original, userName)}</span>,
+				cell: ({ row }) => (
+					<span className="block truncate text-xs leading-5" title={actorId(row.original)}>
+						{actorText(row.original, userName)}
+					</span>
+				),
 			},
 			{
 				id: "onBehalf",
@@ -151,7 +161,7 @@ export function AuditPage() {
 			},
 			{
 				id: "detail",
-				header: "",
+				header: actionsHeader,
 				size: 100,
 				cell: ({ row }) => (
 					<Button
@@ -169,7 +179,7 @@ export function AuditPage() {
 	}, [t, names]);
 
 	return (
-		<div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-4" data-testid="audit-page">
+		<Page data-testid="audit-page">
 			<PageHeader
 				title={<Trans>Audit</Trans>}
 				description={
@@ -181,7 +191,7 @@ export function AuditPage() {
 				actions={user?.kind === "admin" ? <VerifyPanel /> : undefined}
 			/>
 			<form
-				className="flex flex-wrap items-end gap-2"
+				className="flex flex-wrap items-start gap-2"
 				aria-label={t`Audit filters`}
 				onSubmit={(event) => {
 					event.preventDefault();
@@ -223,13 +233,19 @@ export function AuditPage() {
 						onChange={(event) => setTargetId(event.target.value)}
 					/>
 				</FieldShell>
-				<Button type="submit">
-					<Trans>Filter</Trans>
-				</Button>
-				<Button type="button" variant="outline" onClick={() => void audit.refetch()}>
-					<RefreshCwIcon />
-					<Trans>Refresh</Trans>
-				</Button>
+				{/* The buttons line up with the inputs, not with the labels above them. */}
+				<div className="grid gap-1.5">
+					<span aria-hidden="true" className="h-3.5" />
+					<div className="flex gap-2">
+						<Button type="submit">
+							<Trans>Filter</Trans>
+						</Button>
+						<Button type="button" variant="outline" onClick={() => void audit.refetch()}>
+							<RefreshCwIcon />
+							<Trans>Refresh</Trans>
+						</Button>
+					</div>
+				</div>
 			</form>
 			<DataTable
 				label={t`Audit events`}
@@ -271,6 +287,6 @@ export function AuditPage() {
 					</DialogContent>
 				</Dialog>
 			)}
-		</div>
+		</Page>
 	);
 }

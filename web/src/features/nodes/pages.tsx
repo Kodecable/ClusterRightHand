@@ -3,16 +3,17 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PlusIcon, RefreshCwIcon, TriangleAlertIcon } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { FieldShell } from "@/components/form";
 import { KeyValueList } from "@/components/key-value";
+import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { RelativeTime } from "@/components/relative-time";
 import { PageSkeleton } from "@/components/skeletons";
-import { NodeStatusBadge, StatusBadge } from "@/components/status-badge";
+import { NodeStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -40,17 +41,6 @@ function canRunOn(node: PublicNode): boolean {
 
 function canManageNode(node: PublicNode): boolean {
 	return node.access === "owner" || node.access === "admin";
-}
-
-/** "Connected" or "Offline" for an active client node; nothing when it connects per task (SSH). */
-function ConnectionBadge({ node }: { node: PublicNode }) {
-	const { t } = useLingui();
-	if (node.status !== "active" || node.connected === null) return null;
-	return node.connected ? (
-		<StatusBadge tone="ok">{t`Connected`}</StatusBadge>
-	) : (
-		<StatusBadge tone="muted">{t`Offline`}</StatusBadge>
-	);
 }
 
 function ClockWarning({ warning }: { warning: string | null }) {
@@ -205,9 +195,8 @@ export function NodesPage() {
 				header: t`Status`,
 				size: 180,
 				cell: ({ row }) => (
-					<span className="flex flex-wrap items-center gap-1">
-						<NodeStatusBadge status={row.original.status} />
-						<ConnectionBadge node={row.original} />
+					<span className="flex items-center gap-1.5">
+						<NodeStatusBadge status={row.original.status} connected={row.original.connected} />
 						<ClockWarning warning={row.original.clockWarning} />
 					</span>
 				),
@@ -244,11 +233,11 @@ export function NodesPage() {
 			},
 			{
 				id: "actions",
-				header: "",
+				header: actionsHeader,
 				size: 130,
 				cell: ({ row }) =>
 					canDecide(row.original) ? (
-						<span className="flex gap-1">
+						<span className="flex flex-nowrap items-center gap-1">
 							<Button type="button" size="xs" onClick={() => setPending({ node: row.original, action: "approve" })}>
 								<Trans>Approve</Trans>
 							</Button>
@@ -267,7 +256,7 @@ export function NodesPage() {
 	}, [t, user?.kind]);
 
 	return (
-		<div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-4" data-testid="nodes-page">
+		<Page data-testid="nodes-page">
 			<PageHeader
 				title={<Trans>Nodes</Trans>}
 				description={
@@ -320,7 +309,7 @@ export function NodesPage() {
 					}}
 				/>
 			)}
-		</div>
+		</Page>
 	);
 }
 
@@ -451,7 +440,7 @@ export function NodeDetailPage() {
 	const facts = details.facts ? Object.entries(details.facts) : [];
 
 	return (
-		<div className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-4" data-testid="node-detail">
+		<Page width="detail" data-testid="node-detail">
 			<div>
 				<Link
 					to="/nodes"
@@ -465,8 +454,7 @@ export function NodeDetailPage() {
 				title={details.name}
 				description={
 					<span className="flex flex-wrap items-center gap-2">
-						<NodeStatusBadge status={details.status} />
-						<ConnectionBadge node={details} />
+						<NodeStatusBadge status={details.status} connected={details.connected} />
 						{details.transport === "ssh" && (
 							<Badge variant="secondary">
 								<Trans>SSH</Trans>
@@ -541,6 +529,6 @@ export function NodeDetailPage() {
 			{canRun && <RunPanel nodeId={details.id} />}
 			{node.data?.shares !== undefined && <NodeShares node={details} shares={node.data.shares} canManage={manage} />}
 			<NodeTaskList nodeId={details.id} />
-		</div>
+		</Page>
 	);
 }

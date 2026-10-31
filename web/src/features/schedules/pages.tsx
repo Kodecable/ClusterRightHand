@@ -3,10 +3,11 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
 import { PageSkeleton } from "@/components/skeletons";
@@ -296,7 +297,7 @@ export function SchedulesPage() {
 			},
 			{
 				id: "actions",
-				header: "",
+				header: actionsHeader,
 				size: 130,
 				cell: ({ row }) => <RunNowButton schedule={row.original} />,
 			},
@@ -305,7 +306,7 @@ export function SchedulesPage() {
 	);
 
 	return (
-		<div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-4" data-testid="schedules-page">
+		<Page data-testid="schedules-page">
 			<PageHeader
 				title={<Trans>Schedules</Trans>}
 				description={
@@ -348,7 +349,7 @@ export function SchedulesPage() {
 				}
 			/>
 			{creating && models.data && <CreateScheduleDialog models={models.data} onClose={() => setCreating(false)} />}
-		</div>
+		</Page>
 	);
 }
 
@@ -382,7 +383,7 @@ export function ScheduleDetailPage() {
 	const current = schedule.data;
 
 	return (
-		<div className="flex h-full min-h-0 flex-col gap-4 overflow-auto p-4" data-testid="schedule-detail">
+		<Page width="detail" data-testid="schedule-detail">
 			<div>
 				<Link
 					to="/schedules"
@@ -413,7 +414,7 @@ export function ScheduleDetailPage() {
 					</>
 				}
 			/>
-			<section className="max-w-3xl rounded-lg border p-4" aria-label={t`Schedule form`}>
+			<section className="rounded-lg border p-4" aria-label={t`Schedule form`}>
 				<ScheduleForm
 					key={current.id}
 					initial={scheduleFormStateOf(current)}
@@ -470,6 +471,6 @@ export function ScheduleDetailPage() {
 					});
 				}}
 			/>
-		</div>
+		</Page>
 	);
 }

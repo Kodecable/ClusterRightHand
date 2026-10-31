@@ -1,6 +1,6 @@
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { ChevronRightIcon, PencilIcon, SettingsIcon, Share2Icon, SquareIcon } from "lucide-react";
+import { ChevronLeftIcon, PencilIcon, SettingsIcon, Share2Icon, SquareIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/error-state";
@@ -14,7 +14,6 @@ import {
 	BreadcrumbItem,
 	BreadcrumbLink,
 	BreadcrumbList,
-	BreadcrumbPage,
 	BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
@@ -23,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useModels } from "@/features/settings/api";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { SessionView } from "@/lib/api/types";
 import { parseQuotaInput, type QuotaError } from "@/lib/quota";
 import {
@@ -53,15 +53,22 @@ function ParentChain({ id }: { id: string }) {
 					{parentTitle}
 				</BreadcrumbLink>
 			</BreadcrumbItem>
-			{parent.data.parentSessionId !== null && <ParentChain id={parent.data.parentSessionId} />}
-			<BreadcrumbSeparator />
+			{parent.data.parentSessionId !== null && (
+				<>
+					<BreadcrumbSeparator />
+					<ParentChain id={parent.data.parentSessionId} />
+				</>
+			)}
 		</>
 	);
 }
 
+/**
+ * The chain back to a subagent's ancestors. A root session's title is the
+ * page's title, so the breadcrumb would only repeat it.
+ */
 function SessionBreadcrumb({ session }: { session: SessionView }) {
-	const { t } = useLingui();
-	const title = session.title.trim() === "" ? t`Untitled session` : session.title;
+	if (session.parentSessionId === null) return null;
 	return (
 		<Breadcrumb data-testid="session-breadcrumb">
 			<BreadcrumbList>
@@ -71,10 +78,7 @@ function SessionBreadcrumb({ session }: { session: SessionView }) {
 					</BreadcrumbLink>
 				</BreadcrumbItem>
 				<BreadcrumbSeparator />
-				{session.parentSessionId !== null && <ParentChain id={session.parentSessionId} />}
-				<BreadcrumbItem>
-					<BreadcrumbPage className="max-w-64 truncate">{title}</BreadcrumbPage>
-				</BreadcrumbItem>
+				<ParentChain id={session.parentSessionId} />
 			</BreadcrumbList>
 		</Breadcrumb>
 	);
@@ -87,7 +91,7 @@ function TitleEditor({ session }: { session: SessionView }) {
 	useEffect(() => setValue(session.title), [session.title]);
 
 	if (!session.capabilities.configure) {
-		return <h1 className="truncate text-lg font-semibold">{session.title || t`Untitled session`}</h1>;
+		return <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{session.title || t`Untitled session`}</h1>;
 	}
 
 	const save = () => {
@@ -108,7 +112,7 @@ function TitleEditor({ session }: { session: SessionView }) {
 
 	return (
 		<form
-			className="min-w-0"
+			className="min-w-0 flex-1"
 			onSubmit={(event) => {
 				event.preventDefault();
 				save();
@@ -123,7 +127,7 @@ function TitleEditor({ session }: { session: SessionView }) {
 				value={value}
 				maxLength={200}
 				disabled={patch.isPending}
-				className="h-8 border-transparent bg-transparent px-1 text-lg font-semibold shadow-none hover:border-input focus-visible:border-input"
+				className="h-8 border-transparent bg-transparent px-1 text-lg font-semibold shadow-none hover:border-input focus-visible:border-input dark:bg-transparent"
 				onChange={(event) => setValue(event.target.value)}
 				onBlur={save}
 				onKeyDown={(event) => {
@@ -284,6 +288,7 @@ function SessionHeader({ session }: { session: SessionView }) {
 	const preset = session.rules?.preset ?? "ask";
 	const ruleCount = session.rules?.rules.length ?? 0;
 	const ownerName = session.ownerUsername ?? t`another user`;
+	const isMobile = useIsMobile();
 
 	const stop = () => {
 		abort.mutate(undefined, {
@@ -292,12 +297,59 @@ function SessionHeader({ session }: { session: SessionView }) {
 		});
 	};
 
+	const meta = (
+		<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+			<span className="font-mono">
+				{session.model.provider}/{session.model.modelId}
+			</span>
+			<span>
+				<Trans>Preset</Trans>: {preset}
+				{ruleCount > 0 && (
+					<>
+						{" · "}
+						<Plural value={ruleCount} one="# rule" other="# rules" />
+					</>
+				)}
+			</span>
+			{session.relationship !== "owner" && (
+				<span>
+					<Trans>Shared by {ownerName}</Trans>
+				</span>
+			)}
+			{session.capabilities.configure ? (
+				<Button type="button" variant="ghost" size="xs" data-testid="edit-quota" onClick={() => setQuotaOpen(true)}>
+					<QuotaSummaryLine quota={session.quota} used={session.spentTokens} />
+					<PencilIcon className="size-3" />
+				</Button>
+			) : (
+				<span data-testid="quota-summary">
+					<QuotaSummaryLine quota={session.quota} used={session.spentTokens} />
+				</span>
+			)}
+		</div>
+	);
+
 	return (
-		<header className="grid shrink-0 gap-2 border-b bg-background/80 px-3 py-2" data-testid="session-header">
+		<header className="grid shrink-0 gap-1.5 border-b bg-background/80 px-3 py-2" data-testid="session-header">
 			<div className="flex min-w-0 items-center gap-2">
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-sm"
+					aria-label={t`Back to the session list`}
+					title={t`Back to the session list`}
+					className="shrink-0 md:hidden"
+					data-testid="session-back"
+					onClick={() => void navigate({ to: "/sessions" })}
+				>
+					<ChevronLeftIcon />
+				</Button>
 				<div className="min-w-0 flex-1">
 					<SessionBreadcrumb session={session} />
-					<TitleEditor session={session} />
+					<div className="flex min-w-0 items-center gap-2">
+						<TitleEditor session={session} />
+						<SessionStatusBadge state={session.state} className="shrink-0" />
+					</div>
 				</div>
 				<div className="flex shrink-0 items-center gap-1">
 					{session.capabilities.configure && <SessionSettings session={session} />}
@@ -314,17 +366,6 @@ function SessionHeader({ session }: { session: SessionView }) {
 							<Share2Icon />
 						</Button>
 					)}
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						aria-label={t`Back to the session list`}
-						title={t`Back to the session list`}
-						className="md:hidden"
-						onClick={() => void navigate({ to: "/sessions" })}
-					>
-						<ChevronRightIcon className="rotate-180" />
-					</Button>
 					{session.capabilities.chat && (
 						<Button
 							type="button"
@@ -341,40 +382,19 @@ function SessionHeader({ session }: { session: SessionView }) {
 				</div>
 			</div>
 
-			<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-				<SessionStatusBadge state={session.state} />
-				<span className="font-mono">
-					{session.model.provider}/{session.model.modelId}
-				</span>
-				<span>
-					<Trans>Preset</Trans>: {preset}
-					{ruleCount > 0 && (
-						<>
-							{" · "}
-							<Plural value={ruleCount} one="# rule" other="# rules" />
-						</>
-					)}
-				</span>
-				{session.relationship !== "owner" && (
-					<span>
-						<Trans>Shared by {ownerName}</Trans>
-					</span>
-				)}
-				{session.capabilities.configure ? (
-					<Button type="button" variant="ghost" size="xs" data-testid="edit-quota" onClick={() => setQuotaOpen(true)}>
-						<QuotaSummaryLine quota={session.quota} used={session.spentTokens} />
-						<PencilIcon className="size-3" />
-					</Button>
-				) : (
-					<span data-testid="quota-summary">
-						<QuotaSummaryLine quota={session.quota} used={session.spentTokens} />
-					</span>
-				)}
-			</div>
+			{isMobile ? (
+				<details className="text-xs text-muted-foreground" data-testid="session-meta">
+					<summary className="cursor-pointer select-none">
+						<Trans>Details</Trans>
+					</summary>
+					<div className="pt-1">{meta}</div>
+				</details>
+			) : (
+				meta
+			)}
 
 			<ShareDialog sessionId={session.id} open={shareOpen} onOpenChange={setShareOpen} />
 			<QuotaDialog session={session} open={quotaOpen} onOpenChange={setQuotaOpen} />
-			{(session.state === "awaiting" || session.waitingKind !== null) && <SessionWaits session={session} />}
 		</header>
 	);
 }
@@ -423,6 +443,7 @@ export function SessionPage() {
 	return (
 		<div className="flex h-full min-h-0 flex-col" data-testid="session-page" data-session-id={view.id}>
 			<SessionHeader session={view} />
+			{(view.state === "awaiting" || view.waitingKind !== null) && <SessionWaits session={view} />}
 
 			{events.connection !== "live" && (
 				<p className="shrink-0 bg-muted px-3 py-1 text-xs text-muted-foreground" role="status">

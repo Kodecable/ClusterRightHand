@@ -6,11 +6,12 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
 import { CheckboxField, SelectField, TextareaField, TextField } from "@/components/form";
 import { modelKey, parseModelKey } from "@/components/model-select";
+import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -518,10 +519,10 @@ export function ModelSettingsPage() {
 			},
 			{
 				id: "actions",
-				header: "",
+				header: actionsHeader,
 				size: 150,
 				cell: ({ row }) => (
-					<span className="flex flex-wrap gap-1">
+					<span className="flex flex-nowrap items-center gap-1">
 						<Button
 							type="button"
 							size="xs"
@@ -549,7 +550,7 @@ export function ModelSettingsPage() {
 	);
 
 	return (
-		<div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-4" data-testid="models-page">
+		<Page data-testid="models-page">
 			<PageHeader
 				title={<Trans>Model providers</Trans>}
 				description={<Trans>Sessions use the models of the enabled providers below.</Trans>}
@@ -609,6 +610,6 @@ export function ModelSettingsPage() {
 					});
 				}}
 			/>
-		</div>
+		</Page>
 	);
 }

@@ -19,7 +19,7 @@ interface FieldShellProps {
 /** The label, control, description and error line around one form field. */
 export function FieldShell({ id, label, description, error, className, children }: FieldShellProps) {
 	return (
-		<div data-slot="field" className={cn("grid gap-1.5", className)}>
+		<div data-slot="field" className={cn("grid content-start gap-1.5", className)}>
 			<Label htmlFor={id}>{label}</Label>
 			{children}
 			{description !== undefined && (
@@ -184,10 +184,11 @@ export function CheckboxField<T extends FieldValues>({
 	const id = useId();
 	const { field, error } = useField(control, name);
 	return (
-		<div className={cn("grid gap-1.5", className)}>
-			<div className="flex items-center gap-2">
+		<div className={cn("grid content-start gap-1.5", className)}>
+			<div className="flex items-start gap-2">
 				<Checkbox
 					id={id}
+					className="mt-0.5"
 					checked={Boolean(field.value)}
 					onCheckedChange={(checked) => field.onChange(Boolean(checked))}
 					disabled={disabled}

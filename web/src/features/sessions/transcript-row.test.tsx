@@ -2,7 +2,7 @@ import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import { renderWithI18n } from "@/test/render";
 import type { TranscriptItem } from "./sessionState";
-import { TranscriptRow } from "./transcript-row";
+import { TranscriptRow, toolSummary } from "./transcript-row";
 import { TranscriptStreams } from "./transcript-streams";
 
 function renderRow(item: TranscriptItem, streams = new TranscriptStreams()) {
@@ -75,6 +75,34 @@ describe("TranscriptRow", () => {
 		expect(toggle).toHaveAttribute("aria-expanded", "true");
 		expect(screen.getByTestId("tool-output")).toHaveTextContent("uname -a");
 		expect(screen.getByTestId("tool-output")).toHaveTextContent("exit_code");
+	});
+
+	test("a collapsed tool card names what it runs and where", () => {
+		renderRow({
+			kind: "tool",
+			key: "a1/0",
+			callId: "call-1",
+			name: "exec",
+			args: { node: "n1", shell: "uname -a" },
+			status: "done",
+			output: "",
+			details: undefined,
+			result: { text: '{"state":"exited","exit_code":0}', isError: false, details: undefined },
+		});
+		const toggle = screen.getByTestId("tool-toggle");
+		expect(toggle).toHaveTextContent("exec");
+		expect(toggle).toHaveTextContent("uname -a · n1");
+		expect(toggle).toHaveTextContent("Done");
+	});
+
+	test("toolSummary picks the telling argument of each tool", () => {
+		expect(toolSummary({ cmd: "systemctl restart nginx" })).toBe("systemctl restart nginx");
+		expect(toolSummary({ argv: ["bash", "-c", "true"] })).toBe("bash -c true");
+		expect(toolSummary({ path: "/etc/hosts", node: "web-1" })).toBe("/etc/hosts · web-1");
+		expect(toolSummary({ cmd: "uptime", targets: ["a", "b"] })).toBe("uptime · a, b");
+		expect(toolSummary({ cmd: "df -h /var" })).toBe("df -h /var");
+		expect(toolSummary({})).toBe("");
+		expect(toolSummary({ timeout: 5 })).toBe("timeout");
 	});
 
 	test("a running tool shows its live output store", () => {

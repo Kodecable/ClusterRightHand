@@ -10,7 +10,7 @@ import { useTask } from "@/features/tasks/api";
 import { safeInternalPath } from "@/lib/url";
 import { SafeMarkdown, StreamingMarkdown } from "@/markdown/SafeMarkdown";
 import { useStreamingText } from "@/markdown/stream-store";
-import type { Json } from "./sessionState";
+import type { Json, JsonObject } from "./sessionState";
 import { approvalWait, authorizationWait, prettyJson, type TranscriptItem } from "./sessionState";
 import type { TranscriptStreams } from "./transcript-streams";
 
@@ -43,6 +43,47 @@ function ToolTask({ taskId }: { taskId: string }) {
 			<TaskResult task={task.data} />
 		</div>
 	);
+}
+
+/** The first string argument among `keys`, in order; a joined argv array counts as one too. */
+function firstString(args: JsonObject, keys: readonly string[]): string | undefined {
+	for (const key of keys) {
+		const value = args[key];
+		if (typeof value === "string" && value.trim() !== "") return value;
+	}
+	return undefined;
+}
+
+function argvLine(args: JsonObject): string | undefined {
+	const argv = args.argv;
+	if (!Array.isArray(argv) || argv.length === 0) return undefined;
+	const parts = argv.filter((part): part is string => typeof part === "string");
+	return parts.length > 0 ? parts.join(" ") : undefined;
+}
+
+/**
+ * What a tool call is doing, as one line: the command, the file, the node or
+ * target, or (for the other tools) their first telling argument. The card's
+ * collapsed row shows it so two `exec` cards do not look identical.
+ */
+export function toolSummary(args: JsonObject): string {
+	const detail =
+		firstString(args, ["cmd", "shell", "command"]) ??
+		argvLine(args) ??
+		firstString(args, ["path", "file", "task", "request", "request_id", "session_id", "query", "url", "name"]) ??
+		"";
+	const targets = Array.isArray(args.targets)
+		? args.targets.filter((target): target is string => typeof target === "string")
+		: [];
+	const node = firstString(args, ["node", "nodeId", "node_id"]);
+	const where = targets.length > 0 ? targets.join(", ") : node;
+	if (detail === "" && where === undefined) {
+		const keys = Object.keys(args);
+		return keys.length === 0 ? "" : keys.join(", ");
+	}
+	if (detail === "") return where ?? "";
+	if (where === undefined || detail.includes(where)) return detail;
+	return `${detail} · ${where}`;
 }
 
 function toolTaskId(item: ToolItem): string | undefined {
@@ -105,6 +146,7 @@ function ToolCard({
 	}[status];
 	const tone = status === "done" ? "ok" : status === "failed" ? "danger" : status === "empty" ? "muted" : "info";
 	const hasArgs = Object.keys(item.args).length > 0;
+	const summaryLine = toolSummary(item.args);
 	const liveOutput = item.result === undefined ? streams.tool(item.callId) : undefined;
 	const taskId = toolTaskId(item);
 
@@ -121,7 +163,10 @@ function ToolCard({
 				className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
 			>
 				<WrenchIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-				<span className="min-w-0 flex-1 truncate font-mono text-xs">{item.name}</span>
+				<span className="shrink-0 font-mono text-xs font-medium">{item.name}</span>
+				<span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" title={summaryLine}>
+					{summaryLine}
+				</span>
 				{(summary.state !== undefined || summary.exitCode !== undefined) && (
 					<span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
 						{summary.state !== undefined && <TaskStatusBadge state={summary.state} exitCode={summary.exitCode} />}

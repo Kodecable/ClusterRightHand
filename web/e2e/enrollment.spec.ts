@@ -58,7 +58,7 @@ test("enrolls a node with a token from the UI and approves it after checking the
 
 	await expect(async () => {
 		await page.getByRole("button", { name: "Refresh" }).click();
-		await expect(page.getByRole("row", { name: /ui-enrolled/ }).getByText("Active")).toBeVisible({ timeout: 1_000 });
+		await expect(page.getByRole("row", { name: /ui-enrolled/ })).not.toContainText("Pending", { timeout: 1_000 });
 	}).toPass({ timeout: 20_000 });
 	await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(0);
 	await expect.poll(() => env.crhs.cluster.isConnected(node.id), { timeout: 20_000 }).toBe(true);

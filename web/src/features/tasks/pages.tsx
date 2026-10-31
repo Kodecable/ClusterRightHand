@@ -1,17 +1,19 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { ShieldCheckIcon } from "lucide-react";
+import { ArrowLeftIcon, ShieldCheckIcon, SquareIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ApprovalCard, DecisionView, EvaluationTable } from "@/components/approval-card";
+import { ApprovalCard, DecisionView } from "@/components/approval-card";
 import { AuthorizationCard } from "@/components/authorization-card";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
-import { KeyValueList } from "@/components/key-value";
+import type { KeyValueItem } from "@/components/key-value";
+import { Page } from "@/components/page";
+import { PageHeader } from "@/components/page-header";
 import { RelativeTime } from "@/components/relative-time";
 import { TaskStatusBadge, taskStateLabel } from "@/components/status-badge";
-import { TaskOutcomeText, TaskResult } from "@/components/task-result";
+import { TaskEvaluation, TaskFacts, TaskOutcomeText, TaskOutput } from "@/components/task-result";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -23,7 +25,8 @@ import { useNodes } from "@/features/nodes/api";
 import { useDirectory } from "@/features/users/api";
 import type { TaskView } from "@/lib/api/types";
 import { taskActor } from "./actor";
-import { useTask, useTaskGroup, useTasks } from "./api";
+import { useCancelTask, useTask, useTaskGroup, useTasks } from "./api";
+import { isTerminal } from "./output";
 import { TaskGroupResult } from "./task-group-result";
 
 const STATES = [
@@ -112,7 +115,7 @@ export function TasksPage() {
 				header: t`Task`,
 				cell: ({ row }) => (
 					<span className="flex min-w-0 items-center gap-1.5">
-						<span className="truncate font-mono text-xs">{row.original.summary || row.original.kind}</span>
+						<span className="truncate font-mono text-xs leading-5">{row.original.summary || row.original.kind}</span>
 						{row.original.privileged && (
 							<Badge variant="secondary">
 								<Trans>Privileged</Trans>
@@ -126,14 +129,21 @@ export function TasksPage() {
 				header: t`Node`,
 				size: 140,
 				cell: ({ row }) => (
-					<span className="truncate text-xs">{names.get(row.original.nodeId) ?? row.original.nodeId}</span>
+					<span className="truncate text-xs leading-5">{names.get(row.original.nodeId) ?? row.original.nodeId}</span>
 				),
 			},
 			{
 				id: "actor",
 				header: t`By`,
 				size: 130,
-				cell: ({ row }) => <span className="truncate text-xs">{taskActor(row.original, (id) => users.get(id))}</span>,
+				cell: ({ row }) => {
+					const actor = taskActor(row.original, (id) => users.get(id));
+					return (
+						<span className="block truncate text-xs leading-5" title={actor.id ?? undefined}>
+							{actor.name}
+						</span>
+					);
+				},
 			},
 			{
 				id: "state",
@@ -148,7 +158,7 @@ export function TasksPage() {
 				header: t`Outcome`,
 				size: 130,
 				cell: ({ row }) => (
-					<span className="truncate text-xs">
+					<span className="truncate text-xs leading-5">
 						<TaskOutcomeText task={row.original} />
 					</span>
 				),
@@ -169,18 +179,16 @@ export function TasksPage() {
 	const waiting = pendingCount(approvals.data);
 
 	return (
-		<div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-4" data-testid="tasks-page">
-			<div>
-				<h1 className="text-xl font-semibold tracking-tight">
-					<Trans>Tasks</Trans>
-				</h1>
-				<p className="text-sm text-muted-foreground">
+		<Page data-testid="tasks-page">
+			<PageHeader
+				title={<Trans>Tasks</Trans>}
+				description={
 					<Trans>
 						Every task on the nodes you can see, newest first. Requests waiting for you are handled on the Approvals
 						page.
 					</Trans>
-				</p>
-			</div>
+				}
+			/>
 
 			<div className="flex flex-wrap items-end gap-3">
 				<FilterSelect
@@ -243,71 +251,33 @@ export function TasksPage() {
 					/>
 				}
 			/>
-		</div>
+		</Page>
 	);
 }
 
-function TaskLinks({ task }: { task: TaskView }) {
-	const items = [
-		{
-			label: <Trans>Node</Trans>,
-			value: (
-				<Link
-					to="/nodes/$nodeId"
-					params={{ nodeId: task.nodeId }}
-					className="text-primary underline underline-offset-2"
-				>
-					{task.nodeId}
-				</Link>
-			),
-		},
-		...(task.rootSessionId !== null && task.rootSessionId !== undefined
-			? [
-					{
-						label: <Trans>Session</Trans>,
-						value: (
-							<Link
-								to="/sessions/$sessionId"
-								params={{ sessionId: task.rootSessionId }}
-								className="text-primary underline underline-offset-2"
-							>
-								{task.rootSessionId}
-							</Link>
-						),
-					},
-				]
-			: []),
-		...(task.taskGroupId !== null && task.taskGroupId !== undefined
-			? [
-					{
-						label: <Trans>Task group</Trans>,
-						value: (
-							<Link
-								to="/task-groups/$taskGroupId"
-								params={{ taskGroupId: task.taskGroupId }}
-								className="text-primary underline underline-offset-2"
-							>
-								{task.taskGroupId}
-							</Link>
-						),
-					},
-				]
-			: []),
-	];
-	return <KeyValueList items={items} className="rounded-lg border p-3" />;
+/** A node link that shows the node's name, falling back to its id while the list loads. */
+function NodeLink({ nodeId, names }: { nodeId: string; names: Map<string, string> }) {
+	return (
+		<Link to="/nodes/$nodeId" params={{ nodeId }} className="text-primary underline underline-offset-2">
+			{names.get(nodeId) ?? nodeId}
+		</Link>
+	);
 }
 
-/** One task with its result, approval state, signature card and links (doc/webui.md "Task page"). */
+/** One task: header, one facts block, the approval or signature card, then the result (doc/webui.md "Task page"). */
 export function TaskPage() {
 	const { t } = useLingui();
 	const params = useParams({ strict: false }) as { taskId?: string };
 	const id = params.taskId ?? "";
 	const task = useTask(id, true);
 	const directory = useDirectory();
+	const nodes = useNodes();
 	const looks = useApprovalLookups();
 	const decide = useDecideApproval();
 	const pending = usePendingAuthorization("task", task.data?.state === "awaiting_authorization" ? id : undefined);
 	const submit = useSubmitAuthorization();
+	const cancel = useCancelTask(id);
+	const names = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
 
 	if (task.isPending) {
 		return (
@@ -326,93 +296,161 @@ export function TaskPage() {
 	if (!task.data) return null;
 	const view = task.data;
 	const actor = taskActor(view, (uid) => (directory.data?.users ?? []).find((user) => user.id === uid)?.displayName);
+	const running = !isTerminal(view.state);
+
+	const links: KeyValueItem[] = [
+		...(view.rootSessionId !== null && view.rootSessionId !== undefined
+			? [
+					{
+						label: <Trans>Session</Trans>,
+						value: (
+							<Link
+								to="/sessions/$sessionId"
+								params={{ sessionId: view.rootSessionId }}
+								className="font-mono text-xs text-primary underline underline-offset-2"
+							>
+								{view.rootSessionId}
+							</Link>
+						),
+					},
+				]
+			: []),
+		...(view.taskGroupId !== null && view.taskGroupId !== undefined
+			? [
+					{
+						label: <Trans>Task group</Trans>,
+						value: (
+							<Link
+								to="/task-groups/$taskGroupId"
+								params={{ taskGroupId: view.taskGroupId }}
+								className="font-mono text-xs text-primary underline underline-offset-2"
+							>
+								{view.taskGroupId}
+							</Link>
+						),
+					},
+				]
+			: []),
+	];
 
 	return (
-		<div className="h-full overflow-auto p-4" data-testid="task-page">
-			<div className="mx-auto grid w-full max-w-4xl gap-3">
-				<div className="flex flex-wrap items-center gap-2">
-					<Link to="/tasks" className="text-sm text-primary underline underline-offset-2">
-						<Trans>← Tasks</Trans>
-					</Link>
-					<h1 className="text-xl font-semibold tracking-tight">
-						<Trans>Task</Trans>
-					</h1>
-					<TaskStatusBadge state={view.state} exitCode={view.exitCode} signal={view.signal} />
-				</div>
-
-				<KeyValueList
-					items={[
-						{ label: <Trans>Asked by</Trans>, value: actor },
-						{ label: <Trans>Created</Trans>, value: <RelativeTime value={view.createdAt} /> },
-						{ label: <Trans>Finished</Trans>, value: <RelativeTime value={view.finishedAt} /> },
-					]}
-					className="rounded-lg border p-3"
-				/>
-				<TaskLinks task={view} />
-
-				{view.state === "awaiting_approval" && (
-					<ApprovalCard
-						item={{ kind: "task", task: view }}
-						nodeNames={looks.nodeNames}
-						tokenNames={looks.tokenNames}
-						busy={decide.isPending}
-						error={decide.error}
-						onDecide={(body) =>
-							decide.mutate(
-								{ kind: "task", id: view.id, body },
-								{
-									onSuccess: () => {
-										toast.success(t`Decision recorded.`);
-										void task.refetch();
-									},
-									onError: (error) => toast.error(error.message),
-								},
-							)
-						}
-					/>
-				)}
-
-				{view.state === "awaiting_authorization" &&
-					(pending.data?.pending ? (
-						<AuthorizationCard
-							pending={pending.data.pending}
-							kind="task"
-							onSubmit={(input) => submit.mutateAsync(input)}
-							onChanged={() => {
-								void pending.refetch();
-								void task.refetch();
-							}}
-							busy={submit.isPending}
-							error={submit.error}
-						/>
-					) : (
-						<p className="text-sm text-muted-foreground">
-							<Trans>Waiting for the payload to sign; the card appears when it is ready.</Trans>
-						</p>
-					))}
-
-				{view.approval?.decision && (
-					<div className="rounded-lg border p-3">
-						<h2 className="mb-2 text-sm font-semibold">
-							<Trans>Approval</Trans>
-						</h2>
-						<DecisionView decision={view.approval.decision} />
-					</div>
-				)}
-				{view.approval && view.state !== "exited" && (
-					<details className="rounded-lg border p-3">
-						<summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-							<Trans>Rule chain evaluation</Trans>
-						</summary>
-						<div className="mt-2">
-							<EvaluationTable evaluation={view.approval.evaluation} tokenNames={looks.tokenNames} />
-						</div>
-					</details>
-				)}
-
-				<TaskResult task={view} className="rounded-lg border p-3" />
+		<Page width="detail" data-testid="task-page">
+			<div>
+				<Link
+					to="/tasks"
+					className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+				>
+					<ArrowLeftIcon className="size-3.5" />
+					<Trans>All tasks</Trans>
+				</Link>
 			</div>
-		</div>
+			<PageHeader
+				title={
+					<span className="font-mono" title={view.summary || view.kind}>
+						{view.summary || view.kind}
+					</span>
+				}
+				description={
+					<span className="flex flex-wrap items-center gap-2">
+						<TaskStatusBadge state={view.state} exitCode={view.exitCode} signal={view.signal} />
+					</span>
+				}
+				actions={
+					running ? (
+						<Button
+							type="button"
+							variant="destructive"
+							data-testid="cancel-task"
+							disabled={cancel.isPending}
+							onClick={() =>
+								cancel.mutate(undefined, {
+									onSuccess: () => toast.success(t`Task cancelled.`),
+									onError: (error) => toast.error(error.message),
+								})
+							}
+						>
+							<SquareIcon />
+							<Trans>Stop task</Trans>
+						</Button>
+					) : undefined
+				}
+			/>
+
+			<section className="rounded-lg border p-3" aria-label={t`Task details`}>
+				<TaskFacts
+					task={view}
+					showSummary={false}
+					showState={false}
+					showWaiting={false}
+					showDecision={false}
+					node={<NodeLink nodeId={view.nodeId} names={names} />}
+					askedBy={
+						<span className="flex flex-wrap items-center gap-1.5">
+							<span>{actor.name}</span>
+							<span className="font-mono text-xs text-muted-foreground">{actor.id}</span>
+						</span>
+					}
+					extra={links}
+				/>
+			</section>
+
+			{view.state === "awaiting_approval" && (
+				<ApprovalCard
+					item={{ kind: "task", task: view }}
+					nodeNames={looks.nodeNames}
+					tokenNames={looks.tokenNames}
+					busy={decide.isPending}
+					error={decide.error}
+					showFacts={false}
+					showHeading={false}
+					onDecide={(body) =>
+						decide.mutate(
+							{ kind: "task", id: view.id, body },
+							{
+								onSuccess: () => {
+									toast.success(t`Decision recorded.`);
+									void task.refetch();
+								},
+								onError: (error) => toast.error(error.message),
+							},
+						)
+					}
+				/>
+			)}
+
+			{view.state === "awaiting_authorization" &&
+				(pending.data?.pending ? (
+					<AuthorizationCard
+						pending={pending.data.pending}
+						kind="task"
+						onSubmit={(input) => submit.mutateAsync(input)}
+						onChanged={() => {
+							void pending.refetch();
+							void task.refetch();
+						}}
+						busy={submit.isPending}
+						error={submit.error}
+					/>
+				) : (
+					<p className="text-sm text-muted-foreground">
+						<Trans>Waiting for the payload to sign; the card appears when it is ready.</Trans>
+					</p>
+				))}
+
+			{view.approval?.decision && (
+				<section className="rounded-lg border p-3" aria-label={t`Approval`}>
+					<DecisionView decision={view.approval.decision} />
+				</section>
+			)}
+
+			{view.state !== "awaiting_approval" && (
+				<TaskEvaluation task={view} tokenNames={looks.tokenNames} className="rounded-lg border p-3" />
+			)}
+
+			<section className="rounded-lg border p-3" aria-label={t`Result`}>
+				<TaskOutput task={view} />
+			</section>
+		</Page>
 	);
 }
 
@@ -441,18 +479,18 @@ export function TaskGroupPage() {
 	if (!group.data) return null;
 
 	return (
-		<div className="h-full overflow-auto p-4" data-testid="task-group-page">
-			<div className="mx-auto grid w-full max-w-4xl gap-3">
-				<div className="flex flex-wrap items-center gap-2">
-					<Link to="/tasks" className="text-sm text-primary underline underline-offset-2">
-						<Trans>← Tasks</Trans>
-					</Link>
-					<h1 className="text-xl font-semibold tracking-tight">
-						<Trans>Task group</Trans>
-					</h1>
-				</div>
-				<TaskGroupResult group={group.data} names={names} onChanged={() => void group.refetch()} />
+		<Page width="detail" data-testid="task-group-page">
+			<div>
+				<Link
+					to="/tasks"
+					className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+				>
+					<ArrowLeftIcon className="size-3.5" />
+					<Trans>All tasks</Trans>
+				</Link>
 			</div>
-		</div>
+			<PageHeader title={<Trans>Task group</Trans>} />
+			<TaskGroupResult group={group.data} names={names} onChanged={() => void group.refetch()} />
+		</Page>
 	);
 }

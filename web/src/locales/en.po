@@ -69,8 +69,8 @@ msgstr "{0, plural, one {Next run:} other {Next runs:}}"
 msgid "{0, plural, one {Run on # target} other {Run on # targets}}"
 msgstr "{0, plural, one {Run on # target} other {Run on # targets}}"
 
-#. placeholder {0}: subagentIds.length
-#: src/features/sessions/pages.tsx
+#. placeholder {0}: items.length
+#: src/features/sessions/child-sessions.tsx
 msgid "{0, plural, one {Subagent session} other {Subagent sessions}}"
 msgstr "{0, plural, one {Subagent session} other {Subagent sessions}}"
 
@@ -126,10 +126,6 @@ msgstr "`crha grant` decodes the payload for confirmation, signs it with `ssh-ke
 #: src/features/approvals/pages.tsx
 msgid "← Approvals"
 msgstr "← Approvals"
-
-#: src/features/tasks/pages.tsx
-msgid "← Tasks"
-msgstr "← Tasks"
 
 #: src/features/tokens/pages.tsx
 msgid "30 days"
@@ -254,10 +250,23 @@ msgstr "Accounts that can sign in to the console; groups carry node access."
 msgid "Action"
 msgstr "Action"
 
+#: src/components/data-table.tsx
+#: src/features/nodes/pages.tsx
+msgid "Actions"
+msgstr "Actions"
+
 #: src/components/status-badge.tsx
 #: src/features/users/pages.tsx
 msgid "Active"
 msgstr "Active"
+
+#: src/components/status-badge.tsx
+msgid "Active · connected"
+msgstr "Active · connected"
+
+#: src/components/status-badge.tsx
+msgid "Active · not connected"
+msgstr "Active · not connected"
 
 #: src/features/audit/pages.tsx
 msgid "Actor"
@@ -382,6 +391,10 @@ msgstr "All nodes"
 msgid "All schedules"
 msgstr "All schedules"
 
+#: src/features/tasks/pages.tsx
+msgid "All tasks"
+msgstr "All tasks"
+
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Allow"
@@ -502,6 +515,10 @@ msgstr "Arguments"
 msgid "argv"
 msgstr "argv"
 
+#: src/features/sessions/session-list.tsx
+msgid "Ask an administrator to configure one."
+msgstr "Ask an administrator to configure one."
+
 #: src/features/sessions/composer.tsx
 msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
 msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
@@ -515,7 +532,7 @@ msgid "Ask: ordinary reads run, everything else (including every privileged task
 msgstr "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
 
 #: src/components/approval-card.tsx
-#: src/features/tasks/pages.tsx
+#: src/components/task-result.tsx
 msgid "Asked by"
 msgstr "Asked by"
 
@@ -806,6 +823,10 @@ msgstr "Command mode"
 msgid "Compare it with the output of <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> on that host (the server picks one of its keys, usually ED25519). Only confirm if one of them matches."
 msgstr "Compare it with the output of <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> on that host (the server picks one of its keys, usually ED25519). Only confirm if one of them matches."
 
+#: src/features/sessions/session-list.tsx
+msgid "Configure a model provider"
+msgstr "Configure a model provider"
+
 #: src/components/dialogs.tsx
 msgid "Confirm"
 msgstr "Confirm"
@@ -818,7 +839,7 @@ msgstr "Confirm every host key first."
 msgid "Connect Claude Code with:"
 msgstr "Connect Claude Code with:"
 
-#: src/features/nodes/pages.tsx
+#: src/components/status-badge.tsx
 msgid "Connected"
 msgstr "Connected"
 
@@ -1134,6 +1155,7 @@ msgid "Detail of event {0}"
 msgstr "Detail of event {0}"
 
 #: src/features/nodes/node-tasks.tsx
+#: src/features/sessions/pages.tsx
 msgid "Details"
 msgstr "Details"
 
@@ -1408,7 +1430,6 @@ msgid "finished"
 msgstr "finished"
 
 #: src/components/task-result.tsx
-#: src/features/tasks/pages.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Finished"
 msgstr "Finished"
@@ -1637,6 +1658,7 @@ msgid "List at least one model."
 msgstr "List at least one model."
 
 #: src/components/data-table.tsx
+#: src/features/sessions/child-sessions.tsx
 msgid "Load more"
 msgstr "Load more"
 
@@ -1891,6 +1913,10 @@ msgstr "No model providers yet"
 msgid "No models are configured, so schedules cannot run."
 msgstr "No models are configured, so schedules cannot run."
 
+#: src/features/sessions/session-list.tsx
+msgid "No models are configured, so sessions cannot start."
+msgstr "No models are configured, so sessions cannot start."
+
 #: src/features/sessions/new-session-dialog.tsx
 msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
 msgstr "No models are configured, so sessions cannot start. Ask an administrator to configure one."
@@ -1931,7 +1957,7 @@ msgstr "No schedules yet"
 msgid "No session matches"
 msgstr "No session matches"
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/sessions-index-page.tsx
 msgid "No session selected"
 msgstr "No session selected"
 
@@ -1954,6 +1980,7 @@ msgstr "No users yet"
 
 #: src/components/authorization-card.tsx
 #: src/components/node-picker.tsx
+#: src/components/task-result.tsx
 #: src/features/tasks/pages.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Node"
@@ -2062,7 +2089,7 @@ msgstr "Nothing matches these filters."
 msgid "Nothing to show."
 msgstr "Nothing to show."
 
-#: src/features/nodes/pages.tsx
+#: src/components/status-badge.tsx
 msgid "Offline"
 msgstr "Offline"
 
@@ -2267,13 +2294,17 @@ msgstr "Payload"
 msgid "Pending"
 msgstr "Pending"
 
+#: src/components/status-badge.tsx
+msgid "Pending approval"
+msgstr "Pending approval"
+
 #: src/features/sessions/share-dialog.tsx
 msgid "People you share this session with; view access is read-only, chat access can send messages."
 msgstr "People you share this session with; view access is read-only, chat access can send messages."
 
-#: src/features/sessions/pages.tsx
-msgid "Pick a session on the left, or start a new one."
-msgstr "Pick a session on the left, or start a new one."
+#: src/features/sessions/sessions-index-page.tsx
+msgid "Pick a session from the list, or start a new one."
+msgstr "Pick a session from the list, or start a new one."
 
 #: src/features/nodes/ssh-node-section.tsx
 msgid "Pinned host key"
@@ -2384,6 +2415,14 @@ msgstr "Quota decision recorded."
 msgid "Quota saved."
 msgstr "Quota saved."
 
+#: src/components/quota-card.tsx
+msgid "Quota used up"
+msgstr "Quota used up"
+
+#: src/components/quota-card.tsx
+msgid "Quota used up · {usedText} used"
+msgstr "Quota used up · {usedText} used"
+
 #. placeholder {0}: formatNumber(status.over, locale)
 #: src/components/quota-card.tsx
 msgid "Quota used up ({0} over) · {usedText} used"
@@ -2411,6 +2450,7 @@ msgstr "Reconnecting…"
 
 #: src/features/audit/pages.tsx
 #: src/features/authorizations/pages.tsx
+#: src/features/credentials/pages.tsx
 #: src/features/nodes/node-tasks.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/pages.tsx
@@ -2533,6 +2573,7 @@ msgid "Reset the password of {0}"
 msgstr "Reset the password of {0}"
 
 #: src/features/sessions/transcript-row.tsx
+#: src/features/tasks/pages.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Result"
 msgstr "Result"
@@ -2596,7 +2637,6 @@ msgstr "Route"
 
 #: src/components/approval-card.tsx
 #: src/components/task-result.tsx
-#: src/features/tasks/pages.tsx
 msgid "Rule chain evaluation"
 msgstr "Rule chain evaluation"
 
@@ -2758,7 +2798,6 @@ msgstr "Select…"
 msgid "Send"
 msgstr "Send"
 
-#: src/components/quota-card.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/tasks/pages.tsx
 msgid "Session"
@@ -3018,6 +3057,10 @@ msgstr "Stop"
 msgid "Stop it and run now"
 msgstr "Stop it and run now"
 
+#: src/features/tasks/pages.tsx
+msgid "Stop task"
+msgstr "Stop task"
+
 #: src/features/schedules/scheduleForm.ts
 msgid "stopped by the next run"
 msgstr "stopped by the next run"
@@ -3030,6 +3073,10 @@ msgstr "Stopped the run."
 #: src/features/tasks/pages.tsx
 msgid "Subagent"
 msgstr "Subagent"
+
+#: src/features/sessions/child-sessions.tsx
+msgid "Subagent sessions"
+msgstr "Subagent sessions"
 
 #: src/components/authorization-card.tsx
 msgid "Submit authorization"
@@ -3083,8 +3130,13 @@ msgid "Task approvals"
 msgstr "Task approvals"
 
 #: src/features/nodes/run-panel.tsx
+#: src/features/tasks/pages.tsx
 msgid "Task cancelled."
 msgstr "Task cancelled."
+
+#: src/features/tasks/pages.tsx
+msgid "Task details"
+msgstr "Task details"
 
 #: src/components/approval-card.tsx
 #: src/features/approvals/pages.tsx
@@ -3217,10 +3269,6 @@ msgstr "The session is waiting for a signature."
 msgid "The session is waiting for an approval."
 msgstr "The session is waiting for an approval."
 
-#: src/components/page-not-built.tsx
-#~ msgid "The shell, the shared components and the data layer are in place; the pages are written in the next step of the WebUI rewrite."
-#~ msgstr "The shell, the shared components and the data layer are in place; the pages are written in the next step of the WebUI rewrite."
-
 #: src/features/tasks/taskForm.ts
 msgid "The text to replace is required."
 msgstr "The text to replace is required."
@@ -3256,10 +3304,6 @@ msgstr "They are signed out and cannot sign in again until you enable them."
 #: src/features/sessions/transcript-row.tsx
 msgid "Thinking"
 msgstr "Thinking"
-
-#: src/components/page-not-built.tsx
-#~ msgid "This page has not been built yet"
-#~ msgstr "This page has not been built yet"
 
 #: src/features/approvals/pages.tsx
 msgid "This request is no longer waiting for approval; it is"
@@ -3410,6 +3454,7 @@ msgstr "Unlimited quota · {usedText} used"
 msgid "Unprivileged identity"
 msgstr "Unprivileged identity"
 
+#: src/features/sessions/child-sessions.tsx
 #: src/features/sessions/pages.tsx
 #: src/features/sessions/session-list-item.tsx
 msgid "Untitled session"

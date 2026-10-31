@@ -117,19 +117,45 @@ export function TaskOutcomeText({ task }: { task: TaskView }) {
 				</span>
 			);
 		default:
-			return <span className="text-muted-foreground">{outcome.state}</span>;
+			// No exit code, signal or error: the state badge next to it says the
+			// rest, so the outcome column stays empty instead of echoing a raw state.
+			return <span className="text-muted-foreground">—</span>;
 	}
 }
 
 /**
- * The full task result used by the task page, the approval pages, batch runs,
- * the run panel and the session's tool cards (doc/webui.md "TaskResult").
+ * The facts of one task: the id, what it is, who asked, where it ran, its
+ * state and result fields, and its timestamps. The task page adds the node
+ * link (it knows the node name) and turns off what its header, waiting card or
+ * decision block already show, so no fact appears twice on that page.
  */
-export function TaskResult({ task, className }: { task: TaskView; className?: string }) {
+export function TaskFacts({
+	task,
+	node,
+	askedBy,
+	extra = [],
+	showSummary = true,
+	showState = true,
+	showWaiting = true,
+	showDecision = true,
+	className,
+}: {
+	task: TaskView;
+	/** The node link, when the caller knows the node's name. */
+	node?: React.ReactNode;
+	/** Who asked for the task, when the caller resolved its display name. */
+	askedBy?: React.ReactNode;
+	/** Further page-specific facts, e.g. the links to a session or a task group. */
+	extra?: readonly KeyValueItem[];
+	showSummary?: boolean;
+	showState?: boolean;
+	showWaiting?: boolean;
+	showDecision?: boolean;
+	className?: string;
+}) {
 	const { t } = useLingui();
 	const auth = useAuth();
 	const user = auth.user;
-	const output = batchOutput(task);
 	const approvalLink = (
 		<Link
 			to="/approvals/tasks/$taskId"
@@ -163,13 +189,19 @@ export function TaskResult({ task, className }: { task: TaskView; className?: st
 				</span>
 			),
 		},
-		...(task.summary !== ""
+		...(showSummary && task.summary !== ""
 			? [{ label: <Trans>Summary</Trans>, value: <span className="font-mono text-xs">{task.summary}</span> }]
 			: []),
-		{
-			label: <Trans>State</Trans>,
-			value: <TaskStatusBadge state={task.state} exitCode={task.exitCode} signal={task.signal} />,
-		},
+		...(node !== undefined ? [{ label: <Trans>Node</Trans>, value: node }] : []),
+		...(askedBy !== undefined ? [{ label: <Trans>Asked by</Trans>, value: askedBy }] : []),
+		...(showState
+			? [
+					{
+						label: <Trans>State</Trans>,
+						value: <TaskStatusBadge state={task.state} exitCode={task.exitCode} signal={task.signal} />,
+					},
+				]
+			: []),
 		...(task.exitCode !== null ? [{ label: <Trans>Exit code</Trans>, value: String(task.exitCode) }] : []),
 		...(task.signal !== null ? [{ label: <Trans>Signal</Trans>, value: task.signal }] : []),
 		...(task.errorCode !== null || task.errorMessage !== null
@@ -184,10 +216,10 @@ export function TaskResult({ task, className }: { task: TaskView; className?: st
 					},
 				]
 			: []),
-		...(task.state === "awaiting_approval"
+		...(showWaiting && task.state === "awaiting_approval"
 			? [{ label: <Trans>Approval</Trans>, value: <Trans>Waiting for approval. {approvalLink}</Trans> }]
 			: []),
-		...(task.state === "awaiting_authorization"
+		...(showWaiting && task.state === "awaiting_authorization"
 			? [
 					{
 						label: <Trans>Authorization</Trans>,
@@ -207,9 +239,10 @@ export function TaskResult({ task, className }: { task: TaskView; className?: st
 					},
 				]
 			: []),
-		...(task.approval?.decision
+		...(showDecision && task.approval?.decision
 			? [{ label: <Trans>Approval decision</Trans>, value: <DecisionView decision={task.approval.decision} /> }]
 			: []),
+		...extra,
 		{ label: <Trans>Created</Trans>, value: <DateTime value={task.createdAt} /> },
 		{ label: <Trans>Finished</Trans>, value: <DateTime value={task.finishedAt} /> },
 		...(task.outputFile !== null
@@ -217,23 +250,40 @@ export function TaskResult({ task, className }: { task: TaskView; className?: st
 			: []),
 	];
 
+	return <KeyValueList items={items} className={cn("text-sm", className)} />;
+}
+
+/** The rule chain that produced an approval decision, folded away. */
+export function TaskEvaluation({
+	task,
+	tokenNames,
+	className,
+}: {
+	task: TaskView;
+	tokenNames?: Map<string, string>;
+	className?: string;
+}) {
+	if (!task.approval || task.state === "exited") return null;
+	return (
+		<details className={cn("rounded-md border p-2", className)}>
+			<summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+				<Trans>Rule chain evaluation</Trans>
+			</summary>
+			<div className="mt-2">
+				<EvaluationTable evaluation={task.approval.evaluation} tokenNames={tokenNames} />
+			</div>
+		</details>
+	);
+}
+
+/** The kept output of a task: a tail, the status-only note, or stdout and stderr. */
+export function TaskOutput({ task, className }: { task: TaskView; className?: string }) {
+	const { t } = useLingui();
+	const output = batchOutput(task);
 	const note = statusOutputNoteKey(task);
 
 	return (
-		<div data-slot="task-result" className={cn("grid gap-3", className)}>
-			<KeyValueList items={items} className="text-sm" />
-
-			{task.approval && task.state !== "exited" && (
-				<details className="rounded-md border p-2">
-					<summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-						<Trans>Rule chain evaluation</Trans>
-					</summary>
-					<div className="mt-2">
-						<EvaluationTable evaluation={task.approval.evaluation} />
-					</div>
-				</details>
-			)}
-
+		<div data-slot="task-output" className={cn("grid gap-3", className)}>
 			{output.kind === "tail" ? (
 				<OutputBlock label={t`output`} head="" tail={output.text} bytes={output.bytes} />
 			) : output.kind === "status" ? (
@@ -257,6 +307,21 @@ export function TaskResult({ task, className }: { task: TaskView; className?: st
 					<OutputBlock label={t`stderr`} head={task.stderrHead} tail={task.stderrTail} bytes={task.stderrBytes} />
 				</>
 			)}
+		</div>
+	);
+}
+
+/**
+ * The full task result used by the approval pages, batch runs, the run panel
+ * and the session's tool cards (doc/webui.md "TaskResult"). The task page
+ * composes the same parts itself so nothing is shown twice.
+ */
+export function TaskResult({ task, className }: { task: TaskView; className?: string }) {
+	return (
+		<div data-slot="task-result" className={cn("grid gap-3", className)}>
+			<TaskFacts task={task} />
+			<TaskEvaluation task={task} />
+			<TaskOutput task={task} />
 		</div>
 	);
 }

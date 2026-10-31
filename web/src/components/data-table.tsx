@@ -42,9 +42,57 @@ export interface DataTableProps<T extends RowData> {
 	label?: string;
 }
 
-function columnWidth<T extends RowData>(column: DataTableColumn<T>): string {
+/**
+ * The header of a row-actions column: a visually hidden label, so the column
+ * is still announced while the buttons speak for themselves.
+ */
+export function actionsHeader(): React.ReactElement {
+	return (
+		<span className="sr-only">
+			<Trans>Actions</Trans>
+		</span>
+	);
+}
+
+/** The narrowest a column without a declared size may get below `md`, in rem. */
+const NARROW_COLUMN_MIN_REM = 12;
+
+function columnSize<T extends RowData>(column: DataTableColumn<T>): number {
 	const size = column.size;
-	return typeof size === "number" && Number.isFinite(size) && size > 0 ? `${size}px` : "minmax(0, 1fr)";
+	return typeof size === "number" && Number.isFinite(size) && size > 0 ? size : 0;
+}
+
+/**
+ * The one column template shared by the header row and every body row, so a
+ * header label always sits above its values. A column with a declared size
+ * keeps that width; the rest share what is left.
+ */
+function columnTemplate<T extends RowData>(columns: DataTableColumn<T>[], narrow: boolean): string {
+	return columns
+		.map((column) => {
+			const size = columnSize(column);
+			if (size > 0) return `${size}px`;
+			return narrow ? `minmax(${NARROW_COLUMN_MIN_REM}rem, 1fr)` : "minmax(0, 1fr)";
+		})
+		.join(" ");
+}
+
+/**
+ * Below `md` the table keeps its minimum column widths and scrolls sideways
+ * instead of crushing every column to a few characters (doc/webui.md
+ * "DataTable"). The computed minimum also sets the table's narrow width so the
+ * header and the rows scroll together.
+ */
+function minimumWidth<T extends RowData>(columns: DataTableColumn<T>[]): string {
+	let fixed = 0;
+	let narrow = 0;
+	for (const column of columns) {
+		const size = columnSize(column);
+		if (size > 0) fixed += size;
+		else narrow += 1;
+	}
+	if (narrow === 0) return `${fixed}px`;
+	return `calc(${fixed}px + ${narrow} * ${NARROW_COLUMN_MIN_REM}rem)`;
 }
 
 /**
@@ -79,7 +127,9 @@ export function DataTable<T extends RowData>({
 
 	const rows = table.getRowModel().rows;
 	const headerGroups = table.getHeaderGroups();
-	const template = useMemo(() => columns.map(columnWidth).join(" "), [columns]);
+	const template = useMemo(() => columnTemplate(columns, false), [columns]);
+	const narrowTemplate = useMemo(() => columnTemplate(columns, true), [columns]);
+	const narrowWidth = useMemo(() => minimumWidth(columns), [columns]);
 	const virtualised = rows.length > virtualizeAfter;
 
 	if (error !== undefined) {
@@ -107,14 +157,13 @@ export function DataTable<T extends RowData>({
 	}
 
 	const header = (
-		<div role="row" className="flex border-b bg-muted/60 text-xs font-medium text-muted-foreground">
+		<div
+			role="row"
+			data-slot="data-table-row"
+			className="border-b bg-muted/60 text-xs font-medium text-muted-foreground"
+		>
 			{headerGroups[0]?.headers.map((head) => (
-				<div
-					key={head.id}
-					role="columnheader"
-					className="min-w-0 flex-1 px-3 py-2 text-left"
-					style={{ flex: `${head.getSize()} 1 0%` }}
-				>
+				<div key={head.id} role="columnheader" className="min-w-0 px-3 py-2 text-left">
 					{head.isPlaceholder ? null : flexRender(head.column.columnDef.header, head.getContext())}
 				</div>
 			))}
@@ -124,7 +173,7 @@ export function DataTable<T extends RowData>({
 	const renderCells = (row: (typeof rows)[number]) => (
 		<>
 			{row.getVisibleCells().map((cell) => (
-				<div key={cell.id} role="cell" className="min-w-0 flex-1 truncate px-3 py-2 text-sm">
+				<div key={cell.id} role="cell" className="min-w-0 truncate px-3 py-2 text-sm">
 					{flexRender(cell.column.columnDef.cell, cell.getContext())}
 				</div>
 			))}
@@ -134,44 +183,56 @@ export function DataTable<T extends RowData>({
 	const sentinel = hasMore && onLoadMore && <LoadMoreSentinel loading={loadingMore} onLoadMore={onLoadMore} />;
 
 	return (
-		<div className={cn("overflow-hidden rounded-lg border", className)} data-slot="data-table">
-			<div role="table" aria-label={label} className="w-full">
-				{header}
-				{virtualised ? (
-					<VirtualizedBody
-						rows={rows}
-						height={height}
-						rowHeight={rowHeight}
-						template={template}
-						renderCells={renderCells}
-						onRowClick={onRowClick}
-					/>
-				) : (
-					<div role="rowgroup" className="max-h-[--table-height] overflow-auto">
-						{rows.map((row) => (
-							<div
-								key={row.id}
-								role="row"
-								data-state={row.getIsSelected() ? "selected" : undefined}
-								className={cn("flex border-b last:border-b-0", onRowClick && "cursor-pointer hover:bg-accent/60")}
-								onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-								onKeyDown={
-									onRowClick
-										? (event) => {
-												if (event.key === "Enter" || event.key === " ") {
-													event.preventDefault();
-													onRowClick(row.original);
+		<div
+			className={cn("overflow-hidden rounded-lg border", className)}
+			data-slot="data-table"
+			style={
+				{
+					"--dt-columns": template,
+					"--dt-columns-narrow": narrowTemplate,
+					"--dt-narrow-width": narrowWidth,
+				} as React.CSSProperties
+			}
+		>
+			<div data-slot="data-table-scroll" className="overflow-x-auto">
+				<div role="table" aria-label={label} className="w-full">
+					{header}
+					{virtualised ? (
+						<VirtualizedBody
+							rows={rows}
+							height={height}
+							rowHeight={rowHeight}
+							renderCells={renderCells}
+							onRowClick={onRowClick}
+						/>
+					) : (
+						<div role="rowgroup">
+							{rows.map((row) => (
+								<div
+									key={row.id}
+									role="row"
+									data-slot="data-table-row"
+									data-state={row.getIsSelected() ? "selected" : undefined}
+									className={cn("border-b last:border-b-0", onRowClick && "cursor-pointer hover:bg-accent/60")}
+									onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+									onKeyDown={
+										onRowClick
+											? (event) => {
+													if (event.key === "Enter" || event.key === " ") {
+														event.preventDefault();
+														onRowClick(row.original);
+													}
 												}
-											}
-										: undefined
-								}
-								tabIndex={onRowClick ? 0 : undefined}
-							>
-								{renderCells(row)}
-							</div>
-						))}
-					</div>
-				)}
+											: undefined
+									}
+									tabIndex={onRowClick ? 0 : undefined}
+								>
+									{renderCells(row)}
+								</div>
+							))}
+						</div>
+					)}
+				</div>
 			</div>
 			{sentinel}
 		</div>
@@ -182,26 +243,25 @@ function VirtualizedBody<T extends RowData>({
 	rows,
 	height,
 	rowHeight,
-	template,
 	renderCells,
 	onRowClick,
 }: {
 	rows: ReturnType<Table<StockFeatures, T>["getRowModel"]>["rows"];
 	height: number;
 	rowHeight: number;
-	template: string;
 	renderCells: (row: ReturnType<Table<StockFeatures, T>["getRowModel"]>["rows"][number]) => React.ReactNode;
 	onRowClick?: (row: T) => void;
 }) {
 	return (
-		<div style={{ height }} className="overflow-auto" data-slot="data-table-virtual">
+		<div style={{ height }} className="overflow-y-auto" data-slot="data-table-virtual">
 			<Virtualizer data={rows} itemSize={rowHeight} bufferSize={rowHeight * 6}>
 				{(row) => (
 					<div
 						role="row"
+						data-slot="data-table-row"
 						data-row-id={row.id}
-						className={cn("flex border-b last:border-b-0", onRowClick && "cursor-pointer hover:bg-accent/60")}
-						style={{ display: "grid", gridTemplateColumns: template, height: rowHeight }}
+						className={cn("border-b last:border-b-0", onRowClick && "cursor-pointer hover:bg-accent/60")}
+						style={{ height: rowHeight }}
 						onClick={onRowClick ? () => onRowClick(row.original as T) : undefined}
 						onKeyDown={
 							onRowClick

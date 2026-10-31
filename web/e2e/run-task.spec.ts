@@ -59,9 +59,10 @@ test("finished tasks are listed on the node page and open on their own page", as
 	await row.getByRole("link", { name: "Open task" }).click();
 	await expect(page.getByTestId("task-page")).toBeVisible();
 	await expect(page.getByTestId("task-page")).toContainText("listed-task");
-	await page
-		.getByTestId("task-page")
-		.getByRole("link", { name: env?.nodeId ?? "" })
-		.click();
+	// The node link shows the node's name (not its id) but still points at the node.
+	const nodeLink = page.getByTestId("task-page").locator(`a[href="/nodes/${env?.nodeId}"]`);
+	await expect(nodeLink).toBeVisible();
+	await expect(nodeLink).not.toHaveText(env?.nodeId ?? "");
+	await nodeLink.click();
 	await expect(page).toHaveURL(new RegExp(`/nodes/${env?.nodeId}$`));
 });

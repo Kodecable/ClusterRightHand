@@ -2,10 +2,11 @@ import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { RefreshCwIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
 import { KeyValueList } from "@/components/key-value";
+import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
 import { AuthorizationStatusBadge } from "@/components/status-badge";
@@ -132,13 +133,13 @@ export function AuthorizationsPage() {
 			},
 			{
 				id: "actions",
-				header: "",
+				header: actionsHeader,
 				size: 170,
 				cell: ({ row }) => {
 					const entry = row.original;
 					const canRevoke = entry.revokedAt === null && (user?.kind === "admin" || entry.issuerUserId === user?.id);
 					return (
-						<span className="flex flex-wrap gap-1">
+						<span className="flex flex-nowrap items-center gap-1">
 							<Button type="button" size="xs" variant="outline" onClick={() => setPayload(entry)}>
 								<Trans>Payload</Trans>
 							</Button>
@@ -156,7 +157,7 @@ export function AuthorizationsPage() {
 	);
 
 	return (
-		<div className="flex h-full min-h-0 flex-col gap-3 overflow-auto p-4" data-testid="authorizations-page">
+		<Page data-testid="authorizations-page">
 			<PageHeader
 				title={<Trans>Authorizations</Trans>}
 				description={
@@ -216,6 +217,6 @@ export function AuthorizationsPage() {
 					});
 				}}
 			/>
-		</div>
+		</Page>
 	);
 }

@@ -30,9 +30,13 @@ export function QuotaSummaryLine({ quota, used }: { quota: number | null; used: 
 		case "exhausted":
 			return (
 				<span className="text-danger">
-					<Trans>
-						Quota used up ({formatNumber(status.over, locale)} over) · {usedText} used
-					</Trans>
+					{status.over > 0 ? (
+						<Trans>
+							Quota used up ({formatNumber(status.over, locale)} over) · {usedText} used
+						</Trans>
+					) : (
+						<Trans>Quota used up · {usedText} used</Trans>
+					)}
 				</span>
 			);
 	}
@@ -90,27 +94,23 @@ export function QuotaCard({
 			aria-label={t`Token quota used up`}
 			className={cn("grid gap-3 rounded-lg border border-warn/30 bg-warn-bg/40 p-4 text-card-foreground", className)}
 		>
-			<div className="flex flex-wrap items-center justify-between gap-2">
-				<h2 className="text-sm font-semibold">
-					<Trans>Token quota used up</Trans>
-				</h2>
-				<span className="font-mono text-xs text-muted-foreground">{wait.levelId}</span>
+			<div className="flex min-w-0 flex-wrap items-baseline justify-between gap-2">
+				<div className="min-w-0">
+					<h2 className="truncate text-sm font-semibold">
+						<Link
+							to="/sessions/$sessionId"
+							params={{ sessionId: wait.sessionId }}
+							className="text-primary underline underline-offset-2"
+						>
+							{wait.title}
+						</Link>
+					</h2>
+					<p className="font-mono text-xs text-muted-foreground">{wait.levelId}</p>
+				</div>
 			</div>
 
 			<KeyValueList
 				items={[
-					{
-						label: <Trans>Session</Trans>,
-						value: (
-							<Link
-								to="/sessions/$sessionId"
-								params={{ sessionId: wait.sessionId }}
-								className="text-primary underline underline-offset-2"
-							>
-								{wait.title}
-							</Link>
-						),
-					},
 					{
 						label: <Trans>Quota</Trans>,
 						value: <QuotaSummaryLine quota={wait.quota} used={wait.used} />,
