@@ -19,7 +19,7 @@ msgstr "待处理审批"
 
 #: src/features/tasks/task-group-result.tsx
 msgid " (the batch was interrupted)"
-msgstr " （批处理被中断）"
+msgstr "（批量运行被中断）"
 
 #: src/components/task-result.tsx
 msgid "… {omitted} bytes omitted …"
@@ -62,7 +62,7 @@ msgstr "{0, plural, one {# 个任务} other {# 个任务}}"
 #. placeholder {0}: preview.data.length
 #: src/features/schedules/schedule-form.tsx
 msgid "{0, plural, one {Next run:} other {Next runs:}}"
-msgstr "{0, plural, one {下次运行：} other {接下来运行：}}"
+msgstr "{0, plural, one {下次运行：} other {后续运行：}}"
 
 #. placeholder {0}: targets.length
 #: src/features/batch/pages.tsx
@@ -72,7 +72,7 @@ msgstr "{0, plural, one {在 # 个目标上运行} other {在 # 个目标上运�
 #. placeholder {0}: items.length
 #: src/features/sessions/child-sessions.tsx
 msgid "{0, plural, one {Subagent session} other {Subagent sessions}}"
-msgstr "{0, plural, one {子代理会话} other {子代理会话}}"
+msgstr "{0, plural, one {子会话} other {子会话}}"
 
 #. placeholder {0}: item.task.kind
 #. placeholder {1}: nodeNames.get(item.task.nodeId) ?? item.task.nodeId
@@ -270,7 +270,7 @@ msgstr "活跃 · 未连接"
 
 #: src/features/audit/pages.tsx
 msgid "Actor"
-msgstr "执行者"
+msgstr "操作者"
 
 #: src/features/tasks/pages.tsx
 msgid "Actor type"
@@ -415,7 +415,7 @@ msgstr "始终允许规则"
 
 #: src/features/authorizations/pages.tsx
 msgid "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
-msgstr "授权在其负载指定的节点上有效，直到截止时间、被用完（一次性授权）或在这里被吊销。离线的节点会在下次连接后收到吊销信息。"
+msgstr "授权在其载荷指定的节点上有效，直到截止时间、被用完（一次性授权）或在这里被吊销。离线的节点会在下次连接后收到吊销信息。"
 
 #: src/features/sessions/pages.tsx
 msgid "another user"
@@ -577,7 +577,7 @@ msgstr "授权 ID"
 
 #: src/features/authorizations/pages.tsx
 msgid "Authorization payload"
-msgstr "授权负载"
+msgstr "授权载荷"
 
 #: src/features/authorizations/pages.tsx
 msgid "Authorization revoked."
@@ -595,7 +595,7 @@ msgstr "授权"
 
 #: src/features/settings/pages.tsx
 msgid "Auto Review sends approvals it cannot decide to this model. Without one, each session's own model is used."
-msgstr "自动复核会把无法判断的审批交给该模型。未设置时使用每个会话自己的模型。"
+msgstr "Auto Review 会把无法判断的审批交给该模型。未设置时使用每个会话自己的模型。"
 
 #: src/features/schedules/scheduleForm.ts
 msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
@@ -613,7 +613,7 @@ msgstr "等待中"
 #: src/components/status-badge.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Awaiting approval"
-msgstr "等待批准"
+msgstr "等待审批"
 
 #: src/components/status-badge.tsx
 #: src/features/tasks/task-group-result.tsx
@@ -1280,7 +1280,7 @@ msgstr "注册命令"
 #: src/features/sessions/new-session-dialog.tsx
 #: src/features/sessions/pages.tsx
 msgid "Enter a positive number of tokens to add."
-msgstr "请输入要添加的正 token 数。"
+msgstr "请输入要添加的 token 数量（正整数）。"
 
 #: src/components/quota-card.tsx
 #: src/features/schedules/scheduleForm.ts
@@ -1855,11 +1855,11 @@ msgstr "下次运行"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Next runs"
-msgstr "接下来运行"
+msgstr "后续运行"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Next runs: –"
-msgstr "接下来运行：–"
+msgstr "后续运行：–"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Nightly check"
@@ -1911,11 +1911,11 @@ msgstr "还没有模型提供方"
 
 #: src/features/schedules/pages.tsx
 msgid "No models are configured, so schedules cannot run."
-msgstr "没有配置模型，计划任务无法运行。"
+msgstr "尚未配置模型，计划任务无法运行。"
 
 #: src/features/sessions/session-list.tsx
 msgid "No models are configured, so sessions cannot start."
-msgstr "没有配置模型，会话无法开始。"
+msgstr "尚未配置模型，会话无法启动。"
 
 #: src/features/sessions/new-session-dialog.tsx
 msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
@@ -1939,7 +1939,7 @@ msgstr "还没有输出。"
 
 #: src/components/authorization-card.tsx
 msgid "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
-msgstr "此节点没有信任你的任何 Passkey 可用于此命令；请用下方 SSH 密钥签名。"
+msgstr "此节点未信任你的任何 Passkey 用于此命令；请使用下方的 SSH 密钥签名。"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "No result yet"
@@ -2125,7 +2125,7 @@ msgstr "每行一条规则：方法和目标前缀。留空表示允许任何方
 #. placeholder {1}: event.targetId
 #: src/features/audit/pages.tsx
 msgid "Open {0} {1}"
-msgstr "打开{0} {1}"
+msgstr "打开 {0} {1}"
 
 #: src/components/task-result.tsx
 msgid "Open approval page"
@@ -2141,7 +2141,7 @@ msgstr "打开签名页"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "Open the subagent's session"
-msgstr "打开子代理的会话"
+msgstr "打开子会话"
 
 #: src/features/approvals/pages.tsx
 msgid "Open the task"
@@ -2222,7 +2222,7 @@ msgstr "输出文件"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "Output so far"
-msgstr "截至目前输出"
+msgstr "目前的输出"
 
 #: src/components/task-form-fields.tsx
 msgid "Overwrite if it exists"
@@ -2288,7 +2288,7 @@ msgstr "路径"
 
 #: src/features/authorizations/pages.tsx
 msgid "Payload"
-msgstr "负载"
+msgstr "载荷"
 
 #: src/components/status-badge.tsx
 msgid "Pending"
@@ -2690,7 +2690,7 @@ msgstr "立即运行"
 
 #: src/features/batch/pages.tsx
 msgid "Run one task on many nodes and follow each node's result."
-msgstr "在许多节点上运行同一个任务，并跟踪每个节点的结果。"
+msgstr "在多个节点上运行同一个任务，并跟踪每个节点的结果。"
 
 #: src/features/tasks/pages.tsx
 msgid "Run something on a node, or use the batch page."
@@ -2959,7 +2959,7 @@ msgstr "签名密钥"
 
 #: src/components/quota-card.tsx
 msgid "Since"
-msgstr "自"
+msgstr "开始时间"
 
 #: src/features/tasks/task-group-result.tsx
 msgid "Skipped: {skipped}"
@@ -3072,11 +3072,11 @@ msgstr "已停止运行。"
 
 #: src/features/tasks/pages.tsx
 msgid "Subagent"
-msgstr "子代理"
+msgstr "子会话"
 
 #: src/features/sessions/child-sessions.tsx
 msgid "Subagent sessions"
-msgstr "子代理会话"
+msgstr "子会话"
 
 #: src/components/authorization-card.tsx
 msgid "Submit authorization"
@@ -3299,7 +3299,7 @@ msgstr "这些任务被规则拦下，批准后就会运行。"
 
 #: src/features/users/pages.tsx
 msgid "They are signed out and cannot sign in again until you enable them."
-msgstr "他们会被登出，并且在你启用之前无法再次登录。"
+msgstr "该用户会被退出登录，在你重新启用之前无法再次登录。"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "Thinking"
@@ -3545,7 +3545,7 @@ msgstr "等待审批"
 
 #: src/components/task-result.tsx
 msgid "Waiting for approval. {approvalLink}"
-msgstr "等待批准。{approvalLink}"
+msgstr "等待审批。{approvalLink}"
 
 #: src/features/tasks/pages.tsx
 msgid "Waiting for me"
@@ -3606,7 +3606,7 @@ msgstr "工作目录（可选）"
 
 #: src/features/sessions/pages.tsx
 msgid "Working…"
-msgstr "运行中…"
+msgstr "处理中…"
 
 #: src/components/approval-card.tsx
 msgid "Yes"
