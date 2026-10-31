@@ -3,9 +3,9 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@ear
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
-import { sessionStateOf } from "../src/agent/quota.ts";
 import { setReviewModel } from "../src/agent/review.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
+import { sessionStateOf } from "../src/agent/session-state.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
@@ -591,7 +591,7 @@ it("puts token_budget on the run's root session and hands an exhausted quota to 
 		return current?.status === "failed" ? current : undefined;
 	});
 	expect(failed.reason).toContain("quota denied");
-	expect(await sessionStateOf(db, sessionId)).toBe("active");
+	expect(await sessionStateOf(db, sessionId)).toBe("idle");
 });
 
 it("recovers a pending run whose submit never happened", async () => {

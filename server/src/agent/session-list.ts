@@ -2,8 +2,9 @@ import { type ExpressionBuilder, type SqlBool, sql } from "kysely";
 import { type CursorKey, descendingKeyset, encodeCursor } from "../api/cursor.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
-import type { Database, SessionsTable } from "../storage/schema.ts";
+import type { Database } from "../storage/schema.ts";
 import { UserError } from "../users/service.ts";
+import type { SessionState, WaitingKind } from "./session-state.ts";
 import { userGroupIds } from "./sharing.ts";
 
 /**
@@ -21,10 +22,16 @@ export interface SessionListItem {
 	scheduleId: string | null;
 	/** Owned by someone else and reached through a direct or group share (an administrator too, if shared). */
 	shared: boolean;
-	/** `sessions.state` verbatim; the client maps it to idle / running / awaiting. */
-	state: string;
-	waitingLevelId: string | null;
+	/** The whole session tree's state: any awaiting → awaiting, else any running → running, else idle. */
+	state: SessionState;
+	/** The highest-priority wait among the tree's awaiting sessions; null unless `state` is `awaiting`. */
+	waitingKind: WaitingKind | null;
 	updatedAt: string;
+	/**
+	 * The session's parent, for the children list (`GET /api/sessions/:id/children`); absent from the root
+	 * list, which only holds roots. The children list shows the session's own state, not the tree's aggregate.
+	 */
+	parentSessionId?: string | null;
 }
 
 export type SessionListScope = "mine" | "shared" | "all";
@@ -37,17 +44,27 @@ export interface SessionListFilter {
 	cursor?: CursorKey;
 }
 
-export interface SessionListRow {
+/** The columns both lists turn into an item: the root list aggregates the tree into `state`, the children list reads it as is. */
+export interface SessionItemRow {
 	id: string;
 	title: string;
 	owner_user_id: string;
-	parent_session_id: string | null;
 	schedule_id: string | null;
-	state: SessionsTable["state"];
-	waiting_level_id: string | null;
+	state: SessionState;
+	waiting_kind: WaitingKind | null;
 	updated_at: string;
 	display_name: string;
 	username: string;
+}
+
+export interface SessionListRow extends SessionItemRow {
+	parent_session_id: string | null;
+	root_session_id: string | null;
+}
+
+/** A row of `GET /api/sessions/:id/children`: the list's item columns, without the tree aggregate. */
+export interface SessionChildRow extends SessionItemRow {
+	parent_session_id: string | null;
 }
 
 /** A list row: the query also evaluates whether a share reaches the caller, so the item needs no extra query. */
@@ -55,6 +72,46 @@ export interface SessionListQueryRow extends SessionListRow {
 	/** `EXISTS (...)` in SQL: 0/1 on SQLite, a boolean on PostgreSQL. */
 	shared: SqlBool;
 }
+
+/**
+ * The tree's aggregate state, computed in SQL over `root_session_id` (doc/webui.md#SessionListItem): any
+ * awaiting session makes the tree awaiting, else any running one makes it running. The second branch of each
+ * condition also counts a root whose own `root_session_id` was never backfilled, so such a row cannot vanish
+ * from its own aggregate. One index lookup per branch (`sessions_root_state_idx`), no per-row query.
+ */
+const TREE_STATE = sql<SessionState>`case
+	when exists (
+		select 1 from sessions as tree
+		where (tree.root_session_id = sessions.id or (tree.id = sessions.id and tree.root_session_id is null))
+			and tree.state = 'awaiting'
+	) then 'awaiting'
+	when exists (
+		select 1 from sessions as tree
+		where (tree.root_session_id = sessions.id or (tree.id = sessions.id and tree.root_session_id is null))
+			and tree.state = 'running'
+	) then 'running'
+	else 'idle'
+end`;
+
+/** The highest-priority wait among the tree's awaiting sessions: quota > approval > authorization. */
+const TREE_WAITING_KIND = sql<WaitingKind | null>`case
+	when exists (
+		select 1 from sessions as tree
+		where (tree.root_session_id = sessions.id or (tree.id = sessions.id and tree.root_session_id is null))
+			and tree.state = 'awaiting' and tree.waiting_kind = 'quota'
+	) then 'quota'
+	when exists (
+		select 1 from sessions as tree
+		where (tree.root_session_id = sessions.id or (tree.id = sessions.id and tree.root_session_id is null))
+			and tree.state = 'awaiting' and tree.waiting_kind = 'approval'
+	) then 'approval'
+	when exists (
+		select 1 from sessions as tree
+		where (tree.root_session_id = sessions.id or (tree.id = sessions.id and tree.root_session_id is null))
+			and tree.state = 'awaiting' and tree.waiting_kind = 'authorization'
+	) then 'authorization'
+	else null
+end`;
 
 /** `%`, `_` and the escape character are matched literally inside a LIKE pattern. */
 export function escapeLike(value: string): string {
@@ -99,9 +156,10 @@ export async function sessionListQuery(db: Db, user: SessionUser, filter: Sessio
 			"sessions.title",
 			"sessions.owner_user_id",
 			"sessions.parent_session_id",
+			"sessions.root_session_id",
 			"sessions.schedule_id",
-			"sessions.state",
-			"sessions.waiting_level_id",
+			TREE_STATE.as("state"),
+			TREE_WAITING_KIND.as("waiting_kind"),
 			"sessions.updated_at",
 			"users.display_name",
 			"users.username",
@@ -135,10 +193,38 @@ export async function sessionListQuery(db: Db, user: SessionUser, filter: Sessio
 }
 
 /**
+ * A page of a session's direct child sessions (subagents), `updated_at desc, id desc`: the route adds `limit`
+ * (doc/webui.md#api-约定). The item shows the child's own state, not the tree's, and its parent; the items are
+ * never filtered per child, because a share on a session reaches its subagents (doc/access-control.md#归属与分享).
+ * `sessions_parent_updated_idx` serves both the `parent_session_id` filter and the order, so a page costs one
+ * index range scan and no per-row query.
+ */
+export function sessionChildrenQuery(db: Db, parentSessionId: string, cursor?: CursorKey) {
+	let query = db
+		.selectFrom("sessions")
+		.innerJoin("users", "users.id", "sessions.owner_user_id")
+		.select([
+			"sessions.id",
+			"sessions.title",
+			"sessions.owner_user_id",
+			"sessions.parent_session_id",
+			"sessions.schedule_id",
+			"sessions.state",
+			"sessions.waiting_kind",
+			"sessions.updated_at",
+			"users.display_name",
+			"users.username",
+		])
+		.where("sessions.parent_session_id", "=", parentSessionId);
+	if (cursor) query = query.where(descendingKeyset(["sessions.updated_at"], cursor, "sessions.id"));
+	return query.orderBy("sessions.updated_at", "desc").orderBy("sessions.id", "desc");
+}
+
+/**
  * The item as one viewer sees it. `shared` comes from the share reach the caller resolved: the list query's
  * `EXISTS` for the caller, or the audience the hub computed for a stream subscriber. An owner never has it set.
  */
-export function sessionListItem(row: SessionListRow, viewerUserId: string, shared: boolean): SessionListItem {
+export function sessionListItem(row: SessionItemRow, viewerUserId: string, shared: boolean): SessionListItem {
 	const isOwner = row.owner_user_id === viewerUserId;
 	return {
 		id: row.id,
@@ -148,9 +234,17 @@ export function sessionListItem(row: SessionListRow, viewerUserId: string, share
 		scheduleId: row.schedule_id,
 		shared: shared && !isOwner,
 		state: row.state,
-		waitingLevelId: row.waiting_level_id,
+		waitingKind: row.waiting_kind,
 		updatedAt: row.updated_at,
 	};
+}
+
+/**
+ * A child's item: the list's item plus the parent it hangs under. `shared` is the tree's, resolved from the
+ * parent's permissions, so every child of one session carries the same answer.
+ */
+export function sessionChildItem(row: SessionChildRow, viewerUserId: string, shared: boolean): SessionListItem {
+	return { ...sessionListItem(row, viewerUserId, shared), parentSessionId: row.parent_session_id };
 }
 
 export interface ShareAudience {
@@ -332,8 +426,28 @@ export class SessionListHub {
 
 	async #publishCurrent(sessionId: string): Promise<void> {
 		const row = await this.#row(sessionId);
-		if (!row || row.parent_session_id !== null) return;
-		this.#sendUpsert(row, await this.#visibleUserIds(sessionId));
+		if (!row) return;
+		// A subagent's state is part of its tree's item: every change publishes the root (doc/webui.md#会话列表).
+		const root = row.parent_session_id === null ? row : await this.#row(await this.#rootOf(row));
+		if (!root || root.parent_session_id !== null) return;
+		this.#sendUpsert(root, await this.#visibleUserIds(root.id));
+	}
+
+	/** The root of a row that predates the root_session_id backfill (or a hand-built test row). */
+	async #rootOf(row: SessionListRow): Promise<string> {
+		if (row.root_session_id) return row.root_session_id;
+		let id = row.parent_session_id;
+		for (let depth = 0; id && depth <= 100; depth++) {
+			const parent = await this.#db
+				.selectFrom("sessions")
+				.select(["id", "parent_session_id"])
+				.where("id", "=", id)
+				.executeTakeFirst();
+			if (!parent) break;
+			if (parent.parent_session_id === null) return parent.id;
+			id = parent.parent_session_id;
+		}
+		return row.id;
 	}
 
 	/** The session row with its owner, whatever its parent; undefined when it is gone. */
@@ -346,9 +460,10 @@ export class SessionListHub {
 				"sessions.title",
 				"sessions.owner_user_id",
 				"sessions.parent_session_id",
+				"sessions.root_session_id",
 				"sessions.schedule_id",
-				"sessions.state",
-				"sessions.waiting_level_id",
+				TREE_STATE.as("state"),
+				TREE_WAITING_KIND.as("waiting_kind"),
 				"sessions.updated_at",
 				"users.display_name",
 				"users.username",

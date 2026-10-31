@@ -9,8 +9,6 @@ import { UserError } from "../users/service.ts";
  * above zero. The state of a session says when it is paused on an exhausted level.
  */
 
-export type SessionState = "active" | "awaiting" | "stopped";
-
 export function parseQuota(raw: unknown): number | null {
 	if (raw === null) return null;
 	if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0) {
@@ -179,6 +177,7 @@ export async function awaitingQuotaChildren(db: Db, handlerSessionId: string): P
 		.selectFrom("sessions")
 		.select(["id", "waiting_level_id", "waiting_handler_id", "title", "state_changed_at"])
 		.where("state", "=", "awaiting")
+		.where("waiting_kind", "=", "quota")
 		.where("waiting_level_id", "is not", null)
 		.where("waiting_handler_id", "=", handlerSessionId)
 		.execute();
@@ -197,6 +196,7 @@ export async function awaitingQuotaSessions(db: Db): Promise<QuotaWaitView[]> {
 		.selectFrom("sessions")
 		.select(["id", "waiting_level_id", "waiting_handler_id", "title", "state_changed_at"])
 		.where("state", "=", "awaiting")
+		.where("waiting_kind", "=", "quota")
 		.where("waiting_level_id", "is not", null)
 		.execute();
 	const out: QuotaWaitView[] = [];
@@ -206,77 +206,4 @@ export async function awaitingQuotaSessions(db: Db): Promise<QuotaWaitView[]> {
 		if (view) out.push(view);
 	}
 	return out;
-}
-
-export async function sessionStateOf(db: Db, sessionId: string): Promise<SessionState | undefined> {
-	const row = await db.selectFrom("sessions").select("state").where("id", "=", sessionId).executeTakeFirst();
-	return row?.state;
-}
-
-/**
- * Sets the session's state; unchanged states are not rewritten (keeps `since` meaningful). Returns the state's
- * timestamp, which identifies this wait: a new pause gets a new one, so a handler's wake is not deduplicated
- * against the previous pause. A root's quota wait has no handler (the owner handles it).
- */
-export async function setSessionState(
-	db: Db,
-	sessionId: string,
-	state: SessionState,
-	levelId: string | null,
-): Promise<string> {
-	const row = await db
-		.selectFrom("sessions")
-		.select(["state", "waiting_level_id", "waiting_handler_id", "state_changed_at"])
-		.where("id", "=", sessionId)
-		.executeTakeFirst();
-	if (!row) return "";
-	// A stopped session is revived only by a new input (which updates last_submission_id atomically), never by a state write.
-	if (row.state === "stopped") return row.state_changed_at ?? "";
-	// A quota wait is handled by the exhausted level's direct parent; store it so the handler can find it.
-	let handlerId: string | null = null;
-	if (state === "awaiting" && levelId) {
-		handlerId =
-			row.waiting_level_id === levelId && row.waiting_handler_id
-				? row.waiting_handler_id
-				: ((await parentOf(db, levelId)) ?? null);
-	}
-	if (row.state === state && row.waiting_level_id === levelId && row.waiting_handler_id === handlerId)
-		return row.state_changed_at ?? "";
-	const at = new Date().toISOString();
-	let update = db
-		.updateTable("sessions")
-		.set({ state, waiting_level_id: levelId, waiting_handler_id: handlerId, state_changed_at: at, updated_at: at })
-		.where("id", "=", sessionId);
-	// A concurrent settle/abort may have written stopped after our read; never overwrite it here.
-	if (state !== "stopped") update = update.where("state", "!=", "stopped");
-	const res = await update.executeTakeFirst();
-	return res.numUpdatedRows === 0n ? (row.state_changed_at ?? "") : at;
-}
-
-async function parentOf(db: Db, sessionId: string): Promise<string | null | undefined> {
-	const row = await db
-		.selectFrom("sessions")
-		.select("parent_session_id")
-		.where("id", "=", sessionId)
-		.executeTakeFirst();
-	return row?.parent_session_id;
-}
-
-/** Marks subagent sessions stopped (cancelled, or a quota wait denied). Roots stay active and are reset separately. */
-export async function markSessionsStopped(db: Db, sessionIds: string[]): Promise<void> {
-	if (sessionIds.length === 0) return;
-	const at = new Date().toISOString();
-	await db
-		.updateTable("sessions")
-		.set({
-			state: "stopped",
-			waiting_level_id: null,
-			waiting_handler_id: null,
-			state_changed_at: at,
-			updated_at: at,
-		})
-		.where("id", "in", sessionIds)
-		.where("parent_session_id", "is not", null)
-		.where("state", "!=", "stopped")
-		.execute();
 }

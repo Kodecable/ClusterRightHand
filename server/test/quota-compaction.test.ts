@@ -2,8 +2,9 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@ear
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
-import { exhaustedLevel, sessionStateOf, spentTokens } from "../src/agent/quota.ts";
+import { exhaustedLevel, spentTokens } from "../src/agent/quota.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
+import { sessionStateOf } from "../src/agent/session-state.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";

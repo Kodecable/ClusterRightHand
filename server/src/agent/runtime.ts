@@ -57,18 +57,23 @@ import {
 	awaitingQuotaSessions,
 	exhaustedLevel,
 	grantQuota,
-	markSessionsStopped,
 	parseQuota,
 	recordUsage,
-	type SessionState,
 	sessionChain,
-	sessionStateOf,
 	setQuota,
-	setSessionState,
 	spentTokens,
 } from "./quota.ts";
 import { Reviewer } from "./review.ts";
 import { SessionListHub } from "./session-list.ts";
+import {
+	markSessionsIdle,
+	nonIdleSessions,
+	type SessionState,
+	type SessionWait,
+	sessionsWithSubmissions,
+	setSessionState,
+	type WaitingKind,
+} from "./session-state.ts";
 import { sharedSessionAccess } from "./sharing.ts";
 
 /**
@@ -102,8 +107,10 @@ export interface SessionView {
 	createdAt: string;
 	updatedAt: string;
 	rules: StoredRuleSet | null;
-	/** Subagent state (a root is active except while it waits for a quota decision). */
+	/** The session's own run state (doc/agent-runtime.md#会话状态). */
 	state: SessionState;
+	/** Why the session waits; null unless `state` is `awaiting`. */
+	waitingKind: WaitingKind | null;
 	/** While awaiting a quota: the exhausted level to top up. */
 	waitingLevelId: string | null;
 	/** Remaining token quota; null: unlimited. Signed: a response may overspend it. */
@@ -162,6 +169,9 @@ export type SessionEvent = AgentEvent;
 /** Entries a snapshot carries; older ones are paged through `GET /api/sessions/:id/entries`. */
 const SNAPSHOT_ENTRIES = 100;
 
+/** Sessions per `IN (...)` lookup at startup; SQLite caps bound parameters far below the session count. */
+const RECONCILE_CHUNK = 500;
+
 /** System messages (the prompt and tool schemas) are not shown in the chat; neither is the entry that holds them. */
 function isShownEntry(entry: { readonly model?: readonly { readonly role?: string }[] }): boolean {
 	return !(entry.model ?? []).some((message) => message.role === "system");
@@ -219,7 +229,9 @@ type Row = {
 	last_submission_id: string | null;
 	quota_tokens: string | number | null;
 	state: SessionState;
+	waiting_kind: WaitingKind | null;
 	waiting_level_id: string | null;
+	waiting_handler_id: string | null;
 	state_changed_at: string | null;
 };
 
@@ -252,7 +264,7 @@ export class AgentRuntime {
 	#providerSessions = new Map<string, string>();
 	/** Conversations whose provider document was already read. */
 	#learnedProviders = new Set<string>();
-	/** Sessions whose paused call the owner denied but whose tool has not ended yet (a root has no stopped state). */
+	/** Sessions whose paused call was denied but whose tool has not ended yet: their wait must not be re-created. */
 	#deniedWaits = new Set<string>();
 	/** Follow-up inputs held while the handler runs; flushed once it is idle. */
 	#pendingWakes = new Map<string, Map<string, string>>();
@@ -329,6 +341,8 @@ export class AgentRuntime {
 		options.cluster.onChange = approvalChanged;
 		options.groups.onChange = approvalChanged;
 		runtime.#supervise();
+		// Durable has resumed the runs; correct every cached session state before requests are accepted.
+		await runtime.#reconcileSessionStates();
 		// Sessions created before the per-conversation tool filter existed may still offer subagent at the limit.
 		await runtime.#enforceDepthToolLimits();
 		// A restart may have queued nothing for requests that were already waiting: wake idle parents now.
@@ -401,6 +415,7 @@ export class AgentRuntime {
 					owner_user_id: owner.userId,
 					conversation_id: String(conversation.id),
 					parent_session_id: null,
+					root_session_id: id,
 					title: input.title?.trim() || "New session",
 					model: JSON.stringify(input.model),
 					status: "active",
@@ -409,7 +424,8 @@ export class AgentRuntime {
 					archived_at: null,
 					// A root without a quota is unlimited and never charged; any level may have one (D92).
 					quota_tokens: input.quota ?? null,
-					state: "active",
+					state: "idle",
+					waiting_kind: null,
 					waiting_level_id: null,
 					waiting_handler_id: null,
 					state_changed_at: now,
@@ -466,6 +482,7 @@ export class AgentRuntime {
 					owner_user_id: owner.userId,
 					conversation_id: String(conversation.id),
 					parent_session_id: null,
+					root_session_id: input.id,
 					schedule_id: input.scheduleId,
 					title: input.title.trim() || "Scheduled run",
 					model: JSON.stringify(input.model),
@@ -475,7 +492,8 @@ export class AgentRuntime {
 					archived_at: null,
 					// The budget is the new session's root quota; null means unlimited (D92).
 					quota_tokens: input.quota,
-					state: "active",
+					state: "idle",
+					waiting_kind: null,
 					waiting_level_id: null,
 					waiting_handler_id: null,
 					state_changed_at: now,
@@ -526,6 +544,7 @@ export class AgentRuntime {
 			updatedAt: row.updated_at,
 			rules,
 			state: row.state,
+			waitingKind: row.waiting_kind,
 			waitingLevelId: row.waiting_level_id,
 			quota: row.quota_tokens === null ? null : Number(row.quota_tokens),
 			spentTokens: await spentTokens(this.#db, row.id),
@@ -604,15 +623,16 @@ export class AgentRuntime {
 	}
 
 	/**
-	 * Records a new input and revives a stopped subagent in one row update. A retried older submission is ignored,
-	 * so it cannot roll `last_submission_id` back or revive a session that a newer input is driving.
+	 * Records a new input and revives an idle session in one row update. A retried older submission is ignored,
+	 * so it cannot roll `last_submission_id` back or revive a session that a newer input is driving. An input
+	 * that queues behind a running one changes nothing: the session already runs or waits.
 	 */
 	async #recordInput(sessionId: string, submission: Submission): Promise<boolean> {
 		const id = String(submission.id);
 		for (let attempt = 0; attempt < 3; attempt++) {
 			const row = await this.#db
 				.selectFrom("sessions")
-				.select(["parent_session_id", "last_submission_id"])
+				.select("last_submission_id")
 				.where("id", "=", sessionId)
 				.executeTakeFirst();
 			if (!row || !isNewerSubmission(id, row.last_submission_id)) return false;
@@ -622,11 +642,9 @@ export class AgentRuntime {
 				.set({
 					last_submission_id: id,
 					updated_at: at,
-					// A stopped session is revived by a new input; awaiting (approval/quota) stays as it is.
-					state: sql`case when state = 'stopped' then 'active' else state end`,
-					waiting_level_id: sql`case when state = 'stopped' then null else waiting_level_id end`,
-					waiting_handler_id: sql`case when state = 'stopped' then null else waiting_handler_id end`,
-					state_changed_at: sql`case when state = 'stopped' then ${at} else state_changed_at end`,
+					// Only a new input revives an idle session; a wait that is already there stays until it ends.
+					state: sql`case when state = 'idle' then 'running' else state end`,
+					state_changed_at: sql`case when state = 'idle' then ${at} else state_changed_at end`,
 				})
 				.where("id", "=", sessionId);
 			update =
@@ -641,8 +659,7 @@ export class AgentRuntime {
 			void submission
 				.wait(this.#context)
 				.then(async () => {
-					if (row.parent_session_id !== null) await this.#settleInput(sessionId, id);
-					else await this.#touchSession(sessionId);
+					await this.#settleInput(sessionId, id);
 				})
 				.catch(() => {});
 			return true;
@@ -650,31 +667,14 @@ export class AgentRuntime {
 		return false;
 	}
 
-	/** Records activity on a root session: `updated_at` moves it in the list, and the stream gets the new item. */
-	async #touchSession(sessionId: string): Promise<void> {
-		if (this.#closing) return;
-		await this.#db
-			.updateTable("sessions")
-			.set({ updated_at: new Date().toISOString() })
-			.where("id", "=", sessionId)
-			.execute();
-		this.#sessionList.publishSession(sessionId);
-	}
-
-	/** Reconciles old conversations with the depth limit; new children are handled in createSubagent. */
+	/**
+	 * Reconciles old conversations with the depth limit; new children are handled in createSubagent. Only a
+	 * session at the limit can be affected, so `depthLimitedSessions` walks up from the subagent rows and finds
+	 * exactly those, instead of loading every session's parent at startup (doc/webui.md: 100,000 sessions).
+	 */
 	async #enforceDepthToolLimits(): Promise<void> {
-		const rows = await this.#db
-			.selectFrom("sessions")
-			.select(["id", "parent_session_id", "conversation_id"])
-			.where("parent_session_id", "is not", null)
-			.execute();
-		if (rows.length === 0) return;
-		const all = await this.#db.selectFrom("sessions").select(["id", "parent_session_id"]).execute();
-		const parentOf = new Map(all.map((row) => [row.id, row.parent_session_id]));
-		for (const row of rows) {
-			let depth = 0;
-			for (let id = row.parent_session_id; id; depth++) id = parentOf.get(id) ?? null;
-			if (depth < MAX_SUBAGENT_DEPTH) continue;
+		const limited = await depthLimitedSessions().execute(this.#db);
+		for (const row of limited.rows) {
 			const conversation = await this.#harness.conversation(
 				Number(row.conversation_id) as unknown as ConversationId,
 				this.#context,
@@ -699,29 +699,32 @@ export class AgentRuntime {
 		return agent.tools.map((tool) => tool.name);
 	}
 
-	/** Stops a subagent when its latest input settles; a newer input keeps the session running. */
+	/**
+	 * Ends the session's run when its latest input settles (done, rejected or aborted alike): the session is
+	 * idle until a new input. Only the latest input's settlement writes idle, so an older run cannot stop a
+	 * newer one (doc/agent-runtime.md#会话状态).
+	 */
 	async #settleInput(sessionId: string, submissionId: string): Promise<void> {
 		if (this.#closing) return;
 		const row = await this.#db
 			.selectFrom("sessions")
-			.select(["parent_session_id", "last_submission_id"])
+			.select(["last_submission_id", "state"])
 			.where("id", "=", sessionId)
 			.executeTakeFirst();
-		if (!row || row.parent_session_id === null || row.last_submission_id !== submissionId) return;
+		if (!row || row.last_submission_id !== submissionId) return;
 		const at = new Date().toISOString();
 		await this.#db
 			.updateTable("sessions")
 			.set({
-				state: "stopped",
+				state: "idle",
+				waiting_kind: null,
 				waiting_level_id: null,
 				waiting_handler_id: null,
-				state_changed_at: at,
+				state_changed_at: sql`case when state = 'idle' then state_changed_at else ${at} end`,
 				updated_at: at,
 			})
 			.where("id", "=", sessionId)
 			.where("last_submission_id", "=", submissionId)
-			.where("parent_session_id", "is not", null)
-			.where("state", "!=", "stopped")
 			.execute();
 		this.#sessionList.publishSession(sessionId);
 		this.#forgetInbox(sessionId);
@@ -763,14 +766,10 @@ export class AgentRuntime {
 				}
 			}
 		}
-		await markSessionsStopped(this.#db, sessions);
+		await markSessionsIdle(this.#db, sessions);
 		for (const id of sessions) this.#sessionList.publishSession(id);
-		// A root has no stopped state: end the aborted root's own quota wait, then clear an ancestor's wait that
-		// only the aborted subtree caused.
-		for (const id of sessions) {
-			this.#deniedWaits.delete(id);
-			if ((await this.#parentOf(id)) === null) await setSessionState(this.#db, id, "active", null);
-		}
+		for (const id of sessions) this.#deniedWaits.delete(id);
+		// Clear a quota wait of an ancestor that only the aborted subtree caused.
 		const root = (await sessionChain(this.#db, sessionId)).at(-1);
 		if (root) await this.refreshState(root);
 		this.#notifyQuotaWaiters();
@@ -1049,6 +1048,7 @@ export class AgentRuntime {
 					owner_user_id: parent.owner_user_id,
 					conversation_id: String(conversation.id),
 					parent_session_id: parent.id,
+					root_session_id: parent.root_session_id ?? parent.id,
 					title: input.task.slice(0, 80),
 					model: parent.model,
 					status: "active",
@@ -1056,7 +1056,8 @@ export class AgentRuntime {
 					updated_at: now,
 					archived_at: null,
 					quota_tokens: input.quota,
-					state: "active",
+					state: "idle",
+					waiting_kind: null,
 					waiting_level_id: null,
 					waiting_handler_id: null,
 					state_changed_at: now,
@@ -1318,7 +1319,7 @@ export class AgentRuntime {
 			return "task";
 		}
 		const waiting = await this.#db.selectFrom("sessions").selectAll().where("id", "=", requestId).executeTakeFirst();
-		if (waiting?.state === "awaiting" && waiting.waiting_level_id) {
+		if (waiting?.state === "awaiting" && waiting.waiting_kind === "quota" && waiting.waiting_level_id) {
 			const levelId = waiting.waiting_level_id;
 			if ((await this.#parentOf(levelId)) !== sessionId) {
 				throw new UserError("this quota wait is not handled by this session's agent");
@@ -1327,7 +1328,9 @@ export class AgentRuntime {
 				throw new UserError("a quota wait goes to the direct parent only; approve or deny it");
 			}
 			if (decision === "deny") {
-				await markSessionsStopped(this.#db, [requestId]);
+				// A call paused right now is told by the in-memory mark, so it ends instead of waiting again.
+				if (this.#quotaWaiters.get(requestId)?.size) this.#deniedWaits.add(requestId);
+				await markSessionsIdle(this.#db, [requestId]);
 			} else {
 				if (tokens === undefined) throw new UserError("give the quota wait tokens to grant");
 				// No cap: the whole chain is charged for every response, so the parent's own remainder does
@@ -1343,8 +1346,8 @@ export class AgentRuntime {
 			this.#dropWakePrefix(sessionId, `quota-request:${requestId}:`);
 			this.#notifyQuotaWaiters();
 			this.#invalidateInboxes();
-			// A denial already left the session stopped; do not recompute it while the paused tool is still live.
-			if (decision !== "deny") await this.refreshState(requestId);
+			// A denial already left the session idle; a grant lets the paused call resume and write `running` itself.
+			if (decision === "deny") await this.refreshState(requestId);
 			return "quota";
 		}
 		const group = await this.#db
@@ -1376,42 +1379,40 @@ export class AgentRuntime {
 
 	/**
 	 * The owner's answer to a root whose quota is used up (doc/agent-runtime.md#配额): add N tokens (additive, no
-	 * cap) or deny and stop the paused runs. Returns the sessions that were waiting on the root, for the audit.
+	 * cap) or deny and stop the paused runs. The wait may belong to the root's own run or to a subagent paused on
+	 * the root level, so the paused sessions carry it (not the root row alone). Returns them, for the audit.
 	 */
 	async decideRootQuota(rootId: string, decision: "approve" | "deny", tokens?: number): Promise<string[]> {
 		const root = await this.#db.selectFrom("sessions").selectAll().where("id", "=", rootId).executeTakeFirst();
 		if (!root) throw new NotFoundError("no such session");
-		if (
-			root.parent_session_id !== null ||
-			root.state !== "awaiting" ||
-			root.waiting_level_id !== rootId ||
-			root.quota_tokens === null ||
-			Number(root.quota_tokens) > 0
-		) {
-			throw new UserError("the session is not waiting for a token quota decision");
-		}
+		if (root.parent_session_id !== null) throw new UserError("only a root session's quota can be decided");
 		const paused = await this.#db
 			.selectFrom("sessions")
-			.select("id")
+			.select(["id", "state", "waiting_level_id"])
 			.where("state", "=", "awaiting")
+			.where("waiting_kind", "=", "quota")
 			.where("waiting_level_id", "=", rootId)
 			.execute();
+		const exhausted = root.quota_tokens !== null && Number(root.quota_tokens) <= 0;
+		if (paused.length === 0 || !exhausted) {
+			throw new UserError("the session is not waiting for a token quota decision");
+		}
 		if (decision === "deny") {
-			// Subagents stop like an agent's deny; the root has no stopped state, so a root call that is waiting right
-			// now is told by the in-memory mark (with the wait cleared, its next iteration ends instead of waiting).
-			if (this.#quotaWaiters.get(rootId)?.size) this.#deniedWaits.add(rootId);
-			await markSessionsStopped(
+			// The paused calls end like an agent's deny; a call waiting right now is told by the in-memory mark,
+			// so it ends instead of waiting again.
+			for (const row of paused) if (this.#quotaWaiters.get(row.id)?.size) this.#deniedWaits.add(row.id);
+			await markSessionsIdle(
 				this.#db,
 				paused.map((row) => row.id),
 			);
-			await setSessionState(this.#db, rootId, "active", null);
 		} else {
 			if (tokens === undefined) throw new UserError("give the quota wait tokens to grant");
 			await grantQuota(this.#db, rootId, tokens);
 		}
 		this.#notifyQuotaWaiters();
 		this.#invalidateInboxes();
-		for (const row of paused) await this.refreshState(row.id);
+		// On a deny every paused run already ended idle; on a grant each paused call resumes and writes `running`.
+		if (decision === "deny") for (const row of paused) await this.refreshState(row.id);
 		await this.refreshState(rootId);
 		return paused.map((row) => row.id);
 	}
@@ -1459,48 +1460,30 @@ export class AgentRuntime {
 	 * request is denied. A rerun after a restart finds the same request.
 	 */
 	async waitForQuota(sessionId: string, context: Context): Promise<"ok" | "denied"> {
-		let waited = false;
 		for (;;) {
 			// The owner denied while this call was setting up or between waits: end it instead of waiting again.
 			if (this.#deniedWaits.delete(sessionId)) return "denied";
 			const waiter = this.#quotaWaiter(sessionId, context.abortSignal);
 			try {
-				// A denied wait (or an abort) set `stopped`: end the paused call before writing `awaiting` again.
-				if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
 				const level = await exhaustedLevel(this.#db, sessionId);
 				if (!level) {
-					await setSessionState(this.#db, sessionId, "active", null);
+					await setSessionState(this.#db, sessionId, "running", null);
 					this.#sessionList.publishSession(sessionId);
 					// The quota request is gone; drop it from the handler's cache before returning.
 					this.#invalidateInboxes();
-					if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
 					return "ok";
 				}
-				// The owner's deny clears the wait without restoring the level: end the paused call instead of waiting
-				// again. A grant of an ancestor may expose another exhausted level; that keeps this call waiting.
-				if (waited) {
-					const row = await this.#db
-						.selectFrom("sessions")
-						.select(["state", "waiting_level_id"])
-						.where("id", "=", sessionId)
-						.executeTakeFirst();
-					if (row?.state !== "awaiting" || row?.waiting_level_id === null) return "denied";
-				}
 				const parent = await this.#parentOf(level);
-				const since = await setSessionState(this.#db, sessionId, "awaiting", level);
+				const quotaWait: SessionWait = { kind: "quota", levelId: level };
+				const since = await setSessionState(this.#db, sessionId, "awaiting", quotaWait);
 				this.#sessionList.publishSession(sessionId);
-				// The root has no parent to handle its wait; it shows `awaiting` until its owner grants or denies.
-				if (!parent && level !== sessionId) {
-					await setSessionState(this.#db, level, "awaiting", level);
-					this.#sessionList.publishSession(level);
-				}
-				// A deny/abort could have landed between the check and the write; do not wake for a stopped wait.
+				// A root level has no parent to handle its wait: the owner sees it in the approvals API, and the
+				// session paused on that level already carries the wait (doc/agent-runtime.md#配额).
+				// A deny/abort could have landed between the check and the write; do not wake for an ended wait.
 				if (this.#deniedWaits.delete(sessionId)) return "denied";
-				if ((await sessionStateOf(this.#db, sessionId)) === "stopped") return "denied";
 				// The handler's inbox cache must see the new quota request.
 				this.#invalidateInboxes();
 				if (parent) await this.#wakeQuota(parent, sessionId, level, since);
-				waited = true;
 				// Grant/deny/abort/quota edit resolves this; the next loop re-checks the durable state.
 				await waiter.promise;
 				if (context.abortSignal?.aborted) throw new Error("the quota wait was aborted");
@@ -1539,77 +1522,78 @@ export class AgentRuntime {
 	}
 
 	/**
-	 * Recomputes a session's cached state (doc/agent-runtime.md#subagent, #配额): a subagent is `awaiting` when one of
-	 * its tool calls waits for approval or its quota is exhausted while it runs, and `stopped` once its run has ended
-	 * (sticky until a new input). A root is active except while it waits for its owner to top up its own quota.
+	 * Recomputes a session's state from durable and its wait sources (doc/agent-runtime.md#会话状态): a quota wait
+	 * first, then a task waiting for approval or a signature, otherwise running while its latest input is
+	 * unsettled. An idle session is never revived here — only a new input does that — so a late correction
+	 * cannot restart a run that already ended.
 	 */
 	async refreshState(sessionId: string): Promise<SessionState> {
 		const row = await this.#db.selectFrom("sessions").selectAll().where("id", "=", sessionId).executeTakeFirst();
-		if (!row) return "active";
-		if (row.parent_session_id === null) {
-			// Only an owner's quota wait makes a root await; it is read back from the durable state, never invented.
-			const waiting =
-				row.state === "awaiting" &&
-				row.waiting_level_id === row.id &&
-				(await exhaustedLevel(this.#db, sessionId)) === sessionId &&
-				(await this.#hasQuotaWait(sessionId));
-			await setSessionState(this.#db, sessionId, waiting ? "awaiting" : "active", waiting ? row.id : null);
-			this.#sessionList.publishSession(sessionId);
-			if (!waiting && (row.state !== "active" || row.waiting_level_id !== null)) this.#invalidateInboxes();
-			return waiting ? "awaiting" : "active";
-		}
-		// Only a new input revives a stopped subagent (see #recordInput); a live run alone does not.
-		if (row.state === "stopped") return "stopped";
-		const live = await this.#isLive(row);
-		const level = await exhaustedLevel(this.#db, sessionId);
-		const approval =
-			(await this.#db
-				.selectFrom("tasks")
-				.select("id")
-				.where("actor_id", "=", sessionId)
-				.where("state", "=", "awaiting_approval")
-				.executeTakeFirst()) ??
-			(await this.#db
-				.selectFrom("task_groups")
-				.select("id")
-				.where("actor_id", "=", sessionId)
-				.where("state", "=", "awaiting_approval")
-				.executeTakeFirst());
-		// A quota wait set by the paused tool stays until the quota is restored; a live run also counts.
-		const quotaWait = level !== undefined && (row.waiting_level_id !== null || live);
-		const awaiting = approval !== undefined || quotaWait;
-		const state: SessionState = awaiting ? "awaiting" : "active";
-		const nextLevel = quotaWait ? (level ?? null) : null;
-		await setSessionState(this.#db, sessionId, state, nextLevel);
+		if (!row) return "idle";
+		if (row.state === "idle") return "idle";
+		const settled = await this.#inputSettled(row);
+		const desired = await this.#desiredState(row, settled);
+		await setSessionState(this.#db, sessionId, desired.state, desired.wait);
 		this.#sessionList.publishSession(sessionId);
 		// Approval/quota changes alter the handler's inbox; write-state and cache invalidation are adjacent.
-		if (row.state !== state || row.waiting_level_id !== nextLevel) this.#invalidateInboxes();
-		return state;
+		const changed =
+			row.state !== desired.state ||
+			row.waiting_kind !== (desired.wait?.kind ?? null) ||
+			row.waiting_level_id !== (desired.wait?.levelId ?? null);
+		if (changed) this.#invalidateInboxes();
+		return desired.state;
 	}
 
-	/** Whether any session is paused on `levelId`; a root's wait may be a descendant's, not its own run. */
-	async #hasQuotaWait(levelId: string): Promise<boolean> {
-		const row = await this.#db
-			.selectFrom("sessions")
-			.select("id")
-			.where("state", "=", "awaiting")
-			.where("waiting_level_id", "=", levelId)
-			.limit(1)
-			.executeTakeFirst();
-		return row !== undefined;
+	/** The state a live (or stale) row deserves; `settled` says its latest input's run is over. */
+	async #desiredState(row: Row, settled: boolean): Promise<{ state: SessionState; wait: SessionWait | null }> {
+		const quotaLevel = await this.#quotaWaitLevel(row);
+		if (quotaLevel) return { state: "awaiting", wait: { kind: "quota", levelId: quotaLevel } };
+		if (settled) return { state: "idle", wait: null };
+		const kind = await this.#taskWaitKind(row.id);
+		if (kind) return { state: "awaiting", wait: { kind, levelId: null } };
+		return { state: "running", wait: null };
 	}
 
-	/** Whether the session's conversation has a live run. */
-	async #isLive(row: Row): Promise<boolean> {
-		const conversation = await this.#harness.conversation(
-			Number(row.conversation_id) as unknown as ConversationId,
+	/** Whether the latest input's run is over (done or unanswered); no input at all counts as settled. */
+	async #inputSettled(row: Pick<Row, "last_submission_id">): Promise<boolean> {
+		if (!row.last_submission_id) return true;
+		const submission = await this.#harness.submission(
+			Number(row.last_submission_id) as unknown as SubmissionId,
 			this.#context,
 		);
-		if (!conversation) return false;
-		const state = await conversation.viewState(this.#context);
-		const live = state.value.docs["pi.live"] as { run?: unknown } | undefined;
-		state.dispose();
-		return live?.run !== undefined;
+		if (!submission) return true;
+		const status = await submission.status(this.#context);
+		return status.status === "done" || status.status === "unanswered";
+	}
+
+	/**
+	 * The level a quota wait still points at: recomputed from the chain, because a grant of one level may expose
+	 * the next one, and no longer exhausted at all ends the wait.
+	 */
+	async #quotaWaitLevel(row: Row): Promise<string | undefined> {
+		if (row.state !== "awaiting" || row.waiting_kind !== "quota") return undefined;
+		return exhaustedLevel(this.#db, row.id);
+	}
+
+	/** What the session's own tool calls wait for: an approval outranks a signature (doc/agent-runtime.md#会话状态). */
+	async #taskWaitKind(sessionId: string): Promise<"approval" | "authorization" | undefined> {
+		const waiting = async (state: "awaiting_approval" | "awaiting_authorization"): Promise<boolean> => {
+			for (const table of ["tasks", "task_groups"] as const) {
+				const row = await this.#db
+					.selectFrom(table)
+					.select("id")
+					.where("actor_type", "in", ["session", "subagent"])
+					.where("actor_id", "=", sessionId)
+					.where("state", "=", state)
+					.limit(1)
+					.executeTakeFirst();
+				if (row) return true;
+			}
+			return false;
+		};
+		if (await waiting("awaiting_approval")) return "approval";
+		if (await waiting("awaiting_authorization")) return "authorization";
+		return undefined;
 	}
 
 	/** The direct parent of a level; the only session that handles its quota wait. */
@@ -1705,38 +1689,101 @@ export class AgentRuntime {
 		}
 	}
 
+	/**
+	 * Startup reconciliation (doc/agent-runtime.md#会话状态), run after durable resumed the runs and before
+	 * crhs accepts requests: the cached state of every stale candidate is corrected against durable and the
+	 * wait sources. A session is a candidate only when its row is not `idle` (it claims a live run or a wait),
+	 * or when its latest durable input is still unsettled:
+	 * - a run whose latest input already settled becomes idle;
+	 * - an unsettled one is awaiting on its quota wait or on a task waiting for approval/signature, else running;
+	 * - an idle row with an unsettled input becomes running.
+	 * An idle row outside that set needs no check: `#recordInput` writes `running` in the same statement that
+	 * advances `last_submission_id`, and `#settleInput` writes `idle` only after the latest input settled (a new
+	 * session starts idle with no input at all), so "idle and settled" holds by construction. The `0029`
+	 * migration maps old `active`/`stopped` rows to `idle` without knowing which runs survived; those are
+	 * exactly the rows candidate 2 finds through their unsettled submission. The system is sized for far more
+	 * idle sessions than active ones (doc/webui.md: 100,000 sessions), so only candidates may cost a durable
+	 * read. Each correction is logged, not audited. The write is conditional on the row read, so a state write
+	 * by a resumed run wins the race instead of being clobbered.
+	 */
+	async #reconcileSessionStates(): Promise<void> {
+		const candidates = new Map<string, Row>();
+		// Candidate 1: rows that claim a live run or a wait.
+		const stale = await nonIdleSessions(this.#db).execute();
+		for (const row of stale) candidates.set(row.id, row);
+		// Candidate 2: queued and placed submissions are durable's one answer to "what has not settled"; map
+		// them back to their sessions through `last_submission_id`, in chunks, never with a query per row.
+		const { submissions } = await this.#harness.inspect(this.#context);
+		const unsettled = new Set(
+			submissions.flatMap((submission) => (submission.type === "input" ? [String(submission.id)] : [])),
+		);
+		const unresolved = [...unsettled];
+		for (let start = 0; start < unresolved.length; start += RECONCILE_CHUNK) {
+			const rows = await sessionsWithSubmissions(this.#db, unresolved.slice(start, start + RECONCILE_CHUNK)).execute();
+			for (const row of rows) if (!candidates.has(row.id)) candidates.set(row.id, row);
+		}
+		for (const row of candidates.values()) {
+			// A candidate found through an unsettled submission is already known not to have settled; the others
+			// have a non-idle row, whose latest input must be read to tell idle from running.
+			const settled =
+				row.last_submission_id !== null && unsettled.has(row.last_submission_id)
+					? false
+					: await this.#inputSettled(row);
+			let desired: { state: SessionState; wait: SessionWait | null };
+			if (settled) {
+				desired = { state: "idle", wait: null };
+			} else {
+				const quotaLevel = await this.#quotaWaitLevel(row);
+				const waitKind = quotaLevel ? undefined : await this.#taskWaitKind(row.id);
+				desired = quotaLevel
+					? { state: "awaiting", wait: { kind: "quota", levelId: quotaLevel } }
+					: waitKind
+						? { state: "awaiting", wait: { kind: waitKind, levelId: null } }
+						: { state: "running", wait: null };
+			}
+			// A resumed run was not recorded by #recordInput, so nothing would write idle when it ends: watch it.
+			if (!settled && row.last_submission_id) this.#watchSubmission(row.id, row.last_submission_id);
+			const kind = desired.wait?.kind ?? null;
+			const levelId = desired.wait?.levelId ?? null;
+			if (row.state === desired.state && row.waiting_kind === kind && row.waiting_level_id === levelId) continue;
+			const at = new Date().toISOString();
+			let update = this.#db
+				.updateTable("sessions")
+				.set({
+					state: desired.state,
+					waiting_kind: kind,
+					waiting_level_id: levelId,
+					waiting_handler_id: kind === "quota" && levelId ? await this.#parentOf(levelId) : null,
+					state_changed_at: at,
+				})
+				.where("id", "=", row.id)
+				.where("state", "=", row.state);
+			update =
+				row.state_changed_at === null
+					? update.where("state_changed_at", "is", null)
+					: update.where("state_changed_at", "=", row.state_changed_at);
+			const res = await update.executeTakeFirst();
+			if (res.numUpdatedRows === 0n) continue;
+			const before = row.state === "awaiting" ? `awaiting/${row.waiting_kind ?? "?"}` : row.state;
+			const after = desired.state === "awaiting" ? `awaiting/${kind ?? "?"}` : desired.state;
+			console.log(`session state reconciled: ${row.id} ${before} -> ${after}`);
+		}
+	}
+
+	/** Records the end of a submission that survived a restart (its input was recorded by the previous process). */
+	#watchSubmission(sessionId: string, submissionId: string): void {
+		void (async () => {
+			const submission = await this.#harness.submission(Number(submissionId) as unknown as SubmissionId, this.#context);
+			if (!submission) return;
+			await submission.wait(this.#context);
+			await this.#settleInput(sessionId, submissionId);
+		})().catch((err: unknown) => {
+			console.error("agent runtime: recording a resumed run's end failed:", err);
+		});
+	}
+
 	/** After a restart, wakes the parents of requests that were already waiting (deduplicated by requestId). */
 	async #wakePendingAgents(): Promise<void> {
-		// Reconcile cached states with durable truth: a run that ended while the process was down is stopped,
-		// and the quota/approval sources decide active vs awaiting.
-		const children = await this.#db
-			.selectFrom("sessions")
-			.selectAll()
-			.where("parent_session_id", "is not", null)
-			.execute();
-		for (const child of children) {
-			if (child.last_submission_id) {
-				const submission = await this.#harness.submission(
-					Number(child.last_submission_id) as unknown as SubmissionId,
-					this.#context,
-				);
-				const settled = await submission?.status(this.#context);
-				if (settled?.status === "done" || settled?.status === "unanswered") {
-					await setSessionState(this.#db, child.id, "stopped", null);
-					this.#sessionList.publishSession(child.id);
-					continue;
-				}
-			}
-			await this.refreshState(child.id);
-		}
-		// A root may have been waiting for its owner when the process stopped; reconcile it too.
-		const waitingRoots = await this.#db
-			.selectFrom("sessions")
-			.select("id")
-			.where("parent_session_id", "is", null)
-			.where("state", "=", "awaiting")
-			.execute();
-		for (const root of waitingRoots) await this.refreshState(root.id);
 		const requests: { kind: "task" | "group"; id: string; session: string }[] = [];
 		const tasks = await this.#db
 			.selectFrom("tasks")
@@ -2335,3 +2382,28 @@ function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: 
 
 /** Subagent sessions nest at most this deep below a root session (doc/agent-runtime.md#subagent). */
 export const MAX_SUBAGENT_DEPTH = 2;
+
+/**
+ * The sessions at the subagent depth limit, with the conversation that may still offer the subagent tool:
+ * `#enforceDepthToolLimits` fixes them at startup (a session created before the per-conversation filter may
+ * still offer it). Walking up from the subagent rows costs one covering range scan of
+ * `sessions_parent_updated_idx` for the seed, a primary-key lookup per ancestor, and one for each affected
+ * session; roots and unrelated sessions are never read. A session deeper than the limit (data from an older
+ * version) is reported once, at the limit, exactly like the old per-row walk.
+ */
+export function depthLimitedSessions() {
+	return sql<{ id: string; conversation_id: string }>`
+		with recursive ancestry(id, ancestor_id, depth) as (
+			select id, parent_session_id, 1 from sessions where parent_session_id is not null
+			union all
+			select ancestry.id, parent.parent_session_id, ancestry.depth + 1
+			from ancestry
+			join sessions as parent on parent.id = ancestry.ancestor_id
+			where ancestry.depth < ${MAX_SUBAGENT_DEPTH} and parent.parent_session_id is not null
+		)
+		select sessions.id, sessions.conversation_id
+		from ancestry
+		join sessions on sessions.id = ancestry.id
+		where ancestry.depth >= ${MAX_SUBAGENT_DEPTH}
+	`;
+}

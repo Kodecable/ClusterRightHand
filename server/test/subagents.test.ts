@@ -1,10 +1,10 @@
 import type { TaskSpec } from "@crh/protocol";
-import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
-import { markSessionsStopped, sessionStateOf } from "../src/agent/quota.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
+import { markSessionsIdle, sessionStateOf } from "../src/agent/session-state.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster, type TaskView } from "../src/cluster/cluster.ts";
@@ -133,7 +133,7 @@ it("nests at most two levels below a root session", async () => {
 	await expect(subagent(second.id, "depth-3", { default: "inherit", rules: [] })).rejects.toThrow(/at most 2/);
 });
 
-it("a stopped session is not revived by a live run", async () => {
+it("an idle session is not revived by a live run", async () => {
 	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
 	const child = await subagent(root.id, "sticky-stop", { default: "inherit", rules: [] });
 	let started!: () => void;
@@ -150,21 +150,21 @@ it("a stopped session is not revived by a live run", async () => {
 	await runtime.startSubagent(child.id, "work", "sticky-stop-1");
 	try {
 		await running;
-		await markSessionsStopped(db, [child.id]);
-		expect(await runtime.refreshState(child.id)).toBe("stopped");
+		await markSessionsIdle(db, [child.id]);
+		expect(await runtime.refreshState(child.id)).toBe("idle");
 	} finally {
 		await runtime.abort(root.id).catch(() => {});
 	}
 });
 
-it("a user message to a stopped subagent runs and stops again", async () => {
+it("a user message to an idle subagent runs and ends idle again", async () => {
 	const parent = await runtime.createSession(owner, { model: model(), preset: "yolo" });
 	const child = await subagent(parent.id, "user-message", { default: "inherit", rules: [] });
 	faux.setResponses([fauxAssistantMessage([fauxText("first answer")])]);
 	await runtime.startSubagent(child.id, "one", "user-message-1");
 	expect(await runtime.waitSubagent(child.id)).toEqual({ status: "done", answer: "first answer" });
-	await waitFor("stopped after the first input", async () =>
-		(await sessionStateOf(db, child.id)) === "stopped" ? true : undefined,
+	await waitFor("idle after the first input", async () =>
+		(await sessionStateOf(db, child.id)) === "idle" ? true : undefined,
 	);
 	const firstLast = (
 		await db.selectFrom("sessions").select("last_submission_id").where("id", "=", child.id).executeTakeFirstOrThrow()
@@ -173,8 +173,8 @@ it("a user message to a stopped subagent runs and stops again", async () => {
 	faux.setResponses([fauxAssistantMessage([fauxText("second answer")])]);
 	const second = await runtime.submit(child.id, owner, "two", "user-message-2");
 	expect(await runtime.waitSubmission(child.id, second)).toEqual({ status: "done", answer: "second answer" });
-	await waitFor("stopped after the second input", async () =>
-		(await sessionStateOf(db, child.id)) === "stopped" ? true : undefined,
+	await waitFor("idle after the second input", async () =>
+		(await sessionStateOf(db, child.id)) === "idle" ? true : undefined,
 	);
 	const last = (
 		await db.selectFrom("sessions").select("last_submission_id").where("id", "=", child.id).executeTakeFirstOrThrow()
@@ -287,15 +287,51 @@ it("does not hand a request to an agent whose own rules demand approval", async 
 	expect((await approvalOf(task.id))?.agent).toBeUndefined();
 });
 
-it("a subagent waiting for approval is awaiting, and active again once settled", async () => {
+it("a subagent's waiting tool call makes it awaiting, and it runs again once settled", async () => {
 	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
-	const parent = await subagent(root.id, "state-parent", { default: "inherit", rules: [] });
+	// The parent's own rules require approval, so the child's request stays with the user instead of being
+	// routed to the parent's agent: the test can decide it directly.
+	const parent = await subagent(root.id, "state-parent", { default: "require-approval", rules: [] });
 	const child = await subagent(parent.id, "state-child", { default: "require-approval", rules: [] });
-	const task = await execTask([root.id, parent.id, child.id]);
-	await waitFor("awaiting", async () => ((await runtime.refreshState(child.id)) === "awaiting" ? true : undefined));
-	expect((await runtime.getSession(child.id))?.state).toBe("awaiting");
-	expect(await runtime.decideAgentRequest(parent.id, task.id, "approve")).toBe("task");
-	expect(await runtime.refreshState(child.id)).toBe("active");
+	faux.setResponses([
+		fauxAssistantMessage([fauxToolCall("exec", { node: "web-1", cmd: "true" }, { id: "state-call" })], {
+			stopReason: "toolUse",
+		}),
+		fauxAssistantMessage([fauxText("the run went on")]),
+	]);
+	try {
+		await runtime.startSubagent(child.id, "run it", "state-approval");
+		const task = await waitFor("the waiting task", async () => {
+			const row = await db
+				.selectFrom("tasks")
+				.select("id")
+				.where("actor_id", "=", child.id)
+				.where("state", "=", "awaiting_approval")
+				.executeTakeFirst();
+			return row?.id;
+		});
+		expect(await runtime.refreshState(child.id)).toBe("awaiting");
+		const row = await db
+			.selectFrom("sessions")
+			.select(["state", "waiting_kind"])
+			.where("id", "=", child.id)
+			.executeTakeFirstOrThrow();
+		expect(row).toMatchObject({ state: "awaiting", waiting_kind: "approval" });
+		// Approving lets the tool run (the node is offline, so the task fails) and the run continues to its end.
+		expect(
+			await cluster.decide(task, {
+				decision: "approved",
+				by: { type: "user", id: owner.userId },
+				at: new Date().toISOString(),
+			}),
+		).toBe(true);
+		await waitFor("idle after the run", async () =>
+			(await sessionStateOf(db, child.id)) === "idle" ? true : undefined,
+		);
+		expect(await runtime.getSession(child.id)).toMatchObject({ state: "idle", waitingKind: null });
+	} finally {
+		await runtime.abort(root.id).catch(() => {});
+	}
 });
 
 it("records the handler and root session of a waiting approval", async () => {
@@ -347,8 +383,8 @@ it("records the handler and root session of a waiting approval", async () => {
 		.where("id", "=", task.id)
 		.executeTakeFirstOrThrow();
 	expect(done).toMatchObject({ handler_type: null, handler_session_id: null });
-	await waitFor("active after the user decision", async () =>
-		(await sessionStateOf(db, child.id)) === "active" ? true : undefined,
+	await waitFor("idle after the user decision", async () =>
+		(await sessionStateOf(db, child.id)) === "idle" ? true : undefined,
 	);
 });
 

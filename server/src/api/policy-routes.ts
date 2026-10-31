@@ -166,6 +166,7 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 			.selectFrom("sessions")
 			.select(["waiting_level_id", "owner_user_id"])
 			.where("state", "=", "awaiting")
+			.where("waiting_kind", "=", "quota")
 			.where("waiting_handler_id", "is", null)
 			.where("waiting_level_id", "is not", null)
 			.execute();
