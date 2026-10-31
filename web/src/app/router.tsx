@@ -95,7 +95,7 @@ const sessionsRoute = createRoute({
 const sessionsIndexRoute = createRoute({
 	getParentRoute: () => sessionsRoute,
 	path: "/",
-	component: lazyRouteComponent(() => import("@/features/sessions/pages"), "SessionsPage"),
+	component: lazyRouteComponent(() => import("@/features/sessions/sessions-index-page"), "SessionsPage"),
 });
 
 const sessionRoute = createRoute({

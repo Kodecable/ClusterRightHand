@@ -2,6 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http, queryString } from "@/lib/api/client";
 import { useCursorInfiniteQuery } from "@/lib/api/query";
 import type { CursorPage, CursorQuery, Operation, TaskGroupView, TaskRequest, TaskView } from "@/lib/api/types";
+import { isTerminal } from "./output";
+
+/**
+ * How long one `wait` request may hang before it answers with the current view.
+ * A terminal task ends the wait at once; the timeout only bounds how stale an
+ * intermediate state (a new approval, a running task) can look.
+ */
+const WAIT_TIMEOUT_MS = 5_000;
+/** Pause between two waits while the task is still open. */
+const WAIT_GAP_MS = 250;
 
 export const taskKeys = {
 	all: ["tasks"] as const,
@@ -35,21 +45,30 @@ export function useTasks(filters: TaskFilters = {}) {
 	});
 }
 
-/** One task; while it runs or waits, the page polls it so a decision made elsewhere shows up. */
+/**
+ * One task. The first read is a plain `GET` (a wait on a task that already
+ * waits for an approval would not answer until that wait ends); once the task
+ * is on screen and still open, the query refetches `GET /tasks/:id/wait` so a
+ * result shows up the moment it exists instead of up to a poll interval later.
+ * The wait request is part of the query function, so React Query aborts it on
+ * unmount; a timeout is followed by the next wait.
+ */
 export function useTask(id: string | undefined, pollWaiting = false) {
 	return useQuery({
 		queryKey: taskKeys.detail(id ?? ""),
 		enabled: id !== undefined && id !== "",
-		queryFn: ({ signal }) => http.get<{ task: TaskView }>(`/tasks/${enc(id ?? "")}`, { signal }).then((r) => r.task),
+		queryFn: ({ signal, client, queryKey }) => {
+			const path = `/tasks/${enc(id ?? "")}`;
+			const known = client.getQueryData(queryKey) !== undefined;
+			if (!pollWaiting || !known) return http.get<{ task: TaskView }>(path, { signal }).then((r) => r.task);
+			return http
+				.get<{ task: TaskView }>(`${path}/wait${queryString({ timeoutMs: WAIT_TIMEOUT_MS })}`, { signal })
+				.then((r) => r.task);
+		},
 		refetchInterval: (query) => {
 			if (!pollWaiting) return false;
 			const state = query.state.data?.state;
-			return state === "awaiting_approval" ||
-				state === "awaiting_authorization" ||
-				state === "dispatched" ||
-				state === "running"
-				? 3_000
-				: false;
+			return state !== undefined && !isTerminal(state) ? WAIT_GAP_MS : false;
 		},
 	});
 }
@@ -93,16 +112,25 @@ export function useCreateTaskGroup() {
 	});
 }
 
+const GROUP_OPEN = new Set(["running", "awaiting_approval", "awaiting_authorization"]);
+
+/** One task group: as `useTask`, with `GET /task-groups/:id/wait` for the open group. */
 export function useTaskGroup(id: string | undefined, pollRunning = false) {
 	return useQuery({
 		queryKey: taskKeys.group(id ?? ""),
 		enabled: id !== undefined && id !== "",
-		queryFn: ({ signal }) =>
-			http.get<{ group: TaskGroupView }>(`/task-groups/${enc(id ?? "")}`, { signal }).then((r) => r.group),
+		queryFn: ({ signal, client, queryKey }) => {
+			const path = `/task-groups/${enc(id ?? "")}`;
+			const known = client.getQueryData(queryKey) !== undefined;
+			if (!pollRunning || !known) return http.get<{ group: TaskGroupView }>(path, { signal }).then((r) => r.group);
+			return http
+				.get<{ group: TaskGroupView }>(`${path}/wait${queryString({ timeoutMs: WAIT_TIMEOUT_MS })}`, { signal })
+				.then((r) => r.group);
+		},
 		refetchInterval: (query) => {
 			if (!pollRunning) return false;
 			const state = query.state.data?.state;
-			return state === "running" || state === "awaiting_approval" || state === "awaiting_authorization" ? 3_000 : false;
+			return state !== undefined && GROUP_OPEN.has(state) ? WAIT_GAP_MS : false;
 		},
 	});
 }

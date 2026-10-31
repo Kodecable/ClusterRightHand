@@ -197,9 +197,13 @@ test("4. scrolling up freezes the view and jump-to-latest resumes following", as
 	await login(page);
 	await openChat(page, api);
 
+	// A wheel gesture is what stops following; keep wheeling until the view is
+	// clearly away from the end (a single wheel's distance varies under load).
 	await page.locator(SCROLLER).hover();
-	await page.mouse.wheel(0, -1_500);
-	await page.waitForTimeout(300);
+	for (let attempt = 0; attempt < 20 && (await distance(page)) <= 400; attempt++) {
+		await page.mouse.wheel(0, -1_500);
+		await page.waitForTimeout(100);
+	}
 	expect(await distance(page)).toBeGreaterThan(400);
 	await expect(page.getByTestId("jump-to-latest")).toBeVisible();
 

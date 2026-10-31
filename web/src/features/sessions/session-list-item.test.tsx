@@ -13,7 +13,6 @@ const item = (overrides: Partial<SessionListItem> = {}): SessionListItem => ({
 	shared: false,
 	state: "idle",
 	waitingKind: null,
-	waitingLevelId: null,
 	updatedAt: new Date().toISOString(),
 	...overrides,
 });
@@ -29,11 +28,7 @@ describe("SessionListItemRow", () => {
 
 	test("an awaiting row names the wait as its tooltip", async () => {
 		await renderWithRouter(
-			<SessionListItemRow
-				item={item({ state: "awaiting", waitingKind: "quota", waitingLevelId: "s1" })}
-				selected={false}
-				tabIndex={-1}
-			/>,
+			<SessionListItemRow item={item({ state: "awaiting", waitingKind: "quota" })} selected={false} tabIndex={-1} />,
 		);
 		expect(screen.getByTestId("session-status-dot")).toHaveAttribute("title", "Waiting for a quota decision");
 		expect(screen.getByRole("img", { name: "Awaiting" })).toBeInTheDocument();

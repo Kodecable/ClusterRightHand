@@ -5,10 +5,12 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 
 export default defineConfig({
 	testDir: ".",
+	// The performance runs under perf/ have their own config; they take minutes.
+	testIgnore: ["perf/**"],
 	timeout: 60_000,
 	expect: { timeout: 10_000 },
-	fullyParallel: false,
-	workers: 1,
+	fullyParallel: true,
+	workers: 4,
 	retries: 0,
 	reporter: [["list"]],
 	use: {

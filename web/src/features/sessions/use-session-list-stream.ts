@@ -4,6 +4,7 @@ import { subscribeSse } from "@/lib/api/sse";
 import type { SessionListItem } from "@/lib/api/types";
 import { type SessionListData, sessionKeys } from "./api";
 import { isSessionListItem, removeSessionListItem, type SessionListFilter, upsertSessionListItem } from "./list-patch";
+import { publishSessionListUpsert } from "./list-stream-bus";
 
 export interface SessionStreamOptions {
 	/** Current user id and admin flag: the filter needs them to patch `scope`/`q` lists. */
@@ -63,6 +64,7 @@ export function useSessionListStream({ viewer, enabled = true }: SessionStreamOp
 					if (!isSessionListItem(data)) return;
 					const item: SessionListItem = data;
 					patchLists((pages, filter) => upsertSessionListItem(pages, item, filter));
+					publishSessionListUpsert(item);
 				} else if (event === "remove") {
 					if (data === null || typeof data !== "object") return;
 					const id = (data as { id?: unknown }).id;

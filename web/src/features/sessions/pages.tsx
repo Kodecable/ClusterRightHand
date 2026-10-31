@@ -3,7 +3,6 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ChevronRightIcon, PencilIcon, SettingsIcon, Share2Icon, SquareIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { ModelSelect } from "@/components/model-select";
 import { PresetSelect } from "@/components/preset-select";
@@ -26,25 +25,21 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useModels } from "@/features/settings/api";
 import type { SessionView } from "@/lib/api/types";
 import { parseQuotaInput, type QuotaError } from "@/lib/quota";
-import { useAbortSession, usePatchSession, useSession, useSessionHistoryPage } from "./api";
+import {
+	useAbortSession,
+	usePatchSession,
+	useSession,
+	useSessionHistoryPage,
+	useSessionRootId,
+	useSessionTreeSync,
+} from "./api";
+import { ChildSessions } from "./child-sessions";
 import { Composer } from "./composer";
 import { SessionWaits } from "./session-waits";
 import { transcript, usageTotals } from "./sessionState";
 import { ShareDialog } from "./share-dialog";
 import { Transcript } from "./transcript";
 import { useSessionEvents } from "./use-session-events";
-
-export function SessionsPage() {
-	return (
-		<div className="flex h-full items-center justify-center p-6">
-			<EmptyState
-				className="max-w-md border-0"
-				title={<Trans>No session selected</Trans>}
-				description={<Trans>Pick a session on the left, or start a new one.</Trans>}
-			/>
-		</div>
-	);
-}
 
 function ParentChain({ id }: { id: string }) {
 	const parent = useSession(id);
@@ -336,7 +331,7 @@ function SessionHeader({ session }: { session: SessionView }) {
 							variant="destructive"
 							size="sm"
 							data-testid="abort-session"
-							disabled={abort.isPending || session.state !== "running"}
+							disabled={abort.isPending || session.state === "idle"}
 							onClick={stop}
 						>
 							<SquareIcon />
@@ -388,6 +383,8 @@ export function SessionPage() {
 	const params = useParams({ strict: false }) as { sessionId?: string };
 	const sessionId = params.sessionId ?? "";
 	const session = useSession(sessionId);
+	const rootId = useSessionRootId(session.data);
+	useSessionTreeSync(sessionId, rootId);
 	const events = useSessionEvents(sessionId);
 	const [wantsOlder, setWantsOlder] = useState(false);
 	const history = useSessionHistoryPage(sessionId, events.state.historyCursor, wantsOlder);
@@ -423,21 +420,6 @@ export function SessionPage() {
 	if (!session.data) return null;
 	const view = session.data;
 
-	const subagentIds = [
-		...new Set(
-			items.flatMap((item) =>
-				item.kind === "tool" &&
-				item.details !== null &&
-				typeof item.details === "object" &&
-				!Array.isArray(item.details) &&
-				typeof item.details.sessionId === "string" &&
-				item.details.sessionId !== ""
-					? [item.details.sessionId]
-					: [],
-			),
-		),
-	];
-
 	return (
 		<div className="flex h-full min-h-0 flex-col" data-testid="session-page" data-session-id={view.id}>
 			<SessionHeader session={view} />
@@ -469,26 +451,7 @@ export function SessionPage() {
 				</p>
 			)}
 
-			{subagentIds.length > 0 && (
-				<div
-					className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-1 text-xs"
-					data-testid="subagent-links"
-				>
-					<span className="text-muted-foreground">
-						<Plural value={subagentIds.length} one="Subagent session" other="Subagent sessions" />:
-					</span>
-					{subagentIds.map((id) => (
-						<Link
-							key={id}
-							to="/sessions/$sessionId"
-							params={{ sessionId: id }}
-							className="font-mono text-primary underline underline-offset-2"
-						>
-							{id.slice(0, 8)}…
-						</Link>
-					))}
-				</div>
-			)}
+			<ChildSessions sessionId={view.id} rootId={rootId} revision={events.childrenRevision} />
 
 			{events.state.ready ? (
 				<Transcript

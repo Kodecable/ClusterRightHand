@@ -51,6 +51,8 @@ export interface FakeState {
 	events: Record<string, AgentEvent[]>;
 	/** The older history page served for `?before=<historyCursor>`. */
 	olderEntries: Record<string, { entries: SessionEntry[]; historyCursor: string | null }>;
+	/** Child sessions by parent id (`GET /api/sessions/:id/children`). */
+	children: Record<string, SessionListItem[]>;
 	approvals: ApprovalList;
 	tasks: TaskView[];
 	nodes: PublicNode[];
@@ -86,6 +88,8 @@ export interface MockOptions {
 	user?: User;
 	/** Replaces the defaults; the badge counts two quota waits unless overridden. */
 	state?: Partial<FakeState>;
+	/** Artificial latency for every mocked API response, for the performance runs. */
+	latencyMs?: number;
 }
 
 export function sessionView(item: SessionListItem, overrides: Partial<SessionView> = {}): SessionView {
@@ -111,7 +115,7 @@ export function sessionView(item: SessionListItem, overrides: Partial<SessionVie
 		ownerUsername: item.ownerName,
 		state: item.state,
 		waitingKind: item.waitingKind,
-		waitingLevelId: item.waitingLevelId,
+		waitingLevelId: null,
 		quota: null,
 		spentTokens: 0,
 		shares: [],
@@ -129,7 +133,6 @@ export function sessionListItem(overrides: Partial<SessionListItem> = {}): Sessi
 		shared: false,
 		state: "idle",
 		waitingKind: null,
-		waitingLevelId: null,
 		updatedAt: "2026-01-01T00:00:00.000Z",
 		...overrides,
 	};
@@ -271,6 +274,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		details: {},
 		events: {},
 		olderEntries: {},
+		children: {},
 		approvals: QUOTA_APPROVALS,
 		tasks: [],
 		nodes: [],
@@ -346,6 +350,9 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 	});
 
 	await page.route("**/api/**", async (route) => {
+		if (options.latencyMs !== undefined && options.latencyMs > 0) {
+			await new Promise((resolve) => setTimeout(resolve, options.latencyMs));
+		}
 		const request = route.request();
 		const url = new URL(request.url());
 		const path = url.pathname;
@@ -734,6 +741,12 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			return json({ items, nextCursor: start + limit < visible.length ? String(start + limit) : null });
 		}
 
+		const childrenMatch = /^\/api\/sessions\/([^/]+)\/children$/.exec(path);
+		if (childrenMatch && method === "GET") {
+			const id = decodeURIComponent(childrenMatch[1] as string);
+			return json({ items: state.children[id] ?? [], nextCursor: null });
+		}
+
 		const sessionMatch = /^\/api\/sessions\/([^/]+)$/.exec(path);
 		if (sessionMatch && method === "GET") {
 			const id = decodeURIComponent(sessionMatch[1] as string);
@@ -763,6 +776,13 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		if (eventMatch) return json({ error: "the fake EventSource handles events" }, 500);
 
 		if (path === "/api/tasks" && method === "GET") return json({ items: state.tasks, nextCursor: null });
+		const taskWaitMatch = /^\/api\/tasks\/([^/]+)\/wait$/.exec(path);
+		if (taskWaitMatch && method === "GET") {
+			const id = decodeURIComponent(taskWaitMatch[1] as string);
+			const task = state.tasks.find((candidate) => candidate.id === id);
+			if (!task) return json({ error: "no such task" }, 404);
+			return json({ task });
+		}
 		const taskMatch = /^\/api\/tasks\/([^/]+)$/.exec(path);
 		if (taskMatch && method === "GET") {
 			const id = decodeURIComponent(taskMatch[1] as string);
@@ -823,7 +843,8 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			state.groups[groupId] = { group, polls: 0 };
 			return json({ group });
 		}
-		const groupMatch = /^\/api\/task-groups\/([^/]+)$/.exec(path);
+		const groupWaitMatch = /^\/api\/task-groups\/([^/]+)\/wait$/.exec(path);
+		const groupMatch = groupWaitMatch ?? /^\/api\/task-groups\/([^/]+)$/.exec(path);
 		if (groupMatch && method === "GET") {
 			const id = decodeURIComponent(groupMatch[1] as string);
 			const stored = state.groups[id];

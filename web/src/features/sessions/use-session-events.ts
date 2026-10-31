@@ -20,6 +20,19 @@ export interface SessionEvents {
 	streams: TranscriptStreams;
 	/** Prepends a page loaded from `GET /sessions/:id/entries`, without disturbing the live stream. */
 	applyHistory: (entries: readonly EntryRecord[], historyCursor: string | null) => void;
+	/**
+	 * Bumped when the child-session list may have changed: a `snapshot` (the
+	 * stream reconnected or opened) or a `subagent` tool update/end
+	 * (doc/webui.md#api-约定). The children query refetches on every bump.
+	 */
+	childrenRevision: number;
+}
+
+/** Whether an event makes the session's child list stale. */
+function touchesChildren(event: AgentEvent): boolean {
+	if (event.type === "snapshot") return true;
+	if (event.type !== "tool_execution_update" && event.type !== "tool_execution_end") return false;
+	return (event as { toolName?: unknown }).toolName === "subagent";
 }
 
 /** The shape the stream promises; anything else is dropped rather than fed to the reducer. */
@@ -36,8 +49,11 @@ function structureKey(state: SessionState): string {
 	const first = state.entries[0]?.id ?? "";
 	const last = state.entries[state.entries.length - 1]?.id ?? "";
 	const blocks = state.streaming?.content.map((block) => block.type).join(",") ?? "";
+	// The details are what a tool card shows besides its status (an approval link, a
+	// task's exit code), and they arrive in `tool_execution_update` events of their
+	// own; without them a details-only batch would never reach React.
 	const tools = Object.values(state.tools)
-		.map((tool) => `${tool.callId}:${tool.status}`)
+		.map((tool) => `${tool.callId}:${tool.status}:${tool.details === undefined ? "" : JSON.stringify(tool.details)}`)
 		.sort()
 		.join(",");
 	return [
@@ -68,6 +84,7 @@ function structureKey(state: SessionState): string {
 export function useSessionEvents(id: string | undefined): SessionEvents {
 	const [state, setState] = useState<SessionState>(initialState);
 	const [connection, setConnection] = useState<Connection>("connecting");
+	const [childrenRevision, setChildrenRevision] = useState(0);
 	const stateRef = useRef<SessionState>(initialState);
 	const publishedKey = useRef<string | null>(null);
 	const streamsRef = useRef<TranscriptStreams>(new TranscriptStreams());
@@ -90,6 +107,7 @@ export function useSessionEvents(id: string | undefined): SessionEvents {
 				if (name !== "events" || !Array.isArray(data)) return;
 				const events = data.filter(isAgentEvent);
 				if (events.length === 0) return;
+				if (events.some(touchesChildren)) setChildrenRevision((value) => value + 1);
 				const next = reduceAll(stateRef.current, events);
 				stateRef.current = next;
 				streams.sync(next);
@@ -124,5 +142,5 @@ export function useSessionEvents(id: string | undefined): SessionEvents {
 		[streams],
 	);
 
-	return { state, connection, streams, applyHistory };
+	return { state, connection, streams, applyHistory, childrenRevision };
 }

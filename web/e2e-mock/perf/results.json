@@ -1,0 +1,157 @@
+{
+	"entry-bundle-gzip@0": {
+		"throttle": 0,
+		"reps": [131.755],
+		"notes": "raw 419425 bytes"
+	},
+	"session-list-100k-first-render-total@1": {
+		"throttle": 1,
+		"reps": [291.5, 260.5, 272.69999998807907],
+		"notes": "wall clock, includes the mocked latency"
+	},
+	"session-list-100k-first-render-render@1": {
+		"throttle": 1,
+		"reps": [27.19999998807907, 23.599999964237213, 31.80000001192093],
+		"notes": "from the list response to the first painted row"
+	},
+	"session-list-100k-first-render-excl-mock@1": {
+		"throttle": 1,
+		"reps": [241.5, 210.5, 222.69999998807907],
+		"notes": "wall clock minus one 50 ms mocked response"
+	},
+	"session-list-100k-scroll-frames@1": {
+		"throttle": 1,
+		"reps": [16.7],
+		"notes": "598 frames, 0 gaps >50 ms, p95 16.7 ms, max 50 ms, avg 59.8 fps"
+	},
+	"session-list-100k-first-render-total@4": {
+		"throttle": 4,
+		"reps": [551.5, 528.2000000476837, 573.6000000238419],
+		"notes": "wall clock, includes the mocked latency"
+	},
+	"session-list-100k-first-render-render@4": {
+		"throttle": 4,
+		"reps": [96.80000001192093, 99.30000001192093, 107.60000002384186],
+		"notes": "from the list response to the first painted row"
+	},
+	"session-list-100k-first-render-excl-mock@4": {
+		"throttle": 4,
+		"reps": [501.5, 478.2000000476837, 523.6000000238419],
+		"notes": "wall clock minus one 50 ms mocked response"
+	},
+	"session-list-100k-scroll-frames@4": {
+		"throttle": 4,
+		"reps": [33.3],
+		"notes": "539 frames, 2 gaps >50 ms, p95 33.3 ms, max 166.6 ms, avg 53.8 fps"
+	},
+	"transcript-20k-dom-node-spread@1": {
+		"throttle": 1,
+		"reps": [61, 61, 61],
+		"notes": "max − min DOM nodes across scroll positions"
+	},
+	"transcript-20k-prepend-drift@1": {
+		"throttle": 1,
+		"reps": [0.25, 0.25, 0.25],
+		"notes": "reading-position drift after loading older history, px"
+	},
+	"transcript-20k-scroll-p95@1": {
+		"throttle": 1,
+		"reps": [16.700000000000728, 16.799999999999272, 16.700000000000728]
+	},
+	"transcript-20k-scroll-worst-frame@1": {
+		"throttle": 1,
+		"reps": [16.80000000000109, 16.800000000000182, 16.800000000000182],
+		"notes": "0/901 frame gaps >50 ms across the runs"
+	},
+	"transcript-20k-dom-node-spread@4": {
+		"throttle": 4,
+		"reps": [61, 61, 61],
+		"notes": "max − min DOM nodes across scroll positions"
+	},
+	"transcript-20k-prepend-drift@4": {
+		"throttle": 4,
+		"reps": [0.25, 0.25, 0.25],
+		"notes": "reading-position drift after loading older history, px"
+	},
+	"transcript-20k-scroll-p95@4": {
+		"throttle": 4,
+		"reps": [16.700000000000728, 16.700000000000728, 16.799999999999272]
+	},
+	"transcript-20k-scroll-worst-frame@4": {
+		"throttle": 4,
+		"reps": [16.80000000000109, 16.80000000000109, 16.80000000000109],
+		"notes": "0/903 frame gaps >50 ms across the runs"
+	},
+	"stream-1500cps-100k-stop-latency-p95@1": {
+		"throttle": 1,
+		"reps": [2.899999976158142, 3.199999988079071, 2.100000023841858],
+		"notes": "samples per run: 7/8/7"
+	},
+	"stream-1500cps-100k-stop-latency-max@1": {
+		"throttle": 1,
+		"reps": [2.899999976158142, 3.199999988079071, 2.100000023841858]
+	},
+	"stream-1500cps-100k-worst-frame@1": {
+		"throttle": 1,
+		"reps": [150.09999999999127, 133.40000000000873, 183.29999999998836]
+	},
+	"stream-1500cps-100k-main-thread-busy@1": {
+		"throttle": 1,
+		"reps": [10.028804150678148, 10.146008007186486, 10.375718801009736],
+		"notes": "% of the streaming wall time"
+	},
+	"stream-300cps-30k-stop-latency-p95@1": {
+		"throttle": 1,
+		"reps": [3.100000023841858, 2.199999988079071, 3.099999964237213],
+		"notes": "samples per run: 6/4/8"
+	},
+	"stream-300cps-30k-stop-latency-max@1": {
+		"throttle": 1,
+		"reps": [3.100000023841858, 2.199999988079071, 3.099999964237213]
+	},
+	"stream-300cps-30k-worst-frame@1": {
+		"throttle": 1,
+		"reps": [100, 83.40000000000873, 100]
+	},
+	"stream-300cps-30k-main-thread-busy@1": {
+		"throttle": 1,
+		"reps": [8.899380429750922, 8.499363728205218, 7.949879491316773],
+		"notes": "% of the streaming wall time"
+	},
+	"stream-1500cps-100k-stop-latency-p95@4": {
+		"throttle": 4,
+		"reps": [7.100000023841858, 8.699999988079071, 11.299999952316284],
+		"notes": "samples per run: 9/9/9"
+	},
+	"stream-1500cps-100k-stop-latency-max@4": {
+		"throttle": 4,
+		"reps": [7.100000023841858, 8.699999988079071, 11.299999952316284]
+	},
+	"stream-1500cps-100k-worst-frame@4": {
+		"throttle": 4,
+		"reps": [683.4000000000005, 700, 650]
+	},
+	"stream-1500cps-100k-main-thread-busy@4": {
+		"throttle": 4,
+		"reps": [26.987036648198426, 27.083136425622023, 26.44938835197189],
+		"notes": "% of the streaming wall time"
+	},
+	"stream-300cps-30k-stop-latency-p95@4": {
+		"throttle": 4,
+		"reps": [7.300000011920929, 7.099999964237213, 8.800000011920929],
+		"notes": "samples per run: 9/9/8"
+	},
+	"stream-300cps-30k-stop-latency-max@4": {
+		"throttle": 4,
+		"reps": [7.300000011920929, 7.099999964237213, 8.800000011920929]
+	},
+	"stream-300cps-30k-worst-frame@4": {
+		"throttle": 4,
+		"reps": [399.8999999999942, 383.3000000000029, 416.6000000000058]
+	},
+	"stream-300cps-30k-main-thread-busy@4": {
+		"throttle": 4,
+		"reps": [21.02480184874341, 20.323644950704903, 20.74073893375711],
+		"notes": "% of the streaming wall time"
+	}
+}

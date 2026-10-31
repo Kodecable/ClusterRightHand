@@ -115,8 +115,8 @@ export interface SessionListItem {
 	state: SessionRunState;
 	/** The highest-priority wait of the tree while `state` is `awaiting`. */
 	waitingKind: SessionWaitingKind | null;
-	/** The quota level that is exhausted (`state` `awaiting`, `waitingKind` quota). */
-	waitingLevelId: string | null;
+	/** The session's parent, on the children list (`GET /api/sessions/:id/children`); absent from the root list. */
+	parentSessionId?: string | null;
 	updatedAt: string;
 }
 

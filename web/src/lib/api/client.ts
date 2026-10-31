@@ -66,8 +66,8 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 	const method = options.method ?? "GET";
 	const init: RequestInit = { method, credentials: "same-origin" };
 	if (options.signal) init.signal = options.signal;
-	if (method !== "GET" && method !== "DELETE") {
-		// The server's CSRF guard requires a JSON content type on every write.
+	if (method !== "GET") {
+		// The server's CSRF guard requires a JSON content type on every write, DELETE included.
 		init.headers = { "content-type": "application/json" };
 		init.body = JSON.stringify(options.body ?? {});
 	}

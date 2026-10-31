@@ -11,7 +11,8 @@
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run && pnpm i18n:check",
 		"test:ui": "playwright test",
-		"test:ui:new": "playwright test --config e2e-new/playwright.config.ts",
+		"test:ui:mock": "playwright test --config e2e-mock/playwright.config.ts",
+		"test:perf": "playwright test --config e2e-mock/perf/playwright.config.ts",
 		"i18n:extract": "lingui extract",
 		"i18n:compile": "lingui compile",
 		"i18n:check": "node scripts/check-catalogs.ts"

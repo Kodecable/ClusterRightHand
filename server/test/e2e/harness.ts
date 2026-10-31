@@ -3,7 +3,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { fauxProvider } from "@earendil-works/pi-ai/providers/faux";
+import {
+	type FauxProviderHandle,
+	fauxAssistantMessage,
+	fauxProvider,
+	fauxText,
+	fauxToolCall,
+	type RegisterFauxProviderOptions,
+} from "@earendil-works/pi-ai/providers/faux";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { serve } from "@hono/node-server";
 import { ModelConfig } from "../../src/agent/models.ts";
@@ -24,6 +31,10 @@ import { createUser } from "../../src/users/service.ts";
 import { openTestDb } from "../helpers/db.ts";
 
 const execFileAsync = promisify(execFile);
+
+// The scripted faux model's helpers, re-exported for the WebUI e2e suite, which cannot resolve `@earendil-works/pi-ai`
+// from `web/` (only the server package depends on it).
+export { fauxAssistantMessage, fauxText, fauxToolCall };
 export const CLIENT_DIR = resolve(import.meta.dirname, "../../../client");
 export const CRHS_MAIN = resolve(import.meta.dirname, "../../src/main.ts");
 
@@ -153,7 +164,8 @@ export class InProcessCrhs {
 	#server?: ReturnType<typeof serve>;
 	/** With `agentDir`: the agent runtime, on durable storage in that directory, with pi-ai's faux model. */
 	readonly agentDir: string | undefined;
-	readonly faux = fauxProvider();
+	/** The faux model; `fauxOptions` can slow its token stream for a UI that has to observe it. */
+	readonly faux: FauxProviderHandle;
 	runtime: AgentRuntime | undefined;
 	models: ModelConfig | undefined;
 	/** With the agent runtime: the scheduler, started once the server listens (doc/scheduling.md). */
@@ -164,23 +176,28 @@ export class InProcessCrhs {
 		clusterOptions: ClusterOptions,
 		appOptions: Partial<AppOptions>,
 		agentDir: string | undefined,
+		faux: FauxProviderHandle,
 	) {
 		this.db = db;
 		this.clusterOptions = clusterOptions;
 		this.appOptions = appOptions;
 		this.agentDir = agentDir;
+		this.faux = faux;
 	}
 
 	/**
 	 * `appOptions` adds to the createApp options (e.g. webRoot for the WebUI tests); `agentDir` enables sessions
 	 * (the faux model is `faux/<this.faux.getModel().id>`; script it with `this.faux.setResponses`).
+	 * `fauxOptions` configures the faux provider itself (`tokensPerSecond` slows the stream so a UI test can
+	 * observe a running session before it settles).
 	 */
 	static async create(
 		opts: ClusterOptions = {},
 		appOptions: Partial<AppOptions> = {},
 		agentDir?: string,
+		fauxOptions?: RegisterFauxProviderOptions,
 	): Promise<InProcessCrhs> {
-		const crhs = new InProcessCrhs(await openTestDb("sqlite"), opts, appOptions, agentDir);
+		const crhs = new InProcessCrhs(await openTestDb("sqlite"), opts, appOptions, agentDir, fauxProvider(fauxOptions));
 		crhs.identity = await loadServerIdentity(crhs.db, crhs.masterKey);
 		crhs.authorizationKey = await loadAuthorizationSigningKey(crhs.db, crhs.masterKey);
 		await crhs.#listen(0);
@@ -351,12 +368,12 @@ export class Env {
 		dir: string,
 		opts: ClusterOptions = {},
 		appOptions: Partial<AppOptions> = {},
-		{ agent = false }: { agent?: boolean } = {},
+		{ agent = false, fauxOptions }: { agent?: boolean; fauxOptions?: RegisterFauxProviderOptions } = {},
 	): Promise<Env> {
 		const env = new Env();
 		env.bin = bin;
 		env.dir = await mkdtemp(join(dir, "env-"));
-		env.crhs = await InProcessCrhs.create(opts, appOptions, agent ? join(env.dir, "agent") : undefined);
+		env.crhs = await InProcessCrhs.create(opts, appOptions, agent ? join(env.dir, "agent") : undefined, fauxOptions);
 		await env.crhs.loginAdmin();
 		await writeFile(join(env.dir, "crha.toml"), `server = "${env.crhs.url}"\nstate_dir = "${join(env.dir, "crha")}"\n`);
 		env.configPath = join(env.dir, "crha.toml");

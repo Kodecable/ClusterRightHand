@@ -24,20 +24,19 @@ test("enrolls a node with a token from the UI and approves it after checking the
 	adminPage: page,
 	bare: env,
 }) => {
-	await page.goto("/");
-	await page.getByRole("button", { name: "Add node" }).click();
-	const dialog = page.getByRole("dialog", { name: "Add node" });
-	// Enter submits the dialog.
+	await page.goto("/nodes");
+	await page.getByTestId("add-node").click();
+	const dialog = page.getByTestId("add-node-dialog");
 	await dialog.getByLabel("Node name").fill("ui-enrolled");
-	await dialog.getByLabel("Node name").press("Enter");
+	await dialog.getByRole("button", { name: "Create token" }).click();
 	await expect(dialog.getByText("Run this on the node:")).toBeVisible();
-	const command = ((await dialog.locator("pre").textContent()) ?? "").trim();
+	const command = ((await dialog.getByRole("region", { name: "Enrollment command" }).textContent()) ?? "").trim();
 	const match = /^crha enroll (\S+) (\S+)$/.exec(command);
 	expect(match, `unexpected command: ${command}`).not.toBeNull();
 	const url = match?.[1] as string;
 	const token = match?.[2] as string;
 	expect(url).toBe(env.crhs.url);
-	await dialog.getByRole("button", { name: "Close" }).click();
+	await dialog.getByRole("button", { name: "Close" }).first().click();
 
 	await writeFile(env.configPath, `server = "${url}"\nstate_dir = "${join(env.dir, "crha")}"\n`);
 	const enrolled = await runCrha(env.bin, ["enroll", "--config", env.configPath, url, token]);
@@ -45,13 +44,13 @@ test("enrolls a node with a token from the UI and approves it after checking the
 	env.startCrha();
 
 	await page.getByRole("button", { name: "Refresh" }).click();
-	const row = page.getByRole("row").filter({ hasText: "pending" });
+	const row = page.getByRole("row", { name: /ui-enrolled/ }).filter({ hasText: "Pending" });
 	await expect(row).toBeVisible({ timeout: 15_000 });
 	await row.getByRole("button", { name: "Approve" }).click();
 
 	const approve = page.getByRole("dialog", { name: "Approve node" });
 	const { json } = await env.crhs.api("/api/nodes");
-	const node = json.nodes.find((n: { status: string }) => n.status === "pending");
+	const node = json.nodes.find((candidate: { status: string }) => candidate.status === "pending");
 	expect(node.keyFingerprint).toMatch(/\S/);
 	await expect(approve.locator("code").first()).toHaveText(node.keyFingerprint);
 	await approve.getByRole("button", { name: "Approve", exact: true }).click();
@@ -59,16 +58,16 @@ test("enrolls a node with a token from the UI and approves it after checking the
 
 	await expect(async () => {
 		await page.getByRole("button", { name: "Refresh" }).click();
-		await expect(page.getByRole("row").filter({ hasText: "active" })).toBeVisible({ timeout: 1000 });
+		await expect(page.getByRole("row", { name: /ui-enrolled/ }).getByText("Active")).toBeVisible({ timeout: 1_000 });
 	}).toPass({ timeout: 20_000 });
 	await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(0);
 	await expect.poll(() => env.crhs.cluster.isConnected(node.id), { timeout: 20_000 }).toBe(true);
 	await page.getByRole("button", { name: "Refresh" }).click();
-	await expect(page.getByRole("row", { name: /ui-enrolled/ }).getByText("online")).toBeVisible();
+	await expect(page.getByRole("row", { name: /ui-enrolled/ }).getByText("Connected")).toBeVisible();
 
 	// Once crha stops, the node shows offline.
 	await env.killCrha();
 	await expect.poll(() => env.crhs.cluster.isConnected(node.id), { timeout: 20_000 }).toBe(false);
 	await page.getByRole("button", { name: "Refresh" }).click();
-	await expect(page.getByRole("row", { name: /ui-enrolled/ }).getByText("offline")).toBeVisible();
+	await expect(page.getByRole("row", { name: /ui-enrolled/ }).getByText("Offline")).toBeVisible();
 });

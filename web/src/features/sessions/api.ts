@@ -1,4 +1,5 @@
-import { type InfiniteData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type InfiniteData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { enc, http, queryString } from "@/lib/api/client";
 import { useCursorInfiniteQuery } from "@/lib/api/query";
 import type {
@@ -9,6 +10,7 @@ import type {
 	SessionShare,
 	SessionView,
 } from "@/lib/api/types";
+import { subscribeSessionListUpserts } from "./list-stream-bus";
 import type { EntryRecord } from "./sessionState";
 
 /** Query keys for every session-shaped query. The list key carries its `scope`/`q`. */
@@ -17,6 +19,7 @@ export const sessionKeys = {
 	list: () => ["sessions", "list"] as const,
 	listPage: (scope: string, q: string) => ["sessions", "list", { scope, q }] as const,
 	detail: (id: string) => ["sessions", "detail", id] as const,
+	children: (id: string) => ["sessions", "children", id] as const,
 	entries: (id: string, before: string) => ["sessions", "entries", id, before] as const,
 	shares: (id: string) => ["sessions", "shares", id] as const,
 };
@@ -34,17 +37,120 @@ export function useSessions({ scope = "mine", q = "" }: SessionListParams) {
 	});
 }
 
+async function fetchSession(id: string, signal: AbortSignal): Promise<SessionView> {
+	const result = await http.get<{ session: SessionView; shares?: SessionShare[] }>(`/sessions/${enc(id)}`, { signal });
+	return { ...result.session, shares: result.shares } as SessionView;
+}
+
 export function useSession(id: string | undefined) {
 	return useQuery({
 		queryKey: sessionKeys.detail(id ?? ""),
 		enabled: id !== undefined && id !== "",
-		queryFn: async ({ signal }) => {
-			const result = await http.get<{ session: SessionView; shares?: SessionShare[] }>(`/sessions/${enc(id ?? "")}`, {
-				signal,
-			});
-			return { ...result.session, shares: result.shares } as SessionView;
-		},
+		queryFn: ({ signal }) => fetchSession(id ?? "", signal),
 	});
+}
+
+/**
+ * The id of the tree's root, found by following `parentSessionId` up. The
+ * session list stream only publishes roots, so a page needs this id to know
+ * which upsert concerns its tree (doc/webui.md#api-约定); a root page resolves
+ * without a request. Undefined while the chain is still loading.
+ */
+export function useSessionRootId(session: SessionView | undefined): string | undefined {
+	const [chain, setChain] = useState<string[]>([]);
+	const parentSessionId = session?.parentSessionId ?? null;
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new page starts a new chain
+	useEffect(() => {
+		setChain(parentSessionId === null ? [] : [parentSessionId]);
+	}, [session?.id]);
+
+	const queries = useQueries({
+		queries: chain.map((id) => ({
+			queryKey: sessionKeys.detail(id),
+			queryFn: ({ signal }: { signal: AbortSignal }) => fetchSession(id, signal),
+		})),
+	});
+	const last = queries[queries.length - 1]?.data;
+	const lastParentId = last?.parentSessionId ?? null;
+
+	useEffect(() => {
+		if (lastParentId === null) return;
+		setChain((current) => (current.includes(lastParentId) ? current : [...current, lastParentId]));
+	}, [lastParentId]);
+
+	if (session === undefined) return undefined;
+	if (parentSessionId === null) return session.id;
+	return last !== undefined && lastParentId === null ? last.id : undefined;
+}
+
+/**
+ * A session's direct child sessions (`GET /sessions/:id/children`), newest
+ * first, one cursor page at a time. The list is refetched on the three events
+ * the contract names: the session's `snapshot` (`revision`), a `subagent` tool
+ * update or end (`revision` too, see `useSessionEvents`) and the tree root's
+ * `upsert` on the session list stream (`rootId`).
+ */
+export function useSessionChildren(id: string | undefined, rootId: string | undefined, revision: number) {
+	const queryClient = useQueryClient();
+	const children = useCursorInfiniteQuery<SessionListItem>({
+		queryKey: sessionKeys.children(id ?? ""),
+		enabled: id !== undefined && id !== "",
+		fetchPage: (cursor, signal) =>
+			http.get<CursorPage<SessionListItem>>(`/sessions/${enc(id ?? "")}/children${queryString({ cursor })}`, {
+				signal,
+			}),
+	});
+
+	useEffect(() => {
+		if (id === undefined || id === "" || rootId === undefined || revision === 0) return;
+		void queryClient.invalidateQueries({ queryKey: sessionKeys.children(id) });
+	}, [id, rootId, revision, queryClient]);
+
+	useEffect(() => {
+		if (id === undefined || id === "" || rootId === undefined) return;
+		return subscribeSessionListUpserts((item) => {
+			if (item.id !== rootId) return;
+			void queryClient.invalidateQueries({ queryKey: sessionKeys.children(id) });
+		});
+	}, [id, rootId, queryClient]);
+
+	return children;
+}
+
+/**
+ * Keeps the session view current from the session list stream. That stream
+ * only publishes a tree's root, so its upsert is the one notification that a
+ * session inside the tree changed state (doc/webui.md#会话列表实时推送); without
+ * this the header, the waiting cards and the Stop button would keep the detail
+ * fetched on load. A root's item is exact, so it patches the detail; a child
+ * page refetches because the item carries the tree's aggregate, not the
+ * child's own state. An `awaiting` tree also refreshes the approvals list,
+ * which feeds the inline decision cards.
+ */
+export function useSessionTreeSync(sessionId: string | undefined, rootId: string | undefined) {
+	const queryClient = useQueryClient();
+	useEffect(() => {
+		if (sessionId === undefined || sessionId === "" || rootId === undefined) return;
+		return subscribeSessionListUpserts((item) => {
+			if (item.id !== rootId) return;
+			if (sessionId === rootId) {
+				queryClient.setQueryData<SessionView>(sessionKeys.detail(sessionId), (detail) =>
+					detail === undefined
+						? detail
+						: {
+								...detail,
+								state: item.state,
+								waitingKind: item.waitingKind,
+								updatedAt: item.updatedAt,
+							},
+				);
+			} else {
+				void queryClient.invalidateQueries({ queryKey: sessionKeys.detail(sessionId) });
+			}
+			if (item.state === "awaiting") void queryClient.invalidateQueries({ queryKey: ["approvals"] });
+		});
+	}, [sessionId, rootId, queryClient]);
 }
 
 export interface SessionEntriesPage {

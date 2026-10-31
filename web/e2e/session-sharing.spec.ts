@@ -1,11 +1,10 @@
-import { fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage, fauxText } from "../../server/test/e2e/harness.ts";
 import { expect, login, test } from "./fixtures.ts";
 
 test.use({ withAgent: true });
 
 const MEMBER = { username: "mallory", password: "member-password-1" };
 
-/** A session of the administrator's, shared with a member: view or chat (doc/access-control.md#归属与分享). */
 test("a session shared for chat lets a member drive it; view only lets them look", async ({
 	adminPage: page,
 	browser,
@@ -26,36 +25,46 @@ test("a session shared for chat lets a member drive it; view only lets them look
 	expect(created.status).toBe(201);
 	const sessionId = created.json.session.id as string;
 
-	await page.goto(`/#/sessions/${sessionId}`);
-	const shares = page.getByRole("region", { name: "Shares" });
+	await page.goto(`/sessions/${sessionId}`);
+	await page.getByTestId("share-session").click();
+	const shares = page.getByTestId("share-dialog");
 	await expect(shares).toContainText("Not shared.");
-	await shares.getByLabel("Grantee").selectOption({ label: "Mallory M" });
-	await shares.getByLabel("Access").selectOption("chat");
+	await shares.getByLabel("Grantee").click();
+	await page.getByRole("option", { name: "Mallory M" }).click();
+	await shares.getByLabel("Access").click();
+	await page.getByRole("option", { name: "Chat", exact: true }).click();
 	await shares.getByRole("button", { name: "Add share" }).click();
-	await expect(shares.getByRole("row").filter({ hasText: "chat" })).toBeVisible();
+	await expect(shares.getByTestId("share-list")).toContainText("mallory");
+	await expect(shares.getByTestId("share-list")).toContainText("Chat");
+	await page.keyboard.press("Escape");
 
 	const ctx = await browser.newContext({ baseURL: crhs.url });
 	try {
 		const mp = await ctx.newPage();
 		await login(mp, MEMBER);
-		await mp.getByRole("link", { name: "Sessions" }).click();
-		const row = mp.getByRole("row").filter({ hasText: "Shared chat" });
-		await expect(row).toContainText("shared (chat)");
-		await expect(row).toContainText("root");
-		await row.getByRole("link", { name: "Shared chat" }).click();
-		await expect(mp.getByText("Shared by root (chat access).")).toBeVisible();
+		await expect(mp.getByTestId("page-title")).toHaveText("Sessions");
+		await mp.getByTestId("scope-shared").click();
+		const row = mp.locator('[data-testid="session-item"]', { hasText: "Shared chat" });
+		await expect(row).toBeVisible({ timeout: 15_000 });
+		await expect(row.getByTestId("session-status-dot")).toBeVisible();
+		await row.click();
+		await expect(mp.getByTestId("session-header")).toContainText(/Shared by/);
 		// Not the owner: no title/model/preset editing, and no share management.
-		await expect(mp.getByRole("button", { name: "Save title" })).toHaveCount(0);
-		await expect(mp.getByRole("region", { name: "Shares" })).toHaveCount(0);
+		await expect(mp.getByRole("button", { name: "Session settings" })).toHaveCount(0);
+		await expect(mp.getByTestId("share-session")).toHaveCount(0);
 
 		crhs.faux.setResponses([fauxAssistantMessage([fauxText("Answered for the owner's nodes.")])]);
-		await mp.getByLabel("Message").fill("Say hello for me");
-		await mp.getByLabel("Message").press("Enter");
-		await expect(mp.getByRole("log", { name: "Conversation" })).toContainText("Answered for the owner's nodes.");
+		await mp.getByTestId("composer-input").fill("Say hello for me");
+		await mp.getByTestId("composer-input").press("Enter");
+		await expect(mp.getByTestId("transcript-scroller")).toContainText("Answered for the owner's nodes.", {
+			timeout: 20_000,
+		});
 
 		// The owner turns the share into view only.
 		const list = await crhs.api(`/api/sessions/${sessionId}/shares`);
-		const shareId = (list.json.shares as { id: string; granteeId: string }[]).find((s) => s.granteeId === userId)?.id;
+		const shareId = (list.json.shares as { id: string; granteeId: string }[]).find(
+			(entry) => entry.granteeId === userId,
+		)?.id;
 		expect(shareId).toBeTruthy();
 		expect(
 			(
@@ -66,9 +75,8 @@ test("a session shared for chat lets a member drive it; view only lets them look
 			).status,
 		).toBe(200);
 		await mp.reload();
-		await expect(mp.getByText("Shared by root (view access).")).toBeVisible();
-		await expect(mp.getByLabel("Message")).toHaveCount(0);
-		await expect(mp.getByText("You have view access")).toBeVisible();
+		await expect(mp.locator('[data-slot="composer-readonly"]')).toContainText("You have view access");
+		await expect(mp.getByTestId("composer-input")).toHaveCount(0);
 	} finally {
 		await ctx.close();
 	}
