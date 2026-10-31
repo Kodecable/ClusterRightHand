@@ -99,3 +99,12 @@ export function formatDuration(ms: number, locale: string): string {
 	if (minutes > 0) return `${formatNumber(minutes, locale)}m ${number(seconds)}s`;
 	return `${formatNumber(seconds, locale)}s`;
 }
+
+/** Splits a comma- or whitespace-separated list, dropping empty entries and duplicates. */
+export function parseList(text: string): string[] {
+	const values = text
+		.split(/[,\s]+/)
+		.map((value) => value.trim())
+		.filter((value) => value !== "");
+	return [...new Set(values)];
+}

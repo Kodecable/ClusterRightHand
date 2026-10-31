@@ -53,8 +53,10 @@ test("pinHop and firstUnpinned", () => {
 });
 
 test("validateHops and hopBodies", () => {
-	expect(validateHops([h("")])).toBe("target: host is required");
-	expect(validateHops([h("j"), { ...h("t"), port: "0" }])).toBe("target: invalid port");
+	expect(validateHops([h("")])).toEqual({ hop: 0, code: "host-required" });
+	expect(validateHops([{ ...h("j"), user: " " }, h("t")])).toEqual({ hop: 0, code: "user-required" });
+	expect(validateHops([h("j"), { ...h("t"), port: "0" }])).toEqual({ hop: 1, code: "port-invalid" });
+	expect(validateHops([h("j"), h("t")])).toBeUndefined();
 	expect(hopBodies([h("j", "K"), h("t")])).toEqual({
 		host: "t",
 		port: 22,

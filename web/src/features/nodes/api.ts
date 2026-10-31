@@ -7,6 +7,7 @@ import type {
 	PublicNode,
 	SshCredential,
 	SshNodeDetails,
+	SshTargetBody,
 	TaskView,
 } from "@/lib/api/types";
 
@@ -21,9 +22,11 @@ export const nodeKeys = {
 };
 
 export function useNodes() {
+	// Pending enrolments and online/offline changes show up without a refresh.
 	return useQuery({
 		queryKey: nodeKeys.list(),
 		queryFn: ({ signal }) => http.get<{ nodes: PublicNode[] }>("/nodes", { signal }).then((r) => r.nodes),
+		refetchInterval: 5_000,
 	});
 }
 
@@ -136,6 +139,47 @@ export function useCreateSshCredential() {
 		mutationFn: (name: string) =>
 			http.post<{ credential: SshCredential }>("/ssh-credentials", { name }).then((r) => r.credential),
 		onSuccess: () => void queryClient.invalidateQueries({ queryKey: nodeKeys.sshCredentials() }),
+	});
+}
+
+/** Probes the route's next unpinned hop and returns the fingerprint the wizard shows for confirmation. */
+export function useProbeSshHost() {
+	return useMutation({
+		mutationFn: (body: SshTargetBody) => http.post<{ hop: number; fingerprint: string }>("/ssh-nodes/probe", body),
+	});
+}
+
+/** Creates an SSH node from the wizard's route (jump hosts first, the target last). */
+export function useCreateSshNode() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (body: SshTargetBody & { name: string; groups: string[] }) =>
+			http.post<{ node: PublicNode }>("/ssh-nodes", body).then((r) => r.node),
+		onSuccess: () => void queryClient.invalidateQueries({ queryKey: nodeKeys.all }),
+	});
+}
+
+/** Tries the whole route before the node is created (the wizard's last step). */
+export function useTestSshRoute() {
+	return useMutation({
+		mutationFn: (body: SshTargetBody) => http.post<{ ok: true }>("/ssh-nodes/test", body),
+	});
+}
+
+/** Tries an existing SSH node's route and credential. */
+export function useTestSshNode() {
+	return useMutation({
+		mutationFn: (id: string) => http.post<{ ok: true }>(`/nodes/${enc(id)}/ssh-test`),
+	});
+}
+
+/** Replaces an SSH node's access groups. */
+export function useSetNodeGroups() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ id, groups }: { id: string; groups: string[] }) =>
+			http.put<{ groups: string[] }>(`/nodes/${enc(id)}/groups`, { groups }).then((r) => r.groups),
+		onSuccess: (_groups, { id }) => void queryClient.invalidateQueries({ queryKey: nodeKeys.detail(id) }),
 	});
 }
 

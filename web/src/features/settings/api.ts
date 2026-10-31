@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http } from "@/lib/api/client";
-import type { AvailableModel, ModelProviderInput, ModelProviderView } from "@/lib/api/types";
+import type { AvailableModel, ModelProviderInput, ModelProviderView, ModelRef } from "@/lib/api/types";
 
 export const settingsKeys = {
 	all: ["settings"] as const,
 	models: () => ["settings", "models"] as const,
 	providers: () => ["settings", "model-providers"] as const,
+	reviewModel: () => ["settings", "review-model"] as const,
 };
 
 export function useModels() {
@@ -38,5 +39,23 @@ export function useDeleteModelProvider() {
 	return useMutation({
 		mutationFn: (providerId: string) => http.del<{ ok: true }>(`/model-providers/${enc(providerId)}`),
 		onSuccess: () => void queryClient.invalidateQueries({ queryKey: settingsKeys.all }),
+	});
+}
+
+/** The model Auto Review uses; null means each session's own model. */
+export function useReviewModel() {
+	return useQuery({
+		queryKey: settingsKeys.reviewModel(),
+		queryFn: ({ signal }) =>
+			http.get<{ model: ModelRef | null }>("/settings/review-model", { signal }).then((r) => r.model),
+	});
+}
+
+export function useSetReviewModel() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (model: ModelRef | null) =>
+			http.put<{ model: ModelRef | null }>("/settings/review-model", { model }).then((r) => r.model),
+		onSuccess: () => void queryClient.invalidateQueries({ queryKey: settingsKeys.reviewModel() }),
 	});
 }

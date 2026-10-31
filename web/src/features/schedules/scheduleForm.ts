@@ -144,9 +144,33 @@ export function scheduleState(schedule: Pick<ScheduleView, "inProgress" | "lastR
 	return schedule.lastRun?.status ?? "never";
 }
 
+const RUN_STATUS_TEXT: Record<ScheduleRunStatus, MessageDescriptor> = {
+	succeeded: msg`finished`,
+	failed: msg`failed`,
+	preempted: msg`stopped by the next run`,
+	running: msg`running`,
+	pending: msg`queued`,
+};
+
+/** How a run ended, for the history's "note" column. */
+export function runStatusText(i18n: I18n, status: ScheduleRunStatus): string {
+	return i18n._(RUN_STATUS_TEXT[status]);
+}
+
 /** The warning the preset deserves on a schedule (doc/scheduling.md#授权规则与配额). */
 export function presetNoteKey(preset: Preset): "ask" | "auto_review" | "yolo" {
 	return preset;
+}
+
+const PRESET_NOTES: Record<Preset, MessageDescriptor> = {
+	ask: msg`Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there.`,
+	auto_review: msg`Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask.`,
+	yolo: msg`Yolo: everything runs without asking, including privileged tasks allowed by the node's own policy.`,
+};
+
+/** The explanation shown under the preset picker on the schedule form. */
+export function presetNoteText(i18n: I18n, preset: Preset): string {
+	return i18n._(PRESET_NOTES[preset]);
 }
 
 /** The keys a run note is built from: a reason, the manual flag and how it ended. */

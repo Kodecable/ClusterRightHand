@@ -51,14 +51,20 @@ export function firstUnpinned(hops: Hop[]): number {
 	return hops.findIndex((hop) => !hop.hostKey);
 }
 
-/** Validates the hop fields; returns a user-facing message or undefined. */
-export function validateHops(hops: Hop[]): string | undefined {
-	for (const [i, hop] of hops.entries()) {
-		const what = i === hops.length - 1 ? "target" : `jump ${i + 1}`;
-		if (!hop.host.trim()) return `${what}: host is required`;
-		if (!hop.user.trim()) return `${what}: user is required`;
-		const port = Number(hop.port);
-		if (!Number.isInteger(port) || port < 1 || port > 65535) return `${what}: invalid port`;
+/** A validation failure of one hop, as a code the wizard translates with Lingui. */
+export interface HopError {
+	/** The index into the hop list (target last). */
+	hop: number;
+	code: "host-required" | "user-required" | "port-invalid";
+}
+
+/** Validates the hop fields; returns the first failure or undefined. */
+export function validateHops(hops: Hop[]): HopError | undefined {
+	for (const [hop, value] of hops.entries()) {
+		if (!value.host.trim()) return { hop, code: "host-required" };
+		if (!value.user.trim()) return { hop, code: "user-required" };
+		const port = Number(value.port);
+		if (!Number.isInteger(port) || port < 1 || port > 65535) return { hop, code: "port-invalid" };
 	}
 	return undefined;
 }

@@ -1,15 +1,24 @@
 import { expect, type Page } from "@playwright/test";
 import type { AgentEvent, EntryRecord as SessionEntry } from "../src/features/sessions/sessionState";
 import type {
+	ApiTokenView,
 	ApprovalList,
+	AuditEvent,
+	AuthorizationSummary,
 	AvailableModel,
+	CredentialView,
 	Directory,
+	ModelProviderView,
+	ModelRef,
+	NodeTrust,
 	PublicNode,
-	SessionListItem,
-	SessionView,
+	ScheduleRunView,
+	ScheduleView,
+	SshCredential,
 	TaskGroupView,
 	TaskView,
 	User,
+	UserGroup,
 } from "../src/lib/api/types";
 
 export const USER: User = {
@@ -48,6 +57,19 @@ export interface FakeState {
 	models: AvailableModel[];
 	directory: Directory;
 	groups: Record<string, { group: TaskGroupView; polls: number }>;
+	schedules: ScheduleView[];
+	runs: Record<string, ScheduleRunView[]>;
+	tokens: ApiTokenView[];
+	providers: ModelProviderView[];
+	builtinProviders: string[];
+	reviewModel: ModelRef | null;
+	credentials: CredentialView[];
+	audit: AuditEvent[];
+	users: User[];
+	userGroups: UserGroup[];
+	sshCredentials: SshCredential[];
+	authorizations: AuthorizationSummary[];
+	nodeTrust: Record<string, NodeTrust>;
 	requests: { method: string; url: string; body: unknown }[];
 }
 
@@ -255,6 +277,19 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		models: [],
 		directory: { users: [], userGroups: [] },
 		groups: {},
+		schedules: [],
+		runs: {},
+		tokens: [],
+		providers: [],
+		builtinProviders: ["faux"],
+		reviewModel: null,
+		credentials: [],
+		audit: [],
+		users: [],
+		userGroups: [],
+		sshCredentials: [],
+		authorizations: [],
+		nodeTrust: {},
 		requests: [],
 		...options.state,
 	};
@@ -340,9 +375,349 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		if (path === "/api/auth/password") return json({ ok: true });
 		if (path === "/api/approvals") return json(state.approvals);
 		if (path === "/api/nodes") return json({ nodes: state.nodes });
-		if (path === "/api/api-tokens") return json({ tokens: [] });
 		if (path === "/api/models") return json({ models: state.models });
 		if (path === "/api/directory") return json(state.directory);
+		if (path === "/api/privilege/crhs-key") {
+			return json({ key: { authorizedKey: "ssh-ed25519 AAAAcrhs crhs", fingerprint: "SHA256:crhs" } });
+		}
+
+		// --- schedules -----------------------------------------------------
+		if (path === "/api/schedules/preview" && method === "POST") {
+			return json({ times: ["2026-02-01T09:00:00.000Z", "2026-02-02T09:00:00.000Z"] });
+		}
+		if (path === "/api/schedules" && method === "GET") return json({ schedules: state.schedules });
+		if (path === "/api/schedules" && method === "POST") {
+			const input = body as ScheduleView;
+			const schedule: ScheduleView = {
+				...input,
+				id: `schedule-${state.schedules.length + 1}`,
+				ownerUserId: state.user.id,
+				rules: [],
+				nextRunAt: "2026-02-01T09:00:00.000Z",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				updatedAt: "2026-01-01T00:00:00.000Z",
+				lastRun: null,
+				inProgress: false,
+				preview: [],
+			};
+			state.schedules.push(schedule);
+			state.runs[schedule.id] = [];
+			return json({ schedule });
+		}
+		const scheduleRunNow = /^\/api\/schedules\/([^/]+)\/run$/.exec(path);
+		if (scheduleRunNow && method === "POST") {
+			const id = decodeURIComponent(scheduleRunNow[1] as string);
+			const schedule = state.schedules.find((candidate) => candidate.id === id);
+			const run: ScheduleRunView = {
+				id: `run-${Date.now()}`,
+				scheduleId: id,
+				fireTime: "2026-01-01T00:00:00.000Z",
+				manual: true,
+				status: "running",
+				sessionId: "session-run",
+				reason: null,
+				createdAt: "2026-01-01T00:00:00.000Z",
+				startedAt: "2026-01-01T00:00:00.000Z",
+				finishedAt: null,
+			};
+			state.runs[id] = [run, ...(state.runs[id] ?? [])];
+			if (schedule) {
+				schedule.inProgress = true;
+				schedule.lastRun = run;
+			}
+			return json({ run });
+		}
+		const scheduleRuns = /^\/api\/schedules\/([^/]+)\/runs$/.exec(path);
+		if (scheduleRuns && method === "GET") {
+			const id = decodeURIComponent(scheduleRuns[1] as string);
+			return json({ items: state.runs[id] ?? [], nextCursor: null });
+		}
+		const scheduleMatch = /^\/api\/schedules\/([^/]+)$/.exec(path);
+		if (scheduleMatch) {
+			const id = decodeURIComponent(scheduleMatch[1] as string);
+			const schedule = state.schedules.find((candidate) => candidate.id === id);
+			if (!schedule) return json({ error: "no such schedule" }, 404);
+			if (method === "GET") return json({ schedule });
+			if (method === "PATCH") {
+				Object.assign(schedule, body as Partial<ScheduleView>, { updatedAt: "2026-01-02T00:00:00.000Z" });
+				return json({ schedule });
+			}
+			if (method === "DELETE") {
+				state.schedules = state.schedules.filter((candidate) => candidate.id !== id);
+				return json({ ok: true });
+			}
+		}
+
+		// --- nodes ---------------------------------------------------------
+		const nodeTasksMatch = /^\/api\/nodes\/([^/]+)\/tasks$/.exec(path);
+		if (nodeTasksMatch && method === "GET") {
+			const id = decodeURIComponent(nodeTasksMatch[1] as string);
+			return json({ tasks: state.tasks.filter((task) => task.nodeId === id) });
+		}
+		const nodeTrustMatch = /^\/api\/nodes\/([^/]+)\/trust$/.exec(path);
+		if (nodeTrustMatch && method === "GET") {
+			const id = decodeURIComponent(nodeTrustMatch[1] as string);
+			return json({ trust: state.nodeTrust[id] ?? trustedNode(id) });
+		}
+		const nodeGroupsMatch = /^\/api\/nodes\/([^/]+)\/groups$/.exec(path);
+		if (nodeGroupsMatch && method === "PUT") {
+			const id = decodeURIComponent(nodeGroupsMatch[1] as string);
+			const node = state.nodes.find((candidate) => candidate.id === id);
+			if (node) node.groups = (body as { groups: string[] }).groups;
+			return json({ groups: (body as { groups: string[] }).groups });
+		}
+		const sshNodeTest = /^\/api\/nodes\/([^/]+)\/ssh-test$/.exec(path);
+		if (sshNodeTest && method === "POST") return json({ ok: true });
+		const nodeMatch = /^\/api\/nodes\/([^/]+)$/.exec(path);
+		if (nodeMatch && method === "GET") {
+			const id = decodeURIComponent(nodeMatch[1] as string);
+			const node = state.nodes.find((candidate) => candidate.id === id);
+			if (!node) return json({ error: "no such node" }, 404);
+			const ssh =
+				node.transport === "ssh"
+					? {
+							hops: [{ host: node.hostname ?? "target.example", port: 22, user: "deploy", hostKey: "SHA256:probe" }],
+							credential: { id: "cred-1", name: "laptop" },
+						}
+					: null;
+			return json({ node, shares: [], ssh });
+		}
+		if (path === "/api/ssh-credentials" && method === "GET") return json({ credentials: state.sshCredentials });
+		if (path === "/api/ssh-credentials" && method === "POST") {
+			const credential = {
+				id: `cred-${state.sshCredentials.length + 1}`,
+				name: (body as { name: string }).name,
+				publicKey: "ssh-ed25519 AAAAlaptop laptop",
+			};
+			state.sshCredentials.push(credential);
+			return json({ credential });
+		}
+		if (path === "/api/ssh-nodes/probe" && method === "POST") {
+			return json({ hop: 0, fingerprint: "SHA256:probe" });
+		}
+		if (path === "/api/ssh-nodes/test" && method === "POST") return json({ ok: true });
+		if (path === "/api/ssh-nodes" && method === "POST") {
+			const input = body as {
+				host: string;
+				port: number;
+				user: string;
+				name: string;
+				groups: string[];
+				hostKey: string;
+			};
+			const node = nodeView({
+				id: `ssh-node-${state.nodes.length + 1}`,
+				name: input.name || input.host,
+				transport: "ssh",
+				hostname: input.host,
+				connected: null,
+				groups: input.groups,
+				access: "owner",
+			});
+			state.nodes.push(node);
+			return json({ node });
+		}
+
+		// --- API tokens ----------------------------------------------------
+		if (path === "/api/api-tokens" && method === "GET") return json({ tokens: state.tokens });
+		if (path === "/api/api-tokens" && method === "POST") {
+			const input = body as { name: string; preset: string; days: number | null };
+			const apiToken: ApiTokenView = {
+				id: `token-${state.tokens.length + 1}`,
+				name: input.name,
+				userId: state.user.id,
+				createdAt: new Date().toISOString(),
+				expiresAt: input.days === null ? null : new Date(Date.now() + input.days * 86_400_000).toISOString(),
+				revokedAt: null,
+				lastUsedAt: null,
+				rules: {
+					scope: { type: "api_token", id: `token-${state.tokens.length + 1}` },
+					preset: input.preset as "ask" | "auto_review" | "yolo",
+					rules: [],
+					default: "ask",
+					updatedAt: "2026-01-01T00:00:00.000Z",
+				},
+			};
+			state.tokens.push(apiToken);
+			return json({ token: "crh_created_once", apiToken });
+		}
+		const tokenRevoke = /^\/api\/api-tokens\/([^/]+)\/revoke$/.exec(path);
+		if (tokenRevoke && method === "POST") {
+			const id = decodeURIComponent(tokenRevoke[1] as string);
+			const token = state.tokens.find((candidate) => candidate.id === id);
+			if (token) token.revokedAt = "2026-01-02T00:00:00.000Z";
+			return json({ apiToken: token });
+		}
+		const tokenRules = /^\/api\/api-tokens\/([^/]+)\/rules$/.exec(path);
+		if (tokenRules && method === "PUT") {
+			const id = decodeURIComponent(tokenRules[1] as string);
+			const token = state.tokens.find((candidate) => candidate.id === id);
+			if (token) {
+				const patch = body as { preset?: string; rules?: unknown[] };
+				if (patch.preset !== undefined && token.rules) token.rules.preset = patch.preset as never;
+				if (patch.rules !== undefined && token.rules) token.rules.rules = patch.rules as never;
+			}
+			return json({ apiToken: token });
+		}
+		const tokenDelete = /^\/api\/api-tokens\/([^/]+)$/.exec(path);
+		if (tokenDelete && method === "DELETE") {
+			const id = decodeURIComponent(tokenDelete[1] as string);
+			state.tokens = state.tokens.filter((candidate) => candidate.id !== id);
+			return json({ ok: true });
+		}
+
+		// --- audit ---------------------------------------------------------
+		if (path === "/api/audit/verify") {
+			return json({ ok: true, count: state.audit.length });
+		}
+		if (path === "/api/audit" && method === "GET") {
+			const action = url.searchParams.get("action");
+			const targetType = url.searchParams.get("targetType");
+			const targetId = url.searchParams.get("targetId");
+			const matches = state.audit.filter((event) => {
+				if (action !== null) {
+					if (action.endsWith(".") ? !event.action.startsWith(action) : event.action !== action) return false;
+				}
+				if (targetType !== null && event.targetType !== targetType) return false;
+				if (targetId !== null && event.targetId !== targetId) return false;
+				return true;
+			});
+			const start = Number(url.searchParams.get("cursor") ?? "0") || 0;
+			const limit = 50;
+			return json({
+				items: matches.slice(start, start + limit),
+				nextCursor: start + limit < matches.length ? String(start + limit) : null,
+			});
+		}
+
+		// --- users and groups ----------------------------------------------
+		if (path === "/api/users" && method === "GET") return json({ users: state.users });
+		if (path === "/api/users" && method === "POST") {
+			const input = body as { username: string; displayName?: string; kind: User["kind"] };
+			const user: User = {
+				id: `user-${state.users.length + 2}`,
+				username: input.username,
+				displayName: input.displayName ?? input.username,
+				email: null,
+				kind: input.kind,
+				status: "active",
+				createdAt: "2026-01-01T00:00:00.000Z",
+			};
+			state.users.push(user);
+			return json({ user });
+		}
+		const userPassword = /^\/api\/users\/([^/]+)\/password$/.exec(path);
+		if (userPassword && method === "POST") return json({ ok: true });
+		const userMatch = /^\/api\/users\/([^/]+)$/.exec(path);
+		if (userMatch && method === "PATCH") {
+			const id = decodeURIComponent(userMatch[1] as string);
+			const user = state.users.find((candidate) => candidate.id === id);
+			if (user) Object.assign(user, body as Partial<User>);
+			return json({ user });
+		}
+		if (path === "/api/user-groups" && method === "GET") return json({ groups: state.userGroups });
+		if (path === "/api/user-groups" && method === "POST") {
+			const group: UserGroup = {
+				id: `group-${state.userGroups.length + 1}`,
+				name: (body as { name: string }).name,
+				source: "local",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				memberIds: [],
+			};
+			state.userGroups.push(group);
+			return json({ group });
+		}
+		const groupMember = /^\/api\/user-groups\/([^/]+)\/members\/([^/]+)$/.exec(path);
+		if (groupMember && (method === "PUT" || method === "DELETE")) {
+			const groupId = decodeURIComponent(groupMember[1] as string);
+			const userId = decodeURIComponent(groupMember[2] as string);
+			const group = state.userGroups.find((candidate) => candidate.id === groupId);
+			if (group) {
+				group.memberIds =
+					method === "PUT" ? [...new Set([...group.memberIds, userId])] : group.memberIds.filter((id) => id !== userId);
+			}
+			return json({ ok: true });
+		}
+		const userGroupMatch = /^\/api\/user-groups\/([^/]+)$/.exec(path);
+		if (userGroupMatch && method === "DELETE") {
+			const id = decodeURIComponent(userGroupMatch[1] as string);
+			state.userGroups = state.userGroups.filter((candidate) => candidate.id !== id);
+			return json({ ok: true });
+		}
+
+		// --- model providers and settings ----------------------------------
+		if (path === "/api/model-providers" && method === "GET") {
+			return json({ providers: state.providers, builtin: state.builtinProviders });
+		}
+		const providerMatch = /^\/api\/model-providers\/([^/]+)$/.exec(path);
+		if (providerMatch) {
+			const providerId = decodeURIComponent(providerMatch[1] as string);
+			if (method === "PUT") {
+				const input = body as ModelProviderView & { apiKey?: string | null };
+				const existing = state.providers.find((candidate) => candidate.providerId === providerId);
+				const provider: ModelProviderView = {
+					...(existing ?? {
+						id: `provider-${state.providers.length + 1}`,
+						providerId,
+						builtin: input.kind === "builtin" ? providerId : null,
+					}),
+					...input,
+					providerId,
+					hasApiKey:
+						input.apiKey === null
+							? false
+							: typeof input.apiKey === "string" && input.apiKey !== ""
+								? true
+								: (existing?.hasApiKey ?? false),
+				};
+				state.providers = [...state.providers.filter((candidate) => candidate.providerId !== providerId), provider];
+				return json({ provider });
+			}
+			if (method === "DELETE") {
+				state.providers = state.providers.filter((candidate) => candidate.providerId !== providerId);
+				return json({ ok: true });
+			}
+		}
+		if (path === "/api/settings/review-model" && method === "GET") return json({ model: state.reviewModel });
+		if (path === "/api/settings/review-model" && method === "PUT") {
+			state.reviewModel = (body as { model: ModelRef | null }).model;
+			return json({ model: state.reviewModel });
+		}
+
+		// --- credentials and authorizations --------------------------------
+		if (path === "/api/me/credentials" && method === "GET") return json({ credentials: state.credentials });
+		if (path === "/api/me/credentials/ssh" && method === "POST") {
+			const input = body as { publicKey: string; name?: string };
+			const credential: CredentialView = {
+				id: `credential-${state.credentials.length + 1}`,
+				kind: "ssh",
+				name: input.name ?? "ssh key",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				publicKey: input.publicKey,
+				fingerprint: "SHA256:user",
+				credentialId: null,
+				rpId: null,
+				origins: [],
+			};
+			state.credentials.push(credential);
+			return json({ credential });
+		}
+		const credentialDelete = /^\/api\/me\/credentials\/([^/]+)$/.exec(path);
+		if (credentialDelete && method === "DELETE") {
+			const id = decodeURIComponent(credentialDelete[1] as string);
+			state.credentials = state.credentials.filter((candidate) => candidate.id !== id);
+			return json({ ok: true });
+		}
+		if (path === "/api/authorizations" && method === "GET") {
+			return json({ items: state.authorizations, nextCursor: null });
+		}
+		const authorizationRevoke = /^\/api\/authorizations\/([^/]+)\/revoke$/.exec(path);
+		if (authorizationRevoke && method === "POST") {
+			const id = decodeURIComponent(authorizationRevoke[1] as string);
+			const entry = state.authorizations.find((candidate) => candidate.id === id);
+			if (entry) entry.revokedAt = "2026-01-02T00:00:00.000Z";
+			return json({ authorization: { id, revokedAt: "2026-01-02T00:00:00.000Z" } });
+		}
 
 		if (path === "/api/sessions" && method === "GET") {
 			const scope = url.searchParams.get("scope") ?? "mine";
@@ -526,6 +901,128 @@ export async function openSession(page: Page, api: ApiMock, sessionId: string, e
 
 export function emptyApprovals(): ApprovalList {
 	return { tasks: [], taskGroups: [], authorizations: { tasks: [], taskGroups: [] }, quotas: [] };
+}
+
+/** The trust report a client node has pushed in the fake server. */
+export function trustedNode(nodeId: string): NodeTrust {
+	return {
+		status: "ok",
+		message: null,
+		digest: "sha256:trust",
+		updatedAt: "2026-01-01T00:00:00.000Z",
+		stale: false,
+		summary: {
+			nodeId,
+			groups: [],
+			clockSkewMs: 12,
+			identities: {
+				unprivileged: { uid: 1000, gid: 1000, user: "crha" },
+				privileged: { uid: 0, gid: 0, user: "root" },
+			},
+			trust: [
+				{
+					name: "crhs",
+					source: "local",
+					role: "crhs",
+					key: { kind: "sshsig", fingerprint: "SHA256:crhs" },
+					kinds: ["execute", "cosign"],
+					requireExact: true,
+					requireTask: false,
+					requireUv: false,
+					maxTtlMs: 300_000,
+					allow: [{ method: "exec", match: "prefix", pattern: "systemctl restart " }],
+					deny: [{ method: "file.write", match: "prefix", pattern: "/etc/crha/" }],
+					envAllow: [],
+				},
+			],
+		},
+	};
+}
+
+export function scheduleView(overrides: Partial<ScheduleView> = {}): ScheduleView {
+	return {
+		id: "schedule-1",
+		ownerUserId: USER.id,
+		name: "Nightly check",
+		prompt: "Check the nodes",
+		model: { provider: "faux", modelId: "faux-1" },
+		preset: "ask",
+		rules: [],
+		tokenBudget: null,
+		cron: "0 9 * * *",
+		timezone: "Europe/Berlin",
+		catchUp: false,
+		enabled: true,
+		nextRunAt: "2026-02-01T09:00:00.000Z",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		updatedAt: "2026-01-01T00:00:00.000Z",
+		lastRun: null,
+		inProgress: false,
+		preview: [],
+		...overrides,
+	};
+}
+
+export function apiTokenView(overrides: Partial<ApiTokenView> = {}): ApiTokenView {
+	return {
+		id: "token-1",
+		name: "laptop",
+		userId: USER.id,
+		createdAt: "2026-01-01T00:00:00.000Z",
+		expiresAt: "2026-04-01T00:00:00.000Z",
+		revokedAt: null,
+		lastUsedAt: null,
+		rules: null,
+		...overrides,
+	};
+}
+
+export function auditEvent(overrides: Partial<AuditEvent> = {}): AuditEvent {
+	return {
+		seq: 1,
+		id: "evt-1",
+		ts: "2026-01-01T00:00:00.000Z",
+		actorType: "user",
+		actorId: USER.id,
+		onBehalfOfUserId: null,
+		action: "task.approval",
+		targetType: "task",
+		targetId: "task-1",
+		detail: { decision: "approved" },
+		hash: "hash-1",
+		...overrides,
+	};
+}
+
+export function userGroup(overrides: Partial<UserGroup> = {}): UserGroup {
+	return {
+		id: "group-1",
+		name: "Ops",
+		source: "local",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		memberIds: [],
+		...overrides,
+	};
+}
+
+export function providerView(overrides: Partial<ModelProviderView> = {}): ModelProviderView {
+	return {
+		id: "provider-1",
+		providerId: "faux",
+		kind: "builtin",
+		builtin: "faux",
+		name: "Faux",
+		baseUrl: null,
+		hasApiKey: false,
+		models: null,
+		headers: null,
+		enabled: true,
+		...overrides,
+	};
+}
+
+export function sshCredentialView(overrides: Partial<SshCredential> = {}): SshCredential {
+	return { id: "cred-1", name: "laptop", publicKey: "ssh-ed25519 AAAAlaptop laptop", ...overrides };
 }
 
 export type { AgentEvent, SessionEntry };

@@ -49,6 +49,8 @@ export interface CursorInfiniteOptions<T> {
 	enabled?: boolean;
 	/** Keep the previous pages visible while a changed filter is loading. */
 	keepPrevious?: boolean;
+	/** Poll while the list is open (a schedule's run history, for example). */
+	refetchInterval?: number | false;
 }
 
 export type CursorInfiniteResult<T> = UseInfiniteQueryResult<InfiniteData<CursorPage<T>, string | null>, Error>;
@@ -62,6 +64,7 @@ export function useCursorInfiniteQuery<T>({
 	fetchPage,
 	enabled = true,
 	keepPrevious = true,
+	refetchInterval = false,
 }: CursorInfiniteOptions<T>): CursorInfiniteResult<T> {
 	return useInfiniteQuery({
 		queryKey,
@@ -69,6 +72,7 @@ export function useCursorInfiniteQuery<T>({
 		initialPageParam: null as string | null,
 		getNextPageParam: (page) => page.nextCursor,
 		enabled,
+		refetchInterval,
 		...(keepPrevious ? { placeholderData: keepPreviousData } : {}),
 	}) as CursorInfiniteResult<T>;
 }

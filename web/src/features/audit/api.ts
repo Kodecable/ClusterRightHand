@@ -28,9 +28,11 @@ export function useAuditEvents(filters: AuditQuery = {}) {
 	});
 }
 
-export function useVerifyAudit() {
+/** The hash-chain verification; only administrators may call it, so the page enables it by role. */
+export function useVerifyAudit(enabled = true) {
 	return useQuery({
 		queryKey: auditKeys.verify(),
 		queryFn: ({ signal }) => http.get<VerifyResult>("/audit/verify", { signal }),
+		enabled,
 	});
 }

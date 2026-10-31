@@ -85,18 +85,21 @@ test("the change-password dialog traps Tab and validates the form", async ({ pag
 	await expect(dialog).toBeVisible();
 
 	// Base UI's documented Tab loop. Its focus guards hand focus back to the
-	// first/last control in the next animation frame, so let the frame run
-	// before checking: asserting synchronously sees the guard itself.
+	// first/last control in the next animation frame. Poll for focus to settle
+	// inside the dialog instead of sleeping a fixed delay: a slow frame under a
+	// loaded worker would otherwise see the guard itself and fail.
 	for (let i = 0; i < 8; i += 1) {
 		await page.keyboard.press("Tab");
-		await page.waitForTimeout(50);
-		expect(
-			await page.evaluate(() => {
-				const element = document.querySelector('[role="dialog"]');
-				return element?.contains(document.activeElement) === true;
-			}),
-			`after tab ${i + 1}`,
-		).toBe(true);
+		await expect
+			.poll(
+				() =>
+					page.evaluate(() => {
+						const element = document.querySelector('[role="dialog"]');
+						return element?.contains(document.activeElement) === true;
+					}),
+				{ message: `after tab ${i + 1}` },
+			)
+			.toBe(true);
 	}
 
 	await page.getByRole("button", { name: "Save password" }).click();

@@ -8,12 +8,16 @@ export const scheduleKeys = {
 	list: () => ["schedules", "list"] as const,
 	detail: (id: string) => ["schedules", "detail", id] as const,
 	runs: (id: string) => ["schedules", "runs", id] as const,
+	preview: (cron: string, timezone: string) => ["schedules", "preview", cron, timezone] as const,
 };
 
 export function useSchedules() {
+	// The list's enabled toggles and "Run now" state must follow runs started
+	// elsewhere (the scheduler), so it refreshes while the page is open.
 	return useQuery({
 		queryKey: scheduleKeys.list(),
 		queryFn: ({ signal }) => http.get<{ schedules: ScheduleView[] }>("/schedules", { signal }).then((r) => r.schedules),
+		refetchInterval: 5_000,
 	});
 }
 
@@ -23,11 +27,12 @@ export function useSchedule(id: string | undefined) {
 		enabled: id !== undefined && id !== "",
 		queryFn: ({ signal }) =>
 			http.get<{ schedule: ScheduleView }>(`/schedules/${enc(id ?? "")}`, { signal }).then((r) => r.schedule),
+		refetchInterval: 3_000,
 	});
 }
 
 /** `GET /api/schedules/:id/runs` is cursor-paged (doc/webui.md "游标列表"). */
-export function useScheduleRuns(id: string | undefined, limit?: number) {
+export function useScheduleRuns(id: string | undefined, limit?: number, refetchInterval: number | false = false) {
 	return useCursorInfiniteQuery<ScheduleRunView>({
 		queryKey: scheduleKeys.runs(id ?? ""),
 		fetchPage: (cursor, signal) =>
@@ -35,6 +40,7 @@ export function useScheduleRuns(id: string | undefined, limit?: number) {
 				signal,
 			}),
 		enabled: id !== undefined && id !== "",
+		refetchInterval,
 	});
 }
 
@@ -68,11 +74,26 @@ export function useRunSchedule() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (id: string) => http.post<{ run: ScheduleRunView }>(`/schedules/${enc(id)}/run`, {}).then((r) => r.run),
-		onSuccess: () => void queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
+		onSuccess: (_run, id) => {
+			void queryClient.invalidateQueries({ queryKey: scheduleKeys.all });
+			void queryClient.invalidateQueries({ queryKey: scheduleKeys.runs(id) });
+		},
 	});
 }
 
 /** The next fire times for a cron/timezone, without saving anything. */
+export function useSchedulePreview(cron: string, timezone: string, count = 5) {
+	return useQuery({
+		queryKey: scheduleKeys.preview(cron, timezone),
+		enabled: cron !== "" && timezone !== "",
+		// A wrong cron/timezone is a normal answer (the server 400s), not a retryable failure.
+		retry: false,
+		queryFn: ({ signal }) =>
+			http.post<{ times: string[] }>("/schedules/preview", { cron, timezone, count }, { signal }).then((r) => r.times),
+	});
+}
+
+/** Kept for one-off previews (the schedule form uses the query above). */
 export function usePreviewSchedule() {
 	return useMutation({
 		mutationFn: ({ cron, timezone, count }: { cron: string; timezone: string; count?: number }) =>
