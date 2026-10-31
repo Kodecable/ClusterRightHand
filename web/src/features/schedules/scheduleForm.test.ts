@@ -1,0 +1,109 @@
+import { describe, expect, test } from "vitest";
+import type { ScheduleRunView, ScheduleView } from "@/lib/api/types";
+import {
+	defaultTimezone,
+	parseScheduleForm,
+	presetNoteKey,
+	runNoteParts,
+	type ScheduleFormState,
+	scheduleState,
+} from "./scheduleForm";
+
+const form = (overrides: Partial<ScheduleFormState> = {}): ScheduleFormState => ({
+	name: "nightly check",
+	prompt: "Check the nodes",
+	model: { provider: "faux", modelId: "faux-model" },
+	preset: "ask",
+	tokenBudget: "",
+	cron: "*/5 * * * *",
+	timezone: "Europe/Berlin",
+	catchUp: false,
+	enabled: true,
+	...overrides,
+});
+
+describe("parseScheduleForm", () => {
+	test("builds the schedule body, with an empty budget meaning unlimited", () => {
+		expect(parseScheduleForm(form())).toEqual({
+			input: {
+				name: "nightly check",
+				prompt: "Check the nodes",
+				model: { provider: "faux", modelId: "faux-model" },
+				preset: "ask",
+				tokenBudget: null,
+				cron: "*/5 * * * *",
+				timezone: "Europe/Berlin",
+				catchUp: false,
+				enabled: true,
+			},
+		});
+		expect(parseScheduleForm(form({ tokenBudget: "2500" }))).toMatchObject({ input: { tokenBudget: 2500 } });
+		expect(parseScheduleForm(form({ name: "  trim me  " }))).toMatchObject({ input: { name: "trim me" } });
+	});
+
+	test("rejects a form that is missing its required parts", () => {
+		const missing = parseScheduleForm(
+			form({ name: " ", prompt: "", model: undefined, cron: "", timezone: "", tokenBudget: "-1" }),
+		);
+		expect(missing).toHaveProperty("errors");
+		if (!("errors" in missing)) throw new Error("expected errors");
+		expect(Object.keys(missing.errors).sort()).toEqual(["cron", "model", "name", "prompt", "timezone", "tokenBudget"]);
+		// Five fields exactly; the server checks whether the expression and the zone are real.
+		expect(parseScheduleForm(form({ cron: "0 0 * * * *" }))).toMatchObject({
+			errors: { cron: expect.any(String) },
+		});
+		expect(parseScheduleForm(form({ name: "x".repeat(201) }))).toMatchObject({
+			errors: { name: expect.any(String) },
+		});
+	});
+
+	test("a budget of one token is accepted and zero is rejected", () => {
+		expect(parseScheduleForm(form({ tokenBudget: "1" }))).toMatchObject({ input: { tokenBudget: 1 } });
+		expect(parseScheduleForm(form({ tokenBudget: "0" }))).toMatchObject({
+			errors: { tokenBudget: expect.stringContaining("at least 1") },
+		});
+		expect(parseScheduleForm(form({ tokenBudget: "-3" }))).toMatchObject({
+			errors: { tokenBudget: expect.any(String) },
+		});
+		expect(parseScheduleForm(form({ tokenBudget: "1.5" }))).toMatchObject({
+			errors: { tokenBudget: expect.any(String) },
+		});
+	});
+});
+
+describe("scheduleState", () => {
+	test("prefers a run in progress and says never before the first run", () => {
+		const schedule = { inProgress: false, lastRun: null } as Pick<ScheduleView, "inProgress" | "lastRun">;
+		expect(scheduleState(schedule)).toBe("never");
+		expect(scheduleState({ ...schedule, lastRun: { status: "succeeded" } as ScheduleRunView })).toBe("succeeded");
+		expect(scheduleState({ inProgress: true, lastRun: { status: "failed" } as ScheduleRunView })).toBe("running");
+	});
+});
+
+describe("preset notes and run notes", () => {
+	test("preset keys stay the preset values", () => {
+		expect(presetNoteKey("ask")).toBe("ask");
+		expect(presetNoteKey("auto_review")).toBe("auto_review");
+		expect(presetNoteKey("yolo")).toBe("yolo");
+	});
+
+	test("a run's parts expose the reason and the manual flag", () => {
+		const run: ScheduleRunView = {
+			id: "r1",
+			scheduleId: "s1",
+			fireTime: "2026-01-05T09:00:00.000Z",
+			manual: true,
+			status: "failed",
+			sessionId: "a",
+			reason: "quota denied",
+			createdAt: "2026-01-05T09:00:00.000Z",
+			startedAt: null,
+			finishedAt: null,
+		};
+		expect(runNoteParts(run)).toEqual({ status: "failed", reason: "quota denied", manual: true });
+	});
+
+	test("the default timezone is an IANA name", () => {
+		expect(defaultTimezone()).toMatch(/^[A-Za-z_+-]+(\/[A-Za-z0-9_+-]+)*$/);
+	});
+});

@@ -7,7 +7,7 @@
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["**", "!doc", "!pnpm-lock.yaml"]
+		"includes": ["**", "!doc", "!pnpm-lock.yaml", "!web/src/markdown/__fixtures__"]
 	},
 	"formatter": {
 		"enabled": true,
@@ -23,6 +23,11 @@
 	"javascript": {
 		"formatter": {
 			"quoteStyle": "double"
+		}
+	},
+	"css": {
+		"parser": {
+			"tailwindDirectives": true
 		}
 	},
 	"assist": {

@@ -1,0 +1,41 @@
+{
+  "generatedAt": "2026-10-31T12:42:44.617Z",
+  "fixtures": [
+    {
+      "name": "doc-20k",
+      "chars": 20383,
+      "path": "src/markdown/__fixtures__/doc-20k.md"
+    },
+    {
+      "name": "doc-50k",
+      "chars": 50467,
+      "path": "src/markdown/__fixtures__/doc-50k.md"
+    },
+    {
+      "name": "doc-100k",
+      "chars": 99883,
+      "path": "src/markdown/__fixtures__/doc-100k.md"
+    },
+    {
+      "name": "malicious",
+      "chars": 1443,
+      "path": "src/markdown/__fixtures__/malicious.md"
+    },
+    {
+      "name": "warmup",
+      "chars": 3961,
+      "path": "src/markdown/__fixtures__/warmup.md"
+    },
+    {
+      "name": "edge-cases",
+      "chars": 2533,
+      "path": "src/markdown/__fixtures__/edge-cases.md"
+    }
+  ],
+  "edgeCaseMarkers": {
+    "setext": 104,
+    "table": 432,
+    "fence": 1290,
+    "end": 2533
+  }
+}

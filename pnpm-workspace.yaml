@@ -4,3 +4,7 @@ packages:
   - web
 allowBuilds:
   re2: true
+minimumReleaseAgeExclude:
+  - "@hookform/resolvers@7.0.0"
+  - lucide-react@1.66.0
+verifyDepsBeforeRun: false

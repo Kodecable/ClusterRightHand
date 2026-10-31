@@ -3,7 +3,26 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta name="color-scheme" content="light dark" />
 		<title>ClusterRightHand</title>
+		<script>
+			// Set the theme before the first paint (no flash). Kept inline on purpose.
+			;(() => {
+				try {
+					const stored = localStorage.getItem("crh.theme");
+					const theme =
+						stored === "light" || stored === "dark"
+							? stored
+							: window.matchMedia("(prefers-color-scheme: dark)").matches
+								? "dark"
+								: "light";
+					document.documentElement.setAttribute("data-theme", theme);
+					document.documentElement.style.colorScheme = theme;
+				} catch {
+					document.documentElement.setAttribute("data-theme", "light");
+				}
+			})();
+		</script>
 	</head>
 	<body>
 		<div id="root"></div>

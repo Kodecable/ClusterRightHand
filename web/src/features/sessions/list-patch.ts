@@ -1,0 +1,71 @@
+import type { CursorPage, SessionListItem, SessionListScope } from "@/lib/api/types";
+
+/**
+ * The session-list SSE patch, as pure functions (doc/webui.md "会话列表实时推送"):
+ * `upsert` inserts, moves to top or replaces while respecting the active
+ * `scope` and `q`; `remove` drops the row. The hook only supplies the filter
+ * and writes the result into the Query cache.
+ */
+
+export interface SessionListFilter {
+	scope: SessionListScope;
+	q: string;
+	viewerId: string;
+	isAdmin: boolean;
+}
+
+/** Minimal runtime shape check for untrusted stream payloads; anything off is ignored. */
+export function isSessionListItem(value: unknown): value is SessionListItem {
+	if (value === null || typeof value !== "object") return false;
+	const item = value as Record<string, unknown>;
+	return (
+		typeof item.id === "string" &&
+		item.id !== "" &&
+		typeof item.title === "string" &&
+		typeof item.ownerUserId === "string" &&
+		typeof item.state === "string" &&
+		typeof item.updatedAt === "string"
+	);
+}
+
+/** Whether a row belongs in a list with these filters. `all` is never allowed for a non-admin. */
+export function sessionMatchesFilter(item: SessionListItem, filter: SessionListFilter): boolean {
+	if (filter.scope === "all" && !filter.isAdmin) return false;
+	if (filter.scope === "mine" && item.ownerUserId !== filter.viewerId) return false;
+	if (filter.scope === "shared" && !item.shared) return false;
+	const query = filter.q.trim().toLowerCase();
+	if (query !== "" && !item.title.toLowerCase().includes(query)) return false;
+	return true;
+}
+
+type Pages = readonly CursorPage<SessionListItem>[];
+
+/** Removes a row from every loaded page; returns the same array when nothing matched. */
+export function removeSessionListItem(pages: Pages, id: string): CursorPage<SessionListItem>[] {
+	let changed = false;
+	const next = pages.map((page) => {
+		if (!page.items.some((item) => item.id === id)) return page;
+		changed = true;
+		return { ...page, items: page.items.filter((item) => item.id !== id) };
+	});
+	return changed ? next : (pages as CursorPage<SessionListItem>[]);
+}
+
+/**
+ * Applies one `upsert`. The new/updated row goes to the top of the first page
+ * (the list is sorted by `updated_at desc`); a row that no longer matches the
+ * filter is only removed. An empty page cache is left alone: the first page has
+ * not loaded yet and will include the row.
+ */
+export function upsertSessionListItem(
+	pages: Pages,
+	item: SessionListItem,
+	filter: SessionListFilter,
+): CursorPage<SessionListItem>[] {
+	const without = removeSessionListItem(pages, item.id);
+	if (!sessionMatchesFilter(item, filter)) return without;
+	if (without.length === 0) return without;
+	const [first, ...rest] = without as CursorPage<SessionListItem>[];
+	if (!first) return without;
+	return [{ ...first, items: [item, ...first.items] }, ...rest];
+}

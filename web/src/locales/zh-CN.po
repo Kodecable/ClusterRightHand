@@ -1,0 +1,953 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-10-31 20:27+0800\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: zh-CN\n"
+
+#. js-lingui-explicit-id
+#: src/app/shell/app-sidebar.tsx
+msgid "Ops console"
+msgstr "运维控制台"
+
+#. js-lingui-explicit-id
+#: src/app/shell/app-sidebar.tsx
+msgid "Pending approvals"
+msgstr "待处理审批"
+
+#: src/components/task-result.tsx
+msgid "… {omitted} bytes omitted …"
+msgstr "… 省略 {omitted} 字节 …"
+
+#: src/markdown/safe-nodes.tsx
+msgid "[image: {label}]"
+msgstr "[图片：{label}]"
+
+#. placeholder {0}: value.length
+#: src/components/node-picker.tsx
+msgid "{0, plural, one {# node selected} other {# nodes selected}}"
+msgstr "{0, plural, one {已选择 # 个节点} other {已选择 # 个节点}}"
+
+#. placeholder {0}: item.task.kind
+#. placeholder {1}: nodeNames.get(item.task.nodeId) ?? item.task.nodeId
+#: src/components/approval-card.tsx
+msgid "{0} on {1}"
+msgstr "在 {1} 上执行 {0}"
+
+#. placeholder {0}: formatNumber(status.remaining, locale)
+#: src/components/quota-card.tsx
+msgid "{0} tokens left · {usedText} used"
+msgstr "剩余 {0} 个 token · 已用 {usedText}"
+
+#: src/components/task-result.tsx
+msgid "{bytes, plural, one {# byte} other {# bytes}}"
+msgstr "{bytes, plural, one {# 字节} other {# 字节}}"
+
+#. placeholder {0}: item.group.nodeIds.length
+#: src/components/approval-card.tsx
+msgid "{groupKind} on {0} node(s): {nodeList}"
+msgstr "{groupKind}，涉及 {0} 个节点：{nodeList}"
+
+#: src/markdown/CodeBlock.tsx
+msgid "{lineCount, plural, one {# line} other {# lines}}"
+msgstr "{lineCount, plural, one {# 行} other {# 行}}"
+
+#: src/components/code-text.tsx
+msgid "{lines, plural, one {# line} other {# lines}}"
+msgstr "{lines, plural, one {# 行} other {# 行}}"
+
+#: src/components/authorization-card.tsx
+msgid "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
+msgstr "`crha grant` 会解码载荷供你确认，用 `ssh-keygen -Y sign -n crh-auth-v1` 签名，并输出可粘贴到下方的授权。手工操作等价于："
+
+#: src/app/shell/user-menu.tsx
+msgid "Account menu"
+msgstr "账户菜单"
+
+#: src/components/status-badge.tsx
+msgid "Active"
+msgstr "活跃"
+
+#: src/components/quota-card.tsx
+msgid "Add"
+msgstr "添加"
+
+#: src/app/shell/nav.ts
+msgid "Admin"
+msgstr "管理"
+
+#. placeholder {0}: pending.tried.join(", ")
+#: src/components/authorization-card.tsx
+msgid "Already tried: {0}."
+msgstr "已尝试：{0}。"
+
+#: src/components/approval-card.tsx
+msgid "Always allow rule"
+msgstr "始终允许规则"
+
+#: src/components/authorization-card.tsx
+msgid "Any method and target"
+msgstr "任意方法与目标"
+
+#: src/components/approval-card.tsx
+msgid "API token"
+msgstr "API 令牌"
+
+#: src/app/shell/nav.ts
+#: src/features/tokens/pages.tsx
+msgid "API tokens"
+msgstr "API 令牌"
+
+#: src/components/task-result.tsx
+#: src/features/approvals/pages.tsx
+msgid "Approval"
+msgstr "审批"
+
+#: src/components/task-result.tsx
+msgid "Approval decision"
+msgstr "审批决定"
+
+#: src/app/shell/nav.ts
+#: src/features/approvals/pages.tsx
+msgid "Approvals"
+msgstr "审批"
+
+#: src/components/approval-card.tsx
+msgid "Approve"
+msgstr "批准"
+
+#: src/components/approval-card.tsx
+msgid "Approve and always allow"
+msgstr "批准并始终允许"
+
+#: src/components/approval-card.tsx
+msgid "Approve and always allow…"
+msgstr "批准并始终允许…"
+
+#: src/components/approval-card.tsx
+msgid "Approved"
+msgstr "已批准"
+
+#: src/components/task-form-fields.tsx
+msgid "argv"
+msgstr "argv"
+
+#: src/components/approval-card.tsx
+msgid "Asked by"
+msgstr "请求者"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "At least 8 characters."
+msgstr "至少 8 个字符。"
+
+#: src/components/authorization-card.tsx
+msgid "Attempt"
+msgstr "尝试"
+
+#: src/app/shell/nav.ts
+#: src/features/audit/pages.tsx
+msgid "Audit"
+msgstr "审计"
+
+#: src/components/task-result.tsx
+msgid "Authorization"
+msgstr "授权"
+
+#: src/components/authorization-card.tsx
+msgid "Authorization from `crha grant`"
+msgstr "`crha grant` 生成的授权"
+
+#: src/components/authorization-card.tsx
+msgid "Authorization id"
+msgstr "授权 ID"
+
+#: src/components/authorization-card.tsx
+msgid "Authorization submitted."
+msgstr "授权已提交。"
+
+#: src/app/shell/nav.ts
+#: src/features/authorizations/pages.tsx
+msgid "Authorizations"
+msgstr "授权"
+
+#: src/components/status-badge.tsx
+msgid "Awaiting"
+msgstr "等待中"
+
+#: src/components/approval-card.tsx
+#: src/components/status-badge.tsx
+msgid "Awaiting approval"
+msgstr "等待批准"
+
+#: src/components/status-badge.tsx
+msgid "Awaiting authorization"
+msgstr "等待授权"
+
+#: src/components/status-badge.tsx
+msgid "Awaiting signature"
+msgstr "等待签名"
+
+#: src/app/shell/nav.ts
+#: src/features/batch/pages.tsx
+msgid "Batch"
+msgstr "批量"
+
+#: src/components/dialogs.tsx
+#: src/features/auth/change-password-dialog.tsx
+msgid "Cancel"
+msgstr "取消"
+
+#: src/components/status-badge.tsx
+#: src/components/task-result.tsx
+msgid "Cancelled"
+msgstr "已取消"
+
+#: src/app/shell/user-menu.tsx
+#: src/features/auth/change-password-dialog.tsx
+msgid "Change password"
+msgstr "修改密码"
+
+#: src/components/model-select.tsx
+msgid "Choose a model"
+msgstr "选择模型"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Choose a new password for your account."
+msgstr "为你的账户设置新密码。"
+
+#: src/components/node-picker.tsx
+msgid "Choose a node"
+msgstr "选择节点"
+
+#: src/components/node-picker.tsx
+msgid "Choose nodes"
+msgstr "选择节点"
+
+#: src/components/node-picker.tsx
+msgid "Clear"
+msgstr "清除"
+
+#: src/app/shell/nav.ts
+msgid "Cluster"
+msgstr "集群"
+
+#: src/components/authorization-card.tsx
+msgid "Command"
+msgstr "命令"
+
+#: src/components/approval-card.tsx
+msgid "Command / path"
+msgstr "命令 / 路径"
+
+#: src/components/task-form-fields.tsx
+msgid "Command line (split into argv)"
+msgstr "命令行（拆分为 argv）"
+
+#: src/components/task-form-fields.tsx
+msgid "Command mode"
+msgstr "命令模式"
+
+#: src/components/dialogs.tsx
+msgid "Confirm"
+msgstr "确认"
+
+#: src/components/task-form-fields.tsx
+msgid "Content"
+msgstr "内容"
+
+#: src/components/copy-button.tsx
+msgid "Copied"
+msgstr "已复制"
+
+#: src/components/copy-button.tsx
+msgid "Copied to clipboard"
+msgstr "已复制到剪贴板"
+
+#: src/components/code-text.tsx
+#: src/components/copy-button.tsx
+msgid "Copy"
+msgstr "复制"
+
+#: src/markdown/CodeBlock.tsx
+msgid "Copy code"
+msgstr "复制代码"
+
+#: src/components/authorization-card.tsx
+msgid "Copy crha grant command"
+msgstr "复制 crha grant 命令"
+
+#: src/components/authorization-card.tsx
+msgid "Copy ssh-keygen recipe"
+msgstr "复制 ssh-keygen 命令"
+
+#: src/components/task-result.tsx
+msgid "Copy task id"
+msgstr "复制任务 ID"
+
+#: src/components/task-result.tsx
+msgid "cosignature available"
+msgstr "可共同签名"
+
+#: src/components/task-result.tsx
+msgid "cosignature unavailable"
+msgstr "无法共同签名"
+
+#: src/components/task-result.tsx
+msgid "Created"
+msgstr "创建时间"
+
+#: src/app/shell/nav.ts
+#: src/features/credentials/pages.tsx
+msgid "Credentials"
+msgstr "凭据"
+
+#: src/components/authorization-card.tsx
+msgid "crha grant command"
+msgstr "crha grant 命令"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Current password"
+msgstr "当前密码"
+
+#: src/app/shell/user-menu.tsx
+msgid "Dark"
+msgstr "深色"
+
+#: src/components/authorization-card.tsx
+msgid "Deadline"
+msgstr "截止时间"
+
+#: src/components/approval-card.tsx
+msgid "Decided at"
+msgstr "决定时间"
+
+#: src/components/approval-card.tsx
+msgid "Decided by"
+msgstr "决定者"
+
+#: src/components/approval-card.tsx
+msgid "Decision"
+msgstr "决定"
+
+#: src/components/approval-card.tsx
+msgid "default"
+msgstr "默认"
+
+#: src/components/status-badge.tsx
+msgid "Denied"
+msgstr "已拒绝"
+
+#: src/components/status-badge.tsx
+msgid "Disabled"
+msgstr "已禁用"
+
+#: src/components/status-badge.tsx
+msgid "Dispatched"
+msgstr "已派发"
+
+#: src/components/approval-card.tsx
+msgid "Effective"
+msgstr "生效结果"
+
+#: src/components/quota-card.tsx
+msgid "Enter a positive number of tokens to add."
+msgstr "请输入要添加的正 token 数。"
+
+#: src/components/quota-card.tsx
+msgid "Enter a whole number of tokens, or leave it empty for unlimited."
+msgstr "请输入整数 token 数，留空表示不限。"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Enter your current password."
+msgstr "请输入当前密码。"
+
+#: src/features/auth/login-page.tsx
+msgid "Enter your password."
+msgstr "请输入密码。"
+
+#: src/features/auth/login-page.tsx
+msgid "Enter your username."
+msgstr "请输入用户名。"
+
+#: src/components/task-result.tsx
+msgid "Error"
+msgstr "错误"
+
+#: src/components/approval-card.tsx
+msgid "exact"
+msgstr "精确匹配"
+
+#: src/components/task-result.tsx
+msgid "Exit code"
+msgstr "退出码"
+
+#. placeholder {0}: outcome.code ?? "?"
+#: src/components/task-result.tsx
+msgid "Exit code {0}"
+msgstr "退出码 {0}"
+
+#: src/components/status-badge.tsx
+msgid "Exited"
+msgstr "已退出"
+
+#: src/components/status-badge.tsx
+msgid "Expired"
+msgstr "已过期"
+
+#: src/components/status-badge.tsx
+msgid "Failed"
+msgstr "失败"
+
+#: src/components/task-result.tsx
+msgid "Finished"
+msgstr "完成时间"
+
+#: src/app/router.tsx
+msgid "Go to sessions"
+msgstr "前往会话"
+
+#: src/components/status-badge.tsx
+msgid "Idle"
+msgstr "空闲"
+
+#: src/components/authorization-card.tsx
+#: src/components/status-badge.tsx
+msgid "Issued"
+msgstr "已签发"
+
+#: src/components/task-form-fields.tsx
+#: src/components/task-result.tsx
+msgid "Kind"
+msgstr "类型"
+
+#: src/app/shell/user-menu.tsx
+msgid "Language"
+msgstr "语言"
+
+#: src/components/authorization-card.tsx
+msgid "Last rejection"
+msgstr "上次拒绝"
+
+#. placeholder {0}: pending.lastRejection.code
+#. placeholder {0}: record.lastRejection.code
+#. placeholder {1}: pending.lastRejection.attempt
+#. placeholder {1}: record.lastRejection.attempt
+#. placeholder {2}: pending.lastRejection.message
+#. placeholder {2}: record.lastRejection.message
+#: src/components/authorization-card.tsx
+#: src/components/task-result.tsx
+msgid "Last rejection {0} (attempt {1}): {2}"
+msgstr "上次拒绝 {0}（第 {1} 次尝试）：{2}"
+
+#: src/components/approval-card.tsx
+msgid "Level"
+msgstr "层级"
+
+#: src/app/shell/user-menu.tsx
+msgid "Light"
+msgstr "浅色"
+
+#: src/components/task-form-fields.tsx
+msgid "Limit"
+msgstr "限制"
+
+#: src/components/data-table.tsx
+msgid "Load more"
+msgstr "加载更多"
+
+#: src/app/shell/user-menu.tsx
+msgid "Log out"
+msgstr "退出登录"
+
+#: src/components/approval-card.tsx
+msgid "Matched rule"
+msgstr "匹配规则"
+
+#: src/components/model-select.tsx
+msgid "Model"
+msgstr "模型"
+
+#: src/app/shell/nav.ts
+#: src/features/settings/pages.tsx
+msgid "Models"
+msgstr "模型"
+
+#: src/components/status-badge.tsx
+msgid "Never run"
+msgstr "从未运行"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "New password"
+msgstr "新密码"
+
+#: src/components/task-form-fields.tsx
+msgid "New text"
+msgstr "新文本"
+
+#: src/components/approval-card.tsx
+msgid "No"
+msgstr "否"
+
+#: src/components/task-result.tsx
+msgid "No output is kept (SSH nodes keep no output)."
+msgstr "未保留输出（SSH 节点不保留输出）。"
+
+#: src/components/task-result.tsx
+msgid "No output was kept."
+msgstr "未保留任何输出。"
+
+#: src/components/authorization-card.tsx
+msgid "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
+msgstr "此节点没有信任你的任何 Passkey 可用于此命令；请用下方 SSH 密钥签名。"
+
+#: src/components/authorization-card.tsx
+#: src/components/node-picker.tsx
+#: src/features/nodes/pages.tsx
+msgid "Node"
+msgstr "节点"
+
+#: src/app/shell/nav.ts
+#: src/components/authorization-card.tsx
+#: src/components/node-picker.tsx
+#: src/features/nodes/pages.tsx
+msgid "Nodes"
+msgstr "节点"
+
+#: src/components/approval-card.tsx
+msgid "Not a valid rule: {error}"
+msgstr "规则无效：{error}"
+
+#: src/components/authorization-card.tsx
+msgid "Note"
+msgstr "备注"
+
+#: src/components/empty-state.tsx
+msgid "Nothing here yet."
+msgstr "这里还没有内容。"
+
+#: src/components/data-table.tsx
+msgid "Nothing to show."
+msgstr "没有可显示的内容。"
+
+#: src/components/task-form-fields.tsx
+msgid "Offset"
+msgstr "偏移"
+
+#: src/components/task-form-fields.tsx
+msgid "Old text"
+msgstr "旧文本"
+
+#: src/components/task-result.tsx
+msgid "Open approval page"
+msgstr "打开审批页"
+
+#. placeholder {0}: pending.taskIds[0] ?? ""
+#: src/components/authorization-card.tsx
+msgid "Or run <0>crha approve {0}</0> on the node (a user in its `local` trust entries) — the task then runs with that approval instead."
+msgstr "或者在节点上运行 <0>crha approve {0}</0>（该节点 `local` 信任条目中的用户）——任务随后会改用该批准运行。"
+
+#: src/components/task-result.tsx
+msgid "output"
+msgstr "输出"
+
+#: src/components/task-result.tsx
+msgid "Output file"
+msgstr "输出文件"
+
+#: src/components/task-form-fields.tsx
+msgid "Overwrite if it exists"
+msgstr "如果已存在则覆盖"
+
+#: src/components/approval-card.tsx
+msgid "Own result"
+msgstr "自身结果"
+
+#: src/app/router.tsx
+msgid "Page not found"
+msgstr "页面不存在"
+
+#: src/components/authorization-card.tsx
+msgid "Passkey signing was cancelled."
+msgstr "Passkey 签名已取消。"
+
+#: src/features/auth/login-page.tsx
+msgid "Password"
+msgstr "密码"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Password changed."
+msgstr "密码已修改。"
+
+#: src/components/task-form-fields.tsx
+msgid "Path"
+msgstr "路径"
+
+#: src/components/status-badge.tsx
+msgid "Pending"
+msgstr "待处理"
+
+#: src/components/status-badge.tsx
+msgid "Preempted"
+msgstr "已被抢占"
+
+#: src/components/approval-card.tsx
+msgid "prefix"
+msgstr "前缀匹配"
+
+#: src/components/preset-select.tsx
+msgid "Preset"
+msgstr "预设"
+
+#: src/components/approval-card.tsx
+#: src/components/task-form-fields.tsx
+#: src/components/task-result.tsx
+msgid "Privileged"
+msgstr "特权"
+
+#: src/components/status-badge.tsx
+msgid "Queued"
+msgstr "排队中"
+
+#: src/components/quota-card.tsx
+msgid "Quota"
+msgstr "配额"
+
+#. placeholder {0}: formatNumber(status.over, locale)
+#: src/components/quota-card.tsx
+msgid "Quota used up ({0} over) · {usedText} used"
+msgstr "配额已用尽（超出 {0}）· 已用 {usedText}"
+
+#: src/components/approval-card.tsx
+msgid "Reason"
+msgstr "原因"
+
+#: src/components/approval-card.tsx
+msgid "Reason (optional, used when rejecting)"
+msgstr "原因（可选，拒绝时使用）"
+
+#: src/components/approval-card.tsx
+msgid "Reject"
+msgstr "拒绝"
+
+#: src/components/approval-card.tsx
+#: src/components/status-badge.tsx
+msgid "Rejected"
+msgstr "已拒绝"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Repeat new password"
+msgstr "重复新密码"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Repeat the new password."
+msgstr "请再次输入新密码。"
+
+#: src/components/approval-card.tsx
+msgid "Requested"
+msgstr "请求时间"
+
+#: src/components/status-badge.tsx
+msgid "Revoked"
+msgstr "已吊销"
+
+#: src/components/approval-card.tsx
+#: src/components/task-result.tsx
+msgid "Rule chain evaluation"
+msgstr "规则链评估"
+
+#: src/components/approval-card.tsx
+msgid "Rule to add to the caller's rule set"
+msgstr "添加到调用方规则集的规则"
+
+#: src/components/status-badge.tsx
+msgid "Running"
+msgstr "运行中"
+
+#: src/components/dialogs.tsx
+msgid "Save"
+msgstr "保存"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Save password"
+msgstr "保存密码"
+
+#: src/features/schedules/pages.tsx
+msgid "Schedule"
+msgstr "计划任务"
+
+#: src/app/shell/nav.ts
+#: src/features/schedules/pages.tsx
+msgid "Schedules"
+msgstr "计划任务"
+
+#: src/components/quota-card.tsx
+#: src/features/sessions/pages.tsx
+msgid "Session"
+msgstr "会话"
+
+#: src/features/sessions/sessions-layout.tsx
+msgid "Session list"
+msgstr "会话列表"
+
+#: src/app/shell/nav.ts
+#: src/features/sessions/pages.tsx
+msgid "Sessions"
+msgstr "会话"
+
+#: src/components/task-form-fields.tsx
+msgid "Shell command"
+msgstr "Shell 命令"
+
+#: src/components/code-text.tsx
+msgid "Show all"
+msgstr "显示全部"
+
+#: src/components/code-text.tsx
+msgid "Show less"
+msgstr "收起"
+
+#: src/components/code-text.tsx
+msgid "Showing first {maxLines} of {lines} lines"
+msgstr "显示前 {maxLines} 行，共 {lines} 行"
+
+#: src/features/auth/login-page.tsx
+msgid "Sign in"
+msgstr "登录"
+
+#: src/features/auth/login-page.tsx
+msgid "Sign in to the operations console."
+msgstr "登录运维控制台。"
+
+#: src/components/authorization-card.tsx
+msgid "Sign on your workstation"
+msgstr "在工作站上签名"
+
+#: src/components/authorization-card.tsx
+msgid "Sign the payload below with `crha grant` (or your Passkey). The signature is bound to this attempt: if the plan changes, this card shows a new payload."
+msgstr "用 `crha grant`（或你的 Passkey）签署下方的载荷。签名绑定本次尝试：如果计划发生变化，此卡片会显示新的载荷。"
+
+#. placeholder {0}: passkey.name
+#: src/components/authorization-card.tsx
+msgid "Sign with Passkey “{0}”"
+msgstr "使用 Passkey“{0}”签名"
+
+#: src/components/task-result.tsx
+msgid "Signal"
+msgstr "信号"
+
+#. placeholder {0}: outcome.signal
+#: src/components/task-result.tsx
+msgid "Signal {0}"
+msgstr "信号 {0}"
+
+#: src/components/status-badge.tsx
+msgid "Signed"
+msgstr "已签名"
+
+#: src/app/shell/user-menu.tsx
+msgid "Signed in as {name}"
+msgstr "已登录为 {name}"
+
+#: src/app/shell/user-menu.tsx
+msgid "Signed out."
+msgstr "已退出登录。"
+
+#. placeholder {0}: passkey.name
+#: src/components/authorization-card.tsx
+msgid "Signed with Passkey \"{0}\"."
+msgstr "已使用 Passkey“{0}”签名。"
+
+#: src/components/quota-card.tsx
+msgid "Since"
+msgstr "自"
+
+#: src/components/error-state.tsx
+msgid "Something went wrong"
+msgstr "出错了"
+
+#: src/components/authorization-card.tsx
+msgid "Spec hash"
+msgstr "规范哈希"
+
+#: src/components/authorization-card.tsx
+msgid "ssh-keygen recipe"
+msgstr "ssh-keygen 命令"
+
+#: src/components/authorization-card.tsx
+#: src/components/task-result.tsx
+msgid "State"
+msgstr "状态"
+
+#: src/components/task-result.tsx
+msgid "Status only."
+msgstr "仅状态。"
+
+#: src/components/task-result.tsx
+msgid "stderr"
+msgstr "stderr"
+
+#: src/components/task-form-fields.tsx
+msgid "Stdin (optional)"
+msgstr "标准输入（可选）"
+
+#: src/components/task-result.tsx
+msgid "stdout"
+msgstr "stdout"
+
+#: src/components/quota-card.tsx
+msgid "Stop"
+msgstr "停止"
+
+#: src/components/authorization-card.tsx
+msgid "Submit authorization"
+msgstr "提交授权"
+
+#: src/components/status-badge.tsx
+msgid "Succeeded"
+msgstr "成功"
+
+#: src/components/task-result.tsx
+msgid "Summary"
+msgstr "摘要"
+
+#: src/app/shell/user-menu.tsx
+msgid "System"
+msgstr "跟随系统"
+
+#: src/components/approval-card.tsx
+#: src/components/authorization-card.tsx
+#: src/components/task-result.tsx
+#: src/features/tasks/pages.tsx
+msgid "Task"
+msgstr "任务"
+
+#: src/components/approval-card.tsx
+msgid "task group"
+msgstr "任务组"
+
+#: src/components/approval-card.tsx
+#: src/features/tasks/pages.tsx
+msgid "Task group"
+msgstr "任务组"
+
+#: src/app/shell/nav.ts
+#: src/components/authorization-card.tsx
+#: src/features/tasks/pages.tsx
+msgid "Tasks"
+msgstr "任务"
+
+#: src/markdown/CodeBlock.tsx
+msgid "text"
+msgstr "文本"
+
+#: src/components/quota-card.tsx
+msgid "That number is too large."
+msgstr "这个数字太大了。"
+
+#. placeholder {0}: output.file
+#: src/components/task-result.tsx
+msgid "The full output is in <0>{0}</0> on the node."
+msgstr "完整输出位于节点上的 <0>{0}</0>。"
+
+#: src/components/task-result.tsx
+msgid "The full output stays on the node until the task exits."
+msgstr "完整输出会保留在节点上，直到任务退出。"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "The new passwords do not match."
+msgstr "两次输入的新密码不一致。"
+
+#: src/app/router.tsx
+msgid "The page you asked for does not exist."
+msgstr "你访问的页面不存在。"
+
+#: src/components/page-not-built.tsx
+msgid "The shell, the shared components and the data layer are in place; the pages are written in the next step of the WebUI rewrite."
+msgstr "外壳、共享组件和数据层已经就绪；页面将在 WebUI 重构的下一步编写。"
+
+#: src/app/shell/user-menu.tsx
+msgid "Theme"
+msgstr "主题"
+
+#: src/components/page-not-built.tsx
+msgid "This page has not been built yet"
+msgstr "此页面尚未构建"
+
+#: src/components/task-result.tsx
+msgid "Timed out"
+msgstr "已超时"
+
+#: src/components/task-form-fields.tsx
+msgid "Timeout (s)"
+msgstr "超时（秒）"
+
+#: src/app/shell/app-shell.tsx
+msgid "Toggle sidebar"
+msgstr "切换侧边栏"
+
+#: src/components/quota-card.tsx
+msgid "Token quota used up"
+msgstr "Token 配额已用尽"
+
+#: src/components/quota-card.tsx
+msgid "Tokens to add"
+msgstr "要添加的 token 数"
+
+#: src/components/error-state.tsx
+msgid "Try again"
+msgstr "重试"
+
+#: src/components/status-badge.tsx
+msgid "Unknown"
+msgstr "未知"
+
+#: src/components/quota-card.tsx
+msgid "Unlimited quota · {usedText} used"
+msgstr "无限配额 · 已用 {usedText}"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Use at least 8 characters."
+msgstr "至少使用 8 个字符。"
+
+#: src/features/auth/login-page.tsx
+msgid "Username"
+msgstr "用户名"
+
+#: src/app/shell/nav.ts
+#: src/features/users/pages.tsx
+msgid "Users"
+msgstr "用户"
+
+#: src/components/task-result.tsx
+msgid "Waiting for approval. {approvalLink}"
+msgstr "等待批准。{approvalLink}"
+
+#: src/components/task-result.tsx
+msgid "Waiting for the owner's authorization."
+msgstr "等待所有者授权。"
+
+#: src/components/authorization-card.tsx
+msgid "Waiting for your authorization"
+msgstr "等待你的授权"
+
+#: src/components/task-result.tsx
+msgid "Waiting for your signature."
+msgstr "等待你的签名。"
+
+#: src/components/approval-card.tsx
+msgid "What"
+msgstr "内容"
+
+#: src/app/shell/nav.ts
+msgid "Work"
+msgstr "工作"
+
+#: src/components/task-form-fields.tsx
+msgid "Working directory (optional)"
+msgstr "工作目录（可选）"
+
+#: src/components/approval-card.tsx
+msgid "Yes"
+msgstr "是"

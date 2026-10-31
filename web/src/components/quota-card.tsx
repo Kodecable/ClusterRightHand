@@ -1,0 +1,157 @@
+import { Trans, useLingui } from "@lingui/react/macro";
+import { Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { ErrorText } from "@/components/error-state";
+import { KeyValueList } from "@/components/key-value";
+import { DateTime } from "@/components/relative-time";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import type { QuotaApproval } from "@/lib/api/types";
+import { formatNumber } from "@/lib/format";
+import { useLocale } from "@/lib/i18n";
+import { parseGrantInput, type QuotaError, quotaStatus } from "@/lib/quota";
+import { cn } from "@/lib/utils";
+
+/** The remaining-quota line: unlimited, remaining or used up (doc/agent-runtime.md#配额). */
+export function QuotaSummaryLine({ quota, used }: { quota: number | null; used: number }) {
+	const { locale } = useLocale();
+	const status = quotaStatus(quota, used);
+	const usedText = formatNumber(status.used, locale);
+	switch (status.kind) {
+		case "unlimited":
+			return <Trans>Unlimited quota · {usedText} used</Trans>;
+		case "remaining":
+			return (
+				<Trans>
+					{formatNumber(status.remaining, locale)} tokens left · {usedText} used
+				</Trans>
+			);
+		case "exhausted":
+			return (
+				<span className="text-danger">
+					<Trans>
+						Quota used up ({formatNumber(status.over, locale)} over) · {usedText} used
+					</Trans>
+				</span>
+			);
+	}
+}
+
+export type QuotaDecision = { decision: "approve"; tokens: number } | { decision: "deny"; reason?: string };
+
+/**
+ * A root whose token quota is used up: the owner adds tokens or stops the
+ * paused run. Only the owner sees these, on the approvals page and in the
+ * session view.
+ */
+export function QuotaCard({
+	wait,
+	onDecide,
+	busy = false,
+	error,
+	className,
+}: {
+	wait: QuotaApproval;
+	onDecide: (decision: QuotaDecision) => void;
+	busy?: boolean;
+	error?: unknown;
+	className?: string;
+}) {
+	const { t } = useLingui();
+	const [tokens, setTokens] = useState("");
+	const [localError, setLocalError] = useState<string>();
+
+	const quotaErrorText = (error: QuotaError): string => {
+		switch (error) {
+			case "whole-number":
+				return t`Enter a whole number of tokens, or leave it empty for unlimited.`;
+			case "too-large":
+				return t`That number is too large.`;
+			case "positive-required":
+				return t`Enter a positive number of tokens to add.`;
+		}
+	};
+
+	const add = () => {
+		const parsed = parseGrantInput(tokens);
+		if ("error" in parsed) {
+			setLocalError(quotaErrorText(parsed.error));
+			return;
+		}
+		setLocalError(undefined);
+		setTokens("");
+		onDecide({ decision: "approve", tokens: parsed.tokens });
+	};
+
+	return (
+		<section
+			data-slot="quota-card"
+			aria-label={t`Token quota used up`}
+			className={cn("grid gap-3 rounded-lg border border-warn/30 bg-warn-bg/40 p-4 text-card-foreground", className)}
+		>
+			<div className="flex flex-wrap items-center justify-between gap-2">
+				<h2 className="text-sm font-semibold">
+					<Trans>Token quota used up</Trans>
+				</h2>
+				<span className="font-mono text-xs text-muted-foreground">{wait.levelId}</span>
+			</div>
+
+			<KeyValueList
+				items={[
+					{
+						label: <Trans>Session</Trans>,
+						value: (
+							<Link
+								to="/sessions/$sessionId"
+								params={{ sessionId: wait.sessionId }}
+								className="text-primary underline underline-offset-2"
+							>
+								{wait.title}
+							</Link>
+						),
+					},
+					{
+						label: <Trans>Quota</Trans>,
+						value: <QuotaSummaryLine quota={wait.quota} used={wait.used} />,
+					},
+					{ label: <Trans>Since</Trans>, value: <DateTime value={wait.since} /> },
+				]}
+			/>
+
+			<div className="grid gap-1.5">
+				<Label htmlFor="quota-add">{t`Tokens to add`}</Label>
+				<div className="flex flex-wrap gap-2">
+					<Input
+						id="quota-add"
+						inputMode="numeric"
+						value={tokens}
+						placeholder="1000000"
+						disabled={busy}
+						className="max-w-48"
+						onChange={(event) => setTokens(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") {
+								event.preventDefault();
+								add();
+							}
+						}}
+					/>
+					<Button type="button" disabled={busy} onClick={add}>
+						<Trans>Add</Trans>
+					</Button>
+					<Button type="button" variant="destructive" disabled={busy} onClick={() => onDecide({ decision: "deny" })}>
+						<Trans>Stop</Trans>
+					</Button>
+				</div>
+				{localError !== undefined && (
+					<p role="alert" className="text-xs text-danger">
+						{localError}
+					</p>
+				)}
+			</div>
+
+			{error !== undefined && <ErrorText error={error} />}
+		</section>
+	);
+}

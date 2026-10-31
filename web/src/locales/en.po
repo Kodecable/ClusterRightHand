@@ -1,0 +1,953 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-10-31 20:27+0800\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: en\n"
+
+#. js-lingui-explicit-id
+#: src/app/shell/app-sidebar.tsx
+msgid "Ops console"
+msgstr "Ops console"
+
+#. js-lingui-explicit-id
+#: src/app/shell/app-sidebar.tsx
+msgid "Pending approvals"
+msgstr "Pending approvals"
+
+#: src/components/task-result.tsx
+msgid "… {omitted} bytes omitted …"
+msgstr "… {omitted} bytes omitted …"
+
+#: src/markdown/safe-nodes.tsx
+msgid "[image: {label}]"
+msgstr "[image: {label}]"
+
+#. placeholder {0}: value.length
+#: src/components/node-picker.tsx
+msgid "{0, plural, one {# node selected} other {# nodes selected}}"
+msgstr "{0, plural, one {# node selected} other {# nodes selected}}"
+
+#. placeholder {0}: item.task.kind
+#. placeholder {1}: nodeNames.get(item.task.nodeId) ?? item.task.nodeId
+#: src/components/approval-card.tsx
+msgid "{0} on {1}"
+msgstr "{0} on {1}"
+
+#. placeholder {0}: formatNumber(status.remaining, locale)
+#: src/components/quota-card.tsx
+msgid "{0} tokens left · {usedText} used"
+msgstr "{0} tokens left · {usedText} used"
+
+#: src/components/task-result.tsx
+msgid "{bytes, plural, one {# byte} other {# bytes}}"
+msgstr "{bytes, plural, one {# byte} other {# bytes}}"
+
+#. placeholder {0}: item.group.nodeIds.length
+#: src/components/approval-card.tsx
+msgid "{groupKind} on {0} node(s): {nodeList}"
+msgstr "{groupKind} on {0} node(s): {nodeList}"
+
+#: src/markdown/CodeBlock.tsx
+msgid "{lineCount, plural, one {# line} other {# lines}}"
+msgstr "{lineCount, plural, one {# line} other {# lines}}"
+
+#: src/components/code-text.tsx
+msgid "{lines, plural, one {# line} other {# lines}}"
+msgstr "{lines, plural, one {# line} other {# lines}}"
+
+#: src/components/authorization-card.tsx
+msgid "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
+msgstr "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
+
+#: src/app/shell/user-menu.tsx
+msgid "Account menu"
+msgstr "Account menu"
+
+#: src/components/status-badge.tsx
+msgid "Active"
+msgstr "Active"
+
+#: src/components/quota-card.tsx
+msgid "Add"
+msgstr "Add"
+
+#: src/app/shell/nav.ts
+msgid "Admin"
+msgstr "Admin"
+
+#. placeholder {0}: pending.tried.join(", ")
+#: src/components/authorization-card.tsx
+msgid "Already tried: {0}."
+msgstr "Already tried: {0}."
+
+#: src/components/approval-card.tsx
+msgid "Always allow rule"
+msgstr "Always allow rule"
+
+#: src/components/authorization-card.tsx
+msgid "Any method and target"
+msgstr "Any method and target"
+
+#: src/components/approval-card.tsx
+msgid "API token"
+msgstr "API token"
+
+#: src/app/shell/nav.ts
+#: src/features/tokens/pages.tsx
+msgid "API tokens"
+msgstr "API tokens"
+
+#: src/components/task-result.tsx
+#: src/features/approvals/pages.tsx
+msgid "Approval"
+msgstr "Approval"
+
+#: src/components/task-result.tsx
+msgid "Approval decision"
+msgstr "Approval decision"
+
+#: src/app/shell/nav.ts
+#: src/features/approvals/pages.tsx
+msgid "Approvals"
+msgstr "Approvals"
+
+#: src/components/approval-card.tsx
+msgid "Approve"
+msgstr "Approve"
+
+#: src/components/approval-card.tsx
+msgid "Approve and always allow"
+msgstr "Approve and always allow"
+
+#: src/components/approval-card.tsx
+msgid "Approve and always allow…"
+msgstr "Approve and always allow…"
+
+#: src/components/approval-card.tsx
+msgid "Approved"
+msgstr "Approved"
+
+#: src/components/task-form-fields.tsx
+msgid "argv"
+msgstr "argv"
+
+#: src/components/approval-card.tsx
+msgid "Asked by"
+msgstr "Asked by"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "At least 8 characters."
+msgstr "At least 8 characters."
+
+#: src/components/authorization-card.tsx
+msgid "Attempt"
+msgstr "Attempt"
+
+#: src/app/shell/nav.ts
+#: src/features/audit/pages.tsx
+msgid "Audit"
+msgstr "Audit"
+
+#: src/components/task-result.tsx
+msgid "Authorization"
+msgstr "Authorization"
+
+#: src/components/authorization-card.tsx
+msgid "Authorization from `crha grant`"
+msgstr "Authorization from `crha grant`"
+
+#: src/components/authorization-card.tsx
+msgid "Authorization id"
+msgstr "Authorization id"
+
+#: src/components/authorization-card.tsx
+msgid "Authorization submitted."
+msgstr "Authorization submitted."
+
+#: src/app/shell/nav.ts
+#: src/features/authorizations/pages.tsx
+msgid "Authorizations"
+msgstr "Authorizations"
+
+#: src/components/status-badge.tsx
+msgid "Awaiting"
+msgstr "Awaiting"
+
+#: src/components/approval-card.tsx
+#: src/components/status-badge.tsx
+msgid "Awaiting approval"
+msgstr "Awaiting approval"
+
+#: src/components/status-badge.tsx
+msgid "Awaiting authorization"
+msgstr "Awaiting authorization"
+
+#: src/components/status-badge.tsx
+msgid "Awaiting signature"
+msgstr "Awaiting signature"
+
+#: src/app/shell/nav.ts
+#: src/features/batch/pages.tsx
+msgid "Batch"
+msgstr "Batch"
+
+#: src/components/dialogs.tsx
+#: src/features/auth/change-password-dialog.tsx
+msgid "Cancel"
+msgstr "Cancel"
+
+#: src/components/status-badge.tsx
+#: src/components/task-result.tsx
+msgid "Cancelled"
+msgstr "Cancelled"
+
+#: src/app/shell/user-menu.tsx
+#: src/features/auth/change-password-dialog.tsx
+msgid "Change password"
+msgstr "Change password"
+
+#: src/components/model-select.tsx
+msgid "Choose a model"
+msgstr "Choose a model"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Choose a new password for your account."
+msgstr "Choose a new password for your account."
+
+#: src/components/node-picker.tsx
+msgid "Choose a node"
+msgstr "Choose a node"
+
+#: src/components/node-picker.tsx
+msgid "Choose nodes"
+msgstr "Choose nodes"
+
+#: src/components/node-picker.tsx
+msgid "Clear"
+msgstr "Clear"
+
+#: src/app/shell/nav.ts
+msgid "Cluster"
+msgstr "Cluster"
+
+#: src/components/authorization-card.tsx
+msgid "Command"
+msgstr "Command"
+
+#: src/components/approval-card.tsx
+msgid "Command / path"
+msgstr "Command / path"
+
+#: src/components/task-form-fields.tsx
+msgid "Command line (split into argv)"
+msgstr "Command line (split into argv)"
+
+#: src/components/task-form-fields.tsx
+msgid "Command mode"
+msgstr "Command mode"
+
+#: src/components/dialogs.tsx
+msgid "Confirm"
+msgstr "Confirm"
+
+#: src/components/task-form-fields.tsx
+msgid "Content"
+msgstr "Content"
+
+#: src/components/copy-button.tsx
+msgid "Copied"
+msgstr "Copied"
+
+#: src/components/copy-button.tsx
+msgid "Copied to clipboard"
+msgstr "Copied to clipboard"
+
+#: src/components/code-text.tsx
+#: src/components/copy-button.tsx
+msgid "Copy"
+msgstr "Copy"
+
+#: src/markdown/CodeBlock.tsx
+msgid "Copy code"
+msgstr "Copy code"
+
+#: src/components/authorization-card.tsx
+msgid "Copy crha grant command"
+msgstr "Copy crha grant command"
+
+#: src/components/authorization-card.tsx
+msgid "Copy ssh-keygen recipe"
+msgstr "Copy ssh-keygen recipe"
+
+#: src/components/task-result.tsx
+msgid "Copy task id"
+msgstr "Copy task id"
+
+#: src/components/task-result.tsx
+msgid "cosignature available"
+msgstr "cosignature available"
+
+#: src/components/task-result.tsx
+msgid "cosignature unavailable"
+msgstr "cosignature unavailable"
+
+#: src/components/task-result.tsx
+msgid "Created"
+msgstr "Created"
+
+#: src/app/shell/nav.ts
+#: src/features/credentials/pages.tsx
+msgid "Credentials"
+msgstr "Credentials"
+
+#: src/components/authorization-card.tsx
+msgid "crha grant command"
+msgstr "crha grant command"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Current password"
+msgstr "Current password"
+
+#: src/app/shell/user-menu.tsx
+msgid "Dark"
+msgstr "Dark"
+
+#: src/components/authorization-card.tsx
+msgid "Deadline"
+msgstr "Deadline"
+
+#: src/components/approval-card.tsx
+msgid "Decided at"
+msgstr "Decided at"
+
+#: src/components/approval-card.tsx
+msgid "Decided by"
+msgstr "Decided by"
+
+#: src/components/approval-card.tsx
+msgid "Decision"
+msgstr "Decision"
+
+#: src/components/approval-card.tsx
+msgid "default"
+msgstr "default"
+
+#: src/components/status-badge.tsx
+msgid "Denied"
+msgstr "Denied"
+
+#: src/components/status-badge.tsx
+msgid "Disabled"
+msgstr "Disabled"
+
+#: src/components/status-badge.tsx
+msgid "Dispatched"
+msgstr "Dispatched"
+
+#: src/components/approval-card.tsx
+msgid "Effective"
+msgstr "Effective"
+
+#: src/components/quota-card.tsx
+msgid "Enter a positive number of tokens to add."
+msgstr "Enter a positive number of tokens to add."
+
+#: src/components/quota-card.tsx
+msgid "Enter a whole number of tokens, or leave it empty for unlimited."
+msgstr "Enter a whole number of tokens, or leave it empty for unlimited."
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Enter your current password."
+msgstr "Enter your current password."
+
+#: src/features/auth/login-page.tsx
+msgid "Enter your password."
+msgstr "Enter your password."
+
+#: src/features/auth/login-page.tsx
+msgid "Enter your username."
+msgstr "Enter your username."
+
+#: src/components/task-result.tsx
+msgid "Error"
+msgstr "Error"
+
+#: src/components/approval-card.tsx
+msgid "exact"
+msgstr "exact"
+
+#: src/components/task-result.tsx
+msgid "Exit code"
+msgstr "Exit code"
+
+#. placeholder {0}: outcome.code ?? "?"
+#: src/components/task-result.tsx
+msgid "Exit code {0}"
+msgstr "Exit code {0}"
+
+#: src/components/status-badge.tsx
+msgid "Exited"
+msgstr "Exited"
+
+#: src/components/status-badge.tsx
+msgid "Expired"
+msgstr "Expired"
+
+#: src/components/status-badge.tsx
+msgid "Failed"
+msgstr "Failed"
+
+#: src/components/task-result.tsx
+msgid "Finished"
+msgstr "Finished"
+
+#: src/app/router.tsx
+msgid "Go to sessions"
+msgstr "Go to sessions"
+
+#: src/components/status-badge.tsx
+msgid "Idle"
+msgstr "Idle"
+
+#: src/components/authorization-card.tsx
+#: src/components/status-badge.tsx
+msgid "Issued"
+msgstr "Issued"
+
+#: src/components/task-form-fields.tsx
+#: src/components/task-result.tsx
+msgid "Kind"
+msgstr "Kind"
+
+#: src/app/shell/user-menu.tsx
+msgid "Language"
+msgstr "Language"
+
+#: src/components/authorization-card.tsx
+msgid "Last rejection"
+msgstr "Last rejection"
+
+#. placeholder {0}: pending.lastRejection.code
+#. placeholder {0}: record.lastRejection.code
+#. placeholder {1}: pending.lastRejection.attempt
+#. placeholder {1}: record.lastRejection.attempt
+#. placeholder {2}: pending.lastRejection.message
+#. placeholder {2}: record.lastRejection.message
+#: src/components/authorization-card.tsx
+#: src/components/task-result.tsx
+msgid "Last rejection {0} (attempt {1}): {2}"
+msgstr "Last rejection {0} (attempt {1}): {2}"
+
+#: src/components/approval-card.tsx
+msgid "Level"
+msgstr "Level"
+
+#: src/app/shell/user-menu.tsx
+msgid "Light"
+msgstr "Light"
+
+#: src/components/task-form-fields.tsx
+msgid "Limit"
+msgstr "Limit"
+
+#: src/components/data-table.tsx
+msgid "Load more"
+msgstr "Load more"
+
+#: src/app/shell/user-menu.tsx
+msgid "Log out"
+msgstr "Log out"
+
+#: src/components/approval-card.tsx
+msgid "Matched rule"
+msgstr "Matched rule"
+
+#: src/components/model-select.tsx
+msgid "Model"
+msgstr "Model"
+
+#: src/app/shell/nav.ts
+#: src/features/settings/pages.tsx
+msgid "Models"
+msgstr "Models"
+
+#: src/components/status-badge.tsx
+msgid "Never run"
+msgstr "Never run"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "New password"
+msgstr "New password"
+
+#: src/components/task-form-fields.tsx
+msgid "New text"
+msgstr "New text"
+
+#: src/components/approval-card.tsx
+msgid "No"
+msgstr "No"
+
+#: src/components/task-result.tsx
+msgid "No output is kept (SSH nodes keep no output)."
+msgstr "No output is kept (SSH nodes keep no output)."
+
+#: src/components/task-result.tsx
+msgid "No output was kept."
+msgstr "No output was kept."
+
+#: src/components/authorization-card.tsx
+msgid "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
+msgstr "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
+
+#: src/components/authorization-card.tsx
+#: src/components/node-picker.tsx
+#: src/features/nodes/pages.tsx
+msgid "Node"
+msgstr "Node"
+
+#: src/app/shell/nav.ts
+#: src/components/authorization-card.tsx
+#: src/components/node-picker.tsx
+#: src/features/nodes/pages.tsx
+msgid "Nodes"
+msgstr "Nodes"
+
+#: src/components/approval-card.tsx
+msgid "Not a valid rule: {error}"
+msgstr "Not a valid rule: {error}"
+
+#: src/components/authorization-card.tsx
+msgid "Note"
+msgstr "Note"
+
+#: src/components/empty-state.tsx
+msgid "Nothing here yet."
+msgstr "Nothing here yet."
+
+#: src/components/data-table.tsx
+msgid "Nothing to show."
+msgstr "Nothing to show."
+
+#: src/components/task-form-fields.tsx
+msgid "Offset"
+msgstr "Offset"
+
+#: src/components/task-form-fields.tsx
+msgid "Old text"
+msgstr "Old text"
+
+#: src/components/task-result.tsx
+msgid "Open approval page"
+msgstr "Open approval page"
+
+#. placeholder {0}: pending.taskIds[0] ?? ""
+#: src/components/authorization-card.tsx
+msgid "Or run <0>crha approve {0}</0> on the node (a user in its `local` trust entries) — the task then runs with that approval instead."
+msgstr "Or run <0>crha approve {0}</0> on the node (a user in its `local` trust entries) — the task then runs with that approval instead."
+
+#: src/components/task-result.tsx
+msgid "output"
+msgstr "output"
+
+#: src/components/task-result.tsx
+msgid "Output file"
+msgstr "Output file"
+
+#: src/components/task-form-fields.tsx
+msgid "Overwrite if it exists"
+msgstr "Overwrite if it exists"
+
+#: src/components/approval-card.tsx
+msgid "Own result"
+msgstr "Own result"
+
+#: src/app/router.tsx
+msgid "Page not found"
+msgstr "Page not found"
+
+#: src/components/authorization-card.tsx
+msgid "Passkey signing was cancelled."
+msgstr "Passkey signing was cancelled."
+
+#: src/features/auth/login-page.tsx
+msgid "Password"
+msgstr "Password"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Password changed."
+msgstr "Password changed."
+
+#: src/components/task-form-fields.tsx
+msgid "Path"
+msgstr "Path"
+
+#: src/components/status-badge.tsx
+msgid "Pending"
+msgstr "Pending"
+
+#: src/components/status-badge.tsx
+msgid "Preempted"
+msgstr "Preempted"
+
+#: src/components/approval-card.tsx
+msgid "prefix"
+msgstr "prefix"
+
+#: src/components/preset-select.tsx
+msgid "Preset"
+msgstr "Preset"
+
+#: src/components/approval-card.tsx
+#: src/components/task-form-fields.tsx
+#: src/components/task-result.tsx
+msgid "Privileged"
+msgstr "Privileged"
+
+#: src/components/status-badge.tsx
+msgid "Queued"
+msgstr "Queued"
+
+#: src/components/quota-card.tsx
+msgid "Quota"
+msgstr "Quota"
+
+#. placeholder {0}: formatNumber(status.over, locale)
+#: src/components/quota-card.tsx
+msgid "Quota used up ({0} over) · {usedText} used"
+msgstr "Quota used up ({0} over) · {usedText} used"
+
+#: src/components/approval-card.tsx
+msgid "Reason"
+msgstr "Reason"
+
+#: src/components/approval-card.tsx
+msgid "Reason (optional, used when rejecting)"
+msgstr "Reason (optional, used when rejecting)"
+
+#: src/components/approval-card.tsx
+msgid "Reject"
+msgstr "Reject"
+
+#: src/components/approval-card.tsx
+#: src/components/status-badge.tsx
+msgid "Rejected"
+msgstr "Rejected"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Repeat new password"
+msgstr "Repeat new password"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Repeat the new password."
+msgstr "Repeat the new password."
+
+#: src/components/approval-card.tsx
+msgid "Requested"
+msgstr "Requested"
+
+#: src/components/status-badge.tsx
+msgid "Revoked"
+msgstr "Revoked"
+
+#: src/components/approval-card.tsx
+#: src/components/task-result.tsx
+msgid "Rule chain evaluation"
+msgstr "Rule chain evaluation"
+
+#: src/components/approval-card.tsx
+msgid "Rule to add to the caller's rule set"
+msgstr "Rule to add to the caller's rule set"
+
+#: src/components/status-badge.tsx
+msgid "Running"
+msgstr "Running"
+
+#: src/components/dialogs.tsx
+msgid "Save"
+msgstr "Save"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Save password"
+msgstr "Save password"
+
+#: src/features/schedules/pages.tsx
+msgid "Schedule"
+msgstr "Schedule"
+
+#: src/app/shell/nav.ts
+#: src/features/schedules/pages.tsx
+msgid "Schedules"
+msgstr "Schedules"
+
+#: src/components/quota-card.tsx
+#: src/features/sessions/pages.tsx
+msgid "Session"
+msgstr "Session"
+
+#: src/features/sessions/sessions-layout.tsx
+msgid "Session list"
+msgstr "Session list"
+
+#: src/app/shell/nav.ts
+#: src/features/sessions/pages.tsx
+msgid "Sessions"
+msgstr "Sessions"
+
+#: src/components/task-form-fields.tsx
+msgid "Shell command"
+msgstr "Shell command"
+
+#: src/components/code-text.tsx
+msgid "Show all"
+msgstr "Show all"
+
+#: src/components/code-text.tsx
+msgid "Show less"
+msgstr "Show less"
+
+#: src/components/code-text.tsx
+msgid "Showing first {maxLines} of {lines} lines"
+msgstr "Showing first {maxLines} of {lines} lines"
+
+#: src/features/auth/login-page.tsx
+msgid "Sign in"
+msgstr "Sign in"
+
+#: src/features/auth/login-page.tsx
+msgid "Sign in to the operations console."
+msgstr "Sign in to the operations console."
+
+#: src/components/authorization-card.tsx
+msgid "Sign on your workstation"
+msgstr "Sign on your workstation"
+
+#: src/components/authorization-card.tsx
+msgid "Sign the payload below with `crha grant` (or your Passkey). The signature is bound to this attempt: if the plan changes, this card shows a new payload."
+msgstr "Sign the payload below with `crha grant` (or your Passkey). The signature is bound to this attempt: if the plan changes, this card shows a new payload."
+
+#. placeholder {0}: passkey.name
+#: src/components/authorization-card.tsx
+msgid "Sign with Passkey “{0}”"
+msgstr "Sign with Passkey “{0}”"
+
+#: src/components/task-result.tsx
+msgid "Signal"
+msgstr "Signal"
+
+#. placeholder {0}: outcome.signal
+#: src/components/task-result.tsx
+msgid "Signal {0}"
+msgstr "Signal {0}"
+
+#: src/components/status-badge.tsx
+msgid "Signed"
+msgstr "Signed"
+
+#: src/app/shell/user-menu.tsx
+msgid "Signed in as {name}"
+msgstr "Signed in as {name}"
+
+#: src/app/shell/user-menu.tsx
+msgid "Signed out."
+msgstr "Signed out."
+
+#. placeholder {0}: passkey.name
+#: src/components/authorization-card.tsx
+msgid "Signed with Passkey \"{0}\"."
+msgstr "Signed with Passkey \"{0}\"."
+
+#: src/components/quota-card.tsx
+msgid "Since"
+msgstr "Since"
+
+#: src/components/error-state.tsx
+msgid "Something went wrong"
+msgstr "Something went wrong"
+
+#: src/components/authorization-card.tsx
+msgid "Spec hash"
+msgstr "Spec hash"
+
+#: src/components/authorization-card.tsx
+msgid "ssh-keygen recipe"
+msgstr "ssh-keygen recipe"
+
+#: src/components/authorization-card.tsx
+#: src/components/task-result.tsx
+msgid "State"
+msgstr "State"
+
+#: src/components/task-result.tsx
+msgid "Status only."
+msgstr "Status only."
+
+#: src/components/task-result.tsx
+msgid "stderr"
+msgstr "stderr"
+
+#: src/components/task-form-fields.tsx
+msgid "Stdin (optional)"
+msgstr "Stdin (optional)"
+
+#: src/components/task-result.tsx
+msgid "stdout"
+msgstr "stdout"
+
+#: src/components/quota-card.tsx
+msgid "Stop"
+msgstr "Stop"
+
+#: src/components/authorization-card.tsx
+msgid "Submit authorization"
+msgstr "Submit authorization"
+
+#: src/components/status-badge.tsx
+msgid "Succeeded"
+msgstr "Succeeded"
+
+#: src/components/task-result.tsx
+msgid "Summary"
+msgstr "Summary"
+
+#: src/app/shell/user-menu.tsx
+msgid "System"
+msgstr "System"
+
+#: src/components/approval-card.tsx
+#: src/components/authorization-card.tsx
+#: src/components/task-result.tsx
+#: src/features/tasks/pages.tsx
+msgid "Task"
+msgstr "Task"
+
+#: src/components/approval-card.tsx
+msgid "task group"
+msgstr "task group"
+
+#: src/components/approval-card.tsx
+#: src/features/tasks/pages.tsx
+msgid "Task group"
+msgstr "Task group"
+
+#: src/app/shell/nav.ts
+#: src/components/authorization-card.tsx
+#: src/features/tasks/pages.tsx
+msgid "Tasks"
+msgstr "Tasks"
+
+#: src/markdown/CodeBlock.tsx
+msgid "text"
+msgstr "text"
+
+#: src/components/quota-card.tsx
+msgid "That number is too large."
+msgstr "That number is too large."
+
+#. placeholder {0}: output.file
+#: src/components/task-result.tsx
+msgid "The full output is in <0>{0}</0> on the node."
+msgstr "The full output is in <0>{0}</0> on the node."
+
+#: src/components/task-result.tsx
+msgid "The full output stays on the node until the task exits."
+msgstr "The full output stays on the node until the task exits."
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "The new passwords do not match."
+msgstr "The new passwords do not match."
+
+#: src/app/router.tsx
+msgid "The page you asked for does not exist."
+msgstr "The page you asked for does not exist."
+
+#: src/components/page-not-built.tsx
+msgid "The shell, the shared components and the data layer are in place; the pages are written in the next step of the WebUI rewrite."
+msgstr "The shell, the shared components and the data layer are in place; the pages are written in the next step of the WebUI rewrite."
+
+#: src/app/shell/user-menu.tsx
+msgid "Theme"
+msgstr "Theme"
+
+#: src/components/page-not-built.tsx
+msgid "This page has not been built yet"
+msgstr "This page has not been built yet"
+
+#: src/components/task-result.tsx
+msgid "Timed out"
+msgstr "Timed out"
+
+#: src/components/task-form-fields.tsx
+msgid "Timeout (s)"
+msgstr "Timeout (s)"
+
+#: src/app/shell/app-shell.tsx
+msgid "Toggle sidebar"
+msgstr "Toggle sidebar"
+
+#: src/components/quota-card.tsx
+msgid "Token quota used up"
+msgstr "Token quota used up"
+
+#: src/components/quota-card.tsx
+msgid "Tokens to add"
+msgstr "Tokens to add"
+
+#: src/components/error-state.tsx
+msgid "Try again"
+msgstr "Try again"
+
+#: src/components/status-badge.tsx
+msgid "Unknown"
+msgstr "Unknown"
+
+#: src/components/quota-card.tsx
+msgid "Unlimited quota · {usedText} used"
+msgstr "Unlimited quota · {usedText} used"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Use at least 8 characters."
+msgstr "Use at least 8 characters."
+
+#: src/features/auth/login-page.tsx
+msgid "Username"
+msgstr "Username"
+
+#: src/app/shell/nav.ts
+#: src/features/users/pages.tsx
+msgid "Users"
+msgstr "Users"
+
+#: src/components/task-result.tsx
+msgid "Waiting for approval. {approvalLink}"
+msgstr "Waiting for approval. {approvalLink}"
+
+#: src/components/task-result.tsx
+msgid "Waiting for the owner's authorization."
+msgstr "Waiting for the owner's authorization."
+
+#: src/components/authorization-card.tsx
+msgid "Waiting for your authorization"
+msgstr "Waiting for your authorization"
+
+#: src/components/task-result.tsx
+msgid "Waiting for your signature."
+msgstr "Waiting for your signature."
+
+#: src/components/approval-card.tsx
+msgid "What"
+msgstr "What"
+
+#: src/app/shell/nav.ts
+msgid "Work"
+msgstr "Work"
+
+#: src/components/task-form-fields.tsx
+msgid "Working directory (optional)"
+msgstr "Working directory (optional)"
+
+#: src/components/approval-card.tsx
+msgid "Yes"
+msgstr "Yes"

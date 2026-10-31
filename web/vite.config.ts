@@ -1,16 +1,22 @@
+import { fileURLToPath } from "node:url";
+import { lingui } from "@lingui/vite-plugin";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite";
 
 const target = "http://127.0.0.1:8080";
 
 export default defineConfig({
-	plugins: [react()],
-	// e2e/*.spec.ts are Playwright tests (`pnpm test:ui`), not vitest ones.
-	test: { include: ["src/**/*.test.ts"] },
+	plugins: [lingui({ macroTransform: true }), react(), tailwindcss()],
+	resolve: {
+		alias: {
+			"@": fileURLToPath(new URL("./src", import.meta.url)),
+		},
+	},
 	server: {
 		proxy: {
 			"/api": target,
-			"/ws": { target, ws: true },
+			"/agent": target,
 		},
 	},
 });
