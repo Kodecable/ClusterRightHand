@@ -88,7 +88,7 @@
 - 配额统一（D92）：任何一级会话都可以设配额或不设，根耗尽时由所有者在审批页处理；计划任务的 `token_budget` 即新会话根上的配额。
 - subagent（前台/后台、打断转后台、`subagent_decide`、工具返回时提示待处理请求）已在 M3 完成。
 
-## M5.5 WebUI 重构（进行中，见 [webui.md](webui.md)）
+## M5.5 WebUI 重构（实现完成，见 [webui.md](webui.md)）
 
 - 前端整体重写：侧边导航、会话侧边列表、流式 Markdown 和代码高亮、shadcn 组件、深浅主题、英文和简体中文（D94、D95）。
 - 后端：列表接口改为游标分页，会话列表 SSE，会话历史分页（D96）。
@@ -138,6 +138,10 @@
   - crhs 关闭顺序（同期修复）：先停接收、关 agent 运行时（工具调用不记录结果，重启后重新挂接），再结束 HTTP/MCP 等待、排空请求和 SSE、关闭节点连接并等后台写入，最后关数据库；第二个信号或 10 秒超时非零退出。
   - 测试：SQLite 单元与 API 测试、真实 crha e2e、WebUI Playwright（含计划任务）全部通过；PostgreSQL 变体未跑。
   - 已知问题：压缩的计量依赖 durable 1.4.0 的内部行为（压缩是 Harness 里唯一调用 `completeSimple` 的地方，provider 会话 id 映射到会话），durable 升级时要复核；压缩任务崩溃后重跑会重复计一次；拒绝根配额后若在暂停的调用观察到之前崩溃，恢复后会再暂停一次，需要再处理。
+- **M5.5**：实现完成，详见 [webui.md](webui.md) 的"实现结果"。
+  - 前端整体重写：Tailwind + shadcn（Base UI）、Lingui（英文 + 简体中文）、TanStack Router / Query、虚拟化的会话列表和消息视图、SafeMarkdown 增量渲染和 Shiki 高亮、深浅主题、窄屏布局。
+  - 后端：列表接口统一游标分页、会话列表 SSE、会话历史分页、子会话列表；会话状态重定义为 idle / running / awaiting 并在启动时对账（D97）。
+  - 未完成：中文翻译人工校对；SSH 向导的端到端测试和 PostgreSQL 测试未在 CI 中运行。
 - **M4**：实现完成（2026-10-30）。细节、阶段和测试矩阵见 [m4.md](m4.md)。
   - native / ignore / reject / forward 四种处理方式；crha 特权模式（信任配置、授权与联署校验、已用列表、吊销、本地批准、本地日志）；crhs 签名、信任缓存、方案预演与 fallback；用户 SSH key（`crha grant`）与 Passkey 签名、授权等待页、复用、任务组一次签名；吊销页；`clock_warn`。
   - 测试：Go/TS 共享测试向量与授权判定用例；单元与集成测试；真实 crha e2e；podman e2e 矩阵 11 项全部通过（`CRH_TEST_PODMAN=1 pnpm --filter @crh/server test:m4`，真实 sudo / doas / sshd / 特权模式进程）。
