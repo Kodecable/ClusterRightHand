@@ -312,6 +312,11 @@ export class AgentRuntime {
 		});
 	}
 
+	/** Whether close() has begun: the Harness refuses every new operation from here on (shutdown, main.ts). */
+	get closing(): boolean {
+		return this.#closing;
+	}
+
 	async close(): Promise<void> {
 		this.#closing = true;
 		await this.#harness.close(this.#context);

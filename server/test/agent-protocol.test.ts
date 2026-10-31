@@ -102,7 +102,7 @@ describe("agent wire protocol", () => {
 	});
 
 	afterEach(async () => {
-		cluster.close();
+		await cluster.close();
 		await agents.close();
 		await db.destroy();
 	});

@@ -154,7 +154,7 @@ describe("Passkey authorization submission", () => {
 	});
 
 	afterEach(async () => {
-		cluster.close();
+		await cluster.close();
 		await agents.close();
 		await db.destroy();
 	});

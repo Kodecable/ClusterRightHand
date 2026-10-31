@@ -34,7 +34,7 @@ import {
 	type Welcome,
 } from "@crh/protocol";
 import type { Selectable, Updateable } from "kysely";
-import type { Audit, AuditActor } from "../audit/audit.ts";
+import type { Audit, AuditActor, AuditInput } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import { type Evaluation, evaluate, operationOf } from "../policy/rules.ts";
 import { loadChain, type RuleRef } from "../policy/store.ts";
@@ -347,6 +347,12 @@ export class Cluster {
 	readonly #trustQueues = new Map<string, Promise<void>>();
 	/** Serializes the shared payload of a task group's waiting tasks. */
 	readonly #groupQueues = new Map<string, Promise<void>>();
+	/** Set when close() begins: no connection is attached and no task starts afterwards. */
+	#closing = false;
+	/** Set by endWaits(): every current and later waitTask returns the current view at once. */
+	#waitsEnded = false;
+	/** Fire-and-forget writes started by the connection and close paths; close() waits for them. */
+	readonly #pending = new Set<Promise<void>>();
 
 	constructor(db: Db, options: ClusterOptions = {}) {
 		this.#db = db;
@@ -396,8 +402,35 @@ export class Cluster {
 		return { id, revokedAt, changed };
 	}
 
+	/** Whether close() has begun; new connections are refused and no task starts afterwards. */
+	get closing(): boolean {
+		return this.#closing;
+	}
+
+	/** Whether endWaits() has run: waitTask no longer sleeps and the catalog wait loops stop. */
+	get waitsEnded(): boolean {
+		return this.#waitsEnded;
+	}
+
+	/**
+	 * Ends every waitTask at once without closing anything: each returns the task's current view, and so does
+	 * every waitTask started afterwards. Shutdown calls it after the agent runtime closes, so a handler holding
+	 * a long wait (an HTTP `wait`, an MCP tool call) returns and its request can finish (main.ts). An agent tool
+	 * call is ended by the Harness through its signal instead: ending its wait would record an outcome for it.
+	 */
+	endWaits(): void {
+		if (this.#waitsEnded) return;
+		this.#waitsEnded = true;
+		for (const waiters of [...this.#waiters.values()]) for (const wake of [...waiters]) wake();
+		this.#waiters.clear();
+	}
+
 	/** Called by AgentServer after a successful handshake. */
 	attach(conn: NodeConnection, node: NodeRow): void {
+		if (this.#closing) {
+			conn.close("server shutting down");
+			return;
+		}
 		const previous = this.#links.get(node.id);
 		const link: NodeLink = {
 			conn,
@@ -422,7 +455,7 @@ export class Cluster {
 			clearTimeout(idle);
 			this.#detach(link);
 		});
-		void markNodeSeen(this.#db, node.id);
+		this.#background("markNodeSeen failed", markNodeSeen(this.#db, node.id));
 		if (link.active) this.#auditConnection(link, "node.connected");
 	}
 
@@ -446,15 +479,86 @@ export class Cluster {
 		link.conn.close(message);
 	}
 
-	close(): void {
-		for (const ac of this.#sshCancels.values()) ac.abort();
-		for (const s of this.#sshSessions.values())
-			s.then(
-				(x) => x.session.close(),
-				() => {},
-			);
-		for (const link of this.#links.values()) link.conn.close("server shutting down");
-		for (const t of this.#graceTimers.values()) clearTimeout(t);
+	/**
+	 * Closes every node link and SSH session and resolves once the work the closes started has been
+	 * written (disconnect audits, last_seen updates, task and task group state). No database write is
+	 * started after it resolves, so the caller may destroy the database afterwards.
+	 */
+	async close(): Promise<void> {
+		if (!this.#closing) {
+			this.#closing = true;
+			for (const ac of this.#sshCancels.values()) ac.abort();
+			for (const s of this.#sshSessions.values())
+				void s
+					.then(
+						(x) => x.session.close(),
+						() => {},
+					)
+					.catch((err: unknown) => console.error("ssh session close failed:", err));
+			for (const link of this.#links.values()) link.conn.close("server shutting down");
+			for (const t of this.#graceTimers.values()) clearTimeout(t);
+			this.#graceTimers.clear();
+			// Let waitTask callers (task groups, tools) return instead of holding a timer for an hour.
+			this.endWaits();
+		}
+		await this.#drain();
+		await this.#audit?.flush();
+	}
+
+	/** Waits until the pending background writes and the per-task serial queues have settled. */
+	async #drain(): Promise<void> {
+		for (;;) {
+			const pending = [
+				...this.#pending,
+				...this.#queues.values(),
+				...this.#trustQueues.values(),
+				...this.#groupQueues.values(),
+			];
+			if (pending.length === 0) return;
+			await Promise.all(pending);
+			if (
+				this.#pending.size === 0 &&
+				this.#queues.size === 0 &&
+				this.#trustQueues.size === 0 &&
+				this.#groupQueues.size === 0
+			)
+				return;
+		}
+	}
+
+	/**
+	 * Tracks a fire-and-forget write: a failure is logged instead of becoming an unhandled rejection,
+	 * and close() waits for the write before the database is destroyed.
+	 */
+	#background(what: string, work: Promise<unknown>): void {
+		const tracked: Promise<void> = work
+			.catch((err: unknown) => console.error(`${what}:`, err))
+			.then(() => {
+				this.#pending.delete(tracked);
+			});
+		this.#pending.add(tracked);
+	}
+
+	/** Fire-and-forget audit write that close() waits for. */
+	#auditLater(input: AuditInput): void {
+		if (this.#audit) this.#background(`audit: failed to record ${input.action}`, this.#audit.record(input));
+	}
+
+	/**
+	 * Tracks an in-flight protocol handler so close() waits for its writes, but returns the handler's own
+	 * promise: the peer still handles its errors exactly as before.
+	 */
+	#trackHandler<T>(work: Promise<T>): Promise<T> {
+		const tracked: Promise<void> = work.then(
+			() => {
+				this.#pending.delete(tracked);
+			},
+			() => {
+				this.#pending.delete(tracked);
+			},
+		);
+		this.#pending.add(tracked);
+		return work;
 	}
 
 	#detach(link: NodeLink): void {
@@ -463,18 +567,18 @@ export class Cluster {
 		this.#links.delete(nodeId);
 		if (!link.active) return;
 		this.#auditConnection(link, "node.disconnected");
-		void markNodeSeen(this.#db, nodeId);
+		this.#background("markNodeSeen failed", markNodeSeen(this.#db, nodeId));
 		this.#graceTimers.set(
 			nodeId,
 			setTimeout(() => {
 				this.#graceTimers.delete(nodeId);
-				void this.#expireNode(nodeId);
+				this.#background("node expiry failed", this.#expireNode(nodeId));
 			}, this.#graceMs),
 		);
 	}
 
 	#auditConnection(link: NodeLink, action: "node.connected" | "node.disconnected"): void {
-		void this.#audit?.record({
+		this.#auditLater({
 			actor: { type: "system", id: "cluster", onBehalfOfUserId: link.ownerUserId },
 			action,
 			target: { type: "node", id: link.conn.nodeId },
@@ -501,7 +605,7 @@ export class Cluster {
 	/** An active node: the full command and event set of doc/protocol.md. */
 	#registerActive(conn: NodeConnection, link: NodeLink): void {
 		const peer = conn.peer;
-		peer.onRequest("hello", (hello: Hello) => this.#onHello(link, hello));
+		peer.onRequest("hello", (hello: Hello) => this.#trackHandler(this.#onHello(link, hello)));
 		peer.onRequest("ping", (ping) => ping);
 		peer.onEvent("task.output", (output) => {
 			const live = this.#ownLive(conn.nodeId, output.taskId);
@@ -509,11 +613,11 @@ export class Cluster {
 			// A gap means the client could not resend; keep going, the record shows the byte counts.
 			live.output.append(output.stream, output.offset, output.data);
 		});
-		peer.onEvent("task.exit", (exit) => this.#serial(exit.taskId, () => this.#onExit(conn, exit)));
-		peer.onEvent("facts", (facts) => this.#onFacts(conn.nodeId, facts));
+		peer.onEvent("task.exit", (exit) => this.#trackHandler(this.#serial(exit.taskId, () => this.#onExit(conn, exit))));
+		peer.onEvent("facts", (facts) => this.#trackHandler(this.#onFacts(conn.nodeId, facts)));
 		// Pushed once after hello and again on every change (doc/protocol.md#新增命令和事件11可选).
-		peer.onEvent("trust.summary", (report) => this.#onTrustSummary(link, report));
-		peer.onEvent("local.decision", (decision) => this.#onLocalDecision(link, decision));
+		peer.onEvent("trust.summary", (report) => this.#trackHandler(this.#onTrustSummary(link, report)));
+		peer.onEvent("local.decision", (decision) => this.#trackHandler(this.#onLocalDecision(link, decision)));
 	}
 
 	/**
@@ -524,7 +628,7 @@ export class Cluster {
 		const peer = conn.peer;
 		peer.onRequest("hello", () => afterResponse<Welcome>({ acks: [] }, () => {}));
 		peer.onRequest("ping", (ping) => ping);
-		peer.onEvent("facts", (facts) => this.#onFacts(conn.nodeId, facts));
+		peer.onEvent("facts", (facts) => this.#trackHandler(this.#onFacts(conn.nodeId, facts)));
 		const pending = () => {
 			throw new RemoteError("node_pending", "node is pending approval");
 		};
@@ -587,9 +691,11 @@ export class Cluster {
 			() => {},
 		);
 		this.#trustQueues.set(nodeId, tail);
-		void tail.then(() => {
-			if (this.#trustQueues.get(nodeId) === tail) this.#trustQueues.delete(nodeId);
-		});
+		void tail
+			.then(() => {
+				if (this.#trustQueues.get(nodeId) === tail) this.#trustQueues.delete(nodeId);
+			})
+			.catch((err: unknown) => console.error("trust queue cleanup failed:", err));
 		return next;
 	}
 
@@ -735,7 +841,10 @@ export class Cluster {
 				link.queried.add(id);
 				link.conn.peer.request("task.query", { taskId: id }).then(
 					(status) => {
-						void this.#serial(id, () => this.#onStatus(link, status));
+						this.#background(
+							"task.query status failed",
+							this.#serial(id, () => this.#onStatus(link, status)),
+						);
 					},
 					(err: unknown) => {
 						if (err instanceof ConnectionError) return;
@@ -833,6 +942,7 @@ export class Cluster {
 	 * dispatched. A node that is not connected at dispatch fails it at once with node_offline.
 	 */
 	async createTask(input: CreateTaskInput): Promise<TaskView> {
+		if (this.#closing) throw new Error("the server is shutting down");
 		const node = await getNode(this.#db, input.nodeId);
 		if (!node) throw new Error(`no such node: ${input.nodeId}`);
 		const kind = input.spec.kind;
@@ -907,7 +1017,7 @@ export class Cluster {
 				handler_session_id: null,
 			})
 			.execute();
-		void this.#audit?.record({
+		this.#auditLater({
 			actor: auditActor(input.actor),
 			action: "task.created",
 			target: { type: "task", id },
@@ -964,7 +1074,7 @@ export class Cluster {
 				.executeTakeFirst();
 			if (res.numUpdatedRows === 0n) return;
 			this.#notify(id);
-			void this.#syncGroupState(row?.task_group_id ?? null);
+			this.#background("task group state update failed", this.#syncGroupState(row?.task_group_id ?? null));
 			return this.#auditFinish(id);
 		}
 		// A privileged task on a forward node needs an authorization before task.start (doc/privilege.md#授权路径).
@@ -989,18 +1099,21 @@ export class Cluster {
 		this.#notify(id);
 		if (ssh) {
 			this.#newLive(id, node.id, row?.output_mode ?? "full", row?.task_group_id ?? null);
-			void this.#runSsh(
-				id,
-				node,
-				spec,
-				inputBytes.length > 0 ? inputBytes : undefined,
-				opts.timeoutMs,
-				opts.privileged === true,
+			this.#background(
+				"ssh task failed",
+				this.#runSsh(
+					id,
+					node,
+					spec,
+					inputBytes.length > 0 ? inputBytes : undefined,
+					opts.timeoutMs,
+					opts.privileged === true,
+				),
 			);
 		} else if (link) {
 			this.#newLive(id, node.id, row?.output_mode ?? "full", row?.task_group_id ?? null);
 			// The start may be refused or the link may drop; the state machine follows the response.
-			void this.#dispatchRemote(link, id, spec, inputBytes, opts);
+			this.#background("task dispatch failed", this.#dispatchRemote(link, id, spec, inputBytes, opts));
 		}
 	}
 
@@ -1143,7 +1256,7 @@ export class Cluster {
 			handler_session_id: null,
 		});
 		if (!parked) return;
-		void this.#syncGroupState(row.task_group_id);
+		this.#background("task group state update failed", this.#syncGroupState(row.task_group_id));
 		this.onChange?.(row.actor_id);
 		if (row.task_group_id !== null) {
 			// Every waiting task of the group signs one payload covering all of them (D88).
@@ -1220,7 +1333,7 @@ export class Cluster {
 		});
 		if (!claimed) return;
 		this.#newLive(id, node.id, row.output_mode, row.task_group_id);
-		void this.#syncGroupState(row.task_group_id);
+		this.#background("task group state update failed", this.#syncGroupState(row.task_group_id));
 		const start: TaskStart = {
 			taskId: id,
 			attempt,
@@ -1379,9 +1492,11 @@ export class Cluster {
 			() => {},
 		);
 		this.#groupQueues.set(groupId, tail);
-		void tail.then(() => {
-			if (this.#groupQueues.get(groupId) === tail) this.#groupQueues.delete(groupId);
-		});
+		void tail
+			.then(() => {
+				if (this.#groupQueues.get(groupId) === tail) this.#groupQueues.delete(groupId);
+			})
+			.catch((err: unknown) => console.error("task group queue cleanup failed:", err));
 		return next;
 	}
 
@@ -1577,9 +1692,9 @@ export class Cluster {
 		});
 		if (!claimed) return null;
 		this.#newLive(row.id, node.id, row.output_mode, row.task_group_id);
-		void this.#syncGroupState(row.task_group_id);
+		this.#background("task group state update failed", this.#syncGroupState(row.task_group_id));
 		if (cosigned) {
-			void this.#audit?.record({
+			this.#auditLater({
 				actor: { type: "system", id: "cluster", onBehalfOfUserId: row.on_behalf_of_user_id },
 				action: "authorization.cosigned",
 				target: { type: "authorization", id: submitted.id },
@@ -1656,7 +1771,7 @@ export class Cluster {
 			throw new UserError("the authorization was issued in the future");
 		}
 		const stored = await this.#insertOwnerAuthorization(user, submitted);
-		void this.#audit?.record({
+		this.#auditLater({
 			actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
 			action: "authorization.submitted",
 			target: { type: "authorization", id: submitted.id },
@@ -1857,7 +1972,7 @@ export class Cluster {
 		}
 		if (await this.#storeAuthorization(node, authorization, signatures)) {
 			// crhs-signed authorizations are audited like user ones (doc/access-control.md#记录内容).
-			void this.#audit?.record({
+			this.#auditLater({
 				actor: { type: "system", id: "cluster", onBehalfOfUserId: row.on_behalf_of_user_id },
 				action: "authorization.issued",
 				target: { type: "authorization", id: authorization.id },
@@ -1891,7 +2006,7 @@ export class Cluster {
 		});
 		if (!claimed) return;
 		this.#newLive(id, node.id, row.output_mode, row.task_group_id);
-		void this.#syncGroupState(row.task_group_id);
+		this.#background("task group state update failed", this.#syncGroupState(row.task_group_id));
 		const start: TaskStart = {
 			taskId: id,
 			attempt: row.attempt,
@@ -1999,7 +2114,7 @@ export class Cluster {
 		if (res.numUpdatedRows === 0n) return;
 		this.#dropLive(id);
 		this.#notify(id);
-		void this.#syncGroupState(row.task_group_id);
+		this.#background("task group state update failed", this.#syncGroupState(row.task_group_id));
 		const node = await getNode(this.#db, row.node_id);
 		const current = this.#links.get(row.node_id);
 		if (!node || !current || current.conn.closed || !current.ready) return;
@@ -2037,7 +2152,7 @@ export class Cluster {
 		if (res.numUpdatedRows === 0n) return;
 		this.#dropLive(id);
 		this.#notify(id);
-		void this.#syncGroupState(row.task_group_id);
+		this.#background("task group state update failed", this.#syncGroupState(row.task_group_id));
 		this.onChange?.(row.actor_id);
 		await this.#auditFinish(id);
 	}
@@ -2189,7 +2304,7 @@ export class Cluster {
 					.execute();
 				const node = await getNode(this.#db, row.node_id);
 				const input = row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0);
-				void this.#auditApproval(row, decision);
+				this.#background("task approval audit failed", this.#auditApproval(row, decision));
 				if (node) {
 					await this.#dispatch(id, node, spec, input, {
 						privileged: row.privileged === 1,
@@ -2216,7 +2331,7 @@ export class Cluster {
 				.executeTakeFirst();
 			if (res.numUpdatedRows === 0n) return false;
 			this.onChange?.(row.actor_id);
-			void this.#auditApproval(row, decision);
+			this.#background("task approval audit failed", this.#auditApproval(row, decision));
 			this.#notify(id);
 			return true;
 		});
@@ -2233,7 +2348,7 @@ export class Cluster {
 				.set({ approval: JSON.stringify(record) })
 				.where("id", "=", id)
 				.execute();
-			void this.#audit?.record({
+			this.#auditLater({
 				actor: { type: "system", id: "auto-review", onBehalfOfUserId: row.on_behalf_of_user_id },
 				action: "task.review",
 				target: { type: "task", id },
@@ -2264,7 +2379,7 @@ export class Cluster {
 				.where("id", "=", id)
 				.execute();
 			this.onChange?.(row.actor_id);
-			void this.#audit?.record({
+			this.#auditLater({
 				actor: { type: "system", id: "agent-routing" },
 				action: "task.agent_request",
 				target: { type: "task", id },
@@ -2293,7 +2408,7 @@ export class Cluster {
 				.where("id", "=", id)
 				.execute();
 			this.onChange?.(row.actor_id);
-			void this.#audit?.record({
+			this.#auditLater({
 				actor: { type: "system", id: "agent-routing" },
 				action: "task.agent_escalated",
 				target: { type: "task", id },
@@ -2360,12 +2475,19 @@ export class Cluster {
 		return row ? toView(row, this.#live.get(id)) : undefined;
 	}
 
-	/** Waits until the task is in a final state, or until timeoutMs passes; returns its current view. */
+	/**
+	 * Waits until the task is in a final state, the timeout passes or endWaits() ends the waits; returns its
+	 * current view (never undefined for an existing task). A wait ended by shutdown returns at once, so a
+	 * handler holding it does not hold the drain; close() runs before the database is destroyed, so that
+	 * read is safe.
+	 */
 	async waitTask(id: string, timeoutMs: number, signal?: AbortSignal): Promise<TaskView | undefined> {
 		const deadline = Date.now() + timeoutMs;
 		for (;;) {
 			const view = await this.getTask(id);
-			if (!view || TERMINAL.has(view.state) || Date.now() >= deadline || signal?.aborted) return view;
+			if (!view || TERMINAL.has(view.state) || this.#waitsEnded || Date.now() >= deadline || signal?.aborted) {
+				return view;
+			}
 			await new Promise<void>((resolve) => {
 				const waiters = this.#waiters.get(id) ?? new Set();
 				this.#waiters.set(id, waiters);
@@ -2409,7 +2531,7 @@ export class Cluster {
 			if (res.numUpdatedRows === 0n) return false;
 			this.#withdrawLocal(this.#links.get(row.node_id), id, parseTaskAuthorization(row.authorization));
 			this.#notify(id);
-			void this.#syncGroupState(row.task_group_id);
+			this.#background("task group state update failed", this.#syncGroupState(row.task_group_id));
 			this.onChange?.(row.actor_id);
 			await this.#auditFinish(id);
 			return true;
@@ -2491,7 +2613,10 @@ export class Cluster {
 			stderr: (d: Uint8Array) => void live.output.append("stderr", live.output.end("stderr"), d),
 			started: () => {
 				isStarted = true;
-				void this.#serial(id, () => this.#onAccepted(node.id, id));
+				this.#background(
+					"task acceptance failed",
+					this.#serial(id, () => this.#onAccepted(node.id, id)),
+				);
 			},
 		};
 		const ac = new AbortController();
@@ -2517,7 +2642,7 @@ export class Cluster {
 				}
 			}
 			// For SSH nodes "last seen" is the last task that reached the node.
-			void markNodeSeen(this.#db, node.id);
+			this.#background("markNodeSeen failed", markNodeSeen(this.#db, node.id));
 			await this.#serial(id, () => this.#finish(node.id, id, { ...fields, ...outputFields() }));
 		} catch (err) {
 			// Once the remote side started, the outcome is unknown; before that, nothing ran.
@@ -2651,7 +2776,7 @@ export class Cluster {
 		const outputHash = createHash("sha256")
 			.update(`${row.stdout_head ?? ""}\n${row.stdout_tail ?? ""}\n${row.stderr_head ?? ""}\n${row.stderr_tail ?? ""}`)
 			.digest("hex");
-		void this.#audit.record({
+		this.#auditLater({
 			actor: { type: "system", id: "cluster", onBehalfOfUserId: row.on_behalf_of_user_id },
 			action: "task.finished",
 			target: { type: "task", id },
@@ -2673,7 +2798,7 @@ export class Cluster {
 	}
 
 	async #auditApproval(row: Selectable<TasksTable>, d: ApprovalDecision): Promise<void> {
-		void this.#audit?.record({
+		this.#auditLater({
 			actor: { type: d.by.type, id: d.by.id, onBehalfOfUserId: d.by.onBehalfOfUserId ?? row.on_behalf_of_user_id },
 			action: "task.approval",
 			target: { type: "task", id: row.id },
@@ -2697,9 +2822,11 @@ export class Cluster {
 			() => {},
 		);
 		this.#queues.set(taskId, tail);
-		void tail.then(() => {
-			if (this.#queues.get(taskId) === tail) this.#queues.delete(taskId);
-		});
+		void tail
+			.then(() => {
+				if (this.#queues.get(taskId) === tail) this.#queues.delete(taskId);
+			})
+			.catch((err: unknown) => console.error("task queue cleanup failed:", err));
 		return next;
 	}
 }

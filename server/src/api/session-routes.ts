@@ -1,4 +1,4 @@
-import { type Context, Hono } from "hono";
+import { type Context, Hono, type Next } from "hono";
 import { streamSSE } from "hono/streaming";
 import {
 	builtinProviderIds,
@@ -30,6 +30,7 @@ import { parsePreset } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
+import type { RequestDrain } from "./drain.ts";
 
 export interface SessionRoutesOptions {
 	runtime: AgentRuntime;
@@ -37,9 +38,25 @@ export interface SessionRoutesOptions {
 	masterKey: MasterKey;
 	cluster: Cluster;
 	groups: TaskGroups;
+	/** Shutdown bookkeeping: its abort ends the event streams, and each stream keeps shutdown waiting. */
+	drain?: RequestDrain;
 }
 
 const THINKING = ["off", "minimal", "low", "medium", "high", "max"];
+
+/** `stream.sleep`, but wakes up when the stream ends, so shutdown need not wait out a ping interval. */
+function sleepFor(ms: number, signal: AbortSignal): Promise<void> {
+	return new Promise((resolve) => {
+		if (signal.aborted) return resolve();
+		const timer = setTimeout(done, ms);
+		function done() {
+			clearTimeout(timer);
+			signal.removeEventListener("abort", done);
+			resolve();
+		}
+		signal.addEventListener("abort", done, { once: true });
+	});
+}
 
 function parseModel(raw: unknown): ModelRef {
 	const o = raw as Record<string, unknown> | null;
@@ -60,24 +77,49 @@ function parseModel(raw: unknown): ModelRef {
 export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	type LiveStream = { user: SessionUser; sessionId: string; abort: () => void };
 	const streams = new Set<LiveStream>();
+	const drain = options.drain;
+	/** Ends a stream the way a client disconnect does: its abort controller fires and the loop below runs out. */
+	const endStream = (stream: LiveStream) => {
+		streams.delete(stream);
+		stream.abort();
+	};
 	/** A share change can remove access to a session or to a root whose subagents are being watched. */
 	const revalidateStreams = async () => {
 		for (const stream of [...streams]) {
 			if (await sessionCapabilities(db, stream.user, stream.sessionId)) continue;
-			streams.delete(stream);
-			stream.abort();
+			endStream(stream);
 		}
 	};
+	// Shutdown ends every stream, so no request outlives the database it may still need.
+	drain?.shutdown.signal.addEventListener(
+		"abort",
+		() => {
+			for (const stream of [...streams]) endStream(stream);
+		},
+		{ once: true },
+	);
 	const { runtime, models } = options;
 	const app = new Hono<AppEnv>();
 
 	app.onError((err, c) => {
+		// Shutdown closes the runtime under requests that were already in flight (main.ts): answer with the
+		// shutdown, not the closed Harness's exception.
+		if (runtime.closing) return jsonError(c, 503, "server is shutting down");
 		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
 		if (err instanceof UserError) return jsonError(c, 400, err.message);
 		throw err;
 	});
 
 	const admin = (c: Context<AppEnv>) => c.get("user").kind === "admin";
+
+	// Shutdown closes the runtime before the drain is idle (main.ts): a session request still in flight must
+	// fail with a normal error instead of reaching the closed Harness.
+	const refuseWhenClosing = async (c: Context<AppEnv>, next: Next) => {
+		if (runtime.closing) return jsonError(c, 503, "server is shutting down");
+		await next();
+	};
+	app.use("/sessions", refuseWhenClosing);
+	app.use("/sessions/*", refuseWhenClosing);
 
 	// ---- models ----
 
@@ -336,26 +378,35 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		return streamSSE(c, async (stream) => {
 			const abort = new AbortController();
 			const live: LiveStream = { user: c.get("user"), sessionId: v.session.id, abort: () => stream.abort() };
-			streams.add(live);
 			stream.onAbort(() => {
 				streams.delete(live);
 				abort.abort();
 			});
-			let queue = Promise.resolve();
-			const stop = await runtime.watch(
-				v.session.id,
-				(events) => {
-					queue = queue.then(() => stream.writeSSE({ event: "events", data: JSON.stringify(events) }));
-					return queue;
-				},
-				abort.signal,
-			);
-			// Keep the stream (and proxies) alive while the session is quiet.
-			while (!abort.signal.aborted) {
-				await stream.sleep(15_000);
-				if (!abort.signal.aborted) await stream.writeSSE({ event: "ping", data: "" });
+			streams.add(live);
+			// The stream outlives its response, so it keeps shutdown waiting until this callback returns.
+			const release = drain?.hold();
+			try {
+				// Shutdown may have begun between authentication and the stream opening: end it now.
+				if (drain?.shutdown.signal.aborted) stream.abort();
+				if (abort.signal.aborted) return;
+				let queue = Promise.resolve();
+				const stop = await runtime.watch(
+					v.session.id,
+					(events) => {
+						queue = queue.then(() => stream.writeSSE({ event: "events", data: JSON.stringify(events) }));
+						return queue;
+					},
+					abort.signal,
+				);
+				// Keep the stream (and proxies) alive while the session is quiet.
+				while (!abort.signal.aborted) {
+					await sleepFor(15_000, abort.signal);
+					if (!abort.signal.aborted) await stream.writeSSE({ event: "ping", data: "" });
+				}
+				await stop();
+			} finally {
+				release?.();
 			}
-			await stop();
 		});
 	});
 

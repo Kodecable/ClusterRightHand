@@ -24,6 +24,7 @@ import { openTestDb } from "../helpers/db.ts";
 
 const execFileAsync = promisify(execFile);
 export const CLIENT_DIR = resolve(import.meta.dirname, "../../../client");
+export const CRHS_MAIN = resolve(import.meta.dirname, "../../src/main.ts");
 
 export async function goAvailable(): Promise<boolean> {
 	try {
@@ -38,6 +39,49 @@ export async function buildCrha(outDir: string): Promise<string> {
 	const bin = join(outDir, "crha");
 	await execFileAsync("go", ["build", "-o", bin, "./cmd/crha"], { cwd: CLIENT_DIR });
 	return bin;
+}
+
+/** crhs as a real child process, on a fixed port and database, so it can be signalled and started again. */
+export class CrhsProcess {
+	child?: ChildProcess;
+	/** Everything the process wrote to stdout and stderr. */
+	log = "";
+	readonly config: string;
+
+	constructor(config: string) {
+		this.config = config;
+	}
+
+	start(): void {
+		const child = spawn(process.execPath, [CRHS_MAIN, "-c", this.config, "serve"], {
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		child.stdout?.on("data", (d) => {
+			this.log += d;
+		});
+		child.stderr?.on("data", (d) => {
+			this.log += d;
+		});
+		this.child = child;
+	}
+
+	/** Sends a signal and resolves with how the process ended. */
+	async stop(signal: NodeJS.Signals = "SIGTERM"): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+		const child = this.child;
+		this.child = undefined;
+		if (!child || child.exitCode !== null || child.signalCode !== null) {
+			return { code: child?.exitCode ?? null, signal: (child?.signalCode as NodeJS.Signals | null) ?? null };
+		}
+		const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
+			child.once("exit", (code, sig) => resolve({ code, signal: sig })),
+		);
+		child.kill(signal);
+		return exited;
+	}
+
+	async kill(): Promise<void> {
+		await this.stop("SIGKILL");
+	}
 }
 
 export async function waitFor<T>(
@@ -101,6 +145,7 @@ export class InProcessCrhs {
 	authorizationKey!: AuthorizationSigningKey;
 	cluster!: Cluster;
 	audit!: Audit;
+	taskGroups!: TaskGroups;
 	port = 0;
 	cookie = "";
 	#agents!: AgentServer;
@@ -154,6 +199,7 @@ export class InProcessCrhs {
 		});
 		this.#agents = new AgentServer(this.db, this.identity, this.cluster, this.audit);
 		const taskGroups = new TaskGroups(this.db, this.cluster, { audit: this.audit });
+		this.taskGroups = taskGroups;
 		let agent: AppOptions["agent"];
 		if (this.agentDir) {
 			this.models = new ModelConfig(this.db, this.masterKey);
@@ -199,8 +245,9 @@ export class InProcessCrhs {
 		this.#server = undefined;
 		await this.runtime?.close();
 		this.runtime = undefined;
-		this.cluster.close();
-		this.#agents.close();
+		await this.cluster.close();
+		await this.taskGroups.close();
+		await this.#agents.close();
 		if (server) {
 			// biome-ignore lint/suspicious/noExplicitAny: closeAllConnections exists on http.Server
 			(server as any).closeAllConnections?.();

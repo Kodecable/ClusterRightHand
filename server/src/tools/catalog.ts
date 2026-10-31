@@ -46,11 +46,12 @@ const HOUR = 3_600_000;
 
 async function waitTaskFor(ctx: ToolContext, id: string, waitMs: number): Promise<TaskView | undefined> {
 	if (!ctx.waitThroughApproval) return ctx.cluster.waitTask(id, waitMs, ctx.signal);
-	// A waiting task is not final, so waitTask would sit through the whole wait: look first.
+	// A waiting task is not final, so waitTask would sit through the whole wait: look first. Shutdown ends
+	// the waits, and then these loops must stop rather than re-enter waitTask on the same state.
 	let t = await ctx.cluster.getTask(id);
 	if (t?.state === "awaiting_approval") {
 		await ctx.onStatus?.({ task_id: id, state: "awaiting_approval", approval_url: ctx.approvalUrl("task", id) });
-		while (t?.state === "awaiting_approval" && !ctx.signal?.aborted) {
+		while (t?.state === "awaiting_approval" && !ctx.signal?.aborted && !ctx.cluster.waitsEnded) {
 			await new Promise((r) => setTimeout(r, 1000));
 			t = await ctx.cluster.getTask(id);
 		}
@@ -63,7 +64,7 @@ async function waitTaskFor(ctx: ToolContext, id: string, waitMs: number): Promis
 			state: "awaiting_authorization",
 			authorization_url: ctx.taskUrl?.(id) ?? `#/tasks/${id}`,
 		});
-		while (t?.state === "awaiting_authorization" && !ctx.signal?.aborted) {
+		while (t?.state === "awaiting_authorization" && !ctx.signal?.aborted && !ctx.cluster.waitsEnded) {
 			await new Promise((r) => setTimeout(r, 1000));
 			t = await ctx.cluster.getTask(id);
 		}
@@ -81,8 +82,8 @@ async function waitGroupFor(ctx: ToolContext, id: string, waitMs: number): Promi
 			state: "awaiting_approval",
 			approval_url: ctx.approvalUrl("task_group", id),
 		});
-		while (g.state === "awaiting_approval" && !ctx.signal?.aborted)
-			g = (await ctx.groups.wait(id, HOUR)) as TaskGroupView;
+		while (g.state === "awaiting_approval" && !ctx.signal?.aborted && !ctx.groups.waitsEnded)
+			g = (await ctx.groups.wait(id, HOUR, ctx.signal)) as TaskGroupView;
 		await ctx.onStatus?.({ task_group_id: id, state: g.state });
 	}
 	if (g.state === "awaiting_authorization") {
@@ -91,11 +92,11 @@ async function waitGroupFor(ctx: ToolContext, id: string, waitMs: number): Promi
 			state: "awaiting_authorization",
 			authorization_url: ctx.groupUrl?.(id) ?? `#/task-groups/${id}`,
 		});
-		while (g.state === "awaiting_authorization" && !ctx.signal?.aborted)
-			g = (await ctx.groups.wait(id, HOUR)) as TaskGroupView;
+		while (g.state === "awaiting_authorization" && !ctx.signal?.aborted && !ctx.groups.waitsEnded)
+			g = (await ctx.groups.wait(id, HOUR, ctx.signal)) as TaskGroupView;
 		await ctx.onStatus?.({ task_group_id: id, state: g.state });
 	}
-	return ctx.signal?.aborted ? g : ((await ctx.groups.wait(id, waitMs)) as TaskGroupView);
+	return ctx.signal?.aborted ? g : ((await ctx.groups.wait(id, waitMs, ctx.signal)) as TaskGroupView);
 }
 
 export interface ClusterTool<S extends z.ZodType = z.ZodType> {

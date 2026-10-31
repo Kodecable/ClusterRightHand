@@ -76,7 +76,7 @@ describe("privileged forward dispatch", () => {
 	});
 
 	afterEach(async () => {
-		cluster.close();
+		await cluster.close();
 		await agents.close();
 		await db.destroy();
 	});

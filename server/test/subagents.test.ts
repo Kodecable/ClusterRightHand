@@ -75,7 +75,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
 	await runtime.close();
-	cluster.close();
+	await cluster.close();
 	await db.destroy();
 });
 

@@ -59,7 +59,7 @@ describe("task routes: privileged (sqlite)", () => {
 			.execute();
 	});
 	afterAll(async () => {
-		cluster.close();
+		await cluster.close();
 		await db.destroy();
 	});
 

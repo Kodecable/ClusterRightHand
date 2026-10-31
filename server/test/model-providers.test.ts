@@ -72,7 +72,7 @@ describeBackends("model providers api", (backend) => {
 	});
 	afterAll(async () => {
 		await runtime.close();
-		cluster.close();
+		await cluster.close();
 		await db.destroy();
 	});
 

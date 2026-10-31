@@ -109,7 +109,7 @@ export class TestAgentServer {
 	}
 
 	async close(): Promise<void> {
-		this.#agents.close();
+		await this.#agents.close();
 		await new Promise<void>((resolve) => this.#server.close(() => resolve()));
 	}
 

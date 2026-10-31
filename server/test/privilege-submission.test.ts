@@ -92,7 +92,7 @@ describe("user authorizations", () => {
 	});
 
 	afterEach(async () => {
-		cluster.close();
+		await cluster.close();
 		await agents.close();
 		await db.destroy();
 	});

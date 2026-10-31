@@ -147,11 +147,14 @@ export async function enrollNode(
 		await trx.updateTable("enrollment_tokens").set({ used_by_node_id: node.id }).where("id", "=", token.id).execute();
 		return node;
 	});
-	void input.audit?.record({
-		actor: { type: "system", id: "enrollment", onBehalfOfUserId: enrolled.owner_user_id },
-		action: "node.enrollment_requested",
-		target: { type: "node", id: enrolled.id },
-		detail: { name: enrolled.name, hostname: input.hostname, client_version: input.clientVersion },
-	});
+	if (input.audit)
+		void input.audit
+			.record({
+				actor: { type: "system", id: "enrollment", onBehalfOfUserId: enrolled.owner_user_id },
+				action: "node.enrollment_requested",
+				target: { type: "node", id: enrolled.id },
+				detail: { name: enrolled.name, hostname: input.hostname, client_version: input.clientVersion },
+			})
+			.catch((err: unknown) => console.error("audit: failed to record node.enrollment_requested:", err));
 	return enrolled;
 }

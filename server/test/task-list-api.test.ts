@@ -130,7 +130,7 @@ describe("task list api (sqlite)", () => {
 		});
 	});
 	afterAll(async () => {
-		cluster.close();
+		await cluster.close();
 		await db.destroy();
 	});
 

@@ -15,6 +15,7 @@ import { type AuthRoutesOptions, authRoutes } from "./auth-routes.ts";
 import { authorizationRoutes } from "./authorization-routes.ts";
 import type { AppEnv } from "./context.ts";
 import { credentialRoutes } from "./credential-routes.ts";
+import { RequestDrain } from "./drain.ts";
 import { csrfGuard, requireUser } from "./middleware.ts";
 import { nodeRoutes } from "./node-routes.ts";
 import { policyRoutes } from "./policy-routes.ts";
@@ -45,11 +46,18 @@ export interface AppOptions extends AuthRoutesOptions {
 	audit?: Audit;
 	/** The agent runtime and its models; without them there are no sessions. */
 	agent?: { runtime: AgentRuntime; models: ModelConfig };
+	/** Request tracking for shutdown; `main.ts` begins it when a signal arrives (a private one is made when omitted). */
+	drain?: RequestDrain;
 }
 
 export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	const app = new Hono<AppEnv>();
 	const audit = options.audit ?? new Audit(db);
+	const drain = options.drain ?? new RequestDrain();
+
+	// First, so that a request arriving during shutdown is refused before it can authenticate or query the
+	// database; requests already being handled are counted until they settle.
+	app.use("*", drain.middleware());
 
 	app.use("/api/*", csrfGuard);
 	app.use("/api/*", async (c, next) => {
@@ -87,7 +95,13 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 		if (options.agent && options.masterKey) {
 			app.route(
 				"/api",
-				sessionRoutes(db, { ...options.agent, masterKey: options.masterKey, cluster: options.cluster, groups }),
+				sessionRoutes(db, {
+					...options.agent,
+					masterKey: options.masterKey,
+					cluster: options.cluster,
+					groups,
+					drain,
+				}),
 			);
 		}
 		// Bearer-token authenticated, outside /api's cookie sessions and CSRF guard.

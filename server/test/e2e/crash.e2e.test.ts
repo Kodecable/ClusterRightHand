@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildCrha, goAvailable, runCrha, waitFor } from "./harness.ts";
+import { buildCrha, CrhsProcess, goAvailable, runCrha, waitFor } from "./harness.ts";
 
 const execFileAsync = promisify(execFile);
 const hasGo = await goAvailable();
@@ -63,35 +63,6 @@ function fakeModel(steps: ((body: { messages: { role: string; content: unknown }
 		});
 	});
 	return { server, requests, streaming, steps };
-}
-
-/** crhs as a real child process, on a fixed port and database, so it can be killed with SIGKILL and started again. */
-class CrhsProcess {
-	child?: ChildProcess;
-	log = "";
-	readonly config: string;
-	constructor(config: string) {
-		this.config = config;
-	}
-
-	start(): void {
-		const child = spawn(process.execPath, [MAIN, "-c", this.config, "serve"], { stdio: ["ignore", "pipe", "pipe"] });
-		child.stdout?.on("data", (d) => {
-			this.log += d;
-		});
-		child.stderr?.on("data", (d) => {
-			this.log += d;
-		});
-		this.child = child;
-	}
-
-	async kill(): Promise<void> {
-		const child = this.child;
-		if (!child || child.exitCode !== null) return;
-		const exited = new Promise((r) => child.once("exit", r));
-		child.kill("SIGKILL");
-		await exited;
-	}
 }
 
 // doc/agent-runtime.md#故障注入: crhs is killed (SIGKILL) while a session's exec runs on a real node; after a restart

@@ -56,7 +56,7 @@ describeBackends("api tokens", (backend) => {
 		}
 	});
 	afterAll(async () => {
-		cluster.close();
+		await cluster.close();
 		await db.destroy();
 	});
 

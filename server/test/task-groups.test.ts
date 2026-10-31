@@ -60,7 +60,7 @@ describeBackends("task groups", (backend) => {
 		await addNode("new-1", ["web"], "pending");
 	});
 	afterEach(async () => {
-		cluster.close();
+		await cluster.close();
 		await db.destroy();
 	});
 

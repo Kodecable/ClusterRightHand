@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import { readFile, writeFile } from "node:fs/promises";
+import type { Server } from "node:http";
 import { parseArgs } from "node:util";
 import { serve } from "@hono/node-server";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { ModelConfig } from "./agent/models.ts";
 import { AgentRuntime } from "./agent/runtime.ts";
 import { createApp } from "./api/app.ts";
+import { RequestDrain } from "./api/drain.ts";
 import { Audit } from "./audit/audit.ts";
 import { deleteExpiredWebSessions } from "./auth/sessions.ts";
 import { readSecret } from "./cli/prompt.ts";
@@ -32,6 +34,9 @@ commands:
   keys init                             create the master key file (master_key_file)
   keys export --out <file>              write the master key and server keys to a passphrase-encrypted age file
   keys import <file>                    restore the master key file from an export, after checking it against the database`;
+
+/** How long a graceful shutdown may take before the process exits non-zero instead. */
+const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 const { values, positionals } = parseArgs({
 	allowPositionals: true,
@@ -182,6 +187,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		groups: taskGroups,
 		audit,
 	});
+	const drain = new RequestDrain();
 	const app = createApp(db, {
 		clientAddress: (c) => getConnInfo(c).remote.address,
 		serverFingerprint: identity.fingerprint,
@@ -195,24 +201,78 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		webRoot: config.webRoot,
 		audit,
 		agent: { runtime, models },
+		drain,
 	});
+	// serve() is typed for HTTP/2 too; crhs listens over HTTP/1, whose connections can be drained.
 	const server = serve({ fetch: app.fetch, hostname: config.listen.host, port: config.listen.port }, (info) => {
 		console.log(
 			`crhs listening on http://${info.address}:${info.port} (identity ${identity.fingerprint}, signing key ${authorizationKey.fingerprint})`,
 		);
-	});
+	}) as Server;
 	server.on("upgrade", (req, socket, head) => {
 		if (!agents.handleUpgrade(req, socket, head)) socket.destroy();
 	});
-	const sweep = setInterval(() => void deleteExpiredWebSessions(db), 60 * 60 * 1000);
+	// The last sweep is awaited at shutdown, so it cannot write after the database is destroyed.
+	let sweepRun: Promise<void> = Promise.resolve();
+	const sweep = setInterval(
+		() => {
+			sweepRun = deleteExpiredWebSessions(db).catch((err: unknown) => console.error("session sweep failed:", err));
+		},
+		60 * 60 * 1000,
+	);
+	let shuttingDown = false;
+	// Awaited end to end, so nothing writes to the database after db.destroy().
+	const shutdown = async () => {
+		// 1. Stop taking new work: refuse new requests, end the open event streams, and stop agent handshakes.
+		clearInterval(sweep);
+		server.close();
+		server.closeIdleConnections();
+		drain.begin();
+		agents.stopAccepting();
+		await sweepRun;
+		// 2. Close the agent runtime before ending any wait. An agent tool call is a durable task, not a request:
+		// the Harness aborts and joins it without recording a result, so after a restart it reruns and reattaches
+		// to the same cluster task. Ending the waits first would let the call return a non-final state, which
+		// durable records as its outcome.
+		await runtime.close();
+		await closeAgentStorage();
+		// 3. Only HTTP and MCP waits are left: end them, so each returns its current state at once and step 4
+		// does not wait out its timeout.
+		cluster.endWaits();
+		taskGroups.endWaits();
+		// 4. Wait for the requests already being handled, then drop whatever connection is left.
+		await drain.waitForIdle();
+		server.closeAllConnections();
+		// 5. Close node links and SSH sessions, then wait for the work the close started.
+		await cluster.close();
+		await taskGroups.close();
+		await agents.close();
+		await audit.flush();
+		// 6. The database goes last.
+		await db.destroy();
+	};
 	for (const signal of ["SIGINT", "SIGTERM"] as const) {
-		process.once(signal, () => {
-			clearInterval(sweep);
-			void runtime.close().then(() => closeAgentStorage());
-			cluster.close();
-			agents.close();
-			server.close();
-			void db.destroy();
+		process.on(signal, () => {
+			if (shuttingDown) {
+				console.error(`crhs: ${signal} during shutdown, exiting`);
+				process.exit(1);
+			}
+			shuttingDown = true;
+			const timer = setTimeout(() => {
+				console.error(`crhs: shutdown did not finish within ${SHUTDOWN_TIMEOUT_MS} ms, exiting`);
+				process.exit(1);
+			}, SHUTDOWN_TIMEOUT_MS);
+			shutdown().then(
+				() => {
+					clearTimeout(timer);
+					process.exit(0);
+				},
+				(err: unknown) => {
+					clearTimeout(timer);
+					console.error("crhs: shutdown failed:", err);
+					process.exit(1);
+				},
+			);
 		});
 	}
 }

@@ -59,6 +59,10 @@ export class AgentServer {
 	readonly #cluster: Cluster;
 	readonly #audit: Audit | undefined;
 	readonly #wss = new WebSocketServer({ noServer: true, maxPayload: MAX_NOISE_MESSAGE });
+	/** Cleared at shutdown: no new node connection may be accepted. */
+	#accepting = true;
+	/** Handshakes in flight; close() waits for them so none attaches after the cluster closed. */
+	readonly #handshakes = new Set<Promise<void>>();
 
 	constructor(db: Db, identity: ServerIdentity, cluster: Cluster, audit?: Audit) {
 		this.#audit = audit;
@@ -69,19 +73,35 @@ export class AgentServer {
 
 	/** Attach to the HTTP server's `upgrade` event. Returns false for other paths. */
 	handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean {
+		if (!this.#accepting) return false;
 		if (new URL(req.url ?? "/", "http://x").pathname !== AGENT_PATH) return false;
 		this.#wss.handleUpgrade(req, socket, head, (ws) => {
-			this.#accept(ws).catch((err: unknown) => {
-				console.error("agent connection failed:", err);
-				ws.terminate();
-			});
+			const accepted: Promise<void> = this.#accept(ws)
+				.catch((err: unknown) => {
+					console.error("agent connection failed:", err);
+					ws.terminate();
+				})
+				.then(() => {
+					this.#handshakes.delete(accepted);
+				});
+			this.#handshakes.add(accepted);
 		});
 		return true;
 	}
 
-	close(): void {
+	/** Stops accepting new node connections; the existing ones stay until close(). */
+	stopAccepting(): void {
+		this.#accepting = false;
+	}
+
+	/** Closes every node connection and resolves once no handshake can attach any more. */
+	async close(): Promise<void> {
+		this.#accepting = false;
 		for (const ws of this.#wss.clients) ws.terminate();
-		this.#wss.close();
+		while (this.#handshakes.size > 0) await Promise.all(this.#handshakes);
+		// A handshake that completed while the loop ran may have registered its socket late.
+		for (const ws of this.#wss.clients) ws.terminate();
+		await new Promise<void>((resolve) => this.#wss.close(() => resolve()));
 	}
 
 	async #accept(ws: WebSocket): Promise<void> {

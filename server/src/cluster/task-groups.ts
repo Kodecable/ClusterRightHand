@@ -1,6 +1,6 @@
 import { type TaskSpec, taskSpecToJson } from "@crh/protocol";
 import type { Selectable } from "kysely";
-import type { Audit } from "../audit/audit.ts";
+import type { Audit, AuditInput } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
@@ -125,11 +125,49 @@ export class TaskGroups {
 	onChange: ((actorId: string) => void) | undefined;
 	/** Resolved when a waiting group is settled. */
 	readonly #settled = new Map<string, Deferred>();
+	/** Set by endWaits(): every current and later wait returns the group's current view at once. */
+	#waitsEnded = false;
+	/** Waiters of wait(), woken by endWaits(). */
+	readonly #waiters = new Set<() => void>();
 
 	constructor(db: Db, cluster: Cluster, options: { audit?: Audit } = {}) {
 		this.#db = db;
 		this.#cluster = cluster;
 		this.#audit = options.audit;
+	}
+
+	/** Whether endWaits() has run: wait no longer sleeps and the catalog wait loops stop. */
+	get waitsEnded(): boolean {
+		return this.#waitsEnded;
+	}
+
+	/**
+	 * Ends every wait() at once without closing anything: each returns the group's current view, and so does
+	 * every wait() started afterwards. Shutdown calls it after the agent runtime closes, so a request waiting on
+	 * a group (an approval, a long run) returns instead of holding the drain (main.ts).
+	 */
+	endWaits(): void {
+		if (this.#waitsEnded) return;
+		this.#waitsEnded = true;
+		for (const wake of [...this.#waiters]) wake();
+		this.#waiters.clear();
+	}
+
+	/** Fire-and-forget audit write; a failure is logged, never an unhandled rejection. */
+	#auditLater(input: AuditInput): void {
+		if (this.#audit)
+			void this.#audit
+				.record(input)
+				.catch((err: unknown) => console.error(`audit: failed to record ${input.action}:`, err));
+	}
+
+	/**
+	 * Waits for the group runs this process started. Call after Cluster.close(): its wake-ups end the
+	 * waitTask calls and its refusal of new tasks ends the workers; unfinished groups are recovered on
+	 * the next start.
+	 */
+	async close(): Promise<void> {
+		while (this.#running.size > 0) await Promise.all(this.#running.values());
 	}
 
 	/** Groups left running by a previous process can no longer start their remaining nodes. */
@@ -210,7 +248,7 @@ export class TaskGroups {
 				handler_session_id: null,
 			})
 			.execute();
-		void this.#audit?.record({
+		this.#auditLater({
 			actor: { type: input.actor.type, id: input.actor.id, onBehalfOfUserId: input.actor.onBehalfOfUserId },
 			action: "task_group.created",
 			target: { type: "task_group", id },
@@ -255,7 +293,9 @@ export class TaskGroups {
 	}
 
 	#start(id: string, input: CreateTaskGroupInput, nodeIds: string[], parallel: number, approvedBy?: ApprovalDecision) {
-		const run = this.#run(id, input, nodeIds, parallel, approvedBy).finally(() => this.#running.delete(id));
+		const run = this.#run(id, input, nodeIds, parallel, approvedBy)
+			.catch((err: unknown) => console.error(`task group ${id} failed:`, err))
+			.finally(() => this.#running.delete(id));
 		this.#running.set(id, run);
 	}
 
@@ -271,25 +311,45 @@ export class TaskGroups {
 		// start, and the group waits for them only at the end (doc/execution-plane.md#状态机).
 		const parked: TaskView[] = [];
 		let failed = false;
+		// Waits ended before every task finished: the group is left for recover(), which marks it interrupted.
+		let abandoned = false;
+		// Shutdown ends the waits: waitTask then returns at once, so a loop must check this or it would spin.
+		const ending = () => this.#waitsEnded || this.#cluster.waitsEnded;
 		const worker = async () => {
 			for (;;) {
 				if (input.failFast && failed) return;
 				const nodeId = queue.shift();
 				if (nodeId === undefined) return;
+				if (ending()) {
+					abandoned = true;
+					return;
+				}
 				const created = await this.#cluster.createTask(this.#taskInput(input, id, nodeId, approvedBy));
 				if (created.state === "awaiting_authorization") {
 					parked.push(created);
 					continue;
 				}
 				let done = await this.#cluster.waitTask(created.id, HOUR);
-				while (done && !TERMINAL.has(done.state)) done = await this.#cluster.waitTask(created.id, HOUR);
+				while (done && !TERMINAL.has(done.state)) {
+					if (ending()) {
+						abandoned = true;
+						break;
+					}
+					done = await this.#cluster.waitTask(created.id, HOUR);
+				}
 				if (done && countsAsFailure(done)) failed = true;
 			}
 		};
 		const settleParked = async (task: TaskView) => {
 			// waitTask returns on every state change, so keep waiting until the task is final.
 			let done: TaskView | undefined = task;
-			while (done && !TERMINAL.has(done.state)) done = await this.#cluster.waitTask(task.id, HOUR);
+			while (done && !TERMINAL.has(done.state)) {
+				if (ending()) {
+					abandoned = true;
+					return;
+				}
+				done = await this.#cluster.waitTask(task.id, HOUR);
+			}
 			if (done && countsAsFailure(done)) failed = true;
 		};
 		try {
@@ -298,17 +358,19 @@ export class TaskGroups {
 			for (let task = parked.shift(); task !== undefined; task = parked.shift()) await settleParked(task);
 		} finally {
 			try {
-				await this.#db
-					.updateTable("task_groups")
-					.set({
-						state: "finished",
-						skipped: JSON.stringify(queue),
-						finished_at: now(),
-						handler_type: null,
-						handler_session_id: null,
-					})
-					.where("id", "=", id)
-					.execute();
+				// Shutdown leaves an unfinished group to recover(), which marks it interrupted on the next start.
+				if (!this.#cluster.closing && !abandoned)
+					await this.#db
+						.updateTable("task_groups")
+						.set({
+							state: "finished",
+							skipped: JSON.stringify(queue),
+							finished_at: now(),
+							handler_type: null,
+							handler_session_id: null,
+						})
+						.where("id", "=", id)
+						.execute();
 			} finally {
 				// The group is done as a whole; its tasks may already have been dropped one by one.
 				this.#cluster.releaseGroupBudget(id);
@@ -343,7 +405,7 @@ export class TaskGroups {
 			.executeTakeFirst();
 		if (res.numUpdatedRows === 0n) return false;
 		this.onChange?.(row.actor_id);
-		void this.#audit?.record({
+		this.#auditLater({
 			actor: {
 				type: decision.by.type,
 				id: decision.by.id,
@@ -375,7 +437,7 @@ export class TaskGroups {
 			.set({ approval: JSON.stringify(record) })
 			.where("id", "=", id)
 			.execute();
-		void this.#audit?.record({
+		this.#auditLater({
 			actor: { type: "system", id: "auto-review", onBehalfOfUserId: row.on_behalf_of_user_id },
 			action: "task_group.review",
 			target: { type: "task_group", id },
@@ -399,7 +461,7 @@ export class TaskGroups {
 			.executeTakeFirst();
 		if (res.numUpdatedRows === 0n) return false;
 		this.onChange?.(row.actor_id);
-		void this.#audit?.record({
+		this.#auditLater({
 			actor: { type: "system", id: "agent-routing" },
 			action: "task_group.agent_request",
 			target: { type: "task_group", id },
@@ -424,7 +486,7 @@ export class TaskGroups {
 			.executeTakeFirst();
 		if (res.numUpdatedRows === 0n) return false;
 		this.onChange?.(row.actor_id);
-		void this.#audit?.record({
+		this.#auditLater({
 			actor: { type: "system", id: "agent-routing" },
 			action: "task_group.agent_escalated",
 			target: { type: "task_group", id },
@@ -541,14 +603,27 @@ export class TaskGroups {
 		};
 	}
 
-	/** Waits until the group is settled and every task has finished (or timeoutMs passes). */
-	async wait(id: string, timeoutMs: number): Promise<TaskGroupView | undefined> {
+	/**
+	 * Waits until the group is settled and every task has finished (or timeoutMs passes, endWaits() ends the
+	 * waits, or the caller's signal aborts); returns its current view.
+	 */
+	async wait(id: string, timeoutMs: number, signal?: AbortSignal): Promise<TaskGroupView | undefined> {
+		if (this.#waitsEnded || signal?.aborted) return this.get(id);
 		const deadline = Date.now() + timeoutMs;
 		const until = (p: Promise<unknown>) => {
-			let timer: NodeJS.Timeout | undefined;
-			return Promise.race([p, new Promise((r) => (timer = setTimeout(r, Math.max(0, deadline - Date.now()))))]).finally(
-				() => clearTimeout(timer),
-			);
+			if (this.#waitsEnded || signal?.aborted) return Promise.resolve();
+			return new Promise<void>((resolve) => {
+				const done = () => {
+					clearTimeout(timer);
+					this.#waiters.delete(done);
+					signal?.removeEventListener("abort", done);
+					resolve();
+				};
+				const timer = setTimeout(done, Math.max(0, deadline - Date.now()));
+				this.#waiters.add(done);
+				signal?.addEventListener("abort", done);
+				void p.then(done, done);
+			});
 		};
 		const row = await this.#row(id);
 		if (row?.state === "awaiting_approval") {

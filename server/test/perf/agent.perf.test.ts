@@ -73,7 +73,7 @@ describe("agent runtime performance", () => {
 	});
 
 	afterAll(async () => {
-		cluster.close();
+		await cluster.close();
 		await db.destroy();
 		await rm(tmp, { recursive: true, force: true });
 	});

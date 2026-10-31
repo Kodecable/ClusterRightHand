@@ -107,7 +107,7 @@ describe("approvals api (sqlite)", () => {
 		await addNode("n2");
 	});
 	afterAll(async () => {
-		cluster.close();
+		await cluster.close();
 		await db.destroy();
 	});
 
