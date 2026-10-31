@@ -35,7 +35,7 @@
 | WebUI API | 用户登录、会话聊天（流式）、节点管理、审批、计划任务、审计查询 |
 | MCP 门面 | 把 cluster 工具暴露为 MCP 工具，使用 API token 鉴权，见 [mcp.md](mcp.md) |
 | AgentRuntime | 会话生命周期、agent loop、subagent、上下文压缩，见 [agent-runtime.md](agent-runtime.md) |
-| 计划任务调度器 | 按时间表触发命令任务或 agent 任务，见 [scheduling.md](scheduling.md) |
+| 计划任务调度器 | 按时间表用固定消息新建会话，见 [scheduling.md](scheduling.md) |
 | Cluster 核心 | 节点注册与状态、任务状态机与输出存储、策略引擎、审批流、服务端签名、审计 |
 | ClientTransport | 维护与 crha 的连接，实现自有协议，见 [execution-plane.md](execution-plane.md) |
 | SshTransport | 通过 SSH 执行任务，对上层提供同样的任务接口 |
