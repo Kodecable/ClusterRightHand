@@ -157,3 +157,4 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D95 | WebUI 改为路径路由（`/sessions/:id`），旧的 `#/...` 链接在前端转换；服务端生成的链接一并改为路径形式 | crhs 已经把非 API 路径回退到 `index.html`；路径路由支持按页面拆包，链接也更规范 |
 | D96 | 列表接口统一使用 keyset 游标（`{ items, nextCursor }`），删除 offset 分页；会话事件流的 snapshot 只带最近 100 条记录，更早的记录通过 `entries` 接口分页加载；会话列表通过 SSE 推送增量变化 | 按超多会话、超多消息设计：offset 分页在插入新数据时会错位且越翻越慢，全量 snapshot 在 2 万条消息时代价过高 |
 | D97 | `sessions.state` 重定义为 `idle` / `running` / `awaiting`，根会话和子会话通用，持久化并在启动时与 durable、任务表对账；`waiting_kind` 区分配额、审批、签名等待；`root_session_id` 让列表按会话树汇总状态 | 状态点、过滤和排序直接走 SQL；原来根会话几乎总是 `active`，看不出是否在运行；子会话的 `stopped` 与"空闲"语义相同，合并为 `idle` |
+| D98 | 等待签名的任务 24 小时后自动结束（`authorization_wait_expired`；有审批时从审批决定起算）；会话停止或运行结束时，它留下的审批和签名等待一并结束，启动时对发起者会话已空闲的等待做同样的清理 | 没人处理的等待原来会一直挂着：会话停止时只清理了审批和运行中的任务，漏掉了 M4 新增的签名等待；用户直接发起的特权任务没人签名时也没有终点 |

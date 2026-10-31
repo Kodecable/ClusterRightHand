@@ -188,6 +188,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		groups: taskGroups,
 		audit,
 	});
+	// Signature waits that outlived their deadline while crhs was down end before requests are served (D98).
+	await cluster.expireAuthorizationWaits();
 	// Recovery (leftover pending runs, then runs that ended while the process was down) happens before the loop.
 	const scheduler = new Scheduler({ db, runtime, audit });
 	const drain = new RequestDrain();
@@ -219,11 +221,17 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	});
 	// The last sweep is awaited at shutdown, so it cannot write after the database is destroyed.
 	let sweepRun: Promise<void> = Promise.resolve();
+	// Every five minutes: expired login sessions, and signature waits past their deadline (D98).
 	const sweep = setInterval(
 		() => {
-			sweepRun = deleteExpiredWebSessions(db).catch((err: unknown) => console.error("session sweep failed:", err));
+			sweepRun = Promise.all([
+				deleteExpiredWebSessions(db).catch((err: unknown) => console.error("session sweep failed:", err)),
+				cluster
+					.expireAuthorizationWaits()
+					.catch((err: unknown) => console.error("authorization wait sweep failed:", err)),
+			]).then(() => {});
 		},
-		60 * 60 * 1000,
+		5 * 60 * 1000,
 	);
 	let shuttingDown = false;
 	// Awaited end to end, so nothing writes to the database after db.destroy().

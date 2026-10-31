@@ -242,6 +242,22 @@ export const AUTHORIZATION_CODES: ReadonlySet<string> = new Set([
 	"authorization_rejected",
 ]);
 
+/** How long a task waits for its signature before it ends as `authorization_wait_expired` (D98). */
+export const AUTHORIZATION_WAIT_MS = 24 * 60 * 60 * 1000;
+
+/** When a task began to wait for its signature: its approval decision when it had one, else its creation. */
+function authorizationWaitStart(row: Selectable<TasksTable>): number {
+	const created = Date.parse(row.created_at);
+	if (!row.approval) return created;
+	try {
+		const decidedAt = (JSON.parse(row.approval) as ApprovalRecord).decision?.at;
+		const decided = decidedAt ? Date.parse(decidedAt) : Number.NaN;
+		return Number.isNaN(decided) ? created : Math.max(created, decided);
+	} catch {
+		return created;
+	}
+}
+
 /**
  * The ref of an empty input. file.write always carries one; callers set it and createTask overwrites it
  * from the input actually sent (doc/protocol.md#json-形式服务端存储).
@@ -2512,9 +2528,10 @@ export class Cluster {
 	/**
 	 * Asks the node to cancel a running task. A task that still waits for its approval or its
 	 * authorization signature was never dispatched, so it ends here instead (there is no node-side task).
-	 * Returns false if the task already ended or the node is offline.
+	 * Returns false if the task already ended or the node is offline. `message` replaces the default reason of
+	 * a task that ends before dispatch (e.g. its session was stopped).
 	 */
-	async cancelTask(id: string): Promise<boolean> {
+	async cancelTask(id: string, message = "the task was cancelled before it was dispatched"): Promise<boolean> {
 		const row = await this.#row(id);
 		if (!row || TERMINAL.has(row.state)) return false;
 		if (row.state === "awaiting_approval" || row.state === "awaiting_authorization") {
@@ -2523,7 +2540,7 @@ export class Cluster {
 				.set({
 					state: "rejected",
 					error_code: "cancelled",
-					error_message: "the task was cancelled before it was dispatched",
+					error_message: message,
 					cancelled: 1,
 					finished_at: now(),
 					pending_input: null,
@@ -2552,6 +2569,31 @@ export class Cluster {
 			if (!(err instanceof ConnectionError)) console.error(`task.cancel for ${id} failed:`, err);
 		});
 		return true;
+	}
+
+	/**
+	 * Ends the tasks whose signature has not arrived within AUTHORIZATION_WAIT_MS since they began to wait
+	 * (doc/privilege.md#等待签名的期限): from the approval decision when there was one, else from creation.
+	 * Run at startup and by the periodic sweep; returns how many tasks it ended.
+	 */
+	async expireAuthorizationWaits(nowMs: number = Date.now()): Promise<number> {
+		const rows = await this.#db.selectFrom("tasks").selectAll().where("state", "=", "awaiting_authorization").execute();
+		let ended = 0;
+		for (const row of rows) {
+			if (nowMs - authorizationWaitStart(row) < AUTHORIZATION_WAIT_MS) continue;
+			const before = await this.#row(row.id);
+			if (before?.state !== "awaiting_authorization") continue;
+			await this.#finishAuthorization(
+				row.id,
+				before,
+				"rejected",
+				"authorization_wait_expired",
+				`no signature arrived within ${AUTHORIZATION_WAIT_MS / 3_600_000} hours`,
+				parseTaskAuthorization(before.authorization),
+			);
+			ended++;
+		}
+		return ended;
 	}
 
 	/**

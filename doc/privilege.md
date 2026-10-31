@@ -371,11 +371,21 @@ crhs 的选择不是最终放行：crha 特权模式在执行前仍按当前配�
 
 授权等待与规则审批分开：策略已经通过但尚未拿到签名时，任务处于 `awaiting_authorization`，不是 `awaiting_approval`。
 
+#### 等待签名的期限
+
+- **24 小时到期**：任务进入 `awaiting_authorization` 后 24 小时（`AUTHORIZATION_WAIT_MS`，与 user 路径授权的默认 TTL 相同）仍没有签名，就以 `rejected` 结束，error code 为 `authorization_wait_expired`（D98）。
+  - 起点：有审批时从审批决定的时间算起，否则从任务创建时算起。
+  - 检查时机：crhs 启动时（开始接受请求之前）检查一次，之后每 5 分钟检查一次。
+- **会话结束时取消**：由会话发起的任务和任务组，在会话停止或运行结束时，未完成的审批和签名等待会一起结束：
+  - 审批等待按拒绝处理，签名等待按取消处理；
+  - 原因分别写 "the session was stopped" 和 "the session's run ended"；
+  - 见 [agent-runtime.md](agent-runtime.md#会话状态)。
+
 两者在 WebUI 中有同一个入口：
 
-- 审批页除了待审批的请求，另列"等待你签名"的任务和任务组（`awaiting_authorization`，且所有者是当前用户；属于任务组的任务只以任务组出现一次），点进去是任务页或任务组页（`#/task-groups/<id>`）的签名区。顶部导航的待办计数是两者之和。
+- 审批页除了待审批的请求，另列"等待你签名"的任务和任务组（`awaiting_authorization`，且所有者是当前用户；属于任务组的任务只以任务组出现一次），点进去是任务页或任务组页（`/task-groups/<id>`）的签名区。顶部导航的待办计数是两者之和。
 - 会话的工具卡片在任务或任务组处于 `awaiting_authorization` 时显示"等待你的签名"和指向签名区的链接，与等待审批时的提示并列。agent 的工具在等待时上报的状态带上这个链接。
-- 顶部导航有任务页，跨节点列出当前用户能看到的任务（`GET /api/tasks`，按状态、节点、发起方筛选，分页），等待当前用户处理的任务排在前面。
+- 顶部导航有任务页，跨节点列出当前用户能看到的任务（`GET /api/tasks`，按状态、节点、发起方筛选，游标分页）；等待当前用户处理的事项在审批页。
 
 **预演与 fallback**：crhs 的规则计算只是预演，不是最终授权。若 crha 在 `task.start` 成功响应（accepted）之前拒绝授权：
 

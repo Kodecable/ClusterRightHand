@@ -270,6 +270,8 @@ export class AgentRuntime {
 	#pendingWakes = new Map<string, Map<string, string>>();
 	/** Handlers with a `waitForIdle` observer attached. */
 	#idleWatchers = new Set<string>();
+	/** Sessions being stopped: their run ends during the stop, and the stop, not the run end, ends their waits. */
+	#stopping = new Set<string>();
 	/** Open WebUI session-list streams; writes publish here, coalesced per session. */
 	readonly #sessionList: SessionListHub;
 
@@ -343,6 +345,8 @@ export class AgentRuntime {
 		runtime.#supervise();
 		// Durable has resumed the runs; correct every cached session state before requests are accepted.
 		await runtime.#reconcileSessionStates();
+		// Waits whose session's run is over (stopped or ended while crhs was down) can never be acted on.
+		await runtime.#endOrphanWaits();
 		// Sessions created before the per-conversation tool filter existed may still offer subagent at the limit.
 		await runtime.#enforceDepthToolLimits();
 		// A restart may have queued nothing for requests that were already waiting: wake idle parents now.
@@ -728,43 +732,79 @@ export class AgentRuntime {
 			.execute();
 		this.#sessionList.publishSession(sessionId);
 		this.#forgetInbox(sessionId);
+		// A tool call that ended without its task (aborted by durable, abandoned after restarts) left the task
+		// waiting for a decision nobody will act on: the run is over, so end those waits too.
+		if (!this.#stopping.has(sessionId)) {
+			await this.#endSessionWork([sessionId], "the session's run ended", { includeRunning: false });
+		}
+	}
+
+	/**
+	 * Ends what sessions left waiting when their work stopped: approvals are rejected and signature waits
+	 * cancelled with `reason`; with `includeRunning` (a stop) dispatched and running tasks are cancelled too.
+	 * The tools' own abort signal is not used for this, because it also fires when crhs shuts down and the call
+	 * must then reattach to its task after the restart.
+	 */
+	async #endSessionWork(
+		sessions: readonly string[],
+		reason: string,
+		options: { includeRunning: boolean; by?: SessionUser },
+	): Promise<void> {
+		if (sessions.length === 0) return;
+		const { includeRunning, by } = options;
+		const decision = {
+			decision: "rejected" as const,
+			by: { type: "user", id: by?.userId ?? "system", ...(by ? { onBehalfOfUserId: by.userId } : {}) },
+			at: new Date().toISOString(),
+			reason,
+		};
+		const waiting = ["awaiting_approval", "awaiting_authorization"] as const;
+		const live = ["dispatched", "running"] as const;
+		const tasks = await this.#db
+			.selectFrom("tasks")
+			.select(["id", "state"])
+			.where("actor_id", "in", sessions)
+			.where("task_group_id", "is", null)
+			.where("state", "in", includeRunning ? [...waiting, ...live] : [...waiting])
+			.execute();
+		for (const row of tasks) {
+			if (row.state === "awaiting_approval") await this.#cluster.decide(row.id, decision);
+			else await this.#cluster.cancelTask(row.id, reason);
+		}
+		const groups = await this.#db
+			.selectFrom("task_groups")
+			.select(["id", "state"])
+			.where("actor_id", "in", sessions)
+			.where("state", "in", [...waiting, "running"])
+			.execute();
+		for (const group of groups) {
+			if (group.state === "awaiting_approval") {
+				await this.#groups.decide(group.id, decision);
+				continue;
+			}
+			// A running group may still have members waiting for their signature; a stop also cancels the rest.
+			const members = await this.#db
+				.selectFrom("tasks")
+				.select("id")
+				.where("task_group_id", "=", group.id)
+				.where("state", "in", includeRunning ? ["awaiting_authorization", ...live] : ["awaiting_authorization"])
+				.execute();
+			for (const t of members) await this.#cluster.cancelTask(t.id, reason);
+		}
 	}
 
 	/** Stops the current run: queued inputs are withdrawn and running tool calls aborted. */
 	async abort(sessionId: string, by?: SessionUser): Promise<void> {
 		const { conversation } = await this.#conversation(sessionId);
-		await conversation.abort(this.#context);
-		// Stopping means stopping the work too. This is done here, not on the tool's abort signal, which also fires
-		// when crhs shuts down: after a restart the call reattaches to its task instead.
 		const sessions = [sessionId, ...(await this.#descendants(sessionId))];
-		const decision = {
-			decision: "rejected" as const,
-			by: { type: "user", id: by?.userId ?? "system", ...(by ? { onBehalfOfUserId: by.userId } : {}) },
-			at: new Date().toISOString(),
-			reason: "the session was stopped",
-		};
-		for (const table of ["tasks", "task_groups"] as const) {
-			const rows = await this.#db
-				.selectFrom(table)
-				.select(["id", "state"])
-				.where("actor_id", "in", sessions)
-				.where("state", "in", ["awaiting_approval", "dispatched", "running"])
-				.execute();
-			for (const row of rows) {
-				if (row.state === "awaiting_approval") {
-					await (table === "tasks" ? this.#cluster.decide(row.id, decision) : this.#groups.decide(row.id, decision));
-				} else if (table === "tasks") {
-					await this.#cluster.cancelTask(row.id);
-				} else {
-					const tasks = await this.#db
-						.selectFrom("tasks")
-						.select("id")
-						.where("task_group_id", "=", row.id)
-						.where("state", "in", ["dispatched", "running"])
-						.execute();
-					for (const t of tasks) await this.#cluster.cancelTask(t.id);
-				}
-			}
+		for (const id of sessions) this.#stopping.add(id);
+		try {
+			await conversation.abort(this.#context);
+			// Stopping means stopping the work too. This is done here, not on the tool's abort signal, which also
+			// fires when crhs shuts down: after a restart the call reattaches to its task instead.
+			await this.#endSessionWork(sessions, "the session was stopped", { includeRunning: true, by });
+		} finally {
+			for (const id of sessions) this.#stopping.delete(id);
 		}
 		await markSessionsIdle(this.#db, sessions);
 		for (const id of sessions) this.#sessionList.publishSession(id);
@@ -1780,6 +1820,40 @@ export class AgentRuntime {
 		})().catch((err: unknown) => {
 			console.error("agent runtime: recording a resumed run's end failed:", err);
 		});
+	}
+
+	/**
+	 * Startup reconciliation of approval and signature waits (doc/agent-runtime.md#会话状态): a task or group
+	 * acting for a session that is idle after #reconcileSessionStates belongs to a run that is over, so its wait
+	 * is ended. Only waiting rows are read, never every session.
+	 */
+	async #endOrphanWaits(): Promise<void> {
+		const waiting = ["awaiting_approval", "awaiting_authorization"] as const;
+		const orphaned = new Set<string>();
+		for (const table of ["tasks", "task_groups"] as const) {
+			const rows = await this.#db
+				.selectFrom(table)
+				.innerJoin("sessions", "sessions.id", `${table}.actor_id`)
+				.select(`${table}.actor_id as actorId`)
+				.where(`${table}.actor_type`, "in", ["session", "subagent"])
+				.where(`${table}.state`, "in", [...waiting])
+				.where("sessions.state", "=", "idle")
+				.execute();
+			for (const row of rows) orphaned.add(row.actorId);
+		}
+		const running = await this.#db
+			.selectFrom("tasks")
+			.innerJoin("task_groups", "task_groups.id", "tasks.task_group_id")
+			.innerJoin("sessions", "sessions.id", "task_groups.actor_id")
+			.select("task_groups.actor_id as actorId")
+			.where("task_groups.state", "=", "running")
+			.where("tasks.state", "=", "awaiting_authorization")
+			.where("sessions.state", "=", "idle")
+			.execute();
+		for (const row of running) orphaned.add(row.actorId);
+		if (orphaned.size === 0) return;
+		console.log(`agent runtime: ending the waits of ${orphaned.size} session(s) whose run is over`);
+		await this.#endSessionWork([...orphaned], "the session's run ended", { includeRunning: false });
 	}
 
 	/** After a restart, wakes the parents of requests that were already waiting (deduplicated by requestId). */
