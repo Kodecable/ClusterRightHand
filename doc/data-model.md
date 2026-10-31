@@ -95,7 +95,6 @@ authorizations    (id,                                   -- SHA-256(CBOR(payload
                    nodes json, command_match json nullable, deadline nullable,
                    task_id nullable,                      -- task_id：一次性授权绑定的任务
                    attempt,                               -- 同一 task_id 的授权尝试
-                   schedule_id nullable,
                    revoked_at nullable, created_at)
 rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,
                    preset[ask|auto_review|yolo] nullable,          -- 只有根有，决定 default 和基础规则
@@ -112,11 +111,12 @@ rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,
 ```
 sessions          (id, org_id, owner_user_id, conversation_id, parent_session_id nullable,
                    title, model json, status, created_at, updated_at, archived_at,
+                   schedule_id nullable,                -- 由计划任务创建的根会话；计划任务删除后置空
                    last_submission_id nullable,         -- 最近一次输入；父会话靠它 subagent_wait
-                   quota_tokens,                        -- 子会话的剩余 token 配额，有符号；根固定 0 且不扣
-                   state[active|awaiting|stopped],    -- 子会话状态缓存（根始终 active）
+                   quota_tokens nullable,               -- 剩余 token 配额，有符号；null 不限且不扣（用户创建的根默认）
+                   state[active|awaiting|stopped],    -- 状态缓存（根除配额等待外始终 active）
                    waiting_level_id nullable,           -- awaiting 且因配额时：要补的那一级
-                   waiting_handler_id nullable,         -- 该等待的直接父会话（处理它的 agent）
+                   waiting_handler_id nullable,         -- 该等待的直接父会话（处理它的 agent）；根耗尽时为空，由所有者处理
                    state_changed_at,
                    used_tokens)                         -- 本会话及其 subagent 已用；规则在 rule_sets
 usage_ledger      (id, org_id, session_id, chain json, input_tokens, output_tokens, cost, created_at)
@@ -129,14 +129,16 @@ model_providers   (id, org_id, provider_id, kind[builtin|openai-compatible], bui
 ## 计划任务
 
 ```
-schedules         (id, org_id, owner_user_id, name, kind[command|agent],
-                   spec json,                         -- command：任务规格 + 目标（节点和组）；agent：提示词 + 会话策略
-                   cron, timezone, misfire[skip|run_once], overlap[skip|allow],
-                   authorization_id nullable, enabled, next_run_at, created_at)
-schedule_runs     (id, schedule_id, fire_time, status[pending|submitted|succeeded|failed],
-                   task_group_id nullable, submission_id nullable, submitted_at, finished_at)
-                  -- 任务组和任务 id 由 (id, node_id) 确定性派生，重新提交是幂等的
-                  -- unique (schedule_id, fire_time)
+schedules         (id, org_id, owner_user_id, name, prompt, model json,
+                   token_budget nullable,             -- 每次运行新会话根上的配额；null 不限
+                   cron, timezone, catch_up, enabled, next_run_at nullable,
+                   created_at, updated_at)
+                  -- 规则预设和规则在 rule_sets（scope_type = schedule）
+schedule_runs     (id, schedule_id, fire_time, manual,
+                   status[pending|running|succeeded|failed|preempted],
+                   session_id nullable,               -- 由 run id 派生，重新提交是幂等的
+                   reason nullable, created_at, started_at nullable, finished_at nullable)
+                  -- unique (schedule_id, fire_time)；删除计划任务时一并删除，会话保留
 ```
 
 ## 审计

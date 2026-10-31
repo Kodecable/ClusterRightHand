@@ -82,11 +82,11 @@
 
 **完成标志**：同一节点可以分别配置为“信任服务端”和“只信任用户”，两条路径都能跑通，且在“只信任用户”时服务端无法提权（有专门的测试）；SSH 忽略特权且不破坏 file 任务。
 
-## M5 计划任务与 subagent
+## M5 计划任务与配额统一
 
-- 调度器（触发与提交分两步，启动时恢复 `pending`）、`command` 和 `agent` 两类计划任务、为计划任务签发授权。
-- subagent：独立会话，规则和配额挂在父会话的操作者链下；前台等待可以被打断并自动转入后台，父会话处理请求后再显式等待；其他工具返回时自动提示待处理的子会话。
-- 通知（webhook）。
+- 计划任务（见 [scheduling.md](scheduling.md)）：按 cron 用固定消息新建会话，同时只有一个实例（新运行强制结束上一个），触发与提交分两步、启动时恢复 `pending`，可选补跑一次，手动运行，调度决策写审计；API 与 WebUI 计划任务页。
+- 配额统一（D92）：任何一级会话都可以设配额或不设，根耗尽时由所有者在审批页处理；计划任务的 `token_budget` 即新会话根上的配额。
+- subagent（前台/后台、打断转后台、`subagent_decide`、工具返回时提示待处理请求）已在 M3 完成。
 
 ## M6 完善
 
@@ -94,6 +94,7 @@
 - PTY 与 WebUI 终端。
 - 打包（bash 脚本）：deb/rpm、systemd unit（crha 非特权模式和特权模式分开）、客户端自升级（含从 M4 移来的 `crha upgrade --apply`）。
 - MCP 的"委托给会话"工具。
+- 通知（webhook），从 M5 移来。
 - 监控、告警、仪表盘：暂不安排，见 architecture.md 的"扩展预留"。
 
 ## 进度
@@ -117,7 +118,7 @@
 - **M3**：已完成（2026-10-27）。
   - durable 运行时（SQLite 官方存储、PostgreSQL `PgStorage`，均通过官方一致性测试）；会话与 cluster 工具（`replay: "safe"`，重启后重新挂接）；模型配置（内置 provider、OpenAI 兼容端点、额外请求头）；WebUI 会话页（SSE 流式）与模型设置；配额与子会话状态（根不扣减，D72、D76、D77）；subagent（前台/后台、`subagent_wait` / `list` / `cancel` / `decide`，父会话 agent 处理子会话审批，D75）；Auto Review；节点笔记；会话分享（view / chat）；停止会话时取消其任务和子会话；存储失败后重新打开 Harness；故障注入（工具执行中 SIGKILL、模型流式输出中 SIGKILL）与性能回归测试。
   - 真实模型冒烟（opencode zen `deepseek-v4.1-flash`）与 WebUI 浏览器走查手工完成，不在 CI 中。
-  - 配额只管理 subagent，根会话固定 0 且不扣减；不足时暂停工具调用并只向直接父请求；durable 1.4.0 没有请求前的拦截点，检查发生在响应之后（D72）。
+  - 配额只管理 subagent，根会话固定 0 且不扣减；不足时暂停工具调用并只向直接父请求；durable 1.4.0 没有请求前的拦截点，检查发生在响应之后（D72）。M5 起由 D92 修订：任何一级都可以设配额，根默认不设。
 - **M3.5**：已完成（2026-10-29）。
   - 协议：`CBOR-CORE-INT-v1` 严格编解码（重编码比对），TS（`packages/protocol`）和 Go（`client/internal/protocol`）各自按 [protocol.md](protocol.md) 手写，TS 生成的帧 fixture 由 Go 独立解码校验；握手先读大版本，命令集合取交集；双向命令/事件，`task.start` 成功响应即 accepted，响应先于任务事件。
   - 语义：crha 记录已接受的 task id（最近 10 万个），响应丢失时任务仍执行，crhs 从下次 `hello` 得知；`authorization_*` 在 M3.5 按最终拒绝处理（M4 改为重试）；pending 节点的受限连接与 `node.status` 推送，被拒绝时 `crha run` 非零退出；外部文本发送前清洗为合法 UTF-8。

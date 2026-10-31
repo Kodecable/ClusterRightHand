@@ -1,54 +1,76 @@
 # 计划任务
 
-调度器是服务端自己的模块，基于数据库表，不依赖 durable 的定时机制。
+调度器是服务端自己的模块（`server/src/scheduler/`），基于数据库表，不依赖 durable 的定时机制。
 
-## 两类计划任务
+## 形态
 
-| 类型 | 触发时做什么 | 经过 LLM |
-|---|---|---|
-| `command` | 对目标（节点和组）中的每个节点创建一个任务，作为一个任务组 | 否 |
-| `agent` | 向一个会话提交一段提示词 | 是 |
+计划任务只有一种：按时间表，用一段固定的用户消息**新建一个会话**并提交。要定时执行的固定命令也由会话里的 agent 执行，规则链、审批、提权、配额都与普通会话相同，调度器只对接 AgentRuntime，不直接创建任务。
 
-`agent` 类型可以选择"每次新建会话"（每次运行互不干扰，便于查看历史），或"固定提交到同一个会话"（保留上下文，例如持续巡检）。
+字段：
+
+| 字段 | 说明 |
+|---|---|
+| `name` | 名称 |
+| `prompt` | 每次运行提交给新会话的用户消息 |
+| `model` | 会话使用的模型 |
+| `preset` | 规则预设（Ask / Auto Review / Yolo），计划任务是规则链的根，见下文 |
+| `token_budget` | 每次运行的 token 上限，写入新会话根上的配额；`null` 不限 |
+| `cron` / `timezone` | 5 字段 cron 表达式（精度到分钟，用 `croner` 解析），IANA 时区；夏令时按 croner 的处理 |
+| `catch_up` | 停机期间错过的触发是否补跑一次 |
+| `enabled` | 启用状态 |
+
+每次运行产生的会话属于计划任务的所有者，`sessions.schedule_id` 指向计划任务，会话列表可按计划任务筛选；运行历史就是这些会话。
+
+## 同时只有一个实例
+
+同一个计划任务同时只有一个运行中的实例。新的运行（定时或手动）开始时，如果上一个实例还没结束，就先**强制结束**它：走会话的停止流程，取消它的任务和 subagent 子树，运行记为 `preempted`，再启动新的。
+
+上一个实例停在等待审批、等待签名或等待配额也一样会被结束；周期短于用户处理所需的时间时，每次都会在处理前被结束。这是有意的：计划任务的每次运行只在下一次触发之前有效。正在节点上执行的任务会被取消，可能留下做了一半的状态。
 
 ## 调度
 
-- 字段：cron 表达式、时区、启用状态、错过后的策略（`skip`：跳过，或 `run_once`：补跑一次）、并发策略（上一次还没结束时 `skip` 或 `allow`）。
 触发和提交分成两步，中间崩溃也不会丢失或重复：
 
-1. **触发**：调度循环按 `next_run_at` 取到期的计划任务，在一个事务中写入 `schedule_runs`（状态 `pending`，`(schedule_id, fire_time)` 唯一）并计算下一次运行时间。重复触发会被唯一约束挡住。
-2. **提交**：执行器领取 `pending` 的记录，向 Cluster（`command`）或 durable（`agent`）提交，成功后把状态改为 `submitted`。提交使用由运行记录派生的**稳定 id**，重复提交是幂等的：
-   - `command`：任务组 id 和每个节点的任务 id 由 `(run_id, node_id)` 确定性派生（UUIDv5）。Cluster 按 id 创建任务，已存在就直接返回已有的任务。同一个任务 id 最多 accepted/executed 一次；accepted 之前的明确授权拒绝可用 `attempt + 1` 重试（见 [execution-plane.md](execution-plane.md#不重复执行与授权重试)）。
-   - `agent`：`requestId = schedule:<id>:<fire_time>`，durable 按它去重。
-3. **恢复**：crhs 启动时扫描 `pending` 的记录，用同样的稳定 id 重新提交。提交后、写 `submitted` 之前崩溃的情况，也由幂等提交覆盖。
-4. **结束**：任务组或会话运行结束后，状态改为 `succeeded` / `failed`，失败时发通知（v1 先做 webhook）。
+1. **触发**：调度循环在最早的 `next_run_at` 醒来（最长 60 秒醒一次，防止时钟跳变；计划任务被修改时立即重算），在一个事务中写入 `schedule_runs`（状态 `pending`，`(schedule_id, fire_time)` 唯一）、计算下一次运行时间并写审计。重复触发会被唯一约束挡住。
+2. **提交**：执行器用条件更新领取 `pending` 的记录，先按上一节结束上一个实例，再新建会话并提交 `prompt`，成功后改为 `running`。提交使用由运行记录派生的**稳定 id**，重复提交是幂等的：会话 id 由 run id 派生，`requestId = schedule:<id>:<fire_time>`，durable 按它去重。
+3. **恢复**：crhs 启动时先提交遗留的 `pending`，再开始调度。提交后、写 `running` 之前崩溃的情况，也由幂等提交覆盖。运行中的会话由 durable 在重启后继续。
+4. **结束**：会话的这次运行正常结束记 `succeeded`；出错、被中止或停止记 `failed`，`reason` 说明原因（例如等待配额时被拒绝）。被下一次运行强制结束的记 `preempted`。agent 自己判断"巡检发现了问题"不算失败，状态只表示执行层面。启动时核对 `running` 的记录，补上停机期间结束的运行。
 
-`misfire` 策略只决定停机期间错过的触发时间是否补一次，与上面的恢复无关：已经写入 `pending` 的记录一定会被提交。
+**错过的触发**：启动时（或时钟跳变后）`next_run_at` 已经过去超过容差（60 秒）时，`catch_up = false` 跳过错过的时间点；`catch_up = true` 只补最近错过的那一次。两种情况都写审计并从当前时间重新计算 `next_run_at`。已经写入 `pending` 的记录一定会被提交，与 `catch_up` 无关。
 
-## 提权
+**手动运行**：WebUI 的"立即运行"与定时触发走同一条路径，`schedule_runs.manual = true`，`fire_time` 为点击时间，发起方是点击的用户；有实例在运行时先确认"会结束当前运行"。
 
-### command 类型
+## 审计
 
-命令是固定的，因此可以预先授权：
+调度器的每个决策都写审计（actor 为 `system`，手动运行和配置修改为用户，target 是计划任务）：
 
-- 节点的 crhs 信任项可以单独授权这条命令：每次触发时照常走策略引擎，由 crhs 签发单条命令授权，不需要额外配置。
-- 节点只信任用户：用户为这个计划任务签发一个授权，`command.exact` 为计划任务的命令，`nodes` 为目标节点，`deadline` 视需要设置（信任项设置了 `max_ttl` 时必填）。见 [privilege.md](privilege.md#授权)。
-- 用户信任项要求联署（`require-cosign`）时：每次触发，crhs 在策略通过后为本次执行签发联署，与用户授权一起下发。
-
-特权模式不检查调度时间：在截止时间之前，持有授权的一方可以随时执行这条命令。如果需要更强的约束，就给用户信任项加上 `require-cosign`，让每次执行都经过 crhs 的策略。
-
-修改计划任务的命令后，已有授权不再匹配，需要重新签发。授权快过期时 WebUI 提醒续签。
-
-### agent 类型
-
-agent 执行的命令事先不确定，无法预先签名。提权请求照常进入策略引擎，再由 crhs 从缓存的 `TrustSummary` 计算授权方案（见 [privilege.md](privilege.md#授权路径)）：
-
-- crhs 信任项可以单独授权，且策略和 auto review 放行：自动执行；
-- 否则为任务所有者创建授权等待，等待签名或本地批准；只用所有者，不考虑共享用户。
-
-用户也可以为这类计划任务签发一个不带指令限制、带短截止时间的授权，但需要明确知道：这等于在有效期内把这个节点的特权执行能力交给 crhs（除非该用户的信任项要求联署，这时 crhs 仍然要逐条联署）。
+| 事件 | 内容 |
+|---|---|
+| `schedule.created` / `schedule.updated` / `schedule.deleted` / `schedule.enabled` / `schedule.disabled` | 配置变化 |
+| `schedule.fired` | 定时或手动触发，带 run id、`fire_time`、`manual` |
+| `schedule.skipped` | 没有触发及原因：停机期间错过（`catch_up = false`）、计划任务已停用、所有者已停用 |
+| `schedule.run_started` | 带 run id 和会话 id |
+| `schedule.run_preempted` | 上一个实例被强制结束，带被结束的 run id 和会话 id |
+| `schedule.run_finished` | `succeeded` / `failed`，带原因 |
 
 ## 授权规则与配额
 
-计划任务是操作者链上的一级（用户 → 计划任务 → 会话），可以带自己的授权规则和配额，见 [access-control.md](access-control.md#授权规则)。agent 类型每次运行产生的会话挂在计划任务下面，用量计入计划任务和根的配额。
+计划任务是操作者链上的一级（用户 → 计划任务 → 会话 → subagent …），由所有者选择规则预设并可以追加规则，见 [access-control.md](access-control.md#授权规则)。选择 Ask 时每次运行的审批都要等所有者处理，无人值守时会一直等到下一次触发，WebUI 创建时提示这一点。
 
+`token_budget` 就是每次运行新会话根上的配额（见 [agent-runtime.md](agent-runtime.md#配额)）：用尽时照常暂停并请所有者处理（增加或拒绝）；无人处理时由下一次触发强制结束。修改预算只影响之后的运行。
+
+## 提权
+
+会话中的特权任务照常走 M4 的授权路径（见 [privilege.md](privilege.md#授权路径)），授权等待只交给所有者：
+
+- crhs 信任项可以单独授权，且规则与 auto review 放行：自动执行。
+- 只有所有者的 user 信任项可以授权：crhs 先查找所有者已经签发、仍然有效、覆盖本次任务的可重复使用授权（按 nodes、指令限制、deadline 匹配，与任务由谁发起无关），没有就进入 `awaiting_authorization`，出现在所有者的"等待你签名"里。
+- 因此，要让固定命令无人值守地提权，所有者可以为这条命令预先签发不带 `task_ids` 的授权（`command.exact`、目标节点、视需要设置 `deadline`），并在提示词中要求 agent 原样执行这条命令；命令写法稍有不同就不会匹配，会进入签名等待。计划任务页给出这一说明和签名入口的链接，不单独管理授权。
+- 特权模式不检查调度时间：在截止时间之前，持有授权的一方可以随时执行这条命令。需要每次都经过 crhs 策略时，给用户信任项加上 `require-cosign`。
+
+## 生命周期
+
+- 所有者被停用或删除时，停用其计划任务（写 `schedule.disabled`）。
+- 修改 `cron` / `timezone` 后重新计算 `next_run_at`；修改 `prompt` / `model` / `preset` / `token_budget` 只影响之后的运行。
+- 停用计划任务不结束正在运行的实例；删除计划任务时结束它。
+- 计划任务不支持分享；MCP 和 agent 工具不能管理计划任务（只有 WebUI 和 API）。
