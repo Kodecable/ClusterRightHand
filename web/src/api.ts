@@ -419,6 +419,56 @@ export interface QuotaApproval {
 	used: number;
 }
 
+export type ScheduleRunStatus = "pending" | "running" | "succeeded" | "failed" | "preempted";
+/** One firing of a schedule (doc/scheduling.md#调度). */
+export interface ScheduleRunView {
+	id: string;
+	scheduleId: string;
+	fireTime: string;
+	manual: boolean;
+	status: ScheduleRunStatus;
+	/** The session the run created, derived from its id. */
+	sessionId: string | null;
+	reason: string | null;
+	createdAt: string;
+	startedAt: string | null;
+	finishedAt: string | null;
+}
+/** A schedule and what the list shows about it (doc/scheduling.md#形态). */
+export interface ScheduleView {
+	id: string;
+	ownerUserId: string;
+	name: string;
+	prompt: string;
+	model: ModelRef;
+	preset: Preset | null;
+	rules: Rule[];
+	tokenBudget: number | null;
+	cron: string;
+	timezone: string;
+	catchUp: boolean;
+	enabled: boolean;
+	nextRunAt: string | null;
+	createdAt: string;
+	updatedAt: string;
+	lastRun: ScheduleRunView | null;
+	/** Whether a run is in progress right now (a "Run now" would stop it). */
+	inProgress: boolean;
+	/** The next few fire times, computed by the server for the form. */
+	preview: string[];
+}
+export interface ScheduleInput {
+	name: string;
+	prompt: string;
+	model: ModelRef;
+	preset: Preset;
+	tokenBudget: number | null;
+	cron: string;
+	timezone: string;
+	catchUp: boolean;
+	enabled: boolean;
+}
+
 /** GET /approvals: waiting approvals, plus tasks/groups waiting for this user's signature and exhausted quotas. */
 export interface ApprovalList {
 	tasks: TaskView[];
@@ -495,6 +545,8 @@ export interface SessionView {
 	title: string;
 	ownerUserId: string;
 	parentSessionId: string | null;
+	/** The schedule whose run created this session; null for every other session. */
+	scheduleId: string | null;
 	model: ModelRef & { thinkingLevel?: string };
 	status: "active" | "archived";
 	createdAt: string;
@@ -692,7 +744,11 @@ export const api = {
 			(r) => r.provider,
 		),
 	deleteModelProvider: (providerId: string) => request<{ ok: true }>("DELETE", `/model-providers/${enc(providerId)}`),
-	listSessions: () => request<{ sessions: SessionView[] }>("GET", "/sessions").then((r) => r.sessions),
+	listSessions: (q: { scheduleId?: string } = {}) => {
+		const p = new URLSearchParams();
+		for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== "") p.set(k, String(v));
+		return request<{ sessions: SessionView[] }>("GET", `/sessions?${p}`).then((r) => r.sessions);
+	},
 	createSession: (body: { title?: string; model: ModelRef; preset: Preset; quota?: number | null }) =>
 		request<{ session: SessionView }>("POST", "/sessions", body).then((r) => r.session),
 	getSession: (id: string) =>
@@ -713,4 +769,26 @@ export const api = {
 	/** The owner's answer to a used-up token quota on a root: add tokens, or stop the paused run. */
 	decideQuota: (id: string, body: { decision: "approve" | "deny"; tokens?: number; reason?: string }) =>
 		request<{ ok: true; sessions: string[] }>("POST", `/sessions/${enc(id)}/quota`, body),
+
+	listSchedules: () => request<{ schedules: ScheduleView[] }>("GET", "/schedules").then((r) => r.schedules),
+	getSchedule: (id: string) =>
+		request<{ schedule: ScheduleView }>("GET", `/schedules/${enc(id)}`).then((r) => r.schedule),
+	createSchedule: (body: ScheduleInput) =>
+		request<{ schedule: ScheduleView }>("POST", "/schedules", body).then((r) => r.schedule),
+	patchSchedule: (id: string, body: Partial<ScheduleInput>) =>
+		request<{ schedule: ScheduleView }>("PATCH", `/schedules/${enc(id)}`, body).then((r) => r.schedule),
+	deleteSchedule: (id: string) => request<{ ok: true }>("DELETE", `/schedules/${enc(id)}`, {}),
+	runSchedule: (id: string) =>
+		request<{ run: ScheduleRunView }>("POST", `/schedules/${enc(id)}/run`, {}).then((r) => r.run),
+	listScheduleRuns: (id: string, q: { limit?: number; offset?: number } = {}) => {
+		const p = new URLSearchParams();
+		for (const [k, v] of Object.entries(q)) if (v !== undefined) p.set(k, String(v));
+		return request<{ runs: ScheduleRunView[]; offset: number; limit: number; nextOffset: number | null }>(
+			"GET",
+			`/schedules/${enc(id)}/runs?${p}`,
+		);
+	},
+	/** The next fire times for a cron/timezone, without saving anything. */
+	previewSchedule: (cron: string, timezone: string, count = 5) =>
+		request<{ times: string[] }>("POST", "/schedules/preview", { cron, timezone, count }).then((r) => r.times),
 };

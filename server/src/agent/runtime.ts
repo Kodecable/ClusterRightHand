@@ -91,6 +91,8 @@ export interface SessionView {
 	title: string;
 	ownerUserId: string;
 	parentSessionId: string | null;
+	/** The schedule whose run created this session; null for every other session (doc/scheduling.md). */
+	scheduleId: string | null;
 	model: ModelRef;
 	status: "active" | "archived";
 	createdAt: string;
@@ -194,6 +196,7 @@ type Row = {
 	owner_user_id: string;
 	conversation_id: string;
 	parent_session_id: string | null;
+	schedule_id: string | null;
 	title: string;
 	model: string;
 	status: "active" | "archived";
@@ -286,8 +289,8 @@ export class AgentRuntime {
 		ref.current = runtime;
 		// Resume only now: a resumed run must find the runtime (compaction and tool metering look it up).
 		runtime.#harness.resume(); // runs and tool calls the last process left unfinished
-		// Auto Review for roots whose preset asks for it (tokens and sessions alike), then route child approvals
-		// to an ancestor's agent where the chain allows it.
+		// Auto Review for roots whose preset asks for it (tokens, sessions and schedules alike), then route child
+		// approvals to an ancestor's agent where the chain allows it.
 		const reviewer = new Reviewer(options.db, options.models, options.cluster, options.groups);
 		options.cluster.onAwaitingApproval = async (task) => {
 			await reviewer.reviewTask(task);
@@ -405,13 +408,74 @@ export class AgentRuntime {
 		return row ? this.#view(row) : undefined;
 	}
 
+	/**
+	 * Creates the session a schedule run submits to (doc/scheduling.md): a root session with a fixed id derived
+	 * from the run, `schedule_id` set and `token_budget` as its root quota. Its rule set is a lower level (no
+	 * preset, `default: inherit`) under the schedule's root, so the chain is [schedule, session]. A retried call
+	 * finds the session its first attempt created.
+	 */
+	async createScheduledSession(
+		owner: SessionUser,
+		input: { id: string; title: string; model: ModelRef; quota: number | null; scheduleId: string },
+	): Promise<SessionView> {
+		const existing = await this.getSession(input.id);
+		if (existing) return existing;
+		this.#models.assertAvailable(input.model);
+		const conversation = await this.#harness.createConversation(
+			{
+				ownership: { kind: "ownerless" },
+				agent: {
+					model: { provider: input.model.provider, modelId: input.model.modelId },
+					...(input.model.thinkingLevel ? { thinkingLevel: input.model.thinkingLevel } : {}),
+				},
+			},
+			this.#context,
+		);
+		const now = new Date().toISOString();
+		const orgId = await defaultOrgId(this.#db);
+		await this.#db.transaction().execute(async (trx) => {
+			await trx
+				.insertInto("sessions")
+				.values({
+					id: input.id,
+					org_id: orgId,
+					owner_user_id: owner.userId,
+					conversation_id: String(conversation.id),
+					parent_session_id: null,
+					schedule_id: input.scheduleId,
+					title: input.title.trim() || "Scheduled run",
+					model: JSON.stringify(input.model),
+					status: "active",
+					created_at: now,
+					updated_at: now,
+					archived_at: null,
+					// The budget is the new session's root quota; null means unlimited (D92).
+					quota_tokens: input.quota,
+					state: "active",
+					waiting_level_id: null,
+					waiting_handler_id: null,
+					state_changed_at: now,
+				})
+				.execute();
+			await createRuleSet(trx, orgId, { type: "session", id: input.id }, { default: "inherit", rules: [] });
+		});
+		void this.#audit?.record({
+			actor: { type: "schedule", id: input.scheduleId, onBehalfOfUserId: owner.userId },
+			action: "session.created",
+			target: { type: "session", id: input.id },
+			detail: { model: input.model, preset: null, schedule_id: input.scheduleId },
+		});
+		return (await this.getSession(input.id)) as SessionView;
+	}
+
 	/** Root sessions the user owns or that are shared with them (administrators: everyone's), newest first. */
-	async listSessions(user: SessionUser): Promise<SessionView[]> {
+	async listSessions(user: SessionUser, filter: { scheduleId?: string } = {}): Promise<SessionView[]> {
 		let q = this.#db
 			.selectFrom("sessions")
 			.selectAll()
 			.where("parent_session_id", "is", null)
 			.orderBy("created_at", "desc");
+		if (filter.scheduleId !== undefined) q = q.where("schedule_id", "=", filter.scheduleId);
 		if (user.kind !== "admin") {
 			const shared = [...(await sharedSessionAccess(this.#db, user.userId)).keys()];
 			q = q.where((eb) =>
@@ -430,6 +494,7 @@ export class AgentRuntime {
 			title: row.title,
 			ownerUserId: row.owner_user_id,
 			parentSessionId: row.parent_session_id,
+			scheduleId: row.schedule_id,
 			model: JSON.parse(row.model) as ModelRef,
 			status: row.status,
 			createdAt: row.created_at,
@@ -458,20 +523,54 @@ export class AgentRuntime {
 	 * makes a retried submit find the first one. `by` is who typed it (the owner, or a user the session is shared with).
 	 */
 	async submit(sessionId: string, by: SessionUser, text: string, requestId: string): Promise<string> {
+		// A user driving a session shared with them still acts on behalf of its owner (doc/access-control.md).
+		return this.#submitInput(sessionId, text, requestId, { type: "user", id: by.userId });
+	}
+
+	/**
+	 * Submits a schedule run's fixed prompt (doc/scheduling.md#调度). The request id is derived from the
+	 * schedule and the fire time, so a resubmitted run returns its first submission instead of sending twice;
+	 * `checkQuota: false` is for that recovery path, where the run may have exhausted the quota by finishing.
+	 */
+	async submitAsSchedule(
+		sessionId: string,
+		scheduleId: string,
+		text: string,
+		requestId: string,
+		options: { checkQuota?: boolean } = {},
+	): Promise<string> {
+		return this.#submitInput(
+			sessionId,
+			text,
+			requestId,
+			{ type: "schedule", id: scheduleId },
+			options.checkQuota !== false,
+		);
+	}
+
+	async #submitInput(
+		sessionId: string,
+		text: string,
+		requestId: string,
+		actor: { type: string; id: string },
+		checkQuota = true,
+	): Promise<string> {
 		const { row, conversation } = await this.#conversation(sessionId);
 		if (row.status !== "active") throw new UserError("the session is archived");
-		const over = await exhaustedLevel(this.#db, sessionId);
-		if (over) {
-			throw new UserError(
-				over === sessionId
-					? "the session's token quota is used up; raise it to continue"
-					: "a parent session's token quota is used up",
-			);
+		if (checkQuota) {
+			const over = await exhaustedLevel(this.#db, sessionId);
+			if (over) {
+				throw new UserError(
+					over === sessionId
+						? "the session's token quota is used up; raise it to continue"
+						: "a parent session's token quota is used up",
+				);
+			}
 		}
 		const submission = await conversation.submit({ type: "input", content: text, requestId }, this.#context);
 		await this.#recordInput(sessionId, submission);
 		void this.#audit?.record({
-			actor: { type: "user", id: by.userId, onBehalfOfUserId: row.owner_user_id },
+			actor: { ...actor, onBehalfOfUserId: row.owner_user_id },
 			action: "session.message",
 			target: { type: "session", id: sessionId },
 			detail: { submission_id: String(submission.id), chars: text.length },
@@ -1700,6 +1799,29 @@ export class AgentRuntime {
 		return { status: "done", answer };
 	}
 
+	/** Waits for a submission to settle and says how it ended, without reading or committing its answer. */
+	async waitForSubmission(
+		submissionId: string,
+		signal?: AbortSignal,
+	): Promise<{ status: "done" } | { status: "unanswered"; reason: string }> {
+		const context = signal ? withAbortSignal(signal, this.#context) : this.#context;
+		const submission = await this.#harness.submission(Number(submissionId) as unknown as SubmissionId, context);
+		if (!submission) return { status: "unanswered", reason: "missing" };
+		const settled = await submission.wait(context);
+		return settled.status === "done" ? { status: "done" } : { status: "unanswered", reason: settled.reason };
+	}
+
+	/**
+	 * Request ids of the submissions still queued or placed (doc/scheduling.md#调度): a scheduled run whose
+	 * submission has not settled is still active after a restart, even when its run row already says `preempted`.
+	 */
+	async unsettledSubmissionRequests(): Promise<Set<string>> {
+		const { submissions } = await this.#harness.inspect(this.#context);
+		return new Set(
+			submissions.flatMap((submission) => (submission.requestId === undefined ? [] : [submission.requestId])),
+		);
+	}
+
 	/** Waits until nothing in the Harness runs (tests). */
 	async waitForIdle(): Promise<void> {
 		await this.#harness.waitForIdle(this.#context);
@@ -1728,12 +1850,16 @@ async function toolContextFor(
 	if (owner?.status !== "active") throw new UserError("the session's owner is disabled");
 	// The chain from the root session down to this one.
 	const chain: RuleRef[] = [];
+	let top = session;
 	for (let s: typeof session | undefined = session; s; ) {
 		chain.unshift({ type: "session", id: s.id });
+		top = s;
 		s = s.parent_session_id
 			? await db.selectFrom("sessions").selectAll().where("id", "=", s.parent_session_id).executeTakeFirst()
 			: undefined;
 	}
+	// A scheduled run's root session sits below its schedule (doc/scheduling.md#授权规则与配额).
+	if (top.schedule_id) chain.unshift({ type: "schedule", id: top.schedule_id });
 	const actor: Actor = {
 		type: session.parent_session_id ? "subagent" : "session",
 		id: session.id,

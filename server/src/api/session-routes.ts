@@ -6,7 +6,7 @@ import {
 	deleteModelProvider,
 	listModelProviders,
 	type ModelConfig,
-	type ModelRef,
+	parseModelRef,
 	saveModelProvider,
 } from "../agent/models.ts";
 import { parseQuota } from "../agent/quota.ts";
@@ -27,6 +27,7 @@ import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import { parsePreset } from "../policy/store.ts";
+import type { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
@@ -40,9 +41,9 @@ export interface SessionRoutesOptions {
 	groups: TaskGroups;
 	/** Shutdown bookkeeping: its abort ends the event streams, and each stream keeps shutdown waiting. */
 	drain?: RequestDrain;
+	/** Tells the scheduler when a scheduled run's root quota was denied, so the run ends failed (doc/scheduling.md). */
+	scheduler?: Scheduler;
 }
-
-const THINKING = ["off", "minimal", "low", "medium", "high", "max"];
 
 /** `stream.sleep`, but wakes up when the stream ends, so shutdown need not wait out a ping interval. */
 function sleepFor(ms: number, signal: AbortSignal): Promise<void> {
@@ -56,21 +57,6 @@ function sleepFor(ms: number, signal: AbortSignal): Promise<void> {
 		}
 		signal.addEventListener("abort", done, { once: true });
 	});
-}
-
-function parseModel(raw: unknown): ModelRef {
-	const o = raw as Record<string, unknown> | null;
-	if (!o || typeof o.provider !== "string" || typeof o.modelId !== "string") {
-		throw new UserError("model must be { provider, modelId }");
-	}
-	if (o.thinkingLevel !== undefined && !THINKING.includes(o.thinkingLevel as string)) {
-		throw new UserError(`thinkingLevel must be one of ${THINKING.join(", ")}`);
-	}
-	return {
-		provider: o.provider,
-		modelId: o.modelId,
-		...(o.thinkingLevel ? { thinkingLevel: o.thinkingLevel as ModelRef["thinkingLevel"] } : {}),
-	};
 }
 
 /** Sessions (chat with the agent) and model configuration; doc/agent-runtime.md. Expects requireUser. */
@@ -179,7 +165,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.put("/settings/review-model", async (c) => {
 		if (!admin(c)) return jsonError(c, 403, "administrators only");
 		const body = await readJsonObject(c);
-		const model = body?.model === null ? null : parseModel(body?.model);
+		const model = body?.model === null ? null : parseModelRef(body?.model);
 		if (model) models.assertAvailable(model);
 		await setReviewModel(db, model);
 		void c.get("audit").record({
@@ -228,14 +214,18 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		});
 	};
 
-	app.get("/sessions", async (c) => c.json({ sessions: await decorate(c, await runtime.listSessions(c.get("user"))) }));
+	app.get("/sessions", async (c) => {
+		const scheduleId = c.req.query("scheduleId");
+		const sessions = await runtime.listSessions(c.get("user"), scheduleId === undefined ? {} : { scheduleId });
+		return c.json({ sessions: await decorate(c, sessions) });
+	});
 
 	app.post("/sessions", async (c) => {
 		const body = (await readJsonObject(c)) ?? {};
 		// Any level may have a quota; null (or no field) is unlimited and never charged (D92).
 		const quota = body.quota === undefined ? undefined : parseQuota(body.quota);
 		const session = await runtime.createSession(c.get("user"), {
-			model: parseModel(body.model),
+			model: parseModelRef(body.model),
 			preset: parsePreset(body.preset ?? "ask"),
 			...(typeof body.title === "string" ? { title: body.title } : {}),
 			...(quota === undefined ? {} : { quota }),
@@ -323,7 +313,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		const preset = body.preset === undefined ? undefined : parsePreset(body.preset);
 		const session = await runtime.configure(s.id, {
 			...(typeof body.title === "string" ? { title: body.title } : {}),
-			...(body.model !== undefined ? { model: parseModel(body.model) } : {}),
+			...(body.model !== undefined ? { model: parseModelRef(body.model) } : {}),
 			...(preset ? { preset } : {}),
 			...(body.quota !== undefined ? { quota: parseQuota(body.quota) } : {}),
 		});
@@ -385,6 +375,11 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 				return jsonError(c, 400, "tokens must be a positive integer");
 			}
 			tokens = body.tokens;
+		}
+		// A scheduled run ends failed when its owner denies the root quota (doc/scheduling.md#调度).
+		const quotaReason = reason ?? (body.decision === "deny" ? "the owner stopped the run" : undefined);
+		if (body.decision === "deny" && quotaReason) {
+			await options.scheduler?.noteQuotaDenied(v.session.id, `quota denied: ${quotaReason}`);
 		}
 		const sessions = await runtime.decideRootQuota(v.session.id, body.decision, tokens);
 		void c.get("audit").record({

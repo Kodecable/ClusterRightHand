@@ -217,7 +217,8 @@ export class TaskGroups {
 			}
 		}
 		const waiting = approval?.nodes.some((n) => n.evaluation.result === "require-approval") ?? false;
-		const root = input.chain?.[0];
+		// Group waiting approvals by session tree: the first session of the chain (a schedule comes before it).
+		const root = input.chain?.find((ref) => ref.type === "session");
 		await this.#db
 			.insertInto("task_groups")
 			.values({
@@ -242,7 +243,7 @@ export class TaskGroups {
 				pending_input: waiting && input.input ? Buffer.from(input.input).toString("base64") : null,
 				spec: JSON.stringify(taskSpecToJson(input.spec)),
 				timeout_ms: input.timeoutMs ?? null,
-				root_session_id: root?.type === "session" ? root.id : null,
+				root_session_id: root?.id ?? null,
 				// Until an ancestor agent is routed, the user (the group's on_behalf user) is the handler.
 				handler_type: waiting ? "user" : null,
 				handler_session_id: null,

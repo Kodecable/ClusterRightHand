@@ -156,7 +156,7 @@ interface ApprovalColumns {
 	approval: string | null;
 	/** Base64 input, kept only while waiting for approval. */
 	pending_input: string | null;
-	/** The root session of the rule chain, when it starts with one; for grouping by session tree. */
+	/** The root session of the session tree (for a scheduled task, the session below its schedule); groups approvals. */
 	root_session_id: string | null;
 	/** Who handles the waiting approval; null unless the task is waiting. A user is on_behalf_of_user_id. */
 	handler_type: ApprovalHandlerType | null;
@@ -324,6 +324,8 @@ export interface SessionsTable {
 	owner_user_id: string;
 	conversation_id: string;
 	parent_session_id: string | null;
+	/** The schedule whose run created this root session; nulled when the schedule is deleted. */
+	schedule_id: string | null;
 	title: string;
 	/** JSON ModelRef. */
 	model: string;
@@ -373,6 +375,45 @@ export interface SshCredentialsTable {
 	created_at: CreatedAt;
 }
 
+export interface SchedulesTable {
+	id: string;
+	org_id: string;
+	owner_user_id: string;
+	name: string;
+	/** The user message every run submits to its new session. */
+	prompt: string;
+	/** JSON ModelRef. */
+	model: string;
+	/** The new session's root quota; null means unlimited (D92). */
+	token_budget: ColumnType<string | number | null, string | number | null | undefined, string | number | null>;
+	cron: string;
+	timezone: string;
+	/** SQLite/PostgreSQL store booleans as 0/1. */
+	catch_up: number;
+	enabled: number;
+	/** ISO 8601 UTC; null while disabled. */
+	next_run_at: string | null;
+	created_at: CreatedAt;
+	updated_at: string;
+}
+
+export type ScheduleRunStatus = "pending" | "running" | "succeeded" | "failed" | "preempted";
+
+export interface ScheduleRunsTable {
+	id: string;
+	schedule_id: string;
+	/** ISO 8601 UTC, the configured instant this run stands for (manual runs: the click time). */
+	fire_time: string;
+	manual: number;
+	status: ScheduleRunStatus;
+	/** Derived from the run id, so a retried submit finds the same session. */
+	session_id: string | null;
+	reason: string | null;
+	created_at: CreatedAt;
+	started_at: string | null;
+	finished_at: string | null;
+}
+
 export interface Database {
 	orgs: OrgsTable;
 	users: UsersTable;
@@ -395,4 +436,6 @@ export interface Database {
 	audit_events: AuditEventsTable;
 	sessions: SessionsTable;
 	model_providers: ModelProvidersTable;
+	schedules: SchedulesTable;
+	schedule_runs: ScheduleRunsTable;
 }

@@ -6,8 +6,8 @@ import type { ModelConfig, ModelRef } from "./models.ts";
 import { accountedOutputTokens, recordUsage } from "./quota.ts";
 
 /**
- * Auto Review (doc/access-control.md#规则链): for a root whose preset is auto_review, a task that needs approval is
- * first judged by a model. It approves what is clearly safe and leaves the rest for the user. The reviewer sees
+ * Auto Review (doc/access-control.md#规则链): for a root whose preset is auto_review (a token, a session, or the
+ * schedule a scheduled run's chain starts with), a task that needs approval is first judged by a model. It approves what is clearly safe and leaves the rest for the user. The reviewer sees
  * only the operation itself, never the conversation or node output, so one injected text cannot steer both the
  * agent and its reviewer (doc/agent-runtime.md#提示注入).
  */
@@ -64,10 +64,15 @@ export class Reviewer {
 		this.#groups = groups;
 	}
 
-	/** The model for one root: the configured review model, else (for a session) the session's own model. */
+	/** The model for one root: the configured review model, else (for a session or schedule) the root's own model. */
 	async #modelFor(root: RuleRef): Promise<ModelRef | null> {
 		const configured = await getReviewModel(this.#db);
 		if (configured) return configured;
+		if (root.type === "schedule") {
+			// A scheduled run's chain root is the schedule, which carries the model its sessions run on.
+			const row = await this.#db.selectFrom("schedules").select("model").where("id", "=", root.id).executeTakeFirst();
+			return row ? (JSON.parse(row.model) as ModelRef) : null;
+		}
 		if (root.type !== "session") return null;
 		const row = await this.#db.selectFrom("sessions").select("model").where("id", "=", root.id).executeTakeFirst();
 		return row ? (JSON.parse(row.model) as ModelRef) : null;

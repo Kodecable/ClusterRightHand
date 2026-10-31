@@ -32,6 +32,7 @@ export function ModelSelect({
 		<label>
 			{label}
 			<select
+				aria-label={label}
 				value={value ? key(value) : ""}
 				disabled={disabled}
 				onChange={(e) => {

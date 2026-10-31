@@ -18,6 +18,7 @@ import { nodeRoute } from "../../src/cluster/ssh/nodes.ts";
 import { TaskGroups } from "../../src/cluster/task-groups.ts";
 import { MasterKey } from "../../src/keys/master-key.ts";
 import { type AuthorizationSigningKey, loadAuthorizationSigningKey } from "../../src/privilege/key.ts";
+import { Scheduler } from "../../src/scheduler/scheduler.ts";
 import type { Db } from "../../src/storage/db.ts";
 import { createUser } from "../../src/users/service.ts";
 import { openTestDb } from "../helpers/db.ts";
@@ -155,6 +156,8 @@ export class InProcessCrhs {
 	readonly faux = fauxProvider();
 	runtime: AgentRuntime | undefined;
 	models: ModelConfig | undefined;
+	/** With the agent runtime: the scheduler, started once the server listens (doc/scheduling.md). */
+	scheduler: Scheduler | undefined;
 
 	private constructor(
 		db: Db,
@@ -214,10 +217,12 @@ export class InProcessCrhs {
 				audit: this.audit,
 			});
 			agent = { runtime: this.runtime, models: this.models };
+			this.scheduler = new Scheduler({ db: this.db, runtime: this.runtime, audit: this.audit });
 		}
 		const app = createApp(this.db, {
 			taskGroups,
 			...(agent ? { agent } : {}),
+			...(this.scheduler ? { scheduler: this.scheduler } : {}),
 			serverFingerprint: this.identity.fingerprint,
 			serverPublicKey: this.identity.keyPair.publicKey,
 			authorizationKey: this.authorizationKey,
@@ -238,11 +243,14 @@ export class InProcessCrhs {
 		});
 		this.port = (server.address() as AddressInfo).port;
 		this.#server = server;
+		await this.scheduler?.start();
 	}
 
 	async stop(): Promise<void> {
 		const server = this.#server;
 		this.#server = undefined;
+		await this.scheduler?.stop();
+		this.scheduler = undefined;
 		await this.runtime?.close();
 		this.runtime = undefined;
 		await this.cluster.close();

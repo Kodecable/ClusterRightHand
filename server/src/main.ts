@@ -20,6 +20,7 @@ import { type Config, DEFAULT_CONFIG_PATH, loadConfig } from "./config.ts";
 import { buildKeyExport, decryptKeyExport, encryptKeyExport, verifyKeyExportAgainstDb } from "./keys/export.ts";
 import { bindMasterKey, KeyError, MasterKey, readMasterKeyFile, writeMasterKeyFile } from "./keys/master-key.ts";
 import { loadAuthorizationSigningKey } from "./privilege/key.ts";
+import { Scheduler } from "./scheduler/scheduler.ts";
 import { type Db, openAgentStorage, openDb } from "./storage/db.ts";
 import { migrateToLatest } from "./storage/migrate.ts";
 import { createUser, findUserByUsername, setPassword, UserError } from "./users/service.ts";
@@ -187,6 +188,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		groups: taskGroups,
 		audit,
 	});
+	// Recovery (leftover pending runs, then runs that ended while the process was down) happens before the loop.
+	const scheduler = new Scheduler({ db, runtime, audit });
 	const drain = new RequestDrain();
 	const app = createApp(db, {
 		clientAddress: (c) => getConnInfo(c).remote.address,
@@ -201,8 +204,10 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		webRoot: config.webRoot,
 		audit,
 		agent: { runtime, models },
+		scheduler,
 		drain,
 	});
+	await scheduler.start();
 	// serve() is typed for HTTP/2 too; crhs listens over HTTP/1, whose connections can be drained.
 	const server = serve({ fetch: app.fetch, hostname: config.listen.host, port: config.listen.port }, (info) => {
 		console.log(
@@ -230,10 +235,12 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		drain.begin();
 		agents.stopAccepting();
 		await sweepRun;
-		// 2. Close the agent runtime before ending any wait. An agent tool call is a durable task, not a request:
-		// the Harness aborts and joins it without recording a result, so after a restart it reruns and reattaches
-		// to the same cluster task. Ending the waits first would let the call return a non-final state, which
-		// durable records as its outcome.
+		// 2. Stop the scheduler before the agent runtime closes: it must not start another submit, and an
+		// in-flight one is awaited here (doc/scheduling.md). Then close the agent runtime before ending any wait.
+		// An agent tool call is a durable task, not a request: the Harness aborts and joins it without recording
+		// a result, so after a restart it reruns and reattaches to the same cluster task. Ending the waits first
+		// would let the call return a non-final state, which durable records as its outcome.
+		await scheduler.stop();
 		await runtime.close();
 		await closeAgentStorage();
 		// 3. Only HTTP and MCP waits are left: end them, so each returns its current state at once and step 4

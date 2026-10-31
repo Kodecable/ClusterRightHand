@@ -32,6 +32,7 @@
 		"@modelcontextprotocol/server": "2.3.1",
 		"@simplewebauthn/server": "14.0.0",
 		"age-encryption": "0.3.1",
+		"croner": "^11.0.0",
 		"hono": "^4.13.14",
 		"kysely": "^0.29.7",
 		"pg": "^8.23.1",

@@ -47,8 +47,14 @@ export async function getRuleSet(db: Db, ref: RuleRef): Promise<StoredRuleSet | 
 	return row ? fromRow(row) : undefined;
 }
 
-/** Creates the rule set of a chain root with a preset and no extra rules. */
-export async function createRootRuleSet(db: Db, orgId: string, ref: RuleRef, preset: Preset): Promise<void> {
+/** Creates the rule set of a chain root with a preset and the rules added on top of it. */
+export async function createRootRuleSet(
+	db: Db,
+	orgId: string,
+	ref: RuleRef,
+	preset: Preset,
+	rules: Rule[] = [],
+): Promise<void> {
 	await db
 		.insertInto("rule_sets")
 		.values({
@@ -58,7 +64,7 @@ export async function createRootRuleSet(db: Db, orgId: string, ref: RuleRef, pre
 			scope_id: ref.id,
 			preset,
 			default_action: presetRuleSet(preset).default,
-			rules: "[]",
+			rules: JSON.stringify(rules),
 			updated_at: new Date().toISOString(),
 		})
 		.execute();

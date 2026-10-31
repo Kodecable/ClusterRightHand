@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { userActor } from "../audit/audit.ts";
 import { revokeUserWebSessions } from "../auth/sessions.ts";
+import { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
 import {
 	addGroupMember,
@@ -100,7 +101,11 @@ export function userRoutes(db: Db) {
 			kind: kind as "admin" | "member" | undefined,
 			status: status as "active" | "disabled" | undefined,
 		});
-		if (status === "disabled") await revokeUserWebSessions(db, id);
+		if (status === "disabled") {
+			await revokeUserWebSessions(db, id);
+			// A disabled owner's schedules stop firing (doc/scheduling.md#生命周期).
+			await Scheduler.disableForOwner(db, id, c.get("audit"), userActor(c.get("user")));
+		}
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user.updated",

@@ -10,6 +10,7 @@ import type { WebauthnConfig } from "../config.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import { mcpRoutes } from "../mcp/mcp.ts";
 import type { AuthorizationSigningKey } from "../privilege/key.ts";
+import type { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
 import { type AuthRoutesOptions, authRoutes } from "./auth-routes.ts";
 import { authorizationRoutes } from "./authorization-routes.ts";
@@ -20,6 +21,7 @@ import { csrfGuard, requireUser } from "./middleware.ts";
 import { nodeRoutes } from "./node-routes.ts";
 import { policyRoutes } from "./policy-routes.ts";
 import { privilegeRoutes } from "./privilege-routes.ts";
+import { scheduleRoutes } from "./schedule-routes.ts";
 import { sessionRoutes } from "./session-routes.ts";
 import { sshRoutes } from "./ssh-routes.ts";
 import { taskRoutes } from "./task-routes.ts";
@@ -46,6 +48,8 @@ export interface AppOptions extends AuthRoutesOptions {
 	audit?: Audit;
 	/** The agent runtime and its models; without them there are no sessions. */
 	agent?: { runtime: AgentRuntime; models: ModelConfig };
+	/** The scheduler that fires and submits scheduled runs (doc/scheduling.md); with it come the schedule routes. */
+	scheduler?: Scheduler;
 	/** Request tracking for shutdown; `main.ts` begins it when a signal arrives (a private one is made when omitted). */
 	drain?: RequestDrain;
 }
@@ -101,6 +105,18 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 					cluster: options.cluster,
 					groups,
 					drain,
+					...(options.scheduler ? { scheduler: options.scheduler } : {}),
+				}),
+			);
+		}
+		if (options.agent && options.scheduler) {
+			app.route(
+				"/api",
+				scheduleRoutes(db, {
+					scheduler: options.scheduler,
+					models: options.agent.models,
+					cluster: options.cluster,
+					groups,
 				}),
 			);
 		}

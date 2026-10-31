@@ -193,7 +193,7 @@ export interface TaskView {
 	taskGroupId: string | null;
 	ruleChain: RuleRef[] | null;
 	approval: ApprovalRecord | null;
-	/** Root session of the rule chain, for grouping approvals by session tree. */
+	/** The chain's first session, for grouping approvals by session tree (a schedule may come before it). */
 	rootSessionId: string | null;
 	/** Who handles a waiting approval; null when it is not waiting. */
 	handlerType: "agent" | "user" | null;
@@ -969,7 +969,8 @@ export class Cluster {
 		}
 		const waiting = verdict === "require-approval";
 		const denied = verdict === "deny";
-		const root = input.chain?.[0];
+		// Group waiting approvals by session tree: the first session of the chain (a schedule comes before it).
+		const root = input.chain?.find((ref) => ref.type === "session");
 		await this.#db
 			.insertInto("tasks")
 			.values({
@@ -1011,7 +1012,7 @@ export class Cluster {
 				rule_chain: input.chain ? JSON.stringify(input.chain) : null,
 				approval: approval ? JSON.stringify(approval) : null,
 				pending_input: waiting && input.input ? Buffer.from(inputBytes).toString("base64") : null,
-				root_session_id: root?.type === "session" ? root.id : null,
+				root_session_id: root?.id ?? null,
 				// Until an ancestor agent is routed, the user (the task's on_behalf user) is the handler.
 				handler_type: waiting ? "user" : null,
 				handler_session_id: null,

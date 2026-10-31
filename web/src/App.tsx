@@ -12,6 +12,7 @@ import { Login } from "./pages/Login.tsx";
 import { ModelSettings } from "./pages/ModelSettings.tsx";
 import { NodeDetail } from "./pages/NodeDetail.tsx";
 import { Nodes } from "./pages/Nodes.tsx";
+import { ScheduleDetail, Schedules } from "./pages/Schedules.tsx";
 import { SessionPage } from "./pages/SessionPage.tsx";
 import { Sessions } from "./pages/Sessions.tsx";
 import { TaskGroupPage } from "./pages/TaskGroupPage.tsx";
@@ -54,6 +55,8 @@ export function App() {
 	if (section === "nodes" && id) page = <NodeDetail key={id} id={id} />;
 	else if (section === "sessions" && id) page = <SessionPage key={id} id={id} />;
 	else if (section === "sessions") page = <Sessions />;
+	else if (section === "schedules" && id) page = <ScheduleDetail key={id} id={id} />;
+	else if (section === "schedules") page = <Schedules />;
 	else if (section === "settings" && id === "models")
 		page = auth.user.kind === "admin" ? <ModelSettings /> : <p className="error">Administrators only.</p>;
 	else if (section === "tasks" && id) page = <TaskPage key={id} id={id} />;

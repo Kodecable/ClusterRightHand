@@ -17,6 +17,24 @@ export interface ModelRef {
 	thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "max";
 }
 
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "max"];
+
+/** Parses `{ provider, modelId, thinkingLevel? }` from user input; throws UserError. */
+export function parseModelRef(raw: unknown): ModelRef {
+	const o = raw as Record<string, unknown> | null;
+	if (!o || typeof o.provider !== "string" || typeof o.modelId !== "string") {
+		throw new UserError("model must be { provider, modelId }");
+	}
+	if (o.thinkingLevel !== undefined && !THINKING_LEVELS.includes(o.thinkingLevel as string)) {
+		throw new UserError(`thinkingLevel must be one of ${THINKING_LEVELS.join(", ")}`);
+	}
+	return {
+		provider: o.provider,
+		modelId: o.modelId,
+		...(o.thinkingLevel ? { thinkingLevel: o.thinkingLevel as ModelRef["thinkingLevel"] } : {}),
+	};
+}
+
 /** A model offered by an OpenAI-compatible endpoint. */
 export interface CompatibleModel {
 	id: string;

@@ -82,7 +82,7 @@
 
 **完成标志**：同一节点可以分别配置为“信任服务端”和“只信任用户”，两条路径都能跑通，且在“只信任用户”时服务端无法提权（有专门的测试）；SSH 忽略特权且不破坏 file 任务。
 
-## M5 计划任务与配额统一
+## M5 计划任务与配额统一（实现完成）
 
 - 计划任务（见 [scheduling.md](scheduling.md)）：按 cron 用固定消息新建会话，同时只有一个实例（新运行强制结束上一个），触发与提交分两步、启动时恢复 `pending`，可选补跑一次，手动运行，调度决策写审计；API 与 WebUI 计划任务页。
 - 配额统一（D92）：任何一级会话都可以设配额或不设，根耗尽时由所有者在审批页处理；计划任务的 `token_budget` 即新会话根上的配额。
@@ -127,6 +127,12 @@
   - 已删除 `proto/`、buf、`@bufbuild/*`、Go protobuf 模块和生成代码。
   - 测试：单元测试（SQLite + PostgreSQL + 真实 sshd）、真实 crha 二进制 e2e（含 SIGSTOP / 杀进程 / 重启）、WebUI 浏览器测试、性能回归全部通过。
   - 未完成：CI 中仍未跑 SSH 测试（需要 sshd 服务容器，同 M1）；迁移 0019 没有在真实生产数据上演练过（fixture 已与旧 protobuf-es 的实际输出核对）。
+- **M5**：实现完成（2026-10-31）。
+  - 配额统一（D92）：任何一级会话都可以设配额，迁移 0025 把根的 0 改为不限；只计输出 token（上游不上报时按 UTF-8 字节 × 0.3 估算），含压缩和 Auto Review；根耗尽时由所有者在审批页加额度或停止；会话页和新建会话可设配额。
+  - 计划任务（D93）：迁移 0026/0027；`server/src/scheduler/`（注入时钟、两步触发、派生会话 id 与 `requestId` 幂等、启动恢复、补跑一次、强制结束上一个实例、运行结束经 durable `submission.wait`）；规则链"计划任务 → 会话"；API 与 WebUI 计划任务页（接下来几次运行时间预览）；关闭时先停调度器再关 agent 运行时。
+  - crhs 关闭顺序（同期修复）：先停接收、关 agent 运行时（工具调用不记录结果，重启后重新挂接），再结束 HTTP/MCP 等待、排空请求和 SSE、关闭节点连接并等后台写入，最后关数据库；第二个信号或 10 秒超时非零退出。
+  - 测试：SQLite 单元与 API 测试、真实 crha e2e、WebUI Playwright（含计划任务）全部通过；PostgreSQL 变体未跑。
+  - 已知问题：压缩的计量依赖 durable 1.4.0 的内部行为（压缩是 Harness 里唯一调用 `completeSimple` 的地方，provider 会话 id 映射到会话），durable 升级时要复核；压缩任务崩溃后重跑会重复计一次；拒绝根配额后若在暂停的调用观察到之前崩溃，恢复后会再暂停一次，需要再处理。
 - **M4**：实现完成（2026-10-30）。细节、阶段和测试矩阵见 [m4.md](m4.md)。
   - native / ignore / reject / forward 四种处理方式；crha 特权模式（信任配置、授权与联署校验、已用列表、吊销、本地批准、本地日志）；crhs 签名、信任缓存、方案预演与 fallback；用户 SSH key（`crha grant`）与 Passkey 签名、授权等待页、复用、任务组一次签名；吊销页；`clock_warn`。
   - 测试：Go/TS 共享测试向量与授权判定用例；单元与集成测试；真实 crha e2e；podman e2e 矩阵 11 项全部通过（`CRH_TEST_PODMAN=1 pnpm --filter @crh/server test:m4`，真实 sudo / doas / sshd / 特权模式进程）。
