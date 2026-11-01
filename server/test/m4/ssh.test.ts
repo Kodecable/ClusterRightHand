@@ -81,7 +81,9 @@ describePodman("M4 podman: SSH nodes", () => {
 		const read = await crhs.runTask(sshNodeId, { kind: "file.read", path: "/root/m4-sftp.txt", privileged: true });
 		expect(read.state).toBe("exited");
 		expect(read.stdoutHead + read.stdoutTail).toContain("sftp-content");
-		expect(read.stderrHead).toBe(SSH_PRIVILEGED_NOTICE);
+		// The notice comes first; the task's own stderr carries the file.read result JSON.
+		expect(read.stderrHead.startsWith(SSH_PRIVILEGED_NOTICE)).toBe(true);
+		expect(read.stderrHead).toContain('"from"');
 	}, 60_000);
 
 	it("sets LANG and LC_ALL, keeps sshd's identity and drops CRHA_TASK_*", async () => {

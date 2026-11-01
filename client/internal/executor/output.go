@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
@@ -14,6 +15,11 @@ import (
 
 // maxMemoryOutput bounds the output kept in memory when it cannot be spilled to a file.
 const maxMemoryOutput = 16 << 20
+
+// coalesceBytes bounds one segment: a write that fits is appended to the last segment instead of
+// starting a new one. A pipe often writes a few bytes at a time, and one segment per write would
+// make the segment index as long as the output is large.
+const coalesceBytes = 4 << 10
 
 // StreamSlots is the number of output streams the protocol carries: stdout and stderr.
 const StreamSlots = 2
@@ -43,12 +49,16 @@ type Output struct {
 	totalBytes uint64
 	totalLines uint64
 	ends       [StreamSlots]uint64 // indexed by StreamIndex
-	segments   []segment           // in arrival order
-	file       *os.File
-	path       string
-	fileLen    uint64
-	dropped    bool // memory cap reached without a spill file
-	closed     bool
+	segments   []segment           // in arrival order, both streams interleaved
+	// streams indexes segments by stream, in stream offset order, so ReadAt can binary search the
+	// first segment of an offset instead of scanning every segment.
+	streams     [StreamSlots][]int
+	memoryBytes uint64 // sum of the inMemory segment lengths
+	file        *os.File
+	path        string
+	fileLen     uint64
+	dropped     bool // memory cap reached without a spill file
+	closed      bool
 
 	notify chan struct{}
 }
@@ -116,9 +126,9 @@ func (o *Output) append(stream protocol.Stream, p []byte) {
 		return
 	}
 	idx := StreamIndex(stream)
-	seg := segment{stream: stream, streamOff: o.ends[idx], length: uint64(len(p))}
-	o.ends[idx] += seg.length
-	o.totalBytes += seg.length
+	n := uint64(len(p))
+	o.ends[idx] += n
+	o.totalBytes += n
 	o.totalLines += uint64(bytes.Count(p, []byte{'\n'}))
 
 	if o.file == nil && !o.dropped && o.overThreshold() {
@@ -126,39 +136,67 @@ func (o *Output) append(stream protocol.Stream, p []byte) {
 	}
 	if o.file != nil {
 		if _, err := o.file.WriteAt(p, int64(o.fileLen)); err == nil {
-			seg.place, seg.fileOff = inFile, o.fileLen
-			o.fileLen += seg.length
-		} else {
-			// A broken spill file: keep what is there, continue in memory.
-			o.file.Close()
-			o.file = nil
-			o.dropped = true
+			if last := o.coalescible(stream, inFile, n); last != nil {
+				last.length += n
+			} else {
+				o.addSegment(segment{
+					stream: stream, streamOff: o.ends[idx] - n, length: n, place: inFile, fileOff: o.fileLen,
+				})
+			}
+			o.fileLen += n
+			o.signal()
+			return
 		}
+		// A broken spill file: keep what is there, continue in memory.
+		o.file.Close()
+		o.file = nil
+		o.dropped = true
 	}
-	if seg.place != inFile {
-		if o.memoryBytes()+seg.length > maxMemoryOutput {
-			// Over the memory cap: keep offsets consistent but discard the bytes.
-			seg.place = lost
+	if o.memoryBytes+n > maxMemoryOutput {
+		// Over the memory cap: keep offsets consistent but discard the bytes.
+		if last := o.coalescible(stream, lost, n); last != nil {
+			last.length += n
 		} else {
-			seg.data = append([]byte(nil), p...)
+			o.addSegment(segment{stream: stream, streamOff: o.ends[idx] - n, length: n, place: lost})
 		}
+	} else if last := o.coalescible(stream, inMemory, n); last != nil {
+		last.data = append(last.data, p...)
+		last.length += n
+		o.memoryBytes += n
+	} else {
+		o.addSegment(segment{
+			stream: stream, streamOff: o.ends[idx] - n, length: n, place: inMemory,
+			data: append([]byte(nil), p...),
+		})
+		o.memoryBytes += n
 	}
-	o.segments = append(o.segments, seg)
 	o.signal()
+}
+
+// coalescible returns the newest segment if a write of n bytes can be appended to it. Only the last
+// segment overall may grow: extending an earlier one would move bytes written after another
+// stream's output, which would change the interleaved order of the spill file (doc/execution-plane.md
+// 输出).
+func (o *Output) coalescible(stream protocol.Stream, place place, n uint64) *segment {
+	if len(o.segments) == 0 {
+		return nil
+	}
+	last := &o.segments[len(o.segments)-1]
+	if last.stream != stream || last.place != place || last.length+n > coalesceBytes {
+		return nil
+	}
+	return last
+}
+
+// addSegment appends seg to the segment list and to its stream's index.
+func (o *Output) addSegment(seg segment) {
+	o.segments = append(o.segments, seg)
+	idx := StreamIndex(seg.stream)
+	o.streams[idx] = append(o.streams[idx], len(o.segments)-1)
 }
 
 func (o *Output) overThreshold() bool {
 	return (o.spillBytes > 0 && o.totalBytes > o.spillBytes) || (o.spillLines > 0 && o.totalLines > o.spillLines)
-}
-
-func (o *Output) memoryBytes() uint64 {
-	var n uint64
-	for _, s := range o.segments {
-		if s.place == inMemory {
-			n += s.length
-		}
-	}
-	return n
 }
 
 // createFile opens <dir>/<task id>.log and makes it the output file. It returns false and leaves the
@@ -200,6 +238,7 @@ func (o *Output) spill() {
 		off += s.length
 	}
 	o.fileLen = off
+	o.memoryBytes = 0
 }
 
 // signal wakes a watcher without blocking. Callers hold o.mu, which also serializes it with
@@ -235,6 +274,8 @@ func (o *Output) Release() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.segments = nil
+	o.streams = [StreamSlots][]int{}
+	o.memoryBytes = 0
 	if o.file != nil {
 		o.file.Close()
 		o.file = nil
@@ -262,14 +303,17 @@ var ErrOutputLost = errors.New("output no longer available")
 func (o *Output) ReadAt(stream protocol.Stream, off uint64, max int) ([]byte, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	index := o.streams[StreamIndex(stream)]
+	first := sort.Search(len(index), func(k int) bool {
+		s := o.segments[index[k]]
+		return s.streamOff+s.length > off
+	})
 	var out []byte
-	for _, s := range o.segments {
-		if s.stream != stream || s.streamOff+s.length <= off {
-			continue
-		}
+	for _, i := range index[first:] {
 		if len(out) >= max {
 			break
 		}
+		s := o.segments[i]
 		start := off + uint64(len(out)) - s.streamOff
 		n := min(s.length-start, uint64(max-len(out)))
 		switch s.place {

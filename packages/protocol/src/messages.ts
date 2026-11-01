@@ -22,8 +22,22 @@ import {
 	union,
 } from "./schema.ts";
 
-export const PROTOCOL_MAJOR = 1;
-export const PROTOCOL_MINOR = 1;
+export const PROTOCOL_MAJOR = 2;
+/**
+ * An incompatible change bumps the major version and the Noise prologue, so a peer with another
+ * major is refused at the handshake (doc/protocol.md#握手载荷). The minor version is additive:
+ * new commands and events are negotiated through the handshake's `commands` field. Protocol 2.0
+ * reads files by line range and gives `task.exit` an eighth element; 1.1 was the M4 command set
+ * and 1.0 the M3.5 one.
+ */
+export const PROTOCOL_MINOR = 0;
+
+/**
+ * The Noise prologue's version prefix, `"crh/"` followed by the major version
+ * (doc/protocol.md#握手载荷). The full prologue is this prefix followed by the server's
+ * challenge, so a peer with another major fails the Noise handshake itself.
+ */
+export const NOISE_PROLOGUE_PREFIX = `crh/${PROTOCOL_MAJOR}`;
 
 // ---------------------------------------------------------------------------
 // Handshake payloads (Noise IK messages, not frames)
@@ -179,12 +193,25 @@ export const editCodec = tuple([
 ]);
 export type Edit = Infer<typeof editCodec>;
 
+/**
+ * The page of a `file.read` is at most this many bytes, whole lines only
+ * (doc/protocol.md#任务): the node stops at the first line that would not fit.
+ */
+export const FILE_READ_MAX_BYTES = 50 * 1024;
+
+/**
+ * The entries of a `file.list` result must fit the `task.exit` frame, so the node stops listing
+ * once their fields reach this many bytes and reports the result as truncated
+ * (doc/protocol.md TaskResult).
+ */
+export const FILE_LIST_MAX_BYTES = 32 * 1024;
+
 export const taskSpecCodec = union({
 	exec: execSpecCodec,
 	"file.read": tuple([
 		["path", text],
-		["offset", uint],
-		["limit", uint],
+		["startLine", uint],
+		["lineCount", uint],
 	]),
 	"file.write": tuple([
 		["path", text],
@@ -235,6 +262,80 @@ export const outcomeCodec = union({
 });
 export type Outcome = Infer<typeof outcomeCodec>;
 
+// ---------------------------------------------------------------------------
+// Task results
+// ---------------------------------------------------------------------------
+
+/**
+ * The page a `file.read` task kept: the lines it holds and whether the scan reached the end of the
+ * file (doc/protocol.md#任务). `total` is the file's line count and is present only at the end.
+ */
+export const fileReadResultCodec = tuple([
+	["from", uint],
+	["to", uint],
+	["eof", bool],
+	["total", nullable(uint)],
+	["tooLong", bool],
+]);
+export type FileReadResult = Infer<typeof fileReadResultCodec>;
+
+/** The metadata a `file.stat` task reports (doc/protocol.md TaskResult). */
+export const fileStatResultCodec = tuple([
+	["path", text],
+	["type", text],
+	["size", int],
+	["mode", text],
+	["uid", int],
+	["gid", int],
+	["owner", text],
+	["group", text],
+	["mtime", text],
+	["linkTarget", nullable(text)],
+]);
+export type FileStatResult = Infer<typeof fileStatResultCodec>;
+
+/** One directory entry of a `file.list` task. */
+export const fileListEntryCodec = tuple([
+	["name", text],
+	["type", text],
+	["size", int],
+	["mode", text],
+	["mtime", text],
+]);
+export type FileListEntry = Infer<typeof fileListEntryCodec>;
+
+/** The entries a `file.list` task listed, and whether the limit cut the directory short. */
+export const fileListResultCodec = tuple([
+	["entries", list(fileListEntryCodec)],
+	["truncated", bool],
+]);
+export type FileListResult = Infer<typeof fileListResultCodec>;
+
+/** What a `file.write` task wrote. */
+export const fileWriteResultCodec = tuple([
+	["bytes", uint],
+	["created", bool],
+]);
+export type FileWriteResult = Infer<typeof fileWriteResultCodec>;
+
+/** What a `file.edit` task replaced. */
+export const fileEditResultCodec = tuple([["replacements", uint]]);
+export type FileEditResult = Infer<typeof fileEditResultCodec>;
+
+/**
+ * The structured result of a task, carried in `task.exit.result` (doc/protocol.md TaskResult). Its
+ * tag is the task kind; a kind that reports nothing structured has no branch. The result never
+ * travels in the output streams, which keep the task's text output alone.
+ */
+export const taskResultCodec = union({
+	"file.read": fileReadResultCodec,
+	"file.stat": fileStatResultCodec,
+	"file.list": fileListResultCodec,
+	"file.write": fileWriteResultCodec,
+	"file.edit": fileEditResultCodec,
+});
+export type TaskResult = Infer<typeof taskResultCodec>;
+
 export const taskExitCodec = tuple([
 	["taskId", text],
 	["outcome", outcomeCodec],
@@ -243,6 +344,7 @@ export const taskExitCodec = tuple([
 	["stdoutEnd", uint],
 	["stderrEnd", uint],
 	["outputFile", text],
+	["result", nullable(taskResultCodec)],
 ]);
 export type TaskExit = Infer<typeof taskExitCodec>;
 

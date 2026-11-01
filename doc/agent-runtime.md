@@ -67,19 +67,32 @@ interface AgentRuntime {
 |---|---|
 | `list_nodes` | 列出会话所有者能访问的节点（自己的、分享给自己的）和组，以及节点状态、特权任务的处理方式 |
 | `node_info` | 节点 Facts，以及节点笔记的路径和内容（截断） |
-| `exec` | 执行命令；参数：`node`、`cmd` 或 `argv`、`cwd`、`env`、`privileged`、`timeout`、`wait`（最长等待时间）；批量时 `text` 控制是否返回文本输出 |
-| `read_file` / `write_file` / `edit_file` / `list_dir` | 文件操作；`edit_file` 的参数与 pi 的 edit 工具相同（`edits[]`，每项 `oldText` / `newText`，`oldText` 必须在文件中唯一），由 crha 在节点上完成；`write_file` 默认只创建新文件，`overwrite: true` 才覆盖 |
+| `exec` | 执行命令；参数：`targets`、`cmd` 或 `argv`、`cwd`、`env`、`privileged`、`timeout`、`wait`（最长等待时间）；批量时 `output` 选择 `status` 或 `text` |
+| `read_file` | 按行读文件：`path`、`offset`（从第几行，1-based，默认 1）、`limit`（行数，默认 2000）、`targets`；一页不超过 2000 行或 50KB |
+| `write_file` | 写文件：`path`、`content`、`overwrite`、`mode`、`targets`；默认只创建新文件，`overwrite: true` 才覆盖 |
+| `edit_file` | 按原文替换，参数与 pi 的 edit 工具相同（`node`、`edits[]`，每项 `oldText` / `newText`，`oldText` 必须在文件中唯一），由 crha 在节点上完成 |
+| `list_dir` | 列目录：`path`、`limit`、`targets` |
 | `task_wait` | 继续等待一个仍在运行的任务，返回当前的输出尾部 |
 | `task_cancel` | 取消任务 |
 
+`exec`、`read_file`、`write_file`、`list_dir` 只有一个 `targets` 参数，不再分 `node` 和 `targets`；`edit_file` 和 `node_info` 只作用于一个节点，仍是 `node`。
+
+`task_wait`、`task_cancel` 只作用于本会话或本 API token 发起的任务与任务组，以及本会话子树（subagent）发起的那些；同一用户的其他会话的任务不可见（与"任务属于发起它的操作者"一致，见 [access-control.md](access-control.md#操作者)）。
+
 ### 批量执行
 
-`exec`、`read_file`、`write_file` 原生支持多个目标：`targets` 参数是节点和组的列表，例如 `["web-1", "group:prod"]`。
+`exec`、`read_file`、`write_file`、`list_dir` 原生支持多个目标：`targets` 参数是节点、节点 id 和组的列表，例如 `["web-1", "group:prod"]`。
 
-- 可选参数：`parallel`（并发数，默认 10）、`fail_fast`（出现失败后不再启动剩余节点）、`text`（是否返回文本输出）。
+- **结果形状只由输入决定，与解析出多少节点无关**：
+  - 恰好一个条目，且它不是 `group:` → 单个任务，返回单个任务的结果（与过去的 `node` 相同）；
+  - 多于一个条目，或任何 `group:` 条目（即使只解析到一个节点）→ 一个**任务组**，每个节点一项结果。
+  - 批量参数（`parallel`、`fail_fast`、`output`）在单任务时被忽略。
+- 可选参数：`parallel`（并发数，默认 10）、`fail_fast`（出现失败后不再启动剩余节点）；`output`（`status` 或 `text`，默认 `status`）只有 `exec` 有，文件操作没有这个参数。
 - Cluster 核心为一次批量调用创建一个**任务组**，每个节点一个任务，审计中可以按任务组查询。
-- 默认 `status`：只返回状态、退出码、task_id 和完整输出文件路径；不返回 stdout/stderr。完整输出留在节点文件。
-- `text: true`：每节点保留尾部 8KB/128 行；所有节点共享单任务 50KB/2000 行预算；按输出到达顺序分配，预算耗尽后忽略后续节点，允许整个节点被丢弃；完整输出仍在节点文件。
+- `exec` 默认 `status`：只返回状态、退出码、task_id 和完整输出文件路径；不返回 stdout/stderr。完整输出留在节点文件。
+- `exec` 的 `output: "text"`：每节点保留尾部 8KB/128 行；所有节点共享单任务 50KB/2000 行预算；按输出到达顺序分配，预算耗尽后忽略后续节点，允许整个节点被丢弃；完整输出仍在节点文件。
+- 文件操作的任务组固定保留每个节点的**头部**：每节点 8KB/128 行，共享同一个 50KB/2000 行预算。`read_file` 的每个节点带自己的 `lines`（首行和末行）和继续偏移，节点之间没有共同的偏移或行数限制；预算耗尽而没有保留内容的节点会在结果里说明，让它单独重读。`write_file`、`list_dir` 没有页面可保留，它们的结果来自任务的 `result`，不受这个预算影响。
+- `read_file` 的继续偏移是 `Use offset=<n> to continue.`：单个任务里它是节点返回的页面的下一行；批量时它是该节点**保留下来的**最后一行的下一行。
 - 预算在接收端追加时检查，内存不随节点数增长；被丢弃节点仍会收到 output/exit ack。不优先保留失败节点，失败输出通过节点文件查看。
 - 部分节点通过、部分授权拒绝时任务独立：已执行任务不回滚，`fail_fast` 只影响尚未启动节点。
 - 授权规则逐节点判定；需要审批时，同一个任务组合并成一个审批请求。特权任务组第一阶段不做，先支持单任务特权。
@@ -92,6 +105,8 @@ interface AgentRuntime {
 - **等待审批时**：工具一直等待，同时通过 `api.details` 把"等待审批"的状态推送给 UI。
 
 ### 交给模型的输出
+
+文件任务的结构化结果按字段返回，不再是输出流里的一段 JSON（见 [protocol.md](protocol.md#taskresult)）：`read_file` 返回页面字节、`lines`（首行和末行）、是否到达文件末尾和文件总行数；`list_dir` 返回 `entries` 和 `truncated`；`write_file` 返回 `bytes` 和 `created`；`edit_file` 返回 `replacements`；`file.stat` 返回路径、类型、大小、权限、属主和修改时间。
 
 单任务文本模式与 pi 的 bash 工具一致：只返回**尾部** 2000 行或 50KB（先到为准），并注明"显示的是第 X–Y 行，共 N 行，完整输出：<路径>"。输出被截断时，crha 已经把完整输出保存在节点上（见 [execution-plane.md](execution-plane.md#输出)），结果中附上文件路径，agent 需要时用 `read_file` 分段读取。批量默认只返回状态和文件路径；显式 `text` 时按每节点和总预算截断。SSH 节点没有完整输出。
 
@@ -182,7 +197,7 @@ interface AgentRuntime {
 | 命令输出交给模型 | 尾部 2000 行或 50KB，先到为准 | 相同 |
 | 完整输出落盘 | 超过上述阈值时写入系统临时目录（`pi-bash-*.log`，0600），不自动清理 | 超过相同阈值时由 crha 写入 `/var/lib/crha/output/`（0600），按 7 天、1GB 清理 |
 | 命令超时 | 无默认超时 | 相同（`timeout` 可选）；另有 `wait`（默认 10 分钟）只决定工具何时返回，不终止任务 |
-| 读文件 | 从头 2000 行或 50KB，用 `offset` / `limit` 分页 | 相同 |
+| 读文件 | 从头 2000 行或 50KB，用 `offset` / `limit`（行号）分页 | 相同；节点按行分页（一次 `file.read` 从第 `offset` 行起读 `limit` 行，整页不超过 50KB），结果原样返回页面字节（保留文件自己的换行），截断时给出 `Use offset=<n> to continue.`；总行数只在页面到达文件末尾时报告；起始行本身超过 50KB 时报错并指向 `exec`（例如 `sed -n '<N>p' <路径> \| head -c 51200`）；起始行超过文件末尾也是错误，并给出总行数 |
 | 列目录 | 500 项或 50KB | 相同 |
 | grep / find | 100 条匹配（单行 500 字符）/ 1000 条结果 | 暂不提供专门工具，用 `exec` |
 | 自动压缩 | `reserveTokens` 16384，`keepRecentTokens` 20000 | 相同 |

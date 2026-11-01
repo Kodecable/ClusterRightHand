@@ -1,8 +1,8 @@
 /**
  * The command and event registries: every name this implementation knows, with
- * its request/response or body codec. Protocol 1.0 names are required in the
- * handshake; the 1.1 names of doc/protocol.md#m4提权 are optional, so a 1.0 peer
- * still connects (its commands are the intersection of the two lists).
+ * its request/response or body codec. The M3.5 names are required in the
+ * handshake; the M4 names of doc/protocol.md#m4提权 are optional, so a peer
+ * without them still connects (its commands are the intersection of the two lists).
  */
 import {
 	emptyCodec,
@@ -36,7 +36,7 @@ export interface CommandDefinition<Q = unknown, R = unknown> {
 	readonly response: Codec<R>;
 }
 
-/** Every command, 1.0 and 1.1. */
+/** Every command, M3.5 and M4. */
 export const COMMANDS = {
 	hello: { request: helloCodec, response: welcomeCodec },
 	ping: { request: pingCodec, response: pingCodec },
@@ -49,7 +49,7 @@ export const COMMANDS = {
 	"local.withdraw": { request: localWithdrawCodec, response: emptyCodec },
 } as const satisfies Record<string, CommandDefinition>;
 
-/** Every event, 1.0 and 1.1. */
+/** Every event, M3.5 and M4. */
 export const EVENTS = {
 	"task.output": taskOutputCodec,
 	"task.exit": taskExitCodec,
@@ -67,7 +67,7 @@ export type CommandRequest<C extends CommandName> = Infer<(typeof COMMANDS)[C]["
 export type CommandResponse<C extends CommandName> = Infer<(typeof COMMANDS)[C]["response"]>;
 export type EventBody<E extends EventName> = Infer<(typeof EVENTS)[E]>;
 
-/** Every protocol 1.0 command and event; a peer must implement all of them. */
+/** Every M3.5 command and event; a peer must implement all of them. */
 export const REQUIRED_NAMES: readonly string[] = Object.freeze([
 	"hello",
 	"ping",
@@ -84,8 +84,8 @@ export const REQUIRED_NAMES: readonly string[] = Object.freeze([
 ]);
 
 /**
- * Names added in protocol 1.1 (doc/protocol.md#m4提权). Optional in the handshake;
- * a 1.0 node that does not offer them is treated as not supporting `forward`.
+ * Names added in M4 (doc/protocol.md#m4提权). Optional in the handshake; a node
+ * that does not offer them is treated as not supporting `forward`.
  */
 export const OPTIONAL_NAMES: readonly string[] = Object.freeze([
 	"revocations.add",

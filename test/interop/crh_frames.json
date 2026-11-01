@@ -2,23 +2,23 @@
 	"positive": [
 		{
 			"id": "handshake.init.no-enroll",
-			"description": "HandshakeInit protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,revocations.add,local.request,local.withdraw,trust.summary,local.decision] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=null",
-			"hex": "860100916568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6f7265766f636174696f6e732e6164646d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e6a302e312e302d746573741b0000018bcfe56800f6"
+			"description": "HandshakeInit protocol_major=2 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,revocations.add,local.request,local.withdraw,trust.summary,local.decision] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=null",
+			"hex": "860200916568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6f7265766f636174696f6e732e6164646d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e6a302e312e302d746573741b0000018bcfe56800f6"
 		},
 		{
 			"id": "handshake.init.enroll",
-			"description": "HandshakeInit protocol_major=1 protocol_minor=0 commands=[hello,ping] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=[token_secret=\"enroll-secret\", hostname=\"node-1\", facts={hostname=\"node-1\", groups=[\"sudo\",\"docker\"], os_id=\"ubuntu\", os_version_id=\"24.04\", os_pretty_name=\"Ubuntu 24.04 LTS\", kernel=\"6.8.0-31-generic\", arch=\"x86_64\", init_system=\"systemd\", package_managers=[\"apt\",\"snap\"], privilege_tools=[\"sudo\"], notes_path=\"/etc/crh/notes\", clock_offset_ms=-1234, shells={sh=\"/bin/sh\", bash=\"/usr/bin/bash\"}}]",
-			"hex": "860100826568656c6c6f6470696e676a302e312e302d746573741b0000018bcfe56800836d656e726f6c6c2d736563726574666e6f64652d31ad6461726368667838365f3634656f735f6964667562756e74756667726f75707382647375646f66646f636b6572666b65726e656c70362e382e302d33312d67656e65726963667368656c6c73a2627368672f62696e2f736864626173686d2f7573722f62696e2f6261736868686f73746e616d65666e6f64652d316a6e6f7465735f706174686e2f6574632f6372682f6e6f7465736b696e69745f73797374656d6773797374656d646d6f735f76657273696f6e5f69646532342e30346e6f735f7072657474795f6e616d65705562756e74752032342e3034204c54536f636c6f636b5f6f66667365745f6d733904d16f70726976696c6567655f746f6f6c7381647375646f707061636b6167655f6d616e6167657273826361707464736e6170"
+			"description": "HandshakeInit protocol_major=2 protocol_minor=0 commands=[hello,ping] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=[token_secret=\"enroll-secret\", hostname=\"node-1\", facts={hostname=\"node-1\", groups=[\"sudo\",\"docker\"], os_id=\"ubuntu\", os_version_id=\"24.04\", os_pretty_name=\"Ubuntu 24.04 LTS\", kernel=\"6.8.0-31-generic\", arch=\"x86_64\", init_system=\"systemd\", package_managers=[\"apt\",\"snap\"], privilege_tools=[\"sudo\"], notes_path=\"/etc/crh/notes\", clock_offset_ms=-1234, shells={sh=\"/bin/sh\", bash=\"/usr/bin/bash\"}}]",
+			"hex": "860200826568656c6c6f6470696e676a302e312e302d746573741b0000018bcfe56800836d656e726f6c6c2d736563726574666e6f64652d31ad6461726368667838365f3634656f735f6964667562756e74756667726f75707382647375646f66646f636b6572666b65726e656c70362e382e302d33312d67656e65726963667368656c6c73a2627368672f62696e2f736864626173686d2f7573722f62696e2f6261736868686f73746e616d65666e6f64652d316a6e6f7465735f706174686e2f6574632f6372682f6e6f7465736b696e69745f73797374656d6773797374656d646d6f735f76657273696f6e5f69646532342e30346e6f735f7072657474795f6e616d65705562756e74752032342e3034204c54536f636c6f636b5f6f66667365745f6d733904d16f70726976696c6567655f746f6f6c7381647375646f707061636b6167655f6d616e6167657273826361707464736e6170"
 		},
 		{
 			"id": "handshake.response.active",
-			"description": "HandshakeResponse protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,revocations.add,local.request,local.withdraw,trust.summary,local.decision] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"active\" node_id=\"node-1\"",
-			"hex": "870100916568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6f7265766f636174696f6e732e6164646d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e66636f6e6e2d311b0000018bcfe56cd266616374697665666e6f64652d31"
+			"description": "HandshakeResponse protocol_major=2 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,revocations.add,local.request,local.withdraw,trust.summary,local.decision] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"active\" node_id=\"node-1\"",
+			"hex": "870200916568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6f7265766f636174696f6e732e6164646d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e66636f6e6e2d311b0000018bcfe56cd266616374697665666e6f64652d31"
 		},
 		{
 			"id": "handshake.response.pending",
-			"description": "HandshakeResponse protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,revocations.add,local.request,local.withdraw,trust.summary,local.decision] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"pending\" node_id=\"node-1\"",
-			"hex": "870100916568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6f7265766f636174696f6e732e6164646d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e66636f6e6e2d311b0000018bcfe56cd26770656e64696e67666e6f64652d31"
+			"description": "HandshakeResponse protocol_major=2 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,revocations.add,local.request,local.withdraw,trust.summary,local.decision] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"pending\" node_id=\"node-1\"",
+			"hex": "870200916568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6f7265766f636174696f6e732e6164646d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e66636f6e6e2d311b0000018bcfe56cd26770656e64696e67666e6f64652d31"
 		},
 		{
 			"id": "request.hello",
@@ -52,8 +52,8 @@
 		},
 		{
 			"id": "request.task.start.file.read",
-			"description": "request id=5 cmd=task.start body=[task_id=\"t-read\", attempt=1, spec=[\"file.read\", [path=\"/etc/hosts\", offset=0, limit=0]], privileged=false, authorizations=[], timeout_ms=0, kill_grace_ms=0, output=[\"status\", []]]",
-			"hex": "8400056a7461736b2e73746172748866742d7265616401826966696c652e72656164836a2f6574632f686f7374730000f4800000826673746174757380"
+			"description": "request id=5 cmd=task.start body=[task_id=\"t-read\", attempt=1, spec=[\"file.read\", [path=\"/etc/hosts\", startLine=1, lineCount=100]], privileged=false, authorizations=[], timeout_ms=0, kill_grace_ms=0, output=[\"status\", []]]",
+			"hex": "8400056a7461736b2e73746172748866742d7265616401826966696c652e72656164836a2f6574632f686f737473011864f4800000826673746174757380"
 		},
 		{
 			"id": "request.task.start.file.write",
@@ -132,8 +132,8 @@
 		},
 		{
 			"id": "request.local.request",
-			"description": "request id=14 cmd=local.request body=[task_id=\"t-read\", attempt=1, spec=[\"file.read\", [path=\"/etc/hosts\", offset=0, limit=0]], note=\"restart nginx\"]",
-			"hex": "84000e6d6c6f63616c2e726571756573748466742d7265616401826966696c652e72656164836a2f6574632f686f73747300006d72657374617274206e67696e78"
+			"description": "request id=14 cmd=local.request body=[task_id=\"t-read\", attempt=1, spec=[\"file.read\", [path=\"/etc/hosts\", startLine=1, lineCount=100]], note=\"restart nginx\"]",
+			"hex": "84000e6d6c6f63616c2e726571756573748466742d7265616401826966696c652e72656164836a2f6574632f686f7374730118646d72657374617274206e67696e78"
 		},
 		{
 			"id": "response.local.request",
@@ -157,23 +157,48 @@
 		},
 		{
 			"id": "event.task.exit.code",
-			"description": "event task.exit body=[task_id=\"t-exec-argv\", outcome=[\"code\", 0], timed_out=false, cancelled=false, stdout_end=6, stderr_end=0, output_file=\"\"]",
-			"hex": "8302697461736b2e65786974876b742d657865632d617267768264636f646500f4f4060060"
+			"description": "event task.exit body=[task_id=\"t-exec-argv\", outcome=[\"code\", 0], timed_out=false, cancelled=false, stdout_end=6, stderr_end=0, output_file=\"\", result=null]",
+			"hex": "8302697461736b2e65786974886b742d657865632d617267768264636f646500f4f4060060f6"
 		},
 		{
 			"id": "event.task.exit.signal",
-			"description": "event task.exit body=[task_id=\"t-exec-shell\", outcome=[\"signal\", \"TERM\"], timed_out=false, cancelled=true, stdout_end=3, stderr_end=0, output_file=\"\"]",
-			"hex": "8302697461736b2e65786974876c742d657865632d7368656c6c82667369676e616c645445524df4f5030060"
+			"description": "event task.exit body=[task_id=\"t-exec-shell\", outcome=[\"signal\", \"TERM\"], timed_out=false, cancelled=true, stdout_end=3, stderr_end=0, output_file=\"\", result=null]",
+			"hex": "8302697461736b2e65786974886c742d657865632d7368656c6c82667369676e616c645445524df4f5030060f6"
 		},
 		{
 			"id": "event.task.exit.error",
-			"description": "event task.exit body=[task_id=\"t-edit\", outcome=[\"error\", [code=\"internal_error\", message=\"failed\"]], timed_out=true, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"/tmp/out\"]",
-			"hex": "8302697461736b2e657869748766742d6564697482656572726f72826e696e7465726e616c5f6572726f72666661696c6564f5f40000682f746d702f6f7574"
+			"description": "event task.exit body=[task_id=\"t-edit\", outcome=[\"error\", [code=\"internal_error\", message=\"failed\"]], timed_out=true, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"/tmp/out\", result=null]",
+			"hex": "8302697461736b2e657869748866742d6564697482656572726f72826e696e7465726e616c5f6572726f72666661696c6564f5f40000682f746d702f6f7574f6"
 		},
 		{
 			"id": "event.task.exit.error.bom",
-			"description": "event task.exit body=[task_id=\"t-bom\", outcome=[\"error\", [code=\"io_error\", message=\"\\uFEFFbom\"]], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"\"]",
-			"hex": "8302697461736b2e657869748765742d626f6d82656572726f728268696f5f6572726f7266efbbbf626f6df4f4000060"
+			"description": "event task.exit body=[task_id=\"t-bom\", outcome=[\"error\", [code=\"io_error\", message=\"\\uFEFFbom\"]], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"\", result=null]",
+			"hex": "8302697461736b2e657869748865742d626f6d82656572726f728268696f5f6572726f7266efbbbf626f6df4f4000060f6"
+		},
+		{
+			"id": "event.task.exit.result.file.read",
+			"description": "event task.exit body=[task_id=\"t-read\", outcome=[\"code\", 0], timed_out=false, cancelled=false, stdout_end=8, stderr_end=0, output_file=\"\", result=[\"file.read\", [from=1, to=2, eof=true, total=3, too_long=false]]]",
+			"hex": "8302697461736b2e657869748866742d726561648264636f646500f4f4080060826966696c652e72656164850102f503f4"
+		},
+		{
+			"id": "event.task.exit.result.file.stat",
+			"description": "event task.exit body=[task_id=\"t-stat\", outcome=[\"code\", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"\", result=[\"file.stat\", [path=\"/tmp/x\", type=\"file\", size=7, mode=\"0644\", uid=1000, gid=1000, owner=\"alice\", group=\"alice\", mtime=\"2026-01-01T00:00:00Z\", link_target=null]]]",
+			"hex": "8302697461736b2e657869748866742d737461748264636f646500f4f4000060826966696c652e737461748a662f746d702f786466696c650764303634341903e81903e865616c69636565616c69636574323032362d30312d30315430303a30303a30305af6"
+		},
+		{
+			"id": "event.task.exit.result.file.list",
+			"description": "event task.exit body=[task_id=\"t-list\", outcome=[\"code\", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"\", result=[\"file.list\", [entries=[[name=\"f.txt\", type=\"file\", size=7, mode=\"0644\", mtime=\"2026-01-01T00:00:00Z\"]], truncated=false]]]",
+			"hex": "8302697461736b2e657869748866742d6c6973748264636f646500f4f4000060826966696c652e6c69737482818565662e7478746466696c6507643036343474323032362d30312d30315430303a30303a30305af4"
+		},
+		{
+			"id": "event.task.exit.result.file.write",
+			"description": "event task.exit body=[task_id=\"t-write\", outcome=[\"code\", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"\", result=[\"file.write\", [bytes=3, created=true]]]",
+			"hex": "8302697461736b2e657869748867742d77726974658264636f646500f4f4000060826a66696c652e77726974658203f5"
+		},
+		{
+			"id": "event.task.exit.result.file.edit",
+			"description": "event task.exit body=[task_id=\"t-edit-result\", outcome=[\"code\", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"\", result=[\"file.edit\", [replacements=2]]]",
+			"hex": "8302697461736b2e65786974886d742d656469742d726573756c748264636f646500f4f4000060826966696c652e656469748102"
 		},
 		{
 			"id": "event.facts",
@@ -331,6 +356,21 @@
 			"id": "negative.null_non_nullable",
 			"description": "task.cancel request task_id is null where text is required",
 			"hex": "8400181d6b7461736b2e63616e63656c81f6"
+		},
+		{
+			"id": "negative.task_exit_result_unknown",
+			"description": "task.exit result has the tag \"exec\", which reports no structured result",
+			"hex": "8302697461736b2e657869748865742d6261648264636f646500f4f400006082646578656380"
+		},
+		{
+			"id": "negative.task_exit_result_map",
+			"description": "task.exit result is a free-form map instead of the typed result of the task kind",
+			"hex": "8302697461736b2e657869748865742d6261648264636f646500f4f4000060a16466726f6d01"
+		},
+		{
+			"id": "negative.task_exit_result_short",
+			"description": "task.exit file.read result has 4 elements instead of 5",
+			"hex": "8302697461736b2e657869748865742d6261648264636f646500f4f4000060826966696c652e72656164840102f5f6"
 		},
 		{
 			"id": "negative.int_below_min",

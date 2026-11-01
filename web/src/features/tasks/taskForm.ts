@@ -66,7 +66,7 @@ const MESSAGES: Record<TaskFormErrorCode, MessageDescriptor> = {
 	"command-required": msg`A command is required.`,
 	"timeout-invalid": msg`The timeout must be a non-negative whole number of seconds.`,
 	"path-required": msg`A path is required.`,
-	"offset-invalid": msg`The offset must be a non-negative whole number.`,
+	"offset-invalid": msg`The start line must be a whole number of at least 1.`,
 	"limit-invalid": msg`The limit must be a non-negative whole number.`,
 	"old-text-required": msg`The text to replace is required.`,
 };
@@ -106,12 +106,19 @@ export function buildTaskRequest(form: TaskForm): TaskRequest {
 			if (form.cwd) body.cwd = form.cwd;
 			if (form.stdin) body.stdin = form.stdin;
 			break;
-		case "file.read":
+		case "file.read": {
+			body.path = need(form.path, "path-required");
+			// Lines, 1-based: the node pages by line so the tool needs no byte cursor.
+			const startLine = num(form.offset, "offset-invalid");
+			const lineCount = num(form.limit, "limit-invalid");
+			if (startLine === 0) throw new TaskFormError("offset-invalid");
+			if (startLine !== undefined) body.startLine = startLine;
+			if (lineCount !== undefined) body.lineCount = lineCount;
+			break;
+		}
 		case "file.list": {
 			body.path = need(form.path, "path-required");
-			const offset = form.kind === "file.read" ? num(form.offset, "offset-invalid") : undefined;
 			const limit = num(form.limit, "limit-invalid");
-			if (offset !== undefined) body.offset = offset;
 			if (limit !== undefined) body.limit = limit;
 			break;
 		}

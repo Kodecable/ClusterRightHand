@@ -17,9 +17,29 @@ msgstr "运维控制台"
 msgid "Pending approvals"
 msgstr "待处理审批"
 
+#: src/components/task-result.tsx
+msgid " (a new file)"
+msgstr "（新文件）"
+
+#: src/components/task-result.tsx
+msgid " (end of file)"
+msgstr "（文件末尾）"
+
+#: src/components/task-result.tsx
+msgid " (more lines follow)"
+msgstr "（后面还有内容）"
+
+#: src/components/task-result.tsx
+msgid " (replaced)"
+msgstr "（覆盖已有文件）"
+
 #: src/features/tasks/task-group-result.tsx
 msgid " (the batch was interrupted)"
 msgstr "（批量运行被中断）"
+
+#: src/components/task-result.tsx
+msgid ", {total} lines in all"
+msgstr "，共 {total} 行"
 
 #: src/components/task-result.tsx
 msgid "… {omitted} bytes omitted …"
@@ -28,6 +48,11 @@ msgstr "… 省略 {omitted} 字节 …"
 #: src/markdown/safe-nodes.tsx
 msgid "[image: {label}]"
 msgstr "[图片：{label}]"
+
+#. placeholder {0}: result.size
+#: src/components/task-result.tsx
+msgid "{0, plural, one {# byte} other {# bytes}}"
+msgstr "{0, plural, one {# 字节} other {# 字节}}"
 
 #. placeholder {0}: events.state.queued
 #: src/features/sessions/pages.tsx
@@ -64,6 +89,11 @@ msgstr "{0, plural, one {# 个任务} other {# 个任务}}"
 msgid "{0, plural, one {Next run:} other {Next runs:}}"
 msgstr "{0, plural, one {下次运行：} other {后续运行：}}"
 
+#. placeholder {0}: result.replacements
+#: src/components/task-result.tsx
+msgid "{0, plural, one {Replaced # occurrence} other {Replaced # occurrences}}"
+msgstr "{0, plural, one {替换了 # 处} other {替换了 # 处}}"
+
 #. placeholder {0}: targets.length
 #: src/features/batch/pages.tsx
 msgid "{0, plural, one {Run on # target} other {Run on # targets}}"
@@ -73,6 +103,11 @@ msgstr "{0, plural, one {在 # 个目标上运行} other {在 # 个目标上运�
 #: src/features/sessions/child-sessions.tsx
 msgid "{0, plural, one {Subagent session} other {Subagent sessions}}"
 msgstr "{0, plural, one {子会话} other {子会话}}"
+
+#. placeholder {0}: result.bytes
+#: src/components/task-result.tsx
+msgid "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
+msgstr "{0, plural, one {写入了 # 字节} other {写入了 # 字节}}"
 
 #. placeholder {0}: item.task.kind
 #. placeholder {1}: nodeNames.get(item.task.nodeId) ?? item.task.nodeId
@@ -163,6 +198,10 @@ msgstr "例如 5m 或 24h 的时长。留空表示不限制。"
 msgid "A host is required."
 msgstr "必须填写主机。"
 
+#: src/components/task-result.tsx
+msgid "A line alone is longer than the 50 KB a page keeps."
+msgstr "单独一行超过一页保留的 50 KB。"
+
 #: src/features/schedules/scheduleForm.ts
 #: src/features/tokens/pages.tsx
 msgid "A name is required."
@@ -251,7 +290,6 @@ msgid "Action"
 msgstr "操作"
 
 #: src/components/data-table.tsx
-#: src/features/nodes/pages.tsx
 msgid "Actions"
 msgstr "操作"
 
@@ -1249,6 +1287,10 @@ msgstr "编辑提供方 {0}"
 msgid "Effective"
 msgstr "生效结果"
 
+#: src/components/task-result.tsx
+msgid "Empty file."
+msgstr "空文件。"
+
 #: src/features/users/pages.tsx
 msgid "Enable"
 msgstr "启用"
@@ -1459,6 +1501,7 @@ msgstr "前往会话"
 msgid "Grantee"
 msgstr "被授权方"
 
+#: src/components/task-result.tsx
 #: src/features/nodes/node-shares.tsx
 #: src/features/sessions/share-dialog.tsx
 msgid "Group"
@@ -1653,6 +1696,18 @@ msgstr "浅色"
 msgid "Limit"
 msgstr "限制"
 
+#: src/components/task-form-fields.tsx
+msgid "Lines"
+msgstr "行数"
+
+#: src/components/task-result.tsx
+msgid "Lines {from}–{to}"
+msgstr "第 {from}–{to} 行"
+
+#: src/components/task-result.tsx
+msgid "Link target"
+msgstr "链接目标"
+
 #: src/features/settings/providers.ts
 msgid "List at least one model."
 msgstr "至少列出一个模型。"
@@ -1734,6 +1789,10 @@ msgstr "消息"
 msgid "Mine"
 msgstr "我的"
 
+#: src/components/task-result.tsx
+msgid "Mode"
+msgstr "权限"
+
 #: src/components/model-select.tsx
 #: src/features/schedules/schedule-form.tsx
 #: src/features/sessions/new-session-dialog.tsx
@@ -1771,6 +1830,10 @@ msgstr "模型提供方"
 msgid "Models"
 msgstr "模型"
 
+#: src/components/task-result.tsx
+msgid "Modified"
+msgstr "修改时间"
+
 #. placeholder {0}: index + 1
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Move jump host {0} down"
@@ -1781,6 +1844,7 @@ msgstr "下移跳板机 {0}"
 msgid "Move jump host {0} up"
 msgstr "上移跳板机 {0}"
 
+#: src/components/task-result.tsx
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/pages.tsx
@@ -2094,8 +2158,8 @@ msgid "Offline"
 msgstr "离线"
 
 #: src/components/task-form-fields.tsx
-msgid "Offset"
-msgstr "偏移"
+#~ msgid "Offset"
+#~ msgstr "偏移"
 
 #: src/components/task-form-fields.tsx
 msgid "Old text"
@@ -2232,6 +2296,10 @@ msgstr "如果已存在则覆盖"
 msgid "Own result"
 msgstr "自身结果"
 
+#: src/components/task-result.tsx
+msgid "Owner"
+msgstr "属主"
+
 #: src/app/router.tsx
 msgid "Page not found"
 msgstr "页面不存在"
@@ -2283,6 +2351,7 @@ msgid "Paste this block into the node's privileged.toml. The node must be restar
 msgstr "把这个块粘贴到节点的 privileged.toml。节点需要重启才能生效，`crha status` 会显示它上报的信任摘要。"
 
 #: src/components/task-form-fields.tsx
+#: src/components/task-result.tsx
 msgid "Path"
 msgstr "路径"
 
@@ -2414,10 +2483,6 @@ msgstr "配额决定已记录。"
 #: src/features/sessions/pages.tsx
 msgid "Quota saved."
 msgstr "配额已保存。"
-
-#: src/components/quota-card.tsx
-msgid "Quota used up"
-msgstr "配额已用尽"
 
 #: src/components/quota-card.tsx
 msgid "Quota used up · {usedText} used"
@@ -2961,6 +3026,10 @@ msgstr "签名密钥"
 msgid "Since"
 msgstr "开始时间"
 
+#: src/components/task-result.tsx
+msgid "Size"
+msgstr "大小"
+
 #: src/features/tasks/task-group-result.tsx
 msgid "Skipped: {skipped}"
 msgstr "已跳过：{skipped}"
@@ -3001,6 +3070,10 @@ msgstr "ssh-keygen 命令"
 #: src/features/sessions/new-session-dialog.tsx
 msgid "Start a conversation with the agent; it acts on your nodes through the same rules."
 msgstr "与 agent 开始对话；它会按照与其它操作相同的规则在你的节点上执行。"
+
+#: src/components/task-form-fields.tsx
+msgid "Start line"
+msgstr "起始行"
 
 #: src/features/sessions/session-list.tsx
 msgid "Start one, or wait for a scheduled run."
@@ -3200,6 +3273,14 @@ msgstr "完整输出会保留在节点上，直到任务退出。"
 msgid "The limit must be a non-negative whole number."
 msgstr "限制必须是非负整数。"
 
+#: src/components/task-result.tsx
+msgid "The listing is truncated: the directory has more entries than are shown."
+msgstr "列表已截断：目录中的条目比显示的更多。"
+
+#: src/components/task-result.tsx
+#~ msgid "The listing was cut at the requested limit."
+#~ msgstr "列表在请求的上限处被截断。"
+
 #: src/features/schedules/schedule-form.tsx
 msgid "The model every new session of this schedule uses."
 msgstr "此计划任务的每个新会话使用的模型。"
@@ -3229,9 +3310,13 @@ msgstr "节点创建后立即生效；每次连接都会强制校验已固定的
 msgid "The node trusts nobody."
 msgstr "该节点不信任任何密钥。"
 
+#: src/components/task-result.tsx
+msgid "The offset is past the end of the file."
+msgstr "起始行超出文件末尾。"
+
 #: src/features/tasks/taskForm.ts
-msgid "The offset must be a non-negative whole number."
-msgstr "偏移量必须是非负整数。"
+#~ msgid "The offset must be a non-negative whole number."
+#~ msgstr "偏移量必须是非负整数。"
 
 #: src/app/router.tsx
 msgid "The page you asked for does not exist."
@@ -3268,6 +3353,10 @@ msgstr "会话正在等待签名。"
 #: src/features/sessions/composer.tsx
 msgid "The session is waiting for an approval."
 msgstr "会话正在等待审批。"
+
+#: src/features/tasks/taskForm.ts
+msgid "The start line must be a whole number of at least 1."
+msgstr "起始行必须是不小于 1 的整数。"
 
 #: src/features/tasks/taskForm.ts
 msgid "The text to replace is required."
@@ -3423,6 +3512,7 @@ msgstr "换个搜索词试试。"
 msgid "Try again"
 msgstr "重试"
 
+#: src/components/task-result.tsx
 #: src/features/nodes/node-shares.tsx
 #: src/features/sessions/share-dialog.tsx
 msgid "Type"
@@ -3629,8 +3719,16 @@ msgid "Yolo: everything runs without asking."
 msgstr "Yolo：所有操作都不经询问直接运行。"
 
 #: src/features/users/pages.tsx
-msgid "You cannot disable yourself"
-msgstr "不能禁用你自己"
+#~ msgid "You cannot change your own kind or disable your own account."
+#~ msgstr "不能修改自己的类型，也不能停用自己的账号。"
+
+#: src/features/users/pages.tsx
+msgid "You cannot change your own kind."
+msgstr "不能修改自己的类型。"
+
+#: src/features/users/pages.tsx
+msgid "You cannot disable your own account."
+msgstr "不能停用自己的账号。"
 
 #: src/features/authorizations/pages.tsx
 msgid "You have not signed any authorization yet."

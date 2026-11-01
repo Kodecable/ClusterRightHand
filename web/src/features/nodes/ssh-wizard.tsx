@@ -530,9 +530,14 @@ export function SshNodeWizard({
 			{step === 2 && <HostKeyStep hops={hops} credentialId={credentialId} onHops={setHops} />}
 			{step === 3 && <CreateStep hops={hops} credentialId={credentialId} name={name} groups={groups} />}
 
-			<p role="alert" className="min-h-5 text-sm text-danger">
-				{stepError ?? ""}
-			</p>
+			{/* The row keeps its height between steps; only a real message is an alert. */}
+			<div className="min-h-5">
+				{stepError !== undefined && (
+					<p role="alert" className="text-sm text-danger">
+						{stepError}
+					</p>
+				)}
+			</div>
 
 			<div className="flex flex-wrap items-center justify-end gap-2">
 				{step > 0 && (

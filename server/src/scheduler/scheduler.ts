@@ -1,8 +1,10 @@
+import type { ExpressionBuilder } from "kysely";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import type { Audit, AuditActor } from "../audit/audit.ts";
 import { userActor } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
+import type { Database } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { derivedId, newId } from "../util/id.ts";
 import {
@@ -121,7 +123,7 @@ export class Scheduler {
 		this.#stopping = false;
 		this.#lifecycle = new AbortController();
 		await this.#recover();
-		await this.tick();
+		await this.#enqueuePass();
 		await this.#arm();
 	}
 
@@ -166,7 +168,15 @@ export class Scheduler {
 				fire_time: run.fireTime,
 				manual: true,
 			});
-			await this.tick();
+			// The same line as the loop: a manual run never submits alongside a timed pass (doc/scheduling.md).
+			// After a stop it is left pending for the next start's recovery instead of failing on a closed runtime.
+			if (!this.#stopping) {
+				await this.#enqueuePass();
+				if (this.#again && !this.#stopping) {
+					this.#again = false;
+					void this.#arm(0);
+				}
+			}
 			return (await getRun(this.#db, run.id)) ?? run;
 		}
 		// A manual click in the same millisecond as the previous one lands on the same fire time.
@@ -228,21 +238,39 @@ export class Scheduler {
 		if (running) this.#quotaDenied.set(sessionId, reason);
 	}
 
+	/** Drops a note whose decision did not happen, so a later normal finish is not marked failed. */
+	clearQuotaDenied(sessionId: string): void {
+		this.#quotaDenied.delete(sessionId);
+	}
+
 	// ---- the loop ----
 
 	async #runTick(): Promise<void> {
-		this.#ticking = this.tick()
-			.catch((err: unknown) => console.error("scheduler: a pass failed:", err))
-			.finally(() => {
-				this.#ticking = undefined;
-			});
-		await this.#ticking;
+		if (this.#stopping) return;
+		await this.#enqueuePass();
 		if (this.#again && !this.#stopping) {
 			this.#again = false;
 			await this.#runTick();
 			return;
 		}
 		await this.#arm();
+	}
+
+	/**
+	 * Queues one pass behind any in-flight one. The timer, `start` and a manual run all go through here, so two
+	 * passes never claim and submit runs at the same time (doc/scheduling.md#同时只有一个实例). The returned
+	 * promise is what `stop()` awaits, so a pass started by runNow is not cut off by the runtime closing.
+	 */
+	#enqueuePass(): Promise<void> {
+		const previous = this.#ticking ?? Promise.resolve();
+		const pass = previous
+			.then(() => (this.#stopping ? undefined : this.tick()))
+			.catch((err: unknown) => console.error("scheduler: a pass failed:", err));
+		const tail = pass.finally(() => {
+			if (this.#ticking === tail) this.#ticking = undefined;
+		});
+		this.#ticking = tail;
+		return tail;
 	}
 
 	/** Arms the next wake-up (or sets it to `ms`); awaited so a started loop has its timer before it returns. */
@@ -463,6 +491,9 @@ export class Scheduler {
 	async #submitRun(runId: string): Promise<void> {
 		const run = await getRun(this.#db, runId);
 		if (run?.status !== "pending") return;
+		// The claim is `started_at`, not the status: the run stays `pending` until its session is submitted, and
+		// preemption must still count it as an instance (doc/scheduling.md#同时只有一个实例). A claimed run left by
+		// a crash is claimed again here; the derived session id and request id make the resubmit harmless.
 		const claimed = await this.#db
 			.updateTable("schedule_runs")
 			.set({ started_at: this.#now().toISOString() })
@@ -515,11 +546,15 @@ export class Scheduler {
 
 	/** Stops the schedule's other running runs and marks them `preempted` (doc/scheduling.md#同时只有一个实例). */
 	async #preemptPrevious(schedule: Schedule, currentRunId: string): Promise<void> {
+		// A run being submitted is claimed (`started_at`) but still `pending`; it is an instance already, so it
+		// is stopped too or two instances run side by side.
+		const live = (eb: ExpressionBuilder<Database, "schedule_runs">) =>
+			eb.or([eb("status", "=", "running"), eb.and([eb("status", "=", "pending"), eb("started_at", "is not", null)])]);
 		const running = await this.#db
 			.selectFrom("schedule_runs")
 			.selectAll()
 			.where("schedule_id", "=", schedule.id)
-			.where("status", "=", "running")
+			.where(live)
 			.execute();
 		for (const row of running) {
 			if (row.id === currentRunId) continue;
@@ -531,7 +566,7 @@ export class Scheduler {
 					finished_at: this.#now().toISOString(),
 				})
 				.where("id", "=", row.id)
-				.where("status", "=", "running")
+				.where(live)
 				.executeTakeFirst();
 			if (res.numUpdatedRows === 0n) continue;
 			await this.#record(scheduleActor(schedule), "schedule.run_preempted", schedule, {

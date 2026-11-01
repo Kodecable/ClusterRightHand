@@ -21,8 +21,8 @@ export class NodeConnection {
 	/** The wire protocol peer; commands and events are registered on it. */
 	readonly peer: Peer;
 	/**
-	 * The optional 1.1 names the peer negotiated. Empty for a 1.0 node, which cannot take part in
-	 * `forward` (doc/protocol.md#握手载荷).
+	 * The optional M4 names the peer negotiated. Empty for a node that offers only the M3.5
+	 * names, which cannot take part in `forward` (doc/protocol.md#握手载荷).
 	 */
 	readonly optional: ReadonlySet<string>;
 	readonly #ws: WebSocket;

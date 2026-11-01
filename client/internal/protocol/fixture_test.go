@@ -282,7 +282,7 @@ func encodeFixtureValue(value any) ([]byte, error) {
 // description of each fixture entry, independently of the TypeScript generator.
 
 // fixtureCommands is the handshake command list of the fixture, in its wire order: the
-// protocol 1.0 names followed by the 1.1 additions.
+// M3.5 names followed by the M4 additions.
 func fixtureCommands() []string {
 	return []string{
 		CmdHello, CmdPing, CmdTaskStart, CmdTaskInput, CmdTaskCancel, CmdTaskQuery,
@@ -355,6 +355,11 @@ var fixtureExpectedIDs = []string{
 	"event.task.exit.signal",
 	"event.task.exit.error",
 	"event.task.exit.error.bom",
+	"event.task.exit.result.file.read",
+	"event.task.exit.result.file.stat",
+	"event.task.exit.result.file.list",
+	"event.task.exit.result.file.write",
+	"event.task.exit.result.file.edit",
 	"event.facts",
 	"event.facts.unknown_key",
 	"event.facts.minimal",
@@ -380,8 +385,8 @@ func expectedFixtureValue(id string) (any, bool) {
 	switch id {
 	case "handshake.init.no-enroll":
 		return HandshakeInit{
-			ProtocolMajor: 1,
-			ProtocolMinor: 0,
+			ProtocolMajor: ProtocolMajor,
+			ProtocolMinor: ProtocolMinor,
 			Commands:      fixtureCommands(),
 			CRHAVersion:   "0.1.0-test",
 			ClientTimeMS:  1700000000000,
@@ -389,8 +394,8 @@ func expectedFixtureValue(id string) (any, bool) {
 		}, true
 	case "handshake.init.enroll":
 		return HandshakeInit{
-			ProtocolMajor: 1,
-			ProtocolMinor: 0,
+			ProtocolMajor: ProtocolMajor,
+			ProtocolMinor: ProtocolMinor,
 			Commands:      []string{CmdHello, CmdPing},
 			CRHAVersion:   "0.1.0-test",
 			ClientTimeMS:  1700000000000,
@@ -402,8 +407,8 @@ func expectedFixtureValue(id string) (any, bool) {
 		}, true
 	case "handshake.response.active":
 		return HandshakeResponse{
-			ProtocolMajor: 1,
-			ProtocolMinor: 0,
+			ProtocolMajor: ProtocolMajor,
+			ProtocolMinor: ProtocolMinor,
 			Commands:      fixtureCommands(),
 			ConnectionID:  "conn-1",
 			ServerTimeMS:  1700000001234,
@@ -412,8 +417,8 @@ func expectedFixtureValue(id string) (any, bool) {
 		}, true
 	case "handshake.response.pending":
 		return HandshakeResponse{
-			ProtocolMajor: 1,
-			ProtocolMinor: 0,
+			ProtocolMajor: ProtocolMajor,
+			ProtocolMinor: ProtocolMinor,
 			Commands:      fixtureCommands(),
 			ConnectionID:  "conn-1",
 			ServerTimeMS:  1700000001234,
@@ -495,7 +500,7 @@ func expectedFixtureValue(id string) (any, bool) {
 				TaskID:  "t-read",
 				Attempt: 1,
 				Spec: TaskSpec{Kind: TaskSpecFileRead, FileRead: &FileReadSpec{
-					Path: "/etc/hosts", Offset: 0, Limit: 0,
+					Path: "/etc/hosts", StartLine: 1, LineCount: 100,
 				}},
 				Authorizations: [][]byte{},
 				Output:         OutputMode{Kind: OutputStatus},
@@ -661,6 +666,59 @@ func expectedFixtureValue(id string) (any, bool) {
 				OutputFile: "",
 			},
 		}, true
+	case "event.task.exit.result.file.read":
+		return fixtureFrame{
+			Kind: FrameEvent, Name: EventTaskExit,
+			Body: TaskExit{
+				TaskID:    "t-read",
+				Outcome:   Outcome{Kind: OutcomeCode, Code: 0},
+				StdoutEnd: 8,
+				Result: &TaskResult{Kind: TaskResultFileRead, FileRead: &FileReadResult{
+					From: 1, To: 2, EOF: true, Total: ptr(Uint(3)),
+				}},
+			},
+		}, true
+	case "event.task.exit.result.file.stat":
+		return fixtureFrame{
+			Kind: FrameEvent, Name: EventTaskExit,
+			Body: TaskExit{
+				TaskID:  "t-stat",
+				Outcome: Outcome{Kind: OutcomeCode, Code: 0},
+				Result: &TaskResult{Kind: TaskResultFileStat, FileStat: &FileStatResult{
+					Path: "/tmp/x", Type: "file", Size: 7, Mode: "0644", UID: 1000, GID: 1000,
+					Owner: "alice", Group: "alice", MTime: "2026-01-01T00:00:00Z",
+				}},
+			},
+		}, true
+	case "event.task.exit.result.file.list":
+		return fixtureFrame{
+			Kind: FrameEvent, Name: EventTaskExit,
+			Body: TaskExit{
+				TaskID:  "t-list",
+				Outcome: Outcome{Kind: OutcomeCode, Code: 0},
+				Result: &TaskResult{Kind: TaskResultFileList, FileList: &FileListResult{
+					Entries: []FileListEntry{{Name: "f.txt", Type: "file", Size: 7, Mode: "0644", MTime: "2026-01-01T00:00:00Z"}},
+				}},
+			},
+		}, true
+	case "event.task.exit.result.file.write":
+		return fixtureFrame{
+			Kind: FrameEvent, Name: EventTaskExit,
+			Body: TaskExit{
+				TaskID:  "t-write",
+				Outcome: Outcome{Kind: OutcomeCode, Code: 0},
+				Result:  &TaskResult{Kind: TaskResultFileWrite, FileWrite: &FileWriteResult{Bytes: 3, Created: true}},
+			},
+		}, true
+	case "event.task.exit.result.file.edit":
+		return fixtureFrame{
+			Kind: FrameEvent, Name: EventTaskExit,
+			Body: TaskExit{
+				TaskID:  "t-edit-result",
+				Outcome: Outcome{Kind: OutcomeCode, Code: 0},
+				Result:  &TaskResult{Kind: TaskResultFileEdit, FileEdit: &FileEditResult{Replacements: 2}},
+			},
+		}, true
 	case "event.facts", "event.facts.unknown_key", "event.facts.shells_unknown_key":
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventFacts,
@@ -740,7 +798,7 @@ func expectedFixtureValue(id string) (any, bool) {
 				TaskID:  "t-read",
 				Attempt: 1,
 				Spec: TaskSpec{Kind: TaskSpecFileRead, FileRead: &FileReadSpec{
-					Path: "/etc/hosts", Offset: 0, Limit: 0,
+					Path: "/etc/hosts", StartLine: 1, LineCount: 100,
 				}},
 				Note: "restart nginx",
 			},

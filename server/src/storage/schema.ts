@@ -144,9 +144,9 @@ export type TaskState =
 export type ApprovalHandlerType = "agent" | "user";
 
 /** How much output crhs keeps for a task (doc/execution-plane.md#输出). */
-export type OutputMode = "full" | "text" | "status";
+export type OutputMode = "full" | "text" | "status" | "head";
 /** A task group is a batch, so it chooses between the two batch modes only. */
-export type BatchOutputMode = "status" | "text";
+export type BatchOutputMode = "status" | "text" | "head";
 
 /** Columns shared by tasks and task groups for the rule chain and approval (doc/access-control.md#审批). */
 interface ApprovalColumns {
@@ -204,6 +204,8 @@ export interface TasksTable extends ApprovalColumns {
 	stderr_head: string | null;
 	stderr_tail: string | null;
 	output_file: string | null;
+	/** The task's structured result in the JSON form of doc/protocol.md TaskResult; null when it has none. */
+	result: string | null;
 	late_result: string | null;
 }
 

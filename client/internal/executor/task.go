@@ -39,20 +39,22 @@ func RunTask(ctx context.Context, spec *protocol.TaskSpec, in io.Reader, out Sin
 			Timeout: opts.Timeout, KillGrace: opts.KillGrace, Privileged: opts.Privileged, Env: opts.Env,
 		})
 	}
+	var result *protocol.TaskResult
 	var err error
 	if opts.Privileged {
-		err = RunFilePrivileged(ctx, spec, in, out.Writer(protocol.StreamStdout))
+		result, err = RunFilePrivileged(ctx, spec, in, out.Writer(protocol.StreamStdout))
 	} else {
-		err = RunFile(ctx, spec, in, out.Writer(protocol.StreamStdout))
+		result, err = RunFile(ctx, spec, in, out.Writer(protocol.StreamStdout))
 	}
-	return fileResult(err)
+	return fileResult(result, err)
 }
 
-// fileResult converts a file task's error into a Result. A file task that ran has exit code 0.
-func fileResult(err error) Result {
+// fileResult converts a file task's result and error into a Result. A file task that ran has exit
+// code 0 and carries its structured result.
+func fileResult(result *protocol.TaskResult, err error) Result {
 	if err == nil {
 		code := int32(0)
-		return Result{ExitCode: &code}
+		return Result{ExitCode: &code, TaskResult: result}
 	}
 	var e *Error
 	if errors.As(err, &e) {

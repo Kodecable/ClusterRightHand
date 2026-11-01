@@ -125,7 +125,7 @@ export const SPECS: Record<string, TaskSpec> = {
 		path: "/etc/nginx/conf.d/site.conf",
 		edits: [{ oldText: "listen 80;", newText: "listen 8080;" }],
 	},
-	"file.read": { kind: "file.read", path: "/etc/hosts", offset: 0, limit: 0 },
+	"file.read": { kind: "file.read", path: "/etc/hosts", startLine: 1, lineCount: 100 },
 };
 
 const execArgv = SPECS["exec.argv"] as TaskSpec;

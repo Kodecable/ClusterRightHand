@@ -2,11 +2,11 @@
 package executor
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -41,41 +41,42 @@ func errf(code, format string, args ...any) *Error {
 	return &Error{Code: code, Message: fmt.Sprintf(format, args...)}
 }
 
-// RunFile executes a file.* task. stdout receives the task's output stream; input carries the
-// file.write content (nil for other kinds). It returns nil or an *Error (other errors are wrapped
-// into Error{Code: "io_error"}).
-func RunFile(ctx context.Context, spec *protocol.TaskSpec, input io.Reader, stdout io.Writer) error {
+// RunFile executes a file.* task. stdout receives the task's text output (the page of a file.read)
+// and input carries the file.write content (nil for other kinds). It returns the task's structured
+// result, or nil with an *Error (other errors are wrapped into Error{Code: "io_error"}).
+func RunFile(ctx context.Context, spec *protocol.TaskSpec, input io.Reader, stdout io.Writer) (*protocol.TaskResult, error) {
+	var result *protocol.TaskResult
 	var err error
 	switch spec.Kind {
 	case protocol.TaskSpecFileRead:
 		if spec.FileRead == nil {
-			return errf("invalid_spec", "file.read task has no spec")
+			return nil, errf("invalid_spec", "file.read task has no spec")
 		}
-		err = fileRead(ctx, spec.FileRead, stdout)
+		result, err = fileRead(ctx, spec.FileRead, stdout)
 	case protocol.TaskSpecFileWrite:
 		if spec.FileWrite == nil {
-			return errf("invalid_spec", "file.write task has no spec")
+			return nil, errf("invalid_spec", "file.write task has no spec")
 		}
-		err = fileWrite(ctx, spec.FileWrite, input, stdout)
+		result, err = fileWrite(ctx, spec.FileWrite, input, stdout)
 	case protocol.TaskSpecFileEdit:
 		if spec.FileEdit == nil {
-			return errf("invalid_spec", "file.edit task has no spec")
+			return nil, errf("invalid_spec", "file.edit task has no spec")
 		}
-		err = fileEdit(spec.FileEdit, stdout)
+		result, err = fileEdit(spec.FileEdit)
 	case protocol.TaskSpecFileStat:
 		if spec.FileStat == nil {
-			return errf("invalid_spec", "file.stat task has no spec")
+			return nil, errf("invalid_spec", "file.stat task has no spec")
 		}
-		err = fileStat(spec.FileStat, stdout)
+		result, err = fileStat(spec.FileStat)
 	case protocol.TaskSpecFileList:
 		if spec.FileList == nil {
-			return errf("invalid_spec", "file.list task has no spec")
+			return nil, errf("invalid_spec", "file.list task has no spec")
 		}
-		err = fileList(ctx, spec.FileList, stdout)
+		result, err = fileList(ctx, spec.FileList)
 	default:
 		err = errf("invalid_spec", "not a file task: %q", spec.Kind)
 	}
-	return normalizeErr(err)
+	return result, normalizeErr(err)
 }
 
 func normalizeErr(err error) error {
@@ -113,15 +114,6 @@ func checkPath(p string) error {
 	return nil
 }
 
-func writeJSON(w io.Writer, v any) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	_, err = w.Write(b)
-	return err
-}
-
 // copyCtx copies src to dst in chunks, checking ctx between chunks.
 func copyCtx(ctx context.Context, dst io.Writer, src io.Reader) (int64, error) {
 	buf := make([]byte, copyChunk)
@@ -152,28 +144,188 @@ func copyCtx(ctx context.Context, dst io.Writer, src io.Reader) (int64, error) {
 	}
 }
 
-func fileRead(ctx context.Context, s *protocol.FileReadSpec, stdout io.Writer) error {
-	if err := checkPath(s.Path); err != nil {
-		return err
-	}
-	f, err := os.Open(s.Path)
+// openReadPath opens path for reading without blocking in open(2) on a FIFO that has no writer: that
+// open waits for a writer, and a cancelled task cannot interrupt it. The caller must still refuse
+// the types that cannot be read to their end (checkNotSpecial).
+func openReadPath(path string) (*os.File, error) {
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 	if err != nil {
-		return err
+		if errors.Is(err, unix.ENXIO) {
+			// A socket inode cannot be opened for reading at all (ENXIO); it is no more a regular
+			// file than a FIFO.
+			return nil, errf("not_regular_file", "%s is not a regular file", path)
+		}
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
+	}
+	return os.NewFile(uintptr(fd), path), nil
+}
+
+func fileRead(ctx context.Context, s *protocol.FileReadSpec, stdout io.Writer) (*protocol.TaskResult, error) {
+	if err := checkPath(s.Path); err != nil {
+		return nil, err
+	}
+	f, err := openReadPath(s.Path)
+	if err != nil {
+		return nil, err
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if fi.IsDir() {
-		return errf("is_directory", "%s is a directory", s.Path)
+		return nil, errf("is_directory", "%s is a directory", s.Path)
 	}
-	var r io.Reader = io.NewSectionReader(f, int64(s.Offset), 1<<62)
-	if s.Limit > 0 {
-		r = io.LimitReader(r, int64(s.Limit))
+	if err := checkNotSpecial(fi, s.Path); err != nil {
+		return nil, err
 	}
-	_, err = copyCtx(ctx, stdout, r)
-	return err
+	if fi.Mode().IsRegular() {
+		if err := clearNonblocking(f); err != nil {
+			return nil, err
+		}
+	}
+	page, err := readPage(ctx, f, s, stdout)
+	if err != nil {
+		return nil, err
+	}
+	return &protocol.TaskResult{Kind: protocol.TaskResultFileRead, FileRead: page}, nil
+}
+
+// readPage writes lineCount lines from startLine (1-based) to stdout and returns what the page holds:
+// which lines they are, whether the file ended, its line count when it did, and whether the requested
+// line alone is too long. It scans from the start of the file and stops at the line count or at the
+// byte cap, whole lines only; it does not read the rest of the file (doc/protocol.md#任务).
+func readPage(ctx context.Context, r io.Reader, s *protocol.FileReadSpec, stdout io.Writer) (*protocol.FileReadResult, error) {
+	if s.StartLine < 1 || s.LineCount < 1 {
+		return nil, errf("invalid_spec", "startLine and lineCount must be at least 1")
+	}
+	res := protocol.FileReadResult{}
+	lr := &lineReader{br: bufio.NewReaderSize(r, 64<<10)}
+	start, count := uint64(s.StartLine), uint64(s.LineCount)
+	line := uint64(1) // the line about to be read
+	// The node scans to the start line: skipped lines are discarded, never kept.
+	for line < start {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		next, err := lr.next(ctx, 0, false)
+		if err != nil {
+			return nil, err
+		}
+		if !next.exists || next.last {
+			// The file has no line startLine, so the scan reached its end.
+			total := line - 1
+			if next.exists {
+				total = line
+			}
+			res.EOF, res.Total = true, totalPtr(total)
+			return &res, nil
+		}
+		line++
+	}
+	written := uint64(0)
+	pageLines := uint64(0)
+	for pageLines < count {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		next, err := lr.next(ctx, protocol.FileReadMaxBytes+1, true)
+		if err != nil {
+			return nil, err
+		}
+		if !next.exists {
+			total := line - 1
+			res.EOF, res.Total = true, totalPtr(total)
+			break
+		}
+		if next.tooLong || written+uint64(len(next.text)) > protocol.FileReadMaxBytes {
+			// The line does not fit the page; alone on the page, it cannot be shown at all.
+			res.TooLong = pageLines == 0
+			break
+		}
+		if _, err := stdout.Write(next.text); err != nil {
+			return nil, err
+		}
+		written += uint64(len(next.text))
+		if pageLines == 0 {
+			res.From = protocol.Uint(line)
+		}
+		res.To = protocol.Uint(line)
+		pageLines++
+		if next.last {
+			res.EOF, res.Total = true, totalPtr(line)
+			break
+		}
+		line++
+	}
+	if pageLines == count && !res.EOF {
+		// The page ends on its line count: one byte tells whether the file ends there too.
+		if _, err := lr.br.Peek(1); errors.Is(err, io.EOF) {
+			res.EOF, res.Total = true, totalPtr(uint64(res.To))
+		}
+	}
+	return &res, nil
+}
+
+// totalPtr is the line count a page reports; it is set only when the scan reached the end.
+func totalPtr(lines uint64) *protocol.Uint {
+	total := protocol.Uint(lines)
+	return &total
+}
+
+// lineRead is one line of a file as lineReader found it.
+type lineRead struct {
+	// text is the line's bytes, its terminating newline included; nil when the caller keeps no text.
+	text []byte
+	// exists is false at the end of the file: there is no such line.
+	exists bool
+	// last means the line was the file's last one and had no terminating newline.
+	last bool
+	// tooLong means the kept line is longer than the limit the caller gave.
+	tooLong bool
+}
+
+// lineReader reads a file line by line, keeping one line in memory at most: a line over the limit is
+// reported as too long instead of being read to its end. Lines end at "\n", so a CRLF line keeps its
+// "\r" (doc/protocol.md#任务).
+type lineReader struct {
+	br  *bufio.Reader
+	buf []byte
+}
+
+// next reads the next line. With keep false its bytes are dropped, so a long line before the page
+// costs nothing; with keep true they are returned up to max bytes, and tooLong is set beyond that.
+// The context is checked before every chunk: one line can be arbitrarily long (a file without a
+// newline, a character device that never ends), so a cancellation must not wait for its end.
+func (r *lineReader) next(ctx context.Context, max int, keep bool) (lineRead, error) {
+	r.buf = r.buf[:0]
+	read := false
+	for {
+		if err := ctx.Err(); err != nil {
+			return lineRead{}, err
+		}
+		chunk, err := r.br.ReadSlice('\n')
+		read = read || len(chunk) > 0
+		if keep {
+			if len(r.buf)+len(chunk) > max {
+				return lineRead{exists: true, tooLong: true}, nil
+			}
+			r.buf = append(r.buf, chunk...)
+		}
+		switch {
+		case err == nil:
+			return lineRead{text: r.buf, exists: true}, nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF):
+			if !read {
+				return lineRead{}, nil
+			}
+			return lineRead{text: r.buf, exists: true, last: true}, nil
+		default:
+			return lineRead{}, err
+		}
+	}
 }
 
 // tempFile is a not-yet-published file next to its destination.
@@ -279,30 +431,68 @@ func lookupIDs(owner, group string) (uid, gid int, err error) {
 	return uid, gid, nil
 }
 
-func fileWrite(ctx context.Context, s *protocol.FileWriteSpec, input io.Reader, stdout io.Writer) error {
+// resolveWriteTarget follows a symbolic link at path so that a write replaces the file the link
+// points to instead of the link itself. Without this, the link's own stat (mode 0777) would decide
+// the new file's mode and owner, and the rename would replace the link with a world-writable
+// regular file while the target stayed untouched (for example /etc/resolv.conf).
+//
+// It returns the resolved path and the target's FileInfo, or a nil FileInfo when the target does
+// not exist yet (a dangling link, or a path that does not exist at all), in which case the caller
+// creates the target with the requested or default mode. A missing intermediate directory is left
+// to the caller's create or rename, which reports it as not_found.
+func resolveWriteTarget(path string) (string, fs.FileInfo, error) {
+	// 40 hops is the kernel's limit on following symbolic links (MAXSYMLINKS).
+	for range 40 {
+		fi, err := os.Lstat(path)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return path, nil, nil
+		case err != nil:
+			return "", nil, err
+		case fi.Mode()&fs.ModeSymlink == 0:
+			return path, fi, nil
+		}
+		link, err := os.Readlink(path)
+		if err != nil {
+			return "", nil, err
+		}
+		if !filepath.IsAbs(link) {
+			// The kernel resolves a relative target against the link's real directory, not against
+			// the path used to reach it: when a component of dir is itself a symbolic link,
+			// joining lexically and cleaning ".." lands somewhere else.
+			dir, err := filepath.EvalSymlinks(filepath.Dir(path))
+			if err != nil {
+				return "", nil, err
+			}
+			link = filepath.Join(dir, link)
+		}
+		path = link
+	}
+	return "", nil, errf("io_error", "too many levels of symbolic links in %s", path)
+}
+
+func fileWrite(ctx context.Context, s *protocol.FileWriteSpec, input io.Reader, stdout io.Writer) (*protocol.TaskResult, error) {
 	path := s.Path
 	if err := checkPath(path); err != nil {
-		return err
+		return nil, err
 	}
 	if input == nil {
 		input = strings.NewReader("")
 	}
 	uid, gid, err := lookupIDs(s.Owner, s.Group)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	existing, err := os.Lstat(path)
-	switch {
-	case err == nil && existing.IsDir():
-		return errf("is_directory", "%s is a directory", path)
-	case err != nil && !errors.Is(err, fs.ErrNotExist):
-		return err
-	case err != nil:
-		existing = nil
-	}
-	tmp, err := createTemp(path)
+	target, existing, err := resolveWriteTarget(path)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	if existing != nil && existing.IsDir() {
+		return nil, errf("is_directory", "%s is a directory", path)
+	}
+	tmp, err := createTemp(target)
+	if err != nil {
+		return nil, err
 	}
 	ok := false
 	defer func() {
@@ -315,10 +505,10 @@ func fileWrite(ctx context.Context, s *protocol.FileWriteSpec, input io.Reader, 
 	h := sha256.New()
 	n, err := copyCtx(ctx, io.MultiWriter(tmp, h), io.LimitReader(input, int64(want.Size)+1))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if uint64(n) != uint64(want.Size) || !bytes.Equal(h.Sum(nil), want.SHA256[:]) {
-		return errf("input_mismatch", "content does not match declared size/sha256 (got %d bytes)", n)
+		return nil, errf("input_mismatch", "content does not match declared size/sha256 (got %d bytes)", n)
 	}
 
 	mode := fs.FileMode(0o644)
@@ -331,69 +521,63 @@ func fileWrite(ctx context.Context, s *protocol.FileWriteSpec, input io.Reader, 
 	if existing != nil && uid < 0 && gid < 0 {
 		euid, egid := statIDs(existing)
 		if err := tmp.Chown(euid, egid); err != nil && !errors.Is(err, syscall.EPERM) {
-			return err
+			return nil, err
 		}
 	} else if uid >= 0 || gid >= 0 {
 		if err := tmp.Chown(uid, gid); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if err := tmp.Chmod(mode); err != nil {
-		return err
+		return nil, err
 	}
-	if err := tmp.publish(path, !s.Overwrite); err != nil {
-		return err
+	if err := tmp.publish(target, !s.Overwrite); err != nil {
+		return nil, err
 	}
 	ok = true
-	return writeJSON(stdout, map[string]any{"bytes": n, "created": existing == nil})
+	return &protocol.TaskResult{Kind: protocol.TaskResultFileWrite, FileWrite: &protocol.FileWriteResult{
+		Bytes: protocol.Uint(n), Created: existing == nil,
+	}}, nil
 }
 
-// statValues is the JSON body of a file.stat task for an already stat'ed file.
-func statValues(path string, fi fs.FileInfo) map[string]any {
+// statValues is the file.stat result of an already stat'ed file.
+func statValues(path string, fi fs.FileInfo) *protocol.FileStatResult {
 	uid, gid := statIDs(fi)
-	return map[string]any{
-		"path":  path,
-		"type":  fileType(fi.Mode()),
-		"size":  fi.Size(),
-		"mode":  modeString(fi.Mode()),
-		"uid":   uid,
-		"gid":   gid,
-		"owner": ownerName(uid),
-		"group": groupName(gid),
-		"mtime": mtimeString(fi),
+	return &protocol.FileStatResult{
+		Path:  path,
+		Type:  fileType(fi.Mode()),
+		Size:  protocol.Int(fi.Size()),
+		Mode:  modeString(fi.Mode()),
+		UID:   protocol.Int(uid),
+		GID:   protocol.Int(gid),
+		Owner: ownerName(uid),
+		Group: groupName(gid),
+		MTime: mtimeString(fi),
 	}
 }
 
-func fileStat(s *protocol.FileStatSpec, stdout io.Writer) error {
+func fileStat(s *protocol.FileStatSpec) (*protocol.TaskResult, error) {
 	if err := checkPath(s.Path); err != nil {
-		return err
+		return nil, err
 	}
 	fi, err := os.Lstat(s.Path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	out := statValues(s.Path, fi)
 	if fi.Mode()&fs.ModeSymlink != 0 {
 		target, err := os.Readlink(s.Path)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		out["link_target"] = target
+		out.LinkTarget = &target
 	}
-	return writeJSON(stdout, out)
+	return &protocol.TaskResult{Kind: protocol.TaskResultFileStat, FileStat: out}, nil
 }
 
-type listEntry struct {
-	Name  string `json:"name"`
-	Type  string `json:"type"`
-	Size  int64  `json:"size"`
-	Mode  string `json:"mode"`
-	Mtime string `json:"mtime"`
-}
-
-func fileList(ctx context.Context, s *protocol.FileListSpec, stdout io.Writer) error {
+func fileList(ctx context.Context, s *protocol.FileListSpec) (*protocol.TaskResult, error) {
 	if err := checkPath(s.Path); err != nil {
-		return err
+		return nil, err
 	}
 	limit := int(s.Limit)
 	if limit == 0 {
@@ -403,41 +587,59 @@ func fileList(ctx context.Context, s *protocol.FileListSpec, stdout io.Writer) e
 
 	fi, err := os.Stat(s.Path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !fi.IsDir() {
-		return errf("not_a_directory", "%s is not a directory", s.Path)
+		return nil, errf("not_a_directory", "%s is not a directory", s.Path)
 	}
 	des, err := os.ReadDir(s.Path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	sort.Slice(des, func(i, j int) bool { return des[i].Name() < des[j].Name() })
 	truncated := len(des) > limit
 	if truncated {
 		des = des[:limit]
 	}
-	entries := make([]listEntry, 0, len(des))
+	entries := make([]protocol.FileListEntry, 0, len(des))
+	used := 0
 	for _, de := range des {
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
 		info, err := de.Info()
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
-		entries = append(entries, listEntry{
+		entry := protocol.FileListEntry{
 			Name:  de.Name(),
 			Type:  fileType(info.Mode()),
-			Size:  info.Size(),
+			Size:  protocol.Int(info.Size()),
 			Mode:  modeString(info.Mode()),
-			Mtime: mtimeString(info),
-		})
+			MTime: mtimeString(info),
+		}
+		size := listEntrySize(entry)
+		// The result travels in one task.exit frame: stop before it could outgrow it
+		// (doc/protocol.md TaskResult).
+		if used+size > protocol.FileListMaxBytes {
+			truncated = true
+			break
+		}
+		used += size
+		entries = append(entries, entry)
 	}
-	return writeJSON(stdout, map[string]any{"entries": entries, "truncated": truncated})
+	return &protocol.TaskResult{Kind: protocol.TaskResultFileList, FileList: &protocol.FileListResult{
+		Entries: entries, Truncated: truncated,
+	}}, nil
+}
+
+// listEntrySize is a safe upper bound of the encoded size of one list entry: its fields plus the
+// CBOR headers and the array of five.
+func listEntrySize(e protocol.FileListEntry) int {
+	return len(e.Name) + len(e.Type) + len(e.Mode) + len(e.MTime) + 24
 }
 
 func fileType(m fs.FileMode) string {

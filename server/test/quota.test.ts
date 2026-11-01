@@ -235,7 +235,7 @@ it("a denial ends a run that is still paused in waitForQuota", async () => {
 	const c = await child(p.id, "live-deny-c", 10);
 	await recordUsage(db, c.id, 20);
 	faux.setResponses([
-		fauxAssistantMessage([fauxToolCall("exec", { node: "missing", cmd: "true" }, { id: "q1" })], {
+		fauxAssistantMessage([fauxToolCall("exec", { targets: ["missing"], cmd: "true" }, { id: "q1" })], {
 			stopReason: "toolUse",
 		}),
 		fauxAssistantMessage([fauxText("noted")]),
@@ -308,7 +308,7 @@ it("flushes a quota wake when a running parent becomes idle", async () => {
 			await new Promise((resolve) => setTimeout(resolve, 300));
 			return fauxAssistantMessage([fauxText("parent done")]);
 		},
-		fauxAssistantMessage([fauxToolCall("exec", { node: "missing", cmd: "true" }, { id: "idle-q1" })], {
+		fauxAssistantMessage([fauxToolCall("exec", { targets: ["missing"], cmd: "true" }, { id: "idle-q1" })], {
 			stopReason: "toolUse",
 		}),
 		fauxAssistantMessage([fauxText("wake handled")]),
@@ -345,7 +345,7 @@ it("subagent_wait watches the caller's inbox, not the waited session's parent", 
 	const a = await child(r.id, "grand-parent", 0);
 	const b = await child(a.id, "grand-child", 100);
 	faux.setResponses([
-		fauxAssistantMessage([fauxToolCall("exec", { node: "missing", cmd: "true" }, { id: "grand-q1" })], {
+		fauxAssistantMessage([fauxToolCall("exec", { targets: ["missing"], cmd: "true" }, { id: "grand-q1" })], {
 			stopReason: "toolUse",
 		}),
 		fauxAssistantMessage([fauxText("noted")]),

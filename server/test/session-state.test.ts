@@ -104,6 +104,8 @@ beforeAll(async () => {
 			ssh_jumps: null,
 		})
 		.execute();
+	// A group of one node: naming the group is a task group, naming the node is a single task.
+	await db.insertInto("node_groups").values({ node_id: nodeId, group_name: "batch", refreshed_at: now }).execute();
 });
 
 afterAll(async () => {
@@ -209,7 +211,7 @@ it("an exhausted root quota makes it awaiting/quota; a grant resumes the run and
 it("a tool call waiting for an approval makes the session awaiting/approval, then running, then idle", async () => {
 	const session = await runtime.createSession(owner, { model: model(), preset: "ask", title: "approval states" });
 	faux.setResponses([
-		fauxAssistantMessage([fauxToolCall("exec", { node: "web-1", cmd: "true" }, { id: "approval-state-tool" })], {
+		fauxAssistantMessage([fauxToolCall("exec", { targets: ["web-1"], cmd: "true" }, { id: "approval-state-tool" })], {
 			stopReason: "toolUse",
 		}),
 		async () => {
@@ -297,9 +299,12 @@ it("a task waiting for a signature makes the session awaiting/authorization", as
 it("a task group waiting for approval is the session's approval wait too", async () => {
 	const session = await runtime.createSession(owner, { model: model(), preset: "ask", title: "group states" });
 	faux.setResponses([
-		fauxAssistantMessage([fauxToolCall("exec", { targets: ["web-1"], cmd: "true" }, { id: "group-state-tool" })], {
-			stopReason: "toolUse",
-		}),
+		fauxAssistantMessage(
+			[fauxToolCall("exec", { targets: ["group:batch"], cmd: "true" }, { id: "group-state-tool" })],
+			{
+				stopReason: "toolUse",
+			},
+		),
 		async () => {
 			await sleep(250);
 			return fauxAssistantMessage([fauxText("after the group")]);

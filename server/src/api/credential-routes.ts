@@ -34,7 +34,7 @@ export function credentialRoutes(db: Db, options: CredentialRoutesOptions = {}) 
 
 	app.onError((err, c) => {
 		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
-		if (err instanceof UserError || err instanceof WebauthnError || err instanceof TypeError) {
+		if (err instanceof UserError || err instanceof WebauthnError) {
 			return jsonError(c, 400, err.message);
 		}
 		throw err;

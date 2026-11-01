@@ -10,6 +10,8 @@ import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { type CursorSpec, cursorRows, decodeCursor, descendingKeyset, encodeCursor, parseLimit } from "./cursor.ts";
 
 const MAX_WAIT_MS = 10 * 60 * 1000;
+/** Lines a file.read reads when the request names none: pi's read default (doc/agent-runtime.md#默认值). */
+const DEFAULT_READ_LINES = 2000;
 const MAX_INPUT_BYTES = 64 * 1024 * 1024;
 /** GET /tasks orders by `created_at desc, id desc` (doc/webui.md#api-约定). */
 const TASKS_CURSOR: CursorSpec = { columns: [{ name: "created_at", type: "string" }], idType: "string" };
@@ -190,7 +192,13 @@ export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 		const found = await visibleTask(c.get("user"), c.req.param("id"));
 		if (!found) return jsonError(c, 404, "no such task");
 		if (found.access === "view") return jsonError(c, 403, "view access only");
-		return c.json({ cancelled: await cluster.cancelTask(found.task.id) });
+		return c.json({
+			cancelled: await cluster.cancelTask(found.task.id, undefined, {
+				type: "user",
+				id: c.get("user").userId,
+				onBehalfOfUserId: c.get("user").userId,
+			}),
+		});
 	});
 
 	return app;
@@ -223,15 +231,12 @@ function parseTask(body: Record<string, unknown>): { spec: TaskSpec; input?: Uin
 				input: stdin === undefined ? undefined : Buffer.from(stdin),
 			};
 		}
-		case "file.read":
-			return {
-				spec: {
-					kind: "file.read",
-					path: str(body, "path"),
-					offset: optionalInt(body, "offset") ?? 0,
-					limit: optionalInt(body, "limit") ?? 0,
-				},
-			};
+		case "file.read": {
+			const startLine = optionalInt(body, "startLine") ?? 1;
+			const lineCount = optionalInt(body, "lineCount") ?? DEFAULT_READ_LINES;
+			if (startLine < 1 || lineCount < 1) throw new BadRequest("startLine and lineCount must be at least 1");
+			return { spec: { kind: "file.read", path: str(body, "path"), startLine, lineCount } };
+		}
 		case "file.write": {
 			const content = optionalStr(body, "content");
 			const base64 = optionalStr(body, "contentBase64");
@@ -308,10 +313,15 @@ function optionalBool(body: Record<string, unknown>, key: string): boolean | und
 	return value;
 }
 
-/** The batch output mode; omitted means the group's default (`status`), see doc/execution-plane.md#输出. */
-function parseOutputMode(body: Record<string, unknown>): "status" | "text" | undefined {
+/**
+ * The batch output mode; omitted means the group's default for its kind (`status` for exec, `head`
+ * for file operations), see doc/execution-plane.md#输出.
+ */
+function parseOutputMode(body: Record<string, unknown>): "status" | "text" | "head" | undefined {
 	const value = body.outputMode;
 	if (value === undefined) return undefined;
-	if (value !== "status" && value !== "text") throw new BadRequest('outputMode must be "status" or "text"');
+	if (value !== "status" && value !== "text" && value !== "head") {
+		throw new BadRequest('outputMode must be "status", "text" or "head"');
+	}
 	return value;
 }

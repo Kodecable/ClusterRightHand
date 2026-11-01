@@ -273,6 +273,52 @@ describeBackends("api users", (backend) => {
 			expect(badGroup.status).toBe(404);
 		});
 
+		it("an administrator cannot demote or disable themselves; another administrator does", async () => {
+			await createUser(db, { username: "ivy", kind: "admin", password: "ivy-password" });
+			const ivyCookie = await login(app, "ivy", "ivy-password");
+			const ivy = await byName("ivy");
+			const selfDemote = await call(app, `/api/users/${ivy.id}`, {
+				method: "PATCH",
+				cookie: ivyCookie,
+				body: { kind: "member" },
+			});
+			expect(selfDemote.status).toBe(400);
+			expect(((await selfDemote.json()) as { error: string }).error).toMatch(/another administrator/);
+			const selfDisable = await call(app, `/api/users/${ivy.id}`, {
+				method: "PATCH",
+				cookie: ivyCookie,
+				body: { status: "disabled" },
+			});
+			expect(selfDisable.status).toBe(400);
+			expect(await byName("ivy")).toMatchObject({ kind: "admin", status: "active" });
+			// Another administrator can do it.
+			expect((await patch(ivy.id, { kind: "member" })).status).toBe(200);
+			expect(await byName("ivy")).toMatchObject({ kind: "member" });
+		});
+
+		it("does not turn an unexpected TypeError into a 400", async () => {
+			const real = db.selectFrom.bind(db);
+			let trips = true;
+			const selectFrom = vi.spyOn(db, "selectFrom").mockImplementation(((table: string) => {
+				if (trips && table === "users") {
+					trips = false;
+					throw new TypeError("secret internal failure");
+				}
+				return (real as (found: string) => unknown)(table);
+			}) as never);
+			try {
+				const res = await call(app, "/api/users", { cookie: admin });
+				expect(res.status).toBe(500);
+				expect(await res.text()).not.toContain("secret internal failure");
+			} finally {
+				selectFrom.mockRestore();
+			}
+			// Validation still answers 400 with its message.
+			const bad = await patch((await byName("root")).id, { displayName: 5 });
+			expect(bad.status).toBe(400);
+			expect(((await bad.json()) as { error: string }).error).toContain("displayName must be a string");
+		});
+
 		it("members cannot touch groups", async () => {
 			const erin = await login(app, "erin", "erin-password");
 			expect((await call(app, "/api/user-groups", { cookie: erin, body: { name: "evil" } })).status).toBe(403);

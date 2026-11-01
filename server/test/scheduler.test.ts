@@ -445,7 +445,7 @@ it("builds the [schedule, session] chain for a scheduled session's own tool call
 	const nodeId = await addNode(owner);
 	const schedule = await makeSchedule(owner, { preset: "ask" });
 	faux.setResponses([
-		fauxAssistantMessage([fauxToolCall("exec", { node: nodeId, cmd: "echo hi" }, { id: "chain-tool" })], {
+		fauxAssistantMessage([fauxToolCall("exec", { targets: [nodeId], cmd: "echo hi" }, { id: "chain-tool" })], {
 			stopReason: "toolUse",
 		}),
 	]);
@@ -592,6 +592,169 @@ it("puts token_budget on the run's root session and hands an exhausted quota to 
 	});
 	expect(failed.reason).toContain("quota denied");
 	expect(await sessionStateOf(db, sessionId)).toBe("idle");
+});
+
+it("preempts a run that was claimed but not yet marked running", async () => {
+	const owner = await newOwner("owner-claimed");
+	const schedule = await makeSchedule(owner);
+	faux.setResponses([fauxAssistantMessage([fauxText("manual")])]);
+	await startAt("2026-01-05T09:01:00.000Z");
+	// A submitter died after claiming this run: `started_at` is set, the status is still `pending`.
+	const claimedRunId = newId();
+	const now = clock.now().toISOString();
+	await db
+		.insertInto("schedule_runs")
+		.values({
+			id: claimedRunId,
+			schedule_id: schedule.id,
+			fire_time: "2026-01-05T09:02:00.000Z",
+			manual: 0,
+			status: "pending",
+			session_id: null,
+			reason: null,
+			created_at: now,
+			started_at: now,
+			finished_at: null,
+		})
+		.execute();
+
+	const manual = await scheduler.runNow(schedule.id, owner);
+	const claimed = await waitFor("the claimed run to be preempted", async () => {
+		const current = await runOf(claimedRunId);
+		return current?.status === "preempted" ? current : undefined;
+	});
+	expect(claimed.reason).toBe("preempted by the next run");
+	expect((await runOf(claimedRunId))?.sessionId).toBeNull();
+	await waitFor("the manual run to finish", async () =>
+		(await runOf(manual.id))?.status === "succeeded" ? true : undefined,
+	);
+});
+
+it("stop waits for a pass started by run-now, so its submit is not cut off", async () => {
+	const owner = await newOwner("owner-stop-now");
+	const schedule = await makeSchedule(owner);
+	faux.setResponses([fauxAssistantMessage([fauxText("submitted before the stop")])]);
+	await startAt("2026-01-05T09:01:00.000Z");
+	let reached!: () => void;
+	const inSubmit = new Promise<void>((resolve) => {
+		reached = resolve;
+	});
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const original = runtime.createScheduledSession.bind(runtime);
+	const create = vi.spyOn(runtime, "createScheduledSession").mockImplementation(async (user, input) => {
+		reached();
+		await gate;
+		return original(user, input);
+	});
+	try {
+		const running = scheduler.runNow(schedule.id, owner);
+		await inSubmit;
+		let stopped = false;
+		const stopping = scheduler.stop().then(() => {
+			stopped = true;
+		});
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		// The manual pass is still submitting; stop must wait for it instead of letting the runtime close.
+		expect(stopped).toBe(false);
+		release();
+		await stopping;
+		const run = await running;
+		expect((await runOf(run.id))?.status).toBe("running");
+	} finally {
+		create.mockRestore();
+	}
+});
+
+it("a refused quota deny leaves no note that fails the run", async () => {
+	const owner = await newOwner("owner-stale-deny");
+	const schedule = await makeSchedule(owner);
+	let started!: () => void;
+	const inFlight = new Promise<void>((resolve) => {
+		started = resolve;
+	});
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	faux.setResponses([
+		async () => {
+			started();
+			await gate;
+			return fauxAssistantMessage([fauxText("finished normally")]);
+		},
+	]);
+	await startAt("2026-01-05T09:01:00.000Z");
+	const run = await scheduler.runNow(schedule.id, owner);
+	const sessionId = run.sessionId as string;
+	await inFlight;
+	// The session is running, not waiting for a token quota: the decision is refused.
+	const denied = await call(app, `/api/sessions/${sessionId}/quota`, {
+		method: "POST",
+		cookie: await cookieOf(owner),
+		body: { decision: "deny", reason: "stop" },
+	});
+	expect(denied.status).toBe(400);
+	expect(((await denied.json()) as { error: string }).error).toContain("not waiting");
+	release();
+	const done = await waitFor("the run to succeed", async () => {
+		const current = await runOf(run.id);
+		return current?.status === "succeeded" ? current : undefined;
+	});
+	expect(done.reason).toBeNull();
+});
+
+it("keeps the quota deny note when the run settles before the decision returns", async () => {
+	const owner = await newOwner("owner-deny-race");
+	const schedule = await makeSchedule(owner, { tokenBudget: 1 });
+	let asked!: () => void;
+	const inFlight = new Promise<void>((resolve) => {
+		asked = resolve;
+	});
+	faux.setResponses([
+		async () => {
+			asked();
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			return fauxAssistantMessage([fauxToolCall("list_nodes", {}, { id: "budget-tool" })], {
+				stopReason: "toolUse",
+			});
+		},
+	]);
+	await startAt("2026-01-05T09:01:00.000Z");
+	const run = await scheduler.runNow(schedule.id, owner);
+	const sessionId = run.sessionId as string;
+	await inFlight;
+	await waitFor("the root's quota wait", async () =>
+		(await sessionStateOf(db, sessionId)) === "awaiting" ? true : undefined,
+	);
+
+	// The decision wakes the run, and the scheduler records its end before decideRootQuota returns. That is
+	// the window in which the note used to be written too late: the settle found neither the note nor the
+	// audit record, so the denied run was stored as succeeded.
+	const decide = runtime.decideRootQuota.bind(runtime);
+	const spy = vi.spyOn(runtime, "decideRootQuota").mockImplementation(async (id, decision, tokens) => {
+		const sessions = await decide(id, decision, tokens);
+		await waitFor("the run to settle", async () => {
+			const current = await runOf(run.id);
+			return current && current.status !== "running" ? current : undefined;
+		});
+		return sessions;
+	});
+	try {
+		const denied = await call(app, `/api/sessions/${sessionId}/quota`, {
+			method: "POST",
+			cookie: await cookieOf(owner),
+			body: { decision: "deny", reason: "spend less" },
+		});
+		expect(denied.status).toBe(200);
+	} finally {
+		spy.mockRestore();
+	}
+	const failed = await runOf(run.id);
+	expect(failed?.status).toBe("failed");
+	expect(failed?.reason).toContain("quota denied");
 });
 
 it("recovers a pending run whose submit never happened", async () => {
@@ -876,6 +1039,8 @@ it("validates the API input and keeps schedules owner-only", async () => {
 		{ ...base, cron: "not a cron" },
 		{ ...base, cron: "0 0 * * * *" },
 		{ ...base, timezone: "Mars/Olympus" },
+		// Disabled: next_run_at is null, so nothing computes a fire time to reject the zone later.
+		{ ...base, enabled: false, timezone: "Not/AZone" },
 		{ ...base, name: "" },
 		{ ...base, prompt: "" },
 		{ ...base, preset: "sometimes" },
@@ -936,6 +1101,14 @@ it("validates the API input and keeps schedules owner-only", async () => {
 	});
 	expect(preview.status).toBe(200);
 	expect(((await preview.json()) as { times: string[] }).times).toHaveLength(2);
+	// An unresolvable zone is reported instead of an empty preview.
+	const badPreview = await call(app, "/api/schedules/preview", {
+		method: "POST",
+		cookie: ownerCookie,
+		body: { cron: "0 3 * * *", timezone: "Not/AZone" },
+	});
+	expect(badPreview.status).toBe(400);
+	expect(((await badPreview.json()) as { error: string }).error).toContain("invalid timezone");
 
 	// Another user, and an administrator, do not see it (schedules are not shared and admin does not bypass).
 	for (const user of [other, admin]) {
@@ -990,6 +1163,56 @@ it("validates the API input and keeps schedules owner-only", async () => {
 	expect(((await filtered.json()) as { items: unknown[] }).items).toEqual([]);
 });
 
+it("lists a schedule whose stored timezone no longer validates", async () => {
+	const owner = await newOwner("owner-legacy-zone");
+	const ownerCookie = await cookieOf(owner);
+	await startAt("2026-01-05T09:01:00.000Z");
+	// A row saved before the API validated the zone: written straight to the table, as an old build did.
+	const id = newId();
+	const now = "2026-01-05T09:00:00.000Z";
+	await db
+		.insertInto("schedules")
+		.values({
+			id,
+			org_id: await defaultOrgId(db),
+			owner_user_id: owner.userId,
+			name: "legacy zone",
+			prompt: "do it",
+			model: JSON.stringify(model()),
+			token_budget: null,
+			cron: "*/10 * * * *",
+			timezone: "Not/AZone",
+			catch_up: 0,
+			enabled: 1,
+			next_run_at: "2026-01-05T09:10:00.000Z",
+			created_at: now,
+			updated_at: now,
+		})
+		.execute();
+
+	// One bad row must not fail the whole list: its preview is empty and the reason is in the view.
+	const listed = await call(app, "/api/schedules", { cookie: ownerCookie });
+	expect(listed.status).toBe(200);
+	const body = (await listed.json()) as {
+		schedules: { id: string; preview: string[]; previewError: string | null }[];
+	};
+	const row = body.schedules.find((schedule) => schedule.id === id);
+	expect(row).toMatchObject({ preview: [], previewError: expect.stringContaining("invalid timezone") });
+
+	// The single-schedule view answers the same way, and the explicit preview endpoint still refuses it.
+	const single = await call(app, `/api/schedules/${id}`, { cookie: ownerCookie });
+	expect(single.status).toBe(200);
+	expect(((await single.json()) as { schedule: { previewError: string | null } }).schedule.previewError).toContain(
+		"invalid timezone",
+	);
+	const preview = await call(app, "/api/schedules/preview", {
+		method: "POST",
+		cookie: ownerCookie,
+		body: { cron: "*/10 * * * *", timezone: "Not/AZone" },
+	});
+	expect(preview.status).toBe(400);
+});
+
 it("follows croner's DST handling for a 02:30 New York schedule", () => {
 	// Spring forward: 02:30 does not exist on 2026-03-08, so croner fires at 03:00 EDT (07:00Z).
 	expect(previewRuns("30 2 * * *", "America/New_York", new Date("2026-03-07T00:00:00.000Z"), 3)).toEqual([
@@ -1001,6 +1224,7 @@ it("follows croner's DST handling for a 02:30 New York schedule", () => {
 	expect(nextRunAfter("30 2 * * *", "America/New_York", new Date("2026-10-31T06:30:00.000Z"))).toBe(
 		"2026-11-01T07:30:00.000Z",
 	);
-	expect(previewRuns("30 2 * * *", "Not/AZone", new Date(), 3)).toEqual([]);
+	// A zone croner accepts at construction but cannot resolve is refused up front, also when it never fires.
+	expect(() => previewRuns("30 2 * * *", "Not/AZone", new Date(), 3)).toThrow(/invalid timezone/);
 	expect(() => nextRunAfter("bad", "UTC", new Date())).toThrow(/invalid cron/);
 });

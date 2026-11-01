@@ -10,7 +10,10 @@ import {
 	handshakeResponseCodec,
 	type LocalRequest,
 	type LocalState,
+	NOISE_PROLOGUE_PREFIX,
 	Peer,
+	PROTOCOL_MAJOR,
+	PROTOCOL_MINOR,
 	type Revocation,
 	SUPPORTED_NAMES,
 	type TaskExit,
@@ -113,8 +116,14 @@ export class TestAgentServer {
 		await new Promise<void>((resolve) => this.#server.close(() => resolve()));
 	}
 
-	/** Opens a pending handshake. The caller sends message 1 itself, so it can observe a rejection. */
-	async prepare(staticKey: KeyPair): Promise<{
+	/**
+	 * Opens a pending handshake. The caller sends message 1 itself, so it can observe a rejection.
+	 * `prologuePrefix` lets a test act as a peer from another protocol major.
+	 */
+	async prepare(
+		staticKey: KeyPair,
+		prologuePrefix = NOISE_PROLOGUE_PREFIX,
+	): Promise<{
 		ws: WebSocket;
 		messages: MessageQueue;
 		hs: HandshakeState;
@@ -132,7 +141,7 @@ export class TestAgentServer {
 		});
 		const challenge = await messages.next();
 		const hs = HandshakeState.initiator({
-			prologue: Buffer.concat([Buffer.from("crh/1"), Buffer.from(challenge)]),
+			prologue: Buffer.concat([Buffer.from(prologuePrefix), Buffer.from(challenge)]),
 			staticKey,
 			remoteStaticKey: this.identity.keyPair.publicKey,
 		});
@@ -169,7 +178,7 @@ export class TestAgentServer {
 }
 
 /**
- * A fake crha that speaks protocol 1.1 (doc/protocol.md#m4提权). It records everything crhs sends to a
+ * A fake crha that speaks the M4 command set (doc/protocol.md#m4提权). It records everything crhs sends to a
  * node and answers the optional commands like a node would; tests override `answerStart` (or register
  * their own handler) to script a rejection, and push trust summaries with `trust`.
  */
@@ -182,12 +191,16 @@ export class FakeCrha {
 	readonly sendRaw: (bytes: Uint8Array) => void;
 	/** Every task.start the server sent, in order. */
 	readonly starts: TaskStart[] = [];
+	/** Every task.input chunk the server sent, in order. */
+	readonly inputs: { taskId: string; offset: number; data: Uint8Array }[] = [];
 	/** Every revocations.add batch, in order. */
 	readonly revocations: Revocation[][] = [];
 	/** Every local.request the server sent, in order. */
 	readonly localRequests: LocalRequest[] = [];
 	/** Every local.withdraw the server sent, in order. */
 	readonly localWithdrawals: { taskId: string; attempt: number }[] = [];
+	/** The task ids of every task.query the server sent, in order. */
+	readonly queries: string[] = [];
 	/** The task ids of every task.exit.ack, in order. */
 	readonly exitAcks: string[] = [];
 	/**
@@ -195,6 +208,13 @@ export class FakeCrha {
 	 * recorded first, so a test sees it even when it is rejected.
 	 */
 	answerStart: (start: TaskStart) => void | Promise<void> = () => {};
+	/** Answers task.query; the default says the client does not know the task (it restarted). */
+	answerQuery: (taskId: string) => TaskQueryAnswer = (taskId) => ({
+		taskId,
+		state: "unknown",
+		stdoutEnd: 0,
+		stderrEnd: 0,
+	});
 	/** Answers local.request; the request is recorded first. */
 	answerLocal: (request: LocalRequest) => LocalState | Promise<LocalState> = () => ({ kind: "pending" });
 
@@ -215,8 +235,15 @@ export class FakeCrha {
 			await this.answerStart(start);
 			return {};
 		});
-		peer.onRequest("task.input", () => ({}));
+		peer.onRequest("task.input", (input) => {
+			this.inputs.push(input);
+			return {};
+		});
 		peer.onRequest("task.cancel", () => ({}));
+		peer.onRequest("task.query", (query) => {
+			this.queries.push(query.taskId);
+			return this.answerQuery(query.taskId);
+		});
 		peer.onRequest("revocations.add", (body) => {
 			this.revocations.push(body.entries);
 			return {};
@@ -240,6 +267,11 @@ export class FakeCrha {
 		this.peer.emit("trust.summary", report);
 	}
 
+	/** Reports output of a task crhs asked about, as the node sends it while the task runs. */
+	output(taskId: string, stream: "stdout" | "stderr", offset: number, data: Uint8Array): void {
+		this.peer.emit("task.output", { taskId, stream, offset, data });
+	}
+
 	/** Reports a finished task to crhs, as the node would after task.start was accepted. */
 	exit(taskId: string, outcome: TaskExit["outcome"] = { kind: "code", value: 0 }, extra: Partial<TaskExit> = {}): void {
 		this.peer.emit("task.exit", {
@@ -250,15 +282,24 @@ export class FakeCrha {
 			stdoutEnd: 0,
 			stderrEnd: 0,
 			outputFile: "",
+			result: null,
 			...extra,
 		});
 	}
 }
 
+/** What a node answers task.query with (doc/protocol.md#命令与事件). */
+export interface TaskQueryAnswer {
+	taskId: string;
+	state: "running" | "exited" | "unknown";
+	stdoutEnd: number;
+	stderrEnd: number;
+}
+
 export function handshakeInit(overrides: Partial<HandshakeInit> = {}): HandshakeInit {
 	return {
-		protocolMajor: 1,
-		protocolMinor: 0,
+		protocolMajor: PROTOCOL_MAJOR,
+		protocolMinor: PROTOCOL_MINOR,
 		commands: [...SUPPORTED_NAMES],
 		crhaVersion: "test",
 		clientTimeMs: Date.now(),

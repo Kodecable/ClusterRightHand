@@ -218,6 +218,21 @@ func TestDialProtocolMajorMismatch(t *testing.T) {
 	}
 }
 
+func TestDialDifferentMinorAccepted(t *testing.T) {
+	client, server := keys(t)
+	srv := fakeServer(t, server, client.Public, false, func() *protocol.HandshakeResponse {
+		resp := activeHandshake(protocol.SupportedNames())
+		resp.ProtocolMinor = protocol.ProtocolMinor + 1
+		return resp
+	})
+	defer srv.Close()
+	c, err := dial(t, srv, client, server)
+	if err != nil {
+		t.Fatalf("handshake with a different minor: %v", err)
+	}
+	defer c.Close("done")
+}
+
 func TestDialMissingRequiredCommand(t *testing.T) {
 	client, server := keys(t)
 	srv := fakeServer(t, server, client.Public, false, func() *protocol.HandshakeResponse {

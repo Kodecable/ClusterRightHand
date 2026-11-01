@@ -30,7 +30,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 
 	app.onError((err, c) => {
 		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
-		if (err instanceof UserError || err instanceof TypeError) return jsonError(c, 400, err.message);
+		if (err instanceof UserError) return jsonError(c, 400, err.message);
 		throw err;
 	});
 

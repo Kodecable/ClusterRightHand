@@ -17,9 +17,29 @@ msgstr "Ops console"
 msgid "Pending approvals"
 msgstr "Pending approvals"
 
+#: src/components/task-result.tsx
+msgid " (a new file)"
+msgstr " (a new file)"
+
+#: src/components/task-result.tsx
+msgid " (end of file)"
+msgstr " (end of file)"
+
+#: src/components/task-result.tsx
+msgid " (more lines follow)"
+msgstr " (more lines follow)"
+
+#: src/components/task-result.tsx
+msgid " (replaced)"
+msgstr " (replaced)"
+
 #: src/features/tasks/task-group-result.tsx
 msgid " (the batch was interrupted)"
 msgstr " (the batch was interrupted)"
+
+#: src/components/task-result.tsx
+msgid ", {total} lines in all"
+msgstr ", {total} lines in all"
 
 #: src/components/task-result.tsx
 msgid "… {omitted} bytes omitted …"
@@ -28,6 +48,11 @@ msgstr "… {omitted} bytes omitted …"
 #: src/markdown/safe-nodes.tsx
 msgid "[image: {label}]"
 msgstr "[image: {label}]"
+
+#. placeholder {0}: result.size
+#: src/components/task-result.tsx
+msgid "{0, plural, one {# byte} other {# bytes}}"
+msgstr "{0, plural, one {# byte} other {# bytes}}"
 
 #. placeholder {0}: events.state.queued
 #: src/features/sessions/pages.tsx
@@ -64,6 +89,11 @@ msgstr "{0, plural, one {# task} other {# tasks}}"
 msgid "{0, plural, one {Next run:} other {Next runs:}}"
 msgstr "{0, plural, one {Next run:} other {Next runs:}}"
 
+#. placeholder {0}: result.replacements
+#: src/components/task-result.tsx
+msgid "{0, plural, one {Replaced # occurrence} other {Replaced # occurrences}}"
+msgstr "{0, plural, one {Replaced # occurrence} other {Replaced # occurrences}}"
+
 #. placeholder {0}: targets.length
 #: src/features/batch/pages.tsx
 msgid "{0, plural, one {Run on # target} other {Run on # targets}}"
@@ -73,6 +103,11 @@ msgstr "{0, plural, one {Run on # target} other {Run on # targets}}"
 #: src/features/sessions/child-sessions.tsx
 msgid "{0, plural, one {Subagent session} other {Subagent sessions}}"
 msgstr "{0, plural, one {Subagent session} other {Subagent sessions}}"
+
+#. placeholder {0}: result.bytes
+#: src/components/task-result.tsx
+msgid "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
+msgstr "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
 
 #. placeholder {0}: item.task.kind
 #. placeholder {1}: nodeNames.get(item.task.nodeId) ?? item.task.nodeId
@@ -163,6 +198,10 @@ msgstr "A duration such as 5m or 24h. Empty means no limit."
 msgid "A host is required."
 msgstr "A host is required."
 
+#: src/components/task-result.tsx
+msgid "A line alone is longer than the 50 KB a page keeps."
+msgstr "A line alone is longer than the 50 KB a page keeps."
+
 #: src/features/schedules/scheduleForm.ts
 #: src/features/tokens/pages.tsx
 msgid "A name is required."
@@ -251,7 +290,6 @@ msgid "Action"
 msgstr "Action"
 
 #: src/components/data-table.tsx
-#: src/features/nodes/pages.tsx
 msgid "Actions"
 msgstr "Actions"
 
@@ -1249,6 +1287,10 @@ msgstr "Edit provider {0}"
 msgid "Effective"
 msgstr "Effective"
 
+#: src/components/task-result.tsx
+msgid "Empty file."
+msgstr "Empty file."
+
 #: src/features/users/pages.tsx
 msgid "Enable"
 msgstr "Enable"
@@ -1459,6 +1501,7 @@ msgstr "Go to sessions"
 msgid "Grantee"
 msgstr "Grantee"
 
+#: src/components/task-result.tsx
 #: src/features/nodes/node-shares.tsx
 #: src/features/sessions/share-dialog.tsx
 msgid "Group"
@@ -1653,6 +1696,18 @@ msgstr "Light"
 msgid "Limit"
 msgstr "Limit"
 
+#: src/components/task-form-fields.tsx
+msgid "Lines"
+msgstr "Lines"
+
+#: src/components/task-result.tsx
+msgid "Lines {from}–{to}"
+msgstr "Lines {from}–{to}"
+
+#: src/components/task-result.tsx
+msgid "Link target"
+msgstr "Link target"
+
 #: src/features/settings/providers.ts
 msgid "List at least one model."
 msgstr "List at least one model."
@@ -1734,6 +1789,10 @@ msgstr "Message"
 msgid "Mine"
 msgstr "Mine"
 
+#: src/components/task-result.tsx
+msgid "Mode"
+msgstr "Mode"
+
 #: src/components/model-select.tsx
 #: src/features/schedules/schedule-form.tsx
 #: src/features/sessions/new-session-dialog.tsx
@@ -1771,6 +1830,10 @@ msgstr "Model providers"
 msgid "Models"
 msgstr "Models"
 
+#: src/components/task-result.tsx
+msgid "Modified"
+msgstr "Modified"
+
 #. placeholder {0}: index + 1
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Move jump host {0} down"
@@ -1781,6 +1844,7 @@ msgstr "Move jump host {0} down"
 msgid "Move jump host {0} up"
 msgstr "Move jump host {0} up"
 
+#: src/components/task-result.tsx
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/pages.tsx
@@ -2094,8 +2158,8 @@ msgid "Offline"
 msgstr "Offline"
 
 #: src/components/task-form-fields.tsx
-msgid "Offset"
-msgstr "Offset"
+#~ msgid "Offset"
+#~ msgstr "Offset"
 
 #: src/components/task-form-fields.tsx
 msgid "Old text"
@@ -2232,6 +2296,10 @@ msgstr "Overwrite if it exists"
 msgid "Own result"
 msgstr "Own result"
 
+#: src/components/task-result.tsx
+msgid "Owner"
+msgstr "Owner"
+
 #: src/app/router.tsx
 msgid "Page not found"
 msgstr "Page not found"
@@ -2283,6 +2351,7 @@ msgid "Paste this block into the node's privileged.toml. The node must be restar
 msgstr "Paste this block into the node's privileged.toml. The node must be restarted to pick up the change, and `crha status` shows the trust digest it reports."
 
 #: src/components/task-form-fields.tsx
+#: src/components/task-result.tsx
 msgid "Path"
 msgstr "Path"
 
@@ -2414,10 +2483,6 @@ msgstr "Quota decision recorded."
 #: src/features/sessions/pages.tsx
 msgid "Quota saved."
 msgstr "Quota saved."
-
-#: src/components/quota-card.tsx
-msgid "Quota used up"
-msgstr "Quota used up"
 
 #: src/components/quota-card.tsx
 msgid "Quota used up · {usedText} used"
@@ -2961,6 +3026,10 @@ msgstr "Signing key"
 msgid "Since"
 msgstr "Since"
 
+#: src/components/task-result.tsx
+msgid "Size"
+msgstr "Size"
+
 #: src/features/tasks/task-group-result.tsx
 msgid "Skipped: {skipped}"
 msgstr "Skipped: {skipped}"
@@ -3001,6 +3070,10 @@ msgstr "ssh-keygen recipe"
 #: src/features/sessions/new-session-dialog.tsx
 msgid "Start a conversation with the agent; it acts on your nodes through the same rules."
 msgstr "Start a conversation with the agent; it acts on your nodes through the same rules."
+
+#: src/components/task-form-fields.tsx
+msgid "Start line"
+msgstr "Start line"
 
 #: src/features/sessions/session-list.tsx
 msgid "Start one, or wait for a scheduled run."
@@ -3200,6 +3273,11 @@ msgstr "The full output stays on the node until the task exits."
 msgid "The limit must be a non-negative whole number."
 msgstr "The limit must be a non-negative whole number."
 
+#: src/components/task-result.tsx
+msgid "The listing is truncated: the directory has more entries than are shown."
+msgstr "The listing is truncated: the directory has more entries than are shown."
+
+#: src/components/task-result.tsx
 #: src/features/schedules/schedule-form.tsx
 msgid "The model every new session of this schedule uses."
 msgstr "The model every new session of this schedule uses."
@@ -3229,9 +3307,13 @@ msgstr "The node is active as soon as it is created; the pinned host keys are en
 msgid "The node trusts nobody."
 msgstr "The node trusts nobody."
 
+#: src/components/task-result.tsx
+msgid "The offset is past the end of the file."
+msgstr "The offset is past the end of the file."
+
 #: src/features/tasks/taskForm.ts
-msgid "The offset must be a non-negative whole number."
-msgstr "The offset must be a non-negative whole number."
+#~ msgid "The offset must be a non-negative whole number."
+#~ msgstr "The offset must be a non-negative whole number."
 
 #: src/app/router.tsx
 msgid "The page you asked for does not exist."
@@ -3268,6 +3350,10 @@ msgstr "The session is waiting for a signature."
 #: src/features/sessions/composer.tsx
 msgid "The session is waiting for an approval."
 msgstr "The session is waiting for an approval."
+
+#: src/features/tasks/taskForm.ts
+msgid "The start line must be a whole number of at least 1."
+msgstr "The start line must be a whole number of at least 1."
 
 #: src/features/tasks/taskForm.ts
 msgid "The text to replace is required."
@@ -3423,6 +3509,7 @@ msgstr "Try a different search."
 msgid "Try again"
 msgstr "Try again"
 
+#: src/components/task-result.tsx
 #: src/features/nodes/node-shares.tsx
 #: src/features/sessions/share-dialog.tsx
 msgid "Type"
@@ -3629,8 +3716,16 @@ msgid "Yolo: everything runs without asking."
 msgstr "Yolo: everything runs without asking."
 
 #: src/features/users/pages.tsx
-msgid "You cannot disable yourself"
-msgstr "You cannot disable yourself"
+#~ msgid "You cannot change your own kind or disable your own account."
+#~ msgstr "You cannot change your own kind or disable your own account."
+
+#: src/features/users/pages.tsx
+msgid "You cannot change your own kind."
+msgstr "You cannot change your own kind."
+
+#: src/features/users/pages.tsx
+msgid "You cannot disable your own account."
+msgstr "You cannot disable your own account."
 
 #: src/features/authorizations/pages.tsx
 msgid "You have not signed any authorization yet."

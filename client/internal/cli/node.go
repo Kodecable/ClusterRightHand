@@ -235,16 +235,3 @@ func newUpgradeCmd() *cobra.Command {
 	_ = cmd.MarkFlagRequired("apply")
 	return cmd
 }
-
-func newMCPCmd() *cobra.Command {
-	var url, tokenFile string
-	cmd := &cobra.Command{
-		Use:   "mcp",
-		Short: "Bridge MCP over stdio to the crhs HTTP endpoint",
-		Args:  cobra.NoArgs,
-		RunE:  notImplemented,
-	}
-	cmd.Flags().StringVar(&url, "url", "", "MCP endpoint URL")
-	cmd.Flags().StringVar(&tokenFile, "token-file", "", "file containing the access token")
-	return cmd
-}

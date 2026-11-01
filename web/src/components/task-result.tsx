@@ -7,7 +7,7 @@ import { TaskStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/session";
 import { batchOutput, joinOutput, statusOutputNoteKey, taskOutcome } from "@/features/tasks/output";
-import type { TaskAuthorizationView, TaskView } from "@/lib/api/types";
+import type { TaskAuthorizationView, TaskResultView, TaskView } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { DecisionView, EvaluationTable } from "./approval-card";
 
@@ -276,6 +276,144 @@ export function TaskEvaluation({
 	);
 }
 
+/** A page's line range and whether the scan reached the end of the file (doc/protocol.md TaskResult). */
+function ReadResultView({ result }: { result: Extract<TaskResultView, { kind: "file.read" }> }) {
+	const { from, to, eof, total, tooLong } = result;
+	return (
+		<p className="text-sm text-muted-foreground" data-testid="task-result-file-read">
+			{tooLong ? (
+				<Trans>A line alone is longer than the 50 KB a page keeps.</Trans>
+			) : from === 0 ? (
+				eof && total === 0 ? (
+					<Trans>Empty file.</Trans>
+				) : (
+					<Trans>The offset is past the end of the file.</Trans>
+				)
+			) : (
+				<Trans>
+					Lines {from}–{to}
+				</Trans>
+			)}
+			{!tooLong && from > 0 && (eof ? <Trans> (end of file)</Trans> : <Trans> (more lines follow)</Trans>)}
+			{!tooLong && from > 0 && eof && total !== null && <Trans>, {total} lines in all</Trans>}
+		</p>
+	);
+}
+
+/** The metadata a file.stat task reported. */
+function StatResultView({ result }: { result: Extract<TaskResultView, { kind: "file.stat" }> }) {
+	const items: KeyValueItem[] = [
+		{ label: <Trans>Path</Trans>, value: result.path, mono: true },
+		{ label: <Trans>Type</Trans>, value: result.type },
+		{ label: <Trans>Size</Trans>, value: <Plural value={result.size} one="# byte" other="# bytes" /> },
+		{ label: <Trans>Mode</Trans>, value: result.mode, mono: true },
+		{
+			label: <Trans>Owner</Trans>,
+			value: result.owner === "" ? String(result.uid) : `${result.owner} (${result.uid})`,
+		},
+		{
+			label: <Trans>Group</Trans>,
+			value: result.group === "" ? String(result.gid) : `${result.group} (${result.gid})`,
+		},
+		{ label: <Trans>Modified</Trans>, value: <DateTime value={result.mtime} /> },
+		...(result.linkTarget === null
+			? []
+			: [{ label: <Trans>Link target</Trans>, value: result.linkTarget, mono: true }]),
+	];
+	return (
+		<div data-testid="task-result-file-stat">
+			<KeyValueList items={items} />
+		</div>
+	);
+}
+
+/** The entries a file.list task listed. */
+function ListResultView({ result }: { result: Extract<TaskResultView, { kind: "file.list" }> }) {
+	return (
+		<div className="grid gap-1" data-testid="task-result-file-list">
+			<div className="max-h-72 overflow-auto rounded-md border">
+				<table className="w-full text-xs">
+					<thead className="bg-muted/60 text-muted-foreground">
+						<tr>
+							<th className="px-2 py-1 text-left font-medium">
+								<Trans>Name</Trans>
+							</th>
+							<th className="px-2 py-1 text-left font-medium">
+								<Trans>Type</Trans>
+							</th>
+							<th className="px-2 py-1 text-right font-medium">
+								<Trans>Size</Trans>
+							</th>
+							<th className="px-2 py-1 text-left font-medium">
+								<Trans>Modified</Trans>
+							</th>
+						</tr>
+					</thead>
+					<tbody>
+						{result.entries.map((entry) => (
+							<tr key={entry.name} className="border-t">
+								<td className="px-2 py-1 font-mono">{entry.name}</td>
+								<td className="px-2 py-1">{entry.type}</td>
+								<td className="px-2 py-1 text-right font-mono">{entry.size}</td>
+								<td className="px-2 py-1">
+									<DateTime value={entry.mtime} />
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
+			{result.truncated && (
+				<p className="text-xs text-muted-foreground">
+					<Trans>The listing is truncated: the directory has more entries than are shown.</Trans>
+				</p>
+			)}
+		</div>
+	);
+}
+
+/**
+ * The structured result of a file task (doc/protocol.md TaskResult): what the output streams do not
+ * say. A page's lines and end of file, a file's metadata, a directory listing, and what a write or
+ * an edit changed.
+ */
+export function TaskResultData({ result, className }: { result: TaskResultView; className?: string }) {
+	return (
+		<section aria-label="task result" data-slot="task-result-data" className={cn("grid gap-2", className)}>
+			{result.kind === "file.read" ? (
+				<ReadResultView result={result} />
+			) : result.kind === "file.stat" ? (
+				<StatResultView result={result} />
+			) : result.kind === "file.list" ? (
+				<ListResultView result={result} />
+			) : result.kind === "file.write" ? (
+				<p className="text-sm text-muted-foreground">
+					<Plural value={result.bytes} one="Wrote # byte" other="Wrote # bytes" />
+					{result.created ? <Trans> (a new file)</Trans> : <Trans> (replaced)</Trans>}
+				</p>
+			) : (
+				<p className="text-sm text-muted-foreground">
+					<Plural value={result.replacements} one="Replaced # occurrence" other="Replaced # occurrences" />
+				</p>
+			)}
+		</section>
+	);
+}
+
+/**
+ * crhs's own line in front of a task's output (the SSH privileged notice). `status` and `head`
+ * tasks keep no other stderr, but this line survives in stderr_head
+ * (doc/execution-plane.md#ssh-传输).
+ */
+function TaskNotice({ text }: { text: string }) {
+	if (text === "") return null;
+	return (
+		<p data-testid="task-notice" className="rounded-md border px-2 py-1 font-mono text-xs whitespace-pre-wrap">
+			{text.trim()}
+		</p>
+	);
+}
+
 /** The kept output of a task: a tail, the status-only note, or stdout and stderr. */
 export function TaskOutput({ task, className }: { task: TaskView; className?: string }) {
 	const { t } = useLingui();
@@ -286,27 +424,36 @@ export function TaskOutput({ task, className }: { task: TaskView; className?: st
 		<div data-slot="task-output" className={cn("grid gap-3", className)}>
 			{output.kind === "tail" ? (
 				<OutputBlock label={t`output`} head="" tail={output.text} bytes={output.bytes} />
+			) : output.kind === "head" ? (
+				<>
+					<OutputBlock label={t`output`} head={output.text} tail="" bytes={output.bytes} />
+					<TaskNotice text={task.stderrHead} />
+				</>
 			) : output.kind === "status" ? (
-				<p className="text-sm text-muted-foreground">
-					<Trans>Status only.</Trans>{" "}
-					{output.file !== null ? (
-						<Trans>
-							The full output is in <span className="font-mono text-xs">{output.file}</span> on the node.
-						</Trans>
-					) : note === "running" ? (
-						<Trans>The full output stays on the node until the task exits.</Trans>
-					) : note === "none" ? (
-						<Trans>No output was kept.</Trans>
-					) : (
-						<Trans>No output is kept (SSH nodes keep no output).</Trans>
-					)}
-				</p>
+				<>
+					<p className="text-sm text-muted-foreground">
+						<Trans>Status only.</Trans>{" "}
+						{output.file !== null ? (
+							<Trans>
+								The full output is in <span className="font-mono text-xs">{output.file}</span> on the node.
+							</Trans>
+						) : note === "running" ? (
+							<Trans>The full output stays on the node until the task exits.</Trans>
+						) : note === "none" ? (
+							<Trans>No output was kept.</Trans>
+						) : (
+							<Trans>No output is kept (SSH nodes keep no output).</Trans>
+						)}
+					</p>
+					<TaskNotice text={task.stderrHead} />
+				</>
 			) : (
 				<>
 					<OutputBlock label={t`stdout`} head={task.stdoutHead} tail={task.stdoutTail} bytes={task.stdoutBytes} />
 					<OutputBlock label={t`stderr`} head={task.stderrHead} tail={task.stderrTail} bytes={task.stderrBytes} />
 				</>
 			)}
+			{task.result != null && <TaskResultData result={task.result} />}
 		</div>
 	);
 }

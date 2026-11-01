@@ -154,8 +154,8 @@ export function TaskFormFields({
 			{form.kind !== "exec" && text("path", t`Path`, { mono: true })}
 			{form.kind === "file.read" && (
 				<div className="grid gap-3 sm:grid-cols-2">
-					{text("offset", t`Offset`)}
-					{text("limit", t`Limit`)}
+					{text("offset", t`Start line`)}
+					{text("limit", t`Lines`)}
 				</div>
 			)}
 			{form.kind === "file.list" && text("limit", t`Limit`)}

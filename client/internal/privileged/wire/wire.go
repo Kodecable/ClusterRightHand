@@ -17,8 +17,11 @@ import (
 
 const (
 	// PrivMajor and PrivMinor are the crh-priv versions carried by PrivHello and PrivWelcome. They
-	// version the crh-priv protocol itself, not the crhs <-> crha protocol.
-	PrivMajor = 1
+	// version the crh-priv protocol itself, not the crhs <-> crha protocol. Major 2 carries the
+	// task.exit.result element and the line-range file.read spec; a peer with a different major is
+	// refused, because crha and its privileged mode always upgrade together (doc/protocol.md,
+	// crh-priv：非特权模式 ↔ 特权模式). The minor stays additive and never refuses a handshake.
+	PrivMajor = 2
 	PrivMinor = 0
 	// MaxFrameBytes bounds one frame. Length 0 and lengths above it are protocol errors.
 	MaxFrameBytes = protocol.MaxFrameBytes
@@ -89,7 +92,7 @@ func coreNames() []string {
 }
 
 // NamesFor returns the command and event names a role implements, sorted, including the
-// protocol 1.1 names that role needs. The handshake advertises this list.
+// M4 names that role needs. The handshake advertises this list.
 func NamesFor(role Role) []string {
 	switch role {
 	case RoleForward:

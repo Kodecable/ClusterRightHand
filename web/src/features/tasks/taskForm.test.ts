@@ -17,9 +17,11 @@ describe("buildTaskRequest", () => {
 	});
 
 	test("file kinds", () => {
-		expect(buildTaskRequest({ ...emptyForm, kind: "file.read", path: "/x", limit: "10" })).toMatchObject({
+		// A read pages by line: the offset is a 1-based line and the limit a line count.
+		expect(buildTaskRequest({ ...emptyForm, kind: "file.read", path: "/x", offset: "3", limit: "10" })).toMatchObject({
 			path: "/x",
-			limit: 10,
+			startLine: 3,
+			lineCount: 10,
 		});
 		expect(buildTaskRequest({ ...emptyForm, kind: "file.edit", path: "/x", oldText: "a", newText: "b" }).edits).toEqual(
 			[{ oldText: "a", newText: "b" }],
@@ -40,6 +42,7 @@ describe("buildTaskRequest", () => {
 		expect(code({ ...emptyForm, kind: "file.stat" })).toBe("path-required");
 		expect(code({ ...emptyForm, command: "x", timeoutSec: "-1" })).toBe("timeout-invalid");
 		expect(code({ ...emptyForm, kind: "file.read", path: "/x", offset: "-1" })).toBe("offset-invalid");
+		expect(code({ ...emptyForm, kind: "file.read", path: "/x", offset: "0" })).toBe("offset-invalid");
 		expect(code({ ...emptyForm, kind: "file.read", path: "/x", limit: "1.5" })).toBe("limit-invalid");
 		expect(code({ ...emptyForm, kind: "file.edit", path: "/x" })).toBe("old-text-required");
 	});

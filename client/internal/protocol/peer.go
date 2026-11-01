@@ -40,22 +40,30 @@ type Deferred struct {
 // RequestHandler handles one incoming request. It decodes body itself (usually with
 // Unmarshal), returns the response body, or returns a *RemoteError to send an error
 // response. Any other error is reported to the peer as internal_error; returning a
-// *ProtocolError aborts Receive instead, as required for malformed request bodies.
+// *ProtocolError is fatal for the connection instead, as required for malformed request
+// bodies.
 //
-// Handlers run synchronously inside Receive, on the goroutine that called it. A handler
-// must not call Peer.Request and wait for its response: Receive is blocked in the
-// handler, so the response cannot be processed and the call deadlocks. A handler should
-// also not block for long, because every incoming frame waits behind it.
+// By default handlers run synchronously inside Receive, on the goroutine that called it.
+// A handler must not call Peer.Request and wait for its response: Receive is blocked in
+// the handler, so the response cannot be processed and the call deadlocks. A handler
+// should also not block for long, because every incoming frame waits behind it.
+//
+// With WithRequestWorker the handlers run on the Peer's own goroutines instead: requests
+// for one task run one at a time and in arrival order, while requests for different tasks
+// (and requests that name no task) proceed independently. A handler that blocks on another
+// connection therefore stops neither responses and events nor the requests of other tasks.
+// A handler that waits for a response from the same Peer still blocks the other requests
+// for its own task, which wait behind it.
 //
 // A handler that returns a Deferred (or *Deferred) instead of a plain body defers the
 // work that must not precede the response: the Peer sends Deferred.Body as the success
-// response, then calls Deferred.After synchronously, still inside Receive, after send
-// accepted the response frame. That is how a handler starts a task whose task.output and
-// task.exit events are guaranteed to follow the task.start response. After may call
-// Peer.Emit; it must not wait for a Peer.Request response for the same reason as above.
-// If Deferred.Body cannot be encoded, the Peer sends an internal_error response instead
-// and does not call After; if the response cannot be sent (the peer is closed), After is
-// not called either. A nil *Deferred is treated as an empty Deferred.
+// response, then calls Deferred.After after send accepted the response frame. That is how
+// a handler starts a task whose task.output and task.exit events are guaranteed to follow
+// the task.start response. After may call Peer.Emit; it must not wait for a Peer.Request
+// response for the same reason as above. If Deferred.Body cannot be encoded, the Peer
+// sends an internal_error response instead and does not call After; if the response cannot
+// be sent (the peer is closed), After is not called either. A nil *Deferred is treated as
+// an empty Deferred.
 type RequestHandler func(ctx context.Context, body cbor.RawMessage) (any, error)
 
 // EventHandler handles one incoming event. A non-nil error is a protocol error: events
@@ -89,6 +97,13 @@ type Peer struct {
 	sendMu sync.Mutex // serializes send and Close
 	recvMu sync.Mutex // serializes Receive
 
+	// worker runs the request handlers off the receive loop (WithRequestWorker). queues holds
+	// the requests waiting per ordering key, and active records the keys whose goroutine is
+	// draining their queue: one task's requests stay in order, different tasks run at once.
+	worker bool
+	queues map[string][]*Frame
+	active map[string]bool
+
 	mu              sync.Mutex
 	nextID          Uint
 	pending         map[Uint]*pendingCall
@@ -98,11 +113,27 @@ type Peer struct {
 	closeErr        error
 }
 
+// PeerOption configures a Peer at construction.
+type PeerOption func(*Peer)
+
+// WithRequestWorker runs request handlers on the Peer's own goroutines instead of inside
+// Receive. Requests are ordered per task: every task id has a queue holding its requests in
+// arrival order, and one queue holds the requests that name no task (hello, ping,
+// revocations.add). Each queue is drained by its own goroutine, so a handler that blocks on
+// another connection — a forwarded request waiting for the privileged mode, for example —
+// delays neither the receive loop nor the requests of a different task. The queues are unbounded, so a blocked task
+// accumulates the frames behind it instead of stalling the connection; the peer bounds that by
+// not sending more than it awaits. Requests still queued when Close is called are dropped: no
+// handler ever accepted them, and the peer can no longer send an answer.
+func WithRequestWorker() PeerOption {
+	return func(p *Peer) { p.worker = true }
+}
+
 // NewPeer returns a Peer that writes outgoing frames with send and accepts only the
 // command and event names in negotiated (the intersection of both handshake lists).
-func NewPeer(send func([]byte) error, negotiated Set) *Peer {
+func NewPeer(send func([]byte) error, negotiated Set, opts ...PeerOption) *Peer {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Peer{
+	p := &Peer{
 		send:            send,
 		negotiated:      negotiated.Clone(),
 		commandSchemas:  cloneCommandSchemas(),
@@ -112,6 +143,12 @@ func NewPeer(send func([]byte) error, negotiated Set) *Peer {
 		requestHandlers: make(map[string]RequestHandler),
 		eventHandlers:   make(map[string]EventHandler),
 	}
+	p.queues = make(map[string][]*Frame)
+	p.active = make(map[string]bool)
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
 }
 
 // HandleRequest registers the handler for an incoming command. Registering a nil
@@ -252,10 +289,11 @@ func (p *Peer) Emit(name string, body any) error {
 	return p.sendFrame(frame)
 }
 
-// Receive processes one complete frame from the peer. It may send a response frame
-// through the send function, followed by a Deferred.After hook returned by a request
-// handler. Every malformed input, unknown response id, mismatched response command and
-// unexpected event is reported as *ProtocolError.
+// Receive processes one complete frame from the peer. For a request it runs the handler
+// and sends the response (and the handler's Deferred.After hook), either here or, with
+// WithRequestWorker, on the peer's request worker. Every malformed input, unknown
+// response id, mismatched response command and unexpected event is reported as
+// *ProtocolError.
 func (p *Peer) Receive(frame []byte) error {
 	p.recvMu.Lock()
 	defer p.recvMu.Unlock()
@@ -300,6 +338,8 @@ func (p *Peer) Close(err error) {
 	p.closeErr = err
 	pending := p.pending
 	p.pending = make(map[Uint]*pendingCall)
+	// The queue goroutines see closed on their next turn and drop what they have not taken:
+	// no handler ran for those requests, and the peer can no longer answer them.
 	p.mu.Unlock()
 
 	p.cancel()
@@ -372,13 +412,99 @@ func (p *Peer) handleRequest(f *Frame) error {
 	p.mu.Lock()
 	handler := p.requestHandlers[f.Name]
 	negotiated := p.negotiated.Has(f.Name)
+	if p.worker && negotiated && handler != nil {
+		key := requestOrderKey(f.Name, f.Body)
+		p.queues[key] = append(p.queues[key], f)
+		if !p.active[key] {
+			p.active[key] = true
+			go p.serveRequests(key)
+		}
+		p.mu.Unlock()
+		return nil
+	}
 	p.mu.Unlock()
 
 	if !negotiated || handler == nil {
 		// The cmd field already carries the name; do not repeat it in the message.
 		return p.sendErrorResponse(f.ID, f.Name, "unsupported_command", "command is not supported")
 	}
+	return p.runRequest(f, handler)
+}
 
+// serveRequests runs the queued requests of one ordering key, one at a time and in arrival order,
+// until that queue is empty or the peer closes. Running handlers here instead of inside Receive is
+// what keeps a blocked handler (a forwarded request waiting for the privileged mode) from stalling
+// the responses and events behind it; one goroutine per key keeps the order that matters per task
+// and lets the requests of different tasks run at the same time.
+func (p *Peer) serveRequests(key string) {
+	for {
+		p.mu.Lock()
+		if p.closed {
+			p.mu.Unlock()
+			return
+		}
+		queue := p.queues[key]
+		if len(queue) == 0 {
+			delete(p.queues, key)
+			p.active[key] = false
+			p.mu.Unlock()
+			return
+		}
+		f := queue[0]
+		queue[0] = nil
+		p.queues[key] = queue[1:]
+		handler := p.requestHandlers[f.Name]
+		p.mu.Unlock()
+		if handler == nil {
+			// Handlers are registered before Receive starts, so this cannot happen; skip the
+			// request rather than answer it with the wrong result.
+			continue
+		}
+		if err := p.runRequest(f, handler); err != nil {
+			// A handler error is fatal for the connection, exactly as when Receive ran the
+			// handler synchronously. Closing the peer makes the receive loop report ErrClosed on
+			// its next frame; a transport failure is also seen by the caller's next read.
+			p.Close(err)
+			return
+		}
+	}
+}
+
+// taskCommands are the commands crhs sends whose request tuple starts with the task id: the worker
+// runs their requests in the order they arrived for that task, because a task.start must precede its
+// task.input chunks and the cancel that follows them. The other commands (hello, ping,
+// revocations.add) name no task, so they share one queue.
+var taskCommands = map[string]bool{
+	CmdTaskStart:     true,
+	CmdTaskInput:     true,
+	CmdTaskCancel:    true,
+	CmdTaskQuery:     true,
+	CmdLocalRequest:  true,
+	CmdLocalWithdraw: true,
+}
+
+// requestOrderKey returns the ordering key of one request: the task id of a task command, or "" for
+// a request that names no task. The body was validated before it was queued, so a decoding failure
+// here cannot happen; falling back to the shared queue keeps such a request ordered at least among
+// the requests that name no task.
+func requestOrderKey(cmd string, body cbor.RawMessage) string {
+	if !taskCommands[cmd] {
+		return ""
+	}
+	var args []cbor.RawMessage
+	if err := decMode.Unmarshal(body, &args); err != nil || len(args) == 0 {
+		return ""
+	}
+	var taskID string
+	if err := decMode.Unmarshal(args[0], &taskID); err != nil {
+		return ""
+	}
+	return taskID
+}
+
+// runRequest invokes one request handler, sends its response and then runs the handler's Deferred
+// hook. The returned error is fatal for the connection (a protocol error or a failed send).
+func (p *Peer) runRequest(f *Frame, handler RequestHandler) error {
 	result, err := handler(p.ctx, f.Body)
 	if err != nil {
 		var remote *RemoteError
@@ -419,7 +545,7 @@ func (p *Peer) handleRequest(f *Frame) error {
 }
 
 // unwrapDeferred splits a handler result into the response body and the optional
-// after-send hook. For every other value the hook is nil, so handleRequest can treat all
+// after-send hook. For every other value the hook is nil, so runRequest can treat all
 // results the same way. A nil *Deferred yields a nil body and no hook.
 func unwrapDeferred(result any) (body any, after func()) {
 	switch deferred := result.(type) {
@@ -436,6 +562,14 @@ func unwrapDeferred(result any) (body any, after func()) {
 }
 
 func (p *Peer) handleEvent(f *Frame) error {
+	// A received event body is validated like a received request body, before the handler
+	// sees it: an event this package knows must decode, and a body that does not is a
+	// protocol error that closes the connection. Validating here also covers the native
+	// helper's bufferedEvents, whose handlers only ever receive validated bodies.
+	if err := validateEventBody(f.Name, f.Body); err != nil {
+		return err
+	}
+
 	p.mu.Lock()
 	handler := p.eventHandlers[f.Name]
 	negotiated := p.negotiated.Has(f.Name)

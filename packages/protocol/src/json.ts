@@ -2,7 +2,7 @@
  * JSON forms used by the database and Web API. The wire types keep sha256 as
  * bytes; JSON stores lowercase 64-character hex.
  */
-import type { Command, Edit, Facts, InputRef, Shells, TaskSpec } from "./messages.ts";
+import type { Command, Edit, Facts, FileListEntry, InputRef, Shells, TaskResult, TaskSpec } from "./messages.ts";
 
 export class JsonError extends Error {
 	override name = "JsonError";
@@ -23,7 +23,7 @@ export type JsonTaskSpec =
 			cwd: string;
 			stdin: JsonInputRef | null;
 	  }
-	| { kind: "file.read"; path: string; offset: number; limit: number }
+	| { kind: "file.read"; path: string; startLine: number; lineCount: number }
 	| {
 			kind: "file.write";
 			path: string;
@@ -36,6 +36,38 @@ export type JsonTaskSpec =
 	| { kind: "file.edit"; path: string; edits: { oldText: string; newText: string }[] }
 	| { kind: "file.stat"; path: string }
 	| { kind: "file.list"; path: string; limit: number };
+
+/** The JSON form of one `file.list` entry (doc/protocol.md TaskResult). */
+export interface JsonFileListEntry {
+	name: string;
+	type: string;
+	size: number;
+	mode: string;
+	mtime: string;
+}
+
+/**
+ * The JSON form of a TaskResult, as stored on the task row and served by the Web API. The camelCase
+ * fields are the wire fields; a nullable one is null rather than absent.
+ */
+export type JsonTaskResult =
+	| { kind: "file.read"; from: number; to: number; eof: boolean; total: number | null; tooLong: boolean }
+	| {
+			kind: "file.stat";
+			path: string;
+			type: string;
+			size: number;
+			mode: string;
+			uid: number;
+			gid: number;
+			owner: string;
+			group: string;
+			mtime: string;
+			linkTarget: string | null;
+	  }
+	| { kind: "file.list"; entries: JsonFileListEntry[]; truncated: boolean }
+	| { kind: "file.write"; bytes: number; created: boolean }
+	| { kind: "file.edit"; replacements: number };
 
 /**
  * The JSON form of Facts: the camelCase fields that are present (doc/protocol.md Facts). Every key
@@ -173,8 +205,8 @@ export function taskSpecToJson(value: TaskSpec): JsonTaskSpec {
 			return {
 				kind: "file.read",
 				path: text(value.path, "path"),
-				offset: uint(value.offset, "offset"),
-				limit: uint(value.limit, "limit"),
+				startLine: uint(value.startLine, "startLine"),
+				lineCount: uint(value.lineCount, "lineCount"),
 			};
 		case "file.write":
 			return {
@@ -217,12 +249,12 @@ export function taskSpecFromJson(value: unknown): TaskSpec {
 			};
 		}
 		case "file.read": {
-			const object = record(value, "file.read", ["kind", "path", "offset", "limit"]);
+			const object = record(value, "file.read", ["kind", "path", "startLine", "lineCount"]);
 			return {
 				kind: "file.read",
 				path: text(object.path, "path"),
-				offset: uint(object.offset, "offset"),
-				limit: uint(object.limit, "limit"),
+				startLine: uint(object.startLine, "startLine"),
+				lineCount: uint(object.lineCount, "lineCount"),
 			};
 		}
 		case "file.write": {
@@ -256,6 +288,133 @@ export function taskSpecFromJson(value: unknown): TaskSpec {
 		}
 		default:
 			bad("task spec", `unknown kind: ${kind}`);
+	}
+}
+
+function listEntryToJson(value: FileListEntry): JsonFileListEntry {
+	return {
+		name: text(value.name, "entry.name"),
+		type: text(value.type, "entry.type"),
+		size: int(value.size, "entry.size"),
+		mode: text(value.mode, "entry.mode"),
+		mtime: text(value.mtime, "entry.mtime"),
+	};
+}
+
+function listEntryFromJson(value: unknown, what: string): FileListEntry {
+	const object = record(value, what, ["name", "type", "size", "mode", "mtime"]);
+	return {
+		name: text(object.name, `${what}.name`),
+		type: text(object.type, `${what}.type`),
+		size: int(object.size, `${what}.size`),
+		mode: text(object.mode, `${what}.mode`),
+		mtime: text(object.mtime, `${what}.mtime`),
+	};
+}
+
+/** Convert a TaskResult to its JSON form (stored on the task row, served by the Web API). */
+export function taskResultToJson(value: TaskResult): JsonTaskResult {
+	switch (value.kind) {
+		case "file.read":
+			return {
+				kind: "file.read",
+				from: uint(value.from, "from"),
+				to: uint(value.to, "to"),
+				eof: bool(value.eof, "eof"),
+				total: value.total === null ? null : uint(value.total, "total"),
+				tooLong: bool(value.tooLong, "tooLong"),
+			};
+		case "file.stat":
+			return {
+				kind: "file.stat",
+				path: text(value.path, "path"),
+				type: text(value.type, "type"),
+				size: int(value.size, "size"),
+				mode: text(value.mode, "mode"),
+				uid: int(value.uid, "uid"),
+				gid: int(value.gid, "gid"),
+				owner: text(value.owner, "owner"),
+				group: text(value.group, "group"),
+				mtime: text(value.mtime, "mtime"),
+				linkTarget: value.linkTarget === null ? null : text(value.linkTarget, "linkTarget"),
+			};
+		case "file.list":
+			return {
+				kind: "file.list",
+				entries: value.entries.map(listEntryToJson),
+				truncated: bool(value.truncated, "truncated"),
+			};
+		case "file.write":
+			return { kind: "file.write", bytes: uint(value.bytes, "bytes"), created: bool(value.created, "created") };
+		case "file.edit":
+			return { kind: "file.edit", replacements: uint(value.replacements, "replacements") };
+	}
+}
+
+/** Strictly parse the JSON form of a TaskResult. */
+export function taskResultFromJson(value: unknown): TaskResult {
+	if (!isRecord(value)) bad("task result", "not an object");
+	const kind = value.kind;
+	if (typeof kind !== "string") bad("task result", "missing kind");
+	switch (kind) {
+		case "file.read": {
+			const object = record(value, "file.read result", ["kind", "from", "to", "eof", "total", "tooLong"]);
+			return {
+				kind: "file.read",
+				from: uint(object.from, "from"),
+				to: uint(object.to, "to"),
+				eof: bool(object.eof, "eof"),
+				total: object.total === null ? null : uint(object.total, "total"),
+				tooLong: bool(object.tooLong, "tooLong"),
+			};
+		}
+		case "file.stat": {
+			const object = record(value, "file.stat result", [
+				"kind",
+				"path",
+				"type",
+				"size",
+				"mode",
+				"uid",
+				"gid",
+				"owner",
+				"group",
+				"mtime",
+				"linkTarget",
+			]);
+			return {
+				kind: "file.stat",
+				path: text(object.path, "path"),
+				type: text(object.type, "type"),
+				size: int(object.size, "size"),
+				mode: text(object.mode, "mode"),
+				uid: int(object.uid, "uid"),
+				gid: int(object.gid, "gid"),
+				owner: text(object.owner, "owner"),
+				group: text(object.group, "group"),
+				mtime: text(object.mtime, "mtime"),
+				linkTarget: object.linkTarget === null ? null : text(object.linkTarget, "linkTarget"),
+			};
+		}
+		case "file.list": {
+			const object = record(value, "file.list result", ["kind", "entries", "truncated"]);
+			if (!Array.isArray(object.entries)) bad("entries", "not an array");
+			return {
+				kind: "file.list",
+				entries: object.entries.map((item, index) => listEntryFromJson(item, `entries[${index}]`)),
+				truncated: bool(object.truncated, "truncated"),
+			};
+		}
+		case "file.write": {
+			const object = record(value, "file.write result", ["kind", "bytes", "created"]);
+			return { kind: "file.write", bytes: uint(object.bytes, "bytes"), created: bool(object.created, "created") };
+		}
+		case "file.edit": {
+			const object = record(value, "file.edit result", ["kind", "replacements"]);
+			return { kind: "file.edit", replacements: uint(object.replacements, "replacements") };
+		}
+		default:
+			bad("task result", `unknown kind: ${kind}`);
 	}
 }
 

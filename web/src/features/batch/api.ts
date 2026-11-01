@@ -7,7 +7,8 @@ export interface CreateBatchInput extends TaskRequest {
 	targets: string[];
 	parallel?: number;
 	failFast?: boolean;
-	outputMode?: "status" | "text";
+	/** status or text for an exec batch; omitted for file operations, which keep each node's head. */
+	outputMode?: "status" | "text" | "head";
 }
 
 /** Batch runs are task groups: one POST, then poll `GET /task-groups/:id/wait`. */

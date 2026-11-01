@@ -1,5 +1,5 @@
 import type { TaskSpec } from "@crh/protocol";
-import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { sql } from "kysely";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -15,6 +15,7 @@ import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { type DbProbe, probeDb, tableOf } from "./helpers/db-probe.ts";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
@@ -41,6 +42,7 @@ async function waitFor<T>(what: string, probe: () => Promise<T | undefined>, tim
 const TASK: TaskSpec = { kind: "exec", command: { argv: ["true"] }, env: {}, cwd: "", stdin: null };
 
 let db: Db;
+let dbProbe: DbProbe;
 let cluster: Cluster;
 let groups: TaskGroups;
 let models: ModelConfig;
@@ -49,11 +51,19 @@ let owner: SessionUser;
 let nodeId = "";
 
 async function openRuntime(): Promise<AgentRuntime> {
-	return AgentRuntime.open({ db, storage: new MemoryStorage(), models, cluster, groups, audit: new Audit(db) });
+	return AgentRuntime.open({
+		db: dbProbe.db,
+		storage: new MemoryStorage(),
+		models,
+		cluster,
+		groups,
+		audit: new Audit(db),
+	});
 }
 
 beforeEach(async () => {
 	db = await openTestDb("sqlite");
+	dbProbe = probeDb(db);
 	const audit = new Audit(db);
 	cluster = new Cluster(db, { audit });
 	groups = new TaskGroups(db, cluster, { audit });
@@ -243,4 +253,68 @@ it("a signature wait expires AUTHORIZATION_WAIT_MS after it began", async () => 
 	expect(await taskRow(young)).toMatchObject({ state: "awaiting_authorization" });
 	expect(await taskRow(approvedLate)).toMatchObject({ state: "awaiting_authorization" });
 	expect(await cluster.expireAuthorizationWaits(now + AUTHORIZATION_WAIT_MS)).toBe(2);
+});
+
+it("stops a subagent's freshly dispatched command instead of leaving it waiting", async () => {
+	const parent = await runtime.createSession(owner, { model: model(), preset: "ask", title: "stop-parent" });
+	const child = await runtime.createSubagent(parent.id, {
+		callKey: "stop-child",
+		task: "run something",
+		rules: { default: "inherit", rules: [] },
+		quota: null,
+	});
+	let asked!: () => void;
+	const asking = new Promise<void>((resolve) => {
+		asked = resolve;
+	});
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	faux.setResponses([
+		async () => {
+			asked();
+			await gate;
+			return fauxAssistantMessage([fauxToolCall("exec", { targets: ["db-1"], cmd: "true" }, { id: "stop-exec" })], {
+				stopReason: "toolUse",
+			});
+		},
+	]);
+	await runtime.startSubagent(child.id, "go", "subagent:stop-child");
+	await asking;
+
+	let released = false;
+	const free = () => {
+		if (released) return;
+		released = true;
+		release();
+	};
+	// The stop writes the sessions idle after #endSessionWork. Releasing the subagent's answer there is inside the
+	// window the old order left; waiting for its task keeps the stop from cutting the tool off first.
+	dbProbe.onNext(
+		(node) => node.kind === "UpdateQueryNode" && tableOf(node) === "sessions",
+		async () => {
+			free();
+			const deadline = Date.now() + 1_000;
+			while (Date.now() < deadline) {
+				const row = await db.selectFrom("tasks").select("id").where("actor_id", "=", child.id).executeTakeFirst();
+				if (row) return;
+				await sleep(20);
+			}
+		},
+	);
+	const stopping = runtime.abort(parent.id, owner);
+	// With the fix the subagent is aborted before that write and its answer is awaited there: let it through.
+	const fallback = setTimeout(free, 300);
+	try {
+		await stopping;
+	} finally {
+		clearTimeout(fallback);
+	}
+	free();
+
+	const rows = await db.selectFrom("tasks").select(["id", "state"]).where("actor_id", "=", child.id).execute();
+	expect(
+		rows.filter((row) => ["awaiting_approval", "awaiting_authorization", "dispatched", "running"].includes(row.state)),
+	).toEqual([]);
 });

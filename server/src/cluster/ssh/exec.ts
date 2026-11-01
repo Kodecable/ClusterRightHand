@@ -175,6 +175,12 @@ export async function runSshExec(
 		throw err;
 	}
 	const result: SshExecResult = { timedOut: false, cancelled: false };
+	// A cancellation that fired while the connection was being made (or the shell probed) is already set
+	// when the run starts: nothing has run, so the task is cancelled and the command is never sent.
+	if (options.signal?.aborted) {
+		result.cancelled = true;
+		return result;
+	}
 	let pgid: number | undefined;
 	let stderrHead: Buffer | undefined = Buffer.alloc(0);
 	let exited = false;

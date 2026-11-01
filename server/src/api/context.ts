@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import type { Audit } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
+import { UserError } from "../users/service.ts";
 
 export interface AppEnv {
 	Variables: { user: SessionUser; audit: Audit };
@@ -22,9 +23,10 @@ export async function readJsonObject(c: Context): Promise<Record<string, unknown
 	}
 }
 
+/** A field that may be absent but must be a string when present; a wrong type is a 400 by UserError. */
 export function optionalString(body: Record<string, unknown>, key: string): string | undefined {
 	const value = body[key];
 	if (value === undefined) return undefined;
-	if (typeof value !== "string") throw new TypeError(`${key} must be a string`);
+	if (typeof value !== "string") throw new UserError(`${key} must be a string`);
 	return value;
 }

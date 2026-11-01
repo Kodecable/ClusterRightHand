@@ -32,6 +32,7 @@ const task = (overrides: Partial<TaskView> = {}): TaskView =>
 		outputFile: null,
 		outputMode: "status",
 		privileged: false,
+		result: null,
 		createdAt: "2026-01-01T00:00:00.000Z",
 		finishedAt: null,
 		...overrides,

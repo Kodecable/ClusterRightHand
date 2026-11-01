@@ -55,6 +55,16 @@ export class AuthStore {
 		return user;
 	}
 
+	/**
+	 * The server's copy of the signed-in user after a profile change. The store
+	 * is loaded once at boot, so the user menu and the self-change guards read
+	 * this updated copy instead of the row from that first load.
+	 */
+	updateUser(user: User): void {
+		if (this.current.user?.id !== user.id) return;
+		this.set({ status: "authenticated", user });
+	}
+
 	async logout(): Promise<void> {
 		try {
 			await http.post<{ ok: true }>("/auth/logout");

@@ -6,9 +6,10 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { invalidatePendingDecisions } from "@/features/approvals/api";
 import { enc, http, queryString } from "@/lib/api/client";
-import { prefetchCursorInfiniteQuery, useCursorInfiniteQuery } from "@/lib/api/query";
+import { flattenCursorPages, prefetchCursorInfiniteQuery, useCursorInfiniteQuery } from "@/lib/api/query";
 import type {
 	CursorPage,
 	SessionListItem,
@@ -145,38 +146,66 @@ export function useSessionChildren(id: string | undefined, rootId: string | unde
 }
 
 /**
+ * The tree's aggregate row as the loaded session lists already carry it. The
+ * list stream patches those pages with the same `SessionListItem`, so reading
+ * them here is current without another request, and a stop button is right on
+ * a page that opened before any upsert arrived.
+ */
+function useCachedSessionListItem(id: string | undefined): SessionListItem | undefined {
+	const queryClient = useQueryClient();
+	const subscribe = useCallback((notify: () => void) => queryClient.getQueryCache().subscribe(notify), [queryClient]);
+	const read = useCallback(() => {
+		if (id === undefined || id === "") return undefined;
+		for (const [, data] of queryClient.getQueriesData<SessionListData>({ queryKey: sessionKeys.list() })) {
+			const item = flattenCursorPages(data).find((candidate) => candidate.id === id);
+			if (item !== undefined) return item;
+		}
+		return undefined;
+	}, [queryClient, id]);
+	return useSyncExternalStore(subscribe, read);
+}
+
+/**
  * Keeps the session view current from the session list stream. That stream
  * only publishes a tree's root, so its upsert is the one notification that a
- * session inside the tree changed state (doc/webui.md#会话列表实时推送); without
- * this the header, the waiting cards and the Stop button would keep the detail
- * fetched on load. A root's item is exact, so it patches the detail; a child
- * page refetches because the item carries the tree's aggregate, not the
- * child's own state. An `awaiting` tree also refreshes the approvals list,
- * which feeds the inline decision cards.
+ * session inside the tree changed (doc/webui.md#会话列表实时推送). The item
+ * carries the tree's aggregate, not the session's own state
+ * (doc/agent-runtime.md "会话状态"), so the detail is refetched instead of
+ * overwritten; the aggregate is returned for the consumers that really concern
+ * the whole tree (the Stop button and the waiting cards of a root).
+ *
+ * A tree that starts or stops waiting refreshes the approvals list: that is
+ * when a decision card appears or goes away, including when someone else
+ * decided it.
  */
-export function useSessionTreeSync(sessionId: string | undefined, rootId: string | undefined) {
+export function useSessionTreeSync(
+	sessionId: string | undefined,
+	rootId: string | undefined,
+): SessionListItem | undefined {
 	const queryClient = useQueryClient();
+	// The stream only has to be followed for a root the loaded lists do not carry.
+	const [published, setPublished] = useState<SessionListItem>();
+
 	useEffect(() => {
-		if (sessionId === undefined || sessionId === "" || rootId === undefined) return;
+		if (sessionId === undefined || sessionId === "" || rootId === undefined || rootId === "") return;
+		// A new page starts from no previous aggregate; a tree leaving a wait is
+		// then the one transition into not awaiting.
+		let previous: SessionListItem | undefined;
 		return subscribeSessionListUpserts((item) => {
 			if (item.id !== rootId) return;
-			if (sessionId === rootId) {
-				queryClient.setQueryData<SessionView>(sessionKeys.detail(sessionId), (detail) =>
-					detail === undefined
-						? detail
-						: {
-								...detail,
-								state: item.state,
-								waitingKind: item.waitingKind,
-								updatedAt: item.updatedAt,
-							},
-				);
-			} else {
-				void queryClient.invalidateQueries({ queryKey: sessionKeys.detail(sessionId) });
-			}
-			if (item.state === "awaiting") void queryClient.invalidateQueries({ queryKey: ["approvals"] });
+			setPublished(item);
+			void queryClient.invalidateQueries({ queryKey: sessionKeys.detail(sessionId) });
+			const awaiting = item.state === "awaiting";
+			const wasAwaiting = previous?.state === "awaiting";
+			const waitChanged = awaiting && previous?.waitingKind !== item.waitingKind;
+			previous = item;
+			if (awaiting !== wasAwaiting || waitChanged) invalidatePendingDecisions(queryClient);
 		});
 	}, [sessionId, rootId, queryClient]);
+
+	const cached = useCachedSessionListItem(rootId);
+	if (cached !== undefined) return cached;
+	return published?.id === rootId ? published : undefined;
 }
 
 export interface SessionEntriesPage {
@@ -238,9 +267,11 @@ export function usePatchSession(id: string) {
 	return useMutation({
 		mutationFn: (patch: SessionPatch) =>
 			http.patch<{ session: SessionView }>(`/sessions/${enc(id)}`, patch).then((r) => r.session),
-		onSuccess: (session) => {
+		onSuccess: (session, patch) => {
 			queryClient.setQueryData(sessionKeys.detail(id), session);
 			void queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+			// A preset change re-evaluates the waiting tasks on the server.
+			if (patch.preset !== undefined) invalidatePendingDecisions(queryClient);
 		},
 	});
 }
@@ -263,6 +294,8 @@ export function useAbortSession(id: string) {
 		mutationFn: () => http.post<{ ok: true }>(`/sessions/${enc(id)}/abort`),
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: sessionKeys.detail(id) });
+			// Stopping a session rejects the approvals its tree waits for and cancels its tasks.
+			invalidatePendingDecisions(queryClient);
 		},
 	});
 }
@@ -282,7 +315,7 @@ export function useDecideQuota(id: string) {
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: sessionKeys.detail(id) });
 			void queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
-			void queryClient.invalidateQueries({ queryKey: ["approvals"] });
+			invalidatePendingDecisions(queryClient);
 		},
 	});
 }

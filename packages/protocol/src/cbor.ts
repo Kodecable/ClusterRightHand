@@ -106,7 +106,17 @@ const DECODE_OPTIONS: DecodeOptions = {
 
 const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
+/**
+ * Maximum number of nested arrays and maps, the same limit the Go decoder sets
+ * (`MaxNestedLevels: 64` in client/internal/protocol/cbor.go). Both sides must
+ * reject the same payloads.
+ */
+const MAX_NESTING = 64;
+
 class ProfileTokenizer extends Tokenizer {
+	/** Remaining child tokens of every open array or map, innermost last. */
+	private readonly open: number[] = [];
+
 	override next(): Token {
 		const token = super.next();
 		if (Type.equals(token.type, Type.float)) reject("floats are not allowed");
@@ -117,7 +127,45 @@ class ProfileTokenizer extends Tokenizer {
 				reject("text is not valid UTF-8");
 			}
 		}
+		this.trackNesting(token);
 		return token;
+	}
+
+	/**
+	 * Enforce MAX_NESTING while the tokens stream in. Tokens arrive depth first, so a
+	 * stack of remaining child counts gives the nesting depth of each new container
+	 * and unwinds when one ends. A tag is transparent here: the profile rejects tags
+	 * after decoding, and a tag with its content is a single value.
+	 */
+	private trackNesting(token: Token): void {
+		if (Type.equals(token.type, Type.tag)) return;
+		if (Type.equals(token.type, Type.array) || Type.equals(token.type, Type.map)) {
+			if (this.open.length >= MAX_NESTING) {
+				reject(`value nests more than ${MAX_NESTING} levels deep`);
+			}
+			// Maps hold key/value pairs; definite lengths only (indefinite is rejected).
+			const children = token.value as number;
+			if (children > 0) {
+				this.open.push(Type.equals(token.type, Type.map) ? children * 2 : children);
+				return;
+			}
+			// An empty container is complete at once: it never opens a level of its own,
+			// it just fills one slot of its parent, like any other complete value.
+		}
+		// A complete value fills one slot of the innermost container. A container that
+		// ends here in turn fills one slot of its parent, and so on.
+		while (this.open.length > 0) {
+			const innermost = this.open.length - 1;
+			const remaining = this.open[innermost];
+			if (remaining === undefined) return;
+			if (remaining > 1) {
+				this.open[innermost] = remaining - 1;
+				return;
+			}
+			// This value completes the container: the container in turn completes one slot
+			// of its parent.
+			this.open.pop();
+		}
 	}
 }
 

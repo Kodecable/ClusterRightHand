@@ -406,6 +406,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				lastRun: null,
 				inProgress: false,
 				preview: [],
+				previewError: null,
 			};
 			state.schedules.push(schedule);
 			state.runs[schedule.id] = [];
@@ -980,6 +981,7 @@ export function scheduleView(overrides: Partial<ScheduleView> = {}): ScheduleVie
 		lastRun: null,
 		inProgress: false,
 		preview: [],
+		previewError: null,
 		...overrides,
 	};
 }

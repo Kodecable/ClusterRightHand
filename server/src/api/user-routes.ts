@@ -37,7 +37,7 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 
 	app.onError((err, c) => {
 		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
-		if (err instanceof UserError || err instanceof TypeError) return jsonError(c, 400, err.message);
+		if (err instanceof UserError) return jsonError(c, 400, err.message);
 		throw err;
 	});
 
@@ -101,21 +101,31 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 		if (kind !== undefined && !KINDS.has(kind)) return jsonError(c, 400, "kind must be admin or member");
 		if (status !== undefined && !STATUSES.has(status)) return jsonError(c, 400, "status must be active or disabled");
 		const id = c.req.param("id");
-		const user = await updateUser(db, id, {
-			displayName: optionalString(body, "displayName"),
-			email: body.email === null ? null : optionalString(body, "email"),
-			kind: kind as "admin" | "member" | undefined,
-			status: status as "active" | "disabled" | undefined,
-		});
+		const user = await updateUser(
+			db,
+			id,
+			{
+				displayName: optionalString(body, "displayName"),
+				email: body.email === null ? null : optionalString(body, "email"),
+				kind: kind as "admin" | "member" | undefined,
+				status: status as "active" | "disabled" | undefined,
+			},
+			{ by: c.get("user").userId },
+		);
 		if (status === "disabled") {
 			await revokeUserWebSessions(db, id);
 			// A disabled user's streams end; their next request is a 401 and the client goes to login.
 			options.sessions?.endUserStreams(id);
+			// Including the per-session event streams, which outlive this request.
+			await options.sessions?.publishVisibilityChanged();
 			// A disabled owner's schedules stop firing (doc/scheduling.md#生命周期).
 			await Scheduler.disableForOwner(db, id, c.get("audit"), userActor(c.get("user")));
 		}
 		// Administrator and member see different sessions; a reconnect refetches under the new role.
-		if (kind !== undefined) options.sessions?.endUserStreams(id);
+		if (kind !== undefined) {
+			options.sessions?.endUserStreams(id);
+			await options.sessions?.publishVisibilityChanged();
+		}
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user.updated",
@@ -181,6 +191,8 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 		for (const sessionId of new Set(shares.map((share) => share.resource_id))) {
 			await options.sessions?.publishShareRemoved(sessionId, audience);
 		}
+		// The deleted shares also close per-session event streams the members had open.
+		await options.sessions?.publishVisibilityChanged();
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user_group.deleted",
@@ -192,6 +204,7 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 	app.put("/user-groups/:id/members/:userId", async (c) => {
 		await addGroupMember(db, c.req.param("id"), c.req.param("userId"));
 		await options.sessions?.publishGroupMemberChanged(c.req.param("id"), c.req.param("userId"), true);
+		await options.sessions?.publishVisibilityChanged();
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user_group.member_added",
@@ -204,6 +217,7 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 	app.delete("/user-groups/:id/members/:userId", async (c) => {
 		await removeGroupMember(db, c.req.param("id"), c.req.param("userId"));
 		await options.sessions?.publishGroupMemberChanged(c.req.param("id"), c.req.param("userId"), false);
+		await options.sessions?.publishVisibilityChanged();
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user_group.member_removed",

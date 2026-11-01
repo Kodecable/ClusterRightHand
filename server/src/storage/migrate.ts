@@ -30,6 +30,7 @@ import * as m0027 from "./migrations/0027_session_schedule.ts";
 import * as m0028 from "./migrations/0028_session_list_indexes.ts";
 import * as m0029 from "./migrations/0029_session_state_tree.ts";
 import * as m0030 from "./migrations/0030_session_reconcile_indexes.ts";
+import * as m0031 from "./migrations/0031_task_result.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -63,6 +64,7 @@ const migrations: Record<string, Migration> = {
 	"0028_session_list_indexes": m0028,
 	"0029_session_state_tree": m0029,
 	"0030_session_reconcile_indexes": m0030,
+	"0031_task_result": m0031,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };

@@ -1,9 +1,7 @@
 package executor
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -48,54 +46,63 @@ func privilegedSpec(kind any) *protocol.TaskSpec {
 	return spec
 }
 
-func runPrivileged(t *testing.T, kind any, input io.Reader) (map[string]any, error) {
+func runPrivileged(t *testing.T, kind any, input io.Reader) (*protocol.TaskResult, error) {
 	t.Helper()
-	var out bytes.Buffer
-	err := RunFilePrivileged(context.Background(), privilegedSpec(kind), input, &out)
+	var out strings.Builder
+	result, err := RunFilePrivileged(context.Background(), privilegedSpec(kind), input, &out)
 	if err != nil {
 		return nil, err
 	}
-	var m map[string]any
-	if out.Len() > 0 && json.Unmarshal(out.Bytes(), &m) != nil {
-		m = map[string]any{"raw": out.String()}
-	}
-	return m, nil
+	return result, nil
 }
 
 func TestPrivilegedFilePlainPaths(t *testing.T) {
 	dir := privateDir(t)
 	p := filepath.Join(dir, "f")
-	writeFile(t, p, "0123456789", 0o640)
+	writeFile(t, p, "one\ntwo\nthree\n", 0o640)
 
-	read := func(off, lim uint64) string {
+	// The privileged executor pages by lines exactly like the unprivileged one, with the protections
+	// around the open (doc/privilege.md 方法与目标).
+	read := func(start, count uint64) (string, *protocol.FileReadResult) {
 		t.Helper()
-		var out bytes.Buffer
-		spec := privilegedSpec(&protocol.FileReadSpec{Path: p, Offset: protocol.Uint(off), Limit: protocol.Uint(lim)})
-		if err := RunFilePrivileged(context.Background(), spec, nil, &out); err != nil {
+		var out strings.Builder
+		spec := privilegedSpec(&protocol.FileReadSpec{Path: p, StartLine: protocol.Uint(start), LineCount: protocol.Uint(count)})
+		res, err := RunFilePrivileged(context.Background(), spec, nil, &out)
+		if err != nil {
 			t.Fatal(err)
 		}
-		return out.String()
+		if res.FileRead == nil {
+			t.Fatalf("no file.read result: %+v", res)
+		}
+		return out.String(), res.FileRead
 	}
-	if got := read(0, 0); got != "0123456789" {
-		t.Fatalf("full read: %q", got)
+	page, res := read(1, 2)
+	if page != "one\ntwo\n" || res.From != 1 || res.To != 2 || res.EOF || res.Total != nil || res.TooLong {
+		t.Fatalf("first page: %q %+v", page, res)
 	}
-	if got := read(3, 4); got != "3456" {
-		t.Fatalf("range read: %q", got)
+	page, res = read(3, 5)
+	if page != "three\n" || !res.EOF || res.Total == nil || *res.Total != 3 || res.From != 3 || res.To != 3 {
+		t.Fatalf("last page: %q %+v", page, res)
+	}
+	page, res = read(9, 1)
+	if page != "" || !res.EOF || res.Total == nil || *res.Total != 3 || res.From != 0 || res.To != 0 {
+		t.Fatalf("past the end: %q %+v", page, res)
 	}
 
 	out, err := runPrivileged(t, &protocol.FileStatSpec{Path: p}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out["type"] != "file" || out["size"] != float64(10) || out["mode"] != "0640" || out["path"] != p {
-		t.Fatalf("stat: %v", out)
+	st := statResult(t, out)
+	if st.Type != "file" || st.Size != 14 || st.Mode != "0640" || st.Path != p {
+		t.Fatalf("stat: %+v", st)
 	}
-	if _, ok := out["link_target"]; ok {
-		t.Fatal("privileged stat reported a link target")
+	if st.LinkTarget != nil {
+		t.Fatalf("privileged stat reported a link target %q", *st.LinkTarget)
 	}
 	out, err = runPrivileged(t, &protocol.FileStatSpec{Path: dir}, nil)
-	if err != nil || out["type"] != "dir" {
-		t.Fatalf("stat dir: %v %v", out, err)
+	if err != nil || statResult(t, out).Type != "dir" {
+		t.Fatalf("stat dir: %+v %v", out, err)
 	}
 
 	writeFile(t, filepath.Join(dir, "b"), "b", 0o644)
@@ -105,8 +112,8 @@ func TestPrivilegedFilePlainPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	var names []string
-	for _, e := range out["entries"].([]any) {
-		names = append(names, e.(map[string]any)["name"].(string))
+	for _, e := range listResult(t, out).Entries {
+		names = append(names, e.Name)
 	}
 	if got := strings.Join(names, ","); got != "a,b,f" {
 		t.Fatalf("list: %s", got)
@@ -120,8 +127,8 @@ func TestPrivilegedFileWriteAndEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out["bytes"] != float64(5) || out["created"] != true {
-		t.Fatalf("write: %v", out)
+	if w := writeResult(t, out); w.Bytes != 5 || !w.Created {
+		t.Fatalf("write: %+v", w)
 	}
 	if readFileStr(t, p) != "hello" {
 		t.Fatal("content")
@@ -163,8 +170,8 @@ func TestPrivilegedFileWriteAndEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out["replacements"] != float64(1) {
-		t.Fatalf("edit: %v", out)
+	if e := editResult(t, out); e.Replacements != 1 {
+		t.Fatalf("edit: %+v", e)
 	}
 	if readFileStr(t, p) != "edited" {
 		t.Fatal("edit content")
@@ -370,10 +377,11 @@ func TestResultOutcome(t *testing.T) {
 	if got := (Result{}).Outcome(); got.Kind != protocol.OutcomeError || got.Error.Code != "internal_error" {
 		t.Fatalf("empty outcome: %+v", got)
 	}
-	if got := fileResult(nil); got.ExitCode == nil || *got.ExitCode != 0 {
+	written := &protocol.TaskResult{Kind: protocol.TaskResultFileWrite, FileWrite: &protocol.FileWriteResult{Bytes: 1}}
+	if got := fileResult(written, nil); got.ExitCode == nil || *got.ExitCode != 0 || got.TaskResult != written {
 		t.Fatalf("successful file task: %+v", got)
 	}
-	if got := fileResult(errf("cancelled", "x")); got.Err == nil || !got.Cancelled {
+	if got := fileResult(nil, errf("cancelled", "x")); got.Err == nil || !got.Cancelled || got.TaskResult != nil {
 		t.Fatalf("cancelled file task: %+v", got)
 	}
 }
@@ -463,8 +471,8 @@ func TestPrivilegedFileSpecialFiles(t *testing.T) {
 		t.Helper()
 		done := make(chan error, 1)
 		go func() {
-			var out bytes.Buffer
-			done <- RunFilePrivileged(context.Background(), spec, nil, &out)
+			_, err := RunFilePrivileged(context.Background(), spec, nil, io.Discard)
+			done <- err
 		}()
 		select {
 		case err := <-done:
@@ -482,10 +490,16 @@ func TestPrivilegedFileSpecialFiles(t *testing.T) {
 		{"socket", socket},
 	} {
 		t.Run(tc.name+"/read", func(t *testing.T) {
-			wantCode(t, runSpecial(t, privilegedSpec(&protocol.FileReadSpec{Path: tc.path})), "not_regular_file")
+			spec := privilegedSpec(&protocol.FileReadSpec{Path: tc.path, StartLine: 1, LineCount: 1})
+			wantCode(t, runSpecial(t, spec), "not_regular_file")
 		})
 		t.Run(tc.name+"/list", func(t *testing.T) {
 			wantCode(t, runSpecial(t, privilegedSpec(&protocol.FileListSpec{Path: tc.path})), "not_regular_file")
+		})
+		t.Run(tc.name+"/edit", func(t *testing.T) {
+			// The edit opens the file too, so it must not block on a FIFO that has no writer.
+			spec := privilegedSpec(&protocol.FileEditSpec{Path: tc.path, Edits: []protocol.Edit{{OldText: "a", NewText: "b"}}})
+			wantCode(t, runSpecial(t, spec), "not_regular_file")
 		})
 	}
 }

@@ -297,3 +297,91 @@ it("unsharing closes the door and is audited", async () => {
 	expect(events.map((e) => e.action)).toEqual(["session.shared", "session.unshared"]);
 	expect(JSON.parse(events[1]?.detail ?? "{}")).toMatchObject({ grantee_id: bobId, access: "chat" });
 });
+
+/** Opens a session event stream and checks that it started with a snapshot. */
+async function openEventStream(sessionId: string, cookie: string) {
+	const res = await call(app, `/api/sessions/${sessionId}/events`, { cookie });
+	const reader = res.body?.getReader();
+	if (!reader) throw new Error("the event stream has no body");
+	const first = await reader.read();
+	expect(first.done).toBe(false);
+	return reader;
+}
+
+/** Whether the stream ended within `ms`; a ping every 15 s keeps it open otherwise. */
+function streamClosed(reader: ReadableStreamDefaultReader<Uint8Array>, ms = 2_000): Promise<boolean> {
+	return Promise.race([
+		(async () => {
+			for (;;) {
+				const chunk = await reader.read();
+				if (chunk.done) return true;
+			}
+		})(),
+		new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms)),
+	]);
+}
+
+it("disabling a user ends their open session event streams", async () => {
+	const dave = await createUser(db, { username: "dave", kind: "member", password: PASSWORD });
+	const daveCookie = await login(app, "dave", PASSWORD);
+	const s = await newSession(alice, "stream disable", "yolo");
+	expect((await share(s.id, alice, { granteeType: "user", granteeId: dave.id, access: "view" })).status).toBe(200);
+	const reader = await openEventStream(s.id, daveCookie);
+	const disabled = await call(app, `/api/users/${dave.id}`, {
+		method: "PATCH",
+		cookie: admin,
+		body: { status: "disabled" },
+	});
+	expect(disabled.status).toBe(200);
+	expect(await streamClosed(reader)).toBe(true);
+	await reader.cancel();
+	expect((await get(s.id, daveCookie)).status).toBe(401);
+});
+
+it("demoting an administrator ends the session streams they saw as an administrator", async () => {
+	const eve = await createUser(db, { username: "eve", kind: "admin", password: PASSWORD });
+	await login(app, "eve", PASSWORD);
+	const eveCookie = await login(app, "eve", PASSWORD);
+	const s = await newSession(alice, "stream demotion", "yolo");
+	// Administrators see every session they are not shared, so the stream is open without a share.
+	const reader = await openEventStream(s.id, eveCookie);
+	const demoted = await call(app, `/api/users/${eve.id}`, {
+		method: "PATCH",
+		cookie: admin,
+		body: { kind: "member" },
+	});
+	expect(demoted.status).toBe(200);
+	expect(await streamClosed(reader)).toBe(true);
+	await reader.cancel();
+});
+
+it("leaving a user group ends the streams its shares reached", async () => {
+	const s = await newSession(alice, "stream group removal", "yolo");
+	expect((await share(s.id, alice, { granteeType: "user_group", granteeId: groupId, access: "view" })).status).toBe(
+		200,
+	);
+	const reader = await openEventStream(s.id, bob);
+	const removed = await call(app, `/api/user-groups/${groupId}/members/${bobId}`, {
+		method: "DELETE",
+		cookie: admin,
+		body: {},
+	});
+	expect(removed.status).toBe(200);
+	expect(await streamClosed(reader)).toBe(true);
+	await reader.cancel();
+});
+
+it("deleting a user group ends the streams its shares reached", async () => {
+	const temp = await createUserGroup(db, "temp-share");
+	const carolCookie = await login(app, "carol", PASSWORD);
+	await call(app, `/api/user-groups/${temp.id}/members/${carolId}`, { method: "PUT", cookie: admin, body: {} });
+	const s = await newSession(alice, "stream group deletion", "yolo");
+	expect((await share(s.id, alice, { granteeType: "user_group", granteeId: temp.id, access: "view" })).status).toBe(
+		200,
+	);
+	const reader = await openEventStream(s.id, carolCookie);
+	const deleted = await call(app, `/api/user-groups/${temp.id}`, { method: "DELETE", cookie: admin, body: {} });
+	expect(deleted.status).toBe(200);
+	expect(await streamClosed(reader)).toBe(true);
+	await reader.cancel();
+});

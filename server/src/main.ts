@@ -170,6 +170,9 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	const agents = new AgentServer(db, identity, cluster, audit);
 	const taskGroups = new TaskGroups(db, cluster, { audit });
 	await taskGroups.recover();
+	// Tasks a previous process left dispatched or running end as the nodes' connections did not survive it
+	// (doc/execution-plane.md#断线恢复): a client node gets the reconnect grace, an SSH node does not.
+	await cluster.recover();
 	const models = new ModelConfig(db, masterKey);
 	await models.reload();
 	// A function, so that a Harness a storage error closed is reopened on fresh storage.

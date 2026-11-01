@@ -25,4 +25,18 @@ describe("SSH privileged notice", () => {
 		expect(out.stderrHead?.toString()).toBe(`${SSH_PRIVILEGED_NOTICE}oops\n`);
 		expect(out.stderrBytes).toBe(SSH_PRIVILEGED_NOTICE.length + "oops\n".length);
 	});
+
+	it("is kept by a status task, which keeps no other output", () => {
+		const live = createLiveTask("status");
+		live.note(sshPrivilegedNotice(true) as Uint8Array);
+		live.append("stdout", 0, Buffer.from("hello\n"));
+		live.append("stderr", live.end("stderr"), Buffer.from("oops\n"));
+		const out = live.snapshot();
+		// Only the notice is text: the task's own output stays a byte count.
+		expect(out.stderrHead?.toString()).toBe(SSH_PRIVILEGED_NOTICE);
+		expect(out.stderrTail).toBeNull();
+		expect(out.stdoutHead).toBeNull();
+		expect(out.stderrBytes).toBe(SSH_PRIVILEGED_NOTICE.length + "oops\n".length);
+		expect(out.stdoutBytes).toBe("hello\n".length);
+	});
 });

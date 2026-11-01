@@ -142,6 +142,8 @@ export interface TaskJson {
 	stderrTail: string;
 	outputFile: string | null;
 	privileged: boolean;
+	/** The task's structured result, as the API serves it (doc/protocol.md TaskResult). */
+	result: ({ kind: string } & Record<string, unknown>) | null;
 	/** Null for ordinary tasks (the API's view; the harness's own task types leave it unset). */
 	authorization?: TaskAuthorizationJson | null;
 }
@@ -375,7 +377,11 @@ export class Env {
 		env.dir = await mkdtemp(join(dir, "env-"));
 		env.crhs = await InProcessCrhs.create(opts, appOptions, agent ? join(env.dir, "agent") : undefined, fauxOptions);
 		await env.crhs.loginAdmin();
-		await writeFile(join(env.dir, "crha.toml"), `server = "${env.crhs.url}"\nstate_dir = "${join(env.dir, "crha")}"\n`);
+		// The node is in one group, so a tool can address it as a task group ("group:e2e").
+		await writeFile(
+			join(env.dir, "crha.toml"),
+			`server = "${env.crhs.url}"\nstate_dir = "${join(env.dir, "crha")}"\ngroups = ["e2e"]\n`,
+		);
 		env.configPath = join(env.dir, "crha.toml");
 		return env;
 	}

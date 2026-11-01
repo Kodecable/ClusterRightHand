@@ -1,6 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { posix } from "node:path";
-import type { TaskSpec } from "@crh/protocol";
+import {
+	FILE_LIST_MAX_BYTES,
+	FILE_READ_MAX_BYTES,
+	type FileListEntry,
+	type FileReadResult,
+	type FileStatResult,
+	type TaskResult,
+	type TaskSpec,
+} from "@crh/protocol";
 import type { SFTPWrapper } from "ssh2";
 import { applyEdits, detectLineEnding, MAX_EDIT_SIZE, normalizeToLF, toBytesString, UTF8_BOM } from "./file-edit.ts";
 import {
@@ -42,13 +50,11 @@ function checkAborted(signal: AbortSignal): void {
 	}
 }
 
-function writeJSON(stdout: Out, v: unknown): void {
-	stdout(Buffer.from(JSON.stringify(v)));
-}
-
 /**
- * Runs a file.* task over SFTP with the same semantics, JSON output and error codes as crha's
- * client/internal/executor/file*.go. `stdout` receives the task's output stream.
+ * Runs a file.* task over SFTP with the same semantics, output and error codes as crha's
+ * client/internal/executor/file*.go. `stdout` receives the task's text output (the page of a
+ * file.read); the task's structured result is returned, never written to a stream
+ * (doc/protocol.md TaskResult).
  */
 export async function runSftpFileTask(
 	sftp: SFTPWrapper,
@@ -56,7 +62,7 @@ export async function runSftpFileTask(
 	input: Uint8Array | undefined,
 	stdout: Out,
 	signal: AbortSignal,
-): Promise<void> {
+): Promise<TaskResult> {
 	const ctx: Ctx = { sftp: new Sftp(sftp), signal };
 	try {
 		checkAborted(signal);
@@ -64,13 +70,13 @@ export async function runSftpFileTask(
 			case "file.read":
 				return await fileRead(ctx, spec, stdout);
 			case "file.write":
-				return await fileWrite(ctx, spec, input, stdout);
+				return await fileWrite(ctx, spec, input);
 			case "file.edit":
-				return await fileEdit(ctx, spec, stdout);
+				return await fileEdit(ctx, spec);
 			case "file.stat":
-				return await fileStat(ctx, spec, stdout);
+				return await fileStat(ctx, spec);
 			case "file.list":
-				return await fileList(ctx, spec, stdout);
+				return await fileList(ctx, spec);
 			default:
 				throw new FileTaskError("invalid_spec", "not a file task");
 		}
@@ -79,32 +85,87 @@ export async function runSftpFileTask(
 	}
 }
 
-async function fileRead(ctx: Ctx, s: FileReadSpec, stdout: Out): Promise<void> {
+async function fileRead(ctx: Ctx, s: FileReadSpec, stdout: Out): Promise<TaskResult> {
 	checkPath(s.path);
+	if (s.startLine < 1 || s.lineCount < 1) {
+		throw new FileTaskError("invalid_spec", "startLine and lineCount must be at least 1");
+	}
 	const { sftp, signal } = ctx;
 	const st = await sftp.stat(s.path);
 	if ((st.mode & S_IFMT) === S_IFDIR) {
 		throw new FileTaskError("is_directory", `${s.path} is a directory`);
 	}
+	const result: FileReadResult = { from: 0, to: 0, eof: false, total: null, tooLong: false };
 	const handle = await sftp.open(s.path, "r");
 	try {
-		let pos = s.offset;
-		let remaining = s.limit > 0 ? s.limit : Number.POSITIVE_INFINITY;
-		while (remaining > 0) {
+		let pos = 0;
+		let line = 1;
+		let pageLines = 0;
+		let written = 0;
+		let part: Buffer = Buffer.alloc(0);
+		let done = false;
+		// TODO: detect changes by mtime and cache a line index per open handle, so a deep page does not re-read the file from the start.
+		// Stream from the first byte and stop as soon as the page is complete: only a page that reaches
+		// the end reads the whole file (doc/execution-plane.md#sftp-文件操作与-crha-的差异).
+		while (!done) {
 			checkAborted(signal);
-			const want = Math.min(CHUNK, remaining);
-			const buf = Buffer.allocUnsafe(want);
-			const n = await sftp.readAt(handle, buf, want, pos);
+			const chunk = Buffer.allocUnsafe(CHUNK);
+			const n = await sftp.readAt(handle, chunk, CHUNK, pos);
 			if (n === 0) {
+				// The file ends here: at a line boundary, or inside a last line without a newline.
+				result.eof = true;
+				if (part.length > 0) {
+					stdout(part);
+					if (pageLines === 0) result.from = line;
+					result.to = line;
+					result.total = line;
+				} else {
+					result.total = line - 1;
+				}
 				break;
 			}
-			stdout(buf.subarray(0, n));
 			pos += n;
-			remaining -= n;
+			const data = chunk.subarray(0, n);
+			let start = 0;
+			while (start < n) {
+				const nl = data.indexOf(0x0a, start);
+				const end = nl < 0 ? n : nl + 1;
+				if (line >= s.startLine) {
+					// The page keeps whole lines only: a line that would pass the byte cap ends it.
+					if (written + part.length + (end - start) > FILE_READ_MAX_BYTES) {
+						if (pageLines === 0) result.tooLong = true;
+						done = true;
+						break;
+					}
+					part = Buffer.concat([part, data.subarray(start, end)]);
+				}
+				if (nl < 0) break; // the line goes on in the next chunk
+				if (line >= s.startLine) {
+					stdout(part);
+					written += part.length;
+					if (pageLines === 0) result.from = line;
+					result.to = line;
+					pageLines++;
+					part = Buffer.alloc(0);
+				}
+				// Where the line's newline ends, to tell whether it was the file's last byte.
+				const lineEnd = pos - n + end;
+				line++;
+				start = end;
+				if (pageLines >= s.lineCount) {
+					if (lineEnd >= st.size) {
+						result.eof = true;
+						result.total = result.to;
+					}
+					done = true;
+					break;
+				}
+			}
 		}
 	} finally {
 		await sftp.close(handle).catch(() => {});
 	}
+	return { kind: "file.read", ...result };
 }
 
 interface TempFile {
@@ -181,7 +242,7 @@ async function publish(sftp: Sftp, tmp: TempFile, path: string, noReplace: boole
 	await sftp.rename(tmp.name, path);
 }
 
-async function fileWrite(ctx: Ctx, s: FileWriteSpec, input: Uint8Array | undefined, stdout: Out): Promise<void> {
+async function fileWrite(ctx: Ctx, s: FileWriteSpec, input: Uint8Array | undefined): Promise<TaskResult> {
 	const { sftp } = ctx;
 	const path = s.path;
 	checkPath(path);
@@ -222,10 +283,10 @@ async function fileWrite(ctx: Ctx, s: FileWriteSpec, input: Uint8Array | undefin
 			await discard(sftp, tmp);
 		}
 	}
-	writeJSON(stdout, { bytes: data.length, created: !existing });
+	return { kind: "file.write", bytes: data.length, created: !existing };
 }
 
-async function fileEdit(ctx: Ctx, s: FileEditSpec, stdout: Out): Promise<void> {
+async function fileEdit(ctx: Ctx, s: FileEditSpec): Promise<TaskResult> {
 	const { sftp } = ctx;
 	const path = s.path;
 	checkPath(path);
@@ -291,30 +352,31 @@ async function fileEdit(ctx: Ctx, s: FileEditSpec, stdout: Out): Promise<void> {
 			await discard(sftp, tmp);
 		}
 	}
-	writeJSON(stdout, { replacements: s.edits.length });
+	return { kind: "file.edit", replacements: s.edits.length };
 }
 
-async function fileStat(ctx: Ctx, s: FileStatSpec, stdout: Out): Promise<void> {
+async function fileStat(ctx: Ctx, s: FileStatSpec): Promise<TaskResult> {
 	checkPath(s.path);
 	const st = await ctx.sftp.lstat(s.path);
-	const out: Record<string, unknown> = {
-		gid: st.gid,
-		group: "",
-		mode: modeString(st.mode),
-		mtime: mtimeString(st.mtime),
-		owner: "",
+	const result: FileStatResult = {
 		path: s.path,
-		size: st.size,
 		type: fileType(st.mode),
+		size: st.size,
+		mode: modeString(st.mode),
 		uid: st.uid,
+		gid: st.gid,
+		owner: "",
+		group: "",
+		mtime: mtimeString(st.mtime),
+		linkTarget: null,
 	};
 	if ((st.mode & S_IFMT) === S_IFLNK) {
-		out.link_target = await ctx.sftp.readlink(s.path);
+		result.linkTarget = await ctx.sftp.readlink(s.path);
 	}
-	writeJSON(stdout, out);
+	return { kind: "file.stat", ...result };
 }
 
-async function fileList(ctx: Ctx, s: FileListSpec, stdout: Out): Promise<void> {
+async function fileList(ctx: Ctx, s: FileListSpec): Promise<TaskResult> {
 	checkPath(s.path);
 	let limit = s.limit === 0 ? DEFAULT_LIST_LIMIT : s.limit;
 	limit = Math.min(limit, MAX_LIST_LIMIT);
@@ -324,14 +386,32 @@ async function fileList(ctx: Ctx, s: FileListSpec, stdout: Out): Promise<void> {
 	}
 	const all = (await ctx.sftp.readdir(s.path)).filter((e) => e.filename !== "." && e.filename !== "..");
 	all.sort((a, b) => Buffer.compare(Buffer.from(a.filename), Buffer.from(b.filename)));
-	const truncated = all.length > limit;
-	const entries = all.slice(0, limit).map((e) => ({
-		name: e.filename,
-		type: fileType(e.attrs.mode),
-		size: e.attrs.size,
-		mode: modeString(e.attrs.mode),
-		mtime: mtimeString(e.attrs.mtime),
-	}));
+	let truncated = all.length > limit;
+	const entries: FileListEntry[] = [];
+	let used = 0;
+	for (const e of all.slice(0, limit)) {
+		const entry: FileListEntry = {
+			name: e.filename,
+			type: fileType(e.attrs.mode),
+			size: e.attrs.size,
+			mode: modeString(e.attrs.mode),
+			mtime: mtimeString(e.attrs.mtime),
+		};
+		// The result travels in one task.exit frame: stop before it could outgrow it
+		// (doc/protocol.md TaskResult).
+		const size = listEntrySize(entry);
+		if (used + size > FILE_LIST_MAX_BYTES) {
+			truncated = true;
+			break;
+		}
+		used += size;
+		entries.push(entry);
+	}
 	checkAborted(ctx.signal);
-	writeJSON(stdout, { entries, truncated });
+	return { kind: "file.list", entries, truncated };
+}
+
+/** A safe upper bound of the encoded size of one list entry: its fields plus the CBOR overhead. */
+function listEntrySize(e: FileListEntry): number {
+	return e.name.length + e.type.length + e.mode.length + e.mtime.length + 24;
 }

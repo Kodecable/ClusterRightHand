@@ -53,7 +53,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 		crhs().db.selectFrom("tasks").selectAll().where("actor_id", "=", sessionId).execute();
 	const idle = () => crhs().runtime?.waitForIdle() as Promise<void>;
 	const execCall = (cmd: string, id = "c1") =>
-		fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, cmd }, { id })], { stopReason: "toolUse" });
+		fauxAssistantMessage([fauxToolCall("exec", { targets: [nodeName], cmd }, { id })], { stopReason: "toolUse" });
 	const auditOf = async (action: string, targetId: string) => {
 		await crhs().audit.flush();
 		const r = await crhs().api(`/api/audit?action=${action}&targetId=${targetId}`);

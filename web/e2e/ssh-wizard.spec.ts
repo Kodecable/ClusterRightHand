@@ -46,8 +46,10 @@ test("walks the Add SSH node wizard through credential, target and host key conf
 	await expect(section.getByRole("table", { name: "SSH route" })).toContainText(`crh@${host}:${port}`);
 	await expect(section.getByRole("table", { name: "SSH route" })).toContainText("SHA256:");
 	await section.getByRole("button", { name: "Edit groups" }).click();
-	await section.getByLabel("Groups").fill("edge, lab");
-	await section.getByRole("button", { name: "Save" }).click();
+	// The dialog renders in a portal, outside the section.
+	const groupsDialog = page.getByRole("dialog", { name: "Edit groups" });
+	await groupsDialog.getByLabel("Groups").fill("edge, lab");
+	await groupsDialog.getByRole("button", { name: "Save" }).click();
 	await expect(page.getByRole("definition").filter({ hasText: "edge, lab" })).toBeVisible();
 	const { json } = await crhs.api("/api/nodes");
 	expect(json.nodes.map((n: { name: string; transport: string }) => `${n.name}:${n.transport}`)).toContain(

@@ -210,3 +210,71 @@ func TestOutputNotifyCloses(t *testing.T) {
 		t.Fatalf("stdout = %q, want %q", got, "x")
 	}
 }
+
+// TestOutputManySmallWrites covers the segment index under a flood of tiny writes, the shape of a
+// pipe: writes are coalesced into a few segments and ReadAt finds its segment by binary search, so
+// reading does not scan the whole output for every chunk. Without both, 100k one-byte writes make
+// every read quadratic.
+func TestOutputManySmallWrites(t *testing.T) {
+	const writes = 100_000
+	o := NewOutput("tiny", "", OutputOptions{})
+	w := o.Writer(stdout)
+	for i := range writes {
+		if _, err := w.Write([]byte{byte(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One segment per write would leave ~100k entries; coalescing leaves about writes/coalesceBytes.
+	if got := len(o.streams[StreamIndex(stdout)]); got > writes/coalesceBytes+1 {
+		t.Fatalf("%d segments for %d one-byte writes", got, writes)
+	}
+	if end := o.End(stdout); end != writes {
+		t.Fatalf("end = %d, want %d", end, writes)
+	}
+	start := time.Now()
+	for off := uint64(0); off < writes; off += 7 {
+		b, err := o.ReadAt(stdout, off, 7)
+		if err != nil {
+			t.Fatalf("ReadAt(%d): %v", off, err)
+		}
+		if want := min(7, writes-int(off)); len(b) != want {
+			t.Fatalf("ReadAt(%d) = %d bytes, want %d", off, len(b), want)
+		}
+		if b[0] != byte(off) {
+			t.Fatalf("byte at %d = %d, want %d", off, b[0], byte(off))
+		}
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("reading %d bytes took %v, want a fast scan", writes, elapsed)
+	}
+}
+
+// TestOutputCoalescingKeepsInterleaving covers the spill file: a segment may only grow while it is
+// the newest one, so the file keeps the arrival order of the two streams (doc/execution-plane.md
+// 输出).
+func TestOutputCoalescingKeepsInterleaving(t *testing.T) {
+	o := NewOutput("interleaved", t.TempDir(), OutputOptions{SpillBytes: 10})
+	var want strings.Builder
+	for range 100 {
+		o.Writer(stdout).Write([]byte("a"))
+		o.Writer(stderr).Write([]byte("b"))
+		want.WriteString("ab")
+	}
+	o.Close()
+	if o.Path() == "" {
+		t.Fatal("output did not spill")
+	}
+	data, err := os.ReadFile(o.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != want.String() {
+		t.Fatalf("spill file = %q, want the interleaved order", data)
+	}
+	if got := readAll(t, o, stdout, 0); got != strings.Repeat("a", 100) {
+		t.Fatalf("stdout = %q", got)
+	}
+	if got := readAll(t, o, stderr, 0); got != strings.Repeat("b", 100) {
+		t.Fatalf("stderr = %q", got)
+	}
+}

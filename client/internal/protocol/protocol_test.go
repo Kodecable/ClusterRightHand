@@ -20,7 +20,7 @@ func TestSupportedNames(t *testing.T) {
 		"task.query",
 		"task.start",
 	}
-	// The protocol 1.1 names are optional for the peer but advertised by crha in every
+	// The M4 names are optional for the peer but advertised by crha in every
 	// privileged mode: non-forward modes answer the commands with privileged_unsupported.
 	optional := []string{"local.decision", "local.request", "local.withdraw", "revocations.add", "trust.summary"}
 	want := slices.Concat(required, optional)
@@ -39,10 +39,10 @@ func TestSupportedNames(t *testing.T) {
 	}
 	for _, name := range optional {
 		if !SupportedSet().Has(name) {
-			t.Fatalf("protocol 1.1 name %q is not advertised", name)
+			t.Fatalf("M4 name %q is not advertised", name)
 		}
 		if slices.Contains(RequiredNames(), name) {
-			t.Fatalf("protocol 1.1 name %q is required", name)
+			t.Fatalf("M4 name %q is required", name)
 		}
 	}
 	// trust.query is crh-priv's own command; it is not part of the crhs <-> crha
@@ -50,8 +50,11 @@ func TestSupportedNames(t *testing.T) {
 	if SupportedSet().Has("trust.query") {
 		t.Fatal("crh-priv name trust.query is declared in the crhs <-> crha handshake")
 	}
-	if Minor := ProtocolMinor; Minor != 1 {
-		t.Fatalf("ProtocolMinor = %d, want 1", Minor)
+	if Major := ProtocolMajor; Major != 2 {
+		t.Fatalf("ProtocolMajor = %d, want 2", Major)
+	}
+	if Minor := ProtocolMinor; Minor != 0 {
+		t.Fatalf("ProtocolMinor = %d, want 0", Minor)
 	}
 }
 

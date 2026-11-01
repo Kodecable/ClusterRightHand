@@ -57,8 +57,8 @@
 			"spec": {
 				"kind": "file.read",
 				"path": "/etc/nginx/nginx.conf",
-				"offset": 0,
-				"limit": 0
+				"startLine": 1,
+				"lineCount": 100
 			},
 			"method": "file.read",
 			"target": "/etc/nginx/nginx.conf"
@@ -3561,8 +3561,8 @@
 				"spec": {
 					"kind": "file.read",
 					"path": "/etc/shadow",
-					"offset": 0,
-					"limit": 0
+					"startLine": 1,
+					"lineCount": 100
 				}
 			},
 			"authorization": {
@@ -3571,7 +3571,7 @@
 					"command": {
 						"method": "file.read",
 						"exact": "/etc/shadow",
-						"spec_sha256": "e18a5e9d1f1c8750ea1dadfceb9fb39a28af95a9bc9e99fc60394d3c11572eac"
+						"spec_sha256": "6d761d1f3745191dbb559e2dc1f028682db78dd62d8db3ce24a3ea5e62cad634"
 					},
 					"issued_at_ms": 1793016000000,
 					"deadline_ms": 1793016300000,
@@ -4752,8 +4752,8 @@
 				"spec": {
 					"kind": "file.read",
 					"path": "/etc/nginx/nginx.conf",
-					"offset": 0,
-					"limit": 0
+					"startLine": 1,
+					"lineCount": 100
 				}
 			},
 			"authorization": {

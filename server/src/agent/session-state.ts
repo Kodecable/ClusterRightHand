@@ -16,6 +16,12 @@ export interface SessionWait {
 	levelId: string | null;
 }
 
+/** What a state write did: `since` identifies the wait, `applied` is false when nothing was written. */
+export interface SessionStateWrite {
+	since: string;
+	applied: boolean;
+}
+
 export async function sessionStateOf(db: Db, sessionId: string): Promise<SessionState | undefined> {
 	const row = await db.selectFrom("sessions").select("state").where("id", "=", sessionId).executeTakeFirst();
 	return row?.state;
@@ -23,22 +29,26 @@ export async function sessionStateOf(db: Db, sessionId: string): Promise<Session
 
 /**
  * Sets the session's state and what it waits for; unchanged values are not rewritten (keeps `since`
- * meaningful). Returns the state's timestamp, which identifies this wait: a new pause gets a new one, so a
+ * meaningful). `since` is the state's timestamp, which identifies this wait: a new pause gets a new one, so a
  * handler's wake is not deduplicated against the previous pause. Only a quota wait has a handler (the
  * exhausted level's direct parent); a root's quota wait has none, so its owner handles it.
+ *
+ * With `onlyIfLive`, a session that is `idle` is left alone and `applied` is false: a recompute must never turn
+ * idle back into `running` or `awaiting`, only a new input does that (doc/agent-runtime.md#会话状态).
  */
 export async function setSessionState(
 	db: Db,
 	sessionId: string,
 	state: SessionState,
 	wait: SessionWait | null,
-): Promise<string> {
+	options: { onlyIfLive?: boolean } = {},
+): Promise<SessionStateWrite> {
 	const row = await db
 		.selectFrom("sessions")
 		.select(["state", "waiting_kind", "waiting_level_id", "waiting_handler_id", "state_changed_at"])
 		.where("id", "=", sessionId)
 		.executeTakeFirst();
-	if (!row) return "";
+	if (!row) return { since: "", applied: false };
 	const kind = state === "awaiting" ? (wait?.kind ?? null) : null;
 	const levelId = state === "awaiting" && kind === "quota" ? (wait?.levelId ?? null) : null;
 	let handlerId: string | null = null;
@@ -54,10 +64,10 @@ export async function setSessionState(
 		row.waiting_level_id === levelId &&
 		row.waiting_handler_id === handlerId
 	) {
-		return row.state_changed_at ?? "";
+		return { since: row.state_changed_at ?? "", applied: true };
 	}
 	const at = new Date().toISOString();
-	await db
+	let update = db
 		.updateTable("sessions")
 		.set({
 			state,
@@ -67,9 +77,13 @@ export async function setSessionState(
 			state_changed_at: at,
 			updated_at: at,
 		})
-		.where("id", "=", sessionId)
-		.execute();
-	return at;
+		.where("id", "=", sessionId);
+	// The condition makes the check above and the write one step: a settle that landed in between wins.
+	if (options.onlyIfLive && state !== "idle") update = update.where("state", "!=", "idle");
+
+	const res = await update.executeTakeFirst();
+	if (res.numUpdatedRows === 0n) return { since: "", applied: false };
+	return { since: at, applied: true };
 }
 
 /** Ends the runs of these sessions (abort, or a denied quota wait): they become idle until a new input. */

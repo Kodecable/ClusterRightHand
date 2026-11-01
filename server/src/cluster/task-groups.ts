@@ -5,7 +5,7 @@ import type { SessionUser } from "../auth/sessions.ts";
 import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
-import type { TaskGroupState, TaskGroupsTable } from "../storage/schema.ts";
+import type { BatchOutputMode, TaskGroupState, TaskGroupsTable } from "../storage/schema.ts";
 import { UserError } from "../users/service.ts";
 import { derivedId, newId } from "../util/id.ts";
 import {
@@ -27,8 +27,27 @@ export const DEFAULT_PARALLEL = 10;
 export const MAX_GROUP_NODES = 512;
 const MAX_PARALLEL = 100;
 const MAX_TARGETS = 1000;
+
+/**
+ * A group's output mode. An exec group chooses `status` (default) or `text`; a file operation always
+ * keeps each node's head, since a status has nothing to show for a page and exec's tail cannot be
+ * continued line by line (doc/execution-plane.md#输出).
+ */
+export function outputModeFor(kind: string, requested?: BatchOutputMode): BatchOutputMode {
+	if (kind === "exec") {
+		if (requested === undefined) return "status";
+		if (requested !== "head") return requested;
+		throw new UserError('an exec task group takes outputMode "status" or "text"');
+	}
+	if (requested !== undefined && requested !== "head") {
+		throw new UserError(`${kind} task groups keep each node's head (outputMode "head")`);
+	}
+	return "head";
+}
 // setTimeout cannot wait longer than ~24.8 days, so long waits loop.
 const HOUR = 3_600_000;
+/** Why a member that never started ends when a restart interrupts its group (doc/execution-plane.md#状态机). */
+export const GROUP_INTERRUPTED_REASON = "the task group was interrupted by a restart";
 
 /**
  * Resolves a target list (node names and "group:<name>") to the active nodes the user may operate.
@@ -58,8 +77,8 @@ export interface CreateTaskGroupInput extends Omit<CreateTaskInput, "nodeId" | "
 	nodeIds: string[];
 	parallel?: number;
 	failFast?: boolean;
-	/** Batch output mode; defaults to `status` (doc/execution-plane.md#输出). */
-	outputMode?: "status" | "text";
+	/** Batch output mode; defaults to `status` for exec and is fixed to `head` for file operations. */
+	outputMode?: BatchOutputMode;
 	actor: Actor;
 	/** A caller-chosen id; an existing group with it is returned as is (see CreateTaskInput.id). */
 	id?: string;
@@ -81,7 +100,7 @@ export interface TaskGroupView {
 	parallel: number;
 	failFast: boolean;
 	/** The mode fixed at creation; every task in the group uses it. */
-	outputMode: "status" | "text";
+	outputMode: BatchOutputMode;
 	/** Whether the group's tasks are privileged tasks (doc/privilege.md). */
 	privileged: boolean;
 	skipped: string[];
@@ -185,13 +204,27 @@ export class TaskGroups {
 				.set({ state: "interrupted", skipped: JSON.stringify(skipped), finished_at: now() })
 				.where("id", "=", row.id)
 				.execute();
+			// A member that had not started yet must not run now: its approval or signature can still
+			// arrive, so it is cancelled with the reason instead of being left waiting forever.
+			await this.#endWaiting(row.id);
 			this.#cluster.releaseGroupBudget(row.id);
 		}
 	}
 
+	/** Ends the members of an interrupted group that never reached the node. */
+	async #endWaiting(groupId: string): Promise<void> {
+		const rows = await this.#db
+			.selectFrom("tasks")
+			.select("id")
+			.where("task_group_id", "=", groupId)
+			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
+			.execute();
+		for (const { id } of rows) await this.#cluster.cancelTask(id, GROUP_INTERRUPTED_REASON);
+	}
+
 	async create(input: CreateTaskGroupInput): Promise<string> {
 		const parallel = Math.min(Math.max(input.parallel ?? DEFAULT_PARALLEL, 1), MAX_PARALLEL);
-		const outputMode = input.outputMode ?? "status";
+		const outputMode = outputModeFor(input.spec.kind, input.outputMode);
 		if (input.id && (await this.#row(input.id))) return input.id;
 		// Reject before writing anything: truncating would make the caller think every node ran (D85).
 		const nodeIds = [...new Set(input.nodeIds)];
@@ -273,7 +306,7 @@ export class TaskGroups {
 				if (view) void hook(view).catch((err: unknown) => console.error("review:", err));
 			}
 		} else {
-			this.#start(id, input, nodeIds, parallel);
+			this.#start(id, { ...input, outputMode }, nodeIds, parallel);
 		}
 		return id;
 	}

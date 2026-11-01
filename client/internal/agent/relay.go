@@ -13,15 +13,26 @@ import (
 // a misbehaving peer cannot grow the buffer without limit.
 const maxBufferedRelayEvents = 256
 
+// maxFinishedRelayTasks bounds the task ids the router remembers as finished. A late event of a
+// task whose exit crhs already acknowledged would otherwise be buffered for handlers that will
+// never be attached, and enough of them would close the daemon connection; task ids are unique
+// forever, so the set only has to be large enough that the daemon's own backlog fits.
+const maxFinishedRelayTasks = 1024
+
 // relayRouter routes the task events of one multiplexed privileged peer to the task they
 // belong to. The peer starts a task as soon as it wrote the task.start response, and that
 // response can reach the read loop before the caller of the relayed request has registered the
 // task here, so events of a task without handlers are buffered and replayed in order by attach.
 // The read loop of the peer is the only router, so the per-task ordering of its events is kept.
+// A task forgotten by discard was finished locally, and later events for it are dropped.
 type relayRouter struct {
 	mu       sync.Mutex
 	handlers map[string]*relayHandlers
 	pending  map[string][]relayEvent
+	// finished holds the task ids discarded since this router started, oldest first in
+	// finishedOrder for eviction at maxFinishedRelayTasks.
+	finished      map[string]struct{}
+	finishedOrder []string
 }
 
 // relayHandlers is the pair of events a relayed task receives.
@@ -52,6 +63,7 @@ func newRelayRouter() *relayRouter {
 	return &relayRouter{
 		handlers: make(map[string]*relayHandlers),
 		pending:  make(map[string][]relayEvent),
+		finished: make(map[string]struct{}),
 	}
 }
 
@@ -60,6 +72,12 @@ func newRelayRouter() *relayRouter {
 func (r *relayRouter) route(taskID string, event relayEvent) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if _, done := r.finished[taskID]; done {
+		// The task ended and crhs acknowledged its exit, so the daemon's remaining buffered events
+		// of it are stale (doc/protocol.md crh-priv 断开): drop them instead of keeping them for
+		// handlers that will never be attached.
+		return nil
+	}
 	if h := r.handlers[taskID]; h != nil {
 		return event.handle(h)
 	}
@@ -85,12 +103,22 @@ func (r *relayRouter) attach(taskID string, handlers *relayHandlers) error {
 	return nil
 }
 
-// discard forgets a task and anything buffered for it.
+// discard forgets a finished task and anything buffered for it, and remembers the id so the
+// daemon's late events of that task are dropped instead of buffered.
 func (r *relayRouter) discard(taskID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.handlers, taskID)
 	delete(r.pending, taskID)
+	if _, done := r.finished[taskID]; done {
+		return
+	}
+	r.finished[taskID] = struct{}{}
+	r.finishedOrder = append(r.finishedOrder, taskID)
+	if len(r.finishedOrder) > maxFinishedRelayTasks {
+		delete(r.finished, r.finishedOrder[0])
+		r.finishedOrder = r.finishedOrder[1:]
+	}
 }
 
 // relayOutput records one task.output chunk of a task that runs in a privileged peer (the
@@ -128,6 +156,8 @@ func (a *Agent) finishRelayed(t *task, exit *protocol.TaskExit) {
 				Error: &protocol.Error{Code: t.inputErr.Code, Message: protocol.ErrorMessage(t.inputErr.Message)},
 			}
 			exit.Cancelled = false
+			// The input decided this task: a result the peer reported would contradict the failure.
+			exit.Result = nil
 		}
 		t.done, t.result = true, exit
 		a.mu.Unlock()

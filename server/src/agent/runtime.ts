@@ -17,6 +17,7 @@ import {
 	Harness,
 	hook,
 	ProviderDoc,
+	SessionFailed,
 	type SettledSubmissionRecord,
 	type Storage,
 	type Submission,
@@ -366,11 +367,19 @@ export class AgentRuntime {
 					this.#harness.resume();
 					this.#invalidateInboxes();
 					this.reopened++;
-					this.#supervise();
-					return;
 				} catch (err) {
 					console.error("agent runtime: reopening failed:", err);
+					continue;
 				}
+				this.#supervise();
+				// The failed Harness rejected every pending wait, so no settlement wrote `idle` and no watch is
+				// armed any more. Correct the states and re-arm the watches exactly as open() does.
+				try {
+					await this.#reconcileSessionStates();
+				} catch (err) {
+					console.error("agent runtime: reconciling after a reopen failed:", err);
+				}
+				return;
 			}
 		});
 	}
@@ -665,7 +674,13 @@ export class AgentRuntime {
 				.then(async () => {
 					await this.#settleInput(sessionId, id);
 				})
-				.catch(() => {});
+				.catch((err: unknown) => {
+					// A closed Harness rejects every pending wait; #supervise reopens and reconciles, and the
+					// re-armed watch records the end then. Anything else must not vanish.
+					if (this.#closing || err instanceof SessionFailed) return;
+					if (err instanceof Error && err.message === "Harness is closed") return;
+					console.error("agent runtime: recording a run's end failed:", err);
+				});
 			return true;
 		}
 		return false;
@@ -769,7 +784,12 @@ export class AgentRuntime {
 			.execute();
 		for (const row of tasks) {
 			if (row.state === "awaiting_approval") await this.#cluster.decide(row.id, decision);
-			else await this.#cluster.cancelTask(row.id, reason);
+			else
+				await this.#cluster.cancelTask(
+					row.id,
+					reason,
+					by ? { type: "user", id: by.userId, onBehalfOfUserId: by.userId } : undefined,
+				);
 		}
 		const groups = await this.#db
 			.selectFrom("task_groups")
@@ -789,7 +809,12 @@ export class AgentRuntime {
 				.where("task_group_id", "=", group.id)
 				.where("state", "in", includeRunning ? ["awaiting_authorization", ...live] : ["awaiting_authorization"])
 				.execute();
-			for (const t of members) await this.#cluster.cancelTask(t.id, reason);
+			for (const t of members)
+				await this.#cluster.cancelTask(
+					t.id,
+					reason,
+					by ? { type: "user", id: by.userId, onBehalfOfUserId: by.userId } : undefined,
+				);
 		}
 	}
 
@@ -800,34 +825,38 @@ export class AgentRuntime {
 		for (const id of sessions) this.#stopping.add(id);
 		try {
 			await conversation.abort(this.#context);
+			// Subagents are ownerless conversations: their abort is explicit, and it must come before the work is
+			// ended. A subagent that is still running can otherwise dispatch a task after the select below, which
+			// nothing would cancel (doc/agent-runtime.md#abort).
+			for (const id of sessions.slice(1)) {
+				const row = await this.#db
+					.selectFrom("sessions")
+					.select("conversation_id")
+					.where("id", "=", id)
+					.executeTakeFirst();
+				if (!row) continue;
+				const child = await this.#harness.conversation(
+					Number(row.conversation_id) as unknown as ConversationId,
+					this.#context,
+				);
+				await child?.abort(this.#context);
+			}
 			// Stopping means stopping the work too. This is done here, not on the tool's abort signal, which also
 			// fires when crhs shuts down: after a restart the call reattaches to its task instead.
 			await this.#endSessionWork(sessions, "the session was stopped", { includeRunning: true, by });
+			// The stop stays marked until every conversation and every wait of the tree is settled: a run that
+			// ends after it is cleared would take the "run ended" path and miss its running tasks.
+			await markSessionsIdle(this.#db, sessions);
+			for (const id of sessions) this.#sessionList.publishSession(id);
+			for (const id of sessions) this.#deniedWaits.delete(id);
+			// Clear a quota wait of an ancestor that only the aborted subtree caused.
+			const root = (await sessionChain(this.#db, sessionId)).at(-1);
+			if (root) await this.refreshState(root);
+			this.#notifyQuotaWaiters();
+			this.#invalidateInboxes();
+			for (const id of sessions) this.#pendingWakes.delete(id);
 		} finally {
 			for (const id of sessions) this.#stopping.delete(id);
-		}
-		await markSessionsIdle(this.#db, sessions);
-		for (const id of sessions) this.#sessionList.publishSession(id);
-		for (const id of sessions) this.#deniedWaits.delete(id);
-		// Clear a quota wait of an ancestor that only the aborted subtree caused.
-		const root = (await sessionChain(this.#db, sessionId)).at(-1);
-		if (root) await this.refreshState(root);
-		this.#notifyQuotaWaiters();
-		this.#invalidateInboxes();
-		for (const id of sessions) this.#pendingWakes.delete(id);
-		// Subagents are ownerless conversations, so their abort is explicit (doc/agent-runtime.md#abort).
-		for (const id of sessions.slice(1)) {
-			const row = await this.#db
-				.selectFrom("sessions")
-				.select("conversation_id")
-				.where("id", "=", id)
-				.executeTakeFirst();
-			if (!row) continue;
-			const conversation = await this.#harness.conversation(
-				Number(row.conversation_id) as unknown as ConversationId,
-				this.#context,
-			);
-			await conversation?.abort(this.#context);
 		}
 	}
 
@@ -1507,15 +1536,19 @@ export class AgentRuntime {
 			try {
 				const level = await exhaustedLevel(this.#db, sessionId);
 				if (!level) {
-					await setSessionState(this.#db, sessionId, "running", null);
+					const write = await setSessionState(this.#db, sessionId, "running", null, { onlyIfLive: true });
 					this.#sessionList.publishSession(sessionId);
 					// The quota request is gone; drop it from the handler's cache before returning.
 					this.#invalidateInboxes();
+					// The run ended while this call waited: do not revive it or run the task.
+					if (!write.applied) return "denied";
 					return "ok";
 				}
 				const parent = await this.#parentOf(level);
 				const quotaWait: SessionWait = { kind: "quota", levelId: level };
-				const since = await setSessionState(this.#db, sessionId, "awaiting", quotaWait);
+				// A tool call pausing is a real transition of its run, not a recompute; only its resume checks the
+				// row is still live (a run that ended while it waited must not be revived).
+				const { since } = await setSessionState(this.#db, sessionId, "awaiting", quotaWait);
 				this.#sessionList.publishSession(sessionId);
 				// A root level has no parent to handle its wait: the owner sees it in the approvals API, and the
 				// session paused on that level already carries the wait (doc/agent-runtime.md#配额).
@@ -1573,7 +1606,10 @@ export class AgentRuntime {
 		if (row.state === "idle") return "idle";
 		const settled = await this.#inputSettled(row);
 		const desired = await this.#desiredState(row, settled);
-		await setSessionState(this.#db, sessionId, desired.state, desired.wait);
+		// The write is conditional on the row still being live: the run may have settled while the reads above
+		// ran, and a recompute must not revive it (doc/agent-runtime.md#会话状态).
+		const write = await setSessionState(this.#db, sessionId, desired.state, desired.wait, { onlyIfLive: true });
+		if (!write.applied) return "idle";
 		this.#sessionList.publishSession(sessionId);
 		// Approval/quota changes alter the handler's inbox; write-state and cache invalidation are adjacent.
 		const changed =

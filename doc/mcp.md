@@ -18,7 +18,7 @@
 
 与 agent 共用同一份 `ToolCatalog`（见 [agent-runtime.md](agent-runtime.md#cluster-工具)），所以工具名称、参数和语义完全一致：
 
-`list_nodes`、`node_info`、`exec`、`read_file`、`write_file`、`edit_file`、`list_dir`、`task_wait`、`task_cancel`。其中 `exec`、`read_file`、`write_file` 原生支持批量执行。
+`list_nodes`、`node_info`、`exec`、`read_file`、`write_file`、`edit_file`、`list_dir`、`task_wait`、`task_cancel`。`exec`、`read_file`、`write_file`、`list_dir` 用同一个 `targets` 参数支持批量执行（一个节点名是单个任务，多个条目或组是任务组）；`edit_file` 和 `node_info` 只有 `node`。
 
 能访问哪些节点，与 token 所属用户相同（自己的节点和分享给该用户的节点）；能对这些节点做什么，由 token 的规则决定：token 是 MCP 规则链的根，创建时选择 Ask 或 Yolo（Auto Review 在 M3 之后可用），见 [access-control.md](access-control.md#授权规则)。需要审批时直接交给 token 所属的用户。
 

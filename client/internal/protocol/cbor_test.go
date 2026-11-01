@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -445,9 +446,9 @@ func TestPeekMajor(t *testing.T) {
 	}
 	// A future major version may have a different payload shape after the first
 	// element; PeekMajor must not decode it.
-	future := append([]byte{0x86, 0x02, 0x00}, mustHex(t, "80")...)
+	future := append([]byte{0x86, 0x03, 0x00}, mustHex(t, "80")...)
 	major, err = PeekMajor(future)
-	if err != nil || major != 2 {
+	if err != nil || major != 3 {
 		t.Fatalf("future major = %d, err = %v", major, err)
 	}
 	for _, test := range []struct {
@@ -459,6 +460,14 @@ func TestPeekMajor(t *testing.T) {
 		{"indefinite array", "9f01ff"},
 		{"no first element", "80"},
 		{"truncated", "81"},
+		// Non-shortest encodings are rejected like the TS decoder rejects them (peekProtocolMajor).
+		{"non-shortest 8-bit array", "981701"},
+		{"non-shortest 16-bit array", "9900ff01"},
+		{"non-shortest 32-bit array", "9a0000ffff01"},
+		{"non-shortest 64-bit array", "9b00000000ffffffff01"},
+		{"non-shortest protocol_major", "811801"},
+		{"protocol_major is not a uint", "8120"},
+		{"protocol_major exceeds 2^53-1", "811b0020000000000000"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := PeekMajor(mustHex(t, test.hex)); err == nil {
@@ -475,11 +484,11 @@ func TestPeekMajorArrayHeaders(t *testing.T) {
 		name string
 		hex  string
 	}{
-		{"length 6", "86010000"},
-		{"length 24", "9818010000"},
-		{"length 300", "99012c010000"},
-		{"length 70000", "9a00011170010000"},
-		{"later element is a float", "8201f93e00"},
+		{"length 6", "86020000"},
+		{"length 24", "9818020000"},
+		{"length 300", "99012c020000"},
+		{"length 70000", "9a00011170020000"},
+		{"later element is a float", "8202f93e00"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			major, err := PeekMajor(mustHex(t, test.hex))
@@ -506,5 +515,65 @@ func TestPeekMajorArrayHeaders(t *testing.T) {
 				t.Fatalf("accepted %s", test.hex)
 			}
 		})
+	}
+}
+
+// TestMaxNestedLevels covers the profile's nesting limit, which the TS decoder enforces with the
+// same number: a value with 64 nested containers decodes, one more is a protocol error.
+func TestMaxNestedLevels(t *testing.T) {
+	// nested is levels one-element arrays around a uint, the encoding the TS test uses too.
+	nested := func(levels int) []byte {
+		raw := make([]byte, 0, levels+1)
+		for range levels {
+			raw = append(raw, 0x81)
+		}
+		return append(raw, 0x01)
+	}
+	if _, err := decodeAny(nested(64)); err != nil {
+		t.Fatalf("64 nested levels: %v", err)
+	}
+	if _, err := decodeAny(nested(65)); err == nil {
+		t.Fatal("65 nested levels were accepted")
+	}
+}
+
+// TestMaxNestedLevelsEmptyContainers pins the empty-container cases the TS decoder used to
+// miscount (packages/protocol/src/cbor.ts): an empty array or map is one level and is complete as
+// soon as it starts, so many empty containers in a row are shallow, while 65 nested containers
+// (even with an empty innermost one) are still a protocol error. The TS test builds the same
+// payloads.
+func TestMaxNestedLevelsEmptyContainers(t *testing.T) {
+	emptyArrays := bytes.Repeat([]byte{0x80}, 100)
+	pairs := bytes.Repeat([]byte{0x82, 0xa0, 0x01}, 70)
+	payloads := map[string][]byte{
+		"100 empty arrays":                     append([]byte{0x98, 0x64}, emptyArrays...),
+		"70 arrays of an empty map and a uint": append([]byte{0x98, 0x46}, pairs...),
+	}
+	for name, raw := range payloads {
+		if _, err := decodeAny(raw); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	// 64 nested arrays ending in an empty one decode; 65 do not.
+	nestedEmpty := func(levels int) []byte {
+		raw := bytes.Repeat([]byte{0x81}, levels-1)
+		return append(raw, 0x80)
+	}
+	if _, err := decodeAny(nestedEmpty(64)); err != nil {
+		t.Fatalf("64 nested levels ending in an empty array: %v", err)
+	}
+	if _, err := decodeAny(nestedEmpty(65)); err == nil {
+		t.Fatal("65 nested levels ending in an empty array were accepted")
+	}
+	// Each level is map{"a": <next>}: a map is one level, its key and value are not.
+	nestedMap := func(levels int) []byte {
+		raw := bytes.Repeat([]byte{0xa1, 0x61, 0x61}, levels)
+		return append(raw, 0x01)
+	}
+	if _, err := decodeAny(nestedMap(64)); err != nil {
+		t.Fatalf("64 nested maps: %v", err)
+	}
+	if _, err := decodeAny(nestedMap(65)); err == nil {
+		t.Fatal("65 nested maps were accepted")
 	}
 }

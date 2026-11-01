@@ -11,11 +11,13 @@
 | kind | 说明 |
 |---|---|
 | `exec` | 执行命令：`argv`（直接执行）或 `shell`（`sh -c`）；可选 `env`、`cwd`、`stdin`、超时 |
-| `file.read` | 读文件，支持偏移和长度上限 |
-| `file.write` | 原子写（临时文件 + rename）；可设置 mode/owner。默认只**创建新文件**，目标已存在时失败（`renameat2` 的 `RENAME_NOREPLACE`）；`overwrite = true` 时才覆盖 |
-| `file.edit` | 按原文替换，格式与 pi 的 edit 工具相同：`edits[]`，每项 `oldText` / `newText`，`oldText` 必须在文件中出现且只出现一次，所有替换都针对原始内容匹配；保留 BOM 和换行风格；结果原子写回 |
-| `file.stat` | 文件元信息 |
-| `file.list` | 列目录，有条目数上限 |
+| `file.read` | 按行读文件：从第 `start_line` 行起最多 `line_count` 行，整页不超过 50KB；节点从文件开头扫描，发完整行，不读到文件末尾；页面字节走 stdout，页面的行范围和文件末尾信息在 `task.exit` 的 `result` 里（见 [protocol.md](protocol.md#taskresult)） |
+| `file.write` | 原子写（临时文件 + rename）；可设置 mode/owner。默认只**创建新文件**，目标已存在时失败（`renameat2` 的 `RENAME_NOREPLACE`）；`overwrite = true` 时才覆盖。结果（写入字节数、是否新建）在 `task.exit` 的 `result` 里 |
+| `file.edit` | 按原文替换，格式与 pi 的 edit 工具相同：`edits[]`，每项 `oldText` / `newText`，`oldText` 必须在文件中出现且只出现一次，所有替换都针对原始内容匹配；保留 BOM 和换行风格；结果原子写回。结果（替换数量）在 `task.exit` 的 `result` 里 |
+| `file.stat` | 文件元信息，作为 `task.exit` 的 `result` 返回 |
+| `file.list` | 列目录，有条目数上限，条目作为 `task.exit` 的 `result` 返回 |
+
+文件任务的结构化结果不写进输出流：`file.read` 的 stdout 只有页面本身，`file.stat`、`file.list`、`file.write`、`file.edit` 的 stdout 为空。见 [protocol.md](protocol.md#taskresult)。
 
 编辑由 crha 在节点上完成：读取、匹配、替换、写回连续执行，中间不经过网络。不使用哈希校验，`oldText` 本身就是冲突检测：
 
@@ -23,6 +25,7 @@
 - 别人改的正是这一段：`oldText` 匹配不到（或不再唯一），编辑失败，agent 重新读取再改。
 - **审批延迟**：特权编辑的 `exact` 授权绑定 `edits` 本身，用户批准的是"把这段改成那段"。等待审批期间文件变了，只要 `oldText` 仍然唯一匹配，执行的仍然是用户批准的那个修改；不匹配就失败。
 - **防覆盖**：`file.write` 默认只创建新文件，避免模型用整文件写入意外覆盖现有内容；确实需要整体替换时显式打开 `overwrite`。
+- **符号链接**：非特权的 `file.write` / `file.edit` 经过符号链接时写链接指向的目标并保留链接本身（`file.write` 遇到悬空链接会创建目标）；特权任务仍拒绝任何一级符号链接（`symlink_not_allowed`，见 privilege.md）。
 - 剩余的竞态（crha 读取和 rename 之间的极短窗口）与 pi 在本地编辑时相同，接受。
 
 PTY 交互、文件传输等后续再加。
@@ -38,7 +41,6 @@ attempt        1, 2, 3, ...             # 同一 task id 的授权尝试；paylo
 authorization  可选：特权任务的一个授权对象（payload + signatures[]）；本地批准时为空，见 privilege.md
 timeout_ms     仅 exec：超时后先发 SIGTERM，宽限期过后发 SIGKILL（杀整个进程组）；file.* 任务没有超时，只能由取消结束
 output_mode    full | text | status：单任务为 full（头尾 + 超阈值落盘）；任务组为 text 或 status，默认 status
-output_limit   客户端为该任务缓冲输出的上限
 ```
 
 ### exec 的执行环境
@@ -85,9 +87,11 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 - `denied` 的 `error_code` 为 `policy_denied`；审批被拒绝（包括 token 吊销）时为 `rejected`，`error_code` 为 `approval_rejected`。
 - `awaiting_authorization` 最终失败时为 `rejected`，error code 取 `authorization_required`、`authorization_invalid`、`authorization_expired` 或 `authorization_rejected`（用户/本地最终拒绝）。
 - 等待审批的任务把输入（stdin、写入内容）暂存在 `tasks.pending_input`，下发时取出并清空；批准时节点不在线，任务以 `failed(node_offline)` 结束，不再排队等节点。
+- 特权任务没有等待就直接用所有者已有的可复用授权下发时，输入取自创建时的内存，不经过 `pending_input`；`task.start` 被拒绝、任务回到 `awaiting_authorization` 时再写入 `pending_input`，供下一次尝试使用。
 - 任务组需要审批时整组等待（`task_groups.state = awaiting_approval`），还没有创建任务，规格和输入暂存在任务组上；被规则拒绝的节点立即得到一个 `denied` 任务。批准后剩余节点照常按并发数执行。
 - 任务组中的任务彼此独立：部分节点已执行、部分节点在 `awaiting_authorization` 时，已执行的任务不回滚；任务组最终可以是混合结果。若所有未完成任务都在等授权，任务组显示 `awaiting_authorization`，否则保持 `running`。
 - `fail_fast` 只影响尚未启动的节点，不回滚已启动/已完成的任务；可重试的授权拒绝不算最终失败。
+- crhs 重启时仍在运行的任务组标记为 `interrupted`：没有创建任务的节点记入 `skipped`，已创建但还没有下发的成员任务（`awaiting_approval` / `awaiting_authorization`）以 `rejected`、`error_code = cancelled` 结束，原因写明任务组被重启中断。`finished`、`interrupted`、`rejected` 的组不再下发任何成员。
 
 `unknown` 是执行平面唯一的"结果不确定"状态，reason 取值：
 
@@ -114,17 +118,18 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 
 ## 输出
 
-- 输出按流（stdout/stderr）分开，每个分片带字节偏移 `offset`；单任务和批量 `text` 模式下实时推送给 crhs，批量 `status` 模式不推送。
-- **crhs 只保存截断后的输出**：单任务保存 stdout/stderr 的头部和尾部；批量 `text` 每节点只保留尾部 8KB/128 行，并受全局 50KB/2000 行预算；都不保存完整输出。批量 `status` 模式完全不保存输出，只保存状态和节点文件路径。
+- 输出按流（stdout/stderr）分开，每个分片带字节偏移 `offset`；单任务和批量 `text` / `head` 模式下实时推送给 crhs，批量 `status` 模式不推送。
+- **crhs 只保存截断后的输出**：单任务保存 stdout/stderr 的头部和尾部；批量 `text` 每节点只保留尾部 8KB/128 行，批量 `head`（文件操作）每节点只保留 stdout 的**头部** 8KB/128 行，两者受同一个全局 50KB/2000 行预算；都不保存完整输出。批量 `status` 模式完全不保存输出，只保存状态和节点文件路径；唯一的例外是 SSH 节点忽略特权时 crhs 自己写的那一行提示，它作为 stderr 头部保存（`tasks.stderr_head`）。`head` 模式同样只为这一行提示保留 stderr，不保留节点自己的 stderr：文件任务的结果在 `task.exit` 的 `result` 里，不占输出预算。
 - **完整输出由 crha 在节点上保存为普通文件**：单任务文本模式下，输出超过 2000 行或 50KB 时落盘；批量 `text` 和 `status` 模式**总是**落盘。crha 非特权模式把完整输出写入 `[output].dir`（默认 `/var/lib/crha/output/<task_id>.log`，stdout 和 stderr 按到达顺序交错写入，与终端里 `2>&1` 看到的一致；crha 在内存中保留分段索引，用于按流续传），`task.exit` 中带上文件路径和总字节数。文件权限 0600，属主为非特权模式的运行用户（输出可能包含敏感内容）。agent 需要完整输出时，用普通的 `read_file` 读取。
   - 特权任务的输出本来就经由非特权模式转发，所以同样由非特权模式保存，不会因此多暴露什么。
   - 这些文件的清理由 crha 负责，按 `crha.toml` 中 `[output]` 的 `max_age` 和 `max_total` 配置（默认 7 天、1GB）。
 - **断线续传**：任务运行期间，以及结束后到 crhs 确认（`task.output.ack` / `task.exit.ack`）之前，crha 保留未确认的输出：输出较短时在内存中，已经写入文件的直接从文件中补发。所以不会因为缓冲溢出而丢失输出。
 - **批量执行**：
   - 一个任务组最多 **512 个节点**（target 展开、去重后计数，离线节点也算）；超过时创建失败并提示拆分，不截断执行。这限制的是返回给模型的任务组结果（每节点的状态信息不受输出预算约束），也使每节点一行的常见批量命令在 `text` 预算内能全部看到（D85）。
-  - `status`（批量默认）：只返回状态、退出码和完整输出文件路径；不向 crhs 发送 stdout/stderr，完整输出留在节点文件。
-  - `text`：每个节点保留**尾部** 8KB/128 行；所有节点共享单任务总预算（50KB/2000 行）；按**输出到达顺序**分配，预算耗尽后忽略后续节点，允许整个节点被丢弃；完整输出仍然留在节点文件。
-  - 预算在接收端 append 时检查，不能先把每个任务收满再裁剪；内存上限固定为总预算加少量元数据，不随节点数增长。
+  - `status`（exec 批量默认）：只返回状态、退出码和完整输出文件路径；不向 crhs 发送 stdout/stderr，完整输出留在节点文件。
+  - `text`（仅 exec）：每个节点保留**尾部** 8KB/128 行；所有节点共享单任务总预算（50KB/2000 行）；按**输出到达顺序**分配，预算耗尽后忽略后续节点，允许整个节点被丢弃；完整输出仍然留在节点文件。
+  - `head`（文件操作固定使用，不能选）：每个节点保留 stdout 的**头部** 8KB/128 行，所有节点共享同一个总预算（50KB/2000 行），同样按**输出到达顺序**分配；`file.read` 的每个节点因此可以从**它自己的**下一行继续（`Use offset=<n> to continue.`），节点之间没有共同的偏移或行数限制。预算耗尽时允许整个节点被丢弃，工具结果里会指出这一点。`write_file`、`list_dir` 没有页面，它们和 `read_file` 的行范围一样来自 `task.exit` 的 `result`，不受这个预算影响。
+  - 预算在接收端 append 时检查，不能先把每个任务收满再裁剪；内存上限固定为总预算加少量元数据，不随节点数增长。`head` 与 `text` 用同一套额度记账：节点的输出到达时给它追加额度，直到达到单节点上限或总预算耗尽，额度只增不减。
   - 预算按**额度**发放：节点的输出到达时，从剩余总预算中给它追加额度，直到达到单节点上限（8KB/128 行）或总预算耗尽。额度只增不减：尾部滚动挤掉的旧字节不退回总预算。
   - 总预算耗尽后，已经拿到额度的节点继续接收输出，在自己的额度内滚动保留尾部；没有额度的节点输出全部丢弃。所以内存上限就是已发放额度之和，不会超过总预算。
   - 即使某个节点的输出被丢弃，crhs 仍按已收到的偏移发送 `task.output.ack`/`task.exit.ack`，让 crha 释放缓冲。
@@ -132,8 +137,8 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
   - SSH 节点不保存完整输出：`status` 只返回状态，`text` 只返回受单节点和总预算限制的尾部输出。
   - `text` 的尾部是**一份合并尾部**：stdout 和 stderr 按到达 crhs 的顺序拼在一起（与节点文件的 `2>&1` 一致），不分流保存；字节数仍按流分别统计。行数按换行符计：滚动时保留最多“额度行数”个换行符之后的内容。
   - 预算只在 crhs 内存中按任务组维护。crhs 重启后，未结束任务的输出由 crha 从偏移 0 重发，按新的到达顺序重新发放额度；已结束任务的尾部已经存库，不再参与。内存上限不变。
-  - `status` 模式下 crha 不发送 `task.output`，所以 crhs 收到 `task.exit` 时不检查输出是否收全（只有 `full`/`text` 检查）；`task.exit` 中的字节数和文件路径照常记录。
-  - 任务组的输出模式在创建时确定（Web API `outputMode`、MCP `output` 参数，默认 `status`），写入 `task_groups.output_mode` 和其下每个任务的 `tasks.output_mode`；单任务的 `tasks.output_mode` 为 `full`。
+  - `status` 模式下 crha 不发送 `task.output`，所以 crhs 收到 `task.exit` 时不检查输出是否收全（只有 `full`/`text`/`head` 检查）；`task.exit` 中的字节数和文件路径照常记录。
+  - 任务组的输出模式在创建时确定，写入 `task_groups.output_mode` 和其下每个任务的 `tasks.output_mode`：`exec` 组由调用方选 `status`（默认）或 `text`（Web API `outputMode`、MCP `output` 参数）；文件操作的任务组固定为 `head`，Web API 传其他值会被拒绝，MCP 的文件工具根本没有 `output` 参数。`head` 是 crhs 侧的模式：下发时任务仍用 `full`（节点实时推送两个流，是否落盘由节点按阈值决定），crhs 按上面的预算保留头部。单任务的 `tasks.output_mode` 为 `full`。
 
 ## 自有协议（M3.5）
 
@@ -152,9 +157,12 @@ M3.5 完整替换原来的 protobuf 消息层。Web API、数据库和 WebUI 仍
 ### 版本协商
 
 - 版本只在握手时协商：`protocol_major`、`protocol_minor` 和双方支持的命令集合。
-- 大版本不匹配直接拒绝并说明。
-- `protocol_minor` 只是命令集合的标签，用于展示和诊断；兼容性完全由双方 `commands` 集合的交集决定。
-- 小版本只允许新增命令/事件，不修改、不删除已有结构；旧命令保留到下一个大版本。需要替换时新增 `task.start.v2`。
+- 大版本不匹配直接拒绝并说明；Noise prologue 含大版本（`"crh/<大版本>"`），所以旧的一方在握手本身失败。
+- 不兼容的修改升大版本。本批是大版本 2（`major = 2`, `minor = 0`），有改变语义的修改——`file.read` 从字节偏移改为按行，`task.exit` 增加 `result`——旧的一方会静默误读。
+- `protocol_minor` 只做增量：小版本不同不拒绝握手，新增命令/事件靠 `commands` 交集协商。
+- crha、它的特权模式（daemon / native helper）和 crhs 一起升级；不提供跨大版本的兼容层。
+- 升级前创建、仍在等待审批或签名的 `file.read` 任务和任务组无法下发：它们的 `spec` 仍是旧的 `offset` / `limit` 字段，读取时以 `stored spec cannot be read` 失败。
+- 同一大版本内只允许新增命令/事件，不修改、不删除已有结构；需要替换时新增 `task.start.v2`。
 - 握手完成后，后续帧**不再携带** `v` 字段；命令名和固定结构已经由协商结果约束。
 - 新命令只有在双方握手都声明支持时才使用；否则回退到旧命令或返回 `unsupported_command`。
 
@@ -186,18 +194,18 @@ event     = [2, event, body]
 | S→C | command | `task.input` | 输入分块；响应 ack |
 | S→C | command | `task.cancel` | 取消；响应结果 |
 | S→C | command | `task.query` | 查询任务状态；响应当前状态 |
-| S→C | command | `revocations.add` | 追加吊销项（幂等）；响应 ack（M4，1.1） |
-| S→C | command | `local.request` / `local.withdraw` | 请求 / 撤回节点本地批准；不触发执行（M4，1.1） |
+| S→C | command | `revocations.add` | 追加吊销项（幂等）；响应 ack（M4） |
+| S→C | command | `local.request` / `local.withdraw` | 请求 / 撤回节点本地批准；不触发执行（M4） |
 | S→C | event | `task.output.ack` | 确认已收到的输出偏移；客户端可用它释放缓冲 |
 | S→C | event | `task.exit.ack` | 确认任务结束，可释放输出 |
 | C→S | event | `task.output` | `{task_id, stream, offset, data}` |
 | C→S | event | `task.exit` | 退出码/信号/错误、最终偏移、输出文件路径 |
 | C→S | event | `facts` | 系统信息、组、时钟偏差、特权模式信息 |
-| C→S | event | `trust.summary` | 握手后推送一次，信任摘要变化或特权模式连上/断开时再推送（M4，1.1） |
-| C→S | event | `local.decision` | 本地批准或拒绝的结果（M4，1.1） |
+| C→S | event | `trust.summary` | 握手后推送一次，信任摘要变化或特权模式连上/断开时再推送（M4） |
+| C→S | event | `local.decision` | 本地批准或拒绝的结果（M4） |
 | S→C | event | `node.status` | pending/active 等状态变化 |
 
-标“M4，1.1”的命令/事件是协议小版本 1.1 新增的可选名字；交集里没有它们的节点不支持 `forward`。线上格式见 [protocol.md](protocol.md)。
+标“M4”的命令/事件是 M4 新增的可选名字；交集里没有它们的节点不支持 `forward`。线上格式见 [protocol.md](protocol.md)。
 
 命令响应的语义：
 
@@ -224,6 +232,8 @@ event     = [2, event, body]
 - crhs 重启后内存中的输出已经丢失，`welcome` 中的确认偏移为 0，crha 从头补发（crha 在收到 `task.exit.ack` 之前一直保留输出），所以 crhs 重启也不会丢输出。
 - 大的输入（exec 的 stdin、文件内容）在 `task.start` 被 **accepted** 之后以 `task.input` 分块发送，`task.start` 中只带大小和 SHA-256。这样授权拒绝时不必传输输入；同一 task id 的授权重试（`attempt + 1`）也会重新发送输入。输入发送途中断线无法续传，crha 发现输入不完整，任务失败。
 - 断线超过一定时间（默认 2 分钟），服务端先把这些任务对上层报告为 `unknown(connection_lost)`（尚未确认接受的为 `unknown(dispatch_unconfirmed)`）；如果之后客户端重连并报告了结果，再以“迟到结果”补记到审计和任务记录中，但不会改变已经返回给 agent 的结论。
+- crhs 重启时对遗留的 `dispatched` / `running` 任务做同样的处理：客户端节点的任务从重启起算这段宽限期（期间重连则由 `hello` / `task.query` 恢复），SSH 节点的任务立即为 `unknown(connection_lost)`，连接已随进程消失。
+- 为迟到结果保留在内存中的输出有上限（`UNKNOWN_OUTPUT_KEEP_MS`，10 分钟）；节点重连后查询到它也不认识该任务时立即释放，不必等满时限。
 
 ## 通信安全
 
@@ -242,7 +252,7 @@ event     = [2, event, body]
 ### 两层结构
 
 - **外层：WSS（TLS 1.3）**。只负责穿透网络和隐藏元数据。证书验证方式 `tls_verify` 可选 `system`（默认）或 `none`；服务端用自签证书时设为 `none` 不会降低安全性。
-- **内层：Noise 通道**。`Noise_IK_25519_ChaChaPoly_BLAKE2s`，prologue 为 `"crh/1" ‖ 服务端挑战`（见下文"防重放"）。IK 表示客户端事先知道服务端的静态公钥（注册时固定下来）。1 个往返完成双向认证，具备前向保密。
+- **内层：Noise 通道**。`Noise_IK_25519_ChaChaPoly_BLAKE2s`，prologue 为 `"crh/2" ‖ 服务端挑战`（见下文"防重放"）。IK 表示客户端事先知道服务端的静态公钥（注册时固定下来）。1 个往返完成双向认证，具备前向保密。
 
 ### 握手
 
@@ -346,7 +356,7 @@ event     = [2, event, body]
 
 SSH 节点不安装任何东西，服务端通过 SshTransport 执行，对上层提供与自有客户端相同的任务接口。
 
-SSH 的 `privileged` 语义：crhs 仍按特权任务做规则/审批（方便 agent 批量下发提权命令），执行时忽略特权，以 SSH 用户运行，并在任务输出中提示。若 SSH 用户本身是 root，这是实际 root 执行；不能描述成“已拒绝提权”。
+SSH 的 `privileged` 语义：crhs 仍按特权任务做规则/审批（方便 agent 批量下发提权命令），执行时忽略特权，以 SSH 用户运行，并在任务输出中提示。`status` 模式下不保留任务输出，但这一行提示仍保存在 `tasks.stderr_head` 中。若 SSH 用户本身是 root，这是实际 root 执行；不能描述成“已拒绝提权”。
 
 | 能力 | 自有客户端 | SSH |
 |---|---|---|
@@ -385,13 +395,14 @@ SSH 节点可以配置一个或多个跳板（等价于 OpenSSH 的 `ProxyJump`�
 
 - **sh 的发现**：每条新建的连接（连接池换新连接时也一样）先执行一次探测，按与 crha 相同的顺序找 sh 和 bash：`/etc/shells` 中第一个文件名为 `sh` / `bash` 的存在且可执行的绝对路径，然后 `command -v`。结果写入节点 `facts` 的 `shells`（SSH 节点的 facts 只有这一项），之后这条连接上的任务都用探测到的 sh；探测不到 sh 时用 `/bin/sh`。授权和显示的渲染与 crha 节点相同，仍是 `/bin/sh -c '<cmd>'`。
 - **进程组**：sshd 启动命令时已经为它新建会话，命令所在 shell 的 pid 就是进程组 id。远端命令是 `cd <cwd> || exit 127; exec env -- LANG=C.UTF-8 LC_ALL=C.UTF-8 [K=V…] <sh> -c '<wrapper>' crh <argv…>`（`shell` 命令的 argv 是 `<sh> -c <cmd>`），wrapper 先在 stderr 第一行输出 `$$`（crhs 解析后剥掉），再 `exec` 真正的命令。不用 `setsid(1)`：调用者已经是进程组组长时它会 fork，退出码就丢了。
-- **取消与超时**：另开 exec channel 执行 `kill -TERM -- -<pgid>`，宽限期后 `kill -KILL`；与 crha 相同，结果报告为 signal。
+- **取消与超时**：另开 exec channel 执行 `kill -TERM -- -<pgid>`，宽限期后 `kill -KILL`；与 crha 相同，结果报告为 signal。在建立连接或探测 shell 期间取消的任务从未执行，以 `exited`、`cancelled = true` 结束，不会补发命令。
 - **退出状态**：短命令的输出和退出状态可能与 channel 打开确认在同一个包里到达，监听器必须在 channel 打开的回调中同步挂上。
 - **连接**：每个节点复用一条连接（keepalive 10 秒、3 次），任何一跳断开都关闭整条连接。池中的连接已失效而任务尚未开始时，换新连接重试一次。
 - **结果**：连接失败（远端还没开始执行）为 `failed(connect_failed | host_key_mismatch)`；远端开始执行后连接断开为 `unknown(connection_lost)`。输出只有 crhs 保存的头尾，没有输出文件。
 
 ### SFTP 文件操作与 crha 的差异
 
+- `file.read` 与 crha 一样按行分页：从文件开头流式读取，页面读完就停，只有页面到达文件末尾时才继续读到结尾；没有内存中的完整文件，读深页要重新扫描前面的行（见 [roadmap.md](roadmap.md) 的已知问题）。
 - 不支持按名称设置属主（`owner`/`group` 非空时为 `invalid_spec`）；`stat` 只返回数字 uid/gid。
 - 非覆盖写入是"先检查再 rename"，不像 `RENAME_NOREPLACE` 那样原子；覆盖写入使用 `posix-rename@openssh.com`，服务端不支持时退化为 unlink + rename。
 - 不做 fsync；mtime 只有秒级精度。

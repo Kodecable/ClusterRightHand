@@ -7,6 +7,8 @@ import {
 	handshakeInitCodec,
 	MAX_FRAME_BYTES,
 	OPTIONAL_NAMES,
+	PROTOCOL_MAJOR,
+	PROTOCOL_MINOR,
 	REQUIRED_NAMES,
 	RemoteError,
 	SUPPORTED_NAMES,
@@ -167,11 +169,29 @@ describe("agent wire protocol", () => {
 	describe("handshake", () => {
 		it("rejects a different protocol major with 1008", async () => {
 			const { ws, hs, closed } = await agents.prepare(generateKeyPair());
-			ws.send(hs.writeMessage(encodeCbor(handshakeInitCodec.encode(handshakeInit({ protocolMajor: 2 })))));
+			ws.send(
+				hs.writeMessage(encodeCbor(handshakeInitCodec.encode(handshakeInit({ protocolMajor: PROTOCOL_MAJOR + 1 })))),
+			);
 			await expect(closed).resolves.toEqual({
 				code: 1008,
-				reason: "protocol_major mismatch: server 1, client 2",
+				reason: `protocol_major mismatch: server ${PROTOCOL_MAJOR}, client ${PROTOCOL_MAJOR + 1}`,
 			});
+		});
+
+		it("rejects a major-1 peer at the Noise handshake", async () => {
+			// The prologue carries the major version, so the old peer fails before its payload is read.
+			const { ws, hs, closed } = await agents.prepare(generateKeyPair(), "crh/1");
+			ws.send(hs.writeMessage(encodeCbor(handshakeInitCodec.encode(handshakeInit()))));
+			await expect(closed).resolves.toEqual({ code: 1008, reason: "handshake failed" });
+		});
+
+		it("accepts a different protocol minor", async () => {
+			// The minor is additive: a peer that knows more optional names still connects.
+			const key = generateKeyPair();
+			const node = await addNode("minor-1", "active", key.publicKey);
+			const crha = await agents.connect(key, handshakeInit({ protocolMinor: PROTOCOL_MINOR + 1 }));
+			expect(await crha.peer.request("hello", HELLO)).toEqual({ acks: [] });
+			await waitFor("different-minor link ready", () => cluster.isConnected(node.id));
 		});
 
 		it("rejects a missing required command with 1008", async () => {
@@ -181,11 +201,11 @@ describe("agent wire protocol", () => {
 			await expect(closed).resolves.toEqual({ code: 1008, reason: "missing required command: task.query" });
 		});
 
-		it("accepts a 1.0 peer that does not offer the optional 1.1 names", async () => {
+		it("accepts a peer that offers only the required names", async () => {
 			const key = generateKeyPair();
 			const node = await addNode("legacy-1", "active", key.publicKey);
 			const crha = await agents.connect(key, handshakeInit({ commands: [...REQUIRED_NAMES] }), REQUIRED_NAMES);
-			expect(crha.response).toMatchObject({ protocolMinor: 1, commands: [...SUPPORTED_NAMES] });
+			expect(crha.response).toMatchObject({ protocolMinor: PROTOCOL_MINOR, commands: [...SUPPORTED_NAMES] });
 			expect(await crha.peer.request("hello", HELLO)).toEqual({ acks: [] });
 			await waitFor("legacy link ready", () => cluster.isConnected(node.id));
 			expect(await crha.peer.request("ping", { seq: 3 })).toEqual({ seq: 3 });
@@ -265,8 +285,8 @@ describe("agent wire protocol", () => {
 	it("answers ping and performs the active handshake", async () => {
 		const { node, crha } = await connectActive();
 		expect(crha.response).toMatchObject({
-			protocolMajor: 1,
-			protocolMinor: 1,
+			protocolMajor: PROTOCOL_MAJOR,
+			protocolMinor: PROTOCOL_MINOR,
 			nodeState: "active",
 			nodeId: node.id,
 			commands: [...SUPPORTED_NAMES],
@@ -360,6 +380,7 @@ describe("agent wire protocol", () => {
 			stdoutEnd: 3,
 			stderrEnd: 0,
 			outputFile: "",
+			result: null,
 		});
 		const view = await waitFor("exited", async () => {
 			const t = await cluster.getTask(created.id);
@@ -396,6 +417,7 @@ describe("agent wire protocol", () => {
 			stdoutEnd: 1234,
 			stderrEnd: 56,
 			outputFile: "/var/lib/crha/output/t.log",
+			result: null,
 		});
 		const view = await waitFor("exited", async () => {
 			const t = await cluster.getTask(created.id);
@@ -411,6 +433,7 @@ describe("agent wire protocol", () => {
 			stderrHead: "",
 			stderrTail: "",
 			outputFile: "/var/lib/crha/output/t.log",
+			result: null,
 		});
 	});
 
@@ -448,6 +471,7 @@ describe("agent wire protocol", () => {
 				stdoutEnd: data.length,
 				stderrEnd: 0,
 				outputFile: "/tmp/text.log",
+				result: null,
 			});
 		}
 		const view = await groups.wait(groupId, 10_000);
@@ -469,6 +493,7 @@ describe("agent wire protocol", () => {
 				stderrHead: "",
 				stderrTail: "",
 				outputFile: "/tmp/text.log",
+				result: null,
 			});
 		}
 	});
@@ -506,6 +531,7 @@ describe("agent wire protocol", () => {
 				stdoutEnd: data.length,
 				stderrEnd: 0,
 				outputFile: "/tmp/text.log",
+				result: null,
 			});
 		}
 		const view = await groups.wait(groupId, 10_000);
@@ -558,6 +584,7 @@ describe("agent wire protocol", () => {
 			stdoutEnd: data.length,
 			stderrEnd: 0,
 			outputFile: "/tmp/text.log",
+			result: null,
 		};
 		first.crha.peer.emit("task.output", { taskId: firstTaskId, stream: "stdout", offset: 0, data });
 		first.crha.peer.emit("task.exit", exit);
@@ -597,6 +624,7 @@ describe("agent wire protocol", () => {
 				stdoutEnd: data.length,
 				stderrEnd: 0,
 				outputFile: "/tmp/text.log",
+				result: null,
 			});
 		}
 		const view = await groups.wait(groupId, 10_000);
@@ -663,6 +691,7 @@ describe("agent wire protocol", () => {
 			stdoutEnd: 4,
 			stderrEnd: 0,
 			outputFile: "",
+			result: null,
 		});
 		const late = await waitFor("late result", async () => {
 			const row = await db
@@ -723,6 +752,7 @@ describe("agent wire protocol", () => {
 			stdoutEnd: 0,
 			stderrEnd: 0,
 			outputFile: "",
+			result: null,
 		});
 		const late = await waitFor("late result without live", async () => {
 			const row = await db
@@ -870,6 +900,7 @@ describe("agent wire protocol", () => {
 			second.peer.emit("task.exit", {
 				taskId,
 				outcome: { kind: "code", value: 0 },
+				result: null,
 				timedOut: false,
 				cancelled: false,
 				stdoutEnd: 4,

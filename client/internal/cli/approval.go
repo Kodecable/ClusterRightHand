@@ -15,7 +15,7 @@ import (
 // approvalView is the complete specification an approver decides on. `crha pending` and
 // `crha approve` / `crha deny` print it, together with the spec_sha256 the verdict is bound to
 // (doc/privilege.md 本地批准): method, target, argv, env, cwd, stdin or content size and hash,
-// mode, owner, overwrite and edits.
+// the line range of a file.read, mode, owner, overwrite and edits.
 type approvalView struct {
 	TaskID     string            `json:"task_id"`
 	Attempt    uint64            `json:"attempt"`
@@ -27,7 +27,8 @@ type approvalView struct {
 	Cwd        string            `json:"cwd,omitempty"`
 	Stdin      *approvalInput    `json:"stdin,omitempty"`
 	Path       string            `json:"path,omitempty"`
-	Offset     uint64            `json:"offset,omitempty"`
+	StartLine  uint64            `json:"start_line,omitempty"`
+	LineCount  uint64            `json:"line_count,omitempty"`
 	Limit      uint64            `json:"limit,omitempty"`
 	Content    *approvalInput    `json:"content,omitempty"`
 	Overwrite  *bool             `json:"overwrite,omitempty"`
@@ -86,8 +87,8 @@ func approvalViewFor(entry *protocol.PendingEntry) approvalView {
 	case protocol.TaskSpecFileRead:
 		if spec.FileRead != nil {
 			view.Path = spec.FileRead.Path
-			view.Offset = uint64(spec.FileRead.Offset)
-			view.Limit = uint64(spec.FileRead.Limit)
+			view.StartLine = uint64(spec.FileRead.StartLine)
+			view.LineCount = uint64(spec.FileRead.LineCount)
 		}
 	case protocol.TaskSpecFileWrite:
 		if spec.FileWrite != nil {

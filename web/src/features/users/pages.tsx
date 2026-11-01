@@ -155,31 +155,33 @@ function ResetPasswordDialog({ user, onClose }: { user: User; onClose: () => voi
 	);
 }
 
-function KindSelect({ user }: { user: User }) {
+function KindSelect({ user, self }: { user: User; self: boolean }) {
 	const { t } = useLingui();
 	const update = useUpdateUser();
 	return (
-		<Select
-			value={user.kind}
-			disabled={update.isPending}
-			onValueChange={(next) =>
-				update.mutate(
-					{ id: user.id, patch: { kind: next as UserKind } },
-					{
-						onSuccess: () => toast.success(t`User updated.`),
-						onError: (error) => toast.error(error.message),
-					},
-				)
-			}
-		>
-			<SelectTrigger aria-label={t`Kind of ${user.username}`} className="h-7 w-40">
-				<SelectValue>{(current: string | null) => (current === "admin" ? t`Administrator` : t`Member`)}</SelectValue>
-			</SelectTrigger>
-			<SelectContent>
-				<SelectItem value="member">{t`Member`}</SelectItem>
-				<SelectItem value="admin">{t`Administrator`}</SelectItem>
-			</SelectContent>
-		</Select>
+		<span className="inline-flex" title={self ? t`You cannot change your own kind.` : undefined}>
+			<Select
+				value={user.kind}
+				disabled={update.isPending || self}
+				onValueChange={(next) =>
+					update.mutate(
+						{ id: user.id, patch: { kind: next as UserKind } },
+						{
+							onSuccess: () => toast.success(t`User updated.`),
+							onError: (error) => toast.error(error.message),
+						},
+					)
+				}
+			>
+				<SelectTrigger aria-label={t`Kind of ${user.username}`} className="h-7 w-40">
+					<SelectValue>{(current: string | null) => (current === "admin" ? t`Administrator` : t`Member`)}</SelectValue>
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="member">{t`Member`}</SelectItem>
+					<SelectItem value="admin">{t`Administrator`}</SelectItem>
+				</SelectContent>
+			</Select>
+		</span>
 	);
 }
 
@@ -392,7 +394,7 @@ export function UsersPage() {
 				id: "kind",
 				header: t`Kind`,
 				size: 170,
-				cell: ({ row }) => <KindSelect user={row.original} />,
+				cell: ({ row }) => <KindSelect user={row.original} self={row.original.id === me?.id} />,
 			},
 			{
 				id: "status",
@@ -425,7 +427,7 @@ export function UsersPage() {
 								size="xs"
 								variant={disable ? "destructive" : "outline"}
 								disabled={self || update.isPending}
-								title={self ? t`You cannot disable yourself` : undefined}
+								title={self ? t`You cannot disable your own account.` : undefined}
 								onClick={() => {
 									if (disable) setConfirmDisable(user);
 									else

@@ -793,6 +793,29 @@ func TestPeerEvents(t *testing.T) {
 			t.Fatalf("Receive = %v (%T), want *ProtocolError", err, err)
 		}
 	})
+	t.Run("invalid body", func(t *testing.T) {
+		// A received event body is validated like a received request body. A bare uint is
+		// well-formed CBOR with the wrong schema for task.output.ack, and the handler (a
+		// buffering one, as native.go's bufferedEvents uses) must never see it.
+		tp := newTestPeer(t, EventOutputAck)
+		called := false
+		tp.peer.HandleEvent(EventOutputAck, func(body cbor.RawMessage) error {
+			called = true
+			return nil
+		})
+		event, err := (&Frame{Kind: FrameEvent, Name: EventOutputAck, Body: mustHex(t, "00")}).Encode()
+		if err != nil {
+			t.Fatalf("Encode: %v", err)
+		}
+		err = tp.peer.Receive(event)
+		var protocolErr *ProtocolError
+		if !errors.As(err, &protocolErr) {
+			t.Fatalf("Receive = %v (%T), want *ProtocolError", err, err)
+		}
+		if called {
+			t.Fatal("handler ran on an invalid event body")
+		}
+	})
 	t.Run("handler error", func(t *testing.T) {
 		tp := newTestPeer(t, EventFacts)
 		tp.peer.HandleEvent(EventFacts, func(cbor.RawMessage) error {
@@ -1021,4 +1044,139 @@ func TestPeerRejectsUnnegotiatedSend(t *testing.T) {
 	if err := tp.peer.Emit(EventFacts, sampleFacts()); err == nil {
 		t.Fatal("Emit accepted an un-negotiated event")
 	}
+}
+
+// TestPeerRequestWorker covers WithRequestWorker: a handler that blocks does not stop Receive from
+// processing the responses behind it, requests of other tasks do not wait for it, and the requests
+// of one task keep their arrival order.
+func TestPeerRequestWorker(t *testing.T) {
+	out := make(chan []byte, 8)
+	peer := NewPeer(func(frame []byte) error {
+		select {
+		case out <- frame:
+			return nil
+		default:
+			return errors.New("test transport buffer full")
+		}
+	}, NewSet(CmdPing, CmdTaskCancel, CmdTaskInput), WithRequestWorker())
+	defer peer.Close(nil)
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var cancels []string
+	inputs := make(map[string][]Uint)
+	peer.HandleRequest(CmdTaskCancel, func(_ context.Context, body cbor.RawMessage) (any, error) {
+		var cancel TaskCancel
+		if err := Unmarshal(body, &cancel); err != nil {
+			return nil, err
+		}
+		mu.Lock()
+		cancels = append(cancels, cancel.TaskID)
+		first := len(cancels) == 1
+		mu.Unlock()
+		if first {
+			close(started)
+			<-release
+		}
+		return Empty{}, nil
+	})
+	peer.HandleRequest(CmdTaskInput, func(_ context.Context, body cbor.RawMessage) (any, error) {
+		var in TaskInput
+		if err := Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+		mu.Lock()
+		inputs[in.TaskID] = append(inputs[in.TaskID], in.Offset)
+		mu.Unlock()
+		return Empty{}, nil
+	})
+	peer.HandleRequest(CmdPing, func(context.Context, cbor.RawMessage) (any, error) {
+		return Ping{Seq: 1}, nil
+	})
+
+	send := func(t *testing.T, id Uint, cmd string, body any) {
+		t.Helper()
+		frame, err := EncodeRequest(id, cmd, body)
+		if err != nil {
+			t.Fatalf("EncodeRequest: %v", err)
+		}
+		if err := peer.Receive(frame); err != nil {
+			t.Fatalf("Receive(%s): %v", cmd, err)
+		}
+	}
+	send(t, 1, CmdTaskCancel, TaskCancel{TaskID: "t1"})
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request worker did not run the first handler")
+	}
+
+	// The handler is blocked; the response to a request of this peer must still be processed.
+	ctx, cancelCtx := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelCtx()
+	done := startRequest(ctx, peer, CmdPing, Ping{Seq: 3}, &Ping{})
+	var pingFrame []byte
+	select {
+	case pingFrame = <-out:
+	case <-ctx.Done():
+		t.Fatal("the peer did not send the ping")
+	}
+	frame, err := DecodeFrame(pingFrame)
+	if err != nil {
+		t.Fatalf("DecodeFrame: %v", err)
+	}
+	response, err := EncodeResponse(frame.ID, CmdPing, Ping{Seq: 3})
+	if err != nil {
+		t.Fatalf("EncodeResponse: %v", err)
+	}
+	if err := peer.Receive(response); err != nil {
+		t.Fatalf("Receive(response) while a handler waited: %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("ping while a handler waited: %v", err)
+	}
+
+	offsetsOf := func(taskID string) []Uint {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]Uint(nil), inputs[taskID]...)
+	}
+	waitUntil := func(what string, done func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for !done() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s", what)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	// Requests of another task have a queue of their own: they run while t1's handler is blocked,
+	// and keep their own arrival order.
+	send(t, 2, CmdTaskInput, TaskInput{TaskID: "t2", Offset: 1})
+	send(t, 3, CmdTaskInput, TaskInput{TaskID: "t2", Offset: 2})
+	send(t, 4, CmdTaskInput, TaskInput{TaskID: "t2", Offset: 3})
+	// Requests of the blocked task wait behind it, still in arrival order.
+	send(t, 5, CmdTaskInput, TaskInput{TaskID: "t1", Offset: 1})
+	send(t, 6, CmdTaskInput, TaskInput{TaskID: "t1", Offset: 2})
+	waitUntil("the other task's input", func() bool { return len(offsetsOf("t2")) == 3 })
+	if got := offsetsOf("t2"); !reflect.DeepEqual(got, []Uint{1, 2, 3}) {
+		t.Fatalf("t2 input offsets = %v, want 1, 2, 3", got)
+	}
+	if got := offsetsOf("t1"); len(got) != 0 {
+		t.Fatalf("the blocked task's input ran before its cancel: %v", got)
+	}
+
+	close(release)
+	waitUntil("the blocked task's input", func() bool { return len(offsetsOf("t1")) == 2 })
+	if got := offsetsOf("t1"); !reflect.DeepEqual(got, []Uint{1, 2}) {
+		t.Fatalf("t1 input offsets = %v, want 1, 2", got)
+	}
+	waitUntil("the first cancel", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(cancels) == 1
+	})
 }

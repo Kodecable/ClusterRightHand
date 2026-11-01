@@ -83,7 +83,8 @@ type TaskStart struct {
 	Output         OutputMode
 }
 
-// TaskExit is the task.exit event body.
+// TaskExit is the task.exit event body. Result carries the task's structured result; it is nil for
+// a kind that reports none (doc/protocol.md TaskResult).
 type TaskExit struct {
 	_          struct{} `cbor:",toarray"`
 	TaskID     string
@@ -93,6 +94,7 @@ type TaskExit struct {
 	StdoutEnd  Uint
 	StderrEnd  Uint
 	OutputFile string
+	Result     *TaskResult
 }
 
 // Facts is the facts event body. It is the protocol's one map-structured body: hostname and groups
@@ -425,12 +427,22 @@ type InputRef struct {
 	SHA256 Hash
 }
 
-// FileReadSpec is the TaskSpec body for the "file.read" kind.
+// FileReadMaxBytes is the page cap of one file.read task: whole lines only, the node stops at the
+// first line that would not fit (doc/protocol.md#任务).
+const FileReadMaxBytes = 50 << 10
+
+// FileListMaxBytes bounds the entries of one file.list result so that it fits the task.exit frame:
+// the node stops listing at this many bytes of entry fields and reports the result as truncated
+// (doc/protocol.md TaskResult).
+const FileListMaxBytes = 32 << 10
+
+// FileReadSpec is the TaskSpec body for the "file.read" kind: lineCount lines from startLine
+// (1-based), at most FileReadMaxBytes.
 type FileReadSpec struct {
-	_      struct{} `cbor:",toarray"`
-	Path   string
-	Offset Uint
-	Limit  Uint
+	_         struct{} `cbor:",toarray"`
+	Path      string
+	StartLine Uint
+	LineCount Uint
 }
 
 // FileWriteSpec is the TaskSpec body for the "file.write" kind.
@@ -469,6 +481,78 @@ type FileListSpec struct {
 	_     struct{} `cbor:",toarray"`
 	Path  string
 	Limit Uint
+}
+
+// FileReadResult is the TaskResult body for the "file.read" kind: the lines of the page the task
+// kept and what it learned about the file (doc/protocol.md TaskResult). Total is the file's line
+// count and is set only when the scan reached the end of the file.
+type FileReadResult struct {
+	_       struct{} `cbor:",toarray"`
+	From    Uint
+	To      Uint
+	EOF     bool
+	Total   *Uint
+	TooLong bool
+}
+
+// FileStatResult is the TaskResult body for the "file.stat" kind. LinkTarget is set only when the
+// path is a symbolic link.
+type FileStatResult struct {
+	_          struct{} `cbor:",toarray"`
+	Path       string
+	Type       string
+	Size       Int
+	Mode       string
+	UID        Int
+	GID        Int
+	Owner      string
+	Group      string
+	MTime      string
+	LinkTarget *string
+}
+
+// FileListEntry is one directory entry of a FileListResult.
+type FileListEntry struct {
+	_     struct{} `cbor:",toarray"`
+	Name  string
+	Type  string
+	Size  Int
+	Mode  string
+	MTime string
+}
+
+// FileListResult is the TaskResult body for the "file.list" kind: the entries the task listed (at
+// most the task's limit) and whether the limit cut the directory short.
+type FileListResult struct {
+	_         struct{} `cbor:",toarray"`
+	Entries   []FileListEntry
+	Truncated bool
+}
+
+// FileWriteResult is the TaskResult body for the "file.write" kind.
+type FileWriteResult struct {
+	_       struct{} `cbor:",toarray"`
+	Bytes   Uint
+	Created bool
+}
+
+// FileEditResult is the TaskResult body for the "file.edit" kind.
+type FileEditResult struct {
+	_            struct{} `cbor:",toarray"`
+	Replacements Uint
+}
+
+// TaskResult is the union of the structured results a task may report. Its tag is the task kind; a
+// kind that reports nothing structured has no branch. A result travels in task.exit, never in the
+// output streams (doc/protocol.md TaskResult).
+type TaskResult struct {
+	Kind TaskResultKind
+
+	FileRead  *FileReadResult
+	FileWrite *FileWriteResult
+	FileEdit  *FileEditResult
+	FileStat  *FileStatResult
+	FileList  *FileListResult
 }
 
 // OutputMode selects how task output is delivered. "full" carries spill limits in its
@@ -639,6 +723,17 @@ const (
 	OutcomeCode   OutcomeKind = "code"
 	OutcomeSignal OutcomeKind = "signal"
 	OutcomeError  OutcomeKind = "error"
+)
+
+// TaskResultKind is a TaskResult union tag: the kind of the task that reported the result.
+type TaskResultKind string
+
+const (
+	TaskResultFileRead  TaskResultKind = "file.read"
+	TaskResultFileWrite TaskResultKind = "file.write"
+	TaskResultFileEdit  TaskResultKind = "file.edit"
+	TaskResultFileStat  TaskResultKind = "file.stat"
+	TaskResultFileList  TaskResultKind = "file.list"
 )
 
 // MarshalCBOR encodes a TaskSpec as [tag, body].
@@ -854,6 +949,84 @@ func (o *Outcome) UnmarshalCBOR(data []byte) error {
 		return fmt.Errorf("protocol: unknown outcome tag %q", tag)
 	}
 	*o = outcome
+	return nil
+}
+
+// MarshalCBOR encodes a TaskResult as [tag, body].
+func (r TaskResult) MarshalCBOR() ([]byte, error) {
+	switch r.Kind {
+	case TaskResultFileRead:
+		if r.FileRead == nil {
+			return nil, errors.New("protocol: file.read result has no body")
+		}
+		return encodeUnion(string(r.Kind), r.FileRead)
+	case TaskResultFileWrite:
+		if r.FileWrite == nil {
+			return nil, errors.New("protocol: file.write result has no body")
+		}
+		return encodeUnion(string(r.Kind), r.FileWrite)
+	case TaskResultFileEdit:
+		if r.FileEdit == nil {
+			return nil, errors.New("protocol: file.edit result has no body")
+		}
+		return encodeUnion(string(r.Kind), r.FileEdit)
+	case TaskResultFileStat:
+		if r.FileStat == nil {
+			return nil, errors.New("protocol: file.stat result has no body")
+		}
+		return encodeUnion(string(r.Kind), r.FileStat)
+	case TaskResultFileList:
+		if r.FileList == nil {
+			return nil, errors.New("protocol: file.list result has no body")
+		}
+		return encodeUnion(string(r.Kind), r.FileList)
+	default:
+		return nil, fmt.Errorf("protocol: unknown task result kind %q", string(r.Kind))
+	}
+}
+
+// UnmarshalCBOR decodes [tag, body] into the matching TaskResult branch.
+func (r *TaskResult) UnmarshalCBOR(data []byte) error {
+	tag, body, err := decodeUnion(data)
+	if err != nil {
+		return err
+	}
+	result := TaskResult{Kind: TaskResultKind(tag)}
+	switch result.Kind {
+	case TaskResultFileRead:
+		var v FileReadResult
+		if err := decMode.Unmarshal(body, &v); err != nil {
+			return err
+		}
+		result.FileRead = &v
+	case TaskResultFileWrite:
+		var v FileWriteResult
+		if err := decMode.Unmarshal(body, &v); err != nil {
+			return err
+		}
+		result.FileWrite = &v
+	case TaskResultFileEdit:
+		var v FileEditResult
+		if err := decMode.Unmarshal(body, &v); err != nil {
+			return err
+		}
+		result.FileEdit = &v
+	case TaskResultFileStat:
+		var v FileStatResult
+		if err := decMode.Unmarshal(body, &v); err != nil {
+			return err
+		}
+		result.FileStat = &v
+	case TaskResultFileList:
+		var v FileListResult
+		if err := decMode.Unmarshal(body, &v); err != nil {
+			return err
+		}
+		result.FileList = &v
+	default:
+		return fmt.Errorf("protocol: unknown task result tag %q", tag)
+	}
+	*r = result
 	return nil
 }
 

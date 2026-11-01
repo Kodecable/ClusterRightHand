@@ -27,7 +27,12 @@ import {
 export const AUTH_NAMESPACE = "crh-auth-v1";
 export const AUTH_PAYLOAD_VERSION = 1;
 
-export const PRIV_MAJOR = 1;
+export const PRIV_MAJOR = 2;
+/**
+ * Incompatible changes bump the major version, so a peer with another major is refused; the minor
+ * stays additive and never refuses a handshake. PrivMajor 2 carries the `task.exit.result` element
+ * and the line-range `file.read` spec.
+ */
 export const PRIV_MINOR = 0;
 
 const method = enumOf("exec", "file.read", "file.write");

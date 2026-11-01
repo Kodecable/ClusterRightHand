@@ -294,7 +294,7 @@ it("a subagent's waiting tool call makes it awaiting, and it runs again once set
 	const parent = await subagent(root.id, "state-parent", { default: "require-approval", rules: [] });
 	const child = await subagent(parent.id, "state-child", { default: "require-approval", rules: [] });
 	faux.setResponses([
-		fauxAssistantMessage([fauxToolCall("exec", { node: "web-1", cmd: "true" }, { id: "state-call" })], {
+		fauxAssistantMessage([fauxToolCall("exec", { targets: ["web-1"], cmd: "true" }, { id: "state-call" })], {
 			stopReason: "toolUse",
 		}),
 		fauxAssistantMessage([fauxText("the run went on")]),

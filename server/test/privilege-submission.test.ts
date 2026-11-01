@@ -15,7 +15,7 @@ import {
 } from "@crh/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
-import { Cluster } from "../src/cluster/cluster.ts";
+import { Cluster, EMPTY_INPUT_REF } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
 import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
@@ -23,7 +23,7 @@ import { trustDigest } from "../src/cluster/trust.ts";
 import { bindMasterKey, MasterKey } from "../src/keys/master-key.ts";
 import { authzEntryFromTrust, decide } from "../src/privilege/authz.ts";
 import { type AuthorizationSigningKey, loadAuthorizationSigningKey } from "../src/privilege/key.ts";
-import { buildAuthorization, specSha256 } from "../src/privilege/payload.ts";
+import { type AuthorizationCommand, buildAuthorization, specSha256 } from "../src/privilege/payload.ts";
 import { signSshsig, verifySshsig } from "../src/privilege/sshsig.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
@@ -239,10 +239,19 @@ describe("user authorizations", () => {
 	const submit = (authorization: string, cookie = owner.cookie) =>
 		call(app, "/api/authorizations", { cookie, body: { authorization } });
 
-	const seedReusable = async (input: { nodes: string[]; revoked?: boolean; issuer?: string }): Promise<string> => {
+	const seedReusable = async (input: {
+		nodes: string[];
+		revoked?: boolean;
+		issuer?: string;
+		/** The command restriction; `EXEC` by default. */
+		command?: AuthorizationCommand;
+	}): Promise<string> => {
 		const built = buildAuthorization({
 			nodes: input.nodes,
-			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			command: input.command ?? {
+				method: "exec",
+				exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) },
+			},
 			issuedAtMs: Date.now(),
 			deadlineMs: Date.now() + HOUR,
 			taskIds: null,
@@ -543,6 +552,112 @@ describe("user authorizations", () => {
 		expect(plain.crha.starts).toHaveLength(0);
 	});
 
+	/** Every task.input chunk a fake crha received for a task, in order. */
+	const inputOf = (crha: FakeCrha, taskId: string): Buffer =>
+		Buffer.concat(crha.inputs.filter((chunk) => chunk.taskId === taskId).map((chunk) => Buffer.from(chunk.data)));
+
+	it("carries an exec task's stdin through a reused owner authorization", async () => {
+		const { node, crha } = await connect("reuse-input-exec", (id) => summaryOf(id, [ownerEntry({ allow: [] })]));
+		const stdin = Buffer.from("first line\nsecond line\n");
+		const stdinRef = { size: stdin.length, sha256: createHash("sha256").update(stdin).digest() };
+		const stored: TaskSpec = { ...EXEC, command: { argv: ["cat"] }, stdin: stdinRef };
+		await seedReusable({
+			nodes: [node.id],
+			command: { method: "exec", exact: { target: "cat", specSha256: specSha256(stored) } },
+		});
+		// The task is dispatched at once (no approval, no parking): its bytes exist only in memory here.
+		const task = await cluster.createTask({
+			nodeId: node.id,
+			spec: { ...EXEC, command: { argv: ["cat"] } },
+			input: stdin,
+			privileged: true,
+			actor: actor(),
+		});
+		await waitFor("task.start from the stored authorization", () => crha.starts.length === 1);
+		await waitFor("the input of the reused task", () => inputOf(crha, task.id).length === stdin.length);
+		expect(crha.starts[0]).toMatchObject({ taskId: task.id, privileged: true, authorizations: expect.any(Array) });
+		expect(inputOf(crha, task.id).toString()).toBe(stdin.toString());
+		expect(await taskView(task.id)).toMatchObject({
+			state: "running",
+			authorization: { dispatchedPath: "user" },
+		});
+	});
+
+	it("carries a file.write's content through a reused owner authorization", async () => {
+		const { node, crha } = await connect("reuse-input-write", (id) => summaryOf(id, [ownerEntry({ allow: [] })]));
+		const content = Buffer.from("alpha\nbeta\n");
+		const stored: TaskSpec = {
+			kind: "file.write",
+			path: "/tmp/reuse.txt",
+			content: { size: content.length, sha256: createHash("sha256").update(content).digest() },
+			overwrite: false,
+			mode: 0,
+			owner: "",
+			group: "",
+		};
+		await seedReusable({
+			nodes: [node.id],
+			command: { method: "file.write", exact: { target: "/tmp/reuse.txt", specSha256: specSha256(stored) } },
+		});
+		const task = await cluster.createTask({
+			nodeId: node.id,
+			spec: { ...stored, content: EMPTY_INPUT_REF },
+			input: content,
+			privileged: true,
+			actor: actor(),
+		});
+		await waitFor("task.start from the stored authorization", () => crha.starts.length === 1);
+		await waitFor("the content of the reused task", () => inputOf(crha, task.id).length === content.length);
+		expect(inputOf(crha, task.id).toString()).toBe(content.toString());
+	});
+
+	it("re-parks a rejected reuse with its input and sends it with the next attempt", async () => {
+		const { node, crha } = await connect("reuse-input-retry", (id) => summaryOf(id, [ownerEntry({ allow: [] })]));
+		const stdin = Buffer.from("payload the owner signed\n");
+		const stdinRef = { size: stdin.length, sha256: createHash("sha256").update(stdin).digest() };
+		const stored: TaskSpec = { ...EXEC, command: { argv: ["cat"] }, stdin: stdinRef };
+		await seedReusable({
+			nodes: [node.id],
+			command: { method: "exec", exact: { target: "cat", specSha256: specSha256(stored) } },
+		});
+		let reject = true;
+		crha.answerStart = () => {
+			if (!reject) return;
+			reject = false;
+			throw new RemoteError("authorization_rejected", "step 7: deny rule matched");
+		};
+		const task = await cluster.createTask({
+			nodeId: node.id,
+			spec: { ...EXEC, command: { argv: ["cat"] } },
+			input: stdin,
+			privileged: true,
+			actor: actor(),
+		});
+		const waiting = await waitFor("waiting for a new signature", async () => {
+			const view = await taskView(task.id);
+			return view.state === "awaiting_authorization" && view.authorization?.attempt === 2 ? view : undefined;
+		});
+		// Nothing ran and no input was sent; the rejected attempt's bytes are held for the retry.
+		expect(crha.starts).toHaveLength(1);
+		expect(crha.inputs).toHaveLength(0);
+		const parked = await db
+			.selectFrom("tasks")
+			.select("pending_input")
+			.where("id", "=", task.id)
+			.executeTakeFirstOrThrow();
+		expect(Buffer.from(parked.pending_input as string, "base64").toString()).toBe(stdin.toString());
+
+		// The owner signs the attempt+1 payload; the task's input goes out with it.
+		const { authorization } = await pendingFor(task.id);
+		const payload = new Uint8Array(Buffer.from((authorization as { payload: string }).payload, "base64"));
+		expect((await submit(signedAuthorization(payload))).status).toBe(200);
+		await waitFor("the second task.start", () => crha.starts.length === 2);
+		await waitFor("the input of the retried task", () => inputOf(crha, task.id).length === stdin.length);
+		expect(crha.starts[1]).toMatchObject({ taskId: task.id, attempt: 2 });
+		expect(inputOf(crha, task.id).toString()).toBe(stdin.toString());
+		expect(waiting.authorization?.lastRejection).toMatchObject({ code: "authorization_rejected", attempt: 1 });
+	});
+
 	it("dispatches every task of a group with one signature and re-signs only a rejected node", async () => {
 		const groups = new TaskGroups(db, cluster, { audit });
 		const a = await connect("group-a", (id) => summaryOf(id, [ownerEntry()]));
@@ -680,6 +795,33 @@ describe("user authorizations", () => {
 		expect(pending.attempt).toBe(2);
 		expect(a.crha.starts).toHaveLength(1);
 		expect(b.crha.starts).toHaveLength(1);
+	});
+
+	it("does not dispatch a waiting member of a group that already ended", async () => {
+		const groups = new TaskGroups(db, cluster, { audit });
+		const { node, crha } = await connect("group-ended", (id) => summaryOf(id, [ownerEntry()]));
+		const groupId = await groups.create({
+			targets: [node.name],
+			nodeIds: [node.id],
+			spec: EXEC,
+			privileged: true,
+			actor: actor(),
+			outputMode: "status",
+		});
+		const waiting = await waitFor("waiting", async () => {
+			const group = await groups.get(groupId);
+			const task = group?.tasks[0];
+			return task?.state === "awaiting_authorization" ? task : undefined;
+		});
+		// A restart interrupts the group; a signature that arrives afterwards must not start the member.
+		await db.updateTable("task_groups").set({ state: "interrupted" }).where("id", "=", groupId).execute();
+		const { authorization } = await pendingFor(waiting.id);
+		const payload = new Uint8Array(Buffer.from((authorization as { payload: string }).payload, "base64"));
+		const res = await submit(signedAuthorization(payload));
+		expect(res.status).toBe(200);
+		expect((await res.json()) as Record<string, unknown>).toMatchObject({ authorization: { dispatched: [] } });
+		expect(crha.starts).toHaveLength(0);
+		expect((await taskView(waiting.id)).state).toBe("awaiting_authorization");
 	});
 
 	it("requests local approval, dispatches on approval and rejects on denial", async () => {

@@ -89,7 +89,8 @@ export function useCancelTask(id: string) {
 	return useMutation({
 		mutationFn: () => http.post<{ cancelled: boolean }>(`/tasks/${enc(id)}/cancel`),
 		onSuccess: () => {
-			void queryClient.invalidateQueries({ queryKey: taskKeys.detail(id) });
+			// The task's own view and every list that shows it (and its group).
+			void queryClient.invalidateQueries({ queryKey: taskKeys.all });
 		},
 	});
 }
@@ -98,7 +99,8 @@ export interface CreateTaskGroupInput extends TaskRequest {
 	targets: string[];
 	parallel?: number;
 	failFast?: boolean;
-	outputMode?: "status" | "text";
+	/** Only an exec batch chooses; a file operation's group always keeps each node's head. */
+	outputMode?: "status" | "text" | "head";
 }
 
 export function useCreateTaskGroup() {

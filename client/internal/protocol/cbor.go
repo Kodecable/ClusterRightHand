@@ -539,51 +539,77 @@ func PeekMajor(payload []byte) (Uint, error) {
 	if len(payload) == 0 {
 		return 0, errors.New("protocol: empty handshake payload")
 	}
-	head := payload[0]
-	if head&0xe0 != 0x80 {
+	if head := payload[0]; head&0xe0 != 0x80 {
 		return 0, errors.New("protocol: handshake payload is not an array")
 	}
-	var headerLen int
-	var arrayLen uint64
-	switch ai := head & 0x1f; {
-	case ai < 24:
-		headerLen = 1
-		arrayLen = uint64(ai)
-	case ai == 24:
-		headerLen = 2
-		if len(payload) < headerLen {
-			return 0, errors.New("protocol: handshake payload has no protocol_major")
-		}
-		arrayLen = uint64(payload[1])
-	case ai == 25:
-		headerLen = 3
-		if len(payload) < headerLen {
-			return 0, errors.New("protocol: handshake payload has no protocol_major")
-		}
-		arrayLen = uint64(binary.BigEndian.Uint16(payload[1:3]))
-	case ai == 26:
-		headerLen = 5
-		if len(payload) < headerLen {
-			return 0, errors.New("protocol: handshake payload has no protocol_major")
-		}
-		arrayLen = uint64(binary.BigEndian.Uint32(payload[1:5]))
-	case ai == 27:
-		headerLen = 9
-		if len(payload) < headerLen {
-			return 0, errors.New("protocol: handshake payload has no protocol_major")
-		}
-		arrayLen = binary.BigEndian.Uint64(payload[1:9])
-	default:
-		return 0, errors.New("protocol: handshake payload is not a definite-length array")
+	arrayLen, headerLen, err := peekHeader(payload, 4)
+	if err != nil {
+		return 0, fmt.Errorf("protocol: handshake payload: %w", err)
 	}
 	if arrayLen == 0 || len(payload) <= headerLen {
 		return 0, errors.New("protocol: handshake payload has no protocol_major")
 	}
-	var major Uint
-	if _, err := decMode.UnmarshalFirst(payload[headerLen:], &major); err != nil {
+	major, _, err := peekHeader(payload[headerLen:], 0)
+	if err != nil {
 		return 0, fmt.Errorf("protocol: decode protocol_major: %w", err)
 	}
-	return major, nil
+	if major > MaxSafeInteger {
+		return 0, fmt.Errorf("protocol: protocol_major %d exceeds 2^53-1", major)
+	}
+	return Uint(major), nil
+}
+
+// peekHeader parses the header of the first CBOR item in b and returns its value (the length for an
+// array, the number for a uint) and the header's encoded length. Only the definite-length forms are
+// accepted, the value must use its shortest encoding (RFC 8949 §4.2.1, the CBOR profile), and a
+// uint must fit the protocol's range. The TS decoder (peekProtocolMajor in packages/protocol) makes
+// the same checks, so both sides reject the same handshake payloads.
+func peekHeader(b []byte, major byte) (value uint64, headerLen int, err error) {
+	if len(b) == 0 {
+		return 0, 0, errors.New("missing header")
+	}
+	head := b[0]
+	if head&0xe0 != major<<5 {
+		if major == 4 {
+			return 0, 0, errors.New("not an array")
+		}
+		return 0, 0, errors.New("not a uint")
+	}
+	var width int
+	switch ai := head & 0x1f; {
+	case ai < 24:
+		return uint64(ai), 1, nil
+	case ai == 24:
+		width = 1
+	case ai == 25:
+		width = 2
+	case ai == 26:
+		width = 4
+	case ai == 27:
+		width = 8
+	default:
+		return 0, 0, errors.New("indefinite or reserved length")
+	}
+	headerLen = 1 + width
+	if len(b) < headerLen {
+		return 0, 0, errors.New("truncated header")
+	}
+	for _, c := range b[1:headerLen] {
+		value = value<<8 | uint64(c)
+	}
+	// The shortest form is required: a value that fits a shorter form must use it. 23 and below
+	// are encoded in the header itself, then 24, 2^8, 2^16 and 2^32 start the wider forms.
+	minimum := uint64(24)
+	if width > 1 {
+		minimum = uint64(1) << (4 * width)
+	}
+	if value < minimum {
+		return 0, 0, fmt.Errorf("non-shortest length %d in a %d-byte header", value, width)
+	}
+	if major == 0 && value > MaxSafeInteger {
+		return 0, 0, fmt.Errorf("uint %d exceeds 2^53-1", value)
+	}
+	return value, headerLen, nil
 }
 
 // Uint is a protocol uint: an unsigned integer in [0, 2^53-1].

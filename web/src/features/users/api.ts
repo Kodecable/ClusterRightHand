@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { authStore } from "@/features/auth/session";
 import { enc, http } from "@/lib/api/client";
 import type { Directory, User, UserGroup, UserKind } from "@/lib/api/types";
 
@@ -49,7 +50,11 @@ export function useUpdateUser() {
 			id: string;
 			patch: { kind?: UserKind; status?: "active" | "disabled"; displayName?: string };
 		}) => http.patch<{ user: User }>(`/users/${enc(id)}`, patch).then((r) => r.user),
-		onSuccess: () => void queryClient.invalidateQueries({ queryKey: userKeys.all }),
+		onSuccess: (user) => {
+			void queryClient.invalidateQueries({ queryKey: userKeys.all });
+			// The update may be the signed-in user's own row.
+			authStore.updateUser(user);
+		},
 	});
 }
 

@@ -11,6 +11,7 @@ import {
 	ProtocolError,
 	peekProtocolMajor,
 } from "../src/frame.ts";
+import type { TrustSummary } from "../src/privileged.ts";
 
 const bytesOf = (hex: string): Uint8Array => Uint8Array.from(Buffer.from(hex, "hex"));
 const hexOf = (bytes: Uint8Array): string => Buffer.from(bytes).toString("hex");
@@ -31,6 +32,38 @@ describe("frames", () => {
 		const bytes = encodeFrame(frame);
 		expect(decodeFrame(bytes)).toEqual(frame);
 		expect(hexOf(encodeFrame(decodeFrame(bytes)))).toBe(hexOf(bytes));
+	});
+
+	it("decodes a TrustReport whose entries all have empty lists", () => {
+		// A real report: 24 trust entries, each with empty allow, deny and env_allow lists
+		// (doc/privilege.md). Every empty list used to leak a nesting level, and at this size
+		// the decoder rejected the frame as more than 64 levels deep.
+		const trust = Array.from({ length: 24 }, (_, index) => ({
+			name: `entry-${index}`,
+			source: "local" as const,
+			role: "local" as const,
+			key: { kind: "local" as const, uids: [0, 1000] },
+			kinds: ["execute" as const],
+			requireExact: false,
+			requireTask: false,
+			requireUv: false,
+			maxTtlMs: null,
+			allow: [],
+			deny: [],
+			envAllow: [],
+		}));
+		const summary: TrustSummary = {
+			nodeId: "node-1",
+			groups: ["web"],
+			clockSkewMs: 0,
+			identities: {
+				unprivileged: { uid: 998, gid: 998, user: "crha" },
+				privileged: { uid: 0, gid: 0, user: "root" },
+			},
+			trust,
+		};
+		const frame: Frame = { kind: "event", name: "trust.summary", body: { kind: "ok", summary } };
+		expect(decodeFrame(encodeFrame(frame))).toEqual(frame);
 	});
 
 	it("matches the documented request layout", () => {
@@ -158,6 +191,14 @@ describe("peekProtocolMajor", () => {
 		expect(() => peekProtocolMajor(bytesOf("80"))).toThrow(ProtocolError);
 		expect(() => peekProtocolMajor(bytesOf("98"))).toThrow(ProtocolError);
 		expect(() => peekProtocolMajor(bytesOf("81"))).toThrow(ProtocolError);
+	});
+
+	it("rejects non-shortest array headers", () => {
+		// The same payloads Go's PeekMajor rejects (TestPeekMajor): 23, 255, 65535 and
+		// 2^32-1 written in a wider form than they need.
+		for (const hex of ["981701", "9900ff01", "9a0000ffff01", "9b00000000ffffffff01"]) {
+			expect(() => peekProtocolMajor(bytesOf(hex))).toThrow(ProtocolError);
+		}
 	});
 
 	it("rejects a non-shortest protocol_major encoding", () => {

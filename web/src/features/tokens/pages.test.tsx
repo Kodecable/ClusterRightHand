@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ApiTokenView } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
-import { CreateTokenDialog } from "./pages";
+import { CreateTokenDialog, TokensPage } from "./pages";
 
 const TOKEN = "crh_secret_once";
 const API_TOKEN: ApiTokenView = {
@@ -85,5 +85,39 @@ describe("CreateTokenDialog", () => {
 		await user.click(screen.getByLabelText("Preset"));
 		await user.click(await screen.findByRole("option", { name: "Yolo" }));
 		await screen.findByText("Yolo lets this token run anything on your nodes without asking.");
+	});
+});
+
+describe("TokensPage", () => {
+	test("shows a token's preset by its product name", async () => {
+		const token: ApiTokenView = {
+			...API_TOKEN,
+			rules: {
+				scope: { type: "api_token", id: API_TOKEN.id },
+				preset: "auto_review",
+				rules: [],
+				default: "ask",
+				updatedAt: "2026-01-01T00:00:00.000Z",
+			},
+		};
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ tokens: [token] }), {
+						status: 200,
+						headers: { "content-type": "application/json" },
+					}),
+			),
+		);
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		renderWithI18n(
+			<QueryClientProvider client={client}>
+				<TokensPage />
+			</QueryClientProvider>,
+		);
+
+		expect(await screen.findByText("Auto Review")).toBeInTheDocument();
+		expect(screen.queryByText("auto_review")).not.toBeInTheDocument();
 	});
 });

@@ -25,39 +25,40 @@ import (
 // with openat2(RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS) from an fd for "/", and stat, read, list and
 // write operate on the resulting fds. A symbolic link at any level is refused, and so is a kernel
 // or sandbox that does not provide openat2; there is no fallback to path-based operations
-// (doc/privilege.md "方法与目标").
-func RunFilePrivileged(ctx context.Context, spec *protocol.TaskSpec, input io.Reader, stdout io.Writer) error {
+// (doc/privilege.md "方法与目标"). It returns the task's structured result.
+func RunFilePrivileged(ctx context.Context, spec *protocol.TaskSpec, input io.Reader, stdout io.Writer) (*protocol.TaskResult, error) {
+	var result *protocol.TaskResult
 	var err error
 	switch spec.Kind {
 	case protocol.TaskSpecFileRead:
 		if spec.FileRead == nil {
-			return errf("invalid_spec", "file.read task has no spec")
+			return nil, errf("invalid_spec", "file.read task has no spec")
 		}
-		err = fileReadPrivileged(ctx, spec.FileRead, stdout)
+		result, err = fileReadPrivileged(ctx, spec.FileRead, stdout)
 	case protocol.TaskSpecFileWrite:
 		if spec.FileWrite == nil {
-			return errf("invalid_spec", "file.write task has no spec")
+			return nil, errf("invalid_spec", "file.write task has no spec")
 		}
-		err = fileWritePrivileged(ctx, spec.FileWrite, input, stdout)
+		result, err = fileWritePrivileged(ctx, spec.FileWrite, input)
 	case protocol.TaskSpecFileEdit:
 		if spec.FileEdit == nil {
-			return errf("invalid_spec", "file.edit task has no spec")
+			return nil, errf("invalid_spec", "file.edit task has no spec")
 		}
-		err = fileEditPrivileged(spec.FileEdit, stdout)
+		result, err = fileEditPrivileged(spec.FileEdit)
 	case protocol.TaskSpecFileStat:
 		if spec.FileStat == nil {
-			return errf("invalid_spec", "file.stat task has no spec")
+			return nil, errf("invalid_spec", "file.stat task has no spec")
 		}
-		err = fileStatPrivileged(spec.FileStat, stdout)
+		result, err = fileStatPrivileged(spec.FileStat)
 	case protocol.TaskSpecFileList:
 		if spec.FileList == nil {
-			return errf("invalid_spec", "file.list task has no spec")
+			return nil, errf("invalid_spec", "file.list task has no spec")
 		}
-		err = fileListPrivileged(ctx, spec.FileList, stdout)
+		result, err = fileListPrivileged(ctx, spec.FileList)
 	default:
 		err = errf("invalid_spec", "not a file task: %q", spec.Kind)
 	}
-	return normalizeErr(err)
+	return result, normalizeErr(err)
 }
 
 // privilegedFileRoot is an fd for "/" that privileged file tasks resolve their paths from.
@@ -110,41 +111,40 @@ func openat2Error(p string, err error) error {
 	return err
 }
 
-func fileReadPrivileged(ctx context.Context, s *protocol.FileReadSpec, stdout io.Writer) error {
+func fileReadPrivileged(ctx context.Context, s *protocol.FileReadSpec, stdout io.Writer) (*protocol.TaskResult, error) {
 	if err := checkPath(s.Path); err != nil {
-		return err
+		return nil, err
 	}
 	root, err := openPrivilegedFileRoot()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer root.Close()
 	f, err := openReadNoBlock(root, s.Path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if fi.IsDir() {
-		return errf("is_directory", "%s is a directory", s.Path)
+		return nil, errf("is_directory", "%s is a directory", s.Path)
 	}
 	if err := checkNotSpecial(fi, s.Path); err != nil {
-		return err
+		return nil, err
 	}
 	if fi.Mode().IsRegular() {
 		if err := clearNonblocking(f); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	var r io.Reader = io.NewSectionReader(f, int64(s.Offset), 1<<62)
-	if s.Limit > 0 {
-		r = io.LimitReader(r, int64(s.Limit))
+	page, err := readPage(ctx, f, s, stdout)
+	if err != nil {
+		return nil, err
 	}
-	_, err = copyCtx(ctx, stdout, r)
-	return err
+	return &protocol.TaskResult{Kind: protocol.TaskResultFileRead, FileRead: page}, nil
 }
 
 // openReadNoBlock opens p for reading without blocking on a FIFO: opening one with O_RDONLY
@@ -183,31 +183,31 @@ func clearNonblocking(f *os.File) error {
 	return err
 }
 
-func fileStatPrivileged(s *protocol.FileStatSpec, stdout io.Writer) error {
+func fileStatPrivileged(s *protocol.FileStatSpec) (*protocol.TaskResult, error) {
 	if err := checkPath(s.Path); err != nil {
-		return err
+		return nil, err
 	}
 	root, err := openPrivilegedFileRoot()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer root.Close()
 	// O_PATH is enough to fstat and cannot block on a FIFO or device.
 	f, err := root.open(s.Path, unix.O_PATH)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return writeJSON(stdout, statValues(s.Path, fi))
+	return &protocol.TaskResult{Kind: protocol.TaskResultFileStat, FileStat: statValues(s.Path, fi)}, nil
 }
 
-func fileListPrivileged(ctx context.Context, s *protocol.FileListSpec, stdout io.Writer) error {
+func fileListPrivileged(ctx context.Context, s *protocol.FileListSpec) (*protocol.TaskResult, error) {
 	if err := checkPath(s.Path); err != nil {
-		return err
+		return nil, err
 	}
 	limit := int(s.Limit)
 	if limit == 0 {
@@ -217,30 +217,30 @@ func fileListPrivileged(ctx context.Context, s *protocol.FileListSpec, stdout io
 
 	root, err := openPrivilegedFileRoot()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer root.Close()
 	dir, err := openReadNoBlock(root, s.Path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer dir.Close()
 	fi, err := dir.Stat()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := checkNotSpecial(fi, s.Path); err != nil {
-		return err
+		return nil, err
 	}
 	if !fi.IsDir() {
-		return errf("not_a_directory", "%s is not a directory", s.Path)
+		return nil, errf("not_a_directory", "%s is not a directory", s.Path)
 	}
 	if err := clearNonblocking(dir); err != nil {
-		return err
+		return nil, err
 	}
 	des, err := dir.ReadDir(-1)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	sort.Slice(des, func(i, j int) bool { return des[i].Name() < des[j].Name() })
 	truncated := len(des) > limit
@@ -248,10 +248,11 @@ func fileListPrivileged(ctx context.Context, s *protocol.FileListSpec, stdout io
 		des = des[:limit]
 	}
 	dirfd := int(dir.Fd())
-	entries := make([]listEntry, 0, len(des))
+	entries := make([]protocol.FileListEntry, 0, len(des))
+	used := 0
 	for _, de := range des {
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
 		// Stat every entry through the directory fd: DirEntry.Info would resolve the name by path
 		// again, outside the fd the directory was opened with.
@@ -261,47 +262,58 @@ func fileListPrivileged(ctx context.Context, s *protocol.FileListSpec, stdout io
 			continue
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 		mode := fileMode(st.Mode)
-		entries = append(entries, listEntry{
+		entry := protocol.FileListEntry{
 			Name:  de.Name(),
 			Type:  fileType(mode),
-			Size:  st.Size,
+			Size:  protocol.Int(st.Size),
 			Mode:  modeString(mode),
-			Mtime: mtimeFromStat(&st),
-		})
+			MTime: mtimeFromStat(&st),
+		}
+		size := listEntrySize(entry)
+		// The result travels in one task.exit frame: stop before it could outgrow it
+		// (doc/protocol.md TaskResult).
+		if used+size > protocol.FileListMaxBytes {
+			truncated = true
+			break
+		}
+		used += size
+		entries = append(entries, entry)
 	}
-	return writeJSON(stdout, map[string]any{"entries": entries, "truncated": truncated})
+	return &protocol.TaskResult{Kind: protocol.TaskResultFileList, FileList: &protocol.FileListResult{
+		Entries: entries, Truncated: truncated,
+	}}, nil
 }
 
-func fileWritePrivileged(ctx context.Context, s *protocol.FileWriteSpec, input io.Reader, stdout io.Writer) error {
+func fileWritePrivileged(ctx context.Context, s *protocol.FileWriteSpec, input io.Reader) (*protocol.TaskResult, error) {
 	path := s.Path
 	if err := checkPath(path); err != nil {
-		return err
+		return nil, err
 	}
 	if input == nil {
 		input = strings.NewReader("")
 	}
 	uid, gid, err := lookupIDs(s.Owner, s.Group)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	root, err := openPrivilegedFileRoot()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer root.Close()
 	dir, base, err := splitParent(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// The parent directory is resolved the same way; only then is the destination touched, and only
 	// through the directory fd, so a symlink anywhere on the way in cannot redirect the write. O_PATH
 	// does not require read permission on the directory, which creating a file does not need either.
 	dfd, err := root.open(dir, unix.O_PATH|unix.O_DIRECTORY)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer dfd.Close()
 
@@ -311,19 +323,19 @@ func fileWritePrivileged(ctx context.Context, s *protocol.FileWriteSpec, input i
 	case err == nil:
 		switch st.Mode & unix.S_IFMT {
 		case unix.S_IFLNK:
-			return errf("symlink_not_allowed", "%s is a symbolic link", path)
+			return nil, errf("symlink_not_allowed", "%s is a symbolic link", path)
 		case unix.S_IFDIR:
-			return errf("is_directory", "%s is a directory", path)
+			return nil, errf("is_directory", "%s is a directory", path)
 		}
 		existing = &st
 	case errors.Is(err, unix.ENOENT):
 	default:
-		return err
+		return nil, err
 	}
 
 	tmpName, tmp, err := createTempAt(dfd, base)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ok := false
 	defer func() {
@@ -337,10 +349,10 @@ func fileWritePrivileged(ctx context.Context, s *protocol.FileWriteSpec, input i
 	h := sha256.New()
 	n, err := copyCtx(ctx, io.MultiWriter(tmp, h), io.LimitReader(input, int64(want.Size)+1))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if uint64(n) != uint64(want.Size) || !bytes.Equal(h.Sum(nil), want.SHA256[:]) {
-		return errf("input_mismatch", "content does not match declared size/sha256 (got %d bytes)", n)
+		return nil, errf("input_mismatch", "content does not match declared size/sha256 (got %d bytes)", n)
 	}
 
 	mode := fs.FileMode(0o644)
@@ -352,80 +364,98 @@ func fileWritePrivileged(ctx context.Context, s *protocol.FileWriteSpec, input i
 	}
 	if existing != nil && uid < 0 && gid < 0 {
 		if err := tmp.Chown(int(existing.Uid), int(existing.Gid)); err != nil && !errors.Is(err, syscall.EPERM) {
-			return err
+			return nil, err
 		}
 	} else if uid >= 0 || gid >= 0 {
 		if err := tmp.Chown(uid, gid); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if err := tmp.Chmod(mode); err != nil {
-		return err
+		return nil, err
 	}
 	if err := publishAt(dfd, tmpName, tmp, base, path, !s.Overwrite); err != nil {
-		return err
+		return nil, err
 	}
 	ok = true
-	return writeJSON(stdout, map[string]any{"bytes": n, "created": existing == nil})
+	return &protocol.TaskResult{Kind: protocol.TaskResultFileWrite, FileWrite: &protocol.FileWriteResult{
+		Bytes: protocol.Uint(n), Created: existing == nil,
+	}}, nil
 }
 
-func fileEditPrivileged(s *protocol.FileEditSpec, stdout io.Writer) error {
+func fileEditPrivileged(s *protocol.FileEditSpec) (*protocol.TaskResult, error) {
 	path := s.Path
 	if err := checkPath(path); err != nil {
-		return err
+		return nil, err
 	}
 	if len(s.Edits) == 0 {
-		return errf("invalid_spec", "edits must not be empty")
+		return nil, errf("invalid_spec", "edits must not be empty")
 	}
 	root, err := openPrivilegedFileRoot()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer root.Close()
 	dir, base, err := splitParent(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	dfd, err := root.open(dir, unix.O_PATH|unix.O_DIRECTORY)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer dfd.Close()
 
 	var st unix.Stat_t
 	if err := unix.Fstatat(int(dfd.Fd()), base, &st, unix.AT_SYMLINK_NOFOLLOW); err != nil {
-		return err
+		return nil, err
 	}
 	switch st.Mode & unix.S_IFMT {
 	case unix.S_IFLNK:
-		return errf("symlink_not_allowed", "%s is a symbolic link", path)
+		return nil, errf("symlink_not_allowed", "%s is a symbolic link", path)
 	case unix.S_IFDIR:
-		return errf("is_directory", "%s is a directory", path)
+		return nil, errf("is_directory", "%s is a directory", path)
 	}
 	// O_NOFOLLOW covers the race between the check above and the open: the final component is never
-	// followed, and the parent comes from the already resolved directory fd.
-	fd, err := unix.Openat(int(dfd.Fd()), base, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	// followed, and the parent comes from the already resolved directory fd. O_NONBLOCK keeps the
+	// open from waiting for a FIFO writer that a cancellation cannot wake (doc/privilege.md
+	// 方法与目标).
+	fd, err := unix.Openat(int(dfd.Fd()), base, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 	if err != nil {
-		if errors.Is(err, unix.ELOOP) {
-			return errf("symlink_not_allowed", "%s is a symbolic link", path)
+		switch {
+		case errors.Is(err, unix.ELOOP):
+			return nil, errf("symlink_not_allowed", "%s is a symbolic link", path)
+		case errors.Is(err, unix.ENXIO):
+			return nil, errf("not_regular_file", "%s is not a regular file", path)
 		}
-		return &os.PathError{Op: "open", Path: path, Err: err}
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
 	}
 	f := os.NewFile(uintptr(fd), path)
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil {
-		return err
+		return nil, err
+	}
+	if fi.IsDir() {
+		return nil, errf("is_directory", "%s is a directory", path)
+	}
+	if err := checkNotSpecial(fi, path); err != nil {
+		return nil, err
+	}
+	if fi.Mode().IsRegular() {
+		if err := clearNonblocking(f); err != nil {
+			return nil, err
+		}
 	}
 	if fi.Size() > maxEditSize {
-		return errf("too_large", "%s is %d bytes, limit is %d", path, fi.Size(), maxEditSize)
+		return nil, errf("too_large", "%s is %d bytes, limit is %d", path, fi.Size(), maxEditSize)
 	}
 	raw, err := io.ReadAll(io.LimitReader(f, maxEditSize+1))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(raw) > maxEditSize {
-		return errf("too_large", "%s exceeds %d bytes", path, maxEditSize)
+		return nil, errf("too_large", "%s exceeds %d bytes", path, maxEditSize)
 	}
 
 	var bom []byte
@@ -436,7 +466,7 @@ func fileEditPrivileged(s *protocol.FileEditSpec, stdout io.Writer) error {
 	ending := detectLineEnding(text)
 	out, err := applyEdits(normalizeToLF(text), s.Edits, path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if ending == "\r\n" {
 		out = strings.ReplaceAll(out, "\n", "\r\n")
@@ -444,7 +474,7 @@ func fileEditPrivileged(s *protocol.FileEditSpec, stdout io.Writer) error {
 
 	tmpName, tmp, err := createTempAt(dfd, base)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ok := false
 	defer func() {
@@ -454,19 +484,21 @@ func fileEditPrivileged(s *protocol.FileEditSpec, stdout io.Writer) error {
 		}
 	}()
 	if _, err := tmp.Write(append(bom[:len(bom):len(bom)], out...)); err != nil {
-		return err
+		return nil, err
 	}
 	if err := tmp.Chown(int(st.Uid), int(st.Gid)); err != nil && !errors.Is(err, os.ErrPermission) {
-		return err
+		return nil, err
 	}
 	if err := tmp.Chmod(editMode(st.Mode)); err != nil {
-		return err
+		return nil, err
 	}
 	if err := publishAt(dfd, tmpName, tmp, base, path, false); err != nil {
-		return err
+		return nil, err
 	}
 	ok = true
-	return writeJSON(stdout, map[string]any{"replacements": len(s.Edits)})
+	return &protocol.TaskResult{Kind: protocol.TaskResultFileEdit, FileEdit: &protocol.FileEditResult{
+		Replacements: protocol.Uint(len(s.Edits)),
+	}}, nil
 }
 
 // splitParent splits an absolute and clean path into its parent directory and final name. The name

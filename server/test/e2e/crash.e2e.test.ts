@@ -214,7 +214,7 @@ describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 						type: "function",
 						function: {
 							name: "exec",
-							arguments: JSON.stringify({ node: "crash-node", cmd: "sleep 4; echo survived" }),
+							arguments: JSON.stringify({ targets: ["crash-node"], cmd: "sleep 4; echo survived" }),
 						},
 					},
 				],

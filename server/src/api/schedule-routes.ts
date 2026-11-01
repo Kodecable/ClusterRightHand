@@ -43,7 +43,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 
 	app.onError((err, c) => {
 		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
-		if (err instanceof UserError || err instanceof TypeError) return jsonError(c, 400, err.message);
+		if (err instanceof UserError) return jsonError(c, 400, err.message);
 		throw err;
 	});
 
@@ -51,6 +51,15 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 	async function view(schedule: Schedule) {
 		const rules = await scheduleRuleSet(db, schedule.id);
 		const [last, running] = await Promise.all([latestRun(db, schedule.id), runInProgress(db, schedule.id)]);
+		// A row saved before cron/timezone were validated must not fail the list: an invalid stored
+		// pair leaves the preview empty and says why (doc/scheduling.md#调度).
+		let preview: string[] = [];
+		let previewError: string | null = null;
+		try {
+			preview = previewRuns(schedule.cron, schedule.timezone, options.scheduler.now(), PREVIEW_COUNT);
+		} catch (err) {
+			previewError = err instanceof Error ? err.message : String(err);
+		}
 		return {
 			id: schedule.id,
 			ownerUserId: schedule.ownerUserId,
@@ -70,7 +79,9 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 			lastRun: last ?? null,
 			inProgress: running !== undefined,
 			// The next few fire times, so the form can be checked before saving (doc/scheduling.md#调度).
-			preview: previewRuns(schedule.cron, schedule.timezone, options.scheduler.now(), PREVIEW_COUNT),
+			preview,
+			// Why the preview is empty, when the stored cron or timezone is invalid.
+			previewError,
 		};
 	}
 

@@ -111,10 +111,15 @@ export async function listUsers(db: Db): Promise<PublicUser[]> {
 	return rows.map(toPublicUser);
 }
 
+/**
+ * Applies a partial change. `by` is the administrator making it: another administrator must demote or disable
+ * this one, so the request does not depend on the caller's own account staying usable.
+ */
 export async function updateUser(
 	db: Db,
 	userId: string,
 	patch: { displayName?: string; email?: string | null; kind?: UserKind; status?: UserStatus },
+	options: { by?: string } = {},
 ): Promise<PublicUser> {
 	const set: Partial<Pick<UsersTable, "display_name" | "email" | "kind" | "status">> = {};
 	if (patch.displayName !== undefined) set.display_name = patch.displayName.trim();
@@ -128,6 +133,15 @@ export async function updateUser(
 		if (isPostgres(trx)) {
 			const orgId = await trx.selectFrom("users").select("org_id").where("id", "=", userId).executeTakeFirst();
 			if (orgId) await trx.selectFrom("orgs").select("id").where("id", "=", orgId.org_id).forUpdate().execute();
+		}
+		const existing = await trx.selectFrom("users").selectAll().where("id", "=", userId).executeTakeFirst();
+		if (!existing) throw new NotFoundError("no such user");
+		// No administrator may demote or disable themselves: another administrator must do it.
+		const selfChange =
+			options.by === userId &&
+			((patch.kind !== undefined && patch.kind !== existing.kind) || patch.status === "disabled");
+		if (selfChange) {
+			throw new UserError("an administrator cannot demote or disable themselves; another administrator must do it");
 		}
 		if (Object.keys(set).length > 0) {
 			await trx.updateTable("users").set(set).where("id", "=", userId).execute();

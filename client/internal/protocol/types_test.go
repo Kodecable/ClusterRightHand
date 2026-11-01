@@ -143,6 +143,35 @@ func TestRoundTripAllTypes(t *testing.T) {
 				OutputFile: "/tmp/out.log",
 			})
 		}},
+		{"TaskExit with a result", "", func(t *testing.T) {
+			checkRoundTrip(t, "", TaskExit{
+				TaskID:  "t",
+				Outcome: Outcome{Kind: OutcomeCode, Code: 0},
+				Result: &TaskResult{Kind: TaskResultFileRead, FileRead: &FileReadResult{
+					From: 1, To: 2, EOF: true, Total: ptr(Uint(3)),
+				}},
+			})
+		}},
+		{"FileReadResult", "", func(t *testing.T) {
+			checkRoundTrip(t, "", FileReadResult{From: 1, To: 2, EOF: false, TooLong: true})
+		}},
+		{"FileStatResult", "", func(t *testing.T) {
+			checkRoundTrip(t, "", FileStatResult{
+				Path: "/tmp/x", Type: "file", Size: 7, Mode: "0644", UID: 1000, GID: 1000,
+				Owner: "alice", Group: "alice", MTime: "2026-01-01T00:00:00Z", LinkTarget: ptr("/tmp/y"),
+			})
+		}},
+		{"FileListResult", "", func(t *testing.T) {
+			checkRoundTrip(t, "", FileListResult{
+				Entries: []FileListEntry{{Name: "f.txt", Type: "file", Size: 7, Mode: "0644", MTime: "2026-01-01T00:00:00Z"}},
+			})
+		}},
+		{"FileWriteResult", "", func(t *testing.T) {
+			checkRoundTrip(t, "", FileWriteResult{Bytes: 3, Created: true})
+		}},
+		{"FileEditResult", "", func(t *testing.T) {
+			checkRoundTrip(t, "", FileEditResult{Replacements: 2})
+		}},
 		{"Facts", "", func(t *testing.T) { checkRoundTrip(t, "", sampleFacts()) }},
 		{"Error", "8261786179", func(t *testing.T) {
 			checkRoundTrip(t, "8261786179", Error{Code: "x", Message: "y"})
@@ -164,7 +193,7 @@ func TestRoundTripAllTypes(t *testing.T) {
 		{"ExecSpec", "", func(t *testing.T) { checkRoundTrip(t, "", sampleExecSpec()) }},
 		{"InputRef", "", func(t *testing.T) { checkRoundTrip(t, "", InputRef{Size: 3, SHA256: hash}) }},
 		{"FileReadSpec", "", func(t *testing.T) {
-			checkRoundTrip(t, "", FileReadSpec{Path: "/etc/hosts", Offset: 2, Limit: 3})
+			checkRoundTrip(t, "", FileReadSpec{Path: "/etc/hosts", StartLine: 2, LineCount: 3})
 		}},
 		{"FileWriteSpec", "", func(t *testing.T) {
 			checkRoundTrip(t, "", FileWriteSpec{
@@ -193,7 +222,7 @@ func TestRoundTripUnions(t *testing.T) {
 		spec TaskSpec
 	}{
 		{"exec", "", TaskSpec{Kind: TaskSpecExec, Exec: ptr(sampleExecSpec())}},
-		{"file.read", "", TaskSpec{Kind: TaskSpecFileRead, FileRead: &FileReadSpec{Path: "/etc/hosts"}}},
+		{"file.read", "", TaskSpec{Kind: TaskSpecFileRead, FileRead: &FileReadSpec{Path: "/etc/hosts", StartLine: 1, LineCount: 3}}},
 		{"file.write", "", TaskSpec{Kind: TaskSpecFileWrite, FileWrite: &FileWriteSpec{
 			Path: "/tmp/x", Content: InputRef{Size: 1, SHA256: Hash{1}},
 		}}},
@@ -230,6 +259,23 @@ func TestRoundTripUnions(t *testing.T) {
 	}
 	for _, test := range modes {
 		t.Run("output/"+test.name, func(t *testing.T) { checkRoundTrip(t, test.hex, test.mode) })
+	}
+
+	results := []struct {
+		name   string
+		hex    string
+		result TaskResult
+	}{
+		{"file.read", "", TaskResult{Kind: TaskResultFileRead, FileRead: &FileReadResult{
+			From: 1, To: 2, EOF: true, Total: ptr(Uint(3)),
+		}}},
+		{"file.write", "", TaskResult{Kind: TaskResultFileWrite, FileWrite: &FileWriteResult{Bytes: 3, Created: true}}},
+		{"file.edit", "", TaskResult{Kind: TaskResultFileEdit, FileEdit: &FileEditResult{Replacements: 2}}},
+		{"file.stat", "", TaskResult{Kind: TaskResultFileStat, FileStat: &FileStatResult{Path: "/x", Type: "file"}}},
+		{"file.list", "", TaskResult{Kind: TaskResultFileList, FileList: &FileListResult{Entries: []FileListEntry{}}}},
+	}
+	for _, test := range results {
+		t.Run("result/"+test.name, func(t *testing.T) { checkRoundTrip(t, test.hex, test.result) })
 	}
 
 	outcomes := []struct {
@@ -286,6 +332,7 @@ func TestWrongTupleLength(t *testing.T) {
 		{"hello as map", "a0", &Hello{}},
 		{"error as map", "a0", &Error{}},
 		{"input ref extra", "82015820" + repeatHex("00", HashSize) + "00", &InputRef{}},
+		{"task exit short", "860000f4f40000", &TaskExit{}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -310,6 +357,9 @@ func TestUnknownUnionTag(t *testing.T) {
 		{"command wrong body", []any{"shell", []any{}}, &Command{}},
 		{"output mode wrong body", []any{"text", []any{uint64(1)}}, &OutputMode{}},
 		{"outcome wrong body", []any{"code", "x"}, &Outcome{}},
+		{"task result", []any{"bogus", []any{}}, &TaskResult{}},
+		{"task result wrong body", []any{"file.read", []any{uint64(1)}}, &TaskResult{}},
+		{"task result for a kind without one", []any{"exec", []any{}}, &TaskResult{}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

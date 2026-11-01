@@ -35,6 +35,7 @@ import {
 	type TaskExit,
 	type TaskInput,
 	type TaskOutput,
+	type TaskResult,
 	type TaskSpec,
 	type TaskStart,
 	type TaskStatus,
@@ -44,6 +45,7 @@ import {
 	taskInputCodec,
 	taskOutputCodec,
 	taskQueryCodec,
+	taskResultCodec,
 	taskSpecCodec,
 	taskStartCodec,
 	taskStatusCodec,
@@ -88,7 +90,7 @@ const execSpec: ExecSpec = { command: commandArgv, env: { A: "1", B: "2" }, cwd:
 const execSpecStdin: ExecSpec = { command: commandShell, env: {}, cwd: "/tmp", stdin: inputRef };
 const edit: Edit = { oldText: "a", newText: "b" };
 const specExec: TaskSpec = { kind: "exec", ...execSpec };
-const specRead: TaskSpec = { kind: "file.read", path: "/etc/hosts", offset: 0, limit: 0 };
+const specRead: TaskSpec = { kind: "file.read", path: "/etc/hosts", startLine: 1, lineCount: 100 };
 const specWrite: TaskSpec = {
 	kind: "file.write",
 	path: "/tmp/x",
@@ -125,7 +127,29 @@ const taskExit: TaskExit = {
 	stdoutEnd: 6,
 	stderrEnd: 0,
 	outputFile: "",
+	result: null,
 };
+const readResult: TaskResult = { kind: "file.read", from: 1, to: 2, eof: true, total: 3, tooLong: false };
+const statResult: TaskResult = {
+	kind: "file.stat",
+	path: "/tmp/x",
+	type: "file",
+	size: 7,
+	mode: "0644",
+	uid: 1000,
+	gid: 1000,
+	owner: "alice",
+	group: "alice",
+	mtime: "2026-01-01T00:00:00Z",
+	linkTarget: null,
+};
+const listResult: TaskResult = {
+	kind: "file.list",
+	entries: [{ name: "f.txt", type: "file", size: 7, mode: "0644", mtime: "2026-01-01T00:00:00Z" }],
+	truncated: false,
+};
+const writeResult: TaskResult = { kind: "file.write", bytes: 3, created: true };
+const editResult: TaskResult = { kind: "file.edit", replacements: 2 };
 const hello: Hello = { tasks: [status], taskKinds: ["exec"], privilegedMode: "disabled" };
 const welcome: Welcome = { acks: [ack] };
 const taskInput: TaskInput = { taskId: "t-1", offset: 0, data: Uint8Array.of(1, 2, 3) };
@@ -133,16 +157,16 @@ const taskOutput: TaskOutput = { taskId: "t-1", stream: "stdout", offset: 0, dat
 const nodeStatus: NodeStatus = { nodeId: "n-1", state: "active", message: "ok" };
 const enrollment: Enrollment = { tokenSecret: "secret", hostname: "node-1", facts };
 const handshakeInit: HandshakeInit = {
-	protocolMajor: 1,
-	protocolMinor: 0,
+	protocolMajor: PROTOCOL_MAJOR,
+	protocolMinor: PROTOCOL_MINOR,
 	commands: [...SUPPORTED_NAMES],
 	crhaVersion: "0.1.0",
 	clientTimeMs: 1_700_000_000_000,
 	enroll: enrollment,
 };
 const handshakeResponse: HandshakeResponse = {
-	protocolMajor: 1,
-	protocolMinor: 0,
+	protocolMajor: PROTOCOL_MAJOR,
+	protocolMinor: PROTOCOL_MINOR,
 	commands: [...SUPPORTED_NAMES],
 	connectionId: "conn-1",
 	serverTimeMs: 1_700_000_000_000,
@@ -182,7 +206,19 @@ const cases: [string, Codec<unknown>, unknown][] = [
 	asCase("Outcome code", outcomeCodec, outcomeCode),
 	asCase("Outcome signal", outcomeCodec, outcomeSignal),
 	asCase("Outcome error", outcomeCodec, outcomeError),
+	asCase("TaskResult file.read", taskResultCodec, readResult),
+	asCase("TaskResult file.stat", taskResultCodec, statResult),
+	asCase("TaskResult file.list", taskResultCodec, listResult),
+	asCase("TaskResult file.write", taskResultCodec, writeResult),
+	asCase("TaskResult file.edit", taskResultCodec, editResult),
+	asCase("TaskResult file.read without a total", taskResultCodec, { ...readResult, eof: false, total: null }),
+	asCase("TaskResult file.stat of a symlink", taskResultCodec, {
+		...statResult,
+		type: "symlink",
+		linkTarget: "/tmp/y",
+	}),
 	asCase("TaskExit", taskExitCodec, taskExit),
+	asCase("TaskExit with a result", taskExitCodec, { ...taskExit, result: readResult }),
 	asCase("Hello", helloCodec, hello),
 	asCase("Welcome", welcomeCodec, welcome),
 	asCase("ping", pingCodec, { seq: 42 }),
@@ -321,9 +357,22 @@ describe("message codecs", () => {
 		expect(() => factsCodec.decode(shellsWithIntegerKey)).toThrow(SchemaError);
 	});
 
-	it("uses protocol 1.1 and keeps the 1.0 names required", () => {
-		expect(PROTOCOL_MAJOR).toBe(1);
-		expect(PROTOCOL_MINOR).toBe(1);
+	it("tags a task result with the task kind and rejects anything else", () => {
+		// The result is typed per kind: an unknown tag, the wrong arity or a mistyped field fails.
+		expect(() => taskResultCodec.decode(["exec", []])).toThrow(SchemaError);
+		expect(() => taskResultCodec.decode(["file.read", [1, 2, true]])).toThrow(SchemaError);
+		expect(() => taskResultCodec.decode(["file.read", [1, 2, "yes", null, false]])).toThrow(SchemaError);
+		expect(() => taskResultCodec.decode(["file.write", ["3", false]])).toThrow(SchemaError);
+		expect(() => taskResultCodec.decode([5, []])).toThrow(SchemaError);
+		const unknown = { kind: "exec" } as unknown as TaskResult;
+		expect(() => taskResultCodec.encode(unknown)).toThrow("unknown tag");
+		// task.exit requires the result element; a 1.0-length body no longer decodes.
+		expect(() => taskExitCodec.decode(["t-1", ["code", 0], false, false, 0, 0, ""])).toThrow(SchemaError);
+	});
+
+	it("uses protocol 2.0 and keeps the M3.5 names required", () => {
+		expect(PROTOCOL_MAJOR).toBe(2);
+		expect(PROTOCOL_MINOR).toBe(0);
 		expect(REQUIRED_NAMES).toEqual([
 			"hello",
 			"ping",

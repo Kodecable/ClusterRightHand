@@ -129,5 +129,8 @@ test("without models the disabled New button is explained in the list column", a
 	await expect(hint).toContainText("No models are configured, so sessions cannot start.");
 	await hint.getByRole("link", { name: "Configure a model provider" }).click();
 	await expect(page).toHaveURL(/\/settings\/models$/);
-	expect(api.state.requests.some((request) => request.url === "/api/model-providers")).toBe(true);
+	// The URL changes before the page's chunk renders, so wait for the request like the other tests here.
+	await expect
+		.poll(() => api.state.requests.some((request) => request.url === "/api/model-providers"), { timeout: 10_000 })
+		.toBe(true);
 });

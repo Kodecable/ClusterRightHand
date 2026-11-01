@@ -57,7 +57,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 			const session = await runtime.createSession(owner, { model, preset: "yolo", title: "t1" });
 			let seen = "";
 			faux.setResponses([
-				fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, cmd: "echo from-agent" }, { id: "c1" })], {
+				fauxAssistantMessage([fauxToolCall("exec", { targets: [nodeName], cmd: "echo from-agent" }, { id: "c1" })], {
 					stopReason: "toolUse",
 				}),
 				(context) => {
@@ -81,9 +81,12 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 			const session = await runtime.createSession(owner, { model, preset: "ask" });
 			let seen = "";
 			faux.setResponses([
-				fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, argv: ["echo", "approved"] }, { id: "c1" })], {
-					stopReason: "toolUse",
-				}),
+				fauxAssistantMessage(
+					[fauxToolCall("exec", { targets: [nodeName], argv: ["echo", "approved"] }, { id: "c1" })],
+					{
+						stopReason: "toolUse",
+					},
+				),
 				(context) => {
 					seen = (context.messages.at(-1) as { content: { text: string }[] }).content[0]?.text ?? "";
 					return fauxAssistantMessage([fauxText("ok")]);
@@ -154,7 +157,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 				const session = await runtime.createSession(owner, { model, preset: "auto_review" });
 				const prompts: string[] = [];
 				faux.setResponses([
-					fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, argv: ["uptime"] }, { id: "c1" })], {
+					fauxAssistantMessage([fauxToolCall("exec", { targets: [nodeName], argv: ["uptime"] }, { id: "c1" })], {
 						stopReason: "toolUse",
 					}),
 					// the reviewer, which sees only the operation
@@ -163,7 +166,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 						return fauxAssistantMessage([fauxText('{"decision":"approve","reason":"read-only"}')]);
 					},
 					fauxAssistantMessage(
-						[fauxToolCall("exec", { node: nodeName, argv: ["rm", "-rf", "/tmp/x"] }, { id: "c2" })],
+						[fauxToolCall("exec", { targets: [nodeName], argv: ["rm", "-rf", "/tmp/x"] }, { id: "c2" })],
 						{
 							stopReason: "toolUse",
 						},
@@ -227,7 +230,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 						{ stopReason: "toolUse" },
 					),
 					// child: tries a command, which its own rules deny although the parent is yolo
-					fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, cmd: "echo child" }, { id: "k1" })], {
+					fauxAssistantMessage([fauxToolCall("exec", { targets: [nodeName], cmd: "echo child" }, { id: "k1" })], {
 						stopReason: "toolUse",
 					}),
 					(context) => {
@@ -305,7 +308,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 					fauxAssistantMessage([fauxToolCall("subagent", { task: "run it", quota: 1 }, { id: "s1" })], {
 						stopReason: "toolUse",
 					}),
-					fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, cmd: "echo child-ran" }, { id: "e1" })], {
+					fauxAssistantMessage([fauxToolCall("exec", { targets: [nodeName], cmd: "echo child-ran" }, { id: "e1" })], {
 						stopReason: "toolUse",
 					}),
 					next,
@@ -334,9 +337,12 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 				const session = await runtime.createSession(owner, { model, preset: "ask" });
 				faux.setResponses([
 					fauxAssistantMessage([fauxToolCall("subagent", { task: "say hi" }, { id: "p1" })], { stopReason: "toolUse" }),
-					fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, argv: ["echo", "from-child"] }, { id: "k1" })], {
-						stopReason: "toolUse",
-					}),
+					fauxAssistantMessage(
+						[fauxToolCall("exec", { targets: [nodeName], argv: ["echo", "from-child"] }, { id: "k1" })],
+						{
+							stopReason: "toolUse",
+						},
+					),
 					fauxAssistantMessage([fauxText("child ok")]),
 					fauxAssistantMessage([fauxText("parent ok")]),
 				]);
@@ -359,9 +365,12 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		const session = await runtime.createSession(owner, { model, preset: "yolo" });
 		let seen = "";
 		faux.setResponses([
-			fauxAssistantMessage([fauxToolCall("exec", { node: nodeName, cmd: "sleep 2; echo survived" }, { id: "c1" })], {
-				stopReason: "toolUse",
-			}),
+			fauxAssistantMessage(
+				[fauxToolCall("exec", { targets: [nodeName], cmd: "sleep 2; echo survived" }, { id: "c1" })],
+				{
+					stopReason: "toolUse",
+				},
+			),
 			(context) => {
 				seen = (context.messages.at(-1) as { content: { text: string }[] }).content[0]?.text ?? "";
 				return fauxAssistantMessage([fauxText("after restart")]);

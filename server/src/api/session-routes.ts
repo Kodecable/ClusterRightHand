@@ -87,6 +87,7 @@ function sleepFor(ms: number, signal: AbortSignal): Promise<void> {
 
 /** Sessions (chat with the agent) and model configuration; doc/agent-runtime.md. Expects requireUser. */
 export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
+	const { runtime, models } = options;
 	type LiveStream = { user: SessionUser; sessionId: string; abort: () => void };
 	const streams = new Set<LiveStream>();
 	const drain = options.drain;
@@ -95,23 +96,40 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		streams.delete(stream);
 		stream.abort();
 	};
-	/** A share change can remove access to a session or to a root whose subagents are being watched. */
+	/**
+	 * The viewer as the account is now. A stream opened before a kind change or a disable would otherwise keep
+	 * the capabilities it was opened with.
+	 */
+	const currentViewer = async (user: SessionUser): Promise<SessionUser | undefined> => {
+		const row = await db
+			.selectFrom("users")
+			.select(["id", "username", "kind", "status"])
+			.where("id", "=", user.userId)
+			.executeTakeFirst();
+		if (row?.status !== "active") return undefined;
+		return { ...user, username: row.username, kind: row.kind };
+	};
+	/** A share change or an account change can remove access to a session or to a root whose subagents it watches. */
 	const revalidateStreams = async () => {
 		for (const stream of [...streams]) {
-			if (await sessionCapabilities(db, stream.user, stream.sessionId)) continue;
+			const viewer = await currentViewer(stream.user);
+			if (viewer && (await sessionCapabilities(db, viewer, stream.sessionId))) continue;
 			endStream(stream);
 		}
 	};
+	// A user's status/kind, a group membership or a share change reaches the streams through the session list
+	// hub, which the user routes also hold: this is the same path for every access change.
+	const unsubscribeVisibility = runtime.sessionList.onVisibilityChanged(revalidateStreams);
 	// Shutdown ends every stream, so no request outlives the database it may still need.
 	drain?.shutdown.signal.addEventListener(
 		"abort",
 		() => {
+			unsubscribeVisibility();
 			for (const stream of [...streams]) endStream(stream);
 			options.runtime.sessionList.close();
 		},
 		{ once: true },
 	);
-	const { runtime, models } = options;
 	const app = new Hono<AppEnv>();
 
 	app.onError((err, c) => {
@@ -506,10 +524,20 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		}
 		// A scheduled run ends failed when its owner denies the root quota (doc/scheduling.md#调度).
 		const quotaReason = reason ?? (body.decision === "deny" ? "the owner stopped the run" : undefined);
-		if (body.decision === "deny" && quotaReason) {
+		const noteQuotaDenied = body.decision === "deny" && quotaReason !== undefined;
+		// The note goes first: deciding wakes the wait, and a run that settles before the note is read would be
+		// recorded as succeeded. A decision that throws (no such wait) removes the note again, so a later normal
+		// finish is not marked failed.
+		if (noteQuotaDenied) {
 			await options.scheduler?.noteQuotaDenied(v.session.id, `quota denied: ${quotaReason}`);
 		}
-		const sessions = await runtime.decideRootQuota(v.session.id, body.decision, tokens);
+		let sessions: string[];
+		try {
+			sessions = await runtime.decideRootQuota(v.session.id, body.decision, tokens);
+		} catch (err) {
+			if (noteQuotaDenied) options.scheduler?.clearQuotaDenied(v.session.id);
+			throw err;
+		}
 		void c.get("audit").record({
 			actor: userActor(user),
 			action: body.decision === "deny" ? "quota.denied" : "quota.granted",

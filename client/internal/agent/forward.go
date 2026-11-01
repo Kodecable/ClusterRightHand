@@ -26,9 +26,9 @@ const (
 	forwardDialTimeout = 5 * time.Second
 	// forwardHandshakeTimeout bounds the crh-priv handshake.
 	forwardHandshakeTimeout = 10 * time.Second
-	// forwardRequestTimeout bounds one request to the privileged mode. The daemon answers from
-	// memory, so a slower answer means it is wedged.
-	forwardRequestTimeout = 30 * time.Second
+	// DefaultForwardRequestTimeout bounds one request to the privileged mode. The daemon
+	// answers from memory, so a slower answer means it is wedged.
+	DefaultForwardRequestTimeout = 30 * time.Second
 
 	// forwardNotConnected is the trust report message before the first connection attempt
 	// finished.
@@ -182,7 +182,7 @@ func (a *Agent) forwardConnection() (*forwardConn, error) {
 
 // queryTrust asks the daemon for its trust summary and reports it as ok.
 func (a *Agent) queryTrust(ctx context.Context, fc *forwardConn) error {
-	qctx, cancel := context.WithTimeout(ctx, forwardRequestTimeout)
+	qctx, cancel := context.WithTimeout(ctx, a.forwardTimeout())
 	defer cancel()
 	var summary protocol.TrustSummary
 	if err := fc.peer.Request(qctx, wire.CmdTrustQuery, protocol.Empty{}, &summary); err != nil {
@@ -200,7 +200,7 @@ func (a *Agent) refreshTrust(ctx context.Context) {
 	if fc == nil {
 		return
 	}
-	qctx, cancel := context.WithTimeout(ctx, forwardRequestTimeout)
+	qctx, cancel := context.WithTimeout(ctx, a.forwardTimeout())
 	defer cancel()
 	var summary protocol.TrustSummary
 	if err := fc.peer.Request(qctx, wire.CmdTrustQuery, protocol.Empty{}, &summary); err != nil {
@@ -227,33 +227,56 @@ func (a *Agent) forwardLost() {
 	}
 }
 
+// forwardTimeout bounds one request to the privileged mode. Options.ForwardRequestTimeout
+// overrides DefaultForwardRequestTimeout for tests.
+func (a *Agent) forwardTimeout() time.Duration {
+	if a.opts.ForwardRequestTimeout > 0 {
+		return a.opts.ForwardRequestTimeout
+	}
+	return DefaultForwardRequestTimeout
+}
+
 // startForwardTask relays one privileged task.start over the current daemon connection and reports
 // its refusal. Nothing is accepted here when the daemon refuses, so crhs can retry with a higher
-// attempt. The returned connection is the one that accepted the task.
-func (a *Agent) startForwardTask(ctx context.Context, ts *protocol.TaskStart) (*forwardConn, error) {
+// attempt. The returned connection is the one that accepted the task; unknown reports that the
+// daemon may have accepted it without this side ever learning the outcome (the connection broke or
+// the answer timed out), so launch ends it as helper_lost instead of waiting for its events.
+func (a *Agent) startForwardTask(ctx context.Context, ts *protocol.TaskStart) (*forwardConn, bool, error) {
 	fc, ferr := a.forwardConnection()
 	if fc == nil {
-		return nil, forwardUnavailable(ferr)
+		return nil, false, forwardUnavailable(ferr)
 	}
-	err := fc.peer.Request(ctx, protocol.CmdTaskStart, ts, nil)
+	rctx, cancel := context.WithTimeout(ctx, a.forwardTimeout())
+	defer cancel()
+	err := fc.peer.Request(rctx, protocol.CmdTaskStart, ts, nil)
 	if err == nil {
-		return fc, nil
+		return fc, false, nil
 	}
 	var remote *protocol.RemoteError
 	if !errors.As(err, &remote) {
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			// The daemon did not answer within the deadline, but it may still accept and run the
+			// task: the request is queued there, so refusing it would let crhs re-issue a task
+			// that may execute (doc/protocol.md task.start, forward). Report it accepted like a
+			// lost connection, ask the daemon to cancel it best-effort, and let launch end it as
+			// helper_lost: its outcome is unknowable here.
+			a.log.Warn("the privileged mode did not answer task.start", "task", ts.TaskID, "err", err)
+			go a.cancelForwardTask(ts.TaskID)
+			return fc, true, nil
+		}
 		// The request may have reached the daemon before the connection broke, and an accepted
 		// task runs to completion there (doc/protocol.md crh-priv 断开). Refusing it here would
 		// let crhs retry a task that may have run, so report it accepted: launch then ends it as
 		// helper_lost.
 		a.log.Warn("the privileged mode connection broke during task.start", "task", ts.TaskID, "err", err)
-		return fc, nil
+		return fc, true, nil
 	}
 	if authorizationCode(remote.Code) {
 		// The daemon refused the authorization: report a changed trust summary first, then the
 		// refusal (doc/protocol.md task.start, forward).
 		a.refreshTrust(ctx)
 	}
-	return nil, remote
+	return nil, false, remote
 }
 
 // forwardAlive reports whether fc is still the agent's daemon connection.
@@ -281,8 +304,9 @@ func (a *Agent) relayForward(ctx context.Context, cmd string, req, resp any) err
 	return a.relayOn(ctx, fc, cmd, req, resp)
 }
 
-// relayOn sends one request over fc. A refusal of the daemon is returned as it is; a broken
-// connection becomes privileged_unavailable.
+// relayOn sends one request over fc. Every request has the forward deadline, so a wedged daemon
+// fails the request instead of leaving it pending forever. A refusal of the daemon is returned as
+// it is; a broken connection or a timeout becomes privileged_unavailable.
 func (a *Agent) relayOn(ctx context.Context, fc *forwardConn, cmd string, req, resp any) error {
 	if !fc.negotiated.Has(cmd) {
 		return &protocol.RemoteError{
@@ -290,13 +314,18 @@ func (a *Agent) relayOn(ctx context.Context, fc *forwardConn, cmd string, req, r
 			Message: "the privileged mode does not implement " + cmd,
 		}
 	}
-	err := fc.peer.Request(ctx, cmd, req, resp)
+	rctx, cancel := context.WithTimeout(ctx, a.forwardTimeout())
+	defer cancel()
+	err := fc.peer.Request(rctx, cmd, req, resp)
 	if err == nil {
 		return nil
 	}
 	var remote *protocol.RemoteError
 	if errors.As(err, &remote) {
 		return remote
+	}
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		a.log.Warn("the privileged mode did not answer", "request", cmd, "err", err)
 	}
 	return forwardUnavailable(err)
 }
@@ -503,7 +532,17 @@ func (a *Agent) attachForward(t *task) {
 // forwardInput relays one task.input chunk of a forwarded task. The daemon answers with the
 // crh-priv input error codes, which crhs defines identically.
 func (a *Agent) forwardInput(ctx context.Context, t *task, in *protocol.TaskInput) (any, error) {
-	if err := a.relayForward(ctx, protocol.CmdTaskInput, in, nil); err != nil {
+	err := a.relayForward(ctx, protocol.CmdTaskInput, in, nil)
+	if err != nil {
+		var remote *protocol.RemoteError
+		if errors.As(err, &remote) && remote.Code == "privileged_unavailable" {
+			// The chunk did not reach the daemon (or its answer was lost), so the task can never
+			// get the input it declared. Fail the input and cancel the task there, instead of
+			// leaving it waiting for bytes that will not come.
+			a.mu.Lock()
+			a.failInputLocked(t, "input_incomplete", "the privileged mode did not accept the task input")
+			a.mu.Unlock()
+		}
 		return nil, err
 	}
 	a.mu.Lock()
@@ -516,7 +555,7 @@ func (a *Agent) forwardInput(ctx context.Context, t *task, in *protocol.TaskInpu
 
 // cancelForwardTask cancels a forwarded task on the daemon, for an input that can never complete.
 func (a *Agent) cancelForwardTask(taskID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), forwardRequestTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), a.forwardTimeout())
 	defer cancel()
 	if err := a.relayForward(ctx, protocol.CmdTaskCancel, protocol.TaskCancel{TaskID: taskID}, nil); err != nil {
 		a.log.Debug("cancel a forwarded task", "task", taskID, "err", err)

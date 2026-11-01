@@ -86,7 +86,7 @@ describe("Noise_IK_25519_ChaChaPoly_BLAKE2s", () => {
 	});
 });
 
-function handshake(prologue = Buffer.from("crh/1")): { i: TransportCiphers; r: TransportCiphers } {
+function handshake(prologue = Buffer.from("crh/2")): { i: TransportCiphers; r: TransportCiphers } {
 	const server = generateKeyPair();
 	const client = generateKeyPair();
 	const initiator = HandshakeState.initiator({ prologue, staticKey: client, remoteStaticKey: server.publicKey });
@@ -123,11 +123,11 @@ describe("handshake failures", () => {
 	it("fails when the prologues differ (replay onto another connection's challenge)", () => {
 		const server = generateKeyPair();
 		const initiator = HandshakeState.initiator({
-			prologue: Buffer.from("crh/1 challenge-A"),
+			prologue: Buffer.from("crh/2 challenge-A"),
 			staticKey: generateKeyPair(),
 			remoteStaticKey: server.publicKey,
 		});
-		const responder = HandshakeState.responder({ prologue: Buffer.from("crh/1 challenge-B"), staticKey: server });
+		const responder = HandshakeState.responder({ prologue: Buffer.from("crh/2 challenge-B"), staticKey: server });
 		expect(() => responder.readMessage(initiator.writeMessage(new Uint8Array(0)))).toThrow(NoiseError);
 	});
 
@@ -173,7 +173,7 @@ describe("interop fixture", () => {
 			readFileSync(new URL("../../../test/interop/noise-crh.json", import.meta.url), "utf8"),
 		) as Record<string, string>;
 		const b = (k: string) => hex(f[k] ?? "");
-		const prologue = Buffer.concat([Buffer.from("crh/1"), b("challenge")]);
+		const prologue = Buffer.concat([Buffer.from("crh/2"), b("challenge")]);
 		const server = keyPairFromPrivate(b("server_static"));
 		const i = HandshakeState.initiator({
 			prologue,

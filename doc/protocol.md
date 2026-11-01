@@ -2,7 +2,7 @@
 
 [execution-plane.md](execution-plane.md#自有协议m35) 规定协议的语义；本文规定**线上格式**，TS（`packages/protocol`）和 Go（`client/internal/protocol`）都按本文手写，用 `test/interop/` 的 fixture 交叉验证。两者不一致时以本文为准；本文有歧义时先改本文。
 
-协议版本：`protocol_major = 1`，`protocol_minor = 1`（M4 新增命令，见 [M4：提权](#m4提权)；`minor = 0` 是 M3.5 的命令集合）。Noise prologue 仍为 `"crh/1" ‖ 挑战`。
+协议版本：`protocol_major = 2`，`protocol_minor = 0`。大版本 2 是本批的不兼容修改（`file.read` 改为按行、`task.exit` 增加第 8 个元素 `result`）；大版本 1 中 `minor = 1` 是 M4 的命令集合，`minor = 0` 是 M3.5 的命令集合。Noise prologue 为 `"crh/2" ‖ 挑战`。
 
 ## 编码规则
 
@@ -34,8 +34,10 @@ HandshakeResponse = [protocol_major: uint, protocol_minor: uint, commands: [text
 ```
 
 - `commands` 是本方实现的**全部命令名和事件名**（两个方向都算）。双方之后只发送交集中的命令/事件。
-- 大版本不匹配：crhs 以 WebSocket close 1008、reason `protocol_major mismatch: server 1, client N` 拒绝；crha 收到不同大版本的响应时关闭连接并报告。两者都按握手失败处理（`HandshakeError`）。
-- 交集缺少本文列为**必需**的名字时同样拒绝握手（reason `missing required command: <name>`）。1.0 中下文表格列出的全部名字都是必需的；1.1 新增的名字是可选的，交集里没有时 crhs 视该节点不支持 `forward`（见 [M4：提权](#m4提权)）。
+- 大版本不匹配：crhs 以 WebSocket close 1008、reason `protocol_major mismatch: server 2, client N` 拒绝；crha 收到不同大版本的响应时关闭连接并报告。两者都按握手失败处理（`HandshakeError`）。Noise prologue 是 `"crh/<大版本>" ‖ 挑战`，所以大版本不同的对端在握手本身（读第一条 Noise 消息时）就失败。
+- 小版本只做增量：`protocol_minor` 不同不拒绝握手。新命令/事件都是可选的，靠 `commands` 交集协商；只有缺了本方需要的名字才拒绝。不兼容的修改升大版本，不升小版本。
+- crha、它的特权模式（daemon / native helper）和 crhs 必须一起升级；不提供跨大版本的兼容层。
+- 交集缺少本文列为**必需**的名字时同样拒绝握手（reason `missing required command: <name>`）。M3.5 中下文表格列出的全部名字都是必需的；M4 新增的名字是可选的，交集里没有时 crhs 视该节点不支持 `forward`（见 [M4：提权](#m4提权)）。
 
 ## 帧
 
@@ -90,7 +92,7 @@ OutputMode = ["full",   [spill_bytes: uint, spill_lines: uint]]   ; 单任务：
            | ["status", []]                                         ; 批量 status：不推送输出，总是落盘
 
 TaskSpec   = ["exec",      ExecSpec]
-           | ["file.read",  [path: text, offset: uint, limit: uint]]
+           | ["file.read",  [path: text, start_line: uint, line_count: uint]]
            | ["file.write", [path: text, content: InputRef, overwrite: bool, mode: uint, owner: text, group: text]]
            | ["file.edit",  [path: text, edits: [[old_text: text, new_text: text]]]]
            | ["file.stat",  [path: text]]
@@ -117,9 +119,10 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
     | `authorization_rejected` | 已吊销、已用、指令限制不覆盖本任务、违反 `require_exact` / `require_task` / `require_uv`、防护规则/env/路径拒绝、缺联署、信任项没有 `execute` |
 
     `message` 写明失败的校验步骤（privilege.md 的“校验流程”编号）。规则和路径拒绝也是可重试的：crhs 签名路径被拒，不代表所有者的签名也会被拒；crhs 重试时不会再走同一条 crhs 签名路径（D83），不会循环。
-  - 终态（任务结束为 `failed`，`error_code` 即此码）：`invalid_spec`（空 id、哈希长度不对等、`size` 为 0 但 `sha256` 不是空输入的 SHA-256）、`unsupported_kind`、`privileged_unsupported`（`reject` 模式；`native` 的提权工具不可用或 helper 版本不符；1.0 的 crha）、`privileged_unavailable`（`forward` 但特权模式不可达）、`local_policy_denied`、`already_accepted`（校验第 5 步：本任务 id 已在本机执行过）。
-- `forward` 时非特权模式把 `task.start` 原样转给特权模式（见 [crh-priv](#crh-priv非特权模式--特权模式)），特权模式的响应就是这里的响应。非特权模式在转发 `authorization_*` 错误之前，先向特权模式重新查询 `TrustSummary`，digest 变化时先发 `trust.summary` 事件，再发错误响应；因此 crhs 处理错误时缓存已经是最新的。
+  - 终态（任务结束为 `failed`，`error_code` 即此码）：`invalid_spec`（空 id、哈希长度不对等、`size` 为 0 但 `sha256` 不是空输入的 SHA-256）、`unsupported_kind`、`privileged_unsupported`（`reject` 模式；`native` 的提权工具不可用或 helper 版本不符；M3.5 的 crha）、`privileged_unavailable`（`forward` 但特权模式不可达）、`local_policy_denied`、`already_accepted`（校验第 5 步：本任务 id 已在本机执行过）。
+- `forward` 时非特权模式把 `task.start` 原样转给特权模式（见 [crh-priv](#crh-priv非特权模式--特权模式)），特权模式的响应就是这里的响应。转发请求有超时（30 秒）：超时的 `task.start` 当作已接受（请求可能已在特权模式排队，之后仍会执行），非特权模式尽力请特权模式取消它，并以 `helper_lost` 结束（结果未知，crhs 不重试）。非特权模式在转发 `authorization_*` 错误之前，先向特权模式重新查询 `TrustSummary`，digest 变化时先发 `trust.summary` 事件，再发错误响应；因此 crhs 处理错误时缓存已经是最新的。
 - `task.input` 只在成功响应之后发送；crhs 可以流水线发送多个分块，不必逐个等待响应；crha 按顺序处理。
+- `file.read` 按行读：`start_line` 从 1 开始，任务是"从这一行起最多 `line_count` 行，整页不超过 50KB（`FileReadMaxBytes`）"。节点从文件开头扫到起始行，只发整行，遇到第一条放不下的行就停下，**不读到文件末尾**。stdout 是页面字节本身（保留文件自己的换行）；页面之外的信息放在 `task.exit` 的 `result`（见 [TaskResult](#taskresult)），不进输出流：`from` / `to` 是页面首行和末行的行号，页面为空时都是 0；`eof` 表示扫描到了文件末尾；`total` 只在 `eof` 时出现，是文件总行数；`too_long` 表示请求的首行本身就超过 50KB，此时页面为空。
 
 ## 事件
 
@@ -134,11 +137,27 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
 
 ```text
 TaskExit = [task_id: text, outcome: Outcome, timed_out: bool, cancelled: bool,
-            stdout_end: uint, stderr_end: uint, output_file: text]
+            stdout_end: uint, stderr_end: uint, output_file: text, result: TaskResult?]
 Outcome  = ["code", int] | ["signal", text] | ["error", Error]      ; signal 不带 SIG 前缀
+
+TaskResult = ["file.read",  FileReadResult]
+           | ["file.write", FileWriteResult]
+           | ["file.edit",  FileEditResult]
+           | ["file.stat",  FileStatResult]
+           | ["file.list",  FileListResult]
+
+FileReadResult  = [from: uint, to: uint, eof: bool, total: uint?, too_long: bool]
+FileWriteResult = [bytes: uint, created: bool]
+FileEditResult  = [replacements: uint]
+FileStatResult  = [path: text, type: "file" | "dir" | "symlink" | "other", size: int, mode: text,
+                   uid: int, gid: int, owner: text, group: text, mtime: text, link_target: text?]
+FileListResult  = [entries: [FileListEntry], truncated: bool]
+FileListEntry   = [name: text, type: "file" | "dir" | "symlink" | "other", size: int, mode: text, mtime: text]
 
 Facts    = {text: any}                    ; CBOR map，文本键，见下表
 ```
+
+
 
 `Facts` 是本协议中唯一不用定长元组的结构：它描述节点，会随版本增减条目，不参与授权、签名和哈希。规则：
 
@@ -157,6 +176,23 @@ Facts    = {text: any}                    ; CBOR map，文本键，见下表
 - 线上键名用 snake_case；JSON 形式（`factsToJson` / `factsFromJson`）是 camelCase 对象，缺失的键省略。crhs 数据库中已有的 `nodes.facts`（旧的完整对象，没有 `shells`）照常可读。SSH 节点的 facts 只有 `shells`（来自连接探测，见 [execution-plane.md](execution-plane.md#执行)），不经过线上编码。
 
 - 输入类错误码（`Outcome` 的 `error` 分支）：`input_mismatch`（输入与 `InputRef` 不符：比声明的大小长，或 SHA-256 不同；任务若在运行则被杀掉）、`input_incomplete`（连接在输入收齐前断开；任务被杀掉）。
+
+### TaskResult
+
+任务的结构化结果只在 `task.exit` 的 `result` 里：类型由任务种类决定，不送到输出流，`null` 表示没有结果。只有产生结构化数据的种类有分支；`exec` 没有。`size`、`uid`、`gid` 是 `int`（非 Unix 节点上 `uid` / `gid` 为 -1），`mode` 是四位八进制权限文本，`mtime` 是 RFC 3339 时间；`link_target` 只在 `path` 是符号链接时出现。结果只在任务成功结束时出现，失败的任务没有结果。
+
+结果必须能放进一帧：`file.list` 的条目字段合计到 `FileListMaxBytes`（32 KiB）就停止列出，并把 `truncated` 置为 true，所以`task.exit` 不会因为目录很大而超出 `MAX_FRAME_BYTES`。
+
+```text
+TaskResult = ["file.read", [from: 1, to: 3, eof: true, total: 3, too_long: false]]
+TaskResult = ["file.stat", [path: "/etc/hosts", type: "file", size: 220, mode: "0644",
+                            uid: 0, gid: 0, owner: "root", group: "root",
+                            mtime: "2026-01-01T00:00:00Z", link_target: null]]
+TaskResult = ["file.list", [[[name: "a.txt", type: "file", size: 3, mode: "0644",
+                              mtime: "2026-01-01T00:00:00Z"]], truncated: false]]
+TaskResult = ["file.write", [bytes: 3, created: true]]
+TaskResult = ["file.edit", [replacements: 1]]
+```
 
 ## M4：提权
 
@@ -245,12 +281,14 @@ Signature            = ["sshsig", [blob: bytes]]
 - 握手是第一对帧，不经过 Noise：
 
 ```text
-PrivHello   = [priv_major: 1, priv_minor: 0, commands: [text], crha_version: text,
+PrivHello   = [priv_major: 2, priv_minor: 0, commands: [text], crha_version: text,
                role: "forward" | "native" | "local"]
-PrivWelcome = [priv_major: 1, priv_minor: 0, commands: [text], crha_version: text]
+PrivWelcome = [priv_major: 2, priv_minor: 0, commands: [text], crha_version: text]
 ```
 
-- 必需的名字：`native` 是 `task.*` 这一组；`forward` 是 `task.*`、`trust.query`、`trust.summary`，其余（`revocations.add`、`local.*`）可选，缺少时非特权模式不提供对应功能；`local` 是该角色的全部名字。之后新增的名字都是可选的，`priv_minor` 保持 0，靠名字协商。
+- 必需的名字：`native` 是 `task.*` 这一组；`forward` 是 `task.*`、`trust.query`、`trust.summary`，其余（`revocations.add`、`local.*`）可选，缺少时非特权模式不提供对应功能；`local` 是该角色的全部名字。之后新增的名字都是可选的，靠名字协商。
+- `priv_major` 必须相等：任一方发现对端的 `priv_major` 不同就关闭连接。大版本 2 是本批的版本（`task.exit` 增加 `result`、`file.read` 改为按行）；`crha` 及其特权模式总是一起升级，所以旧的特权模式进程不会被新的非特权模式使用。`priv_minor` 只做增量（新增可选名字），不参与拒绝。
+- `forward` 下非特权模式还要求 `PrivWelcome.crha_version` 与自己完全相同。不同时按特权模式不可达处理：特权任务以 `privileged_unavailable` 失败，非特权模式记一条日志，写明双方的版本。这覆盖了只换 `crha` 二进制、没有重启特权模式的升级。
 - `role` 必须与对端身份一致：`forward` 要求 peer uid 等于 `unprivileged_uid`；`local` 要求 peer uid 在某个 `local` 信任项的 `uids` 中；`native` 只在 stdio 上出现，此时要求 `crha_version` 完全相等。不一致时特权侧关闭连接。
 
 | 名称 | 方向 | role | 说明 |
@@ -280,16 +318,27 @@ PrivWelcome = [priv_major: 1, priv_minor: 0, commands: [text], crha_version: tex
 // TaskSpec：kind 即线上 tag，其余字段 camelCase，全部出现
 { "kind": "exec", "command": { "argv": ["ls", "-l"] }, "env": {}, "cwd": "", "stdin": null }
 { "kind": "exec", "command": { "shell": "ls | wc -l" }, "env": {}, "cwd": "", "stdin": { "size": 3, "sha256": "<64 位 hex>" } }
-{ "kind": "file.read", "path": "/etc/hosts", "offset": 0, "limit": 0 }
+{ "kind": "file.read", "path": "/etc/hosts", "startLine": 1, "lineCount": 100 }
 { "kind": "file.write", "path": "/tmp/x", "content": { "size": 3, "sha256": "<hex>" }, "overwrite": false, "mode": 0, "owner": "", "group": "" }
 { "kind": "file.edit", "path": "/tmp/x", "edits": [{ "oldText": "a", "newText": "b" }] }
 { "kind": "file.stat", "path": "/tmp/x" }
 { "kind": "file.list", "path": "/tmp", "limit": 0 }
 
-// Facts：键名与原 protobuf JSON 相同（camelCase），全部出现，数字为 number
+// Facts：键名与原 protobuf JSON 相同（camelCase），缺失的可选键省略（下面列出全部键），数字为 number
 { "hostname": "...", "osId": "...", "osVersionId": "...", "osPrettyName": "...", "kernel": "...", "arch": "...",
   "initSystem": "...", "packageManagers": [], "privilegeTools": [], "notesPath": "...", "groups": [], "clockOffsetMs": 0 }
+
+// TaskResult：同样的 camelCase，可空字段为 null 而不是省略；kind 即线上 tag
+{ "kind": "file.read", "from": 1, "to": 3, "eof": true, "total": 3, "tooLong": false }
+{ "kind": "file.stat", "path": "/etc/hosts", "type": "file", "size": 220, "mode": "0644", "uid": 0, "gid": 0,
+  "owner": "root", "group": "root", "mtime": "2026-01-01T00:00:00Z", "linkTarget": null }
+{ "kind": "file.list", "entries": [{ "name": "a.txt", "type": "file", "size": 3, "mode": "0644",
+  "mtime": "2026-01-01T00:00:00Z" }], "truncated": false }
+{ "kind": "file.write", "bytes": 3, "created": true }
+{ "kind": "file.edit", "replacements": 1 }
 ```
+
+`TaskResult` 的 JSON 形式由 `packages/protocol` 提供（`taskResultToJson` / `taskResultFromJson`），crhs 把它原样存在 `tasks.result` 中，Web API 作为任务的 `result` 返回。
 
 已有数据库行中的 protobuf JSON（`tasks.spec`、`task_groups.spec`、`nodes.facts`）由一个迁移转换成上述形式；迁移自带转换代码，不引用 `packages/protocol`。protobuf JSON 中 `exec` 的 `argv` 非空时转为 `{argv}`，否则转为 `{shell}`；省略的默认值补齐；int64 字符串转 number；bytes 的 base64 转 hex；缺失的 `stdin` 为 `null`，缺失的 `file.write` `content` 为空输入（size 0、空串的 SHA-256）。`task_groups.kind` 中的 protobuf 分支名（`fileRead` 等）同时改为线上 tag（`file.read` 等），与 `tasks.kind` 一致。无法解析的行保持原样并在迁移日志中报告，不中断迁移。
 

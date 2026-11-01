@@ -459,6 +459,81 @@ func TestBatchOutputModes(t *testing.T) {
 	}
 }
 
+// TestTaskExitCarriesFileResult covers a file task that runs on the crha itself: its structured
+// result travels in task.exit, and its output streams stay empty (doc/protocol.md TaskResult).
+func TestTaskExitCarriesFileResult(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "f.txt")
+	if err := os.WriteFile(path, []byte("abc"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	serverKey, err := noise.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "stat-1"
+	log := &frameLog{}
+	exitCh := make(chan protocol.TaskExit, 1)
+	factsReady := make(chan struct{})
+	srv := startFake(t, serverKey, fakeConfig{
+		log: log,
+		setup: func(p *protocol.Peer) {
+			p.HandleEvent(protocol.EventFacts, func(body cbor.RawMessage) error {
+				var f protocol.Facts
+				if err := protocol.Unmarshal(body, &f); err != nil {
+					return err
+				}
+				signal(factsReady)
+				return nil
+			})
+			p.HandleEvent(protocol.EventTaskExit, func(body cbor.RawMessage) error {
+				var exit protocol.TaskExit
+				if err := protocol.Unmarshal(body, &exit); err != nil {
+					return err
+				}
+				select {
+				case exitCh <- exit:
+				default:
+				}
+				return nil
+			})
+		},
+		run: func(ctx context.Context, p *protocol.Peer) {
+			<-factsReady
+			var empty protocol.Empty
+			ts := protocol.TaskStart{
+				TaskID: id, Attempt: 1,
+				Spec:   protocol.TaskSpec{Kind: protocol.TaskSpecFileStat, FileStat: &protocol.FileStatSpec{Path: path}},
+				Output: protocol.OutputMode{Kind: protocol.OutputFull, SpillBytes: 1 << 20, SpillLines: 2000},
+			}
+			if err := p.Request(ctx, protocol.CmdTaskStart, ts, &empty); err != nil {
+				t.Errorf("task.start: %v", err)
+			}
+		},
+	})
+	a := newTestAgent(t, Options{})
+	startSession(t, a, dialTo(t, srv, serverKey))
+
+	exit := waitCh(t, exitCh, "task.exit")
+	if exit.TaskID != id || exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
+		t.Fatalf("task.exit = %+v", exit)
+	}
+	if exit.Result == nil || exit.Result.Kind != protocol.TaskResultFileStat || exit.Result.FileStat == nil {
+		t.Fatalf("task.exit result = %+v", exit.Result)
+	}
+	if st := exit.Result.FileStat; st.Path != path || st.Size != 3 || st.Type != "file" {
+		t.Fatalf("file.stat result = %+v", st)
+	}
+	// The stat carries no stdout, and nothing at all was written to stderr.
+	if exit.StdoutEnd != 0 || exit.StderrEnd != 0 {
+		t.Fatalf("ends = %d/%d, want 0/0", exit.StdoutEnd, exit.StderrEnd)
+	}
+	for _, frame := range log.snapshot() {
+		if frame == "event task.output" {
+			t.Fatalf("a file.stat task sent task.output: %v", log.snapshot())
+		}
+	}
+}
+
 func TestTaskStartResponsePrecedesEvents(t *testing.T) {
 	serverKey, err := noise.GenerateKeypair()
 	if err != nil {
@@ -528,9 +603,9 @@ func TestTaskStartWithLostResponseIsExecuted(t *testing.T) {
 	a := newTestAgent(t, Options{})
 
 	// Reproduce the lost response with the peer a session builds: hand it a task.start request
-	// whose response cannot be delivered because its connection is already closed. Peer accepts the
-	// task but never calls Deferred.After, leaving exactly the state of a send failure on a live
-	// session: the task is in a.tasks, unstarted, and in the accepted set.
+	// whose response cannot be delivered because its connection is already closed. The peer
+	// accepts the task but never calls Deferred.After, leaving exactly the state of a send failure
+	// on a live session: the task is in a.tasks, unstarted, and in the accepted set.
 	deadServer := startFake(t, serverKey, fakeConfig{})
 	dead := dialTo(t, deadServer, serverKey)
 	if err := dead.Close("response lost"); err != nil {
@@ -550,11 +625,24 @@ func TestTaskStartWithLostResponseIsExecuted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := peer.Receive(frame); err == nil {
-		t.Fatal("task.start response was delivered on a closed connection")
+	// The request worker handles the request; the response send fails there and the peer closes,
+	// so Receive returns before the handler ran.
+	if err := peer.Receive(frame); err != nil {
+		t.Fatalf("Receive: %v", err)
 	}
-	if present, started := taskProgress(a, "lost-1"); !present || started {
-		t.Fatalf("task after the lost response: present = %v, started = %v, want present and not started", present, started)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		present, started := taskProgress(a, "lost-1")
+		if present {
+			if started {
+				t.Fatal("task was started although its response could not be sent")
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("task after the lost response was not accepted")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 
 	// The accepting connection is gone, so nothing will ever call After for this task. A session
@@ -1314,7 +1402,9 @@ func TestTaskExitWithOversizedErrorIsEmitted(t *testing.T) {
 				Spec: protocol.TaskSpec{Kind: protocol.TaskSpecFileRead, FileRead: &protocol.FileReadSpec{
 					// A relative path is rejected immediately; quoting it makes the error
 					// message far larger than MaxErrorMessageBytes.
-					Path: strings.Repeat("\x01", 15400),
+					Path:      strings.Repeat("\x01", 15400),
+					StartLine: 1,
+					LineCount: 1,
 				}},
 				Output: protocol.OutputMode{Kind: protocol.OutputFull, SpillBytes: 1 << 20, SpillLines: 2000},
 			}
@@ -1407,6 +1497,66 @@ func TestAcceptedSetEviction(t *testing.T) {
 	}
 	if !hasT4 || size != maxAcceptedTasks {
 		t.Fatalf("accepted = %v, hasT4 = %v", size, hasT4)
+	}
+}
+
+// TestAcceptedSetKeepsRunningTasks covers the eviction rule: an id whose task is still held is never
+// evicted, and a re-sent task.start for it is refused. Evicting it would let the duplicate overwrite
+// the running task in a.tasks, and the task would be executed twice.
+func TestAcceptedSetKeepsRunningTasks(t *testing.T) {
+	old := maxAcceptedTasks
+	maxAcceptedTasks = 2
+	defer func() { maxAcceptedTasks = old }()
+
+	a := newTestAgent(t, Options{})
+	ctx := context.Background()
+	startTask := func(id, shell string) (any, error) {
+		ts := execTask(id, shell)
+		return a.start(ctx, &ts)
+	}
+	if _, err := startTask("live", "sleep 30"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := startTask("done", "true"); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	live := a.tasks["live"]
+	// A finished task whose exit was acknowledged leaves a.tasks but stays in the accepted set;
+	// that id is the one the next accepts may evict.
+	delete(a.tasks, "done")
+	a.mu.Unlock()
+
+	// Filling the set past the limit must skip the running task and evict the finished one.
+	if _, err := startTask("next", "true"); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	_, liveAccepted := a.accepted["live"]
+	_, doneAccepted := a.accepted["done"]
+	size := len(a.accepted)
+	a.mu.Unlock()
+	if !liveAccepted {
+		t.Fatal("the accepted id of a running task was evicted")
+	}
+	if doneAccepted {
+		t.Fatal("the accepted id of a finished task was not evicted")
+	}
+	if size != maxAcceptedTasks {
+		t.Fatalf("accepted set has %d ids, want %d", size, maxAcceptedTasks)
+	}
+
+	// The same id cannot be accepted again while its task is held.
+	_, err := startTask("live", "true")
+	var remote *protocol.RemoteError
+	if !errors.As(err, &remote) || remote.Code != "already_accepted" {
+		t.Fatalf("re-sent task.start = %v, want already_accepted", err)
+	}
+	a.mu.Lock()
+	still := a.tasks["live"]
+	a.mu.Unlock()
+	if still != live {
+		t.Fatal("the running task was overwritten by the duplicate")
 	}
 }
 

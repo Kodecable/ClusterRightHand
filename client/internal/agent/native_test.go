@@ -243,7 +243,7 @@ func TestPrivilegedNativeFileRead(t *testing.T) {
 	}
 	ts := protocol.TaskStart{
 		TaskID: "native-read", Attempt: 1, Privileged: true,
-		Spec:   protocol.TaskSpec{Kind: protocol.TaskSpecFileRead, FileRead: &protocol.FileReadSpec{Path: path}},
+		Spec:   protocol.TaskSpec{Kind: protocol.TaskSpecFileRead, FileRead: &protocol.FileReadSpec{Path: path, StartLine: 1, LineCount: 10}},
 		Output: protocol.OutputMode{Kind: protocol.OutputFull, SpillBytes: 1 << 20, SpillLines: 2000},
 	}
 	w := newNativeWatch()

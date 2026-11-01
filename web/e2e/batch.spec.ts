@@ -1,4 +1,4 @@
-import { appendFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { runCrha } from "../../server/test/e2e/harness.ts";
 import { expect, test } from "./fixtures.ts";
 
@@ -41,9 +41,11 @@ test("batch status shows the node's output file instead of output", async ({ adm
 });
 
 test("runs a batch on a group target", async ({ adminPage: page, crhs, env }) => {
-	// A crha node's groups come from its own config.
+	// A crha node's groups come from its own config. The harness config already sets one group, so
+	// replace that line instead of appending a second one.
 	if (!env) throw new Error("withNode");
-	await appendFile(env.configPath, 'groups = ["web"]\n');
+	const original = await readFile(env.configPath, "utf8");
+	await writeFile(env.configPath, `${original.replace(/^groups = .*\n/m, "")}groups = ["web"]\n`);
 	expect((await runCrha(env.bin, ["reload", "--config", env.configPath])).code).toBe(0);
 	await expect
 		.poll(async () => (await crhs.api(`/api/nodes/${env.nodeId}`)).json.node.groups, { timeout: 10_000 })

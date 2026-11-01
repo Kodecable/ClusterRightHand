@@ -14,35 +14,49 @@ import (
 
 var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
 
-func fileEdit(s *protocol.FileEditSpec, stdout io.Writer) error {
+func fileEdit(s *protocol.FileEditSpec) (*protocol.TaskResult, error) {
 	path := s.Path
 	if err := checkPath(path); err != nil {
-		return err
+		return nil, err
 	}
 	if len(s.Edits) == 0 {
-		return errf("invalid_spec", "edits must not be empty")
+		return nil, errf("invalid_spec", "edits must not be empty")
 	}
-	f, err := os.Open(path)
+	// A link is a name for its target: edit the target and keep the link, instead of replacing the
+	// link with a regular file (file.go resolveWriteTarget).
+	target, _, err := resolveWriteTarget(path)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	f, err := openReadPath(target)
+	if err != nil {
+		return nil, err
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if fi.IsDir() {
-		return errf("is_directory", "%s is a directory", path)
+		return nil, errf("is_directory", "%s is a directory", path)
+	}
+	if err := checkNotSpecial(fi, path); err != nil {
+		return nil, err
+	}
+	if fi.Mode().IsRegular() {
+		if err := clearNonblocking(f); err != nil {
+			return nil, err
+		}
 	}
 	if fi.Size() > maxEditSize {
-		return errf("too_large", "%s is %d bytes, limit is %d", path, fi.Size(), maxEditSize)
+		return nil, errf("too_large", "%s is %d bytes, limit is %d", path, fi.Size(), maxEditSize)
 	}
 	raw, err := io.ReadAll(io.LimitReader(f, maxEditSize+1))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(raw) > maxEditSize {
-		return errf("too_large", "%s exceeds %d bytes", path, maxEditSize)
+		return nil, errf("too_large", "%s exceeds %d bytes", path, maxEditSize)
 	}
 
 	var bom []byte
@@ -53,15 +67,15 @@ func fileEdit(s *protocol.FileEditSpec, stdout io.Writer) error {
 	ending := detectLineEnding(text)
 	out, err := applyEdits(normalizeToLF(text), s.Edits, path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if ending == "\r\n" {
 		out = strings.ReplaceAll(out, "\n", "\r\n")
 	}
 
-	tmp, err := createTemp(path)
+	tmp, err := createTemp(target)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ok := false
 	defer func() {
@@ -70,20 +84,22 @@ func fileEdit(s *protocol.FileEditSpec, stdout io.Writer) error {
 		}
 	}()
 	if _, err := tmp.Write(append(bom[:len(bom):len(bom)], out...)); err != nil {
-		return err
+		return nil, err
 	}
 	uid, gid := statIDs(fi)
 	if err := tmp.Chown(uid, gid); err != nil && !errors.Is(err, os.ErrPermission) {
-		return err
+		return nil, err
 	}
 	if err := tmp.Chmod(fi.Mode() & (fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)); err != nil {
-		return err
+		return nil, err
 	}
-	if err := tmp.publish(path, false); err != nil {
-		return err
+	if err := tmp.publish(target, false); err != nil {
+		return nil, err
 	}
 	ok = true
-	return writeJSON(stdout, map[string]any{"replacements": len(s.Edits)})
+	return &protocol.TaskResult{Kind: protocol.TaskResultFileEdit, FileEdit: &protocol.FileEditResult{
+		Replacements: protocol.Uint(len(s.Edits)),
+	}}, nil
 }
 
 func detectLineEnding(s string) string {

@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +31,9 @@ import (
 	privconfig "github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/daemon"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/localclient"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 )
 
 // errTimeout reports a missing event or reply; the fake crhs returns it instead of failing the
@@ -78,6 +82,9 @@ type privEnv struct {
 	stateDir string
 	logPath  string
 	keys     *privKeys
+	// daemonVersion overrides the version the daemon reports in PrivWelcome; empty means this
+	// build's version, like a daemon started from the same binary as the non-privileged mode.
+	daemonVersion string
 
 	cancel context.CancelFunc
 	done   chan error
@@ -121,7 +128,11 @@ func (e *privEnv) start() {
 	if err != nil {
 		e.t.Fatalf("open privileged log: %v", err)
 	}
-	server, err := daemon.New(cfg, daemon.Options{ConfigPath: e.config, Version: "test", Log: log})
+	reportVersion := e.daemonVersion
+	if reportVersion == "" {
+		reportVersion = version.Version
+	}
+	server, err := daemon.New(cfg, daemon.Options{ConfigPath: e.config, Version: reportVersion, Log: log})
 	if err != nil {
 		log.Close()
 		e.t.Fatalf("daemon.New: %v", err)
@@ -519,7 +530,7 @@ func expectRemoteCode(t *testing.T, err error, code string) *protocol.RemoteErro
 // ------------------------------- tests -------------------------------
 
 // TestTrustSummaryNotForward covers the report of every mode that does not forward: crha advertises
-// protocol 1.1 and answers its commands with privileged_unsupported.
+// M4 and answers its commands with privileged_unsupported.
 func TestTrustSummaryNotForward(t *testing.T) {
 	for _, mode := range []string{config.ModeNative, config.ModeIgnore, config.ModeReject} {
 		t.Run(mode, func(t *testing.T) {
@@ -577,6 +588,63 @@ func TestForwardTrustReports(t *testing.T) {
 	}
 	if report.Summary.Trust[0].Role != protocol.TrustRoleCRHS {
 		t.Fatalf("trust entry = %+v", report.Summary.Trust[0])
+	}
+}
+
+// TestForwardDaemonVersionMismatch covers a crha binary upgraded without restarting its privileged
+// mode: the daemon runs the old binary and reports its crha_version in PrivWelcome. The forward
+// connection is refused like an unreachable daemon (doc/protocol.md, crh-priv): privileged tasks
+// fail with privileged_unavailable, and the warning names both versions.
+func TestForwardDaemonVersionMismatch(t *testing.T) {
+	keys := newPrivKeys(t)
+	env := newPrivEnv(t, keys, func(e *privEnv) string { return e.crhsOnlyConfig() })
+	env.daemonVersion = "0.1.0-old"
+	env.start()
+
+	handler := &recordHandler{}
+	a := forwardAgent(t, Options{PrivilegedSocket: env.socket, Logger: slog.New(handler)})
+
+	w := newCRHSWatch()
+	replies := make(chan error, 1)
+	serveForward(t, a, w, func(ctx context.Context, p *protocol.Peer) error {
+		replies <- requestStart(ctx, p, privilegedTask("old-daemon", "true"))
+		return nil
+	})
+
+	remote := expectRemoteCode(t, waitCh(t, replies, "the privileged task.start"), "privileged_unavailable")
+	if !strings.Contains(remote.Message, "not reachable") {
+		t.Fatalf("message = %q, want the unreachable-daemon refusal", remote.Message)
+	}
+	// The mismatch is reported like an unreachable daemon: the unavailable report carries the
+	// refused handshake and a warning names both versions.
+	report := waitSummaryWhere(t, w, "the unavailable report", func(r protocol.TrustReport) bool {
+		return r.Kind == protocol.TrustReportUnavailable && strings.Contains(r.Message, env.daemonVersion)
+	})
+	if !strings.Contains(report.Message, version.Version) {
+		t.Fatalf("unavailable message %q does not name both versions", report.Message)
+	}
+	logDeadline := time.Now().Add(10 * time.Second)
+	for {
+		var text strings.Builder
+		warned := false
+		for _, record := range handler.all() {
+			if record.Level != slog.LevelWarn || !strings.Contains(record.Message, "not reachable") {
+				continue
+			}
+			warned = true
+			text.WriteString(record.Message)
+			record.Attrs(func(attr slog.Attr) bool {
+				text.WriteString(" " + attr.Value.String())
+				return true
+			})
+		}
+		if warned && strings.Contains(text.String(), env.daemonVersion) && strings.Contains(text.String(), version.Version) {
+			break
+		}
+		if time.Now().After(logDeadline) {
+			t.Fatalf("no warning naming %q and %q; records = %+v", env.daemonVersion, version.Version, handler.all())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -668,6 +736,13 @@ func TestForwardFileWrite(t *testing.T) {
 	_, _, exit := waitExit(t, w)
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
+	}
+	// The daemon's result reaches crhs through the relay unchanged (doc/protocol.md TaskResult).
+	if exit.Result == nil || exit.Result.FileWrite == nil {
+		t.Fatalf("task.exit result = %+v", exit.Result)
+	}
+	if got := exit.Result.FileWrite; got.Bytes != protocol.Uint(len(content)) || !got.Created {
+		t.Fatalf("file.write result = %+v", got)
 	}
 	written, err := os.ReadFile(path)
 	if err != nil {
@@ -881,7 +956,7 @@ func TestForwardLocalApproval(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	client, err := localclient.Dial(ctx, env.socket, "test")
+	client, err := localclient.Dial(ctx, env.socket, version.Version)
 	if err != nil {
 		t.Fatalf("local client: %v", err)
 	}
@@ -1077,4 +1152,257 @@ func logRecords(t *testing.T, path string) []map[string]any {
 // tests do.
 func syscallKillHup() error {
 	return syscall.Kill(os.Getpid(), syscall.SIGHUP)
+}
+
+// ------------------------------- wedged privileged mode -------------------------------
+
+// sessionPeer returns the peer of the active crhs connection.
+func sessionPeer(t *testing.T, a *Agent) *protocol.Peer {
+	t.Helper()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.peer == nil {
+		t.Fatal("agent has no session peer")
+	}
+	return a.peer
+}
+
+// forwardTask is a task.start the agent must forward to the privileged mode.
+func forwardTask(id string) protocol.TaskStart {
+	ts := execTask(id, "true")
+	ts.Privileged = true
+	return ts
+}
+
+// wedgedDaemon is a crh-priv forward daemon that accepts the handshake and answers trust.query, so
+// the agent treats the privileged mode as connected, but holds task.start until the test releases
+// it: the socket stays open and the request sits unanswered past the forward deadline, like a
+// process that is still stuck on it. starts reports the task.start that reached it, cancels the
+// task.cancel it answered.
+type wedgedDaemon struct {
+	starts  chan struct{}
+	cancels chan string
+	release chan struct{}
+}
+
+func newWedgedDaemon(t *testing.T, socket string) *wedgedDaemon {
+	t.Helper()
+	lis, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lis.Close() })
+	d := &wedgedDaemon{
+		starts:  make(chan struct{}, 8),
+		cancels: make(chan string, 8),
+		release: make(chan struct{}),
+	}
+	// A test that fails before releasing must not leave the handler blocked.
+	t.Cleanup(func() { signal(d.release) })
+	go func() {
+		for {
+			conn, err := lis.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				_, negotiated, err := wire.ServerHandshake(conn, conn, wire.ServerOptions{
+					Role:        wire.RoleForward,
+					CRHAVersion: version.Version,
+				})
+				if err != nil {
+					return
+				}
+				stream := wire.NewStreamFor(conn, conn, negotiated, wire.RoleForward)
+				defer stream.Close(nil)
+				peer := stream.Peer()
+				peer.HandleRequest(wire.CmdTrustQuery, func(context.Context, cbor.RawMessage) (any, error) {
+					return protocol.TrustSummary{
+						NodeID: "node-1",
+						Identities: protocol.Identities{
+							Unprivileged: protocol.Identity{UID: 1000, GID: 1000, User: "crha"},
+							Privileged:   protocol.Identity{UID: 0, GID: 0, User: "root"},
+						},
+					}, nil
+				})
+				peer.HandleRequest(protocol.CmdTaskStart, func(context.Context, cbor.RawMessage) (any, error) {
+					select {
+					case d.starts <- struct{}{}:
+					default:
+					}
+					// Answer only once the test releases the task, so the agent's deadline expires
+					// first. The agent's later task.cancel waits behind this handler, exactly like
+					// a request queued on a daemon that is still busy with task.start.
+					<-d.release
+					return protocol.Empty{}, nil
+				})
+				peer.HandleRequest(protocol.CmdTaskCancel, func(_ context.Context, body cbor.RawMessage) (any, error) {
+					var c protocol.TaskCancel
+					if err := protocol.Unmarshal(body, &c); err != nil {
+						return nil, err
+					}
+					d.cancels <- c.TaskID
+					return protocol.Empty{}, nil
+				})
+				_ = stream.Run()
+			}()
+		}
+	}()
+	return d
+}
+
+// TestForwardWedgedStartDoesNotDelayOtherTasks covers the per-task order of the request worker: a
+// forwarded task.start waits up to the forward deadline for a wedged daemon, and an ordinary
+// non-privileged task on the same crhs connection must still start, take its input and be cancelled
+// while it waits (doc/protocol.md task.start, forward).
+func TestForwardWedgedStartDoesNotDelayOtherTasks(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "priv.sock")
+	daemon := newWedgedDaemon(t, socket)
+	a := forwardAgent(t, Options{PrivilegedSocket: socket})
+	waitForward(t, a)
+
+	const input = "hello\n"
+	sum := sha256.Sum256([]byte(input))
+	plain := execTask("plain-1", "cat")
+	plain.Spec.Exec.Stdin = &protocol.InputRef{Size: protocol.Uint(len(input)), SHA256: protocol.Hash(sum)}
+
+	w := newCRHSWatch()
+	ordinary := make(chan error, 1)
+	privileged := make(chan error, 1)
+	serveForward(t, a, w, func(_ context.Context, p *protocol.Peer) error {
+		go func() { privileged <- requestStart(context.Background(), p, forwardTask("wedged-1")) }()
+		select {
+		case <-daemon.starts:
+		case err := <-privileged:
+			return fmt.Errorf("the forwarded start finished before the daemon held it: %v", err)
+		case <-time.After(10 * time.Second):
+			return errors.New("the task.start never reached the privileged mode")
+		}
+		go func() {
+			var empty protocol.Empty
+			if err := requestStart(context.Background(), p, plain); err != nil {
+				ordinary <- fmt.Errorf("ordinary task.start: %w", err)
+				return
+			}
+			if err := p.Request(context.Background(), protocol.CmdTaskInput,
+				protocol.TaskInput{TaskID: plain.TaskID, Data: []byte(input)}, &empty); err != nil {
+				ordinary <- fmt.Errorf("ordinary task.input: %w", err)
+				return
+			}
+			if err := p.Request(context.Background(), protocol.CmdTaskCancel,
+				protocol.TaskCancel{TaskID: plain.TaskID}, &empty); err != nil {
+				ordinary <- fmt.Errorf("ordinary task.cancel: %w", err)
+				return
+			}
+			ordinary <- nil
+		}()
+		return nil
+	})
+
+	if err := waitCh(t, ordinary, "the ordinary task.start, input and cancel"); err != nil {
+		t.Fatalf("%v", err)
+	}
+	// They were answered while the forwarded start still waits for the daemon, which only a
+	// per-task worker allows: the single worker would have kept them behind it.
+	select {
+	case err := <-privileged:
+		t.Fatalf("the forwarded start finished before the ordinary task: %v", err)
+	default:
+	}
+}
+
+// TestForwardRequestTimeout covers the deadline on a forwarded task.start and the receive loop
+// staying free while it waits: a privileged mode that does not answer must not stop the session
+// from processing crhs's frames (a blocked receive loop never reads the pong of the keepalive, and
+// the connection drops after its ping timeout). The task is reported accepted, because the daemon
+// may still run it, ends as helper_lost, and the daemon is asked to cancel it (doc/protocol.md
+// task.start, forward).
+func TestForwardRequestTimeout(t *testing.T) {
+	const timeout = 2 * time.Second
+	socket := filepath.Join(t.TempDir(), "priv.sock")
+	daemon := newWedgedDaemon(t, socket)
+	a := forwardAgent(t, Options{
+		PrivilegedSocket:      socket,
+		ForwardRequestTimeout: timeout,
+	})
+	waitForward(t, a)
+
+	w := newCRHSWatch()
+	startErr := make(chan error, 1)
+	serveForward(t, a, w, func(_ context.Context, p *protocol.Peer) error {
+		var empty protocol.Empty
+		startErr <- p.Request(context.Background(), protocol.CmdTaskStart, forwardTask("fwd-timeout-1"), &empty)
+		return nil
+	})
+
+	select {
+	case <-daemon.starts:
+	case err := <-startErr:
+		t.Fatalf("task.start failed before reaching the privileged mode: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the task.start never reached the privileged mode")
+	}
+	// The forwarded request is waiting for the daemon. A ping needs its pong read by the receive
+	// loop, exactly like the keepalive, and must be answered before the forward deadline.
+	peer := sessionPeer(t, a)
+	rctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var pong protocol.Ping
+	if err := peer.Request(rctx, protocol.CmdPing, protocol.Ping{Seq: 7}, &pong); err != nil {
+		t.Fatalf("ping while a forwarded request waited: %v", err)
+	}
+	if pong.Seq != 7 {
+		t.Fatalf("pong seq = %d, want 7", pong.Seq)
+	}
+	select {
+	case err := <-startErr:
+		t.Fatalf("task.start finished before its deadline: %v", err)
+	default:
+	}
+
+	select {
+	case err := <-startErr:
+		// The daemon may still accept and run the task, so the deadline must not read as a
+		// refusal: crhs would be free to re-issue it.
+		if err != nil {
+			t.Fatalf("task.start after the deadline = %v, want accepted", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("the forwarded task.start did not finish after its deadline")
+	}
+
+	// The outcome is unknowable here, so the task ends the way a lost helper does.
+	_, _, exit := waitExit(t, w)
+	if exit.TaskID != "fwd-timeout-1" {
+		t.Fatalf("task.exit = %+v", exit)
+	}
+	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "helper_lost" {
+		t.Fatalf("task.exit = %+v, want helper_lost", exit)
+	}
+	if !strings.Contains(exit.Outcome.Error.Message, "may still be running") {
+		t.Fatalf("helper_lost message = %q", exit.Outcome.Error.Message)
+	}
+
+	// Releasing task.start lets the daemon answer it and then serve the queued task.cancel.
+	signal(daemon.release)
+	select {
+	case taskID := <-daemon.cancels:
+		if taskID != "fwd-timeout-1" {
+			t.Fatalf("task.cancel for %q, want fwd-timeout-1", taskID)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the privileged mode was not asked to cancel the timed-out task")
+	}
+
+	// The session survived the timeout and still answers.
+	rctx, cancel = context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	pong = protocol.Ping{}
+	if err := peer.Request(rctx, protocol.CmdPing, protocol.Ping{Seq: 8}, &pong); err != nil {
+		t.Fatalf("ping after the timeout: %v", err)
+	}
+	if pong.Seq != 8 {
+		t.Fatalf("pong seq = %d, want 8", pong.Seq)
+	}
 }

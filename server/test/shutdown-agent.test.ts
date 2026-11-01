@@ -120,6 +120,7 @@ describe("agent runtime shutdown", () => {
 				trust_updated_at: null,
 			})
 			.execute();
+		await db.insertInto("node_groups").values({ node_id: nodeId, group_name: "batch", refreshed_at: now }).execute();
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		fake = await agents.connect(key, handshakeInit());
@@ -147,9 +148,12 @@ describe("agent runtime shutdown", () => {
 
 	it("aborts a tool call waiting on a task without an outcome and reruns it after a restart", async () => {
 		faux.setResponses([
-			fauxAssistantMessage([fauxToolCall("exec", { node: "web-1", cmd: "sleep 60", wait: 600 }, { id: "call-1" })], {
-				stopReason: "toolUse",
-			}),
+			fauxAssistantMessage(
+				[fauxToolCall("exec", { targets: ["web-1"], cmd: "sleep 60", wait: 600 }, { id: "call-1" })],
+				{
+					stopReason: "toolUse",
+				},
+			),
 			fauxAssistantMessage([fauxText("done")]),
 		]);
 		const submissionId = await runtime.submit(sessionId, owner, "run it", "r1");
@@ -188,7 +192,7 @@ describe("agent runtime shutdown", () => {
 	it("ends a tool call waiting on a task group when the runtime closes", async () => {
 		faux.setResponses([
 			fauxAssistantMessage(
-				[fauxToolCall("exec", { targets: ["web-1"], cmd: "sleep 60", wait: 600 }, { id: "call-1" })],
+				[fauxToolCall("exec", { targets: ["group:batch"], cmd: "sleep 60", wait: 600 }, { id: "call-1" })],
 				{ stopReason: "toolUse" },
 			),
 			fauxAssistantMessage([fauxText("done")]),

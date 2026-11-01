@@ -286,6 +286,8 @@ export class SessionListHub {
 	readonly #db: Db;
 	readonly #coalesceMs: number;
 	readonly #subscribers = new Set<SessionListSubscriber>();
+	/** Views that outlive one request and must be re-checked when access changes (per-session event streams). */
+	readonly #visibilityListeners = new Set<() => Promise<void> | void>();
 	/** Pending coalesced publishes, one timer per session. */
 	readonly #pending = new Map<string, ReturnType<typeof setTimeout>>();
 	#closed = false;
@@ -416,11 +418,32 @@ export class SessionListHub {
 		}
 	}
 
+	/**
+	 * Registers a view that has to re-check who may see which session (an open per-session event stream, for
+	 * one). Returns the unsubscribe.
+	 */
+	onVisibilityChanged(listener: () => Promise<void> | void): () => void {
+		this.#visibilityListeners.add(listener);
+		return () => {
+			this.#visibilityListeners.delete(listener);
+		};
+	}
+
+	/**
+	 * A user's kind or status, a group membership, a share or a delete may have taken access away: let the
+	 * registered views end what its viewer may no longer see. Awaited, so a closed stream is gone when the
+	 * request that changed access returns.
+	 */
+	async publishVisibilityChanged(): Promise<void> {
+		for (const listener of [...this.#visibilityListeners]) await listener();
+	}
+
 	/** Shutdown: stop coalescing and end every stream, so the drain can go idle. */
 	close(): void {
 		this.#closed = true;
 		for (const timer of this.#pending.values()) clearTimeout(timer);
 		this.#pending.clear();
+		this.#visibilityListeners.clear();
 		for (const subscriber of [...this.#subscribers]) this.#end(subscriber);
 	}
 

@@ -105,6 +105,13 @@ func ClientHandshake(r io.Reader, w io.Writer, opts ClientOptions) (*PrivWelcome
 	if err := protocol.Unmarshal(frame, &welcome); err != nil {
 		return nil, nil, fmt.Errorf("crh-priv: welcome: %w", err)
 	}
+	// The privileged mode may be a process started from an older binary after an upgrade. Its
+	// welcome names its version, and a different one is refused the way an unreachable daemon is
+	// (doc/protocol.md, crha and its privileged mode upgrade together).
+	if welcome.CRHAVersion != opts.CRHAVersion {
+		return nil, nil, fmt.Errorf("crh-priv: peer crha version %q, want %q", welcome.CRHAVersion, opts.CRHAVersion)
+	}
+	// priv_minor is not checked: it only adds optional names, negotiated by intersection.
 	negotiated, err := negotiate(opts.Role, welcome.Commands)
 	if err != nil {
 		return nil, nil, err
@@ -131,6 +138,7 @@ func ServerHandshake(r io.Reader, w io.Writer, opts ServerOptions) (*PrivHello, 
 	if !opts.allows(hello.Role) {
 		return nil, nil, fmt.Errorf("crh-priv: peer role %q is not allowed here (want %s)", hello.Role, opts.describeAllowed())
 	}
+	// priv_minor is not checked: it only adds optional names, negotiated by intersection.
 	if opts.Role == RoleNative && hello.CRHAVersion != opts.CRHAVersion {
 		return nil, nil, fmt.Errorf("crh-priv: peer crha version %q, want %q", hello.CRHAVersion, opts.CRHAVersion)
 	}

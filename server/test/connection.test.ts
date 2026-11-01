@@ -26,7 +26,7 @@ describe("closeReason", () => {
 	});
 
 	it("leaves a short reason unchanged", () => {
-		const reason = "protocol_major mismatch: server 1, client 2";
+		const reason = "protocol_major mismatch: server 2, client 1";
 		expect(closeReason(reason)).toBe(reason);
 	});
 });

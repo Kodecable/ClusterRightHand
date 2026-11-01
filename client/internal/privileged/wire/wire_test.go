@@ -93,7 +93,7 @@ func TestVectors(t *testing.T) {
 					t.Fatalf("decode: %v", err)
 				}
 				want := PrivHello{
-					PrivMajor: 1, PrivMinor: 0,
+					PrivMajor: PrivMajor, PrivMinor: PrivMinor,
 					Commands: []string{
 						"task.start", "task.input", "task.cancel", "task.query",
 						"task.output", "task.exit", "trust.query", "trust.summary",
@@ -113,7 +113,7 @@ func TestVectors(t *testing.T) {
 					t.Fatalf("decode: %v", err)
 				}
 				want := PrivWelcome{
-					PrivMajor: 1, PrivMinor: 0,
+					PrivMajor: PrivMajor, PrivMinor: PrivMinor,
 					Commands: []string{
 						"task.start", "task.input", "task.cancel", "task.query",
 						"task.output", "task.exit", "trust.query", "trust.summary",
@@ -400,7 +400,7 @@ func TestServerHandshakeRejections(t *testing.T) {
 		want  string
 	}{
 		{"role refused", hello(func(h *PrivHello) { h.Role = RoleForward }), ServerOptions{Role: RoleNative, CRHAVersion: "0.4.0-test"}, "not allowed"},
-		{"major mismatch", hello(func(h *PrivHello) { h.PrivMajor = 2 }), ServerOptions{Role: RoleNative, CRHAVersion: "0.4.0-test"}, "priv_major"},
+		{"major mismatch", hello(func(h *PrivHello) { h.PrivMajor = PrivMajor + 1 }), ServerOptions{Role: RoleNative, CRHAVersion: "0.4.0-test"}, "priv_major"},
 		{"version mismatch", hello(func(h *PrivHello) { h.CRHAVersion = "0.3.0" }), ServerOptions{Role: RoleNative, CRHAVersion: "0.4.0-test"}, "crha version"},
 		{"missing commands", hello(func(h *PrivHello) { h.Commands = []string{protocol.CmdTaskStart} }), ServerOptions{Role: RoleNative, CRHAVersion: "0.4.0-test"}, "does not implement"},
 	}
@@ -434,7 +434,8 @@ func TestClientHandshakeRejections(t *testing.T) {
 		frame []byte
 		want  string
 	}{
-		{"major mismatch", welcome(func(w *PrivWelcome) { w.PrivMajor = 2 }), "priv_major"},
+		{"major mismatch", welcome(func(w *PrivWelcome) { w.PrivMajor = PrivMajor + 1 }), "priv_major"},
+		{"version mismatch", welcome(func(w *PrivWelcome) { w.CRHAVersion = "0.3.0" }), "crha version"},
 		{"missing commands", welcome(func(w *PrivWelcome) { w.Commands = nil }), "does not implement"},
 	}
 	for _, tc := range tests {
@@ -454,6 +455,54 @@ func TestClientHandshakeRejections(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandshakeDifferentMinorAccepted covers the additive minor: a peer that only differs in
+// priv_minor still connects, and the command intersection decides the feature set.
+func TestHandshakeDifferentMinorAccepted(t *testing.T) {
+	t.Run("server side", func(t *testing.T) {
+		client, server := net.Pipe()
+		defer client.Close()
+		defer server.Close()
+		go func() {
+			hello := PrivHello{
+				PrivMajor: PrivMajor, PrivMinor: PrivMinor + 1, Commands: Names(),
+				CRHAVersion: "0.4.0-test", Role: RoleNative,
+			}
+			data, err := protocol.Marshal(hello)
+			if err != nil {
+				return
+			}
+			if WriteFrame(client, data) != nil {
+				return
+			}
+			_, _ = ReadFrame(client) // drain the welcome
+		}()
+		if _, _, err := ServerHandshake(server, server, ServerOptions{Role: RoleNative, CRHAVersion: "0.4.0-test"}); err != nil {
+			t.Fatalf("ServerHandshake: %v", err)
+		}
+	})
+	t.Run("client side", func(t *testing.T) {
+		client, server := net.Pipe()
+		defer client.Close()
+		defer server.Close()
+		go func() {
+			if _, err := ReadFrame(server); err != nil {
+				return
+			}
+			welcome := PrivWelcome{
+				PrivMajor: PrivMajor, PrivMinor: PrivMinor + 1, Commands: Names(), CRHAVersion: "0.4.0-test",
+			}
+			data, err := protocol.Marshal(welcome)
+			if err != nil {
+				return
+			}
+			_ = WriteFrame(server, data)
+		}()
+		if _, _, err := ClientHandshake(client, client, ClientOptions{Role: RoleNative, CRHAVersion: "0.4.0-test"}); err != nil {
+			t.Fatalf("ClientHandshake: %v", err)
+		}
+	})
 }
 
 // TestRoleNames covers the per-role command sets: native keeps the 1.0 task set, forward adds

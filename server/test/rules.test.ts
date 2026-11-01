@@ -387,7 +387,7 @@ describe("operationOf", () => {
 		const path = "/etc/hosts";
 		const empty = { size: 0, sha256: new Uint8Array(32) };
 		const specs: [TaskSpec, Method][] = [
-			[{ kind: "file.read", path, offset: 0, limit: 0 }, "file.read"],
+			[{ kind: "file.read", path, startLine: 1, lineCount: 100 }, "file.read"],
 			[{ kind: "file.stat", path }, "file.read"],
 			[{ kind: "file.list", path, limit: 0 }, "file.read"],
 			[{ kind: "file.write", path, content: empty, overwrite: true, mode: 0, owner: "", group: "" }, "file.write"],

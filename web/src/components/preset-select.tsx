@@ -1,12 +1,7 @@
 import { useLingui } from "@lingui/react/macro";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Preset } from "@/lib/api/types";
-
-const PRESETS: { value: Preset; label: () => string }[] = [
-	{ value: "ask", label: () => "Ask" },
-	{ value: "auto_review", label: () => "Auto Review" },
-	{ value: "yolo", label: () => "Yolo" },
-];
+import { PRESETS, presetLabel } from "@/lib/preset";
 
 export interface PresetSelectProps {
 	value: Preset;
@@ -33,14 +28,12 @@ export function PresetSelect({ value, onChange, disabled, id, label, className }
 			disabled={disabled}
 		>
 			<SelectTrigger id={id} aria-label={label ?? t`Preset`} className={`w-full ${className ?? ""}`.trim()}>
-				<SelectValue>
-					{(current: string | null) => PRESETS.find((preset) => preset.value === current)?.label() ?? ""}
-				</SelectValue>
+				<SelectValue>{(current: string | null) => presetLabel(current)}</SelectValue>
 			</SelectTrigger>
 			<SelectContent>
 				{PRESETS.map((preset) => (
 					<SelectItem key={preset.value} value={preset.value}>
-						{preset.label()}
+						{preset.label}
 					</SelectItem>
 				))}
 			</SelectContent>

@@ -22,7 +22,7 @@ func TestCommandPaths(t *testing.T) {
 	paths := [][]string{
 		{"run"}, {"privileged"}, {"privileged", "run"}, {"privileged", "revoke"}, {"privileged", "stdio"},
 		{"enroll"}, {"status"}, {"reload"}, {"rotate-key"}, {"upgrade"},
-		{"grant"}, {"pending"}, {"approve"}, {"deny"}, {"mcp"}, {"version"},
+		{"grant"}, {"pending"}, {"approve"}, {"deny"}, {"version"},
 	}
 	root := NewRootCmd()
 	for _, p := range paths {
@@ -35,9 +35,22 @@ func TestCommandPaths(t *testing.T) {
 
 func TestNotImplemented(t *testing.T) {
 	root := NewRootCmd()
-	root.SetArgs([]string{"mcp"})
+	root.SetArgs([]string{"rotate-key"})
 	if err := root.Execute(); err != errNotImplemented {
 		t.Fatalf("got %v, want errNotImplemented", err)
+	}
+}
+
+// TestNoMCPCommand covers D65 (doc/README.md): crha does not provide an stdio MCP bridge, so the
+// command must not be registered at all.
+func TestNoMCPCommand(t *testing.T) {
+	root := NewRootCmd()
+	if cmd, _, _ := root.Find([]string{"mcp"}); cmd != root {
+		t.Fatalf("crha mcp is registered as %q", cmd.Name())
+	}
+	root.SetArgs([]string{"mcp"})
+	if err := root.Execute(); err == nil || err == errNotImplemented {
+		t.Fatalf("crha mcp = %v, want an unknown-command error", err)
 	}
 }
 
@@ -121,6 +134,12 @@ func TestApprovalView(t *testing.T) {
 				Edits: []protocol.Edit{{OldText: "a", NewText: "b"}},
 			}},
 		},
+		{
+			TaskID: "t-read", Attempt: 1,
+			Spec: protocol.TaskSpec{Kind: protocol.TaskSpecFileRead, FileRead: &protocol.FileReadSpec{
+				Path: "/var/log/app.log", StartLine: 10, LineCount: 50,
+			}},
+		},
 	}
 
 	exec := approvalViewFor(&entries[0])
@@ -158,12 +177,25 @@ func TestApprovalView(t *testing.T) {
 		t.Fatalf("edit view = %+v", edit)
 	}
 
+	// A read's line range is part of the specification the approver decides on, so it is shown too.
+	read := approvalViewFor(&entries[3])
+	if read.Method != "file.read" || read.Path != "/var/log/app.log" || read.StartLine != 10 || read.LineCount != 50 {
+		t.Fatalf("read view = %+v", read)
+	}
+
 	var out bytes.Buffer
 	if err := printApproval(&out, exec); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "spec_sha256") || !strings.Contains(out.String(), exec.SpecSHA256) {
 		t.Fatalf("printed view has no spec hash:\n%s", out.String())
+	}
+	out.Reset()
+	if err := printApproval(&out, read); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"start_line": 10`) || !strings.Contains(out.String(), `"line_count": 50`) {
+		t.Fatalf("printed read view has no line range:\n%s", out.String())
 	}
 }
 

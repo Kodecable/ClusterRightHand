@@ -149,3 +149,4 @@
   - 人工验收后的修正（2026-10-31）：exec 不再透传 crha 自身的环境，按运行账户设置 `HOME`/`USER`/`LOGNAME`，`SHELL` 和执行 `cmd` 用的 sh 从 `/etc/shells` 或 PATH 发现，`LANG`/`LC_ALL=C.UTF-8`，`CRHA_TASK_*` 覆盖；SSH 节点按连接探测 sh/bash；`Facts` 改为文本键 map 并上报 `shells`；WebUI 增加任务页、审批页的"等待你签名"、会话工具卡片的签名提示。
   - 未完成：Passkey 只用软件认证器测过，未在真实设备上验证 COSE 算法；`crha grant` 未用加密私钥、ssh-agent、FIDO 硬件 key 实测；run0 未验证（实验性）；podman e2e 未进 CI。
   - 已知问题：crhs 签名路径创建特权任务时，`POST /api/nodes/:id/tasks` 会等节点对 `task.start` 的响应，特权模式卡住时最多阻塞约 30 秒，超过调用方的 `waitMs`。
+  - 已知问题：SSH 节点的 `file.read` 每次从文件开头扫描到起始行，读深页会重复读前面的内容；可以在打开句柄上按 mtime 检测变化并缓存行索引（`server/src/cluster/ssh/file-task.ts` 留有 TODO）。

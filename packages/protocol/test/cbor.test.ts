@@ -111,6 +111,81 @@ describe("CBOR-CORE-INT-v1 profile", () => {
 		expect(() => encode("\ud800")).toThrow(CborError);
 	});
 
+	it("limits nesting to 64 levels like the Go decoder", () => {
+		// One-element arrays around a uint: the Go side builds the same bytes in
+		// TestMaxNestedLevels.
+		const nested = (levels: number): Uint8Array => {
+			const bytes = new Uint8Array(levels + 1);
+			bytes.fill(0x81, 0, levels);
+			bytes[levels] = 0x01;
+			return bytes;
+		};
+		const deep = (levels: number): unknown => {
+			let value: unknown = 1;
+			for (let i = 0; i < levels; i++) value = [value];
+			return value;
+		};
+		expect(decode(nested(64))).toEqual(deep(64));
+		expect(() => decode(nested(65))).toThrow(CborError);
+		// A map counts too: 63 nested arrays plus the map is 64 containers.
+		expect(decode(encode(new Map([["a", deep(63)]])))).toBeInstanceOf(Map);
+		expect(() => decode(encode(new Map([["a", deep(64)]])))).toThrow(CborError);
+	});
+
+	it("counts empty containers once, not as an open level", () => {
+		// An empty array or map is complete as soon as it starts. It used to be pushed as a
+		// level with zero children and never popped, so each one left a stale level behind and
+		// a list of 65 empty containers looked deeper than 64.
+		const empties = Array.from({ length: 100 }, () => []);
+		expect(decode(encode(empties))).toEqual(empties);
+		const pairs = Array.from({ length: 70 }, () => [new Map(), 1]);
+		expect(decode(encode(pairs))).toEqual(pairs);
+		const nested: unknown = [
+			[[]],
+			[new Map<unknown, unknown>()],
+			new Map<unknown, unknown>([
+				["a", []],
+				["b", new Map<unknown, unknown>()],
+			]),
+		];
+		expect(decode(encode(nested))).toEqual(nested);
+	});
+
+	it("counts an empty container as a level for the nesting limit", () => {
+		// The Go decoder (MaxNestedLevels: 64) treats an empty container as one level too:
+		// 64 nested containers ending in an empty one decode, 65 do not.
+		const nestedEmpty = (levels: number): Uint8Array => {
+			const bytes = new Uint8Array(levels);
+			bytes.fill(0x81, 0, levels - 1);
+			bytes[levels - 1] = 0x80;
+			return bytes;
+		};
+		const deepEmpty = (levels: number): unknown => {
+			let value: unknown = [];
+			for (let i = 1; i < levels; i++) value = [value];
+			return value;
+		};
+		expect(decode(nestedEmpty(64))).toEqual(deepEmpty(64));
+		expect(() => decode(nestedEmpty(65))).toThrow(CborError);
+	});
+
+	it("limits map nesting to 64 levels", () => {
+		// Each level is map{"a": <next>}: a map counts as one level, its key and value do not.
+		const nestedMap = (levels: number): Uint8Array => {
+			const bytes = new Uint8Array(levels * 3 + 1);
+			for (let level = 0; level < levels; level++) bytes.set([0xa1, 0x61, 0x61], level * 3);
+			bytes[levels * 3] = 0x01;
+			return bytes;
+		};
+		const deepMap = (levels: number): unknown => {
+			let value: unknown = 1;
+			for (let i = 0; i < levels; i++) value = new Map([["a", value]]);
+			return value;
+		};
+		expect(decode(nestedMap(64))).toEqual(deepMap(64));
+		expect(() => decode(nestedMap(65))).toThrow(CborError);
+	});
+
 	it("permits only text and integer map keys", () => {
 		const keys = new Map<unknown, unknown>([
 			["a", 1],

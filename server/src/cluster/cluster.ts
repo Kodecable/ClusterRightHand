@@ -12,6 +12,7 @@ import {
 	factsToJson,
 	type Hello,
 	type InputRef,
+	type JsonTaskResult,
 	type LocalDecision,
 	type LocalRequest,
 	type LocalState,
@@ -29,6 +30,8 @@ import {
 	type TaskStatus,
 	type TrustReport,
 	type TrustSummary,
+	taskResultFromJson,
+	taskResultToJson,
 	taskSpecFromJson,
 	taskSpecToJson,
 	type Welcome,
@@ -62,7 +65,7 @@ import {
 	verifyAgainstTrust,
 } from "../privilege/submission.ts";
 import type { Db } from "../storage/db.ts";
-import type { TaskState as TaskRowState, TasksTable } from "../storage/schema.ts";
+import type { OutputMode, TaskGroupState, TaskState as TaskRowState, TasksTable } from "../storage/schema.ts";
 import { defaultOrgId, UserError } from "../users/service.ts";
 import { newId } from "../util/id.ts";
 import {
@@ -108,7 +111,7 @@ export interface CreateTaskInput {
 	privileged?: boolean;
 	timeoutMs?: number;
 	/** How much output to keep; single tasks use `full`, a group's tasks get its mode. */
-	outputMode?: "full" | "text" | "status";
+	outputMode?: OutputMode;
 	actor: Actor;
 	taskGroupId?: string;
 	/** The rule chain, root first; omitted when a user acts in person (doc/access-control.md#规则链). */
@@ -176,11 +179,16 @@ export interface TaskView {
 	stderrTail: string;
 	outputFile: string | null;
 	/** How much output was kept for this task (doc/execution-plane.md#输出). */
-	outputMode: "full" | "text" | "status";
+	outputMode: OutputMode;
 	/** Whether this is a privileged task (doc/privilege.md). */
 	privileged: boolean;
 	/** The authorization plan and its history for a privileged task; null for the others (doc/m4.md#crhs-侧数据). */
 	authorization: TaskAuthorizationRecord | null;
+	/**
+	 * The task's structured result in its JSON form; null for a kind that reports none, for a task
+	 * that is still running and for one that failed (doc/protocol.md TaskResult).
+	 */
+	result: JsonTaskResult | null;
 	/** One line describing what ran: the command line or the path. */
 	summary: string;
 	/** What authorization rules match on (doc/privilege.md#方法与目标); null if the spec cannot be read. */
@@ -203,6 +211,8 @@ export interface TaskView {
 export interface ClusterOptions {
 	/** How long a node may stay disconnected before its tasks are reported unknown(connection_lost). */
 	reconnectGraceMs?: number;
+	/** How long a task reported unknown keeps its output for a late result (UNKNOWN_OUTPUT_KEEP_MS). */
+	unknownOutputKeepMs?: number;
 	/** TaskInput chunk size; one frame must stay under MAX_FRAME_BYTES (60 KiB). */
 	inputChunkBytes?: number;
 	/**
@@ -230,6 +240,16 @@ export const TERMINAL: ReadonlySet<TaskRowState> = new Set(["exited", "failed", 
 function recorded(state: TaskRowState): boolean {
 	return TERMINAL.has(state) && state !== "unknown";
 }
+
+/** A task group in one of these states runs nothing more (doc/execution-plane.md#状态机). */
+const GROUP_TERMINAL: ReadonlySet<TaskGroupState> = new Set(["finished", "interrupted", "rejected"]);
+
+/**
+ * How long the output of a task reported `unknown` stays in memory for a late result. The client keeps
+ * its output until task.exit.ack, so a node that comes back in this window can still be acked from
+ * where it stopped; after it the buffer is dropped so a node that never returns cannot leak it.
+ */
+export const UNKNOWN_OUTPUT_KEEP_MS = 10 * 60 * 1000;
 
 /**
  * Codes a crha answers `task.start` with before accepting, for which the task may be retried with a
@@ -338,6 +358,7 @@ interface PreparedSubmission {
 export class Cluster {
 	readonly #db: Db;
 	readonly #graceMs: number;
+	readonly #unknownKeepMs: number;
 	readonly #chunk: number;
 	readonly #idleMs: number;
 	readonly #sshRoute: ClusterOptions["sshRoute"];
@@ -356,6 +377,10 @@ export class Cluster {
 	/** One output budget per running `text` group, created lazily (doc/execution-plane.md#输出). */
 	readonly #budgets = new Map<string, GroupBudget>();
 	readonly #graceTimers = new Map<string, NodeJS.Timeout>();
+	/** Drops the kept output of an unknown task after UNKNOWN_OUTPUT_KEEP_MS. */
+	readonly #unknownTimers = new Map<string, NodeJS.Timeout>();
+	/** The actor of a cancel in flight, named by the task.finished audit event that ends it. */
+	readonly #cancelledBy = new Map<string, Actor>();
 	readonly #waiters = new Map<string, Set<() => void>>();
 	/** Serializes database updates per task, since frames are handled asynchronously. */
 	readonly #queues = new Map<string, Promise<void>>();
@@ -373,6 +398,7 @@ export class Cluster {
 	constructor(db: Db, options: ClusterOptions = {}) {
 		this.#db = db;
 		this.#graceMs = options.reconnectGraceMs ?? 120_000;
+		this.#unknownKeepMs = options.unknownOutputKeepMs ?? UNKNOWN_OUTPUT_KEEP_MS;
 		this.#chunk = options.inputChunkBytes ?? 48 * 1024;
 		this.#idleMs = options.idleTimeoutMs ?? 90_000;
 		this.#sshRoute = options.sshRoute;
@@ -389,6 +415,43 @@ export class Cluster {
 	/** Whether the cached trust report of the node came from the current connection (otherwise it is stale). */
 	trustFresh(nodeId: string): boolean {
 		return this.#links.get(nodeId)?.trustFresh === true;
+	}
+
+	/**
+	 * Settles the tasks a previous process left unfinished (doc/execution-plane.md#断线恢复). A client
+	 * node's dispatched or running tasks are treated as detached now, so the reconnect grace they get is
+	 * the same as after a disconnect: a node that comes back within it resolves them through hello, and
+	 * one that does not leaves them `unknown`. An SSH node has no connection to resume: its tasks are
+	 * `unknown(connection_lost)` at once. Called at startup, before any node connects.
+	 */
+	async recover(): Promise<void> {
+		if (this.#closing) return;
+		const rows = await this.#db
+			.selectFrom("tasks")
+			.select(["id", "node_id"])
+			.where("state", "in", ["dispatched", "running"])
+			.execute();
+		const nodes = new Map<string, NodeRow | undefined>();
+		for (const row of rows) {
+			if (!nodes.has(row.node_id)) nodes.set(row.node_id, await getNode(this.#db, row.node_id));
+			if (nodes.get(row.node_id)?.transport === "ssh") {
+				await this.#serial(row.id, () => this.#markUnknown(row.id, "connection_lost"));
+				continue;
+			}
+			this.#armGrace(row.node_id);
+		}
+	}
+
+	/** Arms the grace timer of a node that has no connection, unless one is armed already. */
+	#armGrace(nodeId: string): void {
+		if (this.#links.has(nodeId) || this.#graceTimers.has(nodeId)) return;
+		this.#graceTimers.set(
+			nodeId,
+			setTimeout(() => {
+				this.#graceTimers.delete(nodeId);
+				this.#background("node expiry failed", this.#expireNode(nodeId));
+			}, this.#graceMs),
+		);
 	}
 
 	/**
@@ -514,6 +577,9 @@ export class Cluster {
 			for (const link of this.#links.values()) link.conn.close("server shutting down");
 			for (const t of this.#graceTimers.values()) clearTimeout(t);
 			this.#graceTimers.clear();
+			for (const t of this.#unknownTimers.values()) clearTimeout(t);
+			this.#unknownTimers.clear();
+			this.#cancelledBy.clear();
 			// Let waitTask callers (task groups, tools) return instead of holding a timer for an hour.
 			this.endWaits();
 		}
@@ -584,13 +650,7 @@ export class Cluster {
 		if (!link.active) return;
 		this.#auditConnection(link, "node.disconnected");
 		this.#background("markNodeSeen failed", markNodeSeen(this.#db, nodeId));
-		this.#graceTimers.set(
-			nodeId,
-			setTimeout(() => {
-				this.#graceTimers.delete(nodeId);
-				this.#background("node expiry failed", this.#expireNode(nodeId));
-			}, this.#graceMs),
-		);
+		this.#armGrace(nodeId);
 	}
 
 	#auditConnection(link: NodeLink, action: "node.connected" | "node.disconnected"): void {
@@ -735,6 +795,9 @@ export class Cluster {
 	}
 
 	#sendRevocations(link: NodeLink, entries: readonly Revocation[]): void {
+		// A restricted connection receives only node.status; everything else would break the handshake
+		// contract of a pending node (doc/protocol.md#受限连接).
+		if (!link.active) return;
 		if (entries.length === 0 || link.conn.closed || !link.conn.optional.has("revocations.add")) return;
 		for (const batch of batchRevocations(entries)) {
 			void link.conn.peer.request("revocations.add", { entries: [...batch] }).catch((err: unknown) => {
@@ -850,6 +913,20 @@ export class Cluster {
 			.where("node_id", "=", nodeId)
 			.where("state", "in", ["dispatched", "running"])
 			.execute();
+		// An unknown task whose output is still kept is asked about as well: when the client does not know
+		// it either, no task.exit will ever complete it and its buffer can go (#onStatus drops it).
+		const buffered = [...this.#live.values()].filter((live) => live.nodeId === nodeId).map((live) => live.id);
+		if (buffered.length > 0) {
+			open.push(
+				...(await this.#db
+					.selectFrom("tasks")
+					.select("id")
+					.where("id", "in", buffered)
+					.where("node_id", "=", nodeId)
+					.where("state", "=", "unknown")
+					.execute()),
+			);
+		}
 		return afterResponse({ acks }, () => {
 			link.ready = true;
 			for (const { id } of open) {
@@ -875,9 +952,18 @@ export class Cluster {
 		if (!link.queried.delete(status.taskId)) return;
 		if (status.state !== "unknown") return; // it will show up in the next Hello or send TaskExit
 		const row = await this.#row(status.taskId);
-		if (!row || row.node_id !== link.conn.nodeId || TERMINAL.has(row.state)) return;
+		if (!row || row.node_id !== link.conn.nodeId) return;
+		if (row.state === "unknown") {
+			// Already reported unknown, and the client does not know it either: no exit can arrive, so the
+			// output kept for a late result goes now (doc/execution-plane.md#输出).
+			this.#dropLive(row.id);
+			return;
+		}
+		if (TERMINAL.has(row.state)) return;
 		// Not accepted: the start may never have arrived. Accepted: the client restarted and lost it.
 		await this.#markUnknown(row.id, row.state === "dispatched" ? "dispatch_unconfirmed" : "executor_restarted");
+		// Nothing will ever complete this buffer: the client has no such task (see above).
+		this.#dropLive(row.id);
 	}
 
 	async #onAccepted(nodeId: string, taskId: string): Promise<void> {
@@ -923,6 +1009,7 @@ export class Cluster {
 			error_message: outcome.kind === "error" ? outcome.message : null,
 			timed_out: exit.timedOut ? 1 : 0,
 			cancelled: exit.cancelled ? 1 : 0,
+			result: exit.result === null ? null : JSON.stringify(taskResultToJson(exit.result)),
 			...outputColumns(output),
 			output_file: exit.outputFile || null,
 		};
@@ -1023,6 +1110,7 @@ export class Cluster {
 				stdout_tail: null,
 				stderr_head: null,
 				stderr_tail: null,
+				result: null,
 				output_file: null,
 				late_result: null,
 				rule_chain: input.chain ? JSON.stringify(input.chain) : null,
@@ -1151,8 +1239,11 @@ export class Cluster {
 	): Promise<void> {
 		const row = await this.#row(id);
 		if (!row || !from.includes(row.state)) return;
+		// A member of a group that already ended (interrupted by a restart) never dispatches again.
+		if (await this.#groupEnded(row.task_group_id)) return;
 		if (!link.conn.supportsForward) {
-			// A 1.0 crha cannot take part in forward whatever its reported mode says (doc/protocol.md#握手载荷).
+			// A crha without the M4 names cannot take part in forward whatever its reported mode says
+			// (doc/protocol.md#握手载荷).
 			await this.#finishAuthorization(
 				id,
 				row,
@@ -1222,6 +1313,7 @@ export class Cluster {
 				reusable.submitted,
 				reusable.cosigned,
 				from,
+				inputBytes,
 			);
 			if (dispatched) return;
 		}
@@ -1330,6 +1422,8 @@ export class Cluster {
 		const node = await getNode(this.#db, row.node_id);
 		const link = this.#links.get(row.node_id);
 		if (!node || !link || link.conn.closed || !link.ready || !record) return;
+		// A member of a group that already ended (interrupted by a restart) never dispatches again.
+		if (await this.#groupEnded(row.task_group_id)) return;
 		const spec = specFromRow(row.spec, "task");
 		const input = row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0);
 		const updated: TaskAuthorizationRecord = {
@@ -1671,8 +1765,11 @@ export class Cluster {
 		submitted: SubmittedAuthorization,
 		cosigned: boolean,
 		from: readonly TaskRowState[] = ["awaiting_authorization"],
+		inputBytes?: Uint8Array,
 	): Promise<ClaimedAuthorization | null> {
 		if (!from.includes(row.state)) return null;
+		// A member of a group that already ended (interrupted by a restart) never dispatches again.
+		if (await this.#groupEnded(row.task_group_id)) return null;
 		const oneShot = submitted.payload.taskIds !== null;
 		const attempt = oneShot ? (submitted.payload.attempt as number) : row.attempt;
 		if (oneShot && attempt !== row.attempt) return null;
@@ -1721,7 +1818,9 @@ export class Cluster {
 			});
 		}
 		const spec = specFromRow(row.spec, "task");
-		const input = row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0);
+		// A task that waited has its input in pending_input; a fresh one it only ever had in memory
+		// (doc/execution-plane.md#状态机).
+		const input = inputBytes ?? (row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0));
 		const start: TaskStart = {
 			taskId: row.id,
 			attempt,
@@ -1764,8 +1863,9 @@ export class Cluster {
 		submitted: SubmittedAuthorization,
 		cosigned: boolean,
 		from: readonly TaskRowState[] = ["awaiting_authorization"],
+		inputBytes?: Uint8Array,
 	): Promise<boolean> {
-		const prepared = await this.#claimOwnerAuthorization(row, node, link, submitted, cosigned, from);
+		const prepared = await this.#claimOwnerAuthorization(row, node, link, submitted, cosigned, from, inputBytes);
 		if (!prepared) return false;
 		await this.#sendClaimed(link, node.id, prepared);
 		return true;
@@ -2247,6 +2347,13 @@ export class Cluster {
 			.execute();
 	}
 
+	/** Whether the task's group already ended, so none of its members may run any more. */
+	async #groupEnded(groupId: string | null): Promise<boolean> {
+		if (!groupId) return false;
+		const group = await this.#db.selectFrom("task_groups").select("state").where("id", "=", groupId).executeTakeFirst();
+		return group !== undefined && GROUP_TERMINAL.has(group.state);
+	}
+
 	/**
 	 * Sends `task.start` exactly once, then, once accepted, the input as pipelined `task.input` requests.
 	 * See doc/execution-plane.md#不重复执行与授权重试.
@@ -2529,11 +2636,17 @@ export class Cluster {
 	 * Asks the node to cancel a running task. A task that still waits for its approval or its
 	 * authorization signature was never dispatched, so it ends here instead (there is no node-side task).
 	 * Returns false if the task already ended or the node is offline. `message` replaces the default reason of
-	 * a task that ends before dispatch (e.g. its session was stopped).
+	 * a task that ends before dispatch (e.g. its session was stopped). `by` is the actor who asked for the
+	 * cancellation: the task.finished audit event names it, or the system when it is absent.
 	 */
-	async cancelTask(id: string, message = "the task was cancelled before it was dispatched"): Promise<boolean> {
+	async cancelTask(
+		id: string,
+		message = "the task was cancelled before it was dispatched",
+		by?: Actor,
+	): Promise<boolean> {
 		const row = await this.#row(id);
 		if (!row || TERMINAL.has(row.state)) return false;
+		if (by) this.#cancelledBy.set(id, by);
 		if (row.state === "awaiting_approval" || row.state === "awaiting_authorization") {
 			const res = await this.#db
 				.updateTable("tasks")
@@ -2668,23 +2781,36 @@ export class Cluster {
 		};
 		const ac = new AbortController();
 		this.#sshCancels.set(id, ac);
+		// Cancelled before the remote command started: nothing ran, so the task ends as a cancellation
+		// rather than running on (doc/execution-plane.md#ssh-传输). The connect and the shell probe can
+		// take a long time, so the check is repeated around them, not left to the exec alone.
+		const cancelledFields = (): Updateable<TasksTable> => ({ state: "exited", cancelled: 1 });
 		// SSH keeps no full output (no output file): status saves only byte counts, text its budgeted tail.
 		const outputFields = () => outputColumns(live.output.snapshot());
 		try {
 			let fields: Updateable<TasksTable>;
 			// A pooled connection may have died without notice; nothing has run yet, so retry once fresh.
 			for (let attempt = 0; ; attempt++) {
+				if (ac.signal.aborted) {
+					fields = cancelledFields();
+					break;
+				}
 				const link = await this.#sshSession(node);
 				if (!noticeWritten) {
 					const notice = sshPrivilegedNotice(privileged);
-					if (notice) live.output.append("stderr", live.output.end("stderr"), notice);
+					// Status keeps no output, but the notice must stay visible (doc/execution-plane.md#ssh-传输).
+					if (notice) live.output.note(notice);
 					noticeWritten = true;
+				}
+				if (ac.signal.aborted) {
+					fields = cancelledFields();
+					break;
 				}
 				try {
 					fields = await this.#sshTask(link, spec, input, timeoutMs, ac.signal, sink);
 					break;
 				} catch (err) {
-					if (isStarted || attempt > 0 || !(err instanceof SshError)) throw err;
+					if (isStarted || attempt > 0 || !(err instanceof SshError) || ac.signal.aborted) throw err;
 					link.session.close();
 				}
 			}
@@ -2692,9 +2818,12 @@ export class Cluster {
 			this.#background("markNodeSeen failed", markNodeSeen(this.#db, node.id));
 			await this.#serial(id, () => this.#finish(node.id, id, { ...fields, ...outputFields() }));
 		} catch (err) {
-			// Once the remote side started, the outcome is unknown; before that, nothing ran.
+			// Once the remote side started, the outcome is unknown; before that, nothing ran: a cancelled
+			// task ends as a cancellation and anything else as the connection error.
 			if (isStarted) {
 				await this.#serial(id, () => this.#markUnknown(id, "connection_lost"));
+			} else if (ac.signal.aborted) {
+				await this.#serial(id, () => this.#finish(node.id, id, { ...cancelledFields(), ...outputFields() }));
 			} else {
 				const code = err instanceof SshError ? err.code : "connect_failed";
 				await this.#serial(id, () =>
@@ -2731,8 +2860,8 @@ export class Cluster {
 		const sftp = await session.sftp();
 		sink.started();
 		try {
-			await runSftpFileTask(sftp, spec, input, sink.stdout, signal);
-			return { state: "exited", exit_code: 0 };
+			const result = await runSftpFileTask(sftp, spec, input, sink.stdout, signal);
+			return { state: "exited", exit_code: 0, result: JSON.stringify(taskResultToJson(result)) };
 		} catch (err) {
 			if (!(err instanceof FileTaskError) || session.closed) throw new SshConnectionLost("connection lost");
 			return {
@@ -2748,8 +2877,9 @@ export class Cluster {
 
 	// ---- helpers ----
 
-	#newLive(id: string, nodeId: string, mode: "full" | "text" | "status", groupId: string | null): Live {
-		const budget = mode === "text" ? this.#budgetFor(budgetKey(groupId, id)) : undefined;
+	#newLive(id: string, nodeId: string, mode: OutputMode, groupId: string | null): Live {
+		// `text` and `head` draw from the group's budget; a single task's `full` keeps its own head/tail.
+		const budget = mode === "text" || mode === "head" ? this.#budgetFor(budgetKey(groupId, id)) : undefined;
 		const live: Live = { id, nodeId, groupId, output: createLiveTask(mode, budget) };
 		this.#live.set(id, live);
 		return live;
@@ -2766,11 +2896,28 @@ export class Cluster {
 
 	/** Drops the live record. A group's budget outlives its tasks and goes with releaseGroupBudget. */
 	#dropLive(id: string): void {
+		const timer = this.#unknownTimers.get(id);
+		if (timer) {
+			clearTimeout(timer);
+			this.#unknownTimers.delete(id);
+		}
 		const live = this.#live.get(id);
 		if (!live) return;
 		this.#live.delete(id);
 		// A text task outside a group has no group end to release its budget.
 		if (live.groupId === null) this.#budgets.delete(budgetKey(null, live.id));
+	}
+
+	/** Keeps an unknown task's output for a late result, but no longer than UNKNOWN_OUTPUT_KEEP_MS. */
+	#keepUnknownOutput(id: string): void {
+		if (!this.#live.has(id) || this.#unknownTimers.has(id)) return;
+		this.#unknownTimers.set(
+			id,
+			setTimeout(() => {
+				this.#unknownTimers.delete(id);
+				this.#dropLive(id);
+			}, this.#unknownKeepMs),
+		);
 	}
 
 	#ownLive(nodeId: string, taskId: string): Live | undefined {
@@ -2803,6 +2950,7 @@ export class Cluster {
 			.where("state", "in", ["dispatched", "running"])
 			.executeTakeFirst();
 		if (fields.state !== "unknown") this.#dropLive(id);
+		else this.#keepUnknownOutput(id);
 		this.#notify(id);
 		if (res.numUpdatedRows === 0n) return;
 		await this.#syncGroupOfTask(id);
@@ -2815,8 +2963,10 @@ export class Cluster {
 		if (row?.task_group_id) await this.#syncGroupState(row.task_group_id);
 	}
 
-	/** task.finished: the outcome, as recorded (the system acts, on behalf of the task's user). */
+	/** task.finished: the outcome, as recorded. A cancellation names the actor who asked for it. */
 	async #auditFinish(id: string): Promise<void> {
+		const cancelledBy = this.#cancelledBy.get(id);
+		this.#cancelledBy.delete(id);
 		if (!this.#audit) return;
 		const row = await this.#row(id);
 		if (!row) return;
@@ -2824,7 +2974,10 @@ export class Cluster {
 			.update(`${row.stdout_head ?? ""}\n${row.stdout_tail ?? ""}\n${row.stderr_head ?? ""}\n${row.stderr_tail ?? ""}`)
 			.digest("hex");
 		this.#auditLater({
-			actor: { type: "system", id: "cluster", onBehalfOfUserId: row.on_behalf_of_user_id },
+			actor:
+				cancelledBy && row.cancelled === 1
+					? auditActor(cancelledBy)
+					: { type: "system", id: "cluster", onBehalfOfUserId: row.on_behalf_of_user_id },
 			action: "task.finished",
 			target: { type: "task", id },
 			detail: {
@@ -2924,6 +3077,7 @@ function toView(row: Selectable<TasksTable>, live: Live | undefined): TaskView {
 		outputMode: row.output_mode,
 		privileged: row.privileged === 1,
 		authorization: authorizationView(row.authorization),
+		result: taskResultView(row.result),
 		createdAt: row.created_at,
 		finishedAt: row.finished_at,
 		taskGroupId: row.task_group_id,
@@ -2933,6 +3087,19 @@ function toView(row: Selectable<TasksTable>, live: Live | undefined): TaskView {
 		handlerType: row.handler_type,
 		handlerSessionId: row.handler_session_id,
 	};
+}
+
+/**
+ * The structured result stored on a task row. A row whose JSON cannot be read is shown without a
+ * result instead of failing every task view: the column is display data, not part of the protocol.
+ */
+function taskResultView(json: string | null): JsonTaskResult | null {
+	if (json === null) return null;
+	try {
+		return taskResultToJson(taskResultFromJson(JSON.parse(json)));
+	} catch {
+		return null;
+	}
 }
 
 /** The DB columns of an output snapshot; null fields mean the mode keeps no head/tail there. */
@@ -2957,8 +3124,10 @@ function groupBudgetKey(groupId: string): string {
 }
 
 /** The wire output mode of a task row (doc/protocol.md#taskstart). */
-function outputModeOf(mode: "full" | "text" | "status"): TaskStart["output"] {
-	return mode === "full"
+function outputModeOf(mode: OutputMode): TaskStart["output"] {
+	// A `head` task keeps the head of what the node pushes: that is the node's full mode, which streams
+	// both streams separately, with crhs doing the budgeted keeping (doc/execution-plane.md#输出).
+	return mode === "full" || mode === "head"
 		? { kind: "full", spillBytes: OUTPUT_KEEP_BYTES, spillLines: OUTPUT_KEEP_LINES }
 		: { kind: mode };
 }
@@ -3060,12 +3229,18 @@ export function summarize(specJson: string): string {
 			kind?: unknown;
 			command?: { argv?: unknown; shell?: unknown };
 			path?: unknown;
+			startLine?: unknown;
+			lineCount?: unknown;
 		};
 		if (spec.kind === "exec") {
 			const command = spec.command ?? {};
 			if (Array.isArray(command.argv)) return command.argv.map((arg) => shellQuote(String(arg))).join(" ");
 			if (typeof command.shell === "string") return command.shell;
 			return "";
+		}
+		// A read names the lines it asks for, so an approver sees the range and not just the path.
+		if (spec.kind === "file.read" && typeof spec.startLine === "number" && typeof spec.lineCount === "number") {
+			return `${String(spec.path)} (lines ${spec.startLine}-${spec.startLine + spec.lineCount - 1})`;
 		}
 		if (typeof spec.path === "string") return spec.path;
 	} catch {}

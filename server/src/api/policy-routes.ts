@@ -3,7 +3,7 @@ import { type Audit, listAuditEvents, userActor, verifyChain } from "../audit/au
 import { createApiToken, deleteApiToken, getApiToken, listApiTokens, revokeApiToken } from "../auth/api-tokens.ts";
 import type { ApprovalDecision, Cluster, TaskView } from "../cluster/cluster.ts";
 import type { TaskGroups, TaskGroupView } from "../cluster/task-groups.ts";
-import { parseRules } from "../policy/rules.ts";
+import { parseRules, type Rule } from "../policy/rules.ts";
 import { appendRule, parsePreset, type RuleRef, setPreset, setRules } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
@@ -255,17 +255,25 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 			...(reason ? { reason } : {}),
 		};
 		const root = subject.chain[0] as RuleRef;
-		let always: unknown;
+		let always: Rule | undefined;
 		if (body.decision === "approve" && body.always !== undefined) {
 			const [rule] = parseRules([body.always]);
 			if (rule?.action !== "allow") throw new UserError('an "always" rule must be an allow rule');
 			always = rule;
-			await appendRule(db, root, rule);
-			void audit.record({ actor: userActor(user), action: "rules.changed", target: root, detail: { appended: rule } });
 		}
 		const ok =
 			subject.kind === "task" ? await cluster.decide(subject.id, decision) : await groups.decide(subject.id, decision);
-		if (always) await rulesChanged(root);
+		// The rule is a consequence of the decision: a request that is no longer waiting must not leave it behind.
+		if (ok && always) {
+			await appendRule(db, root, always);
+			void audit.record({
+				actor: userActor(user),
+				action: "rules.changed",
+				target: root,
+				detail: { appended: always },
+			});
+			await rulesChanged(root);
+		}
 		if (!ok) return jsonError(c, 409, "it is no longer waiting for approval");
 		return c.json({ ok: true });
 	};

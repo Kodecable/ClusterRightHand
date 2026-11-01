@@ -20,7 +20,7 @@ const RESTART: TaskSpec = {
 	cwd: "",
 	stdin: null,
 };
-const READ_SHADOW: TaskSpec = { kind: "file.read", path: "/etc/shadow", offset: 0, limit: 0 };
+const READ_SHADOW: TaskSpec = { kind: "file.read", path: "/etc/shadow", startLine: 1, lineCount: 100 };
 
 const KEY_LINE = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGZzY2tleQ== generated";
 const SK_KEY_LINE = "sk-ssh-ed25519@openssh.com AAAAC3NzaC1lZDI1NTE5AAAAIHNrY3Jocw== generated";

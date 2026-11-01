@@ -3,7 +3,10 @@ package noise
 import (
 	"bytes"
 	"crypto/rand"
+	"fmt"
 	"testing"
+
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
 func pair(t *testing.T) (Keypair, Keypair) {
@@ -88,6 +91,36 @@ func TestWrongServerKeyFails(t *testing.T) {
 	res, _ := NewResponder(server, ch)
 	if _, _, err := res.ReadInit(m1); err == nil {
 		t.Fatal("handshake for another server key accepted")
+	}
+}
+
+func TestPrologueUsesProtocolMajor(t *testing.T) {
+	ch := challenge()
+	want := append([]byte(fmt.Sprintf("crh/%d", protocol.ProtocolMajor)), ch...)
+	if got := Prologue(ch); !bytes.Equal(got, want) {
+		t.Fatalf("Prologue = %q, want %q", got, want)
+	}
+}
+
+func TestPrologueMismatchFailsHandshake(t *testing.T) {
+	client, server := pair(t)
+	ch := challenge()
+	// A peer from major 1 builds the old prologue; the handshake must fail before any payload.
+	legacy := append([]byte("crh/1"), ch...)
+	ini, err := newInitiatorPrologue(client, server.Public, legacy, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m1, err := ini.WriteInit([]byte("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := NewResponder(server, ch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := res.ReadInit(m1); err == nil {
+		t.Fatal("handshake with a major-1 prologue accepted")
 	}
 }
 

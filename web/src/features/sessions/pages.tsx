@@ -24,6 +24,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useModels } from "@/features/settings/api";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { SessionView } from "@/lib/api/types";
+import { presetLabel } from "@/lib/preset";
 import { parseQuotaInput, type QuotaError } from "@/lib/quota";
 import {
 	useAbortSession,
@@ -279,7 +280,7 @@ function SessionSettings({ session }: { session: SessionView }) {
 	);
 }
 
-function SessionHeader({ session }: { session: SessionView }) {
+function SessionHeader({ session, stoppable }: { session: SessionView; stoppable: boolean }) {
 	const { t } = useLingui();
 	const navigate = useNavigate();
 	const abort = useAbortSession(session.id);
@@ -303,7 +304,7 @@ function SessionHeader({ session }: { session: SessionView }) {
 				{session.model.provider}/{session.model.modelId}
 			</span>
 			<span>
-				<Trans>Preset</Trans>: {preset}
+				<Trans>Preset</Trans>: {presetLabel(preset)}
 				{ruleCount > 0 && (
 					<>
 						{" · "}
@@ -372,7 +373,7 @@ function SessionHeader({ session }: { session: SessionView }) {
 							variant="destructive"
 							size="sm"
 							data-testid="abort-session"
-							disabled={abort.isPending || session.state === "idle"}
+							disabled={abort.isPending || !stoppable}
 							onClick={stop}
 						>
 							<SquareIcon />
@@ -404,7 +405,7 @@ export function SessionPage() {
 	const sessionId = params.sessionId ?? "";
 	const session = useSession(sessionId);
 	const rootId = useSessionRootId(session.data);
-	useSessionTreeSync(sessionId, rootId);
+	const tree = useSessionTreeSync(sessionId, rootId);
 	const events = useSessionEvents(sessionId);
 	const [wantsOlder, setWantsOlder] = useState(false);
 	const history = useSessionHistoryPage(sessionId, events.state.historyCursor, wantsOlder);
@@ -439,11 +440,18 @@ export function SessionPage() {
 	}
 	if (!session.data) return null;
 	const view = session.data;
+	const isRoot = view.parentSessionId === null;
+	// Abort stops the session and every subagent under its root; the list stream
+	// aggregates roots only, so a child page follows its own state.
+	const treeBusy = isRoot && tree !== undefined && tree.state !== "idle";
+	const busy = view.state !== "idle" || treeBusy;
 
 	return (
 		<div className="flex h-full min-h-0 flex-col" data-testid="session-page" data-session-id={view.id}>
-			<SessionHeader session={view} />
-			{(view.state === "awaiting" || view.waitingKind !== null) && <SessionWaits session={view} />}
+			<SessionHeader session={view} stoppable={busy} />
+			{(view.state === "awaiting" || view.waitingKind !== null || (isRoot && tree?.state === "awaiting")) && (
+				<SessionWaits session={view} />
+			)}
 
 			{events.connection !== "live" && (
 				<p className="shrink-0 bg-muted px-3 py-1 text-xs text-muted-foreground" role="status">
@@ -494,7 +502,7 @@ export function SessionPage() {
 			<Composer
 				sessionId={view.id}
 				canChat={view.capabilities.chat}
-				running={events.state.running}
+				stoppable={events.state.running || busy}
 				waitingKind={view.waitingKind}
 			/>
 		</div>

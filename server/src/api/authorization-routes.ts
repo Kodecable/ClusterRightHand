@@ -37,7 +37,6 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 		if (err instanceof SubmissionError || err instanceof UserError || err instanceof WebauthnError) {
 			return jsonError(c, 400, err.message);
 		}
-		if (err instanceof TypeError) return jsonError(c, 400, err.message);
 		throw err;
 	});
 

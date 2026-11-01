@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { invalidatePendingDecisions } from "@/features/approvals/api";
 import { enc, http, queryString } from "@/lib/api/client";
 import { useCursorInfiniteQuery } from "@/lib/api/query";
 import type {
@@ -66,6 +67,8 @@ export function useSubmitAuthorization() {
 				.then((r) => r.authorization),
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: authorizationKeys.all });
+			// The approvals list carries the pending signatures; signing settles a task.
+			invalidatePendingDecisions(queryClient);
 		},
 	});
 }

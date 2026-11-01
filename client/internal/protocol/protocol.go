@@ -12,11 +12,14 @@ import (
 )
 
 const (
-	// ProtocolMajor and ProtocolMinor are the versions advertised in the handshake.
-	// Protocol 1.1 adds the M4 privilege commands and events; they are optional in the
-	// handshake, so a 1.0 peer still connects (doc/protocol.md, M4：提权).
-	ProtocolMajor = 1
-	ProtocolMinor = 1
+	// ProtocolMajor and ProtocolMinor are the versions advertised in the handshake. An
+	// incompatible change bumps the major version and the Noise prologue, so a peer with another
+	// major fails the handshake itself (doc/protocol.md, 握手载荷). The minor version is
+	// additive: new commands and events are negotiated through the handshake's commands field.
+	// Protocol 2.0 reads files by line range and adds task.exit.result; 1.1 was the M4 command
+	// set and 1.0 the M3.5 one.
+	ProtocolMajor = 2
+	ProtocolMinor = 0
 	// MaxFrameBytes bounds one encoded frame so that it fits a Noise transport message.
 	MaxFrameBytes = 61440
 	// MaxSafeInteger is the largest integer allowed by the protocol schema: 2^53-1.
@@ -29,7 +32,7 @@ const (
 	MaxNameBytes = 64
 )
 
-// Command names of protocol 1.0.
+// Command names of the M3.5 command set.
 const (
 	CmdHello      = "hello"
 	CmdPing       = "ping"
@@ -39,7 +42,7 @@ const (
 	CmdTaskQuery  = "task.query"
 )
 
-// Event names of protocol 1.0.
+// Event names of the M3.5 command set.
 const (
 	EventTaskOutput  = "task.output"
 	EventTaskExit    = "task.exit"
@@ -49,8 +52,8 @@ const (
 	EventTaskExitAck = "task.exit.ack"
 )
 
-// Command and event names added in protocol 1.1 (M4, doc/protocol.md#m4提权). They are
-// optional in the handshake: a 1.0 peer that does not offer them still connects.
+// Command and event names added in M4 (doc/protocol.md#m4提权). They are optional in the
+// handshake: a peer that does not offer them still connects.
 const (
 	CmdRevocationsAdd  = "revocations.add"
 	CmdLocalRequest    = "local.request"
@@ -59,7 +62,7 @@ const (
 	EventLocalDecision = "local.decision"
 )
 
-// commandNames and eventNames are the protocol 1.0 names: the set every peer must implement
+// commandNames and eventNames are the M3.5 names: the set every peer must implement
 // and therefore the required set of a handshake.
 var (
 	commandNames = []string{
@@ -80,7 +83,7 @@ var (
 	}
 )
 
-// optionalCommandNames and optionalEventNames are the protocol 1.1 names this package
+// optionalCommandNames and optionalEventNames are the M4 names this package
 // knows the bodies of. crha advertises them in every privileged mode: non-forward modes
 // answer the commands with privileged_unsupported and report not_forward instead of a
 // trust summary (doc/protocol.md M4：提权).
@@ -179,21 +182,21 @@ func validateEventBody(name string, raw cbor.RawMessage) error {
 }
 
 // SupportedCommands returns the command names this package advertises in a handshake,
-// including the optional protocol 1.1 commands.
+// including the optional M4 commands.
 func SupportedCommands() []string {
 	return slices.Concat(commandNames, optionalCommandNames)
 }
 
 // SupportedEvents returns the event names this package advertises in a handshake, including
-// the optional protocol 1.1 events.
+// the optional M4 events.
 func SupportedEvents() []string {
 	return slices.Concat(eventNames, optionalEventNames)
 }
 
 // SupportedNames returns every command and event name crha advertises in a handshake,
-// sorted. It is the list to put in a handshake's commands field. The protocol 1.1 names are
-// optional for the peer: a 1.0 crhs that does not offer them still connects, and crha then
-// only sends and answers the 1.0 names.
+// sorted. It is the list to put in a handshake's commands field. The M4 names are optional
+// for the peer: one that does not offer them still connects, and crha then only sends and
+// answers the M3.5 names.
 func SupportedNames() []string {
 	names := slices.Concat(SupportedCommands(), SupportedEvents())
 	slices.Sort(names)
@@ -203,7 +206,7 @@ func SupportedNames() []string {
 // SupportedSet returns SupportedNames as a Set.
 func SupportedSet() Set { return NewSet(SupportedNames()...) }
 
-// RequiredNames returns the protocol 1.0 command and event names, sorted. A handshake
+// RequiredNames returns the M3.5 command and event names, sorted. A handshake
 // whose negotiated intersection lacks one of them is rejected (doc/protocol.md, 握手载荷).
 func RequiredNames() []string {
 	names := append(slices.Clone(commandNames), eventNames...)
@@ -211,8 +214,8 @@ func RequiredNames() []string {
 	return names
 }
 
-// OptionalNames returns the protocol 1.1 command and event names, sorted. They are
-// optional in the handshake: a 1.0 peer that does not implement them still connects.
+// OptionalNames returns the M4 command and event names, sorted. They are optional in the
+// handshake: a peer that does not implement them still connects.
 func OptionalNames() []string {
 	names := append(slices.Clone(optionalCommandNames), optionalEventNames...)
 	slices.Sort(names)

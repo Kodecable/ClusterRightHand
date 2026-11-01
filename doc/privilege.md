@@ -319,7 +319,7 @@ kinds = ["execute"]
 **只用于单任务**：任务组（批量执行）中的任务不走本地批准，crhs 不发送 `local.request`；没有其他路径时该节点的任务直接以 `authorization_required` 失败，消息提示改为对单个节点执行。逐节点登录批准与批量执行的初衷相悖，也避免 crhs 为任务组逐节点跟踪本地批准状态。
 
 1. crhs 选择本地批准路径时，向节点发送 `local.request`（任务 id、attempt、规格），任务进入待批准列表；**此时不发送 `task.start`**。
-2. `crha pending` 显示完整规格（方法、目标、argv、env、cwd、stdin 或内容的大小和哈希、mode、owner、overwrite、edits）和 `spec_sha256`。`crha approve` / `crha deny` 再次显示将要批准的规格并要求确认（`--yes` 跳过），请求中带上这个 `spec_sha256`；特权模式与待批准记录的哈希比较，不一致就拒绝，所以 crhs 不能在管理员查看之后换掉规格。特权模式记录批准人的 uid（拒绝则直接记录拒绝），结果通过 `local.decision` 事件告诉 crhs。
+2. `crha pending` 显示完整规格（方法、目标、argv、env、cwd、stdin 或内容的大小和哈希、`file.read` 的起始行和行数、mode、owner、overwrite、edits）和 `spec_sha256`。`crha approve` / `crha deny` 再次显示将要批准的规格并要求确认（`--yes` 跳过），请求中带上这个 `spec_sha256`；特权模式与待批准记录的哈希比较，不一致就拒绝，所以 crhs 不能在管理员查看之后换掉规格。特权模式记录批准人的 uid（拒绝则直接记录拒绝），结果通过 `local.decision` 事件告诉 crhs。
 3. crhs 收到 `approved` 后，用同一 attempt 发送 `task.start`（`authorizations` 为空）。特权模式此时按上面的流程校验：第 3、4 步不适用（没有授权对象）；第 5 步只检查本任务 id 未执行过；第 6 步核对规格哈希与批准时相同；第 7 步使用批准人所在 `local` 信任项的规则。通过后消耗这条批准记录，任务 id 同样记入已用列表。
 
 待批准和已批准的记录只在特权模式的内存中，不自动超时；crhs 撤回（`local.withdraw`）、拒绝或特权模式重启时结束。特权模式重启后，crhs 会重新发送 `local.request`。等待期间断线不会让任务变成 `unknown`，因为执行只由 `task.start` 触发。

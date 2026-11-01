@@ -107,6 +107,8 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 			() =>
 				withLog(async () => {
 					const original = await readFile(env.configPath, "utf8");
+					// The harness config already sets one group; the test writes its own.
+					const base = original.replace(/^groups = .*\n/m, "");
 					const groupsOf = async () =>
 						(
 							await env.crhs.db
@@ -118,11 +120,11 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 							.map((g) => g.group_name)
 							.sort();
 					try {
-						await writeFile(env.configPath, `${original}groups = ["web", "prod"]\n`);
+						await writeFile(env.configPath, `${base}groups = ["web", "prod"]\n`);
 						expect((await runCrha(env.bin, ["reload", "--config", env.configPath])).code).toBe(0);
 						await waitFor("groups reported", async () => (await groupsOf()).join(",") === "prod,web", 10_000);
 
-						await writeFile(env.configPath, `${original}groups = ["web"]\nbogus = 1\n`);
+						await writeFile(env.configPath, `${base}groups = ["web"]\nbogus = 1\n`);
 						// `crha reload` validates first and refuses to signal with a broken file…
 						const refused = await runCrha(env.bin, ["reload", "--config", env.configPath]);
 						expect(refused.code).not.toBe(0);
@@ -213,6 +215,7 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 
 				const w = await run({ kind: "file.write", path, content: "a\nb\nc\n" });
 				expect(w.state).toBe("exited");
+				expect(w.result).toEqual({ kind: "file.write", bytes: 6, created: true });
 				expect(await readFile(path, "utf8")).toBe("a\nb\nc\n");
 
 				const again = await run({ kind: "file.write", path, content: "x" });
@@ -225,6 +228,7 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 
 				const edit = await run({ kind: "file.edit", path, edits: [{ oldText: "y\n", newText: "Y!\n" }] });
 				expect(edit.state).toBe("exited");
+				expect(edit.result).toEqual({ kind: "file.edit", replacements: 1 });
 				expect(await readFile(path, "utf8")).toBe("x\nY!\nz\n");
 				const miss = await run({ kind: "file.edit", path, edits: [{ oldText: "nope", newText: "z" }] });
 				expect(miss.errorCode).toBe("edit_no_match");
@@ -232,16 +236,25 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 
 				const read = await run({ kind: "file.read", path });
 				expect(read.stdoutTail).toBe("x\nY!\nz\n");
-				const part = await run({ kind: "file.read", path, offset: 2, limit: 3 });
+				expect(read.result).toEqual({ kind: "file.read", from: 1, to: 3, eof: true, total: 3, tooLong: false });
+				// The API spec pages by line too: startLine is 1-based, lineCount the number of lines.
+				const part = await run({ kind: "file.read", path, startLine: 2, lineCount: 1 });
 				expect(part.stdoutTail).toBe("Y!\n");
 
+				// A file operation reports its structured result in task.exit, and nothing on stdout
+				// (doc/protocol.md TaskResult).
 				const stat = await run({ kind: "file.stat", path });
 				expect(stat.state).toBe("exited");
-				expect(JSON.parse(stat.stdoutTail)).toMatchObject({ size: 7 });
+				expect(stat.result).toMatchObject({ kind: "file.stat", path, type: "file", size: 7 });
+				expect(stat.stdoutTail).toBe("");
 				const list = await run({ kind: "file.list", path: dir });
 				expect(list.state).toBe("exited");
-				expect(list.stdoutTail).toContain("f.txt");
-				expect(() => JSON.parse(list.stdoutTail)).not.toThrow();
+				expect(list.stdoutTail).toBe("");
+				expect(list.result).toMatchObject({
+					kind: "file.list",
+					truncated: false,
+					entries: expect.arrayContaining([expect.objectContaining({ name: "f.txt", type: "file" })]),
+				});
 			}));
 
 		it("timeout kills with TERM; cancel reports cancelled", () =>

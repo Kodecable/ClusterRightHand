@@ -10,6 +10,7 @@ import { up as up0024 } from "../src/storage/migrations/0024_rule_privileged_fla
 import { up as up0025 } from "../src/storage/migrations/0025_root_session_quota_null.ts";
 import { up as up0029 } from "../src/storage/migrations/0029_session_state_tree.ts";
 import { up as up0030 } from "../src/storage/migrations/0030_session_reconcile_indexes.ts";
+import { up as up0031 } from "../src/storage/migrations/0031_task_result.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -611,5 +612,39 @@ describeBackends("0030 session reconciliation indexes", (backend) => {
 		};
 		expect(await plan(nonIdleSessions(db).compile())).toContain("sessions_state_live_idx");
 		expect(await plan(sessionsWithSubmissions(db, ["input-1"]).compile())).toContain("sessions_last_submission_idx");
+	});
+});
+
+describeBackends("0031 task result", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("tasks")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.execute();
+			await sql`insert into tasks (id) values (${"t1"})`.execute(db);
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("adds a nullable result column and keeps the result of a task that reported one", async () => {
+		await applyMigration(backend, db, up0031);
+		const existing = await sql<{ id: string; result: string | null }>`select id, result from tasks`.execute(db);
+		expect(existing.rows).toEqual([{ id: "t1", result: null }]);
+		// The column stores the JSON form of a task's structured result (doc/protocol.md TaskResult).
+		const result = JSON.stringify({ kind: "file.stat", path: "/tmp/x", type: "file", size: 3, mode: "0644" });
+		await sql`insert into tasks (id, result) values (${"t2"}, ${result})`.execute(db);
+		await sql`update tasks set result = ${result} where id = ${"t1"}`.execute(db);
+		const rows = await sql<{ id: string; result: string | null }>`select id, result from tasks order by id`.execute(db);
+		expect(rows.rows).toEqual([
+			{ id: "t1", result },
+			{ id: "t2", result },
+		]);
 	});
 });

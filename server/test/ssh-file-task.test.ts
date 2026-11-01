@@ -1,14 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
-import type { TaskSpec } from "@crh/protocol";
+import type { FileListResult, FileStatResult, TaskResult, TaskSpec } from "@crh/protocol";
 import { Client, type SFTPWrapper } from "ssh2";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FileTaskError, runSftpFileTask } from "../src/cluster/ssh/file-task.ts";
 
 const target = process.env.CRH_TEST_SSH;
 const keyPath = process.env.CRH_TEST_SSH_KEY;
-
-type Json = Record<string, unknown>;
 
 describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 	const client = new Client();
@@ -76,20 +74,33 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 	type Kind = "file.read" | "file.write" | "file.edit" | "file.stat" | "file.list";
 	const specOf = (kind: Kind, value: object) => ({ kind, ...value }) as TaskSpec;
 
+	/** Runs one file task; its structured result and its text output (the page of a file.read). */
+	async function runTask(
+		kind: Kind,
+		value: object,
+		input?: Uint8Array,
+		signal: AbortSignal = new AbortController().signal,
+	): Promise<{ result: TaskResult; stdout: Buffer }> {
+		const out: Uint8Array[] = [];
+		const result = await runSftpFileTask(sftp, specOf(kind, value), input, (d) => out.push(Buffer.from(d)), signal);
+		return { result, stdout: Buffer.concat(out) };
+	}
 	async function runRaw(
 		kind: Kind,
 		value: object,
 		input?: Uint8Array,
 		signal: AbortSignal = new AbortController().signal,
 	): Promise<Buffer> {
-		const chunks: Uint8Array[] = [];
-		await runSftpFileTask(sftp, specOf(kind, value), input, (d) => chunks.push(Buffer.from(d)), signal);
-		return Buffer.concat(chunks);
+		return (await runTask(kind, value, input, signal)).stdout;
 	}
-	const run = async (kind: Kind, value: object, input?: Uint8Array): Promise<Json> => {
-		const out = await runRaw(kind, value, input);
-		return out.length ? (JSON.parse(out.toString()) as Json) : {};
+	const run = async (kind: Kind, value: object, input?: Uint8Array): Promise<TaskResult> => {
+		return (await runTask(kind, value, input)).result;
 	};
+	/** The result of a task, checked to be the branch its kind reports. */
+	function of<K extends TaskResult["kind"]>(result: TaskResult, kind: K): Extract<TaskResult, { kind: K }> {
+		if (result.kind !== kind) throw new Error(`task result is ${result.kind}, want ${kind}`);
+		return result as Extract<TaskResult, { kind: K }>;
+	}
 	async function code(promise: Promise<unknown>): Promise<string> {
 		try {
 			await promise;
@@ -118,7 +129,12 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 		}
 		return run("file.edit", { path, edits });
 	};
-	const readSpec = (path: string, offset = 0, limit = 0) => ({ path, offset, limit });
+	const readSpec = (path: string, startLine = 1, lineCount = 2000) => ({ path, startLine, lineCount });
+	/** Runs one file.read and returns the page as text and its result. */
+	const read = async (path: string, startLine = 1, lineCount = 2000) => {
+		const { result, stdout } = await runTask("file.read", readSpec(path, startLine, lineCount));
+		return { page: stdout.toString(), result: of(result, "file.read") };
+	};
 
 	it("rejects invalid paths", async () => {
 		for (const path of ["rel/path", "/a/../b", "/a//b", "/a/", ""]) {
@@ -126,22 +142,30 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 		}
 	});
 
-	it("reads ranges", async () => {
-		await put("r", "0123456789");
-		const read = async (off: number, lim: number) => (await runRaw("file.read", readSpec(p("r"), off, lim))).toString();
-		expect(await read(0, 0)).toBe("0123456789");
-		expect(await read(3, 4)).toBe("3456");
-		expect(await read(8, 100)).toBe("89");
-		expect(await read(20, 0)).toBe("");
+	it("pages by lines", async () => {
+		await exec(`printf 'one\\ntwo\\nthree\\nfour\\n' > ${p("r")}`);
+		expect(await read(p("r"), 1, 2)).toEqual({
+			page: "one\ntwo\n",
+			result: { kind: "file.read", from: 1, to: 2, eof: false, total: null, tooLong: false },
+		});
+		expect(await read(p("r"), 3, 10)).toEqual({
+			page: "three\nfour\n",
+			result: { kind: "file.read", from: 3, to: 4, eof: true, total: 4, tooLong: false },
+		});
+		// A start line past the end reports the line count the scan found.
+		expect(await read(p("r"), 9, 1)).toEqual({
+			page: "",
+			result: { kind: "file.read", from: 0, to: 0, eof: true, total: 4, tooLong: false },
+		});
 		expect(await code(run("file.read", readSpec(dir)))).toBe("is_directory");
 		expect(await code(run("file.read", readSpec(p("nope"))))).toBe("not_found");
 	});
 
-	it("reads large files in chunks", async () => {
-		await exec(`head -c 200000 /dev/zero | tr '\\0' 'a' > ${p("big")}`);
-		const out = await runRaw("file.read", readSpec(p("big")));
-		expect(out.length).toBe(200000);
-		expect((await runRaw("file.read", readSpec(p("big"), 199990, 50))).length).toBe(10);
+	it("stops a page at the byte cap, whole lines only", async () => {
+		await exec(`awk 'BEGIN{for(i=0;i<2000;i++)printf "%0999d\\n", i}' > ${p("lines")}`);
+		const { page, result } = await read(p("lines"), 1, 2000);
+		expect(Buffer.byteLength(page)).toBe(51 * 1000);
+		expect(result).toEqual({ kind: "file.read", from: 1, to: 51, eof: false, total: null, tooLong: false });
 	});
 
 	it("honours cancellation", async () => {
@@ -153,7 +177,7 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 
 	it("creates files", async () => {
 		const out = await write(p("new"), "hello");
-		expect(out).toEqual({ bytes: 5, created: true });
+		expect(out).toEqual({ kind: "file.write", bytes: 5, created: true });
 		expect(await cat("new")).toBe("hello");
 		expect(await modeOf("new")).toBe("644");
 		await noTemps();
@@ -179,7 +203,7 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 
 	it("overwrites keeping mode", async () => {
 		await put("o", "old", "640");
-		const out = await write(p("o"), "new", { overwrite: true });
+		const out = of(await write(p("o"), "new", { overwrite: true }), "file.write");
 		expect(out.created).toBe(false);
 		expect(await cat("o")).toBe("new");
 		expect(await modeOf("o")).toBe("640");
@@ -206,7 +230,7 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 
 	it("edits files", async () => {
 		await put("ed", "alpha\nbeta\ngamma\n", "750");
-		expect(await edit(p("ed"), "gamma", "GAMMA", "alpha", "ALPHA")).toEqual({ replacements: 2 });
+		expect(await edit(p("ed"), "gamma", "GAMMA", "alpha", "ALPHA")).toEqual({ kind: "file.edit", replacements: 2 });
 		expect(await cat("ed")).toBe("ALPHA\nbeta\nGAMMA\n");
 		expect(await modeOf("ed")).toBe("750");
 		await noTemps();
@@ -250,15 +274,15 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 
 	it("stats files, dirs and symlinks", async () => {
 		await put("s", "abc", "640");
-		const out = await run("file.stat", { path: p("s") });
+		const out: FileStatResult = of(await run("file.stat", { path: p("s") }), "file.stat");
 		expect(out).toMatchObject({ type: "file", size: 3, mode: "0640", path: p("s"), owner: "", group: "" });
 		expect(out.mtime).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
-		expect("link_target" in out).toBe(false);
-		expect((await run("file.stat", { path: dir })).type).toBe("dir");
+		expect(out.linkTarget).toBeNull();
+		expect(of(await run("file.stat", { path: dir }), "file.stat").type).toBe("dir");
 		await sh("ln -s /nonexistent/target sl");
 		expect(await run("file.stat", { path: p("sl") })).toMatchObject({
 			type: "symlink",
-			link_target: "/nonexistent/target",
+			linkTarget: "/nonexistent/target",
 		});
 		expect(await code(run("file.stat", { path: p("nope") }))).toBe("not_found");
 	});
@@ -266,23 +290,28 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 	it("lists directories", async () => {
 		const ld = p("ls");
 		await exec(`mkdir ${ld} && cd ${ld} && for n in c a b d; do printf $n > $n; done && mkdir sub && ln -s a ln`);
-		const names = (o: Json) => (o.entries as { name: string }[]).map((e) => e.name);
-		const out = await run("file.list", { path: ld, limit: 0 });
+		const list = async (value: object): Promise<FileListResult> => of(await run("file.list", value), "file.list");
+		const names = (l: FileListResult) => l.entries.map((e) => e.name);
+		const out = await list({ path: ld, limit: 0 });
 		expect(names(out)).toEqual(["a", "b", "c", "d", "ln", "sub"]);
 		expect(out.truncated).toBe(false);
-		const types = Object.fromEntries((out.entries as { name: string; type: string }[]).map((e) => [e.name, e.type]));
+		const types = Object.fromEntries(out.entries.map((e) => [e.name, e.type]));
 		expect(types).toMatchObject({ a: "file", sub: "dir", ln: "symlink" });
-		const small = await run("file.list", { path: ld, limit: 2 });
+		const small = await list({ path: ld, limit: 2 });
 		expect(names(small)).toEqual(["a", "b"]);
 		expect(small.truncated).toBe(true);
-		expect((await run("file.list", { path: ld, limit: 6 })).truncated).toBe(false);
+		expect((await list({ path: ld, limit: 6 })).truncated).toBe(false);
 		expect(await code(run("file.list", { path: `${ld}/a` }))).toBe("not_a_directory");
 		expect(await code(run("file.list", { path: `${ld}/nope` }))).toBe("not_found");
 	});
 
 	it("lists empty directories", async () => {
 		await sh("mkdir empty");
-		expect(await run("file.list", { path: p("empty"), limit: 0 })).toEqual({ entries: [], truncated: false });
+		expect(await run("file.list", { path: p("empty"), limit: 0 })).toEqual({
+			kind: "file.list",
+			entries: [],
+			truncated: false,
+		});
 	});
 
 	it("maps permission errors", async () => {

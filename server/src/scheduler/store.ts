@@ -87,9 +87,17 @@ function parseSchedule(row: Selectable<SchedulesTable>): Schedule {
 function cronOf(cron: string, timezone: string): Cron {
 	if (typeof cron !== "string" || cron.trim() === "") throw new UserError("cron is required");
 	if (typeof timezone !== "string" || timezone.trim() === "") throw new UserError("timezone is required");
+	const zone = timezone.trim();
+	// croner accepts an unknown zone at construction and fails only when it computes a time, which a disabled
+	// schedule never does: check the zone now with the same IANA resolution croner will use later.
+	try {
+		new Intl.DateTimeFormat("en-US", { timeZone: zone });
+	} catch {
+		throw new UserError(`invalid timezone: ${zone}`);
+	}
 	try {
 		// "5-part" pins the minute precision the docs promise; 6- and 7-field patterns are rejected.
-		return new Cron(cron.trim(), { timezone: timezone.trim(), paused: true, mode: "5-part" });
+		return new Cron(cron.trim(), { timezone: zone, paused: true, mode: "5-part" });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		throw new UserError(`invalid cron or timezone: ${message.replace(/^Cron[A-Za-z]*: /, "")}`);
@@ -108,16 +116,11 @@ export function nextRunAfter(cron: string, timezone: string, from: Date): string
 	return next.toISOString();
 }
 
-/** The next `count` fire times after `from`; a preview for the form, so invalid input gives []. */
+/** The next `count` fire times after `from`; invalid input throws, so the form can show the reason. */
 export function previewRuns(cron: string, timezone: string, from: Date, count = 5): string[] {
-	try {
-		return cronOf(cron, timezone)
-			.nextRuns(Math.max(1, Math.min(count, 20)), from)
-			.map((d) => d.toISOString());
-	} catch {
-		// Invalid input (or a zone this runtime cannot resolve): the form simply shows no preview.
-		return [];
-	}
+	return cronOf(cron, timezone)
+		.nextRuns(Math.max(1, Math.min(count, 20)), from)
+		.map((d) => d.toISOString());
 }
 
 /**

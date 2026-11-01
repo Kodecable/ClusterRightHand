@@ -1,0 +1,243 @@
+import type { TaskSpec } from "@crh/protocol";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Cluster } from "../src/cluster/cluster.ts";
+import type { NodeRow } from "../src/cluster/nodes.ts";
+import type { SshRoute } from "../src/cluster/ssh/connection.ts";
+import { SHELL_PROBE_COMMAND, SSH_PRIVILEGED_NOTICE } from "../src/cluster/ssh/exec.ts";
+import type { Db } from "../src/storage/db.ts";
+import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { newId } from "../src/util/id.ts";
+import { waitFor } from "./helpers/agent.ts";
+import { openTestDb } from "./helpers/db.ts";
+
+/**
+ * The SSH task path through the cluster with a fake session instead of a real sshd: cancelling a task
+ * whose connection is still being made, and the privileged notice of a status task
+ * (doc/execution-plane.md#ssh-传输). The session is faked by replacing the module's `connect`.
+ */
+const fake = vi.hoisted(() => ({
+	/** Opens the session of the next task; tests replace it. */
+	connect: async (_route: unknown): Promise<unknown> => {
+		throw new Error("no fake session set");
+	},
+}));
+
+vi.mock("../src/cluster/ssh/connection.ts", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../src/cluster/ssh/connection.ts")>();
+	return { ...actual, connect: (route: SshRoute) => fake.connect(route) };
+});
+
+const EXEC: TaskSpec = { kind: "exec", command: { argv: ["id", "-u"] }, env: {}, cwd: "", stdin: null };
+const OUTPUT = Buffer.from("0\n");
+const PROBE = "crh-shell sh /bin/sh\ncrh-shell bash /usr/bin/bash\n";
+
+/** One channel of the fake connection: listeners are attached before any event is emitted. */
+class FakeChannel {
+	readonly #handlers = new Map<string, ((arg?: unknown) => void)[]>();
+	readonly stderr = {
+		on: (event: string, fn: (arg?: unknown) => void) => this.#add(`stderr.${event}`, fn),
+		resume: () => {},
+	};
+	readonly stdout = { on: (event: string, fn: (arg?: unknown) => void) => this.#add(`stdout.${event}`, fn) };
+
+	on(event: string, fn: (arg?: unknown) => void): void {
+		this.#add(event, fn);
+	}
+
+	emit(event: string, arg?: unknown): void {
+		for (const fn of this.#handlers.get(event) ?? []) fn(arg);
+	}
+
+	#add(event: string, fn: (arg?: unknown) => void): void {
+		const list = this.#handlers.get(event) ?? [];
+		list.push(fn);
+		this.#handlers.set(event, list);
+	}
+
+	end(_data?: Buffer): void {}
+
+	close(): void {
+		this.emit("close");
+	}
+}
+
+/** A fake ssh2 session: it answers the shell probe and runs each task command to exit `code`. */
+class FakeSession {
+	readonly commands: string[] = [];
+	/** What every task command writes to stdout (nothing by default). */
+	taskOutput: Buffer = OUTPUT;
+	#closed = false;
+	readonly #closeHandlers = new Set<() => void>();
+
+	exec(command: string, onChannel?: (channel: FakeChannel) => void): Promise<FakeChannel> {
+		this.commands.push(command);
+		const channel = new FakeChannel();
+		onChannel?.(channel);
+		if (command === SHELL_PROBE_COMMAND) {
+			setImmediate(() => {
+				channel.emit("data", Buffer.from(PROBE));
+				channel.emit("close", 0);
+			});
+		} else {
+			setImmediate(() => {
+				if (this.taskOutput.length > 0) channel.emit("data", this.taskOutput);
+				channel.emit("exit", 0);
+				channel.emit("close");
+			});
+		}
+		return Promise.resolve(channel);
+	}
+
+	onClose(fn: () => void): () => void {
+		if (this.#closed) fn();
+		else this.#closeHandlers.add(fn);
+		return () => this.#closeHandlers.delete(fn);
+	}
+
+	get closed(): boolean {
+		return this.#closed;
+	}
+
+	close(): void {
+		if (this.#closed) return;
+		this.#closed = true;
+		for (const fn of this.#closeHandlers) fn();
+		this.#closeHandlers.clear();
+	}
+
+	/** The commands that ran a task (everything but the connection's shell probe). */
+	taskCommands(): string[] {
+		return this.commands.filter((command) => command !== SHELL_PROBE_COMMAND);
+	}
+}
+
+describe("SSH tasks", () => {
+	let db: Db;
+	let cluster: Cluster;
+	let ownerUserId = "";
+
+	beforeEach(async () => {
+		db = await openTestDb("sqlite");
+		cluster = new Cluster(db, {
+			// The route is never dialled: the module's connect is faked above.
+			sshRoute: async () => ({
+				hops: [{ host: "127.0.0.1", port: 22, user: "root", hostKey: "SHA256:fake" }],
+				privateKey: "fake-key",
+			}),
+		});
+		const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
+		ownerUserId = user.id;
+	});
+
+	afterEach(async () => {
+		await cluster.close();
+		await db.destroy();
+		fake.connect = async () => {
+			throw new Error("no fake session set");
+		};
+	});
+
+	const addSshNode = async (name: string): Promise<NodeRow> => {
+		const id = newId();
+		const now = new Date().toISOString();
+		await db
+			.insertInto("nodes")
+			.values({
+				id,
+				org_id: await defaultOrgId(db),
+				owner_user_id: ownerUserId,
+				name,
+				transport: "ssh",
+				status: "active",
+				public_key: null,
+				hostname: name,
+				facts: null,
+				client_version: null,
+				privileged_mode: null,
+				last_seen_at: null,
+				created_at: now,
+				approved_at: now,
+				approved_by_user_id: null,
+				ssh_host: "127.0.0.1",
+				ssh_port: 22,
+				ssh_user: "root",
+				ssh_host_key: "SHA256:fake",
+				ssh_credential_id: null,
+				ssh_jumps: null,
+			})
+			.execute();
+		return (await db.selectFrom("nodes").selectAll().where("id", "=", id).executeTakeFirstOrThrow()) as NodeRow;
+	};
+
+	const actor = () => ({ type: "user" as const, id: ownerUserId, onBehalfOfUserId: ownerUserId });
+
+	const view = async (id: string) => {
+		const task = await cluster.getTask(id);
+		if (!task) throw new Error(`task ${id} disappeared`);
+		return task;
+	};
+
+	it("cancels a task whose connection never completes without running it", async () => {
+		const node = await addSshNode("ssh-cancel");
+		let releaseConnect!: (session: FakeSession) => void;
+		fake.connect = () =>
+			new Promise((resolve) => {
+				releaseConnect = resolve;
+			});
+		const task = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
+		await waitFor("dispatched", async () => (await view(task.id)).state === "dispatched");
+
+		expect(await cluster.cancelTask(task.id, "the session was stopped")).toBe(true);
+		const session = new FakeSession();
+		releaseConnect(session);
+		const done = await waitFor("cancelled", async () => {
+			const current = await view(task.id);
+			return current.state === "exited" ? current : undefined;
+		});
+		// Nothing ran: the cancellation was set while the connection was being made.
+		expect(done).toMatchObject({ state: "exited", cancelled: true, exitCode: null });
+		expect(session.taskCommands()).toHaveLength(0);
+	});
+
+	it("keeps the privileged notice of a status task", async () => {
+		const node = await addSshNode("ssh-status");
+		const session = new FakeSession();
+		fake.connect = async () => session;
+		const task = await cluster.createTask({
+			nodeId: node.id,
+			spec: EXEC,
+			privileged: true,
+			outputMode: "status",
+			actor: actor(),
+		});
+		const done = await waitFor("finished", async () => {
+			const current = await view(task.id);
+			return current.state === "exited" ? current : undefined;
+		});
+		// A status task keeps no output, but the notice is stored as its stderr head.
+		expect(done).toMatchObject({ outputMode: "status", exitCode: 0, privileged: true });
+		expect(done.stderrHead).toBe(SSH_PRIVILEGED_NOTICE);
+		expect(done.stderrBytes).toBe(SSH_PRIVILEGED_NOTICE.length);
+		expect(done.stdoutBytes).toBe(OUTPUT.length);
+		expect(done.stdoutHead).toBe("");
+		expect(done.outputFile).toBeNull();
+		expect(session.taskCommands()).toHaveLength(1);
+	});
+
+	it("writes no notice for an ordinary status task", async () => {
+		const node = await addSshNode("ssh-status-plain");
+		fake.connect = async () => new FakeSession();
+		const task = await cluster.createTask({
+			nodeId: node.id,
+			spec: EXEC,
+			outputMode: "status",
+			actor: actor(),
+		});
+		const done = await waitFor("finished", async () => {
+			const current = await view(task.id);
+			return current.state === "exited" ? current : undefined;
+		});
+		expect(done.stderrHead).toBe("");
+		expect(done.stderrBytes).toBe(0);
+	});
+});

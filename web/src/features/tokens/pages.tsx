@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { ApiTokenView, Preset, Rule } from "@/lib/api/types";
+import { PRESETS, presetLabel } from "@/lib/preset";
 import { useApiTokens, useCreateApiToken, useDeleteApiToken, useRevokeApiToken, useSetTokenRules } from "./api";
 import { mcpCommand, tokenStatus } from "./tokenStatus";
 
@@ -160,16 +161,14 @@ export function CreateTokenDialog({ onClose, onCreated }: { onClose: () => void;
 							<Label htmlFor={`${prefix}-preset`}>{t`Preset`}</Label>
 							<Select value={preset} onValueChange={(next) => form.setValue("preset", next as Preset)}>
 								<SelectTrigger id={`${prefix}-preset`} className="w-full">
-									<SelectValue>
-										{(current: string | null) =>
-											current === "yolo" ? "Yolo" : current === "auto_review" ? "Auto Review" : "Ask"
-										}
-									</SelectValue>
+									<SelectValue>{(current: string | null) => presetLabel(current)}</SelectValue>
 								</SelectTrigger>
 								<SelectContent>
-									<SelectItem value="ask">Ask</SelectItem>
-									<SelectItem value="auto_review">Auto Review</SelectItem>
-									<SelectItem value="yolo">Yolo</SelectItem>
+									{PRESETS.map((entry) => (
+										<SelectItem key={entry.value} value={entry.value}>
+											{entry.label}
+										</SelectItem>
+									))}
 								</SelectContent>
 							</Select>
 							<p className="text-xs text-muted-foreground">
@@ -274,16 +273,14 @@ function RulesDialog({ token, onClose }: { token: ApiTokenView; onClose: () => v
 							<Label htmlFor={`${prefix}-preset`}>{t`Preset`}</Label>
 							<Select value={preset} onValueChange={(next) => setPreset(next as Preset)}>
 								<SelectTrigger id={`${prefix}-preset`} className="w-40">
-									<SelectValue>
-										{(current: string | null) =>
-											current === "yolo" ? "Yolo" : current === "auto_review" ? "Auto Review" : "Ask"
-										}
-									</SelectValue>
+									<SelectValue>{(current: string | null) => presetLabel(current)}</SelectValue>
 								</SelectTrigger>
 								<SelectContent>
-									<SelectItem value="ask">Ask</SelectItem>
-									<SelectItem value="auto_review">Auto Review</SelectItem>
-									<SelectItem value="yolo">Yolo</SelectItem>
+									{PRESETS.map((entry) => (
+										<SelectItem key={entry.value} value={entry.value}>
+											{entry.label}
+										</SelectItem>
+									))}
 								</SelectContent>
 							</Select>
 						</div>
@@ -385,7 +382,10 @@ export function TokensPage() {
 				id: "preset",
 				header: t`Preset`,
 				size: 110,
-				cell: ({ row }) => <span className="text-xs">{row.original.rules?.preset ?? "–"}</span>,
+				cell: ({ row }) => {
+					const preset = row.original.rules?.preset;
+					return <span className="text-xs">{preset === undefined ? "–" : presetLabel(preset)}</span>;
+				},
 			},
 			{
 				id: "created",

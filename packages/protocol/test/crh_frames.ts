@@ -10,6 +10,9 @@ import {
 	type HandshakeResponse,
 	handshakeInitCodec,
 	handshakeResponseCodec,
+	PROTOCOL_MAJOR,
+	PROTOCOL_MINOR,
+	type TaskResult,
 	type TaskStart,
 	type TaskStatus,
 } from "../src/messages.ts";
@@ -209,6 +212,46 @@ function taskStartWithSpec(taskId: string, spec: TaskStart["spec"], output: Task
 	};
 }
 
+const READ_RESULT: TaskResult = { kind: "file.read", from: 1, to: 2, eof: true, total: 3, tooLong: false };
+const STAT_RESULT: TaskResult = {
+	kind: "file.stat",
+	path: "/tmp/x",
+	type: "file",
+	size: 7,
+	mode: "0644",
+	uid: 1000,
+	gid: 1000,
+	owner: "alice",
+	group: "alice",
+	mtime: "2026-01-01T00:00:00Z",
+	linkTarget: null,
+};
+const LIST_RESULT: TaskResult = {
+	kind: "file.list",
+	entries: [{ name: "f.txt", type: "file", size: 7, mode: "0644", mtime: "2026-01-01T00:00:00Z" }],
+	truncated: false,
+};
+const WRITE_RESULT: TaskResult = { kind: "file.write", bytes: 3, created: true };
+const EDIT_RESULT: TaskResult = { kind: "file.edit", replacements: 2 };
+
+/** The task.exit frame of a task that ran cleanly, kept `stdoutEnd` bytes and reported `result`. */
+function exitFrame(taskId: string, result: TaskResult, stdoutEnd = 0): Frame {
+	return {
+		kind: "event",
+		name: "task.exit",
+		body: {
+			taskId,
+			outcome: { kind: "code", value: 0 },
+			timedOut: false,
+			cancelled: false,
+			stdoutEnd,
+			stderrEnd: 0,
+			outputFile: "",
+			result,
+		},
+	};
+}
+
 export function buildFixture(): CrhFramesFixture {
 	const positive: FixtureCase[] = [];
 	const negative: FixtureCase[] = [];
@@ -224,8 +267,8 @@ export function buildFixture(): CrhFramesFixture {
 
 	// Handshake payloads (not frames).
 	const initNoEnroll: HandshakeInit = {
-		protocolMajor: 1,
-		protocolMinor: 0,
+		protocolMajor: PROTOCOL_MAJOR,
+		protocolMinor: PROTOCOL_MINOR,
 		commands: [...SUPPORTED_NAMES],
 		crhaVersion: "0.1.0-test",
 		clientTimeMs: 1700000000000,
@@ -233,12 +276,12 @@ export function buildFixture(): CrhFramesFixture {
 	};
 	addPositive(
 		"handshake.init.no-enroll",
-		`HandshakeInit protocol_major=1 protocol_minor=0 ${COMMANDS_TEXT} crha_version="0.1.0-test" client_time_ms=1700000000000 enroll=null`,
+		`HandshakeInit protocol_major=${PROTOCOL_MAJOR} protocol_minor=${PROTOCOL_MINOR} ${COMMANDS_TEXT} crha_version="0.1.0-test" client_time_ms=1700000000000 enroll=null`,
 		encodeCbor(handshakeInitCodec.encode(initNoEnroll)),
 	);
 	const initEnroll: HandshakeInit = {
-		protocolMajor: 1,
-		protocolMinor: 0,
+		protocolMajor: PROTOCOL_MAJOR,
+		protocolMinor: PROTOCOL_MINOR,
 		commands: ["hello", "ping"],
 		crhaVersion: "0.1.0-test",
 		clientTimeMs: 1700000000000,
@@ -246,12 +289,12 @@ export function buildFixture(): CrhFramesFixture {
 	};
 	addPositive(
 		"handshake.init.enroll",
-		`HandshakeInit protocol_major=1 protocol_minor=0 commands=[hello,ping] crha_version="0.1.0-test" client_time_ms=1700000000000 enroll=[token_secret="enroll-secret", hostname="node-1", ${FACTS_TEXT}]`,
+		`HandshakeInit protocol_major=${PROTOCOL_MAJOR} protocol_minor=${PROTOCOL_MINOR} commands=[hello,ping] crha_version="0.1.0-test" client_time_ms=1700000000000 enroll=[token_secret="enroll-secret", hostname="node-1", ${FACTS_TEXT}]`,
 		encodeCbor(handshakeInitCodec.encode(initEnroll)),
 	);
 	const responseActive: HandshakeResponse = {
-		protocolMajor: 1,
-		protocolMinor: 0,
+		protocolMajor: PROTOCOL_MAJOR,
+		protocolMinor: PROTOCOL_MINOR,
 		commands: [...SUPPORTED_NAMES],
 		connectionId: "conn-1",
 		serverTimeMs: 1700000001234,
@@ -260,13 +303,13 @@ export function buildFixture(): CrhFramesFixture {
 	};
 	addPositive(
 		"handshake.response.active",
-		`HandshakeResponse protocol_major=1 protocol_minor=0 ${COMMANDS_TEXT} connection_id="conn-1" server_time_ms=1700000001234 node_state="active" node_id="node-1"`,
+		`HandshakeResponse protocol_major=${PROTOCOL_MAJOR} protocol_minor=${PROTOCOL_MINOR} ${COMMANDS_TEXT} connection_id="conn-1" server_time_ms=1700000001234 node_state="active" node_id="node-1"`,
 		encodeCbor(handshakeResponseCodec.encode(responseActive)),
 	);
 	const responsePending: HandshakeResponse = { ...responseActive, nodeState: "pending" };
 	addPositive(
 		"handshake.response.pending",
-		`HandshakeResponse protocol_major=1 protocol_minor=0 ${COMMANDS_TEXT} connection_id="conn-1" server_time_ms=1700000001234 node_state="pending" node_id="node-1"`,
+		`HandshakeResponse protocol_major=${PROTOCOL_MAJOR} protocol_minor=${PROTOCOL_MINOR} ${COMMANDS_TEXT} connection_id="conn-1" server_time_ms=1700000001234 node_state="pending" node_id="node-1"`,
 		encodeCbor(handshakeResponseCodec.encode(responsePending)),
 	);
 
@@ -318,14 +361,14 @@ export function buildFixture(): CrhFramesFixture {
 	);
 	addFrame(
 		"request.task.start.file.read",
-		'request id=5 cmd=task.start body=[task_id="t-read", attempt=1, spec=["file.read", [path="/etc/hosts", offset=0, limit=0]], privileged=false, authorizations=[], timeout_ms=0, kill_grace_ms=0, output=["status", []]]',
+		'request id=5 cmd=task.start body=[task_id="t-read", attempt=1, spec=["file.read", [path="/etc/hosts", startLine=1, lineCount=100]], privileged=false, authorizations=[], timeout_ms=0, kill_grace_ms=0, output=["status", []]]',
 		{
 			kind: "request",
 			id: 5,
 			cmd: "task.start",
 			body: taskStartWithSpec(
 				"t-read",
-				{ kind: "file.read", path: "/etc/hosts", offset: 0, limit: 0 },
+				{ kind: "file.read", path: "/etc/hosts", startLine: 1, lineCount: 100 },
 				{
 					kind: "status",
 				},
@@ -469,7 +512,7 @@ export function buildFixture(): CrhFramesFixture {
 		error: { code: "internal_error", message: "boom" },
 	});
 
-	// M4 (protocol 1.1, optional) commands and events.
+	// M4 (optional) commands and events.
 	addFrame(
 		"request.revocations.add",
 		"request id=13 cmd=revocations.add body=[entries=[[authorization_id=32 bytes of 0x11, deadline_ms=1793016300000]]]",
@@ -489,7 +532,7 @@ export function buildFixture(): CrhFramesFixture {
 	});
 	addFrame(
 		"request.local.request",
-		'request id=14 cmd=local.request body=[task_id="t-read", attempt=1, spec=["file.read", [path="/etc/hosts", offset=0, limit=0]], note="restart nginx"]',
+		'request id=14 cmd=local.request body=[task_id="t-read", attempt=1, spec=["file.read", [path="/etc/hosts", startLine=1, lineCount=100]], note="restart nginx"]',
 		{
 			kind: "request",
 			id: 14,
@@ -497,7 +540,7 @@ export function buildFixture(): CrhFramesFixture {
 			body: {
 				taskId: "t-read",
 				attempt: 1,
-				spec: { kind: "file.read", path: "/etc/hosts", offset: 0, limit: 0 },
+				spec: { kind: "file.read", path: "/etc/hosts", startLine: 1, lineCount: 100 },
 				note: "restart nginx",
 			},
 		},
@@ -535,7 +578,7 @@ export function buildFixture(): CrhFramesFixture {
 	);
 	addFrame(
 		"event.task.exit.code",
-		'event task.exit body=[task_id="t-exec-argv", outcome=["code", 0], timed_out=false, cancelled=false, stdout_end=6, stderr_end=0, output_file=""]',
+		'event task.exit body=[task_id="t-exec-argv", outcome=["code", 0], timed_out=false, cancelled=false, stdout_end=6, stderr_end=0, output_file="", result=null]',
 		{
 			kind: "event",
 			name: "task.exit",
@@ -547,12 +590,13 @@ export function buildFixture(): CrhFramesFixture {
 				stdoutEnd: 6,
 				stderrEnd: 0,
 				outputFile: "",
+				result: null,
 			},
 		},
 	);
 	addFrame(
 		"event.task.exit.signal",
-		'event task.exit body=[task_id="t-exec-shell", outcome=["signal", "TERM"], timed_out=false, cancelled=true, stdout_end=3, stderr_end=0, output_file=""]',
+		'event task.exit body=[task_id="t-exec-shell", outcome=["signal", "TERM"], timed_out=false, cancelled=true, stdout_end=3, stderr_end=0, output_file="", result=null]',
 		{
 			kind: "event",
 			name: "task.exit",
@@ -564,12 +608,13 @@ export function buildFixture(): CrhFramesFixture {
 				stdoutEnd: 3,
 				stderrEnd: 0,
 				outputFile: "",
+				result: null,
 			},
 		},
 	);
 	addFrame(
 		"event.task.exit.error",
-		'event task.exit body=[task_id="t-edit", outcome=["error", [code="internal_error", message="failed"]], timed_out=true, cancelled=false, stdout_end=0, stderr_end=0, output_file="/tmp/out"]',
+		'event task.exit body=[task_id="t-edit", outcome=["error", [code="internal_error", message="failed"]], timed_out=true, cancelled=false, stdout_end=0, stderr_end=0, output_file="/tmp/out", result=null]',
 		{
 			kind: "event",
 			name: "task.exit",
@@ -581,12 +626,13 @@ export function buildFixture(): CrhFramesFixture {
 				stdoutEnd: 0,
 				stderrEnd: 0,
 				outputFile: "/tmp/out",
+				result: null,
 			},
 		},
 	);
 	addFrame(
 		"event.task.exit.error.bom",
-		'event task.exit body=[task_id="t-bom", outcome=["error", [code="io_error", message="\\uFEFFbom"]], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file=""]',
+		'event task.exit body=[task_id="t-bom", outcome=["error", [code="io_error", message="\\uFEFFbom"]], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file="", result=null]',
 		{
 			kind: "event",
 			name: "task.exit",
@@ -598,8 +644,36 @@ export function buildFixture(): CrhFramesFixture {
 				stdoutEnd: 0,
 				stderrEnd: 0,
 				outputFile: "",
+				result: null,
 			},
 		},
+	);
+	// A task's structured result travels in task.exit, never in the output streams (doc/protocol.md
+	// TaskResult). One frame per kind; the tag is the task kind.
+	addFrame(
+		"event.task.exit.result.file.read",
+		'event task.exit body=[task_id="t-read", outcome=["code", 0], timed_out=false, cancelled=false, stdout_end=8, stderr_end=0, output_file="", result=["file.read", [from=1, to=2, eof=true, total=3, too_long=false]]]',
+		exitFrame("t-read", READ_RESULT, 8),
+	);
+	addFrame(
+		"event.task.exit.result.file.stat",
+		'event task.exit body=[task_id="t-stat", outcome=["code", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file="", result=["file.stat", [path="/tmp/x", type="file", size=7, mode="0644", uid=1000, gid=1000, owner="alice", group="alice", mtime="2026-01-01T00:00:00Z", link_target=null]]]',
+		exitFrame("t-stat", STAT_RESULT),
+	);
+	addFrame(
+		"event.task.exit.result.file.list",
+		'event task.exit body=[task_id="t-list", outcome=["code", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file="", result=["file.list", [entries=[[name="f.txt", type="file", size=7, mode="0644", mtime="2026-01-01T00:00:00Z"]], truncated=false]]]',
+		exitFrame("t-list", LIST_RESULT),
+	);
+	addFrame(
+		"event.task.exit.result.file.write",
+		'event task.exit body=[task_id="t-write", outcome=["code", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file="", result=["file.write", [bytes=3, created=true]]]',
+		exitFrame("t-write", WRITE_RESULT),
+	);
+	addFrame(
+		"event.task.exit.result.file.edit",
+		'event task.exit body=[task_id="t-edit-result", outcome=["code", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file="", result=["file.edit", [replacements=2]]]',
+		exitFrame("t-edit-result", EDIT_RESULT),
 	);
 	addFrame("event.facts", `event facts body=${FACTS_TEXT}`, { kind: "event", name: "facts", body: FACTS });
 	// Facts is the protocol's one map (doc/protocol.md Facts): unknown keys are ignored, absent
@@ -793,6 +867,21 @@ export function buildFixture(): CrhFramesFixture {
 		"negative.null_non_nullable",
 		"task.cancel request task_id is null where text is required",
 		encodeCbor([0, 29, "task.cancel", [null]]),
+	);
+	addNegative(
+		"negative.task_exit_result_unknown",
+		'task.exit result has the tag "exec", which reports no structured result',
+		encodeCbor([2, "task.exit", ["t-bad", ["code", 0], false, false, 0, 0, "", ["exec", []]]]),
+	);
+	addNegative(
+		"negative.task_exit_result_map",
+		"task.exit result is a free-form map instead of the typed result of the task kind",
+		encodeCbor([2, "task.exit", ["t-bad", ["code", 0], false, false, 0, 0, "", new Map([["from", 1]])]]),
+	);
+	addNegative(
+		"negative.task_exit_result_short",
+		"task.exit file.read result has 4 elements instead of 5",
+		encodeCbor([2, "task.exit", ["t-bad", ["code", 0], false, false, 0, 0, "", ["file.read", [1, 2, true, null]]]]),
 	);
 	addNegative(
 		"negative.int_below_min",

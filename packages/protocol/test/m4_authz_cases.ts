@@ -108,8 +108,8 @@ const WRITE_NGINX: TaskSpec = {
 	owner: "",
 	group: "",
 };
-const READ_NGINX: TaskSpec = { kind: "file.read", path: "/etc/nginx/nginx.conf", offset: 0, limit: 0 };
-const READ_SHADOW: TaskSpec = { kind: "file.read", path: "/etc/shadow", offset: 0, limit: 0 };
+const READ_NGINX: TaskSpec = { kind: "file.read", path: "/etc/nginx/nginx.conf", startLine: 1, lineCount: 100 };
+const READ_SHADOW: TaskSpec = { kind: "file.read", path: "/etc/shadow", startLine: 1, lineCount: 100 };
 const WRITE_CRHA: TaskSpec = { ...WRITE_NGINX, path: "/etc/crha/privileged.toml" } as TaskSpec;
 const STAT_RELATIVE: TaskSpec = { kind: "file.stat", path: "etc/hosts" };
 const STAT_DOTDOT: TaskSpec = { kind: "file.stat", path: "/etc/nginx/../shadow" };

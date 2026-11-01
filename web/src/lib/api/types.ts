@@ -442,6 +442,38 @@ export interface AuthorizationSummary {
 	revokedAt: string | null;
 }
 
+/** One entry of a `file.list` result (doc/protocol.md TaskResult). */
+export interface FileListEntryView {
+	name: string;
+	type: string;
+	size: number;
+	mode: string;
+	mtime: string;
+}
+
+/**
+ * A task's structured result, in the JSON form the API serves. Its `kind` is the task kind; the
+ * fields are the wire fields in camelCase (doc/protocol.md TaskResult).
+ */
+export type TaskResultView =
+	| { kind: "file.read"; from: number; to: number; eof: boolean; total: number | null; tooLong: boolean }
+	| {
+			kind: "file.stat";
+			path: string;
+			type: string;
+			size: number;
+			mode: string;
+			uid: number;
+			gid: number;
+			owner: string;
+			group: string;
+			mtime: string;
+			linkTarget: string | null;
+	  }
+	| { kind: "file.list"; entries: FileListEntryView[]; truncated: boolean }
+	| { kind: "file.write"; bytes: number; created: boolean }
+	| { kind: "file.edit"; replacements: number };
+
 export interface TaskView {
 	id: string;
 	nodeId: string;
@@ -467,12 +499,14 @@ export interface TaskView {
 	stderrHead: string;
 	stderrTail: string;
 	outputFile: string | null;
-	/** full for a single task; text or status for a batch node (doc/execution-plane.md#输出). */
-	outputMode: "full" | "text" | "status";
+	/** full for a single task; text, status or head for a batch node (doc/execution-plane.md#输出). */
+	outputMode: "full" | "text" | "status" | "head";
 	/** Whether this is a privileged task (doc/privilege.md). */
 	privileged: boolean;
 	/** The authorization plan and its history for a privileged task. */
 	authorization?: TaskAuthorizationView | null;
+	/** The task's structured result; null for a kind that reports none and for a task that failed. */
+	result?: TaskResultView | null;
 	createdAt: string;
 	finishedAt: string | null;
 	taskGroupId?: string | null;
@@ -513,7 +547,8 @@ export interface TaskGroupView {
 	nodeIds: string[];
 	parallel: number;
 	failFast: boolean;
-	outputMode: "status" | "text";
+	/** status or text for an exec group; head for a file operation (doc/execution-plane.md#输出). */
+	outputMode: "status" | "text" | "head";
 	/** Whether the group's tasks are privileged tasks (doc/privilege.md). */
 	privileged: boolean;
 	skipped: string[];
@@ -586,6 +621,8 @@ export interface ScheduleView {
 	inProgress: boolean;
 	/** The next few fire times, computed by the server for the form. */
 	preview: string[];
+	/** Why the preview is empty, when the stored cron or timezone no longer validates. */
+	previewError: string | null;
 }
 
 export interface ScheduleInput {

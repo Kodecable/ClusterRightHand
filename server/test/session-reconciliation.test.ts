@@ -169,6 +169,68 @@ describe("startup reconciliation", () => {
 		}
 	});
 
+	it("reconciles and re-arms the watches when #supervise reopens the Harness", async () => {
+		let failNext = false;
+		// The official SQLite storage, with one commit made to fail on demand: that closes the Harness.
+		const failingStorage = async (): Promise<Storage> => {
+			const real = await openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" });
+			return new Proxy(real, {
+				get(target, prop, receiver) {
+					const value = Reflect.get(target, prop, receiver);
+					if (typeof value !== "function") return value;
+					if (prop !== "commit") return value.bind(target);
+					return (...args: unknown[]) => {
+						if (failNext) {
+							failNext = false;
+							return Promise.reject(new Error("injected storage failure"));
+						}
+						return value.apply(target, args);
+					};
+				},
+			});
+		};
+		const first = await AgentRuntime.open({
+			db: localDb,
+			storage: failingStorage,
+			models,
+			cluster: localCluster,
+			groups: localGroups,
+			audit: new Audit(localDb),
+		});
+		try {
+			const session = await first.createSession(localOwner, {
+				model: localModel(),
+				preset: "yolo",
+				title: "reopened while running",
+			});
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			const gated = async () => {
+				await gate;
+				return fauxAssistantMessage([fauxText("after the reopen")]);
+			};
+			faux.setResponses([gated, gated]);
+			const submission = await first.submit(session.id, localOwner, "go", "reopen-running-1");
+			await waitFor("the run live", async () => ((await localRow(session.id)).state === "running" ? true : undefined));
+			// The answer's commit fails, which closes the Harness and rejects the run's pending wait; the
+			// supervisor reopens, and the resumed run commits the answer after a fresh model response.
+			failNext = true;
+			release();
+			await waitFor("the Harness reopened", () => (first.reopened === 1 ? true : undefined), 10_000);
+			// The failed wait is gone, so only the reopened reconciliation's watch can write idle.
+			await waitFor(
+				"idle after the reopen",
+				async () => ((await localRow(session.id)).state === "idle" ? true : undefined),
+				10_000,
+			);
+			expect(await first.waitSubmission(session.id, submission)).toMatchObject({ status: "done" });
+		} finally {
+			await first.close();
+		}
+	});
+
 	it("recomputes a wait whose task was decided while the process was down", async () => {
 		const first = await open();
 		const session = await first.createSession(localOwner, {
@@ -178,7 +240,7 @@ describe("startup reconciliation", () => {
 		});
 		faux.setResponses([
 			fauxAssistantMessage(
-				[fauxToolCall("exec", { node: "web-1-reconcile", cmd: "true" }, { id: "reconcile-approval" })],
+				[fauxToolCall("exec", { targets: ["web-1-reconcile"], cmd: "true" }, { id: "reconcile-approval" })],
 				{ stopReason: "toolUse" },
 			),
 			async () => {
@@ -241,9 +303,12 @@ describe("startup reconciliation", () => {
 			title: "idle while unsettled",
 		});
 		faux.setResponses([
-			fauxAssistantMessage([fauxToolCall("exec", { node: "web-1-reconcile", cmd: "true" }, { id: "reconcile-idle" })], {
-				stopReason: "toolUse",
-			}),
+			fauxAssistantMessage(
+				[fauxToolCall("exec", { targets: ["web-1-reconcile"], cmd: "true" }, { id: "reconcile-idle" })],
+				{
+					stopReason: "toolUse",
+				},
+			),
 			async () => {
 				await sleep(400);
 				return fauxAssistantMessage([fauxText("after the decision")]);
@@ -377,7 +442,7 @@ describe("startup reconciliation", () => {
 		});
 		faux.setResponses([
 			fauxAssistantMessage(
-				[fauxToolCall("exec", { node: "web-1-reconcile", cmd: "true" }, { id: "reconcile-migrated" })],
+				[fauxToolCall("exec", { targets: ["web-1-reconcile"], cmd: "true" }, { id: "reconcile-migrated" })],
 				{
 					stopReason: "toolUse",
 				},

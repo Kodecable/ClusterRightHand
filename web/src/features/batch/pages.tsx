@@ -62,7 +62,8 @@ export function BatchPage() {
 				...request,
 				targets,
 				failFast,
-				outputMode,
+				// Only exec batches choose how much output to keep; a file operation always keeps the head.
+				...(form.kind === "exec" ? { outputMode } : {}),
 				...(parsedParallel !== undefined ? { parallel: parsedParallel } : {}),
 			});
 			setGroupId(created.id);
@@ -140,33 +141,35 @@ export function BatchPage() {
 						/>
 						<Trans>Fail fast</Trans>
 					</label>
-					<div className="grid gap-1.5">
-						<Label htmlFor="batch-output">
-							<Trans>Output</Trans>
-						</Label>
-						<Select
-							value={outputMode}
-							onValueChange={(next) => {
-								if (next === "status" || next === "text") setOutputMode(next);
-							}}
-						>
-							<SelectTrigger id="batch-output" className="w-40">
-								<SelectValue>
-									{(current: string | null) =>
-										current === "text" ? <Trans>Tail of output</Trans> : <Trans>Status only</Trans>
-									}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="status">
-									<Trans>Status only</Trans>
-								</SelectItem>
-								<SelectItem value="text">
-									<Trans>Tail of output</Trans>
-								</SelectItem>
-							</SelectContent>
-						</Select>
-					</div>
+					{form.kind === "exec" && (
+						<div className="grid gap-1.5">
+							<Label htmlFor="batch-output">
+								<Trans>Output</Trans>
+							</Label>
+							<Select
+								value={outputMode}
+								onValueChange={(next) => {
+									if (next === "status" || next === "text") setOutputMode(next);
+								}}
+							>
+								<SelectTrigger id="batch-output" className="w-40">
+									<SelectValue>
+										{(current: string | null) =>
+											current === "text" ? <Trans>Tail of output</Trans> : <Trans>Status only</Trans>
+										}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="status">
+										<Trans>Status only</Trans>
+									</SelectItem>
+									<SelectItem value="text">
+										<Trans>Tail of output</Trans>
+									</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+					)}
 				</div>
 
 				<ErrorText error={error ?? create.error ?? nodes.error} />

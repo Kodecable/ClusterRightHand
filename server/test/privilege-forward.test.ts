@@ -375,6 +375,26 @@ describe("privileged forward dispatch", () => {
 			await new Promise((resolve) => setTimeout(resolve, 50));
 			expect(crha.revocations.length).toBe(batches);
 		});
+
+		it("does not push revocations to a restricted (pending) connection", async () => {
+			const { node, crha } = await connect("trust-pending-active");
+			const empty = summaryOf(node.id, []);
+			crha.trust({ kind: "ok", summary: empty });
+			await waitTrust(node.id, empty);
+
+			// A pending node of the same organization may only receive node.status (doc/protocol.md#受限连接).
+			const key = generateKeyPair();
+			const pendingNode = await addNode("trust-pending", key.publicKey);
+			await db.updateTable("nodes").set({ status: "pending" }).where("id", "=", pendingNode.id).execute();
+			const pending = await agents.connect(key, handshakeInit());
+			expect(await pending.peer.request("hello", { ...START, privilegedMode: "" })).toEqual({ acks: [] });
+
+			const id = await seedAuthorization({ revoked: false });
+			expect(await cluster.revokeAuthorization(id, actor())).toMatchObject({ changed: true });
+			await waitFor("revocation pushed to the active node", () => crha.revocations.length === 1);
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			expect(pending.revocations).toHaveLength(0);
+		});
 	});
 
 	describe("forward dispatch", () => {
@@ -636,7 +656,7 @@ describe("privileged forward dispatch", () => {
 			expect(crha.starts).toHaveLength(0);
 		});
 
-		it("fails on a protocol 1.0 crha with privileged_unsupported", async () => {
+		it("fails on a crha without the M4 names with privileged_unsupported", async () => {
 			const { node, crha } = await connect("forward-7", { commands: REQUIRED_NAMES });
 			const created = await createPrivileged(node.id);
 			const failed = await waitFor("failed", async () => {
@@ -690,6 +710,79 @@ describe("privileged forward dispatch", () => {
 			await audit.flush();
 			const events = await auditRows("task.finished");
 			expect(events).toHaveLength(1);
+			// Without an actor the system cancelled it.
+			expect(events[0]).toMatchObject({ actor_type: "system", actor_id: "cluster" });
+		});
+
+		it("names the actor who cancelled a waiting task in the audit", async () => {
+			const { node, crha } = await connect("cancel-actor");
+			await addCredential();
+			const summary = summaryOf(node.id, [aliceEntry()]);
+			crha.trust({ kind: "ok", summary });
+			await waitTrust(node.id, summary);
+
+			const created = await createPrivileged(node.id);
+			await waitFor(
+				"awaiting_authorization",
+				async () => (await taskView(created.id)).state === "awaiting_authorization",
+			);
+			expect(await cluster.cancelTask(created.id, "the session was stopped", actor())).toBe(true);
+			await audit.flush();
+			const events = await auditRows("task.finished");
+			expect(events).toHaveLength(1);
+			expect(events[0]).toMatchObject({
+				action: "task.finished",
+				actor_type: "user",
+				actor_id: owner.userId,
+				on_behalf_of_user_id: owner.userId,
+			});
+			expect(JSON.parse(events[0]?.detail as string)).toMatchObject({ cancelled: true });
+		});
+
+		it("names the HTTP user who cancelled a task", async () => {
+			const { node, crha } = await connect("cancel-api-actor");
+			await addCredential();
+			const summary = summaryOf(node.id, [aliceEntry()]);
+			crha.trust({ kind: "ok", summary });
+			await waitTrust(node.id, summary);
+
+			const created = await createPrivileged(node.id);
+			await waitFor(
+				"awaiting_authorization",
+				async () => (await taskView(created.id)).state === "awaiting_authorization",
+			);
+			const res = await call(app, `/api/tasks/${created.id}/cancel`, { method: "POST", cookie, body: {} });
+			expect(res.status).toBe(200);
+			expect(await res.json()).toEqual({ cancelled: true });
+			await audit.flush();
+			const events = await auditRows("task.finished");
+			expect(events).toHaveLength(1);
+			expect(events[0]).toMatchObject({ actor_type: "user", actor_id: owner.userId });
+		});
+
+		it("names the actor of a running task's cancellation", async () => {
+			const { node, crha } = await connect("cancel-running-actor");
+			const created = await cluster.createTask({
+				nodeId: node.id,
+				spec: { ...EXEC, command: { argv: ["sleep", "30"] } },
+				actor: actor(),
+			});
+			await waitFor("running", async () => (await taskView(created.id)).state === "running");
+			expect(await cluster.cancelTask(created.id, undefined, actor())).toBe(true);
+			crha.exit(created.id, { kind: "signal", value: "TERM" }, { cancelled: true });
+			const done = await waitFor("exited", async () => {
+				const view = await taskView(created.id);
+				return view.state === "exited" ? view : undefined;
+			});
+			expect(done.cancelled).toBe(true);
+			await audit.flush();
+			const events = await auditRows("task.finished");
+			expect(events).toHaveLength(1);
+			expect(events[0]).toMatchObject({
+				actor_type: "user",
+				actor_id: owner.userId,
+				on_behalf_of_user_id: owner.userId,
+			});
 		});
 	});
 

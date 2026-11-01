@@ -48,6 +48,7 @@ export async function renderWithRouter(ui: React.ReactElement, locale: TestLocal
 		"/nodes/$nodeId",
 		"/task-groups/$taskGroupId",
 		"/sessions/$sessionId",
+		"/schedules/$scheduleId",
 		"/login",
 		"/sessions",
 	];

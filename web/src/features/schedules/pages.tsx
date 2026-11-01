@@ -267,6 +267,13 @@ export function SchedulesPage() {
 					<div className="min-w-0">
 						<code className="font-mono text-xs">{row.original.cron}</code>
 						<p className="truncate text-xs text-muted-foreground">{row.original.timezone}</p>
+						{/* A row saved before the zone was validated still lists; its preview is empty and
+						    the server says why (doc/scheduling.md#调度). */}
+						{row.original.previewError !== null && (
+							<p data-testid="schedule-preview-error" className="text-xs text-danger">
+								{row.original.previewError}
+							</p>
+						)}
 					</div>
 				),
 			},

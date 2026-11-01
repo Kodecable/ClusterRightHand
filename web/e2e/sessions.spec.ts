@@ -53,9 +53,12 @@ test.describe("with a node", () => {
 	test("a tool call shows a card with the result (yolo)", async ({ adminPage: page, crhs, env }) => {
 		if (!env) throw new Error("withNode");
 		crhs.faux.setResponses([
-			fauxAssistantMessage([fauxToolCall("exec", { node: env.nodeId, cmd: "echo from-agent" }, { id: "call-1" })], {
-				stopReason: "toolUse",
-			}),
+			fauxAssistantMessage(
+				[fauxToolCall("exec", { targets: [env.nodeId], cmd: "echo from-agent" }, { id: "call-1" })],
+				{
+					stopReason: "toolUse",
+				},
+			),
 			fauxAssistantMessage([fauxText("The command printed from-agent.")]),
 		]);
 		await newSession(page, "Tools", "Yolo");
@@ -75,9 +78,12 @@ test.describe("with a node", () => {
 	}) => {
 		if (!env) throw new Error("withNode");
 		crhs.faux.setResponses([
-			fauxAssistantMessage([fauxToolCall("exec", { node: env.nodeId, cmd: "echo approve-me" }, { id: "call-1" })], {
-				stopReason: "toolUse",
-			}),
+			fauxAssistantMessage(
+				[fauxToolCall("exec", { targets: [env.nodeId], cmd: "echo approve-me" }, { id: "call-1" })],
+				{
+					stopReason: "toolUse",
+				},
+			),
 			fauxAssistantMessage([fauxText("Approved and done.")]),
 		]);
 		await newSession(page, "Ask chat");
@@ -105,7 +111,7 @@ test.describe("with a node", () => {
 	test("Stop ends a run that waits for approval", async ({ adminPage: page, crhs, env }) => {
 		if (!env) throw new Error("withNode");
 		crhs.faux.setResponses([
-			fauxAssistantMessage([fauxToolCall("exec", { node: env.nodeId, cmd: "echo never" }, { id: "call-1" })], {
+			fauxAssistantMessage([fauxToolCall("exec", { targets: [env.nodeId], cmd: "echo never" }, { id: "call-1" })], {
 				stopReason: "toolUse",
 			}),
 			fauxAssistantMessage([fauxText("unused")]),

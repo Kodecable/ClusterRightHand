@@ -46,7 +46,7 @@ test("a faux-model session streams text, runs a tool call, waits for an inline a
 	if (!env) throw new Error("withNode");
 	crhs.faux.setResponses([
 		fauxAssistantMessage(
-			[fauxToolCall("exec", { node: env.nodeId, cmd: "sleep 0.4; echo approve-me" }, { id: "call-1" })],
+			[fauxToolCall("exec", { targets: [env.nodeId], cmd: "sleep 0.4; echo approve-me" }, { id: "call-1" })],
 			{
 				stopReason: "toolUse",
 			},

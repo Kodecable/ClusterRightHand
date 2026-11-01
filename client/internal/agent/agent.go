@@ -132,6 +132,10 @@ type Options struct {
 	// PrivilegedSocket is the [privileged] socket of forward mode: the unix socket the
 	// privileged mode listens on. It is unused in the other modes.
 	PrivilegedSocket string
+	// ForwardRequestTimeout bounds every request to the privileged mode in forward mode. The
+	// daemon answers from memory, so a slower answer means it is wedged; the request then fails
+	// instead of blocking the peer's request worker. 0 = DefaultForwardRequestTimeout.
+	ForwardRequestTimeout time.Duration
 	// ClockWarn is the [clock_warn] threshold: after every successful crhs handshake a clock
 	// offset larger than it is logged as a warning. 0 disables the warning.
 	ClockWarn time.Duration
@@ -201,6 +205,10 @@ type task struct {
 	// fwd is the daemon connection a privileged forward-mode task was accepted on, nil otherwise.
 	// Its events arrive on that connection and are routed to relay by task id.
 	fwd *forwardConn
+	// fwdUnknown records a task.start whose answer was lost (a broken connection or a timeout): the
+	// daemon may have accepted the task, so launch never waits for its events and ends it as
+	// helper_lost.
+	fwdUnknown bool
 	// finishOnce makes the one call that completes the task win: a native task can be finished by
 	// the helper's task.exit and by the stream breaking at the same time.
 	finishOnce sync.Once
@@ -387,7 +395,11 @@ func (a *Agent) pendingSession(ctx context.Context, conn *transport.Conn) error 
 // newPeer builds the protocol peer for one connection and registers the handlers. Restricted
 // connections only need node.status; active ones handle tasks and their acknowledgements.
 func (a *Agent) newPeer(ctx context.Context, conn *transport.Conn, ns *nodeStatus, tasks bool) *protocol.Peer {
-	peer := protocol.NewPeer(func(frame []byte) error { return conn.Send(ctx, frame) }, conn.Negotiated)
+	// The request worker keeps the receive loop reading while a handler waits: a forwarded
+	// request can block on the privileged mode, and crhs's pong must still be processed
+	// (doc/protocol.md task.start). Handlers still run one at a time, in arrival order.
+	peer := protocol.NewPeer(func(frame []byte) error { return conn.Send(ctx, frame) }, conn.Negotiated,
+		protocol.WithRequestWorker())
 	peer.HandleEvent(protocol.EventNodeStatus, ns.handle)
 	if !tasks {
 		return peer
@@ -630,6 +642,11 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 	// A malformed sha256 cannot reach here: protocol.Hash decodes to exactly 32 bytes.
 	a.mu.Lock()
 	_, dup := a.accepted[ts.TaskID]
+	if !dup {
+		// An id whose entry was evicted must still be refused while its task is held: the
+		// duplicate would otherwise overwrite a running task in a.tasks.
+		_, dup = a.tasks[ts.TaskID]
+	}
 	a.mu.Unlock()
 	if dup {
 		return reject("already_accepted", "task "+ts.TaskID+" was already accepted")
@@ -696,7 +713,7 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 	if forward {
 		// The daemon must refuse an unauthorized task before this agent accepts it: an accepted
 		// task is never retried (doc/protocol.md task.start).
-		fc, err := a.startForwardTask(ctx, ts)
+		fc, unknown, err := a.startForwardTask(ctx, ts)
 		if err != nil {
 			cancel()
 			var remote *protocol.RemoteError
@@ -705,7 +722,7 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 			}
 			return nil, err
 		}
-		t.fwd = fc
+		t.fwd, t.fwdUnknown = fc, unknown
 	}
 	a.mu.Lock()
 	a.acceptLocked(t.id)
@@ -775,9 +792,10 @@ func (a *Agent) launch(t *task) {
 	if t.fwd != nil {
 		// A forwarded task is executed by the privileged mode; its events arrive on the daemon
 		// connection and are routed to the handlers attached by start. The connection can have
-		// ended between its accepted response and this launch, in which case crha can no longer
-		// learn the outcome (the daemon keeps the task running).
-		if !a.forwardAlive(t.fwd) {
+		// ended between its accepted response and this launch, or the response may have timed
+		// out, in which case crha can no longer learn the outcome (the daemon keeps the task
+		// running).
+		if t.fwdUnknown || !a.forwardAlive(t.fwd) {
 			a.finishRelayed(t, helperLostExit(t.id, forwardLostMessage))
 		}
 		return
@@ -803,14 +821,23 @@ func (a *Agent) launchUnstarted() {
 	}
 }
 
-// acceptLocked records a task id in the accepted set, evicting the oldest id beyond maxAcceptedTasks.
-// a.mu must be held.
+// acceptLocked records a task id in the accepted set, evicting the oldest ids beyond
+// maxAcceptedTasks. An id whose task is still held is never evicted: a duplicate task.start for it
+// must still be refused, and dropping it would let the duplicate overwrite the running task in
+// a.tasks. Such an id is moved to the back of the queue and reconsidered once its task is gone, so
+// the set can temporarily stay above the bound while tasks run. a.mu must be held.
 func (a *Agent) acceptLocked(id string) {
 	a.accepted[id] = struct{}{}
 	a.acceptedOrder = append(a.acceptedOrder, id)
-	for len(a.acceptedOrder) > maxAcceptedTasks {
+	// The scan is bounded by the length of the queue: if every id names a held task, none can be
+	// evicted and the set simply stays above its bound until tasks finish.
+	for budget := len(a.acceptedOrder); len(a.acceptedOrder) > maxAcceptedTasks && budget > 0; budget-- {
 		oldest := a.acceptedOrder[0]
 		a.acceptedOrder = a.acceptedOrder[1:]
+		if _, live := a.tasks[oldest]; live {
+			a.acceptedOrder = append(a.acceptedOrder, oldest)
+			continue
+		}
 		delete(a.accepted, oldest)
 	}
 }
@@ -1108,6 +1135,7 @@ func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
 		Env:       a.opts.Env,
 	})
 	exit.TimedOut, exit.Cancelled, exit.Outcome = res.TimedOut, res.Cancelled, res.Outcome()
+	exit.Result = res.TaskResult
 	if q, ok := in.(*executor.Input); ok {
 		q.Discard() // unblocks a reader the executor left behind
 	}
@@ -1126,6 +1154,8 @@ func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
 			Error: &protocol.Error{Code: t.inputErr.Code, Message: protocol.ErrorMessage(t.inputErr.Message)},
 		}
 		exit.Cancelled = false
+		// The input decided this task: a result the executor produced would contradict the failure.
+		exit.Result = nil
 	}
 	t.done, t.result = true, exit
 	a.mu.Unlock()

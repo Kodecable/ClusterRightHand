@@ -3,8 +3,8 @@
 同时支持 SQLite 和 PostgreSQL，因此：
 
 - 主键统一使用 UUIDv7，以 TEXT 存储（PG 中可用 `uuid` 类型，由 Kysely 方言处理）。
-- JSON 字段在 PG 中用 `jsonb`，在 SQLite 中用 `TEXT`；只在应用层解析，不依赖数据库的 JSON 查询能力。
-- 时间统一存 UTC，PG 用 `timestamptz`，SQLite 用 ISO 8601 文本。
+- JSON 字段在两种方言中都存 `TEXT`（JSON 文本）；只在应用层解析，不依赖数据库的 JSON 查询能力。不用 `jsonb`：它会拒绝孤立代理项并重排键。
+- 时间统一存 UTC，两种方言都用 ISO 8601 文本（不用 `timestamptz`）。
 - 迁移用 Kysely Migrator，每个迁移对两种方言都要能跑。
 
 durable 的表由 `SqlStorage` 管理，统一加 `pi_` 前缀，不在本文档中列出。
@@ -55,7 +55,7 @@ secrets           (id, org_id, kind, ciphertext, created_at)          -- 用主�
 
 ```
 task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail_fast,
-                   output_mode[status|text],                          -- 批量输出模式；新建默认 status，M3.5 之前的组为 text
+                   output_mode[status|text|head],                     -- 批量输出模式；exec 新建默认 status（M3.5 之前的组为 text），文件操作固定 head
                    skipped json,                                      -- 因 fail_fast 或中断而未启动的节点
                    rule_chain json nullable, approval json nullable,  -- 一个任务组只审批一次
                    spec json nullable, timeout_ms nullable, pending_input nullable,
@@ -64,9 +64,10 @@ task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail
                    handler_type[agent|user] nullable,                 -- 等审批时谁处理；user 即 on_behalf_of_user_id
                    handler_session_id nullable,                       -- handler_type=agent 时处理的会话
                    state[awaiting_approval|awaiting_authorization|running|finished|interrupted|rejected],
+                                                                      -- interrupted：重启中断；已创建但未下发的成员任务以 cancelled 结束
                    actor_type, actor_id, on_behalf_of_user_id, created_at, finished_at)
 tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json, input_size, input_sha256,
-                   privileged, attempt, timeout_ms, output_mode[full|text|status],  -- 单任务 full；组内任务随组
+                   privileged, attempt, timeout_ms, output_mode[full|text|status|head],  -- 单任务 full；组内任务随组
                    state[awaiting_approval|awaiting_authorization|denied|dispatched|running|exited|failed|rejected|unknown],
                    exit_code, signal, timed_out, cancelled,
                    error_code, error_message,                         -- 执行器错误码、拒绝原因或 unknown 的原因
@@ -82,10 +83,13 @@ tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json,
                    stdout_bytes, stderr_bytes,
                    stdout_head, stdout_tail, stderr_head, stderr_tail, -- crhs 只保存截断后的头尾（base64）
                    output_file nullable,                              -- 完整输出在节点上的路径（crha 保存）
+                   result json nullable,                              -- 文件任务的结构化结果（protocol.md TaskResult）
                    late_result nullable)                              -- 已报告 unknown 之后才到达的真实结果
 ```
 
 crhs 不保存完整输出。批量默认 `status` 只保存状态和输出文件路径；`text` 受单节点和总预算限制。完整输出由 crha 在节点上保存为普通文件并负责清理，见 [execution-plane.md](execution-plane.md#输出)。SSH 不保存完整输出。
+
+`tasks.spec` 和 `task_groups.spec` 是创建时的 JSON 形式，按当时的协议版本解释。协议大版本 2 把 `file.read` 的 JSON 字段从 `offset` / `limit` 改为 `startLine` / `lineCount`：升级前创建、仍在等待审批或签名的这类任务和任务组无法下发，读取时以 `stored spec cannot be read` 失败。
 
 ## 规则与授权
 

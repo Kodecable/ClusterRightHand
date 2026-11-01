@@ -170,6 +170,7 @@ func (t *Task) execute() *protocol.TaskExit {
 		Cancelled: res.Cancelled,
 		StdoutEnd: protocol.Uint(t.sink.End(protocol.StreamStdout)),
 		StderrEnd: protocol.Uint(t.sink.End(protocol.StreamStderr)),
+		Result:    res.TaskResult,
 	}
 	t.mu.Lock()
 	if t.inputErr != nil {
@@ -179,6 +180,8 @@ func (t *Task) execute() *protocol.TaskExit {
 			Error: &protocol.Error{Code: t.inputErr.Code, Message: protocol.ErrorMessage(t.inputErr.Message)},
 		}
 		exit.Cancelled = false
+		// The input decided this task: a result the executor produced would contradict the failure.
+		exit.Result = nil
 	}
 	t.finished = true
 	t.mu.Unlock()

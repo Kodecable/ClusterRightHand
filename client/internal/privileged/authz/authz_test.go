@@ -38,7 +38,8 @@ type jsonSpec struct {
 	Cwd       string            `json:"cwd"`
 	Stdin     *jsonInputRef     `json:"stdin"`
 	Path      string            `json:"path"`
-	Offset    uint64            `json:"offset"`
+	StartLine uint64            `json:"startLine"`
+	LineCount uint64            `json:"lineCount"`
 	Limit     uint64            `json:"limit"`
 	Content   *jsonInputRef     `json:"content"`
 	Overwrite bool              `json:"overwrite"`
@@ -197,7 +198,7 @@ func taskSpecFromJSON(t *testing.T, spec jsonSpec) *protocol.TaskSpec {
 		}}
 	case "file.read":
 		return &protocol.TaskSpec{Kind: protocol.TaskSpecFileRead, FileRead: &protocol.FileReadSpec{
-			Path: spec.Path, Offset: protocol.Uint(spec.Offset), Limit: protocol.Uint(spec.Limit),
+			Path: spec.Path, StartLine: protocol.Uint(spec.StartLine), LineCount: protocol.Uint(spec.LineCount),
 		}}
 	case "file.write":
 		if spec.Content == nil {

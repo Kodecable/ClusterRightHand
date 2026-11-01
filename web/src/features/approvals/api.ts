@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { taskKeys } from "@/features/tasks/api";
 import { enc, http } from "@/lib/api/client";
 import type { ApiTokenView, ApprovalBody, ApprovalList, PublicNode, TaskGroupView, TaskView } from "@/lib/api/types";
@@ -7,6 +7,16 @@ export const approvalKeys = {
 	all: ["approvals"] as const,
 	list: () => ["approvals", "list"] as const,
 };
+
+/**
+ * Refreshes what a decision, a signature or a cancel changes: the approvals
+ * list behind the sidebar badge and the Approvals page (it carries the pending
+ * signatures too) and the tasks and task groups those cards show.
+ */
+export function invalidatePendingDecisions(queryClient: QueryClient): void {
+	void queryClient.invalidateQueries({ queryKey: approvalKeys.all });
+	void queryClient.invalidateQueries({ queryKey: taskKeys.all });
+}
 
 const POLL_MS = 10_000;
 
@@ -52,14 +62,8 @@ export function useDecideApproval() {
 			kind === "task"
 				? http.post<{ ok: true }>(`/tasks/${enc(id)}/approval`, body)
 				: http.post<{ ok: true }>(`/task-groups/${enc(id)}/approval`, body),
-		onSuccess: (_result, variables) => {
-			void queryClient.invalidateQueries({ queryKey: approvalKeys.all });
-			void queryClient.invalidateQueries({ queryKey: taskKeys.all });
-			if (variables.kind === "task") {
-				void queryClient.invalidateQueries({ queryKey: taskKeys.detail(variables.id) });
-			} else {
-				void queryClient.invalidateQueries({ queryKey: taskKeys.group(variables.id) });
-			}
+		onSuccess: () => {
+			invalidatePendingDecisions(queryClient);
 		},
 		onError: (error) => {
 			// 409 means someone else decided first: refresh so the card shows it.

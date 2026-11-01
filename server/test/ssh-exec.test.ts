@@ -1,7 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import type { SshSession } from "../src/cluster/ssh/connection.ts";
-import { buildCommand, parseShellProbe, probeShells, SHELL_PROBE_COMMAND } from "../src/cluster/ssh/exec.ts";
+import {
+	buildCommand,
+	parseShellProbe,
+	probeShells,
+	runSshExec,
+	SHELL_PROBE_COMMAND,
+} from "../src/cluster/ssh/exec.ts";
 
 /**
  * The remote command line of an SSH task and the per-connection shell probe
@@ -129,5 +135,41 @@ describe("SSH shell probe", () => {
 		const shells = parseShellProbe(output);
 		expect(shells.sh).toMatch(/^\//);
 		expect(() => execFileSync("test", ["-x", shells.sh as string])).not.toThrow();
+	});
+});
+
+describe("SSH exec cancellation", () => {
+	/** A session that records the commands it is asked to run; the channel is never answered. */
+	function recordingSession(): { session: SshSession; commands: string[] } {
+		const commands: string[] = [];
+		const session = {
+			exec: async (command: string, onChannel?: (channel: unknown) => void) => {
+				commands.push(command);
+				const channel = { on: () => {}, stderr: { on: () => {}, resume: () => {} }, close: () => {}, end: () => {} };
+				onChannel?.(channel);
+				return channel;
+			},
+			onClose: () => () => {},
+			closed: false,
+		};
+		return { session: session as unknown as SshSession, commands };
+	}
+
+	it("runs nothing when the task was cancelled before it started", async () => {
+		const { session, commands } = recordingSession();
+		const controller = new AbortController();
+		controller.abort();
+		const started: string[] = [];
+		const result = await runSshExec(
+			session,
+			execSpec({ argv: ["rm", "-rf", "/tmp/crh-cancelled"] }),
+			undefined,
+			{ stdout: () => {}, stderr: () => {}, started: () => started.push("started") },
+			{ signal: controller.signal },
+		);
+		// The cancellation fired during the connection, before the exec: nothing is sent to the node.
+		expect(result).toEqual({ timedOut: false, cancelled: true });
+		expect(commands).toHaveLength(0);
+		expect(started).toHaveLength(0);
 	});
 });

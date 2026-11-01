@@ -47,6 +47,9 @@ type Result struct {
 	Err       *Error
 	TimedOut  bool
 	Cancelled bool
+	// TaskResult is the task's structured result, nil for a kind that reports none and for a task
+	// that failed (doc/protocol.md TaskResult).
+	TaskResult *protocol.TaskResult
 }
 
 // RunExec runs an exec task in its own process group. Cancelling ctx (crhs's TaskCancel) or the timeout

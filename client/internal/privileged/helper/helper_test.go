@@ -256,18 +256,29 @@ func TestRunFileReadTask(t *testing.T) {
 	s := startSession(t, testVersion)
 	ts := protocol.TaskStart{
 		TaskID: "read-1", Attempt: 1, Privileged: true,
-		Spec:   protocol.TaskSpec{Kind: protocol.TaskSpecFileRead, FileRead: &protocol.FileReadSpec{Path: p}},
+		Spec:   protocol.TaskSpec{Kind: protocol.TaskSpecFileRead, FileRead: &protocol.FileReadSpec{Path: p, StartLine: 1, LineCount: 10}},
 		Output: protocol.OutputMode{Kind: protocol.OutputStatus},
 	}
 	if err := s.start(ts); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
-	stdout, _, exit := s.finish()
+	stdout, stderr, exit := s.finish()
 	if string(stdout) != "file content" {
 		t.Fatalf("stdout %q", stdout)
 	}
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
+	}
+	// The page metadata is the task's result, not a line in an output stream (doc/protocol.md TaskResult).
+	if len(stderr) != 0 {
+		t.Fatalf("stderr %q, want empty", stderr)
+	}
+	if exit.Result == nil || exit.Result.FileRead == nil {
+		t.Fatalf("task.exit result = %+v", exit.Result)
+	}
+	if page := exit.Result.FileRead; page.From != 1 || page.To != 1 || !page.EOF ||
+		page.Total == nil || *page.Total != 1 || page.TooLong {
+		t.Fatalf("file.read result = %+v", page)
 	}
 
 	// The privileged executor refuses a symbolic link at any level.
@@ -278,7 +289,7 @@ func TestRunFileReadTask(t *testing.T) {
 	s = startSession(t, testVersion)
 	ts = protocol.TaskStart{
 		TaskID: "read-2", Attempt: 1, Privileged: true,
-		Spec:   protocol.TaskSpec{Kind: protocol.TaskSpecFileRead, FileRead: &protocol.FileReadSpec{Path: link}},
+		Spec:   protocol.TaskSpec{Kind: protocol.TaskSpecFileRead, FileRead: &protocol.FileReadSpec{Path: link, StartLine: 1, LineCount: 10}},
 		Output: protocol.OutputMode{Kind: protocol.OutputStatus},
 	}
 	if err := s.start(ts); err != nil {

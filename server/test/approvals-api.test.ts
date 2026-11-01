@@ -206,6 +206,34 @@ describe("approvals api (sqlite)", () => {
 		});
 	});
 
+	it("saves an always rule only after the decision is accepted", async () => {
+		const tok = await newToken();
+		const spec = execSpec("uptime", "-a");
+		const target = operationOf(spec).target;
+		const t = await mkTask(tok, spec);
+		// The request loses the race after it was read: the decision is refused.
+		const decided = vi.spyOn(cluster, "decide").mockResolvedValueOnce(false);
+		try {
+			const res = await decide("alice", `/api/tasks/${t.id}/approval`, {
+				decision: "approve",
+				always: { action: "allow", method: "exec", exact: target },
+			});
+			expect(res.status).toBe(409);
+		} finally {
+			decided.mockRestore();
+		}
+		const list = (await (await call(app, "/api/api-tokens", { cookie: cookies.alice })).json()) as {
+			tokens: { id: string; rules: { rules: unknown[] } }[];
+		};
+		expect(list.tokens.find((x) => x.id === tok)?.rules.rules).toEqual([]);
+		expect((await task(t.id)).state).toBe("awaiting_approval");
+		await cluster.decide(t.id, {
+			decision: "rejected",
+			by: { type: "user", id: "x" },
+			at: new Date().toISOString(),
+		});
+	});
+
 	it("an always rule must be an allow rule", async () => {
 		const tok = await newToken();
 		const t = await mkTask(tok, execSpec("ls"));
@@ -240,7 +268,7 @@ describe("approvals api (sqlite)", () => {
 
 	it("file.read under ask is allowed without waiting", async () => {
 		const tok = await newToken();
-		const spec: TaskSpec = { kind: "file.read", path: "/etc/hostname", offset: 0, limit: 0 };
+		const spec: TaskSpec = { kind: "file.read", path: "/etc/hostname", startLine: 1, lineCount: 100 };
 		const t = await mkTask(tok, spec);
 		expect(t.state).toBe("failed");
 		expect(t.errorCode).toBe("node_offline");
@@ -249,7 +277,7 @@ describe("approvals api (sqlite)", () => {
 
 	it("a privileged file.read under ask still waits (D86)", async () => {
 		const tok = await newToken();
-		const spec: TaskSpec = { kind: "file.read", path: "/etc/hostname", offset: 0, limit: 0 };
+		const spec: TaskSpec = { kind: "file.read", path: "/etc/hostname", startLine: 1, lineCount: 100 };
 		const t = await cluster.createTask({
 			nodeId: nodes[0] as string,
 			spec,
@@ -323,7 +351,7 @@ describe("approvals api (sqlite)", () => {
 
 		it("an approved privileged group keeps the flag on its tasks (D86)", async () => {
 			const tok = await newToken();
-			const spec: TaskSpec = { kind: "file.read", path: "/etc/hostname", offset: 0, limit: 0 };
+			const spec: TaskSpec = { kind: "file.read", path: "/etc/hostname", startLine: 1, lineCount: 100 };
 			const id = await groups.create({
 				targets: ["n1", "n2"],
 				nodeIds: [...nodes],

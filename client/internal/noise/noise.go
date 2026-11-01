@@ -1,5 +1,5 @@
 // Package noise wraps github.com/flynn/noise for the crh channel:
-// Noise_IK_25519_ChaChaPoly_BLAKE2s with the prologue "crh/1" || server challenge.
+// Noise_IK_25519_ChaChaPoly_BLAKE2s with the prologue "crh/<protocol major>" || server challenge.
 // See doc/execution-plane.md#通信安全.
 package noise
 
@@ -11,6 +11,8 @@ import (
 
 	"github.com/flynn/noise"
 	"golang.org/x/crypto/curve25519"
+
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
 const (
@@ -41,9 +43,12 @@ func KeypairFromPrivate(private []byte) (Keypair, error) {
 	return Keypair{Private: append([]byte(nil), private...), Public: public}, nil
 }
 
-// Prologue binds a handshake to the connection that carried the server's challenge.
+// Prologue binds a handshake to the connection that carried the server's challenge and to the
+// protocol major version: a peer that speaks another major fails the handshake itself
+// (doc/protocol.md, 握手载荷).
 func Prologue(challenge []byte) []byte {
-	return append([]byte("crh/1"), challenge...)
+	prefix := fmt.Sprintf("crh/%d", protocol.ProtocolMajor)
+	return append([]byte(prefix), challenge...)
 }
 
 // Session holds the transport ciphers after a completed handshake.
@@ -76,6 +81,12 @@ func NewInitiator(static Keypair, serverPublic, challenge []byte) (*Initiator, e
 }
 
 func newInitiator(static Keypair, serverPublic, challenge []byte, ephemeral *Keypair) (*Initiator, error) {
+	return newInitiatorPrologue(static, serverPublic, Prologue(challenge), ephemeral)
+}
+
+// newInitiatorPrologue is newInitiator with an explicit prologue. Tests use it to speak for a peer
+// from another protocol major.
+func newInitiatorPrologue(static Keypair, serverPublic, prologue []byte, ephemeral *Keypair) (*Initiator, error) {
 	if len(serverPublic) != KeyLen {
 		return nil, errors.New("noise: server public key must be 32 bytes")
 	}
@@ -83,7 +94,7 @@ func newInitiator(static Keypair, serverPublic, challenge []byte, ephemeral *Key
 		CipherSuite:   suite,
 		Pattern:       noise.HandshakeIK,
 		Initiator:     true,
-		Prologue:      Prologue(challenge),
+		Prologue:      prologue,
 		StaticKeypair: static,
 		PeerStatic:    serverPublic,
 	}
@@ -127,10 +138,16 @@ func NewResponder(static Keypair, challenge []byte) (*Responder, error) {
 }
 
 func newResponder(static Keypair, challenge []byte, ephemeral *Keypair) (*Responder, error) {
+	return newResponderPrologue(static, Prologue(challenge), ephemeral)
+}
+
+// newResponderPrologue is newResponder with an explicit prologue, for the same test use as
+// newInitiatorPrologue.
+func newResponderPrologue(static Keypair, prologue []byte, ephemeral *Keypair) (*Responder, error) {
 	cfg := noise.Config{
 		CipherSuite:   suite,
 		Pattern:       noise.HandshakeIK,
-		Prologue:      Prologue(challenge),
+		Prologue:      prologue,
 		StaticKeypair: static,
 	}
 	if ephemeral != nil {

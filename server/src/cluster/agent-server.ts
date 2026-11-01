@@ -10,6 +10,7 @@ import {
 	type HandshakeResponse,
 	handshakeInitCodec,
 	handshakeResponseCodec,
+	NOISE_PROLOGUE_PREFIX,
 	OPTIONAL_NAMES,
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
@@ -33,9 +34,9 @@ const HANDSHAKE_TIMEOUT_MS = 20_000;
 const MAX_NOISE_MESSAGE = 65535;
 
 /**
- * The commands and events both sides implement (doc/protocol.md#握手载荷). The 1.0 names are required;
- * the 1.1 names are optional, so a 1.0 crha still connects. `missing` is the first required name the peer
- * does not offer.
+ * The commands and events both sides implement (doc/protocol.md#握手载荷). The M3.5 names are
+ * required; the M4 names are optional, so an older peer without them still connects. `missing` is
+ * the first required name the peer does not offer.
  */
 export function negotiateCommands(offered: Iterable<string>): {
 	missing: string | undefined;
@@ -124,7 +125,7 @@ export class AgentServer {
 			return ws.terminate();
 		}
 		const hs = HandshakeState.responder({
-			prologue: Buffer.concat([Buffer.from("crh/1"), challenge]),
+			prologue: Buffer.concat([Buffer.from(NOISE_PROLOGUE_PREFIX), challenge]),
 			staticKey: this.#identity.keyPair,
 		});
 		let payload: Uint8Array;
@@ -151,7 +152,8 @@ export class AgentServer {
 		}
 		const clientKey = hs.remoteStaticKey as Uint8Array;
 
-		// Only names both sides implement may be sent; the 1.0 names are required, the 1.1 names optional.
+		// Only names both sides implement may be sent; the M3.5 names are required, the M4 names
+		// optional. The minor version is not refused: it only adds optional names, negotiated here.
 		const { missing, negotiated, optional } = negotiateCommands(init.commands);
 		if (missing !== undefined) return reject(ws, `missing required command: ${missing}`);
 

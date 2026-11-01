@@ -1,8 +1,8 @@
 import type { TaskSpec } from "@crh/protocol";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { SessionUser } from "../src/auth/sessions.ts";
-import { Cluster } from "../src/cluster/cluster.ts";
-import { resolveTargets, TaskGroups } from "../src/cluster/task-groups.ts";
+import { Cluster, summarize } from "../src/cluster/cluster.ts";
+import { GROUP_INTERRUPTED_REASON, outputModeFor, resolveTargets, TaskGroups } from "../src/cluster/task-groups.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
@@ -77,7 +77,60 @@ describeBackends("task groups", (backend) => {
 	});
 
 	const spec = (): TaskSpec => ({ kind: "exec", command: { argv: ["true"] }, env: {}, cwd: "", stdin: null });
+	const readSpec = (): TaskSpec => ({ kind: "file.read", path: "/etc/hosts", startLine: 1, lineCount: 10 });
 	const actor = () => ({ type: "user" as const, id: user.userId, onBehalfOfUserId: user.userId });
+
+	it("describes a read by the lines it asks for", () => {
+		// The summary is what the approval pages and the task lists show, so the range is visible there.
+		expect(
+			summarize(JSON.stringify({ kind: "file.read", path: "/var/log/app.log", startLine: 10, lineCount: 50 })),
+		).toBe("/var/log/app.log (lines 10-59)");
+		expect(summarize(JSON.stringify({ kind: "file.read", path: "/etc/hosts", startLine: 1, lineCount: 1 }))).toBe(
+			"/etc/hosts (lines 1-1)",
+		);
+		expect(summarize(JSON.stringify({ kind: "file.stat", path: "/etc/hosts" }))).toBe("/etc/hosts");
+	});
+
+	it("derives the output mode from the task kind", () => {
+		// exec chooses status or text; file operations always keep each node's head.
+		expect(outputModeFor("exec")).toBe("status");
+		expect(outputModeFor("exec", "text")).toBe("text");
+		expect(outputModeFor("exec", "status")).toBe("status");
+		expect(() => outputModeFor("exec", "head")).toThrow(/status.*text/);
+		expect(outputModeFor("file.read")).toBe("head");
+		expect(outputModeFor("file.list", "head")).toBe("head");
+		expect(() => outputModeFor("file.read", "status")).toThrow(/head/);
+	});
+
+	it("stores the derived mode on the group and its tasks", async () => {
+		const groups = new TaskGroups(db, cluster);
+		const execId = await groups.create({
+			targets: ["x"],
+			nodeIds: [ids["web-1"] as string],
+			spec: spec(),
+			actor: actor(),
+		});
+		expect((await groups.get(execId))?.outputMode).toBe("status");
+		const readId = await groups.create({
+			targets: ["x"],
+			nodeIds: [ids["web-1"] as string],
+			spec: readSpec(),
+			actor: actor(),
+		});
+		// The members are created asynchronously, so wait for the group to settle before reading them.
+		const view = await groups.wait(readId, 5000);
+		expect(view?.outputMode).toBe("head");
+		expect(view?.tasks.map((t) => t.outputMode)).toEqual(["head"]);
+		await expect(
+			groups.create({
+				targets: ["x"],
+				nodeIds: [ids["web-1"] as string],
+				spec: readSpec(),
+				actor: actor(),
+				outputMode: "text",
+			}),
+		).rejects.toThrow(/head/);
+	});
 
 	it("runs one task per node; offline nodes fail with node_offline", async () => {
 		const groups = new TaskGroups(db, cluster);
@@ -140,5 +193,101 @@ describeBackends("task groups", (backend) => {
 		const view = await groups.get("g1");
 		expect(view?.state).toBe("interrupted");
 		expect(view?.skipped.sort()).toEqual([ids["web-1"], ids["web-2"]].sort());
+	});
+
+	/** Inserts a task row as a previous process would have left it. */
+	const insertTask = async (input: {
+		group: string;
+		nodeId: string;
+		state: "awaiting_approval" | "awaiting_authorization";
+	}): Promise<string> => {
+		const id = newId();
+		const now = new Date().toISOString();
+		await db
+			.insertInto("tasks")
+			.values({
+				id,
+				org_id: await defaultOrgId(db),
+				node_id: input.nodeId,
+				task_group_id: input.group,
+				kind: "exec",
+				spec: JSON.stringify({ kind: "exec", command: { argv: ["true"] }, env: {}, cwd: "", stdin: null }),
+				input_size: null,
+				input_sha256: null,
+				privileged: 0,
+				attempt: 1,
+				timeout_ms: null,
+				output_mode: "text",
+				state: input.state,
+				exit_code: null,
+				signal: null,
+				timed_out: 0,
+				cancelled: 0,
+				error_code: null,
+				error_message: null,
+				actor_type: "user",
+				actor_id: user.userId,
+				on_behalf_of_user_id: user.userId,
+				created_at: now,
+				dispatched_at: null,
+				accepted_at: null,
+				finished_at: null,
+				stdout_bytes: 0,
+				stderr_bytes: 0,
+				stdout_head: null,
+				stdout_tail: null,
+				stderr_head: null,
+				stderr_tail: null,
+				output_file: null,
+				late_result: null,
+				rule_chain: null,
+				approval: null,
+				pending_input: null,
+				root_session_id: null,
+				handler_type: "user",
+				handler_session_id: null,
+			})
+			.execute();
+		return id;
+	};
+
+	it("cancels the members of an interrupted group that never started", async () => {
+		const now = new Date().toISOString();
+		await db
+			.insertInto("task_groups")
+			.values({
+				id: "g2",
+				org_id: await defaultOrgId(db),
+				targets: "[]",
+				node_ids: JSON.stringify([ids["web-1"], ids["web-2"]]),
+				kind: "exec",
+				parallel: 1,
+				fail_fast: 0,
+				output_mode: "text",
+				privileged: 0,
+				skipped: "[]",
+				state: "awaiting_authorization",
+				actor_type: "user",
+				actor_id: user.userId,
+				on_behalf_of_user_id: user.userId,
+				created_at: now,
+				finished_at: null,
+			})
+			.execute();
+		// One member waits for its signature; the other node never got a task.
+		await insertTask({ group: "g2", nodeId: ids["web-1"] as string, state: "awaiting_authorization" });
+
+		const groups = new TaskGroups(db, cluster);
+		await groups.recover();
+		const view = await groups.get("g2");
+		expect(view?.state).toBe("interrupted");
+		expect(view?.skipped).toEqual([ids["web-2"]]);
+		// The waiting member can no longer start once its signature arrives, so it ends now.
+		expect(view?.tasks[0]).toMatchObject({
+			state: "rejected",
+			errorCode: "cancelled",
+			errorMessage: GROUP_INTERRUPTED_REASON,
+			cancelled: true,
+		});
 	});
 });
