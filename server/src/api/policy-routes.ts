@@ -169,8 +169,10 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 			levelId: string;
 			title: string;
 			since: string;
-			quota: number;
-			used: number;
+			/** The level's remaining budget; zero or negative (D92, D101). */
+			budgetRemaining: number;
+			/** The budget measure spent by the tree, for the summary line. */
+			budgetUsedTokens: number;
 		}[] = [];
 		const seenRoots = new Set<string>();
 		for (const paused of pausedRows) {
@@ -183,7 +185,7 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 					"title",
 					"parent_session_id",
 					"quota_tokens",
-					"used_tokens",
+					"budget_used_tokens",
 					"state_changed_at",
 					"owner_user_id",
 				])
@@ -191,16 +193,16 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 				.executeTakeFirst();
 			if (!level || level.parent_session_id !== null || level.owner_user_id !== user.userId) continue;
 			if (level.quota_tokens === null) continue;
-			const quota = Number(level.quota_tokens);
-			if (quota > 0) continue;
+			const budgetRemaining = Number(level.quota_tokens);
+			if (budgetRemaining > 0) continue;
 			seenRoots.add(levelId);
 			quotas.push({
 				sessionId: level.id,
 				levelId: level.id,
 				title: level.title,
 				since: level.state_changed_at ?? "",
-				quota,
-				used: Number(level.used_tokens),
+				budgetRemaining,
+				budgetUsedTokens: Number(level.budget_used_tokens),
 			});
 		}
 		const signatureTasks = (await Promise.all(signatureRows.map((r) => cluster.getTask(r.id)))).filter(

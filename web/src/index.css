@@ -65,9 +65,14 @@
  * Tokens keep the prototype's palette (a blue accent) and add the status
  * colours with a subtle background variant each. Status tokens are consumed by
  * StatusBadge / StatusDot / the decision cards.
+ *
+ * Surfaces are layered by depth (doc/webui.md "主题与 token"): the main area is
+ * the lightest surface, the navigation sidebar is one step darker, and cards and
+ * popovers sit above the main area. Dark mode keeps the same direction, with the
+ * sidebar a step darker than the main area.
  */
 :root {
-	--background: #f6f7f9;
+	--background: #ffffff;
 	--foreground: #1c2026;
 	--card: #ffffff;
 	--card-foreground: #1c2026;
@@ -105,22 +110,22 @@
 
 	--radius: 0.625rem;
 
-	--sidebar: #ffffff;
+	--sidebar: #f2f4f7;
 	--sidebar-foreground: #1c2026;
 	--sidebar-primary: #2554d6;
 	--sidebar-primary-foreground: #ffffff;
-	--sidebar-accent: #eceff4;
+	--sidebar-accent: #e6eaf1;
 	--sidebar-accent-foreground: #1c2026;
 	--sidebar-border: #d8dde4;
 	--sidebar-ring: #2554d6;
 }
 
 [data-theme="dark"] {
-	--background: #14171c;
+	--background: #1b2028;
 	--foreground: #e4e7ec;
-	--card: #1c2027;
+	--card: #232932;
 	--card-foreground: #e4e7ec;
-	--popover: #1c2027;
+	--popover: #232932;
 	--popover-foreground: #e4e7ec;
 	--primary: #5b8cff;
 	--primary-foreground: #0b1220;
@@ -152,7 +157,7 @@
 	--chart-4: #a78bfa;
 	--chart-5: #ef6a6a;
 
-	--sidebar: #1c2027;
+	--sidebar: #13161c;
 	--sidebar-foreground: #e4e7ec;
 	--sidebar-primary: #5b8cff;
 	--sidebar-primary-foreground: #0b1220;

@@ -54,8 +54,8 @@ test("a faux-model session streams text, runs a tool call, waits for an inline a
 		fauxAssistantMessage([fauxText(`Approved and done. ${"The command printed approve-me. ".repeat(40)}`)]),
 	]);
 	await newSession(page, "Transcript run", "Yolo");
-	// Switch to Ask: the tool call then waits for the owner's approval.
-	await page.getByRole("button", { name: "Session settings" }).click();
+	// Switch to Ask through the composer footer: the tool call then waits for the owner's approval.
+	await page.getByTestId("composer-rules").click();
 	await page.getByLabel("Preset").click();
 	await page.getByRole("option", { name: "Ask", exact: true }).click();
 	await page.keyboard.press("Escape");

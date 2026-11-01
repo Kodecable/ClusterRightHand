@@ -32,8 +32,10 @@ function detail(overrides: Partial<SessionView> = {}): SessionView {
 		state: "idle",
 		waitingKind: null,
 		waitingLevelId: null,
-		quota: null,
-		spentTokens: 0,
+		budgetRemaining: null,
+		budgetUsedTokens: 0,
+		usageTokens: 0,
+		contextTokens: null,
 		...overrides,
 	};
 }

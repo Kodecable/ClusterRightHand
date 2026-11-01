@@ -11,6 +11,7 @@ import { up as up0025 } from "../src/storage/migrations/0025_root_session_quota_
 import { up as up0029 } from "../src/storage/migrations/0029_session_state_tree.ts";
 import { up as up0030 } from "../src/storage/migrations/0030_session_reconcile_indexes.ts";
 import { up as up0031 } from "../src/storage/migrations/0031_task_result.ts";
+import { up as up0032 } from "../src/storage/migrations/0032_token_measures.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -646,5 +647,61 @@ describeBackends("0031 task result", (backend) => {
 			{ id: "t1", result },
 			{ id: "t2", result },
 		]);
+	});
+});
+
+describeBackends("0032 token measures", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("sessions")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("used_tokens", "bigint", (c) => c.notNull().defaultTo(0))
+				.addColumn("quota_tokens", "bigint")
+				.execute();
+			await sql`insert into sessions (id, used_tokens, quota_tokens) values
+				(${"spent"}, ${1234}, ${5000}),
+				(${"fresh"}, ${0}, ${null})`.execute(db);
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("renames the budget counter, keeps its value and adds usage and context", async () => {
+		await applyMigration(backend, db, up0032);
+		const rows = await sql<{
+			id: string;
+			budget_used_tokens: number | string;
+			quota_tokens: number | string | null;
+			usage_tokens: number | string;
+			context_tokens: number | string | null;
+		}>`select id, budget_used_tokens, quota_tokens, usage_tokens, context_tokens from sessions order by id`.execute(db);
+		// PostgreSQL returns bigint as a string; the values are compared numerically.
+		const numberOrNull = (value: number | string | null): number | null => (value === null ? null : Number(value));
+		expect(
+			rows.rows.map((row) => ({
+				id: row.id,
+				budget_used_tokens: numberOrNull(row.budget_used_tokens),
+				quota_tokens: numberOrNull(row.quota_tokens),
+				usage_tokens: numberOrNull(row.usage_tokens),
+				context_tokens: numberOrNull(row.context_tokens),
+			})),
+		).toEqual([
+			{ id: "fresh", budget_used_tokens: 0, quota_tokens: null, usage_tokens: 0, context_tokens: null },
+			{ id: "spent", budget_used_tokens: 1234, quota_tokens: 5000, usage_tokens: 0, context_tokens: null },
+		]);
+		// The budget measure is unchanged by the migration; the usage measure starts at 0 and is backfilled at
+		// startup from durable's per-conversation usage (usage-backfill.ts).
+		await sql`update sessions set budget_used_tokens = 2000, usage_tokens = 3000, context_tokens = 42
+			where id = ${"spent"}`.execute(db);
+		const stored = await db.selectFrom("sessions").selectAll().where("id", "=", "spent").executeTakeFirstOrThrow();
+		expect(Number(stored.budget_used_tokens)).toBe(2000);
+		expect(Number(stored.usage_tokens)).toBe(3000);
+		expect(Number(stored.context_tokens)).toBe(42);
 	});
 });

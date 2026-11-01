@@ -1,4 +1,4 @@
-import { Plural, Trans, useLingui } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { PlusIcon, SearchIcon } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -13,19 +13,19 @@ import { useModels } from "@/features/settings/api";
 import { useDebouncedValue } from "@/hooks/use-debounced";
 import { flattenCursorPages, lastCursor } from "@/lib/api/query";
 import type { SessionListScope } from "@/lib/api/types";
-import { cn } from "@/lib/utils";
 import { useSessions } from "./api";
 import { NewSessionDialog } from "./new-session-dialog";
+import { groupSessionRows, type SessionGroupKey } from "./session-groups";
 import { SessionListItemRow } from "./session-list-item";
 import { useSessionListStream } from "./use-session-list-stream";
-
-const ROW_HEIGHT = 64;
 
 /**
  * The second column of the Sessions route (doc/webui.md "侧边列表"): scope
  * tabs, a debounced server-side search, a virtua list with cursor pages, and
- * the live patch from `GET /api/sessions/stream`. Up/Down/Home/End move the
- * active row, Enter opens it.
+ * the live patch from `GET /api/sessions/stream`. Rows are grouped by
+ * `updatedAt` (Today, Yesterday, Within 7 days, Within 30 days, then a month):
+ * the headers are rows of the same virtualised list, and the arrow keys move
+ * between items while skipping them.
  */
 export function SessionList({ selectedId }: { selectedId?: string }) {
 	const { t } = useLingui();
@@ -45,6 +45,22 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 	const sessions = useSessions({ scope, q });
 	const items = useMemo(() => flattenCursorPages(sessions.data), [sessions.data]);
 	const hasMore = lastCursor(sessions.data) !== null;
+	// A minute is enough for the day boundary: a header only changes when the clock crosses midnight.
+	const [now, setNow] = useState(() => new Date());
+	useEffect(() => {
+		const timer = setInterval(() => setNow(new Date()), 60_000);
+		return () => clearInterval(timer);
+	}, []);
+	const rows = useMemo(() => groupSessionRows(items, now), [items, now]);
+	const itemIndex = useMemo(() => new Map(items.map((item, index) => [item.id, index])), [items]);
+	// The row index of each item, for the roving focus and scrolling: header rows sit between them.
+	const itemRows = useMemo(() => {
+		const indexes: number[] = [];
+		rows.forEach((row, index) => {
+			if (row.item !== undefined) indexes.push(index);
+		});
+		return indexes;
+	}, [rows]);
 
 	useSessionListStream({
 		viewer: { id: auth.user?.id ?? "", isAdmin },
@@ -77,7 +93,7 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 	};
 
 	const focusRow = (index: number) => {
-		virtualizer.current?.scrollToIndex(index, { align: "nearest" });
+		virtualizer.current?.scrollToIndex(itemRows[index] ?? index, { align: "nearest" });
 		requestAnimationFrame(() => {
 			const row = items[index];
 			if (!row) return;
@@ -227,16 +243,20 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 						}
 					/>
 				)}
-				{items.length > 0 && (
-					<Virtualizer ref={virtualizer} data={items} itemSize={ROW_HEIGHT} bufferSize={ROW_HEIGHT * 4}>
-						{(item, index) => (
-							<SessionListItemRow
-								key={item.id}
-								item={item}
-								selected={item.id === selectedId}
-								tabIndex={index === activeIndex ? 0 : -1}
-							/>
-						)}
+				{rows.length > 0 && (
+					<Virtualizer ref={virtualizer} data={rows}>
+						{(row) =>
+							row.item !== undefined ? (
+								<SessionListItemRow
+									key={row.key}
+									item={row.item}
+									selected={row.item.id === selectedId}
+									tabIndex={itemIndex.get(row.item.id) === activeIndex ? 0 : -1}
+								/>
+							) : (
+								<SessionGroupHeader key={row.key} group={row.header as SessionGroupKey} />
+							)
+						}
 					</Virtualizer>
 				)}
 				{sessions.isFetchingNextPage && (
@@ -244,14 +264,30 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 						<Trans>Loading more sessions…</Trans>
 					</p>
 				)}
-				{!hasMore && items.length > 0 && (
-					<p className={cn("px-3 py-2 text-center text-xs text-muted-foreground")}>
-						<Plural value={items.length} one="# session" other="# sessions" />
-					</p>
-				)}
 			</div>
 
 			<NewSessionDialog open={creating} onOpenChange={setCreating} />
+		</div>
+	);
+}
+
+/** One date group's heading, inside the virtualised list so it scrolls with its items. */
+function SessionGroupHeader({ group }: { group: SessionGroupKey }) {
+	const { t } = useLingui();
+	return (
+		<div
+			data-testid="session-group-header"
+			className="flex h-7 items-center px-3 text-[11px] font-medium text-muted-foreground"
+		>
+			{group.kind === "today"
+				? t`Today`
+				: group.kind === "yesterday"
+					? t`Yesterday`
+					: group.kind === "week"
+						? t`Within 7 days`
+						: group.kind === "month30"
+							? t`Within 30 days`
+							: group.month}
 		</div>
 	);
 }

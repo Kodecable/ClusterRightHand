@@ -19,8 +19,10 @@ test("a subagent session appears in its parent's child list", async ({ adminPage
 	await newSession(page, "Parent session", "Yolo");
 	await sendMessage(page, "delegate to two subagents");
 
-	// Both children come from GET /sessions/:id/children (through the subagent tool update),
-	// newest first, each with its own state dot.
+	// The compact line above the composer counts them; opening it shows both, from
+	// GET /sessions/:id/children (through the subagent tool update), newest first, each with its own state.
+	await expect(page.getByTestId("children-bar")).toContainText("2 subagents", { timeout: 30_000 });
+	await page.getByTestId("children-bar").click();
 	const children = page.getByTestId("child-session");
 	await expect(children).toHaveCount(2, { timeout: 30_000 });
 	await expect(children.first()).toHaveAttribute("data-state", "idle", { timeout: 30_000 });

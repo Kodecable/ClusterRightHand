@@ -17,10 +17,11 @@ import type { RuleRef } from "../policy/store.ts";
 import { callTool } from "../tools/adapter.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
 import { UserError } from "../users/service.ts";
-import { accountedOutputTokens, exhaustedLevel, parseQuota, recordUsage } from "./quota.ts";
+import { chargeCall, exhaustedLevel, parseQuota, setContextTokens } from "./quota.ts";
 import type { AgentRuntime } from "./runtime.ts";
 import type { AgentRequestView, AgentRuntimeOptions } from "./runtime-core.ts";
 import { sessionAncestors } from "./session-chain.ts";
+import { callTokens, estimateRequestTokens, RequestEstimates } from "./tokens.ts";
 
 /**
  * The Harness extension (doc/agent-runtime.md#cluster-工具): the cluster tools as durable tools, the subagent
@@ -90,6 +91,10 @@ async function toolContextFor(
 }
 
 export function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: AgentRuntime }): Extension {
+	// The input estimate of each conversation's current request, from `beforeRequest` for its `afterResponse`
+	// (D101: the request's serialized messages are the generation basis for input tokens the upstream does not
+	// report; durable's hook sees no system prompt or tool declarations).
+	const requestInput = new RequestEstimates();
 	const requestJson = (r: AgentRequestView) => ({
 		kind: r.kind,
 		id: r.id,
@@ -125,15 +130,30 @@ export function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { cur
 			},
 		}),
 		hook(GenerationTask, {
-			// Output tokens count at every level; a level whose quota is not above zero stops its whole subtree (doc/agent-runtime.md#配额).
+			// The serialized messages are the input basis when the upstream reports no usage (D101). durable's
+			// `beforeRequest` exposes only those; the system prompt and tool declarations are not part of it.
+			beforeRequest: async (request, api) => {
+				requestInput.set(String(api.conversationId), estimateRequestTokens(request.messages));
+				return undefined;
+			},
+			// The budget measure counts the output at every level; a level whose quota is not above zero stops its
+			// whole subtree (doc/agent-runtime.md#配额). The usage measure and the context fill are D101.
 			afterResponse: async (message, api) => {
-				const sessionId = await sessionOf(api.conversationId);
+				const conversationId = String(api.conversationId);
+				// Take the estimate now: it belongs to this one request, whether or not the response can be charged.
+				const estimatedInput = requestInput.take(conversationId);
+				const sessionId = await sessionOf(conversationId);
 				if (!sessionId) return;
 				const runtime = runtimeRef.current;
 				// The provider document is written for this request; remember it for metering a later compaction.
-				if (runtime) await runtime.rememberProviderSession(String(api.conversationId));
-				await recordUsage(options.db, sessionId, accountedOutputTokens(message));
+				if (runtime) await runtime.rememberProviderSession(conversationId);
+				const tokens = callTokens(message, estimatedInput);
+				await chargeCall(options.db, sessionId, tokens);
+				// The context fill is the session's own last main-agent call, never a compaction or review (D101).
+				await setContextTokens(options.db, sessionId, tokens.context);
 				const over = await exhaustedLevel(options.db, sessionId);
+				// The WebUI reads the counters from GET /sessions/:id; the tree's list row makes it refetch.
+				runtime?.sessionList.publishSession(sessionId);
 				// The tool calls of this response end the run (below); a response without them ends it anyway.
 				if (over) {
 					void options.audit?.record({

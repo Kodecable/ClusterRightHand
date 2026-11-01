@@ -37,14 +37,14 @@ test("title and preset can be changed", async ({ adminPage: page }) => {
 	// The title is shown once: a root session has no breadcrumb that repeats it.
 	await expect(page.getByTestId("session-breadcrumb")).toHaveCount(0);
 
-	await page.getByRole("button", { name: "Session settings" }).click();
+	// The preset is in the composer footer now: click it, pick Yolo, and the footer says so.
+	await page.getByTestId("composer-rules").click();
 	await page.getByLabel("Preset").click();
 	await page.getByRole("option", { name: "Yolo", exact: true }).click();
 	await page.keyboard.press("Escape");
 	await page.reload();
 	await expect(page.getByTestId("page-title")).toHaveText("Sessions");
-	await page.getByRole("button", { name: "Session settings" }).click();
-	await expect(page.getByLabel("Preset")).toContainText("Yolo");
+	await expect(page.getByTestId("composer-rules")).toContainText("Yolo");
 });
 
 test.describe("with a node", () => {

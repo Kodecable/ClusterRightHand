@@ -99,8 +99,8 @@ export function SessionWaits({
 					levelId: session.waitingLevelId ?? session.id,
 					title: session.title,
 					since: session.updatedAt,
-					quota: session.quota ?? 0,
-					used: session.spentTokens,
+					budgetRemaining: session.budgetRemaining ?? 0,
+					budgetUsedTokens: session.budgetUsedTokens,
 				}
 			: null;
 

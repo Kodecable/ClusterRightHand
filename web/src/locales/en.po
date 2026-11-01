@@ -69,11 +69,6 @@ msgstr "{0, plural, one {# node selected} other {# nodes selected}}"
 msgid "{0, plural, one {# node} other {# nodes}}"
 msgstr "{0, plural, one {# node} other {# nodes}}"
 
-#. placeholder {0}: items.length
-#: src/features/sessions/session-list.tsx
-msgid "{0, plural, one {# session} other {# sessions}}"
-msgstr "{0, plural, one {# session} other {# sessions}}"
-
 #. placeholder {0}: targets.length
 #: src/features/batch/pages.tsx
 msgid "{0, plural, one {# target} other {# targets}}"
@@ -99,11 +94,6 @@ msgstr "{0, plural, one {Replaced # occurrence} other {Replaced # occurrences}}"
 msgid "{0, plural, one {Run on # target} other {Run on # targets}}"
 msgstr "{0, plural, one {Run on # target} other {Run on # targets}}"
 
-#. placeholder {0}: items.length
-#: src/features/sessions/child-sessions.tsx
-msgid "{0, plural, one {Subagent session} other {Subagent sessions}}"
-msgstr "{0, plural, one {Subagent session} other {Subagent sessions}}"
-
 #. placeholder {0}: result.bytes
 #: src/components/task-result.tsx
 msgid "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
@@ -115,15 +105,24 @@ msgstr "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
 msgid "{0} on {1}"
 msgstr "{0} on {1}"
 
+#. placeholder {0}: formatNumber(remaining, locale)
+#: src/features/sessions/composer-footer.tsx
+msgid "{0} tokens left"
+msgstr "{0} tokens left"
+
 #. placeholder {0}: formatNumber(status.remaining, locale)
 #: src/components/quota-card.tsx
-msgid "{0} tokens left · {usedText} used"
-msgstr "{0} tokens left · {usedText} used"
+msgid "{0} tokens left · {usedText} spent"
+msgstr "{0} tokens left · {usedText} spent"
 
 #. placeholder {0}: credential.name
 #: src/features/credentials/pages.tsx
 msgid "{0}: privileged.toml"
 msgstr "{0}: privileged.toml"
+
+#: src/features/sessions/children-bar.tsx
+msgid "{awaiting} awaiting"
+msgstr "{awaiting} awaiting"
 
 #: src/components/task-result.tsx
 msgid "{bytes, plural, one {# byte} other {# bytes}}"
@@ -132,6 +131,10 @@ msgstr "{bytes, plural, one {# byte} other {# bytes}}"
 #: src/features/approvals/pages.tsx
 msgid "{count, plural, one {# waiting} other {# waiting}}"
 msgstr "{count, plural, one {# waiting} other {# waiting}}"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "{exact} tokens in total"
+msgstr "{exact} tokens in total"
 
 #. placeholder {0}: item.group.nodeIds.length
 #: src/components/approval-card.tsx
@@ -146,13 +149,13 @@ msgstr "{lineCount, plural, one {# line} other {# lines}}"
 msgid "{lines, plural, one {# line} other {# lines}}"
 msgstr "{lines, plural, one {# line} other {# lines}}"
 
-#: src/features/sessions/session-header.tsx
-msgid "{ruleCount, plural, one {# rule} other {# rules}}"
-msgstr "{ruleCount, plural, one {# rule} other {# rules}}"
+#: src/features/sessions/children-bar.tsx
+msgid "{running} running"
+msgstr "{running} running"
 
-#: src/features/sessions/pages.tsx
-msgid "{tokenText} tokens"
-msgstr "{tokenText} tokens"
+#: src/features/sessions/children-bar.tsx
+msgid "{total, plural, one {# subagent} other {# subagents}}"
+msgstr "{total, plural, one {# subagent} other {# subagents}}"
 
 #: src/components/authorization-card.tsx
 msgid "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
@@ -206,6 +209,14 @@ msgstr "A line alone is longer than the 50 KB a page keeps."
 #: src/features/tokens/create-token-dialog.tsx
 msgid "A name is required."
 msgstr "A name is required."
+
+#: src/features/sessions/composer-footer.tsx
+msgid "A new model applies from the next turn."
+msgstr "A new model applies from the next turn."
+
+#: src/features/sessions/composer-footer.tsx
+msgid "A new preset applies to the next tool call; waiting approvals are decided again."
+msgstr "A new preset applies to the next tool call; waiting approvals are decided again."
 
 #: src/features/credentials/pages.tsx
 msgid "A node authorizes a privileged task signed by one of these credentials when its privileged.toml trusts the key."
@@ -457,10 +468,6 @@ msgstr "Always allow rule"
 msgid "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
 msgstr "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
 
-#: src/features/sessions/session-header.tsx
-msgid "another user"
-msgstr "another user"
-
 #: src/features/tasks/pages.tsx
 msgid "Any actor"
 msgstr "Any actor"
@@ -691,6 +698,28 @@ msgstr "Batch run"
 msgid "Batch started."
 msgstr "Batch started."
 
+#: src/components/quota-card.tsx
+msgid "Budget"
+msgstr "Budget"
+
+#. placeholder {0}: formatTokens(remaining, locale)
+#: src/features/sessions/composer-footer.tsx
+msgid "Budget {0}"
+msgstr "Budget {0}"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "Budget 0"
+msgstr "Budget 0"
+
+#: src/components/quota-card.tsx
+msgid "Budget used up · {usedText} spent"
+msgstr "Budget used up · {usedText} spent"
+
+#. placeholder {0}: formatNumber(status.over, locale)
+#: src/components/quota-card.tsx
+msgid "Budget used up ({0} over) · {usedText} spent"
+msgstr "Budget used up ({0} over) · {usedText} spent"
+
 #: src/features/nodes/pages.tsx
 msgid "Build the `[[trust]]` block for this node's privileged.toml. The node enforces it; this page only exports it."
 msgstr "Build the `[[trust]]` block for this node's privileged.toml. The node enforces it; this page only exports it."
@@ -720,6 +749,7 @@ msgstr "Cancel task"
 
 #: src/components/status-badge.tsx
 #: src/components/task-result.tsx
+#: src/features/sessions/transcript-row.tsx
 msgid "Cancelled"
 msgstr "Cancelled"
 
@@ -743,6 +773,14 @@ msgstr "Chain intact, {0} events."
 #: src/features/auth/change-password-dialog.tsx
 msgid "Change password"
 msgstr "Change password"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "Change the model; it applies from the next turn."
+msgstr "Change the model; it applies from the next turn."
+
+#: src/features/sessions/composer-footer.tsx
+msgid "Change the preset; it applies to the next tool call."
+msgstr "Change the preset; it applies to the next tool call."
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Chat"
@@ -830,6 +868,10 @@ msgstr "Close"
 msgid "Cluster"
 msgstr "Cluster"
 
+#: src/features/sessions/children-bar.tsx
+msgid "Collapse subagents"
+msgstr "Collapse subagents"
+
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Comma separated; they decide who may see and operate the node."
 msgstr "Comma separated; they decide who may see and operate the node."
@@ -898,6 +940,10 @@ msgstr "Context compacted"
 #: src/features/settings/provider-dialog.tsx
 msgid "Context window"
 msgstr "Context window"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "Context: {percent}% used"
+msgstr "Context: {percent}% used"
 
 #: src/features/sessions/transcript.tsx
 msgid "Conversation"
@@ -1190,7 +1236,6 @@ msgstr "Detail"
 msgid "Detail of event {0}"
 msgstr "Detail of event {0}"
 
-#: src/features/sessions/session-header.tsx
 #: src/features/tasks/task-columns.tsx
 msgid "Details"
 msgstr "Details"
@@ -1403,6 +1448,11 @@ msgstr "Everything that waits for your approval, signature or quota decision."
 msgid "exact"
 msgstr "exact"
 
+#. placeholder {0}: failure.exitCode ?? ""
+#: src/features/sessions/transcript-row.tsx
+msgid "Exit {0}"
+msgstr "Exit {0}"
+
 #: src/components/task-result.tsx
 msgid "Exit code"
 msgstr "Exit code"
@@ -1415,6 +1465,10 @@ msgstr "Exit code {0}"
 #: src/components/status-badge.tsx
 msgid "Exited"
 msgstr "Exited"
+
+#: src/features/sessions/children-bar.tsx
+msgid "Expand subagents"
+msgstr "Expand subagents"
 
 #: src/features/tokens/rules-dialog.tsx
 msgid "Expected an object like {\"rules\": [...]}."
@@ -1715,7 +1769,7 @@ msgid "List at least one model."
 msgstr "List at least one model."
 
 #: src/components/data-table.tsx
-#: src/features/sessions/child-sessions.tsx
+#: src/features/sessions/children-bar.tsx
 msgid "Load more"
 msgstr "Load more"
 
@@ -1740,6 +1794,7 @@ msgid "Loading the waiting decisions…"
 msgstr "Loading the waiting decisions…"
 
 #: src/features/approvals/pages.tsx
+#: src/features/sessions/children-bar.tsx
 #: src/features/tasks/task-group-page.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Loading…"
@@ -1799,8 +1854,8 @@ msgstr "Mode"
 
 #: src/components/model-select.tsx
 #: src/features/schedules/schedule-form.tsx
+#: src/features/sessions/composer-footer.tsx
 #: src/features/sessions/new-session-dialog.tsx
-#: src/features/sessions/session-header.tsx
 #: src/features/settings/review-model-card.tsx
 msgid "Model"
 msgstr "Model"
@@ -1954,6 +2009,14 @@ msgstr "No API tokens yet"
 msgid "No authorizations yet"
 msgstr "No authorizations yet"
 
+#: src/features/sessions/composer-footer.tsx
+msgid "No budget limit"
+msgstr "No budget limit"
+
+#: src/components/quota-card.tsx
+msgid "No budget limit · {usedText} spent"
+msgstr "No budget limit · {usedText} spent"
+
 #: src/features/credentials/pages.tsx
 msgid "No credentials yet"
 msgstr "No credentials yet"
@@ -2018,6 +2081,10 @@ msgstr "No Passkey of yours is trusted by this node for this command; sign with 
 msgid "No result yet"
 msgstr "No result yet"
 
+#: src/features/sessions/composer-footer.tsx
+msgid "No rules"
+msgstr "No rules"
+
 #: src/features/schedules/run-history.tsx
 msgid "No runs yet"
 msgstr "No runs yet"
@@ -2037,6 +2104,10 @@ msgstr "No session selected"
 #: src/features/sessions/session-list.tsx
 msgid "No sessions yet"
 msgstr "No sessions yet"
+
+#: src/features/sessions/children-bar.tsx
+msgid "No subagents."
+msgstr "No subagents."
 
 #: src/features/nodes/node-tasks.tsx
 #: src/features/tasks/pages.tsx
@@ -2166,10 +2237,6 @@ msgstr "Nothing to show."
 #: src/components/status-badge.tsx
 msgid "Offline"
 msgstr "Offline"
-
-#: src/components/task-form-fields.tsx
-#~ msgid "Offset"
-#~ msgstr "Offset"
 
 #: src/components/task-form-fields.tsx
 msgid "Old text"
@@ -2325,6 +2392,10 @@ msgstr "Parallel"
 msgid "Parallel must be a positive whole number."
 msgstr "Parallel must be a positive whole number."
 
+#: src/features/sessions/transcript-row.tsx
+msgid "Partly failed"
+msgstr "Partly failed"
+
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Passkey"
@@ -2410,8 +2481,8 @@ msgstr "Preparing the payload to sign…"
 
 #: src/components/preset-select.tsx
 #: src/features/schedules/schedule-form.tsx
+#: src/features/sessions/composer-footer.tsx
 #: src/features/sessions/new-session-dialog.tsx
-#: src/features/sessions/session-header.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/tokens/rules-dialog.tsx
@@ -2421,6 +2492,11 @@ msgstr "Preset"
 #: src/features/tokens/rules-dialog.tsx
 msgid "Preset saved."
 msgstr "Preset saved."
+
+#. placeholder {0}: presetLabel(preset)
+#: src/features/sessions/composer-footer.tsx
+msgid "Preset: {0}"
+msgstr "Preset: {0}"
 
 #: src/components/approval-card.tsx
 #: src/components/task-form-fields.tsx
@@ -2481,10 +2557,6 @@ msgstr "queued"
 msgid "Queued"
 msgstr "Queued"
 
-#: src/components/quota-card.tsx
-msgid "Quota"
-msgstr "Quota"
-
 #: src/features/approvals/pages.tsx
 #: src/features/sessions/session-waits.tsx
 msgid "Quota decision recorded."
@@ -2493,15 +2565,6 @@ msgstr "Quota decision recorded."
 #: src/features/sessions/quota-dialog.tsx
 msgid "Quota saved."
 msgstr "Quota saved."
-
-#: src/components/quota-card.tsx
-msgid "Quota used up · {usedText} used"
-msgstr "Quota used up · {usedText} used"
-
-#. placeholder {0}: formatNumber(status.over, locale)
-#: src/components/quota-card.tsx
-msgid "Quota used up ({0} over) · {usedText} used"
-msgstr "Quota used up ({0} over) · {usedText} used"
 
 #: src/components/approval-card.tsx
 msgid "Reason"
@@ -2558,8 +2621,8 @@ msgid "Rejected"
 msgstr "Rejected"
 
 #: src/features/sessions/quota-dialog.tsx
-msgid "Remaining tokens (empty = unlimited)"
-msgstr "Remaining tokens (empty = unlimited)"
+msgid "Remaining budget tokens (empty = unlimited)"
+msgstr "Remaining budget tokens (empty = unlimited)"
 
 #: src/features/nodes/node-shares.tsx
 #: src/features/nodes/ssh-wizard.tsx
@@ -2735,6 +2798,10 @@ msgstr "Rules of {0}"
 msgid "Rules saved."
 msgstr "Rules saved."
 
+#: src/features/sessions/composer-footer.tsx
+msgid "Rules: {ruleCount}"
+msgstr "Rules: {ruleCount}"
+
 #: src/features/nodes/run-panel.tsx
 msgid "Run"
 msgstr "Run"
@@ -2846,7 +2913,11 @@ msgstr "Schedule runs"
 msgid "Schedule saved."
 msgstr "Schedule saved."
 
-#: src/features/sessions/session-list-item.tsx
+#: src/features/sessions/session-markers.tsx
+msgid "Scheduled"
+msgstr "Scheduled"
+
+#: src/features/sessions/session-markers.tsx
 msgid "Scheduled session"
 msgstr "Scheduled session"
 
@@ -2869,7 +2940,7 @@ msgstr "Search sessions"
 msgid "Select…"
 msgstr "Select…"
 
-#: src/features/sessions/composer.tsx
+#: src/features/sessions/composer-footer.tsx
 msgid "Send"
 msgstr "Send"
 
@@ -2885,10 +2956,6 @@ msgstr "Session created."
 #: src/features/sessions/sessions-layout.tsx
 msgid "Session list"
 msgstr "Session list"
-
-#: src/features/sessions/session-header.tsx
-msgid "Session settings"
-msgstr "Session settings"
 
 #: src/features/sessions/session-header.tsx
 msgid "Session title"
@@ -2929,16 +2996,17 @@ msgid "Share removed."
 msgstr "Share removed."
 
 #: src/features/sessions/session-list.tsx
+#: src/features/sessions/session-markers.tsx
 msgid "Shared"
 msgstr "Shared"
 
-#: src/features/sessions/session-header.tsx
-msgid "Shared by {ownerName}"
-msgstr "Shared by {ownerName}"
-
-#: src/features/sessions/session-list-item.tsx
+#: src/features/sessions/session-markers.tsx
 msgid "Shared with you"
 msgstr "Shared with you"
+
+#: src/features/sessions/session-markers.tsx
+msgid "Shared with you by {sharedBy}"
+msgstr "Shared with you by {sharedBy}"
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Shared."
@@ -3131,8 +3199,7 @@ msgid "Steps"
 msgstr "Steps"
 
 #: src/components/quota-card.tsx
-#: src/features/sessions/composer.tsx
-#: src/features/sessions/session-header.tsx
+#: src/features/sessions/composer-footer.tsx
 msgid "Stop"
 msgstr "Stop"
 
@@ -3149,7 +3216,6 @@ msgid "stopped by the next run"
 msgstr "stopped by the next run"
 
 #: src/features/sessions/composer.tsx
-#: src/features/sessions/session-header.tsx
 msgid "Stopped the run."
 msgstr "Stopped the run."
 
@@ -3157,9 +3223,9 @@ msgstr "Stopped the run."
 msgid "Subagent"
 msgstr "Subagent"
 
-#: src/features/sessions/child-sessions.tsx
-msgid "Subagent sessions"
-msgstr "Subagent sessions"
+#: src/features/sessions/children-bar.tsx
+msgid "Subagents"
+msgstr "Subagents"
 
 #: src/components/authorization-card.tsx
 msgid "Submit authorization"
@@ -3266,6 +3332,10 @@ msgstr "The base URL must start with http:// or https://."
 msgid "The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA and RS256 are requested, so a registered Passkey is one the node's privileged mode can verify."
 msgstr "The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA and RS256 are requested, so a registered Passkey is one the node's privileged mode can verify."
 
+#: src/features/sessions/composer-footer.tsx
+msgid "The budget is used up."
+msgstr "The budget is used up."
+
 #: src/features/users/new-user-dialog.tsx
 msgid "The display name must be at most 100 characters."
 msgstr "The display name must be at most 100 characters."
@@ -3319,10 +3389,6 @@ msgstr "The node trusts nobody."
 #: src/components/task-result.tsx
 msgid "The offset is past the end of the file."
 msgstr "The offset is past the end of the file."
-
-#: src/features/tasks/taskForm.ts
-#~ msgid "The offset must be a non-negative whole number."
-#~ msgstr "The offset must be a non-negative whole number."
 
 #: src/app/router.tsx
 msgid "The page you asked for does not exist."
@@ -3421,6 +3487,7 @@ msgid "Time"
 msgstr "Time"
 
 #: src/components/task-result.tsx
+#: src/features/sessions/transcript-row.tsx
 msgid "Timed out"
 msgstr "Timed out"
 
@@ -3440,13 +3507,26 @@ msgstr "Title"
 msgid "Title saved."
 msgstr "Title saved."
 
+#: src/features/sessions/session-list.tsx
+msgid "Today"
+msgstr "Today"
+
 #: src/app/shell/app-shell.tsx
 msgid "Toggle sidebar"
 msgstr "Toggle sidebar"
 
 #: src/features/schedules/schedule-form.tsx
+#: src/features/sessions/quota-dialog.tsx
 msgid "Token budget"
 msgstr "Token budget"
+
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Token budget (empty = unlimited)"
+msgstr "Token budget (empty = unlimited)"
+
+#: src/components/quota-card.tsx
+msgid "Token budget used up"
+msgstr "Token budget used up"
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Token created"
@@ -3456,15 +3536,6 @@ msgstr "Token created"
 msgid "Token deleted."
 msgstr "Token deleted."
 
-#: src/features/sessions/quota-dialog.tsx
-msgid "Token quota"
-msgstr "Token quota"
-
-#: src/features/sessions/new-session-dialog.tsx
-msgid "Token quota (empty = unlimited)"
-msgstr "Token quota (empty = unlimited)"
-
-#: src/components/quota-card.tsx
 #: src/features/approvals/pages.tsx
 msgid "Token quota used up"
 msgstr "Token quota used up"
@@ -3541,15 +3612,11 @@ msgstr "unlimited"
 msgid "Unlimited"
 msgstr "Unlimited"
 
-#: src/components/quota-card.tsx
-msgid "Unlimited quota · {usedText} used"
-msgstr "Unlimited quota · {usedText} used"
-
 #: src/features/nodes/node-trust.tsx
 msgid "Unprivileged identity"
 msgstr "Unprivileged identity"
 
-#: src/features/sessions/child-sessions.tsx
+#: src/features/sessions/children-bar.tsx
 #: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list-item.tsx
 msgid "Untitled session"
@@ -3693,6 +3760,14 @@ msgstr "What this token may do without approval; anything else waits for you."
 msgid "When"
 msgstr "When"
 
+#: src/features/sessions/session-list.tsx
+msgid "Within 30 days"
+msgstr "Within 30 days"
+
+#: src/features/sessions/session-list.tsx
+msgid "Within 7 days"
+msgstr "Within 7 days"
+
 #: src/app/shell/nav.ts
 msgid "Work"
 msgstr "Work"
@@ -3709,6 +3784,10 @@ msgstr "Working…"
 msgid "Yes"
 msgstr "Yes"
 
+#: src/features/sessions/session-list.tsx
+msgid "Yesterday"
+msgstr "Yesterday"
+
 #: src/features/sessions/new-session-dialog.tsx
 msgid "Yolo lets the agent run anything on your nodes without asking."
 msgstr "Yolo lets the agent run anything on your nodes without asking."
@@ -3724,10 +3803,6 @@ msgstr "Yolo: everything runs without asking, including privileged tasks allowed
 #: src/features/tokens/preset-help.tsx
 msgid "Yolo: everything runs without asking."
 msgstr "Yolo: everything runs without asking."
-
-#: src/features/users/pages.tsx
-#~ msgid "You cannot change your own kind or disable your own account."
-#~ msgstr "You cannot change your own kind or disable your own account."
 
 #: src/features/users/kind-select.tsx
 msgid "You cannot change your own kind."

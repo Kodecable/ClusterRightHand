@@ -46,11 +46,10 @@ test("a session shared for chat lets a member drive it; view only lets them look
 		await mp.getByTestId("scope-shared").click();
 		const row = mp.locator('[data-testid="session-item"]', { hasText: "Shared chat" });
 		await expect(row).toBeVisible({ timeout: 15_000 });
-		await expect(row.getByTestId("session-status-dot")).toBeVisible();
 		await row.click();
-		await expect(mp.getByTestId("session-header")).toContainText(/Shared by/);
-		// Not the owner: no title/model/preset editing, and no share management.
-		await expect(mp.getByRole("button", { name: "Session settings" })).toHaveCount(0);
+		// Not the owner: a read-only title and the model as plain text, no share management.
+		await expect(mp.getByTestId("session-title")).toHaveCount(0);
+		await expect(mp.locator("[data-testid='session-header'] h1")).toContainText("Shared chat");
 		await expect(mp.getByTestId("share-session")).toHaveCount(0);
 
 		crhs.faux.setResponses([fauxAssistantMessage([fauxText("Answered for the owner's nodes.")])]);

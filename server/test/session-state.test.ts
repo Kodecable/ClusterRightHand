@@ -176,7 +176,7 @@ it("an exhausted root quota makes it awaiting/quota; a grant resumes the run and
 		model: model(),
 		preset: "yolo",
 		title: "root quota states",
-		quota: 1,
+		budgetRemaining: 1,
 	});
 	faux.setResponses([
 		fauxAssistantMessage([fauxToolCall("list_nodes", {}, { id: "quota-state-tool" })], { stopReason: "toolUse" }),

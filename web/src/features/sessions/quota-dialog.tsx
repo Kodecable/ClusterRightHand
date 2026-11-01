@@ -8,7 +8,7 @@ import type { SessionView } from "@/lib/api/types";
 import { parseQuotaInput, type QuotaError } from "@/lib/quota";
 import { usePatchSession } from "./api";
 
-/** The owner's token-quota dialog: empty means unlimited, a number is the remaining budget. */
+/** The owner's budget dialog: empty means unlimited, a number is the remaining budget (D101). */
 export function QuotaDialog({
 	session,
 	open,
@@ -20,12 +20,12 @@ export function QuotaDialog({
 }) {
 	const { t } = useLingui();
 	const patch = usePatchSession(session.id);
-	const [text, setText] = useState(session.quota === null ? "" : String(session.quota));
+	const [text, setText] = useState(session.budgetRemaining === null ? "" : String(session.budgetRemaining));
 	const [error, setError] = useState<QuotaError>();
 
 	useEffect(() => {
-		if (open) setText(session.quota === null ? "" : String(session.quota));
-	}, [open, session.quota]);
+		if (open) setText(session.budgetRemaining === null ? "" : String(session.budgetRemaining));
+	}, [open, session.budgetRemaining]);
 
 	const errorText = (code: QuotaError): string => {
 		switch (code) {
@@ -46,7 +46,7 @@ export function QuotaDialog({
 		}
 		setError(undefined);
 		patch.mutate(
-			{ quota: parsed.quota },
+			{ budgetRemaining: parsed.quota },
 			{
 				onSuccess: () => {
 					toast.success(t`Quota saved.`);
@@ -60,7 +60,7 @@ export function QuotaDialog({
 		<FormDialog
 			open={open}
 			onOpenChange={onOpenChange}
-			title={<Trans>Token quota</Trans>}
+			title={<Trans>Token budget</Trans>}
 			submitLabel={<Trans>Save</Trans>}
 			busy={patch.isPending}
 			error={error !== undefined ? errorText(error) : undefined}
@@ -68,7 +68,7 @@ export function QuotaDialog({
 			onSubmit={save}
 		>
 			<Label htmlFor="session-quota">
-				<Trans>Remaining tokens (empty = unlimited)</Trans>
+				<Trans>Remaining budget tokens (empty = unlimited)</Trans>
 			</Label>
 			<Input
 				id="session-quota"

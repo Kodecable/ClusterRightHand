@@ -13,18 +13,27 @@ import { useLocale } from "@/lib/i18n";
 import { parseGrantInput, type QuotaError, quotaStatus } from "@/lib/quota";
 import { cn } from "@/lib/utils";
 
-/** The remaining-quota line: unlimited, remaining or used up (doc/agent-runtime.md#配额). */
-export function QuotaSummaryLine({ quota, used }: { quota: number | null; used: number }) {
+/**
+ * The remaining-budget line (doc/agent-runtime.md#配额, D101): no limit, remaining, or used up. The numbers are
+ * the budget measure — output tokens — never the usage statistic.
+ */
+export function BudgetSummaryLine({
+	budgetRemaining,
+	budgetUsedTokens,
+}: {
+	budgetRemaining: number | null;
+	budgetUsedTokens: number;
+}) {
 	const { locale } = useLocale();
-	const status = quotaStatus(quota, used);
+	const status = quotaStatus(budgetRemaining, budgetUsedTokens);
 	const usedText = formatNumber(status.used, locale);
 	switch (status.kind) {
 		case "unlimited":
-			return <Trans>Unlimited quota · {usedText} used</Trans>;
+			return <Trans>No budget limit · {usedText} spent</Trans>;
 		case "remaining":
 			return (
 				<Trans>
-					{formatNumber(status.remaining, locale)} tokens left · {usedText} used
+					{formatNumber(status.remaining, locale)} tokens left · {usedText} spent
 				</Trans>
 			);
 		case "exhausted":
@@ -32,10 +41,10 @@ export function QuotaSummaryLine({ quota, used }: { quota: number | null; used: 
 				<span className="text-danger">
 					{status.over > 0 ? (
 						<Trans>
-							Quota used up ({formatNumber(status.over, locale)} over) · {usedText} used
+							Budget used up ({formatNumber(status.over, locale)} over) · {usedText} spent
 						</Trans>
 					) : (
-						<Trans>Quota used up · {usedText} used</Trans>
+						<Trans>Budget used up · {usedText} spent</Trans>
 					)}
 				</span>
 			);
@@ -91,7 +100,7 @@ export function QuotaCard({
 	return (
 		<section
 			data-slot="quota-card"
-			aria-label={t`Token quota used up`}
+			aria-label={t`Token budget used up`}
 			className={cn("grid gap-3 rounded-lg border border-warn/30 bg-warn-bg/40 p-4 text-card-foreground", className)}
 		>
 			<div className="flex min-w-0 flex-wrap items-baseline justify-between gap-2">
@@ -112,8 +121,10 @@ export function QuotaCard({
 			<KeyValueList
 				items={[
 					{
-						label: <Trans>Quota</Trans>,
-						value: <QuotaSummaryLine quota={wait.quota} used={wait.used} />,
+						label: <Trans>Budget</Trans>,
+						value: (
+							<BudgetSummaryLine budgetRemaining={wait.budgetRemaining} budgetUsedTokens={wait.budgetUsedTokens} />
+						),
 					},
 					{ label: <Trans>Since</Trans>, value: <DateTime value={wait.since} /> },
 				]}

@@ -355,8 +355,12 @@ export interface SessionsTable {
 	state_changed_at: string | null;
 	/** Remaining token quota at any level (doc/agent-runtime.md#配额); null: unlimited. Signed: one call may overspend it. */
 	quota_tokens: ColumnType<string | number | null, string | number | null | undefined, string | number | null>;
-	/** Spent by this session and its subagents. */
-	used_tokens: ColumnType<string | number, string | number | undefined, string | number>;
+	/** The budget measure (D92, D101): output tokens spent by this session and its subagents. */
+	budget_used_tokens: ColumnType<string | number, string | number | undefined, string | number>;
+	/** The statistics measure (D101): input + output tokens of this session and its subagents. */
+	usage_tokens: ColumnType<string | number, string | number | undefined, string | number>;
+	/** The input size of this session's own last main-agent call (D101); null before the first. */
+	context_tokens: ColumnType<string | number | null, string | number | null | undefined, string | number | null>;
 }
 
 export interface ModelProvidersTable {

@@ -13,7 +13,7 @@ import { createRootRuleSet, createRuleSet, getRuleSet, setPreset } from "../poli
 import { defaultOrgId } from "../users/service.ts";
 import { newId } from "../util/id.ts";
 import type { ModelRef } from "./models.ts";
-import { setQuota, spentTokens } from "./quota.ts";
+import { budgetUsedTokens, contextTokens, setQuota, usageTokens } from "./quota.ts";
 import type { RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runtime-core.ts";
 import { conversationOf, loadConversation } from "./runtime-core.ts";
 import { notifyQuotaWaiters } from "./runtime-quota.ts";
@@ -40,7 +40,13 @@ function isShownEntry(entry: { readonly model?: readonly { readonly role?: strin
 export async function createSession(
 	host: RuntimeHost,
 	owner: SessionUser,
-	input: { title?: string; model: ModelRef; preset: Preset; instructions?: string; quota?: number | null },
+	input: {
+		title?: string;
+		model: ModelRef;
+		preset: Preset;
+		instructions?: string;
+		budgetRemaining?: number | null;
+	},
 ): Promise<SessionView> {
 	host.models.assertAvailable(input.model);
 	const conversation = await host.harness().createConversation(
@@ -73,8 +79,8 @@ export async function createSession(
 				created_at: now,
 				updated_at: now,
 				archived_at: null,
-				// A root without a quota is unlimited and never charged; any level may have one (D92).
-				quota_tokens: input.quota ?? null,
+				// A root without a remaining budget is unlimited and never charged; any level may have one (D92).
+				quota_tokens: input.budgetRemaining ?? null,
 				state: "idle",
 				waiting_kind: null,
 				waiting_level_id: null,
@@ -103,7 +109,7 @@ export async function createSession(
 export async function createScheduledSession(
 	host: RuntimeHost,
 	owner: SessionUser,
-	input: { id: string; title: string; model: ModelRef; quota: number | null; scheduleId: string },
+	input: { id: string; title: string; model: ModelRef; budgetRemaining: number | null; scheduleId: string },
 ): Promise<SessionView> {
 	const existing = await getSession(host, input.id);
 	if (existing) return existing;
@@ -137,8 +143,8 @@ export async function createScheduledSession(
 				created_at: now,
 				updated_at: now,
 				archived_at: null,
-				// The budget is the new session's root quota; null means unlimited (D92).
-				quota_tokens: input.quota,
+				// The budget is the new session's root remaining; null means unlimited (D92).
+				quota_tokens: input.budgetRemaining,
 				state: "idle",
 				waiting_kind: null,
 				waiting_level_id: null,
@@ -179,15 +185,17 @@ async function sessionView(host: RuntimeHost, row: SessionRow): Promise<SessionV
 		state: row.state,
 		waitingKind: row.waiting_kind,
 		waitingLevelId: row.waiting_level_id,
-		quota: row.quota_tokens === null ? null : Number(row.quota_tokens),
-		spentTokens: await spentTokens(host.db, row.id),
+		budgetRemaining: row.quota_tokens === null ? null : Number(row.quota_tokens),
+		budgetUsedTokens: await budgetUsedTokens(host.db, row.id),
+		usageTokens: await usageTokens(host.db, row.id),
+		contextTokens: await contextTokens(host.db, row.id),
 	};
 }
 
 export async function configure(
 	host: RuntimeHost,
 	sessionId: string,
-	change: { title?: string; model?: ModelRef; preset?: Preset; quota?: number | null },
+	change: { title?: string; model?: ModelRef; preset?: Preset; budgetRemaining?: number | null },
 ): Promise<SessionView> {
 	const { row, conversation } = await loadConversation(host, sessionId);
 	if (change.model) {
@@ -202,9 +210,9 @@ export async function configure(
 	}
 	if (change.preset && row.parent_session_id === null)
 		await setPreset(host.db, { type: "session", id: sessionId }, change.preset);
-	if (change.quota !== undefined) {
-		// Setting a quota replaces the remainder at any level, the root included; null removes the limit (D92).
-		await setQuota(host.db, sessionId, change.quota);
+	if (change.budgetRemaining !== undefined) {
+		// Setting the remaining budget replaces it at any level, the root included; null removes the limit (D92).
+		await setQuota(host.db, sessionId, change.budgetRemaining);
 		notifyQuotaWaiters(host);
 		invalidateInboxes(host);
 		// A wait on this level (or on a root above it) may be over now.

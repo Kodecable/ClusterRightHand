@@ -126,13 +126,18 @@ sessions          (id, org_id, owner_user_id, conversation_id, parent_session_id
                    waiting_level_id nullable,           -- waiting_kind = quota 时：要补的那一级
                    waiting_handler_id nullable,         -- 该等待的直接父会话（处理它的 agent）；根耗尽时为空，由所有者处理
                    state_changed_at,
-                   used_tokens)                         -- 本会话及其 subagent 已用；规则在 rule_sets
+                   budget_used_tokens,                  -- 预算口径：本会话及其 subagent 的输出 token（D101）
+                   usage_tokens,                        -- 统计口径：本会话及其 subagent 的输入 + 输出 token（D101）
+                   context_tokens nullable)             -- 本会话最近一次主 agent 调用的输入大小；第一次调用前为 null
+                   -- 规则在 rule_sets
 usage_ledger      (id, org_id, session_id, chain json, input_tokens, output_tokens, cost, created_at)
                   -- 按链逐级汇总，用于配额检查
 model_providers   (id, org_id, provider_id, kind[builtin|openai-compatible], builtin, name, base_url,
                    secret_id, models json, headers json, enabled)
                   -- key 在 secrets；headers 只放网关路由头，不放凭据
 ```
+
+> 两个 token 度量见 [agent-runtime.md](agent-runtime.md#配额)（D101）：`budget_used_tokens` 只计输出、决定配额何时暂停；`usage_tokens` 计输入 + 输出、只用于展示，两者都在链上累加。`context_tokens` 只由主 agent 的模型调用写入，压缩和 Auto Review 不写。上游没有上报用量时，输入按调用实际发出的请求内容估算：生成只有请求的 `messages`，压缩和 Auto Review 是系统提示加消息。
 
 ## 计划任务
 

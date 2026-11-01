@@ -514,7 +514,7 @@ export class Scheduler {
 				id: sessionId,
 				title: schedule.name,
 				model: schedule.model,
-				quota: schedule.tokenBudget,
+				budgetRemaining: schedule.tokenBudget,
 				scheduleId: schedule.id,
 			});
 			submissionId = await this.#runtime.submitAsSchedule(

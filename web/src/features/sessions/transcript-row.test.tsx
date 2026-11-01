@@ -214,3 +214,68 @@ describe("TranscriptRow", () => {
 		expect(screen.getByRole("alert")).toHaveTextContent("boom");
 	});
 });
+
+describe("TranscriptRow tool failure badge", () => {
+	const toolItem = (result: string): TranscriptItem => ({
+		kind: "tool",
+		key: "a1/0",
+		callId: "call-1",
+		name: "exec",
+		args: { cmd: "true" },
+		status: "done",
+		output: "",
+		details: undefined,
+		result: { text: result, isError: false, details: undefined },
+	});
+
+	const failure = () => screen.queryByTestId("tool-failure");
+
+	test("a read_file result has no exit_code and no badge", () => {
+		renderRow(toolItem('{"task_id":"t1","node":"web-1","state":"exited","lines":{"from":1,"to":5}}'));
+		expect(failure()).not.toBeInTheDocument();
+	});
+
+	test("an exited task with exit code 0 has no badge", () => {
+		renderRow(toolItem('{"task_id":"t1","node":"web-1","state":"exited","exit_code":0}'));
+		expect(failure()).not.toBeInTheDocument();
+	});
+
+	test("a running result has no badge", () => {
+		renderRow(toolItem('{"task_id":"t1","node":"web-1","state":"running"}'));
+		expect(failure()).not.toBeInTheDocument();
+	});
+
+	test("a task group whose nodes all succeeded has no badge", () => {
+		renderRow(
+			toolItem(
+				'{"task_group_id":"g1","state":"finished","nodes":[{"task_id":"a","state":"exited","exit_code":0},{"task_id":"b","state":"exited","exit_code":0}]}',
+			),
+		);
+		expect(failure()).not.toBeInTheDocument();
+	});
+
+	test("a group with one failed node is partly failed", () => {
+		renderRow(
+			toolItem(
+				'{"task_group_id":"g1","state":"finished","nodes":[{"task_id":"a","state":"exited","exit_code":0},{"task_id":"b","state":"exited","exit_code":1}]}',
+			),
+		);
+		expect(failure()).toHaveTextContent("Partly failed");
+	});
+
+	test("a cancelled task shows the Cancelled badge", () => {
+		renderRow(toolItem('{"task_id":"t1","state":"exited","exit_code":0,"cancelled":true}'));
+		expect(failure()).toHaveTextContent("Cancelled");
+	});
+
+	test("a non-zero exit code shows the code", () => {
+		renderRow(toolItem('{"task_id":"t1","state":"exited","exit_code":2}'));
+		expect(failure()).toHaveTextContent("Exit 2");
+	});
+
+	test("a failed task shows Failed, next to the call status badge", () => {
+		renderRow(toolItem('{"task_id":"t1","state":"failed","error":{"code":"exec_failed"}}'));
+		expect(failure()).toHaveTextContent("Failed");
+		expect(screen.getByTestId("tool-toggle")).toHaveTextContent("Done");
+	});
+});

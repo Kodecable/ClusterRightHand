@@ -4,12 +4,20 @@ import { useEffect, useMemo, useState } from "react";
 import { ErrorState } from "@/components/error-state";
 import { PageSkeleton } from "@/components/skeletons";
 import { flattenCursorPages } from "@/lib/api/query";
-import { useSession, useSessionChildren, useSessionHistoryPage, useSessionRootId, useSessionTreeSync } from "./api";
-import { ChildSessions, SessionChildrenProvider } from "./child-sessions";
+import {
+	useSession,
+	useSessionChildren,
+	useSessionChildrenSummary,
+	useSessionHistoryPage,
+	useSessionRootId,
+	useSessionTreeSync,
+} from "./api";
+import { SessionChildrenProvider } from "./child-sessions";
+import { ChildrenBar } from "./children-bar";
 import { Composer } from "./composer";
 import { SessionHeader } from "./session-header";
 import { SessionWaits } from "./session-waits";
-import { transcript, usageTotals } from "./sessionState";
+import { transcript } from "./sessionState";
 import { Transcript } from "./transcript";
 import { useSessionEvents } from "./use-session-events";
 
@@ -21,12 +29,11 @@ export function SessionPage() {
 	const tree = useSessionTreeSync(sessionId, rootId);
 	const events = useSessionEvents(sessionId);
 	const children = useSessionChildren(sessionId, rootId, events.childrenRevision);
+	const childrenSummary = useSessionChildrenSummary(sessionId);
 	const childItems = useMemo(() => flattenCursorPages(children.data), [children.data]);
 	const [wantsOlder, setWantsOlder] = useState(false);
 	const history = useSessionHistoryPage(sessionId, events.state.historyCursor, wantsOlder);
 	const items = useMemo(() => transcript(events.state), [events.state]);
-	const totals = usageTotals(events.state.usage);
-	const tokenText = totals === undefined ? undefined : totals.tokens.toLocaleString();
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new session starts with no pending older-page request
 	useEffect(() => {
@@ -63,7 +70,7 @@ export function SessionPage() {
 
 	return (
 		<div className="flex h-full min-h-0 flex-col" data-testid="session-page" data-session-id={view.id}>
-			<SessionHeader session={view} stoppable={busy} />
+			<SessionHeader session={view} />
 			{(view.state === "awaiting" || view.waitingKind !== null || (isRoot && tree?.state === "awaiting")) && (
 				<SessionWaits session={view} />
 			)}
@@ -73,10 +80,7 @@ export function SessionPage() {
 					{events.connection === "connecting" ? <Trans>Connecting…</Trans> : <Trans>Reconnecting…</Trans>}
 				</p>
 			)}
-			{(events.state.running ||
-				events.state.queued > 0 ||
-				events.state.retry !== undefined ||
-				tokenText !== undefined) && (
+			{(events.state.running || events.state.queued > 0 || events.state.retry !== undefined) && (
 				<p
 					className="flex shrink-0 flex-wrap items-center gap-3 border-b px-3 py-1 text-xs text-muted-foreground"
 					role="status"
@@ -86,7 +90,6 @@ export function SessionPage() {
 					{events.state.queued > 0 && (
 						<Plural value={events.state.queued} one="# message queued" other="# messages queued" />
 					)}
-					{tokenText !== undefined && <Trans>{tokenText} tokens</Trans>}
 				</p>
 			)}
 			{events.state.failure !== undefined && (
@@ -94,8 +97,6 @@ export function SessionPage() {
 					{events.state.failure}
 				</p>
 			)}
-
-			<ChildSessions query={children} />
 
 			{events.state.ready ? (
 				<SessionChildrenProvider items={childItems}>
@@ -116,12 +117,8 @@ export function SessionPage() {
 				</div>
 			)}
 
-			<Composer
-				sessionId={view.id}
-				canChat={view.capabilities.chat}
-				stoppable={events.state.running || busy}
-				waitingKind={view.waitingKind}
-			/>
+			<ChildrenBar query={children} summary={childrenSummary.data} />
+			<Composer session={view} stoppable={events.state.running || busy} waitingKind={view.waitingKind} />
 		</div>
 	);
 }

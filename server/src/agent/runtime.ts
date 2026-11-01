@@ -1,5 +1,5 @@
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
-import { createRegistry, Harness } from "@earendil-works/pi-durable";
+import { type ConversationId, createRegistry, Harness, UsageDoc } from "@earendil-works/pi-durable";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Preset } from "../policy/rules.ts";
 import { clusterExtension } from "./extension.ts";
@@ -39,6 +39,7 @@ import {
 import { submit, submitAsSchedule, unsettledSubmissionRequests, waitForSubmission } from "./runtime-submissions.ts";
 import { SessionListHub } from "./session-list.ts";
 import type { SessionState } from "./session-state.ts";
+import { backfillUsageTokens } from "./usage-backfill.ts";
 import { wakePendingAgents } from "./wakes.ts";
 
 /**
@@ -102,8 +103,8 @@ export class AgentRuntime {
 			storage,
 			{
 				// Compaction's summarization is metered here; Auto Review charges itself (doc/agent-runtime.md#配额).
-				models: meteredModels(options.models.models, async (providerSessionId, message) => {
-					await ref.current?.chargeCompaction(providerSessionId, message);
+				models: meteredModels(options.models.models, async (providerSessionId, message, context) => {
+					await ref.current?.chargeCompaction(providerSessionId, message, context);
 				}),
 				registry,
 				identity: { attribution: { name: "ClusterRightHand", url: "https://github.com/Kodecable/ClusterRightHand" } },
@@ -157,6 +158,10 @@ export class AgentRuntime {
 		await endOrphanWaits(runtime.#host);
 		// Sessions created before the per-conversation tool filter existed may still offer subagent at the limit.
 		await enforceDepthToolLimits(runtime.#host);
+		// A session that predates the statistics measure gets it from durable's persisted usage (D101).
+		await backfillUsageTokens(options.db, async (conversationId) =>
+			runtime.#harness.snapshot(UsageDoc, Number(conversationId) as unknown as ConversationId, BACKGROUND_CONTEXT),
+		);
 		// A restart may have queued nothing for requests that were already waiting: wake idle parents now.
 		await wakePendingAgents(runtime.#host);
 		return runtime;
@@ -213,7 +218,13 @@ export class AgentRuntime {
 
 	async createSession(
 		owner: SessionUser,
-		input: { title?: string; model: ModelRef; preset: Preset; instructions?: string; quota?: number | null },
+		input: {
+			title?: string;
+			model: ModelRef;
+			preset: Preset;
+			instructions?: string;
+			budgetRemaining?: number | null;
+		},
 	): Promise<SessionView> {
 		return createSession(this.#host, owner, input);
 	}
@@ -224,14 +235,14 @@ export class AgentRuntime {
 
 	async createScheduledSession(
 		owner: SessionUser,
-		input: { id: string; title: string; model: ModelRef; quota: number | null; scheduleId: string },
+		input: { id: string; title: string; model: ModelRef; budgetRemaining: number | null; scheduleId: string },
 	): Promise<SessionView> {
 		return createScheduledSession(this.#host, owner, input);
 	}
 
 	async configure(
 		sessionId: string,
-		change: { title?: string; model?: ModelRef; preset?: Preset; quota?: number | null },
+		change: { title?: string; model?: ModelRef; preset?: Preset; budgetRemaining?: number | null },
 	): Promise<SessionView> {
 		return configure(this.#host, sessionId, change);
 	}
@@ -374,9 +385,13 @@ export class AgentRuntime {
 		return rememberProviderSession(this.#host, conversationId);
 	}
 
-	/** Charges a compaction's summarization to the session it compacted (D92). */
-	async chargeCompaction(providerSessionId: string, message: Parameters<typeof chargeCompaction>[2]): Promise<void> {
-		return chargeCompaction(this.#host, providerSessionId, message);
+	/** Charges a compaction's summarization to the session it compacted (D92, D101). */
+	async chargeCompaction(
+		providerSessionId: string,
+		message: Parameters<typeof chargeCompaction>[2],
+		context: Parameters<typeof chargeCompaction>[3],
+	): Promise<void> {
+		return chargeCompaction(this.#host, providerSessionId, message, context);
 	}
 
 	/** Waits until nothing in the Harness runs (tests). */

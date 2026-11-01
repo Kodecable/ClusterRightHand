@@ -8,15 +8,15 @@ const wait = {
 	levelId: "lvl-root",
 	title: "Nightly cluster check",
 	since: "2026-01-01T00:00:00.000Z",
-	quota: -300,
-	used: 12_000,
+	budgetRemaining: -300,
+	budgetUsedTokens: 12_000,
 };
 
 describe("QuotaCard", () => {
 	test("shows the session, the used-up quota and the level", async () => {
 		await renderWithRouter(<QuotaCard wait={wait} onDecide={() => {}} />);
 		expect(screen.getByRole("link", { name: "Nightly cluster check" })).toHaveAttribute("href", "/sessions/s1");
-		expect(screen.getByText(/Quota used up \(300 over\)/)).toBeInTheDocument();
+		expect(screen.getByText(/Budget used up \(300 over\)/)).toBeInTheDocument();
 		expect(screen.getByText("lvl-root")).toBeInTheDocument();
 	});
 

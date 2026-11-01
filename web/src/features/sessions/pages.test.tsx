@@ -46,8 +46,10 @@ function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 		state: "idle",
 		waitingKind: null,
 		waitingLevelId: null,
-		quota: null,
-		spentTokens: 0,
+		budgetRemaining: null,
+		budgetUsedTokens: 0,
+		usageTokens: 0,
+		contextTokens: null,
 		...overrides,
 	};
 }
@@ -84,6 +86,8 @@ async function renderSessionPage({ session, treeRow }: { session: SessionView; t
 				new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 			if (path === `/api/sessions/${session.id}`) return json({ session, shares: [] });
 			if (path === `/api/sessions/${session.id}/children`) return json({ items: [], nextCursor: null });
+			if (path === `/api/sessions/${session.id}/children/summary`)
+				return json({ total: 0, states: { idle: 0, running: 0, awaiting: 0 } });
 			if (path === "/api/models") return json({ models: [] });
 			if (path === "/api/approvals") return json(APPROVALS);
 			if (path === "/api/nodes") return json({ nodes: [] });
@@ -116,24 +120,32 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-describe("SessionPage header", () => {
-	test("shows the session's own state, never the tree's aggregate", async () => {
+describe("SessionPage layout", () => {
+	test("the header keeps the title and the share button only", async () => {
 		await renderSessionPage({ session: sessionView() });
 		await screen.findByTestId("session-page");
-		expect(screen.getByText("Idle")).toBeInTheDocument();
-		expect(screen.getByTestId("abort-session")).toBeDisabled();
-		expect(screen.queryByTestId("waiting-reason")).not.toBeInTheDocument();
+		const header = screen.getByTestId("session-header");
+		expect(header.querySelector("[data-testid='session-title']")).toHaveValue("Deploy the cluster");
+		expect(header.querySelector("[data-testid='share-session']")).not.toBeNull();
+		// Model, rules, budget, state and stop moved out of the header.
+		expect(header).not.toHaveTextContent("auto_review");
+		expect(header).not.toHaveTextContent("Idle");
+		expect(header.querySelector("[data-testid='abort-session']")).toBeNull();
+		expect(header.querySelector("[data-testid='session-title']")).not.toBeNull();
+	});
+
+	test("the stop button follows the session's own run and, for a root, its tree's", async () => {
+		await renderSessionPage({ session: sessionView() });
+		await screen.findByTestId("session-page");
+		expect(screen.queryByTestId("abort-session")).not.toBeInTheDocument();
 		expect(screen.queryByTestId("session-waits")).not.toBeInTheDocument();
 
-		// The tree is awaiting a subagent's approval while this session itself is idle.
+		// The tree is awaiting a subagent's approval while this session itself is idle: stopping the root stops
+		// the subtree, so Stop is there.
 		act(() => {
 			publishSessionListUpsert(item({ state: "awaiting", waitingKind: "approval" }));
 		});
-
 		await waitFor(() => expect(screen.getByTestId("session-waits")).toBeInTheDocument());
-		expect(screen.getByText("Idle")).toBeInTheDocument();
-		expect(screen.queryByTestId("waiting-reason")).not.toBeInTheDocument();
-		// Stopping the root stops the subtree, so it stays available while any part runs.
 		expect(screen.getByTestId("abort-session")).toBeEnabled();
 
 		act(() => {
@@ -146,17 +158,15 @@ describe("SessionPage header", () => {
 	test("takes the root's aggregate from the loaded list on a fresh page", async () => {
 		await renderSessionPage({ session: sessionView(), treeRow: item({ state: "running" }) });
 		await screen.findByTestId("session-page");
-
-		expect(screen.getByText("Idle")).toBeInTheDocument();
 		expect(screen.getByTestId("abort-session")).toBeEnabled();
 	});
 
-	test("shows the preset by its product name", async () => {
+	test("shows the preset by its product name in the composer footer", async () => {
 		await renderSessionPage({ session: sessionView() });
 		await screen.findByTestId("session-page");
 
-		const header = screen.getByTestId("session-header");
-		expect(header).toHaveTextContent("Preset: Auto Review");
-		expect(header).not.toHaveTextContent("auto_review");
+		const rules = screen.getByTestId("composer-rules");
+		expect(rules).toHaveTextContent("Auto Review");
+		expect(rules).not.toHaveTextContent("auto_review");
 	});
 });

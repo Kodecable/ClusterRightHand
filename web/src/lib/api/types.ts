@@ -120,6 +120,12 @@ export interface SessionListItem {
 	updatedAt: string;
 }
 
+/** The counts of a session's direct child sessions by their own state (`GET /sessions/:id/children/summary`). */
+export interface SessionChildrenSummary {
+	total: number;
+	states: Record<SessionRunState, number>;
+}
+
 export type SessionListScope = "mine" | "shared" | "all";
 
 export interface SessionListQuery extends CursorQuery {
@@ -150,10 +156,14 @@ export interface SessionView {
 	waitingKind: SessionWaitingKind | null;
 	/** While awaiting a quota: the exhausted level to top up. */
 	waitingLevelId: string | null;
-	/** Remaining token quota (null: unlimited; negative after an overspending response). */
-	quota: number | null;
-	/** Tokens spent by the session and its subagents. */
-	spentTokens: number;
+	/** Remaining budget tokens (null: unlimited; negative after an overspending response). */
+	budgetRemaining: number | null;
+	/** The budget measure: output tokens spent by the session and its subagents (D101). */
+	budgetUsedTokens: number;
+	/** The statistics measure: input + output tokens of the session and its subagents (D101). */
+	usageTokens: number;
+	/** The input size of the session's own last main-agent call; null before the first (D101). */
+	contextTokens: number | null;
 	shares?: SessionShare[];
 }
 
@@ -161,8 +171,8 @@ export interface SessionPatch {
 	title?: string;
 	model?: ModelRef;
 	preset?: Preset;
-	/** Replaces the remaining quota at any level (null: unlimited). */
-	quota?: number | null;
+	/** Replaces the remaining budget at any level (null: unlimited). */
+	budgetRemaining?: number | null;
 }
 
 export type TaskState =
@@ -570,10 +580,10 @@ export interface QuotaApproval {
 	levelId: string;
 	title: string;
 	since: string;
-	/** Remaining tokens at the level; zero or negative. */
-	quota: number;
-	/** Tokens the root and its subagents have used. */
-	used: number;
+	/** Remaining budget tokens at the level; zero or negative (D101). */
+	budgetRemaining: number;
+	/** The budget measure spent by the tree (D101). */
+	budgetUsedTokens: number;
 }
 
 export type ScheduleRunStatus = "pending" | "running" | "succeeded" | "failed" | "preempted";

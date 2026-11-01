@@ -2,12 +2,13 @@ import type { Context } from "@earendil-works/chord/context";
 import type { ConversationId } from "@earendil-works/pi-durable";
 import { ProviderDoc } from "@earendil-works/pi-durable";
 import { NotFoundError, UserError } from "../users/service.ts";
-import { type AccountedMessage, accountedOutputTokens, exhaustedLevel, grantQuota, recordUsage } from "./quota.ts";
+import { chargeCall, exhaustedLevel, grantQuota } from "./quota.ts";
 import type { RuntimeHost } from "./runtime-core.ts";
 import { invalidateInboxes } from "./runtime-requests.ts";
 import { refreshState } from "./runtime-state.ts";
 import { parentOf } from "./session-chain.ts";
 import { markSessionsIdle, type SessionWait, setSessionState } from "./session-state.ts";
+import { type AccountedMessage, callTokens, estimateRequestTokens } from "./tokens.ts";
 import { wakeQuota } from "./wakes.ts";
 
 /**
@@ -156,17 +157,22 @@ export async function rememberProviderSession(host: RuntimeHost, conversationId:
 	host.learnedProviders.add(conversationId);
 }
 
-/** Charges a compaction's summarization to the session it compacted (D92); the next tool call pauses if it emptied the quota. */
+/**
+ * Charges a compaction's summarization to the session it compacted (D92, D101); the next tool call pauses if it
+ * emptied the quota. The input estimate is measured on `context`, the request given to `completeSimple`: system
+ * prompt plus messages (D101). A compaction never moves the context fill: that is the last main-agent call's input.
+ */
 export async function chargeCompaction(
 	host: RuntimeHost,
 	providerSessionId: string,
 	message: AccountedMessage,
+	context: { readonly messages: readonly unknown[]; readonly systemPrompt?: string },
 ): Promise<void> {
 	const sessionId = host.providerSessions.get(providerSessionId);
 	if (!sessionId) return;
-	const tokens = accountedOutputTokens(message);
-	if (tokens <= 0) return;
-	await recordUsage(host.db, sessionId, tokens);
+	const tokens = callTokens(message, estimateRequestTokens(context));
+	await chargeCall(host.db, sessionId, tokens);
+	host.sessionList.publishSession(sessionId);
 	const over = await exhaustedLevel(host.db, sessionId);
 	if (over) {
 		void host.audit?.record({

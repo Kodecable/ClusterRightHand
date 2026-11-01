@@ -326,13 +326,13 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 
 	app.post("/sessions", async (c) => {
 		const body = (await readJsonObject(c)) ?? {};
-		// Any level may have a quota; null (or no field) is unlimited and never charged (D92).
-		const quota = body.quota === undefined ? undefined : parseQuota(body.quota);
+		// Any level may have a remaining budget; null (or no field) is unlimited and never charged (D92, D101).
+		const budgetRemaining = body.budgetRemaining === undefined ? undefined : parseQuota(body.budgetRemaining);
 		const session = await runtime.createSession(c.get("user"), {
 			model: parseModelRef(body.model),
 			preset: parsePreset(body.preset ?? "ask"),
 			...(typeof body.title === "string" ? { title: body.title } : {}),
-			...(quota === undefined ? {} : { quota }),
+			...(budgetRemaining === undefined ? {} : { budgetRemaining }),
 		});
 		return c.json({ session: (await decorate(c, [session]))[0] }, 201);
 	});
@@ -376,6 +376,31 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			items: page.rows.map((row) => sessionChildItem(row, c.get("user").userId, v.shared)),
 			nextCursor: page.nextCursor,
 		});
+	});
+
+	/**
+	 * How many direct child sessions this session has, by their own state, for the compact children bar
+	 * (doc/webui.md#子会话栏). The count must not require every page of the children list, so it is its own
+	 * endpoint; visibility is `GET /sessions/:id`'s.
+	 */
+	app.get("/sessions/:id/children/summary", async (c) => {
+		const v = await visible(c, c.req.param("id"));
+		if (!v) return jsonError(c, 404, "no such session");
+		const rows = await db
+			.selectFrom("sessions")
+			.select(["state"])
+			.select((eb) => eb.fn.countAll<string>().as("count"))
+			.where("parent_session_id", "=", v.session.id)
+			.groupBy("state")
+			.execute();
+		const states: Record<"idle" | "running" | "awaiting", number> = { idle: 0, running: 0, awaiting: 0 };
+		let total = 0;
+		for (const row of rows) {
+			const count = Number(row.count);
+			total += count;
+			if (row.state === "idle" || row.state === "running" || row.state === "awaiting") states[row.state] += count;
+		}
+		return c.json({ total, states });
 	});
 
 	app.get("/sessions/:id/shares", async (c) => {
@@ -451,14 +476,14 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			...(typeof body.title === "string" ? { title: body.title } : {}),
 			...(body.model !== undefined ? { model: parseModelRef(body.model) } : {}),
 			...(preset ? { preset } : {}),
-			...(body.quota !== undefined ? { quota: parseQuota(body.quota) } : {}),
+			...(body.budgetRemaining !== undefined ? { budgetRemaining: parseQuota(body.budgetRemaining) } : {}),
 		});
-		if (body.quota !== undefined) {
+		if (body.budgetRemaining !== undefined) {
 			void c.get("audit").record({
 				actor: userActor(c.get("user")),
 				action: "session.quota",
 				target: { type: "session", id: s.id },
-				detail: { quota: body.quota },
+				detail: { budget_remaining: body.budgetRemaining },
 			});
 		}
 		if (preset) {

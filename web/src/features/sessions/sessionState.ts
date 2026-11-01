@@ -521,14 +521,6 @@ export function transcript(state: SessionState): TranscriptItem[] {
 	return items;
 }
 
-/** Total tokens over all models; no monetary cost is computed (doc/agent-runtime.md#配额). */
-export function usageTotals(usage: UsageState | undefined): { tokens: number } | undefined {
-	if (!usage) return undefined;
-	let tokens = 0;
-	for (const u of [...Object.values(usage.models), ...Object.values(usage.tools)]) tokens += u.totalTokens ?? 0;
-	return tokens > 0 ? { tokens } : undefined;
-}
-
 /** `details.state === "awaiting_approval"` with an approval link, as cluster tools publish while waiting. */
 export function approvalWait(details: Json | undefined): { url: string } | undefined {
 	if (!details || typeof details !== "object" || Array.isArray(details)) return undefined;

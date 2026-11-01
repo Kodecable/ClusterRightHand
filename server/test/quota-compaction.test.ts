@@ -2,7 +2,7 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@ear
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
-import { exhaustedLevel, spentTokens } from "../src/agent/quota.ts";
+import { budgetUsedTokens, contextTokens, exhaustedLevel, usageTokens } from "../src/agent/quota.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import { sessionStateOf } from "../src/agent/session-state.ts";
 import { Audit } from "../src/audit/audit.ts";
@@ -58,7 +58,7 @@ it("charges compaction's summary and pauses the next tool call when it empties t
 		model: model(),
 		preset: "yolo",
 		title: "compacted",
-		quota: 5,
+		budgetRemaining: 5,
 	});
 	let seen = "";
 	const stop = await runtime.watch(session.id, (events) => {
@@ -68,7 +68,11 @@ it("charges compaction's summary and pauses the next tool call when it empties t
 		faux.setResponses([fauxAssistantMessage([fauxText("hi")])]);
 		const first = await runtime.submit(session.id, owner, "first message", "compaction-1");
 		expect((await waitSubmission(runtime, session.id, first)).status).toBe("done");
-		expect(await spentTokens(db, session.id)).toBe(1);
+		expect(await budgetUsedTokens(db, session.id)).toBe(1);
+		// For a call the upstream accounted for, the context fill is exactly the usage minus the output.
+		const mainContext = await contextTokens(db, session.id);
+		expect(mainContext).toBeGreaterThan(0);
+		expect(mainContext).toBe((await usageTokens(db, session.id)) - (await budgetUsedTokens(db, session.id)));
 
 		// The system prompt already exceeds the tiny window, so the next run compacts the history before its request.
 		faux.setResponses([
@@ -85,8 +89,11 @@ it("charges compaction's summary and pauses the next tool call when it empties t
 		// A compaction ran, and its summary was charged: hi (1) + summary (3) + the tool call (4).
 		expect(seen).toContain("compaction_start");
 		expect(seen).toContain("compaction_end");
-		expect(await spentTokens(db, session.id)).toBe(8);
+		expect(await budgetUsedTokens(db, session.id)).toBe(8);
 		expect(await exhaustedLevel(db, session.id)).toBe(session.id);
+		// D101: the compaction's own call counts in the usage measure (input + output), while the context fill is
+		// written by main-agent calls only (`chargeCompaction` never sets it).
+		expect(await usageTokens(db, session.id)).toBeGreaterThan(8);
 
 		expect(await runtime.decideRootQuota(session.id, "approve", 1_000)).toContain(session.id);
 		expect(await waitSubmission(runtime, session.id, second)).toEqual({ status: "done", answer: "after the grant" });

@@ -3,7 +3,8 @@ import type { TaskGroups, TaskGroupView } from "../cluster/task-groups.ts";
 import { getRuleSet, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import type { ModelConfig, ModelRef } from "./models.ts";
-import { accountedOutputTokens, recordUsage } from "./quota.ts";
+import { chargeCall } from "./quota.ts";
+import { type CallTokens, callTokens, estimateRequestTokens } from "./tokens.ts";
 
 /**
  * Auto Review (doc/access-control.md#规则链): for a root whose preset is auto_review (a token, a session, or the
@@ -78,22 +79,27 @@ export class Reviewer {
 		return row ? (JSON.parse(row.model) as ModelRef) : null;
 	}
 
-	/** Asks the reviewer, and reports what the answer costs so the owning session can be charged (D92). */
-	async #ask(model: ModelRef, operation: string): Promise<{ outcome: ReviewOutcome; tokens: number }> {
+	/** Asks the reviewer, and reports what the answer costs so the owning session can be charged (D92, D101). */
+	async #ask(model: ModelRef, operation: string): Promise<{ outcome: ReviewOutcome; tokens: CallTokens }> {
 		const resolved = this.#models.models.getModel(model.provider, model.modelId);
 		const name = `${model.provider}/${model.modelId}`;
 		if (!resolved)
 			return {
 				outcome: { decision: "escalate", reason: `review model ${name} is not configured`, model: name },
-				tokens: 0,
+				tokens: { budget: 0, usage: 0, context: 0 },
 			};
 		try {
-			const answer = await this.#models.models.completeSimple(resolved, {
+			const request = {
 				systemPrompt: SYSTEM,
-				messages: [{ role: "user", content: operation, timestamp: Date.now() }],
-			});
+				messages: [{ role: "user" as const, content: operation, timestamp: Date.now() }],
+			};
+			const answer = await this.#models.models.completeSimple(resolved, request);
 			const text = answer.content.flatMap((c) => (c.type === "text" ? [c.text] : [])).join("");
-			return { outcome: { ...parseOutcome(text), model: name }, tokens: accountedOutputTokens(answer) };
+			return {
+				outcome: { ...parseOutcome(text), model: name },
+				// The review's request (system prompt plus messages) is the input basis when no usage is reported.
+				tokens: callTokens(answer, estimateRequestTokens(request)),
+			};
 		} catch (err) {
 			return {
 				outcome: {
@@ -101,18 +107,20 @@ export class Reviewer {
 					reason: `review failed: ${(err as Error).message}`.slice(0, 300),
 					model: name,
 				},
-				tokens: 0,
+				tokens: { budget: 0, usage: 0, context: 0 },
 			};
 		}
 	}
 
 	/**
-	 * Charges a review's output to the session whose task it judged, walking up the chain as any other model call
-	 * (doc/agent-runtime.md#配额). A task without a session (an API token) is not charged.
+	 * Charges a review's tokens to the session whose task it judged, walking up the chain as any other model call
+	 * (doc/agent-runtime.md#配额, D101). A task without a session (an API token) is not charged. A review never
+	 * moves the context fill: that is the session's own last main-agent call.
 	 */
-	async #charge(actorType: string, actorId: string, tokens: number): Promise<void> {
-		if (tokens === 0 || (actorType !== "session" && actorType !== "subagent")) return;
-		await recordUsage(this.#db, actorId, tokens);
+	async #charge(actorType: string, actorId: string, tokens: CallTokens): Promise<void> {
+		if (tokens.budget === 0 && tokens.usage === 0) return;
+		if (actorType !== "session" && actorType !== "subagent") return;
+		await chargeCall(this.#db, actorId, tokens);
 	}
 
 	async #wanted(chain: RuleRef[] | null): Promise<ModelRef | null> {

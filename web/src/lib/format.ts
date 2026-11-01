@@ -106,6 +106,19 @@ export function formatNumber(value: number, locale: string, options?: Intl.Numbe
 	return numberFormat(locale, options).format(value);
 }
 
+/**
+ * A token count with an auto unit: `1234 → "1.2K"`, `1500000 → "1.5M"` (doc/webui.md#技术栈: the one
+ * formatter every session counter uses). The number keeps the active locale; the unit is the same in both.
+ */
+export function formatTokens(value: number, locale: string): string {
+	const tokens = Number.isFinite(value) ? value : 0;
+	const scaled = (amount: number, unit: string) =>
+		`${formatNumber(amount, locale, { maximumFractionDigits: 1 })}${unit}`;
+	if (Math.abs(tokens) >= 1_000_000) return scaled(tokens / 1_000_000, "M");
+	if (Math.abs(tokens) >= 1_000) return scaled(tokens / 1_000, "K");
+	return formatNumber(tokens, locale);
+}
+
 /** A duration in seconds/milliseconds as "1h 02m 03s". */
 export function formatDuration(ms: number, locale: string): string {
 	if (!Number.isFinite(ms) || ms < 0) return "–";

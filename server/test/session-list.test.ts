@@ -304,7 +304,8 @@ describe("GET /api/sessions", () => {
 			updatedAt: expect.any(String) as string,
 		});
 		expect(mine.items[0]).not.toHaveProperty("rules");
-		expect(mine.items[0]).not.toHaveProperty("spentTokens");
+		expect(mine.items[0]).not.toHaveProperty("budgetUsedTokens");
+		expect(mine.items[0]).not.toHaveProperty("usageTokens");
 
 		// A subagent is a child session and never appears in the list.
 		const child = await runtime.createSubagent(a1, {
@@ -339,10 +340,18 @@ describe("GET /api/sessions", () => {
 		expect((await list("root")).items).toEqual([]);
 		// `GET /sessions/:id` still returns the full session view.
 		const full = (await (await call(app, `/api/sessions/${a1}`, { cookie: cookie.alice })).json()) as {
-			session: { rules: { preset: string } | null; spentTokens: number; capabilities: { view: boolean } };
+			session: {
+				rules: { preset: string } | null;
+				budgetUsedTokens: number;
+				usageTokens: number;
+				contextTokens: number | null;
+				capabilities: { view: boolean };
+			};
 		};
 		expect(full.session.capabilities.view).toBe(true);
-		expect(full.session.spentTokens).toBe(0);
+		expect(full.session.budgetUsedTokens).toBe(0);
+		expect(full.session.usageTokens).toBe(0);
+		expect(full.session.contextTokens).toBeNull();
 		expect(full.session.rules?.preset).toBe("ask");
 	});
 
@@ -729,6 +738,48 @@ describe("GET /api/sessions/:id/children", () => {
 		for (const query of ["?cursor=garbage", "?cursor=", "?limit=0", "?limit=201", "?limit=1.5"]) {
 			expect((await call(app, `/api/sessions/${rootId}/children${query}`, { cookie: cookie.alice })).status).toBe(400);
 		}
+	});
+
+	it("summarizes the direct children's own states, for the compact children bar", async () => {
+		const rootId = await seed(id.alice as string, "summary root", "2026-08-05T00:00:00.000Z");
+		const running = await seed(id.alice as string, "running child", "2026-08-05T00:00:01.000Z", {
+			parentSessionId: rootId,
+			rootSessionId: rootId,
+		});
+		const awaiting = await seed(id.alice as string, "awaiting child", "2026-08-05T00:00:02.000Z", {
+			parentSessionId: rootId,
+			rootSessionId: rootId,
+		});
+		await seed(id.alice as string, "idle child", "2026-08-05T00:00:03.000Z", {
+			parentSessionId: rootId,
+			rootSessionId: rootId,
+		});
+		await seed(id.alice as string, "idle child two", "2026-08-05T00:00:04.000Z", {
+			parentSessionId: rootId,
+			rootSessionId: rootId,
+		});
+		// A grandchild is not a direct child, so it is not counted.
+		await seed(id.alice as string, "summary grandchild", "2026-08-05T00:00:05.000Z", {
+			parentSessionId: running,
+			rootSessionId: rootId,
+		});
+		await db.updateTable("sessions").set({ state: "running" }).where("id", "=", running).execute();
+		await db.updateTable("sessions").set({ state: "awaiting" }).where("id", "=", awaiting).execute();
+
+		const res = await call(app, `/api/sessions/${rootId}/children/summary`, { cookie: cookie.alice });
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ total: 4, states: { idle: 2, running: 1, awaiting: 1 } });
+		// Visibility is the children list's: unrelated users get 404, a grantee sees the same counts.
+		expect((await call(app, `/api/sessions/${rootId}/children/summary`, { cookie: cookie.dave })).status).toBe(404);
+		expect((await call(app, "/api/sessions/no-such-session/children/summary", { cookie: cookie.alice })).status).toBe(
+			404,
+		);
+		await share(rootId, { granteeType: "user", granteeId: id.bob, access: "view" });
+		expect((await call(app, `/api/sessions/${rootId}/children/summary`, { cookie: cookie.bob })).status).toBe(200);
+		// A session without children reports zeros, not a 404.
+		const empty = await seed(id.alice as string, "no children", "2026-08-05T00:00:06.000Z");
+		const none = await call(app, `/api/sessions/${empty}/children/summary`, { cookie: cookie.alice });
+		expect(await none.json()).toEqual({ total: 0, states: { idle: 0, running: 0, awaiting: 0 } });
 	});
 
 	it("uses the parent index instead of sorting a session's children", async () => {

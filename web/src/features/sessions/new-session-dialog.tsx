@@ -59,7 +59,7 @@ export function NewSessionDialog({ open, onOpenChange }: { open: boolean; onOpen
 				...(title.trim() !== "" ? { title: title.trim() } : {}),
 				model: chosen,
 				preset,
-				quota: quota.quota,
+				budgetRemaining: quota.quota,
 			});
 			toast.success(t`Session created.`);
 			onOpenChange(false);
@@ -117,7 +117,7 @@ export function NewSessionDialog({ open, onOpenChange }: { open: boolean; onOpen
 
 			<div className="grid gap-1.5">
 				<Label htmlFor="new-session-quota">
-					<Trans>Token quota (empty = unlimited)</Trans>
+					<Trans>Token budget (empty = unlimited)</Trans>
 				</Label>
 				<Input
 					id="new-session-quota"

@@ -36,8 +36,22 @@ const QUOTA_APPROVALS: ApprovalList = {
 	taskGroups: [],
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [
-		{ sessionId: "s1", levelId: "root", title: "Nightly check", since: "2026-01-01T00:00:00Z", quota: 0, used: 100 },
-		{ sessionId: "s2", levelId: "root", title: "Deploy check", since: "2026-01-01T00:00:00Z", quota: -5, used: 200 },
+		{
+			sessionId: "s1",
+			levelId: "root",
+			title: "Nightly check",
+			since: "2026-01-01T00:00:00Z",
+			budgetRemaining: 0,
+			budgetUsedTokens: 100,
+		},
+		{
+			sessionId: "s2",
+			levelId: "root",
+			title: "Deploy check",
+			since: "2026-01-01T00:00:00Z",
+			budgetRemaining: -5,
+			budgetUsedTokens: 200,
+		},
 	],
 };
 
@@ -116,8 +130,10 @@ export function sessionView(item: SessionListItem, overrides: Partial<SessionVie
 		state: item.state,
 		waitingKind: item.waitingKind,
 		waitingLevelId: null,
-		quota: null,
-		spentTokens: 0,
+		budgetRemaining: null,
+		budgetUsedTokens: 0,
+		usageTokens: 0,
+		contextTokens: null,
 		shares: [],
 		...overrides,
 	};
@@ -746,6 +762,15 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		if (childrenMatch && method === "GET") {
 			const id = decodeURIComponent(childrenMatch[1] as string);
 			return json({ items: state.children[id] ?? [], nextCursor: null });
+		}
+
+		const childrenSummaryMatch = /^\/api\/sessions\/([^/]+)\/children\/summary$/.exec(path);
+		if (childrenSummaryMatch && method === "GET") {
+			const id = decodeURIComponent(childrenSummaryMatch[1] as string);
+			const items = state.children[id] ?? [];
+			const states = { idle: 0, running: 0, awaiting: 0 };
+			for (const item of items) states[item.state] += 1;
+			return json({ total: items.length, states });
 		}
 
 		const sessionMatch = /^\/api\/sessions\/([^/]+)$/.exec(path);

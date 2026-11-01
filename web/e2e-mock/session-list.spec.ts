@@ -134,3 +134,46 @@ test("without models the disabled New button is explained in the list column", a
 		.poll(() => api.state.requests.some((request) => request.url === "/api/model-providers"), { timeout: 10_000 })
 		.toBe(true);
 });
+
+test("rows are grouped by updatedAt, and a streamed move to the top moves the row to Today", async ({ page }) => {
+	const day = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+	const localMonth = (value: string) => {
+		const date = new Date(value);
+		return `${String(date.getFullYear()).padStart(4, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+	};
+	const sessions = [
+		sessionListItem({ id: "s-today", title: "Today row", updatedAt: day(0) }),
+		sessionListItem({ id: "s-yesterday", title: "Yesterday row", updatedAt: day(1) }),
+		sessionListItem({ id: "s-week", title: "Week row", updatedAt: day(3) }),
+		sessionListItem({ id: "s-month", title: "Month row", updatedAt: day(10) }),
+		sessionListItem({ id: "s-old", title: "Old row", updatedAt: day(40) }),
+	];
+	const api = await mockApi(page, {
+		state: {
+			sessions,
+			details: Object.fromEntries(sessions.map((item) => [item.id, sessionView(item)])),
+		},
+	});
+	await login(page);
+	const headers = page.getByTestId("session-group-header");
+	await expect(headers.filter({ hasText: "Today" })).toHaveCount(1);
+	await expect(headers.filter({ hasText: "Yesterday" })).toHaveCount(1);
+	await expect(headers.filter({ hasText: "Within 7 days" })).toHaveCount(1);
+	await expect(headers.filter({ hasText: "Within 30 days" })).toHaveCount(1);
+	const oldMonth = localMonth(day(40));
+	await expect(headers.filter({ hasText: oldMonth })).toHaveCount(1);
+	// The "n sessions" count is gone.
+	await expect(page.getByText(/^\d+ sessions?$/)).toHaveCount(0);
+
+	// The stream patches the old row to the top: it joins Today and its month header goes away.
+	await api.emit("/api/sessions/stream", "upsert", {
+		...sessions[4],
+		updatedAt: new Date().toISOString(),
+	});
+	await expect(page.locator("[data-session-id]").first()).toHaveAttribute("data-session-id", "s-old");
+	await expect(headers.filter({ hasText: oldMonth })).toHaveCount(0);
+	// Today now holds the moved row: its header sits directly above it.
+	const firstHeader = headers.first();
+	await expect(firstHeader).toHaveText("Today");
+	await expect(page.locator('[data-session-id="s-old"]')).toBeVisible();
+});

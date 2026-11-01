@@ -1,16 +1,14 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { SendIcon, SquareIcon } from "lucide-react";
 import { type KeyboardEvent, useState } from "react";
 import { toast } from "sonner";
 import { ErrorText } from "@/components/error-state";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { SessionWaitingKind } from "@/lib/api/types";
+import type { SessionView, SessionWaitingKind } from "@/lib/api/types";
 import { useAbortSession, useSendMessage } from "./api";
+import { ComposerFooter } from "./composer-footer";
 
 export interface ComposerProps {
-	sessionId: string;
-	canChat: boolean;
+	session: SessionView;
 	/** There is something this session (or its tree) runs that Stop can end. */
 	stoppable: boolean;
 	waitingKind: SessionWaitingKind | null;
@@ -26,17 +24,17 @@ export interface ComposerProps {
  * send that answers after the reader moved on cannot clear the new draft.
  */
 export function Composer(props: ComposerProps) {
-	return <ComposerForm key={props.sessionId} {...props} />;
+	return <ComposerForm key={props.session.id} {...props} />;
 }
 
-function ComposerForm({ sessionId, canChat, stoppable, waitingKind }: ComposerProps) {
+function ComposerForm({ session, stoppable, waitingKind }: ComposerProps) {
 	const { t } = useLingui();
 	const [text, setText] = useState("");
 	// The server dedupes sends by request id, so a retry after a lost response
 	// keeps the id of the unanswered attempt; only a success or a new text resets it.
 	const [requestId, setRequestId] = useState<string>();
-	const send = useSendMessage(sessionId);
-	const abort = useAbortSession(sessionId);
+	const send = useSendMessage(session.id);
+	const abort = useAbortSession(session.id);
 
 	const submit = () => {
 		const value = text.trim();
@@ -66,7 +64,7 @@ function ComposerForm({ sessionId, canChat, stoppable, waitingKind }: ComposerPr
 		});
 	};
 
-	if (!canChat) {
+	if (!session.capabilities.chat) {
 		return (
 			<p className="shrink-0 border-t px-3 py-2 text-sm text-muted-foreground" data-slot="composer-readonly">
 				<Trans>You have view access: the owner can let you send messages by sharing it for chat.</Trans>
@@ -116,18 +114,14 @@ function ComposerForm({ sessionId, canChat, stoppable, waitingKind }: ComposerPr
 					className="max-h-48 min-h-16 resize-y"
 				/>
 				{send.error !== null && send.error !== undefined && <ErrorText error={send.error} />}
-				<div className="flex items-center justify-end gap-2">
-					{stoppable && (
-						<Button type="button" variant="destructive" size="sm" disabled={abort.isPending} onClick={stop}>
-							<SquareIcon />
-							<Trans>Stop</Trans>
-						</Button>
-					)}
-					<Button type="submit" size="sm" data-testid="composer-send" disabled={send.isPending || text.trim() === ""}>
-						<SendIcon />
-						<Trans>Send</Trans>
-					</Button>
-				</div>
+				<ComposerFooter
+					session={session}
+					stoppable={stoppable}
+					sending={send.isPending}
+					sendDisabled={text.trim() === ""}
+					stopPending={abort.isPending}
+					onStop={stop}
+				/>
 			</form>
 		</div>
 	);

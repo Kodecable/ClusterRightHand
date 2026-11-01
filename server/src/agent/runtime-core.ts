@@ -43,10 +43,14 @@ export interface SessionView {
 	waitingKind: WaitingKind | null;
 	/** While awaiting a quota: the exhausted level to top up. */
 	waitingLevelId: string | null;
-	/** Remaining token quota; null: unlimited. Signed: a response may overspend it. */
-	quota: number | null;
-	/** Tokens spent by this session and its subagents. */
-	spentTokens: number;
+	/** Remaining budget tokens; null: unlimited. Signed: a response may overspend it (D92). */
+	budgetRemaining: number | null;
+	/** The budget measure: output tokens spent by this session and its subagents (D92, D101). */
+	budgetUsedTokens: number;
+	/** The statistics measure: input + output tokens of this session and its subagents (D101). */
+	usageTokens: number;
+	/** The input size of this session's own last main-agent call; null before the first (D101). */
+	contextTokens: number | null;
 }
 
 /** An approval handed to an ancestor session's agent (doc/agent-runtime.md#处理子会话的请求). */

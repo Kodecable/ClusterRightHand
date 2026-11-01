@@ -69,11 +69,6 @@ msgstr "{0, plural, one {已选择 # 个节点} other {已选择 # 个节点}}"
 msgid "{0, plural, one {# node} other {# nodes}}"
 msgstr "{0, plural, one {# 个节点} other {# 个节点}}"
 
-#. placeholder {0}: items.length
-#: src/features/sessions/session-list.tsx
-msgid "{0, plural, one {# session} other {# sessions}}"
-msgstr "{0, plural, one {# 个会话} other {# 个会话}}"
-
 #. placeholder {0}: targets.length
 #: src/features/batch/pages.tsx
 msgid "{0, plural, one {# target} other {# targets}}"
@@ -99,11 +94,6 @@ msgstr "{0, plural, one {替换了 # 处} other {替换了 # 处}}"
 msgid "{0, plural, one {Run on # target} other {Run on # targets}}"
 msgstr "{0, plural, one {在 # 个目标上运行} other {在 # 个目标上运行}}"
 
-#. placeholder {0}: items.length
-#: src/features/sessions/child-sessions.tsx
-msgid "{0, plural, one {Subagent session} other {Subagent sessions}}"
-msgstr "{0, plural, one {子会话} other {子会话}}"
-
 #. placeholder {0}: result.bytes
 #: src/components/task-result.tsx
 msgid "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
@@ -115,15 +105,24 @@ msgstr "{0, plural, one {写入了 # 字节} other {写入了 # 字节}}"
 msgid "{0} on {1}"
 msgstr "在 {1} 上执行 {0}"
 
+#. placeholder {0}: formatNumber(remaining, locale)
+#: src/features/sessions/composer-footer.tsx
+msgid "{0} tokens left"
+msgstr "剩余 {0} 个 token"
+
 #. placeholder {0}: formatNumber(status.remaining, locale)
 #: src/components/quota-card.tsx
-msgid "{0} tokens left · {usedText} used"
-msgstr "剩余 {0} 个 token · 已用 {usedText}"
+msgid "{0} tokens left · {usedText} spent"
+msgstr "剩余 {0} 个 token · 已花 {usedText}"
 
 #. placeholder {0}: credential.name
 #: src/features/credentials/pages.tsx
 msgid "{0}: privileged.toml"
 msgstr "{0}：privileged.toml"
+
+#: src/features/sessions/children-bar.tsx
+msgid "{awaiting} awaiting"
+msgstr "{awaiting} 个等待中"
 
 #: src/components/task-result.tsx
 msgid "{bytes, plural, one {# byte} other {# bytes}}"
@@ -132,6 +131,10 @@ msgstr "{bytes, plural, one {# 字节} other {# 字节}}"
 #: src/features/approvals/pages.tsx
 msgid "{count, plural, one {# waiting} other {# waiting}}"
 msgstr "{count, plural, one {# 项等待中} other {# 项等待中}}"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "{exact} tokens in total"
+msgstr "共 {exact} 个 token"
 
 #. placeholder {0}: item.group.nodeIds.length
 #: src/components/approval-card.tsx
@@ -146,13 +149,13 @@ msgstr "{lineCount, plural, one {# 行} other {# 行}}"
 msgid "{lines, plural, one {# line} other {# lines}}"
 msgstr "{lines, plural, one {# 行} other {# 行}}"
 
-#: src/features/sessions/session-header.tsx
-msgid "{ruleCount, plural, one {# rule} other {# rules}}"
-msgstr "{ruleCount, plural, one {# 条规则} other {# 条规则}}"
+#: src/features/sessions/children-bar.tsx
+msgid "{running} running"
+msgstr "{running} 个运行中"
 
-#: src/features/sessions/pages.tsx
-msgid "{tokenText} tokens"
-msgstr "{tokenText} 个 token"
+#: src/features/sessions/children-bar.tsx
+msgid "{total, plural, one {# subagent} other {# subagents}}"
+msgstr "{total, plural, one {# 个子会话} other {# 个子会话}}"
 
 #: src/components/authorization-card.tsx
 msgid "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
@@ -206,6 +209,14 @@ msgstr "单独一行超过一页保留的 50 KB。"
 #: src/features/tokens/create-token-dialog.tsx
 msgid "A name is required."
 msgstr "需要填写名称。"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "A new model applies from the next turn."
+msgstr "新模型从下一轮开始生效。"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "A new preset applies to the next tool call; waiting approvals are decided again."
+msgstr "新预设从下一次工具调用开始生效；等待中的审批会重新判定。"
 
 #: src/features/credentials/pages.tsx
 msgid "A node authorizes a privileged task signed by one of these credentials when its privileged.toml trusts the key."
@@ -457,10 +468,6 @@ msgstr "始终允许规则"
 msgid "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
 msgstr "授权在其载荷指定的节点上有效，直到截止时间、被用完（一次性授权）或在这里被吊销。离线的节点会在下次连接后收到吊销信息。"
 
-#: src/features/sessions/session-header.tsx
-msgid "another user"
-msgstr "另一位用户"
-
 #: src/features/tasks/pages.tsx
 msgid "Any actor"
 msgstr "任意操作者"
@@ -691,6 +698,28 @@ msgstr "批量运行"
 msgid "Batch started."
 msgstr "批量运行已开始。"
 
+#: src/components/quota-card.tsx
+msgid "Budget"
+msgstr "预算"
+
+#. placeholder {0}: formatTokens(remaining, locale)
+#: src/features/sessions/composer-footer.tsx
+msgid "Budget {0}"
+msgstr "预算 {0}"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "Budget 0"
+msgstr "预算 0"
+
+#: src/components/quota-card.tsx
+msgid "Budget used up · {usedText} spent"
+msgstr "预算已用尽 · 已花 {usedText}"
+
+#. placeholder {0}: formatNumber(status.over, locale)
+#: src/components/quota-card.tsx
+msgid "Budget used up ({0} over) · {usedText} spent"
+msgstr "预算已用尽（超出 {0}）· 已花 {usedText}"
+
 #: src/features/nodes/pages.tsx
 msgid "Build the `[[trust]]` block for this node's privileged.toml. The node enforces it; this page only exports it."
 msgstr "为这个节点的 privileged.toml 生成 `[[trust]]` 块。节点负责执行，此页面只负责导出。"
@@ -720,6 +749,7 @@ msgstr "取消任务"
 
 #: src/components/status-badge.tsx
 #: src/components/task-result.tsx
+#: src/features/sessions/transcript-row.tsx
 msgid "Cancelled"
 msgstr "已取消"
 
@@ -743,6 +773,14 @@ msgstr "哈希链完好，共 {0} 个事件。"
 #: src/features/auth/change-password-dialog.tsx
 msgid "Change password"
 msgstr "修改密码"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "Change the model; it applies from the next turn."
+msgstr "更换模型；从下一轮开始生效。"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "Change the preset; it applies to the next tool call."
+msgstr "更换预设；从下一次工具调用开始生效。"
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Chat"
@@ -830,6 +868,10 @@ msgstr "关闭"
 msgid "Cluster"
 msgstr "集群"
 
+#: src/features/sessions/children-bar.tsx
+msgid "Collapse subagents"
+msgstr "收起子会话"
+
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Comma separated; they decide who may see and operate the node."
 msgstr "用逗号分隔；它们决定谁可以查看和操作该节点。"
@@ -898,6 +940,10 @@ msgstr "上下文已压缩"
 #: src/features/settings/provider-dialog.tsx
 msgid "Context window"
 msgstr "上下文窗口"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "Context: {percent}% used"
+msgstr "上下文已用 {percent}%"
 
 #: src/features/sessions/transcript.tsx
 msgid "Conversation"
@@ -1190,7 +1236,6 @@ msgstr "详情"
 msgid "Detail of event {0}"
 msgstr "事件 {0} 的详情"
 
-#: src/features/sessions/session-header.tsx
 #: src/features/tasks/task-columns.tsx
 msgid "Details"
 msgstr "详情"
@@ -1403,6 +1448,11 @@ msgstr "所有等待你审批、签名或配额决定的事项。"
 msgid "exact"
 msgstr "精确匹配"
 
+#. placeholder {0}: failure.exitCode ?? ""
+#: src/features/sessions/transcript-row.tsx
+msgid "Exit {0}"
+msgstr "退出码 {0}"
+
 #: src/components/task-result.tsx
 msgid "Exit code"
 msgstr "退出码"
@@ -1415,6 +1465,10 @@ msgstr "退出码 {0}"
 #: src/components/status-badge.tsx
 msgid "Exited"
 msgstr "已退出"
+
+#: src/features/sessions/children-bar.tsx
+msgid "Expand subagents"
+msgstr "展开子会话"
 
 #: src/features/tokens/rules-dialog.tsx
 msgid "Expected an object like {\"rules\": [...]}."
@@ -1715,7 +1769,7 @@ msgid "List at least one model."
 msgstr "至少列出一个模型。"
 
 #: src/components/data-table.tsx
-#: src/features/sessions/child-sessions.tsx
+#: src/features/sessions/children-bar.tsx
 msgid "Load more"
 msgstr "加载更多"
 
@@ -1740,6 +1794,7 @@ msgid "Loading the waiting decisions…"
 msgstr "正在加载等待处理的决定…"
 
 #: src/features/approvals/pages.tsx
+#: src/features/sessions/children-bar.tsx
 #: src/features/tasks/task-group-page.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Loading…"
@@ -1799,8 +1854,8 @@ msgstr "权限"
 
 #: src/components/model-select.tsx
 #: src/features/schedules/schedule-form.tsx
+#: src/features/sessions/composer-footer.tsx
 #: src/features/sessions/new-session-dialog.tsx
-#: src/features/sessions/session-header.tsx
 #: src/features/settings/review-model-card.tsx
 msgid "Model"
 msgstr "模型"
@@ -1954,6 +2009,14 @@ msgstr "还没有 API 令牌"
 msgid "No authorizations yet"
 msgstr "还没有授权"
 
+#: src/features/sessions/composer-footer.tsx
+msgid "No budget limit"
+msgstr "没有预算限制"
+
+#: src/components/quota-card.tsx
+msgid "No budget limit · {usedText} spent"
+msgstr "没有预算限制 · 已花 {usedText}"
+
 #: src/features/credentials/pages.tsx
 msgid "No credentials yet"
 msgstr "还没有凭据"
@@ -2018,6 +2081,10 @@ msgstr "此节点未信任你的任何 Passkey 用于此命令；请使用下方
 msgid "No result yet"
 msgstr "尚无结果"
 
+#: src/features/sessions/composer-footer.tsx
+msgid "No rules"
+msgstr "没有规则"
+
 #: src/features/schedules/run-history.tsx
 msgid "No runs yet"
 msgstr "还没有运行记录"
@@ -2037,6 +2104,10 @@ msgstr "未选择会话"
 #: src/features/sessions/session-list.tsx
 msgid "No sessions yet"
 msgstr "还没有会话"
+
+#: src/features/sessions/children-bar.tsx
+msgid "No subagents."
+msgstr "没有子会话。"
 
 #: src/features/nodes/node-tasks.tsx
 #: src/features/tasks/pages.tsx
@@ -2166,10 +2237,6 @@ msgstr "没有可显示的内容。"
 #: src/components/status-badge.tsx
 msgid "Offline"
 msgstr "离线"
-
-#: src/components/task-form-fields.tsx
-#~ msgid "Offset"
-#~ msgstr "偏移"
 
 #: src/components/task-form-fields.tsx
 msgid "Old text"
@@ -2325,6 +2392,10 @@ msgstr "并发数"
 msgid "Parallel must be a positive whole number."
 msgstr "并发数必须是正整数。"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "Partly failed"
+msgstr "部分失败"
+
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Passkey"
@@ -2410,8 +2481,8 @@ msgstr "正在准备待签名的载荷…"
 
 #: src/components/preset-select.tsx
 #: src/features/schedules/schedule-form.tsx
+#: src/features/sessions/composer-footer.tsx
 #: src/features/sessions/new-session-dialog.tsx
-#: src/features/sessions/session-header.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/tokens/rules-dialog.tsx
@@ -2421,6 +2492,11 @@ msgstr "预设"
 #: src/features/tokens/rules-dialog.tsx
 msgid "Preset saved."
 msgstr "预设已保存。"
+
+#. placeholder {0}: presetLabel(preset)
+#: src/features/sessions/composer-footer.tsx
+msgid "Preset: {0}"
+msgstr "预设：{0}"
 
 #: src/components/approval-card.tsx
 #: src/components/task-form-fields.tsx
@@ -2481,10 +2557,6 @@ msgstr "排队中"
 msgid "Queued"
 msgstr "排队中"
 
-#: src/components/quota-card.tsx
-msgid "Quota"
-msgstr "配额"
-
 #: src/features/approvals/pages.tsx
 #: src/features/sessions/session-waits.tsx
 msgid "Quota decision recorded."
@@ -2493,15 +2565,6 @@ msgstr "配额决定已记录。"
 #: src/features/sessions/quota-dialog.tsx
 msgid "Quota saved."
 msgstr "配额已保存。"
-
-#: src/components/quota-card.tsx
-msgid "Quota used up · {usedText} used"
-msgstr "配额已用尽 · 已用 {usedText}"
-
-#. placeholder {0}: formatNumber(status.over, locale)
-#: src/components/quota-card.tsx
-msgid "Quota used up ({0} over) · {usedText} used"
-msgstr "配额已用尽（超出 {0}）· 已用 {usedText}"
 
 #: src/components/approval-card.tsx
 msgid "Reason"
@@ -2558,8 +2621,8 @@ msgid "Rejected"
 msgstr "已拒绝"
 
 #: src/features/sessions/quota-dialog.tsx
-msgid "Remaining tokens (empty = unlimited)"
-msgstr "剩余 token（留空表示不限）"
+msgid "Remaining budget tokens (empty = unlimited)"
+msgstr "剩余预算 token（留空 = 不限）"
 
 #: src/features/nodes/node-shares.tsx
 #: src/features/nodes/ssh-wizard.tsx
@@ -2735,6 +2798,10 @@ msgstr "{0} 的规则"
 msgid "Rules saved."
 msgstr "规则已保存。"
 
+#: src/features/sessions/composer-footer.tsx
+msgid "Rules: {ruleCount}"
+msgstr "规则：{ruleCount}"
+
 #: src/features/nodes/run-panel.tsx
 msgid "Run"
 msgstr "运行"
@@ -2846,7 +2913,11 @@ msgstr "计划运行记录"
 msgid "Schedule saved."
 msgstr "计划任务已保存。"
 
-#: src/features/sessions/session-list-item.tsx
+#: src/features/sessions/session-markers.tsx
+msgid "Scheduled"
+msgstr "计划"
+
+#: src/features/sessions/session-markers.tsx
 msgid "Scheduled session"
 msgstr "计划会话"
 
@@ -2869,7 +2940,7 @@ msgstr "搜索会话"
 msgid "Select…"
 msgstr "请选择…"
 
-#: src/features/sessions/composer.tsx
+#: src/features/sessions/composer-footer.tsx
 msgid "Send"
 msgstr "发送"
 
@@ -2885,10 +2956,6 @@ msgstr "会话已创建。"
 #: src/features/sessions/sessions-layout.tsx
 msgid "Session list"
 msgstr "会话列表"
-
-#: src/features/sessions/session-header.tsx
-msgid "Session settings"
-msgstr "会话设置"
 
 #: src/features/sessions/session-header.tsx
 msgid "Session title"
@@ -2929,16 +2996,17 @@ msgid "Share removed."
 msgstr "共享已移除。"
 
 #: src/features/sessions/session-list.tsx
+#: src/features/sessions/session-markers.tsx
 msgid "Shared"
 msgstr "共享"
 
-#: src/features/sessions/session-header.tsx
-msgid "Shared by {ownerName}"
-msgstr "由 {ownerName} 共享"
-
-#: src/features/sessions/session-list-item.tsx
+#: src/features/sessions/session-markers.tsx
 msgid "Shared with you"
 msgstr "共享给你"
+
+#: src/features/sessions/session-markers.tsx
+msgid "Shared with you by {sharedBy}"
+msgstr "{sharedBy} 共享给你"
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Shared."
@@ -3131,8 +3199,7 @@ msgid "Steps"
 msgstr "步骤"
 
 #: src/components/quota-card.tsx
-#: src/features/sessions/composer.tsx
-#: src/features/sessions/session-header.tsx
+#: src/features/sessions/composer-footer.tsx
 msgid "Stop"
 msgstr "停止"
 
@@ -3149,7 +3216,6 @@ msgid "stopped by the next run"
 msgstr "被下一次运行停止"
 
 #: src/features/sessions/composer.tsx
-#: src/features/sessions/session-header.tsx
 msgid "Stopped the run."
 msgstr "已停止运行。"
 
@@ -3157,8 +3223,8 @@ msgstr "已停止运行。"
 msgid "Subagent"
 msgstr "子会话"
 
-#: src/features/sessions/child-sessions.tsx
-msgid "Subagent sessions"
+#: src/features/sessions/children-bar.tsx
+msgid "Subagents"
 msgstr "子会话"
 
 #: src/components/authorization-card.tsx
@@ -3266,6 +3332,10 @@ msgstr "Base URL 必须以 http:// 或 https:// 开头。"
 msgid "The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA and RS256 are requested, so a registered Passkey is one the node's privileged mode can verify."
 msgstr "浏览器会提供平台认证器（Touch ID、Windows Hello）或安全密钥。只请求 ES256、EdDSA 和 RS256，因此注册的 Passkey 能被节点的特权模式验证。"
 
+#: src/features/sessions/composer-footer.tsx
+msgid "The budget is used up."
+msgstr "预算已用尽。"
+
 #: src/features/users/new-user-dialog.tsx
 msgid "The display name must be at most 100 characters."
 msgstr "显示名最多 100 个字符。"
@@ -3286,10 +3356,6 @@ msgstr "限制必须是非负整数。"
 #: src/components/task-result.tsx
 msgid "The listing is truncated: the directory has more entries than are shown."
 msgstr "列表已截断：目录中的条目比显示的更多。"
-
-#: src/components/task-result.tsx
-#~ msgid "The listing was cut at the requested limit."
-#~ msgstr "列表在请求的上限处被截断。"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "The model every new session of this schedule uses."
@@ -3323,10 +3389,6 @@ msgstr "该节点不信任任何密钥。"
 #: src/components/task-result.tsx
 msgid "The offset is past the end of the file."
 msgstr "起始行超出文件末尾。"
-
-#: src/features/tasks/taskForm.ts
-#~ msgid "The offset must be a non-negative whole number."
-#~ msgstr "偏移量必须是非负整数。"
 
 #: src/app/router.tsx
 msgid "The page you asked for does not exist."
@@ -3425,6 +3487,7 @@ msgid "Time"
 msgstr "时间"
 
 #: src/components/task-result.tsx
+#: src/features/sessions/transcript-row.tsx
 msgid "Timed out"
 msgstr "已超时"
 
@@ -3444,13 +3507,26 @@ msgstr "标题"
 msgid "Title saved."
 msgstr "标题已保存。"
 
+#: src/features/sessions/session-list.tsx
+msgid "Today"
+msgstr "今天"
+
 #: src/app/shell/app-shell.tsx
 msgid "Toggle sidebar"
 msgstr "切换侧边栏"
 
 #: src/features/schedules/schedule-form.tsx
+#: src/features/sessions/quota-dialog.tsx
 msgid "Token budget"
 msgstr "Token 预算"
+
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Token budget (empty = unlimited)"
+msgstr "token 预算（留空 = 不限）"
+
+#: src/components/quota-card.tsx
+msgid "Token budget used up"
+msgstr "token 预算已用尽"
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Token created"
@@ -3460,15 +3536,6 @@ msgstr "令牌已创建"
 msgid "Token deleted."
 msgstr "令牌已删除。"
 
-#: src/features/sessions/quota-dialog.tsx
-msgid "Token quota"
-msgstr "Token 配额"
-
-#: src/features/sessions/new-session-dialog.tsx
-msgid "Token quota (empty = unlimited)"
-msgstr "Token 配额（留空表示不限）"
-
-#: src/components/quota-card.tsx
 #: src/features/approvals/pages.tsx
 msgid "Token quota used up"
 msgstr "Token 配额已用尽"
@@ -3545,15 +3612,11 @@ msgstr "不限制"
 msgid "Unlimited"
 msgstr "不限"
 
-#: src/components/quota-card.tsx
-msgid "Unlimited quota · {usedText} used"
-msgstr "无限配额 · 已用 {usedText}"
-
 #: src/features/nodes/node-trust.tsx
 msgid "Unprivileged identity"
 msgstr "非特权身份"
 
-#: src/features/sessions/child-sessions.tsx
+#: src/features/sessions/children-bar.tsx
 #: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list-item.tsx
 msgid "Untitled session"
@@ -3697,6 +3760,14 @@ msgstr "此令牌无需审批即可执行的操作；其他操作会等待你。
 msgid "When"
 msgstr "时间"
 
+#: src/features/sessions/session-list.tsx
+msgid "Within 30 days"
+msgstr "30 天内"
+
+#: src/features/sessions/session-list.tsx
+msgid "Within 7 days"
+msgstr "7 天内"
+
 #: src/app/shell/nav.ts
 msgid "Work"
 msgstr "工作"
@@ -3713,6 +3784,10 @@ msgstr "处理中…"
 msgid "Yes"
 msgstr "是"
 
+#: src/features/sessions/session-list.tsx
+msgid "Yesterday"
+msgstr "昨天"
+
 #: src/features/sessions/new-session-dialog.tsx
 msgid "Yolo lets the agent run anything on your nodes without asking."
 msgstr "Yolo 允许 agent 不经询问就在你的节点上执行任何操作。"
@@ -3728,10 +3803,6 @@ msgstr "Yolo：所有操作都不经询问直接运行，包括节点自身策�
 #: src/features/tokens/preset-help.tsx
 msgid "Yolo: everything runs without asking."
 msgstr "Yolo：所有操作都不经询问直接运行。"
-
-#: src/features/users/pages.tsx
-#~ msgid "You cannot change your own kind or disable your own account."
-#~ msgstr "不能修改自己的类型，也不能停用自己的账号。"
 
 #: src/features/users/kind-select.tsx
 msgid "You cannot change your own kind."

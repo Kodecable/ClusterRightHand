@@ -4,32 +4,19 @@ import { ChevronDownIcon, ChevronRightIcon, WrenchIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { CodeText } from "@/components/code-text";
 import { InternalLink } from "@/components/internal-link";
-import { SessionStatusBadge, StatusBadge, TaskStatusBadge } from "@/components/status-badge";
+import { SessionStatusBadge, StatusBadge } from "@/components/status-badge";
 import { TaskResult } from "@/components/task-result";
 import { useTask } from "@/features/tasks/api";
 import { safeInternalPath } from "@/lib/url";
 import { SafeMarkdown, StreamingMarkdown } from "@/markdown/SafeMarkdown";
 import { useStreamingText } from "@/markdown/stream-store";
 import { useSessionChild } from "./child-sessions";
-import type { Json, JsonObject } from "./sessionState";
+import type { JsonObject } from "./sessionState";
 import { approvalWait, authorizationWait, prettyJson, type TranscriptItem } from "./sessionState";
+import { type ToolFailure, toolFailure } from "./tool-failure";
 import type { TranscriptStreams } from "./transcript-streams";
 
 type ToolItem = Extract<TranscriptItem, { kind: "tool" }>;
-
-/** The parts of a tool result the UI lifts out of the JSON before showing the rest. */
-function resultSummary(details: Json | undefined, text: string): { state?: string; exitCode?: number } {
-	const parsed = prettyJson(text);
-	const value = parsed && !Array.isArray(parsed.value) ? parsed.value : undefined;
-	const state = typeof value?.state === "string" ? value.state : undefined;
-	const exit = typeof value?.exit_code === "number" ? value.exit_code : undefined;
-	if (state !== undefined || exit !== undefined) return { state, exitCode: exit };
-	const detailState =
-		details !== null && typeof details === "object" && !Array.isArray(details) && typeof details.state === "string"
-			? details.state
-			: undefined;
-	return detailState === undefined ? {} : { state: detailState };
-}
 
 /** A cluster task result shows the same `TaskResult` as the task page (doc/webui.md "共享部件"). */
 function ToolTask({ taskId }: { taskId: string }) {
@@ -94,6 +81,28 @@ function toolTaskId(item: ToolItem): string | undefined {
 	return typeof id === "string" && id !== "" ? id : undefined;
 }
 
+/** The one extra badge a card shows: a failed task (or a partly failed task group), never a running or ok one. */
+function ToolFailureBadge({ failure }: { failure: ToolFailure }) {
+	const { t } = useLingui();
+	const label =
+		failure.kind === "partly-failed"
+			? t`Partly failed`
+			: failure.reason === "cancelled"
+				? t`Cancelled`
+				: failure.reason === "timed-out"
+					? t`Timed out`
+					: failure.reason === "exit"
+						? t`Exit ${failure.exitCode ?? ""}`
+						: t`Failed`;
+	return (
+		<span className="shrink-0" data-testid="tool-failure">
+			<StatusBadge tone="danger" dot={false}>
+				{label}
+			</StatusBadge>
+		</span>
+	);
+}
+
 function ToolCard({
 	item,
 	streams,
@@ -130,7 +139,7 @@ function ToolCard({
 	// A subagent call's badge shows the child session's own state, not the state the call had when it
 	// returned: a background subagent keeps working (or goes idle) long after the card was drawn.
 	const child = useSessionChild(subagentId);
-	const summary = resultSummary(item.details, item.result?.text ?? "");
+	const failure = item.result === undefined ? undefined : toolFailure(item.result.text);
 	const status = item.result
 		? item.result.isError
 			? "failed"
@@ -171,14 +180,7 @@ function ToolCard({
 				<span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" title={summaryLine}>
 					{summaryLine}
 				</span>
-				{(summary.state !== undefined || summary.exitCode !== undefined) && (
-					<span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
-						{summary.state !== undefined && <TaskStatusBadge state={summary.state} exitCode={summary.exitCode} />}
-						{summary.exitCode !== undefined && summary.exitCode !== 0 && (
-							<span className="font-mono">exit {summary.exitCode}</span>
-						)}
-					</span>
-				)}
+				{failure !== undefined && <ToolFailureBadge failure={failure} />}
 				{child !== undefined ? (
 					<SessionStatusBadge state={child.state} className="shrink-0" />
 				) : (

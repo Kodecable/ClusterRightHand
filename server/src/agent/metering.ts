@@ -6,11 +6,16 @@ import type { Models } from "@earendil-works/pi-ai/models";
  * (`streamSimple`) while context compaction summarizes with `completeSimple`, and the compaction task is the only
  * caller of `completeSimple` inside a Harness (doc/agent-runtime.md#配额, D92). The request carries the
  * conversation's provider session id, which identifies the session to charge; Auto Review calls its own `Models`
- * and is charged where it runs.
+ * and is charged where it runs. The request (system prompt plus messages) goes along, so the call's input tokens
+ * can be estimated from exactly what was sent when the upstream reports no usage (D101).
  */
 export function meteredModels(
 	models: Models,
-	onComplete: (providerSessionId: string, message: AssistantMessage) => Promise<void>,
+	onComplete: (
+		providerSessionId: string,
+		message: AssistantMessage,
+		context: { readonly messages: readonly unknown[]; readonly systemPrompt?: string },
+	) => Promise<void>,
 ): Models {
 	return new Proxy(models, {
 		get(target, property) {
@@ -20,7 +25,7 @@ export function meteredModels(
 			return async (...args: Parameters<Models["completeSimple"]>) => {
 				const message = await target.completeSimple(...args);
 				const sessionId = args[2]?.sessionId;
-				if (sessionId) await onComplete(sessionId, message);
+				if (sessionId) await onComplete(sessionId, message, args[1]);
 				return message;
 			};
 		},

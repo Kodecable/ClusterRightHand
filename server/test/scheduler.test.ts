@@ -816,7 +816,7 @@ it("recovers a run submitted before it was marked running, without a second sess
 		id: sessionId,
 		title: schedule.name,
 		model: schedule.model,
-		quota: null,
+		budgetRemaining: null,
 		scheduleId: schedule.id,
 	});
 	const submission = await runtime.submitAsSchedule(

@@ -11,7 +11,6 @@ import {
 	reduceAll,
 	type TranscriptItem,
 	transcript,
-	usageTotals,
 } from "./sessionState";
 
 const usage = (total: number) => ({
@@ -63,7 +62,9 @@ test("a snapshot builds the transcript and the in-flight message", () => {
 		["text", "hello"],
 		["text", "par"],
 	]);
-	expect(usageTotals(s.usage)).toEqual({ tokens: 1500 });
+	// The durable usage state is still what the stream publishes; the session's own counters come from the
+	// server's two measures (D101), so the page no longer sums it.
+	expect(s.usage?.models["faux/x"]?.totalTokens).toBe(1500);
 });
 
 test("a reconnect snapshot resets the state", () => {
@@ -290,7 +291,6 @@ test("helpers", () => {
 	expect(authorizationWait({ state: "awaiting_approval", approval_url: "#/approvals/tasks/t1" })).toBeUndefined();
 	expect(authorizationWait({ state: "awaiting_authorization" })).toBeUndefined();
 	expect(authorizationWait(undefined)).toBeUndefined();
-	expect(usageTotals(undefined)).toBeUndefined();
 });
 
 describe("history pages", () => {

@@ -86,6 +86,7 @@ web/src/
 - `<html data-theme>` 加 Tailwind `@custom-variant dark`。
 - 语义 token 写成 CSS 变量，经 `@theme inline` 映射给 Tailwind。
 - 沿用现有配色（蓝色强调色），状态色补齐浅底变体。
+- 界面的层次只改 token：主区域是最浅的表面，导航侧边栏比它深一档，卡片和浮层在主区域之上；深色模式方向相同（侧边栏比主区域深一档）。会话列表栏属于主区域，用 `--background`，列表里的选中行用 `--accent`。
 - 圆角、间距、阴影统一用 shadcn 的 token。
 - `index.html` 里的内联脚本在首屏绘制前设好主题。
 - 偏好存在 `localStorage`，读写都包 try/catch。
@@ -100,9 +101,11 @@ web/src/
 ### 会话界面
 
 **侧边列表：**
-- 进入 Sessions 路由后出现第二栏，用 virtua 虚拟滚动，按游标无限加载。
+- 进入 Sessions 路由后出现第二栏，用 virtua 虚拟滚动，按游标无限加载。窄于 `lg` 时导航侧边栏、列表和会话放不下三栏，只显示其中一栏：`/sessions` 是列表，会话页用页头的返回按钮回到列表。
 - 搜索框带防抖，在服务端搜索。
-- 每一项：状态点（idle / running / awaiting）、标题、相对时间，以及计划任务和共享的图标。
+- 每一项只有标题，一行，超出省略；不显示所有者和相对时间。由计划任务创建的会话和别人共享给你的会话，在同一行最右侧显示灰色的"计划" / "共享"徽章（共享徽章的 tooltip 写明所有者）；会话页页头的标题右侧显示同样的徽章。等待类型放在整行的 tooltip 里。状态点只在 `running` 和 `awaiting` 时出现（idle 不画点），但点的位置始终保留，标题因此对齐。
+- 按 `updatedAt` 分组（列表本来就按它排序）：`今天`、`昨天`、`7 天内`、`30 天内`，更早的按本地时区的月份分组（`2026-09`）。分组标题是虚拟列表里与条目交错的普通行，所以分页加载和 SSE 打补丁后重新分组即可；键盘上下键只在条目之间移动，跳过标题。
+- 不再显示"共 N 个会话"。
 - 支持键盘上下键和回车。
 - 范围切换：我的 / 共享给我 / 全部（仅管理员）。
 - 列表变化由 SSE 推送（见后端部分）。
@@ -116,9 +119,30 @@ web/src/
 - POC 中的 6 项行为都必须有 e2e 测试。
 
 **会话页头：**
-- 状态徽标、输入框的等待提示显示本会话自己的状态，不显示整棵树的汇总；侧边列表才显示汇总。
+- 页头只保留标题（所有者可以就地编辑，子会话带面包屑）、计划 / 共享徽章和分享按钮。模型、规则、预算、上下文、用量和停止按钮都移到输入框页脚；页面没有别的操作（没有删除），所以没有溢出菜单。
+- 输入框的等待提示显示本会话自己的状态，不显示整棵树的汇总；侧边列表才显示汇总。
 - 根会话的停止按钮在树里任何会话运行时都可用：服务端停止会话时一并停止整棵子树。子会话页以它自己的状态为准。
 - 等待卡片出现在根会话页上，列的是整棵树里等待处理的审批、签名和配额。
+
+**输入框页脚**（输入框下方的一行，左右两端）：
+
+- 左端依次是：
+  1. **模型**，可点击的 `provider/modelId` 文本。点开模型选择器，`PATCH /sessions/:id { model }`。改动写进对话的 agent 配置，**从下一轮（下一次模型请求）起生效**，正在生成的那一轮仍用旧模型；页脚的选择器里有这句提示。
+  2. **规则**，`[图标]Yolo`：预设名加图标。点开预设选择器，`PATCH { preset }`。只有根会话能改预设；子会话显示纯文本的规则摘要（`规则：N`）。预设改动立即写进规则集，**从下一次工具调用起生效**，并且服务端会立刻重判等待中的审批。调用者没有 `capabilities.configure` 时两项都禁用（查询参数的等待和页脚都只读）。
+  3. **预算**：`预算 12K`，剩余 token 加自动单位；不设上限时是 `没有预算限制`（永远不说 "unlimited quota"）；为负时显示 `预算 0` 并用危险色。调用者可以改时点击打开配额对话框。
+  4. **上下文**：一个小圆环加百分比，例如 `◔ 42%`；tooltip 是精确的 `contextTokens / contextWindow`。百分比用模型列表里的 `contextWindow` 计算；任意一项未知时不显示。
+  5. **总用量**：一个图标加 `usageTokens`（自动单位），tooltip 是精确数字。
+- 右端：停止按钮紧挨发送按钮。停止只在"有运行可以停止"时出现（与会话状态和根的整棵树一致的旧逻辑）；发送始终可见。
+- 响应式用测量：页脚上的 `ResizeObserver` 量出各项（模型、规则、预算、上下文、用量）的自然宽度，只在整行放不下时隐藏，按"用量 → 上下文 → 预算"的顺序一次隐藏一项；被隐藏的项仍以绝对定位、不可见的方式参与布局，宽度始终可量，不会来回闪烁。模型和规则在三个可选计数全部隐藏后才省略（`min-w-0 truncate`，完整文本在 tooltip 里）；停止和发送永不缩小或隐藏。390 / 768 / 1440 px 三档都有 e2e 断言。
+- 两个度量与上下文的含义见 [agent-runtime.md](agent-runtime.md#配额)，决策见 D101。
+
+**子会话栏**（输入框正上方的一行，没有子会话时整行不显示）：
+
+- 一行紧凑的计数：`3 个子会话 · 1 个运行中 · 1 个等待中`；只有直接子会话，按它们**自己的**状态计数。
+- 计数来自 `GET /sessions/:id/children/summary`，不需要把子会话列表的每一页都取回来。
+- 点击打开浮层（窄屏为底部抽屉）：树里每个节点显示标题和状态，链接到子会话；嵌套的子会话按需展开（展开时才请求）。
+- 每一层用 `/sessions/:id/children` 的游标分页，每层有自己的"加载更多"。
+- 这三条事件仍然会让本页重新拉取子会话列表和计数：本会话事件流的 `snapshot`、`subagent` 工具的 `tool_execution_update` / `tool_execution_end`、以及列表推送给树根会话的 `upsert`（见 `server/src/api/session-routes.ts` 里 `GET /sessions/:id/children` 的说明）。
 
 **流式输出：**
 - 正在生成的消息单独存在一个外部 store 里，用 `useSyncExternalStore` 订阅，并按动画帧合并更新。
@@ -129,6 +153,11 @@ web/src/
 - 用户消息、工具参数、工具输出按原文显示（工具输出用等宽字体，可以折叠）。
 - 审批、授权、配额等待以卡片形式插在消息中。
 - 子会话可以从父会话进入，并有面包屑。
+- 工具卡片只有一个调用状态徽标：Done、Failed（工具本身报错）、Running、Preparing；子会话卡片的徽标跟随子会话的实时状态。
+- 另外只在工具结果表示"任务失败"时加一个红色徽标，按返回时的 JSON 判断，不做实时查询：
+  - 单个任务（结果有 `task_id` 和 `state`）：`failed` / `denied` / `rejected` / `unknown` 算失败；`exited` 时非零 `exit_code`、有 `signal`、`timed_out` 或 `cancelled` 也算失败（用户取消按失败处理）。徽标写 `Failed`，也可以更具体：`Cancelled`、`Timed out`、`Exit 2`，颜色始终是危险色。
+  - 任务组（结果有 `task_group_id` 和 `nodes`）：部分成员失败时写"部分失败"，全部失败或组是 `interrupted` / `rejected` 时写 `Failed`。
+  - 失败以外的结果（`read_file` 没有 `exit_code`、`exit 0`、仍在 `running` 的任务、全部成功的组）不加徽标；也不再显示 `exit N` 文本。
 
 ### SafeMarkdown
 
@@ -223,6 +252,13 @@ web/src/
 }
 ```
 
+**会话详情与修改**：`GET /sessions/:id` 的 `SessionView` 带两个 token 度量和一个上下文值（D101）：
+- `budgetUsedTokens`：预算口径，只计输出，链上累计；
+- `usageTokens`：统计口径，输入 + 输出，链上累计；
+- `contextTokens`：本会话最近一次主 agent 模型调用的输入大小（input + cache read + cache write），第一次调用前为 null；
+- `budgetRemaining`：剩余预算（原 `quota` 字段改名，null 不限）。
+`POST /sessions` 和 `PATCH /sessions/:id` 用 `budgetRemaining` 取代原来的 `quota` 字段。
+
 **子会话列表** `GET /api/sessions/:id/children?cursor=&limit=`：
 - 可见性与 `GET /api/sessions/:id` 相同，不可见时返回 404；
 - 按 `updated_at desc, id desc` 排序，返回游标列表；
@@ -231,6 +267,11 @@ web/src/
   - 本会话事件流的 `snapshot`；
   - `subagent` 工具的 `tool_execution_update` / `tool_execution_end`；
   - 列表推送中该会话树根会话的 `upsert`。
+
+**子会话计数** `GET /api/sessions/:id/children/summary`：
+- 可见性与 `GET /api/sessions/:id` 相同，不可见时 404；
+- 响应 `{ "total": number, "states": { "idle": number, "running": number, "awaiting": number } }`，只统计直接子会话自己的状态；
+- 给输入框上方的子会话栏用，避免为了显示计数而取回每一页。
 
 **会话列表实时推送** `GET /api/sessions/stream`（SSE）：
 - `event: upsert`，data 为 `SessionListItem`；

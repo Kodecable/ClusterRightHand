@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import type { SessionView } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
 import { Composer } from "./composer";
 
@@ -16,13 +17,55 @@ interface Reply {
 	hold?: Promise<void>;
 }
 
+function sessionView(overrides: Partial<SessionView> = {}): SessionView {
+	return {
+		id: "s1",
+		title: "Deploy the cluster",
+		ownerUserId: "u1",
+		parentSessionId: null,
+		scheduleId: null,
+		model: { provider: "faux", modelId: "faux-1" },
+		status: "active",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		updatedAt: "2026-01-01T00:00:00.000Z",
+		rules: {
+			scope: { type: "user", id: "u1" },
+			preset: "yolo",
+			rules: [],
+			default: "ask",
+			updatedAt: "2026-01-01T00:00:00.000Z",
+		},
+		relationship: "owner",
+		capabilities: { view: true, chat: true, manageShares: true, configure: true },
+		ownerUsername: "ops",
+		state: "idle",
+		waitingKind: null,
+		waitingLevelId: null,
+		budgetRemaining: 12_345,
+		budgetUsedTokens: 0,
+		usageTokens: 1_500_000,
+		contextTokens: 64_000,
+		...overrides,
+	};
+}
+
 function mockFetch(replies: Reply[] = []): Call[] {
 	const calls: Call[] = [];
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			const url = String(input);
+			// The composer footer reads the model list for its context window; it is not one of the send replies.
+			if (url.endsWith("/api/models")) {
+				return new Response(
+					JSON.stringify({
+						models: [{ provider: "faux", modelId: "faux-1", name: "Faux One", contextWindow: 128_000 }],
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				);
+			}
 			calls.push({
-				url: String(input),
+				url,
 				body: init?.body === undefined ? {} : JSON.parse(String(init.body)),
 			});
 			const reply = replies.shift();
@@ -44,23 +87,30 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 	return { promise, resolve };
 }
 
-function renderComposer(props: { canChat?: boolean; stoppable?: boolean } = {}) {
+function renderComposer(props: { canChat?: boolean; stoppable?: boolean; session?: Partial<SessionView> } = {}) {
 	const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
-	const element = (sessionId: string) => (
-		<QueryClientProvider client={client}>
-			<Composer
-				sessionId={sessionId}
-				canChat={props.canChat ?? true}
-				stoppable={props.stoppable ?? false}
-				waitingKind={null}
-			/>
-		</QueryClientProvider>
-	);
+	const element = (id: string) => {
+		const session = sessionView({
+			id,
+			capabilities: {
+				view: true,
+				chat: props.canChat ?? true,
+				manageShares: true,
+				configure: true,
+			},
+			...(props.session ?? {}),
+		});
+		return (
+			<QueryClientProvider client={client}>
+				<Composer session={session} stoppable={props.stoppable ?? false} waitingKind={null} />
+			</QueryClientProvider>
+		);
+	};
 	const result = renderWithI18n(element("s1"));
 	return {
 		...result,
 		/** Open another session the way the router does: same page, new session id. */
-		switchTo: (sessionId: string) => result.rerender(element(sessionId)),
+		switchTo: (id: string) => result.rerender(element(id)),
 	};
 }
 
@@ -169,5 +219,73 @@ describe("Composer", () => {
 		expect(ids[0]).toBeTypeOf("string");
 		expect(ids[1]).toBe(ids[0]);
 		expect(ids[2]).not.toBe(ids[0]);
+	});
+});
+
+describe("ComposerFooter", () => {
+	test("shows the preset name, the remaining budget, the context fill and the total usage", async () => {
+		mockFetch();
+		renderComposer();
+		await waitFor(() => expect(screen.getByTestId("composer-context")).toHaveTextContent("50%"));
+		expect(screen.getByTestId("composer-model")).toHaveTextContent("faux/faux-1");
+		expect(screen.getByTestId("composer-rules")).toHaveTextContent("Yolo");
+		expect(screen.getByTestId("composer-budget")).toHaveTextContent("Budget 12.3K");
+		expect(screen.getByTestId("composer-usage")).toHaveTextContent("1.5M");
+		// The exact numbers are the tooltips.
+		expect(screen.getByTestId("composer-budget")).toHaveAttribute("title", "12,345 tokens left");
+		expect(screen.getByTestId("composer-context")).toHaveAttribute("title", "64,000 / 128,000");
+		expect(screen.getByTestId("composer-usage")).toHaveAttribute("title", "1,500,000 tokens in total");
+	});
+
+	test("an unlimited budget says so, and a negative one reads Budget 0 in the danger tone", async () => {
+		mockFetch();
+		const view = renderComposer({ session: { budgetRemaining: null } });
+		expect(screen.getByTestId("composer-budget")).toHaveTextContent("No budget limit");
+		view.rerender(
+			<QueryClientProvider client={new QueryClient()}>
+				<Composer session={sessionView({ budgetRemaining: -5 })} stoppable={false} waitingKind={null} />
+			</QueryClientProvider>,
+		);
+		const budget = screen.getByTestId("composer-budget");
+		expect(budget).toHaveTextContent("Budget 0");
+		expect(budget.className).toContain("text-danger");
+	});
+
+	test("the context ring is hidden until the session has a main call", async () => {
+		mockFetch();
+		renderComposer({ session: { contextTokens: null } });
+		await waitFor(() => expect(screen.getByTestId("composer-rules")).toBeInTheDocument());
+		expect(screen.queryByTestId("composer-context")).not.toBeInTheDocument();
+	});
+
+	test("a subagent has no preset picker but shows its rules summary", async () => {
+		mockFetch();
+		renderComposer({
+			session: {
+				parentSessionId: "root-1",
+				rules: {
+					scope: { type: "session", id: "s1" },
+					preset: null,
+					rules: [{ action: "allow", method: "file.read" }],
+					default: "inherit",
+					updatedAt: "2026-01-01T00:00:00.000Z",
+				},
+			},
+		});
+		expect(screen.getByTestId("composer-rules")).toHaveTextContent("Rules: 1");
+		expect(screen.queryByRole("button", { name: "Preset" })).not.toBeInTheDocument();
+	});
+
+	test("Stop appears only while a run can be stopped, next to Send", async () => {
+		mockFetch();
+		const view = renderComposer();
+		expect(screen.queryByTestId("abort-session")).not.toBeInTheDocument();
+		expect(screen.getByTestId("composer-send")).toBeInTheDocument();
+		view.rerender(
+			<QueryClientProvider client={new QueryClient()}>
+				<Composer session={sessionView()} stoppable waitingKind={null} />
+			</QueryClientProvider>,
+		);
+		expect(screen.getByTestId("abort-session")).toBeInTheDocument();
 	});
 });

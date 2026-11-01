@@ -4,12 +4,14 @@ import type { Db } from "../storage/db.ts";
 import type { SessionsTable } from "../storage/schema.ts";
 import { UserError } from "../users/service.ts";
 import { sessionAncestors, sessionChain } from "./session-chain.ts";
+import type { CallTokens } from "./tokens.ts";
 
 /**
  * Token quotas (doc/agent-runtime.md#配额): every level of a session's chain may have a signed remaining-token
- * balance; null means unlimited and is never charged. Usage is charged to every level after a model call
- * (durable 1.4.0 cannot refuse a request), so a quota can go negative; a run continues only while every level is
- * above zero. The state of a session says when it is paused on an exhausted level.
+ * balance; null means unlimited and is never charged. The budget measure is charged to every level after a model
+ * call (durable 1.4.0 cannot refuse a request), so a quota can go negative; a run continues only while every level
+ * is above zero. The state of a session says when it is paused on an exhausted level. D101 keeps that budget
+ * measure apart from the statistics usage measure by name.
  */
 
 export function parseQuota(raw: unknown): number | null {
@@ -24,72 +26,52 @@ export async function setQuota(db: Db, sessionId: string, quota: number | null):
 	await db.updateTable("sessions").set({ quota_tokens: quota }).where("id", "=", sessionId).execute();
 }
 
-/** The parts of an assistant message the account reads; a pi-ai `AssistantMessage` satisfies it. */
-export interface AccountedContent {
-	readonly type: string;
-	readonly text?: string;
-	readonly thinking?: string;
-	readonly name?: string;
-	readonly arguments?: unknown;
+/** The budget measure: output tokens spent by the session and its subagents (doc/agent-runtime.md#配额). */
+export async function budgetUsedTokens(db: Db, sessionId: string): Promise<number> {
+	const row = await db
+		.selectFrom("sessions")
+		.select("budget_used_tokens")
+		.where("id", "=", sessionId)
+		.executeTakeFirst();
+	return Number(row?.budget_used_tokens ?? 0);
 }
 
-export interface AccountedMessage {
-	readonly usage?: { readonly output?: number } | null;
-	readonly content?: readonly AccountedContent[];
+/** The statistics measure: input + output tokens of the session and its subagents (D101). */
+export async function usageTokens(db: Db, sessionId: string): Promise<number> {
+	const row = await db.selectFrom("sessions").select("usage_tokens").where("id", "=", sessionId).executeTakeFirst();
+	return Number(row?.usage_tokens ?? 0);
 }
 
-const encoder = new TextEncoder();
-
-/**
- * The tokens one model call is charged (D92, doc/agent-runtime.md#配额): the output the upstream reported
- * (reasoning included), or, when it reported none (`usage` missing, or `output` 0 for a message with content),
- * `ceil(bytes × 0.3)` over the message's text, visible thinking text and tool calls (name plus serialized
- * arguments). Input and cache tokens are never charged.
- */
-export function accountedOutputTokens(message: AccountedMessage): number {
-	const output = message.usage?.output;
-	if (typeof output === "number" && Number.isFinite(output) && output > 0) return Math.round(output);
-	const bytes = outputBytes(message.content ?? []);
-	return bytes === 0 ? 0 : Math.ceil(bytes * 0.3);
+/** The context fill of the session's own last main-agent call; null before the first one (D101). */
+export async function contextTokens(db: Db, sessionId: string): Promise<number | null> {
+	const row = await db.selectFrom("sessions").select("context_tokens").where("id", "=", sessionId).executeTakeFirst();
+	return row?.context_tokens === null || row?.context_tokens === undefined ? null : Number(row.context_tokens);
 }
 
-function outputBytes(content: readonly AccountedContent[]): number {
-	let bytes = 0;
-	for (const block of content) {
-		switch (block.type) {
-			case "text":
-				if (block.text) bytes += encoder.encode(block.text).length;
-				break;
-			case "thinking":
-				if (block.thinking) bytes += encoder.encode(block.thinking).length;
-				break;
-			case "toolCall":
-				bytes += encoder.encode(block.name ?? "").length;
-				bytes += encoder.encode(JSON.stringify(block.arguments ?? null)).length;
-				break;
-		}
-	}
-	return bytes;
-}
-
-/** Tokens spent by the session and its subagents. */
-export async function spentTokens(db: Db, sessionId: string): Promise<number> {
-	const row = await db.selectFrom("sessions").select("used_tokens").where("id", "=", sessionId).executeTakeFirst();
-	return Number(row?.used_tokens ?? 0);
+/** Stores the input size of the session's own last main-agent call (D101). */
+export async function setContextTokens(db: Db, sessionId: string, tokens: number): Promise<void> {
+	await db
+		.updateTable("sessions")
+		.set({ context_tokens: Math.max(0, Math.round(tokens)) })
+		.where("id", "=", sessionId)
+		.execute();
 }
 
 /**
- * Charges one model call's tokens to every level of the chain that has a quota, the root included; quotas may go
- * negative. `used_tokens` grows at every level, for display.
+ * Charges one model call to every level of the chain, the root included: the budget (output only, reducing each
+ * quota; quotas may go negative) and the statistics usage (input + output). Both display counters grow at every
+ * level, for `GET /sessions/:id`.
  */
-export async function recordUsage(db: Db, sessionId: string, tokens: number): Promise<void> {
-	const used = Math.max(0, Math.round(tokens));
+export async function chargeCall(db: Db, sessionId: string, tokens: CallTokens): Promise<void> {
+	const budget = Math.max(0, Math.round(tokens.budget));
+	const usage = Math.max(0, Math.round(tokens.usage));
 	const levels = await sessionChain(db, sessionId);
 	await db
 		.updateTable("sessions")
 		.set({
-			used_tokens: sql`used_tokens + ${used}`,
-			quota_tokens: sql`case when quota_tokens is null then null else quota_tokens - ${used} end`,
+			budget_used_tokens: sql`budget_used_tokens + ${budget}`,
+			usage_tokens: sql`usage_tokens + ${usage}`,
+			quota_tokens: sql`case when quota_tokens is null then null else quota_tokens - ${budget} end`,
 		})
 		.where("id", "in", levels)
 		.execute();

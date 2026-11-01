@@ -3,7 +3,7 @@ import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
-import { spentTokens } from "../src/agent/quota.ts";
+import { budgetUsedTokens, contextTokens, usageTokens } from "../src/agent/quota.ts";
 import { setReviewModel } from "../src/agent/review.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
@@ -93,7 +93,7 @@ it("charges an Auto Review answer to the reviewed session and its chain", async 
 		model: model(),
 		preset: "auto_review",
 		title: "reviewed",
-		quota: 1_000_000,
+		budgetRemaining: 1_000_000,
 	});
 	faux.setResponses([fauxAssistantMessage([fauxText(ANSWER)])]);
 	const task = await cluster.createTask({
@@ -103,12 +103,15 @@ it("charges an Auto Review answer to the reviewed session and its chain", async 
 		actor: { type: "session", id: session.id, onBehalfOfUserId: owner.userId },
 	});
 	const charged = await waitFor("the review's charge", async () => {
-		const used = await spentTokens(db, session.id);
+		const used = await budgetUsedTokens(db, session.id);
 		return used > 0 ? used : undefined;
 	});
 	const tokens = Math.ceil(ANSWER.length / 4);
 	expect(charged).toBe(tokens);
-	expect((await runtime.getSession(session.id))?.quota).toBe(1_000_000 - tokens);
+	expect((await runtime.getSession(session.id))?.budgetRemaining).toBe(1_000_000 - tokens);
+	// D101: the review's request counts in the usage measure too, and a review never sets the context fill.
+	expect(await usageTokens(db, session.id)).toBeGreaterThan(tokens);
+	expect(await contextTokens(db, session.id)).toBeNull();
 	const reviewed = await cluster.getTask(task.id);
 	expect(reviewed?.approval?.review).toMatchObject({
 		decision: "escalate",
@@ -122,7 +125,7 @@ it("does not charge a review when the root is not a session", async () => {
 	await createRootRuleSet(db, await defaultOrgId(db), { type: "api_token", id: tokenId }, "auto_review");
 	await setReviewModel(db, model());
 	const other = await runtime.createSession(owner, { model: model(), preset: "yolo", title: "unrelated" });
-	const before = await db.selectFrom("sessions").select(["id", "used_tokens"]).execute();
+	const before = await db.selectFrom("sessions").select(["id", "budget_used_tokens", "usage_tokens"]).execute();
 	faux.setResponses([fauxAssistantMessage([fauxText(ANSWER)])]);
 	const task = await cluster.createTask({
 		nodeId,
@@ -135,9 +138,9 @@ it("does not charge a review when the root is not a session", async () => {
 		return view?.approval?.review ? view : undefined;
 	});
 	expect(reviewed.approval?.review?.decision).toBe("escalate");
-	expect(await spentTokens(db, other.id)).toBe(0);
+	expect(await budgetUsedTokens(db, other.id)).toBe(0);
 	// No session was charged by the review: only the earlier test's session carries its own spend.
-	const after = await db.selectFrom("sessions").select(["id", "used_tokens"]).execute();
+	const after = await db.selectFrom("sessions").select(["id", "budget_used_tokens", "usage_tokens"]).execute();
 	expect(after).toEqual(before);
 });
 

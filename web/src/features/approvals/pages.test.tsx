@@ -63,7 +63,14 @@ const data: ApprovalList = {
 		taskGroups: [],
 	},
 	quotas: [
-		{ sessionId: "s1", levelId: "root", title: "Nightly check", since: "2026-01-01T00:00:00Z", quota: 0, used: 100 },
+		{
+			sessionId: "s1",
+			levelId: "root",
+			title: "Nightly check",
+			since: "2026-01-01T00:00:00Z",
+			budgetRemaining: 0,
+			budgetUsedTokens: 100,
+		},
 	],
 };
 

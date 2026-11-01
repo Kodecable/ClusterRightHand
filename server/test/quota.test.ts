@@ -8,16 +8,16 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import {
-	accountedOutputTokens,
 	awaitingQuotaChildren,
+	budgetUsedTokens,
+	chargeCall,
 	exhaustedLevel,
 	parseQuota,
-	recordUsage,
 	setQuota,
-	spentTokens,
 } from "../src/agent/quota.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import { sessionStateOf } from "../src/agent/session-state.ts";
+import { accountedOutputTokens } from "../src/agent/tokens.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
@@ -86,10 +86,10 @@ it("accepts a non-negative integer quota or null", () => {
 
 it("a root session without a quota is unlimited and is never charged", async () => {
 	const r = await root();
-	expect((await runtime.getSession(r.id))?.quota).toBeNull();
-	await recordUsage(db, r.id, 500);
-	expect((await runtime.getSession(r.id))?.quota).toBeNull();
-	expect(await spentTokens(db, r.id)).toBe(500);
+	expect((await runtime.getSession(r.id))?.budgetRemaining).toBeNull();
+	await chargeCall(db, r.id, { budget: 500, usage: 500, context: 0 });
+	expect((await runtime.getSession(r.id))?.budgetRemaining).toBeNull();
+	expect(await budgetUsedTokens(db, r.id)).toBe(500);
 	expect(await exhaustedLevel(db, r.id)).toBeUndefined();
 });
 
@@ -97,29 +97,34 @@ it("each model call charges every level of the chain that has a quota, not the u
 	const r = await root();
 	const p = await child(r.id, "chain-p", 1_000);
 	const c = await child(p.id, "chain-c", 500);
-	await recordUsage(db, c.id, 600);
-	expect((await runtime.getSession(c.id))?.quota).toBe(-100);
-	expect((await runtime.getSession(p.id))?.quota).toBe(400);
-	expect((await runtime.getSession(r.id))?.quota).toBeNull();
+	await chargeCall(db, c.id, { budget: 600, usage: 600, context: 0 });
+	expect((await runtime.getSession(c.id))?.budgetRemaining).toBe(-100);
+	expect((await runtime.getSession(p.id))?.budgetRemaining).toBe(400);
+	expect((await runtime.getSession(r.id))?.budgetRemaining).toBeNull();
 	expect(await exhaustedLevel(db, c.id)).toBe(c.id);
-	await recordUsage(db, c.id, 500);
+	await chargeCall(db, c.id, { budget: 500, usage: 500, context: 0 });
 	expect(await exhaustedLevel(db, c.id)).toBe(p.id);
-	expect((await runtime.getSession(p.id))?.quota).toBe(-100);
-	expect(await spentTokens(db, r.id)).toBe(1_100);
+	expect((await runtime.getSession(p.id))?.budgetRemaining).toBe(-100);
+	expect(await budgetUsedTokens(db, r.id)).toBe(1_100);
 });
 
 it("a root with a quota is charged like any other level", async () => {
-	const r = await runtime.createSession(owner, { model: model(), preset: "yolo", title: "charged root", quota: 1_000 });
+	const r = await runtime.createSession(owner, {
+		model: model(),
+		preset: "yolo",
+		title: "charged root",
+		budgetRemaining: 1_000,
+	});
 	const c = await child(r.id, "charged-root-c", 500);
-	await recordUsage(db, c.id, 600);
-	expect((await runtime.getSession(r.id))?.quota).toBe(400);
-	expect((await runtime.getSession(c.id))?.quota).toBe(-100);
+	await chargeCall(db, c.id, { budget: 600, usage: 600, context: 0 });
+	expect((await runtime.getSession(r.id))?.budgetRemaining).toBe(400);
+	expect((await runtime.getSession(c.id))?.budgetRemaining).toBe(-100);
 	expect(await exhaustedLevel(db, c.id)).toBe(c.id);
-	await recordUsage(db, c.id, 500);
-	expect((await runtime.getSession(r.id))?.quota).toBe(-100);
+	await chargeCall(db, c.id, { budget: 500, usage: 500, context: 0 });
+	expect((await runtime.getSession(r.id))?.budgetRemaining).toBe(-100);
 	// The root is exhausted first: it is the highest level of the chain.
 	expect(await exhaustedLevel(db, c.id)).toBe(r.id);
-	expect(await spentTokens(db, r.id)).toBe(1_100);
+	expect(await budgetUsedTokens(db, r.id)).toBe(1_100);
 });
 
 it("accountedOutputTokens uses the reported output, then estimates 0.3 × UTF-8 bytes", () => {
@@ -149,8 +154,8 @@ it("accountedOutputTokens uses the reported output, then estimates 0.3 × UTF-8 
 it("setting a subagent's quota replaces the remaining amount", async () => {
 	const r = await root();
 	const c = await child(r.id, "replace", 100);
-	await recordUsage(db, c.id, 250);
-	expect((await runtime.getSession(c.id))?.quota).toBe(-150);
+	await chargeCall(db, c.id, { budget: 250, usage: 250, context: 0 });
+	expect((await runtime.getSession(c.id))?.budgetRemaining).toBe(-150);
 	expect(await exhaustedLevel(db, c.id)).toBe(c.id);
 	await setQuota(db, c.id, 100);
 	expect(await exhaustedLevel(db, c.id)).toBeUndefined();
@@ -162,7 +167,7 @@ it("a paused child asks its direct parent, which grants without a cap", async ()
 	const r = await root();
 	const p = await child(r.id, "pause-p", 10_000_000);
 	const c = await child(p.id, "pause-c", 10);
-	await recordUsage(db, c.id, 20);
+	await chargeCall(db, c.id, { budget: 20, usage: 20, context: 0 });
 	const waiting = runtime.waitForQuota(c.id, BACKGROUND_CONTEXT);
 	const request = await waitFor("the quota wait", async () => (await awaitingQuotaChildren(db, p.id))[0]);
 	expect(request).toMatchObject({ sessionId: c.id, levelId: c.id });
@@ -192,14 +197,14 @@ it("a paused child asks its direct parent, which grants without a cap", async ()
 		.where("id", "=", c.id)
 		.executeTakeFirstOrThrow();
 	expect(resumed).toMatchObject({ waiting_kind: null, waiting_level_id: null, waiting_handler_id: null });
-	expect((await runtime.getSession(c.id))?.quota).toBe(50_000_000 - 10);
+	expect((await runtime.getSession(c.id))?.budgetRemaining).toBe(50_000_000 - 10);
 });
 
 it("drops a quota request as soon as its level is restored", async () => {
 	const r = await root();
 	const p = await child(r.id, "restored-p", null);
 	const c = await child(p.id, "restored-c", 10);
-	await recordUsage(db, c.id, 20);
+	await chargeCall(db, c.id, { budget: 20, usage: 20, context: 0 });
 	const waiting = runtime.waitForQuota(c.id, BACKGROUND_CONTEXT);
 	await waitFor("the pause", async () => (await awaitingQuotaChildren(db, p.id))[0]);
 	// Restore the level directly; the cached request must not survive the state write.
@@ -222,7 +227,7 @@ it("a denied request ends the paused run and leaves the session idle", async () 
 	const r = await root();
 	const p = await child(r.id, "deny-p", 10_000_000);
 	const c = await child(p.id, "deny-c", 10);
-	await recordUsage(db, c.id, 20);
+	await chargeCall(db, c.id, { budget: 20, usage: 20, context: 0 });
 	const waiting = runtime.waitForQuota(c.id, BACKGROUND_CONTEXT);
 	const request = await waitFor("the quota wait", async () => (await awaitingQuotaChildren(db, p.id))[0]);
 	expect(await runtime.decideAgentRequest(p.id, request.sessionId, "deny")).toBe("quota");
@@ -234,7 +239,7 @@ it("a denial ends a run that is still paused in waitForQuota", async () => {
 	const r = await root();
 	const p = await child(r.id, "live-deny-p", null);
 	const c = await child(p.id, "live-deny-c", 10);
-	await recordUsage(db, c.id, 20);
+	await chargeCall(db, c.id, { budget: 20, usage: 20, context: 0 });
 	faux.setResponses([
 		fauxAssistantMessage([fauxToolCall("exec", { targets: ["missing"], cmd: "true" }, { id: "q1" })], {
 			stopReason: "toolUse",
@@ -270,7 +275,7 @@ it("a second pause on the same level wakes the parent again", async () => {
 	});
 	try {
 		faux.setResponses([fauxAssistantMessage([fauxText("wake one")]), fauxAssistantMessage([fauxText("wake two")])]);
-		await recordUsage(db, c.id, 20);
+		await chargeCall(db, c.id, { budget: 20, usage: 20, context: 0 });
 		const first = runtime.waitForQuota(c.id, BACKGROUND_CONTEXT);
 		await waitFor("the first pause", async () => (await awaitingQuotaChildren(db, p.id))[0]);
 		await waitFor("the first wake", async () =>
@@ -281,7 +286,7 @@ it("a second pause on the same level wakes the parent again", async () => {
 		expect(await sessionStateOf(db, c.id)).toBe("running");
 
 		// The same level runs out again: this is a new pause, so the parent must hear about it again.
-		await recordUsage(db, c.id, 20);
+		await chargeCall(db, c.id, { budget: 20, usage: 20, context: 0 });
 		const second = runtime.waitForQuota(c.id, BACKGROUND_CONTEXT);
 		await waitFor("the second pause", async () => (await awaitingQuotaChildren(db, p.id))[0]);
 		await waitFor("the second wake", async () =>
@@ -298,7 +303,7 @@ it("flushes a quota wake when a running parent becomes idle", async () => {
 	const r = await root();
 	const p = await child(r.id, "idle-flush-p", null);
 	const c = await child(p.id, "idle-flush-c", 10);
-	await recordUsage(db, c.id, 20);
+	await chargeCall(db, c.id, { budget: 20, usage: 20, context: 0 });
 	let parentStarted!: () => void;
 	const started = new Promise<void>((resolve) => {
 		parentStarted = resolve;
@@ -369,7 +374,7 @@ it("an exhausted ancestor's request goes to its own direct parent", async () => 
 	const r = await root();
 	const p = await child(r.id, "anc-p", 100);
 	const c = await child(p.id, "anc-c", 100);
-	await recordUsage(db, c.id, 150);
+	await chargeCall(db, c.id, { budget: 150, usage: 150, context: 0 });
 	const waiting = runtime.waitForQuota(c.id, BACKGROUND_CONTEXT);
 	// Highest exhausted subagent level first: the parent P, handled by the root.
 	const toRoot = await waitFor("the parent's wait", async () => (await awaitingQuotaChildren(db, r.id))[0]);
@@ -385,31 +390,33 @@ it("an exhausted ancestor's request goes to its own direct parent", async () => 
 it("the API sets a quota on a root at creation and by PATCH, and clears it with null", async () => {
 	const created = await call(app, "/api/sessions", {
 		cookie: ownerCookie,
-		body: { model: model(), preset: "yolo", title: "api root quota", quota: 100 },
+		body: { model: model(), preset: "yolo", title: "api root quota", budgetRemaining: 100 },
 	});
 	expect(created.status).toBe(201);
-	const createdBody = (await created.json()) as { session: { id: string; quota: number | null } };
-	expect(createdBody.session.quota).toBe(100);
+	const createdBody = (await created.json()) as { session: { id: string; budgetRemaining: number | null } };
+	expect(createdBody.session.budgetRemaining).toBe(100);
 
 	const patched = await call(app, `/api/sessions/${createdBody.session.id}`, {
 		method: "PATCH",
 		cookie: ownerCookie,
-		body: { quota: 500 },
+		body: { budgetRemaining: 500 },
 	});
 	expect(patched.status).toBe(200);
-	expect(((await patched.json()) as { session: { quota: number | null } }).session.quota).toBe(500);
+	expect(((await patched.json()) as { session: { budgetRemaining: number | null } }).session.budgetRemaining).toBe(500);
 
 	const cleared = await call(app, `/api/sessions/${createdBody.session.id}`, {
 		method: "PATCH",
 		cookie: ownerCookie,
-		body: { quota: null },
+		body: { budgetRemaining: null },
 	});
 	expect(cleared.status).toBe(200);
-	expect(((await cleared.json()) as { session: { quota: number | null } }).session.quota).toBeNull();
+	expect(
+		((await cleared.json()) as { session: { budgetRemaining: number | null } }).session.budgetRemaining,
+	).toBeNull();
 
 	const invalid = await call(app, "/api/sessions", {
 		cookie: ownerCookie,
-		body: { model: model(), preset: "yolo", quota: -5 },
+		body: { model: model(), preset: "yolo", budgetRemaining: -5 },
 	});
 	expect(invalid.status).toBe(400);
 
@@ -418,10 +425,10 @@ it("the API sets a quota on a root at creation and by PATCH, and clears it with 
 	const patchChild = await call(app, `/api/sessions/${c.id}`, {
 		method: "PATCH",
 		cookie: ownerCookie,
-		body: { quota: 500 },
+		body: { budgetRemaining: 500 },
 	});
 	expect(patchChild.status).toBe(200);
-	expect((await runtime.getSession(c.id))?.quota).toBe(500);
+	expect((await runtime.getSession(c.id))?.budgetRemaining).toBe(500);
 });
 
 it("a root's used-up quota waits for its owner: listed, then granted with an audit", async () => {
@@ -429,7 +436,7 @@ it("a root's used-up quota waits for its owner: listed, then granted with an aud
 		model: model(),
 		preset: "yolo",
 		title: "root quota wait",
-		quota: 1,
+		budgetRemaining: 1,
 	});
 	faux.setResponses([
 		fauxAssistantMessage([fauxToolCall("list_nodes", {}, { id: "root-quota-tool" })], { stopReason: "toolUse" }),
@@ -449,12 +456,12 @@ it("a root's used-up quota waits for its owner: listed, then granted with an aud
 	expect(faux.getPendingResponseCount()).toBe(1);
 
 	const mine = (await (await call(app, "/api/approvals", { cookie: ownerCookie })).json()) as {
-		quotas: { sessionId: string; levelId: string; title: string; quota: number; used: number }[];
+		quotas: { sessionId: string; levelId: string; title: string; budgetRemaining: number; budgetUsedTokens: number }[];
 	};
 	expect(mine.quotas).toEqual([
 		expect.objectContaining({ sessionId: session.id, levelId: session.id, title: "root quota wait" }),
 	]);
-	expect(mine.quotas[0]?.quota).toBeLessThanOrEqual(0);
+	expect(mine.quotas[0]?.budgetRemaining).toBeLessThanOrEqual(0);
 
 	// Only the owner decides: another member does not even see the session, an administrator may see it but not act.
 	await createUser(db, { username: "bob", kind: "member", password: "password-123" });
@@ -506,7 +513,7 @@ it("the owner's deny ends the paused root run and audits quota.denied", async ()
 		model: model(),
 		preset: "yolo",
 		title: "root quota deny",
-		quota: 1,
+		budgetRemaining: 1,
 	});
 	faux.setResponses([
 		fauxAssistantMessage([fauxToolCall("list_nodes", {}, { id: "root-deny-tool" })], { stopReason: "toolUse" }),
@@ -545,7 +552,12 @@ it("the owner's deny ends the paused root run and audits quota.denied", async ()
 });
 
 it("a subagent paused on its root's quota is the owner's request, not its parent's", async () => {
-	const r = await runtime.createSession(owner, { model: model(), preset: "yolo", title: "ancestor root", quota: 1 });
+	const r = await runtime.createSession(owner, {
+		model: model(),
+		preset: "yolo",
+		title: "ancestor root",
+		budgetRemaining: 1,
+	});
 	const c = await child(r.id, "root-ancestor", null);
 	faux.setResponses([
 		fauxAssistantMessage([fauxToolCall("list_nodes", {}, { id: "ancestor-tool" })], { stopReason: "toolUse" }),
