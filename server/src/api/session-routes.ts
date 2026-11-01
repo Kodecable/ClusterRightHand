@@ -68,7 +68,7 @@ const SESSION_CURSOR: CursorSpec = {
 const HISTORY_CURSOR: CursorSpec = { columns: [], idType: "number" };
 /** History pages default to 100 entries (doc/webui.md#会话事件流和历史). */
 const DEFAULT_HISTORY = 100;
-const SCOPES: ReadonlySet<string> = new Set(["mine", "shared", "all"]);
+const SCOPES: ReadonlySet<string> = new Set(["mine", "shared", "visible", "all"]);
 
 /** `stream.sleep`, but wakes up when the stream ends, so shutdown need not wait out a ping interval. */
 function sleepFor(ms: number, signal: AbortSignal): Promise<void> {
@@ -252,12 +252,13 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	/**
 	 * Root sessions as `SessionListItem`, newest activity first, one keyset page at a time
 	 * (doc/webui.md#会话列表). `scope=all` is administrators only; `shared` means a share reaches the caller,
-	 * not ownership. `GET /sessions/:id` stays the full SessionView.
+	 * not ownership; `visible` is the owner-and-shared union the WebUI lists. Default `mine`. `GET /sessions/:id`
+	 * stays the full SessionView.
 	 */
 	app.get("/sessions", async (c) => {
 		const user = c.get("user");
 		const scope = c.req.query("scope") ?? "mine";
-		if (!SCOPES.has(scope)) return jsonError(c, 400, "scope must be mine, shared or all");
+		if (!SCOPES.has(scope)) return jsonError(c, 400, "scope must be mine, shared, visible or all");
 		if (scope === "all" && user.kind !== "admin") return jsonError(c, 403, "administrators only");
 		const limit = parseLimit(c.req.query("limit"));
 		const rawCursor = c.req.query("cursor");
@@ -291,12 +292,20 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	 * subscriber sees it, `remove` says the session is gone (deleted, no longer shared, archived), and `ping`
 	 * keeps the connection alive. No initial snapshot: the client fetches page one and reconnects after errors.
 	 */
-	app.get("/sessions/stream", (c) =>
-		streamSSE(c, async (stream) => {
+	app.get("/sessions/stream", (c) => {
+		// The stream takes the list's scopes; omitted keeps the historical audience (every administrator gets
+		// every root session). The WebUI asks for `visible` so its stream matches the list it patches.
+		const scope = c.req.query("scope");
+		if (scope !== undefined && !SCOPES.has(scope)) {
+			return jsonError(c, 400, "scope must be mine, shared, visible or all");
+		}
+		if (scope === "all" && c.get("user").kind !== "admin") return jsonError(c, 403, "administrators only");
+		return streamSSE(c, async (stream) => {
 			const abort = new AbortController();
 			let queue: Promise<unknown> = Promise.resolve();
 			const subscriber: SessionListSubscriber = {
 				user: c.get("user"),
+				scope: scope as SessionListScope | undefined,
 				send: (event, data) => {
 					queue = queue.then(() => stream.writeSSE({ event, data: JSON.stringify(data) }));
 					void queue.catch(() => stream.abort());
@@ -321,8 +330,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 				unsubscribe();
 				release?.();
 			}
-		}),
-	);
+		});
+	});
 
 	app.post("/sessions", async (c) => {
 		const body = (await readJsonObject(c)) ?? {};

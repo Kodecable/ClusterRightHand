@@ -421,10 +421,6 @@ msgstr "节点连接后会显示为待批准；批准前请把它的密钥指纹
 msgid "Agent"
 msgstr "Agent"
 
-#: src/features/sessions/session-list.tsx
-msgid "All"
-msgstr "全部"
-
 #: src/features/settings/pages.tsx
 msgid "all built-in models"
 msgstr "全部内置模型"
@@ -1448,7 +1444,7 @@ msgstr "所有等待你审批、签名或配额决定的事项。"
 msgid "exact"
 msgstr "精确匹配"
 
-#. placeholder {0}: failure.exitCode ?? ""
+#. placeholder {0}: value.exitCode ?? ""
 #: src/features/sessions/transcript-row.tsx
 msgid "Exit {0}"
 msgstr "退出码 {0}"
@@ -1844,10 +1840,6 @@ msgstr "{0} 的成员"
 msgid "Message"
 msgstr "消息"
 
-#: src/features/sessions/session-list.tsx
-msgid "Mine"
-msgstr "我的"
-
 #: src/components/task-result.tsx
 msgid "Mode"
 msgstr "权限"
@@ -1932,10 +1924,6 @@ msgstr "永不"
 #: src/components/status-badge.tsx
 msgid "Never run"
 msgstr "从未运行"
-
-#: src/features/sessions/session-list.tsx
-msgid "New"
-msgstr "新建"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "New credential name"
@@ -2078,8 +2066,8 @@ msgid "No Passkey of yours is trusted by this node for this command; sign with y
 msgstr "此节点未信任你的任何 Passkey 用于此命令；请使用下方的 SSH 密钥签名。"
 
 #: src/features/sessions/transcript-row.tsx
-msgid "No result yet"
-msgstr "尚无结果"
+msgid "No result"
+msgstr "无结果"
 
 #: src/features/sessions/composer-footer.tsx
 msgid "No rules"
@@ -2470,10 +2458,6 @@ msgstr "已被抢占"
 #: src/components/approval-card.tsx
 msgid "prefix"
 msgstr "前缀匹配"
-
-#: src/features/sessions/transcript-row.tsx
-msgid "Preparing"
-msgstr "准备中"
 
 #: src/features/sessions/session-waits.tsx
 msgid "Preparing the payload to sign…"
@@ -2927,10 +2911,6 @@ msgid "Schedules"
 msgstr "计划任务"
 
 #: src/features/sessions/session-list.tsx
-msgid "Scope"
-msgstr "范围"
-
-#: src/features/sessions/session-list.tsx
 msgid "Search sessions"
 msgstr "搜索会话"
 
@@ -2995,7 +2975,6 @@ msgstr "共享已添加。"
 msgid "Share removed."
 msgstr "共享已移除。"
 
-#: src/features/sessions/session-list.tsx
 #: src/features/sessions/session-markers.tsx
 msgid "Shared"
 msgstr "共享"

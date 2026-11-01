@@ -73,9 +73,33 @@ const markdown = `Here is the plan:\n\n## Steps\n\n1. Check **disk** usage on \`
 const entries = [
 	userEntry("e1", "Check disk usage on db-1 and clean up if needed"),
 	assistantEntry("e2", markdown),
-	...toolEntries("e3", "df -h /var", "Filesystem Size Used Avail Use% Mounted on\n/dev/sda1 50G 44G 6G 88% /var"),
+	// A returned, successful call: the wrench icon.
+	...toolEntries(
+		"e3",
+		"df -h /var",
+		JSON.stringify({ task_id: "task-ok", node: "db-1", state: "exited", exit_code: 0 }),
+	),
+	// A call that has not returned yet: the spinner icon.
 	{
 		id: "e4",
+		kind: "pi.assistant",
+		model: [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "call-running",
+						name: "exec",
+						arguments: { cmd: "journalctl --vacuum-size=200M", targets: ["db-1"] },
+					},
+				],
+			},
+		],
+	},
+	// A returned task failure (exit 2): the danger-coloured wrench icon.
+	{
+		id: "e5",
 		kind: "pi.assistant",
 		model: [
 			{
@@ -92,7 +116,7 @@ const entries = [
 		],
 	},
 	{
-		id: "e5",
+		id: "e6",
 		kind: "pi.tool-result",
 		model: [
 			{
@@ -115,7 +139,18 @@ const entries = [
 			},
 		],
 	},
-	assistantEntry("e6", "Disk on db-1 is at **88%**. I rotated logs; it is now at 61%."),
+	assistantEntry("e7", "Disk on db-1 is at **88%**. I rotated logs; it is now at 61%."),
+];
+
+/** The snapshot plus the event that puts the middle card in the running state. */
+const events = [
+	...snapshotEvent(entries, null),
+	{
+		type: "tool_execution_start" as const,
+		toolCallId: "call-running",
+		toolName: "exec",
+		args: { cmd: "journalctl --vacuum-size=200M", targets: ["db-1"] },
+	},
 ];
 
 const state = {
@@ -131,7 +166,7 @@ const state = {
 		} as never),
 	},
 	models: [{ provider: "faux", modelId: "faux-1", name: "Faux One", contextWindow: 128_000 }],
-	events: { s1: snapshotEvent(entries, null) },
+	events: { s1: events },
 };
 
 const variants = [

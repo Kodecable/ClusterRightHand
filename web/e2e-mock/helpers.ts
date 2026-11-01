@@ -751,6 +751,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const visible = state.sessions.filter((item) => {
 				if (scope === "mine" && item.ownerUserId !== state.user.id) return false;
 				if (scope === "shared" && !item.shared) return false;
+				if (scope === "visible" && item.ownerUserId !== state.user.id && !item.shared) return false;
 				if (q !== "" && !item.title.toLowerCase().includes(q)) return false;
 				return true;
 			});

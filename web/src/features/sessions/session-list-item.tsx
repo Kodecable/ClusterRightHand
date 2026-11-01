@@ -41,7 +41,7 @@ export function SessionListItemRow({
 			title={tooltip}
 			tabIndex={tabIndex}
 			className={cn(
-				"flex h-9 min-w-0 items-center gap-2 border-b border-border/60 px-3 text-left outline-none transition-colors hover:bg-accent/70 focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50",
+				"flex h-9 min-w-0 items-center gap-2 px-2 text-left outline-none transition-colors hover:bg-accent/70 focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50",
 				selected && "bg-accent",
 			)}
 		>

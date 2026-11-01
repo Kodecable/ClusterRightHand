@@ -27,7 +27,7 @@ test("the session list pages by cursor, searches and moves a streamed upsert to 
 
 	await expect(page.locator(SCROLLER)).toBeVisible();
 	await expect(page.locator('[data-session-id="s-1"]')).toBeVisible();
-	expect(api.state.requests.some((request) => request.url.startsWith("/api/sessions?scope=mine"))).toBe(true);
+	expect(api.state.requests.some((request) => request.url.startsWith("/api/sessions?scope=visible"))).toBe(true);
 
 	// Infinite loading: reaching the bottom asks for the next cursor page.
 	await page.locator(SCROLLER).evaluate((element) => {
@@ -85,16 +85,37 @@ test("Up/Down/Enter select a session with the keyboard", async ({ page }) => {
 	await expect(page.locator('[data-testid="session-item"][aria-current="page"]')).toHaveCount(1);
 });
 
-test("scope tabs ask the server for the chosen scope and admins get All", async ({ page }) => {
+test("the list shows the caller's own and shared sessions, with no scope selector", async ({ page }) => {
 	const fixture = manySessions();
+	// The mock pages in array order, so these belong on the first page.
+	fixture.sessions.unshift(
+		sessionListItem({
+			id: "s-shared",
+			title: "Shared with me",
+			ownerUserId: "user-2",
+			ownerName: "Someone Else",
+			shared: true,
+			updatedAt: new Date().toISOString(),
+		}),
+		sessionListItem({
+			id: "s-foreign",
+			title: "Someone else's session",
+			ownerUserId: "user-2",
+			ownerName: "Someone Else",
+			updatedAt: new Date().toISOString(),
+		}),
+	);
 	const api = await mockApi(page, { state: fixture });
 	await login(page);
-	await expect(page.getByTestId("scope-all")).toBeVisible();
-	await page.getByTestId("scope-shared").click();
-	await expect
-		.poll(() => api.state.requests.some((request) => request.url.includes("scope=shared")), { timeout: 10_000 })
-		.toBe(true);
-	await expect(page.getByTestId("scope-shared")).toHaveAttribute("aria-pressed", "true");
+	await expect(page.locator('[data-session-id="s-1"]')).toBeVisible();
+	// The list asks the server for the owner-and-shared union, not for one of the old tabs.
+	expect(api.state.requests.some((request) => request.url.startsWith("/api/sessions?scope=visible"))).toBe(true);
+	await expect(page.locator('[data-session-id="s-shared"]')).toBeVisible();
+	await expect(page.locator('[data-session-id="s-foreign"]')).toHaveCount(0);
+	// No Mine / Shared / All selector and no separate headers.
+	await expect(page.getByTestId("scope-mine")).toHaveCount(0);
+	await expect(page.getByTestId("scope-shared")).toHaveCount(0);
+	await expect(page.getByTestId("scope-all")).toHaveCount(0);
 });
 
 test("a narrow screen shows the list as the main view and keeps the session's back button", async ({ page }) => {

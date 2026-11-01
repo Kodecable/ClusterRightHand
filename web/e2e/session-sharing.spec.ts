@@ -43,7 +43,7 @@ test("a session shared for chat lets a member drive it; view only lets them look
 		const mp = await ctx.newPage();
 		await login(mp, MEMBER);
 		await expect(mp.getByTestId("page-title")).toHaveText("Sessions");
-		await mp.getByTestId("scope-shared").click();
+		// The list is the owner-and-shared union: the shared session is there without a scope tab.
 		const row = mp.locator('[data-testid="session-item"]', { hasText: "Shared chat" });
 		await expect(row).toBeVisible({ timeout: 15_000 });
 		await row.click();

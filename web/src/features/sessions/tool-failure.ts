@@ -1,3 +1,4 @@
+import type { TaskGroupView, TaskView } from "@/lib/api/types";
 import type { JsonObject } from "./sessionState";
 import { prettyJson } from "./sessionState";
 
@@ -50,6 +51,29 @@ export function toolFailure(text: string): ToolFailure | undefined {
 	if (nodes !== undefined) return groupFailure(value, nodes);
 	if (typeof value.task_id !== "string") return undefined;
 	return taskFailure(value);
+}
+
+/**
+ * The failure of a task view the card followed instead of a result (doc/webui.md "工具卡片"): the same
+ * meaning as `taskFailure`, read from the stored fields. Only the states that are final can fail.
+ */
+export function taskViewFailure(task: TaskView): ToolFailure | undefined {
+	if (task.cancelled) return { kind: "failed", reason: "cancelled" };
+	if (task.timedOut) return { kind: "failed", reason: "timed-out" };
+	if (FAILED_STATES.has(task.state)) return { kind: "failed", reason: "state" };
+	if (task.state !== "exited") return undefined;
+	if (task.signal !== null && task.signal !== "") return { kind: "failed", reason: "signal" };
+	const exitCode = task.exitCode;
+	if (exitCode !== null && exitCode !== 0) return { kind: "failed", reason: "exit", exitCode };
+	return undefined;
+}
+
+/** The failure of a task group view: interrupted or rejected, or a set of members that partly failed. */
+export function groupViewFailure(group: TaskGroupView): ToolFailure | undefined {
+	if (FAILED_GROUP_STATES.has(group.state)) return { kind: "failed", reason: "state" };
+	const failed = group.tasks.filter((task) => taskViewFailure(task) !== undefined).length;
+	if (failed === 0) return undefined;
+	return failed === group.tasks.length ? { kind: "failed", reason: "state" } : { kind: "partly-failed" };
 }
 
 /** The member results of a task group result; undefined for a single task. */

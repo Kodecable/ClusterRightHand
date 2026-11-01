@@ -97,7 +97,15 @@ export function useCancelTask(id: string) {
 	});
 }
 
-const GROUP_OPEN = new Set(["running", "awaiting_approval", "awaiting_authorization"]);
+const GROUP_ENDED = new Set(["finished", "interrupted", "rejected"]);
+
+/**
+ * A task group that will not change any more. A tool card whose group ended stops following it, and its wait
+ * returns the current view instead of long-polling (doc/webui.md "工具卡片").
+ */
+export function groupEnded(state: string): boolean {
+	return GROUP_ENDED.has(state);
+}
 
 /** One task group: as `useTask`, with `GET /task-groups/:id/wait` for the open group. */
 export function useTaskGroup(id: string | undefined, pollRunning = false) {
@@ -115,7 +123,7 @@ export function useTaskGroup(id: string | undefined, pollRunning = false) {
 		refetchInterval: (query) => {
 			if (!pollRunning) return false;
 			const state = query.state.data?.state;
-			return state !== undefined && GROUP_OPEN.has(state) ? WAIT_GAP_MS : false;
+			return state !== undefined && !groupEnded(state) ? WAIT_GAP_MS : false;
 		},
 	});
 }

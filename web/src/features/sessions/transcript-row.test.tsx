@@ -1,14 +1,24 @@
+import type { QueryClient } from "@tanstack/react-query";
 import { fireEvent, screen } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
-import type { SessionListItem } from "@/lib/api/types";
-import { renderWithI18n, renderWithRouter } from "@/test/render";
-import { SessionChildrenProvider } from "./child-sessions";
-import type { TranscriptItem } from "./sessionState";
-import { TranscriptRow, toolSummary } from "./transcript-row";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { taskKeys } from "@/features/tasks/api";
+import type { TaskGroupView, TaskView } from "@/lib/api/types";
+import { renderWithI18n, testQueryClient } from "@/test/render";
+import type { Json, TranscriptItem } from "./sessionState";
+import { callStillOpen, TranscriptRow, toolSummary } from "./transcript-row";
 import { TranscriptStreams } from "./transcript-streams";
 
-function renderRow(item: TranscriptItem, streams = new TranscriptStreams()) {
-	return renderWithI18n(<TranscriptRow item={item} streams={streams} />);
+afterEach(() => {
+	vi.unstubAllGlobals();
+});
+
+function renderRow(
+	item: TranscriptItem,
+	streams = new TranscriptStreams(),
+	client: QueryClient = testQueryClient(),
+	sessionActive = true,
+) {
+	return renderWithI18n(<TranscriptRow item={item} streams={streams} sessionActive={sessionActive} />, "en", client);
 }
 
 describe("TranscriptRow", () => {
@@ -44,6 +54,7 @@ describe("TranscriptRow", () => {
 			<TranscriptRow
 				item={{ kind: "text", key: "live/1/0", text: "Hello **world**", streaming: false, live: true }}
 				streams={streams}
+				sessionActive
 			/>,
 		);
 		expect(screen.queryByTestId("streaming-text")).toBeNull();
@@ -79,7 +90,7 @@ describe("TranscriptRow", () => {
 		expect(screen.getByTestId("tool-output")).toHaveTextContent("exit_code");
 	});
 
-	test("a collapsed tool card names what it runs and where", () => {
+	test("a collapsed tool card names what it runs and where, with its status on the icon", () => {
 		renderRow({
 			kind: "tool",
 			key: "a1/0",
@@ -94,11 +105,14 @@ describe("TranscriptRow", () => {
 		const toggle = screen.getByTestId("tool-toggle");
 		expect(toggle).toHaveTextContent("exec");
 		expect(toggle).toHaveTextContent("uname -a · n1");
-		expect(toggle).toHaveTextContent("Done");
+		// The status is the leading icon's accessible name, not a text badge.
+		expect(screen.getByTestId("tool-card")).toHaveAttribute("data-tool-status", "done");
+		expect(screen.getByTestId("tool-status-icon")).toHaveAccessibleName("Done");
+		expect(toggle).not.toHaveTextContent("Done");
 	});
 
-	test("a subagent card follows the child session's live state", async () => {
-		const subagent: TranscriptItem = {
+	test("a returned subagent call is Done even while the child runs, with no child-state badge", () => {
+		renderRow({
 			kind: "tool",
 			key: "a1/0",
 			callId: "call-subagent",
@@ -112,54 +126,11 @@ describe("TranscriptRow", () => {
 				isError: false,
 				details: { sessionId: "child-1", requests: [] },
 			},
-		};
-		const child = (state: "idle" | "running" | "awaiting"): SessionListItem => ({
-			id: "child-1",
-			title: "restart nginx",
-			ownerUserId: "u1",
-			ownerName: "Ada",
-			scheduleId: null,
-			shared: false,
-			state,
-			waitingKind: null,
-			parentSessionId: "s1",
-			updatedAt: "2026-01-01T00:00:00.000Z",
 		});
-		const card = (state: "idle" | "running" | "awaiting") => (
-			<SessionChildrenProvider items={[child(state)]}>
-				<TranscriptRow item={subagent} streams={new TranscriptStreams()} />
-			</SessionChildrenProvider>
-		);
-
-		// The call returned at once; the card shows what the child does now, not "Done".
-		const running = await renderWithRouter(card("running"));
-		expect(screen.getByTestId("tool-toggle")).toHaveTextContent("Running");
-		expect(screen.queryByText("Done")).not.toBeInTheDocument();
-		running.unmount();
-
-		// The child went idle: the card follows it instead of staying at the state it was drawn with.
-		await renderWithRouter(card("idle"));
-		expect(screen.getByTestId("tool-toggle")).toHaveTextContent("Idle");
-	});
-
-	test("a subagent card without its child in the list keeps the call's own status", async () => {
-		const item: TranscriptItem = {
-			kind: "tool",
-			key: "a1/0",
-			callId: "call-subagent",
-			name: "subagent",
-			args: { task: "restart nginx on web-1" },
-			status: "done",
-			output: "",
-			details: { sessionId: "child-2", requests: [] },
-			result: { text: "Subagent started.", isError: false, details: { sessionId: "child-2", requests: [] } },
-		};
-		await renderWithRouter(
-			<SessionChildrenProvider items={[]}>
-				<TranscriptRow item={item} streams={new TranscriptStreams()} />
-			</SessionChildrenProvider>,
-		);
-		expect(screen.getByTestId("tool-toggle")).toHaveTextContent("Done");
+		// Only whether the call returned decides the icon: a background child does not keep it spinning.
+		expect(screen.getByTestId("tool-card")).toHaveAttribute("data-tool-status", "done");
+		expect(screen.getByTestId("tool-status-icon")).toHaveAccessibleName("Done");
+		expect(screen.getByTestId("tool-toggle")).not.toHaveTextContent(/Idle|Running/);
 	});
 
 	test("toolSummary picks the telling argument of each tool", () => {
@@ -208,6 +179,7 @@ describe("TranscriptRow", () => {
 			<TranscriptRow
 				item={{ kind: "error", key: "e2", reason: "failed", message: "boom" }}
 				streams={new TranscriptStreams()}
+				sessionActive
 			/>,
 		);
 		expect(screen.getByRole("alert")).toHaveTextContent("The run failed.");
@@ -215,67 +187,297 @@ describe("TranscriptRow", () => {
 	});
 });
 
-describe("TranscriptRow tool failure badge", () => {
-	const toolItem = (result: string): TranscriptItem => ({
+describe("TranscriptRow tool status icon", () => {
+	const toolItem = (
+		result?: { text: string; isError?: boolean },
+		status: "pending" | "running" | "done" = "done",
+		details?: Json,
+	): TranscriptItem => ({
 		kind: "tool",
 		key: "a1/0",
 		callId: "call-1",
 		name: "exec",
 		args: { cmd: "true" },
-		status: "done",
+		status,
 		output: "",
-		details: undefined,
-		result: { text: result, isError: false, details: undefined },
+		details,
+		result:
+			result === undefined ? undefined : { text: result.text, isError: result.isError ?? false, details: undefined },
 	});
 
-	const failure = () => screen.queryByTestId("tool-failure");
+	const card = () => screen.getByTestId("tool-card");
+	const icon = () => screen.getByTestId("tool-status-icon");
 
-	test("a read_file result has no exit_code and no badge", () => {
-		renderRow(toolItem('{"task_id":"t1","node":"web-1","state":"exited","lines":{"from":1,"to":5}}'));
-		expect(failure()).not.toBeInTheDocument();
+	test("a call that has not returned spins and is labelled Running", () => {
+		const { rerender } = renderRow(toolItem(undefined, "running"));
+		expect(card()).toHaveAttribute("data-tool-status", "running");
+		expect(icon()).toHaveAccessibleName("Running");
+		expect(icon()).toHaveAttribute("title", "Running");
+		expect(icon().querySelector(".animate-spin")).not.toBeNull();
+
+		// A call still preparing and a call with no state at all are in the same not-returned state.
+		rerender(<TranscriptRow item={toolItem(undefined, "pending")} streams={new TranscriptStreams()} sessionActive />);
+		expect(card()).toHaveAttribute("data-tool-status", "preparing");
+		expect(icon()).toHaveAccessibleName("Running");
+		expect(icon().querySelector(".animate-spin")).not.toBeNull();
 	});
 
-	test("an exited task with exit code 0 has no badge", () => {
-		renderRow(toolItem('{"task_id":"t1","node":"web-1","state":"exited","exit_code":0}'));
-		expect(failure()).not.toBeInTheDocument();
-	});
-
-	test("a running result has no badge", () => {
-		renderRow(toolItem('{"task_id":"t1","node":"web-1","state":"running"}'));
-		expect(failure()).not.toBeInTheDocument();
-	});
-
-	test("a task group whose nodes all succeeded has no badge", () => {
-		renderRow(
-			toolItem(
-				'{"task_group_id":"g1","state":"finished","nodes":[{"task_id":"a","state":"exited","exit_code":0},{"task_id":"b","state":"exited","exit_code":0}]}',
-			),
+	test("a returned call with no task failure keeps the wrench and is labelled Done", () => {
+		const { rerender } = renderRow(
+			toolItem({ text: '{"task_id":"t1","node":"web-1","state":"running"}', isError: false }),
 		);
-		expect(failure()).not.toBeInTheDocument();
-	});
-
-	test("a group with one failed node is partly failed", () => {
-		renderRow(
-			toolItem(
-				'{"task_group_id":"g1","state":"finished","nodes":[{"task_id":"a","state":"exited","exit_code":0},{"task_id":"b","state":"exited","exit_code":1}]}',
-			),
+		expect(card()).toHaveAttribute("data-tool-status", "done");
+		expect(icon()).toHaveAccessibleName("Done");
+		expect(icon()).not.toHaveClass("text-danger");
+		expect(icon().querySelector(".animate-spin")).toBeNull();
+		rerender(
+			<TranscriptRow
+				item={toolItem({ text: '{"task_id":"t1","node":"web-1","state":"exited","lines":{"from":1,"to":5}}' }, "done")}
+				streams={new TranscriptStreams()}
+				sessionActive
+			/>,
 		);
-		expect(failure()).toHaveTextContent("Partly failed");
+		expect(card()).toHaveAttribute("data-tool-status", "done");
 	});
 
-	test("a cancelled task shows the Cancelled badge", () => {
-		renderRow(toolItem('{"task_id":"t1","state":"exited","exit_code":0,"cancelled":true}'));
-		expect(failure()).toHaveTextContent("Cancelled");
+	test("an exited task with exit code 0 and a fully succeeded group show the wrench", () => {
+		const { rerender } = renderRow(
+			toolItem({ text: '{"task_id":"t1","node":"web-1","state":"exited","exit_code":0}' }),
+		);
+		expect(card()).toHaveAttribute("data-tool-status", "done");
+		rerender(
+			<TranscriptRow
+				item={toolItem({
+					text: '{"task_group_id":"g1","state":"finished","nodes":[{"task_id":"a","state":"exited","exit_code":0},{"task_id":"b","state":"exited","exit_code":0}]}',
+				})}
+				streams={new TranscriptStreams()}
+				sessionActive
+			/>,
+		);
+		expect(card()).toHaveAttribute("data-tool-status", "done");
+		expect(icon()).toHaveAccessibleName("Done");
 	});
 
-	test("a non-zero exit code shows the code", () => {
-		renderRow(toolItem('{"task_id":"t1","state":"exited","exit_code":2}'));
-		expect(failure()).toHaveTextContent("Exit 2");
+	test("a failed task marks the card failed and names the reason on the icon", () => {
+		renderRow(toolItem({ text: '{"task_id":"t1","state":"failed","error":{"code":"exec_failed"}}' }));
+		expect(card()).toHaveAttribute("data-tool-status", "failed");
+		expect(icon()).toHaveAccessibleName("Failed");
+		expect(icon()).toHaveClass("text-danger");
 	});
 
-	test("a failed task shows Failed, next to the call status badge", () => {
-		renderRow(toolItem('{"task_id":"t1","state":"failed","error":{"code":"exec_failed"}}'));
-		expect(failure()).toHaveTextContent("Failed");
-		expect(screen.getByTestId("tool-toggle")).toHaveTextContent("Done");
+	test("a non-zero exit code and a cancelled task use their specific labels", () => {
+		const { rerender } = renderRow(toolItem({ text: '{"task_id":"t1","state":"exited","exit_code":2}' }));
+		expect(card()).toHaveAttribute("data-tool-status", "failed");
+		expect(icon()).toHaveAccessibleName("Exit 2");
+		expect(screen.queryByTestId("tool-failure")).toBeNull();
+		rerender(
+			<TranscriptRow
+				item={toolItem({ text: '{"task_id":"t1","state":"exited","exit_code":0,"cancelled":true}' })}
+				streams={new TranscriptStreams()}
+				sessionActive
+			/>,
+		);
+		expect(icon()).toHaveAccessibleName("Cancelled");
+		expect(card()).toHaveAttribute("data-tool-status", "failed");
+	});
+
+	test("a group with one failed member is partly failed", () => {
+		renderRow(
+			toolItem({
+				text: '{"task_group_id":"g1","state":"finished","nodes":[{"task_id":"a","state":"exited","exit_code":0},{"task_id":"b","state":"exited","exit_code":1}]}',
+			}),
+		);
+		expect(card()).toHaveAttribute("data-tool-status", "failed");
+		expect(icon()).toHaveAccessibleName("Partly failed");
+		expect(screen.getByTestId("tool-toggle")).not.toHaveTextContent("Partly failed");
+	});
+
+	test("a tool error result is a failed wrench, labelled Failed", () => {
+		renderRow(toolItem({ text: "boom", isError: true }));
+		expect(card()).toHaveAttribute("data-tool-status", "failed");
+		expect(icon()).toHaveAccessibleName("Failed");
+		expect(icon()).toHaveClass("text-danger");
+	});
+});
+
+const baseTask = (overrides: Partial<TaskView> = {}): TaskView =>
+	({
+		id: "t1",
+		nodeId: "n1",
+		kind: "exec",
+		summary: "true",
+		operation: null,
+		actorType: "session",
+		actorId: "s1",
+		onBehalfOfUserId: "u1",
+		state: "exited",
+		exitCode: 0,
+		signal: null,
+		timedOut: false,
+		cancelled: false,
+		errorCode: null,
+		errorMessage: null,
+		stdoutBytes: 0,
+		stderrBytes: 0,
+		stdoutHead: "",
+		stdoutTail: "",
+		stderrHead: "",
+		stderrTail: "",
+		outputFile: null,
+		outputMode: "status",
+		privileged: false,
+		result: null,
+		createdAt: "2026-01-01T00:00:00.000Z",
+		finishedAt: "2026-01-01T00:00:01.000Z",
+		...overrides,
+	}) as TaskView;
+
+const baseGroup = (overrides: Partial<TaskGroupView> = {}): TaskGroupView =>
+	({
+		id: "g1",
+		state: "finished",
+		targets: ["n1"],
+		nodeIds: ["n1"],
+		parallel: 1,
+		failFast: false,
+		outputMode: "status",
+		privileged: false,
+		skipped: [],
+		tasks: [baseTask()],
+		createdAt: "2026-01-01T00:00:00.000Z",
+		finishedAt: "2026-01-01T00:00:01.000Z",
+		...overrides,
+	}) as TaskGroupView;
+
+describe("callStillOpen", () => {
+	test("a call stays open while the session runs and its task or group is open", () => {
+		expect(callStillOpen({ sessionActive: true, taskState: "running", groupState: undefined })).toBe(true);
+		expect(callStillOpen({ sessionActive: true, taskState: "awaiting_approval", groupState: undefined })).toBe(true);
+		expect(callStillOpen({ sessionActive: true, taskState: undefined, groupState: "running" })).toBe(true);
+		expect(callStillOpen({ sessionActive: true, taskState: undefined, groupState: "awaiting_authorization" })).toBe(
+			true,
+		);
+		// A call whose first status has not arrived yet is still open.
+		expect(callStillOpen({ sessionActive: true, taskState: undefined, groupState: undefined })).toBe(true);
+	});
+
+	test("an idle session stops the wait, even for a task or group that is still open", () => {
+		expect(callStillOpen({ sessionActive: false, taskState: undefined, groupState: undefined })).toBe(false);
+		expect(callStillOpen({ sessionActive: false, taskState: "running", groupState: undefined })).toBe(false);
+		expect(callStillOpen({ sessionActive: false, taskState: undefined, groupState: "awaiting_approval" })).toBe(false);
+	});
+
+	test("a task in a terminal state stops the wait", () => {
+		for (const state of ["exited", "failed", "denied", "rejected", "unknown"]) {
+			expect(callStillOpen({ sessionActive: true, taskState: state, groupState: undefined }), state).toBe(false);
+		}
+	});
+
+	test("a group that finished, was interrupted or was rejected stops the wait", () => {
+		for (const state of ["finished", "interrupted", "rejected"]) {
+			expect(callStillOpen({ sessionActive: true, taskState: undefined, groupState: state }), state).toBe(false);
+		}
+	});
+});
+
+describe("a tool card whose call cannot return", () => {
+	const unreturned = (details?: Json): TranscriptItem => ({
+		kind: "tool",
+		key: "a1/0",
+		callId: "call-1",
+		name: "exec",
+		args: { cmd: "true" },
+		status: "running",
+		output: "",
+		details,
+		result: undefined,
+	});
+	const card = () => screen.getByTestId("tool-card");
+	const icon = () => screen.getByTestId("tool-status-icon");
+
+	test("an idle session turns the spinner into the wrench and says No result", () => {
+		renderRow(unreturned(), new TranscriptStreams(), testQueryClient(), false);
+		expect(icon().querySelector(".animate-spin")).toBeNull();
+		expect(icon()).toHaveAccessibleName("No result");
+		expect(icon()).not.toHaveClass("text-danger");
+		expect(card()).toHaveAttribute("data-tool-status", "empty");
+	});
+
+	test("a task that ended stops the spinner and names its outcome", () => {
+		const client = testQueryClient();
+		client.setQueryData(taskKeys.detail("t1"), baseTask());
+		renderRow(unreturned({ task_id: "t1", state: "running" }), new TranscriptStreams(), client);
+		expect(icon().querySelector(".animate-spin")).toBeNull();
+		expect(icon()).toHaveAccessibleName("Done");
+		expect(icon()).not.toHaveClass("text-danger");
+		// A stopped card has no result of its own: its status stays `empty`.
+		expect(card()).toHaveAttribute("data-tool-status", "empty");
+	});
+
+	test("a failed task colours the wrench and names the exit code", () => {
+		const client = testQueryClient();
+		client.setQueryData(taskKeys.detail("t1"), baseTask({ exitCode: 2 }));
+		renderRow(unreturned({ task_id: "t1", state: "running" }), new TranscriptStreams(), client);
+		expect(icon().querySelector(".animate-spin")).toBeNull();
+		expect(icon()).toHaveAccessibleName("Exit 2");
+		expect(icon()).toHaveClass("text-danger");
+		expect(card()).toHaveAttribute("data-tool-status", "failed");
+	});
+
+	test("a group that ended stops the spinner", () => {
+		const client = testQueryClient();
+		client.setQueryData(taskKeys.group("g1"), baseGroup());
+		renderRow(unreturned({ task_group_id: "g1", state: "running" }), new TranscriptStreams(), client);
+		expect(icon().querySelector(".animate-spin")).toBeNull();
+		expect(icon()).toHaveAccessibleName("Done");
+		expect(card()).toHaveAttribute("data-tool-status", "empty");
+	});
+
+	test("an interrupted group is a failed wrench", () => {
+		const client = testQueryClient();
+		client.setQueryData(taskKeys.group("g1"), baseGroup({ state: "interrupted" }));
+		renderRow(unreturned({ task_group_id: "g1", state: "running" }), new TranscriptStreams(), client);
+		expect(icon().querySelector(".animate-spin")).toBeNull();
+		expect(icon()).toHaveAccessibleName("Failed");
+		expect(icon()).toHaveClass("text-danger");
+		expect(card()).toHaveAttribute("data-tool-status", "failed");
+	});
+
+	test("a task that is still running keeps the spinner while the session is active", () => {
+		const client = testQueryClient();
+		client.setQueryData(taskKeys.detail("t1"), baseTask({ state: "running", exitCode: null, finishedAt: null }));
+		// The card long-polls an open task; the stub keeps that request pending so nothing leaves the test.
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() => new Promise<Response>(() => {})),
+		);
+		renderRow(unreturned({ task_id: "t1", state: "running" }), new TranscriptStreams(), client);
+		expect(icon().querySelector(".animate-spin")).not.toBeNull();
+		expect(icon()).toHaveAccessibleName("Running");
+		expect(card()).toHaveAttribute("data-tool-status", "running");
+	});
+
+	test("a returned card does not follow the task its details name", () => {
+		const fetchMock = vi.fn();
+		vi.stubGlobal("fetch", fetchMock);
+		renderRow(
+			{
+				kind: "tool",
+				key: "a1/0",
+				callId: "call-1",
+				name: "exec",
+				args: { cmd: "true" },
+				status: "done",
+				output: "",
+				details: { task_id: "t1", state: "exited" },
+				result: { text: '{"task_id":"t1","state":"exited","exit_code":0}', isError: false, details: undefined },
+			},
+			new TranscriptStreams(),
+			testQueryClient(),
+			// Even an idle session must not change a returned card.
+			false,
+		);
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(icon()).toHaveAccessibleName("Done");
 	});
 });

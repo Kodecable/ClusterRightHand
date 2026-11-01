@@ -1,4 +1,5 @@
 import { i18n } from "@lingui/core";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
 	createRootRoute,
@@ -21,14 +22,32 @@ export function activateLocale(locale: TestLocale = "en"): void {
 	i18n.loadAndActivate({ locale, messages: CATALOGS[locale] });
 }
 
-/** Render with the Lingui and theme providers, as the app does. */
-export function renderWithI18n(ui: React.ReactElement, locale: TestLocale = "en"): RenderResult {
+/**
+ * A query client for component tests: nothing is stale, so a test that seeds
+ * the cache sees the seeded value without a request.
+ */
+export function testQueryClient(): QueryClient {
+	return new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } } });
+}
+
+/**
+ * Render with the providers the app has (theme, locale, query): a component
+ * that reads a query must find a client, and an isolated client lets the test
+ * seed exactly what it wants.
+ */
+export function renderWithI18n(
+	ui: React.ReactElement,
+	locale: TestLocale = "en",
+	client: QueryClient = testQueryClient(),
+): RenderResult {
 	activateLocale(locale);
 	return render(ui, {
 		wrapper: ({ children }) => (
-			<ThemeProvider>
-				<LocaleProvider initialLocale={locale}>{children}</LocaleProvider>
-			</ThemeProvider>
+			<QueryClientProvider client={client}>
+				<ThemeProvider>
+					<LocaleProvider initialLocale={locale}>{children}</LocaleProvider>
+				</ThemeProvider>
+			</QueryClientProvider>
 		),
 	});
 }

@@ -46,10 +46,19 @@ export interface ToolContext {
 const HOUR = 3_600_000;
 
 async function waitTaskFor(ctx: ToolContext, id: string, waitMs: number): Promise<TaskView | undefined> {
-	if (!ctx.waitThroughApproval) return ctx.cluster.waitTask(id, waitMs, ctx.signal);
+	// The WebUI follows a tool call that has no result by the id its statuses publish (doc/webui.md#工具卡片),
+	// so the first status carries it before any wait can block. MCP callers pass no `onStatus`, so they pay no read.
+	if (!ctx.waitThroughApproval) {
+		if (ctx.onStatus !== undefined) {
+			const first = await ctx.cluster.getTask(id);
+			await ctx.onStatus({ task_id: id, state: first?.state });
+		}
+		return ctx.cluster.waitTask(id, waitMs, ctx.signal);
+	}
 	// A waiting task is not final, so waitTask would sit through the whole wait: look first. Shutdown ends
 	// the waits, and then these loops must stop rather than re-enter waitTask on the same state.
 	let t = await ctx.cluster.getTask(id);
+	await ctx.onStatus?.({ task_id: id, state: t?.state });
 	if (t?.state === "awaiting_approval") {
 		await ctx.onStatus?.({ task_id: id, state: "awaiting_approval", approval_url: ctx.approvalUrl("task", id) });
 		while (t?.state === "awaiting_approval" && !ctx.signal?.aborted && !ctx.cluster.waitsEnded) {
@@ -75,8 +84,16 @@ async function waitTaskFor(ctx: ToolContext, id: string, waitMs: number): Promis
 }
 
 async function waitGroupFor(ctx: ToolContext, id: string, waitMs: number): Promise<TaskGroupView> {
-	if (!ctx.waitThroughApproval) return (await ctx.groups.wait(id, waitMs)) as TaskGroupView;
+	// As in waitTaskFor: the id goes out before the wait, so a card without a result can follow the group.
+	if (!ctx.waitThroughApproval) {
+		if (ctx.onStatus !== undefined) {
+			const first = (await ctx.groups.get(id)) as TaskGroupView | undefined;
+			await ctx.onStatus({ task_group_id: id, state: first?.state });
+		}
+		return (await ctx.groups.wait(id, waitMs)) as TaskGroupView;
+	}
 	let g = (await ctx.groups.get(id)) as TaskGroupView;
+	await ctx.onStatus?.({ task_group_id: id, state: g.state });
 	if (g.state === "awaiting_approval") {
 		await ctx.onStatus?.({
 			task_group_id: id,

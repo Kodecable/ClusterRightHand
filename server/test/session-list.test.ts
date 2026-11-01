@@ -138,8 +138,8 @@ async function waitFor<T>(
 type SseEvent = { event: string; data: string };
 
 /** One `/api/sessions/stream` connection: a background pump feeds `next` and `drain`. */
-async function openStream(who: string) {
-	const res = await call(app, "/api/sessions/stream", { cookie: cookie[who] });
+async function openStream(who: string, query = "") {
+	const res = await call(app, `/api/sessions/stream${query}`, { cookie: cookie[who] });
 	expect(res.status).toBe(200);
 	const reader = res.body?.getReader();
 	if (!reader) throw new Error("no stream body");
@@ -425,6 +425,30 @@ describe("GET /api/sessions", () => {
 		await unshare(a2, groupShare);
 		expect((await list("carol", "?scope=shared")).items).toEqual([]);
 		expect((await list("bob", "?scope=shared")).items.map((item) => item.id)).toEqual([a1]);
+	});
+
+	it("scope=visible is the owner-and-shared union, without an administrator override", async () => {
+		const own = await newSession("bob", "visible own");
+		const other = await newSession("alice", "visible other");
+		const shared = await newSession("alice", "visible shared");
+		await share(shared, { granteeType: "user", granteeId: id.bob, access: "view" });
+
+		const bob = await list("bob", "?scope=visible");
+		expect(bob.items.map((item) => item.id)).toEqual(expect.arrayContaining([own, shared]));
+		expect(bob.items.map((item) => item.id)).not.toContain(other);
+		expect(bob.items.find((item) => item.id === own)?.shared).toBe(false);
+		expect(bob.items.find((item) => item.id === shared)?.shared).toBe(true);
+
+		// An administrator's `visible` list is their own roots plus shares too, not everyone's sessions.
+		const rootOwn = await newSession("root", "visible admin own");
+		const root = await list("root", "?scope=visible");
+		expect(root.items.map((item) => item.id)).toContain(rootOwn);
+		expect(root.items.map((item) => item.id)).not.toContain(other);
+		expect(root.items.map((item) => item.id)).not.toContain(shared);
+		// `all` still exists for administrators and the other callers.
+		expect((await list("root", "?scope=all")).items.map((item) => item.id)).toEqual(
+			expect.arrayContaining([own, other, shared]),
+		);
 	});
 
 	it("flags `shared` only when a share reaches the viewer, not for every foreign session", async () => {
@@ -854,6 +878,64 @@ describe("GET /api/sessions/stream", () => {
 			streams.bob.close();
 			streams.carol.close();
 			streams.root.close();
+		}
+	});
+
+	it("scope=visible streams only the owner-and-shared union, for administrators too", async () => {
+		const own = await newSession("bob", "visible stream own");
+		const shared = await newSession("alice", "visible stream shared");
+		const hidden = await newSession("alice", "visible stream hidden");
+		const shareId = await share(shared, { granteeType: "user", granteeId: id.bob, access: "view" });
+		// Let the creations' coalesced upserts fire before anyone subscribes.
+		await sleep(50);
+		const bob = await openStream("bob", "?scope=visible");
+		const root = await openStream("root", "?scope=visible");
+		await waitFor("two streams subscribed", () => runtime.sessionList.subscriberCount === 2);
+		try {
+			// The owner's change reaches the owner.
+			await call(app, `/api/sessions/${own}`, {
+				method: "PATCH",
+				cookie: cookie.bob,
+				body: { title: "visible stream own 2" },
+			});
+			expect(upsertIds((await bob.collected(500)).slice(0, 1))).toEqual([own]);
+
+			// A change to the shared session reaches the grantee, with `shared: true`.
+			await call(app, `/api/sessions/${shared}`, {
+				method: "PATCH",
+				cookie: cookie.alice,
+				body: { title: "visible stream shared 2" },
+			});
+			const toBob = await bob.collected(500);
+			const sharedUpsert = toBob.find(
+				(event) => event.event === "upsert" && (JSON.parse(event.data) as SessionListItem).id === shared,
+			);
+			expect(JSON.parse(sharedUpsert?.data ?? "{}")).toMatchObject({ id: shared, shared: true });
+
+			// The administrator's stream is narrowed too: a change to a session only they can see, to the
+			// member's own one and to the shared one never reaches it.
+			await call(app, `/api/sessions/${hidden}`, {
+				method: "PATCH",
+				cookie: cookie.alice,
+				body: { title: "visible stream hidden 2" },
+			});
+			const rootEvents = await root.collected(500);
+			expect(upsertIds(rootEvents)).not.toContain(hidden);
+			expect(upsertIds(rootEvents)).not.toContain(own);
+			expect(upsertIds(rootEvents)).not.toContain(shared);
+
+			// Revoking the share removes it from the grantee's list.
+			await call(app, `/api/sessions/${shared}/shares/${shareId}`, {
+				method: "DELETE",
+				cookie: cookie.alice,
+				body: {},
+			});
+			const removed = await bob.next(1_000);
+			expect(removed?.event).toBe("remove");
+			expect(JSON.parse(removed?.data ?? "{}")).toEqual({ id: shared });
+		} finally {
+			bob.close();
+			root.close();
 		}
 	});
 

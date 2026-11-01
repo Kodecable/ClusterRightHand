@@ -12,7 +12,6 @@ import { useAuth } from "@/features/auth/session";
 import { useModels } from "@/features/settings/api";
 import { useDebouncedValue } from "@/hooks/use-debounced";
 import { flattenCursorPages, lastCursor } from "@/lib/api/query";
-import type { SessionListScope } from "@/lib/api/types";
 import { useSessions } from "./api";
 import { NewSessionDialog } from "./new-session-dialog";
 import { groupSessionRows, type SessionGroupKey } from "./session-groups";
@@ -20,19 +19,19 @@ import { SessionListItemRow } from "./session-list-item";
 import { useSessionListStream } from "./use-session-list-stream";
 
 /**
- * The second column of the Sessions route (doc/webui.md "侧边列表"): scope
- * tabs, a debounced server-side search, a virtua list with cursor pages, and
- * the live patch from `GET /api/sessions/stream`. Rows are grouped by
- * `updatedAt` (Today, Yesterday, Within 7 days, Within 30 days, then a month):
- * the headers are rows of the same virtualised list, and the arrow keys move
- * between items while skipping them.
+ * The second column of the Sessions route (doc/webui.md "侧边列表"): the
+ * search box, a full-width "New session" button, then a virtua list with
+ * cursor pages and the live patch from `GET /api/sessions/stream`. The list
+ * shows the roots the caller can see: their own and the ones shared with them.
+ * Rows are grouped by `updatedAt` (Today, Yesterday, Within 7 days, Within 30
+ * days, then a month): the headers are rows of the same virtualised list, and
+ * the arrow keys move between items while skipping them.
  */
 export function SessionList({ selectedId }: { selectedId?: string }) {
 	const { t } = useLingui();
 	const navigate = useNavigate();
 	const auth = useAuth();
 	const isAdmin = auth.user?.kind === "admin";
-	const [scope, setScope] = useState<SessionListScope>("mine");
 	const [search, setSearch] = useState("");
 	const q = useDebouncedValue(search.trim(), 250);
 	const [creating, setCreating] = useState(false);
@@ -42,7 +41,7 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 
 	const models = useModels();
 	const noModels = models.data !== undefined && models.data.length === 0;
-	const sessions = useSessions({ scope, q });
+	const sessions = useSessions({ q });
 	const items = useMemo(() => flattenCursorPages(sessions.data), [sessions.data]);
 	const hasMore = lastCursor(sessions.data) !== null;
 	// A minute is enough for the day boundary: a header only changes when the clock crosses midnight.
@@ -67,12 +66,12 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 		enabled: auth.user !== null,
 	});
 
-	// A changed filter is a new list: start at the top and drop the old selection index.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: reset only when the filter changes
+	// A changed search is a new list: start at the top and drop the old selection index.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset only when the search changes
 	useEffect(() => {
 		setActiveIndex(0);
 		if (scrollRef.current) scrollRef.current.scrollTop = 0;
-	}, [scope, q]);
+	}, [q]);
 
 	// Keep the active row on the selected session when arriving by a link.
 	useEffect(() => {
@@ -128,50 +127,9 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 		focusRow(next);
 	};
 
-	const scopes: { value: SessionListScope; label: string }[] = [
-		{ value: "mine", label: t`Mine` },
-		{ value: "shared", label: t`Shared` },
-		...(isAdmin ? [{ value: "all" as const, label: t`All` }] : []),
-	];
-
 	return (
 		<div className="flex min-h-0 flex-1 flex-col" data-testid="session-list">
-			<div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
-				<h2 className="text-sm font-semibold">
-					<Trans>Sessions</Trans>
-				</h2>
-				<Button
-					type="button"
-					size="sm"
-					className="ml-auto"
-					data-testid="new-session-button"
-					disabled={noModels}
-					title={noModels ? t`No model is configured` : undefined}
-					onClick={() => setCreating(true)}
-				>
-					<PlusIcon />
-					<Trans>New</Trans>
-				</Button>
-			</div>
-
-			{noModels && (
-				<p
-					role="status"
-					data-testid="no-models-hint"
-					className="shrink-0 border-b border-warn/30 bg-warn-bg px-3 py-2 text-xs text-warn"
-				>
-					<Trans>No models are configured, so sessions cannot start.</Trans>{" "}
-					{isAdmin ? (
-						<Link to="/settings/models" className="underline underline-offset-2">
-							<Trans>Configure a model provider</Trans>
-						</Link>
-					) : (
-						<Trans>Ask an administrator to configure one.</Trans>
-					)}
-				</p>
-			)}
-
-			<div className="grid shrink-0 gap-2 border-b px-3 py-2">
+			<div className="grid shrink-0 gap-2 p-2">
 				<div className="relative block">
 					<label className="sr-only" htmlFor="session-search">
 						<Trans>Search sessions</Trans>
@@ -187,25 +145,31 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 						onChange={(event) => setSearch(event.target.value)}
 					/>
 				</div>
-				<fieldset className="inline-flex rounded-md bg-muted p-0.5 text-xs">
-					<legend className="sr-only">
-						<Trans>Scope</Trans>
-					</legend>
-					{scopes.map((option) => (
-						<Button
-							key={option.value}
-							type="button"
-							variant={scope === option.value ? "secondary" : "ghost"}
-							size="xs"
-							aria-pressed={scope === option.value}
-							data-testid={`scope-${option.value}`}
-							className="flex-1"
-							onClick={() => setScope(option.value)}
-						>
-							{option.label}
-						</Button>
-					))}
-				</fieldset>
+				<Button
+					type="button"
+					size="sm"
+					className="w-full"
+					data-testid="new-session-button"
+					disabled={noModels}
+					title={noModels ? t`No model is configured` : undefined}
+					onClick={() => setCreating(true)}
+				>
+					<PlusIcon />
+					<Trans>New session</Trans>
+				</Button>
+
+				{noModels && (
+					<p role="status" data-testid="no-models-hint" className="rounded-md bg-warn-bg px-2 py-1.5 text-xs text-warn">
+						<Trans>No models are configured, so sessions cannot start.</Trans>{" "}
+						{isAdmin ? (
+							<Link to="/settings/models" className="underline underline-offset-2">
+								<Trans>Configure a model provider</Trans>
+							</Link>
+						) : (
+							<Trans>Ask an administrator to configure one.</Trans>
+						)}
+					</p>
+				)}
 			</div>
 
 			<div
@@ -277,7 +241,7 @@ function SessionGroupHeader({ group }: { group: SessionGroupKey }) {
 	return (
 		<div
 			data-testid="session-group-header"
-			className="flex h-7 items-center px-3 text-[11px] font-medium text-muted-foreground"
+			className="flex h-7 items-center px-2 text-[11px] font-medium text-muted-foreground"
 		>
 			{group.kind === "today"
 				? t`Today`

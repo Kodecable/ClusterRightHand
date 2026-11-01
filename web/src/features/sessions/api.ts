@@ -14,7 +14,7 @@ import type {
 	CursorPage,
 	SessionChildrenSummary,
 	SessionListItem,
-	SessionListQuery,
+	SessionListScope,
 	SessionPatch,
 	SessionShare,
 	SessionView,
@@ -34,20 +34,29 @@ export const sessionKeys = {
 	shares: (id: string) => ["sessions", "shares", id] as const,
 };
 
+/** The web's only list scope: the roots the caller owns plus the ones shared with them. */
+const DEFAULT_SCOPE: SessionListScope = "visible";
+
 export interface SessionListParams {
-	scope: NonNullable<SessionListQuery["scope"]>;
-	q: string;
+	/** Defaults to `visible`, the only scope the web uses. */
+	scope?: SessionListScope;
+	q?: string;
+}
+
+function listParams({ scope = DEFAULT_SCOPE, q = "" }: SessionListParams): Required<SessionListParams> {
+	return { scope, q };
 }
 
 function fetchSessionsPage(
-	{ scope, q }: SessionListParams,
+	{ scope, q }: Required<SessionListParams>,
 	cursor: string | undefined,
 	signal: AbortSignal,
 ): Promise<CursorPage<SessionListItem>> {
 	return http.get<CursorPage<SessionListItem>>(`/sessions${queryString({ scope, q, cursor })}`, { signal });
 }
 
-export function useSessions({ scope = "mine", q = "" }: SessionListParams) {
+export function useSessions(params: SessionListParams = {}) {
+	const { scope, q } = listParams(params);
 	return useCursorInfiniteQuery<SessionListItem>({
 		queryKey: sessionKeys.listPage(scope, q),
 		fetchPage: (cursor, signal) => fetchSessionsPage({ scope, q }, cursor, signal),
@@ -60,9 +69,10 @@ export function useSessions({ scope = "mine", q = "" }: SessionListParams) {
  * render of the shell. The `useSessions` hook joins the same query.
  */
 export function prefetchSessions(queryClient: QueryClient, params: SessionListParams): Promise<void> {
+	const { scope, q } = listParams(params);
 	return prefetchCursorInfiniteQuery<SessionListItem>(queryClient, {
-		queryKey: sessionKeys.listPage(params.scope, params.q),
-		fetchPage: (cursor, signal) => fetchSessionsPage(params, cursor, signal),
+		queryKey: sessionKeys.listPage(scope, q),
+		fetchPage: (cursor, signal) => fetchSessionsPage({ scope, q }, cursor, signal),
 	});
 }
 

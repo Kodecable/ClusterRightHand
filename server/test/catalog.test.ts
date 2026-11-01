@@ -425,7 +425,7 @@ describe("node facts", () => {
 	});
 });
 
-describe("the authorization wait status", () => {
+describe("the statuses a wait publishes", () => {
 	/** A node of the user, so resolveTargets finds it. */
 	async function setup() {
 		const db = await openTestDb("sqlite");
@@ -490,7 +490,9 @@ describe("the authorization wait status", () => {
 			const exec = TOOLS.find((t) => t.name === "exec");
 			if (!exec) throw new Error("exec tool missing");
 			await exec.handler({ targets: ["web-1"], cmd: "true", wait: 1 }, toolCtx);
-			expect(statuses[0]).toEqual({
+			// The first status carries only the id and the state: the WebUI follows the task by it.
+			expect(statuses[0]).toEqual({ task_id: "t1", state: "awaiting_authorization" });
+			expect(statuses[1]).toEqual({
 				task_id: "t1",
 				state: "awaiting_authorization",
 				authorization_url: "/tasks/t1",
@@ -542,11 +544,100 @@ describe("the authorization wait status", () => {
 			const exec = TOOLS.find((t) => t.name === "exec");
 			if (!exec) throw new Error("exec tool missing");
 			await exec.handler({ targets: ["group:prod"], cmd: "true", wait: 1 }, toolCtx);
-			expect(statuses[0]).toEqual({
+			expect(statuses[0]).toEqual({ task_group_id: "g1", state: "awaiting_authorization" });
+			expect(statuses[1]).toEqual({
 				task_group_id: "g1",
 				state: "awaiting_authorization",
 				authorization_url: "/task-groups/g1",
 			});
+			expect(statuses.at(-1)).toEqual({ task_group_id: "g1", state: "finished" });
+		} finally {
+			await db.destroy();
+		}
+	}, 15_000);
+
+	it("carries the task id before the first wait, with and without approval waits", async () => {
+		const { db, nodeId, user } = await setup();
+		try {
+			const cluster = {
+				createTask: async () => task({ id: "t1", nodeId, state: "running" }),
+				getTask: async (id: string) => task({ id, nodeId, state: "running" }),
+				waitTask: async (id: string) => task({ id, nodeId, state: "exited" }),
+			};
+			const exec = TOOLS.find((t) => t.name === "exec");
+			if (!exec) throw new Error("exec tool missing");
+			// An agent waits through approvals, an MCP caller does not; both publish the id before waiting.
+			for (const waitThroughApproval of [true, false]) {
+				const statuses: Record<string, unknown>[] = [];
+				const toolCtx = {
+					db,
+					cluster: cluster as unknown as Cluster,
+					groups: {} as TaskGroups,
+					user,
+					actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
+					chain: [],
+					approvalUrl: (kind: string, id: string) => `/approvals/${kind}/${id}`,
+					waitThroughApproval,
+					onStatus: async (status: Record<string, unknown>) => {
+						statuses.push(status);
+					},
+				} as unknown as ToolContext;
+				await exec.handler({ targets: ["web-1"], cmd: "true", wait: 1 }, toolCtx);
+				expect(statuses[0], `waitThroughApproval=${waitThroughApproval}`).toEqual({
+					task_id: "t1",
+					state: "running",
+				});
+			}
+		} finally {
+			await db.destroy();
+		}
+	}, 15_000);
+
+	it("carries the task group id before the first wait, with and without approval waits", async () => {
+		const { db, nodeId, now, user } = await setup();
+		try {
+			await db.insertInto("node_groups").values({ node_id: nodeId, group_name: "prod", refreshed_at: now }).execute();
+			const group = {
+				id: "g1",
+				state: "running",
+				targets: ["web-1"],
+				nodeIds: [nodeId],
+				parallel: 1,
+				failFast: false,
+				outputMode: "status",
+				skipped: [],
+				tasks: [task({ id: "t1", nodeId, state: "running" })],
+				createdAt: now,
+				finishedAt: null,
+			};
+			const groups = {
+				create: async () => "g1",
+				get: async () => group,
+				wait: async () => ({ ...group, state: "finished", tasks: [{ ...group.tasks[0], state: "exited" }] }),
+			};
+			const exec = TOOLS.find((t) => t.name === "exec");
+			if (!exec) throw new Error("exec tool missing");
+			for (const waitThroughApproval of [true, false]) {
+				const statuses: Record<string, unknown>[] = [];
+				const toolCtx = {
+					db,
+					cluster: {} as Cluster,
+					groups: groups as unknown as TaskGroups,
+					user,
+					actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
+					chain: [],
+					approvalUrl: (kind: string, id: string) => `/approvals/${kind}/${id}`,
+					waitThroughApproval,
+					onStatus: async (status: Record<string, unknown>) => {
+						statuses.push(status);
+					},
+				} as unknown as ToolContext;
+				await exec.handler({ targets: ["group:prod"], cmd: "true", wait: 1 }, toolCtx);
+				expect(statuses[0], `waitThroughApproval=${waitThroughApproval}`).toEqual({
+					task_group_id: "g1",
+					state: "running",
+				});
+			}
 		} finally {
 			await db.destroy();
 		}

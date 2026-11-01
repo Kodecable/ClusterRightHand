@@ -26,7 +26,7 @@ async function bootstrap(): Promise<void> {
 	const catalogue = activateLocale(initialLocale);
 	const auth = authLoad.then((state) => {
 		if (state.status === "authenticated" && isSessionsRoute(initialPath)) {
-			void prefetchSessions(queryClient, { scope: "mine", q: "" }).catch(() => undefined);
+			void prefetchSessions(queryClient, {}).catch(() => undefined);
 		}
 		return state;
 	});

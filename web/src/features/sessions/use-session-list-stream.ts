@@ -27,8 +27,10 @@ function parseParams(queryKey: readonly unknown[]): ListParams | null {
 
 /**
  * Subscribes to `GET /api/sessions/stream` and patches every loaded session
- * list in the Query cache. The list is only patched while it has a first page;
- * an unloaded list fetches the row with its first page anyway.
+ * list in the Query cache. The stream is scoped to `visible`, like the list
+ * itself, so an administrator's stream carries no session they cannot see in
+ * the list. The list is only patched while it has a first page; an unloaded
+ * list fetches the row with its first page anyway.
  *
  * On a reconnect the contract asks for a fresh first page: the query is
  * invalidated, which refetches the loaded pages (the simpler correct choice;
@@ -57,7 +59,7 @@ export function useSessionListStream({ viewer, enabled = true }: SessionStreamOp
 		};
 
 		return subscribeSse({
-			url: "/api/sessions/stream",
+			url: "/api/sessions/stream?scope=visible",
 			events: ["upsert", "remove"],
 			onEvent: (event, data) => {
 				if (event === "upsert") {

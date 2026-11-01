@@ -34,7 +34,8 @@ export interface SessionListItem {
 	parentSessionId?: string | null;
 }
 
-export type SessionListScope = "mine" | "shared" | "all";
+/** `visible` is the owner-and-shared union the WebUI lists; `all` is administrators only. */
+export type SessionListScope = "mine" | "shared" | "visible" | "all";
 
 export interface SessionListFilter {
 	scope: SessionListScope;
@@ -176,6 +177,11 @@ export async function sessionListQuery(db: Db, user: SessionUser, filter: Sessio
 			query = query.where("sessions.owner_user_id", "!=", user.userId).where(shareReachesViewer);
 			break;
 		}
+		case "visible":
+			// The WebUI's only scope: the caller's own roots plus the roots shared with them. No
+			// administrator override, so an administrator's list is their own and shared sessions too.
+			query = query.where((eb) => eb.or([eb("sessions.owner_user_id", "=", user.userId), shareReachesViewer(eb)]));
+			break;
 		case "all":
 			if (user.kind !== "admin") throw new UserError("administrators only");
 			break;
@@ -266,6 +272,12 @@ export async function shareAudienceUserIds(db: Db, audience: ShareAudience): Pro
 /** One open `/api/sessions/stream` connection. The route owns the SSE write queue; the hub only decides what to send. */
 export interface SessionListSubscriber {
 	readonly user: SessionUser;
+	/**
+	 * The stream's scope, with the list scopes' meanings. Omitted keeps the historical behaviour: everything
+	 * the subscriber may see, which is every root session for an administrator. `visible` is the WebUI's
+	 * owner-and-shared union, so an administrator's stream then leaves out the sessions only they can see.
+	 */
+	readonly scope?: SessionListScope;
 	send(event: "upsert" | "remove", data: SessionListItem | { id: string }): void;
 	/** Ends the connection: a disabled user, or shutdown. */
 	close(): void;
@@ -356,7 +368,7 @@ export class SessionListHub {
 		for (const subscriber of [...this.#subscribers]) {
 			const userId = subscriber.user.userId;
 			if (!only.has(userId)) continue;
-			if (subscriber.user.kind === "admin" || visible.has(userId)) {
+			if (this.#receives(subscriber, row, visible)) {
 				this.#send(subscriber, "upsert", sessionListItem(row, userId, visible.has(userId)));
 			} else {
 				this.#send(subscriber, "remove", { id: sessionId });
@@ -385,9 +397,9 @@ export class SessionListHub {
 			const visible = await this.#visibleUserIds(sessionId);
 			for (const subscriber of [...this.#subscribers]) {
 				if (subscriber.user.userId !== userId) continue;
-				const canSee = subscriber.user.kind === "admin" || row.owner_user_id === userId || visible.has(userId);
-				if (canSee) this.#send(subscriber, "upsert", sessionListItem(row, userId, visible.has(userId)));
-				else if (!added) this.#send(subscriber, "remove", { id: sessionId });
+				if (this.#receives(subscriber, row, visible)) {
+					this.#send(subscriber, "upsert", sessionListItem(row, userId, visible.has(userId)));
+				} else if (!added) this.#send(subscriber, "remove", { id: sessionId });
 			}
 		}
 	}
@@ -401,13 +413,7 @@ export class SessionListHub {
 		if (!row || row.parent_session_id !== null) return;
 		const visible = await this.#visibleUserIds(sessionId);
 		for (const subscriber of [...this.#subscribers]) {
-			if (
-				subscriber.user.kind === "admin" ||
-				row.owner_user_id === subscriber.user.userId ||
-				visible.has(subscriber.user.userId)
-			) {
-				this.#send(subscriber, "remove", { id: sessionId });
-			}
+			if (this.#receives(subscriber, row, visible)) this.#send(subscriber, "remove", { id: sessionId });
 		}
 	}
 
@@ -546,9 +552,29 @@ export class SessionListHub {
 			const userId = subscriber.user.userId;
 			if (only && !only.has(userId)) continue;
 			if (skip?.has(userId)) continue;
-			const isOwner = row.owner_user_id === userId;
-			if (!isOwner && subscriber.user.kind !== "admin" && !audience.has(userId)) continue;
+			if (!this.#receives(subscriber, row, audience)) continue;
 			this.#send(subscriber, "upsert", sessionListItem(row, userId, audience.has(userId)));
+		}
+	}
+
+	/**
+	 * Whether a subscriber's stream carries this session: the scopes are the list's, and `visible` is its
+	 * owner-and-shared union. An unscoped stream keeps the historical audience, which includes every
+	 * administrator for every session.
+	 */
+	#receives(subscriber: SessionListSubscriber, row: { owner_user_id: string }, audience: ReadonlySet<string>): boolean {
+		const userId = subscriber.user.userId;
+		const owner = row.owner_user_id === userId;
+		const shared = audience.has(userId);
+		switch (subscriber.scope) {
+			case "mine":
+				return owner;
+			case "shared":
+				return shared;
+			case "visible":
+				return owner || shared;
+			default:
+				return owner || shared || subscriber.user.kind === "admin";
 		}
 	}
 

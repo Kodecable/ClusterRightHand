@@ -34,6 +34,7 @@ export function Transcript({
 	items,
 	streams,
 	ready,
+	sessionActive,
 	hasOlder,
 	loadingOlder,
 	onLoadOlder,
@@ -42,6 +43,8 @@ export function Transcript({
 	items: TranscriptItem[];
 	streams: TranscriptStreams;
 	ready: boolean;
+	/** Whether the session is running or awaiting: a call without a result cannot return once it is idle. */
+	sessionActive: boolean;
 	hasOlder: boolean;
 	loadingOlder: boolean;
 	onLoadOlder: () => void;
@@ -324,6 +327,7 @@ export function Transcript({
 								key={item.key}
 								item={item}
 								streams={streams}
+								sessionActive={sessionActive}
 								onBeforeResize={onBeforeResize}
 								onAfterResize={onAfterResize}
 							/>

@@ -1,19 +1,19 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
-import { ChevronDownIcon, ChevronRightIcon, WrenchIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, LoaderCircleIcon, WrenchIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { CodeText } from "@/components/code-text";
 import { InternalLink } from "@/components/internal-link";
-import { SessionStatusBadge, StatusBadge } from "@/components/status-badge";
 import { TaskResult } from "@/components/task-result";
-import { useTask } from "@/features/tasks/api";
+import { groupEnded, useTask, useTaskGroup } from "@/features/tasks/api";
+import { isTerminal } from "@/features/tasks/output";
 import { safeInternalPath } from "@/lib/url";
+import { cn } from "@/lib/utils";
 import { SafeMarkdown, StreamingMarkdown } from "@/markdown/SafeMarkdown";
 import { useStreamingText } from "@/markdown/stream-store";
-import { useSessionChild } from "./child-sessions";
-import type { JsonObject } from "./sessionState";
+import type { Json, JsonObject } from "./sessionState";
 import { approvalWait, authorizationWait, prettyJson, type TranscriptItem } from "./sessionState";
-import { type ToolFailure, toolFailure } from "./tool-failure";
+import { groupViewFailure, type ToolFailure, taskViewFailure, toolFailure } from "./tool-failure";
 import type { TranscriptStreams } from "./transcript-streams";
 
 type ToolItem = Extract<TranscriptItem, { kind: "tool" }>;
@@ -81,24 +81,55 @@ function toolTaskId(item: ToolItem): string | undefined {
 	return typeof id === "string" && id !== "" ? id : undefined;
 }
 
-/** The one extra badge a card shows: a failed task (or a partly failed task group), never a running or ok one. */
-function ToolFailureBadge({ failure }: { failure: ToolFailure }) {
-	const { t } = useLingui();
-	const label =
-		failure.kind === "partly-failed"
-			? t`Partly failed`
-			: failure.reason === "cancelled"
-				? t`Cancelled`
-				: failure.reason === "timed-out"
-					? t`Timed out`
-					: failure.reason === "exit"
-						? t`Exit ${failure.exitCode ?? ""}`
-						: t`Failed`;
+/** How often an open call re-reads the task or task group it follows. */
+const FOLLOW_INTERVAL_MS = 5000;
+
+/** A string field of the call's live status details, e.g. the `task_id` the first status published. */
+function detailId(details: Json | undefined, key: "task_id" | "task_group_id"): string | undefined {
+	if (details === null || details === undefined || typeof details !== "object" || Array.isArray(details))
+		return undefined;
+	const value = details[key];
+	return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+/**
+ * Whether an unreturned call may still produce a result (doc/webui.md "工具卡片"): the session is running or
+ * awaiting, and the call's task or task group, when the card knows one, has not ended.
+ */
+export function callStillOpen({
+	sessionActive,
+	taskState,
+	groupState,
+}: {
+	sessionActive: boolean;
+	taskState: string | undefined;
+	groupState: string | undefined;
+}): boolean {
+	if (!sessionActive) return false;
+	if (taskState !== undefined && isTerminal(taskState)) return false;
+	if (groupState !== undefined && groupEnded(groupState)) return false;
+	return true;
+}
+
+/**
+ * The card's status, as its leading icon only (doc/webui.md "消息渲染"): a spinner while the call may still
+ * return, then the wrench — in the danger colour when the call or the task it ran failed. The accessible name
+ * and the tooltip carry the state a badge used to show.
+ */
+function ToolStatusIcon({ spinning, failed, label }: { spinning: boolean; failed: boolean; label: string }) {
 	return (
-		<span className="shrink-0" data-testid="tool-failure">
-			<StatusBadge tone="danger" dot={false}>
-				{label}
-			</StatusBadge>
+		<span
+			role="img"
+			aria-label={label}
+			title={label}
+			data-testid="tool-status-icon"
+			className={cn("inline-flex shrink-0", failed ? "text-danger" : "text-muted-foreground")}
+		>
+			{spinning ? (
+				<LoaderCircleIcon className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+			) : (
+				<WrenchIcon className="size-3.5" aria-hidden="true" />
+			)}
 		</span>
 	);
 }
@@ -106,11 +137,13 @@ function ToolFailureBadge({ failure }: { failure: ToolFailure }) {
 function ToolCard({
 	item,
 	streams,
+	sessionActive,
 	onBeforeResize,
 	onAfterResize,
 }: {
 	item: ToolItem;
 	streams: TranscriptStreams;
+	sessionActive: boolean;
 	onBeforeResize?: () => void;
 	onAfterResize?: () => void;
 }) {
@@ -127,41 +160,91 @@ function ToolCard({
 		onAfterResize?.();
 	}, [expanded, onAfterResize]);
 
-	const wait = item.result ? undefined : approvalWait(item.details);
+	const result = item.result;
+	const returned = result !== undefined;
+	const wait = result ? undefined : approvalWait(item.details);
 	const approvalHref = wait ? safeInternalPath(wait.url) : undefined;
-	const signature = item.result ? undefined : authorizationWait(item.details);
+	const signature = result ? undefined : authorizationWait(item.details);
 	const signatureHref = signature ? safeInternalPath(signature.url) : undefined;
 	const subagent =
 		item.details !== null && typeof item.details === "object" && !Array.isArray(item.details)
 			? item.details.sessionId
 			: undefined;
 	const subagentId = typeof subagent === "string" && subagent !== "" ? subagent : undefined;
-	// A subagent call's badge shows the child session's own state, not the state the call had when it
-	// returned: a background subagent keeps working (or goes idle) long after the card was drawn.
-	const child = useSessionChild(subagentId);
-	const failure = item.result === undefined ? undefined : toolFailure(item.result.text);
-	const status = item.result
-		? item.result.isError
+	const failure = result === undefined ? undefined : toolFailure(result.text);
+	// Only a call without a result follows a task or task group: a returned call must not fetch.
+	const taskId = returned ? undefined : detailId(item.details, "task_id");
+	const groupId = returned ? undefined : detailId(item.details, "task_group_id");
+	// Plain reads, not the long-polling waits: a session may have many open calls, and each wait would hold one
+	// of the browser's few connections per origin for as long as the call runs.
+	const task = useTask(taskId);
+	const group = useTaskGroup(groupId);
+	const followedTask = taskId === undefined ? undefined : task.data;
+	const followedGroup = groupId === undefined ? undefined : group.data;
+	const spinning =
+		!returned && callStillOpen({ sessionActive, taskState: followedTask?.state, groupState: followedGroup?.state });
+	const followed = taskId !== undefined || groupId !== undefined;
+	const { refetch: refetchTask } = task;
+	const { refetch: refetchGroup } = group;
+	// Re-read the followed task or group every few seconds while the card spins, and once more when it stops
+	// (the session went idle), so a stopped card shows how the task ended.
+	useEffect(() => {
+		if (!followed) return;
+		const refresh = () => {
+			if (taskId !== undefined) void refetchTask();
+			if (groupId !== undefined) void refetchGroup();
+		};
+		if (!spinning) {
+			refresh();
+			return;
+		}
+		const timer = setInterval(refresh, FOLLOW_INTERVAL_MS);
+		return () => clearInterval(timer);
+	}, [followed, spinning, taskId, groupId, refetchTask, refetchGroup]);
+	// What a stopped call's task or group ended with: its failure, `done`, or undefined when nothing is known.
+	let outcome: ToolFailure | "done" | undefined;
+	if (!returned && !spinning) {
+		if (followedTask !== undefined && isTerminal(followedTask.state)) {
+			outcome = taskViewFailure(followedTask) ?? "done";
+		} else if (followedGroup !== undefined && groupEnded(followedGroup.state)) {
+			outcome = groupViewFailure(followedGroup) ?? "done";
+		}
+	}
+	// A task failure is a failed card even though the call itself returned normally.
+	const failed = returned ? result.isError || failure !== undefined : outcome !== undefined && outcome !== "done";
+	const status = returned
+		? failed
 			? "failed"
 			: "done"
-		: item.status === "pending"
-			? "preparing"
-			: item.status === "running"
-				? "running"
+		: spinning
+			? item.status === "pending"
+				? "preparing"
+				: item.status === "running"
+					? "running"
+					: "empty"
+			: failed
+				? "failed"
 				: "empty";
-
-	const statusLabel = {
-		failed: t`Failed`,
-		done: t`Done`,
-		preparing: t`Preparing`,
-		running: t`Running`,
-		empty: t`No result yet`,
-	}[status];
-	const tone = status === "done" ? "ok" : status === "failed" ? "danger" : status === "empty" ? "muted" : "info";
+	// The icon is the only status signal: its accessible name and tooltip say what a badge used to show.
+	const failureLabel = (value: ToolFailure): string =>
+		value.kind === "partly-failed"
+			? t`Partly failed`
+			: value.reason === "cancelled"
+				? t`Cancelled`
+				: value.reason === "timed-out"
+					? t`Timed out`
+					: value.reason === "exit"
+						? t`Exit ${value.exitCode ?? ""}`
+						: t`Failed`;
+	let statusLabel: string;
+	if (returned) statusLabel = failure === undefined ? (failed ? t`Failed` : t`Done`) : failureLabel(failure);
+	else if (spinning) statusLabel = t`Running`;
+	else if (outcome === undefined) statusLabel = t`No result`;
+	else statusLabel = outcome === "done" ? t`Done` : failureLabel(outcome);
 	const hasArgs = Object.keys(item.args).length > 0;
 	const summaryLine = toolSummary(item.args);
-	const liveOutput = item.result === undefined ? streams.tool(item.callId) : undefined;
-	const taskId = toolTaskId(item);
+	const liveOutput = result === undefined ? streams.tool(item.callId) : undefined;
+	const taskResultId = toolTaskId(item);
 
 	return (
 		<div className="overflow-hidden rounded-lg border bg-card/50" data-testid="tool-card" data-tool-status={status}>
@@ -175,19 +258,11 @@ function ToolCard({
 				}}
 				className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
 			>
-				<WrenchIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+				<ToolStatusIcon spinning={spinning} failed={failed} label={statusLabel} />
 				<span className="shrink-0 font-mono text-xs font-medium">{item.name}</span>
 				<span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" title={summaryLine}>
 					{summaryLine}
 				</span>
-				{failure !== undefined && <ToolFailureBadge failure={failure} />}
-				{child !== undefined ? (
-					<SessionStatusBadge state={child.state} className="shrink-0" />
-				) : (
-					<StatusBadge tone={tone} dot={false}>
-						{statusLabel}
-					</StatusBadge>
-				)}
 				{expanded ? (
 					<ChevronDownIcon className="size-3.5 shrink-0" aria-hidden="true" />
 				) : (
@@ -228,31 +303,28 @@ function ToolCard({
 							<ToolLiveOutput store={liveOutput} />
 						</div>
 					)}
-					{item.result !== undefined && (
+					{result !== undefined && (
 						<div className="grid gap-1">
 							<span className="text-[11px] font-medium text-muted-foreground">
 								<Trans>Result</Trans>
 							</span>
 							<CodeText
-								text={prettyJson(item.result.text)?.pretty ?? item.result.text}
+								text={prettyJson(result.text)?.pretty ?? result.text}
 								maxLines={40}
 								label={t`Tool result`}
-								className={item.result.isError ? "border-danger/40" : undefined}
+								className={result.isError ? "border-danger/40" : undefined}
 							/>
-							{taskId !== undefined && <ToolTask taskId={taskId} />}
+							{taskResultId !== undefined && <ToolTask taskId={taskResultId} />}
 						</div>
 					)}
 					{subagentId !== undefined && (
-						<span className="flex items-center gap-2">
-							<Link
-								to="/sessions/$sessionId"
-								params={{ sessionId: subagentId }}
-								className="text-xs text-primary underline underline-offset-2"
-							>
-								<Trans>Open the subagent's session</Trans>
-							</Link>
-							{child !== undefined && <SessionStatusBadge state={child.state} />}
-						</span>
+						<Link
+							to="/sessions/$sessionId"
+							params={{ sessionId: subagentId }}
+							className="text-xs text-primary underline underline-offset-2"
+						>
+							<Trans>Open the subagent's session</Trans>
+						</Link>
 					)}
 				</div>
 			)}
@@ -298,11 +370,14 @@ function CompactionDivider({ text }: { text: string }) {
 export function TranscriptRow({
 	item,
 	streams,
+	sessionActive,
 	onBeforeResize,
 	onAfterResize,
 }: {
 	item: TranscriptItem;
 	streams: TranscriptStreams;
+	/** Whether the session is running or awaiting: an unreturned call stops waiting once it is idle. */
+	sessionActive: boolean;
 	onBeforeResize?: () => void;
 	onAfterResize?: () => void;
 }) {
@@ -347,7 +422,13 @@ export function TranscriptRow({
 			)}
 			{item.kind === "tool" && (
 				<div className="max-w-[92%]">
-					<ToolCard item={item} streams={streams} onBeforeResize={onBeforeResize} onAfterResize={onAfterResize} />
+					<ToolCard
+						item={item}
+						streams={streams}
+						sessionActive={sessionActive}
+						onBeforeResize={onBeforeResize}
+						onAfterResize={onAfterResize}
+					/>
 				</div>
 			)}
 			{item.kind === "compaction" && <CompactionDivider text={item.text} />}

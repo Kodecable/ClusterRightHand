@@ -45,6 +45,12 @@ describe("sessionMatchesFilter", () => {
 		expect(sessionMatchesFilter(item({ ownerUserId: "me", shared: false }), filter({ scope: "shared" }))).toBe(false);
 	});
 
+	test("visible is the owner-and-shared union, the web's only list", () => {
+		expect(sessionMatchesFilter(item(), filter({ scope: "visible" }))).toBe(true);
+		expect(sessionMatchesFilter(item({ ownerUserId: "x", shared: true }), filter({ scope: "visible" }))).toBe(true);
+		expect(sessionMatchesFilter(item({ ownerUserId: "x", shared: false }), filter({ scope: "visible" }))).toBe(false);
+	});
+
 	test("all is admin-only and fails closed", () => {
 		expect(sessionMatchesFilter(item(), filter({ scope: "all" }))).toBe(false);
 		expect(sessionMatchesFilter(item(), filter({ scope: "all", isAdmin: true }))).toBe(true);

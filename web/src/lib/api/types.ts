@@ -126,7 +126,8 @@ export interface SessionChildrenSummary {
 	states: Record<SessionRunState, number>;
 }
 
-export type SessionListScope = "mine" | "shared" | "all";
+/** `visible` is the web's only scope: the caller's own roots plus the roots shared with them. */
+export type SessionListScope = "mine" | "shared" | "visible" | "all";
 
 export interface SessionListQuery extends CursorQuery {
 	scope?: SessionListScope;

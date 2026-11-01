@@ -103,6 +103,7 @@ interface AgentRuntime {
 - **重启后重新挂接**：exec 声明 `replay: "safe"`。Cluster 任务 id 由 durable 工具任务 id 确定性派生，所以服务端重启后工具重跑时，会找到同一个 Cluster 任务（可能仍在运行或已经结束），而不会新建一个。
 - **结果为 `unknown` 时**：返回错误结果，文本为"执行失败，状态未知，原因：connection_lost / executor_restarted / dispatch_unconfirmed"。
 - **等待审批时**：工具一直等待，同时通过 `api.details` 把"等待审批"的状态推送给 UI。
+- **第一次等待前先推送 id**：任务或任务组创建后、开始等待前，先推送一次 `{ task_id, state }` / `{ task_group_id, state }`，之后等待审批、等待签名时再推送带链接的状态。WebUI 用这个 id 跟进任务的最终状态（见 [webui.md](webui.md#会话界面)），工具调用没有结果时也能停下加载圈。MCP 调用者没有 `onStatus`，不推送，也不多读一次任务。
 
 ### 交给模型的输出
 

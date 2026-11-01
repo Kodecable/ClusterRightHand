@@ -62,50 +62,59 @@ test("creating a session shows it in another browser's list through the stream",
 	}
 });
 
-test("search and scope tabs ask the server and show only what matches", async ({ adminPage: page, browser, crhs }) => {
+test("search and the visible scope show the caller's own and shared sessions", async ({
+	adminPage: page,
+	browser,
+	crhs,
+}) => {
 	const member = await crhs.api("/api/users", {
 		body: { username: MEMBER.username, password: MEMBER.password, kind: "member" },
 	});
 	expect(member.status).toBe(201);
+	const memberId = member.json.user.id as string;
 	const memberCookie = await loginCookie(crhs, MEMBER.username, MEMBER.password);
 	await createSessionFor(crhs, memberCookie, "Member beta session");
-	await createSessionFor(crhs, crhs.cookie, "Deploy the cluster");
+	const adminSession = await createSessionFor(crhs, crhs.cookie, "Deploy the cluster");
 
 	await page.goto("/sessions");
 	await expect(page.locator('[data-testid="session-item"]', { hasText: "Deploy the cluster" })).toBeVisible({
 		timeout: 15_000,
 	});
 
-	// `mine` never shows the member's session; the admin's All tab does.
+	// The list is the owner-and-shared union even for an administrator: no All tab, so the member's
+	// unshared session never appears.
 	await expect(page.locator('[data-testid="session-item"]', { hasText: "Member beta session" })).toHaveCount(0);
-	await page.getByTestId("scope-all").click();
-	await expect(page.locator('[data-testid="session-item"]', { hasText: "Member beta session" })).toBeVisible({
-		timeout: 15_000,
-	});
+	await expect(page.getByTestId("scope-all")).toHaveCount(0);
+	await expect(page.getByTestId("scope-mine")).toHaveCount(0);
+	await expect(page.getByTestId("scope-shared")).toHaveCount(0);
 
 	// Server-side search is debounced; the list narrows to the matching title.
 	await page.getByTestId("session-search").fill("deploy");
 	await expect(page.locator('[data-testid="session-item"]', { hasText: "Deploy the cluster" })).toBeVisible();
 	await expect(page.locator('[data-testid="session-item"]', { hasText: "Member beta session" })).toHaveCount(0);
 	await page.getByTestId("session-search").fill("member beta");
-	await expect(page.locator('[data-testid="session-item"]', { hasText: "Member beta session" })).toBeVisible({
-		timeout: 15_000,
-	});
+	await expect(page.locator('[data-testid="session-item"]', { hasText: "Member beta session" })).toHaveCount(0);
 	await page.getByTestId("session-search").fill("");
 
-	// A member gets no All tab, and their list starts at their own (empty) scope.
+	// Share the administrator's session with the member: their list is the union, so the row appears
+	// without switching any scope tab.
+	const shared = await crhs.api(`/api/sessions/${adminSession}/shares`, {
+		method: "PUT",
+		body: { granteeType: "user", granteeId: memberId, access: "view" },
+	});
+	expect(shared.status).toBe(200);
+
 	const context = await browser.newContext({ baseURL: crhs.url });
 	try {
 		const memberPage = await context.newPage();
 		await login(memberPage, MEMBER);
 		await expect(memberPage.getByTestId("page-title")).toHaveText("Sessions");
-		await expect(memberPage.getByTestId("scope-all")).toHaveCount(0);
 		await expect(memberPage.locator('[data-testid="session-item"]', { hasText: "Member beta session" })).toBeVisible({
 			timeout: 15_000,
 		});
-		await expect(memberPage.locator('[data-testid="session-item"]', { hasText: "Deploy the cluster" })).toHaveCount(0);
-		await memberPage.getByTestId("scope-shared").click();
-		await expect(memberPage.getByTestId("scope-shared")).toHaveAttribute("aria-pressed", "true");
+		await expect(memberPage.locator('[data-testid="session-item"]', { hasText: "Deploy the cluster" })).toBeVisible({
+			timeout: 15_000,
+		});
 	} finally {
 		await context.close();
 	}

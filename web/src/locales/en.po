@@ -421,10 +421,6 @@ msgstr "After the node connects it appears as pending; compare its key fingerpri
 msgid "Agent"
 msgstr "Agent"
 
-#: src/features/sessions/session-list.tsx
-msgid "All"
-msgstr "All"
-
 #: src/features/settings/pages.tsx
 msgid "all built-in models"
 msgstr "all built-in models"
@@ -1448,7 +1444,7 @@ msgstr "Everything that waits for your approval, signature or quota decision."
 msgid "exact"
 msgstr "exact"
 
-#. placeholder {0}: failure.exitCode ?? ""
+#. placeholder {0}: value.exitCode ?? ""
 #: src/features/sessions/transcript-row.tsx
 msgid "Exit {0}"
 msgstr "Exit {0}"
@@ -1844,10 +1840,6 @@ msgstr "Members of {0}"
 msgid "Message"
 msgstr "Message"
 
-#: src/features/sessions/session-list.tsx
-msgid "Mine"
-msgstr "Mine"
-
 #: src/components/task-result.tsx
 msgid "Mode"
 msgstr "Mode"
@@ -1932,10 +1924,6 @@ msgstr "Never"
 #: src/components/status-badge.tsx
 msgid "Never run"
 msgstr "Never run"
-
-#: src/features/sessions/session-list.tsx
-msgid "New"
-msgstr "New"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "New credential name"
@@ -2078,8 +2066,8 @@ msgid "No Passkey of yours is trusted by this node for this command; sign with y
 msgstr "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
 
 #: src/features/sessions/transcript-row.tsx
-msgid "No result yet"
-msgstr "No result yet"
+msgid "No result"
+msgstr "No result"
 
 #: src/features/sessions/composer-footer.tsx
 msgid "No rules"
@@ -2470,10 +2458,6 @@ msgstr "Preempted"
 #: src/components/approval-card.tsx
 msgid "prefix"
 msgstr "prefix"
-
-#: src/features/sessions/transcript-row.tsx
-msgid "Preparing"
-msgstr "Preparing"
 
 #: src/features/sessions/session-waits.tsx
 msgid "Preparing the payload to sign…"
@@ -2927,10 +2911,6 @@ msgid "Schedules"
 msgstr "Schedules"
 
 #: src/features/sessions/session-list.tsx
-msgid "Scope"
-msgstr "Scope"
-
-#: src/features/sessions/session-list.tsx
 msgid "Search sessions"
 msgstr "Search sessions"
 
@@ -2995,7 +2975,6 @@ msgstr "Share added."
 msgid "Share removed."
 msgstr "Share removed."
 
-#: src/features/sessions/session-list.tsx
 #: src/features/sessions/session-markers.tsx
 msgid "Shared"
 msgstr "Shared"

@@ -49,6 +49,7 @@ export function sessionMatchesFilter(item: SessionListItem, filter: SessionListF
 	if (filter.scope === "all" && !filter.isAdmin) return false;
 	if (filter.scope === "mine" && item.ownerUserId !== filter.viewerId) return false;
 	if (filter.scope === "shared" && !item.shared) return false;
+	if (filter.scope === "visible" && item.ownerUserId !== filter.viewerId && !item.shared) return false;
 	const query = filter.q.trim().toLowerCase();
 	if (query !== "" && !item.title.toLowerCase().includes(query)) return false;
 	return true;

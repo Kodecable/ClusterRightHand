@@ -102,12 +102,14 @@ web/src/
 
 **侧边列表：**
 - 进入 Sessions 路由后出现第二栏，用 virtua 虚拟滚动，按游标无限加载。窄于 `lg` 时导航侧边栏、列表和会话放不下三栏，只显示其中一栏：`/sessions` 是列表，会话页用页头的返回按钮回到列表。
+- 列的最上面是搜索框，紧接一个与搜索框同宽的“新建会话”按钮，下面直接是分组列表。列里没有横向分隔线，只有列与会话区之间的竖线。
 - 搜索框带防抖，在服务端搜索。
 - 每一项只有标题，一行，超出省略；不显示所有者和相对时间。由计划任务创建的会话和别人共享给你的会话，在同一行最右侧显示灰色的"计划" / "共享"徽章（共享徽章的 tooltip 写明所有者）；会话页页头的标题右侧显示同样的徽章。等待类型放在整行的 tooltip 里。状态点只在 `running` 和 `awaiting` 时出现（idle 不画点），但点的位置始终保留，标题因此对齐。
 - 按 `updatedAt` 分组（列表本来就按它排序）：`今天`、`昨天`、`7 天内`、`30 天内`，更早的按本地时区的月份分组（`2026-09`）。分组标题是虚拟列表里与条目交错的普通行，所以分页加载和 SSE 打补丁后重新分组即可；键盘上下键只在条目之间移动，跳过标题。
 - 不再显示"共 N 个会话"。
 - 支持键盘上下键和回车。
-- 范围切换：我的 / 共享给我 / 全部（仅管理员）。
+- 列表只显示调用者能看到的根会话：自己拥有的，加上共享给自己的（`scope=visible`）。共享的会话仍带灰色的“共享”徽章。
+- 不再有范围切换。管理员也没有“全部”视图：管理员看到的同样是自己的加共享的会话。
 - 列表变化由 SSE 推送（见后端部分）。
 
 **消息视图：**
@@ -153,11 +155,26 @@ web/src/
 - 用户消息、工具参数、工具输出按原文显示（工具输出用等宽字体，可以折叠）。
 - 审批、授权、配额等待以卡片形式插在消息中。
 - 子会话可以从父会话进入，并有面包屑。
-- 工具卡片只有一个调用状态徽标：Done、Failed（工具本身报错）、Running、Preparing；子会话卡片的徽标跟随子会话的实时状态。
-- 另外只在工具结果表示"任务失败"时加一个红色徽标，按返回时的 JSON 判断，不做实时查询：
-  - 单个任务（结果有 `task_id` 和 `state`）：`failed` / `denied` / `rejected` / `unknown` 算失败；`exited` 时非零 `exit_code`、有 `signal`、`timed_out` 或 `cancelled` 也算失败（用户取消按失败处理）。徽标写 `Failed`，也可以更具体：`Cancelled`、`Timed out`、`Exit 2`，颜色始终是危险色。
-  - 任务组（结果有 `task_group_id` 和 `nodes`）：部分成员失败时写"部分失败"，全部失败或组是 `interrupted` / `rejected` 时写 `Failed`。
-  - 失败以外的结果（`read_file` 没有 `exit_code`、`exit 0`、仍在 `running` 的任务、全部成功的组）不加徽标；也不再显示 `exit N` 文本。
+- 工具卡片不用徽标，状态只由开头的图标表示：
+  - 调用还没有返回、而且还可能返回时（没有 `item.result`：preparing、running、还没有结果），扳手换成旋转的加载圈，无障碍名称和 tooltip 是 `Running`；
+  - 调用不会再返回时也停下加载圈，换成扳手。两种情况：会话不是 `running` / `awaiting`（看页面自己的会话状态，`awaiting` 也算活动），或者调用对应的任务 / 任务组已经结束；
+  - 返回成功时是原来的扳手；
+  - 返回失败时是同样的扳手，用危险色，无障碍名称和 tooltip 是 `Failed`；任务失败时用具体原因，例如 `Exit 2`、`Timed out`、`Cancelled`、`Partly failed`。
+  - 只看调用有没有返回：后台 `subagent` 调用返回后子会话还在运行，图标也是 `Done`。
+  - 子会话的实时状态不再显示在工具卡片上，只显示在子会话栏和子会话浮层里。
+- 停下的卡片（没有结果，但不会再有结果）：
+  - 用状态详情里的 `task_id` / `task_group_id` 跟进任务或任务组：转圈期间每 5 秒普通读取一次，停下时再读一次。不用长轮询：一个会话可能同时有很多未返回的调用，每个长轮询都会占住浏览器对同一来源仅有的几个连接。只有没有结果的卡片跟进；返回了的调用不查询。
+  - 任务到了终态、或任务组是 `finished` / `interrupted` / `rejected` 时，按任务视图判断结果：失败用危险色，标签用具体原因，否则普通颜色、标签是 `Done`。
+  - 会话变成 idle 而任务还没结束、或者连 id 都不知道时，结果未知：普通颜色，标签是 `No result`（中文“无结果”）。
+  - `data-tool-status` 在停下的卡片上是 `empty`；任务失败时是 `failed`。
+  - 状态详情里的 id 由服务端在第一次等待前推送，见 [agent-runtime.md](agent-runtime.md#exec-工具的语义)。
+- 失败的含义：
+  - 工具结果本身是错误（`isError`）；
+  - 返回的调用按返回时的 JSON 判断，不做实时查询；
+  - 停下的调用按跟进到的 `TaskView` / `TaskGroupView` 字段判断，规则相同；
+  - 单个任务（结果有 `task_id` 和 `state`）：`failed` / `denied` / `rejected` / `unknown` 算失败；`exited` 时非零 `exit_code`、有 `signal`、`timed_out` 或 `cancelled` 也算失败（用户取消按失败处理）；
+  - 任务组（结果有 `task_group_id` 和 `nodes`）：部分成员失败时算失败，标签写“部分失败”；全部失败或组是 `interrupted` / `rejected` 时也失败，标签写 `Failed`；
+  - 失败以外的结果（`read_file` 没有 `exit_code`、`exit 0`、仍在 `running` 的任务、全部成功的组）不影响状态，也不显示 `exit N` 文本。
 
 ### SafeMarkdown
 
@@ -198,9 +215,10 @@ web/src/
 
 ### 会话列表
 
-- `GET /api/sessions?scope=mine|shared|all&q=&cursor=&limit=`：
+- `GET /api/sessions?scope=mine|shared|visible|all&q=&cursor=&limit=`：
   - 按 `updated_at desc, id` 排序；
   - 只返回根会话；
+  - 默认 `mine`；`visible` 是自己拥有的加共享给自己的根会话（并集），管理员也一样，是 WebUI 唯一使用的范围；
   - `all` 仅管理员可用。
 - 返回轻量的 `SessionListItem`：id、title、ownerUserId、ownerName、scheduleId、shared、state、waitingLevelId、updatedAt。
   - 不再逐行查询规则集和已用 token，消除 N+1；
@@ -210,8 +228,9 @@ web/src/
   - `scope=all` 用 `(parent_session_id, updated_at, id)`。
 - 搜索：标题用 `LIKE` 子串匹配，参数做转义。SQLite 和 PG 都适用；数据量再大时再考虑 FTS 或 trigram。
 - 会话的状态、标题或消息变化时，必须更新 `updated_at`。实现时核对所有写入点。
-- `GET /api/sessions/stream`（SSE）：
+- `GET /api/sessions/stream?scope=`（SSE）：
   - 只推送当前用户可见的根会话的变化：`upsert`（携带 `SessionListItem`）和 `remove`；
+  - `scope` 与列表相同；省略时保持原行为（管理员收到全部根会话），WebUI 用 `scope=visible`，管理员也只收到自己拥有和共享的会话；
   - 连接建立时不发全量数据；
   - 断线重连后，客户端重新拉取第一页。
 
@@ -277,7 +296,7 @@ web/src/
 - `event: upsert`，data 为 `SessionListItem`；
 - `event: remove`，data 为 `{ "id": string }`，会话被删除、取消共享或归档时发送；
 - `event: ping`，每 15 秒一次。
-- 只推送当前用户可见的根会话（管理员是全部）。会话树里任何会话的状态变化都推送其根会话。客户端按自己当前的 `scope` 和 `q` 过滤后，打补丁到已加载的列表；断线重连后重新拉取第一页。
+- 只推送当前用户可见的根会话；连接上带 `scope=visible` 时（WebUI 的用法）不再有管理员的全量视图。会话树里任何会话的状态变化都推送其根会话。客户端按自己当前的 `q` 过滤后，打补丁到已加载的列表；断线重连后重新拉取第一页。
 
 **会话事件流** `GET /api/sessions/:id/events`：
 - 第一条 `events` 批次中的 `snapshot` 事件，`entries` 只保留最近的 100 条可显示记录（不含 system 消息），并新增字段 `historyCursor: string | null`（为 null 表示没有更早的记录）。
@@ -317,6 +336,7 @@ web/src/
 
 - **节点信任**：服务端只提供读取，页面是只读报告加 `privileged.toml` 片段编辑器，由用户复制到节点。
 - **会话等待卡片**：审批、签名、配额卡片显示在输入框上方的等待区；工具卡片里给出指向审批页的链接。
+- **管理员的会话列表**：列表只显示自己拥有和共享的会话，管理员没有“全部”视图。
 - **任务结果**：单节点执行、任务页、任务组页、批量都用 `/wait` 长轮询，超时 5 秒后重新发起。
 - **窄屏表格**：表格保持最小列宽并横向滚动，不转成卡片。
 - **已完成消息的缓存**：为了在消息重新挂载时复用渲染结果，在 JSX 之外调用并缓存 `react-markdown` 10.1.0 的 `Markdown()`。这依赖它不使用 hooks，升级大版本时要重新确认。
