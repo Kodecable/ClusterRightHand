@@ -13,6 +13,7 @@ import type { Db } from "../src/storage/db.ts";
 import { createUser } from "../src/users/service.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { waitSubmission } from "./helpers/runtime.ts";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
@@ -51,7 +52,7 @@ async function allEntries(sessionId: string): Promise<{ id: number; model?: { ro
 async function answer(sessionId: string, text: string): Promise<void> {
 	faux.setResponses([fauxAssistantMessage([fauxText(`answer ${++seq}`)])]);
 	const submissionId = await runtime.submit(sessionId, alice, text, `history-${++seq}`);
-	const settled = await runtime.waitSubmission(sessionId, submissionId);
+	const settled = await waitSubmission(runtime, sessionId, submissionId);
 	expect(settled.status).toBe("done");
 }
 

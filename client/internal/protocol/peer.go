@@ -390,7 +390,7 @@ func (p *Peer) handleResponse(f *Frame) error {
 	if call.resp != nil {
 		// The body is valid for the command; failing to decode it into the caller's type
 		// is a caller bug, not a reason to drop the connection.
-		if err := Unmarshal(f.Body, call.resp); err != nil {
+		if err := UnmarshalBody(f.Body, call.resp); err != nil {
 			call.done <- callResult{err: err}
 			return nil
 		}

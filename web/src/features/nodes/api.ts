@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { enc, http, queryString } from "@/lib/api/client";
+import { enc, http } from "@/lib/api/client";
 import type {
 	CrhsKey,
 	NodeShare,
@@ -119,9 +119,11 @@ export function useUnshareNode() {
 }
 
 export function useEnrollmentToken() {
+	// The add-node dialog renders the failure in the dialog.
 	return useMutation({
 		mutationFn: (nameHint?: string) =>
 			http.post<{ token: string; expiresAt: string }>("/enrollment-tokens", nameHint ? { nameHint } : {}),
+		meta: { toast: false },
 	});
 }
 
@@ -161,15 +163,19 @@ export function useCreateSshNode() {
 
 /** Tries the whole route before the node is created (the wizard's last step). */
 export function useTestSshRoute() {
+	// The TestConnection button reports success and failure inline.
 	return useMutation({
 		mutationFn: (body: SshTargetBody) => http.post<{ ok: true }>("/ssh-nodes/test", body),
+		meta: { toast: false },
 	});
 }
 
 /** Tries an existing SSH node's route and credential. */
 export function useTestSshNode() {
+	// The TestConnection button reports success and failure inline.
 	return useMutation({
 		mutationFn: (id: string) => http.post<{ ok: true }>(`/nodes/${enc(id)}/ssh-test`),
+		meta: { toast: false },
 	});
 }
 
@@ -181,9 +187,4 @@ export function useSetNodeGroups() {
 			http.put<{ groups: string[] }>(`/nodes/${enc(id)}/groups`, { groups }).then((r) => r.groups),
 		onSuccess: (_groups, { id }) => void queryClient.invalidateQueries({ queryKey: nodeKeys.detail(id) }),
 	});
-}
-
-/** Node task list: the endpoint is not cursor-paged (only the lists named in doc/webui.md are). */
-export function nodeTaskListPath(id: string, limit?: number): string {
-	return `/nodes/${enc(id)}/tasks${queryString({ limit })}`;
 }

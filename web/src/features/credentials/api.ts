@@ -34,8 +34,10 @@ export function useDeleteCredential() {
 
 /** WebAuthn registration options; the challenge is remembered server-side and used once. */
 export function usePasskeyOptions() {
+	// The registration card reports every failure of the Passkey flow inline.
 	return useMutation({
 		mutationFn: () => http.post<{ options: Record<string, unknown> }>("/me/credentials/webauthn/options", {}),
+		meta: { toast: false },
 	});
 }
 
@@ -47,5 +49,7 @@ export function useRegisterPasskey() {
 				.post<{ credential: CredentialView }>("/me/credentials/webauthn", { response, name })
 				.then((r) => r.credential),
 		onSuccess: () => void queryClient.invalidateQueries({ queryKey: credentialKeys.all }),
+		// The registration card reports every failure of the Passkey flow inline.
+		meta: { toast: false },
 	});
 }

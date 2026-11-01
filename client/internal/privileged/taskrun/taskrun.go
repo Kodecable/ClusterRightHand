@@ -6,12 +6,8 @@
 package taskrun
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
-	"fmt"
-	"hash"
 	"io"
 	"os"
 	"strconv"
@@ -21,14 +17,12 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/executor"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/taskinput"
 )
 
 // OutputChunk bounds one task.output event: a 64 KiB read from the executor would not fit a
 // crh-priv frame.
 const OutputChunk = 32 << 10
-
-// emptyInputHash is the SHA-256 of empty input, which an InputRef of size 0 must declare.
-var emptyInputHash = protocol.Hash(sha256.Sum256(nil))
 
 // Errors that end a task before its process starts.
 var (
@@ -62,13 +56,10 @@ type Task struct {
 	abort      context.CancelFunc
 	done       chan struct{}
 
-	mu        sync.Mutex
-	inputOff  uint64
-	inputSize uint64
-	inputHash protocol.Hash
-	hasher    hash.Hash
-	inputErr  *protocol.Error
-	finished  bool
+	mu       sync.Mutex
+	input    taskinput.Input
+	inputErr *protocol.Error
+	finished bool
 
 	startOnce sync.Once
 }
@@ -80,10 +71,10 @@ func Validate(ts protocol.TaskStart) error {
 	if ts.TaskID == "" {
 		return &protocol.RemoteError{Code: "invalid_spec", Message: "task id must not be empty"}
 	}
-	if ref := inputRef(&ts.Spec); ref != nil && ref.Size == 0 && ref.SHA256 != emptyInputHash {
-		// A zero-size input still commits crhs to the SHA-256 of empty input; a different
-		// hash can never match, so refuse it before the task is accepted.
-		return &protocol.RemoteError{Code: "invalid_spec", Message: "input size 0 requires the sha256 of empty input"}
+	// A zero-size input still commits crhs to the SHA-256 of empty input; a different hash can
+	// never match, so it is refused before the task is accepted.
+	if err := taskinput.ValidateRef(taskinput.Ref(&ts.Spec)); err != nil {
+		return err
 	}
 	return nil
 }
@@ -98,8 +89,8 @@ func New(ts protocol.TaskStart, emit Emit, env *execenv.Environment) (*Task, err
 	ctx, cancel := context.WithCancel(context.Background())
 	t := &Task{id: ts.TaskID, start: ts, env: env, ctx: ctx, abort: cancel, done: make(chan struct{})}
 	t.sink = newStreamSink(emit)
-	if ref := inputRef(&ts.Spec); ref != nil {
-		t.inputSize, t.inputHash, t.hasher = uint64(ref.Size), ref.SHA256, sha256.New()
+	if ref := taskinput.Ref(&ts.Spec); ref != nil {
+		t.input = taskinput.New(ref)
 		switch {
 		case ts.Spec.Kind == protocol.TaskSpecFileWrite:
 			t.in = executor.NewInput()
@@ -296,56 +287,34 @@ func (t *Task) Input(in protocol.TaskInput) (any, error) {
 	if in.TaskID != t.id {
 		return nil, &protocol.RemoteError{Code: "unknown_task", Message: "unknown task " + in.TaskID}
 	}
-	tooLarge := func(size uint64) (any, error) {
-		return nil, &protocol.RemoteError{
-			Code:    "input_too_large",
-			Message: fmt.Sprintf("task %s input exceeds the declared %d bytes", in.TaskID, size),
-		}
+	res := t.input.Accept(t.id, &in)
+	if res.Failure != nil {
+		t.failInputLocked(res.Failure.Code, res.Failure.Message)
 	}
-	if uint64(in.Offset) != t.inputOff {
-		return nil, &protocol.RemoteError{
-			Code:    "input_out_of_order",
-			Message: fmt.Sprintf("task %s input offset %d, want %d", in.TaskID, in.Offset, t.inputOff),
-		}
-	}
-	if t.inputOff >= t.inputSize {
-		if len(in.Data) == 0 {
-			return protocol.Empty{}, nil
-		}
-		return tooLarge(t.inputSize)
-	}
-	if t.inputOff+uint64(len(in.Data)) > t.inputSize {
-		t.inputOff += uint64(len(in.Data))
-		t.failInputLocked("input_mismatch",
-			fmt.Sprintf("task %s input is longer than the declared %d bytes", in.TaskID, t.inputSize))
-		return tooLarge(t.inputSize)
-	}
-	t.inputOff += uint64(len(in.Data))
-	_, _ = t.hasher.Write(in.Data)
-	if t.spool != nil {
-		if _, err := t.spool.Write(in.Data); err != nil {
-			// The spool is gone once the task ended or was aborted; a late chunk has nowhere to
-			// go and must not replace the task's outcome.
-			if !t.finished && t.inputErr == nil && t.ctx.Err() == nil {
-				t.failInputLocked("io_error", "spool the task input: "+err.Error())
+	if res.Data != nil {
+		if t.spool != nil {
+			if _, err := t.spool.Write(res.Data); err != nil {
+				// The spool is gone once the task ended or was aborted; a late chunk has nowhere to
+				// go and must not replace the task's outcome.
+				if !t.finished && t.inputErr == nil && t.ctx.Err() == nil {
+					t.failInputLocked("io_error", "spool the task input: "+err.Error())
+				}
+				return protocol.Empty{}, nil
 			}
-			return protocol.Empty{}, nil
+		} else if t.in != nil {
+			t.in.Push(res.Data)
 		}
-	} else if t.in != nil {
-		t.in.Push(in.Data)
 	}
-	if t.inputOff == t.inputSize && !bytes.Equal(t.hasher.Sum(nil), t.inputHash[:]) {
-		t.failInputLocked("input_mismatch",
-			fmt.Sprintf("task %s input does not match the declared sha256", in.TaskID))
-		return protocol.Empty{}, nil
+	if res.Refusal != nil {
+		return nil, res.Refusal
 	}
-	if t.inputOff >= t.inputSize {
+	if res.Complete {
 		if t.in != nil {
 			t.in.Close()
 		}
 		if t.inputReady != nil {
 			// The input is complete and verified, so the spooled stdin may be handed to the
-			// process. The bounds check above keeps a second call from closing it again.
+			// process. The accounting above keeps a second call from closing it again.
 			close(t.inputReady)
 		}
 	}
@@ -383,7 +352,7 @@ func (t *Task) abortTask() {
 func (t *Task) EndInput() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.finished || (t.in == nil && t.spool == nil) || t.inputOff >= t.inputSize {
+	if t.finished || t.input.Complete() {
 		return
 	}
 	t.failInputLocked("input_incomplete", "the crh-priv stream ended before the task input was complete")
@@ -425,20 +394,6 @@ func (t *Task) failInputLocked(code, message string) {
 		t.in.Fail(errors.New(message))
 	}
 	t.abort()
-}
-
-func inputRef(spec *protocol.TaskSpec) *protocol.InputRef {
-	switch spec.Kind {
-	case protocol.TaskSpecExec:
-		if spec.Exec != nil {
-			return spec.Exec.Stdin
-		}
-	case protocol.TaskSpecFileWrite:
-		if spec.FileWrite != nil {
-			return &spec.FileWrite.Content
-		}
-	}
-	return nil
 }
 
 // OutcomeText renders a task.exit outcome for the local log.

@@ -1,11 +1,10 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useId, useState } from "react";
 import { toast } from "sonner";
-import { ErrorText } from "@/components/error-state";
+import { FormDialog } from "@/components/dialogs";
 import { FieldShell } from "@/components/form";
 import { TestConnection } from "@/components/test-connection";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useSetNodeGroups, useTestSshNode } from "@/features/nodes/api";
@@ -18,52 +17,32 @@ function GroupsDialog({ node, onClose }: { node: PublicNode; onClose: () => void
 	const [groups, setGroups] = useState(node.groups.join(", "));
 	const save = useSetNodeGroups();
 	return (
-		<Dialog
+		<FormDialog
 			open
 			onOpenChange={(open) => {
 				if (!open) onClose();
 			}}
+			title={<Trans>Edit groups</Trans>}
+			description={<Trans>Comma separated; they decide who may see and operate this node.</Trans>}
+			submitLabel={<Trans>Save</Trans>}
+			busy={save.isPending}
+			error={save.error !== null ? save.error.message : undefined}
+			onSubmit={() =>
+				save.mutate(
+					{ id: node.id, groups: parseList(groups) },
+					{
+						onSuccess: () => {
+							toast.success(t`Groups saved.`);
+							onClose();
+						},
+					},
+				)
+			}
 		>
-			<DialogContent>
-				<DialogHeader>
-					<DialogTitle>
-						<Trans>Edit groups</Trans>
-					</DialogTitle>
-					<DialogDescription>
-						<Trans>Comma separated; they decide who may see and operate this node.</Trans>
-					</DialogDescription>
-				</DialogHeader>
-				<div className="grid gap-3">
-					<FieldShell id={`${prefix}-groups`} label={t`Groups`}>
-						<Input id={`${prefix}-groups`} value={groups} onChange={(event) => setGroups(event.target.value)} />
-					</FieldShell>
-					<ErrorText error={save.error} />
-					<div className="flex justify-end gap-2">
-						<Button type="button" variant="outline" onClick={onClose}>
-							<Trans>Cancel</Trans>
-						</Button>
-						<Button
-							type="button"
-							disabled={save.isPending}
-							onClick={() =>
-								save.mutate(
-									{ id: node.id, groups: parseList(groups) },
-									{
-										onSuccess: () => {
-											toast.success(t`Groups saved.`);
-											onClose();
-										},
-										onError: (error) => toast.error(error.message),
-									},
-								)
-							}
-						>
-							<Trans>Save</Trans>
-						</Button>
-					</div>
-				</div>
-			</DialogContent>
-		</Dialog>
+			<FieldShell id={`${prefix}-groups`} label={t`Groups`}>
+				<Input id={`${prefix}-groups`} value={groups} onChange={(event) => setGroups(event.target.value)} />
+			</FieldShell>
+		</FormDialog>
 	);
 }
 

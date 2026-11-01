@@ -8,6 +8,7 @@ import { ModelConfig } from "../../src/agent/models.ts";
 import { AgentRuntime } from "../../src/agent/runtime.ts";
 import type { SessionUser } from "../../src/auth/sessions.ts";
 import { TaskGroups } from "../../src/cluster/task-groups.ts";
+import { waitSubmission } from "../helpers/runtime.ts";
 import { buildCrha, Env, goAvailable, waitFor } from "./harness.ts";
 
 const hasGo = await goAvailable();
@@ -68,7 +69,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 				},
 			]);
 			const sub = await runtime.submit(session.id, owner, "say hi on the node", "r1");
-			expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "done" });
+			expect(await waitSubmission(runtime, session.id, sub)).toEqual({ status: "done", answer: "done" });
 			expect(JSON.parse(seen)).toMatchObject({ state: "exited", exit_code: 0, stdout: "from-agent\n" });
 		} finally {
 			await runtime.close();
@@ -100,7 +101,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 			expect(waiting).toMatchObject({ actorType: "session", ruleChain: [{ type: "session", id: session.id }] });
 			const res = await env.crhs.api(`/api/tasks/${waiting.id}/approval`, { body: { decision: "approve" } });
 			expect(res.status).toBe(200);
-			expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "ok" });
+			expect(await waitSubmission(runtime, session.id, sub)).toEqual({ status: "done", answer: "ok" });
 			expect(JSON.parse(seen)).toMatchObject({ task_id: waiting.id, state: "exited", stdout: "approved\n" });
 		} finally {
 			await runtime.close();
@@ -144,7 +145,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 			await waitFor("the Harness reopened", () => runtime.reopened === 1, 15_000);
 			faux.setResponses([fauxAssistantMessage([fauxText("recovered")])]);
 			const sub = await runtime.submit(session.id, owner, "again", "r2");
-			expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "recovered" });
+			expect(await waitSubmission(runtime, session.id, sub)).toEqual({ status: "done", answer: "recovered" });
 		} finally {
 			await runtime.close();
 		}
@@ -195,7 +196,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 				expect(prompts[0]).toContain("uptime");
 				expect(prompts[0]).not.toContain("check and clean");
 				await env.crhs.api(`/api/tasks/${waiting.id}/approval`, { body: { decision: "approve" } });
-				expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "all done" });
+				expect(await waitSubmission(runtime, session.id, sub)).toEqual({ status: "done", answer: "all done" });
 			} finally {
 				await runtime.close();
 			}
@@ -243,7 +244,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 					},
 				]);
 				const sub = await runtime.submit(session.id, owner, "delegate", "r1");
-				expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "parent done" });
+				expect(await waitSubmission(runtime, session.id, sub)).toEqual({ status: "done", answer: "parent done" });
 				expect(JSON.parse(childSaw)).toMatchObject({ state: "denied", error: { code: "policy_denied" } });
 				expect(parentSaw).toBe("child: denied");
 				const child = await env.crhs.db
@@ -318,7 +319,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 					next,
 				]);
 				const sub = await runtime.submit(session.id, owner, "delegate", "q1");
-				expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "all done" });
+				expect(await waitSubmission(runtime, session.id, sub)).toEqual({ status: "done", answer: "all done" });
 				const children = await env.crhs.db
 					.selectFrom("sessions")
 					.selectAll()
@@ -353,7 +354,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 				});
 				expect(waiting.ruleChain[0]).toEqual({ type: "session", id: session.id });
 				await env.crhs.api(`/api/tasks/${waiting.id}/approval`, { body: { decision: "approve" } });
-				expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "parent ok" });
+				expect(await waitSubmission(runtime, session.id, sub)).toEqual({ status: "done", answer: "parent ok" });
 			} finally {
 				await runtime.close();
 			}
@@ -389,7 +390,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		await runtime.close();
 		runtime = await open();
 		try {
-			expect(await runtime.waitSubmission(session.id, sub)).toEqual({ status: "done", answer: "after restart" });
+			expect(await waitSubmission(runtime, session.id, sub)).toEqual({ status: "done", answer: "after restart" });
 			const result = JSON.parse(seen);
 			expect(result).toMatchObject({ task_id: running.id, state: "exited", stdout: "survived\n" });
 			const tasks = await env.crhs.db.selectFrom("tasks").select("id").where("actor_id", "=", session.id).execute();

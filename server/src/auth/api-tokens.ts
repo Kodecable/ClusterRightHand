@@ -1,10 +1,11 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type { Preset } from "../policy/rules.ts";
 import { createRootRuleSet, deleteRuleSet, getRuleSet, type StoredRuleSet } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId, NotFoundError, UserError } from "../users/service.ts";
 import { newId } from "../util/id.ts";
 import type { SessionUser } from "./sessions.ts";
+import { hashToken } from "./token-hash.ts";
 
 /** Recognizable by secret scanners; the rest is 32 random bytes. */
 export const TOKEN_PREFIX = "crh_";
@@ -24,10 +25,6 @@ export interface ApiTokenView {
 	revokedAt: string | null;
 	lastUsedAt: string | null;
 	rules: StoredRuleSet | null;
-}
-
-function hashToken(token: string): string {
-	return createHash("sha256").update(token).digest("hex");
 }
 
 /**

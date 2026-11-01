@@ -12,6 +12,7 @@ import { addGroupMember, createUserGroup } from "../src/users/groups.ts";
 import { createUser } from "../src/users/service.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { waitSubmission } from "./helpers/runtime.ts";
 
 const PASSWORD = "member-password-123";
 
@@ -109,7 +110,7 @@ async function answer(id: string, cookie: string): Promise<string> {
 	const res = await messages(id, cookie);
 	expect(res.status).toBe(202);
 	const { submissionId } = (await res.json()) as { submissionId: string };
-	const settled = await runtime.waitSubmission(id, submissionId);
+	const settled = await waitSubmission(runtime, id, submissionId);
 	expect(settled.status).toBe("done");
 	return settled.status === "done" ? settled.answer : "";
 }

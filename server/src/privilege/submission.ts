@@ -26,6 +26,7 @@ import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { parseTaskAuthorization } from "../cluster/authorization.ts";
 import type { Db } from "../storage/db.ts";
 import { UserError } from "../users/service.ts";
+import { errorText } from "../util/errors.ts";
 import { type AuthzEntry, type AuthzSignature, authzEntryFromTrust } from "./authz.ts";
 import { webauthnCredentials } from "./credentials.ts";
 import { parseAuthorizedKey, sshsigKeyBlob, verifySshsig } from "./sshsig.ts";
@@ -422,8 +423,4 @@ export function entryBelongsToUser(
 export function authzEntryNamed(trust: readonly TrustEntry[], name: string | null): AuthzEntry | null {
 	const entry = trust.find((candidate) => candidate.name === name);
 	return entry ? authzEntryFromTrust(entry) : null;
-}
-
-function errorText(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
 }

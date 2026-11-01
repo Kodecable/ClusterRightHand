@@ -9,6 +9,7 @@ export interface PresetSelectProps {
 	disabled?: boolean;
 	id?: string;
 	label?: string;
+	/** Trigger width: full width by default, a fixed width where the picker sits beside a button. */
 	className?: string;
 }
 
@@ -27,7 +28,7 @@ export function PresetSelect({ value, onChange, disabled, id, label, className }
 			}}
 			disabled={disabled}
 		>
-			<SelectTrigger id={id} aria-label={label ?? t`Preset`} className={`w-full ${className ?? ""}`.trim()}>
+			<SelectTrigger id={id} aria-label={label ?? t`Preset`} className={className ?? "w-full"}>
 				<SelectValue>{(current: string | null) => presetLabel(current)}</SelectValue>
 			</SelectTrigger>
 			<SelectContent>

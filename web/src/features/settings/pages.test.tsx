@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ModelProviderView } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
-import { ProviderDialog } from "./pages";
+import { ProviderDialog } from "./provider-dialog";
 
 const EXISTING: ModelProviderView = {
 	id: "provider-row-1",

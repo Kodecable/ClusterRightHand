@@ -1,6 +1,9 @@
+import type { Selectable } from "kysely";
 import { sql } from "kysely";
 import type { Db } from "../storage/db.ts";
+import type { SessionsTable } from "../storage/schema.ts";
 import { UserError } from "../users/service.ts";
+import { sessionAncestors, sessionChain } from "./session-chain.ts";
 
 /**
  * Token quotas (doc/agent-runtime.md#配额): every level of a session's chain may have a signed remaining-token
@@ -19,21 +22,6 @@ export function parseQuota(raw: unknown): number | null {
 
 export async function setQuota(db: Db, sessionId: string, quota: number | null): Promise<void> {
 	await db.updateTable("sessions").set({ quota_tokens: quota }).where("id", "=", sessionId).execute();
-}
-
-/** The session and its ancestors, this session first, root last. */
-export async function sessionChain(db: Db, sessionId: string): Promise<string[]> {
-	const chain: string[] = [];
-	for (let id: string | null = sessionId; id; ) {
-		chain.push(id);
-		const row: { parent_session_id: string | null } | undefined = await db
-			.selectFrom("sessions")
-			.select("parent_session_id")
-			.where("id", "=", id)
-			.executeTakeFirst();
-		id = row?.parent_session_id ?? null;
-	}
-	return chain;
 }
 
 /** The parts of an assistant message the account reads; a pi-ai `AssistantMessage` satisfies it. */
@@ -109,10 +97,11 @@ export async function recordUsage(db: Db, sessionId: string, tokens: number): Pr
 
 /** The highest level of the chain (root first) whose quota is not above zero, if any. */
 export async function exhaustedLevel(db: Db, sessionId: string): Promise<string | undefined> {
-	for (const level of (await sessionChain(db, sessionId)).reverse()) {
-		const row = await db.selectFrom("sessions").select("quota_tokens").where("id", "=", level).executeTakeFirst();
-		if (!row || row.quota_tokens === null) continue;
-		if (Number(row.quota_tokens) <= 0) return level;
+	const chain: Selectable<SessionsTable>[] = [];
+	for await (const row of sessionAncestors(db, sessionId)) chain.push(row);
+	for (const row of chain.reverse()) {
+		if (row.quota_tokens === null) continue;
+		if (Number(row.quota_tokens) <= 0) return row.id;
 	}
 	return undefined;
 }

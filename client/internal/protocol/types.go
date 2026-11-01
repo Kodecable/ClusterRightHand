@@ -598,17 +598,14 @@ const (
 	NodePending NodeState = "pending"
 )
 
-func (s NodeState) valid() bool { return s == NodeActive || s == NodePending }
+// nodeStates is the node_state enum.
+var nodeStates = newEnum("node state", NodeActive, NodePending)
 
 // MarshalCBOR encodes the enum, rejecting values outside the schema.
-func (s NodeState) MarshalCBOR() ([]byte, error) {
-	return marshalEnum("node state", s, NodeState.valid)
-}
+func (s NodeState) MarshalCBOR() ([]byte, error) { return nodeStates.marshal(s) }
 
 // UnmarshalCBOR decodes and validates the enum.
-func (s *NodeState) UnmarshalCBOR(data []byte) error {
-	return unmarshalEnum("node state", data, s, NodeState.valid)
-}
+func (s *NodeState) UnmarshalCBOR(data []byte) error { return nodeStates.unmarshal(data, s) }
 
 // NodeStatusState is the state enum of the node.status event.
 type NodeStatusState string
@@ -620,23 +617,16 @@ const (
 	NodeStatusDisabled NodeStatusState = "disabled"
 )
 
-func (s NodeStatusState) valid() bool {
-	switch s {
-	case NodeStatusPending, NodeStatusActive, NodeStatusRejected, NodeStatusDisabled:
-		return true
-	default:
-		return false
-	}
-}
+// nodeStatusStates is the node.status state enum.
+var nodeStatusStates = newEnum("node status state",
+	NodeStatusPending, NodeStatusActive, NodeStatusRejected, NodeStatusDisabled)
 
 // MarshalCBOR encodes the enum, rejecting values outside the schema.
-func (s NodeStatusState) MarshalCBOR() ([]byte, error) {
-	return marshalEnum("node status state", s, NodeStatusState.valid)
-}
+func (s NodeStatusState) MarshalCBOR() ([]byte, error) { return nodeStatusStates.marshal(s) }
 
 // UnmarshalCBOR decodes and validates the enum.
 func (s *NodeStatusState) UnmarshalCBOR(data []byte) error {
-	return unmarshalEnum("node status state", data, s, NodeStatusState.valid)
+	return nodeStatusStates.unmarshal(data, s)
 }
 
 // TaskState is the task state enum.
@@ -648,24 +638,14 @@ const (
 	TaskUnknown TaskState = "unknown"
 )
 
-func (s TaskState) valid() bool {
-	switch s {
-	case TaskRunning, TaskExited, TaskUnknown:
-		return true
-	default:
-		return false
-	}
-}
+// taskStates is the task state enum.
+var taskStates = newEnum("task state", TaskRunning, TaskExited, TaskUnknown)
 
 // MarshalCBOR encodes the enum, rejecting values outside the schema.
-func (s TaskState) MarshalCBOR() ([]byte, error) {
-	return marshalEnum("task state", s, TaskState.valid)
-}
+func (s TaskState) MarshalCBOR() ([]byte, error) { return taskStates.marshal(s) }
 
 // UnmarshalCBOR decodes and validates the enum.
-func (s *TaskState) UnmarshalCBOR(data []byte) error {
-	return unmarshalEnum("task state", data, s, TaskState.valid)
-}
+func (s *TaskState) UnmarshalCBOR(data []byte) error { return taskStates.unmarshal(data, s) }
 
 // Stream is the output stream enum.
 type Stream string
@@ -675,17 +655,14 @@ const (
 	StreamStderr Stream = "stderr"
 )
 
-func (s Stream) valid() bool { return s == StreamStdout || s == StreamStderr }
+// streams is the output stream enum.
+var streams = newEnum("stream", StreamStdout, StreamStderr)
 
 // MarshalCBOR encodes the enum, rejecting values outside the schema.
-func (s Stream) MarshalCBOR() ([]byte, error) {
-	return marshalEnum("stream", s, Stream.valid)
-}
+func (s Stream) MarshalCBOR() ([]byte, error) { return streams.marshal(s) }
 
 // UnmarshalCBOR decodes and validates the enum.
-func (s *Stream) UnmarshalCBOR(data []byte) error {
-	return unmarshalEnum("stream", data, s, Stream.valid)
-}
+func (s *Stream) UnmarshalCBOR(data []byte) error { return streams.unmarshal(data, s) }
 
 // TaskSpecKind is a TaskSpec union tag.
 type TaskSpecKind string
@@ -736,127 +713,45 @@ const (
 	TaskResultFileList  TaskResultKind = "file.list"
 )
 
+// taskSpecUnion is the TaskSpec union: one branch per task kind.
+var taskSpecUnion = newUnion("task spec",
+	unionPtr[TaskSpec]("exec", func(s *TaskSpec) **ExecSpec { return &s.Exec }),
+	unionPtr[TaskSpec]("file.read", func(s *TaskSpec) **FileReadSpec { return &s.FileRead }),
+	unionPtr[TaskSpec]("file.write", func(s *TaskSpec) **FileWriteSpec { return &s.FileWrite }),
+	unionPtr[TaskSpec]("file.edit", func(s *TaskSpec) **FileEditSpec { return &s.FileEdit }),
+	unionPtr[TaskSpec]("file.stat", func(s *TaskSpec) **FileStatSpec { return &s.FileStat }),
+	unionPtr[TaskSpec]("file.list", func(s *TaskSpec) **FileListSpec { return &s.FileList }),
+)
+
 // MarshalCBOR encodes a TaskSpec as [tag, body].
-func (s TaskSpec) MarshalCBOR() ([]byte, error) {
-	switch s.Kind {
-	case TaskSpecExec:
-		if s.Exec == nil {
-			return nil, errors.New("protocol: exec task spec has no body")
-		}
-		return encodeUnion(string(s.Kind), s.Exec)
-	case TaskSpecFileRead:
-		if s.FileRead == nil {
-			return nil, errors.New("protocol: file.read task spec has no body")
-		}
-		return encodeUnion(string(s.Kind), s.FileRead)
-	case TaskSpecFileWrite:
-		if s.FileWrite == nil {
-			return nil, errors.New("protocol: file.write task spec has no body")
-		}
-		return encodeUnion(string(s.Kind), s.FileWrite)
-	case TaskSpecFileEdit:
-		if s.FileEdit == nil {
-			return nil, errors.New("protocol: file.edit task spec has no body")
-		}
-		return encodeUnion(string(s.Kind), s.FileEdit)
-	case TaskSpecFileStat:
-		if s.FileStat == nil {
-			return nil, errors.New("protocol: file.stat task spec has no body")
-		}
-		return encodeUnion(string(s.Kind), s.FileStat)
-	case TaskSpecFileList:
-		if s.FileList == nil {
-			return nil, errors.New("protocol: file.list task spec has no body")
-		}
-		return encodeUnion(string(s.Kind), s.FileList)
-	default:
-		return nil, fmt.Errorf("protocol: unknown task spec kind %q", string(s.Kind))
-	}
-}
+func (s TaskSpec) MarshalCBOR() ([]byte, error) { return taskSpecUnion.marshal(s, string(s.Kind)) }
 
 // UnmarshalCBOR decodes [tag, body] into the matching TaskSpec branch.
 func (s *TaskSpec) UnmarshalCBOR(data []byte) error {
-	tag, body, err := decodeUnion(data)
+	tag, err := taskSpecUnion.unmarshal(data, s)
 	if err != nil {
 		return err
 	}
-	spec := TaskSpec{Kind: TaskSpecKind(tag)}
-	switch spec.Kind {
-	case TaskSpecExec:
-		var v ExecSpec
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		spec.Exec = &v
-	case TaskSpecFileRead:
-		var v FileReadSpec
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		spec.FileRead = &v
-	case TaskSpecFileWrite:
-		var v FileWriteSpec
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		spec.FileWrite = &v
-	case TaskSpecFileEdit:
-		var v FileEditSpec
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		spec.FileEdit = &v
-	case TaskSpecFileStat:
-		var v FileStatSpec
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		spec.FileStat = &v
-	case TaskSpecFileList:
-		var v FileListSpec
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		spec.FileList = &v
-	default:
-		return fmt.Errorf("protocol: unknown task spec tag %q", tag)
-	}
-	*s = spec
+	s.Kind = TaskSpecKind(tag)
 	return nil
 }
 
+// commandUnion is the Command union: argv or shell.
+var commandUnion = newUnion("command",
+	unionValue("argv", func(c Command) []string { return c.Argv }, func(c *Command, argv []string) { c.Argv = argv }),
+	unionValue("shell", func(c Command) string { return c.Shell }, func(c *Command, shell string) { c.Shell = shell }),
+)
+
 // MarshalCBOR encodes a Command as [tag, body].
-func (c Command) MarshalCBOR() ([]byte, error) {
-	switch c.Kind {
-	case CommandArgv:
-		return encodeUnion(string(c.Kind), c.Argv)
-	case CommandShell:
-		return encodeUnion(string(c.Kind), c.Shell)
-	default:
-		return nil, fmt.Errorf("protocol: unknown command kind %q", string(c.Kind))
-	}
-}
+func (c Command) MarshalCBOR() ([]byte, error) { return commandUnion.marshal(c, string(c.Kind)) }
 
 // UnmarshalCBOR decodes [tag, body] into the matching Command branch.
 func (c *Command) UnmarshalCBOR(data []byte) error {
-	tag, body, err := decodeUnion(data)
+	tag, err := commandUnion.unmarshal(data, c)
 	if err != nil {
 		return err
 	}
-	cmd := Command{Kind: CommandKind(tag)}
-	switch cmd.Kind {
-	case CommandArgv:
-		if err := decMode.Unmarshal(body, &cmd.Argv); err != nil {
-			return err
-		}
-	case CommandShell:
-		if err := decMode.Unmarshal(body, &cmd.Shell); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("protocol: unknown command tag %q", tag)
-	}
-	*c = cmd
+	c.Kind = CommandKind(tag)
 	return nil
 }
 
@@ -867,166 +762,85 @@ type spillLimits struct {
 	Lines Uint
 }
 
+// outputModeUnion is the OutputMode union: "full" carries the spill limits, "text" and "status" an
+// empty body.
+var outputModeUnion = newBareUnion("output mode",
+	unionBranch[OutputMode]{
+		tag: "full",
+		body: func(m OutputMode) (any, bool) {
+			return spillLimits{Bytes: m.SpillBytes, Lines: m.SpillLines}, true
+		},
+		decode: func(m *OutputMode, body cbor.RawMessage) error {
+			var limits spillLimits
+			if err := decMode.Unmarshal(body, &limits); err != nil {
+				return err
+			}
+			m.SpillBytes, m.SpillLines = limits.Bytes, limits.Lines
+			return nil
+		},
+	},
+	unionEmpty[OutputMode]("text"),
+	unionEmpty[OutputMode]("status"),
+)
+
 // MarshalCBOR encodes an OutputMode as [tag, body].
-func (m OutputMode) MarshalCBOR() ([]byte, error) {
-	switch m.Kind {
-	case OutputFull:
-		return encodeUnion(string(m.Kind), spillLimits{Bytes: m.SpillBytes, Lines: m.SpillLines})
-	case OutputText, OutputStatus:
-		return encodeUnion(string(m.Kind), Empty{})
-	default:
-		return nil, fmt.Errorf("protocol: unknown output mode %q", string(m.Kind))
-	}
-}
+func (m OutputMode) MarshalCBOR() ([]byte, error) { return outputModeUnion.marshal(m, string(m.Kind)) }
 
 // UnmarshalCBOR decodes [tag, body] into the matching OutputMode branch.
 func (m *OutputMode) UnmarshalCBOR(data []byte) error {
-	tag, body, err := decodeUnion(data)
+	tag, err := outputModeUnion.unmarshal(data, m)
 	if err != nil {
 		return err
 	}
-	mode := OutputMode{Kind: OutputModeKind(tag)}
-	switch mode.Kind {
-	case OutputFull:
-		var limits spillLimits
-		if err := decMode.Unmarshal(body, &limits); err != nil {
-			return err
-		}
-		mode.SpillBytes = limits.Bytes
-		mode.SpillLines = limits.Lines
-	case OutputText, OutputStatus:
-		var empty Empty
-		if err := decMode.Unmarshal(body, &empty); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("protocol: unknown output mode tag %q", tag)
-	}
-	*m = mode
+	m.Kind = OutputModeKind(tag)
 	return nil
 }
 
+// outcomeUnion is the Outcome union: exit code, terminating signal or execution error.
+var outcomeUnion = newUnion("outcome",
+	unionValue("code", func(o Outcome) Int { return o.Code }, func(o *Outcome, code Int) { o.Code = code }),
+	unionValue("signal", func(o Outcome) string { return o.Signal }, func(o *Outcome, signal string) { o.Signal = signal }),
+	unionPtr[Outcome]("error", func(o *Outcome) **Error { return &o.Error }),
+)
+
 // MarshalCBOR encodes an Outcome as [tag, body].
-func (o Outcome) MarshalCBOR() ([]byte, error) {
-	switch o.Kind {
-	case OutcomeCode:
-		return encodeUnion(string(o.Kind), o.Code)
-	case OutcomeSignal:
-		return encodeUnion(string(o.Kind), o.Signal)
-	case OutcomeError:
-		if o.Error == nil {
-			return nil, errors.New("protocol: error outcome has no body")
-		}
-		return encodeUnion(string(o.Kind), o.Error)
-	default:
-		return nil, fmt.Errorf("protocol: unknown outcome kind %q", string(o.Kind))
-	}
-}
+func (o Outcome) MarshalCBOR() ([]byte, error) { return outcomeUnion.marshal(o, string(o.Kind)) }
 
 // UnmarshalCBOR decodes [tag, body] into the matching Outcome branch.
 func (o *Outcome) UnmarshalCBOR(data []byte) error {
-	tag, body, err := decodeUnion(data)
+	tag, err := outcomeUnion.unmarshal(data, o)
 	if err != nil {
 		return err
 	}
-	outcome := Outcome{Kind: OutcomeKind(tag)}
-	switch outcome.Kind {
-	case OutcomeCode:
-		if err := decMode.Unmarshal(body, &outcome.Code); err != nil {
-			return err
-		}
-	case OutcomeSignal:
-		if err := decMode.Unmarshal(body, &outcome.Signal); err != nil {
-			return err
-		}
-	case OutcomeError:
-		var wireErr Error
-		if err := decMode.Unmarshal(body, &wireErr); err != nil {
-			return err
-		}
-		outcome.Error = &wireErr
-	default:
-		return fmt.Errorf("protocol: unknown outcome tag %q", tag)
-	}
-	*o = outcome
+	o.Kind = OutcomeKind(tag)
 	return nil
 }
 
-// MarshalCBOR encodes a TaskResult as [tag, body].
-func (r TaskResult) MarshalCBOR() ([]byte, error) {
-	switch r.Kind {
-	case TaskResultFileRead:
-		if r.FileRead == nil {
-			return nil, errors.New("protocol: file.read result has no body")
-		}
-		return encodeUnion(string(r.Kind), r.FileRead)
-	case TaskResultFileWrite:
-		if r.FileWrite == nil {
-			return nil, errors.New("protocol: file.write result has no body")
-		}
-		return encodeUnion(string(r.Kind), r.FileWrite)
-	case TaskResultFileEdit:
-		if r.FileEdit == nil {
-			return nil, errors.New("protocol: file.edit result has no body")
-		}
-		return encodeUnion(string(r.Kind), r.FileEdit)
-	case TaskResultFileStat:
-		if r.FileStat == nil {
-			return nil, errors.New("protocol: file.stat result has no body")
-		}
-		return encodeUnion(string(r.Kind), r.FileStat)
-	case TaskResultFileList:
-		if r.FileList == nil {
-			return nil, errors.New("protocol: file.list result has no body")
-		}
-		return encodeUnion(string(r.Kind), r.FileList)
-	default:
-		return nil, fmt.Errorf("protocol: unknown task result kind %q", string(r.Kind))
-	}
+// taskResultUnion is the TaskResult union: one branch per task kind that reports a result. Its
+// missing-body errors name the "result" that is absent.
+var taskResultUnion = unionDef[TaskResult]{
+	name:       "task result",
+	bodyName:   "result",
+	kindSuffix: " kind",
+	branches: []unionBranch[TaskResult]{
+		unionPtr[TaskResult]("file.read", func(r *TaskResult) **FileReadResult { return &r.FileRead }),
+		unionPtr[TaskResult]("file.write", func(r *TaskResult) **FileWriteResult { return &r.FileWrite }),
+		unionPtr[TaskResult]("file.edit", func(r *TaskResult) **FileEditResult { return &r.FileEdit }),
+		unionPtr[TaskResult]("file.stat", func(r *TaskResult) **FileStatResult { return &r.FileStat }),
+		unionPtr[TaskResult]("file.list", func(r *TaskResult) **FileListResult { return &r.FileList }),
+	},
 }
+
+// MarshalCBOR encodes a TaskResult as [tag, body].
+func (r TaskResult) MarshalCBOR() ([]byte, error) { return taskResultUnion.marshal(r, string(r.Kind)) }
 
 // UnmarshalCBOR decodes [tag, body] into the matching TaskResult branch.
 func (r *TaskResult) UnmarshalCBOR(data []byte) error {
-	tag, body, err := decodeUnion(data)
+	tag, err := taskResultUnion.unmarshal(data, r)
 	if err != nil {
 		return err
 	}
-	result := TaskResult{Kind: TaskResultKind(tag)}
-	switch result.Kind {
-	case TaskResultFileRead:
-		var v FileReadResult
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		result.FileRead = &v
-	case TaskResultFileWrite:
-		var v FileWriteResult
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		result.FileWrite = &v
-	case TaskResultFileEdit:
-		var v FileEditResult
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		result.FileEdit = &v
-	case TaskResultFileStat:
-		var v FileStatResult
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		result.FileStat = &v
-	case TaskResultFileList:
-		var v FileListResult
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		result.FileList = &v
-	default:
-		return fmt.Errorf("protocol: unknown task result tag %q", tag)
-	}
-	*r = result
+	r.Kind = TaskResultKind(tag)
 	return nil
 }
 

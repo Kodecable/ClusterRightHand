@@ -16,6 +16,7 @@ import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { toolNames } from "./helpers/runtime.ts";
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
@@ -44,8 +45,6 @@ let owner: SessionUser;
 const openStorage = (): Promise<Storage> => openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" });
 
 const open = (storage: Storage) => AgentRuntime.open({ db, storage, models, cluster, groups, audit: new Audit(db) });
-
-const freshRuntime = async (): Promise<AgentRuntime> => open(await openStorage());
 
 beforeAll(async () => {
 	dir = await mkdtemp(join(tmpdir(), "crh-depth-limit-"));
@@ -115,7 +114,8 @@ it("removes the subagent tool only from sessions at the depth limit, without rea
 	// A tree the startup scan must repair: root -> middle -> legacy. The legacy session reached the limit
 	// through its parent link, but its conversation was created before the per-conversation tool filter, so it
 	// still offers the subagent tool until the scan runs.
-	const first = await freshRuntime();
+	const firstStorage = await openStorage();
+	const first = await open(firstStorage);
 	let middle = "";
 	let legacy = "";
 	let legacyConversation = "";
@@ -124,8 +124,8 @@ it("removes the subagent tool only from sessions at the depth limit, without rea
 		middle = (await first.createSubagent(root.id, { callKey: "depth-middle", task: "middle", rules, quota: null })).id;
 		legacy = (await first.createSubagent(root.id, { callKey: "depth-legacy", task: "legacy", rules, quota: null })).id;
 		await db.updateTable("sessions").set({ parent_session_id: middle }).where("id", "=", legacy).execute();
-		expect(await first.toolNames(middle)).toContain("subagent");
-		expect(await first.toolNames(legacy)).toContain("subagent");
+		expect(await toolNames(firstStorage, db, middle)).toContain("subagent");
+		expect(await toolNames(firstStorage, db, legacy)).toContain("subagent");
 		legacyConversation = (
 			await db.selectFrom("sessions").select("conversation_id").where("id", "=", legacy).executeTakeFirstOrThrow()
 		).conversation_id;
@@ -157,8 +157,8 @@ it("removes the subagent tool only from sessions at the depth limit, without rea
 		expect(read).toContain(legacyConversation);
 		expect(read.filter((id) => seeded.conversationIds.has(id))).toEqual([]);
 		// The session at the limit no longer offers the tool; its parent, one level above it, still does.
-		expect(await second.toolNames(legacy)).not.toContain("subagent");
-		expect(await second.toolNames(middle)).toContain("subagent");
+		expect(await toolNames(storage, db, legacy)).not.toContain("subagent");
+		expect(await toolNames(storage, db, middle)).toContain("subagent");
 	} finally {
 		await second.close();
 	}

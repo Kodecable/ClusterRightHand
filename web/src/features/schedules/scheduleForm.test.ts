@@ -3,7 +3,6 @@ import type { ScheduleRunView, ScheduleView } from "@/lib/api/types";
 import {
 	defaultTimezone,
 	parseScheduleForm,
-	presetNoteKey,
 	runNoteParts,
 	type ScheduleFormState,
 	scheduleState,
@@ -95,12 +94,6 @@ describe("scheduleState", () => {
 });
 
 describe("preset notes and run notes", () => {
-	test("preset keys stay the preset values", () => {
-		expect(presetNoteKey("ask")).toBe("ask");
-		expect(presetNoteKey("auto_review")).toBe("auto_review");
-		expect(presetNoteKey("yolo")).toBe("yolo");
-	});
-
 	test("a run's parts expose the reason and the manual flag", () => {
 		const run: ScheduleRunView = {
 			id: "r1",

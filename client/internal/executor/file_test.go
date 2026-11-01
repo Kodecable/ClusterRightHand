@@ -91,6 +91,18 @@ func wantCode(t *testing.T, err error, code string) {
 	}
 }
 
+// wantMessage asserts the text of a task error: the model and UI show it as it is.
+func wantMessage(t *testing.T, err error, want string) {
+	t.Helper()
+	var e *Error
+	if !errors.As(err, &e) {
+		t.Fatalf("want a task error with message %q, got %v", want, err)
+	}
+	if e.Message != want {
+		t.Fatalf("message = %q, want %q", e.Message, want)
+	}
+}
+
 func writeFile(t *testing.T, path, content string, mode os.FileMode) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), mode); err != nil {
@@ -106,6 +118,30 @@ func readFileStr(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// chmodOnRead changes dir's mode when the task first reads its input, which happens after the
+// temporary file was created and before it is published.
+type chmodOnRead struct {
+	dir   string
+	mode  os.FileMode
+	done  bool
+	bytes []byte
+}
+
+func (r *chmodOnRead) Read(p []byte) (int, error) {
+	if !r.done {
+		r.done = true
+		if err := os.Chmod(r.dir, r.mode); err != nil {
+			return 0, err
+		}
+	}
+	if len(r.bytes) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, r.bytes)
+	r.bytes = r.bytes[n:]
+	return n, nil
 }
 
 func writeSpec(path, content string) *protocol.FileWriteSpec {
@@ -337,8 +373,8 @@ func TestFileReadCancelled(t *testing.T) {
 }
 
 // TestFileSpecialFilesDoNotBlock covers FIFOs and sockets: opening one for reading blocks in
-// open(2) (a FIFO waits for a writer) and a cancellation cannot interrupt it, so read and edit
-// refuse them with not_regular_file like the privileged executor (doc/privilege.md 方法与目标).
+// open(2) (a FIFO waits for a writer) and a cancellation cannot interrupt it, so read, edit and
+// list refuse them with not_regular_file like the privileged executor (doc/privilege.md 方法与目标).
 // TestRunTaskCarriesFileResult covers what a task.exit reports for a file task: the result is in the
 // task's Result, and the output streams keep no metadata (doc/protocol.md TaskResult).
 func TestRunTaskCarriesFileResult(t *testing.T) {
@@ -457,6 +493,64 @@ func TestFileSpecialFilesDoNotBlock(t *testing.T) {
 			}}
 			wantCode(t, runSpecial(t, spec), "not_regular_file")
 		})
+		t.Run(tc.name+"/list", func(t *testing.T) {
+			spec := &protocol.TaskSpec{Kind: protocol.TaskSpecFileList, FileList: &protocol.FileListSpec{Path: tc.path}}
+			wantCode(t, runSpecial(t, spec), "not_regular_file")
+		})
+	}
+}
+
+// TestFileListRefusesWithoutOpening covers a listing of a path that is not a directory: HEAD
+// stat'ed it and stopped there, and opening a character or block device can have side effects (a
+// tty raises DTR, a tape rewinds). The mode-000 FIFO would fail an open with permission_denied, so
+// not_regular_file shows the listing decided from the stat alone; /dev/null is the character device
+// a listing meets in practice, and it is not a directory.
+func TestFileListRefusesWithoutOpening(t *testing.T) {
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "fifo")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	noRead := filepath.Join(dir, "fifo-no-read")
+	if err := syscall.Mkfifo(noRead, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	list := func(t *testing.T, path string) error {
+		t.Helper()
+		done := make(chan error, 1)
+		go func() {
+			_, err := RunFile(context.Background(), &protocol.TaskSpec{
+				Kind: protocol.TaskSpecFileList, FileList: &protocol.FileListSpec{Path: path},
+			}, nil, io.Discard)
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(5 * time.Second):
+			t.Fatal("listing a special file blocked the task")
+			return nil
+		}
+	}
+
+	// No writer ever opens the FIFO, and the mode-000 one cannot be opened at all.
+	wantCode(t, list(t, fifo), "not_regular_file")
+	wantCode(t, list(t, noRead), "not_regular_file")
+	if _, err := os.Stat("/dev/null"); err == nil {
+		wantCode(t, list(t, "/dev/null"), "not_a_directory")
+	}
+	// An unreadable regular file keeps the permission_denied the listing reported while it opened
+	// the path; the read-permission probe gives that answer without opening it.
+	if os.Geteuid() != 0 {
+		unreadable := filepath.Join(dir, "unreadable")
+		writeFile(t, unreadable, "x", 0o600)
+		if err := os.Chmod(unreadable, 0); err != nil {
+			t.Fatal(err)
+		}
+		err := list(t, unreadable)
+		wantCode(t, err, "permission_denied")
+		wantMessage(t, err, "open "+unreadable+": permission denied")
 	}
 }
 
@@ -814,8 +908,15 @@ func TestFileEditErrors(t *testing.T) {
 	wantCode(t, err, "invalid_spec")
 	_, err = edit(t, p, "baz", "baz")
 	wantCode(t, err, "edit_no_change")
-	_, err = edit(t, filepath.Join(dir, "missing"), "a", "b")
+	missing := filepath.Join(dir, "missing")
+	_, err = edit(t, missing, "a", "b")
 	wantCode(t, err, "not_found")
+	// HEAD opened the target itself, so its message names the target, not the missing parent.
+	wantMessage(t, err, "open "+missing+": no such file or directory")
+	noParent := filepath.Join(dir, "noparent", "f")
+	_, err = edit(t, noParent, "a", "b")
+	wantCode(t, err, "not_found")
+	wantMessage(t, err, "open "+noParent+": no such file or directory")
 	_, err = edit(t, dir, "a", "b")
 	wantCode(t, err, "is_directory")
 
@@ -927,8 +1028,11 @@ func TestFileList(t *testing.T) {
 
 	_, err = run(t, &protocol.FileListSpec{Path: filepath.Join(dir, "a")}, nil)
 	wantCode(t, err, "not_a_directory")
-	_, err = run(t, &protocol.FileListSpec{Path: filepath.Join(dir, "nope")}, nil)
+	missing := filepath.Join(dir, "nope")
+	_, err = run(t, &protocol.FileListSpec{Path: missing}, nil)
 	wantCode(t, err, "not_found")
+	// HEAD stat'ed the path, so its message says "stat"; the listing must keep that wording.
+	wantMessage(t, err, "stat "+missing+": no such file or directory")
 }
 
 // TestFileListResultFitsAFrame covers the entry budget of a listing: its result travels in one
@@ -972,4 +1076,45 @@ func TestFileListEmpty(t *testing.T) {
 	if entries := listResult(t, out).Entries; len(entries) != 0 {
 		t.Fatalf("entries: %v", entries)
 	}
+}
+
+// TestFileListEntryErrorNamesTheEntry covers a per-entry stat that fails: HEAD's DirEntry.Info
+// reported "lstat dir/name", and the listing keeps that wording now that it stats the entry through
+// the directory fd. A directory without search permission can be read, but its entries cannot be
+// stat'ed.
+func TestFileListEntryErrorNamesTheEntry(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root stats entries in a directory it cannot search")
+	}
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(sub, "f")
+	writeFile(t, entry, "x", 0o644)
+	if err := os.Chmod(sub, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(sub, 0o755)
+
+	_, err := run(t, &protocol.FileListSpec{Path: sub}, nil)
+	wantCode(t, err, "permission_denied")
+	wantMessage(t, err, "lstat "+entry+": permission denied")
+}
+
+// TestFileWriteRenameErrorStaysBare covers the message of a rename that fails after the content was
+// written: HEAD reported the errno alone, not the rename prefixed with the temporary file's random
+// name. The directory loses write permission once the temporary file exists.
+func TestFileWriteRenameErrorStaysBare(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root renames in a directory it cannot write")
+	}
+	dir := t.TempDir()
+	input := &chmodOnRead{dir: dir, mode: 0o555, bytes: []byte("abc")}
+	defer os.Chmod(dir, 0o755)
+
+	_, err := run(t, writeSpec(filepath.Join(dir, "f"), "abc"), input)
+	wantCode(t, err, "permission_denied")
+	wantMessage(t, err, "permission denied")
 }

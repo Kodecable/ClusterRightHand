@@ -9,6 +9,7 @@
  */
 import type { TaskSpec, TrustEntry, TrustSummary } from "@crh/protocol";
 import { type AuthzEntry, type AuthzSignature, authzEntryFromTrust, decide } from "./authz.ts";
+import { cosignRequired, hasCosign } from "./cosign.ts";
 import { privilegedTarget } from "./guard.ts";
 import { type BuiltAuthorization, buildAuthorization, specSha256 } from "./payload.ts";
 
@@ -132,10 +133,6 @@ function canAssertUv(entry: TrustEntry): boolean {
 	return entry.key.kind === "sshsig" && entry.key.publicKey.startsWith("sk-");
 }
 
-function cosignRequired(entry: TrustEntry): boolean {
-	return entry.kinds.includes("require-cosign");
-}
-
 /** Whether a crhs trust entry is crhs's own key (when the fingerprint is known). */
 function isOwnCrhsEntry(entry: TrustEntry, crhsFingerprint: string | undefined): boolean {
 	if (entry.role !== "crhs") return false;
@@ -143,16 +140,13 @@ function isOwnCrhsEntry(entry: TrustEntry, crhsFingerprint: string | undefined):
 	return entry.key.kind === "sshsig" && entry.key.fingerprint === crhsFingerprint;
 }
 
-function hasCosign(summary: TrustSummary, crhsFingerprint: string | undefined): boolean {
-	return summary.trust.some(
-		(candidate) => isOwnCrhsEntry(candidate, crhsFingerprint) && candidate.kinds.includes("cosign"),
-	);
+/** The summary's own crhs entries: the only ones whose cosignature this crhs can attach. */
+function ownCrhsEntries(summary: TrustSummary, crhsFingerprint: string | undefined): TrustEntry[] {
+	return summary.trust.filter((entry) => isOwnCrhsEntry(entry, crhsFingerprint));
 }
 
 function firstCosignEntry(summary: TrustSummary, crhsFingerprint: string | undefined): AuthzEntry | undefined {
-	const entry = summary.trust.find(
-		(candidate) => isOwnCrhsEntry(candidate, crhsFingerprint) && candidate.kinds.includes("cosign"),
-	);
+	const entry = ownCrhsEntries(summary, crhsFingerprint).find((candidate) => candidate.kinds.includes("cosign"));
 	return entry ? authzEntryFromTrust(entry) : undefined;
 }
 
@@ -276,7 +270,7 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 			});
 			const canUv = canAssertUv(entry);
 			const needsCosign = cosignRequired(entry);
-			const available = needsCosign && hasCosign(summary, input.crhsFingerprint);
+			const available = needsCosign && hasCosign(ownCrhsEntries(summary, input.crhsFingerprint));
 			const signatures: AuthzSignature[] = [
 				{ entry: entryKey, valid: true, userVerified: entry.requireUv ? canUv : false },
 			];
@@ -292,7 +286,7 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 					entry,
 					credential,
 					cosignRequired: needsCosign,
-					cosignAvailable: hasCosign(summary, input.crhsFingerprint),
+					cosignAvailable: hasCosign(ownCrhsEntries(summary, input.crhsFingerprint)),
 					requireUv: entry.requireUv,
 					canAssertUv: canUv,
 				},
@@ -324,7 +318,11 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 			);
 			if (ownerEntries.length === 0) {
 				notes.push("the node trusts none of the owner's credentials");
-			} else if (ownerEntries.some((entry) => cosignRequired(entry) && !hasCosign(summary, input.crhsFingerprint))) {
+			} else if (
+				ownerEntries.some(
+					(entry) => cosignRequired(entry) && !hasCosign(ownCrhsEntries(summary, input.crhsFingerprint)),
+				)
+			) {
 				notes.push("the owner's authorization needs a crhs cosignature and the node trusts no crhs cosign key");
 			} else {
 				notes.push("the owner's credentials do not cover this command");

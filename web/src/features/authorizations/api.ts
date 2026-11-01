@@ -70,6 +70,8 @@ export function useSubmitAuthorization() {
 			// The approvals list carries the pending signatures; signing settles a task.
 			invalidatePendingDecisions(queryClient);
 		},
+		// The authorization card renders the failure beside its paste box.
+		meta: { toast: false },
 	});
 }
 

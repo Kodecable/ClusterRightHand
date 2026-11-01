@@ -148,14 +148,16 @@ var commandSchemas = map[string]commandSchema{
 	},
 }
 
-// validateRequest decodes raw as the command's request body.
+// validateRequest decodes raw as the command's request body. The body was either encoded by Marshal
+// (an outgoing request) or taken from a frame DecodeFrame validated, so only the schema decode is
+// left (UnmarshalBody).
 func (s commandSchema) validateRequest(raw cbor.RawMessage) error {
-	return Unmarshal(raw, s.request())
+	return UnmarshalBody(raw, s.request())
 }
 
-// validateResponse decodes raw as the command's success response body.
+// validateResponse decodes raw as the command's success response body, under the same rule.
 func (s commandSchema) validateResponse(raw cbor.RawMessage) error {
-	return Unmarshal(raw, s.response())
+	return UnmarshalBody(raw, s.response())
 }
 
 // eventSchemas names the body type of every event this package knows, so Emit can validate an
@@ -178,7 +180,7 @@ func validateEventBody(name string, raw cbor.RawMessage) error {
 	if !ok {
 		return nil
 	}
-	return Unmarshal(raw, newBody())
+	return UnmarshalBody(raw, newBody())
 }
 
 // SupportedCommands returns the command names this package advertises in a handshake,

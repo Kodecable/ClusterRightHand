@@ -130,13 +130,13 @@ const tasksRoute = createRoute({
 const taskRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/tasks/$taskId",
-	component: lazyRouteComponent(() => import("@/features/tasks/pages"), "TaskPage"),
+	component: lazyRouteComponent(() => import("@/features/tasks/task-page"), "TaskPage"),
 });
 
 const taskGroupRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/task-groups/$taskGroupId",
-	component: lazyRouteComponent(() => import("@/features/tasks/pages"), "TaskGroupPage"),
+	component: lazyRouteComponent(() => import("@/features/tasks/task-group-page"), "TaskGroupPage"),
 });
 
 // --- batch ----------------------------------------------------------------

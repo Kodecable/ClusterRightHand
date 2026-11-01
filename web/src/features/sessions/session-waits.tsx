@@ -3,57 +3,46 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { ApprovalCard } from "@/components/approval-card";
-import { AuthorizationCard } from "@/components/authorization-card";
 import { QuotaCard } from "@/components/quota-card";
 import { useApprovalLookups, useApprovals, useDecideApproval } from "@/features/approvals/api";
-import { usePendingAuthorization, useSubmitAuthorization } from "@/features/authorizations/api";
+import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
 import type { ApprovalBody, SessionView, TaskGroupView, TaskView } from "@/lib/api/types";
 import { sessionKeys, useDecideQuota } from "./api";
 
 function SessionAuthorization({ kind, id, sessionId }: { kind: "task" | "group"; id: string; sessionId: string }) {
-	const pending = usePendingAuthorization(kind, id);
-	const submit = useSubmitAuthorization();
 	const queryClient = useQueryClient();
-	if (pending.data === undefined) {
-		return (
-			<p className="text-sm text-muted-foreground">
-				<Trans>Preparing the payload to sign…</Trans>
-			</p>
-		);
-	}
-	if (pending.data.pending === null) {
-		return (
-			<p className="text-sm text-muted-foreground">
-				<Trans>The pending payload is being prepared…</Trans>{" "}
-				{kind === "task" ? (
-					<Link to="/tasks/$taskId" params={{ taskId: id }} className="text-primary underline underline-offset-2">
-						<Trans>Open the task page</Trans>
-					</Link>
-				) : (
-					<Link
-						to="/task-groups/$taskGroupId"
-						params={{ taskGroupId: id }}
-						className="text-primary underline underline-offset-2"
-					>
-						<Trans>Open the task page</Trans>
-					</Link>
-				)}
-			</p>
-		);
-	}
 	return (
-		<AuthorizationCard
-			pending={pending.data.pending}
-			tasks={pending.data.tasks}
+		<AuthorizationWait
 			kind={kind}
-			onSubmit={(input) => submit.mutateAsync(input)}
+			id={id}
 			onChanged={() => {
-				void pending.refetch();
 				void queryClient.invalidateQueries({ queryKey: sessionKeys.detail(sessionId) });
 				void queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
 			}}
-			busy={submit.isPending}
-			error={submit.error}
+			waiting={(state) =>
+				state === "loading" ? (
+					<p className="text-sm text-muted-foreground">
+						<Trans>Preparing the payload to sign…</Trans>
+					</p>
+				) : (
+					<p className="text-sm text-muted-foreground">
+						<Trans>The pending payload is being prepared…</Trans>{" "}
+						{kind === "task" ? (
+							<Link to="/tasks/$taskId" params={{ taskId: id }} className="text-primary underline underline-offset-2">
+								<Trans>Open the task page</Trans>
+							</Link>
+						) : (
+							<Link
+								to="/task-groups/$taskGroupId"
+								params={{ taskGroupId: id }}
+								className="text-primary underline underline-offset-2"
+							>
+								<Trans>Open the task page</Trans>
+							</Link>
+						)}
+					</p>
+				)
+			}
 		/>
 	);
 }
@@ -88,7 +77,6 @@ export function SessionWaits({
 					void queryClient.invalidateQueries({ queryKey: sessionKeys.detail(session.id) });
 					void queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
 				},
-				onError: (error) => toast.error(error.message),
 			},
 		);
 	};
@@ -134,10 +122,7 @@ export function SessionWaits({
 					busy={quota.isPending || deciding}
 					error={quota.error}
 					onDecide={(decision) =>
-						quota.mutate(decision, {
-							onSuccess: () => toast.success(t`Quota decision recorded.`),
-							onError: (error) => toast.error(error.message),
-						})
+						quota.mutate(decision, { onSuccess: () => toast.success(t`Quota decision recorded.`) })
 					}
 				/>
 			)}

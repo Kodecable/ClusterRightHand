@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { buildTargets, parseList } from "./targets";
+import { parseList } from "@/lib/format";
+import { buildTargets } from "./targets";
 
 test("parseList and buildTargets", () => {
 	expect(parseList("a, b  c,,a")).toEqual(["a", "b", "c"]);

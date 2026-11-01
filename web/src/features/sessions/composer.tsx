@@ -50,7 +50,6 @@ function ComposerForm({ sessionId, canChat, stoppable, waitingKind }: ComposerPr
 					setText("");
 					setRequestId(undefined);
 				},
-				onError: (error) => toast.error(error.message),
 			},
 		);
 	};
@@ -64,7 +63,6 @@ function ComposerForm({ sessionId, canChat, stoppable, waitingKind }: ComposerPr
 	const stop = () => {
 		abort.mutate(undefined, {
 			onSuccess: () => toast.success(t`Stopped the run.`),
-			onError: (error) => toast.error(error.message),
 		});
 	};
 

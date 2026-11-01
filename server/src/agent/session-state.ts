@@ -106,7 +106,7 @@ export async function markSessionsIdle(db: Db, sessionIds: readonly string[]): P
 }
 
 /**
- * The startup reconciliation's candidate 1 (runtime.ts `#reconcileSessionStates`): every row that is not
+ * The startup reconciliation's candidate 1 (runtime-state.ts `reconcileSessionStates`): every row that is not
  * `idle`, so it claims a live run or a wait. The 0030 partial index `sessions_state_live_idx` covers exactly
  * this predicate, so the lookup costs the non-idle sessions rather than the mostly idle table. The value is
  * written literally, like the index's predicate, so both SQLite and PostgreSQL recognize it in any plan.

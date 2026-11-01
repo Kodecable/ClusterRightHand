@@ -1,6 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { taskKeys } from "@/features/tasks/api";
-import { enc, http } from "@/lib/api/client";
+import { http } from "@/lib/api/client";
 import type { TaskGroupView, TaskRequest } from "@/lib/api/types";
 
 export interface CreateBatchInput extends TaskRequest {
@@ -18,14 +18,7 @@ export function useCreateBatch() {
 		mutationFn: (input: CreateBatchInput) =>
 			http.post<{ group: TaskGroupView }>("/task-groups", input).then((r) => r.group),
 		onSuccess: () => void queryClient.invalidateQueries({ queryKey: taskKeys.all }),
-	});
-}
-
-export function useBatchGroup(id: string | undefined) {
-	return useQuery({
-		queryKey: taskKeys.group(id ?? ""),
-		enabled: id !== undefined && id !== "",
-		queryFn: ({ signal }) =>
-			http.get<{ group: TaskGroupView }>(`/task-groups/${enc(id ?? "")}`, { signal }).then((r) => r.group),
+		// The page's form shows the failure inline, where the mistyped field is.
+		meta: { toast: false },
 	});
 }

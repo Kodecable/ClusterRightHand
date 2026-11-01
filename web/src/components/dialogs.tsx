@@ -59,15 +59,13 @@ export function ConfirmDialog({
 	);
 }
 
-/** The title of a dialog whose content is a form; used by FormDialog and one-off dialogs. */
-export function FormDialogTitle({ children }: { children: ReactNode }) {
-	return <DialogTitle>{children}</DialogTitle>;
-}
-
 /**
  * A dialog that wraps a form: title, description, fields, an error line and
  * the cancel/submit footer. The caller keeps validation in react-hook-form and
- * passes `onSubmit` as the form's submit handler; `busy` disables the footer.
+ * passes `onSubmit` as the form's submit handler; `busy` disables the footer,
+ * and `submitDisabled` holds the submit button back on its own (an empty
+ * required field, for example). Native constraint validation stays off, as in
+ * the hand-written dialogs this replaced: every form keeps its own zod checks.
  */
 export function FormDialog({
 	open,
@@ -78,7 +76,9 @@ export function FormDialog({
 	submitLabel,
 	cancelLabel,
 	busy = false,
+	submitDisabled = false,
 	error,
+	testId,
 	children,
 	className,
 }: {
@@ -90,20 +90,24 @@ export function FormDialog({
 	submitLabel?: ReactNode;
 	cancelLabel?: ReactNode;
 	busy?: boolean;
+	/** Disables the submit button without implying a request is in flight. */
+	submitDisabled?: boolean;
 	error?: ReactNode;
+	testId?: string;
 	children: ReactNode;
 	className?: string;
 }) {
 	const { t } = useLingui();
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent data-slot="form-dialog" className={className}>
+			<DialogContent data-slot="form-dialog" className={className} data-testid={testId}>
 				<DialogHeader>
 					<DialogTitle>{title}</DialogTitle>
 					{description !== undefined && <DialogDescription>{description}</DialogDescription>}
 				</DialogHeader>
 				<form
 					className="grid gap-3"
+					noValidate
 					onSubmit={(event) => {
 						event.preventDefault();
 						onSubmit();
@@ -119,7 +123,7 @@ export function FormDialog({
 						<Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
 							{cancelLabel ?? <Trans>Cancel</Trans>}
 						</Button>
-						<Button type="submit" disabled={busy} aria-busy={busy || undefined}>
+						<Button type="submit" disabled={busy || submitDisabled} aria-busy={busy || undefined}>
 							{submitLabel ?? t`Save`}
 						</Button>
 					</DialogFooter>

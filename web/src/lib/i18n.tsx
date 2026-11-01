@@ -1,7 +1,7 @@
 import { i18n } from "@lingui/core";
 import { I18nProvider } from "@lingui/react";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { isLocale, LOCALE_STORAGE_KEY, type Locale } from "@/lib/locale";
+import { LOCALE_STORAGE_KEY, type Locale } from "@/lib/locale";
 import { writeStorage } from "@/lib/storage";
 
 export { isLocale, LOCALE_STORAGE_KEY, LOCALES, type Locale, resolveInitialLocale } from "@/lib/locale";
@@ -22,10 +22,6 @@ export async function activateLocale(locale: Locale): Promise<void> {
 	const messages = await loadCatalog(locale);
 	i18n.loadAndActivate({ locale, messages });
 	document.documentElement.lang = locale;
-}
-
-export function currentLocale(): Locale {
-	return isLocale(i18n.locale) ? i18n.locale : "en";
 }
 
 interface LocaleContextValue {

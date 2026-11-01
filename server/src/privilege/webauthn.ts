@@ -18,6 +18,7 @@ import {
 	verifyRegistrationResponse,
 } from "@simplewebauthn/server";
 import type { WebauthnConfig } from "../config.ts";
+import { errorText } from "../util/errors.ts";
 
 /** The COSE algorithms crhs registers (doc/privilege.md#签名方式): ES256, EdDSA/Ed25519, RS256. */
 export const SUPPORTED_ALGORITHM_IDS: readonly number[] = [-7, -8, -257];
@@ -270,8 +271,4 @@ function decodeBase64url(value: string): Uint8Array | null {
 	if (!/^[A-Za-z0-9_-]*$/.test(value)) return null;
 	const bytes = Uint8Array.from(Buffer.from(value, "base64url"));
 	return Buffer.from(bytes).toString("base64url") === value ? bytes : null;
-}
-
-function errorText(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
 }

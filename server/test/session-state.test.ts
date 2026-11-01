@@ -15,6 +15,7 @@ import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { waitSubmission } from "./helpers/runtime.ts";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
@@ -140,7 +141,7 @@ it("a root runs while its latest input runs and is idle when it ends", async () 
 	const submission = await runtime.submit(session.id, owner, "go", "root-state-1");
 	await waitFor("running", async () => ((await sessionStateOf(db, session.id)) === "running" ? true : undefined));
 	expect(await runtime.getSession(session.id)).toMatchObject({ state: "running", waitingKind: null });
-	await runtime.waitSubmission(session.id, submission);
+	await waitSubmission(runtime, session.id, submission);
 	await waitFor("idle after the run", async () =>
 		(await sessionStateOf(db, session.id)) === "idle" ? true : undefined,
 	);
@@ -202,7 +203,7 @@ it("an exhausted root quota makes it awaiting/quota; a grant resumes the run and
 	await waitFor("running after the grant", async () =>
 		(await sessionStateOf(db, session.id)) === "running" ? true : undefined,
 	);
-	await runtime.waitSubmission(session.id, submission);
+	await waitSubmission(runtime, session.id, submission);
 	await waitFor("idle after the run", async () =>
 		(await sessionStateOf(db, session.id)) === "idle" ? true : undefined,
 	);
@@ -244,7 +245,7 @@ it("a tool call waiting for an approval makes the session awaiting/approval, the
 	await waitFor("running after the approval", async () =>
 		(await sessionStateOf(db, session.id)) === "running" ? true : undefined,
 	);
-	await runtime.waitSubmission(session.id, submission);
+	await waitSubmission(runtime, session.id, submission);
 	await waitFor("idle after the run", async () =>
 		(await sessionStateOf(db, session.id)) === "idle" ? true : undefined,
 	);
@@ -290,7 +291,7 @@ it("a task waiting for a signature makes the session awaiting/authorization", as
 		(await sessionStateOf(db, session.id)) === "running" ? true : undefined,
 	);
 	release();
-	await runtime.waitSubmission(session.id, submission);
+	await waitSubmission(runtime, session.id, submission);
 	await waitFor("idle after the run", async () =>
 		(await sessionStateOf(db, session.id)) === "idle" ? true : undefined,
 	);
@@ -334,7 +335,7 @@ it("a task group waiting for approval is the session's approval wait too", async
 	await waitFor("running after the group", async () =>
 		(await sessionStateOf(db, session.id)) === "running" ? true : undefined,
 	);
-	await runtime.waitSubmission(session.id, submission);
+	await waitSubmission(runtime, session.id, submission);
 	await waitFor("idle after the run", async () =>
 		(await sessionStateOf(db, session.id)) === "idle" ? true : undefined,
 	);
@@ -402,7 +403,7 @@ it("overlapping waits use quota > approval > authorization, and a read never rev
 	await cluster.cancelTask(late.id);
 
 	release();
-	await runtime.waitSubmission(session.id, submission);
+	await waitSubmission(runtime, session.id, submission);
 	await waitFor("idle after the run", async () =>
 		(await sessionStateOf(db, session.id)) === "idle" ? true : undefined,
 	);

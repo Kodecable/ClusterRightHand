@@ -3,7 +3,9 @@ import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import type { SharesTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
+import { stronger, userGroupIds } from "../users/shares.ts";
 import { newId } from "../util/id.ts";
+import { sessionAncestors } from "./session-chain.ts";
 
 /**
  * Session sharing (doc/access-control.md#归属与分享). A session acts for its owner: a user it is shared with
@@ -58,17 +60,8 @@ export interface SessionShare {
 	createdAt: string;
 }
 
-const RANK: Record<SessionShareAccess, number> = { view: 1, chat: 2 };
-
-function stronger(a: SessionShareAccess | undefined, b: SessionShareAccess): SessionShareAccess {
-	return a === undefined || RANK[b] > RANK[a] ? b : a;
-}
-
-/** The user groups the user belongs to; a share to any of them reaches the user. */
-export async function userGroupIds(db: Db, userId: string): Promise<string[]> {
-	const rows = await db.selectFrom("user_group_members").select("group_id").where("user_id", "=", userId).execute();
-	return rows.map((r) => r.group_id);
-}
+/** The share levels of a session, weakest first (a node share orders `view < operate` instead). */
+const ACCESS_LEVELS: readonly SessionShareAccess[] = ["view", "chat"];
 
 /** The shares that reach the user directly or through a group, as sessionId -> strongest access. */
 export async function sharedSessionAccess(
@@ -92,7 +85,9 @@ export async function sharedSessionAccess(
 	if (sessionId) q = q.where("resource_id", "=", sessionId);
 	const out = new Map<string, SessionShareAccess>();
 	for (const r of await q.execute()) {
-		if (r.access === "view" || r.access === "chat") out.set(r.resource_id, stronger(out.get(r.resource_id), r.access));
+		if (r.access === "view" || r.access === "chat") {
+			out.set(r.resource_id, stronger(ACCESS_LEVELS, out.get(r.resource_id), r.access));
+		}
 	}
 	return out;
 }
@@ -104,12 +99,10 @@ async function shareAccessFor(
 	sessionId: string,
 ): Promise<SessionShareAccess | undefined> {
 	let access: SessionShareAccess | undefined;
-	for (let id: string | null = sessionId; id; ) {
-		const found = shares.get(id);
-		if (found) access = stronger(access, found);
+	for await (const row of sessionAncestors(db, sessionId)) {
+		const found = shares.get(row.id);
+		if (found) access = stronger(ACCESS_LEVELS, access, found);
 		if (access === "chat") break;
-		const parent = await db.selectFrom("sessions").select("parent_session_id").where("id", "=", id).executeTakeFirst();
-		id = parent?.parent_session_id ?? null;
 	}
 	return access;
 }

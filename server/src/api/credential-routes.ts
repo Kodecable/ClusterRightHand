@@ -14,9 +14,9 @@ import {
 	listCredentials,
 	webauthnCredentials,
 } from "../privilege/credentials.ts";
-import { RegistrationChallenges, rpForRequest, verifyRegistration, WebauthnError } from "../privilege/webauthn.ts";
+import { RegistrationChallenges, rpForRequest, verifyRegistration } from "../privilege/webauthn.ts";
 import type { Db } from "../storage/db.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
+import { errorText } from "../util/errors.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
 
 export interface CredentialRoutesOptions {
@@ -31,14 +31,6 @@ export function credentialRoutes(db: Db, options: CredentialRoutesOptions = {}) 
 	const app = new Hono<AppEnv>();
 	const webauthn = options.webauthn ?? { rpId: null, rpName: "ClusterRightHand", origins: [] };
 	const challenges = options.challenges ?? new RegistrationChallenges();
-
-	app.onError((err, c) => {
-		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
-		if (err instanceof UserError || err instanceof WebauthnError) {
-			return jsonError(c, 400, err.message);
-		}
-		throw err;
-	});
 
 	app.get("/me/credentials", async (c) => c.json({ credentials: await listCredentials(db, c.get("user").userId) }));
 
@@ -88,7 +80,7 @@ export function credentialRoutes(db: Db, options: CredentialRoutesOptions = {}) 
 			if (typeof clientData.challenge !== "string") throw new Error("clientDataJSON has no challenge");
 			challenge = clientData.challenge;
 		} catch (err) {
-			return jsonError(c, 400, `clientDataJSON: ${err instanceof Error ? err.message : String(err)}`);
+			return jsonError(c, 400, `clientDataJSON: ${errorText(err)}`);
 		}
 		const pending = challenges.take(challenge);
 		if (!pending) return jsonError(c, 400, "unknown, already used or expired registration challenge");

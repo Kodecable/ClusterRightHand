@@ -64,7 +64,6 @@ export function UserMenu() {
 	const onLogout = () => {
 		logout.mutate(undefined, {
 			onSuccess: () => toast.success(t`Signed out.`),
-			onError: (error) => toast.error(error.message),
 		});
 	};
 

@@ -17,6 +17,7 @@ import { authorizationRoutes } from "./authorization-routes.ts";
 import type { AppEnv } from "./context.ts";
 import { credentialRoutes } from "./credential-routes.ts";
 import { RequestDrain } from "./drain.ts";
+import { apiErrorHandler } from "./errors.ts";
 import { csrfGuard, requireUser } from "./middleware.ts";
 import { nodeRoutes } from "./node-routes.ts";
 import { policyRoutes } from "./policy-routes.ts";
@@ -59,6 +60,9 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	const audit = options.audit ?? new Audit(db);
 	const drain = options.drain ?? new RequestDrain();
 
+	// One error handler for every route (see errors.ts), so each route group keeps only its own routes.
+	app.onError(apiErrorHandler());
+
 	// First, so that a request arriving during shutdown is refused before it can authenticate or query the
 	// database; requests already being handled are counted until they settle.
 	app.use("*", drain.middleware());
@@ -97,8 +101,12 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 		app.route("/api", taskRoutes(db, options.cluster, groups));
 		app.route("/api", policyRoutes(db, options.cluster, groups, audit));
 		if (options.agent && options.masterKey) {
-			app.route(
-				"/api",
+			// The session routes reach the agent runtime: during shutdown they answer with the shutdown rather
+			// than with the closed Harness's exception (main.ts). No other route group uses the runtime.
+			const sessions = new Hono<AppEnv>();
+			sessions.onError(apiErrorHandler({ closing: () => options.agent?.runtime.closing === true }));
+			sessions.route(
+				"/",
 				sessionRoutes(db, {
 					...options.agent,
 					masterKey: options.masterKey,
@@ -108,6 +116,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 					...(options.scheduler ? { scheduler: options.scheduler } : {}),
 				}),
 			);
+			app.route("/api", sessions);
 		}
 		if (options.agent && options.scheduler) {
 			app.route(

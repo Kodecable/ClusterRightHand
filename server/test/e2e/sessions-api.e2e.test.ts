@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createUser } from "../../src/users/service.ts";
+import { waitSubmission as waitSubmissionOf } from "../helpers/runtime.ts";
 import { buildCrha, Env, goAvailable, pkill, waitFor } from "./harness.ts";
 
 const hasGo = await goAvailable();
@@ -52,6 +53,11 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 	const tasksOf = (sessionId: string) =>
 		crhs().db.selectFrom("tasks").selectAll().where("actor_id", "=", sessionId).execute();
 	const idle = () => crhs().runtime?.waitForIdle() as Promise<void>;
+	const waitSubmission = (sessionId: string, submissionId: string) => {
+		const runtime = crhs().runtime;
+		if (!runtime) throw new Error("the agent runtime is not running");
+		return waitSubmissionOf(runtime, sessionId, submissionId);
+	};
 	const execCall = (cmd: string, id = "c1") =>
 		fauxAssistantMessage([fauxToolCall("exec", { targets: [nodeName], cmd }, { id })], { stopReason: "toolUse" });
 	const auditOf = async (action: string, targetId: string) => {
@@ -194,7 +200,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			const first = await send(s.id, "hi", "same-request");
 			expect(first.status).toBe(202);
 			expect(first.json.submissionId).toBeTruthy();
-			const wait = await crhs().runtime?.waitSubmission(s.id, first.json.submissionId);
+			const wait = await waitSubmission(s.id, first.json.submissionId);
 			expect(wait).toEqual({ status: "done", answer: "hello there" });
 			const again = await send(s.id, "hi", "same-request");
 			expect(again.status).toBe(202);
@@ -207,10 +213,10 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			const s = await newSession("ask");
 			crhs().faux.setResponses([fauxAssistantMessage([fauxText("one")]), fauxAssistantMessage([fauxText("two")])]);
 			const a = await send(s.id, "a", "ra");
-			await crhs().runtime?.waitSubmission(s.id, a.json.submissionId);
+			await waitSubmission(s.id, a.json.submissionId);
 			const b = await send(s.id, "b", "rb");
 			expect(b.json.submissionId).not.toBe(a.json.submissionId);
-			expect(await crhs().runtime?.waitSubmission(s.id, b.json.submissionId)).toEqual({
+			expect(await waitSubmission(s.id, b.json.submissionId)).toEqual({
 				status: "done",
 				answer: "two",
 			});
@@ -222,7 +228,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			const s = await newSession("yolo");
 			crhs().faux.setResponses([execCall("echo via-api"), fauxAssistantMessage([fauxText("finished")])]);
 			const sub = await send(s.id, "run it");
-			expect(await crhs().runtime?.waitSubmission(s.id, sub.json.submissionId)).toEqual({
+			expect(await waitSubmission(s.id, sub.json.submissionId)).toEqual({
 				status: "done",
 				answer: "finished",
 			});
@@ -245,7 +251,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			const patch = await crhs().api(`/api/sessions/${s.id}`, { method: "PATCH", body: { preset: "yolo" } });
 			expect(patch.status).toBe(200);
 			expect(patch.json.session.rules.preset).toBe("yolo");
-			expect(await crhs().runtime?.waitSubmission(s.id, sub.json.submissionId)).toEqual({
+			expect(await waitSubmission(s.id, sub.json.submissionId)).toEqual({
 				status: "done",
 				answer: "ran",
 			});
@@ -276,7 +282,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			const t0 = Date.now();
 			await idle();
 			expect(Date.now() - t0).toBeLessThan(20_000);
-			const settled = await crhs().runtime?.waitSubmission(s.id, sub.json.submissionId);
+			const settled = await waitSubmission(s.id, sub.json.submissionId);
 			expect(settled?.status).toBe("unanswered");
 			// Stopping the session stops the node's process too.
 			const task = await waitFor("the task cancelled", async () => {
@@ -290,7 +296,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			crhs().faux.setResponses([fauxAssistantMessage([fauxText("back again")])]);
 			const next = await send(s.id, "are you there?");
 			expect(next.status).toBe(202);
-			expect(await crhs().runtime?.waitSubmission(s.id, next.json.submissionId)).toEqual({
+			expect(await waitSubmission(s.id, next.json.submissionId)).toEqual({
 				status: "done",
 				answer: "back again",
 			});
@@ -374,7 +380,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			crhs().faux.setResponses([fauxAssistantMessage([fauxText("member ok")])]);
 			const sub = await send(s.id, "hi", "r-own", member);
 			expect(sub.status).toBe(202);
-			expect(await crhs().runtime?.waitSubmission(s.id, sub.json.submissionId)).toEqual({
+			expect(await waitSubmission(s.id, sub.json.submissionId)).toEqual({
 				status: "done",
 				answer: "member ok",
 			});
@@ -391,7 +397,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			const s = await newSession("yolo");
 			crhs().faux.setResponses([execCall("echo audited"), fauxAssistantMessage([fauxText("done")])]);
 			const sub = await send(s.id, "audit me");
-			await crhs().runtime?.waitSubmission(s.id, sub.json.submissionId);
+			await waitSubmission(s.id, sub.json.submissionId);
 			const created = await auditOf("session.created", s.id);
 			expect(created).toHaveLength(1);
 			expect(created[0]?.detail).toMatchObject({ preset: "yolo", model: model() });

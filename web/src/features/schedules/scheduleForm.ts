@@ -157,11 +157,6 @@ export function runStatusText(i18n: I18n, status: ScheduleRunStatus): string {
 	return i18n._(RUN_STATUS_TEXT[status]);
 }
 
-/** The warning the preset deserves on a schedule (doc/scheduling.md#授权规则与配额). */
-export function presetNoteKey(preset: Preset): "ask" | "auto_review" | "yolo" {
-	return preset;
-}
-
 const PRESET_NOTES: Record<Preset, MessageDescriptor> = {
 	ask: msg`Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there.`,
 	auto_review: msg`Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask.`,

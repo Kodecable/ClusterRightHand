@@ -280,6 +280,8 @@ func TestPrivilegedFileErrors(t *testing.T) {
 	wantCode(t, err, "not_found")
 	_, err = runPrivileged(t, &protocol.FileEditSpec{Path: filepath.Join(dir, "missing"), Edits: []protocol.Edit{{OldText: "a", NewText: "b"}}}, nil)
 	wantCode(t, err, "not_found")
+	// HEAD failed the edit at the stat and reported the bare errno, without an operation prefix.
+	wantMessage(t, err, "no such file or directory")
 	_, err = runPrivileged(t, &protocol.FileStatSpec{Path: "relative"}, nil)
 	wantCode(t, err, "invalid_spec")
 }

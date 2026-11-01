@@ -6,7 +6,7 @@ import type { TaskGroups, TaskGroupView } from "../cluster/task-groups.ts";
 import { parseRules, type Rule } from "../policy/rules.ts";
 import { appendRule, parsePreset, type RuleRef, setPreset, setRules } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
+import { UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { type CursorSpec, cursorRows, decodeCursor, encodeCursor, parseLimit } from "./cursor.ts";
 
@@ -19,12 +19,6 @@ const AUDIT_CURSOR: CursorSpec = { columns: [{ name: "seq", type: "number" }], i
  */
 export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit: Audit) {
 	const app = new Hono<AppEnv>();
-
-	app.onError((err, c) => {
-		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
-		if (err instanceof UserError) return jsonError(c, 400, err.message);
-		throw err;
-	});
 
 	/** After any rule change: settle what no longer needs approval. */
 	const rulesChanged = async (ref: RuleRef) => {

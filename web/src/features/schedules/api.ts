@@ -92,11 +92,3 @@ export function useSchedulePreview(cron: string, timezone: string, count = 5) {
 			http.post<{ times: string[] }>("/schedules/preview", { cron, timezone, count }, { signal }).then((r) => r.times),
 	});
 }
-
-/** Kept for one-off previews (the schedule form uses the query above). */
-export function usePreviewSchedule() {
-	return useMutation({
-		mutationFn: ({ cron, timezone, count }: { cron: string; timezone: string; count?: number }) =>
-			http.post<{ times: string[] }>("/schedules/preview", { cron, timezone, count: count ?? 5 }).then((r) => r.times),
-	});
-}

@@ -32,6 +32,72 @@ const (
 	nativeLineMax = 4 << 10
 )
 
+// nativeRun executes one task through the privileged helper: the helper runs as the target identity,
+// owns the process and the input accounting, and reports the task's events over its own crh-priv
+// connection (doc/privilege.md "native").
+type nativeRun struct {
+	// conn is the helper connection, set by prepare.
+	conn *nativeConn
+}
+
+// prepare spawns the helper and forwards the task.start. The helper must accept the task before this
+// agent does: a tool that cannot run (a password is required, no sudoers rule, a version mismatch)
+// makes the task privileged_unsupported, never a fall back to unprivileged execution
+// (doc/privilege.md "native").
+func (r *nativeRun) prepare(a *Agent, _ context.Context, t *task) error {
+	n, err := a.startNative(t.spec)
+	if err != nil {
+		return &protocol.RemoteError{Code: "privileged_unsupported", Message: err.Error()}
+	}
+	r.conn = n
+	return nil
+}
+
+// registered does nothing: the helper's events are buffered until start watches the stream.
+func (r *nativeRun) registered(*Agent, *task) {}
+
+// start watches the helper's stream and forwards the queued input to it.
+func (r *nativeRun) start(a *Agent, t *task) {
+	go r.run(a, t)
+	go r.forward(a, t)
+}
+
+// input forwards the chunk to the helper, which owns the input accounting.
+func (r *nativeRun) input(a *Agent, _ context.Context, t *task, in *protocol.TaskInput) (any, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	res := a.acceptInput(t, in)
+	if res.Data != nil {
+		r.conn.inputs.push(in)
+	}
+	if res.Refusal != nil {
+		return nil, res.Refusal
+	}
+	return protocol.Empty{}, nil
+}
+
+// inputComplete reports the accounting this side keeps; the helper's verdict arrives with its
+// task.exit.
+func (r *nativeRun) inputComplete(t *task) bool { return t.input.Complete() }
+
+// failInput fails the task's input through the helper, which owns the process.
+func (r *nativeRun) failInput(*Agent, *task, string) { r.conn.inputs.pushCancel() }
+
+// cancel asks the helper to cancel the task: the agent never signals it (doc/privilege.md, native).
+// The request is queued so it follows the input chunks already forwarded.
+func (r *nativeRun) cancel(*Agent, context.Context, *task) { r.conn.inputs.pushCancel() }
+
+// query cannot answer: the helper holds the task's state.
+func (r *nativeRun) query(*Agent, context.Context, protocol.TaskQuery) (protocol.TaskStatus, bool) {
+	return protocol.TaskStatus{}, false
+}
+
+// finished ends the helper's input queue and wakes its watcher once task.exit completed the task.
+func (r *nativeRun) finished(*task) {
+	r.conn.inputs.close()
+	r.conn.signalDone()
+}
+
 // nativeConn is the crh-priv connection to the helper of one accepted native task.
 type nativeConn struct {
 	cmd    *exec.Cmd
@@ -199,10 +265,10 @@ func nativeFailure(argv []string, stderr *nativeStderr, err error) error {
 	return errors.New(msg)
 }
 
-// nativeRun watches the helper's stream and completes the task. It starts after the task is
-// accepted and its handlers exist, which is also when the buffered events are replayed.
-func (a *Agent) nativeRun(t *task) {
-	n := t.native
+// run watches the helper's stream and completes the task. It starts after the task is accepted and
+// its handlers exist, which is also when the buffered events are replayed.
+func (r *nativeRun) run(a *Agent, t *task) {
+	n := r.conn
 	err := n.events.attach(map[string]protocol.EventHandler{
 		protocol.EventTaskOutput: a.nativeOutput(t),
 		protocol.EventTaskExit:   a.nativeExit(t),
@@ -221,7 +287,7 @@ func (a *Agent) nativeRun(t *task) {
 		<-n.loopDone
 	}
 	if !a.taskDone(t) {
-		a.nativeLost(t, n.loopErr)
+		r.lost(a, t, n.loopErr)
 	}
 	if finished || errors.Is(n.loopErr, io.EOF) {
 		n.wait()
@@ -241,8 +307,8 @@ func (a *Agent) taskDone(t *task) bool {
 	return t.done
 }
 
-// nativeLost completes a native task whose helper connection broke before task.exit.
-func (a *Agent) nativeLost(t *task, err error) {
+// lost completes a native task whose helper connection broke before task.exit.
+func (*nativeRun) lost(a *Agent, t *task, err error) {
 	message := "the native helper disconnected before task.exit"
 	if err != nil && !errors.Is(err, io.EOF) {
 		message = err.Error()
@@ -255,7 +321,7 @@ func (a *Agent) nativeLost(t *task, err error) {
 func (a *Agent) nativeOutput(t *task) protocol.EventHandler {
 	return func(body cbor.RawMessage) error {
 		var out protocol.TaskOutput
-		if err := protocol.Unmarshal(body, &out); err != nil {
+		if err := protocol.UnmarshalBody(body, &out); err != nil {
 			return err
 		}
 		if out.TaskID != t.id {
@@ -268,7 +334,7 @@ func (a *Agent) nativeOutput(t *task) protocol.EventHandler {
 func (a *Agent) nativeExit(t *task) protocol.EventHandler {
 	return func(body cbor.RawMessage) error {
 		var exit protocol.TaskExit
-		if err := protocol.Unmarshal(body, &exit); err != nil {
+		if err := protocol.UnmarshalBody(body, &exit); err != nil {
 			return err
 		}
 		if exit.TaskID != t.id {
@@ -279,10 +345,10 @@ func (a *Agent) nativeExit(t *task) protocol.EventHandler {
 	}
 }
 
-// nativeForward sends the queued task.input chunks and task.cancel to the helper, in order. It never
-// waits from the receive loop: a slow or broken helper must not hold up crhs's other frames.
-func (a *Agent) nativeForward(t *task) {
-	n := t.native
+// forward sends the queued task.input chunks and task.cancel to the helper, in order. It never waits
+// from the receive loop: a slow or broken helper must not hold up crhs's other frames.
+func (r *nativeRun) forward(a *Agent, t *task) {
+	n := r.conn
 	for {
 		req, ok := n.inputs.next()
 		if !ok {

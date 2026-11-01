@@ -189,7 +189,7 @@ func (c *conn) task(id string) *taskrun.Task {
 // and starts the task after the success response (doc/privilege.md 校验流程 steps 2–10).
 func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, error) {
 	var ts protocol.TaskStart
-	if err := protocol.Unmarshal(raw, &ts); err != nil {
+	if err := protocol.UnmarshalBody(raw, &ts); err != nil {
 		return nil, err
 	}
 	decided, refusal := c.s.decide(&ts)
@@ -318,7 +318,7 @@ func (c *conn) startTask(ct *connTask) {
 
 func (c *conn) handleTaskInput(_ context.Context, raw cbor.RawMessage) (any, error) {
 	var in protocol.TaskInput
-	if err := protocol.Unmarshal(raw, &in); err != nil {
+	if err := protocol.UnmarshalBody(raw, &in); err != nil {
 		return nil, err
 	}
 	task := c.task(in.TaskID)
@@ -330,7 +330,7 @@ func (c *conn) handleTaskInput(_ context.Context, raw cbor.RawMessage) (any, err
 
 func (c *conn) handleTaskCancel(_ context.Context, raw cbor.RawMessage) (any, error) {
 	var cancel protocol.TaskCancel
-	if err := protocol.Unmarshal(raw, &cancel); err != nil {
+	if err := protocol.UnmarshalBody(raw, &cancel); err != nil {
 		return nil, err
 	}
 	if task := c.task(cancel.TaskID); task != nil {
@@ -341,7 +341,7 @@ func (c *conn) handleTaskCancel(_ context.Context, raw cbor.RawMessage) (any, er
 
 func (c *conn) handleTaskQuery(_ context.Context, raw cbor.RawMessage) (any, error) {
 	var query protocol.TaskQuery
-	if err := protocol.Unmarshal(raw, &query); err != nil {
+	if err := protocol.UnmarshalBody(raw, &query); err != nil {
 		return nil, err
 	}
 	if task := c.task(query.TaskID); task != nil {
@@ -352,7 +352,7 @@ func (c *conn) handleTaskQuery(_ context.Context, raw cbor.RawMessage) (any, err
 
 func (c *conn) handleTrustQuery(_ context.Context, raw cbor.RawMessage) (any, error) {
 	var empty protocol.Empty
-	if err := protocol.Unmarshal(raw, &empty); err != nil {
+	if err := protocol.UnmarshalBody(raw, &empty); err != nil {
 		return nil, err
 	}
 	return c.s.Config().Summary(), nil
@@ -360,7 +360,7 @@ func (c *conn) handleTrustQuery(_ context.Context, raw cbor.RawMessage) (any, er
 
 func (c *conn) handleRevocationsAdd(_ context.Context, raw cbor.RawMessage) (any, error) {
 	var add protocol.RevocationsAdd
-	if err := protocol.Unmarshal(raw, &add); err != nil {
+	if err := protocol.UnmarshalBody(raw, &add); err != nil {
 		return nil, err
 	}
 	ids := make([]string, 0, len(add.Entries))
@@ -417,7 +417,7 @@ func parseStep(text string) (int, error) {
 
 func (c *conn) handlePendingList(_ context.Context, raw cbor.RawMessage) (any, error) {
 	var empty protocol.Empty
-	if err := protocol.Unmarshal(raw, &empty); err != nil {
+	if err := protocol.UnmarshalBody(raw, &empty); err != nil {
 		return nil, err
 	}
 	return c.s.pendingEntries(), nil
@@ -425,7 +425,7 @@ func (c *conn) handlePendingList(_ context.Context, raw cbor.RawMessage) (any, e
 
 func (c *conn) handleLocalRequest(_ context.Context, raw cbor.RawMessage) (any, error) {
 	var req protocol.LocalRequest
-	if err := protocol.Unmarshal(raw, &req); err != nil {
+	if err := protocol.UnmarshalBody(raw, &req); err != nil {
 		return nil, err
 	}
 	state, refusal := c.s.requestLocal(&req)
@@ -437,7 +437,7 @@ func (c *conn) handleLocalRequest(_ context.Context, raw cbor.RawMessage) (any, 
 
 func (c *conn) handleLocalWithdraw(_ context.Context, raw cbor.RawMessage) (any, error) {
 	var withdraw protocol.LocalWithdraw
-	if err := protocol.Unmarshal(raw, &withdraw); err != nil {
+	if err := protocol.UnmarshalBody(raw, &withdraw); err != nil {
 		return nil, err
 	}
 	c.s.withdrawLocal(withdraw.TaskID, uint64(withdraw.Attempt))
@@ -454,7 +454,7 @@ func (c *conn) handleLocalDeny(_ context.Context, raw cbor.RawMessage) (any, err
 
 func (c *conn) decideLocal(raw cbor.RawMessage, approve bool) (any, error) {
 	var verdict protocol.LocalVerdict
-	if err := protocol.Unmarshal(raw, &verdict); err != nil {
+	if err := protocol.UnmarshalBody(raw, &verdict); err != nil {
 		return nil, err
 	}
 	if _, refusal := c.s.decideLocal(c.uid, &verdict, approve); refusal != nil {

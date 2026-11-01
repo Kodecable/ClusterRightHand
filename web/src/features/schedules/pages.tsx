@@ -14,222 +14,14 @@ import { PageSkeleton } from "@/components/skeletons";
 import { ScheduleStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
 import { useModels } from "@/features/settings/api";
-import type { AvailableModel, ScheduleRunView, ScheduleView } from "@/lib/api/types";
-import {
-	useCreateSchedule,
-	useDeleteSchedule,
-	usePatchSchedule,
-	useRunSchedule,
-	useSchedule,
-	useScheduleRuns,
-	useSchedules,
-} from "./api";
+import type { ScheduleView } from "@/lib/api/types";
+import { useDeleteSchedule, usePatchSchedule, useSchedule, useSchedules } from "./api";
+import { CreateScheduleDialog } from "./create-schedule-dialog";
+import { RunHistory } from "./run-history";
+import { EnabledSwitch, RunNowButton } from "./schedule-actions";
 import { ScheduleForm, scheduleFormStateOf } from "./schedule-form";
-import { runNoteParts, runStatusText, type ScheduleFormState, scheduleState } from "./scheduleForm";
-
-/** "Run now", with the confirmation the docs require when an instance is in progress. */
-function RunNowButton({ schedule }: { schedule: ScheduleView }) {
-	const { t } = useLingui();
-	const run = useRunSchedule();
-	const [confirm, setConfirm] = useState(false);
-	const start = () => {
-		run.mutate(schedule.id, {
-			onSuccess: () => {
-				toast.success(t`Run started.`);
-				setConfirm(false);
-			},
-			onError: (error) => toast.error(error.message),
-		});
-	};
-	return (
-		<>
-			<Button
-				type="button"
-				variant="outline"
-				size="sm"
-				disabled={run.isPending}
-				onClick={() => (schedule.inProgress ? setConfirm(true) : start())}
-			>
-				<Trans>Run now</Trans>
-			</Button>
-			<ConfirmDialog
-				open={confirm}
-				onOpenChange={setConfirm}
-				title={t`Run ${schedule.name} now?`}
-				description={<Trans>This stops the current run. Its history will show it as preempted.</Trans>}
-				confirmLabel={<Trans>Stop it and run now</Trans>}
-				busy={run.isPending}
-				onConfirm={start}
-			/>
-		</>
-	);
-}
-
-/** The enabled toggle of one schedule; it patches and toasts on failure. */
-function EnabledSwitch({ schedule }: { schedule: ScheduleView }) {
-	const { t } = useLingui();
-	const patch = usePatchSchedule(schedule.id);
-	return (
-		<Switch
-			checked={schedule.enabled}
-			disabled={patch.isPending}
-			aria-label={t`Enabled: ${schedule.name}`}
-			onCheckedChange={(checked) => {
-				patch.mutate({ enabled: Boolean(checked) }, { onError: (error) => toast.error(error.message) });
-			}}
-		/>
-	);
-}
-
-function RunHistory({ scheduleId, inProgress }: { scheduleId: string; inProgress: boolean }) {
-	const { t, i18n } = useLingui();
-	const runs = useScheduleRuns(scheduleId, 20, inProgress ? 2_000 : false);
-	const rows = useMemo(() => runs.data?.pages.flatMap((page) => page.items) ?? [], [runs.data]);
-
-	const columns = useMemo<DataTableColumn<ScheduleRunView>[]>(
-		() => [
-			{
-				id: "fireTime",
-				header: t`Triggered for`,
-				size: 170,
-				cell: ({ row }) => <DateTime value={row.original.fireTime} seconds />,
-			},
-			{
-				id: "status",
-				header: t`Status`,
-				size: 120,
-				cell: ({ row }) => <ScheduleStatusBadge status={row.original.status} />,
-			},
-			{
-				id: "when",
-				header: t`When`,
-				size: 170,
-				cell: ({ row }) => (
-					<DateTime value={row.original.finishedAt ?? row.original.startedAt ?? row.original.createdAt} seconds />
-				),
-			},
-			{
-				id: "session",
-				header: t`Session`,
-				size: 110,
-				cell: ({ row }) =>
-					row.original.sessionId === null ? (
-						<span className="text-muted-foreground">–</span>
-					) : (
-						<Link
-							to="/sessions/$sessionId"
-							params={{ sessionId: row.original.sessionId }}
-							className="font-mono text-xs text-primary underline underline-offset-2"
-						>
-							{row.original.sessionId.slice(0, 8)}
-						</Link>
-					),
-			},
-			{
-				id: "note",
-				header: t`Note`,
-				cell: ({ row }) => {
-					const { status, reason, manual } = runNoteParts(row.original);
-					return (
-						<span className="text-xs">
-							{reason ?? runStatusText(i18n, status)}
-							{manual && (
-								<span className="text-muted-foreground">
-									{" · "}
-									<Trans>run by hand</Trans>
-								</span>
-							)}
-						</span>
-					);
-				},
-			},
-		],
-		[i18n, t],
-	);
-
-	return (
-		<section className="grid gap-2" aria-labelledby="schedule-runs-heading" data-testid="schedule-runs">
-			<div className="flex items-center justify-between gap-2">
-				<h2 id="schedule-runs-heading" className="text-sm font-semibold">
-					<Trans>Run history</Trans>
-				</h2>
-				<Button type="button" variant="outline" size="sm" onClick={() => void runs.refetch()}>
-					<Trans>Refresh</Trans>
-				</Button>
-			</div>
-			<DataTable
-				label={t`Schedule runs`}
-				columns={columns}
-				data={rows}
-				getRowId={(run) => run.id}
-				loading={runs.isLoading}
-				error={runs.isError ? runs.error : undefined}
-				onRetry={() => void runs.refetch()}
-				hasMore={runs.hasNextPage}
-				loadingMore={runs.isFetchingNextPage}
-				onLoadMore={() => void runs.fetchNextPage()}
-				empty={
-					<EmptyState
-						title={<Trans>No runs yet</Trans>}
-						description={<Trans>This schedule has not fired yet.</Trans>}
-					/>
-				}
-			/>
-		</section>
-	);
-}
-
-function CreateScheduleDialog({ models, onClose }: { models: AvailableModel[]; onClose: () => void }) {
-	const { t } = useLingui();
-	const navigate = useNavigate();
-	const create = useCreateSchedule();
-	const initial = useMemo<ScheduleFormState>(() => scheduleFormStateOf(), []);
-	return (
-		<Dialog
-			open
-			onOpenChange={(open) => {
-				if (!open) onClose();
-			}}
-		>
-			<DialogContent className="sm:max-w-2xl">
-				<DialogHeader>
-					<DialogTitle>
-						<Trans>New schedule</Trans>
-					</DialogTitle>
-					<DialogDescription>
-						<Trans>A schedule creates a new session at every trigger and submits a fixed prompt.</Trans>
-					</DialogDescription>
-				</DialogHeader>
-				<div className="max-h-[70vh] overflow-auto pr-1">
-					<ScheduleForm
-						initial={initial}
-						models={models}
-						submitLabel={t`Create schedule`}
-						busy={create.isPending}
-						error={create.error}
-						onSubmit={(input) => {
-							create.mutate(input, {
-								onSuccess: (schedule) => {
-									toast.success(t`Schedule created.`);
-									onClose();
-									void navigate({ to: "/schedules/$scheduleId", params: { scheduleId: schedule.id } });
-								},
-								onError: (error) => toast.error(error.message),
-							});
-						}}
-					>
-						<Button type="button" variant="outline" onClick={onClose}>
-							<Trans>Cancel</Trans>
-						</Button>
-					</ScheduleForm>
-				</div>
-			</DialogContent>
-		</Dialog>
-	);
-}
+import { scheduleState } from "./scheduleForm";
 
 /**
  * Every schedule the user owns (doc/scheduling.md "调度"): next run, last
@@ -430,10 +222,7 @@ export function ScheduleDetailPage() {
 					busy={patch.isPending}
 					error={patch.error}
 					onSubmit={(input) => {
-						patch.mutate(input, {
-							onSuccess: () => toast.success(t`Schedule saved.`),
-							onError: (error) => toast.error(error.message),
-						});
+						patch.mutate(input, { onSuccess: () => toast.success(t`Schedule saved.`) });
 					}}
 				/>
 			</section>
@@ -474,7 +263,6 @@ export function ScheduleDetailPage() {
 							toast.success(t`Schedule deleted.`);
 							void navigate({ to: "/schedules" });
 						},
-						onError: (error) => toast.error(error.message),
 					});
 				}}
 			/>

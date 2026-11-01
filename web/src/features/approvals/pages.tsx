@@ -61,7 +61,6 @@ function TaskCards({
 			{ kind: "task", id, body },
 			{
 				onSuccess: () => toast.success(t`Decision recorded.`),
-				onError: (error) => toast.error(error.message),
 			},
 		);
 	};
@@ -98,7 +97,6 @@ function GroupCards({
 			{ kind: "group", id, body },
 			{
 				onSuccess: () => toast.success(t`Decision recorded.`),
-				onError: (error) => toast.error(error.message),
 			},
 		);
 	};
@@ -184,7 +182,6 @@ function QuotaRow({ wait }: { wait: QuotaApproval }) {
 			onDecide={(decision) =>
 				decide.mutate(decision, {
 					onSuccess: () => toast.success(t`Quota decision recorded.`),
-					onError: (error) => toast.error(error.message),
 				})
 			}
 		/>
@@ -338,7 +335,6 @@ export function ApprovalTaskPage() {
 							{ kind: "task", id: task.data?.id ?? "", body },
 							{
 								onSuccess: () => toast.success(t`Decision recorded.`),
-								onError: (error) => toast.error(error.message),
 							},
 						)
 					}
@@ -397,7 +393,6 @@ export function ApprovalTaskGroupPage() {
 							{ kind: "group", id: group.data?.id ?? "", body },
 							{
 								onSuccess: () => toast.success(t`Decision recorded.`),
-								onError: (error) => toast.error(error.message),
 							},
 						)
 					}

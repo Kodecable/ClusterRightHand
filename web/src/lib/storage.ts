@@ -22,11 +22,3 @@ export function writeStorage(key: string, value: string): void {
 		memory.set(key, value);
 	}
 }
-
-export function removeStorage(key: string): void {
-	try {
-		window.localStorage.removeItem(key);
-	} catch {
-		memory.delete(key);
-	}
-}

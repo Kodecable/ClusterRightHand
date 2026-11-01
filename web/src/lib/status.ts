@@ -119,8 +119,3 @@ export function tokenStatusTone(status: string): StatusTone {
 			return "muted";
 	}
 }
-
-/** A signing credential: ssh / webauthn are just kinds, but keep one place for the dot. */
-export function credentialStatusTone(kind: string): StatusTone {
-	return kind === "webauthn" ? "ok" : "info";
-}

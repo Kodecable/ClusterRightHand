@@ -4,8 +4,8 @@ import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import type { Database } from "../storage/schema.ts";
 import { UserError } from "../users/service.ts";
+import { userGroupIds } from "../users/shares.ts";
 import type { SessionState, WaitingKind } from "./session-state.ts";
-import { userGroupIds } from "./sharing.ts";
 
 /**
  * The session list of the WebUI rewrite (doc/webui.md#会话列表): root sessions only, newest activity first,

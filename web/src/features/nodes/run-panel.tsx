@@ -77,7 +77,6 @@ export function RunPanel({ nodeId }: { nodeId: string }) {
 							onClick={() =>
 								cancel.mutate(undefined, {
 									onSuccess: () => toast.success(t`Task cancelled.`),
-									onError: (error) => toast.error(error.message),
 								})
 							}
 						>

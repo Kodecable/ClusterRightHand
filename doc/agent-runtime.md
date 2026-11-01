@@ -37,7 +37,7 @@ interface AgentRuntime {
   watch(session: SessionId, onUpdate: (view: SessionView, ops: unknown) => void): Promise<Unwatch>;
   configure(session: SessionId, change: SessionConfigChange): Promise<void>;
   // 计划任务、审批恢复等场景使用
-  waitSubmission(id: SubmissionId): Promise<SubmissionResult>;
+  waitForSubmission(id: SubmissionId): Promise<SubmissionResult>;
 }
 ```
 

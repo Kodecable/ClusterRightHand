@@ -2,7 +2,6 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import { createModels, createProvider, type MutableModels, type Provider } from "@earendil-works/pi-ai/models";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { Selectable } from "kysely";
-import type { SessionUser } from "../auth/sessions.ts";
 import { secretAad } from "../keys/export.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
@@ -316,9 +315,4 @@ export class ModelConfig {
 			throw new UserError(`model ${ref.provider}/${ref.modelId} is not configured`);
 		}
 	}
-}
-
-/** Who may configure models: administrators (doc/access-control.md#用户类型). */
-export function requireAdmin(user: SessionUser): void {
-	if (user.kind !== "admin") throw new UserError("administrators only");
 }

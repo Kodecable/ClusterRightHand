@@ -4,6 +4,7 @@ import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import type { NodesTable, SharesTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
+import { stronger, userGroupIds } from "../users/shares.ts";
 import { newId } from "../util/id.ts";
 import { uniqueNodeName } from "./enrollment.ts";
 import { keyFingerprint } from "./identity.ts";
@@ -74,16 +75,8 @@ export async function findNodeByPublicKey(db: Db, publicKey: Uint8Array): Promis
 		.executeTakeFirst();
 }
 
-const RANK: Record<ShareAccess, number> = { view: 1, operate: 2 };
-
-function stronger(a: ShareAccess | undefined, b: ShareAccess): ShareAccess {
-	return a === undefined || RANK[b] > RANK[a] ? b : a;
-}
-
-async function userGroupIds(db: Db, userId: string): Promise<string[]> {
-	const rows = await db.selectFrom("user_group_members").select("group_id").where("user_id", "=", userId).execute();
-	return rows.map((r) => r.group_id);
-}
+/** Node share levels, weakest first. */
+const NODE_ACCESS: readonly ShareAccess[] = ["view", "operate"];
 
 /** The shares that reach the user directly or through a group, as nodeId -> strongest access. */
 async function sharedAccess(db: Db, userId: string, nodeId?: string): Promise<Map<string, ShareAccess>> {
@@ -104,7 +97,7 @@ async function sharedAccess(db: Db, userId: string, nodeId?: string): Promise<Ma
 	const out = new Map<string, ShareAccess>();
 	for (const r of await q.execute()) {
 		if (r.access === "view" || r.access === "operate")
-			out.set(r.resource_id, stronger(out.get(r.resource_id), r.access));
+			out.set(r.resource_id, stronger(NODE_ACCESS, out.get(r.resource_id), r.access));
 	}
 	return out;
 }

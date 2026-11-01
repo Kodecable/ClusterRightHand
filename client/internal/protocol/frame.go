@@ -1,8 +1,6 @@
 package protocol
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
 
 	"github.com/fxamacker/cbor/v2"
@@ -69,9 +67,10 @@ func (f *Frame) Encode() ([]byte, error) {
 	return data, nil
 }
 
-// DecodeFrame parses and strictly validates one frame: the CBOR profile, the tuple
-// length selected by the kind, the error body of an error response, and a final
-// re-encode-and-compare of the whole frame.
+// DecodeFrame parses and strictly validates one frame: the CBOR profile (whose check includes
+// re-encoding the whole frame and comparing it with the input, body included), the tuple length
+// selected by the kind, and the error body of an error response. The typed fields cannot re-encode
+// differently from the profile's comparison, so no second re-encode is needed.
 func DecodeFrame(data []byte) (*Frame, error) {
 	if len(data) > MaxFrameBytes {
 		return nil, protocolErrorf("frame of %d bytes exceeds %d", len(data), MaxFrameBytes)
@@ -120,7 +119,7 @@ func DecodeFrame(data []byte) (*Frame, error) {
 			f.Body = cloneRaw(elems[4])
 		} else {
 			var wireErr Error
-			if err := Unmarshal(elems[4], &wireErr); err != nil {
+			if err := UnmarshalBody(elems[4], &wireErr); err != nil {
 				return nil, &ProtocolError{Err: fmt.Errorf("error response body: %w", err)}
 			}
 			f.Err = &wireErr
@@ -137,13 +136,6 @@ func DecodeFrame(data []byte) (*Frame, error) {
 		return nil, protocolErrorf("frame with kind %d and %d elements", kind, len(elems))
 	}
 
-	encoded, err := f.Encode()
-	if err != nil {
-		return nil, &ProtocolError{Err: fmt.Errorf("frame: %w", err)}
-	}
-	if !bytes.Equal(encoded, data) {
-		return nil, &ProtocolError{Err: errors.New("frame: re-encoding differs from input")}
-	}
 	return f, nil
 }
 

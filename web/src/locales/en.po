@@ -146,7 +146,7 @@ msgstr "{lineCount, plural, one {# line} other {# lines}}"
 msgid "{lines, plural, one {# line} other {# lines}}"
 msgstr "{lines, plural, one {# line} other {# lines}}"
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-header.tsx
 msgid "{ruleCount, plural, one {# rule} other {# rules}}"
 msgstr "{ruleCount, plural, one {# rule} other {# rules}}"
 
@@ -162,15 +162,15 @@ msgstr "`crha grant` decodes the payload for confirmation, signs it with `ssh-ke
 msgid "← Approvals"
 msgstr "← Approvals"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "30 days"
 msgstr "30 days"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "365 days"
 msgstr "365 days"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "90 days"
 msgstr "90 days"
 
@@ -203,7 +203,7 @@ msgid "A line alone is longer than the 50 KB a page keeps."
 msgstr "A line alone is longer than the 50 KB a page keeps."
 
 #: src/features/schedules/scheduleForm.ts
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "A name is required."
 msgstr "A name is required."
 
@@ -235,7 +235,7 @@ msgstr "A public key is required."
 msgid "A schedule creates a new session at each trigger and submits a fixed prompt. Every run acts for its owner through the same rules, approvals and limits as any other session."
 msgstr "A schedule creates a new session at each trigger and submits a fixed prompt. Every run acts for its owner through the same rules, approvals and limits as any other session."
 
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/create-schedule-dialog.tsx
 msgid "A schedule creates a new session at every trigger and submits a fixed prompt."
 msgstr "A schedule creates a new session at every trigger and submits a fixed prompt."
 
@@ -247,7 +247,7 @@ msgstr "A scheduled run uses the normal authorization path: privileged tasks wai
 msgid "A timezone is required."
 msgstr "A timezone is required."
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "A token that never expires stays valid until you revoke it."
 msgstr "A token that never expires stays valid until you revoke it."
 
@@ -259,17 +259,17 @@ msgstr "A trailing \".\" matches a prefix, e.g. \"task.\"."
 msgid "A user is required."
 msgstr "A user is required."
 
-#: src/features/users/pages.tsx
+#: src/features/users/new-user-dialog.tsx
 msgid "A user without a password cannot sign in until an administrator sets one."
 msgstr "A user without a password cannot sign in until an administrator sets one."
 
-#: src/features/users/pages.tsx
+#: src/features/users/new-user-dialog.tsx
 msgid "A username is required."
 msgstr "A username is required."
 
+#: src/components/share-editor.tsx
 #: src/features/nodes/node-shares.tsx
 #: src/features/nodes/pages.tsx
-#: src/features/sessions/share-dialog.tsx
 msgid "Access"
 msgstr "Access"
 
@@ -315,7 +315,7 @@ msgid "Actor type"
 msgstr "Actor type"
 
 #: src/components/quota-card.tsx
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Add"
 msgstr "Add"
 
@@ -343,15 +343,15 @@ msgstr "Add an SSH key or register a Passkey to sign authorizations for privileg
 msgid "Add jump host"
 msgstr "Add jump host"
 
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Add member"
 msgstr "Add member"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Add model"
 msgstr "Add model"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Add model provider"
 msgstr "Add model provider"
 
@@ -364,8 +364,7 @@ msgstr "Add node"
 msgid "Add provider"
 msgstr "Add provider"
 
-#: src/features/nodes/node-shares.tsx
-#: src/features/sessions/share-dialog.tsx
+#: src/components/share-editor.tsx
 msgid "Add share"
 msgstr "Add share"
 
@@ -373,6 +372,7 @@ msgstr "Add share"
 msgid "Add SSH key"
 msgstr "Add SSH key"
 
+#: src/features/nodes/add-ssh-node-dialog.tsx
 #: src/features/nodes/pages.tsx
 msgid "Add SSH node"
 msgstr "Add SSH node"
@@ -385,7 +385,7 @@ msgstr "Add tokens to the paused run or stop it."
 msgid "Added"
 msgstr "Added"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/rules-dialog.tsx
 msgid "Added rules (JSON)"
 msgstr "Added rules (JSON)"
 
@@ -397,7 +397,8 @@ msgstr "Address"
 msgid "Admin"
 msgstr "Admin"
 
-#: src/features/users/pages.tsx
+#: src/features/users/kind-select.tsx
+#: src/features/users/new-user-dialog.tsx
 msgid "Administrator"
 msgstr "Administrator"
 
@@ -429,7 +430,8 @@ msgstr "All nodes"
 msgid "All schedules"
 msgstr "All schedules"
 
-#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-page.tsx
+#: src/features/tasks/task-page.tsx
 msgid "All tasks"
 msgstr "All tasks"
 
@@ -455,7 +457,7 @@ msgstr "Always allow rule"
 msgid "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
 msgstr "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-header.tsx
 msgid "another user"
 msgstr "another user"
 
@@ -488,12 +490,13 @@ msgid "Anything using this token stops working immediately. This cannot be undon
 msgstr "Anything using this token stops working immediately. This cannot be undone."
 
 #: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "API key"
 msgstr "API key"
 
 #: src/components/approval-card.tsx
 #: src/features/tasks/pages.tsx
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "API token"
 msgstr "API token"
 
@@ -511,7 +514,7 @@ msgid "Append this key to <0>~/.ssh/authorized_keys</0> of the target user on ev
 msgstr "Append this key to <0>~/.ssh/authorized_keys</0> of the target user on every hop (each jump host and the target), before continuing."
 
 #: src/components/task-result.tsx
-#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-page.tsx
 msgid "Approval"
 msgstr "Approval"
 
@@ -526,6 +529,7 @@ msgstr "Approvals"
 
 #: src/components/approval-card.tsx
 #: src/features/nodes/pages.tsx
+#: src/features/nodes/pending-node-dialog.tsx
 msgid "Approve"
 msgstr "Approve"
 
@@ -537,7 +541,7 @@ msgstr "Approve and always allow"
 msgid "Approve and always allow…"
 msgstr "Approve and always allow…"
 
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/pending-node-dialog.tsx
 msgid "Approve node"
 msgstr "Approve node"
 
@@ -565,7 +569,7 @@ msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
 msgid "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
 msgstr "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/preset-help.tsx
 msgid "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
 msgstr "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
 
@@ -575,7 +579,7 @@ msgid "Asked by"
 msgstr "Asked by"
 
 #: src/features/auth/change-password-dialog.tsx
-#: src/features/users/pages.tsx
+#: src/features/users/reset-password-dialog.tsx
 msgid "At least 8 characters."
 msgstr "At least 8 characters."
 
@@ -631,7 +635,7 @@ msgstr "Authorization submitted."
 msgid "Authorizations"
 msgstr "Authorizations"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/review-model-card.tsx
 msgid "Auto Review sends approvals it cannot decide to this model. Without one, each session's own model is used."
 msgstr "Auto Review sends approvals it cannot decide to this model. Without one, each session's own model is used."
 
@@ -639,7 +643,7 @@ msgstr "Auto Review sends approvals it cannot decide to this model. Without one,
 msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
 msgstr "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/preset-help.tsx
 msgid "Auto Review: approvals first go to the review model; anything risky still waits for your approval."
 msgstr "Auto Review: approvals first go to the review model; anything risky still waits for your approval."
 
@@ -666,11 +670,12 @@ msgstr "Awaiting signature"
 msgid "Back"
 msgstr "Back"
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-header.tsx
 msgid "Back to the session list"
 msgstr "Back to the session list"
 
 #: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Base URL"
 msgstr "Base URL"
 
@@ -694,25 +699,18 @@ msgstr "Build the `[[trust]]` block for this node's privileged.toml. The node en
 msgid "Built-in"
 msgstr "Built-in"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Built-in provider"
 msgstr "Built-in provider"
 
-#: src/features/nodes/node-tasks.tsx
-#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-columns.tsx
 msgid "By"
 msgstr "By"
 
 #: src/components/dialogs.tsx
-#: src/features/auth/change-password-dialog.tsx
 #: src/features/nodes/add-node-dialog.tsx
-#: src/features/nodes/pages.tsx
-#: src/features/nodes/ssh-node-section.tsx
 #: src/features/nodes/ssh-wizard.tsx
-#: src/features/schedules/pages.tsx
-#: src/features/sessions/pages.tsx
-#: src/features/settings/pages.tsx
-#: src/features/tokens/pages.tsx
+#: src/features/schedules/create-schedule-dialog.tsx
 msgid "Cancel"
 msgstr "Cancel"
 
@@ -758,7 +756,7 @@ msgstr "Check the highlighted fields."
 msgid "Check the next host key"
 msgstr "Check the next host key"
 
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/add-ssh-node-dialog.tsx
 msgid "Choose a credential, describe the route (jump hosts, then the target), pin every host key, then create the node."
 msgstr "Choose a credential, describe the route (jump hosts, then the target), pin every host key, then create the node."
 
@@ -795,11 +793,11 @@ msgstr "Choose or create a credential."
 msgid "Choose targets"
 msgstr "Choose targets"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Claude Code command"
 msgstr "Claude Code command"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Claude Code on the laptop"
 msgstr "Claude Code on the laptop"
 
@@ -811,7 +809,7 @@ msgstr "Clear"
 msgid "Client"
 msgstr "Client"
 
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/clock-warning.tsx
 msgid "clock"
 msgstr "clock"
 
@@ -824,7 +822,7 @@ msgid "Clock skew"
 msgstr "Clock skew"
 
 #: src/features/nodes/add-node-dialog.tsx
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/rules-dialog.tsx
 msgid "Close"
 msgstr "Close"
 
@@ -873,7 +871,7 @@ msgstr "Confirm"
 msgid "Confirm every host key first."
 msgstr "Confirm every host key first."
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Connect Claude Code with:"
 msgstr "Connect Claude Code with:"
 
@@ -897,7 +895,7 @@ msgstr "Content"
 msgid "Context compacted"
 msgstr "Context compacted"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Context window"
 msgstr "Context window"
 
@@ -923,7 +921,7 @@ msgid "Copy code"
 msgstr "Copy code"
 
 #: src/features/nodes/add-node-dialog.tsx
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Copy command"
 msgstr "Copy command"
 
@@ -943,11 +941,11 @@ msgstr "Copy ssh-keygen recipe"
 msgid "Copy task id"
 msgstr "Copy task id"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Copy this token now. It will not be shown again."
 msgstr "Copy this token now. It will not be shown again."
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Copy token"
 msgstr "Copy token"
 
@@ -985,7 +983,7 @@ msgstr "Create a token to connect an MCP client."
 msgid "Create an enrollment token, then run the printed command on the node as the user crha should run tasks as."
 msgstr "Create an enrollment token, then run the printed command on the node as the user crha should run tasks as."
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Create API token"
 msgstr "Create API token"
 
@@ -993,7 +991,7 @@ msgstr "Create API token"
 msgid "Create credential"
 msgstr "Create credential"
 
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Create group"
 msgstr "Create group"
 
@@ -1001,7 +999,7 @@ msgstr "Create group"
 msgid "Create node"
 msgstr "Create node"
 
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/create-schedule-dialog.tsx
 msgid "Create schedule"
 msgstr "Create schedule"
 
@@ -1010,18 +1008,18 @@ msgid "Create session"
 msgstr "Create session"
 
 #: src/features/nodes/add-node-dialog.tsx
+#: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
 msgid "Create token"
 msgstr "Create token"
 
-#: src/features/users/pages.tsx
+#: src/features/users/new-user-dialog.tsx
 msgid "Create user"
 msgstr "Create user"
 
 #: src/components/task-result.tsx
 #: src/features/authorizations/pages.tsx
-#: src/features/nodes/node-tasks.tsx
-#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-columns.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/pages.tsx
 msgid "Created"
@@ -1096,8 +1094,8 @@ msgstr "Decision"
 
 #: src/features/approvals/pages.tsx
 #: src/features/sessions/session-waits.tsx
-#: src/features/tasks/pages.tsx
 #: src/features/tasks/task-group-result.tsx
+#: src/features/tasks/task-page.tsx
 msgid "Decision recorded."
 msgstr "Decision recorded."
 
@@ -1113,7 +1111,7 @@ msgstr "Defaults to this browser's timezone."
 #: src/features/schedules/pages.tsx
 #: src/features/settings/pages.tsx
 #: src/features/tokens/pages.tsx
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Delete"
 msgstr "Delete"
 
@@ -1133,17 +1131,17 @@ msgstr "Delete {0}?"
 msgid "Delete credential"
 msgstr "Delete credential"
 
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Delete group"
 msgstr "Delete group"
 
 #. placeholder {0}: group.name
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Delete group {0}"
 msgstr "Delete group {0}"
 
 #. placeholder {0}: group.name
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Delete group {0}?"
 msgstr "Delete group {0}?"
 
@@ -1192,8 +1190,8 @@ msgstr "Detail"
 msgid "Detail of event {0}"
 msgstr "Detail of event {0}"
 
-#: src/features/nodes/node-tasks.tsx
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-header.tsx
+#: src/features/tasks/task-columns.tsx
 msgid "Details"
 msgstr "Details"
 
@@ -1232,12 +1230,13 @@ msgstr "Discard"
 msgid "Dispatched"
 msgstr "Dispatched"
 
+#: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
 msgid "Display name"
 msgstr "Display name"
 
 #: src/features/sessions/transcript-row.tsx
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Done"
 msgstr "Done"
 
@@ -1253,15 +1252,15 @@ msgstr "Each rule needs a target after the method."
 msgid "Each rule starts with exec, file.read or file.write."
 msgstr "Each rule starts with exec, file.read or file.write."
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/rules-dialog.tsx
 msgid "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes, and exact or prefix."
 msgstr "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes, and exact or prefix."
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/review-model-card.tsx
 msgid "Each session's own model"
 msgstr "Each session's own model"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Each token has its own rules; what they do not allow waits for your approval."
 msgstr "Each token has its own rules; what they do not allow waits for your approval."
 
@@ -1279,7 +1278,7 @@ msgid "Edit groups"
 msgstr "Edit groups"
 
 #. placeholder {0}: existing.providerId
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Edit provider {0}"
 msgstr "Edit provider {0}"
 
@@ -1301,12 +1300,12 @@ msgstr "enabled"
 
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Enabled"
 msgstr "Enabled"
 
 #. placeholder {0}: schedule.name
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/schedule-actions.tsx
 msgid "Enabled: {0}"
 msgstr "Enabled: {0}"
 
@@ -1320,14 +1319,14 @@ msgstr "Enrollment command"
 
 #: src/components/quota-card.tsx
 #: src/features/sessions/new-session-dialog.tsx
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/quota-dialog.tsx
 msgid "Enter a positive number of tokens to add."
 msgstr "Enter a positive number of tokens to add."
 
 #: src/components/quota-card.tsx
 #: src/features/schedules/scheduleForm.ts
 #: src/features/sessions/new-session-dialog.tsx
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/quota-dialog.tsx
 msgid "Enter a whole number of tokens, or leave it empty for unlimited."
 msgstr "Enter a whole number of tokens, or leave it empty for unlimited."
 
@@ -1417,7 +1416,7 @@ msgstr "Exit code {0}"
 msgid "Exited"
 msgstr "Exited"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/rules-dialog.tsx
 msgid "Expected an object like {\"rules\": [...]}."
 msgstr "Expected an object like {\"rules\": [...]}."
 
@@ -1429,7 +1428,7 @@ msgstr "Expired"
 msgid "Expires"
 msgstr "Expires"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Expires after"
 msgstr "Expires after"
 
@@ -1437,7 +1436,7 @@ msgstr "Expires after"
 msgid "Export trust snippet"
 msgstr "Export trust snippet"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Extra headers for gateways; credentials belong in the API key field."
 msgstr "Extra headers for gateways; credentials belong in the API key field."
 
@@ -1496,8 +1495,8 @@ msgstr "Generating…"
 msgid "Go to sessions"
 msgstr "Go to sessions"
 
+#: src/components/share-editor.tsx
 #: src/features/nodes/node-shares.tsx
-#: src/features/sessions/share-dialog.tsx
 msgid "Grantee"
 msgstr "Grantee"
 
@@ -1507,15 +1506,15 @@ msgstr "Grantee"
 msgid "Group"
 msgstr "Group"
 
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Group created."
 msgstr "Group created."
 
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Group deleted."
 msgstr "Group deleted."
 
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Group name"
 msgstr "Group name"
 
@@ -1560,6 +1559,7 @@ msgstr "Hostname"
 
 #: src/features/authorizations/pages.tsx
 #: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Id"
 msgstr "Id"
 
@@ -1589,7 +1589,7 @@ msgstr "Issuer"
 msgid "It matches, pin it"
 msgstr "It matches, pin it"
 
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/pending-node-dialog.tsx
 msgid "It must match what <0>crha enroll</0> printed, or <1>crha status</1> on the node, before you approve."
 msgstr "It must match what <0>crha enroll</0> printed, or <1>crha status</1> on the node, before you approve."
 
@@ -1628,12 +1628,14 @@ msgstr "Key fingerprint"
 #: src/components/task-result.tsx
 #: src/features/credentials/pages.tsx
 #: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
+#: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
 msgid "Kind"
 msgstr "Kind"
 
 #. placeholder {0}: user.username
-#: src/features/users/pages.tsx
+#: src/features/users/kind-select.tsx
 msgid "Kind of {0}"
 msgstr "Kind of {0}"
 
@@ -1680,7 +1682,7 @@ msgstr "Last seen"
 msgid "Last used"
 msgstr "Last used"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Leave empty to keep the current key"
 msgstr "Leave empty to keep the current key"
 
@@ -1738,7 +1740,8 @@ msgid "Loading the waiting decisions…"
 msgstr "Loading the waiting decisions…"
 
 #: src/features/approvals/pages.tsx
-#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-page.tsx
+#: src/features/tasks/task-page.tsx
 msgid "Loading…"
 msgstr "Loading…"
 
@@ -1746,7 +1749,7 @@ msgstr "Loading…"
 msgid "Log out"
 msgstr "Log out"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Lowercase letters, digits and dashes."
 msgstr "Lowercase letters, digits and dashes."
 
@@ -1754,7 +1757,7 @@ msgstr "Lowercase letters, digits and dashes."
 msgid "Matched rule"
 msgstr "Matched rule"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Max tokens"
 msgstr "Max tokens"
 
@@ -1763,20 +1766,21 @@ msgstr "Max tokens"
 msgid "Max TTL"
 msgstr "Max TTL"
 
-#: src/features/users/pages.tsx
+#: src/features/users/kind-select.tsx
+#: src/features/users/new-user-dialog.tsx
 msgid "Member"
 msgstr "Member"
 
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Member added."
 msgstr "Member added."
 
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Member removed."
 msgstr "Member removed."
 
 #. placeholder {0}: group.name
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Members of {0}"
 msgstr "Members of {0}"
 
@@ -1796,28 +1800,28 @@ msgstr "Mode"
 #: src/components/model-select.tsx
 #: src/features/schedules/schedule-form.tsx
 #: src/features/sessions/new-session-dialog.tsx
-#: src/features/sessions/pages.tsx
-#: src/features/settings/pages.tsx
+#: src/features/sessions/session-header.tsx
+#: src/features/settings/review-model-card.tsx
 msgid "Model"
 msgstr "Model"
 
 #. placeholder {0}: index + 1
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Model {0} context window"
 msgstr "Model {0} context window"
 
 #. placeholder {0}: index + 1
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Model {0} id"
 msgstr "Model {0} id"
 
 #. placeholder {0}: index + 1
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Model {0} max tokens"
 msgstr "Model {0} max tokens"
 
 #. placeholder {0}: index + 1
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Model {0} reasoning"
 msgstr "Model {0} reasoning"
 
@@ -1827,6 +1831,7 @@ msgstr "Model providers"
 
 #: src/app/shell/nav.ts
 #: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Models"
 msgstr "Models"
 
@@ -1851,6 +1856,8 @@ msgstr "Move jump host {0} up"
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
 #: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
+#: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
 msgid "Name"
 msgstr "Name"
@@ -1863,7 +1870,7 @@ msgstr "Narrow the rules before trusting a key: anything not allowed here is ref
 msgid "never"
 msgstr "never"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Never"
 msgstr "Never"
 
@@ -1879,12 +1886,12 @@ msgstr "New"
 msgid "New credential name"
 msgstr "New credential name"
 
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/rename-node-button.tsx
 msgid "New name"
 msgstr "New name"
 
 #: src/features/auth/change-password-dialog.tsx
-#: src/features/users/pages.tsx
+#: src/features/users/reset-password-dialog.tsx
 msgid "New password"
 msgstr "New password"
 
@@ -1892,6 +1899,7 @@ msgstr "New password"
 msgid "New requests appear here and in the sidebar badge."
 msgstr "New requests appear here and in the sidebar badge."
 
+#: src/features/schedules/create-schedule-dialog.tsx
 #: src/features/schedules/pages.tsx
 msgid "New schedule"
 msgstr "New schedule"
@@ -1905,6 +1913,7 @@ msgstr "New session"
 msgid "New text"
 msgstr "New text"
 
+#: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
 msgid "New user"
 msgstr "New user"
@@ -1953,11 +1962,11 @@ msgstr "No credentials yet"
 msgid "No events"
 msgstr "No events"
 
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "No groups yet."
 msgstr "No groups yet."
 
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "No members."
 msgstr "No members."
 
@@ -2009,7 +2018,7 @@ msgstr "No Passkey of yours is trusted by this node for this command; sign with 
 msgid "No result yet"
 msgstr "No result yet"
 
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/run-history.tsx
 msgid "No runs yet"
 msgstr "No runs yet"
 
@@ -2046,11 +2055,12 @@ msgstr "No users yet"
 #: src/components/node-picker.tsx
 #: src/components/task-result.tsx
 #: src/features/tasks/pages.tsx
+#: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Node"
 msgstr "Node"
 
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/pending-node-dialog.tsx
 msgid "Node approved."
 msgstr "Node approved."
 
@@ -2063,7 +2073,7 @@ msgid "Node id"
 msgstr "Node id"
 
 #. placeholder {0}: node.keyFingerprint ?? t`unknown`
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/pending-node-dialog.tsx
 msgid "Node key fingerprint: <0>{0}</0>"
 msgstr "Node key fingerprint: <0>{0}</0>"
 
@@ -2072,11 +2082,11 @@ msgstr "Node key fingerprint: <0>{0}</0>"
 msgid "Node name"
 msgstr "Node name"
 
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/pending-node-dialog.tsx
 msgid "Node rejected."
 msgstr "Node rejected."
 
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/rename-node-button.tsx
 msgid "Node renamed."
 msgstr "Node renamed."
 
@@ -2127,13 +2137,13 @@ msgid "Not shared."
 msgstr "Not shared."
 
 #. placeholder {0}: failure instanceof Error ? failure.message : String(failure)
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/rules-dialog.tsx
 msgid "Not valid JSON: {0}"
 msgstr "Not valid JSON: {0}"
 
 #: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/run-history.tsx
 msgid "Note"
 msgstr "Note"
 
@@ -2195,7 +2205,7 @@ msgstr "Open {0} {1}"
 msgid "Open approval page"
 msgstr "Open approval page"
 
-#: src/features/nodes/node-tasks.tsx
+#: src/features/tasks/task-columns.tsx
 msgid "Open task"
 msgstr "Open task"
 
@@ -2223,7 +2233,7 @@ msgstr "Open the task page"
 msgid "OpenAI-compatible"
 msgstr "OpenAI-compatible"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "OpenAI-compatible endpoint"
 msgstr "OpenAI-compatible endpoint"
 
@@ -2232,15 +2242,15 @@ msgid "Operate"
 msgstr "Operate"
 
 #: src/features/credentials/pages.tsx
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Optional"
 msgstr "Optional"
 
-#: src/features/users/pages.tsx
+#: src/features/users/new-user-dialog.tsx
 msgid "Optional; at least 8 characters."
 msgstr "Optional; at least 8 characters."
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Optional; defaults to the provider id."
 msgstr "Optional; defaults to the provider id."
 
@@ -2265,8 +2275,7 @@ msgstr "Or run <0>crha approve {0}</0> on the node (a user in its `local` trust 
 msgid "OS"
 msgstr "OS"
 
-#: src/features/nodes/node-tasks.tsx
-#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Outcome"
 msgstr "Outcome"
@@ -2334,7 +2343,7 @@ msgid "Passkey signing was cancelled."
 msgstr "Passkey signing was cancelled."
 
 #: src/features/auth/login-page.tsx
-#: src/features/users/pages.tsx
+#: src/features/users/new-user-dialog.tsx
 msgid "Password"
 msgstr "Password"
 
@@ -2342,7 +2351,7 @@ msgstr "Password"
 msgid "Password changed."
 msgstr "Password changed."
 
-#: src/features/users/pages.tsx
+#: src/features/users/reset-password-dialog.tsx
 msgid "Password set."
 msgstr "Password set."
 
@@ -2402,20 +2411,21 @@ msgstr "Preparing the payload to sign…"
 #: src/components/preset-select.tsx
 #: src/features/schedules/schedule-form.tsx
 #: src/features/sessions/new-session-dialog.tsx
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-header.tsx
+#: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
+#: src/features/tokens/rules-dialog.tsx
 msgid "Preset"
 msgstr "Preset"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/rules-dialog.tsx
 msgid "Preset saved."
 msgstr "Preset saved."
 
 #: src/components/approval-card.tsx
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
-#: src/features/nodes/node-tasks.tsx
-#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Privileged"
 msgstr "Privileged"
@@ -2440,7 +2450,7 @@ msgstr "Privileges"
 msgid "Prompt"
 msgstr "Prompt"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Provider"
 msgstr "Provider"
 
@@ -2448,11 +2458,11 @@ msgstr "Provider"
 msgid "Provider deleted."
 msgstr "Provider deleted."
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Provider id"
 msgstr "Provider id"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Provider saved."
 msgstr "Provider saved."
 
@@ -2480,7 +2490,7 @@ msgstr "Quota"
 msgid "Quota decision recorded."
 msgstr "Quota decision recorded."
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/quota-dialog.tsx
 msgid "Quota saved."
 msgstr "Quota saved."
 
@@ -2501,7 +2511,7 @@ msgstr "Reason"
 msgid "Reason (optional, used when rejecting)"
 msgstr "Reason (optional, used when rejecting)"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Reasoning"
 msgstr "Reasoning"
 
@@ -2519,7 +2529,7 @@ msgstr "Reconnecting…"
 #: src/features/nodes/node-tasks.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/pages.tsx
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/run-history.tsx
 msgid "Refresh"
 msgstr "Refresh"
 
@@ -2529,14 +2539,15 @@ msgstr "Register Passkey"
 
 #: src/components/approval-card.tsx
 #: src/features/nodes/pages.tsx
+#: src/features/nodes/pending-node-dialog.tsx
 msgid "Reject"
 msgstr "Reject"
 
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/pending-node-dialog.tsx
 msgid "Reject and delete"
 msgstr "Reject and delete"
 
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/pending-node-dialog.tsx
 msgid "Reject node"
 msgstr "Reject node"
 
@@ -2546,7 +2557,7 @@ msgstr "Reject node"
 msgid "Rejected"
 msgstr "Rejected"
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/quota-dialog.tsx
 msgid "Remaining tokens (empty = unlimited)"
 msgstr "Remaining tokens (empty = unlimited)"
 
@@ -2557,7 +2568,7 @@ msgstr "Remove"
 
 #. placeholder {0}: names.get(id) ?? id
 #. placeholder {1}: group.name
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Remove {0} from {1}"
 msgstr "Remove {0} from {1}"
 
@@ -2572,7 +2583,7 @@ msgid "Remove jump host {0}"
 msgstr "Remove jump host {0}"
 
 #. placeholder {0}: index + 1
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Remove model {0}"
 msgstr "Remove model {0}"
 
@@ -2580,15 +2591,15 @@ msgstr "Remove model {0}"
 msgid "Remove share"
 msgstr "Remove share"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Remove the stored key"
 msgstr "Remove the stored key"
 
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/rename-node-button.tsx
 msgid "Rename"
 msgstr "Rename"
 
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/rename-node-button.tsx
 msgid "Rename node"
 msgstr "Rename node"
 
@@ -2604,7 +2615,7 @@ msgstr "Repeat the new password."
 msgid "Report"
 msgstr "Report"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Request headers (JSON, optional)"
 msgstr "Request headers (JSON, optional)"
 
@@ -2633,13 +2644,13 @@ msgid "Reset password"
 msgstr "Reset password"
 
 #. placeholder {0}: user.username
-#: src/features/users/pages.tsx
+#: src/features/users/reset-password-dialog.tsx
 msgid "Reset the password of {0}"
 msgstr "Reset the password of {0}"
 
 #: src/features/sessions/transcript-row.tsx
-#: src/features/tasks/pages.tsx
 #: src/features/tasks/task-group-result.tsx
+#: src/features/tasks/task-page.tsx
 msgid "Result"
 msgstr "Result"
 
@@ -2656,11 +2667,11 @@ msgstr "reusable"
 msgid "Review and approve"
 msgstr "Review and approve"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/review-model-card.tsx
 msgid "Review model"
 msgstr "Review model"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/review-model-card.tsx
 msgid "Review model saved."
 msgstr "Review model saved."
 
@@ -2716,11 +2727,11 @@ msgstr "Rules"
 #. placeholder {0}: entry.name
 #. placeholder {0}: token.name
 #: src/features/nodes/node-trust.tsx
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/rules-dialog.tsx
 msgid "Rules of {0}"
 msgstr "Rules of {0}"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/rules-dialog.tsx
 msgid "Rules saved."
 msgstr "Rules saved."
 
@@ -2729,7 +2740,7 @@ msgid "Run"
 msgstr "Run"
 
 #. placeholder {0}: schedule.name
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/schedule-actions.tsx
 msgid "Run {0} now?"
 msgstr "Run {0} now?"
 
@@ -2741,15 +2752,15 @@ msgstr "Run a task"
 msgid "Run a task to see it here."
 msgstr "Run a task to see it here."
 
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/run-history.tsx
 msgid "run by hand"
 msgstr "run by hand"
 
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/run-history.tsx
 msgid "Run history"
 msgstr "Run history"
 
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/schedule-actions.tsx
 msgid "Run now"
 msgstr "Run now"
 
@@ -2761,7 +2772,7 @@ msgstr "Run one task on many nodes and follow each node's result."
 msgid "Run something on a node, or use the batch page."
 msgstr "Run something on a node, or use the batch page."
 
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/schedule-actions.tsx
 msgid "Run started."
 msgstr "Run started."
 
@@ -2784,10 +2795,10 @@ msgid "Runs once when crhs starts again if a trigger was missed while it was dow
 msgstr "Runs once when crhs starts again if a trigger was missed while it was down."
 
 #: src/components/dialogs.tsx
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/rename-node-button.tsx
 #: src/features/nodes/ssh-node-section.tsx
-#: src/features/sessions/pages.tsx
-#: src/features/settings/pages.tsx
+#: src/features/sessions/quota-dialog.tsx
+#: src/features/settings/review-model-card.tsx
 msgid "Save"
 msgstr "Save"
 
@@ -2795,15 +2806,15 @@ msgstr "Save"
 msgid "Save password"
 msgstr "Save password"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/rules-dialog.tsx
 msgid "Save preset"
 msgstr "Save preset"
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Save provider"
 msgstr "Save provider"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/rules-dialog.tsx
 msgid "Save rules"
 msgstr "Save rules"
 
@@ -2815,7 +2826,7 @@ msgstr "Save schedule"
 msgid "Schedule"
 msgstr "Schedule"
 
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/create-schedule-dialog.tsx
 msgid "Schedule created."
 msgstr "Schedule created."
 
@@ -2827,7 +2838,7 @@ msgstr "Schedule deleted."
 msgid "Schedule form"
 msgstr "Schedule form"
 
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/run-history.tsx
 msgid "Schedule runs"
 msgstr "Schedule runs"
 
@@ -2852,10 +2863,9 @@ msgstr "Scope"
 msgid "Search sessions"
 msgstr "Search sessions"
 
-#: src/features/nodes/node-shares.tsx
+#: src/components/share-editor.tsx
 #: src/features/nodes/ssh-wizard.tsx
-#: src/features/sessions/share-dialog.tsx
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Select…"
 msgstr "Select…"
 
@@ -2863,8 +2873,8 @@ msgstr "Select…"
 msgid "Send"
 msgstr "Send"
 
-#: src/features/schedules/pages.tsx
-#: src/features/tasks/pages.tsx
+#: src/features/schedules/run-history.tsx
+#: src/features/tasks/task-page.tsx
 msgid "Session"
 msgstr "Session"
 
@@ -2876,16 +2886,16 @@ msgstr "Session created."
 msgid "Session list"
 msgstr "Session list"
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-header.tsx
 msgid "Session settings"
 msgstr "Session settings"
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-header.tsx
 msgid "Session title"
 msgstr "Session title"
 
 #: src/app/shell/nav.ts
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list.tsx
 msgid "Sessions"
 msgstr "Sessions"
@@ -2894,7 +2904,7 @@ msgstr "Sessions"
 msgid "Sessions use the models of the enabled providers below."
 msgstr "Sessions use the models of the enabled providers below."
 
-#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Sessions use the models of the enabled providers."
 msgstr "Sessions use the models of the enabled providers."
 
@@ -2902,11 +2912,11 @@ msgstr "Sessions use the models of the enabled providers."
 msgid "set"
 msgstr "set"
 
-#: src/features/users/pages.tsx
+#: src/features/users/reset-password-dialog.tsx
 msgid "Set password"
 msgstr "Set password"
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-header.tsx
 msgid "Share"
 msgstr "Share"
 
@@ -2922,7 +2932,7 @@ msgstr "Share removed."
 msgid "Shared"
 msgstr "Shared"
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-header.tsx
 msgid "Shared by {ownerName}"
 msgstr "Shared by {ownerName}"
 
@@ -2939,7 +2949,7 @@ msgstr "Shared."
 msgid "Shares"
 msgstr "Shares"
 
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "Shares to this group are removed."
 msgstr "Shares to this group are removed."
 
@@ -3081,15 +3091,15 @@ msgstr "Start one, or wait for a scheduled run."
 
 #: src/components/authorization-card.tsx
 #: src/components/task-result.tsx
-#: src/features/nodes/node-tasks.tsx
 #: src/features/tasks/pages.tsx
+#: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "State"
 msgstr "State"
 
 #: src/features/authorizations/pages.tsx
 #: src/features/nodes/pages.tsx
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/run-history.tsx
 #: src/features/settings/pages.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/pages.tsx
@@ -3122,15 +3132,15 @@ msgstr "Steps"
 
 #: src/components/quota-card.tsx
 #: src/features/sessions/composer.tsx
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-header.tsx
 msgid "Stop"
 msgstr "Stop"
 
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/schedule-actions.tsx
 msgid "Stop it and run now"
 msgstr "Stop it and run now"
 
-#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-page.tsx
 msgid "Stop task"
 msgstr "Stop task"
 
@@ -3139,7 +3149,7 @@ msgid "stopped by the next run"
 msgstr "stopped by the next run"
 
 #: src/features/sessions/composer.tsx
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-header.tsx
 msgid "Stopped the run."
 msgstr "Stopped the run."
 
@@ -3193,8 +3203,7 @@ msgstr "Targets"
 #: src/components/authorization-card.tsx
 #: src/components/task-result.tsx
 #: src/features/approvals/pages.tsx
-#: src/features/nodes/node-tasks.tsx
-#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-columns.tsx
 msgid "Task"
 msgstr "Task"
 
@@ -3203,11 +3212,11 @@ msgid "Task approvals"
 msgstr "Task approvals"
 
 #: src/features/nodes/run-panel.tsx
-#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-page.tsx
 msgid "Task cancelled."
 msgstr "Task cancelled."
 
-#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-page.tsx
 msgid "Task details"
 msgstr "Task details"
 
@@ -3218,7 +3227,8 @@ msgstr "task group"
 
 #: src/components/approval-card.tsx
 #: src/features/approvals/pages.tsx
-#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-group-page.tsx
+#: src/features/tasks/task-page.tsx
 msgid "Task group"
 msgstr "Task group"
 
@@ -3244,7 +3254,7 @@ msgstr "text"
 #: src/components/quota-card.tsx
 #: src/features/schedules/scheduleForm.ts
 #: src/features/sessions/new-session-dialog.tsx
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/quota-dialog.tsx
 msgid "That number is too large."
 msgstr "That number is too large."
 
@@ -3256,7 +3266,7 @@ msgstr "The base URL must start with http:// or https://."
 msgid "The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA and RS256 are requested, so a registered Passkey is one the node's privileged mode can verify."
 msgstr "The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA and RS256 are requested, so a registered Passkey is one the node's privileged mode can verify."
 
-#: src/features/users/pages.tsx
+#: src/features/users/new-user-dialog.tsx
 msgid "The display name must be at most 100 characters."
 msgstr "The display name must be at most 100 characters."
 
@@ -3277,13 +3287,12 @@ msgstr "The limit must be a non-negative whole number."
 msgid "The listing is truncated: the directory has more entries than are shown."
 msgstr "The listing is truncated: the directory has more entries than are shown."
 
-#: src/components/task-result.tsx
 #: src/features/schedules/schedule-form.tsx
 msgid "The model every new session of this schedule uses."
 msgstr "The model every new session of this schedule uses."
 
 #: src/features/credentials/pages.tsx
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "The name must be at most 100 characters."
 msgstr "The name must be at most 100 characters."
 
@@ -3367,7 +3376,7 @@ msgstr "The timeout must be a non-negative whole number of seconds."
 msgid "The token is shown once and expires <0/>."
 msgstr "The token is shown once and expires <0/>."
 
-#: src/features/users/pages.tsx
+#: src/features/users/reset-password-dialog.tsx
 msgid "The user can sign in with this password immediately."
 msgstr "The user can sign in with this password immediately."
 
@@ -3395,7 +3404,7 @@ msgstr "Thinking"
 msgid "This request is no longer waiting for approval; it is"
 msgstr "This request is no longer waiting for approval; it is"
 
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/run-history.tsx
 msgid "This schedule has not fired yet."
 msgstr "This schedule has not fired yet."
 
@@ -3403,7 +3412,7 @@ msgstr "This schedule has not fired yet."
 msgid "This session is waiting, but there is nothing for you to decide."
 msgstr "This session is waiting, but there is nothing for you to decide."
 
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/schedule-actions.tsx
 msgid "This stops the current run. Its history will show it as preempted."
 msgstr "This stops the current run. Its history will show it as preempted."
 
@@ -3427,7 +3436,7 @@ msgstr "Timezone"
 msgid "Title"
 msgstr "Title"
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-header.tsx
 msgid "Title saved."
 msgstr "Title saved."
 
@@ -3439,7 +3448,7 @@ msgstr "Toggle sidebar"
 msgid "Token budget"
 msgstr "Token budget"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Token created"
 msgstr "Token created"
 
@@ -3447,7 +3456,7 @@ msgstr "Token created"
 msgid "Token deleted."
 msgstr "Token deleted."
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/quota-dialog.tsx
 msgid "Token quota"
 msgstr "Token quota"
 
@@ -3480,7 +3489,7 @@ msgstr "Tool result"
 msgid "Transport"
 msgstr "Transport"
 
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/run-history.tsx
 msgid "Triggered for"
 msgstr "Triggered for"
 
@@ -3509,13 +3518,12 @@ msgstr "Try a different search."
 msgid "Try again"
 msgstr "Try again"
 
+#: src/components/share-editor.tsx
 #: src/components/task-result.tsx
-#: src/features/nodes/node-shares.tsx
-#: src/features/sessions/share-dialog.tsx
 msgid "Type"
 msgstr "Type"
 
-#: src/features/nodes/pages.tsx
+#: src/features/nodes/pending-node-dialog.tsx
 msgid "unknown"
 msgstr "unknown"
 
@@ -3529,7 +3537,7 @@ msgid "unlimited"
 msgstr "unlimited"
 
 #: src/features/sessions/new-session-dialog.tsx
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/quota-dialog.tsx
 msgid "Unlimited"
 msgstr "Unlimited"
 
@@ -3542,7 +3550,7 @@ msgid "Unprivileged identity"
 msgstr "Unprivileged identity"
 
 #: src/features/sessions/child-sessions.tsx
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list-item.tsx
 msgid "Untitled session"
 msgstr "Untitled session"
@@ -3559,15 +3567,16 @@ msgstr "Updated"
 msgid "Use \"Add node\" to enrol a crha client, or \"Add SSH node\" for an SSH target."
 msgstr "Use \"Add node\" to enrol a crha client, or \"Add SSH node\" for an SSH target."
 
-#: src/features/users/pages.tsx
+#: src/features/users/new-user-dialog.tsx
 msgid "Use at least 8 characters, or leave it empty."
 msgstr "Use at least 8 characters, or leave it empty."
 
 #: src/features/auth/change-password-dialog.tsx
-#: src/features/users/pages.tsx
+#: src/features/users/reset-password-dialog.tsx
 msgid "Use at least 8 characters."
 msgstr "Use at least 8 characters."
 
+#: src/components/share-editor.tsx
 #: src/features/nodes/node-shares.tsx
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/sessions/share-dialog.tsx
@@ -3575,7 +3584,7 @@ msgstr "Use at least 8 characters."
 msgid "User"
 msgstr "User"
 
-#: src/features/users/pages.tsx
+#: src/features/users/new-user-dialog.tsx
 msgid "User created."
 msgstr "User created."
 
@@ -3591,15 +3600,16 @@ msgstr "User enabled."
 msgid "User group"
 msgstr "User group"
 
-#: src/features/users/pages.tsx
+#: src/features/users/groups-section.tsx
 msgid "User groups"
 msgstr "User groups"
 
-#: src/features/users/pages.tsx
+#: src/features/users/kind-select.tsx
 msgid "User updated."
 msgstr "User updated."
 
 #: src/features/auth/login-page.tsx
+#: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
 msgid "Username"
 msgstr "Username"
@@ -3646,7 +3656,7 @@ msgstr "Waiting for the owner's authorization; the payload is being prepared."
 msgid "Waiting for the owner's authorization."
 msgstr "Waiting for the owner's authorization."
 
-#: src/features/tasks/pages.tsx
+#: src/features/tasks/task-page.tsx
 msgid "Waiting for the payload to sign; the card appears when it is ready."
 msgstr "Waiting for the payload to sign; the card appears when it is ready."
 
@@ -3675,11 +3685,11 @@ msgstr "What"
 msgid "What the new session should do"
 msgstr "What the new session should do"
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/rules-dialog.tsx
 msgid "What this token may do without approval; anything else waits for you."
 msgstr "What this token may do without approval; anything else waits for you."
 
-#: src/features/schedules/pages.tsx
+#: src/features/schedules/run-history.tsx
 msgid "When"
 msgstr "When"
 
@@ -3703,7 +3713,7 @@ msgstr "Yes"
 msgid "Yolo lets the agent run anything on your nodes without asking."
 msgstr "Yolo lets the agent run anything on your nodes without asking."
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Yolo lets this token run anything on your nodes without asking."
 msgstr "Yolo lets this token run anything on your nodes without asking."
 
@@ -3711,7 +3721,7 @@ msgstr "Yolo lets this token run anything on your nodes without asking."
 msgid "Yolo: everything runs without asking, including privileged tasks allowed by the node's own policy."
 msgstr "Yolo: everything runs without asking, including privileged tasks allowed by the node's own policy."
 
-#: src/features/tokens/pages.tsx
+#: src/features/tokens/preset-help.tsx
 msgid "Yolo: everything runs without asking."
 msgstr "Yolo: everything runs without asking."
 
@@ -3719,7 +3729,7 @@ msgstr "Yolo: everything runs without asking."
 #~ msgid "You cannot change your own kind or disable your own account."
 #~ msgstr "You cannot change your own kind or disable your own account."
 
-#: src/features/users/pages.tsx
+#: src/features/users/kind-select.tsx
 msgid "You cannot change your own kind."
 msgstr "You cannot change your own kind."
 

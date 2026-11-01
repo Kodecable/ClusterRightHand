@@ -21,6 +21,7 @@ import { newId } from "../src/util/id.ts";
 import { type FakeCrha, handshakeInit, TestAgentServer, waitFor } from "./helpers/agent.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { waitSubmission } from "./helpers/runtime.ts";
 
 /**
  * Shutdown closes the agent runtime before it ends the catalog waits (main.ts): a tool call waiting on a
@@ -177,7 +178,7 @@ describe("agent runtime shutdown", () => {
 
 		// A restart on the same storage reruns the call; it reattaches to the task it already started.
 		runtime = await openRuntime();
-		expect(await runtime.waitSubmission(sessionId, submissionId)).toEqual({ status: "done", answer: "done" });
+		expect(await waitSubmission(runtime, sessionId, submissionId)).toEqual({ status: "done", answer: "done" });
 		expect(fake.starts).toHaveLength(1);
 		const tasks = await db.selectFrom("tasks").select(["id", "state"]).where("actor_id", "=", sessionId).execute();
 		expect(tasks).toEqual([{ id: taskId, state: "running" }]);
@@ -213,7 +214,7 @@ describe("agent runtime shutdown", () => {
 
 		// The restart reruns the call; the group was created with a derived id, so no second group or task exists.
 		runtime = await openRuntime();
-		expect(await runtime.waitSubmission(sessionId, submissionId)).toEqual({ status: "done", answer: "done" });
+		expect(await waitSubmission(runtime, sessionId, submissionId)).toEqual({ status: "done", answer: "done" });
 		expect(fake.starts).toHaveLength(1);
 		const groupsOf = await db
 			.selectFrom("task_groups")

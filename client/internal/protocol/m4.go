@@ -30,24 +30,14 @@ const (
 	MethodFileWrite Method = "file.write"
 )
 
-func (m Method) valid() bool {
-	switch m {
-	case MethodExec, MethodFileRead, MethodFileWrite:
-		return true
-	default:
-		return false
-	}
-}
+// methods is the method enum.
+var methods = newEnum("method", MethodExec, MethodFileRead, MethodFileWrite)
 
 // MarshalCBOR encodes the method, rejecting values outside the schema.
-func (m Method) MarshalCBOR() ([]byte, error) {
-	return marshalEnum("method", m, Method.valid)
-}
+func (m Method) MarshalCBOR() ([]byte, error) { return methods.marshal(m) }
 
 // UnmarshalCBOR decodes and validates the method.
-func (m *Method) UnmarshalCBOR(data []byte) error {
-	return unmarshalEnum("method", data, m, Method.valid)
-}
+func (m *Method) UnmarshalCBOR(data []byte) error { return methods.unmarshal(data, m) }
 
 // GuardMatch selects how a guard rule matches its target.
 type GuardMatch string
@@ -58,24 +48,14 @@ const (
 	GuardMatchRegex  GuardMatch = "regex"
 )
 
-func (m GuardMatch) valid() bool {
-	switch m {
-	case GuardMatchAny, GuardMatchPrefix, GuardMatchRegex:
-		return true
-	default:
-		return false
-	}
-}
+// guardMatches is the guard match enum.
+var guardMatches = newEnum("guard match", GuardMatchAny, GuardMatchPrefix, GuardMatchRegex)
 
 // MarshalCBOR encodes the match kind, rejecting values outside the schema.
-func (m GuardMatch) MarshalCBOR() ([]byte, error) {
-	return marshalEnum("guard match", m, GuardMatch.valid)
-}
+func (m GuardMatch) MarshalCBOR() ([]byte, error) { return guardMatches.marshal(m) }
 
 // UnmarshalCBOR decodes and validates the match kind.
-func (m *GuardMatch) UnmarshalCBOR(data []byte) error {
-	return unmarshalEnum("guard match", data, m, GuardMatch.valid)
-}
+func (m *GuardMatch) UnmarshalCBOR(data []byte) error { return guardMatches.unmarshal(data, m) }
 
 // GuardRule is one allow or deny rule of a trust entry.
 type GuardRule struct {
@@ -134,59 +114,23 @@ type TrustKey struct {
 	Local    *LocalTrustKey
 }
 
+// trustKeyUnion is the TrustKey union: how a trust entry identifies its signer.
+var trustKeyUnion = newUnion("trust key",
+	unionPtr[TrustKey]("sshsig", func(k *TrustKey) **SSHTrustKey { return &k.SSHSig }),
+	unionPtr[TrustKey]("webauthn", func(k *TrustKey) **WebAuthnTrustKey { return &k.WebAuthn }),
+	unionPtr[TrustKey]("local", func(k *TrustKey) **LocalTrustKey { return &k.Local }),
+)
+
 // MarshalCBOR encodes a TrustKey as [tag, body].
-func (k TrustKey) MarshalCBOR() ([]byte, error) {
-	switch k.Kind {
-	case TrustKeySSHSig:
-		if k.SSHSig == nil {
-			return nil, errors.New("protocol: sshsig trust key has no body")
-		}
-		return encodeUnion(string(k.Kind), k.SSHSig)
-	case TrustKeyWebAuthn:
-		if k.WebAuthn == nil {
-			return nil, errors.New("protocol: webauthn trust key has no body")
-		}
-		return encodeUnion(string(k.Kind), k.WebAuthn)
-	case TrustKeyLocal:
-		if k.Local == nil {
-			return nil, errors.New("protocol: local trust key has no body")
-		}
-		return encodeUnion(string(k.Kind), k.Local)
-	default:
-		return nil, fmt.Errorf("protocol: unknown trust key kind %q", string(k.Kind))
-	}
-}
+func (k TrustKey) MarshalCBOR() ([]byte, error) { return trustKeyUnion.marshal(k, string(k.Kind)) }
 
 // UnmarshalCBOR decodes [tag, body] into the matching TrustKey branch.
 func (k *TrustKey) UnmarshalCBOR(data []byte) error {
-	tag, body, err := decodeUnion(data)
+	tag, err := trustKeyUnion.unmarshal(data, k)
 	if err != nil {
 		return err
 	}
-	key := TrustKey{Kind: TrustKeyKind(tag)}
-	switch key.Kind {
-	case TrustKeySSHSig:
-		var v SSHTrustKey
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		key.SSHSig = &v
-	case TrustKeyWebAuthn:
-		var v WebAuthnTrustKey
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		key.WebAuthn = &v
-	case TrustKeyLocal:
-		var v LocalTrustKey
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		key.Local = &v
-	default:
-		return fmt.Errorf("protocol: unknown trust key tag %q", tag)
-	}
-	*k = key
+	k.Kind = TrustKeyKind(tag)
 	return nil
 }
 
@@ -198,17 +142,14 @@ const (
 	TrustSourceLocal TrustSource = "local"
 )
 
-func (s TrustSource) valid() bool { return s == TrustSourceLocal }
+// trustSources is the trust source enum.
+var trustSources = newEnum("trust source", TrustSourceLocal)
 
 // MarshalCBOR encodes the source, rejecting values outside the schema.
-func (s TrustSource) MarshalCBOR() ([]byte, error) {
-	return marshalEnum("trust source", s, TrustSource.valid)
-}
+func (s TrustSource) MarshalCBOR() ([]byte, error) { return trustSources.marshal(s) }
 
 // UnmarshalCBOR decodes and validates the source.
-func (s *TrustSource) UnmarshalCBOR(data []byte) error {
-	return unmarshalEnum("trust source", data, s, TrustSource.valid)
-}
+func (s *TrustSource) UnmarshalCBOR(data []byte) error { return trustSources.unmarshal(data, s) }
 
 // TrustRole is the role of a trust entry.
 type TrustRole string
@@ -219,24 +160,14 @@ const (
 	TrustRoleLocal TrustRole = "local"
 )
 
-func (r TrustRole) valid() bool {
-	switch r {
-	case TrustRoleCRHS, TrustRoleUser, TrustRoleLocal:
-		return true
-	default:
-		return false
-	}
-}
+// trustRoles is the trust role enum.
+var trustRoles = newEnum("trust role", TrustRoleCRHS, TrustRoleUser, TrustRoleLocal)
 
 // MarshalCBOR encodes the role, rejecting values outside the schema.
-func (r TrustRole) MarshalCBOR() ([]byte, error) {
-	return marshalEnum("trust role", r, TrustRole.valid)
-}
+func (r TrustRole) MarshalCBOR() ([]byte, error) { return trustRoles.marshal(r) }
 
 // UnmarshalCBOR decodes and validates the role.
-func (r *TrustRole) UnmarshalCBOR(data []byte) error {
-	return unmarshalEnum("trust role", data, r, TrustRole.valid)
-}
+func (r *TrustRole) UnmarshalCBOR(data []byte) error { return trustRoles.unmarshal(data, r) }
 
 // TrustKind is one capability of a trust entry.
 type TrustKind string
@@ -247,24 +178,14 @@ const (
 	TrustKindRequireCosign TrustKind = "require-cosign"
 )
 
-func (k TrustKind) valid() bool {
-	switch k {
-	case TrustKindExecute, TrustKindCosign, TrustKindRequireCosign:
-		return true
-	default:
-		return false
-	}
-}
+// trustKinds is the trust kind enum.
+var trustKinds = newEnum("trust kind", TrustKindExecute, TrustKindCosign, TrustKindRequireCosign)
 
 // MarshalCBOR encodes the kind, rejecting values outside the schema.
-func (k TrustKind) MarshalCBOR() ([]byte, error) {
-	return marshalEnum("trust kind", k, TrustKind.valid)
-}
+func (k TrustKind) MarshalCBOR() ([]byte, error) { return trustKinds.marshal(k) }
 
 // UnmarshalCBOR decodes and validates the kind.
-func (k *TrustKind) UnmarshalCBOR(data []byte) error {
-	return unmarshalEnum("trust kind", data, k, TrustKind.valid)
-}
+func (k *TrustKind) UnmarshalCBOR(data []byte) error { return trustKinds.unmarshal(data, k) }
 
 // TrustEntry is one item of TrustSummary.trust.
 type TrustEntry struct {
@@ -309,12 +230,6 @@ const (
 	TrustReportNotForward  TrustReportKind = "not_forward"
 )
 
-// messageBody is the body of union branches that carry only a message.
-type messageBody struct {
-	_       struct{} `cbor:",toarray"`
-	Message string
-}
-
 // TrustReport is the trust.summary event body.
 type TrustReport struct {
 	Kind TrustReportKind
@@ -323,52 +238,28 @@ type TrustReport struct {
 	Message string
 }
 
+// trustReportUnion is the TrustReport union: the trust summary, why it is unavailable, or that this
+// mode does not forward.
+var trustReportUnion = newUnion("trust report",
+	withMissing(unionPtr[TrustReport]("ok", func(r *TrustReport) **TrustSummary { return &r.Summary }),
+		"protocol: ok trust report has no summary"),
+	unionMessage("unavailable", func(r TrustReport) string { return r.Message },
+		func(r *TrustReport, message string) { r.Message = message }),
+	unionEmpty[TrustReport]("not_forward"),
+)
+
 // MarshalCBOR encodes a TrustReport as [tag, body].
 func (r TrustReport) MarshalCBOR() ([]byte, error) {
-	switch r.Kind {
-	case TrustReportOK:
-		if r.Summary == nil {
-			return nil, errors.New("protocol: ok trust report has no summary")
-		}
-		return encodeUnion(string(r.Kind), r.Summary)
-	case TrustReportUnavailable:
-		return encodeUnion(string(r.Kind), messageBody{Message: r.Message})
-	case TrustReportNotForward:
-		return encodeUnion(string(r.Kind), Empty{})
-	default:
-		return nil, fmt.Errorf("protocol: unknown trust report kind %q", string(r.Kind))
-	}
+	return trustReportUnion.marshal(r, string(r.Kind))
 }
 
 // UnmarshalCBOR decodes [tag, body] into the matching TrustReport branch.
 func (r *TrustReport) UnmarshalCBOR(data []byte) error {
-	tag, body, err := decodeUnion(data)
+	tag, err := trustReportUnion.unmarshal(data, r)
 	if err != nil {
 		return err
 	}
-	report := TrustReport{Kind: TrustReportKind(tag)}
-	switch report.Kind {
-	case TrustReportOK:
-		var v TrustSummary
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		report.Summary = &v
-	case TrustReportUnavailable:
-		var v messageBody
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		report.Message = v.Message
-	case TrustReportNotForward:
-		var v Empty
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("protocol: unknown trust report tag %q", tag)
-	}
-	*r = report
+	r.Kind = TrustReportKind(tag)
 	return nil
 }
 
@@ -410,41 +301,25 @@ type LocalState struct {
 	Message string
 }
 
+// localStateUnion is the LocalState union: a pending or approved request has an empty body, a denied
+// one carries its reason.
+var localStateUnion = newBareUnion("local state",
+	unionEmpty[LocalState]("pending"),
+	unionEmpty[LocalState]("approved"),
+	unionMessage("denied", func(s LocalState) string { return s.Message },
+		func(s *LocalState, message string) { s.Message = message }),
+)
+
 // MarshalCBOR encodes a LocalState as [tag, body].
-func (s LocalState) MarshalCBOR() ([]byte, error) {
-	switch s.Kind {
-	case LocalStatePending, LocalStateApproved:
-		return encodeUnion(string(s.Kind), Empty{})
-	case LocalStateDenied:
-		return encodeUnion(string(s.Kind), messageBody{Message: s.Message})
-	default:
-		return nil, fmt.Errorf("protocol: unknown local state %q", string(s.Kind))
-	}
-}
+func (s LocalState) MarshalCBOR() ([]byte, error) { return localStateUnion.marshal(s, string(s.Kind)) }
 
 // UnmarshalCBOR decodes [tag, body] into the matching LocalState branch.
 func (s *LocalState) UnmarshalCBOR(data []byte) error {
-	tag, body, err := decodeUnion(data)
+	tag, err := localStateUnion.unmarshal(data, s)
 	if err != nil {
 		return err
 	}
-	state := LocalState{Kind: LocalStateKind(tag)}
-	switch state.Kind {
-	case LocalStatePending, LocalStateApproved:
-		var v Empty
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-	case LocalStateDenied:
-		var v messageBody
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		state.Message = v.Message
-	default:
-		return fmt.Errorf("protocol: unknown local state tag %q", tag)
-	}
-	*s = state
+	s.Kind = LocalStateKind(tag)
 	return nil
 }
 
@@ -493,48 +368,22 @@ type AuthMatch struct {
 	Prefix *AuthPrefix
 }
 
+// authMatchUnion is the AuthMatch union: how an authorization constrains the target.
+var authMatchUnion = newUnion("auth match",
+	unionPtr[AuthMatch]("exact", func(m *AuthMatch) **AuthExact { return &m.Exact }),
+	unionPtr[AuthMatch]("prefix", func(m *AuthMatch) **AuthPrefix { return &m.Prefix }),
+)
+
 // MarshalCBOR encodes an AuthMatch as [tag, body].
-func (m AuthMatch) MarshalCBOR() ([]byte, error) {
-	switch m.Kind {
-	case AuthMatchExact:
-		if m.Exact == nil {
-			return nil, errors.New("protocol: exact auth match has no body")
-		}
-		return encodeUnion(string(m.Kind), m.Exact)
-	case AuthMatchPrefix:
-		if m.Prefix == nil {
-			return nil, errors.New("protocol: prefix auth match has no body")
-		}
-		return encodeUnion(string(m.Kind), m.Prefix)
-	default:
-		return nil, fmt.Errorf("protocol: unknown auth match kind %q", string(m.Kind))
-	}
-}
+func (m AuthMatch) MarshalCBOR() ([]byte, error) { return authMatchUnion.marshal(m, string(m.Kind)) }
 
 // UnmarshalCBOR decodes [tag, body] into the matching AuthMatch branch.
 func (m *AuthMatch) UnmarshalCBOR(data []byte) error {
-	tag, body, err := decodeUnion(data)
+	tag, err := authMatchUnion.unmarshal(data, m)
 	if err != nil {
 		return err
 	}
-	match := AuthMatch{Kind: AuthMatchKind(tag)}
-	switch match.Kind {
-	case AuthMatchExact:
-		var v AuthExact
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		match.Exact = &v
-	case AuthMatchPrefix:
-		var v AuthPrefix
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		match.Prefix = &v
-	default:
-		return fmt.Errorf("protocol: unknown auth match tag %q", tag)
-	}
-	*m = match
+	m.Kind = AuthMatchKind(tag)
 	return nil
 }
 
@@ -589,48 +438,22 @@ type Signature struct {
 	WebAuthn *WebAuthnSignature
 }
 
+// signatureUnion is the Signature union: one signature form over an authorization payload.
+var signatureUnion = newUnion("signature",
+	unionPtr[Signature]("sshsig", func(s *Signature) **SSHSigSignature { return &s.SSHSig }),
+	unionPtr[Signature]("webauthn", func(s *Signature) **WebAuthnSignature { return &s.WebAuthn }),
+)
+
 // MarshalCBOR encodes a Signature as [tag, body].
-func (s Signature) MarshalCBOR() ([]byte, error) {
-	switch s.Kind {
-	case SignatureSSHSig:
-		if s.SSHSig == nil {
-			return nil, errors.New("protocol: sshsig signature has no body")
-		}
-		return encodeUnion(string(s.Kind), s.SSHSig)
-	case SignatureWebAuthn:
-		if s.WebAuthn == nil {
-			return nil, errors.New("protocol: webauthn signature has no body")
-		}
-		return encodeUnion(string(s.Kind), s.WebAuthn)
-	default:
-		return nil, fmt.Errorf("protocol: unknown signature kind %q", string(s.Kind))
-	}
-}
+func (s Signature) MarshalCBOR() ([]byte, error) { return signatureUnion.marshal(s, string(s.Kind)) }
 
 // UnmarshalCBOR decodes [tag, body] into the matching Signature branch.
 func (s *Signature) UnmarshalCBOR(data []byte) error {
-	tag, body, err := decodeUnion(data)
+	tag, err := signatureUnion.unmarshal(data, s)
 	if err != nil {
 		return err
 	}
-	sig := Signature{Kind: SignatureKind(tag)}
-	switch sig.Kind {
-	case SignatureSSHSig:
-		var v SSHSigSignature
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		sig.SSHSig = &v
-	case SignatureWebAuthn:
-		var v WebAuthnSignature
-		if err := decMode.Unmarshal(body, &v); err != nil {
-			return err
-		}
-		sig.WebAuthn = &v
-	default:
-		return fmt.Errorf("protocol: unknown signature tag %q", tag)
-	}
-	*s = sig
+	s.Kind = SignatureKind(tag)
 	return nil
 }
 

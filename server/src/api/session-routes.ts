@@ -39,7 +39,6 @@ import type { MasterKey } from "../keys/master-key.ts";
 import { parsePreset } from "../policy/store.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { type CursorSpec, cursorRows, decodeCursor, parseLimit } from "./cursor.ts";
 import type { RequestDrain } from "./drain.ts";
@@ -131,15 +130,6 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		{ once: true },
 	);
 	const app = new Hono<AppEnv>();
-
-	app.onError((err, c) => {
-		// Shutdown closes the runtime under requests that were already in flight (main.ts): answer with the
-		// shutdown, not the closed Harness's exception.
-		if (runtime.closing) return jsonError(c, 503, "server is shutting down");
-		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
-		if (err instanceof UserError) return jsonError(c, 400, err.message);
-		throw err;
-	});
 
 	const admin = (c: Context<AppEnv>) => c.get("user").kind === "admin";
 

@@ -4,12 +4,11 @@ import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { ApprovalCard, DecisionView } from "@/components/approval-card";
-import { AuthorizationCard } from "@/components/authorization-card";
 import { StatusBadge, TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeText, TaskResult } from "@/components/task-result";
 import { Badge } from "@/components/ui/badge";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
-import { usePendingAuthorization, useSubmitAuthorization } from "@/features/authorizations/api";
+import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
 import type { TaskGroupView } from "@/lib/api/types";
 
 const GROUP_STATES: Record<string, MessageDescriptor> = {
@@ -63,8 +62,6 @@ export function TaskGroupResult({
 	const { t } = useLingui();
 	const lookups = useApprovalLookups();
 	const decide = useDecideApproval();
-	const pending = usePendingAuthorization("group", group.state === "awaiting_authorization" ? group.id : undefined);
-	const submit = useSubmitAuthorization();
 	const nodeName = (id: string) => names.get(id) ?? id;
 	const skipped = group.skipped.map(nodeName).join(", ");
 
@@ -99,34 +96,24 @@ export function TaskGroupResult({
 					onDecide={(body) =>
 						decide.mutate(
 							{ kind: "group", id: group.id, body },
-							{
-								onSuccess: () => toast.success(t`Decision recorded.`),
-								onError: (error) => toast.error(error.message),
-							},
+							{ onSuccess: () => toast.success(t`Decision recorded.`) },
 						)
 					}
 				/>
 			)}
 
-			{group.state === "awaiting_authorization" &&
-				(pending.data?.pending ? (
-					<AuthorizationCard
-						pending={pending.data.pending}
-						tasks={pending.data.tasks}
-						kind="group"
-						onSubmit={(input) => submit.mutateAsync(input)}
-						onChanged={() => {
-							void pending.refetch();
-							onChanged?.();
-						}}
-						busy={submit.isPending}
-						error={submit.error}
-					/>
-				) : (
-					<p className="text-sm text-muted-foreground">
-						<Trans>Waiting for the owner's authorization; the payload is being prepared.</Trans>
-					</p>
-				))}
+			{group.state === "awaiting_authorization" && (
+				<AuthorizationWait
+					kind="group"
+					id={group.id}
+					onChanged={onChanged}
+					waiting={
+						<p className="text-sm text-muted-foreground">
+							<Trans>Waiting for the owner's authorization; the payload is being prepared.</Trans>
+						</p>
+					}
+				/>
+			)}
 
 			{group.state === "rejected" && group.approval?.decision && <DecisionView decision={group.approval.decision} />}
 

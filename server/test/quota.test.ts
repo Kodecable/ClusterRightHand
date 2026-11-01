@@ -30,6 +30,7 @@ import { backfillHandlers } from "../src/storage/migrations/0018_approval_handle
 import { createUser } from "../src/users/service.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { waitSubmission } from "./helpers/runtime.ts";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
@@ -481,7 +482,7 @@ it("a root's used-up quota waits for its owner: listed, then granted with an aud
 		body: { decision: "approve", tokens: 100_000 },
 	});
 	expect(granted.status).toBe(200);
-	expect(await runtime.waitSubmission(session.id, submission)).toEqual({ status: "done", answer: "done" });
+	expect(await waitSubmission(runtime, session.id, submission)).toEqual({ status: "done", answer: "done" });
 	expect((await runtime.getSession(session.id))?.state).toBe("idle");
 
 	const audits = await db
@@ -521,7 +522,7 @@ it("the owner's deny ends the paused root run and audits quota.denied", async ()
 		body: { decision: "deny", reason: "stop spending" },
 	});
 	expect(denied.status).toBe(200);
-	const settled = await runtime.waitSubmission(session.id, submission);
+	const settled = await waitSubmission(runtime, session.id, submission);
 	expect(settled.status).toBe("done");
 	// The paused tool ended the run instead of asking the model again.
 	expect(faux.getPendingResponseCount()).toBe(1);

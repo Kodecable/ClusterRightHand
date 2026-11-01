@@ -66,7 +66,6 @@ function AddSshKeyForm() {
 									toast.success(t`SSH key added.`);
 									form.reset();
 								},
-								onError: (error) => toast.error(error.message),
 							},
 						);
 					})}
@@ -321,7 +320,6 @@ export function CredentialsPage() {
 							toast.success(t`Credential deleted.`);
 							setDeleting(undefined);
 						},
-						onError: (error) => toast.error(error.message),
 					});
 				}}
 			/>

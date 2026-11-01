@@ -20,19 +20,12 @@ import {
 import { sshNodeDetails } from "../cluster/ssh/nodes.ts";
 import { trustView } from "../cluster/trust.ts";
 import type { Db } from "../storage/db.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
 import type { AppOptions } from "./app.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
 
 /** Expects requireUser to have run. */
 export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	const app = new Hono<AppEnv>();
-
-	app.onError((err, c) => {
-		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
-		if (err instanceof UserError) return jsonError(c, 400, err.message);
-		throw err;
-	});
 
 	/** The caller's access to the node, or undefined when the node is hidden from them. */
 	const access = (c: { get(k: "user"): AppEnv["Variables"]["user"] }, id: string) => nodeAccess(db, c.get("user"), id);

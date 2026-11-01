@@ -106,27 +106,6 @@ export function formatNumber(value: number, locale: string, options?: Intl.Numbe
 	return numberFormat(locale, options).format(value);
 }
 
-/** A byte count with binary units; uses `Intl` for the number part. */
-export function formatBytes(bytes: number, locale: string): string {
-	if (!Number.isFinite(bytes) || bytes < 0) return "–";
-	const units = ["B", "KiB", "MiB", "GiB", "TiB"];
-	let value = bytes;
-	let unit = 0;
-	while (value >= 1024 && unit < units.length - 1) {
-		value /= 1024;
-		unit += 1;
-	}
-	const digits = unit === 0 || value >= 100 ? 0 : 1;
-	return `${formatNumber(value, locale, { maximumFractionDigits: digits })} ${units[unit]}`;
-}
-
-/** The clock time of a day, for schedules and run histories. */
-export function formatTime(value: DateInput, locale: string): string {
-	const date = toDate(value);
-	if (!date) return "–";
-	return dateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date);
-}
-
 /** A duration in seconds/milliseconds as "1h 02m 03s". */
 export function formatDuration(ms: number, locale: string): string {
 	if (!Number.isFinite(ms) || ms < 0) return "–";

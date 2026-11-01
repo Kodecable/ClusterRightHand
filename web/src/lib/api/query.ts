@@ -1,11 +1,13 @@
 import type { InfiniteData } from "@tanstack/react-query";
 import {
 	keepPreviousData,
+	MutationCache,
 	QueryClient,
 	type QueryKey,
 	type UseInfiniteQueryResult,
 	useInfiniteQuery,
 } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { ApiError } from "./client";
 import type { CursorPage } from "./types";
 
@@ -14,9 +16,19 @@ import type { CursorPage } from "./types";
  * current), no retry on a 4xx (only on network/5xx errors), and no refetch on
  * window focus — a polling-heavy console should not multiply its traffic when
  * the tab regains focus.
+ *
+ * A failed mutation reports the server's message as a toast by default; a
+ * mutation whose error is shown inline (a form's error line, a test button)
+ * opts out with `meta: { toast: false }`.
  */
 export function createQueryClient(): QueryClient {
 	return new QueryClient({
+		mutationCache: new MutationCache({
+			onError: (error, _variables, _context, mutation) => {
+				if (mutation.meta?.toast === false) return;
+				toast.error(error.message);
+			},
+		}),
 		defaultOptions: {
 			queries: {
 				staleTime: 60_000,

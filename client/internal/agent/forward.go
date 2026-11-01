@@ -37,6 +37,79 @@ const (
 	forwardLostMessage = "lost the connection to the privileged mode; the task may still be running"
 )
 
+// forwardRun executes one task in the privileged mode over the forward-mode connection. The daemon
+// owns the process, the input accounting and the task's state; this side relays the task's requests
+// and events and keeps what the crhs protocol needs (doc/protocol.md crh-priv).
+type forwardRun struct {
+	// conn is the daemon connection the task.start was accepted on, set by prepare.
+	conn *forwardConn
+	// unknown records a task.start whose answer was lost (a broken connection or a timeout): the
+	// daemon may have accepted the task, so start never waits for its events and ends it as
+	// helper_lost.
+	unknown bool
+}
+
+// prepare relays the task.start. The daemon must refuse an unauthorized task before this agent
+// accepts it: an accepted task is never retried (doc/protocol.md task.start).
+func (r *forwardRun) prepare(a *Agent, ctx context.Context, t *task) error {
+	fc, unknown, err := a.startForwardTask(ctx, t.spec)
+	if err != nil {
+		var remote *protocol.RemoteError
+		if errors.As(err, &remote) {
+			return remote
+		}
+		return err
+	}
+	r.conn, r.unknown = fc, unknown
+	return nil
+}
+
+// registered attaches the handlers that relay the daemon's events into the task's output spool.
+func (r *forwardRun) registered(a *Agent, t *task) { a.attachForward(t) }
+
+// start ends a task whose daemon connection was already gone when the task was accepted: a forwarded
+// task executes in the privileged mode, which keeps an accepted task running, so its outcome is
+// unknowable here.
+func (r *forwardRun) start(a *Agent, t *task) {
+	if r.unknown || !a.forwardAlive(r.conn) {
+		a.finishRelayed(t, helperLostExit(t.id, forwardLostMessage))
+	}
+}
+
+// input relays the chunk to the daemon, which owns the input accounting of a forwarded task. Only how
+// much arrived is tracked here, so a session that ends mid-input can cancel a task that could never
+// read the rest.
+func (r *forwardRun) input(a *Agent, ctx context.Context, t *task, in *protocol.TaskInput) (any, error) {
+	return a.forwardInput(ctx, t, in)
+}
+
+func (r *forwardRun) inputComplete(t *task) bool { return t.input.Complete() }
+
+// failInput cancels the task on the daemon: it owns the process, and cancelling it also unblocks the
+// reader waiting for the rest of the input. Its task.exit ends the task here.
+func (r *forwardRun) failInput(a *Agent, t *task, _ string) { go a.cancelForwardTask(t.id) }
+
+// cancel cancels the task on the daemon. task.cancel never fails on an unknown or finished task, and
+// an unreachable daemon ends the task as helper_lost anyway.
+func (r *forwardRun) cancel(a *Agent, ctx context.Context, t *task) {
+	if err := a.relayForward(ctx, protocol.CmdTaskCancel, protocol.TaskCancel{TaskID: t.id}, nil); err != nil {
+		a.log.Debug("cancel a forwarded task", "task", t.id, "err", err)
+	}
+}
+
+// query answers from the daemon when it can be reached: the daemon knows the state and the output
+// ends of a forwarded task even when its connection was lost here.
+func (r *forwardRun) query(a *Agent, ctx context.Context, q protocol.TaskQuery) (protocol.TaskStatus, bool) {
+	var status protocol.TaskStatus
+	if err := a.relayForward(ctx, protocol.CmdTaskQuery, q, &status); err != nil {
+		return status, false
+	}
+	return status, true
+}
+
+// finished does nothing: the daemon owns the task, and its events end it here.
+func (r *forwardRun) finished(*task) {}
+
 // forwardConn is the crh-priv connection of forward mode to the privileged mode: one connection
 // serves every task, and its events are routed by task id (doc/protocol.md crh-priv).
 type forwardConn struct {
@@ -210,6 +283,12 @@ func (a *Agent) refreshTrust(ctx context.Context) {
 	a.setTrust(okReport(&summary))
 }
 
+// forwarded reports whether t executes in the privileged mode.
+func (t *task) forwarded() bool {
+	_, ok := t.run.(*forwardRun)
+	return ok
+}
+
 // forwardLost ends the tasks of the connection that just ended. The daemon keeps running an
 // accepted task until it finishes (doc/protocol.md crh-priv 断开), so their outcome is unknowable
 // here.
@@ -217,7 +296,7 @@ func (a *Agent) forwardLost() {
 	a.mu.Lock()
 	lost := make([]*task, 0, len(a.tasks))
 	for _, t := range a.tasks {
-		if t.fwd != nil && !t.done {
+		if t.forwarded() && !t.done {
 			lost = append(lost, t)
 		}
 	}
@@ -347,7 +426,7 @@ func notForwardError(mode string) *protocol.RemoteError {
 
 func (a *Agent) handleForwardOutput(body cbor.RawMessage) error {
 	var out protocol.TaskOutput
-	if err := protocol.Unmarshal(body, &out); err != nil {
+	if err := protocol.UnmarshalBody(body, &out); err != nil {
 		return err
 	}
 	return a.relay.route(out.TaskID, relayEvent{output: &out})
@@ -355,7 +434,7 @@ func (a *Agent) handleForwardOutput(body cbor.RawMessage) error {
 
 func (a *Agent) handleForwardExit(body cbor.RawMessage) error {
 	var exit protocol.TaskExit
-	if err := protocol.Unmarshal(body, &exit); err != nil {
+	if err := protocol.UnmarshalBody(body, &exit); err != nil {
 		return err
 	}
 	return a.relay.route(exit.TaskID, relayEvent{exit: &exit})
@@ -365,7 +444,7 @@ func (a *Agent) handleForwardExit(body cbor.RawMessage) error {
 // every reload that changed the digest.
 func (a *Agent) handleForwardSummary(body cbor.RawMessage) error {
 	var report protocol.TrustReport
-	if err := protocol.Unmarshal(body, &report); err != nil {
+	if err := protocol.UnmarshalBody(body, &report); err != nil {
 		return err
 	}
 	a.setTrust(report)
@@ -375,7 +454,7 @@ func (a *Agent) handleForwardSummary(body cbor.RawMessage) error {
 // handleForwardLocalDecision forwards a local approve or deny decision to crhs.
 func (a *Agent) handleForwardLocalDecision(body cbor.RawMessage) error {
 	var decision protocol.LocalDecision
-	if err := protocol.Unmarshal(body, &decision); err != nil {
+	if err := protocol.UnmarshalBody(body, &decision); err != nil {
 		return err
 	}
 	a.emitLocalDecision(decision)
@@ -546,9 +625,7 @@ func (a *Agent) forwardInput(ctx context.Context, t *task, in *protocol.TaskInpu
 		return nil, err
 	}
 	a.mu.Lock()
-	if off := uint64(in.Offset) + uint64(len(in.Data)); off > t.inputOff {
-		t.inputOff = off
-	}
+	t.input.Advance(uint64(in.Offset) + uint64(len(in.Data)))
 	a.mu.Unlock()
 	return protocol.Empty{}, nil
 }
@@ -568,7 +645,7 @@ func (a *Agent) handleRevocationsAdd(ctx context.Context, body cbor.RawMessage) 
 		return nil, notForwardError(a.mode())
 	}
 	var add protocol.RevocationsAdd
-	if err := protocol.Unmarshal(body, &add); err != nil {
+	if err := protocol.UnmarshalBody(body, &add); err != nil {
 		return nil, err
 	}
 	if err := a.relayForward(ctx, protocol.CmdRevocationsAdd, add, nil); err != nil {
@@ -583,7 +660,7 @@ func (a *Agent) handleLocalRequest(ctx context.Context, body cbor.RawMessage) (a
 		return nil, notForwardError(a.mode())
 	}
 	var req protocol.LocalRequest
-	if err := protocol.Unmarshal(body, &req); err != nil {
+	if err := protocol.UnmarshalBody(body, &req); err != nil {
 		return nil, err
 	}
 	var state protocol.LocalState
@@ -599,7 +676,7 @@ func (a *Agent) handleLocalWithdraw(ctx context.Context, body cbor.RawMessage) (
 		return nil, notForwardError(a.mode())
 	}
 	var withdraw protocol.LocalWithdraw
-	if err := protocol.Unmarshal(body, &withdraw); err != nil {
+	if err := protocol.UnmarshalBody(body, &withdraw); err != nil {
 		return nil, err
 	}
 	if err := a.relayForward(ctx, protocol.CmdLocalWithdraw, withdraw, nil); err != nil {

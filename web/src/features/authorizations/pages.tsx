@@ -213,7 +213,6 @@ export function AuthorizationsPage() {
 							toast.success(t`Authorization revoked.`);
 							setRevoking(undefined);
 						},
-						onError: (error) => toast.error(error.message),
 					});
 				}}
 			/>

@@ -1,13 +1,10 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { ArrowLeftIcon, PlusIcon, RefreshCwIcon, TriangleAlertIcon } from "lucide-react";
-import { useId, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { Link, useParams } from "@tanstack/react-router";
+import { ArrowLeftIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import { useMemo, useState } from "react";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
-import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
-import { FieldShell } from "@/components/form";
 import { KeyValueList } from "@/components/key-value";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
@@ -16,142 +13,24 @@ import { PageSkeleton } from "@/components/skeletons";
 import { NodeStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { useAuth } from "@/features/auth/session";
-import { useCredentials } from "@/features/credentials/api";
 import type { PublicNode } from "@/lib/api/types";
 import { AddNodeDialog } from "./add-node-dialog";
-import { useApproveNode, useCrhsKey, useDeleteNode, useNode, useNodes, useRenameNode } from "./api";
+import { AddSshNodeDialog } from "./add-ssh-node-dialog";
+import { useNode, useNodes } from "./api";
+import { ClockWarning } from "./clock-warning";
 import { osName } from "./commands";
 import { CrhsKeyPanel } from "./crhs-key-panel";
+import { canManageNode, canRunOn } from "./node-access";
 import { NodeShares } from "./node-shares";
 import { NodeTaskList } from "./node-tasks";
 import { NodeTrustPanel } from "./node-trust";
+import { PendingNodeDialog } from "./pending-node-dialog";
+import { RenameNodeButton } from "./rename-node-button";
 import { RunPanel } from "./run-panel";
 import { SshNodeSection } from "./ssh-node-section";
-import { SshNodeWizard } from "./ssh-wizard";
-import type { TrustKeySource } from "./trust-editor";
 import { TrustEditor } from "./trust-editor-panel";
-
-/** Whether the caller may run tasks on this node (doc/access-control.md#节点访问). */
-function canRunOn(node: PublicNode): boolean {
-	return node.status === "active" && (node.access === "owner" || node.access === "admin" || node.access === "operate");
-}
-
-function canManageNode(node: PublicNode): boolean {
-	return node.access === "owner" || node.access === "admin";
-}
-
-function ClockWarning({ warning }: { warning: string | null }) {
-	if (warning === null) return null;
-	return (
-		<span className="inline-flex items-center gap-1 text-xs text-warn" title={warning}>
-			<TriangleAlertIcon className="size-3.5" aria-hidden="true" />
-			<Trans>clock</Trans>
-		</span>
-	);
-}
-
-function AddSshNodeDialog({ onClose }: { onClose: () => void }) {
-	const navigate = useNavigate();
-	return (
-		<Dialog
-			open
-			onOpenChange={(open) => {
-				if (!open) onClose();
-			}}
-		>
-			<DialogContent className="sm:max-w-2xl">
-				<DialogHeader>
-					<DialogTitle>
-						<Trans>Add SSH node</Trans>
-					</DialogTitle>
-					<DialogDescription>
-						<Trans>
-							Choose a credential, describe the route (jump hosts, then the target), pin every host key, then create the
-							node.
-						</Trans>
-					</DialogDescription>
-				</DialogHeader>
-				<div className="max-h-[70vh] overflow-auto pr-1">
-					<SshNodeWizard
-						onCancel={onClose}
-						onCreated={(node) => {
-							onClose();
-							void navigate({ to: "/nodes/$nodeId", params: { nodeId: node.id } });
-						}}
-					/>
-				</div>
-			</DialogContent>
-		</Dialog>
-	);
-}
-
-function PendingNodeDialog({
-	node,
-	action,
-	onClose,
-	onDone,
-}: {
-	node: PublicNode;
-	action: "approve" | "reject";
-	onClose: () => void;
-	onDone: () => void;
-}) {
-	const { t } = useLingui();
-	const approve = useApproveNode();
-	const remove = useDeleteNode();
-	const busy = approve.isPending || remove.isPending;
-	const isApprove = action === "approve";
-	const error = isApprove ? approve.error : remove.error;
-	return (
-		<ConfirmDialog
-			open
-			onOpenChange={(open) => {
-				if (!open) onClose();
-			}}
-			title={isApprove ? t`Approve node` : t`Reject node`}
-			description={
-				<>
-					{isApprove ? <Trans>Approve</Trans> : <Trans>Reject and delete</Trans>}{" "}
-					<strong>{node.hostname ?? node.name}</strong>
-					{node.hostname !== null && node.hostname !== node.name && <> (named {node.name})</>}?
-				</>
-			}
-			confirmLabel={isApprove ? t`Approve` : t`Reject`}
-			destructive={!isApprove}
-			busy={busy}
-			onConfirm={() => {
-				const mutation = isApprove ? approve : remove;
-				mutation.mutate(node.id, {
-					onSuccess: () => {
-						toast.success(isApprove ? t`Node approved.` : t`Node rejected.`);
-						onDone();
-					},
-					onError: (mutationFailure) => toast.error(mutationFailure.message),
-				});
-			}}
-		>
-			{isApprove && (
-				<div className="grid gap-1 text-sm">
-					<p>
-						<Trans>
-							Node key fingerprint: <code className="font-mono">{node.keyFingerprint ?? t`unknown`}</code>
-						</Trans>
-					</p>
-					<p className="text-muted-foreground">
-						<Trans>
-							It must match what <code>crha enroll</code> printed, or <code>crha status</code> on the node, before you
-							approve.
-						</Trans>
-					</p>
-				</div>
-			)}
-			{error !== null && <ErrorState error={error} compact />}
-		</ConfirmDialog>
-	);
-}
+import { useTrustSources } from "./trust-sources";
 
 /**
  * Every node the user can see (doc/webui.md "Nodes"): status, connection,
@@ -313,99 +192,8 @@ export function NodesPage() {
 	);
 }
 
-function RenameNodeButton({ node }: { node: PublicNode }) {
-	const { t } = useLingui();
-	const prefix = useId();
-	const [open, setOpen] = useState(false);
-	const [name, setName] = useState(node.name);
-	const rename = useRenameNode();
-	return (
-		<>
-			<Button
-				type="button"
-				variant="outline"
-				size="sm"
-				onClick={() => {
-					setName(node.name);
-					setOpen(true);
-				}}
-			>
-				<Trans>Rename</Trans>
-			</Button>
-			<Dialog open={open} onOpenChange={setOpen}>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>
-							<Trans>Rename node</Trans>
-						</DialogTitle>
-					</DialogHeader>
-					<div className="grid gap-3">
-						<FieldShell id={`${prefix}-name`} label={t`New name`}>
-							<Input
-								id={`${prefix}-name`}
-								value={name}
-								maxLength={200}
-								onChange={(event) => setName(event.target.value)}
-							/>
-						</FieldShell>
-						<ErrorState error={rename.error} compact />
-						<div className="flex justify-end gap-2">
-							<Button type="button" variant="outline" onClick={() => setOpen(false)}>
-								<Trans>Cancel</Trans>
-							</Button>
-							<Button
-								type="button"
-								disabled={rename.isPending || name.trim() === ""}
-								onClick={() =>
-									rename.mutate(
-										{ id: node.id, name: name.trim() },
-										{
-											onSuccess: () => {
-												toast.success(t`Node renamed.`);
-												setOpen(false);
-											},
-											onError: (error) => toast.error(error.message),
-										},
-									)
-								}
-							>
-								<Trans>Save</Trans>
-							</Button>
-						</div>
-					</div>
-				</DialogContent>
-			</Dialog>
-		</>
-	);
-}
-
 function factValue(value: unknown): string {
 	return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-/** Sources the trust editor can build a snippet for: crhs's key and the user's own credentials. */
-function useTrustSources(): TrustKeySource[] {
-	const crhsKey = useCrhsKey();
-	const credentials = useCredentials();
-	return useMemo(() => {
-		const sources: TrustKeySource[] = [];
-		if (crhsKey.data) sources.push({ kind: "crhs", authorizedKey: crhsKey.data.authorizedKey });
-		for (const credential of credentials.data ?? []) {
-			if (credential.kind === "ssh") {
-				sources.push({ kind: "ssh", name: credential.name, publicKey: credential.publicKey });
-			} else {
-				sources.push({
-					kind: "webauthn",
-					name: credential.name,
-					rpId: credential.rpId ?? "",
-					origins: credential.origins,
-					credentialId: credential.credentialId ?? "",
-					publicKey: credential.publicKey,
-				});
-			}
-		}
-		return sources;
-	}, [crhsKey.data, credentials.data]);
 }
 
 /**

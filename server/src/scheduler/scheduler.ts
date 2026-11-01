@@ -6,6 +6,7 @@ import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import type { Database } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
+import { errorText } from "../util/errors.ts";
 import { derivedId, newId } from "../util/id.ts";
 import {
 	deleteSchedule as deleteStoredSchedule,
@@ -49,12 +50,8 @@ function defaultTimer(fn: () => void, ms: number): () => void {
 	return () => clearTimeout(timer);
 }
 
-function errorMessage(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
-}
-
 function isUniqueViolation(err: unknown): boolean {
-	return /unique|duplicate/i.test(errorMessage(err));
+	return /unique|duplicate/i.test(errorText(err));
 }
 
 /** Why a submission that did not finish normally counts as failed (doc/scheduling.md#调度). */
@@ -481,7 +478,7 @@ export class Scheduler {
 				await this.#submitRun(row.id);
 			} catch (err) {
 				console.error(`scheduler: submitting run ${row.id} failed:`, err);
-				await this.#failRun(row.id, errorMessage(err)).catch(() => {});
+				await this.#failRun(row.id, errorText(err)).catch(() => {});
 			} finally {
 				this.#submitting.delete(row.id);
 			}
@@ -527,7 +524,7 @@ export class Scheduler {
 				this.#requestId(schedule.id, run.fireTime),
 			);
 		} catch (err) {
-			await this.#fail(schedule, run.id, errorMessage(err), sessionId);
+			await this.#fail(schedule, run.id, errorText(err), sessionId);
 			return;
 		}
 		const res = await this.#db
@@ -742,7 +739,7 @@ export class Scheduler {
 				);
 				this.#watchRun(run.id, run.session_id, submissionId);
 			} catch (err) {
-				await this.#fail(schedule, run.id, errorMessage(err), run.session_id);
+				await this.#fail(schedule, run.id, errorText(err), run.session_id);
 			}
 		}
 	}

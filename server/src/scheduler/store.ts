@@ -7,6 +7,7 @@ import { createRootRuleSet, getRuleSet, type RuleRef, type StoredRuleSet, setPre
 import type { Db } from "../storage/db.ts";
 import type { ScheduleRunsTable, SchedulesTable } from "../storage/schema.ts";
 import { defaultOrgId, UserError } from "../users/service.ts";
+import { errorText } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 
 /**
@@ -99,8 +100,7 @@ function cronOf(cron: string, timezone: string): Cron {
 		// "5-part" pins the minute precision the docs promise; 6- and 7-field patterns are rejected.
 		return new Cron(cron.trim(), { timezone: zone, paused: true, mode: "5-part" });
 	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		throw new UserError(`invalid cron or timezone: ${message.replace(/^Cron[A-Za-z]*: /, "")}`);
+		throw new UserError(`invalid cron or timezone: ${errorText(err).replace(/^Cron[A-Za-z]*: /, "")}`);
 	}
 }
 

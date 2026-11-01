@@ -127,12 +127,6 @@ export interface SessionListQuery extends CursorQuery {
 	q?: string;
 }
 
-/** `event: upsert` / `event: remove` payloads of `GET /api/sessions/stream`. */
-export type SessionListStreamEvent =
-	| { event: "upsert"; item: SessionListItem }
-	| { event: "remove"; id: string }
-	| { event: "ping" };
-
 export interface SessionView {
 	id: string;
 	title: string;

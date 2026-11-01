@@ -20,7 +20,7 @@ export function TestConnection({
 	testId?: string;
 }) {
 	const { t } = useLingui();
-	const test = useMutation({ mutationFn: onTest });
+	const test = useMutation({ mutationFn: onTest, meta: { toast: false } });
 	return (
 		<div className="flex flex-wrap items-center gap-2" data-testid={testId}>
 			<Button type="button" variant="outline" size="sm" disabled={test.isPending} onClick={() => test.mutate()}>

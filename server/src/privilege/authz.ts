@@ -16,6 +16,8 @@ import {
 	type TrustEntry as TrustSummaryEntry,
 } from "@crh/protocol";
 import type { Method } from "../policy/rules.ts";
+import { errorText } from "../util/errors.ts";
+import { cosignRequired, hasCosign } from "./cosign.ts";
 import { envAllowed, guardAllows, privilegedTarget } from "./guard.ts";
 import { authorizationId, specSha256 } from "./payload.ts";
 
@@ -339,7 +341,7 @@ function checkCandidate(
 	}
 
 	// Step 8: cosignature.
-	if (cosignRequired(entry) && !hasCosign(authorization)) {
+	if (cosignRequired(entry) && !hasCosign(verifiedEntries(authorization))) {
 		return no("authorization_rejected", STEP.cosign, "authorization requires a crhs cosignature");
 	}
 	return { ok: true, decision: accepted(entry.name) };
@@ -359,18 +361,16 @@ function checkTrust(entry: AuthzEntry, input: AuthzInput, method: Method, target
 	return { ok: true, decision: accepted(entry.name) };
 }
 
-function cosignRequired(entry: AuthzEntry): boolean {
-	return entry.role === "user" && entry.kinds.includes("require-cosign");
-}
-
 /**
- * Whether the payload carries a valid crhs signature with the cosign kind. The cosign entry's own
- * require_exact, max_ttl and allow/deny rules do not apply (doc/privilege.md#联署).
+ * The trust entries whose signature verifies: the candidates a cosignature may come from. A signature
+ * of a key the node does not trust is ignored, and an invalid one has already failed step 3.
  */
-function hasCosign(authorization: AuthzAuthorization): boolean {
-	return authorization.signatures.some(
-		(signature) => signature.entry?.role === "crhs" && signature.valid && signature.entry.kinds.includes("cosign"),
-	);
+function verifiedEntries(authorization: AuthzAuthorization): AuthzEntry[] {
+	const entries: AuthzEntry[] = [];
+	for (const signature of authorization.signatures) {
+		if (signature.valid && signature.entry !== null) entries.push(signature.entry);
+	}
+	return entries;
 }
 
 /**
@@ -452,8 +452,4 @@ function no(result: AuthzResult, step: number, message: string): Checked {
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
 	return Buffer.from(a).equals(Buffer.from(b));
-}
-
-function errorText(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
 }

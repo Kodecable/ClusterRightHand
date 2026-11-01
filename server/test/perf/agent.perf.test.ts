@@ -19,6 +19,7 @@ import { MasterKey } from "../../src/keys/master-key.ts";
 import type { Db } from "../../src/storage/db.ts";
 import { createUser } from "../../src/users/service.ts";
 import { openTestDb } from "../helpers/db.ts";
+import { waitSubmission } from "../helpers/runtime.ts";
 
 // doc/agent-runtime.md#2-性能和内存回归: faux model, real SQLite storage. Run with `pnpm test:perf` (not in the
 // regular suites: timings depend on the machine). Bounds are loose multiples of the research baseline.
@@ -60,7 +61,7 @@ describe("agent runtime performance", () => {
 
 	const run = async (runtime: AgentRuntime, sessionId: string, i: number) => {
 		const sub = await runtime.submit(sessionId, owner, `question ${i}`, `r${i}`);
-		const settled = await runtime.waitSubmission(sessionId, sub);
+		const settled = await waitSubmission(runtime, sessionId, sub);
 		expect(settled.status).toBe("done");
 	};
 
@@ -128,7 +129,12 @@ describe("agent runtime performance", () => {
 		const runtime = await open();
 		const openMs = performance.now() - t0;
 		try {
-			const [old] = await runtime.listSessions(owner);
+			const old = await db
+				.selectFrom("sessions")
+				.select("id")
+				.where("parent_session_id", "is", null)
+				.orderBy("created_at", "desc")
+				.executeTakeFirst();
 			faux.setResponses(turn(999));
 			const t1 = performance.now();
 			await run(runtime, old?.id as string, 999);

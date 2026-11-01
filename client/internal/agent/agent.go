@@ -4,13 +4,9 @@
 package agent
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"hash"
-	"io"
 	"log/slog"
 	"math/rand/v2"
 	"sync"
@@ -48,9 +44,6 @@ const (
 // maxAcceptedTasks bounds the process-wide set of task ids accepted at least once. It is a variable
 // so tests can lower it.
 var maxAcceptedTasks = 100_000
-
-// emptyInputHash is the SHA-256 of empty input, which an InputRef of size 0 must declare.
-var emptyInputHash = protocol.Hash(sha256.Sum256(nil))
 
 // ErrNodeRejected reports that crhs rejected this node during enrollment. Run returns it wrapped
 // with crhs's node.status message.
@@ -92,7 +85,7 @@ func (n *nodeStatus) get() (protocol.NodeStatusState, string) {
 // Receive stops and the session ends immediately; active and disabled let the connection close.
 func (n *nodeStatus) handle(body cbor.RawMessage) error {
 	var st protocol.NodeStatus
-	if err := protocol.Unmarshal(body, &st); err != nil {
+	if err := protocol.UnmarshalBody(body, &st); err != nil {
 		return err
 	}
 	n.set(st)
@@ -170,56 +163,6 @@ type Agent struct {
 	// crhs was told.
 	relay *relayRouter
 	trust trustReporter
-}
-
-type task struct {
-	id     string
-	spec   *protocol.TaskStart
-	output *executor.Output
-	cancel context.CancelFunc
-	// runCtx and in are kept so launch can start the executor after the accepting session is gone.
-	runCtx context.Context
-	in     io.Reader
-	// started is guarded by a.mu and set by the one launch that starts the task. The success
-	// response usually launches it, but when that response cannot be sent the session-end sweep
-	// does, so both can race and launch must be idempotent.
-	started bool
-	// suppressOutput withholds task.output events for batch "status" tasks, which deliver only
-	// task.exit (with the real stream ends) and the output file.
-	suppressOutput bool
-
-	// TaskInput chunks for the executor (stdin or file content), queued by the receive loop for the
-	// executor's reader. queue is nil for tasks without input and for native tasks, whose chunks are
-	// forwarded to the helper; hasInput records whether the task declared any. inputErr records why
-	// an input failed and overrides the task's outcome.
-	queue     *executor.Input
-	hasInput  bool
-	inputErr  *protocol.Error
-	inputOff  uint64
-	inputSize uint64
-	inputHash protocol.Hash
-	hasher    hash.Hash
-
-	// native is the crh-priv connection to the helper of a privileged native task, nil otherwise.
-	native *nativeConn
-	// fwd is the daemon connection a privileged forward-mode task was accepted on, nil otherwise.
-	// Its events arrive on that connection and are routed to relay by task id.
-	fwd *forwardConn
-	// fwdUnknown records a task.start whose answer was lost (a broken connection or a timeout): the
-	// daemon may have accepted the task, so launch never waits for its events and ends it as
-	// helper_lost.
-	fwdUnknown bool
-	// finishOnce makes the one call that completes the task win: a native task can be finished by
-	// the helper's task.exit and by the stream breaking at the same time.
-	finishOnce sync.Once
-
-	done   bool
-	result *protocol.TaskExit
-
-	// Per connection: how far output has been sent, and whether TaskExit went out. The indexes are
-	// executor.StreamIndex values (stdout, stderr).
-	sent     [executor.StreamSlots]uint64
-	exitSent bool
 }
 
 func New(opts Options) *Agent {
@@ -453,19 +396,6 @@ func (a *Agent) hello() protocol.Hello {
 	return h
 }
 
-func (t *task) status() protocol.TaskStatus {
-	st := protocol.TaskRunning
-	if t.done {
-		st = protocol.TaskExited
-	}
-	return protocol.TaskStatus{
-		TaskID:    t.id,
-		State:     st,
-		StdoutEnd: protocol.Uint(t.output.End(protocol.StreamStdout)),
-		StderrEnd: protocol.Uint(t.output.End(protocol.StreamStderr)),
-	}
-}
-
 // resume rewinds each task's send position to what crhs has acknowledged.
 func (a *Agent) resume(acks []protocol.OutputAck) {
 	a.mu.Lock()
@@ -582,14 +512,6 @@ func (a *Agent) nextOutbound() *outbound {
 
 // exitReady reports whether every output byte task.exit reports has been sent. Batch "status" tasks
 // send no output at all, so their exit is ready as soon as the task is done. a.mu must be held.
-func (t *task) exitReady() bool {
-	if t.suppressOutput {
-		return true
-	}
-	return t.sent[executor.StreamIndex(protocol.StreamStdout)] >= uint64(t.result.StdoutEnd) &&
-		t.sent[executor.StreamIndex(protocol.StreamStderr)] >= uint64(t.result.StderrEnd)
-}
-
 func (a *Agent) keepalive(ctx context.Context, peer *protocol.Peer) error {
 	timer := time.NewTimer(nextPing())
 	defer timer.Stop()
@@ -619,134 +541,6 @@ func nextPing() time.Duration {
 	return pingInterval - pingJitter + rand.N(2*pingJitter+1)
 }
 
-func (a *Agent) handleTaskStart(ctx context.Context, body cbor.RawMessage) (any, error) {
-	var ts protocol.TaskStart
-	if err := protocol.Unmarshal(body, &ts); err != nil {
-		return nil, err
-	}
-	return a.start(ctx, &ts)
-}
-
-// start validates and accepts a task. It records the id in the accepted set before returning, so an
-// accepted task is never forgotten, and defers starting the task's goroutines until the success
-// response has gone out, so no task event can precede it. If that response cannot be sent, After
-// never runs; the task is still executed, since crhs already committed to it, and the session's
-// deferred sweep or the closed-peer check below starts it.
-func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) {
-	reject := func(code, message string) (any, error) {
-		return nil, &protocol.RemoteError{Code: code, Message: message}
-	}
-	if ts.TaskID == "" {
-		return reject("invalid_spec", "task id must not be empty")
-	}
-	// A malformed sha256 cannot reach here: protocol.Hash decodes to exactly 32 bytes.
-	a.mu.Lock()
-	_, dup := a.accepted[ts.TaskID]
-	if !dup {
-		// An id whose entry was evicted must still be refused while its task is held: the
-		// duplicate would otherwise overwrite a running task in a.tasks.
-		_, dup = a.tasks[ts.TaskID]
-	}
-	a.mu.Unlock()
-	if dup {
-		return reject("already_accepted", "task "+ts.TaskID+" was already accepted")
-	}
-	native, forward := false, false
-	if ts.Privileged {
-		switch a.mode() {
-		case config.ModeIgnore:
-			// Ignore the privileged flag and run the task as crha's own user.
-		case config.ModeNative:
-			native = true
-		case config.ModeForward:
-			forward = true
-		default:
-			return reject("privileged_unsupported", "privileged tasks are not supported by this crha")
-		}
-	}
-	if err := checkTaskKind(ts.Spec); err != nil {
-		return nil, err
-	}
-
-	t := &task{
-		id:             ts.TaskID,
-		spec:           ts,
-		output:         executor.NewOutput(ts.TaskID, a.opts.OutputDir, outputOptions(ts.Output)),
-		suppressOutput: ts.Output.Kind == protocol.OutputStatus,
-	}
-	var in io.Reader
-	if ref := inputRef(&ts.Spec); ref != nil {
-		// A zero-size input still commits crhs to the SHA-256 of empty input. A different hash can
-		// never match, so refuse the task before accepting it.
-		if ref.Size == 0 && ref.SHA256 != emptyInputHash {
-			return reject("invalid_spec", "input size 0 requires the sha256 of empty input")
-		}
-		t.hasInput = true
-		t.inputSize = uint64(ref.Size)
-		if !forward {
-			// A forwarded task relays its input to the privileged mode, which does the
-			// accounting itself.
-			t.inputHash, t.hasher = ref.SHA256, sha256.New()
-		}
-		if !native && !forward {
-			q := executor.NewInput()
-			t.queue = q
-			if ref.Size == 0 {
-				q.Close()
-			}
-			in = q
-		}
-	}
-	runCtx, cancel := context.WithCancel(context.Background()) // tasks outlive connections
-	t.cancel, t.runCtx, t.in = cancel, runCtx, in
-	if native {
-		// The helper must accept the task before this agent does: a tool that cannot run (a password
-		// is required, no sudoers rule, a version mismatch) makes the task privileged_unsupported,
-		// never a fall back to unprivileged execution (doc/privilege.md "native").
-		n, err := a.startNative(ts)
-		if err != nil {
-			cancel()
-			return reject("privileged_unsupported", err.Error())
-		}
-		t.native = n
-	}
-	if forward {
-		// The daemon must refuse an unauthorized task before this agent accepts it: an accepted
-		// task is never retried (doc/protocol.md task.start).
-		fc, unknown, err := a.startForwardTask(ctx, ts)
-		if err != nil {
-			cancel()
-			var remote *protocol.RemoteError
-			if errors.As(err, &remote) {
-				return nil, remote
-			}
-			return nil, err
-		}
-		t.fwd, t.fwdUnknown = fc, unknown
-	}
-	a.mu.Lock()
-	a.acceptLocked(t.id)
-	a.tasks[t.id] = t
-	a.mu.Unlock()
-	if forward {
-		a.attachForward(t)
-	}
-	// The peer may have been closed while this request was handled, and the sweep after the session
-	// ends may already have run without seeing this task: the response cannot be sent any more
-	// (Close sets the peer closed before it cancels its context), so start the task here. While the
-	// peer is still live, either the response is sent and After starts the task, or the send fails
-	// and the session's sweep starts it.
-	if ctx.Err() != nil {
-		a.launch(t)
-		// The peer is closed, so no task.input can follow on this connection: a task whose input
-		// never completed cannot run to completion and would wait for a reader forever.
-		a.mu.Lock()
-		a.abortIncompleteInputLocked(t)
-		a.mu.Unlock()
-	}
-	return protocol.Deferred{Body: protocol.Empty{}, After: func() { a.launch(t) }}, nil
-}
-
 // mode returns the configured privileged mode. An empty mode behaves like reject, which is also
 // the configuration default (doc/privilege.md 非特权模式如何处理特权任务).
 func (a *Agent) mode() string {
@@ -770,396 +564,12 @@ func (a *Agent) checkClock(conn *transport.Conn) {
 	}
 }
 
-// launch starts a task's forwarding and execution goroutines exactly once. Deferred.After calls it
-// when the success response was sent; the session-end sweep and start's closed-peer check call it
-// when it was not. Those callers can race, so started is checked and set under a.mu and only the
-// winner starts the goroutines: a double start would run the task twice.
-func (a *Agent) launch(t *task) {
-	a.mu.Lock()
-	if t.started {
-		a.mu.Unlock()
-		return
-	}
-	t.started = true
-	native := t.native
-	a.mu.Unlock()
-	go a.forward(t)
-	if native != nil {
-		go a.nativeRun(t)
-		go a.nativeForward(t)
-		return
-	}
-	if t.fwd != nil {
-		// A forwarded task is executed by the privileged mode; its events arrive on the daemon
-		// connection and are routed to the handlers attached by start. The connection can have
-		// ended between its accepted response and this launch, or the response may have timed
-		// out, in which case crha can no longer learn the outcome (the daemon keeps the task
-		// running).
-		if t.fwdUnknown || !a.forwardAlive(t.fwd) {
-			a.finishRelayed(t, helperLostExit(t.id, forwardLostMessage))
-		}
-		return
-	}
-	go a.execute(t.runCtx, t, t.in)
-}
-
-// launchUnstarted starts accepted tasks that no success response started, because the response
-// frame could not be sent and Peer therefore never called Deferred.After. A session calls it after
-// closing its peer; an already started task is skipped, and one racing its After is protected by
-// launch.
-func (a *Agent) launchUnstarted() {
-	a.mu.Lock()
-	pending := make([]*task, 0, len(a.tasks))
-	for _, t := range a.tasks {
-		if !t.started {
-			pending = append(pending, t)
-		}
-	}
-	a.mu.Unlock()
-	for _, t := range pending {
-		a.launch(t)
-	}
-}
-
-// acceptLocked records a task id in the accepted set, evicting the oldest ids beyond
-// maxAcceptedTasks. An id whose task is still held is never evicted: a duplicate task.start for it
-// must still be refused, and dropping it would let the duplicate overwrite the running task in
-// a.tasks. Such an id is moved to the back of the queue and reconsidered once its task is gone, so
-// the set can temporarily stay above the bound while tasks run. a.mu must be held.
-func (a *Agent) acceptLocked(id string) {
-	a.accepted[id] = struct{}{}
-	a.acceptedOrder = append(a.acceptedOrder, id)
-	// The scan is bounded by the length of the queue: if every id names a held task, none can be
-	// evicted and the set simply stays above its bound until tasks finish.
-	for budget := len(a.acceptedOrder); len(a.acceptedOrder) > maxAcceptedTasks && budget > 0; budget-- {
-		oldest := a.acceptedOrder[0]
-		a.acceptedOrder = a.acceptedOrder[1:]
-		if _, live := a.tasks[oldest]; live {
-			a.acceptedOrder = append(a.acceptedOrder, oldest)
-			continue
-		}
-		delete(a.accepted, oldest)
-	}
-}
-
-// checkTaskKind rejects a task whose kind this agent does not implement. A decoded TaskSpec always
-// has a body for its kind; the nil checks guard programmatic input.
-func checkTaskKind(spec protocol.TaskSpec) *protocol.RemoteError {
-	invalid := &protocol.RemoteError{Code: "invalid_spec", Message: "task spec has no body"}
-	switch spec.Kind {
-	case protocol.TaskSpecExec:
-		if spec.Exec == nil {
-			return invalid
-		}
-	case protocol.TaskSpecFileRead:
-		if spec.FileRead == nil {
-			return invalid
-		}
-	case protocol.TaskSpecFileWrite:
-		if spec.FileWrite == nil {
-			return invalid
-		}
-	case protocol.TaskSpecFileEdit:
-		if spec.FileEdit == nil {
-			return invalid
-		}
-	case protocol.TaskSpecFileStat:
-		if spec.FileStat == nil {
-			return invalid
-		}
-	case protocol.TaskSpecFileList:
-		if spec.FileList == nil {
-			return invalid
-		}
-	default:
-		// Cannot happen after decoding; keep the guard for a future kind this build does not know.
-		return &protocol.RemoteError{Code: "unsupported_kind", Message: fmt.Sprintf("unsupported task kind %q", spec.Kind)}
-	}
-	return nil
-}
-
-// outputOptions returns the executor output configuration for a TaskStart. "full" carries its spill
-// thresholds on the wire; batch "text" and "status" tasks always write the full output to the node
-// file, so task.exit carries its path even when the output is empty. See
-// doc/execution-plane.md#输出.
-func outputOptions(mode protocol.OutputMode) executor.OutputOptions {
-	switch mode.Kind {
-	case protocol.OutputFull:
-		return executor.OutputOptions{SpillBytes: uint64(mode.SpillBytes), SpillLines: uint64(mode.SpillLines)}
-	case protocol.OutputText, protocol.OutputStatus:
-		return executor.OutputOptions{
-			SpillBytes:  defaultSpillBytes,
-			SpillLines:  defaultSpillLines,
-			AlwaysSpill: true,
-		}
-	default:
-		return executor.OutputOptions{}
-	}
-}
-
-func inputRef(spec *protocol.TaskSpec) *protocol.InputRef {
-	switch spec.Kind {
-	case protocol.TaskSpecExec:
-		if spec.Exec != nil {
-			return spec.Exec.Stdin
-		}
-	case protocol.TaskSpecFileWrite:
-		if spec.FileWrite != nil {
-			return &spec.FileWrite.Content
-		}
-	}
-	return nil
-}
-
-func (a *Agent) handleTaskInput(ctx context.Context, body cbor.RawMessage) (any, error) {
-	var in protocol.TaskInput
-	if err := protocol.Unmarshal(body, &in); err != nil {
-		return nil, err
-	}
-	return a.input(ctx, &in)
-}
-
-// input queues a TaskInput chunk. Chunks arrive in order on one connection; a reconnect mid-input
-// cannot be resumed (crhs sends the start once), so the session-end sweep fails the input and the
-// task. A chunk that overflows or completes the input with the wrong hash fails the task too, since
-// a process that already read the truncated input may otherwise exit successfully.
-func (a *Agent) input(ctx context.Context, in *protocol.TaskInput) (any, error) {
-	tooLarge := func(size uint64) (any, error) {
-		return nil, &protocol.RemoteError{
-			Code:    "input_too_large",
-			Message: fmt.Sprintf("task %s input exceeds the declared %d bytes", in.TaskID, size),
-		}
-	}
-	a.mu.Lock()
-	t := a.tasks[in.TaskID]
-	if t == nil {
-		a.mu.Unlock()
-		return nil, &protocol.RemoteError{Code: "unknown_task", Message: "unknown task " + in.TaskID}
-	}
-	if t.fwd != nil {
-		// The privileged mode owns the input accounting of a forwarded task: relay the chunk and
-		// its response unchanged. Only how much arrived is tracked here, so a session that ends
-		// mid-input can cancel a task that could never read the rest.
-		a.mu.Unlock()
-		return a.forwardInput(ctx, t, in)
-	}
-	defer a.mu.Unlock()
-	if uint64(in.Offset) != t.inputOff {
-		return nil, &protocol.RemoteError{
-			Code:    "input_out_of_order",
-			Message: fmt.Sprintf("task %s input offset %d, want %d", in.TaskID, in.Offset, t.inputOff),
-		}
-	}
-	if !t.hasInput || t.inputOff >= t.inputSize {
-		// The task declared no input, or it is already complete: only an empty chunk is harmless.
-		if len(in.Data) == 0 {
-			return protocol.Empty{}, nil
-		}
-		return tooLarge(t.inputSize)
-	}
-	if t.inputOff+uint64(len(in.Data)) > t.inputSize {
-		t.inputOff += uint64(len(in.Data))
-		a.failInputLocked(t, "input_mismatch",
-			fmt.Sprintf("task %s input is longer than the declared %d bytes", in.TaskID, t.inputSize))
-		return tooLarge(t.inputSize)
-	}
-	t.inputOff += uint64(len(in.Data))
-	_, _ = t.hasher.Write(in.Data)
-	if t.inputOff == t.inputSize && !bytes.Equal(t.hasher.Sum(nil), t.inputHash[:]) {
-		a.failInputLocked(t, "input_mismatch",
-			fmt.Sprintf("task %s input does not match the declared sha256", in.TaskID))
-		return protocol.Empty{}, nil
-	}
-	if t.native != nil {
-		t.native.inputs.push(in)
-	} else {
-		t.queue.Push(in.Data)
-		if t.inputOff >= t.inputSize {
-			t.queue.Close()
-		}
-	}
-	return protocol.Empty{}, nil
-}
-
-// failInputLocked records why a task's input failed, aborts its queue so a blocked reader returns,
-// and cancels the task so a running process is killed. The first input error wins. a native task is
-// cancelled through the helper (task.cancel) instead: the helper owns the process. a.mu must be
-// held.
-func (a *Agent) failInputLocked(t *task, code, message string) {
-	if t.inputErr == nil {
-		t.inputErr = &protocol.Error{Code: code, Message: message}
-	}
-	if t.queue != nil {
-		t.queue.Fail(errors.New(message))
-	}
-	if t.native != nil {
-		t.native.inputs.pushCancel()
-		return
-	}
-	if t.fwd != nil {
-		// The daemon owns the process; cancelling it also unblocks the reader waiting for the
-		// rest of the input. Its task.exit ends the task here.
-		go a.cancelForwardTask(t.id)
-		return
-	}
-	t.cancel()
-}
-
-// abortIncompleteInputs fails every task whose input never completed. A connection that ends before
-// all task.input chunks arrived cannot resume the input, so those tasks fail with input_incomplete;
-// the queue failure and the cancel also unblock a reader the executor left waiting. A session calls
-// it once its peer is closed, after launching accepted tasks that never started.
-func (a *Agent) abortIncompleteInputs() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	for _, t := range a.tasks {
-		a.abortIncompleteInputLocked(t)
-	}
-}
-
-// abortIncompleteInputLocked aborts the input of one task if it declared one that never completed
-// and the task is still running. a.mu must be held.
-func (a *Agent) abortIncompleteInputLocked(t *task) {
-	if t.done || t.inputComplete() {
-		return
-	}
-	a.failInputLocked(t, "input_incomplete", "connection closed before the task input was complete")
-}
-
-// inputComplete reports whether every declared input byte arrived, or the task has no input at all.
-func (t *task) inputComplete() bool {
-	if !t.hasInput {
-		return true
-	}
-	if t.queue != nil {
-		return t.queue.Complete()
-	}
-	return t.inputOff >= t.inputSize
-}
-
-func (a *Agent) handleTaskCancel(ctx context.Context, body cbor.RawMessage) (any, error) {
-	var c protocol.TaskCancel
-	if err := protocol.Unmarshal(body, &c); err != nil {
-		return nil, err
-	}
-	a.mu.Lock()
-	t := a.tasks[c.TaskID]
-	running := t != nil && !t.done
-	native := running && t.native != nil
-	forward := running && t.fwd != nil
-	if running && !native && !forward {
-		t.cancel()
-		if t.queue != nil {
-			// A file.write blocked in its input read only notices the cancellation through the
-			// reader, and the read error must not mask it: cancel first, then wake the reader.
-			t.queue.Fail(errors.New("task cancelled"))
-		}
-	}
-	a.mu.Unlock()
-
-	switch {
-	case native:
-		// The helper owns the process and turns task.cancel into a signal inside itself; the
-		// agent never signals it (doc/privilege.md, native). The request is queued so it follows
-		// the input chunks already forwarded.
-		t.native.inputs.pushCancel()
-	case forward:
-		// The daemon owns the process; cancel it there. task.cancel never fails on an unknown or
-		// finished task, and an unreachable daemon ends the task as helper_lost anyway.
-		if err := a.relayForward(ctx, protocol.CmdTaskCancel, c, nil); err != nil {
-			a.log.Debug("cancel a forwarded task", "task", c.TaskID, "err", err)
-		}
-	}
-	return protocol.Empty{}, nil
-}
-
-func (a *Agent) handleTaskQuery(ctx context.Context, body cbor.RawMessage) (any, error) {
-	var q protocol.TaskQuery
-	if err := protocol.Unmarshal(body, &q); err != nil {
-		return nil, err
-	}
-	a.mu.Lock()
-	t := a.tasks[q.TaskID]
-	a.mu.Unlock()
-	if t != nil && t.fwd != nil {
-		// The daemon knows the state and the output ends of a forwarded task even when its
-		// connection was lost here; answer from it when it can be reached.
-		var status protocol.TaskStatus
-		if err := a.relayForward(ctx, protocol.CmdTaskQuery, q, &status); err == nil {
-			return status, nil
-		}
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if t != nil {
-		return t.status(), nil
-	}
-	return protocol.TaskStatus{TaskID: q.TaskID, State: protocol.TaskUnknown}, nil
-}
-
-// handleOutputAck accepts and ignores an output acknowledgement; crhs may not send it yet.
-func (a *Agent) handleOutputAck(body cbor.RawMessage) error {
-	var ack protocol.OutputAck
-	return protocol.Unmarshal(body, &ack)
-}
-
-func (a *Agent) handleTaskExitAck(body cbor.RawMessage) error {
-	var ack protocol.TaskExitAck
-	if err := protocol.Unmarshal(body, &ack); err != nil {
-		return err
-	}
-	a.mu.Lock()
-	if t := a.tasks[ack.TaskID]; t != nil && t.done {
-		t.output.Release()
-		delete(a.tasks, t.id)
-	}
-	// The id stays in the accepted set: a duplicate task.start is still refused.
-	a.mu.Unlock()
-	a.relay.discard(ack.TaskID)
-	return nil
-}
-
 // forward turns output notifications into pump wake-ups. execute closes the output when the
 // task ends, which closes the notification channel and ends the range.
 func (a *Agent) forward(t *task) {
 	for range t.output.Notify() {
 		a.wake()
 	}
-}
-
-func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
-	exit := &protocol.TaskExit{TaskID: t.id}
-	res := executor.RunTask(ctx, &t.spec.Spec, in, t.output, executor.TaskOptions{
-		Timeout:   time.Duration(t.spec.TimeoutMS) * time.Millisecond,
-		KillGrace: time.Duration(t.spec.KillGraceMS) * time.Millisecond,
-		Env:       a.opts.Env,
-	})
-	exit.TimedOut, exit.Cancelled, exit.Outcome = res.TimedOut, res.Cancelled, res.Outcome()
-	exit.Result = res.TaskResult
-	if q, ok := in.(*executor.Input); ok {
-		q.Discard() // unblocks a reader the executor left behind
-	}
-	t.output.Close()
-	exit.StdoutEnd = protocol.Uint(t.output.End(protocol.StreamStdout))
-	exit.StderrEnd = protocol.Uint(t.output.End(protocol.StreamStderr))
-	exit.OutputFile = protocol.CleanText(t.output.Path())
-
-	a.mu.Lock()
-	if t.inputErr != nil {
-		// The input, not the process, decided this task: a process may have consumed a truncated
-		// stdin and exited successfully, or a file.write may report the cancellation that only
-		// accompanied the input failure.
-		exit.Outcome = protocol.Outcome{
-			Kind:  protocol.OutcomeError,
-			Error: &protocol.Error{Code: t.inputErr.Code, Message: protocol.ErrorMessage(t.inputErr.Message)},
-		}
-		exit.Cancelled = false
-		// The input decided this task: a result the executor produced would contradict the failure.
-		exit.Result = nil
-	}
-	t.done, t.result = true, exit
-	a.mu.Unlock()
-	a.wake()
 }
 
 // OutputFilesInUse lists the spill files of tasks still held (running, or exit not yet acknowledged),

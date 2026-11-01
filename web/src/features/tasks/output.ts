@@ -9,12 +9,6 @@ export function isTerminal(state: string): boolean {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-export interface JoinedOutput {
-	text: string;
-	/** Bytes dropped between head and tail; 0 when nothing is missing. */
-	omitted: number;
-}
-
 /**
  * Combines the stored head and tail of an output stream. `omitted > 0` means a
  * gap sits between them; the caller renders the marker. Overlapping head and

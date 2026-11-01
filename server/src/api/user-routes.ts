@@ -11,15 +11,7 @@ import {
 	listUserGroups,
 	removeGroupMember,
 } from "../users/groups.ts";
-import {
-	createUser,
-	listUsers,
-	NotFoundError,
-	setPassword,
-	toPublicUser,
-	UserError,
-	updateUser,
-} from "../users/service.ts";
+import { createUser, listUsers, setPassword, toPublicUser, updateUser } from "../users/service.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
 import { requireAdmin } from "./middleware.ts";
 
@@ -34,12 +26,6 @@ export interface UserRoutesOptions {
 /** Expects requireUser to have run. */
 export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 	const app = new Hono<AppEnv>();
-
-	app.onError((err, c) => {
-		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
-		if (err instanceof UserError) return jsonError(c, 400, err.message);
-		throw err;
-	});
 
 	app.get("/me", async (c) => {
 		const row = await db.selectFrom("users").selectAll().where("id", "=", c.get("user").userId).executeTakeFirst();

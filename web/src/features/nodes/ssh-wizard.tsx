@@ -132,7 +132,6 @@ function CredentialStep({
 								onChange(credential.id);
 								onReadyChange(true);
 							},
-							onError: (error) => toast.error(error.message),
 						});
 					}}
 				>
@@ -357,7 +356,6 @@ function HostKeyStep({
 							{ ...hopBodies(hops), credentialId },
 							{
 								onSuccess: (result) => setCandidate(result),
-								onError: (error) => toast.error(error.message),
 							},
 						);
 					}}
@@ -450,7 +448,6 @@ function WizardCreate({
 							toast.success(t`Node created.`);
 							onCreated(node);
 						},
-						onError: (error) => toast.error(error.message),
 					},
 				);
 			}}

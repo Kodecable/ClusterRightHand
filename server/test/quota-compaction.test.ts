@@ -13,6 +13,7 @@ import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser } from "../src/users/service.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { waitSubmission } from "./helpers/runtime.ts";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
@@ -66,7 +67,7 @@ it("charges compaction's summary and pauses the next tool call when it empties t
 	try {
 		faux.setResponses([fauxAssistantMessage([fauxText("hi")])]);
 		const first = await runtime.submit(session.id, owner, "first message", "compaction-1");
-		expect((await runtime.waitSubmission(session.id, first)).status).toBe("done");
+		expect((await waitSubmission(runtime, session.id, first)).status).toBe("done");
 		expect(await spentTokens(db, session.id)).toBe(1);
 
 		// The system prompt already exceeds the tiny window, so the next run compacts the history before its request.
@@ -88,7 +89,7 @@ it("charges compaction's summary and pauses the next tool call when it empties t
 		expect(await exhaustedLevel(db, session.id)).toBe(session.id);
 
 		expect(await runtime.decideRootQuota(session.id, "approve", 1_000)).toContain(session.id);
-		expect(await runtime.waitSubmission(session.id, second)).toEqual({ status: "done", answer: "after the grant" });
+		expect(await waitSubmission(runtime, session.id, second)).toEqual({ status: "done", answer: "after the grant" });
 		expect(faux.getPendingResponseCount()).toBe(0);
 	} finally {
 		stop();

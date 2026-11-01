@@ -4,7 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ApiTokenView } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
-import { CreateTokenDialog, TokensPage } from "./pages";
+import { CreateTokenDialog } from "./create-token-dialog";
+import { TokensPage } from "./pages";
 
 const TOKEN = "crh_secret_once";
 const API_TOKEN: ApiTokenView = {

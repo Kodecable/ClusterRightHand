@@ -16,6 +16,7 @@ import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
 import { type DbProbe, probeDb, tableOf } from "./helpers/db-probe.ts";
+import { waitSubmission } from "./helpers/runtime.ts";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
@@ -202,7 +203,7 @@ it("a run that ends without its task ends the task's signature wait", async () =
 	// The tool call is gone (aborted by durable, abandoned after restarts) but its task still waits.
 	const signature = await waitingTask({ type: "session", id: session.id }, "awaiting_authorization");
 	release();
-	await runtime.waitSubmission(session.id, submission);
+	await waitSubmission(runtime, session.id, submission);
 	await waitFor("the wait ended", async () => ((await taskRow(signature)).state === "rejected" ? true : undefined));
 	expect(await taskRow(signature)).toMatchObject({ cancelled: 1, error_message: "the session's run ended" });
 	expect(await sessionStateOf(db, session.id)).toBe("idle");

@@ -259,6 +259,8 @@ export function useCreateSession() {
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
 		},
+		// The new-session dialog keeps the failure on its own error line.
+		meta: { toast: false },
 	});
 }
 

@@ -1,7 +1,7 @@
 import { type Kysely, type SqlBool, sql } from "kysely";
 
 /**
- * Indexes for the startup reconciliation's two candidate queries (runtime.ts `#reconcileSessionStates`,
+ * Indexes for the startup reconciliation's two candidate queries (agent/runtime-state.ts `reconcileSessionStates`,
  * doc/agent-runtime.md#会话状态):
  * - candidate 1 selects every session whose row is not `idle`: a partial index on the non-idle rows keeps
  *   that lookup proportional to the sessions that claim a live run or a wait, not to the whole (mostly idle)

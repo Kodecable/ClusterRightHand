@@ -162,10 +162,7 @@ func (a *Agent) finishRelayed(t *task, exit *protocol.TaskExit) {
 		t.done, t.result = true, exit
 		a.mu.Unlock()
 
-		if t.native != nil {
-			t.native.inputs.close()
-			t.native.signalDone()
-		}
+		t.run.finished(t)
 		a.wake()
 	})
 }

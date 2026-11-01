@@ -5,9 +5,9 @@ import { nodeAccess, visibleNodeIds } from "../cluster/nodes.ts";
 import { resolveTargets, type TaskGroups } from "../cluster/task-groups.ts";
 import type { Db } from "../storage/db.ts";
 import type { TaskState } from "../storage/schema.ts";
-import { UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { type CursorSpec, cursorRows, decodeCursor, descendingKeyset, encodeCursor, parseLimit } from "./cursor.ts";
+import { BadRequest } from "./errors.ts";
 
 const MAX_WAIT_MS = 10 * 60 * 1000;
 /** Lines a file.read reads when the request names none: pi's read default (doc/agent-runtime.md#默认值). */
@@ -30,16 +30,9 @@ const TASK_STATES: ReadonlySet<string> = new Set<TaskState>([
 /** The stored actor types of doc/access-control.md#操作者. */
 const ACTOR_TYPES: ReadonlySet<string> = new Set(["user", "session", "subagent", "schedule", "api_token", "system"]);
 
-class BadRequest extends Error {}
-
 /** Expects requireUser to have run. Policy and approval come with the authorization rules (M2). */
 export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 	const app = new Hono<AppEnv>();
-
-	app.onError((err, c) => {
-		if (err instanceof BadRequest || err instanceof UserError) return jsonError(c, 400, err.message);
-		throw err;
-	});
 
 	app.post("/nodes/:id/tasks", async (c) => {
 		const user = c.get("user");

@@ -4,17 +4,20 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"io/fs"
 	"os"
 	"sort"
 	"strings"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
 var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
 
-func fileEdit(s *protocol.FileEditSpec) (*protocol.TaskResult, error) {
+// fileEdit executes a file.edit task: it opens the file as the mode permits, applies every edit to
+// the original content at once, and publishes the result with the file's own mode and owner.
+func fileEdit(acc fileAccess, s *protocol.FileEditSpec) (*protocol.TaskResult, error) {
 	path := s.Path
 	if err := checkPath(path); err != nil {
 		return nil, err
@@ -22,13 +25,12 @@ func fileEdit(s *protocol.FileEditSpec) (*protocol.TaskResult, error) {
 	if len(s.Edits) == 0 {
 		return nil, errf("invalid_spec", "edits must not be empty")
 	}
-	// A link is a name for its target: edit the target and keep the link, instead of replacing the
-	// link with a regular file (file.go resolveWriteTarget).
-	target, _, err := resolveWriteTarget(path)
+	t, err := acc.openWrite(path, true)
 	if err != nil {
 		return nil, err
 	}
-	f, err := openReadPath(target)
+	defer t.dir.Close()
+	f, err := acc.openExisting(t)
 	if err != nil {
 		return nil, err
 	}
@@ -73,14 +75,15 @@ func fileEdit(s *protocol.FileEditSpec) (*protocol.TaskResult, error) {
 		out = strings.ReplaceAll(out, "\n", "\r\n")
 	}
 
-	tmp, err := createTemp(target)
+	tmpName, tmp, err := createTempAt(t.dir, t.name)
 	if err != nil {
 		return nil, err
 	}
 	ok := false
 	defer func() {
 		if !ok {
-			tmp.discard()
+			tmp.Close()
+			_ = unix.Unlinkat(int(t.dir.Fd()), tmpName, 0)
 		}
 	}()
 	if _, err := tmp.Write(append(bom[:len(bom):len(bom)], out...)); err != nil {
@@ -90,10 +93,10 @@ func fileEdit(s *protocol.FileEditSpec) (*protocol.TaskResult, error) {
 	if err := tmp.Chown(uid, gid); err != nil && !errors.Is(err, os.ErrPermission) {
 		return nil, err
 	}
-	if err := tmp.Chmod(fi.Mode() & (fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)); err != nil {
+	if err := tmp.Chmod(editMode(statMode(fi))); err != nil {
 		return nil, err
 	}
-	if err := tmp.publish(target, false); err != nil {
+	if err := publishAt(t.dir, tmpName, tmp, t.name, path, false); err != nil {
 		return nil, err
 	}
 	ok = true

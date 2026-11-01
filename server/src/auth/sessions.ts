@@ -1,6 +1,7 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type { Db } from "../storage/db.ts";
 import { newId } from "../util/id.ts";
+import { hashToken } from "./token-hash.ts";
 
 export const SESSION_COOKIE = "crh_session";
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -12,10 +13,6 @@ export interface SessionUser {
 	userId: string;
 	username: string;
 	kind: "admin" | "member";
-}
-
-function hashToken(token: string): string {
-	return createHash("sha256").update(token).digest("hex");
 }
 
 export async function createWebSession(

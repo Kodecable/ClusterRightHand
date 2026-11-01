@@ -153,7 +153,7 @@ func (h *helper) accepted() bool {
 
 func (h *helper) handleStart(_ context.Context, body cbor.RawMessage) (any, error) {
 	var ts protocol.TaskStart
-	if err := protocol.Unmarshal(body, &ts); err != nil {
+	if err := protocol.UnmarshalBody(body, &ts); err != nil {
 		return nil, err
 	}
 	h.mu.Lock()
@@ -208,7 +208,7 @@ func (h *helper) launchAccepted() {
 
 func (h *helper) handleInput(_ context.Context, body cbor.RawMessage) (any, error) {
 	var in protocol.TaskInput
-	if err := protocol.Unmarshal(body, &in); err != nil {
+	if err := protocol.UnmarshalBody(body, &in); err != nil {
 		return nil, err
 	}
 	h.mu.Lock()
@@ -222,7 +222,7 @@ func (h *helper) handleInput(_ context.Context, body cbor.RawMessage) (any, erro
 
 func (h *helper) handleCancel(_ context.Context, body cbor.RawMessage) (any, error) {
 	var c protocol.TaskCancel
-	if err := protocol.Unmarshal(body, &c); err != nil {
+	if err := protocol.UnmarshalBody(body, &c); err != nil {
 		return nil, err
 	}
 	h.mu.Lock()
@@ -236,7 +236,7 @@ func (h *helper) handleCancel(_ context.Context, body cbor.RawMessage) (any, err
 
 func (h *helper) handleQuery(_ context.Context, body cbor.RawMessage) (any, error) {
 	var q protocol.TaskQuery
-	if err := protocol.Unmarshal(body, &q); err != nil {
+	if err := protocol.UnmarshalBody(body, &q); err != nil {
 		return nil, err
 	}
 	h.mu.Lock()

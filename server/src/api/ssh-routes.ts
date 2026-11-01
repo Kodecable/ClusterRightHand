@@ -1,7 +1,7 @@
 import { type Context, Hono } from "hono";
 import { userActor } from "../audit/audit.ts";
 import { getNode, nodeAccess, nodeGroupNames, toPublicNode } from "../cluster/nodes.ts";
-import { probeHostKey, SshError, testRoute } from "../cluster/ssh/connection.ts";
+import { probeHostKey, testRoute } from "../cluster/ssh/connection.ts";
 import {
 	createSshCredential,
 	createSshNode,
@@ -13,7 +13,6 @@ import {
 } from "../cluster/ssh/nodes.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 
 /**
@@ -22,13 +21,6 @@ import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
  */
 export function sshRoutes(db: Db, masterKey: MasterKey) {
 	const app = new Hono<AppEnv>();
-
-	app.onError((err, c) => {
-		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
-		if (err instanceof UserError) return jsonError(c, 400, err.message);
-		if (err instanceof SshError) return c.json({ error: err.message, code: err.code }, 502);
-		throw err;
-	});
 
 	app.get("/ssh-credentials", async (c) => c.json({ credentials: await listSshCredentials(db, c.get("user")) }));
 

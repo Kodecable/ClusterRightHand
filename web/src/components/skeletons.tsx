@@ -30,29 +30,6 @@ export function ListSkeleton({ rows = 6, className }: { rows?: number; className
 	);
 }
 
-export function TableSkeleton({
-	rows = 8,
-	columns = 4,
-	className,
-}: {
-	rows?: number;
-	columns?: number;
-	className?: string;
-}) {
-	return (
-		<div data-slot="table-skeleton" className={cn("space-y-2", className)} aria-busy="true">
-			<Skeleton className="h-8 w-full" />
-			{Array.from({ length: rows }, (_, rowIndex) => (
-				<div key={rowIndex} className="flex gap-2">
-					{Array.from({ length: columns }, (_, columnIndex) => (
-						<Skeleton key={columnIndex} className="h-9 flex-1" />
-					))}
-				</div>
-			))}
-		</div>
-	);
-}
-
 export function CardSkeleton({ className }: { className?: string }) {
 	return (
 		<div data-slot="card-skeleton" className={cn("space-y-2 rounded-lg border p-4", className)} aria-busy="true">

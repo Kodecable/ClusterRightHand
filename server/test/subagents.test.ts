@@ -15,6 +15,7 @@ import { backfillHandlers } from "../src/storage/migrations/0018_approval_handle
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { toolNames, waitSubmission } from "./helpers/runtime.ts";
 
 /** Background subagents and the parent agent's handling of their approvals (doc/agent-runtime.md#subagent). */
 let db: Db;
@@ -24,6 +25,7 @@ let runtime: AgentRuntime;
 let owner: SessionUser;
 let nodeId = "";
 const faux = fauxProvider();
+const storage = new MemoryStorage();
 const model = () => ({ provider: faux.provider.id, modelId: faux.getModel().id });
 
 beforeAll(async () => {
@@ -35,7 +37,7 @@ beforeAll(async () => {
 	await models.reload();
 	runtime = await AgentRuntime.open({
 		db,
-		storage: new MemoryStorage(),
+		storage,
 		models,
 		cluster,
 		groups: new TaskGroups(db, cluster, { audit }),
@@ -172,7 +174,7 @@ it("a user message to an idle subagent runs and ends idle again", async () => {
 
 	faux.setResponses([fauxAssistantMessage([fauxText("second answer")])]);
 	const second = await runtime.submit(child.id, owner, "two", "user-message-2");
-	expect(await runtime.waitSubmission(child.id, second)).toEqual({ status: "done", answer: "second answer" });
+	expect(await waitSubmission(runtime, child.id, second)).toEqual({ status: "done", answer: "second answer" });
 	await waitFor("idle after the second input", async () =>
 		(await sessionStateOf(db, child.id)) === "idle" ? true : undefined,
 	);
@@ -187,11 +189,11 @@ it("a user message to an idle subagent runs and ends idle again", async () => {
 it("removes the subagent tool at the depth limit", async () => {
 	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
 	const first = await subagent(root.id, "depth-tool-1", { default: "inherit", rules: [] });
-	expect(await runtime.toolNames(first.id)).toContain("subagent");
+	expect(await toolNames(storage, db, first.id)).toContain("subagent");
 	const second = await subagent(first.id, "depth-tool-2", { default: "inherit", rules: [] });
-	expect(await runtime.toolNames(second.id)).not.toContain("subagent");
+	expect(await toolNames(storage, db, second.id)).not.toContain("subagent");
 	await expect(subagent(second.id, "depth-tool-3", { default: "inherit", rules: [] })).rejects.toThrow(/at most 2/);
-	expect(await runtime.toolNames(second.id)).not.toContain("subagent");
+	expect(await toolNames(storage, db, second.id)).not.toContain("subagent");
 });
 
 it("reuses the subagent conversation after a crash before the session row", async () => {

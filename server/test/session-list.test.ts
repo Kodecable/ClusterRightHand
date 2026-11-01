@@ -26,6 +26,7 @@ import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { waitSubmission } from "./helpers/runtime.ts";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
@@ -541,7 +542,7 @@ describe("GET /api/sessions", () => {
 		const submitted = await updatedAt();
 		expect(Date.parse(submitted)).toBeGreaterThan(Date.parse(titled));
 		const { submissionId } = (await sent.json()) as { submissionId: string };
-		await runtime.waitSubmission(sessionId, submissionId);
+		await waitSubmission(runtime, sessionId, submissionId);
 		// The assistant message moves it at run end, not on every streamed token.
 		const ended = await waitFor<string>("the run end to be recorded", async () => {
 			const value = await updatedAt();

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http, queryString } from "@/lib/api/client";
 import { useCursorInfiniteQuery } from "@/lib/api/query";
-import type { CursorPage, CursorQuery, Operation, TaskGroupView, TaskRequest, TaskView } from "@/lib/api/types";
+import type { CursorPage, CursorQuery, TaskGroupView, TaskRequest, TaskView } from "@/lib/api/types";
 import { isTerminal } from "./output";
 
 /**
@@ -81,6 +81,8 @@ export function useCreateTask(nodeId: string) {
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: taskKeys.all });
 		},
+		// The run panel shows the failure above its Run button.
+		meta: { toast: false },
 	});
 }
 
@@ -90,25 +92,6 @@ export function useCancelTask(id: string) {
 		mutationFn: () => http.post<{ cancelled: boolean }>(`/tasks/${enc(id)}/cancel`),
 		onSuccess: () => {
 			// The task's own view and every list that shows it (and its group).
-			void queryClient.invalidateQueries({ queryKey: taskKeys.all });
-		},
-	});
-}
-
-export interface CreateTaskGroupInput extends TaskRequest {
-	targets: string[];
-	parallel?: number;
-	failFast?: boolean;
-	/** Only an exec batch chooses; a file operation's group always keeps each node's head. */
-	outputMode?: "status" | "text" | "head";
-}
-
-export function useCreateTaskGroup() {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationFn: (body: CreateTaskGroupInput) =>
-			http.post<{ group: TaskGroupView }>("/task-groups", body).then((r) => r.group),
-		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: taskKeys.all });
 		},
 	});
@@ -135,9 +118,4 @@ export function useTaskGroup(id: string | undefined, pollRunning = false) {
 			return state !== undefined && GROUP_OPEN.has(state) ? WAIT_GAP_MS : false;
 		},
 	});
-}
-
-/** The operation a task reports, used to build an "always allow" rule. */
-export function taskOperation(task: TaskView | undefined): Operation | null {
-	return task?.operation ?? null;
 }

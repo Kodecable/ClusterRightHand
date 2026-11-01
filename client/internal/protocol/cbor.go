@@ -248,20 +248,31 @@ func Marshal(v any) ([]byte, error) {
 	return data, nil
 }
 
-// Unmarshal strictly decodes one protocol value into v. It applies the CBOR profile,
-// checks the schema while decoding, and finally re-encodes the decoded value and
+// Unmarshal strictly decodes one protocol value into v. It applies the CBOR profile, checks
+// the schema while decoding, and finally re-encodes the decoded value and
 // compares it byte-for-byte with data. Any failure is a *ProtocolError.
 func Unmarshal(data []byte, v any) error {
 	if _, err := decodeAny(data); err != nil {
 		return &ProtocolError{Err: fmt.Errorf("decode: %w", err)}
 	}
+	return UnmarshalBody(data, v)
+}
+
+// UnmarshalBody is the schema stage of Unmarshal: it decodes data into v, which must be a protocol
+// structure, and re-encodes it to compare with data byte for byte (except for the two profile maps,
+// see profileValue). It skips the CBOR profile stage, so its caller must already know that data is
+// one canonical CBOR value: a body the Peer took from a frame DecodeFrame validated, or one this
+// package just encoded with Marshal. That is the body a request or event handler receives, and it is
+// where most of the work of a large frame is saved; a body that does not match the schema is
+// reported exactly as Unmarshal reports it.
+func UnmarshalBody(data []byte, v any) error {
 	if err := decMode.Unmarshal(data, v); err != nil {
 		return &ProtocolError{Err: fmt.Errorf("decode: %w", err)}
 	}
 	if _, ok := v.(profileValue); ok {
-		// decodeAny above already compared the generic CBOR value byte for byte. Facts keeps keys
-		// this implementation does not know in that value but not in the struct, so re-encoding the
-		// struct would differ from data (doc/protocol.md, Facts).
+		// The callers above checked the bytes against the profile byte for byte. Facts keeps keys
+		// this implementation does not know in the generic value but not in the struct, so
+		// re-encoding the struct would differ from data (doc/protocol.md, Facts).
 		return nil
 	}
 	encoded, err := Marshal(v)
@@ -673,31 +684,6 @@ func (h *Hash) UnmarshalCBOR(data []byte) error {
 		return fmt.Errorf("protocol: sha256 digest is %d bytes, want %d", len(b), HashSize)
 	}
 	copy(h[:], b)
-	return nil
-}
-
-// marshalEnum encodes a validated enum text value.
-func marshalEnum[T ~string](kind string, v T, valid func(T) bool) ([]byte, error) {
-	if err := validateTextValue(string(v)); err != nil {
-		return nil, err
-	}
-	if !valid(v) {
-		return nil, fmt.Errorf("protocol: unknown %s %q", kind, string(v))
-	}
-	return encMode.Marshal(string(v))
-}
-
-// unmarshalEnum decodes an enum text value and rejects unknown values.
-func unmarshalEnum[T ~string](kind string, data []byte, dst *T, valid func(T) bool) error {
-	var s string
-	if err := decMode.Unmarshal(data, &s); err != nil {
-		return err
-	}
-	v := T(s)
-	if !valid(v) {
-		return fmt.Errorf("protocol: unknown %s %q", kind, s)
-	}
-	*dst = v
 	return nil
 }
 

@@ -16,6 +16,7 @@ import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { waitSubmission } from "./helpers/runtime.ts";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
@@ -149,7 +150,7 @@ describe("startup reconciliation", () => {
 		});
 		faux.setResponses([fauxAssistantMessage([fauxText("done")])]);
 		const submission = await first.submit(session.id, localOwner, "go", "reconcile-settled");
-		expect(await first.waitSubmission(session.id, submission)).toMatchObject({ status: "done" });
+		expect(await waitSubmission(first, session.id, submission)).toMatchObject({ status: "done" });
 		await waitFor("idle", async () => ((await localRow(session.id)).state === "idle" ? true : undefined));
 		// The process died after the run ended but before the state write: a stale `running` row.
 		await localDb.updateTable("sessions").set({ state: "running" }).where("id", "=", session.id).execute();
@@ -225,7 +226,7 @@ describe("startup reconciliation", () => {
 				async () => ((await localRow(session.id)).state === "idle" ? true : undefined),
 				10_000,
 			);
-			expect(await first.waitSubmission(session.id, submission)).toMatchObject({ status: "done" });
+			expect(await waitSubmission(first, session.id, submission)).toMatchObject({ status: "done" });
 		} finally {
 			await first.close();
 		}
@@ -280,7 +281,7 @@ describe("startup reconciliation", () => {
 					log.lines.some((line) => line.includes(session.id) && line.endsWith("awaiting/approval -> running")),
 				).toBe(true);
 				expect(await localRow(session.id)).toMatchObject({ state: "running", waiting_kind: null });
-				expect(await second.waitSubmission(session.id, submission)).toEqual({
+				expect(await waitSubmission(second, session.id, submission)).toEqual({
 					status: "done",
 					answer: "after the decision",
 				});
@@ -349,7 +350,7 @@ describe("startup reconciliation", () => {
 			try {
 				expect(log.lines.some((line) => line.includes(session.id) && line.endsWith("idle -> running"))).toBe(true);
 				expect(await localRow(session.id)).toMatchObject({ state: "running", waiting_kind: null });
-				expect(await second.waitSubmission(session.id, submission)).toMatchObject({ status: "done" });
+				expect(await waitSubmission(second, session.id, submission)).toMatchObject({ status: "done" });
 			} finally {
 				await second.close();
 			}
@@ -367,7 +368,7 @@ describe("startup reconciliation", () => {
 		});
 		faux.setResponses([fauxAssistantMessage([fauxText("done")])]);
 		const staleSubmission = await first.submit(stale.id, localOwner, "go", "reconcile-scale-stale");
-		expect(await first.waitSubmission(stale.id, staleSubmission)).toMatchObject({ status: "done" });
+		expect(await waitSubmission(first, stale.id, staleSubmission)).toMatchObject({ status: "done" });
 		await waitFor("idle", async () => ((await localRow(stale.id)).state === "idle" ? true : undefined));
 		// The process died before the settle write: the row still claims the run.
 		await localDb.updateTable("sessions").set({ state: "running" }).where("id", "=", stale.id).execute();
@@ -488,7 +489,7 @@ describe("startup reconciliation", () => {
 					by: { type: "user", id: localOwner.userId },
 					at: new Date().toISOString(),
 				});
-				expect(await runtime.waitSubmission(session.id, submission)).toMatchObject({ status: "done" });
+				expect(await waitSubmission(runtime, session.id, submission)).toMatchObject({ status: "done" });
 				await waitFor("idle after the rerun", async () =>
 					(await localRow(session.id)).state === "idle" ? true : undefined,
 				);

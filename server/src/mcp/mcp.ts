@@ -5,8 +5,8 @@ import { resolveApiToken, type TokenIdentity } from "../auth/api-tokens.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import type { Db } from "../storage/db.ts";
+import { callTool } from "../tools/adapter.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
 
 export interface McpOptions {
 	cluster: Cluster;
@@ -77,20 +77,12 @@ function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { origin: 
 				annotations: { readOnlyHint: tool.readOnly, openWorldHint: true },
 			},
 			async (args: unknown) => {
-				void options.audit?.record({
-					actor: { type: "api_token", id: id.tokenId, onBehalfOfUserId: id.user.userId },
-					action: "tool.call",
-					target: { type: "tool", id: tool.name },
-					detail: { via: "mcp" },
+				const outcome = await callTool(tool, args, ctx, {
+					via: "mcp",
+					...(options.audit ? { audit: options.audit } : {}),
 				});
-				try {
-					const result = await tool.handler(args as never, ctx);
-					return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-				} catch (err) {
-					// Expected failures go back to the model as tool errors; anything else is a server bug.
-					if (!(err instanceof UserError || err instanceof NotFoundError)) throw err;
-					return { content: [{ type: "text" as const, text: err.message }], isError: true };
-				}
+				if (!outcome.ok) return { content: [{ type: "text" as const, text: outcome.error }], isError: true };
+				return { content: [{ type: "text" as const, text: JSON.stringify(outcome.result, null, 2) }] };
 			},
 		);
 	}

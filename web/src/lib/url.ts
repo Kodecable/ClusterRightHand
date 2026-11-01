@@ -100,8 +100,6 @@ export function safeHashLink(url: string): string | undefined {
 	return hash;
 }
 
-export const ALLOWED_SCHEME_LIST: readonly string[] = [...ALLOWED_SCHEMES];
-
 /**
  * A server-generated WebUI path (the event stream's `approval_url` /
  * `authorization_url`, doc/webui.md "链接"). Only same-origin absolute paths

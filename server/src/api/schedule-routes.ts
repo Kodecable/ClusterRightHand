@@ -23,6 +23,7 @@ import {
 } from "../scheduler/store.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
+import { errorText } from "../util/errors.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
 import { type CursorSpec, cursorRows, decodeCursor, encodeCursor, parseLimit } from "./cursor.ts";
 
@@ -41,12 +42,6 @@ export interface ScheduleRoutesOptions {
 export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 	const app = new Hono<AppEnv>();
 
-	app.onError((err, c) => {
-		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
-		if (err instanceof UserError) return jsonError(c, 400, err.message);
-		throw err;
-	});
-
 	/** The schedule's API shape, including what the list and form show about it. */
 	async function view(schedule: Schedule) {
 		const rules = await scheduleRuleSet(db, schedule.id);
@@ -58,7 +53,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 		try {
 			preview = previewRuns(schedule.cron, schedule.timezone, options.scheduler.now(), PREVIEW_COUNT);
 		} catch (err) {
-			previewError = err instanceof Error ? err.message : String(err);
+			previewError = errorText(err);
 		}
 		return {
 			id: schedule.id,

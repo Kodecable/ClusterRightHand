@@ -12,12 +12,9 @@ import { decodedPayloadOf, pendingForGroup, pendingForTask } from "../cluster/pe
 import {
 	parseSubmittedAuthorization,
 	parseWebauthnSubmission,
-	SubmissionError,
 	type SubmittedAuthorization,
 } from "../privilege/submission.ts";
-import { WebauthnError } from "../privilege/webauthn.ts";
 import type { Db } from "../storage/db.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { type CursorSpec, cursorRows, decodeCursor, descendingKeyset, encodeCursor, parseLimit } from "./cursor.ts";
 
@@ -31,14 +28,6 @@ export interface AuthorizationRoutesOptions {
 /** Expects requireUser to have run. */
 export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions = {}) {
 	const app = new Hono<AppEnv>();
-
-	app.onError((err, c) => {
-		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
-		if (err instanceof SubmissionError || err instanceof UserError || err instanceof WebauthnError) {
-			return jsonError(c, 400, err.message);
-		}
-		throw err;
-	});
 
 	/**
 	 * Accepts `{ authorization: base64 }` (CBOR Authorization, e.g. `crha grant` output) or
