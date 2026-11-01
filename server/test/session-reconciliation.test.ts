@@ -170,10 +170,13 @@ describe("startup reconciliation", () => {
 		}
 	});
 
-	it("reconciles and re-arms the watches when #supervise reopens the Harness", async () => {
+	/**
+	 * The official SQLite storage, with one commit made to fail on demand: that closes the Harness. The
+	 * factory makes a fresh storage the way main.ts does, for the supervisor's reopen.
+	 */
+	const failingStorage = () => {
 		let failNext = false;
-		// The official SQLite storage, with one commit made to fail on demand: that closes the Harness.
-		const failingStorage = async (): Promise<Storage> => {
+		const factory = async (): Promise<Storage> => {
 			const real = await openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" });
 			return new Proxy(real, {
 				get(target, prop, receiver) {
@@ -190,9 +193,19 @@ describe("startup reconciliation", () => {
 				},
 			});
 		};
+		return {
+			factory,
+			failOnce: () => {
+				failNext = true;
+			},
+		};
+	};
+
+	it("reconciles and re-arms the watches when #supervise reopens the Harness", async () => {
+		const storage = failingStorage();
 		const first = await AgentRuntime.open({
 			db: localDb,
-			storage: failingStorage,
+			storage: storage.factory,
 			models,
 			cluster: localCluster,
 			groups: localGroups,
@@ -217,7 +230,7 @@ describe("startup reconciliation", () => {
 			await waitFor("the run live", async () => ((await localRow(session.id)).state === "running" ? true : undefined));
 			// The answer's commit fails, which closes the Harness and rejects the run's pending wait; the
 			// supervisor reopens, and the resumed run commits the answer after a fresh model response.
-			failNext = true;
+			storage.failOnce();
 			release();
 			await waitFor("the Harness reopened", () => (first.reopened === 1 ? true : undefined), 10_000);
 			// The failed wait is gone, so only the reopened reconciliation's watch can write idle.
@@ -227,6 +240,87 @@ describe("startup reconciliation", () => {
 				10_000,
 			);
 			expect(await waitSubmission(first, session.id, submission)).toMatchObject({ status: "done" });
+		} finally {
+			await first.close();
+		}
+	});
+
+	it("ends the waits of a session the reopen reconciles to idle", async () => {
+		const storage = failingStorage();
+		const first = await AgentRuntime.open({
+			db: localDb,
+			storage: storage.factory,
+			models,
+			cluster: localCluster,
+			groups: localGroups,
+			audit: new Audit(localDb),
+		});
+		try {
+			// A session whose run is over but whose row still claims it (a lost settle write), with a task that
+			// waits for a decision the settled run can no longer hand to its agent.
+			const session = await first.createSession(localOwner, {
+				model: localModel(),
+				preset: "ask",
+				title: "waits through a reopen",
+			});
+			const settled = await first.createSession(localOwner, {
+				model: localModel(),
+				preset: "yolo",
+				title: "settled while the reopen runs",
+			});
+			faux.setResponses([fauxAssistantMessage([fauxText("done")])]);
+			const submission = await first.submit(session.id, localOwner, "go", "reopen-waits-1");
+			expect(await waitSubmission(first, session.id, submission)).toMatchObject({ status: "done" });
+			await waitFor("idle", async () => ((await localRow(session.id)).state === "idle" ? true : undefined));
+			await localDb.updateTable("sessions").set({ state: "running" }).where("id", "=", session.id).execute();
+			const node = await localDb.selectFrom("nodes").select("id").executeTakeFirstOrThrow();
+			const waiting = await localCluster.createTask({
+				nodeId: node.id,
+				spec: { kind: "exec", command: { argv: ["true"] }, env: {}, cwd: "", stdin: null },
+				chain: [{ type: "session", id: session.id }],
+				actor: { type: "session", id: session.id, onBehalfOfUserId: localOwner.userId },
+			});
+			// A pending approval: the row waits with a handler, whoever it is.
+			await localDb
+				.updateTable("tasks")
+				.set({ state: "awaiting_approval", handler_type: "user" })
+				.where("id", "=", waiting.id)
+				.execute();
+
+			// Another run's answer makes a commit fail, which closes the Harness; the supervisor reopens it.
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			faux.setResponses([
+				async () => {
+					await gate;
+					return fauxAssistantMessage([fauxText("after the reopen")]);
+				},
+				async () => {
+					await gate;
+					return fauxAssistantMessage([fauxText("after the reopen")]);
+				},
+			]);
+			await first.submit(settled.id, localOwner, "go", "reopen-waits-2");
+			await waitFor("the run live", async () => ((await localRow(settled.id)).state === "running" ? true : undefined));
+			storage.failOnce();
+			release();
+			await waitFor("the Harness reopened", () => (first.reopened === 1 ? true : undefined), 10_000);
+			// The reopened reconciliation writes idle for the settled session and ends its waits, as settleInput does.
+			await waitFor(
+				"the wait ended",
+				async () => {
+					const row = await localDb
+						.selectFrom("tasks")
+						.select(["state", "error_message"])
+						.where("id", "=", waiting.id)
+						.executeTakeFirstOrThrow();
+					return row.state === "rejected" ? row : undefined;
+				},
+				10_000,
+			);
+			expect(await localRow(session.id)).toMatchObject({ state: "idle", waiting_kind: null });
 		} finally {
 			await first.close();
 		}

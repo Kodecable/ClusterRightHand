@@ -113,13 +113,40 @@ export async function evaluateFor(
 	chain: RuleRef[],
 	privileged: boolean,
 ): Promise<Evaluation> {
-	const groups = (await nodeGroupNames(core.db, [node.id])).get(node.id) ?? [];
+	const evaluations = await evaluateForNodes(core, [node], spec, chain, privileged);
+	return evaluations.get(node.id) as Evaluation;
+}
+
+/**
+ * How the rule chain judges `spec` on each node. A task group judges every node before its members start,
+ * and the chain and the spec are the same for all of them: the chain is loaded once and the nodes' groups
+ * in one query, instead of two queries per node (doc/execution-plane.md#状态机).
+ */
+export async function evaluateForNodes(
+	core: ClusterCore,
+	nodes: readonly NodeRow[],
+	spec: TaskSpec,
+	chain: RuleRef[],
+	privileged: boolean,
+): Promise<Map<string, Evaluation>> {
 	const levels = await loadChain(core.db, chain);
-	return evaluate(levels, {
-		...operationOf(spec),
-		node: { id: node.id, name: node.name, groups },
-		privileged,
-	});
+	const groups = await nodeGroupNames(
+		core.db,
+		nodes.map((node) => node.id),
+	);
+	const operations = operationOf(spec);
+	const evaluations = new Map<string, Evaluation>();
+	for (const node of nodes) {
+		evaluations.set(
+			node.id,
+			evaluate(levels, {
+				...operations,
+				node: { id: node.id, name: node.name, groups: groups.get(node.id) ?? [] },
+				privileged,
+			}),
+		);
+	}
+	return evaluations;
 }
 
 /**
@@ -144,7 +171,8 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 	let verdict: "allow" | "deny" | "require-approval" = "allow";
 	const privileged = input.privileged === true;
 	if (input.chain) {
-		const evaluation = await evaluateFor(core, node, input.spec, input.chain, privileged);
+		// A task group already judged its nodes: judging them again would repeat the chain's reads.
+		const evaluation = input.evaluation ?? (await evaluateFor(core, node, input.spec, input.chain, privileged));
 		approval = { evaluation };
 		verdict = evaluation.result;
 		if (verdict === "require-approval" && input.approvedBy) {
@@ -223,7 +251,16 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 			approved_by_group: approval?.decision ? input.taskGroupId : undefined,
 		},
 	});
-	if (!waiting && !denied) await core.taskQueue.run(id, () => dispatch(core, id, node, spec, inputBytes, input));
+	if (!waiting && !denied) {
+		try {
+			await core.taskQueue.run(id, () => dispatch(core, id, node, spec, inputBytes, input));
+		} catch (err) {
+			// The row was written to be dispatched at once: it must not stay in awaiting_approval, where it
+			// would look like an approval nobody can decide (doc/execution-plane.md#状态机).
+			await endUndispatched(core, id, err);
+			throw err;
+		}
+	}
 	const view = (await getTask(core, id)) as TaskView;
 	if (waiting) {
 		core.onChange?.(view.actorId);
@@ -232,6 +269,31 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 		}
 	}
 	return view;
+}
+
+/**
+ * Ends a task that was written as `awaiting_approval` only to be dispatched at once, when the dispatch
+ * threw before touching the row (doc/execution-plane.md#状态机): leaving it waiting would show an approval
+ * nobody can decide. The error is logged, not raised, so the caller sees the failure that caused it.
+ */
+async function endUndispatched(core: ClusterCore, id: string, error: unknown): Promise<void> {
+	try {
+		await endTask(core, id, {
+			write: {
+				from: ["awaiting_approval"],
+				set: {
+					state: "failed",
+					error_code: "internal_error",
+					error_message: error instanceof Error ? error.message : String(error),
+					pending_input: null,
+					handler_type: null,
+					handler_session_id: null,
+				},
+			},
+		});
+	} catch (cleanupError) {
+		console.error(`task ${id}: ending a task whose dispatch failed failed:`, cleanupError);
+	}
 }
 
 /** Moves a task out of awaiting_approval: sends it, parks it for authorization, or fails it. */
@@ -634,10 +696,17 @@ export function decide(core: ClusterCore, id: string, decision: ApprovalDecision
 			const input = row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0);
 			core.background("task approval audit failed", auditApproval(core, row, decision));
 			if (node) {
-				await dispatch(core, id, node, spec, input, {
-					privileged: row.privileged === 1,
-					timeoutMs: row.timeout_ms ?? undefined,
-				});
+				try {
+					await dispatch(core, id, node, spec, input, {
+						privileged: row.privileged === 1,
+						timeoutMs: row.timeout_ms ?? undefined,
+					});
+				} catch (err) {
+					// The decision is recorded, so the task is no longer waiting for one: it must not keep the
+					// row in awaiting_approval (doc/execution-plane.md#状态机).
+					await endUndispatched(core, id, err);
+					throw err;
+				}
 			}
 			core.onChange?.(row.actor_id);
 			return true;
@@ -802,6 +871,18 @@ export async function reevaluate(core: ClusterCore, ref: RuleRef): Promise<void>
 export async function getTask(core: ClusterCore, id: string): Promise<TaskView | undefined> {
 	const row = await core.row(id);
 	return row ? toView(row, core.live.get(id)) : undefined;
+}
+
+/** A group's tasks in creation order, in one query: a batch shows every member, one read per member is N+1. */
+export async function groupTasks(core: ClusterCore, groupId: string): Promise<TaskView[]> {
+	const rows = await core.db
+		.selectFrom("tasks")
+		.selectAll()
+		.where("task_group_id", "=", groupId)
+		.orderBy("created_at")
+		.orderBy("id")
+		.execute();
+	return rows.map((row) => toView(row, core.live.get(row.id)));
 }
 
 /**

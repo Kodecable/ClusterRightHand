@@ -3,10 +3,12 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster, summarize } from "../src/cluster/cluster.ts";
 import { GROUP_INTERRUPTED_REASON, outputModeFor, resolveTargets, TaskGroups } from "../src/cluster/task-groups.ts";
+import { createRootRuleSet } from "../src/policy/store.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
+import { probeDb, tableOf } from "./helpers/db-probe.ts";
 
 describeBackends("task groups", (backend) => {
 	let db: Db;
@@ -163,6 +165,96 @@ describeBackends("task groups", (backend) => {
 		const view = await groups.wait(id, 5000);
 		expect(view?.tasks).toHaveLength(1);
 		expect(view?.skipped).toHaveLength(2);
+	});
+
+	it("ends a group whose run throws instead of finishing it", async () => {
+		const probe = probeDb(db);
+		const probedCluster = new Cluster(probe.db);
+		const probedGroups = new TaskGroups(probe.db, probedCluster);
+		try {
+			const groupId = "group-failure";
+			// A member the group created earlier, waiting for an approval that can no longer be acted on.
+			const waiting = await insertTask({ group: groupId, nodeId: ids["db-1"] as string, state: "awaiting_approval" });
+			// The first member's dispatch throws, as the demo's lock error made it: the run itself fails. The
+			// member's own id lookup comes first (the group has a stable id), so arm the second read.
+			let reads = 0;
+			probe.onNext(
+				(node) => tableOf(node) === "tasks" && ++reads === 2,
+				() => {
+					throw new Error("injected storage failure");
+				},
+			);
+			await probedGroups.create({
+				id: groupId,
+				targets: ["x"],
+				nodeIds: [ids["web-1"], ids["web-2"]] as string[],
+				spec: spec(),
+				actor: actor(),
+				parallel: 1,
+			});
+			const view = await probedGroups.wait(groupId, 5000);
+			// Not `finished`: the run failed, and the node that never got a task is recorded as skipped.
+			expect(view?.state).toBe("interrupted");
+			expect(view?.skipped).toEqual([ids["web-2"]]);
+			const failed = view?.tasks.find((task) => task.nodeId === ids["web-1"]);
+			expect(failed).toMatchObject({ state: "failed", errorCode: "internal_error" });
+			// A task written for dispatch only is not left waiting for an approval nobody can decide.
+			expect(failed?.handlerType).toBeNull();
+			// The member that was still waiting ends with a reason that names the failure.
+			const cancelled = await db
+				.selectFrom("tasks")
+				.select(["state", "error_code", "error_message"])
+				.where("id", "=", waiting)
+				.executeTakeFirstOrThrow();
+			expect(cancelled).toMatchObject({ state: "rejected", error_code: "cancelled" });
+			expect(cancelled.error_message).toBe("the task group failed: injected storage failure");
+		} finally {
+			await probedCluster.close();
+		}
+	});
+
+	it("judges a batch's chain once and reads its tasks in one query", async () => {
+		// A rule chain the group can judge: an API token's rules, allowed without approval.
+		const tokenId = newId();
+		await db
+			.insertInto("api_tokens")
+			.values({
+				id: tokenId,
+				org_id: await defaultOrgId(db),
+				user_id: user.userId,
+				name: "batch",
+				token_hash: "hash",
+				created_at: new Date().toISOString(),
+				expires_at: null,
+				revoked_at: null,
+				last_used_at: null,
+			})
+			.execute();
+		await createRootRuleSet(db, await defaultOrgId(db), { type: "api_token", id: tokenId }, "yolo");
+		const probe = probeDb(db);
+		const probedCluster = new Cluster(probe.db);
+		const probedGroups = new TaskGroups(probe.db, probedCluster);
+		try {
+			const chain = [{ type: "api_token" as const, id: tokenId }];
+			const ruleReads = probe.count((node) => node.kind === "SelectQueryNode" && tableOf(node) === "rule_sets");
+			const id = await probedGroups.create({
+				targets: ["group:web", "db-1"],
+				nodeIds: [ids["web-1"], ids["web-2"], ids["db-1"]] as string[],
+				spec: spec(),
+				actor: actor(),
+				chain,
+			});
+			const view = await probedGroups.wait(id, 5000);
+			// The chain is read once for the whole group, and its members reuse the group's judgments.
+			expect(ruleReads.stop()).toBe(1);
+			expect(view?.state).toBe("finished");
+			expect(view?.tasks).toHaveLength(3);
+			const taskReads = probe.count((node) => node.kind === "SelectQueryNode" && tableOf(node) === "tasks");
+			await probedGroups.get(id);
+			expect(taskReads.stop()).toBe(1);
+		} finally {
+			await probedCluster.close();
+		}
 	});
 
 	it("marks groups left running by a previous process as interrupted", async () => {

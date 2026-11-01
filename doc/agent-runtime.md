@@ -45,7 +45,7 @@ interface AgentRuntime {
 
 ## 存储
 
-- **SQLite**：直接使用 durable 官方的 `SqliteStorage`（`openNodeSqliteStorage(path, { prefix: "pi_" })`），与业务表在同一个数据库文件中，用自己的连接（双方都设置了 busy timeout）。不移植，跟随上游维护。
+- **SQLite**：直接使用 durable 官方的 `SqliteStorage`（`SqliteStorage.open(db, { prefix: "pi_" })`），与业务表在同一个数据库文件中，用自己的连接。node:sqlite 是同步的，两条连接不能各自等锁（见 [data-model.md](data-model.md)）：两个连接共享进程内的一个语句队列，Kysely 的事务以 `BEGIN IMMEDIATE` 开始；Harness 重新打开时旧的存储会关闭。不移植，跟随上游维护。
 - **PostgreSQL**：`PgStorage`（`server/src/agent/pg-storage.ts`），从官方 1.4.0 的 `storage/sqlite/storage.ts` 移植到 `pg`：记录仍以 TEXT 保存 JSON（JSONB 会拒绝孤立代理项并重排键），ID 用 BIGINT，事务内一次提交一个批次。
 - 两者都在 CI 中跑官方的 `registerStorageConformance`（各 25 个用例）。
 - 表名统一加 `pi_` 前缀，与业务表放在同一个库。
@@ -147,7 +147,7 @@ interface AgentRuntime {
 | `awaiting` | 运行被阻塞，等别人决定 | 配额耗尽暂停（`waiting_kind = quota`，`waiting_level_id` 指向那一级）；本会话的工具调用卡在等审批（`approval`）或等签名（`authorization`）的任务上 | 决定作出 → `running`；运行被拒绝或中止 → `idle` |
 
 - `waiting_kind` 只在 `awaiting` 时有值；配额相关的判断一律看 `waiting_kind = quota`，不能只看 `awaiting`。同一会话同时有多个等待时，配额优先，其次审批、签名；某个等待结束后按剩下的重算。
-- 审批和签名的等待由 cluster 的任务状态变化驱动：本会话发起的任务进入 `awaiting_approval` / `awaiting_authorization` 时会话进入 `awaiting`，任务离开这些状态且没有其他等待时回到 `running`。
+- 审批和签名的等待由 cluster 的任务状态变化驱动：本会话发起的任务进入 `awaiting_approval` / `awaiting_authorization` 时会话进入 `awaiting`，任务离开这些状态且没有其他等待时回到 `running`。只有真正在等审批的任务才算：`awaiting_approval` 但没有处理者（`handler_type` 为空）只是下发前的瞬间，不是审批等待（见 [execution-plane.md](execution-plane.md#状态机服务端视角)）。
 - `root_session_id` 指向会话树的根，用于 WebUI 会话列表按整棵树汇总状态（见 [webui.md](webui.md) 的 API 约定）。树里任何会话的状态变化都会推送它的根会话。
 - **启动对账**：crhs 启动时（durable 恢复运行之后、开始接受请求之前）逐个修正状态缓存：
   - 记为 `running` / `awaiting` 的会话，如果 durable 中它最新一次输入已经结束，置为 `idle`；
@@ -163,6 +163,7 @@ interface AgentRuntime {
     - 停止期间运行结束时，不再按"运行结束"重复处理。
   - **运行结束**（最新一次输入的运行结束时）：工具调用可能已经不在了（被 durable 中止，或重启后被放弃），但它的任务仍在等待。此时结束这些等待，原因写 "the session's run ended"。
   - **启动时**：在上面的状态对账之后，找出发起者是会话、且会话已经 `idle` 的 `awaiting_approval` / `awaiting_authorization` 任务和任务组（包括运行中任务组里等待签名的成员），用同样的方式结束。这一步只读取处于等待状态的行。
+  - **Harness 重新打开后**：失败的 Harness 丢弃了所有等待，重新打开后先做同样的状态对账，再按启动时的方式结束这些等待。
   - 不属于任何会话的任务（用户本人或 API token 发起）不受影响，签名等待只按 24 小时期限结束（见 [privilege.md](privilege.md#等待签名的期限)）。
 
 ### 前台与后台

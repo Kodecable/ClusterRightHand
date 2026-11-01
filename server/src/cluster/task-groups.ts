@@ -48,6 +48,8 @@ export function outputModeFor(kind: string, requested?: BatchOutputMode): BatchO
 const HOUR = 3_600_000;
 /** Why a member that never started ends when a restart interrupts its group (doc/execution-plane.md#状态机). */
 export const GROUP_INTERRUPTED_REASON = "the task group was interrupted by a restart";
+/** Why a member that never started ends when its group's run threw (doc/execution-plane.md#状态机). */
+export const GROUP_FAILED_REASON = "the task group failed";
 
 /**
  * Resolves a target list (node names and "group:<name>") to the active nodes the user may operate.
@@ -72,7 +74,8 @@ export async function resolveTargets(db: Db, user: SessionUser, targets: string[
 	return [...ids];
 }
 
-export interface CreateTaskGroupInput extends Omit<CreateTaskInput, "nodeId" | "taskGroupId" | "approvedBy"> {
+export interface CreateTaskGroupInput
+	extends Omit<CreateTaskInput, "nodeId" | "taskGroupId" | "approvedBy" | "evaluation"> {
 	targets: string[];
 	nodeIds: string[];
 	parallel?: number;
@@ -212,14 +215,14 @@ export class TaskGroups {
 	}
 
 	/** Ends the members of an interrupted group that never reached the node. */
-	async #endWaiting(groupId: string): Promise<void> {
+	async #endWaiting(groupId: string, reason: string = GROUP_INTERRUPTED_REASON): Promise<void> {
 		const rows = await this.#db
 			.selectFrom("tasks")
 			.select("id")
 			.where("task_group_id", "=", groupId)
 			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
 			.execute();
-		for (const { id } of rows) await this.#cluster.cancelTask(id, GROUP_INTERRUPTED_REASON);
+		for (const { id } of rows) await this.#cluster.cancelTask(id, reason);
 	}
 
 	async create(input: CreateTaskGroupInput): Promise<string> {
@@ -239,15 +242,13 @@ export class TaskGroups {
 		if (!first) throw new UserError("no nodes");
 
 		let approval: GroupApprovalRecord | undefined;
+		let evaluations: Map<string, Evaluation> | undefined;
 		const privileged = input.privileged === true;
 		if (input.chain) {
-			approval = { nodes: [] };
-			for (const node of nodes) {
-				approval.nodes.push({
-					nodeId: node.id,
-					evaluation: await this.#cluster.evaluateFor(node, input.spec, input.chain, privileged),
-				});
-			}
+			// One pass over the chain and one query for the nodes' groups, not two queries per node.
+			const judged = await this.#cluster.evaluateForNodes(nodes, input.spec, input.chain, privileged);
+			evaluations = judged;
+			approval = { nodes: nodes.map((node) => ({ nodeId: node.id, evaluation: judged.get(node.id) as Evaluation })) };
 		}
 		const waiting = approval?.nodes.some((n) => n.evaluation.result === "require-approval") ?? false;
 		// Group waiting approvals by session tree: the first session of the chain (a schedule comes before it).
@@ -306,12 +307,18 @@ export class TaskGroups {
 				if (view) void hook(view).catch((err: unknown) => console.error("review:", err));
 			}
 		} else {
-			this.#start(id, { ...input, outputMode }, nodeIds, parallel);
+			this.#start(id, { ...input, outputMode }, nodeIds, parallel, undefined, evaluations);
 		}
 		return id;
 	}
 
-	#taskInput(input: CreateTaskGroupInput, groupId: string, nodeId: string, approvedBy?: ApprovalDecision) {
+	#taskInput(
+		input: CreateTaskGroupInput,
+		groupId: string,
+		nodeId: string,
+		approvedBy?: ApprovalDecision,
+		evaluation?: Evaluation,
+	) {
 		const { nodeIds: _n, targets: _t, parallel: _p, failFast: _f, id: _i, ...task } = input;
 		// A group with a stable id gives its tasks stable ids too, so a rerun reattaches to them.
 		const id = input.id ? derivedId(`${input.id}/${nodeId}`) : undefined;
@@ -323,11 +330,19 @@ export class TaskGroups {
 			taskGroupId: groupId,
 			...(id ? { id } : {}),
 			...(approvedBy ? { approvedBy } : {}),
+			...(evaluation ? { evaluation } : {}),
 		};
 	}
 
-	#start(id: string, input: CreateTaskGroupInput, nodeIds: string[], parallel: number, approvedBy?: ApprovalDecision) {
-		const run = this.#run(id, input, nodeIds, parallel, approvedBy)
+	#start(
+		id: string,
+		input: CreateTaskGroupInput,
+		nodeIds: string[],
+		parallel: number,
+		approvedBy?: ApprovalDecision,
+		evaluations?: Map<string, Evaluation>,
+	) {
+		const run = this.#run(id, input, nodeIds, parallel, approvedBy, evaluations)
 			.catch((err: unknown) => console.error(`task group ${id} failed:`, err))
 			.finally(() => this.#running.delete(id));
 		this.#running.set(id, run);
@@ -339,6 +354,7 @@ export class TaskGroups {
 		nodeIds: string[],
 		parallel: number,
 		approvedBy?: ApprovalDecision,
+		evaluations?: Map<string, Evaluation>,
 	): Promise<void> {
 		const queue = [...nodeIds];
 		// Tasks that wait for an authorization signature do not hold a worker slot: another node may still
@@ -347,6 +363,8 @@ export class TaskGroups {
 		let failed = false;
 		// Waits ended before every task finished: the group is left for recover(), which marks it interrupted.
 		let abandoned = false;
+		// The worker threw (a storage error while creating a member, for one): the group ends as failed.
+		let failure: unknown;
 		// Shutdown ends the waits: waitTask then returns at once, so a loop must check this or it would spin.
 		const ending = () => this.#waitsEnded || this.#cluster.waitsEnded;
 		const worker = async () => {
@@ -358,7 +376,9 @@ export class TaskGroups {
 					abandoned = true;
 					return;
 				}
-				const created = await this.#cluster.createTask(this.#taskInput(input, id, nodeId, approvedBy));
+				const created = await this.#cluster.createTask(
+					this.#taskInput(input, id, nodeId, approvedBy, evaluations?.get(nodeId)),
+				);
 				if (created.state === "awaiting_authorization") {
 					parked.push(created);
 					continue;
@@ -390,26 +410,58 @@ export class TaskGroups {
 			await Promise.all(Array.from({ length: Math.min(parallel, queue.length) }, worker));
 			// A parked task still belongs to the group, so the group is not finished while it waits.
 			for (let task = parked.shift(); task !== undefined; task = parked.shift()) await settleParked(task);
+		} catch (err) {
+			failure = err;
 		} finally {
 			try {
 				// Shutdown leaves an unfinished group to recover(), which marks it interrupted on the next start.
-				if (!this.#cluster.closing && !abandoned)
-					await this.#db
-						.updateTable("task_groups")
-						.set({
-							state: "finished",
-							skipped: JSON.stringify(queue),
-							finished_at: now(),
-							handler_type: null,
-							handler_session_id: null,
-						})
-						.where("id", "=", id)
-						.execute();
+				if (!this.#cluster.closing && !abandoned) {
+					if (failure === undefined) await this.#finish(id, queue);
+					else await this.#fail(id, nodeIds, failure);
+				}
 			} finally {
 				// The group is done as a whole; its tasks may already have been dropped one by one.
 				this.#cluster.releaseGroupBudget(id);
 			}
 		}
+		if (failure !== undefined) throw failure;
+	}
+
+	/** The group's members all settled (or were skipped): the group is finished. */
+	async #finish(id: string, skipped: string[]): Promise<void> {
+		await this.#db
+			.updateTable("task_groups")
+			.set({
+				state: "finished",
+				skipped: JSON.stringify(skipped),
+				finished_at: now(),
+				handler_type: null,
+				handler_session_id: null,
+			})
+			.where("id", "=", id)
+			.execute();
+	}
+
+	/**
+	 * Ends a group whose run threw (doc/execution-plane.md#状态机): no member that never reached the node may be
+	 * left waiting, and nodes without a task are recorded as skipped. The group ends `interrupted`, the closest
+	 * state to a failure: a group is never retried, and `finished` would claim a complete run.
+	 */
+	async #fail(id: string, nodeIds: string[], error: unknown): Promise<void> {
+		const reason = `${GROUP_FAILED_REASON}: ${error instanceof Error ? error.message : String(error)}`;
+		const started = await this.#startedNodes(id);
+		await this.#db
+			.updateTable("task_groups")
+			.set({
+				state: "interrupted",
+				skipped: JSON.stringify(nodeIds.filter((nodeId) => !started.has(nodeId))),
+				finished_at: now(),
+				handler_type: null,
+				handler_session_id: null,
+			})
+			.where("id", "=", id)
+			.execute();
+		await this.#endWaiting(id, reason);
 	}
 
 	/**
@@ -452,7 +504,16 @@ export class TaskGroups {
 		if (approved && input) {
 			const started = await this.#startedNodes(id);
 			const remaining = (JSON.parse(row.node_ids) as string[]).filter((n) => !started.has(n));
-			this.#start(id, input, remaining, row.parallel, { ...decision, taskGroupId: id });
+			// The members reuse the judgments the group recorded, instead of running the chain again.
+			const evaluated = (JSON.parse(row.approval ?? "{}") as GroupApprovalRecord).nodes ?? [];
+			this.#start(
+				id,
+				input,
+				remaining,
+				row.parallel,
+				{ ...decision, taskGroupId: id },
+				new Map(evaluated.map((node) => [node.nodeId, node.evaluation])),
+			);
 		} else {
 			// A rejected group never runs; release anything its denied tasks may have held.
 			this.#cluster.releaseGroupBudget(id);
@@ -601,15 +662,7 @@ export class TaskGroups {
 	async get(id: string): Promise<TaskGroupView | undefined> {
 		const row = await this.#row(id);
 		if (!row) return undefined;
-		const taskIds = await this.#db
-			.selectFrom("tasks")
-			.select("id")
-			.where("task_group_id", "=", id)
-			.orderBy("created_at")
-			.execute();
-		const tasks = (await Promise.all(taskIds.map((t) => this.#cluster.getTask(t.id)))).filter(
-			(t): t is TaskView => t !== undefined,
-		);
+		const tasks = await this.#cluster.groupTasks(id);
 		return {
 			id: row.id,
 			state: row.state,

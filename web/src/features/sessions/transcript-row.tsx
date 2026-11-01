@@ -4,12 +4,13 @@ import { ChevronDownIcon, ChevronRightIcon, WrenchIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { CodeText } from "@/components/code-text";
 import { InternalLink } from "@/components/internal-link";
-import { StatusBadge, TaskStatusBadge } from "@/components/status-badge";
+import { SessionStatusBadge, StatusBadge, TaskStatusBadge } from "@/components/status-badge";
 import { TaskResult } from "@/components/task-result";
 import { useTask } from "@/features/tasks/api";
 import { safeInternalPath } from "@/lib/url";
 import { SafeMarkdown, StreamingMarkdown } from "@/markdown/SafeMarkdown";
 import { useStreamingText } from "@/markdown/stream-store";
+import { useSessionChild } from "./child-sessions";
 import type { Json, JsonObject } from "./sessionState";
 import { approvalWait, authorizationWait, prettyJson, type TranscriptItem } from "./sessionState";
 import type { TranscriptStreams } from "./transcript-streams";
@@ -126,6 +127,9 @@ function ToolCard({
 			? item.details.sessionId
 			: undefined;
 	const subagentId = typeof subagent === "string" && subagent !== "" ? subagent : undefined;
+	// A subagent call's badge shows the child session's own state, not the state the call had when it
+	// returned: a background subagent keeps working (or goes idle) long after the card was drawn.
+	const child = useSessionChild(subagentId);
 	const summary = resultSummary(item.details, item.result?.text ?? "");
 	const status = item.result
 		? item.result.isError
@@ -175,9 +179,13 @@ function ToolCard({
 						)}
 					</span>
 				)}
-				<StatusBadge tone={tone} dot={false}>
-					{statusLabel}
-				</StatusBadge>
+				{child !== undefined ? (
+					<SessionStatusBadge state={child.state} className="shrink-0" />
+				) : (
+					<StatusBadge tone={tone} dot={false}>
+						{statusLabel}
+					</StatusBadge>
+				)}
 				{expanded ? (
 					<ChevronDownIcon className="size-3.5 shrink-0" aria-hidden="true" />
 				) : (
@@ -233,13 +241,16 @@ function ToolCard({
 						</div>
 					)}
 					{subagentId !== undefined && (
-						<Link
-							to="/sessions/$sessionId"
-							params={{ sessionId: subagentId }}
-							className="text-xs text-primary underline underline-offset-2"
-						>
-							<Trans>Open the subagent's session</Trans>
-						</Link>
+						<span className="flex items-center gap-2">
+							<Link
+								to="/sessions/$sessionId"
+								params={{ sessionId: subagentId }}
+								className="text-xs text-primary underline underline-offset-2"
+							>
+								<Trans>Open the subagent's session</Trans>
+							</Link>
+							{child !== undefined && <SessionStatusBadge state={child.state} />}
+						</span>
 					)}
 				</div>
 			)}

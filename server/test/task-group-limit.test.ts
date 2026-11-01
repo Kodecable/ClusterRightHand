@@ -97,6 +97,8 @@ describeBackends("task group node limit", (backend) => {
 				return stub(input.nodeId);
 			},
 			waitTask: async (id: string) => stub(id),
+			// The stub keeps nothing, so a group view has no member rows to read.
+			groupTasks: async () => [],
 			releaseGroupBudget: () => false,
 		} as unknown as Cluster;
 		groups = new TaskGroups(db, cluster);

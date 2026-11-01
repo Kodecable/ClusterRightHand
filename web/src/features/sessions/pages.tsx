@@ -3,8 +3,9 @@ import { useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { ErrorState } from "@/components/error-state";
 import { PageSkeleton } from "@/components/skeletons";
-import { useSession, useSessionHistoryPage, useSessionRootId, useSessionTreeSync } from "./api";
-import { ChildSessions } from "./child-sessions";
+import { flattenCursorPages } from "@/lib/api/query";
+import { useSession, useSessionChildren, useSessionHistoryPage, useSessionRootId, useSessionTreeSync } from "./api";
+import { ChildSessions, SessionChildrenProvider } from "./child-sessions";
 import { Composer } from "./composer";
 import { SessionHeader } from "./session-header";
 import { SessionWaits } from "./session-waits";
@@ -19,6 +20,8 @@ export function SessionPage() {
 	const rootId = useSessionRootId(session.data);
 	const tree = useSessionTreeSync(sessionId, rootId);
 	const events = useSessionEvents(sessionId);
+	const children = useSessionChildren(sessionId, rootId, events.childrenRevision);
+	const childItems = useMemo(() => flattenCursorPages(children.data), [children.data]);
 	const [wantsOlder, setWantsOlder] = useState(false);
 	const history = useSessionHistoryPage(sessionId, events.state.historyCursor, wantsOlder);
 	const items = useMemo(() => transcript(events.state), [events.state]);
@@ -92,19 +95,21 @@ export function SessionPage() {
 				</p>
 			)}
 
-			<ChildSessions sessionId={view.id} rootId={rootId} revision={events.childrenRevision} />
+			<ChildSessions query={children} />
 
 			{events.state.ready ? (
-				<Transcript
-					key={view.id}
-					items={items}
-					streams={events.streams}
-					ready={events.state.ready}
-					hasOlder={events.state.historyCursor !== null}
-					loadingOlder={history.isFetching}
-					onLoadOlder={() => setWantsOlder(true)}
-					empty={<Trans>No messages yet. Start the conversation below.</Trans>}
-				/>
+				<SessionChildrenProvider items={childItems}>
+					<Transcript
+						key={view.id}
+						items={items}
+						streams={events.streams}
+						ready={events.state.ready}
+						hasOlder={events.state.historyCursor !== null}
+						loadingOlder={history.isFetching}
+						onLoadOlder={() => setWantsOlder(true)}
+						empty={<Trans>No messages yet. Start the conversation below.</Trans>}
+					/>
+				</SessionChildrenProvider>
 			) : (
 				<div className="min-h-0 flex-1 overflow-hidden p-4">
 					<PageSkeleton rows={4} />

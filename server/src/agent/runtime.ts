@@ -180,9 +180,11 @@ export class AgentRuntime {
 				}
 				this.#supervise();
 				// The failed Harness rejected every pending wait, so no settlement wrote `idle` and no watch is
-				// armed any more. Correct the states and re-arm the watches exactly as open() does.
+				// armed any more. Correct the states and re-arm the watches exactly as open() does, and end the
+				// waits of the sessions whose run is over: nothing can decide them any more.
 				try {
 					await reconcileSessionStates(this.#host);
+					await endOrphanWaits(this.#host);
 				} catch (err) {
 					console.error("agent runtime: reconciling after a reopen failed:", err);
 				}

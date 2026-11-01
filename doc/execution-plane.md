@@ -90,8 +90,10 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 - 特权任务没有等待就直接用所有者已有的可复用授权下发时，输入取自创建时的内存，不经过 `pending_input`；`task.start` 被拒绝、任务回到 `awaiting_authorization` 时再写入 `pending_input`，供下一次尝试使用。
 - 任务组需要审批时整组等待（`task_groups.state = awaiting_approval`），还没有创建任务，规格和输入暂存在任务组上；被规则拒绝的节点立即得到一个 `denied` 任务。批准后剩余节点照常按并发数执行。
 - 任务组中的任务彼此独立：部分节点已执行、部分节点在 `awaiting_authorization` 时，已执行的任务不回滚；任务组最终可以是混合结果。若所有未完成任务都在等授权，任务组显示 `awaiting_authorization`，否则保持 `running`。
+- 允许下发的任务在创建时先写成 `awaiting_approval`、随即下发；这段极短的时间里它的 `handler_type` 为空，并不是在等审批。真正等审批的任务总有处理者（`handler_type` 非空）。下发这一步抛错时任务以 `failed`、`error_code = internal_error` 结束，不会把这个中间状态留在表里。
 - `fail_fast` 只影响尚未启动的节点，不回滚已启动/已完成的任务；可重试的授权拒绝不算最终失败。
 - crhs 重启时仍在运行的任务组标记为 `interrupted`：没有创建任务的节点记入 `skipped`，已创建但还没有下发的成员任务（`awaiting_approval` / `awaiting_authorization`）以 `rejected`、`error_code = cancelled` 结束，原因写明任务组被重启中断。`finished`、`interrupted`、`rejected` 的组不再下发任何成员。
+- 任务组在运行中抛错（例如创建成员时存储失败）时同样以 `interrupted` 结束，而不是 `finished`：没有创建任务的节点记入 `skipped`，已创建但还没有下发的成员以同样的方式取消，原因写成 `the task group failed: …`。没有单独的"失败"组状态：组不会重试，`interrupted` 就是"没有跑完"的那个状态。
 
 `unknown` 是执行平面唯一的"结果不确定"状态，reason 取值：
 

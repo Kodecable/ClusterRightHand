@@ -252,6 +252,39 @@ it("a tool call waiting for an approval makes the session awaiting/approval, the
 	expect((await taskOf(task)).state).toBe("failed"); // the node is offline in this test
 });
 
+it("a task that has not been dispatched yet is not an approval wait", async () => {
+	const session = await runtime.createSession(owner, { model: model(), preset: "ask", title: "dispatch transient" });
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	faux.setResponses([
+		async () => {
+			await gate;
+			return fauxAssistantMessage([fauxText("done")]);
+		},
+	]);
+	const submission = await runtime.submit(session.id, owner, "work", "dispatch-transient-1");
+	await waitFor("the run live", async () => ((await sessionStateOf(db, session.id)) === "running" ? true : undefined));
+	const task = await cluster.createTask({
+		nodeId,
+		spec: TASK,
+		chain: [{ type: "session", id: session.id }],
+		actor: { type: "session", id: session.id, onBehalfOfUserId: owner.userId },
+	});
+	expect(task.state).toBe("awaiting_approval");
+	// The shape createTask writes for an allowed task: awaiting_approval only until the dispatch, no handler.
+	await db.updateTable("tasks").set({ handler_type: null }).where("id", "=", task.id).execute();
+	await runtime.refreshState(session.id);
+	expect(await runtime.getSession(session.id)).toMatchObject({ state: "running", waitingKind: null });
+	// The same row with a handler is a pending approval, and the session waits for it.
+	await db.updateTable("tasks").set({ handler_type: "user" }).where("id", "=", task.id).execute();
+	await runtime.refreshState(session.id);
+	expect(await runtime.getSession(session.id)).toMatchObject({ state: "awaiting", waitingKind: "approval" });
+	release();
+	await waitSubmission(runtime, session.id, submission);
+});
+
 it("a task waiting for a signature makes the session awaiting/authorization", async () => {
 	const session = await runtime.createSession(owner, {
 		model: model(),

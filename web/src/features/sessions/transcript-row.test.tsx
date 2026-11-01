@@ -1,6 +1,8 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
-import { renderWithI18n } from "@/test/render";
+import type { SessionListItem } from "@/lib/api/types";
+import { renderWithI18n, renderWithRouter } from "@/test/render";
+import { SessionChildrenProvider } from "./child-sessions";
 import type { TranscriptItem } from "./sessionState";
 import { TranscriptRow, toolSummary } from "./transcript-row";
 import { TranscriptStreams } from "./transcript-streams";
@@ -93,6 +95,71 @@ describe("TranscriptRow", () => {
 		expect(toggle).toHaveTextContent("exec");
 		expect(toggle).toHaveTextContent("uname -a · n1");
 		expect(toggle).toHaveTextContent("Done");
+	});
+
+	test("a subagent card follows the child session's live state", async () => {
+		const subagent: TranscriptItem = {
+			kind: "tool",
+			key: "a1/0",
+			callId: "call-subagent",
+			name: "subagent",
+			args: { task: "restart nginx on web-1", background: true },
+			status: "done",
+			output: "",
+			details: { sessionId: "child-1", requests: [] },
+			result: {
+				text: "Subagent started in the background (session child-1).",
+				isError: false,
+				details: { sessionId: "child-1", requests: [] },
+			},
+		};
+		const child = (state: "idle" | "running" | "awaiting"): SessionListItem => ({
+			id: "child-1",
+			title: "restart nginx",
+			ownerUserId: "u1",
+			ownerName: "Ada",
+			scheduleId: null,
+			shared: false,
+			state,
+			waitingKind: null,
+			parentSessionId: "s1",
+			updatedAt: "2026-01-01T00:00:00.000Z",
+		});
+		const card = (state: "idle" | "running" | "awaiting") => (
+			<SessionChildrenProvider items={[child(state)]}>
+				<TranscriptRow item={subagent} streams={new TranscriptStreams()} />
+			</SessionChildrenProvider>
+		);
+
+		// The call returned at once; the card shows what the child does now, not "Done".
+		const running = await renderWithRouter(card("running"));
+		expect(screen.getByTestId("tool-toggle")).toHaveTextContent("Running");
+		expect(screen.queryByText("Done")).not.toBeInTheDocument();
+		running.unmount();
+
+		// The child went idle: the card follows it instead of staying at the state it was drawn with.
+		await renderWithRouter(card("idle"));
+		expect(screen.getByTestId("tool-toggle")).toHaveTextContent("Idle");
+	});
+
+	test("a subagent card without its child in the list keeps the call's own status", async () => {
+		const item: TranscriptItem = {
+			kind: "tool",
+			key: "a1/0",
+			callId: "call-subagent",
+			name: "subagent",
+			args: { task: "restart nginx on web-1" },
+			status: "done",
+			output: "",
+			details: { sessionId: "child-2", requests: [] },
+			result: { text: "Subagent started.", isError: false, details: { sessionId: "child-2", requests: [] } },
+		};
+		await renderWithRouter(
+			<SessionChildrenProvider items={[]}>
+				<TranscriptRow item={item} streams={new TranscriptStreams()} />
+			</SessionChildrenProvider>,
+		);
+		expect(screen.getByTestId("tool-toggle")).toHaveTextContent("Done");
 	});
 
 	test("toolSummary picks the telling argument of each tool", () => {

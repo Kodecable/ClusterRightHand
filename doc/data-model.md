@@ -9,6 +9,8 @@
 
 durable 的表由 `SqlStorage` 管理，统一加 `pi_` 前缀，不在本文档中列出。
 
+SQLite 只有一个数据库文件，业务表（Kysely）和 durable 的 `pi_` 表是两条连接打开的同一个文件。node:sqlite 是同步的，两条连接不能各自等锁：写锁被别人占着时 busy handler 会阻塞必须提交那个事务的线程，而 WAL 里先读后写的延迟事务会立即得到 `SQLITE_BUSY_SNAPSHOT`（busy handler 不参与）。所以进程内所有语句走同一个队列，事务（Kysely 的以 `BEGIN IMMEDIATE` 开始）占用队列直到提交或回滚。PostgreSQL 不受影响。
+
 ## 用户与归属
 
 ```

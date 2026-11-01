@@ -159,6 +159,16 @@ export class Cluster {
 		return tasks.evaluateFor(this.#core, node, spec, chain, privileged);
 	}
 
+	/** How the rule chain judges `spec` on each node, loading the chain and the nodes' groups once. */
+	evaluateForNodes(
+		nodes: readonly NodeRow[],
+		spec: TaskSpec,
+		chain: RuleRef[],
+		privileged: boolean,
+	): Promise<Map<string, Evaluation>> {
+		return tasks.evaluateForNodes(this.#core, nodes, spec, chain, privileged);
+	}
+
 	/**
 	 * Creates a task. With a rule chain it is first judged: denied, left waiting for approval, or
 	 * dispatched. A node that is not connected at dispatch fails it at once with node_offline.
@@ -214,6 +224,11 @@ export class Cluster {
 
 	getTask(id: string): Promise<TaskView | undefined> {
 		return tasks.getTask(this.#core, id);
+	}
+
+	/** A task group's tasks in creation order, in one query. */
+	groupTasks(groupId: string): Promise<TaskView[]> {
+		return tasks.groupTasks(this.#core, groupId);
 	}
 
 	/**

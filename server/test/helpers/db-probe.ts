@@ -22,6 +22,8 @@ export interface DbProbe {
 	db: Db;
 	/** Arm the hook for the next query whose root node matches; it fires once. */
 	onNext(match: (node: RootOperationNode) => boolean, after: () => Promise<void> | void): void;
+	/** Counts the queries whose root node matches; `stop()` unregisters the counter and returns its count. */
+	count(match: (node: RootOperationNode) => boolean): { stop: () => number };
 }
 
 /** The table a select/update/delete names directly (joins, CTEs and subqueries are not the table of the row). */
@@ -52,9 +54,11 @@ function tableName(identifier: OperationNode): string | undefined {
 /** Installs the probe plugin on `db`; pass `probe.db` to the runtime under test. */
 export function probeDb(db: Db): DbProbe {
 	let next: { match: (node: RootOperationNode) => boolean; after: () => Promise<void> | void } | undefined;
+	const counters: { match: (node: RootOperationNode) => boolean; hits: number }[] = [];
 	const armed = new WeakMap<PluginTransformQueryArgs["queryId"], () => Promise<void> | void>();
 	const plugin: KyselyPlugin = {
 		transformQuery(args: PluginTransformQueryArgs): RootOperationNode {
+			for (const counter of counters) if (counter.match(args.node)) counter.hits++;
 			if (!next?.match(args.node)) return args.node;
 			const after = next.after;
 			next = undefined;
@@ -72,6 +76,16 @@ export function probeDb(db: Db): DbProbe {
 		db: db.withPlugin(plugin),
 		onNext(match, after) {
 			next = { match, after };
+		},
+		count(match) {
+			const counter = { match, hits: 0 };
+			counters.push(counter);
+			return {
+				stop: () => {
+					counters.splice(counters.indexOf(counter), 1);
+					return counter.hits;
+				},
+			};
 		},
 	};
 }

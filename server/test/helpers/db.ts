@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { Kysely, PostgresDialect, SqliteDialect, sql } from "kysely";
+import { Kysely, PostgresDialect, sql } from "kysely";
 import pg from "pg";
 import { describe } from "vitest";
 import type { Db } from "../../src/storage/db.ts";
 import { migrateToLatest } from "../../src/storage/migrate.ts";
-import { openNodeSqlite } from "../../src/storage/node-sqlite.ts";
+import { openSqliteDialect } from "../../src/storage/node-sqlite.ts";
 import type { Database } from "../../src/storage/schema.ts";
 
 const pgUrl = process.env.CRH_TEST_PG_URL;
@@ -27,7 +27,7 @@ export async function openTestDb(backend: Backend, { migrate = true } = {}): Pro
 	let db: Db;
 	let schema: string | undefined;
 	if (backend === "sqlite") {
-		db = new Kysely<Database>({ dialect: new SqliteDialect({ database: openNodeSqlite(":memory:") }) });
+		db = new Kysely<Database>({ dialect: openSqliteDialect(":memory:") });
 	} else {
 		const name = `t_${randomBytes(6).toString("hex")}`;
 		schema = name;

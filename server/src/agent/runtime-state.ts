@@ -88,18 +88,23 @@ async function quotaWaitLevel(
 	return exhaustedLevel(host.db, row.id);
 }
 
-/** What the session's own tool calls wait for: an approval outranks a signature (doc/agent-runtime.md#会话状态). */
+/**
+ * What the session's own tool calls wait for: an approval outranks a signature (doc/agent-runtime.md#会话状态).
+ * An approval counts only when a handler is assigned: a task that passed its rules passes through
+ * `awaiting_approval` for the instant before dispatch without one (doc/execution-plane.md#状态机), and that
+ * transient row is nothing anyone could approve.
+ */
 async function taskWaitKind(host: RuntimeHost, sessionId: string): Promise<"approval" | "authorization" | undefined> {
 	const waiting = async (state: "awaiting_approval" | "awaiting_authorization"): Promise<boolean> => {
 		for (const table of ["tasks", "task_groups"] as const) {
-			const row = await host.db
+			let query = host.db
 				.selectFrom(table)
 				.select("id")
 				.where("actor_type", "in", ["session", "subagent"])
 				.where("actor_id", "=", sessionId)
-				.where("state", "=", state)
-				.limit(1)
-				.executeTakeFirst();
+				.where("state", "=", state);
+			if (state === "awaiting_approval") query = query.where("handler_type", "is not", null);
+			const row = await query.limit(1).executeTakeFirst();
 			if (row) return true;
 		}
 		return false;

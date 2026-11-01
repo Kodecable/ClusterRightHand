@@ -1,12 +1,39 @@
 import { Plural, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
+import { createContext, type ReactNode, useContext } from "react";
 import { RelativeTime } from "@/components/relative-time";
 import { SessionStatusDot } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { flattenCursorPages } from "@/lib/api/query";
 import type { SessionListItem } from "@/lib/api/types";
-import { useSessionChildren } from "./api";
+import type { useSessionChildren } from "./api";
 import { sessionTitle } from "./session-item";
+
+/** The session's children, newest activity first, as `GET /sessions/:id/children` lists them. */
+export type SessionChildrenQuery = ReturnType<typeof useSessionChildren>;
+
+const SessionChildrenContext = createContext<readonly SessionListItem[]>([]);
+
+/**
+ * Publishes the session's children to the transcript (doc/webui.md#会话界面): a `subagent` tool card shows
+ * the child's live state, which the page already loads for the strip above it, instead of the state the call
+ * had when it returned. Outside a session page the list is empty and the card falls back to its own status.
+ */
+export function SessionChildrenProvider({
+	items,
+	children,
+}: {
+	items: readonly SessionListItem[];
+	children: ReactNode;
+}) {
+	return <SessionChildrenContext.Provider value={items}>{children}</SessionChildrenContext.Provider>;
+}
+
+/** The child session of `id` with its own state, as the page's children query has it now. */
+export function useSessionChild(id: string | undefined): SessionListItem | undefined {
+	const items = useContext(SessionChildrenContext);
+	return id === undefined ? undefined : items.find((item) => item.id === id);
+}
 
 function ChildRow({ item }: { item: SessionListItem }) {
 	const { t } = useLingui();
@@ -33,19 +60,9 @@ function ChildRow({ item }: { item: SessionListItem }) {
  * The complete list is paged by cursor; the page hook refetches it after the
  * events that can add or change a child.
  */
-export function ChildSessions({
-	sessionId,
-	rootId,
-	revision,
-}: {
-	sessionId: string;
-	rootId: string | undefined;
-	/** Bumped by the session's `snapshot` and by `subagent` tool updates and ends. */
-	revision: number;
-}) {
+export function ChildSessions({ query }: { query: SessionChildrenQuery }) {
 	const { t } = useLingui();
-	const children = useSessionChildren(sessionId, rootId, revision);
-	const items = flattenCursorPages(children.data);
+	const items = flattenCursorPages(query.data);
 	if (items.length === 0) return null;
 	return (
 		<section
@@ -59,13 +76,13 @@ export function ChildSessions({
 			{items.map((item) => (
 				<ChildRow key={item.id} item={item} />
 			))}
-			{children.hasNextPage && (
+			{query.hasNextPage && (
 				<Button
 					type="button"
 					variant="ghost"
 					size="xs"
-					disabled={children.isFetchingNextPage}
-					onClick={() => void children.fetchNextPage()}
+					disabled={query.isFetchingNextPage}
+					onClick={() => void query.fetchNextPage()}
 				>
 					{t`Load more`}
 				</Button>

@@ -35,6 +35,8 @@ export interface CreateTaskInput {
 	chain?: RuleRef[];
 	/** Set for the tasks of an approved task group: a require-approval result counts as approved. */
 	approvedBy?: ApprovalDecision;
+	/** The group's own judgment of this node, so a member does not re-run the chain its group already ran. */
+	evaluation?: Evaluation;
 	/**
 	 * A caller-chosen id. If a task with it exists, createTask returns that task instead of creating one: a tool
 	 * call that reruns after a crash reattaches to the task its first attempt started (doc/agent-runtime.md).
