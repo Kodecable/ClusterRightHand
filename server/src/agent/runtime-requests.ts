@@ -258,7 +258,7 @@ export async function decideAgentRequest(
 
 /**
  * Routes a waiting approval up the chain (doc/agent-runtime.md#处理子会话的请求): the first ancestor whose effective
- * result is allow decides through its agent; the root's owner always decides.
+ * result is allow decides through its agent, the root session included (D100); without one, the owner decides.
  */
 export async function routeAwaiting(
 	host: RuntimeHost,
@@ -271,10 +271,11 @@ export async function routeAwaiting(
 	const evaluations = "evaluation" in approval ? [approval.evaluation] : approval.nodes.map((n) => n.evaluation);
 	if (evaluations.length === 0) return;
 	const actor = await host.db.selectFrom("sessions").selectAll().where("id", "=", actorId).executeTakeFirst();
+	// A request raised by the root session itself has no ancestor, so its owner decides.
 	if (!actor?.parent_session_id) return;
-	// Walk up from the immediate parent; the root's approvals always go to its owner.
+	// Walk up from the immediate parent; an ancestor that does not allow is skipped, and the root is an
+	// ordinary level of the same walk.
 	for await (const parent of sessionAncestors(host.db, actor.parent_session_id)) {
-		if (parent.parent_session_id === null) return;
 		const allows = evaluations.every((evaluation) => {
 			const level = evaluation.levels.find((l) => l.scope.type === "session" && l.scope.id === parent.id);
 			return level?.effective === "allow";
