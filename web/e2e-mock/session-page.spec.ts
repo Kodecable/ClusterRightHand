@@ -28,13 +28,13 @@ async function openFooterPage(page: Page, overrides: Record<string, unknown> = {
 	return api;
 }
 
-test("the composer footer shows the model, the preset, the budget, the context fill and the total usage", async ({
+test("the composer shows the model, the preset and the budget in the footer, and the context and usage below it", async ({
 	page,
 }) => {
 	await openFooterPage(page);
 	await expect(page.getByTestId("composer-model")).toHaveText("faux/faux-1");
 	await expect(page.getByTestId("composer-rules")).toHaveText("Ask");
-	await expect(page.getByTestId("composer-budget")).toHaveText("Budget 12.3K");
+	await expect(page.getByTestId("composer-budget")).toHaveText("12.3K");
 	await expect(page.getByTestId("composer-context")).toHaveText("50%");
 	await expect(page.getByTestId("composer-usage")).toHaveText("1.5M");
 	await expect(page.getByTestId("composer-budget")).toHaveAttribute("title", "12,345 tokens left");
@@ -43,6 +43,100 @@ test("the composer footer shows the model, the preset, the budget, the context f
 	// The header keeps only the title and the share button.
 	await expect(page.getByTestId("session-header").getByTestId("session-title")).toBeVisible();
 	await expect(page.getByTestId("session-header").getByTestId("composer-budget")).toHaveCount(0);
+});
+
+test("the model and preset controls open their option lists directly", async ({ page }) => {
+	await openFooterPage(page);
+	const heights = await page.evaluate(() => {
+		const height = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`)?.offsetHeight;
+		return { model: height("composer-model"), rules: height("composer-rules"), budget: height("composer-budget") };
+	});
+	expect(Math.abs((heights.model ?? 0) - (heights.budget ?? 0))).toBeLessThanOrEqual(1);
+	expect(Math.abs((heights.rules ?? 0) - (heights.budget ?? 0))).toBeLessThanOrEqual(1);
+
+	const list = page.locator('[data-slot="select-content"]:visible');
+	await page.getByTestId("composer-model").click();
+	await expect(list).toBeVisible();
+	await expect(list.getByRole("option", { name: "Faux One" })).toBeVisible();
+	await expect(page.getByRole("dialog")).toHaveCount(0);
+	await page.keyboard.press("Escape");
+	await expect(list).toHaveCount(0);
+
+	await page.getByTestId("composer-rules").click();
+	await expect(list).toBeVisible();
+	await expect(list.getByRole("option")).toHaveText(["Ask", "Auto Review", "Yolo"]);
+	await expect(page.getByRole("dialog")).toHaveCount(0);
+	const iconOffsets = await list.locator('[data-slot="select-item"]').evaluateAll((items) =>
+		items.map((item) => {
+			const row = item.getBoundingClientRect();
+			const icon = item.querySelector("svg")?.getBoundingClientRect();
+			return icon === undefined ? 0 : Math.abs(icon.top + icon.height / 2 - (row.top + row.height / 2));
+		}),
+	);
+	expect(iconOffsets.every((offset) => offset <= 0.5)).toBe(true);
+});
+
+test("the composer is one rounded box that grows with its content up to half the transcript", async ({ page }) => {
+	await openFooterPage(page);
+	const input = page.getByTestId("composer-input");
+	const initial = await input.evaluate((element) => {
+		const style = getComputedStyle(element);
+		const box = element.parentElement;
+		const header = document.querySelector('[data-testid="session-header"]');
+		const transcript = document.querySelector('[data-slot="transcript"]');
+		return {
+			height: element.getBoundingClientRect().height,
+			resize: style.resize,
+			inputBorder: style.borderTopWidth,
+			boxBorder: box === null ? null : getComputedStyle(box).borderTopWidth,
+			boxRadius: box === null ? null : getComputedStyle(box).borderRadius,
+			headerBorder: header === null ? null : getComputedStyle(header).borderBottomWidth,
+			maxHeight: transcript === null ? 0 : transcript.clientHeight / 2,
+		};
+	});
+	expect(initial.inputBorder).toBe("0px");
+	expect(initial.boxBorder).toBe("1px");
+	expect(initial.boxRadius).not.toBe("0px");
+	expect(initial.headerBorder).toBe("0px");
+	expect(initial.resize).toBe("none");
+	expect(initial.height).toBeLessThan(60);
+
+	await input.fill(Array.from({ length: 80 }, (_, index) => `line ${index + 1}`).join("\n"));
+	await page.waitForTimeout(200);
+	const grown = await input.evaluate((element) => ({
+		height: element.getBoundingClientRect().height,
+		clientHeight: element.clientHeight,
+		scrollHeight: element.scrollHeight,
+	}));
+	expect(grown.height).toBeGreaterThan(initial.height + 40);
+	expect(grown.height).toBeLessThanOrEqual(initial.maxHeight + 1);
+	expect(grown.scrollHeight).toBeGreaterThan(grown.clientHeight);
+});
+
+test("the context and total usage sit centered on their own row under the composer box", async ({ page }) => {
+	await openFooterPage(page);
+	const geometry = await page.evaluate(() => {
+		const meta = document.querySelector<HTMLElement>('[data-testid="composer-meta"]');
+		const input = document.querySelector<HTMLElement>('[data-testid="composer-input"]');
+		const box = input?.parentElement;
+		if (!meta || !box) return null;
+		const metaRect = meta.getBoundingClientRect();
+		const boxRect = box.getBoundingClientRect();
+		return {
+			gap: metaRect.top - boxRect.bottom,
+			centerDelta: Math.abs(metaRect.left + metaRect.width / 2 - (boxRect.left + boxRect.width / 2)),
+			justify: getComputedStyle(meta).justifyContent,
+			containsContext: meta.contains(document.querySelector('[data-testid="composer-context"]')),
+			containsUsage: meta.contains(document.querySelector('[data-testid="composer-usage"]')),
+		};
+	});
+	expect(geometry).not.toBeNull();
+	expect(geometry?.gap).toBeGreaterThan(0);
+	expect(geometry?.gap).toBeLessThan(12);
+	expect(geometry?.centerDelta).toBeLessThan(1);
+	expect(geometry?.justify).toBe("center");
+	expect(geometry?.containsContext).toBe(true);
+	expect(geometry?.containsUsage).toBe(true);
 });
 
 /** The page and the footer row do not scroll sideways. */
@@ -59,21 +153,24 @@ async function expectNoHorizontalOverflow(page: Page) {
 	expect(overflow.footer).toBeLessThanOrEqual(0);
 }
 
-test("at 390 px stop and send stay visible, the optional counters hide, and nothing overflows", async ({ page }) => {
+test("at 390 px the merged stop/send button switches with the draft and nothing overflows", async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await openFooterPage(page, { state: "running" });
 	await expect(page.getByTestId("abort-session")).toBeVisible();
+	await expect(page.getByTestId("composer-send")).toHaveCount(0);
+	await page.getByTestId("composer-input").fill("steer");
 	await expect(page.getByTestId("composer-send")).toBeVisible();
+	await expect(page.getByTestId("abort-session")).toHaveCount(0);
+	await page.getByTestId("composer-input").fill("");
 	await expect(page.getByTestId("composer-model")).toBeVisible();
 	await expect(page.getByTestId("composer-rules")).toBeVisible();
-	// There is no room for a counter next to the model, the rules and the two buttons.
-	await expect(page.getByTestId("composer-usage")).toBeHidden();
-	await expect(page.getByTestId("composer-context")).toBeHidden();
-	await expect(page.getByTestId("composer-budget")).toBeHidden();
+	await expect(page.getByTestId("composer-usage")).toBeVisible();
+	await expect(page.getByTestId("composer-context")).toBeVisible();
+	await expect(page.getByTestId("composer-budget")).toBeVisible();
 	await expectNoHorizontalOverflow(page);
 });
 
-test("at 768 px the budget is visible, and at 1440 px every counter fits", async ({ page }) => {
+test("at 768 px and 1440 px the footer and the meta row keep their contents", async ({ page }) => {
 	await page.setViewportSize({ width: 768, height: 900 });
 	await openFooterPage(page);
 	// Below `lg` the session takes the whole width instead of a third column: the list is behind the back button.
@@ -137,9 +234,34 @@ test("the children bar counts the direct children and opens the tree, expanding 
 	await openSession(page, api, "s1");
 
 	const bar = page.getByTestId("children-bar");
+	const geometry = await page.evaluate(() => {
+		const shell = document.querySelector<HTMLElement>('[data-testid="children-bar-shell"]');
+		const input = document.querySelector<HTMLElement>('[data-testid="composer-input"]');
+		const box = input?.parentElement;
+		if (!shell || !box) return null;
+		const shellStyle = getComputedStyle(shell);
+		return {
+			widthDelta: Math.abs(shell.getBoundingClientRect().width - box.getBoundingClientRect().width),
+			gap: box.getBoundingClientRect().top - shell.getBoundingClientRect().bottom,
+			radius: shellStyle.borderRadius,
+			border: shellStyle.borderTopWidth,
+			shadow: shellStyle.boxShadow,
+			specialColors: document.querySelectorAll(
+				'[data-testid="children-bar"] .text-info, [data-testid="children-bar"] .text-warn',
+			).length,
+		};
+	});
+	expect(geometry).not.toBeNull();
+	expect(geometry?.widthDelta).toBeLessThanOrEqual(1);
+	expect(geometry?.gap).toBeLessThanOrEqual(6);
+	expect(geometry?.radius).not.toBe("0px");
+	expect(geometry?.border).toBe("0px");
+	expect(geometry?.shadow).toBe("none");
+	expect(geometry?.specialColors).toBe(0);
 	await expect(bar).toContainText("2 subagents");
 	await expect(bar).toContainText("1 running");
 	await expect(bar).toContainText("1 awaiting");
+	await expect(bar.locator(".lucide-chevron-up")).toHaveCount(0);
 	// The tree is lazy: the first level is only in the DOM once the bar is opened.
 	await expect(page.getByTestId("child-session")).toHaveCount(0);
 	await bar.click();

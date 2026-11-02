@@ -1,3 +1,4 @@
+import { ShieldAlertIcon, ShieldEllipsisIcon, ShieldQuestionMarkIcon } from "lucide-react";
 import { describe, expect, test } from "vitest";
 import { PRESETS, presetLabel } from "./preset";
 
@@ -16,5 +17,9 @@ describe("presetLabel", () => {
 
 	test("lists every preset once, in menu order", () => {
 		expect(PRESETS.map((entry) => entry.value)).toEqual(["ask", "auto_review", "yolo"]);
+	});
+
+	test("gives each preset its own shield icon", () => {
+		expect(PRESETS.map((entry) => entry.icon)).toEqual([ShieldQuestionMarkIcon, ShieldEllipsisIcon, ShieldAlertIcon]);
 	});
 });

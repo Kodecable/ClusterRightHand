@@ -68,6 +68,24 @@ function DialogContent({
 	);
 }
 
+/**
+ * The scrolling body of a dialog. The inset padding keeps two things off the
+ * content: overlay scrollbars (which otherwise paint over the right edge) and
+ * a field's focus ring (which the overflow clip would cut at every edge).
+ */
+function DialogScrollArea({ className, ...props }: React.ComponentProps<"div">) {
+	return (
+		<div
+			data-slot="dialog-scroll-area"
+			className={cn(
+				"-mx-1 -my-1 min-h-0 overflow-y-auto overscroll-contain px-1 py-1 pr-3 [scrollbar-gutter:stable]",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
 function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 	return <div data-slot="dialog-header" className={cn("flex flex-col gap-2", className)} {...props} />;
 }
@@ -127,6 +145,7 @@ export {
 	DialogHeader,
 	DialogOverlay,
 	DialogPortal,
+	DialogScrollArea,
 	DialogTitle,
 	DialogTrigger,
 };

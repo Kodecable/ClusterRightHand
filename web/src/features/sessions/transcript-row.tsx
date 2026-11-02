@@ -1,12 +1,14 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { ChevronDownIcon, ChevronRightIcon, LoaderCircleIcon, WrenchIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { CodeText } from "@/components/code-text";
 import { InternalLink } from "@/components/internal-link";
 import { TaskResult } from "@/components/task-result";
+import { Dialog, DialogContent, DialogHeader, DialogScrollArea, DialogTitle } from "@/components/ui/dialog";
 import { groupEnded, useTask, useTaskGroup } from "@/features/tasks/api";
 import { isTerminal } from "@/features/tasks/output";
+import { formatDuration } from "@/lib/format";
 import { safeInternalPath } from "@/lib/url";
 import { cn } from "@/lib/utils";
 import { SafeMarkdown, StreamingMarkdown } from "@/markdown/SafeMarkdown";
@@ -49,29 +51,61 @@ function argvLine(args: JsonObject): string | undefined {
 	return parts.length > 0 ? parts.join(" ") : undefined;
 }
 
-/**
- * What a tool call is doing, as one line: the command, the file, the node or
- * target, or (for the other tools) their first telling argument. The card's
- * collapsed row shows it so two `exec` cards do not look identical.
- */
-export function toolSummary(args: JsonObject): string {
-	const detail =
-		firstString(args, ["cmd", "shell", "command"]) ??
-		argvLine(args) ??
-		firstString(args, ["path", "file", "task", "request", "request_id", "session_id", "query", "url", "name"]) ??
-		"";
+/** The raw node input of a call: the `targets` as given, or a single `node`-style argument. */
+function nodeInput(args: JsonObject): string | undefined {
 	const targets = Array.isArray(args.targets)
-		? args.targets.filter((target): target is string => typeof target === "string")
+		? args.targets.filter((target): target is string => typeof target === "string" && target.trim() !== "")
 		: [];
-	const node = firstString(args, ["node", "nodeId", "node_id"]);
-	const where = targets.length > 0 ? targets.join(", ") : node;
-	if (detail === "" && where === undefined) {
-		const keys = Object.keys(args);
-		return keys.length === 0 ? "" : keys.join(", ");
-	}
-	if (detail === "") return where ?? "";
-	if (where === undefined || detail.includes(where)) return detail;
-	return `${detail} · ${where}`;
+	if (targets.length > 0) return targets.join(", ");
+	return firstString(args, ["node", "nodeId", "node_id"]);
+}
+
+/** The main argument of each tool, without the node, status, exit code or option fields. */
+const TOOL_SUBJECT_KEYS: Record<string, readonly string[]> = {
+	exec: ["cmd", "shell", "command"],
+	read_file: ["path", "file"],
+	write_file: ["path", "file"],
+	edit_file: ["path", "file"],
+	list_dir: ["path", "file"],
+	subagent: ["task", "prompt"],
+	task_wait: ["task_id", "task_group_id"],
+	task_cancel: ["task_id"],
+	subagent_wait: ["id"],
+	subagent_cancel: ["id"],
+	subagent_decide: ["request_id"],
+	node_info: [],
+};
+
+function toolSubject(name: string, args: JsonObject): string | undefined {
+	if (name === "exec") return firstString(args, ["cmd", "shell", "command"]) ?? argvLine(args);
+	const keys = TOOL_SUBJECT_KEYS[name];
+	if (keys !== undefined) return firstString(args, keys);
+	return firstString(args, [
+		"request",
+		"request_id",
+		"session_id",
+		"query",
+		"url",
+		"id",
+		"task_id",
+		"task_group_id",
+		"name",
+	]);
+}
+
+/**
+ * One line for a tool call (doc/webui.md "消息渲染"): `name · node · subject`.
+ * The node is the raw target input; there is no node segment when the tool has
+ * none. The subject is the one argument that identifies the work (command,
+ * path, prompt, task id); everything else stays in the dialog.
+ */
+export function toolLine(name: string, args: JsonObject): string {
+	const node = nodeInput(args);
+	const subject = toolSubject(name, args);
+	const parts = [name];
+	if (node !== undefined) parts.push(node);
+	if (subject !== undefined && subject !== node) parts.push(subject);
+	return parts.join(" · ");
 }
 
 function toolTaskId(item: ToolItem): string | undefined {
@@ -123,7 +157,10 @@ function ToolStatusIcon({ spinning, failed, label }: { spinning: boolean; failed
 			aria-label={label}
 			title={label}
 			data-testid="tool-status-icon"
-			className={cn("inline-flex shrink-0", failed ? "text-danger" : "text-muted-foreground")}
+			className={cn(
+				"inline-flex shrink-0",
+				failed ? "text-danger" : "text-muted-foreground group-hover:text-foreground",
+			)}
 		>
 			{spinning ? (
 				<LoaderCircleIcon className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
@@ -138,27 +175,13 @@ function ToolCard({
 	item,
 	streams,
 	sessionActive,
-	onBeforeResize,
-	onAfterResize,
 }: {
 	item: ToolItem;
 	streams: TranscriptStreams;
 	sessionActive: boolean;
-	onBeforeResize?: () => void;
-	onAfterResize?: () => void;
 }) {
 	const { t } = useLingui();
-	const [expanded, setExpanded] = useState(false);
-	const mounted = useRef(false);
-	// The correction runs after the expanded content has been committed.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: runs on the expanded toggle
-	useEffect(() => {
-		if (!mounted.current) {
-			mounted.current = true;
-			return;
-		}
-		onAfterResize?.();
-	}, [expanded, onAfterResize]);
+	const [open, setOpen] = useState(false);
 
 	const result = item.result;
 	const returned = result !== undefined;
@@ -242,92 +265,96 @@ function ToolCard({
 	else if (outcome === undefined) statusLabel = t`No result`;
 	else statusLabel = outcome === "done" ? t`Done` : failureLabel(outcome);
 	const hasArgs = Object.keys(item.args).length > 0;
-	const summaryLine = toolSummary(item.args);
+	const line = toolLine(item.name, item.args);
+	const rest = line.slice(item.name.length);
 	const liveOutput = result === undefined ? streams.tool(item.callId) : undefined;
 	const taskResultId = toolTaskId(item);
 
 	return (
-		<div className="overflow-hidden rounded-lg border bg-card/50" data-testid="tool-card" data-tool-status={status}>
+		<div className="text-xs" data-testid="tool-card" data-tool-status={status}>
 			<button
 				type="button"
 				data-testid="tool-toggle"
-				aria-expanded={expanded}
-				onClick={() => {
-					onBeforeResize?.();
-					setExpanded((value) => !value);
-				}}
-				className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+				aria-haspopup="dialog"
+				onClick={() => setOpen(true)}
+				className="group flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
 			>
 				<ToolStatusIcon spinning={spinning} failed={failed} label={statusLabel} />
-				<span className="shrink-0 font-mono text-xs font-medium">{item.name}</span>
-				<span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" title={summaryLine}>
-					{summaryLine}
+				<span className="min-w-0 flex-1 truncate font-mono text-xs" title={line}>
+					<span className="font-medium">{item.name}</span>
+					{rest}
 				</span>
-				{expanded ? (
-					<ChevronDownIcon className="size-3.5 shrink-0" aria-hidden="true" />
-				) : (
-					<ChevronRightIcon className="size-3.5 shrink-0" aria-hidden="true" />
-				)}
 			</button>
-			{expanded && (
-				<div className="grid gap-2 border-t p-2.5" data-testid="tool-output">
-					{hasArgs && (
-						<div className="grid gap-1">
-							<span className="text-[11px] font-medium text-muted-foreground">
-								<Trans>Arguments</Trans>
-							</span>
-							<CodeText text={JSON.stringify(item.args, null, 2)} maxLines={24} label={t`Tool arguments`} />
-						</div>
-					)}
-					{wait && (
-						<p className="text-xs text-warn" role="status">
-							<Trans>Waiting for your approval.</Trans>{" "}
-							<InternalLink href={approvalHref}>
-								<Trans>Review and approve</Trans>
-							</InternalLink>
-						</p>
-					)}
-					{signature && (
-						<p className="text-xs text-warn" role="status">
-							<Trans>Waiting for your signature.</Trans>{" "}
-							<InternalLink href={signatureHref}>
-								<Trans>Open the signing page</Trans>
-							</InternalLink>
-						</p>
-					)}
-					{liveOutput !== undefined && (
-						<div className="grid gap-1">
-							<span className="text-[11px] font-medium text-muted-foreground">
-								<Trans>Output so far</Trans>
-							</span>
-							<ToolLiveOutput store={liveOutput} />
-						</div>
-					)}
-					{result !== undefined && (
-						<div className="grid gap-1">
-							<span className="text-[11px] font-medium text-muted-foreground">
-								<Trans>Result</Trans>
-							</span>
-							<CodeText
-								text={prettyJson(result.text)?.pretty ?? result.text}
-								maxLines={40}
-								label={t`Tool result`}
-								className={result.isError ? "border-danger/40" : undefined}
-							/>
-							{taskResultId !== undefined && <ToolTask taskId={taskResultId} />}
-						</div>
-					)}
-					{subagentId !== undefined && (
-						<Link
-							to="/sessions/$sessionId"
-							params={{ sessionId: subagentId }}
-							className="text-xs text-primary underline underline-offset-2"
-						>
-							<Trans>Open the subagent's session</Trans>
-						</Link>
-					)}
-				</div>
-			)}
+			<Dialog open={open} onOpenChange={setOpen}>
+				<DialogContent className="sm:max-w-3xl" data-testid="tool-dialog">
+					<DialogHeader>
+						<DialogTitle className="pr-6 font-mono text-sm">{item.name}</DialogTitle>
+					</DialogHeader>
+					<DialogScrollArea className="grid max-h-[70vh] gap-3" data-testid="tool-output">
+						{hasArgs && (
+							<div className="grid gap-1">
+								<span className="text-[11px] font-medium text-muted-foreground">
+									<Trans>Arguments</Trans>
+								</span>
+								<CodeText
+									text={JSON.stringify(item.args, null, 2)}
+									maxLines={0}
+									preClassName="max-h-none"
+									label={t`Tool arguments`}
+								/>
+							</div>
+						)}
+						{wait && (
+							<p className="text-xs text-warn" role="status">
+								<Trans>Waiting for your approval.</Trans>{" "}
+								<InternalLink href={approvalHref}>
+									<Trans>Review and approve</Trans>
+								</InternalLink>
+							</p>
+						)}
+						{signature && (
+							<p className="text-xs text-warn" role="status">
+								<Trans>Waiting for your signature.</Trans>{" "}
+								<InternalLink href={signatureHref}>
+									<Trans>Open the signing page</Trans>
+								</InternalLink>
+							</p>
+						)}
+						{liveOutput !== undefined && (
+							<div className="grid gap-1">
+								<span className="text-[11px] font-medium text-muted-foreground">
+									<Trans>Output so far</Trans>
+								</span>
+								<ToolLiveOutput store={liveOutput} />
+							</div>
+						)}
+						{result !== undefined && (
+							<div className="grid gap-1">
+								<span className="text-[11px] font-medium text-muted-foreground">
+									<Trans>Result</Trans>
+								</span>
+								<CodeText
+									text={prettyJson(result.text)?.pretty ?? result.text}
+									maxLines={0}
+									preClassName="max-h-none"
+									label={t`Tool result`}
+									className={result.isError ? "border-danger/40" : undefined}
+								/>
+								{taskResultId !== undefined && <ToolTask taskId={taskResultId} />}
+							</div>
+						)}
+						{subagentId !== undefined && (
+							<Link
+								to="/sessions/$sessionId"
+								params={{ sessionId: subagentId }}
+								className="text-xs text-primary underline underline-offset-2"
+							>
+								<Trans>Open the subagent's session</Trans>
+							</Link>
+						)}
+					</DialogScrollArea>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }
@@ -359,31 +386,148 @@ function CompactionDivider({ text }: { text: string }) {
 	);
 }
 
+/** Tick once a second while the final answer streams; the row stops ticking at the end. */
+function useLiveElapsed(startedAt: number | undefined, live: boolean): number | undefined {
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		if (!live || startedAt === undefined) return;
+		setNow(Date.now());
+		const timer = setInterval(() => setNow(Date.now()), 1_000);
+		return () => clearInterval(timer);
+	}, [live, startedAt]);
+	return startedAt === undefined ? undefined : Math.max(0, now - startedAt);
+}
+
+/** The completed turn's fold line, above its final answer (doc/webui.md "消息视图"). */
+export function TurnSummaryRow({
+	startedAt,
+	live,
+	durationMs,
+	open,
+	onToggle,
+}: {
+	startedAt: number | undefined;
+	live: boolean;
+	durationMs: number | undefined;
+	open: boolean;
+	onToggle: () => void;
+}) {
+	const { t, i18n } = useLingui();
+	const elapsed = useLiveElapsed(startedAt, live);
+	const effectiveDuration = live ? elapsed : durationMs;
+	const duration =
+		effectiveDuration === undefined ? undefined : formatDuration(Math.max(1000, effectiveDuration), i18n.locale);
+	return (
+		<article className="px-3 pb-1" data-testid="turn-summary">
+			<button
+				type="button"
+				aria-expanded={open}
+				onClick={onToggle}
+				className="flex w-full max-w-[92%] items-center gap-2 border-b border-border/70 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+			>
+				<span className="min-w-0 truncate">{duration === undefined ? t`Ended` : t`Ended in ${duration}`}</span>
+				{open ? (
+					<ChevronDownIcon className="size-3.5 shrink-0" aria-hidden="true" />
+				) : (
+					<ChevronRightIcon className="size-3.5 shrink-0" aria-hidden="true" />
+				)}
+			</button>
+		</article>
+	);
+}
+
+/** The collapsed thinking preview: the latest line while streaming, the first line once settled. */
+function thinkingPreview(text: string, running: boolean): string {
+	const lines = text
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter((line) => line !== "");
+	return (running ? lines.at(-1) : lines[0])?.replaceAll("**", "") ?? "";
+}
+
+/** A borderless, collapsible thinking row, with the same chevron as a tool call (doc/webui.md "消息渲染"). */
+function ThinkingRow({
+	item,
+	streams,
+}: {
+	item: Extract<TranscriptItem, { kind: "thinking" }>;
+	streams: TranscriptStreams;
+}) {
+	const [open, setOpen] = useState(false);
+	const live = useStreamingText(streams.text(item.key));
+	const text = item.live ? live.text : item.text;
+	const preview = thinkingPreview(text, item.streaming);
+	return (
+		<div className="max-w-[92%] text-sm text-muted-foreground">
+			<button
+				type="button"
+				data-testid="thinking-toggle"
+				aria-expanded={open}
+				onClick={() => setOpen((value) => !value)}
+				className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+			>
+				{open ? (
+					<ChevronDownIcon className="size-3.5 shrink-0" aria-hidden="true" />
+				) : (
+					<ChevronRightIcon className="size-3.5 shrink-0" aria-hidden="true" />
+				)}
+				<span className="shrink-0">
+					<Trans>Thinking</Trans>
+				</span>
+				{!open && preview !== "" && (
+					<>
+						<span className="shrink-0 text-muted-foreground/60" aria-hidden="true">
+							·
+						</span>
+						<span className="min-w-0 flex-1 truncate font-normal" data-testid="thinking-preview">
+							{preview}
+						</span>
+					</>
+				)}
+			</button>
+			{open && (
+				<div className="pr-2.5 pb-2 pl-8">
+					{item.live ? (
+						<StreamingMarkdown
+							store={streams.text(item.key)}
+							text={item.streaming ? undefined : item.text}
+							className="text-muted-foreground"
+						/>
+					) : (
+						<SafeMarkdown text={item.text} className="text-muted-foreground" />
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
 /**
  * One transcript row (doc/webui.md "消息渲染"): a plain user message, assistant
- * text and thinking through SafeMarkdown, tool cards with their live output,
- * errors and the compaction divider. A message that arrived through the live
- * stream keeps its row and store after `message_end` (only the committed text
- * replaces the live text), so the incremental Markdown tree is not discarded;
- * messages loaded from a snapshot render their text in one shot.
+ * text and thinking through SafeMarkdown, tool rows whose details open in a
+ * dialog, errors and the compaction divider. A message that arrived through the
+ * live stream keeps its row and store after `message_end` (only the committed
+ * text replaces the live text), so the incremental Markdown tree is not
+ * discarded; messages loaded from a snapshot render their text in one shot.
  */
 export function TranscriptRow({
 	item,
 	streams,
 	sessionActive,
-	onBeforeResize,
-	onAfterResize,
 }: {
 	item: TranscriptItem;
 	streams: TranscriptStreams;
 	/** Whether the session is running or awaiting: an unreturned call stops waiting once it is idle. */
 	sessionActive: boolean;
-	onBeforeResize?: () => void;
-	onAfterResize?: () => void;
 }) {
 	const { t } = useLingui();
 	return (
-		<article data-testid="message" data-message-id={item.key} data-kind={item.kind} className="px-3 pb-2.5">
+		<article
+			data-testid="message"
+			data-message-id={item.key}
+			data-kind={item.kind}
+			className={cn("px-3 pb-2.5", (item.kind === "tool" || item.kind === "thinking") && "pb-1")}
+		>
 			{item.kind === "user" && (
 				<div className="flex justify-end">
 					<div className="max-w-[85%] rounded-2xl bg-primary px-3 py-2 text-sm whitespace-pre-wrap break-words text-primary-foreground">
@@ -402,33 +546,10 @@ export function TranscriptRow({
 					)}
 				</div>
 			)}
-			{item.kind === "thinking" && (
-				<details className="max-w-[92%] rounded-md border border-dashed px-2.5 py-1.5 text-sm text-muted-foreground">
-					<summary className="cursor-pointer select-none text-xs font-medium" data-testid="thinking-toggle">
-						<Trans>Thinking</Trans>
-					</summary>
-					<div className="mt-1">
-						{item.live ? (
-							<StreamingMarkdown
-								store={streams.text(item.key)}
-								text={item.streaming ? undefined : item.text}
-								className="text-muted-foreground"
-							/>
-						) : (
-							<SafeMarkdown text={item.text} className="text-muted-foreground" />
-						)}
-					</div>
-				</details>
-			)}
+			{item.kind === "thinking" && <ThinkingRow item={item} streams={streams} />}
 			{item.kind === "tool" && (
 				<div className="max-w-[92%]">
-					<ToolCard
-						item={item}
-						streams={streams}
-						sessionActive={sessionActive}
-						onBeforeResize={onBeforeResize}
-						onAfterResize={onAfterResize}
-					/>
+					<ToolCard item={item} streams={streams} sessionActive={sessionActive} />
 				</div>
 			)}
 			{item.kind === "compaction" && <CompactionDivider text={item.text} />}

@@ -9,6 +9,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import type { AvailableModel, ModelRef } from "@/lib/api/types";
+import { cn } from "@/lib/utils";
 
 const SEPARATOR = "\u0000";
 
@@ -43,6 +44,10 @@ export interface ModelSelectProps {
 	id?: string;
 	placeholder?: string;
 	className?: string;
+	/** `inline` drops the form-field chrome for a composer footer trigger. */
+	variant?: "default" | "inline";
+	title?: string;
+	dataTestId?: string;
 }
 
 /** A grouped model picker shared by the session, schedule and batch forms. */
@@ -55,7 +60,11 @@ export function ModelSelect({
 	id,
 	placeholder,
 	className,
+	variant = "default",
+	title,
+	dataTestId,
 }: ModelSelectProps) {
+	const inline = variant === "inline";
 	const { t } = useLingui();
 	const groups = groupModels(models, value);
 	const selected = value ? modelKey(value) : "";
@@ -67,17 +76,42 @@ export function ModelSelect({
 			}}
 			disabled={disabled}
 		>
-			<SelectTrigger id={id} aria-label={label ?? t`Model`} className={`w-full ${className ?? ""}`.trim()}>
+			<SelectTrigger
+				id={id}
+				aria-label={label ?? t`Model`}
+				title={title}
+				size={inline ? "xs" : "default"}
+				showIcon={!inline}
+				data-testid={dataTestId}
+				className={cn(
+					"w-full",
+					inline &&
+						"w-fit min-w-0 shrink justify-start gap-1 border-0 bg-transparent px-2 font-mono text-xs font-normal shadow-none hover:bg-muted aria-expanded:bg-muted [&>svg]:hidden",
+					className,
+				)}
+			>
 				<SelectValue placeholder={placeholder ?? t`Choose a model`}>
 					{(current: string | null) => {
 						if (!current) return placeholder ?? t`Choose a model`;
-						const [provider, modelId] = current.split(SEPARATOR) as [string, string];
-						const hit = models.find((model) => model.provider === provider && model.modelId === modelId);
-						return hit?.name ?? modelId;
+						const parsed = parseModelKey(current);
+						if (inline) {
+							return (
+								<span className="min-w-0 truncate">
+									{parsed.provider}/{parsed.modelId}
+								</span>
+							);
+						}
+						const hit = models.find((model) => model.provider === parsed.provider && model.modelId === parsed.modelId);
+						return hit?.name ?? parsed.modelId;
 					}}
 				</SelectValue>
 			</SelectTrigger>
-			<SelectContent>
+			<SelectContent
+				side={inline ? "top" : undefined}
+				align={inline ? "start" : undefined}
+				alignItemWithTrigger={inline ? false : undefined}
+				className={inline ? "w-72" : undefined}
+			>
 				{[...groups].map(([provider, list]) => (
 					<SelectGroup key={provider}>
 						<SelectLabel>{provider}</SelectLabel>

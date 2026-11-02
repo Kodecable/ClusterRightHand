@@ -1,6 +1,13 @@
 import { Trans } from "@lingui/react/macro";
 import { useNavigate } from "@tanstack/react-router";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogScrollArea,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { SshNodeWizard } from "./ssh-wizard";
 
 /** The dialog around the four-step SSH wizard; a created node is opened at once. */
@@ -25,7 +32,7 @@ export function AddSshNodeDialog({ onClose }: { onClose: () => void }) {
 						</Trans>
 					</DialogDescription>
 				</DialogHeader>
-				<div className="max-h-[70vh] overflow-auto pr-1">
+				<DialogScrollArea className="max-h-[70vh]">
 					<SshNodeWizard
 						onCancel={onClose}
 						onCreated={(node) => {
@@ -33,7 +40,7 @@ export function AddSshNodeDialog({ onClose }: { onClose: () => void }) {
 							void navigate({ to: "/nodes/$nodeId", params: { nodeId: node.id } });
 						}}
 					/>
-				</div>
+				</DialogScrollArea>
 			</DialogContent>
 		</Dialog>
 	);

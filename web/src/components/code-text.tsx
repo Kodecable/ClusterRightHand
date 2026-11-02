@@ -10,6 +10,8 @@ export interface CodeTextProps {
 	/** Lines beyond this collapse; 0 disables collapsing. */
 	maxLines?: number;
 	className?: string;
+	/** Extra classes for the `<pre>`; `max-h-none` lets a dialog body own the scroll. */
+	preClassName?: string;
 	/** Show the copy button in the corner (default: true). */
 	copy?: boolean;
 	/** An accessible label for the block, e.g. "Command output". */
@@ -20,7 +22,7 @@ export interface CodeTextProps {
  * Long monospace output: a scrollable `<pre>` that collapses after `maxLines`,
  * with a copy button (doc/webui.md "CodeText").
  */
-export function CodeText({ text, maxLines = 24, className, copy = true, label }: CodeTextProps) {
+export function CodeText({ text, maxLines = 24, className, preClassName, copy = true, label }: CodeTextProps) {
 	const { t } = useLingui();
 	const [expanded, setExpanded] = useState(false);
 	const lines = useMemo(() => text.split("\n").length, [text]);
@@ -38,7 +40,12 @@ export function CodeText({ text, maxLines = 24, className, copy = true, label }:
 					<CopyButton text={text} label={label ? `${label}: ${t`Copy`}` : undefined} />
 				</div>
 			)}
-			<pre className="max-h-96 overflow-auto p-3 pr-9 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words">
+			<pre
+				className={cn(
+					"max-h-96 overflow-auto p-3 pr-9 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words",
+					preClassName,
+				)}
+			>
 				{visible}
 			</pre>
 			{collapsible && (

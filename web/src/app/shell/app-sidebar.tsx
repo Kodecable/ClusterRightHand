@@ -97,7 +97,7 @@ export function AppSidebar() {
 						<SidebarGroup key={group.label.id}>
 							<SidebarGroupLabel>{i18n._(group.label)}</SidebarGroupLabel>
 							<SidebarGroupContent>
-								<SidebarMenu>
+								<SidebarMenu className="gap-1">
 									{items.map((item) => {
 										const Icon = item.icon;
 										const active = isActive(item);

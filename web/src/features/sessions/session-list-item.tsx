@@ -28,30 +28,36 @@ export function SessionListItemRow({
 	const dot = item.state === "running" || item.state === "awaiting";
 	const tooltip = wait === undefined ? undefined : i18n._(wait);
 
+	// The extra height is the gap between rows. It sits outside the link so a
+	// selected row is an inset rounded rectangle, like the sidebar's active item.
+	// Virtua measures the content box of this wrapper, so a gap made of padding
+	// or margin would be lost and the rows would overlap.
 	return (
-		<Link
-			to="/sessions/$sessionId"
-			params={{ sessionId: item.id }}
-			data-testid="session-item"
-			data-session-id={item.id}
-			data-selected={selected ? "true" : "false"}
-			data-state={item.state}
-			data-waiting-kind={item.waitingKind ?? undefined}
-			aria-current={selected ? "page" : undefined}
-			title={tooltip}
-			tabIndex={tabIndex}
-			className={cn(
-				"flex h-9 min-w-0 items-center gap-2 px-2 text-left outline-none transition-colors hover:bg-accent/70 focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50",
-				selected && "bg-accent",
-			)}
-		>
-			{/* The dot's slot is always there, so an idle row's title lines up with a running one's. */}
-			<span className="inline-flex w-2 shrink-0 justify-center" data-testid="session-status-dot">
-				{dot && <SessionStatusDot state={item.state} />}
-				{wait !== undefined && <span className="sr-only">{i18n._(wait)}</span>}
-			</span>
-			<span className="min-w-0 flex-1 truncate text-sm">{title}</span>
-			<SessionMarkers scheduled={item.scheduleId !== null} shared={item.shared} sharedBy={item.ownerName} />
-		</Link>
+		<div className="flex h-10 min-w-0 items-center">
+			<Link
+				to="/sessions/$sessionId"
+				params={{ sessionId: item.id }}
+				data-testid="session-item"
+				data-session-id={item.id}
+				data-selected={selected ? "true" : "false"}
+				data-state={item.state}
+				data-waiting-kind={item.waitingKind ?? undefined}
+				aria-current={selected ? "page" : undefined}
+				title={tooltip}
+				tabIndex={tabIndex}
+				className={cn(
+					"mx-2 flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left outline-none transition-colors hover:bg-accent/70 focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50",
+					selected && "bg-accent",
+				)}
+			>
+				{/* The dot's slot is always there, so an idle row's title lines up with a running one's. */}
+				<span className="inline-flex w-2 shrink-0 justify-center" data-testid="session-status-dot">
+					{dot && <SessionStatusDot state={item.state} />}
+					{wait !== undefined && <span className="sr-only">{i18n._(wait)}</span>}
+				</span>
+				<span className="min-w-0 flex-1 truncate text-sm">{title}</span>
+				<SessionMarkers scheduled={item.scheduleId !== null} shared={item.shared} sharedBy={item.ownerName} />
+			</Link>
+		</div>
 	);
 }

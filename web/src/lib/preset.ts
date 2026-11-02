@@ -1,4 +1,4 @@
-import { type LucideIcon, MessageCircleQuestionIcon, ShieldCheckIcon, ZapIcon } from "lucide-react";
+import { type LucideIcon, ShieldAlertIcon, ShieldEllipsisIcon, ShieldQuestionMarkIcon } from "lucide-react";
 import type { Preset } from "@/lib/api/types";
 
 /**
@@ -10,9 +10,9 @@ import type { Preset } from "@/lib/api/types";
  * belongs next to the form, not here.
  */
 export const PRESETS: readonly { value: Preset; label: string; icon: LucideIcon }[] = [
-	{ value: "ask", label: "Ask", icon: MessageCircleQuestionIcon },
-	{ value: "auto_review", label: "Auto Review", icon: ShieldCheckIcon },
-	{ value: "yolo", label: "Yolo", icon: ZapIcon },
+	{ value: "ask", label: "Ask", icon: ShieldQuestionMarkIcon },
+	{ value: "auto_review", label: "Auto Review", icon: ShieldEllipsisIcon },
+	{ value: "yolo", label: "Yolo", icon: ShieldAlertIcon },
 ];
 
 /** The display name of a preset, or "" when there is none (a token without rules). */

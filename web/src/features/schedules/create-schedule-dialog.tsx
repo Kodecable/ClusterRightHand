@@ -3,7 +3,14 @@ import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogScrollArea,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import type { AvailableModel } from "@/lib/api/types";
 import { useCreateSchedule } from "./api";
 import { ScheduleForm, scheduleFormStateOf } from "./schedule-form";
@@ -31,7 +38,7 @@ export function CreateScheduleDialog({ models, onClose }: { models: AvailableMod
 						<Trans>A schedule creates a new session at every trigger and submits a fixed prompt.</Trans>
 					</DialogDescription>
 				</DialogHeader>
-				<div className="max-h-[70vh] overflow-auto pr-1">
+				<DialogScrollArea className="max-h-[70vh]">
 					<ScheduleForm
 						initial={initial}
 						models={models}
@@ -52,7 +59,7 @@ export function CreateScheduleDialog({ models, onClose }: { models: AvailableMod
 							<Trans>Cancel</Trans>
 						</Button>
 					</ScheduleForm>
-				</div>
+				</DialogScrollArea>
 			</DialogContent>
 		</Dialog>
 	);

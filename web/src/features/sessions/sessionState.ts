@@ -34,13 +34,15 @@ export interface ToolCallBlock {
 export type Block = TextBlock | ThinkingBlock | ToolCallBlock | { type: string };
 
 export type Message =
-	| { role: "user"; content: string | { type: string; text?: string }[] }
+	| { role: "user"; content: string | { type: string; text?: string }[]; timestamp?: number }
 	| {
 			role: "assistant";
 			content: Block[];
 			usage?: Usage;
 			stopReason?: string;
 			errorMessage?: string;
+			timestamp?: number;
+			durationMs?: number;
 	  }
 	| {
 			role: "toolResult";
@@ -49,6 +51,8 @@ export type Message =
 			content: { type: string; text?: string }[];
 			details?: Json;
 			isError: boolean;
+			timestamp?: number;
+			durationMs?: number;
 	  }
 	| { role: "system"; content: unknown };
 
@@ -422,7 +426,7 @@ export function reduceAll(state: SessionState, events: readonly AgentEvent[]): S
 // ---- derived view ----
 
 export type TranscriptItem =
-	| { kind: "user"; key: string; text: string }
+	| { kind: "user"; key: string; text: string; at?: number }
 	| {
 			kind: "text";
 			key: string;
@@ -430,6 +434,10 @@ export type TranscriptItem =
 			streaming: boolean;
 			/** The row came from the live stream and keeps its `StreamingTextStore` after commit. */
 			live?: boolean;
+			/** Epoch ms when the producing assistant message started. */
+			at?: number;
+			/** How long the producing assistant message took. */
+			durationMs?: number;
 	  }
 	| {
 			kind: "thinking";
@@ -470,6 +478,10 @@ export function transcript(state: SessionState): TranscriptItem[] {
 		streaming: boolean,
 		liveRow: boolean,
 	) => {
+		const timing = {
+			...(m.timestamp === undefined ? {} : { at: m.timestamp }),
+			...(m.durationMs === undefined ? {} : { durationMs: m.durationMs }),
+		};
 		m.content.forEach((b, i) => {
 			const k = `${key}/${i}`;
 			// While streaming, a block is listed from its first delta; its text is
@@ -477,7 +489,7 @@ export function transcript(state: SessionState): TranscriptItem[] {
 			if (b.type === "text") {
 				const text = (b as TextBlock).text;
 				if (text || streaming)
-					items.push({ kind: "text", key: k, text, streaming, ...(liveRow ? { live: true } : {}) });
+					items.push({ kind: "text", key: k, text, streaming, ...(liveRow ? { live: true } : {}), ...timing });
 			} else if (b.type === "thinking") {
 				const text = (b as ThinkingBlock).thinking;
 				if (text || streaming)
@@ -511,7 +523,13 @@ export function transcript(state: SessionState): TranscriptItem[] {
 	for (const { id, kind, message } of state.entries) {
 		if (kind === "pi.compaction" && message.role === "user") {
 			items.push({ kind: "compaction", key: id, text: userText(message.content) });
-		} else if (message.role === "user") items.push({ kind: "user", key: id, text: userText(message.content) });
+		} else if (message.role === "user")
+			items.push({
+				kind: "user",
+				key: id,
+				text: userText(message.content),
+				...(message.timestamp === undefined ? {} : { at: message.timestamp }),
+			});
 		else if (message.role === "assistant") {
 			const liveKey = state.streamedKeys[id];
 			addAssistant(liveKey ?? id, message, false, liveKey !== undefined);

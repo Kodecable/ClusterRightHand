@@ -230,7 +230,7 @@ test("4. scrolling up freezes the view and jump-to-latest resumes following", as
 	expect(await distance(page)).toBeLessThanOrEqual(2);
 });
 
-test("5. expanding a tool card does not move the content above it", async ({ page }) => {
+test("5. opening a tool dialog does not move the content above it", async ({ page }) => {
 	const fixture = sessionState();
 	const api = await mockApi(page, { state: fixture });
 	await login(page);
@@ -269,8 +269,13 @@ test("5. expanding a tool card does not move the content above it", async ({ pag
 	// Raw mouse click: a locator click would scroll the button into view first.
 	const clicked = tool as { id: string; box: { x: number; y: number; width: number; height: number } };
 	await page.mouse.click(clicked.box.x + clicked.box.width / 2, clicked.box.y + clicked.box.height / 2);
-	await expect(page.locator(SCROLLER).locator('[data-testid="tool-output"]').first()).toBeVisible();
-	await page.waitForTimeout(500);
+	const dialog = page.getByRole("dialog");
+	await expect(dialog).toBeVisible();
+	await expect(dialog.getByTestId("tool-output")).toBeVisible();
+	await page.waitForTimeout(300);
+	await page.keyboard.press("Escape");
+	await expect(dialog).toBeHidden();
+	await page.waitForTimeout(300);
 
 	const after = await messageTop(page, (anchor as Anchor).id);
 	expect(after).not.toBeNull();
@@ -333,4 +338,83 @@ test("7. Markdown in the transcript makes no remote request", async ({ page }) =
 	expect(remoteRequests).toBe(0);
 	expect(await page.evaluate(() => (window as unknown as { __crhPwned?: number }).__crhPwned)).toBeUndefined();
 	expect(await page.locator('[data-testid="safe-markdown"] img').count()).toBe(0);
+});
+
+test("8. a completed turn folds its process under the ended line", async ({ page }) => {
+	const user = userEntry("f1", "fold me");
+	if (user.model?.[0]?.role === "user") user.model[0].timestamp = 1_000;
+	const process = assistantEntry("f2", "");
+	if (process.model?.[0]?.role === "assistant") {
+		process.model[0].content = [{ type: "thinking", thinking: "internal reasoning" }];
+		process.model[0].timestamp = 1_100;
+		process.model[0].durationMs = 400;
+	}
+	const final = assistantEntry("f3", "The answer");
+	if (final.model?.[0]?.role === "assistant") {
+		final.model[0].timestamp = 2_000;
+		final.model[0].durationMs = 2_000;
+	}
+
+	const fixture = sessionState();
+	const api = await mockApi(page, {
+		state: {
+			...fixture,
+			events: {
+				s1: snapshotEvent([user, process, final], null),
+				s2: fixture.events.s2,
+			},
+		},
+	});
+	await login(page);
+	await openChat(page, api);
+
+	const summary = page.getByTestId("turn-summary");
+	await expect(summary).toContainText("Ended in 3s");
+	await expect(page.locator(SCROLLER).locator('[data-kind="thinking"]')).toHaveCount(0);
+	await expect(page.getByText("The answer")).toBeVisible();
+
+	await summary.getByRole("button").click();
+	await expect(summary.getByRole("button")).toHaveAttribute("aria-expanded", "true");
+	await expect(page.locator(SCROLLER).locator('[data-kind="thinking"]')).toHaveCount(1);
+	await expect(page.getByText("internal reasoning")).toBeVisible();
+
+	await summary.getByRole("button").click();
+	await expect(page.locator(SCROLLER).locator('[data-kind="thinking"]')).toHaveCount(0);
+});
+
+test("9. the process folds as soon as the final answer starts streaming", async ({ page }) => {
+	const fixture = sessionState();
+	const user = userEntry("live-u", "run");
+	if (user.model?.[0]?.role === "user") user.model[0].timestamp = Date.now() - 3_000;
+	const thought = assistantEntry("live-t", "");
+	if (thought.model?.[0]?.role === "assistant") {
+		thought.model[0].content = [{ type: "thinking", thinking: "internal reasoning" }];
+		thought.model[0].timestamp = Date.now() - 2_000;
+		thought.model[0].durationMs = 500;
+	}
+	const api = await mockApi(page, {
+		state: {
+			...fixture,
+			sessions: fixture.sessions.map((session, index) => (index === 0 ? { ...session, state: "running" } : session)),
+			events: { s1: snapshotEvent([user, thought], null), s2: fixture.events.s2 },
+		},
+	});
+	await login(page);
+	await openChat(page, api);
+
+	await api.emit("/api/sessions/s1/events", "events", [
+		{ type: "message_start", message: { role: "assistant", content: [], timestamp: Date.now() } },
+		{
+			type: "message_update",
+			changes: [
+				{ type: "text_start", contentIndex: 0, block: { type: "text", text: "" } },
+				{ type: "text_delta", contentIndex: 0, delta: "Final answer while streaming" },
+			],
+		},
+	]);
+
+	const summary = page.getByTestId("turn-summary");
+	await expect(summary).toContainText("Ended in");
+	await expect(page.locator(SCROLLER).locator('[data-kind="thinking"]')).toHaveCount(0);
+	await expect(page.getByText("Final answer while streaming")).toBeVisible();
 });

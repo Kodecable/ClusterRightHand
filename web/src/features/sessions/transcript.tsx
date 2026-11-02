@@ -1,22 +1,34 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ArrowDownIcon, LoaderCircleIcon } from "lucide-react";
-import { type UIEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Virtualizer } from "virtua";
 import { Button } from "@/components/ui/button";
 import type { TranscriptItem } from "./sessionState";
-import { TranscriptRow } from "./transcript-row";
+import { TranscriptRow, TurnSummaryRow } from "./transcript-row";
 import type { TranscriptStreams } from "./transcript-streams";
+import { buildTranscriptTurns } from "./turns";
 
 const END_THRESHOLD = 80;
 const SETTLE_MS = 2_000;
 const ANCHOR_MS = 400;
-const RESIZE_MS = 300;
 const LOAD_DEBOUNCE_MS = 120;
 
 interface Anchor {
 	id: string;
 	top: number;
 }
+
+type TranscriptDisplayRow =
+	| { kind: "item"; key: string; item: TranscriptItem }
+	| {
+			kind: "summary";
+			key: string;
+			turnKey: string;
+			startedAt: number | undefined;
+			live: boolean;
+			durationMs: number | undefined;
+			open: boolean;
+	  };
 
 /**
  * The session transcript (doc/webui.md "消息视图"): a virtua list with `shift`
@@ -27,8 +39,7 @@ interface Anchor {
  * freshly prepended page that is still measured from estimated row heights
  * moves the reading anchor by a few dozen pixels. The component records the
  * first visible row and its viewport offset, then re-aligns until
- * measurements settle (≤ 2 px by design). The same loop runs after a tool card
- * changes its height.
+ * measurements settle (≤ 2 px by design).
  */
 export function Transcript({
 	items,
@@ -64,8 +75,7 @@ export function Transcript({
 	const settleToken = useRef(0);
 	const programmaticAt = useRef(0);
 	const prependAnchor = useRef<Anchor | null>(null);
-	const resizeAnchor = useRef<Anchor | null>(null);
-	const resizeGuardToken = useRef(0);
+	const realignToken = useRef(0);
 	const loadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	const publishAtBottom = useCallback((value: boolean) => {
@@ -146,10 +156,10 @@ export function Transcript({
 	}, [visibleAnchor]);
 
 	const realign = useCallback((anchor: Anchor, durationMs: number) => {
-		const token = ++resizeGuardToken.current;
+		const token = ++realignToken.current;
 		const startedAt = performance.now();
 		const tick = () => {
-			if (resizeGuardToken.current !== token) return;
+			if (realignToken.current !== token) return;
 			const element = scrollRef.current;
 			const row = element?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(anchor.id)}"]`);
 			if (element && row) {
@@ -266,20 +276,43 @@ export function Transcript({
 		publishAtBottom(atEnd);
 	};
 
+	const [openTurns, setOpenTurns] = useState<ReadonlySet<string>>(() => new Set());
+	const turns = useMemo(() => buildTranscriptTurns(items, sessionActive), [items, sessionActive]);
+	const rows = useMemo(() => {
+		const display: TranscriptDisplayRow[] = [];
+		for (const turn of turns) {
+			if (turn.user !== undefined) display.push({ kind: "item", key: turn.user.key, item: turn.user });
+			if (!turn.foldable) {
+				for (const item of turn.body) display.push({ kind: "item", key: item.key, item });
+				continue;
+			}
+			const open = openTurns.has(turn.key);
+			display.push({
+				kind: "summary",
+				key: `summary:${turn.key}`,
+				turnKey: turn.key,
+				startedAt: turn.startedAt,
+				live: turn.live,
+				durationMs: turn.durationMs,
+				open,
+			});
+			if (open) for (const item of turn.process) display.push({ kind: "item", key: item.key, item });
+			if (turn.final !== undefined) display.push({ kind: "item", key: turn.final.key, item: turn.final });
+		}
+		return display;
+	}, [openTurns, turns]);
+	const toggleTurn = useCallback((key: string) => {
+		setOpenTurns((previous) => {
+			const next = new Set(previous);
+			if (next.has(key)) next.delete(key);
+			else next.add(key);
+			return next;
+		});
+	}, []);
+
 	const firstId = items[0]?.key ?? "";
 	const previousFirst = prevFirstId.current;
 	const shift = previousFirst !== null && firstId !== "" && firstId !== previousFirst;
-
-	const onBeforeResize = useCallback(() => {
-		resizeAnchor.current = visibleAnchor();
-	}, [visibleAnchor]);
-
-	const onAfterResize = useCallback(() => {
-		const anchor = resizeAnchor.current;
-		if (anchor === null) return;
-		resizeAnchor.current = null;
-		realign(anchor, RESIZE_MS);
-	}, [realign]);
 
 	return (
 		<div className="relative min-h-0 flex-1" data-slot="transcript">
@@ -312,7 +345,7 @@ export function Transcript({
 				)}
 				{items.length > 0 && (
 					<Virtualizer
-						data={items}
+						data={rows}
 						itemSize={120}
 						bufferSize={600}
 						shift={shift}
@@ -322,16 +355,20 @@ export function Transcript({
 							if (followingRef.current) requestAnimationFrame(pinToEnd);
 						}}
 					>
-						{(item) => (
-							<TranscriptRow
-								key={item.key}
-								item={item}
-								streams={streams}
-								sessionActive={sessionActive}
-								onBeforeResize={onBeforeResize}
-								onAfterResize={onAfterResize}
-							/>
-						)}
+						{(row) =>
+							row.kind === "summary" ? (
+								<TurnSummaryRow
+									key={row.key}
+									startedAt={row.startedAt}
+									live={row.live}
+									durationMs={row.durationMs}
+									open={row.open}
+									onToggle={() => toggleTurn(row.turnKey)}
+								/>
+							) : (
+								<TranscriptRow key={row.key} item={row.item} streams={streams} sessionActive={sessionActive} />
+							)
+						}
 					</Virtualizer>
 				)}
 			</div>
@@ -339,14 +376,15 @@ export function Transcript({
 				<div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
 					<Button
 						type="button"
-						size="sm"
-						variant="secondary"
+						size="icon-lg"
+						variant="outline"
 						data-testid="jump-to-latest"
-						className="pointer-events-auto shadow-md"
+						aria-label={t`Jump to latest`}
+						title={t`Jump to latest`}
+						className="pointer-events-auto rounded-full bg-background shadow-sm dark:bg-background"
 						onClick={() => settleToEnd()}
 					>
 						<ArrowDownIcon />
-						<Trans>Jump to latest</Trans>
 					</Button>
 				</div>
 			)}

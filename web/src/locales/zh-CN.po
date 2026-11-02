@@ -132,7 +132,7 @@ msgstr "{bytes, plural, one {# 字节} other {# 字节}}"
 msgid "{count, plural, one {# waiting} other {# waiting}}"
 msgstr "{count, plural, one {# 项等待中} other {# 项等待中}}"
 
-#: src/features/sessions/composer-footer.tsx
+#: src/features/sessions/composer-meta.tsx
 msgid "{exact} tokens in total"
 msgstr "共 {exact} 个 token"
 
@@ -211,12 +211,12 @@ msgid "A name is required."
 msgstr "需要填写名称。"
 
 #: src/features/sessions/composer-footer.tsx
-msgid "A new model applies from the next turn."
-msgstr "新模型从下一轮开始生效。"
+#~ msgid "A new model applies from the next turn."
+#~ msgstr "新模型从下一轮开始生效。"
 
 #: src/features/sessions/composer-footer.tsx
-msgid "A new preset applies to the next tool call; waiting approvals are decided again."
-msgstr "新预设从下一次工具调用开始生效；等待中的审批会重新判定。"
+#~ msgid "A new preset applies to the next tool call; waiting approvals are decided again."
+#~ msgstr "新预设从下一次工具调用开始生效；等待中的审批会重新判定。"
 
 #: src/features/credentials/pages.tsx
 msgid "A node authorizes a privileged task signed by one of these credentials when its privileged.toml trusts the key."
@@ -700,12 +700,12 @@ msgstr "预算"
 
 #. placeholder {0}: formatTokens(remaining, locale)
 #: src/features/sessions/composer-footer.tsx
-msgid "Budget {0}"
-msgstr "预算 {0}"
+#~ msgid "Budget {0}"
+#~ msgstr "预算 {0}"
 
 #: src/features/sessions/composer-footer.tsx
-msgid "Budget 0"
-msgstr "预算 0"
+#~ msgid "Budget 0"
+#~ msgstr "预算 0"
 
 #: src/components/quota-card.tsx
 msgid "Budget used up · {usedText} spent"
@@ -937,7 +937,7 @@ msgstr "上下文已压缩"
 msgid "Context window"
 msgstr "上下文窗口"
 
-#: src/features/sessions/composer-footer.tsx
+#: src/features/sessions/composer-meta.tsx
 msgid "Context: {percent}% used"
 msgstr "上下文已用 {percent}%"
 
@@ -1349,6 +1349,14 @@ msgstr "已启用"
 #: src/features/schedules/schedule-actions.tsx
 msgid "Enabled: {0}"
 msgstr "启用状态：{0}"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Ended"
+msgstr "已完成"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Ended in {duration}"
+msgstr "已完成，用时 {duration}"
 
 #: src/features/nodes/pages.tsx
 msgid "Enrolled crha clients and SSH targets. Pending nodes need their key fingerprint checked before they can be used."
@@ -1846,7 +1854,6 @@ msgstr "权限"
 
 #: src/components/model-select.tsx
 #: src/features/schedules/schedule-form.tsx
-#: src/features/sessions/composer-footer.tsx
 #: src/features/sessions/new-session-dialog.tsx
 #: src/features/settings/review-model-card.tsx
 msgid "Model"
@@ -2465,7 +2472,6 @@ msgstr "正在准备待签名的载荷…"
 
 #: src/components/preset-select.tsx
 #: src/features/schedules/schedule-form.tsx
-#: src/features/sessions/composer-footer.tsx
 #: src/features/sessions/new-session-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx

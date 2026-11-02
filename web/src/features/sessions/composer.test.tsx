@@ -229,25 +229,28 @@ describe("ComposerFooter", () => {
 		await waitFor(() => expect(screen.getByTestId("composer-context")).toHaveTextContent("50%"));
 		expect(screen.getByTestId("composer-model")).toHaveTextContent("faux/faux-1");
 		expect(screen.getByTestId("composer-rules")).toHaveTextContent("Yolo");
-		expect(screen.getByTestId("composer-budget")).toHaveTextContent("Budget 12.3K");
+		expect(screen.getByTestId("composer-budget")).toHaveTextContent("12.3K");
 		expect(screen.getByTestId("composer-usage")).toHaveTextContent("1.5M");
 		// The exact numbers are the tooltips.
 		expect(screen.getByTestId("composer-budget")).toHaveAttribute("title", "12,345 tokens left");
 		expect(screen.getByTestId("composer-context")).toHaveAttribute("title", "64,000 / 128,000");
 		expect(screen.getByTestId("composer-usage")).toHaveAttribute("title", "1,500,000 tokens in total");
+		expect(screen.getByTestId("composer-rules").querySelector(".lucide-shield-alert")).not.toBeNull();
+		expect(screen.getByTestId("composer-budget").querySelector(".lucide-droplet")).not.toBeNull();
+		expect(screen.getByTestId("composer-usage").querySelector(".lucide-database")).not.toBeNull();
 	});
 
-	test("an unlimited budget says so, and a negative one reads Budget 0 in the danger tone", async () => {
+	test("an unlimited budget reads infinity, and a negative one reads 0 in the danger tone", async () => {
 		mockFetch();
 		const view = renderComposer({ session: { budgetRemaining: null } });
-		expect(screen.getByTestId("composer-budget")).toHaveTextContent("No budget limit");
+		expect(screen.getByTestId("composer-budget")).toHaveTextContent("∞");
 		view.rerender(
 			<QueryClientProvider client={new QueryClient()}>
 				<Composer session={sessionView({ budgetRemaining: -5 })} stoppable={false} waitingKind={null} />
 			</QueryClientProvider>,
 		);
 		const budget = screen.getByTestId("composer-budget");
-		expect(budget).toHaveTextContent("Budget 0");
+		expect(budget).toHaveTextContent("0");
 		expect(budget.className).toContain("text-danger");
 	});
 
@@ -276,16 +279,17 @@ describe("ComposerFooter", () => {
 		expect(screen.queryByRole("button", { name: "Preset" })).not.toBeInTheDocument();
 	});
 
-	test("Stop appears only while a run can be stopped, next to Send", async () => {
+	test("the icon button is Stop for an empty draft while stoppable, Send otherwise", () => {
 		mockFetch();
-		const view = renderComposer();
+		renderComposer({ stoppable: true });
+		expect(screen.getByTestId("abort-session").querySelector(".lucide-square")).not.toBeNull();
+		expect(screen.queryByTestId("composer-send")).not.toBeInTheDocument();
+
+		fireEvent.change(input(), { target: { value: "steer the run" } });
+		expect(screen.getByTestId("composer-send").querySelector(".lucide-arrow-up")).not.toBeNull();
 		expect(screen.queryByTestId("abort-session")).not.toBeInTheDocument();
-		expect(screen.getByTestId("composer-send")).toBeInTheDocument();
-		view.rerender(
-			<QueryClientProvider client={new QueryClient()}>
-				<Composer session={sessionView()} stoppable waitingKind={null} />
-			</QueryClientProvider>,
-		);
+
+		fireEvent.change(input(), { target: { value: "" } });
 		expect(screen.getByTestId("abort-session")).toBeInTheDocument();
 	});
 });

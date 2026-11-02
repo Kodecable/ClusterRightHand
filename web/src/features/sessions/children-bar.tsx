@@ -1,6 +1,6 @@
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
-import { ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, UsersIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, UsersIcon } from "lucide-react";
 import { useState } from "react";
 import { SessionStatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,7 @@ export function ChildrenBar({
 			type="button"
 			variant="ghost"
 			size="xs"
-			className="w-full justify-start gap-1.5 rounded-none border-t px-3 py-1.5 text-xs font-normal text-muted-foreground hover:bg-accent/50"
+			className="w-full justify-start gap-1.5 rounded-xl px-3 py-1.5 text-xs font-normal text-muted-foreground hover:bg-accent/50"
 			data-testid="children-bar"
 			aria-label={t`Subagents`}
 			aria-expanded={open}
@@ -49,18 +49,9 @@ export function ChildrenBar({
 			<UsersIcon className="size-3.5 shrink-0" aria-hidden="true" />
 			<span className="inline-flex min-w-0 items-center gap-1.5">
 				<Plural value={total} one="# subagent" other="# subagents" />
-				{running > 0 && (
-					<span className="text-info">
-						<Trans>{running} running</Trans>
-					</span>
-				)}
-				{awaiting > 0 && (
-					<span className="text-warn">
-						<Trans>{awaiting} awaiting</Trans>
-					</span>
-				)}
+				{running > 0 && <Trans>{running} running</Trans>}
+				{awaiting > 0 && <Trans>{awaiting} awaiting</Trans>}
 			</span>
-			<ChevronUpIcon className="ml-auto size-3.5 shrink-0" aria-hidden="true" />
 		</Button>
 	);
 
@@ -80,7 +71,7 @@ export function ChildrenBar({
 	if (isMobile) {
 		return (
 			<>
-				{trigger}
+				<div className="mx-3 mb-0 rounded-xl bg-popover/80 backdrop-blur">{trigger}</div>
 				<Sheet open={open} onOpenChange={setOpen}>
 					<SheetContent side="bottom" className="max-h-[70vh]" data-testid="children-sheet">
 						<SheetHeader>
@@ -96,7 +87,9 @@ export function ChildrenBar({
 	}
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
-			<PopoverTrigger render={trigger} />
+			<div className="mx-3 mb-0 rounded-xl bg-popover/80 backdrop-blur" data-testid="children-bar-shell">
+				<PopoverTrigger render={trigger} />
+			</div>
 			<PopoverContent
 				side="top"
 				align="start"

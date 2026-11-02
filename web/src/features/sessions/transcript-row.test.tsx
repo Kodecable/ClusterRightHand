@@ -5,7 +5,7 @@ import { taskKeys } from "@/features/tasks/api";
 import type { TaskGroupView, TaskView } from "@/lib/api/types";
 import { renderWithI18n, testQueryClient } from "@/test/render";
 import type { Json, TranscriptItem } from "./sessionState";
-import { callStillOpen, TranscriptRow, toolSummary } from "./transcript-row";
+import { callStillOpen, TranscriptRow, toolLine } from "./transcript-row";
 import { TranscriptStreams } from "./transcript-streams";
 
 afterEach(() => {
@@ -62,14 +62,29 @@ describe("TranscriptRow", () => {
 		expect(screen.getByText("world")).toBe(strong);
 	});
 
-	test("thinking is collapsible and muted", () => {
-		renderRow({ kind: "thinking", key: "t1", text: "quiet reasoning", streaming: false });
+	test("thinking is collapsible, shows its first line when settled and hides the preview when open", () => {
+		renderRow({ kind: "thinking", key: "t1", text: "first line\nsecond line", streaming: false });
 		const toggle = screen.getByTestId("thinking-toggle");
 		expect(toggle).toHaveTextContent("Thinking");
-		expect(screen.getByText("quiet reasoning")).toBeInTheDocument();
+		expect(toggle).toHaveAttribute("aria-expanded", "false");
+		expect(screen.getByTestId("thinking-preview")).toHaveTextContent("first line");
+		fireEvent.click(toggle);
+		expect(toggle).toHaveAttribute("aria-expanded", "true");
+		expect(screen.queryByTestId("thinking-preview")).not.toBeInTheDocument();
+		expect(screen.getByTestId("safe-markdown")).toHaveTextContent("first line");
+		expect(screen.getByTestId("safe-markdown")).toHaveTextContent("second line");
 	});
 
-	test("a tool card starts collapsed and shows arguments and result when expanded", () => {
+	test("thinking shows the latest line while streaming", () => {
+		const streams = new TranscriptStreams();
+		const store = streams.text("live/1/0");
+		store.setText("first line\nlatest line");
+		store.flush();
+		renderRow({ kind: "thinking", key: "live/1/0", text: "", streaming: true, live: true }, streams);
+		expect(screen.getByTestId("thinking-preview")).toHaveTextContent("latest line");
+	});
+
+	test("a tool row opens a dialog with arguments and result", async () => {
 		renderRow({
 			kind: "tool",
 			key: "a1/0",
@@ -82,10 +97,10 @@ describe("TranscriptRow", () => {
 			result: { text: '{"state":"exited","exit_code":0}', isError: false, details: undefined },
 		});
 		const toggle = screen.getByTestId("tool-toggle");
-		expect(toggle).toHaveAttribute("aria-expanded", "false");
+		expect(toggle).toHaveAttribute("aria-haspopup", "dialog");
 		expect(screen.queryByTestId("tool-output")).not.toBeInTheDocument();
 		fireEvent.click(toggle);
-		expect(toggle).toHaveAttribute("aria-expanded", "true");
+		expect(await screen.findByRole("dialog")).toBeInTheDocument();
 		expect(screen.getByTestId("tool-output")).toHaveTextContent("uname -a");
 		expect(screen.getByTestId("tool-output")).toHaveTextContent("exit_code");
 	});
@@ -104,7 +119,7 @@ describe("TranscriptRow", () => {
 		});
 		const toggle = screen.getByTestId("tool-toggle");
 		expect(toggle).toHaveTextContent("exec");
-		expect(toggle).toHaveTextContent("uname -a · n1");
+		expect(toggle).toHaveTextContent("exec · n1 · uname -a");
 		// The status is the leading icon's accessible name, not a text badge.
 		expect(screen.getByTestId("tool-card")).toHaveAttribute("data-tool-status", "done");
 		expect(screen.getByTestId("tool-status-icon")).toHaveAccessibleName("Done");
@@ -133,17 +148,27 @@ describe("TranscriptRow", () => {
 		expect(screen.getByTestId("tool-toggle")).not.toHaveTextContent(/Idle|Running/);
 	});
 
-	test("toolSummary picks the telling argument of each tool", () => {
-		expect(toolSummary({ cmd: "systemctl restart nginx" })).toBe("systemctl restart nginx");
-		expect(toolSummary({ argv: ["bash", "-c", "true"] })).toBe("bash -c true");
-		expect(toolSummary({ path: "/etc/hosts", node: "web-1" })).toBe("/etc/hosts · web-1");
-		expect(toolSummary({ cmd: "uptime", targets: ["a", "b"] })).toBe("uptime · a, b");
-		expect(toolSummary({ cmd: "df -h /var" })).toBe("df -h /var");
-		expect(toolSummary({})).toBe("");
-		expect(toolSummary({ timeout: 5 })).toBe("timeout");
+	test("toolLine is name · node · subject, without status or extra options", () => {
+		expect(toolLine("exec", { cmd: "echo only-on-stderr >&2", targets: ["db-1"] })).toBe(
+			"exec · db-1 · echo only-on-stderr >&2",
+		);
+		expect(
+			toolLine("read_file", {
+				path: "/var/lib/crha/output/bb2a1eb5-305c-8a8a-80c3-49dc0b2598a5.log",
+				targets: ["db-1"],
+			}),
+		).toBe("read_file · db-1 · /var/lib/crha/output/bb2a1eb5-305c-8a8a-80c3-49dc0b2598a5.log");
+		expect(toolLine("subagent", { task: "restart nginx", background: true })).toBe("subagent · restart nginx");
+		expect(toolLine("task_wait", { task_id: "d33dae4a-c1a3-8a94-9cf7-099289eb5dc2", wait: 30 })).toBe(
+			"task_wait · d33dae4a-c1a3-8a94-9cf7-099289eb5dc2",
+		);
+		expect(toolLine("task_wait", { task_group_id: "g1" })).toBe("task_wait · g1");
+		expect(toolLine("exec", { argv: ["bash", "-c", "true"], targets: ["a", "b"] })).toBe("exec · a, b · bash -c true");
+		expect(toolLine("node_info", { node: "app-1" })).toBe("node_info · app-1");
+		expect(toolLine("list_nodes", {})).toBe("list_nodes");
 	});
 
-	test("a running tool shows its live output store", () => {
+	test("a running tool shows its live output store", async () => {
 		const streams = new TranscriptStreams();
 		const store = streams.tool("call-2");
 		store.setText("line one");
@@ -163,7 +188,7 @@ describe("TranscriptRow", () => {
 			streams,
 		);
 		fireEvent.click(screen.getByTestId("tool-toggle"));
-		expect(screen.getByTestId("tool-output")).toHaveTextContent("line one");
+		expect(await screen.findByTestId("tool-output")).toHaveTextContent("line one");
 	});
 
 	test("a compaction entry is a divider, not a user bubble", () => {

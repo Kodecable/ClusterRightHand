@@ -132,7 +132,7 @@ msgstr "{bytes, plural, one {# byte} other {# bytes}}"
 msgid "{count, plural, one {# waiting} other {# waiting}}"
 msgstr "{count, plural, one {# waiting} other {# waiting}}"
 
-#: src/features/sessions/composer-footer.tsx
+#: src/features/sessions/composer-meta.tsx
 msgid "{exact} tokens in total"
 msgstr "{exact} tokens in total"
 
@@ -211,12 +211,12 @@ msgid "A name is required."
 msgstr "A name is required."
 
 #: src/features/sessions/composer-footer.tsx
-msgid "A new model applies from the next turn."
-msgstr "A new model applies from the next turn."
+#~ msgid "A new model applies from the next turn."
+#~ msgstr "A new model applies from the next turn."
 
 #: src/features/sessions/composer-footer.tsx
-msgid "A new preset applies to the next tool call; waiting approvals are decided again."
-msgstr "A new preset applies to the next tool call; waiting approvals are decided again."
+#~ msgid "A new preset applies to the next tool call; waiting approvals are decided again."
+#~ msgstr "A new preset applies to the next tool call; waiting approvals are decided again."
 
 #: src/features/credentials/pages.tsx
 msgid "A node authorizes a privileged task signed by one of these credentials when its privileged.toml trusts the key."
@@ -700,12 +700,12 @@ msgstr "Budget"
 
 #. placeholder {0}: formatTokens(remaining, locale)
 #: src/features/sessions/composer-footer.tsx
-msgid "Budget {0}"
-msgstr "Budget {0}"
+#~ msgid "Budget {0}"
+#~ msgstr "Budget {0}"
 
 #: src/features/sessions/composer-footer.tsx
-msgid "Budget 0"
-msgstr "Budget 0"
+#~ msgid "Budget 0"
+#~ msgstr "Budget 0"
 
 #: src/components/quota-card.tsx
 msgid "Budget used up · {usedText} spent"
@@ -937,7 +937,7 @@ msgstr "Context compacted"
 msgid "Context window"
 msgstr "Context window"
 
-#: src/features/sessions/composer-footer.tsx
+#: src/features/sessions/composer-meta.tsx
 msgid "Context: {percent}% used"
 msgstr "Context: {percent}% used"
 
@@ -1349,6 +1349,14 @@ msgstr "Enabled"
 #: src/features/schedules/schedule-actions.tsx
 msgid "Enabled: {0}"
 msgstr "Enabled: {0}"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Ended"
+msgstr "Ended"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Ended in {duration}"
+msgstr "Ended in {duration}"
 
 #: src/features/nodes/pages.tsx
 msgid "Enrolled crha clients and SSH targets. Pending nodes need their key fingerprint checked before they can be used."
@@ -1846,7 +1854,6 @@ msgstr "Mode"
 
 #: src/components/model-select.tsx
 #: src/features/schedules/schedule-form.tsx
-#: src/features/sessions/composer-footer.tsx
 #: src/features/sessions/new-session-dialog.tsx
 #: src/features/settings/review-model-card.tsx
 msgid "Model"
@@ -2465,7 +2472,6 @@ msgstr "Preparing the payload to sign…"
 
 #: src/components/preset-select.tsx
 #: src/features/schedules/schedule-form.tsx
-#: src/features/sessions/composer-footer.tsx
 #: src/features/sessions/new-session-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
