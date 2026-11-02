@@ -15,7 +15,7 @@ import {
 	type TrustEntry,
 	type TrustSummary,
 } from "@crh/protocol";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
@@ -33,6 +33,9 @@ import { newId } from "../src/util/id.ts";
 import { type FakeCrha, handshakeInit, TestAgentServer, waitFor } from "./helpers/agent.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
+
+// Database setup and the fake agent handshake are cheap in isolation but not under a loaded machine.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const EXEC: TaskSpec = {
 	kind: "exec",

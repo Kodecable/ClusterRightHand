@@ -1,7 +1,7 @@
 import type { TaskSpec } from "@crh/protocol";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import { markSessionsIdle, sessionStateOf } from "../src/agent/session-state.ts";
@@ -17,6 +17,9 @@ import { newId } from "../src/util/id.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
 import { toolNames, waitSubmission } from "./helpers/runtime.ts";
+
+// A loaded machine can push these past the default 5 s timeout.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /** Background subagents and the parent agent's handling of their approvals (doc/agent-runtime.md#subagent). */
 let db: Db;

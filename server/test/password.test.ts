@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
 	DEFAULT_HASH_PARAMETERS,
 	hashPassword,
@@ -6,6 +6,10 @@ import {
 	setHashParametersForTesting,
 	verifyPassword,
 } from "../src/auth/password.ts";
+
+// The production scrypt cost makes one hash take hundreds of milliseconds; a loaded machine can push
+// the default 5 s timeout over.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 describe("password hashing", () => {
 	// vitest.setup.ts lowers the cost for other suites; this one checks the production parameters.

@@ -58,19 +58,29 @@ export async function revokeAuthorizationRow(
 /**
  * Splits entries into frames well under MAX_FRAME_BYTES. There is at least one entry per batch (a
  * single entry is far smaller than a frame), and the small margin covers the frame header.
+ *
+ * The largest fitting prefix is found by binary search. Encoding the growing candidate after every
+ * entry would be quadratic, and a node's revocation list can hold thousands of entries.
  */
 export function batchRevocations(entries: readonly Revocation[], maxBodyBytes = MAX_FRAME_BYTES - 512): Revocation[][] {
 	const batches: Revocation[][] = [];
-	let current: Revocation[] = [];
-	for (const entry of entries) {
-		const next = [...current, entry];
-		if (current.length > 0 && encodeCbor(revocationsAddCodec.encode({ entries: next })).length > maxBodyBytes) {
-			batches.push(current);
-			current = [entry];
-		} else {
-			current = next;
+	let start = 0;
+	while (start < entries.length) {
+		let low = start + 1;
+		let high = entries.length;
+		let best = low;
+		while (low <= high) {
+			const middle = (low + high) >> 1;
+			const encoded = encodeCbor(revocationsAddCodec.encode({ entries: entries.slice(start, middle) })).length;
+			if (encoded <= maxBodyBytes) {
+				best = middle;
+				low = middle + 1;
+			} else {
+				high = middle - 1;
+			}
 		}
+		batches.push(entries.slice(start, best));
+		start = best;
 	}
-	if (current.length > 0) batches.push(current);
 	return batches;
 }

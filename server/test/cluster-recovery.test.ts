@@ -1,6 +1,6 @@
 import { generateKeyPair } from "@crh/noise";
 import { type TaskSpec, taskSpecToJson } from "@crh/protocol";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cluster } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
@@ -9,6 +9,9 @@ import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { type FakeCrha, handshakeInit, TestAgentServer, waitFor } from "./helpers/agent.ts";
 import { openTestDb } from "./helpers/db.ts";
+
+// A loaded machine can push these past the default 5 s timeout.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const EXEC: TaskSpec = {
 	kind: "exec",

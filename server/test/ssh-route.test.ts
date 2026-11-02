@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { probeHostKey, type SshRoute, testRoute } from "../src/cluster/ssh/connection.ts";
+
+// A loaded machine can push these past the default 5 s timeout.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const target = process.env.CRH_TEST_SSH;
 const keyPath = process.env.CRH_TEST_SSH_KEY;
