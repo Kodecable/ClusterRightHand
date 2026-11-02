@@ -20,7 +20,8 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | [webui.md](webui.md) | WebUI 重构：技术栈、架构、API 约定、分期 |
 | [mcp.md](mcp.md) | MCP 门面 |
 | [data-model.md](data-model.md) | 数据表草案 |
-| [m4.md](m4.md) | M4 提权的实现计划、阶段和测试矩阵 |
+| [testing/README.md](testing/README.md) | 测试分层、环境、命令与 CI 覆盖；各层细节见 `testing/` |
+| [m4.md](m4.md) | M4 提权的实现计划与阶段（测试见 [testing/privileged.md](testing/privileged.md)） |
 | [roadmap.md](roadmap.md) | 里程碑 |
 
 ## 产品定位
