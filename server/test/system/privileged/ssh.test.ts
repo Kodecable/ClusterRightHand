@@ -1,37 +1,38 @@
 /**
- * Item 9 of the M4 podman matrix (doc/m4.md 测试矩阵): an SSH node ignores `privileged`, runs the
- * task as the SSH user, and says so in the task's stderr; SFTP `file.*` tasks keep working.
+ * The SSH-node case of the privileged system suite (doc/testing/privileged.md): an SSH node ignores
+ * `privileged`, runs the task as the SSH user, and says so in the task's stderr; SFTP `file.*` tasks
+ * keep working.
  *
- * The sshd is the one in the M4 container (127.0.0.1:2222); crhs reaches it over a real SSH
+ * The sshd is the one in the suite container (127.0.0.1:2222); crhs reaches it over a real SSH
  * connection with a key it generated through the API.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { SSH_PRIVILEGED_NOTICE } from "../../src/cluster/ssh/exec.ts";
-import { InProcessCrhs } from "../e2e/harness.ts";
-import { buildStaticCrha, freePort, M4Node, parseEnv, podmanAvailable } from "./harness.ts";
+import { SSH_PRIVILEGED_NOTICE } from "../../../src/cluster/ssh/exec.ts";
+import { InProcessCrhs } from "../../e2e/harness.ts";
+import { buildStaticCrha, freePort, PrivilegedNode, parseEnv, podmanAvailable } from "./harness.ts";
 
 const describePodman = describe.skipIf(!podmanAvailable);
 
-describePodman("M4 podman: SSH nodes", () => {
+describePodman("privileged system: SSH nodes", () => {
 	let tmp = "";
 	let bin = "";
 	let crhs: InProcessCrhs;
-	let node: M4Node;
+	let node: PrivilegedNode;
 	let sshNodeId = "";
 	let sshPort = 0;
 
 	beforeAll(async () => {
-		tmp = await mkdtemp(join(tmpdir(), "crh-m4-ssh-"));
+		tmp = await mkdtemp(join(tmpdir(), "crh-priv-ssh-"));
 		bin = await buildStaticCrha(tmp);
 		crhs = await InProcessCrhs.create();
 		await crhs.loginAdmin();
 		sshPort = await freePort();
-		node = await M4Node.create({ bin, crhs, mode: "forward", trust: [], ssh: true, sshPort });
+		node = await PrivilegedNode.create({ bin, crhs, mode: "forward", trust: [], ssh: true, sshPort });
 		// crhs generates the key pair; the public half goes into the container's authorized_keys.
-		const credential = await crhs.api("/api/ssh-credentials", { body: { name: "m4-sshd" } });
+		const credential = await crhs.api("/api/ssh-credentials", { body: { name: "priv-sshd" } });
 		expect(credential.status).toBe(201);
 		const publicKey = credential.json.credential.publicKey as string;
 		const credentialId = credential.json.credential.id as string;
@@ -42,7 +43,7 @@ describePodman("M4 podman: SSH nodes", () => {
 		const hostKey = probe.json.fingerprint as string;
 		expect(hostKey).toMatch(/^SHA256:/);
 		const created = await crhs.api("/api/ssh-nodes", {
-			body: { name: "m4-sshd", groups: ["web"], ...target, hostKey },
+			body: { name: "priv-sshd", groups: ["web"], ...target, hostKey },
 		});
 		expect(created.status).toBe(201);
 		sshNodeId = created.json.node.id as string;
@@ -71,14 +72,14 @@ describePodman("M4 podman: SSH nodes", () => {
 	it("still runs a privileged file.write and file.read over SFTP", async () => {
 		const written = await crhs.runTask(sshNodeId, {
 			kind: "file.write",
-			path: "/root/m4-sftp.txt",
+			path: "/root/crh-sftp.txt",
 			content: "sftp-content\n",
 			overwrite: true,
 			privileged: true,
 		});
 		expect(written).toMatchObject({ state: "exited", exitCode: 0 });
 		expect(written.stderrHead).toBe(SSH_PRIVILEGED_NOTICE);
-		const read = await crhs.runTask(sshNodeId, { kind: "file.read", path: "/root/m4-sftp.txt", privileged: true });
+		const read = await crhs.runTask(sshNodeId, { kind: "file.read", path: "/root/crh-sftp.txt", privileged: true });
 		expect(read.state).toBe("exited");
 		expect(read.stdoutHead + read.stdoutTail).toContain("sftp-content");
 		// The notice comes first; the task's own stderr carries the file.read result JSON.
@@ -102,7 +103,7 @@ describePodman("M4 podman: SSH nodes", () => {
 			LC_ALL: "C.UTF-8",
 		});
 		expect(env.CRHA_TASK_HOME).toBeUndefined();
-		expect(Object.keys(env).filter((k) => k.startsWith("M4_") || k === "container")).toEqual([]);
+		expect(Object.keys(env).filter((k) => ["PRIV_SSH_PORT", "PRIV_NO_SSHD", "container"].includes(k))).toEqual([]);
 	}, 60_000);
 
 	it("lets a task's own LANG win over the default", async () => {

@@ -1,5 +1,5 @@
 /**
- * The podman fixture of the M4 end-to-end matrix (doc/m4.md 测试矩阵, server/test/m4/README.md).
+ * The podman fixture of the privileged system suite (doc/testing/privileged.md).
  *
  * One container is one node: a real `crha privileged run` as root on /run/crha/privileged.sock, a real
  * `crha run` as uid 998 crha, and an sshd on 127.0.0.1:2222. The crhs side is the in-process server of
@@ -15,12 +15,12 @@ import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { type InProcessCrhs, type TaskJson, waitFor } from "../e2e/harness.ts";
+import { type InProcessCrhs, type TaskJson, waitFor } from "../../e2e/harness.ts";
 
 const execFileAsync = promisify(execFile);
 
-export const M4_DIR = resolve(import.meta.dirname);
-export const CLIENT_DIR = resolve(M4_DIR, "../../../client");
+export const SUITE_DIR = resolve(import.meta.dirname);
+export const CLIENT_DIR = resolve(SUITE_DIR, "../../../../client");
 /** Path of crha inside the container; the sudoers and doas rules name it. */
 export const CONTAINER_CRHA = "/usr/local/bin/crha";
 export const PRIV_SOCKET = "/run/crha/privileged.sock";
@@ -109,13 +109,13 @@ export async function buildStaticCrha(outDir: string): Promise<string> {
  * are never reused. The image itself is left in the local store afterwards (the brief asks for that).
  */
 export async function ensureImage(): Promise<string> {
-	const files = ["Containerfile", "entrypoint.sh", "m4ctl.sh", "fixtures/sshd_config"];
+	const files = ["Containerfile", "entrypoint.sh", "privctl.sh", "fixtures/sshd_config"];
 	const hash = createHash("sha256");
-	for (const name of files) hash.update(await readFile(join(M4_DIR, name)));
-	const tag = `crh-m4-e2e:${hash.digest("hex").slice(0, 12)}`;
+	for (const name of files) hash.update(await readFile(join(SUITE_DIR, name)));
+	const tag = `crh-privileged-system:${hash.digest("hex").slice(0, 12)}`;
 	const exists = await podman(["image", "exists", tag]);
 	if (exists.code === 0) return tag;
-	const build = await podman(["build", "-t", tag, "-f", join(M4_DIR, "Containerfile"), M4_DIR], {
+	const build = await podman(["build", "-t", tag, "-f", join(SUITE_DIR, "Containerfile"), SUITE_DIR], {
 		timeout: 15 * 60_000,
 	});
 	if (build.code !== 0) throw new Error(`podman build ${tag} failed:\n${build.stdout}\n${build.stderr}`);
@@ -189,8 +189,8 @@ export interface GuardRuleSpec {
 	regex?: string;
 }
 
-/** A running M4 test container and its crhs-side node. */
-export class M4Node {
+/** A running privileged test container and its crhs-side node. */
+export class PrivilegedNode {
 	readonly name: string;
 	readonly dir: string;
 	readonly crhs: InProcessCrhs;
@@ -220,11 +220,11 @@ export class M4Node {
 	}
 
 	/** Starts a container, enrolls the node, writes the privileged config and waits until crha is up. */
-	static async create(opts: ContainerOptions): Promise<M4Node> {
+	static async create(opts: ContainerOptions): Promise<PrivilegedNode> {
 		const image = await ensureImage();
-		const dir = await mkdtemp(join(tmpdir(), "crh-m4-"));
-		const node = new M4Node(
-			`crh-m4-${process.pid}-${Math.random().toString(36).slice(2, 8)}`,
+		const dir = await mkdtemp(join(tmpdir(), "crh-priv-"));
+		const node = new PrivilegedNode(
+			`crh-priv-${process.pid}-${Math.random().toString(36).slice(2, 8)}`,
 			dir,
 			opts.crhs,
 			opts.bin,
@@ -262,11 +262,11 @@ export class M4Node {
 			this.name,
 			"--network=host",
 			"--init",
-			...(opts.ssh ? ["-e", `M4_SSH_PORT=${this.sshPort}`] : ["-e", "M4_NO_SSHD=1"]),
+			...(opts.ssh ? ["-e", `PRIV_SSH_PORT=${this.sshPort}`] : ["-e", "PRIV_NO_SSHD=1"]),
 			"-v",
 			`${this.configDir}:/etc/crha:rw`,
 			"-v",
-			`${this.sshDir}:/opt/m4/ssh:ro`,
+			`${this.sshDir}:/opt/crh/ssh:ro`,
 			"-v",
 			`${this.bin}:${CONTAINER_CRHA}:ro`,
 			image,
@@ -343,10 +343,10 @@ export class M4Node {
 		return podman(["exec", "--user", String(uid), this.name, ...command], opts);
 	}
 
-	/** m4ctl.sh: start/stop/restart the processes, reload trust, reset the privileged state. */
+	/** privctl.sh: start/stop/restart the processes, reload trust, reset the privileged state. */
 	async ctl(command: string, timeout = 60_000): Promise<ExecResult> {
-		const res = await this.exec(["/usr/local/bin/m4ctl.sh", command], { timeout });
-		if (res.code !== 0) throw new Error(`m4ctl ${command} failed:\n${res.stdout}\n${res.stderr}`);
+		const res = await this.exec(["/usr/local/bin/privctl.sh", command], { timeout });
+		if (res.code !== 0) throw new Error(`privctl ${command} failed:\n${res.stdout}\n${res.stderr}`);
 		return res;
 	}
 
@@ -487,7 +487,7 @@ function trustEntryToml(entry: TrustSpec): string[] {
 
 /** Registers an SSH public key as one of the caller's (admin's) signing credentials. */
 export async function registerSshCredential(crhs: InProcessCrhs, publicKey: string): Promise<string> {
-	const res = await crhs.api("/api/me/credentials/ssh", { body: { publicKey, name: "m4 test key" } });
+	const res = await crhs.api("/api/me/credentials/ssh", { body: { publicKey, name: "privileged test key" } });
 	if (res.status !== 201) throw new Error(`register credential: ${res.status} ${JSON.stringify(res.json)}`);
 	return res.json.credential.id;
 }
@@ -540,7 +540,10 @@ export async function submitAuthorization(
 }
 
 /** Signs the task's pending payload for its owner and submits it. */
-export async function authorizeWithCli(node: M4Node, taskId: string): Promise<{ id: string; authorization: string }> {
+export async function authorizeWithCli(
+	node: PrivilegedNode,
+	taskId: string,
+): Promise<{ id: string; authorization: string }> {
 	const pending = await pendingAuthorization(node.crhs, taskId);
 	const authorization = await signPayload(node.bin, node.userKeyPath, pending.payload);
 	const res = await submitAuthorization(node.crhs, authorization);
@@ -549,7 +552,7 @@ export async function authorizeWithCli(node: M4Node, taskId: string): Promise<{ 
 }
 
 /** Waits until the node's cached trust digest differs from `previous` (a trust config change). */
-export async function waitTrustDigestChange(node: M4Node, previous: string | null): Promise<string | null> {
+export async function waitTrustDigestChange(node: PrivilegedNode, previous: string | null): Promise<string | null> {
 	const view = await waitFor(
 		"a new trust digest",
 		async () => {

@@ -1,0 +1,16 @@
+# sshd of the privileged system test container (doc/testing/privileged.md): loopback only, port 2222, host key and
+# authorized_keys bind-mounted from the harness under /opt/crh/ssh. Root login with a key is what the
+# SSH node tests use; SFTP is enabled for the file tasks.
+Port 2222
+ListenAddress 127.0.0.1
+HostKey /opt/crh/ssh/ssh_host_ed25519_key
+PidFile /run/sshd.pid
+AuthorizedKeysFile /opt/crh/ssh/authorized_keys
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+UsePAM no
+StrictModes no
+PrintMotd no
+Subsystem sftp /usr/lib/openssh/sftp-server
+LogLevel VERBOSE

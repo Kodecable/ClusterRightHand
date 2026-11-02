@@ -1,14 +1,14 @@
 /**
- * Items 3–8 and 10 of the M4 podman matrix (doc/m4.md 测试矩阵) on a `forward` node:
+ * The forward cases of the privileged system suite (doc/testing/privileged.md) on a `forward` node:
  *
- * 3. crhs-signed authorizations for exec and file tasks.
- * 4. a node that only trusts the user: crhs alone cannot escalate, the owner's signature makes it run.
- * 5. require-cosign: the user signature and crhs's cosignature are both needed.
- * 6. local approval with `crha pending` / `approve` / `deny`, surviving a privileged mode restart, and
- *    the attempt + 1 fallback after a crhs signature was refused.
- * 7. revocation, one-shot replay, the persisted used list and a privileged mode restart.
- * 8. symlinks, path traversal, env and prefix attempts.
- * 10. trust digest changes, re-planning a waiting task, and privileged_unavailable.
+ * - crhs-signed authorizations for exec and file tasks.
+ * - a node that only trusts the user: crhs alone cannot escalate, the owner's signature makes it run.
+ * - require-cosign: the user signature and crhs's cosignature are both needed.
+ * - local approval with `crha pending` / `approve` / `deny`, surviving a privileged mode restart, and
+ *   the attempt + 1 fallback after a crhs signature was refused.
+ * - revocation, one-shot replay, the persisted used list and a privileged mode restart.
+ * - symlinks, path traversal, env and prefix attempts.
+ * - trust digest changes, re-planning a waiting task, and privileged_unavailable.
  *
  * Every user signature is produced by the real `crha grant --payload` on the host; crhs runs in
  * process, so both ends are the shipped code.
@@ -20,12 +20,12 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { taskSpecFromJson } from "@crh/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { specSha256 } from "../../src/privilege/payload.ts";
-import { InProcessCrhs, waitFor } from "../e2e/harness.ts";
+import { specSha256 } from "../../../src/privilege/payload.ts";
+import { InProcessCrhs, waitFor } from "../../e2e/harness.ts";
 import {
 	authorizeWithCli,
 	buildStaticCrha,
-	M4Node,
+	PrivilegedNode,
 	parseEnv,
 	pendingAuthorization,
 	podmanAvailable,
@@ -43,14 +43,15 @@ const FIXED_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 /** Variables that must never reach a task: the container's own and crha's overrides. */
 function leaked(env: Record<string, string>): string[] {
-	return Object.keys(env).filter((k) => k.startsWith("M4_") || k.startsWith("CRHA_TASK_") || k === "container");
+	const containerOwn = new Set(["PRIV_SSH_PORT", "PRIV_NO_SSHD", "container"]);
+	return Object.keys(env).filter((k) => containerOwn.has(k) || k.startsWith("CRHA_TASK_"));
 }
 
-describePodman("M4 podman: forward", () => {
+describePodman("privileged system: forward", () => {
 	let tmp = "";
 	let bin = "";
 	let crhs: InProcessCrhs;
-	let node: M4Node;
+	let node: PrivilegedNode;
 	let userKey = "";
 	let crhsKey = "";
 	let credentialId = "";
@@ -104,13 +105,13 @@ describePodman("M4 podman: forward", () => {
 	}
 
 	beforeAll(async () => {
-		tmp = await mkdtemp(join(tmpdir(), "crh-m4-forward-"));
+		tmp = await mkdtemp(join(tmpdir(), "crh-priv-forward-"));
 		bin = await buildStaticCrha(tmp);
 		crhs = await InProcessCrhs.create();
 		await crhs.loginAdmin();
 		// clock_skew 0: both processes share the host clock, and the fallback case needs a 1 ms
 		// authorization to really expire (doc/privilege.md 时钟).
-		node = await M4Node.create({ bin, crhs, mode: "forward", trust: [], clockSkew: "0s" });
+		node = await PrivilegedNode.create({ bin, crhs, mode: "forward", trust: [], clockSkew: "0s" });
 		userKey = await publicKeyOf(node.userKeyPath);
 		crhsKey = (await crhs.api("/api/privilege/crhs-key")).json.key.authorizedKey as string;
 		credentialId = await registerSshCredential(crhs, userKey);
@@ -145,18 +146,18 @@ describePodman("M4 podman: forward", () => {
 		it("writes and reads a file as root", async () => {
 			const written = await task({
 				kind: "file.write",
-				path: "/root/m4-forward.txt",
+				path: "/root/crh-forward.txt",
 				content: "signed-content\n",
 				overwrite: true,
 			});
 			const w = await node.taskState(written.id);
 			expect(w).toMatchObject({ state: "exited", exitCode: 0 });
-			const read = await task({ kind: "file.read", path: "/root/m4-forward.txt" });
+			const read = await task({ kind: "file.read", path: "/root/crh-forward.txt" });
 			const r = await node.taskState(read.id);
 			expect(r.state).toBe("exited");
 			expect(r.stdoutHead + r.stdoutTail).toContain("signed-content");
 			// uid 998 cannot read it, so the content really came from the root executor.
-			const denied = await node.execAs(998, ["/bin/cat", "/root/m4-forward.txt"]);
+			const denied = await node.execAs(998, ["/bin/cat", "/root/crh-forward.txt"]);
 			expect(denied.code).not.toBe(0);
 		}, 60_000);
 
@@ -404,7 +405,7 @@ describePodman("M4 podman: forward", () => {
 			await node.setTrust([crhsEntry({ maxTtl: "1ms" }), localEntry([0])]);
 			// Task creation itself waits for the daemon's task.start response, so the request has to
 			// be in flight while the privileged mode is stopped; SIGCONT then releases the refusal.
-			const pid = (await node.exec(["/bin/cat", "/run/m4/priv.pid"])).stdout.trim();
+			const pid = (await node.exec(["/bin/cat", "/run/priv/priv.pid"])).stdout.trim();
 			expect(pid).toMatch(/^\d+$/);
 			await node.exec(["/bin/kill", "-STOP", pid]);
 			const creating = task({ kind: "exec", argv: ["id", "-u"] });
@@ -444,8 +445,8 @@ describePodman("M4 podman: forward", () => {
 			await node.ctl("reset-priv-state");
 			await node.ctl("start-priv");
 			await node.setTrust([userEntry(), localEntry([0])]);
-			await node.exec(["/bin/sh", "-c", "rm -f /root/m4-runs"]);
-			const t = await task({ kind: "exec", shell: "echo run >> /root/m4-runs; wc -l < /root/m4-runs" });
+			await node.exec(["/bin/sh", "-c", "rm -f /root/crh-runs"]);
+			const t = await task({ kind: "exec", shell: "echo run >> /root/crh-runs; wc -l < /root/crh-runs" });
 			await waitAwaiting(t.id);
 			const submitted = await authorizeWithCli(node, t.id);
 			const done = await waitTerminal(t.id);
@@ -459,7 +460,7 @@ describePodman("M4 podman: forward", () => {
 			const replay = await submitAuthorization(crhs, submitted.authorization);
 			expect(replay.status).toBe(200);
 			expect(replay.json.authorization?.dispatched).toEqual([]);
-			const lines = await node.exec(["/bin/sh", "-c", "wc -l < /root/m4-runs"]);
+			const lines = await node.exec(["/bin/sh", "-c", "wc -l < /root/crh-runs"]);
 			expect(lines.stdout.trim()).toBe("1");
 			// The used list survives a privileged mode restart.
 			await node.ctl("restart-priv");
@@ -467,7 +468,7 @@ describePodman("M4 podman: forward", () => {
 			const usedAfter = await node.exec(["/bin/cat", "/var/lib/crha/privileged/used"]);
 			expect(usedAfter.stdout).toContain(t.id);
 			await submitAuthorization(crhs, submitted.authorization);
-			expect((await node.exec(["/bin/sh", "-c", "wc -l < /root/m4-runs"])).stdout.trim()).toBe("1");
+			expect((await node.exec(["/bin/sh", "-c", "wc -l < /root/crh-runs"])).stdout.trim()).toBe("1");
 		}, 120_000);
 
 		it("pushes a revoked authorization to the node and stops reusing it", async () => {
@@ -567,8 +568,8 @@ describePodman("M4 podman: forward", () => {
 	describe("item 8: path, env and prefix attempts", () => {
 		it("refuses a file read through a symlink", async () => {
 			await node.setTrust([crhsEntry({ allow: [{ method: "file.read" }] })]);
-			await node.exec(["/bin/ln", "-sf", "/etc/shadow", "/tmp/m4-link"]);
-			const t = await task({ kind: "file.read", path: "/tmp/m4-link" });
+			await node.exec(["/bin/ln", "-sf", "/etc/shadow", "/tmp/crh-link"]);
+			const t = await task({ kind: "file.read", path: "/tmp/crh-link" });
 			const done = await waitTerminal(t.id);
 			// The executor opens with openat2(RESOLVE_NO_SYMLINKS); nothing is read.
 			expect(done.state).toBe("failed");
@@ -605,29 +606,29 @@ describePodman("M4 podman: forward", () => {
 
 		it("lets a privileged task override HOME when env_allow permits it", async () => {
 			await node.setTrust([userEntry({ allow: [{ method: "exec" }], envAllow: ["HOME"] })]);
-			const t = await task({ kind: "exec", argv: ["/usr/bin/env"], env: { HOME: "/tmp/m4-home" } });
+			const t = await task({ kind: "exec", argv: ["/usr/bin/env"], env: { HOME: "/tmp/crh-home" } });
 			await waitAwaiting(t.id);
 			await authorizeWithCli(node, t.id);
 			const done = await waitTerminal(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
 			const env = parseEnv(done.stdoutHead + done.stdoutTail);
-			expect(env.HOME).toBe("/tmp/m4-home");
+			expect(env.HOME).toBe("/tmp/crh-home");
 			expect(env.PATH).toBe(FIXED_PATH);
 		}, 120_000);
 
 		it("refuses environment variables the trust entry does not allow", async () => {
-			await node.setTrust([userEntry({ allow: [{ method: "exec" }], envAllow: ["M4_SAFE"] })]);
+			await node.setTrust([userEntry({ allow: [{ method: "exec" }], envAllow: ["PRIV_SAFE"] })]);
 			const t = await task({ kind: "exec", argv: ["id", "-u"], env: { LD_PRELOAD: "/tmp/evil.so" } });
 			const done = await waitTerminal(t.id);
 			expect(done.state).toBe("rejected");
 			expect(done.errorCode).toBe("authorization_required");
 			// An allowed variable still reaches the privileged process.
-			const env = await task({ kind: "exec", argv: ["/usr/bin/env"], env: { M4_SAFE: "present" } });
+			const env = await task({ kind: "exec", argv: ["/usr/bin/env"], env: { PRIV_SAFE: "present" } });
 			await waitAwaiting(env.id);
 			await authorizeWithCli(node, env.id);
 			const envDone = await waitTerminal(env.id);
 			expect(envDone).toMatchObject({ state: "exited", exitCode: 0 });
-			expect(envDone.stdoutHead + envDone.stdoutTail).toContain("M4_SAFE=present");
+			expect(envDone.stdoutHead + envDone.stdoutTail).toContain("PRIV_SAFE=present");
 		}, 120_000);
 	});
 

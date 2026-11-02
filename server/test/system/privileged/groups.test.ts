@@ -1,5 +1,6 @@
 /**
- * Item 11 of the M4 podman matrix (doc/m4.md 测试矩阵): a task group on two nodes.
+ * The task-group case of the privileged system suite (doc/testing/privileged.md): a task group on two
+ * nodes.
  *
  * One user signature covers the tasks of both nodes (one shared payload, D88); a node whose
  * authorization is refused independently retries alone (attempt + 1) and is re-signed alone while
@@ -10,10 +11,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { InProcessCrhs, waitFor } from "../e2e/harness.ts";
+import { InProcessCrhs, waitFor } from "../../e2e/harness.ts";
 import {
 	buildStaticCrha,
-	M4Node,
+	PrivilegedNode,
 	podmanAvailable,
 	publicKeyOf,
 	registerSshCredential,
@@ -27,12 +28,12 @@ const describePodman = describe.skipIf(!podmanAvailable);
 
 const WRONG_NODE_ID = "00000000-0000-7000-8000-000000000000";
 
-describePodman("M4 podman: task groups", () => {
+describePodman("privileged system: task groups", () => {
 	let tmp = "";
 	let bin = "";
 	let crhs: InProcessCrhs;
-	let a: M4Node;
-	let b: M4Node;
+	let a: PrivilegedNode;
+	let b: PrivilegedNode;
 	let nameA = "";
 	let nameB = "";
 	let ownerPublicKey = "";
@@ -98,18 +99,24 @@ describePodman("M4 podman: task groups", () => {
 	}
 
 	beforeAll(async () => {
-		tmp = await mkdtemp(join(tmpdir(), "crh-m4-groups-"));
+		tmp = await mkdtemp(join(tmpdir(), "crh-priv-groups-"));
 		bin = await buildStaticCrha(tmp);
 		crhs = await InProcessCrhs.create();
 		await crhs.loginAdmin();
 		await sshKeygen(join(tmp, "owner-key"));
 		ownerPublicKey = await publicKeyOf(join(tmp, "owner-key"));
 		await registerSshCredential(crhs, ownerPublicKey);
-		a = await M4Node.create({ bin, crhs, mode: "forward", trust: [userEntry()] });
+		a = await PrivilegedNode.create({ bin, crhs, mode: "forward", trust: [userEntry()] });
 		// B starts with a node_id that is not the crhs id: the shared payload addresses B's real id,
 		// so crha refuses it while A accepts the same authorization (the deterministic way to make
 		// only one node of a group reject a payload).
-		b = await M4Node.create({ bin, crhs, mode: "forward", trust: [userEntry()], privilegedNodeId: WRONG_NODE_ID });
+		b = await PrivilegedNode.create({
+			bin,
+			crhs,
+			mode: "forward",
+			trust: [userEntry()],
+			privilegedNodeId: WRONG_NODE_ID,
+		});
 		nameA = (await crhs.api(`/api/nodes/${a.nodeId}`)).json.node.name;
 		nameB = (await crhs.api(`/api/nodes/${b.nodeId}`)).json.node.name;
 	}, 600_000);
@@ -122,7 +129,7 @@ describePodman("M4 podman: task groups", () => {
 	});
 
 	it("runs both nodes with one user signature and re-signs only the refused node", async () => {
-		const g = await group({ shell: "echo run >> /root/m4-group-runs; wc -l < /root/m4-group-runs" });
+		const g = await group({ shell: "echo run >> /root/crh-group-runs; wc -l < /root/crh-group-runs" });
 		await waitFor(
 			"the group to wait for one signature",
 			async () => (await getGroup(g.id)).state === "awaiting_authorization",
@@ -183,7 +190,7 @@ describePodman("M4 podman: task groups", () => {
 		);
 		expect(bRow.stdoutTail).toBe("1\n");
 		// A did not run again: its run counter still has one line.
-		const aRuns = await a.exec(["/bin/sh", "-c", "wc -l < /root/m4-group-runs"]);
+		const aRuns = await a.exec(["/bin/sh", "-c", "wc -l < /root/crh-group-runs"]);
 		expect(aRuns.stdout.trim()).toBe("1");
 		const finished = await waitFor(
 			"the group to finish",

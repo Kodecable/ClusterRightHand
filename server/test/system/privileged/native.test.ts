@@ -1,9 +1,10 @@
 /**
- * Items 1 and 2 of the M4 podman matrix (doc/m4.md 测试矩阵):
+ * The native, ignore and reject cases of the privileged system suite
+ * (doc/testing/privileged.md):
  *
- * 1. native (sudo / doas): exec / file, cancel and timeout, and privileged_unsupported when the
- *    escalation tool cannot start the helper.
- * 2. ignore / reject.
+ * - native (sudo / doas): exec / file, cancel and timeout, and privileged_unsupported when the
+ *   escalation tool cannot start the helper.
+ * - ignore / reject.
  *
  * The non-privileged mode runs as uid 998 and the helper as root, both in the same container as a
  * real sudo/doas, so the output "0" is the real uid of the process the trusted code started.
@@ -12,28 +13,29 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { InProcessCrhs, waitFor } from "../e2e/harness.ts";
-import { buildStaticCrha, M4Node, parseEnv, podmanAvailable } from "./harness.ts";
+import { InProcessCrhs, waitFor } from "../../e2e/harness.ts";
+import { buildStaticCrha, PrivilegedNode, parseEnv, podmanAvailable } from "./harness.ts";
 
 const FIXED_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
 /** Variables that must never reach a task: the container's own and crha's overrides. */
 function leaked(env: Record<string, string>): string[] {
-	return Object.keys(env).filter((k) => k.startsWith("M4_") || k.startsWith("CRHA_TASK_") || k === "container");
+	const containerOwn = new Set(["PRIV_SSH_PORT", "PRIV_NO_SSHD", "container"]);
+	return Object.keys(env).filter((k) => containerOwn.has(k) || k.startsWith("CRHA_TASK_"));
 }
 
-describe.skipIf(!podmanAvailable)("M4 podman: native, ignore and reject", () => {
+describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject", () => {
 	let tmp = "";
 	let bin = "";
 	let crhs: InProcessCrhs;
-	let node: M4Node;
+	let node: PrivilegedNode;
 
 	beforeAll(async () => {
-		tmp = await mkdtemp(join(tmpdir(), "crh-m4-native-"));
+		tmp = await mkdtemp(join(tmpdir(), "crh-priv-native-"));
 		bin = await buildStaticCrha(tmp);
 		crhs = await InProcessCrhs.create();
 		await crhs.loginAdmin();
-		node = await M4Node.create({ bin, crhs, mode: "native", native: "sudo", trust: [] });
+		node = await PrivilegedNode.create({ bin, crhs, mode: "native", native: "sudo", trust: [] });
 		await waitFor(
 			"the node to report native mode",
 			async () => (await crhs.api(`/api/nodes/${node.nodeId}`)).json.node.privilegedMode === "native",
@@ -84,20 +86,20 @@ describe.skipIf(!podmanAvailable)("M4 podman: native, ignore and reject", () => 
 			const plain = await crhs.runTask(node.nodeId, {
 				kind: "exec",
 				argv: ["/usr/bin/env"],
-				env: { HOME: "/tmp/m4-unprivileged-home" },
+				env: { HOME: "/tmp/crh-unprivileged-home" },
 			});
 			const plainDone = await node.taskState(plain.id);
 			expect(plainDone.state).toBe("exited");
-			expect(parseEnv(plainDone.stdoutHead + plainDone.stdoutTail).HOME).toBe("/tmp/m4-unprivileged-home");
+			expect(parseEnv(plainDone.stdoutHead + plainDone.stdoutTail).HOME).toBe("/tmp/crh-unprivileged-home");
 
 			const privileged = await node.task({
 				kind: "exec",
 				argv: ["/usr/bin/env"],
-				env: { HOME: "/tmp/m4-privileged-home" },
+				env: { HOME: "/tmp/crh-privileged-home" },
 			});
 			const privilegedDone = await node.taskState(privileged.id);
 			expect(privilegedDone.state).toBe("exited");
-			expect(parseEnv(privilegedDone.stdoutHead + privilegedDone.stdoutTail).HOME).toBe("/tmp/m4-privileged-home");
+			expect(parseEnv(privilegedDone.stdoutHead + privilegedDone.stdoutTail).HOME).toBe("/tmp/crh-privileged-home");
 		}, 60_000);
 
 		it("reports the shells it discovered in facts", async () => {
@@ -117,13 +119,13 @@ describe.skipIf(!podmanAvailable)("M4 podman: native, ignore and reject", () => 
 		it("runs a file.write and a file.read as root", async () => {
 			const written = await node.task({
 				kind: "file.write",
-				path: "/root/m4-native.txt",
+				path: "/root/crh-native.txt",
 				content: "native-file\n",
 				overwrite: true,
 			});
 			const w = await node.taskState(written.id);
 			expect(w).toMatchObject({ state: "exited", exitCode: 0 });
-			const read = await node.task({ kind: "file.read", path: "/root/m4-native.txt" });
+			const read = await node.task({ kind: "file.read", path: "/root/crh-native.txt" });
 			const r = await node.taskState(read.id);
 			expect(r.state).toBe("exited");
 			expect(r.stdoutHead + r.stdoutTail).toContain("native-file");
@@ -147,7 +149,7 @@ describe.skipIf(!podmanAvailable)("M4 podman: native, ignore and reject", () => 
 		}, 60_000);
 
 		it("keeps the output of a privileged file task away from uid 998", async () => {
-			const res = await node.execAs(998, ["/bin/sh", "-c", "cat /root/m4-native.txt"]);
+			const res = await node.execAs(998, ["/bin/sh", "-c", "cat /root/crh-native.txt"]);
 			expect(res.code).not.toBe(0);
 			expect(res.stdout).toBe("");
 		}, 30_000);
@@ -197,13 +199,13 @@ describe.skipIf(!podmanAvailable)("M4 podman: native, ignore and reject", () => 
 		it("runs a privileged file task as the non-privileged user", async () => {
 			const t = await node.task({
 				kind: "file.write",
-				path: "/tmp/m4-ignore.txt",
+				path: "/tmp/crh-ignore.txt",
 				content: "ignored\n",
 				overwrite: true,
 			});
 			const done = await node.taskState(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
-			const stat = await node.execAs(998, ["/bin/cat", "/tmp/m4-ignore.txt"]);
+			const stat = await node.execAs(998, ["/bin/cat", "/tmp/crh-ignore.txt"]);
 			expect(stat.stdout).toBe("ignored\n");
 		}, 60_000);
 	});

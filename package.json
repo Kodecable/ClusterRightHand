@@ -13,6 +13,7 @@
 		"test": "pnpm -r run test && pnpm test:go",
 		"test:e2e": "pnpm --filter @crh/server test:e2e",
 		"test:go": "cd client && go test ./...",
+		"test:system": "pnpm --filter @crh/server test:system",
 		"test:ui": "pnpm --filter @crh/web test:ui"
 	},
 	"devDependencies": {

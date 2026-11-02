@@ -11,9 +11,9 @@
 		"dev": "node --watch src/main.ts",
 		"start": "node src/main.ts",
 		"typecheck": "tsc --noEmit",
-		"test": "vitest run --exclude 'test/e2e/**' --exclude 'test/perf/**' --exclude 'test/m4/**' --exclude '**/node_modules/**'",
+		"test": "vitest run --exclude 'test/e2e/**' --exclude 'test/perf/**' --exclude 'test/system/**' --exclude '**/node_modules/**'",
 		"test:e2e": "vitest run test/e2e",
-		"test:m4": "vitest run test/m4 --no-file-parallelism",
+		"test:system": "vitest run test/system --no-file-parallelism",
 		"test:perf": "NODE_OPTIONS=--expose-gc vitest run test/perf --no-file-parallelism"
 	},
 	"devDependencies": {
