@@ -12,9 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
@@ -192,37 +190,6 @@ func newStatusCmd() *cobra.Command {
 				fmt.Fprintf(out, "server key:      %s\n", identity.Fingerprint(key))
 			}
 			fmt.Fprintf(out, "privileged mode: %s\n", cfg.Privilege.Mode)
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&configPath, "config", "", "path to the config file (required)")
-	_ = cmd.MarkFlagRequired("config")
-	return cmd
-}
-
-func newReloadCmd() *cobra.Command {
-	var configPath string
-	cmd := &cobra.Command{
-		Use:   "reload",
-		Short: "Make the running crha re-read its configuration",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := config.Load(configPath)
-			if err != nil {
-				return err
-			}
-			data, err := os.ReadFile(filepath.Join(cfg.StateDir, "crha.pid"))
-			if err != nil {
-				return fmt.Errorf("is crha running? %w", err)
-			}
-			pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-			if err != nil {
-				return fmt.Errorf("bad pid file: %w", err)
-			}
-			if err := syscall.Kill(pid, syscall.SIGHUP); err != nil {
-				return fmt.Errorf("signal crha (pid %d): %w", pid, err)
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "sent SIGHUP to crha (pid %d); see its log for the result\n", pid)
 			return nil
 		},
 	}

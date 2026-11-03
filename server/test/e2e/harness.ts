@@ -429,6 +429,15 @@ export class Env {
 		return this.#crha;
 	}
 
+	/** Makes the running crha re-read its configuration, as a service manager's reload does. */
+	reloadCrha(): void {
+		const child = this.#crha;
+		if (!child || child.exitCode !== null || child.signalCode !== null) {
+			throw new Error("crha is not running");
+		}
+		child.kill("SIGHUP");
+	}
+
 	async killCrha(signal: NodeJS.Signals = "SIGKILL"): Promise<void> {
 		const child = this.#crha;
 		if (!child || child.exitCode !== null || child.signalCode !== null) return;

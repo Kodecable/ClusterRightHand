@@ -23,7 +23,6 @@ func NewRootCmd() *cobra.Command {
 		newPrivilegedCmd(),
 		newEnrollCmd(),
 		newStatusCmd(),
-		newReloadCmd(),
 		newRotateKeyCmd(),
 		newUpgradeCmd(),
 		newGrantCmd(),

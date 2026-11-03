@@ -121,16 +121,12 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 							.sort();
 					try {
 						await writeFile(env.configPath, `${base}groups = ["web", "prod"]\n`);
-						expect((await runCrha(env.bin, ["reload", "--config", env.configPath])).code).toBe(0);
+						env.reloadCrha();
 						await waitFor("groups reported", async () => (await groupsOf()).join(",") === "prod,web", 10_000);
 
 						await writeFile(env.configPath, `${base}groups = ["web"]\nbogus = 1\n`);
-						// `crha reload` validates first and refuses to signal with a broken file…
-						const refused = await runCrha(env.bin, ["reload", "--config", env.configPath]);
-						expect(refused.code).not.toBe(0);
-						expect(refused.stderr).toMatch(/bogus/);
-						// …and a SIGHUP that arrives anyway leaves the running configuration in place.
-						env.crha?.kill("SIGHUP");
+						// The new file is invalid: the running configuration stays in place and the error is logged.
+						env.reloadCrha();
 						await waitFor("reload error logged", async () => env.crhaLog.includes("reload failed"), 10_000);
 						expect(await groupsOf()).toEqual(["prod", "web"]);
 						expect((await run({ kind: "exec", argv: ["true"] })).state).toBe("exited");

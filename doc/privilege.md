@@ -37,7 +37,7 @@
 
 ```toml
 # crha run --config /etc/crha/crha.toml（非特权模式；下面的路径只是示例布局，不是内置默认值）
-state_dir = "/var/lib/crha"                # 必填：身份密钥、笔记、输出和 crha.pid 的根目录
+state_dir = "/var/lib/crha"                # 必填：身份密钥、笔记和输出的根目录
 
 [privileged]
 mode   = "forward"                         # forward | native | ignore | reject
@@ -82,7 +82,7 @@ crha 特权模式（不联网）
 
 非特权模式把特权任务连同授权原样转给特权模式；特权模式校验后执行，并把输出经 socket 回传给非特权模式。
 
-**修改信任配置本身就是特权任务**（对 `privileged.toml` 的 `file.write`，然后 reload；该文件的路径由配置给出），需要现有信任项授权。crhs 无法绕过授权修改它。建议 crhs 信任项默认 deny `file.write /etc/crha/`，让信任配置只能由用户授权修改，或者在节点上本地修改。
+**修改信任配置本身就是特权任务**（对 `privileged.toml` 的 `file.write`，然后向特权模式进程发 SIGHUP；该文件的路径由配置给出），需要现有信任项授权。crhs 无法绕过授权修改它。建议 crhs 信任项默认 deny `file.write /etc/crha/`，让信任配置只能由用户授权修改，或者在节点上本地修改。
 
 ## 方法与目标
 
@@ -347,7 +347,7 @@ kinds = ["execute"]
 授权没有吊销机制。需要立即收回某个签名者（例如怀疑 crhs 的签名密钥泄露）的权限时，改节点的信任配置：
 
 1. 从 `privileged.toml` 删除对应的信任项，或轮换它信任的密钥（例如换掉 crhs 的授权签名密钥）；
-2. 让特权模式重新读取配置：向特权模式进程发 SIGHUP（systemd 部署时用该 unit 的 reload）。`crha reload --config <crha.toml>` 重载的是非特权模式的配置，不会重载 `privileged.toml`。
+2. 让特权模式重新读取配置：向特权模式进程发 SIGHUP，通常交给服务管理器（systemd：`ExecReload=/bin/kill -HUP $MAINPID`）。每个进程只重读自己的配置文件：`crha privileged run` 重读 `privileged.toml`，`crha run` 重读 `crha.toml`；新文件无效时保留正在运行的配置并在日志中记录错误。
 
 改信任配置本身需要现有信任项授权（对 `privileged.toml` 的 `file.write`），或者直接在节点上本地修改。已 accepted 的任务继续执行；之后的 `task.start` 按新配置校验。
 

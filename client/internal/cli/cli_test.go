@@ -25,7 +25,7 @@ import (
 func TestCommandPaths(t *testing.T) {
 	paths := [][]string{
 		{"run"}, {"privileged"}, {"privileged", "run"}, {"privileged", "stdio"},
-		{"enroll"}, {"status"}, {"reload"}, {"rotate-key"}, {"upgrade"},
+		{"enroll"}, {"status"}, {"rotate-key"}, {"upgrade"},
 		{"grant"}, {"pending"}, {"approve"}, {"deny"}, {"version"},
 	}
 	root := NewRootCmd()
@@ -45,7 +45,6 @@ func TestConfigFlagRequired(t *testing.T) {
 		{"privileged", "run"},
 		{"enroll", "https://crh.example.com", "crh1.abc.secret"},
 		{"status"},
-		{"reload"},
 	}
 	for _, args := range commands {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {

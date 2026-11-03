@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -38,7 +37,7 @@ func newRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run crha in non-privileged mode",
-		Long:  "Run crha in non-privileged mode. SIGHUP (or `crha reload`) re-reads the configuration.",
+		Long:  "Run crha in non-privileged mode. SIGHUP re-reads the configuration; an invalid file keeps the running one.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return run(cmd.Context(), configPath)
@@ -73,11 +72,6 @@ func run(ctx context.Context, configPath string) error {
 	if err := os.MkdirAll(first.Output.Dir, 0o700); err != nil {
 		return err
 	}
-	pidPath := filepath.Join(first.StateDir, "crha.pid")
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o644); err != nil {
-		return err
-	}
-	defer os.Remove(pidPath)
 
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

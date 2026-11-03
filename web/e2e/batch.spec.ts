@@ -1,5 +1,4 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { runCrha } from "../../server/test/e2e/harness.ts";
 import { expect, test } from "./fixtures.ts";
 
 test.use({ withNode: true });
@@ -46,7 +45,7 @@ test("runs a batch on a group target", async ({ adminPage: page, crhs, env }) =>
 	if (!env) throw new Error("withNode");
 	const original = await readFile(env.configPath, "utf8");
 	await writeFile(env.configPath, `${original.replace(/^groups = .*\n/m, "")}groups = ["web"]\n`);
-	expect((await runCrha(env.bin, ["reload", "--config", env.configPath])).code).toBe(0);
+	env.reloadCrha();
 	await expect
 		.poll(async () => (await crhs.api(`/api/nodes/${env.nodeId}`)).json.node.groups, { timeout: 10_000 })
 		.toEqual(["web"]);
