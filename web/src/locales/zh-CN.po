@@ -3377,6 +3377,10 @@ msgstr "浏览器会提供平台认证器（Touch ID、Windows Hello）或安全
 msgid "The budget is used up."
 msgstr "预算已用尽。"
 
+#: src/features/nodes/add-node-dialog.tsx
+msgid "The config file and state directory paths are a suggested layout; adjust them to your installation."
+msgstr "配置文件和状态目录路径只是建议的布局，可按实际安装调整。"
+
 #: src/features/users/new-user-dialog.tsx
 msgid "The display name must be at most 100 characters."
 msgstr "显示名最多 100 个字符。"

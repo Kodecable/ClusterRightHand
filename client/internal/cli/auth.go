@@ -20,7 +20,6 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/authz"
-	privconfig "github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/localclient"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
@@ -520,6 +519,29 @@ func checkSignerKey(program, keyPath string, signer ssh.PublicKey) error {
 	return fmt.Errorf("grant: ssh-keygen did not report a fingerprint for %s", keyPath)
 }
 
+// defaultApprovalSocket is the socket `crha pending`, `crha approve` and `crha deny` try when
+// neither --socket nor CRHA_PRIVILEGED_SOCKET is set. It exists only for manual local approval
+// typed on the node; nothing else in crha may use it.
+const defaultApprovalSocket = "/run/crha/privileged.sock"
+
+// approvalSocketEnv overrides defaultApprovalSocket for the local approval commands.
+const approvalSocketEnv = "CRHA_PRIVILEGED_SOCKET"
+
+// approvalSocketUsage is the --socket help of the local approval commands.
+const approvalSocketUsage = "path to the privileged mode's socket (default: $" + approvalSocketEnv + " or " + defaultApprovalSocket + ")"
+
+// resolveApprovalSocket resolves the socket of the local approval commands. An explicitly set
+// --socket wins, then a non-empty CRHA_PRIVILEGED_SOCKET, then defaultApprovalSocket.
+func resolveApprovalSocket(flagValue string, flagSet bool) string {
+	if flagSet {
+		return flagValue
+	}
+	if value := os.Getenv(approvalSocketEnv); value != "" {
+		return value
+	}
+	return defaultApprovalSocket
+}
+
 func newPendingCmd() *cobra.Command {
 	var socketPath string
 	cmd := &cobra.Command{
@@ -527,10 +549,11 @@ func newPendingCmd() *cobra.Command {
 		Short: "List tasks pending local approval",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return showPending(cmd.Context(), cmd.OutOrStdout(), socketPath)
+			socket := resolveApprovalSocket(socketPath, cmd.Flags().Changed("socket"))
+			return showPending(cmd.Context(), cmd.OutOrStdout(), socket)
 		},
 	}
-	cmd.Flags().StringVar(&socketPath, "socket", privconfig.DefaultSocket, "path to the privileged mode's socket")
+	cmd.Flags().StringVar(&socketPath, "socket", "", approvalSocketUsage)
 	return cmd
 }
 
@@ -548,10 +571,11 @@ the highest attempt is approved unless --attempt is given. The verdict is confir
 terminal; --yes skips the confirmation.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return decidePending(cmd.Context(), cmd.OutOrStdout(), socketPath, args[0], attempt, "", true, yes)
+			socket := resolveApprovalSocket(socketPath, cmd.Flags().Changed("socket"))
+			return decidePending(cmd.Context(), cmd.OutOrStdout(), socket, args[0], attempt, "", true, yes)
 		},
 	}
-	cmd.Flags().StringVar(&socketPath, "socket", privconfig.DefaultSocket, "path to the privileged mode's socket")
+	cmd.Flags().StringVar(&socketPath, "socket", "", approvalSocketUsage)
 	cmd.Flags().Uint64Var(&attempt, "attempt", 0, "approve this attempt instead of the highest pending one")
 	cmd.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
 	return cmd
@@ -570,10 +594,11 @@ specification changed in the meantime. The verdict is confirmed on the terminal;
 the confirmation.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return decidePending(cmd.Context(), cmd.OutOrStdout(), socketPath, args[0], attempt, message, false, yes)
+			socket := resolveApprovalSocket(socketPath, cmd.Flags().Changed("socket"))
+			return decidePending(cmd.Context(), cmd.OutOrStdout(), socket, args[0], attempt, message, false, yes)
 		},
 	}
-	cmd.Flags().StringVar(&socketPath, "socket", privconfig.DefaultSocket, "path to the privileged mode's socket")
+	cmd.Flags().StringVar(&socketPath, "socket", "", approvalSocketUsage)
 	cmd.Flags().Uint64Var(&attempt, "attempt", 0, "deny this attempt instead of the highest pending one")
 	cmd.Flags().StringVar(&message, "message", "", "reason shown to crhs and the user")
 	cmd.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")

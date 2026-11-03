@@ -3377,6 +3377,10 @@ msgstr "The browser offers a platform authenticator (Touch ID, Windows Hello) or
 msgid "The budget is used up."
 msgstr "The budget is used up."
 
+#: src/features/nodes/add-node-dialog.tsx
+msgid "The config file and state directory paths are a suggested layout; adjust them to your installation."
+msgstr "The config file and state directory paths are a suggested layout; adjust them to your installation."
+
 #: src/features/users/new-user-dialog.tsx
 msgid "The display name must be at most 100 characters."
 msgstr "The display name must be at most 100 characters."

@@ -6,12 +6,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
@@ -29,6 +33,76 @@ func TestCommandPaths(t *testing.T) {
 		cmd, _, err := root.Find(p)
 		if err != nil || cmd == root || cmd.Name() != p[len(p)-1] {
 			t.Errorf("command %v not found (got %v, err %v)", p, cmd.Name(), err)
+		}
+	}
+}
+
+// TestConfigFlagRequired covers that every command which reads crha.toml (or privileged.toml)
+// gets the path explicitly and fails before doing anything when --config is missing.
+func TestConfigFlagRequired(t *testing.T) {
+	commands := [][]string{
+		{"run"},
+		{"privileged", "run"},
+		{"enroll", "https://crh.example.com", "crh1.abc.secret"},
+		{"status"},
+		{"reload"},
+	}
+	for _, args := range commands {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			err := execute(args...)
+			if err == nil || !strings.Contains(err.Error(), `required flag(s) "config" not set`) {
+				t.Fatalf("error = %v, want the required --config error", err)
+			}
+		})
+	}
+
+	err := execute("privileged", "revoke", strings.Repeat("ab", 32))
+	if err == nil || !strings.Contains(err.Error(), `required flag(s) "socket" not set`) {
+		t.Fatalf("privileged revoke error = %v, want the required --socket error", err)
+	}
+}
+
+// execute runs the command tree and returns the cobra error.
+func execute(args ...string) error {
+	root := NewRootCmd()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs(args)
+	return root.Execute()
+}
+
+// TestApprovalSocket covers the socket precedence of the manual local approval commands:
+// --socket when explicitly set, then CRHA_PRIVILEGED_SOCKET, then the local default.
+func TestApprovalSocket(t *testing.T) {
+	t.Setenv(approvalSocketEnv, "")
+	if got := resolveApprovalSocket("", false); got != defaultApprovalSocket {
+		t.Fatalf("no flag, empty env: %q, want %q", got, defaultApprovalSocket)
+	}
+	t.Setenv(approvalSocketEnv, "/run/env.sock")
+	if got := resolveApprovalSocket("", false); got != "/run/env.sock" {
+		t.Fatalf("env: %q, want /run/env.sock", got)
+	}
+	if got := resolveApprovalSocket("/run/flag.sock", true); got != "/run/flag.sock" {
+		t.Fatalf("flag over env: %q, want /run/flag.sock", got)
+	}
+	if got := resolveApprovalSocket("/run/flag.sock", false); got != "/run/env.sock" {
+		t.Fatalf("unset flag must use env: %q", got)
+	}
+	t.Setenv(approvalSocketEnv, "")
+	if got := resolveApprovalSocket("/run/flag.sock", true); got != "/run/flag.sock" {
+		t.Fatalf("flag over default: %q, want /run/flag.sock", got)
+	}
+}
+
+// TestApprovalSocketHelp checks that the local approval flags document the env var and default.
+func TestApprovalSocketHelp(t *testing.T) {
+	for _, cmd := range []*cobra.Command{newPendingCmd(), newApproveCmd(), newDenyCmd()} {
+		flag := cmd.Flags().Lookup("socket")
+		if flag == nil {
+			t.Fatalf("%s has no --socket flag", cmd.Name())
+		}
+		if !strings.Contains(flag.Usage, approvalSocketEnv) || !strings.Contains(flag.Usage, defaultApprovalSocket) {
+			t.Fatalf("%s --socket help = %q, want the env var and default", cmd.Name(), flag.Usage)
 		}
 	}
 }
@@ -249,8 +323,130 @@ func TestStartupFailsWithoutShell(t *testing.T) {
 		!strings.Contains(err.Error(), "no sh") {
 		t.Fatalf("crha privileged run error = %v, want the shell resolution failure", err)
 	}
-	if err := enroll(context.Background(), io.Discard, filepath.Join(t.TempDir(), "missing.toml"),
+	configPath := filepath.Join(t.TempDir(), "crha.toml")
+	content := fmt.Sprintf("server = \"https://crh.example.com\"\nstate_dir = %q\n", t.TempDir())
+	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := enroll(context.Background(), io.Discard, configPath, "",
 		"http://127.0.0.1:1", "crh1.abc.secret"); err == nil || !strings.Contains(err.Error(), "no sh") {
 		t.Fatalf("crha enroll error = %v, want the shell resolution failure", err)
+	}
+}
+
+// stubNoShell makes resolveEnv fail, so enrollment stops right after reading its config and never
+// dials a server.
+func stubNoShell(t *testing.T) {
+	t.Helper()
+	old := resolveEnv
+	resolveEnv = func(execenv.Options) (*execenv.Environment, error) {
+		return nil, errors.New("no sh to run tasks")
+	}
+	t.Cleanup(func() { resolveEnv = old })
+}
+
+// TestEnrollStateDirFlag covers that --state-dir has no default and the help documents it.
+func TestEnrollStateDirFlag(t *testing.T) {
+	cmd := newEnrollCmd()
+	flag := cmd.Flags().Lookup("state-dir")
+	if flag == nil {
+		t.Fatal("enroll has no --state-dir flag")
+	}
+	if flag.DefValue != "" {
+		t.Fatalf("--state-dir default = %q, want no default", flag.DefValue)
+	}
+	if !strings.Contains(cmd.Long, "--state-dir") {
+		t.Fatalf("help does not mention --state-dir: %q", cmd.Long)
+	}
+}
+
+// TestEnrollCreatesConfig covers one-command enrollment: --state-dir with a missing --config writes
+// a config with server and state_dir, prints it, and enrollment continues with that config.
+func TestEnrollCreatesConfig(t *testing.T) {
+	stubNoShell(t)
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "etc", "crha", "crha.toml")
+	stateDir := filepath.Join(dir, "lib", "crha")
+	var out bytes.Buffer
+	err := enroll(context.Background(), &out, configPath, stateDir, "https://crh.example.com", "crh1.abc.secret")
+	if err == nil || !strings.Contains(err.Error(), "no sh") {
+		t.Fatalf("enroll error = %v, want the shell resolution failure", err)
+	}
+	if got, want := out.String(), "wrote "+configPath+"\n"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+	want := fmt.Sprintf("server = %q\nstate_dir = %q\n", "https://crh.example.com", stateDir)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != want {
+		t.Fatalf("config = %q, want %q", data, want)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server != "https://crh.example.com" || cfg.StateDir != stateDir {
+		t.Fatalf("config = server %q, state_dir %q", cfg.Server, cfg.StateDir)
+	}
+	if info, err := os.Stat(configPath); err != nil {
+		t.Fatal(err)
+	} else if info.Mode().Perm() != 0o644 {
+		t.Fatalf("mode = %v, want 0644", info.Mode().Perm())
+	}
+	if info, err := os.Stat(filepath.Dir(configPath)); err != nil {
+		t.Fatal(err)
+	} else if info.Mode().Perm() != 0o755 {
+		t.Fatalf("parent mode = %v, want 0755", info.Mode().Perm())
+	}
+}
+
+// TestEnrollMissingConfigWithoutStateDir covers that a missing config without --state-dir is a clear
+// error instead of a silently created file.
+func TestEnrollMissingConfigWithoutStateDir(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "crha.toml")
+	err := enroll(context.Background(), io.Discard, configPath, "", "https://crh.example.com", "crh1.abc.secret")
+	if err == nil || !strings.Contains(err.Error(), "does not exist") || !strings.Contains(err.Error(), "--state-dir") {
+		t.Fatalf("enroll error = %v, want a missing-config error pointing at --state-dir", err)
+	}
+	if _, statErr := os.Stat(configPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("config was created: %v", statErr)
+	}
+}
+
+// TestEnrollStateDirWithExistingConfig covers that --state-dir is refused rather than ignored when
+// the config file already exists.
+func TestEnrollStateDirWithExistingConfig(t *testing.T) {
+	stubNoShell(t)
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "crha.toml")
+	content := fmt.Sprintf("server = \"https://crh.example.com\"\nstate_dir = %q\n", filepath.Join(dir, "state"))
+	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := enroll(context.Background(), io.Discard, configPath, filepath.Join(dir, "other"),
+		"https://crh.example.com", "crh1.abc.secret")
+	if err == nil || !strings.Contains(err.Error(), "only applies when creating a new config") {
+		t.Fatalf("enroll error = %v, want the --state-dir refusal", err)
+	}
+	data, readErr := os.ReadFile(configPath)
+	if readErr != nil || string(data) != content {
+		t.Fatalf("config changed: %q, %v", data, readErr)
+	}
+}
+
+// TestEnrollRelativeStateDir covers that --state-dir must be absolute.
+func TestEnrollRelativeStateDir(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "crha.toml")
+	err := enroll(context.Background(), io.Discard, configPath, "state",
+		"https://crh.example.com", "crh1.abc.secret")
+	if err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("enroll error = %v, want the absolute-path error", err)
+	}
+	if _, statErr := os.Stat(configPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("config was created: %v", statErr)
 	}
 }

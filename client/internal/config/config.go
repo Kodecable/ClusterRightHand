@@ -17,14 +17,6 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// DefaultPath is where crha looks for its configuration by default.
-const DefaultPath = "/etc/crha/crha.toml"
-
-const (
-	DefaultStateDir         = "/var/lib/crha"
-	DefaultPrivilegedSocket = "/run/crha/privileged.sock"
-)
-
 // Privileged modes.
 const (
 	ModeForward = "forward"
@@ -140,11 +132,11 @@ func build(raw *rawConfig) (*Config, error) {
 	c := &Config{
 		Server:    raw.Server,
 		TLSVerify: orDefault(raw.TLSVerify, TLSVerifySystem),
-		StateDir:  orDefault(raw.StateDir, DefaultStateDir),
+		StateDir:  raw.StateDir,
 		Notes:     raw.Notes,
 		Privilege: Privileged{
 			Mode:   orDefault(raw.Privileged.Mode, ModeReject),
-			Socket: orDefault(raw.Privileged.Socket, DefaultPrivilegedSocket),
+			Socket: raw.Privileged.Socket,
 			Native: orDefault(raw.Privileged.Native, NativeSudo),
 		},
 		Output:    Output{Dir: raw.Output.Dir, MaxAge: defaultMaxAge, MaxTotal: defaultMaxTotal},
@@ -256,6 +248,9 @@ func (c *Config) validatePrivileged() error {
 	case ModeForward, ModeNative, ModeIgnore, ModeReject:
 	default:
 		return fmt.Errorf("config: privileged.mode: invalid value %q", p.Mode)
+	}
+	if p.Mode == ModeForward && p.Socket == "" {
+		return fmt.Errorf("config: privileged.socket: required when privileged.mode = %q", ModeForward)
 	}
 	if p.Socket != "" && !filepath.IsAbs(p.Socket) {
 		return fmt.Errorf("config: privileged.socket: path %q must be absolute", p.Socket)

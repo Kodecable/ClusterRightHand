@@ -27,34 +27,46 @@ import (
 )
 
 func newEnrollCmd() *cobra.Command {
-	var configPath string
+	var configPath, stateDir string
 	cmd := &cobra.Command{
 		Use:   "enroll <server-url> <token>",
 		Short: "Enroll this node with a crhs server",
 		Long: `Enroll this node: fetch crhs's public key, check it against the fingerprint in the token, create
 this node's identity key and register it. An administrator (or the token's owner) then confirms the node
-in the WebUI, comparing the fingerprint printed here. Writes a minimal config file if none exists.`,
+in the WebUI, comparing the fingerprint printed here. The configuration file must already exist and
+set server and state_dir; when it does not exist, --state-dir creates it with that state directory
+instead.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return enroll(cmd.Context(), cmd.OutOrStdout(), configPath, args[0], args[1])
+			return enroll(cmd.Context(), cmd.OutOrStdout(), configPath, stateDir, args[0], args[1])
 		},
 	}
-	cmd.Flags().StringVar(&configPath, "config", config.DefaultPath, "path to the config file")
+	cmd.Flags().StringVar(&configPath, "config", "", "path to the config file (required)")
+	_ = cmd.MarkFlagRequired("config")
+	cmd.Flags().StringVar(&stateDir, "state-dir", "", "state directory of a created config (only when --config does not exist; absolute)")
 	return cmd
 }
 
-func enroll(ctx context.Context, out io.Writer, configPath, serverURL, token string) error {
+func enroll(ctx context.Context, out io.Writer, configPath, stateDir, serverURL, token string) error {
 	fingerprint, secret, err := parseToken(token)
 	if err != nil {
 		return err
 	}
+	if stateDir != "" && !filepath.IsAbs(stateDir) {
+		return fmt.Errorf("--state-dir %q must be an absolute path", stateDir)
+	}
 	cfg, err := config.Load(configPath)
 	if errors.Is(err, fs.ErrNotExist) {
-		if err := writeMinimalConfig(configPath, serverURL); err != nil {
+		if stateDir == "" {
+			return fmt.Errorf("config %s does not exist: pass --state-dir to create it, or write the file first", configPath)
+		}
+		if err := writeMinimalConfig(configPath, serverURL, stateDir); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "wrote %s\n", configPath)
 		cfg, err = config.Load(configPath)
+	} else if err == nil && stateDir != "" {
+		return fmt.Errorf("--state-dir only applies when creating a new config: %s exists", configPath)
 	}
 	if err != nil {
 		return err
@@ -144,11 +156,14 @@ func fetchServerKey(ctx context.Context, cfg *config.Config, fingerprint string)
 	return key, nil
 }
 
-func writeMinimalConfig(path, serverURL string) error {
+// writeMinimalConfig creates the configuration of a one-command enrollment. --state-dir has no
+// default, so its value is written explicitly; config.Parse validates the result before it is
+// written.
+func writeMinimalConfig(path, serverURL, stateDir string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	content := fmt.Sprintf("server = %q\n", serverURL)
+	content := fmt.Sprintf("server = %q\nstate_dir = %q\n", serverURL, stateDir)
 	if _, err := config.Parse([]byte(content)); err != nil {
 		return err
 	}
@@ -180,7 +195,8 @@ func newStatusCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&configPath, "config", config.DefaultPath, "path to the config file")
+	cmd.Flags().StringVar(&configPath, "config", "", "path to the config file (required)")
+	_ = cmd.MarkFlagRequired("config")
 	return cmd
 }
 
@@ -210,7 +226,8 @@ func newReloadCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&configPath, "config", config.DefaultPath, "path to the config file")
+	cmd.Flags().StringVar(&configPath, "config", "", "path to the config file (required)")
+	_ = cmd.MarkFlagRequired("config")
 	return cmd
 }
 

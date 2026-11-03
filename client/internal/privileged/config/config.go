@@ -25,16 +25,8 @@ import (
 )
 
 const (
-	// DefaultPath is where crha's privileged mode looks for its configuration.
-	DefaultPath = "/etc/crha/privileged.toml"
-	// DefaultSocket is the unix socket the non-privileged mode and local approvers connect to.
-	DefaultSocket = "/run/crha/privileged.sock"
 	// DefaultSocketGroup is the group that may connect to the socket.
 	DefaultSocketGroup = "crha"
-	// DefaultStateDir holds the used and revoked lists.
-	DefaultStateDir = "/var/lib/crha/privileged"
-	// DefaultLogPath is the local audit log.
-	DefaultLogPath = "/var/log/crha/privileged.jsonl"
 	// DefaultClockSkew is the tolerance applied to authorization times.
 	DefaultClockSkew = 60 * time.Second
 )
@@ -194,10 +186,10 @@ func build(raw *rawConfig) (*Config, error) {
 	c := &Config{
 		NodeID:      raw.NodeID,
 		ClockSkew:   DefaultClockSkew,
-		Socket:      orDefault(raw.Socket, DefaultSocket),
+		Socket:      raw.Socket,
 		SocketGroup: orDefault(raw.SocketGroup, DefaultSocketGroup),
-		StateDir:    orDefault(raw.StateDir, DefaultStateDir),
-		LogPath:     orDefault(raw.Log, DefaultLogPath),
+		StateDir:    raw.StateDir,
+		LogPath:     raw.Log,
 	}
 	if c.NodeID == "" {
 		return nil, errors.New("node_id: required")
@@ -227,11 +219,16 @@ func build(raw *rawConfig) (*Config, error) {
 		}
 		c.ClockSkew = skew
 	}
-	for name, p := range map[string]string{
-		"socket": c.Socket, "state_dir": c.StateDir, "log": c.LogPath,
+	for _, field := range []struct{ name, value string }{
+		{"socket", c.Socket},
+		{"state_dir", c.StateDir},
+		{"log", c.LogPath},
 	} {
-		if !strings.HasPrefix(p, "/") {
-			return nil, fmt.Errorf("%s: path %q must be absolute", name, p)
+		if field.value == "" {
+			return nil, fmt.Errorf("%s: required", field.name)
+		}
+		if !strings.HasPrefix(field.value, "/") {
+			return nil, fmt.Errorf("%s: path %q must be absolute", field.name, field.value)
 		}
 	}
 	if c.SocketGroup == "" {

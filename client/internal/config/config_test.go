@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,30 +10,36 @@ import (
 	"time"
 )
 
-const minimal = "server = \"https://crh.example.com\"\n"
+// minimalConfig returns a valid crha.toml. state_dir is required and must be absolute, so tests
+// use a temporary directory.
+func minimalConfig(t *testing.T) string {
+	t.Helper()
+	return fmt.Sprintf("server = \"https://crh.example.com\"\nstate_dir = %q\n", t.TempDir())
+}
 
 func TestParseDefaults(t *testing.T) {
-	c, err := Parse([]byte(minimal))
+	stateDir := t.TempDir()
+	c, err := Parse([]byte(fmt.Sprintf("server = \"https://crh.example.com\"\nstate_dir = %q\n", stateDir)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := &Config{
-		Server: "https://crh.example.com", TLSVerify: "system", StateDir: "/var/lib/crha",
-		Notes:     "/var/lib/crha/NOTES.md",
-		Privilege: Privileged{Mode: "reject", Socket: "/run/crha/privileged.sock", Native: "sudo"},
-		Output:    Output{Dir: "/var/lib/crha/output", MaxAge: 168 * time.Hour, MaxTotal: 1 << 30},
+		Server: "https://crh.example.com", TLSVerify: "system", StateDir: stateDir,
+		Notes:     filepath.Join(stateDir, "NOTES.md"),
+		Privilege: Privileged{Mode: "reject", Socket: "", Native: "sudo"},
+		Output:    Output{Dir: filepath.Join(stateDir, "output"), MaxAge: 168 * time.Hour, MaxTotal: 1 << 30},
 		ClockWarn: 60 * time.Second,
 	}
 	if !reflect.DeepEqual(c, want) {
 		t.Fatalf("got %+v want %+v", c, want)
 	}
-	if c.IdentityKeyPath() != "/var/lib/crha/identity.key" || c.ServerKeyPath() != "/var/lib/crha/server.pub" {
+	if c.IdentityKeyPath() != filepath.Join(stateDir, "identity.key") || c.ServerKeyPath() != filepath.Join(stateDir, "server.pub") {
 		t.Fatal("key paths")
 	}
 }
 
 func TestParseFull(t *testing.T) {
-	c, err := Parse([]byte(minimal + `
+	c, err := Parse([]byte(minimalConfig(t) + `
 tls_verify = "none"
 notes = "/n.md"
 groups = ["web", "prod", "web"]
@@ -58,27 +65,30 @@ max_total = "2MiB"
 }
 
 func TestParseErrors(t *testing.T) {
+	min := minimalConfig(t)
 	tests := []struct{ name, in, want string }{
 		{"no server", "state_dir = \"/x\"\n", "server: required"},
+		{"missing state_dir", "server = \"https://a.b\"\n", "state_dir: required"},
 		{"http remote", "server = \"http://example.com\"\nstate_dir=\"/x\"\n", "loopback"},
 		{"ftp", "server = \"ftp://example.com\"\nstate_dir=\"/x\"\n", "scheme"},
 		{"no host", "server = \"https://\"\nstate_dir=\"/x\"\n", "no host"},
-		{"bad tls", minimal + "tls_verify = \"x\"\n", "tls_verify"},
+		{"bad tls", min + "tls_verify = \"x\"\n", "tls_verify"},
 		{"relative state_dir", "server = \"https://a.b\"\nstate_dir = \"x\"\n", "absolute"},
-		{"relative notes", minimal + "notes = \"n.md\"\n", "notes"},
-		{"bad group", minimal + "groups = [\"Web\"]\n", "invalid group"},
-		{"bad clock_warn", minimal + "clock_warn = \"x\"\n", "clock_warn"},
-		{"negative clock_warn", minimal + "clock_warn = \"-1s\"\n", "clock_warn"},
-		{"bad mode", minimal + "[privileged]\nmode = \"x\"\n", "privileged.mode"},
-		{"bad native", minimal + "[privileged]\nnative = \"su\"\n", "privileged.native"},
-		{"relative socket", minimal + "[privileged]\nsocket = \"s\"\n", "privileged.socket"},
-		{"relative out dir", minimal + "[output]\ndir = \"o\"\n", "output.dir"},
-		{"bad age", minimal + "[output]\nmax_age = \"x\"\n", "max_age"},
-		{"zero age", minimal + "[output]\nmax_age = \"0s\"\n", "max_age"},
-		{"zero total", minimal + "[output]\nmax_total = \"0\"\n", "max_total"},
-		{"bad total", minimal + "[output]\nmax_total = \"1TB\"\n", "max_total"},
-		{"unknown top", minimal + "bogus = 1\n", "bogus"},
-		{"unknown nested", minimal + "[output]\nnope = 1\n", "output.nope"},
+		{"relative notes", min + "notes = \"n.md\"\n", "notes"},
+		{"bad group", min + "groups = [\"Web\"]\n", "invalid group"},
+		{"bad clock_warn", min + "clock_warn = \"x\"\n", "clock_warn"},
+		{"negative clock_warn", min + "clock_warn = \"-1s\"\n", "clock_warn"},
+		{"bad mode", min + "[privileged]\nmode = \"x\"\n", "privileged.mode"},
+		{"bad native", min + "[privileged]\nnative = \"su\"\n", "privileged.native"},
+		{"relative socket", min + "[privileged]\nsocket = \"s\"\n", "privileged.socket"},
+		{"forward without socket", min + "[privileged]\nmode = \"forward\"\n", "privileged.socket: required"},
+		{"relative out dir", min + "[output]\ndir = \"o\"\n", "output.dir"},
+		{"bad age", min + "[output]\nmax_age = \"x\"\n", "max_age"},
+		{"zero age", min + "[output]\nmax_age = \"0s\"\n", "max_age"},
+		{"zero total", min + "[output]\nmax_total = \"0\"\n", "max_total"},
+		{"bad total", min + "[output]\nmax_total = \"1TB\"\n", "max_total"},
+		{"unknown top", min + "bogus = 1\n", "bogus"},
+		{"unknown nested", min + "[output]\nnope = 1\n", "output.nope"},
 		{"syntax", "server = \n", "parse"},
 	}
 	for _, tc := range tests {
@@ -88,6 +98,17 @@ func TestParseErrors(t *testing.T) {
 				t.Fatalf("got %v, want error containing %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// TestNativeModeWithoutSocket covers that privileged.socket is only required in forward mode.
+func TestNativeModeWithoutSocket(t *testing.T) {
+	c, err := Parse([]byte(minimalConfig(t) + "[privileged]\nmode = \"native\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Privilege.Mode != ModeNative || c.Privilege.Socket != "" {
+		t.Fatalf("privilege = %+v", c.Privilege)
 	}
 }
 
@@ -119,14 +140,15 @@ func TestAgentURL(t *testing.T) {
 // TestClockWarn covers the clock offset warning threshold: 60 s by default, a duration string
 // when set, and "0s" to disable the warning (doc/privilege.md 时钟).
 func TestClockWarn(t *testing.T) {
+	min := minimalConfig(t)
 	for _, tc := range []struct {
 		name string
 		in   string
 		want time.Duration
 	}{
-		{"default", minimal, 60 * time.Second},
-		{"set", minimal + "clock_warn = \"5m\"\n", 5 * time.Minute},
-		{"zero", minimal + "clock_warn = \"0s\"\n", 0},
+		{"default", min, 60 * time.Second},
+		{"set", min + "clock_warn = \"5m\"\n", 5 * time.Minute},
+		{"zero", min + "clock_warn = \"0s\"\n", 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, err := Parse([]byte(tc.in))
@@ -160,7 +182,7 @@ func TestParseSize(t *testing.T) {
 
 func TestLoad(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "c.toml")
-	if err := os.WriteFile(p, []byte(minimal), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte(minimalConfig(t)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Load(p); err != nil {

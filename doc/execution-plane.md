@@ -122,7 +122,7 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 
 - 输出按流（stdout/stderr）分开，每个分片带字节偏移 `offset`；单任务和批量 `text` / `head` 模式下实时推送给 crhs，批量 `status` 模式不推送。
 - **crhs 只保存截断后的输出**：单任务保存 stdout/stderr 的头部和尾部；批量 `text` 每节点只保留尾部 8KB/128 行，批量 `head`（文件操作）每节点只保留 stdout 的**头部** 8KB/128 行，两者受同一个全局 50KB/2000 行预算；都不保存完整输出。批量 `status` 模式完全不保存输出，只保存状态和节点文件路径；唯一的例外是 SSH 节点忽略特权时 crhs 自己写的那一行提示，它作为 stderr 头部保存（`tasks.stderr_head`）。`head` 模式同样只为这一行提示保留 stderr，不保留节点自己的 stderr：文件任务的结果在 `task.exit` 的 `result` 里，不占输出预算。
-- **完整输出由 crha 在节点上保存为普通文件**：单任务文本模式下，输出超过 2000 行或 50KB 时落盘；批量 `text` 和 `status` 模式**总是**落盘。crha 非特权模式把完整输出写入 `[output].dir`（默认 `/var/lib/crha/output/<task_id>.log`，stdout 和 stderr 按到达顺序交错写入，与终端里 `2>&1` 看到的一致；crha 在内存中保留分段索引，用于按流续传），`task.exit` 中带上文件路径和总字节数。文件权限 0600，属主为非特权模式的运行用户（输出可能包含敏感内容）。agent 需要完整输出时，用普通的 `read_file` 读取。
+- **完整输出由 crha 在节点上保存为普通文件**：单任务文本模式下，输出超过 2000 行或 50KB 时落盘；批量 `text` 和 `status` 模式**总是**落盘。crha 非特权模式把完整输出写入 `[output].dir`（未设置时是 `crha.toml` 的 `state_dir` 下的 `output/`，例如 `state_dir = "/var/lib/crha"` 时是 `/var/lib/crha/output/<task_id>.log`；stdout 和 stderr 按到达顺序交错写入，与终端里 `2>&1` 看到的一致；crha 在内存中保留分段索引，用于按流续传），`task.exit` 中带上文件路径和总字节数。文件权限 0600，属主为非特权模式的运行用户（输出可能包含敏感内容）。agent 需要完整输出时，用普通的 `read_file` 读取。
   - 特权任务的输出本来就经由非特权模式转发，所以同样由非特权模式保存，不会因此多暴露什么。
   - 这些文件的清理由 crha 负责，按 `crha.toml` 中 `[output]` 的 `max_age` 和 `max_total` 配置（默认 7 天、1GB）。
 - **断线续传**：任务运行期间，以及结束后到 crhs 确认（`task.output.ack` / `task.exit.ack`）之前，crha 保留未确认的输出：输出较短时在内存中，已经写入文件的直接从文件中补发。所以不会因为缓冲溢出而丢失输出。
@@ -302,7 +302,7 @@ event     = [2, event, body]
 | crhs | 主密钥 | 32 字节对称密钥 | 加密 `secrets` 表 | SSH 私钥、模型 API key 等泄露 |
 | crha | 节点身份密钥 | X25519 | Noise 通道 | 冒充这个节点 |
 
-- 节点身份密钥存放在 `/var/lib/crha/identity.key`，权限 0600，属主为 crha 用户。
+- 节点身份密钥存放在配置的 `state_dir` 下的 `identity.key`，权限 0600，属主为 crha 用户（例如 `state_dir = "/var/lib/crha"` 时是 `/var/lib/crha/identity.key`）。
 - crhs 的主密钥从 `crhs.toml` 中 `master_key_file` 指定的文件读取，不写进数据库。
 - crhs 的身份私钥（轮换期间包括新旧两把）和授权签名私钥（不使用 ssh-agent 时）用主密钥加密后存放在 `secrets` 表中。
 
@@ -319,15 +319,19 @@ event     = [2, event, body]
 
 ### 注册
 
+crha 的源码不内置任何自身配置、状态、日志或 socket 的路径，全部由命令行 `--config` 和配置文件给出；唯一例外是节点上手动批准用的 `crha pending/approve/deny` 默认连接 `/run/crha/privileged.sock`（可用 `CRHA_PRIVILEGED_SOCKET` 或 `--socket` 覆盖）。WebUI 给出的 `/etc/crha/crha.toml`、`/var/lib/crha` 只是建议布局。
+
 1. 用户在 WebUI 创建注册令牌（节点将归这个用户所有），格式为 `crh1.<服务端身份公钥指纹>.<随机密钥>`。令牌只能使用一次，有效期默认 1 小时，可以限定节点名。
-2. 在节点上执行 `crha enroll https://crh.example.com crh1.xxxx.yyyy`：
+2. 在节点上执行 `crha enroll --config /etc/crha/crha.toml --state-dir /var/lib/crha https://crh.example.com crh1.xxxx.yyyy`：
+   - `--config` 必填。配置文件已存在时必须已经写好 `server` 和 `state_dir`；文件不存在时，`--state-dir` 让 enroll 写一个只含 `server` 和 `state_dir` 的最小配置。省略 `--state-dir` 时 enroll 报错；文件已经存在时再给 `--state-dir` 也是错误。
+   - 上面的 `/etc/crha/crha.toml` 和 `/var/lib/crha` 只是建议布局，不是 crha 的默认值。
    - 通过 HTTPS 获取服务端身份公钥，**检查它与令牌中的指纹一致**，然后固定下来。令牌本身就完成了信任引导，做法与 kubeadm 的 `--discovery-token-ca-cert-hash` 相同。
    - 生成节点身份密钥，发起 Noise IK 握手，在第一条消息的载荷中带上 `enroll`（令牌密钥、主机名和 facts）。这是唯一允许未知公钥完成握手的情况。令牌密钥在 Noise 通道内传输，终结 TLS 的一方看不到；第一条消息即使被重放，令牌也已经被消耗。
-3. crhs 校验令牌后，节点进入 **pending** 状态。**注册必须经过确认**：令牌的创建者（节点所有者）或管理员在 WebUI 核对主机名和节点公钥指纹（节点上可以用 `crha status` 查看指纹）后批准，节点才能接收任务。在此之前，节点用自己的公钥重连时只能建立受限连接；被拒绝时删除这把公钥。
+3. crhs 校验令牌后，节点进入 **pending** 状态。**注册必须经过确认**：令牌的创建者（节点所有者）或管理员在 WebUI 核对主机名和节点公钥指纹（节点上可以用 `crha status --config <crha.toml>` 查看指纹）后批准，节点才能接收任务。在此之前，节点用自己的公钥重连时只能建立受限连接；被拒绝时删除这把公钥。
 4. **受限连接**：握手响应的 `node_state = pending` 已经告诉 crha 自己的状态，不另设“查询注册状态”的命令，状态变化全部由 crhs 推送。
    - 只允许 C→S 的 `hello`（任务列表为空）、`ping`、`facts` 和 S→C 的 `node.status`；其他命令由 crhs 返回 `node_pending`。
    - 批准：crhs 推送 `node.status{active}` 后关闭连接；crha 不退避立即重连，握手得到完整连接。不在已有连接上原地切换权限，与普通重连走同一条路径。
-   - 拒绝：crhs 删除公钥，推送 `node.status{rejected}` 后关闭连接；crha 停止重连，`crha status` 显示被拒绝。
+   - 拒绝：crhs 删除公钥，推送 `node.status{rejected}` 后关闭连接；crha 停止重连，`crha status --config <crha.toml>` 显示被拒绝。
    - 已批准节点被禁用（active → disabled）同样先推送 `node.status{disabled}` 再断开，之后握手失败。
 
 ### 轮换与吊销
@@ -338,17 +342,17 @@ event     = [2, event, body]
 
 ### crha 本地策略（可选）
 
-`/etc/crha/crha.toml` 中可以配置节点自己的限制，例如 `allow_kinds`、`read_only`，用来约束 crhs 能让 crha 非特权模式做什么。即使 crhs 被攻破，这些限制依然有效。
+`crha.toml`（`--config` 指定的文件）中可以配置节点自己的限制，例如 `allow_kinds`、`read_only`，用来约束 crhs 能让 crha 非特权模式做什么。即使 crhs 被攻破，这些限制依然有效。
 
 尚未实现：crha 1.0 不读取这些设置，也从不返回 `local_policy_denied`。
 
 ## crha 的重载与升级
 
-- **reload**：`crha reload`（或者给进程发 SIGHUP）让两种模式重新读取配置。特权模式重载信任配置后，向 crhs 推送新的 `TrustSummary`。
-  - `crha reload` 先校验配置文件，有错误就直接报告给执行者，不发信号；`crha run` 写 `<state_dir>/crha.pid` 供它查找。
+- **reload**：`crha reload --config <crha.toml>`（或者给进程发 SIGHUP）让两种模式重新读取配置。特权模式重载信任配置后，向 crhs 推送新的 `TrustSummary`。
+  - `crha reload --config <crha.toml>` 先校验配置文件，有错误就直接报告给执行者，不发信号；`crha run --config <crha.toml>` 写 `<state_dir>/crha.pid` 供它查找。
   - 运行中的进程收到 SIGHUP 但新配置无效时，继续使用旧配置并记录错误。
   - 组、笔记路径变化：重新上报 `facts`；服务端地址、`tls_verify` 变化：重新连接；`state_dir`、`[output]`、`[privileged]` 的变化要重启才生效（会记录警告）。
-- **修改配置**：就是普通的特权任务：`file.write` 写配置文件，再执行 `crha reload`。
+- **修改配置**：就是普通的特权任务：`file.write` 写配置文件，再执行 `crha reload --config <crha.toml>`。
 - **升级**：同样是普通的特权任务：
   1. `file.write` 写入新的二进制（或者 `exec` 调用包管理器安装）；
   2. `exec crha upgrade --apply <路径>`：校验新二进制能运行并报告版本，原子替换，然后通过 `systemd-run --on-active=2s` 延迟重启服务。这样当前任务可以先上报结果，再被重启打断。

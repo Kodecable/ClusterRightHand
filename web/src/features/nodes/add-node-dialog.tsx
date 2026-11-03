@@ -50,6 +50,11 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 								<Trans>Run this on the node:</Trans>
 							</p>
 							<CodeText text={command} maxLines={4} label={t`Enrollment command`} copy={false} />
+							<p className="text-xs text-muted-foreground">
+								<Trans>
+									The config file and state directory paths are a suggested layout; adjust them to your installation.
+								</Trans>
+							</p>
 							<div className="flex flex-wrap items-center gap-2">
 								<CopyButton text={command} label={t`Copy command`} showLabel variant="outline" />
 								<span className="text-xs text-muted-foreground">

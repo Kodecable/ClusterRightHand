@@ -31,10 +31,12 @@ test("enrolls a node with a token from the UI and approves it after checking the
 	await dialog.getByRole("button", { name: "Create token" }).click();
 	await expect(dialog.getByText("Run this on the node:")).toBeVisible();
 	const command = ((await dialog.getByRole("region", { name: "Enrollment command" }).textContent()) ?? "").trim();
-	const match = /^crha enroll (\S+) (\S+)$/.exec(command);
+	const match = /^crha enroll --config (\S+) --state-dir (\S+) (\S+) (\S+)$/.exec(command);
 	expect(match, `unexpected command: ${command}`).not.toBeNull();
-	const url = match?.[1] as string;
-	const token = match?.[2] as string;
+	expect(match?.[1]).toBe("/etc/crha/crha.toml");
+	expect(match?.[2]).toBe("/var/lib/crha");
+	const url = match?.[3] as string;
+	const token = match?.[4] as string;
 	expect(url).toBe(env.crhs.url);
 	await dialog.getByRole("button", { name: "Close" }).first().click();
 

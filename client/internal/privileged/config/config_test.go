@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"syscall"
 	"testing"
@@ -65,16 +66,33 @@ func testCOSEKey(t *testing.T) (string, string) {
 	return base64.RawURLEncoding.EncodeToString(cose), base64.RawURLEncoding.EncodeToString(credentialID)
 }
 
-// fullConfig is the example of doc/privilege.md 信任配置 with test keys.
-func fullConfig(t *testing.T) (toml string) {
+// fullTestConfig is a complete privileged.toml and the paths it configures.
+type fullTestConfig struct {
+	TOML     string
+	Socket   string
+	StateDir string
+	LogPath  string
+}
+
+// fullConfig is the example of doc/privilege.md 信任配置 with test keys and temporary paths.
+func fullConfig(t *testing.T) fullTestConfig {
 	t.Helper()
 	_, crhsLine := testSigner(t)
 	cose, credentialID := testCOSEKey(t)
-	return fmt.Sprintf(`
+	dir := t.TempDir()
+	files := fullTestConfig{
+		Socket:   filepath.Join(dir, "privileged.sock"),
+		StateDir: filepath.Join(dir, "state"),
+		LogPath:  filepath.Join(dir, "privileged.jsonl"),
+	}
+	files.TOML = fmt.Sprintf(`
 node_id          = "01JB0000000000000000000001"
 groups           = ["web", "prod"]
 unprivileged_uid = 998
 clock_skew       = "90s"
+socket           = %q
+state_dir        = %q
+log              = %q
 
 [[trust]]
 name          = "crhs"
@@ -121,7 +139,8 @@ name  = "local-admins"
 role  = "local"
 uids  = [0, 1000]
 kinds = ["execute"]
-`, crhsLine, testSKLine(), credentialID, cose)
+`, files.Socket, files.StateDir, files.LogPath, crhsLine, testSKLine(), credentialID, cose)
+	return files
 }
 
 // minimalConfig returns a valid configuration with one crhs entry that the mutation tests
@@ -129,9 +148,13 @@ kinds = ["execute"]
 func minimalConfig(t *testing.T) string {
 	t.Helper()
 	_, line := testSigner(t)
+	dir := t.TempDir()
 	return fmt.Sprintf(`
 node_id          = "01JB0000000000000000000001"
 unprivileged_uid = 998
+socket           = %q
+state_dir        = %q
+log              = %q
 
 [[trust]]
 name   = "crhs"
@@ -139,11 +162,25 @@ role   = "crhs"
 format = "sshsig"
 key    = %q
 kinds  = ["execute"]
-`, line)
+`, filepath.Join(dir, "privileged.sock"), filepath.Join(dir, "state"),
+		filepath.Join(dir, "privileged.jsonl"), line)
+}
+
+// removeKey returns a test configuration without the line that assigns key.
+func removeKey(toml, key string) string {
+	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(key) + `\s*=.*\n?`)
+	return re.ReplaceAllString(toml, "")
+}
+
+// setKey replaces the line that assigns key in a test configuration.
+func setKey(toml, key, value string) string {
+	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(key) + `\s*=.*$`)
+	return re.ReplaceAllString(toml, key+" = "+value)
 }
 
 func TestParseFullConfig(t *testing.T) {
-	cfg, err := Parse([]byte(fullConfig(t)))
+	files := fullConfig(t)
+	cfg, err := Parse([]byte(files.TOML))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -156,10 +193,11 @@ func TestParseFullConfig(t *testing.T) {
 	if cfg.ClockSkew.String() != "1m30s" {
 		t.Fatalf("clock skew = %v", cfg.ClockSkew)
 	}
-	if cfg.Socket != DefaultSocket || cfg.SocketGroup != DefaultSocketGroup ||
-		cfg.StateDir != DefaultStateDir || cfg.LogPath != DefaultLogPath {
-		t.Fatalf("defaults: socket %q group %q state %q log %q",
-			cfg.Socket, cfg.SocketGroup, cfg.StateDir, cfg.LogPath)
+	if cfg.Socket != files.Socket || cfg.StateDir != files.StateDir || cfg.LogPath != files.LogPath {
+		t.Fatalf("paths: socket %q state %q log %q", cfg.Socket, cfg.StateDir, cfg.LogPath)
+	}
+	if cfg.SocketGroup != DefaultSocketGroup {
+		t.Fatalf("socket group = %q, want %q", cfg.SocketGroup, DefaultSocketGroup)
 	}
 	if len(cfg.Trust) != 4 {
 		t.Fatalf("trust entries = %d, want 4", len(cfg.Trust))
@@ -221,7 +259,7 @@ func TestParseFullConfig(t *testing.T) {
 }
 
 func TestSummary(t *testing.T) {
-	cfg, err := Parse([]byte(fullConfig(t)))
+	cfg, err := Parse([]byte(fullConfig(t).TOML))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -289,7 +327,7 @@ func TestSummary(t *testing.T) {
 }
 
 func TestEntries(t *testing.T) {
-	cfg, err := Parse([]byte(fullConfig(t)))
+	cfg, err := Parse([]byte(fullConfig(t).TOML))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -310,7 +348,7 @@ func TestEntries(t *testing.T) {
 
 // TestLookups covers the trust entry lookups by key, credential and uid.
 func TestLookups(t *testing.T) {
-	cfg, err := Parse([]byte(fullConfig(t)))
+	cfg, err := Parse([]byte(fullConfig(t).TOML))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -365,8 +403,10 @@ func TestParseRejects(t *testing.T) {
 			strings.Replace(base, "unprivileged_uid = 998", "", 1), "unprivileged_uid: required"},
 		{"bad clock skew",
 			strings.Replace(base, "unprivileged_uid = 998", "unprivileged_uid = 998\nclock_skew = \"soon\"", 1), "clock_skew"},
-		{"relative socket",
-			strings.Replace(base, "unprivileged_uid = 998", "unprivileged_uid = 998\nsocket = \"run/x.sock\"", 1), "must be absolute"},
+		{"missing socket", removeKey(base, "socket"), "socket: required"},
+		{"missing state_dir", removeKey(base, "state_dir"), "state_dir: required"},
+		{"missing log", removeKey(base, "log"), "log: required"},
+		{"relative socket", setKey(base, "socket", `"run/x.sock"`), "must be absolute"},
 		{"bad group name",
 			strings.Replace(base, "unprivileged_uid = 998", "unprivileged_uid = 998\ngroups = [\"*\"]", 1), "group name"},
 		{"unknown trust key", base + "bogus = true\n", "unknown key"},
@@ -399,35 +439,35 @@ func TestParseRejects(t *testing.T) {
 		{"env_allow invalid name",
 			strings.Replace(base, "kinds  = [\"execute\"]", "kinds  = [\"execute\"]\nenv_allow = [\"A=B\"]", 1), "invalid variable name"},
 		{"duplicate trust names", base + "\n[[trust]]\nname = \"crhs\"\nrole = \"local\"\nuids = [0]\nkinds = [\"execute\"]\n", "duplicate name"},
-		{"local with format", localEntry("format = \"sshsig\"\nuids = [0]\nkinds = [\"execute\"]"), "no format"},
-		{"local without uids", localEntry("kinds = [\"execute\"]"), "uids: required"},
-		{"local with require_task", localEntry("uids = [0]\nrequire_task = true\nkinds = [\"execute\"]"), "require_task"},
-		{"local with key", localEntry("uids = [0]\nkey = \"ssh-ed25519 AAAA\"\nkinds = [\"execute\"]"), "not by a key"},
-		{"local kinds cosign", localEntry("uids = [0]\nkinds = [\"cosign\"]"), "takes execute only"},
-		{"user without format", userEntry("", "kinds = [\"execute\"]"), "needs \"sshsig\" or \"webauthn\""},
-		{"user kinds cosign", userEntry("format = \"sshsig\"\nkey = "+quote(line), "kinds = [\"cosign\"]"), "user entry takes execute or require-cosign"},
-		{"user sshsig without key", userEntry("format = \"sshsig\"", "kinds = [\"execute\"]"), "key: required"},
+		{"local with format", localEntry(t, "format = \"sshsig\"\nuids = [0]\nkinds = [\"execute\"]"), "no format"},
+		{"local without uids", localEntry(t, "kinds = [\"execute\"]"), "uids: required"},
+		{"local with require_task", localEntry(t, "uids = [0]\nrequire_task = true\nkinds = [\"execute\"]"), "require_task"},
+		{"local with key", localEntry(t, "uids = [0]\nkey = \"ssh-ed25519 AAAA\"\nkinds = [\"execute\"]"), "not by a key"},
+		{"local kinds cosign", localEntry(t, "uids = [0]\nkinds = [\"cosign\"]"), "takes execute only"},
+		{"user without format", userEntry(t, "", "kinds = [\"execute\"]"), "needs \"sshsig\" or \"webauthn\""},
+		{"user kinds cosign", userEntry(t, "format = \"sshsig\"\nkey = "+quote(line), "kinds = [\"cosign\"]"), "user entry takes execute or require-cosign"},
+		{"user sshsig without key", userEntry(t, "format = \"sshsig\"", "kinds = [\"execute\"]"), "key: required"},
 		{"user sshsig with options",
-			userEntry("format = \"sshsig\"\nkey = "+quote("command=\"/bin/true\" "+line), "kinds = [\"execute\"]"), "options are not allowed"},
+			userEntry(t, "format = \"sshsig\"\nkey = "+quote("command=\"/bin/true\" "+line), "kinds = [\"execute\"]"), "options are not allowed"},
 		{"user sshsig with two lines",
-			userEntry("format = \"sshsig\"\nkey = "+quote(line+"\n"+line), "kinds = [\"execute\"]"), "exactly one"},
+			userEntry(t, "format = \"sshsig\"\nkey = "+quote(line+"\n"+line), "kinds = [\"execute\"]"), "exactly one"},
 		{"webauthn without rp_id",
-			userEntry(fmt.Sprintf("format = \"webauthn\"\nkey = \"cose:%s\"\ncredential_id = %q\norigins = [\"https://crh.example.com\"]", cose, credentialID), "kinds = [\"execute\"]"), "rp_id: required"},
+			userEntry(t, fmt.Sprintf("format = \"webauthn\"\nkey = \"cose:%s\"\ncredential_id = %q\norigins = [\"https://crh.example.com\"]", cose, credentialID), "kinds = [\"execute\"]"), "rp_id: required"},
 		{"webauthn without origins",
-			userEntry(fmt.Sprintf("format = \"webauthn\"\nkey = \"cose:%s\"\ncredential_id = %q\nrp_id = \"crh.example.com\"", cose, credentialID), "kinds = [\"execute\"]"), "origins:"},
+			userEntry(t, fmt.Sprintf("format = \"webauthn\"\nkey = \"cose:%s\"\ncredential_id = %q\nrp_id = \"crh.example.com\"", cose, credentialID), "kinds = [\"execute\"]"), "origins:"},
 		{"webauthn without credential_id",
-			userEntry(fmt.Sprintf("format = \"webauthn\"\nkey = \"cose:%s\"\nrp_id = \"crh.example.com\"\norigins = [\"https://crh.example.com\"]", cose), "kinds = [\"execute\"]"), "credential_id"},
+			userEntry(t, fmt.Sprintf("format = \"webauthn\"\nkey = \"cose:%s\"\nrp_id = \"crh.example.com\"\norigins = [\"https://crh.example.com\"]", cose), "kinds = [\"execute\"]"), "credential_id"},
 		{"webauthn bad origin",
-			userEntry(fmt.Sprintf("format = \"webauthn\"\nkey = \"cose:%s\"\ncredential_id = %q\nrp_id = \"crh.example.com\"\norigins = [\"crh.example.com\"]", cose, credentialID), "kinds = [\"execute\"]"), "origin"},
+			userEntry(t, fmt.Sprintf("format = \"webauthn\"\nkey = \"cose:%s\"\ncredential_id = %q\nrp_id = \"crh.example.com\"\norigins = [\"crh.example.com\"]", cose, credentialID), "kinds = [\"execute\"]"), "origin"},
 		{"webauthn without cose prefix",
-			userEntry(fmt.Sprintf("format = \"webauthn\"\nkey = %q\ncredential_id = %q\nrp_id = \"crh.example.com\"\norigins = [\"https://crh.example.com\"]", cose, credentialID), "kinds = [\"execute\"]"), `"cose:"`},
+			userEntry(t, fmt.Sprintf("format = \"webauthn\"\nkey = %q\ncredential_id = %q\nrp_id = \"crh.example.com\"\norigins = [\"https://crh.example.com\"]", cose, credentialID), "kinds = [\"execute\"]"), `"cose:"`},
 		{"webauthn bad cose key",
-			userEntry(fmt.Sprintf("format = \"webauthn\"\nkey = \"cose:%s\"\ncredential_id = %q\nrp_id = \"crh.example.com\"\norigins = [\"https://crh.example.com\"]",
+			userEntry(t, fmt.Sprintf("format = \"webauthn\"\nkey = \"cose:%s\"\ncredential_id = %q\nrp_id = \"crh.example.com\"\norigins = [\"https://crh.example.com\"]",
 				base64.RawURLEncoding.EncodeToString([]byte{0xff}), credentialID), "kinds = [\"execute\"]"), "key:"},
 		{"webauthn with uids",
-			userEntry(fmt.Sprintf("format = \"webauthn\"\nkey = \"cose:%s\"\ncredential_id = %q\nrp_id = \"crh.example.com\"\norigins = [\"https://crh.example.com\"]\nuids = [0]", cose, credentialID), "kinds = [\"execute\"]"), "uids"},
-		{"sshsig with uids", userEntry("format = \"sshsig\"\nkey = "+quote(line)+"\nuids = [0]", "kinds = [\"execute\"]"), "belong to other entry types"},
-		{"require_uv on a non-sk key", userEntry("format = \"sshsig\"\nkey = "+quote(line), "kinds = [\"execute\"]\nrequire_uv = true"), "cannot assert user verification"},
+			userEntry(t, fmt.Sprintf("format = \"webauthn\"\nkey = \"cose:%s\"\ncredential_id = %q\nrp_id = \"crh.example.com\"\norigins = [\"https://crh.example.com\"]\nuids = [0]", cose, credentialID), "kinds = [\"execute\"]"), "uids"},
+		{"sshsig with uids", userEntry(t, "format = \"sshsig\"\nkey = "+quote(line)+"\nuids = [0]", "kinds = [\"execute\"]"), "belong to other entry types"},
+		{"require_uv on a non-sk key", userEntry(t, "format = \"sshsig\"\nkey = "+quote(line), "kinds = [\"execute\"]\nrequire_uv = true"), "cannot assert user verification"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -447,27 +487,37 @@ func quote(s string) string {
 }
 
 // localEntry returns a configuration with the given local entry fields after "role".
-func localEntry(fields string) string {
-	return `
+func localEntry(t *testing.T, fields string) string {
+	t.Helper()
+	dir := t.TempDir()
+	return fmt.Sprintf(`
 node_id          = "01JB0000000000000000000001"
 unprivileged_uid = 998
+socket           = %q
+state_dir        = %q
+log              = %q
 
 [[trust]]
 name = "local-admins"
 role = "local"
-` + fields + "\n"
+`, filepath.Join(dir, "priv.sock"), filepath.Join(dir, "state"), filepath.Join(dir, "log.jsonl")) + fields + "\n"
 }
 
 // userEntry returns a configuration with the given user entry fields.
-func userEntry(keyFields, kindFields string) string {
-	return `
+func userEntry(t *testing.T, keyFields, kindFields string) string {
+	t.Helper()
+	dir := t.TempDir()
+	return fmt.Sprintf(`
 node_id          = "01JB0000000000000000000001"
 unprivileged_uid = 998
+socket           = %q
+state_dir        = %q
+log              = %q
 
 [[trust]]
 name = "alice"
 role = "user"
-` + keyFields + "\n" + kindFields + "\n"
+`, filepath.Join(dir, "priv.sock"), filepath.Join(dir, "state"), filepath.Join(dir, "log.jsonl")) + keyFields + "\n" + kindFields + "\n"
 }
 
 // TestLoadChecksOwnership covers the file ownership and permission check of Load.
@@ -517,12 +567,21 @@ func TestCheckOwnerUid(t *testing.T) {
 	}
 }
 
-// TestDefaultsAndEmptyTrust checks the defaults and that a configuration without trust
-// entries still produces an encodable summary.
+// TestDefaultsAndEmptyTrust checks the defaults that remain (socket_group and clock_skew) and
+// that a configuration without trust entries still produces an encodable summary.
 func TestDefaultsAndEmptyTrust(t *testing.T) {
-	cfg, err := Parse([]byte("node_id = \"n\"\nunprivileged_uid = 0\n"))
+	dir := t.TempDir()
+	cfg, err := Parse([]byte(fmt.Sprintf(`node_id = "n"
+unprivileged_uid = 0
+socket = %q
+state_dir = %q
+log = %q
+`, filepath.Join(dir, "priv.sock"), filepath.Join(dir, "state"), filepath.Join(dir, "log.jsonl"))))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.SocketGroup != DefaultSocketGroup {
+		t.Fatalf("socket group = %q, want %q", cfg.SocketGroup, DefaultSocketGroup)
 	}
 	if cfg.ClockSkew != DefaultClockSkew {
 		t.Fatalf("clock skew = %v", cfg.ClockSkew)

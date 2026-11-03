@@ -11,9 +11,16 @@ of CI.
 
 One container is one node:
 
-- a real `crha privileged run` as root, listening on `/run/crha/privileged.sock`;
-- a real `crha run` as uid/gid 998 (`crha`), connecting out to the in-process crhs;
+- a real `crha privileged run --config /etc/crha/privileged.toml` as root, listening on the socket that
+  config names (`/run/crha/privileged.sock` in the fixture);
+- a real `crha run --config /etc/crha/crha.toml` as uid/gid 998 (`crha`), connecting out to the in-process
+  crhs;
 - an `sshd` on loopback for the SSH-node tests, enabled per test.
+
+Both configuration files name every path explicitly, as crha has no built-in defaults: the fixture's
+`privileged.toml` sets `socket = "/run/crha/privileged.sock"`, `state_dir = "/var/lib/crha/privileged"`
+(the `used` / `revoked` lists) and `log = "/var/log/crha/privileged.jsonl"`; `crha.toml` sets
+`state_dir = "/var/lib/crha"` and `[privileged] socket` (required only in `forward` mode).
 
 The image is `ubuntu:24.04` plus `openssh-server`, `sudo`, `opendoas`, `ca-certificates` and `util-linux`.
 It contains no Go toolchain: the host builds a static `crha` with `CGO_ENABLED=0` and the harness
@@ -46,9 +53,9 @@ The container runs with `--network=host` and `--init`. The container's crha conn
 2222 and the harness picks a free port on the host, passing it as `PRIV_SSH_PORT`; tests that do not need
 sshd start the container with `PRIV_NO_SSHD=1`.
 
-`entrypoint.sh` starts sshd, then waits for `/etc/crha/.ready` (written by the test after `crha enroll` and
-after `privileged.toml` exists), then starts the privileged mode and the non-privileged crha. On SIGTERM it
-stops them in reverse order. There is no systemd.
+`entrypoint.sh` starts sshd, then waits for `/etc/crha/.ready` (written by the test after
+`crha enroll --config /etc/crha/crha.toml` and after `privileged.toml` exists), then starts the privileged
+mode and the non-privileged crha. On SIGTERM it stops them in reverse order. There is no systemd.
 
 Tests control the processes through `podman exec /usr/local/bin/privctl.sh`:
 

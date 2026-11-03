@@ -32,9 +32,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// privilegedConfigPath is the default privileged.toml location of `crha privileged run`.
-const privilegedConfigPath = privconfig.DefaultPath
-
 // resolveEnv resolves the task environment of a process. It is a variable so tests can exercise a
 // node without a shell, whose modes must not start at all.
 var resolveEnv = execenv.Resolve
@@ -50,7 +47,8 @@ func newRunCmd() *cobra.Command {
 			return run(cmd.Context(), configPath)
 		},
 	}
-	cmd.Flags().StringVar(&configPath, "config", config.DefaultPath, "path to the config file")
+	cmd.Flags().StringVar(&configPath, "config", "", "path to the config file (required)")
+	_ = cmd.MarkFlagRequired("config")
 	return cmd
 }
 
@@ -214,7 +212,8 @@ execute privileged tasks as this process's Linux user. SIGHUP reloads the trust 
 			return runPrivileged(cmd.Context(), configPath)
 		},
 	}
-	run.Flags().StringVar(&configPath, "config", privilegedConfigPath, "path to the privileged config file")
+	run.Flags().StringVar(&configPath, "config", "", "path to the privileged config file (required)")
+	_ = run.MarkFlagRequired("config")
 
 	stdio := &cobra.Command{
 		Use:   "stdio",
@@ -242,7 +241,8 @@ run it from a terminal.`,
 			return revokeLocally(cmd.Context(), cmd.OutOrStdout(), socketPath, args[0])
 		},
 	}
-	revoke.Flags().StringVar(&socketPath, "socket", privconfig.DefaultSocket, "path to the privileged mode's socket")
+	revoke.Flags().StringVar(&socketPath, "socket", "", "path to the privileged mode's socket (required)")
+	_ = revoke.MarkFlagRequired("socket")
 
 	cmd.AddCommand(run, stdio, revoke)
 	return cmd

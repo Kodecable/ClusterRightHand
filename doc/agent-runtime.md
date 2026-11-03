@@ -200,7 +200,7 @@ interface AgentRuntime {
 | 项目 | pi 的默认值 | CRH |
 |---|---|---|
 | 命令输出交给模型 | 尾部 2000 行或 50KB，先到为准 | 相同 |
-| 完整输出落盘 | 超过上述阈值时写入系统临时目录（`pi-bash-*.log`，0600），不自动清理 | 超过相同阈值时由 crha 写入 `/var/lib/crha/output/`（0600），按 7 天、1GB 清理 |
+| 完整输出落盘 | 超过上述阈值时写入系统临时目录（`pi-bash-*.log`，0600），不自动清理 | 超过相同阈值时由 crha 写入 `crha.toml` 配置的输出目录 `<state_dir>/output/`（`[output].dir` 未设置时的默认；示例布局为 `/var/lib/crha/output/`，0600），按 7 天、1GB 清理 |
 | 命令超时 | 无默认超时 | 相同（`timeout` 可选）；另有 `wait`（默认 10 分钟）只决定工具何时返回，不终止任务 |
 | 读文件 | 从头 2000 行或 50KB，用 `offset` / `limit`（行号）分页 | 相同；节点按行分页（一次 `file.read` 从第 `offset` 行起读 `limit` 行，整页不超过 50KB），结果原样返回页面字节（保留文件自己的换行），截断时给出 `Use offset=<n> to continue.`；总行数只在页面到达文件末尾时报告；起始行本身超过 50KB 时报错并指向 `exec`（例如 `sed -n '<N>p' <路径> \| head -c 51200`）；起始行超过文件末尾也是错误，并给出总行数 |
 | 列目录 | 500 项或 50KB | 相同 |
@@ -233,7 +233,7 @@ interface AgentRuntime {
 
 节点笔记就是**节点上的一个普通 Markdown 文件**，人和 LLM 都可以直接读写。
 
-- 位置在 crha 配置中设置（`crha.toml` 的 `notes`，默认 `/var/lib/crha/NOTES.md`，属主为非特权模式的运行用户），通过 `Facts` 上报；SSH 节点在 crhs 的节点配置中设置路径。
+- 位置在 crha 配置中设置（`crha.toml` 的 `notes`；未设置时是配置的 `state_dir` 下的 `NOTES.md`，示例布局为 `/var/lib/crha/NOTES.md`，属主为非特权模式的运行用户），通过 `Facts` 上报；SSH 节点在 crhs 的节点配置中设置路径。
 - `node_info` 自动返回笔记的路径和内容（超过 8KB 截断，并提示用 `read_file` 读取全文）。
 - 读写就用普通的 `read_file` / `edit_file`，审计与普通文件操作相同，没有专门的工具。
 - 人可以直接在节点上编辑，也可以在 WebUI 中通过同样的文件操作编辑。

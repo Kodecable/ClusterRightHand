@@ -36,11 +36,13 @@
 在非特权模式的配置中设置，由节点在 `Hello` 中上报（两种模式各自的运行身份在 `TrustSummary` 中上报），在 crhs 展示：
 
 ```toml
-# /etc/crha/crha.toml（非特权模式）
+# crha run --config /etc/crha/crha.toml（非特权模式；下面的路径只是示例布局，不是内置默认值）
+state_dir = "/var/lib/crha"                # 必填：身份密钥、笔记、输出和 crha.pid 的根目录
+
 [privileged]
-mode   = "forward"                        # forward | native | ignore | reject
-socket = "/run/crha/privileged.sock"      # mode = "forward" 时使用
-native = "sudo"                           # mode = "native" 时使用：sudo | doas | run0
+mode   = "forward"                         # forward | native | ignore | reject
+socket = "/run/crha/privileged.sock"       # mode = "forward" 时必填；其他模式不使用
+native = "sudo"                            # mode = "native" 时使用：sudo | doas | run0
 ```
 
 | mode | 行为 | 谁能让特权任务执行 |
@@ -65,20 +67,22 @@ native = "sudo"                           # mode = "native" 时使用：sudo | d
 
 ## 特权模式
 
+以下路径同样只是示例布局，实际值由两边的配置给出：
+
 ```
 crha 非特权模式（对外联网）
-   │  unix socket：/run/crha/privileged.sock（属组 crha，权限 0660）
+   │  unix socket：privileged.toml 的 socket（示例 /run/crha/privileged.sock；属组 crha，权限 0660）
    │  特权模式通过 SO_PEERCRED 区分对端：unprivileged_uid 提交任务，local 信任项中的 uid 做本地批准
    ▼
 crha 特权模式（不联网）
-   ├── 配置：/etc/crha/privileged.toml（属主为特权模式的运行用户，其他用户不可写）
-   ├── 吊销列表：/var/lib/crha/privileged/revoked
-   └── 本地日志：/var/log/crha/privileged.jsonl + journald
+   ├── 配置：crha privileged run --config 指定的 privileged.toml（示例 /etc/crha/privileged.toml；属主为特权模式的运行用户，其他用户不可写）
+   ├── 已用 / 吊销列表：state_dir 下的 used、revoked（示例 /var/lib/crha/privileged/）
+   └── 本地日志：log 指定的 jsonl（示例 /var/log/crha/privileged.jsonl）+ journald
 ```
 
 非特权模式把特权任务连同授权原样转给特权模式；特权模式校验后执行，并把输出经 socket 回传给非特权模式。
 
-**修改信任配置本身就是特权任务**（对 `/etc/crha/privileged.toml` 的 `file.write`，然后 reload），需要现有信任项授权。crhs 无法绕过授权修改它。建议 crhs 信任项默认 deny `file.write /etc/crha/`，让信任配置只能由用户授权修改，或者在节点上本地修改。
+**修改信任配置本身就是特权任务**（对 `privileged.toml` 的 `file.write`，然后 reload；该文件的路径由配置给出），需要现有信任项授权。crhs 无法绕过授权修改它。建议 crhs 信任项默认 deny `file.write /etc/crha/`，让信任配置只能由用户授权修改，或者在节点上本地修改。
 
 ## 方法与目标
 
@@ -135,7 +139,7 @@ crha 特权模式（不联网）
 - **覆盖多个节点的一次性授权**（任务组）：任务组为每个节点建一个任务，payload 的 `task_ids` 列出全部任务 id，`nodes` 列出对应节点 id（crhs 签发时把组展开成节点 id，签名后覆盖范围不再随组成员变化）。每个节点的 `task.start` 携带同一个授权对象，用户只签一次。一次性授权的 `nodes` 与 `task_ids` 按位置一一对应（见 [protocol.md](protocol.md#授权对象)），特权模式只接受对应本机的那个任务 id，因此被控制的 crhs 不能把其他节点的任务 id 发到同一个节点上重复执行。部分节点在 accepted 前被拒时，crhs 只为这些节点构造新 payload（`attempt + 1`，`task_ids` 缩小为被拒节点），需要重新签名；已执行的节点不受影响。
 - **`exact`**：方法和目标完全相等，并且 `spec_sha256` 必须等于完整任务规格的哈希 `SHA-256(CBOR(TaskSpec))`（见 [protocol.md](protocol.md#授权对象)）。完整规格包括 env、cwd、stdin 哈希，文件写入还包括内容哈希、mode、owner 和 `overwrite`，文件编辑还包括全部 `edits`。也就是说，批准"写 `/etc/nginx/nginx.conf`"时，批准的是写入这一份内容；批准一次编辑时，批准的是这几处替换，而不是任意内容。任务组的各节点使用同一份 spec，所以共用一个 `spec_sha256`。
 - **`prefix`**：方法匹配（`file.write` 包含 `file.read`），目标前缀相等。只约束目标，不约束 stdin 和写入内容。cwd 固定为 `/`，env 受信任项的 `env_allow` 约束。
-- **`task_ids`（一次性授权）**：授权只对列出的任务 id 有效，`attempt` 必须等于 `task.start` 的 attempt。特权模式在执行之前把 `(授权 id, 任务 id)` 和任务 id 记入本地的已用列表（`/var/lib/crha/privileged/used`，先持久化再执行），同一个授权不能在同一个任务上再用第二次，同一个任务 id 也不能再执行第二次。带 `task_ids` 的授权必须有 `deadline`，已用记录保留到 `deadline` 之后 7 天再清理（留出时钟回退的余量，见"时钟"）。
+- **`task_ids`（一次性授权）**：授权只对列出的任务 id 有效，`attempt` 必须等于 `task.start` 的 attempt。特权模式在执行之前把 `(授权 id, 任务 id)` 和任务 id 记入本地的已用列表（`state_dir` 下的 `used`，示例 `/var/lib/crha/privileged/used`，先持久化再执行），同一个授权不能在同一个任务上再用第二次，同一个任务 id 也不能再执行第二次。带 `task_ids` 的授权必须有 `deadline`，已用记录保留到 `deadline` 之后 7 天再清理（留出时钟回退的余量，见"时钟"）。
 - `exact` 只约束"执行什么"，不约束"执行几次"。不带 `task_ids` 的授权在有效期内可以重复使用，这是有意的（例如计划任务、`crha grant` 预先签发的授权）。
 - crhs 签发的"单条命令授权"就是 `exact` + `task_ids` + 很短的 `deadline`。特权模式对 `role = "crhs"` 的授权和所有联署**强制要求 `task_ids`**；`require_exact` 和 `max_ttl` 由 crhs 信任项配置。
 - 用户在审批某个具体任务时（WebUI 中用 Passkey，或 `crha grant --payload`），签发的授权同样带 `task_ids`，是一次性的。
@@ -185,10 +189,13 @@ crha 特权模式（不联网）
 | 不配置 crhs 信任项 | crhs 完全不参与特权任务 |
 
 ```toml
-# /etc/crha/privileged.toml
+# crha privileged run --config /etc/crha/privileged.toml（下面的路径只是示例布局）
 node_id          = "01JB…"
 groups           = ["web", "prod"]          # 授权依据：发给这些组的授权视为发给本机
 unprivileged_uid = 998
+socket           = "/run/crha/privileged.sock"
+state_dir        = "/var/lib/crha/privileged"    # used / revoked 列表
+log              = "/var/log/crha/privileged.jsonl"
 clock_skew       = "60s"
 
 [[trust]]
@@ -312,7 +319,7 @@ kinds = ["execute"]
 
 ## 本地批准
 
-用户 SSH 登录节点后执行 `crha pending` 查看待批准的任务，再执行 `crha approve <task-id>`（或 `crha deny`）。CLI 直接连接特权模式的 socket（crh-priv 的 `local` 角色，`SO_PEERCRED` 的 uid 必须在某个 `local` 信任项中）。这条路径不经过 crhs，也不需要任何密钥。
+用户 SSH 登录节点后执行 `crha pending` 查看待批准的任务，再执行 `crha approve <task-id>`（或 `crha deny`）。CLI 直接连接特权模式的 socket（crh-priv 的 `local` 角色，`SO_PEERCRED` 的 uid 必须在某个 `local` 信任项中）。`crha pending` / `approve` / `deny` 默认连接 `/run/crha/privileged.sock`，可用环境变量 `CRHA_PRIVILEGED_SOCKET` 或 `--socket` 覆盖（优先级：`--socket` > 环境变量 > 默认）。这是 crha 唯一内置的路径，只用于节点上手动批准。这条路径不经过 crhs，也不需要任何密钥。
 
 流程（线上格式见 [protocol.md](protocol.md#新增命令和事件11可选)）：
 
@@ -326,7 +333,7 @@ kinds = ["execute"]
 
 ## 吊销
 
-- 吊销只会减少权限，所以特权模式接受经非特权模式转发的吊销项（`revocations.add`），不要求签名；本地也可以执行 `crha privileged revoke <授权 id>`，它走 crh-priv 的 `local` 角色，所以执行者的 uid 必须在某个 `local` 信任项中。
+- 吊销只会减少权限，所以特权模式接受经非特权模式转发的吊销项（`revocations.add`），不要求签名；本地也可以执行 `crha privileged revoke <授权 id> --socket /run/crha/privileged.sock`（`--socket` 必填，没有默认值），它走 crh-priv 的 `local` 角色，所以执行者的 uid 必须在某个 `local` 信任项中。
 - crhs 在用户吊销授权后，把吊销项增量推送给相关节点；节点每次报告信任摘要可用时，crhs 重发该节点全部未过期的吊销项（幂等）。
 - 吊销列表持久化保存；带 `deadline` 的授权，吊销记录保留到 `deadline` 之后 7 天再清理（与已用记录相同，覆盖 `clock_skew` 和时钟回退）；不过期的授权，其吊销记录永久保留。crhs 重发吊销项时使用同样的期限。
 - 节点离线期间，吊销无法送达。所以长期有效的授权要谨慎签发，建议用 `max_ttl` 限制。

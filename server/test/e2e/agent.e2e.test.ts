@@ -44,7 +44,7 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 		};
 
 		it("rejects a reused token and a token with a wrong fingerprint", async () => {
-			// Each extra node gets its own config and state dir (a minimal config would default to /var/lib).
+			// Each extra node gets its own config and state dir; crha has no default paths.
 			const extra = async (name: string) => {
 				const dir = join(env.dir, name);
 				await mkdir(dir, { recursive: true });
