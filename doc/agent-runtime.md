@@ -149,6 +149,7 @@ interface AgentRuntime {
 
 - `waiting_kind` 只在 `awaiting` 时有值；配额相关的判断一律看 `waiting_kind = quota`，不能只看 `awaiting`。同一会话同时有多个等待时，配额优先，其次审批、签名；某个等待结束后按剩下的重算。
 - 审批和签名的等待由 cluster 的任务状态变化驱动：本会话发起的任务进入 `awaiting_approval` / `awaiting_authorization` 时会话进入 `awaiting`，任务离开这些状态且没有其他等待时回到 `running`。只有真正在等审批的任务才算：`awaiting_approval` 但没有处理者（`handler_type` 为空）只是下发前的瞬间，不是审批等待（见 [execution-plane.md](execution-plane.md#状态机服务端视角)）。
+- 同一会话的状态重算串行执行并合并：重算进行中再有请求时只标记"需要再算一次"，当前一次结束后基于最新数据重算，保证最后写入的是最新状态（否则特权任务"进入等待签名 → crhs 自签后立即离开"的两次重算可能乱序，留下过期的 `awaiting`）。
 - `root_session_id` 指向会话树的根，用于 WebUI 会话列表按整棵树汇总状态（见 [webui.md](webui.md) 的 API 约定）。树里任何会话的状态变化都会推送它的根会话。
 - **启动对账**：crhs 启动时（durable 恢复运行之后、开始接受请求之前）逐个修正状态缓存：
   - 记为 `running` / `awaiting` 的会话，如果 durable 中它最新一次输入已经结束，置为 `idle`；

@@ -30,8 +30,38 @@ type StateRow = Pick<SessionRow, "id" | "state" | "waiting_kind" | "last_submiss
  * first, then a task waiting for approval or a signature, otherwise running while its latest input is
  * unsettled. An idle session is never revived here — only a new input does that — so a late correction
  * cannot restart a run that already ended.
+ *
+ * Refreshes of the same session are serialized and coalesced (doc/agent-runtime.md#会话状态): a request while
+ * one is running marks it dirty and shares its promise, and the running one recomputes once more after it
+ * finishes, so the last write is always computed from data read after the latest request.
  */
-export async function refreshState(host: RuntimeHost, sessionId: string): Promise<SessionState> {
+export function refreshState(host: RuntimeHost, sessionId: string): Promise<SessionState> {
+	const running = host.refreshes.get(sessionId);
+	if (running) {
+		running.again = true;
+		return running.done;
+	}
+	// The entry is in the map before the first read suspends, so a concurrent request marks it instead of
+	// starting its own recompute. A second pass runs only when a request arrived during the first.
+	const entry = { again: false, done: Promise.resolve<SessionState>("idle") };
+	entry.done = (async () => {
+		try {
+			let state: SessionState = "idle";
+			do {
+				entry.again = false;
+				state = await refreshStateOnce(host, sessionId);
+			} while (entry.again);
+			return state;
+		} finally {
+			host.refreshes.delete(sessionId);
+		}
+	})();
+	host.refreshes.set(sessionId, entry);
+	return entry.done;
+}
+
+/** One recomputation of the session's state from the data read now; `refreshState` runs it in order. */
+async function refreshStateOnce(host: RuntimeHost, sessionId: string): Promise<SessionState> {
 	const row = await host.db.selectFrom("sessions").selectAll().where("id", "=", sessionId).executeTakeFirst();
 	if (!row) return "idle";
 	if (row.state === "idle") return "idle";

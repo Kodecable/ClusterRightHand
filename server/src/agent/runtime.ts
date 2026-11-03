@@ -87,6 +87,7 @@ export class AgentRuntime {
 			subagentParents: new Set(),
 			inboxes: new Map<string, Inbox>(),
 			quotaWaiters: new Map(),
+			refreshes: new Map(),
 			deniedWaits: new Set(),
 			providerSessions: new Map(),
 			learnedProviders: new Set(),

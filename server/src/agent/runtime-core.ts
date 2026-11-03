@@ -134,6 +134,8 @@ export interface RuntimeHost {
 	readonly inboxes: Map<string, Inbox>;
 	/** Waiters for a quota wait's session; grant/deny/abort/quota edit wakes them. */
 	readonly quotaWaiters: Map<string, Set<() => void>>;
+	/** Sessions whose state is being recomputed, and whether a request arrived while it ran (doc/agent-runtime.md#会话状态). */
+	readonly refreshes: Map<string, { again: boolean; done: Promise<SessionState> }>;
 	/** Sessions whose paused call was denied but whose tool has not ended yet: their wait must not be re-created. */
 	readonly deniedWaits: Set<string>;
 	/** Provider session id -> session, so a compaction's summarization is charged to its conversation (D92). */
