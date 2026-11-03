@@ -13,6 +13,30 @@ test("logs in and sees the shell with the approvals badge", async ({ page }) => 
 	await expect(page.getByTestId("session-list-slot")).toBeVisible();
 });
 
+test("only authorizations and schedules keep a page header description", async ({ page }) => {
+	await login(page);
+	for (const path of [
+		"/approvals",
+		"/tasks",
+		"/batch",
+		"/nodes",
+		"/credentials",
+		"/audit",
+		"/settings/models",
+		"/tokens",
+		"/users",
+	]) {
+		await page.goto(path);
+		const header = page.locator('[data-slot="page-header"]');
+		await expect(header).toBeVisible();
+		await expect(header.locator("p")).toHaveCount(0);
+	}
+	for (const path of ["/authorizations", "/schedules"]) {
+		await page.goto(path);
+		await expect(page.locator('[data-slot="page-header"] p').first()).toBeVisible();
+	}
+});
+
 test("a deep link survives login", async ({ page }) => {
 	await page.goto("/approvals/tasks/task-1");
 	await expect(page).toHaveURL(/\/login\?redirect=/);

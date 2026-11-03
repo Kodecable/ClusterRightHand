@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { I18n } from "@lingui/core";
-import { Plural, Trans, useLingui } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { type ReactNode, useId, useMemo } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
@@ -12,8 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDebouncedValue } from "@/hooks/use-debounced";
 import type { AvailableModel, ModelRef, Preset } from "@/lib/api/types";
-import { formatDateTimeSeconds } from "@/lib/format";
-import { useLocale } from "@/lib/i18n";
+import { formatDateTimeNumeric } from "@/lib/format";
 import { useSchedulePreview } from "./api";
 import {
 	defaultTimezone,
@@ -118,7 +117,6 @@ export function ScheduleForm({
 	children?: ReactNode;
 }) {
 	const { t, i18n } = useLingui();
-	const { locale } = useLocale();
 	const prefix = useId();
 	const id = (key: string) => `${prefix}-${key}`;
 	const schema = useMemo(() => buildSchema(i18n), [i18n]);
@@ -143,31 +141,20 @@ export function ScheduleForm({
 		const code = form.formState.errors[field]?.message;
 		return typeof code === "string" ? code : undefined;
 	};
+	const presetNote = presetNoteText(i18n, preset);
 
 	return (
 		<form onSubmit={submit} className="grid gap-3" noValidate data-testid="schedule-form">
-			<TextField
-				control={form.control}
-				name="name"
-				label={t`Name`}
-				placeholder={t`Nightly check`}
-				description={t`Shown in the schedule list; at most 200 characters.`}
-			/>
+			<TextField control={form.control} name="name" label={t`Name`} placeholder={t`Nightly check`} />
 			<TextareaField
 				control={form.control}
 				name="prompt"
 				label={t`Prompt`}
 				rows={5}
 				placeholder={t`What the new session should do`}
-				description={t`Every run starts a fresh session with this prompt.`}
 			/>
 			<div className="grid gap-3 sm:grid-cols-2">
-				<FieldShell
-					id={id("model")}
-					label={t`Model`}
-					error={fieldError("model")}
-					description={t`The model every new session of this schedule uses.`}
-				>
+				<FieldShell id={id("model")} label={t`Model`} error={fieldError("model")}>
 					<Controller
 						control={form.control}
 						name="model"
@@ -191,16 +178,9 @@ export function ScheduleForm({
 					/>
 				</FieldShell>
 			</div>
-			<p className={preset === "yolo" ? "text-sm text-warn" : "text-sm text-muted-foreground"}>
-				{presetNoteText(i18n, preset)}
-			</p>
+			{presetNote !== null && <p className="text-sm text-warn">{presetNote}</p>}
 
-			<FieldShell
-				id={id("tokenBudget")}
-				label={t`Token budget`}
-				error={fieldError("tokenBudget")}
-				description={t`Counts model output tokens, not input. Empty means unlimited.`}
-			>
+			<FieldShell id={id("tokenBudget")} label={t`Token budget`} error={fieldError("tokenBudget")}>
 				<Input
 					id={id("tokenBudget")}
 					inputMode="numeric"
@@ -217,12 +197,7 @@ export function ScheduleForm({
 					placeholder="*/5 * * * *"
 					description={t`Five fields: minute hour day-of-month month day-of-week, in the chosen IANA timezone.`}
 				/>
-				<FieldShell
-					id={id("timezone")}
-					label={t`Timezone`}
-					error={fieldError("timezone")}
-					description={t`Defaults to this browser's timezone.`}
-				>
+				<FieldShell id={id("timezone")} label={t`Timezone`} error={fieldError("timezone")}>
 					<Input id={id("timezone")} list={`${prefix}-timezones`} {...form.register("timezone")} />
 					<datalist id={`${prefix}-timezones`}>
 						{TIMEZONES.map((tz) => (
@@ -232,30 +207,32 @@ export function ScheduleForm({
 				</FieldShell>
 			</div>
 
-			<div role="status" aria-label={t`Next runs`} className="min-h-5 text-sm">
+			<div role="status" aria-label={t`Expected triggers`} className="min-h-5 text-sm">
 				{preview.isError ? (
 					<ErrorText error={preview.error} />
 				) : preview.data ? (
 					preview.data.length === 0 ? (
 						<span className="text-muted-foreground">{t`No upcoming runs.`}</span>
 					) : (
-						<span className="text-muted-foreground">
-							<Plural value={preview.data.length} one="Next run:" other="Next runs:" />{" "}
-							{preview.data.map((time) => formatDateTimeSeconds(time, locale)).join(", ")}
-						</span>
+						<div className="grid gap-1 text-muted-foreground">
+							<p>{t`Expected to fire at:`}</p>
+							<ul className="grid gap-0.5 pl-4 font-mono text-xs">
+								{preview.data.map((time) => (
+									<li key={time} data-testid="schedule-preview-time">
+										{formatDateTimeNumeric(time)}
+									</li>
+								))}
+								<li aria-hidden="true">……</li>
+							</ul>
+						</div>
 					)
 				) : (
-					<span className="text-muted-foreground">{t`Next runs: –`}</span>
+					<span className="text-muted-foreground">{t`Expected to fire at: –`}</span>
 				)}
 			</div>
 
 			<div className="grid gap-3 sm:grid-cols-2">
-				<CheckboxField
-					control={form.control}
-					name="catchUp"
-					label={t`Catch up a missed trigger after downtime`}
-					description={t`Runs once when crhs starts again if a trigger was missed while it was down.`}
-				/>
+				<CheckboxField control={form.control} name="catchUp" label={t`Catch up a missed trigger immediately`} />
 				<CheckboxField control={form.control} name="enabled" label={t`Enabled`} />
 			</div>
 

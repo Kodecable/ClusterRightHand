@@ -75,10 +75,7 @@ export function BatchPage() {
 
 	return (
 		<Page width="detail" data-testid="batch-page">
-			<PageHeader
-				title={<Trans>Batch run</Trans>}
-				description={<Trans>Run one task on many nodes and follow each node's result.</Trans>}
-			/>
+			<PageHeader title={<Trans>Batch run</Trans>} />
 
 			<form
 				className="grid gap-3 rounded-lg border p-3"

@@ -218,10 +218,7 @@ export function ApprovalsPage() {
 
 	return (
 		<Page data-testid="approvals-page">
-			<PageHeader
-				title={<Trans>Approvals</Trans>}
-				description={<Trans>Everything that waits for your approval, signature or quota decision.</Trans>}
-			/>
+			<PageHeader title={<Trans>Approvals</Trans>} />
 
 			{data && count === 0 && (
 				<EmptyState

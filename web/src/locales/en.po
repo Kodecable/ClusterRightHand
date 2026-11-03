@@ -81,8 +81,8 @@ msgstr "{0, plural, one {# task} other {# tasks}}"
 
 #. placeholder {0}: preview.data.length
 #: src/features/schedules/schedule-form.tsx
-msgid "{0, plural, one {Next run:} other {Next runs:}}"
-msgstr "{0, plural, one {Next run:} other {Next runs:}}"
+#~ msgid "{0, plural, one {Next run:} other {Next runs:}}"
+#~ msgstr "{0, plural, one {Next run:} other {Next runs:}}"
 
 #. placeholder {0}: result.replacements
 #: src/components/task-result.tsx
@@ -219,8 +219,8 @@ msgstr "A name is required."
 #~ msgstr "A new preset applies to the next tool call; waiting approvals are decided again."
 
 #: src/features/credentials/pages.tsx
-msgid "A node authorizes a privileged task signed by one of these credentials when its privileged.toml trusts the key."
-msgstr "A node authorizes a privileged task signed by one of these credentials when its privileged.toml trusts the key."
+#~ msgid "A node authorizes a privileged task signed by one of these credentials when its privileged.toml trusts the key."
+#~ msgstr "A node authorizes a privileged task signed by one of these credentials when its privileged.toml trusts the key."
 
 #: src/features/nodes/crhs-key-panel.tsx
 msgid "A node authorizes privileged tasks signed by this key when its privileged.toml trusts the key below."
@@ -247,8 +247,8 @@ msgid "A schedule creates a new session at each trigger and submits a fixed prom
 msgstr "A schedule creates a new session at each trigger and submits a fixed prompt. Every run acts for its owner through the same rules, approvals and limits as any other session."
 
 #: src/features/schedules/create-schedule-dialog.tsx
-msgid "A schedule creates a new session at every trigger and submits a fixed prompt."
-msgstr "A schedule creates a new session at every trigger and submits a fixed prompt."
+#~ msgid "A schedule creates a new session at every trigger and submits a fixed prompt."
+#~ msgstr "A schedule creates a new session at every trigger and submits a fixed prompt."
 
 #: src/features/schedules/pages.tsx
 msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
@@ -293,8 +293,8 @@ msgid "Account menu"
 msgstr "Account menu"
 
 #: src/features/users/pages.tsx
-msgid "Accounts that can sign in to the console; groups carry node access."
-msgstr "Accounts that can sign in to the console; groups carry node access."
+#~ msgid "Accounts that can sign in to the console; groups carry node access."
+#~ msgstr "Accounts that can sign in to the console; groups carry node access."
 
 #: src/features/audit/pages.tsx
 msgid "Action"
@@ -509,8 +509,8 @@ msgid "API tokens"
 msgstr "API tokens"
 
 #: src/features/tokens/pages.tsx
-msgid "API tokens let tools such as Claude Code use your nodes through MCP. Each token has its own rules; what they do not allow waits for your approval."
-msgstr "API tokens let tools such as Claude Code use your nodes through MCP. Each token has its own rules; what they do not allow waits for your approval."
+#~ msgid "API tokens let tools such as Claude Code use your nodes through MCP. Each token has its own rules; what they do not allow waits for your approval."
+#~ msgstr "API tokens let tools such as Claude Code use your nodes through MCP. Each token has its own rules; what they do not allow waits for your approval."
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Append this key to <0>~/.ssh/authorized_keys</0> of the target user on every hop (each jump host and the target), before continuing."
@@ -569,8 +569,8 @@ msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
 msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
 
 #: src/features/schedules/scheduleForm.ts
-msgid "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
-msgstr "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
+#~ msgid "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
+#~ msgstr "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
 
 #: src/features/tokens/preset-help.tsx
 msgid "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
@@ -643,8 +643,8 @@ msgid "Auto Review sends approvals it cannot decide to this model. Without one, 
 msgstr "Auto Review sends approvals it cannot decide to this model. Without one, each session's own model is used."
 
 #: src/features/schedules/scheduleForm.ts
-msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
-msgstr "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
+#~ msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
+#~ msgstr "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
 
 #: src/features/tokens/preset-help.tsx
 msgid "Auto Review: approvals first go to the review model; anything risky still waits for your approval."
@@ -750,8 +750,12 @@ msgid "Cancelled"
 msgstr "Cancelled"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Catch up a missed trigger after downtime"
-msgstr "Catch up a missed trigger after downtime"
+#~ msgid "Catch up a missed trigger after downtime"
+#~ msgstr "Catch up a missed trigger after downtime"
+
+#: src/features/schedules/schedule-form.tsx
+msgid "Catch up a missed trigger immediately"
+msgstr "Catch up a missed trigger immediately"
 
 #. placeholder {0}: result.brokenAt
 #. placeholder {1}: result.reason
@@ -1006,16 +1010,16 @@ msgid "cosignature unavailable"
 msgstr "cosignature unavailable"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Counts model output tokens, not input. Empty means unlimited."
-msgstr "Counts model output tokens, not input. Empty means unlimited."
+#~ msgid "Counts model output tokens, not input. Empty means unlimited."
+#~ msgstr "Counts model output tokens, not input. Empty means unlimited."
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Create"
 msgstr "Create"
 
 #: src/features/schedules/pages.tsx
-msgid "Create a schedule to run a fixed prompt on a cron expression."
-msgstr "Create a schedule to run a fixed prompt on a cron expression."
+#~ msgid "Create a schedule to run a fixed prompt on a cron expression."
+#~ msgstr "Create a schedule to run a fixed prompt on a cron expression."
 
 #: src/features/tokens/pages.tsx
 msgid "Create a token to connect an MCP client."
@@ -1146,8 +1150,8 @@ msgid "default"
 msgstr "default"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Defaults to this browser's timezone."
-msgstr "Defaults to this browser's timezone."
+#~ msgid "Defaults to this browser's timezone."
+#~ msgstr "Defaults to this browser's timezone."
 
 #: src/features/credentials/pages.tsx
 #: src/features/schedules/pages.tsx
@@ -1359,8 +1363,8 @@ msgid "Ended in {duration}"
 msgstr "Ended in {duration}"
 
 #: src/features/nodes/pages.tsx
-msgid "Enrolled crha clients and SSH targets. Pending nodes need their key fingerprint checked before they can be used."
-msgstr "Enrolled crha clients and SSH targets. Pending nodes need their key fingerprint checked before they can be used."
+#~ msgid "Enrolled crha clients and SSH targets. Pending nodes need their key fingerprint checked before they can be used."
+#~ msgstr "Enrolled crha clients and SSH targets. Pending nodes need their key fingerprint checked before they can be used."
 
 #: src/features/nodes/add-node-dialog.tsx
 msgid "Enrollment command"
@@ -1417,8 +1421,8 @@ msgid "Event detail"
 msgstr "Event detail"
 
 #: src/features/audit/pages.tsx
-msgid "Every action that changes the cluster, newest first. The hash chain makes a removed or reordered event detectable."
-msgstr "Every action that changes the cluster, newest first. The hash chain makes a removed or reordered event detectable."
+#~ msgid "Every action that changes the cluster, newest first. The hash chain makes a removed or reordered event detectable."
+#~ msgstr "Every action that changes the cluster, newest first. The hash chain makes a removed or reordered event detectable."
 
 #: src/features/settings/providers.ts
 msgid "Every model needs a context window of at least 1024 tokens."
@@ -1437,16 +1441,16 @@ msgid "Every request header value must be a string."
 msgstr "Every request header value must be a string."
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Every run starts a fresh session with this prompt."
-msgstr "Every run starts a fresh session with this prompt."
+#~ msgid "Every run starts a fresh session with this prompt."
+#~ msgstr "Every run starts a fresh session with this prompt."
 
 #: src/features/tasks/pages.tsx
-msgid "Every task on the nodes you can see, newest first. Requests waiting for you are handled on the Approvals page."
-msgstr "Every task on the nodes you can see, newest first. Requests waiting for you are handled on the Approvals page."
+#~ msgid "Every task on the nodes you can see, newest first. Requests waiting for you are handled on the Approvals page."
+#~ msgstr "Every task on the nodes you can see, newest first. Requests waiting for you are handled on the Approvals page."
 
 #: src/features/approvals/pages.tsx
-msgid "Everything that waits for your approval, signature or quota decision."
-msgstr "Everything that waits for your approval, signature or quota decision."
+#~ msgid "Everything that waits for your approval, signature or quota decision."
+#~ msgstr "Everything that waits for your approval, signature or quota decision."
 
 #: src/components/approval-card.tsx
 msgid "exact"
@@ -1477,6 +1481,18 @@ msgstr "Expand subagents"
 #: src/features/tokens/rules-dialog.tsx
 msgid "Expected an object like {\"rules\": [...]}."
 msgstr "Expected an object like {\"rules\": [...]}."
+
+#: src/features/schedules/schedule-form.tsx
+msgid "Expected to fire at:"
+msgstr "Expected to fire at:"
+
+#: src/features/schedules/schedule-form.tsx
+msgid "Expected to fire at: –"
+msgstr "Expected to fire at: –"
+
+#: src/features/schedules/schedule-form.tsx
+msgid "Expected triggers"
+msgstr "Expected triggers"
 
 #: src/components/status-badge.tsx
 msgid "Expired"
@@ -1977,12 +1993,12 @@ msgid "Next run"
 msgstr "Next run"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Next runs"
-msgstr "Next runs"
+#~ msgid "Next runs"
+#~ msgstr "Next runs"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Next runs: –"
-msgstr "Next runs: –"
+#~ msgid "Next runs: –"
+#~ msgstr "Next runs: –"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Nightly check"
@@ -2822,8 +2838,8 @@ msgid "Run now"
 msgstr "Run now"
 
 #: src/features/batch/pages.tsx
-msgid "Run one task on many nodes and follow each node's result."
-msgstr "Run one task on many nodes and follow each node's result."
+#~ msgid "Run one task on many nodes and follow each node's result."
+#~ msgstr "Run one task on many nodes and follow each node's result."
 
 #: src/features/tasks/pages.tsx
 msgid "Run something on a node, or use the batch page."
@@ -2848,8 +2864,8 @@ msgid "Running"
 msgstr "Running"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Runs once when crhs starts again if a trigger was missed while it was down."
-msgstr "Runs once when crhs starts again if a trigger was missed while it was down."
+#~ msgid "Runs once when crhs starts again if a trigger was missed while it was down."
+#~ msgstr "Runs once when crhs starts again if a trigger was missed while it was down."
 
 #: src/components/dialogs.tsx
 #: src/features/nodes/rename-node-button.tsx
@@ -2954,8 +2970,8 @@ msgid "Sessions"
 msgstr "Sessions"
 
 #: src/features/settings/pages.tsx
-msgid "Sessions use the models of the enabled providers below."
-msgstr "Sessions use the models of the enabled providers below."
+#~ msgid "Sessions use the models of the enabled providers below."
+#~ msgstr "Sessions use the models of the enabled providers below."
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Sessions use the models of the enabled providers."
@@ -3027,8 +3043,8 @@ msgid "Showing first {maxLines} of {lines} lines"
 msgstr "Showing first {maxLines} of {lines} lines"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Shown in the schedule list; at most 200 characters."
-msgstr "Shown in the schedule list; at most 200 characters."
+#~ msgid "Shown in the schedule list; at most 200 characters."
+#~ msgstr "Shown in the schedule list; at most 200 characters."
 
 #: src/features/auth/login-page.tsx
 msgid "Sign in"
@@ -3309,6 +3325,10 @@ msgstr "text"
 msgid "That number is too large."
 msgstr "That number is too large."
 
+#: src/features/schedules/scheduleForm.ts
+msgid "The Ask preset can often pause the schedule while it waits for your confirmation."
+msgstr "The Ask preset can often pause the schedule while it waits for your confirmation."
+
 #: src/features/settings/providers.ts
 msgid "The base URL must start with http:// or https://."
 msgstr "The base URL must start with http:// or https://."
@@ -3343,8 +3363,8 @@ msgid "The listing is truncated: the directory has more entries than are shown."
 msgstr "The listing is truncated: the directory has more entries than are shown."
 
 #: src/features/schedules/schedule-form.tsx
-msgid "The model every new session of this schedule uses."
-msgstr "The model every new session of this schedule uses."
+#~ msgid "The model every new session of this schedule uses."
+#~ msgstr "The model every new session of this schedule uses."
 
 #: src/features/credentials/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
@@ -3430,6 +3450,10 @@ msgstr "The token is shown once and expires <0/>."
 #: src/features/users/reset-password-dialog.tsx
 msgid "The user can sign in with this password immediately."
 msgstr "The user can sign in with this password immediately."
+
+#: src/features/schedules/scheduleForm.ts
+msgid "The Yolo preset runs every action without asking or checking."
+msgstr "The Yolo preset runs every action without asking or checking."
 
 #: src/app/shell/user-menu.tsx
 msgid "Theme"
@@ -3697,8 +3721,8 @@ msgid "Waiting for approval. {approvalLink}"
 msgstr "Waiting for approval. {approvalLink}"
 
 #: src/features/tasks/pages.tsx
-msgid "Waiting for me"
-msgstr "Waiting for me"
+#~ msgid "Waiting for me"
+#~ msgstr "Waiting for me"
 
 #: src/features/tasks/task-group-result.tsx
 msgid "Waiting for the owner's authorization; the payload is being prepared."
@@ -3782,8 +3806,8 @@ msgid "Yolo lets this token run anything on your nodes without asking."
 msgstr "Yolo lets this token run anything on your nodes without asking."
 
 #: src/features/schedules/scheduleForm.ts
-msgid "Yolo: everything runs without asking, including privileged tasks allowed by the node's own policy."
-msgstr "Yolo: everything runs without asking, including privileged tasks allowed by the node's own policy."
+#~ msgid "Yolo: everything runs without asking, including privileged tasks allowed by the node's own policy."
+#~ msgstr "Yolo: everything runs without asking, including privileged tasks allowed by the node's own policy."
 
 #: src/features/tokens/preset-help.tsx
 msgid "Yolo: everything runs without asking."

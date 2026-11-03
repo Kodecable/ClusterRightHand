@@ -111,12 +111,6 @@ export function TokensPage() {
 		<Page data-testid="tokens-page">
 			<PageHeader
 				title={<Trans>API tokens</Trans>}
-				description={
-					<Trans>
-						API tokens let tools such as Claude Code use your nodes through MCP. Each token has its own rules; what they
-						do not allow waits for your approval.
-					</Trans>
-				}
 				actions={
 					<Button type="button" onClick={() => setCreating(true)} data-testid="create-token">
 						<PlusIcon />

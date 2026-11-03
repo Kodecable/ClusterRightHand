@@ -128,7 +128,6 @@ export function ModelSettingsPage() {
 		<Page data-testid="models-page">
 			<PageHeader
 				title={<Trans>Model providers</Trans>}
-				description={<Trans>Sessions use the models of the enabled providers below.</Trans>}
 				actions={
 					<Button type="button" onClick={() => setEditing("new")} data-testid="add-provider">
 						<PlusIcon />

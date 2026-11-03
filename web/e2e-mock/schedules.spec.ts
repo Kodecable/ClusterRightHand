@@ -1,6 +1,48 @@
 import { expect, test } from "@playwright/test";
 import { login, mockApi } from "./helpers";
 
+test("the schedule form drops redundant help and warns only for Ask and Yolo", async ({ page }) => {
+	await mockApi(page, {
+		state: { models: [{ provider: "faux", modelId: "faux-1", name: "Faux One", contextWindow: 128_000 }] },
+	});
+	await login(page);
+	await page.goto("/schedules");
+	await page.getByTestId("new-schedule").click();
+	const dialog = page.getByRole("dialog", { name: "New schedule" });
+	await expect(dialog).toBeVisible();
+
+	for (const removed of [
+		"A schedule creates a new session at every trigger and submits a fixed prompt.",
+		"Shown in the schedule list; at most 200 characters.",
+		"Every run starts a fresh session with this prompt.",
+		"The model every new session of this schedule uses.",
+		"Counts model output tokens, not input. Empty means unlimited.",
+		"Defaults to this browser's timezone.",
+		"Runs once when crhs starts again if a trigger was missed while it was down.",
+		"Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there.",
+		"Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask.",
+	]) {
+		await expect(dialog.getByText(removed, { exact: true })).toHaveCount(0);
+	}
+	await expect(dialog.getByText("Catch up a missed trigger immediately")).toBeVisible();
+	await expect(dialog.getByText("Expected to fire at:")).toBeVisible();
+	await expect(dialog.getByTestId("schedule-preview-time")).toHaveCount(2);
+	await expect(dialog.getByText("……")).toBeVisible();
+
+	const askNote = dialog.getByText("The Ask preset can often pause the schedule while it waits for your confirmation.");
+	await expect(askNote).toHaveClass(/text-warn/);
+
+	await page.getByLabel("Preset").click();
+	await page.getByRole("option", { name: "Auto Review" }).click();
+	await expect(askNote).toHaveCount(0);
+
+	await page.getByLabel("Preset").click();
+	await page.getByRole("option", { name: "Yolo" }).click();
+	await expect(dialog.getByText("The Yolo preset runs every action without asking or checking.")).toHaveClass(
+		/text-warn/,
+	);
+});
+
 test("create a schedule and run it now", async ({ page }) => {
 	const api = await mockApi(page, {
 		state: {

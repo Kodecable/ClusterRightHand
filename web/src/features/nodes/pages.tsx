@@ -138,12 +138,6 @@ export function NodesPage() {
 		<Page data-testid="nodes-page">
 			<PageHeader
 				title={<Trans>Nodes</Trans>}
-				description={
-					<Trans>
-						Enrolled crha clients and SSH targets. Pending nodes need their key fingerprint checked before they can be
-						used.
-					</Trans>
-				}
 				actions={
 					<>
 						<Button type="button" variant="outline" onClick={() => void nodes.refetch()}>

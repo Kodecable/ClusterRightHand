@@ -1,11 +1,12 @@
+import { i18n } from "@lingui/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { AvailableModel } from "@/lib/api/types";
-import { renderWithI18n } from "@/test/render";
+import { activateLocale, renderWithI18n } from "@/test/render";
 import { ScheduleForm, scheduleFormStateOf } from "./schedule-form";
-import type { ParsedSchedule } from "./scheduleForm";
+import { type ParsedSchedule, presetNoteText } from "./scheduleForm";
 
 const MODELS: AvailableModel[] = [{ provider: "faux", modelId: "faux-1", name: "Faux One", contextWindow: 128_000 }];
 
@@ -58,8 +59,21 @@ describe("ScheduleForm", () => {
 			timezone: scheduleFormStateOf().timezone,
 			count: 5,
 		});
-		// The preview's times are rendered in the status line.
-		await screen.findByText(/Next run/);
+		// The preview's times are rendered as one sortable line each.
+		await screen.findByText("Expected to fire at:");
+		const times = screen.getAllByTestId("schedule-preview-time");
+		expect(times).toHaveLength(2);
+		for (const time of times) {
+			expect(time).toHaveTextContent(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+		}
+		expect(screen.getByText("……")).toBeInTheDocument();
+	});
+
+	test("warns for Ask and Yolo, and says nothing for Auto Review", () => {
+		activateLocale("en");
+		expect(presetNoteText(i18n, "ask")).toMatch(/pause the schedule/);
+		expect(presetNoteText(i18n, "auto_review")).toBeNull();
+		expect(presetNoteText(i18n, "yolo")).toMatch(/without asking or checking/);
 	});
 
 	test("shows translated validation codes and does not submit", async () => {

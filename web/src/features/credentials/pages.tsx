@@ -264,12 +264,6 @@ export function CredentialsPage() {
 		<Page data-testid="credentials-page">
 			<PageHeader
 				title={<Trans>Signing credentials</Trans>}
-				description={
-					<Trans>
-						A node authorizes a privileged task signed by one of these credentials when its privileged.toml trusts the
-						key.
-					</Trans>
-				}
 				actions={
 					<Button type="button" variant="outline" onClick={() => void credentials.refetch()}>
 						<RefreshCwIcon />

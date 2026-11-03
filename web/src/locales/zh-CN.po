@@ -81,8 +81,8 @@ msgstr "{0, plural, one {# 个任务} other {# 个任务}}"
 
 #. placeholder {0}: preview.data.length
 #: src/features/schedules/schedule-form.tsx
-msgid "{0, plural, one {Next run:} other {Next runs:}}"
-msgstr "{0, plural, one {下次运行：} other {后续运行：}}"
+#~ msgid "{0, plural, one {Next run:} other {Next runs:}}"
+#~ msgstr "{0, plural, one {下次运行：} other {后续运行：}}"
 
 #. placeholder {0}: result.replacements
 #: src/components/task-result.tsx
@@ -219,8 +219,8 @@ msgstr "需要填写名称。"
 #~ msgstr "新预设从下一次工具调用开始生效；等待中的审批会重新判定。"
 
 #: src/features/credentials/pages.tsx
-msgid "A node authorizes a privileged task signed by one of these credentials when its privileged.toml trusts the key."
-msgstr "当节点的 privileged.toml 信任相应密钥时，节点会授权由这些凭据之一签名的特权任务。"
+#~ msgid "A node authorizes a privileged task signed by one of these credentials when its privileged.toml trusts the key."
+#~ msgstr "当节点的 privileged.toml 信任相应密钥时，节点会授权由这些凭据之一签名的特权任务。"
 
 #: src/features/nodes/crhs-key-panel.tsx
 msgid "A node authorizes privileged tasks signed by this key when its privileged.toml trusts the key below."
@@ -247,8 +247,8 @@ msgid "A schedule creates a new session at each trigger and submits a fixed prom
 msgstr "计划任务在每次触发时创建一个新会话并提交固定的提示词。每次运行都以所有者身份，经过与其他会话相同的规则、审批和限额。"
 
 #: src/features/schedules/create-schedule-dialog.tsx
-msgid "A schedule creates a new session at every trigger and submits a fixed prompt."
-msgstr "计划任务在每次触发时创建一个新会话并提交固定的提示词。"
+#~ msgid "A schedule creates a new session at every trigger and submits a fixed prompt."
+#~ msgstr "计划任务在每次触发时创建一个新会话并提交固定的提示词。"
 
 #: src/features/schedules/pages.tsx
 msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
@@ -293,8 +293,8 @@ msgid "Account menu"
 msgstr "账户菜单"
 
 #: src/features/users/pages.tsx
-msgid "Accounts that can sign in to the console; groups carry node access."
-msgstr "可以登录控制台的账号；组决定节点访问权限。"
+#~ msgid "Accounts that can sign in to the console; groups carry node access."
+#~ msgstr "可以登录控制台的账号；组决定节点访问权限。"
 
 #: src/features/audit/pages.tsx
 msgid "Action"
@@ -509,8 +509,8 @@ msgid "API tokens"
 msgstr "API 令牌"
 
 #: src/features/tokens/pages.tsx
-msgid "API tokens let tools such as Claude Code use your nodes through MCP. Each token has its own rules; what they do not allow waits for your approval."
-msgstr "API 令牌让 Claude Code 等工具通过 MCP 使用你的节点。每个令牌有自己的规则；规则不允许的操作会等待你审批。"
+#~ msgid "API tokens let tools such as Claude Code use your nodes through MCP. Each token has its own rules; what they do not allow waits for your approval."
+#~ msgstr "API 令牌让 Claude Code 等工具通过 MCP 使用你的节点。每个令牌有自己的规则；规则不允许的操作会等待你审批。"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Append this key to <0>~/.ssh/authorized_keys</0> of the target user on every hop (each jump host and the target), before continuing."
@@ -569,8 +569,8 @@ msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
 msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行。"
 
 #: src/features/schedules/scheduleForm.ts
-msgid "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
-msgstr "Ask：每次审批都要等你，而下一次触发仍会结束本次运行。如果你不在，无人值守的运行会在下次触发时被停止。"
+#~ msgid "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
+#~ msgstr "Ask：每次审批都要等你，而下一次触发仍会结束本次运行。如果你不在，无人值守的运行会在下次触发时被停止。"
 
 #: src/features/tokens/preset-help.tsx
 msgid "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
@@ -643,8 +643,8 @@ msgid "Auto Review sends approvals it cannot decide to this model. Without one, 
 msgstr "Auto Review 会把无法判断的审批交给该模型。未设置时使用每个会话自己的模型。"
 
 #: src/features/schedules/scheduleForm.ts
-msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
-msgstr "Auto Review：审批先交给复核模型；有风险的操作仍会等你，注意事项与 Ask 相同。"
+#~ msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
+#~ msgstr "Auto Review：审批先交给复核模型；有风险的操作仍会等你，注意事项与 Ask 相同。"
 
 #: src/features/tokens/preset-help.tsx
 msgid "Auto Review: approvals first go to the review model; anything risky still waits for your approval."
@@ -750,8 +750,12 @@ msgid "Cancelled"
 msgstr "已取消"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Catch up a missed trigger after downtime"
-msgstr "停机后补上错过的触发"
+#~ msgid "Catch up a missed trigger after downtime"
+#~ msgstr "停机后补上错过的触发"
+
+#: src/features/schedules/schedule-form.tsx
+msgid "Catch up a missed trigger immediately"
+msgstr "错过时立刻补触发一次"
 
 #. placeholder {0}: result.brokenAt
 #. placeholder {1}: result.reason
@@ -1006,16 +1010,16 @@ msgid "cosignature unavailable"
 msgstr "无法共同签名"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Counts model output tokens, not input. Empty means unlimited."
-msgstr "只统计模型输出 token，不统计输入。留空表示不限制。"
+#~ msgid "Counts model output tokens, not input. Empty means unlimited."
+#~ msgstr "只统计模型输出 token，不统计输入。留空表示不限制。"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Create"
 msgstr "创建"
 
 #: src/features/schedules/pages.tsx
-msgid "Create a schedule to run a fixed prompt on a cron expression."
-msgstr "创建计划任务，按 cron 表达式运行固定提示词。"
+#~ msgid "Create a schedule to run a fixed prompt on a cron expression."
+#~ msgstr "创建计划任务，按 cron 表达式运行固定提示词。"
 
 #: src/features/tokens/pages.tsx
 msgid "Create a token to connect an MCP client."
@@ -1146,8 +1150,8 @@ msgid "default"
 msgstr "默认"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Defaults to this browser's timezone."
-msgstr "默认使用当前浏览器的时区。"
+#~ msgid "Defaults to this browser's timezone."
+#~ msgstr "默认使用当前浏览器的时区。"
 
 #: src/features/credentials/pages.tsx
 #: src/features/schedules/pages.tsx
@@ -1359,8 +1363,8 @@ msgid "Ended in {duration}"
 msgstr "已完成，用时 {duration}"
 
 #: src/features/nodes/pages.tsx
-msgid "Enrolled crha clients and SSH targets. Pending nodes need their key fingerprint checked before they can be used."
-msgstr "已注册的 crha 客户端和 SSH 目标。待批准节点需要先核对密钥指纹才能使用。"
+#~ msgid "Enrolled crha clients and SSH targets. Pending nodes need their key fingerprint checked before they can be used."
+#~ msgstr "已注册的 crha 客户端和 SSH 目标。待批准节点需要先核对密钥指纹才能使用。"
 
 #: src/features/nodes/add-node-dialog.tsx
 msgid "Enrollment command"
@@ -1417,8 +1421,8 @@ msgid "Event detail"
 msgstr "事件详情"
 
 #: src/features/audit/pages.tsx
-msgid "Every action that changes the cluster, newest first. The hash chain makes a removed or reordered event detectable."
-msgstr "所有改变集群的操作，最新的在前。哈希链可以发现被删除或重排的事件。"
+#~ msgid "Every action that changes the cluster, newest first. The hash chain makes a removed or reordered event detectable."
+#~ msgstr "所有改变集群的操作，最新的在前。哈希链可以发现被删除或重排的事件。"
 
 #: src/features/settings/providers.ts
 msgid "Every model needs a context window of at least 1024 tokens."
@@ -1437,16 +1441,16 @@ msgid "Every request header value must be a string."
 msgstr "每个请求头的值都必须是字符串。"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Every run starts a fresh session with this prompt."
-msgstr "每次运行都会用此提示词启动一个新会话。"
+#~ msgid "Every run starts a fresh session with this prompt."
+#~ msgstr "每次运行都会用此提示词启动一个新会话。"
 
 #: src/features/tasks/pages.tsx
-msgid "Every task on the nodes you can see, newest first. Requests waiting for you are handled on the Approvals page."
-msgstr "你能看到的所有节点上的任务，最新在前。等待你处理的请求在审批页。"
+#~ msgid "Every task on the nodes you can see, newest first. Requests waiting for you are handled on the Approvals page."
+#~ msgstr "你能看到的所有节点上的任务，最新在前。等待你处理的请求在审批页。"
 
 #: src/features/approvals/pages.tsx
-msgid "Everything that waits for your approval, signature or quota decision."
-msgstr "所有等待你审批、签名或配额决定的事项。"
+#~ msgid "Everything that waits for your approval, signature or quota decision."
+#~ msgstr "所有等待你审批、签名或配额决定的事项。"
 
 #: src/components/approval-card.tsx
 msgid "exact"
@@ -1477,6 +1481,18 @@ msgstr "展开子会话"
 #: src/features/tokens/rules-dialog.tsx
 msgid "Expected an object like {\"rules\": [...]}."
 msgstr "应为类似 {\"rules\": [...]} 的对象。"
+
+#: src/features/schedules/schedule-form.tsx
+msgid "Expected to fire at:"
+msgstr "预计触发于："
+
+#: src/features/schedules/schedule-form.tsx
+msgid "Expected to fire at: –"
+msgstr "预计触发于：–"
+
+#: src/features/schedules/schedule-form.tsx
+msgid "Expected triggers"
+msgstr "预计触发时间"
 
 #: src/components/status-badge.tsx
 msgid "Expired"
@@ -1977,12 +1993,12 @@ msgid "Next run"
 msgstr "下次运行"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Next runs"
-msgstr "后续运行"
+#~ msgid "Next runs"
+#~ msgstr "后续运行"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Next runs: –"
-msgstr "后续运行：–"
+#~ msgid "Next runs: –"
+#~ msgstr "后续运行：–"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Nightly check"
@@ -2822,8 +2838,8 @@ msgid "Run now"
 msgstr "立即运行"
 
 #: src/features/batch/pages.tsx
-msgid "Run one task on many nodes and follow each node's result."
-msgstr "在多个节点上运行同一个任务，并跟踪每个节点的结果。"
+#~ msgid "Run one task on many nodes and follow each node's result."
+#~ msgstr "在多个节点上运行同一个任务，并跟踪每个节点的结果。"
 
 #: src/features/tasks/pages.tsx
 msgid "Run something on a node, or use the batch page."
@@ -2848,8 +2864,8 @@ msgid "Running"
 msgstr "运行中"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Runs once when crhs starts again if a trigger was missed while it was down."
-msgstr "如果停机期间错过了触发，crhs 重启后会补运行一次。"
+#~ msgid "Runs once when crhs starts again if a trigger was missed while it was down."
+#~ msgstr "如果停机期间错过了触发，crhs 重启后会补运行一次。"
 
 #: src/components/dialogs.tsx
 #: src/features/nodes/rename-node-button.tsx
@@ -2954,8 +2970,8 @@ msgid "Sessions"
 msgstr "会话"
 
 #: src/features/settings/pages.tsx
-msgid "Sessions use the models of the enabled providers below."
-msgstr "会话使用下面已启用提供方的模型。"
+#~ msgid "Sessions use the models of the enabled providers below."
+#~ msgstr "会话使用下面已启用提供方的模型。"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Sessions use the models of the enabled providers."
@@ -3027,8 +3043,8 @@ msgid "Showing first {maxLines} of {lines} lines"
 msgstr "显示前 {maxLines} 行，共 {lines} 行"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "Shown in the schedule list; at most 200 characters."
-msgstr "显示在计划任务列表中；最多 200 个字符。"
+#~ msgid "Shown in the schedule list; at most 200 characters."
+#~ msgstr "显示在计划任务列表中；最多 200 个字符。"
 
 #: src/features/auth/login-page.tsx
 msgid "Sign in"
@@ -3309,6 +3325,10 @@ msgstr "文本"
 msgid "That number is too large."
 msgstr "这个数字太大了。"
 
+#: src/features/schedules/scheduleForm.ts
+msgid "The Ask preset can often pause the schedule while it waits for your confirmation."
+msgstr "Ask 预设可能经常导致计划任务暂停等待您的确认。"
+
 #: src/features/settings/providers.ts
 msgid "The base URL must start with http:// or https://."
 msgstr "Base URL 必须以 http:// 或 https:// 开头。"
@@ -3343,8 +3363,8 @@ msgid "The listing is truncated: the directory has more entries than are shown."
 msgstr "列表已截断：目录中的条目比显示的更多。"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "The model every new session of this schedule uses."
-msgstr "此计划任务的每个新会话使用的模型。"
+#~ msgid "The model every new session of this schedule uses."
+#~ msgstr "此计划任务的每个新会话使用的模型。"
 
 #: src/features/credentials/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
@@ -3430,6 +3450,10 @@ msgstr "令牌只显示一次，并将在 <0/> 过期。"
 #: src/features/users/reset-password-dialog.tsx
 msgid "The user can sign in with this password immediately."
 msgstr "用户可以立即使用此密码登录。"
+
+#: src/features/schedules/scheduleForm.ts
+msgid "The Yolo preset runs every action without asking or checking."
+msgstr "Yolo 预设所有操作都不经询问或检查直接运行。"
 
 #: src/app/shell/user-menu.tsx
 msgid "Theme"
@@ -3697,8 +3721,8 @@ msgid "Waiting for approval. {approvalLink}"
 msgstr "等待审批。{approvalLink}"
 
 #: src/features/tasks/pages.tsx
-msgid "Waiting for me"
-msgstr "等待我处理"
+#~ msgid "Waiting for me"
+#~ msgstr "等待我处理"
 
 #: src/features/tasks/task-group-result.tsx
 msgid "Waiting for the owner's authorization; the payload is being prepared."
@@ -3782,8 +3806,8 @@ msgid "Yolo lets this token run anything on your nodes without asking."
 msgstr "Yolo 允许此令牌在你的节点上不经询问执行任何操作。"
 
 #: src/features/schedules/scheduleForm.ts
-msgid "Yolo: everything runs without asking, including privileged tasks allowed by the node's own policy."
-msgstr "Yolo：所有操作都不经询问直接运行，包括节点自身策略允许的特权任务。"
+#~ msgid "Yolo: everything runs without asking, including privileged tasks allowed by the node's own policy."
+#~ msgstr "Yolo：所有操作都不经询问直接运行，包括节点自身策略允许的特权任务。"
 
 #: src/features/tokens/preset-help.tsx
 msgid "Yolo: everything runs without asking."

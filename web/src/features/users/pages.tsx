@@ -108,7 +108,6 @@ export function UsersPage() {
 		<Page data-testid="users-page">
 			<PageHeader
 				title={<Trans>Users</Trans>}
-				description={<Trans>Accounts that can sign in to the console; groups carry node access.</Trans>}
 				actions={
 					<Button type="button" onClick={() => setCreating(true)} data-testid="new-user">
 						<PlusIcon />

@@ -18,9 +18,7 @@ function mockApi(): { urls: string[] } {
 					? { nodes: [] }
 					: url.startsWith("/api/directory")
 						? { users: [], userGroups: [] }
-						: url.startsWith("/api/approvals")
-							? { tasks: [], taskGroups: [], authorizations: { tasks: [], taskGroups: [] }, quotas: [] }
-							: { ok: true };
+						: { ok: true };
 			return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 		}),
 	);
@@ -56,10 +54,9 @@ describe("TasksPage filters", () => {
 		);
 	});
 
-	test("the waiting-for-me shortcut points at the approvals page", async () => {
+	test("does not link to the approvals page", async () => {
 		mockApi();
 		await renderPage();
-		const link = await screen.findByTestId("waiting-for-me");
-		expect(link).toHaveAttribute("href", "/approvals");
+		expect(screen.queryByTestId("waiting-for-me")).not.toBeInTheDocument();
 	});
 });

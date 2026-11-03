@@ -1,18 +1,13 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { ShieldCheckIcon } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { DataTable } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { taskStateLabel } from "@/components/status-badge";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useApprovals } from "@/features/approvals/api";
-import { pendingCount } from "@/features/approvals/pending";
 import { useNodes } from "@/features/nodes/api";
 import { useDirectory } from "@/features/users/api";
 import { useTasks } from "./api";
@@ -66,15 +61,13 @@ function FilterSelect({
 
 /**
  * All tasks the user can see (doc/webui.md "Tasks"): a cursor-paged table with
- * state / actor-type / node filters and a shortcut to the Approvals page, where
- * everything waiting for this user is handled.
+ * state / actor-type / node filters.
  */
 export function TasksPage() {
 	const { t, i18n } = useLingui();
 	const navigate = useNavigate();
 	const nodes = useNodes();
 	const directory = useDirectory();
-	const approvals = useApprovals();
 	const [state, setState] = useState("any");
 	const [actorType, setActorType] = useState("any");
 	const [nodeId, setNodeId] = useState("any");
@@ -101,19 +94,9 @@ export function TasksPage() {
 		{ value: "schedule", label: t`Schedule` },
 	];
 
-	const waiting = pendingCount(approvals.data);
-
 	return (
 		<Page data-testid="tasks-page">
-			<PageHeader
-				title={<Trans>Tasks</Trans>}
-				description={
-					<Trans>
-						Every task on the nodes you can see, newest first. Requests waiting for you are handled on the Approvals
-						page.
-					</Trans>
-				}
-			/>
+			<PageHeader title={<Trans>Tasks</Trans>} />
 
 			<div className="flex flex-wrap items-end gap-3">
 				<FilterSelect
@@ -143,17 +126,6 @@ export function TasksPage() {
 						...(nodes.data ?? []).map((node) => ({ value: node.id, label: node.name })),
 					]}
 				/>
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					data-testid="waiting-for-me"
-					render={<Link to="/approvals" />}
-				>
-					<ShieldCheckIcon />
-					<Trans>Waiting for me</Trans>
-					{waiting > 0 && <Badge variant="secondary">{waiting}</Badge>}
-				</Button>
 			</div>
 
 			<DataTable

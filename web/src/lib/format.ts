@@ -87,6 +87,23 @@ export function formatDateTimeSeconds(value: DateInput, locale: string): string 
 	}).format(date);
 }
 
+/** A sortable local timestamp, e.g. "2026-11-03 09:00:00". */
+export function formatDateTimeNumeric(value: DateInput): string {
+	const date = toDate(value);
+	if (!date) return "–";
+	const parts = dateTimeFormat("en-CA", {
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+		hourCycle: "h23",
+	}).formatToParts(date);
+	const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? "";
+	return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}:${part("second")}`;
+}
+
 /** The "3 minutes ago" style relative time. */
 export function formatRelativeTime(value: DateInput, locale: string, now: number = Date.now()): string {
 	const date = toDate(value);

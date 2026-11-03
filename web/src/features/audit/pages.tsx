@@ -180,16 +180,7 @@ export function AuditPage() {
 
 	return (
 		<Page data-testid="audit-page">
-			<PageHeader
-				title={<Trans>Audit</Trans>}
-				description={
-					<Trans>
-						Every action that changes the cluster, newest first. The hash chain makes a removed or reordered event
-						detectable.
-					</Trans>
-				}
-				actions={user?.kind === "admin" ? <VerifyPanel /> : undefined}
-			/>
+			<PageHeader title={<Trans>Audit</Trans>} actions={user?.kind === "admin" ? <VerifyPanel /> : undefined} />
 			<form
 				className="flex flex-wrap items-start gap-2"
 				aria-label={t`Audit filters`}

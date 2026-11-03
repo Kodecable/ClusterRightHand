@@ -157,15 +157,15 @@ export function runStatusText(i18n: I18n, status: ScheduleRunStatus): string {
 	return i18n._(RUN_STATUS_TEXT[status]);
 }
 
-const PRESET_NOTES: Record<Preset, MessageDescriptor> = {
-	ask: msg`Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there.`,
-	auto_review: msg`Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask.`,
-	yolo: msg`Yolo: everything runs without asking, including privileged tasks allowed by the node's own policy.`,
+const PRESET_NOTES: Partial<Record<Preset, MessageDescriptor>> = {
+	ask: msg`The Ask preset can often pause the schedule while it waits for your confirmation.`,
+	yolo: msg`The Yolo preset runs every action without asking or checking.`,
 };
 
-/** The explanation shown under the preset picker on the schedule form. */
-export function presetNoteText(i18n: I18n, preset: Preset): string {
-	return i18n._(PRESET_NOTES[preset]);
+/** The explanation shown under the preset picker, or null when the preset needs no callout. */
+export function presetNoteText(i18n: I18n, preset: Preset): string | null {
+	const note = PRESET_NOTES[preset];
+	return note === undefined ? null : i18n._(note);
 }
 
 /** The keys a run note is built from: a reason, the manual flag and how it ended. */

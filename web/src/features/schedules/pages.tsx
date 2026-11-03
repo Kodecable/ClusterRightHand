@@ -140,12 +140,7 @@ export function SchedulesPage() {
 				loading={schedules.isLoading}
 				error={schedules.isError ? schedules.error : undefined}
 				onRetry={() => void schedules.refetch()}
-				empty={
-					<EmptyState
-						title={<Trans>No schedules yet</Trans>}
-						description={<Trans>Create a schedule to run a fixed prompt on a cron expression.</Trans>}
-					/>
-				}
+				empty={<EmptyState title={<Trans>No schedules yet</Trans>} />}
 			/>
 			{creating && models.data && <CreateScheduleDialog models={models.data} onClose={() => setCreating(false)} />}
 		</Page>
