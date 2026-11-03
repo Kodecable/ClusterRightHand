@@ -20,6 +20,11 @@ PRIV_CONFIG=${PRIV_CONFIG:-/etc/crha/privileged.toml}
 CRHA_CONFIG=${CRHA_CONFIG:-/etc/crha/crha.toml}
 PRIV_SOCKET=${PRIV_SOCKET:-/run/crha/privileged.sock}
 SSHD_CONFIG=${SSHD_CONFIG:-/etc/ssh/sshd_config.priv}
+# Extra arguments appended to every crha invocation (the soak harness passes a debug build's
+# --pprof-listen here). Unset keeps the command lines exactly as before; the values are split on
+# whitespace like any other unquoted shell variable.
+CRHA_RUN_ARGS=${CRHA_RUN_ARGS:-}
+CRHA_PRIV_ARGS=${CRHA_PRIV_ARGS:-}
 RUN=/run/priv
 LOG=/var/log/crha
 
@@ -95,13 +100,13 @@ start_sshd() {
 
 case ${1:-} in
 start-priv)
-	start_daemon priv root "$CRHA" privileged run --config "$PRIV_CONFIG"
+	start_daemon priv root "$CRHA" privileged run --config "$PRIV_CONFIG" $CRHA_PRIV_ARGS
 	wait_socket
 	;;
 stop-priv) stop_daemon priv ;;
 restart-priv)
 	stop_daemon priv
-	start_daemon priv root "$CRHA" privileged run --config "$PRIV_CONFIG"
+	start_daemon priv root "$CRHA" privileged run --config "$PRIV_CONFIG" $CRHA_PRIV_ARGS
 	wait_socket
 	;;
 hup-priv)
@@ -109,12 +114,12 @@ hup-priv)
 	kill -HUP "$pid"
 	;;
 start-crha)
-	start_daemon crha 998 "$CRHA" run --config "$CRHA_CONFIG"
+	start_daemon crha 998 "$CRHA" run --config "$CRHA_CONFIG" $CRHA_RUN_ARGS
 	;;
 stop-crha) stop_daemon crha ;;
 restart-crha)
 	stop_daemon crha
-	start_daemon crha 998 "$CRHA" run --config "$CRHA_CONFIG"
+	start_daemon crha 998 "$CRHA" run --config "$CRHA_CONFIG" $CRHA_RUN_ARGS
 	;;
 start-sshd) start_sshd ;;
 stop-sshd)
@@ -126,10 +131,10 @@ stop-sshd)
 start-all)
 	start_sshd || exit 1
 	[ -f "$PRIV_CONFIG" ] && {
-		start_daemon priv root "$CRHA" privileged run --config "$PRIV_CONFIG"
+		start_daemon priv root "$CRHA" privileged run --config "$PRIV_CONFIG" $CRHA_PRIV_ARGS
 		wait_socket
 	}
-	[ -f "$CRHA_CONFIG" ] && start_daemon crha 998 "$CRHA" run --config "$CRHA_CONFIG"
+	[ -f "$CRHA_CONFIG" ] && start_daemon crha 998 "$CRHA" run --config "$CRHA_CONFIG" $CRHA_RUN_ARGS
 	;;
 stop-all)
 	stop_daemon crha

@@ -67,6 +67,11 @@ reset-priv-state     # delete used, back to a clean authorization state
 wait-priv-socket | status
 ```
 
+`privctl.sh` appends the optional environment variables `CRHA_RUN_ARGS` and `CRHA_PRIV_ARGS` to every
+`crha run` / `crha privileged run` it starts (all six start sites). The fixture exposes them through
+`ContainerOptions.env` (`podman run -e`); the soak uses them to pass a debug build's `--pprof-listen`.
+With both unset the command lines are exactly as before. Extra bind mounts use `ContainerOptions.mounts`.
+
 ## Running
 
 ```bash

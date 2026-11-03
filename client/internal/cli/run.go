@@ -34,21 +34,40 @@ var resolveEnv = execenv.Resolve
 
 func newRunCmd() *cobra.Command {
 	var configPath string
+	var startDebug func(context.Context) error
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run crha in non-privileged mode",
 		Long:  "Run crha in non-privileged mode. SIGHUP re-reads the configuration; an invalid file keeps the running one.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return run(cmd.Context(), configPath)
+			return runWithDebug(cmd.Context(), configPath, startDebug)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "path to the config file (required)")
 	_ = cmd.MarkFlagRequired("config")
+	startDebug = addDebugFlags(cmd)
 	return cmd
 }
 
 func run(ctx context.Context, configPath string) error {
+	return runWithDebug(ctx, configPath, nil)
+}
+
+// runWithDebug is run plus the optional starter of a debug build's facilities (pprof). startDebug
+// is nil in normal builds and when the debug flag was not given.
+func runWithDebug(ctx context.Context, configPath string, startDebug func(context.Context) error) error {
+	// The process context exists before anything else: a debug listener started below stops when the
+	// process is asked to shut down, including the early-exit paths.
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if startDebug != nil {
+		// Validate and open the debug endpoint before the node connects, so a bad address is a
+		// startup error rather than a surprise after enrollment.
+		if err := startDebug(ctx); err != nil {
+			return err
+		}
+	}
 	// The task environment is resolved once for the process: a node that cannot give its tasks a
 	// shell and an identity must not run tasks at all (doc/execution-plane.md#exec-的执行环境).
 	env, err := resolveEnv(execenv.Options{})
@@ -73,8 +92,6 @@ func run(ctx context.Context, configPath string) error {
 		return err
 	}
 
-	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	a := agent.New(agent.Options{
 		Dial: func(ctx context.Context) (*transport.Conn, error) {
@@ -194,6 +211,7 @@ func newPrivilegedCmd() *cobra.Command {
 
 	var configPath string
 	var noPersistUsed bool
+	var startDebug func(context.Context) error
 	run := &cobra.Command{
 		Use:   "run",
 		Short: "Run crha in privileged mode",
@@ -201,7 +219,7 @@ func newPrivilegedCmd() *cobra.Command {
 execute privileged tasks as this process's Linux user. SIGHUP reloads the trust configuration.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runPrivileged(cmd.Context(), configPath, noPersistUsed)
+			return runPrivilegedWithDebug(cmd.Context(), configPath, noPersistUsed, startDebug)
 		},
 	}
 	run.Flags().StringVar(&configPath, "config", "", "path to the privileged config file (required)")
@@ -210,6 +228,7 @@ execute privileged tasks as this process's Linux user. SIGHUP reloads the trust 
 			"Lowers security: after the privileged mode restarts, a one-shot authorization can run "+
 			"again until its deadline")
 	_ = run.MarkFlagRequired("config")
+	startDebug = addDebugFlags(run)
 
 	stdio := &cobra.Command{
 		Use:   "stdio",
@@ -235,6 +254,21 @@ run it from a terminal.`,
 // runPrivileged is `crha privileged run`: load the trust configuration, open the local log and
 // serve the socket until SIGINT/SIGTERM.
 func runPrivileged(ctx context.Context, configPath string, noPersistUsed bool) error {
+	return runPrivilegedWithDebug(ctx, configPath, noPersistUsed, nil)
+}
+
+// runPrivilegedWithDebug is runPrivileged plus the optional starter of a debug build's facilities
+// (pprof). startDebug is nil in normal builds and when the debug flag was not given.
+func runPrivilegedWithDebug(ctx context.Context, configPath string, noPersistUsed bool, startDebug func(context.Context) error) error {
+	// The process context exists before anything else: a debug listener started below stops when the
+	// process is asked to shut down, including the early-exit paths.
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if startDebug != nil {
+		if err := startDebug(ctx); err != nil {
+			return err
+		}
+	}
 	// The privileged process resolves its own environment: the fixed PATH, root's identity and the
 	// shells it discovered. A failure keeps the privileged mode from starting at all.
 	env, err := resolveEnv(execenv.Options{Privileged: true})
@@ -261,7 +295,5 @@ func runPrivileged(ctx context.Context, configPath string, noPersistUsed bool) e
 	if err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	return server.Run(ctx)
 }

@@ -85,12 +85,14 @@ function run(cmd: string, args: string[], opts: { timeout?: number } = {}): Prom
 
 /**
  * Builds a static crha on the host (the image never compiles Go). `GOCACHE` is passed through when
- * the environment sets it; otherwise Go's own cache is used.
+ * the environment sets it; otherwise Go's own cache is used. `tags` selects Go build tags (the soak
+ * uses `pprof`; the system tests build the default binary).
  */
-export async function buildStaticCrha(outDir: string): Promise<string> {
+export async function buildStaticCrha(outDir: string, opts: { tags?: string[] } = {}): Promise<string> {
 	const bin = join(outDir, "crha");
+	const tags = opts.tags && opts.tags.length > 0 ? ["-tags", opts.tags.join(",")] : [];
 	await new Promise<void>((done, fail) => {
-		const child = spawn("go", ["build", "-o", bin, "./cmd/crha"], {
+		const child = spawn("go", ["build", ...tags, "-o", bin, "./cmd/crha"], {
 			cwd: CLIENT_DIR,
 			env: { ...process.env, CGO_ENABLED: "0" },
 			stdio: ["ignore", "pipe", "pipe"],
@@ -161,10 +163,24 @@ export interface ContainerOptions {
 	ssh?: boolean;
 	sshPort?: number;
 	/**
+	 * Extra environment variables for the container (`podman run -e`). privctl.sh reads
+	 * CRHA_RUN_ARGS / CRHA_PRIV_ARGS from here; the soak uses them for a debug build's pprof flag.
+	 */
+	env?: Record<string, string>;
+	/** Extra bind mounts, appended after the fixture's own; the destination is a container path. */
+	mounts?: MountSpec[];
+	/**
 	 * Trust entries of privileged.toml. The node id is filled in by the fixture; `null` keeps the
 	 * file away, which is what a node whose privileged mode is not running looks like.
 	 */
 	trust?: TrustSpec[] | null;
+}
+
+/** One extra bind mount of a container (`podman run -v`). */
+export interface MountSpec {
+	source: string;
+	destination: string;
+	readOnly?: boolean;
 }
 
 /** One [[trust]] entry, in the field names of privileged.toml (doc/privilege.md 信任配置). */
@@ -205,12 +221,21 @@ export class PrivilegedNode {
 	readonly sshClientKeyPath: string;
 	readonly hostKeyPath: string;
 	readonly sshPort: number;
+	/** The environment handed to `podman run -e` (ContainerOptions.env); privctl.sh reads it. */
+	readonly env: Readonly<Record<string, string>>;
 	nodeId = "";
 	#mode: ContainerOptions["mode"] = "forward";
 	#clockSkew = "60s";
 	#groups: string[] = ["web"];
 
-	private constructor(name: string, dir: string, crhs: InProcessCrhs, bin: string, sshPort: number) {
+	private constructor(
+		name: string,
+		dir: string,
+		crhs: InProcessCrhs,
+		bin: string,
+		sshPort: number,
+		env: Readonly<Record<string, string>>,
+	) {
 		this.name = name;
 		this.dir = dir;
 		this.crhs = crhs;
@@ -221,6 +246,7 @@ export class PrivilegedNode {
 		this.sshClientKeyPath = join(dir, "ssh", "client-key");
 		this.hostKeyPath = join(dir, "ssh", "ssh_host_ed25519_key");
 		this.sshPort = sshPort;
+		this.env = env;
 	}
 
 	/** Starts a container, enrolls the node, writes the privileged config and waits until crha is up. */
@@ -233,6 +259,7 @@ export class PrivilegedNode {
 			opts.crhs,
 			opts.bin,
 			opts.sshPort ?? 2222,
+			opts.env ?? {},
 		);
 		await node.#prepare(opts);
 		await node.#start(image, opts);
@@ -267,6 +294,13 @@ export class PrivilegedNode {
 			"--network=host",
 			"--init",
 			...(opts.ssh ? ["-e", `PRIV_SSH_PORT=${this.sshPort}`] : ["-e", "PRIV_NO_SSHD=1"]),
+			// Container environment, read by privctl.sh at every start site (stable insertion order).
+			...Object.entries(this.env).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
+			// Extra mounts last, so the fixture's own config/ssh/bin mounts keep their precedence.
+			...(opts.mounts ?? []).flatMap((mount) => [
+				"-v",
+				`${mount.source}:${mount.destination}${mount.readOnly ? ":ro" : ":rw"}`,
+			]),
 			"-v",
 			`${this.configDir}:/etc/crha:rw`,
 			"-v",
