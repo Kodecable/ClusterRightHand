@@ -44,7 +44,8 @@ type conn struct {
 
 // connTask is one accepted task of a connection. launch starts the task at most once; it is
 // called by Deferred.After after the task.start success response, or by the connection
-// teardown when that response could not be sent (the acceptance already stands).
+// teardown when that response could not be sent (the acceptance already stands). The entry
+// leaves the connection's table when the task's execution ends.
 type connTask struct {
 	task   *taskrun.Task
 	launch func()
@@ -183,6 +184,18 @@ func (c *conn) task(id string) *taskrun.Task {
 	return nil
 }
 
+// forgetTask drops a task whose execution ended from the connection's table, so a forward
+// connection that lives for days does not retain every task it ever ran. Afterwards
+// task.input for the id is unknown_task and task.cancel is the same no-op success as for any
+// unknown task (doc/protocol.md task.cancel).
+func (c *conn) forgetTask(ct *connTask) {
+	c.mu.Lock()
+	if c.tasks[ct.task.ID()] == ct {
+		delete(c.tasks, ct.task.ID())
+	}
+	c.mu.Unlock()
+}
+
 // handleTaskStart verifies an authorization, persists the used records, logs the acceptance
 // and starts the task after the success response (doc/privilege.md 校验流程 steps 2–10).
 func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, error) {
@@ -311,6 +324,7 @@ func (c *conn) startTask(ct *connTask) {
 				})
 			}
 			c.s.unregisterTask(ct.task)
+			c.forgetTask(ct)
 		},
 	)
 }

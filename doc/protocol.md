@@ -106,7 +106,7 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
 - `attempt` 从 1 开始；只有授权重试（`authorization_*`）才递增。
 - 成功响应就是 accepted。crha 在发出成功响应前，必须已把 `task_id` 记入**已接受集合**；先发响应再启动执行，所以该任务的事件一定在响应之后。
 - 已记入已接受集合、但成功响应没能发出（连接恰好断开）的任务，crha 仍然执行：接受已经决定，crhs 不会重发，它在重连后的 `hello` 中看到这个任务并照常接收输出和 `task.exit`。
-- 已接受集合在 crha 进程内保留（不随 `task.exit.ack` 删除），上限为最近 100 000 个 id；命中时返回 `already_accepted`。crhs 永远不会重发已接受的任务，这是纵深防御。
+- 已接受集合在 crha 进程内保留（不随 `task.exit.ack` 删除），上限为最近 16 384 个 id；命中时返回 `already_accepted`。crhs 永远不会重发已接受的任务，这是纵深防御。
 - `authorizations` 的每一项是一个 `CBOR(Authorization)`（见 [授权对象](#授权对象)）；非特权任务、`native` / `ignore` 和本地批准时为空。M4 中最多一项，多于一项返回 `authorization_invalid`。
 - 错误码：
   - 可重试（任务回到 `awaiting_authorization`）：

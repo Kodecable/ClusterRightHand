@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -456,4 +457,65 @@ func TestTaskTimeout(t *testing.T) {
 	if !exit.TimedOut || exit.Outcome.Kind != protocol.OutcomeSignal {
 		t.Fatalf("task.exit = %+v", exit)
 	}
+}
+
+// onlyForwardConn returns the test daemon's single forward connection.
+func onlyForwardConn(t *testing.T, s *Server) *conn {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for c := range s.forwards {
+		return c
+	}
+	t.Fatal("no forward connection")
+	return nil
+}
+
+// TestFinishedTasksLeaveConnection covers the connection's task table: a forward connection
+// lives for days, so every task whose execution ended must be dropped instead of retaining its
+// taskrun.Task. A late task.input for such an id is unknown_task.
+func TestFinishedTasksLeaveConnection(t *testing.T) {
+	keys := newTestKeys(t)
+	env := crhsOnlyEnv(t, keys)
+	client := dialForward(t, env.paths.Socket)
+	ctx := requestContext(t)
+
+	const tasks = 50
+	var lastID string
+	for i := range tasks {
+		id := fmt.Sprintf("finished-%d", i)
+		lastID = id
+		ts := execTask(id, 1, "/bin/true")
+		payload := payloadFor(id, 1, exactCommand(t, &ts.Spec), nil)
+		ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
+		if err := client.start(ctx, ts); err != nil {
+			t.Fatalf("task.start %s: %v", id, err)
+		}
+		exit := client.waitExit(15 * time.Second)
+		if exit.TaskID != id || exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
+			t.Fatalf("task.exit for %s = %+v", id, exit)
+		}
+	}
+
+	c := onlyForwardConn(t, env.server)
+	// task.exit goes out before the exit callback drops the entry, so wait for the drop.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		c.mu.Lock()
+		left := len(c.tasks)
+		c.mu.Unlock()
+		if left == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("connection still retains %d finished task(s)", left)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	var empty protocol.Empty
+	err := client.peer.Request(ctx, protocol.CmdTaskInput, protocol.TaskInput{
+		TaskID: lastID, Offset: 0, Data: []byte("late"),
+	}, &empty)
+	expectRemoteCode(t, err, "unknown_task")
 }

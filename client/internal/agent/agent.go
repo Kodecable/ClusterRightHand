@@ -43,7 +43,7 @@ const (
 
 // maxAcceptedTasks bounds the process-wide set of task ids accepted at least once. It is a variable
 // so tests can lower it.
-var maxAcceptedTasks = 100_000
+var maxAcceptedTasks = 16_384
 
 // ErrNodeRejected reports that crhs rejected this node during enrollment. Run returns it wrapped
 // with crhs's node.status message.
