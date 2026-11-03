@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { toast } from "sonner";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { SessionView } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
@@ -7,7 +8,7 @@ import { Composer } from "./composer";
 
 interface Call {
 	url: string;
-	body: { text?: string; requestId?: string };
+	body: { text?: string; requestId?: string; instructions?: string };
 }
 
 interface Reply {
@@ -154,6 +155,149 @@ describe("Composer", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Stop" }));
 		await waitFor(() => expect(calls).toHaveLength(1));
 		expect(calls[0]?.url).toBe("/api/sessions/s1/abort");
+	});
+
+	test("a /compact command posts its instructions instead of a message", async () => {
+		const calls = mockFetch([{ body: { taskId: "task-1", outcome: "started" } }]);
+		renderComposer();
+		fireEvent.change(input(), { target: { value: "/compact keep node names" } });
+		fireEvent.keyDown(input(), { key: "Enter" });
+		await waitFor(() => expect(input().value).toBe(""));
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.url).toBe("/api/sessions/s1/compact");
+		expect(calls[0]?.body).toEqual({ instructions: "keep node names" });
+		expect(calls.some((call) => call.url.endsWith("/messages"))).toBe(false);
+	});
+
+	test("/compact alone posts an empty body", async () => {
+		const calls = mockFetch([{ body: { taskId: "task-1", outcome: "started" } }]);
+		renderComposer();
+		fireEvent.change(input(), { target: { value: "/compact" } });
+		fireEvent.keyDown(input(), { key: "Enter" });
+		await waitFor(() => expect(input().value).toBe(""));
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.url).toBe("/api/sessions/s1/compact");
+		expect(calls[0]?.body).toEqual({});
+	});
+
+	test("a compaction with nothing to summarize says so", async () => {
+		const info = vi.spyOn(toast, "info").mockImplementation(() => "");
+		const calls = mockFetch([{ body: { taskId: "task-1", outcome: "nothing" } }]);
+		renderComposer();
+		fireEvent.change(input(), { target: { value: "/compact" } });
+		fireEvent.keyDown(input(), { key: "Enter" });
+		await waitFor(() => expect(input().value).toBe(""));
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.url).toBe("/api/sessions/s1/compact");
+		expect(info).toHaveBeenCalledWith(
+			"Nothing to compact yet: the most recent ~20k tokens of the conversation are always kept as they are.",
+		);
+	});
+
+	test("a word that only starts with /compact is a normal message", async () => {
+		const calls = mockFetch();
+		renderComposer();
+		fireEvent.change(input(), { target: { value: "/compactor" } });
+		fireEvent.keyDown(input(), { key: "Enter" });
+		await waitFor(() => expect(calls).toHaveLength(1));
+		expect(calls[0]?.url).toBe("/api/sessions/s1/messages");
+		expect(calls[0]?.body).toMatchObject({ text: "/compactor" });
+	});
+
+	test("typing / opens the command list and an unknown token explains itself", () => {
+		mockFetch();
+		renderComposer();
+		fireEvent.change(input(), { target: { value: "/" } });
+		const listbox = screen.getByRole("listbox");
+		expect(within(listbox).getByRole("option")).toHaveTextContent("/compact");
+		expect(input()).toHaveAttribute("aria-expanded", "true");
+		expect(input()).toHaveAttribute("aria-controls", listbox.id);
+
+		fireEvent.change(input(), { target: { value: "/co" } });
+		expect(within(screen.getByRole("listbox")).getByRole("option")).toHaveTextContent("/compact");
+
+		fireEvent.change(input(), { target: { value: "/x" } });
+		expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+		expect(screen.getByTestId("slash-hint")).toHaveTextContent("Unknown command: it will be sent as a message.");
+	});
+
+	test("Tab completes /co and the completed command accepts instructions", async () => {
+		const calls = mockFetch([{ body: { taskId: "task-1", outcome: "started" } }]);
+		renderComposer();
+		fireEvent.change(input(), { target: { value: "/co" } });
+		fireEvent.keyDown(input(), { key: "Tab" });
+		expect(input().value).toBe("/compact ");
+		expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+
+		fireEvent.change(input(), { target: { value: "/compact keep x" } });
+		fireEvent.keyDown(input(), { key: "Enter" });
+		await waitFor(() => expect(input().value).toBe(""));
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.url).toBe("/api/sessions/s1/compact");
+		expect(calls[0]?.body).toEqual({ instructions: "keep x" });
+	});
+
+	test("Enter on an exact command runs it rather than completing it", async () => {
+		const calls = mockFetch([{ body: { taskId: "task-1", outcome: "started" } }]);
+		renderComposer();
+		fireEvent.change(input(), { target: { value: "/compact" } });
+		expect(screen.getByRole("listbox")).toBeInTheDocument();
+		fireEvent.keyDown(input(), { key: "Enter" });
+		await waitFor(() => expect(input().value).toBe(""));
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.url).toBe("/api/sessions/s1/compact");
+		expect(calls[0]?.body).toEqual({});
+	});
+
+	test("Enter on a partial command completes it without sending", () => {
+		const calls = mockFetch();
+		renderComposer();
+		fireEvent.change(input(), { target: { value: "/co" } });
+		fireEvent.keyDown(input(), { key: "Enter" });
+		expect(input().value).toBe("/compact ");
+		expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+		expect(calls).toHaveLength(0);
+	});
+
+	test("Escape closes the list until the draft changes", () => {
+		mockFetch();
+		renderComposer();
+		fireEvent.change(input(), { target: { value: "/co" } });
+		expect(screen.getByRole("listbox")).toBeInTheDocument();
+		fireEvent.keyDown(input(), { key: "Escape" });
+		expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+		fireEvent.change(input(), { target: { value: "/com" } });
+		expect(screen.getByRole("listbox")).toBeInTheDocument();
+	});
+
+	test("clicking a suggestion completes it", () => {
+		mockFetch();
+		renderComposer();
+		fireEvent.change(input(), { target: { value: "/co" } });
+		fireEvent.mouseDown(screen.getByTestId("slash-option-compact"));
+		expect(input().value).toBe("/compact ");
+		expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+	});
+
+	test("a complete command explains itself and that it is not sent", () => {
+		mockFetch();
+		renderComposer();
+		fireEvent.change(input(), { target: { value: "/compact keep node names" } });
+		const hint = screen.getByTestId("slash-hint");
+		expect(hint).toHaveTextContent("/compact:");
+		expect(hint).toHaveTextContent("not sent as a message");
+	});
+
+	test("a failed /compact keeps the draft and shows the server's message", async () => {
+		const quota = "the session's token quota is used up; raise it to continue";
+		const calls = mockFetch([{ status: 400, body: { error: quota } }]);
+		renderComposer();
+		fireEvent.change(input(), { target: { value: "/compact keep node names" } });
+		fireEvent.keyDown(input(), { key: "Enter" });
+		await screen.findByText(quota);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.url).toBe("/api/sessions/s1/compact");
+		expect(input().value).toBe("/compact keep node names");
 	});
 
 	test("view access shows a read-only hint instead of the form", () => {

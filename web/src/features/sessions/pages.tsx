@@ -16,7 +16,7 @@ import { ChildrenBar } from "./children-bar";
 import { Composer } from "./composer";
 import { SessionHeader } from "./session-header";
 import { SessionWaits } from "./session-waits";
-import { transcript } from "./sessionState";
+import { isCompacting, transcript } from "./sessionState";
 import { Transcript } from "./transcript";
 import { useSessionEvents } from "./use-session-events";
 
@@ -32,6 +32,9 @@ export function SessionPage() {
 	const [wantsOlder, setWantsOlder] = useState(false);
 	const history = useSessionHistoryPage(sessionId, events.state.historyCursor, wantsOlder);
 	const items = useMemo(() => transcript(events.state), [events.state]);
+	// A live compaction keeps the session "doing something" even while no run is active (a manual /compact
+	// outlives the run), so Stop must stay available and the working line must stay up.
+	const compacting = isCompacting(events.state);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new session starts with no pending older-page request
 	useEffect(() => {
@@ -78,12 +81,12 @@ export function SessionPage() {
 					{events.connection === "connecting" ? <Trans>Connecting…</Trans> : <Trans>Reconnecting…</Trans>}
 				</p>
 			)}
-			{(events.state.running || events.state.queued > 0 || events.state.retry !== undefined) && (
+			{(events.state.running || compacting || events.state.queued > 0 || events.state.retry !== undefined) && (
 				<p
 					className="flex shrink-0 flex-wrap items-center gap-3 border-b px-3 py-1 text-xs text-muted-foreground"
 					role="status"
 				>
-					{events.state.running && <Trans>Working…</Trans>}
+					{(events.state.running || compacting) && <Trans>Working…</Trans>}
 					{events.state.retry !== undefined && <Trans>Retrying after an error: {events.state.retry}</Trans>}
 					{events.state.queued > 0 && (
 						<Plural value={events.state.queued} one="# message queued" other="# messages queued" />
@@ -116,7 +119,7 @@ export function SessionPage() {
 			)}
 
 			<ChildrenBar query={children} summary={childrenSummary.data} />
-			<Composer session={view} stoppable={events.state.running || busy} waitingKind={view.waitingKind} />
+			<Composer session={view} stoppable={events.state.running || busy || compacting} waitingKind={view.waitingKind} />
 		</div>
 	);
 }

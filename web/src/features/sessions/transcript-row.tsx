@@ -375,17 +375,6 @@ function ToolLiveOutput({ store }: { store: ReturnType<TranscriptStreams["tool"]
 	);
 }
 
-function CompactionDivider({ text }: { text: string }) {
-	return (
-		<details className="rounded-md border border-dashed px-2.5 py-2 text-xs text-muted-foreground">
-			<summary className="cursor-pointer select-none">
-				<Trans>Context compacted</Trans>
-			</summary>
-			<p className="mt-1 whitespace-pre-wrap">{text}</p>
-		</details>
-	);
-}
-
 /** Tick once a second while the final answer streams; the row stops ticking at the end. */
 function useLiveElapsed(startedAt: number | undefined, live: boolean): number | undefined {
 	const [now, setNow] = useState(() => Date.now());
@@ -436,8 +425,8 @@ export function TurnSummaryRow({
 	);
 }
 
-/** The collapsed thinking preview: the latest line while streaming, the first line once settled. */
-function thinkingPreview(text: string, running: boolean): string {
+/** The collapsed preview of a note row: the latest line while streaming, the first line once settled. */
+function notePreview(text: string, running: boolean): string {
 	const lines = text
 		.split(/\r?\n/)
 		.map((line) => line.trim())
@@ -445,23 +434,27 @@ function thinkingPreview(text: string, running: boolean): string {
 	return (running ? lines.at(-1) : lines[0])?.replaceAll("**", "") ?? "";
 }
 
-/** A borderless, collapsible thinking row, with the same chevron as a tool call (doc/webui.md "消息渲染"). */
-function ThinkingRow({
-	item,
-	streams,
+/**
+ * The borderless, collapsible note row shared by thinking and compaction (doc/webui.md "消息渲染"):
+ * a leading chevron, the label, and a one-line preview while collapsed.
+ */
+function CollapsibleNoteRow({
+	testId,
+	label,
+	preview,
+	children,
 }: {
-	item: Extract<TranscriptItem, { kind: "thinking" }>;
-	streams: TranscriptStreams;
+	testId: string;
+	label: React.ReactNode;
+	preview: string;
+	children: React.ReactNode;
 }) {
 	const [open, setOpen] = useState(false);
-	const live = useStreamingText(streams.text(item.key));
-	const text = item.live ? live.text : item.text;
-	const preview = thinkingPreview(text, item.streaming);
 	return (
 		<div className="max-w-[92%] text-sm text-muted-foreground">
 			<button
 				type="button"
-				data-testid="thinking-toggle"
+				data-testid={`${testId}-toggle`}
 				aria-expanded={open}
 				onClick={() => setOpen((value) => !value)}
 				className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
@@ -471,33 +464,67 @@ function ThinkingRow({
 				) : (
 					<ChevronRightIcon className="size-3.5 shrink-0" aria-hidden="true" />
 				)}
-				<span className="shrink-0">
-					<Trans>Thinking</Trans>
-				</span>
+				<span className="shrink-0">{label}</span>
 				{!open && preview !== "" && (
 					<>
 						<span className="shrink-0 text-muted-foreground/60" aria-hidden="true">
 							·
 						</span>
-						<span className="min-w-0 flex-1 truncate font-normal" data-testid="thinking-preview">
+						<span className="min-w-0 flex-1 truncate font-normal" data-testid={`${testId}-preview`}>
 							{preview}
 						</span>
 					</>
 				)}
 			</button>
-			{open && (
-				<div className="pr-2.5 pb-2 pl-8">
-					{item.live ? (
-						<StreamingMarkdown
-							store={streams.text(item.key)}
-							text={item.streaming ? undefined : item.text}
-							className="text-muted-foreground"
-						/>
-					) : (
-						<SafeMarkdown text={item.text} className="text-muted-foreground" />
-					)}
-				</div>
+			{open && <div className="pr-2.5 pb-2 pl-8">{children}</div>}
+		</div>
+	);
+}
+
+/** A thinking row, with the same chevron as a tool call (doc/webui.md "消息渲染"). */
+function ThinkingRow({
+	item,
+	streams,
+}: {
+	item: Extract<TranscriptItem, { kind: "thinking" }>;
+	streams: TranscriptStreams;
+}) {
+	const live = useStreamingText(streams.text(item.key));
+	const text = item.live ? live.text : item.text;
+	return (
+		<CollapsibleNoteRow testId="thinking" label={<Trans>Thinking</Trans>} preview={notePreview(text, item.streaming)}>
+			{item.live ? (
+				<StreamingMarkdown
+					store={streams.text(item.key)}
+					text={item.streaming ? undefined : item.text}
+					className="text-muted-foreground"
+				/>
+			) : (
+				<SafeMarkdown text={item.text} className="text-muted-foreground" />
 			)}
+		</CollapsibleNoteRow>
+	);
+}
+
+/** A finished compaction: the same note row, with the summary as its body. */
+function CompactionRow({ text }: { text: string }) {
+	return (
+		<CollapsibleNoteRow testId="compaction" label={<Trans>Context compacted</Trans>} preview={notePreview(text, false)}>
+			<SafeMarkdown text={text} className="text-muted-foreground" />
+		</CollapsibleNoteRow>
+	);
+}
+
+/** A running compaction: the note row's style with the running spinner, at the transcript's end. */
+function CompactingRow() {
+	return (
+		<div className="max-w-[92%] text-sm text-muted-foreground" data-testid="compacting-row">
+			<div className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium">
+				<LoaderCircleIcon className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+				<span className="shrink-0">
+					<Trans>Compacting context</Trans>
+				</span>
+			</div>
 		</div>
 	);
 }
@@ -505,10 +532,11 @@ function ThinkingRow({
 /**
  * One transcript row (doc/webui.md "消息渲染"): a plain user message, assistant
  * text and thinking through SafeMarkdown, tool rows whose details open in a
- * dialog, errors and the compaction divider. A message that arrived through the
- * live stream keeps its row and store after `message_end` (only the committed
- * text replaces the live text), so the incremental Markdown tree is not
- * discarded; messages loaded from a snapshot render their text in one shot.
+ * dialog, errors, a finished compaction and the live compacting row. A message
+ * that arrived through the live stream keeps its row and store after
+ * `message_end` (only the committed text replaces the live text), so the
+ * incremental Markdown tree is not discarded; messages loaded from a snapshot
+ * render their text in one shot.
  */
 export function TranscriptRow({
 	item,
@@ -526,7 +554,14 @@ export function TranscriptRow({
 			data-testid="message"
 			data-message-id={item.key}
 			data-kind={item.kind}
-			className={cn("px-3 pb-2.5", (item.kind === "tool" || item.kind === "thinking") && "pb-1")}
+			className={cn(
+				"px-3 pb-2.5",
+				(item.kind === "tool" ||
+					item.kind === "thinking" ||
+					item.kind === "compaction" ||
+					item.kind === "compacting") &&
+					"pb-1",
+			)}
 		>
 			{item.kind === "user" && (
 				<div className="flex justify-end">
@@ -552,7 +587,8 @@ export function TranscriptRow({
 					<ToolCard item={item} streams={streams} sessionActive={sessionActive} />
 				</div>
 			)}
-			{item.kind === "compaction" && <CompactionDivider text={item.text} />}
+			{item.kind === "compaction" && <CompactionRow text={item.text} />}
+			{item.kind === "compacting" && <CompactingRow />}
 			{item.kind === "error" && (
 				<p role="alert" className="text-sm text-danger">
 					{item.reason === "aborted" ? <Trans>The run was stopped.</Trans> : <Trans>The run failed.</Trans>}

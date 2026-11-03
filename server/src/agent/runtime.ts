@@ -36,7 +36,14 @@ import {
 	subagentSessions,
 	waitSubagent,
 } from "./runtime-subagents.ts";
-import { submit, submitAsSchedule, unsettledSubmissionRequests, waitForSubmission } from "./runtime-submissions.ts";
+import {
+	type CompactTask,
+	compact,
+	submit,
+	submitAsSchedule,
+	unsettledSubmissionRequests,
+	waitForSubmission,
+} from "./runtime-submissions.ts";
 import { SessionListHub } from "./session-list.ts";
 import type { SessionState } from "./session-state.ts";
 import { backfillUsageTokens } from "./usage-backfill.ts";
@@ -284,6 +291,11 @@ export class AgentRuntime {
 	 */
 	async submit(sessionId: string, by: SessionUser, text: string, requestId: string): Promise<string> {
 		return submit(this.#host, sessionId, by, text, requestId);
+	}
+
+	/** Manually compacts the session; the summary is made in the background (doc/agent-runtime.md#会话). */
+	async compact(sessionId: string, by: SessionUser, instructions?: string): Promise<CompactTask> {
+		return compact(this.#host, sessionId, by, instructions);
 	}
 
 	/** Submits a schedule run's fixed prompt (doc/scheduling.md#调度). */

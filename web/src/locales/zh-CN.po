@@ -49,6 +49,10 @@ msgstr "… 省略 {omitted} 字节 …"
 msgid "[image: {label}]"
 msgstr "[图片：{label}]"
 
+#: src/features/sessions/slash-commands.ts
+msgid "[instructions]"
+msgstr "[指令]"
+
 #. placeholder {0}: result.size
 #: src/components/task-result.tsx
 msgid "{0, plural, one {# byte} other {# bytes}}"
@@ -156,6 +160,10 @@ msgstr "{running} 个运行中"
 #: src/features/sessions/children-bar.tsx
 msgid "{total, plural, one {# subagent} other {# subagents}}"
 msgstr "{total, plural, one {# 个子会话} other {# 个子会话}}"
+
+#: src/features/sessions/composer.tsx
+msgid "/{name}: {description} (not sent as a message)"
+msgstr "/{name}：{description}（不会作为消息发送）"
 
 #: src/components/authorization-card.tsx
 msgid "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
@@ -565,8 +573,12 @@ msgid "Ask an administrator to configure one."
 msgstr "请让管理员配置一个。"
 
 #: src/features/sessions/composer.tsx
-msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
-msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行。"
+msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line, /compact summarizes older context."
+msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行，/compact 压缩较早的上下文。"
+
+#: src/features/sessions/composer.tsx
+#~ msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
+#~ msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行。"
 
 #: src/features/schedules/scheduleForm.ts
 #~ msgid "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
@@ -896,6 +908,18 @@ msgstr "命令行（拆分为 argv）"
 #: src/components/task-form-fields.tsx
 msgid "Command mode"
 msgstr "命令模式"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Compacting context"
+msgstr "正在压缩上下文"
+
+#: src/features/sessions/composer.tsx
+msgid "Compaction failed."
+msgstr "压缩失败。"
+
+#: src/features/sessions/composer.tsx
+#~ msgid "Compaction requested: older messages will be summarized in the background. A short conversation has nothing to summarize yet."
+#~ msgstr "已请求压缩：较早的消息会在后台生成摘要。对话较短时暂时没有可压缩的内容。"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Compare it with the output of <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> on that host (the server picks one of its keys, usually ED25519). Only confirm if one of them matches."
@@ -2241,6 +2265,10 @@ msgstr "没有等待你处理的事项"
 msgid "Nothing matches these filters."
 msgstr "没有符合这些过滤条件的内容。"
 
+#: src/features/sessions/composer.tsx
+msgid "Nothing to compact yet: the most recent ~20k tokens of the conversation are always kept as they are."
+msgstr "暂无可压缩的内容：对话中最近约 2 万 token 始终原样保留。"
+
 #: src/components/data-table.tsx
 msgid "Nothing to show."
 msgstr "没有可显示的内容。"
@@ -3113,6 +3141,10 @@ msgstr "大小"
 msgid "Skipped: {skipped}"
 msgstr "已跳过：{skipped}"
 
+#: src/features/sessions/composer.tsx
+msgid "Slash commands"
+msgstr "斜杠命令"
+
 #: src/components/error-state.tsx
 msgid "Something went wrong"
 msgstr "出错了"
@@ -3235,6 +3267,10 @@ msgstr "提交授权"
 #: src/components/status-badge.tsx
 msgid "Succeeded"
 msgstr "成功"
+
+#: src/features/sessions/slash-commands.ts
+msgid "Summarize older context to free up the context window. Optional instructions guide the summary."
+msgstr "压缩较早的上下文以腾出上下文窗口。可选的指令用于引导摘要。"
 
 #: src/components/task-result.tsx
 msgid "Summary"
@@ -3610,6 +3646,10 @@ msgstr "未知"
 #: src/components/status-badge.tsx
 msgid "Unknown"
 msgstr "未知"
+
+#: src/features/sessions/composer.tsx
+msgid "Unknown command: it will be sent as a message."
+msgstr "未知命令：将作为普通消息发送。"
 
 #: src/features/nodes/node-trust.tsx
 #: src/features/schedules/schedule-form.tsx

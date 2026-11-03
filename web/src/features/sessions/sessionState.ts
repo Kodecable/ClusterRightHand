@@ -84,6 +84,18 @@ export interface UsageState {
 	tools: Record<string, Usage>;
 }
 
+/** Why a context compaction was started. */
+export type CompactionReason = "manual" | "threshold" | "overflow";
+
+/** A context compaction the snapshot reports as still running. */
+export interface SnapshotCompaction {
+	taskId: number | string;
+	reason: CompactionReason;
+	blocking: boolean;
+	attempt: number;
+	retry?: { at: number; error: string };
+}
+
 export interface SnapshotEvent {
 	type: "snapshot";
 	/** The newest page of displayable entries (doc/webui.md "会话事件流"). */
@@ -95,6 +107,8 @@ export interface SnapshotEvent {
 	tools: ToolSlot[];
 	inbox: { id: string; mode: string }[];
 	usage?: UsageState;
+	/** Live compactions (a manual one can outlive its run). */
+	compactions?: readonly SnapshotCompaction[];
 }
 
 /** What the server sends first: pi-durable's snapshot event wrapped as `{ type: "snapshot", snapshot }`. */
@@ -133,7 +147,9 @@ export type AgentEvent =
 	| { type: "auto_retry_start"; attempt: number; at: number; errorMessage: string }
 	| { type: "auto_retry_end"; attempt: number }
 	| { type: "task_failed"; taskId: string; kind: string; message: string }
-	| { type: "agent_changed" | "submission" | "deferred_poll" | "compaction_start" | "compaction_end" };
+	| { type: "compaction_start"; taskId: number | string; reason: CompactionReason; blocking: boolean }
+	| { type: "compaction_end"; taskId: number | string; reason: CompactionReason; error?: string }
+	| { type: "agent_changed" | "submission" | "deferred_poll" };
 
 /** A live (or finished-this-run) tool call, from `tool_execution_*` events. */
 export interface LiveTool {
@@ -148,7 +164,7 @@ export interface LiveTool {
 export interface SessionState {
 	/** False until the first snapshot arrived. */
 	ready: boolean;
-	/** Committed transcript messages in order; `kind` keeps the entry type (`pi.compaction` is a divider). */
+	/** Committed transcript messages in order; `kind` keeps the entry type (`pi.compaction` is a note row). */
 	entries: { id: string; kind: string; message: Message }[];
 	/** The assistant message being generated. */
 	streaming: Extract<Message, { role: "assistant" }> | undefined;
@@ -165,6 +181,8 @@ export interface SessionState {
 	streamedKeys: Record<string, string>;
 	tools: Record<string, LiveTool>;
 	running: boolean;
+	/** Live context compactions by task id. A manual one outlives the run, so `run_end` keeps them. */
+	compactions: { taskId: string; reason: string }[];
 	queued: number;
 	retry: string | undefined;
 	failure: string | undefined;
@@ -182,6 +200,7 @@ export const initialState: SessionState = {
 	streamedKeys: {},
 	tools: {},
 	running: false,
+	compactions: [],
 	queued: 0,
 	retry: undefined,
 	failure: undefined,
@@ -334,6 +353,7 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 				streamedKeys: {},
 				tools,
 				running: event.run !== undefined,
+				compactions: (event.compactions ?? []).map((c) => ({ taskId: String(c.taskId), reason: c.reason })),
 				queued: event.inbox.length,
 				retry: event.generation?.retry?.error,
 				failure: undefined,
@@ -344,6 +364,7 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 		case "run_start":
 			return { ...state, running: true, failure: undefined };
 		case "run_end":
+			// A manual compaction can outlive its run, so `compactions` is not cleared here.
 			return { ...state, running: false, streaming: undefined, liveKey: undefined, retry: undefined, tools: {} };
 		case "message_start": {
 			const streaming = asAssistant(event.message);
@@ -414,6 +435,16 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 			return { ...state, retry: undefined };
 		case "task_failed":
 			return { ...state, failure: event.message };
+		case "compaction_start": {
+			const taskId = String(event.taskId);
+			if (state.compactions.some((compaction) => compaction.taskId === taskId)) return state;
+			return { ...state, compactions: [...state.compactions, { taskId, reason: event.reason }] };
+		}
+		case "compaction_end": {
+			const taskId = String(event.taskId);
+			const compactions = state.compactions.filter((compaction) => compaction.taskId !== taskId);
+			return compactions.length === state.compactions.length ? state : { ...state, compactions };
+		}
 		default:
 			return state;
 	}
@@ -421,6 +452,11 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 
 export function reduceAll(state: SessionState, events: readonly AgentEvent[]): SessionState {
 	return events.reduce(reduce, state);
+}
+
+/** Whether a context compaction is running: the session counts as running while one is. */
+export function isCompacting(state: SessionState): boolean {
+	return state.compactions.length > 0;
 }
 
 // ---- derived view ----
@@ -459,7 +495,8 @@ export type TranscriptItem =
 			result: { text: string; isError: boolean; details: Json | undefined } | undefined;
 	  }
 	| { kind: "error"; key: string; reason: "aborted" | "failed"; message: string | null }
-	| { kind: "compaction"; key: string; text: string };
+	| { kind: "compaction"; key: string; text: string }
+	| { kind: "compacting"; key: string };
 
 function userText(content: string | { type: string; text?: string }[]): string {
 	return typeof content === "string"
@@ -467,10 +504,30 @@ function userText(content: string | { type: string; text?: string }[]): string {
 		: content.map((c) => (c.type === "text" ? (c.text ?? "") : "[image]")).join("");
 }
 
+/**
+ * The numeric commit order of an entry id; `undefined` for ids that are not
+ * finite numbers. A snapshot lists entries in the model's view order (a
+ * compaction comes before the messages it kept), so the transcript re-sorts by
+ * id to match the order the entries committed in (doc/webui.md "消息渲染").
+ */
+function entryOrder(id: string): number | undefined {
+	if (id.trim() === "") return undefined;
+	const value = Number(id);
+	return Number.isFinite(value) ? value : undefined;
+}
+
 /** The transcript in display order: tool results are folded into their call's card. */
 export function transcript(state: SessionState): TranscriptItem[] {
+	// Sort a copy: entries keep their arrival order in the state, so prepending a
+	// history page and reducing live events stay untouched. Non-numeric ids
+	// compare equal, so a stable sort keeps their relative position.
+	const ordered = [...state.entries].sort((a, b) => {
+		const left = entryOrder(a.id);
+		const right = entryOrder(b.id);
+		return left === undefined || right === undefined ? 0 : left - right;
+	});
 	const results = new Map<string, Extract<Message, { role: "toolResult" }>>();
-	for (const { message } of state.entries) if (message.role === "toolResult") results.set(message.toolCallId, message);
+	for (const { message } of ordered) if (message.role === "toolResult") results.set(message.toolCallId, message);
 	const items: TranscriptItem[] = [];
 	const addAssistant = (
 		key: string,
@@ -520,7 +577,7 @@ export function transcript(state: SessionState): TranscriptItem[] {
 			});
 		}
 	};
-	for (const { id, kind, message } of state.entries) {
+	for (const { id, kind, message } of ordered) {
 		if (kind === "pi.compaction" && message.role === "user") {
 			items.push({ kind: "compaction", key: id, text: userText(message.content) });
 		} else if (message.role === "user")
@@ -536,6 +593,8 @@ export function transcript(state: SessionState): TranscriptItem[] {
 		}
 	}
 	if (state.streaming) addAssistant(state.liveKey ?? "streaming", state.streaming, true, true);
+	// One live row per running compaction, always after everything already shown (doc/webui.md "消息渲染").
+	for (const { taskId } of state.compactions) items.push({ kind: "compacting", key: `compacting/${taskId}` });
 	return items;
 }
 

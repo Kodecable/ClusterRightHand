@@ -336,6 +336,21 @@ export function useSendMessage(id: string) {
 	});
 }
 
+/** Ask the server to summarize older history (`/compact`); the transcript's compaction divider appears once it is ready. */
+export function useCompactSession(id: string) {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ instructions }: { instructions?: string }) =>
+			http.post<{ taskId: string; outcome: "started" | "nothing" | "failed" }>(
+				`/sessions/${enc(id)}/compact`,
+				instructions ? { instructions } : {},
+			),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: sessionKeys.detail(id) });
+		},
+	});
+}
+
 export function useAbortSession(id: string) {
 	const queryClient = useQueryClient();
 	return useMutation({

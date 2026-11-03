@@ -6,6 +6,7 @@ import {
 	authorizationWait,
 	type EntryRecord,
 	initialState,
+	isCompacting,
 	prependHistory,
 	prettyJson,
 	reduceAll,
@@ -383,7 +384,7 @@ describe("history pages", () => {
 		expect(tools[1]).toMatchObject({ kind: "tool", callId: "c1", status: "done" });
 	});
 
-	test("a compaction entry becomes a divider and is not a user bubble", () => {
+	test("a compaction entry is a note row, not a user bubble", () => {
 		const s = reduceAll(initialState, [
 			{
 				type: "snapshot",
@@ -407,5 +408,100 @@ describe("history pages", () => {
 			{ kind: "compaction", key: "2", text: "Summary of the earlier conversation" },
 			{ kind: "text", key: "3/0", text: "after", streaming: false },
 		]);
+	});
+
+	test("a compaction committed last is shown last, reloaded or live", () => {
+		const compaction: EntryRecord = {
+			id: "1126",
+			kind: "pi.compaction",
+			model: [{ role: "user", content: "Summary of the earlier conversation" }],
+		};
+		const older = [
+			assistantEntry("1013", [{ type: "text", text: "kept answer" }]),
+			userEntry("1014", "next question"),
+			assistantEntry("1015", [{ type: "text", text: "final answer" }]),
+		];
+		// The snapshot lists entries in the model's view order: the compaction
+		// first, then the messages it summarized and kept.
+		const reloaded = reduceAll(initialState, [
+			{ type: "snapshot", snapshot: { entries: [compaction, ...older], tools: [], inbox: [] } },
+		]);
+		expect(transcript(reloaded).map((item) => [item.kind, item.key])).toEqual([
+			["text", "1013/0"],
+			["user", "1014"],
+			["text", "1015/0"],
+			["compaction", "1126"],
+		]);
+		// A history page prepended in front of the snapshot stays at the top.
+		const paged = prependHistory(reloaded, [userEntry("959", "very old")], "h0");
+		expect(transcript(paged).map((item) => item.key)).toEqual(["959", "1013/0", "1014", "1015/0", "1126"]);
+		// Live, the same entries commit in id order and the compaction arrives last as an event.
+		const live = reduceAll(initialState, [
+			{ type: "snapshot", snapshot: { entries: older, tools: [], inbox: [] } },
+			{ type: "entry_appended", entry: compaction },
+		]);
+		expect(transcript(live)).toEqual(transcript(reloaded));
+	});
+});
+
+describe("live compactions", () => {
+	test("a snapshot carries the live compactions with string task ids", () => {
+		const s = reduceAll(initialState, [
+			{
+				type: "snapshot",
+				snapshot: {
+					entries: [],
+					tools: [],
+					inbox: [],
+					compactions: [
+						{ taskId: 7, reason: "manual", blocking: false, attempt: 1 },
+						{ taskId: "t9", reason: "threshold", blocking: true, attempt: 1, retry: { at: 1, error: "slow" } },
+					],
+				},
+			},
+		]);
+		expect(s.compactions).toEqual([
+			{ taskId: "7", reason: "manual" },
+			{ taskId: "t9", reason: "threshold" },
+		]);
+		expect(isCompacting(s)).toBe(true);
+		// The builder appends one live row per compaction, after everything already shown.
+		expect(transcript(s)).toEqual([
+			{ kind: "compacting", key: "compacting/7" },
+			{ kind: "compacting", key: "compacting/t9" },
+		]);
+	});
+
+	test("compaction_start adds a deduped row; compaction_end removes it", () => {
+		let s = reduceAll(initialState, [
+			emptySnapshot,
+			{ type: "compaction_start", taskId: 1, reason: "manual", blocking: false },
+			{ type: "compaction_start", taskId: 1, reason: "manual", blocking: false },
+			{ type: "compaction_start", taskId: "2", reason: "overflow", blocking: true },
+		]);
+		expect(s.compactions).toEqual([
+			{ taskId: "1", reason: "manual" },
+			{ taskId: "2", reason: "overflow" },
+		]);
+		s = reduceAll(s, [{ type: "compaction_end", taskId: 1, reason: "manual" }]);
+		expect(s.compactions).toEqual([{ taskId: "2", reason: "overflow" }]);
+		expect(transcript(s).at(-1)).toEqual({ kind: "compacting", key: "compacting/2" });
+		s = reduceAll(s, [{ type: "compaction_end", taskId: "2", reason: "overflow", error: "boom" }]);
+		expect(s.compactions).toEqual([]);
+		expect(isCompacting(s)).toBe(false);
+		expect(transcript(s).some((item) => item.kind === "compacting")).toBe(false);
+	});
+
+	test("run_end keeps a manual compaction, which outlives the run", () => {
+		const s = reduceAll(initialState, [
+			emptySnapshot,
+			{ type: "run_start", inputs: ["s1"] },
+			{ type: "compaction_start", taskId: 3, reason: "manual", blocking: false },
+			{ type: "run_end", inputs: ["s1"] },
+		]);
+		expect(s.running).toBe(false);
+		expect(s.compactions).toEqual([{ taskId: "3", reason: "manual" }]);
+		expect(isCompacting(s)).toBe(true);
+		expect(transcript(s)).toEqual([{ kind: "compacting", key: "compacting/3" }]);
 	});
 });

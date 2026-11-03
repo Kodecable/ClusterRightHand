@@ -49,6 +49,10 @@ msgstr "… {omitted} bytes omitted …"
 msgid "[image: {label}]"
 msgstr "[image: {label}]"
 
+#: src/features/sessions/slash-commands.ts
+msgid "[instructions]"
+msgstr "[instructions]"
+
 #. placeholder {0}: result.size
 #: src/components/task-result.tsx
 msgid "{0, plural, one {# byte} other {# bytes}}"
@@ -156,6 +160,10 @@ msgstr "{running} running"
 #: src/features/sessions/children-bar.tsx
 msgid "{total, plural, one {# subagent} other {# subagents}}"
 msgstr "{total, plural, one {# subagent} other {# subagents}}"
+
+#: src/features/sessions/composer.tsx
+msgid "/{name}: {description} (not sent as a message)"
+msgstr "/{name}: {description} (not sent as a message)"
 
 #: src/components/authorization-card.tsx
 msgid "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
@@ -565,8 +573,12 @@ msgid "Ask an administrator to configure one."
 msgstr "Ask an administrator to configure one."
 
 #: src/features/sessions/composer.tsx
-msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
-msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
+msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line, /compact summarizes older context."
+msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line, /compact summarizes older context."
+
+#: src/features/sessions/composer.tsx
+#~ msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
+#~ msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
 
 #: src/features/schedules/scheduleForm.ts
 #~ msgid "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
@@ -896,6 +908,18 @@ msgstr "Command line (split into argv)"
 #: src/components/task-form-fields.tsx
 msgid "Command mode"
 msgstr "Command mode"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Compacting context"
+msgstr "Compacting context"
+
+#: src/features/sessions/composer.tsx
+msgid "Compaction failed."
+msgstr "Compaction failed."
+
+#: src/features/sessions/composer.tsx
+#~ msgid "Compaction requested: older messages will be summarized in the background. A short conversation has nothing to summarize yet."
+#~ msgstr "Compaction requested: older messages will be summarized in the background. A short conversation has nothing to summarize yet."
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Compare it with the output of <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> on that host (the server picks one of its keys, usually ED25519). Only confirm if one of them matches."
@@ -2241,6 +2265,10 @@ msgstr "Nothing is waiting for you"
 msgid "Nothing matches these filters."
 msgstr "Nothing matches these filters."
 
+#: src/features/sessions/composer.tsx
+msgid "Nothing to compact yet: the most recent ~20k tokens of the conversation are always kept as they are."
+msgstr "Nothing to compact yet: the most recent ~20k tokens of the conversation are always kept as they are."
+
 #: src/components/data-table.tsx
 msgid "Nothing to show."
 msgstr "Nothing to show."
@@ -3113,6 +3141,10 @@ msgstr "Size"
 msgid "Skipped: {skipped}"
 msgstr "Skipped: {skipped}"
 
+#: src/features/sessions/composer.tsx
+msgid "Slash commands"
+msgstr "Slash commands"
+
 #: src/components/error-state.tsx
 msgid "Something went wrong"
 msgstr "Something went wrong"
@@ -3235,6 +3267,10 @@ msgstr "Submit authorization"
 #: src/components/status-badge.tsx
 msgid "Succeeded"
 msgstr "Succeeded"
+
+#: src/features/sessions/slash-commands.ts
+msgid "Summarize older context to free up the context window. Optional instructions guide the summary."
+msgstr "Summarize older context to free up the context window. Optional instructions guide the summary."
 
 #: src/components/task-result.tsx
 msgid "Summary"
@@ -3610,6 +3646,10 @@ msgstr "unknown"
 #: src/components/status-badge.tsx
 msgid "Unknown"
 msgstr "Unknown"
+
+#: src/features/sessions/composer.tsx
+msgid "Unknown command: it will be sent as a message."
+msgstr "Unknown command: it will be sent as a message."
 
 #: src/features/nodes/node-trust.tsx
 #: src/features/schedules/schedule-form.tsx

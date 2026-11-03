@@ -524,6 +524,19 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		return c.json({ submissionId }, 202);
 	});
 
+	/** `{ instructions? }`: a manual compaction; the summary is made in the background (doc/agent-runtime.md#会话). */
+	app.post("/sessions/:id/compact", async (c) => {
+		const v = await visible(c, c.req.param("id"));
+		if (!v) return jsonError(c, 404, "no such session");
+		if (!v.capabilities.chat) return jsonError(c, 403, "chat access is required");
+		const body = await readJsonObject(c);
+		const trimmed = typeof body?.instructions === "string" ? body.instructions.trim() : "";
+		if (trimmed.length > 2000) return jsonError(c, 400, "instructions must be at most 2000 characters");
+		const instructions = trimmed || undefined;
+		const { taskId, outcome } = await runtime.compact(v.session.id, c.get("user"), instructions);
+		return c.json({ taskId, outcome }, 202);
+	});
+
 	/**
 	 * `{ decision: "approve" | "deny", tokens?, reason? }`: the owner's answer when a root's quota is used up
 	 * (doc/agent-runtime.md#配额). Only the owner decides, like the approvals on the approvals page.

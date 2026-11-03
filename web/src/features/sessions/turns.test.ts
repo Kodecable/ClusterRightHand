@@ -9,6 +9,7 @@ const user = (key: string, at?: number): TranscriptItem => ({
 	...(at === undefined ? {} : { at }),
 });
 const thinking = (key: string): TranscriptItem => ({ kind: "thinking", key, text: "hmm", streaming: false });
+const compaction = (key: string): TranscriptItem => ({ kind: "compaction", key, text: "summary" });
 const final = (key: string, at?: number, durationMs?: number): TranscriptItem => ({
 	kind: "text",
 	key,
@@ -72,5 +73,29 @@ describe("buildTranscriptTurns", () => {
 		expect(turns[0]?.foldable).toBe(true);
 		expect(turns[0]?.process.map((item) => item.key)).toEqual(["t1"]);
 		expect(turns[1]?.foldable).toBe(false);
+	});
+
+	test("a trailing compaction does not decide the final answer and stays after it", () => {
+		const [turn] = buildTranscriptTurns(
+			[user("u1", 1_000), thinking("t1"), final("a1", 2_000, 5_000), compaction("c1")],
+			false,
+		);
+		expect(turn?.final?.key).toBe("a1");
+		expect(turn?.foldable).toBe(true);
+		expect(turn?.process.map((item) => item.key)).toEqual(["t1"]);
+		expect(turn?.after.map((item) => item.key)).toEqual(["c1"]);
+		expect(turn?.durationMs).toBe(6_000);
+	});
+
+	test("a compaction before the final answer stays in the process", () => {
+		const [turn] = buildTranscriptTurns(
+			[user("u1", 1_000), thinking("t1"), compaction("c1"), final("a1", 2_000, 5_000)],
+			false,
+		);
+		expect(turn?.final?.key).toBe("a1");
+		expect(turn?.foldable).toBe(true);
+		expect(turn?.process.map((item) => item.key)).toEqual(["t1", "c1"]);
+		expect(turn?.after).toEqual([]);
+		expect(turn?.durationMs).toBe(6_000);
 	});
 });

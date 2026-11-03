@@ -117,6 +117,7 @@ interface AgentRuntime {
 - 会话记录在业务表 `sessions` 中，`conversation_id` 关联 durable 的 Conversation。
 - WebUI 通过 `watch` 订阅会话视图，经 SSE（`/api/sessions/:id/events`）推送增量。
 - 开启自动压缩，阈值由模型的上下文窗口决定（参数见下文"默认值"）。
+- 用户也可以手动压缩：WebUI 输入框中输入 `/compact [指令]`，或调用 `POST /api/sessions/:id/compact`（`{ instructions? }`，需要 chat 权限）；调用 durable 的 `compact()`，摘要在后台生成，空闲时立即放入、否则在下一轮边界放入；同样计入配额，配额耗尽时拒绝；写审计 `session.compacted`。接口最多等 2 秒返回 `outcome`：`started`（已开始或已完成摘要）、`nothing`（没有可压缩的内容：最近约 2 万 token 的对话消息始终原样保留）、`failed`；WebUI 只在 `nothing` 和 `failed` 时提示。
 - 会话可以分享给其他用户或用户组（`view` / `chat`）。被分享的用户发消息时，会话仍以所有者的身份行事，见 [access-control.md](access-control.md#归属与分享)；实际发消息的用户记录在审计中。
 
 ## subagent
@@ -148,6 +149,7 @@ interface AgentRuntime {
 | `awaiting` | 运行被阻塞，等别人决定 | 配额耗尽暂停（`waiting_kind = quota`，`waiting_level_id` 指向那一级）；本会话的工具调用卡在等审批（`approval`）或等签名（`authorization`）的任务上 | 决定作出 → `running`；运行被拒绝或中止 → `idle` |
 
 - `waiting_kind` 只在 `awaiting` 时有值；配额相关的判断一律看 `waiting_kind = quota`，不能只看 `awaiting`。同一会话同时有多个等待时，配额优先，其次审批、签名；某个等待结束后按剩下的重算。
+- 手动压缩（`/compact`）也算一次运行：会话空闲时请求压缩会置为 `running`，压缩任务结束且摘要放入后（或被停止）回到 `idle`；条件更新（`state` 和 `last_submission_id` 都没变时才写）保证不会覆盖期间的新输入或停止；会话本来就在运行时不改状态，由那次运行自己结束。crhs 中途重启时由启动对账置回 `idle`，压缩本身在 durable 中继续。
 - 审批和签名的等待由 cluster 的任务状态变化驱动：本会话发起的任务进入 `awaiting_approval` / `awaiting_authorization` 时会话进入 `awaiting`，任务离开这些状态且没有其他等待时回到 `running`。只有真正在等审批的任务才算：`awaiting_approval` 但没有处理者（`handler_type` 为空）只是下发前的瞬间，不是审批等待（见 [execution-plane.md](execution-plane.md#状态机服务端视角)）。
 - 同一会话的状态重算串行执行并合并：重算进行中再有请求时只标记"需要再算一次"，当前一次结束后基于最新数据重算，保证最后写入的是最新状态（否则特权任务"进入等待签名 → crhs 自签后立即离开"的两次重算可能乱序，留下过期的 `awaiting`）。
 - `root_session_id` 指向会话树的根，用于 WebUI 会话列表按整棵树汇总状态（见 [webui.md](webui.md) 的 API 约定）。树里任何会话的状态变化都会推送它的根会话。

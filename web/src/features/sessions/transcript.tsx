@@ -277,7 +277,16 @@ export function Transcript({
 	};
 
 	const [openTurns, setOpenTurns] = useState<ReadonlySet<string>>(() => new Set());
-	const turns = useMemo(() => buildTranscriptTurns(items, sessionActive), [items, sessionActive]);
+	// A live compacting row is always rendered after the last turn (doc/webui.md "消息渲染"); keeping it out
+	// of the turn builder means it can neither decide a turn's final answer nor hide a folded turn's rows.
+	const turns = useMemo(
+		() =>
+			buildTranscriptTurns(
+				items.filter((item) => item.kind !== "compacting"),
+				sessionActive,
+			),
+		[items, sessionActive],
+	);
 	const rows = useMemo(() => {
 		const display: TranscriptDisplayRow[] = [];
 		for (const turn of turns) {
@@ -296,11 +305,23 @@ export function Transcript({
 				durationMs: turn.durationMs,
 				open,
 			});
-			if (open) for (const item of turn.process) display.push({ kind: "item", key: item.key, item });
+			if (open) {
+				for (const item of turn.process) display.push({ kind: "item", key: item.key, item });
+			} else {
+				// A closed turn still lists its compaction notes (doc/webui.md "消息渲染"):
+				// they are never hidden by the fold and stay in commit order before the final answer.
+				for (const item of turn.process) {
+					if (item.kind === "compaction") display.push({ kind: "item", key: item.key, item });
+				}
+			}
 			if (turn.final !== undefined) display.push({ kind: "item", key: turn.final.key, item: turn.final });
+			// Compaction notes committed after the final answer always follow it, whether
+			// the turn is open or closed, so the transcript keeps commit order (doc/webui.md "消息渲染").
+			for (const item of turn.after) display.push({ kind: "item", key: item.key, item });
 		}
+		for (const item of items) if (item.kind === "compacting") display.push({ kind: "item", key: item.key, item });
 		return display;
-	}, [openTurns, turns]);
+	}, [openTurns, turns, items]);
 	const toggleTurn = useCallback((key: string) => {
 		setOpenTurns((previous) => {
 			const next = new Set(previous);

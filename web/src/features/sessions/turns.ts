@@ -13,8 +13,10 @@ export interface TranscriptTurn {
 	key: string;
 	user: UserItem | undefined;
 	body: TranscriptItem[];
-	/** `body` without the final answer. */
+	/** The `body` items before the final answer. */
 	process: TranscriptItem[];
+	/** The compaction notes committed after the final answer, shown after it. */
+	after: TranscriptItem[];
 	final: TextItem | undefined;
 	/** When the user turn started, for the live elapsed time. */
 	startedAt: number | undefined;
@@ -46,9 +48,15 @@ export function buildTranscriptTurns(items: readonly TranscriptItem[], sessionAc
 	}
 
 	return groups.map((group, index) => {
-		const last = group.body.at(-1);
+		// A compaction note can trail the body, but it never decides the turn:
+		// the final answer is the last non-compaction item if that item is a
+		// text. The notes committed after it stay in `after` so the view can show
+		// them after the final answer, in commit order (doc/webui.md "消息渲染").
+		const finalIndex = group.body.findLastIndex((item) => item.kind !== "compaction");
+		const last = finalIndex === -1 ? undefined : group.body[finalIndex];
 		const final = last?.kind === "text" ? last : undefined;
-		const process = final === undefined ? group.body : group.body.slice(0, -1);
+		const process = final === undefined ? group.body : group.body.slice(0, finalIndex);
+		const after = final === undefined ? [] : group.body.slice(finalIndex + 1);
 		const ended = index < groups.length - 1 || !sessionActive;
 		const durationMs =
 			group.user?.at !== undefined && final?.at !== undefined && final.durationMs !== undefined
@@ -69,6 +77,7 @@ export function buildTranscriptTurns(items: readonly TranscriptItem[], sessionAc
 			user: group.user,
 			body: group.body,
 			process,
+			after,
 			final,
 			startedAt: group.user?.at,
 			live,

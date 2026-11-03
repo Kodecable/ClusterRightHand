@@ -1,5 +1,11 @@
 import { type Context, withAbortSignal } from "@earendil-works/chord/context";
-import { SessionFailed, type Submission, type SubmissionId } from "@earendil-works/pi-durable";
+import {
+	type CompactionResult,
+	SessionFailed,
+	type Submission,
+	type SubmissionId,
+	type TaskId,
+} from "@earendil-works/pi-durable";
 import { sql } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
 import { UserError } from "../users/service.ts";
@@ -27,6 +33,137 @@ export async function submit(
 ): Promise<string> {
 	// A user driving a session shared with them still acts on behalf of its owner (doc/access-control.md).
 	return submitInput(host, sessionId, text, requestId, { type: "user", id: by.userId });
+}
+
+/** How long a manual compaction waits for durable to say whether it has an old history to summarize. */
+const COMPACT_SETTLE_TIMEOUT_MS = 2_000;
+
+/** What a manual compaction did: `nothing` when durable found nothing old enough to summarize. */
+export type CompactOutcome = "started" | "nothing" | "failed";
+
+export interface CompactTask {
+	taskId: string;
+	outcome: CompactOutcome;
+}
+
+/**
+ * Manually compacts the session (doc/agent-runtime.md#会话): the summary is made in the background and placed at
+ * once when the conversation is idle, otherwise at its next boundary. Compaction spends output tokens (D92).
+ * The outcome tells the caller whether durable found anything to summarize; a summary that is still being made
+ * counts as `started`.
+ */
+export async function compact(
+	host: RuntimeHost,
+	sessionId: string,
+	by: SessionUser,
+	instructions: string | undefined,
+): Promise<CompactTask> {
+	const { row, conversation } = await loadConversation(host, sessionId);
+	if (row.status !== "active") throw new UserError("the session is archived");
+	const over = await exhaustedLevel(host.db, sessionId);
+	if (over) {
+		throw new UserError(
+			over === sessionId
+				? "the session's token quota is used up; raise it to continue"
+				: "a parent session's token quota is used up",
+		);
+	}
+	const taskId = await conversation.compact(instructions, host.context);
+	// A manual compaction is a run of its own (doc/agent-runtime.md#会话状态): an idle session shows it while the
+	// summary is made. The conditional update revives only the idle row that was read, never a run that started since.
+	if (row.state === "idle") {
+		const at = new Date().toISOString();
+		let revive = host.db
+			.updateTable("sessions")
+			.set({
+				state: "running",
+				waiting_kind: null,
+				waiting_level_id: null,
+				waiting_handler_id: null,
+				state_changed_at: at,
+				updated_at: at,
+			})
+			.where("id", "=", sessionId)
+			.where("state", "=", "idle");
+		revive =
+			row.last_submission_id === null
+				? revive.where("last_submission_id", "is", null)
+				: revive.where("last_submission_id", "=", row.last_submission_id);
+		if ((await revive.executeTakeFirst()).numUpdatedRows > 0n) {
+			host.sessionList.publishSession(sessionId);
+			void trackCompaction(host, sessionId, taskId, row.last_submission_id);
+		}
+	}
+	void host.audit?.record({
+		actor: { type: "user", id: by.userId, onBehalfOfUserId: row.owner_user_id },
+		action: "session.compacted",
+		target: { type: "session", id: sessionId },
+		detail: { task_id: String(taskId), ...(instructions ? { instructions_chars: instructions.length } : {}) },
+	});
+	const outcome = await compactionOutcome(host, taskId);
+	return { taskId: String(taskId), outcome };
+}
+
+/**
+ * Says whether a manual compaction found an old history to summarize (doc/agent-runtime.md#会话): durable's
+ * `select` phase completes at once with an empty result when the recent window already holds everything, and
+ * otherwise moves on to the summarization model call. A summary still being made counts as `started`.
+ */
+async function compactionOutcome(host: RuntimeHost, taskId: TaskId<CompactionResult>): Promise<CompactOutcome> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<"timeout">((resolve) => {
+		timer = setTimeout(() => resolve("timeout"), COMPACT_SETTLE_TIMEOUT_MS);
+	});
+	try {
+		const settled = await Promise.race([host.harness().waitForTask(taskId, host.context), timeout]);
+		if (settled === "timeout") return "started";
+		if (settled.state.outcome.status !== "completed") return "failed";
+		const { submissionId, entryId } = settled.state.outcome.result;
+		return submissionId === undefined && entryId === undefined ? "nothing" : "started";
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/**
+ * Ends the run a manual compaction revived (doc/agent-runtime.md#会话状态): the session is idle again once the summary
+ * is placed or the task ends, but only while it is still that run — a newer input or a stop wins.
+ */
+async function trackCompaction(
+	host: RuntimeHost,
+	sessionId: string,
+	taskId: TaskId<CompactionResult>,
+	lastSubmissionId: string | null,
+): Promise<void> {
+	try {
+		const { state } = await host.harness().waitForTask(taskId, host.context);
+		if (state.outcome.status === "completed" && state.outcome.result.submissionId !== undefined) {
+			const submission = await host.harness().submission(state.outcome.result.submissionId, host.context);
+			await submission?.wait(host.context);
+		}
+		if (host.closing()) return;
+		const at = new Date().toISOString();
+		let update = host.db
+			.updateTable("sessions")
+			.set({
+				state: "idle",
+				waiting_kind: null,
+				waiting_level_id: null,
+				waiting_handler_id: null,
+				state_changed_at: at,
+				updated_at: at,
+			})
+			.where("id", "=", sessionId)
+			.where("state", "=", "running");
+		update =
+			lastSubmissionId === null
+				? update.where("last_submission_id", "is", null)
+				: update.where("last_submission_id", "=", lastSubmissionId);
+		await update.execute();
+		host.sessionList.publishSession(sessionId);
+	} catch (err) {
+		if (!host.closing()) console.error("agent runtime: recording a compaction's end failed:", err);
+	}
 }
 
 /**

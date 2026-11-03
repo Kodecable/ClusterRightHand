@@ -64,6 +64,7 @@ function structureKey(state: SessionState): string {
 		blocks,
 		tools,
 		state.running,
+		state.compactions.map((compaction) => compaction.taskId).join(","),
 		state.queued,
 		state.retry ?? "",
 		state.failure ?? "",

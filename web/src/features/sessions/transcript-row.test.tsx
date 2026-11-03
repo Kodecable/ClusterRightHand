@@ -191,10 +191,26 @@ describe("TranscriptRow", () => {
 		expect(await screen.findByTestId("tool-output")).toHaveTextContent("line one");
 	});
 
-	test("a compaction entry is a divider, not a user bubble", () => {
-		renderRow({ kind: "compaction", key: "c1", text: "Summary of earlier work" });
-		expect(screen.getByText("Context compacted")).toBeInTheDocument();
-		expect(screen.getByText("Summary of earlier work")).toBeInTheDocument();
+	test("a compaction entry is a collapsible note row with the summary's first line", () => {
+		renderRow({ kind: "compaction", key: "c1", text: "First summary line\nsecond summary line" });
+		const toggle = screen.getByTestId("compaction-toggle");
+		expect(toggle).toHaveTextContent("Context compacted");
+		expect(toggle).toHaveAttribute("aria-expanded", "false");
+		expect(screen.getByTestId("compaction-preview")).toHaveTextContent("First summary line");
+		expect(screen.queryByTestId("safe-markdown")).not.toBeInTheDocument();
+		fireEvent.click(toggle);
+		expect(toggle).toHaveAttribute("aria-expanded", "true");
+		expect(screen.queryByTestId("compaction-preview")).not.toBeInTheDocument();
+		expect(screen.getByTestId("safe-markdown")).toHaveTextContent("First summary line");
+		expect(screen.getByTestId("safe-markdown")).toHaveTextContent("second summary line");
+	});
+
+	test("a running compaction is a non-expandable row with the running spinner", () => {
+		renderRow({ kind: "compacting", key: "compacting/1" });
+		const row = screen.getByTestId("compacting-row");
+		expect(row).toHaveTextContent("Compacting context");
+		expect(row.querySelector(".animate-spin")).not.toBeNull();
+		expect(screen.queryByRole("button")).not.toBeInTheDocument();
 	});
 
 	test("an aborted run and a failed run are errors", () => {
