@@ -1,19 +1,23 @@
-// Package state persists the privileged mode's used and revoked lists
-// (doc/privilege.md 授权, 吊销, 时钟).
+// Package state persists the privileged mode's used list (doc/privilege.md 授权, 时钟).
 //
-// Both lists are append-only JSON lines. A record is written and fsync'd before the task
-// it describes starts, so a crash can lose neither the fact that an authorization was
-// used nor a revocation. At startup the lists are loaded and compacted: used records are
-// dropped once they are older than the authorization deadline plus seven days (or, for a
-// task id without a deadline, once they are 30 days old), and revocations are kept until
-// seven days past their authorization's deadline. A final line that was torn by a crash
-// and does not parse is ignored, because that append never became durable. Everything is
-// kept in memory for the lookups the authorization decision does.
+// The list is an append-only JSON-lines file. A record is written and fsync'd before the
+// task it describes starts, so a crash cannot lose the fact that an authorization was used.
+// The file is compacted once it has twice as many lines as the list has live records: the
+// live records are rewritten to a temporary file that atomically replaces the old one, so the
+// file never grows without bound. At startup the list is loaded, the retention and size rules
+// are applied, and the compacted file is written once. A final line that was torn by a crash
+// and does not parse is ignored, because that append never became durable.
+//
+// In memory the list is capped. Evicting a record whose authorization is still acceptable
+// raises a watermark: an authorization issued at or before the watermark must be signed
+// again, so evicting a used pair can never make it usable again. The watermark is memory only;
+// a restart loads the whole file and rebuilds it.
 package state
 
 import (
 	"bufio"
 	"bytes"
+	"container/list"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -27,34 +31,40 @@ import (
 )
 
 const (
-	usedFileName    = "used"
-	revokedFileName = "revoked"
-	// usedRetention is how long a used or revoked record is kept past the authorization's
-	// deadline. The margin covers a clock that stepped back by up to seven days: without it, a
-	// one-shot authorization could be used again after the clock recovers, and a revocation
-	// could be dropped while the node would still accept the authorization
-	// (doc/privilege.md 时钟, 吊销).
-	usedRetention = 7 * 24 * time.Hour
-	// taskRetention bounds a used record without a deadline: such a task id is remembered
-	// for 30 days. crhs never resends an accepted task, so this list is a defence in depth
-	// against a restarting daemon rather than the only replay protection; the bound keeps
-	// the file from growing without limit.
-	taskRetention = 30 * 24 * time.Hour
+	usedFileName = "used"
+	// localRetention is how long a record without an authorization is kept: a local approval
+	// (or a legacy record whose authorization has no deadline).
+	localRetention = 24 * time.Hour
+	// minRetentionMargin is the least time a record with an authorization is kept past its
+	// deadline. A larger clock_skew extends it, so a one-shot authorization cannot be used
+	// again after the clock stepped back by up to the configured skew (doc/privilege.md 时钟).
+	minRetentionMargin = time.Hour
 )
+
+// maxRecords bounds the in-memory used list. It is a variable so tests can lower it.
+var maxRecords = 8192
+
+// rebuildFloor is the live count below which the file is rebuilt at 2*rebuildFloor lines, so
+// a small list does not rewrite its file on every append. It is a variable so tests can lower
+// it.
+var rebuildFloor = 1024
 
 // ErrAlreadyRecorded reports that a task id is already in the used list.
 var ErrAlreadyRecorded = errors.New("state: task is already recorded")
 
 // Record is one line of the used list: a task that ran, the authorization that allowed it
-// (absent for a local approval) and the authorization's deadline.
+// (absent for a local approval), the authorization's times and the spec hash.
 type Record struct {
 	TaskID  string `json:"task_id"`
 	Attempt uint64 `json:"attempt,omitempty"`
 	// AuthorizationID is the hex authorization id; empty when the task was approved
 	// locally instead.
 	AuthorizationID string `json:"authorization_id,omitempty"`
+	// IssuedAtMS is the authorization's issued_at in Unix milliseconds. It is zero (and
+	// omitted) for a local approval, which has no authorization.
+	IssuedAtMS int64 `json:"issued_at_ms,omitempty"`
 	// DeadlineMS is the authorization's deadline in Unix milliseconds; nil means the
-	// authorization has no deadline.
+	// authorization has no deadline (only a legacy record can).
 	DeadlineMS *int64 `json:"deadline_ms,omitempty"`
 	// SpecSHA256 is the hex hash of the executed spec, for auditing and for correlating
 	// the record with the local log.
@@ -63,15 +73,15 @@ type Record struct {
 	AcceptedAtMS int64 `json:"accepted_at_ms"`
 }
 
-type revocationRecord struct {
-	AuthorizationID string `json:"authorization_id"`
-	DeadlineMS      *int64 `json:"deadline_ms,omitempty"`
-	AddedAtMS       int64  `json:"added_at_ms"`
-}
-
 type pair struct {
 	authorizationID [32]byte
 	taskID          string
+}
+
+// entry is one used record and the parsed authorization id of a non-local record.
+type entry struct {
+	rec Record
+	id  [32]byte
 }
 
 // Options configures Open.
@@ -81,31 +91,61 @@ type Options struct {
 	Now func() time.Time
 	// Logger receives warnings, such as a torn final record that was ignored; nil discards them.
 	Logger *slog.Logger
+	// ClockSkew is the privileged mode's clock_skew. A record with an authorization is kept
+	// until its deadline plus max(1h, ClockSkew), so eviction never happens while the
+	// authorization decision could still accept it.
+	ClockSkew time.Duration
+	// NoPersist keeps the used list in memory only: no file is read or written and the
+	// directory is not created. Retention, the size cap, the watermark and duplicate
+	// detection work as usual, but a restart forgets every record.
+	NoPersist bool
 }
 
-// Store is the persistent used and revoked state of the privileged mode. It is safe for
-// concurrent use.
+// Store is the used state of the privileged mode. It is safe for concurrent use.
 type Store struct {
-	dir         string
-	usedPath    string
-	revokedPath string
-	now         func() time.Time
-	log         *slog.Logger
+	dir       string
+	usedPath  string
+	now       func() time.Time
+	log       *slog.Logger
+	skew      time.Duration
+	noPersist bool
 
-	mu          sync.Mutex
-	usedFile    *os.File
-	revokedFile *os.File
-	executed    map[string]Record
-	pairs       map[pair]struct{}
-	revoked     map[[32]byte]*int64
+	mu     sync.Mutex
+	used   *os.File
+	exec   map[string]*list.Element
+	pairs  map[pair]*list.Element
+	order  *list.List // acceptance order, oldest first
+	lines  int        // lines currently in the used file
+	markMS int64      // used-list watermark, 0 = none
 }
 
-// Open loads the lists in dir, drops records the retention rules no longer cover, rewrites
-// the compacted files and opens them for appending. dir is created with mode 0700 when it
-// does not exist.
+// Open loads the used list in dir, drops the records the retention rules no longer cover,
+// applies the in-memory cap, rewrites the compacted file and opens it for appending. dir is
+// created with mode 0700 when it does not exist. With Options.NoPersist the file is never
+// touched and the list starts empty.
 func Open(dir string, opts Options) (*Store, error) {
 	if dir == "" {
 		return nil, errors.New("state: empty directory")
+	}
+	s := &Store{
+		dir:       dir,
+		usedPath:  filepath.Join(dir, usedFileName),
+		now:       opts.Now,
+		log:       opts.Logger,
+		skew:      opts.ClockSkew,
+		noPersist: opts.NoPersist,
+		exec:      make(map[string]*list.Element),
+		pairs:     make(map[pair]*list.Element),
+		order:     list.New(),
+	}
+	if s.now == nil {
+		s.now = time.Now
+	}
+	if s.log == nil {
+		s.log = slog.New(slog.DiscardHandler)
+	}
+	if s.noPersist {
+		return s, nil
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("state: create %s: %w", dir, err)
@@ -117,46 +157,26 @@ func Open(dir string, opts Options) (*Store, error) {
 	if !fi.IsDir() {
 		return nil, fmt.Errorf("state: %s is not a directory", dir)
 	}
-	s := &Store{
-		dir:         dir,
-		usedPath:    filepath.Join(dir, usedFileName),
-		revokedPath: filepath.Join(dir, revokedFileName),
-		now:         opts.Now,
-		log:         opts.Logger,
-	}
-	if s.now == nil {
-		s.now = time.Now
-	}
-	if s.log == nil {
-		s.log = slog.New(slog.DiscardHandler)
-	}
 	if err := s.load(); err != nil {
 		return nil, err
 	}
 	if err := s.compact(); err != nil {
 		return nil, err
 	}
-	if s.usedFile, err = openAppend(s.usedPath); err != nil {
-		return nil, err
-	}
-	if s.revokedFile, err = openAppend(s.revokedPath); err != nil {
-		s.usedFile.Close()
+	if s.used, err = openAppend(s.usedPath); err != nil {
 		return nil, err
 	}
 	return s, nil
 }
 
-// load reads both lists and applies the retention rules. A line that cannot be parsed is a
-// hard error: silently dropping it could forget a used authorization or a revocation. The one
-// exception is the final line of a file written without a trailing newline and not parseable:
-// it is the torn remains of an append that never completed, so its task never ran and the
-// record can be ignored and compacted away.
+// load reads the used list, applies the retention rules and the size cap in acceptance order,
+// and leaves the live records in memory. A line that cannot be parsed is a hard error:
+// silently dropping it could forget a used authorization. The one exception is the final line
+// of a file written without a trailing newline and not parseable: it is the torn remains of an
+// append that never completed, so its task never ran and the record can be ignored and
+// compacted away.
 func (s *Store) load() error {
-	s.executed = make(map[string]Record)
-	s.pairs = make(map[pair]struct{})
-	s.revoked = make(map[[32]byte]*int64)
 	now := s.now()
-
 	if err := forEachLine(s.usedPath, func(line []byte, n int, torn bool) error {
 		var rec Record
 		if err := json.Unmarshal(line, &rec); err != nil {
@@ -165,89 +185,70 @@ func (s *Store) load() error {
 		if rec.TaskID == "" {
 			return s.tolerateTorn(s.usedPath, n, torn, errors.New("missing task_id"))
 		}
-		if !keepUsed(rec, now) {
+		if !s.keep(rec, now) {
 			return nil
 		}
-		if _, dup := s.executed[rec.TaskID]; dup {
+		var id [32]byte
+		if rec.AuthorizationID != "" {
+			var err error
+			if id, err = parseID(rec.AuthorizationID); err != nil {
+				return s.tolerateTorn(s.usedPath, n, torn, err)
+			}
+		}
+		if _, dup := s.exec[rec.TaskID]; dup {
 			return nil
 		}
-		s.executed[rec.TaskID] = rec
-		if rec.AuthorizationID == "" {
-			return nil
-		}
-		id, err := parseID(rec.AuthorizationID)
-		if err != nil {
-			return s.tolerateTorn(s.usedPath, n, torn, err)
-		}
-		s.pairs[pair{authorizationID: id, taskID: rec.TaskID}] = struct{}{}
+		// Mirror AddUsed: an eviction of a still acceptable authorization raises the
+		// watermark before the new record goes in.
+		s.makeRoom(now)
+		s.add(&entry{rec: rec, id: id})
 		return nil
 	}); err != nil {
 		return fmt.Errorf("state: %s: %w", s.usedPath, err)
 	}
-
-	if err := forEachLine(s.revokedPath, func(line []byte, n int, torn bool) error {
-		var rec revocationRecord
-		if err := json.Unmarshal(line, &rec); err != nil {
-			return s.tolerateTorn(s.revokedPath, n, torn, err)
-		}
-		id, err := parseID(rec.AuthorizationID)
-		if err != nil {
-			return s.tolerateTorn(s.revokedPath, n, torn, err)
-		}
-		if rec.DeadlineMS != nil && now.After(time.UnixMilli(*rec.DeadlineMS).Add(usedRetention)) {
-			// The authorization the revocation belonged to expired more than the retention
-			// margin ago; the authorization decision accepts until deadline + clock_skew.
-			return nil
-		}
-		if existing, ok := s.revoked[id]; ok {
-			s.revoked[id] = strongerDeadline(existing, rec.DeadlineMS)
-		} else {
-			s.revoked[id] = rec.DeadlineMS
-		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("state: %s: %w", s.revokedPath, err)
-	}
 	return nil
 }
 
-// keepUsed applies the retention rules of the used list.
-func keepUsed(rec Record, now time.Time) bool {
-	if rec.DeadlineMS != nil {
-		deadline := time.UnixMilli(*rec.DeadlineMS)
-		return !now.After(deadline.Add(usedRetention))
+// keep applies the retention rules: a record with an authorization and a deadline is kept
+// until deadline+max(1h, clock_skew); a local approval (and a legacy record without a
+// deadline) is kept 24h after it was accepted.
+func (s *Store) keep(rec Record, now time.Time) bool {
+	if rec.AuthorizationID != "" && rec.DeadlineMS != nil {
+		return !now.After(time.UnixMilli(*rec.DeadlineMS).Add(s.retentionMargin()))
 	}
-	return !now.After(time.UnixMilli(rec.AcceptedAtMS).Add(taskRetention))
+	return !now.After(time.UnixMilli(rec.AcceptedAtMS).Add(localRetention))
 }
 
-// compact rewrites both lists with the records that remain after loading. The files are
+// retentionMargin is max(1h, clock_skew).
+func (s *Store) retentionMargin() time.Duration {
+	if s.skew > minRetentionMargin {
+		return s.skew
+	}
+	return minRetentionMargin
+}
+
+// compact rewrites the used file with the records that remain after loading. The file is
 // replaced atomically and the directory is fsynced, so a crash cannot leave a half-written
 // list behind.
 func (s *Store) compact() error {
-	var used bytes.Buffer
-	for _, rec := range s.executed {
-		if err := writeLine(&used, rec); err != nil {
+	var buf bytes.Buffer
+	for elem := s.order.Front(); elem != nil; elem = elem.Next() {
+		if err := writeLine(&buf, elem.Value.(*entry).rec); err != nil {
 			return fmt.Errorf("state: encode used record: %w", err)
 		}
 	}
-	var revoked bytes.Buffer
-	for id, deadline := range s.revoked {
-		rec := revocationRecord{AuthorizationID: hex.EncodeToString(id[:]), DeadlineMS: deadline}
-		if err := writeLine(&revoked, rec); err != nil {
-			return fmt.Errorf("state: encode revocation: %w", err)
-		}
-	}
-	if err := replaceFile(s.usedPath, used.Bytes()); err != nil {
+	if err := replaceFile(s.usedPath, buf.Bytes()); err != nil {
 		return err
 	}
-	return replaceFile(s.revokedPath, revoked.Bytes())
+	s.lines = s.order.Len()
+	return nil
 }
 
 // Executed reports whether the task id already ran on this node.
 func (s *Store) Executed(taskID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, ok := s.executed[taskID]
+	_, ok := s.exec[taskID]
 	return ok
 }
 
@@ -259,16 +260,26 @@ func (s *Store) Used(authorizationID [32]byte, taskID string) bool {
 	return ok
 }
 
-// Revoked reports whether the authorization id is revoked.
-func (s *Store) Revoked(authorizationID [32]byte) bool {
+// Watermark returns the used-list watermark in Unix milliseconds, or 0 when no authorization
+// was evicted while still acceptable.
+func (s *Store) Watermark() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, ok := s.revoked[authorizationID]
-	return ok
+	return s.markMS
 }
 
-// AddUsed records an accepted task and fsyncs the record before returning. The caller must
-// not start the task before AddUsed succeeds (doc/privilege.md 校验流程, step 10).
+// Watermarked reports whether an authorization issued at issuedAtMS predates the used-list
+// watermark. Such an authorization was evicted from the in-memory list while still acceptable
+// and must be signed again, or its used pair could be replayed.
+func (s *Store) Watermarked(issuedAtMS int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.markMS > 0 && issuedAtMS <= s.markMS
+}
+
+// AddUsed records an accepted task and fsyncs the record before returning (unless the store
+// is in memory only). The caller must not start the task before AddUsed succeeds
+// (doc/privilege.md 校验流程, step 10).
 func (s *Store) AddUsed(rec Record) error {
 	if rec.TaskID == "" {
 		return errors.New("state: used record has no task id")
@@ -280,85 +291,133 @@ func (s *Store) AddUsed(rec Record) error {
 			return fmt.Errorf("state: used record: %w", err)
 		}
 	}
-	data, err := encodeLine(rec)
-	if err != nil {
-		return fmt.Errorf("state: encode used record: %w", err)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, dup := s.executed[rec.TaskID]; dup {
-		return fmt.Errorf("%w: %s", ErrAlreadyRecorded, rec.TaskID)
-	}
-	if err := appendLine(s.usedFile, data); err != nil {
-		return err
-	}
-	s.executed[rec.TaskID] = rec
-	if rec.AuthorizationID != "" {
-		s.pairs[pair{authorizationID: id, taskID: rec.TaskID}] = struct{}{}
-	}
-	return nil
-}
-
-// AddRevoked appends a revocation and fsyncs it. Adding the same authorization id again
-// is idempotent; a revocation without a deadline is stronger than one with a deadline and
-// replaces it.
-func (s *Store) AddRevoked(authorizationID [32]byte, deadlineMS *int64) error {
-	rec := revocationRecord{
-		AuthorizationID: hex.EncodeToString(authorizationID[:]),
-		DeadlineMS:      deadlineMS,
-		AddedAtMS:       s.now().UnixMilli(),
-	}
-	data, err := encodeLine(rec)
-	if err != nil {
-		return fmt.Errorf("state: encode revocation: %w", err)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	existing, ok := s.revoked[authorizationID]
-	merged := deadlineMS
-	if ok {
-		merged = strongerDeadline(existing, deadlineMS)
-		if existing == nil || (merged != nil && *merged == *existing) {
-			return nil // already revoked at least as strongly
+	var data []byte
+	if !s.noPersist {
+		var err error
+		if data, err = encodeLine(rec); err != nil {
+			return fmt.Errorf("state: encode used record: %w", err)
 		}
 	}
-	if err := appendLine(s.revokedFile, data); err != nil {
-		return err
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	// Housekeeping first, exactly as at startup: expired records leave and the oldest
+	// accepted records make room under the cap before the new record is appended.
+	s.prune(now)
+	if _, dup := s.exec[rec.TaskID]; dup {
+		return fmt.Errorf("%w: %s", ErrAlreadyRecorded, rec.TaskID)
 	}
-	s.revoked[authorizationID] = merged
+	s.makeRoom(now)
+	if !s.noPersist {
+		if err := appendLine(s.used, data); err != nil {
+			return err
+		}
+		s.lines++
+	}
+	s.add(&entry{rec: rec, id: id})
+	if !s.noPersist && s.lines >= 2*max(s.order.Len(), rebuildFloor) {
+		// The record is already durable. A rebuild that fails leaves the append-only file
+		// intact and is retried after a later append, unless the file cannot be reopened.
+		if err := s.rebuild(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// strongerDeadline returns the stricter of two revocation deadlines: no deadline is forever
-// and beats any deadline, and a later deadline beats an earlier one. Two revocations of one
-// authorization must not make it usable again by ending earlier than either asked for.
-func strongerDeadline(a, b *int64) *int64 {
-	switch {
-	case a == nil || b == nil:
-		return nil
-	case *b > *a:
-		return b
-	default:
-		return a
+// add puts e in the maps and at the end of the acceptance order.
+func (s *Store) add(e *entry) {
+	elem := s.order.PushBack(e)
+	s.exec[e.rec.TaskID] = elem
+	if e.rec.AuthorizationID != "" {
+		s.pairs[pair{authorizationID: e.id, taskID: e.rec.TaskID}] = elem
 	}
 }
 
-// Close closes the underlying files.
+// remove drops one list element and its lookups.
+func (s *Store) remove(elem *list.Element) {
+	e := elem.Value.(*entry)
+	delete(s.exec, e.rec.TaskID)
+	if e.rec.AuthorizationID != "" {
+		delete(s.pairs, pair{authorizationID: e.id, taskID: e.rec.TaskID})
+	}
+	s.order.Remove(elem)
+}
+
+// prune drops the records the retention rules no longer cover. A dropped record does not
+// raise the watermark: it is no longer acceptable anyway.
+func (s *Store) prune(now time.Time) {
+	for elem := s.order.Front(); elem != nil; {
+		next := elem.Next()
+		if !s.keep(elem.Value.(*entry).rec, now) {
+			s.remove(elem)
+		}
+		elem = next
+	}
+}
+
+// makeRoom evicts the oldest accepted records until one more fits under the cap. An evicted
+// authorization that is still acceptable raises the watermark to its issued_at, so it cannot
+// be reused after its used pair is forgotten. Local approvals never raise it, and an
+// authorization past deadline+clock_skew is not acceptable any more, so it does not either.
+func (s *Store) makeRoom(now time.Time) {
+	for s.order.Len() >= maxRecords {
+		front := s.order.Front()
+		if front == nil {
+			return
+		}
+		e := front.Value.(*entry)
+		if e.rec.AuthorizationID != "" && e.rec.DeadlineMS != nil {
+			deadline := time.UnixMilli(*e.rec.DeadlineMS)
+			if !now.After(deadline.Add(s.skew)) && e.rec.IssuedAtMS > s.markMS {
+				s.markMS = e.rec.IssuedAtMS
+			}
+		}
+		s.remove(front)
+	}
+}
+
+// rebuild rewrites the used file with the live records, in acceptance order, and reopens it
+// for appending. A failed replacement leaves the append-only file valid, so it is only
+// logged; the next append retries. A file that was replaced but cannot be reopened is a hard
+// error: appending to the old, unlinked file would silently lose records.
+func (s *Store) rebuild() error {
+	var buf bytes.Buffer
+	for elem := s.order.Front(); elem != nil; elem = elem.Next() {
+		if err := writeLine(&buf, elem.Value.(*entry).rec); err != nil {
+			return fmt.Errorf("state: encode used record: %w", err)
+		}
+	}
+	if err := replaceFile(s.usedPath, buf.Bytes()); err != nil {
+		s.log.Warn("compacting the used list failed; it will be retried", "err", err)
+		return nil
+	}
+	file, err := openAppend(s.usedPath)
+	if err != nil {
+		if s.used != nil {
+			_ = s.used.Close()
+			s.used = nil
+		}
+		return err
+	}
+	if s.used != nil {
+		_ = s.used.Close()
+	}
+	s.used = file
+	s.lines = s.order.Len()
+	return nil
+}
+
+// Close closes the underlying file.
 func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var first error
-	if s.usedFile != nil {
-		first = s.usedFile.Close()
-		s.usedFile = nil
+	if s.used == nil {
+		return nil
 	}
-	if s.revokedFile != nil {
-		if err := s.revokedFile.Close(); err != nil && first == nil {
-			first = err
-		}
-		s.revokedFile = nil
-	}
-	return first
+	err := s.used.Close()
+	s.used = nil
+	return err
 }
 
 func parseID(text string) ([32]byte, error) {
@@ -425,8 +484,8 @@ func forEachLine(path string, fn func(line []byte, n int, torn bool) error) erro
 }
 
 // tolerateTorn turns the parse error of a file's final, newline-less line into a warning: the
-// append that produced it never returned, so the task or revocation it records never took
-// effect, and compact rewrites the file without it. Any other malformed line stays an error.
+// append that produced it never returned, so the task it records never took effect, and
+// compact rewrites the file without it. Any other malformed line stays an error.
 func (s *Store) tolerateTorn(path string, n int, torn bool, err error) error {
 	if !torn {
 		return fmt.Errorf("line %d: %w", n, err)

@@ -22,7 +22,7 @@ func TestSupportedNames(t *testing.T) {
 	}
 	// The M4 names are optional for the peer but advertised by crha in every
 	// privileged mode: non-forward modes answer the commands with privileged_unsupported.
-	optional := []string{"local.decision", "local.request", "local.withdraw", "revocations.add", "trust.summary"}
+	optional := []string{"local.decision", "local.request", "local.withdraw", "trust.summary"}
 	want := slices.Concat(required, optional)
 	slices.Sort(want)
 	if got := SupportedNames(); !slices.Equal(got, want) {

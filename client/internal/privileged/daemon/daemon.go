@@ -1,6 +1,6 @@
 // Package daemon implements crha's privileged mode: the unix-socket server that verifies
 // authorizations for privileged tasks, executes them as its own Linux user, records the used
-// and revoked lists, exposes local approval and pushes the trust summary
+// list, exposes local approval and pushes the trust summary
 // (doc/privilege.md 特权模式, doc/protocol.md crh-priv).
 package daemon
 
@@ -51,6 +51,10 @@ type Options struct {
 	// (doc/execution-plane.md#exec-的执行环境). nil resolves it per task, which only tests and
 	// programmatic callers do.
 	Env *execenv.Environment
+	// NoPersistUsed keeps the used list in memory only, for embedded devices with limited
+	// disk endurance. It lowers security: after the privileged mode restarts, a one-shot
+	// authorization can run again until its deadline.
+	NoPersistUsed bool
 }
 
 // Server is one privileged-mode daemon.
@@ -92,9 +96,18 @@ func New(cfg *config.Config, opts Options) (*Server, error) {
 	if now == nil {
 		now = time.Now
 	}
-	store, err := state.Open(cfg.StateDir, state.Options{Now: now, Logger: logger})
+	store, err := state.Open(cfg.StateDir, state.Options{
+		Now:       now,
+		Logger:    logger,
+		ClockSkew: cfg.ClockSkew,
+		NoPersist: opts.NoPersistUsed,
+	})
 	if err != nil {
 		return nil, err
+	}
+	if opts.NoPersistUsed {
+		logger.Warn("the used list is kept in memory only; after the privileged mode restarts, " +
+			"a one-shot authorization can run again until its deadline")
 	}
 	s := &Server{
 		opts:      opts,

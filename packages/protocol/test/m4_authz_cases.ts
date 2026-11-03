@@ -58,7 +58,6 @@ interface Case {
 		payload: PayloadJson;
 		/** In signature order. `entry` names the signer; a name with no trust entry here is a key this node does not trust. `valid` is the crypto result. */
 		signatures: { entry: string; valid: boolean; uv: boolean }[];
-		revoked: boolean;
 	};
 	/** For task.start after `crha approve`: who approved and the spec hash recorded at approval. */
 	local_approval: null | { uid: number; spec_sha256: string };
@@ -172,7 +171,7 @@ function base(id: string, description: string, overrides: Partial<Case> = {}): C
 		node: { id: NODE, groups: ["web", "prod"] },
 		trust: [CRHS, USER, LOCAL],
 		task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(RESTART) },
-		authorization: { payload: crhsPayload(), signatures: [{ entry: "crhs", valid: true, uv: false }], revoked: false },
+		authorization: { payload: crhsPayload(), signatures: [{ entry: "crhs", valid: true, uv: false }] },
 		local_approval: null,
 		executed_task_ids: [],
 		used_pairs: [],
@@ -184,7 +183,6 @@ function base(id: string, description: string, overrides: Partial<Case> = {}): C
 const signedBy = (payload: PayloadJson, ...entries: string[]): NonNullable<Case["authorization"]> => ({
 	payload,
 	signatures: entries.map((name) => ({ entry: name, valid: true, uv: false })),
-	revoked: false,
 });
 
 const reject = (result: string, step: number) => ({ expect: { result, step } });
@@ -241,7 +239,7 @@ function cases(): Case[] {
 			authorization: signedBy(crhsPayload({ deadline_ms: NOW + 300_001 }), "crhs"),
 			...reject("authorization_expired", 4),
 		}),
-		base("crhs.ttl-no-deadline", "max_ttl set but the payload has no deadline", {
+		base("crhs.ttl-no-deadline", "every authorization must have a deadline; max_ttl does not grant one", {
 			authorization: signedBy(crhsPayload({ deadline_ms: null }), "crhs"),
 			...reject("authorization_expired", 4),
 		}),
@@ -372,10 +370,6 @@ function cases(): Case[] {
 			trust: [{ ...CRHS, kinds: ["cosign"] }, USER, LOCAL],
 			...reject("authorization_rejected", 7),
 		}),
-		base("crhs.revoked", "the authorization id is revoked", {
-			authorization: { ...signedBy(crhsPayload(), "crhs"), revoked: true },
-			...reject("authorization_rejected", 9),
-		}),
 		base("crhs.not-trusted", "node trusts only the user; a crhs signature has no trust entry", {
 			trust: [USER, LOCAL],
 			...reject("authorization_invalid", 3),
@@ -453,17 +447,17 @@ function cases(): Case[] {
 			authorization: {
 				payload: userOneShot(),
 				signatures: [{ entry: "alice", valid: true, uv: true }],
-				revoked: false,
 			},
 		}),
-		base("user.one-shot-no-deadline", "a one-shot authorization (task_ids) must have a deadline", {
+		base("user.one-shot-no-deadline", "a one-shot authorization (task_ids) without a deadline is refused", {
 			trust: [CRHS, { ...USER, max_ttl_ms: null }, LOCAL],
 			authorization: signedBy(userOneShot({ deadline_ms: null }), "alice"),
-			...reject("authorization_invalid", 5),
+			...reject("authorization_expired", 4),
 		}),
-		base("user.no-ttl-limit", "user entry without max_ttl accepts an authorization without deadline", {
+		base("user.no-ttl-limit", "an authorization without a deadline is refused even without max_ttl", {
 			trust: [CRHS, { ...USER, max_ttl_ms: null }, LOCAL],
 			authorization: signedBy(userOneShot({ deadline_ms: null, task_ids: null, attempt: null }), "alice"),
+			...reject("authorization_expired", 4),
 		}),
 		base("user.group-one-shot", "one signature covers the tasks of three nodes; this node's task is in the list", {
 			task: { task_id: OTHER_TASK, attempt: 2, spec: taskSpecToJson(RESTART) },

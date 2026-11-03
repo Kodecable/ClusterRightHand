@@ -147,14 +147,12 @@ func (c *conn) registerHandlers() {
 		p.HandleRequest(protocol.CmdTaskCancel, c.handleTaskCancel)
 		p.HandleRequest(protocol.CmdTaskQuery, c.handleTaskQuery)
 		p.HandleRequest(wire.CmdTrustQuery, c.handleTrustQuery)
-		p.HandleRequest(protocol.CmdRevocationsAdd, c.handleRevocationsAdd)
 		p.HandleRequest(protocol.CmdLocalRequest, c.handleLocalRequest)
 		p.HandleRequest(protocol.CmdLocalWithdraw, c.handleLocalWithdraw)
 	case wire.RoleLocal:
 		p.HandleRequest(wire.CmdPendingList, c.handlePendingList)
 		p.HandleRequest(wire.CmdLocalApprove, c.handleLocalApprove)
 		p.HandleRequest(wire.CmdLocalDeny, c.handleLocalDeny)
-		p.HandleRequest(protocol.CmdRevocationsAdd, c.handleRevocationsAdd)
 	}
 }
 
@@ -207,6 +205,7 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 	}
 	if decided.authorization != nil {
 		record.AuthorizationID = hex.EncodeToString(decided.authorizationID[:])
+		record.IssuedAtMS = int64(decided.payload.IssuedAtMS)
 		if decided.payload.DeadlineMS != nil {
 			deadline := int64(*decided.payload.DeadlineMS)
 			record.DeadlineMS = &deadline
@@ -356,34 +355,6 @@ func (c *conn) handleTrustQuery(_ context.Context, raw cbor.RawMessage) (any, er
 		return nil, err
 	}
 	return c.s.Config().Summary(), nil
-}
-
-func (c *conn) handleRevocationsAdd(_ context.Context, raw cbor.RawMessage) (any, error) {
-	var add protocol.RevocationsAdd
-	if err := protocol.UnmarshalBody(raw, &add); err != nil {
-		return nil, err
-	}
-	ids := make([]string, 0, len(add.Entries))
-	for i := range add.Entries {
-		entry := &add.Entries[i]
-		id := [32]byte(entry.AuthorizationID)
-		var deadline *int64
-		if entry.DeadlineMS != nil {
-			value := int64(*entry.DeadlineMS)
-			deadline = &value
-		}
-		if err := c.s.store.AddRevoked(id, deadline); err != nil {
-			c.s.log.Error("persist revocation", "authorization", hex.EncodeToString(id[:]), "err", err)
-			return nil, &protocol.RemoteError{Code: "internal_error", Message: "persist revocation: " + err.Error()}
-		}
-		ids = append(ids, hex.EncodeToString(id[:]))
-	}
-	if len(ids) > 0 {
-		if err := c.s.opts.Log.Log(audit.Record{Event: "revocations.added", AuthorizationIDs: ids}); err != nil {
-			c.s.log.Warn("write local log", "err", err)
-		}
-	}
-	return protocol.Empty{}, nil
 }
 
 // logRefusal records a refused task.start in the local log. The code, step and message are

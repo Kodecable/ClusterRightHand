@@ -204,44 +204,6 @@ func TestLocalRequestWithoutLocalEntry(t *testing.T) {
 	expectRemoteCode(t, err, "local_not_trusted")
 }
 
-// TestLocalRevoke covers the local role's revocations.add, the path of `crha privileged
-// revoke`.
-func TestLocalRevoke(t *testing.T) {
-	keys := newTestKeys(t)
-	uid := uint32(os.Getuid())
-	env := newTestEnv(t, keys, func(p envPaths) string {
-		return baseConfig(p, os.Getuid()) +
-			sshTrust("crhs", "crhs", keys.crhsLine, `["execute"]`, "") +
-			localTrust("local-admins", []uint32{uid}, "")
-	})
-	forward := dialForward(t, env.paths.Socket)
-	ctx := requestContext(t)
-
-	ts := execTask("revoke-local-1", 1, "/bin/echo", "revoked")
-	payload := payloadFor("revoke-local-1", 1, exactCommand(t, &ts.Spec), nil)
-	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
-
-	local, err := localclient.Dial(ctx, env.paths.Socket, "test")
-	if err != nil {
-		t.Fatalf("local dial: %v", err)
-	}
-	defer local.Close()
-	if err := local.Revoke(ctx, payloadID(t, payload)); err != nil {
-		t.Fatalf("local revoke: %v", err)
-	}
-	expectRemoteCode(t, forward.start(ctx, ts), "authorization_rejected")
-	records := logRecords(t, env.paths.Log)
-	found := false
-	for _, record := range records {
-		if record["event"] == "revocations.added" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("no revocations.added record in %v", records)
-	}
-}
-
 // TestLocalApprovalSwappedSpecRefused covers the binding between a local verdict and the spec
 // the approver saw: after crhs withdraws the request and asks again with a different spec, the
 // approval that carries the old hash is refused (doc/privilege.md 本地批准).

@@ -31,7 +31,6 @@ import {
 	pendingEntryCodec,
 	privHelloCodec,
 	privWelcomeCodec,
-	revocationsAddCodec,
 	type Signature,
 	type TrustSummary,
 	trustReportCodec,
@@ -835,12 +834,6 @@ function bodyVectors(): (HexVector & { codec: string; digestHex?: string })[] {
 		}),
 		body("trust.report.not-forward", "TrustReport not_forward", "TrustReport", trustReportCodec, {
 			kind: "not_forward",
-		}),
-		body("revocations.add", "two revocations, one without deadline", "RevocationsAdd", revocationsAddCodec, {
-			entries: [
-				{ authorizationId: new Uint8Array(32).fill(0xaa), deadlineMs: NOW + 300_000 },
-				{ authorizationId: new Uint8Array(32).fill(0xbb), deadlineMs: null },
-			],
 		}),
 		body("local.request", "local approval request", "LocalRequest", localRequestCodec, {
 			taskId: "0192f000-0000-7000-8000-000000000021",

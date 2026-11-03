@@ -2,7 +2,7 @@
  * The authorization of a privileged task (doc/privilege.md#授权路径, doc/m4.md M4.4): planning which
  * path the node would accept, reusing an authorization the owner already stored, asking for the
  * owner's signature or a local approval, sending the signed `task.start`, retrying with a higher
- * attempt after a rejection, and storing and revoking what was issued.
+ * attempt after a rejection, and storing what was issued.
  */
 import {
 	type Authorization,
@@ -516,7 +516,6 @@ async function findReusableAuthorization(
 		.selectAll()
 		.where("issuer_user_id", "=", ownerId)
 		.where("org_id", "=", node.org_id)
-		.where("revoked_at", "is", null)
 		.orderBy("created_at")
 		.execute();
 	if (stored.length === 0) return null;
@@ -530,6 +529,9 @@ async function findReusableAuthorization(
 		} catch {
 			continue; // a damaged row is never usable (fail closed)
 		}
+		// Every authorization must carry a deadline; a stored row without one would be refused
+		// by the node (step 4) and is never reused.
+		if (payload.deadlineMs === null) continue;
 		if (payload.taskIds !== null) {
 			if (!payload.taskIds.includes(row.id)) continue;
 			if (payload.attempt !== row.attempt) continue;
@@ -740,8 +742,8 @@ async function dispatchOwnerAuthorization(
 }
 
 /**
- * POST /api/authorizations: checks a user's authorization, stores it (for display, revocation and
- * reuse) and dispatches every waiting task of that user it covers (doc/m4.md M4.4).
+ * POST /api/authorizations: checks a user's authorization, stores it (for display and reuse) and
+ * dispatches every waiting task of that user it covers (doc/m4.md M4.4).
  */
 export async function submitAuthorization(
 	core: ClusterCore,
@@ -752,7 +754,10 @@ export async function submitAuthorization(
 	await assertSubmittingUser(material, submitted.payloadBytes, submitted.signatures);
 	const nowMs = Date.now();
 	const { deadlineMs } = submitted.payload;
-	if (deadlineMs !== null && deadlineMs < nowMs) {
+	if (deadlineMs === null) {
+		throw new UserError("the authorization must have a deadline");
+	}
+	if (deadlineMs < nowMs) {
 		throw new UserError(`the authorization expired at ${new Date(deadlineMs).toISOString()}`);
 	}
 	if (submitted.payload.issuedAtMs > nowMs + SUBMISSION_CLOCK_SKEW_MS) {
@@ -768,12 +773,10 @@ export async function submitAuthorization(
 			command: commandForAudit(submitted.payload.command),
 			task_ids: submitted.payload.taskIds,
 			attempt: submitted.payload.attempt,
-			deadline: deadlineMs === null ? null : new Date(deadlineMs).toISOString(),
+			deadline: new Date(deadlineMs).toISOString(),
 			duplicate: !stored,
 		},
 	});
-	// A revoked authorization is stored but never used (revocation only ever takes permissions away).
-	if (await isRevoked(core, submitted.id)) return { id: submitted.id, dispatched: [] };
 	const rows = await core.db
 		.selectFrom("tasks")
 		.select("id")
@@ -881,7 +884,6 @@ async function insertOwnerAuthorization(
 			task_ids: submitted.payload.taskIds === null ? null : JSON.stringify(submitted.payload.taskIds),
 			deadline: submitted.payload.deadlineMs === null ? null : new Date(submitted.payload.deadlineMs).toISOString(),
 			created_at: now(),
-			revoked_at: null,
 		})
 		.execute();
 	return true;
@@ -894,10 +896,10 @@ async function storeCosignatures(
 ): Promise<void> {
 	const row = await core.db
 		.selectFrom("authorizations")
-		.select(["signatures", "revoked_at"])
+		.select("signatures")
 		.where("id", "=", submitted.id)
 		.executeTakeFirst();
-	if (!row || row.revoked_at !== null) return;
+	if (!row) return;
 	const stored = signaturesFromJson(row.signatures);
 	const keys = new Set(stored.map(signatureKey));
 	const combined = [...stored];
@@ -912,11 +914,6 @@ async function storeCosignatures(
 		.set({ signatures: signaturesToJson(combined) })
 		.where("id", "=", submitted.id)
 		.execute();
-}
-
-async function isRevoked(core: ClusterCore, id: string): Promise<boolean> {
-	const row = await core.db.selectFrom("authorizations").select("revoked_at").where("id", "=", id).executeTakeFirst();
-	return row?.revoked_at != null;
 }
 
 // ---- sending the authorized start ----
@@ -1168,7 +1165,7 @@ async function finishAuthorization(
 }
 
 /**
- * Stores the signed payload, verbatim, for display, lookup and revocation (doc/m4.md#crhs-侧数据).
+ * Stores the signed payload, verbatim, for display and lookup (doc/m4.md#crhs-侧数据).
  * Returns whether this call inserted it (an id already present is left alone).
  */
 async function storeAuthorization(
@@ -1195,7 +1192,6 @@ async function storeAuthorization(
 			task_ids: taskIds === null ? null : JSON.stringify(taskIds),
 			deadline: deadlineMs === null ? null : new Date(deadlineMs).toISOString(),
 			created_at: now(),
-			revoked_at: null,
 		})
 		.execute();
 	return true;

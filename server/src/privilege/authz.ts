@@ -1,11 +1,11 @@
 /**
- * The authorization decision crha makes before accepting a privileged task: steps 2–9 of
+ * The authorization decision crha makes before accepting a privileged task: steps 2–8 of
  * doc/privilege.md#校验流程 (step 1 is the peer uid check, step 10 persistence and execution).
  *
  * This is a side-effect-free port of crha's Go implementation (client/internal/privileged/authz).
  * crhs runs it to predict whether crha would accept an authorization; it reproduces every case of
  * test/interop/m4_authz_cases.json. The caller supplies signatures already verified against trust
- * entries, the clock, and the used/revoked state; nothing in here performs I/O.
+ * entries, the clock, and the used state; nothing in here performs I/O.
  */
 import {
 	type AuthorizationPayload,
@@ -38,7 +38,8 @@ export const STEP = {
 	command: 6,
 	trust: 7,
 	cosign: 8,
-	revocation: 9,
+	// Step 9 was the revocation check. Revocation was removed; the number stays unused so the
+	// remaining steps keep their values in error messages.
 } as const;
 
 export type TrustRole = "crhs" | "user" | "local";
@@ -124,8 +125,6 @@ export interface AuthzInput {
 	executed?: (taskId: string) => boolean;
 	/** Whether (authorization id, task id) is already in the used list. */
 	used?: (authorizationId: Uint8Array, taskId: string) => boolean;
-	/** Whether the authorization id is revoked. */
-	revoked?: (authorizationId: Uint8Array) => boolean;
 }
 
 export interface AuthzDecision {
@@ -137,7 +136,7 @@ export interface AuthzDecision {
 	message: string;
 }
 
-/** Decides steps 2–9. See `AuthzInput` for the state the caller must supply. */
+/** Decides steps 2–8. See `AuthzInput` for the state the caller must supply. */
 export function decide(input: AuthzInput): AuthzDecision {
 	let method: Method;
 	let target: string;
@@ -187,7 +186,7 @@ function decideLocal(input: AuthzInput, method: Method, target: string, specHash
 function decideAuthorization(input: AuthzInput, method: Method, target: string, specHash: Uint8Array): AuthzDecision {
 	const authorization = input.authorization as AuthzAuthorization;
 	// Re-decode the raw bytes instead of trusting the caller's decode: this reapplies the payload
-	// invariants and guarantees revocation and the used list key off the bytes the signatures cover.
+	// invariants and guarantees the used list keys off the bytes the signatures cover.
 	let decoded: AuthorizationPayload;
 	try {
 		decoded = decodeAuthorizationPayload(authorization.payload);
@@ -247,9 +246,6 @@ function decideAuthorization(input: AuthzInput, method: Method, target: string, 
 			first ??= candidate.decision;
 			continue;
 		}
-		if (authorizationRevoked(input, id)) {
-			return failure("authorization_rejected", STEP.revocation, "authorization is revoked");
-		}
 		return candidate.decision;
 	}
 	return first as AuthzDecision;
@@ -277,13 +273,16 @@ function checkCandidate(
 	if (issuedAtMs > input.now + input.clockSkewMs) {
 		return no("authorization_expired", STEP.authorization, "authorization was issued in the future");
 	}
-	if (payload.deadlineMs !== null && payload.deadlineMs < input.now - input.clockSkewMs) {
+	// Every authorization must expire: without a deadline a one-shot record would have to be
+	// trusted forever, and the used list cannot bound it. This uses the same result and step as
+	// the max_ttl path below, so callers see one stable refusal.
+	if (payload.deadlineMs === null) {
+		return no("authorization_expired", STEP.authorization, "authorization has no deadline");
+	}
+	if (payload.deadlineMs < input.now - input.clockSkewMs) {
 		return no("authorization_expired", STEP.authorization, "authorization has expired");
 	}
 	if (entry.maxTtlMs !== null) {
-		if (payload.deadlineMs === null) {
-			return no("authorization_expired", STEP.authorization, "trust entry requires a deadline");
-		}
 		if (payload.deadlineMs - issuedAtMs > entry.maxTtlMs) {
 			return no("authorization_expired", STEP.authorization, "authorization ttl exceeds max_ttl");
 		}
@@ -308,9 +307,6 @@ function checkCandidate(
 		}
 		if (payload.attempt === null || payload.attempt !== input.task.attempt) {
 			return no("authorization_invalid", STEP.oneShot, "attempt does not match task.start");
-		}
-		if (payload.deadlineMs === null) {
-			return no("authorization_invalid", STEP.oneShot, "one-shot authorization has no deadline");
 		}
 		if (pairUsed(input, id, input.task.id)) {
 			return no("authorization_rejected", STEP.oneShot, "authorization was already used for this task");
@@ -432,10 +428,6 @@ function taskExecuted(input: AuthzInput, taskId: string): boolean {
 
 function pairUsed(input: AuthzInput, id: Uint8Array, taskId: string): boolean {
 	return input.used?.(id, taskId) ?? false;
-}
-
-function authorizationRevoked(input: AuthzInput, id: Uint8Array): boolean {
-	return input.revoked?.(id) ?? false;
 }
 
 function accepted(entry: string): AuthzDecision {

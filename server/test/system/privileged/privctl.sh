@@ -7,7 +7,7 @@
 #   privctl.sh start-crha | stop-crha | restart-crha
 #   privctl.sh start-sshd | stop-sshd
 #   privctl.sh start-all | stop-all
-#   privctl.sh reset-priv-state        remove the used and revoked lists (fresh authorized state)
+#   privctl.sh reset-priv-state        remove the used list (fresh authorized state)
 #   privctl.sh wait-priv-socket        block until the privileged socket accepts connections
 #   privctl.sh status
 #
@@ -142,7 +142,7 @@ stop-all)
 	;;
 reset-priv-state)
 	stop_daemon priv || true
-	rm -f /var/lib/crha/privileged/used /var/lib/crha/privileged/revoked
+	rm -f /var/lib/crha/privileged/used
 	;;
 wait-priv-socket) wait_socket ;;
 status)

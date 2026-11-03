@@ -75,16 +75,5 @@ export function useSubmitAuthorization() {
 	});
 }
 
-export function useRevokeAuthorization() {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationFn: (id: string) =>
-			http.post<{ authorization: { id: string; revokedAt: string } }>(`/authorizations/${enc(id)}/revoke`),
-		onSuccess: () => {
-			void queryClient.invalidateQueries({ queryKey: authorizationKeys.all });
-		},
-	});
-}
-
 /** The task group's pending-tasks table (the authorization card shows it for groups). */
 export type { TaskGroupView };

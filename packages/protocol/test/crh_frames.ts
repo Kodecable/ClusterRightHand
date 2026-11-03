@@ -514,23 +514,6 @@ export function buildFixture(): CrhFramesFixture {
 
 	// M4 (optional) commands and events.
 	addFrame(
-		"request.revocations.add",
-		"request id=13 cmd=revocations.add body=[entries=[[authorization_id=32 bytes of 0x11, deadline_ms=1793016300000]]]",
-		{
-			kind: "request",
-			id: 13,
-			cmd: "revocations.add",
-			body: { entries: [{ authorizationId: new Uint8Array(32).fill(0x11), deadlineMs: 1793016300000 }] },
-		},
-	);
-	addFrame("response.revocations.add", "response id=13 cmd=revocations.add ok=true body=[]", {
-		kind: "response",
-		id: 13,
-		cmd: "revocations.add",
-		ok: true,
-		body: {},
-	});
-	addFrame(
 		"request.local.request",
 		'request id=14 cmd=local.request body=[task_id="t-read", attempt=1, spec=["file.read", [path="/etc/hosts", startLine=1, lineCount=100]], note="restart nginx"]',
 		{

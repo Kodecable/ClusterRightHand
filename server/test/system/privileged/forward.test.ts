@@ -6,7 +6,7 @@
  * - require-cosign: the user signature and crhs's cosignature are both needed.
  * - local approval with `crha pending` / `approve` / `deny`, surviving a privileged mode restart, and
  *   the attempt + 1 fallback after a crhs signature was refused.
- * - revocation, one-shot replay, the persisted used list and a privileged mode restart.
+ * - one-shot replay, the persisted used list and a privileged mode restart.
  * - symlinks, path traversal, env and prefix attempts.
  * - trust digest changes, re-planning a waiting task, and privileged_unavailable.
  *
@@ -308,9 +308,10 @@ describePodman("privileged system: forward", () => {
 			expect((await crhs.getTask(t.id)).state).toBe("awaiting_authorization");
 			await authorizeWithCli(node, t.id);
 			expect((await waitTerminal(t.id)).state).toBe("exited");
-			// Revoke the unusable reusable authorization so later cases start clean.
+			// The reusable authorization can never authorize a cosign command; remove it so later
+			// cases do not see it as a stored candidate.
 			const id = submitted.json.authorization?.id as string;
-			expect((await crhs.api(`/api/authorizations/${id}/revoke`, { body: {} })).status).toBe(200);
+			await crhs.db.deleteFrom("authorizations").where("id", "=", id).execute();
 		}, 60_000);
 	});
 
@@ -435,16 +436,15 @@ describePodman("privileged system: forward", () => {
 	});
 
 	// -----------------------------------------------------------------------
-	describe("item 7: revocation, one-shot replay and the used list", () => {
+	describe("item 7: one-shot replay and the used list", () => {
 		beforeAll(async () => {
-			// The local entry is needed for `crha privileged revoke` below (role local, uid 0).
-			await node.setTrust([userEntry(), localEntry([0])]);
+			await node.setTrust([userEntry()]);
 		}, 60_000);
 
 		it("executes a one-shot user authorization once and records it as used", async () => {
 			await node.ctl("reset-priv-state");
 			await node.ctl("start-priv");
-			await node.setTrust([userEntry(), localEntry([0])]);
+			await node.setTrust([userEntry()]);
 			await node.exec(["/bin/sh", "-c", "rm -f /root/crh-runs"]);
 			const t = await task({ kind: "exec", shell: "echo run >> /root/crh-runs; wc -l < /root/crh-runs" });
 			await waitAwaiting(t.id);
@@ -471,7 +471,7 @@ describePodman("privileged system: forward", () => {
 			expect((await node.exec(["/bin/sh", "-c", "wc -l < /root/crh-runs"])).stdout.trim()).toBe("1");
 		}, 120_000);
 
-		it("pushes a revoked authorization to the node and stops reusing it", async () => {
+		it("reuses a submitted authorization only for the command it names", async () => {
 			// A reusable user authorization (no task ids) for one exact command. The command is
 			// unique to this case, so an authorization stored by an earlier case cannot be reused.
 			const spec = taskSpecFromJson({
@@ -507,18 +507,8 @@ describePodman("privileged system: forward", () => {
 			expect(reused).toMatchObject({ state: "exited", exitCode: 0 });
 			expect(reused.authorization?.dispatchedPath).toBe("user");
 			expect(reused.authorization?.payloadId).toBe(submitted.json.authorization?.id);
-			// Revoking it tells the node (revocations.add) and crhs stops offering it.
-			const id = submitted.json.authorization?.id as string;
-			const revoked = await crhs.api(`/api/authorizations/${id}/revoke`, { body: {} });
-			expect(revoked.status).toBe(200);
-			await waitFor(
-				"the node to receive the revocation",
-				async () => {
-					const listed = await node.exec(["/bin/cat", "/var/lib/crha/privileged/revoked"]);
-					return listed.stdout.includes(id);
-				},
-				30_000,
-			);
+			// A different command is not covered by the reusable authorization, so the next task
+			// waits for a one-shot signature.
 			const after = await task({ kind: "exec", argv: ["id", "-u"] });
 			await waitAwaiting(after.id);
 			const pending = await pendingAuthorization(crhs, after.id);
@@ -526,42 +516,6 @@ describePodman("privileged system: forward", () => {
 			await authorizeWithCli(node, after.id);
 			expect((await waitTerminal(after.id)).state).toBe("exited");
 		}, 120_000);
-
-		it("refuses a payload revoked locally with crha privileged revoke", async () => {
-			const t = await task({ kind: "exec", argv: ["id", "-u"] });
-			await waitAwaiting(t.id);
-			const pending = await pendingAuthorization(crhs, t.id);
-			const revoke = await node.execAs(0, [
-				"/usr/local/bin/crha",
-				"privileged",
-				"revoke",
-				pending.id,
-				"--socket",
-				"/run/crha/privileged.sock",
-			]);
-			if (revoke.code !== 0) console.error("privileged revoke failed:", revoke.stdout, revoke.stderr);
-			expect(revoke.code).toBe(0);
-			expect(revoke.stdout).toContain(pending.id);
-			const authorization = await signPayload(bin, node.userKeyPath, pending.payload);
-			const submitted = await submitAuthorization(crhs, authorization);
-			expect(submitted.status).toBe(200);
-			// crha refuses the revoked payload before accepting; crhs retries with attempt + 1.
-			await waitFor(
-				"the revoked attempt to be retried",
-				async () => {
-					const row = await crhs.getTask(t.id);
-					return row.authorization?.attempt === 2 ? row : undefined;
-				},
-				30_000,
-			);
-			const retried = await crhs.getTask(t.id);
-			expect(retried.state).toBe("awaiting_authorization");
-			expect(retried.authorization?.lastRejection?.code).toBe("authorization_rejected");
-			await authorizeWithCli(node, t.id);
-			const done = await waitTerminal(t.id);
-			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
-			expect(done.authorization?.attempt).toBe(2);
-		}, 90_000);
 	});
 
 	// -----------------------------------------------------------------------

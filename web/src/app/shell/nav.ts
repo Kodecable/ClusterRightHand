@@ -65,12 +65,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 		items: [
 			{ to: "/nodes", label: msg`Nodes`, icon: ServerIcon },
 			{ to: "/credentials", label: msg`Credentials`, icon: KeyRoundIcon },
-			{ to: "/authorizations", label: msg`Authorizations`, icon: BadgeCheckIcon },
 		],
 	},
 	{
 		label: msg`Admin`,
 		items: [
+			{ to: "/authorizations", label: msg`Authorizations`, icon: BadgeCheckIcon, adminOnly: true },
 			{ to: "/tokens", label: msg`API tokens`, icon: KeySquareIcon },
 			{ to: "/audit", label: msg`Audit`, icon: ScrollTextIcon },
 			{ to: "/settings/models", label: msg`Models`, icon: BoxesIcon, adminOnly: true },

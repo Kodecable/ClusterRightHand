@@ -99,7 +99,6 @@ func NamesFor(role Role) []string {
 		names := append(coreNames(),
 			CmdTrustQuery,
 			protocol.EventTrustSummary,
-			protocol.CmdRevocationsAdd,
 			protocol.CmdLocalRequest,
 			protocol.CmdLocalWithdraw,
 			protocol.EventLocalDecision,
@@ -111,7 +110,6 @@ func NamesFor(role Role) []string {
 			CmdPendingList,
 			CmdLocalApprove,
 			CmdLocalDeny,
-			protocol.CmdRevocationsAdd,
 		}
 		slices.Sort(names)
 		return names

@@ -76,7 +76,7 @@ crha 非特权模式（对外联网）
    ▼
 crha 特权模式（不联网）
    ├── 配置：crha privileged run --config 指定的 privileged.toml（示例 /etc/crha/privileged.toml；属主为特权模式的运行用户，其他用户不可写）
-   ├── 已用 / 吊销列表：state_dir 下的 used、revoked（示例 /var/lib/crha/privileged/）
+   ├── 已用列表：state_dir 下的 used（示例 /var/lib/crha/privileged/used）
    └── 本地日志：log 指定的 jsonl（示例 /var/log/crha/privileged.jsonl）+ journald
 ```
 
@@ -105,7 +105,7 @@ crha 特权模式（不联网）
 
 ## 授权
 
-所有授权都使用同一种结构：**本体 + 可选的指令限制 + 可选的截止时间**。
+所有授权都使用同一种结构：**本体 + 可选的指令限制 + 截止时间**。`deadline` 是必填字段：没有截止时间的授权在节点上以 `authorization_expired` 拒绝（第 4 步），crhs 拒绝接收（400）；`crha grant` 构造授权时要求 `--deadline`，`--payload` 的 payload 没有截止时间时也拒绝签名。
 
 授权本体是 CBOR payload，签名和联署是同一对象上的 `signatures` 数组。线上格式见 [protocol.md](protocol.md#授权对象)，下面用伪 JSON 说明字段：
 
@@ -120,7 +120,7 @@ crha 特权模式（不联网）
       "spec_sha256": "…"                    // exact 时必有，见下文
     },
     "issued_at_ms": 1793016000000,          // Unix 毫秒
-    "deadline_ms":  1793016300000,          // null = 不过期（受信任项的 max_ttl 约束）
+    "deadline_ms":  1793016300000,          // 必有；与 issued_at 的差受信任项的 max_ttl 约束
     "task_ids": ["01JB…"],                  // null = 可复用；否则只能用于这些任务，每个任务一次
     "attempt": 1,                           // task_ids 非 null 时必有，等于 task.start 的 attempt
     "note": "重启 nginx 以加载新证书"         // 人类可读，也在签名范围内；没有时为空串
@@ -132,18 +132,29 @@ crha 特权模式（不联网）
 }
 ```
 
-- **授权 id** = `SHA-256(payload)`（payload 原文 bytes），用于吊销、审计和引用。
+- **授权 id** = `SHA-256(payload)`（payload 原文 bytes），用于已用列表、审计和引用。
 - 用户签名和 crhs 联署签的是**同一份 CBOR payload**，不再使用 `cosign_of`，也不存在两个 payload 字段不一致的问题。
 - `require-cosign` 只要求同一对象上同时存在合格的 user 签名和 `role=crhs` 的 cosign 签名。
 - **发给组的授权**：特权模式在本机配置了这个组（`privileged.toml` 中的 `groups`）时，就认为这个授权是发给自己的。组成员关系只以本机配置为准（crhs 侧只是缓存），crhs 无法绕过授权改变它。
 - **覆盖多个节点的一次性授权**（任务组）：任务组为每个节点建一个任务，payload 的 `task_ids` 列出全部任务 id，`nodes` 列出对应节点 id（crhs 签发时把组展开成节点 id，签名后覆盖范围不再随组成员变化）。每个节点的 `task.start` 携带同一个授权对象，用户只签一次。一次性授权的 `nodes` 与 `task_ids` 按位置一一对应（见 [protocol.md](protocol.md#授权对象)），特权模式只接受对应本机的那个任务 id，因此被控制的 crhs 不能把其他节点的任务 id 发到同一个节点上重复执行。部分节点在 accepted 前被拒时，crhs 只为这些节点构造新 payload（`attempt + 1`，`task_ids` 缩小为被拒节点），需要重新签名；已执行的节点不受影响。
 - **`exact`**：方法和目标完全相等，并且 `spec_sha256` 必须等于完整任务规格的哈希 `SHA-256(CBOR(TaskSpec))`（见 [protocol.md](protocol.md#授权对象)）。完整规格包括 env、cwd、stdin 哈希，文件写入还包括内容哈希、mode、owner 和 `overwrite`，文件编辑还包括全部 `edits`。也就是说，批准"写 `/etc/nginx/nginx.conf`"时，批准的是写入这一份内容；批准一次编辑时，批准的是这几处替换，而不是任意内容。任务组的各节点使用同一份 spec，所以共用一个 `spec_sha256`。
 - **`prefix`**：方法匹配（`file.write` 包含 `file.read`），目标前缀相等。只约束目标，不约束 stdin 和写入内容。cwd 固定为 `/`，env 受信任项的 `env_allow` 约束。
-- **`task_ids`（一次性授权）**：授权只对列出的任务 id 有效，`attempt` 必须等于 `task.start` 的 attempt。特权模式在执行之前把 `(授权 id, 任务 id)` 和任务 id 记入本地的已用列表（`state_dir` 下的 `used`，示例 `/var/lib/crha/privileged/used`，先持久化再执行），同一个授权不能在同一个任务上再用第二次，同一个任务 id 也不能再执行第二次。带 `task_ids` 的授权必须有 `deadline`，已用记录保留到 `deadline` 之后 7 天再清理（留出时钟回退的余量，见"时钟"）。
+- **`task_ids`（一次性授权）**：授权只对列出的任务 id 有效，`attempt` 必须等于 `task.start` 的 attempt。特权模式在执行之前把 `(授权 id, 任务 id)` 和任务 id 记入本地的已用列表（见下文"已用列表"；先持久化再执行），同一个授权不能在同一个任务上再用第二次，同一个任务 id 也不能再执行第二次。
 - `exact` 只约束"执行什么"，不约束"执行几次"。不带 `task_ids` 的授权在有效期内可以重复使用，这是有意的（例如计划任务、`crha grant` 预先签发的授权）。
 - crhs 签发的"单条命令授权"就是 `exact` + `task_ids` + 很短的 `deadline`。特权模式对 `role = "crhs"` 的授权和所有联署**强制要求 `task_ids`**；`require_exact` 和 `max_ttl` 由 crhs 信任项配置。
 - 用户在审批某个具体任务时（WebUI 中用 Passkey，或 `crha grant --payload`），签发的授权同样带 `task_ids`，是一次性的。
 - 计划任务的授权也是同一种结构：`exact` + `deadline`，不带 `task_ids`，以便每次触发都能使用。特权模式不检查调度时间，所以在截止时间之前，持有它的一方可以随时使用；需要逐次约束时用联署（联署要求 `task_ids`，所以每次触发需要一个新 payload）。
+
+### 已用列表
+
+特权模式把执行过的任务记在 `state_dir/used`（JSON lines，示例 `/var/lib/crha/privileged/used`）：每行是任务 id、attempt、授权 id、`issued_at_ms`、`deadline_ms`、规格哈希和接受时间。先追加一行并 fsync，再启动任务。
+
+- **保留**：带授权且有 `deadline` 的记录保留到 `deadline + max(1h, clock_skew)`：授权在 `deadline + clock_skew` 之前仍可能被接受，1 小时的下限再给时钟回退留出余量；本地批准（没有授权）和没有 `deadline` 的旧记录保留到接受后 24 小时。
+- **上限**：内存中最多 8192 条。每次追加前先丢弃过期记录，再按接受顺序淘汰最旧的记录，直到能放下新记录。
+- **水位线**：被淘汰的记录，如果它的授权仍然可接受（`now ≤ deadline + clock_skew`），就把内存中的水位线抬到它的 `issued_at`；签发时间不晚于水位线的授权一律以 `authorization_rejected` 拒绝，需要重新签名。因此淘汰不会让一次性授权重新可用。水位线不写入文件：重启后按文件里剩下的记录重新整理（可能重新算出水位线）；一条既被淘汰、又已被重写掉的记录不会留下水位线，其授权在 `deadline` 之前可能再次执行，这是有意的取舍。
+- **文件**：只追加。行数达到 `2 × max(有效记录数, 1024)` 时，用临时文件 + fsync + rename 重写为有效记录并重新打开；文件最多约 `2 × max(有效记录数, 1024)` 行，重写成本也被摊薄。启动时读入、按保留和上限规则整理，并重写一次。
+- **`--no-persist-used`**：`crha privileged run --no-persist-used` 只在内存中保留列表，不读写文件、不创建目录，适合磁盘写入寿命有限的嵌入式设备。代价是特权模式重启后，一次性授权在 `deadline` 之前可以再次执行。
+- 旧版本的 `revoked` 文件被忽略（吊销已移除，见"紧急处置"）。
 
 ### 签名方式
 
@@ -194,7 +205,7 @@ node_id          = "01JB…"
 groups           = ["web", "prod"]          # 授权依据：发给这些组的授权视为发给本机
 unprivileged_uid = 998
 socket           = "/run/crha/privileged.sock"
-state_dir        = "/var/lib/crha/privileged"    # used / revoked 列表
+state_dir        = "/var/lib/crha/privileged"    # 已用列表（used）
 log              = "/var/log/crha/privileged.jsonl"
 clock_skew       = "60s"
 
@@ -252,7 +263,7 @@ kinds = ["execute"]
 | 字段 | 适用 | 说明 |
 |---|---|---|
 | `kinds` | 全部 | 见上表 |
-| `max_ttl` | 全部 | 设置后 `deadline` 必填，且 `deadline - issued_at ≤ max_ttl`；不设置则允许不过期的授权 |
+| `max_ttl` | 全部 | `deadline - issued_at ≤ max_ttl`；不设置时不额外限制（`deadline` 仍然必填） |
 | `require_exact` | 全部（主要用于 crhs） | 单独授权时只接受 `exact` |
 | `require_task` | `user` | 只接受带 `task_ids` 的一次性授权（`crhs` 角色始终要求） |
 | `require_uv` | `user` | 要求 UV（用户验证）标志：WebAuthn 的 authenticatorData，或 `sk-*` SSH key 签名中的 flags；非 `sk-*` 的 SSH key 不能满足，配置时报错 |
@@ -287,13 +298,13 @@ kinds = ["execute"]
 3. 对 payload 上的每个签名，按公钥（或 credential id）找到信任项并验证签名。找不到信任项的签名忽略（同一授权可能还带着别的节点信任的签名）；能找到信任项但验证失败的签名使整个授权无效。没有任何签名对应到信任项时，授权无效。
 
    `role = "crhs"` 或 `user` 的签名都是**候选**，按 `signatures` 中的顺序对每个候选依次检查第 4–8 步（这几步依赖候选的信任项），第一个全部通过的候选生效；都不通过时报告**第一个候选**的失败。`role = "crhs"` 且只有 `cosign` 的签名也是候选，会在第 7 步因缺少 `execute` 失败，但它仍可以在第 8 步为别的候选提供联署。
-4. 检查授权本体：`nodes` 包含本机的 node_id 或本机配置的某个组（或为 `["*"]`）；`issued_at ≤ now + skew`；`deadline`（如果有）`≥ now - skew`；`max_ttl` 和 `require_exact`。这里的 `now` 是节点时钟，见下文"时钟"。
-5. 检查一次性约束：授权带 `task_ids` 时本任务 id 必须在其中、`attempt` 等于 `task.start` 的 attempt，且 `(授权 id, 本任务 id)` 不在已用列表中；`role = "crhs"` 的授权和联署必须带 `task_ids`；信任项有 `require_task` 时同样必须带。任何情况下，本任务 id 都不能已经执行过。
+4. 检查授权本体：`nodes` 包含本机的 node_id 或本机配置的某个组（或为 `["*"]`）；`issued_at ≤ now + skew`；`deadline` 必填且 `≥ now - skew`（没有 `deadline` 时以 `authorization_expired` 拒绝，消息为 "authorization has no deadline"）；`max_ttl` 和 `require_exact`。这里的 `now` 是节点时钟，见下文"时钟"。
+5. 检查一次性约束：本任务 id 不能已经执行过；授权必须晚于已用列表的水位线（`issued_at ≤ 水位线` 时以 `authorization_rejected` 拒绝，见"已用列表"）。授权带 `task_ids` 时本任务 id 必须在其中、`attempt` 等于 `task.start` 的 attempt，且 `(授权 id, 本任务 id)` 不在已用列表中；`role = "crhs"` 的授权和联署必须带 `task_ids`；信任项有 `require_task` 时同样必须带。
 6. 检查授权中的指令限制：`exact` 时方法、目标和 `spec_sha256` 都相等；`prefix` 时方法匹配（`file.write` 包含 `file.read`）且目标前缀相等。
 7. 检查信任项：`kinds` 包含 `execute`；`deny` 和 `allow`；`env_allow`；`require_uv` 时该签名带 UV 标志。
 8. 如果用户信任项包含 `require-cosign`：在同一 payload 上找 `role = "crhs"` 且含 `cosign` 的签名并验证。
-9. 检查 payload 的授权 id 不在吊销列表中。
-10. 把任务 id 和 `(授权 id, 任务 id)` 记入已用列表（持久化）→ 写本地日志 → 执行 → 写结果日志。本地日志写入失败时拒绝执行（不留下没有日志的特权执行），但已用记录已经写入，这个任务 id 不能再用，crhs 需要以新任务重新提交。
+9. 不再使用：这里原来是吊销检查。吊销已移除（见"紧急处置"），编号保留，其余步骤的编号不变。
+10. 把任务 id 和 `(授权 id, 任务 id)` 记入已用列表（持久化；`--no-persist-used` 时只在内存中）→ 写本地日志 → 执行 → 写结果日志。本地日志写入失败时拒绝执行（不留下没有日志的特权执行），但已用记录已经写入，这个任务 id 不能再用，crhs 需要以新任务重新提交。
 
 任何一步失败都通过 `task.start` 的错误响应返回：`[1, id, "task.start", false, [code, message]]`。`code` 取 `authorization_required` / `invalid` / `expired` / `rejected`（对应关系见 [protocol.md](protocol.md#taskstart)），`message` 写明失败的步骤编号。规则和路径拒绝也是可重试的 `authorization_rejected`，因为换一个签名者（例如所有者本人）可能通过。
 
@@ -314,7 +325,7 @@ kinds = ["execute"]
 - 节点必须运行 NTP 等时间同步；容差由 `clock_skew` 配置（默认 60 秒）。
 - 节点时钟偏慢时，过期的授权会多可用一段时间；偏快时，新签的授权可能被判为"签发于未来"或很快过期。前者属于主机内问题（能改节点时钟的人已经能做更多事），不在威胁模型内；后者只造成拒绝，不造成越权。
 - crha 每次握手时算出与 crhs 的时钟偏差，在 `Facts` 中上报。偏差超过阈值（默认 60 秒，`crha.toml` 和 `crhs.toml` 中的 `clock_warn` 各自配置）时：crha 写警告日志（同时进 journald），crhs 写警告日志并在 WebUI 中显示警告。除此之外不做别的处理。
-- **时钟回退**：通信不受影响。授权检查方面，回退期间已经过期的授权会重新变得"未过期"，直到时钟校正。一次性授权的重复使用由已用列表防止，不依赖时钟；已用记录在 `deadline` 之后还保留 7 天，回退不超过 7 天时不会因为记录已被清理而被再次使用。
+- **时钟回退**：通信不受影响。授权检查方面，回退期间已经过期的授权会重新变得"未过期"，直到时钟校正。一次性授权的重复使用由已用列表防止，不依赖时钟；已用记录保留到 `deadline + max(1h, clock_skew)`，回退不超过这个余量时不会因为记录被清理而再次使用；回退更久时，记录可能已被清理，一次性授权可能再次可用（水位线只在内存中）。
 - 不采用"特权模式记住见过的最大时间，用它代替系统时间"的做法：它能挡住回退，但时钟误跳到未来再校正回来时，所有授权都会被判为过期，特权执行被锁死，与握手时间戳方案的问题相同。
 
 ## 本地批准
@@ -331,12 +342,20 @@ kinds = ["execute"]
 
 待批准和已批准的记录只在特权模式的内存中，不自动超时；crhs 撤回（`local.withdraw`）、拒绝或特权模式重启时结束。特权模式重启后，crhs 会重新发送 `local.request`。等待期间断线不会让任务变成 `unknown`，因为执行只由 `task.start` 触发。
 
-## 吊销
+## 紧急处置
 
-- 吊销只会减少权限，所以特权模式接受经非特权模式转发的吊销项（`revocations.add`），不要求签名；本地也可以执行 `crha privileged revoke <授权 id> --socket /run/crha/privileged.sock`（`--socket` 必填，没有默认值），它走 crh-priv 的 `local` 角色，所以执行者的 uid 必须在某个 `local` 信任项中。
-- crhs 在用户吊销授权后，把吊销项增量推送给相关节点；节点每次报告信任摘要可用时，crhs 重发该节点全部未过期的吊销项（幂等）。
-- 吊销列表持久化保存；带 `deadline` 的授权，吊销记录保留到 `deadline` 之后 7 天再清理（与已用记录相同，覆盖 `clock_skew` 和时钟回退）；不过期的授权，其吊销记录永久保留。crhs 重发吊销项时使用同样的期限。
-- 节点离线期间，吊销无法送达。所以长期有效的授权要谨慎签发，建议用 `max_ttl` 限制。
+授权没有吊销机制。需要立即收回某个签名者（例如怀疑 crhs 的签名密钥泄露）的权限时，改节点的信任配置：
+
+1. 从 `privileged.toml` 删除对应的信任项，或轮换它信任的密钥（例如换掉 crhs 的授权签名密钥）；
+2. 让特权模式重新读取配置：向特权模式进程发 SIGHUP（systemd 部署时用该 unit 的 reload）。`crha reload --config <crha.toml>` 重载的是非特权模式的配置，不会重载 `privileged.toml`。
+
+改信任配置本身需要现有信任项授权（对 `privileged.toml` 的 `file.write`），或者直接在节点上本地修改。已 accepted 的任务继续执行；之后的 `task.start` 按新配置校验。
+
+不做吊销的原因：
+
+- 吊销项由 crhs 推送，crhs 被攻破时它本身不可信，吊销救不了这个场景；
+- 节点上的 crha 只看到发给本节点的授权，没有全局视图；一次性授权不能重放（已用列表），可复用的授权受指令限制、防护规则和 `deadline` 约束；
+- 吊销送不到离线节点，对 `native` / SSH 节点也没有作用。
 
 ## crhs 侧
 
@@ -357,7 +376,7 @@ crhs 从缓存计算授权方案：用 RE2（Node 包 `re2`）匹配信任项的
 - 信任报告不是 `ok`，或节点断线后尚未重新报告（缓存视为过期）时，`forward` 节点的特权任务以 `privileged_unavailable` 失败。
 - 任务组的用户路径共用一个 payload：组内任一节点的信任 digest 变化而重新计算时，整组仍在等待的任务换成新 payload（attempt 统一取最大值），对旧 payload 的签名作废。
 - 一次 Passkey 断言只对一个 RP 有效；任务组各节点信任的 Passkey 属于不同 RP 时，等待页按凭据分别给出签名按钮，每次签名只放行接受它的那部分节点，不整组拒绝。
-- crhs 保存用户提交的全部授权（含过期的）用于展示和审计，暂不清理；授权列表显示最近 200 条，暂不分页。
+- crhs 保存用户提交的全部授权（含过期的）用于展示和审计，暂不清理；授权列表在 WebUI 的管理区，只对管理员可见，游标分页。
 
 crhs 的选择不是最终放行：crha 特权模式在执行前仍按当前配置完整复验；crhs 的规则匹配失败只会导致多等用户或拒绝，不会越权。
 
@@ -370,7 +389,7 @@ crhs 的选择不是最终放行：crha 特权模式在执行前仍按当前配�
 3. **用缓存的 TrustSummary 计算授权方案**（只为任务所有者）：
    - crhs 信任项可以单独授权：crhs 签发 `exact` + `task_ids` + 短 `deadline` 的授权，放进同一 payload 的 `signatures`，下发；
    - 所有者的 user 信任项可以授权：
-     - 先查找这个所有者已经签发、仍然有效、并且覆盖本次任务的授权（按 nodes、指令限制、deadline 匹配）；
+     - 先查找这个所有者已经签发、仍然有效、带 `deadline` 并且覆盖本次任务的授权（按 nodes、指令限制、deadline 匹配）；没有 `deadline` 的旧授权不复用（节点会拒绝）；
      - 没有就创建授权等待，只给所有者显示（WebUI Passkey 或 `crha grant`），或等待节点本地批准；
      - 如果需要联署，crhs 在同一 payload 上再追加自己的签名；
    - 有 `local` 信任项可以授权（**仅单任务**）：向节点发送 `local.request`，在授权等待中提示"也可以在节点上执行 `crha approve`"；所有者先在 WebUI 签了名，就撤回本地请求（`local.withdraw`）；任务组跳过这条路径；

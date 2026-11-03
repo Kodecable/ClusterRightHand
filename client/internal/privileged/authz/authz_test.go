@@ -94,7 +94,6 @@ type jsonSignature struct {
 type jsonAuthorization struct {
 	Payload    jsonPayload     `json:"payload"`
 	Signatures []jsonSignature `json:"signatures"`
-	Revoked    bool            `json:"revoked"`
 }
 
 type jsonLocalApproval struct {
@@ -352,8 +351,6 @@ func buildInput(t *testing.T, testCase *jsonCase) Input {
 				UserVerified: signature.UV,
 			})
 		}
-		revoked := testCase.Authorization.Revoked
-		input.Revoked = func([32]byte) bool { return revoked }
 		input.Authorization = authorization
 	}
 	if testCase.LocalApproval != nil {

@@ -32,6 +32,7 @@ import * as m0029 from "./migrations/0029_session_state_tree.ts";
 import * as m0030 from "./migrations/0030_session_reconcile_indexes.ts";
 import * as m0031 from "./migrations/0031_task_result.ts";
 import * as m0032 from "./migrations/0032_token_measures.ts";
+import * as m0033 from "./migrations/0033_drop_authorization_revocation.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -67,6 +68,7 @@ const migrations: Record<string, Migration> = {
 	"0030_session_reconcile_indexes": m0030,
 	"0031_task_result": m0031,
 	"0032_token_measures": m0032,
+	"0033_drop_authorization_revocation": m0033,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };

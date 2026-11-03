@@ -4,12 +4,8 @@ import {
 	authorizationCodec,
 	decodeAuthorizationPayload,
 	decode as decodeCbor,
-	encode as encodeCbor,
-	MAX_FRAME_BYTES,
 	REQUIRED_NAMES,
 	RemoteError,
-	type Revocation,
-	revocationsAddCodec,
 	SUPPORTED_NAMES,
 	type TaskSpec,
 	type TrustEntry,
@@ -20,7 +16,6 @@ import { Audit } from "../src/audit/audit.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
-import { batchRevocations } from "../src/cluster/revocations.ts";
 import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
 import { trustDigest } from "../src/cluster/trust.ts";
 import { bindMasterKey, MasterKey } from "../src/keys/master-key.ts";
@@ -195,26 +190,6 @@ describe("privileged forward dispatch", () => {
 		});
 	};
 
-	const seedAuthorization = async (options: { revoked: boolean }): Promise<string> => {
-		const id = createHash("sha256").update(`authorization ${newId()}`).digest("hex");
-		const now = new Date().toISOString();
-		await db
-			.insertInto("authorizations")
-			.values({
-				id,
-				org_id: await defaultOrgId(db),
-				payload: Buffer.from("payload").toString("base64"),
-				signatures: "[]",
-				issuer_user_id: null,
-				task_ids: JSON.stringify([newId()]),
-				deadline: new Date(Date.now() + 3_600_000).toISOString(),
-				created_at: now,
-				revoked_at: options.revoked ? now : null,
-			})
-			.execute();
-		return id;
-	};
-
 	const auditRows = (action: string) =>
 		db.selectFrom("audit_events").selectAll().where("action", "=", action).orderBy("seq").execute();
 
@@ -229,14 +204,13 @@ describe("privileged forward dispatch", () => {
 		return view;
 	};
 
-	describe("trust cache and revocations", () => {
+	describe("trust cache", () => {
 		it("stores a trust.summary and audits it only when the digest or status changes", async () => {
 			const { node, crha } = await connect("trust-1");
-			await seedAuthorization({ revoked: true });
 			const first = summaryOf(node.id, [crhsEntry()]);
 
 			crha.trust({ kind: "ok", summary: first });
-			await waitFor("revocations after the first report", () => crha.revocations.length === 1);
+			await waitTrust(node.id, first);
 			const row = await db
 				.selectFrom("nodes")
 				.select(["trust_report", "trust_digest", "trust_updated_at"])
@@ -255,16 +229,16 @@ describe("privileged forward dispatch", () => {
 				status: "ok",
 			});
 
-			// The same report again: stored, pushed again, but not audited a second time.
+			// The same report again: stored, but not audited a second time.
 			crha.trust({ kind: "ok", summary: first });
-			await waitFor("revocations after the repeated report", () => crha.revocations.length === 2);
+			await new Promise((resolve) => setTimeout(resolve, 50));
 			await audit.flush();
 			expect(await auditRows("node.trust_changed")).toHaveLength(1);
 
 			// A changed summary (other groups) changes the digest, so it is an actual change.
 			const second = summaryOf(node.id, [crhsEntry()], ["prod"]);
 			crha.trust({ kind: "ok", summary: second });
-			await waitFor("revocations after the changed report", () => crha.revocations.length === 3);
+			await waitTrust(node.id, second);
 			await audit.flush();
 			events = await auditRows("node.trust_changed");
 			expect(events).toHaveLength(2);
@@ -307,96 +281,16 @@ describe("privileged forward dispatch", () => {
 			expect(JSON.parse(events[1]?.detail as string)).toMatchObject({ new_digest: null, status: "unavailable" });
 		});
 
-		it("pushes revoked authorizations until seven days past their deadline", async () => {
-			const { node, crha } = await connect("trust-3");
-			const live = await seedAuthorization({ revoked: true });
-			const recentlyExpired = await seedAuthorization({ revoked: true });
-			const longExpired = await seedAuthorization({ revoked: true });
-			await db
-				.updateTable("authorizations")
-				.set({ deadline: new Date(Date.now() - 1000).toISOString() })
-				.where("id", "=", recentlyExpired)
-				.execute();
-			// crha keeps a revocation record until deadline+7d, so the push must cover the same
-			// window (doc/privilege.md#吊销).
-			await db
-				.updateTable("authorizations")
-				.set({ deadline: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString() })
-				.where("id", "=", longExpired)
-				.execute();
-			await seedAuthorization({ revoked: false });
-
-			crha.trust({ kind: "ok", summary: summaryOf(node.id, [crhsEntry()]) });
-			await waitFor("revocations pushed", () => crha.revocations.length === 1);
-			const entries = crha.revocations[0] ?? [];
-			const pushed = entries.map((entry) => Buffer.from(entry.authorizationId).toString("hex")).sort();
-			expect(pushed).toEqual([live, recentlyExpired].sort());
-		});
-
-		it("batches a large revocation list below the frame limit", () => {
-			const entries: Revocation[] = Array.from({ length: 3_000 }, (_, i) => ({
-				authorizationId: Uint8Array.from(createHash("sha256").update(`revoked-${i}`).digest()),
-				deadlineMs: null,
-			}));
-			const batches = batchRevocations(entries);
-			expect(batches.length).toBeGreaterThan(1);
-			for (const batch of batches) {
-				expect(batch.length).toBeGreaterThan(0);
-				expect(encodeCbor(revocationsAddCodec.encode({ entries: batch })).length).toBeLessThanOrEqual(MAX_FRAME_BYTES);
-			}
-			expect(batches.flat()).toHaveLength(entries.length);
-		});
-
-		it("revokes an authorization, audits it and pushes it to the connected nodes", async () => {
-			const { node, crha } = await connect("trust-4");
-			const empty = summaryOf(node.id, []);
-			crha.trust({ kind: "ok", summary: empty });
-			await waitTrust(node.id, empty);
-			const id = await seedAuthorization({ revoked: false });
-
-			const result = await cluster.revokeAuthorization(id, actor());
-			expect(result).toEqual({ id, revokedAt: expect.any(String), changed: true });
-			const row = await db
-				.selectFrom("authorizations")
-				.select("revoked_at")
-				.where("id", "=", id)
-				.executeTakeFirstOrThrow();
-			expect(row.revoked_at).toBe(result.revokedAt);
-			await waitFor("revocation pushed", () =>
-				crha.revocations.some((batch) =>
-					batch.some((entry) => Buffer.from(entry.authorizationId).toString("hex") === id),
-				),
-			);
-			await audit.flush();
-			const events = await auditRows("authorization.revoked");
-			expect(events).toHaveLength(1);
-			expect(events[0]).toMatchObject({ target_type: "authorization", target_id: id });
-
-			// Idempotent: a second call changes nothing and pushes nothing new.
-			const batches = crha.revocations.length;
-			expect(await cluster.revokeAuthorization(id, actor())).toMatchObject({ changed: false });
+		it("never sends revocations.add, not even after a trust report or a dispatch", async () => {
+			const { node, crha } = await connect("no-revocations");
+			const summary = summaryOf(node.id, [crhsEntry()]);
+			crha.trust({ kind: "ok", summary });
+			await waitTrust(node.id, summary);
+			await createPrivileged(node.id);
+			await waitFor("task.start", () => crha.starts.length === 1);
+			// Let the report's follow-up work (re-planning, stored signatures) run before checking.
 			await new Promise((resolve) => setTimeout(resolve, 50));
-			expect(crha.revocations.length).toBe(batches);
-		});
-
-		it("does not push revocations to a restricted (pending) connection", async () => {
-			const { node, crha } = await connect("trust-pending-active");
-			const empty = summaryOf(node.id, []);
-			crha.trust({ kind: "ok", summary: empty });
-			await waitTrust(node.id, empty);
-
-			// A pending node of the same organization may only receive node.status (doc/protocol.md#受限连接).
-			const key = generateKeyPair();
-			const pendingNode = await addNode("trust-pending", key.publicKey);
-			await db.updateTable("nodes").set({ status: "pending" }).where("id", "=", pendingNode.id).execute();
-			const pending = await agents.connect(key, handshakeInit());
-			expect(await pending.peer.request("hello", { ...START, privilegedMode: "" })).toEqual({ acks: [] });
-
-			const id = await seedAuthorization({ revoked: false });
-			expect(await cluster.revokeAuthorization(id, actor())).toMatchObject({ changed: true });
-			await waitFor("revocation pushed to the active node", () => crha.revocations.length === 1);
-			await new Promise((resolve) => setTimeout(resolve, 100));
-			expect(pending.revocations).toHaveLength(0);
+			expect(crha.commands).not.toContain("revocations.add");
 		});
 	});
 
@@ -454,7 +348,7 @@ describe("privileged forward dispatch", () => {
 			const id = createHash("sha256").update(authorization.payload).digest("hex");
 			const stored = await db.selectFrom("authorizations").selectAll().execute();
 			expect(stored).toHaveLength(1);
-			expect(stored[0]).toMatchObject({ id, issuer_user_id: null, revoked_at: null });
+			expect(stored[0]).toMatchObject({ id, issuer_user_id: null });
 			expect(JSON.parse(stored[0]?.signatures as string)).toEqual([
 				{ kind: "sshsig", blob: Buffer.from(signature.blob).toString("base64") },
 			]);
@@ -871,38 +765,6 @@ describe("privileged forward dispatch", () => {
 			const bare = makeApp(db);
 			const missing = await call(bare, "/api/privilege/crhs-key", { cookie });
 			expect(missing.status).toBe(503);
-		});
-
-		it("revokes an authorization through the admin API and pushes it", async () => {
-			const { node, crha } = await connect("api-revoke");
-			const empty = summaryOf(node.id, []);
-			crha.trust({ kind: "ok", summary: empty });
-			await waitTrust(node.id, empty);
-			const id = await seedAuthorization({ revoked: false });
-
-			const member = await call(app, `/api/authorizations/${id}/revoke`, { method: "POST", cookie, body: {} });
-			expect(member.status).toBe(403);
-
-			await createUser(db, { username: "admin", kind: "admin", password: "password-123" });
-			const admin = await login(app, "admin", "password-123");
-			const res = await call(app, `/api/authorizations/${id}/revoke`, { method: "POST", cookie: admin, body: {} });
-			expect(res.status).toBe(200);
-			const body = (await res.json()) as { authorization: { id: string; revokedAt: string } };
-			expect(body.authorization.id).toBe(id);
-			const row = await db
-				.selectFrom("authorizations")
-				.select("revoked_at")
-				.where("id", "=", id)
-				.executeTakeFirstOrThrow();
-			expect(row.revoked_at).toBe(body.authorization.revokedAt);
-			await waitFor("revocation pushed", () => crha.revocations.length === 1);
-
-			const missing = await call(app, `/api/authorizations/${"0".repeat(64)}/revoke`, {
-				method: "POST",
-				cookie: admin,
-				body: {},
-			});
-			expect(missing.status).toBe(404);
 		});
 	});
 });

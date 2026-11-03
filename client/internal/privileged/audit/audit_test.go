@@ -39,7 +39,6 @@ func TestLogWritesFileAndMirror(t *testing.T) {
 			StdoutEnd: 3, StderrEnd: 0,
 		},
 		{Event: "local.approve", TaskID: "t3", Attempt: 2, UID: &uid},
-		{Event: "revocations.added", AuthorizationIDs: []string{"aa", "bb"}},
 		{Event: "config.reloaded", Detail: "digest changed"},
 	}
 	for _, rec := range records {

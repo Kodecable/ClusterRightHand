@@ -119,7 +119,7 @@ type PeerOption func(*Peer)
 // WithRequestWorker runs request handlers on the Peer's own goroutines instead of inside
 // Receive. Requests are ordered per task: every task id has a queue holding its requests in
 // arrival order, and one queue holds the requests that name no task (hello, ping,
-// revocations.add). Each queue is drained by its own goroutine, so a handler that blocks on
+// local.request). Each queue is drained by its own goroutine, so a handler that blocks on
 // another connection — a forwarded request waiting for the privileged mode, for example —
 // delays neither the receive loop nor the requests of a different task. The queues are unbounded, so a blocked task
 // accumulates the frames behind it instead of stalling the connection; the peer bounds that by
@@ -473,7 +473,7 @@ func (p *Peer) serveRequests(key string) {
 // taskCommands are the commands crhs sends whose request tuple starts with the task id: the worker
 // runs their requests in the order they arrived for that task, because a task.start must precede its
 // task.input chunks and the cancel that follows them. The other commands (hello, ping,
-// revocations.add) name no task, so they share one queue.
+// local.request) name no task, so they share one queue.
 var taskCommands = map[string]bool{
 	CmdTaskStart:     true,
 	CmdTaskInput:     true,

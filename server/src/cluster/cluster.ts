@@ -5,13 +5,12 @@
  *
  * - `core.ts`: the state and helpers every module shares;
  * - `links.ts`: node connections, hello, the reconnect grace;
- * - `trust-cache.ts`: the trust reports and the revocation pushes;
+ * - `trust-cache.ts`: the trust reports;
  * - `authorization-flow.ts`: the authorization of privileged tasks;
  * - `ssh-runner.ts`: SSH nodes;
  * - `task-state.ts`: the task state machine and its endings.
  */
 import type { NodeStatus, TaskSpec } from "@crh/protocol";
-import type { AuditActor } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
@@ -24,7 +23,6 @@ import * as links from "./links.ts";
 import type { NodeRow } from "./nodes.ts";
 import { closeSsh } from "./ssh-runner.ts";
 import * as tasks from "./task-state.ts";
-import * as trustCache from "./trust-cache.ts";
 import type { Actor, ApprovalDecision, ApprovalRecord, ClusterOptions, CreateTaskInput, TaskView } from "./types.ts";
 
 export { EMPTY_INPUT_REF, operationOfJson, specFromRow, summarize } from "./spec.ts";
@@ -86,14 +84,6 @@ export class Cluster {
 	 */
 	recover(): Promise<void> {
 		return links.recover(this.#core);
-	}
-
-	/**
-	 * Revokes an authorization, audits it and pushes `revocations.add` to every connected node of its
-	 * organization (doc/privilege.md#吊销). Idempotent: a second call changes nothing and pushes nothing.
-	 */
-	revokeAuthorization(id: string, actor: AuditActor): Promise<{ id: string; revokedAt: string; changed: boolean }> {
-		return trustCache.revokeAuthorization(this.#core, id, actor);
 	}
 
 	/** Whether close() has begun; new connections are refused and no task starts afterwards. */
@@ -178,8 +168,8 @@ export class Cluster {
 	}
 
 	/**
-	 * POST /api/authorizations: checks a user's authorization, stores it (for display, revocation and
-	 * reuse) and dispatches every waiting task of that user it covers (doc/m4.md M4.4).
+	 * POST /api/authorizations: checks a user's authorization, stores it (for display and reuse) and
+	 * dispatches every waiting task of that user it covers (doc/m4.md M4.4).
 	 */
 	submitAuthorization(
 		user: SessionUser,

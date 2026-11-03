@@ -308,12 +308,6 @@ func marshalPayload(t *testing.T, payload *protocol.AuthorizationPayload) []byte
 	return raw
 }
 
-// payloadID is the authorization id of a payload.
-func payloadID(t *testing.T, payload *protocol.AuthorizationPayload) [32]byte {
-	t.Helper()
-	return protocol.AuthorizationID(marshalPayload(t, payload))
-}
-
 // prefixCommand builds a prefix command restriction.
 func prefixCommand(method protocol.Method, target string) *protocol.AuthCommand {
 	return &protocol.AuthCommand{Method: method, Match: protocol.AuthMatch{
@@ -473,13 +467,6 @@ func (c *forwardClient) localRequest(ctx context.Context, req protocol.LocalRequ
 func (c *forwardClient) withdrawLocal(ctx context.Context, taskID string, attempt uint64) error {
 	var empty protocol.Empty
 	return c.peer.Request(ctx, protocol.CmdLocalWithdraw, protocol.LocalWithdraw{TaskID: taskID, Attempt: protocol.Uint(attempt)}, &empty)
-}
-
-func (c *forwardClient) revoke(ctx context.Context, id [32]byte) error {
-	var empty protocol.Empty
-	return c.peer.Request(ctx, protocol.CmdRevocationsAdd, protocol.RevocationsAdd{
-		Entries: []protocol.Revocation{{AuthorizationID: protocol.Hash(id)}},
-	}, &empty)
 }
 
 func (c *forwardClient) waitExit(timeout time.Duration) protocol.TaskExit {

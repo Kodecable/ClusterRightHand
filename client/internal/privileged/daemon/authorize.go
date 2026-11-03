@@ -88,7 +88,7 @@ func (s *Server) decide(ts *protocol.TaskStart) (*decidedTask, *protocol.RemoteE
 		LocalApproval: localApproval,
 		Executed:      s.store.Executed,
 		Used:          s.store.Used,
-		Revoked:       s.store.Revoked,
+		Watermarked:   s.store.Watermarked,
 	})
 	if decision.Result != authz.ResultAccepted {
 		return nil, stepRefusal(decision.Result, decision.Step, decision.Message)

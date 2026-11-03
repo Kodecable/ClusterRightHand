@@ -45,7 +45,6 @@ interface CaseJson {
 	authorization: null | {
 		payload: PayloadJson;
 		signatures: { entry: string; valid: boolean; uv: boolean }[];
-		revoked: boolean;
 	};
 	local_approval: null | { uid: number; spec_sha256: string };
 	executed_task_ids: string[];
@@ -141,7 +140,6 @@ describe("test/interop/m4_authz_cases.json", () => {
 				: null,
 			executed: (taskId) => testCase.executed_task_ids.includes(taskId),
 			used: (_id, taskId) => testCase.used_pairs.includes(taskId),
-			revoked: () => testCase.authorization?.revoked === true,
 		});
 		expect({ result: decision.result, step: decision.step }).toEqual(testCase.expect);
 		if (decision.result === "accepted") expect(decision.entry).not.toBeNull();

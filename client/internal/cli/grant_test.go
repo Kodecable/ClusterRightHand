@@ -135,20 +135,21 @@ func TestGrantBuildPayload(t *testing.T) {
 		opts grantOptions
 		want string
 	}{
-		{"no key", grantOptions{nodes: []string{"n"}, anyCommand: true}, "--key is required"},
-		{"no nodes", grantOptions{key: "k"}, "--nodes or --payload"},
-		{"no method", grantOptions{nodes: []string{"n"}, key: "k"}, "--method is required"},
-		{"method without match", grantOptions{nodes: []string{"n"}, method: "exec", key: "k"}, "needs --exact or --prefix"},
-		{"exact without hash", grantOptions{nodes: []string{"n"}, method: "exec", exact: "x", key: "k"}, "--exact requires --spec-sha256"},
-		{"hash without exact", grantOptions{nodes: []string{"n"}, method: "exec", prefix: "x", specSHA256: hash, key: "k"}, "--spec-sha256 requires --exact"},
-		{"bad method", grantOptions{nodes: []string{"n"}, method: "run", exact: "x", specSHA256: hash, key: "k"}, "is not exec"},
-		{"bad hash", grantOptions{nodes: []string{"n"}, method: "exec", exact: "x", specSHA256: "zz", key: "k"}, "32 bytes of hex"},
-		{"task without deadline", grantOptions{nodes: []string{"n"}, anyCommand: true, tasks: []string{"t"}, key: "k"}, "requires --deadline"},
+		{"no key", grantOptions{nodes: []string{"n"}, anyCommand: true, deadline: "1h"}, "--key is required"},
+		{"no deadline", grantOptions{nodes: []string{"n"}, anyCommand: true, key: "k"}, "--deadline is required"},
+		{"no nodes", grantOptions{anyCommand: true, deadline: "1h", key: "k"}, "--nodes or --payload"},
+		{"no method", grantOptions{nodes: []string{"n"}, deadline: "1h", key: "k"}, "--method is required"},
+		{"method without match", grantOptions{nodes: []string{"n"}, method: "exec", deadline: "1h", key: "k"}, "needs --exact or --prefix"},
+		{"exact without hash", grantOptions{nodes: []string{"n"}, method: "exec", exact: "x", deadline: "1h", key: "k"}, "--exact requires --spec-sha256"},
+		{"hash without exact", grantOptions{nodes: []string{"n"}, method: "exec", prefix: "x", specSHA256: hash, deadline: "1h", key: "k"}, "--spec-sha256 requires --exact"},
+		{"bad method", grantOptions{nodes: []string{"n"}, method: "run", exact: "x", specSHA256: hash, deadline: "1h", key: "k"}, "is not exec"},
+		{"bad hash", grantOptions{nodes: []string{"n"}, method: "exec", exact: "x", specSHA256: "zz", deadline: "1h", key: "k"}, "32 bytes of hex"},
+		{"task without deadline", grantOptions{nodes: []string{"n"}, anyCommand: true, tasks: []string{"t"}, key: "k"}, "--deadline is required"},
 		{"task with a group node", grantOptions{nodes: []string{"group:web"}, anyCommand: true, deadline: "1h", tasks: []string{"t"}, key: "k"}, "needs node ids"},
 		{"task with a star node", grantOptions{nodes: []string{"*"}, anyCommand: true, deadline: "1h", tasks: []string{"t"}, key: "k"}, "needs node ids"},
 		{"task with too few nodes", grantOptions{nodes: []string{"n"}, anyCommand: true, deadline: "1h", tasks: []string{"t1", "t2"}, key: "k"}, "one --nodes node id per task"},
 		{"task with too many nodes", grantOptions{nodes: []string{"n1", "n2"}, anyCommand: true, deadline: "1h", tasks: []string{"t"}, key: "k"}, "one --nodes node id per task"},
-		{"attempt without task", grantOptions{nodes: []string{"n"}, anyCommand: true, attempt: 2, key: "k"}, "--attempt requires --task"},
+		{"attempt without task", grantOptions{nodes: []string{"n"}, anyCommand: true, attempt: 2, deadline: "1h", key: "k"}, "--attempt requires --task"},
 		{"deadline in the past", grantOptions{nodes: []string{"n"}, anyCommand: true,
 			deadline: time.Now().Add(-time.Hour).Format(time.RFC3339), key: "k"}, "in the past"},
 		{"deadline not a time", grantOptions{nodes: []string{"n"}, anyCommand: true, deadline: "soon", key: "k"}, "neither a duration"},
@@ -169,11 +170,13 @@ func TestGrantBuildPayload(t *testing.T) {
 
 // TestGrantPayloadMode decodes and shows the payload of a WebUI authorization request.
 func TestGrantPayloadMode(t *testing.T) {
+	deadline := protocol.Int(1700003600000)
 	payload := &protocol.AuthorizationPayload{
 		V:          protocol.AuthPayloadVersion,
 		Nodes:      []string{"node-1"},
 		Command:    nil,
 		IssuedAtMS: protocol.Int(1700000000000),
+		DeadlineMS: &deadline,
 		Note:       "from the WebUI",
 	}
 	raw, err := protocol.Marshal(payload)
@@ -222,10 +225,12 @@ func TestGrantPayloadOneShotNodes(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			taskIDs := append([]string{}, tc.tasks...)
+			deadline := protocol.Int(1700003600000)
 			payload := &protocol.AuthorizationPayload{
 				V:          protocol.AuthPayloadVersion,
 				Nodes:      tc.nodes,
 				IssuedAtMS: protocol.Int(1700000000000),
+				DeadlineMS: &deadline,
 				TaskIDs:    &taskIDs,
 				Attempt:    &attempt,
 			}
@@ -242,10 +247,12 @@ func TestGrantPayloadOneShotNodes(t *testing.T) {
 	}
 	// The aligned multi-node payload is accepted and keeps its bytes.
 	taskIDs := []string{"t1", "t2"}
+	deadline := protocol.Int(1700003600000)
 	payload := &protocol.AuthorizationPayload{
 		V:          protocol.AuthPayloadVersion,
 		Nodes:      []string{"n1", "n2"},
 		IssuedAtMS: protocol.Int(1700000000000),
+		DeadlineMS: &deadline,
 		TaskIDs:    &taskIDs,
 		Attempt:    &attempt,
 	}
@@ -384,12 +391,39 @@ func TestGrantEndToEnd(t *testing.T) {
 	}
 }
 
+// TestGrantRequiresDeadline covers that every authorization the flags sign must carry a
+// deadline; without one nothing is shown or signed.
+func TestGrantRequiresDeadline(t *testing.T) {
+	_, _, err := runCLI(t, "grant", "--nodes", "node-1", "--any-command", "--key", "k")
+	if err == nil || !strings.Contains(err.Error(), "grant: --deadline is required") {
+		t.Fatalf("grant without --deadline = %v, want the required --deadline error", err)
+	}
+}
+
+// TestGrantPayloadRequiresDeadline covers a WebUI payload without a deadline: it is refused
+// before the user sees or signs it, because the privileged mode would refuse it anyway.
+func TestGrantPayloadRequiresDeadline(t *testing.T) {
+	payload := &protocol.AuthorizationPayload{
+		V:          protocol.AuthPayloadVersion,
+		Nodes:      []string{"node-1"},
+		IssuedAtMS: protocol.Int(1700000000000),
+	}
+	raw, err := protocol.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = grantPayloadOf(t, base64.StdEncoding.EncodeToString(raw))
+	if err == nil || !strings.Contains(err.Error(), "has no deadline") {
+		t.Fatalf("payload without a deadline = %v, want a missing-deadline error", err)
+	}
+}
+
 // TestGrantConfirmation covers the prompt: a refusal signs nothing, a missing terminal refuses
 // with a pointer to --yes, and "y" signs.
 func TestGrantConfirmation(t *testing.T) {
 	keyPath, _ := generateSSHKey(t)
 	useSSHKeygen(t, "ssh-keygen")
-	args := []string{"grant", "--nodes", "node-1", "--any-command", "--key", keyPath}
+	args := []string{"grant", "--nodes", "node-1", "--any-command", "--deadline", "1h", "--key", keyPath}
 
 	answerTerminal(t, "n\n")
 	stdout, _, err := runCLI(t, args...)
@@ -427,10 +461,12 @@ func TestGrantWrongSigner(t *testing.T) {
 	otherPath, _ := generateSSHKey(t)
 
 	// The payload the another key signs, and the armored signature it prints.
+	deadline := protocol.Int(time.Now().Add(time.Hour).UnixMilli())
 	payload := &protocol.AuthorizationPayload{
 		V:          protocol.AuthPayloadVersion,
 		Nodes:      []string{"node-1"},
 		IssuedAtMS: protocol.Int(time.Now().Add(-time.Minute).UnixMilli()),
+		DeadlineMS: &deadline,
 	}
 	raw, err := protocol.Marshal(payload)
 	if err != nil {

@@ -98,10 +98,11 @@ crhs 不保存完整输出。批量默认 `status` 只保存状态和输出文�
 ```
 authorizations    (id,                                   -- SHA-256(CBOR(payload))
                    org_id, payload blob, signatures json, -- 同一 payload 上的多个签名；用户 + crhs 联署
-                   nodes json, command_match json nullable, deadline nullable,
+                   nodes json, command_match json nullable,
+                   deadline nullable,                     -- ISO 8601；只有 D103 之前的旧行可能为 null
                    task_id nullable,                      -- task_id：一次性授权绑定的任务
                    attempt,                               -- 同一 task_id 的授权尝试
-                   revoked_at nullable, created_at)
+                   created_at)
 rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,
                    preset[ask|auto_review|yolo] nullable,          -- 只有根有，决定 default 和基础规则
                    default_action[allow|inherit|require-approval|deny], rules json, updated_at)
@@ -110,7 +111,7 @@ rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,
 
 审批结果保存在工具调用（`tasks` / `task_groups`）上，不单独建表；"以后都允许"是对 `rule_sets` 的修改。等待中的审批用 `root_session_id` 归属会话树，用 `handler_type` / `handler_session_id` 记录当前处理者（agent 会话，或 `on_behalf_of_user_id` 用户），前端和重启重建都按它查询。
 
-`authorizations` 每个 payload 一行，`signatures` 保存同一对象上的用户签名和 crhs 联署，不再有 `cosign_of`。吊销时设置 `revoked_at`，并把授权 id 推送给相关节点的 crha 特权模式（见 [privilege.md](privilege.md#吊销)）；离线节点在重连后收到。
+`authorizations` 每个 payload 一行，`signatures` 保存同一对象上的用户签名和 crhs 联署，不再有 `cosign_of`。授权只用于展示和复用：所有授权都带 `deadline`，没有吊销；需要收回权限时改节点的信任配置（见 [privilege.md](privilege.md#紧急处置)）。
 
 ## Agent
 

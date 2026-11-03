@@ -469,8 +469,8 @@ msgid "Always allow rule"
 msgstr "始终允许规则"
 
 #: src/features/authorizations/pages.tsx
-msgid "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
-msgstr "授权在其载荷指定的节点上有效，直到截止时间、被用完（一次性授权）或在这里被吊销。离线的节点会在下次连接后收到吊销信息。"
+#~ msgid "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
+#~ msgstr "授权在其载荷指定的节点上有效，直到截止时间、被用完（一次性授权）或在这里被吊销。离线的节点会在下次连接后收到吊销信息。"
 
 #: src/features/tasks/pages.tsx
 msgid "Any actor"
@@ -637,8 +637,8 @@ msgid "Authorization payload"
 msgstr "授权载荷"
 
 #: src/features/authorizations/pages.tsx
-msgid "Authorization revoked."
-msgstr "授权已吊销。"
+#~ msgid "Authorization revoked."
+#~ msgstr "授权已吊销。"
 
 #: src/components/authorization-card.tsx
 msgid "Authorization submitted."
@@ -1448,6 +1448,10 @@ msgstr "事件详情"
 #~ msgid "Every action that changes the cluster, newest first. The hash chain makes a removed or reordered event detectable."
 #~ msgstr "所有改变集群的操作，最新的在前。哈希链可以发现被删除或重排的事件。"
 
+#: src/features/authorizations/pages.tsx
+msgid "Every authorization carries a deadline. It is valid on the nodes its payload names until that deadline or until it is used up (one-shot authorizations)."
+msgstr "每个授权都带有截止时间。它在载荷指定的节点上有效，直到该截止时间或被用完（一次性授权）。"
+
 #: src/features/settings/providers.ts
 msgid "Every model needs a context window of at least 1024 tokens."
 msgstr "每个模型的上下文窗口至少为 1024 个 token。"
@@ -2096,6 +2100,10 @@ msgstr "尚未配置模型，会话无法启动。请让管理员配置一个。
 msgid "No nodes yet"
 msgstr "还没有节点"
 
+#: src/features/authorizations/pages.tsx
+msgid "No one has signed an authorization yet."
+msgstr "还没有人签发过授权。"
+
 #: src/components/task-result.tsx
 msgid "No output is kept (SSH nodes keep no output)."
 msgstr "未保留输出（SSH 节点不保留输出）。"
@@ -2214,8 +2222,8 @@ msgid "Nodes"
 msgstr "节点"
 
 #: src/features/authorizations/pages.tsx
-msgid "Nodes that trust it drop its permissions. This cannot be undone; the authorization stays listed as revoked."
-msgstr "信任该授权的节点会撤销其权限。此操作无法撤销；授权会以已吊销状态保留在列表中。"
+#~ msgid "Nodes that trust it drop its permissions. This cannot be undone; the authorization stays listed as revoked."
+#~ msgstr "信任该授权的节点会撤销其权限。此操作无法撤销；授权会以已吊销状态保留在列表中。"
 
 #: src/features/credentials/pages.tsx
 msgid "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
@@ -2772,19 +2780,18 @@ msgstr "复核模型"
 msgid "Review model saved."
 msgstr "复核模型已保存。"
 
-#: src/features/authorizations/pages.tsx
 #: src/features/tokens/pages.tsx
 msgid "Revoke"
 msgstr "吊销"
 
 #: src/features/authorizations/pages.tsx
-msgid "Revoke authorization"
-msgstr "吊销授权"
+#~ msgid "Revoke authorization"
+#~ msgstr "吊销授权"
 
 #. placeholder {0}: revoking.id.slice(0, 12)
 #: src/features/authorizations/pages.tsx
-msgid "Revoke authorization {0}…?"
-msgstr "吊销授权 {0}…？"
+#~ msgid "Revoke authorization {0}…?"
+#~ msgstr "吊销授权 {0}…？"
 
 #: src/features/tokens/pages.tsx
 msgid "Revoke token"
@@ -2796,7 +2803,6 @@ msgid "Revoke token {0}?"
 msgstr "吊销令牌 {0}？"
 
 #: src/components/status-badge.tsx
-#: src/features/authorizations/pages.tsx
 msgid "Revoked"
 msgstr "已吊销"
 
@@ -3198,7 +3204,6 @@ msgstr "新建一个，或等待计划任务运行。"
 msgid "State"
 msgstr "状态"
 
-#: src/features/authorizations/pages.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/schedules/run-history.tsx
 #: src/features/settings/pages.tsx
@@ -3866,8 +3871,8 @@ msgid "You cannot disable your own account."
 msgstr "不能停用自己的账号。"
 
 #: src/features/authorizations/pages.tsx
-msgid "You have not signed any authorization yet."
-msgstr "你还没有签发过任何授权。"
+#~ msgid "You have not signed any authorization yet."
+#~ msgstr "你还没有签发过任何授权。"
 
 #: src/features/sessions/composer.tsx
 msgid "You have view access: the owner can let you send messages by sharing it for chat."

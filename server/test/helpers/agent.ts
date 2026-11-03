@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { HandshakeState, type KeyPair } from "@crh/noise";
 import {
 	decode as decodeCbor,
+	decodeFrame,
 	encode as encodeCbor,
 	type HandshakeInit,
 	type HandshakeResponse,
@@ -14,7 +15,6 @@ import {
 	Peer,
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
-	type Revocation,
 	SUPPORTED_NAMES,
 	type TaskExit,
 	type TaskStart,
@@ -163,6 +163,7 @@ export class TestAgentServer {
 			ws.send(ciphers.send.encrypt(EMPTY, bytes));
 		};
 		const peer = new Peer({ negotiated, send: sendRaw });
+		const commands: string[] = [];
 		messages.setSink((bytes) => {
 			let plain: Uint8Array;
 			try {
@@ -170,10 +171,16 @@ export class TestAgentServer {
 			} catch {
 				return;
 			}
+			try {
+				const frame = decodeFrame(plain);
+				if (frame.kind === "request") commands.push(frame.cmd);
+			} catch {
+				// peer.receive reports the protocol error; the command list may miss a broken frame.
+			}
 			peer.receive(plain);
 		});
 		ws.once("close", (code, reason) => peer.close(reason.toString() || `closed (${code})`));
-		return new FakeCrha(ws, peer, response, closed, sendRaw);
+		return new FakeCrha(ws, peer, response, closed, sendRaw, commands);
 	}
 }
 
@@ -191,10 +198,10 @@ export class FakeCrha {
 	readonly sendRaw: (bytes: Uint8Array) => void;
 	/** Every task.start the server sent, in order. */
 	readonly starts: TaskStart[] = [];
+	/** The name of every request the server sent, in order (before a handler sees it). */
+	readonly commands: string[] = [];
 	/** Every task.input chunk the server sent, in order. */
 	readonly inputs: { taskId: string; offset: number; data: Uint8Array }[] = [];
-	/** Every revocations.add batch, in order. */
-	readonly revocations: Revocation[][] = [];
 	/** Every local.request the server sent, in order. */
 	readonly localRequests: LocalRequest[] = [];
 	/** Every local.withdraw the server sent, in order. */
@@ -224,12 +231,14 @@ export class FakeCrha {
 		response: HandshakeResponse,
 		closed: Promise<CloseInfo>,
 		sendRaw: (bytes: Uint8Array) => void,
+		commands: string[],
 	) {
 		this.ws = ws;
 		this.peer = peer;
 		this.response = response;
 		this.closed = closed;
 		this.sendRaw = sendRaw;
+		this.commands = commands;
 		peer.onRequest("task.start", async (start) => {
 			this.starts.push(start);
 			await this.answerStart(start);
@@ -243,10 +252,6 @@ export class FakeCrha {
 		peer.onRequest("task.query", (query) => {
 			this.queries.push(query.taskId);
 			return this.answerQuery(query.taskId);
-		});
-		peer.onRequest("revocations.add", (body) => {
-			this.revocations.push(body.entries);
-			return {};
 		});
 		peer.onRequest("local.request", async (request) => {
 			this.localRequests.push(request);

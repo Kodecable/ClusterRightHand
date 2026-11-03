@@ -77,8 +77,8 @@ web/src/
   - 窄于 768 px 时变成抽屉。
 - 导航分组：
   - 工作：Sessions、Schedules、Tasks、Batch、Approvals（带待办数）
-  - 集群：Nodes、Credentials、Authorizations
-  - 管理：API tokens、Audit、Models\*、Users\*（\* 仅管理员可见）
+  - 集群：Nodes、Credentials
+  - 管理：Authorizations\*、API tokens、Audit、Models\*、Users\*（\* 仅管理员可见）
   - 同一分组里的导航项之间留一点竖直空隙。
 - 底部是用户菜单：主题（跟随系统 / 浅色 / 深色）、语言、修改密码、登出。
 
@@ -221,7 +221,7 @@ web/src/
   - `GET /api/tasks`
   - `GET /api/audit`
   - `GET /api/schedules/:id/runs`
-  - `GET /api/authorizations`（去掉 200 条的硬上限）
+  - `GET /api/authorizations`（仅管理员；去掉 200 条的硬上限）
 - 原来的 offset 分页删除，不保留兼容。已核对：crha 和 MCP 工具都不调用这些列表接口，WebUI 是唯一的调用方。
 
 ### 会话列表
@@ -266,7 +266,7 @@ web/src/
   - `GET /api/tasks`：保留现有过滤参数 `state`、`actorType`、`nodeId`，按 `created_at desc, id desc` 排序。去掉原来"等待我的任务排在最前"的特殊排序：等待我处理的事项统一在 Approvals 页显示，任务列表可以用 `state` 过滤；
   - `GET /api/audit`：保留 `action`、`targetType`、`targetId`，按 `seq desc` 排序，用 `cursor` 取代 `beforeSeq`；
   - `GET /api/schedules/:id/runs`；
-  - `GET /api/authorizations`：保留现有过滤参数。
+  - `GET /api/authorizations`：仅管理员，返回整个组织的授权；只按 `limit` / `cursor` 分页。
 
 **`SessionListItem`：**
 
@@ -346,6 +346,7 @@ web/src/
 与设计有出入或需要知道的地方：
 
 - **节点信任**：服务端只提供读取，页面是只读报告加 `privileged.toml` 片段编辑器，由用户复制到节点。
+- **授权页**：在管理区，只对管理员可见；只能查看 payload，没有吊销操作（D103）。
 - **会话等待卡片**：审批、签名、配额卡片显示在输入框上方的等待区；工具卡片里给出指向审批页的链接。
 - **管理员的会话列表**：列表只显示自己拥有和共享的会话，管理员没有“全部”视图。
 - **任务结果**：单节点执行、任务页、任务组页、批量都用 `/wait` 长轮询，超时 5 秒后重新发起。

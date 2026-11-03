@@ -196,7 +196,6 @@ event     = [2, event, body]
 | S→C | command | `task.input` | 输入分块；响应 ack |
 | S→C | command | `task.cancel` | 取消；响应结果 |
 | S→C | command | `task.query` | 查询任务状态；响应当前状态 |
-| S→C | command | `revocations.add` | 追加吊销项（幂等）；响应 ack（M4） |
 | S→C | command | `local.request` / `local.withdraw` | 请求 / 撤回节点本地批准；不触发执行（M4） |
 | S→C | event | `task.output.ack` | 确认已收到的输出偏移；客户端可用它释放缓冲 |
 | S→C | event | `task.exit.ack` | 确认任务结束，可释放输出 |
@@ -348,7 +347,7 @@ crha 的源码不内置任何自身配置、状态、日志或 socket 的路径�
 
 ## crha 的重载与升级
 
-- **reload**：`crha reload --config <crha.toml>`（或者给进程发 SIGHUP）让两种模式重新读取配置。特权模式重载信任配置后，向 crhs 推送新的 `TrustSummary`。
+- **reload**：`crha reload --config <crha.toml>`（或者给进程发 SIGHUP）让非特权模式重新读取配置；特权模式收到 SIGHUP 时重载信任配置，重载后向 crhs 推送新的 `TrustSummary`。
   - `crha reload --config <crha.toml>` 先校验配置文件，有错误就直接报告给执行者，不发信号；`crha run --config <crha.toml>` 写 `<state_dir>/crha.pid` 供它查找。
   - 运行中的进程收到 SIGHUP 但新配置无效时，继续使用旧配置并记录错误。
   - 组、笔记路径变化：重新上报 `facts`；服务端地址、`tls_verify` 变化：重新连接；`state_dir`、`[output]`、`[privileged]` 的变化要重启才生效（会记录警告）。

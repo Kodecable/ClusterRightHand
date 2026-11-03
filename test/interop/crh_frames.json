@@ -2,8 +2,8 @@
 	"positive": [
 		{
 			"id": "handshake.init.no-enroll",
-			"description": "HandshakeInit protocol_major=2 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,revocations.add,local.request,local.withdraw,trust.summary,local.decision] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=null",
-			"hex": "860200916568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6f7265766f636174696f6e732e6164646d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e6a302e312e302d746573741b0000018bcfe56800f6"
+			"description": "HandshakeInit protocol_major=2 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,local.request,local.withdraw,trust.summary,local.decision] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=null",
+			"hex": "860200906568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e6a302e312e302d746573741b0000018bcfe56800f6"
 		},
 		{
 			"id": "handshake.init.enroll",
@@ -12,13 +12,13 @@
 		},
 		{
 			"id": "handshake.response.active",
-			"description": "HandshakeResponse protocol_major=2 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,revocations.add,local.request,local.withdraw,trust.summary,local.decision] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"active\" node_id=\"node-1\"",
-			"hex": "870200916568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6f7265766f636174696f6e732e6164646d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e66636f6e6e2d311b0000018bcfe56cd266616374697665666e6f64652d31"
+			"description": "HandshakeResponse protocol_major=2 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,local.request,local.withdraw,trust.summary,local.decision] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"active\" node_id=\"node-1\"",
+			"hex": "870200906568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e66636f6e6e2d311b0000018bcfe56cd266616374697665666e6f64652d31"
 		},
 		{
 			"id": "handshake.response.pending",
-			"description": "HandshakeResponse protocol_major=2 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,revocations.add,local.request,local.withdraw,trust.summary,local.decision] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"pending\" node_id=\"node-1\"",
-			"hex": "870200916568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6f7265766f636174696f6e732e6164646d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e66636f6e6e2d311b0000018bcfe56cd26770656e64696e67666e6f64652d31"
+			"description": "HandshakeResponse protocol_major=2 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,local.request,local.withdraw,trust.summary,local.decision] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"pending\" node_id=\"node-1\"",
+			"hex": "870200906568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d6c6f63616c2e726571756573746e6c6f63616c2e77697468647261776d74727573742e73756d6d6172796e6c6f63616c2e6465636973696f6e66636f6e6e2d311b0000018bcfe56cd26770656e64696e67666e6f64652d31"
 		},
 		{
 			"id": "request.hello",
@@ -119,16 +119,6 @@
 			"id": "response.error",
 			"description": "response id=11 cmd=task.cancel ok=false body=[code=\"internal_error\", message=\"boom\"]",
 			"hex": "85010b6b7461736b2e63616e63656cf4826e696e7465726e616c5f6572726f7264626f6f6d"
-		},
-		{
-			"id": "request.revocations.add",
-			"description": "request id=13 cmd=revocations.add body=[entries=[[authorization_id=32 bytes of 0x11, deadline_ms=1793016300000]]]",
-			"hex": "84000d6f7265766f636174696f6e732e616464818182582011111111111111111111111111111111111111111111111111111111111111111b000001a1781981e0"
-		},
-		{
-			"id": "response.revocations.add",
-			"description": "response id=13 cmd=revocations.add ok=true body=[]",
-			"hex": "85010d6f7265766f636174696f6e732e616464f580"
 		},
 		{
 			"id": "request.local.request",

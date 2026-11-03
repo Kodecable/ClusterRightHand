@@ -10,7 +10,7 @@ points at the files:
 
 - `harness.ts` — image build, containers, enrollment, trust configuration.
 - `native.test.ts` — `native` with sudo / doas, `ignore`, `reject`.
-- `forward.test.ts` — crhs-signed, user-only, cosign, local approval, revocation, guard rules, trust changes.
+- `forward.test.ts` — crhs-signed, user-only, cosign, local approval, one-shot replay, guard rules, trust changes.
 - `ssh.test.ts` — SSH nodes ignore `privileged`, SFTP file tasks.
 - `groups.test.ts` — task groups across two nodes.
 - `Containerfile`, `entrypoint.sh`, `privctl.sh`, `fixtures/sshd_config` — the image and its process control.

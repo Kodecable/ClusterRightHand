@@ -33,7 +33,8 @@ const (
 	StepCommand       = 6
 	StepTrust         = 7
 	StepCosign        = 8
-	StepRevocation    = 9
+	// Step 9 was the revocation check. Revocation was removed; the number stays unused so the
+	// remaining steps keep their values in error messages.
 )
 
 // Entry is one trust entry in the form the decision needs. The signature keys live in the
@@ -92,8 +93,8 @@ type LocalApproval struct {
 	SpecSHA256 [32]byte
 }
 
-// Input is everything the pure decision needs. Executed, Used and Revoked are the caller's
-// persistent state; a nil callback means "no".
+// Input is everything the pure decision needs. Executed, Used and Watermarked are the
+// caller's persistent state; a nil callback means "no".
 type Input struct {
 	Now        time.Time
 	ClockSkew  time.Duration
@@ -109,8 +110,9 @@ type Input struct {
 	Executed func(taskID string) bool
 	// Used reports whether (authorization id, task id) is already in the used list.
 	Used func(authorizationID [32]byte, taskID string) bool
-	// Revoked reports whether the authorization id is revoked.
-	Revoked func(authorizationID [32]byte) bool
+	// Watermarked reports whether an authorization issued at issuedAtMS predates the
+	// used-list watermark and must be signed again.
+	Watermarked func(issuedAtMS int64) bool
 }
 
 // Decision is the outcome of Decide. Step is 0 for an accepted task and the failing
@@ -130,10 +132,9 @@ func (d Decision) String() string {
 	return fmt.Sprintf("%s at step %d: %s", d.Result, d.Step, d.Message)
 }
 
-// Decide checks steps 2–9 of the privilege verification flow. It is pure: used/revoked
-// state and the clock are supplied by the caller. Steps 2–9 are evaluated in the
-// documented order, and a signature candidate that fails reports the first candidate's
-// failure (in signature order).
+// Decide checks steps 2–8 of the privilege verification flow. It is pure: used state and
+// the clock are supplied by the caller. Steps 2–8 are evaluated in the documented order, and
+// a signature candidate that fails reports the first candidate's failure (in signature order).
 func Decide(in Input) Decision {
 	method, target, err := Target(in.Task.Spec)
 	if err != nil {
@@ -208,7 +209,7 @@ func decideAuthorization(in Input, method, target string, specHash [32]byte) Dec
 	auth := in.Authorization
 	// Re-decode the raw bytes instead of trusting a caller-built Decoded value: this
 	// re-applies the payload invariants (version, nodes, task_ids/attempt) and guarantees
-	// that revocation and the used list key off the same bytes the signatures cover.
+	// that the used list keys off the same bytes the signatures cover.
 	decoded, err := protocol.DecodeAuthorizationPayload(auth.Payload)
 	if err != nil {
 		return failure(ResultInvalid, StepSignatures, "authorization payload: %v", err)
@@ -255,9 +256,6 @@ func decideAuthorization(in Input, method, target string, specHash [32]byte) Dec
 			}
 			continue
 		}
-		if in.authorizationRevoked(authorizationID) {
-			return failure(ResultRejected, StepRevocation, "authorization is revoked")
-		}
 		return decision
 	}
 	return *first
@@ -279,13 +277,16 @@ func checkCandidate(in Input, auth *Authorization, signature *Signature, authori
 	if issuedAtMS > nowMS+skewMS {
 		return failure(ResultExpired, StepAuthorization, "authorization was issued in the future"), false
 	}
-	if payload.DeadlineMS != nil && int64(*payload.DeadlineMS) < nowMS-skewMS {
+	// Every authorization must expire: without a deadline a one-shot record would have to
+	// be trusted forever, and the used list cannot bound it. This uses the same result and
+	// step as the max_ttl path below, so callers see one stable refusal.
+	if payload.DeadlineMS == nil {
+		return failure(ResultExpired, StepAuthorization, "authorization has no deadline"), false
+	}
+	if int64(*payload.DeadlineMS) < nowMS-skewMS {
 		return failure(ResultExpired, StepAuthorization, "authorization has expired"), false
 	}
 	if entry.MaxTTL != nil {
-		if payload.DeadlineMS == nil {
-			return failure(ResultExpired, StepAuthorization, "trust entry requires a deadline"), false
-		}
 		if int64(*payload.DeadlineMS)-issuedAtMS > entry.MaxTTL.Milliseconds() {
 			return failure(ResultExpired, StepAuthorization, "authorization ttl exceeds max_ttl"), false
 		}
@@ -300,6 +301,9 @@ func checkCandidate(in Input, auth *Authorization, signature *Signature, authori
 	if in.taskExecuted(in.Task.ID) {
 		return failure(ResultAlreadyAccepted, StepOneShot, "task %s already ran on this node", in.Task.ID), false
 	}
+	if in.authorizationWatermarked(issuedAtMS) {
+		return failure(ResultRejected, StepOneShot, "authorization predates the used-list watermark; sign it again"), false
+	}
 	if payload.TaskIDs != nil {
 		if !slices.Contains(*payload.TaskIDs, in.Task.ID) {
 			return failure(ResultInvalid, StepOneShot, "task id is not in task_ids"), false
@@ -309,9 +313,6 @@ func checkCandidate(in Input, auth *Authorization, signature *Signature, authori
 		}
 		if payload.Attempt == nil || uint64(*payload.Attempt) != in.Task.Attempt {
 			return failure(ResultInvalid, StepOneShot, "attempt does not match task.start"), false
-		}
-		if payload.DeadlineMS == nil {
-			return failure(ResultInvalid, StepOneShot, "one-shot authorization has no deadline"), false
 		}
 		if in.pairUsed(authorizationID, in.Task.ID) {
 			return failure(ResultRejected, StepOneShot, "authorization was already used for this task"), false
@@ -469,8 +470,8 @@ func (in Input) pairUsed(authorizationID [32]byte, taskID string) bool {
 	return in.Used != nil && in.Used(authorizationID, taskID)
 }
 
-func (in Input) authorizationRevoked(authorizationID [32]byte) bool {
-	return in.Revoked != nil && in.Revoked(authorizationID)
+func (in Input) authorizationWatermarked(issuedAtMS int64) bool {
+	return in.Watermarked != nil && in.Watermarked(issuedAtMS)
 }
 
 func accepted(entry string) Decision {

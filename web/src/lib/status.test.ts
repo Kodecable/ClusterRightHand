@@ -58,7 +58,6 @@ describe("authorization / schedule / token tones", () => {
 	test("authorization", () => {
 		expect(authorizationStatusTone("active")).toBe("ok");
 		expect(authorizationStatusTone("pending")).toBe("warn");
-		expect(authorizationStatusTone("revoked")).toBe("danger");
 		expect(authorizationStatusTone("expired")).toBe("danger");
 		expect(authorizationStatusTone("weird")).toBe("muted");
 	});

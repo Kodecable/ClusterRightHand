@@ -2,10 +2,8 @@ package cli
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -25,7 +23,6 @@ import (
 	privconfig "github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/daemon"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/helper"
-	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/localclient"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/transport"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
@@ -201,7 +198,8 @@ func newPrivilegedCmd() *cobra.Command {
 		Short: "Privileged mode commands",
 	}
 
-	var configPath, socketPath string
+	var configPath string
+	var noPersistUsed bool
 	run := &cobra.Command{
 		Use:   "run",
 		Short: "Run crha in privileged mode",
@@ -209,10 +207,14 @@ func newPrivilegedCmd() *cobra.Command {
 execute privileged tasks as this process's Linux user. SIGHUP reloads the trust configuration.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runPrivileged(cmd.Context(), configPath)
+			return runPrivileged(cmd.Context(), configPath, noPersistUsed)
 		},
 	}
 	run.Flags().StringVar(&configPath, "config", "", "path to the privileged config file (required)")
+	run.Flags().BoolVar(&noPersistUsed, "no-persist-used", false,
+		"keep the used list in memory only; for embedded devices with limited disk endurance. "+
+			"Lowers security: after the privileged mode restarts, a one-shot authorization can run "+
+			"again until its deadline")
 	_ = run.MarkFlagRequired("config")
 
 	stdio := &cobra.Command{
@@ -232,25 +234,13 @@ run it from a terminal.`,
 		},
 	}
 
-	revoke := &cobra.Command{
-		Use:   "revoke <authorization-id>",
-		Short: "Revoke an authorization locally",
-		Long:  "Add the authorization id (hex SHA-256 of its payload) to the privileged mode's revocation list.",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return revokeLocally(cmd.Context(), cmd.OutOrStdout(), socketPath, args[0])
-		},
-	}
-	revoke.Flags().StringVar(&socketPath, "socket", "", "path to the privileged mode's socket (required)")
-	_ = revoke.MarkFlagRequired("socket")
-
-	cmd.AddCommand(run, stdio, revoke)
+	cmd.AddCommand(run, stdio)
 	return cmd
 }
 
 // runPrivileged is `crha privileged run`: load the trust configuration, open the local log and
 // serve the socket until SIGINT/SIGTERM.
-func runPrivileged(ctx context.Context, configPath string) error {
+func runPrivileged(ctx context.Context, configPath string, noPersistUsed bool) error {
 	// The privileged process resolves its own environment: the fixed PATH, root's identity and the
 	// shells it discovered. A failure keeps the privileged mode from starting at all.
 	env, err := resolveEnv(execenv.Options{Privileged: true})
@@ -267,11 +257,12 @@ func runPrivileged(ctx context.Context, configPath string) error {
 	}
 	defer log.Close()
 	server, err := daemon.New(cfg, daemon.Options{
-		ConfigPath: configPath,
-		Version:    version.Version,
-		Log:        log,
-		Env:        env,
-		Logger:     slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		ConfigPath:    configPath,
+		Version:       version.Version,
+		Log:           log,
+		Env:           env,
+		Logger:        slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		NoPersistUsed: noPersistUsed,
 	})
 	if err != nil {
 		return err
@@ -279,33 +270,4 @@ func runPrivileged(ctx context.Context, configPath string) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	return server.Run(ctx)
-}
-
-// revokeLocally adds an authorization id to the revocation list through the local-role socket.
-func revokeLocally(ctx context.Context, out io.Writer, socket, text string) error {
-	id, err := parseAuthorizationID(text)
-	if err != nil {
-		return err
-	}
-	client, err := localclient.Dial(ctx, socket, version.Version)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-	if err := client.Revoke(ctx, id); err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "revoked %x\n", id[:])
-	return nil
-}
-
-// parseAuthorizationID parses the 32-byte hex authorization id of `crha privileged revoke`.
-func parseAuthorizationID(text string) ([32]byte, error) {
-	var id [32]byte
-	raw, err := hex.DecodeString(text)
-	if err != nil || len(raw) != len(id) {
-		return id, fmt.Errorf("authorization id %q is not 32 bytes of hex", text)
-	}
-	copy(id[:], raw)
-	return id, nil
 }

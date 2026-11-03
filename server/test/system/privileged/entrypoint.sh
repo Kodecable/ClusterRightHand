@@ -12,7 +12,7 @@ READY=/etc/crha/.ready
 
 mkdir -p /run/priv /run/sshd /run/crha /var/log/crha
 
-# The state directory belongs to the non-privileged account; the privileged mode's used/revoked lists
+# The state directory belongs to the non-privileged account; the privileged mode's used list
 # stay root-only (doc/privilege.md#特权模式).
 chown crha:crha /var/lib/crha /var/log/crha 2>/dev/null || true
 chown root:root /var/lib/crha/privileged 2>/dev/null || true

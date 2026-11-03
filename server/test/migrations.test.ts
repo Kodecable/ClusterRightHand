@@ -12,6 +12,7 @@ import { up as up0029 } from "../src/storage/migrations/0029_session_state_tree.
 import { up as up0030 } from "../src/storage/migrations/0030_session_reconcile_indexes.ts";
 import { up as up0031 } from "../src/storage/migrations/0031_task_result.ts";
 import { up as up0032 } from "../src/storage/migrations/0032_token_measures.ts";
+import { down as down0033, up as up0033 } from "../src/storage/migrations/0033_drop_authorization_revocation.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -274,7 +275,6 @@ describeBackends("0022 M4 privilege storage", (backend) => {
 				task_ids: JSON.stringify(["t1"]),
 				deadline: now,
 				created_at: now,
-				revoked_at: null,
 			})
 			.execute();
 
@@ -703,5 +703,40 @@ describeBackends("0032 token measures", (backend) => {
 		expect(Number(stored.budget_used_tokens)).toBe(2000);
 		expect(Number(stored.usage_tokens)).toBe(3000);
 		expect(Number(stored.context_tokens)).toBe(42);
+	});
+});
+
+describeBackends("0033 drop authorization revocation", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("authorizations")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("payload", "text", (c) => c.notNull())
+				.addColumn("revoked_at", "text")
+				.execute();
+			await sql`insert into authorizations (id, payload, revoked_at) values
+				(${"a1"}, ${"00"}, ${new Date().toISOString()})`.execute(db);
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("drops revoked_at and keeps every row", async () => {
+		await applyMigration(backend, db, up0033);
+		const table = (await db.introspection.getTables()).find((candidate) => candidate.name === "authorizations");
+		expect(table?.columns.map((column) => column.name)).toEqual(["id", "payload"]);
+		const rows = await db.selectFrom("authorizations").select(["id", "payload"]).execute();
+		expect(rows).toEqual([{ id: "a1", payload: "00" }]);
+
+		// Rolling back restores the column without a value, so the old code sees "not revoked".
+		await applyMigration(backend, db, down0033);
+		const restored = (await db.introspection.getTables()).find((candidate) => candidate.name === "authorizations");
+		expect(restored?.columns.map((column) => column.name)).toContain("revoked_at");
 	});
 });

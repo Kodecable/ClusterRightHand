@@ -221,8 +221,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -450,8 +449,7 @@
 						"valid": false,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -575,8 +573,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -705,8 +702,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -830,8 +826,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -955,8 +950,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -1080,8 +1074,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -1205,8 +1198,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -1330,8 +1322,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -1455,8 +1446,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -1580,8 +1570,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -1705,8 +1694,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -1718,7 +1706,7 @@
 		},
 		{
 			"id": "crhs.ttl-no-deadline",
-			"description": "max_ttl set but the payload has no deadline",
+			"description": "every authorization must have a deadline; max_ttl does not grant one",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -1830,8 +1818,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -1954,8 +1941,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -2079,8 +2065,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -2204,8 +2189,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -2329,8 +2313,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -2454,8 +2437,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -2579,8 +2561,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": ["0192f000-0000-7000-8000-000000000001"],
@@ -2704,8 +2685,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -2831,8 +2811,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -2956,8 +2935,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -3081,8 +3059,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -3206,8 +3183,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -3334,8 +3310,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -3462,8 +3437,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -3584,8 +3558,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -3711,8 +3684,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -3836,8 +3808,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -3845,131 +3816,6 @@
 			"expect": {
 				"result": "authorization_rejected",
 				"step": 7
-			}
-		},
-		{
-			"id": "crhs.revoked",
-			"description": "the authorization id is revoked",
-			"now_ms": 1793016000000,
-			"clock_skew_ms": 60000,
-			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
-			},
-			"trust": [
-				{
-					"name": "crhs",
-					"role": "crhs",
-					"kinds": ["execute", "cosign"],
-					"require_exact": true,
-					"require_task": true,
-					"require_uv": false,
-					"max_ttl_ms": 300000,
-					"allow": [
-						{
-							"method": "exec",
-							"match": "prefix",
-							"pattern": "systemctl restart "
-						},
-						{
-							"method": "exec",
-							"match": "regex",
-							"pattern": "apt-get (update|upgrade -y)"
-						},
-						{
-							"method": "file.write",
-							"match": "prefix",
-							"pattern": "/etc/nginx/"
-						},
-						{
-							"method": "file.read",
-							"match": "any",
-							"pattern": ""
-						}
-					],
-					"deny": [
-						{
-							"method": "file.read",
-							"match": "regex",
-							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
-						},
-						{
-							"method": "file.write",
-							"match": "prefix",
-							"pattern": "/etc/crha/"
-						}
-					],
-					"env_allow": [],
-					"uids": []
-				},
-				{
-					"name": "alice",
-					"role": "user",
-					"kinds": ["execute"],
-					"require_exact": false,
-					"require_task": false,
-					"require_uv": false,
-					"max_ttl_ms": 86400000,
-					"allow": [],
-					"deny": [],
-					"env_allow": ["DEBIAN_FRONTEND"],
-					"uids": []
-				},
-				{
-					"name": "local-admins",
-					"role": "local",
-					"kinds": ["execute"],
-					"require_exact": false,
-					"require_task": false,
-					"require_uv": false,
-					"max_ttl_ms": null,
-					"allow": [],
-					"deny": [],
-					"env_allow": [],
-					"uids": [0, 1000]
-				}
-			],
-			"task": {
-				"task_id": "0192f000-0000-7000-8000-000000000001",
-				"attempt": 1,
-				"spec": {
-					"kind": "exec",
-					"command": {
-						"argv": ["systemctl", "restart", "nginx"]
-					},
-					"env": {},
-					"cwd": "",
-					"stdin": null
-				}
-			},
-			"authorization": {
-				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
-					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
-						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
-					},
-					"issued_at_ms": 1793016000000,
-					"deadline_ms": 1793016300000,
-					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
-					"attempt": 1
-				},
-				"signatures": [
-					{
-						"entry": "crhs",
-						"valid": true,
-						"uv": false
-					}
-				],
-				"revoked": true
-			},
-			"local_approval": null,
-			"executed_task_ids": [],
-			"used_pairs": [],
-			"expect": {
-				"result": "authorization_rejected",
-				"step": 9
 			}
 		},
 		{
@@ -4041,8 +3887,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -4161,8 +4006,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -4281,8 +4125,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -4406,8 +4249,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -4526,8 +4368,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -4653,8 +4494,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -4771,8 +4611,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -4898,8 +4737,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -5023,8 +4861,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -5148,8 +4985,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -5273,8 +5109,7 @@
 						"valid": true,
 						"uv": true
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -5286,7 +5121,7 @@
 		},
 		{
 			"id": "user.one-shot-no-deadline",
-			"description": "a one-shot authorization (task_ids) must have a deadline",
+			"description": "a one-shot authorization (task_ids) without a deadline is refused",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -5398,20 +5233,19 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
-				"result": "authorization_invalid",
-				"step": 5
+				"result": "authorization_expired",
+				"step": 4
 			}
 		},
 		{
 			"id": "user.no-ttl-limit",
-			"description": "user entry without max_ttl accepts an authorization without deadline",
+			"description": "an authorization without a deadline is refused even without max_ttl",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -5523,15 +5357,14 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
-				"result": "accepted",
-				"step": null
+				"result": "authorization_expired",
+				"step": 4
 			}
 		},
 		{
@@ -5652,8 +5485,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -5777,8 +5609,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -5902,8 +5733,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -6027,8 +5857,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -6152,8 +5981,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -6277,8 +6105,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -6402,8 +6229,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -6488,8 +6314,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -6574,8 +6399,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -6699,8 +6523,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -6829,8 +6652,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -6962,8 +6784,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -7092,8 +6913,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],
@@ -7222,8 +7042,7 @@
 						"valid": true,
 						"uv": false
 					}
-				],
-				"revoked": false
+				]
 			},
 			"local_approval": null,
 			"executed_task_ids": [],

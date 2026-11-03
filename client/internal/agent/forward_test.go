@@ -247,22 +247,6 @@ func exactPayload(t *testing.T, signer ssh.Signer, taskID string, spec *protocol
 	}
 }
 
-// reusablePayload builds a payload without task ids: it may be used more than once.
-func reusablePayload(t *testing.T, method protocol.Method, target string) *protocol.AuthorizationPayload {
-	t.Helper()
-	deadline := protocol.Int(time.Now().Add(5 * time.Minute).UnixMilli())
-	return &protocol.AuthorizationPayload{
-		V:     protocol.AuthPayloadVersion,
-		Nodes: []string{"node-1"},
-		Command: &protocol.AuthCommand{Method: method, Match: protocol.AuthMatch{
-			Kind:   protocol.AuthMatchPrefix,
-			Prefix: &protocol.AuthPrefix{Target: target},
-		}},
-		IssuedAtMS: protocol.Int(time.Now().Add(-time.Minute).UnixMilli()),
-		DeadlineMS: &deadline,
-	}
-}
-
 // authorize renders CBOR(Authorization) with one SSHSIG signature by signer.
 func authorize(t *testing.T, signer ssh.Signer, payload *protocol.AuthorizationPayload) []byte {
 	t.Helper()
@@ -314,16 +298,6 @@ func signSSHSIG(t *testing.T, signer ssh.Signer, message []byte) []byte {
 func writeSSHString(buf *bytes.Buffer, data []byte) {
 	_ = binary.Write(buf, binary.BigEndian, uint32(len(data)))
 	buf.Write(data)
-}
-
-// authorizationID is SHA-256 of the payload bytes, the id a revocation names.
-func authorizationID(t *testing.T, payload *protocol.AuthorizationPayload) [32]byte {
-	t.Helper()
-	raw, err := protocol.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return protocol.AuthorizationID(raw)
 }
 
 // ------------------------------- fake crhs -------------------------------
@@ -536,11 +510,9 @@ func TestTrustSummaryNotForward(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			w := newCRHSWatch()
 			a := newTestAgent(t, Options{PrivilegedMode: mode})
-			replies := make(chan error, 3)
+			replies := make(chan error, 2)
 			serveForward(t, a, w, func(ctx context.Context, p *protocol.Peer) error {
 				var empty protocol.Empty
-				replies <- p.Request(ctx, protocol.CmdRevocationsAdd,
-					protocol.RevocationsAdd{Entries: []protocol.Revocation{}}, &empty)
 				var state protocol.LocalState
 				replies <- p.Request(ctx, protocol.CmdLocalRequest, protocol.LocalRequest{
 					TaskID: "t1", Attempt: 1, Spec: forwardedExecTask("t1", "/bin/true").Spec,
@@ -553,7 +525,7 @@ func TestTrustSummaryNotForward(t *testing.T) {
 			if report.Kind != protocol.TrustReportNotForward {
 				t.Fatalf("trust.summary = %+v, want not_forward", report)
 			}
-			for range 3 {
+			for range 2 {
 				remote := expectRemoteCode(t, waitCh(t, replies, "reply"), "privileged_unsupported")
 				if want := "privileged mode is " + mode + ", not forward"; remote.Message != want {
 					t.Fatalf("message = %q, want %q", remote.Message, want)
@@ -869,44 +841,6 @@ func TestForwardRefreshBeforeRefusal(t *testing.T) {
 	refusal := indexOf(frames, "response task.start ok=false")
 	if summary < 0 || refusal < 0 || summary > refusal {
 		t.Fatalf("trust.summary did not precede the refusal: %v", frames)
-	}
-}
-
-// TestForwardRevocation adds a revocation through crhs and checks that a reusable authorization is
-// refused afterwards (doc/privilege.md 吊销). Only a user authorization can be reusable: a crhs
-// authorization always carries task_ids.
-func TestForwardRevocation(t *testing.T) {
-	keys := newPrivKeys(t)
-	env := newPrivEnv(t, keys, func(e *privEnv) string {
-		return e.crhsOnlyConfig() + sshTrust("alice", "user", e.keys.userLine, `["execute"]`)
-	})
-	env.start()
-	a := forwardAgent(t, Options{PrivilegedSocket: env.socket})
-	waitForward(t, a)
-
-	payload := reusablePayload(t, protocol.MethodExec, "/bin/true")
-	authorization := authorize(t, keys.user, payload)
-	id := authorizationID(t, payload)
-
-	w := newCRHSWatch()
-	replies := make(chan error, 2)
-	serveForward(t, a, w, func(ctx context.Context, p *protocol.Peer) error {
-		var empty protocol.Empty
-		replies <- p.Request(ctx, protocol.CmdRevocationsAdd, protocol.RevocationsAdd{
-			Entries: []protocol.Revocation{{AuthorizationID: protocol.Hash(id)}},
-		}, &empty)
-		ts := forwardedExecTask("fwd-revoked", "/bin/true")
-		ts.Authorizations = [][]byte{authorization}
-		replies <- requestStart(ctx, p, ts)
-		return nil
-	})
-
-	if err := waitCh(t, replies, "revocations.add"); err != nil {
-		t.Fatalf("revocations.add: %v", err)
-	}
-	remote := expectRemoteCode(t, waitCh(t, replies, "task.start response"), "authorization_rejected")
-	if !strings.Contains(remote.Message, "step 9") {
-		t.Fatalf("refusal = %q, want step 9", remote.Message)
 	}
 }
 

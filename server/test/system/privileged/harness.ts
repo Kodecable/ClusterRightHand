@@ -24,7 +24,7 @@ export const CLIENT_DIR = resolve(SUITE_DIR, "../../../../client");
 /** Path of crha inside the container; the sudoers and doas rules name it. */
 export const CONTAINER_CRHA = "/usr/local/bin/crha";
 export const PRIV_SOCKET = "/run/crha/privileged.sock";
-/** privileged.toml state_dir: the used / revoked lists the tests read at fixed paths. */
+/** privileged.toml state_dir: the used list the tests read at a fixed path. */
 export const PRIV_STATE_DIR = "/var/lib/crha/privileged";
 /** privileged.toml log: the local audit jsonl; the path is explicit because crha has no defaults. */
 export const PRIV_LOG_PATH = "/var/log/crha/privileged.jsonl";
@@ -365,7 +365,7 @@ export class PrivilegedNode {
 			`unprivileged_uid = ${UNPRIVILEGED_UID}`,
 			`clock_skew = "${this.#clockSkew}"`,
 			`groups = [${this.#groups.map(tomlString).join(", ")}]`,
-			// crha has no built-in paths, so the fixture names the socket, the used / revoked state
+			// crha has no built-in paths, so the fixture names the socket, the used state
 			// and the audit log explicitly. They match privctl.sh's PRIV_SOCKET and the paths it resets.
 			`socket = "${PRIV_SOCKET}"`,
 			`state_dir = "${PRIV_STATE_DIR}"`,

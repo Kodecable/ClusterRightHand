@@ -1,8 +1,8 @@
 // Package authz implements the authorization decision of crha's privileged mode
 // (doc/privilege.md#校验流程): method and target rendering, guard rules, SSHSIG and
-// WebAuthn verification, and the pure decision function steps 2–9 of the verification
+// WebAuthn verification, and the pure decision function steps 2–8 of the verification
 // flow. It performs no I/O and knows nothing about the socket, the crh-priv protocol or
-// the used/revoked stores; callers supply that state.
+// the used store; callers supply that state.
 package authz
 
 import (

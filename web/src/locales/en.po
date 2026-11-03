@@ -469,8 +469,8 @@ msgid "Always allow rule"
 msgstr "Always allow rule"
 
 #: src/features/authorizations/pages.tsx
-msgid "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
-msgstr "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
+#~ msgid "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
+#~ msgstr "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
 
 #: src/features/tasks/pages.tsx
 msgid "Any actor"
@@ -637,8 +637,8 @@ msgid "Authorization payload"
 msgstr "Authorization payload"
 
 #: src/features/authorizations/pages.tsx
-msgid "Authorization revoked."
-msgstr "Authorization revoked."
+#~ msgid "Authorization revoked."
+#~ msgstr "Authorization revoked."
 
 #: src/components/authorization-card.tsx
 msgid "Authorization submitted."
@@ -1448,6 +1448,10 @@ msgstr "Event detail"
 #~ msgid "Every action that changes the cluster, newest first. The hash chain makes a removed or reordered event detectable."
 #~ msgstr "Every action that changes the cluster, newest first. The hash chain makes a removed or reordered event detectable."
 
+#: src/features/authorizations/pages.tsx
+msgid "Every authorization carries a deadline. It is valid on the nodes its payload names until that deadline or until it is used up (one-shot authorizations)."
+msgstr "Every authorization carries a deadline. It is valid on the nodes its payload names until that deadline or until it is used up (one-shot authorizations)."
+
 #: src/features/settings/providers.ts
 msgid "Every model needs a context window of at least 1024 tokens."
 msgstr "Every model needs a context window of at least 1024 tokens."
@@ -2096,6 +2100,10 @@ msgstr "No models are configured, so sessions cannot start. Ask an administrator
 msgid "No nodes yet"
 msgstr "No nodes yet"
 
+#: src/features/authorizations/pages.tsx
+msgid "No one has signed an authorization yet."
+msgstr "No one has signed an authorization yet."
+
 #: src/components/task-result.tsx
 msgid "No output is kept (SSH nodes keep no output)."
 msgstr "No output is kept (SSH nodes keep no output)."
@@ -2214,8 +2222,8 @@ msgid "Nodes"
 msgstr "Nodes"
 
 #: src/features/authorizations/pages.tsx
-msgid "Nodes that trust it drop its permissions. This cannot be undone; the authorization stays listed as revoked."
-msgstr "Nodes that trust it drop its permissions. This cannot be undone; the authorization stays listed as revoked."
+#~ msgid "Nodes that trust it drop its permissions. This cannot be undone; the authorization stays listed as revoked."
+#~ msgstr "Nodes that trust it drop its permissions. This cannot be undone; the authorization stays listed as revoked."
 
 #: src/features/credentials/pages.tsx
 msgid "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
@@ -2772,19 +2780,18 @@ msgstr "Review model"
 msgid "Review model saved."
 msgstr "Review model saved."
 
-#: src/features/authorizations/pages.tsx
 #: src/features/tokens/pages.tsx
 msgid "Revoke"
 msgstr "Revoke"
 
 #: src/features/authorizations/pages.tsx
-msgid "Revoke authorization"
-msgstr "Revoke authorization"
+#~ msgid "Revoke authorization"
+#~ msgstr "Revoke authorization"
 
 #. placeholder {0}: revoking.id.slice(0, 12)
 #: src/features/authorizations/pages.tsx
-msgid "Revoke authorization {0}…?"
-msgstr "Revoke authorization {0}…?"
+#~ msgid "Revoke authorization {0}…?"
+#~ msgstr "Revoke authorization {0}…?"
 
 #: src/features/tokens/pages.tsx
 msgid "Revoke token"
@@ -2796,7 +2803,6 @@ msgid "Revoke token {0}?"
 msgstr "Revoke token {0}?"
 
 #: src/components/status-badge.tsx
-#: src/features/authorizations/pages.tsx
 msgid "Revoked"
 msgstr "Revoked"
 
@@ -3198,7 +3204,6 @@ msgstr "Start one, or wait for a scheduled run."
 msgid "State"
 msgstr "State"
 
-#: src/features/authorizations/pages.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/schedules/run-history.tsx
 #: src/features/settings/pages.tsx
@@ -3866,8 +3871,8 @@ msgid "You cannot disable your own account."
 msgstr "You cannot disable your own account."
 
 #: src/features/authorizations/pages.tsx
-msgid "You have not signed any authorization yet."
-msgstr "You have not signed any authorization yet."
+#~ msgid "You have not signed any authorization yet."
+#~ msgstr "You have not signed any authorization yet."
 
 #: src/features/sessions/composer.tsx
 msgid "You have view access: the owner can let you send messages by sharing it for chat."

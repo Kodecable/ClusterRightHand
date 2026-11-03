@@ -24,7 +24,7 @@ import (
 
 func TestCommandPaths(t *testing.T) {
 	paths := [][]string{
-		{"run"}, {"privileged"}, {"privileged", "run"}, {"privileged", "revoke"}, {"privileged", "stdio"},
+		{"run"}, {"privileged"}, {"privileged", "run"}, {"privileged", "stdio"},
 		{"enroll"}, {"status"}, {"reload"}, {"rotate-key"}, {"upgrade"},
 		{"grant"}, {"pending"}, {"approve"}, {"deny"}, {"version"},
 	}
@@ -55,10 +55,42 @@ func TestConfigFlagRequired(t *testing.T) {
 			}
 		})
 	}
+}
 
-	err := execute("privileged", "revoke", strings.Repeat("ab", 32))
-	if err == nil || !strings.Contains(err.Error(), `required flag(s) "socket" not set`) {
-		t.Fatalf("privileged revoke error = %v, want the required --socket error", err)
+// TestPrivilegedRevokeRemoved covers that the revocation command is gone: revocation was
+// removed from the privileged mode, so crha advertises no way to add one.
+func TestPrivilegedRevokeRemoved(t *testing.T) {
+	root := NewRootCmd()
+	privileged, _, err := root.Find([]string{"privileged"})
+	if err != nil {
+		t.Fatalf("find privileged: %v", err)
+	}
+	for _, child := range privileged.Commands() {
+		if child.Name() == "revoke" {
+			t.Fatal("crha privileged revoke is still registered")
+		}
+	}
+}
+
+// TestNoPersistUsedHelp covers the --no-persist-used switch of `crha privileged run`: the help
+// must say what it does and that it lowers security.
+func TestNoPersistUsedHelp(t *testing.T) {
+	root := newPrivilegedCmd()
+	run, _, err := root.Find([]string{"run"})
+	if err != nil {
+		t.Fatalf("find privileged run: %v", err)
+	}
+	flag := run.Flags().Lookup("no-persist-used")
+	if flag == nil {
+		t.Fatal("privileged run has no --no-persist-used flag")
+	}
+	if flag.DefValue != "false" {
+		t.Fatalf("--no-persist-used default = %q, want false", flag.DefValue)
+	}
+	for _, want := range []string{"in memory only", "Lowers security", "can run again until its deadline"} {
+		if !strings.Contains(flag.Usage, want) {
+			t.Fatalf("--no-persist-used help = %q, want it to contain %q", flag.Usage, want)
+		}
 	}
 }
 
@@ -294,18 +326,6 @@ func TestConfirmApproval(t *testing.T) {
 	}
 }
 
-func TestParseAuthorizationID(t *testing.T) {
-	id, err := parseAuthorizationID(strings.Repeat("ab", 32))
-	if err != nil || id[0] != 0xab || id[31] != 0xab {
-		t.Fatalf("parse = %x, %v", id, err)
-	}
-	for _, bad := range []string{"", "ab", strings.Repeat("zz", 32)} {
-		if _, err := parseAuthorizationID(bad); err == nil {
-			t.Fatalf("accepted %q", bad)
-		}
-	}
-}
-
 // TestStartupFailsWithoutShell checks that both modes refuse to start when no sh can be resolved:
 // a node that cannot say which shell runs its `shell` tasks must not run tasks at all.
 func TestStartupFailsWithoutShell(t *testing.T) {
@@ -319,7 +339,7 @@ func TestStartupFailsWithoutShell(t *testing.T) {
 		!strings.Contains(err.Error(), "no sh") {
 		t.Fatalf("crha run error = %v, want the shell resolution failure", err)
 	}
-	if err := runPrivileged(context.Background(), filepath.Join(t.TempDir(), "missing.toml")); err == nil ||
+	if err := runPrivileged(context.Background(), filepath.Join(t.TempDir(), "missing.toml"), false); err == nil ||
 		!strings.Contains(err.Error(), "no sh") {
 		t.Fatalf("crha privileged run error = %v, want the shell resolution failure", err)
 	}

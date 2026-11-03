@@ -253,10 +253,9 @@ export interface AuthorizationsTable {
 	issuer_user_id: string | null;
 	/** JSON string[] of one-shot task ids; null for a reusable authorization. */
 	task_ids: string | null;
-	/** ISO 8601 UTC, null when the payload has no deadline. */
+	/** ISO 8601 UTC; null only for a legacy row stored before deadlines were mandatory. */
 	deadline: string | null;
 	created_at: CreatedAt;
-	revoked_at: string | null;
 }
 
 export interface UserCredentialsTable {

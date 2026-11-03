@@ -444,7 +444,6 @@ export interface AuthorizationSummary {
 	issuedAt: string | null;
 	deadline: string | null;
 	createdAt: string;
-	revokedAt: string | null;
 }
 
 /** One entry of a `file.list` result (doc/protocol.md TaskResult). */

@@ -55,7 +55,6 @@ const (
 // Command and event names added in M4 (doc/protocol.md#m4提权). They are optional in the
 // handshake: a peer that does not offer them still connects.
 const (
-	CmdRevocationsAdd  = "revocations.add"
 	CmdLocalRequest    = "local.request"
 	CmdLocalWithdraw   = "local.withdraw"
 	EventTrustSummary  = "trust.summary"
@@ -89,7 +88,6 @@ var (
 // trust summary (doc/protocol.md M4：提权).
 var (
 	optionalCommandNames = []string{
-		CmdRevocationsAdd,
 		CmdLocalRequest,
 		CmdLocalWithdraw,
 	}
@@ -133,10 +131,6 @@ var commandSchemas = map[string]commandSchema{
 	CmdTaskQuery: {
 		request:  func() any { return new(TaskQuery) },
 		response: func() any { return new(TaskStatus) },
-	},
-	CmdRevocationsAdd: {
-		request:  func() any { return new(RevocationsAdd) },
-		response: func() any { return new(Empty) },
 	},
 	CmdLocalRequest: {
 		request:  func() any { return new(LocalRequest) },

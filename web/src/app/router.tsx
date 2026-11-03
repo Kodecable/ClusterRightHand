@@ -187,13 +187,14 @@ const credentialsRoute = createRoute({
 	component: lazyRouteComponent(() => import("@/features/credentials/pages"), "CredentialsPage"),
 });
 
+// --- admin ----------------------------------------------------------------
+
 const authorizationsRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/authorizations",
+	beforeLoad: ({ context }) => requireAdmin(context),
 	component: lazyRouteComponent(() => import("@/features/authorizations/pages"), "AuthorizationsPage"),
 });
-
-// --- admin ----------------------------------------------------------------
 
 const tokensRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,

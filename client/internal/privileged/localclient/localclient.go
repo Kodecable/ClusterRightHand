@@ -107,11 +107,3 @@ func (c *Client) verdict(ctx context.Context, cmd, taskID string, attempt uint64
 		Message:    message,
 	}, &empty)
 }
-
-// Revoke adds one revocation without a deadline: the authorization stays revoked forever.
-func (c *Client) Revoke(ctx context.Context, authorizationID [32]byte) error {
-	var empty protocol.Empty
-	return c.peer.Request(ctx, protocol.CmdRevocationsAdd, protocol.RevocationsAdd{
-		Entries: []protocol.Revocation{{AuthorizationID: protocol.Hash(authorizationID)}},
-	}, &empty)
-}

@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// M4 wire types: the authorization object, TrustSummary, local approval and revocations
+// M4 wire types: the authorization object, TrustSummary and local approval
 // (doc/protocol.md#m4提权). The crh-priv handshake types live with the crh-priv framing.
 //
 // Every type mirrors the corresponding codec in packages/protocol/src/privileged.ts:
@@ -261,20 +261,6 @@ func (r *TrustReport) UnmarshalCBOR(data []byte) error {
 	}
 	r.Kind = TrustReportKind(tag)
 	return nil
-}
-
-// Revocation is one entry of revocations.add. AuthorizationID is exactly 32 bytes; a missing
-// deadline means the authorization never expires.
-type Revocation struct {
-	_               struct{} `cbor:",toarray"`
-	AuthorizationID Hash
-	DeadlineMS      *Int
-}
-
-// RevocationsAdd is the revocations.add request body.
-type RevocationsAdd struct {
-	_       struct{} `cbor:",toarray"`
-	Entries []Revocation
 }
 
 // LocalRequest is the local.request command body.

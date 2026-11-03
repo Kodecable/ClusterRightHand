@@ -61,7 +61,7 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D8 | SSH 模式不上传客户端二进制 | 避免处理目标架构的分发问题；代价是 SSH 节点没有续传、反连和特权模式 |
 | D9 | 提权 IPC 使用 unix socket + `SO_PEERCRED` | 零依赖；否决 D-Bus（服务器上不一定有，且无必要） |
 | D10 | 每个节点的 crha 特权模式在本地配置一个信任数组，用 `role`（`crhs` / `user` / `local`）区分角色、`format`（`sshsig` / `webauthn`）区分签名格式，每项可带防护规则 | "crhs 无法单独执行特权任务"就是 crhs 信任项不含 `execute`，或者不配置 crhs 信任项 |
-| D11 | 授权统一为"本体 + 可选指令限制（前缀或原文）+ 可选截止时间 + 可选任务绑定"；计划任务也用它单独签发 | crhs 的单条命令授权就是 `exact` + `task_id` + 短截止时间；任务绑定见 D50 |
+| D11 | 授权统一为"本体 + 可选指令限制（前缀或原文）+ 截止时间（D103 起必有）+ 可选任务绑定"；计划任务也用它单独签发 | crhs 的单条命令授权就是 `exact` + `task_id` + 短截止时间；任务绑定见 D50 |
 | D12 | 用户模型一开始就做：单组织、多用户，表中预留 `org_id` | 当前只有一个用户，但后补的成本很高；用户类型见 D47 |
 | D13 | 执行平面不加锁 | 并发冲突由 agent 和使用者自行处理；文件编辑用 `oldText` 定位，本身就能发现冲突（见 D53） |
 | D14 | 优先支持 Linux | |
@@ -140,7 +140,7 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D77 | 子会话状态只有 `active` / `awaiting` / `stopped`，是缓存：`active ↔ awaiting` 由工具调用状态（等审批）和配额状态重算，`stopped` 在运行结束时写入（正常完成、拒绝、abort 都一样，不区分原因；最后一条消息说明发生了什么），等待下一次输入。配额不足时暂停工具调用，只向**直接父会话**报告；它的 agent 给这个子会话**增加** token（不按自己的剩余封顶）或拒绝；父是根时由根会话的 agent 决定；每次响应仍扣整条 subagent 链 | 不跳过层级；封顶没有意义，因为同一笔用量本来就扣整条链；父会话的提示/打断只看子会话状态，细节从工具调用和配额里取 |
 | D78 | （被 D99 修订）M3.5 完整替换 crhs ↔ crha 的 protobuf 为 CBOR；Web API/数据库继续 JSON；不保证旧协议兼容。版本只在握手协商（大/小版本和支持的命令集合），之后帧不再带 `v`；抽象为双向命令/事件；大版本内命令/事件结构固定，小版本只允许新增命令（如 `task.start.v2`），兼容性看命令集合交集而非 minor 数字。CBOR 用 `CBOR-CORE-INT-v1`：RFC 8949 §4.2.1、cborg/fxamacker、禁 float/tag/indefinite、时间整数毫秒；ack 是事件 | 去掉 protobuf/buf 依赖；CBOR 有确定编码规范；版本化命令比 oneof 字段演进更可控 |
 | D79 | M4 的 crhs 只缓存 `TrustSummary`，据此计算授权方案；只用 `on_behalf_of_user_id` 的凭据，不考虑共享用户或其他管理员；规则匹配用 RE2（Node 包 `re2`），crha 执行前仍完整复验 | 去掉 Preflight 往返；所有者和 RE2 使 crhs 判断与 crha 语义一致；缓存不是授权 |
-| D80 | 授权和联署是同一 CBOR payload 上的多个签名（`signatures[]`），不再使用 `cosign_of` 或两个 payload | 两个签名覆盖完全相同的 nodes/command/task_id/attempt/deadline；少一次一致性校验，授权 id 和吊销也只有一个 |
+| D80 | 授权和联署是同一 CBOR payload 上的多个签名（`signatures[]`），不再使用 `cosign_of` 或两个 payload | 两个签名覆盖完全相同的 nodes/command/task_id/attempt/deadline；少一次一致性校验，授权 id 也只有一个 |
 | D81 | SSH 节点不参与提权：`privileged` 被忽略，按 SSH 用户执行并在任务输出中提示；保留现有 SFTP `file.*` 任务，不做 SSH native/forward | SSH 没有可验证的特权边界；忽略而不是假装拒绝/提权；file 任务仍有价值 |
 | D82 | 批量执行默认 `status`：只返回状态，完整输出留在节点；显式 `text`：每节点保留尾部 8KB/128 行，所有节点共享单任务 50KB/2000 行预算，按输出到达顺序丢弃；预算在接收端 append 时检查；丢弃仍发 ack；不优先保留失败节点 | 不在内存里先收完再裁；节点数增长不增加内存；完整输出仍可读文件；失败输出可见性是可接受的取舍 |
 | D83 | 任务 id 最多 accepted/executed 一次；只有 crha 在 `task.start` 成功响应（accepted）之前明确拒绝授权时，允许同一 task id 用 `attempt + 1` 重试。部分节点通过、部分拒绝时任务彼此独立，不回滚已执行任务；`fail_fast` 只影响未启动节点；授权等待不自动超时。crhs 的规则引擎只是预演，crha 授权拒绝后优先回退到所有者 user/local 路径 | 保留 durable task id 和工具重放；明确拒绝前无副作用可安全重试；网络 unknown 绝不重试；避免把部分成功伪装成整体成功 |
@@ -150,7 +150,7 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D87 | `native` 用 `sudo -n` / `doas -n` 拉起同一二进制 `crha privileged stdio` 作为 helper，exec 和 `file.*` 都由它执行，走 crh-priv 协议、不校验授权；`run0` 为实验性后端 | 非特权进程无法给提权后的进程发信号（kill(2) 的 uid 检查），SIGKILL 发给 sudo / doas 后 root 目标进程成为孤儿（2026-10-29 podman 实测）；`env_reset` 让 env 白名单无法传递；被否决：exec 直接 `sudo -n -- argv`（保留 sudoers 按命令限制，但强杀和超时不可靠） |
 | D88 | 授权 payload 是定长数组；一次性约束为 `task_ids` 列表，一个用户签名覆盖任务组的多个节点；已用列表的键为 `(授权 id, 任务 id)` | 任务组的用户签名只需一次；`task_ids` 固定具体任务，签发时把组展开成节点 id，签名后范围不变 |
 | D89 | 本地批准只用于单任务，不占用 `task.start`：`local.request` 登记、`local.decision` 通知、批准后再发 `task.start`。任务组不走本地批准，没有其他路径时直接失败；crhs 签名被拒后回退到 local 时用 `attempt + 1` 登记，流程相同 | 长时间挂起的 `task.start` 一断线就是 `unknown`；分开后执行只由 `task.start` 触发，等待期间断线安全；逐节点登录批准与批量执行相悖，排除后 crhs 不必为任务组跟踪本地状态 |
-| D90 | crhs ↔ crha 只推送 `trust.summary`，不查询；非特权模式转发 `authorization_*` 前先刷新摘要。吊销用幂等的 `revocations.add`，摘要可用时重发全部未过期项 | 推送 + 拒绝前刷新保证 crhs 处理拒绝时缓存最新；幂等追加让离线节点重连后自然补齐 |
+| D90 | crhs ↔ crha 只推送 `trust.summary`，不查询；非特权模式转发 `authorization_*` 前先刷新摘要。吊销用幂等的 `revocations.add`，摘要可用时重发全部未过期项（吊销被 D103 移除） | 推送 + 拒绝前刷新保证 crhs 处理拒绝时缓存最新；幂等追加让离线节点重连后自然补齐 |
 | D91 | crhs 签名用 `node:crypto` ed25519 + 手写 SSHSIG；`crha grant` 调用 `ssh-keygen -Y sign`；crha 用 `x/crypto/ssh` + 手写 SSHSIG codec 验证，WebAuthn 手写验证（ES256 / EdDSA / RS256）；crhs 的 WebAuthn 用 `@simplewebauthn`；ssh-agent 签名为可选项目 | 不引入新的 Go 模块；OpenSSH 负责加密私钥、agent 和 FIDO 触摸；RS256 用标准库验证成本很低，避免注册出无法校验的凭据 |
 | D92 | 配额统一：任何一级会话都可以设 token 配额或不设（`null` 不限、不扣减）；用户创建的根默认不设，计划任务的会话在根上设 `token_budget`；每次模型调用（含压缩和 Auto Review）只计输出 token，上游不上报时按输出 UTF-8 字节 × 0.3 估算，扣链上所有设了配额的级别；耗尽时只报告给那一级的直接上级，根由所有者在审批页增加或拒绝 | 计划任务需要无人值守的用量上限，复用同一套暂停/处理流程，不另做预算机制；只计输出让口径不随上下文长度和缓存命中变化，输入不受预算约束 |
 | D93 | 计划任务只有一种：按 cron 用固定消息新建会话；同一计划任务同时只有一个实例，新运行强制结束上一个；调度的每个决策写审计；可以手动运行，错过的触发可选补跑一次；webhook 通知移到 M6 | 固定命令也交给 agent，规则、审批、提权、配额全部复用会话；强制结束让每次运行只在下一次触发前有效，不会堆积等待 |
@@ -162,3 +162,5 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D99 | 不兼容的协议修改升大版本并改变 Noise prologue（`"crh/<major>" ‖ 挑战`），大版本不同的对端在握手本身失败、被明确拒绝；`protocol_minor` 只做增量，靠 `commands` 交集协商（D78）；crh-priv 也按大版本拒绝；crha 与它的特权模式必须运行同一个 `crha_version` | 只有大版本能让旧对端在解析任何载荷之前就停下来；minor 保持增量，同一个大版本内加命令不用升级；crh-priv 的 `task.exit` 改动跨 forward 链路，同样必须升大版本；版本不一致的 daemon 仍按不可达处理，覆盖只换二进制不重启的升级 |
 | D100 | 审批沿 [用户]→[根会话 agent]→[子会话]… 向上找第一个对该操作 allow 的 agent 会话，根会话 agent 同样可以判断（D37 的本意）；都不 allow 或 agent 上交时到用户；配额路由不变（只交直接父会话） | 子会话额外加的限制是 agent 自己的护栏，不是给用户的审批单；根会话的选项（如 Ask）仍然界定根 agent 可以批准什么 |
 | D101 | 两个 token 度量按名字严格分开：预算口径（`budget_used_tokens` / `budgetUsedTokens`，只计输出，含压缩和 Auto Review，决定配额何时暂停，D92 的口径不变）与统计口径（`usage_tokens` / `usageTokens`，输入 + 输出、含缓存读写，链上累加，只用于展示）；另有 `context_tokens` / `contextTokens`，只取本会话最近一次主 agent 调用的输入大小。两个度量共用一个估算常数 `0.3 token/字节`，没有上报用量时按调用实际发出的请求内容的字节估算输入（生成只有 `messages`，压缩和评审是系统提示 + 消息） | 一个数不能既是"扣配额的量"又是"总花费"：只计输出才能不随上下文长度和缓存命中漂移，而用户想看的总用量必须包含输入。名字必须能区分，否则调用方早晚把两者混用；上下文填充单独存，才能算百分比且不被压缩或评审改写 |
+| D102 | crha 的源码不内置任何自身配置、状态、日志或 socket 路径，全部由命令行 `--config` 和配置文件给出；唯一例外是手动本地批准的 `crha pending/approve/deny` 默认连接 `/run/crha/privileged.sock`（`CRHA_PRIVILEGED_SOCKET` 或 `--socket` 覆盖）。`crha enroll --state-dir` 在配置不存在时写最小配置 | 没有默认路径就不会出现 native 节点放着无人读取的 `privileged.toml`、被误以为规则生效；WebUI 给出的路径只是建议布局 |
+| D103 | 移除授权吊销；所有授权必须带 `deadline`；特权模式已用列表内存上限 8192 条，按 `deadline + max(1h, clock_skew)`（本地批准 24 小时）保留，淘汰未过期记录时抬高内存水位线、拒绝更早签发的授权，文件只追加并按 2 倍有效记录数重建，可用 `--no-persist-used` 只放内存；授权页只对管理员可见 | 吊销由 crhs 推送，crhs 被攻破时帮不上忙，也送不到离线节点、对 native / SSH 节点没有作用；一次性授权不能重放，可复用的授权受指令限制和 `deadline` 约束；内存和磁盘上限让小设备也能用 |

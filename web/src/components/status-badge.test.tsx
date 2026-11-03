@@ -70,8 +70,8 @@ describe("status family mappings", () => {
 	});
 
 	test("authorizations, schedules and tokens", () => {
-		const { rerender } = renderWithI18n(<AuthorizationStatusBadge status="revoked" />);
-		expect(screen.getByText("Revoked")).toBeInTheDocument();
+		const { rerender } = renderWithI18n(<AuthorizationStatusBadge status="expired" />);
+		expect(screen.getByText("Expired")).toBeInTheDocument();
 		rerender(<ScheduleStatusBadge status="succeeded" />);
 		expect(screen.getByText("Succeeded")).toBeInTheDocument();
 		rerender(<TokenStatusBadge status="expired" />);

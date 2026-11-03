@@ -26,7 +26,6 @@ import {
 	localRequestCodec,
 	localStateCodec,
 	localWithdrawCodec,
-	revocationsAddCodec,
 	trustReportCodec,
 } from "./privileged.ts";
 import type { Codec, Infer } from "./schema.ts";
@@ -44,7 +43,6 @@ export const COMMANDS = {
 	"task.input": { request: taskInputCodec, response: emptyCodec },
 	"task.cancel": { request: taskCancelCodec, response: emptyCodec },
 	"task.query": { request: taskQueryCodec, response: taskStatusCodec },
-	"revocations.add": { request: revocationsAddCodec, response: emptyCodec },
 	"local.request": { request: localRequestCodec, response: localStateCodec },
 	"local.withdraw": { request: localWithdrawCodec, response: emptyCodec },
 } as const satisfies Record<string, CommandDefinition>;
@@ -88,7 +86,6 @@ export const REQUIRED_NAMES: readonly string[] = Object.freeze([
  * that does not offer them is treated as not supporting `forward`.
  */
 export const OPTIONAL_NAMES: readonly string[] = Object.freeze([
-	"revocations.add",
 	"local.request",
 	"local.withdraw",
 	"trust.summary",

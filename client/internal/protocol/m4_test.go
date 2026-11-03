@@ -173,12 +173,6 @@ func decodeM4Body(t *testing.T, codec string, raw []byte) any {
 			t.Fatalf("decode TrustReport: %v", err)
 		}
 		return &v
-	case "RevocationsAdd":
-		var v RevocationsAdd
-		if err := Unmarshal(raw, &v); err != nil {
-			t.Fatalf("decode RevocationsAdd: %v", err)
-		}
-		return &v
 	case "LocalRequest":
 		var v LocalRequest
 		if err := Unmarshal(raw, &v); err != nil {
@@ -245,7 +239,7 @@ func TestM4BodyVectors(t *testing.T) {
 	// Every codec this file mirrors must appear in the fixture, so a lost vector cannot
 	// silently shrink coverage.
 	for _, codec := range []string{
-		"TrustSummary", "TrustReport", "RevocationsAdd", "LocalRequest",
+		"TrustSummary", "TrustReport", "LocalRequest",
 		"LocalWithdraw", "LocalDecision", "PendingEntry",
 	} {
 		if !seen[codec] {

@@ -19,7 +19,6 @@ import {
 	pendingEntryCodec,
 	privHelloCodec,
 	privWelcomeCodec,
-	revocationsAddCodec,
 	trustReportCodec,
 	trustSummaryCodec,
 } from "../src/privileged.ts";
@@ -298,7 +297,6 @@ describe("test/interop/m4_vectors.json", () => {
 		const codecs: Record<string, Codec<unknown>> = {
 			TrustSummary: trustSummaryCodec as Codec<unknown>,
 			TrustReport: trustReportCodec as Codec<unknown>,
-			RevocationsAdd: revocationsAddCodec as Codec<unknown>,
 			LocalRequest: localRequestCodec as Codec<unknown>,
 			LocalWithdraw: localWithdrawCodec as Codec<unknown>,
 			LocalDecision: localDecisionCodec as Codec<unknown>,

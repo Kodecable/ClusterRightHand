@@ -1,8 +1,8 @@
 /**
  * M4 wire types (doc/protocol.md#m4提权): the authorization object, TrustSummary,
- * local approval, revocations and the crh-priv handshake. Only the shapes and
- * the structural invariants of protocol.md live here; signature checks and
- * hashing are left to the callers, which run under Node.
+ * local approval and the crh-priv handshake. Only the shapes and the structural
+ * invariants of protocol.md live here; signature checks and hashing are left to
+ * the callers, which run under Node.
  */
 import { decode as decodeCbor, encode as encodeCbor } from "./cbor.ts";
 import { taskSpecCodec } from "./messages.ts";
@@ -109,17 +109,8 @@ export const trustReportCodec = union({
 export type TrustReport = Infer<typeof trustReportCodec>;
 
 // ---------------------------------------------------------------------------
-// Revocations and local approval
+// Local approval
 // ---------------------------------------------------------------------------
-
-export const revocationCodec = tuple([
-	["authorizationId", sha256],
-	["deadlineMs", nullable(int)],
-]);
-export type Revocation = Infer<typeof revocationCodec>;
-
-export const revocationsAddCodec = tuple([["entries", list(revocationCodec)]]);
-export type RevocationsAdd = Infer<typeof revocationsAddCodec>;
 
 export const localRequestCodec = tuple([
 	["taskId", text],

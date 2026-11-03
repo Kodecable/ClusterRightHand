@@ -117,7 +117,7 @@ type forwardConn struct {
 	stream *wire.Stream
 	peer   *protocol.Peer
 	// negotiated is what both sides implement; the daemon's crh-priv 1.0 subset has no
-	// revocations.add or local.* commands (doc/protocol.md crh-priv).
+	// local.* commands (doc/protocol.md crh-priv).
 	negotiated protocol.Set
 	done       chan struct{}
 	runErr     error
@@ -637,21 +637,6 @@ func (a *Agent) cancelForwardTask(taskID string) {
 	if err := a.relayForward(ctx, protocol.CmdTaskCancel, protocol.TaskCancel{TaskID: taskID}, nil); err != nil {
 		a.log.Debug("cancel a forwarded task", "task", taskID, "err", err)
 	}
-}
-
-// handleRevocationsAdd relays a revocation list to the privileged mode (doc/privilege.md 吊销).
-func (a *Agent) handleRevocationsAdd(ctx context.Context, body cbor.RawMessage) (any, error) {
-	if a.mode() != config.ModeForward {
-		return nil, notForwardError(a.mode())
-	}
-	var add protocol.RevocationsAdd
-	if err := protocol.UnmarshalBody(body, &add); err != nil {
-		return nil, err
-	}
-	if err := a.relayForward(ctx, protocol.CmdRevocationsAdd, add, nil); err != nil {
-		return nil, err
-	}
-	return protocol.Empty{}, nil
 }
 
 // handleLocalRequest relays a local approval request and its state (doc/privilege.md 本地批准).

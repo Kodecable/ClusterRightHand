@@ -114,9 +114,9 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
     | 码 | 情况 |
     |---|---|
     | `authorization_required` | 没有授权，也没有可用的本地批准 |
-    | `authorization_invalid` | 授权解码失败、签名无效、找不到对应信任项、节点/组不匹配、任务 id 不在 `task_ids` 中、`attempt` 不符、一次性授权没有 `deadline`、多于一项 |
-    | `authorization_expired` | 过期、签发于未来、超出 `max_ttl`（含设置了 `max_ttl` 却没有 `deadline`） |
-    | `authorization_rejected` | 已吊销、已用、指令限制不覆盖本任务、违反 `require_exact` / `require_task` / `require_uv`、防护规则/env/路径拒绝、缺联署、信任项没有 `execute` |
+    | `authorization_invalid` | 授权解码失败、签名无效、找不到对应信任项、节点/组不匹配、任务 id 不在 `task_ids` 中、`attempt` 不符、多于一项 |
+    | `authorization_expired` | 过期、签发于未来、没有 `deadline`、超出 `max_ttl` |
+    | `authorization_rejected` | 已用、不晚于已用列表水位线、指令限制不覆盖本任务、违反 `require_exact` / `require_task` / `require_uv`、防护规则/env/路径拒绝、缺联署、信任项没有 `execute` |
 
     `message` 写明失败的校验步骤（privilege.md 的“校验流程”编号）。规则和路径拒绝也是可重试的：crhs 签名路径被拒，不代表所有者的签名也会被拒；crhs 重试时不会再走同一条 crhs 签名路径（D83），不会循环。
   - 终态（任务结束为 `failed`，`error_code` 即此码）：`invalid_spec`（空 id、哈希长度不对等、`size` 为 0 但 `sha256` 不是空输入的 SHA-256）、`unsupported_kind`、`privileged_unsupported`（`reject` 模式；`native` 的提权工具不可用或 helper 版本不符；M3.5 的 crha）、`privileged_unavailable`（`forward` 但特权模式不可达）、`local_policy_denied`、`already_accepted`（校验第 5 步：本任务 id 已在本机执行过）。
@@ -203,20 +203,17 @@ TaskResult = ["file.edit", [replacements: 1]]
 | 名称 | 方向 | 形式 | body | 成功响应 body |
 |---|---|---|---|---|
 | `trust.summary` | C→S | 事件 | `TrustReport` | |
-| `revocations.add` | S→C | 命令 | `[entries: [Revocation]]` | `[]` |
 | `local.request` | S→C | 命令 | `LocalRequest` | `LocalState` |
 | `local.withdraw` | S→C | 命令 | `[task_id: text, attempt: uint]` | `[]` |
 | `local.decision` | C→S | 事件 | `[task_id: text, attempt: uint, state: LocalState]` | |
 
 ```text
 TrustReport  = ["ok", TrustSummary] | ["unavailable", [message: text]] | ["not_forward", []]
-Revocation   = [authorization_id: bytes, deadline_ms: int?]       ; id 恰好 32 字节
 LocalRequest = [task_id: text, attempt: uint, spec: TaskSpec, note: text]
 LocalState   = ["pending", []] | ["approved", []] | ["denied", [message: text]]
 ```
 
 - **`trust.summary`**：crha 在 `hello` 的响应之后发送一次，之后每当报告变化（digest 变化、特权模式连上或断开）时再发送。crhs 不主动查询。`privileged_mode` 不是 `forward` 时报告 `not_forward`。
-- **`revocations.add`**：幂等地追加吊销项。crhs 在 `trust.summary` 为 `ok` 后发送该节点全部未过期的吊销项（按帧大小分批），之后在用户吊销时增量发送。没有删除操作：过期清理由特权模式本地完成（privilege.md 的“吊销”）。特权模式不可达时返回 `privileged_unavailable`，crhs 在下一次 `ok` 后重发。
 - **本地批准**只用于单任务（任务组中的任务不发送 `local.request`），且不占用 `task.start`：
   1. crhs 发送 `local.request`，特权模式把 `(task_id, attempt, spec)` 加入待批准列表，响应当前状态（同一 `(task_id, attempt)` 重复请求是幂等的，返回已有状态）；
   2. 有人执行 `crha approve` / `crha deny` 后，crha 发送 `local.decision`；
@@ -267,6 +264,7 @@ Signature            = ["sshsig", [blob: bytes]]
 - `command` 为 `null` 表示任意方法、任意目标。
 - `task_ids` 与 `attempt` 同时为 `null`（可复用授权），或同时非 `null`（一次性授权，`task_ids` 非空、无重复，`attempt ≥ 1`）。一次性授权的 `nodes` 只能是节点 id（不能是 `group:` 或 `*`），与 `task_ids` 等长并按位置一一对应：`task_ids[i]` 只能在 `nodes[i]` 上执行。`task.start` 的 `task_id` 必须在列表中、对应位置的节点 id 等于本机 node_id，`attempt` 必须相等；不满足时为 `authorization_invalid`（第 5 步）。
 - `note` 没有时为空串。
+- `deadline_ms` 必须非 `null`：字段在编码上仍可空，但校验时以 `authorization_expired` 拒绝（第 4 步）。
 - **`spec_sha256`** = `SHA-256(CBOR(TaskSpec))`，`TaskSpec` 即 `task.start` 中的结构（stdin 和文件内容已经是 `InputRef`）。
 - **SSHSIG**：`blob` 是 OpenSSH SSHSIG 的二进制形式（去掉 `-----BEGIN SSH SIGNATURE-----` 装甲后 base64 解码的 bytes）。version 必须为 1，namespace 必须为 `crh-auth-v1`，reserved 必须为空，hash 为 `sha512`（`ssh-keygen` 默认值；`sha256` 也接受）。**被签名的 message 是 payload 原文 bytes**，由 SSHSIG 自己做哈希，不预先哈希。
 - **WebAuthn**：challenge = `SHA-256("crh-auth-v1\0" ‖ payload)`（32 字节）；浏览器中的 `challenge` 是它的 base64url，`client_data_json` 里的 `challenge` 解码后必须逐字节相等。支持的 COSE 算法：ES256（`-7`）、EdDSA / Ed25519（`-8`）、RS256（`-257`）。
@@ -286,7 +284,7 @@ PrivHello   = [priv_major: 2, priv_minor: 0, commands: [text], crha_version: tex
 PrivWelcome = [priv_major: 2, priv_minor: 0, commands: [text], crha_version: text]
 ```
 
-- 必需的名字：`native` 是 `task.*` 这一组；`forward` 是 `task.*`、`trust.query`、`trust.summary`，其余（`revocations.add`、`local.*`）可选，缺少时非特权模式不提供对应功能；`local` 是该角色的全部名字。之后新增的名字都是可选的，靠名字协商。
+- 必需的名字：`native` 是 `task.*` 这一组；`forward` 是 `task.*`、`trust.query`、`trust.summary`，其余（`local.*`）可选，缺少时非特权模式不提供对应功能；`local` 是该角色的全部名字。之后新增的名字都是可选的，靠名字协商。
 - `priv_major` 必须相等：任一方发现对端的 `priv_major` 不同就关闭连接。大版本 2 是本批的版本（`task.exit` 增加 `result`、`file.read` 改为按行）；`crha` 及其特权模式总是一起升级，所以旧的特权模式进程不会被新的非特权模式使用。`priv_minor` 只做增量（新增可选名字），不参与拒绝。
 - `forward` 下非特权模式还要求 `PrivWelcome.crha_version` 与自己完全相同。不同时按特权模式不可达处理：特权任务以 `privileged_unavailable` 失败，非特权模式记一条日志，写明双方的版本。这覆盖了只换 `crha` 二进制、没有重启特权模式的升级。
 - `role` 必须与对端身份一致：`forward` 要求 peer uid 等于 `unprivileged_uid`；`local` 要求 peer uid 在某个 `local` 信任项的 `uids` 中；`native` 只在 stdio 上出现，此时要求 `crha_version` 完全相等。不一致时特权侧关闭连接。
@@ -297,11 +295,10 @@ PrivWelcome = [priv_major: 2, priv_minor: 0, commands: [text], crha_version: tex
 | `task.output` / `task.exit` | P→U | forward、native | 同结构；没有 ack，非特权模式写入自己的输出文件，沿用原有的落盘和续传 |
 | `trust.query` | U→P | forward | 请求 `[]`，响应 `TrustSummary` |
 | `trust.summary` | P→U | forward | 事件 `TrustReport`（特权模式发出的恒为 `ok`），reload 后 digest 变化时推送；非特权模式原样转给 crhs |
-| `revocations.add` / `local.request` / `local.withdraw` | U→P | forward | 同上文 |
+| `local.request` / `local.withdraw` | U→P | forward | 同上文 |
 | `local.decision` | P→U | forward | 同上文 |
 | `pending.list` | L→P | local | 请求 `[]`，响应 `[[task_id: text, attempt: uint, spec: TaskSpec, note: text, received_at_ms: int]]` |
 | `local.approve` / `local.deny` | L→P | local | 请求 `[task_id: text, attempt: uint, spec_sha256: bytes, message: text]`（`spec_sha256` 恰好 32 字节，必须等于待批准记录的规格哈希，否则 `invalid_spec`），响应 `[]` |
-| `revocations.add` | L→P | local | `crha privileged revoke` |
 
 - **断开**：`forward` 的连接断开时，特权模式中已 accepted 的任务继续运行到结束，结果写入本地日志；它们的输出不再回传。非特权模式以 `error`、`code = helper_lost`（“任务可能仍在运行”）结束这些任务；`task.start` 已发出但响应因断开丢失时同样按 accepted 处理并以 `helper_lost` 结束，避免 crhs 重试一个可能已执行的任务。非特权模式自身重启时不认识这些任务，crhs 照常按 `unknown` 处理。`native` 的 stdin 关闭时，helper 等当前任务结束后退出。
 - **native helper** 每个进程只执行一个任务：握手、一个 `task.start`、输入、输出、`task.exit`，然后退出。stdin 是 tty 时拒绝启动。helper 在 accepted 之后、`task.exit` 之前意外退出或断开时，非特权模式以 `error`、`code = helper_lost` 结束任务（任务可能已部分执行，不重试）。

@@ -58,8 +58,6 @@ type Record struct {
 
 	// UID is the approver of a local approve/deny.
 	UID *uint32 `json:"uid,omitempty"`
-	// AuthorizationIDs lists the authorization ids of one revocations.add.
-	AuthorizationIDs []string `json:"authorization_ids,omitempty"`
 	// Detail carries free-form context, for example why a reload failed.
 	Detail string `json:"detail,omitempty"`
 }

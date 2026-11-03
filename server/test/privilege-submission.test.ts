@@ -241,11 +241,13 @@ describe("user authorizations", () => {
 
 	const seedReusable = async (input: {
 		nodes: string[];
-		revoked?: boolean;
 		issuer?: string;
+		/** The payload's deadline; `null` stores a legacy authorization without one. */
+		deadlineMs?: number | null;
 		/** The command restriction; `EXEC` by default. */
 		command?: AuthorizationCommand;
 	}): Promise<string> => {
+		const deadlineMs = input.deadlineMs === undefined ? Date.now() + HOUR : input.deadlineMs;
 		const built = buildAuthorization({
 			nodes: input.nodes,
 			command: input.command ?? {
@@ -253,7 +255,7 @@ describe("user authorizations", () => {
 				exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) },
 			},
 			issuedAtMs: Date.now(),
-			deadlineMs: Date.now() + HOUR,
+			deadlineMs,
 			taskIds: null,
 		});
 		const signature: Signature = { kind: "sshsig", blob: signSshsig(ownerKey.privateKey, ownerKey.blob, built.bytes) };
@@ -266,9 +268,8 @@ describe("user authorizations", () => {
 				signatures: JSON.stringify([{ kind: "sshsig", blob: Buffer.from(signature.blob).toString("base64") }]),
 				issuer_user_id: input.issuer ?? owner.userId,
 				task_ids: null,
-				deadline: new Date(Date.now() + HOUR).toISOString(),
+				deadline: deadlineMs === null ? null : new Date(deadlineMs).toISOString(),
 				created_at: new Date().toISOString(),
-				revoked_at: input.revoked ? new Date().toISOString() : null,
 			})
 			.execute();
 		return built.id;
@@ -376,7 +377,7 @@ describe("user authorizations", () => {
 			.selectAll()
 			.where("id", "=", pending.id)
 			.executeTakeFirstOrThrow();
-		expect(stored).toMatchObject({ issuer_user_id: owner.userId, revoked_at: null });
+		expect(stored).toMatchObject({ issuer_user_id: owner.userId });
 		expect(JSON.parse(stored.task_ids as string)).toEqual([task.id]);
 		await audit.flush();
 		const submitted = await auditRows("authorization.submitted");
@@ -410,7 +411,7 @@ describe("user authorizations", () => {
 		await waitState(task.id, "running");
 	});
 
-	it("refuses a submission signed by another user's key and an expired one", async () => {
+	it("refuses a submission signed by another user's key, an expired one and one without a deadline", async () => {
 		const { node } = await connect("pending-2", (id) => summaryOf(id, [ownerEntry()]));
 		const task = await createPrivileged(node.id);
 		await waitState(task.id, "awaiting_authorization");
@@ -432,6 +433,23 @@ describe("user authorizations", () => {
 		const late = await submit(signedAuthorization(expired.bytes));
 		expect(late.status).toBe(400);
 		expect(((await late.json()) as { error: string }).error).toMatch(/expired/);
+
+		// Every authorization must carry a deadline; without one it is refused before storage and
+		// could never be accepted by the node anyway.
+		const withoutDeadline = buildAuthorization({
+			nodes: [node.id],
+			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			issuedAtMs: Date.now() - 60_000,
+			deadlineMs: null,
+			taskIds: [task.id],
+			attempt: 1,
+		});
+		const undated = await submit(signedAuthorization(withoutDeadline.bytes));
+		expect(undated.status).toBe(400);
+		expect(((await undated.json()) as { error: string }).error).toBe("the authorization must have a deadline");
+		expect(
+			await db.selectFrom("authorizations").select("id").where("id", "=", withoutDeadline.id).executeTakeFirst(),
+		).toBeUndefined();
 		expect((await taskView(task.id)).state).toBe("awaiting_authorization");
 	});
 
@@ -534,7 +552,7 @@ describe("user authorizations", () => {
 		expect((await pendingFor(task.id)).authorization).not.toBeNull();
 	});
 
-	it("does not reuse a reusable authorization for a require-cosign entry, nor a revoked one", async () => {
+	it("does not reuse a reusable authorization for a require-cosign entry", async () => {
 		const { node } = await connect("reuse-2", (id) =>
 			summaryOf(id, [
 				ownerEntry({ kinds: ["execute", "require-cosign"] }),
@@ -544,12 +562,15 @@ describe("user authorizations", () => {
 		await seedReusable({ nodes: [node.id] });
 		const first = await createPrivileged(node.id);
 		await waitState(first.id, "awaiting_authorization");
+	});
 
-		const plain = await connect("reuse-3", (id) => summaryOf(id, [ownerEntry()]));
-		await seedReusable({ nodes: [plain.node.id], revoked: true });
-		const second = await createPrivileged(plain.node.id);
-		await waitState(second.id, "awaiting_authorization");
-		expect(plain.crha.starts).toHaveLength(0);
+	it("does not reuse a stored authorization without a deadline", async () => {
+		const { node, crha } = await connect("reuse-no-deadline", (id) => summaryOf(id, [ownerEntry()]));
+		await seedReusable({ nodes: [node.id], deadlineMs: null });
+		const task = await createPrivileged(node.id);
+		await waitState(task.id, "awaiting_authorization");
+		expect(crha.starts).toHaveLength(0);
+		expect((await pendingFor(task.id)).authorization).not.toBeNull();
 	});
 
 	/** Every task.input chunk a fake crha received for a task, in order. */
@@ -911,55 +932,34 @@ describe("user authorizations", () => {
 		expect((await pendingFor(replanned.id)).authorization).not.toBeNull();
 	});
 
-	it("lets owners and administrators revoke an authorization, but not other users", async () => {
+	it("lists the organization's authorizations to administrators only", async () => {
 		const mine = await seedReusable({ nodes: ["some-node"] });
 		const theirs = await seedReusable({ nodes: ["another-node"], issuer: other.userId });
-		expect(
-			(await call(app, `/api/authorizations/${theirs}/revoke`, { method: "POST", cookie: owner.cookie, body: {} }))
-				.status,
-		).toBe(403);
-		const owned = await call(app, `/api/authorizations/${mine}/revoke`, {
-			method: "POST",
-			cookie: owner.cookie,
-			body: {},
-		});
-		expect(owned.status).toBe(200);
-		const byAdmin = await call(app, `/api/authorizations/${theirs}/revoke`, {
-			method: "POST",
-			cookie: adminCookie,
-			body: {},
-		});
-		expect(byAdmin.status).toBe(200);
-		const row = await db
-			.selectFrom("authorizations")
-			.select("revoked_at")
-			.where("id", "=", theirs)
-			.executeTakeFirstOrThrow();
-		expect(row.revoked_at).not.toBeNull();
 
-		const list = (await (await call(app, "/api/authorizations", { cookie: other.cookie })).json()) as {
+		// The list is an administrative view now; owners keep the signing and waiting endpoints.
+		const forbidden = await call(app, "/api/authorizations", { cookie: owner.cookie });
+		expect(forbidden.status).toBe(403);
+		expect(((await forbidden.json()) as { error: string }).error).toBe("only administrators can list authorizations");
+
+		const list = (await (await call(app, "/api/authorizations", { cookie: adminCookie })).json()) as {
 			items: {
 				id: string;
-				revokedAt: string | null;
 				command: { method: string; match: string; target: string; specSha256: string };
 				nodes: string[];
 				taskIds: string[] | null;
 			}[];
 		};
-		expect(list.items.map((entry) => entry.id)).toEqual([theirs]);
-		expect(list.items[0]?.revokedAt).not.toBeNull();
-		expect(list.items[0]?.command).toEqual({
+		expect(list.items.map((entry) => entry.id).sort()).toEqual([mine, theirs].sort());
+		const stored = list.items.find((entry) => entry.id === theirs);
+		expect(stored).not.toHaveProperty("revokedAt");
+		expect(stored?.command).toEqual({
 			method: "exec",
 			match: "exact",
 			target: "systemctl restart nginx",
 			specSha256: Buffer.from(specSha256(EXEC)).toString("hex"),
 		});
-		expect(list.items[0]?.nodes).toEqual(["another-node"]);
-		expect(list.items[0]?.taskIds).toBeNull();
-		const adminList = (await (await call(app, "/api/authorizations", { cookie: adminCookie })).json()) as {
-			items: unknown[];
-		};
-		expect(adminList.items).toHaveLength(2);
+		expect(stored?.nodes).toEqual(["another-node"]);
+		expect(stored?.taskIds).toBeNull();
 	});
 
 	it("warns about a node whose clock differs from crhs", async () => {

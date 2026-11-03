@@ -60,7 +60,8 @@ func newGrantCmd() *cobra.Command {
 
 With --payload the payload of a WebUI authorization request is signed. Without it the flags
 build a new payload: --nodes names the nodes the authorization is for, --method with --exact or
---prefix restricts what it allows, and --task makes it one-shot.
+--prefix restricts what it allows, --deadline (required) bounds how long it can be used, and
+--task makes it one-shot. Every authorization carries a deadline.
 
 The payload is shown and confirmed before signing. crha runs
 "ssh-keygen -Y sign -n crh-auth-v1" with the payload on stdin and never reads the private key
@@ -79,7 +80,7 @@ the WebUI accepts (POST /api/authorizations).`,
 	f.StringVar(&opts.exact, "exact", "", "allow exactly this target")
 	f.StringVar(&opts.specSHA256, "spec-sha256", "", "hex SHA-256 of the complete task spec (with --exact)")
 	f.StringVar(&opts.prefix, "prefix", "", "allow targets starting with this prefix")
-	f.StringVar(&opts.deadline, "deadline", "", "deadline: a duration (24h) or an RFC 3339 time")
+	f.StringVar(&opts.deadline, "deadline", "", "deadline (required): a duration (24h) or an RFC 3339 time")
 	f.StringArrayVar(&opts.tasks, "task", nil, "bind the authorization to a task id (repeatable)")
 	f.Uint64Var(&opts.attempt, "attempt", 0, "task attempt (default 1 with --task)")
 	f.StringVar(&opts.note, "note", "", "note shown with the authorization; it is signed")
@@ -95,9 +96,6 @@ func runGrant(cmd *cobra.Command, opts *grantOptions) error {
 	payload, raw, err := grantPayload(opts)
 	if err != nil {
 		return err
-	}
-	if opts.payload == "" && payload.DeadlineMS == nil {
-		fmt.Fprintln(stderr, "warning: this authorization does not expire")
 	}
 	view, err := json.MarshalIndent(grantViewFor(payload, raw), "", "  ")
 	if err != nil {
@@ -172,6 +170,11 @@ func (o *grantOptions) validate() error {
 		}
 		return nil
 	}
+	// Every authorization the flags build must expire. Without a deadline it could be used
+	// forever and the privileged mode refuses it anyway.
+	if o.deadline == "" {
+		return errors.New("grant: --deadline is required")
+	}
 	if len(o.nodes) == 0 {
 		return errors.New("grant: --nodes or --payload is required")
 	}
@@ -194,9 +197,6 @@ func (o *grantOptions) validate() error {
 		return errors.New("grant: --any-command cannot be combined with --exact, --prefix or --spec-sha256")
 	}
 	if len(o.tasks) > 0 {
-		if o.deadline == "" {
-			return errors.New("grant: a one-shot authorization (--task) requires --deadline")
-		}
 		if err := checkOneShotNodes(o.nodes, o.tasks); err != nil {
 			return err
 		}
@@ -236,6 +236,11 @@ func decodeGrantPayload(text string) (*protocol.AuthorizationPayload, []byte, er
 		if err := checkOneShotNodes(payload.Nodes, *payload.TaskIDs); err != nil {
 			return nil, nil, fmt.Errorf("grant: --payload: %w", err)
 		}
+	}
+	// The privileged mode rejects an authorization without a deadline; refuse it here, before
+	// the user confirms and signs it.
+	if payload.DeadlineMS == nil {
+		return nil, nil, errors.New("grant: --payload has no deadline; every authorization must carry one")
 	}
 	return payload, raw, nil
 }

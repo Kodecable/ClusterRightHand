@@ -181,7 +181,6 @@ const AUTHORIZATION_LABELS: Record<string, MessageDescriptor> = {
 	signed: msg`Signed`,
 	pending: msg`Pending`,
 	awaiting: msg`Awaiting signature`,
-	revoked: msg`Revoked`,
 	expired: msg`Expired`,
 	rejected: msg`Rejected`,
 	dead: msg`Expired`,

@@ -387,13 +387,7 @@ describe("message codecs", () => {
 			"task.output.ack",
 			"task.exit.ack",
 		]);
-		expect(OPTIONAL_NAMES).toEqual([
-			"revocations.add",
-			"local.request",
-			"local.withdraw",
-			"trust.summary",
-			"local.decision",
-		]);
+		expect(OPTIONAL_NAMES).toEqual(["local.request", "local.withdraw", "trust.summary", "local.decision"]);
 		expect(SUPPORTED_NAMES).toEqual([...REQUIRED_NAMES, ...OPTIONAL_NAMES]);
 		expect(SUPPORTED_NAMES).not.toContain("trust.query");
 		expect(SUPPORTED_NAMES).not.toContain("revocations.set");
@@ -405,7 +399,6 @@ describe("message codecs", () => {
 			"local.request",
 			"local.withdraw",
 			"ping",
-			"revocations.add",
 			"task.cancel",
 			"task.input",
 			"task.query",

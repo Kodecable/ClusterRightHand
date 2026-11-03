@@ -1,6 +1,6 @@
 /**
  * Authorization payloads (doc/protocol.md#授权对象): building the CBOR bytes that get signed and
- * the SHA-256 identifiers used for revocation and the database.
+ * the SHA-256 identifiers used by the database.
  */
 import { createHash } from "node:crypto";
 import {
@@ -20,7 +20,7 @@ export function specSha256(spec: TaskSpec): Uint8Array {
 	);
 }
 
-/** SHA-256 of the payload bytes: the authorization id used for revocation and storage. */
+/** SHA-256 of the payload bytes: the authorization id used for storage. */
 export function authorizationId(payloadBytes: Uint8Array): Uint8Array {
 	return Uint8Array.from(createHash("sha256").update(payloadBytes).digest());
 }

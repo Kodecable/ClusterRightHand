@@ -165,9 +165,6 @@ func decodeFixtureBody(frame *Frame) (any, error) {
 		case CmdTaskQuery:
 			var v TaskQuery
 			return v, Unmarshal(frame.Body, &v)
-		case CmdRevocationsAdd:
-			var v RevocationsAdd
-			return v, Unmarshal(frame.Body, &v)
 		case CmdLocalRequest:
 			var v LocalRequest
 			return v, Unmarshal(frame.Body, &v)
@@ -189,7 +186,7 @@ func decodeFixtureBody(frame *Frame) (any, error) {
 		case CmdTaskQuery:
 			var v TaskStatus
 			return v, Unmarshal(frame.Body, &v)
-		case CmdRevocationsAdd, CmdLocalWithdraw:
+		case CmdLocalWithdraw:
 			var v Empty
 			return v, Unmarshal(frame.Body, &v)
 		case CmdLocalRequest:
@@ -287,7 +284,7 @@ func fixtureCommands() []string {
 	return []string{
 		CmdHello, CmdPing, CmdTaskStart, CmdTaskInput, CmdTaskCancel, CmdTaskQuery,
 		EventTaskOutput, EventTaskExit, EventFacts, EventNodeStatus, EventOutputAck, EventTaskExitAck,
-		CmdRevocationsAdd, CmdLocalRequest, CmdLocalWithdraw, EventTrustSummary, EventLocalDecision,
+		CmdLocalRequest, CmdLocalWithdraw, EventTrustSummary, EventLocalDecision,
 	}
 }
 
@@ -371,8 +368,6 @@ var fixtureExpectedIDs = []string{
 	"event.node.status.disabled",
 	"event.task.output.ack",
 	"event.task.exit.ack",
-	"request.revocations.add",
-	"response.revocations.add",
 	"request.local.request",
 	"response.local.request",
 	"request.local.withdraw",
@@ -779,18 +774,6 @@ func expectedFixtureValue(id string) (any, bool) {
 			Body: TaskExitAck{TaskID: "t-exec-argv"},
 		}, true
 
-	case "request.revocations.add":
-		return fixtureFrame{
-			Kind: FrameRequest, ID: 13, Name: CmdRevocationsAdd,
-			Body: RevocationsAdd{Entries: []Revocation{
-				{AuthorizationID: fixtureHash(0x11), DeadlineMS: ptr(Int(1793016300000))},
-			}},
-		}, true
-	case "response.revocations.add":
-		return fixtureFrame{
-			Kind: FrameResponse, ID: 13, Name: CmdRevocationsAdd, OK: true,
-			Body: Empty{},
-		}, true
 	case "request.local.request":
 		return fixtureFrame{
 			Kind: FrameRequest, ID: 14, Name: CmdLocalRequest,

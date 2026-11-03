@@ -520,11 +520,11 @@ func TestRoleNames(t *testing.T) {
 		want []string
 	}{
 		{RoleForward, []string{
-			"local.decision", "local.request", "local.withdraw", "revocations.add",
+			"local.decision", "local.request", "local.withdraw",
 			"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start",
 			"trust.query", "trust.summary",
 		}},
-		{RoleLocal, []string{"local.approve", "local.deny", "pending.list", "revocations.add"}},
+		{RoleLocal, []string{"local.approve", "local.deny", "pending.list"}},
 	}
 	for _, tc := range cases {
 		if got := NamesFor(tc.role); !reflect.DeepEqual(got, tc.want) {

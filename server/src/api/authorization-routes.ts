@@ -1,11 +1,10 @@
 /**
  * User authorizations (doc/m4.md M4.4, doc/privilege.md#授权路径): submitting a signed authorization
- * (pasted `crha grant` output or a Passkey assertion), listing one's own for display and revocation,
- * and the pending payload the waiting page shows its owner.
+ * (pasted `crha grant` output or a Passkey assertion), the administrators' list, and the pending
+ * payload the waiting page shows its owner.
  */
 import { type AuthorizationPayload, decodeAuthorizationPayload } from "@crh/protocol";
 import { Hono } from "hono";
-import { userActor } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import { nodeAccess } from "../cluster/nodes.ts";
 import { decodedPayloadOf, pendingForGroup, pendingForTask } from "../cluster/pending.ts";
@@ -53,20 +52,19 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 	});
 
 	/**
-	 * The caller's own authorizations; administrators see their organization's (doc/access-control.md#审计).
+	 * The organization's authorizations; administrators only (doc/access-control.md#审计).
 	 * Keyset paginated: the old hard cap of 200 rows is gone (doc/webui.md#api-约定).
 	 */
 	app.get("/authorizations", async (c) => {
 		const user = c.get("user");
 		const orgId = await orgOf(db, user.userId);
+		if (user.kind !== "admin" || orgId === undefined) {
+			return jsonError(c, 403, "only administrators can list authorizations");
+		}
 		const limit = parseLimit(c.req.query("limit"));
 		const rawCursor = c.req.query("cursor");
 		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, AUTHORIZATIONS_CURSOR);
-		let query = db.selectFrom("authorizations").selectAll();
-		query =
-			user.kind === "admin" && orgId !== undefined
-				? query.where("org_id", "=", orgId)
-				: query.where("issuer_user_id", "=", user.userId);
+		let query = db.selectFrom("authorizations").selectAll().where("org_id", "=", orgId);
 		if (cursor) query = query.where(descendingKeyset(["created_at"], cursor));
 		const page = await cursorRows(
 			limit,
@@ -94,29 +92,10 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 					issuedAt: decoded?.issuedAt ?? null,
 					deadline: row.deadline,
 					createdAt: row.created_at,
-					revokedAt: row.revoked_at,
 				};
 			}),
 			nextCursor: page.nextCursor,
 		});
-	});
-
-	/** Owners revoke their own authorizations; administrators any in their organization. */
-	app.post("/authorizations/:id/revoke", async (c) => {
-		if (!options.cluster) return c.json({ error: "the cluster is not running" }, 503);
-		const user = c.get("user");
-		const id = c.req.param("id");
-		const row = await db
-			.selectFrom("authorizations")
-			.select(["issuer_user_id", "org_id"])
-			.where("id", "=", id)
-			.executeTakeFirst();
-		if (!row) return jsonError(c, 404, "no such authorization");
-		if (user.kind !== "admin" && row.issuer_user_id !== user.userId) {
-			return jsonError(c, 403, "only the issuer or an administrator can revoke it");
-		}
-		const result = await options.cluster.revokeAuthorization(id, userActor(user));
-		return c.json({ authorization: { id: result.id, revokedAt: result.revokedAt } });
 	});
 
 	/** The pending payload of a task, for its owner (doc/m4.md M4.4); other users get a 403. */

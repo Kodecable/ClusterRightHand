@@ -19,7 +19,7 @@ One container is one node:
 
 Both configuration files name every path explicitly, as crha has no built-in defaults: the fixture's
 `privileged.toml` sets `socket = "/run/crha/privileged.sock"`, `state_dir = "/var/lib/crha/privileged"`
-(the `used` / `revoked` lists) and `log = "/var/log/crha/privileged.jsonl"`; `crha.toml` sets
+(the `used` list) and `log = "/var/log/crha/privileged.jsonl"`; `crha.toml` sets
 `state_dir = "/var/lib/crha"` and `[privileged] socket` (required only in `forward` mode).
 
 The image is `ubuntu:24.04` plus `openssh-server`, `sudo`, `opendoas`, `ca-certificates` and `util-linux`.
@@ -43,7 +43,7 @@ store afterwards; containers are removed by each test file.
 | `<temp>/ssh` | `/opt/crh/ssh` (ro) | sshd host key, `authorized_keys`, client key |
 | the built `crha` | `/usr/local/bin/crha` (ro) | one binary for both modes |
 
-Node state (identity key, `used` / `revoked` lists, output files, logs) stays inside the container. That is
+Node state (identity key, `used` list, output files, logs) stays inside the container. That is
 why restarting the privileged mode does not lose the authorization state.
 
 ### Network and boot
@@ -63,7 +63,7 @@ Tests control the processes through `podman exec /usr/local/bin/privctl.sh`:
 start-priv | stop-priv | restart-priv | hup-priv
 start-crha | stop-crha | restart-crha
 start-sshd | stop-sshd | start-all | stop-all
-reset-priv-state     # delete used / revoked, back to a clean authorization state
+reset-priv-state     # delete used, back to a clean authorization state
 wait-priv-socket | status
 ```
 
@@ -99,7 +99,7 @@ capability matrix is:
 | A node that only trusts the user: nothing runs without the owner's signature; `crha grant` makes it run; an unregistered key is refused | `forward.test.ts` "a node that only trusts the user" |
 | `require-cosign`: a user signature must carry crhs's cosignature | `forward.test.ts` "require-cosign" |
 | Local approval: `crha pending` / `approve` / `deny`; re-registration after a privileged-mode restart; survival across a non-privileged disconnect; fallback from a refused crhs signature with `attempt + 1` | `forward.test.ts` "local approval" |
-| Revocation, one-shot replay, persistent `used` list, local `revoke` | `forward.test.ts` "revocation, one-shot replay and the used list" |
+| One-shot replay and the persistent `used` list | `forward.test.ts` "one-shot replay and the used list" |
 | Guard rules: symlink read refused, unnormalized path refused, shell command cannot hide behind a prefix rule, `env_allow` honoured | `forward.test.ts` "path, env and prefix attempts" |
 | Trust digest: changes on reload, a waiting task is re-planned, `privileged_unavailable` while the daemon is away | `forward.test.ts` "trust digest, re-planning and privileged_unavailable" |
 | SSH nodes: `privileged` is ignored, a notice goes to stderr, SFTP file tasks still work, the SSH user's identity is kept | `ssh.test.ts` |

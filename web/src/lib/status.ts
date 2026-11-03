@@ -79,7 +79,6 @@ export function authorizationStatusTone(status: string): StatusTone {
 		case "pending":
 		case "awaiting":
 			return "warn";
-		case "revoked":
 		case "expired":
 		case "rejected":
 		case "dead":

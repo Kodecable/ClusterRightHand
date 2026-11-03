@@ -1,6 +1,7 @@
 package authz
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -289,8 +290,48 @@ func TestDecideNoCandidate(t *testing.T) {
 	}
 }
 
-// Revocation is step 9, after every earlier step passes.
-func TestDecideRevokedOrder(t *testing.T) {
+// Every authorization must carry a deadline, for every trust role: without one, the
+// privileged mode would have to trust the used record forever. Step 4 is the authorization
+// body check, the same step and result the max_ttl path uses.
+func TestDecideRequiresDeadline(t *testing.T) {
+	now := testNow()
+	for _, role := range []protocol.TrustRole{protocol.TrustRoleCRHS, protocol.TrustRoleUser} {
+		t.Run(string(role), func(t *testing.T) {
+			entry := Entry{Name: "signer", Role: role, Kinds: []protocol.TrustKind{protocol.TrustKindExecute}}
+			payload := &protocol.AuthorizationPayload{
+				V:          protocol.AuthPayloadVersion,
+				Nodes:      []string{"n"},
+				IssuedAtMS: protocol.Int(now.UnixMilli()),
+			}
+			raw, err := protocol.Marshal(payload)
+			if err != nil {
+				t.Fatalf("encode payload: %v", err)
+			}
+			auth := &Authorization{
+				Payload:    raw,
+				Decoded:    payload,
+				Signatures: []Signature{{Entry: &entry, Valid: true}},
+			}
+			decision := Decide(Input{
+				Now:           now,
+				NodeID:        "n",
+				Trust:         []Entry{entry},
+				Task:          Task{ID: "t", Attempt: 1, Spec: execSpec()},
+				Authorization: auth,
+			})
+			if decision.Result != ResultExpired || decision.Step != StepAuthorization {
+				t.Fatalf("got %s, want %s at step %d", decision, ResultExpired, StepAuthorization)
+			}
+			if !strings.Contains(decision.Message, "no deadline") {
+				t.Fatalf("message = %q, want a missing-deadline explanation", decision.Message)
+			}
+		})
+	}
+}
+
+// The used-list watermark is checked next to the one-shot checks: an authorization issued at
+// or before it may have lost its used pair and must be signed again.
+func TestDecideRejectsWatermarkedAuthorization(t *testing.T) {
 	now := testNow()
 	alice := Entry{Name: "alice", Role: protocol.TrustRoleUser, Kinds: []protocol.TrustKind{protocol.TrustKindExecute}}
 	auth := testAuthorization(t, now, "t", 1)
@@ -301,20 +342,29 @@ func TestDecideRevokedOrder(t *testing.T) {
 		Trust:         []Entry{alice},
 		Task:          Task{ID: "t", Attempt: 1, Spec: execSpec()},
 		Authorization: auth,
-		Revoked:       func([32]byte) bool { return true },
+		Watermarked:   func(issuedAtMS int64) bool { return issuedAtMS <= now.UnixMilli() },
 	}
-	if decision := Decide(input); decision.Result != ResultRejected || decision.Step != StepRevocation {
-		t.Fatalf("got %s, want %s at step %d", decision, ResultRejected, StepRevocation)
+	decision := Decide(input)
+	if decision.Result != ResultRejected || decision.Step != StepOneShot {
+		t.Fatalf("got %s, want %s at step %d", decision, ResultRejected, StepOneShot)
+	}
+	if !strings.Contains(decision.Message, "watermark") {
+		t.Fatalf("message = %q, want a watermark explanation", decision.Message)
 	}
 
-	t.Run("earlier failure wins", func(t *testing.T) {
-		bad := input
-		bad.Now = now.Add(2 * time.Minute) // deadline is one minute after now
-		decision := Decide(bad)
-		if decision.Result != ResultExpired || decision.Step != StepAuthorization {
-			t.Fatalf("got %s, want %s at step %d", decision, ResultExpired, StepAuthorization)
-		}
-	})
+	// An authorization newer than the watermark still passes.
+	input.Watermarked = func(issuedAtMS int64) bool {
+		return issuedAtMS <= now.Add(-2*time.Minute).UnixMilli()
+	}
+	if decision := Decide(input); decision.Result != ResultAccepted || decision.Entry != "alice" {
+		t.Fatalf("got %s, want accepted by alice", decision)
+	}
+
+	// The task id check keeps precedence: an already executed task is still already_accepted.
+	input.Executed = func(string) bool { return true }
+	if decision := Decide(input); decision.Result != ResultAlreadyAccepted {
+		t.Fatalf("got %s, want %s", decision, ResultAlreadyAccepted)
+	}
 }
 
 func TestMethodCovers(t *testing.T) {

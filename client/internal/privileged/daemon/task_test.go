@@ -1,15 +1,21 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
+	"io"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/audit"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/localclient"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
@@ -204,23 +210,76 @@ func TestRequireCosign(t *testing.T) {
 	}
 }
 
-func TestRevokedPersistsAcrossRestart(t *testing.T) {
+// TestNoDeadlineRefused covers that every authorization must carry a deadline: the daemon
+// refuses a payload without one at the authorization step, before it touches the used list.
+func TestNoDeadlineRefused(t *testing.T) {
 	keys := newTestKeys(t)
 	env := crhsOnlyEnv(t, keys)
 	client := dialForward(t, env.paths.Socket)
-	ctx := requestContext(t)
 
-	ts := execTask("revoked-1", 1, "/bin/echo", "revoked")
-	payload := payloadFor("revoked-1", 1, exactCommand(t, &ts.Spec), nil)
+	ts := execTask("no-deadline-1", 1, "/bin/echo", "late")
+	payload := payloadFor("no-deadline-1", 1, exactCommand(t, &ts.Spec), nil)
+	payload.DeadlineMS = nil
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
-	if err := client.revoke(ctx, payloadID(t, payload)); err != nil {
-		t.Fatalf("revocations.add: %v", err)
+	remote := expectRemoteCode(t, client.start(requestContext(t), ts), "authorization_expired")
+	if !strings.Contains(remote.Message, "no deadline") {
+		t.Fatalf("refusal = %q, want a missing-deadline explanation", remote.Message)
 	}
-	expectRemoteCode(t, client.start(ctx, ts), "authorization_rejected")
+	refused := waitLogRecord(t, env.paths.Log, "task.refused", "no-deadline-1", 5*time.Second)
+	if refused["code"] != "authorization_expired" || refused["step"] != float64(4) {
+		t.Fatalf("task.refused record = %v", refused)
+	}
+	if env.server.store.Executed("no-deadline-1") {
+		t.Fatal("a refused authorization was written to the used list")
+	}
+}
 
-	env.restart()
-	client = dialForward(t, env.paths.Socket)
-	expectRemoteCode(t, client.start(requestContext(t), ts), "authorization_rejected")
+// TestNoPersistUsed covers the in-memory-only switch at the daemon boundary: New logs the
+// security warning and does not create the state directory.
+func TestNoPersistUsed(t *testing.T) {
+	keys := newTestKeys(t)
+	dir := t.TempDir()
+	paths := envPaths{
+		Dir:      dir,
+		Config:   filepath.Join(dir, "privileged.toml"),
+		Socket:   filepath.Join(dir, "priv.sock"),
+		StateDir: filepath.Join(dir, "state"),
+		Log:      filepath.Join(dir, "privileged.jsonl"),
+	}
+	cfgText := baseConfig(paths, os.Getuid()) +
+		sshTrust("crhs", "crhs", keys.crhsLine, `["execute"]`, "")
+	if err := os.WriteFile(paths.Config, []byte(cfgText), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(paths.Config)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	log, err := audit.Open(paths.Log, audit.Options{Mirror: io.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+	var stderr bytes.Buffer
+	server, err := New(cfg, Options{
+		Version:       "test",
+		Log:           log,
+		Logger:        slog.New(slog.NewTextHandler(&stderr, nil)),
+		NoPersistUsed: true,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer server.store.Close()
+	warning := stderr.String()
+	for _, want := range []string{"in memory only", "can run again until its deadline"} {
+		if !strings.Contains(warning, want) {
+			t.Fatalf("startup warning = %q, want it to contain %q", warning, want)
+		}
+	}
+	if _, err := os.Stat(paths.StateDir); !os.IsNotExist(err) {
+		t.Fatalf("NoPersistUsed created the state directory: %v", err)
+	}
 }
 
 func TestUsedPersistsAcrossRestart(t *testing.T) {
