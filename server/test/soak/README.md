@@ -59,6 +59,10 @@ The faux model is a **response factory**, not a fixed script: every queued respo
 transcript (the last user input, the tool results, or the compaction prompt). Concurrent sessions therefore cannot
 consume each other's scripted responses, and the queue is kept topped up.
 
+**Throughput and latency depend on `OUT_DIR`'s filesystem.** The crhs databases live in `OUT_DIR`, so their commits,
+WAL growth and checkpoint fsyncs go to that filesystem, even with `synchronous = NORMAL`: a tmpfs `OUT_DIR` and one on
+a real disk differ several-fold. Compare runs only with `OUT_DIR` on the same filesystem.
+
 ## Output
 
 `OUT_DIR` (default: a fresh `crh-soak-*` directory under the system temp dir) contains:

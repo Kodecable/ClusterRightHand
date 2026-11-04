@@ -7,6 +7,7 @@ import { sql } from "kysely";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type Db, openAgentStorage, openDb } from "../src/storage/db.ts";
 import { migrateToLatest } from "../src/storage/migrate.ts";
+import { openNodeSqlite } from "../src/storage/node-sqlite.ts";
 
 /**
  * crhs opens one SQLite file twice: Kysely for its own tables and pi-durable's storage for the agent
@@ -92,6 +93,26 @@ describe("SQLite connections", () => {
 		);
 		await Promise.all([...writes, ...commits]);
 		expect(await probeRows()).toHaveLength(rounds);
+	});
+});
+
+/**
+ * The business connection sets the same durability pragmas as chord's durable connection
+ * (openNodeSqliteDatabase): WAL, and synchronous = NORMAL rather than SQLite's default FULL.
+ */
+describe("SQLite pragmas", () => {
+	it("opens a file in WAL mode with synchronous = NORMAL", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "crh-sqlite-pragmas-"));
+		const database = openNodeSqlite(join(dir, "crhs.db"));
+		try {
+			const synchronous = database.prepare("PRAGMA synchronous").all([]) as ReadonlyArray<{ synchronous: number }>;
+			const journalMode = database.prepare("PRAGMA journal_mode").all([]) as ReadonlyArray<{ journal_mode: string }>;
+			expect(synchronous).toEqual([{ synchronous: 1 }]);
+			expect(journalMode).toEqual([{ journal_mode: "wal" }]);
+		} finally {
+			database.close();
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 });
 

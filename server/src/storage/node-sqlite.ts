@@ -20,7 +20,12 @@ const BUSY_TIMEOUT_MS = 5_000;
 /** Adapts node:sqlite to the interface Kysely's SqliteDialect expects (modelled on better-sqlite3). */
 export function openNodeSqlite(path: string): SqliteDatabase {
 	const db = new DatabaseSync(path);
-	db.exec(`PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`);
+	// The same WAL durability settings as chord's durable connection (openNodeSqliteDatabase): WAL + NORMAL
+	// survives a process crash, and a power loss can drop the last committed transactions but cannot corrupt
+	// the database. The default, FULL, made every business commit wait for an fsync.
+	db.exec(
+		`PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`,
+	);
 	// Kysely prepares every statement it runs; a query text is prepared once and reused, as the agent
 	// storage's own adapter does. The connection closes its statements with the database.
 	const statements = new Map<string, SqliteStatement>();
