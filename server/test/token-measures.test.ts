@@ -65,7 +65,7 @@ beforeAll(async () => {
 		storage: new MemoryStorage(),
 		models,
 		cluster,
-		groups: new TaskGroups(db, cluster, { audit }),
+		taskGroups: new TaskGroups(db, cluster, { audit }),
 		audit,
 	});
 	const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
@@ -221,7 +221,7 @@ it("backfills a pre-D101 session from durable's persisted usage at the next star
 		db: localDb,
 		models,
 		cluster,
-		groups: new TaskGroups(localDb, cluster, { audit }),
+		taskGroups: new TaskGroups(localDb, cluster, { audit }),
 		audit,
 	};
 	const first = await AgentRuntime.open({

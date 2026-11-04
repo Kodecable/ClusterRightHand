@@ -46,7 +46,6 @@ test("add an SSH node through the wizard", async ({ page }) => {
 		hostKey: "SHA256:probe",
 		credentialId: "cred-1",
 		name: "edge",
-		groups: [],
 	});
 });
 

@@ -58,17 +58,29 @@ msgstr "[指令]"
 msgid "{0, plural, one {# byte} other {# bytes}}"
 msgstr "{0, plural, one {# 字节} other {# 字节}}"
 
+#. placeholder {0}: group.memberIds.length
+#. placeholder {0}: row.original.memberIds.length
+#: src/components/node-group-picker.tsx
+#: src/features/node-groups/pages.tsx
+msgid "{0, plural, one {# member} other {# members}}"
+msgstr "{0, plural, one {# 名成员} other {# 名成员}}"
+
 #. placeholder {0}: events.state.queued
 #: src/features/sessions/pages.tsx
 msgid "{0, plural, one {# message queued} other {# messages queued}}"
 msgstr "{0, plural, one {已排队 # 条消息} other {已排队 # 条消息}}"
 
 #. placeholder {0}: value.length
+#: src/components/node-group-picker.tsx
+msgid "{0, plural, one {# node group selected} other {# node groups selected}}"
+msgstr "{0, plural, one {已选择 # 个节点组} other {已选择 # 个节点组}}"
+
+#. placeholder {0}: value.length
 #: src/components/node-picker.tsx
 msgid "{0, plural, one {# node selected} other {# nodes selected}}"
 msgstr "{0, plural, one {已选择 # 个节点} other {已选择 # 个节点}}"
 
-#. placeholder {0}: group.nodeIds.length
+#. placeholder {0}: taskGroup.nodeIds.length
 #: src/features/tasks/task-group-result.tsx
 msgid "{0, plural, one {# node} other {# nodes}}"
 msgstr "{0, plural, one {# 个节点} other {# 个节点}}"
@@ -142,8 +154,12 @@ msgstr "共 {exact} 个 token"
 
 #. placeholder {0}: item.group.nodeIds.length
 #: src/components/approval-card.tsx
-msgid "{groupKind} on {0} node(s): {nodeList}"
-msgstr "{groupKind}，涉及 {0} 个节点：{nodeList}"
+#~ msgid "{groupKind} on {0} node(s): {nodeList}"
+#~ msgstr "{groupKind}，涉及 {0} 个节点：{nodeList}"
+
+#: src/components/approval-card.tsx
+#~ msgid "{groupKind} on {groupTargets}"
+#~ msgstr "{groupKind}，目标：{groupTargets}"
 
 #: src/markdown/CodeBlock.tsx
 msgid "{lineCount, plural, one {# line} other {# lines}}"
@@ -156,6 +172,10 @@ msgstr "{lines, plural, one {# 行} other {# 行}}"
 #: src/features/sessions/children-bar.tsx
 msgid "{running} running"
 msgstr "{running} 个运行中"
+
+#: src/components/approval-card.tsx
+msgid "{taskGroupKind} on {taskGroupTargets}"
+msgstr "{taskGroupKind}，目标：{taskGroupTargets}"
 
 #: src/features/sessions/children-bar.tsx
 msgid "{total, plural, one {# subagent} other {# subagents}}"
@@ -233,6 +253,26 @@ msgstr "需要填写名称。"
 #: src/features/nodes/crhs-key-panel.tsx
 msgid "A node authorizes privileged tasks signed by this key when its privileged.toml trusts the key below."
 msgstr "当节点的 privileged.toml 信任下面的密钥时，节点会授权由该密钥签名的特权任务。"
+
+#: src/features/nodes/node-groups-dialog.tsx
+msgid "A node can be in any number of node groups."
+msgstr "一个节点可以属于任意多个节点组。"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "A node group name is required."
+msgstr "必须填写节点组名称。"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "A node group name must be 2-64 characters, start with a letter, end with a letter or digit, and contain only letters, digits, \".\", \"_\", \"/\" or \"-\"."
+msgstr "节点组名称必须为 2–64 个字符，以字母开头、以字母或数字结尾，且只能包含字母、数字、“.”、“_”、“/”或“-”。"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "A node group name must not start with \"_\": names starting with \"_\" are reserved for the system."
+msgstr "节点组名称不能以 “_” 开头：以 “_” 开头的名称保留给系统。"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "A node group selects several nodes for rules, batch runs and schedules."
+msgstr "节点组用于在规则、批量运行和计划任务中选择多个节点。"
 
 #: src/features/tasks/taskForm.ts
 msgid "A path is required."
@@ -334,7 +374,7 @@ msgid "Actor type"
 msgstr "操作者类型"
 
 #: src/components/quota-card.tsx
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Add"
 msgstr "添加"
 
@@ -362,7 +402,7 @@ msgstr "添加 SSH 密钥或注册 Passkey，以便为特权任务签名授权�
 msgid "Add jump host"
 msgstr "添加跳板机"
 
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Add member"
 msgstr "添加成员"
 
@@ -437,6 +477,15 @@ msgstr "全部内置模型"
 msgid "All host keys are confirmed."
 msgstr "所有主机密钥都已确认。"
 
+#: src/components/node-targets.tsx
+#: src/features/batch/pages.tsx
+msgid "All my nodes"
+msgstr "我的全部节点"
+
+#: src/features/node-groups/pages.tsx
+msgid "All node groups"
+msgstr "全部节点组"
+
 #: src/features/nodes/pages.tsx
 msgid "All nodes"
 msgstr "全部节点"
@@ -467,6 +516,10 @@ msgstr "已尝试：{0}。"
 #: src/components/approval-card.tsx
 msgid "Always allow rule"
 msgstr "始终允许规则"
+
+#: src/features/node-groups/pages.tsx
+msgid "An administrator creates node groups."
+msgstr "节点组由管理员创建。"
 
 #: src/features/authorizations/pages.tsx
 #~ msgid "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
@@ -814,6 +867,10 @@ msgstr "选择节点"
 msgid "Choose at least one target."
 msgstr "请至少选择一个目标。"
 
+#: src/components/node-group-picker.tsx
+msgid "Choose node groups"
+msgstr "选择节点组"
+
 #: src/components/node-picker.tsx
 #: src/features/batch/pages.tsx
 msgid "Choose nodes"
@@ -835,6 +892,7 @@ msgstr "Claude Code 命令"
 msgid "Claude Code on the laptop"
 msgstr "笔记本上的 Claude Code"
 
+#: src/components/node-group-picker.tsx
 #: src/components/node-picker.tsx
 msgid "Clear"
 msgstr "清除"
@@ -869,12 +927,12 @@ msgid "Collapse subagents"
 msgstr "收起子会话"
 
 #: src/features/nodes/ssh-wizard.tsx
-msgid "Comma separated; they decide who may see and operate the node."
-msgstr "用逗号分隔；它们决定谁可以查看和操作该节点。"
+#~ msgid "Comma separated; they decide who may see and operate the node."
+#~ msgstr "用逗号分隔；它们决定谁可以查看和操作该节点。"
 
 #: src/features/nodes/ssh-node-section.tsx
-msgid "Comma separated; they decide who may see and operate this node."
-msgstr "用逗号分隔；它们决定谁可以查看和操作此节点。"
+#~ msgid "Comma separated; they decide who may see and operate this node."
+#~ msgstr "用逗号分隔；它们决定谁可以查看和操作此节点。"
 
 #: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
@@ -983,6 +1041,15 @@ msgstr "复制命令"
 msgid "Copy crha grant command"
 msgstr "复制 crha grant 命令"
 
+#: src/features/node-groups/pages.tsx
+msgid "Copy node group id"
+msgstr "复制节点组 ID"
+
+#. placeholder {0}: row.original.name
+#: src/features/node-groups/pages.tsx
+msgid "Copy node group id of {0}"
+msgstr "复制节点组 {0} 的 ID"
+
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Copy public key"
 msgstr "复制公钥"
@@ -1025,6 +1092,10 @@ msgstr "无法共同签名"
 msgid "Create"
 msgstr "创建"
 
+#: src/features/node-groups/pages.tsx
+msgid "Create a node group to run the same task on several nodes."
+msgstr "创建节点组，即可在多台节点上运行同一任务。"
+
 #: src/features/schedules/pages.tsx
 #~ msgid "Create a schedule to run a fixed prompt on a cron expression."
 #~ msgstr "创建计划任务，按 cron 表达式运行固定提示词。"
@@ -1046,12 +1117,17 @@ msgid "Create credential"
 msgstr "创建凭据"
 
 #: src/features/users/groups-section.tsx
-msgid "Create group"
-msgstr "创建组"
+#~ msgid "Create group"
+#~ msgstr "创建组"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Create node"
 msgstr "创建节点"
+
+#: src/features/node-groups/dialogs.tsx
+#: src/features/node-groups/pages.tsx
+msgid "Create node group"
+msgstr "创建节点组"
 
 #: src/features/schedules/create-schedule-dialog.tsx
 msgid "Create schedule"
@@ -1070,6 +1146,10 @@ msgstr "创建令牌"
 #: src/features/users/new-user-dialog.tsx
 msgid "Create user"
 msgstr "创建用户"
+
+#: src/features/users/user-groups-section.tsx
+msgid "Create user group"
+msgstr "创建用户组"
 
 #: src/components/task-result.tsx
 #: src/features/authorizations/pages.tsx
@@ -1162,10 +1242,11 @@ msgstr "默认"
 #~ msgstr "默认使用当前浏览器的时区。"
 
 #: src/features/credentials/pages.tsx
+#: src/features/node-groups/pages.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/settings/pages.tsx
 #: src/features/tokens/pages.tsx
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Delete"
 msgstr "删除"
 
@@ -1186,18 +1267,28 @@ msgid "Delete credential"
 msgstr "删除凭据"
 
 #: src/features/users/groups-section.tsx
-msgid "Delete group"
-msgstr "删除组"
+#~ msgid "Delete group"
+#~ msgstr "删除组"
 
 #. placeholder {0}: group.name
 #: src/features/users/groups-section.tsx
-msgid "Delete group {0}"
-msgstr "删除组 {0}"
+#~ msgid "Delete group {0}"
+#~ msgstr "删除组 {0}"
 
 #. placeholder {0}: group.name
 #: src/features/users/groups-section.tsx
-msgid "Delete group {0}?"
-msgstr "删除组 {0}？"
+#~ msgid "Delete group {0}?"
+#~ msgstr "删除组 {0}？"
+
+#: src/features/node-groups/pages.tsx
+msgid "Delete node group"
+msgstr "删除节点组"
+
+#. placeholder {0}: deleting.name
+#. placeholder {0}: group.name
+#: src/features/node-groups/pages.tsx
+msgid "Delete node group {0}?"
+msgstr "删除节点组 {0}？"
 
 #: src/features/settings/pages.tsx
 msgid "Delete provider"
@@ -1225,6 +1316,24 @@ msgstr "删除令牌"
 #: src/features/tokens/pages.tsx
 msgid "Delete token {0}?"
 msgstr "删除令牌 {0}？"
+
+#: src/features/users/user-groups-section.tsx
+msgid "Delete user group"
+msgstr "删除用户组"
+
+#. placeholder {0}: group.name
+#: src/features/users/user-groups-section.tsx
+msgid "Delete user group {0}"
+msgstr "删除用户组 {0}"
+
+#. placeholder {0}: group.name
+#: src/features/users/user-groups-section.tsx
+msgid "Delete user group {0}?"
+msgstr "删除用户组 {0}？"
+
+#: src/components/node-targets.tsx
+msgid "Deleted node or node group"
+msgstr "已删除的节点或节点组"
 
 #: src/components/status-badge.tsx
 msgid "Denied"
@@ -1306,8 +1415,12 @@ msgid "Each rule starts with exec, file.read or file.write."
 msgstr "规则必须以 exec、file.read 或 file.write 开头。"
 
 #: src/features/tokens/rules-dialog.tsx
-msgid "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes, and exact or prefix."
-msgstr "每条规则：action（allow、deny、require-approval）、可选 method（exec、file.read、file.write）、nodes，以及 exact 或 prefix。"
+msgid "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes (names or ids of nodes and node groups, or _all), and exact or prefix."
+msgstr "每条规则：action（allow、deny、require-approval）、可选 method（exec、file.read、file.write）、nodes（节点和节点组的名称或 ID，或 _all），以及 exact 或 prefix。"
+
+#: src/features/tokens/rules-dialog.tsx
+#~ msgid "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes, and exact or prefix."
+#~ msgstr "每条规则：action（allow、deny、require-approval）、可选 method（exec、file.read、file.write）、nodes，以及 exact 或 prefix。"
 
 #: src/features/settings/review-model-card.tsx
 msgid "Each session's own model"
@@ -1327,8 +1440,16 @@ msgid "Edit {0}"
 msgstr "编辑 {0}"
 
 #: src/features/nodes/ssh-node-section.tsx
-msgid "Edit groups"
-msgstr "编辑组"
+#~ msgid "Edit groups"
+#~ msgstr "编辑组"
+
+#: src/features/node-groups/pages.tsx
+msgid "Edit members"
+msgstr "编辑成员"
+
+#: src/features/nodes/pages.tsx
+msgid "Edit node groups"
+msgstr "编辑节点组"
 
 #. placeholder {0}: existing.providerId
 #: src/features/settings/provider-dialog.tsx
@@ -1447,6 +1568,10 @@ msgstr "每个模型的最大输出至少为 1 个 token。"
 #: src/features/settings/providers.ts
 msgid "Every model needs an id."
 msgstr "每个模型都需要 ID。"
+
+#: src/features/batch/pages.tsx
+msgid "Every node you can operate, including nodes added later."
+msgstr "你能操作的所有节点，包括之后添加的节点。"
 
 #: src/features/settings/providers.ts
 msgid "Every request header value must be a string."
@@ -1587,36 +1712,34 @@ msgid "Grantee"
 msgstr "被授权方"
 
 #: src/components/task-result.tsx
-#: src/features/nodes/node-shares.tsx
-#: src/features/sessions/share-dialog.tsx
 msgid "Group"
 msgstr "用户组"
 
 #: src/features/users/groups-section.tsx
-msgid "Group created."
-msgstr "组已创建。"
+#~ msgid "Group created."
+#~ msgstr "组已创建。"
 
 #: src/features/users/groups-section.tsx
-msgid "Group deleted."
-msgstr "组已删除。"
+#~ msgid "Group deleted."
+#~ msgstr "组已删除。"
 
 #: src/features/users/groups-section.tsx
-msgid "Group name"
-msgstr "组名"
+#~ msgid "Group name"
+#~ msgstr "组名"
 
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/ssh-node-section.tsx
 #: src/features/nodes/ssh-wizard.tsx
-msgid "Groups"
-msgstr "组"
+#~ msgid "Groups"
+#~ msgstr "组"
 
 #: src/features/batch/pages.tsx
-msgid "Groups or raw targets (comma separated, e.g. group:web, node-1)"
-msgstr "分组或原始目标（逗号分隔，例如 group:web, node-1）"
+#~ msgid "Groups or raw targets (comma separated, e.g. group:web, node-1)"
+#~ msgstr "分组或原始目标（逗号分隔，例如 group:web, node-1）"
 
 #: src/features/nodes/ssh-node-section.tsx
-msgid "Groups saved."
-msgstr "组已保存。"
+#~ msgid "Groups saved."
+#~ msgstr "组已保存。"
 
 #: src/features/nodes/crhs-key-panel.tsx
 msgid "Hide trust snippet"
@@ -1675,6 +1798,10 @@ msgstr "签发者"
 msgid "It matches, pin it"
 msgstr "匹配，固定它"
 
+#: src/features/node-groups/pages.tsx
+msgid "It may have been deleted."
+msgstr "它可能已被删除。"
+
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "It must match what <0>crha enroll</0> printed, or <1>crha status</1> on the node, before you approve."
 msgstr "批准前，它必须与 <0>crha enroll</0> 打印的内容或节点上的 <1>crha status</1> 一致。"
@@ -1682,6 +1809,10 @@ msgstr "批准前，它必须与 <0>crha enroll</0> 打印的内容或节点上�
 #: src/features/tokens/pages.tsx
 msgid "Its audit trail stays; the token itself is removed."
 msgstr "审计记录会保留；令牌本身会被删除。"
+
+#: src/features/node-groups/pages.tsx
+msgid "Its members lose this node group. Rules and task groups that reference it keep the reference and display it as deleted."
+msgstr "成员将失去这个节点组。引用它的规则和任务组会保留该引用，并显示为已删除。"
 
 #: src/features/settings/pages.tsx
 msgid "Its models disappear from the model lists, and its stored key is deleted. Existing sessions that use them stop working until you change their model."
@@ -1858,16 +1989,22 @@ msgstr "最大 TTL"
 msgid "Member"
 msgstr "成员"
 
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Member added."
 msgstr "成员已添加。"
 
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Member removed."
 msgstr "成员已移除。"
 
+#: src/features/node-groups/pages.tsx
+msgid "Members"
+msgstr "成员"
+
 #. placeholder {0}: group.name
-#: src/features/users/groups-section.tsx
+#: src/features/node-groups/dialogs.tsx
+#: src/features/node-groups/pages.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Members of {0}"
 msgstr "{0} 的成员"
 
@@ -1933,6 +2070,7 @@ msgstr "上移跳板机 {0}"
 
 #: src/components/task-result.tsx
 #: src/features/credentials/pages.tsx
+#: src/features/node-groups/pages.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/schedules/pages.tsx
@@ -1967,6 +2105,10 @@ msgstr "新凭据名称"
 #: src/features/nodes/rename-node-button.tsx
 msgid "New name"
 msgstr "新名称"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "New node group"
+msgstr "新建节点组"
 
 #: src/features/auth/change-password-dialog.tsx
 #: src/features/users/reset-password-dialog.tsx
@@ -2049,10 +2191,11 @@ msgid "No events"
 msgstr "没有事件"
 
 #: src/features/users/groups-section.tsx
-msgid "No groups yet."
-msgstr "还没有组。"
+#~ msgid "No groups yet."
+#~ msgstr "还没有组。"
 
-#: src/features/users/groups-section.tsx
+#: src/features/node-groups/pages.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "No members."
 msgstr "没有成员。"
 
@@ -2079,6 +2222,14 @@ msgstr "尚未配置模型，会话无法启动。"
 #: src/features/sessions/new-session-dialog.tsx
 msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
 msgstr "尚未配置模型，会话无法启动。请让管理员配置一个。"
+
+#: src/features/node-groups/pages.tsx
+msgid "No node groups yet"
+msgstr "还没有节点组"
+
+#: src/components/node-group-picker.tsx
+msgid "No node groups."
+msgstr "没有节点组。"
 
 #: src/features/nodes/pages.tsx
 msgid "No nodes yet"
@@ -2136,6 +2287,10 @@ msgstr "还没有会话"
 msgid "No subagents."
 msgstr "没有子会话。"
 
+#: src/features/node-groups/pages.tsx
+msgid "No such node group"
+msgstr "没有这个节点组"
+
 #: src/features/nodes/node-tasks.tsx
 #: src/features/tasks/pages.tsx
 msgid "No tasks yet"
@@ -2144,6 +2299,10 @@ msgstr "还没有任务"
 #: src/features/schedules/schedule-form.tsx
 msgid "No upcoming runs."
 msgstr "没有即将运行的任务。"
+
+#: src/features/users/user-groups-section.tsx
+msgid "No user groups yet."
+msgstr "还没有用户组。"
 
 #: src/features/users/pages.tsx
 msgid "No users yet"
@@ -2165,6 +2324,51 @@ msgstr "节点已批准。"
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Node created."
 msgstr "节点已创建。"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "Node group created."
+msgstr "节点组已创建。"
+
+#: src/features/node-groups/pages.tsx
+msgid "Node group deleted."
+msgstr "节点组已删除。"
+
+#: src/features/node-groups/pages.tsx
+msgid "Node group id"
+msgstr "节点组 ID"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "Node group members saved."
+msgstr "节点组成员已保存。"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "Node group name"
+msgstr "节点组名称"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "Node group renamed."
+msgstr "节点组已重命名。"
+
+#: src/app/shell/nav.ts
+#: src/components/node-group-picker.tsx
+#: src/features/batch/pages.tsx
+#: src/features/node-groups/pages.tsx
+#: src/features/nodes/pages.tsx
+msgid "Node groups"
+msgstr "节点组"
+
+#. placeholder {0}: node.name
+#: src/features/nodes/node-groups-dialog.tsx
+msgid "Node groups of {0}"
+msgstr "{0} 的节点组"
+
+#: src/features/nodes/node-groups-dialog.tsx
+msgid "Node groups saved."
+msgstr "节点组已保存。"
+
+#: src/features/node-groups/pages.tsx
+msgid "Node groups select several nodes at once, for rules, batch runs and schedules. A node can be in any number of node groups."
+msgstr "节点组用于一次选择多个节点，可用于规则、批量运行和计划任务。一个节点可以属于任意多个节点组。"
 
 #: src/features/nodes/pages.tsx
 msgid "Node id"
@@ -2201,6 +2405,7 @@ msgstr "节点任务"
 #: src/components/node-picker.tsx
 #: src/features/authorizations/pages.tsx
 #: src/features/batch/pages.tsx
+#: src/features/node-groups/dialogs.tsx
 #: src/features/nodes/pages.tsx
 msgid "Nodes"
 msgstr "节点"
@@ -2282,8 +2487,12 @@ msgid "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-
 msgstr "一行 authorized_keys 内容：ssh-ed25519、sk-ssh-ed25519@openssh.com、ecdsa-sha2-nistp256 或 sk-ecdsa-sha2-nistp256@openssh.com。"
 
 #: src/features/approvals/pages.tsx
-msgid "One decision applies to every node in the group."
-msgstr "一个决定会应用到组内所有节点。"
+#~ msgid "One decision applies to every node in the group."
+#~ msgstr "一个决定会应用到组内所有节点。"
+
+#: src/features/approvals/pages.tsx
+msgid "One decision applies to every node in the task group."
+msgstr "一个决定会应用到任务组内所有节点。"
 
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "One rule per line: method and a target prefix."
@@ -2322,6 +2531,10 @@ msgstr "打开任务"
 #: src/features/approvals/pages.tsx
 msgid "Open the task group"
 msgstr "打开任务组"
+
+#: src/features/sessions/session-waits.tsx
+msgid "Open the task group page"
+msgstr "打开任务组页"
 
 #: src/features/sessions/session-waits.tsx
 msgid "Open the task page"
@@ -2372,6 +2585,10 @@ msgstr "或者在节点上运行 <0>crha approve {0}</0>（该节点 `local` 信
 #: src/features/nodes/pages.tsx
 msgid "OS"
 msgstr "操作系统"
+
+#: src/features/batch/pages.tsx
+msgid "Other targets (comma separated node or node-group names)"
+msgstr "其他目标（用逗号分隔节点或节点组名称）"
 
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
@@ -2657,7 +2874,7 @@ msgstr "移除"
 
 #. placeholder {0}: names.get(id) ?? id
 #. placeholder {1}: group.name
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Remove {0} from {1}"
 msgstr "从 {1} 中移除 {0}"
 
@@ -2684,6 +2901,8 @@ msgstr "移除共享"
 msgid "Remove the stored key"
 msgstr "删除已保存的密钥"
 
+#: src/features/node-groups/dialogs.tsx
+#: src/features/node-groups/pages.tsx
 #: src/features/nodes/rename-node-button.tsx
 msgid "Rename"
 msgstr "重命名"
@@ -2691,6 +2910,10 @@ msgstr "重命名"
 #: src/features/nodes/rename-node-button.tsx
 msgid "Rename node"
 msgstr "重命名节点"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "Rename node group"
+msgstr "重命名节点组"
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Repeat new password"
@@ -2856,6 +3079,10 @@ msgid "Run now"
 msgstr "立即运行"
 
 #: src/features/batch/pages.tsx
+msgid "Run on all my nodes"
+msgstr "在我的全部节点上运行"
+
+#: src/features/batch/pages.tsx
 #~ msgid "Run one task on many nodes and follow each node's result."
 #~ msgstr "在多个节点上运行同一个任务，并跟踪每个节点的结果。"
 
@@ -2887,11 +3114,18 @@ msgstr "运行中"
 
 #: src/components/dialogs.tsx
 #: src/features/nodes/rename-node-button.tsx
-#: src/features/nodes/ssh-node-section.tsx
 #: src/features/sessions/quota-dialog.tsx
 #: src/features/settings/review-model-card.tsx
 msgid "Save"
 msgstr "保存"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "Save members"
+msgstr "保存成员"
+
+#: src/features/nodes/node-groups-dialog.tsx
+msgid "Save node groups"
+msgstr "保存节点组"
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Save password"
@@ -2956,7 +3190,7 @@ msgstr "搜索会话"
 
 #: src/components/share-editor.tsx
 #: src/features/nodes/ssh-wizard.tsx
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Select…"
 msgstr "请选择…"
 
@@ -3037,8 +3271,12 @@ msgid "Shares"
 msgstr "共享"
 
 #: src/features/users/groups-section.tsx
-msgid "Shares to this group are removed."
-msgstr "共享给该组的权限会被移除。"
+#~ msgid "Shares to this group are removed."
+#~ msgstr "共享给该组的权限会被移除。"
+
+#: src/features/users/user-groups-section.tsx
+msgid "Shares to this user group are removed."
+msgstr "授予这个用户组的分享将被删除。"
 
 #: src/components/task-form-fields.tsx
 msgid "Shell command"
@@ -3134,6 +3372,10 @@ msgstr "已跳过：{skipped}"
 #: src/features/sessions/composer.tsx
 msgid "Slash commands"
 msgstr "斜杠命令"
+
+#: src/features/tokens/rules-dialog.tsx
+msgid "Some rules reference deleted nodes or node groups. Remove or replace those references before saving."
+msgstr "有些规则引用了已删除的节点或节点组。保存前请移除或替换这些引用。"
 
 #: src/components/error-state.tsx
 msgid "Something went wrong"
@@ -3291,6 +3533,10 @@ msgstr "目标类型"
 msgid "Targets"
 msgstr "目标"
 
+#: src/features/tasks/task-group-result.tsx
+msgid "Targets:"
+msgstr "目标："
+
 #: src/components/approval-card.tsx
 #: src/components/authorization-card.tsx
 #: src/components/task-result.tsx
@@ -3408,6 +3654,10 @@ msgstr "名称最多 200 个字符。"
 msgid "The new passwords do not match."
 msgstr "两次输入的新密码不一致。"
 
+#: src/features/node-groups/dialogs.tsx
+msgid "The node group contains exactly the nodes selected here."
+msgstr "节点组将正好包含这里选中的节点。"
+
 #: src/features/nodes/node-trust.tsx
 msgid "The node has not reported its trust configuration."
 msgstr "节点尚未上报其信任配置。"
@@ -3495,6 +3745,10 @@ msgstr "Yolo 预设所有操作都不经询问或检查直接运行。"
 #: src/app/shell/user-menu.tsx
 msgid "Theme"
 msgstr "主题"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "There are no nodes to add yet."
+msgstr "还没有可添加的节点。"
 
 #: src/features/approvals/pages.tsx
 msgid "These passed their rules; they run once you sign them."
@@ -3713,11 +3967,24 @@ msgstr "用户已禁用。"
 msgid "User enabled."
 msgstr "用户已启用。"
 
+#: src/features/nodes/node-shares.tsx
 #: src/features/sessions/share-dialog.tsx
 msgid "User group"
 msgstr "用户组"
 
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
+msgid "User group created."
+msgstr "用户组已创建。"
+
+#: src/features/users/user-groups-section.tsx
+msgid "User group deleted."
+msgstr "用户组已删除。"
+
+#: src/features/users/user-groups-section.tsx
+msgid "User group name"
+msgstr "用户组名称"
+
+#: src/features/users/user-groups-section.tsx
 msgid "User groups"
 msgstr "用户组"
 

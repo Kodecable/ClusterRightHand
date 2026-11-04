@@ -147,6 +147,7 @@ describe("SSH tasks", () => {
 				org_id: await defaultOrgId(db),
 				owner_user_id: ownerUserId,
 				name,
+				name_key: name.toLowerCase(),
 				transport: "ssh",
 				status: "active",
 				public_key: null,

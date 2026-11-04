@@ -27,7 +27,7 @@ export interface CreateTaskInput {
 	/** A privileged task: rules see the flag and crha decides by its privileged mode (doc/privilege.md). */
 	privileged?: boolean;
 	timeoutMs?: number;
-	/** How much output to keep; single tasks use `full`, a group's tasks get its mode. */
+	/** How much output to keep; single tasks use `full`, a task group's tasks get its mode. */
 	outputMode?: OutputMode;
 	actor: Actor;
 	taskGroupId?: string;
@@ -35,7 +35,7 @@ export interface CreateTaskInput {
 	chain?: RuleRef[];
 	/** Set for the tasks of an approved task group: a require-approval result counts as approved. */
 	approvedBy?: ApprovalDecision;
-	/** The group's own judgment of this node, so a member does not re-run the chain its group already ran. */
+	/** The task group's own judgment of this node, so a member does not re-run the chain its task group already ran. */
 	evaluation?: Evaluation;
 	/**
 	 * A caller-chosen id. If a task with it exists, createTask returns that task instead of creating one: a tool

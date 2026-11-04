@@ -33,6 +33,7 @@ describe("approvals api (sqlite)", () => {
 				org_id: await defaultOrgId(db),
 				owner_user_id: uid.alice as string,
 				name,
+				name_key: name.toLowerCase(),
 				transport: "client",
 				status: "active",
 				public_key: null,
@@ -204,6 +205,22 @@ describe("approvals api (sqlite)", () => {
 			by: { type: "user", id: "x" },
 			at: new Date().toISOString(),
 		});
+	});
+
+	it("resolves node names in an always rule and reports their display names", async () => {
+		const tok = await newToken();
+		const t = await mkTask(tok, execSpec("id"), nodes[1] as string);
+		const res = await decide("alice", `/api/tasks/${t.id}/approval`, {
+			decision: "approve",
+			always: { action: "allow", method: "exec", nodes: ["N2"] },
+		});
+		expect(res.status).toBe(200);
+		const list = (await (await call(app, "/api/api-tokens", { cookie: cookies.alice })).json()) as {
+			tokens: { id: string; rules: { rules: { nodes?: string[] }[] }; refs: Record<string, unknown> }[];
+		};
+		const saved = list.tokens.find((token) => token.id === tok);
+		expect(saved?.rules.rules[0]?.nodes).toEqual([nodes[1]]);
+		expect(saved?.refs).toEqual({ [nodes[1] as string]: { kind: "node", name: "n2" } });
 	});
 
 	it("saves an always rule only after the decision is accepted", async () => {
@@ -394,7 +411,7 @@ describe("approvals api (sqlite)", () => {
 
 				const view = await call(app, `/api/task-groups/${id}`, { cookie: cookies.alice });
 				expect(view.status).toBe(200);
-				expect(((await view.json()) as { group: TaskGroupView }).group).toMatchObject({
+				expect(((await view.json()) as { taskGroup: TaskGroupView }).taskGroup).toMatchObject({
 					id,
 					summary: "",
 					operation: null,

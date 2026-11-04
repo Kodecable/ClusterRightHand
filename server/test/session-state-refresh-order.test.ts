@@ -60,7 +60,7 @@ beforeAll(async () => {
 		storage: new MemoryStorage(),
 		models,
 		cluster,
-		groups,
+		taskGroups: groups,
 		audit,
 	});
 	const user = await createUser(db, { username: "refresh-order-owner", kind: "member", password: "password-123" });

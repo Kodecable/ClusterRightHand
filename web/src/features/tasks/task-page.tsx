@@ -164,6 +164,7 @@ export function TaskPage() {
 				<ApprovalCard
 					item={{ kind: "task", task: view }}
 					nodeNames={looks.nodeNames}
+					refNames={looks.refNames}
 					tokenNames={looks.tokenNames}
 					busy={decide.isPending}
 					error={decide.error}

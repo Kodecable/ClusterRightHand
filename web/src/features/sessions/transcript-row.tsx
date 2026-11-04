@@ -7,7 +7,7 @@ import { InternalLink } from "@/components/internal-link";
 import { TaskGone } from "@/components/task-gone";
 import { TaskResult } from "@/components/task-result";
 import { Dialog, DialogContent, DialogHeader, DialogScrollArea, DialogTitle } from "@/components/ui/dialog";
-import { groupEnded, useTask, useTaskGroup } from "@/features/tasks/api";
+import { taskGroupEnded, useTask, useTaskGroup } from "@/features/tasks/api";
 import { isTerminal } from "@/features/tasks/output";
 import { isNotFound } from "@/lib/api/client";
 import { formatDuration } from "@/lib/format";
@@ -17,7 +17,7 @@ import { SafeMarkdown, StreamingMarkdown } from "@/markdown/SafeMarkdown";
 import { useStreamingText } from "@/markdown/stream-store";
 import type { Json, JsonObject } from "./sessionState";
 import { approvalWait, authorizationWait, prettyJson, type TranscriptItem } from "./sessionState";
-import { groupViewFailure, type ToolFailure, taskViewFailure, toolFailure } from "./tool-failure";
+import { type ToolFailure, taskGroupViewFailure, taskViewFailure, toolFailure } from "./tool-failure";
 import type { TranscriptStreams } from "./transcript-streams";
 
 type ToolItem = Extract<TranscriptItem, { kind: "tool" }>;
@@ -137,15 +137,15 @@ function detailId(details: Json | undefined, key: "task_id" | "task_group_id"): 
 export function callStillOpen({
 	sessionActive,
 	taskState,
-	groupState,
+	taskGroupState,
 }: {
 	sessionActive: boolean;
 	taskState: string | undefined;
-	groupState: string | undefined;
+	taskGroupState: string | undefined;
 }): boolean {
 	if (!sessionActive) return false;
 	if (taskState !== undefined && isTerminal(taskState)) return false;
-	if (groupState !== undefined && groupEnded(groupState)) return false;
+	if (taskGroupState !== undefined && taskGroupEnded(taskGroupState)) return false;
 	return true;
 }
 
@@ -201,32 +201,32 @@ function ToolCard({
 	const failure = result === undefined ? undefined : toolFailure(result.text);
 	// Only a call without a result follows a task or task group: a returned call must not fetch.
 	const taskId = returned ? undefined : detailId(item.details, "task_id");
-	const groupId = returned ? undefined : detailId(item.details, "task_group_id");
+	const taskGroupId = returned ? undefined : detailId(item.details, "task_group_id");
 	// Plain reads, not the long-polling waits: a session may have many open calls, and each wait would hold one
 	// of the browser's few connections per origin for as long as the call runs.
 	const task = useTask(taskId);
-	const group = useTaskGroup(groupId);
+	const taskGroup = useTaskGroup(taskGroupId);
 	const followedTask = taskId === undefined ? undefined : task.data;
-	const followedGroup = groupId === undefined ? undefined : group.data;
+	const followedTaskGroup = taskGroupId === undefined ? undefined : taskGroup.data;
 	// A task the retention sweep removed is not still running, and there is nothing to refresh.
 	const taskGone = taskId !== undefined && isNotFound(task.error);
-	const groupGone = groupId !== undefined && isNotFound(group.error);
+	const taskGroupGone = taskGroupId !== undefined && isNotFound(taskGroup.error);
 	const spinning =
 		!returned &&
 		!taskGone &&
-		!groupGone &&
-		callStillOpen({ sessionActive, taskState: followedTask?.state, groupState: followedGroup?.state });
-	const followed = taskId !== undefined || groupId !== undefined;
-	const followedGone = taskGone || groupGone;
+		!taskGroupGone &&
+		callStillOpen({ sessionActive, taskState: followedTask?.state, taskGroupState: followedTaskGroup?.state });
+	const followed = taskId !== undefined || taskGroupId !== undefined;
+	const followedGone = taskGone || taskGroupGone;
 	const { refetch: refetchTask } = task;
-	const { refetch: refetchGroup } = group;
+	const { refetch: refetchTaskGroup } = taskGroup;
 	// Re-read the followed task or group every few seconds while the card spins, and once more when it stops
 	// (the session went idle), so a stopped card shows how the task ended.
 	useEffect(() => {
 		if (!followed) return;
 		const refresh = () => {
 			if (taskId !== undefined) void refetchTask();
-			if (groupId !== undefined) void refetchGroup();
+			if (taskGroupId !== undefined) void refetchTaskGroup();
 		};
 		if (!spinning) {
 			if (!followedGone) refresh();
@@ -234,14 +234,14 @@ function ToolCard({
 		}
 		const timer = setInterval(refresh, FOLLOW_INTERVAL_MS);
 		return () => clearInterval(timer);
-	}, [followed, spinning, followedGone, taskId, groupId, refetchTask, refetchGroup]);
+	}, [followed, spinning, followedGone, taskId, taskGroupId, refetchTask, refetchTaskGroup]);
 	// What a stopped call's task or group ended with: its failure, `done`, or undefined when nothing is known.
 	let outcome: ToolFailure | "done" | undefined;
 	if (!returned && !spinning) {
 		if (followedTask !== undefined && isTerminal(followedTask.state)) {
 			outcome = taskViewFailure(followedTask) ?? "done";
-		} else if (followedGroup !== undefined && groupEnded(followedGroup.state)) {
-			outcome = groupViewFailure(followedGroup) ?? "done";
+		} else if (followedTaskGroup !== undefined && taskGroupEnded(followedTaskGroup.state)) {
+			outcome = taskGroupViewFailure(followedTaskGroup) ?? "done";
 		}
 	}
 	// A task failure is a failed card even though the call itself returned normally.

@@ -6,11 +6,11 @@ test.use({ withNode: true });
 const MEMBER = { username: "mallory", password: "member-password-1" };
 
 async function addedMemberShowsUp(page: Page): Promise<void> {
-	const group = page.getByTestId("group-card").filter({ hasText: "ops" });
+	const group = page.getByTestId("user-group-card").filter({ hasText: "ops" });
 	await expect(group.getByRole("list", { name: "Members of ops" })).toContainText(MEMBER.username);
 }
 
-test("admin creates users and groups; sharing controls what a member sees and may run", async ({
+test("admin creates users and user groups; sharing controls what a member sees and may run", async ({
 	adminPage: page,
 	browser,
 	crhs,
@@ -32,9 +32,9 @@ test("admin creates users and groups; sharing controls what a member sees and ma
 	await expect(userRow).toBeVisible();
 	await expect(userRow.getByLabel(`Kind of ${MEMBER.username}`)).toContainText("Member");
 
-	await page.getByLabel("Group name").fill("ops");
-	await page.getByRole("button", { name: "Create group" }).click();
-	const group = page.getByTestId("group-card").filter({ hasText: "ops" });
+	await page.getByLabel("User group name").fill("ops");
+	await page.getByRole("button", { name: "Create user group" }).click();
+	const group = page.getByTestId("user-group-card").filter({ hasText: "ops" });
 	await expect(group).toBeVisible();
 	await group.getByLabel("Add member").click();
 	await page.getByRole("option", { name: MEMBER.username }).click();
@@ -100,9 +100,9 @@ test("a share to a user group gives its members access", async ({ adminPage: pag
 	const nodeId = env?.nodeId as string;
 	await crhs.api("/api/users", { body: { username: MEMBER.username, kind: "member", password: MEMBER.password } });
 	await page.goto("/users");
-	await page.getByLabel("Group name").fill("ops");
-	await page.getByRole("button", { name: "Create group" }).click();
-	const group = page.getByTestId("group-card").filter({ hasText: "ops" });
+	await page.getByLabel("User group name").fill("ops");
+	await page.getByRole("button", { name: "Create user group" }).click();
+	const group = page.getByTestId("user-group-card").filter({ hasText: "ops" });
 	await group.getByLabel("Add member").click();
 	await page.getByRole("option", { name: MEMBER.username }).click();
 	await group.getByRole("button", { name: "Add", exact: true }).click();
@@ -111,7 +111,7 @@ test("a share to a user group gives its members access", async ({ adminPage: pag
 	await page.goto(`/nodes/${nodeId}`);
 	const shares = page.getByTestId("node-shares");
 	await shares.getByLabel("Type").click();
-	await page.getByRole("option", { name: "Group", exact: true }).click();
+	await page.getByRole("option", { name: "User group", exact: true }).click();
 	await shares.getByLabel("Grantee").click();
 	await page.getByRole("option", { name: "ops" }).click();
 	await shares.getByRole("combobox", { name: "Access" }).click();

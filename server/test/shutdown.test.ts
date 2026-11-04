@@ -36,6 +36,7 @@ describe("graceful shutdown", () => {
 				org_id: await defaultOrgId(db),
 				owner_user_id: ownerUserId,
 				name: "shutdown-node",
+				name_key: "shutdown-node",
 				transport: "client",
 				status: "active",
 				public_key: Buffer.from(publicKey).toString("base64"),

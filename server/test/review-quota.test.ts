@@ -45,7 +45,7 @@ beforeAll(async () => {
 		storage: new MemoryStorage(),
 		models,
 		cluster,
-		groups: new TaskGroups(db, cluster, { audit }),
+		taskGroups: new TaskGroups(db, cluster, { audit }),
 		audit,
 	});
 	const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
@@ -59,6 +59,7 @@ beforeAll(async () => {
 			org_id: await defaultOrgId(db),
 			owner_user_id: user.id,
 			name: "review-node",
+			name_key: "review-node",
 			transport: "client",
 			status: "active",
 			public_key: null,

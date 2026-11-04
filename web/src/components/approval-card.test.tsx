@@ -102,7 +102,7 @@ describe("ApprovalCard", () => {
 	});
 
 	test("a task group shows one evaluation per node and one entry", () => {
-		const group = {
+		const taskGroup = {
 			id: "group-1",
 			kind: "exec",
 			summary: "restart",
@@ -121,7 +121,7 @@ describe("ApprovalCard", () => {
 		} as unknown as TaskGroupView;
 		renderWithI18n(
 			<ApprovalCard
-				item={{ kind: "group", group }}
+				item={{ kind: "task_group", taskGroup }}
 				nodeNames={
 					new Map([
 						["node-1", "worker-01"],

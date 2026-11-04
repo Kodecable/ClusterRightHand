@@ -23,7 +23,6 @@ import {
 	useTestSshRoute,
 } from "@/features/nodes/api";
 import type { PublicNode } from "@/lib/api/types";
-import { parseList } from "@/lib/format";
 import {
 	addJump,
 	editHop,
@@ -180,21 +179,17 @@ function HopFields({ prefix, hop, onChange }: { prefix: string; hop: Hop; onChan
 	);
 }
 
-/** Wizard step 2: target, node name and groups, and the ordered jump hosts (hops = jumps then target). */
+/** Wizard step 2: target, node name and the ordered jump hosts (hops = jumps then target). */
 function RouteStep({
 	hops,
 	onHops,
 	name,
 	onName,
-	groups,
-	onGroups,
 }: {
 	hops: Hop[];
 	onHops: (hops: Hop[]) => void;
 	name: string;
 	onName: (name: string) => void;
-	groups: string;
-	onGroups: (groups: string) => void;
 }) {
 	const { t } = useLingui();
 	const prefix = useId();
@@ -261,22 +256,9 @@ function RouteStep({
 					onChange={(patch) => onHops(editHop(hops, last, patch))}
 				/>
 			</fieldset>
-			<div className="grid gap-3 sm:grid-cols-2">
-				<FieldShell
-					id={`${prefix}-name`}
-					label={t`Node name`}
-					description={t`Optional; defaults to the target's host.`}
-				>
-					<Input id={`${prefix}-name`} value={name} maxLength={200} onChange={(event) => onName(event.target.value)} />
-				</FieldShell>
-				<FieldShell
-					id={`${prefix}-groups`}
-					label={t`Groups`}
-					description={t`Comma separated; they decide who may see and operate the node.`}
-				>
-					<Input id={`${prefix}-groups`} value={groups} onChange={(event) => onGroups(event.target.value)} />
-				</FieldShell>
-			</div>
+			<FieldShell id={`${prefix}-name`} label={t`Node name`} description={t`Optional; defaults to the target's host.`}>
+				<Input id={`${prefix}-name`} value={name} maxLength={200} onChange={(event) => onName(event.target.value)} />
+			</FieldShell>
 		</div>
 	);
 }
@@ -375,21 +357,10 @@ function HostKeyStep({
 }
 
 /** Wizard step 4: the summary, the route test and (in the footer) creation. */
-function CreateStep({
-	hops,
-	credentialId,
-	name,
-	groups,
-}: {
-	hops: Hop[];
-	credentialId: string;
-	name: string;
-	groups: string;
-}) {
+function CreateStep({ hops, credentialId, name }: { hops: Hop[]; credentialId: string; name: string }) {
 	const { t } = useLingui();
 	const test = useTestSshRoute();
 	const target = hops[hops.length - 1] as Hop;
-	const parsedGroups = parseList(groups);
 	return (
 		<div className="grid gap-3" data-testid="ssh-step-create">
 			<KeyValueList
@@ -400,7 +371,6 @@ function CreateStep({
 						value: hops.map((hop) => `${hop.user}@${hop.host}:${hop.port}`).join(" → "),
 						mono: true,
 					},
-					{ label: t`Groups`, value: parsedGroups.join(", ") || "–" },
 				]}
 			/>
 			<p className="text-sm text-muted-foreground">
@@ -419,13 +389,11 @@ function WizardCreate({
 	hops,
 	credentialId,
 	name,
-	groups,
 	onCreated,
 }: {
 	hops: Hop[];
 	credentialId: string;
 	name: string;
-	groups: string;
 	onCreated: (node: PublicNode) => void;
 }) {
 	const { t } = useLingui();
@@ -441,7 +409,6 @@ function WizardCreate({
 						...hopBodies(hops),
 						credentialId,
 						name: name.trim(),
-						groups: parseList(groups),
 					},
 					{
 						onSuccess: (node) => {
@@ -474,7 +441,6 @@ export function SshNodeWizard({
 	const [credentialId, setCredentialId] = useState("");
 	const [hops, setHopList] = useState<Hop[]>([emptyHop()]);
 	const [name, setName] = useState("");
-	const [groups, setGroups] = useState("");
 	const [stepError, setStepError] = useState<string>();
 
 	const setHops = (next: Hop[]) => {
@@ -521,11 +487,9 @@ export function SshNodeWizard({
 			{step === 0 && (
 				<CredentialStep value={credentialId} onChange={setCredentialId} onReadyChange={() => setStepError(undefined)} />
 			)}
-			{step === 1 && (
-				<RouteStep hops={hops} onHops={setHops} name={name} onName={setName} groups={groups} onGroups={setGroups} />
-			)}
+			{step === 1 && <RouteStep hops={hops} onHops={setHops} name={name} onName={setName} />}
 			{step === 2 && <HostKeyStep hops={hops} credentialId={credentialId} onHops={setHops} />}
-			{step === 3 && <CreateStep hops={hops} credentialId={credentialId} name={name} groups={groups} />}
+			{step === 3 && <CreateStep hops={hops} credentialId={credentialId} name={name} />}
 
 			{/* The row keeps its height between steps; only a real message is an alert. */}
 			<div className="min-h-5">
@@ -550,7 +514,7 @@ export function SshNodeWizard({
 						<Trans>Next</Trans>
 					</Button>
 				) : (
-					<WizardCreate hops={hops} credentialId={credentialId} name={name} groups={groups} onCreated={onCreated} />
+					<WizardCreate hops={hops} credentialId={credentialId} name={name} onCreated={onCreated} />
 				)}
 			</div>
 		</div>

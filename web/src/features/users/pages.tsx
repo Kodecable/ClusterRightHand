@@ -13,10 +13,10 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/session";
 import type { User } from "@/lib/api/types";
 import { useUpdateUser, useUsers } from "./api";
-import { GroupsSection } from "./groups-section";
 import { KindSelect } from "./kind-select";
 import { NewUserDialog } from "./new-user-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
+import { UserGroupsSection } from "./user-groups-section";
 
 /**
  * Users and user groups (administrators only, doc/webui.md "Users"): create
@@ -125,7 +125,7 @@ export function UsersPage() {
 				onRetry={() => void users.refetch()}
 				empty={<EmptyState title={<Trans>No users yet</Trans>} />}
 			/>
-			<GroupsSection users={users.data ?? []} />
+			<UserGroupsSection users={users.data ?? []} />
 			{creating && <NewUserDialog onClose={() => setCreating(false)} />}
 			{resetting && <ResetPasswordDialog user={resetting} onClose={() => setResetting(undefined)} />}
 			<ConfirmDialog

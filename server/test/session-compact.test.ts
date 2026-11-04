@@ -48,7 +48,7 @@ beforeAll(async () => {
 		storage: new MemoryStorage(),
 		models,
 		cluster,
-		groups: new TaskGroups(db, cluster, { audit }),
+		taskGroups: new TaskGroups(db, cluster, { audit }),
 		audit,
 		compaction: { keepRecentTokens: 1, backgroundTokens: 0 },
 	});
@@ -242,7 +242,7 @@ describe("with the default compaction policy", () => {
 			storage: new MemoryStorage(),
 			models,
 			cluster: localCluster,
-			groups: new TaskGroups(localDb, localCluster, { audit: localAudit }),
+			taskGroups: new TaskGroups(localDb, localCluster, { audit: localAudit }),
 			audit: localAudit,
 			// keepRecentTokens stays at the 20k default; only the automatic background compaction is off.
 			compaction: { backgroundTokens: 0 },

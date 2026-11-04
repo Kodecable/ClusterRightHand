@@ -6,8 +6,9 @@ import type { NodesTable, SharesTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { stronger, userGroupIds } from "../users/shares.ts";
 import { newId } from "../util/id.ts";
-import { uniqueNodeName } from "./enrollment.ts";
 import { keyFingerprint } from "./identity.ts";
+import { assertNameAvailable, nameKey, validateName } from "./names.ts";
+import { type NodeGroupRef, nodeGroupsForNodes } from "./node-groups.ts";
 
 export type NodeRow = Selectable<NodesTable>;
 export type NodeAccess = "admin" | "owner" | "operate" | "view";
@@ -26,7 +27,8 @@ export interface PublicNode {
 	lastSeenAt: string | null;
 	createdAt: string;
 	approvedAt: string | null;
-	groups: string[];
+	/** The crhs-managed node groups the node is in. */
+	nodeGroups: NodeGroupRef[];
 	access: NodeAccess;
 	/** The JSON form of the node's facts; null until it reported any. */
 	facts: JsonFacts | null;
@@ -78,7 +80,7 @@ export async function findNodeByPublicKey(db: Db, publicKey: Uint8Array): Promis
 /** Node share levels, weakest first. */
 const NODE_ACCESS: readonly ShareAccess[] = ["view", "operate"];
 
-/** The shares that reach the user directly or through a group, as nodeId -> strongest access. */
+/** The shares that reach the user directly or through a user group, as nodeId -> strongest access. */
 async function sharedAccess(db: Db, userId: string, nodeId?: string): Promise<Map<string, ShareAccess>> {
 	const groupIds = await userGroupIds(db, userId);
 	let q = db
@@ -110,7 +112,7 @@ export async function nodeAccess(db: Db, user: SessionUser, nodeId: string): Pro
 	return (await sharedAccess(db, user.userId, nodeId)).get(nodeId);
 }
 
-export function toPublicNode(row: NodeRow, access: NodeAccess, groups: string[]): PublicNode {
+export function toPublicNode(row: NodeRow, access: NodeAccess, nodeGroups: NodeGroupRef[]): PublicNode {
 	let facts: JsonFacts | null = null;
 	if (row.facts !== null) {
 		try {
@@ -131,7 +133,7 @@ export function toPublicNode(row: NodeRow, access: NodeAccess, groups: string[])
 		lastSeenAt: row.last_seen_at,
 		createdAt: row.created_at,
 		approvedAt: row.approved_at,
-		groups,
+		nodeGroups,
 		access,
 		facts,
 		keyFingerprint: row.public_key ? keyFingerprint(Buffer.from(row.public_key, "base64")) : null,
@@ -140,20 +142,7 @@ export function toPublicNode(row: NodeRow, access: NodeAccess, groups: string[])
 	};
 }
 
-export async function nodeGroupNames(db: Db, nodeIds: string[]): Promise<Map<string, string[]>> {
-	const out = new Map<string, string[]>();
-	if (nodeIds.length === 0) return out;
-	const rows = await db
-		.selectFrom("node_groups")
-		.select(["node_id", "group_name"])
-		.where("node_id", "in", nodeIds)
-		.orderBy("group_name")
-		.execute();
-	for (const r of rows) out.set(r.node_id, [...(out.get(r.node_id) ?? []), r.group_name]);
-	return out;
-}
-
-/** The ids of every node the user can see: own, shared with them or their groups, or all as admin. */
+/** The ids of every node the user can see: own, shared with them or their user groups, or all as admin. */
 export async function visibleNodeIds(db: Db, user: SessionUser): Promise<string[]> {
 	if (user.kind === "admin") {
 		return (await db.selectFrom("nodes").select("id").execute()).map((r) => r.id);
@@ -191,14 +180,14 @@ export async function listNodesForUser(db: Db, user: SessionUser): Promise<Publi
 			.orderBy("name")
 			.execute();
 	}
-	const groups = await nodeGroupNames(
+	const nodeGroups = await nodeGroupsForNodes(
 		db,
 		rows.map((r) => r.id),
 	);
 	return rows.map((row) => {
 		const access: NodeAccess =
 			user.kind === "admin" ? "admin" : row.owner_user_id === user.userId ? "owner" : (shared.get(row.id) ?? "view");
-		return toPublicNode(row, access, groups.get(row.id) ?? []);
+		return toPublicNode(row, access, nodeGroups.get(row.id) ?? []);
 	});
 }
 
@@ -216,26 +205,25 @@ export async function approveNode(db: Db, nodeId: string, actorUserId: string, n
 	return db.selectFrom("nodes").selectAll().where("id", "=", nodeId).executeTakeFirstOrThrow();
 }
 
-export async function renameNode(db: Db, nodeId: string, name: string): Promise<NodeRow> {
-	const node = await getNode(db, nodeId);
-	if (!node) throw new NotFoundError("no such node");
-	const normalized = name.trim().toLowerCase();
-	if (!/^[a-z0-9][a-z0-9._-]{0,62}$/.test(normalized)) {
-		throw new UserError(
-			"node name must be 1-63 characters of a-z, 0-9, '.', '_' or '-', starting with a letter or digit",
-		);
-	}
-	if ((await uniqueNodeName(db, node.org_id, normalized, nodeId)) !== normalized) {
-		throw new UserError(`node ${normalized} already exists`);
-	}
-	await db.updateTable("nodes").set({ name: normalized }).where("id", "=", nodeId).execute();
-	return { ...node, name: normalized };
+export async function renameNode(db: Db, nodeId: string, rawName: string): Promise<NodeRow> {
+	const name = validateName(rawName, "node name");
+	return db.transaction().execute(async (trx) => {
+		const node = await trx.selectFrom("nodes").selectAll().where("id", "=", nodeId).executeTakeFirst();
+		if (!node) throw new NotFoundError("no such node");
+		await assertNameAvailable(trx, node.org_id, name, { table: "nodes", id: node.id });
+		await trx
+			.updateTable("nodes")
+			.set({ name, name_key: nameKey(name) })
+			.where("id", "=", nodeId)
+			.execute();
+		return { ...node, name, name_key: nameKey(name) };
+	});
 }
 
 export async function deleteNode(db: Db, nodeId: string): Promise<void> {
 	await db.transaction().execute(async (trx) => {
 		await trx.deleteFrom("shares").where("resource_type", "=", "node").where("resource_id", "=", nodeId).execute();
-		await trx.deleteFrom("node_groups").where("node_id", "=", nodeId).execute();
+		await trx.deleteFrom("node_group_members").where("node_id", "=", nodeId).execute();
 		await trx
 			.updateTable("enrollment_tokens")
 			.set({ used_by_node_id: null })
@@ -249,32 +237,25 @@ export async function deleteNode(db: Db, nodeId: string): Promise<void> {
 export async function updateNodeFacts(
 	db: Db,
 	nodeId: string,
-	input: { facts: unknown; groups: string[]; clientVersion?: string; privilegedMode?: string; now?: Date },
+	input: { facts: unknown; clientVersion?: string; privilegedMode?: string; now?: Date },
 ): Promise<void> {
 	const now = (input.now ?? new Date()).toISOString();
+	const set: Partial<Pick<NodesTable, "facts" | "last_seen_at" | "client_version" | "privileged_mode">> = {
+		facts: JSON.stringify(input.facts ?? null),
+		last_seen_at: now,
+	};
+	if (input.clientVersion !== undefined) set.client_version = input.clientVersion;
+	if (input.privilegedMode !== undefined) set.privileged_mode = input.privilegedMode;
 	await db.transaction().execute(async (trx) => {
-		const set: Partial<Pick<NodesTable, "facts" | "last_seen_at" | "client_version" | "privileged_mode">> = {
-			facts: JSON.stringify(input.facts ?? null),
-			last_seen_at: now,
-		};
-		if (input.clientVersion !== undefined) set.client_version = input.clientVersion;
-		if (input.privilegedMode !== undefined) set.privileged_mode = input.privilegedMode;
 		const result = await trx.updateTable("nodes").set(set).where("id", "=", nodeId).executeTakeFirst();
 		if (result.numUpdatedRows === 0n) throw new NotFoundError("no such node");
-		await trx.deleteFrom("node_groups").where("node_id", "=", nodeId).execute();
-		const names = [...new Set(input.groups)];
-		if (names.length > 0) {
-			await trx
-				.insertInto("node_groups")
-				.values(names.map((group_name) => ({ node_id: nodeId, group_name, refreshed_at: now })))
-				.execute();
-		}
+		// crha Facts still carry `groups` on the wire in this stage; they are ignored: membership is crhs-managed.
 	});
 }
 
 /**
  * Records the shells an SSH connection probe found (doc/execution-plane.md#执行). SSH nodes have no
- * other facts; their groups are maintained by crhs and are left alone.
+ * other facts; their node groups are maintained by crhs and are left alone.
  */
 export async function setSshNodeFacts(
 	db: Db,
@@ -375,10 +356,10 @@ export async function listNodeShares(db: Db, nodeId: string): Promise<NodeShare[
 	const users = new Map(
 		(await db.selectFrom("users").select(["id", "username"]).execute()).map((u) => [u.id, u.username]),
 	);
-	const groups = new Map(
+	const userGroups = new Map(
 		(await db.selectFrom("user_groups").select(["id", "name"]).execute()).map((g) => [g.id, g.name]),
 	);
 	return rows.map((r) =>
-		toNodeShare(r, (r.grantee_type === "user" ? users.get(r.grantee_id) : groups.get(r.grantee_id)) ?? null),
+		toNodeShare(r, (r.grantee_type === "user" ? users.get(r.grantee_id) : userGroups.get(r.grantee_id)) ?? null),
 	);
 }

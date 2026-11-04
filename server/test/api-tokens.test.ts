@@ -3,9 +3,11 @@ import { Audit } from "../src/audit/audit.ts";
 import { createApiToken, resolveApiToken } from "../src/auth/api-tokens.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
+import { createNodeGroup } from "../src/cluster/node-groups.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser } from "../src/users/service.ts";
+import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { newId } from "../src/util/id.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
 
@@ -228,6 +230,72 @@ describeBackends("api tokens", (backend) => {
 			expect(ev.items).toHaveLength(3);
 			expect(ev.items[0]).toMatchObject({ action: "rules.changed", targetType: "api_token" });
 			expect(ev.items[2]?.detail.preset).toBe("yolo");
+		});
+
+		it("resolves node names to UUIDs at write time and returns display names", async () => {
+			const orgId = await defaultOrgId(db);
+			const group = await createNodeGroup(db, orgId, "Prod");
+			const nodeId = newId();
+			const now = new Date().toISOString();
+			await db
+				.insertInto("nodes")
+				.values({
+					id: nodeId,
+					org_id: orgId,
+					owner_user_id: users.alice?.userId as string,
+					name: "Web-1",
+					name_key: "web-1",
+					transport: "client",
+					status: "active",
+					public_key: null,
+					hostname: "web-1",
+					facts: null,
+					client_version: null,
+					privileged_mode: null,
+					last_seen_at: null,
+					created_at: now,
+					approved_at: now,
+					approved_by_user_id: null,
+					ssh_host: null,
+					ssh_port: null,
+					ssh_user: null,
+					ssh_host_key: null,
+					ssh_credential_id: null,
+					ssh_jumps: null,
+				})
+				.execute();
+
+			const { body } = await create("alice", { name: "refs" });
+			const id = body.apiToken.id;
+			let res = await call(app, `/api/api-tokens/${id}/rules`, {
+				cookie: cookies.alice,
+				method: "PUT",
+				body: { rules: [{ action: "allow", method: "exec", nodes: ["web-1", "prod", "_all"] }] },
+			});
+			expect(res.status).toBe(200);
+			const view = (await res.json()) as {
+				apiToken: { rules: { rules: { nodes?: string[] }[] }; refs: Record<string, unknown> };
+			};
+			expect(view.apiToken.rules.rules[0]?.nodes).toEqual([nodeId, group.id, "_all"]);
+			expect(view.apiToken.refs).toEqual({
+				[nodeId]: { kind: "node", name: "Web-1" },
+				[group.id]: { kind: "node_group", name: "Prod" },
+			});
+
+			res = await call(app, `/api/api-tokens/${id}/rules`, {
+				cookie: cookies.alice,
+				method: "PUT",
+				body: { rules: [{ action: "allow", nodes: ["missing"] }] },
+			});
+			expect(res.status).toBe(400);
+			expect(((await res.json()) as { error: string }).error).toMatch(/no node or node group missing/);
+
+			// A deleted object is kept as a reference and displayed as null.
+			await db.deleteFrom("node_groups").where("id", "=", group.id).execute();
+			const listed = (await (await call(app, "/api/api-tokens", { cookie: cookies.alice })).json()) as {
+				tokens: (typeof view.apiToken & { id: string })[];
+			};
+			expect(listed.tokens.find((token) => token.id === id)?.refs[group.id]).toBeNull();
 		});
 
 		it("rejects invalid rules and leaves the token unchanged", async () => {

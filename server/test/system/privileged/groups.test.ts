@@ -61,23 +61,23 @@ describePodman("privileged system: task groups", () => {
 			},
 		});
 		if (res.status !== 201) throw new Error(`create task group: ${res.status} ${JSON.stringify(res.json)}`);
-		return res.json.group as {
+		return res.json.taskGroup as {
 			id: string;
 			state: string;
 			tasks: { id: string; nodeId: string; state: string; errorCode: string | null; errorMessage: string | null }[];
 		};
 	}
 
-	const getGroup = async (id: string) => (await crhs.api(`/api/task-groups/${id}/wait?timeoutMs=500`)).json.group;
+	const getGroup = async (id: string) => (await crhs.api(`/api/task-groups/${id}/wait?timeoutMs=500`)).json.taskGroup;
 
 	async function groupPayload(
 		groupId: string,
 	): Promise<{ id: string; payload: string; attempt: number; taskIds: string[]; nodes: string[] }> {
 		const res = await crhs.api(`/api/task-groups/${groupId}/authorization`);
-		if (res.status !== 200 || !res.json.group?.authorization) {
-			throw new Error(`no group payload: ${res.status} ${JSON.stringify(res.json)}`);
+		if (res.status !== 200 || !res.json.taskGroup?.authorization) {
+			throw new Error(`no task group payload: ${res.status} ${JSON.stringify(res.json)}`);
 		}
-		const pending = res.json.group.authorization as {
+		const pending = res.json.taskGroup.authorization as {
 			id: string;
 			payload: string;
 			attempt: number;

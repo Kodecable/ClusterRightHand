@@ -76,7 +76,7 @@ export async function openSoakCrhs(params: SoakParams, faux: FauxProviderHandle)
 		storage: opened.storage,
 		models,
 		cluster,
-		groups: taskGroups,
+		taskGroups,
 		audit,
 	});
 	const scheduler = new Scheduler({ db, runtime, audit });

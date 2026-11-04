@@ -112,6 +112,7 @@ describe("user authorizations", () => {
 				org_id: await defaultOrgId(db),
 				owner_user_id: owner.userId,
 				name,
+				name_key: name.toLowerCase(),
 				transport: "client",
 				status: "active",
 				public_key: Buffer.from(key).toString("base64"),
@@ -700,22 +701,25 @@ describe("user authorizations", () => {
 		const res = await call(app, `/api/task-groups/${groupId}/authorization`, { cookie: owner.cookie });
 		expect(res.status).toBe(200);
 		const shared = (await res.json()) as {
-			group: { authorization: { id: string; payload: string; taskIds: string[]; attempt: number }; tasks: unknown[] };
+			taskGroup: {
+				authorization: { id: string; payload: string; taskIds: string[]; attempt: number };
+				tasks: unknown[];
+			};
 		};
 		const tasks = (await view()).tasks;
-		expect(shared.group.authorization.taskIds.sort()).toEqual(tasks.map((task) => task.id).sort());
-		expect(shared.group.tasks).toHaveLength(2);
+		expect(shared.taskGroup.authorization.taskIds.sort()).toEqual(tasks.map((task) => task.id).sort());
+		expect(shared.taskGroup.tasks).toHaveLength(2);
 
 		// Only the owner sees the group payload.
 		expect((await call(app, `/api/task-groups/${groupId}/authorization`, { cookie: other.cookie })).status).toBe(403);
 
 		const submitted = await submit(
-			signedAuthorization(new Uint8Array(Buffer.from(shared.group.authorization.payload, "base64"))),
+			signedAuthorization(new Uint8Array(Buffer.from(shared.taskGroup.authorization.payload, "base64"))),
 		);
 		expect(submitted.status).toBe(200);
 		expect((await submitted.json()) as Record<string, unknown>).toEqual({
 			authorization: {
-				id: shared.group.authorization.id,
+				id: shared.taskGroup.authorization.id,
 				dispatched: expect.arrayContaining(tasks.map((task) => task.id)),
 			},
 		});
@@ -754,8 +758,8 @@ describe("user authorizations", () => {
 		});
 		const shared = (await (
 			await call(app, `/api/task-groups/${groupId}/authorization`, { cookie: owner.cookie })
-		).json()) as { group: { authorization: { payload: string } } };
-		await submit(signedAuthorization(new Uint8Array(Buffer.from(shared.group.authorization.payload, "base64"))));
+		).json()) as { taskGroup: { authorization: { payload: string } } };
+		await submit(signedAuthorization(new Uint8Array(Buffer.from(shared.taskGroup.authorization.payload, "base64"))));
 		await waitFor("both starts", () => a.crha.starts.length === 1 && b.crha.starts.length === 1);
 		const first = a.crha.starts[0]?.authorizations[0] as Uint8Array;
 		const second = b.crha.starts[0]?.authorizations[0] as Uint8Array;
@@ -792,8 +796,8 @@ describe("user authorizations", () => {
 		});
 		const shared = (await (
 			await call(app, `/api/task-groups/${groupId}/authorization`, { cookie: owner.cookie })
-		).json()) as { group: { authorization: { payload: string } } };
-		await submit(signedAuthorization(new Uint8Array(Buffer.from(shared.group.authorization.payload, "base64"))));
+		).json()) as { taskGroup: { authorization: { payload: string } } };
+		await submit(signedAuthorization(new Uint8Array(Buffer.from(shared.taskGroup.authorization.payload, "base64"))));
 
 		// Node B accepted; node A rejected before accepting, so its task waits for a new payload for the
 		// next attempt, covering only itself.

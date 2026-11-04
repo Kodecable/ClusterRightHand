@@ -10,7 +10,7 @@ import { TOOLS, type ToolContext } from "../tools/catalog.ts";
 
 export interface McpOptions {
 	cluster: Cluster;
-	groups: TaskGroups;
+	taskGroups: TaskGroups;
 	audit?: Audit;
 	/** Version reported to clients. */
 	version?: string;
@@ -60,13 +60,13 @@ function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { origin: 
 	const ctx: ToolContext = {
 		db,
 		cluster: options.cluster,
-		groups: options.groups,
+		taskGroups: options.taskGroups,
 		user: id.user,
 		actor: { type: "api_token", id: id.tokenId, onBehalfOfUserId: id.user.userId },
 		chain: [{ type: "api_token", id: id.tokenId }],
 		approvalUrl: (kind, taskId) => `${id.origin}/approvals/${kind === "task" ? "tasks" : "task-groups"}/${taskId}`,
 		taskUrl: (taskId) => `${id.origin}/tasks/${taskId}`,
-		groupUrl: (taskGroupId) => `${id.origin}/task-groups/${taskGroupId}`,
+		taskGroupUrl: (taskGroupId) => `${id.origin}/task-groups/${taskGroupId}`,
 	};
 	for (const tool of TOOLS) {
 		server.registerTool(

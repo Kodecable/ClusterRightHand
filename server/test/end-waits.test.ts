@@ -62,6 +62,7 @@ describe("ending waits at shutdown", () => {
 				org_id: await defaultOrgId(db),
 				owner_user_id: userId,
 				name: "wait-node",
+				name_key: "wait-node",
 				transport: "client",
 				status: "active",
 				public_key: Buffer.from(key.publicKey).toString("base64"),
@@ -189,12 +190,12 @@ describe("ending waits at shutdown", () => {
 		const ctx = {
 			db,
 			cluster,
-			groups,
+			taskGroups: groups,
 			user,
 			actor: actor(),
 			chain: [],
 			approvalUrl: (kind: string, groupId: string) => `/approvals/${kind}/${groupId}`,
-			groupUrl: (groupId: string) => `/task-groups/${groupId}`,
+			taskGroupUrl: (groupId: string) => `/task-groups/${groupId}`,
 			waitThroughApproval: true,
 			defaultWaitS: 1,
 			onStatus: async (status: Record<string, unknown>) => {
@@ -204,7 +205,7 @@ describe("ending waits at shutdown", () => {
 		const tool = TOOLS.find((t) => t.name === "task_wait");
 		if (!tool) throw new Error("task_wait tool missing");
 
-		// waitGroupFor loops on groups.wait(id, HOUR); only ending the waits makes it return the waiting state.
+		// waitTaskGroupFor loops on groups.wait(id, HOUR); only ending the waits makes it return the waiting state.
 		const call = tool.handler({ task_group_id: id, wait: 1 }, ctx);
 		expect(await settledWithin(call, 100)).toBe(false);
 		groups.endWaits();

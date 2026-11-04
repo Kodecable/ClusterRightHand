@@ -17,7 +17,9 @@ import {
 } from "../src/policy/rules.ts";
 import { UserError } from "../src/users/service.ts";
 
-const NODE = { id: "node-id-1", name: "web-1", groups: ["web", "prod"] };
+const GROUP_WEB = "group-web-id";
+const GROUP_PROD = "group-prod-id";
+const NODE = { id: "node-id-1", groupIds: [GROUP_WEB, GROUP_PROD] };
 
 function op(method: Method, target: string, node = NODE, privileged = false): Operation {
 	return { method, target, node, privileged };
@@ -47,16 +49,16 @@ describe("ruleMatches", () => {
 		expect(ruleMatches({ action: "allow", prefix: "" }, op("exec", "anything"))).toBe(true);
 	});
 
-	it("matches nodes by name, id and group", () => {
+	it("matches nodes by id, group id and _all", () => {
 		const m = (nodes: string[]) => ruleMatches({ action: "deny", nodes }, op("exec", "ls"));
-		expect(m(["web-1"])).toBe(true);
 		expect(m(["node-id-1"])).toBe(true);
-		expect(m(["group:prod"])).toBe(true);
-		expect(m(["db-1", "group:web"])).toBe(true);
-		expect(m(["web-2", "group:db"])).toBe(false);
-		// A group name is not a node name, and a node name is not a group.
+		expect(m([GROUP_PROD])).toBe(true);
+		expect(m(["_all"])).toBe(true);
+		expect(m(["db-1", GROUP_WEB])).toBe(true);
+		expect(m(["web-2", "group-db"])).toBe(false);
+		// Names are resolved to UUIDs when a rule is written; evaluation only sees UUIDs.
+		expect(m(["web-1"])).toBe(false);
 		expect(m(["prod"])).toBe(false);
-		expect(m(["group:web-1"])).toBe(false);
 	});
 
 	it("applies method matching exactly, except allow file.write also covers file.read", () => {
@@ -81,11 +83,11 @@ describe("ruleMatches", () => {
 	});
 
 	it("requires all of method, node and target", () => {
-		const rule: Rule = { action: "deny", method: "file.write", nodes: ["group:prod"], prefix: "/etc/crha/" };
+		const rule: Rule = { action: "deny", method: "file.write", nodes: [GROUP_PROD], prefix: "/etc/crha/" };
 		expect(ruleMatches(rule, op("file.write", "/etc/crha/a"))).toBe(true);
 		expect(ruleMatches(rule, op("file.write", "/etc/other"))).toBe(false);
 		expect(ruleMatches(rule, op("file.read", "/etc/crha/a"))).toBe(false);
-		expect(ruleMatches(rule, op("file.write", "/etc/crha/a", { ...NODE, groups: ["web"] }))).toBe(false);
+		expect(ruleMatches(rule, op("file.write", "/etc/crha/a", { ...NODE, groupIds: [GROUP_WEB] }))).toBe(false);
 	});
 
 	it("matches the privileged flag when it is set and both values when it is omitted", () => {
@@ -100,7 +102,7 @@ describe("ruleMatches", () => {
 		expect(ruleMatches({ action: "deny" }, ordinary)).toBe(true);
 		// The flag is one more condition, not a replacement: the other fields still have to match.
 		expect(ruleMatches({ action: "allow", privileged: true, prefix: "uptime" }, privileged)).toBe(false);
-		expect(ruleMatches({ action: "allow", privileged: true, nodes: ["group:web"] }, privileged)).toBe(true);
+		expect(ruleMatches({ action: "allow", privileged: true, nodes: [GROUP_WEB] }, privileged)).toBe(true);
 	});
 });
 
@@ -248,10 +250,10 @@ describe("evaluate: chains", () => {
 
 	it("node-scoped rules only apply to the matching nodes", () => {
 		const chain = [
-			level("root", "allow", [{ action: "deny", nodes: ["group:prod"], method: "file.write", prefix: "/etc/crha/" }]),
+			level("root", "allow", [{ action: "deny", nodes: [GROUP_PROD], method: "file.write", prefix: "/etc/crha/" }]),
 		];
 		expect(result(chain, op("file.write", "/etc/crha/x"))).toBe("deny");
-		expect(result(chain, op("file.write", "/etc/crha/x", { id: "n2", name: "dev-1", groups: ["dev"] }))).toBe("allow");
+		expect(result(chain, op("file.write", "/etc/crha/x", { id: "n2", groupIds: ["group-dev-id"] }))).toBe("allow");
 		// deny file.write does not hide the file from reads
 		expect(result(chain, op("file.read", "/etc/crha/x"))).toBe("allow");
 	});
@@ -306,7 +308,7 @@ describe("presetRuleSet", () => {
 
 	it("user rules appended to a preset can tighten or extend it", () => {
 		const set = presetRuleSet("ask");
-		set.rules.push({ action: "allow", method: "exec", nodes: ["web-1"], prefix: "systemctl status " });
+		set.rules.push({ action: "allow", method: "exec", nodes: ["node-id-1"], prefix: "systemctl status " });
 		set.rules.push({ action: "deny", method: "file.read", prefix: "/etc/shadow" });
 		const chain = [{ scope: { type: "session", id: "r" }, set }];
 		expect(result(chain, op("exec", "systemctl status nginx"))).toBe("allow");
@@ -432,7 +434,7 @@ describe("parseRuleSet", () => {
 		const raw = {
 			default: "require-approval",
 			rules: [
-				{ action: "deny", method: "file.write", nodes: ["group:prod"], prefix: "/etc/crha/" },
+				{ action: "deny", method: "file.write", nodes: ["prod"], prefix: "/etc/crha/" },
 				{ action: "allow", method: "exec", exact: "uptime", privileged: true },
 				{ action: "allow", privileged: false },
 				{ action: "allow" },
@@ -498,6 +500,12 @@ describe("parseRuleSet", () => {
 		bad({ default: "allow", rules: [{ action: "allow", nodes: "web-1" }] }, true);
 		bad({ default: "allow", rules: [{ action: "allow", nodes: [""] }] }, true);
 		bad({ default: "allow", rules: [{ action: "allow", nodes: [1] }] }, true);
+		// Removed in D109: the group syntax must not slip into a stored rule.
+		bad({ default: "allow", rules: [{ action: "allow", nodes: ["group:prod"] }] }, true);
+		bad({ default: "allow", rules: [{ action: "allow", nodes: ["_other"] }] }, true);
+		expect(
+			parseRuleSet({ default: "allow", rules: [{ action: "allow", nodes: ["_all", "web-1"] }] }, true).rules[0]?.nodes,
+		).toEqual(["_all", "web-1"]);
 	});
 
 	it("rejects exact and prefix together, and non-string or over-long patterns", () => {

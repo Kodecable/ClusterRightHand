@@ -258,13 +258,13 @@ export interface ShareAudience {
 	granteeId: string;
 }
 
-/** The users a share reaches: the user itself, or the current members of the group. */
+/** The users a share reaches: the user itself, or the current members of the user group. */
 export async function shareAudienceUserIds(db: Db, audience: ShareAudience): Promise<string[]> {
 	if (audience.granteeType === "user") return [audience.granteeId];
 	const rows = await db
 		.selectFrom("user_group_members")
 		.select("user_id")
-		.where("group_id", "=", audience.granteeId)
+		.where("user_group_id", "=", audience.granteeId)
 		.execute();
 	return rows.map((row) => row.user_id);
 }
@@ -380,16 +380,16 @@ export class SessionListHub {
 	}
 
 	/**
-	 * The user joined or left a group: every root session shared with the group may have become visible or
-	 * invisible to them.
+	 * The user joined or left a user group: every root session shared with that user group may have become
+	 * visible or invisible to them.
 	 */
-	async publishGroupMemberChanged(groupId: string, userId: string, added: boolean): Promise<void> {
+	async publishUserGroupMemberChanged(userGroupId: string, userId: string, added: boolean): Promise<void> {
 		const shares = await this.#db
 			.selectFrom("shares")
 			.select("resource_id")
 			.where("resource_type", "=", "session")
 			.where("grantee_type", "=", "user_group")
-			.where("grantee_id", "=", groupId)
+			.where("grantee_id", "=", userGroupId)
 			.execute();
 		for (const sessionId of new Set(shares.map((share) => share.resource_id))) {
 			const row = await this.#row(sessionId);
@@ -501,7 +501,7 @@ export class SessionListHub {
 			.executeTakeFirst();
 	}
 
-	/** Everyone a direct or group share reaches, other than the owner (who is checked separately). */
+	/** Everyone a direct or user-group share reaches, other than the owner (who is checked separately). */
 	async #visibleUserIds(sessionId: string): Promise<Set<string>> {
 		const rows = await this.#db
 			.selectFrom("shares")
@@ -510,16 +510,16 @@ export class SessionListHub {
 			.where("resource_id", "=", sessionId)
 			.execute();
 		const out = new Set<string>();
-		const groups: string[] = [];
+		const userGroupIds: string[] = [];
 		for (const row of rows) {
 			if (row.grantee_type === "user") out.add(row.grantee_id);
-			else groups.push(row.grantee_id);
+			else userGroupIds.push(row.grantee_id);
 		}
-		if (groups.length > 0) {
+		if (userGroupIds.length > 0) {
 			const members = await this.#db
 				.selectFrom("user_group_members")
 				.select("user_id")
-				.where("group_id", "in", groups)
+				.where("user_group_id", "in", userGroupIds)
 				.execute();
 			for (const member of members) out.add(member.user_id);
 		}

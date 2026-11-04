@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { ApprovalCard } from "@/components/approval-card";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { NodeTargetList } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { QuotaCard } from "@/components/quota-card";
@@ -13,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useDecideQuota } from "@/features/sessions/api";
 import type { ApprovalBody, QuotaApproval, TaskGroupView, TaskView } from "@/lib/api/types";
-import { useApprovalGroup, useApprovalLookups, useApprovals, useApprovalTask, useDecideApproval } from "./api";
+import { useApprovalLookups, useApprovals, useApprovalTask, useApprovalTaskGroup, useDecideApproval } from "./api";
 import { pendingCount } from "./pending";
 
 /** A section that disappears entirely when it has nothing to show. */
@@ -48,10 +49,12 @@ function ApprovalSection({
 function TaskCards({
 	tasks,
 	nodeNames,
+	refNames,
 	tokenNames,
 }: {
 	tasks: TaskView[];
 	nodeNames: Map<string, string>;
+	refNames: Map<string, string>;
 	tokenNames: Map<string, string>;
 }) {
 	const { t } = useLingui();
@@ -71,6 +74,7 @@ function TaskCards({
 					key={task.id}
 					item={{ kind: "task", task }}
 					nodeNames={nodeNames}
+					refNames={refNames}
 					tokenNames={tokenNames}
 					busy={decide.isPending && decide.variables?.id === task.id}
 					error={decide.variables?.id === task.id ? decide.error : undefined}
@@ -81,20 +85,22 @@ function TaskCards({
 	);
 }
 
-function GroupCards({
-	groups,
+function TaskGroupCards({
+	taskGroups,
 	nodeNames,
+	refNames,
 	tokenNames,
 }: {
-	groups: TaskGroupView[];
+	taskGroups: TaskGroupView[];
 	nodeNames: Map<string, string>;
+	refNames: Map<string, string>;
 	tokenNames: Map<string, string>;
 }) {
 	const { t } = useLingui();
 	const decide = useDecideApproval();
 	const onDecide = (id: string, body: ApprovalBody) => {
 		decide.mutate(
-			{ kind: "group", id, body },
+			{ kind: "task_group", id, body },
 			{
 				onSuccess: () => toast.success(t`Decision recorded.`),
 			},
@@ -102,15 +108,16 @@ function GroupCards({
 	};
 	return (
 		<>
-			{groups.map((group) => (
+			{taskGroups.map((taskGroup) => (
 				<ApprovalCard
-					key={group.id}
-					item={{ kind: "group", group }}
+					key={taskGroup.id}
+					item={{ kind: "task_group", taskGroup }}
 					nodeNames={nodeNames}
+					refNames={refNames}
 					tokenNames={tokenNames}
-					busy={decide.isPending && decide.variables?.id === group.id}
-					error={decide.variables?.id === group.id ? decide.error : undefined}
-					onDecide={(body) => onDecide(group.id, body)}
+					busy={decide.isPending && decide.variables?.id === taskGroup.id}
+					error={decide.variables?.id === taskGroup.id ? decide.error : undefined}
+					onDecide={(body) => onDecide(taskGroup.id, body)}
 				/>
 			))}
 		</>
@@ -119,15 +126,15 @@ function GroupCards({
 
 function SignatureSection({
 	tasks,
-	groups,
+	taskGroups,
 	nodeNames,
 }: {
 	tasks: TaskView[];
-	groups: TaskGroupView[];
+	taskGroups: TaskGroupView[];
 	nodeNames: Map<string, string>;
 }) {
 	const { t } = useLingui();
-	if (tasks.length + groups.length === 0) return null;
+	if (tasks.length + taskGroups.length === 0) return null;
 	return (
 		<section className="grid gap-2" aria-label={t`Waiting for your signature`} data-testid="signature-section">
 			<h2 className="text-sm font-semibold">
@@ -151,16 +158,19 @@ function SignatureSection({
 						</Badge>
 					</li>
 				))}
-				{groups.map((group) => (
-					<li key={group.id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
-						<Link
-							to="/task-groups/$taskGroupId"
-							params={{ taskGroupId: group.id }}
-							className="min-w-0 flex-1 truncate text-primary underline underline-offset-2"
-						>
-							{group.summary || group.kind || t`task group`} ·{" "}
-							{group.nodeIds.map((id) => nodeNames.get(id) ?? id).join(", ")}
-						</Link>
+				{taskGroups.map((taskGroup) => (
+					<li key={taskGroup.id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
+						<span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1">
+							<Link
+								to="/task-groups/$taskGroupId"
+								params={{ taskGroupId: taskGroup.id }}
+								className="min-w-0 truncate text-primary underline underline-offset-2"
+							>
+								{taskGroup.summary || taskGroup.kind || t`task group`}
+							</Link>
+							<span className="text-muted-foreground">·</span>
+							<NodeTargetList ids={taskGroup.targets} refs={taskGroup.refs} nodeNames={nodeNames} />
+						</span>
 						<Badge variant="outline">
 							<Trans>Task group</Trans>
 						</Badge>
@@ -234,7 +244,12 @@ export function ApprovalsPage() {
 					description={<Trans>These tasks were held back by a rule and run once you approve them.</Trans>}
 					count={data.tasks.length}
 				>
-					<TaskCards tasks={data.tasks} nodeNames={lookups.nodeNames} tokenNames={lookups.tokenNames} />
+					<TaskCards
+						tasks={data.tasks}
+						nodeNames={lookups.nodeNames}
+						refNames={lookups.refNames}
+						tokenNames={lookups.tokenNames}
+					/>
 				</ApprovalSection>
 			)}
 
@@ -242,17 +257,22 @@ export function ApprovalsPage() {
 				<ApprovalSection
 					label="Task-group approvals"
 					title={<Trans>Task-group approvals</Trans>}
-					description={<Trans>One decision applies to every node in the group.</Trans>}
+					description={<Trans>One decision applies to every node in the task group.</Trans>}
 					count={data.taskGroups.length}
 				>
-					<GroupCards groups={data.taskGroups} nodeNames={lookups.nodeNames} tokenNames={lookups.tokenNames} />
+					<TaskGroupCards
+						taskGroups={data.taskGroups}
+						nodeNames={lookups.nodeNames}
+						refNames={lookups.refNames}
+						tokenNames={lookups.tokenNames}
+					/>
 				</ApprovalSection>
 			)}
 
 			{data && (
 				<SignatureSection
 					tasks={data.authorizations.tasks}
-					groups={data.authorizations.taskGroups}
+					taskGroups={data.authorizations.taskGroups}
 					nodeNames={lookups.nodeNames}
 				/>
 			)}
@@ -324,6 +344,7 @@ export function ApprovalTaskPage() {
 				<ApprovalCard
 					item={{ kind: "task", task: task.data }}
 					nodeNames={lookups.nodeNames}
+					refNames={lookups.refNames}
 					tokenNames={lookups.tokenNames}
 					busy={decide.isPending}
 					error={decide.error}
@@ -354,20 +375,20 @@ export function ApprovalTaskPage() {
 
 export function ApprovalTaskGroupPage() {
 	const params = useParams({ strict: false }) as { taskGroupId?: string };
-	const group = useApprovalGroup(params.taskGroupId);
+	const taskGroup = useApprovalTaskGroup(params.taskGroupId);
 	const lookups = useApprovalLookups();
 	const decide = useDecideApproval();
 	const { t } = useLingui();
-	if (group.isPending) return <DetailPending />;
-	if (group.error !== null && group.error !== undefined) {
+	if (taskGroup.isPending) return <DetailPending />;
+	if (taskGroup.error !== null && taskGroup.error !== undefined) {
 		return (
 			<div className="p-4">
-				<ErrorState error={group.error} retry={() => void group.refetch()} />
+				<ErrorState error={taskGroup.error} retry={() => void taskGroup.refetch()} />
 			</div>
 		);
 	}
-	if (!group.data) return null;
-	const pending = group.data.state === "awaiting_approval";
+	if (!taskGroup.data) return null;
+	const pending = taskGroup.data.state === "awaiting_approval";
 	return (
 		<Page width="detail" data-testid="approval-detail">
 			<div>
@@ -380,14 +401,15 @@ export function ApprovalTaskGroupPage() {
 			</div>
 			{pending ? (
 				<ApprovalCard
-					item={{ kind: "group", group: group.data }}
+					item={{ kind: "task_group", taskGroup: taskGroup.data }}
 					nodeNames={lookups.nodeNames}
+					refNames={lookups.refNames}
 					tokenNames={lookups.tokenNames}
 					busy={decide.isPending}
 					error={decide.error}
 					onDecide={(body) =>
 						decide.mutate(
-							{ kind: "group", id: group.data?.id ?? "", body },
+							{ kind: "task_group", id: taskGroup.data?.id ?? "", body },
 							{
 								onSuccess: () => toast.success(t`Decision recorded.`),
 							},
@@ -395,9 +417,9 @@ export function ApprovalTaskGroupPage() {
 					}
 				/>
 			) : (
-				<Settled state={group.data.state} title={<Trans>Already settled</Trans>}>
+				<Settled state={taskGroup.data.state} title={<Trans>Already settled</Trans>}>
 					<Button
-						render={<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: group.data.id }} />}
+						render={<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: taskGroup.data.id }} />}
 						variant="outline"
 						size="sm"
 						nativeButton={false}

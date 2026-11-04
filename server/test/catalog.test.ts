@@ -85,6 +85,7 @@ describe("batch output tool parameter", () => {
 					org_id: await defaultOrgId(db),
 					owner_user_id: user.id,
 					name: "web-1",
+					name_key: "web-1",
 					transport: "client",
 					status: "active",
 					public_key: null,
@@ -104,7 +105,7 @@ describe("batch output tool parameter", () => {
 					ssh_jumps: null,
 				})
 				.execute();
-			await db.insertInto("node_groups").values({ node_id: nodeId, group_name: "prod", refreshed_at: now }).execute();
+			await addGroup(db, nodeId, "prod");
 			const created: { outputMode?: string }[] = [];
 			const groups = {
 				create: async (input: { outputMode?: string }) => {
@@ -115,6 +116,7 @@ describe("batch output tool parameter", () => {
 					id: "g1",
 					state: "finished",
 					targets: ["web-1"],
+					refs: {},
 					nodeIds: [nodeId],
 					parallel: 1,
 					failFast: false,
@@ -128,14 +130,14 @@ describe("batch output tool parameter", () => {
 			const toolCtx = {
 				db,
 				cluster: {} as Cluster,
-				groups: groups as unknown as TaskGroups,
+				taskGroups: groups as unknown as TaskGroups,
 				user: sessionUser,
 				actor: { type: "system", id: "test", onBehalfOfUserId: user.id },
 				chain: [],
 				approvalUrl: () => "http://crh.test/",
 			} as unknown as ToolContext;
-			await exec.handler({ targets: ["group:prod"], cmd: "true" }, toolCtx);
-			await exec.handler({ targets: ["group:prod"], cmd: "true", output: "text" }, toolCtx);
+			await exec.handler({ targets: ["prod"], cmd: "true" }, toolCtx);
+			await exec.handler({ targets: ["prod"], cmd: "true", output: "text" }, toolCtx);
 			// The tool leaves exec's default (status) to the group; text is passed through.
 			expect(created.map((input) => input.outputMode)).toEqual([undefined, "text"]);
 		} finally {
@@ -308,6 +310,7 @@ describe("node facts", () => {
 				org_id: await defaultOrgId(db),
 				owner_user_id: user.id,
 				name,
+				name_key: name.toLowerCase(),
 				transport: "client",
 				status: "active",
 				public_key: null,
@@ -330,7 +333,7 @@ describe("node facts", () => {
 		const toolCtx = {
 			db,
 			cluster: { isConnected: () => false } as unknown as Cluster,
-			groups: {} as TaskGroups,
+			taskGroups: {} as TaskGroups,
 			user: {
 				sessionId: "s",
 				userId: user.id,
@@ -439,6 +442,7 @@ describe("the statuses a wait publishes", () => {
 				org_id: await defaultOrgId(db),
 				owner_user_id: user.id,
 				name: "web-1",
+				name_key: "web-1",
 				transport: "client",
 				status: "active",
 				public_key: null,
@@ -476,7 +480,7 @@ describe("the statuses a wait publishes", () => {
 			const toolCtx = {
 				db,
 				cluster: cluster as unknown as Cluster,
-				groups: {} as TaskGroups,
+				taskGroups: {} as TaskGroups,
 				user,
 				actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
 				chain: [],
@@ -507,11 +511,12 @@ describe("the statuses a wait publishes", () => {
 	it("reports the group page while a group waits for the user's signature", async () => {
 		const { db, nodeId, now, user } = await setup();
 		try {
-			await db.insertInto("node_groups").values({ node_id: nodeId, group_name: "prod", refreshed_at: now }).execute();
+			await addGroup(db, nodeId, "prod");
 			const group = {
 				id: "g1",
 				state: "awaiting_authorization",
 				targets: ["web-1"],
+				refs: {},
 				nodeIds: [nodeId],
 				parallel: 1,
 				failFast: false,
@@ -530,12 +535,12 @@ describe("the statuses a wait publishes", () => {
 			const toolCtx = {
 				db,
 				cluster: {} as Cluster,
-				groups: groups as unknown as TaskGroups,
+				taskGroups: groups as unknown as TaskGroups,
 				user,
 				actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
 				chain: [],
 				approvalUrl: (kind: string, id: string) => `/approvals/${kind}/${id}`,
-				groupUrl: (id: string) => `/task-groups/${id}`,
+				taskGroupUrl: (id: string) => `/task-groups/${id}`,
 				waitThroughApproval: true,
 				onStatus: async (status: Record<string, unknown>) => {
 					statuses.push(status);
@@ -543,7 +548,7 @@ describe("the statuses a wait publishes", () => {
 			} as unknown as ToolContext;
 			const exec = TOOLS.find((t) => t.name === "exec");
 			if (!exec) throw new Error("exec tool missing");
-			await exec.handler({ targets: ["group:prod"], cmd: "true", wait: 1 }, toolCtx);
+			await exec.handler({ targets: ["prod"], cmd: "true", wait: 1 }, toolCtx);
 			expect(statuses[0]).toEqual({ task_group_id: "g1", state: "awaiting_authorization" });
 			expect(statuses[1]).toEqual({
 				task_group_id: "g1",
@@ -572,7 +577,7 @@ describe("the statuses a wait publishes", () => {
 				const toolCtx = {
 					db,
 					cluster: cluster as unknown as Cluster,
-					groups: {} as TaskGroups,
+					taskGroups: {} as TaskGroups,
 					user,
 					actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
 					chain: [],
@@ -596,11 +601,12 @@ describe("the statuses a wait publishes", () => {
 	it("carries the task group id before the first wait, with and without approval waits", async () => {
 		const { db, nodeId, now, user } = await setup();
 		try {
-			await db.insertInto("node_groups").values({ node_id: nodeId, group_name: "prod", refreshed_at: now }).execute();
+			await addGroup(db, nodeId, "prod");
 			const group = {
 				id: "g1",
 				state: "running",
 				targets: ["web-1"],
+				refs: {},
 				nodeIds: [nodeId],
 				parallel: 1,
 				failFast: false,
@@ -622,7 +628,7 @@ describe("the statuses a wait publishes", () => {
 				const toolCtx = {
 					db,
 					cluster: {} as Cluster,
-					groups: groups as unknown as TaskGroups,
+					taskGroups: groups as unknown as TaskGroups,
 					user,
 					actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
 					chain: [],
@@ -632,7 +638,7 @@ describe("the statuses a wait publishes", () => {
 						statuses.push(status);
 					},
 				} as unknown as ToolContext;
-				await exec.handler({ targets: ["group:prod"], cmd: "true", wait: 1 }, toolCtx);
+				await exec.handler({ targets: ["prod"], cmd: "true", wait: 1 }, toolCtx);
 				expect(statuses[0], `waitThroughApproval=${waitThroughApproval}`).toEqual({
 					task_group_id: "g1",
 					state: "running",
@@ -686,6 +692,7 @@ describe("the privileged tool parameter", () => {
 					org_id: await defaultOrgId(db),
 					owner_user_id: user.id,
 					name: "web-1",
+					name_key: "web-1",
 					transport: "client",
 					status: "active",
 					public_key: null,
@@ -705,7 +712,7 @@ describe("the privileged tool parameter", () => {
 					ssh_jumps: null,
 				})
 				.execute();
-			await db.insertInto("node_groups").values({ node_id: nodeId, group_name: "prod", refreshed_at: now }).execute();
+			await addGroup(db, nodeId, "prod");
 			const created: { privileged?: boolean }[] = [];
 			const page = {
 				stdoutHead: "127.0.0.1 localhost\n",
@@ -724,6 +731,7 @@ describe("the privileged tool parameter", () => {
 					id: "g1",
 					state: "finished",
 					targets: ["web-1"],
+					refs: {},
 					nodeIds: [nodeId],
 					parallel: 1,
 					failFast: false,
@@ -738,7 +746,7 @@ describe("the privileged tool parameter", () => {
 			const toolCtx = {
 				db,
 				cluster,
-				groups,
+				taskGroups: groups,
 				user: sessionUser,
 				actor: { type: "system", id: "test", onBehalfOfUserId: user.id },
 				chain: [],
@@ -756,7 +764,7 @@ describe("the privileged tool parameter", () => {
 			expect(single.privileged).toBe(true);
 
 			const batch = (await tool("exec").handler(
-				{ targets: ["group:prod"], cmd: "true", privileged: true },
+				{ targets: ["prod"], cmd: "true", privileged: true },
 				toolCtx,
 			)) as Record<string, unknown>;
 			expect(batch.privileged).toBe(true);
@@ -786,6 +794,7 @@ async function seedToolContext(db: Db, name: string): Promise<{ user: SessionUse
 			org_id: await defaultOrgId(db),
 			owner_user_id: user.id,
 			name: "web-1",
+			name_key: "web-1",
 			transport: "client",
 			status: "active",
 			public_key: null,
@@ -811,7 +820,7 @@ async function seedToolContext(db: Db, name: string): Promise<{ user: SessionUse
 		ctx: {
 			db,
 			cluster: {} as Cluster,
-			groups: {} as TaskGroups,
+			taskGroups: {} as TaskGroups,
 			user: sessionUser,
 			actor: { type: "user", id: user.id, onBehalfOfUserId: user.id },
 			chain: [],
@@ -821,6 +830,33 @@ async function seedToolContext(db: Db, name: string): Promise<{ user: SessionUse
 }
 
 /** Inserts a node owned by `userId` and returns its id. */
+async function addGroup(db: Db, nodeId: string, name: string): Promise<string> {
+	const node = await db.selectFrom("nodes").select("org_id").where("id", "=", nodeId).executeTakeFirstOrThrow();
+	let group = await db
+		.selectFrom("node_groups")
+		.select("id")
+		.where("org_id", "=", node.org_id)
+		.where("name_key", "=", name.toLowerCase())
+		.executeTakeFirst();
+	if (!group) {
+		group = { id: newId() };
+		const now = new Date().toISOString();
+		await db
+			.insertInto("node_groups")
+			.values({
+				id: group.id,
+				org_id: node.org_id,
+				name,
+				name_key: name.toLowerCase(),
+				created_at: now,
+				updated_at: now,
+			})
+			.execute();
+	}
+	await db.insertInto("node_group_members").values({ node_group_id: group.id, node_id: nodeId }).execute();
+	return group.id;
+}
+
 async function addNode(db: Db, userId: string, name: string): Promise<string> {
 	const id = newId();
 	const now = new Date().toISOString();
@@ -831,6 +867,7 @@ async function addNode(db: Db, userId: string, name: string): Promise<string> {
 			org_id: await defaultOrgId(db),
 			owner_user_id: userId,
 			name,
+			name_key: name.toLowerCase(),
 			transport: "client",
 			status: "active",
 			public_key: null,
@@ -864,10 +901,7 @@ describe("targets decide the result shape", () => {
 				["solo", "one"],
 			] as const) {
 				const id = await addNode(db, user.userId, name);
-				await db
-					.insertInto("node_groups")
-					.values({ node_id: id, group_name: group, refreshed_at: new Date().toISOString() })
-					.execute();
+				await addGroup(db, id, group);
 			}
 			const created: { nodeId: string }[] = [];
 			const groupInputs: { targets: string[]; nodeIds: string[]; outputMode?: string }[] = [];
@@ -887,6 +921,7 @@ describe("targets decide the result shape", () => {
 					id: "g1",
 					state: "finished",
 					targets: [],
+					refs: {},
 					nodeIds: groupInputs[0]?.nodeIds ?? [],
 					parallel: 10,
 					failFast: false,
@@ -910,7 +945,7 @@ describe("targets decide the result shape", () => {
 				}),
 				wait: async () => (await groupViews.get("g1")) as unknown,
 			} as unknown as TaskGroups;
-			const ctx = { ...baseCtx, cluster, groups: groupViews } as ToolContext;
+			const ctx = { ...baseCtx, cluster, taskGroups: groupViews } as ToolContext;
 
 			// One node name: one task, one task result.
 			await expect(tool("exec").handler({ targets: ["web-1"], cmd: "true" }, ctx)).resolves.toMatchObject({
@@ -920,14 +955,14 @@ describe("targets decide the result shape", () => {
 			expect(groupInputs).toHaveLength(0);
 
 			// A group entry is a task group even when it resolves to one node.
-			await tool("exec").handler({ targets: ["group:prod"], cmd: "true" }, ctx);
+			await tool("exec").handler({ targets: ["prod"], cmd: "true" }, ctx);
 			expect(groupInputs).toHaveLength(1);
 			expect(groupInputs[0]?.nodeIds).toHaveLength(2);
 			// exec's default mode (status) and a file operation's head are the group's decision.
 			expect(groupInputs[0]?.outputMode).toBeUndefined();
 
 			// A group that resolves to one node is still a task group: the input, not the resolution, decides.
-			await tool("exec").handler({ targets: ["group:one"], cmd: "true" }, ctx);
+			await tool("exec").handler({ targets: ["one"], cmd: "true" }, ctx);
 			expect(groupInputs).toHaveLength(2);
 			expect(groupInputs[1]?.nodeIds).toHaveLength(1);
 
@@ -945,8 +980,8 @@ describe("targets decide the result shape", () => {
 
 			// edit_file stays single-node: a group there is an error, never an arbitrary pick.
 			await expect(
-				tool("edit_file").handler({ node: "group:prod", path: "/tmp/x", edits: [{ oldText: "a", newText: "b" }] }, ctx),
-			).rejects.toThrow(/matches 2 nodes/);
+				tool("edit_file").handler({ node: "prod", path: "/tmp/x", edits: [{ oldText: "a", newText: "b" }] }, ctx),
+			).rejects.toThrow(/does not name one node/);
 		} finally {
 			await db.destroy();
 		}
@@ -1228,6 +1263,7 @@ describe("read_file line paging", () => {
 				id: "g1",
 				state: "finished" as const,
 				targets: [],
+				refs: {},
 				nodeIds: [nodeId, secondId],
 				parallel: 10,
 				failFast: false,
@@ -1249,7 +1285,7 @@ describe("read_file line paging", () => {
 				handlerType: null,
 				handlerSessionId: null,
 			});
-			const ctx = { ...baseCtx, cluster, groups } as ToolContext;
+			const ctx = { ...baseCtx, cluster, taskGroups: groups } as ToolContext;
 			const result = (await tool("read_file").handler({ targets: ["web-1", "web-2"], path }, ctx)) as {
 				nodes: { node: string; stdout: string; lines: { from: number; to: number }; truncated?: { note: string } }[];
 			};
@@ -1324,7 +1360,7 @@ describe("tool task scope", () => {
 			const base = {
 				db,
 				cluster,
-				groups: {} as TaskGroups,
+				taskGroups: {} as TaskGroups,
 				user: { sessionId: "s", userId: user.id, username: user.username, kind: "member" as const },
 				chain: [],
 				approvalUrl: (kind: string, id: string) => `http://crh.test/approvals/${kind}/${id}`,
@@ -1472,6 +1508,7 @@ describe("file tool results", () => {
 				id: "g-list",
 				state: "finished",
 				targets: [],
+				refs: {},
 				nodeIds: [nodeId, secondId],
 				parallel: 10,
 				failFast: false,
@@ -1500,7 +1537,7 @@ describe("file tool results", () => {
 			} as unknown as TaskGroups;
 			const out = (await tool("list_dir").handler({ targets: ["web-1", "web-2"], path: "/tmp" }, {
 				...ctx,
-				groups,
+				taskGroups: groups,
 			} as ToolContext)) as { nodes: Record<string, unknown>[] };
 			expect(out.nodes.map((n) => n.node)).toEqual(["web-1", "web-2"]);
 			expect(out.nodes[0]).toMatchObject({ entries: [{ name: "a" }], truncated: false });

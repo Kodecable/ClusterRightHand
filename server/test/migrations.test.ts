@@ -15,6 +15,8 @@ import { up as up0032 } from "../src/storage/migrations/0032_token_measures.ts";
 import { down as down0033, up as up0033 } from "../src/storage/migrations/0033_drop_authorization_revocation.ts";
 import { down as down0034, up as up0034 } from "../src/storage/migrations/0034_drop_audit_hash_chain.ts";
 import { down as down0035, up as up0035 } from "../src/storage/migrations/0035_retention_indexes.ts";
+import { down as down0036, up as up0036 } from "../src/storage/migrations/0036_node_names.ts";
+import { down as down0037, up as up0037 } from "../src/storage/migrations/0037_user_group_member_column.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -866,5 +868,290 @@ describeBackends("0035 retention indexes", (backend) => {
 
 		await applyMigration(backend, db, down0035);
 		expect(await indexNames()).toEqual([]);
+	});
+});
+
+describeBackends("0036 node names and node groups", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("orgs")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.execute();
+			await db.schema
+				.createTable("nodes")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("org_id", "text", (c) => c.notNull())
+				.addColumn("name", "text", (c) => c.notNull())
+				.addColumn("created_at", "text", (c) => c.notNull())
+				.execute();
+			await db.schema
+				.createTable("node_groups")
+				.addColumn("node_id", "text", (c) => c.notNull())
+				.addColumn("group_name", "text", (c) => c.notNull())
+				.addColumn("refreshed_at", "text", (c) => c.notNull())
+				.addPrimaryKeyConstraint("node_groups_pk", ["node_id", "group_name"])
+				.execute();
+			await db.schema
+				.createTable("rule_sets")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("org_id", "text", (c) => c.notNull())
+				.addColumn("rules", "text", (c) => c.notNull())
+				.execute();
+			await db.schema
+				.createTable("task_groups")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("targets", "text", (c) => c.notNull())
+				.execute();
+			await sql`insert into orgs (id) values ('o1')`.execute(db);
+			for (const [id, name, at] of [
+				["n1", "web", "2026-01-01T00:00:01Z"],
+				["n2", "Web Server!", "2026-01-01T00:00:02Z"],
+				["n3", "Foo", "2026-01-01T00:00:03Z"],
+				["n4", "foo", "2026-01-01T00:00:04Z"],
+				["n5", "a", "2026-01-01T00:00:05Z"],
+			] as const) {
+				await sql`insert into nodes (id, org_id, name, created_at) values (${id}, 'o1', ${name}, ${at})`.execute(db);
+			}
+			for (const [nodeId, groupName] of [
+				["n1", "web"],
+				["n1", "Prod Group"],
+				["n2", "Prod Group"],
+				["n3", "foo"],
+			] as const) {
+				await sql`insert into node_groups (node_id, group_name, refreshed_at) values
+					(${nodeId}, ${groupName}, '2026-01-01T00:00:00Z')`.execute(db);
+			}
+			const rules: [string, unknown[]][] = [
+				[
+					"rs1",
+					[
+						{ action: "deny", nodes: ["group:web", "web", "n3", "nope"], method: "exec" },
+						{ action: "allow", method: "exec" },
+					],
+				],
+				["rs2", [{ action: "allow", nodes: ["_all", "group:missing"] }]],
+				["rs3", [{ action: "deny", nodes: ["Web Server!"] }]],
+				["rs4", [{ action: "allow", method: "file.read" }]],
+			];
+			for (const [id, value] of rules) {
+				await sql`insert into rule_sets (id, org_id, rules) values (${id}, 'o1', ${JSON.stringify(value)})`.execute(db);
+			}
+			await sql`insert into task_groups (id, targets) values ('g1', ${JSON.stringify(["group:web", "n1"])})`.execute(
+				db,
+			);
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	const names = async (): Promise<Record<string, string>> =>
+		Object.fromEntries(
+			(await db.selectFrom("nodes").select(["id", "name", "name_key"]).execute()).map((row) => [
+				row.id,
+				`${row.name}|${row.name_key}`,
+			]),
+		);
+
+	const groups = async (): Promise<{ id: string; name: string; memberIds: string[] }[]> => {
+		// Sorted here, not in SQL: PostgreSQL's collation and SQLite's byte order disagree on case.
+		const rows = (await db.selectFrom("node_groups").select(["id", "name", "name_key"]).execute()).sort((a, b) =>
+			a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+		);
+		const members = await db.selectFrom("node_group_members").select(["node_group_id", "node_id"]).execute();
+		return rows.map((row) => ({
+			id: row.id,
+			name: row.name,
+			memberIds: members
+				.filter((m) => m.node_group_id === row.id)
+				.map((m) => m.node_id)
+				.sort(),
+		}));
+	};
+
+	const rulesOf = async (id: string): Promise<unknown[]> =>
+		JSON.parse(
+			(await db.selectFrom("rule_sets").select("rules").where("id", "=", id).executeTakeFirstOrThrow()).rules,
+		) as unknown[];
+
+	it("normalizes names, builds node groups and resolves rule references", async () => {
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		let logged = "";
+		try {
+			await applyMigration(backend, db, up0036);
+			logged = log.mock.calls.map((call) => String(call[0])).join("\n");
+		} finally {
+			log.mockRestore();
+		}
+
+		expect(await names()).toEqual({
+			n1: "web|web",
+			n2: "Web-Server|web-server",
+			// The first of two names that collide only by case keeps its spelling; the later one gets a suffix.
+			n3: "Foo|foo",
+			n4: "foo-2|foo-2",
+			n5: "a0|a0",
+		});
+		const nodeGroups = await groups();
+		expect(nodeGroups.map((group) => group.name)).toEqual(["Prod-Group", "foo-3", "web-2"]);
+		// New node-group ids follow the application's UUIDv7 convention.
+		for (const group of nodeGroups) expect(group.id[14]).toBe("7");
+		expect(nodeGroups.find((group) => group.name === "Prod-Group")?.memberIds).toEqual(["n1", "n2"]);
+		expect(nodeGroups.find((group) => group.name === "web-2")?.memberIds).toEqual(["n1"]);
+		expect(nodeGroups.find((group) => group.name === "foo-3")?.memberIds).toEqual(["n3"]);
+
+		// The rule's entries resolve through the pre-migration names and the group mapping; unknown entries become
+		// fresh UUIDs that refer to nothing.
+		const web2 = nodeGroups.find((group) => group.name === "web-2")?.id as string;
+		const rs1 = (await rulesOf("rs1")) as { nodes?: string[]; method?: string }[];
+		expect(rs1[0]?.nodes?.slice(0, 3)).toEqual([web2, "n1", "n3"]);
+		expect(rs1[0]?.nodes?.[3]).toMatch(/^[0-9a-f-]{36}$/);
+		expect([web2, "n1", "n3"]).not.toContain(rs1[0]?.nodes?.[3]);
+		expect(rs1[1]).toEqual({ action: "allow", method: "exec" });
+
+		const rs2 = (await rulesOf("rs2")) as { nodes: string[] }[];
+		expect(rs2[0]?.nodes[0]).toBe("_all");
+		expect(rs2[0]?.nodes[1]).toMatch(/^[0-9a-f-]{36}$/);
+		expect((await rulesOf("rs3")) as { nodes: string[] }[]).toEqual([{ action: "deny", nodes: ["n2"] }]);
+		expect(await rulesOf("rs4")).toEqual([{ action: "allow", method: "file.read" }]);
+
+		// Historical task-group targets are not rewritten.
+		const taskGroup = await db
+			.selectFrom("task_groups")
+			.select("targets")
+			.where("id", "=", "g1")
+			.executeTakeFirstOrThrow();
+		expect(JSON.parse(taskGroup.targets)).toEqual(["group:web", "n1"]);
+
+		// The migration says which references had to become dangling ids.
+		expect(logged).toContain('"nope"');
+		expect(logged).toContain('"group:missing"');
+	});
+
+	it("keeps old group names that differ only by case as two groups", async () => {
+		await sql`delete from node_groups`.execute(db);
+		await sql`insert into node_groups (node_id, group_name, refreshed_at) values
+			('n1', 'zebra', '2026-01-01T00:00:00Z'),
+			('n1', 'Zebra', '2026-01-01T00:00:00Z')`.execute(db);
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		try {
+			await applyMigration(backend, db, up0036);
+		} finally {
+			log.mockRestore();
+		}
+		const nodeGroups = await groups();
+		expect(nodeGroups.map((group) => group.name).sort()).toEqual(["Zebra-2", "zebra"]);
+		expect(new Set(nodeGroups.map((group) => group.id)).size).toBe(2);
+		expect(nodeGroups.every((group) => group.memberIds.join(",") === "n1")).toBe(true);
+	});
+
+	it("logs a note for unresolved references", async () => {
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		try {
+			await applyMigration(backend, db, up0036);
+			const logged = log.mock.calls.map((call) => String(call[0])).join("\n");
+			expect(logged).toContain("rule set rs1");
+			expect(logged).toContain('rule set rs1: "nope"');
+		} finally {
+			log.mockRestore();
+		}
+	});
+
+	it("rolls back to the cache shape and the old columns", async () => {
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		try {
+			await applyMigration(backend, db, up0036);
+		} finally {
+			log.mockRestore();
+		}
+		await applyMigration(backend, db, down0036);
+		expect(await tableColumns(backend, db, "node_groups")).toEqual(["node_id", "group_name", "refreshed_at"]);
+		expect(await tableColumns(backend, db, "nodes")).not.toContain("name_key");
+		const cache = await sql<{ node_id: string; group_name: string }>`
+			select node_id, group_name from node_groups order by node_id, group_name
+		`.execute(db);
+		expect(cache.rows).toEqual([
+			{ node_id: "n1", group_name: "Prod-Group" },
+			{ node_id: "n1", group_name: "web-2" },
+			{ node_id: "n2", group_name: "Prod-Group" },
+			{ node_id: "n3", group_name: "foo-3" },
+		]);
+	});
+});
+
+describeBackends("0037 user group member column", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("user_group_members")
+				.addColumn("group_id", "text", (c) => c.notNull())
+				.addColumn("user_id", "text", (c) => c.notNull())
+				.addColumn("created_at", "text", (c) => c.notNull())
+				.addPrimaryKeyConstraint("user_group_members_pk", ["group_id", "user_id"])
+				.execute();
+			await db.schema
+				.createIndex("user_group_members_user_id_idx")
+				.on("user_group_members")
+				.column("user_id")
+				.execute();
+		});
+		await sql`insert into user_group_members (group_id, user_id, created_at) values
+			('g1', 'u1', '2026-01-01T00:00:00Z'), ('g1', 'u2', '2026-01-01T00:00:01Z')`.execute(db);
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	/** The user-id index the old table created; a column rename must leave it in place. */
+	const indexNames = async (): Promise<string[]> => {
+		if (backend === "sqlite") {
+			const result = await sql<{ name: string }>`
+				select name from sqlite_master where type = 'index' and name = 'user_group_members_user_id_idx'
+			`.execute(db);
+			return result.rows.map((row) => row.name);
+		}
+		const result = await sql<{ name: string }>`
+			select indexname as name from pg_indexes
+			where schemaname = current_schema() and indexname = 'user_group_members_user_id_idx'
+		`.execute(db);
+		return result.rows.map((row) => row.name);
+	};
+
+	it("renames group_id to user_group_id and keeps the data, primary key and index", async () => {
+		await applyMigration(backend, db, up0037);
+		expect(await tableColumns(backend, db, "user_group_members")).toEqual(["user_group_id", "user_id", "created_at"]);
+		const rows = await sql<{ user_group_id: string; user_id: string }>`
+			select user_group_id, user_id from user_group_members order by user_id
+		`.execute(db);
+		expect(rows.rows).toEqual([
+			{ user_group_id: "g1", user_id: "u1" },
+			{ user_group_id: "g1", user_id: "u2" },
+		]);
+		// The primary key still covers (user_group_id, user_id): a duplicate is rejected.
+		await expect(
+			sql`insert into user_group_members (user_group_id, user_id, created_at)
+				values ('g1', 'u1', '2026-01-01T00:00:02Z')`.execute(db),
+		).rejects.toThrow();
+		expect(await indexNames()).toEqual(["user_group_members_user_id_idx"]);
+
+		await applyMigration(backend, db, down0037);
+		expect(await tableColumns(backend, db, "user_group_members")).toEqual(["group_id", "user_id", "created_at"]);
+		const restored = await sql<{ group_id: string; user_id: string }>`
+			select group_id, user_id from user_group_members order by user_id
+		`.execute(db);
+		expect(restored.rows).toEqual([
+			{ group_id: "g1", user_id: "u1" },
+			{ group_id: "g1", user_id: "u2" },
+		]);
+		expect(await indexNames()).toEqual(["user_group_members_user_id_idx"]);
 	});
 });

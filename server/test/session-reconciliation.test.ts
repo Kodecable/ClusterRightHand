@@ -58,7 +58,7 @@ describe("startup reconciliation", () => {
 			storage,
 			models,
 			cluster: localCluster,
-			groups: localGroups,
+			taskGroups: localGroups,
 			audit: new Audit(localDb),
 		});
 
@@ -111,6 +111,7 @@ describe("startup reconciliation", () => {
 				org_id: await defaultOrgId(localDb),
 				owner_user_id: user.id,
 				name: "web-1-reconcile",
+				name_key: "web-1-reconcile",
 				transport: "client",
 				status: "active",
 				public_key: null,
@@ -208,7 +209,7 @@ describe("startup reconciliation", () => {
 			storage: storage.factory,
 			models,
 			cluster: localCluster,
-			groups: localGroups,
+			taskGroups: localGroups,
 			audit: new Audit(localDb),
 		});
 		try {
@@ -252,7 +253,7 @@ describe("startup reconciliation", () => {
 			storage: storage.factory,
 			models,
 			cluster: localCluster,
-			groups: localGroups,
+			taskGroups: localGroups,
 			audit: new Audit(localDb),
 		});
 		try {

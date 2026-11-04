@@ -2,11 +2,12 @@ import { type TaskSpec, taskSpecToJson } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import type { Audit, AuditInput } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
+import { type RefMap, targetRefs } from "../policy/refs.ts";
 import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import type { BatchOutputMode, TaskGroupState, TaskGroupsTable } from "../storage/schema.ts";
-import { UserError } from "../users/service.ts";
+import { defaultOrgId, UserError } from "../users/service.ts";
 import { derivedId, newId } from "../util/id.ts";
 import {
 	type Actor,
@@ -20,6 +21,7 @@ import {
 	type TaskView,
 	TERMINAL,
 } from "./cluster.ts";
+import { ALL_TARGET, nameKey } from "./names.ts";
 import { listNodesForUser } from "./nodes.ts";
 
 export const DEFAULT_PARALLEL = 10;
@@ -51,27 +53,54 @@ export const GROUP_INTERRUPTED_REASON = "the task group was interrupted by a res
 /** Why a member that never started ends when its group's run threw (doc/execution-plane.md#状态机). */
 export const GROUP_FAILED_REASON = "the task group failed";
 
+/** Targets resolved at task-group creation: stored references and the expanded, operable nodes. */
+export interface ResolvedTargets {
+	/** Node/node-group UUIDs or `_all`, in input order and de-duplicated; what the group stores. */
+	targets: string[];
+	/** The active nodes the user may operate, after expansion and de-duplication. */
+	nodeIds: string[];
+	/** True for exactly one input entry that names one node: that call is a single task, not a task group. */
+	singleNode: boolean;
+}
+
 /**
- * Resolves a target list (node names and "group:<name>") to the active nodes the user may operate.
- * Unknown names are errors; groups simply match whatever nodes the user can operate.
+ * Resolves node and node-group names (case-insensitive), UUIDs or `_all` to a task group's targets and nodes
+ * (D109, doc/agent-runtime.md#批量执行). An explicit node the user cannot operate is an error; a node group or
+ * `_all` simply expands to the current members the user can operate.
  */
-export async function resolveTargets(db: Db, user: SessionUser, targets: string[]): Promise<string[]> {
+export async function resolveTargets(db: Db, user: SessionUser, targets: string[]): Promise<ResolvedTargets> {
 	if (targets.length === 0) throw new UserError("targets must not be empty");
+	const orgId = await defaultOrgId(db);
 	const nodes = (await listNodesForUser(db, user)).filter((n) => n.access !== "view" && n.status === "active");
+	const nodeGroups = await db.selectFrom("node_groups").select(["id", "name"]).where("org_id", "=", orgId).execute();
 	const ids = new Set<string>();
+	const refs: string[] = [];
+	const addRef = (ref: string): void => {
+		if (!refs.includes(ref)) refs.push(ref);
+	};
 	for (const target of targets) {
-		if (target.startsWith("group:")) {
-			const group = target.slice("group:".length);
-			for (const n of nodes) if (n.groups.includes(group)) ids.add(n.id);
-		} else {
-			const node = nodes.find((n) => n.name === target || n.id === target);
-			if (!node) throw new UserError(`no node ${target} that you can operate`);
+		if (target === ALL_TARGET) {
+			addRef(ALL_TARGET);
+			for (const node of nodes) ids.add(node.id);
+			continue;
+		}
+		const node = nodes.find((n) => n.id === target || nameKey(n.name) === nameKey(target));
+		if (node) {
+			addRef(node.id);
 			ids.add(node.id);
+			continue;
+		}
+		const nodeGroup = nodeGroups.find((g) => g.id === target || nameKey(g.name) === nameKey(target));
+		if (!nodeGroup) throw new UserError(`no node or node group ${target} that you can operate`);
+		addRef(nodeGroup.id);
+		for (const n of nodes) {
+			if (n.nodeGroups.some((g) => g.id === nodeGroup.id)) ids.add(n.id);
 		}
 	}
 	if (ids.size === 0) throw new UserError("the targets match no node that you can operate");
 	if (ids.size > MAX_TARGETS) throw new UserError(`at most ${MAX_TARGETS} targets per batch`);
-	return [...ids];
+	const singleNode = targets.length === 1 && refs[0] !== ALL_TARGET && nodes.some((n) => n.id === refs[0]);
+	return { targets: refs, nodeIds: [...ids], singleNode };
 }
 
 export interface CreateTaskGroupInput
@@ -88,7 +117,7 @@ export interface CreateTaskGroupInput
 }
 
 /** The approval state of a task group: per-node evaluations, then the one decision for the group. */
-export interface GroupApprovalRecord {
+export interface TaskGroupApprovalRecord {
 	nodes: { nodeId: string; evaluation: Evaluation }[];
 	decision?: ApprovalDecision;
 	review?: { decision: "approve" | "escalate"; reason: string; model: string };
@@ -98,7 +127,10 @@ export interface GroupApprovalRecord {
 export interface TaskGroupView {
 	id: string;
 	state: TaskGroupState;
+	/** Stored target UUIDs or `_all`; names are in `refs`. */
 	targets: string[];
+	/** Display names for the UUID targets; null means the node or node group was deleted. */
+	refs: RefMap;
 	nodeIds: string[];
 	parallel: number;
 	failFast: boolean;
@@ -114,7 +146,7 @@ export interface TaskGroupView {
 	summary: string;
 	kind: string;
 	ruleChain: RuleRef[] | null;
-	approval: GroupApprovalRecord | null;
+	approval: TaskGroupApprovalRecord | null;
 	actorType: string;
 	actorId: string;
 	onBehalfOfUserId: string;
@@ -241,7 +273,7 @@ export class TaskGroups {
 		const first = nodes[0];
 		if (!first) throw new UserError("no nodes");
 
-		let approval: GroupApprovalRecord | undefined;
+		let approval: TaskGroupApprovalRecord | undefined;
 		let evaluations: Map<string, Evaluation> | undefined;
 		const privileged = input.privileged === true;
 		if (input.chain) {
@@ -475,7 +507,10 @@ export class TaskGroups {
 		// Build the input before changing state: a legacy spec that cannot be read must fail the request
 		// without leaving a group that is running but has no tasks.
 		const input = approved ? this.#inputFromRow(row) : undefined;
-		const record: GroupApprovalRecord = { ...(JSON.parse(row.approval ?? "{}") as GroupApprovalRecord), decision };
+		const record: TaskGroupApprovalRecord = {
+			...(JSON.parse(row.approval ?? "{}") as TaskGroupApprovalRecord),
+			decision,
+		};
 		const res = await this.#db
 			.updateTable("task_groups")
 			.set({
@@ -505,7 +540,7 @@ export class TaskGroups {
 			const started = await this.#startedNodes(id);
 			const remaining = (JSON.parse(row.node_ids) as string[]).filter((n) => !started.has(n));
 			// The members reuse the judgments the group recorded, instead of running the chain again.
-			const evaluated = (JSON.parse(row.approval ?? "{}") as GroupApprovalRecord).nodes ?? [];
+			const evaluated = (JSON.parse(row.approval ?? "{}") as TaskGroupApprovalRecord).nodes ?? [];
 			this.#start(
 				id,
 				input,
@@ -523,10 +558,13 @@ export class TaskGroups {
 		return true;
 	}
 
-	async recordReview(id: string, review: NonNullable<GroupApprovalRecord["review"]>): Promise<void> {
+	async recordReview(id: string, review: NonNullable<TaskGroupApprovalRecord["review"]>): Promise<void> {
 		const row = await this.#row(id);
 		if (row?.state !== "awaiting_approval") return;
-		const record: GroupApprovalRecord = { ...(JSON.parse(row.approval ?? "{}") as GroupApprovalRecord), review };
+		const record: TaskGroupApprovalRecord = {
+			...(JSON.parse(row.approval ?? "{}") as TaskGroupApprovalRecord),
+			review,
+		};
 		await this.#db
 			.updateTable("task_groups")
 			.set({ approval: JSON.stringify(record) })
@@ -544,8 +582,8 @@ export class TaskGroups {
 	async requestAgentDecision(id: string, session: string): Promise<boolean> {
 		const row = await this.#row(id);
 		if (row?.state !== "awaiting_approval") return false;
-		const record: GroupApprovalRecord = {
-			...(JSON.parse(row.approval ?? "{}") as GroupApprovalRecord),
+		const record: TaskGroupApprovalRecord = {
+			...(JSON.parse(row.approval ?? "{}") as TaskGroupApprovalRecord),
 			agent: { session, state: "pending" },
 		};
 		const res = await this.#db
@@ -569,8 +607,8 @@ export class TaskGroups {
 	async escalateAgentDecision(id: string, session: string): Promise<boolean> {
 		const row = await this.#row(id);
 		if (row?.state !== "awaiting_approval") return false;
-		const record: GroupApprovalRecord = {
-			...(JSON.parse(row.approval ?? "{}") as GroupApprovalRecord),
+		const record: TaskGroupApprovalRecord = {
+			...(JSON.parse(row.approval ?? "{}") as TaskGroupApprovalRecord),
 			agent: { session, state: "escalated" },
 		};
 		const res = await this.#db
@@ -663,10 +701,12 @@ export class TaskGroups {
 		const row = await this.#row(id);
 		if (!row) return undefined;
 		const tasks = await this.#cluster.groupTasks(id);
+		const targets = JSON.parse(row.targets) as string[];
 		return {
 			id: row.id,
 			state: row.state,
-			targets: JSON.parse(row.targets) as string[],
+			targets,
+			refs: await targetRefs(this.#db, row.org_id, targets),
 			nodeIds: JSON.parse(row.node_ids) as string[],
 			parallel: row.parallel,
 			failFast: row.fail_fast === 1,
@@ -679,7 +719,7 @@ export class TaskGroups {
 			summary: row.spec ? summarize(row.spec) : "",
 			kind: row.kind,
 			ruleChain: row.rule_chain ? (JSON.parse(row.rule_chain) as RuleRef[]) : null,
-			approval: row.approval ? (JSON.parse(row.approval) as GroupApprovalRecord) : null,
+			approval: row.approval ? (JSON.parse(row.approval) as TaskGroupApprovalRecord) : null,
 			actorType: row.actor_type,
 			actorId: row.actor_id,
 			onBehalfOfUserId: row.on_behalf_of_user_id,

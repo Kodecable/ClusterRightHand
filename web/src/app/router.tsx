@@ -181,6 +181,18 @@ const nodeDetailRoute = createRoute({
 	component: lazyRouteComponent(() => import("@/features/nodes/pages"), "NodeDetailPage"),
 });
 
+const nodeGroupsRoute = createRoute({
+	getParentRoute: () => authenticatedRoute,
+	path: "/node-groups",
+	component: lazyRouteComponent(() => import("@/features/node-groups/pages"), "NodeGroupsPage"),
+});
+
+const nodeGroupDetailRoute = createRoute({
+	getParentRoute: () => authenticatedRoute,
+	path: "/node-groups/$nodeGroupId",
+	component: lazyRouteComponent(() => import("@/features/node-groups/pages"), "NodeGroupDetailPage"),
+});
+
 const credentialsRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/credentials",
@@ -238,6 +250,8 @@ const routeTree = rootRoute.addChildren([
 		approvalTaskGroupRoute,
 		nodesRoute,
 		nodeDetailRoute,
+		nodeGroupsRoute,
+		nodeGroupDetailRoute,
 		credentialsRoute,
 		authorizationsRoute,
 		tokensRoute,

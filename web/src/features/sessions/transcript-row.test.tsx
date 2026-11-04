@@ -392,31 +392,35 @@ const baseGroup = (overrides: Partial<TaskGroupView> = {}): TaskGroupView =>
 
 describe("callStillOpen", () => {
 	test("a call stays open while the session runs and its task or group is open", () => {
-		expect(callStillOpen({ sessionActive: true, taskState: "running", groupState: undefined })).toBe(true);
-		expect(callStillOpen({ sessionActive: true, taskState: "awaiting_approval", groupState: undefined })).toBe(true);
-		expect(callStillOpen({ sessionActive: true, taskState: undefined, groupState: "running" })).toBe(true);
-		expect(callStillOpen({ sessionActive: true, taskState: undefined, groupState: "awaiting_authorization" })).toBe(
+		expect(callStillOpen({ sessionActive: true, taskState: "running", taskGroupState: undefined })).toBe(true);
+		expect(callStillOpen({ sessionActive: true, taskState: "awaiting_approval", taskGroupState: undefined })).toBe(
+			true,
+		);
+		expect(callStillOpen({ sessionActive: true, taskState: undefined, taskGroupState: "running" })).toBe(true);
+		expect(callStillOpen({ sessionActive: true, taskState: undefined, taskGroupState: "awaiting_authorization" })).toBe(
 			true,
 		);
 		// A call whose first status has not arrived yet is still open.
-		expect(callStillOpen({ sessionActive: true, taskState: undefined, groupState: undefined })).toBe(true);
+		expect(callStillOpen({ sessionActive: true, taskState: undefined, taskGroupState: undefined })).toBe(true);
 	});
 
 	test("an idle session stops the wait, even for a task or group that is still open", () => {
-		expect(callStillOpen({ sessionActive: false, taskState: undefined, groupState: undefined })).toBe(false);
-		expect(callStillOpen({ sessionActive: false, taskState: "running", groupState: undefined })).toBe(false);
-		expect(callStillOpen({ sessionActive: false, taskState: undefined, groupState: "awaiting_approval" })).toBe(false);
+		expect(callStillOpen({ sessionActive: false, taskState: undefined, taskGroupState: undefined })).toBe(false);
+		expect(callStillOpen({ sessionActive: false, taskState: "running", taskGroupState: undefined })).toBe(false);
+		expect(callStillOpen({ sessionActive: false, taskState: undefined, taskGroupState: "awaiting_approval" })).toBe(
+			false,
+		);
 	});
 
 	test("a task in a terminal state stops the wait", () => {
 		for (const state of ["exited", "failed", "denied", "rejected", "unknown"]) {
-			expect(callStillOpen({ sessionActive: true, taskState: state, groupState: undefined }), state).toBe(false);
+			expect(callStillOpen({ sessionActive: true, taskState: state, taskGroupState: undefined }), state).toBe(false);
 		}
 	});
 
 	test("a group that finished, was interrupted or was rejected stops the wait", () => {
 		for (const state of ["finished", "interrupted", "rejected"]) {
-			expect(callStillOpen({ sessionActive: true, taskState: undefined, groupState: state }), state).toBe(false);
+			expect(callStillOpen({ sessionActive: true, taskState: undefined, taskGroupState: state }), state).toBe(false);
 		}
 	});
 });
@@ -467,7 +471,7 @@ describe("a tool card whose call cannot return", () => {
 
 	test("a group that ended stops the spinner", () => {
 		const client = testQueryClient();
-		client.setQueryData(taskKeys.group("g1"), baseGroup());
+		client.setQueryData(taskKeys.taskGroup("g1"), baseGroup());
 		renderRow(unreturned({ task_group_id: "g1", state: "running" }), new TranscriptStreams(), client);
 		expect(icon().querySelector(".animate-spin")).toBeNull();
 		expect(icon()).toHaveAccessibleName("Done");
@@ -476,7 +480,7 @@ describe("a tool card whose call cannot return", () => {
 
 	test("an interrupted group is a failed wrench", () => {
 		const client = testQueryClient();
-		client.setQueryData(taskKeys.group("g1"), baseGroup({ state: "interrupted" }));
+		client.setQueryData(taskKeys.taskGroup("g1"), baseGroup({ state: "interrupted" }));
 		renderRow(unreturned({ task_group_id: "g1", state: "running" }), new TranscriptStreams(), client);
 		expect(icon().querySelector(".animate-spin")).toBeNull();
 		expect(icon()).toHaveAccessibleName("Failed");

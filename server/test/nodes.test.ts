@@ -3,6 +3,7 @@ import type { Facts } from "@crh/protocol";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { createEnrollmentToken, EnrollmentError, enrollNode, parseEnrollmentToken } from "../src/cluster/enrollment.ts";
+import { createNodeGroup, setNodeGroupsForNode } from "../src/cluster/node-groups.ts";
 import {
 	approveNode,
 	deleteNode,
@@ -16,8 +17,8 @@ import {
 	updateNodeFacts,
 } from "../src/cluster/nodes.ts";
 import type { Db } from "../src/storage/db.ts";
-import { addGroupMember, createUserGroup } from "../src/users/groups.ts";
-import { createUser } from "../src/users/service.ts";
+import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { addUserGroupMember, createUserGroup } from "../src/users/user-groups.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
 
 vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
@@ -147,19 +148,23 @@ describeBackends("nodes", (backend) => {
 
 		it("sanitizes and de-duplicates names", async () => {
 			const a = await enroll({ hostname: "Web Server_01.Example!" });
-			expect(a.name).toBe("web-server_01.example");
+			expect(a.name).toBe("Web-Server_01.Example");
 			const b = await enroll({ hostname: "Web Server_01.Example!" });
-			expect(b.name).toBe("web-server_01.example-2");
+			expect(b.name).toBe("Web-Server_01.Example-2");
 			const c = await enroll({ hostname: "dup" });
 			const d = await enroll({ hostname: "dup" });
 			const e = await enroll({ hostname: "dup" });
 			expect([c.name, d.name, e.name]).toEqual(["dup", "dup-2", "dup-3"]);
+			// Generated names share the namespace with node groups too.
+			await createNodeGroup(db, await defaultOrgId(db), "Taken");
+			const groupCollision = await enroll({ hostname: "Taken" });
+			expect(groupCollision.name).toBe("Taken-2");
 			const hinted = await enroll({ nameHint: "Build Box", hostname: "ignored" });
-			expect(hinted.name).toBe("build-box");
+			expect(hinted.name).toBe("Build-Box");
 			const long = await enroll({ hostname: "x".repeat(100) });
-			expect(long.name).toHaveLength(63);
+			expect(long.name).toHaveLength(64);
 			const long2 = await enroll({ hostname: "x".repeat(100) });
-			expect(long2.name).toHaveLength(63);
+			expect(long2.name).toHaveLength(64);
 			expect(long2.name.endsWith("-2")).toBe(true);
 		});
 
@@ -177,7 +182,7 @@ describeBackends("nodes", (backend) => {
 		beforeAll(async () => {
 			node = (await enroll({ hostname: "shared-node" })).id;
 			team = (await createUserGroup(db, "team")).id;
-			await addGroupMember(db, team, bob.userId);
+			await addUserGroupMember(db, team, bob.userId);
 		});
 
 		it("computes access levels", async () => {
@@ -272,14 +277,21 @@ describeBackends("nodes", (backend) => {
 				access: "view",
 				createdBy: o.userId,
 			});
-			await updateNodeFacts(db, a.id, { facts: FACTS, groups: ["web", "db"], privilegedMode: "native" });
+			await updateNodeFacts(db, a.id, { facts: FACTS, privilegedMode: "native" });
+			const orgId = await defaultOrgId(db);
+			const dbGroup = await createNodeGroup(db, orgId, "db");
+			const webGroup = await createNodeGroup(db, orgId, "web");
+			await setNodeGroupsForNode(db, a.id, [webGroup.id, dbGroup.id]);
 
 			const list = await listNodesForUser(db, u);
 			expect(list.map((n) => n.name)).toEqual(["aa-theirs", "zz-mine"]);
-			expect(list[0]).toMatchObject({ access: "view", groups: [], ownerUserId: o.userId, facts: FACTS });
+			expect(list[0]).toMatchObject({ access: "view", nodeGroups: [], ownerUserId: o.userId, facts: FACTS });
 			expect(list[1]).toMatchObject({
 				access: "owner",
-				groups: ["db", "web"],
+				nodeGroups: [
+					{ id: dbGroup.id, name: "db" },
+					{ id: webGroup.id, name: "web" },
+				],
 				privilegedMode: "native",
 				facts: FACTS,
 			});
@@ -293,7 +305,7 @@ describeBackends("nodes", (backend) => {
 			const u = session(await createUser(db, { username: "legacy", kind: "member" }));
 			const n = await enroll({ user: u });
 			const { shells: _shells, ...legacy } = FACTS;
-			await updateNodeFacts(db, n.id, { facts: legacy, groups: [] });
+			await updateNodeFacts(db, n.id, { facts: legacy });
 			const [node] = await listNodesForUser(db, u);
 			// The absent key stays absent: an optional fact the row does not have is unknown.
 			expect(node?.facts).toEqual(legacy);
@@ -312,21 +324,27 @@ describeBackends("nodes", (backend) => {
 			expect(node?.facts).toEqual({ shells });
 		});
 
-		it("updateNodeFacts replaces groups and sets last_seen_at", async () => {
+		it("updateNodeFacts updates the facts and leaves crhs-managed groups alone", async () => {
 			const n = await enroll({ hostname: "facts-node" });
+			const group = await createNodeGroup(db, await defaultOrgId(db), "facts-group");
+			await setNodeGroupsForNode(db, n.id, [group.id]);
 			const t1 = new Date("2031-01-01T00:00:00Z");
 			await updateNodeFacts(db, n.id, {
-				facts: { ...FACTS, hostname: "first" },
-				groups: ["a", "b", "a"],
+				// A crha Facts blob may still carry groups on the wire; the stored facts keep them for display.
+				facts: { ...FACTS, hostname: "first", groups: ["wire-group"] },
 				clientVersion: "2",
 				now: t1,
 			});
 			let row = await getNode(db, n.id);
 			expect(row).toMatchObject({ last_seen_at: t1.toISOString(), client_version: "2" });
-			expect(JSON.parse(row?.facts ?? "null")).toEqual({ ...FACTS, hostname: "first" });
-			await updateNodeFacts(db, n.id, { facts: { ...FACTS, hostname: "second" }, groups: ["c"] });
-			const groups = await db.selectFrom("node_groups").select("group_name").where("node_id", "=", n.id).execute();
-			expect(groups.map((g) => g.group_name)).toEqual(["c"]);
+			expect(JSON.parse(row?.facts ?? "null")).toEqual({ ...FACTS, hostname: "first", groups: ["wire-group"] });
+			const memberships = await db
+				.selectFrom("node_group_members")
+				.select("node_group_id")
+				.where("node_id", "=", n.id)
+				.execute();
+			expect(memberships.map((m) => m.node_group_id)).toEqual([group.id]);
+			await updateNodeFacts(db, n.id, { facts: { ...FACTS, hostname: "second" } });
 			row = await getNode(db, n.id);
 			expect(row?.client_version).toBe("2");
 		});
@@ -341,9 +359,10 @@ describeBackends("nodes", (backend) => {
 			await expect(approveNode(db, n.id, admin.userId)).rejects.toThrow(/not pending/);
 		});
 
-		it("delete removes shares and groups", async () => {
+		it("delete removes shares and group memberships", async () => {
 			const n = await enroll({ hostname: "to-delete" });
-			await updateNodeFacts(db, n.id, { facts: FACTS, groups: ["g"] });
+			const group = await createNodeGroup(db, await defaultOrgId(db), "gg");
+			await setNodeGroupsForNode(db, n.id, [group.id]);
 			await shareNode(db, {
 				nodeId: n.id,
 				granteeType: "user",
@@ -354,9 +373,9 @@ describeBackends("nodes", (backend) => {
 			await deleteNode(db, n.id);
 			expect(await getNode(db, n.id)).toBeUndefined();
 			expect(await db.selectFrom("shares").select("id").where("resource_id", "=", n.id).execute()).toHaveLength(0);
-			expect(await db.selectFrom("node_groups").select("node_id").where("node_id", "=", n.id).execute()).toHaveLength(
-				0,
-			);
+			expect(
+				await db.selectFrom("node_group_members").select("node_id").where("node_id", "=", n.id).execute(),
+			).toHaveLength(0);
 			await expect(deleteNode(db, n.id)).rejects.toThrow(/no such node/);
 		});
 	});

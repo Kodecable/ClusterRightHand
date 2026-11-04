@@ -37,6 +37,7 @@ describe("task list api (sqlite)", () => {
 				org_id: await defaultOrgId(db),
 				owner_user_id: uid.alice as string,
 				name,
+				name_key: name.toLowerCase(),
 				transport: "client",
 				status: "active",
 				public_key: null,

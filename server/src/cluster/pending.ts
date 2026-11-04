@@ -158,7 +158,7 @@ export async function pendingForTask(
 }
 
 /** One waiting task of a group, for the group's waiting page. */
-export interface GroupPendingTask {
+export interface TaskGroupPendingTask {
 	id: string;
 	nodeId: string;
 	nodeName: string;
@@ -169,20 +169,24 @@ export interface GroupPendingTask {
 	tried: TaskAuthorizationRecord["tried"];
 }
 
-export interface GroupPendingView {
+export interface TaskGroupPendingView {
 	authorization: PendingAuthorizationView;
-	tasks: GroupPendingTask[];
+	tasks: TaskGroupPendingTask[];
 }
 
 /**
  * The shared payload of a group's waiting tasks (all of them hold the same one, D88) and the state
  * of each task, including those whose plan has no user path.
  */
-export async function pendingForGroup(db: Db, groupId: string, userId: string): Promise<GroupPendingView | null> {
+export async function pendingForTaskGroup(
+	db: Db,
+	taskGroupId: string,
+	userId: string,
+): Promise<TaskGroupPendingView | null> {
 	const rows = await db
 		.selectFrom("tasks")
 		.selectAll()
-		.where("task_group_id", "=", groupId)
+		.where("task_group_id", "=", taskGroupId)
 		.orderBy("created_at")
 		.execute();
 	const records = rows.map((row) => ({ row, record: parseTaskAuthorization(row.authorization) }));
@@ -204,7 +208,7 @@ export async function pendingForGroup(db: Db, groupId: string, userId: string): 
 					localRequested: entry.record?.local !== null && entry.record?.local !== undefined,
 					lastRejection: entry.record?.lastRejection ?? null,
 					tried: entry.record?.tried ?? [],
-				} satisfies GroupPendingTask;
+				} satisfies TaskGroupPendingTask;
 			}),
 	);
 	// The group payload is one signature for every node; offer every Passkey that any waiting node trusts.

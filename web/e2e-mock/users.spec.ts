@@ -16,7 +16,7 @@ test("create a user and add them to a group", async ({ page }) => {
 	await expect(page.getByText("User created.")).toBeVisible();
 	await expect(page.getByRole("table", { name: "Users" })).toContainText("alice");
 
-	const group = page.getByTestId("group-card").filter({ hasText: "Ops" });
+	const group = page.getByTestId("user-group-card").filter({ hasText: "Ops" });
 	await expect(group).toBeVisible();
 	await group.getByLabel("Add member").click();
 	await page.getByRole("option", { name: "alice" }).click();

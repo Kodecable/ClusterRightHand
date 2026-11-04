@@ -1,4 +1,5 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNodeGroups } from "@/features/node-groups/api";
 import { taskKeys } from "@/features/tasks/api";
 import { enc, http } from "@/lib/api/client";
 import type { ApiTokenView, ApprovalBody, ApprovalList, PublicNode, TaskGroupView, TaskView } from "@/lib/api/types";
@@ -32,24 +33,28 @@ export function useApprovals() {
 	});
 }
 
-/** The two lookup maps the approval cards display node and token names with. */
+/** The name lookups the approval cards display nodes, node groups and tokens with. */
 export function useApprovalLookups() {
 	const nodes = useQuery({
 		queryKey: ["nodes", "list"],
 		queryFn: ({ signal }) => http.get<{ nodes: PublicNode[] }>("/nodes", { signal }).then((r) => r.nodes),
 	});
+	const nodeGroups = useNodeGroups();
 	const tokens = useQuery({
 		queryKey: ["api-tokens", "list"],
 		queryFn: ({ signal }) => http.get<{ tokens: ApiTokenView[] }>("/api-tokens", { signal }).then((r) => r.tokens),
 	});
+	const nodeNames = new Map((nodes.data ?? []).map((node) => [node.id, node.name]));
+	const nodeGroupNames = new Map((nodeGroups.data ?? []).map((group) => [group.id, group.name]));
 	return {
-		nodeNames: new Map((nodes.data ?? []).map((node) => [node.id, node.name])),
+		nodeNames,
+		refNames: new Map([...nodeNames, ...nodeGroupNames]),
 		tokenNames: new Map((tokens.data ?? []).map((token) => [token.id, token.name])),
 	};
 }
 
 export interface DecideInput {
-	kind: "task" | "group";
+	kind: "task" | "task_group";
 	id: string;
 	body: ApprovalBody;
 }
@@ -82,11 +87,11 @@ export function useApprovalTask(id: string | undefined) {
 	});
 }
 
-export function useApprovalGroup(id: string | undefined) {
+export function useApprovalTaskGroup(id: string | undefined) {
 	return useQuery({
-		queryKey: taskKeys.group(id ?? ""),
+		queryKey: taskKeys.taskGroup(id ?? ""),
 		enabled: id !== undefined && id !== "",
 		queryFn: ({ signal }) =>
-			http.get<{ group: TaskGroupView }>(`/task-groups/${enc(id ?? "")}`, { signal }).then((r) => r.group),
+			http.get<{ taskGroup: TaskGroupView }>(`/task-groups/${enc(id ?? "")}`, { signal }).then((r) => r.taskGroup),
 	});
 }

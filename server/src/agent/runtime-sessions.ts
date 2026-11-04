@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { encodeCursor } from "../api/cursor.ts";
 import type { SessionUser } from "../auth/sessions.ts";
+import { ruleRefs } from "../policy/refs.ts";
 import type { Preset } from "../policy/rules.ts";
 import { createRootRuleSet, createRuleSet, getRuleSet, setPreset } from "../policy/store.ts";
 import { defaultOrgId } from "../users/service.ts";
@@ -182,6 +183,7 @@ async function sessionView(host: RuntimeHost, row: SessionRow): Promise<SessionV
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 		rules,
+		refs: rules ? await ruleRefs(host.db, row.org_id, rules.rules) : {},
 		state: row.state,
 		waitingKind: row.waiting_kind,
 		waitingLevelId: row.waiting_level_id,

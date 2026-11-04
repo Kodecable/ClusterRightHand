@@ -56,13 +56,13 @@ export class Reviewer {
 	readonly #db: Db;
 	readonly #models: ModelConfig;
 	readonly #cluster: Cluster;
-	readonly #groups: TaskGroups;
+	readonly #taskGroups: TaskGroups;
 
-	constructor(db: Db, models: ModelConfig, cluster: Cluster, groups: TaskGroups) {
+	constructor(db: Db, models: ModelConfig, cluster: Cluster, taskGroups: TaskGroups) {
 		this.#db = db;
 		this.#models = models;
 		this.#cluster = cluster;
-		this.#groups = groups;
+		this.#taskGroups = taskGroups;
 	}
 
 	/** The model for one root: the configured review model, else (for a session or schedule) the root's own model. */
@@ -148,8 +148,8 @@ export class Reviewer {
 			describe(group.operation, `${group.nodeIds.length} nodes (${group.targets.join(", ")})`, group.actorType),
 		);
 		await this.#charge(group.actorType, group.actorId, tokens);
-		await this.#groups.recordReview(group.id, outcome);
-		if (outcome.decision === "approve") await this.#groups.decide(group.id, decision(outcome));
+		await this.#taskGroups.recordReview(group.id, outcome);
+		if (outcome.decision === "approve") await this.#taskGroups.decide(group.id, decision(outcome));
 	}
 }
 

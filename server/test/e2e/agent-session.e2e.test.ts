@@ -33,7 +33,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 			storage,
 			models,
 			cluster: env.crhs.cluster,
-			groups: new TaskGroups(env.crhs.db, env.crhs.cluster),
+			taskGroups: new TaskGroups(env.crhs.db, env.crhs.cluster),
 			audit: env.crhs.audit,
 		});
 	};
@@ -136,7 +136,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 			storage,
 			models,
 			cluster: env.crhs.cluster,
-			groups: new TaskGroups(env.crhs.db, env.crhs.cluster),
+			taskGroups: new TaskGroups(env.crhs.db, env.crhs.cluster),
 		});
 		try {
 			const session = await runtime.createSession(owner, { model, preset: "yolo" });

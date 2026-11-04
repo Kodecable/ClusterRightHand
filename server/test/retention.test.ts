@@ -653,7 +653,7 @@ describeBackends("durable task retention and the agent runtime", (backend) => {
 				db,
 				models,
 				cluster,
-				groups,
+				taskGroups: groups,
 				audit,
 				// A tiny recent window lets a manual compaction cut the short history; no background compaction.
 				compaction: { keepRecentTokens: 1, backgroundTokens: 0 },

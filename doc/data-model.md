@@ -20,7 +20,7 @@ orgs              (id, name, created_at)
 users             (id, org_id, username, display_name, email, kind[admin|member],
                    password_hash nullable, status, created_at)        -- 以后的 OIDC 用户可以没有密码
 user_groups       (id, org_id, name, source, created_at)              -- source：local；以后可以是外部来源（OIDC）
-user_group_members(group_id, user_id, created_at)
+user_group_members(user_group_id, user_id, created_at)
 user_credentials  (id, user_id, kind[ssh|webauthn], public_key, fingerprint, label, created_at, last_used_at)
 api_tokens        (id, org_id, user_id, name, token_hash, created_at, expires_at nullable, revoked_at, last_used_at)
                   -- token 为 crh_ + 32 字节随机数，只存 SHA-256；MCP 规则链的根，规则在 rule_sets

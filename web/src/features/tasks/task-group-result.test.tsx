@@ -70,7 +70,7 @@ function Harness({
 			<button type="button" onClick={() => setCurrent(done)}>
 				finish
 			</button>
-			<TaskGroupResult group={current} names={names} />
+			<TaskGroupResult taskGroup={current} names={names} />
 		</>
 	);
 }
@@ -83,9 +83,11 @@ async function renderResult(element: React.ReactElement) {
 			const url = String(input);
 			const body = url.startsWith("/api/nodes")
 				? { nodes: [] }
-				: url.startsWith("/api/api-tokens")
-					? { tokens: [] }
-					: { ok: true };
+				: url.startsWith("/api/node-groups")
+					? { groups: [] }
+					: url.startsWith("/api/api-tokens")
+						? { tokens: [] }
+						: { ok: true };
 			return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 		}),
 	);
@@ -119,11 +121,33 @@ describe("TaskGroupResult", () => {
 	test("skipped nodes are named", async () => {
 		await renderResult(
 			<TaskGroupResult
-				group={group({ state: "interrupted", skipped: ["node-1"] })}
+				taskGroup={group({ state: "interrupted", skipped: ["node-1"] })}
 				names={new Map([["node-1", "worker-01"]])}
 			/>,
 		);
 		expect(screen.getByText(/Skipped: worker-01/)).toBeInTheDocument();
 		expect(screen.getByText(/the batch was interrupted/)).toBeInTheDocument();
+	});
+
+	test("targets are named through refs, including deleted and _all", async () => {
+		await renderResult(
+			<TaskGroupResult
+				taskGroup={group({
+					state: "finished",
+					targets: ["node-1", "group-1", "gone", "_all"],
+					refs: {
+						"node-1": { kind: "node", name: "worker-01" },
+						"group-1": { kind: "node_group", name: "web" },
+						gone: null,
+					},
+				})}
+				names={new Map([["node-1", "worker-01"]])}
+			/>,
+		);
+		const targets = screen.getByTestId("task-group-targets");
+		expect(within(targets).getByRole("link", { name: "worker-01" })).toHaveAttribute("href", "/nodes/node-1");
+		expect(within(targets).getByRole("link", { name: "web" })).toHaveAttribute("href", "/node-groups/group-1");
+		expect(within(targets).getByText("Deleted node or node group")).toBeInTheDocument();
+		expect(within(targets).getByText("All my nodes")).toBeInTheDocument();
 	});
 });

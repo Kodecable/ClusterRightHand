@@ -112,12 +112,13 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 					const groupsOf = async () =>
 						(
 							await env.crhs.db
-								.selectFrom("node_groups")
-								.select("group_name")
-								.where("node_id", "=", env.nodeId)
+								.selectFrom("node_group_members as m")
+								.innerJoin("node_groups as g", "g.id", "m.node_group_id")
+								.select("g.name")
+								.where("m.node_id", "=", env.nodeId)
 								.execute()
 						)
-							.map((g) => g.group_name)
+							.map((g) => g.name)
 							.sort();
 					try {
 						await writeFile(env.configPath, `${base}groups = ["web", "prod"]\n`);
@@ -161,8 +162,8 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 					},
 				});
 				expect(text.status).toBe(201);
-				expect(text.json.group.outputMode).toBe("text");
-				const t = text.json.group.tasks[0];
+				expect(text.json.taskGroup.outputMode).toBe("text");
+				const t = text.json.taskGroup.tasks[0];
 				expect(t).toMatchObject({
 					state: "exited",
 					exitCode: 0,
@@ -188,8 +189,8 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 					},
 				});
 				expect(status.status).toBe(201);
-				expect(status.json.group.outputMode).toBe("status");
-				const s = status.json.group.tasks[0];
+				expect(status.json.taskGroup.outputMode).toBe("status");
+				const s = status.json.taskGroup.tasks[0];
 				expect(s).toMatchObject({
 					state: "exited",
 					exitCode: 0,

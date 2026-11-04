@@ -1,52 +1,10 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { useId, useState } from "react";
-import { toast } from "sonner";
-import { FormDialog } from "@/components/dialogs";
-import { FieldShell } from "@/components/form";
 import { TestConnection } from "@/components/test-connection";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useSetNodeGroups, useTestSshNode } from "@/features/nodes/api";
+import { useTestSshNode } from "@/features/nodes/api";
 import type { PublicNode, SshNodeDetails } from "@/lib/api/types";
-import { parseList } from "@/lib/format";
 
-function GroupsDialog({ node, onClose }: { node: PublicNode; onClose: () => void }) {
-	const { t } = useLingui();
-	const prefix = useId();
-	const [groups, setGroups] = useState(node.groups.join(", "));
-	const save = useSetNodeGroups();
-	return (
-		<FormDialog
-			open
-			onOpenChange={(open) => {
-				if (!open) onClose();
-			}}
-			title={<Trans>Edit groups</Trans>}
-			description={<Trans>Comma separated; they decide who may see and operate this node.</Trans>}
-			submitLabel={<Trans>Save</Trans>}
-			busy={save.isPending}
-			error={save.error !== null ? save.error.message : undefined}
-			onSubmit={() =>
-				save.mutate(
-					{ id: node.id, groups: parseList(groups) },
-					{
-						onSuccess: () => {
-							toast.success(t`Groups saved.`);
-							onClose();
-						},
-					},
-				)
-			}
-		>
-			<FieldShell id={`${prefix}-groups`} label={t`Groups`}>
-				<Input id={`${prefix}-groups`} value={groups} onChange={(event) => setGroups(event.target.value)} />
-			</FieldShell>
-		</FormDialog>
-	);
-}
-
-/** Route, pinned host keys, credential and groups of an SSH node, with a connection test. */
+/** Route, pinned host keys and credential of an SSH node, with a connection test. */
 export function SshNodeSection({
 	node,
 	details,
@@ -57,9 +15,7 @@ export function SshNodeSection({
 	canRun: boolean;
 }) {
 	const { t } = useLingui();
-	const canManage = node.access === "owner" || node.access === "admin";
 	const test = useTestSshNode();
-	const [editingGroups, setEditingGroups] = useState(false);
 	return (
 		<section className="grid gap-2" aria-labelledby="ssh-node-heading" data-testid="ssh-node-section">
 			<h2 id="ssh-node-heading" className="text-sm font-semibold">
@@ -95,15 +51,11 @@ export function SshNodeSection({
 					</p>
 				</>
 			)}
-			<div className="flex flex-wrap items-center gap-2">
-				{canRun && <TestConnection testId="ssh-node-test" onTest={() => test.mutateAsync(node.id)} />}
-				{canManage && (
-					<Button type="button" variant="outline" size="sm" onClick={() => setEditingGroups(true)}>
-						<Trans>Edit groups</Trans>
-					</Button>
-				)}
-				{canManage && editingGroups && <GroupsDialog node={node} onClose={() => setEditingGroups(false)} />}
-			</div>
+			{canRun && (
+				<div className="flex flex-wrap items-center gap-2">
+					<TestConnection testId="ssh-node-test" onTest={() => test.mutateAsync(node.id)} />
+				</div>
+			)}
 		</section>
 	);
 }

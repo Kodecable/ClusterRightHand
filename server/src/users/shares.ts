@@ -7,8 +7,12 @@ import type { Db } from "../storage/db.ts";
 
 /** The user groups the user belongs to; a share to any of them reaches the user. */
 export async function userGroupIds(db: Db, userId: string): Promise<string[]> {
-	const rows = await db.selectFrom("user_group_members").select("group_id").where("user_id", "=", userId).execute();
-	return rows.map((r) => r.group_id);
+	const rows = await db
+		.selectFrom("user_group_members")
+		.select("user_group_id")
+		.where("user_id", "=", userId)
+		.execute();
+	return rows.map((r) => r.user_group_id);
 }
 
 /**

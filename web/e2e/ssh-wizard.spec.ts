@@ -41,18 +41,28 @@ test("walks the Add SSH node wizard through credential, target and host key conf
 	await expect(page.getByTestId("page-title")).toHaveText("Nodes");
 	await expect(page.getByRole("heading", { name: "ssh-e2e" })).toBeVisible();
 
-	// The node page shows the route with its pinned key, and the owner can change the groups.
+	// The node page shows the route with its pinned key; node groups are managed by administrators.
 	const section = page.getByTestId("ssh-node-section");
 	await expect(section.getByRole("table", { name: "SSH route" })).toContainText(`crh@${host}:${port}`);
 	await expect(section.getByRole("table", { name: "SSH route" })).toContainText("SHA256:");
-	await section.getByRole("button", { name: "Edit groups" }).click();
-	// The dialog renders in a portal, outside the section.
-	const groupsDialog = page.getByRole("dialog", { name: "Edit groups" });
-	await groupsDialog.getByLabel("Groups").fill("edge, lab");
-	await groupsDialog.getByRole("button", { name: "Save" }).click();
-	await expect(page.getByRole("definition").filter({ hasText: "edge, lab" })).toBeVisible();
+	const edge = await crhs.api("/api/node-groups", { body: { name: "edge" } });
+	const lab = await crhs.api("/api/node-groups", { body: { name: "lab" } });
+	expect(edge.status).toBe(201);
+	expect(lab.status).toBe(201);
+	await page.getByRole("button", { name: "Edit node groups" }).click();
+	const groupsDialog = page.getByRole("dialog", { name: "Node groups of ssh-e2e" });
+	await groupsDialog.getByRole("button", { name: "Choose node groups" }).click();
+	await groupsDialog.getByRole("checkbox", { name: /edge/ }).check();
+	await groupsDialog.getByRole("checkbox", { name: /lab/ }).check();
+	await page.keyboard.press("Escape");
+	await groupsDialog.getByRole("button", { name: "Save node groups" }).click();
+	await expect(page.getByRole("definition").filter({ hasText: "edge" })).toBeVisible();
+	await expect(page.getByRole("definition").filter({ hasText: "lab" })).toBeVisible();
 	const { json } = await crhs.api("/api/nodes");
 	expect(json.nodes.map((n: { name: string; transport: string }) => `${n.name}:${n.transport}`)).toContain(
 		"ssh-e2e:ssh",
 	);
+	expect(
+		json.nodes.find((n: { name: string }) => n.name === "ssh-e2e").nodeGroups.map((g: { name: string }) => g.name),
+	).toEqual(["edge", "lab"]);
 });

@@ -40,7 +40,7 @@ beforeAll(async () => {
 		storage: new MemoryStorage(),
 		models,
 		cluster,
-		groups: new TaskGroups(db, cluster, { audit }),
+		taskGroups: new TaskGroups(db, cluster, { audit }),
 		audit,
 		compaction: { reserveTokens: 8, keepRecentTokens: 1, backgroundTokens: 0 },
 	});

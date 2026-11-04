@@ -58,17 +58,29 @@ msgstr "[instructions]"
 msgid "{0, plural, one {# byte} other {# bytes}}"
 msgstr "{0, plural, one {# byte} other {# bytes}}"
 
+#. placeholder {0}: group.memberIds.length
+#. placeholder {0}: row.original.memberIds.length
+#: src/components/node-group-picker.tsx
+#: src/features/node-groups/pages.tsx
+msgid "{0, plural, one {# member} other {# members}}"
+msgstr "{0, plural, one {# member} other {# members}}"
+
 #. placeholder {0}: events.state.queued
 #: src/features/sessions/pages.tsx
 msgid "{0, plural, one {# message queued} other {# messages queued}}"
 msgstr "{0, plural, one {# message queued} other {# messages queued}}"
 
 #. placeholder {0}: value.length
+#: src/components/node-group-picker.tsx
+msgid "{0, plural, one {# node group selected} other {# node groups selected}}"
+msgstr "{0, plural, one {# node group selected} other {# node groups selected}}"
+
+#. placeholder {0}: value.length
 #: src/components/node-picker.tsx
 msgid "{0, plural, one {# node selected} other {# nodes selected}}"
 msgstr "{0, plural, one {# node selected} other {# nodes selected}}"
 
-#. placeholder {0}: group.nodeIds.length
+#. placeholder {0}: taskGroup.nodeIds.length
 #: src/features/tasks/task-group-result.tsx
 msgid "{0, plural, one {# node} other {# nodes}}"
 msgstr "{0, plural, one {# node} other {# nodes}}"
@@ -142,8 +154,12 @@ msgstr "{exact} tokens in total"
 
 #. placeholder {0}: item.group.nodeIds.length
 #: src/components/approval-card.tsx
-msgid "{groupKind} on {0} node(s): {nodeList}"
-msgstr "{groupKind} on {0} node(s): {nodeList}"
+#~ msgid "{groupKind} on {0} node(s): {nodeList}"
+#~ msgstr "{groupKind} on {0} node(s): {nodeList}"
+
+#: src/components/approval-card.tsx
+#~ msgid "{groupKind} on {groupTargets}"
+#~ msgstr "{groupKind} on {groupTargets}"
 
 #: src/markdown/CodeBlock.tsx
 msgid "{lineCount, plural, one {# line} other {# lines}}"
@@ -156,6 +172,10 @@ msgstr "{lines, plural, one {# line} other {# lines}}"
 #: src/features/sessions/children-bar.tsx
 msgid "{running} running"
 msgstr "{running} running"
+
+#: src/components/approval-card.tsx
+msgid "{taskGroupKind} on {taskGroupTargets}"
+msgstr "{taskGroupKind} on {taskGroupTargets}"
 
 #: src/features/sessions/children-bar.tsx
 msgid "{total, plural, one {# subagent} other {# subagents}}"
@@ -233,6 +253,26 @@ msgstr "A name is required."
 #: src/features/nodes/crhs-key-panel.tsx
 msgid "A node authorizes privileged tasks signed by this key when its privileged.toml trusts the key below."
 msgstr "A node authorizes privileged tasks signed by this key when its privileged.toml trusts the key below."
+
+#: src/features/nodes/node-groups-dialog.tsx
+msgid "A node can be in any number of node groups."
+msgstr "A node can be in any number of node groups."
+
+#: src/features/node-groups/dialogs.tsx
+msgid "A node group name is required."
+msgstr "A node group name is required."
+
+#: src/features/node-groups/dialogs.tsx
+msgid "A node group name must be 2-64 characters, start with a letter, end with a letter or digit, and contain only letters, digits, \".\", \"_\", \"/\" or \"-\"."
+msgstr "A node group name must be 2-64 characters, start with a letter, end with a letter or digit, and contain only letters, digits, \".\", \"_\", \"/\" or \"-\"."
+
+#: src/features/node-groups/dialogs.tsx
+msgid "A node group name must not start with \"_\": names starting with \"_\" are reserved for the system."
+msgstr "A node group name must not start with \"_\": names starting with \"_\" are reserved for the system."
+
+#: src/features/node-groups/dialogs.tsx
+msgid "A node group selects several nodes for rules, batch runs and schedules."
+msgstr "A node group selects several nodes for rules, batch runs and schedules."
 
 #: src/features/tasks/taskForm.ts
 msgid "A path is required."
@@ -334,7 +374,7 @@ msgid "Actor type"
 msgstr "Actor type"
 
 #: src/components/quota-card.tsx
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Add"
 msgstr "Add"
 
@@ -362,7 +402,7 @@ msgstr "Add an SSH key or register a Passkey to sign authorizations for privileg
 msgid "Add jump host"
 msgstr "Add jump host"
 
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Add member"
 msgstr "Add member"
 
@@ -437,6 +477,15 @@ msgstr "all built-in models"
 msgid "All host keys are confirmed."
 msgstr "All host keys are confirmed."
 
+#: src/components/node-targets.tsx
+#: src/features/batch/pages.tsx
+msgid "All my nodes"
+msgstr "All my nodes"
+
+#: src/features/node-groups/pages.tsx
+msgid "All node groups"
+msgstr "All node groups"
+
 #: src/features/nodes/pages.tsx
 msgid "All nodes"
 msgstr "All nodes"
@@ -467,6 +516,10 @@ msgstr "Already tried: {0}."
 #: src/components/approval-card.tsx
 msgid "Always allow rule"
 msgstr "Always allow rule"
+
+#: src/features/node-groups/pages.tsx
+msgid "An administrator creates node groups."
+msgstr "An administrator creates node groups."
 
 #: src/features/authorizations/pages.tsx
 #~ msgid "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
@@ -814,6 +867,10 @@ msgstr "Choose a node"
 msgid "Choose at least one target."
 msgstr "Choose at least one target."
 
+#: src/components/node-group-picker.tsx
+msgid "Choose node groups"
+msgstr "Choose node groups"
+
 #: src/components/node-picker.tsx
 #: src/features/batch/pages.tsx
 msgid "Choose nodes"
@@ -835,6 +892,7 @@ msgstr "Claude Code command"
 msgid "Claude Code on the laptop"
 msgstr "Claude Code on the laptop"
 
+#: src/components/node-group-picker.tsx
 #: src/components/node-picker.tsx
 msgid "Clear"
 msgstr "Clear"
@@ -869,12 +927,12 @@ msgid "Collapse subagents"
 msgstr "Collapse subagents"
 
 #: src/features/nodes/ssh-wizard.tsx
-msgid "Comma separated; they decide who may see and operate the node."
-msgstr "Comma separated; they decide who may see and operate the node."
+#~ msgid "Comma separated; they decide who may see and operate the node."
+#~ msgstr "Comma separated; they decide who may see and operate the node."
 
 #: src/features/nodes/ssh-node-section.tsx
-msgid "Comma separated; they decide who may see and operate this node."
-msgstr "Comma separated; they decide who may see and operate this node."
+#~ msgid "Comma separated; they decide who may see and operate this node."
+#~ msgstr "Comma separated; they decide who may see and operate this node."
 
 #: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
@@ -983,6 +1041,15 @@ msgstr "Copy command"
 msgid "Copy crha grant command"
 msgstr "Copy crha grant command"
 
+#: src/features/node-groups/pages.tsx
+msgid "Copy node group id"
+msgstr "Copy node group id"
+
+#. placeholder {0}: row.original.name
+#: src/features/node-groups/pages.tsx
+msgid "Copy node group id of {0}"
+msgstr "Copy node group id of {0}"
+
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Copy public key"
 msgstr "Copy public key"
@@ -1025,6 +1092,10 @@ msgstr "cosignature unavailable"
 msgid "Create"
 msgstr "Create"
 
+#: src/features/node-groups/pages.tsx
+msgid "Create a node group to run the same task on several nodes."
+msgstr "Create a node group to run the same task on several nodes."
+
 #: src/features/schedules/pages.tsx
 #~ msgid "Create a schedule to run a fixed prompt on a cron expression."
 #~ msgstr "Create a schedule to run a fixed prompt on a cron expression."
@@ -1046,12 +1117,17 @@ msgid "Create credential"
 msgstr "Create credential"
 
 #: src/features/users/groups-section.tsx
-msgid "Create group"
-msgstr "Create group"
+#~ msgid "Create group"
+#~ msgstr "Create group"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Create node"
 msgstr "Create node"
+
+#: src/features/node-groups/dialogs.tsx
+#: src/features/node-groups/pages.tsx
+msgid "Create node group"
+msgstr "Create node group"
 
 #: src/features/schedules/create-schedule-dialog.tsx
 msgid "Create schedule"
@@ -1070,6 +1146,10 @@ msgstr "Create token"
 #: src/features/users/new-user-dialog.tsx
 msgid "Create user"
 msgstr "Create user"
+
+#: src/features/users/user-groups-section.tsx
+msgid "Create user group"
+msgstr "Create user group"
 
 #: src/components/task-result.tsx
 #: src/features/authorizations/pages.tsx
@@ -1162,10 +1242,11 @@ msgstr "default"
 #~ msgstr "Defaults to this browser's timezone."
 
 #: src/features/credentials/pages.tsx
+#: src/features/node-groups/pages.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/settings/pages.tsx
 #: src/features/tokens/pages.tsx
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Delete"
 msgstr "Delete"
 
@@ -1186,18 +1267,28 @@ msgid "Delete credential"
 msgstr "Delete credential"
 
 #: src/features/users/groups-section.tsx
-msgid "Delete group"
-msgstr "Delete group"
+#~ msgid "Delete group"
+#~ msgstr "Delete group"
 
 #. placeholder {0}: group.name
 #: src/features/users/groups-section.tsx
-msgid "Delete group {0}"
-msgstr "Delete group {0}"
+#~ msgid "Delete group {0}"
+#~ msgstr "Delete group {0}"
 
 #. placeholder {0}: group.name
 #: src/features/users/groups-section.tsx
-msgid "Delete group {0}?"
-msgstr "Delete group {0}?"
+#~ msgid "Delete group {0}?"
+#~ msgstr "Delete group {0}?"
+
+#: src/features/node-groups/pages.tsx
+msgid "Delete node group"
+msgstr "Delete node group"
+
+#. placeholder {0}: deleting.name
+#. placeholder {0}: group.name
+#: src/features/node-groups/pages.tsx
+msgid "Delete node group {0}?"
+msgstr "Delete node group {0}?"
 
 #: src/features/settings/pages.tsx
 msgid "Delete provider"
@@ -1225,6 +1316,24 @@ msgstr "Delete token"
 #: src/features/tokens/pages.tsx
 msgid "Delete token {0}?"
 msgstr "Delete token {0}?"
+
+#: src/features/users/user-groups-section.tsx
+msgid "Delete user group"
+msgstr "Delete user group"
+
+#. placeholder {0}: group.name
+#: src/features/users/user-groups-section.tsx
+msgid "Delete user group {0}"
+msgstr "Delete user group {0}"
+
+#. placeholder {0}: group.name
+#: src/features/users/user-groups-section.tsx
+msgid "Delete user group {0}?"
+msgstr "Delete user group {0}?"
+
+#: src/components/node-targets.tsx
+msgid "Deleted node or node group"
+msgstr "Deleted node or node group"
 
 #: src/components/status-badge.tsx
 msgid "Denied"
@@ -1306,8 +1415,12 @@ msgid "Each rule starts with exec, file.read or file.write."
 msgstr "Each rule starts with exec, file.read or file.write."
 
 #: src/features/tokens/rules-dialog.tsx
-msgid "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes, and exact or prefix."
-msgstr "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes, and exact or prefix."
+msgid "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes (names or ids of nodes and node groups, or _all), and exact or prefix."
+msgstr "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes (names or ids of nodes and node groups, or _all), and exact or prefix."
+
+#: src/features/tokens/rules-dialog.tsx
+#~ msgid "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes, and exact or prefix."
+#~ msgstr "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes, and exact or prefix."
 
 #: src/features/settings/review-model-card.tsx
 msgid "Each session's own model"
@@ -1327,8 +1440,16 @@ msgid "Edit {0}"
 msgstr "Edit {0}"
 
 #: src/features/nodes/ssh-node-section.tsx
-msgid "Edit groups"
-msgstr "Edit groups"
+#~ msgid "Edit groups"
+#~ msgstr "Edit groups"
+
+#: src/features/node-groups/pages.tsx
+msgid "Edit members"
+msgstr "Edit members"
+
+#: src/features/nodes/pages.tsx
+msgid "Edit node groups"
+msgstr "Edit node groups"
 
 #. placeholder {0}: existing.providerId
 #: src/features/settings/provider-dialog.tsx
@@ -1447,6 +1568,10 @@ msgstr "Every model needs a max output of at least 1 token."
 #: src/features/settings/providers.ts
 msgid "Every model needs an id."
 msgstr "Every model needs an id."
+
+#: src/features/batch/pages.tsx
+msgid "Every node you can operate, including nodes added later."
+msgstr "Every node you can operate, including nodes added later."
 
 #: src/features/settings/providers.ts
 msgid "Every request header value must be a string."
@@ -1587,36 +1712,34 @@ msgid "Grantee"
 msgstr "Grantee"
 
 #: src/components/task-result.tsx
-#: src/features/nodes/node-shares.tsx
-#: src/features/sessions/share-dialog.tsx
 msgid "Group"
 msgstr "Group"
 
 #: src/features/users/groups-section.tsx
-msgid "Group created."
-msgstr "Group created."
+#~ msgid "Group created."
+#~ msgstr "Group created."
 
 #: src/features/users/groups-section.tsx
-msgid "Group deleted."
-msgstr "Group deleted."
+#~ msgid "Group deleted."
+#~ msgstr "Group deleted."
 
 #: src/features/users/groups-section.tsx
-msgid "Group name"
-msgstr "Group name"
+#~ msgid "Group name"
+#~ msgstr "Group name"
 
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/ssh-node-section.tsx
 #: src/features/nodes/ssh-wizard.tsx
-msgid "Groups"
-msgstr "Groups"
+#~ msgid "Groups"
+#~ msgstr "Groups"
 
 #: src/features/batch/pages.tsx
-msgid "Groups or raw targets (comma separated, e.g. group:web, node-1)"
-msgstr "Groups or raw targets (comma separated, e.g. group:web, node-1)"
+#~ msgid "Groups or raw targets (comma separated, e.g. group:web, node-1)"
+#~ msgstr "Groups or raw targets (comma separated, e.g. group:web, node-1)"
 
 #: src/features/nodes/ssh-node-section.tsx
-msgid "Groups saved."
-msgstr "Groups saved."
+#~ msgid "Groups saved."
+#~ msgstr "Groups saved."
 
 #: src/features/nodes/crhs-key-panel.tsx
 msgid "Hide trust snippet"
@@ -1675,6 +1798,10 @@ msgstr "Issuer"
 msgid "It matches, pin it"
 msgstr "It matches, pin it"
 
+#: src/features/node-groups/pages.tsx
+msgid "It may have been deleted."
+msgstr "It may have been deleted."
+
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "It must match what <0>crha enroll</0> printed, or <1>crha status</1> on the node, before you approve."
 msgstr "It must match what <0>crha enroll</0> printed, or <1>crha status</1> on the node, before you approve."
@@ -1682,6 +1809,10 @@ msgstr "It must match what <0>crha enroll</0> printed, or <1>crha status</1> on 
 #: src/features/tokens/pages.tsx
 msgid "Its audit trail stays; the token itself is removed."
 msgstr "Its audit trail stays; the token itself is removed."
+
+#: src/features/node-groups/pages.tsx
+msgid "Its members lose this node group. Rules and task groups that reference it keep the reference and display it as deleted."
+msgstr "Its members lose this node group. Rules and task groups that reference it keep the reference and display it as deleted."
 
 #: src/features/settings/pages.tsx
 msgid "Its models disappear from the model lists, and its stored key is deleted. Existing sessions that use them stop working until you change their model."
@@ -1858,16 +1989,22 @@ msgstr "Max TTL"
 msgid "Member"
 msgstr "Member"
 
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Member added."
 msgstr "Member added."
 
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Member removed."
 msgstr "Member removed."
 
+#: src/features/node-groups/pages.tsx
+msgid "Members"
+msgstr "Members"
+
 #. placeholder {0}: group.name
-#: src/features/users/groups-section.tsx
+#: src/features/node-groups/dialogs.tsx
+#: src/features/node-groups/pages.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Members of {0}"
 msgstr "Members of {0}"
 
@@ -1933,6 +2070,7 @@ msgstr "Move jump host {0} up"
 
 #: src/components/task-result.tsx
 #: src/features/credentials/pages.tsx
+#: src/features/node-groups/pages.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/schedules/pages.tsx
@@ -1967,6 +2105,10 @@ msgstr "New credential name"
 #: src/features/nodes/rename-node-button.tsx
 msgid "New name"
 msgstr "New name"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "New node group"
+msgstr "New node group"
 
 #: src/features/auth/change-password-dialog.tsx
 #: src/features/users/reset-password-dialog.tsx
@@ -2049,10 +2191,11 @@ msgid "No events"
 msgstr "No events"
 
 #: src/features/users/groups-section.tsx
-msgid "No groups yet."
-msgstr "No groups yet."
+#~ msgid "No groups yet."
+#~ msgstr "No groups yet."
 
-#: src/features/users/groups-section.tsx
+#: src/features/node-groups/pages.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "No members."
 msgstr "No members."
 
@@ -2079,6 +2222,14 @@ msgstr "No models are configured, so sessions cannot start."
 #: src/features/sessions/new-session-dialog.tsx
 msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
 msgstr "No models are configured, so sessions cannot start. Ask an administrator to configure one."
+
+#: src/features/node-groups/pages.tsx
+msgid "No node groups yet"
+msgstr "No node groups yet"
+
+#: src/components/node-group-picker.tsx
+msgid "No node groups."
+msgstr "No node groups."
 
 #: src/features/nodes/pages.tsx
 msgid "No nodes yet"
@@ -2136,6 +2287,10 @@ msgstr "No sessions yet"
 msgid "No subagents."
 msgstr "No subagents."
 
+#: src/features/node-groups/pages.tsx
+msgid "No such node group"
+msgstr "No such node group"
+
 #: src/features/nodes/node-tasks.tsx
 #: src/features/tasks/pages.tsx
 msgid "No tasks yet"
@@ -2144,6 +2299,10 @@ msgstr "No tasks yet"
 #: src/features/schedules/schedule-form.tsx
 msgid "No upcoming runs."
 msgstr "No upcoming runs."
+
+#: src/features/users/user-groups-section.tsx
+msgid "No user groups yet."
+msgstr "No user groups yet."
 
 #: src/features/users/pages.tsx
 msgid "No users yet"
@@ -2165,6 +2324,51 @@ msgstr "Node approved."
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Node created."
 msgstr "Node created."
+
+#: src/features/node-groups/dialogs.tsx
+msgid "Node group created."
+msgstr "Node group created."
+
+#: src/features/node-groups/pages.tsx
+msgid "Node group deleted."
+msgstr "Node group deleted."
+
+#: src/features/node-groups/pages.tsx
+msgid "Node group id"
+msgstr "Node group id"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "Node group members saved."
+msgstr "Node group members saved."
+
+#: src/features/node-groups/dialogs.tsx
+msgid "Node group name"
+msgstr "Node group name"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "Node group renamed."
+msgstr "Node group renamed."
+
+#: src/app/shell/nav.ts
+#: src/components/node-group-picker.tsx
+#: src/features/batch/pages.tsx
+#: src/features/node-groups/pages.tsx
+#: src/features/nodes/pages.tsx
+msgid "Node groups"
+msgstr "Node groups"
+
+#. placeholder {0}: node.name
+#: src/features/nodes/node-groups-dialog.tsx
+msgid "Node groups of {0}"
+msgstr "Node groups of {0}"
+
+#: src/features/nodes/node-groups-dialog.tsx
+msgid "Node groups saved."
+msgstr "Node groups saved."
+
+#: src/features/node-groups/pages.tsx
+msgid "Node groups select several nodes at once, for rules, batch runs and schedules. A node can be in any number of node groups."
+msgstr "Node groups select several nodes at once, for rules, batch runs and schedules. A node can be in any number of node groups."
 
 #: src/features/nodes/pages.tsx
 msgid "Node id"
@@ -2201,6 +2405,7 @@ msgstr "Node tasks"
 #: src/components/node-picker.tsx
 #: src/features/authorizations/pages.tsx
 #: src/features/batch/pages.tsx
+#: src/features/node-groups/dialogs.tsx
 #: src/features/nodes/pages.tsx
 msgid "Nodes"
 msgstr "Nodes"
@@ -2282,8 +2487,12 @@ msgid "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-
 msgstr "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
 
 #: src/features/approvals/pages.tsx
-msgid "One decision applies to every node in the group."
-msgstr "One decision applies to every node in the group."
+#~ msgid "One decision applies to every node in the group."
+#~ msgstr "One decision applies to every node in the group."
+
+#: src/features/approvals/pages.tsx
+msgid "One decision applies to every node in the task group."
+msgstr "One decision applies to every node in the task group."
 
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "One rule per line: method and a target prefix."
@@ -2322,6 +2531,10 @@ msgstr "Open the task"
 #: src/features/approvals/pages.tsx
 msgid "Open the task group"
 msgstr "Open the task group"
+
+#: src/features/sessions/session-waits.tsx
+msgid "Open the task group page"
+msgstr "Open the task group page"
 
 #: src/features/sessions/session-waits.tsx
 msgid "Open the task page"
@@ -2372,6 +2585,10 @@ msgstr "Or run <0>crha approve {0}</0> on the node (a user in its `local` trust 
 #: src/features/nodes/pages.tsx
 msgid "OS"
 msgstr "OS"
+
+#: src/features/batch/pages.tsx
+msgid "Other targets (comma separated node or node-group names)"
+msgstr "Other targets (comma separated node or node-group names)"
 
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
@@ -2657,7 +2874,7 @@ msgstr "Remove"
 
 #. placeholder {0}: names.get(id) ?? id
 #. placeholder {1}: group.name
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Remove {0} from {1}"
 msgstr "Remove {0} from {1}"
 
@@ -2684,6 +2901,8 @@ msgstr "Remove share"
 msgid "Remove the stored key"
 msgstr "Remove the stored key"
 
+#: src/features/node-groups/dialogs.tsx
+#: src/features/node-groups/pages.tsx
 #: src/features/nodes/rename-node-button.tsx
 msgid "Rename"
 msgstr "Rename"
@@ -2691,6 +2910,10 @@ msgstr "Rename"
 #: src/features/nodes/rename-node-button.tsx
 msgid "Rename node"
 msgstr "Rename node"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "Rename node group"
+msgstr "Rename node group"
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Repeat new password"
@@ -2856,6 +3079,10 @@ msgid "Run now"
 msgstr "Run now"
 
 #: src/features/batch/pages.tsx
+msgid "Run on all my nodes"
+msgstr "Run on all my nodes"
+
+#: src/features/batch/pages.tsx
 #~ msgid "Run one task on many nodes and follow each node's result."
 #~ msgstr "Run one task on many nodes and follow each node's result."
 
@@ -2887,11 +3114,18 @@ msgstr "Running"
 
 #: src/components/dialogs.tsx
 #: src/features/nodes/rename-node-button.tsx
-#: src/features/nodes/ssh-node-section.tsx
 #: src/features/sessions/quota-dialog.tsx
 #: src/features/settings/review-model-card.tsx
 msgid "Save"
 msgstr "Save"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "Save members"
+msgstr "Save members"
+
+#: src/features/nodes/node-groups-dialog.tsx
+msgid "Save node groups"
+msgstr "Save node groups"
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Save password"
@@ -2956,7 +3190,7 @@ msgstr "Search sessions"
 
 #: src/components/share-editor.tsx
 #: src/features/nodes/ssh-wizard.tsx
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Select…"
 msgstr "Select…"
 
@@ -3037,8 +3271,12 @@ msgid "Shares"
 msgstr "Shares"
 
 #: src/features/users/groups-section.tsx
-msgid "Shares to this group are removed."
-msgstr "Shares to this group are removed."
+#~ msgid "Shares to this group are removed."
+#~ msgstr "Shares to this group are removed."
+
+#: src/features/users/user-groups-section.tsx
+msgid "Shares to this user group are removed."
+msgstr "Shares to this user group are removed."
 
 #: src/components/task-form-fields.tsx
 msgid "Shell command"
@@ -3134,6 +3372,10 @@ msgstr "Skipped: {skipped}"
 #: src/features/sessions/composer.tsx
 msgid "Slash commands"
 msgstr "Slash commands"
+
+#: src/features/tokens/rules-dialog.tsx
+msgid "Some rules reference deleted nodes or node groups. Remove or replace those references before saving."
+msgstr "Some rules reference deleted nodes or node groups. Remove or replace those references before saving."
 
 #: src/components/error-state.tsx
 msgid "Something went wrong"
@@ -3291,6 +3533,10 @@ msgstr "Target type"
 msgid "Targets"
 msgstr "Targets"
 
+#: src/features/tasks/task-group-result.tsx
+msgid "Targets:"
+msgstr "Targets:"
+
 #: src/components/approval-card.tsx
 #: src/components/authorization-card.tsx
 #: src/components/task-result.tsx
@@ -3408,6 +3654,10 @@ msgstr "The name must be at most 200 characters."
 msgid "The new passwords do not match."
 msgstr "The new passwords do not match."
 
+#: src/features/node-groups/dialogs.tsx
+msgid "The node group contains exactly the nodes selected here."
+msgstr "The node group contains exactly the nodes selected here."
+
 #: src/features/nodes/node-trust.tsx
 msgid "The node has not reported its trust configuration."
 msgstr "The node has not reported its trust configuration."
@@ -3495,6 +3745,10 @@ msgstr "The Yolo preset runs every action without asking or checking."
 #: src/app/shell/user-menu.tsx
 msgid "Theme"
 msgstr "Theme"
+
+#: src/features/node-groups/dialogs.tsx
+msgid "There are no nodes to add yet."
+msgstr "There are no nodes to add yet."
 
 #: src/features/approvals/pages.tsx
 msgid "These passed their rules; they run once you sign them."
@@ -3713,11 +3967,24 @@ msgstr "User disabled."
 msgid "User enabled."
 msgstr "User enabled."
 
+#: src/features/nodes/node-shares.tsx
 #: src/features/sessions/share-dialog.tsx
 msgid "User group"
 msgstr "User group"
 
-#: src/features/users/groups-section.tsx
+#: src/features/users/user-groups-section.tsx
+msgid "User group created."
+msgstr "User group created."
+
+#: src/features/users/user-groups-section.tsx
+msgid "User group deleted."
+msgstr "User group deleted."
+
+#: src/features/users/user-groups-section.tsx
+msgid "User group name"
+msgstr "User group name"
+
+#: src/features/users/user-groups-section.tsx
 msgid "User groups"
 msgstr "User groups"
 

@@ -37,7 +37,7 @@ describe("useCancelTask", () => {
 		const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
 		client.setQueryData(taskKeys.detail("task-1"), { id: "task-1" });
 		client.setQueryData(taskKeys.listPage({}), { pages: [{ items: [], nextCursor: null }], pageParams: [null] });
-		client.setQueryData(taskKeys.group("group-1"), { id: "group-1" });
+		client.setQueryData(taskKeys.taskGroup("group-1"), { id: "group-1" });
 
 		render(
 			<QueryClientProvider client={client}>
@@ -50,7 +50,7 @@ describe("useCancelTask", () => {
 		await waitFor(() => {
 			expect(client.getQueryState(taskKeys.detail("task-1"))?.isInvalidated).toBe(true);
 			expect(client.getQueryState(taskKeys.listPage({}))?.isInvalidated).toBe(true);
-			expect(client.getQueryState(taskKeys.group("group-1"))?.isInvalidated).toBe(true);
+			expect(client.getQueryState(taskKeys.taskGroup("group-1"))?.isInvalidated).toBe(true);
 		});
 	});
 });

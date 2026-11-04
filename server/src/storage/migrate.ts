@@ -35,6 +35,8 @@ import * as m0032 from "./migrations/0032_token_measures.ts";
 import * as m0033 from "./migrations/0033_drop_authorization_revocation.ts";
 import * as m0034 from "./migrations/0034_drop_audit_hash_chain.ts";
 import * as m0035 from "./migrations/0035_retention_indexes.ts";
+import * as m0036 from "./migrations/0036_node_names.ts";
+import * as m0037 from "./migrations/0037_user_group_member_column.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -73,6 +75,8 @@ const migrations: Record<string, Migration> = {
 	"0033_drop_authorization_revocation": m0033,
 	"0034_drop_audit_hash_chain": m0034,
 	"0035_retention_indexes": m0035,
+	"0036_node_names": m0036,
+	"0037_user_group_member_column": m0037,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };

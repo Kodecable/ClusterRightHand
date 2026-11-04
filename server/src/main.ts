@@ -189,7 +189,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		storage: openStorage,
 		models,
 		cluster,
-		groups: taskGroups,
+		taskGroups,
 		audit,
 	});
 	// Signature waits that outlived their deadline while crhs was down end before requests are served (D98).

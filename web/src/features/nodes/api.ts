@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { nodeGroupKeys } from "@/features/node-groups/keys";
 import { enc, http } from "@/lib/api/client";
 import type {
 	CrhsKey,
+	NodeGroupRef,
 	NodeShare,
 	NodeTrust,
 	PublicNode,
@@ -155,7 +157,7 @@ export function useProbeSshHost() {
 export function useCreateSshNode() {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: (body: SshTargetBody & { name: string; groups: string[] }) =>
+		mutationFn: (body: SshTargetBody & { name: string }) =>
 			http.post<{ node: PublicNode }>("/ssh-nodes", body).then((r) => r.node),
 		onSuccess: () => void queryClient.invalidateQueries({ queryKey: nodeKeys.all }),
 	});
@@ -179,12 +181,18 @@ export function useTestSshNode() {
 	});
 }
 
-/** Replaces an SSH node's access groups. */
+/** Replaces a node's node groups; administrators only, for crha and SSH nodes alike (D109). */
 export function useSetNodeGroups() {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: ({ id, groups }: { id: string; groups: string[] }) =>
-			http.put<{ groups: string[] }>(`/nodes/${enc(id)}/groups`, { groups }).then((r) => r.groups),
-		onSuccess: (_groups, { id }) => void queryClient.invalidateQueries({ queryKey: nodeKeys.detail(id) }),
+		mutationFn: ({ id, nodeGroups }: { id: string; nodeGroups: string[] }) =>
+			http
+				.put<{ nodeGroups: NodeGroupRef[] }>(`/nodes/${enc(id)}/node-groups`, { nodeGroups })
+				.then((r) => r.nodeGroups),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: nodeKeys.all });
+			// The node groups' member lists changed too.
+			void queryClient.invalidateQueries({ queryKey: nodeGroupKeys.all });
+		},
 	});
 }

@@ -26,6 +26,7 @@ function detail(overrides: Partial<SessionView> = {}): SessionView {
 		createdAt: "2026-01-01T00:00:00.000Z",
 		updatedAt: "2026-01-01T00:00:00.000Z",
 		rules: null,
+		refs: {},
 		relationship: "owner",
 		capabilities: { view: true, chat: true, manageShares: true, configure: true },
 		ownerUsername: "ops",
@@ -222,7 +223,7 @@ describe("session mutations", () => {
 		const calls = mockFetch();
 		const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
 		client.setQueryData(approvalKeys.list(), APPROVALS);
-		client.setQueryData(taskKeys.group("group-1"), { id: "group-1" });
+		client.setQueryData(taskKeys.taskGroup("group-1"), { id: "group-1" });
 
 		render(
 			<QueryClientProvider client={client}>
@@ -234,7 +235,7 @@ describe("session mutations", () => {
 		await waitFor(() => expect(calls).toContain("/api/sessions/s1/abort"));
 		await waitFor(() => {
 			expect(client.getQueryState(approvalKeys.list())?.isInvalidated).toBe(true);
-			expect(client.getQueryState(taskKeys.group("group-1"))?.isInvalidated).toBe(true);
+			expect(client.getQueryState(taskKeys.taskGroup("group-1"))?.isInvalidated).toBe(true);
 		});
 	});
 });

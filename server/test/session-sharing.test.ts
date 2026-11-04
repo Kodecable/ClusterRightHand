@@ -8,8 +8,8 @@ import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
-import { addGroupMember, createUserGroup } from "../src/users/groups.ts";
 import { createUser } from "../src/users/service.ts";
+import { addUserGroupMember, createUserGroup } from "../src/users/user-groups.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
 import { waitSubmission } from "./helpers/runtime.ts";
@@ -48,7 +48,7 @@ beforeAll(async () => {
 		storage: new MemoryStorage(),
 		models,
 		cluster,
-		groups: new TaskGroups(db, cluster, { audit }),
+		taskGroups: new TaskGroups(db, cluster, { audit }),
 		audit,
 	});
 	app = makeApp(db, undefined, { cluster, audit, masterKey, agent: { runtime, models } });
@@ -67,7 +67,7 @@ beforeAll(async () => {
 	carol = await login(app, "carol", PASSWORD);
 	const group = await createUserGroup(db, "ops");
 	groupId = group.id;
-	await addGroupMember(db, group.id, bobId);
+	await addUserGroupMember(db, group.id, bobId);
 });
 
 afterAll(async () => {

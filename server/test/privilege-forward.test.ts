@@ -89,6 +89,7 @@ describe("privileged forward dispatch", () => {
 				org_id: await defaultOrgId(db),
 				owner_user_id: owner.userId,
 				name,
+				name_key: name.toLowerCase(),
 				transport: "client",
 				status: "active",
 				public_key: Buffer.from(key).toString("base64"),

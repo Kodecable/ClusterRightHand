@@ -232,7 +232,7 @@ export class InProcessCrhs {
 				storage: await openNodeSqliteStorage(join(this.agentDir, "durable.sqlite"), { prefix: "pi_" }),
 				models: this.models,
 				cluster: this.cluster,
-				groups: taskGroups,
+				taskGroups,
 				audit: this.audit,
 			});
 			agent = { runtime: this.runtime, models: this.models };

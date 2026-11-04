@@ -79,7 +79,7 @@ beforeAll(async () => {
 		storage: new MemoryStorage(),
 		models,
 		cluster,
-		groups: new TaskGroups(db, cluster, { audit }),
+		taskGroups: new TaskGroups(db, cluster, { audit }),
 		audit,
 	});
 	app = makeApp(db, undefined, { cluster, audit, masterKey, agent: { runtime, models } });

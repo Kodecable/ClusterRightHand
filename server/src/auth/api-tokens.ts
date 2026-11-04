@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { type RefMap, ruleRefs } from "../policy/refs.ts";
 import type { Preset } from "../policy/rules.ts";
 import { createRootRuleSet, deleteRuleSet, getRuleSet, type StoredRuleSet } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
@@ -25,6 +26,8 @@ export interface ApiTokenView {
 	revokedAt: string | null;
 	lastUsedAt: string | null;
 	rules: StoredRuleSet | null;
+	/** Display names for the UUIDs referenced by `rules`; null means the object was deleted. */
+	refs: RefMap;
 }
 
 /**
@@ -76,8 +79,10 @@ async function toView(
 		expires_at: string | null;
 		revoked_at: string | null;
 		last_used_at: string | null;
+		org_id: string;
 	},
 ): Promise<ApiTokenView> {
+	const rules = (await getRuleSet(db, { type: "api_token", id: row.id })) ?? null;
 	return {
 		id: row.id,
 		name: row.name,
@@ -86,7 +91,8 @@ async function toView(
 		expiresAt: row.expires_at,
 		revokedAt: row.revoked_at,
 		lastUsedAt: row.last_used_at,
-		rules: (await getRuleSet(db, { type: "api_token", id: row.id })) ?? null,
+		rules,
+		refs: rules ? await ruleRefs(db, row.org_id, rules.rules) : {},
 	};
 }
 

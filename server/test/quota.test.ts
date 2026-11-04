@@ -59,7 +59,7 @@ beforeAll(async () => {
 		storage: new MemoryStorage(),
 		models,
 		cluster,
-		groups: new TaskGroups(db, cluster, { audit }),
+		taskGroups: new TaskGroups(db, cluster, { audit }),
 		audit,
 	});
 	const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
@@ -608,7 +608,7 @@ it("wakes a quota handler after a restart", async () => {
 		db: localDb,
 		models,
 		cluster,
-		groups: new TaskGroups(localDb, cluster, { audit }),
+		taskGroups: new TaskGroups(localDb, cluster, { audit }),
 		audit,
 	};
 	const first = await AgentRuntime.open({

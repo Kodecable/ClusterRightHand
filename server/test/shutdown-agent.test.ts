@@ -13,6 +13,7 @@ import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
+import { createNodeGroup, setNodeGroupsForNode } from "../src/cluster/node-groups.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -46,7 +47,7 @@ describe("agent runtime shutdown", () => {
 	const model = () => ({ provider: faux.provider.id, modelId: faux.getModel().id });
 	const openStorage = () => openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" });
 
-	const openRuntime = () => AgentRuntime.open({ db, storage: openStorage, models, cluster, groups, audit });
+	const openRuntime = () => AgentRuntime.open({ db, storage: openStorage, models, cluster, taskGroups: groups, audit });
 
 	/** Reads the durable store directly: entries and task records, as a restart would find them. */
 	const inspectDurable = async (): Promise<{ entries: EntryRecord[]; tasks: { kind: string; status: string }[] }> => {
@@ -99,6 +100,7 @@ describe("agent runtime shutdown", () => {
 				org_id: await defaultOrgId(db),
 				owner_user_id: user.id,
 				name: "web-1",
+				name_key: "web-1",
 				transport: "client",
 				status: "active",
 				public_key: Buffer.from(key.publicKey).toString("base64"),
@@ -121,7 +123,8 @@ describe("agent runtime shutdown", () => {
 				trust_updated_at: null,
 			})
 			.execute();
-		await db.insertInto("node_groups").values({ node_id: nodeId, group_name: "batch", refreshed_at: now }).execute();
+		const batch = await createNodeGroup(db, await defaultOrgId(db), "batch");
+		await setNodeGroupsForNode(db, nodeId, [batch.id]);
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		fake = await agents.connect(key, handshakeInit());
@@ -193,7 +196,7 @@ describe("agent runtime shutdown", () => {
 	it("ends a tool call waiting on a task group when the runtime closes", async () => {
 		faux.setResponses([
 			fauxAssistantMessage(
-				[fauxToolCall("exec", { targets: ["group:batch"], cmd: "sleep 60", wait: 600 }, { id: "call-1" })],
+				[fauxToolCall("exec", { targets: ["batch"], cmd: "sleep 60", wait: 600 }, { id: "call-1" })],
 				{ stopReason: "toolUse" },
 			),
 			fauxAssistantMessage([fauxText("done")]),

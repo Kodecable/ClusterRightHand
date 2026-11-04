@@ -5,6 +5,7 @@ import type { Db } from "../storage/db.ts";
 import type { NodesTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { newId } from "../util/id.ts";
+import { availableGeneratedName, nameKey } from "./names.ts";
 
 export class EnrollmentError extends UserError {}
 
@@ -58,32 +59,6 @@ export function parseEnrollmentToken(token: string): { fingerprint: string; secr
 	return { fingerprint, secret };
 }
 
-/** A valid node name: lowercase `[a-z0-9._-]`, at most 63 characters. */
-export function sanitizeNodeName(raw: string): string {
-	const name = raw
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9._-]+/g, "-")
-		.slice(0, 63);
-	return name.replace(/^-+|-+$/g, "") || "node";
-}
-
-export async function uniqueNodeName(
-	db: Pick<Db, "selectFrom">,
-	orgId: string,
-	raw: string,
-	exceptNodeId?: string,
-): Promise<string> {
-	const base = sanitizeNodeName(raw);
-	for (let n = 1; ; n++) {
-		const suffix = n === 1 ? "" : `-${n}`;
-		const candidate = base.slice(0, 63 - suffix.length) + suffix;
-		let q = db.selectFrom("nodes").select("id").where("org_id", "=", orgId).where("name", "=", candidate);
-		if (exceptNodeId) q = q.where("id", "!=", exceptNodeId);
-		if (!(await q.executeTakeFirst())) return candidate;
-	}
-}
-
 export async function enrollNode(
 	db: Db,
 	input: {
@@ -117,11 +92,13 @@ export async function enrollNode(
 			.where("token_hash", "=", tokenHash)
 			.executeTakeFirstOrThrow();
 
+		const name = await availableGeneratedName(trx, token.org_id, token.name_hint ?? input.hostname);
 		const node: Selectable<NodesTable> = {
 			id: newId(),
 			org_id: token.org_id,
 			owner_user_id: token.created_by_user_id,
-			name: await uniqueNodeName(trx, token.org_id, token.name_hint ?? input.hostname),
+			name,
+			name_key: nameKey(name),
 			transport: "client",
 			status: "pending",
 			public_key: publicKey,

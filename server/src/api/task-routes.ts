@@ -31,7 +31,7 @@ const TASK_STATES: ReadonlySet<string> = new Set<TaskState>([
 const ACTOR_TYPES: ReadonlySet<string> = new Set(["user", "session", "subagent", "schedule", "api_token", "system"]);
 
 /** Expects requireUser to have run. Policy and approval come with the authorization rules (M2). */
-export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
+export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 	const app = new Hono<AppEnv>();
 
 	app.post("/nodes/:id/tasks", async (c) => {
@@ -65,14 +65,14 @@ export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 		if (!body) return jsonError(c, 400, "expected a JSON object");
 		const targets = body.targets;
 		if (!Array.isArray(targets) || !targets.every((t) => typeof t === "string")) {
-			throw new BadRequest("targets must be an array of node names and group:<name>");
+			throw new BadRequest("targets must be an array of node or node-group names, ids or _all");
 		}
 		const outputMode = parseOutputMode(body);
-		const nodeIds = await resolveTargets(db, user, targets);
+		const resolved = await resolveTargets(db, user, targets);
 		const { spec, input } = parseTask(body);
-		const id = await groups.create({
-			targets,
-			nodeIds,
+		const id = await taskGroups.create({
+			targets: resolved.targets,
+			nodeIds: resolved.nodeIds,
 			spec,
 			input,
 			outputMode,
@@ -83,31 +83,31 @@ export function taskRoutes(db: Db, cluster: Cluster, groups: TaskGroups) {
 			actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
 		});
 		const wait = Math.min(optionalInt(body, "waitMs") ?? 0, MAX_WAIT_MS);
-		return c.json({ group: await groups.wait(id, wait) }, 201);
+		return c.json({ taskGroup: await taskGroups.wait(id, wait) }, 201);
 	});
 
 	app.get("/task-groups/:id", async (c) => {
-		const group = await visibleGroup(c.get("user"), c.req.param("id"));
-		return group ? c.json({ group }) : jsonError(c, 404, "no such task group");
+		const taskGroup = await visibleTaskGroup(c.get("user"), c.req.param("id"));
+		return taskGroup ? c.json({ taskGroup }) : jsonError(c, 404, "no such task group");
 	});
 
 	app.get("/task-groups/:id/wait", async (c) => {
-		const group = await visibleGroup(c.get("user"), c.req.param("id"));
-		if (!group) return jsonError(c, 404, "no such task group");
+		const taskGroup = await visibleTaskGroup(c.get("user"), c.req.param("id"));
+		if (!taskGroup) return jsonError(c, 404, "no such task group");
 		const timeout = Math.min(Number(c.req.query("timeoutMs") ?? 30_000) || 0, MAX_WAIT_MS);
-		return c.json({ group: await groups.wait(group.id, timeout) });
+		return c.json({ taskGroup: await taskGroups.wait(taskGroup.id, timeout) });
 	});
 
-	/** A group is visible to its creator and to administrators. */
-	const visibleGroup = async (user: AppEnv["Variables"]["user"], id: string) => {
-		const group = await groups.get(id);
-		if (!group) return undefined;
+	/** A task group is visible to its creator and to administrators. */
+	const visibleTaskGroup = async (user: AppEnv["Variables"]["user"], id: string) => {
+		const taskGroup = await taskGroups.get(id);
+		if (!taskGroup) return undefined;
 		const row = await db
 			.selectFrom("task_groups")
 			.select("on_behalf_of_user_id")
 			.where("id", "=", id)
 			.executeTakeFirst();
-		return user.kind === "admin" || row?.on_behalf_of_user_id === user.userId ? group : undefined;
+		return user.kind === "admin" || row?.on_behalf_of_user_id === user.userId ? taskGroup : undefined;
 	};
 
 	app.get("/nodes/:id/tasks", async (c) => {

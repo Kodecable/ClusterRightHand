@@ -226,7 +226,7 @@ export async function endSessionWork(
 		.execute();
 	for (const group of groups) {
 		if (group.state === "awaiting_approval") {
-			await host.groups.decide(group.id, decision);
+			await host.taskGroups.decide(group.id, decision);
 			continue;
 		}
 		// A running group may still have members waiting for their signature; a stop also cancels the rest.

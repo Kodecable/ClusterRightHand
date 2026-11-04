@@ -19,6 +19,7 @@ describeBackends("task groups", (backend) => {
 	async function addNode(name: string, groups: string[], status: "active" | "pending" = "active") {
 		const id = newId();
 		const now = new Date().toISOString();
+		const orgId = await defaultOrgId(db);
 		await db
 			.insertInto("nodes")
 			.values({
@@ -26,6 +27,7 @@ describeBackends("task groups", (backend) => {
 				org_id: await defaultOrgId(db),
 				owner_user_id: user.userId,
 				name,
+				name_key: name.toLowerCase(),
 				transport: "client",
 				status,
 				public_key: null,
@@ -46,9 +48,32 @@ describeBackends("task groups", (backend) => {
 			})
 			.execute();
 		for (const g of groups) {
-			await db.insertInto("node_groups").values({ node_id: id, group_name: g, refreshed_at: now }).execute();
+			let group = await db
+				.selectFrom("node_groups")
+				.select("id")
+				.where("org_id", "=", orgId)
+				.where("name_key", "=", g)
+				.executeTakeFirst();
+			if (!group) {
+				group = { id: newId() };
+				await db
+					.insertInto("node_groups")
+					.values({ id: group.id, org_id: orgId, name: g, name_key: g, created_at: now, updated_at: now })
+					.execute();
+			}
+			await db.insertInto("node_group_members").values({ node_group_id: group.id, node_id: id }).execute();
 		}
 		ids[name] = id;
+	}
+
+	async function addEmptyGroup(name: string): Promise<string> {
+		const now = new Date().toISOString();
+		const id = newId();
+		await db
+			.insertInto("node_groups")
+			.values({ id, org_id: await defaultOrgId(db), name, name_key: name, created_at: now, updated_at: now })
+			.execute();
+		return id;
 	}
 
 	beforeEach(async () => {
@@ -66,11 +91,29 @@ describeBackends("task groups", (backend) => {
 		await db.destroy();
 	});
 
-	it("resolves names and groups to active nodes the user can operate", async () => {
-		const resolved = await resolveTargets(db, user, ["group:web", "db-1"]);
-		expect(new Set(resolved)).toEqual(new Set([ids["web-1"], ids["web-2"], ids["db-1"]]));
-		await expect(resolveTargets(db, user, ["nope"])).rejects.toThrow(/no node nope/);
-		await expect(resolveTargets(db, user, ["group:empty"])).rejects.toThrow(/match no node/);
+	it("resolves names, UUIDs and _all to active nodes the user can operate", async () => {
+		const resolved = await resolveTargets(db, user, ["web", "db-1"]);
+		expect(new Set(resolved.nodeIds)).toEqual(new Set([ids["web-1"], ids["web-2"], ids["db-1"]]));
+		expect(resolved.singleNode).toBe(false);
+		// The stored references are the group's UUID and the node's UUID, not the input names.
+		const webGroup = await db
+			.selectFrom("node_groups")
+			.select("id")
+			.where("name_key", "=", "web")
+			.executeTakeFirstOrThrow();
+		expect(resolved.targets).toEqual([webGroup.id, ids["db-1"]]);
+
+		const one = await resolveTargets(db, user, ["Web-1"]);
+		expect(one).toMatchObject({ targets: [ids["web-1"]], nodeIds: [ids["web-1"]], singleNode: true });
+
+		const all = await resolveTargets(db, user, ["_all"]);
+		expect(new Set(all.nodeIds)).toEqual(new Set([ids["web-1"], ids["web-2"], ids["db-1"]]));
+		expect(all.singleNode).toBe(false);
+		expect(all.targets).toEqual(["_all"]);
+
+		await addEmptyGroup("empty");
+		await expect(resolveTargets(db, user, ["nope"])).rejects.toThrow(/no node or node group nope/);
+		await expect(resolveTargets(db, user, ["empty"])).rejects.toThrow(/match no node/);
 		await expect(resolveTargets(db, user, [])).rejects.toThrow(/empty/);
 		const stranger = await createUser(db, { username: "bob", kind: "member" });
 		await expect(
@@ -107,14 +150,14 @@ describeBackends("task groups", (backend) => {
 	it("stores the derived mode on the group and its tasks", async () => {
 		const groups = new TaskGroups(db, cluster);
 		const execId = await groups.create({
-			targets: ["x"],
+			targets: [ids["web-1"] as string],
 			nodeIds: [ids["web-1"] as string],
 			spec: spec(),
 			actor: actor(),
 		});
 		expect((await groups.get(execId))?.outputMode).toBe("status");
 		const readId = await groups.create({
-			targets: ["x"],
+			targets: [ids["web-1"] as string],
 			nodeIds: [ids["web-1"] as string],
 			spec: readSpec(),
 			actor: actor(),
@@ -125,7 +168,7 @@ describeBackends("task groups", (backend) => {
 		expect(view?.tasks.map((t) => t.outputMode)).toEqual(["head"]);
 		await expect(
 			groups.create({
-				targets: ["x"],
+				targets: [ids["web-1"] as string],
 				nodeIds: [ids["web-1"] as string],
 				spec: readSpec(),
 				actor: actor(),
@@ -138,7 +181,7 @@ describeBackends("task groups", (backend) => {
 		const groups = new TaskGroups(db, cluster);
 		const nodeIds = [ids["web-1"], ids["web-2"], ids["db-1"]] as string[];
 		const id = await groups.create({
-			targets: ["group:web", "db-1"],
+			targets: [ids["web-1"] as string, ids["db-1"] as string],
 			nodeIds,
 			spec: spec(),
 			actor: actor(),
@@ -155,7 +198,7 @@ describeBackends("task groups", (backend) => {
 		const groups = new TaskGroups(db, cluster);
 		const nodeIds = [ids["web-1"], ids["web-2"], ids["db-1"]] as string[];
 		const id = await groups.create({
-			targets: ["x"],
+			targets: [ids["web-1"] as string],
 			nodeIds,
 			spec: spec(),
 			actor: actor(),
@@ -186,7 +229,7 @@ describeBackends("task groups", (backend) => {
 			);
 			await probedGroups.create({
 				id: groupId,
-				targets: ["x"],
+				targets: [ids["web-1"] as string],
 				nodeIds: [ids["web-1"], ids["web-2"]] as string[],
 				spec: spec(),
 				actor: actor(),
@@ -238,7 +281,7 @@ describeBackends("task groups", (backend) => {
 			const chain = [{ type: "api_token" as const, id: tokenId }];
 			const ruleReads = probe.count((node) => node.kind === "SelectQueryNode" && tableOf(node) === "rule_sets");
 			const id = await probedGroups.create({
-				targets: ["group:web", "db-1"],
+				targets: [ids["web-1"] as string, ids["db-1"] as string],
 				nodeIds: [ids["web-1"], ids["web-2"], ids["db-1"]] as string[],
 				spec: spec(),
 				actor: actor(),

@@ -10,24 +10,24 @@ export interface UserGroup {
 	memberIds: string[];
 }
 
-const GROUP_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+const USER_GROUP_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 export async function listUserGroups(db: Db): Promise<UserGroup[]> {
 	const groups = await db.selectFrom("user_groups").selectAll().orderBy("name").execute();
-	const members = await db.selectFrom("user_group_members").select(["group_id", "user_id"]).execute();
+	const members = await db.selectFrom("user_group_members").select(["user_group_id", "user_id"]).execute();
 	return groups.map((g) => ({
 		id: g.id,
 		name: g.name,
 		source: g.source,
 		createdAt: g.created_at,
-		memberIds: members.filter((m) => m.group_id === g.id).map((m) => m.user_id),
+		memberIds: members.filter((m) => m.user_group_id === g.id).map((m) => m.user_id),
 	}));
 }
 
 export async function createUserGroup(db: Db, name: string): Promise<UserGroup> {
 	const normalized = name.trim().toLowerCase();
-	if (!GROUP_NAME_RE.test(normalized)) {
-		throw new UserError("group name must be 1-64 characters of a-z, 0-9, '.', '_' or '-'");
+	if (!USER_GROUP_NAME_RE.test(normalized)) {
+		throw new UserError("user group name must be 1-64 characters of a-z, 0-9, '.', '_' or '-'");
 	}
 	const orgId = await defaultOrgId(db);
 	const taken = await db
@@ -48,22 +48,26 @@ export async function createUserGroup(db: Db, name: string): Promise<UserGroup> 
 	return { id: row.id, name: row.name, source: row.source, createdAt: row.created_at, memberIds: [] };
 }
 
-export async function deleteUserGroup(db: Db, groupId: string): Promise<void> {
+export async function deleteUserGroup(db: Db, userGroupId: string): Promise<void> {
 	await db.transaction().execute(async (trx) => {
-		await trx.deleteFrom("shares").where("grantee_type", "=", "user_group").where("grantee_id", "=", groupId).execute();
-		const result = await trx.deleteFrom("user_groups").where("id", "=", groupId).executeTakeFirst();
+		await trx
+			.deleteFrom("shares")
+			.where("grantee_type", "=", "user_group")
+			.where("grantee_id", "=", userGroupId)
+			.execute();
+		const result = await trx.deleteFrom("user_groups").where("id", "=", userGroupId).executeTakeFirst();
 		if (result.numDeletedRows === 0n) throw new NotFoundError("no such user group");
 	});
 }
 
-export async function addGroupMember(db: Db, groupId: string, userId: string): Promise<void> {
+export async function addUserGroupMember(db: Db, userGroupId: string, userId: string): Promise<void> {
 	const [group, user, existing] = await Promise.all([
-		db.selectFrom("user_groups").select("id").where("id", "=", groupId).executeTakeFirst(),
+		db.selectFrom("user_groups").select("id").where("id", "=", userGroupId).executeTakeFirst(),
 		db.selectFrom("users").select("id").where("id", "=", userId).executeTakeFirst(),
 		db
 			.selectFrom("user_group_members")
 			.select("user_id")
-			.where("group_id", "=", groupId)
+			.where("user_group_id", "=", userGroupId)
 			.where("user_id", "=", userId)
 			.executeTakeFirst(),
 	]);
@@ -72,10 +76,14 @@ export async function addGroupMember(db: Db, groupId: string, userId: string): P
 	if (existing) return;
 	await db
 		.insertInto("user_group_members")
-		.values({ group_id: groupId, user_id: userId, created_at: new Date().toISOString() })
+		.values({ user_group_id: userGroupId, user_id: userId, created_at: new Date().toISOString() })
 		.execute();
 }
 
-export async function removeGroupMember(db: Db, groupId: string, userId: string): Promise<void> {
-	await db.deleteFrom("user_group_members").where("group_id", "=", groupId).where("user_id", "=", userId).execute();
+export async function removeUserGroupMember(db: Db, userGroupId: string, userId: string): Promise<void> {
+	await db
+		.deleteFrom("user_group_members")
+		.where("user_group_id", "=", userGroupId)
+		.where("user_id", "=", userId)
+		.execute();
 }

@@ -9,7 +9,7 @@ import { useSessionShares, useShareSession, useUnshareSession } from "@/features
 
 /**
  * The share dialog of a session (doc/access-control.md "归属与分享"): the
- * current shares, adding a user or group with view/chat access, and removing
+ * current shares, adding a user or user group with view/chat access, and removing
  * one. A share is only offered while the caller has `manageShares`.
  */
 export function ShareDialog({
@@ -51,7 +51,7 @@ export function ShareDialog({
 						{shares.data.map((item) => (
 							<li key={item.id} className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm">
 								<span className="min-w-0 flex-1 truncate">
-									{item.granteeType === "user" ? <Trans>User</Trans> : <Trans>Group</Trans>}{" "}
+									{item.granteeType === "user" ? <Trans>User</Trans> : <Trans>User group</Trans>}{" "}
 									<span className="font-mono text-xs">{item.granteeName ?? item.granteeId}</span>
 								</span>
 								<span className="text-xs text-muted-foreground">
@@ -83,7 +83,7 @@ export function ShareDialog({
 						{ value: "chat", label: <Trans>Chat</Trans> },
 					]}
 					defaultAccess="view"
-					groupLabel={<Trans>User group</Trans>}
+					userGroupLabel={<Trans>User group</Trans>}
 					busy={share.isPending}
 					onAdd={async ({ granteeType, granteeId, access }) => {
 						try {

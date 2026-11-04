@@ -48,7 +48,7 @@ describe("agent runtime performance", () => {
 			storage: await openNodeSqliteStorage(join(tmp, "durable.sqlite"), { prefix: "pi_" }),
 			models,
 			cluster,
-			groups: new TaskGroups(db, cluster),
+			taskGroups: new TaskGroups(db, cluster),
 			retentionMs: 0,
 		});
 	};

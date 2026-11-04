@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { ApiTokenView, Preset, Rule } from "@/lib/api/types";
+import { refNames, rulesWithNames } from "@/lib/refs";
 import { useSetTokenRules } from "./api";
 import { PresetHelp } from "./preset-help";
 
@@ -16,8 +17,14 @@ export function RulesDialog({ token, onClose }: { token: ApiTokenView; onClose: 
 	const prefix = useId();
 	const save = useSetTokenRules();
 	const [preset, setPreset] = useState<Preset>(token.rules?.preset ?? "ask");
-	const [text, setText] = useState(() => JSON.stringify({ rules: token.rules?.rules ?? [] }, null, 2));
+	// Show names rather than the stored UUIDs; the server accepts names on write (D109).
+	const [text, setText] = useState(() =>
+		JSON.stringify({ rules: rulesWithNames(token.rules?.rules ?? [], refNames(token.refs)) }, null, 2),
+	);
 	const [error, setError] = useState<string>();
+	const deletedRef = (token.rules?.rules ?? [])
+		.flatMap((rule) => rule.nodes ?? [])
+		.some((ref) => token.refs[ref] === null);
 
 	const parseRules = (): Rule[] | undefined => {
 		let parsed: unknown;
@@ -84,10 +91,17 @@ export function RulesDialog({ token, onClose }: { token: ApiTokenView; onClose: 
 						/>
 						<p className="text-xs text-muted-foreground">
 							<Trans>
-								Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes,
-								and exact or prefix.
+								Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes
+								(names or ids of nodes and node groups, or _all), and exact or prefix.
 							</Trans>
 						</p>
+						{deletedRef && (
+							<p className="text-xs text-warn">
+								<Trans>
+									Some rules reference deleted nodes or node groups. Remove or replace those references before saving.
+								</Trans>
+							</p>
+						)}
 					</div>
 					{error !== undefined && (
 						<p role="alert" className="text-sm text-danger">

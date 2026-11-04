@@ -1,5 +1,5 @@
 import { type ApprovalRecord, summarize } from "../cluster/cluster.ts";
-import type { GroupApprovalRecord } from "../cluster/task-groups.ts";
+import type { TaskGroupApprovalRecord } from "../cluster/task-groups.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { awaitingQuotaChildren, grantQuota } from "./quota.ts";
 import type { AgentRequestView, Inbox, RuntimeHost } from "./runtime-core.ts";
@@ -22,7 +22,8 @@ export function requestKey(request: AgentRequestView): string {
 /** Request key behind a wake request id, for checking that the request is still pending before flushing. */
 export function wakeRequestKey(requestId: string): string | undefined {
 	if (requestId.startsWith("agent-request:task:")) return `task:${requestId.slice("agent-request:task:".length)}`;
-	if (requestId.startsWith("agent-request:group:")) return `group:${requestId.slice("agent-request:group:".length)}`;
+	if (requestId.startsWith("agent-request:task_group:"))
+		return `task_group:${requestId.slice("agent-request:task_group:".length)}`;
 	if (requestId.startsWith("quota-request:")) {
 		const rest = requestId.slice("quota-request:".length);
 		const end = rest.indexOf(":");
@@ -87,7 +88,7 @@ async function queryRequests(host: RuntimeHost, handlerId: string): Promise<Agen
 		.execute();
 	for (const row of groups) {
 		out.push({
-			kind: "group",
+			kind: "task_group",
 			id: row.id,
 			sessionId: row.actor_id,
 			summary: row.spec ? summarize(row.spec) : "",
@@ -162,7 +163,7 @@ export async function decideAgentRequest(
 	decision: "approve" | "deny" | "escalate",
 	reason?: string,
 	tokens?: number,
-): Promise<"task" | "group" | "quota"> {
+): Promise<"task" | "task_group" | "quota"> {
 	const session = await host.db.selectFrom("sessions").selectAll().where("id", "=", sessionId).executeTakeFirst();
 	if (!session) throw new NotFoundError("no such session");
 	const by = {
@@ -235,15 +236,15 @@ export async function decideAgentRequest(
 		.where("id", "=", requestId)
 		.executeTakeFirst();
 	if (!group) throw new NotFoundError("no such request");
-	const approval = JSON.parse(group.approval ?? "{}") as GroupApprovalRecord;
+	const approval = JSON.parse(group.approval ?? "{}") as TaskGroupApprovalRecord;
 	if (approval.agent?.session !== sessionId || approval.agent.state !== "pending") {
 		throw new UserError("this request is not waiting for this session's agent");
 	}
 	if (decision === "escalate") {
-		if (!(await host.groups.escalateAgentDecision(requestId, sessionId)))
+		if (!(await host.taskGroups.escalateAgentDecision(requestId, sessionId)))
 			throw new UserError("the request is no longer waiting");
 	} else {
-		const ok = await host.groups.decide(requestId, {
+		const ok = await host.taskGroups.decide(requestId, {
 			decision: decision === "approve" ? "approved" : "rejected",
 			by: { ...by, onBehalfOfUserId: group.on_behalf_of_user_id },
 			at: new Date().toISOString(),
@@ -251,9 +252,9 @@ export async function decideAgentRequest(
 		});
 		if (!ok) throw new UserError("the request is no longer waiting");
 	}
-	dropWake(host, sessionId, `agent-request:group:${requestId}`);
+	dropWake(host, sessionId, `agent-request:task_group:${requestId}`);
 	await refreshState(host, group.actor_id);
-	return "group";
+	return "task_group";
 }
 
 /**
@@ -262,10 +263,10 @@ export async function decideAgentRequest(
  */
 export async function routeAwaiting(
 	host: RuntimeHost,
-	kind: "task" | "group",
+	kind: "task" | "task_group",
 	actorId: string,
 	requestId: string,
-	approval: ApprovalRecord | GroupApprovalRecord | null,
+	approval: ApprovalRecord | TaskGroupApprovalRecord | null,
 ): Promise<void> {
 	if (!approval) return;
 	const evaluations = "evaluation" in approval ? [approval.evaluation] : approval.nodes.map((n) => n.evaluation);
@@ -284,7 +285,7 @@ export async function routeAwaiting(
 			const routed =
 				kind === "task"
 					? await host.cluster.requestAgentDecision(requestId, parent.id)
-					: await host.groups.requestAgentDecision(requestId, parent.id);
+					: await host.taskGroups.requestAgentDecision(requestId, parent.id);
 			if (routed) await wakeParent(host, parent, kind, requestId);
 			return;
 		}

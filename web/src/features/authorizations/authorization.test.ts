@@ -14,7 +14,7 @@ const PENDING: PendingAuthorization = {
 	lastRejection: null,
 	tried: ["crhs"],
 	decoded: {
-		nodes: ["node-1", "group:web"],
+		nodes: ["node-1", "web"],
 		command: {
 			method: "exec",
 			match: "exact",
@@ -44,7 +44,7 @@ describe("authorizationLines", () => {
 	test("renders the decoded payload as keyed lines", () => {
 		const lines = authorizationLines(PENDING, "en");
 		const byKey = new Map(lines.map((line) => [line.key, line]));
-		expect(byKey.get("nodes")).toMatchObject({ value: "node-1, group:web", mono: true });
+		expect(byKey.get("nodes")).toMatchObject({ value: "node-1, web", mono: true });
 		expect(byKey.get("command")).toMatchObject({ value: "exec exact systemctl restart nginx", mono: true });
 		expect(byKey.get("attempt")).toEqual({ key: "attempt", value: "2" });
 		expect(byKey.get("tasks")).toMatchObject({ value: "task-1, task-2", mono: true });

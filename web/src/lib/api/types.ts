@@ -40,6 +40,22 @@ export interface UserGroup {
 
 export type NodeAccess = "owner" | "admin" | "operate" | "view";
 
+/** A node group as a node response names it (D109). */
+export interface NodeGroupRef {
+	id: string;
+	name: string;
+}
+
+/** A node group and its members (`GET /api/node-groups`). */
+export interface NodeGroup extends NodeGroupRef {
+	memberIds: string[];
+}
+
+/** The current name of a stored node/node-group reference; null when the object was deleted. */
+export type RefTarget = { kind: "node" | "node_group"; name: string };
+/** Display names for stored UUID references, keyed by id (D109). */
+export type RefMap = Record<string, RefTarget | null>;
+
 export interface PublicNode {
 	id: string;
 	name: string;
@@ -52,7 +68,8 @@ export interface PublicNode {
 	lastSeenAt: string | null;
 	createdAt: string;
 	approvedAt: string | null;
-	groups: string[];
+	/** The crhs-managed node groups the node belongs to. */
+	nodeGroups: NodeGroupRef[];
 	access: NodeAccess;
 	facts: Record<string, unknown> | null;
 	keyFingerprint: string | null;
@@ -146,6 +163,8 @@ export interface SessionView {
 	createdAt: string;
 	updatedAt: string;
 	rules: StoredRuleSet | null;
+	/** Display names for the UUIDs referenced by `rules`; null means the object was deleted. */
+	refs: RefMap;
 	/** How the caller relates to the session; display only, authorization uses `capabilities`. */
 	relationship: SessionRelationship;
 	/** Effective capabilities of the caller on this session. */
@@ -193,6 +212,7 @@ export type Preset = "ask" | "auto_review" | "yolo";
 export interface Rule {
 	action: RuleAction;
 	method?: RuleMethod;
+	/** Node/node-group names or ids on input; the server stores UUIDs or `_all` (D109). */
 	nodes?: string[];
 	/** true only matches privileged tasks, false only ordinary ones; omitted matches both. */
 	privileged?: boolean;
@@ -231,7 +251,7 @@ export interface ApprovalRecord {
 	decision?: ApprovalDecision;
 }
 
-export interface GroupApprovalRecord {
+export interface TaskGroupApprovalRecord {
 	nodes: { nodeId: string; evaluation: Evaluation }[];
 	decision?: ApprovalDecision;
 }
@@ -253,6 +273,8 @@ export interface ApiTokenView {
 	revokedAt: string | null;
 	lastUsedAt: string | null;
 	rules: StoredRuleSet | null;
+	/** Display names for the UUIDs referenced by `rules`; null means the object was deleted. */
+	refs: RefMap;
 }
 
 export interface AuditEvent {
@@ -412,7 +434,7 @@ export interface PendingAuthorization {
 	tried: string[];
 }
 
-export interface GroupPendingTask {
+export interface TaskGroupPendingTask {
 	id: string;
 	nodeId: string;
 	nodeName: string;
@@ -423,9 +445,9 @@ export interface GroupPendingTask {
 	tried: string[];
 }
 
-export interface GroupPending {
+export interface TaskGroupPending {
 	authorization: PendingAuthorization;
-	tasks: GroupPendingTask[];
+	tasks: TaskGroupPendingTask[];
 }
 
 /** One stored authorization (doc/m4.md M4.4). */
@@ -544,7 +566,10 @@ export interface SshTargetBody extends SshHopInput {
 export interface TaskGroupView {
 	id: string;
 	state: "awaiting_approval" | "awaiting_authorization" | "running" | "finished" | "interrupted" | "rejected";
+	/** Stored target UUIDs or `_all`; the display names are in `refs`. */
 	targets: string[];
+	/** Display names for the UUID targets; null means the node or node group was deleted. */
+	refs: RefMap;
 	nodeIds: string[];
 	parallel: number;
 	failFast: boolean;
@@ -559,7 +584,7 @@ export interface TaskGroupView {
 	summary?: string;
 	kind?: string;
 	ruleChain?: RuleRef[] | null;
-	approval?: GroupApprovalRecord | null;
+	approval?: TaskGroupApprovalRecord | null;
 	actorType?: string;
 	actorId?: string;
 	onBehalfOfUserId?: string;
@@ -609,6 +634,8 @@ export interface ScheduleView {
 	model: ModelRef;
 	preset: Preset | null;
 	rules: Rule[];
+	/** Display names for the UUIDs referenced by `rules`; null means the object was deleted. */
+	refs: RefMap;
 	tokenBudget: number | null;
 	cron: string;
 	timezone: string;

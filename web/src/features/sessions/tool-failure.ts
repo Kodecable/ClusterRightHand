@@ -69,7 +69,7 @@ export function taskViewFailure(task: TaskView): ToolFailure | undefined {
 }
 
 /** The failure of a task group view: interrupted or rejected, or a set of members that partly failed. */
-export function groupViewFailure(group: TaskGroupView): ToolFailure | undefined {
+export function taskGroupViewFailure(group: TaskGroupView): ToolFailure | undefined {
 	if (FAILED_GROUP_STATES.has(group.state)) return { kind: "failed", reason: "state" };
 	const failed = group.tasks.filter((task) => taskViewFailure(task) !== undefined).length;
 	if (failed === 0) return undefined;

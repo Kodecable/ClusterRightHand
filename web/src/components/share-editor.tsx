@@ -52,7 +52,7 @@ function ShareField({
 export function ShareEditor<A extends string>({
 	accessOptions,
 	defaultAccess,
-	groupLabel,
+	userGroupLabel,
 	layout = "stacked",
 	onAdd,
 	busy = false,
@@ -60,8 +60,8 @@ export function ShareEditor<A extends string>({
 	accessOptions: readonly { value: A; label: ReactNode }[];
 	/** Access the editor starts on, usually "view". */
 	defaultAccess: A;
-	/** How this page names a user group: "Group" on a node, "User group" on a session. */
-	groupLabel: ReactNode;
+	/** How this page names a user group: "User group" on both a node and a session. */
+	userGroupLabel: ReactNode;
 	layout?: "inline" | "stacked";
 	/** Submits the draft; true clears the chosen grantee (the add succeeded). */
 	onAdd: (draft: ShareDraft<A>) => Promise<boolean>;
@@ -98,14 +98,14 @@ export function ShareEditor<A extends string>({
 		>
 			<SelectTrigger id={`${prefix}-type`} className={layout === "inline" ? "w-36" : "w-full"}>
 				<SelectValue>
-					{(current: string | null) => (current === "user_group" ? groupLabel : <Trans>User</Trans>)}
+					{(current: string | null) => (current === "user_group" ? userGroupLabel : <Trans>User</Trans>)}
 				</SelectValue>
 			</SelectTrigger>
 			<SelectContent>
 				<SelectItem value="user">
 					<Trans>User</Trans>
 				</SelectItem>
-				<SelectItem value="user_group">{groupLabel}</SelectItem>
+				<SelectItem value="user_group">{userGroupLabel}</SelectItem>
 			</SelectContent>
 		</Select>
 	);

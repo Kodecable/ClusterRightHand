@@ -19,6 +19,7 @@ import { credentialRoutes } from "./credential-routes.ts";
 import { RequestDrain } from "./drain.ts";
 import { apiErrorHandler } from "./errors.ts";
 import { csrfGuard, requireUser } from "./middleware.ts";
+import { nodeGroupRoutes } from "./node-group-routes.ts";
 import { nodeRoutes } from "./node-routes.ts";
 import { policyRoutes } from "./policy-routes.ts";
 import { privilegeRoutes } from "./privilege-routes.ts";
@@ -92,14 +93,15 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	app.use("/api/*", requireUser(db));
 	app.route("/api", userRoutes(db, { ...(options.agent ? { sessions: options.agent.runtime.sessionList } : {}) }));
 	app.route("/api", nodeRoutes(db, options));
+	app.route("/api", nodeGroupRoutes(db));
 	app.route("/api", privilegeRoutes({ authorizationKey: options.authorizationKey }));
 	app.route("/api", credentialRoutes(db, { webauthn: options.webauthn }));
 	app.route("/api", authorizationRoutes(db, { cluster: options.cluster }));
 	if (options.masterKey) app.route("/api", sshRoutes(db, options.masterKey));
 	if (options.cluster) {
-		const groups = options.taskGroups ?? new TaskGroups(db, options.cluster, { audit });
-		app.route("/api", taskRoutes(db, options.cluster, groups));
-		app.route("/api", policyRoutes(db, options.cluster, groups, audit));
+		const taskGroups = options.taskGroups ?? new TaskGroups(db, options.cluster, { audit });
+		app.route("/api", taskRoutes(db, options.cluster, taskGroups));
+		app.route("/api", policyRoutes(db, options.cluster, taskGroups, audit));
 		if (options.agent && options.masterKey) {
 			// The session routes reach the agent runtime: during shutdown they answer with the shutdown rather
 			// than with the closed Harness's exception (main.ts). No other route group uses the runtime.
@@ -111,7 +113,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 					...options.agent,
 					masterKey: options.masterKey,
 					cluster: options.cluster,
-					groups,
+					taskGroups,
 					drain,
 					...(options.scheduler ? { scheduler: options.scheduler } : {}),
 				}),
@@ -125,12 +127,12 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 					scheduler: options.scheduler,
 					models: options.agent.models,
 					cluster: options.cluster,
-					groups,
+					taskGroups,
 				}),
 			);
 		}
 		// Bearer-token authenticated, outside /api's cookie sessions and CSRF guard.
-		app.route("/", mcpRoutes(db, { cluster: options.cluster, groups, audit }));
+		app.route("/", mcpRoutes(db, { cluster: options.cluster, taskGroups, audit }));
 	}
 
 	if (options.webRoot) {

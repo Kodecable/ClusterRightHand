@@ -3,10 +3,11 @@ import { type Audit, listAuditEvents, userActor } from "../audit/audit.ts";
 import { createApiToken, deleteApiToken, getApiToken, listApiTokens, revokeApiToken } from "../auth/api-tokens.ts";
 import type { ApprovalDecision, Cluster, TaskView } from "../cluster/cluster.ts";
 import type { TaskGroups, TaskGroupView } from "../cluster/task-groups.ts";
-import { parseRules, type Rule } from "../policy/rules.ts";
+import { parseRulesForWrite } from "../policy/refs.ts";
+import type { Rule } from "../policy/rules.ts";
 import { appendRule, parsePreset, type RuleRef, setPreset, setRules } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
-import { UserError } from "../users/service.ts";
+import { defaultOrgId, UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { type CursorSpec, cursorRows, decodeCursor, encodeCursor, parseLimit } from "./cursor.ts";
 
@@ -17,13 +18,13 @@ const AUDIT_CURSOR: CursorSpec = { columns: [{ name: "seq", type: "number" }], i
  * API tokens (with their rules), approvals and the audit log. Management needs a WebUI session: these
  * routes sit behind requireUser, and API tokens only work at /mcp.
  */
-export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit: Audit) {
+export function policyRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups, audit: Audit) {
 	const app = new Hono<AppEnv>();
 
 	/** After any rule change: settle what no longer needs approval. */
 	const rulesChanged = async (ref: RuleRef) => {
 		await cluster.reevaluate(ref);
-		await groups.reevaluate(ref);
+		await taskGroups.reevaluate(ref);
 	};
 
 	// ---- API tokens ----
@@ -72,7 +73,7 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 				.where("actor_id", "=", c.req.param("id"))
 				.execute();
 			for (const { id } of rows) {
-				await (table === "tasks" ? cluster.decide(id, decision) : groups.decide(id, decision));
+				await (table === "tasks" ? cluster.decide(id, decision) : taskGroups.decide(id, decision));
 			}
 		}
 		return c.json({ apiToken: await getApiToken(db, user, c.req.param("id")) });
@@ -98,7 +99,8 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 		if (!body) return jsonError(c, 400, "expected a JSON object");
 		const ref: RuleRef = { type: "api_token", id };
 		const preset = body.preset === undefined ? undefined : parsePreset(body.preset);
-		const rules = body.rules === undefined ? undefined : parseRules(body.rules);
+		const rules =
+			body.rules === undefined ? undefined : await parseRulesForWrite(db, await defaultOrgId(db), body.rules);
 		if (preset) await setPreset(db, ref, preset);
 		if (rules) await setRules(db, ref, rules);
 		void audit.record({
@@ -124,7 +126,7 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 			.where("on_behalf_of_user_id", "=", user.userId)
 			.orderBy("created_at")
 			.execute();
-		const groupRows = await db
+		const taskGroupRows = await db
 			.selectFrom("task_groups")
 			.select("id")
 			.where("state", "=", "awaiting_approval")
@@ -132,10 +134,10 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 			.where("on_behalf_of_user_id", "=", user.userId)
 			.orderBy("created_at")
 			.execute();
-		// Tasks and groups that passed their rules but still wait for this user's signature. Both entry
+		// Tasks and task groups that passed their rules but still wait for this user's signature. Both entry
 		// points share this one list: the approvals page shows them in their own section and the header
-		// count adds them up (doc/privilege.md). A task that belongs to a group is signed through the
-		// group, so only the group is listed: one signature, one entry.
+		// count adds them up (doc/privilege.md). A task that belongs to a task group is signed through the
+		// task group, so only the task group is listed: one signature, one entry.
 		const signatureRows = await db
 			.selectFrom("tasks")
 			.select("id")
@@ -144,7 +146,7 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 			.where("task_group_id", "is", null)
 			.orderBy("created_at")
 			.execute();
-		const signatureGroupRows = await db
+		const signatureTaskGroupRows = await db
 			.selectFrom("task_groups")
 			.select("id")
 			.where("state", "=", "awaiting_authorization")
@@ -152,7 +154,9 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 			.orderBy("created_at")
 			.execute();
 		const tasks = (await Promise.all(taskRows.map((r) => cluster.getTask(r.id)))).filter(Boolean) as TaskView[];
-		const taskGroups = (await Promise.all(groupRows.map((r) => groups.get(r.id)))).filter(Boolean) as TaskGroupView[];
+		const approvalTaskGroups = (await Promise.all(taskGroupRows.map((r) => taskGroups.get(r.id)))).filter(
+			Boolean,
+		) as TaskGroupView[];
 		// Roots whose quota is used up wait for this user: their own paused run and any subagent paused on the
 		// same root are one request (doc/agent-runtime.md#配额). Shared users cannot decide, so only the owner
 		// sees them; admins see only their own, like the approvals above.
@@ -208,12 +212,12 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 		const signatureTasks = (await Promise.all(signatureRows.map((r) => cluster.getTask(r.id)))).filter(
 			Boolean,
 		) as TaskView[];
-		const signatureTaskGroups = (await Promise.all(signatureGroupRows.map((r) => groups.get(r.id)))).filter(
+		const signatureTaskGroups = (await Promise.all(signatureTaskGroupRows.map((r) => taskGroups.get(r.id)))).filter(
 			Boolean,
 		) as TaskGroupView[];
 		return c.json({
 			tasks,
-			taskGroups,
+			taskGroups: approvalTaskGroups,
 			authorizations: { tasks: signatureTasks, taskGroups: signatureTaskGroups },
 			quotas,
 		});
@@ -253,12 +257,14 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 		const root = subject.chain[0] as RuleRef;
 		let always: Rule | undefined;
 		if (body.decision === "approve" && body.always !== undefined) {
-			const [rule] = parseRules([body.always]);
+			const [rule] = await parseRulesForWrite(db, await defaultOrgId(db), [body.always]);
 			if (rule?.action !== "allow") throw new UserError('an "always" rule must be an allow rule');
 			always = rule;
 		}
 		const ok =
-			subject.kind === "task" ? await cluster.decide(subject.id, decision) : await groups.decide(subject.id, decision);
+			subject.kind === "task"
+				? await cluster.decide(subject.id, decision)
+				: await taskGroups.decide(subject.id, decision);
 		// The rule is a consequence of the decision: a request that is no longer waiting must not leave it behind.
 		if (ok && always) {
 			await appendRule(db, root, always);
@@ -288,7 +294,7 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 	});
 
 	app.post("/task-groups/:id/approval", async (c) => {
-		const g = await groups.get(c.req.param("id"));
+		const g = await taskGroups.get(c.req.param("id"));
 		if (!g) return jsonError(c, 404, "no such approval");
 		return decide(c, {
 			kind: "task_group",

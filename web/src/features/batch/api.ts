@@ -16,7 +16,7 @@ export function useCreateBatch() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (input: CreateBatchInput) =>
-			http.post<{ group: TaskGroupView }>("/task-groups", input).then((r) => r.group),
+			http.post<{ taskGroup: TaskGroupView }>("/task-groups", input).then((r) => r.taskGroup),
 		onSuccess: () => void queryClient.invalidateQueries({ queryKey: taskKeys.all }),
 		// The page's form shows the failure inline, where the mistyped field is.
 		meta: { toast: false },

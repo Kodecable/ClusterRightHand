@@ -97,7 +97,7 @@ describe("AuthorizationCard", () => {
 	test("a task group shows its pending tasks", () => {
 		renderWithI18n(
 			<AuthorizationCard
-				kind="group"
+				kind="task_group"
 				pending={pending()}
 				tasks={[
 					{

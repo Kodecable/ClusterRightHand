@@ -14,7 +14,7 @@ export function AuthorizationWait({
 	onChanged,
 	waiting,
 }: {
-	kind: "task" | "group";
+	kind: "task" | "task_group";
 	id: string | undefined;
 	/** Extra refresh after a successful signature (the caller's own query). */
 	onChanged?: () => void;

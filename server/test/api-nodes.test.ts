@@ -4,8 +4,8 @@ import { createApp } from "../src/api/app.ts";
 import { enrollNode, parseEnrollmentToken } from "../src/cluster/enrollment.ts";
 import type { PublicNode } from "../src/cluster/nodes.ts";
 import type { Db } from "../src/storage/db.ts";
-import { addGroupMember, createUserGroup } from "../src/users/groups.ts";
 import { createUser } from "../src/users/service.ts";
+import { addUserGroupMember, createUserGroup } from "../src/users/user-groups.ts";
 import { type App, call, login } from "./helpers/api.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
 
@@ -49,7 +49,7 @@ describeBackends("api nodes", (backend) => {
 			cookies[name] = await login(app, name, "password-123");
 		}
 		groupId = (await createUserGroup(db, "viewers")).id;
-		await addGroupMember(db, groupId, ids.viewer as string);
+		await addUserGroupMember(db, groupId, ids.viewer as string);
 	});
 	afterAll(async () => {
 		await db.destroy();
@@ -155,7 +155,7 @@ describeBackends("api nodes", (backend) => {
 			call(app, `/api/nodes/${a.id}`, { method: "PATCH", cookie: cookies.owner, body: { name } });
 		const ok = await patch("Renamed");
 		expect(ok.status).toBe(200);
-		expect(((await ok.json()) as { node: PublicNode }).node.name).toBe("renamed");
+		expect(((await ok.json()) as { node: PublicNode }).node.name).toBe("Renamed");
 		expect((await patch("ren-b")).status).toBe(400);
 		expect((await patch("bad name")).status).toBe(400);
 		expect((await patch(5)).status).toBe(400);

@@ -40,6 +40,7 @@ function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 			default: "ask",
 			updatedAt: "2026-01-01T00:00:00.000Z",
 		},
+		refs: {},
 		relationship: "owner",
 		capabilities: { view: true, chat: true, manageShares: true, configure: true },
 		ownerUsername: "ops",
@@ -91,6 +92,7 @@ async function renderSessionPage({ session, treeRow }: { session: SessionView; t
 			if (path === "/api/models") return json({ models: [] });
 			if (path === "/api/approvals") return json(APPROVALS);
 			if (path === "/api/nodes") return json({ nodes: [] });
+			if (path === "/api/node-groups") return json({ groups: [] });
 			if (path === "/api/api-tokens") return json({ tokens: [] });
 			return json({});
 		}),

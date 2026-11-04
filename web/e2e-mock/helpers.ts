@@ -10,10 +10,14 @@ import type {
 	Directory,
 	ModelProviderView,
 	ModelRef,
+	NodeGroup,
 	NodeTrust,
 	PublicNode,
+	RefMap,
 	ScheduleRunView,
 	ScheduleView,
+	SessionListItem,
+	SessionView,
 	SshCredential,
 	TaskGroupView,
 	TaskView,
@@ -72,7 +76,8 @@ export interface FakeState {
 	nodes: PublicNode[];
 	models: AvailableModel[];
 	directory: Directory;
-	groups: Record<string, { group: TaskGroupView; polls: number }>;
+	taskGroups: Record<string, { taskGroup: TaskGroupView; polls: number }>;
+	nodeGroups: NodeGroup[];
 	schedules: ScheduleView[];
 	runs: Record<string, ScheduleRunView[]>;
 	tokens: ApiTokenView[];
@@ -124,6 +129,7 @@ export function sessionView(item: SessionListItem, overrides: Partial<SessionVie
 			default: "ask",
 			updatedAt: item.updatedAt,
 		},
+		refs: {},
 		relationship: "owner",
 		capabilities: { view: true, chat: true, configure: true, manageShares: true },
 		ownerUsername: item.ownerName,
@@ -199,7 +205,7 @@ export function nodeView(overrides: Partial<PublicNode> = {}): PublicNode {
 		lastSeenAt: "2026-01-01T00:00:00.000Z",
 		createdAt: "2026-01-01T00:00:00.000Z",
 		approvedAt: "2026-01-01T00:00:00.000Z",
-		groups: [],
+		nodeGroups: [],
 		access: "owner",
 		facts: null,
 		keyFingerprint: null,
@@ -296,7 +302,8 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		nodes: [],
 		models: [],
 		directory: { users: [], userGroups: [] },
-		groups: {},
+		taskGroups: {},
+		nodeGroups: [],
 		schedules: [],
 		runs: {},
 		tokens: [],
@@ -398,6 +405,43 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		if (path === "/api/auth/password") return json({ ok: true });
 		if (path === "/api/approvals") return json(state.approvals);
 		if (path === "/api/nodes") return json({ nodes: state.nodes });
+		if (path === "/api/node-groups" && method === "GET") return json({ groups: state.nodeGroups });
+		if (path === "/api/node-groups" && method === "POST") {
+			const group: NodeGroup = {
+				id: `node-group-${state.nodeGroups.length + 1}`,
+				name: (body as { name: string }).name,
+				memberIds: [],
+			};
+			state.nodeGroups.push(group);
+			return json({ group }, 201);
+		}
+		const nodeGroupMembers = /^\/api\/node-groups\/([^/]+)\/members$/.exec(path);
+		const nodeGroupMatch = /^\/api\/node-groups\/([^/]+)$/.exec(path);
+		if (nodeGroupMembers && method === "PUT") {
+			const id = decodeURIComponent(nodeGroupMembers[1] as string);
+			const group = state.nodeGroups.find((candidate) => candidate.id === id);
+			if (!group) return json({ error: "no such node group" }, 404);
+			group.memberIds = (body as { nodeIds: string[] }).nodeIds;
+			for (const node of state.nodes) {
+				node.nodeGroups = state.nodeGroups
+					.filter((candidate) => candidate.memberIds.includes(node.id))
+					.map((candidate) => ({ id: candidate.id, name: candidate.name }));
+			}
+			return json({ group });
+		}
+		if (nodeGroupMatch && method === "PATCH") {
+			const id = decodeURIComponent(nodeGroupMatch[1] as string);
+			const group = state.nodeGroups.find((candidate) => candidate.id === id);
+			if (!group) return json({ error: "no such node group" }, 404);
+			group.name = (body as { name: string }).name;
+			return json({ group });
+		}
+		if (nodeGroupMatch && method === "DELETE") {
+			const id = decodeURIComponent(nodeGroupMatch[1] as string);
+			state.nodeGroups = state.nodeGroups.filter((candidate) => candidate.id !== id);
+			for (const node of state.nodes) node.nodeGroups = node.nodeGroups.filter((group) => group.id !== id);
+			return json({ ok: true });
+		}
 		if (path === "/api/models") return json({ models: state.models });
 		if (path === "/api/directory") return json(state.directory);
 		if (path === "/api/privilege/crhs-key") {
@@ -416,6 +460,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				id: `schedule-${state.schedules.length + 1}`,
 				ownerUserId: state.user.id,
 				rules: [],
+				refs: {},
 				nextRunAt: "2026-02-01T09:00:00.000Z",
 				createdAt: "2026-01-01T00:00:00.000Z",
 				updatedAt: "2026-01-01T00:00:00.000Z",
@@ -483,12 +528,21 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const id = decodeURIComponent(nodeTrustMatch[1] as string);
 			return json({ trust: state.nodeTrust[id] ?? trustedNode(id) });
 		}
-		const nodeGroupsMatch = /^\/api\/nodes\/([^/]+)\/groups$/.exec(path);
+		const nodeGroupsMatch = /^\/api\/nodes\/([^/]+)\/node-groups$/.exec(path);
 		if (nodeGroupsMatch && method === "PUT") {
 			const id = decodeURIComponent(nodeGroupsMatch[1] as string);
 			const node = state.nodes.find((candidate) => candidate.id === id);
-			if (node) node.groups = (body as { groups: string[] }).groups;
-			return json({ groups: (body as { groups: string[] }).groups });
+			if (!node) return json({ error: "no such node" }, 404);
+			const refs = (body as { nodeGroups: string[] }).nodeGroups;
+			const chosen = state.nodeGroups.filter((group) =>
+				refs.some((ref) => ref === group.id || ref.toLowerCase() === group.name.toLowerCase()),
+			);
+			for (const group of state.nodeGroups) {
+				group.memberIds = group.memberIds.filter((nodeId) => nodeId !== id);
+			}
+			for (const group of chosen) group.memberIds.push(id);
+			node.nodeGroups = chosen.map((group) => ({ id: group.id, name: group.name }));
+			return json({ nodeGroups: node.nodeGroups });
 		}
 		const sshNodeTest = /^\/api\/nodes\/([^/]+)\/ssh-test$/.exec(path);
 		if (sshNodeTest && method === "POST") return json({ ok: true });
@@ -521,21 +575,13 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		}
 		if (path === "/api/ssh-nodes/test" && method === "POST") return json({ ok: true });
 		if (path === "/api/ssh-nodes" && method === "POST") {
-			const input = body as {
-				host: string;
-				port: number;
-				user: string;
-				name: string;
-				groups: string[];
-				hostKey: string;
-			};
+			const input = body as { host: string; port: number; user: string; name: string; hostKey: string };
 			const node = nodeView({
 				id: `ssh-node-${state.nodes.length + 1}`,
 				name: input.name || input.host,
 				transport: "ssh",
 				hostname: input.host,
 				connected: null,
-				groups: input.groups,
 				access: "owner",
 			});
 			state.nodes.push(node);
@@ -561,6 +607,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 					default: "ask",
 					updatedAt: "2026-01-01T00:00:00.000Z",
 				},
+				refs: {},
 			};
 			state.tokens.push(apiToken);
 			return json({ token: "crh_created_once", apiToken });
@@ -829,7 +876,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		}
 		const authorizationMatch = /^\/api\/(tasks|task-groups)\/([^/]+)\/authorization$/.exec(path);
 		if (authorizationMatch) {
-			return authorizationMatch[1] === "tasks" ? json({ authorization: null }) : json({ group: null });
+			return authorizationMatch[1] === "tasks" ? json({ authorization: null }) : json({ taskGroup: null });
 		}
 		if (path === "/api/authorizations" && method === "POST") {
 			return json({ authorization: { id: "auth-1", dispatched: [] } });
@@ -837,11 +884,40 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 
 		if (path === "/api/task-groups" && method === "POST") {
 			const input = body as { targets: string[]; parallel?: number };
-			const ids = state.nodes
-				.filter((node) => input.targets.includes(node.id) || input.targets.includes(node.name))
-				.map((node) => node.id);
+			const refs: string[] = [];
+			const ids = new Set<string>();
+			const refMap: RefMap = {};
+			const addNodes = (nodes: PublicNode[]) => {
+				for (const node of nodes) ids.add(node.id);
+			};
+			for (const target of input.targets) {
+				if (target === "_all") {
+					refs.push("_all");
+					addNodes(state.nodes.filter((node) => node.status === "active" && node.access !== "view"));
+					continue;
+				}
+				const node = state.nodes.find(
+					(candidate) => candidate.id === target || candidate.name.toLowerCase() === target.toLowerCase(),
+				);
+				if (node) {
+					refs.push(node.id);
+					refMap[node.id] = { kind: "node", name: node.name };
+					ids.add(node.id);
+					continue;
+				}
+				const nodeGroup = state.nodeGroups.find(
+					(candidate) => candidate.id === target || candidate.name.toLowerCase() === target.toLowerCase(),
+				);
+				if (nodeGroup) {
+					refs.push(nodeGroup.id);
+					refMap[nodeGroup.id] = { kind: "node_group", name: nodeGroup.name };
+					addNodes(state.nodes.filter((candidate) => nodeGroup.memberIds.includes(candidate.id)));
+					continue;
+				}
+				refs.push(target);
+			}
 			const groupId = "group-1";
-			const tasks = ids.map((nodeId, index) =>
+			const tasks = [...ids].map((nodeId, index) =>
 				taskView({
 					id: `batch-task-${index + 1}`,
 					nodeId,
@@ -853,8 +929,9 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const group: TaskGroupView = {
 				id: groupId,
 				state: "running",
-				targets: input.targets,
-				nodeIds: ids,
+				targets: refs,
+				refs: refMap,
+				nodeIds: [...ids],
 				parallel: input.parallel ?? 10,
 				failFast: false,
 				outputMode: "status",
@@ -864,22 +941,22 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				createdAt: "2026-01-01T00:00:00.000Z",
 				finishedAt: null,
 			};
-			state.groups[groupId] = { group, polls: 0 };
-			return json({ group });
+			state.taskGroups[groupId] = { taskGroup: group, polls: 0 };
+			return json({ taskGroup: group });
 		}
 		const groupWaitMatch = /^\/api\/task-groups\/([^/]+)\/wait$/.exec(path);
 		const groupMatch = groupWaitMatch ?? /^\/api\/task-groups\/([^/]+)$/.exec(path);
 		if (groupMatch && method === "GET") {
 			const id = decodeURIComponent(groupMatch[1] as string);
-			const stored = state.groups[id];
+			const stored = state.taskGroups[id];
 			if (!stored) return json({ error: "no such task group" }, 404);
 			stored.polls += 1;
 			if (stored.polls >= 2) {
 				const finished: TaskGroupView = {
-					...stored.group,
+					...stored.taskGroup,
 					state: "finished",
 					finishedAt: "2026-01-01T00:01:00.000Z",
-					tasks: stored.group.tasks.map((task, index) =>
+					tasks: stored.taskGroup.tasks.map((task, index) =>
 						taskView({
 							...task,
 							state: "exited",
@@ -888,13 +965,13 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 						}),
 					),
 				};
-				stored.group = finished;
-				return json({ group: finished });
+				stored.taskGroup = finished;
+				return json({ taskGroup: finished });
 			}
-			return json({ group: stored.group });
+			return json({ taskGroup: stored.taskGroup });
 		}
 		const groupAuthMatch = /^\/api\/task-groups\/([^/]+)\/authorization$/.exec(path);
-		if (groupAuthMatch) return json({ group: null });
+		if (groupAuthMatch) return json({ taskGroup: null });
 
 		return json({});
 	});
@@ -993,6 +1070,7 @@ export function scheduleView(overrides: Partial<ScheduleView> = {}): ScheduleVie
 		model: { provider: "faux", modelId: "faux-1" },
 		preset: "ask",
 		rules: [],
+		refs: {},
 		tokenBudget: null,
 		cron: "0 9 * * *",
 		timezone: "Europe/Berlin",
@@ -1019,6 +1097,7 @@ export function apiTokenView(overrides: Partial<ApiTokenView> = {}): ApiTokenVie
 		revokedAt: null,
 		lastUsedAt: null,
 		rules: null,
+		refs: {},
 		...overrides,
 	};
 }

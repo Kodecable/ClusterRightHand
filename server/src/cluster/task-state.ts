@@ -24,7 +24,8 @@ import { planPrivileged, withdrawLocal } from "./authorization-flow.ts";
 import { createLiveTask, GroupBudget, type LiveTask, type OutputSnapshot } from "./batch-output.ts";
 import type { NodeConnection } from "./connection.ts";
 import { type ClusterCore, now } from "./core.ts";
-import { getNode, type NodeRow, nodeGroupNames } from "./nodes.ts";
+import { nodeGroupIdsForNodes } from "./node-groups.ts";
+import { getNode, type NodeRow } from "./nodes.ts";
 import { specFromRow, summarize, withInputRef } from "./spec.ts";
 import { runSsh } from "./ssh-runner.ts";
 import { taskStartOf } from "./task-start.ts";
@@ -130,7 +131,7 @@ export async function evaluateForNodes(
 	privileged: boolean,
 ): Promise<Map<string, Evaluation>> {
 	const levels = await loadChain(core.db, chain);
-	const groups = await nodeGroupNames(
+	const nodeGroupIds = await nodeGroupIdsForNodes(
 		core.db,
 		nodes.map((node) => node.id),
 	);
@@ -141,7 +142,7 @@ export async function evaluateForNodes(
 			node.id,
 			evaluate(levels, {
 				...operations,
-				node: { id: node.id, name: node.name, groups: groups.get(node.id) ?? [] },
+				node: { id: node.id, groupIds: nodeGroupIds.get(node.id) ?? [] },
 				privileged,
 			}),
 		);

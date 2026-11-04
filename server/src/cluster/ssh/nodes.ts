@@ -5,14 +5,13 @@ import type { MasterKey } from "../../keys/master-key.ts";
 import type { Db } from "../../storage/db.ts";
 import { defaultOrgId, NotFoundError, UserError } from "../../users/service.ts";
 import { newId } from "../../util/id.ts";
-import { uniqueNodeName } from "../enrollment.ts";
+import { assertNameAvailable, availableGeneratedName, nameKey, validateName } from "../names.ts";
 import type { NodeRow } from "../nodes.ts";
 import type { SshHop, SshRoute } from "./connection.ts";
 
 const SECRET_KIND = "ssh_private_key";
 const HOST_KEY = /^SHA256:[A-Za-z0-9+/]{43}$/;
 const MAX_JUMPS = 5;
-const GROUP_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 export interface SshCredential {
 	id: string;
@@ -140,65 +139,49 @@ export async function createSshNode(
 	db: Db,
 	masterKey: MasterKey,
 	user: SessionUser,
-	input: SshTargetInput & { name: string; groups?: string[] },
+	input: SshTargetInput & { name?: string },
 ): Promise<NodeRow> {
 	const route = await routeFromInput(db, masterKey, user, input);
 	if (route.hops.some((h) => !h.hostKey)) throw new UserError("every hop needs a confirmed host key");
 	const target = route.hops[route.hops.length - 1] as SshHop;
 	const orgId = await defaultOrgId(db);
 	const now = new Date().toISOString();
-	const node: NodeRow = {
-		id: newId(),
-		org_id: orgId,
-		owner_user_id: user.userId,
-		name: await uniqueNodeName(db, orgId, input.name || target.host),
-		transport: "ssh",
-		status: "active",
-		public_key: null,
-		hostname: target.host,
-		facts: null,
-		client_version: null,
-		// SSH has no crha and no privileged mode; tasks run as the SSH user (D81).
-		privileged_mode: null,
-		last_seen_at: null,
-		created_at: now,
-		approved_at: now,
-		approved_by_user_id: user.userId,
-		ssh_host: target.host,
-		ssh_port: target.port,
-		ssh_user: target.user,
-		ssh_host_key: target.hostKey,
-		ssh_credential_id: input.credentialId,
-		ssh_jumps: JSON.stringify(route.hops.slice(0, -1)),
-		trust_report: null,
-		trust_digest: null,
-		trust_updated_at: null,
-	};
-	await db.transaction().execute(async (trx) => {
+	if (input.name !== undefined && typeof input.name !== "string") throw new UserError("name must be a string");
+	const explicitName = input.name?.trim() ? validateName(input.name, "node name") : undefined;
+	return db.transaction().execute(async (trx) => {
+		if (explicitName) await assertNameAvailable(trx, orgId, explicitName);
+		const name = explicitName ?? (await availableGeneratedName(trx, orgId, target.host));
+		const node: NodeRow = {
+			id: newId(),
+			org_id: orgId,
+			owner_user_id: user.userId,
+			name,
+			name_key: nameKey(name),
+			transport: "ssh",
+			status: "active",
+			public_key: null,
+			hostname: target.host,
+			facts: null,
+			client_version: null,
+			// SSH has no crha and no privileged mode; tasks run as the SSH user (D81).
+			privileged_mode: null,
+			last_seen_at: null,
+			created_at: now,
+			approved_at: now,
+			approved_by_user_id: user.userId,
+			ssh_host: target.host,
+			ssh_port: target.port,
+			ssh_user: target.user,
+			ssh_host_key: target.hostKey,
+			ssh_credential_id: input.credentialId,
+			ssh_jumps: JSON.stringify(route.hops.slice(0, -1)),
+			trust_report: null,
+			trust_digest: null,
+			trust_updated_at: null,
+		};
 		await trx.insertInto("nodes").values(node).execute();
-		// SSH nodes have no crha to report groups; crhs maintains them (doc/access-control.md).
-		await replaceGroups(trx, node.id, input.groups ?? [], now);
+		return node;
 	});
-	return node;
-}
-
-async function replaceGroups(trx: Db, nodeId: string, groups: string[], now: string): Promise<void> {
-	const names = [...new Set(groups)];
-	for (const g of names) if (!GROUP_NAME.test(g)) throw new UserError(`invalid group name ${g}`);
-	await trx.deleteFrom("node_groups").where("node_id", "=", nodeId).execute();
-	if (names.length > 0) {
-		await trx
-			.insertInto("node_groups")
-			.values(names.map((group_name) => ({ node_id: nodeId, group_name, refreshed_at: now })))
-			.execute();
-	}
-}
-
-/** Replaces an SSH node's groups (crha nodes report their own). */
-export async function setSshNodeGroups(db: Db, node: NodeRow, groups: string[]): Promise<void> {
-	if (node.transport !== "ssh") throw new UserError("a crha node's groups come from its own configuration");
-	const now = new Date().toISOString();
-	await db.transaction().execute((trx) => replaceGroups(trx, node.id, groups, now));
 }
 
 export interface SshNodeDetails {

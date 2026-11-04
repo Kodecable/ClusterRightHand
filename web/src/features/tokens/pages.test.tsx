@@ -17,6 +17,7 @@ const API_TOKEN: ApiTokenView = {
 	revokedAt: null,
 	lastUsedAt: null,
 	rules: null,
+	refs: {},
 };
 
 function mockFetch(): { calls: { body: unknown; method: string; url: string }[] } {

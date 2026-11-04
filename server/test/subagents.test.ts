@@ -48,7 +48,7 @@ beforeAll(async () => {
 		storage,
 		models,
 		cluster,
-		groups,
+		taskGroups: groups,
 		audit,
 	});
 	const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
@@ -64,6 +64,7 @@ beforeAll(async () => {
 			org_id: await defaultOrgId(db),
 			owner_user_id: user.id,
 			name: "web-1",
+			name_key: "web-1",
 			transport: "client",
 			status: "active",
 			public_key: null,
@@ -544,7 +545,7 @@ it("hands a subagent group's approval to the root agent too", async () => {
 		const request = await waitFor("the root's group request", async () =>
 			(await runtime.pendingAgentRequests(root.id)).find((r) => r.id === id),
 		);
-		expect(request).toMatchObject({ kind: "group", sessionId: child.id });
+		expect(request).toMatchObject({ kind: "task_group", sessionId: child.id });
 		const waiting = await db
 			.selectFrom("task_groups")
 			.select(["handler_type", "handler_session_id"])
@@ -553,7 +554,7 @@ it("hands a subagent group's approval to the root agent too", async () => {
 		expect(waiting).toMatchObject({ handler_type: "agent", handler_session_id: root.id });
 		expect((await pendingForOwner()).taskGroups.map((g) => g.id)).not.toContain(id);
 
-		expect(await runtime.decideAgentRequest(root.id, id, "approve", "fine")).toBe("group");
+		expect(await runtime.decideAgentRequest(root.id, id, "approve", "fine")).toBe("task_group");
 		const done = await groups.wait(id, 10000);
 		expect(done?.state).toBe("finished");
 		expect(done?.tasks.every((t) => t.errorCode === "node_offline")).toBe(true);

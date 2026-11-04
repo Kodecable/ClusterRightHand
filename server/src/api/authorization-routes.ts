@@ -7,7 +7,7 @@ import { type AuthorizationPayload, decodeAuthorizationPayload } from "@crh/prot
 import { Hono } from "hono";
 import type { Cluster } from "../cluster/cluster.ts";
 import { nodeAccess } from "../cluster/nodes.ts";
-import { decodedPayloadOf, pendingForGroup, pendingForTask } from "../cluster/pending.ts";
+import { decodedPayloadOf, pendingForTask, pendingForTaskGroup } from "../cluster/pending.ts";
 import {
 	parseSubmittedAuthorization,
 	parseWebauthnSubmission,
@@ -113,19 +113,19 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 		return c.json({ authorization: await pendingForTask(db, row) });
 	});
 
-	/** The shared payload of a task group's waiting tasks; only the group's owner may read it. */
+	/** The shared payload of a task group's waiting tasks; only the task group's owner may read it. */
 	app.get("/task-groups/:id/authorization", async (c) => {
 		const user = c.get("user");
-		const group = await db
+		const taskGroup = await db
 			.selectFrom("task_groups")
 			.select(["id", "on_behalf_of_user_id"])
 			.where("id", "=", c.req.param("id"))
 			.executeTakeFirst();
-		if (!group) return jsonError(c, 404, "no such task group");
-		if (group.on_behalf_of_user_id !== user.userId) {
+		if (!taskGroup) return jsonError(c, 404, "no such task group");
+		if (taskGroup.on_behalf_of_user_id !== user.userId) {
 			return jsonError(c, 403, "only the task group's owner can authorize it");
 		}
-		return c.json({ group: await pendingForGroup(db, group.id, user.userId) });
+		return c.json({ taskGroup: await pendingForTaskGroup(db, taskGroup.id, user.userId) });
 	});
 
 	return app;

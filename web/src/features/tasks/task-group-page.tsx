@@ -15,32 +15,32 @@ import { TaskGroupResult } from "./task-group-result";
 export function TaskGroupPage() {
 	const params = useParams({ strict: false }) as { taskGroupId?: string };
 	const id = params.taskGroupId ?? "";
-	const group = useTaskGroup(id, true);
+	const taskGroup = useTaskGroup(id, true);
 	const nodes = useNodes();
 	const names = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
 
-	if (group.isPending) {
+	if (taskGroup.isPending) {
 		return (
 			<p className="p-4 text-sm text-muted-foreground" role="status">
 				<Trans>Loading…</Trans>
 			</p>
 		);
 	}
-	if (group.error !== null && group.error !== undefined) {
-		if (isNotFound(group.error)) {
+	if (taskGroup.error !== null && taskGroup.error !== undefined) {
+		if (isNotFound(taskGroup.error)) {
 			return (
 				<div className="p-4">
-					<TaskGone group />
+					<TaskGone taskGroup />
 				</div>
 			);
 		}
 		return (
 			<div className="p-4">
-				<ErrorState error={group.error} retry={() => void group.refetch()} />
+				<ErrorState error={taskGroup.error} retry={() => void taskGroup.refetch()} />
 			</div>
 		);
 	}
-	if (!group.data) return null;
+	if (!taskGroup.data) return null;
 
 	return (
 		<Page width="detail" data-testid="task-group-page">
@@ -54,7 +54,7 @@ export function TaskGroupPage() {
 				</Link>
 			</div>
 			<PageHeader title={<Trans>Task group</Trans>} />
-			<TaskGroupResult group={group.data} names={names} onChanged={() => void group.refetch()} />
+			<TaskGroupResult taskGroup={taskGroup.data} names={names} onChanged={() => void taskGroup.refetch()} />
 		</Page>
 	);
 }

@@ -84,7 +84,7 @@ export class AgentRuntime {
 			models: options.models,
 			audit: options.audit,
 			cluster: options.cluster,
-			groups: options.groups,
+			taskGroups: options.taskGroups,
 			context: BACKGROUND_CONTEXT,
 			sessionList: this.#sessionList,
 			harness: () => this.#harness,
@@ -139,15 +139,15 @@ export class AgentRuntime {
 		runtime.#harness.resume(); // runs and tool calls the last process left unfinished
 		// Auto Review for roots whose preset asks for it (tokens, sessions and schedules alike), then route child
 		// approvals to an ancestor's agent where the chain allows it.
-		const reviewer = new Reviewer(options.db, options.models, options.cluster, options.groups);
+		const reviewer = new Reviewer(options.db, options.models, options.cluster, options.taskGroups);
 		options.cluster.onAwaitingApproval = async (task) => {
 			await reviewer.reviewTask(task);
 			await routeAwaiting(runtime.#host, "task", task.actorId, task.id, task.approval);
 			await runtime.refreshState(task.actorId);
 		};
-		options.groups.onAwaitingApproval = async (group) => {
+		options.taskGroups.onAwaitingApproval = async (group) => {
 			await reviewer.reviewGroup(group);
-			await routeAwaiting(runtime.#host, "group", group.actorId, group.id, group.approval);
+			await routeAwaiting(runtime.#host, "task_group", group.actorId, group.id, group.approval);
 			await runtime.refreshState(group.actorId);
 		};
 		// The cluster owns the durable approval rows; refresh the actor's cached state and request lists.
@@ -158,7 +158,7 @@ export class AgentRuntime {
 			});
 		};
 		options.cluster.onChange = approvalChanged;
-		options.groups.onChange = approvalChanged;
+		options.taskGroups.onChange = approvalChanged;
 		runtime.#supervise();
 		// Durable has resumed the runs; correct every cached session state before requests are accepted.
 		await reconcileSessionStates(runtime.#host);
@@ -377,7 +377,7 @@ export class AgentRuntime {
 		decision: "approve" | "deny" | "escalate",
 		reason?: string,
 		tokens?: number,
-	): Promise<"task" | "group" | "quota"> {
+	): Promise<"task" | "task_group" | "quota"> {
 		return decideAgentRequest(this.#host, sessionId, requestId, decision, reason, tokens);
 	}
 

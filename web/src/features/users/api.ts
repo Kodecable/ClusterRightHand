@@ -6,7 +6,7 @@ import type { Directory, User, UserGroup, UserKind } from "@/lib/api/types";
 export const userKeys = {
 	all: ["users"] as const,
 	list: () => ["users", "list"] as const,
-	groups: () => ["users", "groups"] as const,
+	userGroups: () => ["users", "user-groups"] as const,
 	directory: () => ["users", "directory"] as const,
 };
 
@@ -19,7 +19,7 @@ export function useUsers() {
 
 export function useUserGroups() {
 	return useQuery({
-		queryKey: userKeys.groups(),
+		queryKey: userKeys.userGroups(),
 		queryFn: ({ signal }) => http.get<{ groups: UserGroup[] }>("/user-groups", { signal }).then((r) => r.groups),
 	});
 }
@@ -65,7 +65,7 @@ export function useSetUserPassword() {
 	});
 }
 
-export function useCreateGroup() {
+export function useCreateUserGroup() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (name: string) => http.post<{ group: UserGroup }>("/user-groups", { name }).then((r) => r.group),
@@ -73,7 +73,7 @@ export function useCreateGroup() {
 	});
 }
 
-export function useDeleteGroup() {
+export function useDeleteUserGroup() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (id: string) => http.del<{ ok: true }>(`/user-groups/${enc(id)}`),
@@ -81,7 +81,7 @@ export function useDeleteGroup() {
 	});
 }
 
-export function useAddGroupMember() {
+export function useAddUserGroupMember() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: ({ groupId, userId }: { groupId: string; userId: string }) =>
@@ -90,7 +90,7 @@ export function useAddGroupMember() {
 	});
 }
 
-export function useRemoveGroupMember() {
+export function useRemoveUserGroupMember() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: ({ groupId, userId }: { groupId: string; userId: string }) =>

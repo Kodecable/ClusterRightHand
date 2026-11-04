@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { userActor } from "../audit/audit.ts";
 import { createEnrollmentToken } from "../cluster/enrollment.ts";
+import { nodeGroupsForNodes, resolveNodeGroupIds, setNodeGroupsForNode } from "../cluster/node-groups.ts";
 import {
 	approveNode,
 	clockWarning,
@@ -10,7 +11,6 @@ import {
 	listNodesForUser,
 	type NodeAccess,
 	nodeAccess,
-	nodeGroupNames,
 	type PublicNode,
 	renameNode,
 	shareNode,
@@ -47,8 +47,8 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const level = await access(c, id);
 		const row = level ? await getNode(db, id) : undefined;
 		if (!level || !row) return jsonError(c, 404, "no such node");
-		const groups = (await nodeGroupNames(db, [id])).get(id) ?? [];
-		const node = live(toPublicNode(row, level, groups));
+		const nodeGroups = (await nodeGroupsForNodes(db, [id])).get(id) ?? [];
+		const node = live(toPublicNode(row, level, nodeGroups));
 		if (!canManage(level)) return c.json({ node });
 		return c.json({ node, shares: await listNodeShares(db, id), ssh: (await sshNodeDetails(db, row)) ?? null });
 	});
@@ -104,7 +104,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			target: { type: "node", id },
 			detail: { name: node.name },
 		});
-		return c.json({ node: toPublicNode(node, m.level, (await nodeGroupNames(db, [id])).get(id) ?? []) });
+		return c.json({ node: toPublicNode(node, m.level, (await nodeGroupsForNodes(db, [id])).get(id) ?? []) });
 	});
 
 	app.patch("/nodes/:id", async (c) => {
@@ -122,7 +122,31 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			target: { type: "node", id },
 			detail: { old_name: before?.name, new_name: node.name },
 		});
-		return c.json({ node: live(toPublicNode(node, m.level, (await nodeGroupNames(db, [id])).get(id) ?? [])) });
+		return c.json({ node: live(toPublicNode(node, m.level, (await nodeGroupsForNodes(db, [id])).get(id) ?? [])) });
+	});
+
+	/** Replaces a node's node groups; administrators only, for crha and SSH nodes alike (D108, D109). */
+	app.put("/nodes/:id/node-groups", async (c) => {
+		const id = c.req.param("id");
+		const level = await access(c, id);
+		if (!level) return jsonError(c, 404, "no such node");
+		if (c.get("user").kind !== "admin") return jsonError(c, 403, "administrators only");
+		const row = await getNode(db, id);
+		if (!row) return jsonError(c, 404, "no such node");
+		const body = await readJsonObject(c);
+		const nodeGroups = body?.nodeGroups;
+		if (!Array.isArray(nodeGroups) || !nodeGroups.every((group) => typeof group === "string")) {
+			return jsonError(c, 400, "nodeGroups must be a list of node-group names or ids");
+		}
+		const nodeGroupIds = await resolveNodeGroupIds(db, row.org_id, nodeGroups);
+		const current = await setNodeGroupsForNode(db, id, nodeGroupIds);
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "node.node_groups_changed",
+			target: { type: "node", id },
+			detail: { node_group_ids: nodeGroupIds, node_groups: current.map((nodeGroup) => nodeGroup.name) },
+		});
+		return c.json({ nodeGroups: current });
 	});
 
 	app.delete("/nodes/:id", async (c) => {

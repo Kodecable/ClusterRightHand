@@ -1,6 +1,7 @@
 import { type Context, Hono } from "hono";
 import { userActor } from "../audit/audit.ts";
-import { getNode, nodeAccess, nodeGroupNames, toPublicNode } from "../cluster/nodes.ts";
+import { nodeGroupsForNodes } from "../cluster/node-groups.ts";
+import { getNode, nodeAccess, toPublicNode } from "../cluster/nodes.ts";
 import { probeHostKey, testRoute } from "../cluster/ssh/connection.ts";
 import {
 	createSshCredential,
@@ -9,7 +10,6 @@ import {
 	nodeRoute,
 	routeFromInput,
 	type SshTargetInput,
-	setSshNodeGroups,
 } from "../cluster/ssh/nodes.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
@@ -76,29 +76,15 @@ export function sshRoutes(db: Db, masterKey: MasterKey) {
 		return c.json({ ok: true });
 	});
 
-	app.put("/nodes/:id/groups", async (c) => {
-		const r = await sshNode(c, c.req.param("id"), true);
-		if (r.error) return r.error;
-		const body = await readJsonObject(c);
-		const groups = body?.groups;
-		if (!Array.isArray(groups) || !groups.every((g) => typeof g === "string"))
-			return jsonError(c, 400, "groups must be a list of names");
-		await setSshNodeGroups(db, r.node, groups);
-		void c.get("audit").record({
-			actor: userActor(c.get("user")),
-			action: "node.groups_changed",
-			target: { type: "node", id: r.node.id },
-			detail: { groups },
-		});
-		return c.json({ groups: (await nodeGroupNames(db, [r.node.id])).get(r.node.id) ?? [] });
-	});
-
 	app.post("/ssh-nodes", async (c) => {
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
-		const input = body as unknown as SshTargetInput & { name: string; groups?: string[] };
+		if (body.nodeGroups !== undefined) {
+			return jsonError(c, 400, "node groups are managed with the node-group endpoints, not when adding a node");
+		}
+		const input = body as unknown as SshTargetInput & { name?: string };
 		const node = await createSshNode(db, masterKey, c.get("user"), input);
-		const groups = (await nodeGroupNames(db, [node.id])).get(node.id) ?? [];
+		const nodeGroups = (await nodeGroupsForNodes(db, [node.id])).get(node.id) ?? [];
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "ssh_node.created",
@@ -107,10 +93,10 @@ export function sshRoutes(db: Db, masterKey: MasterKey) {
 				name: node.name,
 				credential_id: input.credentialId,
 				route: [...(input.jumps ?? []), input].map((h) => `${h.user}@${h.host}:${h.port ?? 22}`),
-				groups,
+				node_groups: nodeGroups,
 			},
 		});
-		return c.json({ node: toPublicNode(node, "owner", groups) }, 201);
+		return c.json({ node: toPublicNode(node, "owner", nodeGroups) }, 201);
 	});
 
 	return app;

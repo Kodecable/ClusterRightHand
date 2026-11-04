@@ -15,13 +15,18 @@ vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 
 const LIMIT_MESSAGE = "task group targets 513 nodes (max 512); split it into smaller batches";
 
-/** 513 active nodes: `group:first` has the first 512, `group:all` has every node (D85's boundary). */
-async function addNodes(db: Db, ownerUserId: string): Promise<{ ids: string[]; first512: string[] }> {
+/** 513 active nodes: group `first` has the first 512, group `all` has every node (D85's boundary). */
+async function addNodes(
+	db: Db,
+	ownerUserId: string,
+): Promise<{ ids: string[]; first512: string[]; allGroupId: string; firstGroupId: string }> {
 	const orgId = await defaultOrgId(db);
 	const now = new Date().toISOString();
 	const ids: string[] = [];
 	const rows = [];
-	const groupRows: { node_id: string; group_name: string; refreshed_at: string }[] = [];
+	const allGroupId = newId();
+	const firstGroupId = newId();
+	const memberRows: { node_group_id: string; node_id: string }[] = [];
 	for (let i = 0; i <= MAX_GROUP_NODES; i++) {
 		const id = newId();
 		const name = `node-${i}`;
@@ -31,6 +36,7 @@ async function addNodes(db: Db, ownerUserId: string): Promise<{ ids: string[]; f
 			org_id: orgId,
 			owner_user_id: ownerUserId,
 			name,
+			name_key: name.toLowerCase(),
 			transport: "client" as const,
 			status: "active" as const,
 			public_key: null,
@@ -49,8 +55,8 @@ async function addNodes(db: Db, ownerUserId: string): Promise<{ ids: string[]; f
 			ssh_credential_id: null,
 			ssh_jumps: null,
 		});
-		groupRows.push({ node_id: id, group_name: "all", refreshed_at: now });
-		if (i < MAX_GROUP_NODES) groupRows.push({ node_id: id, group_name: "first", refreshed_at: now });
+		memberRows.push({ node_group_id: allGroupId, node_id: id });
+		if (i < MAX_GROUP_NODES) memberRows.push({ node_group_id: firstGroupId, node_id: id });
 	}
 	// Chunked inserts keep the parameter count below SQLite's limits; the whole set is a handful of statements.
 	for (let i = 0; i < rows.length; i += 40)
@@ -58,13 +64,20 @@ async function addNodes(db: Db, ownerUserId: string): Promise<{ ids: string[]; f
 			.insertInto("nodes")
 			.values(rows.slice(i, i + 40))
 			.execute();
-	for (let i = 0; i < groupRows.length; i += 250) {
+	await db
+		.insertInto("node_groups")
+		.values([
+			{ id: allGroupId, org_id: orgId, name: "all", name_key: "all", created_at: now, updated_at: now },
+			{ id: firstGroupId, org_id: orgId, name: "first", name_key: "first", created_at: now, updated_at: now },
+		])
+		.execute();
+	for (let i = 0; i < memberRows.length; i += 250) {
 		await db
-			.insertInto("node_groups")
-			.values(groupRows.slice(i, i + 250))
+			.insertInto("node_group_members")
+			.values(memberRows.slice(i, i + 250))
 			.execute();
 	}
-	return { ids, first512: ids.slice(0, MAX_GROUP_NODES) };
+	return { ids, first512: ids.slice(0, MAX_GROUP_NODES), allGroupId, firstGroupId };
 }
 
 describeBackends("task group node limit", (backend) => {
@@ -72,6 +85,8 @@ describeBackends("task group node limit", (backend) => {
 	let user: SessionUser;
 	let nodeIds: string[];
 	let first512: string[];
+	let allGroupId: string;
+	let firstGroupId: string;
 	let groups: TaskGroups;
 	/** Counts dispatches: the rejected groups must never reach the cluster. */
 	let dispatched: number;
@@ -86,7 +101,7 @@ describeBackends("task group node limit", (backend) => {
 		db = await openTestDb(backend);
 		const u = await createUser(db, { username: "alice", kind: "member", password: "password-123" });
 		user = { sessionId: "s", userId: u.id, username: u.username, kind: "member" };
-		({ ids: nodeIds, first512 } = await addNodes(db, user.userId));
+		({ ids: nodeIds, first512, allGroupId, firstGroupId } = await addNodes(db, user.userId));
 		dispatched = 0;
 		const stub = (nodeId: string): TaskView =>
 			({ id: `task-${nodeId}`, nodeId, state: "exited", exitCode: 0 }) as TaskView;
@@ -115,7 +130,7 @@ describeBackends("task group node limit", (backend) => {
 	}
 
 	it("rejects 513 node ids passed straight to TaskGroups.create, before anything is written", async () => {
-		await expect(groups.create({ targets: ["group:all"], nodeIds, spec: spec(), actor: actor() })).rejects.toThrow(
+		await expect(groups.create({ targets: [allGroupId], nodeIds, spec: spec(), actor: actor() })).rejects.toThrow(
 			LIMIT_MESSAGE,
 		);
 		expect(dispatched).toBe(0);
@@ -125,7 +140,7 @@ describeBackends("task group node limit", (backend) => {
 
 	it("counts duplicate node ids once: 512 ids given twice is accepted", async () => {
 		const id = await groups.create({
-			targets: ["group:first"],
+			targets: [firstGroupId],
 			nodeIds: [...first512, ...first512],
 			spec: spec(),
 			actor: actor(),
@@ -139,7 +154,7 @@ describeBackends("task group node limit", (backend) => {
 	it("rejects 513 nodes through the Web API with 400 and persists nothing", async () => {
 		const res = await call(app, "/api/task-groups", {
 			cookie,
-			body: { kind: "exec", shell: "true", targets: ["group:all"], waitMs: 0 },
+			body: { kind: "exec", shell: "true", targets: [allGroupId], waitMs: 0 },
 		});
 		expect(res.status).toBe(400);
 		expect(await res.json()).toEqual({ error: LIMIT_MESSAGE });
@@ -160,16 +175,16 @@ describeBackends("task group node limit", (backend) => {
 			body: {
 				kind: "exec",
 				shell: "true",
-				// node-0 is in group:first, so the two targets overlap: the union is exactly 512 nodes.
-				targets: ["group:first", "node-0"],
+				// node-0 is in group first, so the two targets overlap: the union is exactly 512 nodes.
+				targets: ["first", "node-0"],
 				waitMs: 60000,
 			},
 		});
 		expect(res.status).toBe(201);
-		const body = (await res.json()) as { group: { nodeIds: string[]; state: string } };
-		expect(body.group.nodeIds).toHaveLength(512);
-		expect(new Set(body.group.nodeIds).size).toBe(512);
-		expect(body.group.state).toBe("finished");
+		const body = (await res.json()) as { taskGroup: { nodeIds: string[]; state: string } };
+		expect(body.taskGroup.nodeIds).toHaveLength(512);
+		expect(new Set(body.taskGroup.nodeIds).size).toBe(512);
+		expect(body.taskGroup.state).toBe("finished");
 		expect(dispatched).toBe(512);
 	});
 
@@ -184,7 +199,7 @@ describeBackends("task group node limit", (backend) => {
 		try {
 			const res = await client.callTool({
 				name: "exec",
-				arguments: { targets: ["group:all"], cmd: "true" },
+				arguments: { targets: [allGroupId], cmd: "true" },
 			});
 			expect(res.isError).toBe(true);
 			expect((res.content as { type: string; text: string }[])[0]?.text).toBe(LIMIT_MESSAGE);

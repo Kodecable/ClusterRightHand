@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
 import { Cluster, type TaskView } from "../src/cluster/cluster.ts";
+import { createNodeGroup, setNodeGroupsForNode } from "../src/cluster/node-groups.ts";
 import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
@@ -19,6 +20,7 @@ describe("task routes: privileged (sqlite)", () => {
 	let cookie = "";
 	let userId = "";
 	let nodeId = "";
+	let groupId = "";
 
 	beforeAll(async () => {
 		db = await openTestDb("sqlite");
@@ -38,6 +40,7 @@ describe("task routes: privileged (sqlite)", () => {
 				org_id: await defaultOrgId(db),
 				owner_user_id: userId,
 				name: "n1",
+				name_key: "n1",
 				transport: "client",
 				status: "active",
 				public_key: null,
@@ -57,6 +60,8 @@ describe("task routes: privileged (sqlite)", () => {
 				ssh_jumps: null,
 			})
 			.execute();
+		groupId = (await createNodeGroup(db, await defaultOrgId(db), "workers")).id;
+		await setNodeGroupsForNode(db, nodeId, [groupId]);
 	});
 	afterAll(async () => {
 		await cluster.close();
@@ -91,16 +96,35 @@ describe("task routes: privileged (sqlite)", () => {
 			waitMs: 5000,
 		});
 		expect(res.status).toBe(201);
-		const { group } = (await res.json()) as { group: TaskGroupView };
-		expect(group.privileged).toBe(true);
-		expect(group.tasks).toHaveLength(1);
-		expect(group.tasks[0]).toMatchObject({ privileged: true, state: "failed", errorCode: "node_offline" });
+		const { taskGroup } = (await res.json()) as { taskGroup: TaskGroupView };
+		expect(taskGroup.privileged).toBe(true);
+		expect(taskGroup.tasks).toHaveLength(1);
+		expect(taskGroup.tasks[0]).toMatchObject({ privileged: true, state: "failed", errorCode: "node_offline" });
 		const row = await db
 			.selectFrom("task_groups")
 			.select("privileged")
-			.where("id", "=", group.id)
+			.where("id", "=", taskGroup.id)
 			.executeTakeFirstOrThrow();
 		expect(row.privileged).toBe(1);
+	});
+
+	it("stores group targets as UUIDs and returns their display names", async () => {
+		const res = await post("/api/task-groups", {
+			kind: "exec",
+			argv: ["true"],
+			targets: ["WORKERS"],
+			waitMs: 5000,
+		});
+		expect(res.status).toBe(201);
+		const { taskGroup } = (await res.json()) as { taskGroup: TaskGroupView };
+		expect(taskGroup.targets).toEqual([groupId]);
+		expect(taskGroup.refs).toEqual({ [groupId]: { kind: "node_group", name: "workers" } });
+		const row = await db
+			.selectFrom("task_groups")
+			.select("targets")
+			.where("id", "=", taskGroup.id)
+			.executeTakeFirstOrThrow();
+		expect(JSON.parse(row.targets)).toEqual([groupId]);
 	});
 
 	it("defaults to an ordinary task", async () => {

@@ -48,7 +48,7 @@ export interface SessionRoutesOptions {
 	models: ModelConfig;
 	masterKey: MasterKey;
 	cluster: Cluster;
-	groups: TaskGroups;
+	taskGroups: TaskGroups;
 	/** Shutdown bookkeeping: its abort ends the event streams, and each stream keeps shutdown waiting. */
 	drain?: RequestDrain;
 	/** Tells the scheduler when a scheduled run's root quota was denied, so the run ends failed (doc/scheduling.md). */
@@ -116,7 +116,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			endStream(stream);
 		}
 	};
-	// A user's status/kind, a group membership or a share change reaches the streams through the session list
+	// A user's status/kind, a user group membership or a share change reaches the streams through the session list
 	// hub, which the user routes also hold: this is the same path for every access change.
 	const unsubscribeVisibility = runtime.sessionList.onVisibilityChanged(revalidateStreams);
 	// Shutdown ends every stream, so no request outlives the database it may still need.
@@ -505,7 +505,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			// Waiting tool calls may not need approval any more (doc/access-control.md#审批).
 			const ref = { type: "session" as const, id: s.id };
 			await options.cluster.reevaluate(ref);
-			await options.groups.reevaluate(ref);
+			await options.taskGroups.reevaluate(ref);
 		}
 		return c.json({ session: (await decorate(c, [session]))[0] });
 	});

@@ -30,7 +30,7 @@ export interface UserGroupsTable {
 }
 
 export interface UserGroupMembersTable {
-	group_id: string;
+	user_group_id: string;
 	user_id: string;
 	created_at: CreatedAt;
 }
@@ -81,6 +81,9 @@ export interface NodesTable {
 	org_id: string;
 	owner_user_id: string;
 	name: string;
+	/** Lowercase form of `name`; the shared node/node-group namespace compares this (D109). */
+	/** Required on insert: the column is nullable only because SQLite cannot add a NOT NULL column without a default. */
+	name_key: string;
 	transport: "client" | "ssh";
 	status: "pending" | "active" | "disabled";
 	/** Base64 of the node's 32-byte X25519 static key. */
@@ -110,9 +113,18 @@ export interface NodesTable {
 }
 
 export interface NodeGroupsTable {
+	id: string;
+	org_id: string;
+	name: string;
+	/** Lowercase form of `name`; unique per organization and shared with node names (D109). */
+	name_key: string;
+	created_at: CreatedAt;
+	updated_at: string;
+}
+
+export interface NodeGroupMembersTable {
+	node_group_id: string;
 	node_id: string;
-	group_name: string;
-	refreshed_at: string;
 }
 
 export interface EnrollmentTokensTable {
@@ -180,7 +192,7 @@ export interface TasksTable extends ApprovalColumns {
 	/** JSON authorization plan/state (doc/m4.md#crhs-侧数据): plan, payload id, attempt, trust digest, tried paths, last rejection. */
 	authorization: ColumnType<string | null, string | null | undefined, string | null>;
 	timeout_ms: number | null;
-	/** `full` for a single task; the group's mode for its tasks. */
+	/** `full` for a single task; the task group's mode for its tasks. */
 	output_mode: OutputMode;
 	state: TaskState;
 	exit_code: number | null;
@@ -217,9 +229,9 @@ export interface TaskGroupsTable extends ApprovalColumns {
 	kind: string;
 	parallel: number;
 	fail_fast: number;
-	/** The batch output mode, fixed when the group is created. */
+	/** The batch output mode, fixed when the task group is created. */
 	output_mode: BatchOutputMode;
-	/** 1 when the group's tasks are privileged tasks (doc/privilege.md). */
+	/** 1 when the task group's tasks are privileged tasks (doc/privilege.md). */
 	privileged: number;
 	skipped: string;
 	state: TaskGroupState;
@@ -441,6 +453,7 @@ export interface Database {
 	secrets: SecretsTable;
 	nodes: NodesTable;
 	node_groups: NodeGroupsTable;
+	node_group_members: NodeGroupMembersTable;
 	enrollment_tokens: EnrollmentTokensTable;
 	tasks: TasksTable;
 	task_groups: TaskGroupsTable;

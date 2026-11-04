@@ -11,6 +11,7 @@ import type {
 import type { Audit } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
+import type { RefMap } from "../policy/refs.ts";
 import type { StoredRuleSet } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError } from "../users/service.ts";
@@ -37,6 +38,8 @@ export interface SessionView {
 	createdAt: string;
 	updatedAt: string;
 	rules: StoredRuleSet | null;
+	/** Display names for the UUIDs referenced by `rules`; null means the object was deleted. */
+	refs: RefMap;
 	/** The session's own run state (doc/agent-runtime.md#会话状态). */
 	state: SessionState;
 	/** Why the session waits; null unless `state` is `awaiting`. */
@@ -55,7 +58,7 @@ export interface SessionView {
 
 /** An approval handed to an ancestor session's agent (doc/agent-runtime.md#处理子会话的请求). */
 export interface AgentRequestView {
-	kind: "task" | "group" | "quota";
+	kind: "task" | "task_group" | "quota";
 	id: string;
 	/** The subagent session whose task waits. */
 	sessionId: string;
@@ -92,7 +95,7 @@ export interface AgentRuntimeOptions {
 	storage: Storage | (() => Promise<Storage>);
 	models: ModelConfig;
 	cluster: Cluster;
-	groups: TaskGroups;
+	taskGroups: TaskGroups;
 	audit?: Audit;
 	/**
 	 * How long idle conversations keep their context and documents in memory (durable's default: 10 minutes).
@@ -117,7 +120,7 @@ export interface RuntimeHost {
 	readonly models: ModelConfig;
 	readonly audit: Audit | undefined;
 	readonly cluster: Cluster;
-	readonly groups: TaskGroups;
+	readonly taskGroups: TaskGroups;
 	readonly context: Context;
 	readonly sessionList: SessionListHub;
 	/** The open Harness; a failed one is replaced on reopen, so always read it through here. */

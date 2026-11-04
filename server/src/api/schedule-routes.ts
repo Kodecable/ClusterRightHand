@@ -4,6 +4,7 @@ import { parseModelRef } from "../agent/models.ts";
 import { userActor } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
+import { ruleRefs } from "../policy/refs.ts";
 import { parsePreset } from "../policy/store.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import {
@@ -35,7 +36,7 @@ export interface ScheduleRoutesOptions {
 	scheduler: Scheduler;
 	models: ModelConfig;
 	cluster: Cluster;
-	groups: TaskGroups;
+	taskGroups: TaskGroups;
 }
 
 /** Schedules (doc/scheduling.md); a schedule belongs to its creator, so administrators see only theirs too. */
@@ -63,6 +64,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 			model: schedule.model,
 			preset: rules?.preset ?? null,
 			rules: rules?.rules ?? [],
+			refs: await ruleRefs(db, schedule.orgId, rules?.rules ?? []),
 			tokenBudget: schedule.tokenBudget,
 			cron: schedule.cron,
 			timezone: schedule.timezone,
@@ -185,7 +187,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 		if (preset) {
 			const ref = scheduleRef(schedule.id);
 			await options.cluster.reevaluate(ref);
-			await options.groups.reevaluate(ref);
+			await options.taskGroups.reevaluate(ref);
 		}
 		options.scheduler.wake();
 		return c.json({ schedule: await view(updated) });

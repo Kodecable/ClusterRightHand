@@ -1,4 +1,3 @@
-import { readFile, writeFile } from "node:fs/promises";
 import { expect, test } from "./fixtures.ts";
 
 test.use({ withNode: true });
@@ -39,18 +38,21 @@ test("batch status shows the node's output file instead of output", async ({ adm
 	await expect(row.getByText(/Status only/)).toBeVisible();
 });
 
-test("runs a batch on a group target", async ({ adminPage: page, crhs, env }) => {
-	// A crha node's groups come from its own config. The harness config already sets one group, so
-	// replace that line instead of appending a second one.
+test("runs a batch on a node-group target", async ({ adminPage: page, crhs, env }) => {
 	if (!env) throw new Error("withNode");
-	const original = await readFile(env.configPath, "utf8");
-	await writeFile(env.configPath, `${original.replace(/^groups = .*\n/m, "")}groups = ["web"]\n`);
-	env.reloadCrha();
-	await expect
-		.poll(async () => (await crhs.api(`/api/nodes/${env.nodeId}`)).json.node.groups, { timeout: 10_000 })
-		.toEqual(["web"]);
+	// Node groups are crhs-managed now (D109): create one and add the node to it.
+	const created = await crhs.api("/api/node-groups", { body: { name: "web" } });
+	expect(created.status).toBe(201);
+	const groupId: string = created.json.group.id;
+	const members = await crhs.api(`/api/node-groups/${groupId}/members`, {
+		method: "PUT",
+		body: { nodeIds: [env.nodeId] },
+	});
+	expect(members.status).toBe(200);
 	await page.goto("/batch");
-	await page.getByLabel(/Groups or raw targets/).fill("group:web");
+	await page.getByRole("button", { name: /Choose node groups/ }).click();
+	await page.getByRole("checkbox", { name: /web/ }).check();
+	await page.keyboard.press("Escape");
 	await page.getByRole("textbox", { name: "Shell command" }).fill("echo from-group; exit 2");
 	await page.getByRole("button", { name: /Run on 1 target/ }).click();
 	await expect(page.getByTestId("task-group-member")).toContainText("Exit code 2", { timeout: 20_000 });

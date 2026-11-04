@@ -22,6 +22,7 @@ const TOKEN: ApiTokenView = {
 	revokedAt: null,
 	lastUsedAt: null,
 	rules: null,
+	refs: {},
 };
 
 function mockFetch(): string[] {

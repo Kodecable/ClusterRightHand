@@ -40,7 +40,7 @@ export function NodeShares({ node, shares, canManage }: { node: PublicNode; shar
 								<TableRow key={entry.id}>
 									<TableCell>
 										<span className="text-xs text-muted-foreground">
-											{entry.granteeType === "user" ? t`User` : t`Group`}
+											{entry.granteeType === "user" ? t`User` : t`User group`}
 										</span>{" "}
 										{entry.granteeName || <span className="font-mono text-xs">{entry.granteeId}</span>}
 									</TableCell>
@@ -76,7 +76,7 @@ export function NodeShares({ node, shares, canManage }: { node: PublicNode; shar
 						{ value: "operate", label: <Trans>Operate</Trans> },
 					]}
 					defaultAccess="view"
-					groupLabel={<Trans>Group</Trans>}
+					userGroupLabel={<Trans>User group</Trans>}
 					busy={share.isPending}
 					onAdd={async ({ granteeType, granteeId, access }) => {
 						try {

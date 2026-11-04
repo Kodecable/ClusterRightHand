@@ -4,14 +4,14 @@ import { userActor } from "../audit/audit.ts";
 import { revokeUserWebSessions } from "../auth/sessions.ts";
 import { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
+import { createUser, listUsers, setPassword, toPublicUser, updateUser } from "../users/service.ts";
 import {
-	addGroupMember,
+	addUserGroupMember,
 	createUserGroup,
 	deleteUserGroup,
 	listUserGroups,
-	removeGroupMember,
-} from "../users/groups.ts";
-import { createUser, listUsers, setPassword, toPublicUser, updateUser } from "../users/service.ts";
+	removeUserGroupMember,
+} from "../users/user-groups.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
 import { requireAdmin } from "./middleware.ts";
 
@@ -158,21 +158,21 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 	});
 
 	app.delete("/user-groups/:id", async (c) => {
-		const groupId = c.req.param("id");
-		// Capture who the group's shares reached before deleting it: the share rows and memberships go with it.
+		const userGroupId = c.req.param("id");
+		// Capture who the user group's shares reached before deleting it: the share rows and memberships go with it.
 		const members = await db
 			.selectFrom("user_group_members")
 			.select("user_id")
-			.where("group_id", "=", groupId)
+			.where("user_group_id", "=", userGroupId)
 			.execute();
 		const shares = await db
 			.selectFrom("shares")
 			.select("resource_id")
 			.where("resource_type", "=", "session")
 			.where("grantee_type", "=", "user_group")
-			.where("grantee_id", "=", groupId)
+			.where("grantee_id", "=", userGroupId)
 			.execute();
-		await deleteUserGroup(db, groupId);
+		await deleteUserGroup(db, userGroupId);
 		const audience = members.map((member) => member.user_id);
 		for (const sessionId of new Set(shares.map((share) => share.resource_id))) {
 			await options.sessions?.publishShareRemoved(sessionId, audience);
@@ -188,8 +188,8 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 	});
 
 	app.put("/user-groups/:id/members/:userId", async (c) => {
-		await addGroupMember(db, c.req.param("id"), c.req.param("userId"));
-		await options.sessions?.publishGroupMemberChanged(c.req.param("id"), c.req.param("userId"), true);
+		await addUserGroupMember(db, c.req.param("id"), c.req.param("userId"));
+		await options.sessions?.publishUserGroupMemberChanged(c.req.param("id"), c.req.param("userId"), true);
 		await options.sessions?.publishVisibilityChanged();
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
@@ -201,8 +201,8 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 	});
 
 	app.delete("/user-groups/:id/members/:userId", async (c) => {
-		await removeGroupMember(db, c.req.param("id"), c.req.param("userId"));
-		await options.sessions?.publishGroupMemberChanged(c.req.param("id"), c.req.param("userId"), false);
+		await removeUserGroupMember(db, c.req.param("id"), c.req.param("userId"));
+		await options.sessions?.publishUserGroupMemberChanged(c.req.param("id"), c.req.param("userId"), false);
 		await options.sessions?.publishVisibilityChanged();
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),

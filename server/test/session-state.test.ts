@@ -9,6 +9,7 @@ import { markSessionsIdle, sessionStateOf, setSessionState } from "../src/agent/
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster, type TaskView } from "../src/cluster/cluster.ts";
+import { createNodeGroup, setNodeGroupsForNode } from "../src/cluster/node-groups.ts";
 import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -72,7 +73,7 @@ beforeAll(async () => {
 		storage: new MemoryStorage(),
 		models,
 		cluster,
-		groups,
+		taskGroups: groups,
 		audit,
 	});
 	const user = await createUser(db, { username: "state-owner", kind: "member", password: "password-123" });
@@ -86,6 +87,7 @@ beforeAll(async () => {
 			org_id: await defaultOrgId(db),
 			owner_user_id: user.id,
 			name: "web-1",
+			name_key: "web-1",
 			transport: "client",
 			status: "active",
 			public_key: null,
@@ -106,7 +108,8 @@ beforeAll(async () => {
 		})
 		.execute();
 	// A group of one node: naming the group is a task group, naming the node is a single task.
-	await db.insertInto("node_groups").values({ node_id: nodeId, group_name: "batch", refreshed_at: now }).execute();
+	const batch = await createNodeGroup(db, await defaultOrgId(db), "batch");
+	await setNodeGroupsForNode(db, nodeId, [batch.id]);
 });
 
 afterAll(async () => {
@@ -333,12 +336,9 @@ it("a task waiting for a signature makes the session awaiting/authorization", as
 it("a task group waiting for approval is the session's approval wait too", async () => {
 	const session = await runtime.createSession(owner, { model: model(), preset: "ask", title: "group states" });
 	faux.setResponses([
-		fauxAssistantMessage(
-			[fauxToolCall("exec", { targets: ["group:batch"], cmd: "true" }, { id: "group-state-tool" })],
-			{
-				stopReason: "toolUse",
-			},
-		),
+		fauxAssistantMessage([fauxToolCall("exec", { targets: ["batch"], cmd: "true" }, { id: "group-state-tool" })], {
+			stopReason: "toolUse",
+		}),
 		async () => {
 			await sleep(250);
 			return fauxAssistantMessage([fauxText("after the group")]);

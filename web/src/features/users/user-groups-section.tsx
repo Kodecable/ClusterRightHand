@@ -9,19 +9,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { User, UserGroup } from "@/lib/api/types";
-import { useAddGroupMember, useCreateGroup, useDeleteGroup, useRemoveGroupMember, useUserGroups } from "./api";
+import {
+	useAddUserGroupMember,
+	useCreateUserGroup,
+	useDeleteUserGroup,
+	useRemoveUserGroupMember,
+	useUserGroups,
+} from "./api";
 
-function GroupCard({ group, users }: { group: UserGroup; users: User[] }) {
+function UserGroupCard({ group, users }: { group: UserGroup; users: User[] }) {
 	const { t } = useLingui();
-	const add = useAddGroupMember();
-	const remove = useRemoveGroupMember();
-	const removeGroup = useDeleteGroup();
+	const add = useAddUserGroupMember();
+	const remove = useRemoveUserGroupMember();
+	const removeUserGroup = useDeleteUserGroup();
 	const [pick, setPick] = useState("");
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const names = new Map(users.map((user) => [user.id, user.username]));
 	const candidates = users.filter((user) => !group.memberIds.includes(user.id));
 	return (
-		<Card data-testid="group-card" data-group={group.name}>
+		<Card data-testid="user-group-card" data-user-group={group.name}>
 			<CardHeader className="flex flex-row items-center justify-between gap-2">
 				<div className="flex min-w-0 items-baseline gap-2">
 					<CardTitle className="text-sm">{group.name}</CardTitle>
@@ -31,7 +37,7 @@ function GroupCard({ group, users }: { group: UserGroup; users: User[] }) {
 					type="button"
 					size="xs"
 					variant="destructive"
-					aria-label={t`Delete group ${group.name}`}
+					aria-label={t`Delete user group ${group.name}`}
 					onClick={() => setConfirmDelete(true)}
 				>
 					<Trash2Icon />
@@ -108,14 +114,14 @@ function GroupCard({ group, users }: { group: UserGroup; users: User[] }) {
 			<ConfirmDialog
 				open={confirmDelete}
 				onOpenChange={setConfirmDelete}
-				title={t`Delete group ${group.name}?`}
-				description={t`Shares to this group are removed.`}
-				confirmLabel={t`Delete group`}
-				busy={removeGroup.isPending}
+				title={t`Delete user group ${group.name}?`}
+				description={t`Shares to this user group are removed.`}
+				confirmLabel={t`Delete user group`}
+				busy={removeUserGroup.isPending}
 				onConfirm={() =>
-					removeGroup.mutate(group.id, {
+					removeUserGroup.mutate(group.id, {
 						onSuccess: () => {
-							toast.success(t`Group deleted.`);
+							toast.success(t`User group deleted.`);
 							setConfirmDelete(false);
 						},
 					})
@@ -126,10 +132,10 @@ function GroupCard({ group, users }: { group: UserGroup; users: User[] }) {
 }
 
 /** The user groups and their membership (an administrator assigns node access through them). */
-export function GroupsSection({ users }: { users: User[] }) {
+export function UserGroupsSection({ users }: { users: User[] }) {
 	const { t } = useLingui();
 	const groups = useUserGroups();
-	const createGroup = useCreateGroup();
+	const createUserGroup = useCreateUserGroup();
 	const [name, setName] = useState("");
 	const prefix = useId();
 	return (
@@ -144,16 +150,16 @@ export function GroupsSection({ users }: { users: User[] }) {
 				onSubmit={(event) => {
 					event.preventDefault();
 					if (name.trim() === "") return;
-					createGroup.mutate(name.trim(), {
+					createUserGroup.mutate(name.trim(), {
 						onSuccess: () => {
-							toast.success(t`Group created.`);
+							toast.success(t`User group created.`);
 							setName("");
 						},
 					});
 				}}
 			>
 				<div className="grid min-w-56 gap-1.5">
-					<Label htmlFor={`${prefix}-group-name`}>{t`Group name`}</Label>
+					<Label htmlFor={`${prefix}-group-name`}>{t`User group name`}</Label>
 					<Input
 						id={`${prefix}-group-name`}
 						value={name}
@@ -161,9 +167,9 @@ export function GroupsSection({ users }: { users: User[] }) {
 						onChange={(event) => setName(event.target.value)}
 					/>
 				</div>
-				<Button type="submit" variant="outline" disabled={createGroup.isPending || name.trim() === ""}>
+				<Button type="submit" variant="outline" disabled={createUserGroup.isPending || name.trim() === ""}>
 					<PlusIcon />
-					<Trans>Create group</Trans>
+					<Trans>Create user group</Trans>
 				</Button>
 			</form>
 			{groups.isError && (
@@ -173,12 +179,12 @@ export function GroupsSection({ users }: { users: User[] }) {
 			)}
 			{groups.data && groups.data.length === 0 && (
 				<p className="text-sm text-muted-foreground">
-					<Trans>No groups yet.</Trans>
+					<Trans>No user groups yet.</Trans>
 				</p>
 			)}
 			<div className="grid gap-3 lg:grid-cols-2">
 				{(groups.data ?? []).map((group) => (
-					<GroupCard key={group.id} group={group} users={users} />
+					<UserGroupCard key={group.id} group={group} users={users} />
 				))}
 			</div>
 		</section>

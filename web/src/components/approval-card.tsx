@@ -2,6 +2,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { useState } from "react";
 import { ErrorText } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
+import { NodeTargetList } from "@/components/node-targets";
 import { DateTime } from "@/components/relative-time";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -10,9 +11,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { actorLabel, alwaysRule } from "@/features/approvals/rules";
 import type { ApprovalBody, Evaluation, Operation, Rule, TaskGroupView, TaskView } from "@/lib/api/types";
+import { ruleWithNames } from "@/lib/refs";
 import { cn } from "@/lib/utils";
 
-export type ApprovalItem = { kind: "task"; task: TaskView } | { kind: "group"; group: TaskGroupView };
+export type ApprovalItem = { kind: "task"; task: TaskView } | { kind: "task_group"; taskGroup: TaskGroupView };
 
 function ruleTone(result: string) {
 	return result === "allow" ? "ok" : result === "deny" ? "danger" : "warn";
@@ -22,9 +24,12 @@ function ruleTone(result: string) {
 export function EvaluationTable({
 	evaluation,
 	tokenNames,
+	refNames,
 }: {
 	evaluation: Evaluation;
 	tokenNames?: Map<string, string>;
+	/** Current node and node-group names for the UUIDs a matched rule stores (D109). */
+	refNames?: Map<string, string>;
 }) {
 	const { t } = useLingui();
 	return (
@@ -60,7 +65,9 @@ export function EvaluationTable({
 							</td>
 							<td className="max-w-64 px-2 py-1.5">
 								{level.matched ? (
-									<code className="block truncate font-mono">{JSON.stringify(level.matched)}</code>
+									<code className="block truncate font-mono">
+										{JSON.stringify(ruleWithNames(level.matched, refNames ?? new Map()))}
+									</code>
 								) : (
 									<span className="text-muted-foreground">
 										<Trans>default</Trans>
@@ -203,6 +210,7 @@ function AlwaysAllowForm({
 export function ApprovalCard({
 	item,
 	nodeNames = new Map(),
+	refNames,
 	tokenNames = new Map(),
 	onDecide,
 	busy = false,
@@ -213,6 +221,8 @@ export function ApprovalCard({
 }: {
 	item: ApprovalItem;
 	nodeNames?: Map<string, string>;
+	/** Current node and node-group names for UUIDs in rules; defaults to `nodeNames`. */
+	refNames?: Map<string, string>;
 	tokenNames?: Map<string, string>;
 	onDecide: (body: ApprovalBody) => void;
 	busy?: boolean;
@@ -227,13 +237,15 @@ export function ApprovalCard({
 	const [reason, setReason] = useState("");
 	const [alwaysOpen, setAlwaysOpen] = useState(false);
 
-	const subject = item.kind === "task" ? item.task : item.group;
+	const subject = item.kind === "task" ? item.task : item.taskGroup;
 	const id = subject.id;
 	const privileged = subject.privileged;
-	const operation = item.kind === "task" ? item.task.operation : item.group.operation;
-	const groupKind = item.kind === "group" ? (item.group.kind ?? t`task group`) : null;
-	const nodeList =
-		item.kind === "group" ? item.group.nodeIds.map((nodeId) => nodeNames.get(nodeId) ?? nodeId).join(", ") : "";
+	const operation = item.kind === "task" ? item.task.operation : item.taskGroup.operation;
+	const taskGroupKind = item.kind === "task_group" ? (item.taskGroup.kind ?? t`task group`) : null;
+	const taskGroupTargets =
+		item.kind === "task_group" ? (
+			<NodeTargetList ids={item.taskGroup.targets} refs={item.taskGroup.refs} nodeNames={nodeNames} />
+		) : null;
 	const what =
 		item.kind === "task" ? (
 			<Trans>
@@ -241,7 +253,7 @@ export function ApprovalCard({
 			</Trans>
 		) : (
 			<Trans>
-				{groupKind} on {item.group.nodeIds.length} node(s): {nodeList}
+				{taskGroupKind} on {taskGroupTargets}
 			</Trans>
 		);
 
@@ -250,7 +262,7 @@ export function ApprovalCard({
 			? item.task.approval
 				? [{ evaluation: item.task.approval.evaluation }]
 				: []
-			: (item.group.approval?.nodes ?? []).map((node) => ({
+			: (item.taskGroup.approval?.nodes ?? []).map((node) => ({
 					label: nodeNames.get(node.nodeId) ?? node.nodeId,
 					evaluation: node.evaluation,
 				}));
@@ -258,7 +270,7 @@ export function ApprovalCard({
 	const ruleNodes =
 		item.kind === "task"
 			? [nodeNames.get(item.task.nodeId) ?? item.task.nodeId]
-			: (item.group.approval?.nodes
+			: (item.taskGroup.approval?.nodes
 					.filter((node) => node.evaluation.result === "require-approval")
 					.map((node) => nodeNames.get(node.nodeId) ?? node.nodeId) ?? []);
 
@@ -306,8 +318,8 @@ export function ApprovalCard({
 							value:
 								item.kind === "task"
 									? actorLabel(item.task.actorType, item.task.actorId, tokenNames)
-									: item.group.actorType !== undefined && item.group.actorId !== undefined
-										? actorLabel(item.group.actorType, item.group.actorId, tokenNames)
+									: item.taskGroup.actorType !== undefined && item.taskGroup.actorId !== undefined
+										? actorLabel(item.taskGroup.actorType, item.taskGroup.actorId, tokenNames)
 										: "–",
 						},
 						{ label: <Trans>Requested</Trans>, value: <DateTime value={subject.createdAt} /> },
@@ -318,7 +330,7 @@ export function ApprovalCard({
 			{evaluations.map((entry) => (
 				<div key={entry.label ?? "task"} className="grid gap-1">
 					{entry.label !== undefined && <h3 className="text-xs font-medium text-muted-foreground">{entry.label}</h3>}
-					<EvaluationTable evaluation={entry.evaluation} tokenNames={tokenNames} />
+					<EvaluationTable evaluation={entry.evaluation} tokenNames={tokenNames} refNames={refNames ?? nodeNames} />
 				</div>
 			))}
 

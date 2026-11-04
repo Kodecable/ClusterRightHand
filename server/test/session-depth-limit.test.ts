@@ -44,7 +44,8 @@ let owner: SessionUser;
 
 const openStorage = (): Promise<Storage> => openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" });
 
-const open = (storage: Storage) => AgentRuntime.open({ db, storage, models, cluster, groups, audit: new Audit(db) });
+const open = (storage: Storage) =>
+	AgentRuntime.open({ db, storage, models, cluster, taskGroups: groups, audit: new Audit(db) });
 
 beforeAll(async () => {
 	dir = await mkdtemp(join(tmpdir(), "crh-depth-limit-"));

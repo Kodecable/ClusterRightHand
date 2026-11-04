@@ -104,12 +104,12 @@ describeBackends("storage", (backend) => {
 		await db
 			.insertInto("user_group_members")
 			.values([
-				{ group_id: "g1", user_id: "u1", created_at: now },
-				{ group_id: "g1", user_id: "u2", created_at: now },
+				{ user_group_id: "g1", user_id: "u1", created_at: now },
+				{ user_group_id: "g1", user_id: "u2", created_at: now },
 			])
 			.execute();
 		await expect(
-			db.insertInto("user_group_members").values({ group_id: "g1", user_id: "u1", created_at: now }).execute(),
+			db.insertInto("user_group_members").values({ user_group_id: "g1", user_id: "u1", created_at: now }).execute(),
 		).rejects.toThrow();
 		await db.deleteFrom("users").where("id", "=", "u2").execute();
 		const rows = await db.selectFrom("user_group_members").selectAll().execute();

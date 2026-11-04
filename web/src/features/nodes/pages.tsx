@@ -6,6 +6,7 @@ import { actionsHeader, DataTable, type DataTableColumn } from "@/components/dat
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
+import { NodeGroupLinks } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { RelativeTime } from "@/components/relative-time";
@@ -22,6 +23,7 @@ import { ClockWarning } from "./clock-warning";
 import { osName } from "./commands";
 import { CrhsKeyPanel } from "./crhs-key-panel";
 import { canManageNode, canRunOn } from "./node-access";
+import { NodeGroupsDialog } from "./node-groups-dialog";
 import { NodeShares } from "./node-shares";
 import { NodeTaskList } from "./node-tasks";
 import { NodeTrustPanel } from "./node-trust";
@@ -34,7 +36,7 @@ import { useTrustSources } from "./trust-sources";
 
 /**
  * Every node the user can see (doc/webui.md "Nodes"): status, connection,
- * clock warning, groups and access, plus approve/reject for pending nodes.
+ * clock warning, node groups and access, plus approve/reject for pending nodes.
  * Enrollment and the SSH wizard are the two "Add" flows.
  */
 export function NodesPage() {
@@ -93,10 +95,10 @@ export function NodesPage() {
 				cell: ({ row }) => <span className="truncate text-xs">{osName(row.original.facts)}</span>,
 			},
 			{
-				id: "groups",
-				header: t`Groups`,
-				size: 120,
-				cell: ({ row }) => <span className="truncate text-xs">{row.original.groups.join(", ") || "–"}</span>,
+				id: "nodeGroups",
+				header: t`Node groups`,
+				size: 180,
+				cell: ({ row }) => <NodeGroupLinks nodeGroups={row.original.nodeGroups} className="text-xs" />,
 			},
 			{
 				id: "access",
@@ -200,6 +202,8 @@ export function NodeDetailPage() {
 	const id = params.nodeId ?? "";
 	const node = useNode(id);
 	const trustSources = useTrustSources();
+	const admin = useAuth().user?.kind === "admin";
+	const [editingGroups, setEditingGroups] = useState(false);
 	const details = node.data?.node;
 
 	if (node.isError) {
@@ -245,7 +249,18 @@ export function NodeDetailPage() {
 						<ClockWarning warning={details.clockWarning} />
 					</span>
 				}
-				actions={manage ? <RenameNodeButton node={details} /> : undefined}
+				actions={
+					admin || manage ? (
+						<>
+							{admin && (
+								<Button type="button" variant="outline" size="sm" onClick={() => setEditingGroups(true)}>
+									<Trans>Edit node groups</Trans>
+								</Button>
+							)}
+							{manage && <RenameNodeButton node={details} />}
+						</>
+					) : undefined
+				}
 			/>
 
 			<KeyValueList
@@ -258,7 +273,10 @@ export function NodeDetailPage() {
 						label: t`Privileged mode`,
 						value: details.transport === "ssh" ? t`ignored (SSH)` : (details.privilegedMode ?? "–"),
 					},
-					{ label: t`Groups`, value: details.groups.join(", ") || "–" },
+					{
+						label: t`Node groups`,
+						value: <NodeGroupLinks nodeGroups={details.nodeGroups} />,
+					},
 					...(details.transport === "client"
 						? [
 								{ label: t`Client`, value: details.clientVersion ?? "–" },
@@ -282,6 +300,7 @@ export function NodeDetailPage() {
 				</details>
 			)}
 
+			{editingGroups && <NodeGroupsDialog node={details} onClose={() => setEditingGroups(false)} />}
 			{details.transport === "ssh" && <SshNodeSection node={details} details={node.data?.ssh} canRun={canRun} />}
 			{details.transport === "client" && (
 				<>

@@ -4,6 +4,7 @@ import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { ApprovalCard, DecisionView } from "@/components/approval-card";
+import { NodeTargetList } from "@/components/node-targets";
 import { StatusBadge, TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeText, TaskResult } from "@/components/task-result";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +21,7 @@ const GROUP_STATES: Record<string, MessageDescriptor> = {
 	rejected: msg`Rejected`,
 };
 
-function groupTone(state: string): "ok" | "danger" | "info" | "warn" | "muted" {
+function taskGroupTone(state: string): "ok" | "danger" | "info" | "warn" | "muted" {
 	switch (state) {
 		case "finished":
 			return "ok";
@@ -38,10 +39,10 @@ function groupTone(state: string): "ok" | "danger" | "info" | "warn" | "muted" {
 }
 
 /** The state pill of a task group; an unknown state keeps its raw name visible. */
-export function GroupStateBadge({ state }: { state: string }) {
+export function TaskGroupStateBadge({ state }: { state: string }) {
 	const { i18n } = useLingui();
 	const label = GROUP_STATES[state];
-	return <StatusBadge tone={groupTone(state)}>{label === undefined ? state : i18n._(label)}</StatusBadge>;
+	return <StatusBadge tone={taskGroupTone(state)}>{label === undefined ? state : i18n._(label)}</StatusBadge>;
 }
 
 /**
@@ -51,11 +52,11 @@ export function GroupStateBadge({ state }: { state: string }) {
  * batch run.
  */
 export function TaskGroupResult({
-	group,
+	taskGroup,
 	names,
 	onChanged,
 }: {
-	group: TaskGroupView;
+	taskGroup: TaskGroupView;
 	names: Map<string, string>;
 	onChanged?: () => void;
 }) {
@@ -63,49 +64,55 @@ export function TaskGroupResult({
 	const lookups = useApprovalLookups();
 	const decide = useDecideApproval();
 	const nodeName = (id: string) => names.get(id) ?? id;
-	const skipped = group.skipped.map(nodeName).join(", ");
+	const skipped = taskGroup.skipped.map(nodeName).join(", ");
 
 	return (
-		<section className="grid gap-3" data-testid="task-group-result" data-group-id={group.id}>
+		<section className="grid gap-3" data-testid="task-group-result" data-group-id={taskGroup.id}>
 			<div className="flex flex-wrap items-center gap-2">
 				<h2 className="text-sm font-semibold">
 					<Trans>Result</Trans>
 				</h2>
-				<GroupStateBadge state={group.state} />
-				{group.privileged && (
+				<TaskGroupStateBadge state={taskGroup.state} />
+				{taskGroup.privileged && (
 					<Badge variant="secondary">
 						<Trans>Privileged</Trans>
 					</Badge>
 				)}
 				<span className="text-xs text-muted-foreground">
-					<Plural value={group.nodeIds.length} one="# node" other="# nodes" />
+					<Plural value={taskGroup.nodeIds.length} one="# node" other="# nodes" />
 				</span>
 			</div>
 
-			{(group.summary !== undefined || group.kind !== undefined) && (
-				<p className="font-mono text-xs text-muted-foreground">{group.summary ?? group.kind}</p>
+			{(taskGroup.summary !== undefined || taskGroup.kind !== undefined) && (
+				<p className="font-mono text-xs text-muted-foreground">{taskGroup.summary ?? taskGroup.kind}</p>
 			)}
 
-			{group.state === "awaiting_approval" && (
+			<p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground" data-testid="task-group-targets">
+				<Trans>Targets:</Trans>
+				<NodeTargetList ids={taskGroup.targets} refs={taskGroup.refs} nodeNames={names} />
+			</p>
+
+			{taskGroup.state === "awaiting_approval" && (
 				<ApprovalCard
-					item={{ kind: "group", group }}
+					item={{ kind: "task_group", taskGroup }}
 					nodeNames={lookups.nodeNames}
+					refNames={lookups.refNames}
 					tokenNames={lookups.tokenNames}
 					busy={decide.isPending}
 					error={decide.error}
 					onDecide={(body) =>
 						decide.mutate(
-							{ kind: "group", id: group.id, body },
+							{ kind: "task_group", id: taskGroup.id, body },
 							{ onSuccess: () => toast.success(t`Decision recorded.`) },
 						)
 					}
 				/>
 			)}
 
-			{group.state === "awaiting_authorization" && (
+			{taskGroup.state === "awaiting_authorization" && (
 				<AuthorizationWait
-					kind="group"
-					id={group.id}
+					kind="task_group"
+					id={taskGroup.id}
 					onChanged={onChanged}
 					waiting={
 						<p className="text-sm text-muted-foreground">
@@ -115,7 +122,9 @@ export function TaskGroupResult({
 				/>
 			)}
 
-			{group.state === "rejected" && group.approval?.decision && <DecisionView decision={group.approval.decision} />}
+			{taskGroup.state === "rejected" && taskGroup.approval?.decision && (
+				<DecisionView decision={taskGroup.approval.decision} />
+			)}
 
 			<div className="overflow-x-auto rounded-lg border">
 				<table className="w-full text-sm">
@@ -136,7 +145,7 @@ export function TaskGroupResult({
 						</tr>
 					</thead>
 					<tbody>
-						{group.tasks.map((task) => (
+						{taskGroup.tasks.map((task) => (
 							<tr key={task.id} className="border-t align-top" data-testid="task-group-member" data-task-id={task.id}>
 								<td className="px-2 py-2">
 									<Link
@@ -169,10 +178,10 @@ export function TaskGroupResult({
 				</table>
 			</div>
 
-			{group.skipped.length > 0 && (
+			{taskGroup.skipped.length > 0 && (
 				<p className="text-xs text-muted-foreground">
 					<Trans>Skipped: {skipped}</Trans>
-					{group.state === "interrupted" && <Trans> (the batch was interrupted)</Trans>}
+					{taskGroup.state === "interrupted" && <Trans> (the batch was interrupted)</Trans>}
 				</p>
 			)}
 		</section>

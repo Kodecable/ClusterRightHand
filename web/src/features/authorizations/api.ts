@@ -5,9 +5,9 @@ import { useCursorInfiniteQuery } from "@/lib/api/query";
 import type {
 	AuthorizationSummary,
 	CursorPage,
-	GroupPending,
-	GroupPendingTask,
 	PendingAuthorization,
+	TaskGroupPending,
+	TaskGroupPendingTask,
 	TaskGroupView,
 } from "@/lib/api/types";
 
@@ -15,7 +15,7 @@ export const authorizationKeys = {
 	all: ["authorizations"] as const,
 	list: () => ["authorizations", "list"] as const,
 	listPage: (filters: AuthorizationFilters) => ["authorizations", "list", filters] as const,
-	pending: (kind: "task" | "group", id: string) => ["authorizations", "pending", kind, id] as const,
+	pending: (kind: "task" | "task_group", id: string) => ["authorizations", "pending", kind, id] as const,
 };
 
 export interface AuthorizationFilters {
@@ -34,12 +34,12 @@ export function useAuthorizations(filters: AuthorizationFilters = {}) {
 }
 
 /** The pending payload of a waiting task or task group, polled while the card is open. */
-export function usePendingAuthorization(kind: "task" | "group", id: string | undefined) {
+export function usePendingAuthorization(kind: "task" | "task_group", id: string | undefined) {
 	return useQuery({
 		queryKey: authorizationKeys.pending(kind, id ?? ""),
 		enabled: id !== undefined && id !== "",
 		refetchInterval: 5_000,
-		queryFn: async ({ signal }): Promise<{ pending: PendingAuthorization | null; tasks: GroupPendingTask[] }> => {
+		queryFn: async ({ signal }): Promise<{ pending: PendingAuthorization | null; tasks: TaskGroupPendingTask[] }> => {
 			if (kind === "task") {
 				const result = await http.get<{ authorization: PendingAuthorization | null }>(
 					`/tasks/${enc(id ?? "")}/authorization`,
@@ -47,10 +47,13 @@ export function usePendingAuthorization(kind: "task" | "group", id: string | und
 				);
 				return { pending: result.authorization, tasks: [] };
 			}
-			const result = await http.get<{ group: GroupPending | null }>(`/task-groups/${enc(id ?? "")}/authorization`, {
-				signal,
-			});
-			return { pending: result.group?.authorization ?? null, tasks: result.group?.tasks ?? [] };
+			const result = await http.get<{ taskGroup: TaskGroupPending | null }>(
+				`/task-groups/${enc(id ?? "")}/authorization`,
+				{
+					signal,
+				},
+			);
+			return { pending: result.taskGroup?.authorization ?? null, tasks: result.taskGroup?.tasks ?? [] };
 		},
 	});
 }
@@ -75,5 +78,5 @@ export function useSubmitAuthorization() {
 	});
 }
 
-/** The task group's pending-tasks table (the authorization card shows it for groups). */
+/** The task group's pending-tasks table (the authorization card shows it for task groups). */
 export type { TaskGroupView };

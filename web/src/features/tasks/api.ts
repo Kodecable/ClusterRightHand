@@ -23,8 +23,8 @@ export const taskKeys = {
 			{ state: filters.state ?? "", actorType: filters.actorType ?? "", nodeId: filters.nodeId ?? "" },
 		] as const,
 	detail: (id: string) => ["tasks", "detail", id] as const,
-	group: (id: string) => ["tasks", "group", id] as const,
-	groupAuthorization: (id: string) => ["tasks", "group-authorization", id] as const,
+	taskGroup: (id: string) => ["tasks", "task-group", id] as const,
+	taskGroupAuthorization: (id: string) => ["tasks", "task-group-authorization", id] as const,
 };
 
 export interface TaskFilters extends CursorQuery {
@@ -91,7 +91,7 @@ export function useCancelTask(id: string) {
 	return useMutation({
 		mutationFn: () => http.post<{ cancelled: boolean }>(`/tasks/${enc(id)}/cancel`),
 		onSuccess: () => {
-			// The task's own view and every list that shows it (and its group).
+			// The task's own view and every list that shows it (and its task group).
 			void queryClient.invalidateQueries({ queryKey: taskKeys.all });
 		},
 	});
@@ -100,30 +100,31 @@ export function useCancelTask(id: string) {
 const GROUP_ENDED = new Set(["finished", "interrupted", "rejected"]);
 
 /**
- * A task group that will not change any more. A tool card whose group ended stops following it, and its wait
+ * A task group that will not change any more. A tool card whose task group ended stops following it, and its wait
  * returns the current view instead of long-polling (doc/webui.md "工具卡片").
  */
-export function groupEnded(state: string): boolean {
+export function taskGroupEnded(state: string): boolean {
 	return GROUP_ENDED.has(state);
 }
 
-/** One task group: as `useTask`, with `GET /task-groups/:id/wait` for the open group. */
+/** One task group: as `useTask`, with `GET /task-groups/:id/wait` for the open task group. */
 export function useTaskGroup(id: string | undefined, pollRunning = false) {
 	return useQuery({
-		queryKey: taskKeys.group(id ?? ""),
+		queryKey: taskKeys.taskGroup(id ?? ""),
 		enabled: id !== undefined && id !== "",
 		queryFn: ({ signal, client, queryKey }) => {
 			const path = `/task-groups/${enc(id ?? "")}`;
 			const known = client.getQueryData(queryKey) !== undefined;
-			if (!pollRunning || !known) return http.get<{ group: TaskGroupView }>(path, { signal }).then((r) => r.group);
+			if (!pollRunning || !known)
+				return http.get<{ taskGroup: TaskGroupView }>(path, { signal }).then((r) => r.taskGroup);
 			return http
-				.get<{ group: TaskGroupView }>(`${path}/wait${queryString({ timeoutMs: WAIT_TIMEOUT_MS })}`, { signal })
-				.then((r) => r.group);
+				.get<{ taskGroup: TaskGroupView }>(`${path}/wait${queryString({ timeoutMs: WAIT_TIMEOUT_MS })}`, { signal })
+				.then((r) => r.taskGroup);
 		},
 		refetchInterval: (query) => {
 			if (!pollRunning) return false;
 			const state = query.state.data?.state;
-			return state !== undefined && !groupEnded(state) ? WAIT_GAP_MS : false;
+			return state !== undefined && !taskGroupEnded(state) ? WAIT_GAP_MS : false;
 		},
 	});
 }

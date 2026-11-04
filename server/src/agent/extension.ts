@@ -12,7 +12,7 @@ import {
 import { Type } from "typebox";
 import * as z from "zod/v4";
 import type { Actor } from "../cluster/cluster.ts";
-import { parseRuleSet } from "../policy/rules.ts";
+import { parseRuleSetForWrite } from "../policy/refs.ts";
 import type { RuleRef } from "../policy/store.ts";
 import { callTool } from "../tools/adapter.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
@@ -78,13 +78,13 @@ async function toolContextFor(
 	return {
 		db,
 		cluster: options.cluster,
-		groups: options.groups,
+		taskGroups: options.taskGroups,
 		user: { userId: owner.id, username: owner.username, kind: owner.kind, sessionId: `session:${session.id}` },
 		actor,
 		chain,
 		approvalUrl: (kind, id) => `/approvals/${kind === "task" ? "tasks" : "task-groups"}/${id}`,
 		taskUrl: (id) => `/tasks/${id}`,
-		groupUrl: (id) => `/task-groups/${id}`,
+		taskGroupUrl: (id) => `/task-groups/${id}`,
 		defaultWaitS: 600,
 		waitThroughApproval: true,
 	};
@@ -246,7 +246,9 @@ export function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { cur
 			if (!runtime) throw new Error("the agent runtime is not ready");
 			const parent = await runtime.sessionAt(String(api.conversationId));
 			if (!parent) throw new Error("this conversation is not a ClusterRightHand session");
-			const rules = args.rules ? parseRuleSet(args.rules, false) : { default: "inherit" as const, rules: [] };
+			const rules = args.rules
+				? await parseRuleSetForWrite(options.db, parent.orgId, args.rules, false)
+				: { default: "inherit" as const, rules: [] };
 			const quota = args.quota === undefined ? null : parseQuota(args.quota);
 			const child = await runtime.createSubagent(parent.id, {
 				callKey: String(api.taskId),

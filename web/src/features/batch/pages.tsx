@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { EmptyHint } from "@/components/empty-state";
 import { ErrorText } from "@/components/error-state";
+import { NodeGroupPicker } from "@/components/node-group-picker";
 import { NodePicker } from "@/components/node-picker";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
@@ -16,34 +17,44 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCreateBatch } from "@/features/batch/api";
 import { buildTargets } from "@/features/batch/targets";
+import { useNodeGroups } from "@/features/node-groups/api";
 import { useNodes } from "@/features/nodes/api";
 import { useTaskGroup } from "@/features/tasks/api";
 import { TaskGroupResult } from "@/features/tasks/task-group-result";
 import { buildTaskRequest, emptyForm, type TaskForm, taskFormErrorText } from "@/features/tasks/taskForm";
 
 /**
- * A batch run (doc/webui.md "Batch"): pick nodes (or type groups and raw
- * targets), fill the shared task fields, run one task group and watch the
- * per-node grid fill in as the tasks finish. A group that waits for approval or
+ * A batch run (doc/webui.md "Batch"): pick nodes, node groups or "All my
+ * nodes", fill the shared task fields, run one task group and watch the
+ * per-node grid fill in as the tasks finish.  A task group that waits for approval or
  * a signature shows the shared cards right above the grid.
  */
 export function BatchPage() {
 	const { t, i18n } = useLingui();
 	const nodes = useNodes();
+	const nodeGroups = useNodeGroups();
 	const create = useCreateBatch();
 	const [form, setForm] = useState<TaskForm>(emptyForm);
 	const [picked, setPicked] = useState<string[]>([]);
+	const [pickedNodeGroups, setPickedNodeGroups] = useState<string[]>([]);
+	const [all, setAll] = useState(false);
 	const [extra, setExtra] = useState("");
 	const [parallel, setParallel] = useState("");
 	const [failFast, setFailFast] = useState(false);
 	const [outputMode, setOutputMode] = useState<"status" | "text">("status");
-	const [groupId, setGroupId] = useState<string | undefined>(undefined);
+	const [taskGroupId, setTaskGroupId] = useState<string | undefined>(undefined);
 	const [error, setError] = useState<string>();
-	const group = useTaskGroup(groupId, true);
+	const taskGroup = useTaskGroup(taskGroupId, true);
 	const names = new Map((nodes.data ?? []).map((node) => [node.id, node.name]));
+	const nodeGroupNames = new Map((nodeGroups.data ?? []).map((entry) => [entry.id, entry.name]));
 
 	const operable = (nodes.data ?? []).filter((node) => node.status === "active" && node.access !== "view");
-	const targets = buildTargets(picked, extra);
+	const targets = buildTargets({
+		nodes: picked.map((id) => names.get(id) ?? id),
+		nodeGroups: pickedNodeGroups.map((id) => nodeGroupNames.get(id) ?? id),
+		all,
+		extra,
+	});
 
 	const submit = async () => {
 		setError(undefined);
@@ -66,7 +77,7 @@ export function BatchPage() {
 				...(form.kind === "exec" ? { outputMode } : {}),
 				...(parsedParallel !== undefined ? { parallel: parsedParallel } : {}),
 			});
-			setGroupId(created.id);
+			setTaskGroupId(created.id);
 			toast.success(t`Batch started.`);
 		} catch (caught) {
 			setError(taskFormErrorText(i18n, caught));
@@ -91,25 +102,57 @@ export function BatchPage() {
 					{nodes.isPending ? (
 						<PageSkeleton rows={2} />
 					) : (
-						<NodePicker
-							multiple
-							nodes={operable}
-							value={picked}
-							onChange={setPicked}
-							label={t`Nodes`}
-							placeholder={t`Choose nodes`}
-						/>
+						<div className="grid gap-3 sm:grid-cols-2">
+							<div className="grid gap-1.5">
+								<span className="text-sm font-medium">{t`Nodes`}</span>
+								<NodePicker
+									multiple
+									nodes={operable}
+									value={picked}
+									onChange={setPicked}
+									label={t`Nodes`}
+									placeholder={t`Choose nodes`}
+									disabled={all}
+								/>
+							</div>
+							<div className="grid gap-1.5">
+								<span className="text-sm font-medium">{t`Node groups`}</span>
+								<NodeGroupPicker
+									groups={nodeGroups.data ?? []}
+									value={pickedNodeGroups}
+									onChange={setPickedNodeGroups}
+									disabled={all}
+								/>
+							</div>
+						</div>
 					)}
 					{nodes.data && operable.length === 0 && <EmptyHint>{t`No active nodes you can operate.`}</EmptyHint>}
+					<div className="flex items-start gap-2">
+						<Checkbox
+							id="batch-all"
+							checked={all}
+							onCheckedChange={(checked) => setAll(Boolean(checked))}
+							aria-describedby="batch-all-description"
+						/>
+						<div className="grid gap-0.5">
+							<Label htmlFor="batch-all">
+								<Trans>All my nodes</Trans>
+							</Label>
+							<p id="batch-all-description" className="text-xs text-muted-foreground">
+								<Trans>Every node you can operate, including nodes added later.</Trans>
+							</p>
+						</div>
+					</div>
 					<div className="grid gap-1.5">
 						<Label htmlFor="batch-extra">
-							<Trans>Groups or raw targets (comma separated, e.g. group:web, node-1)</Trans>
+							<Trans>Other targets (comma separated node or node-group names)</Trans>
 						</Label>
 						<Input
 							id="batch-extra"
 							value={extra}
+							disabled={all}
 							onChange={(event) => setExtra(event.target.value)}
-							placeholder="group:web, node-1"
+							placeholder="node-1, web"
 						/>
 					</div>
 				</fieldset>
@@ -175,24 +218,28 @@ export function BatchPage() {
 						<PlayIcon />
 						{targets.length === 0 ? (
 							<Trans>Choose targets</Trans>
+						) : all ? (
+							<Trans>Run on all my nodes</Trans>
 						) : (
 							<Plural value={targets.length} one="Run on # target" other="Run on # targets" />
 						)}
 					</Button>
-					<span className="text-xs text-muted-foreground">
-						<Plural value={targets.length} one="# target" other="# targets" />
-					</span>
+					{!all && (
+						<span className="text-xs text-muted-foreground">
+							<Plural value={targets.length} one="# target" other="# targets" />
+						</span>
+					)}
 				</div>
 			</form>
 
-			{group.error !== null && group.error !== undefined && <ErrorText error={group.error} />}
-			{group.data !== undefined && (
+			{taskGroup.error !== null && taskGroup.error !== undefined && <ErrorText error={taskGroup.error} />}
+			{taskGroup.data !== undefined && (
 				<div className="rounded-lg border p-3" data-testid="batch-result">
 					<TaskGroupResult
-						group={group.data}
+						taskGroup={taskGroup.data}
 						names={names}
 						onChanged={() => {
-							void group.refetch();
+							void taskGroup.refetch();
 						}}
 					/>
 				</div>

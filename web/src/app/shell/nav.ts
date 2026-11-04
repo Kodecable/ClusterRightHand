@@ -2,6 +2,7 @@ import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import {
 	BadgeCheckIcon,
+	BlocksIcon,
 	BoxesIcon,
 	CalendarClockIcon,
 	KeyRoundIcon,
@@ -28,6 +29,7 @@ export type NavPath =
 	| "/batch"
 	| "/approvals"
 	| "/nodes"
+	| "/node-groups"
 	| "/credentials"
 	| "/authorizations"
 	| "/tokens"
@@ -64,6 +66,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 		label: msg`Cluster`,
 		items: [
 			{ to: "/nodes", label: msg`Nodes`, icon: ServerIcon },
+			{ to: "/node-groups", label: msg`Node groups`, icon: BlocksIcon },
 			{ to: "/credentials", label: msg`Credentials`, icon: KeyRoundIcon },
 		],
 	},

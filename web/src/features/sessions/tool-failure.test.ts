@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { TaskGroupView, TaskView } from "@/lib/api/types";
-import { groupViewFailure, taskViewFailure, toolFailure } from "./tool-failure";
+import { taskGroupViewFailure, taskViewFailure, toolFailure } from "./tool-failure";
 
 const result = (value: Record<string, unknown>): string => JSON.stringify(value);
 
@@ -165,18 +165,18 @@ describe("taskViewFailure", () => {
 	});
 });
 
-describe("groupViewFailure", () => {
+describe("taskGroupViewFailure", () => {
 	test("a finished group whose members all succeeded is not a failure", () => {
-		expect(groupViewFailure(group())).toBeUndefined();
-		expect(groupViewFailure(group({ tasks: [] }))).toBeUndefined();
+		expect(taskGroupViewFailure(group())).toBeUndefined();
+		expect(taskGroupViewFailure(group({ tasks: [] }))).toBeUndefined();
 	});
 
 	test("a group with some failed members is partly failed", () => {
-		expect(groupViewFailure(group({ tasks: [view(), view({ exitCode: 1 })] }))).toEqual({ kind: "partly-failed" });
+		expect(taskGroupViewFailure(group({ tasks: [view(), view({ exitCode: 1 })] }))).toEqual({ kind: "partly-failed" });
 	});
 
 	test("a group all of whose members failed is failed", () => {
-		expect(groupViewFailure(group({ tasks: [view({ state: "failed" }), view({ timedOut: true })] }))).toEqual({
+		expect(taskGroupViewFailure(group({ tasks: [view({ state: "failed" }), view({ timedOut: true })] }))).toEqual({
 			kind: "failed",
 			reason: "state",
 		});
@@ -184,7 +184,7 @@ describe("groupViewFailure", () => {
 
 	test("an interrupted or rejected group is failed whatever its members did", () => {
 		for (const state of ["interrupted", "rejected"] as const) {
-			expect(groupViewFailure(group({ state })), state).toEqual({ kind: "failed", reason: "state" });
+			expect(taskGroupViewFailure(group({ state })), state).toEqual({ kind: "failed", reason: "state" });
 		}
 	});
 });

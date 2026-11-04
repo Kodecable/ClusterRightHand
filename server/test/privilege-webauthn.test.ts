@@ -169,6 +169,7 @@ describe("Passkey authorization submission", () => {
 				org_id: await defaultOrgId(db),
 				owner_user_id: userId,
 				name,
+				name_key: name.toLowerCase(),
 				transport: "client",
 				status: "active",
 				public_key: Buffer.from(key).toString("base64"),

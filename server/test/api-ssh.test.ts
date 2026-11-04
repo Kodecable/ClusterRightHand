@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { enrollNode, parseEnrollmentToken } from "../src/cluster/enrollment.ts";
+import { createNodeGroup, type NodeGroup, setNodeGroupsForNode } from "../src/cluster/node-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser } from "../src/users/service.ts";
+import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
 
@@ -20,6 +21,7 @@ describeBackends("api ssh nodes", (backend) => {
 	let credId: string;
 	let sshId: string;
 	let crhaId: string;
+	let webGroup: NodeGroup;
 
 	const req = (who: string, path: string, body?: unknown, method?: string) =>
 		call(app, path, { cookie: cookies[who], body, method });
@@ -56,7 +58,6 @@ describeBackends("api ssh nodes", (backend) => {
 
 		const res = await req("owner", "/api/ssh-nodes", {
 			name: "box",
-			groups: ["web"],
 			jumps: [{ host: "127.0.0.1", port: 2222, user: "jumper", hostKey: KEY_A }],
 			host: "target.example",
 			user: "deploy",
@@ -65,6 +66,8 @@ describeBackends("api ssh nodes", (backend) => {
 		});
 		expect(res.status).toBe(201);
 		sshId = ((await res.json()) as { node: { id: string } }).node.id;
+		webGroup = await createNodeGroup(db, await defaultOrgId(db), "web");
+		await setNodeGroupsForNode(db, sshId, [webGroup.id]);
 
 		const tokenRes = await req("owner", "/api/enrollment-tokens", {});
 		const token = ((await tokenRes.json()) as { token: string }).token;
@@ -102,11 +105,11 @@ describeBackends("api ssh nodes", (backend) => {
 			for (const who of ["owner", "root"]) {
 				const res = await req(who, `/api/nodes/${sshId}`);
 				const body = (await res.json()) as {
-					node: { transport: string; groups: string[] };
+					node: { transport: string; nodeGroups: { id: string; name: string }[] };
 					ssh: { hops: unknown[]; credential: unknown } | null;
 				};
 				expect(body.node.transport).toBe("ssh");
-				expect(body.node.groups).toEqual(["web"]);
+				expect(body.node.nodeGroups).toEqual([{ id: webGroup.id, name: "web" }]);
 				expect(body.ssh).toEqual({
 					hops: [
 						{ host: "127.0.0.1", port: 2222, user: "jumper", hostKey: KEY_A },
@@ -128,32 +131,57 @@ describeBackends("api ssh nodes", (backend) => {
 		});
 	});
 
-	describe("groups", () => {
-		const put = (who: string, id: string, body: unknown) => req(who, `/api/nodes/${id}/groups`, body, "PUT");
+	describe("node groups", () => {
+		const put = (who: string, id: string, body: unknown) => req(who, `/api/nodes/${id}/node-groups`, body, "PUT");
 
-		it("replaces, dedupes and clears", async () => {
-			let res = await put("owner", sshId, { groups: ["db", "db", "a.b-c"] });
+		it("replaces, dedupes and clears, for SSH and crha nodes", async () => {
+			const orgId = await defaultOrgId(db);
+			const dbGroup = await createNodeGroup(db, orgId, "db");
+			const dotted = await createNodeGroup(db, orgId, "a.b-c");
+			let res = await put("root", sshId, { nodeGroups: ["db", "db", dotted.id] });
 			expect(res.status).toBe(200);
-			expect(((await res.json()) as { groups: string[] }).groups.sort()).toEqual(["a.b-c", "db"]);
-			res = await put("root", sshId, { groups: [] });
+			expect(((await res.json()) as { nodeGroups: { id: string; name: string }[] }).nodeGroups).toEqual([
+				{ id: dotted.id, name: "a.b-c" },
+				{ id: dbGroup.id, name: "db" },
+			]);
+			res = await put("root", sshId, { nodeGroups: [] });
 			expect(res.status).toBe(200);
-			expect(await res.json()).toEqual({ groups: [] });
-			const body = (await (await req("owner", `/api/nodes/${sshId}`)).json()) as { node: { groups: string[] } };
-			expect(body.node.groups).toEqual([]);
+			expect(await res.json()).toEqual({ nodeGroups: [] });
+			const body = (await (await req("owner", `/api/nodes/${sshId}`)).json()) as {
+				node: { nodeGroups: { id: string; name: string }[] };
+			};
+			expect(body.node.nodeGroups).toEqual([]);
+
+			// A crha node's node groups are crhs-managed too (Facts.groups is ignored).
+			expect((await put("root", crhaId, { nodeGroups: [dbGroup.id] })).status).toBe(200);
+			const crha = (await (await req("owner", `/api/nodes/${crhaId}`)).json()) as {
+				node: { nodeGroups: { id: string; name: string }[] };
+			};
+			expect(crha.node.nodeGroups).toEqual([{ id: dbGroup.id, name: "db" }]);
+			await put("root", crhaId, { nodeGroups: [] });
 		});
 
 		it("rejects bad input", async () => {
-			expect((await put("owner", sshId, { groups: ["Bad Name"] })).status).toBe(400);
-			expect((await put("owner", sshId, { groups: "web" })).status).toBe(400);
-			expect((await put("owner", sshId, { groups: [1] })).status).toBe(400);
-			expect((await put("owner", sshId, [])).status).toBe(400);
-			expect((await put("owner", crhaId, { groups: ["x"] })).status).toBe(400);
+			expect((await put("root", sshId, { nodeGroups: ["Bad Name"] })).status).toBe(400);
+			expect((await put("root", sshId, { nodeGroups: ["no-such-group"] })).status).toBe(400);
+			expect((await put("root", sshId, { nodeGroups: "web" })).status).toBe(400);
+			expect((await put("root", sshId, { nodeGroups: [1] })).status).toBe(400);
+			expect((await put("root", sshId, [])).status).toBe(400);
 		});
 
-		it("is for the owner or an administrator only", async () => {
-			expect((await put("op", sshId, { groups: ["x"] })).status).toBe(403);
-			expect((await put("viewer", sshId, { groups: ["x"] })).status).toBe(403);
-			expect((await put("stranger", sshId, { groups: ["x"] })).status).toBe(404);
+		it("is for administrators only", async () => {
+			for (const who of ["owner", "op", "viewer"]) {
+				expect((await put(who, sshId, { nodeGroups: [] })).status).toBe(403);
+			}
+			expect((await put("stranger", sshId, { nodeGroups: [] })).status).toBe(404);
+		});
+
+		it("does not accept node groups when adding an SSH node", async () => {
+			const res = await req("owner", "/api/ssh-nodes", {
+				...target({ hostKey: KEY_B, name: "grouped" }),
+				nodeGroups: [],
+			});
+			expect(res.status).toBe(400);
 		});
 	});
 

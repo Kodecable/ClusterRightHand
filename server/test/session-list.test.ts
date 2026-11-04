@@ -21,8 +21,8 @@ import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { deleteSchedule, getSchedule } from "../src/scheduler/store.ts";
 import type { Db } from "../src/storage/db.ts";
-import { addGroupMember, createUserGroup } from "../src/users/groups.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { addUserGroupMember, createUserGroup } from "../src/users/user-groups.ts";
 import { newId } from "../src/util/id.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
@@ -241,7 +241,7 @@ beforeAll(async () => {
 		storage: new MemoryStorage(),
 		models,
 		cluster,
-		groups: new TaskGroups(db, cluster, { audit }),
+		taskGroups: new TaskGroups(db, cluster, { audit }),
 		audit,
 		// Short enough to keep the stream tests fast; the production default is 150 ms.
 		sessionList: { coalesceMs: 10 },
@@ -273,8 +273,8 @@ beforeAll(async () => {
 	}
 	const group = await createUserGroup(db, "list-ops");
 	groupId = group.id;
-	await addGroupMember(db, groupId, id.bob as string);
-	await addGroupMember(db, groupId, id.carol as string);
+	await addUserGroupMember(db, groupId, id.bob as string);
+	await addUserGroupMember(db, groupId, id.carol as string);
 });
 
 afterAll(async () => {
@@ -714,7 +714,7 @@ describe("GET /api/sessions/:id/children", () => {
 		// A group share reaches its members too; the group is the test's own, so it cannot leak into the
 		// stream tests' group membership changes below.
 		const childGroup = await createUserGroup(db, "children-ops");
-		await addGroupMember(db, childGroup.id, id.carol as string);
+		await addUserGroupMember(db, childGroup.id, id.carol as string);
 		await share(rootId, { granteeType: "user_group", granteeId: childGroup.id, access: "view" });
 		expect((await children("carol", rootId)).items.map((item) => item.id)).toEqual([child]);
 		expect((await call(app, `/api/sessions/${rootId}/children`, { cookie: cookie.dave })).status).toBe(404);

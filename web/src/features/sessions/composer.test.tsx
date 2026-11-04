@@ -36,6 +36,7 @@ function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 			default: "ask",
 			updatedAt: "2026-01-01T00:00:00.000Z",
 		},
+		refs: {},
 		relationship: "owner",
 		capabilities: { view: true, chat: true, manageShares: true, configure: true },
 		ownerUsername: "ops",

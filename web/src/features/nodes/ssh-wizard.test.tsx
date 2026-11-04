@@ -18,7 +18,7 @@ const NODE: PublicNode = {
 	lastSeenAt: null,
 	createdAt: "2026-01-01T00:00:00.000Z",
 	approvedAt: null,
-	groups: [],
+	nodeGroups: [],
 	access: "owner",
 	facts: null,
 	keyFingerprint: null,
@@ -157,7 +157,6 @@ describe("SshNodeWizard", () => {
 			jumps: [{ host: "jump.example", port: 22, user: "jump", hostKey: "SHA256:hop-0" }],
 			credentialId: "cred-1",
 			name: "",
-			groups: [],
 		});
 	});
 });

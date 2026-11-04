@@ -85,6 +85,7 @@ function mockApi(): { calls: { url: string; body: unknown }[] } {
 			let payload: unknown = { ok: true };
 			if (url.startsWith("/api/approvals")) payload = data;
 			else if (url.startsWith("/api/nodes")) payload = { nodes: [] };
+			else if (url.startsWith("/api/node-groups")) payload = { groups: [] };
 			else if (url.startsWith("/api/api-tokens")) payload = { tokens: [] };
 			return new Response(JSON.stringify(payload), {
 				status: 200,
@@ -133,11 +134,19 @@ describe("ApprovalsPage", () => {
 	test("an empty approvals list says nothing is waiting", async () => {
 		vi.stubGlobal(
 			"fetch",
-			vi.fn(async () => {
-				return new Response(
-					JSON.stringify({ tasks: [], taskGroups: [], authorizations: { tasks: [], taskGroups: [] }, quotas: [] }),
-					{ status: 200, headers: { "content-type": "application/json" } },
-				);
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = new URL(String(input), "http://localhost").pathname;
+				const body = url.startsWith("/api/nodes")
+					? { nodes: [] }
+					: url.startsWith("/api/node-groups")
+						? { groups: [] }
+						: url.startsWith("/api/api-tokens")
+							? { tokens: [] }
+							: { tasks: [], taskGroups: [], authorizations: { tasks: [], taskGroups: [] }, quotas: [] };
+				return new Response(JSON.stringify(body), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
 			}),
 		);
 		await renderPage();

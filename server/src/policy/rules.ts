@@ -1,5 +1,6 @@
 import { posix } from "node:path";
 import type { TaskSpec } from "@crh/protocol";
+import { ALL_TARGET, isUuid, NAME_RE } from "../cluster/names.ts";
 import { shellQuote } from "../cluster/ssh/exec.ts";
 import { UserError } from "../users/service.ts";
 
@@ -22,7 +23,7 @@ const MAX_PATTERN = 1000;
 export interface Rule {
 	action: Action;
 	method?: Method;
-	/** Node names, node ids and "group:<name>"; omitted means every node. */
+	/** Node/node-group UUIDs or `_all` (D109); omitted means every node. */
 	nodes?: string[];
 	/** true matches only privileged tasks, false only ordinary ones; omitted matches both (D86). */
 	privileged?: boolean;
@@ -48,7 +49,7 @@ export interface Operation {
 	method: Method;
 	/** exec: the rendered argv; files: the normalized absolute path. */
 	target: string;
-	node: { id: string; name: string; groups: string[] };
+	node: { id: string; groupIds: string[] };
 	/** The task's privileged flag; a rule with `privileged` matches only that value. */
 	privileged: boolean;
 }
@@ -95,9 +96,9 @@ function methodMatches(rule: Rule, op: Operation): boolean {
 
 function nodeMatches(rule: Rule, op: Operation): boolean {
 	if (!rule.nodes) return true;
-	return rule.nodes.some((n) =>
-		n.startsWith("group:") ? op.node.groups.includes(n.slice(6)) : n === op.node.name || n === op.node.id,
-	);
+	// References are resolved to UUIDs at write time; `_all` matches every node the acting user can operate,
+	// which is every node evaluated here: access was checked before the task was created.
+	return rule.nodes.some((ref) => ref === ALL_TARGET || ref === op.node.id || op.node.groupIds.includes(ref));
 }
 
 function targetMatches(rule: Rule, op: Operation): boolean {
@@ -211,7 +212,12 @@ function parseRule(raw: unknown, where: string): Rule {
 	}
 	if (o.nodes !== undefined) {
 		if (!Array.isArray(o.nodes) || o.nodes.length === 0 || !o.nodes.every((n) => typeof n === "string" && n)) {
-			throw new UserError(`${where}: nodes must be a non-empty list of node names and group:<name>`);
+			throw new UserError(`${where}: nodes must be a non-empty list of node names, node-group names, ids or _all`);
+		}
+		for (const ref of o.nodes as string[]) {
+			if (ref !== ALL_TARGET && !isUuid(ref) && !NAME_RE.test(ref)) {
+				throw new UserError(`${where}: ${JSON.stringify(ref)} is not a node or node-group name, a UUID or _all`);
+			}
 		}
 		rule.nodes = o.nodes as string[];
 	}

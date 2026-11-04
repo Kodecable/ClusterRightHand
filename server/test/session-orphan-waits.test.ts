@@ -57,7 +57,7 @@ async function openRuntime(): Promise<AgentRuntime> {
 		storage: new MemoryStorage(),
 		models,
 		cluster,
-		groups,
+		taskGroups: groups,
 		audit: new Audit(db),
 	});
 }
@@ -83,6 +83,7 @@ beforeEach(async () => {
 			org_id: await defaultOrgId(db),
 			owner_user_id: user.id,
 			name: "db-1",
+			name_key: "db-1",
 			transport: "client",
 			status: "active",
 			public_key: null,

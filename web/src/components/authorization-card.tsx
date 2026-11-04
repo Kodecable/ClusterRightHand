@@ -15,7 +15,7 @@ import {
 	sshKeygenRecipe,
 } from "@/features/authorizations/authorization";
 import { errorMessage } from "@/lib/api/client";
-import type { GroupPendingTask, PendingAuthorization, PendingPasskey } from "@/lib/api/types";
+import type { PendingAuthorization, PendingPasskey, TaskGroupPendingTask } from "@/lib/api/types";
 import { useLocale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +31,7 @@ const LINE_LABELS: Record<PayloadLineKey, React.ReactNode> = {
 	authorizationId: <Trans>Authorization id</Trans>,
 };
 
-function GroupTaskTable({ tasks }: { tasks: GroupPendingTask[] }) {
+function TaskGroupTaskTable({ tasks }: { tasks: TaskGroupPendingTask[] }) {
 	return (
 		<div className="overflow-x-auto rounded-md border">
 			<table className="w-full text-xs">
@@ -74,8 +74,8 @@ function GroupTaskTable({ tasks }: { tasks: GroupPendingTask[] }) {
 
 export interface AuthorizationCardProps {
 	pending: PendingAuthorization;
-	tasks?: GroupPendingTask[];
-	kind?: "task" | "group";
+	tasks?: TaskGroupPendingTask[];
+	kind?: "task" | "task_group";
 	/** Submit the pasted `crha grant` output or a Passkey assertion (the page's mutation). */
 	onSubmit: (input: SubmitAuthorizationInput) => Promise<unknown>;
 	/** Called after a successful submission so the page can refresh. */
@@ -167,7 +167,7 @@ export function AuthorizationCard({
 				</p>
 			</div>
 
-			{kind === "group" && tasks.length > 0 && <GroupTaskTable tasks={tasks} />}
+			{kind === "task_group" && tasks.length > 0 && <TaskGroupTaskTable tasks={tasks} />}
 
 			<KeyValueList
 				items={authorizationLines(pending, locale).map((line) => ({

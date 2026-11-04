@@ -21,6 +21,11 @@ if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
 		}) as unknown as MediaQueryList;
 }
 
+// Base UI's ScrollArea waits for a popup's exit animations; jsdom has none.
+if (typeof Element !== "undefined" && typeof Element.prototype.getAnimations !== "function") {
+	Element.prototype.getAnimations = () => [];
+}
+
 // Base UI's popups and shadcn's sidebar measure elements.
 if (typeof window !== "undefined" && typeof window.ResizeObserver === "undefined") {
 	window.ResizeObserver = class {

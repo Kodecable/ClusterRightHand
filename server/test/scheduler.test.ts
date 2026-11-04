@@ -146,6 +146,7 @@ async function addNode(owner: SessionUser): Promise<string> {
 			org_id: await defaultOrgId(db),
 			owner_user_id: owner.userId,
 			name: `node-${id.slice(-8)}`,
+			name_key: `node-${id.slice(-8)}`.toLowerCase(),
 			transport: "client",
 			status: "active",
 			public_key: null,
@@ -189,7 +190,7 @@ beforeAll(async () => {
 		storage: new MemoryStorage(),
 		models,
 		cluster,
-		groups: new TaskGroups(db, cluster, { audit }),
+		taskGroups: new TaskGroups(db, cluster, { audit }),
 		audit,
 	});
 	scheduler = new Scheduler({ db, runtime, audit, now: clock.now, setTimer: clock.setTimer });

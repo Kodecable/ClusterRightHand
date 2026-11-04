@@ -14,7 +14,7 @@ import { parentOf, type SessionRow } from "./session-chain.ts";
 export async function wakeParent(
 	host: RuntimeHost,
 	parent: Pick<SessionRow, "id">,
-	kind: "task" | "group",
+	kind: "task" | "task_group",
 	requestId: string,
 ): Promise<void> {
 	await wake(
@@ -151,7 +151,7 @@ async function flushWakes(host: RuntimeHost, handlerId: string): Promise<void> {
 
 /** After a restart, wakes the parents of requests that were already waiting (deduplicated by requestId). */
 export async function wakePendingAgents(host: RuntimeHost): Promise<void> {
-	const requests: { kind: "task" | "group"; id: string; session: string }[] = [];
+	const requests: { kind: "task" | "task_group"; id: string; session: string }[] = [];
 	const tasks = await host.db
 		.selectFrom("tasks")
 		.select(["id", "handler_session_id"])
@@ -168,7 +168,7 @@ export async function wakePendingAgents(host: RuntimeHost): Promise<void> {
 		.where("handler_type", "=", "agent")
 		.execute();
 	for (const row of groups) {
-		if (row.handler_session_id) requests.push({ kind: "group", id: row.id, session: row.handler_session_id });
+		if (row.handler_session_id) requests.push({ kind: "task_group", id: row.id, session: row.handler_session_id });
 	}
 	for (const request of requests) {
 		const parent = await host.db

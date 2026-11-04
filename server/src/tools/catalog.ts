@@ -4,6 +4,7 @@ import * as z from "zod/v4";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { TaskAuthorizationRecord } from "../cluster/authorization.ts";
 import { type Actor, type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
+import { nameKey } from "../cluster/names.ts";
 import { getNode, listNodesForUser } from "../cluster/nodes.ts";
 import { resolveTargets, type TaskGroups, type TaskGroupView } from "../cluster/task-groups.ts";
 import type { RuleRef } from "../policy/store.ts";
@@ -19,7 +20,7 @@ import { derivedId } from "../util/id.ts";
 export interface ToolContext {
 	db: Db;
 	cluster: Cluster;
-	groups: TaskGroups;
+	taskGroups: TaskGroups;
 	/** The user the caller acts for; node access is theirs. */
 	user: SessionUser;
 	actor: Actor;
@@ -29,8 +30,8 @@ export interface ToolContext {
 	approvalUrl: (kind: "task" | "task_group", id: string) => string;
 	/** Where the owner sees a waiting task's authorization payload in the WebUI (absolute for MCP). */
 	taskUrl?: (id: string) => string;
-	/** The task-group page, where a waiting group is signed (absolute for MCP). */
-	groupUrl?: (id: string) => string;
+	/** The task-group page, where a waiting task group is signed (absolute for MCP). */
+	taskGroupUrl?: (id: string) => string;
 	signal?: AbortSignal;
 	/** Stable per tool call: tasks get ids derived from it, so a rerun after a crash reattaches to them. */
 	callKey?: string;
@@ -83,16 +84,16 @@ async function waitTaskFor(ctx: ToolContext, id: string, waitMs: number): Promis
 	return t && !ctx.signal?.aborted ? ctx.cluster.waitTask(id, waitMs, ctx.signal) : t;
 }
 
-async function waitGroupFor(ctx: ToolContext, id: string, waitMs: number): Promise<TaskGroupView> {
-	// As in waitTaskFor: the id goes out before the wait, so a card without a result can follow the group.
+async function waitTaskGroupFor(ctx: ToolContext, id: string, waitMs: number): Promise<TaskGroupView> {
+	// As in waitTaskFor: the id goes out before the wait, so a card without a result can follow the task group.
 	if (!ctx.waitThroughApproval) {
 		if (ctx.onStatus !== undefined) {
-			const first = (await ctx.groups.get(id)) as TaskGroupView | undefined;
+			const first = (await ctx.taskGroups.get(id)) as TaskGroupView | undefined;
 			await ctx.onStatus({ task_group_id: id, state: first?.state });
 		}
-		return (await ctx.groups.wait(id, waitMs)) as TaskGroupView;
+		return (await ctx.taskGroups.wait(id, waitMs)) as TaskGroupView;
 	}
-	let g = (await ctx.groups.get(id)) as TaskGroupView;
+	let g = (await ctx.taskGroups.get(id)) as TaskGroupView;
 	await ctx.onStatus?.({ task_group_id: id, state: g.state });
 	if (g.state === "awaiting_approval") {
 		await ctx.onStatus?.({
@@ -100,21 +101,21 @@ async function waitGroupFor(ctx: ToolContext, id: string, waitMs: number): Promi
 			state: "awaiting_approval",
 			approval_url: ctx.approvalUrl("task_group", id),
 		});
-		while (g.state === "awaiting_approval" && !ctx.signal?.aborted && !ctx.groups.waitsEnded)
-			g = (await ctx.groups.wait(id, HOUR, ctx.signal)) as TaskGroupView;
+		while (g.state === "awaiting_approval" && !ctx.signal?.aborted && !ctx.taskGroups.waitsEnded)
+			g = (await ctx.taskGroups.wait(id, HOUR, ctx.signal)) as TaskGroupView;
 		await ctx.onStatus?.({ task_group_id: id, state: g.state });
 	}
 	if (g.state === "awaiting_authorization") {
 		await ctx.onStatus?.({
 			task_group_id: id,
 			state: "awaiting_authorization",
-			authorization_url: ctx.groupUrl?.(id) ?? `/task-groups/${id}`,
+			authorization_url: ctx.taskGroupUrl?.(id) ?? `/task-groups/${id}`,
 		});
-		while (g.state === "awaiting_authorization" && !ctx.signal?.aborted && !ctx.groups.waitsEnded)
-			g = (await ctx.groups.wait(id, HOUR, ctx.signal)) as TaskGroupView;
+		while (g.state === "awaiting_authorization" && !ctx.signal?.aborted && !ctx.taskGroups.waitsEnded)
+			g = (await ctx.taskGroups.wait(id, HOUR, ctx.signal)) as TaskGroupView;
 		await ctx.onStatus?.({ task_group_id: id, state: g.state });
 	}
-	return ctx.signal?.aborted ? g : ((await ctx.groups.wait(id, waitMs, ctx.signal)) as TaskGroupView);
+	return ctx.signal?.aborted ? g : ((await ctx.taskGroups.wait(id, waitMs, ctx.signal)) as TaskGroupView);
 }
 
 export interface ClusterTool<S extends z.ZodType = z.ZodType> {
@@ -136,9 +137,9 @@ const targetsField = z
 	.array(z.string())
 	.min(1)
 	.describe(
-		'What to act on: node names or ids, and "group:<name>". Exactly one node name runs one task and ' +
-			"returns its result; several entries, or any group entry, run a task group and return one result " +
-			"per node",
+		"What to act on: node names or ids, node-group names or ids, or _all (every node you can operate). " +
+			"Exactly one entry that names a node runs one task and returns its result; a node-group entry, _all, " +
+			"or several entries run a task group and return one result per node",
 	);
 const waitField = z
 	.number()
@@ -378,7 +379,7 @@ function authorizationResult(
 	};
 }
 
-function groupResult(
+function taskGroupResult(
 	g: TaskGroupView,
 	names: Map<string, string>,
 	ctx: ToolContext,
@@ -399,7 +400,7 @@ function groupResult(
 		const waiting = g.tasks.filter((t) => t.state === "awaiting_authorization");
 		out.authorization = {
 			status: "waiting for the authorization of the task group's owner",
-			url: ctx.groupUrl?.(g.id) ?? `/task-groups/${g.id}`,
+			url: ctx.taskGroupUrl?.(g.id) ?? `/task-groups/${g.id}`,
 			nodes: waiting.map((t) => names.get(t.nodeId) ?? t.nodeId),
 			tasks: waiting.map((t) => ({
 				task_id: t.id,
@@ -416,7 +417,7 @@ function groupResult(
 	return out;
 }
 
-/** The targets of one call: exactly one node name is one task; anything else is a task group. */
+/** The targets of one call: exactly one node is one task; a node group, _all or several entries are a task group. */
 interface RunTargets {
 	targets: string[];
 	wait?: number;
@@ -427,32 +428,21 @@ interface RunTargets {
 	privileged?: boolean;
 }
 
-/** Whether the input names one node: a single entry that is not a group (doc/agent-runtime.md#批量执行). */
-function oneNode(targets: string[]): boolean {
-	return targets.length === 1 && !(targets[0] as string).startsWith("group:");
-}
-
 /** A started call: one task, or a task group whose result has one entry per node. */
 type Started =
 	| { kind: "task"; task: TaskView; nodeName: string }
-	| { kind: "group"; group: TaskGroupView; names: Map<string, string> };
+	| { kind: "task_group"; taskGroup: TaskGroupView; names: Map<string, string> };
 
-/** Starts one task on one node and waits up to `wait` seconds. */
-async function startOne(
+/** Starts one task on one resolved node and waits up to `wait` seconds. */
+async function startTaskOnNode(
 	ctx: ToolContext,
-	node: string,
+	nodeId: string,
 	args: { wait?: number; timeout?: number; privileged?: boolean },
 	spec: TaskSpec,
 	input?: Uint8Array,
 ): Promise<{ task: TaskView; nodeName: string }> {
 	const waitMs = (args.wait ?? ctx.defaultWaitS ?? DEFAULT_WAIT_S) * 1000;
 	const timeoutMs = args.timeout ? args.timeout * 1000 : undefined;
-	const nodeIds = await resolveTargets(ctx.db, ctx.user, [node]);
-	if (nodeIds.length !== 1) {
-		// A group used as a node would pick one arbitrary member: say so instead.
-		throw new UserError(`${node} matches ${nodeIds.length} nodes; this tool runs on one node. Name one node.`);
-	}
-	const nodeId = nodeIds[0] as string;
 	// The task id is derived from the call, so a rerun after a restart reattaches to the same task.
 	const id = ctx.callKey ? derivedId(`task:${ctx.callKey}`) : undefined;
 	const created = await ctx.cluster.createTask({
@@ -467,33 +457,47 @@ async function startOne(
 	});
 	const task = (await waitTaskFor(ctx, created.id, waitMs)) ?? created;
 	const names = await nodeNames(ctx, [nodeId]);
-	return { task, nodeName: names.get(nodeId) ?? node };
+	return { task, nodeName: names.get(nodeId) ?? nodeId };
+}
+
+/** Starts one task on one node named by the input; a node group or `_all` is rejected (single-node tools). */
+async function startOne(
+	ctx: ToolContext,
+	node: string,
+	args: { wait?: number; timeout?: number; privileged?: boolean },
+	spec: TaskSpec,
+	input?: Uint8Array,
+): Promise<{ task: TaskView; nodeName: string }> {
+	const resolved = await resolveTargets(ctx.db, ctx.user, [node]);
+	if (!resolved.singleNode) {
+		throw new UserError(`${node} does not name one node; this tool runs on one node. Name one node.`);
+	}
+	return startTaskOnNode(ctx, resolved.nodeIds[0] as string, args, spec, input);
 }
 
 /**
- * Starts a spec and waits up to `wait` seconds. The shape follows the input, never how many nodes it
- * resolves to: one node name runs one task, several entries or a group run a task group
- * (doc/agent-runtime.md#批量执行).
+ * Starts a spec and waits up to `wait` seconds. The shape follows the input: exactly one node runs one
+ * task; a node group, `_all` or several entries run a task group (doc/agent-runtime.md#批量执行).
  */
 async function start(ctx: ToolContext, args: RunTargets, spec: TaskSpec, input?: Uint8Array): Promise<Started> {
 	const common = { spec, input, actor: ctx.actor, chain: ctx.chain, privileged: args.privileged === true };
-	if (oneNode(args.targets)) {
-		return { kind: "task", ...(await startOne(ctx, args.targets[0] as string, args, spec, input)) };
+	const resolved = await resolveTargets(ctx.db, ctx.user, args.targets);
+	if (resolved.singleNode) {
+		return { kind: "task", ...(await startTaskOnNode(ctx, resolved.nodeIds[0] as string, args, spec, input)) };
 	}
 	const waitMs = (args.wait ?? ctx.defaultWaitS ?? DEFAULT_WAIT_S) * 1000;
-	const nodeIds = await resolveTargets(ctx.db, ctx.user, args.targets);
-	const id = await ctx.groups.create({
+	const id = await ctx.taskGroups.create({
 		...common,
-		targets: args.targets,
-		nodeIds,
-		// An exec group chooses text or status; a file operation always keeps each node's head.
+		targets: resolved.targets,
+		nodeIds: resolved.nodeIds,
+		// An exec task group chooses text or status; a file operation always keeps each node's head.
 		outputMode: args.output,
 		parallel: args.parallel,
 		failFast: args.fail_fast,
 		...(ctx.callKey ? { id: derivedId(`group:${ctx.callKey}`) } : {}),
 	});
-	const group = await waitGroupFor(ctx, id, waitMs);
-	return { kind: "group", group, names: await nodeNames(ctx, nodeIds) };
+	const taskGroup = await waitTaskGroupFor(ctx, id, waitMs);
+	return { kind: "task_group", taskGroup, names: await nodeNames(ctx, resolved.nodeIds) };
 }
 
 /** Runs a spec and renders the task or task group the way every tool but read_file does. */
@@ -501,7 +505,7 @@ async function run(ctx: ToolContext, args: RunTargets, spec: TaskSpec, input?: U
 	const started = await start(ctx, args, spec, input);
 	return started.kind === "task"
 		? taskResult(started.task, started.nodeName, ctx)
-		: groupResult(started.group, started.names, ctx);
+		: taskGroupResult(started.taskGroup, started.names, ctx);
 }
 
 /** The page one file.read task reports as its result (doc/protocol.md TaskResult). */
@@ -633,15 +637,17 @@ function readHeadResult(
 	return base;
 }
 
-/** The same file on several nodes: one entry per node, each page under the group's output budget. */
-function readGroup(
+/** The same file on several nodes: one entry per node, each page under the task group's output budget. */
+function readTaskGroup(
 	ctx: ToolContext,
-	group: TaskGroupView,
+	taskGroup: TaskGroupView,
 	names: Map<string, string>,
 	path: string,
 	startLine: number,
 ): Record<string, unknown> {
-	return groupResult(group, names, ctx, (task, nodeName) => readHeadResult(ctx, task, nodeName, path, startLine));
+	return taskGroupResult(taskGroup, names, ctx, (task, nodeName) =>
+		readHeadResult(ctx, task, nodeName, path, startLine),
+	);
 }
 
 function define<S extends z.ZodType>(tool: ClusterTool<S>): ClusterTool<S> {
@@ -651,8 +657,8 @@ function define<S extends z.ZodType>(tool: ClusterTool<S>): ClusterTool<S> {
 const listNodes = define({
 	name: "list_nodes",
 	description:
-		"List the nodes you can use (your own and those shared with you), with their groups, status and whether " +
-		"you may run tasks on them.",
+		"List the nodes you can use (your own and those shared with you), with their node groups, status and " +
+		"whether you may run tasks on them.",
 	input: z.object({}),
 	readOnly: true,
 	handler: async (_args, ctx) => {
@@ -664,7 +670,7 @@ const listNodes = define({
 				status: n.status,
 				transport: n.transport,
 				connected: n.transport === "ssh" ? undefined : ctx.cluster.isConnected(n.id),
-				groups: n.groups,
+				nodeGroups: n.nodeGroups,
 				hostname: n.hostname,
 				os: n.facts?.osPrettyName ?? n.facts?.osId,
 				can_run_tasks: n.access !== "view" && n.status === "active",
@@ -723,12 +729,14 @@ async function readNotes(ctx: ToolContext, nodeId: string, path: string): Promis
 const nodeInfo = define({
 	name: "node_info",
 	description:
-		"Facts about one node (OS, kernel, architecture, init system, package managers, groups) and its notes: a " +
+		"Facts about one node (OS, kernel, architecture, init system, package managers, node groups) and its notes: a " +
 		"Markdown file on the node that people and agents keep up to date. Edit the notes with edit_file/write_file.",
 	input: z.object({ node: nodeField }),
 	readOnly: true,
 	handler: async (args, ctx) => {
-		const node = (await listNodesForUser(ctx.db, ctx.user)).find((n) => n.name === args.node || n.id === args.node);
+		const node = (await listNodesForUser(ctx.db, ctx.user)).find(
+			(n) => n.id === args.node || nameKey(n.name) === nameKey(args.node),
+		);
 		if (!node) throw new UserError(`no node ${args.node} that you can see`);
 		const row = await getNode(ctx.db, node.id);
 		const notesPath = node.facts?.notesPath;
@@ -738,7 +746,7 @@ const nodeInfo = define({
 			id: node.id,
 			transport: node.transport,
 			status: node.status,
-			groups: node.groups,
+			nodeGroups: node.nodeGroups,
 			hostname: node.hostname,
 			client_version: node.clientVersion,
 			last_seen_at: node.lastSeenAt,
@@ -823,7 +831,7 @@ const readFile = define({
 		const started = await start(ctx, args, spec);
 		return started.kind === "task"
 			? readOnNode(ctx, started.task, started.nodeName, args.path, startLine)
-			: readGroup(ctx, started.group, started.names, args.path, startLine);
+			: readTaskGroup(ctx, started.taskGroup, started.names, args.path, startLine);
 	},
 });
 
@@ -912,12 +920,16 @@ const taskWait = define({
 	handler: async (args, ctx) => {
 		const waitMs = (args.wait ?? ctx.defaultWaitS ?? DEFAULT_WAIT_S) * 1000;
 		if (args.task_group_id) {
-			const g = await ctx.groups.get(args.task_group_id);
-			if (!g || g.onBehalfOfUserId !== ctx.user.userId || !(await mayActFor(ctx, g.actorType, g.actorId))) {
+			const taskGroup = await ctx.taskGroups.get(args.task_group_id);
+			if (
+				!taskGroup ||
+				taskGroup.onBehalfOfUserId !== ctx.user.userId ||
+				!(await mayActFor(ctx, taskGroup.actorType, taskGroup.actorId))
+			) {
 				throw new UserError("no such task group");
 			}
-			const done = await waitGroupFor(ctx, g.id, waitMs);
-			return groupResult(done, await nodeNames(ctx, done.nodeIds), ctx);
+			const done = await waitTaskGroupFor(ctx, taskGroup.id, waitMs);
+			return taskGroupResult(done, await nodeNames(ctx, done.nodeIds), ctx);
 		}
 		if (!args.task_id) throw new UserError("give task_id or task_group_id");
 		const t = await ownTask(ctx, args.task_id);

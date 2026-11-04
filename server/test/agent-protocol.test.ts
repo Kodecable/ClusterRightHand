@@ -119,6 +119,7 @@ describe("agent wire protocol", () => {
 				org_id: await defaultOrgId(db),
 				owner_user_id: owner.userId,
 				name,
+				name_key: name.toLowerCase(),
 				transport: "client",
 				status,
 				public_key: Buffer.from(publicKey).toString("base64"),
@@ -791,8 +792,8 @@ describe("agent wire protocol", () => {
 			body: { kind: "exec", shell: "true", targets: [node.id], waitMs: 0 },
 		});
 		expect(res.status).toBe(201);
-		const created = (await res.json()) as { group: { outputMode: string } };
-		expect(created.group.outputMode).toBe("status");
+		const created = (await res.json()) as { taskGroup: { outputMode: string } };
+		expect(created.taskGroup.outputMode).toBe("status");
 		await waitFor("task.start", () => starts.length === 1);
 		expect(starts[0]?.output).toEqual({ kind: "status" });
 	});

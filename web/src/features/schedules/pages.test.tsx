@@ -13,6 +13,7 @@ const SCHEDULE: ScheduleView = {
 	model: { provider: "faux", modelId: "faux-1" },
 	preset: "ask",
 	rules: [],
+	refs: {},
 	tokenBudget: null,
 	cron: "0 9 * * *",
 	timezone: "Not/AZone",
