@@ -16,7 +16,7 @@ import type {
 } from "@earendil-works/pi-durable";
 import { sql } from "kysely";
 import pg from "pg";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import { PgStorage } from "../src/agent/pg-storage.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
@@ -28,7 +28,8 @@ import type { RetentionConfig } from "../src/config.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { type Db, openAgentStorage, openDb } from "../src/storage/db.ts";
 import { migrateToLatest } from "../src/storage/migrate.ts";
-import { AUDIT_SEQ_FLOOR, runRetention } from "../src/storage/retention.ts";
+import type { RetentionCounts, RetentionOptions } from "../src/storage/retention.ts";
+import { AUDIT_SEQ_FLOOR, runRetention, startRetentionSweep } from "../src/storage/retention.ts";
 import type { TaskState as ClusterTaskState, TaskGroupState } from "../src/storage/schema.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
@@ -728,5 +729,157 @@ describeBackends("durable task retention and the agent runtime", (backend) => {
 			await opened?.close().catch(() => {});
 			await fixture.close();
 		}
+	});
+});
+
+describe("retention sweep scheduler", () => {
+	const CONFIG: RetentionConfig = { tasksMs: 90 * DAY, auditMs: 180 * DAY, piTasksMs: 7 * DAY };
+	const COUNTS: RetentionCounts = { tasks: 0, taskGroups: 0, authorizations: 0, auditEvents: 0, piTasks: 0 };
+	const STARTUP_DELAY_MS = 5_000;
+	const INTERVAL_MS = 60_000;
+
+	beforeEach(() => {
+		vi.useFakeTimers();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.restoreAllMocks();
+	});
+
+	/** Records a call's signal, failing the test if the scheduler ever runs without one. */
+	const recordSignal = (signals: AbortSignal[], options: RetentionOptions): void => {
+		const signal = options.signal;
+		if (signal === undefined) throw new Error("startRetentionSweep must pass a signal");
+		signals.push(signal);
+	};
+
+	/** A run that resolves at once, so the next tick is free to start. */
+	const immediateRun = (): { run: typeof runRetention; signals: AbortSignal[] } => {
+		const signals: AbortSignal[] = [];
+		const run = ((_db: Db, _retention: RetentionConfig, _now: Date, options: RetentionOptions = {}) => {
+			recordSignal(signals, options);
+			return Promise.resolve(COUNTS);
+		}) as typeof runRetention;
+		return { run, signals };
+	};
+
+	/** A run whose calls stay pending until the test settles them by call index. */
+	const controllableRun = (): {
+		run: typeof runRetention;
+		signals: AbortSignal[];
+		resolve(index: number): void;
+		reject(index: number, err: unknown): void;
+	} => {
+		const signals: AbortSignal[] = [];
+		const settle: { resolve(): void; reject(err: unknown): void }[] = [];
+		const run = ((_db: Db, _retention: RetentionConfig, _now: Date, options: RetentionOptions = {}) => {
+			recordSignal(signals, options);
+			return new Promise<RetentionCounts>((resolve, reject) => {
+				settle.push({ resolve: () => resolve(COUNTS), reject });
+			});
+		}) as typeof runRetention;
+		return {
+			run,
+			signals,
+			resolve: (index) => settle[index]?.resolve(),
+			reject: (index, err) => settle[index]?.reject(err),
+		};
+	};
+
+	/** Starts the sweep with short, explicit timings; the run is a fake, so no database is touched. */
+	const start = (run: typeof runRetention) =>
+		startRetentionSweep({} as Db, CONFIG, { startupDelayMs: STARTUP_DELAY_MS, intervalMs: INTERVAL_MS, run });
+
+	it("runs once after the startup delay and then once per interval", async () => {
+		const { run, signals } = immediateRun();
+		const sweep = start(run);
+
+		await vi.advanceTimersByTimeAsync(STARTUP_DELAY_MS - 1);
+		expect(signals).toHaveLength(0);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(signals).toHaveLength(1);
+
+		await vi.advanceTimersByTimeAsync(INTERVAL_MS);
+		expect(signals).toHaveLength(2);
+		await vi.advanceTimersByTimeAsync(3 * INTERVAL_MS);
+		expect(signals).toHaveLength(5);
+
+		await sweep.stop();
+	});
+
+	it("does not overlap runs while the previous one is still in flight", async () => {
+		const fake = controllableRun();
+		const sweep = start(fake.run);
+
+		await vi.advanceTimersByTimeAsync(STARTUP_DELAY_MS);
+		expect(fake.signals).toHaveLength(1);
+
+		// Three interval ticks pass with the first run unresolved: each one is skipped.
+		await vi.advanceTimersByTimeAsync(3 * INTERVAL_MS);
+		expect(fake.signals).toHaveLength(1);
+
+		fake.resolve(0);
+		await vi.advanceTimersByTimeAsync(0);
+		await vi.advanceTimersByTimeAsync(INTERVAL_MS);
+		expect(fake.signals).toHaveLength(2);
+
+		fake.resolve(1);
+		await sweep.stop();
+	});
+
+	it("logs a rejected run and runs again on the next interval", async () => {
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		const failure = new Error("sweep exploded");
+		const fake = controllableRun();
+		const sweep = start(fake.run);
+
+		await vi.advanceTimersByTimeAsync(STARTUP_DELAY_MS);
+		expect(fake.signals).toHaveLength(1);
+
+		fake.reject(0, failure);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(error).toHaveBeenCalledWith("retention sweep failed:", failure);
+
+		await vi.advanceTimersByTimeAsync(INTERVAL_MS);
+		expect(fake.signals).toHaveLength(2);
+
+		fake.resolve(1);
+		await sweep.stop();
+	});
+
+	it("stop() aborts the in-flight run and waits for it to resolve", async () => {
+		const fake = controllableRun();
+		const sweep = start(fake.run);
+
+		await vi.advanceTimersByTimeAsync(STARTUP_DELAY_MS);
+		expect(fake.signals).toHaveLength(1);
+
+		let stopped = false;
+		const stopping = sweep.stop().then(() => {
+			stopped = true;
+		});
+		await vi.advanceTimersByTimeAsync(0);
+		expect(fake.signals[0]?.aborted).toBe(true);
+		expect(stopped).toBe(false);
+
+		fake.resolve(0);
+		await stopping;
+		expect(stopped).toBe(true);
+
+		await vi.advanceTimersByTimeAsync(10 * INTERVAL_MS);
+		expect(fake.signals).toHaveLength(1);
+	});
+
+	it("stop() before the startup delay prevents any run", async () => {
+		const fake = controllableRun();
+		const sweep = start(fake.run);
+
+		await vi.advanceTimersByTimeAsync(STARTUP_DELAY_MS - 1);
+		expect(fake.signals).toHaveLength(0);
+		await sweep.stop();
+
+		await vi.advanceTimersByTimeAsync(10 * INTERVAL_MS);
+		expect(fake.signals).toHaveLength(0);
 	});
 });

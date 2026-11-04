@@ -91,14 +91,16 @@ export async function runRetention(
 export function startRetentionSweep(
 	db: Db,
 	retention: RetentionConfig,
-	options: { startupDelayMs?: number; intervalMs?: number } = {},
+	/** `run` exists for tests, which replace it so the scheduler runs without a database. */
+	options: { startupDelayMs?: number; intervalMs?: number; run?: typeof runRetention } = {},
 ): RetentionSweep {
 	const abort = new AbortController();
+	const run = options.run ?? runRetention;
 	let running: Promise<void> | null = null;
 	const tick = (): void => {
 		// Skip a tick while the previous run is still going, or when stop() already aborted (a queued tick).
 		if (running !== null || abort.signal.aborted) return;
-		running = runRetention(db, retention, new Date(), { signal: abort.signal })
+		running = run(db, retention, new Date(), { signal: abort.signal })
 			.then(() => {})
 			.catch((err: unknown) => console.error("retention sweep failed:", err))
 			.finally(() => {
