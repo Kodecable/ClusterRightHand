@@ -10,6 +10,8 @@ export interface RetentionConfig {
 	tasksMs: number | null;
 	/** Audit events. */
 	auditMs: number | null;
+	/** Terminal durable agent tasks (pi_tasks); see storage/retention.ts. */
+	piTasksMs: number | null;
 }
 
 /** WebAuthn relying-party settings (doc/privilege.md#签名方式); empty values mean "derive per request". */
@@ -43,6 +45,8 @@ export const DEFAULT_RP_NAME = "ClusterRightHand";
 export const DEFAULT_RETENTION_TASKS_MS = 90 * 24 * 60 * 60 * 1000;
 /** Audit events are kept for 180 days by default. */
 export const DEFAULT_RETENTION_AUDIT_MS = 180 * 24 * 60 * 60 * 1000;
+/** Terminal durable agent tasks are kept for 7 days by default: after that they are only bookkeeping. */
+export const DEFAULT_RETENTION_PI_TASKS_MS = 7 * 24 * 60 * 60 * 1000;
 /**
  * The shortest retention (doc/data-model.md#保留期): a durable tool call that reruns after a crash reattaches
  * to its cluster task by id (cluster/task-state.ts createTask), so deleting the row too soon could dispatch
@@ -117,10 +121,11 @@ export function parseConfig(text: string): Config {
 /** `[retention]`: a duration or "off" (null, keep forever); the default applies when the key is absent. */
 function retentionConfig(raw: Record<string, unknown>): RetentionConfig {
 	const table_ = table(raw, "retention");
-	rejectUnknown(table_, "retention.", ["tasks", "audit"]);
+	rejectUnknown(table_, "retention.", ["tasks", "audit", "pi_tasks"]);
 	return {
 		tasksMs: retentionDuration(table_.tasks, "retention.tasks", DEFAULT_RETENTION_TASKS_MS),
 		auditMs: retentionDuration(table_.audit, "retention.audit", DEFAULT_RETENTION_AUDIT_MS),
+		piTasksMs: retentionDuration(table_.pi_tasks, "retention.pi_tasks", DEFAULT_RETENTION_PI_TASKS_MS),
 	};
 }
 

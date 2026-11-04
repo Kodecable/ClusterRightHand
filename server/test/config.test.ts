@@ -10,7 +10,11 @@ describe("parseConfig", () => {
 			webRoot: expect.stringMatching(/web\/dist$/),
 			clockWarnMs: 60_000,
 			webauthn: { rpId: null, rpName: "ClusterRightHand", origins: [] },
-			retention: { tasksMs: 90 * 24 * 60 * 60 * 1000, auditMs: 180 * 24 * 60 * 60 * 1000 },
+			retention: {
+				tasksMs: 90 * 24 * 60 * 60 * 1000,
+				auditMs: 180 * 24 * 60 * 60 * 1000,
+				piTasksMs: 7 * 24 * 60 * 60 * 1000,
+			},
 		});
 	});
 
@@ -47,23 +51,27 @@ describe("parseConfig", () => {
 	});
 
 	it("reads the retention table with day units and off", () => {
-		expect(parseConfig('[retention]\ntasks = "1d"\naudit = "1d12h"\n').retention).toEqual({
+		expect(parseConfig('[retention]\ntasks = "1d"\naudit = "1d12h"\npi_tasks = "3d"\n').retention).toEqual({
 			tasksMs: 24 * 60 * 60 * 1000,
 			auditMs: 36 * 60 * 60 * 1000,
+			piTasksMs: 3 * 24 * 60 * 60 * 1000,
 		});
 		expect(parseConfig('[retention]\ntasks = "off"\naudit = "180d"\n').retention).toEqual({
 			tasksMs: null,
 			auditMs: 180 * 24 * 60 * 60 * 1000,
+			piTasksMs: 7 * 24 * 60 * 60 * 1000,
 		});
-		expect(parseConfig('[retention]\naudit = "off"\n').retention).toEqual({
+		expect(parseConfig('[retention]\naudit = "off"\npi_tasks = "off"\n').retention).toEqual({
 			tasksMs: 90 * 24 * 60 * 60 * 1000,
 			auditMs: null,
+			piTasksMs: null,
 		});
 	});
 
 	it("rejects retention below one day and unknown retention keys", () => {
 		expect(() => parseConfig('[retention]\ntasks = "23h"\n')).toThrow(/retention\.tasks.*1d/);
 		expect(() => parseConfig('[retention]\naudit = "0s"\n')).toThrow(/retention\.audit.*1d/);
+		expect(() => parseConfig('[retention]\npi_tasks = "23h"\n')).toThrow(/retention\.pi_tasks.*1d/);
 		expect(() => parseConfig('[retention]\ntasks = "90"\n')).toThrow(/retention\.tasks/);
 		expect(() => parseConfig('[retention]\nkeep = "90d"\n')).toThrow(/unknown configuration key retention\.keep/);
 	});
