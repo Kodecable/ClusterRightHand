@@ -14,6 +14,7 @@ import { up as up0031 } from "../src/storage/migrations/0031_task_result.ts";
 import { up as up0032 } from "../src/storage/migrations/0032_token_measures.ts";
 import { down as down0033, up as up0033 } from "../src/storage/migrations/0033_drop_authorization_revocation.ts";
 import { down as down0034, up as up0034 } from "../src/storage/migrations/0034_drop_audit_hash_chain.ts";
+import { down as down0035, up as up0035 } from "../src/storage/migrations/0035_retention_indexes.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -793,5 +794,56 @@ describeBackends("0034 drop audit hash chain", (backend) => {
 			select prev_hash, hash from audit_events where seq = 1
 		`.execute(db);
 		expect(hashes.rows).toEqual([{ prev_hash: null, hash: null }]);
+	});
+});
+
+describeBackends("0035 retention indexes", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			for (const [table, column] of [
+				["tasks", "finished_at"],
+				["task_groups", "finished_at"],
+				["audit_events", "ts"],
+			] as const) {
+				await db.schema
+					.createTable(table)
+					.addColumn("id", "text", (c) => c.primaryKey())
+					.addColumn(column, "text")
+					.execute();
+			}
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	const indexNames = async (): Promise<string[]> => {
+		if (backend === "sqlite") {
+			const result = await sql<{ name: string }>`
+				select name from sqlite_master
+				where type = 'index' and name in ('audit_events_ts_idx', 'task_groups_finished_at_idx', 'tasks_finished_at_idx')
+				order by name
+			`.execute(db);
+			return result.rows.map((row) => row.name);
+		}
+		const result = await sql<{ name: string }>`
+			select indexname as name from pg_indexes
+			where schemaname = current_schema()
+				and indexname in ('audit_events_ts_idx', 'task_groups_finished_at_idx', 'tasks_finished_at_idx')
+			order by indexname
+		`.execute(db);
+		return result.rows.map((row) => row.name);
+	};
+
+	it("indexes the retention sweep's timestamp columns and drops them on rollback", async () => {
+		await applyMigration(backend, db, up0035);
+		expect(await indexNames()).toEqual(["audit_events_ts_idx", "task_groups_finished_at_idx", "tasks_finished_at_idx"]);
+
+		await applyMigration(backend, db, down0035);
+		expect(await indexNames()).toEqual([]);
 	});
 });

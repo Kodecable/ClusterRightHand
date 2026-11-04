@@ -23,6 +23,7 @@ import { loadAuthorizationSigningKey } from "./privilege/key.ts";
 import { Scheduler } from "./scheduler/scheduler.ts";
 import { type Db, openAgentStorage, openDb } from "./storage/db.ts";
 import { migrateToLatest } from "./storage/migrate.ts";
+import { startRetentionSweep } from "./storage/retention.ts";
 import { createUser, findUserByUsername, setPassword, UserError } from "./users/service.ts";
 
 const USAGE = `usage: crhs [--config <path>] <command>
@@ -222,7 +223,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	server.on("upgrade", (req, socket, head) => {
 		if (!agents.handleUpgrade(req, socket, head)) socket.destroy();
 	});
-	// The last sweep is awaited at shutdown, so it cannot write after the database is destroyed.
+	// The last sweeps are awaited at shutdown, so they cannot write after the database is destroyed.
 	let sweepRun: Promise<void> = Promise.resolve();
 	// Every five minutes: expired login sessions, and signature waits past their deadline (D98).
 	const sweep = setInterval(
@@ -236,6 +237,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		},
 		5 * 60 * 1000,
 	);
+	// Retention deletes rows past their configured age: once shortly after startup, then hourly.
+	const retention = startRetentionSweep(db, config.retention);
 	let shuttingDown = false;
 	// Awaited end to end, so nothing writes to the database after db.destroy().
 	const shutdown = async () => {
@@ -246,6 +249,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		drain.begin();
 		agents.stopAccepting();
 		await sweepRun;
+		await retention.stop();
 		// 2. Stop the scheduler before the agent runtime closes: it must not start another submit, and an
 		// in-flight one is awaited here (doc/scheduling.md). Then close the agent runtime before ending any wait.
 		// An agent tool call is a durable task, not a request: the Harness aborts and joins it without recording

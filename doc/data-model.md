@@ -162,3 +162,21 @@ audit_events      (seq, id, org_id, ts, actor_type, actor_id, on_behalf_of_user_
                    action, target_type, target_id, detail json)
                   -- seq 由数据库生成（SQLite rowid / PostgreSQL identity bigint），单调递增，审计只追加写入，见 access-control.md#防篡改
 ```
+
+## 保留期
+
+`crhs.toml` 的 `[retention]` 表决定旧行何时被清理：
+
+```toml
+[retention]
+tasks = "90d"    # 任务、任务组、授权；"off" 表示永久保留
+audit = "180d"   # 审计事件；"off" 表示永久保留
+```
+
+- `tasks`（默认 `90d`）同时作用于 `tasks`、`task_groups` 和 `authorizations`；`audit`（默认 `180d`）作用于 `audit_events`。值可以是 `ms` / `s` / `m` / `h` / `d` 组合的时长（如 `1d12h`），`off` 表示不清理。
+- 除 `off` 外最短 1 天，配置更短会启动失败。durable 工具调用在崩溃后重跑时按任务 id 重新挂到原来的集群任务（`cluster/task-state.ts` 的 `createTask`）；如果任务行已被删掉，同一条命令会被再次下发。
+- `tasks`：只删终态（`exited`、`failed`、`rejected`、`unknown`、`denied`）且 `finished_at < 截止时间`的行；非终态（等待审批/授权、已下发、运行中）和 `finished_at` 为 NULL 的行无论多老都保留。
+- `task_groups`：只删终态（`finished`、`interrupted`、`rejected`）且 `finished_at < 截止时间`的行。
+- `authorizations`：删 `deadline < 截止时间`的行（D103 起每条授权都有截止时间）；`deadline` 为 NULL 的旧行保留。
+- `audit_events`：删 `ts < 截止时间` 且 `seq <= max(seq) - 16384` 的行。保留最新 16384 个序号（按序号距离，不按行数，允许空洞）：SQLite 的 `seq` 是 rowid（没有 AUTOINCREMENT），删空表后编号会从头开始；时钟大幅前跳时也不会把整份日志清空，持有 `max(seq)` 的行永远不会被删。
+- 清理在启动后不久运行一次，之后每小时一次；每次按 1000 行一批（先查主键，再按键删除），批间让出事件循环。关闭时在批间中止并等待当前清理结束。

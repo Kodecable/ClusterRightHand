@@ -4,6 +4,14 @@ import { parse } from "smol-toml";
 
 export type DatabaseConfig = { driver: "sqlite"; path: string } | { driver: "postgres"; url: string };
 
+/** How long rows are kept before the retention sweep deletes them; null keeps them forever (doc/data-model.md#保留期). */
+export interface RetentionConfig {
+	/** Terminal tasks, terminal task groups and expired authorizations. */
+	tasksMs: number | null;
+	/** Audit events. */
+	auditMs: number | null;
+}
+
 /** WebAuthn relying-party settings (doc/privilege.md#签名方式); empty values mean "derive per request". */
 export interface WebauthnConfig {
 	/** The RP ID a Passkey is registered for; null derives it from the request's Origin hostname. */
@@ -23,33 +31,45 @@ export interface Config {
 	clockWarnMs: number;
 	/** Passkey registration settings. */
 	webauthn: WebauthnConfig;
+	/** When the retention sweep deletes old rows. */
+	retention: RetentionConfig;
 }
 
 export const DEFAULT_CONFIG_PATH = "/etc/crhs/crhs.toml";
 /** crhs warns when a node's clock differs by more than 60 s (doc/privilege.md#时钟). */
 export const DEFAULT_CLOCK_WARN_MS = 60_000;
 export const DEFAULT_RP_NAME = "ClusterRightHand";
+/** Tasks, task groups and authorizations are kept for 90 days by default. */
+export const DEFAULT_RETENTION_TASKS_MS = 90 * 24 * 60 * 60 * 1000;
+/** Audit events are kept for 180 days by default. */
+export const DEFAULT_RETENTION_AUDIT_MS = 180 * 24 * 60 * 60 * 1000;
+/**
+ * The shortest retention (doc/data-model.md#保留期): a durable tool call that reruns after a crash reattaches
+ * to its cluster task by id (cluster/task-state.ts createTask), so deleting the row too soon could dispatch
+ * the command a second time.
+ */
+export const MIN_RETENTION_MS = 24 * 60 * 60 * 1000;
 
-const DURATION_UNITS: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 };
+const DURATION_UNITS: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
 
 /**
- * A TOML duration such as "60s", "5m" or "1h30m" (the units crha's Go `time.ParseDuration` uses, without
- * fractions). The value must be a string: a bare number would be read as seconds by some and as
+ * A TOML duration such as "60s", "5m", "1h30m" or "1d12h" (the units crha's Go `time.ParseDuration` uses,
+ * without fractions). The value must be a string: a bare number would be read as seconds by some and as
  * milliseconds by others.
  */
 export function parseDurationMs(value: unknown, name: string): number {
 	if (typeof value !== "string" || value.trim() === "") {
-		throw new Error(`${name} must be a duration string such as "60s" or "5m"`);
+		throw new Error(`${name} must be a duration string such as "60s", "5m" or "1d"`);
 	}
 	const text = value.trim();
 	let total = 0;
 	let offset = 0;
-	for (const match of text.matchAll(/(\d+)(ms|s|m|h)/g)) {
+	for (const match of text.matchAll(/(\d+)(ms|s|m|h|d)/g)) {
 		if (match.index !== offset) break;
 		total += Number(match[1]) * (DURATION_UNITS[match[2] as string] as number);
 		offset = match.index + match[0].length;
 	}
-	if (offset !== text.length) throw new Error(`${name} must be a duration such as "60s" or "5m", got ${value}`);
+	if (offset !== text.length) throw new Error(`${name} must be a duration such as "60s", "5m" or "1d", got ${value}`);
 	return total;
 }
 
@@ -59,7 +79,7 @@ export async function loadConfig(path: string): Promise<Config> {
 
 export function parseConfig(text: string): Config {
 	const raw = parse(text);
-	rejectUnknown(raw, "", ["listen", "database", "master_key_file", "web_root", "clock_warn", "webauthn"]);
+	rejectUnknown(raw, "", ["listen", "database", "master_key_file", "web_root", "clock_warn", "webauthn", "retention"]);
 	const listen = table(raw, "listen");
 	const database = table(raw, "database");
 	rejectUnknown(listen, "listen.", ["host", "port"]);
@@ -90,7 +110,30 @@ export function parseConfig(text: string): Config {
 		webRoot: str(raw, "web_root", "web_root", fileURLToPath(new URL("../../web/dist", import.meta.url))),
 		clockWarnMs: clockWarn,
 		webauthn: webauthnConfig(raw),
+		retention: retentionConfig(raw),
 	};
+}
+
+/** `[retention]`: a duration or "off" (null, keep forever); the default applies when the key is absent. */
+function retentionConfig(raw: Record<string, unknown>): RetentionConfig {
+	const table_ = table(raw, "retention");
+	rejectUnknown(table_, "retention.", ["tasks", "audit"]);
+	return {
+		tasksMs: retentionDuration(table_.tasks, "retention.tasks", DEFAULT_RETENTION_TASKS_MS),
+		auditMs: retentionDuration(table_.audit, "retention.audit", DEFAULT_RETENTION_AUDIT_MS),
+	};
+}
+
+function retentionDuration(value: unknown, name: string, fallback: number): number | null {
+	if (value === undefined) return fallback;
+	if (value === "off") return null;
+	const ms = parseDurationMs(value, name);
+	if (ms < MIN_RETENTION_MS) {
+		throw new Error(
+			`${name} must be "off" or at least "1d": a shorter window could delete a task whose durable tool call reruns after a crash`,
+		);
+	}
+	return ms;
 }
 
 /** `[webauthn]`: rp_id and origins go together; both absent means "derive from the request's Origin". */
