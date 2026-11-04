@@ -22,6 +22,27 @@ function applyMigration(backend: Backend, db: Db, migration: (db: Kysely<unknown
 	return withDdlLockOn(backend, () => migration(db as unknown as Kysely<unknown>));
 }
 
+/**
+ * Columns of the named table in this connection's own schema, or undefined when it does not exist.
+ *
+ * On PostgreSQL every test file gets its own schema in a shared database, and Kysely's introspector
+ * enumerates all of them, so it fails when a parallel file drops its schema mid-introspection. Querying
+ * information_schema.columns for current_schema() reads this connection's own schema only. SQLite has a
+ * single, unnamed schema and its in-memory introspection is per-file, so that path stays introspective.
+ */
+async function tableColumns(backend: Backend, db: Db, name: string): Promise<string[] | undefined> {
+	if (backend === "postgres") {
+		const result = await sql<{ column_name: string }>`
+			select column_name from information_schema.columns
+			where table_schema = current_schema() and table_name = ${name}
+			order by ordinal_position
+		`.execute(db);
+		return result.rows.length === 0 ? undefined : result.rows.map((row) => row.column_name);
+	}
+	const table = (await db.introspection.getTables()).find((candidate) => candidate.name === name);
+	return table?.columns.map((column) => column.name);
+}
+
 const SHA = Buffer.alloc(32, 0xab).toString("base64");
 const SHA_HEX = Buffer.alloc(32, 0xab).toString("hex");
 const EMPTY_SHA256 = createHash("sha256").update("").digest("hex");
@@ -731,15 +752,15 @@ describeBackends("0033 drop authorization revocation", (backend) => {
 
 	it("drops revoked_at and keeps every row", async () => {
 		await applyMigration(backend, db, up0033);
-		const table = (await db.introspection.getTables()).find((candidate) => candidate.name === "authorizations");
-		expect(table?.columns.map((column) => column.name)).toEqual(["id", "payload"]);
+		const columns = await tableColumns(backend, db, "authorizations");
+		expect(columns).toEqual(["id", "payload"]);
 		const rows = await db.selectFrom("authorizations").select(["id", "payload"]).execute();
 		expect(rows).toEqual([{ id: "a1", payload: "00" }]);
 
 		// Rolling back restores the column without a value, so the old code sees "not revoked".
 		await applyMigration(backend, db, down0033);
-		const restored = (await db.introspection.getTables()).find((candidate) => candidate.name === "authorizations");
-		expect(restored?.columns.map((column) => column.name)).toContain("revoked_at");
+		const restored = await tableColumns(backend, db, "authorizations");
+		expect(restored).toContain("revoked_at");
 	});
 });
 
@@ -768,8 +789,8 @@ describeBackends("0034 drop audit hash chain", (backend) => {
 
 	it("drops prev_hash and hash, keeps every audit row and generates seq", async () => {
 		await applyMigration(backend, db, up0034);
-		const table = (await db.introspection.getTables()).find((candidate) => candidate.name === "audit_events");
-		expect(table?.columns.map((column) => column.name)).toEqual(["seq", "id"]);
+		const columns = await tableColumns(backend, db, "audit_events");
+		expect(columns).toEqual(["seq", "id"]);
 		const rows = await db.selectFrom("audit_events").select(["seq", "id"]).orderBy("seq").execute();
 		// PostgreSQL returns bigint as a string.
 		expect(rows.map((row) => ({ seq: Number(row.seq), id: row.id }))).toEqual([
@@ -788,8 +809,8 @@ describeBackends("0034 drop audit hash chain", (backend) => {
 
 		// Rolling back re-adds the columns, but the old hashes cannot be recomputed: they stay null.
 		await applyMigration(backend, db, down0034);
-		const restored = (await db.introspection.getTables()).find((candidate) => candidate.name === "audit_events");
-		expect(restored?.columns.map((column) => column.name)).toEqual(["seq", "id", "prev_hash", "hash"]);
+		const restored = await tableColumns(backend, db, "audit_events");
+		expect(restored).toEqual(["seq", "id", "prev_hash", "hash"]);
 		const hashes = await sql<{ prev_hash: string | null; hash: string | null }>`
 			select prev_hash, hash from audit_events where seq = 1
 		`.execute(db);
