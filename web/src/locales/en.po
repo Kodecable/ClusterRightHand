@@ -616,10 +616,6 @@ msgstr "Audit events"
 msgid "Audit filters"
 msgstr "Audit filters"
 
-#: src/features/audit/pages.tsx
-msgid "Audit verify"
-msgstr "Audit verify"
-
 #: src/components/task-result.tsx
 msgid "Authorization"
 msgstr "Authorization"
@@ -768,18 +764,6 @@ msgstr "Cancelled"
 #: src/features/schedules/schedule-form.tsx
 msgid "Catch up a missed trigger immediately"
 msgstr "Catch up a missed trigger immediately"
-
-#. placeholder {0}: result.brokenAt
-#. placeholder {1}: result.reason
-#. placeholder {2}: result.count
-#: src/features/audit/pages.tsx
-msgid "Chain broken at seq {0} ({1}) after {2} verified."
-msgstr "Chain broken at seq {0} ({1}) after {2} verified."
-
-#. placeholder {0}: result.count
-#: src/features/audit/pages.tsx
-msgid "Chain intact, {0} events."
-msgstr "Chain intact, {0} events."
 
 #: src/app/shell/user-menu.tsx
 #: src/features/auth/change-password-dialog.tsx
@@ -3743,10 +3727,6 @@ msgstr "Username"
 #: src/features/users/pages.tsx
 msgid "Users"
 msgstr "Users"
-
-#: src/features/audit/pages.tsx
-msgid "Verify chain"
-msgstr "Verify chain"
 
 #: src/features/nodes/node-shares.tsx
 #: src/features/sessions/share-dialog.tsx

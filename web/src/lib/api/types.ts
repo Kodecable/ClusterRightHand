@@ -266,7 +266,6 @@ export interface AuditEvent {
 	targetType: string | null;
 	targetId: string | null;
 	detail: Record<string, unknown>;
-	hash: string;
 }
 
 export interface AuditQuery extends CursorQuery {
@@ -274,8 +273,6 @@ export interface AuditQuery extends CursorQuery {
 	targetType?: string;
 	targetId?: string;
 }
-
-export type VerifyResult = { ok: true; count: number } | { ok: false; count: number; brokenAt: number; reason: string };
 
 /** One path of a task's authorization plan (doc/privilege.md#授权路径). */
 export interface PlannedPathView {

@@ -1,6 +1,7 @@
-import { PostgresAdapter, type Selectable } from "kysely";
+import type { Selectable } from "kysely";
 import { hashPassword } from "../auth/password.ts";
 import type { Db } from "../storage/db.ts";
+import { isPostgres } from "../storage/dialect.ts";
 import type { UsersTable } from "../storage/schema.ts";
 import { newId } from "../util/id.ts";
 
@@ -159,8 +160,4 @@ export async function updateUser(
 		if (Number(admins.n) === 0) throw new UserError("at least one active administrator is required");
 		return toPublicUser(row);
 	});
-}
-
-function isPostgres(db: Db): boolean {
-	return db.getExecutor().adapter instanceof PostgresAdapter;
 }

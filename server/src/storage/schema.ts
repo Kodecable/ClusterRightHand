@@ -1,4 +1,4 @@
-import type { ColumnType } from "kysely";
+import type { ColumnType, Generated } from "kysely";
 
 /** Timestamps are stored as ISO 8601 UTC strings on both dialects; see doc/data-model.md. */
 type CreatedAt = ColumnType<string, string, never>;
@@ -303,7 +303,11 @@ export interface RuleSetsTable {
 }
 
 export interface AuditEventsTable {
-	seq: number;
+	/**
+	 * Database-generated: SQLite's rowid (integer primary key) or PostgreSQL's identity bigint.
+	 * PostgreSQL returns bigint as a string; listAuditEvents converts it to a number.
+	 */
+	seq: Generated<number>;
 	id: string;
 	org_id: string;
 	ts: string;
@@ -315,8 +319,6 @@ export interface AuditEventsTable {
 	target_id: string | null;
 	/** Canonical JSON. */
 	detail: string;
-	prev_hash: string;
-	hash: string;
 }
 
 /** A session's run state (doc/agent-runtime.md#会话状态): roots and subagents share it. */

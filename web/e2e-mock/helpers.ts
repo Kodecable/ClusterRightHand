@@ -591,9 +591,6 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		}
 
 		// --- audit ---------------------------------------------------------
-		if (path === "/api/audit/verify") {
-			return json({ ok: true, count: state.audit.length });
-		}
 		if (path === "/api/audit" && method === "GET") {
 			const action = url.searchParams.get("action");
 			const targetType = url.searchParams.get("targetType");
@@ -1038,7 +1035,6 @@ export function auditEvent(overrides: Partial<AuditEvent> = {}): AuditEvent {
 		targetType: "task",
 		targetId: "task-1",
 		detail: { decision: "approved" },
-		hash: "hash-1",
 		...overrides,
 	};
 }

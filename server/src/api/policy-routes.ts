@@ -1,5 +1,5 @@
 import { type Context, Hono } from "hono";
-import { type Audit, listAuditEvents, userActor, verifyChain } from "../audit/audit.ts";
+import { type Audit, listAuditEvents, userActor } from "../audit/audit.ts";
 import { createApiToken, deleteApiToken, getApiToken, listApiTokens, revokeApiToken } from "../auth/api-tokens.ts";
 import type { ApprovalDecision, Cluster, TaskView } from "../cluster/cluster.ts";
 import type { TaskGroups, TaskGroupView } from "../cluster/task-groups.ts";
@@ -320,11 +320,6 @@ export function policyRoutes(db: Db, cluster: Cluster, groups: TaskGroups, audit
 			(event) => encodeCursor([event.seq], event.id),
 		);
 		return c.json({ items: page.rows, nextCursor: page.nextCursor });
-	});
-
-	app.get("/audit/verify", async (c) => {
-		if (c.get("user").kind !== "admin") return jsonError(c, 403, "administrators only");
-		return c.json(await verifyChain(db));
 	});
 
 	return app;

@@ -13,6 +13,7 @@ import { up as up0030 } from "../src/storage/migrations/0030_session_reconcile_i
 import { up as up0031 } from "../src/storage/migrations/0031_task_result.ts";
 import { up as up0032 } from "../src/storage/migrations/0032_token_measures.ts";
 import { down as down0033, up as up0033 } from "../src/storage/migrations/0033_drop_authorization_revocation.ts";
+import { down as down0034, up as up0034 } from "../src/storage/migrations/0034_drop_audit_hash_chain.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -738,5 +739,59 @@ describeBackends("0033 drop authorization revocation", (backend) => {
 		await applyMigration(backend, db, down0033);
 		const restored = (await db.introspection.getTables()).find((candidate) => candidate.name === "authorizations");
 		expect(restored?.columns.map((column) => column.name)).toContain("revoked_at");
+	});
+});
+
+describeBackends("0034 drop audit hash chain", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("audit_events")
+				.addColumn("seq", "integer", (c) => c.primaryKey())
+				.addColumn("id", "text", (c) => c.notNull())
+				.addColumn("prev_hash", "text", (c) => c.notNull())
+				.addColumn("hash", "text", (c) => c.notNull())
+				.execute();
+			await sql`insert into audit_events (seq, id, prev_hash, hash) values
+				(${1}, ${"e1"}, ${"0".repeat(64)}, ${"a".repeat(64)}),
+				(${4}, ${"e4"}, ${"b".repeat(64)}, ${"c".repeat(64)})`.execute(db);
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("drops prev_hash and hash, keeps every audit row and generates seq", async () => {
+		await applyMigration(backend, db, up0034);
+		const table = (await db.introspection.getTables()).find((candidate) => candidate.name === "audit_events");
+		expect(table?.columns.map((column) => column.name)).toEqual(["seq", "id"]);
+		const rows = await db.selectFrom("audit_events").select(["seq", "id"]).orderBy("seq").execute();
+		// PostgreSQL returns bigint as a string.
+		expect(rows.map((row) => ({ seq: Number(row.seq), id: row.id }))).toEqual([
+			{ seq: 1, id: "e1" },
+			{ seq: 4, id: "e4" },
+		]);
+
+		// The database now assigns seq: an insert that omits it gets max(seq)+1.
+		await sql`insert into audit_events (id) values (${"e5"})`.execute(db);
+		const appended = await db.selectFrom("audit_events").select(["seq", "id"]).orderBy("seq").execute();
+		expect(appended.map((row) => ({ seq: Number(row.seq), id: row.id }))).toEqual([
+			{ seq: 1, id: "e1" },
+			{ seq: 4, id: "e4" },
+			{ seq: 5, id: "e5" },
+		]);
+
+		// Rolling back re-adds the columns, but the old hashes cannot be recomputed: they stay null.
+		await applyMigration(backend, db, down0034);
+		const restored = (await db.introspection.getTables()).find((candidate) => candidate.name === "audit_events");
+		expect(restored?.columns.map((column) => column.name)).toEqual(["seq", "id", "prev_hash", "hash"]);
+		const hashes = await sql<{ prev_hash: string | null; hash: string | null }>`
+			select prev_hash, hash from audit_events where seq = 1
+		`.execute(db);
+		expect(hashes.rows).toEqual([{ prev_hash: null, hash: null }]);
 	});
 });

@@ -1,6 +1,6 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
-import { RefreshCwIcon, ShieldCheckIcon } from "lucide-react";
+import { RefreshCwIcon } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { CodeText } from "@/components/code-text";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
@@ -9,14 +9,12 @@ import { FieldShell } from "@/components/form";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
-import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useAuth } from "@/features/auth/session";
 import { useDirectory } from "@/features/users/api";
 import type { AuditEvent, AuditQuery } from "@/lib/api/types";
-import { useAuditEvents, useVerifyAudit } from "./api";
+import { useAuditEvents } from "./api";
 
 /** The actor's id, as a tooltip: the cell itself shows the display name when the directory has one. */
 function actorId(event: AuditEvent): string {
@@ -57,53 +55,13 @@ function TargetCell({ event }: { event: AuditEvent }) {
 	);
 }
 
-function VerifyPanel() {
-	const { t } = useLingui();
-	const verify = useVerifyAudit();
-	const result = verify.data;
-	return (
-		<div className="flex flex-wrap items-center gap-2">
-			<Button
-				type="button"
-				variant="outline"
-				size="sm"
-				disabled={verify.isFetching}
-				onClick={() => void verify.refetch()}
-			>
-				<ShieldCheckIcon />
-				<Trans>Verify chain</Trans>
-			</Button>
-			{result?.ok === true && (
-				<StatusBadge tone="ok">
-					<Trans>Chain intact, {result.count} events.</Trans>
-				</StatusBadge>
-			)}
-			{result?.ok === false && (
-				<StatusBadge tone="danger">
-					<Trans>
-						Chain broken at seq {result.brokenAt} ({result.reason}) after {result.count} verified.
-					</Trans>
-				</StatusBadge>
-			)}
-			{verify.isError && (
-				<span role="alert" className="text-sm text-danger">
-					{verify.error.message}
-				</span>
-			)}
-			<span className="sr-only">{t`Audit verify`}</span>
-		</div>
-	);
-}
-
 /**
  * The audit log (doc/access-control.md#审计): a cursor-paged table with action
- * and target filters, per-event detail, and the hash-chain verification for
- * administrators.
+ * and target filters and per-event detail.
  */
 export function AuditPage() {
 	const { t } = useLingui();
 	const prefix = useId();
-	const user = useAuth().user;
 	const directory = useDirectory();
 	const [action, setAction] = useState("");
 	const [targetType, setTargetType] = useState("");
@@ -180,7 +138,7 @@ export function AuditPage() {
 
 	return (
 		<Page data-testid="audit-page">
-			<PageHeader title={<Trans>Audit</Trans>} actions={user?.kind === "admin" ? <VerifyPanel /> : undefined} />
+			<PageHeader title={<Trans>Audit</Trans>} />
 			<form
 				className="flex flex-wrap items-start gap-2"
 				aria-label={t`Audit filters`}

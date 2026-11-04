@@ -159,6 +159,6 @@ schedule_runs     (id, schedule_id, fire_time, manual,
 
 ```
 audit_events      (seq, id, org_id, ts, actor_type, actor_id, on_behalf_of_user_id,
-                   action, target_type, target_id, detail json, prev_hash, hash)
-                  -- seq 单调递增；哈希链用于发现绕过 crhs 的改动，见 access-control.md#防篡改
+                   action, target_type, target_id, detail json)
+                  -- seq 由数据库生成（SQLite rowid / PostgreSQL identity bigint），单调递增，审计只追加写入，见 access-control.md#防篡改
 ```

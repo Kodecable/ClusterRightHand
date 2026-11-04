@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateKeyPair } from "@crh/noise";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Audit, verifyChain } from "../src/audit/audit.ts";
+import { Audit } from "../src/audit/audit.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -126,10 +126,9 @@ describe("graceful shutdown", () => {
 		expect(rejections).toEqual([]);
 		expect(consoleErrors.filter((line) => /database is not open|already been destroyed/i.test(line))).toEqual([]);
 
-		// The audit chain was written durably and still verifies on a fresh connection.
+		// The audit record was written durably and is readable on a fresh connection.
 		const reopened = openDb({ driver: "sqlite", path: join(dir, "crhs.db") });
 		try {
-			expect(await verifyChain(reopened)).toMatchObject({ ok: true });
 			const durable = await reopened
 				.selectFrom("audit_events")
 				.select(["action", "target_id"])

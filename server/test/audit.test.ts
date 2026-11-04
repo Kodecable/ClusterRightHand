@@ -1,12 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	Audit,
-	type AuditEvent,
-	canonicalJson,
-	GENESIS_HASH,
-	listAuditEvents,
-	verifyChain,
-} from "../src/audit/audit.ts";
+import { Audit, type AuditEvent, canonicalJson, listAuditEvents } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser } from "../src/users/service.ts";
@@ -30,7 +23,7 @@ describe("canonicalJson", () => {
 	});
 });
 
-describeBackends("audit chain", (backend) => {
+describeBackends("audit log", (backend) => {
 	let db: Db;
 	let audit: Audit;
 	let alice: SessionUser;
@@ -44,14 +37,16 @@ describeBackends("audit chain", (backend) => {
 		kind,
 	});
 	const rows = () => db.selectFrom("audit_events").selectAll().orderBy("seq").execute();
-	const seed = async (n: number) => {
-		for (let i = 1; i <= n; i++) {
-			await audit.record({
-				actor: { type: "user", id: "u", onBehalfOfUserId: null },
-				action: "test.event",
-				detail: { i },
-			});
-		}
+	/** PostgreSQL returns bigint as a string; the tests compare numbers. */
+	const seqs = async () => (await rows()).map((row) => Number(row.seq));
+	const record = (log: Audit, detail: unknown) =>
+		log.record({
+			actor: { type: "system", id: "test" },
+			action: "test.event",
+			detail: detail as Record<string, unknown>,
+		});
+	const seed = async (log: Audit, n: number, offset = 0) => {
+		for (let i = 1; i <= n; i++) await record(log, { i: offset + i });
 	};
 
 	beforeEach(async () => {
@@ -65,61 +60,49 @@ describeBackends("audit chain", (backend) => {
 		await db.destroy();
 	});
 
-	it("builds a chain from the genesis hash", async () => {
-		await seed(5);
+	it("appends records with increasing seq", async () => {
+		await seed(audit, 5);
 		await audit.flush();
 		const r = await rows();
-		expect(r.map((x) => x.seq)).toEqual([1, 2, 3, 4, 5]);
-		expect(r[0]?.prev_hash).toBe(GENESIS_HASH);
-		for (let i = 1; i < r.length; i++) expect(r[i]?.prev_hash).toBe(r[i - 1]?.hash);
-		expect(await verifyChain(db)).toEqual({ ok: true, count: 5 });
+		expect(r.map((x) => Number(x.seq))).toEqual([1, 2, 3, 4, 5]);
+		expect(r.map((x) => JSON.parse(x.detail))).toEqual([{ i: 1 }, { i: 2 }, { i: 3 }, { i: 4 }, { i: 5 }]);
 	});
 
-	it("an empty log verifies", async () => {
-		expect(await verifyChain(db)).toEqual({ ok: true, count: 0 });
-	});
-
-	it("concurrent records give a gap-free chain", async () => {
+	it("concurrent records get a gap-free sequence", async () => {
 		await Promise.all(
 			Array.from({ length: 20 }, (_, i) =>
 				audit.record({ actor: { type: "system", id: "x" }, action: "test.concurrent", detail: { i } }),
 			),
 		);
 		await audit.flush();
-		const r = await rows();
-		expect(r.map((x) => x.seq)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
-		expect(await verifyChain(db, 3)).toEqual({ ok: true, count: 20 });
+		expect(await seqs()).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
 	});
 
-	describe("verifyChain", () => {
-		beforeEach(async () => {
-			await seed(7);
-			await audit.flush();
-		});
+	it("continues after max(seq) after a new Audit is created on an existing database", async () => {
+		await seed(audit, 3);
+		await audit.flush();
+		const reopened = new Audit(db);
+		await seed(reopened, 2, 3);
+		await reopened.flush();
+		expect(await seqs()).toEqual([1, 2, 3, 4, 5]);
+	});
 
-		it("is ok across several pages", async () => {
-			expect(await verifyChain(db, 2)).toEqual({ ok: true, count: 7 });
-			expect(await verifyChain(db, 7)).toEqual({ ok: true, count: 7 });
-		});
+	it("two Audit instances on one database can both append without losing records", async () => {
+		const other = new Audit(db);
+		await Promise.all(Array.from({ length: 20 }, (_, i) => record(i % 2 === 0 ? audit : other, { i })));
+		await Promise.all([audit.flush(), other.flush()]);
+		const r = await rows();
+		expect(r.map((x) => Number(x.seq))).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+		expect(r.map((x) => (JSON.parse(x.detail) as { i: number }).i).sort((a, b) => a - b)).toEqual(
+			Array.from({ length: 20 }, (_, i) => i),
+		);
+	});
 
-		it("detects an edited detail", async () => {
-			await db.updateTable("audit_events").set({ detail: '{"i":99}' }).where("seq", "=", 4).execute();
-			expect(await verifyChain(db, 2)).toEqual({ ok: false, count: 3, brokenAt: 4, reason: "hash mismatch" });
-		});
-
-		it("detects a deleted middle row", async () => {
-			await db.deleteFrom("audit_events").where("seq", "=", 4).execute();
-			expect(await verifyChain(db, 2)).toEqual({ ok: false, count: 3, brokenAt: 4, reason: "missing record" });
-		});
-
-		it("detects an edited prev_hash", async () => {
-			await db
-				.updateTable("audit_events")
-				.set({ prev_hash: "f".repeat(64) })
-				.where("seq", "=", 5)
-				.execute();
-			expect(await verifyChain(db, 2)).toEqual({ ok: false, count: 4, brokenAt: 5, reason: "broken link" });
-		});
+	it("flush waits for in-flight appends", async () => {
+		const pending = Array.from({ length: 5 }, (_, i) => record(audit, { i }));
+		await audit.flush();
+		expect(await seqs()).toEqual([1, 2, 3, 4, 5]);
+		await Promise.all(pending);
 	});
 
 	describe("listAuditEvents", () => {

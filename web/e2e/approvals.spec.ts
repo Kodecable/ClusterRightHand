@@ -95,8 +95,6 @@ test("reject shows the reason on the task and the audit page lists the approval"
 	const row = page.getByRole("row").filter({ hasText: "task.approval" }).first();
 	await expect(row).toBeVisible({ timeout: 15_000 });
 	await expect(row.getByRole("link", { name: `Open task ${task.id}` })).toHaveAttribute("href", `/tasks/${task.id}`);
-	await page.getByRole("button", { name: "Verify chain" }).click();
-	await expect(page.getByText(/Chain intact/)).toBeVisible();
 	await row.getByRole("button", { name: /Detail of event/ }).click();
 	const dialog = page.getByRole("dialog", { name: /Event \d+/ });
 	await expect(dialog).toContainText("rejected");

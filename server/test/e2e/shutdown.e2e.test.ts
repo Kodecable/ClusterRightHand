@@ -116,10 +116,6 @@ describe.skipIf(!hasGo)("crhs SIGTERM shutdown with a connected node", () => {
 		await up();
 		await login();
 
-		const verify = await api("/api/audit/verify");
-		expect(verify.status).toBe(200);
-		expect(verify.json).toMatchObject({ ok: true });
-
 		const events = await api("/api/audit?action=node.disconnected");
 		expect(events.status).toBe(200);
 		expect(events.json.items).toHaveLength(1);

@@ -17,7 +17,6 @@ const EVENT: AuditEvent = {
 	targetType: "task",
 	targetId: "task-1",
 	detail: { decision: "approved" },
-	hash: "abc",
 };
 
 function mockAudit(): { urls: string[] } {
@@ -28,9 +27,7 @@ function mockAudit(): { urls: string[] } {
 			const url = String(input);
 			urls.push(url);
 			let body: unknown = {};
-			if (url.startsWith("/api/audit/verify")) {
-				body = { ok: true, count: 1 };
-			} else if (url.startsWith("/api/audit")) {
+			if (url.startsWith("/api/audit")) {
 				const cursor = new URL(url, "http://localhost").searchParams.get("cursor");
 				body = cursor === null ? { items: [EVENT], nextCursor: "next" } : { items: [], nextCursor: null };
 			} else if (url.startsWith("/api/directory")) {

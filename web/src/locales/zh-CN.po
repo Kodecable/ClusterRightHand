@@ -616,10 +616,6 @@ msgstr "审计事件"
 msgid "Audit filters"
 msgstr "审计过滤条件"
 
-#: src/features/audit/pages.tsx
-msgid "Audit verify"
-msgstr "审计校验"
-
 #: src/components/task-result.tsx
 msgid "Authorization"
 msgstr "授权"
@@ -768,18 +764,6 @@ msgstr "已取消"
 #: src/features/schedules/schedule-form.tsx
 msgid "Catch up a missed trigger immediately"
 msgstr "错过时立刻补触发一次"
-
-#. placeholder {0}: result.brokenAt
-#. placeholder {1}: result.reason
-#. placeholder {2}: result.count
-#: src/features/audit/pages.tsx
-msgid "Chain broken at seq {0} ({1}) after {2} verified."
-msgstr "哈希链在第 {0} 条（{1}）处断裂，已校验 {2} 条。"
-
-#. placeholder {0}: result.count
-#: src/features/audit/pages.tsx
-msgid "Chain intact, {0} events."
-msgstr "哈希链完好，共 {0} 个事件。"
 
 #: src/app/shell/user-menu.tsx
 #: src/features/auth/change-password-dialog.tsx
@@ -3743,10 +3727,6 @@ msgstr "用户名"
 #: src/features/users/pages.tsx
 msgid "Users"
 msgstr "用户"
-
-#: src/features/audit/pages.tsx
-msgid "Verify chain"
-msgstr "校验哈希链"
 
 #: src/features/nodes/node-shares.tsx
 #: src/features/sessions/share-dialog.tsx
