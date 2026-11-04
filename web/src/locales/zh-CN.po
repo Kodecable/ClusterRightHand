@@ -3464,6 +3464,14 @@ msgstr "会话正在等待审批。"
 msgid "The start line must be a whole number of at least 1."
 msgstr "起始行必须是不小于 1 的整数。"
 
+#: src/components/task-gone.tsx
+msgid "The task group was cleaned up or does not exist"
+msgstr "任务组已被清理或不存在"
+
+#: src/components/task-gone.tsx
+msgid "The task was cleaned up or does not exist"
+msgstr "任务已被清理或不存在"
+
 #: src/features/tasks/taskForm.ts
 msgid "The text to replace is required."
 msgstr "需要填写要替换的文本。"

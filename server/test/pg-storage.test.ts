@@ -43,6 +43,15 @@ async function withOpen<T>(storage: Storage, use: (storage: Storage) => Promise<
 	}
 }
 
+/** The catalog compression code of a table's `record` column: '' default, 'p' pglz, 'l' lz4. */
+async function recordCompression(pool: pg.Pool, schema: string, table: string): Promise<string | undefined> {
+	const { rows } = await pool.query<{ attcompression: string }>(
+		"select a.attcompression from pg_attribute a where a.attrelid = $1::regclass and a.attname = 'record'",
+		[`"${schema}"."${table}"`],
+	);
+	return rows[0]?.attcompression;
+}
+
 const suite = pgUrl ? describe : describe.skip;
 
 suite("PgStorage", () => {
@@ -106,6 +115,19 @@ suite("PgStorage", () => {
 			});
 			await withOpen(await PgStorage.open(pool, {}), async (storage) => {
 				expect(await storage.mintId()).toBe(502);
+			});
+		}));
+
+	it("sets pi_entries.record to lz4 on open, and reopening leaves it there", () =>
+		withSchema(async (pool, schema) => {
+			await withOpen(await PgStorage.open(pool, {}), async () => {
+				expect(await recordCompression(pool, schema, "pi_entries")).toBe("l");
+				// Only the entries table: the other pi tables keep their record column at the default.
+				expect(await recordCompression(pool, schema, "pi_tasks")).toBe("");
+			});
+			// The second open finds 'l' and does nothing.
+			await withOpen(await PgStorage.open(pool, {}), async () => {
+				expect(await recordCompression(pool, schema, "pi_entries")).toBe("l");
 			});
 		}));
 

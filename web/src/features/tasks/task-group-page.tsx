@@ -5,7 +5,9 @@ import { useMemo } from "react";
 import { ErrorState } from "@/components/error-state";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
+import { TaskGone } from "@/components/task-gone";
 import { useNodes } from "@/features/nodes/api";
+import { isNotFound } from "@/lib/api/client";
 import { useTaskGroup } from "./api";
 import { TaskGroupResult } from "./task-group-result";
 
@@ -25,6 +27,13 @@ export function TaskGroupPage() {
 		);
 	}
 	if (group.error !== null && group.error !== undefined) {
+		if (isNotFound(group.error)) {
+			return (
+				<div className="p-4">
+					<TaskGone group />
+				</div>
+			);
+		}
 		return (
 			<div className="p-4">
 				<ErrorState error={group.error} retry={() => void group.refetch()} />

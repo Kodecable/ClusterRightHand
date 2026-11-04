@@ -9,12 +9,14 @@ import type { KeyValueItem } from "@/components/key-value";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { TaskStatusBadge } from "@/components/status-badge";
+import { TaskGone } from "@/components/task-gone";
 import { TaskEvaluation, TaskFacts, TaskOutput } from "@/components/task-result";
 import { Button } from "@/components/ui/button";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
 import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
 import { useNodes } from "@/features/nodes/api";
 import { useDirectory } from "@/features/users/api";
+import { isNotFound } from "@/lib/api/client";
 import { taskActor } from "./actor";
 import { useCancelTask, useTask } from "./api";
 import { isTerminal } from "./output";
@@ -49,6 +51,13 @@ export function TaskPage() {
 		);
 	}
 	if (task.error !== null && task.error !== undefined) {
+		if (isNotFound(task.error)) {
+			return (
+				<div className="p-4">
+					<TaskGone />
+				</div>
+			);
+		}
 		return (
 			<div className="p-4">
 				<ErrorState error={task.error} retry={() => void task.refetch()} />

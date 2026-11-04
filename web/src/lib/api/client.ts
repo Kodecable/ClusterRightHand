@@ -95,6 +95,11 @@ export const http = {
 		request<T>(path, { ...options, method: "DELETE", body }),
 };
 
+/** Whether a query failed because the resource does not exist (the retention sweep removed it, for example). */
+export function isNotFound(error: unknown): boolean {
+	return error instanceof ApiError && error.status === 404;
+}
+
 /** A human-readable message for an unknown thrown value (server messages are not translated). */
 export function errorMessage(error: unknown): string {
 	if (error instanceof ApiError) return error.message;

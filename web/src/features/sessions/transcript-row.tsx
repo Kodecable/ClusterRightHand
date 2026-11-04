@@ -4,10 +4,12 @@ import { ChevronDownIcon, ChevronRightIcon, LoaderCircleIcon, WrenchIcon } from 
 import { useEffect, useState } from "react";
 import { CodeText } from "@/components/code-text";
 import { InternalLink } from "@/components/internal-link";
+import { TaskGone } from "@/components/task-gone";
 import { TaskResult } from "@/components/task-result";
 import { Dialog, DialogContent, DialogHeader, DialogScrollArea, DialogTitle } from "@/components/ui/dialog";
 import { groupEnded, useTask, useTaskGroup } from "@/features/tasks/api";
 import { isTerminal } from "@/features/tasks/output";
+import { isNotFound } from "@/lib/api/client";
 import { formatDuration } from "@/lib/format";
 import { safeInternalPath } from "@/lib/url";
 import { cn } from "@/lib/utils";
@@ -25,8 +27,10 @@ function ToolTask({ taskId }: { taskId: string }) {
 	const task = useTask(taskId);
 	const { t } = useLingui();
 	if (task.isPending) return <p className="text-xs text-muted-foreground">{t`Loading task…`}</p>;
-	if (task.error !== null && task.error !== undefined)
+	if (task.error !== null && task.error !== undefined) {
+		if (isNotFound(task.error)) return <TaskGone className="text-xs" />;
 		return <p className="text-xs text-danger">{task.error.message}</p>;
+	}
 	if (!task.data) return null;
 	return (
 		<div className="rounded-md border bg-card/40 p-2">
@@ -204,9 +208,16 @@ function ToolCard({
 	const group = useTaskGroup(groupId);
 	const followedTask = taskId === undefined ? undefined : task.data;
 	const followedGroup = groupId === undefined ? undefined : group.data;
+	// A task the retention sweep removed is not still running, and there is nothing to refresh.
+	const taskGone = taskId !== undefined && isNotFound(task.error);
+	const groupGone = groupId !== undefined && isNotFound(group.error);
 	const spinning =
-		!returned && callStillOpen({ sessionActive, taskState: followedTask?.state, groupState: followedGroup?.state });
+		!returned &&
+		!taskGone &&
+		!groupGone &&
+		callStillOpen({ sessionActive, taskState: followedTask?.state, groupState: followedGroup?.state });
 	const followed = taskId !== undefined || groupId !== undefined;
+	const followedGone = taskGone || groupGone;
 	const { refetch: refetchTask } = task;
 	const { refetch: refetchGroup } = group;
 	// Re-read the followed task or group every few seconds while the card spins, and once more when it stops
@@ -218,12 +229,12 @@ function ToolCard({
 			if (groupId !== undefined) void refetchGroup();
 		};
 		if (!spinning) {
-			refresh();
+			if (!followedGone) refresh();
 			return;
 		}
 		const timer = setInterval(refresh, FOLLOW_INTERVAL_MS);
 		return () => clearInterval(timer);
-	}, [followed, spinning, taskId, groupId, refetchTask, refetchGroup]);
+	}, [followed, spinning, followedGone, taskId, groupId, refetchTask, refetchGroup]);
 	// What a stopped call's task or group ended with: its failure, `done`, or undefined when nothing is known.
 	let outcome: ToolFailure | "done" | undefined;
 	if (!returned && !spinning) {

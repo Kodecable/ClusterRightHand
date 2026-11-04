@@ -543,6 +543,7 @@ export class PgStorage implements Storage {
 			}
 			const schema = createSchema(schemaName, prefix);
 			await applyMigrations(pool, schema, createMigrations(schema), advisoryKey("migrate", schemaName, prefix));
+			await PgStorage.ensureEntryCompression(pool, schema);
 			const metadata = await getRow<MetadataRow>(
 				pool,
 				`SELECT next_id, next_seq FROM ${schema.tables.durableMetadata} WHERE singleton = 1`,
@@ -557,6 +558,39 @@ export class PgStorage implements Storage {
 				// Preserve the initialization failure.
 			}
 			throw error;
+		}
+	}
+
+	/**
+	 * Give `pi_entries.record` lz4 column compression. Checked on every open, not in a versioned migration: a
+	 * migration skipped before a PostgreSQL upgrade would never run again. Only values written afterwards are
+	 * compressed, and only rows past the ~2 KB TOAST threshold are actually TOASTed; existing rows keep their
+	 * compression. A server without the feature is a warning, not an error.
+	 */
+	private static async ensureEntryCompression(pool: pg.Pool, schema: PgSchema): Promise<void> {
+		const entries = schema.tables.entries;
+		const { rows } = await pool.query<{ version: string }>("SELECT current_setting('server_version_num') AS version");
+		const version = rows[0]?.version;
+		if (!(Number(version) >= 140000)) {
+			console.warn(
+				`PgStorage: PostgreSQL ${version ?? "unknown"} has no column compression; ${entries}.record stays ` +
+					"without lz4 compression (it needs PostgreSQL 14 or newer)",
+			);
+			return;
+		}
+		const { rows: columns } = await pool.query<{ attcompression: string }>(
+			"SELECT a.attcompression FROM pg_attribute a WHERE a.attrelid = $1::regclass AND a.attname = 'record'",
+			[entries],
+		);
+		if (columns[0]?.attcompression === "l") return;
+		try {
+			await pool.query(`ALTER TABLE ${entries} ALTER COLUMN record SET COMPRESSION lz4`);
+		} catch (error) {
+			if (!(error instanceof pg.DatabaseError && error.code === "0A000")) throw error;
+			console.warn(
+				`PgStorage: this PostgreSQL build does not support lz4 compression (${error.message}); ` +
+					`${entries}.record stays without lz4 compression`,
+			);
 		}
 	}
 

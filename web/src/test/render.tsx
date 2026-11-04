@@ -61,6 +61,7 @@ export async function renderWithRouter(ui: React.ReactElement, locale: TestLocal
 	const rootRoute = createRootRoute();
 	const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => ui });
 	const paths = [
+		"/tasks",
 		"/tasks/$taskId",
 		"/approvals/tasks/$taskId",
 		"/approvals/task-groups/$taskGroupId",

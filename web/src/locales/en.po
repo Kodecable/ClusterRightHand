@@ -3464,6 +3464,14 @@ msgstr "The session is waiting for an approval."
 msgid "The start line must be a whole number of at least 1."
 msgstr "The start line must be a whole number of at least 1."
 
+#: src/components/task-gone.tsx
+msgid "The task group was cleaned up or does not exist"
+msgstr "The task group was cleaned up or does not exist"
+
+#: src/components/task-gone.tsx
+msgid "The task was cleaned up or does not exist"
+msgstr "The task was cleaned up or does not exist"
+
 #: src/features/tasks/taskForm.ts
 msgid "The text to replace is required."
 msgstr "The text to replace is required."

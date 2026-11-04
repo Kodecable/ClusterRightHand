@@ -11,6 +11,8 @@ durable 的表由 `SqlStorage` 管理，统一加 `pi_` 前缀，不在本文档
 
 SQLite 只有一个数据库文件，业务表（Kysely）和 durable 的 `pi_` 表是两条连接打开的同一个文件。node:sqlite 是同步的，两条连接不能各自等锁：写锁被别人占着时 busy handler 会阻塞必须提交那个事务的线程，而 WAL 里先读后写的延迟事务会立即得到 `SQLITE_BUSY_SNAPSHOT`（busy handler 不参与）。所以进程内所有语句走同一个队列，事务（Kysely 的以 `BEGIN IMMEDIATE` 开始）占用队列直到提交或回滚。PostgreSQL 不受影响。两条连接都使用 WAL + `synchronous = NORMAL`：进程崩溃不丢已提交的事务；断电或系统崩溃可能丢失最后几个已提交的事务，但数据库不会损坏。需要更强保证时使用 PostgreSQL。
 
+推荐 PostgreSQL ≥ 14。crhs 每次启动检查 `pi_entries.record` 的压缩方式，不是 lz4 时设为 lz4（只影响之后写入的值，超过约 2 KB 的行才会被压缩）；PostgreSQL 低于 14 或编译时未带 lz4 时跳过并告警；已有的行保持原来的压缩方式，不自动重写。SQLite 没有透明压缩，适合调试和小规模安装，不是推荐的部署方式。
+
 ## 用户与归属
 
 ```

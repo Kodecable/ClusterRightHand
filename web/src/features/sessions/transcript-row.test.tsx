@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { taskKeys } from "@/features/tasks/api";
 import type { TaskGroupView, TaskView } from "@/lib/api/types";
@@ -498,6 +498,41 @@ describe("a tool card whose call cannot return", () => {
 		expect(card()).toHaveAttribute("data-tool-status", "running");
 	});
 
+	test("a 404 for the followed task stops the spinner without an error", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ error: "no such task" }), {
+						status: 404,
+						headers: { "content-type": "application/json" },
+					}),
+			),
+		);
+		renderRow(unreturned({ task_id: "t1", state: "running" }));
+		await waitFor(() => expect(card()).toHaveAttribute("data-tool-status", "empty"));
+		expect(icon().querySelector(".animate-spin")).toBeNull();
+		expect(icon()).toHaveAccessibleName("No result");
+		expect(icon()).not.toHaveClass("text-danger");
+	});
+
+	test("a 404 for the followed task group stops the spinner", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ error: "no such task group" }), {
+						status: 404,
+						headers: { "content-type": "application/json" },
+					}),
+			),
+		);
+		renderRow(unreturned({ task_group_id: "g1", state: "running" }));
+		await waitFor(() => expect(card()).toHaveAttribute("data-tool-status", "empty"));
+		expect(icon().querySelector(".animate-spin")).toBeNull();
+		expect(icon()).toHaveAccessibleName("No result");
+	});
+
 	test("a returned card does not follow the task its details name", () => {
 		const fetchMock = vi.fn();
 		vi.stubGlobal("fetch", fetchMock);
@@ -520,5 +555,53 @@ describe("a tool card whose call cannot return", () => {
 		);
 		expect(fetchMock).not.toHaveBeenCalled();
 		expect(icon()).toHaveAccessibleName("Done");
+	});
+});
+
+describe("a tool result whose task was cleaned up", () => {
+	const returned = (): TranscriptItem => ({
+		kind: "tool",
+		key: "a1/0",
+		callId: "call-1",
+		name: "exec",
+		args: { cmd: "true" },
+		status: "done",
+		output: "",
+		details: undefined,
+		result: { text: '{"task_id":"t1","state":"exited","exit_code":0}', isError: false, details: undefined },
+	});
+
+	const mockTaskError = (status: number, message: string) => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ error: message }), {
+						status,
+						headers: { "content-type": "application/json" },
+					}),
+			),
+		);
+	};
+
+	test("the expanded dialog shows a neutral message for a 404", async () => {
+		mockTaskError(404, "no such task");
+		renderRow(returned());
+		fireEvent.click(screen.getByTestId("tool-toggle"));
+
+		const notice = await screen.findByTestId("task-gone");
+		expect(notice).toHaveTextContent("The task was cleaned up or does not exist");
+		expect(notice).toHaveClass("text-muted-foreground");
+		expect(notice).not.toHaveClass("text-danger");
+		expect(screen.queryByText("no such task")).not.toBeInTheDocument();
+	});
+
+	test("another error in the expanded dialog keeps the danger message", async () => {
+		mockTaskError(500, "boom");
+		renderRow(returned());
+		fireEvent.click(screen.getByTestId("tool-toggle"));
+
+		expect(await screen.findByText("boom")).toHaveClass("text-danger");
+		expect(screen.queryByTestId("task-gone")).not.toBeInTheDocument();
 	});
 });
