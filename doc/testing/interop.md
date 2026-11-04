@@ -10,7 +10,7 @@ generates them, both sides consume them, and Go must decode what TypeScript enco
 | `crh_frames.json` | Positive and negative CRH frames: headers, command/response/event tuples, malformed inputs | `packages/protocol/test/generate-crh-frames.ts` | `crh_frames.test.ts` | `client/internal/protocol/fixture_test.go` |
 | `noise-crh.json` | One Noise IK handshake as CRH uses it, including the `crh/<major>` prologue and the challenge | `packages/protocol/test/generate-noise-interop.ts` | `packages/noise/test/noise.test.ts` | `client/internal/noise/interop_test.go` |
 | `m4_vectors.json` | Authorization payloads, `spec_sha256`, TrustSummary digests, crh-priv handshake and frames, SSHSIG and WebAuthn assertions | `packages/protocol/test/generate-m4-vectors.ts` (fresh keys each run; needs `ssh-keygen`) | `m4_vectors.test.ts` | `client/internal/protocol/m4_test.go`, `client/internal/privileged/authz/sshsig_test.go`, `client/internal/privileged/wire/wire_test.go` |
-| `m4_authz_cases.json` | Shared authorization decisions: rule matching, prefix, env, groups, `task_ids`/attempt, time bounds, cosign, conservative fallbacks | `packages/protocol/test/generate-m4-authz-cases.ts` | `m4_authz_cases.test.ts` | `client/internal/privileged/authz/authz_test.go` |
+| `m4_authz_cases.json` | Shared authorization decisions: rule matching, prefix, env, aliases, `task_ids`/attempt, time bounds, cosign, conservative fallbacks | `packages/protocol/test/generate-m4-authz-cases.ts` | `m4_authz_cases.test.ts` | `client/internal/privileged/authz/authz_test.go` |
 
 ## Regenerating
 

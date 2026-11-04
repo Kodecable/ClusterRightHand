@@ -77,7 +77,7 @@ web/src/
   - 窄于 768 px 时变成抽屉。
 - 导航分组：
   - 工作：Sessions、Schedules、Tasks、Batch、Approvals（带待办数）
-  - 集群：Nodes、Credentials
+  - 集群：Nodes、Node groups、Credentials\*
   - 管理：Authorizations\*、API tokens、Audit、Models\*、Users\*（\* 仅管理员可见）
   - 同一分组里的导航项之间留一点竖直空隙。
 - 底部是用户菜单：主题（跟随系统 / 浅色 / 深色）、语言、修改密码、登出。

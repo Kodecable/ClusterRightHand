@@ -117,7 +117,7 @@ Two paths need a deliberately broken state:
 - **crhs signature refused by crha**: the crhs trust entry uses `max_ttl = "1ms"` and `clock_skew = "0s"`;
   the test SIGSTOPs the privileged mode for 300 ms, so the authorization has expired when it arrives
   (`authorization_expired`), and crhs falls back to local approval with `attempt + 1`.
-- **One node of a group refuses**: node B's `privileged.toml` names a `node_id` that is not its real id.
+- **One node of a task group refuses**: node B's `privileged.toml` names a `node_id` that is not its real id.
   The shared payload is built from crhs's real ids, so A accepts and B is refused at the validation step.
   B then waits alone with `attempt + 1`; after the id is fixed, only B is re-signed.
 

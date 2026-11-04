@@ -85,7 +85,7 @@ ClusterRightHand/
 
 1. 会话中的模型调用 `exec(node="web-1", cmd="systemctl restart nginx", privileged=true)`。
 2. 工具处理函数调用 Cluster API 创建任务，Cluster 核心记录来源（会话 S，代表用户 U）。
-3. 策略引擎判断：U 能否访问 web-1（自己的节点，或被分享了 `operate`）；再沿规则链（根会话 S → …）逐级判定授权规则，结果为 allow / deny / require-approval。
+3. 策略引擎判断：U 能否访问 web-1（管理员，或通过访问授权直接或经节点组获得）；再沿规则链（根会话 S → …）逐级判定授权规则，结果为 allow / deny / require-approval。
 4. 根据 web-1 的非特权模式如何处理特权任务（`[privileged].mode`）决定授权路径：
    - `native` / `ignore`：只需要 crhs 策略放行；`reject`：直接拒绝；
    - `forward`：crhs 从缓存的特权模式 `TrustSummary` 计算授权方案——

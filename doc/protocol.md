@@ -15,7 +15,7 @@
 - **严格解码**：先按 profile 解码（拒绝 tag、indefinite、重复 key、尾随 bytes），再按 schema 检查类型和长度，最后把解码结果**重新编码并与原始 bytes 逐字节比较**，不同即错误。这一步统一拒绝非最短编码、float 冒充整数、非规范 map 顺序等情况，两端都必须做。
 - 字段语义（包括 `0` / `""` 这类哨兵值）与 M1–M3 的 protobuf 定义相同；M3.5 只换编码，不改任务语义，除非本文另有说明。
 - 一帧编码后不超过 60 KiB（`MAX_FRAME_BYTES = 61440`），放进一条 Noise 传输消息。
-- **`text` 的合法性由发送方保证**：编码器遇到非法 UTF-8 必须拒绝编码，不能发出去让接收方断连。来自外部的文本（`/etc/os-release`、组名、操作系统错误信息里的路径等）在进入协议结构前清洗（Go 用 `strings.ToValidUTF8(s, "�")`）；原样保存字节的内容走 `bytes` 字段。
+- **`text` 的合法性由发送方保证**：编码器遇到非法 UTF-8 必须拒绝编码，不能发出去让接收方断连。来自外部的文本（`/etc/os-release`、主机名、操作系统错误信息里的路径等）在进入协议结构前清洗（Go 用 `strings.ToValidUTF8(s, "�")`）；原样保存字节的内容走 `bytes` 字段。
 
 任何帧或 body 解码失败都是协议错误：接收方关闭连接，不回错误响应。
 
@@ -114,7 +114,7 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
     | 码 | 情况 |
     |---|---|
     | `authorization_required` | 没有授权，也没有可用的本地批准 |
-    | `authorization_invalid` | 授权解码失败、签名无效、找不到对应信任项、节点/组不匹配、任务 id 不在 `task_ids` 中、`attempt` 不符、多于一项 |
+    | `authorization_invalid` | 授权解码失败、签名无效、找不到对应信任项、节点/别名不匹配、任务 id 不在 `task_ids` 中、`attempt` 不符、多于一项 |
     | `authorization_expired` | 过期、签发于未来、没有 `deadline`、超出 `max_ttl` |
     | `authorization_rejected` | 已用、不晚于已用列表水位线、指令限制不覆盖本任务、违反 `require_exact` / `require_task` / `require_uv`、防护规则/env/路径拒绝、缺联署、信任项没有 `execute` |
 
@@ -164,15 +164,15 @@ Facts    = {text: any}                    ; CBOR map，文本键，见下表
 | 键 | 类型 | 必需 |
 |---|---|---|
 | `hostname` | `text` | 是 |
-| `groups` | `[text]` | 是（决定节点所属的组，进而影响规则匹配） |
 | `os_id`、`os_version_id`、`os_pretty_name`、`kernel`、`arch`、`init_system`、`notes_path` | `text` | 否 |
 | `package_managers`、`privilege_tools` | `[text]` | 否 |
 | `clock_offset_ms` | `int` | 否 |
 | `shells` | `{text: any}`：`sh: text`（必需）、`bash: text?`（缺失或 `null` 表示没有 bash） | 否；节点发现的 sh 和 bash 的绝对路径，见 [execution-plane.md](execution-plane.md#exec-的执行环境) |
 
 - 缺失的可选键表示"未知"，不是空值；未知的文本键忽略（`shells` 内部同样）。非文本的键（例如整数键）、已知键的类型不对、缺少必需键时，整个 `Facts` 解码失败，不部分采用。
+- 节点所属的节点组不是 `Facts` 的一部分：节点组由 crhs 维护，crhs 根据它和访问授权决定可见性，不需要节点上报。
 - 严格解码照常：profile 层拒绝重复键、非规范 map 顺序、非最短编码等；逐字节比较针对通用 CBOR 值的重新编码（保留未知键），而不是针对按 schema 解出的结构。
-- 以后增加事实只加新的可选键，不升 `protocol_minor`；删除键或改变已有键的类型需要新的大版本。
+- 以后增加事实只加新的可选键，不升 `protocol_minor`；删除键或改变已有键的类型需要新的大版本（去掉 `groups` 即按 D99 升大版本）。
 - 线上键名用 snake_case；JSON 形式（`factsToJson` / `factsFromJson`）是 camelCase 对象，缺失的键省略。crhs 数据库中已有的 `nodes.facts`（旧的完整对象，没有 `shells`）照常可读。SSH 节点的 facts 只有 `shells`（来自连接探测，见 [execution-plane.md](execution-plane.md#执行)），不经过线上编码。
 
 - 输入类错误码（`Outcome` 的 `error` 分支）：`input_mismatch`（输入与 `InputRef` 不符：比声明的大小长，或 SHA-256 不同；任务若在运行则被杀掉）、`input_incomplete`（连接在输入收齐前断开；任务被杀掉）。
@@ -226,7 +226,7 @@ LocalState   = ["pending", []] | ["approved", []] | ["denied", [message: text]]
 ### TrustSummary
 
 ```text
-TrustSummary = [node_id: text, groups: [text], clock_skew_ms: uint,
+TrustSummary = [node_id: text, aliases: [text], clock_skew_ms: uint,
                 identities: [unprivileged: Identity, privileged: Identity],
                 trust: [TrustEntry]]
 Identity     = [uid: uint, gid: uint, user: text]
@@ -240,6 +240,7 @@ GuardRule    = [method: "exec" | "file.read" | "file.write", match: "any" | "pre
 ```
 
 - `digest = SHA-256(CBOR(TrustSummary))`，crhs 用它判断缓存是否变化，并记入任务的授权记录。
+- `aliases` 是本机配置的信任别名（UUID 列表）：授权 payload 的 `nodes` 含本机 `node_id` 或其中任一 UUID 时，视为发给本机。它取代了原来的 `groups`（D110），是不兼容的修改，按 D99 升大版本。
 - `kinds` 的取值为 `execute`、`cosign`、`require-cosign`（见 privilege.md）；`cose_key` 是凭据的 COSE 公钥原文；`source` 为扩展预留，v1 恒为 `local`。
 - `match = "any"` 时 `pattern` 为空串。
 - 两种模式的运行身份放在这里，不改 `Hello` / `Facts`。
@@ -260,9 +261,9 @@ Signature            = ["sshsig", [blob: bytes]]
 ```
 
 - **授权 id** = `SHA-256(payload)`，对原文 bytes 求哈希。校验方解码 payload 后重编码，与原文逐字节比较。
-- `nodes`：节点 id、`group:<name>`，或恰好 `["*"]`。不能为空。
+- `nodes`：节点 UUID、节点组 UUID，或恰好 `["*"]`（签名者被信任的所有节点）。不能为空；没有 `group:` 语法，名字只用于输入和显示，签发前解析成 UUID。
 - `command` 为 `null` 表示任意方法、任意目标。
-- `task_ids` 与 `attempt` 同时为 `null`（可复用授权），或同时非 `null`（一次性授权，`task_ids` 非空、无重复，`attempt ≥ 1`）。一次性授权的 `nodes` 只能是节点 id（不能是 `group:` 或 `*`），与 `task_ids` 等长并按位置一一对应：`task_ids[i]` 只能在 `nodes[i]` 上执行。`task.start` 的 `task_id` 必须在列表中、对应位置的节点 id 等于本机 node_id，`attempt` 必须相等；不满足时为 `authorization_invalid`（第 5 步）。
+- `task_ids` 与 `attempt` 同时为 `null`（可复用授权），或同时非 `null`（一次性授权，`task_ids` 非空、无重复，`attempt ≥ 1`）。一次性授权的 `nodes` 只能是节点 UUID（不能是节点组 UUID 或 `*`），与 `task_ids` 等长并按位置一一对应：`task_ids[i]` 只能在 `nodes[i]` 上执行。`task.start` 的 `task_id` 必须在列表中、对应位置的节点 UUID 等于本机 node_id，`attempt` 必须相等；不满足时为 `authorization_invalid`（第 5 步）。
 - `note` 没有时为空串。
 - `deadline_ms` 必须非 `null`：字段在编码上仍可空，但校验时以 `authorization_expired` 拒绝（第 4 步）。
 - **`spec_sha256`** = `SHA-256(CBOR(TaskSpec))`，`TaskSpec` 即 `task.start` 中的结构（stdin 和文件内容已经是 `InputRef`）。
@@ -323,7 +324,7 @@ PrivWelcome = [priv_major: 2, priv_minor: 0, commands: [text], crha_version: tex
 
 // Facts：键名与原 protobuf JSON 相同（camelCase），缺失的可选键省略（下面列出全部键），数字为 number
 { "hostname": "...", "osId": "...", "osVersionId": "...", "osPrettyName": "...", "kernel": "...", "arch": "...",
-  "initSystem": "...", "packageManagers": [], "privilegeTools": [], "notesPath": "...", "groups": [], "clockOffsetMs": 0 }
+  "initSystem": "...", "packageManagers": [], "privilegeTools": [], "notesPath": "...", "clockOffsetMs": 0 }
 
 // TaskResult：同样的 camelCase，可空字段为 null 而不是省略；kind 即线上 tag
 { "kind": "file.read", "from": 1, "to": 3, "eof": true, "total": 3, "tooLong": false }

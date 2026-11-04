@@ -26,11 +26,11 @@ api_tokens        (id, org_id, user_id, name, token_hash, created_at, expires_at
                   -- token 为 crh_ + 32 字节随机数，只存 SHA-256；MCP 规则链的根，规则在 rule_sets
 web_sessions      (id, token_hash, user_id, created_at, expires_at, last_seen_at, ip, user_agent)
                   -- cookie 中是随机令牌，表中只存它的 SHA-256
-shares            (id, org_id, resource_type[node|session], resource_id,
+shares            (id, org_id, resource_type[session], resource_id,
                    grantee_type[user|user_group], grantee_id,
-                   access,                                             -- 节点：view|operate；会话：view|chat
+                   access,                                             -- 会话：view|chat
                    created_by_user_id, created_at)
-                  -- unique (resource_type, resource_id, grantee_type, grantee_id)
+                  -- unique (resource_type, resource_id, grantee_type, grantee_id)；节点不再分享，见 node_access_grants
 ```
 
 以后接入 OIDC 时增加 `user_identities (user_id, provider, subject)`，见 [access-control.md](access-control.md#扩展预留oidc)。
@@ -38,7 +38,7 @@ shares            (id, org_id, resource_type[node|session], resource_id,
 ## 节点
 
 ```
-nodes             (id, org_id, owner_user_id, name, transport[client|ssh], status[pending|active|disabled],  -- 在线与否由连接推出，不存表
+nodes             (id, org_id, name, transport[client|ssh], status[pending|active|disabled],  -- name 见 D109；在线与否由连接推出，不存表
                    public_key,                 -- client 节点
                    ssh_host, ssh_port, ssh_user, ssh_host_key, ssh_credential_id,   -- ssh 节点；ssh_host_key 为 SHA256 指纹
                    ssh_jumps json,                                                   -- 跳板列表，每一跳带自己的主机密钥和凭证
@@ -46,19 +46,27 @@ nodes             (id, org_id, owner_user_id, name, transport[client|ssh], statu
                    trust_summary json, trust_digest,                                   -- crhs 缓存的 TrustSummary；连接时查询、变化时推送
                    notes_path,                                                         -- 节点笔记路径（Facts 上报，SSH 节点手动配置）
                    facts json, client_version, last_seen_at, created_at)
-node_groups       (node_id, group_name, refreshed_at)  -- crha 节点：crha 上报的缓存；SSH 节点：在 crhs 中维护
-ssh_credentials   (id, org_id, owner_user_id, name, public_key, secret_id, created_at)  -- 私钥在 secrets 中
+node_groups       (id, org_id, name, created_at, updated_at)            -- 管理员在 crhs 中维护；crha 节点和 SSH 节点相同
+node_group_members(node_group_id, node_id)
+node_access_grants(id, org_id, grantee_type[user|user_group], grantee_id,
+                   target_type[node|node_group], target_id,
+                   created_by_user_id, created_at)
+                  -- 访问授权；一个被授权方对一个目标一行，只有一个级别（查看并执行）
+ssh_credentials   (id, org_id, name, public_key, secret_id, created_at)  -- 属组织、仅管理员；私钥在 secrets 中
 enrollment_tokens (id, org_id, created_by_user_id, token_hash, name_hint, expires_at, used_at, used_by_node_id)
-                  -- 节点归令牌创建者所有；注册后先处于 pending 状态，由所有者或管理员确认后才变为可用
+                  -- 由管理员创建；注册后的节点属于组织，先处于 pending，由管理员确认后才可用
 server_meta       (key, value)                                        -- 例如 master_key_id：防止配错主密钥文件
 secrets           (id, org_id, kind, ciphertext, created_at)          -- 用主密钥加密：SSH 私钥、模型 API key、
                                                                        -- crhs 身份私钥、授权签名私钥（不用 ssh-agent 时）
 ```
 
+`nodes` 和 `node_groups` 共用一个名字空间：名字不区分大小写，唯一性和查找都按小写比较，显示保留原样。概念上的唯一约束是两张表合起来 `unique (lower(name))`：节点不能与节点组同名，节点之间、节点组之间也不能重名。这是跨表的约束，由应用层在写入和迁移时检查，不能只靠单表索引。名字只用于输入和显示；内部引用（`rule_sets.rules[].nodes`、`node_access_grants`、`task_groups.targets` 等）一律存 UUID，`_all` 原样保存。
+
 ## 任务
 
 ```
 task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail_fast,
+                   -- targets 存节点 / 节点组 UUID（或 `_all`）；node_ids 是展开后的节点 UUID
                    output_mode[status|text|head],                     -- 批量输出模式；exec 新建默认 status（M3.5 之前的组为 text），文件操作固定 head
                    skipped json,                                      -- 因 fail_fast 或中断而未启动的节点
                    rule_chain json nullable, approval json nullable,  -- 一个任务组只审批一次
@@ -100,7 +108,7 @@ crhs 不保存完整输出。批量默认 `status` 只保存状态和输出文�
 ```
 authorizations    (id,                                   -- SHA-256(CBOR(payload))
                    org_id, payload blob, signatures json, -- 同一 payload 上的多个签名；用户 + crhs 联署
-                   nodes json, command_match json nullable,
+                   nodes json, command_match json nullable,  -- 节点 / 节点组 UUID，或 ["*"]
                    deadline nullable,                     -- ISO 8601；只有 D103 之前的旧行可能为 null
                    task_id nullable,                      -- task_id：一次性授权绑定的任务
                    attempt,                               -- 同一 task_id 的授权尝试
@@ -108,7 +116,7 @@ authorizations    (id,                                   -- SHA-256(CBOR(payload
 rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,
                    preset[ask|auto_review|yolo] nullable,          -- 只有根有，决定 default 和基础规则
                    default_action[allow|inherit|require-approval|deny], rules json, updated_at)
-                  -- 授权规则，见 access-control.md；用户和组织没有规则；配额在 sessions
+                  -- 授权规则，见 access-control.md；rules[].nodes 存节点 / 节点组 UUID 或 `_all`；用户和组织没有规则；配额在 sessions
 ```
 
 审批结果保存在工具调用（`tasks` / `task_groups`）上，不单独建表；"以后都允许"是对 `rule_sets` 的修改。等待中的审批用 `root_session_id` 归属会话树，用 `handler_type` / `handler_session_id` 记录当前处理者（agent 会话，或 `on_behalf_of_user_id` 用户），前端和重启重建都按它查询。

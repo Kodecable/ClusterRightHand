@@ -13,9 +13,9 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | [architecture.md](architecture.md) | 总体架构、组件划分、技术栈、仓库结构 |
 | [execution-plane.md](execution-plane.md) | 执行平面：任务模型与语义、CBOR 客户端协议（M3.5）、通信安全（WSS + Noise）、节点注册、SSH 传输、批量输出 |
 | [protocol.md](protocol.md) | crhs ↔ crha 协议的线上格式（M3.5）：CBOR 元组 schema、握手载荷、帧、命令/事件、JSON 存储形式、fixture |
-| [privilege.md](privilege.md) | 提权与授权：特权任务的四种处理方式、crha 特权模式、方法与目标、授权结构、信任缓存、联署 |
+| [privilege.md](privilege.md) | 提权与授权：特权任务的四种处理方式、crha 特权模式、方法与目标、授权结构、信任别名、信任缓存、联署 |
 | [agent-runtime.md](agent-runtime.md) | Agent 运行时：pi-durable 集成、cluster 工具、会话、subagent、测试策略 |
-| [access-control.md](access-control.md) | 用户模型（管理员 / 普通用户、用户组）、归属与分享、授权规则、API token、审计 |
+| [access-control.md](access-control.md) | 用户模型（管理员 / 普通用户、用户组、节点组）、归属、访问授权与分享、授权规则、API token、审计、迁移 |
 | [scheduling.md](scheduling.md) | 计划任务 |
 | [webui.md](webui.md) | WebUI 重构：技术栈、架构、API 约定、分期 |
 | [mcp.md](mcp.md) | MCP 门面 |
@@ -70,7 +70,7 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D17 | 配置文件统一使用 TOML | |
 | D18 | 监控、告警、仪表盘暂不实现，但设计上预留扩展点，不能被现有设计阻塞 | 见 architecture.md 的"扩展预留" |
 | D19 | crhs ↔ crha 通信使用 WSS 外层 + Noise_IK 内层端到端加密 | 终结 TLS 的反代或 CDN 只能看到密文；否决只用 mTLS |
-| D20 | 节点注册必须经过确认，不自动接受；由节点所有者（令牌创建者）或管理员确认 | |
+| D20 | 节点注册必须经过确认，不自动接受；由节点所有者（令牌创建者）或管理员确认（确认人部分被 D108 修订） | |
 | D21 | crhs 的授权签名与用户 SSH key 一样使用 SSHSIG | 特权模式只剩 SSHSIG 和 WebAuthn 两条校验路径；crhs 私钥可以交给 ssh-agent 托管 |
 | D22 | 用户信任项可以要求联署（`kinds` 中加 `require-cosign`）：每次使用都必须附带 crhs 的联署，此时该 crhs 信任项除角色和 `cosign` 能力之外的限制不生效 | |
 | D23 | 暂不考虑主机内威胁：特权模式没有身份密钥，socket 不加密，查询结果不签名 | 非特权模式的伪造无法让特权模式执行未授权的命令 |
@@ -89,12 +89,12 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D36 | 节点笔记是节点上的一个普通 Markdown 文件，路径可查询；`node_info` 自动返回路径和截断后的内容；读写和审计与普通文件操作相同 | |
 | D37 | 需要审批时沿链向上传递：上一级对该操作为 allow 的 agent 会话可以判断（批准 / 拒绝 / 上交），否则继续向上，最终到用户（被 D62 修订） | 上一级 agent 在自己的会话中处理，见 D41 |
 | D38 | 原生支持批量执行：`exec`、`read_file`、`write_file` 接受节点和组的列表，Cluster 核心以任务组管理 | |
-| D39 | 节点用组组织，取代标签；组只在 crha 本地配置中定义，crhs 侧只是缓存（连接时上报、变化时推送）；特权模式本地配置的组是授权依据（发给组的授权视为发给自己） | 组成员关系以节点本地配置为准，crhs 无法绕过授权扩大授权范围；SSH 节点的组在 crhs 中维护 |
+| D39 | 节点用组组织，取代标签；组只在 crha 本地配置中定义，crhs 侧只是缓存（连接时上报、变化时推送）；特权模式本地配置的组是授权依据（发给组的授权视为发给自己）（被 D110 修订） | 组成员关系以节点本地配置为准，crhs 无法绕过授权扩大授权范围；SSH 节点的组在 crhs 中维护 |
 | D40 | crhs 只保存截断后的输出头尾；过长的输出由 crha 在节点上保存为普通文件并负责清理，agent 用 `read_file` 读取；SSH 节点强制截断，不保存完整输出（被 D82 修订：批量 `status` 模式不保存输出，批量 `text` 受共享预算） | 去掉 crhs 的输出存储和保留策略；断线续传可以直接从文件补发 |
 | D41 | 前台 subagent 的等待可以被打断并自动转入后台，父会话处理请求后显式调用 `subagent_wait`；父会话的其他工具返回时自动提示待处理的子会话 | 父会话在自己的上下文中处理子会话的审批请求 |
 | D42 | 工具和会话的默认值沿用 pi 作为 coding agent 时的默认值：输出交给模型时保留尾部 2000 行或 50KB，超过即落盘；读文件 2000 行或 50KB 分页；无默认超时；压缩与重试参数相同（被 D82 修订：批量 `text`/`status` 总是保留完整输出文件） | 见 agent-runtime.md 的"默认值"；落盘阈值与模型截断阈值相同，模型看到截断时一定有完整输出文件 |
 | D43 | OIDC 暂不实现，设计上预留：登录方式与用户身份分开，密码可以为空，预留外部身份关联表和用户组来源字段 | 见 access-control.md 的"扩展预留：OIDC" |
-| D44 | 节点和会话都明确属于一个用户，可以分享给额外的用户或用户组（节点：`view` / `operate`；会话：`view` / `chat`）；会话始终以所有者的身份行事 | 计划任务、API token 属于创建者，暂不分享 |
+| D44 | 节点和会话都明确属于一个用户，可以分享给额外的用户或用户组（节点：`view` / `operate`；会话：`view` / `chat`）；会话始终以所有者的身份行事（节点部分被 D108 修订） | 计划任务、API token 属于创建者，暂不分享 |
 | D45 | 许可证：MIT | |
 | D46 | crhs 提供密钥导出与导入（`crhs keys export` / `import`），导出文件为 age 口令加密，只能在本地命令行操作 | 数据库备份只含加密后的私钥，没有主密钥无法恢复 |
 | D47 | 用户只有管理员和普通用户两种，不设角色和细粒度权限 | 能对节点做什么由"能否访问节点" + 操作者链上的授权规则决定 |
@@ -148,7 +148,7 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D85 | 一个任务组最多 512 个节点（target 展开去重后计数，含离线节点），超过时拒绝创建并提示拆分 | 每节点的状态信息不受输出预算约束，节点多时返回给模型的结果会线性膨胀；512 × 80B 一行 < 50KB，常见批量命令在 `text` 预算内能全部看到；被否决：静默截断到前 512 个（调用方会误以为全部执行了） |
 | D86 | 授权规则增加 `privileged` 匹配维度，MCP / agent 工具暴露 `privileged`（修订 D64） | `native` / `ignore` 下 crhs 策略是唯一关口，不能区分特权就无法单独收紧特权任务；`forward` 的最终决定仍在 crha 信任配置 |
 | D87 | `native` 用 `sudo -n` / `doas -n` 拉起同一二进制 `crha privileged stdio` 作为 helper，exec 和 `file.*` 都由它执行，走 crh-priv 协议、不校验授权；`run0` 为实验性后端 | 非特权进程无法给提权后的进程发信号（kill(2) 的 uid 检查），SIGKILL 发给 sudo / doas 后 root 目标进程成为孤儿（2026-10-29 podman 实测）；`env_reset` 让 env 白名单无法传递；被否决：exec 直接 `sudo -n -- argv`（保留 sudoers 按命令限制，但强杀和超时不可靠） |
-| D88 | 授权 payload 是定长数组；一次性约束为 `task_ids` 列表，一个用户签名覆盖任务组的多个节点；已用列表的键为 `(授权 id, 任务 id)` | 任务组的用户签名只需一次；`task_ids` 固定具体任务，签发时把组展开成节点 id，签名后范围不变 |
+| D88 | 授权 payload 是定长数组；一次性约束为 `task_ids` 列表，一个用户签名覆盖任务组的多个节点；已用列表的键为 `(授权 id, 任务 id)`（组的部分被 D110 修订） | 任务组的用户签名只需一次；`task_ids` 固定具体任务，签发时把组展开成节点 id，签名后范围不变 |
 | D89 | 本地批准只用于单任务，不占用 `task.start`：`local.request` 登记、`local.decision` 通知、批准后再发 `task.start`。任务组不走本地批准，没有其他路径时直接失败；crhs 签名被拒后回退到 local 时用 `attempt + 1` 登记，流程相同 | 长时间挂起的 `task.start` 一断线就是 `unknown`；分开后执行只由 `task.start` 触发，等待期间断线安全；逐节点登录批准与批量执行相悖，排除后 crhs 不必为任务组跟踪本地状态 |
 | D90 | crhs ↔ crha 只推送 `trust.summary`，不查询；非特权模式转发 `authorization_*` 前先刷新摘要。吊销用幂等的 `revocations.add`，摘要可用时重发全部未过期项（吊销被 D103 移除） | 推送 + 拒绝前刷新保证 crhs 处理拒绝时缓存最新；幂等追加让离线节点重连后自然补齐 |
 | D91 | crhs 签名用 `node:crypto` ed25519 + 手写 SSHSIG；`crha grant` 调用 `ssh-keygen -Y sign`；crha 用 `x/crypto/ssh` + 手写 SSHSIG codec 验证，WebAuthn 手写验证（ES256 / EdDSA / RS256）；crhs 的 WebAuthn 用 `@simplewebauthn`；ssh-agent 签名为可选项目 | 不引入新的 Go 模块；OpenSSH 负责加密私钥、agent 和 FIDO 触摸；RS256 用标准库验证成本很低，避免注册出无法校验的凭据 |
@@ -168,3 +168,6 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | D105 | crhs 按保留期清理已结束的任务、任务组、过期授权（`tasks`，默认 90 天）与审计（`audit`，默认 180 天），可设 `off`，最短 1 天；审计保留最新 16384 个序号 | 这些表只增不减；会话记录（durable）需要长期保存，不在此列。1 天下限防止崩溃后重跑的工具调用因任务行已被删而重复下发；审计序号下限保证 SQLite 不复用序号，也防止时钟跳变清空审计 |
 | D106 | crhs 按保留期（`pi_tasks`，默认 7 天）删除 durable 已结束的运行记录（`pi_tasks` 中 terminal 的行及其任务范围文档），跳过仍被未结束任务或会话引用的任务 | 这些行在任务结束后只是簿记，每次工具调用约 1 KB，对话内容在 `pi_entries` 中不受影响；pi-durable 没有删除接口，这是在其存储约定之外的操作，依赖重启恢复只扫描未结束任务等不变量，升级 pi-durable 时必须重新核对 |
 | D107 | PostgreSQL 上 `pi_entries.record` 使用 lz4 列压缩，每次启动幂等检查并设置，不支持时跳过并告警；SQLite 不压缩 | 对话记录需要长期保存；按 dsh 实测约 35% 的行超过 2 KB、占 82% 的字节，lz4 TOAST 约省 40%；做成版本化迁移的话，跳过后升级 PostgreSQL 也不会再执行 |
+| D108 | 节点归组织所有、由管理员管理：只有管理员能创建注册令牌、确认注册、添加 SSH 节点、删除或改名节点、管理节点组、SSH 凭据和访问授权；用户通过访问授权（用户或用户组 → 节点或节点组）看到并使用节点，只有一个级别；任务能否查看只取决于用户与任务的关系，与节点访问无关；删除节点分享（会话分享保留），删除 `nodes.owner_user_id` 和 `ssh_credentials.owner_user_id`（取代 D20 的确认人、D44 的节点部分） | 按用户拥有并分享节点会把一个集群的节点分散到多人名下，分享 SSH 节点还会把节点所有者的 SSH 凭据借给被分享者；只有一个访问级别，因为对节点的只读访问用处不大，还会让模型复杂化 |
+| D109 | 节点和节点组共用一个不区分大小写的名字空间（`^[A-Za-z][A-Za-z0-9._/-]*[A-Za-z0-9]$`，2–64 字符，`_` 开头的名字保留给系统，目前只有 `_all`）；所有内部引用一律存 UUID，名字只用于输入和显示；取消 `group:<name>` 语法，目标列表直接写名字，规则省略 `nodes` 等价于 `["_all"]` | 同名的节点和节点组有歧义，`group:` 就是为此存在；存 UUID 让改名只改一个字段、不改写任何引用，删除后重建的同名对象得到新 UUID，不会命中旧规则。否决以名字为主键：改名要改写规则、授权和历史 |
+| D110 | crha 不再有组：删除 `crha.toml` / `privileged.toml` 的 `groups` 与 `Facts.groups`，旧配置出现 `groups` 时启动报错（不静默忽略），特权模式提示改用 `aliases`；特权模式用信任别名 `aliases = ["<uuid>", …]`（payload 的 `nodes` 含本机 `node_id` 或任一别名时视为发给本机，由节点 root 配置，通常填本机所属节点组的 UUID）；`TrustSummary.groups` 改为 `aliases`，按 D99 升大版本；crhs 根据 `TrustSummary` 显示不同步警告，并在 `forward` 节点上缺少对应别名时合成 `alias_missing` 错误 | crhs 侧的节点组不能改变节点 root 信任什么；别名让按节点组签发的可复用授权对之后加入的节点继续有效，是否接受由节点 root 决定。否决签发时把节点组展开成节点 UUID：可复用授权就覆盖不到之后加入的节点 |

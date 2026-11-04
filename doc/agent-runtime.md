@@ -65,7 +65,7 @@ interface AgentRuntime {
 
 | 工具 | 说明 |
 |---|---|
-| `list_nodes` | 列出会话所有者能访问的节点（自己的、分享给自己的）和组，以及节点状态、特权任务的处理方式 |
+| `list_nodes` | 列出会话所有者能访问的节点和节点组（通过访问授权获得），以及节点状态、特权任务的处理方式 |
 | `node_info` | 节点 Facts，以及节点笔记的路径和内容（截断） |
 | `exec` | 执行命令；参数：`targets`、`cmd` 或 `argv`、`cwd`、`env`、`privileged`、`timeout`、`wait`（最长等待时间）；批量时 `output` 选择 `status` 或 `text` |
 | `read_file` | 按行读文件：`path`、`offset`（从第几行，1-based，默认 1）、`limit`（行数，默认 2000）、`targets`；一页不超过 2000 行或 50KB |
@@ -81,11 +81,11 @@ interface AgentRuntime {
 
 ### 批量执行
 
-`exec`、`read_file`、`write_file`、`list_dir` 原生支持多个目标：`targets` 参数是节点、节点 id 和组的列表，例如 `["web-1", "group:prod"]`。
+`exec`、`read_file`、`write_file`、`list_dir` 原生支持多个目标：`targets` 参数是节点和节点组的列表，写名字或 UUID，例如 `["web-1", "prod"]`。
 
 - **结果形状只由输入决定，与解析出多少节点无关**：
-  - 恰好一个条目，且它不是 `group:` → 单个任务，返回单个任务的结果（与过去的 `node` 相同）；
-  - 多于一个条目，或任何 `group:` 条目（即使只解析到一个节点）→ 一个**任务组**，每个节点一项结果。
+  - 恰好一个条目，且它不是节点组 → 单个任务，返回单个任务的结果（与过去的 `node` 相同）；
+  - 多于一个条目，或任何节点组条目（即使只解析到一个节点）→ 一个**任务组**，每个节点一项结果。
   - 批量参数（`parallel`、`fail_fast`、`output`）在单任务时被忽略。
 - 可选参数：`parallel`（并发数，默认 10）、`fail_fast`（出现失败后不再启动剩余节点）；`output`（`status` 或 `text`，默认 `status`）只有 `exec` 有，文件操作没有这个参数。
 - Cluster 核心为一次批量调用创建一个**任务组**，每个节点一个任务，审计中可以按任务组查询。
@@ -118,7 +118,7 @@ interface AgentRuntime {
 - WebUI 通过 `watch` 订阅会话视图，经 SSE（`/api/sessions/:id/events`）推送增量。
 - 开启自动压缩，阈值由模型的上下文窗口决定（参数见下文"默认值"）。
 - 用户也可以手动压缩：WebUI 输入框中输入 `/compact [指令]`，或调用 `POST /api/sessions/:id/compact`（`{ instructions? }`，需要 chat 权限）；调用 durable 的 `compact()`，摘要在后台生成，空闲时立即放入、否则在下一轮边界放入；同样计入配额，配额耗尽时拒绝；写审计 `session.compacted`。接口最多等 2 秒返回 `outcome`：`started`（已开始或已完成摘要）、`nothing`（没有可压缩的内容：最近约 2 万 token 的对话消息始终原样保留）、`failed`；WebUI 只在 `nothing` 和 `failed` 时提示。
-- 会话可以分享给其他用户或用户组（`view` / `chat`）。被分享的用户发消息时，会话仍以所有者的身份行事，见 [access-control.md](access-control.md#归属与分享)；实际发消息的用户记录在审计中。
+- 会话可以分享给其他用户或用户组（`view` / `chat`）。被分享的用户发消息时，会话仍以所有者的身份行事，见 [access-control.md](access-control.md#归属访问授权与分享)；实际发消息的用户记录在审计中。
 
 ## subagent
 

@@ -7,6 +7,7 @@
 | crha 非特权模式 | 对外联网、与 crhs 通信的 crha 实例。普通任务直接以它自身的 Linux 身份执行 |
 | crha 特权模式 | 不联网、只通过本机 unix socket 为非特权模式提供服务的 crha 实例。只执行带有效授权的任务，以它自身的 Linux 身份执行 |
 | 特权任务 | 任务规格中 `privileged = true` 的任务，需要走授权链路 |
+| 信任别名 | `privileged.toml` 的 `aliases`：本机信任的 UUID 列表。授权 payload 的 `nodes` 含本机 `node_id` 或任一别名时，视为发给本机。它不是节点组，只是 UUID 列表，由节点上的 root 配置 |
 
 **模式与 Linux 用户身份解耦。** "特权"的含义是"需要授权才能执行"，与是否为 root 无关：
 
@@ -113,7 +114,7 @@ crha 特权模式（不联网）
 {
   "payload": {                              // 编码为定长数组，可空字段为 null
     "v": 1,
-    "nodes": ["01JB…", "group:web"],        // 节点 id 和组；或 ["*"]：签名者被信任的所有节点
+    "nodes": ["01JB…", "0J2K…"],           // 节点 UUID、节点组 UUID；或恰好 ["*"]：签名者被信任的所有节点
     "command": {                            // null = 任意方法、任意目标
       "method": "exec",
       "exact": "systemctl restart nginx",   // 或 "prefix": "…"
@@ -135,8 +136,9 @@ crha 特权模式（不联网）
 - **授权 id** = `SHA-256(payload)`（payload 原文 bytes），用于已用列表、审计和引用。
 - 用户签名和 crhs 联署签的是**同一份 CBOR payload**，不再使用 `cosign_of`，也不存在两个 payload 字段不一致的问题。
 - `require-cosign` 只要求同一对象上同时存在合格的 user 签名和 `role=crhs` 的 cosign 签名。
-- **发给组的授权**：特权模式在本机配置了这个组（`privileged.toml` 中的 `groups`）时，就认为这个授权是发给自己的。组成员关系只以本机配置为准（crhs 侧只是缓存），crhs 无法绕过授权改变它。
-- **覆盖多个节点的一次性授权**（任务组）：任务组为每个节点建一个任务，payload 的 `task_ids` 列出全部任务 id，`nodes` 列出对应节点 id（crhs 签发时把组展开成节点 id，签名后覆盖范围不再随组成员变化）。每个节点的 `task.start` 携带同一个授权对象，用户只签一次。一次性授权的 `nodes` 与 `task_ids` 按位置一一对应（见 [protocol.md](protocol.md#授权对象)），特权模式只接受对应本机的那个任务 id，因此被控制的 crhs 不能把其他节点的任务 id 发到同一个节点上重复执行。部分节点在 accepted 前被拒时，crhs 只为这些节点构造新 payload（`attempt + 1`，`task_ids` 缩小为被拒节点），需要重新签名；已执行的节点不受影响。
+- **`nodes`**：只写 UUID。节点 UUID、节点组 UUID，或恰好 `["*"]`（签名者被信任的所有节点）。名字只用于输入和显示，签发前解析成 UUID；改名不影响已签发的授权。
+- **发给本机的授权**：payload 的 `nodes` 包含本机的 `node_id` 或本机配置的任一信任别名（`privileged.toml` 的 `aliases`）时，就认为这个授权是发给自己的。别名由节点上的 root 配置，crhs 无法改变它；通常填本机所属节点组的 UUID。crhs 侧的节点组只是 crhs 自己的数据，不决定节点接受哪些授权。
+- **覆盖多个节点的一次性授权**（任务组）：任务组为每个节点建一个任务，payload 的 `task_ids` 列出全部任务 id，`nodes` 列出对应节点的 UUID（一次性授权只能写节点 UUID；crhs 签发时把节点组展开成节点 UUID，签名后覆盖范围不再随成员变化）。每个节点的 `task.start` 携带同一个授权对象，用户只签一次。一次性授权的 `nodes` 与 `task_ids` 按位置一一对应（见 [protocol.md](protocol.md#授权对象)），特权模式只接受对应本机的那个任务 id，因此被控制的 crhs 不能把其他节点的任务 id 发到同一个节点上重复执行。部分节点在 accepted 前被拒时，crhs 只为这些节点构造新 payload（`attempt + 1`，`task_ids` 缩小为被拒节点），需要重新签名；已执行的节点不受影响。
 - **`exact`**：方法和目标完全相等，并且 `spec_sha256` 必须等于完整任务规格的哈希 `SHA-256(CBOR(TaskSpec))`（见 [protocol.md](protocol.md#授权对象)）。完整规格包括 env、cwd、stdin 哈希，文件写入还包括内容哈希、mode、owner 和 `overwrite`，文件编辑还包括全部 `edits`。也就是说，批准"写 `/etc/nginx/nginx.conf`"时，批准的是写入这一份内容；批准一次编辑时，批准的是这几处替换，而不是任意内容。任务组的各节点使用同一份 spec，所以共用一个 `spec_sha256`。
 - **`prefix`**：方法匹配（`file.write` 包含 `file.read`），目标前缀相等。只约束目标，不约束 stdin 和写入内容。cwd 固定为 `/`，env 受信任项的 `env_allow` 约束。
 - **`task_ids`（一次性授权）**：授权只对列出的任务 id 有效，`attempt` 必须等于 `task.start` 的 attempt。特权模式在执行之前把 `(授权 id, 任务 id)` 和任务 id 记入本地的已用列表（见下文"已用列表"；先持久化再执行），同一个授权不能在同一个任务上再用第二次，同一个任务 id 也不能再执行第二次。
@@ -169,7 +171,7 @@ crha 特权模式（不联网）
 - `sk-*` 签名：`x/crypto/ssh` 验证签名并要求 UP（user presence）标志；counter 不跨授权比较，防重放靠已用列表。信任项可以用 `require_uv` 要求 UV 标志，由特权模式从签名中取出 flags 自行检查。
 - **`crha grant`** 不自己读私钥，而是把 payload 原文通过 stdin 交给 `ssh-keygen -Y sign -n crh-auth-v1 -f <key>`（`<key>` 可以是私钥，也可以是已载入 agent 的私钥对应的公钥），由 OpenSSH 处理加密私钥、agent、FIDO 的触摸和 PIN。它有两种用法：
   - `crha grant --payload <base64>`：签 WebUI 授权等待页给出的 payload；先把 CBOR 解码成 JSON 展示，用户确认后签名；
-  - `crha grant --nodes … --method … --prefix … --deadline …`：从参数构造可复用授权（预先签发）。
+  - `crha grant --nodes <UUID,…|*> --method … --prefix … --deadline …`：从参数构造可复用授权（预先签发）。`--nodes` 只接受节点 UUID、节点组 UUID 或 `*`，不接受名字（crha 不认识名字）。
 
   两种用法都输出 `Authorization`（base64），用户粘贴到 WebUI（`POST /api/authorizations`）。WebUI 同时给出等价的 `ssh-keygen` 命令。
 - WebAuthn 的校验项：`type = webauthn.get`、challenge、origin 在信任项的白名单中（默认拒绝跨源）、rpIdHash、UP 标志（UV 可配置为必须）、`credential_id` 与信任项的 COSE 公钥、签名（ES256、EdDSA 或 RS256，签在 `authenticator_data ‖ SHA-256(client_data_json)` 上）。签名计数器忽略（同步型 passkey 的计数恒为 0），防重放靠已用列表。crhs 注册时只请求这三种算法（`supportedAlgorithmIDs: [-7, -8, -257]`），不能注册出特权模式无法校验的凭据。
@@ -202,7 +204,7 @@ crha 特权模式（不联网）
 ```toml
 # crha privileged run --config /etc/crha/privileged.toml（下面的路径只是示例布局）
 node_id          = "01JB…"
-groups           = ["web", "prod"]          # 授权依据：发给这些组的授权视为发给本机
+aliases          = ["0J2K…"]                # 信任别名：payload 的 nodes 含本机 node_id 或任一别名时视为发给本机（通常填本机所属节点组的 UUID）
 unprivileged_uid = 998
 socket           = "/run/crha/privileged.sock"
 state_dir        = "/var/lib/crha/privileged"    # 已用列表（used）
@@ -254,6 +256,7 @@ uids  = [0, 1000]
 kinds = ["execute"]
 ```
 
+- `aliases` 是 UUID 列表，由节点上的 root 配置，crhs 无法改变。它通常填本机所属节点组的 UUID（WebUI 在节点组页面显示 UUID 以便复制），也可以填任意本机愿意接受的 UUID。旧配置里的 `groups` 会让特权模式启动失败，提示改用 `aliases`（不静默忽略）。
 - 配置文件属主必须是特权模式的运行用户，组和其他用户不可写，否则拒绝加载；未知字段是错误。
 - 多个信任项含有相同的公钥或 credential id 时，签名对应到其中第一项。
 - `SIGHUP` 重新加载；加载失败时保留旧配置并写日志。已建立的连接不因 reload 而断开，即使对端 uid 已不在新配置中；新连接按新配置检查。
@@ -298,7 +301,7 @@ kinds = ["execute"]
 3. 对 payload 上的每个签名，按公钥（或 credential id）找到信任项并验证签名。找不到信任项的签名忽略（同一授权可能还带着别的节点信任的签名）；能找到信任项但验证失败的签名使整个授权无效。没有任何签名对应到信任项时，授权无效。
 
    `role = "crhs"` 或 `user` 的签名都是**候选**，按 `signatures` 中的顺序对每个候选依次检查第 4–8 步（这几步依赖候选的信任项），第一个全部通过的候选生效；都不通过时报告**第一个候选**的失败。`role = "crhs"` 且只有 `cosign` 的签名也是候选，会在第 7 步因缺少 `execute` 失败，但它仍可以在第 8 步为别的候选提供联署。
-4. 检查授权本体：`nodes` 包含本机的 node_id 或本机配置的某个组（或为 `["*"]`）；`issued_at ≤ now + skew`；`deadline` 必填且 `≥ now - skew`（没有 `deadline` 时以 `authorization_expired` 拒绝，消息为 "authorization has no deadline"）；`max_ttl` 和 `require_exact`。这里的 `now` 是节点时钟，见下文"时钟"。
+4. 检查授权本体：`nodes` 包含本机的 node_id 或本机配置的某个别名（或恰好 `["*"]`）；`issued_at ≤ now + skew`；`deadline` 必填且 `≥ now - skew`（没有 `deadline` 时以 `authorization_expired` 拒绝，消息为 "authorization has no deadline"）；`max_ttl` 和 `require_exact`。这里的 `now` 是节点时钟，见下文"时钟"。
 5. 检查一次性约束：本任务 id 不能已经执行过；授权必须晚于已用列表的水位线（`issued_at ≤ 水位线` 时以 `authorization_rejected` 拒绝，见"已用列表"）。授权带 `task_ids` 时本任务 id 必须在其中、`attempt` 等于 `task.start` 的 attempt，且 `(授权 id, 本任务 id)` 不在已用列表中；`role = "crhs"` 的授权和联署必须带 `task_ids`；信任项有 `require_task` 时同样必须带。
 6. 检查授权中的指令限制：`exact` 时方法、目标和 `spec_sha256` 都相等；`prefix` 时方法匹配（`file.write` 包含 `file.read`）且目标前缀相等。
 7. 检查信任项：`kinds` 包含 `execute`；`deny` 和 `allow`；`env_allow`；`require_uv` 时该签名带 UV 标志。
@@ -369,6 +372,13 @@ crhs 在 `nodes` 中缓存特权模式上报的 `TrustSummary`、`trust_digest` 
 - WebUI 展示"这个节点信任谁"，并可以导出 `privileged.toml` 片段；
 - 任务授权时记录使用的 digest；等待期间 digest 变化就重新计算。
 
+crhs 还根据 `TrustSummary.aliases` 在节点信息上显示不同步警告，警告中写明要加上或删掉的 UUID：
+
+- **别名多余**（醒目警告，越权）：节点信任某个节点组的 UUID，但不在这个节点组中。用户对该节点组签发的可复用授权在这个节点上仍然有效。
+- **别名指向未知 UUID**（警告）：既不是现有节点组，也不是本机。
+- **别名缺失**（提示）：节点在某个节点组中，但没有信任它；只影响按该节点组签发的可复用授权。仅对 `forward` 节点提示。
+- **未知信任项**（警告）：信任配置中 crhs 不认识的签名者（不是当前 crhs 签名密钥，也不是任何已登记的用户凭据）。
+
 crhs 从缓存计算授权方案：用 RE2（Node 包 `re2`）匹配信任项的 `allow`/`deny`、`exact`/`prefix`、`max_ttl`、`require_exact`、`require_task` 等。**只考虑任务所有者**（`on_behalf_of_user_id`）的 `user` 信任项和凭据；共享用户、其他管理员不参与。
 
 - crhs 只考虑公钥与自己当前签名密钥相同的 crhs 信任项（节点可能在轮换期间同时信任新旧两把）。
@@ -394,6 +404,8 @@ crhs 的选择不是最终放行：crha 特权模式在执行前仍按当前配�
      - 如果需要联署，crhs 在同一 payload 上再追加自己的签名；
    - 有 `local` 信任项可以授权（**仅单任务**）：向节点发送 `local.request`，在授权等待中提示"也可以在节点上执行 `crha approve`"；所有者先在 WebUI 签了名，就撤回本地请求（`local.withdraw`）；任务组跳过这条路径；
    - 没有任何信任项可以授权：直接拒绝，并告诉调用方"这个节点上没有人能授权这条命令"。
+
+**按节点组签发的可复用授权**：crhs 用缓存的 `TrustSummary.aliases` 判断节点是否接受这种授权。缺少对应别名时，crhs 不向这个节点下发，直接在服务端以错误结束这个节点的任务（`code = alias_missing`，消息写明缺少哪个节点组 UUID 以及如何配置）。只在以下情况全部成立时适用：`forward` 节点、特权任务、crhs 选中的是按节点组 UUID 签发的可复用授权、该节点缓存的别名里没有这个节点组。普通任务、`native` / `ignore` 节点、一次性授权（本来就按节点 UUID 展开）都不受影响。判断依据是缓存的 `TrustSummary`；节点重新上报后再执行即可。
 
 授权等待与规则审批分开：策略已经通过但尚未拿到签名时，任务处于 `awaiting_authorization`，不是 `awaiting_approval`。
 
@@ -423,7 +435,7 @@ crhs 的选择不是最终放行：crha 特权模式在执行前仍按当前配�
 3. 没有可用的 user/local 路径时（任务组中只剩 local 也算），任务最终 `rejected`，error code 取 crha 本次拒绝的码，消息说明已尝试的路径；
 4. 已 accepted 的任务、已执行的其他节点任务不回滚。
 
-crhs 误判“没有路径”时不会创建任务，因此也无法被 crha 拒绝后的 fallback 修复；Go/TS 必须共用同一套授权判定用例，覆盖规则匹配、prefix/RE2、env、组、trust digest 和边界时间。
+crhs 误判“没有路径”时不会创建任务，因此也无法被 crha 拒绝后的 fallback 修复；Go/TS 必须共用同一套授权判定用例，覆盖规则匹配、prefix/RE2、env、别名、trust digest 和边界时间。
 
 ### 授权签名密钥
 

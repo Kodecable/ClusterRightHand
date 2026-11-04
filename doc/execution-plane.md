@@ -201,7 +201,7 @@ event     = [2, event, body]
 | S→C | event | `task.exit.ack` | 确认任务结束，可释放输出 |
 | C→S | event | `task.output` | `{task_id, stream, offset, data}` |
 | C→S | event | `task.exit` | 退出码/信号/错误、最终偏移、输出文件路径 |
-| C→S | event | `facts` | 系统信息、组、时钟偏差、特权模式信息 |
+| C→S | event | `facts` | 系统信息、时钟偏差、特权模式信息 |
 | C→S | event | `trust.summary` | 握手后推送一次，信任摘要变化或特权模式连上/断开时再推送（M4） |
 | C→S | event | `local.decision` | 本地批准或拒绝的结果（M4） |
 | S→C | event | `node.status` | pending/active 等状态变化 |
@@ -320,13 +320,13 @@ event     = [2, event, body]
 
 crha 的源码不内置任何自身配置、状态、日志或 socket 的路径，全部由命令行 `--config` 和配置文件给出；唯一例外是节点上手动批准用的 `crha pending/approve/deny` 默认连接 `/run/crha/privileged.sock`（可用 `CRHA_PRIVILEGED_SOCKET` 或 `--socket` 覆盖）。WebUI 给出的 `/etc/crha/crha.toml`、`/var/lib/crha` 只是建议布局。
 
-1. 用户在 WebUI 创建注册令牌（节点将归这个用户所有），格式为 `crh1.<服务端身份公钥指纹>.<随机密钥>`。令牌只能使用一次，有效期默认 1 小时，可以限定节点名。
+1. 管理员在 WebUI 创建注册令牌（节点属于组织），格式为 `crh1.<服务端身份公钥指纹>.<随机密钥>`。令牌只能使用一次，有效期默认 1 小时，可以限定节点名。
 2. 在节点上执行 `crha enroll --config /etc/crha/crha.toml --state-dir /var/lib/crha https://crh.example.com crh1.xxxx.yyyy`：
    - `--config` 必填。配置文件已存在时必须已经写好 `server` 和 `state_dir`；文件不存在时，`--state-dir` 让 enroll 写一个只含 `server` 和 `state_dir` 的最小配置。省略 `--state-dir` 时 enroll 报错；文件已经存在时再给 `--state-dir` 也是错误。
    - 上面的 `/etc/crha/crha.toml` 和 `/var/lib/crha` 只是建议布局，不是 crha 的默认值。
    - 通过 HTTPS 获取服务端身份公钥，**检查它与令牌中的指纹一致**，然后固定下来。令牌本身就完成了信任引导，做法与 kubeadm 的 `--discovery-token-ca-cert-hash` 相同。
    - 生成节点身份密钥，发起 Noise IK 握手，在第一条消息的载荷中带上 `enroll`（令牌密钥、主机名和 facts）。这是唯一允许未知公钥完成握手的情况。令牌密钥在 Noise 通道内传输，终结 TLS 的一方看不到；第一条消息即使被重放，令牌也已经被消耗。
-3. crhs 校验令牌后，节点进入 **pending** 状态。**注册必须经过确认**：令牌的创建者（节点所有者）或管理员在 WebUI 核对主机名和节点公钥指纹（节点上可以用 `crha status --config <crha.toml>` 查看指纹）后批准，节点才能接收任务。在此之前，节点用自己的公钥重连时只能建立受限连接；被拒绝时删除这把公钥。
+3. crhs 校验令牌后，节点进入 **pending** 状态。**注册必须经过确认**：管理员在 WebUI 核对主机名和节点公钥指纹（节点上可以用 `crha status --config <crha.toml>` 查看指纹）后批准，节点才能接收任务。在此之前，节点用自己的公钥重连时只能建立受限连接；被拒绝时删除这把公钥。
 4. **受限连接**：握手响应的 `node_state = pending` 已经告诉 crha 自己的状态，不另设“查询注册状态”的命令，状态变化全部由 crhs 推送。
    - 只允许 C→S 的 `hello`（任务列表为空）、`ping`、`facts` 和 S→C 的 `node.status`；其他命令由 crhs 返回 `node_pending`。
    - 批准：crhs 推送 `node.status{active}` 后关闭连接；crha 不退避立即重连，握手得到完整连接。不在已有连接上原地切换权限，与普通重连走同一条路径。
@@ -349,7 +349,7 @@ crha 的源码不内置任何自身配置、状态、日志或 socket 的路径�
 
 - **reload**：每个进程都在收到 SIGHUP 时重新读取自己的配置文件：`crha run` 重读 `crha.toml`，`crha privileged run` 重读 `privileged.toml`（重载后向 crhs 推送新的 `TrustSummary`）。crha 不提供自己的 reload 命令，通常由服务管理器发送信号，例如 systemd 的 `ExecReload=/bin/kill -HUP $MAINPID`（OpenRC 的 `reload` 同理）。
   - 新配置无效时，进程继续使用正在运行的配置，并在日志中记录错误（`reload failed, keeping the current configuration`）。
-  - 组、笔记路径变化：重新上报 `facts`；服务端地址、`tls_verify` 变化：重新连接；`state_dir`、`[output]`、`[privileged]` 的变化要重启才生效（会记录警告）。
+  - 笔记路径变化：重新上报 `facts`；服务端地址、`tls_verify` 变化：重新连接；`state_dir`、`[output]`、`[privileged]` 的变化要重启才生效（会记录警告）。节点组不经过 crha，由管理员在 crhs 中调整。
 - **修改配置**：就是普通的特权任务：`file.write` 写配置文件，再向对应的进程发 SIGHUP（通常通过服务管理器的 reload）。
 - **升级**：同样是普通的特权任务：
   1. `file.write` 写入新的二进制（或者 `exec` 调用包管理器安装）；
@@ -381,11 +381,11 @@ SSH 节点可以配置一个或多个跳板（等价于 OpenSSH 的 `ProxyJump`�
 
 ### 添加 SSH 节点
 
-1. **凭证**：crhs 生成 ed25519 密钥对，私钥用主密钥加密存入 `secrets`，只把公钥交给用户，由用户加到每一跳目标用户的 `authorized_keys`。凭证属于创建者，管理员可以使用任何凭证。
+1. **凭证**：crhs 生成 ed25519 密钥对，私钥用主密钥加密存入 `secrets`，只把公钥交给用户，由用户加到每一跳目标用户的 `authorized_keys`。凭证属于组织，只有管理员可以创建、查看、删除和绑定。
 2. **探测主机密钥**：`POST /api/ssh-nodes/probe` 每次返回第一个尚未固定的跳的主机密钥指纹（`SHA256:…`，与 `ssh-keygen -lf` 一致），只握手、不认证；用户在那台主机上核对后固定，再探测下一跳。
-3. **创建**：每一跳都已固定主机密钥才能创建。SSH 节点没有 crha，它的组在 crhs 中直接维护。
-4. **测试连接**（可选，创建前后都可以）：`POST /api/ssh-nodes/test`（未保存的路由）或 `POST /api/nodes/:id/ssh-test`（已保存的节点，需要 operate 权限）按固定的主机密钥逐跳认证，并在目标上执行 `true`，能发现公钥没装好、账户不能执行命令（`ForceCommand`、nologin）等问题。
-5. **之后**：节点的所有者和管理员在节点页面看到完整路由和固定的主机密钥，并可以用 `PUT /api/nodes/:id/groups` 修改组（crha 节点的组来自 crha 配置，不能这样改）。SSH 节点的"最后在线"是最后一次到达节点的任务的时间；它没有常驻连接，所以不显示在线/离线。
+3. **创建**：每一跳都已固定主机密钥才能创建。SSH 节点没有 crha，它和 crha 节点一样通过 crhs 的节点组组织。
+4. **测试连接**（可选，创建前后都可以）：`POST /api/ssh-nodes/test`（未保存的路由）或 `POST /api/nodes/:id/ssh-test`（已保存的节点，需要访问该节点的权限）按固定的主机密钥逐跳认证，并在目标上执行 `true`，能发现公钥没装好、账户不能执行命令（`ForceCommand`、nologin）等问题。
+5. **之后**：管理员在节点页面看到完整路由和固定的主机密钥，并可以用 `PUT /api/nodes/:id/groups` 调整它所属的节点组（crha 节点和 SSH 节点一样，成员关系都在 crhs 中维护）。SSH 节点的"最后在线"是最后一次到达节点的任务的时间；它没有常驻连接，所以不显示在线/离线。
 
 ### 对节点的要求
 
