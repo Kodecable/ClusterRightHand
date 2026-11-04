@@ -144,7 +144,6 @@ async function addNode(owner: SessionUser): Promise<string> {
 		.values({
 			id,
 			org_id: await defaultOrgId(db),
-			owner_user_id: owner.userId,
 			name: `node-${id.slice(-8)}`,
 			name_key: `node-${id.slice(-8)}`.toLowerCase(),
 			transport: "client",
@@ -164,6 +163,19 @@ async function addNode(owner: SessionUser): Promise<string> {
 			ssh_host_key: null,
 			ssh_credential_id: null,
 			ssh_jumps: null,
+		})
+		.execute();
+	await db
+		.insertInto("node_access_grants")
+		.values({
+			id: newId(),
+			org_id: await defaultOrgId(db),
+			grantee_type: "user",
+			grantee_id: owner.userId,
+			target_type: "node",
+			target_id: id,
+			created_by_user_id: owner.userId,
+			created_at: now,
 		})
 		.execute();
 	return id;

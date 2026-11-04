@@ -1,3 +1,5 @@
+import type { I18n, MessageDescriptor } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
 import type { TaskView } from "@/lib/api/types";
 
 const TERMINAL = new Set(["exited", "failed", "rejected", "unknown", "denied"]);
@@ -87,4 +89,21 @@ export function taskOutcome(task: TaskView): TaskOutcome {
 		return { kind: "error", code: task.errorCode, message: task.errorMessage };
 	}
 	return { kind: "state", state: task.state };
+}
+
+/**
+ * The task error codes the UI explains in words. An unknown code stays visible
+ * next to the server's message, so a new platform error is still diagnosable
+ * before its translation lands. Server messages are not translated.
+ */
+const TASK_ERROR_LABELS: Record<string, MessageDescriptor> = {
+	node_access_revoked: msg`Access to the node was revoked before the task was dispatched.`,
+};
+
+/** One readable line for a task's platform error (doc/access-control.md#归属访问授权与分享). */
+export function taskErrorText(i18n: I18n, code: string | null, message: string | null): string {
+	const label = code === null ? undefined : TASK_ERROR_LABELS[code];
+	if (label !== undefined) return i18n._(label);
+	if (code !== null && message !== null && message !== "") return `${code}: ${message}`;
+	return code ?? message ?? "";
 }

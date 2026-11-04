@@ -11,7 +11,9 @@ import { RelativeTime } from "@/components/relative-time";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/session";
-import type { User } from "@/lib/api/types";
+import { useNodeAccessGrants } from "@/features/nodes/access-api";
+import { GranteeAccessList } from "@/features/nodes/access-grants";
+import type { NodeAccessGrant, User } from "@/lib/api/types";
 import { useUpdateUser, useUsers } from "./api";
 import { KindSelect } from "./kind-select";
 import { NewUserDialog } from "./new-user-dialog";
@@ -28,9 +30,22 @@ export function UsersPage() {
 	const me = useAuth().user;
 	const users = useUsers();
 	const update = useUpdateUser();
+	const grants = useNodeAccessGrants(undefined, me?.kind === "admin");
 	const [creating, setCreating] = useState(false);
 	const [resetting, setResetting] = useState<User>();
 	const [confirmDisable, setConfirmDisable] = useState<User>();
+
+	// The page is administrators-only; one list feeds each row and each user group card.
+	const grantsByGrantee = useMemo(() => {
+		const map = new Map<string, NodeAccessGrant[]>();
+		for (const grant of grants.data ?? []) {
+			const key = `${grant.granteeType}:${grant.granteeId}`;
+			const list = map.get(key);
+			if (list) list.push(grant);
+			else map.set(key, [grant]);
+		}
+		return map;
+	}, [grants.data]);
 
 	const columns = useMemo<DataTableColumn<User>[]>(
 		() => [
@@ -49,6 +64,12 @@ export function UsersPage() {
 				header: t`Kind`,
 				size: 170,
 				cell: ({ row }) => <KindSelect user={row.original} self={row.original.id === me?.id} />,
+			},
+			{
+				id: "nodeAccess",
+				header: t`Node access`,
+				size: 260,
+				cell: ({ row }) => <GranteeAccessList grants={grantsByGrantee.get(`user:${row.original.id}`) ?? []} />,
 			},
 			{
 				id: "status",
@@ -101,7 +122,7 @@ export function UsersPage() {
 				},
 			},
 		],
-		[me?.id, t, update],
+		[grantsByGrantee, me?.id, t, update],
 	);
 
 	return (
@@ -125,7 +146,7 @@ export function UsersPage() {
 				onRetry={() => void users.refetch()}
 				empty={<EmptyState title={<Trans>No users yet</Trans>} />}
 			/>
-			<UserGroupsSection users={users.data ?? []} />
+			<UserGroupsSection users={users.data ?? []} grantsByGrantee={grantsByGrantee} />
 			{creating && <NewUserDialog onClose={() => setCreating(false)} />}
 			{resetting && <ResetPasswordDialog user={resetting} onClose={() => setResetting(undefined)} />}
 			<ConfirmDialog

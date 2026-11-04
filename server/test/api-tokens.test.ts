@@ -242,7 +242,6 @@ describeBackends("api tokens", (backend) => {
 				.values({
 					id: nodeId,
 					org_id: orgId,
-					owner_user_id: users.alice?.userId as string,
 					name: "Web-1",
 					name_key: "web-1",
 					transport: "client",

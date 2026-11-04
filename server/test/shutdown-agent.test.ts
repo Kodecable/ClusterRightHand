@@ -98,7 +98,6 @@ describe("agent runtime shutdown", () => {
 			.values({
 				id: nodeId,
 				org_id: await defaultOrgId(db),
-				owner_user_id: user.id,
 				name: "web-1",
 				name_key: "web-1",
 				transport: "client",
@@ -121,6 +120,19 @@ describe("agent runtime shutdown", () => {
 				trust_report: null,
 				trust_digest: null,
 				trust_updated_at: null,
+			})
+			.execute();
+		await db
+			.insertInto("node_access_grants")
+			.values({
+				id: newId(),
+				org_id: await defaultOrgId(db),
+				grantee_type: "user",
+				grantee_id: owner.userId,
+				target_type: "node",
+				target_id: nodeId,
+				created_by_user_id: owner.userId,
+				created_at: now,
 			})
 			.execute();
 		const batch = await createNodeGroup(db, await defaultOrgId(db), "batch");

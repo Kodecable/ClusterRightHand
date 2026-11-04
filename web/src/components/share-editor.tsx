@@ -43,8 +43,8 @@ function ShareField({
 }
 
 /**
- * The type/grantee/access editor both share UIs use (doc/access-control.md
- * "归属与分享"): a node's shares form and a session's share dialog. It owns the
+ * The type/grantee/access editor of the session share dialog (doc/access-control.md
+ * "归属访问授权与分享": nodes are no longer shared, sessions are). It owns the
  * draft state; `onAdd` submits it and answers whether the share was added, so
  * the grantee is only cleared on success. The caller keeps the mutations, the
  * toasts and the list above the editor.

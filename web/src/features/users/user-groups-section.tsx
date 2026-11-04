@@ -8,7 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { User, UserGroup } from "@/lib/api/types";
+import { GranteeAccessList } from "@/features/nodes/access-grants";
+import type { NodeAccessGrant, User, UserGroup } from "@/lib/api/types";
 import {
 	useAddUserGroupMember,
 	useCreateUserGroup,
@@ -17,7 +18,16 @@ import {
 	useUserGroups,
 } from "./api";
 
-function UserGroupCard({ group, users }: { group: UserGroup; users: User[] }) {
+function UserGroupCard({
+	group,
+	users,
+	grants,
+}: {
+	group: UserGroup;
+	users: User[];
+	/** The node access grants this user group holds. */
+	grants: NodeAccessGrant[];
+}) {
 	const { t } = useLingui();
 	const add = useAddUserGroupMember();
 	const remove = useRemoveUserGroupMember();
@@ -72,6 +82,12 @@ function UserGroupCard({ group, users }: { group: UserGroup; users: User[] }) {
 						</li>
 					))}
 				</ul>
+				<div className="grid gap-1.5">
+					<span className="text-xs font-medium text-muted-foreground">
+						<Trans>Node access</Trans>
+					</span>
+					<GranteeAccessList grants={grants} />
+				</div>
 				<div className="flex flex-wrap items-end gap-2">
 					<div className="grid min-w-48 gap-1.5">
 						<Label htmlFor={`add-member-${group.id}`}>{t`Add member`}</Label>
@@ -132,7 +148,14 @@ function UserGroupCard({ group, users }: { group: UserGroup; users: User[] }) {
 }
 
 /** The user groups and their membership (an administrator assigns node access through them). */
-export function UserGroupsSection({ users }: { users: User[] }) {
+export function UserGroupsSection({
+	users,
+	grantsByGrantee,
+}: {
+	users: User[];
+	/** Node access grants by `${granteeType}:${granteeId}`, for the cards below. */
+	grantsByGrantee: Map<string, NodeAccessGrant[]>;
+}) {
 	const { t } = useLingui();
 	const groups = useUserGroups();
 	const createUserGroup = useCreateUserGroup();
@@ -184,7 +207,12 @@ export function UserGroupsSection({ users }: { users: User[] }) {
 			)}
 			<div className="grid gap-3 lg:grid-cols-2">
 				{(groups.data ?? []).map((group) => (
-					<UserGroupCard key={group.id} group={group} users={users} />
+					<UserGroupCard
+						key={group.id}
+						group={group}
+						users={users}
+						grants={grantsByGrantee.get(`user_group:${group.id}`) ?? []}
+					/>
 				))}
 			</div>
 		</section>

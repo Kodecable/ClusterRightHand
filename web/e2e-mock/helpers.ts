@@ -10,6 +10,7 @@ import type {
 	Directory,
 	ModelProviderView,
 	ModelRef,
+	NodeAccessGrant,
 	NodeGroup,
 	NodeTrust,
 	PublicNode,
@@ -78,6 +79,7 @@ export interface FakeState {
 	directory: Directory;
 	taskGroups: Record<string, { taskGroup: TaskGroupView; polls: number }>;
 	nodeGroups: NodeGroup[];
+	nodeAccessGrants: NodeAccessGrant[];
 	schedules: ScheduleView[];
 	runs: Record<string, ScheduleRunView[]>;
 	tokens: ApiTokenView[];
@@ -199,14 +201,13 @@ export function nodeView(overrides: Partial<PublicNode> = {}): PublicNode {
 		transport: "client",
 		status: "active",
 		hostname: "worker-01.local",
-		ownerUserId: USER.id,
 		clientVersion: "1.0.0",
 		privilegedMode: null,
 		lastSeenAt: "2026-01-01T00:00:00.000Z",
 		createdAt: "2026-01-01T00:00:00.000Z",
 		approvedAt: "2026-01-01T00:00:00.000Z",
 		nodeGroups: [],
-		access: "owner",
+		access: "admin",
 		facts: null,
 		keyFingerprint: null,
 		connected: true,
@@ -304,6 +305,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		directory: { users: [], userGroups: [] },
 		taskGroups: {},
 		nodeGroups: [],
+		nodeAccessGrants: [],
 		schedules: [],
 		runs: {},
 		tokens: [],
@@ -442,6 +444,64 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			for (const node of state.nodes) node.nodeGroups = node.nodeGroups.filter((group) => group.id !== id);
 			return json({ ok: true });
 		}
+		if (path === "/api/node-access-grants" && method === "GET") {
+			const targetType = url.searchParams.get("targetType");
+			const targetId = url.searchParams.get("targetId");
+			const granteeType = url.searchParams.get("granteeType");
+			const granteeId = url.searchParams.get("granteeId");
+			return json({
+				grants: state.nodeAccessGrants.filter((grant) => {
+					if (targetType !== null && grant.targetType !== targetType) return false;
+					if (targetId !== null && grant.targetId !== targetId) return false;
+					if (granteeType !== null && grant.granteeType !== granteeType) return false;
+					if (granteeId !== null && grant.granteeId !== granteeId) return false;
+					return true;
+				}),
+			});
+		}
+		if (path === "/api/node-access-grants" && method === "POST") {
+			const input = body as {
+				granteeType: NodeAccessGrant["granteeType"];
+				granteeId: string;
+				targetType: NodeAccessGrant["targetType"];
+				targetId: string;
+			};
+			if (
+				state.nodeAccessGrants.some(
+					(grant) =>
+						grant.granteeType === input.granteeType &&
+						grant.granteeId === input.granteeId &&
+						grant.targetType === input.targetType &&
+						grant.targetId === input.targetId,
+				)
+			) {
+				return json({ error: "this grant already exists" }, 409);
+			}
+			const granteeName =
+				input.granteeType === "user"
+					? (state.users.find((user) => user.id === input.granteeId)?.username ?? null)
+					: (state.userGroups.find((group) => group.id === input.granteeId)?.name ?? null);
+			const targetName =
+				input.targetType === "node"
+					? (state.nodes.find((node) => node.id === input.targetId)?.name ?? null)
+					: (state.nodeGroups.find((group) => group.id === input.targetId)?.name ?? null);
+			const grant: NodeAccessGrant = {
+				id: `grant-${state.nodeAccessGrants.length + 1}`,
+				...input,
+				granteeName,
+				targetName,
+				createdAt: "2026-01-01T00:00:00.000Z",
+				createdByUserId: state.user.id,
+			};
+			state.nodeAccessGrants.push(grant);
+			return json({ grant }, 201);
+		}
+		const accessGrantMatch = /^\/api\/node-access-grants\/([^/]+)$/.exec(path);
+		if (accessGrantMatch && method === "DELETE") {
+			const id = decodeURIComponent(accessGrantMatch[1] as string);
+			state.nodeAccessGrants = state.nodeAccessGrants.filter((grant) => grant.id !== id);
+			return json({ ok: true });
+		}
 		if (path === "/api/models") return json({ models: state.models });
 		if (path === "/api/directory") return json(state.directory);
 		if (path === "/api/privilege/crhs-key") {
@@ -558,7 +618,8 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 							credential: { id: "cred-1", name: "laptop" },
 						}
 					: null;
-			return json({ node, shares: [], ssh });
+			// The SSH route and credential are administrator data (D108); a non-admin gets only the node.
+			return state.user.kind === "admin" ? json({ node, ssh }) : json({ node });
 		}
 		if (path === "/api/ssh-credentials" && method === "GET") return json({ credentials: state.sshCredentials });
 		if (path === "/api/ssh-credentials" && method === "POST") {
@@ -566,9 +627,20 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				id: `cred-${state.sshCredentials.length + 1}`,
 				name: (body as { name: string }).name,
 				publicKey: "ssh-ed25519 AAAAlaptop laptop",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				usedBy: [],
 			};
 			state.sshCredentials.push(credential);
 			return json({ credential });
+		}
+		const sshCredentialMatch = /^\/api\/ssh-credentials\/([^/]+)$/.exec(path);
+		if (sshCredentialMatch && method === "DELETE") {
+			const id = decodeURIComponent(sshCredentialMatch[1] as string);
+			const credential = state.sshCredentials.find((candidate) => candidate.id === id);
+			if (!credential) return json({ error: "no such SSH credential" }, 404);
+			if (credential.usedBy.length > 0) return json({ error: "the credential is in use by a node" }, 409);
+			state.sshCredentials = state.sshCredentials.filter((candidate) => candidate.id !== id);
+			return json({ ok: true });
 		}
 		if (path === "/api/ssh-nodes/probe" && method === "POST") {
 			return json({ hop: 0, fingerprint: "SHA256:probe" });
@@ -582,7 +654,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				transport: "ssh",
 				hostname: input.host,
 				connected: null,
-				access: "owner",
+				access: "admin",
 			});
 			state.nodes.push(node);
 			return json({ node });
@@ -893,7 +965,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			for (const target of input.targets) {
 				if (target === "_all") {
 					refs.push("_all");
-					addNodes(state.nodes.filter((node) => node.status === "active" && node.access !== "view"));
+					addNodes(state.nodes.filter((node) => node.status === "active"));
 					continue;
 				}
 				const node = state.nodes.find(
@@ -1146,7 +1218,14 @@ export function providerView(overrides: Partial<ModelProviderView> = {}): ModelP
 }
 
 export function sshCredentialView(overrides: Partial<SshCredential> = {}): SshCredential {
-	return { id: "cred-1", name: "laptop", publicKey: "ssh-ed25519 AAAAlaptop laptop", ...overrides };
+	return {
+		id: "cred-1",
+		name: "laptop",
+		publicKey: "ssh-ed25519 AAAAlaptop laptop",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		usedBy: [],
+		...overrides,
+	};
 }
 
 export type { AgentEvent, SessionEntry };

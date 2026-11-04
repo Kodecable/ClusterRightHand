@@ -69,7 +69,6 @@ describe("cluster recovery", () => {
 			.values({
 				id,
 				org_id: await defaultOrgId(db),
-				owner_user_id: owner.userId,
 				name,
 				name_key: name.toLowerCase(),
 				transport,
@@ -89,6 +88,19 @@ describe("cluster recovery", () => {
 				ssh_host_key: null,
 				ssh_credential_id: null,
 				ssh_jumps: null,
+			})
+			.execute();
+		await db
+			.insertInto("node_access_grants")
+			.values({
+				id: newId(),
+				org_id: await defaultOrgId(db),
+				grantee_type: "user",
+				grantee_id: owner.userId,
+				target_type: "node",
+				target_id: id,
+				created_by_user_id: owner.userId,
+				created_at: now,
 			})
 			.execute();
 		return (await db.selectFrom("nodes").selectAll().where("id", "=", id).executeTakeFirstOrThrow()) as NodeRow;

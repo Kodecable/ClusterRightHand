@@ -57,7 +57,6 @@ beforeAll(async () => {
 		.values({
 			id: nodeId,
 			org_id: await defaultOrgId(db),
-			owner_user_id: user.id,
 			name: "review-node",
 			name_key: "review-node",
 			transport: "client",

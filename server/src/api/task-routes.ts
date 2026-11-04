@@ -1,8 +1,9 @@
 import type { TaskSpec } from "@crh/protocol";
 import { Hono } from "hono";
 import { type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
-import { nodeAccess, visibleNodeIds } from "../cluster/nodes.ts";
+import { nodeAccess } from "../cluster/nodes.ts";
 import { resolveTargets, type TaskGroups } from "../cluster/task-groups.ts";
+import { taskRelation } from "../cluster/task-visibility.ts";
 import type { Db } from "../storage/db.ts";
 import type { TaskState } from "../storage/schema.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
@@ -39,7 +40,6 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		const nodeId = c.req.param("id");
 		const access = await nodeAccess(db, user, nodeId);
 		if (!access) return jsonError(c, 404, "no such node");
-		if (access === "view") return jsonError(c, 403, "view access only");
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
 
@@ -98,43 +98,51 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		return c.json({ taskGroup: await taskGroups.wait(taskGroup.id, timeout) });
 	});
 
-	/** A task group is visible to its creator and to administrators. */
+	/** A task group is visible by its relation to the user (admins, its owner, or a session viewer). */
 	const visibleTaskGroup = async (user: AppEnv["Variables"]["user"], id: string) => {
 		const taskGroup = await taskGroups.get(id);
 		if (!taskGroup) return undefined;
-		const row = await db
-			.selectFrom("task_groups")
-			.select("on_behalf_of_user_id")
-			.where("id", "=", id)
-			.executeTakeFirst();
-		return user.kind === "admin" || row?.on_behalf_of_user_id === user.userId ? taskGroup : undefined;
+		const relation = await taskRelation(db, user, {
+			onBehalfOfUserId: taskGroup.onBehalfOfUserId,
+			actorType: taskGroup.actorType,
+			actorId: taskGroup.actorId,
+		});
+		return relation.visible ? taskGroup : undefined;
 	};
 
 	app.get("/nodes/:id/tasks", async (c) => {
 		const nodeId = c.req.param("id");
-		if (!(await nodeAccess(db, c.get("user"), nodeId))) return jsonError(c, 404, "no such node");
-		const rows = await db
+		const user = c.get("user");
+		if (!(await nodeAccess(db, user, nodeId))) return jsonError(c, 404, "no such node");
+		// The node only narrows the list; visibility still depends on the task's relation to the user.
+		let query = db
 			.selectFrom("tasks")
 			.select("id")
 			.where("node_id", "=", nodeId)
 			.orderBy("created_at", "desc")
-			.limit(50)
-			.execute();
+			.limit(50);
+		if (user.kind !== "admin") query = query.where("on_behalf_of_user_id", "=", user.userId);
+		const rows = await query.execute();
 		const tasks = await Promise.all(rows.map((r) => cluster.getTask(r.id)));
 		return c.json({ tasks: tasks.filter(Boolean) });
 	});
 
-	const visibleTask = async (userId: AppEnv["Variables"]["user"], id: string) => {
+	const visibleTask = async (user: AppEnv["Variables"]["user"], id: string) => {
 		const task = await cluster.getTask(id);
 		if (!task) return undefined;
-		const access = await nodeAccess(db, userId, task.nodeId);
-		return access ? { task, access } : undefined;
+		const relation = await taskRelation(db, user, {
+			onBehalfOfUserId: task.onBehalfOfUserId,
+			actorType: task.actorType,
+			actorId: task.actorId,
+		});
+		return relation.visible ? { task, relation } : undefined;
 	};
 
 	/**
-	 * Every task on a node the user can see, newest first, one keyset page at a time. The filters are the
-	 * task page's; there is no "waiting for me first" ordering any more (doc/webui.md#api-约定): waiting
-	 * approvals live on the approvals page, and `state` filters this list.
+	 * The tasks the user may list (administrators: all; everyone else: their own), newest first, one keyset
+	 * page at a time. Visibility is the task's relation to the user, never node access (D108); session viewers
+	 * reach a shared session's task by id instead. The filters are the task page's; there is no "waiting for
+	 * me first" ordering any more (doc/webui.md#api-约定): waiting approvals live on the approvals page.
 	 */
 	app.get("/tasks", async (c) => {
 		const user = c.get("user");
@@ -145,17 +153,15 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 			return jsonError(c, 400, `unknown actorType ${actorType}`);
 		}
 		const filterNode = c.req.query("nodeId");
-		const nodeIds = await visibleNodeIds(db, user);
-		if (filterNode !== undefined && !nodeIds.includes(filterNode)) return jsonError(c, 404, "no such node");
 		const limit = parseLimit(c.req.query("limit"));
 		const rawCursor = c.req.query("cursor");
 		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, TASKS_CURSOR);
-		if (nodeIds.length === 0) return c.json({ items: [], nextCursor: null });
 
-		let query = db
-			.selectFrom("tasks")
-			.select(["id", "created_at"])
-			.where("node_id", "in", filterNode === undefined ? nodeIds : [filterNode]);
+		let query = db.selectFrom("tasks").select(["id", "created_at"]);
+		// (a)/(b) of doc/access-control.md: administrators list everything, everyone else their own tasks.
+		// Session viewers reach a shared session's task by id, not through this list.
+		if (user.kind !== "admin") query = query.where("on_behalf_of_user_id", "=", user.userId);
+		if (filterNode !== undefined) query = query.where("node_id", "=", filterNode);
 		if (state !== undefined) query = query.where("state", "=", state as TaskState);
 		if (actorType !== undefined) query = query.where("actor_type", "=", actorType);
 		if (cursor) query = query.where(descendingKeyset(["created_at"], cursor));
@@ -184,7 +190,7 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 	app.post("/tasks/:id/cancel", async (c) => {
 		const found = await visibleTask(c.get("user"), c.req.param("id"));
 		if (!found) return jsonError(c, 404, "no such task");
-		if (found.access === "view") return jsonError(c, 403, "view access only");
+		if (!found.relation.acts) return jsonError(c, 403, "only the task's owner or an administrator can do this");
 		return c.json({
 			cancelled: await cluster.cancelTask(found.task.id, undefined, {
 				type: "user",

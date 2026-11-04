@@ -61,18 +61,29 @@ export async function renderWithRouter(ui: React.ReactElement, locale: TestLocal
 	const rootRoute = createRootRoute();
 	const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => ui });
 	const paths = [
+		"/sessions",
+		"/schedules",
+		"/schedules/$scheduleId",
 		"/tasks",
 		"/tasks/$taskId",
+		"/batch",
+		"/approvals",
 		"/approvals/tasks/$taskId",
 		"/approvals/task-groups/$taskGroupId",
+		"/nodes",
 		"/nodes/$nodeId",
 		"/node-groups",
 		"/node-groups/$nodeGroupId",
+		"/ssh-credentials",
+		"/credentials",
+		"/authorizations",
+		"/tokens",
+		"/audit",
+		"/settings/models",
+		"/users",
 		"/task-groups/$taskGroupId",
 		"/sessions/$sessionId",
-		"/schedules/$scheduleId",
 		"/login",
-		"/sessions",
 	];
 	const children = paths.map((path) =>
 		createRoute({ getParentRoute: () => rootRoute, path, component: () => <div /> }),

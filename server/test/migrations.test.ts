@@ -17,6 +17,7 @@ import { down as down0034, up as up0034 } from "../src/storage/migrations/0034_d
 import { down as down0035, up as up0035 } from "../src/storage/migrations/0035_retention_indexes.ts";
 import { down as down0036, up as up0036 } from "../src/storage/migrations/0036_node_names.ts";
 import { down as down0037, up as up0037 } from "../src/storage/migrations/0037_user_group_member_column.ts";
+import { down as down0038, up as up0038 } from "../src/storage/migrations/0038_node_access_grants.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -1153,5 +1154,218 @@ describeBackends("0037 user group member column", (backend) => {
 			{ group_id: "g1", user_id: "u2" },
 		]);
 		expect(await indexNames()).toEqual(["user_group_members_user_id_idx"]);
+	});
+});
+
+describeBackends("0038 node access grants", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("orgs")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("name", "text", (c) => c.notNull())
+				.addColumn("created_at", "text", (c) => c.notNull())
+				.execute();
+			await db.schema
+				.createTable("users")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("org_id", "text", (c) => c.notNull().references("orgs.id"))
+				.addColumn("username", "text", (c) => c.notNull())
+				.addColumn("kind", "text", (c) => c.notNull())
+				.addColumn("created_at", "text", (c) => c.notNull())
+				.execute();
+			await db.schema
+				.createTable("nodes")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("org_id", "text", (c) => c.notNull().references("orgs.id"))
+				.addColumn("owner_user_id", "text", (c) => c.notNull().references("users.id"))
+				.addColumn("name", "text", (c) => c.notNull())
+				.addColumn("transport", "text", (c) => c.notNull())
+				.addColumn("status", "text", (c) => c.notNull())
+				.addColumn("public_key", "text", (c) => c.unique())
+				.addColumn("hostname", "text")
+				.addColumn("facts", "text")
+				.addColumn("client_version", "text")
+				.addColumn("privileged_mode", "text")
+				.addColumn("last_seen_at", "text")
+				.addColumn("created_at", "text", (c) => c.notNull())
+				.addColumn("approved_at", "text")
+				.addColumn("approved_by_user_id", "text", (c) => c.references("users.id"))
+				.addColumn("ssh_host", "text")
+				.addColumn("ssh_port", "integer")
+				.addColumn("ssh_user", "text")
+				.addColumn("ssh_host_key", "text")
+				.addColumn("ssh_credential_id", "text")
+				.addColumn("ssh_jumps", "text")
+				.addColumn("trust_report", "text")
+				.addColumn("trust_digest", "text")
+				.addColumn("trust_updated_at", "text")
+				.addColumn("name_key", "text")
+				.addUniqueConstraint("nodes_org_name_unique", ["org_id", "name"])
+				.execute();
+			await db.schema.createIndex("nodes_owner_user_id_idx").on("nodes").column("owner_user_id").execute();
+			await db.schema
+				.createTable("node_groups")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("org_id", "text", (c) => c.notNull().references("orgs.id"))
+				.addColumn("name", "text", (c) => c.notNull())
+				.addColumn("name_key", "text", (c) => c.notNull())
+				.addColumn("created_at", "text", (c) => c.notNull())
+				.addColumn("updated_at", "text", (c) => c.notNull())
+				.execute();
+			await db.schema
+				.createTable("node_group_members")
+				.addColumn("node_group_id", "text", (c) => c.notNull().references("node_groups.id").onDelete("cascade"))
+				.addColumn("node_id", "text", (c) => c.notNull().references("nodes.id").onDelete("cascade"))
+				.addPrimaryKeyConstraint("node_group_members_pk", ["node_group_id", "node_id"])
+				.execute();
+			await db.schema
+				.createTable("shares")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("org_id", "text", (c) => c.notNull().references("orgs.id"))
+				.addColumn("resource_type", "text", (c) => c.notNull())
+				.addColumn("resource_id", "text", (c) => c.notNull())
+				.addColumn("grantee_type", "text", (c) => c.notNull())
+				.addColumn("grantee_id", "text", (c) => c.notNull())
+				.addColumn("access", "text", (c) => c.notNull())
+				.addColumn("created_by_user_id", "text", (c) => c.notNull().references("users.id"))
+				.addColumn("created_at", "text", (c) => c.notNull())
+				.execute();
+			await db.schema
+				.createTable("ssh_credentials")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("org_id", "text", (c) => c.notNull().references("orgs.id"))
+				.addColumn("owner_user_id", "text", (c) => c.notNull().references("users.id"))
+				.addColumn("name", "text", (c) => c.notNull())
+				.addColumn("public_key", "text", (c) => c.notNull())
+				.addColumn("secret_id", "text", (c) => c.notNull())
+				.addColumn("created_at", "text", (c) => c.notNull())
+				.execute();
+			await db.schema
+				.createTable("audit_events")
+				.addColumn("seq", "integer", (c) => c.primaryKey())
+				.addColumn("id", "text", (c) => c.notNull().unique())
+				.addColumn("org_id", "text", (c) => c.notNull())
+				.addColumn("ts", "text", (c) => c.notNull())
+				.addColumn("actor_type", "text", (c) => c.notNull())
+				.addColumn("actor_id", "text", (c) => c.notNull())
+				.addColumn("on_behalf_of_user_id", "text")
+				.addColumn("action", "text", (c) => c.notNull())
+				.addColumn("target_type", "text")
+				.addColumn("target_id", "text")
+				.addColumn("detail", "text", (c) => c.notNull())
+				.execute();
+			if (backend === "postgres") {
+				await sql`alter table audit_events alter column seq add generated by default as identity`.execute(db);
+			}
+
+			const now = "2026-01-01T00:00:00.000Z";
+			await sql`insert into orgs (id, name, created_at) values ('o1', 'org', ${now})`.execute(db);
+			await sql`
+				insert into users (id, org_id, username, kind, created_at) values
+				('root', 'o1', 'root', 'admin', ${now}),
+				('alice', 'o1', 'alice', 'member', ${now}),
+				('bob', 'o1', 'bob', 'member', ${now}),
+				('carol', 'o1', 'carol', 'member', ${now})
+			`.execute(db);
+			await sql`
+				insert into nodes (id, org_id, owner_user_id, name, name_key, transport, status, created_at)
+				values
+				('n-admin', 'o1', 'root', 'admin-node', 'admin-node', 'client', 'active', ${now}),
+				('n-alice', 'o1', 'alice', 'alice-node', 'alice-node', 'client', 'active', ${now}),
+				('n-bob', 'o1', 'bob', 'bob-node', 'bob-node', 'client', 'active', ${now})
+			`.execute(db);
+			await sql`
+				insert into node_groups (id, org_id, name, name_key, created_at, updated_at)
+				values ('g1', 'o1', 'ops', 'ops', ${now}, ${now})
+			`.execute(db);
+			await sql`insert into node_group_members (node_group_id, node_id) values ('g1', 'n-alice')`.execute(db);
+			await sql`
+				insert into shares (id, org_id, resource_type, resource_id, grantee_type, grantee_id, access, created_by_user_id, created_at)
+				values
+				('sh1', 'o1', 'node', 'n-bob', 'user', 'carol', 'operate', 'bob', ${now}),
+				('sh2', 'o1', 'node', 'n-bob', 'user_group', 'g1', 'operate', 'bob', ${now}),
+				('sh3', 'o1', 'node', 'n-bob', 'user', 'carol', 'view', 'bob', ${now}),
+				('sh4', 'o1', 'node', 'n-alice', 'user', 'alice', 'operate', 'alice', ${now}),
+				('sh5', 'o1', 'session', 's1', 'user', 'carol', 'view', 'bob', ${now})
+			`.execute(db);
+			await sql`
+				insert into ssh_credentials (id, org_id, owner_user_id, name, public_key, secret_id, created_at)
+				values ('cred1', 'o1', 'alice', 'key', 'ssh-ed25519 AAAA', 'sec1', ${now})
+			`.execute(db);
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("converts ownership and operate shares, drops view shares, and records one audit event", async () => {
+		await applyMigration(backend, db, up0038);
+
+		expect(await tableColumns(backend, db, "nodes")).not.toContain("owner_user_id");
+		expect(await tableColumns(backend, db, "ssh_credentials")).not.toContain("owner_user_id");
+		expect(await tableColumns(backend, db, "node_access_grants")).toEqual([
+			"id",
+			"org_id",
+			"grantee_type",
+			"grantee_id",
+			"target_type",
+			"target_id",
+			"created_by_user_id",
+			"created_at",
+		]);
+
+		const grants = await sql<{
+			grantee_type: string;
+			grantee_id: string;
+			target_type: string;
+			target_id: string;
+		}>`select grantee_type, grantee_id, target_type, target_id from node_access_grants order by grantee_type, grantee_id, target_type, target_id`.execute(
+			db,
+		);
+		expect(grants.rows).toEqual([
+			{ grantee_type: "user", grantee_id: "alice", target_type: "node", target_id: "n-alice" },
+			{ grantee_type: "user", grantee_id: "bob", target_type: "node", target_id: "n-bob" },
+			{ grantee_type: "user", grantee_id: "carol", target_type: "node", target_id: "n-bob" },
+			{ grantee_type: "user_group", grantee_id: "g1", target_type: "node", target_id: "n-bob" },
+		]);
+
+		const shares = await sql<{ resource_type: string; id: string }>`
+			select resource_type, id from shares order by id
+		`.execute(db);
+		expect(shares.rows).toEqual([{ resource_type: "session", id: "sh5" }]);
+
+		const members = await sql<{ node_group_id: string; node_id: string }>`
+			select node_group_id, node_id from node_group_members
+		`.execute(db);
+		expect(members.rows).toEqual([{ node_group_id: "g1", node_id: "n-alice" }]);
+		expect(Number((await sql<{ n: number }>`select count(*) as n from nodes`.execute(db)).rows[0]?.n)).toBe(3);
+		expect((await sql<{ name: string }>`select name from ssh_credentials`.execute(db)).rows).toEqual([{ name: "key" }]);
+
+		const events = await sql<{ actor_type: string; action: string; detail: string }>`
+			select actor_type, action, detail from audit_events where action = 'migration.node_access'
+		`.execute(db);
+		expect(events.rows).toHaveLength(1);
+		expect(events.rows[0]?.actor_type).toBe("system");
+		expect(JSON.parse(events.rows[0]?.detail as string)).toEqual({
+			owner_grants: 2,
+			converted_operate_shares: 2,
+			deleted_view_shares: 1,
+		});
+	});
+
+	it("down restores the nullable owner columns and drops the grants", async () => {
+		await applyMigration(backend, db, up0038);
+		await applyMigration(backend, db, down0038);
+		expect(await tableColumns(backend, db, "node_access_grants")).toBeUndefined();
+		expect(await tableColumns(backend, db, "nodes")).toContain("owner_user_id");
+		expect(await tableColumns(backend, db, "ssh_credentials")).toContain("owner_user_id");
+		// The old owners and deleted node shares cannot be reconstructed; the rows are still there.
+		expect(Number((await sql<{ n: number }>`select count(*) as n from nodes`.execute(db)).rows[0]?.n)).toBe(3);
+		expect(Number((await sql<{ n: number }>`select count(*) as n from shares`.execute(db)).rows[0]?.n)).toBe(1);
 	});
 });

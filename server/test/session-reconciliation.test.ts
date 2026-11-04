@@ -104,12 +104,12 @@ describe("startup reconciliation", () => {
 		const user = await createUser(localDb, { username: "reconcile-owner", kind: "member", password: "password-123" });
 		localOwner = { sessionId: "test", userId: user.id, username: user.username, kind: "member" };
 		const now = new Date().toISOString();
+		const nodeId = newId();
 		await localDb
 			.insertInto("nodes")
 			.values({
-				id: newId(),
+				id: nodeId,
 				org_id: await defaultOrgId(localDb),
-				owner_user_id: user.id,
 				name: "web-1-reconcile",
 				name_key: "web-1-reconcile",
 				transport: "client",
@@ -129,6 +129,19 @@ describe("startup reconciliation", () => {
 				ssh_host_key: null,
 				ssh_credential_id: null,
 				ssh_jumps: null,
+			})
+			.execute();
+		await localDb
+			.insertInto("node_access_grants")
+			.values({
+				id: newId(),
+				org_id: await defaultOrgId(localDb),
+				grantee_type: "user",
+				grantee_id: localOwner.userId,
+				target_type: "node",
+				target_id: nodeId,
+				created_by_user_id: localOwner.userId,
+				created_at: now,
 			})
 			.execute();
 	});

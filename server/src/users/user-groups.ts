@@ -1,3 +1,4 @@
+import { deleteGrantsForUserGroup } from "../cluster/node-access.ts";
 import type { Db } from "../storage/db.ts";
 import { newId } from "../util/id.ts";
 import { defaultOrgId, NotFoundError, UserError } from "./service.ts";
@@ -55,6 +56,7 @@ export async function deleteUserGroup(db: Db, userGroupId: string): Promise<void
 			.where("grantee_type", "=", "user_group")
 			.where("grantee_id", "=", userGroupId)
 			.execute();
+		await deleteGrantsForUserGroup(trx, userGroupId);
 		const result = await trx.deleteFrom("user_groups").where("id", "=", userGroupId).executeTakeFirst();
 		if (result.numDeletedRows === 0n) throw new NotFoundError("no such user group");
 	});

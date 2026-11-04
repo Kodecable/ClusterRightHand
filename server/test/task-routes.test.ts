@@ -38,7 +38,6 @@ describe("task routes: privileged (sqlite)", () => {
 			.values({
 				id: nodeId,
 				org_id: await defaultOrgId(db),
-				owner_user_id: userId,
 				name: "n1",
 				name_key: "n1",
 				transport: "client",
@@ -58,6 +57,19 @@ describe("task routes: privileged (sqlite)", () => {
 				ssh_host_key: null,
 				ssh_credential_id: null,
 				ssh_jumps: null,
+			})
+			.execute();
+		await db
+			.insertInto("node_access_grants")
+			.values({
+				id: newId(),
+				org_id: await defaultOrgId(db),
+				grantee_type: "user",
+				grantee_id: userId,
+				target_type: "node",
+				target_id: nodeId,
+				created_by_user_id: userId,
+				created_at: now,
 			})
 			.execute();
 		groupId = (await createNodeGroup(db, await defaultOrgId(db), "workers")).id;

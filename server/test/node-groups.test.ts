@@ -30,7 +30,6 @@ describe("node groups", () => {
 			.values({
 				id,
 				org_id: orgId,
-				owner_user_id: ownerUserId,
 				name,
 				name_key: name.toLowerCase(),
 				transport: "client",
@@ -73,8 +72,24 @@ describe("node groups", () => {
 		expect(renamed).toMatchObject({ id: created.id, name: "Front-End" });
 		expect(await resolveNodeGroupIds(db, orgId, ["front-end"])).toEqual([created.id]);
 
+		await db
+			.insertInto("node_access_grants")
+			.values({
+				id: newId(),
+				org_id: orgId,
+				grantee_type: "user",
+				grantee_id: ownerUserId,
+				target_type: "node_group",
+				target_id: created.id,
+				created_by_user_id: ownerUserId,
+				created_at: new Date().toISOString(),
+			})
+			.execute();
 		await deleteNodeGroup(db, created.id);
 		expect(await getNodeGroup(db, created.id)).toBeUndefined();
+		expect(
+			await db.selectFrom("node_access_grants").select("id").where("target_id", "=", created.id).execute(),
+		).toHaveLength(0);
 		await expect(renameNodeGroup(db, created.id, "Nope")).rejects.toThrow(/no such node group/);
 		await expect(deleteNodeGroup(db, created.id)).rejects.toThrow(/no such node group/);
 	});

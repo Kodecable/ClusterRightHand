@@ -29,8 +29,6 @@ import { recorded, TERMINAL } from "./types.ts";
 export interface NodeLink {
 	conn: NodeConnection;
 	active: boolean;
-	/** The node's owner, for the audit trail of connect/disconnect. */
-	ownerUserId: string | null;
 	/** Set once Hello has been reconciled; tasks are dispatched only after that. */
 	ready: boolean;
 	/** Task ids we asked about with TaskQuery after Hello. */
@@ -97,7 +95,6 @@ export function attach(core: ClusterCore, conn: NodeConnection, node: NodeRow): 
 	const link: NodeLink = {
 		conn,
 		active: node.status === "active",
-		ownerUserId: node.owner_user_id,
 		ready: false,
 		queried: new Set(),
 		trustFresh: false,
@@ -160,7 +157,7 @@ function detach(core: ClusterCore, link: NodeLink): void {
 
 function auditConnection(core: ClusterCore, link: NodeLink, action: "node.connected" | "node.disconnected"): void {
 	core.auditLater({
-		actor: { type: "system", id: "cluster", onBehalfOfUserId: link.ownerUserId },
+		actor: { type: "system", id: "cluster" },
 		action,
 		target: { type: "node", id: link.conn.nodeId },
 	});

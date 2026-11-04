@@ -3,17 +3,15 @@ import type { Facts } from "@crh/protocol";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { createEnrollmentToken, EnrollmentError, enrollNode, parseEnrollmentToken } from "../src/cluster/enrollment.ts";
+import { createNodeAccessGrant, deleteNodeAccessGrant, listNodeAccessGrants } from "../src/cluster/node-access.ts";
 import { createNodeGroup, setNodeGroupsForNode } from "../src/cluster/node-groups.ts";
 import {
 	approveNode,
 	deleteNode,
 	findNodeByPublicKey,
 	getNode,
-	listNodeShares,
 	listNodesForUser,
 	nodeAccess,
-	shareNode,
-	unshareNode,
 	updateNodeFacts,
 } from "../src/cluster/nodes.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -97,7 +95,7 @@ describeBackends("nodes", (backend) => {
 			expect(() => parseEnrollmentToken("crh1.a.")).toThrow(EnrollmentError);
 		});
 
-		it("is single-use, and owner is the token creator", async () => {
+		it("is single-use, and the node belongs to the organization", async () => {
 			const { token } = await createEnrollmentToken(db, { userId: bob.userId, serverFingerprint: FP });
 			const node = await enrollNode(db, {
 				secret: secretOf(token),
@@ -106,7 +104,7 @@ describeBackends("nodes", (backend) => {
 				facts: { a: 1 },
 				clientVersion: "1",
 			});
-			expect(node).toMatchObject({ owner_user_id: bob.userId, status: "pending", transport: "client", name: "single" });
+			expect(node).toMatchObject({ status: "pending", transport: "client", name: "single" });
 			const again = enrollNode(db, {
 				secret: secretOf(token),
 				publicKey: key(),
@@ -176,90 +174,71 @@ describeBackends("nodes", (backend) => {
 		});
 	});
 
-	describe("access and sharing", () => {
+	describe("access grants", () => {
 		let node: string;
 		let team: string;
+		const org = () => defaultOrgId(db);
+		const grant = (input: {
+			granteeType: "user" | "user_group";
+			granteeId: string;
+			targetType: "node" | "node_group";
+			targetId: string;
+			orgId: string;
+		}) => createNodeAccessGrant(db, { ...input, createdByUserId: admin.userId });
 		beforeAll(async () => {
 			node = (await enroll({ hostname: "shared-node" })).id;
 			team = (await createUserGroup(db, "team")).id;
 			await addUserGroupMember(db, team, bob.userId);
 		});
 
-		it("computes access levels", async () => {
+		it("reaches nodes through direct and user-group grants (admin sees all)", async () => {
+			const orgId = await org();
 			expect(await nodeAccess(db, admin, node)).toBe("admin");
-			expect(await nodeAccess(db, alice, node)).toBe("owner");
+			expect(await nodeAccess(db, alice, node)).toBeUndefined();
 			expect(await nodeAccess(db, bob, node)).toBeUndefined();
 			expect(await nodeAccess(db, alice, "00000000-0000-7000-8000-000000000000")).toBeUndefined();
 
-			await shareNode(db, {
-				nodeId: node,
-				granteeType: "user_group",
-				granteeId: team,
-				access: "view",
-				createdBy: alice.userId,
-			});
-			expect(await nodeAccess(db, bob, node)).toBe("view");
+			await grant({ granteeType: "user_group", granteeId: team, targetType: "node", targetId: node, orgId });
+			expect(await nodeAccess(db, bob, node)).toBe("granted");
 			expect(await nodeAccess(db, carol, node)).toBeUndefined();
 
-			await shareNode(db, {
-				nodeId: node,
-				granteeType: "user",
-				granteeId: bob.userId,
-				access: "operate",
-				createdBy: alice.userId,
-			});
-			expect(await nodeAccess(db, bob, node)).toBe("operate");
-			// the strongest share wins regardless of which route it came through
-			await shareNode(db, {
-				nodeId: node,
-				granteeType: "user_group",
-				granteeId: team,
-				access: "operate",
-				createdBy: alice.userId,
-			});
-			await shareNode(db, {
-				nodeId: node,
-				granteeType: "user",
-				granteeId: bob.userId,
-				access: "view",
-				createdBy: alice.userId,
-			});
-			expect(await nodeAccess(db, bob, node)).toBe("operate");
+			await grant({ granteeType: "user", granteeId: bob.userId, targetType: "node", targetId: node, orgId });
+			expect(await nodeAccess(db, bob, node)).toBe("granted");
+			expect((await listNodeAccessGrants(db)).map((g) => g.granteeType).sort()).toEqual(["user", "user_group"]);
+			await expect(
+				grant({ granteeType: "user", granteeId: bob.userId, targetType: "node", targetId: node, orgId }),
+			).rejects.toThrow(/already exists/);
 		});
 
-		it("upserts shares, validates grantees and removes shares", async () => {
-			const shares = await listNodeShares(db, node);
-			expect(shares).toHaveLength(2);
-			const again = await shareNode(db, {
-				nodeId: node,
+		it("expands a node-group grant to its current members", async () => {
+			const orgId = await org();
+			const group = await createNodeGroup(db, orgId, "granted-group");
+			const n = await enroll({ hostname: "grouped" });
+			await grant({
 				granteeType: "user",
-				granteeId: bob.userId,
-				access: "operate",
-				createdBy: alice.userId,
+				granteeId: carol.userId,
+				targetType: "node_group",
+				targetId: group.id,
+				orgId,
 			});
-			expect(again.id).toBe(shares.find((s) => s.granteeType === "user")?.id);
-			expect(await listNodeShares(db, node)).toHaveLength(2);
-			await expect(
-				shareNode(db, {
-					nodeId: node,
-					granteeType: "user",
-					granteeId: "nope",
-					access: "view",
-					createdBy: alice.userId,
-				}),
-			).rejects.toThrow(/no such user/);
-			await expect(
-				shareNode(db, {
-					nodeId: node,
-					granteeType: "user_group",
-					granteeId: "nope",
-					access: "view",
-					createdBy: alice.userId,
-				}),
-			).rejects.toThrow(/no such user group/);
-			for (const s of shares) await unshareNode(db, node, s.id);
+			expect(await nodeAccess(db, carol, n.id)).toBeUndefined();
+			await setNodeGroupsForNode(db, n.id, [group.id]);
+			expect(await nodeAccess(db, carol, n.id)).toBe("granted");
+			await setNodeGroupsForNode(db, n.id, []);
+			expect(await nodeAccess(db, carol, n.id)).toBeUndefined();
+		});
+
+		it("deletes grants individually", async () => {
+			const orgId = await org();
+			const grants = await listNodeAccessGrants(db, { granteeType: "user_group", granteeId: team });
+			expect(grants).toHaveLength(1);
+			await deleteNodeAccessGrant(db, grants[0]?.id as string);
+			expect(await nodeAccess(db, bob, node)).toBe("granted"); // the direct grant is still there
+			const direct = await listNodeAccessGrants(db, { granteeType: "user", granteeId: bob.userId });
+			await deleteNodeAccessGrant(db, direct[0]?.id as string);
 			expect(await nodeAccess(db, bob, node)).toBeUndefined();
-			await expect(unshareNode(db, node, shares[0]?.id ?? "x")).rejects.toThrow(/no such share/);
+			await expect(deleteNodeAccessGrant(db, grants[0]?.id as string)).rejects.toThrow(/no such grant/);
+			void orgId;
 		});
 	});
 
@@ -270,24 +249,33 @@ describeBackends("nodes", (backend) => {
 			const a = await enroll({ user: u, nameHint: "zz-mine" });
 			const b = await enroll({ user: o, nameHint: "aa-theirs" });
 			const c = await enroll({ user: o, nameHint: "mm-hidden" });
-			await shareNode(db, {
-				nodeId: b.id,
+			const orgId = await defaultOrgId(db);
+			await createNodeAccessGrant(db, {
+				orgId,
 				granteeType: "user",
 				granteeId: u.userId,
-				access: "view",
-				createdBy: o.userId,
+				targetType: "node",
+				targetId: a.id,
+				createdByUserId: admin.userId,
+			});
+			await createNodeAccessGrant(db, {
+				orgId,
+				granteeType: "user",
+				granteeId: u.userId,
+				targetType: "node",
+				targetId: b.id,
+				createdByUserId: admin.userId,
 			});
 			await updateNodeFacts(db, a.id, { facts: FACTS, privilegedMode: "native" });
-			const orgId = await defaultOrgId(db);
 			const dbGroup = await createNodeGroup(db, orgId, "db");
 			const webGroup = await createNodeGroup(db, orgId, "web");
 			await setNodeGroupsForNode(db, a.id, [webGroup.id, dbGroup.id]);
 
 			const list = await listNodesForUser(db, u);
 			expect(list.map((n) => n.name)).toEqual(["aa-theirs", "zz-mine"]);
-			expect(list[0]).toMatchObject({ access: "view", nodeGroups: [], ownerUserId: o.userId, facts: FACTS });
+			expect(list[0]).toMatchObject({ access: "granted", nodeGroups: [], facts: FACTS });
 			expect(list[1]).toMatchObject({
-				access: "owner",
+				access: "granted",
 				nodeGroups: [
 					{ id: dbGroup.id, name: "db" },
 					{ id: webGroup.id, name: "web" },
@@ -304,6 +292,14 @@ describeBackends("nodes", (backend) => {
 		it("reads a facts row stored before shells existed", async () => {
 			const u = session(await createUser(db, { username: "legacy", kind: "member" }));
 			const n = await enroll({ user: u });
+			await createNodeAccessGrant(db, {
+				orgId: await defaultOrgId(db),
+				granteeType: "user",
+				granteeId: u.userId,
+				targetType: "node",
+				targetId: n.id,
+				createdByUserId: admin.userId,
+			});
 			const { shells: _shells, ...legacy } = FACTS;
 			await updateNodeFacts(db, n.id, { facts: legacy });
 			const [node] = await listNodesForUser(db, u);
@@ -314,6 +310,14 @@ describeBackends("nodes", (backend) => {
 		it("shows an SSH node's probed shells as its only facts", async () => {
 			const u = session(await createUser(db, { username: "sshowner", kind: "member" }));
 			const n = await enroll({ user: u });
+			await createNodeAccessGrant(db, {
+				orgId: await defaultOrgId(db),
+				granteeType: "user",
+				granteeId: u.userId,
+				targetType: "node",
+				targetId: n.id,
+				createdByUserId: admin.userId,
+			});
 			const shells = { sh: "/usr/bin/sh", bash: "/usr/bin/bash" };
 			await db
 				.updateTable("nodes")
@@ -359,20 +363,23 @@ describeBackends("nodes", (backend) => {
 			await expect(approveNode(db, n.id, admin.userId)).rejects.toThrow(/not pending/);
 		});
 
-		it("delete removes shares and group memberships", async () => {
+		it("delete removes grants and group memberships", async () => {
 			const n = await enroll({ hostname: "to-delete" });
 			const group = await createNodeGroup(db, await defaultOrgId(db), "gg");
 			await setNodeGroupsForNode(db, n.id, [group.id]);
-			await shareNode(db, {
-				nodeId: n.id,
+			await createNodeAccessGrant(db, {
+				orgId: await defaultOrgId(db),
 				granteeType: "user",
 				granteeId: bob.userId,
-				access: "view",
-				createdBy: alice.userId,
+				targetType: "node",
+				targetId: n.id,
+				createdByUserId: alice.userId,
 			});
 			await deleteNode(db, n.id);
 			expect(await getNode(db, n.id)).toBeUndefined();
-			expect(await db.selectFrom("shares").select("id").where("resource_id", "=", n.id).execute()).toHaveLength(0);
+			expect(
+				await db.selectFrom("node_access_grants").select("id").where("target_id", "=", n.id).execute(),
+			).toHaveLength(0);
 			expect(
 				await db.selectFrom("node_group_members").select("node_id").where("node_id", "=", n.id).execute(),
 			).toHaveLength(0);

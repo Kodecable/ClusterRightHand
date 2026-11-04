@@ -50,14 +50,31 @@ export interface WebSessionsTable {
 export interface SharesTable {
 	id: string;
 	org_id: string;
-	resource_type: "node" | "session";
+	/** Sessions only (D108): nodes are shared through node_access_grants. */
+	resource_type: "session";
 	/** No foreign key: resources live in different tables. */
 	resource_id: string;
 	grantee_type: "user" | "user_group";
 	/** No foreign key: points at users or user_groups depending on grantee_type. */
 	grantee_id: string;
-	/** node: "view" | "operate"; session: "view" | "chat". */
-	access: "view" | "operate" | "chat";
+	/** session: "view" | "chat". */
+	access: "view" | "chat";
+	created_by_user_id: string;
+	created_at: CreatedAt;
+}
+
+/**
+ * Node access grants (D108): an administrator grants a user or user group access to a node or node group,
+ * one level (view and run tasks). Grantee and target ids are polymorphic, so there are no foreign keys;
+ * deleting a grantee or target deletes its grants explicitly (node-access.ts).
+ */
+export interface NodeAccessGrantsTable {
+	id: string;
+	org_id: string;
+	grantee_type: "user" | "user_group";
+	grantee_id: string;
+	target_type: "node" | "node_group";
+	target_id: string;
 	created_by_user_id: string;
 	created_at: CreatedAt;
 }
@@ -79,7 +96,6 @@ export interface SecretsTable {
 export interface NodesTable {
 	id: string;
 	org_id: string;
-	owner_user_id: string;
 	name: string;
 	/** Lowercase form of `name`; the shared node/node-group namespace compares this (D109). */
 	/** Required on insert: the column is nullable only because SQLite cannot add a NOT NULL column without a default. */
@@ -396,7 +412,6 @@ export interface ModelProvidersTable {
 export interface SshCredentialsTable {
 	id: string;
 	org_id: string;
-	owner_user_id: string;
 	name: string;
 	public_key: string;
 	secret_id: string;
@@ -454,6 +469,7 @@ export interface Database {
 	nodes: NodesTable;
 	node_groups: NodeGroupsTable;
 	node_group_members: NodeGroupMembersTable;
+	node_access_grants: NodeAccessGrantsTable;
 	enrollment_tokens: EnrollmentTokensTable;
 	tasks: TasksTable;
 	task_groups: TaskGroupsTable;

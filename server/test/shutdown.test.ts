@@ -9,7 +9,7 @@ import type { ServerIdentity } from "../src/cluster/identity.ts";
 import type { Db } from "../src/storage/db.ts";
 import { openDb } from "../src/storage/db.ts";
 import { migrateToLatest } from "../src/storage/migrate.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { handshakeInit, TestAgentServer, waitFor } from "./helpers/agent.ts";
 
@@ -26,7 +26,7 @@ describe("graceful shutdown", () => {
 	let destroyed: boolean;
 	let onRejection: (reason: unknown) => void;
 
-	const addNode = async (ownerUserId: string, publicKey: Uint8Array): Promise<void> => {
+	const addNode = async (publicKey: Uint8Array): Promise<void> => {
 		nodeId = newId();
 		const now = new Date().toISOString();
 		await db
@@ -34,7 +34,6 @@ describe("graceful shutdown", () => {
 			.values({
 				id: nodeId,
 				org_id: await defaultOrgId(db),
-				owner_user_id: ownerUserId,
 				name: "shutdown-node",
 				name_key: "shutdown-node",
 				transport: "client",
@@ -88,9 +87,8 @@ describe("graceful shutdown", () => {
 	});
 
 	it("waits for disconnect work before the database is destroyed", async () => {
-		const owner = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
 		const key = generateKeyPair();
-		await addNode(owner.id, key.publicKey);
+		await addNode(key.publicKey);
 		const fake = await agents.connect(key, handshakeInit());
 		await waitFor(
 			"node connected",
@@ -142,9 +140,8 @@ describe("graceful shutdown", () => {
 	});
 
 	it("does not attach a node connection once shutdown has begun", async () => {
-		const owner = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
 		const key = generateKeyPair();
-		await addNode(owner.id, key.publicKey);
+		await addNode(key.publicKey);
 		await cluster.close();
 		// The handshake still succeeds at the wire level, but attach() closes the connection instead of
 		// starting last_seen or audit writes after close() resolved.

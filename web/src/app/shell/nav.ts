@@ -9,6 +9,7 @@ import {
 	KeySquareIcon,
 	LayersIcon,
 	ListChecksIcon,
+	LockKeyholeIcon,
 	type LucideIcon,
 	MessageSquareIcon,
 	ScrollTextIcon,
@@ -30,6 +31,7 @@ export type NavPath =
 	| "/approvals"
 	| "/nodes"
 	| "/node-groups"
+	| "/ssh-credentials"
 	| "/credentials"
 	| "/authorizations"
 	| "/tokens"
@@ -67,6 +69,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 		items: [
 			{ to: "/nodes", label: msg`Nodes`, icon: ServerIcon },
 			{ to: "/node-groups", label: msg`Node groups`, icon: BlocksIcon },
+			{ to: "/ssh-credentials", label: msg`SSH credentials`, icon: LockKeyholeIcon, adminOnly: true },
 			{ to: "/credentials", label: msg`Credentials`, icon: KeyRoundIcon },
 		],
 	},

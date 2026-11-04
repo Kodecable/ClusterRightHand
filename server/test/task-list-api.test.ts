@@ -2,7 +2,7 @@ import type { TaskSpec } from "@crh/protocol";
 import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cluster, type TaskView } from "../src/cluster/cluster.ts";
-import { shareNode } from "../src/cluster/nodes.ts";
+
 import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
 import type { RuleRef } from "../src/policy/store.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -14,8 +14,9 @@ import { openTestDb } from "./helpers/db.ts";
 vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 
 /**
- * GET /api/tasks: every task on a node the user can see, with the filters and ordering the task page
- * needs (doc/privilege.md, the WebUI's task page and the signature section of the approvals page).
+ * GET /api/tasks: the tasks the user may see (administrators all, everyone else their own; D108), with the
+ * filters and ordering the task page needs (doc/privilege.md, the WebUI's task page and the signature
+ * section of the approvals page).
  */
 describe("task list api (sqlite)", () => {
 	let db: Db;
@@ -35,7 +36,6 @@ describe("task list api (sqlite)", () => {
 			.values({
 				id,
 				org_id: await defaultOrgId(db),
-				owner_user_id: uid.alice as string,
 				name,
 				name_key: name.toLowerCase(),
 				transport: "client",
@@ -55,6 +55,20 @@ describe("task list api (sqlite)", () => {
 				ssh_host_key: null,
 				ssh_credential_id: null,
 				ssh_jumps: null,
+			})
+			.execute();
+		// The node belongs to the organization; alice gets a grant so her tasks can be dispatched.
+		await db
+			.insertInto("node_access_grants")
+			.values({
+				id: newId(),
+				org_id: await defaultOrgId(db),
+				grantee_type: "user",
+				grantee_id: uid.alice as string,
+				target_type: "node",
+				target_id: id,
+				created_by_user_id: uid.alice as string,
+				created_at: now,
 			})
 			.execute();
 		return id;
@@ -120,30 +134,26 @@ describe("task list api (sqlite)", () => {
 		}
 		n1 = await addNode("n1");
 		n2 = await addNode("n2");
-		// Bob may view n1; carol sees nothing of alice's.
-		await shareNode(db, {
-			nodeId: n1,
-			granteeType: "user",
-			granteeId: uid.bob as string,
-			access: "view",
-			createdBy: uid.alice as string,
-		});
 	});
 	afterAll(async () => {
 		await cluster.close();
 		await db.destroy();
 	});
 
-	it("lists only the tasks on nodes the user can see", async () => {
+	it("lists the user's own tasks, all tasks for an admin, and never another user's", async () => {
 		const own1 = await mkTask({ nodeId: n1 });
 		const own2 = await mkTask({ nodeId: n2 });
-		// A member shared into n1 sees its tasks; one without a share sees none of them.
+		const bobs = await cluster.createTask({
+			nodeId: n1,
+			spec: execSpec("echo", "bob"),
+			actor: { type: "user", id: uid.bob as string, onBehalfOfUserId: uid.bob as string },
+		});
 		expect((await list("alice")).items.map((t) => t.id)).toEqual(expect.arrayContaining([own1.id, own2.id]));
+		expect((await list("alice")).items.map((t) => t.id)).not.toContain(bobs.id);
 		const bob = await list("bob");
-		expect(bob.items.map((t) => t.id)).toContain(own1.id);
-		expect(bob.items.map((t) => t.id)).not.toContain(own2.id);
+		expect(bob.items.map((t) => t.id)).toEqual([bobs.id]);
 		expect((await list("carol")).items).toEqual([]);
-		expect((await list("root")).items.map((t) => t.id)).toEqual(expect.arrayContaining([own1.id, own2.id]));
+		expect((await list("root")).items.map((t) => t.id)).toEqual(expect.arrayContaining([own1.id, own2.id, bobs.id]));
 	});
 
 	it("lists a waiting task group once, not once per member task", async () => {
@@ -305,13 +315,15 @@ describe("task list api (sqlite)", () => {
 		}
 	});
 
-	it("rejects an unknown filter or node", async () => {
+	it("rejects an unknown filter and treats nodeId as a plain narrowing filter", async () => {
 		for (const query of ["?state=bogus", "?actorType=bogus"]) {
 			expect((await call(app, `/api/tasks${query}`, { cookie: cookies.alice })).status, query).toBe(400);
 		}
-		expect((await call(app, `/api/tasks?nodeId=${newId()}`, { cookie: cookies.alice })).status).toBe(404);
-		// A node the user cannot see is not disclosed either.
-		expect((await call(app, `/api/tasks?nodeId=${n2}`, { cookie: cookies.bob })).status).toBe(404);
+		// No node disclosure through the filter: an unknown id is an empty page, not a 404.
+		const unknown = await list("alice", `?nodeId=${newId()}`);
+		expect(unknown.items).toEqual([]);
+		const bobsView = await list("bob", `?nodeId=${n2}`);
+		expect(bobsView.items).toEqual([]);
 	});
 
 	it("lists the signature waits on the approvals page", async () => {

@@ -24,6 +24,7 @@ import { planPrivileged, withdrawLocal } from "./authorization-flow.ts";
 import { createLiveTask, GroupBudget, type LiveTask, type OutputSnapshot } from "./batch-output.ts";
 import type { NodeConnection } from "./connection.ts";
 import { type ClusterCore, now } from "./core.ts";
+import { userCanAccessNode } from "./node-access.ts";
 import { nodeGroupIdsForNodes } from "./node-groups.ts";
 import { getNode, type NodeRow } from "./nodes.ts";
 import { specFromRow, summarize, withInputRef } from "./spec.ts";
@@ -105,6 +106,35 @@ interface TaskEnd {
 }
 
 // ---- creating and dispatching tasks ----
+
+/** The error code of a task stopped because its on_behalf_of user lost access to the node. */
+export const NODE_ACCESS_REVOKED = "node_access_revoked";
+
+/** Ends a waiting task whose on_behalf_of user no longer has access to the node (D108). */
+export async function failNodeAccessRevoked(
+	core: ClusterCore,
+	id: string,
+	row: Selectable<TasksTable>,
+	from: readonly TaskRowState[],
+): Promise<void> {
+	await endTask(core, id, {
+		write: {
+			from,
+			set: {
+				state: "failed",
+				error_code: NODE_ACCESS_REVOKED,
+				error_message: "access to the node was revoked before the task was dispatched",
+				pending_input: null,
+				handler_type: null,
+				handler_session_id: null,
+			},
+		},
+		live: "none",
+		group: row.task_group_id ?? null,
+		awaitGroup: true,
+		onChange: row.actor_id,
+	});
+}
 
 /** How the rule chain judges running `spec` on a node. */
 export async function evaluateFor(
@@ -309,6 +339,12 @@ export async function dispatch(
 	const ssh = node.transport === "ssh";
 	const link = core.links.get(node.id);
 	const row = await core.row(id);
+	// Access may have been revoked while the task waited for approval or a signature (D108). Check again
+	// immediately before anything is sent; a revoked task ends without reaching the node.
+	if (row && !(await userCanAccessNode(core.db, row.on_behalf_of_user_id, node.id))) {
+		await failNodeAccessRevoked(core, id, row, ["awaiting_approval"]);
+		return;
+	}
 	const fresh = await getNode(core.db, node.id);
 	const online =
 		fresh?.status === "active" && (ssh ? core.sshRoute !== undefined : link?.ready === true && !link.conn.closed);

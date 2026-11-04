@@ -73,6 +73,7 @@ export async function enrollNode(
 ): Promise<Selectable<NodesTable>> {
 	const now = (input.now ?? new Date()).toISOString();
 	const publicKey = Buffer.from(input.publicKey).toString("base64");
+	let createdByUserId = "";
 	const enrolled = await db.transaction().execute(async (trx) => {
 		if (await trx.selectFrom("nodes").select("id").where("public_key", "=", publicKey).executeTakeFirst()) {
 			throw new EnrollmentError("public key is already registered");
@@ -91,12 +92,12 @@ export async function enrollNode(
 			.selectAll()
 			.where("token_hash", "=", tokenHash)
 			.executeTakeFirstOrThrow();
+		createdByUserId = token.created_by_user_id;
 
 		const name = await availableGeneratedName(trx, token.org_id, token.name_hint ?? input.hostname);
 		const node: Selectable<NodesTable> = {
 			id: newId(),
 			org_id: token.org_id,
-			owner_user_id: token.created_by_user_id,
 			name,
 			name_key: nameKey(name),
 			transport: "client",
@@ -127,7 +128,7 @@ export async function enrollNode(
 	if (input.audit)
 		void input.audit
 			.record({
-				actor: { type: "system", id: "enrollment", onBehalfOfUserId: enrolled.owner_user_id },
+				actor: { type: "system", id: "enrollment", onBehalfOfUserId: createdByUserId },
 				action: "node.enrollment_requested",
 				target: { type: "node", id: enrolled.id },
 				detail: { name: enrolled.name, hostname: input.hostname, client_version: input.clientVersion },

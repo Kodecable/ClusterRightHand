@@ -13,6 +13,7 @@ import { TaskGone } from "@/components/task-gone";
 import { TaskEvaluation, TaskFacts, TaskOutput } from "@/components/task-result";
 import { Button } from "@/components/ui/button";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
+import { useAuth } from "@/features/auth/session";
 import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
 import { useNodes } from "@/features/nodes/api";
 import { useDirectory } from "@/features/users/api";
@@ -36,6 +37,7 @@ export function TaskPage() {
 	const params = useParams({ strict: false }) as { taskId?: string };
 	const id = params.taskId ?? "";
 	const task = useTask(id, true);
+	const currentUser = useAuth().user;
 	const directory = useDirectory();
 	const nodes = useNodes();
 	const looks = useApprovalLookups();
@@ -68,6 +70,10 @@ export function TaskPage() {
 	const view = task.data;
 	const actor = taskActor(view, (uid) => (directory.data?.users ?? []).find((user) => user.id === uid)?.displayName);
 	const running = !isTerminal(view.state);
+	// Only an administrator and the task's on_behalf_of user may cancel or decide (doc/access-control.md).
+	const canAct = currentUser?.kind === "admin" || view.onBehalfOfUserId === currentUser?.id;
+	// Signing is the on_behalf_of user's own act, administrators included only when it is their task.
+	const canSign = view.onBehalfOfUserId === currentUser?.id;
 
 	const links: KeyValueItem[] = [
 		...(view.rootSessionId !== null && view.rootSessionId !== undefined
@@ -127,7 +133,7 @@ export function TaskPage() {
 					</span>
 				}
 				actions={
-					running ? (
+					running && canAct ? (
 						<Button
 							type="button"
 							variant="destructive"
@@ -160,7 +166,7 @@ export function TaskPage() {
 				/>
 			</section>
 
-			{view.state === "awaiting_approval" && (
+			{view.state === "awaiting_approval" && canAct && (
 				<ApprovalCard
 					item={{ kind: "task", task: view }}
 					nodeNames={looks.nodeNames}
@@ -184,7 +190,7 @@ export function TaskPage() {
 				/>
 			)}
 
-			{view.state === "awaiting_authorization" && (
+			{view.state === "awaiting_authorization" && canSign && (
 				<AuthorizationWait
 					kind="task"
 					id={view.id}

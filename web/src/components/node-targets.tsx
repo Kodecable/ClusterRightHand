@@ -25,14 +25,14 @@ function NodeGroupLink({ id, name }: { id: string; name: string }) {
 
 /**
  * One stored node/node-group reference: its current name and a link, `_all` as
- * "All my nodes", and a deleted object by what can still be said about it.
+ * "All accessible nodes", and a deleted object by what can still be said about it.
  * `nodeNames` is the fallback for an id the response did not describe.
  */
 export function NodeTarget({ id, refs, nodeNames }: { id: string; refs?: RefMap; nodeNames?: Map<string, string> }) {
 	if (id === ALL_TARGET)
 		return (
 			<span>
-				<Trans>All my nodes</Trans>
+				<Trans>All accessible nodes</Trans>
 			</span>
 		);
 	const target = refs?.[id];

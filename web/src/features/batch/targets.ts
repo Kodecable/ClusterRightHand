@@ -3,13 +3,13 @@ import { ALL_TARGET } from "@/lib/names";
 
 /**
  * The batch target picker's selection: node and node-group names it chose,
- * the "all my nodes" switch, and free-text names. The API accepts names or
+ * the "all accessible nodes" switch, and free-text names. The API accepts names or
  * UUIDs; names are what the picker has and what a task group displays.
  */
 export interface BatchTargetSelection {
 	nodes?: string[];
 	nodeGroups?: string[];
-	/** Every node the caller can operate, evaluated by the server (`_all`). */
+	/** Every node the caller can access, evaluated by the server (`_all`). */
 	all?: boolean;
 	/** Comma-separated node or node-group names (or `_all`). */
 	extra?: string;

@@ -62,7 +62,6 @@ beforeAll(async () => {
 		.values({
 			id: nodeId,
 			org_id: await defaultOrgId(db),
-			owner_user_id: user.id,
 			name: "web-1",
 			name_key: "web-1",
 			transport: "client",
@@ -82,6 +81,19 @@ beforeAll(async () => {
 			ssh_host_key: null,
 			ssh_credential_id: null,
 			ssh_jumps: null,
+		})
+		.execute();
+	await db
+		.insertInto("node_access_grants")
+		.values({
+			id: newId(),
+			org_id: await defaultOrgId(db),
+			grantee_type: "user",
+			grantee_id: user.id,
+			target_type: "node",
+			target_id: nodeId,
+			created_by_user_id: user.id,
+			created_at: now,
 		})
 		.execute();
 });

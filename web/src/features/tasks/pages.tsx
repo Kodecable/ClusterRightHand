@@ -60,8 +60,9 @@ function FilterSelect({
 }
 
 /**
- * All tasks the user can see (doc/webui.md "Tasks"): a cursor-paged table with
- * state / actor-type / node filters.
+ * The caller's tasks (doc/webui.md "Tasks", doc/access-control.md): a cursor-paged
+ * table with state / actor-type / node filters. Non-admins see only their own tasks;
+ * administrators see every task.
  */
 export function TasksPage() {
 	const { t, i18n } = useLingui();

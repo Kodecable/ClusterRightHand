@@ -25,7 +25,6 @@ function node(id: string, name: string): PublicNode {
 		transport: "client",
 		status: "active",
 		hostname: `${name}.local`,
-		ownerUserId: ADMIN.id,
 		clientVersion: null,
 		privilegedMode: null,
 		lastSeenAt: null,

@@ -15,7 +15,7 @@ import { enrollCommand } from "@/features/nodes/commands";
 /**
  * "Add node": creates a one-time enrollment token and shows the command to run
  * on the node. The token is shown once; the node appears as pending until an
- * owner or an administrator approves its key fingerprint.
+ * administrator approves its key fingerprint.
  */
 export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 	const { t } = useLingui();

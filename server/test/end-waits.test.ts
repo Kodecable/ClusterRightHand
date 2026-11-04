@@ -60,7 +60,6 @@ describe("ending waits at shutdown", () => {
 			.values({
 				id: nodeId,
 				org_id: await defaultOrgId(db),
-				owner_user_id: userId,
 				name: "wait-node",
 				name_key: "wait-node",
 				transport: "client",
@@ -83,6 +82,19 @@ describe("ending waits at shutdown", () => {
 				trust_report: null,
 				trust_digest: null,
 				trust_updated_at: null,
+			})
+			.execute();
+		await db
+			.insertInto("node_access_grants")
+			.values({
+				id: newId(),
+				org_id: await defaultOrgId(db),
+				grantee_type: "user",
+				grantee_id: userId,
+				target_type: "node",
+				target_id: nodeId,
+				created_by_user_id: userId,
+				created_at: now,
 			})
 			.execute();
 		cluster = new Cluster(db, { reconnectGraceMs: 600_000 });

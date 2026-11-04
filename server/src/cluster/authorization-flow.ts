@@ -62,6 +62,7 @@ import type { ClusterCore } from "./core.ts";
 import { now } from "./core.ts";
 import type { NodeLink } from "./links.ts";
 import { waitTrust } from "./links.ts";
+import { userCanAccessNode } from "./node-access.ts";
 import { getNode, type NodeRow } from "./nodes.ts";
 import { specFromRow } from "./spec.ts";
 import { taskStartOf } from "./task-start.ts";
@@ -70,6 +71,7 @@ import {
 	endTask,
 	finish,
 	groupEnded,
+	NODE_ACCESS_REVOKED,
 	newLive,
 	onAccepted,
 	syncGroupState,
@@ -324,6 +326,19 @@ async function onLocalState(core: ClusterCore, id: string, attempt: number, stat
 	if (!node || !link || link.conn.closed || !link.ready || !record) return;
 	// A member of a group that already ended (interrupted by a restart) never dispatches again.
 	if (await groupEnded(core, row.task_group_id)) return;
+	// The local approval may arrive long after the task was parked: access can have been revoked since (D108).
+	if (!(await userCanAccessNode(core.db, row.on_behalf_of_user_id, node.id))) {
+		await finishAuthorization(
+			core,
+			id,
+			row,
+			"failed",
+			NODE_ACCESS_REVOKED,
+			"access to the node was revoked before the task was dispatched",
+			record,
+		);
+		return;
+	}
 	const spec = specFromRow(row.spec, "task");
 	const input = row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0);
 	const updated: TaskAuthorizationRecord = {
@@ -660,6 +675,19 @@ async function claimOwnerAuthorization(
 	if (!from.includes(row.state)) return null;
 	// A member of a group that already ended (interrupted by a restart) never dispatches again.
 	if (await groupEnded(core, row.task_group_id)) return null;
+	// The signature may arrive long after the task was parked: check access again before claiming it (D108).
+	if (!(await userCanAccessNode(core.db, row.on_behalf_of_user_id, node.id))) {
+		await finishAuthorization(
+			core,
+			row.id,
+			row,
+			"failed",
+			NODE_ACCESS_REVOKED,
+			"access to the node was revoked before the task was dispatched",
+			parseTaskAuthorization(row.authorization),
+		);
+		return null;
+	}
 	const oneShot = submitted.payload.taskIds !== null;
 	const attempt = oneShot ? (submitted.payload.attempt as number) : row.attempt;
 	if (oneShot && attempt !== row.attempt) return null;
@@ -1036,6 +1064,19 @@ async function sendAuthorizedStart(
 	start: ReturnType<typeof taskStartOf>,
 	record: TaskAuthorizationRecord,
 ): Promise<void> {
+	// Last check before the frame leaves: never send for a user who has lost access in the meantime (D108).
+	const current = await core.row(id);
+	if (current && !(await userCanAccessNode(core.db, current.on_behalf_of_user_id, nodeId))) {
+		await finish(core, nodeId, id, {
+			state: "failed",
+			error_code: NODE_ACCESS_REVOKED,
+			error_message: "access to the node was revoked before the task was dispatched",
+			pending_input: null,
+			handler_type: null,
+			handler_session_id: null,
+		});
+		return;
+	}
 	try {
 		await link.conn.peer.request("task.start", start);
 	} catch (err) {

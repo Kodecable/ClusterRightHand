@@ -52,6 +52,7 @@ node_access_grants(id, org_id, grantee_type[user|user_group], grantee_id,
                    target_type[node|node_group], target_id,
                    created_by_user_id, created_at)
                   -- 访问授权；一个被授权方对一个目标一行，只有一个级别（查看并执行）
+                  -- unique (grantee_type, grantee_id, target_type, target_id)
 ssh_credentials   (id, org_id, name, public_key, secret_id, created_at)  -- 属组织、仅管理员；私钥在 secrets 中
 enrollment_tokens (id, org_id, created_by_user_id, token_hash, name_hint, expires_at, used_at, used_by_node_id)
                   -- 由管理员创建；注册后的节点属于组织，先处于 pending，由管理员确认后才可用

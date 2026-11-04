@@ -657,8 +657,8 @@ function define<S extends z.ZodType>(tool: ClusterTool<S>): ClusterTool<S> {
 const listNodes = define({
 	name: "list_nodes",
 	description:
-		"List the nodes you can use (your own and those shared with you), with their node groups, status and " +
-		"whether you may run tasks on them.",
+		"List the nodes you have been granted access to, with their node groups, status and whether you may run " +
+		"tasks on them.",
 	input: z.object({}),
 	readOnly: true,
 	handler: async (_args, ctx) => {
@@ -673,7 +673,7 @@ const listNodes = define({
 				nodeGroups: n.nodeGroups,
 				hostname: n.hostname,
 				os: n.facts?.osPrettyName ?? n.facts?.osId,
-				can_run_tasks: n.access !== "view" && n.status === "active",
+				can_run_tasks: n.status === "active",
 			})),
 		};
 	},
@@ -740,7 +740,6 @@ const nodeInfo = define({
 		if (!node) throw new UserError(`no node ${args.node} that you can see`);
 		const row = await getNode(ctx.db, node.id);
 		const notesPath = node.facts?.notesPath;
-		const canRun = node.access !== "view";
 		return {
 			name: node.name,
 			id: node.id,
@@ -752,7 +751,7 @@ const nodeInfo = define({
 			last_seen_at: node.lastSeenAt,
 			facts: node.facts,
 			ssh: row?.transport === "ssh" ? { user: row.ssh_user, host: row.ssh_host } : undefined,
-			notes: notesPath && canRun ? await readNotes(ctx, node.id, notesPath) : notesPath ? { path: notesPath } : null,
+			notes: notesPath ? await readNotes(ctx, node.id, notesPath) : null,
 		};
 	},
 });

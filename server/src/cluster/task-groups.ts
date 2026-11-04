@@ -65,13 +65,13 @@ export interface ResolvedTargets {
 
 /**
  * Resolves node and node-group names (case-insensitive), UUIDs or `_all` to a task group's targets and nodes
- * (D109, doc/agent-runtime.md#批量执行). An explicit node the user cannot operate is an error; a node group or
- * `_all` simply expands to the current members the user can operate.
+ * (D109, doc/agent-runtime.md#批量执行). An explicit node the user cannot access is an error; a node group or
+ * `_all` simply expands to the current members the user can access.
  */
 export async function resolveTargets(db: Db, user: SessionUser, targets: string[]): Promise<ResolvedTargets> {
 	if (targets.length === 0) throw new UserError("targets must not be empty");
 	const orgId = await defaultOrgId(db);
-	const nodes = (await listNodesForUser(db, user)).filter((n) => n.access !== "view" && n.status === "active");
+	const nodes = (await listNodesForUser(db, user)).filter((n) => n.status === "active");
 	const nodeGroups = await db.selectFrom("node_groups").select(["id", "name"]).where("org_id", "=", orgId).execute();
 	const ids = new Set<string>();
 	const refs: string[] = [];
@@ -91,13 +91,13 @@ export async function resolveTargets(db: Db, user: SessionUser, targets: string[
 			continue;
 		}
 		const nodeGroup = nodeGroups.find((g) => g.id === target || nameKey(g.name) === nameKey(target));
-		if (!nodeGroup) throw new UserError(`no node or node group ${target} that you can operate`);
+		if (!nodeGroup) throw new UserError(`no node or node group ${target} that you can access`);
 		addRef(nodeGroup.id);
 		for (const n of nodes) {
 			if (n.nodeGroups.some((g) => g.id === nodeGroup.id)) ids.add(n.id);
 		}
 	}
-	if (ids.size === 0) throw new UserError("the targets match no node that you can operate");
+	if (ids.size === 0) throw new UserError("the targets match no node that you can access");
 	if (ids.size > MAX_TARGETS) throw new UserError(`at most ${MAX_TARGETS} targets per batch`);
 	const singleNode = targets.length === 1 && refs[0] !== ALL_TARGET && nodes.some((n) => n.id === refs[0]);
 	return { targets: refs, nodeIds: [...ids], singleNode };

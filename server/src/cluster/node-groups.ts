@@ -2,6 +2,7 @@ import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { newId } from "../util/id.ts";
 import { assertNameAvailable, isUuid, nameKey, validateName } from "./names.ts";
+import { deleteGrantsForNodeGroup } from "./node-access.ts";
 
 /**
  * Node groups as crhs manages them (D108, D109): an organization-owned name and a membership list. A node group
@@ -114,6 +115,7 @@ export async function deleteNodeGroup(db: Db, groupId: string): Promise<void> {
 	await db.transaction().execute(async (trx) => {
 		// Explicit, like the other deletes: SQLite relies on `PRAGMA foreign_keys = ON`, which is set, but the
 		// cascade is also the PostgreSQL behavior this matches.
+		await deleteGrantsForNodeGroup(trx, groupId);
 		await trx.deleteFrom("node_group_members").where("node_group_id", "=", groupId).execute();
 		const result = await trx.deleteFrom("node_groups").where("id", "=", groupId).executeTakeFirst();
 		if (result.numDeletedRows === 0n) throw new NotFoundError("no such node group");

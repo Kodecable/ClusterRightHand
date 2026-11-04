@@ -87,7 +87,7 @@ describeBackends("storage", (backend) => {
 		return {
 			id,
 			org_id: "o1",
-			resource_type: "node" as const,
+			resource_type: "session" as const,
 			resource_id: "n1",
 			grantee_type: "user" as const,
 			grantee_id: granteeId,
@@ -151,7 +151,7 @@ describeBackends("storage", (backend) => {
 		await db.insertInto("shares").values(shareRow("sh3", "u1")).execute();
 		await db
 			.insertInto("shares")
-			.values({ ...shareRow("sh4"), resource_type: "session", access: "chat" })
+			.values({ ...shareRow("sh4"), resource_id: "s1", access: "chat" })
 			.execute();
 	});
 });

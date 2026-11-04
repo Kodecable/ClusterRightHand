@@ -34,7 +34,6 @@ async function addNodes(
 		rows.push({
 			id,
 			org_id: orgId,
-			owner_user_id: ownerUserId,
 			name,
 			name_key: name.toLowerCase(),
 			transport: "client" as const,
@@ -64,6 +63,19 @@ async function addNodes(
 			.insertInto("nodes")
 			.values(rows.slice(i, i + 40))
 			.execute();
+	await db
+		.insertInto("node_access_grants")
+		.values({
+			id: newId(),
+			org_id: orgId,
+			grantee_type: "user",
+			grantee_id: ownerUserId,
+			target_type: "node_group",
+			target_id: allGroupId,
+			created_by_user_id: ownerUserId,
+			created_at: now,
+		})
+		.execute();
 	await db
 		.insertInto("node_groups")
 		.values([

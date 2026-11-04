@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createNodeGroup } from "../src/cluster/node-groups.ts";
 import { nameRefs, parseRuleSetForWrite, parseRulesForWrite, ruleRefs, targetRefs } from "../src/policy/refs.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
 
@@ -16,7 +16,6 @@ describe("rule and target references", () => {
 	beforeEach(async () => {
 		db = await openTestDb("sqlite");
 		orgId = await defaultOrgId(db);
-		const owner = await createUser(db, { username: "ref-owner", kind: "member" });
 		nodeId = newId();
 		groupId = (await createNodeGroup(db, orgId, "Prod")).id;
 		deletedId = newId();
@@ -26,7 +25,6 @@ describe("rule and target references", () => {
 			.values({
 				id: nodeId,
 				org_id: orgId,
-				owner_user_id: owner.id,
 				name: "Web-1",
 				name_key: "web-1",
 				transport: "client",

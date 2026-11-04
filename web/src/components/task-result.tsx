@@ -6,7 +6,7 @@ import { DateTime } from "@/components/relative-time";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/session";
-import { batchOutput, joinOutput, statusOutputNoteKey, taskOutcome } from "@/features/tasks/output";
+import { batchOutput, joinOutput, statusOutputNoteKey, taskErrorText, taskOutcome } from "@/features/tasks/output";
 import type { TaskAuthorizationView, TaskResultView, TaskView } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { DecisionView, EvaluationTable } from "./approval-card";
@@ -98,6 +98,7 @@ export function OutputBlock({
 
 /** The outcome of a task as one translated line (exit code, signal, timeout, error). */
 export function TaskOutcomeText({ task }: { task: TaskView }) {
+	const { i18n } = useLingui();
 	const outcome = taskOutcome(task);
 	switch (outcome.kind) {
 		case "exit":
@@ -109,13 +110,7 @@ export function TaskOutcomeText({ task }: { task: TaskView }) {
 		case "cancelled":
 			return <Trans>Cancelled</Trans>;
 		case "error":
-			return (
-				<span className="text-danger">
-					{outcome.code ?? ""}
-					{outcome.code !== null && outcome.message !== null ? ": " : ""}
-					{outcome.message ?? ""}
-				</span>
-			);
+			return <span className="text-danger">{taskErrorText(i18n, outcome.code, outcome.message)}</span>;
 		default:
 			// No exit code, signal or error: the state badge next to it says the
 			// rest, so the outcome column stays empty instead of echoing a raw state.
@@ -153,7 +148,7 @@ export function TaskFacts({
 	showDecision?: boolean;
 	className?: string;
 }) {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const auth = useAuth();
 	const user = auth.user;
 	const approvalLink = (
@@ -208,11 +203,7 @@ export function TaskFacts({
 			? [
 					{
 						label: <Trans>Error</Trans>,
-						value: (
-							<span className="text-danger">
-								{task.errorCode ?? ""} {task.errorMessage ?? ""}
-							</span>
-						),
+						value: <span className="text-danger">{taskErrorText(i18n, task.errorCode, task.errorMessage)}</span>,
 					},
 				]
 			: []),

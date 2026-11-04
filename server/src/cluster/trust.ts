@@ -261,7 +261,7 @@ export async function recordTrustReport(
 	const now = (options.now ?? new Date()).toISOString();
 	const node = await db
 		.selectFrom("nodes")
-		.select(["owner_user_id", "trust_digest", "trust_report"])
+		.select(["trust_digest", "trust_report"])
 		.where("id", "=", nodeId)
 		.executeTakeFirst();
 	if (!node) throw new Error(`no such node: ${nodeId}`);
@@ -276,7 +276,7 @@ export async function recordTrustReport(
 		.execute();
 	if (changed) {
 		await options.audit?.record({
-			actor: { type: "system", id: "cluster", onBehalfOfUserId: node.owner_user_id },
+			actor: { type: "system", id: "cluster" },
 			action: "node.trust_changed",
 			target: { type: "node", id: nodeId },
 			detail: { old_digest: previousDigest, new_digest: digest, old_status: previousStatus, status: report.kind },

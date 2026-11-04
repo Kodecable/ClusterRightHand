@@ -148,6 +148,6 @@ describe("TaskGroupResult", () => {
 		expect(within(targets).getByRole("link", { name: "worker-01" })).toHaveAttribute("href", "/nodes/node-1");
 		expect(within(targets).getByRole("link", { name: "web" })).toHaveAttribute("href", "/node-groups/group-1");
 		expect(within(targets).getByText("Deleted node or node group")).toBeInTheDocument();
-		expect(within(targets).getByText("All my nodes")).toBeInTheDocument();
+		expect(within(targets).getByText("All accessible nodes")).toBeInTheDocument();
 	});
 });

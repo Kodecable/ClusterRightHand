@@ -10,7 +10,7 @@ export const NAME_MAX = 64;
 /** 2-64 characters, starting with a letter, ending with a letter or digit. */
 export const NAME_RE = /^[A-Za-z][A-Za-z0-9._/-]*[A-Za-z0-9]$/;
 
-/** The one system target: every node the acting user can operate. */
+/** The one system target: every node the acting user can access. */
 export const ALL_TARGET = "_all";
 
 export type NameProblem = "empty" | "reserved" | "format";

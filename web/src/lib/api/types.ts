@@ -38,7 +38,8 @@ export interface UserGroup {
 	memberIds: string[];
 }
 
-export type NodeAccess = "owner" | "admin" | "operate" | "view";
+/** How the caller reaches a node (D108): administrators, or a granted user (one level). */
+export type NodeAccess = "admin" | "granted";
 
 /** A node group as a node response names it (D109). */
 export interface NodeGroupRef {
@@ -62,7 +63,6 @@ export interface PublicNode {
 	transport: "client" | "ssh";
 	status: "pending" | "active" | "disabled";
 	hostname: string | null;
-	ownerUserId: string;
 	clientVersion: string | null;
 	privilegedMode: string | null;
 	lastSeenAt: string | null;
@@ -80,17 +80,31 @@ export interface PublicNode {
 }
 
 export type GranteeType = "user" | "user_group";
-export type ShareAccess = "view" | "operate";
 
-export interface NodeShare {
+/** What an access grant points at (D108, doc/access-control.md#归属访问授权与分享). */
+export type AccessTargetType = "node" | "node_group";
+
+/**
+ * One node access grant: a user or user group may see and run tasks on a node or on the nodes of a node group.
+ * There is one level. `granteeName` / `targetName` are null when the grantee or target was deleted.
+ */
+export interface NodeAccessGrant {
 	id: string;
-	nodeId: string;
 	granteeType: GranteeType;
 	granteeId: string;
-	granteeName: string;
-	access: ShareAccess;
-	createdByUserId: string;
+	granteeName: string | null;
+	targetType: AccessTargetType;
+	targetId: string;
+	targetName: string | null;
 	createdAt: string;
+	createdByUserId: string;
+}
+
+export interface NodeAccessGrantFilter {
+	targetType?: AccessTargetType;
+	targetId?: string;
+	granteeType?: GranteeType;
+	granteeId?: string;
 }
 
 export type SessionRelationship = "owner" | "admin" | "shared";
@@ -549,6 +563,9 @@ export interface SshCredential {
 	id: string;
 	name: string;
 	publicKey: string;
+	createdAt: string;
+	/** The nodes this credential authenticates; its key is used on every hop of their route. */
+	usedBy: { id: string; name: string }[];
 }
 
 export interface SshHopInput {
@@ -693,7 +710,7 @@ export type TaskRequest = {
 	privileged?: boolean;
 } & Record<string, unknown>;
 
-/** How crhs reaches an SSH node (owner and administrators only). */
+/** How crhs reaches an SSH node (administrators only, D108). */
 export interface SshNodeDetails {
 	/** Jump hosts in order, then the node itself. */
 	hops: { host: string; port: number; user: string; hostKey: string }[];

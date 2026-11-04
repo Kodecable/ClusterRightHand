@@ -16,7 +16,6 @@ interface BaseProps {
 	disabled?: boolean;
 	id?: string;
 	className?: string;
-	/** Include nodes the user only has view access to (the default is every listed node). */
 }
 
 type SingleProps = BaseProps & {

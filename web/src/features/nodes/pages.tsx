@@ -16,15 +16,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/session";
 import type { PublicNode } from "@/lib/api/types";
+import { NodeAccessSection } from "./access-grants";
 import { AddNodeDialog } from "./add-node-dialog";
 import { AddSshNodeDialog } from "./add-ssh-node-dialog";
 import { useNode, useNodes } from "./api";
 import { ClockWarning } from "./clock-warning";
 import { osName } from "./commands";
 import { CrhsKeyPanel } from "./crhs-key-panel";
-import { canManageNode, canRunOn } from "./node-access";
+import { canRunOn } from "./node-access";
 import { NodeGroupsDialog } from "./node-groups-dialog";
-import { NodeShares } from "./node-shares";
 import { NodeTaskList } from "./node-tasks";
 import { NodeTrustPanel } from "./node-trust";
 import { PendingNodeDialog } from "./pending-node-dialog";
@@ -48,9 +48,9 @@ export function NodesPage() {
 	const [pending, setPending] = useState<{ node: PublicNode; action: "approve" | "reject" }>();
 
 	const columns = useMemo<DataTableColumn<PublicNode>[]>(() => {
-		const canDecide = (node: PublicNode) =>
-			node.status === "pending" && (node.access === "owner" || user?.kind === "admin");
-		return [
+		const admin = user?.kind === "admin";
+		const canDecide = (node: PublicNode) => node.status === "pending" && admin;
+		const base: DataTableColumn<PublicNode>[] = [
 			{
 				id: "name",
 				header: t`Name`,
@@ -101,17 +101,16 @@ export function NodesPage() {
 				cell: ({ row }) => <NodeGroupLinks nodeGroups={row.original.nodeGroups} className="text-xs" />,
 			},
 			{
-				id: "access",
-				header: t`Access`,
-				size: 90,
-				cell: ({ row }) => <span className="text-xs">{row.original.access}</span>,
-			},
-			{
 				id: "lastSeen",
 				header: t`Last seen`,
 				size: 120,
 				cell: ({ row }) => <RelativeTime value={row.original.lastSeenAt} className="text-xs" />,
 			},
+		];
+		// Approve/reject are administrator actions (D108); a non-admin gets no actions column at all.
+		if (!admin) return base;
+		return [
+			...base,
 			{
 				id: "actions",
 				header: actionsHeader,
@@ -146,13 +145,17 @@ export function NodesPage() {
 							<RefreshCwIcon />
 							<Trans>Refresh</Trans>
 						</Button>
-						<Button type="button" variant="outline" onClick={() => setAddingSsh(true)} data-testid="add-ssh-node">
-							<Trans>Add SSH node</Trans>
-						</Button>
-						<Button type="button" onClick={() => setAdding(true)} data-testid="add-node">
-							<PlusIcon />
-							<Trans>Add node</Trans>
-						</Button>
+						{user?.kind === "admin" && (
+							<>
+								<Button type="button" variant="outline" onClick={() => setAddingSsh(true)} data-testid="add-ssh-node">
+									<Trans>Add SSH node</Trans>
+								</Button>
+								<Button type="button" onClick={() => setAdding(true)} data-testid="add-node">
+									<PlusIcon />
+									<Trans>Add node</Trans>
+								</Button>
+							</>
+						)}
 					</>
 				}
 			/>
@@ -167,7 +170,13 @@ export function NodesPage() {
 				empty={
 					<EmptyState
 						title={<Trans>No nodes yet</Trans>}
-						description={<Trans>Use "Add node" to enrol a crha client, or "Add SSH node" for an SSH target.</Trans>}
+						description={
+							user?.kind === "admin" ? (
+								<Trans>Use "Add node" to enrol a crha client, or "Add SSH node" for an SSH target.</Trans>
+							) : (
+								<Trans>An administrator grants access to nodes.</Trans>
+							)
+						}
 					/>
 				}
 			/>
@@ -194,7 +203,8 @@ function factValue(value: unknown): string {
 
 /**
  * One node (doc/webui.md "Nodes"): identity, facts, the transport-specific
- * configuration, trust and signing keys, run panel, shares and recent tasks.
+ * configuration, trust and signing keys, run panel, access grants (administrators)
+ * and recent tasks.
  */
 export function NodeDetailPage() {
 	const { t } = useLingui();
@@ -222,7 +232,6 @@ export function NodeDetailPage() {
 	}
 
 	const canRun = canRunOn(details);
-	const manage = canManageNode(details);
 	const facts = details.facts ? Object.entries(details.facts) : [];
 
 	return (
@@ -250,14 +259,12 @@ export function NodeDetailPage() {
 					</span>
 				}
 				actions={
-					admin || manage ? (
+					admin ? (
 						<>
-							{admin && (
-								<Button type="button" variant="outline" size="sm" onClick={() => setEditingGroups(true)}>
-									<Trans>Edit node groups</Trans>
-								</Button>
-							)}
-							{manage && <RenameNodeButton node={details} />}
+							<Button type="button" variant="outline" size="sm" onClick={() => setEditingGroups(true)}>
+								<Trans>Edit node groups</Trans>
+							</Button>
+							<RenameNodeButton node={details} />
 						</>
 					) : undefined
 				}
@@ -268,7 +275,6 @@ export function NodeDetailPage() {
 					{ label: t`Transport`, value: details.transport === "ssh" ? t`SSH` : t`crha client` },
 					{ label: t`Hostname`, value: details.hostname ?? "–", mono: true },
 					{ label: t`OS`, value: osName(details.facts) },
-					{ label: t`Access`, value: details.access },
 					{
 						label: t`Privileged mode`,
 						value: details.transport === "ssh" ? t`ignored (SSH)` : (details.privilegedMode ?? "–"),
@@ -301,7 +307,10 @@ export function NodeDetailPage() {
 			)}
 
 			{editingGroups && <NodeGroupsDialog node={details} onClose={() => setEditingGroups(false)} />}
-			{details.transport === "ssh" && <SshNodeSection node={details} details={node.data?.ssh} canRun={canRun} />}
+			{/* The SSH route and its credential are administrator data (D108); the server omits `ssh` otherwise. */}
+			{details.transport === "ssh" && node.data?.ssh && (
+				<SshNodeSection node={details} details={node.data.ssh} canRun={canRun} />
+			)}
 			{details.transport === "client" && (
 				<>
 					<NodeTrustPanel nodeId={details.id} />
@@ -323,12 +332,12 @@ export function NodeDetailPage() {
 							</p>
 						)}
 					</section>
-					{manage && <CrhsKeyPanel />}
+					{admin && <CrhsKeyPanel />}
 				</>
 			)}
 
 			{canRun && <RunPanel nodeId={details.id} />}
-			{node.data?.shares !== undefined && <NodeShares node={details} shares={node.data.shares} canManage={manage} />}
+			<NodeAccessSection targetType="node" targetId={details.id} targetName={details.name} />
 			<NodeTaskList nodeId={details.id} />
 		</Page>
 	);

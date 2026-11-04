@@ -145,7 +145,6 @@ describe("SSH tasks", () => {
 			.values({
 				id,
 				org_id: await defaultOrgId(db),
-				owner_user_id: ownerUserId,
 				name,
 				name_key: name.toLowerCase(),
 				transport: "ssh",
@@ -165,6 +164,19 @@ describe("SSH tasks", () => {
 				ssh_host_key: "SHA256:fake",
 				ssh_credential_id: null,
 				ssh_jumps: null,
+			})
+			.execute();
+		await db
+			.insertInto("node_access_grants")
+			.values({
+				id: newId(),
+				org_id: await defaultOrgId(db),
+				grantee_type: "user",
+				grantee_id: ownerUserId,
+				target_type: "node",
+				target_id: id,
+				created_by_user_id: ownerUserId,
+				created_at: now,
 			})
 			.execute();
 		return (await db.selectFrom("nodes").selectAll().where("id", "=", id).executeTakeFirstOrThrow()) as NodeRow;

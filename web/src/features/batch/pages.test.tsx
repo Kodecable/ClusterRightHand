@@ -13,7 +13,6 @@ const NODES: PublicNode[] = [
 		transport: "client",
 		status: "active",
 		hostname: "worker-01.local",
-		ownerUserId: "u1",
 		clientVersion: null,
 		privilegedMode: null,
 		lastSeenAt: null,
@@ -85,14 +84,14 @@ afterEach(() => {
 });
 
 describe("BatchPage targets", () => {
-	test("All my nodes sends _all", async () => {
+	test("All accessible nodes sends _all", async () => {
 		const { calls } = await renderPage();
-		await fireEvent.click(await screen.findByRole("checkbox", { name: "All my nodes" }));
+		await fireEvent.click(await screen.findByRole("checkbox", { name: "All accessible nodes" }));
 		await waitFor(() => expect(screen.getByTestId("batch-run")).toBeEnabled());
 		await fireEvent.change(screen.getByRole("textbox", { name: "Shell command" }), {
 			target: { value: "uptime" },
 		});
-		await fireEvent.click(screen.getByRole("button", { name: "Run on all my nodes" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Run on all accessible nodes" }));
 
 		await waitFor(() => {
 			const created = calls.find((call) => call.url === "/api/task-groups" && call.method === "POST");

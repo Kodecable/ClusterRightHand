@@ -15,6 +15,7 @@ import { PageHeader } from "@/components/page-header";
 import { PageSkeleton } from "@/components/skeletons";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/session";
+import { NodeAccessSection } from "@/features/nodes/access-grants";
 import { useNodes } from "@/features/nodes/api";
 import type { NodeGroup } from "@/lib/api/types";
 import { useDeleteNodeGroup, useNodeGroups } from "./api";
@@ -351,6 +352,8 @@ export function NodeGroupDetailPage() {
 					</Button>
 				)}
 			</section>
+
+			<NodeAccessSection targetType="node_group" targetId={group.id} targetName={group.name} />
 
 			{renaming && <NodeGroupNameDialog group={group} onClose={() => setRenaming(false)} />}
 			{editingMembers && (

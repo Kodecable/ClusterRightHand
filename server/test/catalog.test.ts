@@ -54,6 +54,23 @@ function task(overrides: Partial<TaskView>): TaskView {
 	};
 }
 
+/** A direct node grant for the tool tests: nodes belong to the organization (D108). */
+async function grantNode(db: Db, userId: string, nodeId: string): Promise<void> {
+	await db
+		.insertInto("node_access_grants")
+		.values({
+			id: newId(),
+			org_id: await defaultOrgId(db),
+			grantee_type: "user",
+			grantee_id: userId,
+			target_type: "node",
+			target_id: nodeId,
+			created_by_user_id: userId,
+			created_at: new Date().toISOString(),
+		})
+		.execute();
+}
+
 describe("batch output tool parameter", () => {
 	const exec = TOOLS.find((tool) => tool.name === "exec");
 	if (!exec) throw new Error("exec tool missing");
@@ -83,7 +100,6 @@ describe("batch output tool parameter", () => {
 				.values({
 					id: nodeId,
 					org_id: await defaultOrgId(db),
-					owner_user_id: user.id,
 					name: "web-1",
 					name_key: "web-1",
 					transport: "client",
@@ -105,6 +121,7 @@ describe("batch output tool parameter", () => {
 					ssh_jumps: null,
 				})
 				.execute();
+			await grantNode(db, user.id, nodeId);
 			await addGroup(db, nodeId, "prod");
 			const created: { outputMode?: string }[] = [];
 			const groups = {
@@ -303,12 +320,12 @@ describe("node facts", () => {
 		const db = await openTestDb("sqlite");
 		const user = await createUser(db, { username: `${name}-user`, kind: "member" });
 		const now = new Date().toISOString();
+		const nodeId = newId();
 		await db
 			.insertInto("nodes")
 			.values({
-				id: newId(),
+				id: nodeId,
 				org_id: await defaultOrgId(db),
-				owner_user_id: user.id,
 				name,
 				name_key: name.toLowerCase(),
 				transport: "client",
@@ -330,6 +347,7 @@ describe("node facts", () => {
 				ssh_jumps: null,
 			})
 			.execute();
+		await grantNode(db, user.id, nodeId);
 		const toolCtx = {
 			db,
 			cluster: { isConnected: () => false } as unknown as Cluster,
@@ -440,7 +458,6 @@ describe("the statuses a wait publishes", () => {
 			.values({
 				id: nodeId,
 				org_id: await defaultOrgId(db),
-				owner_user_id: user.id,
 				name: "web-1",
 				name_key: "web-1",
 				transport: "client",
@@ -462,6 +479,7 @@ describe("the statuses a wait publishes", () => {
 				ssh_jumps: null,
 			})
 			.execute();
+		await grantNode(db, user.id, nodeId);
 		const sessionUser: SessionUser = { sessionId: "s", userId: user.id, username: user.username, kind: "member" };
 		return { db, nodeId, now, user: sessionUser };
 	}
@@ -690,7 +708,6 @@ describe("the privileged tool parameter", () => {
 				.values({
 					id: nodeId,
 					org_id: await defaultOrgId(db),
-					owner_user_id: user.id,
 					name: "web-1",
 					name_key: "web-1",
 					transport: "client",
@@ -712,6 +729,7 @@ describe("the privileged tool parameter", () => {
 					ssh_jumps: null,
 				})
 				.execute();
+			await grantNode(db, user.id, nodeId);
 			await addGroup(db, nodeId, "prod");
 			const created: { privileged?: boolean }[] = [];
 			const page = {
@@ -792,7 +810,6 @@ async function seedToolContext(db: Db, name: string): Promise<{ user: SessionUse
 		.values({
 			id: nodeId,
 			org_id: await defaultOrgId(db),
-			owner_user_id: user.id,
 			name: "web-1",
 			name_key: "web-1",
 			transport: "client",
@@ -814,6 +831,7 @@ async function seedToolContext(db: Db, name: string): Promise<{ user: SessionUse
 			ssh_jumps: null,
 		})
 		.execute();
+	await grantNode(db, user.id, nodeId);
 	return {
 		user: sessionUser,
 		nodeId,
@@ -865,7 +883,6 @@ async function addNode(db: Db, userId: string, name: string): Promise<string> {
 		.values({
 			id,
 			org_id: await defaultOrgId(db),
-			owner_user_id: userId,
 			name,
 			name_key: name.toLowerCase(),
 			transport: "client",
@@ -887,6 +904,7 @@ async function addNode(db: Db, userId: string, name: string): Promise<string> {
 			ssh_jumps: null,
 		})
 		.execute();
+	await grantNode(db, userId, id);
 	return id;
 }
 

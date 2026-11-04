@@ -9,6 +9,7 @@ import { StatusBadge, TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeText, TaskResult } from "@/components/task-result";
 import { Badge } from "@/components/ui/badge";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
+import { useAuth } from "@/features/auth/session";
 import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
 import type { TaskGroupView } from "@/lib/api/types";
 
@@ -61,10 +62,14 @@ export function TaskGroupResult({
 	onChanged?: () => void;
 }) {
 	const { t } = useLingui();
+	const currentUser = useAuth().user;
 	const lookups = useApprovalLookups();
 	const decide = useDecideApproval();
 	const nodeName = (id: string) => names.get(id) ?? id;
 	const skipped = taskGroup.skipped.map(nodeName).join(", ");
+	// A shared session's viewers see the task group but may not decide it or sign for its owner.
+	const canAct = currentUser?.kind === "admin" || taskGroup.onBehalfOfUserId === currentUser?.id;
+	const canSign = taskGroup.onBehalfOfUserId === currentUser?.id;
 
 	return (
 		<section className="grid gap-3" data-testid="task-group-result" data-group-id={taskGroup.id}>
@@ -92,7 +97,7 @@ export function TaskGroupResult({
 				<NodeTargetList ids={taskGroup.targets} refs={taskGroup.refs} nodeNames={names} />
 			</p>
 
-			{taskGroup.state === "awaiting_approval" && (
+			{taskGroup.state === "awaiting_approval" && canAct && (
 				<ApprovalCard
 					item={{ kind: "task_group", taskGroup }}
 					nodeNames={lookups.nodeNames}
@@ -109,7 +114,7 @@ export function TaskGroupResult({
 				/>
 			)}
 
-			{taskGroup.state === "awaiting_authorization" && (
+			{taskGroup.state === "awaiting_authorization" && canSign && (
 				<AuthorizationWait
 					kind="task_group"
 					id={taskGroup.id}

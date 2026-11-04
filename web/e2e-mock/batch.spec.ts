@@ -36,7 +36,7 @@ test("a batch run fills the per-node grid as the tasks finish", async ({ page })
 	await expect(page.getByText("Finished").first()).toBeVisible();
 });
 
-test("all my nodes sends _all", async ({ page }) => {
+test("all accessible nodes sends _all", async ({ page }) => {
 	const api = await mockApi(page, {
 		state: {
 			nodes: [
@@ -49,7 +49,7 @@ test("all my nodes sends _all", async ({ page }) => {
 	await page.goto("/batch");
 	await expect(page.getByTestId("batch-page")).toBeVisible();
 
-	await page.getByRole("checkbox", { name: "All my nodes" }).check();
+	await page.getByRole("checkbox", { name: "All accessible nodes" }).check();
 	await page.locator('input[id$="-command"]').fill("uptime");
 	await page.getByTestId("batch-run").click();
 

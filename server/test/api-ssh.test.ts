@@ -33,11 +33,17 @@ describeBackends("api ssh nodes", (backend) => {
 		credentialId: credId,
 		...extra,
 	});
-	const share = async (nodeId: string, who: string, access: string) =>
+	const grant = async (nodeId: string, who: string) =>
 		expect(
-			(await req("owner", `/api/nodes/${nodeId}/shares`, { granteeType: "user", granteeId: ids[who], access }, "PUT"))
-				.status,
-		).toBe(200);
+			(
+				await req("root", "/api/node-access-grants", {
+					granteeType: "user",
+					granteeId: ids[who],
+					targetType: "node",
+					targetId: nodeId,
+				})
+			).status,
+		).toBe(201);
 
 	beforeAll(async () => {
 		db = await openTestDb(backend);
@@ -52,11 +58,11 @@ describeBackends("api ssh nodes", (backend) => {
 			ids[name] = (await createUser(db, { username: name, kind, password: "password-123" })).id;
 			cookies[name] = await login(app, name, "password-123");
 		}
-		const cred = await req("owner", "/api/ssh-credentials", { name: "my key" });
+		const cred = await req("root", "/api/ssh-credentials", { name: "my key" });
 		expect(cred.status).toBe(201);
 		credId = ((await cred.json()) as { credential: { id: string } }).credential.id;
 
-		const res = await req("owner", "/api/ssh-nodes", {
+		const res = await req("root", "/api/ssh-nodes", {
 			name: "box",
 			jumps: [{ host: "127.0.0.1", port: 2222, user: "jumper", hostKey: KEY_A }],
 			host: "target.example",
@@ -69,7 +75,7 @@ describeBackends("api ssh nodes", (backend) => {
 		webGroup = await createNodeGroup(db, await defaultOrgId(db), "web");
 		await setNodeGroupsForNode(db, sshId, [webGroup.id]);
 
-		const tokenRes = await req("owner", "/api/enrollment-tokens", {});
+		const tokenRes = await req("root", "/api/enrollment-tokens", {});
 		const token = ((await tokenRes.json()) as { token: string }).token;
 		crhaId = (
 			await enrollNode(db, {
@@ -80,29 +86,53 @@ describeBackends("api ssh nodes", (backend) => {
 				clientVersion: "1",
 			})
 		).id;
-		await share(sshId, "viewer", "view");
-		await share(sshId, "op", "operate");
-		await share(crhaId, "op", "operate");
+		await grant(sshId, "viewer");
+		await grant(sshId, "op");
+		await grant(sshId, "owner");
+		await grant(crhaId, "op");
 	});
 	afterAll(async () => {
 		await db.destroy();
 	});
 
-	it("creates a credential with a public key", async () => {
-		const res = await req("owner", "/api/ssh-credentials", { name: "other" });
-		const body = (await res.json()) as { credential: { name: string; publicKey: string } };
+	it("creates a credential with a public key and deletes it only when unused", async () => {
+		const res = await req("root", "/api/ssh-credentials", { name: "other" });
+		const body = (await res.json()) as {
+			credential: { id: string; name: string; publicKey: string; usedBy: unknown[] };
+		};
 		expect(body.credential.name).toBe("other");
 		expect(body.credential.publicKey).toMatch(/^ssh-ed25519 /);
+		expect(body.credential.usedBy).toEqual([]);
+		expect((await req("op", `/api/ssh-credentials/${body.credential.id}`, {}, "DELETE")).status).toBe(403);
+
+		// The list names the nodes that use each credential (the node's key authenticates every hop of its
+		// route, jumps included); only administrators may read or create them.
+		const listed = (await (await req("root", "/api/ssh-credentials")).json()) as {
+			credentials: { id: string; usedBy: { id: string; name: string }[] }[];
+		};
+		expect(listed.credentials.find((credential) => credential.id === body.credential.id)?.usedBy).toEqual([]);
+		expect(listed.credentials.find((credential) => credential.id === credId)?.usedBy).toEqual([
+			{ id: sshId, name: "box" },
+		]);
+		for (const who of ["owner", "op", "viewer"]) {
+			expect((await req(who, "/api/ssh-credentials")).status).toBe(403);
+			expect((await req(who, "/api/ssh-credentials", { name: "not mine" })).status).toBe(403);
+		}
+
+		// The credential bound to the SSH node cannot be deleted while the node uses it.
+		expect((await req("root", `/api/ssh-credentials/${credId}`, {}, "DELETE")).status).toBe(409);
+		expect((await req("root", `/api/ssh-credentials/${body.credential.id}`, {}, "DELETE")).status).toBe(200);
+		expect((await req("root", `/api/ssh-credentials/${body.credential.id}`, {}, "DELETE")).status).toBe(404);
 	});
 
 	describe("creating and reading a node", () => {
 		it("rejects unpinned hops", async () => {
-			const res = await req("owner", "/api/ssh-nodes", target({ hostKey: undefined, name: "x" }));
+			const res = await req("root", "/api/ssh-nodes", target({ hostKey: undefined, name: "x" }));
 			expect(res.status).toBe(400);
 		});
 
-		it("shows route details to the owner and admin", async () => {
-			for (const who of ["owner", "root"]) {
+		it("shows route details to an administrator", async () => {
+			for (const who of ["root"]) {
 				const res = await req(who, `/api/nodes/${sshId}`);
 				const body = (await res.json()) as {
 					node: { transport: string; nodeGroups: { id: string; name: string }[] };
@@ -120,13 +150,13 @@ describeBackends("api ssh nodes", (backend) => {
 			}
 		});
 
-		it("hides route details from shared users, and has none for crha nodes", async () => {
+		it("hides route details from grantees, and has none for crha nodes", async () => {
 			for (const who of ["viewer", "op"]) {
 				const body = (await (await req(who, `/api/nodes/${sshId}`)).json()) as object;
 				expect(body).toHaveProperty("node");
 				expect(body).not.toHaveProperty("ssh");
 			}
-			const crha = (await (await req("owner", `/api/nodes/${crhaId}`)).json()) as { ssh: unknown };
+			const crha = (await (await req("root", `/api/nodes/${crhaId}`)).json()) as { ssh: unknown };
 			expect(crha.ssh).toBeNull();
 		});
 	});
@@ -147,14 +177,14 @@ describeBackends("api ssh nodes", (backend) => {
 			res = await put("root", sshId, { nodeGroups: [] });
 			expect(res.status).toBe(200);
 			expect(await res.json()).toEqual({ nodeGroups: [] });
-			const body = (await (await req("owner", `/api/nodes/${sshId}`)).json()) as {
+			const body = (await (await req("root", `/api/nodes/${sshId}`)).json()) as {
 				node: { nodeGroups: { id: string; name: string }[] };
 			};
 			expect(body.node.nodeGroups).toEqual([]);
 
 			// A crha node's node groups are crhs-managed too (Facts.groups is ignored).
 			expect((await put("root", crhaId, { nodeGroups: [dbGroup.id] })).status).toBe(200);
-			const crha = (await (await req("owner", `/api/nodes/${crhaId}`)).json()) as {
+			const crha = (await (await req("root", `/api/nodes/${crhaId}`)).json()) as {
 				node: { nodeGroups: { id: string; name: string }[] };
 			};
 			expect(crha.node.nodeGroups).toEqual([{ id: dbGroup.id, name: "db" }]);
@@ -177,7 +207,7 @@ describeBackends("api ssh nodes", (backend) => {
 		});
 
 		it("does not accept node groups when adding an SSH node", async () => {
-			const res = await req("owner", "/api/ssh-nodes", {
+			const res = await req("root", "/api/ssh-nodes", {
 				...target({ hostKey: KEY_B, name: "grouped" }),
 				nodeGroups: [],
 			});
@@ -187,25 +217,24 @@ describeBackends("api ssh nodes", (backend) => {
 
 	describe("testing connections", () => {
 		it("refuses unpinned hops before connecting", async () => {
-			const res = await req("owner", "/api/ssh-nodes/test", target({ hostKey: undefined }));
+			const res = await req("root", "/api/ssh-nodes/test", target({ hostKey: undefined }));
 			expect(res.status).toBe(400);
 		});
 
 		it("reports an unreachable host as 502 connect_failed", async () => {
-			const res = await req("owner", "/api/ssh-nodes/test", target());
+			const res = await req("root", "/api/ssh-nodes/test", target());
 			expect(res.status).toBe(502);
 			expect(((await res.json()) as { code: string }).code).toBe("connect_failed");
 		});
 
-		it("tests a saved node for those who may operate it", async () => {
+		it("tests a saved node for administrators only", async () => {
 			expect((await req("viewer", `/api/nodes/${sshId}/ssh-test`, {})).status).toBe(403);
+			expect((await req("op", `/api/nodes/${sshId}/ssh-test`, {})).status).toBe(403);
 			expect((await req("stranger", `/api/nodes/${sshId}/ssh-test`, {})).status).toBe(404);
-			expect((await req("op", `/api/nodes/${crhaId}/ssh-test`, {})).status).toBe(400);
-			for (const who of ["owner", "op", "root"]) {
-				const res = await req(who, `/api/nodes/${sshId}/ssh-test`, {});
-				expect(res.status).toBe(502);
-				expect(((await res.json()) as { code: string }).code).toBe("connect_failed");
-			}
+			expect((await req("root", `/api/nodes/${crhaId}/ssh-test`, {})).status).toBe(400);
+			const res = await req("root", `/api/nodes/${sshId}/ssh-test`, {});
+			expect(res.status).toBe(502);
+			expect(((await res.json()) as { code: string }).code).toBe("connect_failed");
 		});
 	});
 });

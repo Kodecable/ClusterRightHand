@@ -11,11 +11,11 @@ const REFS: RefMap = {
 };
 
 describe("NodeTargetList", () => {
-	test("renders links, All my nodes and deleted references", async () => {
+	test("renders links, All accessible nodes and deleted references", async () => {
 		await renderWithRouter(<NodeTargetList ids={["node-1", "group-1", "_all", "gone", "legacy-name"]} refs={REFS} />);
 		expect(screen.getByRole("link", { name: "worker-01" })).toHaveAttribute("href", "/nodes/node-1");
 		expect(screen.getByRole("link", { name: "web" })).toHaveAttribute("href", "/node-groups/group-1");
-		expect(screen.getByText("All my nodes")).toBeInTheDocument();
+		expect(screen.getByText("All accessible nodes")).toBeInTheDocument();
 		expect(screen.getByText("Deleted node or node group")).toBeInTheDocument();
 		// An old non-UUID target has no ref; it stays visible instead of disappearing.
 		expect(screen.getByText("legacy-name")).toBeInTheDocument();

@@ -6,8 +6,8 @@
 import { type AuthorizationPayload, decodeAuthorizationPayload } from "@crh/protocol";
 import { Hono } from "hono";
 import type { Cluster } from "../cluster/cluster.ts";
-import { nodeAccess } from "../cluster/nodes.ts";
 import { decodedPayloadOf, pendingForTask, pendingForTaskGroup } from "../cluster/pending.ts";
+import { taskRelation } from "../cluster/task-visibility.ts";
 import {
 	parseSubmittedAuthorization,
 	parseWebauthnSubmission,
@@ -103,10 +103,21 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 		const user = c.get("user");
 		const row = await db
 			.selectFrom("tasks")
-			.select(["id", "node_id", "on_behalf_of_user_id", "authorization"])
+			.select(["id", "node_id", "on_behalf_of_user_id", "actor_type", "actor_id", "authorization"])
 			.where("id", "=", c.req.param("id"))
 			.executeTakeFirst();
-		if (!row || !(await nodeAccess(db, user, row.node_id))) return jsonError(c, 404, "no such task");
+		if (
+			!row ||
+			!(
+				await taskRelation(db, user, {
+					onBehalfOfUserId: row.on_behalf_of_user_id,
+					actorType: row.actor_type,
+					actorId: row.actor_id,
+				})
+			).visible
+		) {
+			return jsonError(c, 404, "no such task");
+		}
 		if (row.on_behalf_of_user_id !== user.userId) {
 			return jsonError(c, 403, "only the task's owner can authorize it");
 		}
@@ -118,10 +129,21 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 		const user = c.get("user");
 		const taskGroup = await db
 			.selectFrom("task_groups")
-			.select(["id", "on_behalf_of_user_id"])
+			.select(["id", "on_behalf_of_user_id", "actor_type", "actor_id"])
 			.where("id", "=", c.req.param("id"))
 			.executeTakeFirst();
-		if (!taskGroup) return jsonError(c, 404, "no such task group");
+		if (
+			!taskGroup ||
+			!(
+				await taskRelation(db, user, {
+					onBehalfOfUserId: taskGroup.on_behalf_of_user_id,
+					actorType: taskGroup.actor_type,
+					actorId: taskGroup.actor_id,
+				})
+			).visible
+		) {
+			return jsonError(c, 404, "no such task group");
+		}
 		if (taskGroup.on_behalf_of_user_id !== user.userId) {
 			return jsonError(c, 403, "only the task group's owner can authorize it");
 		}

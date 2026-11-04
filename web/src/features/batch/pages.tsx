@@ -48,7 +48,7 @@ export function BatchPage() {
 	const names = new Map((nodes.data ?? []).map((node) => [node.id, node.name]));
 	const nodeGroupNames = new Map((nodeGroups.data ?? []).map((entry) => [entry.id, entry.name]));
 
-	const operable = (nodes.data ?? []).filter((node) => node.status === "active" && node.access !== "view");
+	const operable = (nodes.data ?? []).filter((node) => node.status === "active");
 	const targets = buildTargets({
 		nodes: picked.map((id) => names.get(id) ?? id),
 		nodeGroups: pickedNodeGroups.map((id) => nodeGroupNames.get(id) ?? id),
@@ -126,7 +126,7 @@ export function BatchPage() {
 							</div>
 						</div>
 					)}
-					{nodes.data && operable.length === 0 && <EmptyHint>{t`No active nodes you can operate.`}</EmptyHint>}
+					{nodes.data && operable.length === 0 && <EmptyHint>{t`No active nodes you can access.`}</EmptyHint>}
 					<div className="flex items-start gap-2">
 						<Checkbox
 							id="batch-all"
@@ -136,10 +136,10 @@ export function BatchPage() {
 						/>
 						<div className="grid gap-0.5">
 							<Label htmlFor="batch-all">
-								<Trans>All my nodes</Trans>
+								<Trans>All accessible nodes</Trans>
 							</Label>
 							<p id="batch-all-description" className="text-xs text-muted-foreground">
-								<Trans>Every node you can operate, including nodes added later.</Trans>
+								<Trans>Every node you can access, including nodes added later.</Trans>
 							</p>
 						</div>
 					</div>
@@ -219,7 +219,7 @@ export function BatchPage() {
 						{targets.length === 0 ? (
 							<Trans>Choose targets</Trans>
 						) : all ? (
-							<Trans>Run on all my nodes</Trans>
+							<Trans>Run on all accessible nodes</Trans>
 						) : (
 							<Plural value={targets.length} one="Run on # target" other="Run on # targets" />
 						)}

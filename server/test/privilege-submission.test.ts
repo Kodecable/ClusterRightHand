@@ -110,7 +110,6 @@ describe("user authorizations", () => {
 			.values({
 				id,
 				org_id: await defaultOrgId(db),
-				owner_user_id: owner.userId,
 				name,
 				name_key: name.toLowerCase(),
 				transport: "client",
@@ -130,6 +129,19 @@ describe("user authorizations", () => {
 				ssh_host_key: null,
 				ssh_credential_id: null,
 				ssh_jumps: null,
+			})
+			.execute();
+		await db
+			.insertInto("node_access_grants")
+			.values({
+				id: crypto.randomUUID(),
+				org_id: await defaultOrgId(db),
+				grantee_type: "user",
+				grantee_id: owner.userId,
+				target_type: "node",
+				target_id: id,
+				created_by_user_id: owner.userId,
+				created_at: now,
 			})
 			.execute();
 		return (await db.selectFrom("nodes").selectAll().where("id", "=", id).executeTakeFirstOrThrow()) as NodeRow;
@@ -710,8 +722,8 @@ describe("user authorizations", () => {
 		expect(shared.taskGroup.authorization.taskIds.sort()).toEqual(tasks.map((task) => task.id).sort());
 		expect(shared.taskGroup.tasks).toHaveLength(2);
 
-		// Only the owner sees the group payload.
-		expect((await call(app, `/api/task-groups/${groupId}/authorization`, { cookie: other.cookie })).status).toBe(403);
+		// Only the owner sees the group payload; a user with no relation to it gets a 404 (D108).
+		expect((await call(app, `/api/task-groups/${groupId}/authorization`, { cookie: other.cookie })).status).toBe(404);
 
 		const submitted = await submit(
 			signedAuthorization(new Uint8Array(Buffer.from(shared.taskGroup.authorization.payload, "base64"))),

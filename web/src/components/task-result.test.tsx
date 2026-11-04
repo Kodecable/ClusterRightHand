@@ -2,7 +2,7 @@ import { screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import type { TaskView } from "@/lib/api/types";
 import { renderWithRouter } from "@/test/render";
-import { TaskResult, TaskSummary } from "./task-result";
+import { TaskOutcomeText, TaskResult, TaskSummary } from "./task-result";
 
 const baseTask = (overrides: Partial<TaskView> = {}): TaskView =>
 	({
@@ -58,6 +58,33 @@ describe("TaskResult", () => {
 		);
 		expect(screen.getByText("Failed")).toBeInTheDocument();
 		expect(screen.getByText(/node_offline/)).toBeInTheDocument();
+	});
+
+	test("a revoked access error is explained in words, not as a code", async () => {
+		const revoked = baseTask({
+			state: "failed",
+			exitCode: null,
+			errorCode: "node_access_revoked",
+			errorMessage: "access to the node was revoked before the task was dispatched",
+		});
+		await renderWithRouter(<TaskResult task={revoked} />);
+		expect(screen.getByText("Access to the node was revoked before the task was dispatched.")).toBeInTheDocument();
+		expect(screen.queryByText(/node_access_revoked/)).not.toBeInTheDocument();
+	});
+
+	test("the outcome line of a revoked access task is readable too", async () => {
+		await renderWithRouter(
+			<TaskOutcomeText
+				task={baseTask({
+					state: "failed",
+					exitCode: null,
+					errorCode: "node_access_revoked",
+					errorMessage: "access to the node was revoked before the task was dispatched",
+				})}
+			/>,
+		);
+		expect(screen.getByText("Access to the node was revoked before the task was dispatched.")).toBeInTheDocument();
+		expect(screen.queryByText(/node_access_revoked/)).not.toBeInTheDocument();
 	});
 
 	test("output head and tail with a gap show the omitted marker", async () => {

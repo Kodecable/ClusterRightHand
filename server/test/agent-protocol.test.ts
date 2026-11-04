@@ -99,6 +99,7 @@ describe("agent wire protocol", () => {
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
+		await createUser(db, { username: "root", kind: "admin", password: "password-123" });
 		owner = { sessionId: "s", userId: user.id, username: user.username, kind: "member" };
 		app = makeApp(db, undefined, { cluster });
 	});
@@ -117,7 +118,6 @@ describe("agent wire protocol", () => {
 			.values({
 				id,
 				org_id: await defaultOrgId(db),
-				owner_user_id: owner.userId,
 				name,
 				name_key: name.toLowerCase(),
 				transport: "client",
@@ -137,6 +137,19 @@ describe("agent wire protocol", () => {
 				ssh_host_key: null,
 				ssh_credential_id: null,
 				ssh_jumps: null,
+			})
+			.execute();
+		await db
+			.insertInto("node_access_grants")
+			.values({
+				id: newId(),
+				org_id: await defaultOrgId(db),
+				grantee_type: "user",
+				grantee_id: owner.userId,
+				target_type: "node",
+				target_id: id,
+				created_by_user_id: owner.userId,
+				created_at: now,
 			})
 			.execute();
 		return (await db.selectFrom("nodes").selectAll().where("id", "=", id).executeTakeFirstOrThrow()) as NodeRow;
@@ -953,7 +966,7 @@ describe("agent wire protocol", () => {
 				order.push("status");
 			});
 			crha.closed.then(() => order.push("close"));
-			const cookie = await login(app, "owner", "password-123");
+			const cookie = await login(app, "root", "password-123");
 			const res = await call(app, `/api/nodes/${node.id}/approve`, { cookie, body: {} });
 			expect(res.status).toBe(200);
 			await crha.closed;
@@ -970,7 +983,7 @@ describe("agent wire protocol", () => {
 				order.push("status");
 			});
 			crha.closed.then(() => order.push("close"));
-			const cookie = await login(app, "owner", "password-123");
+			const cookie = await login(app, "root", "password-123");
 			const res = await call(app, `/api/nodes/${node.id}`, { method: "DELETE", cookie, body: {} });
 			expect(res.status).toBe(200);
 			await crha.closed;

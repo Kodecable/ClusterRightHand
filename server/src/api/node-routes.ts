@@ -7,15 +7,12 @@ import {
 	clockWarning,
 	deleteNode,
 	getNode,
-	listNodeShares,
 	listNodesForUser,
 	type NodeAccess,
 	nodeAccess,
 	type PublicNode,
 	renameNode,
-	shareNode,
 	toPublicNode,
-	unshareNode,
 } from "../cluster/nodes.ts";
 import { sshNodeDetails } from "../cluster/ssh/nodes.ts";
 import { trustView } from "../cluster/trust.ts";
@@ -29,7 +26,8 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 
 	/** The caller's access to the node, or undefined when the node is hidden from them. */
 	const access = (c: { get(k: "user"): AppEnv["Variables"]["user"] }, id: string) => nodeAccess(db, c.get("user"), id);
-	const canManage = (a: NodeAccess) => a === "owner" || a === "admin";
+	/** D108: only administrators manage nodes; a node they cannot see is still a 404. */
+	const canManage = (a: NodeAccess, user: AppEnv["Variables"]["user"]) => user.kind === "admin" && a === "admin";
 
 	const clockWarnMs = options.clockWarnMs ?? 60_000;
 
@@ -49,8 +47,8 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		if (!level || !row) return jsonError(c, 404, "no such node");
 		const nodeGroups = (await nodeGroupsForNodes(db, [id])).get(id) ?? [];
 		const node = live(toPublicNode(row, level, nodeGroups));
-		if (!canManage(level)) return c.json({ node });
-		return c.json({ node, shares: await listNodeShares(db, id), ssh: (await sshNodeDetails(db, row)) ?? null });
+		if (!canManage(level, c.get("user"))) return c.json({ node });
+		return c.json({ node, ssh: (await sshNodeDetails(db, row)) ?? null });
 	});
 
 	/** The node's trust panel (doc/privilege.md#信任缓存): the last TrustReport, its digest and its entries. */
@@ -63,6 +61,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	});
 
 	app.post("/enrollment-tokens", async (c) => {
+		if (c.get("user").kind !== "admin") return jsonError(c, 403, "administrators only");
 		if (!options.serverFingerprint) return c.json({ error: "server fingerprint is not configured" }, 500);
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
@@ -80,12 +79,11 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		return c.json({ token: created.token, expiresAt: created.expiresAt }, 201);
 	});
 
-	/** Resolves the node for a manage-only route: 404 without access, 403 for shared users. */
+	/** Resolves the node for a manage-only route: 404 when hidden, 403 for a non-administrator. */
 	const manageable = async (c: Parameters<typeof access>[0], id: string) => {
 		const level = await access(c, id);
 		if (!level) return { error: { status: 404 as const, message: "no such node" } };
-		if (!canManage(level))
-			return { error: { status: 403 as const, message: "only the owner or an administrator can do this" } };
+		if (!canManage(level, c.get("user"))) return { error: { status: 403 as const, message: "administrators only" } };
 		return { level };
 	};
 
@@ -128,9 +126,8 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	/** Replaces a node's node groups; administrators only, for crha and SSH nodes alike (D108, D109). */
 	app.put("/nodes/:id/node-groups", async (c) => {
 		const id = c.req.param("id");
-		const level = await access(c, id);
-		if (!level) return jsonError(c, 404, "no such node");
-		if (c.get("user").kind !== "admin") return jsonError(c, 403, "administrators only");
+		const m = await manageable(c, id);
+		if (m.error) return jsonError(c, m.error.status, m.error.message);
 		const row = await getNode(db, id);
 		if (!row) return jsonError(c, 404, "no such node");
 		const body = await readJsonObject(c);
@@ -164,56 +161,6 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		// Deleting a pending node rejects its enrollment; deleting an active node disconnects it. Both get
 		// node.status{rejected} first, which tells crha to stop and not reconnect.
 		options.cluster?.notifyNodeStatus(id, "rejected", "node deleted");
-		return c.json({ ok: true });
-	});
-
-	app.put("/nodes/:id/shares", async (c) => {
-		const id = c.req.param("id");
-		const m = await manageable(c, id);
-		if (m.error) return jsonError(c, m.error.status, m.error.message);
-		const body = await readJsonObject(c);
-		if (!body) return jsonError(c, 400, "expected a JSON object");
-		const granteeType = optionalString(body, "granteeType");
-		const granteeId = optionalString(body, "granteeId");
-		const shareAccess = optionalString(body, "access");
-		if (granteeType !== "user" && granteeType !== "user_group") {
-			return jsonError(c, 400, "granteeType must be user or user_group");
-		}
-		if (!granteeId) return jsonError(c, 400, "granteeId is required");
-		if (shareAccess !== "view" && shareAccess !== "operate") return jsonError(c, 400, "access must be view or operate");
-		const share = await shareNode(db, {
-			nodeId: id,
-			granteeType,
-			granteeId,
-			access: shareAccess,
-			createdBy: c.get("user").userId,
-		});
-		void c.get("audit").record({
-			actor: userActor(c.get("user")),
-			action: "node.shared",
-			target: { type: "node", id },
-			detail: { grantee_type: granteeType, grantee_id: granteeId, access: shareAccess },
-		});
-		return c.json({ share });
-	});
-
-	app.delete("/nodes/:id/shares/:shareId", async (c) => {
-		const id = c.req.param("id");
-		const m = await manageable(c, id);
-		if (m.error) return jsonError(c, m.error.status, m.error.message);
-		const share = (await listNodeShares(db, id)).find((s) => s.id === c.req.param("shareId"));
-		await unshareNode(db, id, c.req.param("shareId"));
-		void c.get("audit").record({
-			actor: userActor(c.get("user")),
-			action: "node.unshared",
-			target: { type: "node", id },
-			detail: {
-				share_id: c.req.param("shareId"),
-				grantee_type: share?.granteeType,
-				grantee_id: share?.granteeId,
-				access: share?.access,
-			},
-		});
 		return c.json({ ok: true });
 	});
 

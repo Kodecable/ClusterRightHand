@@ -2,18 +2,15 @@ import { factsFromJson, type JsonFacts } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
-import type { NodesTable, SharesTable } from "../storage/schema.ts";
+import type { NodesTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
-import { stronger, userGroupIds } from "../users/shares.ts";
-import { newId } from "../util/id.ts";
 import { keyFingerprint } from "./identity.ts";
 import { assertNameAvailable, nameKey, validateName } from "./names.ts";
+import { accessibleNodeIds, deleteGrantsForNode, type NodeAccess } from "./node-access.ts";
 import { type NodeGroupRef, nodeGroupsForNodes } from "./node-groups.ts";
 
 export type NodeRow = Selectable<NodesTable>;
-export type NodeAccess = "admin" | "owner" | "operate" | "view";
-export type ShareAccess = "view" | "operate";
-export type GranteeType = "user" | "user_group";
+export { type NodeAccess, nodeAccess } from "./node-access.ts";
 
 export interface PublicNode {
 	id: string;
@@ -21,7 +18,6 @@ export interface PublicNode {
 	transport: NodesTable["transport"];
 	status: NodesTable["status"];
 	hostname: string | null;
-	ownerUserId: string;
 	clientVersion: string | null;
 	privilegedMode: string | null;
 	lastSeenAt: string | null;
@@ -38,18 +34,6 @@ export interface PublicNode {
 	connected: boolean | null;
 	/** A clock warning when the node's clock is too far from crhs's (doc/privilege.md#时钟). */
 	clockWarning: string | null;
-}
-
-export interface NodeShare {
-	id: string;
-	nodeId: string;
-	granteeType: GranteeType;
-	granteeId: string;
-	/** Username or user group name, for display. */
-	granteeName: string | null;
-	access: ShareAccess;
-	createdByUserId: string;
-	createdAt: string;
 }
 
 /**
@@ -77,41 +61,6 @@ export async function findNodeByPublicKey(db: Db, publicKey: Uint8Array): Promis
 		.executeTakeFirst();
 }
 
-/** Node share levels, weakest first. */
-const NODE_ACCESS: readonly ShareAccess[] = ["view", "operate"];
-
-/** The shares that reach the user directly or through a user group, as nodeId -> strongest access. */
-async function sharedAccess(db: Db, userId: string, nodeId?: string): Promise<Map<string, ShareAccess>> {
-	const groupIds = await userGroupIds(db, userId);
-	let q = db
-		.selectFrom("shares")
-		.select(["resource_id", "access"])
-		.where("resource_type", "=", "node")
-		.where((eb) =>
-			groupIds.length > 0
-				? eb.or([
-						eb.and([eb("grantee_type", "=", "user"), eb("grantee_id", "=", userId)]),
-						eb.and([eb("grantee_type", "=", "user_group"), eb("grantee_id", "in", groupIds)]),
-					])
-				: eb.and([eb("grantee_type", "=", "user"), eb("grantee_id", "=", userId)]),
-		);
-	if (nodeId) q = q.where("resource_id", "=", nodeId);
-	const out = new Map<string, ShareAccess>();
-	for (const r of await q.execute()) {
-		if (r.access === "view" || r.access === "operate")
-			out.set(r.resource_id, stronger(NODE_ACCESS, out.get(r.resource_id), r.access));
-	}
-	return out;
-}
-
-export async function nodeAccess(db: Db, user: SessionUser, nodeId: string): Promise<NodeAccess | undefined> {
-	const node = await db.selectFrom("nodes").select("owner_user_id").where("id", "=", nodeId).executeTakeFirst();
-	if (!node) return undefined;
-	if (user.kind === "admin") return "admin";
-	if (node.owner_user_id === user.userId) return "owner";
-	return (await sharedAccess(db, user.userId, nodeId)).get(nodeId);
-}
-
 export function toPublicNode(row: NodeRow, access: NodeAccess, nodeGroups: NodeGroupRef[]): PublicNode {
 	let facts: JsonFacts | null = null;
 	if (row.facts !== null) {
@@ -127,7 +76,6 @@ export function toPublicNode(row: NodeRow, access: NodeAccess, nodeGroups: NodeG
 		transport: row.transport,
 		status: row.status,
 		hostname: row.hostname,
-		ownerUserId: row.owner_user_id,
 		clientVersion: row.client_version,
 		privilegedMode: row.privileged_mode,
 		lastSeenAt: row.last_seen_at,
@@ -142,53 +90,22 @@ export function toPublicNode(row: NodeRow, access: NodeAccess, nodeGroups: NodeG
 	};
 }
 
-/** The ids of every node the user can see: own, shared with them or their user groups, or all as admin. */
+/** The ids of every node the user can see: all of them as admin, otherwise the granted set (D108). */
 export async function visibleNodeIds(db: Db, user: SessionUser): Promise<string[]> {
-	if (user.kind === "admin") {
-		return (await db.selectFrom("nodes").select("id").execute()).map((r) => r.id);
-	}
-	const shared = await sharedAccess(db, user.userId);
-	const ids = [...shared.keys()];
-	const rows = await db
-		.selectFrom("nodes")
-		.select("id")
-		.where((eb) =>
-			ids.length > 0
-				? eb.or([eb("owner_user_id", "=", user.userId), eb("id", "in", ids)])
-				: eb("owner_user_id", "=", user.userId),
-		)
-		.execute();
-	return rows.map((r) => r.id);
+	return accessibleNodeIds(db, user);
 }
 
 export async function listNodesForUser(db: Db, user: SessionUser): Promise<PublicNode[]> {
-	let rows: NodeRow[];
-	let shared = new Map<string, ShareAccess>();
-	if (user.kind === "admin") {
-		rows = await db.selectFrom("nodes").selectAll().orderBy("name").execute();
-	} else {
-		shared = await sharedAccess(db, user.userId);
-		const ids = [...shared.keys()];
-		rows = await db
-			.selectFrom("nodes")
-			.selectAll()
-			.where((eb) =>
-				ids.length > 0
-					? eb.or([eb("owner_user_id", "=", user.userId), eb("id", "in", ids)])
-					: eb("owner_user_id", "=", user.userId),
-			)
-			.orderBy("name")
-			.execute();
-	}
+	const ids = await visibleNodeIds(db, user);
+	if (ids.length === 0) return [];
+	const rows = await db.selectFrom("nodes").selectAll().where("id", "in", ids).orderBy("name").execute();
 	const nodeGroups = await nodeGroupsForNodes(
 		db,
 		rows.map((r) => r.id),
 	);
-	return rows.map((row) => {
-		const access: NodeAccess =
-			user.kind === "admin" ? "admin" : row.owner_user_id === user.userId ? "owner" : (shared.get(row.id) ?? "view");
-		return toPublicNode(row, access, nodeGroups.get(row.id) ?? []);
-	});
+	return rows.map((row) =>
+		toPublicNode(row, user.kind === "admin" ? "admin" : "granted", nodeGroups.get(row.id) ?? []),
+	);
 }
 
 export async function approveNode(db: Db, nodeId: string, actorUserId: string, now = new Date()): Promise<NodeRow> {
@@ -222,7 +139,7 @@ export async function renameNode(db: Db, nodeId: string, rawName: string): Promi
 
 export async function deleteNode(db: Db, nodeId: string): Promise<void> {
 	await db.transaction().execute(async (trx) => {
-		await trx.deleteFrom("shares").where("resource_type", "=", "node").where("resource_id", "=", nodeId).execute();
+		await deleteGrantsForNode(trx, nodeId);
 		await trx.deleteFrom("node_group_members").where("node_id", "=", nodeId).execute();
 		await trx
 			.updateTable("enrollment_tokens")
@@ -273,93 +190,4 @@ export async function setSshNodeFacts(
 
 export async function markNodeSeen(db: Db, nodeId: string, now = new Date()): Promise<void> {
 	await db.updateTable("nodes").set({ last_seen_at: now.toISOString() }).where("id", "=", nodeId).execute();
-}
-
-function toNodeShare(row: Selectable<SharesTable>, granteeName: string | null = null): NodeShare {
-	return {
-		id: row.id,
-		nodeId: row.resource_id,
-		granteeType: row.grantee_type,
-		granteeId: row.grantee_id,
-		granteeName,
-		access: row.access as ShareAccess,
-		createdByUserId: row.created_by_user_id,
-		createdAt: row.created_at,
-	};
-}
-
-export async function shareNode(
-	db: Db,
-	input: { nodeId: string; granteeType: GranteeType; granteeId: string; access: ShareAccess; createdBy: string },
-): Promise<NodeShare> {
-	if (input.granteeType !== "user" && input.granteeType !== "user_group") {
-		throw new UserError("granteeType must be user or user_group");
-	}
-	if (input.access !== "view" && input.access !== "operate") throw new UserError("access must be view or operate");
-	return db.transaction().execute(async (trx) => {
-		const node = await trx.selectFrom("nodes").select("org_id").where("id", "=", input.nodeId).executeTakeFirst();
-		if (!node) throw new NotFoundError("no such node");
-		const grantee = await trx
-			.selectFrom(input.granteeType === "user" ? "users" : "user_groups")
-			.select("id")
-			.where("id", "=", input.granteeId)
-			.executeTakeFirst();
-		if (!grantee) throw new NotFoundError(input.granteeType === "user" ? "no such user" : "no such user group");
-
-		const existing = await trx
-			.selectFrom("shares")
-			.selectAll()
-			.where("resource_type", "=", "node")
-			.where("resource_id", "=", input.nodeId)
-			.where("grantee_type", "=", input.granteeType)
-			.where("grantee_id", "=", input.granteeId)
-			.executeTakeFirst();
-		if (existing) {
-			await trx.updateTable("shares").set({ access: input.access }).where("id", "=", existing.id).execute();
-			return toNodeShare({ ...existing, access: input.access });
-		}
-		const row: Selectable<SharesTable> = {
-			id: newId(),
-			org_id: node.org_id,
-			resource_type: "node",
-			resource_id: input.nodeId,
-			grantee_type: input.granteeType,
-			grantee_id: input.granteeId,
-			access: input.access,
-			created_by_user_id: input.createdBy,
-			created_at: new Date().toISOString(),
-		};
-		await trx.insertInto("shares").values(row).execute();
-		return toNodeShare(row);
-	});
-}
-
-export async function unshareNode(db: Db, nodeId: string, shareId: string): Promise<void> {
-	const result = await db
-		.deleteFrom("shares")
-		.where("id", "=", shareId)
-		.where("resource_type", "=", "node")
-		.where("resource_id", "=", nodeId)
-		.executeTakeFirst();
-	if (result.numDeletedRows === 0n) throw new NotFoundError("no such share");
-}
-
-export async function listNodeShares(db: Db, nodeId: string): Promise<NodeShare[]> {
-	const rows = await db
-		.selectFrom("shares")
-		.selectAll()
-		.where("resource_type", "=", "node")
-		.where("resource_id", "=", nodeId)
-		.orderBy("created_at")
-		.orderBy("id")
-		.execute();
-	const users = new Map(
-		(await db.selectFrom("users").select(["id", "username"]).execute()).map((u) => [u.id, u.username]),
-	);
-	const userGroups = new Map(
-		(await db.selectFrom("user_groups").select(["id", "name"]).execute()).map((g) => [g.id, g.name]),
-	);
-	return rows.map((r) =>
-		toNodeShare(r, (r.grantee_type === "user" ? users.get(r.grantee_id) : userGroups.get(r.grantee_id)) ?? null),
-	);
 }

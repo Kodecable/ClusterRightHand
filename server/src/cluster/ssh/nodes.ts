@@ -1,5 +1,4 @@
 import ssh2 from "ssh2";
-import type { SessionUser } from "../../auth/sessions.ts";
 import { secretAad } from "../../keys/export.ts";
 import type { MasterKey } from "../../keys/master-key.ts";
 import type { Db } from "../../storage/db.ts";
@@ -13,12 +12,18 @@ const SECRET_KIND = "ssh_private_key";
 const HOST_KEY = /^SHA256:[A-Za-z0-9+/]{43}$/;
 const MAX_JUMPS = 5;
 
+export interface SshCredentialUser {
+	id: string;
+	name: string;
+}
+
 export interface SshCredential {
 	id: string;
 	name: string;
 	publicKey: string;
-	ownerUserId: string;
 	createdAt: string;
+	/** The nodes this credential authenticates; its key is used on every hop of their route. */
+	usedBy: SshCredentialUser[];
 }
 
 /**
@@ -36,18 +41,13 @@ export function generateKeyPair(comment: string): { private: string; public: str
 }
 
 /** crhs generates the key; only the public half ever leaves it (for authorized_keys). */
-export async function createSshCredential(
-	db: Db,
-	masterKey: MasterKey,
-	owner: SessionUser,
-	name: string,
-): Promise<SshCredential> {
+export async function createSshCredential(db: Db, masterKey: MasterKey, name: string): Promise<SshCredential> {
 	const label = name.trim() || "crh";
 	const pair = generateKeyPair(`crh:${label}`);
 	const orgId = await defaultOrgId(db);
 	const secretId = newId();
 	const now = new Date().toISOString();
-	const cred = { id: newId(), name: label, publicKey: pair.public, ownerUserId: owner.userId, createdAt: now };
+	const cred = { id: newId(), name: label, publicKey: pair.public, createdAt: now, usedBy: [] };
 	await db.transaction().execute(async (trx) => {
 		await trx
 			.insertInto("secrets")
@@ -64,7 +64,6 @@ export async function createSshCredential(
 			.values({
 				id: cred.id,
 				org_id: orgId,
-				owner_user_id: owner.userId,
 				name: label,
 				public_key: pair.public,
 				secret_id: secretId,
@@ -75,24 +74,41 @@ export async function createSshCredential(
 	return cred;
 }
 
-export async function listSshCredentials(db: Db, user: SessionUser): Promise<SshCredential[]> {
-	let q = db.selectFrom("ssh_credentials").selectAll().orderBy("created_at");
-	if (user.kind !== "admin") q = q.where("owner_user_id", "=", user.userId);
-	return (await q.execute()).map((r) => ({
+/**
+ * The nodes that use each credential, keyed by credential id: a node's `ssh_credential_id` authenticates
+ * every hop of its route. One query over nodes, so listing every credential stays at two queries.
+ */
+export async function sshCredentialUsage(db: Db, credentialId?: string): Promise<Map<string, SshCredentialUser[]>> {
+	const nodes = await db.selectFrom("nodes").select(["id", "name", "ssh_credential_id"]).orderBy("name").execute();
+	const usage = new Map<string, SshCredentialUser[]>();
+	for (const node of nodes) {
+		const id = node.ssh_credential_id;
+		if (!id || (credentialId !== undefined && id !== credentialId)) continue;
+		const users = usage.get(id) ?? [];
+		users.push({ id: node.id, name: node.name });
+		usage.set(id, users);
+	}
+	return usage;
+}
+
+export async function listSshCredentials(db: Db): Promise<SshCredential[]> {
+	const [rows, usage] = await Promise.all([
+		db.selectFrom("ssh_credentials").selectAll().orderBy("created_at").execute(),
+		sshCredentialUsage(db),
+	]);
+	return rows.map((r) => ({
 		id: r.id,
 		name: r.name,
 		publicKey: r.public_key,
-		ownerUserId: r.owner_user_id,
 		createdAt: r.created_at,
+		usedBy: usage.get(r.id) ?? [],
 	}));
 }
 
-/** The private key of a credential the user may use (their own; administrators: any). */
-async function credentialKey(db: Db, masterKey: MasterKey, credentialId: string, user?: SessionUser): Promise<string> {
+/** The private key of a credential; SSH credentials are organization-owned and managed by administrators. */
+async function credentialKey(db: Db, masterKey: MasterKey, credentialId: string): Promise<string> {
 	const cred = await db.selectFrom("ssh_credentials").selectAll().where("id", "=", credentialId).executeTakeFirst();
-	if (!cred || (user && user.kind !== "admin" && cred.owner_user_id !== user.userId)) {
-		throw new NotFoundError("no such SSH credential");
-	}
+	if (!cred) throw new NotFoundError("no such SSH credential");
 	const secret = await db.selectFrom("secrets").selectAll().where("id", "=", cred.secret_id).executeTakeFirstOrThrow();
 	return masterKey.decrypt(secret.ciphertext, secretAad(secret.id, secret.kind)).toString("utf8");
 }
@@ -120,17 +136,12 @@ function hop(h: { host: string; port?: number; user: string; hostKey?: string },
 }
 
 /** Validates user input into a route (unpinned hops allowed, for probing). */
-export async function routeFromInput(
-	db: Db,
-	masterKey: MasterKey,
-	user: SessionUser,
-	input: SshTargetInput,
-): Promise<SshRoute> {
+export async function routeFromInput(db: Db, masterKey: MasterKey, input: SshTargetInput): Promise<SshRoute> {
 	const jumps = input.jumps ?? [];
 	if (!Array.isArray(jumps) || jumps.length > MAX_JUMPS) throw new UserError(`at most ${MAX_JUMPS} jump hosts`);
 	return {
 		hops: [...jumps.map((j, i) => hop(j, `jump ${i + 1}`)), hop(input, "target")],
-		privateKey: await credentialKey(db, masterKey, input.credentialId, user),
+		privateKey: await credentialKey(db, masterKey, input.credentialId),
 	};
 }
 
@@ -138,10 +149,10 @@ export async function routeFromInput(
 export async function createSshNode(
 	db: Db,
 	masterKey: MasterKey,
-	user: SessionUser,
 	input: SshTargetInput & { name?: string },
+	approvedByUserId: string | null = null,
 ): Promise<NodeRow> {
-	const route = await routeFromInput(db, masterKey, user, input);
+	const route = await routeFromInput(db, masterKey, input);
 	if (route.hops.some((h) => !h.hostKey)) throw new UserError("every hop needs a confirmed host key");
 	const target = route.hops[route.hops.length - 1] as SshHop;
 	const orgId = await defaultOrgId(db);
@@ -154,7 +165,6 @@ export async function createSshNode(
 		const node: NodeRow = {
 			id: newId(),
 			org_id: orgId,
-			owner_user_id: user.userId,
 			name,
 			name_key: nameKey(name),
 			transport: "ssh",
@@ -168,7 +178,7 @@ export async function createSshNode(
 			last_seen_at: null,
 			created_at: now,
 			approved_at: now,
-			approved_by_user_id: user.userId,
+			approved_by_user_id: approvedByUserId,
 			ssh_host: target.host,
 			ssh_port: target.port,
 			ssh_user: target.user,
@@ -184,13 +194,27 @@ export async function createSshNode(
 	});
 }
 
+/** Deletes an unused credential and its private key; an in-use credential is refused by the route. */
+export async function deleteSshCredential(db: Db, credentialId: string): Promise<void> {
+	await db.transaction().execute(async (trx) => {
+		const cred = await trx
+			.selectFrom("ssh_credentials")
+			.select("secret_id")
+			.where("id", "=", credentialId)
+			.executeTakeFirst();
+		if (!cred) throw new NotFoundError("no such SSH credential");
+		await trx.deleteFrom("ssh_credentials").where("id", "=", credentialId).execute();
+		await trx.deleteFrom("secrets").where("id", "=", cred.secret_id).execute();
+	});
+}
+
 export interface SshNodeDetails {
 	/** Jump hosts in order, then the node itself; every host key is pinned. */
 	hops: SshHop[];
 	credential: { id: string; name: string | null };
 }
 
-/** How crhs reaches an SSH node, for its owner and administrators. */
+/** How crhs reaches an SSH node, for administrators. */
 export async function sshNodeDetails(db: Db, node: NodeRow): Promise<SshNodeDetails | undefined> {
 	if (node.transport !== "ssh" || !node.ssh_host || !node.ssh_user || !node.ssh_credential_id) return undefined;
 	const cred = await db
@@ -198,9 +222,16 @@ export async function sshNodeDetails(db: Db, node: NodeRow): Promise<SshNodeDeta
 		.select("name")
 		.where("id", "=", node.ssh_credential_id)
 		.executeTakeFirst();
+	// Only the route fields are part of the response, whatever else a stored jump may carry.
+	const jumps = (JSON.parse(node.ssh_jumps ?? "[]") as SshHop[]).map(({ host, port, user, hostKey }) => ({
+		host,
+		port,
+		user,
+		hostKey,
+	}));
 	return {
 		hops: [
-			...(JSON.parse(node.ssh_jumps ?? "[]") as SshHop[]),
+			...jumps,
 			{ host: node.ssh_host, port: node.ssh_port ?? 22, user: node.ssh_user, hostKey: node.ssh_host_key ?? "" },
 		],
 		credential: { id: node.ssh_credential_id, name: cred?.name ?? null },

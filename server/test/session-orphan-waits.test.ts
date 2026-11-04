@@ -81,7 +81,6 @@ beforeEach(async () => {
 		.values({
 			id: nodeId,
 			org_id: await defaultOrgId(db),
-			owner_user_id: user.id,
 			name: "db-1",
 			name_key: "db-1",
 			transport: "client",

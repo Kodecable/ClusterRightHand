@@ -4,10 +4,8 @@ import { enc, http } from "@/lib/api/client";
 import type {
 	CrhsKey,
 	NodeGroupRef,
-	NodeShare,
 	NodeTrust,
 	PublicNode,
-	SshCredential,
 	SshNodeDetails,
 	SshTargetBody,
 	TaskView,
@@ -19,7 +17,6 @@ export const nodeKeys = {
 	detail: (id: string) => ["nodes", "detail", id] as const,
 	trust: (id: string) => ["nodes", "trust", id] as const,
 	tasks: (id: string) => ["nodes", "tasks", id] as const,
-	sshCredentials: () => ["nodes", "ssh-credentials"] as const,
 	crhsKey: () => ["nodes", "crhs-key"] as const,
 };
 
@@ -37,7 +34,8 @@ export function useNode(id: string | undefined) {
 		queryKey: nodeKeys.detail(id ?? ""),
 		enabled: id !== undefined && id !== "",
 		queryFn: ({ signal }) =>
-			http.get<{ node: PublicNode; shares?: NodeShare[]; ssh?: SshNodeDetails | null }>(`/nodes/${enc(id ?? "")}`, {
+			// `ssh` is admin-only (D108); a non-admin response has no `ssh`.
+			http.get<{ node: PublicNode; ssh?: SshNodeDetails | null }>(`/nodes/${enc(id ?? "")}`, {
 				signal,
 			}),
 	});
@@ -93,56 +91,12 @@ export function useRenameNode() {
 	});
 }
 
-export function useShareNode() {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationFn: ({
-			id,
-			granteeType,
-			granteeId,
-			access,
-		}: {
-			id: string;
-			granteeType: string;
-			granteeId: string;
-			access: "view" | "operate";
-		}) => http.put<{ share: NodeShare }>(`/nodes/${enc(id)}/shares`, { granteeType, granteeId, access }),
-		onSuccess: (_data, { id }) => void queryClient.invalidateQueries({ queryKey: nodeKeys.detail(id) }),
-	});
-}
-
-export function useUnshareNode() {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationFn: ({ id, shareId }: { id: string; shareId: string }) =>
-			http.del<{ ok: true }>(`/nodes/${enc(id)}/shares/${enc(shareId)}`),
-		onSuccess: (_data, { id }) => void queryClient.invalidateQueries({ queryKey: nodeKeys.detail(id) }),
-	});
-}
-
 export function useEnrollmentToken() {
 	// The add-node dialog renders the failure in the dialog.
 	return useMutation({
 		mutationFn: (nameHint?: string) =>
 			http.post<{ token: string; expiresAt: string }>("/enrollment-tokens", nameHint ? { nameHint } : {}),
 		meta: { toast: false },
-	});
-}
-
-export function useSshCredentials() {
-	return useQuery({
-		queryKey: nodeKeys.sshCredentials(),
-		queryFn: ({ signal }) =>
-			http.get<{ credentials: SshCredential[] }>("/ssh-credentials", { signal }).then((r) => r.credentials),
-	});
-}
-
-export function useCreateSshCredential() {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationFn: (name: string) =>
-			http.post<{ credential: SshCredential }>("/ssh-credentials", { name }).then((r) => r.credential),
-		onSuccess: () => void queryClient.invalidateQueries({ queryKey: nodeKeys.sshCredentials() }),
 	});
 }
 

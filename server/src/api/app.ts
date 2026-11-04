@@ -19,6 +19,7 @@ import { credentialRoutes } from "./credential-routes.ts";
 import { RequestDrain } from "./drain.ts";
 import { apiErrorHandler } from "./errors.ts";
 import { csrfGuard, requireUser } from "./middleware.ts";
+import { nodeAccessRoutes } from "./node-access-routes.ts";
 import { nodeGroupRoutes } from "./node-group-routes.ts";
 import { nodeRoutes } from "./node-routes.ts";
 import { policyRoutes } from "./policy-routes.ts";
@@ -94,6 +95,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	app.route("/api", userRoutes(db, { ...(options.agent ? { sessions: options.agent.runtime.sessionList } : {}) }));
 	app.route("/api", nodeRoutes(db, options));
 	app.route("/api", nodeGroupRoutes(db));
+	app.route("/api", nodeAccessRoutes(db));
 	app.route("/api", privilegeRoutes({ authorizationKey: options.authorizationKey }));
 	app.route("/api", credentialRoutes(db, { webauthn: options.webauthn }));
 	app.route("/api", authorizationRoutes(db, { cluster: options.cluster }));

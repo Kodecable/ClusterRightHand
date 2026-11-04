@@ -15,13 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-	useCreateSshCredential,
-	useCreateSshNode,
-	useProbeSshHost,
-	useSshCredentials,
-	useTestSshRoute,
-} from "@/features/nodes/api";
+import { useCreateSshNode, useProbeSshHost, useTestSshRoute } from "@/features/nodes/api";
+import { useCreateSshCredential, useSshCredentials } from "@/features/ssh-credentials/api";
 import type { PublicNode } from "@/lib/api/types";
 import {
 	addJump,
