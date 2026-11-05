@@ -119,7 +119,6 @@ func TestClean(t *testing.T) {
 		PackageManagers: []string{"apt", "dnf\xff"},
 		PrivilegeTools:  []string{"sudo\xff"},
 		NotesPath:       ptr("/etc/notes\xff"),
-		Groups:          []string{"users", "grp\xff"},
 		Shells:          &protocol.Shells{Sh: "/bin/sh\xff", Bash: &bash},
 	})
 	texts := []string{f.Hostname, text(f.OSID), text(f.OSPrettyName), text(f.Kernel), text(f.InitSystem), text(f.NotesPath)}
@@ -128,7 +127,7 @@ func TestClean(t *testing.T) {
 			t.Fatalf("uncleaned text %q", s)
 		}
 	}
-	for _, s := range append(append([]string{}, f.PackageManagers...), append(f.PrivilegeTools, f.Groups...)...) {
+	for _, s := range append(append([]string{}, f.PackageManagers...), f.PrivilegeTools...) {
 		if strings.ContainsRune(s, '\xff') {
 			t.Fatalf("uncleaned list entry %q", s)
 		}

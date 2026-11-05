@@ -109,6 +109,8 @@ interface TaskEnd {
 
 /** The error code of a task stopped because its on_behalf_of user lost access to the node. */
 export const NODE_ACCESS_REVOKED = "node_access_revoked";
+/** The error code of a task a forward node cannot take because its aliases lack a node group the authorization addresses (D110). */
+export const ALIAS_MISSING = "alias_missing";
 
 /** Ends a waiting task whose on_behalf_of user no longer has access to the node (D108). */
 export async function failNodeAccessRevoked(

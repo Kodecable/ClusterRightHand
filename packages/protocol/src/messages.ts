@@ -22,13 +22,14 @@ import {
 	union,
 } from "./schema.ts";
 
-export const PROTOCOL_MAJOR = 2;
+export const PROTOCOL_MAJOR = 3;
 /**
  * An incompatible change bumps the major version and the Noise prologue, so a peer with another
  * major is refused at the handshake (doc/protocol.md#握手载荷). The minor version is additive:
- * new commands and events are negotiated through the handshake's `commands` field. Protocol 2.0
- * reads files by line range and gives `task.exit` an eighth element; 1.1 was the M4 command set
- * and 1.0 the M3.5 one.
+ * new commands and events are negotiated through the handshake's `commands` field. Protocol 3.0
+ * removes the `groups` fact and renames `TrustSummary.groups` to `aliases` (D110); 2.0 reads files
+ * by line range and gives `task.exit` an eighth element; 1.1 was the M4 command set and 1.0 the
+ * M3.5 one.
  */
 export const PROTOCOL_MINOR = 0;
 
@@ -69,13 +70,12 @@ export const shellsCodec: Codec<Shells> = {
 };
 
 /**
- * Facts is the protocol's one map body (doc/protocol.md Facts). hostname and groups are required;
- * every other field is optional and absent when the node did not report it — absent means unknown,
- * not empty. Text keys a peer does not know are ignored; a non-text key is a decode error.
+ * Facts is the protocol's one map body (doc/protocol.md Facts). hostname is required; every other
+ * field is optional and absent when the node did not report it — absent means unknown, not empty.
+ * Text keys a peer does not know are ignored; a non-text key is a decode error.
  */
 export interface Facts {
 	hostname: string;
-	groups: string[];
 	osId?: string;
 	osVersionId?: string;
 	osPrettyName?: string;
@@ -91,7 +91,6 @@ export interface Facts {
 
 export const factsCodec = keyedMap<Facts>("facts", [
 	{ wire: "hostname", field: "hostname", codec: text, required: true },
-	{ wire: "groups", field: "groups", codec: list(text), required: true },
 	{ wire: "os_id", field: "osId", codec: text },
 	{ wire: "os_version_id", field: "osVersionId", codec: text },
 	{ wire: "os_pretty_name", field: "osPrettyName", codec: text },

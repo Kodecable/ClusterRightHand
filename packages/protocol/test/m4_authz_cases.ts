@@ -51,7 +51,7 @@ interface Case {
 	description: string;
 	now_ms: number;
 	clock_skew_ms: number;
-	node: { id: string; groups: string[] };
+	node: { id: string; aliases: string[] };
 	trust: Entry[];
 	task: { task_id: string; attempt: number; spec: JsonTaskSpec };
 	authorization: null | {
@@ -74,8 +74,11 @@ export interface AuthzCases {
 }
 
 const NOW = 1_793_016_000_000;
-const NODE = "01JB0000000000000000000001";
-const OTHER_NODE = "01JB0000000000000000000002";
+const NODE = "0192f000-0000-7000-8000-000000000001";
+const OTHER_NODE = "0192f000-0000-7000-8000-000000000002";
+const THIRD_NODE = "0192f000-0000-7000-8000-000000000003";
+const ALIAS = "0192f000-0000-7000-8000-0000000000a1";
+const OTHER_ALIAS = "0192f000-0000-7000-8000-0000000000a2";
 const TASK = "0192f000-0000-7000-8000-000000000001";
 const OTHER_TASK = "0192f000-0000-7000-8000-000000000002";
 
@@ -168,7 +171,7 @@ function base(id: string, description: string, overrides: Partial<Case> = {}): C
 		description,
 		now_ms: NOW,
 		clock_skew_ms: 60_000,
-		node: { id: NODE, groups: ["web", "prod"] },
+		node: { id: NODE, aliases: [ALIAS] },
 		trust: [CRHS, USER, LOCAL],
 		task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(RESTART) },
 		authorization: { payload: crhsPayload(), signatures: [{ entry: "crhs", valid: true, uv: false }] },
@@ -212,12 +215,8 @@ function cases(): Case[] {
 			authorization: signedBy(crhsPayload({ nodes: [OTHER_NODE] }), "crhs"),
 			...reject("authorization_invalid", 4),
 		}),
-		base("crhs.group", "a one-shot payload must list node ids, not a group (doc/protocol.md 授权对象)", {
+		base("crhs.group", "group:<name> is no longer authorization syntax (D110)", {
 			authorization: signedBy(crhsPayload({ nodes: ["group:web"] }), "crhs"),
-			...reject("authorization_invalid", 5),
-		}),
-		base("crhs.other-group", "payload addressed to a group not configured on this node", {
-			authorization: signedBy(crhsPayload({ nodes: ["group:db"] }), "crhs"),
 			...reject("authorization_invalid", 4),
 		}),
 		base("crhs.star", 'a one-shot payload must list node ids, not "*" (doc/protocol.md 授权对象)', {
@@ -389,11 +388,38 @@ function cases(): Case[] {
 		base("user.one-shot", "owner signed this task", {
 			authorization: signedBy(userOneShot(), "alice"),
 		}),
+		base("user.alias-reusable", "a reusable payload addressed to a configured trust alias", {
+			authorization: signedBy(
+				{
+					nodes: [ALIAS],
+					command: null,
+					issued_at_ms: NOW,
+					deadline_ms: NOW + 3_600_000,
+					task_ids: null,
+					attempt: null,
+				},
+				"alice",
+			),
+		}),
+		base("user.alias-unknown", "a payload addressed to an alias UUID this node does not configure", {
+			authorization: signedBy(
+				{
+					nodes: [OTHER_ALIAS],
+					command: null,
+					issued_at_ms: NOW,
+					deadline_ms: NOW + 3_600_000,
+					task_ids: null,
+					attempt: null,
+				},
+				"alice",
+			),
+			...reject("authorization_invalid", 4),
+		}),
 		base("user.prefix-reusable", "reusable prefix authorization; file.write covers file.list (a file.read method)", {
 			task: { task_id: TASK, attempt: 3, spec: taskSpecToJson(LIST_NGINX) },
 			authorization: signedBy(
 				{
-					nodes: ["group:web"],
+					nodes: [ALIAS],
 					command: { method: "file.write", prefix: "/etc/nginx" },
 					issued_at_ms: NOW,
 					deadline_ms: NOW + 86_400_000,
@@ -463,7 +489,7 @@ function cases(): Case[] {
 			task: { task_id: OTHER_TASK, attempt: 2, spec: taskSpecToJson(RESTART) },
 			authorization: signedBy(
 				userOneShot({
-					nodes: [OTHER_NODE, NODE, "01JB0000000000000000000003"],
+					nodes: [OTHER_NODE, NODE, THIRD_NODE],
 					task_ids: [TASK, OTHER_TASK, "0192f000-0000-7000-8000-000000000003"],
 					attempt: 2,
 				}),
@@ -499,9 +525,9 @@ function cases(): Case[] {
 			authorization: signedBy(userOneShot({ nodes: [NODE], task_ids: [TASK, OTHER_TASK] }), "alice"),
 			...reject("authorization_invalid", 5),
 		}),
-		base("oneshot.group-node", "one-shot payloads cannot fold a group into nodes", {
+		base("oneshot.group-node", 'one-shot payloads cannot use "group:<name>" or another alias as a node id', {
 			authorization: signedBy(userOneShot({ nodes: ["group:web"] }), "alice"),
-			...reject("authorization_invalid", 5),
+			...reject("authorization_invalid", 4),
 		}),
 		base("oneshot.star-node", 'one-shot payloads cannot use "*"', {
 			authorization: signedBy(userOneShot({ nodes: ["*"] }), "alice"),

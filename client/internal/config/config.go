@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -47,15 +46,12 @@ const (
 // measures is compared against it (doc/privilege.md 时钟).
 const DefaultClockWarn = 60 * time.Second
 
-var groupRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
-
 // Config is the validated crha configuration.
 type Config struct {
 	Server    string
 	TLSVerify string
 	StateDir  string
 	Notes     string
-	Groups    []string
 	Privilege Privileged
 	Output    Output
 	// ClockWarn is the threshold above which the clock offset measured in a crhs handshake
@@ -78,12 +74,11 @@ type Output struct {
 }
 
 type rawConfig struct {
-	Server     string   `toml:"server"`
-	TLSVerify  string   `toml:"tls_verify"`
-	StateDir   string   `toml:"state_dir"`
-	Notes      string   `toml:"notes"`
-	Groups     []string `toml:"groups"`
-	ClockWarn  string   `toml:"clock_warn"`
+	Server     string `toml:"server"`
+	TLSVerify  string `toml:"tls_verify"`
+	StateDir   string `toml:"state_dir"`
+	Notes      string `toml:"notes"`
+	ClockWarn  string `toml:"clock_warn"`
 	Privileged struct {
 		Mode   string `toml:"mode"`
 		Socket string `toml:"socket"`
@@ -162,11 +157,6 @@ func build(raw *rawConfig) (*Config, error) {
 			return nil, err
 		}
 	}
-	groups, err := validateGroups(raw.Groups)
-	if err != nil {
-		return nil, err
-	}
-	c.Groups = groups
 	if err := c.validatePrivileged(); err != nil {
 		return nil, err
 	}
@@ -225,21 +215,6 @@ func isLoopback(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
-}
-
-func validateGroups(in []string) ([]string, error) {
-	var out []string
-	seen := map[string]bool{}
-	for _, g := range in {
-		if !groupRe.MatchString(g) {
-			return nil, fmt.Errorf("config: groups: invalid group name %q", g)
-		}
-		if !seen[g] {
-			seen[g] = true
-			out = append(out, g)
-		}
-	}
-	return out, nil
 }
 
 func (c *Config) validatePrivileged() error {

@@ -744,7 +744,7 @@ function authorizationVectors(
 
 const TRUST: TrustSummary = {
 	nodeId: "01JB0000000000000000000001",
-	groups: ["web", "prod"],
+	aliases: ["0192f000-0000-7000-8000-0000000000a1", "0192f000-0000-7000-8000-0000000000a2"],
 	clockSkewMs: 60_000,
 	identities: { unprivileged: { uid: 998, gid: 998, user: "crha" }, privileged: { uid: 0, gid: 0, user: "root" } },
 	trust: [

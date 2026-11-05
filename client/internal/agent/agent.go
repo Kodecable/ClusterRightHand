@@ -585,7 +585,8 @@ func (a *Agent) OutputFilesInUse() map[string]bool {
 	return inUse
 }
 
-// RefreshFacts reports facts again on the current connection, e.g. after a reload changed the groups.
+// RefreshFacts reports facts again on the current connection, e.g. after a reload changed the notes
+// path.
 func (a *Agent) RefreshFacts(_ context.Context) error {
 	a.mu.Lock()
 	conn, peer := a.conn, a.peer

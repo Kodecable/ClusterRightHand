@@ -96,12 +96,12 @@ type LocalApproval struct {
 // Input is everything the pure decision needs. Executed, Used and Watermarked are the
 // caller's persistent state; a nil callback means "no".
 type Input struct {
-	Now        time.Time
-	ClockSkew  time.Duration
-	NodeID     string
-	NodeGroups []string
-	Trust      []Entry
-	Task       Task
+	Now       time.Time
+	ClockSkew time.Duration
+	NodeID    string
+	Aliases   []string
+	Trust     []Entry
+	Task      Task
 
 	Authorization *Authorization
 	LocalApproval *LocalApproval
@@ -268,7 +268,7 @@ func checkCandidate(in Input, auth *Authorization, signature *Signature, authori
 	payload := auth.Decoded
 
 	// Step 4: the authorization body.
-	if !addressedTo(payload.Nodes, in.NodeID, in.NodeGroups) {
+	if !addressedTo(payload.Nodes, in.NodeID, in.Aliases) {
 		return failure(ResultInvalid, StepAuthorization, "payload does not address this node"), false
 	}
 	nowMS := in.Now.UnixMilli()
@@ -398,7 +398,7 @@ func oneShotNodeCheck(nodes, taskIDs []string, taskID, nodeID string) error {
 		return fmt.Errorf("nodes has %d entries but task_ids has %d", len(nodes), len(taskIDs))
 	}
 	for _, node := range nodes {
-		if node == "*" || strings.HasPrefix(node, "group:") {
+		if node == "*" {
 			return fmt.Errorf("nodes must contain node ids, not %q", node)
 		}
 	}
@@ -414,14 +414,11 @@ func oneShotNodeCheck(nodes, taskIDs []string, taskID, nodeID string) error {
 	return fmt.Errorf("task id is not in task_ids")
 }
 
-// addressedTo reports whether the payload's nodes cover this node: its id, a configured
-// group ("group:<name>"), or "*".
-func addressedTo(nodes []string, nodeID string, groups []string) bool {
+// addressedTo reports whether the payload's nodes cover this node: its id, one of its configured
+// trust aliases, or "*" (doc/privilege.md 校验流程 step 4).
+func addressedTo(nodes []string, nodeID string, aliases []string) bool {
 	for _, node := range nodes {
-		if node == "*" || node == nodeID {
-			return true
-		}
-		if group, ok := strings.CutPrefix(node, "group:"); ok && slices.Contains(groups, group) {
+		if node == "*" || node == nodeID || slices.Contains(aliases, node) {
 			return true
 		}
 	}

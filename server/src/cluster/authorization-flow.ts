@@ -63,10 +63,12 @@ import { now } from "./core.ts";
 import type { NodeLink } from "./links.ts";
 import { waitTrust } from "./links.ts";
 import { userCanAccessNode } from "./node-access.ts";
+import { nodeGroupsForNodes } from "./node-groups.ts";
 import { getNode, type NodeRow } from "./nodes.ts";
 import { specFromRow } from "./spec.ts";
 import { taskStartOf } from "./task-start.ts";
 import {
+	ALIAS_MISSING,
 	dropLive,
 	endTask,
 	finish,
@@ -168,7 +170,7 @@ export async function planPrivileged(
 	const plan = planAuthorization({
 		summary,
 		nodeId: node.id,
-		nodeGroups: summary.groups,
+		aliases: summary.aliases,
 		task: { id, attempt: row.attempt, spec, privileged: true },
 		taskGroup: row.task_group_id !== null,
 		owner: await ownerCredentials(core.db, row.on_behalf_of_user_id),
@@ -199,7 +201,7 @@ export async function planPrivileged(
 	const skip = new Set<string>();
 	if (previous?.lastRejection && previous.payloadId) skip.add(previous.payloadId);
 	const reusable = await findReusableAuthorization(core, row, node, summary, spec, skip);
-	if (reusable) {
+	if (reusable?.kind === "found") {
 		const dispatched = await dispatchOwnerAuthorization(
 			core,
 			row,
@@ -214,6 +216,18 @@ export async function planPrivileged(
 	}
 	const userPath = plan.paths.find((path): path is PlannedUserPath => path.path === "user");
 	const localPath = plan.paths.find((path): path is PlannedLocalPath => path.path === "local");
+	// A reusable authorization addressed to a node group this node is in, which the node does not
+	// trust as an alias, is never sent (D110): the node would refuse it, and the owner's signature
+	// would not fix the node's configuration. Local approval is the one other path that still works
+	// without the alias (and only for a single task).
+	if (reusable?.kind === "alias_missing" && !(localPath && row.task_group_id === null)) {
+		await finishAuthorization(core, id, row, "failed", ALIAS_MISSING, aliasMissingMessage(reusable), {
+			...record,
+			pending: null,
+			local: null,
+		});
+		return;
+	}
 	if (!userPath && !(localPath && row.task_group_id === null)) {
 		const code = record.lastRejection?.code ?? "authorization_required";
 		const reason = plan.reason ?? "no one on this node can authorize this command";
@@ -511,11 +525,67 @@ async function clearGroupPending(
 
 // ---- the owner's stored and submitted authorizations ----
 
+type ReusableAuthorizationLookup =
+	| { kind: "found"; submitted: SubmittedAuthorization; cosigned: boolean }
+	/** A reusable authorization only this node's missing alias stands in the way of (D110). */
+	| { kind: "alias_missing"; groupId: string; groupName: string }
+	| null;
+
+interface MissingAlias {
+	groupId: string;
+	groupName: string;
+}
+
+/** The node groups a node is in, id → name, for the alias checks. */
+async function nodeGroupNamesForNode(core: ClusterCore, nodeId: string): Promise<Map<string, string>> {
+	return new Map(
+		((await nodeGroupsForNodes(core.db, [nodeId])).get(nodeId) ?? []).map((group) => [group.id, group.name]),
+	);
+}
+
+/**
+ * Whether a group-addressed reusable authorization would be accepted if the node trusted the
+ * addressed node group as an alias (doc/privilege.md#信任缓存, D110). Only reusable authorizations
+ * are expanded by group UUID; a one-shot one names its nodes itself and is never in this case.
+ * `groups` lets a caller reuse one membership lookup across candidates.
+ */
+async function missingAliasForAuthorization(
+	core: ClusterCore,
+	input: {
+		payload: AuthorizationPayload;
+		payloadBytes: Uint8Array;
+		signatures: Signature[];
+		summary: TrustSummary;
+		nodeId: string;
+		task: { id: string; attempt: number; spec: TaskSpec };
+		material: UserSigningMaterial;
+	},
+	groups?: ReadonlyMap<string, string>,
+): Promise<MissingAlias | null> {
+	if (input.payload.taskIds !== null) return null;
+	const aliases = new Set(input.summary.aliases);
+	const memberships = groups ?? (await nodeGroupNamesForNode(core, input.nodeId));
+	const addressed = input.payload.nodes.some(
+		(candidate) => candidate === "*" || candidate === input.nodeId || aliases.has(candidate),
+	);
+	if (addressed) return null;
+	const missing = input.payload.nodes.find((candidate) => memberships.has(candidate) && !aliases.has(candidate));
+	if (missing === undefined) return null;
+	const groupName = memberships.get(missing);
+	if (groupName === undefined) return null;
+	const withAlias = await judgeOwnerAuthorization(core, {
+		...input,
+		summary: { ...input.summary, aliases: [...input.summary.aliases, missing] },
+	});
+	return withAlias.accepted ? { groupId: missing, groupName } : null;
+}
+
 /**
  * Finds a stored authorization of the task's owner that covers it and that the node's trust
  * summary would accept (doc/privilege.md#授权路径). Reusable ones (no task ids) and one-shot ones
  * for this task with the same attempt qualify; a cosignature is added when the accepting entry
- * needs one and the payload is one-shot.
+ * needs one and the payload is one-shot. A group-addressed reusable authorization that the node
+ * would accept only with a missing alias is reported as `alias_missing` (D110).
  */
 async function findReusableAuthorization(
 	core: ClusterCore,
@@ -524,7 +594,7 @@ async function findReusableAuthorization(
 	summary: TrustSummary,
 	spec: TaskSpec,
 	skip: ReadonlySet<string>,
-): Promise<{ submitted: SubmittedAuthorization; cosigned: boolean } | null> {
+): Promise<ReusableAuthorizationLookup> {
 	const ownerId = row.on_behalf_of_user_id;
 	const stored = await core.db
 		.selectFrom("authorizations")
@@ -535,6 +605,8 @@ async function findReusableAuthorization(
 		.execute();
 	if (stored.length === 0) return null;
 	const material = await loadUserSigningMaterial(core.db, ownerId);
+	let aliasMissing: MissingAlias | null = null;
+	let memberGroups: ReadonlyMap<string, string> | undefined;
 	for (const candidate of stored) {
 		if (skip.has(candidate.id)) continue;
 		const payloadBytes = Uint8Array.from(Buffer.from(candidate.payload, "base64"));
@@ -553,22 +625,44 @@ async function findReusableAuthorization(
 		}
 		const signatures = signaturesFromJson(candidate.signatures);
 		if (signatures.length === 0) continue;
+		const task = { id: row.id, attempt: row.attempt, spec };
 		const judged = await judgeOwnerAuthorization(core, {
 			payload,
 			payloadBytes,
 			signatures,
 			summary,
 			nodeId: node.id,
-			task: { id: row.id, attempt: row.attempt, spec },
+			task,
 			material,
 		});
-		if (!judged.accepted) continue;
+		if (!judged.accepted) {
+			// A group-addressed reusable authorization is the case D110 warns about: if only the
+			// node's configured aliases are missing, adding the alias would make the node accept it.
+			if (aliasMissing === null) {
+				memberGroups ??= await nodeGroupNamesForNode(core, node.id);
+				aliasMissing = await missingAliasForAuthorization(
+					core,
+					{
+						payload,
+						payloadBytes,
+						signatures,
+						summary,
+						nodeId: node.id,
+						task,
+						material,
+					},
+					memberGroups,
+				);
+			}
+			continue;
+		}
 		return {
+			kind: "found",
 			submitted: { payload, payloadBytes, signatures: judged.signatures, id: candidate.id },
 			cosigned: judged.cosigned,
 		};
 	}
-	return null;
+	return aliasMissing === null ? null : { kind: "alias_missing", ...aliasMissing };
 }
 
 /**
@@ -877,16 +971,46 @@ async function judgeSubmitted(
 	if (!node || !link || link.conn.closed || !link.ready || !link.trustFresh) return null;
 	const report = parseTrustReport(node.trust_report);
 	if (report?.kind !== "ok") return null;
+	const task = { id, attempt: row.attempt, spec: specFromRow(row.spec, "task") };
 	const judged = await judgeOwnerAuthorization(core, {
 		payload,
 		payloadBytes: submitted.payloadBytes,
 		signatures: submitted.signatures,
 		summary: report.summary,
 		nodeId: node.id,
-		task: { id, attempt: row.attempt, spec: specFromRow(row.spec, "task") },
+		task,
 		material,
 	});
-	if (!judged.accepted) return null;
+	if (!judged.accepted) {
+		// A submitted reusable authorization that only the node's missing alias blocks ends the
+		// task here instead of leaving it waiting forever (D110), unless local approval can still
+		// authorize this single task.
+		const missing = await missingAliasForAuthorization(core, {
+			payload,
+			payloadBytes: submitted.payloadBytes,
+			signatures: submitted.signatures,
+			summary: report.summary,
+			nodeId: node.id,
+			task,
+			material,
+		});
+		if (missing !== null) {
+			const previous = parseTaskAuthorization(row.authorization);
+			const localUsable = previous?.plan.paths.some((path) => path.path === "local") && row.task_group_id === null;
+			if (!localUsable) {
+				await finishAuthorization(
+					core,
+					id,
+					row,
+					"failed",
+					ALIAS_MISSING,
+					aliasMissingMessage(missing),
+					previous ? { ...previous, pending: null, local: null } : null,
+				);
+			}
+		}
+		return null;
+	}
 	return { row, node, link, signatures: judged.signatures, cosigned: judged.cosigned };
 }
 
@@ -1172,6 +1296,11 @@ async function retryAuthorization(
 	]);
 }
 
+/** The failure line of a group-addressed reusable authorization the node has no alias for (D110). */
+function aliasMissingMessage(group: { groupId: string; groupName: string }): string {
+	return `this node does not trust node group ${group.groupName} (${group.groupId}) as an alias; add "${group.groupId}" to aliases in privileged.toml on the node, then run the task again`;
+}
+
 /** Ends a task that could not be authorized, with the plan and the reason on its record. */
 async function finishAuthorization(
 	core: ClusterCore,
@@ -1274,7 +1403,23 @@ async function dispatchStored(core: ClusterCore, id: string): Promise<void> {
 		specFromRow(row.spec, "task"),
 		skip,
 	);
-	if (!reusable) return;
+	if (reusable?.kind !== "found") {
+		if (reusable?.kind === "alias_missing") {
+			const localUsable = previous?.plan.paths.some((path) => path.path === "local") && row.task_group_id === null;
+			if (!localUsable) {
+				await finishAuthorization(
+					core,
+					row.id,
+					row,
+					"failed",
+					ALIAS_MISSING,
+					aliasMissingMessage(reusable),
+					previous ? { ...previous, pending: null, local: null } : null,
+				);
+			}
+		}
+		return;
+	}
 	await dispatchOwnerAuthorization(core, row, node, link, reusable.submitted, reusable.cosigned);
 }
 
@@ -1375,7 +1520,7 @@ function decideOwnerAuthorization(input: {
 		now: input.now,
 		clockSkewMs: input.summary.clockSkewMs,
 		nodeId: input.nodeId,
-		nodeGroups: input.summary.groups,
+		aliases: input.summary.aliases,
 		trust: input.summary.trust.map(authzEntryFromTrust),
 		task: input.task,
 		authorization: { payload: input.payloadBytes, decoded: input.payload, signatures: input.signatures },

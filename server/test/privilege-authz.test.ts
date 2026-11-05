@@ -39,7 +39,7 @@ interface CaseJson {
 	description: string;
 	now_ms: number;
 	clock_skew_ms: number;
-	node: { id: string; groups: string[] };
+	node: { id: string; aliases: string[] };
 	trust: EntryJson[];
 	task: { task_id: string; attempt: number; spec: unknown };
 	authorization: null | {
@@ -131,7 +131,7 @@ describe("test/interop/m4_authz_cases.json", () => {
 			now: testCase.now_ms,
 			clockSkewMs: testCase.clock_skew_ms,
 			nodeId: testCase.node.id,
-			nodeGroups: testCase.node.groups,
+			aliases: testCase.node.aliases,
 			trust,
 			task: { id: testCase.task.task_id, attempt: testCase.task.attempt, spec: specOf(testCase.task.spec) },
 			authorization: testCase.authorization ? authorizationOf(testCase.authorization, trust) : null,
@@ -159,7 +159,7 @@ describe("test/interop/m4_authz_cases.json", () => {
 			now: base.now_ms,
 			clockSkewMs: base.clock_skew_ms,
 			nodeId: base.node.id,
-			nodeGroups: base.node.groups,
+			aliases: base.node.aliases,
 			trust,
 			task: { id: base.task.task_id, attempt: base.task.attempt, spec: specOf(base.task.spec) },
 			authorization: tampered,
@@ -181,7 +181,7 @@ describe("test/interop/m4_authz_cases.json", () => {
 			now: base.now_ms,
 			clockSkewMs: base.clock_skew_ms,
 			nodeId: base.node.id,
-			nodeGroups: base.node.groups,
+			aliases: base.node.aliases,
 			trust,
 			task: { id: base.task.task_id, attempt: base.task.attempt, spec: specOf(base.task.spec) },
 			localApproval: null,

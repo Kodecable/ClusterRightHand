@@ -36,6 +36,7 @@ function node(id: string, name: string): PublicNode {
 		keyFingerprint: null,
 		connected: true,
 		clockWarning: null,
+		trustWarnings: [],
 	};
 }
 

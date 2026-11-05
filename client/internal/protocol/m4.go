@@ -215,7 +215,7 @@ type Identities struct {
 type TrustSummary struct {
 	_           struct{} `cbor:",toarray"`
 	NodeID      string
-	Groups      []string
+	Aliases     []string
 	ClockSkewMS Uint
 	Identities  Identities
 	Trust       []TrustEntry

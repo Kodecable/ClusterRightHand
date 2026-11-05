@@ -24,6 +24,7 @@ const NODES: PublicNode[] = [
 		keyFingerprint: null,
 		connected: true,
 		clockWarning: null,
+		trustWarnings: [],
 	},
 ];
 

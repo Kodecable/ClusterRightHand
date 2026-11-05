@@ -56,7 +56,6 @@ func sampleFacts() Facts {
 		PackageManagers: []string{"apt"},
 		PrivilegeTools:  []string{"sudo"},
 		NotesPath:       ptr("/var/lib/crha/notes"),
-		Groups:          []string{"wheel"},
 		ClockOffsetMS:   ptr(Int(12)),
 		Shells:          &Shells{Sh: "/bin/sh", Bash: ptr("/usr/bin/bash")},
 	}
@@ -523,7 +522,7 @@ func TestFactsMapKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"arch", "clock_offset_ms", "groups", "hostname", "init_system", "kernel", "notes_path",
+		"arch", "clock_offset_ms", "hostname", "init_system", "kernel", "notes_path",
 		"os_id", "os_pretty_name", "os_version_id", "package_managers", "privilege_tools", "shells",
 	}
 	if len(raw) != len(want) {
@@ -543,7 +542,7 @@ func TestFactsMapKeys(t *testing.T) {
 	}
 
 	// An absent optional value is omitted, not encoded as null.
-	minimal := Facts{Hostname: "node-1", Groups: []string{"wheel"}}
+	minimal := Facts{Hostname: "node-1"}
 	data, err = Marshal(minimal)
 	if err != nil {
 		t.Fatal(err)
@@ -552,27 +551,26 @@ func TestFactsMapKeys(t *testing.T) {
 	if err := Unmarshal(data, &keys); err != nil {
 		t.Fatal(err)
 	}
-	if len(keys) != 2 || keys["hostname"] != "node-1" {
+	if len(keys) != 1 || keys["hostname"] != "node-1" {
 		t.Fatalf("minimal facts = %#v", keys)
-	}
-	if groups, ok := keys["groups"].([]any); !ok || len(groups) != 1 || groups[0] != "wheel" {
-		t.Fatalf("groups = %#v", keys["groups"])
 	}
 }
 
 // TestFactsUnknownKeys pins that a fact this implementation does not know is accepted: the strict
 // comparison is on the generic CBOR value, which keeps the unknown key (doc/protocol.md Facts).
 func TestFactsUnknownKeys(t *testing.T) {
+	// {"groups": ["wheel"], "hostname": "node-1", "future_fact": "x"}: groups is an old fact that
+	// protocol 3.0 dropped, so it is just another unknown text key now.
 	data := mustHex(t, "a36667726f7570738165776865656c68686f73746e616d65666e6f64652d316b6675747572655f6661637461"+
 		"78")
 	var f Facts
 	if err := Unmarshal(data, &f); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if f.Hostname != "node-1" || len(f.Groups) != 1 || f.Groups[0] != "wheel" {
+	if f.Hostname != "node-1" {
 		t.Fatalf("decoded %#v", f)
 	}
-	// Re-encoding the schema value drops the unknown key; only the profile comparison keeps it.
+	// Re-encoding the schema value drops the unknown keys; only the profile comparison keeps them.
 	again, err := Marshal(f)
 	if err != nil {
 		t.Fatal(err)
@@ -607,7 +605,7 @@ func TestFactsNonTextKey(t *testing.T) {
 
 func TestFactsRequiredKeys(t *testing.T) {
 	for name, data := range map[string]string{
-		"no groups":   "a168686f73746e616d65666e6f64652d31",
+		// {"groups": ["wheel"]}: groups is an unknown text key now, but hostname is still missing.
 		"no hostname": "a16667726f7570738165776865656c",
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -620,10 +618,9 @@ func TestFactsRequiredKeys(t *testing.T) {
 }
 
 func TestFactsWrongType(t *testing.T) {
-	// hostname is text, groups is [text], clock_offset_ms is int.
+	// hostname is text and clock_offset_ms is int; an unknown text key (groups) is ignored.
 	for name, data := range map[string]string{
 		"uint hostname": "a26667726f7570738165776865656c68686f73746e616d6500",
-		"text groups":   "a26667726f757073646e6f6e6568686f73746e616d65666e6f64652d31",
 		"text offset":   "a36667726f7570738165776865656c68686f73746e616d65666e6f64652d316f636c6f636b5f6f66667365745f6d736130",
 	} {
 		t.Run(name, func(t *testing.T) {

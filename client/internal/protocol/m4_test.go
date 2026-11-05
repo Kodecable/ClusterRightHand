@@ -281,7 +281,7 @@ func TestM4UnionBranches(t *testing.T) {
 		}},
 		{"TrustReport.ok", func(t *testing.T) {
 			checkRoundTrip(t, "", TrustReport{Kind: TrustReportOK, Summary: &TrustSummary{
-				NodeID: "n", Groups: []string{}, ClockSkewMS: 1000, Trust: []TrustEntry{},
+				NodeID: "n", Aliases: []string{}, ClockSkewMS: 1000, Trust: []TrustEntry{},
 			}})
 		}},
 		{"AuthMatch.exact", func(t *testing.T) {

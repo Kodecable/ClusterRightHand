@@ -113,8 +113,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -204,7 +204,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -237,8 +237,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -341,8 +341,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -432,7 +432,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -465,8 +465,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -556,7 +556,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -589,8 +589,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -680,7 +680,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -718,8 +718,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -809,7 +809,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000002"],
+					"nodes": ["0192f000-0000-7000-8000-000000000002"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -838,12 +838,12 @@
 		},
 		{
 			"id": "crhs.group",
-			"description": "a one-shot payload must list node ids, not a group (doc/protocol.md 授权对象)",
+			"description": "group:<name> is no longer authorization syntax (D110)",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -957,130 +957,6 @@
 			"used_pairs": [],
 			"expect": {
 				"result": "authorization_invalid",
-				"step": 5
-			}
-		},
-		{
-			"id": "crhs.other-group",
-			"description": "payload addressed to a group not configured on this node",
-			"now_ms": 1793016000000,
-			"clock_skew_ms": 60000,
-			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
-			},
-			"trust": [
-				{
-					"name": "crhs",
-					"role": "crhs",
-					"kinds": ["execute", "cosign"],
-					"require_exact": true,
-					"require_task": true,
-					"require_uv": false,
-					"max_ttl_ms": 300000,
-					"allow": [
-						{
-							"method": "exec",
-							"match": "prefix",
-							"pattern": "systemctl restart "
-						},
-						{
-							"method": "exec",
-							"match": "regex",
-							"pattern": "apt-get (update|upgrade -y)"
-						},
-						{
-							"method": "file.write",
-							"match": "prefix",
-							"pattern": "/etc/nginx/"
-						},
-						{
-							"method": "file.read",
-							"match": "any",
-							"pattern": ""
-						}
-					],
-					"deny": [
-						{
-							"method": "file.read",
-							"match": "regex",
-							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
-						},
-						{
-							"method": "file.write",
-							"match": "prefix",
-							"pattern": "/etc/crha/"
-						}
-					],
-					"env_allow": [],
-					"uids": []
-				},
-				{
-					"name": "alice",
-					"role": "user",
-					"kinds": ["execute"],
-					"require_exact": false,
-					"require_task": false,
-					"require_uv": false,
-					"max_ttl_ms": 86400000,
-					"allow": [],
-					"deny": [],
-					"env_allow": ["DEBIAN_FRONTEND"],
-					"uids": []
-				},
-				{
-					"name": "local-admins",
-					"role": "local",
-					"kinds": ["execute"],
-					"require_exact": false,
-					"require_task": false,
-					"require_uv": false,
-					"max_ttl_ms": null,
-					"allow": [],
-					"deny": [],
-					"env_allow": [],
-					"uids": [0, 1000]
-				}
-			],
-			"task": {
-				"task_id": "0192f000-0000-7000-8000-000000000001",
-				"attempt": 1,
-				"spec": {
-					"kind": "exec",
-					"command": {
-						"argv": ["systemctl", "restart", "nginx"]
-					},
-					"env": {},
-					"cwd": "",
-					"stdin": null
-				}
-			},
-			"authorization": {
-				"payload": {
-					"nodes": ["group:db"],
-					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
-						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
-					},
-					"issued_at_ms": 1793016000000,
-					"deadline_ms": 1793016300000,
-					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
-					"attempt": 1
-				},
-				"signatures": [
-					{
-						"entry": "crhs",
-						"valid": true,
-						"uv": false
-					}
-				]
-			},
-			"local_approval": null,
-			"executed_task_ids": [],
-			"used_pairs": [],
-			"expect": {
-				"result": "authorization_invalid",
 				"step": 4
 			}
 		},
@@ -1090,8 +966,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -1214,8 +1090,8 @@
 			"now_ms": 1793016360001,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -1305,7 +1181,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -1338,8 +1214,8 @@
 			"now_ms": 1793016360000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -1429,7 +1305,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -1462,8 +1338,8 @@
 			"now_ms": 1793015939999,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -1553,7 +1429,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -1586,8 +1462,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -1677,7 +1553,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -1710,8 +1586,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -1801,7 +1677,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -1834,8 +1710,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -1925,7 +1801,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"prefix": "systemctl "
@@ -1957,8 +1833,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -2048,7 +1924,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -2081,8 +1957,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -2172,7 +2048,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -2205,8 +2081,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -2296,7 +2172,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -2329,8 +2205,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -2420,7 +2296,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -2453,8 +2329,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -2544,7 +2420,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -2577,8 +2453,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -2668,7 +2544,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -2701,8 +2577,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -2794,7 +2670,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -2827,8 +2703,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -2918,7 +2794,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "/bin/sh -c 'systemctl restart nginx; id'",
@@ -2951,8 +2827,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -3042,7 +2918,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "apt-get upgrade -y",
@@ -3075,8 +2951,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -3166,7 +3042,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "apt-get update --fix-missing",
@@ -3199,8 +3075,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -3293,7 +3169,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "file.write",
 						"exact": "/etc/nginx/nginx.conf",
@@ -3326,8 +3202,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -3420,7 +3296,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "file.write",
 						"exact": "/etc/crha/privileged.toml",
@@ -3453,8 +3329,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -3541,7 +3417,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "file.read",
 						"exact": "/etc/shadow",
@@ -3574,8 +3450,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -3667,7 +3543,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -3700,8 +3576,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -3791,7 +3667,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -3824,8 +3700,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -3870,7 +3746,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -3903,8 +3779,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -3989,7 +3865,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -4022,8 +3898,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -4108,7 +3984,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -4141,8 +4017,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -4232,7 +4108,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -4260,13 +4136,253 @@
 			}
 		},
 		{
+			"id": "user.alias-reusable",
+			"description": "a reusable payload addressed to a configured trust alias",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-0000000000a1"],
+					"command": null,
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": null,
+					"attempt": null
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"local_approval": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
+			}
+		},
+		{
+			"id": "user.alias-unknown",
+			"description": "a payload addressed to an alias UUID this node does not configure",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-0000000000a2"],
+					"command": null,
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": null,
+					"attempt": null
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"local_approval": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_invalid",
+				"step": 4
+			}
+		},
+		{
 			"id": "user.prefix-reusable",
 			"description": "reusable prefix authorization; file.write covers file.list (a file.read method)",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -4352,7 +4468,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["group:web"],
+					"nodes": ["0192f000-0000-7000-8000-0000000000a1"],
 					"command": {
 						"method": "file.write",
 						"prefix": "/etc/nginx"
@@ -4384,8 +4500,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -4478,7 +4594,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "file.read",
 						"prefix": "/etc/nginx/"
@@ -4510,8 +4626,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -4627,8 +4743,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -4720,7 +4836,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -4753,8 +4869,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -4844,7 +4960,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -4877,8 +4993,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -4968,7 +5084,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -5001,8 +5117,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -5092,7 +5208,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -5125,8 +5241,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -5216,7 +5332,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -5249,8 +5365,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -5340,7 +5456,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -5373,8 +5489,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -5464,7 +5580,11 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000002", "01JB0000000000000000000001", "01JB0000000000000000000003"],
+					"nodes": [
+						"0192f000-0000-7000-8000-000000000002",
+						"0192f000-0000-7000-8000-000000000001",
+						"0192f000-0000-7000-8000-000000000003"
+					],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -5501,8 +5621,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -5592,7 +5712,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000002", "01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000002", "0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -5625,8 +5745,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -5716,7 +5836,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000002", "01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000002", "0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -5749,8 +5869,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -5840,7 +5960,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000002", "01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000002", "0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -5873,8 +5993,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -5964,7 +6084,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -5993,12 +6113,12 @@
 		},
 		{
 			"id": "oneshot.group-node",
-			"description": "one-shot payloads cannot fold a group into nodes",
+			"description": "one-shot payloads cannot use \"group:<name>\" or another alias as a node id",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -6112,7 +6232,7 @@
 			"used_pairs": [],
 			"expect": {
 				"result": "authorization_invalid",
-				"step": 5
+				"step": 4
 			}
 		},
 		{
@@ -6121,8 +6241,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -6245,8 +6365,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -6297,7 +6417,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "a",
@@ -6330,8 +6450,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -6382,7 +6502,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -6415,8 +6535,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -6506,7 +6626,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -6539,8 +6659,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -6630,7 +6750,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -6668,8 +6788,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -6762,7 +6882,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "file.write",
 						"exact": "/etc/crha/privileged.toml",
@@ -6800,8 +6920,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -6891,7 +7011,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -6929,8 +7049,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -7020,7 +7140,7 @@
 			},
 			"authorization": {
 				"payload": {
-					"nodes": ["01JB0000000000000000000001"],
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
 						"method": "exec",
 						"exact": "systemctl restart nginx",
@@ -7058,8 +7178,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -7165,8 +7285,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{
@@ -7272,8 +7392,8 @@
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
-				"id": "01JB0000000000000000000001",
-				"groups": ["web", "prod"]
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
 			},
 			"trust": [
 				{

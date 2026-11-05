@@ -170,7 +170,7 @@ function entryFromJson(value: unknown): TrustEntry {
 export function trustSummaryToJson(summary: TrustSummary): Record<string, unknown> {
 	return {
 		nodeId: summary.nodeId,
-		groups: summary.groups,
+		aliases: summary.aliases,
 		clockSkewMs: summary.clockSkewMs,
 		identities: {
 			unprivileged: identityToJson(summary.identities.unprivileged),
@@ -185,7 +185,7 @@ export function trustSummaryFromJson(value: unknown): TrustSummary {
 	const identities = asObject(o.identities, "summary.identities");
 	const summary: TrustSummary = {
 		nodeId: asString(o.nodeId, "summary.nodeId"),
-		groups: asArray(o.groups, "summary.groups").map((group) => asString(group, "summary.groups[]")),
+		aliases: asArray(o.aliases, "summary.aliases").map((alias) => asString(alias, "summary.aliases[]")),
 		clockSkewMs: asNumber(o.clockSkewMs, "summary.clockSkewMs"),
 		identities: {
 			unprivileged: identityFromJson(identities.unprivileged),

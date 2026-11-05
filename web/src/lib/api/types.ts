@@ -57,6 +57,22 @@ export type RefTarget = { kind: "node" | "node_group"; name: string };
 /** Display names for stored UUID references, keyed by id (D109). */
 export type RefMap = Record<string, RefTarget | null>;
 
+/** A trust alias or trust entry that is out of sync with crhs-managed node groups (D110). */
+export type TrustWarningKind = "alias_superfluous" | "alias_unknown" | "alias_missing" | "trust_unknown";
+export type TrustWarningSeverity = "danger" | "warning" | "info";
+
+export interface TrustWarning {
+	kind: TrustWarningKind;
+	severity: TrustWarningSeverity;
+	/** The alias or node group UUID the warning is about; null for a trust entry. */
+	uuid: string | null;
+	/** The node group the UUID names, when it is one. */
+	nodeGroupName: string | null;
+	/** The trust entry name, for `trust_unknown`. */
+	trustName: string | null;
+	message: string;
+}
+
 export interface PublicNode {
 	id: string;
 	name: string;
@@ -77,6 +93,8 @@ export interface PublicNode {
 	connected: boolean | null;
 	/** A clock warning when the node's clock is too far from crhs's; null when it is fine. */
 	clockWarning: string | null;
+	/** Out-of-sync trust aliases and unknown trust entries (doc/privilege.md#信任缓存, D110). */
+	trustWarnings: TrustWarning[];
 }
 
 export type GranteeType = "user" | "user_group";
@@ -367,7 +385,7 @@ export interface TrustEntry {
 
 export interface TrustSummary {
 	nodeId: string;
-	groups: string[];
+	aliases: string[];
 	clockSkewMs: number;
 	identities: {
 		unprivileged: { uid: number; gid: number; user: string };

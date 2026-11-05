@@ -509,6 +509,14 @@ msgstr "After the node connects it appears as pending; compare its key fingerpri
 msgid "Agent"
 msgstr "Agent"
 
+#: src/features/nodes/node-trust.tsx
+msgid "Aliases"
+msgstr "Aliases"
+
+#: src/features/nodes/pages.tsx
+msgid "Aliases for privileged.toml"
+msgstr "Aliases for privileged.toml"
+
 #: src/components/node-targets.tsx
 #: src/features/batch/pages.tsx
 msgid "All accessible nodes"
@@ -1078,6 +1086,10 @@ msgstr "Copied to clipboard"
 msgid "Copy"
 msgstr "Copy"
 
+#: src/features/nodes/pages.tsx
+msgid "Copy aliases"
+msgstr "Copy aliases"
+
 #: src/markdown/CodeBlock.tsx
 msgid "Copy code"
 msgstr "Copy code"
@@ -1248,6 +1260,10 @@ msgstr "crha client"
 #: src/components/authorization-card.tsx
 msgid "crha grant command"
 msgstr "crha grant command"
+
+#: src/features/nodes/trust-warnings.tsx
+msgid "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential:"
+msgstr "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential:"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "crhs generates an ed25519 key pair and keeps the private half. Only its public key leaves the server."
@@ -3840,6 +3856,10 @@ msgstr "The new passwords do not match."
 msgid "The node group contains exactly the nodes selected here."
 msgstr "The node group contains exactly the nodes selected here."
 
+#: src/features/tasks/output.ts
+msgid "The node has no alias for this task's node group. Add the node group UUID to aliases in privileged.toml on the node, then run the task again."
+msgstr "The node has no alias for this task's node group. Add the node group UUID to aliases in privileged.toml on the node, then run the task again."
+
 #: src/features/nodes/node-trust.tsx
 msgid "The node has not reported its trust configuration."
 msgstr "The node has not reported its trust configuration."
@@ -3847,6 +3867,10 @@ msgstr "The node has not reported its trust configuration."
 #: src/features/nodes/ssh-wizard.tsx
 msgid "The node is active as soon as it is created; the pinned host keys are enforced on every connection. Test first to check that the key is installed on every hop and the account can run commands."
 msgstr "The node is active as soon as it is created; the pinned host keys are enforced on every connection. Test first to check that the key is installed on every hop and the account can run commands."
+
+#: src/features/nodes/trust-warnings.tsx
+msgid "The node is in this node group but does not trust it as an alias. Add the group UUID to aliases in privileged.toml on the node:"
+msgstr "The node is in this node group but does not trust it as an alias. Add the group UUID to aliases in privileged.toml on the node:"
 
 #: src/features/nodes/node-trust.tsx
 msgid "The node trusts nobody."
@@ -3956,9 +3980,21 @@ msgstr "They can no longer see this node or run tasks on it."
 msgid "Thinking"
 msgstr "Thinking"
 
+#: src/features/nodes/trust-warnings.tsx
+msgid "This alias is for a node group the node is not in. Reusable authorizations addressed to that group still work here. Remove the alias from aliases in privileged.toml on the node:"
+msgstr "This alias is for a node group the node is not in. Reusable authorizations addressed to that group still work here. Remove the alias from aliases in privileged.toml on the node:"
+
+#: src/features/nodes/trust-warnings.tsx
+msgid "This alias is neither a node group nor this node. Remove it from aliases in privileged.toml on the node:"
+msgstr "This alias is neither a node group nor this node. Remove it from aliases in privileged.toml on the node:"
+
 #: src/features/ssh-credentials/pages.tsx
 msgid "This credential is used by a node and cannot be deleted."
 msgstr "This credential is used by a node and cannot be deleted."
+
+#: src/features/nodes/pages.tsx
+msgid "This is a top-level key of privileged.toml. Paste it before the first `[[trust]]` table."
+msgstr "This is a top-level key of privileged.toml. Paste it before the first `[[trust]]` table."
 
 #: src/features/approvals/pages.tsx
 msgid "This request is no longer waiting for approval; it is"
@@ -4078,6 +4114,10 @@ msgstr "Trust entries"
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Trust snippet"
 msgstr "Trust snippet"
+
+#: src/features/nodes/trust-warnings.tsx
+msgid "Trust warnings"
+msgstr "Trust warnings"
 
 #: src/features/sessions/session-list.tsx
 msgid "Try a different search."

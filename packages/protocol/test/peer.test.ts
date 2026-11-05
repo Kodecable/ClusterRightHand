@@ -16,7 +16,6 @@ const FACTS: Facts = {
 	packageManagers: ["apt"],
 	privilegeTools: ["sudo"],
 	notesPath: "/etc/notes",
-	groups: ["sudo"],
 	clockOffsetMs: 0,
 	shells: { sh: "/bin/sh", bash: null },
 };

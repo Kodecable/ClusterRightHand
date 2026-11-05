@@ -191,8 +191,8 @@ func waitForSocket(t *testing.T, path string) {
 
 // baseConfig is the shared top of a privileged.toml for a test daemon.
 func baseConfig(p envPaths, uid int) string {
-	return fmt.Sprintf(`node_id          = "node-1"
-groups           = ["web"]
+	return fmt.Sprintf(`node_id          = "0192f000-0000-7000-8000-000000000001"
+aliases          = ["0192f000-0000-7000-8000-0000000000a1"]
 unprivileged_uid = %d
 clock_skew       = "60s"
 socket           = %q
@@ -260,7 +260,7 @@ func payloadFor(taskID string, attempt uint64, command *protocol.AuthCommand, de
 	att := protocol.Uint(attempt)
 	p := &protocol.AuthorizationPayload{
 		V:          protocol.AuthPayloadVersion,
-		Nodes:      []string{"node-1"},
+		Nodes:      []string{"0192f000-0000-7000-8000-000000000001"},
 		Command:    command,
 		IssuedAtMS: protocol.Int(issued),
 		TaskIDs:    &ids,

@@ -1,11 +1,13 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { ErrorState } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
 import { DateTime } from "@/components/relative-time";
 import { CardSkeleton } from "@/components/skeletons";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useNodeGroups } from "@/features/node-groups/api";
 import { useNodeTrust } from "@/features/nodes/api";
 import type { GuardRule, NodeTrust, TrustEntry, TrustEntryKey } from "@/lib/api/types";
 import { formatDuration } from "@/lib/format";
@@ -21,6 +23,24 @@ export function trustKeyText(key: TrustEntryKey): string {
 		case "local":
 			return (key.uids ?? []).join(", ");
 	}
+}
+
+/** The node's aliases, each UUID with its node group's current name when the UUID names one. */
+function TrustAliases({ aliases }: { aliases: readonly string[] }) {
+	const groups = useNodeGroups();
+	const names = useMemo(() => new Map((groups.data ?? []).map((group) => [group.id, group.name])), [groups.data]);
+	if (aliases.length === 0) return <>–</>;
+	return (
+		<span data-slot="trust-aliases" className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+			{aliases.map((alias, index) => (
+				<span key={alias} className="inline-flex items-center gap-1">
+					{index > 0 && <span className="text-muted-foreground">,</span>}
+					<code className="font-mono text-xs">{alias}</code>
+					{names.has(alias) && <span className="text-xs text-muted-foreground">({names.get(alias)})</span>}
+				</span>
+			))}
+		</span>
+	);
 }
 
 /** A trust entry's maximum signature lifetime, e.g. "5m"; null is rendered as "unlimited". */
@@ -130,6 +150,10 @@ export function NodeTrustPanel({ nodeId }: { nodeId: string }) {
 							{ label: t`Updated`, value: <DateTime value={data.updatedAt} seconds /> },
 							...(data.summary !== null
 								? [
+										{
+											label: t`Aliases`,
+											value: <TrustAliases aliases={data.summary.aliases} />,
+										},
 										{
 											label: t`Clock skew`,
 											value: formatDuration(Math.abs(data.summary.clockSkewMs), locale),

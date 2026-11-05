@@ -16,6 +16,7 @@ import {
 } from "../cluster/nodes.ts";
 import { sshNodeDetails } from "../cluster/ssh/nodes.ts";
 import { trustView } from "../cluster/trust.ts";
+import { trustWarningsForRows } from "../cluster/trust-warnings.ts";
 import type { Db } from "../storage/db.ts";
 import type { AppOptions } from "./app.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
@@ -30,6 +31,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	const canManage = (a: NodeAccess, user: AppEnv["Variables"]["user"]) => user.kind === "admin" && a === "admin";
 
 	const clockWarnMs = options.clockWarnMs ?? 60_000;
+	const crhsFingerprint = options.authorizationKey?.fingerprint;
 
 	/** Fills in what only the live server knows: the connection state and the clock warning. */
 	const live = (n: PublicNode): PublicNode => ({
@@ -38,7 +40,9 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		clockWarning: clockWarning(n.facts, clockWarnMs),
 	});
 
-	app.get("/nodes", async (c) => c.json({ nodes: (await listNodesForUser(db, c.get("user"))).map(live) }));
+	app.get("/nodes", async (c) =>
+		c.json({ nodes: (await listNodesForUser(db, c.get("user"), { crhsFingerprint })).map(live) }),
+	);
 
 	app.get("/nodes/:id", async (c) => {
 		const id = c.req.param("id");
@@ -46,7 +50,9 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const row = level ? await getNode(db, id) : undefined;
 		if (!level || !row) return jsonError(c, 404, "no such node");
 		const nodeGroups = (await nodeGroupsForNodes(db, [id])).get(id) ?? [];
-		const node = live(toPublicNode(row, level, nodeGroups));
+		const trustWarnings =
+			(await trustWarningsForRows(db, [row], new Map([[id, nodeGroups]]), { crhsFingerprint })).get(id) ?? [];
+		const node = live(toPublicNode(row, level, nodeGroups, trustWarnings));
 		if (!canManage(level, c.get("user"))) return c.json({ node });
 		return c.json({ node, ssh: (await sshNodeDetails(db, row)) ?? null });
 	});

@@ -203,8 +203,8 @@ crha 特权模式（不联网）
 
 ```toml
 # crha privileged run --config /etc/crha/privileged.toml（下面的路径只是示例布局）
-node_id          = "01JB…"
-aliases          = ["0J2K…"]                # 信任别名：payload 的 nodes 含本机 node_id 或任一别名时视为发给本机（通常填本机所属节点组的 UUID）
+node_id          = "0192f000-0000-7000-8000-000000000001"      # 规范的小写 UUID
+aliases          = ["0192f000-0000-7000-8000-0000000000a1"]      # 信任别名：payload 的 nodes 含本机 node_id 或任一别名时视为发给本机（通常填本机所属节点组的 UUID）
 unprivileged_uid = 998
 socket           = "/run/crha/privileged.sock"
 state_dir        = "/var/lib/crha/privileged"    # 已用列表（used）
@@ -405,7 +405,7 @@ crhs 的选择不是最终放行：crha 特权模式在执行前仍按当前配�
    - 有 `local` 信任项可以授权（**仅单任务**）：向节点发送 `local.request`，在授权等待中提示"也可以在节点上执行 `crha approve`"；所有者先在 WebUI 签了名，就撤回本地请求（`local.withdraw`）；任务组跳过这条路径；
    - 没有任何信任项可以授权：直接拒绝，并告诉调用方"这个节点上没有人能授权这条命令"。
 
-**按节点组签发的可复用授权**：crhs 用缓存的 `TrustSummary.aliases` 判断节点是否接受这种授权。缺少对应别名时，crhs 不向这个节点下发，直接在服务端以错误结束这个节点的任务（`code = alias_missing`，消息写明缺少哪个节点组 UUID 以及如何配置）。只在以下情况全部成立时适用：`forward` 节点、特权任务、crhs 选中的是按节点组 UUID 签发的可复用授权、该节点缓存的别名里没有这个节点组。普通任务、`native` / `ignore` 节点、一次性授权（本来就按节点 UUID 展开）都不受影响。判断依据是缓存的 `TrustSummary`；节点重新上报后再执行即可。
+**按节点组签发的可复用授权**：crhs 用缓存的 `TrustSummary.aliases` 判断节点是否接受这种授权。缺少对应别名时，crhs 不向这个节点下发，直接在服务端以 `failed` 结束这个节点的任务（`error_code = alias_missing`，消息写明缺少哪个节点组 UUID 以及如何配置）。只在以下情况全部成立时适用：`forward` 节点、特权任务、crhs 选中的是按节点组 UUID 签发的可复用授权、该节点缓存的别名里没有这个节点组。普通任务、`native` / `ignore` 节点、一次性授权（本来就按节点 UUID 展开）都不受影响。判断依据是缓存的 `TrustSummary`；节点重新上报后再执行即可。
 
 授权等待与规则审批分开：策略已经通过但尚未拿到签名时，任务处于 `awaiting_authorization`，不是 `awaiting_approval`。
 

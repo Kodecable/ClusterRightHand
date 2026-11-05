@@ -140,9 +140,9 @@ describe("privileged forward dispatch", () => {
 		return { node, crha, key };
 	};
 
-	const summaryOf = (nodeId: string, trust: TrustEntry[], groups: string[] = []): TrustSummary => ({
+	const summaryOf = (nodeId: string, trust: TrustEntry[], aliases: string[] = []): TrustSummary => ({
 		nodeId,
-		groups,
+		aliases,
 		clockSkewMs: 0,
 		identities: IDENTITIES,
 		trust,
@@ -248,7 +248,7 @@ describe("privileged forward dispatch", () => {
 			await audit.flush();
 			expect(await auditRows("node.trust_changed")).toHaveLength(1);
 
-			// A changed summary (other groups) changes the digest, so it is an actual change.
+			// A changed summary (other aliases) changes the digest, so it is an actual change.
 			const second = summaryOf(node.id, [crhsEntry()], ["prod"]);
 			crha.trust({ kind: "ok", summary: second });
 			await waitTrust(node.id, second);
@@ -343,7 +343,7 @@ describe("privileged forward dispatch", () => {
 				now: Date.now(),
 				clockSkewMs: summary.clockSkewMs,
 				nodeId: node.id,
-				nodeGroups: summary.groups,
+				aliases: summary.aliases,
 				trust: summary.trust.map(authzEntryFromTrust),
 				task: { id: created.id, attempt: 1, spec: EXEC },
 				authorization: {

@@ -280,13 +280,13 @@ Signature            = ["sshsig", [blob: bytes]]
 - 握手是第一对帧，不经过 Noise：
 
 ```text
-PrivHello   = [priv_major: 2, priv_minor: 0, commands: [text], crha_version: text,
+PrivHello   = [priv_major: 3, priv_minor: 0, commands: [text], crha_version: text,
                role: "forward" | "native" | "local"]
-PrivWelcome = [priv_major: 2, priv_minor: 0, commands: [text], crha_version: text]
+PrivWelcome = [priv_major: 3, priv_minor: 0, commands: [text], crha_version: text]
 ```
 
 - 必需的名字：`native` 是 `task.*` 这一组；`forward` 是 `task.*`、`trust.query`、`trust.summary`，其余（`local.*`）可选，缺少时非特权模式不提供对应功能；`local` 是该角色的全部名字。之后新增的名字都是可选的，靠名字协商。
-- `priv_major` 必须相等：任一方发现对端的 `priv_major` 不同就关闭连接。大版本 2 是本批的版本（`task.exit` 增加 `result`、`file.read` 改为按行）；`crha` 及其特权模式总是一起升级，所以旧的特权模式进程不会被新的非特权模式使用。`priv_minor` 只做增量（新增可选名字），不参与拒绝。
+- `priv_major` 必须相等：任一方发现对端的 `priv_major` 不同就关闭连接。大版本 3 是本批的版本（`TrustSummary.groups` 改为 `aliases`，D110）；大版本 2 增加了 `task.exit.result` 并把 `file.read` 改为按行；`crha` 及其特权模式总是一起升级，所以旧的特权模式进程不会被新的非特权模式使用。`priv_minor` 只做增量（新增可选名字），不参与拒绝。
 - `forward` 下非特权模式还要求 `PrivWelcome.crha_version` 与自己完全相同。不同时按特权模式不可达处理：特权任务以 `privileged_unavailable` 失败，非特权模式记一条日志，写明双方的版本。这覆盖了只换 `crha` 二进制、没有重启特权模式的升级。
 - `role` 必须与对端身份一致：`forward` 要求 peer uid 等于 `unprivileged_uid`；`local` 要求 peer uid 在某个 `local` 信任项的 `uids` 中；`native` 只在 stdio 上出现，此时要求 `crha_version` 完全相等。不一致时特权侧关闭连接。
 

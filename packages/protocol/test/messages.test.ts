@@ -76,7 +76,6 @@ const facts: Facts = {
 	packageManagers: ["apt"],
 	privilegeTools: ["sudo"],
 	notesPath: "/etc/notes",
-	groups: ["sudo"],
 	clockOffsetMs: -5,
 	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
 };
@@ -245,7 +244,6 @@ describe("message codecs", () => {
 		expect([...encoded.keys()].sort()).toEqual([
 			"arch",
 			"clock_offset_ms",
-			"groups",
 			"hostname",
 			"init_system",
 			"kernel",
@@ -263,9 +261,9 @@ describe("message codecs", () => {
 				["bash", "/usr/bin/bash"],
 			]),
 		);
-		const minimal: Facts = { hostname: "node-1", groups: ["sudo"] };
+		const minimal: Facts = { hostname: "node-1" };
 		const minimalWire = decodeCbor(encodeCbor(factsCodec.encode(minimal))) as Map<string, unknown>;
-		expect([...minimalWire.keys()].sort()).toEqual(["groups", "hostname"]);
+		expect([...minimalWire.keys()].sort()).toEqual(["hostname"]);
 		expect(factsCodec.decode(minimalWire)).toEqual(minimal);
 	});
 
@@ -279,7 +277,6 @@ describe("message codecs", () => {
 		// bash: null is accepted on decode too (doc/protocol.md Facts).
 		const nullBash = new Map<string, unknown>([
 			["hostname", "node-1"],
-			["groups", []],
 			[
 				"shells",
 				new Map<string, unknown>([
@@ -290,7 +287,6 @@ describe("message codecs", () => {
 		]);
 		expect(factsCodec.decode(nullBash)).toEqual({
 			hostname: "node-1",
-			groups: [],
 			shells: { sh: "/bin/sh", bash: null },
 		});
 	});
@@ -298,7 +294,6 @@ describe("message codecs", () => {
 	it("ignores unknown Facts keys and rejects missing or mistyped ones", () => {
 		const accepted = new Map<string, unknown>([
 			["hostname", "node-1"],
-			["groups", ["sudo"]],
 			["future_fact", "ignored"],
 			[
 				"shells",
@@ -308,26 +303,20 @@ describe("message codecs", () => {
 				]),
 			],
 		]);
-		expect(factsCodec.decode(accepted)).toEqual({ hostname: "node-1", groups: ["sudo"], shells: { sh: "/bin/sh" } });
+		expect(factsCodec.decode(accepted)).toEqual({ hostname: "node-1", shells: { sh: "/bin/sh" } });
 		for (const bad of [
-			new Map<string, unknown>([["hostname", "node-1"]]),
 			new Map<string, unknown>([["groups", []]]),
+			new Map<string, unknown>([["hostname", 1]]),
 			new Map<string, unknown>([
-				["hostname", 1],
-				["groups", []],
+				["hostname", "node-1"],
+				["os_id", 1],
 			]),
 			new Map<string, unknown>([
 				["hostname", "node-1"],
-				["groups", "sudo"],
-			]),
-			new Map<string, unknown>([
-				["hostname", "node-1"],
-				["groups", []],
 				["clock_offset_ms", "0"],
 			]),
 			new Map<string, unknown>([
 				["hostname", "node-1"],
-				["groups", []],
 				["shells", new Map<string, unknown>([["bash", "/bin/bash"]])],
 			]),
 			[],
@@ -339,13 +328,11 @@ describe("message codecs", () => {
 	it("rejects a non-text Facts key, also inside shells", () => {
 		const factsWithIntegerKey = new Map<unknown, unknown>([
 			["hostname", "node-1"],
-			["groups", ["sudo"]],
 			[1, "x"],
 		]);
 		expect(() => factsCodec.decode(factsWithIntegerKey)).toThrow(SchemaError);
 		const shellsWithIntegerKey = new Map<unknown, unknown>([
 			["hostname", "node-1"],
-			["groups", ["sudo"]],
 			[
 				"shells",
 				new Map<unknown, unknown>([
@@ -370,8 +357,8 @@ describe("message codecs", () => {
 		expect(() => taskExitCodec.decode(["t-1", ["code", 0], false, false, 0, 0, ""])).toThrow(SchemaError);
 	});
 
-	it("uses protocol 2.0 and keeps the M3.5 names required", () => {
-		expect(PROTOCOL_MAJOR).toBe(2);
+	it("uses protocol 3.0 and keeps the M3.5 names required", () => {
+		expect(PROTOCOL_MAJOR).toBe(3);
 		expect(PROTOCOL_MINOR).toBe(0);
 		expect(REQUIRED_NAMES).toEqual([
 			"hello",

@@ -40,7 +40,7 @@ const (
 // Config is the validated privileged-mode configuration.
 type Config struct {
 	NodeID          string
-	Groups          []string
+	Aliases         []string
 	UnprivilegedUID uint32
 	ClockSkew       time.Duration
 	Socket          string
@@ -122,8 +122,11 @@ func checkOwner(fi os.FileInfo, euid uint32) error {
 // rawConfig mirrors privileged.toml. Pointers distinguish "not set" from a zero value where
 // the default is part of the semantics.
 type rawConfig struct {
-	NodeID          string     `toml:"node_id"`
-	Groups          []string   `toml:"groups"`
+	NodeID  string   `toml:"node_id"`
+	Aliases []string `toml:"aliases"`
+	// Groups is not a setting any more (D110). It stays declared so a config written for the old
+	// version fails with the migration hint below instead of a generic "unknown key".
+	Groups          *[]string  `toml:"groups"`
 	UnprivilegedUID *uint64    `toml:"unprivileged_uid"`
 	ClockSkew       string     `toml:"clock_skew"`
 	Socket          string     `toml:"socket"`
@@ -194,14 +197,17 @@ func build(raw *rawConfig) (*Config, error) {
 	if c.NodeID == "" {
 		return nil, errors.New("node_id: required")
 	}
-	if c.NodeID == "*" || strings.HasPrefix(c.NodeID, "group:") {
-		return nil, fmt.Errorf("node_id: %q is not a node id", c.NodeID)
+	if !protocol.IsUUID(c.NodeID) {
+		return nil, fmt.Errorf("node_id: %q is not a canonical lowercase UUID", c.NodeID)
 	}
-	groups, err := buildGroups(raw.Groups)
+	if raw.Groups != nil {
+		return nil, errors.New(`groups is no longer supported; use aliases = ["<node group uuid>", ...] (the WebUI shows node group UUIDs)`)
+	}
+	aliases, err := buildAliases(raw.Aliases)
 	if err != nil {
 		return nil, err
 	}
-	c.Groups = groups
+	c.Aliases = aliases
 	if raw.UnprivilegedUID == nil {
 		return nil, errors.New("unprivileged_uid: required")
 	}
@@ -259,23 +265,20 @@ func orDefault(v, def string) string {
 	return v
 }
 
-// buildGroups validates the node's groups. A group is an authorization address
-// ("group:<name>"), so "*" and a "group:" prefix would create an ambiguous entry.
-func buildGroups(in []string) ([]string, error) {
+// buildAliases validates the node's trust aliases. An alias is an authorization address, so it must
+// be a canonical lowercase UUID and may appear only once (doc/privilege.md 信任配置).
+func buildAliases(in []string) ([]string, error) {
 	out := make([]string, 0, len(in))
 	seen := make(map[string]struct{}, len(in))
-	for _, g := range in {
-		if g == "" {
-			return nil, errors.New("groups: empty name")
+	for _, alias := range in {
+		if !protocol.IsUUID(alias) {
+			return nil, fmt.Errorf("aliases: %q is not a UUID", alias)
 		}
-		if g == "*" || strings.ContainsRune(g, ':') {
-			return nil, fmt.Errorf("groups: %q is not a group name", g)
+		if _, dup := seen[alias]; dup {
+			return nil, fmt.Errorf("aliases: duplicate %q", alias)
 		}
-		if _, dup := seen[g]; dup {
-			continue
-		}
-		seen[g] = struct{}{}
-		out = append(out, g)
+		seen[alias] = struct{}{}
+		out = append(out, alias)
 	}
 	return out, nil
 }
@@ -640,7 +643,7 @@ func (c *Config) Summary() *protocol.TrustSummary {
 	}
 	return &protocol.TrustSummary{
 		NodeID:      c.NodeID,
-		Groups:      append([]string{}, c.Groups...),
+		Aliases:     append([]string{}, c.Aliases...),
 		ClockSkewMS: protocol.Uint(c.ClockSkew.Milliseconds()),
 		Identities: protocol.Identities{
 			Unprivileged: runningIdentity(c.UnprivilegedUID),

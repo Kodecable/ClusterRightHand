@@ -22,7 +22,6 @@ const facts: Facts = {
 	packageManagers: ["apt", "snap"],
 	privilegeTools: ["sudo"],
 	notesPath: "/etc/notes",
-	groups: ["sudo"],
 	clockOffsetMs: -1234,
 	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
 };
@@ -155,8 +154,8 @@ describe("JSON forms", () => {
 
 	const factsJson = factsToJson(facts);
 	const badFacts: [string, unknown][] = [
-		["bad groups", { ...factsJson, groups: "sudo" }],
-		["bad group item", { ...factsJson, groups: ["sudo", 1] }],
+		["bad hostname", { ...factsJson, hostname: 1 }],
+		["bad notes path", { ...factsJson, notesPath: 1 }],
 		["float clock offset", { ...factsJson, clockOffsetMs: 1.5 }],
 		["bad shells", { ...factsJson, shells: "bash" }],
 		["bad shells.sh", { ...factsJson, shells: { sh: 1 } }],
@@ -169,7 +168,7 @@ describe("JSON forms", () => {
 	});
 
 	it("omits absent facts and keeps a missing shells.bash absent", () => {
-		const minimal: Facts = { hostname: "node-1", groups: ["sudo"] };
+		const minimal: Facts = { hostname: "node-1" };
 		expect(factsToJson(minimal)).toEqual(minimal);
 		const noBash: Facts = { ...facts, shells: { sh: "/bin/sh" } };
 		expect(factsToJson(noBash)).toEqual({ ...factsJson, shells: { sh: "/bin/sh" } });

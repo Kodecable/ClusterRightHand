@@ -9,7 +9,9 @@ import {
 	USER_AUTHORIZATION_TTL_MS,
 } from "../src/privilege/planner.ts";
 
-const NODE = "01JB0000000000000000000001";
+const NODE = "0192f000-0000-7000-8000-000000000001";
+const OTHER_NODE = "0192f000-0000-7000-8000-000000000002";
+const ALIAS = "0192f000-0000-7000-8000-0000000000a1";
 const TASK = "0192f000-0000-7000-8000-000000000001";
 const NOW = 1_793_016_000_000;
 
@@ -60,7 +62,7 @@ const LOCAL = sshEntry("local-admins", "local", {
 });
 
 function summary(trust: TrustEntry[]): TrustSummary {
-	return { nodeId: NODE, groups: ["web"], clockSkewMs: 60_000, identities: IDENTITIES, trust };
+	return { nodeId: NODE, aliases: [ALIAS], clockSkewMs: 60_000, identities: IDENTITIES, trust };
 }
 
 const OWNER = { sshKeyFingerprints: ["SHA256:alice"], webauthnCredentialIds: [] };
@@ -69,7 +71,7 @@ function plan(overrides: Partial<Parameters<typeof planAuthorization>[0]> = {}) 
 	return planAuthorization({
 		summary: summary([CRHS, ALICE, LOCAL]),
 		nodeId: NODE,
-		nodeGroups: ["web"],
+		aliases: [ALIAS],
 		task: { id: TASK, attempt: 1, spec: RESTART, privileged: true },
 		taskGroup: false,
 		owner: OWNER,
@@ -304,7 +306,7 @@ describe("authorization planner", () => {
 
 describe("task group authorization", () => {
 	it("covers every node and task with one payload and a shared attempt", () => {
-		const nodes = [NODE, "01JB0000000000000000000002"];
+		const nodes = [NODE, OTHER_NODE];
 		const tasks = [TASK, "0192f000-0000-7000-8000-000000000002"];
 		const built = buildTaskGroupAuthorization({
 			nodeIds: nodes,
@@ -332,7 +334,7 @@ describe("task group authorization", () => {
 		// binding would only be refused by the node later, so the builder fails closed.
 		expect(() =>
 			buildTaskGroupAuthorization({
-				nodeIds: [NODE, "01JB0000000000000000000002"],
+				nodeIds: [NODE, OTHER_NODE],
 				taskIds: [TASK],
 				attempt: 1,
 				spec: RESTART,

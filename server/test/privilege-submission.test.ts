@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
 import { Cluster, EMPTY_INPUT_REF } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
+import { createNodeGroup, setNodeGroupsForNode } from "../src/cluster/node-groups.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
 import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
 import { trustDigest } from "../src/cluster/trust.ts";
@@ -166,9 +167,9 @@ describe("user authorizations", () => {
 		return { node, crha, key };
 	};
 
-	const summaryOf = (nodeId: string, trust: TrustEntry[], groups: string[] = []): TrustSummary => ({
+	const summaryOf = (nodeId: string, trust: TrustEntry[], aliases: string[] = []): TrustSummary => ({
 		nodeId,
-		groups,
+		aliases,
 		clockSkewMs: 60_000,
 		identities: IDENTITIES,
 		trust,
@@ -366,7 +367,7 @@ describe("user authorizations", () => {
 			now: Date.now(),
 			clockSkewMs: summary.clockSkewMs,
 			nodeId: node.id,
-			nodeGroups: summary.groups,
+			aliases: summary.aliases,
 			trust: summary.trust.map(authzEntryFromTrust),
 			task: { id: task.id, attempt: 1, spec: EXEC },
 			authorization: {
@@ -496,7 +497,7 @@ describe("user authorizations", () => {
 			now: Date.now(),
 			clockSkewMs: summary.clockSkewMs,
 			nodeId: node.id,
-			nodeGroups: summary.groups,
+			aliases: summary.aliases,
 			trust: summary.trust.map(authzEntryFromTrust),
 			task: { id: task.id, attempt: 1, spec: EXEC },
 			authorization: {
@@ -544,6 +545,122 @@ describe("user authorizations", () => {
 		expect(crha.starts[0]?.authorizations).toHaveLength(1);
 		const running = await waitState(task.id, "running");
 		expect(running.authorization).toMatchObject({ dispatchedPath: "user", payloadId: id, attempt: 1 });
+	});
+
+	it("fails a task whose reusable authorization addresses a node group alias the node does not trust", async () => {
+		const { node, crha } = await connect("reuse-alias-missing", (id) => summaryOf(id, [ownerEntry()]));
+		const group = await createNodeGroup(db, await defaultOrgId(db), "web");
+		await setNodeGroupsForNode(db, node.id, [group.id]);
+		await seedReusable({ nodes: [group.id] });
+		const task = await createPrivileged(node.id);
+		const failed = await waitState(task.id, "failed");
+		expect(failed.errorCode).toBe("alias_missing");
+		expect(failed.errorMessage).toContain(`node group web (${group.id})`);
+		expect(failed.errorMessage).toContain(`add "${group.id}" to aliases`);
+		expect(crha.starts).toHaveLength(0);
+	});
+
+	it("reuses a group-addressed authorization when the node trusts the alias", async () => {
+		const group = await createNodeGroup(db, await defaultOrgId(db), "web");
+		const { node, crha } = await connect("reuse-alias-present", (id) => summaryOf(id, [ownerEntry()], [group.id]));
+		await setNodeGroupsForNode(db, node.id, [group.id]);
+		const id = await seedReusable({ nodes: [group.id] });
+		const task = await createPrivileged(node.id);
+		await waitFor("task.start from the stored authorization", () => crha.starts.length === 1);
+		const running = await waitState(task.id, "running");
+		expect(running.authorization).toMatchObject({ dispatchedPath: "user", payloadId: id, attempt: 1 });
+	});
+
+	it("keeps local approval as a path when a group-addressed authorization lacks its alias", async () => {
+		const { node, crha } = await connect("reuse-alias-local", (id) => summaryOf(id, [ownerEntry(), localTrustEntry()]));
+		const group = await createNodeGroup(db, await defaultOrgId(db), "web");
+		await setNodeGroupsForNode(db, node.id, [group.id]);
+		await seedReusable({ nodes: [group.id] });
+		const task = await createPrivileged(node.id);
+		await waitState(task.id, "awaiting_authorization");
+		await waitFor("local.request", () => crha.localRequests.length === 1);
+		expect(crha.starts).toHaveLength(0);
+	});
+
+	it("fails a task when a submitted group authorization lacks the node's alias", async () => {
+		const { node, crha } = await connect("submit-alias-missing", (id) => summaryOf(id, [ownerEntry()]));
+		const group = await createNodeGroup(db, await defaultOrgId(db), "web");
+		await setNodeGroupsForNode(db, node.id, [group.id]);
+		const task = await createPrivileged(node.id);
+		await waitState(task.id, "awaiting_authorization");
+		const submitted = buildAuthorization({
+			nodes: [group.id],
+			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			issuedAtMs: Date.now(),
+			deadlineMs: Date.now() + HOUR,
+			taskIds: null,
+		});
+		const res = await submit(signedAuthorization(submitted.bytes));
+		expect(res.status).toBe(200);
+		expect((await res.json()) as Record<string, unknown>).toEqual({
+			authorization: { id: submitted.id, dispatched: [] },
+		});
+		const failed = await waitState(task.id, "failed");
+		expect(failed.errorCode).toBe("alias_missing");
+		expect(failed.errorMessage).toContain(`node group web (${group.id})`);
+		expect(failed.errorMessage).toContain(`add "${group.id}" to aliases`);
+		expect(crha.starts).toHaveLength(0);
+	});
+
+	it("keeps a submitted group authorization waiting when local approval can still authorize it", async () => {
+		const { node, crha } = await connect("submit-alias-local", (id) =>
+			summaryOf(id, [ownerEntry(), localTrustEntry()]),
+		);
+		const group = await createNodeGroup(db, await defaultOrgId(db), "web");
+		await setNodeGroupsForNode(db, node.id, [group.id]);
+		const task = await createPrivileged(node.id);
+		await waitState(task.id, "awaiting_authorization");
+		await waitFor("local.request", () => crha.localRequests.length === 1);
+		const submitted = buildAuthorization({
+			nodes: [group.id],
+			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			issuedAtMs: Date.now(),
+			deadlineMs: Date.now() + HOUR,
+			taskIds: null,
+		});
+		const res = await submit(signedAuthorization(submitted.bytes));
+		expect(res.status).toBe(200);
+		expect((await res.json()) as Record<string, unknown>).toMatchObject({ authorization: { dispatched: [] } });
+		expect((await taskView(task.id)).state).toBe("awaiting_authorization");
+		expect(crha.localRequests).toHaveLength(1);
+		expect(crha.starts).toHaveLength(0);
+	});
+
+	it("applies a missing alias per node of a task group", async () => {
+		const groups = new TaskGroups(db, cluster, { audit });
+		const group = await createNodeGroup(db, await defaultOrgId(db), "web");
+		const a = await connect("alias-group-a", (id) => summaryOf(id, [ownerEntry()], [group.id]));
+		await setNodeGroupsForNode(db, a.node.id, [group.id]);
+		const b = await connect("alias-group-b", (id) => summaryOf(id, [ownerEntry()]));
+		await setNodeGroupsForNode(db, b.node.id, [group.id]);
+		await seedReusable({ nodes: [group.id] });
+		const groupId = await groups.create({
+			targets: [a.node.name, b.node.name],
+			nodeIds: [a.node.id, b.node.id],
+			spec: EXEC,
+			privileged: true,
+			actor: actor(),
+			parallel: 2,
+			outputMode: "status",
+		});
+		const done = await waitFor("one node running and one failed", async () => {
+			const view = (await groups.get(groupId)) as TaskGroupView;
+			const running = view.tasks.some((task) => task.state === "running");
+			const failed = view.tasks.find((task) => task.state === "failed");
+			return view.tasks.length === 2 && running && failed ? view : undefined;
+		});
+		expect(done.tasks.find((task) => task.nodeId === a.node.id)?.state).toBe("running");
+		expect(done.tasks.find((task) => task.nodeId === b.node.id)).toMatchObject({
+			state: "failed",
+			errorCode: "alias_missing",
+		});
+		expect(a.crha.starts).toHaveLength(1);
+		expect(b.crha.starts).toHaveLength(0);
 	});
 
 	it("does not retry a reusable authorization the node already rejected", async () => {
@@ -949,8 +1066,11 @@ describe("user authorizations", () => {
 	});
 
 	it("lists the organization's authorizations to administrators only", async () => {
-		const mine = await seedReusable({ nodes: ["some-node"] });
-		const theirs = await seedReusable({ nodes: ["another-node"], issuer: other.userId });
+		const mine = await seedReusable({ nodes: ["0192f000-0000-7000-8000-000000000001"] });
+		const theirs = await seedReusable({
+			nodes: ["0192f000-0000-7000-8000-000000000002"],
+			issuer: other.userId,
+		});
 
 		// The list is an administrative view now; owners keep the signing and waiting endpoints.
 		const forbidden = await call(app, "/api/authorizations", { cookie: owner.cookie });
@@ -974,7 +1094,7 @@ describe("user authorizations", () => {
 			target: "systemctl restart nginx",
 			specSha256: Buffer.from(specSha256(EXEC)).toString("hex"),
 		});
-		expect(stored?.nodes).toEqual(["another-node"]);
+		expect(stored?.nodes).toEqual(["0192f000-0000-7000-8000-000000000002"]);
 		expect(stored?.taskIds).toBeNull();
 	});
 
@@ -991,7 +1111,6 @@ describe("user authorizations", () => {
 			packageManagers: ["apt"],
 			privilegeTools: ["sudo"],
 			notesPath: "",
-			groups: [],
 			clockOffsetMs,
 			shells: { sh: "/bin/sh", bash: null },
 		});

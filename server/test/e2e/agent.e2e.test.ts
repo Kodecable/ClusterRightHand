@@ -103,33 +103,23 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 			}));
 
 		it(
-			"reload: new groups reach crhs; an invalid file keeps the running config",
+			"reload: a changed notes path reaches crhs; an invalid file keeps the running config",
 			() =>
 				withLog(async () => {
 					const original = await readFile(env.configPath, "utf8");
-					// The harness config already sets one group; the test writes its own.
-					const base = original.replace(/^groups = .*\n/m, "");
-					const groupsOf = async () =>
-						(
-							await env.crhs.db
-								.selectFrom("node_group_members as m")
-								.innerJoin("node_groups as g", "g.id", "m.node_group_id")
-								.select("g.name")
-								.where("m.node_id", "=", env.nodeId)
-								.execute()
-						)
-							.map((g) => g.name)
-							.sort();
+					const reloadedNotes = join(env.dir, "reloaded-NOTES.md");
+					const notesPath = async () =>
+						(await env.crhs.api(`/api/nodes/${env.nodeId}`)).json.node.facts?.notesPath as string | undefined;
 					try {
-						await writeFile(env.configPath, `${base}groups = ["web", "prod"]\n`);
+						await writeFile(env.configPath, `${original}notes = "${reloadedNotes}"\n`);
 						env.reloadCrha();
-						await waitFor("groups reported", async () => (await groupsOf()).join(",") === "prod,web", 10_000);
+						await waitFor("notes path reported", async () => (await notesPath()) === reloadedNotes, 10_000);
 
-						await writeFile(env.configPath, `${base}groups = ["web"]\nbogus = 1\n`);
+						await writeFile(env.configPath, `${original}bogus = 1\n`);
 						// The new file is invalid: the running configuration stays in place and the error is logged.
 						env.reloadCrha();
 						await waitFor("reload error logged", async () => env.crhaLog.includes("reload failed"), 10_000);
-						expect(await groupsOf()).toEqual(["prod", "web"]);
+						expect(await notesPath()).toBe(reloadedNotes);
 						expect((await run({ kind: "exec", argv: ["true"] })).state).toBe("exited");
 					} finally {
 						await writeFile(env.configPath, original);

@@ -435,7 +435,6 @@ function shellsFromJson(value: unknown): Shells {
 export function factsToJson(value: Facts): JsonFacts {
 	const out: JsonFacts = {
 		hostname: text(value.hostname, "hostname"),
-		groups: texts(value.groups, "groups"),
 	};
 	if (value.osId !== undefined) out.osId = text(value.osId, "osId");
 	if (value.osVersionId !== undefined) out.osVersionId = text(value.osVersionId, "osVersionId");
@@ -460,7 +459,6 @@ export function factsFromJson(value: unknown): JsonFacts {
 	if (!isRecord(value)) bad("facts", "not an object");
 	const out: JsonFacts = {};
 	if (Object.hasOwn(value, "hostname")) out.hostname = text(value.hostname, "hostname");
-	if (Object.hasOwn(value, "groups")) out.groups = texts(value.groups, "groups");
 	if (Object.hasOwn(value, "osId")) out.osId = text(value.osId, "osId");
 	if (Object.hasOwn(value, "osVersionId")) out.osVersionId = text(value.osVersionId, "osVersionId");
 	if (Object.hasOwn(value, "osPrettyName")) out.osPrettyName = text(value.osPrettyName, "osPrettyName");

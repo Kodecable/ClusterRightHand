@@ -42,7 +42,6 @@ func TestParseFull(t *testing.T) {
 	c, err := Parse([]byte(minimalConfig(t) + `
 tls_verify = "none"
 notes = "/n.md"
-groups = ["web", "prod", "web"]
 clock_warn = "90s"
 [privileged]
 mode = "native"
@@ -56,7 +55,7 @@ max_total = "2MiB"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.TLSVerify != "none" || c.Notes != "/n.md" || !reflect.DeepEqual(c.Groups, []string{"web", "prod"}) ||
+	if c.TLSVerify != "none" || c.Notes != "/n.md" ||
 		c.Privilege != (Privileged{"native", "/run/s.sock", "doas"}) ||
 		c.Output != (Output{"/o", time.Hour, 2 << 20}) ||
 		c.ClockWarn != 90*time.Second {
@@ -75,7 +74,7 @@ func TestParseErrors(t *testing.T) {
 		{"bad tls", min + "tls_verify = \"x\"\n", "tls_verify"},
 		{"relative state_dir", "server = \"https://a.b\"\nstate_dir = \"x\"\n", "absolute"},
 		{"relative notes", min + "notes = \"n.md\"\n", "notes"},
-		{"bad group", min + "groups = [\"Web\"]\n", "invalid group"},
+		{"groups removed", min + "groups = [\"web\"]\n", "groups"},
 		{"bad clock_warn", min + "clock_warn = \"x\"\n", "clock_warn"},
 		{"negative clock_warn", min + "clock_warn = \"-1s\"\n", "clock_warn"},
 		{"bad mode", min + "[privileged]\nmode = \"x\"\n", "privileged.mode"},

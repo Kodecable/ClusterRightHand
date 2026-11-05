@@ -217,7 +217,7 @@ describe("Passkey authorization submission", () => {
 		await waitFor("link ready", () => cluster.isConnected(node.id));
 		const summary: TrustSummary = {
 			nodeId: node.id,
-			groups: [],
+			aliases: [],
 			clockSkewMs: 60_000,
 			identities: IDENTITIES,
 			trust,

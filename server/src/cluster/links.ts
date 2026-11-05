@@ -219,8 +219,6 @@ function registerRestricted(core: ClusterCore, conn: NodeConnection): void {
 }
 
 async function onFacts(core: ClusterCore, nodeId: string, facts: Facts): Promise<void> {
-	// crha Facts still carry `groups` on the wire in this stage, but membership is crhs-managed (D110); they are
-	// kept in the stored facts for display, not applied to node groups.
 	await updateNodeFacts(core.db, nodeId, { facts: factsToJson(facts) });
 	// A clock far from crhs only makes authorization deadlines unreliable; warn, do nothing else
 	// (doc/privilege.md#时钟). The offset is an optional fact: an absent one says nothing.

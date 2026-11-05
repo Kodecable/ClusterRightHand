@@ -182,7 +182,7 @@ describeBackends("api ssh nodes", (backend) => {
 			};
 			expect(body.node.nodeGroups).toEqual([]);
 
-			// A crha node's node groups are crhs-managed too (Facts.groups is ignored).
+			// A crha node's node groups are crhs-managed; Facts does not report them.
 			expect((await put("root", crhaId, { nodeGroups: [dbGroup.id] })).status).toBe(200);
 			const crha = (await (await req("root", `/api/nodes/${crhaId}`)).json()) as {
 				node: { nodeGroups: { id: string; name: string }[] };

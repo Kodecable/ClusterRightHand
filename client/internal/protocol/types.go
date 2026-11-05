@@ -97,13 +97,12 @@ type TaskExit struct {
 	Result     *TaskResult
 }
 
-// Facts is the facts event body. It is the protocol's one map-structured body: hostname and groups
-// are required, every other key is optional and its Go field is nil when the node did not report it
+// Facts is the facts event body. It is the protocol's one map-structured body: hostname is required,
+// every other key is optional and its Go field is nil when the node did not report it
 // (doc/protocol.md Facts). A peer may send text keys this implementation does not know; they are
 // ignored, while a non-text key fails the whole Facts.
 type Facts struct {
 	Hostname string
-	Groups   []string
 
 	OSID            *string
 	OSVersionID     *string
@@ -132,7 +131,6 @@ type Shells struct {
 func (f Facts) MarshalCBOR() ([]byte, error) {
 	m := profileMap{
 		{key: "hostname", value: f.Hostname},
-		{key: "groups", value: f.Groups},
 	}
 	text := func(key string, value *string) {
 		if value != nil {
@@ -174,7 +172,7 @@ func (f *Facts) UnmarshalCBOR(data []byte) error {
 		return errors.New("facts: not a map")
 	}
 	var out Facts
-	var hostname, groups bool
+	var hostname bool
 	for _, entry := range m {
 		key, ok := entry.key.(string)
 		if !ok {
@@ -184,9 +182,6 @@ func (f *Facts) UnmarshalCBOR(data []byte) error {
 		case "hostname":
 			out.Hostname, err = factText(entry.value, key)
 			hostname = true
-		case "groups":
-			out.Groups, err = factTexts(entry.value, key)
-			groups = true
 		case "os_id":
 			out.OSID, err = factTextPtr(entry.value, key)
 		case "os_version_id":
@@ -219,9 +214,6 @@ func (f *Facts) UnmarshalCBOR(data []byte) error {
 	}
 	if !hostname {
 		return errors.New("facts: missing hostname")
-	}
-	if !groups {
-		return errors.New("facts: missing groups")
 	}
 	*f = out
 	return nil

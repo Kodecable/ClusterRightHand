@@ -87,6 +87,25 @@ describe("TaskResult", () => {
 		expect(screen.queryByText(/node_access_revoked/)).not.toBeInTheDocument();
 	});
 
+	test("a missing alias error tells the operator which alias to add", async () => {
+		await renderWithRouter(
+			<TaskResult
+				task={baseTask({
+					state: "failed",
+					exitCode: null,
+					errorCode: "alias_missing",
+					errorMessage: "this node does not trust node group web as an alias",
+				})}
+			/>,
+		);
+		expect(
+			screen.getByText(
+				"The node has no alias for this task's node group. Add the node group UUID to aliases in privileged.toml on the node, then run the task again.",
+			),
+		).toBeInTheDocument();
+		expect(screen.queryByText(/alias_missing/)).not.toBeInTheDocument();
+	});
+
 	test("output head and tail with a gap show the omitted marker", async () => {
 		await renderWithRouter(
 			<TaskResult

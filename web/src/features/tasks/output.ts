@@ -97,6 +97,7 @@ export function taskOutcome(task: TaskView): TaskOutcome {
  * before its translation lands. Server messages are not translated.
  */
 const TASK_ERROR_LABELS: Record<string, MessageDescriptor> = {
+	alias_missing: msg`The node has no alias for this task's node group. Add the node group UUID to aliases in privileged.toml on the node, then run the task again.`,
 	node_access_revoked: msg`Access to the node was revoked before the task was dispatched.`,
 };
 

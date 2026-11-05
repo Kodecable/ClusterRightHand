@@ -2,6 +2,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
 import { useMemo, useState } from "react";
+import { CopyButton } from "@/components/copy-button";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
@@ -31,8 +32,10 @@ import { PendingNodeDialog } from "./pending-node-dialog";
 import { RenameNodeButton } from "./rename-node-button";
 import { RunPanel } from "./run-panel";
 import { SshNodeSection } from "./ssh-node-section";
+import { tomlString } from "./trust-editor";
 import { TrustEditor } from "./trust-editor-panel";
 import { useTrustSources } from "./trust-sources";
+import { TrustWarningIndicator, TrustWarningList } from "./trust-warnings";
 
 /**
  * Every node the user can see (doc/webui.md "Nodes"): status, connection,
@@ -79,6 +82,7 @@ export function NodesPage() {
 					<span className="flex items-center gap-1.5">
 						<NodeStatusBadge status={row.original.status} connected={row.original.connected} />
 						<ClockWarning warning={row.original.clockWarning} />
+						<TrustWarningIndicator warnings={row.original.trustWarnings} />
 					</span>
 				),
 			},
@@ -233,6 +237,7 @@ export function NodeDetailPage() {
 
 	const canRun = canRunOn(details);
 	const facts = details.facts ? Object.entries(details.facts) : [];
+	const aliasesLine = `aliases = [${details.nodeGroups.map((group) => tomlString(group.id)).join(", ")}]`;
 
 	return (
 		<Page width="detail" data-testid="node-detail">
@@ -269,6 +274,8 @@ export function NodeDetailPage() {
 					) : undefined
 				}
 			/>
+
+			<TrustWarningList warnings={details.trustWarnings} />
 
 			<KeyValueList
 				items={[
@@ -314,6 +321,22 @@ export function NodeDetailPage() {
 			{details.transport === "client" && (
 				<>
 					<NodeTrustPanel nodeId={details.id} />
+					{admin && details.privilegedMode === "forward" && details.nodeGroups.length > 0 && (
+						<section className="grid gap-2" aria-labelledby="trust-aliases-heading" data-testid="trust-aliases">
+							<h2 id="trust-aliases-heading" className="text-sm font-semibold">
+								<Trans>Aliases for privileged.toml</Trans>
+							</h2>
+							<div className="flex flex-wrap items-center gap-2">
+								<code className="break-all rounded-md border bg-muted/40 px-2 py-1 font-mono text-xs">
+									{aliasesLine}
+								</code>
+								<CopyButton text={aliasesLine} label={t`Copy aliases`} showLabel variant="outline" />
+							</div>
+							<p className="max-w-3xl text-sm text-muted-foreground">
+								<Trans>This is a top-level key of privileged.toml. Paste it before the first `[[trust]]` table.</Trans>
+							</p>
+						</section>
+					)}
 					<section className="grid gap-2" aria-labelledby="trust-editor-heading">
 						<h2 id="trust-editor-heading" className="text-sm font-semibold">
 							<Trans>Trust configuration</Trans>

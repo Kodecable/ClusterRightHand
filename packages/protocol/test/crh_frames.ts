@@ -44,13 +44,12 @@ const FACTS: Facts = {
 	packageManagers: ["apt", "snap"],
 	privilegeTools: ["sudo"],
 	notesPath: "/etc/crh/notes",
-	groups: ["sudo", "docker"],
 	clockOffsetMs: -1234,
 	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
 };
 
 const FACTS_TEXT =
-	'facts={hostname="node-1", groups=["sudo","docker"], os_id="ubuntu", os_version_id="24.04", ' +
+	'facts={hostname="node-1", os_id="ubuntu", os_version_id="24.04", ' +
 	'os_pretty_name="Ubuntu 24.04 LTS", kernel="6.8.0-31-generic", arch="x86_64", init_system="systemd", ' +
 	'package_managers=["apt","snap"], privilege_tools=["sudo"], notes_path="/etc/crh/notes", ' +
 	'clock_offset_ms=-1234, shells={sh="/bin/sh", bash="/usr/bin/bash"}}';
@@ -62,7 +61,6 @@ const FACTS_TEXT =
 function factsMap(overrides: readonly (readonly [string, unknown])[] = []): Map<string, unknown> {
 	return new Map<string, unknown>([
 		["hostname", "node-1"],
-		["groups", ["sudo", "docker"]],
 		["os_id", "ubuntu"],
 		["os_version_id", "24.04"],
 		["os_pretty_name", "Ubuntu 24.04 LTS"],
@@ -96,7 +94,7 @@ const SHA_222 = new Uint8Array(32).fill(0x22);
 
 const TRUST_SUMMARY: TrustSummary = {
 	nodeId: "node-1",
-	groups: ["web"],
+	aliases: ["0192f000-0000-7000-8000-0000000000a1"],
 	clockSkewMs: 60000,
 	identities: {
 		unprivileged: { uid: 998, gid: 998, user: "crha" },
@@ -668,13 +666,8 @@ export function buildFixture(): CrhFramesFixture {
 	);
 	addPositive(
 		"event.facts.minimal",
-		"event facts map with only the required keys hostname and groups, every optional absent",
-		factsEvent(
-			new Map<string, unknown>([
-				["groups", ["sudo"]],
-				["hostname", "node-1"],
-			]),
-		),
+		"event facts map with only the required key hostname, every optional absent",
+		factsEvent(new Map<string, unknown>([["hostname", "node-1"]])),
 	);
 	addPositive(
 		"event.facts.shells_unknown_key",
@@ -737,7 +730,7 @@ export function buildFixture(): CrhFramesFixture {
 	});
 	addFrame(
 		"event.trust.summary",
-		'event trust.summary body=["ok", [node_id="node-1", groups=["web"], clock_skew_ms=60000, identities=[[uid=998, gid=998, user="crha"], [uid=0, gid=0, user="root"]], trust=[[name="crhs", source="local", role="crhs", key=["sshsig", [public_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEjcrhssigningkeyexample crhs-signing", fingerprint="SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"]], kinds=["execute","cosign"], require_exact=true, require_task=true, require_uv=false, max_ttl_ms=300000, allow=[["exec", "prefix", "systemctl restart "]], deny=[], env_allow=[]], [name="alice-passkey", source="local", role="user", key=["webauthn", [credential_id=32 bytes of 0x11, cose_key=h\'a5010203262001215820\', rp_id="crh.example.com", origins=["https://crh.example.com"]]], kinds=["execute"], require_exact=false, require_task=true, require_uv=true, max_ttl_ms=null, allow=[], deny=[], env_allow=["DEBIAN_FRONTEND"]], [name="local-admins", source="local", role="local", key=["local", [uids=[0, 1000]]], kinds=["execute"], require_exact=false, require_task=false, require_uv=false, max_ttl_ms=null, allow=[], deny=[], env_allow=[]]]]]',
+		'event trust.summary body=["ok", [node_id="node-1", aliases=["0192f000-0000-7000-8000-0000000000a1"], clock_skew_ms=60000, identities=[[uid=998, gid=998, user="crha"], [uid=0, gid=0, user="root"]], trust=[[name="crhs", source="local", role="crhs", key=["sshsig", [public_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEjcrhssigningkeyexample crhs-signing", fingerprint="SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"]], kinds=["execute","cosign"], require_exact=true, require_task=true, require_uv=false, max_ttl_ms=300000, allow=[["exec", "prefix", "systemctl restart "]], deny=[], env_allow=[]], [name="alice-passkey", source="local", role="user", key=["webauthn", [credential_id=32 bytes of 0x11, cose_key=h\'a5010203262001215820\', rp_id="crh.example.com", origins=["https://crh.example.com"]]], kinds=["execute"], require_exact=false, require_task=true, require_uv=true, max_ttl_ms=null, allow=[], deny=[], env_allow=["DEBIAN_FRONTEND"]], [name="local-admins", source="local", role="local", key=["local", [uids=[0, 1000]]], kinds=["execute"], require_exact=false, require_task=false, require_uv=false, max_ttl_ms=null, allow=[], deny=[], env_allow=[]]]]]',
 		{ kind: "event", name: "trust.summary", body: { kind: "ok", summary: TRUST_SUMMARY } },
 	);
 	addFrame(
@@ -921,21 +914,16 @@ export function buildFixture(): CrhFramesFixture {
 	}
 	// Facts: the map rules are enforced by the schema, the profile and the shells map.
 	addNegative(
-		"negative.facts_missing_groups",
-		"event facts map without the required groups key",
-		factsEvent(new Map<string, unknown>([["hostname", "node-1"]])),
-	);
-	addNegative(
 		"negative.facts_missing_hostname",
 		"event facts map without the required hostname key",
-		factsEvent(new Map<string, unknown>([["groups", ["sudo"]]])),
+		factsEvent(new Map<string, unknown>([["arch", "x86_64"]])),
 	);
 	addNegative(
 		"negative.facts_wrong_type",
 		"event facts map whose hostname is the uint 1 instead of text",
 		factsEvent(
 			new Map<string, unknown>([
-				["groups", ["sudo"]],
+				["arch", "x86_64"],
 				["hostname", 1],
 			]),
 		),
@@ -956,7 +944,6 @@ export function buildFixture(): CrhFramesFixture {
 		factsEvent(
 			new Map<unknown, unknown>([
 				["hostname", "node-1"],
-				["groups", ["sudo"]],
 				[1, "x"],
 			]),
 		),
@@ -982,12 +969,12 @@ export function buildFixture(): CrhFramesFixture {
 		const canonical = Buffer.from(
 			factsEvent(
 				new Map<string, unknown>([
-					["groups", ["sudo"]],
+					["arch", "x86_64"],
 					["hostname", "node-1"],
 				]),
 			),
 		);
-		const needle = Buffer.from("a26667726f75707381647375646f68686f73746e616d65666e6f64652d31", "hex");
+		const needle = Buffer.from("a26461726368667838365f363468686f73746e616d65666e6f64652d31", "hex");
 		if (canonical.indexOf(needle) < 0) throw new Error("duplicate-key facts fixture anchor not found");
 		addNegative(
 			"negative.facts_duplicate_key",
@@ -995,7 +982,7 @@ export function buildFixture(): CrhFramesFixture {
 			Buffer.concat([
 				canonical.subarray(0, canonical.indexOf(needle)),
 				Buffer.from(
-					"a36667726f75707381647375646f68686f73746e616d65666e6f64652d3168686f73746e616d65666e6f64652d31",
+					"a36461726368667838365f363468686f73746e616d65666e6f64652d3168686f73746e616d65666e6f64652d31",
 					"hex",
 				),
 				canonical.subarray(canonical.indexOf(needle) + needle.length),
@@ -1003,23 +990,23 @@ export function buildFixture(): CrhFramesFixture {
 		);
 	}
 	{
-		// hostname sorts before groups here, so the map is not in canonical key order.
+		// arch sorts before hostname here, so the map is not in canonical key order.
 		const canonical = Buffer.from(
 			factsEvent(
 				new Map<string, unknown>([
-					["groups", ["sudo"]],
+					["arch", "x86_64"],
 					["hostname", "node-1"],
 				]),
 			),
 		);
-		const needle = Buffer.from("a26667726f75707381647375646f68686f73746e616d65666e6f64652d31", "hex");
+		const needle = Buffer.from("a26461726368667838365f363468686f73746e616d65666e6f64652d31", "hex");
 		if (canonical.indexOf(needle) < 0) throw new Error("key-order facts fixture anchor not found");
 		addNegative(
 			"negative.facts_key_order",
-			"event facts map has hostname before groups (non-canonical key order)",
+			"event facts map has hostname before arch (non-canonical key order)",
 			Buffer.concat([
 				canonical.subarray(0, canonical.indexOf(needle)),
-				Buffer.from("a268686f73746e616d65666e6f64652d316667726f75707381647375646f", "hex"),
+				Buffer.from("a268686f73746e616d65666e6f64652d316461726368667838365f3634", "hex"),
 				canonical.subarray(canonical.indexOf(needle) + needle.length),
 			]),
 		);

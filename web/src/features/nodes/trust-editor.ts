@@ -1,6 +1,8 @@
 import { toBase64url, tomlString } from "@/features/credentials/trust";
 import type { RuleMethod } from "@/lib/api/types";
 
+export { tomlString };
+
 /**
  * The node side of trust (doc/privilege.md#信任配置): the WebUI cannot change a
  * node's privileged.toml, so it exports the `[[trust]]` block the operator

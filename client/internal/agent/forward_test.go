@@ -179,8 +179,8 @@ func (e *privEnv) waitSocket() {
 
 // baseConfig is the shared top of the test daemon's privileged.toml.
 func (e *privEnv) baseConfig() string {
-	return fmt.Sprintf(`node_id          = "node-1"
-groups           = ["web"]
+	return fmt.Sprintf(`node_id          = "0192f000-0000-7000-8000-000000000001"
+aliases          = ["0192f000-0000-7000-8000-0000000000a1"]
 unprivileged_uid = %d
 clock_skew       = "60s"
 socket           = %q
@@ -235,7 +235,7 @@ func exactPayload(t *testing.T, signer ssh.Signer, taskID string, spec *protocol
 	deadline := protocol.Int(time.Now().Add(5 * time.Minute).UnixMilli())
 	return &protocol.AuthorizationPayload{
 		V:     protocol.AuthPayloadVersion,
-		Nodes: []string{"node-1"},
+		Nodes: []string{"0192f000-0000-7000-8000-000000000001"},
 		Command: &protocol.AuthCommand{Method: protocol.Method(method), Match: protocol.AuthMatch{
 			Kind:  protocol.AuthMatchExact,
 			Exact: &protocol.AuthExact{Target: target, SpecSHA256: protocol.Hash(hash)},
@@ -555,7 +555,7 @@ func TestForwardTrustReports(t *testing.T) {
 	report = waitSummaryWhere(t, w, "the ok report", func(r protocol.TrustReport) bool {
 		return r.Kind == protocol.TrustReportOK && r.Summary != nil
 	})
-	if report.Summary.NodeID != "node-1" || len(report.Summary.Trust) != 1 {
+	if report.Summary.NodeID != "0192f000-0000-7000-8000-000000000001" || len(report.Summary.Trust) != 1 {
 		t.Fatalf("summary = %+v", report.Summary)
 	}
 	if report.Summary.Trust[0].Role != protocol.TrustRoleCRHS {

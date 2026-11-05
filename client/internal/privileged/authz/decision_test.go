@@ -383,22 +383,22 @@ func TestMethodCovers(t *testing.T) {
 }
 
 func TestAddressedTo(t *testing.T) {
-	node := "01JB0000000000000000000001"
-	groups := []string{"web", "prod"}
+	node := "0192f000-0000-7000-8000-000000000001"
+	aliases := []string{"0192f000-0000-7000-8000-0000000000a1", "0192f000-0000-7000-8000-0000000000a2"}
 	tests := []struct {
 		nodes []string
 		want  bool
 	}{
 		{[]string{node}, true},
 		{[]string{"*"}, true},
-		{[]string{"group:web"}, true},
-		{[]string{"01JB0000000000000000000002"}, false},
-		{[]string{"group:db"}, false},
-		{[]string{"web"}, false},
+		{[]string{aliases[0]}, true},
+		{[]string{"0192f000-0000-7000-8000-000000000002"}, false},
+		{[]string{"0192f000-0000-7000-8000-0000000000a3"}, false},
+		{[]string{"group:web"}, false},
 		{nil, false},
 	}
 	for _, test := range tests {
-		if got := addressedTo(test.nodes, node, groups); got != test.want {
+		if got := addressedTo(test.nodes, node, aliases); got != test.want {
 			t.Errorf("addressedTo(%v) = %v, want %v", test.nodes, got, test.want)
 		}
 	}

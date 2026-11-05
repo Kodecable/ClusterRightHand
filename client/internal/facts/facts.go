@@ -21,8 +21,8 @@ var (
 	privilegeTools  = []string{"sudo", "doas", "run0"}
 )
 
-// Collect gathers facts about the local system. NotesPath, Groups and
-// ClockOffsetMs are left for the caller.
+// Collect gathers facts about the local system. NotesPath and ClockOffsetMs are left for the
+// caller.
 func Collect() protocol.Facts {
 	return collect("/", exec.LookPath)
 }
@@ -67,7 +67,7 @@ func optionalTexts(values []string) []string {
 }
 
 // Clean returns f with every text field passed through protocol.CleanText. Facts come from
-// outside the process (/etc/os-release, the host name, configured groups), and the protocol
+// outside the process (/etc/os-release, the host name), and the protocol
 // encoder rejects invalid UTF-8 instead of letting a frame break the connection.
 func Clean(f protocol.Facts) protocol.Facts {
 	f.Hostname = protocol.CleanText(f.Hostname)
@@ -80,7 +80,6 @@ func Clean(f protocol.Facts) protocol.Facts {
 	f.PackageManagers = cleanTexts(f.PackageManagers)
 	f.PrivilegeTools = cleanTexts(f.PrivilegeTools)
 	f.NotesPath = cleanTextPtr(f.NotesPath)
-	f.Groups = cleanTexts(f.Groups)
 	if f.Shells != nil {
 		shells := *f.Shells
 		shells.Sh = protocol.CleanText(shells.Sh)

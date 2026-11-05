@@ -300,7 +300,6 @@ func fixtureFacts() Facts {
 		PackageManagers: []string{"apt", "snap"},
 		PrivilegeTools:  []string{"sudo"},
 		NotesPath:       ptr("/etc/crh/notes"),
-		Groups:          []string{"sudo", "docker"},
 		ClockOffsetMS:   ptr(Int(-1234)),
 		Shells:          &Shells{Sh: "/bin/sh", Bash: ptr("/usr/bin/bash")},
 	}
@@ -722,14 +721,13 @@ func expectedFixtureValue(id string) (any, bool) {
 	case "event.facts.minimal":
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventFacts,
-			Body: Facts{Hostname: "node-1", Groups: []string{"sudo"}},
+			Body: Facts{Hostname: "node-1"},
 		}, true
 	case "event.facts.shells_without_bash":
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventFacts,
 			Body: Facts{
 				Hostname:        "node-1",
-				Groups:          []string{"sudo", "docker"},
 				OSID:            ptr("ubuntu"),
 				OSVersionID:     ptr("24.04"),
 				OSPrettyName:    ptr("Ubuntu 24.04 LTS"),
@@ -806,7 +804,7 @@ func expectedFixtureValue(id string) (any, bool) {
 			Kind: FrameEvent, Name: EventTrustSummary,
 			Body: TrustReport{Kind: TrustReportOK, Summary: &TrustSummary{
 				NodeID:      "node-1",
-				Groups:      []string{"web"},
+				Aliases:     []string{"0192f000-0000-7000-8000-0000000000a1"},
 				ClockSkewMS: 60000,
 				Identities: Identities{
 					Unprivileged: Identity{UID: 998, GID: 998, User: "crha"},

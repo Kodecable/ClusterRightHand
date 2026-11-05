@@ -54,7 +54,7 @@ describe("frames", () => {
 		}));
 		const summary: TrustSummary = {
 			nodeId: "node-1",
-			groups: ["web"],
+			aliases: ["web"],
 			clockSkewMs: 0,
 			identities: {
 				unprivileged: { uid: 998, gid: 998, user: "crha" },

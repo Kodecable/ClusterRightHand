@@ -23,6 +23,7 @@ const NODE: PublicNode = {
 	keyFingerprint: null,
 	connected: null,
 	clockWarning: null,
+	trustWarnings: [],
 };
 
 function mockFetch(): { calls: { body: unknown; method: string; url: string }[] } {

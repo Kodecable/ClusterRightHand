@@ -86,6 +86,7 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 - `awaiting_authorization` 没有自动超时；由用户拒绝、取消任务或规则变化结束。
 - `denied` 的 `error_code` 为 `policy_denied`；审批被拒绝（包括 token 吊销）时为 `rejected`，`error_code` 为 `approval_rejected`。
 - `awaiting_authorization` 最终失败时为 `rejected`，error code 取 `authorization_required`、`authorization_invalid`、`authorization_expired` 或 `authorization_rejected`（用户/本地最终拒绝）。
+- 按节点组 UUID 签发的可复用授权在缺少别名的 `forward` 节点上不下发：该节点的任务直接以 `failed`/`error_code = alias_missing` 结束（D110，见 [privilege.md](privilege.md#授权路径)）。
 - 等待审批的任务把输入（stdin、写入内容）暂存在 `tasks.pending_input`，下发时取出并清空；批准时节点不在线，任务以 `failed(node_offline)` 结束，不再排队等节点。
 - 特权任务没有等待就直接用所有者已有的可复用授权下发时，输入取自创建时的内存，不经过 `pending_input`；`task.start` 被拒绝、任务回到 `awaiting_authorization` 时再写入 `pending_input`，供下一次尝试使用。
 - 任务组需要审批时整组等待（`task_groups.state = awaiting_approval`），还没有创建任务，规格和输入暂存在任务组上；被规则拒绝的节点立即得到一个 `denied` 任务。批准后剩余节点照常按并发数执行。

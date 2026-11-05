@@ -185,8 +185,8 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 	it("runs a batch as one approval for the group", async () => {
 		const t = await token("ask");
 		const client = await connect(t.token);
-		// The group entry is what makes this a task group: one node name would be a single task.
-		const g = await call(client, "exec", { targets: ["group:e2e"], cmd: "echo batch", output: "text", wait: 0 });
+		// The node group name selects several nodes; one node name would be a single task.
+		const g = await call(client, "exec", { targets: ["e2e"], cmd: "echo batch", output: "text", wait: 0 });
 		expect(g).toMatchObject({ state: "awaiting_approval", nodes: [] });
 		await env.crhs.api(`/api/task-groups/${g.task_group_id}/approval`, { body: { decision: "approve" } });
 		const done = await call(client, "task_wait", { task_group_id: g.task_group_id });

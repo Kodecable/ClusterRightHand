@@ -377,11 +377,7 @@ export class Env {
 		env.dir = await mkdtemp(join(dir, "env-"));
 		env.crhs = await InProcessCrhs.create(opts, appOptions, agent ? join(env.dir, "agent") : undefined, fauxOptions);
 		await env.crhs.loginAdmin();
-		// The node is in one group, so a tool can address it as a task group ("group:e2e").
-		await writeFile(
-			join(env.dir, "crha.toml"),
-			`server = "${env.crhs.url}"\nstate_dir = "${join(env.dir, "crha")}"\ngroups = ["e2e"]\n`,
-		);
+		await writeFile(join(env.dir, "crha.toml"), `server = "${env.crhs.url}"\nstate_dir = "${join(env.dir, "crha")}"\n`);
 		env.configPath = join(env.dir, "crha.toml");
 		return env;
 	}
@@ -403,6 +399,20 @@ export class Env {
 		const approved = await this.crhs.api(`/api/nodes/${node.id}/approve`, { body: {} });
 		if (approved.status !== 200) throw new Error(`approve: ${approved.status}`);
 		await this.waitConnected();
+		// crhs manages node groups (D109); one named "e2e" lets an MCP tool address this node as a
+		// task group by its bare name (D110 removed crha-side groups).
+		const created = await this.crhs.api("/api/node-groups", { body: { name: "e2e" } });
+		if (created.status !== 201) {
+			throw new Error(`create node group: ${created.status} ${JSON.stringify(created.json)}`);
+		}
+		const groupId = created.json.group.id as string;
+		const members = await this.crhs.api(`/api/node-groups/${groupId}/members`, {
+			method: "PUT",
+			body: { nodeIds: [this.nodeId] },
+		});
+		if (members.status !== 200) {
+			throw new Error(`add node to the e2e group: ${members.status} ${JSON.stringify(members.json)}`);
+		}
 	}
 
 	waitConnected(timeoutMs = 30_000): Promise<true> {

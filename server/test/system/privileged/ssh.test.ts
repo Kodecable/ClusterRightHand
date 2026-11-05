@@ -43,7 +43,7 @@ describePodman("privileged system: SSH nodes", () => {
 		const hostKey = probe.json.fingerprint as string;
 		expect(hostKey).toMatch(/^SHA256:/);
 		const created = await crhs.api("/api/ssh-nodes", {
-			body: { name: "priv-sshd", groups: ["web"], ...target, hostKey },
+			body: { name: "priv-sshd", ...target, hostKey },
 		});
 		expect(created.status).toBe(201);
 		sshNodeId = created.json.node.id as string;

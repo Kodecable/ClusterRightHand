@@ -107,8 +107,8 @@ type jsonCase struct {
 	NowMS       int64  `json:"now_ms"`
 	ClockSkewMS int64  `json:"clock_skew_ms"`
 	Node        struct {
-		ID     string   `json:"id"`
-		Groups []string `json:"groups"`
+		ID      string   `json:"id"`
+		Aliases []string `json:"aliases"`
 	} `json:"node"`
 	Trust []jsonEntry `json:"trust"`
 	Task  struct {
@@ -322,11 +322,11 @@ func buildInput(t *testing.T, testCase *jsonCase) Input {
 		byName[trust[i].Name] = &trust[i]
 	}
 	input := Input{
-		Now:        time.UnixMilli(testCase.NowMS),
-		ClockSkew:  time.Duration(testCase.ClockSkewMS) * time.Millisecond,
-		NodeID:     testCase.Node.ID,
-		NodeGroups: testCase.Node.Groups,
-		Trust:      trust,
+		Now:       time.UnixMilli(testCase.NowMS),
+		ClockSkew: time.Duration(testCase.ClockSkewMS) * time.Millisecond,
+		NodeID:    testCase.Node.ID,
+		Aliases:   testCase.Node.Aliases,
+		Trust:     trust,
 		Task: Task{
 			ID:      testCase.Task.TaskID,
 			Attempt: testCase.Task.Attempt,

@@ -59,9 +59,9 @@ func newGrantCmd() *cobra.Command {
 		Long: `Sign an authorization with an SSH key and print it as base64.
 
 With --payload the payload of a WebUI authorization request is signed. Without it the flags
-build a new payload: --nodes names the nodes the authorization is for, --method with --exact or
---prefix restricts what it allows, --deadline (required) bounds how long it can be used, and
---task makes it one-shot. Every authorization carries a deadline.
+build a new payload: --nodes gives the node or node group UUIDs the authorization is for, --method
+with --exact or --prefix restricts what it allows, --deadline (required) bounds how long it can be
+used, and --task makes it one-shot. Every authorization carries a deadline.
 
 The payload is shown and confirmed before signing. crha runs
 "ssh-keygen -Y sign -n crh-auth-v1" with the payload on stdin and never reads the private key
@@ -74,7 +74,7 @@ the WebUI accepts (POST /api/authorizations).`,
 	}
 	f := cmd.Flags()
 	f.StringVar(&opts.payload, "payload", "", "base64 payload from the WebUI")
-	f.StringSliceVar(&opts.nodes, "nodes", nil, `node ids, "group:<name>", or "*"`)
+	f.StringSliceVar(&opts.nodes, "nodes", nil, `node or node group UUIDs, or "*"`)
 	f.StringVar(&opts.method, "method", "", "exec, file.read or file.write")
 	f.BoolVar(&opts.anyCommand, "any-command", false, "do not restrict the method and target")
 	f.StringVar(&opts.exact, "exact", "", "allow exactly this target")
@@ -208,14 +208,14 @@ func (o *grantOptions) validate() error {
 
 // checkOneShotNodes enforces the per-position node binding of a one-shot authorization
 // (doc/protocol.md 授权对象): every task id needs exactly one node id, in the same order, and
-// no group or "*" can stand for a node.
+// neither a group nor "*" can stand for a node.
 func checkOneShotNodes(nodes, tasks []string) error {
 	if len(nodes) != len(tasks) {
 		return fmt.Errorf("grant: --task needs one --nodes node id per task, got %d node(s) for %d task(s)", len(nodes), len(tasks))
 	}
 	for _, node := range nodes {
-		if node == "*" || strings.HasPrefix(node, "group:") {
-			return fmt.Errorf("grant: --task needs node ids in --nodes, not %q", node)
+		if node == "*" || !protocol.IsUUID(node) {
+			return fmt.Errorf("grant: --task needs node UUIDs in --nodes, not %q", node)
 		}
 	}
 	return nil
@@ -301,7 +301,8 @@ func buildPayload(opts *grantOptions, now time.Time) (*protocol.AuthorizationPay
 	return payload, nil
 }
 
-// grantNodes validates the --nodes the authorization is addressed to.
+// grantNodes validates the --nodes the authorization is addressed to: node or node group UUIDs, or
+// exactly "*". Names and the removed "group:<name>" syntax are refused here.
 func grantNodes(in []string) ([]string, error) {
 	nodes := make([]string, 0, len(in))
 	seen := make(map[string]struct{}, len(in))
@@ -309,6 +310,12 @@ func grantNodes(in []string) ([]string, error) {
 		node = strings.TrimSpace(node)
 		if node == "" {
 			return nil, errors.New("grant: --nodes contains an empty node")
+		}
+		if node != "*" && !protocol.IsUUID(node) {
+			if strings.HasPrefix(node, "group:") {
+				return nil, fmt.Errorf(`grant: --nodes no longer accepts %q; use node or node group UUIDs, or "*"`, node)
+			}
+			return nil, fmt.Errorf("grant: --nodes %q is not a node or node group UUID (names are not accepted)", node)
 		}
 		if _, dup := seen[node]; dup {
 			return nil, fmt.Errorf("grant: --nodes repeats %q", node)

@@ -81,7 +81,7 @@ func (s *Server) decide(ts *protocol.TaskStart) (*decidedTask, *protocol.RemoteE
 		Now:           now,
 		ClockSkew:     cfg.ClockSkew,
 		NodeID:        cfg.NodeID,
-		NodeGroups:    cfg.Groups,
+		Aliases:       cfg.Aliases,
 		Trust:         cfg.Entries(),
 		Task:          authz.Task{ID: ts.TaskID, Attempt: uint64(ts.Attempt), Spec: &ts.Spec},
 		Authorization: authorization,

@@ -6,19 +6,24 @@
 package protocol
 
 import (
+	"regexp"
 	"slices"
 
 	"github.com/fxamacker/cbor/v2"
 )
+
+// uuidRe matches the canonical lowercase UUID textual form crhs uses for node ids and node groups.
+var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 const (
 	// ProtocolMajor and ProtocolMinor are the versions advertised in the handshake. An
 	// incompatible change bumps the major version and the Noise prologue, so a peer with another
 	// major fails the handshake itself (doc/protocol.md, 握手载荷). The minor version is
 	// additive: new commands and events are negotiated through the handshake's commands field.
-	// Protocol 2.0 reads files by line range and adds task.exit.result; 1.1 was the M4 command
-	// set and 1.0 the M3.5 one.
-	ProtocolMajor = 2
+	// Protocol 3.0 removes the groups fact and renames TrustSummary.groups to aliases (D110);
+	// 2.0 reads files by line range and adds task.exit.result; 1.1 was the M4 command set and 1.0
+	// the M3.5 one.
+	ProtocolMajor = 3
 	ProtocolMinor = 0
 	// MaxFrameBytes bounds one encoded frame so that it fits a Noise transport message.
 	MaxFrameBytes = 61440
@@ -31,6 +36,12 @@ const (
 	// MaxNameBytes bounds a command or event name (cmd, name) in UTF-8 bytes.
 	MaxNameBytes = 64
 )
+
+// IsUUID reports whether s is a canonical lowercase UUID, the textual form of node ids and node
+// group ids (doc/protocol.md 授权对象).
+func IsUUID(s string) bool {
+	return uuidRe.MatchString(s)
+}
 
 // Command names of the M3.5 command set.
 const (

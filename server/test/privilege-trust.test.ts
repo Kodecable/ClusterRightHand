@@ -70,7 +70,7 @@ const LOCAL: TrustEntry = {
 
 const SUMMARY: TrustSummary = {
 	nodeId: "01JB0000000000000000000001",
-	groups: ["web", "prod"],
+	aliases: ["web", "prod"],
 	clockSkewMs: 42,
 	identities: {
 		unprivileged: { uid: 998, gid: 998, user: "crha" },
@@ -118,7 +118,7 @@ describe("trust report storage", () => {
 		const digest = trustDigest(SUMMARY);
 		expect(digest).toMatch(/^[0-9a-f]{64}$/);
 		expect(trustDigest(trustSummaryFromJson(trustSummaryToJson(SUMMARY)))).toBe(digest);
-		expect(trustDigest({ ...SUMMARY, groups: ["web"] })).not.toBe(digest);
+		expect(trustDigest({ ...SUMMARY, aliases: ["web"] })).not.toBe(digest);
 		expect(trustDigest({ ...SUMMARY, clockSkewMs: 43 })).not.toBe(digest);
 	});
 

@@ -387,7 +387,6 @@ describe("node facts", () => {
 			packageManagers: ["apt"],
 			privilegeTools: ["sudo"],
 			notesPath: "",
-			groups: [],
 			clockOffsetMs: 0,
 			shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
 		});
@@ -401,12 +400,11 @@ describe("node facts", () => {
 	it("leaves facts the node did not report absent", async () => {
 		const { db, info } = await withNode("web-2", {
 			hostname: "web-2",
-			groups: ["db"],
 			shells: { sh: "/bin/sh" },
 		});
 		try {
 			// The absent optional keys stay absent: no notes path, no bash, no clock offset.
-			expect(info.facts).toEqual({ hostname: "web-2", groups: ["db"], shells: { sh: "/bin/sh" } });
+			expect(info.facts).toEqual({ hostname: "web-2", shells: { sh: "/bin/sh" } });
 			expect(info.notes).toBeNull();
 		} finally {
 			await db.destroy();
@@ -416,7 +414,6 @@ describe("node facts", () => {
 	it("reports the OS pretty name in list_nodes", async () => {
 		const { db, listed } = await withNode("web-3", {
 			hostname: "web-3",
-			groups: [],
 			osId: "ubuntu",
 			osPrettyName: "Ubuntu 24.04",
 		});
@@ -428,7 +425,7 @@ describe("node facts", () => {
 	});
 
 	it("falls back to the OS id in list_nodes when the pretty name is absent", async () => {
-		const { db, listed } = await withNode("web-4", { hostname: "web-4", groups: [], osId: "debian" });
+		const { db, listed } = await withNode("web-4", { hostname: "web-4", osId: "debian" });
 		try {
 			expect(listed.os).toBe("debian");
 		} finally {

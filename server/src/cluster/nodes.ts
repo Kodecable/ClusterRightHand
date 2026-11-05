@@ -8,6 +8,7 @@ import { keyFingerprint } from "./identity.ts";
 import { assertNameAvailable, nameKey, validateName } from "./names.ts";
 import { accessibleNodeIds, deleteGrantsForNode, type NodeAccess } from "./node-access.ts";
 import { type NodeGroupRef, nodeGroupsForNodes } from "./node-groups.ts";
+import { type TrustWarning, trustWarningsForRows } from "./trust-warnings.ts";
 
 export type NodeRow = Selectable<NodesTable>;
 export { type NodeAccess, nodeAccess } from "./node-access.ts";
@@ -34,6 +35,8 @@ export interface PublicNode {
 	connected: boolean | null;
 	/** A clock warning when the node's clock is too far from crhs's (doc/privilege.md#时钟). */
 	clockWarning: string | null;
+	/** Out-of-sync trust aliases and unknown trust entries of the node (doc/privilege.md#信任缓存, D110). */
+	trustWarnings: TrustWarning[];
 }
 
 /**
@@ -61,7 +64,12 @@ export async function findNodeByPublicKey(db: Db, publicKey: Uint8Array): Promis
 		.executeTakeFirst();
 }
 
-export function toPublicNode(row: NodeRow, access: NodeAccess, nodeGroups: NodeGroupRef[]): PublicNode {
+export function toPublicNode(
+	row: NodeRow,
+	access: NodeAccess,
+	nodeGroups: NodeGroupRef[],
+	trustWarnings: TrustWarning[] = [],
+): PublicNode {
 	let facts: JsonFacts | null = null;
 	if (row.facts !== null) {
 		try {
@@ -87,6 +95,7 @@ export function toPublicNode(row: NodeRow, access: NodeAccess, nodeGroups: NodeG
 		keyFingerprint: row.public_key ? keyFingerprint(Buffer.from(row.public_key, "base64")) : null,
 		connected: row.transport === "ssh" ? null : false,
 		clockWarning: null,
+		trustWarnings,
 	};
 }
 
@@ -95,7 +104,11 @@ export async function visibleNodeIds(db: Db, user: SessionUser): Promise<string[
 	return accessibleNodeIds(db, user);
 }
 
-export async function listNodesForUser(db: Db, user: SessionUser): Promise<PublicNode[]> {
+export async function listNodesForUser(
+	db: Db,
+	user: SessionUser,
+	options: { crhsFingerprint?: string } = {},
+): Promise<PublicNode[]> {
 	const ids = await visibleNodeIds(db, user);
 	if (ids.length === 0) return [];
 	const rows = await db.selectFrom("nodes").selectAll().where("id", "in", ids).orderBy("name").execute();
@@ -103,8 +116,15 @@ export async function listNodesForUser(db: Db, user: SessionUser): Promise<Publi
 		db,
 		rows.map((r) => r.id),
 	);
+	// One context for the whole listing: the node groups and registered credentials are loaded once.
+	const warnings = await trustWarningsForRows(db, rows, nodeGroups, options);
 	return rows.map((row) =>
-		toPublicNode(row, user.kind === "admin" ? "admin" : "granted", nodeGroups.get(row.id) ?? []),
+		toPublicNode(
+			row,
+			user.kind === "admin" ? "admin" : "granted",
+			nodeGroups.get(row.id) ?? [],
+			warnings.get(row.id) ?? [],
+		),
 	);
 }
 
@@ -166,7 +186,6 @@ export async function updateNodeFacts(
 	await db.transaction().execute(async (trx) => {
 		const result = await trx.updateTable("nodes").set(set).where("id", "=", nodeId).executeTakeFirst();
 		if (result.numUpdatedRows === 0n) throw new NotFoundError("no such node");
-		// crha Facts still carry `groups` on the wire in this stage; they are ignored: membership is crhs-managed.
 	});
 }
 

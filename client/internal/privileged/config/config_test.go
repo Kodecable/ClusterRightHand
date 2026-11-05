@@ -21,6 +21,12 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
+// Trust aliases are canonical lowercase UUIDs, the same textual form as node ids.
+const (
+	aliasWeb  = "0192f000-0000-7000-8000-0000000000a1"
+	aliasProd = "0192f000-0000-7000-8000-0000000000a2"
+)
+
 // testSigner returns a fresh SSH key and its authorized_keys line with a comment.
 func testSigner(t *testing.T) (ssh.Signer, string) {
 	t.Helper()
@@ -86,8 +92,8 @@ func fullConfig(t *testing.T) fullTestConfig {
 		LogPath:  filepath.Join(dir, "privileged.jsonl"),
 	}
 	files.TOML = fmt.Sprintf(`
-node_id          = "01JB0000000000000000000001"
-groups           = ["web", "prod"]
+node_id          = "0192f000-0000-7000-8000-000000000001"
+aliases          = ["0192f000-0000-7000-8000-0000000000a1", "0192f000-0000-7000-8000-0000000000a2"]
 unprivileged_uid = 998
 clock_skew       = "90s"
 socket           = %q
@@ -150,7 +156,7 @@ func minimalConfig(t *testing.T) string {
 	_, line := testSigner(t)
 	dir := t.TempDir()
 	return fmt.Sprintf(`
-node_id          = "01JB0000000000000000000001"
+node_id          = "0192f000-0000-7000-8000-000000000001"
 unprivileged_uid = 998
 socket           = %q
 state_dir        = %q
@@ -184,11 +190,11 @@ func TestParseFullConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if cfg.NodeID != "01JB0000000000000000000001" || cfg.UnprivilegedUID != 998 {
+	if cfg.NodeID != "0192f000-0000-7000-8000-000000000001" || cfg.UnprivilegedUID != 998 {
 		t.Fatalf("node fields: %+v", cfg)
 	}
-	if !reflect.DeepEqual(cfg.Groups, []string{"web", "prod"}) {
-		t.Fatalf("groups = %v", cfg.Groups)
+	if !reflect.DeepEqual(cfg.Aliases, []string{aliasWeb, aliasProd}) {
+		t.Fatalf("aliases = %v", cfg.Aliases)
 	}
 	if cfg.ClockSkew.String() != "1m30s" {
 		t.Fatalf("clock skew = %v", cfg.ClockSkew)
@@ -267,8 +273,8 @@ func TestSummary(t *testing.T) {
 	if summary == nil {
 		t.Fatal("nil summary")
 	}
-	if summary.NodeID != cfg.NodeID || !reflect.DeepEqual(summary.Groups, []string{"web", "prod"}) {
-		t.Fatalf("summary node = %q %v", summary.NodeID, summary.Groups)
+	if summary.NodeID != cfg.NodeID || !reflect.DeepEqual(summary.Aliases, []string{aliasWeb, aliasProd}) {
+		t.Fatalf("summary node = %q %v", summary.NodeID, summary.Aliases)
 	}
 	if summary.ClockSkewMS != 90000 {
 		t.Fatalf("clock_skew_ms = %d", summary.ClockSkewMS)
@@ -397,8 +403,17 @@ func TestParseRejects(t *testing.T) {
 		want string
 	}{
 		{"unknown top-level key", "bogus = 1\n" + base, "unknown key: bogus"},
-		{"missing node id", strings.Replace(base, `node_id          = "01JB0000000000000000000001"`, "", 1), "node_id: required"},
-		{"star node id", strings.Replace(base, `"01JB0000000000000000000001"`, `"*"`, 1), "not a node id"},
+		{"missing node id", strings.Replace(base, `node_id          = "0192f000-0000-7000-8000-000000000001"`, "", 1), "node_id: required"},
+		{"star node id", strings.Replace(base, `"0192f000-0000-7000-8000-000000000001"`, `"*"`, 1), "not a canonical lowercase UUID"},
+		{"group syntax node id",
+			strings.Replace(base, `"0192f000-0000-7000-8000-000000000001"`, `"group:web"`, 1),
+			"not a canonical lowercase UUID"},
+		{"uppercase node id",
+			strings.Replace(base, `"0192f000-0000-7000-8000-000000000001"`, `"0192F000-0000-7000-8000-000000000001"`, 1),
+			"not a canonical lowercase UUID"},
+		{"named node id",
+			strings.Replace(base, `"0192f000-0000-7000-8000-000000000001"`, `"node-1"`, 1),
+			"not a canonical lowercase UUID"},
 		{"missing unprivileged uid",
 			strings.Replace(base, "unprivileged_uid = 998", "", 1), "unprivileged_uid: required"},
 		{"bad clock skew",
@@ -407,8 +422,23 @@ func TestParseRejects(t *testing.T) {
 		{"missing state_dir", removeKey(base, "state_dir"), "state_dir: required"},
 		{"missing log", removeKey(base, "log"), "log: required"},
 		{"relative socket", setKey(base, "socket", `"run/x.sock"`), "must be absolute"},
-		{"bad group name",
-			strings.Replace(base, "unprivileged_uid = 998", "unprivileged_uid = 998\ngroups = [\"*\"]", 1), "group name"},
+		{"groups removed",
+			strings.Replace(base, "unprivileged_uid = 998", "unprivileged_uid = 998\ngroups = [\"web\"]", 1),
+			"groups is no longer supported; use aliases"},
+		{"empty groups removed",
+			strings.Replace(base, "unprivileged_uid = 998", "unprivileged_uid = 998\ngroups = []", 1),
+			"groups is no longer supported; use aliases"},
+		{"invalid alias",
+			strings.Replace(base, "unprivileged_uid = 998", "unprivileged_uid = 998\naliases = [\"web\"]", 1),
+			"not a UUID"},
+		{"uppercase alias",
+			strings.Replace(base, "unprivileged_uid = 998",
+				"unprivileged_uid = 998\naliases = [\"0192F000-0000-7000-8000-0000000000A1\"]", 1),
+			"not a UUID"},
+		{"duplicate alias",
+			strings.Replace(base, "unprivileged_uid = 998",
+				fmt.Sprintf("unprivileged_uid = 998\naliases = [%q, %q]", aliasWeb, aliasWeb), 1),
+			"duplicate"},
 		{"unknown trust key", base + "bogus = true\n", "unknown key"},
 		{"missing trust name", strings.Replace(base, `name   = "crhs"`, "", 1), "name: required"},
 		{"unknown role", strings.Replace(base, `role   = "crhs"`, `role   = "admin"`, 1), "role:"},
@@ -491,7 +521,7 @@ func localEntry(t *testing.T, fields string) string {
 	t.Helper()
 	dir := t.TempDir()
 	return fmt.Sprintf(`
-node_id          = "01JB0000000000000000000001"
+node_id          = "0192f000-0000-7000-8000-000000000001"
 unprivileged_uid = 998
 socket           = %q
 state_dir        = %q
@@ -508,7 +538,7 @@ func userEntry(t *testing.T, keyFields, kindFields string) string {
 	t.Helper()
 	dir := t.TempDir()
 	return fmt.Sprintf(`
-node_id          = "01JB0000000000000000000001"
+node_id          = "0192f000-0000-7000-8000-000000000001"
 unprivileged_uid = 998
 socket           = %q
 state_dir        = %q
@@ -571,7 +601,7 @@ func TestCheckOwnerUid(t *testing.T) {
 // that a configuration without trust entries still produces an encodable summary.
 func TestDefaultsAndEmptyTrust(t *testing.T) {
 	dir := t.TempDir()
-	cfg, err := Parse([]byte(fmt.Sprintf(`node_id = "n"
+	cfg, err := Parse([]byte(fmt.Sprintf(`node_id = "0192f000-0000-7000-8000-000000000001"
 unprivileged_uid = 0
 socket = %q
 state_dir = %q
@@ -590,8 +620,8 @@ log = %q
 	if summary.Trust == nil || len(summary.Trust) != 0 {
 		t.Fatalf("trust = %v", summary.Trust)
 	}
-	if summary.Groups == nil {
-		t.Fatal("groups is nil")
+	if summary.Aliases == nil {
+		t.Fatal("aliases is nil")
 	}
 	if _, err := protocol.Marshal(summary); err != nil {
 		t.Fatalf("encode summary: %v", err)

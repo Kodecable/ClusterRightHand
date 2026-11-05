@@ -151,10 +151,11 @@ export interface ContainerOptions {
 	bin: string;
 	/** The server the node enrolls with and connects to. */
 	crhs: InProcessCrhs;
-	/** Non-privileged mode and node groups. */
+	/** Non-privileged mode. */
 	mode?: "forward" | "native" | "ignore" | "reject";
 	native?: "sudo" | "doas" | "run0";
-	groups?: string[];
+	/** Trust aliases of privileged.toml: the node group UUIDs the node accepts authorizations for (D110). */
+	aliases?: string[];
 	/** privileged.toml clock_skew; the fallback test uses 0 to let a 1 ms authorization expire. */
 	clockSkew?: string;
 	/** A deliberately wrong node_id in privileged.toml, to make crha reject a payload built for the node. */
@@ -226,7 +227,7 @@ export class PrivilegedNode {
 	nodeId = "";
 	#mode: ContainerOptions["mode"] = "forward";
 	#clockSkew = "60s";
-	#groups: string[] = ["web"];
+	#aliases: string[] = [];
 
 	private constructor(
 		name: string,
@@ -270,7 +271,7 @@ export class PrivilegedNode {
 
 	async #prepare(opts: ContainerOptions): Promise<void> {
 		this.#clockSkew = opts.clockSkew ?? "60s";
-		this.#groups = opts.groups ?? ["web"];
+		this.#aliases = opts.aliases ?? [];
 		await mkdir(this.sshDir, { recursive: true });
 		await mkdir(this.configDir, { recursive: true });
 		// 0777: the config dir is written from the host (root inside the container) and crha (uid 998)
@@ -398,7 +399,7 @@ export class PrivilegedNode {
 			`node_id = "${nodeId}"`,
 			`unprivileged_uid = ${UNPRIVILEGED_UID}`,
 			`clock_skew = "${this.#clockSkew}"`,
-			`groups = [${this.#groups.map(tomlString).join(", ")}]`,
+			`aliases = [${this.#aliases.map(tomlString).join(", ")}]`,
 			// crha has no built-in paths, so the fixture names the socket, the used state
 			// and the audit log explicitly. They match privctl.sh's PRIV_SOCKET and the paths it resets.
 			`socket = "${PRIV_SOCKET}"`,
@@ -451,7 +452,6 @@ export class PrivilegedNode {
 		const lines = [
 			`server = "${this.crhs.url}"`,
 			'state_dir = "/var/lib/crha"',
-			`groups = [${this.#groups.map(tomlString).join(", ")}]`,
 			"",
 			"[privileged]",
 			`mode = "${mode}"`,

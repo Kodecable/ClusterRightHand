@@ -131,8 +131,8 @@ func runWithDebug(ctx context.Context, configPath string, startDebug func(contex
 }
 
 // reloadOnHangup re-reads the configuration on SIGHUP. An invalid file keeps the running configuration.
-// Groups and notes are reported again; a changed server or TLS setting reconnects. Settings fixed at
-// start (state_dir, output, privileged mode) need a restart.
+// Notes are reported again; a changed server or TLS setting reconnects. Settings fixed at start
+// (state_dir, output, privileged mode) need a restart.
 func reloadOnHangup(ctx context.Context, log *slog.Logger, path string, cfg *atomic.Pointer[config.Config], a *agent.Agent) {
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
@@ -180,7 +180,6 @@ func nodeFacts(cfg *config.Config, env *execenv.Environment) protocol.Facts {
 		notes := cfg.Notes
 		f.NotesPath = &notes
 	}
-	f.Groups = cfg.Groups
 	f.Shells = &protocol.Shells{Sh: env.Shell}
 	if env.Bash != "" {
 		bash := env.Bash

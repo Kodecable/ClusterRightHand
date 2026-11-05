@@ -37,8 +37,8 @@ export interface PlannerInput {
 	/** Why `summary` is null, e.g. a TrustReport `unavailable` message; used in the "none" reason. */
 	summaryUnavailable?: string;
 	nodeId: string;
-	/** The groups the node is configured with locally (authorizations may address `group:<name>`). */
-	nodeGroups: readonly string[];
+	/** The trust aliases the node reported (payload nodes may address one of them). */
+	aliases: readonly string[];
 	task: { id: string; attempt: number; spec: TaskSpec; privileged: boolean };
 	/** Tasks of a task group never use local approval (D89). */
 	taskGroup: boolean;
@@ -114,7 +114,7 @@ function payloadTtl(entry: TrustEntry, fallback: number): number {
 	return Math.min(entry.maxTtlMs ?? fallback, fallback);
 }
 
-function ownerCredentialOf(entry: TrustEntry, owner: OwnerCredentials): PlannedUserEntry["credential"] | null {
+export function ownerCredentialOf(entry: TrustEntry, owner: OwnerCredentials): PlannedUserEntry["credential"] | null {
 	if (entry.key.kind === "sshsig") {
 		return owner.sshKeyFingerprints.includes(entry.key.fingerprint)
 			? { kind: "sshsig", fingerprint: entry.key.fingerprint }
@@ -134,7 +134,7 @@ function canAssertUv(entry: TrustEntry): boolean {
 }
 
 /** Whether a crhs trust entry is crhs's own key (when the fingerprint is known). */
-function isOwnCrhsEntry(entry: TrustEntry, crhsFingerprint: string | undefined): boolean {
+export function isOwnCrhsEntry(entry: TrustEntry, crhsFingerprint: string | undefined): boolean {
 	if (entry.role !== "crhs") return false;
 	if (crhsFingerprint === undefined) return true;
 	return entry.key.kind === "sshsig" && entry.key.fingerprint === crhsFingerprint;
@@ -184,7 +184,7 @@ function entryAccepts(
 		now,
 		clockSkewMs: summary.clockSkewMs,
 		nodeId: input.nodeId,
-		nodeGroups: input.nodeGroups,
+		aliases: input.aliases,
 		trust: entries,
 		task: { id: task.id, attempt: task.attempt, spec: task.spec },
 		authorization: { payload: authorization.bytes, decoded: authorization.payload, signatures },
@@ -346,7 +346,7 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 			now,
 			clockSkewMs: summary.clockSkewMs,
 			nodeId: input.nodeId,
-			nodeGroups: input.nodeGroups,
+			aliases: input.aliases,
 			trust: authzEntries,
 			task: { id: input.task.id, attempt: input.task.attempt, spec: input.task.spec },
 			authorization: null,

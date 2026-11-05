@@ -10,6 +10,7 @@ import {
 	type TaskSpec,
 	taskSpecCodec,
 } from "@crh/protocol";
+import { isUuid } from "../cluster/names.ts";
 
 /** SHA-256(CBOR(TaskSpec)): what an `exact` authorization commits to. */
 export function specSha256(spec: TaskSpec): Uint8Array {
@@ -42,7 +43,7 @@ export type AuthorizationCommand =
 	| { method: Method; prefix: string };
 
 export interface BuildAuthorizationInput {
-	/** Node ids, `group:<name>`, or exactly `["*"]`. */
+	/** Node or node group UUIDs, or exactly `["*"]`. */
 	nodes: readonly string[];
 	/** null means any method and target. */
 	command: AuthorizationCommand | null;
@@ -57,17 +58,26 @@ export interface BuildAuthorizationInput {
 /** Builds a payload and its signed bytes; throws SchemaError for values outside the wire schema. */
 export function buildAuthorization(input: BuildAuthorizationInput): BuiltAuthorization {
 	const taskIds = input.taskIds === undefined || input.taskIds === null ? null : [...input.taskIds];
+	for (const node of input.nodes) {
+		if (node === "*") {
+			if (taskIds !== null) {
+				throw new Error('the nodes of a one-shot authorization must be node ids, not "*"');
+			}
+			continue;
+		}
+		if (!isUuid(node)) {
+			if (taskIds !== null) {
+				throw new Error(`the nodes of a one-shot authorization must be node ids, not "${node}"`);
+			}
+			throw new Error(`authorization nodes must be node or node group UUIDs, not "${node}"`);
+		}
+	}
 	if (taskIds !== null) {
 		// A one-shot authorization binds every task id to one node id, by position
 		// (doc/protocol.md#授权对象). Building a payload that violates the binding would only be
 		// refused by the node, so fail here instead.
 		if (taskIds.length !== input.nodes.length) {
 			throw new Error("a one-shot authorization needs exactly one node per task id");
-		}
-		for (const node of input.nodes) {
-			if (node === "*" || node.startsWith("group:")) {
-				throw new Error(`the nodes of a one-shot authorization must be node ids, not "${node}"`);
-			}
 		}
 	}
 	const command: AuthorizationPayload["command"] =

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { Facts } from "@crh/protocol";
+import type { Facts, TrustSummary } from "@crh/protocol";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { createEnrollmentToken, EnrollmentError, enrollNode, parseEnrollmentToken } from "../src/cluster/enrollment.ts";
@@ -14,6 +14,7 @@ import {
 	nodeAccess,
 	updateNodeFacts,
 } from "../src/cluster/nodes.ts";
+import { recordTrustReport } from "../src/cluster/trust.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { addUserGroupMember, createUserGroup } from "../src/users/user-groups.ts";
@@ -34,7 +35,6 @@ const FACTS: Facts = {
 	packageManagers: ["apt"],
 	privilegeTools: ["sudo"],
 	notesPath: "/etc/crh-notes.md",
-	groups: [],
 	clockOffsetMs: 0,
 	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
 };
@@ -289,6 +289,42 @@ describeBackends("nodes", (backend) => {
 			expect((await listNodesForUser(db, carol)).map((n) => n.id)).not.toContain(a.id);
 		});
 
+		it("computes trust alias warnings for the listed nodes", async () => {
+			const u = session(await createUser(db, { username: "warned", kind: "member" }));
+			const n = await enroll({ user: u, hostname: "warned-node" });
+			const orgId = await defaultOrgId(db);
+			await createNodeAccessGrant(db, {
+				orgId,
+				granteeType: "user",
+				granteeId: u.userId,
+				targetType: "node",
+				targetId: n.id,
+				createdByUserId: admin.userId,
+			});
+			const web = await createNodeGroup(db, orgId, "warn-web");
+			const prod = await createNodeGroup(db, orgId, "warn-prod");
+			await setNodeGroupsForNode(db, n.id, [web.id, prod.id]);
+			await updateNodeFacts(db, n.id, { facts: FACTS, privilegedMode: "forward" });
+			const unknown = "0192f000-0000-7000-8000-0000000000ff";
+			const summary: TrustSummary = {
+				nodeId: n.id,
+				aliases: [web.id, unknown],
+				clockSkewMs: 60_000,
+				identities: {
+					unprivileged: { uid: 998, gid: 998, user: "crha" },
+					privileged: { uid: 0, gid: 0, user: "root" },
+				},
+				trust: [],
+			};
+			await recordTrustReport(db, n.id, { kind: "ok", summary });
+			const [node] = await listNodesForUser(db, u, { crhsFingerprint: "SHA256:crhs" });
+			expect(node?.trustWarnings.map((warning) => warning.kind)).toEqual(["alias_unknown", "alias_missing"]);
+			expect(node?.trustWarnings.find((warning) => warning.kind === "alias_missing")).toMatchObject({
+				uuid: prod.id,
+				nodeGroupName: "warn-prod",
+			});
+		});
+
 		it("reads a facts row stored before shells existed", async () => {
 			const u = session(await createUser(db, { username: "legacy", kind: "member" }));
 			const n = await enroll({ user: u });
@@ -334,14 +370,13 @@ describeBackends("nodes", (backend) => {
 			await setNodeGroupsForNode(db, n.id, [group.id]);
 			const t1 = new Date("2031-01-01T00:00:00Z");
 			await updateNodeFacts(db, n.id, {
-				// A crha Facts blob may still carry groups on the wire; the stored facts keep them for display.
-				facts: { ...FACTS, hostname: "first", groups: ["wire-group"] },
+				facts: { ...FACTS, hostname: "first" },
 				clientVersion: "2",
 				now: t1,
 			});
 			let row = await getNode(db, n.id);
 			expect(row).toMatchObject({ last_seen_at: t1.toISOString(), client_version: "2" });
-			expect(JSON.parse(row?.facts ?? "null")).toEqual({ ...FACTS, hostname: "first", groups: ["wire-group"] });
+			expect(JSON.parse(row?.facts ?? "null")).toEqual({ ...FACTS, hostname: "first" });
 			const memberships = await db
 				.selectFrom("node_group_members")
 				.select("node_group_id")

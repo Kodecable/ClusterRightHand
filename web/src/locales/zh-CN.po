@@ -509,6 +509,14 @@ msgstr "节点连接后会显示为待批准；批准前请把它的密钥指纹
 msgid "Agent"
 msgstr "Agent"
 
+#: src/features/nodes/node-trust.tsx
+msgid "Aliases"
+msgstr "别名"
+
+#: src/features/nodes/pages.tsx
+msgid "Aliases for privileged.toml"
+msgstr "privileged.toml 的 aliases"
+
 #: src/components/node-targets.tsx
 #: src/features/batch/pages.tsx
 msgid "All accessible nodes"
@@ -1078,6 +1086,10 @@ msgstr "已复制到剪贴板"
 msgid "Copy"
 msgstr "复制"
 
+#: src/features/nodes/pages.tsx
+msgid "Copy aliases"
+msgstr "复制别名"
+
 #: src/markdown/CodeBlock.tsx
 msgid "Copy code"
 msgstr "复制代码"
@@ -1248,6 +1260,10 @@ msgstr "crha 客户端"
 #: src/components/authorization-card.tsx
 msgid "crha grant command"
 msgstr "crha grant 命令"
+
+#: src/features/nodes/trust-warnings.tsx
+msgid "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential:"
+msgstr "crhs 不认识这个信任项的密钥；它既不是 crhs 的签名密钥，也不是任何已登记的用户凭据："
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "crhs generates an ed25519 key pair and keeps the private half. Only its public key leaves the server."
@@ -3840,6 +3856,10 @@ msgstr "两次输入的新密码不一致。"
 msgid "The node group contains exactly the nodes selected here."
 msgstr "节点组将正好包含这里选中的节点。"
 
+#: src/features/tasks/output.ts
+msgid "The node has no alias for this task's node group. Add the node group UUID to aliases in privileged.toml on the node, then run the task again."
+msgstr "节点没有此任务所在节点组的别名。请把节点组的 UUID 加入节点上 privileged.toml 的 aliases，然后重新运行任务。"
+
 #: src/features/nodes/node-trust.tsx
 msgid "The node has not reported its trust configuration."
 msgstr "节点尚未上报其信任配置。"
@@ -3847,6 +3867,10 @@ msgstr "节点尚未上报其信任配置。"
 #: src/features/nodes/ssh-wizard.tsx
 msgid "The node is active as soon as it is created; the pinned host keys are enforced on every connection. Test first to check that the key is installed on every hop and the account can run commands."
 msgstr "节点创建后立即生效；每次连接都会强制校验已固定的主机密钥。建议先测试，确认密钥已安装到每一跳，且账号可以执行命令。"
+
+#: src/features/nodes/trust-warnings.tsx
+msgid "The node is in this node group but does not trust it as an alias. Add the group UUID to aliases in privileged.toml on the node:"
+msgstr "节点在这个节点组中，但没有把它作为别名信任。请把这个节点组的 UUID 加入节点上 privileged.toml 的 aliases："
 
 #: src/features/nodes/node-trust.tsx
 msgid "The node trusts nobody."
@@ -3956,9 +3980,21 @@ msgstr "他们将无法再查看此节点，也无法在其上执行任务。"
 msgid "Thinking"
 msgstr "思考"
 
+#: src/features/nodes/trust-warnings.tsx
+msgid "This alias is for a node group the node is not in. Reusable authorizations addressed to that group still work here. Remove the alias from aliases in privileged.toml on the node:"
+msgstr "这个别名指向节点并不属于的节点组。发给该组的可复用授权在这个节点上仍然有效。请从节点上 privileged.toml 的 aliases 中删除这个别名："
+
+#: src/features/nodes/trust-warnings.tsx
+msgid "This alias is neither a node group nor this node. Remove it from aliases in privileged.toml on the node:"
+msgstr "这个别名既不是节点组，也不是本机。请从节点上 privileged.toml 的 aliases 中删除它："
+
 #: src/features/ssh-credentials/pages.tsx
 msgid "This credential is used by a node and cannot be deleted."
 msgstr "此凭据正被节点使用，无法删除。"
+
+#: src/features/nodes/pages.tsx
+msgid "This is a top-level key of privileged.toml. Paste it before the first `[[trust]]` table."
+msgstr "这是 privileged.toml 的顶层键。请将它粘贴在第一个 `[[trust]]` 表之前。"
 
 #: src/features/approvals/pages.tsx
 msgid "This request is no longer waiting for approval; it is"
@@ -4078,6 +4114,10 @@ msgstr "信任条目"
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Trust snippet"
 msgstr "信任片段"
+
+#: src/features/nodes/trust-warnings.tsx
+msgid "Trust warnings"
+msgstr "信任警告"
 
 #: src/features/sessions/session-list.tsx
 msgid "Try a different search."

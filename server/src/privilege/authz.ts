@@ -116,7 +116,7 @@ export interface AuthzInput {
 	now: number;
 	clockSkewMs: number;
 	nodeId: string;
-	nodeGroups: readonly string[];
+	aliases: readonly string[];
 	trust: readonly AuthzEntry[];
 	task: AuthzTask;
 	authorization: AuthzAuthorization | null;
@@ -266,7 +266,7 @@ function checkCandidate(
 ): Checked {
 	const entry = signature.entry as AuthzEntry;
 	// Step 4: the authorization body.
-	if (!addressedTo(payload.nodes, input.nodeId, input.nodeGroups)) {
+	if (!addressedTo(payload.nodes, input.nodeId, input.aliases)) {
 		return no("authorization_invalid", STEP.authorization, "payload does not address this node");
 	}
 	const issuedAtMs = payload.issuedAtMs;
@@ -384,7 +384,7 @@ function oneShotNodeCheck(
 		return `nodes has ${nodes.length} entries but task_ids has ${taskIds.length}`;
 	}
 	for (const node of nodes) {
-		if (node === "*" || node.startsWith("group:")) return `nodes must contain node ids, not "${node}"`;
+		if (node === "*") return `nodes must contain node ids, not "${node}"`;
 	}
 	const index = taskIds.indexOf(taskId);
 	if (index < 0) return "task id is not in task_ids";
@@ -392,13 +392,9 @@ function oneShotNodeCheck(
 	return null;
 }
 
-/** Whether the payload's nodes cover this node: its id, a configured group, or "*". */
-function addressedTo(nodes: readonly string[], nodeId: string, groups: readonly string[]): boolean {
-	return nodes.some((node) => {
-		if (node === "*" || node === nodeId) return true;
-		const group = node.startsWith("group:") ? node.slice("group:".length) : null;
-		return group !== null && groups.includes(group);
-	});
+/** Whether the payload's nodes cover this node: its id, one of its trust aliases, or "*". */
+function addressedTo(nodes: readonly string[], nodeId: string, aliases: readonly string[]): boolean {
+	return nodes.some((node) => node === "*" || node === nodeId || aliases.includes(node));
 }
 
 /** A null command covers every method and target. */
