@@ -69,6 +69,7 @@ secrets           (id, org_id, kind, ciphertext, created_at)          -- 用主�
 task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail_fast,
                    -- targets 存节点 / 节点组 UUID（或 `_all`）；node_ids 是展开后的节点 UUID
                    output_mode[status|text|head],                     -- 批量输出模式；exec 新建默认 status（M3.5 之前的组为 text），文件操作固定 head
+                   node_max_lines nullable, node_max_bytes nullable,  -- 每节点输出预算（D112）；null 为默认 128 行 / 8KB
                    skipped json,                                      -- 因 fail_fast 或中断而未启动的节点
                    rule_chain json nullable, approval json nullable,  -- 一个任务组只审批一次
                    spec json nullable, timeout_ms nullable, pending_input nullable,
@@ -81,6 +82,7 @@ task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail
                    actor_type, actor_id, on_behalf_of_user_id, created_at, finished_at)
 tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json, input_size, input_sha256,
                    privileged, attempt, timeout_ms, output_mode[full|text|status|head],  -- 单任务 full；组内任务随组
+                   max_lines nullable, max_bytes nullable,            -- 本任务的输出预算（D112）；组内任务随组，单任务 null 为 2000 行 / 50KB
                    state[awaiting_approval|awaiting_authorization|denied|dispatched|running|exited|failed|rejected|unknown],
                    exit_code, signal, timed_out, cancelled,
                    error_code, error_message,                         -- 执行器错误码、拒绝原因或 unknown 的原因
@@ -95,6 +97,8 @@ tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json,
                    created_at, dispatched_at, accepted_at, finished_at,
                    stdout_bytes, stderr_bytes,
                    stdout_head, stdout_tail, stderr_head, stderr_tail, -- crhs 只保存截断后的头尾（base64）
+                   output_tail nullable,                              -- 单任务按到达顺序合并的尾部（D112），交给模型的就是它
+                   output_lines nullable,                             -- 合并输出的总行数（crha 在 task.exit 上报；SSH 节点由 crhs 统计）
                    output_file nullable,                              -- 完整输出在节点上的路径（crha 保存）
                    result json nullable,                              -- 文件任务的结构化结果（protocol.md TaskResult）
                    late_result nullable)                              -- 已报告 unknown 之后才到达的真实结果

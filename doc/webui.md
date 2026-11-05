@@ -181,10 +181,10 @@ web/src/
   - 状态详情里的 id 由服务端在第一次等待前推送，见 [agent-runtime.md](agent-runtime.md#exec-工具的语义)。
 - 失败的含义：
   - 工具结果本身是错误（`isError`）；
-  - 返回的调用按返回时的 JSON 判断，不做实时查询；
+  - 返回的调用按工具结果的 `details` 判断（D112：模型看到的内容可能是文本，不再解析它），不做实时查询；
   - 停下的调用按跟进到的 `TaskView` / `TaskGroupView` 字段判断，规则相同；
-  - 单个任务（结果有 `task_id` 和 `state`）：`failed` / `denied` / `rejected` / `unknown` 算失败；`exited` 时非零 `exit_code`、有 `signal`、`timed_out` 或 `cancelled` 也算失败（用户取消按失败处理）；
-  - 任务组（结果有 `task_group_id` 和 `nodes`）：部分成员失败时算失败，标签写“部分失败”；全部失败或组是 `interrupted` / `rejected` 时也失败，标签写 `Failed`；
+  - 单个任务（`details` 有 `task_id` 和 `state`）：`failed` / `denied` / `rejected` / `unknown` 算失败；`exited` 时非零 `exit_code`、有 `signal`、`timed_out` 或 `cancelled` 也算失败（用户取消按失败处理）；
+  - 任务组（`details` 有 `task_group_id` 和 `nodes`）：部分成员失败时算失败，标签写“部分失败”；全部失败或组是 `interrupted` / `rejected` 时也失败，标签写 `Failed`；
   - 失败以外的结果（`read_file` 没有 `exit_code`、`exit 0`、仍在 `running` 的任务、全部成功的组）不影响状态，也不显示 `exit N` 文本。
 
 ### SafeMarkdown

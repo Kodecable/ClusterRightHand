@@ -87,7 +87,7 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 - `denied` 的 `error_code` 为 `policy_denied`；审批被拒绝（包括 token 吊销）时为 `rejected`，`error_code` 为 `approval_rejected`。
 - `awaiting_authorization` 最终失败时为 `rejected`，error code 取 `authorization_required`、`authorization_invalid`、`authorization_expired` 或 `authorization_rejected`（用户/本地最终拒绝）。
 - 按节点组 UUID 签发的可复用授权在缺少别名的 `forward` 节点上不下发：该节点的任务直接以 `failed`/`error_code = alias_missing` 结束（D110，见 [privilege.md](privilege.md#授权路径)）。
-- 等待审批的任务把输入（stdin、写入内容）暂存在 `tasks.pending_input`，下发时取出并清空；批准时节点不在线，任务以 `failed(node_offline)` 结束，不再排队等节点。
+- 等待审批的任务把输入（stdin、写入内容）暂存在 `tasks.pending_input`，下发时取出并清空；批准时节点不在线，按下文"节点不在线"的宽限期等待重连，之后以 `failed(node_offline)` 结束，不再排队等节点。
 - 特权任务没有等待就直接用所有者已有的可复用授权下发时，输入取自创建时的内存，不经过 `pending_input`；`task.start` 被拒绝、任务回到 `awaiting_authorization` 时再写入 `pending_input`，供下一次尝试使用。
 - 任务组需要审批时整组等待（`task_groups.state = awaiting_approval`），还没有创建任务，规格和输入暂存在任务组上；被规则拒绝的节点立即得到一个 `denied` 任务。批准后剩余节点照常按并发数执行。
 - 任务组中的任务彼此独立：部分节点已执行、部分节点在 `awaiting_authorization` 时，已执行的任务不回滚；任务组最终可以是混合结果。若所有未完成任务都在等授权，任务组显示 `awaiting_authorization`，否则保持 `running`。
@@ -108,7 +108,13 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 
 ### 节点不在线
 
-创建任务时节点没有连接，任务直接以 `failed(node_offline)` 结束，不排队等待节点上线：任务从未下发，不属于 `unknown`。
+crhs 要向节点发送 `task.start` 而节点没有连接时（D113），最多等待 `NODE_OFFLINE_GRACE`（30 秒）让它重连；期间重连上（`forward` 节点还要等到新的信任报告）就照常下发，否则任务以 `failed(node_offline)` 结束。任务从未下发，不属于 `unknown`。
+
+- 适用于每一个"现在要下发"的时刻：创建后直接下发、审批通过后、签名到达后、本地批准后、任务组启动下一个节点时、计划任务触发时。所有工具和接口都一样，不再有因为节点离线而一直挂着的任务。
+- 等待签名或审批的任务本身不受影响：它们等的是人，不是节点；只有放行之后要下发时才检查节点是否在线。
+- 宽限期覆盖 crhs 重启后节点重连的那几秒和短暂的网络抖动；更长的离线就是失败，由调用方决定是否重试。
+- 任务组里的离线节点同样按宽限期处理，失败计入 `fail_fast`。
+- SSH 节点没有常驻连接：没有可用的 SSH 路由时立即失败，不等待；连接失败按任务失败处理。
 
 ### 不重复执行与授权重试
 
@@ -122,8 +128,8 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 ## 输出
 
 - 输出按流（stdout/stderr）分开，每个分片带字节偏移 `offset`；单任务和批量 `text` / `head` 模式下实时推送给 crhs，批量 `status` 模式不推送。
-- **crhs 只保存截断后的输出**：单任务保存 stdout/stderr 的头部和尾部；批量 `text` 每节点只保留尾部 8KB/128 行，批量 `head`（文件操作）每节点只保留 stdout 的**头部** 8KB/128 行，两者受同一个全局 50KB/2000 行预算；都不保存完整输出。批量 `status` 模式完全不保存输出，只保存状态和节点文件路径；唯一的例外是 SSH 节点忽略特权时 crhs 自己写的那一行提示，它作为 stderr 头部保存（`tasks.stderr_head`）。`head` 模式同样只为这一行提示保留 stderr，不保留节点自己的 stderr：文件任务的结果在 `task.exit` 的 `result` 里，不占输出预算。
-- **完整输出由 crha 在节点上保存为普通文件**：单任务文本模式下，输出超过 2000 行或 50KB 时落盘；批量 `text` 和 `status` 模式**总是**落盘。crha 非特权模式把完整输出写入 `[output].dir`（未设置时是 `crha.toml` 的 `state_dir` 下的 `output/`，例如 `state_dir = "/var/lib/crha"` 时是 `/var/lib/crha/output/<task_id>.log`；stdout 和 stderr 按到达顺序交错写入，与终端里 `2>&1` 看到的一致；crha 在内存中保留分段索引，用于按流续传），`task.exit` 中带上文件路径和总字节数。文件权限 0600，属主为非特权模式的运行用户（输出可能包含敏感内容）。agent 需要完整输出时，用普通的 `read_file` 读取。
+- **crhs 只保存截断后的输出**：单任务保存 stdout/stderr 的头部和尾部，另外保存一份按到达顺序合并的尾部（2000 行或 50KB，从整行开始），交给模型的就是它（D112）；批量 `text` 每节点只保留尾部 8KB/128 行，批量 `head`（文件操作）每节点只保留 stdout 的**头部** 8KB/128 行，两者受同一个全局 50KB/2000 行预算；都不保存完整输出。批量 `status` 模式完全不保存输出，只保存状态和节点文件路径；唯一的例外是 SSH 节点忽略特权时 crhs 自己写的那一行提示，它作为 stderr 头部保存（`tasks.stderr_head`）。`head` 模式同样只为这一行提示保留 stderr，不保留节点自己的 stderr：文件任务的结果在 `task.exit` 的 `result` 里，不占输出预算。
+- **完整输出由 crha 在节点上保存为普通文件**：单任务文本模式下，输出超过 2000 行或 50KB 时落盘；批量 `text` 和 `status` 模式**总是**落盘。crha 非特权模式把完整输出写入 `[output].dir`（未设置时是 `crha.toml` 的 `state_dir` 下的 `output/`，例如 `state_dir = "/var/lib/crha"` 时是 `/var/lib/crha/output/<task_id>.log`；stdout 和 stderr 按到达顺序交错写入，与终端里 `2>&1` 看到的一致；crha 在内存中保留分段索引，用于按流续传），`task.exit` 中带上文件路径、总字节数和合并输出的总行数（`output_lines`）。文件权限 0600，属主为非特权模式的运行用户（输出可能包含敏感内容）。agent 需要完整输出时，用普通的 `read_file` 读取。
   - 特权任务的输出本来就经由非特权模式转发，所以同样由非特权模式保存，不会因此多暴露什么。
   - 这些文件的清理由 crha 负责，按 `crha.toml` 中 `[output]` 的 `max_age` 和 `max_total` 配置（默认 7 天、1GB）。
 - **断线续传**：任务运行期间，以及结束后到 crhs 确认（`task.output.ack` / `task.exit.ack`）之前，crha 保留未确认的输出：输出较短时在内存中，已经写入文件的直接从文件中补发。所以不会因为缓冲溢出而丢失输出。
@@ -132,6 +138,7 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
   - `status`（exec 批量默认）：只返回状态、退出码和完整输出文件路径；不向 crhs 发送 stdout/stderr，完整输出留在节点文件。
   - `text`（仅 exec）：每个节点保留**尾部** 8KB/128 行；所有节点共享单任务总预算（50KB/2000 行）；按**输出到达顺序**分配，预算耗尽后忽略后续节点，允许整个节点被丢弃；完整输出仍然留在节点文件。
   - `head`（文件操作固定使用，不能选）：每个节点保留 stdout 的**头部** 8KB/128 行，所有节点共享同一个总预算（50KB/2000 行），同样按**输出到达顺序**分配；`file.read` 的每个节点因此可以从**它自己的**下一行继续（`Use offset=<n> to continue.`），节点之间没有共同的偏移或行数限制。预算耗尽时允许整个节点被丢弃，工具结果里会指出这一点。`write_file`、`list_dir` 没有页面，它们和 `read_file` 的行范围一样来自 `task.exit` 的 `result`，不受这个预算影响。
+  - **预算组件**（D112）：单任务的合并尾部、批量 `text` 和批量 `head` 共用一个预算组件。它管两层额度（每节点上限和整组总预算）、两种保留方式（头部或尾部），并记下保留的是哪几行，供工具结果写"第 X–Y 行"；渲染器只读它的结果，不再自己截断。每节点上限默认 8KB/128 行，调用方可以用 `max_lines` / `max_bytes` 改（不超过总预算 50KB/2000 行）；上限在创建时写入 `task_groups.node_max_lines` / `node_max_bytes` 和每个任务的 `tasks.max_lines` / `max_bytes`，crhs 重启后节点重发输出时按存下的上限重新发放额度。单任务的总预算就是它自己的上限（默认 50KB/2000 行）。
   - 预算在接收端 append 时检查，不能先把每个任务收满再裁剪；内存上限固定为总预算加少量元数据，不随节点数增长。`head` 与 `text` 用同一套额度记账：节点的输出到达时给它追加额度，直到达到单节点上限或总预算耗尽，额度只增不减。
   - 预算按**额度**发放：节点的输出到达时，从剩余总预算中给它追加额度，直到达到单节点上限（8KB/128 行）或总预算耗尽。额度只增不减：尾部滚动挤掉的旧字节不退回总预算。
   - 总预算耗尽后，已经拿到额度的节点继续接收输出，在自己的额度内滚动保留尾部；没有额度的节点输出全部丢弃。所以内存上限就是已发放额度之和，不会超过总预算。

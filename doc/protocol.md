@@ -137,7 +137,8 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
 
 ```text
 TaskExit = [task_id: text, outcome: Outcome, timed_out: bool, cancelled: bool,
-            stdout_end: uint, stderr_end: uint, output_file: text, result: TaskResult?]
+            stdout_end: uint, stderr_end: uint, output_file: text, output_lines: uint,
+            result: TaskResult?]
 Outcome  = ["code", int] | ["signal", text] | ["error", Error]      ; signal 不带 SIG 前缀
 
 TaskResult = ["file.read",  FileReadResult]
@@ -175,6 +176,7 @@ Facts    = {text: any}                    ; CBOR map，文本键，见下表
 - 以后增加事实只加新的可选键，不升 `protocol_minor`；删除键或改变已有键的类型需要新的大版本（去掉 `groups` 即按 D99 升大版本）。
 - 线上键名用 snake_case；JSON 形式（`factsToJson` / `factsFromJson`）是 camelCase 对象，缺失的键省略。crhs 数据库中已有的 `nodes.facts`（旧的完整对象，没有 `shells`）照常可读。SSH 节点的 facts 只有 `shells`（来自连接探测，见 [execution-plane.md](execution-plane.md#执行)），不经过线上编码。
 
+- `output_lines` 是合并输出（stdout 和 stderr 按到达顺序交错，与 `output_file` 的内容相同）的总行数：换行符的个数，最后一行没有换行符时再加一；没有输出时为 0。crha 对 `full`、`text`、`status` 三种模式都统计，crhs 用它写"第 X–Y 行，共 N 行"的截断提示（D112，见 [agent-runtime.md](agent-runtime.md#交给模型的输出d112)）。它和 D110 的修改同属大版本 3（大版本 3 尚未发布，不再单独升版本）。
 - 输入类错误码（`Outcome` 的 `error` 分支）：`input_mismatch`（输入与 `InputRef` 不符：比声明的大小长，或 SHA-256 不同；任务若在运行则被杀掉）、`input_incomplete`（连接在输入收齐前断开；任务被杀掉）。
 
 ### TaskResult

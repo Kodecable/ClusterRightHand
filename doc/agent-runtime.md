@@ -61,55 +61,99 @@ interface AgentRuntime {
 
 ## Cluster 工具
 
-工具只定义一次（`ToolCatalog`：名称、描述、参数 JSON Schema、处理函数），分别适配为 durable 的 `defineTool` 和 MCP 工具。
+工具只定义一次（`ToolCatalog`：名称、描述、参数 JSON Schema、处理函数），分别适配为 durable 的 `defineTool` 和 MCP 工具。处理函数返回统一的工具结果（内容块、是否错误、给 UI 的 `details`），由两个适配层各自转换。
 
-| 工具 | 说明 |
-|---|---|
-| `list_nodes` | 列出会话所有者能访问的节点和节点组（通过访问授权获得），以及节点状态、特权任务的处理方式 |
-| `node_info` | 节点 Facts，以及节点笔记的路径和内容（截断） |
-| `exec` | 执行命令；参数：`targets`、`cmd` 或 `argv`、`cwd`、`env`、`privileged`、`timeout`、`wait`（最长等待时间）；批量时 `output` 选择 `status` 或 `text` |
-| `read_file` | 按行读文件：`path`、`offset`（从第几行，1-based，默认 1）、`limit`（行数，默认 2000）、`targets`；一页不超过 2000 行或 50KB |
-| `write_file` | 写文件：`path`、`content`、`overwrite`、`mode`、`targets`；默认只创建新文件，`overwrite: true` 才覆盖 |
-| `edit_file` | 按原文替换，参数与 pi 的 edit 工具相同（`node`、`edits[]`，每项 `oldText` / `newText`，`oldText` 必须在文件中唯一），由 crha 在节点上完成 |
-| `list_dir` | 列目录：`path`、`limit`、`targets` |
-| `task_wait` | 继续等待一个仍在运行的任务，返回当前的输出尾部 |
-| `task_cancel` | 取消任务 |
+| 工具 | 类别 | 返回 | 说明 |
+|---|---|---|---|
+| `list_nodes` | 非任务 | JSON | 列出会话所有者能访问的节点（通过访问授权获得），以及节点组、状态、是否在线、特权任务的处理方式 |
+| `node_info` | 非任务 | JSON | 节点 Facts，以及节点笔记的路径和内容（截断） |
+| `exec` | crh 任务，可后台等待 | 文本 | 执行命令：`targets`、`cmd` 或 `argv`、`cwd`、`env`、`stdin`、`privileged`、`timeout`、`wait`、`max_lines`、`max_bytes`；批量时 `output` 选择 `status` 或 `text` |
+| `read_file` | crh 任务，阻塞 | 文本 | 按行读文件：`targets`、`path`、`offset`（1-based，默认 1）、`limit`（默认 2000）、`max_bytes`；一页不超过 2000 行或 50KB |
+| `write_file` | crh 任务，阻塞 | JSON | 写文件：`targets`、`path`、`content`、`overwrite`、`mode`；默认只创建新文件，`overwrite: true` 才覆盖 |
+| `edit_file` | crh 任务，阻塞 | JSON | 按原文替换：`node`、`path`、`edits[]`（每项 `old_text` / `new_text`，`old_text` 必须在文件中唯一，全部一起生效或都不生效） |
+| `list_dir` | crh 任务，阻塞 | JSON | 列目录：`targets`、`path`、`limit` |
+| `stat` | crh 任务，阻塞 | JSON | 文件属性（类型、大小、权限、属主、修改时间、链接目标）：`targets`、`path` |
+| `task_wait` | 非任务 | 同 `exec` | 继续等待 `exec` 返回的任务或任务组 |
+| `task_cancel` | 非任务 | JSON | 取消 `exec` 返回的任务 |
 
-`exec`、`read_file`、`write_file`、`list_dir` 只有一个 `targets` 参数，不再分 `node` 和 `targets`；`edit_file` 和 `node_info` 只作用于一个节点，仍是 `node`。
+`task_wait`、`task_cancel` 只作用于本会话或本 API token 发起的 `exec` 任务与任务组，以及本会话子树（subagent）发起的那些；同一用户的其他会话的任务不可见（与"任务属于发起它的操作者"一致，见 [access-control.md](access-control.md#操作者)）。文件工具的任务不对模型暴露，`task_wait` 不接受它们。
 
-`task_wait`、`task_cancel` 只作用于本会话或本 API token 发起的任务与任务组，以及本会话子树（subagent）发起的那些；同一用户的其他会话的任务不可见（与"任务属于发起它的操作者"一致，见 [access-control.md](access-control.md#操作者)）。
+### 工具层的分类与复用组件（D111）
+
+分类只在工具层：task 层不变，文件工具在内部照样是 crh 任务，审计、授权规则、审批、特权授权和重启后的重新挂接都和以前一样。
+
+- **crh 任务工具**：每次调用都会创建一个 crh 任务或任务组（`exec`、`read_file`、`write_file`、`edit_file`、`list_dir`、`stat`）。它们共用一个组件：解析 `node` / `targets`，决定单任务还是任务组，用调用 id 派生任务 id，等待，并把任务交给渲染器。组件按工具声明分两种等待方式：
+  - **可后台等待**（只有 `exec`）：等待不超过 `wait`；超过后返回"仍在运行"或"等待审批 / 签名"以及 `task_id` / `task_group_id`，之后用 `task_wait` 跟进、`task_cancel` 取消。
+  - **阻塞**（文件工具）：一直等到任务结束，等待审批和签名时也阻塞；没有 `wait` 参数，没有超时，也不向模型暴露任务 id。文件操作通常在秒级完成，暴露 id 只会让模型多一轮 `task_wait`。中止只能取消整个工具调用（agent 被 abort、MCP 请求被关闭时，组件取消它的任务）。
+- **非任务工具**：`list_nodes`、`node_info`、`task_wait`、`task_cancel`。`node_info` 读取节点笔记时在内部用一个只读任务，但只在规则直接允许时才读，从不留下审批请求，对外仍是非任务工具。
+- **渲染器**也是复用组件，分文本和 JSON 两种，见下文"交给模型的输出"。
+- 两种等待方式都通过 `onStatus` 把任务 id 和等待状态推送给 UI（WebUI 用它跟进工具卡片，见 [webui.md](webui.md#会话界面)）；这些 id 只给 UI，不进入模型看到的内容。
+
+### 命名
+
+- 参数和 JSON 字段一律 snake_case，包括 `node_groups`、`edits[].old_text` / `new_text`，以及 `node_info` 返回的 `facts`（与协议 `Facts` 的键名相同，见 [protocol.md](protocol.md#事件)）。
+- 只作用于一个节点的工具（`node_info`、`edit_file`）用 `node`；可以批量执行的工具用 `targets`。
+- 错误码用 snake_case，与任务的 `error_code` 共用一套（例如 `node_offline`、`not_found`、`permission_denied`、`line_too_long`、`offset_out_of_range`）；工具层自己的错误有 `invalid_argument`（参数组合不对）、`no_such_node`（看不到这个节点）、`no_such_task`。
 
 ### 批量执行
 
-`exec`、`read_file`、`write_file`、`list_dir` 原生支持多个目标：`targets` 参数是节点和节点组的列表，写名字或 UUID，例如 `["web-1", "prod"]`。
+`exec`、`read_file`、`write_file`、`list_dir`、`stat` 原生支持多个目标：`targets` 参数是节点和节点组的列表，写名字或 UUID，例如 `["web-1", "prod"]`。
 
 - **结果形状只由输入决定，与解析出多少节点无关**：
-  - 恰好一个条目，且它不是节点组 → 单个任务，返回单个任务的结果（与过去的 `node` 相同）；
+  - 恰好一个条目，且它不是节点组 → 单个任务，返回单个任务的结果；
   - 多于一个条目，或任何节点组条目（即使只解析到一个节点）→ 一个**任务组**，每个节点一项结果。
   - 批量参数（`parallel`、`fail_fast`、`output`）在单任务时被忽略。
 - 可选参数：`parallel`（并发数，默认 10）、`fail_fast`（出现失败后不再启动剩余节点）；`output`（`status` 或 `text`，默认 `status`）只有 `exec` 有，文件操作没有这个参数。
 - Cluster 核心为一次批量调用创建一个**任务组**，每个节点一个任务，审计中可以按任务组查询。
-- `exec` 默认 `status`：只返回状态、退出码、task_id 和完整输出文件路径；不返回 stdout/stderr。完整输出留在节点文件。
-- `exec` 的 `output: "text"`：每节点保留尾部 8KB/128 行；所有节点共享单任务 50KB/2000 行预算；按输出到达顺序分配，预算耗尽后忽略后续节点，允许整个节点被丢弃；完整输出仍在节点文件。
-- 文件操作的任务组固定保留每个节点的**头部**：每节点 8KB/128 行，共享同一个 50KB/2000 行预算。`read_file` 的每个节点带自己的 `lines`（首行和末行）和继续偏移，节点之间没有共同的偏移或行数限制；预算耗尽而没有保留内容的节点会在结果里说明，让它单独重读。`write_file`、`list_dir` 没有页面可保留，它们的结果来自任务的 `result`，不受这个预算影响。
+- `exec` 默认 `status`：只返回每个节点的状态、退出码和完整输出文件路径（JSON），不返回输出。
+- `exec` 的 `output: "text"`：每节点保留尾部，默认 8KB/128 行；所有节点共享单任务 50KB/2000 行预算；按输出到达顺序分配，预算耗尽后忽略后续节点，允许整个节点被丢弃；完整输出仍在节点文件。
+- 文件操作的任务组固定保留每个节点的**头部**：每节点默认 8KB/128 行，共享同一个 50KB/2000 行预算。`read_file` 的每个节点带自己的行范围和继续偏移，节点之间没有共同的偏移或行数限制；预算耗尽而没有保留内容的节点会在结果里说明，让它单独重读。`write_file`、`list_dir`、`stat` 没有页面可保留，它们的结果来自任务的 `result`，不受这个预算影响。
 - `read_file` 的继续偏移是 `Use offset=<n> to continue.`：单个任务里它是节点返回的页面的下一行；批量时它是该节点**保留下来的**最后一行的下一行。
 - 预算在接收端追加时检查，内存不随节点数增长；被丢弃节点仍会收到 output/exit ack。不优先保留失败节点，失败输出通过节点文件查看。
+- **每节点预算**（D112）：`exec` 的 `max_lines` / `max_bytes` 取代默认的每节点 8KB/128 行，可以调小也可以调大，但不超过总预算 50KB/2000 行；例如 `max_lines: 1` 让每个节点只回最后一行，512 个节点也放得下。单任务时它们限制该任务交给模型的尾部，同样不超过 50KB/2000 行。`read_file` 不另设行数参数：`limit` 就是每个节点在节点上读的行数，任务组里同时作为每节点的行数预算（没给时仍是 128 行）；字节用 `max_bytes`。给了 `max_lines` 或 `max_bytes` 而没写 `output` 时，`exec` 任务组用 `text`；显式 `output: "status"` 又给预算参数时以 `invalid_argument` 拒绝。调大每节点上限时，先输出的节点可能占掉更多总预算，仍按到达顺序分配。
+- 离线节点：派发时等待重连的宽限期过后以 `node_offline` 失败（见 [execution-plane.md](execution-plane.md#节点不在线)），并计入 `fail_fast`。
 - 部分节点通过、部分授权拒绝时任务独立：已执行任务不回滚，`fail_fast` 只影响尚未启动节点。
-- 授权规则逐节点判定；需要审批时，同一个任务组合并成一个审批请求。特权任务组第一阶段不做，先支持单任务特权。
+- 授权规则逐节点判定；需要审批时，同一个任务组合并成一个审批请求。
 
 ### exec 工具的语义
 
-- **长任务**：等待超过 `wait`（默认 10 分钟）时，工具返回"仍在运行，task_id = X"，agent 之后用 `task_wait` 跟进，不会长时间占着一轮工具调用。
-- **重启后重新挂接**：exec 声明 `replay: "safe"`。Cluster 任务 id 由 durable 工具任务 id 确定性派生，所以服务端重启后工具重跑时，会找到同一个 Cluster 任务（可能仍在运行或已经结束），而不会新建一个。
-- **结果为 `unknown` 时**：返回错误结果，文本为"执行失败，状态未知，原因：connection_lost / executor_restarted / dispatch_unconfirmed"。
-- **等待审批时**：工具一直等待，同时通过 `api.details` 把"等待审批"的状态推送给 UI。
-- **第一次等待前先推送 id**：任务或任务组创建后、开始等待前，先推送一次 `{ task_id, state }` / `{ task_group_id, state }`，之后等待审批、等待签名时再推送带链接的状态。WebUI 用这个 id 跟进任务的最终状态（见 [webui.md](webui.md#会话界面)），工具调用没有结果时也能停下加载圈。MCP 调用者没有 `onStatus`，不推送，也不多读一次任务。
+- **长任务**：等待超过 `wait`（agent 默认 10 分钟，MCP 默认 30 秒，最长 10 分钟）时，工具返回目前的输出和"仍在运行，task_id = X"，agent 之后用 `task_wait` 跟进，不会长时间占着一轮工具调用。
+- **重启后重新挂接**：所有 crh 任务工具都声明 `replay: "safe"`。Cluster 任务 id 由 durable 工具任务 id 确定性派生，所以服务端重启后工具重跑时，会找到同一个 Cluster 任务（可能仍在运行或已经结束），而不会新建一个。
+- **结果为 `unknown` 时**：错误结果，说明"执行失败，状态未知，原因：connection_lost / executor_restarted / dispatch_unconfirmed"。
+- **等待审批或签名时**：agent 一直等待，同时通过 `api.details` 把等待状态和链接推送给 UI；MCP 在 `wait` 内等待，超时返回等待状态、链接和 `task_id`。文件工具在两边都一直等待。
+- **第一次等待前先推送 id**：任务或任务组创建后、开始等待前，先推送一次 `{ task_id, state }` / `{ task_group_id, state }`，之后等待审批、等待签名时再推送带链接的状态。WebUI 用这个 id 跟进任务的最终状态，工具调用没有结果时也能停下加载圈。MCP 调用者没有 `onStatus`，不推送，也不多读一次任务。
 
-### 交给模型的输出
+### 交给模型的输出（D112）
 
-文件任务的结构化结果按字段返回，不再是输出流里的一段 JSON（见 [protocol.md](protocol.md#taskresult)）：`read_file` 返回页面字节、`lines`（首行和末行）、是否到达文件末尾和文件总行数；`list_dir` 返回 `entries` 和 `truncated`；`write_file` 返回 `bytes` 和 `created`；`edit_file` 返回 `replacements`；`file.stat` 返回路径、类型、大小、权限、属主和修改时间。
+**文本返回**用于原文：`exec`（以及跟进它的 `task_wait`）的输出、`read_file` 的页面。结果由两种内容块组成：
 
-单任务文本模式与 pi 的 bash 工具一致：只返回**尾部** 2000 行或 50KB（先到为准），并注明"显示的是第 X–Y 行，共 N 行，完整输出：<路径>"。输出被截断时，crha 已经把完整输出保存在节点上（见 [execution-plane.md](execution-plane.md#输出)），结果中附上文件路径，agent 需要时用 `read_file` 分段读取。批量默认只返回状态和文件路径；显式 `text` 时按每节点和总预算截断。SSH 节点没有完整输出。
+- **原文块**：输出或页面的原始文本，不转义、不包在 JSON 里；为空时省略。
+- **说明块**：一小段固定格式的文本，说明节点、状态和怎样继续。例如：
+  - `web-1 · exit 0`
+  - `web-1 · exit 2`、`web-1 · timed out after 30 s`、`web-1 · killed by SIGKILL`
+  - `Showing lines 1201-3200 of 3200. Full output: /var/lib/crha/output/<task_id>.log (read it with read_file).`
+  - `web-1 · still running · task_id <id>. Call task_wait with this task_id.`
+  - `web-1 · waiting for approval: <url> · task_id <id>. Call task_wait with this task_id.`
+  - `web-1:/etc/hosts · lines 1-20 of 20 (end of file)`、`web-1:/var/log/syslog · lines 1-2000. Use offset=2001 to continue.`
+- 任务组每个节点各有一个说明块和一个原文块（不把多个节点拼进同一块，节点输出里出现什么文字都不会和分隔混淆），最前面有一个任务组的说明块（任务组 id、节点数、成功和失败数）。
+
+**JSON 返回**用于列表和事实：`list_nodes`、`node_info`、`write_file`、`edit_file`、`list_dir`、`stat`、`task_cancel`，以及 `exec` 批量的 `status` 模式。JSON 不缩进。
+
+**`exec` 的输出**：
+
+- 单任务也把 stdout 和 stderr 合并成一个流，按到达 crhs 的顺序（与节点上完整输出文件的 `2>&1` 一致，也与批量 `text` 模式相同）；交给模型的是合并流的**尾部** 2000 行或 50KB（先到为准），从整行开始。
+- 截断提示以行数为主：输出被截断时，说明块写"第 X–Y 行，共 N 行，完整输出：<路径>"（`Showing lines X-Y of N. Full output: <path>`）。总行数 N 由 crha 在 `task.exit` 中上报（`output_lines`，见 [protocol.md](protocol.md#事件)），X–Y 是 crhs 保留的尾部所在的行。SSH 节点由 crhs 自己数行，没有完整输出文件，说明块写明这一点。没有截断时不写行号。
+- 批量 `text` 模式每个节点同样写"第 X–Y 行，共 N 行"。
+
+**`read_file` 的页面**原样返回（保留文件自己的换行）；说明块写页面的行范围；文件总行数只在页面到达文件末尾时报告；没到末尾时写 `Use offset=<n> to continue.`。
+
+**错误结果**：
+
+- 下列情况的结果标记为错误（agent 的 `isError`，MCP 的 `isError: true`），仍然带着已有的输出：工具参数或目标不对、任务失败（`error_code`）、被拒绝、`exec` 退出码非 0、超时、被信号终止、状态为 `unknown`。
+- 文本返回的工具在说明块里写 `error <code>: <message>`；JSON 返回的工具返回 `{"error": {"code": …, "message": …}}`。工具层自己的错误（参数、目标）也一样带错误码。
+- 任务组只要有一个节点失败，整个结果就标记为错误；每个节点的说明块或 JSON 项各自写明成功还是失败。
+
+**给 UI 的 `details`**：agent 的工具结果另外带一个 `details` 对象（`task_id` / `task_group_id`、状态、每个节点的任务 id 和状态、错误码），WebUI 的工具卡片用它链接任务页、判断成功与失败，不再解析模型看到的内容。`details` 不发给模型。MCP 只返回内容块。
 
 ## 会话
 
@@ -199,7 +243,7 @@ interface AgentRuntime {
 
 | 项目 | pi 的默认值 | CRH |
 |---|---|---|
-| 命令输出交给模型 | 尾部 2000 行或 50KB，先到为准 | 相同 |
+| 命令输出交给模型 | stdout 和 stderr 合并，尾部 2000 行或 50KB，先到为准；原文直接交给模型，截断说明另给 | 相同；截断时写"第 X–Y 行，共 N 行，完整输出：<路径>"（D112） |
 | 完整输出落盘 | 超过上述阈值时写入系统临时目录（`pi-bash-*.log`，0600），不自动清理 | 超过相同阈值时由 crha 写入 `crha.toml` 配置的输出目录 `<state_dir>/output/`（`[output].dir` 未设置时的默认；示例布局为 `/var/lib/crha/output/`，0600），按 7 天、1GB 清理 |
 | 命令超时 | 无默认超时 | 相同（`timeout` 可选）；另有 `wait`（默认 10 分钟）只决定工具何时返回，不终止任务 |
 | 读文件 | 从头 2000 行或 50KB，用 `offset` / `limit`（行号）分页 | 相同；节点按行分页（一次 `file.read` 从第 `offset` 行起读 `limit` 行，整页不超过 50KB），结果原样返回页面字节（保留文件自己的换行），截断时给出 `Use offset=<n> to continue.`；总行数只在页面到达文件末尾时报告；起始行本身超过 50KB 时报错并指向 `exec`（例如 `sed -n '<N>p' <路径> \| head -c 51200`）；起始行超过文件末尾也是错误，并给出总行数 |
