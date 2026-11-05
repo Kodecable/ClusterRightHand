@@ -2,7 +2,7 @@
 
 [execution-plane.md](execution-plane.md#自有协议m35) 规定协议的语义；本文规定**线上格式**，TS（`packages/protocol`）和 Go（`client/internal/protocol`）都按本文手写，用 `test/interop/` 的 fixture 交叉验证。两者不一致时以本文为准；本文有歧义时先改本文。
 
-协议版本：`protocol_major = 3`，`protocol_minor = 0`。大版本 3 去掉了 `Facts.groups`、把 `TrustSummary.groups` 改为 `aliases`（D110），并在 `task.exit` 的 `output_file` 之后增加 `output_lines`（D112）；大版本 2 是 `file.read` 改为按行、`task.exit` 增加 `result`；大版本 1 中 `minor = 1` 是 M4 的命令集合，`minor = 0` 是 M3.5 的命令集合。Noise prologue 为 `"crh/3" ‖ 挑战`。
+协议版本：`protocol_major = 3`，`protocol_minor = 0`。大版本 3 去掉了 `Facts.groups`、把 `TrustSummary.groups` 改为 `aliases`（D110），并在 `task.exit` 的 `output_file` 之后增加 `output_lines`（D112），把输出合并成一个流、`file.write` 增加 `create_parent_dirs`（D114）；大版本 2 是 `file.read` 改为按行、`task.exit` 增加 `result`；大版本 1 中 `minor = 1` 是 M4 的命令集合，`minor = 0` 是 M3.5 的命令集合。Noise prologue 为 `"crh/3" ‖ 挑战`。
 
 ## 编码规则
 
@@ -77,8 +77,8 @@ M4（1.1）新增的命令和事件见 [M4：提权](#m4提权)。
 ```text
 Hello      = [tasks: [TaskStatus], task_kinds: [text], privileged_mode: text]
 Welcome    = [acks: [OutputAck]]
-OutputAck  = [task_id: text, stdout_offset: uint, stderr_offset: uint]
-TaskStatus = [task_id: text, state: "running" | "exited" | "unknown", stdout_end: uint, stderr_end: uint]
+OutputAck  = [task_id: text, offset: uint]
+TaskStatus = [task_id: text, state: "running" | "exited" | "unknown", output_end: uint]
 ```
 
 ### `task.start`
@@ -89,11 +89,12 @@ TaskStart  = [task_id: text, attempt: uint, spec: TaskSpec, privileged: bool,
 
 OutputMode = ["full",   [spill_bytes: uint, spill_lines: uint]]   ; 单任务：实时推送，超过阈值落盘
            | ["text",   []]                                         ; 批量 text：实时推送，总是落盘
-           | ["status", []]                                         ; 批量 status：不推送输出，总是落盘
+           | ["status", []]                                         ; 不带输出（单任务或批量）：不推送输出，总是落盘
 
 TaskSpec   = ["exec",      ExecSpec]
            | ["file.read",  [path: text, start_line: uint, line_count: uint]]
-           | ["file.write", [path: text, content: InputRef, overwrite: bool, mode: uint, owner: text, group: text]]
+           | ["file.write", [path: text, content: InputRef, overwrite: bool, mode: uint, owner: text, group: text,
+                            create_parent_dirs: bool]]
            | ["file.edit",  [path: text, edits: [[old_text: text, new_text: text]]]]
            | ["file.stat",  [path: text]]
            | ["file.list",  [path: text, limit: uint]]
@@ -122,13 +123,13 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
   - 终态（任务结束为 `failed`，`error_code` 即此码）：`invalid_spec`（空 id、哈希长度不对等、`size` 为 0 但 `sha256` 不是空输入的 SHA-256）、`unsupported_kind`、`privileged_unsupported`（`reject` 模式；`native` 的提权工具不可用或 helper 版本不符；M3.5 的 crha）、`privileged_unavailable`（`forward` 但特权模式不可达）、`local_policy_denied`、`already_accepted`（校验第 5 步：本任务 id 已在本机执行过）。
 - `forward` 时非特权模式把 `task.start` 原样转给特权模式（见 [crh-priv](#crh-priv非特权模式--特权模式)），特权模式的响应就是这里的响应。转发请求有超时（30 秒）：超时的 `task.start` 当作已接受（请求可能已在特权模式排队，之后仍会执行），非特权模式尽力请特权模式取消它，并以 `helper_lost` 结束（结果未知，crhs 不重试）。非特权模式在转发 `authorization_*` 错误之前，先向特权模式重新查询 `TrustSummary`，digest 变化时先发 `trust.summary` 事件，再发错误响应；因此 crhs 处理错误时缓存已经是最新的。
 - `task.input` 只在成功响应之后发送；crhs 可以流水线发送多个分块，不必逐个等待响应；crha 按顺序处理。
-- `file.read` 按行读：`start_line` 从 1 开始，任务是"从这一行起最多 `line_count` 行，整页不超过 50KB（`FileReadMaxBytes`）"。节点从文件开头扫到起始行，只发整行，遇到第一条放不下的行就停下，**不读到文件末尾**。stdout 是页面字节本身（保留文件自己的换行）；页面之外的信息放在 `task.exit` 的 `result`（见 [TaskResult](#taskresult)），不进输出流：`from` / `to` 是页面首行和末行的行号，页面为空时都是 0；`eof` 表示扫描到了文件末尾；`total` 只在 `eof` 时出现，是文件总行数；`too_long` 表示请求的首行本身就超过 50KB，此时页面为空。
+- `file.read` 按行读：`start_line` 从 1 开始，任务是"从这一行起最多 `line_count` 行，整页不超过 50KB（`FileReadMaxBytes`）"。节点从文件开头扫到起始行，只发整行，遇到第一条放不下的行就停下，**不读到文件末尾**。输出就是页面字节本身（保留文件自己的换行）；页面之外的信息放在 `task.exit` 的 `result`（见 [TaskResult](#taskresult)），不进输出流：`from` / `to` 是页面首行和末行的行号，页面为空时都是 0；`eof` 表示扫描到了文件末尾；`total` 只在 `eof` 时出现，是文件总行数；`too_long` 表示请求的首行本身就超过 50KB，此时页面为空。
 
 ## 事件
 
 | 名称 | 方向 | body |
 |---|---|---|
-| `task.output` | C→S | `[task_id: text, stream: "stdout" \| "stderr", offset: uint, data: bytes]` |
+| `task.output` | C→S | `[task_id: text, offset: uint, data: bytes]` |
 | `task.exit` | C→S | `TaskExit` |
 | `facts` | C→S | `Facts` |
 | `node.status` | S→C | `[node_id: text, state: "pending" \| "active" \| "rejected" \| "disabled", message: text]` |
@@ -137,7 +138,7 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
 
 ```text
 TaskExit = [task_id: text, outcome: Outcome, timed_out: bool, cancelled: bool,
-            stdout_end: uint, stderr_end: uint, output_file: text, output_lines: uint,
+            output_end: uint, output_file: text, output_lines: uint,
             result: TaskResult?]
 Outcome  = ["code", int] | ["signal", text] | ["error", Error]      ; signal 不带 SIG 前缀
 
@@ -176,7 +177,9 @@ Facts    = {text: any}                    ; CBOR map，文本键，见下表
 - 以后增加事实只加新的可选键，不升 `protocol_minor`；删除键或改变已有键的类型需要新的大版本（去掉 `groups` 即按 D99 升大版本）。
 - 线上键名用 snake_case；JSON 形式（`factsToJson` / `factsFromJson`）是 camelCase 对象，缺失的键省略。crhs 数据库中已有的 `nodes.facts`（旧的完整对象，没有 `shells`）照常可读。SSH 节点的 facts 只有 `shells`（来自连接探测，见 [execution-plane.md](execution-plane.md#执行)），不经过线上编码。
 
-- `output_lines` 是合并输出（stdout 和 stderr 按到达顺序交错，与 `output_file` 的内容相同）的总行数：换行符的个数，最后一行没有换行符时再加一；没有输出时为 0。crha 对 `full`、`text`、`status` 三种模式都统计，crhs 用它写"第 X–Y 行，共 N 行"的截断提示（D112，见 [agent-runtime.md](agent-runtime.md#交给模型的输出d112)）。它和 D110 的修改同属大版本 3（大版本 3 尚未发布，不再单独升版本）。
+- 任务的输出只有一个流（D114）：crha 把命令的 stdout 和 stderr 接到同一个管道，`task.output` 的 `offset`、`TaskExit` 的 `output_end`、`TaskStatus` 的 `output_end` 和 `OutputAck` 的 `offset` 都是这个流的字节偏移。
+- `file.write` 的 `create_parent_dirs` 为 true 时，节点先创建不存在的父目录（相当于 `mkdir -p`，新目录权限 0755 再受 umask 影响，属主与写文件的身份相同），再写文件（D114）。授权规则仍只按目标文件路径判断：父目录都是它的前缀，不会超出允许的范围；这个字段属于 `TaskSpec`，所以也在 `exact` 授权的规格哈希里。
+- `output_lines` 是输出（与 `output_file` 的内容相同）的总行数：换行符的个数，最后一行没有换行符时再加一；没有输出时为 0。crha 对 `full`、`text`、`status` 三种模式都统计，crhs 用它写"第 X–Y 行，共 N 行"的截断提示（D112，见 [agent-runtime.md](agent-runtime.md#交给模型的输出d112)）。它和 D110 的修改同属大版本 3（大版本 3 尚未发布，不再单独升版本）。
 - 输入类错误码（`Outcome` 的 `error` 分支）：`input_mismatch`（输入与 `InputRef` 不符：比声明的大小长，或 SHA-256 不同；任务若在运行则被杀掉）、`input_incomplete`（连接在输入收齐前断开；任务被杀掉）。
 
 ### TaskResult
@@ -288,7 +291,7 @@ PrivWelcome = [priv_major: 3, priv_minor: 0, commands: [text], crha_version: tex
 ```
 
 - 必需的名字：`native` 是 `task.*` 这一组；`forward` 是 `task.*`、`trust.query`、`trust.summary`，其余（`local.*`）可选，缺少时非特权模式不提供对应功能；`local` 是该角色的全部名字。之后新增的名字都是可选的，靠名字协商。
-- `priv_major` 必须相等：任一方发现对端的 `priv_major` 不同就关闭连接。大版本 3 是本批的版本（`TrustSummary.groups` 改为 `aliases`，D110）；大版本 2 增加了 `task.exit.result` 并把 `file.read` 改为按行；`crha` 及其特权模式总是一起升级，所以旧的特权模式进程不会被新的非特权模式使用。`priv_minor` 只做增量（新增可选名字），不参与拒绝。
+- `priv_major` 必须相等：任一方发现对端的 `priv_major` 不同就关闭连接。大版本 3 是本批的版本（`TrustSummary.groups` 改为 `aliases`，D110；`task.output` / `task.exit` 只有一个输出流，`file.write` 增加 `create_parent_dirs`，D114）；大版本 2 增加了 `task.exit.result` 并把 `file.read` 改为按行；`crha` 及其特权模式总是一起升级，所以旧的特权模式进程不会被新的非特权模式使用。`priv_minor` 只做增量（新增可选名字），不参与拒绝。
 - `forward` 下非特权模式还要求 `PrivWelcome.crha_version` 与自己完全相同。不同时按特权模式不可达处理：特权任务以 `privileged_unavailable` 失败，非特权模式记一条日志，写明双方的版本。这覆盖了只换 `crha` 二进制、没有重启特权模式的升级。
 - `role` 必须与对端身份一致：`forward` 要求 peer uid 等于 `unprivileged_uid`；`local` 要求 peer uid 在某个 `local` 信任项的 `uids` 中；`native` 只在 stdio 上出现，此时要求 `crha_version` 完全相等。不一致时特权侧关闭连接。
 
@@ -319,7 +322,7 @@ PrivWelcome = [priv_major: 3, priv_minor: 0, commands: [text], crha_version: tex
 { "kind": "exec", "command": { "argv": ["ls", "-l"] }, "env": {}, "cwd": "", "stdin": null }
 { "kind": "exec", "command": { "shell": "ls | wc -l" }, "env": {}, "cwd": "", "stdin": { "size": 3, "sha256": "<64 位 hex>" } }
 { "kind": "file.read", "path": "/etc/hosts", "startLine": 1, "lineCount": 100 }
-{ "kind": "file.write", "path": "/tmp/x", "content": { "size": 3, "sha256": "<hex>" }, "overwrite": false, "mode": 0, "owner": "", "group": "" }
+{ "kind": "file.write", "path": "/tmp/x", "content": { "size": 3, "sha256": "<hex>" }, "overwrite": false, "mode": 0, "owner": "", "group": "", "createParentDirs": false }
 { "kind": "file.edit", "path": "/tmp/x", "edits": [{ "oldText": "a", "newText": "b" }] }
 { "kind": "file.stat", "path": "/tmp/x" }
 { "kind": "file.list", "path": "/tmp", "limit": 0 }

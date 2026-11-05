@@ -95,9 +95,9 @@ tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json,
                    handler_session_id nullable,                       -- handler_type=agent 时处理的会话
                    authorization json nullable,                       -- M4：授权状态、方案、payload id、trust digest
                    created_at, dispatched_at, accepted_at, finished_at,
-                   stdout_bytes, stderr_bytes,
-                   stdout_head, stdout_tail, stderr_head, stderr_tail, -- crhs 只保存截断后的头尾（base64）
-                   output_tail nullable,                              -- 单任务按到达顺序合并的尾部（D112），交给模型的就是它
+                   output_bytes,                                      -- 输出只有一个流（D114，迁移前的 stdout_bytes + stderr_bytes）
+                   output_head, output_tail,                          -- crhs 只保存截断后的头尾（base64）；交给模型的是尾部。迁移前的任务按 stdout 在前、stderr 在后拼接
+                   notice nullable,                                   -- crhs 自己的提示（SSH 忽略特权），不进输出流
                    output_lines nullable,                             -- 合并输出的总行数（crha 在 task.exit 上报；SSH 节点由 crhs 统计）
                    output_file nullable,                              -- 完整输出在节点上的路径（crha 保存）
                    result json nullable,                              -- 文件任务的结构化结果（protocol.md TaskResult）
@@ -106,7 +106,7 @@ tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json,
 
 crhs 不保存完整输出。批量默认 `status` 只保存状态和输出文件路径；`text` 受单节点和总预算限制。完整输出由 crha 在节点上保存为普通文件并负责清理，见 [execution-plane.md](execution-plane.md#输出)。SSH 不保存完整输出。
 
-`tasks.spec` 和 `task_groups.spec` 是创建时的 JSON 形式，按当时的协议版本解释。协议大版本 2 把 `file.read` 的 JSON 字段从 `offset` / `limit` 改为 `startLine` / `lineCount`：升级前创建、仍在等待审批或签名的这类任务和任务组无法下发，读取时以 `stored spec cannot be read` 失败。
+`tasks.spec` 和 `task_groups.spec` 是创建时的 JSON 形式，按当时的协议版本解释。协议大版本 2 把 `file.read` 的 JSON 字段从 `offset` / `limit` 改为 `startLine` / `lineCount`：升级前创建、仍在等待审批或签名的这类任务和任务组无法下发，读取时以 `stored spec cannot be read` 失败。D114 给 `file.write` 增加了 `createParentDirs`：迁移把已存的 `file.write` 规格都补上 `"createParentDirs": false`，所以旧任务照常可读。
 
 ## 规则与授权
 

@@ -18,7 +18,7 @@
 
 与 agent 共用同一份 `ToolCatalog`（见 [agent-runtime.md](agent-runtime.md#cluster-工具)），所以工具名称、参数和语义完全一致：
 
-`list_nodes`、`node_info`、`exec`、`read_file`、`write_file`、`edit_file`、`list_dir`、`stat`、`task_wait`、`task_cancel`。`exec`、`read_file`、`write_file`、`list_dir`、`stat` 用同一个 `targets` 参数支持批量执行（一个节点名是单个任务，多个条目或节点组是任务组）；`edit_file` 和 `node_info` 只有 `node`。
+`list_nodes`、`node_info`、`exec`、`read_file`、`write_file`、`edit_file`、`list_dir`、`stat`、`task_wait`、`task_cancel`。`exec`、`read_file`、`write_file`、`list_dir`、`stat`、`node_info`、`edit_file` 用同一个 `targets` 参数支持批量执行（一个节点名是单个任务，多个条目或节点组是任务组）；`node_info` 和 `edit_file` 也用 `targets`（D114）。
 
 结果是 MCP 的内容块：`exec` 和 `read_file` 是原文块加说明块，其余工具是一个 JSON 文本块；失败时 `isError: true`（D112，见 [agent-runtime.md](agent-runtime.md#交给模型的输出d112)）。agent 的 `details` 不发给 MCP 客户端。
 

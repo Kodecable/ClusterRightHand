@@ -11,13 +11,13 @@
 | kind | 说明 |
 |---|---|
 | `exec` | 执行命令：`argv`（直接执行）或 `shell`（`sh -c`）；可选 `env`、`cwd`、`stdin`、超时 |
-| `file.read` | 按行读文件：从第 `start_line` 行起最多 `line_count` 行，整页不超过 50KB；节点从文件开头扫描，发完整行，不读到文件末尾；页面字节走 stdout，页面的行范围和文件末尾信息在 `task.exit` 的 `result` 里（见 [protocol.md](protocol.md#taskresult)） |
+| `file.read` | 按行读文件：从第 `start_line` 行起最多 `line_count` 行，整页不超过 50KB；节点从文件开头扫描，发完整行，不读到文件末尾；页面字节走输出流，页面的行范围和文件末尾信息在 `task.exit` 的 `result` 里（见 [protocol.md](protocol.md#taskresult)） |
 | `file.write` | 原子写（临时文件 + rename）；可设置 mode/owner。默认只**创建新文件**，目标已存在时失败（`renameat2` 的 `RENAME_NOREPLACE`）；`overwrite = true` 时才覆盖。结果（写入字节数、是否新建）在 `task.exit` 的 `result` 里 |
 | `file.edit` | 按原文替换，格式与 pi 的 edit 工具相同：`edits[]`，每项 `oldText` / `newText`，`oldText` 必须在文件中出现且只出现一次，所有替换都针对原始内容匹配；保留 BOM 和换行风格；结果原子写回。结果（替换数量）在 `task.exit` 的 `result` 里 |
 | `file.stat` | 文件元信息，作为 `task.exit` 的 `result` 返回 |
 | `file.list` | 列目录，有条目数上限，条目作为 `task.exit` 的 `result` 返回 |
 
-文件任务的结构化结果不写进输出流：`file.read` 的 stdout 只有页面本身，`file.stat`、`file.list`、`file.write`、`file.edit` 的 stdout 为空。见 [protocol.md](protocol.md#taskresult)。
+文件任务的结构化结果不写进输出流：`file.read` 的输出只有页面本身，`file.stat`、`file.list`、`file.write`、`file.edit` 没有输出。见 [protocol.md](protocol.md#taskresult)。
 
 编辑由 crha 在节点上完成：读取、匹配、替换、写回连续执行，中间不经过网络。不使用哈希校验，`oldText` 本身就是冲突检测：
 
@@ -127,28 +127,30 @@ crhs 要向节点发送 `task.start` 而节点没有连接时（D113），最多
 
 ## 输出
 
-- 输出按流（stdout/stderr）分开，每个分片带字节偏移 `offset`；单任务和批量 `text` / `head` 模式下实时推送给 crhs，批量 `status` 模式不推送。
-- **crhs 只保存截断后的输出**：单任务保存 stdout/stderr 的头部和尾部，另外保存一份按到达顺序合并的尾部（2000 行或 50KB，从整行开始），交给模型的就是它（D112）；批量 `text` 每节点只保留尾部 8KB/128 行，批量 `head`（文件操作）每节点只保留 stdout 的**头部** 8KB/128 行，两者受同一个全局 50KB/2000 行预算；都不保存完整输出。批量 `status` 模式完全不保存输出，只保存状态和节点文件路径；唯一的例外是 SSH 节点忽略特权时 crhs 自己写的那一行提示，它作为 stderr 头部保存（`tasks.stderr_head`）。`head` 模式同样只为这一行提示保留 stderr，不保留节点自己的 stderr：文件任务的结果在 `task.exit` 的 `result` 里，不占输出预算。
-- **完整输出由 crha 在节点上保存为普通文件**：单任务文本模式下，输出超过 2000 行或 50KB 时落盘；批量 `text` 和 `status` 模式**总是**落盘。crha 非特权模式把完整输出写入 `[output].dir`（未设置时是 `crha.toml` 的 `state_dir` 下的 `output/`，例如 `state_dir = "/var/lib/crha"` 时是 `/var/lib/crha/output/<task_id>.log`；stdout 和 stderr 按到达顺序交错写入，与终端里 `2>&1` 看到的一致；crha 在内存中保留分段索引，用于按流续传），`task.exit` 中带上文件路径、总字节数和合并输出的总行数（`output_lines`）。文件权限 0600，属主为非特权模式的运行用户（输出可能包含敏感内容）。agent 需要完整输出时，用普通的 `read_file` 读取。
+- **输出只有一个流**（D114）：crha 把命令的 stdout 和 stderr 接到同一个管道（相当于 `2>&1`），交错顺序由写入顺序决定；特权模式（`forward` 的守护进程和 `native` helper）同样只用一个管道。SSH 节点在远端 wrapper 里先输出 pid，再 `exec 2>&1`（见下文"SSH 传输"）。区分两个流没有明确的用途：模型、完整输出文件和 WebUI 都只看合并后的输出；确实需要分开时，命令自己重定向（`2>/dev/null`、`2>err.log`）。
+- 每个分片带字节偏移 `offset`；单任务和批量带输出时实时推送给 crhs，不带输出（`status`）时不推送。
+- **crhs 只保存截断后的输出**：单任务保存输出的头部和尾部（`output_head` / `output_tail`，各 2000 行或 50KB，尾部从整行开始），交给模型的是尾部，WebUI 任务页显示两者；批量带输出时每节点只保留尾部（默认 8KB/128 行），批量 `head`（文件操作）每节点只保留**头部**（默认 8KB/128 行），两者受同一个全局 50KB/2000 行预算；都不保存完整输出。不带输出（`status`）时完全不保存输出，只保存状态和节点文件路径。
+- **crhs 自己的提示不进输出流**：SSH 节点忽略特权时 crhs 写的那一行提示保存在任务的 `notice` 字段，不混进输出，所以 `read_file` 的页面仍是文件原样；工具结果把它作为一行放进说明块，WebUI 在输出上方单独显示。文件任务的结果在 `task.exit` 的 `result` 里，不占输出预算。
+- **完整输出由 crha 在节点上保存为普通文件**：单任务文本模式下，输出超过 2000 行或 50KB 时落盘；批量 `text` 和 `status` 模式**总是**落盘。crha 非特权模式把完整输出写入 `[output].dir`（未设置时是 `crha.toml` 的 `state_dir` 下的 `output/`，例如 `state_dir = "/var/lib/crha"` 时是 `/var/lib/crha/output/<task_id>.log`；内容就是这一个输出流，与终端里 `2>&1` 看到的一致；crha 在内存中保留分段索引，用于续传），`task.exit` 中带上文件路径、总字节数和总行数（`output_lines`）。文件权限 0600，属主为非特权模式的运行用户（输出可能包含敏感内容）。agent 需要完整输出时，用普通的 `read_file` 读取。
   - 特权任务的输出本来就经由非特权模式转发，所以同样由非特权模式保存，不会因此多暴露什么。
   - 这些文件的清理由 crha 负责，按 `crha.toml` 中 `[output]` 的 `max_age` 和 `max_total` 配置（默认 7 天、1GB）。
 - **断线续传**：任务运行期间，以及结束后到 crhs 确认（`task.output.ack` / `task.exit.ack`）之前，crha 保留未确认的输出：输出较短时在内存中，已经写入文件的直接从文件中补发。所以不会因为缓冲溢出而丢失输出。
 - **批量执行**：
   - 一个任务组最多 **512 个节点**（target 展开、去重后计数，离线节点也算）；超过时创建失败并提示拆分，不截断执行。这限制的是返回给模型的任务组结果（每节点的状态信息不受输出预算约束），也使每节点一行的常见批量命令在 `text` 预算内能全部看到（D85）。
-  - `status`（exec 批量默认）：只返回状态、退出码和完整输出文件路径；不向 crhs 发送 stdout/stderr，完整输出留在节点文件。
-  - `text`（仅 exec）：每个节点保留**尾部** 8KB/128 行；所有节点共享单任务总预算（50KB/2000 行）；按**输出到达顺序**分配，预算耗尽后忽略后续节点，允许整个节点被丢弃；完整输出仍然留在节点文件。
-  - `head`（文件操作固定使用，不能选）：每个节点保留 stdout 的**头部** 8KB/128 行，所有节点共享同一个总预算（50KB/2000 行），同样按**输出到达顺序**分配；`file.read` 的每个节点因此可以从**它自己的**下一行继续（`Use offset=<n> to continue.`），节点之间没有共同的偏移或行数限制。预算耗尽时允许整个节点被丢弃，工具结果里会指出这一点。`write_file`、`list_dir` 没有页面，它们和 `read_file` 的行范围一样来自 `task.exit` 的 `result`，不受这个预算影响。
-  - **预算组件**（D112）：单任务的合并尾部、批量 `text` 和批量 `head` 共用一个预算组件。它管两层额度（每节点上限和整组总预算）、两种保留方式（头部或尾部），并记下保留的是哪几行，供工具结果写"第 X–Y 行"；渲染器只读它的结果，不再自己截断。每节点上限默认 8KB/128 行，调用方可以用 `max_lines` / `max_bytes` 改（不超过总预算 50KB/2000 行）；上限在创建时写入 `task_groups.node_max_lines` / `node_max_bytes` 和每个任务的 `tasks.max_lines` / `max_bytes`，crhs 重启后节点重发输出时按存下的上限重新发放额度。单任务的总预算就是它自己的上限（默认 50KB/2000 行）。单任务设了 `max_lines` / `max_bytes` 时，`task.start` 的 `full` 模式落盘阈值（`spill_lines` / `spill_bytes`）也取同样的值，所以只要交给模型的尾部被截断，节点上就有完整输出文件。
+  - `status`（`exec` 的 `with_output: false`，单任务和批量都可用）：只返回状态、退出码和完整输出文件路径；不向 crhs 发送输出，完整输出留在节点文件。
+  - `text`（`exec` 批量默认）：每个节点保留**尾部** 8KB/128 行；所有节点共享单任务总预算（50KB/2000 行）；按**输出到达顺序**分配，预算耗尽后忽略后续节点，允许整个节点被丢弃；完整输出仍然留在节点文件。
+  - `head`（文件操作固定使用，不能选）：每个节点保留输出的**头部** 8KB/128 行，所有节点共享同一个总预算（50KB/2000 行），同样按**输出到达顺序**分配；`file.read` 的每个节点因此可以从**它自己的**下一行继续（`Use offset=<n> to continue.`），节点之间没有共同的偏移或行数限制。预算耗尽时允许整个节点被丢弃，工具结果里会指出这一点。`write_file`、`list_dir` 没有页面，它们和 `read_file` 的行范围一样来自 `task.exit` 的 `result`，不受这个预算影响。
+  - **预算组件**（D112）：单任务的头部和尾部、批量 `text` 和批量 `head` 共用一个预算组件。它管两层额度（每节点上限和整组总预算）、两种保留方式（头部或尾部），并记下保留的是哪几行，供工具结果写"第 X–Y 行"；渲染器只读它的结果，不再自己截断。每节点上限默认 8KB/128 行，调用方可以用 `max_lines` / `max_bytes` 改（不超过总预算 50KB/2000 行）；上限在创建时写入 `task_groups.node_max_lines` / `node_max_bytes` 和每个任务的 `tasks.max_lines` / `max_bytes`，crhs 重启后节点重发输出时按存下的上限重新发放额度。单任务的总预算就是它自己的上限（默认 50KB/2000 行）。单任务设了 `max_lines` / `max_bytes` 时，`task.start` 的 `full` 模式落盘阈值（`spill_lines` / `spill_bytes`）也取同样的值，所以只要交给模型的尾部被截断，节点上就有完整输出文件。
   - 预算在接收端 append 时检查，不能先把每个任务收满再裁剪；内存上限固定为总预算加少量元数据，不随节点数增长。`head` 与 `text` 用同一套额度记账：节点的输出到达时给它追加额度，直到达到单节点上限或总预算耗尽，额度只增不减。
   - 预算按**额度**发放：节点的输出到达时，从剩余总预算中给它追加额度，直到达到单节点上限（8KB/128 行）或总预算耗尽。额度只增不减：尾部滚动挤掉的旧字节不退回总预算。
   - 总预算耗尽后，已经拿到额度的节点继续接收输出，在自己的额度内滚动保留尾部；没有额度的节点输出全部丢弃。所以内存上限就是已发放额度之和，不会超过总预算。
   - 即使某个节点的输出被丢弃，crhs 仍按已收到的偏移发送 `task.output.ack`/`task.exit.ack`，让 crha 释放缓冲。
   - 不为失败节点预留额外预算：失败节点也按到达顺序参与；需要完整错误输出时使用节点文件，或对单个任务改用完整输出模式。这是内存上限优先的已知取舍。
   - SSH 节点不保存完整输出：`status` 只返回状态，`text` 只返回受单节点和总预算限制的尾部输出。
-  - `text` 的尾部是**一份合并尾部**：stdout 和 stderr 按到达 crhs 的顺序拼在一起（与节点文件的 `2>&1` 一致），不分流保存；字节数仍按流分别统计。行数按换行符计：滚动时保留最多“额度行数”个换行符之后的内容。
+  - `text` 的尾部按行计：滚动时保留最多“额度行数”个换行符之后的内容。
   - 预算只在 crhs 内存中按任务组维护。crhs 重启后，未结束任务的输出由 crha 从偏移 0 重发，按新的到达顺序重新发放额度；已结束任务的尾部已经存库，不再参与。内存上限不变。
   - `status` 模式下 crha 不发送 `task.output`，所以 crhs 收到 `task.exit` 时不检查输出是否收全（只有 `full`/`text`/`head` 检查）；`task.exit` 中的字节数和文件路径照常记录。
-  - 任务组的输出模式在创建时确定，写入 `task_groups.output_mode` 和其下每个任务的 `tasks.output_mode`：`exec` 组由调用方选 `status`（默认）或 `text`（Web API `outputMode`、MCP `output` 参数）；文件操作的任务组固定为 `head`，Web API 传其他值会被拒绝，MCP 的文件工具根本没有 `output` 参数。`head` 是 crhs 侧的模式：下发时任务仍用 `full`（节点实时推送两个流，是否落盘由节点按阈值决定），crhs 按上面的预算保留头部。单任务的 `tasks.output_mode` 为 `full`。
+  - 任务组的输出模式在创建时确定，写入 `task_groups.output_mode` 和其下每个任务的 `tasks.output_mode`：`exec` 组由调用方选 `text`（默认）或 `status`（Web API `outputMode`；工具的 `with_output`）；文件操作的任务组固定为 `head`，Web API 传其他值会被拒绝，文件工具没有这个参数。`head` 是 crhs 侧的模式：下发时任务仍用 `full`（节点实时推送输出，是否落盘由节点按阈值决定），crhs 按上面的预算保留头部。单任务的 `tasks.output_mode` 为 `full`，`with_output: false` 时为 `status`。
 
 ## 自有协议（M3.5）
 
@@ -368,7 +370,7 @@ crha 的源码不内置任何自身配置、状态、日志或 socket 的路径�
 
 SSH 节点不安装任何东西，服务端通过 SshTransport 执行，对上层提供与自有客户端相同的任务接口。
 
-SSH 的 `privileged` 语义：crhs 仍按特权任务做规则/审批（方便 agent 批量下发提权命令），执行时忽略特权，以 SSH 用户运行，并在任务输出中提示。`status` 模式下不保留任务输出，但这一行提示仍保存在 `tasks.stderr_head` 中。若 SSH 用户本身是 root，这是实际 root 执行；不能描述成“已拒绝提权”。
+SSH 的 `privileged` 语义：crhs 仍按特权任务做规则/审批（方便 agent 批量下发提权命令），执行时忽略特权，以 SSH 用户运行，并在任务输出中提示。这一行提示保存在 `tasks.notice`，不进输出流（D114），`status` 模式下也一样保留。若 SSH 用户本身是 root，这是实际 root 执行；不能描述成“已拒绝提权”。
 
 | 能力 | 自有客户端 | SSH |
 |---|---|---|
@@ -406,7 +408,7 @@ SSH 节点可以配置一个或多个跳板（等价于 OpenSSH 的 `ProxyJump`�
 ### 执行
 
 - **sh 的发现**：每条新建的连接（连接池换新连接时也一样）先执行一次探测，按与 crha 相同的顺序找 sh 和 bash：`/etc/shells` 中第一个文件名为 `sh` / `bash` 的存在且可执行的绝对路径，然后 `command -v`。结果写入节点 `facts` 的 `shells`（SSH 节点的 facts 只有这一项），之后这条连接上的任务都用探测到的 sh；探测不到 sh 时用 `/bin/sh`。授权和显示的渲染与 crha 节点相同，仍是 `/bin/sh -c '<cmd>'`。
-- **进程组**：sshd 启动命令时已经为它新建会话，命令所在 shell 的 pid 就是进程组 id。远端命令是 `cd <cwd> || exit 127; exec env -- LANG=C.UTF-8 LC_ALL=C.UTF-8 [K=V…] <sh> -c '<wrapper>' crh <argv…>`（`shell` 命令的 argv 是 `<sh> -c <cmd>`），wrapper 先在 stderr 第一行输出 `$$`（crhs 解析后剥掉），再 `exec` 真正的命令。不用 `setsid(1)`：调用者已经是进程组组长时它会 fork，退出码就丢了。
+- **进程组**：sshd 启动命令时已经为它新建会话，命令所在 shell 的 pid 就是进程组 id。远端命令是 `cd <cwd> || exit 127; exec env -- LANG=C.UTF-8 LC_ALL=C.UTF-8 [K=V…] <sh> -c '<wrapper>' crh <argv…>`（`shell` 命令的 argv 是 `<sh> -c <cmd>`），wrapper 先在 stderr 第一行输出 `$$`（crhs 解析后剥掉），然后 `exec 2>&1` 把之后的 stderr 并入 stdout（D114），再 `exec` 真正的命令；所以 SSH 节点的输出同样只有一个流，crhs 不需要自己合并。不用 `setsid(1)`：调用者已经是进程组组长时它会 fork，退出码就丢了。
 - **取消与超时**：另开 exec channel 执行 `kill -TERM -- -<pgid>`，宽限期后 `kill -KILL`；与 crha 相同，结果报告为 signal。在建立连接或探测 shell 期间取消的任务从未执行，以 `exited`、`cancelled = true` 结束，不会补发命令。
 - **退出状态**：短命令的输出和退出状态可能与 channel 打开确认在同一个包里到达，监听器必须在 channel 打开的回调中同步挂上。
 - **连接**：每个节点复用一条连接（keepalive 10 秒、3 次），任何一跳断开都关闭整条连接。池中的连接已失效而任务尚未开始时，换新连接重试一次。
