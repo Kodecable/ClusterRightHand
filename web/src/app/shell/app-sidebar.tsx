@@ -121,7 +121,12 @@ export function AppSidebar() {
 												{item.badge === "approvals" && pending > 0 && (
 													<SidebarMenuBadge
 														data-testid="nav-approvals-badge"
-														className={cn("bg-primary text-primary-foreground")}
+														className={cn(
+															"bg-primary text-primary-foreground",
+															// SidebarMenuBadge tints its text on hover/when the item is active;
+															// these later variants win over its peer-* base classes.
+															"peer-hover/menu-button:text-primary-foreground peer-data-active/menu-button:text-primary-foreground",
+														)}
 														aria-label={i18n._({ id: "Pending approvals" })}
 													>
 														{pending > 99 ? "99+" : pending}
