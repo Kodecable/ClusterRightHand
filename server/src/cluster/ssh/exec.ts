@@ -108,8 +108,9 @@ export function probeShells(session: SshSession, timeoutMs = 10_000): Promise<Ss
 /**
  * The remote command line. sshd starts every command as a session leader, so the shell's pid is also its
  * process group id; `exec` keeps that pid through env and the wrapper, which reports it on stderr's first
- * line so that cancel and timeout can signal the whole group. (setsid(1) would fork here, because the
- * caller already leads its group, and the exit status would be lost.)
+ * line so that cancel and timeout can signal the whole group, then merges stderr into stdout so the task
+ * has one output stream (D114). (setsid(1) would fork here, because the caller already leads its group,
+ * and the exit status would be lost.)
  *
  * sh is the shell the connection's probe found: `shell` commands run on it, while authorization and
  * display keep rendering them as /bin/sh -c (doc/execution-plane.md#执行). LANG and LC_ALL are always
@@ -133,7 +134,9 @@ export function buildCommand(spec: ExecSpec, sh = "/bin/sh"): string {
 			if (!ENV_NAME.test(k)) throw new SshExecError("invalid_spec", `invalid environment variable name ${k}`);
 			return shellQuote(`${k}=${v}`);
 		});
-	const wrapper = `printf 'crh-pgid:%s\\n' "$$" >&2; exec "$@"`;
+	// The pid goes to stderr first; `exec 2>&1` then merges the rest into stdout, so the task has one
+	// output stream and crhs never merges two (D114, doc/execution-plane.md#执行).
+	const wrapper = `printf 'crh-pgid:%s\\n' "$$" >&2; exec 2>&1; exec "$@"`;
 	return [
 		`cd ${shellQuote(cwd)} || exit 127;`,
 		"exec env -- LANG=C.UTF-8 LC_ALL=C.UTF-8",

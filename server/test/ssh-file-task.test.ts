@@ -118,6 +118,7 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 		mode: 0,
 		owner: "",
 		group: "",
+		createParentDirs: false,
 		...extra,
 	});
 	const write = (path: string, content: string, extra: object = {}) =>
@@ -187,6 +188,34 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 		const content = "x".repeat(1_000_000);
 		await write(p("large"), content);
 		expect((await exec(`wc -c < ${p("large")}`)).trim()).toBe("1000000");
+	});
+
+	it("creates missing parent directories with createParentDirs", async () => {
+		const file = p("a/b/c/f");
+		const out = await write(file, "hello", { createParentDirs: true });
+		expect(out).toEqual({ kind: "file.write", bytes: 5, created: true });
+		expect(await cat("a/b/c/f")).toBe("hello");
+		// New directories are 0755 before the remote umask, like mkdir -p (D114).
+		expect(await modeOf("a")).toBe("755");
+		expect(await modeOf("a/b")).toBe("755");
+		expect(await modeOf("a/b/c")).toBe("755");
+		await noTemps();
+	});
+
+	it("keeps an existing parent directory's mode", async () => {
+		await exec(`mkdir -m 700 ${p("keep")}`);
+		await write(p("keep/deep/f"), "x", { createParentDirs: true });
+		expect(await cat("keep/deep/f")).toBe("x");
+		expect(await modeOf("keep")).toBe("700");
+	});
+
+	it("still reports a missing parent without createParentDirs", async () => {
+		expect(await code(write(p("missing/deep/f"), "x"))).toBe("not_found");
+	});
+
+	it("refuses a parent path that is a file", async () => {
+		await put("plain", "x");
+		expect(await code(write(p("plain/f"), "x", { createParentDirs: true }))).toBe("not_found");
 	});
 
 	it("uses an explicit mode", async () => {

@@ -771,6 +771,7 @@ describe("user authorizations", () => {
 			mode: 0,
 			owner: "",
 			group: "",
+			createParentDirs: false,
 		};
 		await seedReusable({
 			nodes: [node.id],

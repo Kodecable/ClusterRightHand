@@ -77,7 +77,7 @@ func TestLocalApprovalFlow(t *testing.T) {
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
 	}
-	if got := forward.stdout(); got != "approved\n" {
+	if got := forward.output(); got != "approved\n" {
 		t.Fatalf("stdout = %q", got)
 	}
 	// The approval was consumed: nothing is pending any more.

@@ -141,7 +141,7 @@ func TestExecUsesConstructedEnvironment(t *testing.T) {
 	t.Setenv("CRH_PARENT_ONLY", "leak")
 	t.Setenv("CRHA_TASK_LEAK", "1")
 	environment := testEnvironment()
-	res, out, _ := runExec(t, context.Background(), &protocol.ExecSpec{
+	res, out := runExec(t, context.Background(), &protocol.ExecSpec{
 		Command: protocol.Command{Kind: protocol.CommandArgv, Argv: []string{"/usr/bin/env"}},
 	}, "", ExecOptions{Env: environment})
 	if code(res) != 0 {
@@ -179,17 +179,17 @@ func TestShellRunsOnDiscoveredShell(t *testing.T) {
 	}
 	environment := testEnvironment()
 	environment.Shell = sh
-	res, out, errOut := runExec(t, context.Background(), &protocol.ExecSpec{
+	res, out := runExec(t, context.Background(), &protocol.ExecSpec{
 		Command: protocol.Command{Kind: protocol.CommandShell, Shell: "exit 0"},
 	}, "", ExecOptions{Env: environment})
-	if code(res) != 0 || errOut != "" {
-		t.Fatalf("%+v stderr %q", res, errOut)
+	if code(res) != 0 || out != "ran-on:"+sh {
+		t.Fatalf("%+v", res)
 	}
 	if out != "ran-on:"+sh {
-		t.Fatalf("stdout = %q, want the discovered shell %q", out, sh)
+		t.Fatalf("output = %q, want the discovered shell %q", out, sh)
 	}
 	// The task's SHELL is the same shell.
-	res, out, _ = runExec(t, context.Background(), &protocol.ExecSpec{
+	res, out = runExec(t, context.Background(), &protocol.ExecSpec{
 		Command: protocol.Command{Kind: protocol.CommandArgv, Argv: []string{"/usr/bin/env"}},
 	}, "", ExecOptions{Env: environment})
 	if code(res) != 0 || !slices.Contains(strings.Split(out, "\n"), "SHELL="+sh) {
@@ -200,12 +200,12 @@ func TestShellRunsOnDiscoveredShell(t *testing.T) {
 func TestExecPrivilegedEnv(t *testing.T) {
 	// The privileged environment resolves the root account when no environment was passed; on any
 	// normal Linux that works and the task sees root's identity and the fixed PATH.
-	res, out, errOut := runExec(t, context.Background(), &protocol.ExecSpec{
+	res, out := runExec(t, context.Background(), &protocol.ExecSpec{
 		Command: protocol.Command{Kind: protocol.CommandArgv, Argv: []string{"/usr/bin/env"}},
 		Env:     map[string]string{"PATH": "/tmp/x"},
 	}, "", ExecOptions{Privileged: true})
 	if code(res) != 0 {
-		t.Fatalf("%+v stderr %q", res, errOut)
+		t.Fatalf("%+v", res)
 	}
 	got := map[string]string{}
 	for _, line := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {

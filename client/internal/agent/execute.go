@@ -104,8 +104,7 @@ func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
 		q.Discard() // unblocks a reader the executor left behind
 	}
 	t.output.Close()
-	exit.StdoutEnd = protocol.Uint(t.output.End(protocol.StreamStdout))
-	exit.StderrEnd = protocol.Uint(t.output.End(protocol.StreamStderr))
+	exit.OutputEnd = protocol.Uint(t.output.End())
 	exit.OutputFile = protocol.CleanText(t.output.Path())
 	exit.OutputLines = protocol.Uint(t.output.Lines())
 

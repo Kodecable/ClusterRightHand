@@ -91,22 +91,21 @@ export interface TaskView {
 	timeoutMs: number | null;
 	errorCode: string | null;
 	errorMessage: string | null;
-	stdoutBytes: number;
-	stderrBytes: number;
-	stdoutHead: string;
+	/** Bytes of the single output stream (D114). */
+	outputBytes: number;
+	/** The kept head of the output stream; the batch `text` mode keeps only a tail, so this is "". */
+	outputHead: string;
 	/**
-	 * For `text` mode this is the combined stdout/stderr tail in arrival order (the only output kept);
-	 * the other head/tail fields are "" then. A trailing newline ends the last line.
+	 * The kept tail of the output stream: a single task's or a batch `text` node's tail. A trailing
+	 * newline ends the last line.
 	 */
-	stdoutTail: string;
-	stderrHead: string;
-	stderrTail: string;
-	/** A single task's merged stdout+stderr tail in arrival order (D112); "" for the batch modes. */
 	outputTail: string;
-	/** Lines of the merged tail, counted by newline characters; a last line without one counts. */
+	/** Lines of the kept tail, counted by newline characters; a last line without one counts. */
 	outputTailLines: number;
-	/** Total lines of the merged output; null until crha reports it in task.exit (or an SSH task counts it). */
+	/** Total lines of the output; null until crha reports it in task.exit (or an SSH task counts it). */
 	outputLines: number | null;
+	/** crhs's own note about the task (the SSH privileged notice); it is not part of the output (D114). */
+	notice: string | null;
 	/** The task's output budget; null means the default for its mode (D112). */
 	maxLines: number | null;
 	maxBytes: number | null;

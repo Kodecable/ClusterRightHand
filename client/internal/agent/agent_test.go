@@ -399,8 +399,8 @@ func TestBatchOutputModes(t *testing.T) {
 			if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 				t.Fatalf("task.exit outcome = %+v, want code 0", exit.Outcome)
 			}
-			if exit.StdoutEnd != 3 || exit.StderrEnd != 4 {
-				t.Fatalf("ends = %d/%d, want 3/4", exit.StdoutEnd, exit.StderrEnd)
+			if exit.OutputEnd != 7 {
+				t.Fatalf("output_end = %d, want 7", exit.OutputEnd)
 			}
 			// "out" and "oops" have no newline: one merged line, in every mode and whether or not
 			// the output was spilled (doc/protocol.md TaskExit).
@@ -421,7 +421,7 @@ func TestBatchOutputModes(t *testing.T) {
 					t.Fatal(err)
 				}
 				if len(data) != 7 || !strings.Contains(string(data), "out") || !strings.Contains(string(data), "oops") {
-					t.Fatalf("output file = %q, want stdout and stderr interleaved", data)
+					t.Fatalf("output file = %q, want stdout and stderr in write order", data)
 				}
 			}
 			entries, err := os.ReadDir(dir)
@@ -452,8 +452,8 @@ func TestBatchOutputModes(t *testing.T) {
 			for _, st := range hello.Tasks {
 				if st.TaskID == id {
 					found = true
-					if st.StdoutEnd != 3 || st.StderrEnd != 4 {
-						t.Fatalf("hello ends = %d/%d, want 3/4", st.StdoutEnd, st.StderrEnd)
+					if st.OutputEnd != 7 {
+						t.Fatalf("hello output_end = %d, want 7", st.OutputEnd)
 					}
 				}
 			}
@@ -465,7 +465,7 @@ func TestBatchOutputModes(t *testing.T) {
 }
 
 // TestTaskExitCarriesFileResult covers a file task that runs on the crha itself: its structured
-// result travels in task.exit, and its output streams stay empty (doc/protocol.md TaskResult).
+// result travels in task.exit, and its output stays empty (doc/protocol.md TaskResult).
 func TestTaskExitCarriesFileResult(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "f.txt")
 	if err := os.WriteFile(path, []byte("abc"), 0o644); err != nil {
@@ -531,9 +531,9 @@ func TestTaskExitCarriesFileResult(t *testing.T) {
 	if st := exit.Result.FileStat; st.Path != path || st.Size != 3 || st.Type != "file" {
 		t.Fatalf("file.stat result = %+v", st)
 	}
-	// The stat carries no stdout, and nothing at all was written to stderr.
-	if exit.StdoutEnd != 0 || exit.StderrEnd != 0 {
-		t.Fatalf("ends = %d/%d, want 0/0", exit.StdoutEnd, exit.StderrEnd)
+	// The stat writes nothing at all to the task's output.
+	if exit.OutputEnd != 0 {
+		t.Fatalf("output_end = %d, want 0", exit.OutputEnd)
 	}
 	for _, frame := range log.snapshot() {
 		if frame == "event task.output" {

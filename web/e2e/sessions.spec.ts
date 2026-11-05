@@ -67,7 +67,7 @@ test.describe("with a node", () => {
 		await card.getByTestId("tool-toggle").click();
 		await expect(card).toContainText("echo from-agent");
 		await expect(card).toContainText("exited");
-		await expect(card).toContainText("stdout");
+		await expect(card).toContainText("output");
 		await expect(page.getByTestId("transcript-scroller")).toContainText("The command printed from-agent.");
 	});
 

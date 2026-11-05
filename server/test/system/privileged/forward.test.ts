@@ -138,7 +138,7 @@ describePodman("privileged system: forward", () => {
 			const t = await task({ kind: "exec", argv: ["id", "-u"] });
 			const done = await node.taskState(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: true });
-			expect(done.stdoutHead).toBe("0\n");
+			expect(done.outputHead).toBe("0\n");
 			expect(done.authorization?.dispatchedPath).toBe("crhs");
 			expect(done.authorization?.payloadId).toMatch(/^[0-9a-f]{64}$/);
 		}, 60_000);
@@ -155,7 +155,7 @@ describePodman("privileged system: forward", () => {
 			const read = await task({ kind: "file.read", path: "/root/crh-forward.txt" });
 			const r = await node.taskState(read.id);
 			expect(r.state).toBe("exited");
-			expect(r.stdoutHead + r.stdoutTail).toContain("signed-content");
+			expect(r.outputHead + r.outputTail).toContain("signed-content");
 			// uid 998 cannot read it, so the content really came from the root executor.
 			const denied = await node.execAs(998, ["/bin/cat", "/root/crh-forward.txt"]);
 			expect(denied.code).not.toBe(0);
@@ -165,14 +165,14 @@ describePodman("privileged system: forward", () => {
 			const t = await crhs.runTask(node.nodeId, { kind: "exec", argv: ["id", "-u"] });
 			const done = await node.taskState(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: false });
-			expect(done.stdoutHead).toBe("998\n");
+			expect(done.outputHead).toBe("998\n");
 		}, 60_000);
 
 		it("gives an ordinary task the crha account's identity, not the container's environment", async () => {
 			const t = await crhs.runTask(node.nodeId, { kind: "exec", argv: ["/usr/bin/env"] });
 			const done = await node.taskState(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: false });
-			const env = parseEnv(done.stdoutHead + done.stdoutTail);
+			const env = parseEnv(done.outputHead + done.outputTail);
 			expect(env).toMatchObject({
 				HOME: "/home/crha",
 				USER: "crha",
@@ -188,7 +188,7 @@ describePodman("privileged system: forward", () => {
 			const t = await task({ kind: "exec", argv: ["/usr/bin/env"] });
 			const done = await node.taskState(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: true });
-			const env = parseEnv(done.stdoutHead + done.stdoutTail);
+			const env = parseEnv(done.outputHead + done.outputTail);
 			expect(env).toMatchObject({
 				HOME: "/root",
 				USER: "root",
@@ -212,7 +212,7 @@ describePodman("privileged system: forward", () => {
 			const t = await task({ kind: "exec", argv: ["id", "-u"] });
 			await waitAwaiting(t.id);
 			const waiting = await crhs.getTask(t.id);
-			expect(waiting.stdoutBytes).toBe(0);
+			expect(waiting.outputBytes).toBe(0);
 			expect(waiting.authorization?.dispatchedPath).toBeNull();
 			const paths = (waiting.authorization?.plan.paths ?? []).map((p: { path: string }) => p.path);
 			expect(paths).toEqual(["user"]);
@@ -227,7 +227,7 @@ describePodman("privileged system: forward", () => {
 			const submitted = await authorizeWithCli(node, t.id);
 			const done = await waitTerminal(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
-			expect(done.stdoutHead).toBe("0\n");
+			expect(done.outputHead).toBe("0\n");
 			expect(done.authorization?.dispatchedPath).toBe("user");
 			expect(done.authorization?.payloadId).toBe(submitted.id);
 		}, 60_000);
@@ -266,7 +266,7 @@ describePodman("privileged system: forward", () => {
 			const submitted = await authorizeWithCli(node, t.id);
 			const done = await waitTerminal(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
-			expect(done.stdoutHead).toBe("0\n");
+			expect(done.outputHead).toBe("0\n");
 			expect(done.authorization?.dispatchedPath).toBe("user");
 			// Both signatures are stored on the same payload (doc/privilege.md 联署).
 			const row = await crhs.db
@@ -337,7 +337,7 @@ describePodman("privileged system: forward", () => {
 			expect(approved.code).toBe(0);
 			const done = await waitTerminal(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
-			expect(done.stdoutHead).toBe("0\n");
+			expect(done.outputHead).toBe("0\n");
 			expect(done.authorization?.dispatchedPath).toBe("local");
 		}, 60_000);
 
@@ -429,7 +429,7 @@ describePodman("privileged system: forward", () => {
 			expect(approved.code).toBe(0);
 			const done = await waitTerminal(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
-			expect(done.stdoutHead).toBe("0\n");
+			expect(done.outputHead).toBe("0\n");
 			expect(done.authorization?.attempt).toBe(2);
 			expect(done.authorization?.dispatchedPath).toBe("local");
 		}, 90_000);
@@ -451,7 +451,7 @@ describePodman("privileged system: forward", () => {
 			const submitted = await authorizeWithCli(node, t.id);
 			const done = await waitTerminal(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
-			expect(done.stdoutHead.trim()).toBe("1");
+			expect(done.outputHead.trim()).toBe("1");
 			const used = await node.exec(["/bin/cat", "/var/lib/crha/privileged/used"]);
 			expect(used.code).toBe(0);
 			expect(used.stdout).toContain(t.id);
@@ -528,7 +528,7 @@ describePodman("privileged system: forward", () => {
 			// The executor opens with openat2(RESOLVE_NO_SYMLINKS); nothing is read.
 			expect(done.state).toBe("failed");
 			expect(done.errorCode).toBe("symlink_not_allowed");
-			expect(done.stdoutBytes).toBe(0);
+			expect(done.outputBytes).toBe(0);
 			expect(done.errorMessage?.toLowerCase()).toContain("symbolic link");
 		}, 60_000);
 
@@ -536,7 +536,7 @@ describePodman("privileged system: forward", () => {
 			const t = await task({ kind: "file.read", path: "/etc/../etc/hostname" });
 			const done = await waitTerminal(t.id);
 			expect(done.state).not.toBe("exited");
-			expect(done.stdoutBytes).toBe(0);
+			expect(done.outputBytes).toBe(0);
 		}, 60_000);
 
 		it("does not let a shell command hide behind an exec prefix rule", async () => {
@@ -565,7 +565,7 @@ describePodman("privileged system: forward", () => {
 			await authorizeWithCli(node, t.id);
 			const done = await waitTerminal(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
-			const env = parseEnv(done.stdoutHead + done.stdoutTail);
+			const env = parseEnv(done.outputHead + done.outputTail);
 			expect(env.HOME).toBe("/tmp/crh-home");
 			expect(env.PATH).toBe(FIXED_PATH);
 		}, 120_000);
@@ -582,7 +582,7 @@ describePodman("privileged system: forward", () => {
 			await authorizeWithCli(node, env.id);
 			const envDone = await waitTerminal(env.id);
 			expect(envDone).toMatchObject({ state: "exited", exitCode: 0 });
-			expect(envDone.stdoutHead + envDone.stdoutTail).toContain("PRIV_SAFE=present");
+			expect(envDone.outputHead + envDone.outputTail).toContain("PRIV_SAFE=present");
 		}, 120_000);
 	});
 
@@ -609,7 +609,7 @@ describePodman("privileged system: forward", () => {
 			await node.setTrust([userEntry(), crhsEntry()]);
 			const done = await waitTerminal(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
-			expect(done.stdoutHead).toBe("0\n");
+			expect(done.outputHead).toBe("0\n");
 			expect(done.authorization?.dispatchedPath).toBe("crhs");
 			expect(done.authorization?.payloadId).not.toBe(before.id);
 		}, 60_000);

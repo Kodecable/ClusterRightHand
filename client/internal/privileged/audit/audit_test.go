@@ -36,7 +36,7 @@ func TestLogWritesFileAndMirror(t *testing.T) {
 		},
 		{
 			Event: "task.finished", TaskID: "t1", Outcome: "exit 0", DurationMS: 12,
-			StdoutEnd: 3, StderrEnd: 0,
+			OutputEnd: 3,
 		},
 		{Event: "local.approve", TaskID: "t3", Attempt: 2, UID: &uid},
 		{Event: "config.reloaded", Detail: "digest changed"},

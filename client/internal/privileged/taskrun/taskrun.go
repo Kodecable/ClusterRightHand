@@ -30,10 +30,10 @@ var (
 	errInputTimeout   = errors.New("the task timed out before its input was complete")
 )
 
-// Emit sends one task.output chunk. The offset is the stream offset of the first byte of
-// data. An error means nobody is left to receive the output; the task keeps running and the
-// caller records its outcome in the local log.
-type Emit func(stream protocol.Stream, offset uint64, data []byte) error
+// Emit sends one task.output chunk of the task's single output stream. The offset is the
+// stream offset of the first byte of data. An error means nobody is left to receive the
+// output; the task keeps running and the caller records its outcome in the local log.
+type Emit func(offset uint64, data []byte) error
 
 // Task is one accepted privileged task. Its methods are safe for concurrent use.
 type Task struct {
@@ -159,8 +159,7 @@ func (t *Task) execute() *protocol.TaskExit {
 		Outcome:   res.Outcome(),
 		TimedOut:  res.TimedOut,
 		Cancelled: res.Cancelled,
-		StdoutEnd: protocol.Uint(t.sink.End(protocol.StreamStdout)),
-		StderrEnd: protocol.Uint(t.sink.End(protocol.StreamStderr)),
+		OutputEnd: protocol.Uint(t.sink.End()),
 		Result:    res.TaskResult,
 	}
 	t.mu.Lock()
@@ -372,8 +371,7 @@ func (t *Task) Status(q protocol.TaskQuery) protocol.TaskStatus {
 	return protocol.TaskStatus{
 		TaskID:    t.id,
 		State:     state,
-		StdoutEnd: protocol.Uint(t.sink.End(protocol.StreamStdout)),
-		StderrEnd: protocol.Uint(t.sink.End(protocol.StreamStderr)),
+		OutputEnd: protocol.Uint(t.sink.End()),
 	}
 }
 
@@ -419,7 +417,7 @@ func OutcomeText(o protocol.Outcome) string {
 type streamSink struct {
 	mu     sync.Mutex
 	emit   Emit
-	offs   [executor.StreamSlots]uint64
+	off    uint64
 	closed bool
 }
 
@@ -428,35 +426,31 @@ func newStreamSink(emit Emit) *streamSink {
 }
 
 // Writer implements executor.Sink.
-func (s *streamSink) Writer(stream protocol.Stream) io.Writer { return sinkWriter{s, stream} }
+func (s *streamSink) Writer() io.Writer { return sinkWriter{s} }
 
-type sinkWriter struct {
-	s      *streamSink
-	stream protocol.Stream
-}
+type sinkWriter struct{ s *streamSink }
 
 func (w sinkWriter) Write(p []byte) (int, error) {
-	w.s.write(w.stream, p)
+	w.s.write(p)
 	return len(p), nil
 }
 
-func (s *streamSink) write(stream protocol.Stream, p []byte) {
+func (s *streamSink) write(p []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || len(p) == 0 {
 		return
 	}
-	idx := executor.StreamIndex(stream)
 	for len(p) > 0 {
 		n := min(len(p), OutputChunk)
-		off := s.offs[idx]
-		if err := s.emit(stream, off, p[:n]); err != nil {
+		off := s.off
+		if err := s.emit(off, p[:n]); err != nil {
 			// Nobody is left to receive the output. Stop emitting and let the task run to its
 			// end; the local log still records the outcome.
 			s.closed = true
 			return
 		}
-		s.offs[idx] += uint64(n)
+		s.off += uint64(n)
 		p = p[n:]
 	}
 }
@@ -469,9 +463,9 @@ func (s *streamSink) Close() {
 	s.closed = true
 }
 
-// End returns how many bytes of a stream were emitted.
-func (s *streamSink) End(stream protocol.Stream) uint64 {
+// End returns how many bytes of the output were emitted.
+func (s *streamSink) End() uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.offs[executor.StreamIndex(stream)]
+	return s.off
 }

@@ -60,8 +60,8 @@ export function jsonResult(value: unknown, options: ResultOptions = {}): ToolRes
 }
 
 /**
- * An expected tool error in the shape of the tool's renderer: a text tool writes `error <code>: <message>`
- * in its note block, a JSON tool returns `{"error": {"code", "message"}}`.
+ * An expected tool error in the shape of the tool's renderer: a text tool writes `[error <code>: <message>]`
+ * in its note block (D114), a JSON tool returns `{"error": {"code", "message"}}`.
  */
 export function errorResult(
 	output: ToolOutput,
@@ -69,6 +69,6 @@ export function errorResult(
 	message: string,
 	details?: Record<string, unknown>,
 ): ToolResult {
-	if (output === "text") return textResult([{ note: `error ${code}: ${message}` }], { isError: true, details });
+	if (output === "text") return textResult([{ note: `[error ${code}: ${message}]` }], { isError: true, details });
 	return jsonResult({ error: { code, message } }, { isError: true, details });
 }

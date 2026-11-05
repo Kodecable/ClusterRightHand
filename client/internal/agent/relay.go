@@ -130,10 +130,10 @@ func (a *Agent) relayOutput(t *task, out *protocol.TaskOutput) error {
 		// into a closed spool.
 		return nil
 	}
-	if end := t.output.End(out.Stream); uint64(out.Offset) != end {
-		return fmt.Errorf("relayed %s output at offset %d, want %d", out.Stream, out.Offset, end)
+	if end := t.output.End(); uint64(out.Offset) != end {
+		return fmt.Errorf("relayed output at offset %d, want %d", out.Offset, end)
 	}
-	_, _ = t.output.Writer(out.Stream).Write(out.Data)
+	_, _ = t.output.Writer().Write(out.Data)
 	return nil
 }
 
@@ -144,8 +144,7 @@ func (a *Agent) relayOutput(t *task, out *protocol.TaskOutput) error {
 func (a *Agent) finishRelayed(t *task, exit *protocol.TaskExit) {
 	t.finishOnce.Do(func() {
 		t.output.Close()
-		exit.StdoutEnd = protocol.Uint(t.output.End(protocol.StreamStdout))
-		exit.StderrEnd = protocol.Uint(t.output.End(protocol.StreamStderr))
+		exit.OutputEnd = protocol.Uint(t.output.End())
 		exit.OutputFile = protocol.CleanText(t.output.Path())
 		exit.OutputLines = protocol.Uint(t.output.Lines())
 

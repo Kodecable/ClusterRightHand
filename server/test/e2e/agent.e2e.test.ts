@@ -83,23 +83,23 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 			expect(good.code).toBe(0);
 		}, 60_000);
 
-		it("exec: exit code, stdout, stderr, stdin, env, cwd", () =>
+		it("exec: exit code, merged output, stdin, env, cwd", () =>
 			withLog(async () => {
 				const t = await run({ kind: "exec", shell: "echo hello; echo oops >&2; exit 3" });
 				expect(t).toMatchObject({ state: "exited", exitCode: 3, signal: null });
-				expect(t.stdoutTail).toBe("hello\n");
-				expect(t.stderrTail).toBe("oops\n");
+				// One stream: stdout and stderr arrive in write order (D114).
+				expect(t.outputTail).toBe("hello\noops\n");
 
 				const stdin = await run({ kind: "exec", argv: ["cat"], stdin: "from stdin" });
 				expect(stdin).toMatchObject({ state: "exited", exitCode: 0 });
-				expect(stdin.stdoutTail).toBe("from stdin");
+				expect(stdin.outputTail).toBe("from stdin");
 
 				const e = await run({ kind: "exec", shell: 'printf %s "$FOO"', env: { FOO: "bar baz" } });
-				expect(e.stdoutTail).toBe("bar baz");
+				expect(e.outputTail).toBe("bar baz");
 
 				const cwd = await mkdtemp(join(tmp, "cwd-"));
 				const c = await run({ kind: "exec", argv: ["pwd"], cwd });
-				expect(c.stdoutTail.trim()).toBe(cwd);
+				expect(c.outputTail.trim()).toBe(cwd);
 			}));
 
 		it(
@@ -131,10 +131,10 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 		it("spills large output to a file on the node", () =>
 			withLog(async () => {
 				const t = await run({ kind: "exec", shell: "seq 1 30000" }, 30_000);
-				expect(t).toMatchObject({ state: "exited", exitCode: 0, stdoutBytes: 168894 });
+				expect(t).toMatchObject({ state: "exited", exitCode: 0, outputBytes: 168894 });
 				expect(t.outputFile).toBeTruthy();
-				expect(t.stdoutHead.startsWith("1\n")).toBe(true);
-				expect(t.stdoutTail.endsWith("30000\n")).toBe(true);
+				expect(t.outputHead.startsWith("1\n")).toBe(true);
+				expect(t.outputTail.endsWith("30000\n")).toBe(true);
 				expect(existsSync(t.outputFile as string)).toBe(true);
 				const expected = `${Array.from({ length: 30000 }, (_, i) => i + 1).join("\n")}\n`;
 				expect(await readFile(t.outputFile as string, "utf8")).toBe(expected);
@@ -158,15 +158,12 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 					state: "exited",
 					exitCode: 0,
 					outputMode: "text",
-					stdoutHead: "",
-					stderrHead: "",
-					stderrTail: "",
+					outputHead: "",
 				});
-				// One combined tail in arrival order, and the byte totals stay per stream.
-				expect(t.stdoutTail).toContain("out");
-				expect(t.stdoutTail).toContain("err");
-				expect(t.stdoutBytes).toBeGreaterThan(0);
-				expect(t.stderrBytes).toBeGreaterThan(0);
+				// One tail in arrival order; text mode keeps no head.
+				expect(t.outputTail).toContain("out");
+				expect(t.outputTail).toContain("err");
+				expect(t.outputBytes).toBeGreaterThan(0);
 				expect(t.outputFile).toBeTruthy();
 
 				const status = await env.crhs.api("/api/task-groups", {
@@ -185,12 +182,10 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 					state: "exited",
 					exitCode: 0,
 					outputMode: "status",
-					stdoutHead: "",
-					stdoutTail: "",
-					stderrHead: "",
-					stderrTail: "",
+					outputHead: "",
+					outputTail: "",
 				});
-				expect(s.stdoutBytes).toBe("hidden\n".length);
+				expect(s.outputBytes).toBe("hidden\n".length);
 				expect(s.outputFile).toBeTruthy();
 				expect(existsSync(s.outputFile as string)).toBe(true);
 			}));
@@ -222,21 +217,21 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 				expect(await readFile(path, "utf8")).toBe("x\nY!\nz\n");
 
 				const read = await run({ kind: "file.read", path });
-				expect(read.stdoutTail).toBe("x\nY!\nz\n");
+				expect(read.outputTail).toBe("x\nY!\nz\n");
 				expect(read.result).toEqual({ kind: "file.read", from: 1, to: 3, eof: true, total: 3, tooLong: false });
 				// The API spec pages by line too: startLine is 1-based, lineCount the number of lines.
 				const part = await run({ kind: "file.read", path, startLine: 2, lineCount: 1 });
-				expect(part.stdoutTail).toBe("Y!\n");
+				expect(part.outputTail).toBe("Y!\n");
 
 				// A file operation reports its structured result in task.exit, and nothing on stdout
 				// (doc/protocol.md TaskResult).
 				const stat = await run({ kind: "file.stat", path });
 				expect(stat.state).toBe("exited");
 				expect(stat.result).toMatchObject({ kind: "file.stat", path, type: "file", size: 7 });
-				expect(stat.stdoutTail).toBe("");
+				expect(stat.outputTail).toBe("");
 				const list = await run({ kind: "file.list", path: dir });
 				expect(list.state).toBe("exited");
-				expect(list.stdoutTail).toBe("");
+				expect(list.outputTail).toBe("");
 				expect(list.result).toMatchObject({
 					kind: "file.list",
 					truncated: false,
@@ -278,7 +273,7 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 				const done = await env.crhs.waitTask(t.id, 30_000);
 				expect(done.state).toBe("exited");
 				expect(done.exitCode).toBe(0);
-				expect(done.stdoutTail).toBe(`${[1, 2, 3, 4, 5, 6, 7, 8].map((i) => `line${i}`).join("\n")}\n`);
+				expect(done.outputTail).toBe(`${[1, 2, 3, 4, 5, 6, 7, 8].map((i) => `line${i}`).join("\n")}\n`);
 			}));
 
 		it("crha crash mid-task: task becomes unknown(executor_restarted)", () =>

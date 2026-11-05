@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -26,7 +27,7 @@ func run(t *testing.T, kind any, input io.Reader) (*protocol.TaskResult, error) 
 	return result, err
 }
 
-// runFile executes one file task and returns its structured result, its stdout and the error.
+// runFile executes one file task and returns its structured result, its output and the error.
 func runFile(t *testing.T, kind any, input io.Reader) (*protocol.TaskResult, string, error) {
 	t.Helper()
 	spec := &protocol.TaskSpec{}
@@ -396,27 +397,24 @@ func TestRunTaskCarriesFileResult(t *testing.T) {
 	if res.TaskResult == nil || res.TaskResult.Kind != protocol.TaskResultFileRead || res.TaskResult.FileRead == nil {
 		t.Fatalf("result: %+v", res.TaskResult)
 	}
-	if page := readAll(t, out, stdout, 0); page != "one\ntwo\n" {
-		t.Fatalf("stdout = %q, want the page and nothing else", page)
-	}
-	if meta := readAll(t, out, stderr, 0); meta != "" {
-		t.Fatalf("stderr = %q, want the result out of the output streams", meta)
+	if page := readAll(t, out, 0); page != "one\ntwo\n" {
+		t.Fatalf("output = %q, want the page and nothing else", page)
 	}
 
 	res, out = runTask(t, &protocol.TaskSpec{Kind: protocol.TaskSpecFileStat, FileStat: &protocol.FileStatSpec{Path: p}}, nil)
 	if res.TaskResult == nil || res.TaskResult.FileStat == nil || res.TaskResult.FileStat.Size != 8 {
 		t.Fatalf("result: %+v", res.TaskResult)
 	}
-	if got := readAll(t, out, stdout, 0); got != "" {
-		t.Fatalf("stdout = %q, want empty", got)
+	if got := readAll(t, out, 0); got != "" {
+		t.Fatalf("output = %q, want empty", got)
 	}
 
 	res, out = runTask(t, &protocol.TaskSpec{Kind: protocol.TaskSpecFileList, FileList: &protocol.FileListSpec{Path: dir}}, nil)
 	if res.TaskResult == nil || res.TaskResult.FileList == nil || len(res.TaskResult.FileList.Entries) != 1 {
 		t.Fatalf("result: %+v", res.TaskResult)
 	}
-	if got := readAll(t, out, stdout, 0); got != "" {
-		t.Fatalf("stdout = %q, want empty", got)
+	if got := readAll(t, out, 0); got != "" {
+		t.Fatalf("output = %q, want empty", got)
 	}
 
 	res, out = runTask(t, &protocol.TaskSpec{
@@ -425,8 +423,8 @@ func TestRunTaskCarriesFileResult(t *testing.T) {
 	if res.TaskResult == nil || res.TaskResult.FileWrite == nil || res.TaskResult.FileWrite.Bytes != 3 {
 		t.Fatalf("result: %+v", res.TaskResult)
 	}
-	if got := readAll(t, out, stdout, 0); got != "" {
-		t.Fatalf("stdout = %q, want empty", got)
+	if got := readAll(t, out, 0); got != "" {
+		t.Fatalf("output = %q, want empty", got)
 	}
 
 	editSpec := &protocol.FileEditSpec{Path: filepath.Join(dir, "written"), Edits: []protocol.Edit{{OldText: "abc", NewText: "xyz"}}}
@@ -434,8 +432,8 @@ func TestRunTaskCarriesFileResult(t *testing.T) {
 	if res.TaskResult == nil || res.TaskResult.FileEdit == nil || res.TaskResult.FileEdit.Replacements != 1 {
 		t.Fatalf("result: %+v", res.TaskResult)
 	}
-	if got := readAll(t, out, stdout, 0); got != "" {
-		t.Fatalf("stdout = %q, want empty", got)
+	if got := readAll(t, out, 0); got != "" {
+		t.Fatalf("output = %q, want empty", got)
 	}
 
 	// A task that failed reports no result at all.
@@ -443,8 +441,8 @@ func TestRunTaskCarriesFileResult(t *testing.T) {
 	if res.Err == nil || res.TaskResult != nil {
 		t.Fatalf("failed task: %+v", res)
 	}
-	if got := readAll(t, out, stdout, 0); got != "" {
-		t.Fatalf("stdout = %q, want empty", got)
+	if got := readAll(t, out, 0); got != "" {
+		t.Fatalf("output = %q, want empty", got)
 	}
 }
 
@@ -571,6 +569,112 @@ func TestFileWriteCreate(t *testing.T) {
 		t.Fatalf("mode %v", fi.Mode())
 	}
 	noTemps(t, dir)
+}
+
+func TestFileWriteCreateParentDirs(t *testing.T) {
+	dir := t.TempDir()
+	// A known umask makes the 0755 assertion meaningful; restore it afterwards.
+	old := syscall.Umask(0o022)
+	t.Cleanup(func() { syscall.Umask(old) })
+	p := filepath.Join(dir, "a", "b", "c", "f")
+	s := writeSpec(p, "hello")
+	s.CreateParentDirs = true
+	out, err := run(t, s, strings.NewReader("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := writeResult(t, out); w.Bytes != 5 || !w.Created {
+		t.Fatalf("result: %+v", w)
+	}
+	if readFileStr(t, p) != "hello" {
+		t.Fatal("content")
+	}
+	for _, d := range []string{"a", filepath.Join("a", "b"), filepath.Join("a", "b", "c")} {
+		fi, err := os.Stat(filepath.Join(dir, d))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o755 {
+			t.Fatalf("%s mode = %v, want 0755 before the umask", d, fi.Mode())
+		}
+	}
+	noTemps(t, filepath.Join(dir, "a", "b", "c"))
+}
+
+func TestFileWriteCreateParentDirsKeepsExisting(t *testing.T) {
+	dir := t.TempDir()
+	// An existing directory keeps its own mode; only the missing ones are created.
+	if err := os.Mkdir(filepath.Join(dir, "a"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "a", "b", "f")
+	s := writeSpec(p, "x")
+	s.CreateParentDirs = true
+	if _, err := run(t, s, strings.NewReader("x")); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(filepath.Join(dir, "a")); fi.Mode().Perm() != 0o700 {
+		t.Fatalf("existing dir mode = %v, want unchanged 0700", fi.Mode())
+	}
+	if readFileStr(t, p) != "x" {
+		t.Fatal("content")
+	}
+}
+
+func TestFileWriteCreateParentDirsOwner(t *testing.T) {
+	cur, err := user.Current()
+	if err != nil || cur.Username == "" {
+		t.Skip("no current user")
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "a", "b", "f")
+	s := writeSpec(p, "x")
+	s.CreateParentDirs = true
+	s.Owner = cur.Username
+	if g, err := user.LookupGroupId(cur.Gid); err == nil {
+		s.Group = g.Name
+	}
+	if _, err := run(t, s, strings.NewReader("x")); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"a", filepath.Join("a", "b")} {
+		var st syscall.Stat_t
+		if err := syscall.Stat(filepath.Join(dir, d), &st); err != nil {
+			t.Fatal(err)
+		}
+		if int(st.Uid) != os.Getuid() || int(st.Gid) != os.Getgid() {
+			t.Fatalf("%s owner = %d:%d, want %d:%d", d, st.Uid, st.Gid, os.Getuid(), os.Getgid())
+		}
+	}
+}
+
+func TestFileWriteCreateParentDirsThroughSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "real", "nested", "f")
+	if err := os.MkdirAll(filepath.Dir(filepath.Dir(target)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	linkAt(t, target, link)
+	s := writeSpec(link, "x")
+	s.CreateParentDirs = true
+	if _, err := run(t, s, strings.NewReader("x")); err != nil {
+		t.Fatal(err)
+	}
+	if readFileStr(t, target) != "x" {
+		t.Fatal("content")
+	}
+	wantSymlink(t, link)
+}
+
+func TestFileWriteCreateParentDirsNotADirectory(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "file")
+	writeFile(t, file, "x", 0o644)
+	s := writeSpec(filepath.Join(file, "f"), "x")
+	s.CreateParentDirs = true
+	_, err := run(t, s, strings.NewReader("x"))
+	wantCode(t, err, "not_found")
 }
 
 func TestFileWriteExplicitMode(t *testing.T) {

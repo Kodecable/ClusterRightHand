@@ -425,7 +425,7 @@ func expectedFixtureValue(id string) (any, bool) {
 			Kind: FrameRequest, ID: 1, Name: CmdHello,
 			Body: Hello{
 				Tasks: []TaskStatus{
-					{TaskID: "t-run", State: TaskRunning, StdoutEnd: 10, StderrEnd: 2},
+					{TaskID: "t-run", State: TaskRunning, OutputEnd: 10},
 				},
 				TaskKinds:      []string{"exec", "file.read"},
 				PrivilegedMode: "disabled",
@@ -434,7 +434,7 @@ func expectedFixtureValue(id string) (any, bool) {
 	case "response.hello":
 		return fixtureFrame{
 			Kind: FrameResponse, ID: 1, Name: CmdHello, OK: true,
-			Body: Welcome{Acks: []OutputAck{{TaskID: "t-run", StdoutOffset: 10, StderrOffset: 2}}},
+			Body: Welcome{Acks: []OutputAck{{TaskID: "t-run", Offset: 10}}},
 		}, true
 	case "request.ping":
 		return fixtureFrame{
@@ -507,12 +507,13 @@ func expectedFixtureValue(id string) (any, bool) {
 				TaskID:  "t-write",
 				Attempt: 1,
 				Spec: TaskSpec{Kind: TaskSpecFileWrite, FileWrite: &FileWriteSpec{
-					Path:      "/tmp/x",
-					Content:   InputRef{Size: 3, SHA256: fixtureHash(0x22)},
-					Overwrite: false,
-					Mode:      0,
-					Owner:     "",
-					Group:     "",
+					Path:             "/tmp/x",
+					Content:          InputRef{Size: 3, SHA256: fixtureHash(0x22)},
+					Overwrite:        false,
+					Mode:             0,
+					Owner:            "",
+					Group:            "",
+					CreateParentDirs: false,
 				}},
 				Authorizations: [][]byte{},
 				Output:         OutputMode{Kind: OutputStatus},
@@ -595,7 +596,7 @@ func expectedFixtureValue(id string) (any, bool) {
 	case "response.task.query":
 		return fixtureFrame{
 			Kind: FrameResponse, ID: 12, Name: CmdTaskQuery, OK: true,
-			Body: TaskStatus{TaskID: "t-exec-argv", State: TaskExited, StdoutEnd: 6, StderrEnd: 0},
+			Body: TaskStatus{TaskID: "t-exec-argv", State: TaskExited, OutputEnd: 6},
 		}, true
 	case "response.error":
 		return fixtureFrame{
@@ -606,7 +607,7 @@ func expectedFixtureValue(id string) (any, bool) {
 	case "event.task.output":
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventTaskOutput,
-			Body: TaskOutput{TaskID: "t-exec-argv", Stream: StreamStdout, Offset: 0, Data: []byte("hello\n")},
+			Body: TaskOutput{TaskID: "t-exec-argv", Offset: 0, Data: []byte("hello\n")},
 		}, true
 	case "event.task.exit.code":
 		return fixtureFrame{
@@ -616,8 +617,7 @@ func expectedFixtureValue(id string) (any, bool) {
 				Outcome:     Outcome{Kind: OutcomeCode, Code: 0},
 				TimedOut:    false,
 				Cancelled:   false,
-				StdoutEnd:   6,
-				StderrEnd:   0,
+				OutputEnd:   6,
 				OutputFile:  "",
 				OutputLines: 1,
 			},
@@ -630,8 +630,7 @@ func expectedFixtureValue(id string) (any, bool) {
 				Outcome:     Outcome{Kind: OutcomeSignal, Signal: "TERM"},
 				TimedOut:    false,
 				Cancelled:   true,
-				StdoutEnd:   3,
-				StderrEnd:   0,
+				OutputEnd:   3,
 				OutputFile:  "",
 				OutputLines: 0,
 			},
@@ -644,8 +643,7 @@ func expectedFixtureValue(id string) (any, bool) {
 				Outcome:     Outcome{Kind: OutcomeError, Error: &Error{Code: "internal_error", Message: "failed"}},
 				TimedOut:    true,
 				Cancelled:   false,
-				StdoutEnd:   0,
-				StderrEnd:   0,
+				OutputEnd:   0,
 				OutputFile:  "/tmp/out",
 				OutputLines: 0,
 			},
@@ -658,8 +656,7 @@ func expectedFixtureValue(id string) (any, bool) {
 				Outcome:     Outcome{Kind: OutcomeError, Error: &Error{Code: "io_error", Message: "\ufeffbom"}},
 				TimedOut:    false,
 				Cancelled:   false,
-				StdoutEnd:   0,
-				StderrEnd:   0,
+				OutputEnd:   0,
 				OutputFile:  "",
 				OutputLines: 0,
 			},
@@ -670,7 +667,7 @@ func expectedFixtureValue(id string) (any, bool) {
 			Body: TaskExit{
 				TaskID:    "t-read",
 				Outcome:   Outcome{Kind: OutcomeCode, Code: 0},
-				StdoutEnd: 8,
+				OutputEnd: 8,
 				Result: &TaskResult{Kind: TaskResultFileRead, FileRead: &FileReadResult{
 					From: 1, To: 2, EOF: true, Total: ptr(Uint(3)),
 				}},
@@ -768,7 +765,7 @@ func expectedFixtureValue(id string) (any, bool) {
 	case "event.task.output.ack":
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventOutputAck,
-			Body: OutputAck{TaskID: "t-exec-argv", StdoutOffset: 6, StderrOffset: 0},
+			Body: OutputAck{TaskID: "t-exec-argv", Offset: 6},
 		}, true
 	case "event.task.exit.ack":
 		return fixtureFrame{

@@ -108,7 +108,7 @@ describe("frames", () => {
 		const oversized: Frame = {
 			kind: "event",
 			name: "task.output",
-			body: { taskId: "t", stream: "stdout", offset: 0, data: new Uint8Array(MAX_FRAME_BYTES) },
+			body: { taskId: "t", offset: 0, data: new Uint8Array(MAX_FRAME_BYTES) },
 		};
 		expect(() => encodeFrame(oversized)).toThrow(ProtocolError);
 		expect(() => decodeFrame(new Uint8Array(MAX_FRAME_BYTES + 1))).toThrow(ProtocolError);

@@ -36,6 +36,13 @@ func fileWrite(ctx context.Context, acc fileAccess, s *protocol.FileWriteSpec, i
 	if err != nil {
 		return nil, err
 	}
+	if s.CreateParentDirs {
+		// mkdir -p semantics: the new directories are 0755 before the umask and, when an owner or
+		// group is requested, belong to the same identity as the file (doc/protocol.md#任务).
+		if err := acc.makeParentDirs(path, uid, gid); err != nil {
+			return nil, err
+		}
+	}
 	t, err := acc.openWrite(path, false)
 	if err != nil {
 		return nil, err

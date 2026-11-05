@@ -191,8 +191,8 @@ function registerActive(core: ClusterCore, conn: NodeConnection, link: NodeLink)
 	peer.onEvent("task.output", (output) => {
 		const live = ownLive(core, conn.nodeId, output.taskId);
 		if (!live) return;
-		// A gap means the client could not resend; keep going, the record shows the byte counts.
-		live.output.append(output.stream, output.offset, output.data);
+		// A gap means the client could not resend; keep going, the record shows the byte count.
+		live.output.append(output.offset, output.data);
 	});
 	peer.onEvent("task.exit", (exit) =>
 		core.trackHandler(core.taskQueue.run(exit.taskId, () => onExit(core, conn, exit))),
@@ -261,22 +261,14 @@ async function onHello(core: ClusterCore, link: NodeLink, hello: Hello): Promise
 		// resending it and charging the group budget a second time. An `unknown` task still accepts a late
 		// result, so it keeps the old behaviour and may resend (doc/execution-plane.md#输出).
 		if (recorded(row.state)) {
-			acks.push({
-				taskId: t.taskId,
-				stdoutOffset: Number(row.stdout_bytes),
-				stderrOffset: Number(row.stderr_bytes),
-			});
+			acks.push({ taskId: t.taskId, offset: Number(row.output_bytes) });
 			continue;
 		}
 		// After a crhs restart the output is gone from memory: start over and let the client resend it all.
 		const live =
 			core.live.get(t.taskId) ??
 			newLive(core, t.taskId, nodeId, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
-		acks.push({
-			taskId: t.taskId,
-			stdoutOffset: live.output.end("stdout"),
-			stderrOffset: live.output.end("stderr"),
-		});
+		acks.push({ taskId: t.taskId, offset: live.output.end });
 	}
 	// The queries must not overtake the welcome, so they start only once it has been sent.
 	const open = await core.db

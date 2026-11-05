@@ -392,7 +392,19 @@ describe("operationOf", () => {
 			[{ kind: "file.read", path, startLine: 1, lineCount: 100 }, "file.read"],
 			[{ kind: "file.stat", path }, "file.read"],
 			[{ kind: "file.list", path, limit: 0 }, "file.read"],
-			[{ kind: "file.write", path, content: empty, overwrite: true, mode: 0, owner: "", group: "" }, "file.write"],
+			[
+				{
+					kind: "file.write",
+					path,
+					content: empty,
+					overwrite: true,
+					mode: 0,
+					owner: "",
+					group: "",
+					createParentDirs: false,
+				},
+				"file.write",
+			],
 			[{ kind: "file.edit", path, edits: [{ oldText: "a", newText: "b" }] }, "file.write"],
 		];
 		for (const [spec, method] of specs) {
@@ -417,6 +429,7 @@ describe("operationOf", () => {
 			mode: 0,
 			owner: "",
 			group: "",
+			createParentDirs: false,
 		});
 		expect(o.target).toBe("/etc/passwd");
 		expect(ruleMatches(rule, { ...o, node: NODE, privileged: false })).toBe(false);

@@ -161,9 +161,9 @@ func (h *helper) handleStart(_ context.Context, body cbor.RawMessage) (any, erro
 	if h.task != nil {
 		return nil, &protocol.RemoteError{Code: "already_accepted", Message: "the native helper executes exactly one task"}
 	}
-	t, err := taskrun.New(ts, func(stream protocol.Stream, off uint64, data []byte) error {
+	t, err := taskrun.New(ts, func(off uint64, data []byte) error {
 		return h.stream.Peer().Emit(protocol.EventTaskOutput, protocol.TaskOutput{
-			TaskID: ts.TaskID, Stream: stream, Offset: protocol.Uint(off), Data: data,
+			TaskID: ts.TaskID, Offset: protocol.Uint(off), Data: data,
 		})
 	}, h.env)
 	if err != nil {
@@ -283,8 +283,7 @@ type logRecord struct {
 	Outcome    string             `json:"outcome,omitempty"`
 	TimedOut   bool               `json:"timed_out,omitempty"`
 	Cancelled  bool               `json:"cancelled,omitempty"`
-	StdoutEnd  protocol.Uint      `json:"stdout_end,omitempty"`
-	StderrEnd  protocol.Uint      `json:"stderr_end,omitempty"`
+	OutputEnd  protocol.Uint      `json:"output_end,omitempty"`
 	DurationMS int64              `json:"duration_ms,omitempty"`
 	Detail     string             `json:"detail,omitempty"`
 }
@@ -313,8 +312,7 @@ func (h *helper) logExit(t *taskrun.Task, exit *protocol.TaskExit, took time.Dur
 		Outcome:    taskrun.OutcomeText(exit.Outcome),
 		TimedOut:   exit.TimedOut,
 		Cancelled:  exit.Cancelled,
-		StdoutEnd:  exit.StdoutEnd,
-		StderrEnd:  exit.StderrEnd,
+		OutputEnd:  exit.OutputEnd,
 		DurationMS: took.Milliseconds(),
 	})
 }

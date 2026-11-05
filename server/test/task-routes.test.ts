@@ -182,6 +182,52 @@ describe("task routes: privileged (sqlite)", () => {
 		}
 	});
 
+	it("accepts createParentDirs for a file.write task and task group", async () => {
+		const single = await post(`/api/nodes/${nodeId}/tasks`, {
+			kind: "file.write",
+			path: "/tmp/crh-parents.txt",
+			content: "a",
+			createParentDirs: true,
+			waitMs: 5000,
+		});
+		expect(single.status).toBe(201);
+		const { task } = (await single.json()) as { task: TaskView };
+		const singleSpec = await db.selectFrom("tasks").select("spec").where("id", "=", task.id).executeTakeFirstOrThrow();
+		expect(JSON.parse(singleSpec.spec)).toMatchObject({ kind: "file.write", createParentDirs: true });
+
+		const batch = await post("/api/task-groups", {
+			kind: "file.write",
+			path: "/tmp/crh-parents-group.txt",
+			content: "a",
+			targets: ["n1"],
+			createParentDirs: true,
+			waitMs: 5000,
+		});
+		expect(batch.status).toBe(201);
+		const { taskGroup } = (await batch.json()) as { taskGroup: TaskGroupView };
+		const members = await db.selectFrom("tasks").select("spec").where("task_group_id", "=", taskGroup.id).execute();
+		expect(members).toHaveLength(1);
+		expect(JSON.parse(members[0]?.spec ?? "{}")).toMatchObject({ kind: "file.write", createParentDirs: true });
+
+		const { task: plain } = (await (
+			await post(`/api/nodes/${nodeId}/tasks`, { kind: "file.write", path: "/tmp/plain.txt", content: "a" })
+		).json()) as { task: TaskView };
+		const plainSpec = await db.selectFrom("tasks").select("spec").where("id", "=", plain.id).executeTakeFirstOrThrow();
+		expect(JSON.parse(plainSpec.spec)).toMatchObject({ createParentDirs: false });
+
+		for (const path of [`/api/nodes/${nodeId}/tasks`, "/api/task-groups"]) {
+			const res = await post(path, {
+				kind: "file.write",
+				path: "/tmp/x",
+				content: "a",
+				targets: ["n1"],
+				createParentDirs: "yes",
+			});
+			expect(res.status).toBe(400);
+			expect(((await res.json()) as { error: string }).error).toBe("createParentDirs must be a boolean");
+		}
+	});
+
 	it("rejects a non-boolean flag instead of ignoring it", async () => {
 		for (const path of [`/api/nodes/${nodeId}/tasks`, "/api/task-groups"]) {
 			const res = await post(path, { kind: "exec", argv: ["true"], targets: ["n1"], privileged: "yes" });

@@ -44,9 +44,9 @@ type task struct {
 	done   bool
 	result *protocol.TaskExit
 
-	// Per connection: how far output has been sent, and whether TaskExit went out. The indexes are
-	// executor.StreamIndex values (stdout, stderr).
-	sent     [executor.StreamSlots]uint64
+	// Per connection: how far the task's one output stream has been sent, and whether TaskExit went
+	// out.
+	sent     uint64
 	exitSent bool
 }
 
@@ -90,8 +90,7 @@ func (t *task) status() protocol.TaskStatus {
 	return protocol.TaskStatus{
 		TaskID:    t.id,
 		State:     st,
-		StdoutEnd: protocol.Uint(t.output.End(protocol.StreamStdout)),
-		StderrEnd: protocol.Uint(t.output.End(protocol.StreamStderr)),
+		OutputEnd: protocol.Uint(t.output.End()),
 	}
 }
 
@@ -101,8 +100,7 @@ func (t *task) exitReady() bool {
 	if t.suppressOutput {
 		return true
 	}
-	return t.sent[executor.StreamIndex(protocol.StreamStdout)] >= uint64(t.result.StdoutEnd) &&
-		t.sent[executor.StreamIndex(protocol.StreamStderr)] >= uint64(t.result.StderrEnd)
+	return t.sent >= uint64(t.result.OutputEnd)
 }
 
 // inputComplete reports whether every declared input byte arrived, or the task has no input at all.

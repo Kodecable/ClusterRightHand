@@ -15,7 +15,7 @@ import {
  * these checks are unit level.
  */
 
-const WRAPPER = `'printf '\\''crh-pgid:%s\\n'\\'' "$$" >&2; exec "$@"'`;
+const WRAPPER = `'printf '\\''crh-pgid:%s\\n'\\'' "$$" >&2; exec 2>&1; exec "$@"'`;
 
 /** A session whose one exec channel emits output and then closes with code. */
 function fakeSession(command: string, output: string, code: number | null): SshSession {

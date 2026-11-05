@@ -146,16 +146,14 @@ export type Error = WireError;
 
 export const outputAckCodec = tuple([
 	["taskId", text],
-	["stdoutOffset", uint],
-	["stderrOffset", uint],
+	["offset", uint],
 ]);
 export type OutputAck = Infer<typeof outputAckCodec>;
 
 export const taskStatusCodec = tuple([
 	["taskId", text],
 	["state", enumOf("running", "exited", "unknown")],
-	["stdoutEnd", uint],
-	["stderrEnd", uint],
+	["outputEnd", uint],
 ]);
 export type TaskStatus = Infer<typeof taskStatusCodec>;
 
@@ -219,6 +217,7 @@ export const taskSpecCodec = union({
 		["mode", uint],
 		["owner", text],
 		["group", text],
+		["createParentDirs", bool],
 	]),
 	"file.edit": tuple([
 		["path", text],
@@ -324,7 +323,7 @@ export type FileEditResult = Infer<typeof fileEditResultCodec>;
 /**
  * The structured result of a task, carried in `task.exit.result` (doc/protocol.md TaskResult). Its
  * tag is the task kind; a kind that reports nothing structured has no branch. The result never
- * travels in the output streams, which keep the task's text output alone.
+ * travels in the output stream, which keeps the task's text output alone.
  */
 export const taskResultCodec = union({
 	"file.read": fileReadResultCodec,
@@ -340,11 +339,10 @@ export const taskExitCodec = tuple([
 	["outcome", outcomeCodec],
 	["timedOut", bool],
 	["cancelled", bool],
-	["stdoutEnd", uint],
-	["stderrEnd", uint],
+	// The end offset of the task's one output stream (doc/protocol.md TaskExit).
+	["outputEnd", uint],
 	["outputFile", text],
-	// The line count of the merged stdout/stderr output: the same bytes the output file holds
-	// (doc/protocol.md TaskExit).
+	// The line count of the output: the same bytes the output file holds (doc/protocol.md TaskExit).
 	["outputLines", uint],
 	["result", nullable(taskResultCodec)],
 ]);
@@ -389,7 +387,6 @@ export type Empty = Infer<typeof emptyCodec>;
 
 export const taskOutputCodec = tuple([
 	["taskId", text],
-	["stream", enumOf("stdout", "stderr")],
 	["offset", uint],
 	["data", bytes],
 ]);

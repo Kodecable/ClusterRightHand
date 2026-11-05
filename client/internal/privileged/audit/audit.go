@@ -52,8 +52,7 @@ type Record struct {
 	Outcome    string `json:"outcome,omitempty"`
 	TimedOut   bool   `json:"timed_out,omitempty"`
 	Cancelled  bool   `json:"cancelled,omitempty"`
-	StdoutEnd  uint64 `json:"stdout_end,omitempty"`
-	StderrEnd  uint64 `json:"stderr_end,omitempty"`
+	OutputEnd  uint64 `json:"output_end,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 
 	// UID is the approver of a local approve/deny.

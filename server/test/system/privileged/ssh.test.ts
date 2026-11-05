@@ -1,6 +1,6 @@
 /**
  * The SSH-node case of the privileged system suite (doc/testing/privileged.md): an SSH node ignores
- * `privileged`, runs the task as the SSH user, and says so in the task's stderr; SFTP `file.*` tasks
+ * `privileged`, runs the task as the SSH user, and says so in the task notice; SFTP `file.*` tasks
  * keep working.
  *
  * The sshd is the one in the suite container (127.0.0.1:2222); crhs reaches it over a real SSH
@@ -55,18 +55,18 @@ describePodman("privileged system: SSH nodes", () => {
 		await rm(tmp, { recursive: true, force: true });
 	});
 
-	it("runs a privileged exec as the SSH user and writes the notice to stderr", async () => {
+	it("runs a privileged exec as the SSH user and writes the notice on the task", async () => {
 		const t = await crhs.runTask(sshNodeId, { kind: "exec", argv: ["id", "-u"], privileged: true });
 		expect(t).toMatchObject({ state: "exited", exitCode: 0, privileged: true });
-		expect(t.stdoutHead).toBe("0\n");
-		expect(t.stderrHead).toBe(SSH_PRIVILEGED_NOTICE);
+		expect(t.outputHead).toBe("0\n");
+		expect(t.notice).toBe(SSH_PRIVILEGED_NOTICE);
 	}, 60_000);
 
 	it("adds no notice to an ordinary task", async () => {
 		const t = await crhs.runTask(sshNodeId, { kind: "exec", argv: ["id", "-u"] });
 		expect(t).toMatchObject({ state: "exited", exitCode: 0, privileged: false });
-		expect(t.stdoutHead).toBe("0\n");
-		expect(t.stderrHead).toBe("");
+		expect(t.outputHead).toBe("0\n");
+		expect(t.notice).toBeNull();
 	}, 60_000);
 
 	it("still runs a privileged file.write and file.read over SFTP", async () => {
@@ -78,12 +78,12 @@ describePodman("privileged system: SSH nodes", () => {
 			privileged: true,
 		});
 		expect(written).toMatchObject({ state: "exited", exitCode: 0 });
-		expect(written.stderrHead).toBe(SSH_PRIVILEGED_NOTICE);
+		expect(written.notice).toBe(SSH_PRIVILEGED_NOTICE);
 		const read = await crhs.runTask(sshNodeId, { kind: "file.read", path: "/root/crh-sftp.txt", privileged: true });
 		expect(read.state).toBe("exited");
-		expect(read.stdoutHead + read.stdoutTail).toContain("sftp-content");
-		// stderr holds only the notice; the file.read result is the task's structured result.
-		expect(read.stderrHead).toBe(SSH_PRIVILEGED_NOTICE);
+		expect(read.outputHead + read.outputTail).toContain("sftp-content");
+		// The notice is not part of the page; the file.read result is the task's structured result.
+		expect(read.notice).toBe(SSH_PRIVILEGED_NOTICE);
 		expect(read.result).toMatchObject({ kind: "file.read", from: 1, to: 1, eof: true });
 	}, 60_000);
 
@@ -94,7 +94,7 @@ describePodman("privileged system: SSH nodes", () => {
 			env: { CRHA_TASK_HOME: "/tmp/leak" },
 		});
 		expect(t).toMatchObject({ state: "exited", exitCode: 0 });
-		const env = parseEnv(t.stdoutHead + t.stdoutTail);
+		const env = parseEnv(t.outputHead + t.outputTail);
 		expect(env).toMatchObject({
 			HOME: "/root",
 			USER: "root",
@@ -113,7 +113,7 @@ describePodman("privileged system: SSH nodes", () => {
 			env: { LANG: "de_DE.UTF-8" },
 		});
 		expect(t.state).toBe("exited");
-		expect(parseEnv(t.stdoutHead + t.stdoutTail).LANG).toBe("de_DE.UTF-8");
+		expect(parseEnv(t.outputHead + t.outputTail).LANG).toBe("de_DE.UTF-8");
 	}, 60_000);
 
 	it("reports the probed shells and runs a shell command on the probed sh", async () => {
@@ -126,7 +126,7 @@ describePodman("privileged system: SSH nodes", () => {
 		// renders /bin/sh -c, whatever sh the node discovered (doc/execution-plane.md#执行).
 		const t = await crhs.runTask(sshNodeId, { kind: "exec", shell: 'printf %s "$0"' });
 		expect(t).toMatchObject({ state: "exited", exitCode: 0 });
-		expect(t.stdoutHead.trim()).toBe(node.facts.shells.sh);
+		expect(t.outputHead.trim()).toBe(node.facts.shells.sh);
 		const view = (await crhs.api(`/api/tasks/${t.id}`)).json.task as {
 			operation: { method: string; target: string };
 		};
@@ -136,6 +136,6 @@ describePodman("privileged system: SSH nodes", () => {
 	it("reports the SSH user's uid, not a privileged one", async () => {
 		const t = await crhs.runTask(sshNodeId, { kind: "exec", argv: ["id", "-un"], privileged: true });
 		expect(t).toMatchObject({ state: "exited", exitCode: 0 });
-		expect(t.stdoutHead.trim()).toBe("root");
+		expect(t.outputHead.trim()).toBe("root");
 	}, 60_000);
 });

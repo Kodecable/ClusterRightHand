@@ -2,10 +2,11 @@ import type { JsonFacts, TaskSpec } from "@crh/protocol";
 import { sql } from "kysely";
 import * as z from "zod/v4";
 import type { SessionUser } from "../auth/sessions.ts";
+import { BATCH_GROUP_BYTES, BATCH_GROUP_LINES, BATCH_NODE_BYTES, BATCH_NODE_LINES } from "../cluster/batch-output.ts";
 import { type Actor, type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
-import { nameKey } from "../cluster/names.ts";
-import { getNode, listNodesForUser } from "../cluster/nodes.ts";
+import { getNode, listNodesForUser, type PublicNode } from "../cluster/nodes.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
+import { resolveTargets } from "../cluster/task-groups.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { UserError } from "../users/service.ts";
@@ -23,7 +24,6 @@ import {
 	readGroupResult,
 	readTaskResult,
 	runTaskTool,
-	runTaskToolOnNode,
 	waitExistingGroup,
 	waitExistingTask,
 } from "./task-tool.ts";
@@ -70,7 +70,6 @@ export interface ClusterTool<S extends z.ZodType = z.ZodType> {
 	handler: (args: z.infer<S>, ctx: ToolContext) => Promise<ToolResult>;
 }
 
-const nodeField = z.string().describe("Node name or id");
 const targetsField = z
 	.array(z.string())
 	.min(1)
@@ -98,13 +97,13 @@ const batchFields = {
 	parallel: z.number().int().min(1).max(100).optional().describe("Batch only: nodes run at once (default 10)"),
 	fail_fast: z.boolean().optional().describe("Batch only: start no more nodes after one fails"),
 };
-const outputField = z
-	.enum(["status", "text"])
+const withOutputField = z
+	.boolean()
 	.optional()
 	.describe(
-		"Exec batch only, default status: status returns just each node's exit status and the path of its full " +
-			"output file on the node, which you can read with read_file; text returns the end of each node's " +
-			"output within one budget shared by the batch. Budgets without output make a batch use text",
+		"Return the command's output (default true): the task's tail as text, and for a batch each node's tail under " +
+			"one shared budget. false returns one compact JSON status per task or node (exit status, state and the " +
+			"path of the full output file on the node) without any output; max_lines/max_bytes are not allowed then",
 	);
 const maxLinesField = z
 	.number()
@@ -114,7 +113,7 @@ const maxLinesField = z
 	.optional()
 	.describe(
 		"Per-node line budget, at most 2000 (D112): for a single task it caps the tail given to you; for a batch " +
-			"each node keeps at most this many lines. Not allowed with output: status",
+			"each node keeps at most this many lines. Not allowed with with_output: false",
 	);
 const maxBytesField = z
 	.number()
@@ -124,7 +123,7 @@ const maxBytesField = z
 	.optional()
 	.describe(
 		"Per-node byte budget, at most 51200 (D112): for a single task it caps the tail given to you; for a batch " +
-			"each node keeps at most this many bytes. Not allowed with output: status",
+			"each node keeps at most this many bytes. Not allowed with with_output: false",
 	);
 
 /** The batch parameters of the file tools; they never take a `wait` (D111). */
@@ -170,6 +169,10 @@ const listNodes = define({
 
 /** Node notes shown by node_info are cut here; read_file gives the rest (doc/agent-runtime.md#默认值). */
 const NOTES_BYTES = 8 * 1024;
+/** A batch keeps this many lines of each node's notes; the whole batch shares one budget (D114). */
+const NOTES_LINES = BATCH_NODE_LINES;
+/** How long node_info waits for one node's notes read. */
+const NOTES_WAIT_MS = 15_000;
 
 /** Facts in their snake_case JSON form (the protocol's wire keys, doc/protocol.md#事件). */
 function factsWire(facts: JsonFacts | null): Record<string, unknown> | null {
@@ -190,78 +193,233 @@ function factsWire(facts: JsonFacts | null): Record<string, unknown> | null {
 	return out;
 }
 
+/** The read of a node's notes: the same page size as read_file; node_info caps what it shows. */
+function notesSpec(path: string): TaskSpec {
+	return { kind: "file.read", path, startLine: 1, lineCount: READ_PAGE_LINES };
+}
+
+/** The notes fields node_info returns: the path, the kept content and why some of it is missing. */
+function notesFields(
+	path: string,
+	content: string | null,
+	extra: { note?: string; truncated?: string } = {},
+): Record<string, unknown> {
+	return {
+		path,
+		content,
+		...(extra.note === undefined ? {} : { note: extra.note }),
+		...(extra.truncated === undefined ? {} : { truncated: extra.truncated }),
+	};
+}
+
+/** The notes of a read task that did not finish; undefined when it read the file. */
+function notesUnavailable(path: string, task: TaskView): Record<string, unknown> | undefined {
+	if (task.state === "exited" && task.errorCode === null) return undefined;
+	const missing = task.errorCode === "not_found";
+	return notesFields(path, null, {
+		note: missing ? "no notes yet; create the file with write_file" : `could not read: ${task.errorCode ?? task.state}`,
+	});
+}
+
+/** A single node's notes: its head cut at 8 KB; only a page that reached the end is the whole file. */
+function singleNotes(path: string, task: TaskView): Record<string, unknown> {
+	const unavailable = notesUnavailable(path, task);
+	if (unavailable !== undefined) return unavailable;
+	const text = task.outputHead;
+	const page = task.result?.kind === "file.read" ? task.result : undefined;
+	const cut = Buffer.byteLength(text) > NOTES_BYTES || page?.eof !== true;
+	const content = cut
+		? Buffer.from(text)
+				.subarray(0, NOTES_BYTES)
+				.toString("utf8")
+				.replace(/\uFFFD+$/, "")
+		: text;
+	return notesFields(
+		path,
+		content,
+		cut ? { truncated: `first ${NOTES_BYTES} bytes shown; read the whole file with read_file` } : {},
+	);
+}
+
+/** The shared notes budget of one node_info batch (D114): 8 KB / 128 lines per node, 50 KB / 2000 lines total. */
+interface NotesBudget {
+	bytes: number;
+	lines: number;
+}
+
+function notesBudget(): NotesBudget {
+	return { bytes: BATCH_GROUP_BYTES, lines: BATCH_GROUP_LINES };
+}
+
+/** The first `lines` lines of a head; a last line without a newline stays. */
+function headLines(text: string, lines: number): string {
+	let seen = 0;
+	for (let i = 0; i < text.length; i++) {
+		if (text.charCodeAt(i) !== 0x0a) continue;
+		if (++seen === lines) return text.slice(0, i + 1);
+	}
+	return text;
+}
+
+function newlineCount(text: string): number {
+	let count = 0;
+	for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 0x0a) count++;
+	return count;
+}
+
+/** Takes one node's notes head from the batch budget; null means the batch kept nothing for it. */
+function takeNotes(text: string, budget: NotesBudget): string | null {
+	if (text === "") return "";
+	if (budget.bytes <= 0 || budget.lines <= 0) return null;
+	const bytes = Math.min(Buffer.byteLength(text), BATCH_NODE_BYTES, budget.bytes);
+	let kept = Buffer.from(text)
+		.subarray(0, bytes)
+		.toString("utf8")
+		.replace(/\uFFFD+$/, "");
+	kept = headLines(kept, Math.min(NOTES_LINES, budget.lines));
+	budget.bytes -= Buffer.byteLength(kept);
+	budget.lines -= newlineCount(kept);
+	return kept;
+}
+
+/** A batch node's notes: its kept head under the shared budget, and whether the file had more. */
+function batchNotes(path: string, task: TaskView, budget: NotesBudget): Record<string, unknown> {
+	const unavailable = notesUnavailable(path, task);
+	if (unavailable !== undefined) return unavailable;
+	const text = task.outputHead;
+	const kept = takeNotes(text, budget);
+	if (kept === null) {
+		return notesFields(path, null, {
+			note: "no part of the notes was kept (batch budget); read the file with read_file",
+		});
+	}
+	const page = task.result?.kind === "file.read" ? task.result : undefined;
+	const more =
+		page?.eof !== true ||
+		Buffer.byteLength(text) > Buffer.byteLength(kept) ||
+		task.outputBytes > Buffer.byteLength(text);
+	return notesFields(
+		path,
+		kept,
+		more ? { truncated: `first ${Buffer.byteLength(kept)} bytes shown; read the whole file with read_file` } : {},
+	);
+}
+
 /**
- * The node's notes file, read through an ordinary (audited) file.read task, but only when the rules allow
- * that read outright: node_info never leaves an approval request behind.
+ * One node's notes, read through an ordinary (audited) file.read task, but only when the rules allow that
+ * read outright: node_info never leaves an approval request behind.
  */
 async function readNotes(ctx: ToolContext, nodeId: string, path: string): Promise<Record<string, unknown>> {
 	const node = await getNode(ctx.db, nodeId);
-	if (node?.status !== "active") return { path, content: null, note: "the node is not active" };
-	const spec: TaskSpec = { kind: "file.read", path, startLine: 1, lineCount: READ_PAGE_LINES };
-	if ((await ctx.cluster.evaluateFor(node, spec, ctx.chain, false)).result !== "allow") {
-		return { path, content: null, note: "reading it needs approval here; use read_file" };
+	if (node?.status !== "active") return notesFields(path, null, { note: "the node is not active" });
+	if ((await ctx.cluster.evaluateFor(node, notesSpec(path), ctx.chain, false)).result !== "allow") {
+		return notesFields(path, null, { note: "reading it needs approval here; use read_file" });
 	}
 	const id = ctx.callKey ? derivedId(`notes:${ctx.callKey}`) : undefined;
 	const created = await ctx.cluster.createTask({
 		nodeId,
-		spec,
+		spec: notesSpec(path),
 		actor: ctx.actor,
 		chain: ctx.chain,
 		...(id ? { id } : {}),
 	});
-	const t = (await ctx.cluster.waitTask(created.id, 15_000, ctx.signal)) ?? created;
-	if (t.state !== "exited") {
-		const missing = t.errorCode === "not_found";
-		return {
-			path,
-			content: null,
-			note: missing ? "no notes yet; create the file with write_file" : `could not read: ${t.errorCode ?? t.state}`,
-		};
+	const t = (await ctx.cluster.waitTask(created.id, NOTES_WAIT_MS, ctx.signal)) ?? created;
+	return singleNotes(path, t);
+}
+
+/**
+ * The notes of a batch's nodes, read only where the rules allow it outright (D114). Each node gets its own
+ * head-mode task, so its notes path can differ; the batch shares one 50 KB / 2000 line budget.
+ */
+async function readNotesBatch(
+	ctx: ToolContext,
+	nodes: readonly PublicNode[],
+): Promise<Map<string, Record<string, unknown>>> {
+	const out = new Map<string, Record<string, unknown>>();
+	const readable: { node: PublicNode; path: string }[] = [];
+	for (const node of nodes) {
+		const path = node.facts?.notesPath;
+		if (path === undefined || path === "") continue;
+		const row = await getNode(ctx.db, node.id);
+		if (row?.status !== "active") {
+			out.set(node.id, notesFields(path, null, { note: "the node is not active" }));
+			continue;
+		}
+		if ((await ctx.cluster.evaluateFor(row, notesSpec(path), ctx.chain, false)).result !== "allow") {
+			out.set(node.id, notesFields(path, null, { note: "reading it needs approval here; use read_file" }));
+			continue;
+		}
+		readable.push({ node, path });
 	}
-	const text = t.stdoutHead;
-	// The notes are shown up to 8 KB, and only a page that reached the end of the file is the whole file.
-	const page = t.result?.kind === "file.read" ? t.result : undefined;
-	const cut = Buffer.byteLength(text) > NOTES_BYTES || page?.eof !== true;
+	const created = await Promise.all(
+		readable.map(({ node, path }) => {
+			const id = ctx.callKey ? derivedId(`notes:${ctx.callKey}:${node.id}`) : undefined;
+			return ctx.cluster.createTask({
+				nodeId: node.id,
+				spec: notesSpec(path),
+				outputMode: "head",
+				maxLines: NOTES_LINES,
+				maxBytes: NOTES_BYTES,
+				actor: ctx.actor,
+				chain: ctx.chain,
+				...(id ? { id } : {}),
+			});
+		}),
+	);
+	const tasks = await Promise.all(created.map((t) => ctx.cluster.waitTask(t.id, NOTES_WAIT_MS, ctx.signal)));
+	const budget = notesBudget();
+	readable.forEach(({ node, path }, i) => {
+		out.set(node.id, batchNotes(path, tasks[i] ?? (created[i] as TaskView), budget));
+	});
+	return out;
+}
+
+/** The JSON fields of one node in node_info (doc/agent-runtime.md#cluster-工具). */
+async function nodeInfoFields(
+	ctx: ToolContext,
+	node: PublicNode,
+	notes: Record<string, unknown> | null,
+): Promise<Record<string, unknown>> {
+	const row = await getNode(ctx.db, node.id);
 	return {
-		path,
-		content: cut
-			? Buffer.from(text)
-					.subarray(0, NOTES_BYTES)
-					.toString("utf8")
-					.replace(/\uFFFD+$/, "")
-			: text,
-		...(cut ? { truncated: `first ${NOTES_BYTES} bytes shown; read the whole file with read_file` } : {}),
+		name: node.name,
+		id: node.id,
+		transport: node.transport,
+		status: node.status,
+		node_groups: node.nodeGroups.map((group) => group.name),
+		hostname: node.hostname,
+		client_version: node.clientVersion,
+		last_seen_at: node.lastSeenAt,
+		facts: factsWire(node.facts),
+		ssh: row?.transport === "ssh" ? { user: row.ssh_user, host: row.ssh_host } : undefined,
+		notes,
 	};
 }
 
 const nodeInfo = define({
 	name: "node_info",
 	description:
-		"Facts about one node (OS, kernel, architecture, init system, package managers, node groups) and its notes: a " +
-		"Markdown file on the node that people and agents keep up to date. Edit the notes with edit_file/write_file.",
-	input: z.object({ node: nodeField }),
+		"Facts about one or more nodes (targets): OS, kernel, architecture, init system, package managers and node " +
+		"groups, plus each node's notes, a Markdown file on the node that people and agents keep up to date. Exactly " +
+		"one node returns one object; a node group, _all or several entries return one entry per node. Edit the " +
+		"notes with edit_file/write_file.",
+	input: z.object({ targets: targetsField }),
 	readOnly: true,
 	output: "json",
 	handler: async (args, ctx) => {
-		const node = (await listNodesForUser(ctx.db, ctx.user)).find(
-			(n) => n.id === args.node || nameKey(n.name) === nameKey(args.node),
-		);
-		if (!node) throw new UserError(`no node ${args.node} that you can see`, "no_such_node");
-		const row = await getNode(ctx.db, node.id);
-		const notesPath = node.facts?.notesPath;
-		return jsonResult({
-			name: node.name,
-			id: node.id,
-			transport: node.transport,
-			status: node.status,
-			node_groups: node.nodeGroups.map((group) => group.name),
-			hostname: node.hostname,
-			client_version: node.clientVersion,
-			last_seen_at: node.lastSeenAt,
-			facts: factsWire(node.facts),
-			ssh: row?.transport === "ssh" ? { user: row.ssh_user, host: row.ssh_host } : undefined,
-			notes: notesPath ? await readNotes(ctx, node.id, notesPath) : null,
-		});
+		const resolved = await resolveTargets(ctx.db, ctx.user, args.targets);
+		const byId = new Map((await listNodesForUser(ctx.db, ctx.user)).map((node) => [node.id, node] as const));
+		if (resolved.singleNode) {
+			const node = byId.get(resolved.nodeIds[0] as string);
+			if (!node) throw new UserError("no such node", "no_such_node");
+			const path = node.facts?.notesPath;
+			const notes = path === undefined || path === "" ? null : await readNotes(ctx, node.id, path);
+			return jsonResult(await nodeInfoFields(ctx, node, notes));
+		}
+		const nodes = resolved.nodeIds.map((id) => byId.get(id)).filter((node): node is PublicNode => node !== undefined);
+		const notes = await readNotesBatch(ctx, nodes);
+		const entries = await Promise.all(nodes.map((node) => nodeInfoFields(ctx, node, notes.get(node.id) ?? null)));
+		return jsonResult({ nodes: entries });
 	},
 });
 
@@ -270,11 +428,12 @@ const nodeInfo = define({
 const exec = define({
 	name: "exec",
 	description:
-		"Run a command on a node, or on several nodes with targets. Give cmd (run with the node's POSIX sh) or " +
-		"argv. Returns the command's merged output and exit status as text; long-running tasks return a task_id " +
-		"to follow with task_wait. A batch returns per-node status (JSON) by default, or each node's output tail " +
-		"as text with output: text. max_lines/max_bytes cap each node's output. The task may first need the " +
-		"user's approval.",
+		"Run a command on one node, or on several with targets. Give cmd (run with the node's POSIX sh) or argv. " +
+		"Returns the command's output and exit status as text; long-running tasks return a task_id to follow with " +
+		"task_wait. A batch runs one task per node and returns each node's output tail as text, within one budget " +
+		"shared by the batch. with_output: false returns JSON with the status and the path of the full output file " +
+		"instead, for a single task too; max_lines/max_bytes cap each node's output and need with_output: true. " +
+		"The task may first need the user's approval.",
 	input: z.object({
 		targets: targetsField,
 		cmd: z
@@ -292,7 +451,7 @@ const exec = define({
 		privileged: privilegedField,
 		wait: waitField,
 		...batchFields,
-		output: outputField,
+		with_output: withOutputField,
 		max_lines: maxLinesField,
 		max_bytes: maxBytesField,
 	}),
@@ -301,15 +460,13 @@ const exec = define({
 	handler: async (args, ctx) => {
 		if ((args.cmd === undefined) === (args.argv === undefined))
 			throw new UserError("give either cmd or argv", "invalid_argument");
-		const budgets = args.max_lines !== undefined || args.max_bytes !== undefined;
-		if (args.output === "status" && budgets) {
+		const withOutput = args.with_output !== false;
+		if (!withOutput && (args.max_lines !== undefined || args.max_bytes !== undefined)) {
 			throw new UserError(
-				"max_lines and max_bytes need output: text (or no output) for a batch; output: status returns no output",
+				"max_lines and max_bytes need with_output: true (the default); with_output: false returns no output",
 				"invalid_argument",
 			);
 		}
-		// Budgets without an explicit output make an exec batch use text (D112).
-		const outputMode = args.output ?? (budgets ? "text" : undefined);
 		return runTaskTool(
 			ctx,
 			args,
@@ -326,7 +483,7 @@ const exec = define({
 				timeoutMs: args.timeout === undefined ? undefined : args.timeout * 1000,
 				maxLines: args.max_lines,
 				maxBytes: args.max_bytes,
-				outputMode,
+				outputMode: withOutput ? "text" : "status",
 			},
 			"background",
 			(started) => execResult(ctx, started),
@@ -339,8 +496,8 @@ const readFile = define({
 	description:
 		"Read a file on a node, or the same file on several nodes with targets. Lines are 1-based: read " +
 		`${READ_PAGE_LINES} lines from \`offset\` (default 1), whole lines only, at most 50 KB per call. The page is ` +
-		"returned exactly as it is in the file; the note says its line range, and only a page that reached the end " +
-		"of the file reports the total. Use offset to continue. In a batch, limit (default 128) is each node's " +
+		"returned exactly as it is in the file; its bracketed note gives the line range, and only a page that reached " +
+		"the end of the file reports the total. Use offset to continue. In a batch, limit (default 128) is each node's " +
 		"line budget and max_bytes its byte budget; each node keeps its own page and offset. The call blocks until " +
 		"the task ends, approval included, and returns no task id.",
 	input: z.object({
@@ -387,18 +544,87 @@ const readFile = define({
 	},
 });
 
+/** `mode` is an octal permission string such as "0644" (D114); a leading 0 is optional. */
+const MODE_PATTERN = /^0?[0-7]{3,4}$/;
+
+/** The permission bits of a write_file mode; invalid_argument when it is not an octal string. */
+function modeBits(mode: unknown): number {
+	if (mode === undefined) return 0;
+	if (typeof mode !== "string" || !MODE_PATTERN.test(mode)) {
+		throw new UserError(
+			`mode must be an octal permission string such as "0644" (three or four octal digits, leading 0 optional)`,
+			"invalid_argument",
+		);
+	}
+	return Number.parseInt(mode, 8);
+}
+
 const writeFile = define({
 	name: "write_file",
 	description:
-		"Create a file on a node (or several with targets). Fails if the file exists unless overwrite is true. " +
-		"To change part of a file, use edit_file. The call blocks until the task ends, approval included, and " +
-		"returns no task id.",
+		"Create a file on one node, or the same file on several with targets. Fails if the file exists unless " +
+		'overwrite is true. mode is an octal string such as "0644"; create_parent_dirs creates missing parent ' +
+		"directories first (like mkdir -p). To change part of a file, use edit_file. The call blocks until the task " +
+		"ends, approval included, and returns no task id.",
 	input: z.object({
 		targets: targetsField,
 		path: z.string().describe("Absolute path"),
 		content: z.string(),
 		overwrite: z.boolean().optional(),
-		mode: z.number().int().min(0).max(0o7777).optional().describe("Permission bits for a new file, e.g. 420 (0644)"),
+		mode: z
+			.string()
+			.optional()
+			.describe('Permission bits for a new file as an octal string, e.g. "0644" (a leading 0 is optional)'),
+		create_parent_dirs: z
+			.boolean()
+			.optional()
+			.describe("Create missing parent directories first, like mkdir -p (default false)"),
+		privileged: privilegedField,
+		...fileBatchFields,
+	}),
+	readOnly: false,
+	output: "json",
+	handler: async (args, ctx) => {
+		const mode = modeBits(args.mode);
+		return runTaskTool(
+			ctx,
+			args,
+			{
+				spec: {
+					kind: "file.write",
+					path: args.path,
+					content: EMPTY_INPUT_REF,
+					overwrite: args.overwrite === true,
+					mode,
+					owner: "",
+					group: "",
+					createParentDirs: args.create_parent_dirs === true,
+				},
+				input: Buffer.from(args.content),
+			},
+			"blocking",
+			(started) =>
+				started.kind === "task"
+					? fileJsonResult(ctx, started.task, started.nodeName)
+					: fileJsonGroupResult(ctx, started.taskGroup, started.names),
+		);
+	},
+});
+
+const editFile = define({
+	name: "edit_file",
+	description:
+		"Edit a file on one node, or the same file on several with targets, by replacing text. Each old_text must " +
+		"occur exactly once in each node's file; on one node all edits apply together or not at all. A node where an " +
+		"old_text is missing or not unique fails on its own; the other nodes still complete. The call blocks until " +
+		"the task ends, approval included, and returns no task id.",
+	input: z.object({
+		targets: targetsField,
+		path: z.string().describe("Absolute path"),
+		edits: z
+			.array(z.object({ old_text: z.string().min(1), new_text: z.string() }))
+			.min(1)
+			.describe("Replacements, applied together or not at all on each node; old_text must be unique in the file"),
 		privileged: privilegedField,
 		...fileBatchFields,
 	}),
@@ -410,55 +636,16 @@ const writeFile = define({
 			args,
 			{
 				spec: {
-					kind: "file.write",
-					path: args.path,
-					content: EMPTY_INPUT_REF,
-					overwrite: args.overwrite === true,
-					mode: args.mode ?? 0,
-					owner: "",
-					group: "",
-				},
-				input: Buffer.from(args.content),
-			},
-			"blocking",
-			(started) =>
-				started.kind === "task"
-					? fileJsonResult(ctx, started.task, started.nodeName)
-					: fileJsonGroupResult(ctx, started.taskGroup, started.names),
-		),
-});
-
-const editFile = define({
-	name: "edit_file",
-	description:
-		"Edit a file on one node by replacing text. Each old_text must occur exactly once in the file; all edits " +
-		"apply together or not at all. The call blocks until the task ends, approval included, and returns no " +
-		"task id.",
-	input: z.object({
-		node: nodeField,
-		path: z.string().describe("Absolute path"),
-		edits: z
-			.array(z.object({ old_text: z.string().min(1), new_text: z.string() }))
-			.min(1)
-			.describe("Replacements, applied together or not at all; old_text must be unique in the file"),
-		privileged: privilegedField,
-	}),
-	readOnly: false,
-	output: "json",
-	handler: async (args, ctx) =>
-		runTaskToolOnNode(
-			ctx,
-			args.node,
-			args,
-			{
-				spec: {
 					kind: "file.edit",
 					path: args.path,
 					edits: args.edits.map((edit) => ({ oldText: edit.old_text, newText: edit.new_text })),
 				},
 			},
 			"blocking",
-			(started) => fileJsonResult(ctx, started.task, started.nodeName),
+			(started) =>
+				started.kind === "task"
+					? fileJsonResult(ctx, started.task, started.nodeName)
+					: fileJsonGroupResult(ctx, started.taskGroup, started.names),
 		),
 });
 

@@ -80,8 +80,8 @@ const facts: Facts = {
 	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
 };
 
-const status: TaskStatus = { taskId: "t-1", state: "running", stdoutEnd: 10, stderrEnd: 2 };
-const ack: OutputAck = { taskId: "t-1", stdoutOffset: 10, stderrOffset: 2 };
+const status: TaskStatus = { taskId: "t-1", state: "running", outputEnd: 10 };
+const ack: OutputAck = { taskId: "t-1", offset: 10 };
 const inputRef: InputRef = { size: 3, sha256: digest(0x11) };
 const commandArgv: Command = { argv: ["echo", "hi"] };
 const commandShell: Command = { shell: "echo hi" };
@@ -98,6 +98,7 @@ const specWrite: TaskSpec = {
 	mode: 0,
 	owner: "",
 	group: "",
+	createParentDirs: false,
 };
 const specEdit: TaskSpec = { kind: "file.edit", path: "/tmp/x", edits: [edit] };
 const specStat: TaskSpec = { kind: "file.stat", path: "/tmp/x" };
@@ -123,8 +124,7 @@ const taskExit: TaskExit = {
 	outcome: outcomeCode,
 	timedOut: false,
 	cancelled: false,
-	stdoutEnd: 6,
-	stderrEnd: 0,
+	outputEnd: 6,
 	outputFile: "",
 	outputLines: 1,
 	result: null,
@@ -153,7 +153,7 @@ const editResult: TaskResult = { kind: "file.edit", replacements: 2 };
 const hello: Hello = { tasks: [status], taskKinds: ["exec"], privilegedMode: "disabled" };
 const welcome: Welcome = { acks: [ack] };
 const taskInput: TaskInput = { taskId: "t-1", offset: 0, data: Uint8Array.of(1, 2, 3) };
-const taskOutput: TaskOutput = { taskId: "t-1", stream: "stdout", offset: 0, data: Uint8Array.of(4, 5) };
+const taskOutput: TaskOutput = { taskId: "t-1", offset: 0, data: Uint8Array.of(4, 5) };
 const nodeStatus: NodeStatus = { nodeId: "n-1", state: "active", message: "ok" };
 const enrollment: Enrollment = { tokenSecret: "secret", hostname: "node-1", facts };
 const handshakeInit: HandshakeInit = {
@@ -409,8 +409,7 @@ describe("message codecs", () => {
 		const response: CommandResponse<"task.query"> = {
 			taskId: "t-1",
 			state: "unknown",
-			stdoutEnd: 0,
-			stderrEnd: 0,
+			outputEnd: 0,
 		};
 		expect(commandCodec.decode(commandCodec.encode({ argv: [] }))).toEqual({ argv: [] });
 		expect(request.taskId).toBe("t-1");

@@ -219,8 +219,7 @@ export class FakeCrha {
 	answerQuery: (taskId: string) => TaskQueryAnswer = (taskId) => ({
 		taskId,
 		state: "unknown",
-		stdoutEnd: 0,
-		stderrEnd: 0,
+		outputEnd: 0,
 	});
 	/** Answers local.request; the request is recorded first. */
 	answerLocal: (request: LocalRequest) => LocalState | Promise<LocalState> = () => ({ kind: "pending" });
@@ -273,8 +272,8 @@ export class FakeCrha {
 	}
 
 	/** Reports output of a task crhs asked about, as the node sends it while the task runs. */
-	output(taskId: string, stream: "stdout" | "stderr", offset: number, data: Uint8Array): void {
-		this.peer.emit("task.output", { taskId, stream, offset, data });
+	output(taskId: string | "stderr", offset: number, data: Uint8Array): void {
+		this.peer.emit("task.output", { taskId, offset, data });
 	}
 
 	/** Reports a finished task to crhs, as the node would after task.start was accepted. */
@@ -284,8 +283,7 @@ export class FakeCrha {
 			outcome,
 			timedOut: false,
 			cancelled: false,
-			stdoutEnd: 0,
-			stderrEnd: 0,
+			outputEnd: 0,
 			outputFile: "",
 			outputLines: 0,
 			result: null,
@@ -298,8 +296,7 @@ export class FakeCrha {
 export interface TaskQueryAnswer {
 	taskId: string;
 	state: "running" | "exited" | "unknown";
-	stdoutEnd: number;
-	stderrEnd: number;
+	outputEnd: number;
 }
 
 export function handshakeInit(overrides: Partial<HandshakeInit> = {}): HandshakeInit {

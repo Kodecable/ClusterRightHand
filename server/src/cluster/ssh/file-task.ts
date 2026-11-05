@@ -242,6 +242,31 @@ async function publish(sftp: Sftp, tmp: TempFile, path: string, noReplace: boole
 	await sftp.rename(tmp.name, path);
 }
 
+/** Creates every missing parent directory of `path`, 0755 before the remote umask, like mkdir -p. */
+async function makeParentDirs(sftp: Sftp, path: string, signal: AbortSignal): Promise<void> {
+	const dir = posix.dirname(path);
+	if (dir === "/" || dir === ".") return;
+	let prefix = "";
+	for (const part of dir.split("/").filter(Boolean)) {
+		checkAborted(signal);
+		prefix += `/${part}`;
+		const st = await sftp.lstatOpt(prefix);
+		if (st !== undefined) {
+			if ((st.mode & S_IFMT) !== S_IFDIR) {
+				throw new FileTaskError("not_found", `${path}: ${prefix} is not a directory`);
+			}
+			continue;
+		}
+		try {
+			await sftp.mkdir(prefix, 0o755);
+		} catch (e) {
+			// mkdir -p: another writer may have created it since the lstat.
+			const now = await sftp.lstatOpt(prefix).catch(() => undefined);
+			if (now === undefined || (now.mode & S_IFMT) !== S_IFDIR) throw e;
+		}
+	}
+}
+
 async function fileWrite(ctx: Ctx, s: FileWriteSpec, input: Uint8Array | undefined): Promise<TaskResult> {
 	const { sftp } = ctx;
 	const path = s.path;
@@ -259,6 +284,11 @@ async function fileWrite(ctx: Ctx, s: FileWriteSpec, input: Uint8Array | undefin
 	}
 	if (data.length !== s.content.size) {
 		throw new FileTaskError("input_mismatch", `content does not match declared size/sha256 (got ${data.length} bytes)`);
+	}
+	if (s.createParentDirs) {
+		// mkdir -p, with the new directories 0755 before the remote umask (D114). SFTP cannot set an
+		// owner/group by name, so like the file itself they belong to the SSH user.
+		await makeParentDirs(sftp, path, ctx.signal);
 	}
 	const tmp = await createTemp(sftp, path);
 	let ok = false;

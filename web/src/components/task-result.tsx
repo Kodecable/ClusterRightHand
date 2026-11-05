@@ -392,12 +392,11 @@ export function TaskResultData({ result, className }: { result: TaskResultView; 
 }
 
 /**
- * crhs's own line in front of a task's output (the SSH privileged notice). `status` and `head`
- * tasks keep no other stderr, but this line survives in stderr_head
- * (doc/execution-plane.md#ssh-传输).
+ * crhs's own line about a task (the SSH privileged notice). It is stored on the task's `notice`
+ * and is not part of the output (D114); it is shown separately above the output.
  */
-function TaskNotice({ text }: { text: string }) {
-	if (text === "") return null;
+function TaskNotice({ text }: { text: string | null }) {
+	if (text === null || text.trim() === "") return null;
 	return (
 		<p data-testid="task-notice" className="rounded-md border px-2 py-1 font-mono text-xs whitespace-pre-wrap">
 			{text.trim()}
@@ -405,7 +404,7 @@ function TaskNotice({ text }: { text: string }) {
 	);
 }
 
-/** The kept output of a task: a tail, the status-only note, or stdout and stderr. */
+/** The kept output of a task: the single stream's head and tail, or the status-only note. */
 export function TaskOutput({ task, className }: { task: TaskView; className?: string }) {
 	const { t } = useLingui();
 	const output = batchOutput(task);
@@ -413,36 +412,24 @@ export function TaskOutput({ task, className }: { task: TaskView; className?: st
 
 	return (
 		<div data-slot="task-output" className={cn("grid gap-3", className)}>
-			{output.kind === "tail" ? (
-				<OutputBlock label={t`output`} head="" tail={output.text} bytes={output.bytes} />
-			) : output.kind === "head" ? (
-				<>
-					<OutputBlock label={t`output`} head={output.text} tail="" bytes={output.bytes} />
-					<TaskNotice text={task.stderrHead} />
-				</>
-			) : output.kind === "status" ? (
-				<>
-					<p className="text-sm text-muted-foreground">
-						<Trans>Status only.</Trans>{" "}
-						{output.file !== null ? (
-							<Trans>
-								The full output is in <span className="font-mono text-xs">{output.file}</span> on the node.
-							</Trans>
-						) : note === "running" ? (
-							<Trans>The full output stays on the node until the task exits.</Trans>
-						) : note === "none" ? (
-							<Trans>No output was kept.</Trans>
-						) : (
-							<Trans>No output is kept (SSH nodes keep no output).</Trans>
-						)}
-					</p>
-					<TaskNotice text={task.stderrHead} />
-				</>
+			<TaskNotice text={task.notice} />
+			{output.kind === "status" ? (
+				<p className="text-sm text-muted-foreground">
+					<Trans>Status only.</Trans>{" "}
+					{output.file !== null ? (
+						<Trans>
+							The full output is in <span className="font-mono text-xs">{output.file}</span> on the node.
+						</Trans>
+					) : note === "running" ? (
+						<Trans>The full output stays on the node until the task exits.</Trans>
+					) : note === "none" ? (
+						<Trans>No output was kept.</Trans>
+					) : (
+						<Trans>No output is kept (SSH nodes keep no output).</Trans>
+					)}
+				</p>
 			) : (
-				<>
-					<OutputBlock label={t`stdout`} head={task.stdoutHead} tail={task.stdoutTail} bytes={task.stdoutBytes} />
-					<OutputBlock label={t`stderr`} head={task.stderrHead} tail={task.stderrTail} bytes={task.stderrBytes} />
-				</>
+				<OutputBlock label={t`output`} head={output.head} tail={output.tail} bytes={output.bytes} />
 			)}
 			{task.result != null && <TaskResultData result={task.result} />}
 		</div>

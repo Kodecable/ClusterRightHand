@@ -22,13 +22,13 @@
 		},
 		{
 			"id": "request.hello",
-			"description": "request id=1 cmd=hello body=[tasks=[[task_id=\"t-run\", state=\"running\", stdout_end=10, stderr_end=2]], task_kinds=[\"exec\",\"file.read\"], privileged_mode=\"disabled\"]",
-			"hex": "8400016568656c6c6f83818465742d72756e6772756e6e696e670a028264657865636966696c652e726561646864697361626c6564"
+			"description": "request id=1 cmd=hello body=[tasks=[[task_id=\"t-run\", state=\"running\", output_end=10]], task_kinds=[\"exec\",\"file.read\"], privileged_mode=\"disabled\"]",
+			"hex": "8400016568656c6c6f83818365742d72756e6772756e6e696e670a8264657865636966696c652e726561646864697361626c6564"
 		},
 		{
 			"id": "response.hello",
-			"description": "response id=1 cmd=hello ok=true body=[acks=[[task_id=\"t-run\", stdout_offset=10, stderr_offset=2]]]",
-			"hex": "8501016568656c6c6ff581818365742d72756e0a02"
+			"description": "response id=1 cmd=hello ok=true body=[acks=[[task_id=\"t-run\", offset=10]]]",
+			"hex": "8501016568656c6c6ff581818265742d72756e0a"
 		},
 		{
 			"id": "request.ping",
@@ -57,8 +57,8 @@
 		},
 		{
 			"id": "request.task.start.file.write",
-			"description": "request id=6 cmd=task.start body=[task_id=\"t-write\", attempt=1, spec=[\"file.write\", [path=\"/tmp/x\", content=[size=3, sha256=32 bytes of 0x22], overwrite=false, mode=0, owner=\"\", group=\"\"]], privileged=false, authorizations=[], timeout_ms=0, kill_grace_ms=0, output=[\"status\", []]]",
-			"hex": "8400066a7461736b2e73746172748867742d777269746501826a66696c652e777269746586662f746d702f78820358202222222222222222222222222222222222222222222222222222222222222222f4006060f4800000826673746174757380"
+			"description": "request id=6 cmd=task.start body=[task_id=\"t-write\", attempt=1, spec=[\"file.write\", [path=\"/tmp/x\", content=[size=3, sha256=32 bytes of 0x22], overwrite=false, mode=0, owner=\"\", group=\"\", create_parent_dirs=false]], privileged=false, authorizations=[], timeout_ms=0, kill_grace_ms=0, output=[\"status\", []]]",
+			"hex": "8400066a7461736b2e73746172748867742d777269746501826a66696c652e777269746587662f746d702f78820358202222222222222222222222222222222222222222222222222222222222222222f4006060f4f4800000826673746174757380"
 		},
 		{
 			"id": "request.task.start.file.edit",
@@ -112,8 +112,8 @@
 		},
 		{
 			"id": "response.task.query",
-			"description": "response id=12 cmd=task.query ok=true body=[task_id=\"t-exec-argv\", state=\"exited\", stdout_end=6, stderr_end=0]",
-			"hex": "85010c6a7461736b2e7175657279f5846b742d657865632d61726776666578697465640600"
+			"description": "response id=12 cmd=task.query ok=true body=[task_id=\"t-exec-argv\", state=\"exited\", output_end=6]",
+			"hex": "85010c6a7461736b2e7175657279f5836b742d657865632d617267766665786974656406"
 		},
 		{
 			"id": "response.error",
@@ -142,53 +142,53 @@
 		},
 		{
 			"id": "event.task.output",
-			"description": "event task.output body=[task_id=\"t-exec-argv\", stream=\"stdout\", offset=0, data=h'68656c6c6f0a']",
-			"hex": "83026b7461736b2e6f7574707574846b742d657865632d61726776667374646f7574004668656c6c6f0a"
+			"description": "event task.output body=[task_id=\"t-exec-argv\", offset=0, data=h'68656c6c6f0a']",
+			"hex": "83026b7461736b2e6f7574707574836b742d657865632d61726776004668656c6c6f0a"
 		},
 		{
 			"id": "event.task.exit.code",
-			"description": "event task.exit body=[task_id=\"t-exec-argv\", outcome=[\"code\", 0], timed_out=false, cancelled=false, stdout_end=6, stderr_end=0, output_file=\"\", output_lines=1, result=null]",
-			"hex": "8302697461736b2e65786974896b742d657865632d617267768264636f646500f4f406006001f6"
+			"description": "event task.exit body=[task_id=\"t-exec-argv\", outcome=[\"code\", 0], timed_out=false, cancelled=false, output_end=6, output_file=\"\", output_lines=1, result=null]",
+			"hex": "8302697461736b2e65786974886b742d657865632d617267768264636f646500f4f4066001f6"
 		},
 		{
 			"id": "event.task.exit.signal",
-			"description": "event task.exit body=[task_id=\"t-exec-shell\", outcome=[\"signal\", \"TERM\"], timed_out=false, cancelled=true, stdout_end=3, stderr_end=0, output_file=\"\", output_lines=0, result=null]",
-			"hex": "8302697461736b2e65786974896c742d657865632d7368656c6c82667369676e616c645445524df4f503006000f6"
+			"description": "event task.exit body=[task_id=\"t-exec-shell\", outcome=[\"signal\", \"TERM\"], timed_out=false, cancelled=true, output_end=3, output_file=\"\", output_lines=0, result=null]",
+			"hex": "8302697461736b2e65786974886c742d657865632d7368656c6c82667369676e616c645445524df4f5036000f6"
 		},
 		{
 			"id": "event.task.exit.error",
-			"description": "event task.exit body=[task_id=\"t-edit\", outcome=[\"error\", [code=\"internal_error\", message=\"failed\"]], timed_out=true, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"/tmp/out\", output_lines=0, result=null]",
-			"hex": "8302697461736b2e657869748966742d6564697482656572726f72826e696e7465726e616c5f6572726f72666661696c6564f5f40000682f746d702f6f757400f6"
+			"description": "event task.exit body=[task_id=\"t-edit\", outcome=[\"error\", [code=\"internal_error\", message=\"failed\"]], timed_out=true, cancelled=false, output_end=0, output_file=\"/tmp/out\", output_lines=0, result=null]",
+			"hex": "8302697461736b2e657869748866742d6564697482656572726f72826e696e7465726e616c5f6572726f72666661696c6564f5f400682f746d702f6f757400f6"
 		},
 		{
 			"id": "event.task.exit.error.bom",
-			"description": "event task.exit body=[task_id=\"t-bom\", outcome=[\"error\", [code=\"io_error\", message=\"\\uFEFFbom\"]], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"\", output_lines=0, result=null]",
-			"hex": "8302697461736b2e657869748965742d626f6d82656572726f728268696f5f6572726f7266efbbbf626f6df4f400006000f6"
+			"description": "event task.exit body=[task_id=\"t-bom\", outcome=[\"error\", [code=\"io_error\", message=\"\\uFEFFbom\"]], timed_out=false, cancelled=false, output_end=0, output_file=\"\", output_lines=0, result=null]",
+			"hex": "8302697461736b2e657869748865742d626f6d82656572726f728268696f5f6572726f7266efbbbf626f6df4f4006000f6"
 		},
 		{
 			"id": "event.task.exit.result.file.read",
-			"description": "event task.exit body=[task_id=\"t-read\", outcome=[\"code\", 0], timed_out=false, cancelled=false, stdout_end=8, stderr_end=0, output_file=\"\", output_lines=0, result=[\"file.read\", [from=1, to=2, eof=true, total=3, too_long=false]]]",
-			"hex": "8302697461736b2e657869748966742d726561648264636f646500f4f408006000826966696c652e72656164850102f503f4"
+			"description": "event task.exit body=[task_id=\"t-read\", outcome=[\"code\", 0], timed_out=false, cancelled=false, output_end=8, output_file=\"\", output_lines=0, result=[\"file.read\", [from=1, to=2, eof=true, total=3, too_long=false]]]",
+			"hex": "8302697461736b2e657869748866742d726561648264636f646500f4f4086000826966696c652e72656164850102f503f4"
 		},
 		{
 			"id": "event.task.exit.result.file.stat",
-			"description": "event task.exit body=[task_id=\"t-stat\", outcome=[\"code\", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"\", output_lines=0, result=[\"file.stat\", [path=\"/tmp/x\", type=\"file\", size=7, mode=\"0644\", uid=1000, gid=1000, owner=\"alice\", group=\"alice\", mtime=\"2026-01-01T00:00:00Z\", link_target=null]]]",
-			"hex": "8302697461736b2e657869748966742d737461748264636f646500f4f400006000826966696c652e737461748a662f746d702f786466696c650764303634341903e81903e865616c69636565616c69636574323032362d30312d30315430303a30303a30305af6"
+			"description": "event task.exit body=[task_id=\"t-stat\", outcome=[\"code\", 0], timed_out=false, cancelled=false, output_end=0, output_file=\"\", output_lines=0, result=[\"file.stat\", [path=\"/tmp/x\", type=\"file\", size=7, mode=\"0644\", uid=1000, gid=1000, owner=\"alice\", group=\"alice\", mtime=\"2026-01-01T00:00:00Z\", link_target=null]]]",
+			"hex": "8302697461736b2e657869748866742d737461748264636f646500f4f4006000826966696c652e737461748a662f746d702f786466696c650764303634341903e81903e865616c69636565616c69636574323032362d30312d30315430303a30303a30305af6"
 		},
 		{
 			"id": "event.task.exit.result.file.list",
-			"description": "event task.exit body=[task_id=\"t-list\", outcome=[\"code\", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"\", output_lines=0, result=[\"file.list\", [entries=[[name=\"f.txt\", type=\"file\", size=7, mode=\"0644\", mtime=\"2026-01-01T00:00:00Z\"]], truncated=false]]]",
-			"hex": "8302697461736b2e657869748966742d6c6973748264636f646500f4f400006000826966696c652e6c69737482818565662e7478746466696c6507643036343474323032362d30312d30315430303a30303a30305af4"
+			"description": "event task.exit body=[task_id=\"t-list\", outcome=[\"code\", 0], timed_out=false, cancelled=false, output_end=0, output_file=\"\", output_lines=0, result=[\"file.list\", [entries=[[name=\"f.txt\", type=\"file\", size=7, mode=\"0644\", mtime=\"2026-01-01T00:00:00Z\"]], truncated=false]]]",
+			"hex": "8302697461736b2e657869748866742d6c6973748264636f646500f4f4006000826966696c652e6c69737482818565662e7478746466696c6507643036343474323032362d30312d30315430303a30303a30305af4"
 		},
 		{
 			"id": "event.task.exit.result.file.write",
-			"description": "event task.exit body=[task_id=\"t-write\", outcome=[\"code\", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"\", output_lines=0, result=[\"file.write\", [bytes=3, created=true]]]",
-			"hex": "8302697461736b2e657869748967742d77726974658264636f646500f4f400006000826a66696c652e77726974658203f5"
+			"description": "event task.exit body=[task_id=\"t-write\", outcome=[\"code\", 0], timed_out=false, cancelled=false, output_end=0, output_file=\"\", output_lines=0, result=[\"file.write\", [bytes=3, created=true]]]",
+			"hex": "8302697461736b2e657869748867742d77726974658264636f646500f4f4006000826a66696c652e77726974658203f5"
 		},
 		{
 			"id": "event.task.exit.result.file.edit",
-			"description": "event task.exit body=[task_id=\"t-edit-result\", outcome=[\"code\", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file=\"\", output_lines=0, result=[\"file.edit\", [replacements=2]]]",
-			"hex": "8302697461736b2e65786974896d742d656469742d726573756c748264636f646500f4f400006000826966696c652e656469748102"
+			"description": "event task.exit body=[task_id=\"t-edit-result\", outcome=[\"code\", 0], timed_out=false, cancelled=false, output_end=0, output_file=\"\", output_lines=0, result=[\"file.edit\", [replacements=2]]]",
+			"hex": "8302697461736b2e65786974886d742d656469742d726573756c748264636f646500f4f4006000826966696c652e656469748102"
 		},
 		{
 			"id": "event.facts",
@@ -237,8 +237,8 @@
 		},
 		{
 			"id": "event.task.output.ack",
-			"description": "event task.output.ack body=[task_id=\"t-exec-argv\", stdout_offset=6, stderr_offset=0]",
-			"hex": "83026f7461736b2e6f75747075742e61636b836b742d657865632d617267760600"
+			"description": "event task.output.ack body=[task_id=\"t-exec-argv\", offset=6]",
+			"hex": "83026f7461736b2e6f75747075742e61636b826b742d657865632d6172677606"
 		},
 		{
 			"id": "event.task.exit.ack",

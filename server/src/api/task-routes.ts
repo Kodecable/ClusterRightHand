@@ -257,6 +257,7 @@ function parseTask(body: Record<string, unknown>): { spec: TaskSpec; input?: Uin
 					mode: optionalInt(body, "mode") ?? 0,
 					owner: optionalStr(body, "owner") ?? "",
 					group: optionalStr(body, "group") ?? "",
+					createParentDirs: optionalBool(body, "createParentDirs") === true,
 				},
 				input,
 			};

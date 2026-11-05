@@ -152,7 +152,7 @@ describePodman("privileged system: task groups", () => {
 			},
 			30_000,
 		);
-		expect(aRow.stdoutTail).toBe("1\n");
+		expect(aRow.outputTail).toBe("1\n");
 		const bTaskId = g.tasks.find((t) => t.nodeId === b.nodeId)?.id ?? "";
 		const retried = await waitFor(
 			"B to wait for its own signature at attempt 2",
@@ -188,7 +188,7 @@ describePodman("privileged system: task groups", () => {
 			},
 			30_000,
 		);
-		expect(bRow.stdoutTail).toBe("1\n");
+		expect(bRow.outputTail).toBe("1\n");
 		// A did not run again: its run counter still has one line.
 		const aRuns = await a.exec(["/bin/sh", "-c", "wc -l < /root/crh-group-runs"]);
 		expect(aRuns.stdout.trim()).toBe("1");
@@ -225,7 +225,7 @@ describePodman("privileged system: task groups", () => {
 		const rows = await Promise.all(finished.tasks.map((t: { id: string }) => crhs.getTask(t.id)));
 		for (const row of rows) {
 			expect(row.state).toBe("exited");
-			expect(row.stdoutTail).toBe("root\n");
+			expect(row.outputTail).toBe("root\n");
 		}
 		// Both tasks carry the same one signature/payload.
 		expect(rows[0].authorization?.payloadId).toBe(rows[1].authorization?.payloadId);

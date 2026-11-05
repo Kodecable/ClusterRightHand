@@ -64,7 +64,7 @@ func TestExactExecRuns(t *testing.T) {
 	if exit.TaskID != "exec-1" || exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
 	}
-	if got := client.stdout(); got != "ok\n" {
+	if got := client.output(); got != "ok\n" {
 		t.Fatalf("stdout = %q", got)
 	}
 	accepted := waitLogRecord(t, env.paths.Log, "task.accepted", "exec-1", 5*time.Second)
@@ -206,7 +206,7 @@ func TestRequireCosign(t *testing.T) {
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
 	}
-	if got := client.stdout(); got != "cosigned\n" {
+	if got := client.output(); got != "cosigned\n" {
 		t.Fatalf("stdout = %q", got)
 	}
 }
@@ -412,7 +412,7 @@ func TestTaskInput(t *testing.T) {
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
 	}
-	if got := client.stdout(); got != string(data) {
+	if got := client.output(); got != string(data) {
 		t.Fatalf("stdout = %q, want %q", got, data)
 	}
 }

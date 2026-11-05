@@ -19,18 +19,15 @@ export interface OutputLimits {
 /** What a window keeps: the head of the stream, or its tail. */
 export type Retention = "head" | "tail";
 
-export type OutputStream = "stdout" | "stderr";
 export type OutputModeKind = "full" | "text" | "status" | "head";
 
 /** What crhs keeps of a task when it ends or is viewed while running. Null means "this mode keeps none". */
 export interface OutputSnapshot {
-	stdoutBytes: number;
-	stderrBytes: number;
-	stdoutHead: Buffer | null;
-	stdoutTail: Buffer | null;
-	stderrHead: Buffer | null;
-	stderrTail: Buffer | null;
-	/** A single task's merged stdout+stderr tail in arrival order (D112). */
+	/** Bytes of the single output stream (D114). */
+	outputBytes: number;
+	/** The kept head of the stream, for the modes that keep one. */
+	outputHead: Buffer | null;
+	/** The kept tail of the stream, for the modes that keep one. */
 	outputTail: Buffer | null;
 }
 
@@ -78,20 +75,15 @@ export class GroupBudget {
 	}
 }
 
-/** The output side of a running task, uniform over the modes. */
+/** The output side of a running task, uniform over the modes (D114: one stream). */
 export interface LiveTask {
 	readonly mode: OutputModeKind;
 	/** Returns false when the chunk leaves a gap; overlapping resends are skipped. */
-	append(stream: OutputStream, offset: number, data: Uint8Array): boolean;
-	/** Bytes received so far on a stream: the offset acknowledged to crha. */
-	end(stream: OutputStream): number;
-	/** `ends` overrides the byte totals, e.g. with task.exit's ends for a status task. */
-	snapshot(ends?: Partial<Record<OutputStream, number>>): OutputSnapshot;
-	/**
-	 * A line crhs itself puts in front of the task's own output (the SSH privileged notice). It is stderr
-	 * for the modes that keep output; a status task keeps no output but must still show this line.
-	 */
-	note(text: Uint8Array): void;
+	append(offset: number, data: Uint8Array): boolean;
+	/** Bytes received so far: the offset acknowledged to crha. */
+	get end(): number;
+	/** `bytes` overrides the total, e.g. with task.exit's output end for a status task. */
+	snapshot(bytes?: number): OutputSnapshot;
 }
 
 /** Picks the accumulator for the mode; a `text` or `head` task must share its group's budget. */
@@ -228,18 +220,15 @@ class BudgetedWindow {
 }
 
 /**
- * A batch node: an exec node (`text`) keeps one combined tail of stdout and stderr in arrival order;
- * a file operation (`head`) keeps the head of stdout, so every node's page can be continued from its
- * own next line, and no node stderr: a file task's structured result is `task.exit.result`, not a line
- * in a stream. Grants grow with the bytes that arrive, up to the per-node caps; output past a grant
- * is dropped.
+ * A batch node: an exec node (`text`) keeps the tail of the single output stream; a file operation
+ * (`head`) keeps the head of it, so every node's page can be continued from its own next line. Grants
+ * grow with the bytes that arrive, up to the per-node caps; output past a grant is dropped.
+ * crhs's own notice is not output any more (D114): it is stored in `tasks.notice`.
  */
 export class BatchAccumulator implements LiveTask {
 	readonly mode: "text" | "head";
 	readonly #window: BudgetedWindow;
-	readonly #ends: Record<OutputStream, number> = { stdout: 0, stderr: 0 };
-	/** `head` only: the lines crhs writes itself (the SSH privileged notice), never the node's stderr. */
-	#note: Buffer | null = null;
+	#end = 0;
 
 	constructor(mode: "text" | "head", budget: GroupBudget) {
 		this.mode = mode;
@@ -251,162 +240,97 @@ export class BatchAccumulator implements LiveTask {
 		return this.#window.grant;
 	}
 
-	/** Lines the kept window shows (the merged tail, or the page head). */
+	/** Lines the kept window shows (the tail, or the page head). */
 	get keptLines(): number {
 		return this.#window.keptLines;
 	}
 
-	end(stream: OutputStream): number {
-		return this.#ends[stream];
+	get end(): number {
+		return this.#end;
 	}
 
-	note(text: Uint8Array): void {
-		const bytes = Buffer.from(text);
-		if (this.mode === "head") {
-			// A status-like line of crhs's own: a head node keeps no other stderr.
-			this.#ends.stderr += bytes.length;
-			this.#note = this.#note === null ? bytes : Buffer.concat([this.#note, bytes]);
-			return;
-		}
-		this.append("stderr", this.end("stderr"), bytes);
-	}
-
-	append(stream: OutputStream, offset: number, data: Uint8Array): boolean {
-		const end = this.#ends[stream];
-		if (offset > end) return false;
-		const skip = end - offset;
+	append(offset: number, data: Uint8Array): boolean {
+		if (offset > this.#end) return false;
+		const skip = this.#end - offset;
 		if (skip >= data.length) return true;
 		const fresh = Buffer.from(data.subarray(skip));
-		this.#ends[stream] = end + fresh.length;
-
-		if (this.mode === "head" && stream === "stderr") {
-			// A head node keeps no stderr: a file task reports its result in task.exit, and the count
-			// above is all crhs needs to acknowledge the bytes (doc/protocol.md TaskResult).
-			return true;
-		}
-
+		this.#end += fresh.length;
 		this.#window.append(fresh);
 		return true;
 	}
 
-	/** The combined tail of a text node, or the stdout head of a head node; never over the grant. */
+	/** The tail of a text node, or the head of a head node; never over the grant. */
 	kept(): Buffer {
 		return this.#window.kept();
 	}
 
-	snapshot(ends?: Partial<Record<OutputStream, number>>): OutputSnapshot {
-		const stdoutBytes = ends?.stdout ?? this.#ends.stdout;
-		const stderrBytes = ends?.stderr ?? this.#ends.stderr;
-		if (this.mode === "head") {
-			return {
-				stdoutBytes,
-				stderrBytes,
-				stdoutHead: this.kept(),
-				stdoutTail: null,
-				stderrHead: this.#note === null ? null : Buffer.from(this.#note),
-				stderrTail: null,
-				outputTail: null,
-			};
-		}
-		return {
-			stdoutBytes,
-			stderrBytes,
-			stdoutHead: null,
-			stdoutTail: this.kept(),
-			stderrHead: null,
-			stderrTail: null,
-			outputTail: null,
-		};
+	snapshot(bytes = this.#end): OutputSnapshot {
+		const kept = this.kept();
+		const value = kept.length > 0 ? kept : null;
+		return this.mode === "head"
+			? { outputBytes: bytes, outputHead: value, outputTail: null }
+			: { outputBytes: bytes, outputHead: null, outputTail: value };
 	}
 }
 
-/** A `status` task: crhs keeps only per-stream byte counts, plus the notices crhs writes itself. */
+/** A `status` task: crhs keeps only the output stream's byte count. */
 class StatusOutput implements LiveTask {
 	readonly mode = "status";
-	readonly #ends: Record<OutputStream, number> = { stdout: 0, stderr: 0 };
-	/** Lines crhs adds before the task's own output: the only stderr text a status task keeps. */
-	#note: Buffer | null = null;
+	#end = 0;
 
-	end(stream: OutputStream): number {
-		return this.#ends[stream];
+	get end(): number {
+		return this.#end;
 	}
 
-	note(text: Uint8Array): void {
-		const bytes = Buffer.from(text);
-		this.#ends.stderr += bytes.length;
-		this.#note = this.#note === null ? bytes : Buffer.concat([this.#note, bytes]);
-	}
-
-	append(stream: OutputStream, offset: number, data: Uint8Array): boolean {
-		const end = this.#ends[stream];
-		if (offset > end) return false;
-		const skip = end - offset;
-		if (skip < data.length) this.#ends[stream] = end + data.length - skip;
+	append(offset: number, data: Uint8Array): boolean {
+		if (offset > this.#end) return false;
+		const skip = this.#end - offset;
+		if (skip < data.length) this.#end = offset + data.length;
 		return true;
 	}
 
-	snapshot(ends?: Partial<Record<OutputStream, number>>): OutputSnapshot {
-		return {
-			stdoutBytes: ends?.stdout ?? this.#ends.stdout,
-			stderrBytes: ends?.stderr ?? this.#ends.stderr,
-			stdoutHead: null,
-			stdoutTail: null,
-			stderrHead: this.#note,
-			stderrTail: null,
-			outputTail: null,
-		};
+	snapshot(bytes = this.#end): OutputSnapshot {
+		return { outputBytes: bytes, outputHead: null, outputTail: null };
 	}
 }
 
 /**
- * A single task: the existing per-stream head and tail, unchanged for the WebUI, plus one merged
- * stdout+stderr tail in arrival order (D112). The merged tail is what the model sees.
+ * A single task: the head and the tail of the single output stream (D114). The tail is the one the
+ * model sees, capped by the task's own budget (D112); the head is the WebUI's.
  */
 class FullOutput implements LiveTask {
 	readonly mode = "full";
-	readonly #stdout = new StreamAccumulator();
-	readonly #stderr = new StreamAccumulator();
-	readonly #merged: BudgetedWindow;
+	readonly #stream = new StreamAccumulator();
+	readonly #tail: BudgetedWindow;
 
 	constructor(limits?: OutputLimits) {
 		const total = limits ?? { maxLines: BATCH_GROUP_LINES, maxBytes: BATCH_GROUP_BYTES };
 		// A single task's total budget is its own cap; the budget component still does the rolling.
-		this.#merged = new BudgetedWindow(new GroupBudget({ node: total, total }), "tail");
+		this.#tail = new BudgetedWindow(new GroupBudget({ node: total, total }), "tail");
 	}
 
-	#stream(stream: OutputStream): StreamAccumulator {
-		return stream === "stderr" ? this.#stderr : this.#stdout;
+	get end(): number {
+		return this.#stream.end;
 	}
 
-	end(stream: OutputStream): number {
-		return this.#stream(stream).end;
-	}
-
-	note(text: Uint8Array): void {
-		this.append("stderr", this.end("stderr"), text);
-	}
-
-	append(stream: OutputStream, offset: number, data: Uint8Array): boolean {
-		const fresh = this.#stream(stream).append(offset, data);
+	append(offset: number, data: Uint8Array): boolean {
+		const fresh = this.#stream.append(offset, data);
 		if (fresh === null) return false;
-		if (fresh.length > 0) this.#merged.append(fresh);
+		if (fresh.length > 0) this.#tail.append(fresh);
 		return true;
 	}
 
-	/** Lines the merged tail shows; the same count the stored output_tail has. */
+	/** Lines the tail shows; the same count the stored output_tail has. */
 	get outputTailLines(): number {
-		return this.#merged.keptLines;
+		return this.#tail.keptLines;
 	}
 
-	snapshot(): OutputSnapshot {
+	snapshot(bytes = this.#stream.end): OutputSnapshot {
+		const tail = this.#tail.kept();
 		return {
-			stdoutBytes: this.#stdout.end,
-			stderrBytes: this.#stderr.end,
-			stdoutHead: this.#stdout.head(),
-			stdoutTail: this.#stdout.tail(),
-			stderrHead: this.#stderr.head(),
-			stderrTail: this.#stderr.tail(),
-			outputTail: this.#merged.kept().length > 0 ? this.#merged.kept() : null,
+			outputBytes: bytes,
+			outputHead: this.#stream.head(),
+			outputTail: tail.length > 0 ? tail : null,
 		};
 	}
 }

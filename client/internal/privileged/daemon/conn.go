@@ -291,9 +291,9 @@ func executionStart(ts *protocol.TaskStart, decided *decidedTask) protocol.TaskS
 
 // outputEmitter turns the task's output into crh-priv task.output events.
 func (c *conn) outputEmitter(taskID string) taskrun.Emit {
-	return func(stream protocol.Stream, off uint64, data []byte) error {
+	return func(off uint64, data []byte) error {
 		return c.peer.Emit(protocol.EventTaskOutput, protocol.TaskOutput{
-			TaskID: taskID, Stream: stream, Offset: protocol.Uint(off), Data: data,
+			TaskID: taskID, Offset: protocol.Uint(off), Data: data,
 		})
 	}
 }
@@ -313,8 +313,7 @@ func (c *conn) startTask(ct *connTask) {
 				Outcome:    taskrun.OutcomeText(exit.Outcome),
 				TimedOut:   exit.TimedOut,
 				Cancelled:  exit.Cancelled,
-				StdoutEnd:  uint64(exit.StdoutEnd),
-				StderrEnd:  uint64(exit.StderrEnd),
+				OutputEnd:  uint64(exit.OutputEnd),
 				DurationMS: time.Since(started).Milliseconds(),
 			})
 			if err := c.peer.Emit(protocol.EventTaskExit, exit); err != nil {

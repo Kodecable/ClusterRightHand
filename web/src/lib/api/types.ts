@@ -546,19 +546,18 @@ export interface TaskView {
 	cancelled: boolean;
 	errorCode: string | null;
 	errorMessage: string | null;
-	stdoutBytes: number;
-	stderrBytes: number;
-	stdoutHead: string;
-	/** In text mode: the combined stdout/stderr tail; the other head/tail fields are empty. */
-	stdoutTail: string;
-	stderrHead: string;
-	stderrTail: string;
-	/** A single task's merged stdout/stderr tail in arrival order (D112); "" for the batch modes. */
+	/** Bytes of the single output stream (D114). */
+	outputBytes: number;
+	/** The kept head of the output stream; text mode keeps only a tail, so this is "". */
+	outputHead: string;
+	/** The kept tail of the output stream (a single task's or a batch text node's). */
 	outputTail: string;
 	/** Lines shown by `outputTail`; a last line without a newline counts. */
 	outputTailLines: number;
-	/** Total lines of the merged output; null until the node reports it in task.exit. */
+	/** Total lines of the output; null until the node reports it in task.exit. */
 	outputLines: number | null;
+	/** crhs's own note about the task (the SSH privileged notice); not part of the output (D114). */
+	notice: string | null;
 	/** The task's output budget; null is the default for its mode (D112). */
 	maxLines: number | null;
 	maxBytes: number | null;

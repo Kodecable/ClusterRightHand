@@ -10,10 +10,11 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
-// Sink receives a task's output. *Output implements it; privileged execution uses a forward-only
-// sink that turns output into crh-priv events instead of keeping it.
+// Sink receives a task's output: one stream, stdout and stderr together. *Output implements it;
+// privileged execution uses a forward-only sink that turns output into crh-priv events instead of
+// keeping it.
 type Sink interface {
-	Writer(stream protocol.Stream) io.Writer
+	Writer() io.Writer
 }
 
 // TaskOptions is the execution environment of one task. Privileged execution (the native helper and
@@ -42,9 +43,9 @@ func RunTask(ctx context.Context, spec *protocol.TaskSpec, in io.Reader, out Sin
 	var result *protocol.TaskResult
 	var err error
 	if opts.Privileged {
-		result, err = RunFilePrivileged(ctx, spec, in, out.Writer(protocol.StreamStdout))
+		result, err = RunFilePrivileged(ctx, spec, in, out.Writer())
 	} else {
-		result, err = RunFile(ctx, spec, in, out.Writer(protocol.StreamStdout))
+		result, err = RunFile(ctx, spec, in, out.Writer())
 	}
 	return fileResult(result, err)
 }

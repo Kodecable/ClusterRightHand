@@ -64,12 +64,8 @@ export interface Live {
 
 /** No output at all: a task that never ran, or a status task before task.exit names its file. */
 const EMPTY_OUTPUT: OutputSnapshot = {
-	stdoutBytes: 0,
-	stderrBytes: 0,
-	stdoutHead: null,
-	stdoutTail: null,
-	stderrHead: null,
-	stderrTail: null,
+	outputBytes: 0,
+	outputHead: null,
 	outputTail: null,
 };
 
@@ -260,14 +256,11 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 		dispatched_at: null,
 		accepted_at: null,
 		finished_at: denied ? now() : null,
-		stdout_bytes: 0,
-		stderr_bytes: 0,
-		stdout_head: null,
-		stdout_tail: null,
-		stderr_head: null,
-		stderr_tail: null,
+		output_bytes: 0,
+		output_head: null,
 		output_tail: null,
 		output_lines: null,
+		notice: null,
 		result: null,
 		output_file: null,
 		late_result: null,
@@ -531,16 +524,11 @@ export async function onExit(core: ClusterCore, conn: NodeConnection, exit: Task
 	// TaskExit follows all output on the wire; if bytes are missing, the client will resend after a
 	// reconnect and send TaskExit again. Record what we have only when complete. A `status` task gets
 	// no task.output at all, so there is nothing to wait for (doc/execution-plane.md#输出).
-	const complete =
-		row.output_mode === "status" ||
-		(live.output.end("stdout") >= exit.stdoutEnd && live.output.end("stderr") >= exit.stderrEnd);
+	const complete = row.output_mode === "status" || live.output.end >= exit.outputEnd;
 	if (!complete) return conn.close("output incomplete at exit");
 
-	// A status task's byte totals come from task.exit; the other modes already received the bytes.
-	const output =
-		row.output_mode === "status"
-			? live.output.snapshot({ stdout: exit.stdoutEnd, stderr: exit.stderrEnd })
-			: live.output.snapshot();
+	// A status task's byte total comes from task.exit; the other modes already received the bytes.
+	const output = row.output_mode === "status" ? live.output.snapshot(exit.outputEnd) : live.output.snapshot();
 	const outcome = exit.outcome;
 	const fields: Updateable<TasksTable> = {
 		exit_code: outcome.kind === "code" ? outcome.value : null,
@@ -715,7 +703,7 @@ async function auditFinish(core: ClusterCore, id: string): Promise<void> {
 	const row = await core.row(id);
 	if (!row) return;
 	const outputHash = createHash("sha256")
-		.update(`${row.stdout_head ?? ""}\n${row.stdout_tail ?? ""}\n${row.stderr_head ?? ""}\n${row.stderr_tail ?? ""}`)
+		.update(`${row.output_head ?? ""}\n${row.output_tail ?? ""}`)
 		.digest("hex");
 	core.auditLater({
 		actor:
@@ -732,8 +720,7 @@ async function auditFinish(core: ClusterCore, id: string): Promise<void> {
 			error_code: row.error_code,
 			timed_out: row.timed_out === 1,
 			cancelled: row.cancelled === 1,
-			stdout_bytes: Number(row.stdout_bytes),
-			stderr_bytes: Number(row.stderr_bytes),
+			output_bytes: Number(row.output_bytes),
 			// Of the kept head and tail; crhs never has the full output.
 			kept_output_sha256: outputHash,
 			output_file: row.output_file,

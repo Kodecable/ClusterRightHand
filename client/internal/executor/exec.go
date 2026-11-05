@@ -93,8 +93,11 @@ func RunExec(ctx context.Context, spec *protocol.ExecSpec, stdin io.Reader, out 
 	}
 	cmd.Env = env
 	cmd.Stdin = stdin
-	cmd.Stdout = out.Writer(protocol.StreamStdout)
-	cmd.Stderr = out.Writer(protocol.StreamStderr)
+	// One writer for both descriptors: os/exec gives them a single pipe when Stdout and Stderr are
+	// the same value, so the bytes interleave in write order (doc/execution-plane.md#输出).
+	output := out.Writer()
+	cmd.Stdout = output
+	cmd.Stderr = output
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = pipeWait
 

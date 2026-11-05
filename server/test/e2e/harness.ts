@@ -134,12 +134,12 @@ export interface TaskJson {
 	cancelled: boolean;
 	errorCode: string | null;
 	errorMessage: string | null;
-	stdoutBytes: number;
-	stderrBytes: number;
-	stdoutHead: string;
-	stdoutTail: string;
-	stderrHead: string;
-	stderrTail: string;
+	outputBytes: number;
+	outputHead: string;
+	outputTail: string;
+	outputTailLines: number;
+	outputLines: number | null;
+	notice: string | null;
 	outputFile: string | null;
 	privileged: boolean;
 	/** The task's structured result, as the API serves it (doc/protocol.md TaskResult). */

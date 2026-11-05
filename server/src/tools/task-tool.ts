@@ -1,7 +1,7 @@
 /**
  * The component every crh task tool shares (D111, doc/agent-runtime.md#工具层的分类与复用组件d111):
- * resolve `node` / `targets`, decide one task or a task group, derive the task id from the call, wait,
- * and hand the result to a renderer. Two waiting ways:
+ * resolve `targets`, decide one task or a task group, derive the task id from the call, wait, and hand
+ * the result to a renderer. Two waiting ways:
  *
  * - background-waitable (`exec`): wait at most `wait`, then return a still-running / waiting note with
  *   the task id so the model follows up with `task_wait` / `task_cancel`;
@@ -16,7 +16,6 @@ import type { JsonTaskResult, TaskSpec } from "@crh/protocol";
 import { countOutputLines, type TaskView, TERMINAL } from "../cluster/cluster.ts";
 import { resolveTargets, type TaskGroupView } from "../cluster/task-groups.ts";
 import { GROUP_TERMINAL } from "../cluster/types.ts";
-import { UserError } from "../users/service.ts";
 import { derivedId } from "../util/id.ts";
 import type { ToolContext } from "./catalog.ts";
 import { jsonResult, type TextBlock, type ToolResult, textResult } from "./render.ts";
@@ -39,7 +38,6 @@ export interface CallArgs {
 	timeout?: number;
 	parallel?: number;
 	fail_fast?: boolean;
-	output?: "status" | "text";
 	privileged?: boolean;
 }
 
@@ -47,12 +45,13 @@ export interface StartOptions {
 	spec: TaskSpec;
 	/** stdin for exec, content for file.write. */
 	input?: Uint8Array;
-	/** One node named by `node` instead of `targets` (edit_file). */
-	node?: string;
 	/** Per-node output budget, passed to task or task-group creation (D112). */
 	maxLines?: number;
 	maxBytes?: number;
-	/** What an exec task group returns; ignored for a single task. */
+	/**
+	 * What an exec task group returns; a single task keeps `status` too (exec with_output: false) and
+	 * otherwise keeps its full output.
+	 */
 	outputMode?: "status" | "text";
 	/** Seconds a background-waitable call waits; undefined uses the surface's default. */
 	wait?: number;
@@ -281,14 +280,7 @@ async function waitBlockingGroup(ctx: ToolContext, id: string): Promise<TaskGrou
  * restart reattaches to the same Cluster task instead of starting another.
  */
 async function createCall(ctx: ToolContext, args: CallArgs, options: StartOptions): Promise<Started> {
-	const targets = options.node === undefined ? (args.targets ?? []) : [options.node];
-	const resolved = await resolveTargets(ctx.db, ctx.user, targets);
-	if (options.node !== undefined && !resolved.singleNode) {
-		throw new UserError(
-			`${options.node} does not name one node; this tool runs on one node. Name one node.`,
-			"no_such_node",
-		);
-	}
+	const resolved = await resolveTargets(ctx.db, ctx.user, args.targets ?? []);
 	const common = {
 		spec: options.spec,
 		input: options.input,
@@ -306,6 +298,8 @@ async function createCall(ctx: ToolContext, args: CallArgs, options: StartOption
 			...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
 			...(options.maxLines === undefined ? {} : { maxLines: options.maxLines }),
 			...(options.maxBytes === undefined ? {} : { maxBytes: options.maxBytes }),
+			// A single exec task with with_output: false keeps only its status and output file path.
+			...(options.outputMode === "status" ? { outputMode: "status" as const } : {}),
 			actor: ctx.actor,
 			chain: ctx.chain,
 			privileged: args.privileged === true,
@@ -360,22 +354,6 @@ export async function runTaskTool(
 			? await waitBlockingGroup(ctx, started.taskGroup.id)
 			: await waitBackgroundGroup(ctx, started.taskGroup.id, (options.wait ?? ctx.defaultWaitS ?? 30) * 1000);
 	return render({ ...started, taskGroup });
-}
-
-/** Starts one task on one node named by the input; a node group or `_all` is rejected (single-node tools). */
-export async function runTaskToolOnNode(
-	ctx: ToolContext,
-	node: string,
-	args: CallArgs,
-	options: Omit<StartOptions, "node">,
-	waiting: WaitKind,
-	render: (started: Started & { kind: "task" }) => ToolResult,
-): Promise<ToolResult> {
-	const result = await runTaskTool(ctx, args, { ...options, node }, waiting, (started) => {
-		if (started.kind !== "task") throw new Error("a single-node tool started a task group");
-		return render(started);
-	});
-	return result;
 }
 
 // ---- details for the UI ----
@@ -452,31 +430,39 @@ function seconds(ms: number): string {
 
 // ---- text rendering (exec and read_file) ----
 
-/** `<node> · exit 0`, `<node> · error <code>: <message>`, and the waiting variants. */
+/** One synthesized note line: fields inside square brackets, separated by ", " (D114). */
+function noteLine(fields: readonly string[]): string {
+	return `[${fields.join(", ")}]`;
+}
+
+/** `<node, exit 0>`, `<node, error <code>: <message>>`, and the waiting variants. */
 function taskStatusLine(task: TaskView, label: string): string {
-	if (task.timedOut) return `${label} · timed out${task.timeoutMs === null ? "" : ` after ${seconds(task.timeoutMs)}`}`;
-	if (task.signal !== null && task.signal !== "") return `${label} · killed by ${task.signal}`;
+	if (task.timedOut) {
+		const timeout = task.timeoutMs === null ? "timed out" : `timed out after ${seconds(task.timeoutMs)}`;
+		return noteLine([label, timeout]);
+	}
+	if (task.signal !== null && task.signal !== "") return noteLine([label, `killed by ${task.signal}`]);
 	if (task.state === "unknown") {
 		const code = task.errorCode ?? "unknown";
 		const reason = task.errorMessage === null ? "" : ` (${task.errorMessage})`;
-		return `${label} · error ${code}: execution failed; the outcome is unknown${reason}`;
+		return noteLine([label, `error ${code}: execution failed; the outcome is unknown${reason}`]);
 	}
-	if (task.errorCode !== null) return `${label} · error ${task.errorCode}: ${task.errorMessage ?? ""}`;
+	if (task.errorCode !== null) return noteLine([label, `error ${task.errorCode}: ${task.errorMessage ?? ""}`]);
 	if (task.state === "exited") {
-		const cancelled = task.cancelled ? " · cancelled" : "";
-		return `${label} · exit ${task.exitCode ?? 0}${cancelled}`;
+		const fields = [label, `exit ${task.exitCode ?? 0}`];
+		if (task.cancelled) fields.push("cancelled");
+		return noteLine(fields);
 	}
 	if (task.exitCode !== null) {
-		const cancelled = task.cancelled ? " · cancelled" : "";
-		return `${label} · exit ${task.exitCode}${cancelled}`;
+		const fields = [label, `exit ${task.exitCode}`];
+		if (task.cancelled) fields.push("cancelled");
+		return noteLine(fields);
 	}
 	if (task.state === "failed" || task.state === "denied" || task.state === "rejected") {
 		const error = taskError(task);
-		const code = error?.code ?? task.state;
-		const message = error?.message ?? "";
-		return `${label} · error ${code}: ${message}`;
+		return noteLine([label, `error ${error?.code ?? task.state}: ${error?.message ?? ""}`]);
 	}
-	return `${label} · ${task.state}`;
+	return noteLine([label, task.state]);
 }
 
 function isWaiting(task: TaskView): boolean {
@@ -489,18 +475,23 @@ function isRunning(task: TaskView): boolean {
 
 /** The note of a non-final task, with the id only for background-waitable tools (exec). */
 function waitingLine(task: TaskView, label: string, ctx: ToolContext, exposeId: boolean): string | undefined {
-	const followUp = exposeId ? ` · task_id ${task.id}. Call task_wait with this task_id.` : "";
+	const followUp = exposeId ? `task_id ${task.id}. Call task_wait with this task_id.` : undefined;
 	if (task.state === "awaiting_approval") {
-		return `${label} · waiting for approval: ${ctx.approvalUrl("task", task.id)}${followUp}`;
+		const fields = [label, `waiting for approval: ${ctx.approvalUrl("task", task.id)}`];
+		if (followUp !== undefined) fields.push(followUp);
+		return noteLine(fields);
 	}
 	if (task.state === "awaiting_authorization") {
-		return `${label} · waiting for authorization: ${ctx.taskUrl?.(task.id) ?? `/tasks/${task.id}`}${followUp}`;
+		const fields = [label, `waiting for authorization: ${ctx.taskUrl?.(task.id) ?? `/tasks/${task.id}`}`];
+		if (followUp !== undefined) fields.push(followUp);
+		return noteLine(fields);
 	}
-	if (isRunning(task)) return `${label} · still running${followUp}`;
+	if (isRunning(task))
+		return followUp === undefined ? noteLine([label, "still running"]) : noteLine([label, "still running", followUp]);
 	return undefined;
 }
 
-/** The "Showing lines X-Y of N …" hint that follows truncated exec output (D112). */
+/** The "Showing lines X-Y of N …" hint that follows truncated exec output (D112), as its own bracketed line. */
 function truncationHint(
 	keptLines: number,
 	totalLines: number | null,
@@ -510,31 +501,39 @@ function truncationHint(
 ): string | undefined {
 	if (totalLines === null || totalLines <= 0) return undefined;
 	if (keptLines >= totalLines && !bytesTruncated) return undefined;
-	if (keptLines <= 0) return "No output was kept for this node (batch budget).";
+	if (keptLines <= 0) return "[No output was kept for this node (batch budget).]";
 	const from = Math.max(1, totalLines - keptLines + 1);
 	const head = `Showing lines ${from}-${totalLines} of ${totalLines}.`;
-	if (outputFile) return `${head} Full output: ${outputFile} (read it with read_file).`;
+	if (outputFile) return `[${head} Full output: ${outputFile} (read it with read_file).]`;
 	// Only an SSH task runs without an output file; a crha node without one lost it (e.g. after a restart).
 	return transport === "ssh"
-		? `${head} This is an SSH node; no full output is kept.`
-		: `${head} The node kept no full output.`;
+		? `[${head} This is an SSH node; no full output is kept.]`
+		: `[${head} The node kept no full output.]`;
 }
 
 /** Whether the full byte count reported by the node is larger than the tail the model gets. */
 function bytesTruncated(task: TaskView, text: string): boolean {
-	return task.stdoutBytes + task.stderrBytes > Buffer.byteLength(text);
+	return task.outputBytes > Buffer.byteLength(text);
 }
 
-function taskSourceText(task: TaskView, combinedTail: boolean): { text: string; keptLines: number } {
-	if (combinedTail && task.stdoutTail !== "") {
-		return { text: task.stdoutTail, keptLines: countOutputLines(task.stdoutTail) };
-	}
-	if (task.outputTail !== "") {
-		return { text: task.outputTail, keptLines: task.outputTailLines };
-	}
-	if (task.stdoutTail !== "") {
-		return { text: task.stdoutTail, keptLines: countOutputLines(task.stdoutTail) };
-	}
+/** crhs's own note about the task (the SSH privileged notice), bracketed on its own line (D114). */
+function noticeLine(task: TaskView): string | undefined {
+	if (task.notice === null || task.notice.trim() === "") return undefined;
+	return task.notice
+		.trim()
+		.split(/\r?\n/)
+		.map((line) => noteLine([line.trim()]))
+		.join("\n");
+}
+
+/** Adds the task's notice as the last line of a note block. */
+function withNotice(note: string, task: TaskView): string {
+	const notice = noticeLine(task);
+	return notice === undefined ? note : `${note}\n${notice}`;
+}
+
+function taskSourceText(task: TaskView): { text: string; keptLines: number } {
+	if (task.outputTail !== "") return { text: task.outputTail, keptLines: countOutputLines(task.outputTail) };
 	return { text: "", keptLines: 0 };
 }
 
@@ -546,16 +545,22 @@ export function execTaskResult(
 	transport: NodeTransport = "client",
 ): ToolResult {
 	const details = taskDetails(task, nodeName);
+	// with_output: false keeps only the status; the model gets JSON, like a status batch (D114).
+	if (task.outputMode === "status") {
+		return jsonResult(statusNode(ctx, task, nodeName), { isError: taskFailed(task), details });
+	}
 	const waiting = waitingLine(task, nodeName, ctx, true);
 	if (waiting !== undefined) {
 		// A long-running task still returns the output it has produced so far (doc/agent-runtime.md#exec-工具的语义).
-		const { text } = taskSourceText(task, false);
-		return textResult([{ output: text, note: waiting }], { details });
+		const { text } = taskSourceText(task);
+		const note = [waiting, noticeLine(task)].filter((line): line is string => line !== undefined).join("\n");
+		return textResult([{ output: text, note }], { details });
 	}
-	const { text, keptLines } = taskSourceText(task, false);
+	const { text, keptLines } = taskSourceText(task);
 	const note = [
 		taskStatusLine(task, nodeName),
 		truncationHint(keptLines, task.outputLines, task.outputFile, transport, bytesTruncated(task, text)),
+		noticeLine(task),
 	]
 		.filter((line): line is string => line !== undefined)
 		.join("\n");
@@ -573,30 +578,22 @@ export function groupTextNote(
 		counts?.succeeded ?? group.tasks.filter((task) => task.state === "exited" && !taskFailed(task)).length;
 	const failed = counts?.failed ?? group.tasks.filter((task) => taskFailed(task)).length;
 	// A waiting group has no tasks yet but already knows its nodes: count the nodes it targets.
-	const parts = [`task group${exposeId ? ` ${group.id}` : ""}`, `${group.nodeIds.length} nodes`];
-	if (group.skipped.length > 0) parts.push(`${succeeded} succeeded, ${failed} failed, ${group.skipped.length} skipped`);
-	else parts.push(`${succeeded} succeeded, ${failed} failed`);
-	let note = parts.join(" · ");
+	const fields = [`task group${exposeId ? ` ${group.id}` : ""}`, `${group.nodeIds.length} nodes`];
+	fields.push(`${succeeded} succeeded`, `${failed} failed`);
+	if (group.skipped.length > 0) fields.push(`${group.skipped.length} skipped`);
 	if (group.state === "awaiting_approval") {
-		note += ` · waiting for approval: ${ctx.approvalUrl("task_group", group.id)}`;
+		fields.push(`waiting for approval: ${ctx.approvalUrl("task_group", group.id)}`);
 	} else if (group.state === "awaiting_authorization") {
-		note += ` · waiting for authorization: ${ctx.taskGroupUrl?.(group.id) ?? `/task-groups/${group.id}`}`;
+		fields.push(`waiting for authorization: ${ctx.taskGroupUrl?.(group.id) ?? `/task-groups/${group.id}`}`);
 	} else if (group.state === "running") {
-		note += " · still running";
+		fields.push("still running");
 	} else if (group.state === "interrupted" || group.state === "rejected") {
-		note += ` · ${group.state}`;
+		fields.push(group.state);
 	}
-	if (
-		exposeId &&
-		!GROUP_TERMINAL.has(group.state) &&
-		group.state !== "awaiting_approval" &&
-		group.state !== "awaiting_authorization"
-	) {
-		note += ` · task_group_id ${group.id}. Call task_wait with this task_group_id.`;
-	} else if (exposeId && (group.state === "awaiting_approval" || group.state === "awaiting_authorization")) {
-		note += ` · task_group_id ${group.id}. Call task_wait with this task_group_id.`;
+	if (exposeId && !GROUP_TERMINAL.has(group.state)) {
+		fields.push(`task_group_id ${group.id}. Call task_wait with this task_group_id.`);
 	}
-	return note;
+	return noteLine(fields);
 }
 
 /** A task group's nodes as text: one note/raw pair per node, after the leading group note. */
@@ -604,7 +601,6 @@ function groupTextResult(
 	ctx: ToolContext,
 	group: TaskGroupView,
 	names: Map<string, string>,
-	combinedTail: boolean,
 	transports?: Map<string, NodeTransport>,
 ): ToolResult {
 	const blocks: TextBlock[] = [{ note: groupTextNote(ctx, group, true) }];
@@ -613,14 +609,16 @@ function groupTextResult(
 		const transport = transports?.get(task.nodeId) ?? "client";
 		const waiting = waitingLine(task, nodeName, ctx, false);
 		if (waiting !== undefined) {
-			const { text } = taskSourceText(task, combinedTail);
-			blocks.push({ output: text, note: waiting });
+			const { text } = taskSourceText(task);
+			const note = [waiting, noticeLine(task)].filter((line): line is string => line !== undefined).join("\n");
+			blocks.push({ output: text, note });
 			continue;
 		}
-		const { text, keptLines } = taskSourceText(task, combinedTail);
+		const { text, keptLines } = taskSourceText(task);
 		const note = [
 			taskStatusLine(task, nodeName),
 			truncationHint(keptLines, task.outputLines, task.outputFile, transport, bytesTruncated(task, text)),
+			noticeLine(task),
 		]
 			.filter((line): line is string => line !== undefined)
 			.join("\n");
@@ -634,7 +632,7 @@ function groupTextResult(
 /** One node of an exec status group: status, exit and the full output file. */
 function statusNode(ctx: ToolContext, task: TaskView, nodeName: string): Record<string, unknown> {
 	const out = taskDetails(task, nodeName);
-	if (task.stderrHead !== "") out.notice = task.stderrHead;
+	if (task.notice !== null) out.notice = task.notice;
 	if (task.outputFile) {
 		out.output_file = task.outputFile;
 		out.note = "full output is on the node; read it with read_file";
@@ -685,7 +683,7 @@ export function execResult(ctx: ToolContext, started: Started): ToolResult {
 	if (started.kind === "task") return execTaskResult(ctx, started.task, started.nodeName, started.transport);
 	const { taskGroup, names, transports } = started;
 	return taskGroup.outputMode === "text"
-		? groupTextResult(ctx, taskGroup, names, true, transports)
+		? groupTextResult(ctx, taskGroup, names, transports)
 		: execGroupStatusResult(ctx, taskGroup, names);
 }
 
@@ -731,8 +729,8 @@ function fileNode(task: TaskView, nodeName: string): Record<string, unknown> {
 	if (task.timedOut) out.timed_out = true;
 	if (task.cancelled) out.cancelled = true;
 	if (task.result !== null) Object.assign(out, resultFields(task.result));
-	// The only stderr a file task keeps is crhs's own line (the SSH privileged notice).
-	if (task.stderrHead !== "") out.notice = task.stderrHead;
+	// crhs's own line (the SSH privileged notice) is not part of the output (D114).
+	if (task.notice !== null) out.notice = task.notice;
 	const error = taskError(task);
 	if (error !== undefined) out.error = error;
 	return out;
@@ -745,7 +743,7 @@ export function fileJsonResult(ctx: ToolContext, task: TaskView, nodeName: strin
 	if (error !== undefined) return jsonResult({ error }, { isError: true, details });
 	const out: Record<string, unknown> = { node: nodeName, state: task.state };
 	if (task.result !== null) Object.assign(out, resultFields(task.result));
-	if (task.stderrHead !== "") out.notice = task.stderrHead;
+	if (task.notice !== null) out.notice = task.notice;
 	void ctx;
 	return jsonResult(out, { details });
 }
@@ -855,23 +853,25 @@ function readPage(
 	const page = pageResultOf(task.result);
 	if (!page) {
 		const error = { code: PAGE_MISSING, message: "the node reported no file.read result" };
-		return { output: "", note: `${label} · error ${error.code}: ${error.message}`, error };
+		return { output: "", note: noteLine([label, `error ${error.code}: ${error.message}`]), error };
 	}
 	const failure = pageFailure(page, startLine, path);
-	if (failure) return { output: "", note: `${label} · error ${failure.code}: ${failure.message}`, error: failure };
-	if (page.from === 0) return { output: "", note: `${label} · the file is empty` };
+	if (failure) {
+		return { output: "", note: noteLine([label, `error ${failure.code}: ${failure.message}`]), error: failure };
+	}
+	if (page.from === 0) return { output: "", note: noteLine([label, "the file is empty"]) };
 
 	// The page may be cut by the per-node byte budget (single task `max_bytes`, or a batch node's grant).
 	// A batch head that dropped its whole grant, or cut it mid-line, is finished at its last whole line.
-	if (task.stdoutBytes > 0 && task.stdoutHead === "" && page.to >= page.from) {
+	if (task.outputBytes > 0 && task.outputHead === "" && page.to >= page.from) {
 		return {
 			output: "",
-			note: `${label} · no page was kept for this node (batch budget); read it on its own`,
+			note: noteLine([label, "no page was kept for this node (batch budget); read it on its own"]),
 		};
 	}
-	const available = task.stdoutHead;
+	const available = task.outputHead;
 	const cut = cutToBytes(available, maxBytes);
-	const whole = !cut.cut && task.stdoutBytes > 0 && Buffer.byteLength(available) >= task.stdoutBytes;
+	const whole = !cut.cut && task.outputBytes > 0 && Buffer.byteLength(available) >= task.outputBytes;
 	const output = whole ? available : completeLines(cut.text);
 	const keptLines = whole ? page.to - page.from + 1 : countOutputLines(output);
 	if (keptLines === 0) {
@@ -882,16 +882,13 @@ function readPage(
 					? "no whole line was kept for this node (batch budget); read it on its own"
 					: "no whole line fits in max_bytes; increase max_bytes or use a smaller offset",
 		};
-		return { output: "", note: `${label} · error ${error.code}: ${error.message}`, error };
+		return { output: "", note: noteLine([label, `error ${error.code}: ${error.message}`]), error };
 	}
 	const to = page.from + keptLines - 1;
 	const more = !page.eof || to < page.to;
-	let note: string;
-	if (!more) {
-		note = `${label} · lines ${page.from}-${to}${page.total === null ? "" : ` of ${page.total}`} (end of file)`;
-	} else {
-		note = `${label} · lines ${page.from}-${to}. Use offset=${to + 1} to continue.`;
-	}
+	const note = more
+		? noteLine([label, `lines ${page.from}-${to}. Use offset=${to + 1} to continue.`])
+		: noteLine([label, `lines ${page.from}-${to}${page.total === null ? "" : ` of ${page.total}`} (end of file)`]);
 	return { output, note };
 }
 
@@ -906,7 +903,7 @@ export function readTaskResult(
 ): ToolResult {
 	const details = taskDetails(task, nodeName);
 	const page = readPage(ctx, task, `${nodeName}:${path}`, path, startLine, maxBytes);
-	return textResult([{ output: page.output, note: page.note }], {
+	return textResult([{ output: page.output, note: withNotice(page.note, task) }], {
 		isError: taskFailed(task) || page.error !== undefined,
 		details,
 	});
@@ -934,7 +931,7 @@ export function readGroupResult(
 			}),
 		},
 	];
-	for (const { page } of pages) blocks.push({ output: page.output, note: page.note });
+	for (const { task, page } of pages) blocks.push({ output: page.output, note: withNotice(page.note, task) });
 	return textResult(blocks, {
 		isError: groupFailed(group) || failedPages > 0,
 		details: groupDetails(group, names),

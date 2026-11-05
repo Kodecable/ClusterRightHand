@@ -164,11 +164,12 @@ describe("TranscriptRow", () => {
 		);
 		expect(toolLine("task_wait", { task_group_id: "g1" })).toBe("task_wait · g1");
 		expect(toolLine("exec", { argv: ["bash", "-c", "true"], targets: ["a", "b"] })).toBe("exec · a, b · bash -c true");
-		expect(toolLine("node_info", { node: "app-1" })).toBe("node_info · app-1");
+		expect(toolLine("node_info", { targets: ["app-1"] })).toBe("node_info · app-1");
+		expect(toolLine("node_info", { targets: ["app-1", "db-1"] })).toBe("node_info · app-1, db-1");
 		expect(toolLine("stat", { targets: ["web-1"], path: "/etc/hosts" })).toBe("stat · web-1 · /etc/hosts");
 		expect(
 			toolLine("edit_file", {
-				node: "web-1",
+				targets: ["web-1"],
 				path: "/etc/nginx/nginx.conf",
 				edits: [{ old_text: "a", new_text: "b" }],
 			}),
@@ -429,12 +430,12 @@ const baseTask = (overrides: Partial<TaskView> = {}): TaskView =>
 		cancelled: false,
 		errorCode: null,
 		errorMessage: null,
-		stdoutBytes: 0,
-		stderrBytes: 0,
-		stdoutHead: "",
-		stdoutTail: "",
-		stderrHead: "",
-		stderrTail: "",
+		outputBytes: 0,
+		outputHead: "",
+		outputTail: "",
+		outputTailLines: 0,
+		outputLines: null,
+		notice: null,
 		outputFile: null,
 		outputMode: "status",
 		privileged: false,

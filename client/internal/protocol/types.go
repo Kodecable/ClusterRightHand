@@ -53,12 +53,11 @@ type Welcome struct {
 	Acks []OutputAck
 }
 
-// OutputAck acknowledges received output offsets for one task.
+// OutputAck acknowledges the received output offset of one task.
 type OutputAck struct {
-	_            struct{} `cbor:",toarray"`
-	TaskID       string
-	StdoutOffset Uint
-	StderrOffset Uint
+	_      struct{} `cbor:",toarray"`
+	TaskID string
+	Offset Uint
 }
 
 // TaskStatus is the state of one task in Hello and task.query.
@@ -66,8 +65,7 @@ type TaskStatus struct {
 	_         struct{} `cbor:",toarray"`
 	TaskID    string
 	State     TaskState
-	StdoutEnd Uint
-	StderrEnd Uint
+	OutputEnd Uint
 }
 
 // TaskStart is the task.start request body.
@@ -84,16 +82,15 @@ type TaskStart struct {
 }
 
 // TaskExit is the task.exit event body. Result carries the task's structured result; it is nil for
-// a kind that reports none (doc/protocol.md TaskResult). OutputLines is the line count of the
-// merged stdout/stderr output, the same bytes the output file holds.
+// a kind that reports none (doc/protocol.md TaskResult). OutputEnd is the end offset of the task's
+// one output stream and OutputLines the line count of the same bytes the output file holds.
 type TaskExit struct {
 	_           struct{} `cbor:",toarray"`
 	TaskID      string
 	Outcome     Outcome
 	TimedOut    bool
 	Cancelled   bool
-	StdoutEnd   Uint
-	StderrEnd   Uint
+	OutputEnd   Uint
 	OutputFile  string
 	OutputLines Uint
 	Result      *TaskResult
@@ -385,11 +382,10 @@ type TaskQuery struct {
 	TaskID string
 }
 
-// TaskOutput is the task.output event body.
+// TaskOutput is the task.output event body: one chunk of the task's single output stream.
 type TaskOutput struct {
 	_      struct{} `cbor:",toarray"`
 	TaskID string
-	Stream Stream
 	Offset Uint
 	Data   []byte
 }
@@ -439,15 +435,17 @@ type FileReadSpec struct {
 	LineCount Uint
 }
 
-// FileWriteSpec is the TaskSpec body for the "file.write" kind.
+// FileWriteSpec is the TaskSpec body for the "file.write" kind. CreateParentDirs makes the node
+// create missing parent directories like mkdir -p before writing (doc/protocol.md#任务).
 type FileWriteSpec struct {
-	_         struct{} `cbor:",toarray"`
-	Path      string
-	Content   InputRef
-	Overwrite bool
-	Mode      Uint
-	Owner     string
-	Group     string
+	_                struct{} `cbor:",toarray"`
+	Path             string
+	Content          InputRef
+	Overwrite        bool
+	Mode             Uint
+	Owner            string
+	Group            string
+	CreateParentDirs bool
 }
 
 // FileEditSpec is the TaskSpec body for the "file.edit" kind.
@@ -640,23 +638,6 @@ func (s TaskState) MarshalCBOR() ([]byte, error) { return taskStates.marshal(s) 
 
 // UnmarshalCBOR decodes and validates the enum.
 func (s *TaskState) UnmarshalCBOR(data []byte) error { return taskStates.unmarshal(data, s) }
-
-// Stream is the output stream enum.
-type Stream string
-
-const (
-	StreamStdout Stream = "stdout"
-	StreamStderr Stream = "stderr"
-)
-
-// streams is the output stream enum.
-var streams = newEnum("stream", StreamStdout, StreamStderr)
-
-// MarshalCBOR encodes the enum, rejecting values outside the schema.
-func (s Stream) MarshalCBOR() ([]byte, error) { return streams.marshal(s) }
-
-// UnmarshalCBOR decodes and validates the enum.
-func (s *Stream) UnmarshalCBOR(data []byte) error { return streams.unmarshal(data, s) }
 
 // TaskSpecKind is a TaskSpec union tag.
 type TaskSpecKind string

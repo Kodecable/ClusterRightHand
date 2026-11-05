@@ -91,7 +91,8 @@
 				"overwrite": true,
 				"mode": 420,
 				"owner": "",
-				"group": ""
+				"group": "",
+				"createParentDirs": false
 			},
 			"method": "file.write",
 			"target": "/etc/nginx/nginx.conf"
@@ -3164,7 +3165,8 @@
 					"overwrite": true,
 					"mode": 420,
 					"owner": "",
-					"group": ""
+					"group": "",
+					"createParentDirs": false
 				}
 			},
 			"authorization": {
@@ -3173,7 +3175,7 @@
 					"command": {
 						"method": "file.write",
 						"exact": "/etc/nginx/nginx.conf",
-						"spec_sha256": "1a1bfde3d51bc3c5336d74f1289a641e2b6525ca9845129cdb125c310b806430"
+						"spec_sha256": "80560dfd5f1a48de359462fb3689a1ad84b27275671d1bb1736f8dd287f010d6"
 					},
 					"issued_at_ms": 1793016000000,
 					"deadline_ms": 1793016300000,
@@ -3291,7 +3293,8 @@
 					"overwrite": true,
 					"mode": 420,
 					"owner": "",
-					"group": ""
+					"group": "",
+					"createParentDirs": false
 				}
 			},
 			"authorization": {
@@ -3300,7 +3303,7 @@
 					"command": {
 						"method": "file.write",
 						"exact": "/etc/crha/privileged.toml",
-						"spec_sha256": "0dc4162e4a96cd44686aab41535bac2fde5acf992493868219df6069f07c0437"
+						"spec_sha256": "003a083a707aa89a2160ee251cfbe17417707f242d67e9bba6007458e25f4503"
 					},
 					"issued_at_ms": 1793016000000,
 					"deadline_ms": 1793016300000,
@@ -4589,7 +4592,8 @@
 					"overwrite": true,
 					"mode": 420,
 					"owner": "",
-					"group": ""
+					"group": "",
+					"createParentDirs": false
 				}
 			},
 			"authorization": {
@@ -6877,7 +6881,8 @@
 					"overwrite": true,
 					"mode": 420,
 					"owner": "",
-					"group": ""
+					"group": "",
+					"createParentDirs": false
 				}
 			},
 			"authorization": {
@@ -6886,7 +6891,7 @@
 					"command": {
 						"method": "file.write",
 						"exact": "/etc/crha/privileged.toml",
-						"spec_sha256": "0dc4162e4a96cd44686aab41535bac2fde5acf992493868219df6069f07c0437"
+						"spec_sha256": "003a083a707aa89a2160ee251cfbe17417707f242d67e9bba6007458e25f4503"
 					},
 					"issued_at_ms": 1793016000000,
 					"deadline_ms": 1793019600000,

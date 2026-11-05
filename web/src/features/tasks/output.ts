@@ -39,23 +39,17 @@ export function outputText(head: string, tail: string, totalBytes: number): stri
 		: joined.before + joined.after;
 }
 
-/** How a task's kept output is shown: full head/tail, one combined tail, a head, or only the node's file. */
+/** How a task's kept output is shown: the single stream's head/tail, or only the node's file. */
 export type BatchOutput =
-	| { kind: "full" }
-	| { kind: "tail"; text: string; bytes: number }
-	| { kind: "head"; text: string; bytes: number }
+	| { kind: "output"; head: string; tail: string; bytes: number }
 	| { kind: "status"; file: string | null };
 
-/** Interprets the head/tail fields by the task's output mode (doc/execution-plane.md#输出). */
+/** The kept output is one stream (D114): the head and tail the server kept, or a status-only task. */
 export function batchOutput(
-	task: Pick<TaskView, "outputMode" | "stdoutHead" | "stdoutTail" | "stdoutBytes" | "stderrBytes" | "outputFile">,
+	task: Pick<TaskView, "outputMode" | "outputHead" | "outputTail" | "outputBytes" | "outputFile">,
 ): BatchOutput {
-	if (task.outputMode === "text")
-		return { kind: "tail", text: task.stdoutTail, bytes: task.stdoutBytes + task.stderrBytes };
-	// A file operation keeps each node's head, so its page can be continued from that node's next line.
-	if (task.outputMode === "head") return { kind: "head", text: task.stdoutHead, bytes: task.stdoutBytes };
 	if (task.outputMode === "status") return { kind: "status", file: task.outputFile };
-	return { kind: "full" };
+	return { kind: "output", head: task.outputHead, tail: task.outputTail, bytes: task.outputBytes };
 }
 
 /**

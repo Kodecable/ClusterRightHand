@@ -109,6 +109,7 @@ const WRITE_NGINX: TaskSpec = {
 	mode: 0o644,
 	owner: "",
 	group: "",
+	createParentDirs: false,
 };
 const READ_NGINX: TaskSpec = { kind: "file.read", path: "/etc/nginx/nginx.conf", startLine: 1, lineCount: 100 };
 const READ_SHADOW: TaskSpec = { kind: "file.read", path: "/etc/shadow", startLine: 1, lineCount: 100 };

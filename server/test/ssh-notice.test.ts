@@ -3,40 +3,32 @@ import { createLiveTask } from "../src/cluster/batch-output.ts";
 import { SSH_PRIVILEGED_NOTICE, sshPrivilegedNotice } from "../src/cluster/ssh/exec.ts";
 
 /**
- * Unit-level checks of the SSH notice, which the cluster writes into a privileged task's stderr before
- * the task starts. The SSH exec/SFTP tests need a real sshd (CRH_TEST_SSH) and skip here.
+ * Unit-level checks of the SSH notice, which the cluster stores in `tasks.notice` for a privileged
+ * task (D114). It is crhs's own line and never part of the task's output stream. The SSH exec/SFTP
+ * tests need a real sshd (CRH_TEST_SSH) and skip here.
  */
 describe("SSH privileged notice", () => {
-	it("is one stderr line, only for privileged tasks", () => {
+	it("is one line, only for privileged tasks", () => {
 		expect(SSH_PRIVILEGED_NOTICE).toBe("crh: privileged was ignored: SSH nodes run tasks as the SSH user\n");
 		expect(new TextDecoder().decode(sshPrivilegedNotice(true))).toBe(SSH_PRIVILEGED_NOTICE);
 		expect(sshPrivilegedNotice(false)).toBeUndefined();
 	});
 
-	it("comes before the task's own output", () => {
-		// The same accumulator and offsets the cluster uses for a task between dispatch and exit.
+	it("is not written into the single output stream", () => {
+		// The accumulator has no notice path any more: only the node's output is part of it.
 		const live = createLiveTask("full");
-		const notice = sshPrivilegedNotice(true) as Uint8Array;
-		live.append("stderr", live.end("stderr"), notice);
-		live.append("stdout", 0, Buffer.from("hello\n"));
-		live.append("stderr", live.end("stderr"), Buffer.from("oops\n"));
+		live.append(0, Buffer.from("hello\n"));
 		const out = live.snapshot();
-		expect(out.stdoutHead?.toString()).toBe("hello\n");
-		expect(out.stderrHead?.toString()).toBe(`${SSH_PRIVILEGED_NOTICE}oops\n`);
-		expect(out.stderrBytes).toBe(SSH_PRIVILEGED_NOTICE.length + "oops\n".length);
+		expect(out.outputBytes).toBe("hello\n".length);
+		expect(out.outputHead?.toString()).toBe("hello\n");
 	});
 
-	it("is kept by a status task, which keeps no other output", () => {
+	it("a status task keeps only the byte count, not the notice", () => {
 		const live = createLiveTask("status");
-		live.note(sshPrivilegedNotice(true) as Uint8Array);
-		live.append("stdout", 0, Buffer.from("hello\n"));
-		live.append("stderr", live.end("stderr"), Buffer.from("oops\n"));
+		live.append(0, Buffer.from("hello\n"));
 		const out = live.snapshot();
-		// Only the notice is text: the task's own output stays a byte count.
-		expect(out.stderrHead?.toString()).toBe(SSH_PRIVILEGED_NOTICE);
-		expect(out.stderrTail).toBeNull();
-		expect(out.stdoutHead).toBeNull();
-		expect(out.stderrBytes).toBe(SSH_PRIVILEGED_NOTICE.length + "oops\n".length);
-		expect(out.stdoutBytes).toBe("hello\n".length);
+		expect(out.outputHead).toBeNull();
+		expect(out.outputTail).toBeNull();
+		expect(out.outputBytes).toBe("hello\n".length);
 	});
 });

@@ -228,14 +228,13 @@ export interface TasksTable extends ApprovalColumns {
 	dispatched_at: string | null;
 	accepted_at: string | null;
 	finished_at: string | null;
-	stdout_bytes: ColumnType<string | number, string | number, string | number>;
-	stderr_bytes: ColumnType<string | number, string | number, string | number>;
-	stdout_head: string | null;
-	stdout_tail: string | null;
-	stderr_head: string | null;
-	stderr_tail: string | null;
-	/** The merged stdout+stderr tail in arrival order, base64 like the other output columns (D112). */
+	/** The single output stream's byte total (D114). */
+	output_bytes: ColumnType<string | number, string | number, string | number>;
+	/** The kept head and tail of the single output stream, base64 (D114). */
+	output_head: string | null;
 	output_tail: string | null;
+	/** crhs's own line about the task (the SSH privileged notice); it is not part of the output (D114). */
+	notice: string | null;
 	/** Total lines of the merged output, reported by crha in task.exit (D112). */
 	output_lines: number | null;
 	output_file: string | null;

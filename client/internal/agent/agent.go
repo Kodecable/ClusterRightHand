@@ -15,7 +15,6 @@ import (
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
-	"github.com/Kodecable/ClusterRightHand/client/internal/executor"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/transport"
 	"github.com/fxamacker/cbor/v2"
@@ -405,10 +404,9 @@ func (a *Agent) resume(acks []protocol.OutputAck) {
 	}
 	for id, t := range a.tasks {
 		ack, ok := byID[id]
-		t.sent, t.exitSent = [executor.StreamSlots]uint64{}, false
+		t.sent, t.exitSent = 0, false
 		if ok {
-			t.sent[executor.StreamIndex(protocol.StreamStdout)] = uint64(ack.StdoutOffset)
-			t.sent[executor.StreamIndex(protocol.StreamStderr)] = uint64(ack.StderrOffset)
+			t.sent = uint64(ack.Offset)
 		}
 	}
 	a.wake()
@@ -482,23 +480,19 @@ func (a *Agent) nextOutbound() *outbound {
 	defer a.mu.Unlock()
 	for _, t := range a.tasks {
 		if !t.suppressOutput {
-			for _, s := range [...]protocol.Stream{protocol.StreamStdout, protocol.StreamStderr} {
-				idx := executor.StreamIndex(s)
-				if t.sent[idx] >= t.output.End(s) {
-					continue
-				}
-				data, err := t.output.ReadAt(s, t.sent[idx], outputChunk)
+			if end := t.output.End(); t.sent < end {
+				data, err := t.output.ReadAt(t.sent, outputChunk)
 				if err != nil || len(data) == 0 {
-					// Lost output (memory cap without a spill file): skip it; TaskExit's ends tell crhs.
-					a.log.Warn("output lost", "task", t.id, "stream", s, "err", err)
-					t.sent[idx] = t.output.End(s)
-					continue
+					// Lost output (memory cap without a spill file): skip it; TaskExit's end tells crhs.
+					a.log.Warn("output lost", "task", t.id, "err", err)
+					t.sent = end
+				} else {
+					off := t.sent
+					t.sent += uint64(len(data))
+					return &outbound{name: protocol.EventTaskOutput, body: protocol.TaskOutput{
+						TaskID: t.id, Offset: protocol.Uint(off), Data: data,
+					}}
 				}
-				off := t.sent[idx]
-				t.sent[idx] += uint64(len(data))
-				return &outbound{name: protocol.EventTaskOutput, body: protocol.TaskOutput{
-					TaskID: t.id, Stream: s, Offset: protocol.Uint(off), Data: data,
-				}}
 			}
 		}
 		if t.done && !t.exitSent && t.exitReady() {

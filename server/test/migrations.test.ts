@@ -19,6 +19,7 @@ import { down as down0036, up as up0036 } from "../src/storage/migrations/0036_n
 import { down as down0037, up as up0037 } from "../src/storage/migrations/0037_user_group_member_column.ts";
 import { down as down0038, up as up0038 } from "../src/storage/migrations/0038_node_access_grants.ts";
 import { down as down0039, up as up0039 } from "../src/storage/migrations/0039_output_budgets.ts";
+import { down as down0040, up as up0040 } from "../src/storage/migrations/0040_one_output_stream.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -1438,5 +1439,175 @@ describeBackends("0039 output budgets", (backend) => {
 		expect(await tableColumns(backend, db, "tasks")).not.toContain("output_lines");
 		expect(Number((await sql<{ n: number }>`select count(*) as n from tasks`.execute(db)).rows[0]?.n)).toBe(1);
 		expect(Number((await sql<{ n: number }>`select count(*) as n from task_groups`.execute(db)).rows[0]?.n)).toBe(1);
+	});
+});
+
+describeBackends("0040 one output stream", (backend) => {
+	let db: Db;
+	const notice = "crh: privileged was ignored: SSH nodes run tasks as the SSH user\n";
+	const b64 = (text: string) => Buffer.from(text).toString("base64");
+	const bytes = (text: string) => Buffer.from(text).length;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("tasks")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("spec", "text")
+				.addColumn("stdout_bytes", "bigint", (c) => c.notNull())
+				.addColumn("stderr_bytes", "bigint", (c) => c.notNull())
+				.addColumn("stdout_head", "text")
+				.addColumn("stdout_tail", "text")
+				.addColumn("stderr_head", "text")
+				.addColumn("stderr_tail", "text")
+				.addColumn("output_tail", "text")
+				.execute();
+			await db.schema
+				.createTable("task_groups")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("spec", "text")
+				.execute();
+
+			// A single task whose 0039-era exit wrote the merged tail already.
+			await sql`insert into tasks (id, spec, stdout_bytes, stderr_bytes, stdout_head, stdout_tail, stderr_head, stderr_tail, output_tail)
+				values (
+					't-full',
+					'{"kind":"exec","command":{"argv":["true"]},"env":{},"cwd":"","stdin":null}',
+					${bytes("stdout-head\n") + bytes("stdout-tail\n")},
+					${bytes("stderr-head\n") + bytes("stderr-tail\n")},
+					${b64("stdout-head\n")},
+					${b64("stdout-tail\n")},
+					${b64("stderr-head\n")},
+					${b64("stderr-tail\n")},
+					${b64("merged-tail\n")}
+				)`.execute(db);
+			// An older task without output_tail: the tail is stdout followed by stderr.
+			await sql`insert into tasks (id, spec, stdout_bytes, stderr_bytes, stdout_head, stdout_tail, stderr_head, stderr_tail, output_tail)
+				values (
+					't-text',
+					'{"kind":"file.write","path":"/tmp/x","content":{"size":0,"sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},"overwrite":false,"mode":0,"owner":"","group":""}',
+					${bytes("a\n")},
+					${bytes("b\n")},
+					null,
+					${b64("a\n")},
+					null,
+					${b64("b\n")},
+					null
+				)`.execute(db);
+			// The old SSH notice was the first line of stderr; it moves to notice.
+			await sql`insert into tasks (id, spec, stdout_bytes, stderr_bytes, stdout_head, stdout_tail, stderr_head, stderr_tail, output_tail)
+				values (
+					't-notice',
+					'{"kind":"file.write","path":"/tmp/y","content":{"size":0,"sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},"overwrite":false,"mode":0,"owner":"","group":"","createParentDirs":true}',
+					${bytes("out\n")},
+					${bytes(notice) + bytes("oops\n")},
+					${b64("out\n")},
+					${b64("out\n")},
+					${b64(`${notice}oops\n`)},
+					${b64(`${notice}oops\n`)},
+					null
+				)`.execute(db);
+			// A status task kept only the notice.
+			await sql`insert into tasks (id, spec, stdout_bytes, stderr_bytes, stdout_head, stdout_tail, stderr_head, stderr_tail, output_tail)
+				values (
+					't-status',
+					'{"kind":"exec","command":{"argv":["true"]},"env":{},"cwd":"","stdin":null}',
+					0,
+					${bytes(notice)},
+					null,
+					null,
+					${b64(notice)},
+					null,
+					null
+				)`.execute(db);
+			await sql`insert into task_groups (id, spec) values (
+				'g-write',
+				'{"kind":"file.write","path":"/tmp/z","content":{"size":0,"sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},"overwrite":false,"mode":0,"owner":"","group":""}'
+			)`.execute(db);
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("merges the streams, moves the SSH notice and backfills file.write specs", async () => {
+		await applyMigration(backend, db, up0040);
+		const columns = await tableColumns(backend, db, "tasks");
+		expect(columns).toContain("output_head");
+		expect(columns).toContain("output_bytes");
+		expect(columns).toContain("notice");
+		expect(columns).not.toContain("stdout_bytes");
+		expect(columns).not.toContain("stdout_head");
+		expect(columns).not.toContain("stderr_tail");
+
+		const rows = await sql<{
+			id: string;
+			output_bytes: string | number;
+			output_head: string | null;
+			output_tail: string | null;
+			notice: string | null;
+			spec: string;
+		}>`select id, output_bytes, output_head, output_tail, notice, spec from tasks order by id`.execute(db);
+		const byId = new Map(rows.rows.map((row) => [row.id, row]));
+
+		// The 0039-era merged tail is kept; the old per-stream heads are merged stdout first.
+		expect(byId.get("t-full")).toMatchObject({
+			output_bytes: bytes("stdout-head\n") + bytes("stdout-tail\n") + bytes("stderr-head\n") + bytes("stderr-tail\n"),
+			output_head: b64("stdout-head\nstderr-head\n"),
+			output_tail: b64("merged-tail\n"),
+			notice: null,
+		});
+		// No merged tail: stdout tail followed by stderr tail.
+		expect(byId.get("t-text")).toMatchObject({
+			output_bytes: bytes("a\n") + bytes("b\n"),
+			output_head: null,
+			output_tail: b64("a\nb\n"),
+			notice: null,
+		});
+		// The notice is moved out of the output, from the head and the merged tail.
+		expect(byId.get("t-notice")).toMatchObject({
+			output_bytes: bytes("out\n") + bytes(notice) + bytes("oops\n"),
+			output_head: b64("out\noops\n"),
+			output_tail: b64("out\noops\n"),
+			notice,
+		});
+		expect(byId.get("t-status")).toMatchObject({
+			output_bytes: bytes(notice),
+			output_head: "",
+			output_tail: null,
+			notice,
+		});
+
+		// Every stored file.write spec gets the field the JSON form now requires; a set one stays.
+		const fullSpec = JSON.parse(byId.get("t-full")?.spec ?? "{}") as Record<string, unknown>;
+		expect(fullSpec.kind).toBe("exec");
+		expect(fullSpec).not.toHaveProperty("createParentDirs");
+		const textSpec = JSON.parse(byId.get("t-text")?.spec ?? "{}") as Record<string, unknown>;
+		expect(textSpec.createParentDirs).toBe(false);
+		const noticeSpec = JSON.parse(byId.get("t-notice")?.spec ?? "{}") as Record<string, unknown>;
+		expect(noticeSpec.createParentDirs).toBe(true);
+		const group = await sql<{ spec: string }>`select spec from task_groups where id = 'g-write'`.execute(db);
+		expect((JSON.parse(group.rows[0]?.spec ?? "{}") as Record<string, unknown>).createParentDirs).toBe(false);
+	});
+
+	it("down restores the stdout columns and keeps the rows", async () => {
+		await applyMigration(backend, db, up0040);
+		await applyMigration(backend, db, down0040);
+		const columns = await tableColumns(backend, db, "tasks");
+		expect(columns).toContain("stdout_bytes");
+		expect(columns).toContain("stdout_head");
+		expect(columns).toContain("stdout_tail");
+		expect(columns).not.toContain("output_bytes");
+		expect(columns).not.toContain("output_head");
+		expect(columns).not.toContain("notice");
+		const row = await sql<{ stdout_bytes: string | number; stdout_head: string | null; stdout_tail: string | null }>`
+			select stdout_bytes, stdout_head, stdout_tail from tasks where id = 't-notice'
+		`.execute(db);
+		expect(Number(row.rows[0]?.stdout_bytes)).toBe(bytes("out\n") + bytes(notice) + bytes("oops\n"));
+		expect(row.rows[0]?.stdout_head).toBe(b64("out\noops\n"));
+		expect(row.rows[0]?.stdout_tail).toBe(b64("out\noops\n"));
+		expect(Number((await sql<{ n: number }>`select count(*) as n from tasks`.execute(db)).rows[0]?.n)).toBe(4);
 	});
 });

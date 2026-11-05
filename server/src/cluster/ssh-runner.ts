@@ -12,10 +12,10 @@ import { connect as connectSsh, SshError, type SshSession } from "./ssh/connecti
 import {
 	probeShells,
 	runSshExec,
+	SSH_PRIVILEGED_NOTICE,
 	SshConnectionLost,
 	type SshExecSink,
 	type SshShells,
-	sshPrivilegedNotice,
 } from "./ssh/exec.ts";
 import { FileTaskError, runSftpFileTask } from "./ssh/file-task.ts";
 import { dropLive, finish, type Live, markUnknown, onAccepted } from "./task-state.ts";
@@ -84,21 +84,24 @@ export async function runSsh(
 	privileged: boolean,
 ): Promise<void> {
 	const live = core.live.get(id) as Live;
-	// crhs sees all of an SSH task's output itself, so it counts the merged output's lines here.
+	// crhs sees all of an SSH task's output itself, so it counts the single stream's lines here.
 	const lines = new LineCounter();
 	let isStarted = false;
-	// SSH has no privileged mode: the task runs as the SSH user, and its output says so before
-	// anything else (doc/execution-plane.md#ssh-传输). Written once, before the first run, so a
-	// stale pooled connection that is replaced does not repeat it.
-	let noticeWritten = false;
+	// SSH has no privileged mode: the task runs as the SSH user. The notice is crhs's own, so it lives
+	// in tasks.notice and never in the output (D114); every output mode keeps it, status included.
+	if (privileged) {
+		await core.db.updateTable("tasks").set({ notice: SSH_PRIVILEGED_NOTICE }).where("id", "=", id).execute();
+	}
 	const sink = {
+		// The remote wrapper merged stderr into stdout after printing the pid (D114), so this is the
+		// single output stream. Anything the wrapper still writes on stderr is appended defensively.
 		stdout: (d: Uint8Array) => {
 			lines.add(d);
-			void live.output.append("stdout", live.output.end("stdout"), d);
+			live.output.append(live.output.end, d);
 		},
 		stderr: (d: Uint8Array) => {
 			lines.add(d);
-			void live.output.append("stderr", live.output.end("stderr"), d);
+			live.output.append(live.output.end, d);
 		},
 		started: () => {
 			isStarted = true;
@@ -114,8 +117,9 @@ export async function runSsh(
 	// rather than running on (doc/execution-plane.md#ssh-传输). The connect and the shell probe can
 	// take a long time, so the check is repeated around them, not left to the exec alone.
 	const cancelledFields = (): Updateable<TasksTable> => ({ state: "exited", cancelled: 1 });
-	// SSH keeps no full output (no output file): status saves only byte counts, text its budgeted tail.
-	// It sees the whole output, so it also has the merged line count TaskExit would report.
+	// SSH keeps no full output (no output file): status saves only the byte count, text its budgeted
+	// tail, head the page's head. It sees the whole stream, so it also has the line count TaskExit
+	// would report.
 	const outputFields = () => ({ ...outputColumns(live.output.snapshot()), output_lines: lines.lines });
 	try {
 		let fields: Updateable<TasksTable>;
@@ -126,12 +130,6 @@ export async function runSsh(
 				break;
 			}
 			const link = await sshSession(core, node);
-			if (!noticeWritten) {
-				const notice = sshPrivilegedNotice(privileged);
-				// Status keeps no output, but the notice must stay visible (doc/execution-plane.md#ssh-传输).
-				if (notice) live.output.note(notice);
-				noticeWritten = true;
-			}
 			if (ac.signal.aborted) {
 				fields = cancelledFields();
 				break;

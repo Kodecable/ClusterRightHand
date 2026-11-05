@@ -68,12 +68,12 @@ func runFakeHelper(mode string) error {
 		go func() {
 			time.Sleep(600 * time.Millisecond)
 			_ = peer.Emit(protocol.EventTaskOutput, protocol.TaskOutput{
-				TaskID: ts.TaskID, Stream: protocol.StreamStdout, Offset: 0, Data: []byte("ran"),
+				TaskID: ts.TaskID, Offset: 0, Data: []byte("ran"),
 			})
 			_ = peer.Emit(protocol.EventTaskExit, protocol.TaskExit{
 				TaskID:    ts.TaskID,
 				Outcome:   protocol.Outcome{Kind: protocol.OutcomeCode, Code: 0},
-				StdoutEnd: 3,
+				OutputEnd: 3,
 			})
 		}()
 		time.Sleep(800 * time.Millisecond)
@@ -150,27 +150,19 @@ func serveNative(t *testing.T, a *Agent, w *nativeWatch, script func(context.Con
 }
 
 // waitNativeExit collects the task's output until task.exit arrives.
-func waitNativeExit(t *testing.T, w *nativeWatch) (stdout, stderr string, exit protocol.TaskExit) {
+func waitNativeExit(t *testing.T, w *nativeWatch) (output string, exit protocol.TaskExit) {
 	t.Helper()
 	for {
 		select {
 		case out := <-w.outputs:
-			if out.Stream == protocol.StreamStdout {
-				stdout += string(out.Data)
-			} else {
-				stderr += string(out.Data)
-			}
+			output += string(out.Data)
 		case exit = <-w.exit:
 			for {
 				select {
 				case out := <-w.outputs:
-					if out.Stream == protocol.StreamStdout {
-						stdout += string(out.Data)
-					} else {
-						stderr += string(out.Data)
-					}
+					output += string(out.Data)
 				default:
-					return stdout, stderr, exit
+					return output, exit
 				}
 			}
 		case <-time.After(20 * time.Second):
@@ -211,15 +203,15 @@ func TestPrivilegedNativeExec(t *testing.T) {
 	if err := waitCh(t, w.started, "task.start response"); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
-	stdout, stderr, exit := waitNativeExit(t, w)
-	if stdout != "out" || stderr != "oops" {
-		t.Fatalf("stdout %q stderr %q", stdout, stderr)
+	output, exit := waitNativeExit(t, w)
+	if output != "outoops" {
+		t.Fatalf("output %q, want stdout and stderr in write order", output)
 	}
 	if exit.TaskID != "native-1" || exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 3 {
 		t.Fatalf("task.exit = %+v", exit)
 	}
-	if exit.StdoutEnd != 3 || exit.StderrEnd != 4 {
-		t.Fatalf("ends = %d/%d, want 3/4", exit.StdoutEnd, exit.StderrEnd)
+	if exit.OutputEnd != 7 {
+		t.Fatalf("output_end = %d, want 7", exit.OutputEnd)
 	}
 	if exit.OutputLines != 1 {
 		t.Fatalf("output_lines = %d, want 1 for the merged \"out\"/\"oops\"", exit.OutputLines)
@@ -229,8 +221,8 @@ func TestPrivilegedNativeExec(t *testing.T) {
 	}
 	frames := w.frames.snapshot()
 	start := indexOf(frames, "response task.start ok=true")
-	output := indexOf(frames, "event task.output")
-	if start < 0 || output < 0 || start > output {
+	outputAt := indexOf(frames, "event task.output")
+	if start < 0 || outputAt < 0 || start > outputAt {
 		t.Fatalf("task.output did not follow the accepted response: %v", frames)
 	}
 }
@@ -256,9 +248,9 @@ func TestPrivilegedNativeFileRead(t *testing.T) {
 	if err := waitCh(t, w.started, "task.start response"); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
-	stdout, _, exit := waitNativeExit(t, w)
-	if stdout != "content from disk" {
-		t.Fatalf("stdout %q", stdout)
+	output, exit := waitNativeExit(t, w)
+	if output != "content from disk" {
+		t.Fatalf("output %q", output)
 	}
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
@@ -293,9 +285,9 @@ func TestPrivilegedNativeInput(t *testing.T) {
 	if err := waitCh(t, w.started, "task.start response"); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
-	stdout, _, exit := waitNativeExit(t, w)
-	if stdout != string(data) {
-		t.Fatalf("stdout %q, want %q", stdout, data)
+	output, exit := waitNativeExit(t, w)
+	if output != string(data) {
+		t.Fatalf("output %q, want %q", output, data)
 	}
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
@@ -316,9 +308,9 @@ func TestPrivilegedNativeOutputSpill(t *testing.T) {
 	if err := waitCh(t, w.started, "task.start response"); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
-	stdout, _, exit := waitNativeExit(t, w)
-	if !strings.HasSuffix(stdout, "2000\n") || !strings.HasPrefix(stdout, "1\n2\n") {
-		t.Fatalf("stdout does not contain the whole range: %d bytes", len(stdout))
+	output, exit := waitNativeExit(t, w)
+	if !strings.HasSuffix(output, "2000\n") || !strings.HasPrefix(output, "1\n2\n") {
+		t.Fatalf("output does not contain the whole range: %d bytes", len(output))
 	}
 	wantPath := filepath.Join(dir, "native-spill.log")
 	if exit.OutputFile != wantPath {
@@ -328,11 +320,11 @@ func TestPrivilegedNativeOutputSpill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != stdout {
-		t.Fatalf("output file is %d bytes, the stream had %d", len(data), len(stdout))
+	if string(data) != output {
+		t.Fatalf("output file is %d bytes, the stream had %d", len(data), len(output))
 	}
-	if uint64(exit.StdoutEnd) != uint64(len(stdout)) {
-		t.Fatalf("stdout_end = %d, want %d", exit.StdoutEnd, len(stdout))
+	if uint64(exit.OutputEnd) != uint64(len(output)) {
+		t.Fatalf("output_end = %d, want %d", exit.OutputEnd, len(output))
 	}
 	if exit.OutputLines != 2000 {
 		t.Fatalf("output_lines = %d, want 2000", exit.OutputLines)
@@ -355,7 +347,7 @@ func TestPrivilegedNativeCancel(t *testing.T) {
 	if err := waitCh(t, w.started, "task.start response"); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
-	_, _, exit := waitNativeExit(t, w)
+	_, exit := waitNativeExit(t, w)
 	if !exit.Cancelled || exit.Outcome.Kind != protocol.OutcomeSignal || exit.Outcome.Signal != "TERM" {
 		t.Fatalf("task.exit = %+v, want a cancelled task", exit)
 	}
@@ -372,7 +364,7 @@ func TestPrivilegedNativeTimeout(t *testing.T) {
 		t.Fatalf("task.start: %v", err)
 	}
 	start := time.Now()
-	_, _, exit := waitNativeExit(t, w)
+	_, exit := waitNativeExit(t, w)
 	if !exit.TimedOut || exit.Outcome.Kind != protocol.OutcomeSignal || exit.Outcome.Signal != "TERM" {
 		t.Fatalf("task.exit = %+v, want a timed-out task", exit)
 	}
@@ -424,7 +416,7 @@ func TestPrivilegedNativeHelperLost(t *testing.T) {
 	if err := waitCh(t, w.started, "task.start response"); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
-	_, _, exit := waitNativeExit(t, w)
+	_, exit := waitNativeExit(t, w)
 	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "helper_lost" {
 		t.Fatalf("task.exit = %+v, want helper_lost", exit)
 	}
@@ -440,9 +432,9 @@ func TestPrivilegedIgnore(t *testing.T) {
 	if err := waitCh(t, w.started, "task.start response"); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
-	stdout, _, exit := waitNativeExit(t, w)
-	if stdout != "normal" {
-		t.Fatalf("stdout %q", stdout)
+	output, exit := waitNativeExit(t, w)
+	if output != "normal" {
+		t.Fatalf("output %q", output)
 	}
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
@@ -501,9 +493,9 @@ func TestPrivilegedNativeLostStartResponse(t *testing.T) {
 	if err := waitCh(t, w.started, "task.start response"); err != nil {
 		t.Fatalf("task.start = %v, want it accepted: the helper may have run the task", err)
 	}
-	stdout, _, exit := waitNativeExit(t, w)
-	if stdout != "ran" {
-		t.Fatalf("stdout = %q", stdout)
+	output, exit := waitNativeExit(t, w)
+	if output != "ran" {
+		t.Fatalf("output = %q", output)
 	}
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
@@ -520,7 +512,7 @@ func TestPrivilegedNativeSilentHelperLost(t *testing.T) {
 	if err := waitCh(t, w.started, "task.start response"); err != nil {
 		t.Fatalf("task.start = %v, want it accepted", err)
 	}
-	_, _, exit := waitNativeExit(t, w)
+	_, exit := waitNativeExit(t, w)
 	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "helper_lost" {
 		t.Fatalf("task.exit = %+v, want helper_lost", exit)
 	}

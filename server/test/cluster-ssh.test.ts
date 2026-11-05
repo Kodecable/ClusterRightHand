@@ -227,12 +227,11 @@ describe("SSH tasks", () => {
 			const current = await view(task.id);
 			return current.state === "exited" ? current : undefined;
 		});
-		// A status task keeps no output, but the notice is stored as its stderr head.
+		// A status task keeps no output, but the notice is stored on the task (D114).
 		expect(done).toMatchObject({ outputMode: "status", exitCode: 0, privileged: true });
-		expect(done.stderrHead).toBe(SSH_PRIVILEGED_NOTICE);
-		expect(done.stderrBytes).toBe(SSH_PRIVILEGED_NOTICE.length);
-		expect(done.stdoutBytes).toBe(OUTPUT.length);
-		expect(done.stdoutHead).toBe("");
+		expect(done.notice).toBe(SSH_PRIVILEGED_NOTICE);
+		expect(done.outputBytes).toBe(OUTPUT.length);
+		expect(done.outputHead).toBe("");
 		expect(done.outputFile).toBeNull();
 		// crhs sees all SSH output itself, so it counts the merged lines instead of reading task.exit.
 		expect(done.outputLines).toBe(1);
@@ -252,8 +251,8 @@ describe("SSH tasks", () => {
 			const current = await view(task.id);
 			return current.state === "exited" ? current : undefined;
 		});
-		expect(done.stderrHead).toBe("");
-		expect(done.stderrBytes).toBe(0);
+		expect(done.notice).toBeNull();
+		expect(done.outputBytes).toBe(OUTPUT.length);
 	});
 
 	it("counts the merged output's lines, including a last line without a newline", async () => {

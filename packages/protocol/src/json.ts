@@ -32,6 +32,7 @@ export type JsonTaskSpec =
 			mode: number;
 			owner: string;
 			group: string;
+			createParentDirs: boolean;
 	  }
 	| { kind: "file.edit"; path: string; edits: { oldText: string; newText: string }[] }
 	| { kind: "file.stat"; path: string }
@@ -217,6 +218,7 @@ export function taskSpecToJson(value: TaskSpec): JsonTaskSpec {
 				mode: uint(value.mode, "mode"),
 				owner: text(value.owner, "owner"),
 				group: text(value.group, "group"),
+				createParentDirs: bool(value.createParentDirs, "createParentDirs"),
 			};
 		case "file.edit":
 			return {
@@ -258,7 +260,16 @@ export function taskSpecFromJson(value: unknown): TaskSpec {
 			};
 		}
 		case "file.write": {
-			const object = record(value, "file.write", ["kind", "path", "content", "overwrite", "mode", "owner", "group"]);
+			const object = record(value, "file.write", [
+				"kind",
+				"path",
+				"content",
+				"overwrite",
+				"mode",
+				"owner",
+				"group",
+				"createParentDirs",
+			]);
 			return {
 				kind: "file.write",
 				path: text(object.path, "path"),
@@ -267,6 +278,7 @@ export function taskSpecFromJson(value: unknown): TaskSpec {
 				mode: uint(object.mode, "mode"),
 				owner: text(object.owner, "owner"),
 				group: text(object.group, "group"),
+				createParentDirs: bool(object.createParentDirs, "createParentDirs"),
 			};
 		}
 		case "file.edit": {

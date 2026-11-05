@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type * as z from "zod/v4";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import type { TaskAuthorizationRecord } from "../src/cluster/authorization.ts";
-import type { Cluster, TaskView } from "../src/cluster/cluster.ts";
+import { type Cluster, countOutputLines, type TaskView } from "../src/cluster/cluster.ts";
 import type { TaskGroups, TaskGroupView } from "../src/cluster/task-groups.ts";
 import type { Db } from "../src/storage/db.ts";
 import { callTool } from "../src/tools/adapter.ts";
@@ -51,14 +51,11 @@ function task(overrides: Partial<TaskView>): TaskView {
 		timeoutMs: null,
 		errorCode: null,
 		errorMessage: null,
-		stdoutBytes: 0,
-		stderrBytes: 0,
-		stdoutHead: "",
-		stdoutTail: "",
-		stderrHead: "",
-		stderrTail: "",
+		outputBytes: 0,
+		outputHead: "",
 		outputTail: "",
 		outputTailLines: 0,
+		notice: null,
 		outputLines: null,
 		maxLines: null,
 		maxBytes: null,
@@ -274,19 +271,44 @@ describe("the tool catalog", () => {
 	it("names parameters and fields in snake_case", () => {
 		expect(
 			tool("edit_file").input.parse({
-				node: "web-1",
+				targets: ["web-1"],
 				path: "/x",
 				edits: [{ old_text: "a", new_text: "b" }],
 			}),
 		).toBeDefined();
 		expect(
 			tool("edit_file").input.safeParse({
-				node: "web-1",
+				targets: ["web-1"],
 				path: "/x",
 				edits: [{ oldText: "a", newText: "b" }],
 			}).success,
 		).toBe(false);
 		expect(tool("exec").input.safeParse({ targets: ["web-1"], cmd: "true", max_lines: 1 }).success).toBe(true);
+		expect(tool("exec").input.safeParse({ targets: ["web-1"], cmd: "true", with_output: false }).success).toBe(true);
+		// `node` and the old `output` parameter are gone: every node tool takes targets.
+		expect(tool("node_info").input.safeParse({ node: "web-1" }).success).toBe(false);
+		expect(
+			tool("edit_file").input.safeParse({ node: "web-1", path: "/x", edits: [{ old_text: "a", new_text: "b" }] })
+				.success,
+		).toBe(false);
+		const parsedExec = tool("exec").input.parse({ targets: ["web-1"], cmd: "true", output: "status" }) as Record<
+			string,
+			unknown
+		>;
+		expect(parsedExec).not.toHaveProperty("output");
+		expect(parsedExec).not.toHaveProperty("with_output");
+		expect(
+			tool("write_file").input.safeParse({
+				targets: ["web-1"],
+				path: "/x",
+				content: "a",
+				mode: "0644",
+				create_parent_dirs: true,
+			}).success,
+		).toBe(true);
+		expect(
+			tool("write_file").input.safeParse({ targets: ["web-1"], path: "/x", content: "a", mode: 644 }).success,
+		).toBe(false);
 		expect(tool("read_file").input.safeParse({ targets: ["web-1"], path: "/x", max_bytes: 10 }).success).toBe(true);
 		// A blocking file tool has no wait parameter: the schema drops it (D111).
 		const parsedRead = tool("read_file").input.parse({ targets: ["web-1"], path: "/x", wait: 1 }) as Record<
@@ -364,7 +386,7 @@ describe("non-task tools", () => {
 						id: "notes-task",
 						nodeId: node.id,
 						kind: "file.read",
-						stdoutHead: "# web-1\n",
+						outputHead: "# web-1\n",
 						result: page({ from: 1, to: 1, eof: true, total: 1 }),
 					}),
 			} as unknown as Cluster;
@@ -372,7 +394,7 @@ describe("non-task tools", () => {
 				...f2base(db, sessionUser),
 				cluster,
 			} as ToolContext;
-			const info = await tool("node_info").handler({ node: "web-1" } as never, context);
+			const info = await tool("node_info").handler({ targets: ["web-1"] } as never, context);
 			const value = jsonOf(info);
 			expect(value).toMatchObject({
 				name: "web-1",
@@ -402,12 +424,154 @@ describe("non-task tools", () => {
 		}
 	});
 
+	it("returns one entry per node for a batch and reads each node's notes under the batch budget", async () => {
+		const db = await openTestDb("sqlite");
+		try {
+			const user = await createUser(db, { username: "batch-facts-user", kind: "member" });
+			const nodes: { id: string; name: string }[] = [];
+			for (const name of ["web-1", "web-2"]) {
+				nodes.push(
+					await addNode(db, user.id, {
+						name,
+						facts: { hostname: name, notesPath: `/etc/crh/${name}.md` },
+					}),
+				);
+			}
+			const sessionUser: SessionUser = { sessionId: "s", userId: user.id, username: user.username, kind: "member" };
+			const created: Record<string, unknown>[] = [];
+			const byTask = new Map<string, string>();
+			const cluster = {
+				evaluateFor: async () => ({ result: "allow" }),
+				createTask: async (input: Record<string, unknown>) => {
+					created.push(input);
+					const nodeId = String(input.nodeId);
+					byTask.set(`notes-${nodeId}`, nodeId);
+					return task({ id: `notes-${nodeId}`, nodeId, kind: "file.read" });
+				},
+				waitTask: async (id: string) => {
+					const nodeId = byTask.get(id) as string;
+					const name = nodeId === nodes[0]?.id ? "web-1" : "web-2";
+					const content = `# ${name}\n`;
+					const lines = countOutputLines(content);
+					return task({
+						id,
+						nodeId,
+						kind: "file.read",
+						outputHead: content,
+						outputBytes: Buffer.byteLength(content),
+						result: page({ from: 1, to: lines, eof: true, total: lines }),
+					});
+				},
+			} as unknown as Cluster;
+			const result = await tool("node_info").handler({ targets: ["web-1", "web-2"] } as never, {
+				...f2base(db, sessionUser),
+				cluster,
+			});
+			const value = jsonOf(result);
+			expect(value).not.toHaveProperty("name");
+			const entries = value.nodes as Record<string, unknown>[];
+			expect(entries.map((entry) => entry.name)).toEqual(["web-1", "web-2"]);
+			expect(entries[0]).toMatchObject({
+				notes: { path: "/etc/crh/web-1.md", content: "# web-1\n" },
+			});
+			expect(entries[1]?.notes).toMatchObject({ path: "/etc/crh/web-2.md", content: "# web-2\n" });
+			expect(result.content[0]?.text).not.toContain("task_id");
+			expect(created).toHaveLength(2);
+			for (const input of created) {
+				expect(input).toMatchObject({ outputMode: "head", maxLines: 128, maxBytes: 8192 });
+			}
+		} finally {
+			await db.destroy();
+		}
+	});
+
+	it("keeps a batch's notes within one shared budget and names a node that got nothing", async () => {
+		const db = await openTestDb("sqlite");
+		try {
+			const user = await createUser(db, { username: "notes-budget-user", kind: "member" });
+			const names = Array.from({ length: 8 }, (_, i) => `web-${i + 1}`);
+			for (const name of names) {
+				await addNode(db, user.id, { name, facts: { notesPath: `/etc/crh/${name}.md` } });
+			}
+			const sessionUser: SessionUser = { sessionId: "s", userId: user.id, username: user.username, kind: "member" };
+			const content = `${"x".repeat(8191)}\n`;
+			const cluster = {
+				evaluateFor: async () => ({ result: "allow" }),
+				createTask: async (input: Record<string, unknown>) =>
+					task({ id: `notes-${String(input.nodeId)}`, nodeId: String(input.nodeId), kind: "file.read" }),
+				waitTask: async (id: string) =>
+					task({
+						id,
+						kind: "file.read",
+						outputHead: content,
+						outputBytes: Buffer.byteLength(content),
+						result: page({ from: 1, to: 1, eof: true, total: 1 }),
+					}),
+			} as unknown as Cluster;
+			const result = await tool("node_info").handler({ targets: names } as never, {
+				...f2base(db, sessionUser),
+				cluster,
+			});
+			const entries = jsonOf(result).nodes as {
+				notes: { content: string | null; truncated?: string; note?: string };
+			}[];
+			// Six nodes fill 6 x 8 KB of the 50 KB batch budget; the seventh keeps the rest, the eighth nothing.
+			expect(Buffer.byteLength(entries[5]?.notes.content ?? "")).toBe(8192);
+			expect(Buffer.byteLength(entries[6]?.notes.content ?? "")).toBe(2048);
+			expect(entries[6]?.notes.truncated).toContain("first 2048 bytes");
+			expect(entries[7]?.notes.content).toBeNull();
+			expect(entries[7]?.notes.note).toContain("batch budget");
+		} finally {
+			await db.destroy();
+		}
+	});
+
+	it("leaves a node's notes alone in a batch when reading them would need approval", async () => {
+		const db = await openTestDb("sqlite");
+		try {
+			const user = await createUser(db, { username: "notes-approval-user", kind: "member" });
+			const first = await addNode(db, user.id, { name: "web-1", facts: { notesPath: "/etc/crh/web-1.md" } });
+			await addNode(db, user.id, { name: "web-2", facts: { notesPath: "/etc/crh/web-2.md" } });
+			const sessionUser: SessionUser = { sessionId: "s", userId: user.id, username: user.username, kind: "member" };
+			const created: Record<string, unknown>[] = [];
+			const cluster = {
+				evaluateFor: async (node: { id: string }) => ({
+					result: node.id === first.id ? "allow" : "require-approval",
+				}),
+				createTask: async (input: Record<string, unknown>) => {
+					created.push(input);
+					return task({ id: "notes-1", nodeId: String(input.nodeId), kind: "file.read" });
+				},
+				waitTask: async () =>
+					task({
+						id: "notes-1",
+						kind: "file.read",
+						outputHead: "# web-1\n",
+						outputBytes: 8,
+						result: page({ from: 1, to: 1, eof: true, total: 1 }),
+					}),
+			} as unknown as Cluster;
+			const result = await tool("node_info").handler({ targets: ["web-1", "web-2"] } as never, {
+				...f2base(db, sessionUser),
+				cluster,
+			});
+			const entries = jsonOf(result).nodes as { notes: { content: string | null; note?: string } }[];
+			expect(entries[0]?.notes.content).toBe("# web-1\n");
+			expect(entries[1]?.notes).toMatchObject({ content: null, note: expect.stringContaining("approval") });
+			expect(created).toHaveLength(1);
+		} finally {
+			await db.destroy();
+		}
+	});
+
 	it("maps an unknown node to a no_such_node error result", async () => {
 		const f = await fixture("unknown-node-user");
 		try {
-			const result = await callTool(tool("node_info") as never, { node: "nope" }, f.base, { via: "mcp" });
+			const result = await callTool(tool("node_info") as never, { targets: ["nope"] }, f.base, { via: "mcp" });
 			expect(result.isError).toBe(true);
-			expect(jsonOf(result)).toEqual({ error: { code: "no_such_node", message: "no node nope that you can see" } });
+			expect(jsonOf(result)).toEqual({
+				error: { code: "no_such_node", message: "no node or node group nope that you can access" },
+			});
 		} finally {
 			await f.db.destroy();
 		}
@@ -434,7 +598,7 @@ describe("expected tool errors", () => {
 		try {
 			const result = await callTool(tool("exec") as never, { targets: ["web-1"] }, f.base, { via: "mcp" });
 			expect(result.isError).toBe(true);
-			expect(texts(result)).toEqual(["error invalid_argument: give either cmd or argv"]);
+			expect(texts(result)).toEqual(["[error invalid_argument: give either cmd or argv]"]);
 		} finally {
 			await f.db.destroy();
 		}
@@ -474,7 +638,7 @@ describe("exec text results", () => {
 			task({ outputTail: "hello\nworld\n", outputTailLines: 2, outputLines: 2 }),
 			"web-1",
 		);
-		expect(texts(result)).toEqual(["hello\nworld\n", "web-1 · exit 0"]);
+		expect(texts(result)).toEqual(["hello\nworld\n", "[web-1, exit 0]"]);
 		expect(result.isError).toBe(false);
 		expect(result.details).toMatchObject({ task_id: "t1", node: "web-1", state: "exited", exit_code: 0 });
 	});
@@ -491,7 +655,7 @@ describe("exec text results", () => {
 			"web-1",
 		);
 		expect(texts(result)[1]).toBe(
-			"web-1 · exit 0\nShowing lines 4-5 of 5. Full output: /var/lib/crha/output/t1.log (read it with read_file).",
+			"[web-1, exit 0]\n[Showing lines 4-5 of 5. Full output: /var/lib/crha/output/t1.log (read it with read_file).]",
 		);
 	});
 
@@ -511,21 +675,44 @@ describe("exec text results", () => {
 		expect(texts(crha)[1]).toContain("The node kept no full output.");
 		expect(texts(crha)[1]).not.toContain("SSH");
 		const whole = execTaskResult(ctx, task({ outputTail: "a\n", outputTailLines: 1, outputLines: 1 }), "web-1");
-		expect(texts(whole)[1]).toBe("web-1 · exit 0");
+		expect(texts(whole)[1]).toBe("[web-1, exit 0]");
+	});
+
+	it("brackets every synthesized note line, the notice included", () => {
+		const result = execTaskResult(
+			ctx,
+			task({
+				outputTail: "x\n",
+				outputTailLines: 1,
+				outputBytes: 2,
+				outputLines: 100,
+				outputFile: "/out/t1",
+				notice: "the node runs SSH; privileged was ignored\n",
+			}),
+			"web-1",
+		);
+		const lines = texts(result)[1]?.split("\n") ?? [];
+		expect(lines).toHaveLength(3);
+		for (const line of lines) expect(line).toMatch(/^\[.*\]$/);
+		expect(lines).toEqual([
+			"[web-1, exit 0]",
+			"[Showing lines 100-100 of 100. Full output: /out/t1 (read it with read_file).]",
+			"[the node runs SSH; privileged was ignored]",
+		]);
 	});
 
 	it("marks nonzero exits, timeouts, signals and task errors as errors", () => {
 		const exit = execTaskResult(ctx, task({ state: "exited", exitCode: 2 }), "web-1");
 		expect(exit.isError).toBe(true);
-		expect(texts(exit).at(-1)).toBe("web-1 · exit 2");
+		expect(texts(exit).at(-1)).toBe("[web-1, exit 2]");
 
 		const timeout = execTaskResult(ctx, task({ state: "failed", timedOut: true, timeoutMs: 30_000 }), "web-1");
 		expect(timeout.isError).toBe(true);
-		expect(texts(timeout).at(-1)).toBe("web-1 · timed out after 30 s");
+		expect(texts(timeout).at(-1)).toBe("[web-1, timed out after 30 s]");
 
 		const signal = execTaskResult(ctx, task({ state: "failed", signal: "SIGKILL" }), "web-1");
 		expect(signal.isError).toBe(true);
-		expect(texts(signal).at(-1)).toBe("web-1 · killed by SIGKILL");
+		expect(texts(signal).at(-1)).toBe("[web-1, killed by SIGKILL]");
 
 		const failed = execTaskResult(
 			ctx,
@@ -533,7 +720,7 @@ describe("exec text results", () => {
 			"web-1",
 		);
 		expect(failed.isError).toBe(true);
-		expect(texts(failed).at(-1)).toBe("web-1 · error node_offline: the node is not connected");
+		expect(texts(failed).at(-1)).toBe("[web-1, error node_offline: the node is not connected]");
 
 		const unknown = execTaskResult(
 			ctx,
@@ -552,11 +739,11 @@ describe("exec text results", () => {
 	it("returns notes with the id while a task still runs or waits", () => {
 		const running = execTaskResult(ctx, task({ state: "running" }), "web-1");
 		expect(running.isError).toBe(false);
-		expect(texts(running)).toEqual(["web-1 · still running · task_id t1. Call task_wait with this task_id."]);
+		expect(texts(running)).toEqual(["[web-1, still running, task_id t1. Call task_wait with this task_id.]"]);
 
 		const approval = execTaskResult(ctx, task({ state: "awaiting_approval" }), "web-1");
 		expect(texts(approval)[0]).toBe(
-			"web-1 · waiting for approval: http://crh.test/approvals/task/t1 · task_id t1. Call task_wait with this task_id.",
+			"[web-1, waiting for approval: http://crh.test/approvals/task/t1, task_id t1. Call task_wait with this task_id.]",
 		);
 
 		const authorization = execTaskResult(
@@ -601,14 +788,14 @@ describe("exec task groups", () => {
 			outputMode: "text",
 			nodeIds: ["n1", "n2"],
 			tasks: [
-				task({ id: "t1", nodeId: "n1", outputMode: "text", stdoutTail: "ok\n", outputLines: 1, outputFile: "/out/1" }),
+				task({ id: "t1", nodeId: "n1", outputMode: "text", outputTail: "ok\n", outputLines: 1, outputFile: "/out/1" }),
 				task({
 					id: "t2",
 					nodeId: "n2",
 					outputMode: "text",
 					state: "failed",
 					exitCode: 1,
-					stdoutTail: "bad\n",
+					outputTail: "bad\n",
 					outputLines: 1,
 					outputFile: "/out/2",
 				}),
@@ -620,8 +807,8 @@ describe("exec task groups", () => {
 		]);
 		const result = execResultText(g, names);
 		expect(result.isError).toBe(true);
-		expect(texts(result)[0]).toBe("task group g1 · 2 nodes · 1 succeeded, 1 failed");
-		expect(texts(result)).toEqual(expect.arrayContaining(["ok\n", "web-1 · exit 0", "bad\n", "db-1 · exit 1"]));
+		expect(texts(result)[0]).toBe("[task group g1, 2 nodes, 1 succeeded, 1 failed]");
+		expect(texts(result)).toEqual(expect.arrayContaining(["ok\n", "[web-1, exit 0]", "bad\n", "[db-1, exit 1]"]));
 		expect(result.details).toMatchObject({
 			task_group_id: "g1",
 			state: "finished",
@@ -640,7 +827,7 @@ describe("exec task groups", () => {
 					id: "t1",
 					nodeId: "n1",
 					outputMode: "text",
-					stdoutTail: "tail\n",
+					outputTail: "tail\n",
 					outputLines: 10,
 					outputFile: "/out/1",
 				}),
@@ -648,7 +835,7 @@ describe("exec task groups", () => {
 		});
 		const result = execResultText(g, new Map([["n1", "web-1"]]));
 		expect(texts(result).at(-1)).toBe(
-			"web-1 · exit 0\nShowing lines 10-10 of 10. Full output: /out/1 (read it with read_file).",
+			"[web-1, exit 0]\n[Showing lines 10-10 of 10. Full output: /out/1 (read it with read_file).]",
 		);
 	});
 
@@ -752,24 +939,67 @@ describe("exec budgets", () => {
 		}
 	});
 
-	it("rejects output: status together with a budget as invalid_argument", async () => {
+	it("rejects with_output: false together with a budget as invalid_argument", async () => {
 		const f = await fixture("status-budget-user");
 		try {
 			await addGroup(f.db, f.nodeId, "prod");
-			const result = await callTool(
-				tool("exec") as never,
-				{ targets: ["prod"], cmd: "true", output: "status", max_lines: 1 },
-				f.base,
-				{ via: "mcp" },
-			);
-			expect(result.isError).toBe(true);
-			expect(texts(result)[0]).toContain("error invalid_argument:");
+			for (const budgets of [{ max_lines: 1 }, { max_bytes: 10 }]) {
+				const result = await callTool(
+					tool("exec") as never,
+					{ targets: ["prod"], cmd: "true", with_output: false, ...budgets },
+					f.base,
+					{ via: "mcp" },
+				);
+				expect(result.isError).toBe(true);
+				expect(texts(result)[0]).toContain("[error invalid_argument:");
+			}
 		} finally {
 			await f.db.destroy();
 		}
 	});
 
-	it("defaults a batch to status when no budget is given", async () => {
+	it("returns status JSON for a single task with with_output: false", async () => {
+		const f = await fixture("single-status-user");
+		try {
+			const created: Record<string, unknown>[] = [];
+			const cluster = {
+				createTask: async (input: Record<string, unknown>) => {
+					created.push(input);
+					return task({ id: "t1", nodeId: f.nodeId, kind: "exec", outputMode: "status" });
+				},
+				waitTask: async () =>
+					task({
+						id: "t1",
+						nodeId: f.nodeId,
+						kind: "exec",
+						outputMode: "status",
+						exitCode: 0,
+						outputFile: "/var/lib/crha/output/t1.log",
+					}),
+			} as unknown as Cluster;
+			const result = await tool("exec").handler(
+				{ targets: ["web-1"], cmd: "true", with_output: false, wait: 0 } as never,
+				{
+					...f.base,
+					cluster,
+				},
+			);
+			expect(created[0]).toMatchObject({ outputMode: "status" });
+			expect(result.isError).toBe(false);
+			expect(jsonOf(result)).toMatchObject({
+				task_id: "t1",
+				node: "web-1",
+				state: "exited",
+				exit_code: 0,
+				output_file: "/var/lib/crha/output/t1.log",
+			});
+			expect(result.content[0]?.text).not.toContain("task_wait");
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("defaults a batch to text with output", async () => {
 		const f = await fixture("default-output-user");
 		try {
 			await addGroup(f.db, f.nodeId, "prod");
@@ -779,14 +1009,54 @@ describe("exec budgets", () => {
 					created.push(input);
 					return "g1";
 				},
-				get: async () => group({ id: "g1", state: "finished", nodeIds: [f.nodeId], outputMode: "status", tasks: [] }),
-				wait: async () => group({ id: "g1", state: "finished", nodeIds: [f.nodeId], outputMode: "status", tasks: [] }),
+				get: async () => group({ id: "g1", state: "finished", nodeIds: [f.nodeId], outputMode: "text", tasks: [] }),
+				wait: async () => group({ id: "g1", state: "finished", nodeIds: [f.nodeId], outputMode: "text", tasks: [] }),
 			} as unknown as TaskGroups;
 			await tool("exec").handler({ targets: ["prod"], cmd: "true", wait: 0 } as never, {
 				...f.base,
 				taskGroups,
 			});
-			expect(created[0]?.outputMode).toBeUndefined();
+			expect(created[0]?.outputMode).toBe("text");
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("returns status JSON for a batch with with_output: false", async () => {
+		const f = await fixture("batch-status-user");
+		try {
+			await addGroup(f.db, f.nodeId, "prod");
+			const created: Record<string, unknown>[] = [];
+			const statusGroup = () =>
+				group({
+					id: "g1",
+					state: "finished",
+					nodeIds: [f.nodeId],
+					outputMode: "status",
+					tasks: [task({ id: "t1", nodeId: f.nodeId, outputMode: "status", outputFile: "/out/1" })],
+				});
+			const taskGroups = {
+				create: async (input: Record<string, unknown>) => {
+					created.push(input);
+					return "g1";
+				},
+				get: async () => statusGroup(),
+				wait: async () => statusGroup(),
+			} as unknown as TaskGroups;
+			const result = await tool("exec").handler(
+				{ targets: ["prod"], cmd: "true", with_output: false, wait: 0 } as never,
+				{
+					...f.base,
+					taskGroups,
+				},
+			);
+			expect(created[0]).toMatchObject({ outputMode: "status" });
+			expect(result.isError).toBe(false);
+			expect(jsonOf(result)).toMatchObject({
+				task_group_id: "g1",
+				state: "finished",
+				nodes: [{ task_id: "t1", output_file: "/out/1" }],
+			});
 		} finally {
 			await f.db.destroy();
 		}
@@ -830,15 +1100,15 @@ describe("read_file pages", () => {
 		const result = execRead(
 			task({
 				kind: "file.read",
-				stdoutHead: "one\ntwo\n",
-				stdoutBytes: 8,
+				outputHead: "one\ntwo\n",
+				outputBytes: 8,
 				result: page({ from: 1, to: 2, eof: false, total: null }),
 			}),
 			"/var/log/x",
 			1,
 			undefined,
 		);
-		expect(texts(result)).toEqual(["one\ntwo\n", "web-1:/var/log/x · lines 1-2. Use offset=3 to continue."]);
+		expect(texts(result)).toEqual(["one\ntwo\n", "[web-1:/var/log/x, lines 1-2. Use offset=3 to continue.]"]);
 		expect(result.isError).toBe(false);
 	});
 
@@ -846,15 +1116,15 @@ describe("read_file pages", () => {
 		const result = execRead(
 			task({
 				kind: "file.read",
-				stdoutHead: "three\n",
-				stdoutBytes: 6,
+				outputHead: "three\n",
+				outputBytes: 6,
 				result: page({ from: 3, to: 3, eof: true, total: 3 }),
 			}),
 			"/x",
 			3,
 			undefined,
 		);
-		expect(texts(result)[1]).toBe("web-1:/x · lines 3-3 of 3 (end of file)");
+		expect(texts(result)[1]).toBe("[web-1:/x, lines 3-3 of 3 (end of file)]");
 	});
 
 	it("says the file is empty", () => {
@@ -864,7 +1134,7 @@ describe("read_file pages", () => {
 			1,
 			undefined,
 		);
-		expect(texts(result)).toEqual(["web-1:/x · the file is empty"]);
+		expect(texts(result)).toEqual(["[web-1:/x, the file is empty]"]);
 		expect(result.isError).toBe(false);
 	});
 
@@ -876,7 +1146,7 @@ describe("read_file pages", () => {
 			undefined,
 		);
 		expect(tooLong.isError).toBe(true);
-		expect(texts(tooLong)[0]).toContain("error line_too_long:");
+		expect(texts(tooLong)[0]).toContain("[web-1:/x, error line_too_long:");
 		expect(texts(tooLong)[0]).toContain("sed -n '4p' '/x'");
 
 		const pastEnd = execRead(
@@ -886,7 +1156,7 @@ describe("read_file pages", () => {
 			undefined,
 		);
 		expect(pastEnd.isError).toBe(true);
-		expect(texts(pastEnd)[0]).toContain("error offset_out_of_range:");
+		expect(texts(pastEnd)[0]).toContain("[web-1:/x, error offset_out_of_range:");
 		expect(texts(pastEnd)[0]).toContain("has 5 lines");
 	});
 
@@ -894,8 +1164,8 @@ describe("read_file pages", () => {
 		const result = execRead(
 			task({
 				kind: "file.read",
-				stdoutHead: "one\ntwo\nthree\n",
-				stdoutBytes: 14,
+				outputHead: "one\ntwo\nthree\n",
+				outputBytes: 14,
 				outputLines: 3,
 				result: page({ from: 1, to: 3, eof: true, total: 3 }),
 			}),
@@ -903,7 +1173,7 @@ describe("read_file pages", () => {
 			1,
 			4,
 		);
-		expect(texts(result)).toEqual(["one\n", "web-1:/x · lines 1-1. Use offset=2 to continue."]);
+		expect(texts(result)).toEqual(["one\n", "[web-1:/x, lines 1-1. Use offset=2 to continue.]"]);
 	});
 
 	it("reads several nodes with their own pages and cursors", () => {
@@ -917,8 +1187,8 @@ describe("read_file pages", () => {
 					nodeId: "n1",
 					kind: "file.read",
 					outputMode: "head",
-					stdoutHead: "one\n",
-					stdoutBytes: 4,
+					outputHead: "one\n",
+					outputBytes: 4,
 					result: page({ from: 1, to: 1, eof: true, total: 1 }),
 				}),
 				task({
@@ -926,8 +1196,8 @@ describe("read_file pages", () => {
 					nodeId: "n2",
 					kind: "file.read",
 					outputMode: "head",
-					stdoutHead: "a\nb\n",
-					stdoutBytes: 4,
+					outputHead: "a\nb\n",
+					outputBytes: 4,
 					result: page({ from: 2, to: 3, eof: false, total: null }),
 				}),
 			],
@@ -943,11 +1213,11 @@ describe("read_file pages", () => {
 			undefined,
 		);
 		expect(texts(result)).toEqual([
-			"task group · 2 nodes · 2 succeeded, 0 failed",
+			"[task group, 2 nodes, 2 succeeded, 0 failed]",
 			"one\n",
-			"web-1:/x · lines 1-1 of 1 (end of file)",
+			"[web-1:/x, lines 1-1 of 1 (end of file)]",
 			"a\nb\n",
-			"db-1:/x · lines 2-3. Use offset=4 to continue.",
+			"[db-1:/x, lines 2-3. Use offset=4 to continue.]",
 		]);
 		expect(result.details).toMatchObject({
 			task_group_id: "g1",
@@ -1010,7 +1280,7 @@ describe("file tool JSON results", () => {
 			expect(written.details).toMatchObject({ task_id: "t1" });
 
 			const edited = await tool("edit_file").handler(
-				{ node: "web-1", path: "/tmp/x", edits: [{ old_text: "a", new_text: "b" }] } as never,
+				{ targets: ["web-1"], path: "/tmp/x", edits: [{ old_text: "a", new_text: "b" }] } as never,
 				context,
 			);
 			expect(jsonOf(edited)).toMatchObject({ replacements: 1 });
@@ -1033,10 +1303,108 @@ describe("file tool JSON results", () => {
 					task({ id: "t1", nodeId: f.nodeId, kind: "file.edit", result: { kind: "file.edit", replacements: 1 } }),
 			} as unknown as Cluster;
 			await tool("edit_file").handler(
-				{ node: "web-1", path: "/tmp/x", edits: [{ old_text: "a", new_text: "b" }] } as never,
+				{ targets: ["web-1"], path: "/tmp/x", edits: [{ old_text: "a", new_text: "b" }] } as never,
 				{ ...f.base, cluster },
 			);
 			expect(created[0]?.spec).toMatchObject({ kind: "file.edit", edits: [{ oldText: "a", newText: "b" }] });
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("takes mode as an octal string and passes create_parent_dirs to the task spec", async () => {
+		const f = await fixture("write-mode-user");
+		try {
+			const created: Record<string, unknown>[] = [];
+			const cluster = {
+				createTask: async (input: Record<string, unknown>) => {
+					created.push(input);
+					return task({ id: "t1", nodeId: f.nodeId, kind: "file.write" });
+				},
+				getTask: async () => task({ id: "t1", nodeId: f.nodeId, kind: "file.write", state: "running" }),
+				waitTask: async () =>
+					task({
+						id: "t1",
+						nodeId: f.nodeId,
+						kind: "file.write",
+						result: { kind: "file.write", bytes: 1, created: true },
+					}),
+			} as unknown as Cluster;
+			const context = { ...f.base, cluster };
+			const write = (body: Record<string, unknown>) =>
+				tool("write_file").handler({ targets: ["web-1"], path: "/x", content: "a", ...body } as never, context);
+
+			await write({ mode: "0644", create_parent_dirs: true });
+			expect(created[0]?.spec).toMatchObject({ mode: 0o644, createParentDirs: true });
+			await write({ mode: "755" });
+			expect(created[1]?.spec).toMatchObject({ mode: 0o755, createParentDirs: false });
+
+			for (const mode of ["0o644", "0648", "77777", "077777", "rw-r--r--"]) {
+				const bad = await callTool(
+					tool("write_file") as never,
+					{ targets: ["web-1"], path: "/x", content: "a", mode },
+					context,
+					{ via: "mcp" },
+				);
+				expect(bad.isError, mode).toBe(true);
+				expect(jsonOf(bad)).toMatchObject({ error: { code: "invalid_argument" } });
+			}
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("edits several nodes as a task group and lets one node fail alone", async () => {
+		const f = await fixture("edit-group-user");
+		try {
+			await addGroup(f.db, f.nodeId, "prod");
+			const created: Record<string, unknown>[] = [];
+			const taskGroups = {
+				create: async (input: Record<string, unknown>) => {
+					created.push(input);
+					return "g1";
+				},
+				get: async () =>
+					group({
+						id: "g1",
+						kind: "file.edit",
+						outputMode: "head",
+						nodeIds: ["n1", "n2"],
+						tasks: [
+							task({
+								id: "t1",
+								nodeId: "n1",
+								kind: "file.edit",
+								result: { kind: "file.edit", replacements: 1 },
+							}),
+							task({
+								id: "t2",
+								nodeId: "n2",
+								kind: "file.edit",
+								state: "failed",
+								exitCode: null,
+								errorCode: "edit_no_match",
+								errorMessage: "could not find edits[0] in /x",
+							}),
+						],
+					}),
+			} as unknown as TaskGroups;
+			const result = await tool("edit_file").handler(
+				{ targets: ["prod"], path: "/x", edits: [{ old_text: "a", new_text: "b" }] } as never,
+				{ ...f.base, taskGroups },
+			);
+			expect(created[0]).toMatchObject({
+				spec: { kind: "file.edit", path: "/x", edits: [{ oldText: "a", newText: "b" }] },
+			});
+			expect(result.isError).toBe(true);
+			expect(jsonOf(result)).toMatchObject({
+				state: "finished",
+				nodes: [
+					{ node: "n1", replacements: 1 },
+					{ node: "n2", error: { code: "edit_no_match" } },
+				],
+			});
+			expect(result.details).toMatchObject({ task_group_id: "g1" });
 		} finally {
 			await f.db.destroy();
 		}
@@ -1251,7 +1619,7 @@ describe("following up exec", () => {
 				{ via: "mcp" },
 			);
 			expect(result.isError).toBe(true);
-			expect(texts(result)).toEqual(["error no_such_task: no such task"]);
+			expect(texts(result)).toEqual(["[error no_such_task: no such task]"]);
 		} finally {
 			await f.db.destroy();
 		}
@@ -1279,7 +1647,7 @@ describe("following up exec", () => {
 				{ via: "mcp" },
 			);
 			expect(result.isError).toBe(true);
-			expect(texts(result)).toEqual(["error no_such_task: no such task group"]);
+			expect(texts(result)).toEqual(["[error no_such_task: no such task group]"]);
 		} finally {
 			await f.db.destroy();
 		}
@@ -1316,7 +1684,7 @@ describe("following up exec", () => {
 				...f.base,
 				cluster,
 			});
-			expect(texts(result)).toEqual(["done\n", "web-1 · exit 0"]);
+			expect(texts(result)).toEqual(["done\n", "[web-1, exit 0]"]);
 			expect(result.details).toMatchObject({ task_id: "t1", node: "web-1", state: "exited" });
 		} finally {
 			await f.db.destroy();
@@ -1345,7 +1713,7 @@ describe("following up exec", () => {
 				},
 			);
 			expect(result.isError).toBe(true);
-			expect(texts(result)).toEqual(["error no_such_task: no such task"]);
+			expect(texts(result)).toEqual(["[error no_such_task: no such task]"]);
 		} finally {
 			await f.db.destroy();
 		}
@@ -1472,7 +1840,7 @@ describe("the privileged tool parameter", () => {
 			exec: { targets: ["web-1"], cmd: "true" },
 			read_file: { targets: ["web-1"], path: "/etc/hosts" },
 			write_file: { targets: ["web-1"], path: "/tmp/x", content: "x" },
-			edit_file: { node: "web-1", path: "/tmp/x", edits: [{ old_text: "a", new_text: "b" }] },
+			edit_file: { targets: ["web-1"], path: "/tmp/x", edits: [{ old_text: "a", new_text: "b" }] },
 			list_dir: { targets: ["web-1"], path: "/tmp" },
 			stat: { targets: ["web-1"], path: "/tmp" },
 		};

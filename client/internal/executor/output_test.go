@@ -7,20 +7,13 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
-const (
-	stdout = protocol.StreamStdout
-	stderr = protocol.StreamStderr
-)
-
-func readAll(t *testing.T, o *Output, s protocol.Stream, from uint64) string {
+func readAll(t *testing.T, o *Output, from uint64) string {
 	t.Helper()
 	var buf bytes.Buffer
 	for {
-		b, err := o.ReadAt(s, from+uint64(buf.Len()), 7) // small reads cross segment boundaries
+		b, err := o.ReadAt(from+uint64(buf.Len()), 7) // small reads cross segment boundaries
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -33,20 +26,17 @@ func readAll(t *testing.T, o *Output, s protocol.Stream, from uint64) string {
 
 func TestOutputInMemory(t *testing.T) {
 	o := NewOutput("t1", t.TempDir(), OutputOptions{SpillBytes: 1024, SpillLines: 100})
-	o.Writer(stdout).Write([]byte("hello "))
-	o.Writer(stderr).Write([]byte("oops\n"))
-	o.Writer(stdout).Write([]byte("world\n"))
-	if got := readAll(t, o, stdout, 0); got != "hello world\n" {
-		t.Fatalf("stdout = %q", got)
+	o.Writer().Write([]byte("hello "))
+	o.Writer().Write([]byte("oops\n"))
+	o.Writer().Write([]byte("world\n"))
+	if got := readAll(t, o, 0); got != "hello oops\nworld\n" {
+		t.Fatalf("output = %q", got)
 	}
-	if got := readAll(t, o, stdout, 6); got != "world\n" {
-		t.Fatalf("stdout from 6 = %q", got)
+	if got := readAll(t, o, 6); got != "oops\nworld\n" {
+		t.Fatalf("output from 6 = %q", got)
 	}
-	if got := readAll(t, o, stderr, 0); got != "oops\n" {
-		t.Fatalf("stderr = %q", got)
-	}
-	if o.Path() != "" || o.End(stdout) != 12 || o.End(stderr) != 5 {
-		t.Fatalf("path %q ends %d %d", o.Path(), o.End(stdout), o.End(stderr))
+	if o.Path() != "" || o.End() != 17 {
+		t.Fatalf("path %q end %d", o.Path(), o.End())
 	}
 }
 
@@ -54,10 +44,7 @@ func TestOutputInMemory(t *testing.T) {
 // newline count plus a last line without one, and 0 for no output, whether the bytes stayed in
 // memory or were spilled.
 func TestOutputLines(t *testing.T) {
-	type write struct {
-		stream protocol.Stream
-		text   string
-	}
+	type write struct{ text string }
 	for _, tc := range []struct {
 		name   string
 		opts   OutputOptions
@@ -67,37 +54,37 @@ func TestOutputLines(t *testing.T) {
 	}{
 		{name: "no output in memory", want: 0},
 		{name: "no output always spilled", opts: OutputOptions{AlwaysSpill: true}, want: 0, spill: true},
-		{name: "trailing newline", writes: []write{{stdout, "a\nb\n"}}, want: 2},
-		{name: "no trailing newline", writes: []write{{stdout, "a\nb"}}, want: 2},
-		{name: "single newline", writes: []write{{stderr, "\n"}}, want: 1},
+		{name: "trailing newline", writes: []write{{"a\nb\n"}}, want: 2},
+		{name: "no trailing newline", writes: []write{{"a\nb"}}, want: 2},
+		{name: "single newline", writes: []write{{"\n"}}, want: 1},
 		{
-			name: "interleaved streams",
+			name: "interleaved writes",
 			writes: []write{
-				{stdout, "a\n"},
-				{stderr, "b"},
-				{stdout, "c\n"},
-				{stderr, "d"},
+				{"a\n"},
+				{"b"},
+				{"c\n"},
+				{"d"},
 			},
 			want: 3,
 		},
 		{
 			name:   "spilled with trailing newline",
 			opts:   OutputOptions{SpillBytes: 2},
-			writes: []write{{stdout, "a\n"}, {stderr, "b"}, {stdout, "c\n"}},
+			writes: []write{{"a\n"}, {"b"}, {"c\n"}},
 			want:   2,
 			spill:  true,
 		},
 		{
 			name:   "spilled without trailing newline",
 			opts:   OutputOptions{SpillBytes: 2},
-			writes: []write{{stdout, "a\n"}, {stderr, "b"}},
+			writes: []write{{"a\n"}, {"b"}},
 			want:   2,
 			spill:  true,
 		},
 		{
 			name:   "small always spilled without newline",
 			opts:   OutputOptions{AlwaysSpill: true},
-			writes: []write{{stdout, "x"}},
+			writes: []write{{"x"}},
 			want:   1,
 			spill:  true,
 		},
@@ -106,7 +93,7 @@ func TestOutputLines(t *testing.T) {
 			o := NewOutput("lines", t.TempDir(), tc.opts)
 			var merged strings.Builder
 			for _, w := range tc.writes {
-				if _, err := o.Writer(w.stream).Write([]byte(w.text)); err != nil {
+				if _, err := o.Writer().Write([]byte(w.text)); err != nil {
 					t.Fatal(err)
 				}
 				merged.WriteString(w.text)
@@ -134,13 +121,13 @@ func TestOutputLines(t *testing.T) {
 func TestOutputSpillsByBytes(t *testing.T) {
 	dir := t.TempDir()
 	o := NewOutput("t2", dir, OutputOptions{SpillBytes: 10})
-	o.Writer(stdout).Write([]byte("aaaa"))
-	o.Writer(stderr).Write([]byte("EE"))
+	o.Writer().Write([]byte("aaaa"))
+	o.Writer().Write([]byte("EE"))
 	if o.Path() != "" {
 		t.Fatal("spilled too early")
 	}
-	o.Writer(stdout).Write([]byte("bbbbbb")) // 12 bytes > 10
-	o.Writer(stderr).Write([]byte("FF"))
+	o.Writer().Write([]byte("bbbbbb")) // 12 bytes > 10
+	o.Writer().Write([]byte("FF"))
 	o.Close()
 	path := o.Path()
 	if path != filepath.Join(dir, "t2.log") {
@@ -153,11 +140,8 @@ func TestOutputSpillsByBytes(t *testing.T) {
 	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode = %v", info.Mode())
 	}
-	if got := readAll(t, o, stdout, 2); got != "aabbbbbb" {
-		t.Fatalf("stdout from 2 = %q", got)
-	}
-	if got := readAll(t, o, stderr, 0); got != "EEFF" {
-		t.Fatalf("stderr = %q", got)
+	if got := readAll(t, o, 2); got != "aaEEbbbbbbFF" {
+		t.Fatalf("output from 2 = %q", got)
 	}
 	o.Release()
 	if _, err := os.Stat(path); err != nil {
@@ -167,16 +151,16 @@ func TestOutputSpillsByBytes(t *testing.T) {
 
 func TestOutputSpillsByLines(t *testing.T) {
 	o := NewOutput("t3", t.TempDir(), OutputOptions{SpillLines: 3})
-	o.Writer(stdout).Write([]byte("1\n2\n3\n"))
+	o.Writer().Write([]byte("1\n2\n3\n"))
 	if o.Path() != "" {
 		t.Fatal("spilled at the limit")
 	}
-	o.Writer(stdout).Write([]byte("4\n"))
+	o.Writer().Write([]byte("4\n"))
 	if o.Path() == "" {
 		t.Fatal("did not spill over the limit")
 	}
-	if got := readAll(t, o, stdout, 0); got != "1\n2\n3\n4\n" {
-		t.Fatalf("stdout = %q", got)
+	if got := readAll(t, o, 0); got != "1\n2\n3\n4\n" {
+		t.Fatalf("output = %q", got)
 	}
 }
 
@@ -208,9 +192,9 @@ func TestOutputAlwaysSpillsEmpty(t *testing.T) {
 func TestOutputAlwaysSpillsSmall(t *testing.T) {
 	dir := t.TempDir()
 	o := NewOutput("t7", dir, OutputOptions{SpillBytes: 1 << 20, SpillLines: 2000, AlwaysSpill: true})
-	o.Writer(stdout).Write([]byte("hello "))
-	o.Writer(stderr).Write([]byte("oops\n"))
-	o.Writer(stdout).Write([]byte("world\n"))
+	o.Writer().Write([]byte("hello "))
+	o.Writer().Write([]byte("oops\n"))
+	o.Writer().Write([]byte("world\n"))
 	o.Close()
 	path := filepath.Join(dir, "t7.log")
 	if o.Path() != path {
@@ -223,11 +207,8 @@ func TestOutputAlwaysSpillsSmall(t *testing.T) {
 	if string(data) != "hello oops\nworld\n" {
 		t.Fatalf("file = %q, want the interleaved 2>&1 stream", data)
 	}
-	if got := readAll(t, o, stdout, 0); got != "hello world\n" {
-		t.Fatalf("stdout = %q", got)
-	}
-	if got := readAll(t, o, stderr, 0); got != "oops\n" {
-		t.Fatalf("stderr = %q", got)
+	if got := readAll(t, o, 0); got != "hello oops\nworld\n" {
+		t.Fatalf("output = %q", got)
 	}
 }
 
@@ -236,27 +217,27 @@ func TestOutputAlwaysSpillFallsBackToMemory(t *testing.T) {
 	if o.Path() != "" {
 		t.Fatalf("path = %q, want no file", o.Path())
 	}
-	o.Writer(stdout).Write([]byte("x"))
+	o.Writer().Write([]byte("x"))
 	o.Close()
-	if got := readAll(t, o, stdout, 0); got != "x" {
-		t.Fatalf("stdout = %q", got)
+	if got := readAll(t, o, 0); got != "x" {
+		t.Fatalf("output = %q", got)
 	}
 }
 
 func TestOutputWithoutSpillDir(t *testing.T) {
 	o := NewOutput("t4", filepath.Join(t.TempDir(), "missing"), OutputOptions{SpillBytes: 4})
-	o.Writer(stdout).Write([]byte(strings.Repeat("x", 100)))
+	o.Writer().Write([]byte(strings.Repeat("x", 100)))
 	if o.Path() != "" {
 		t.Fatal("spilled into a missing dir")
 	}
-	if got := readAll(t, o, stdout, 90); got != strings.Repeat("x", 10) {
-		t.Fatalf("stdout = %q", got)
+	if got := readAll(t, o, 90); got != strings.Repeat("x", 10) {
+		t.Fatalf("output = %q", got)
 	}
 }
 
 func TestOutputNotify(t *testing.T) {
 	o := NewOutput("t5", "", OutputOptions{})
-	o.Writer(stdout).Write([]byte("x"))
+	o.Writer().Write([]byte("x"))
 	select {
 	case <-o.Notify():
 	default:
@@ -275,7 +256,7 @@ func TestOutputNotifyCloses(t *testing.T) {
 		}
 		close(done)
 	}()
-	o.Writer(stdout).Write([]byte("x"))
+	o.Writer().Write([]byte("x"))
 	o.Close()
 	select {
 	case <-done:
@@ -286,9 +267,9 @@ func TestOutputNotifyCloses(t *testing.T) {
 		t.Fatal("notification channel is still open after Close")
 	}
 	o.Close() // a second Close must be a no-op
-	o.Writer(stdout).Write([]byte("after close"))
-	if got := readAll(t, o, stdout, 0); got != "x" {
-		t.Fatalf("stdout = %q, want %q", got, "x")
+	o.Writer().Write([]byte("after close"))
+	if got := readAll(t, o, 0); got != "x" {
+		t.Fatalf("output = %q, want %q", got, "x")
 	}
 }
 
@@ -299,22 +280,22 @@ func TestOutputNotifyCloses(t *testing.T) {
 func TestOutputManySmallWrites(t *testing.T) {
 	const writes = 100_000
 	o := NewOutput("tiny", "", OutputOptions{})
-	w := o.Writer(stdout)
+	w := o.Writer()
 	for i := range writes {
 		if _, err := w.Write([]byte{byte(i)}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// One segment per write would leave ~100k entries; coalescing leaves about writes/coalesceBytes.
-	if got := len(o.streams[StreamIndex(stdout)]); got > writes/coalesceBytes+1 {
+	if got := len(o.segments); got > writes/coalesceBytes+1 {
 		t.Fatalf("%d segments for %d one-byte writes", got, writes)
 	}
-	if end := o.End(stdout); end != writes {
+	if end := o.End(); end != writes {
 		t.Fatalf("end = %d, want %d", end, writes)
 	}
 	start := time.Now()
 	for off := uint64(0); off < writes; off += 7 {
-		b, err := o.ReadAt(stdout, off, 7)
+		b, err := o.ReadAt(off, 7)
 		if err != nil {
 			t.Fatalf("ReadAt(%d): %v", off, err)
 		}
@@ -337,8 +318,8 @@ func TestOutputCoalescingKeepsInterleaving(t *testing.T) {
 	o := NewOutput("interleaved", t.TempDir(), OutputOptions{SpillBytes: 10})
 	var want strings.Builder
 	for range 100 {
-		o.Writer(stdout).Write([]byte("a"))
-		o.Writer(stderr).Write([]byte("b"))
+		o.Writer().Write([]byte("a"))
+		o.Writer().Write([]byte("b"))
 		want.WriteString("ab")
 	}
 	o.Close()
@@ -352,10 +333,7 @@ func TestOutputCoalescingKeepsInterleaving(t *testing.T) {
 	if string(data) != want.String() {
 		t.Fatalf("spill file = %q, want the interleaved order", data)
 	}
-	if got := readAll(t, o, stdout, 0); got != strings.Repeat("a", 100) {
-		t.Fatalf("stdout = %q", got)
-	}
-	if got := readAll(t, o, stderr, 0); got != strings.Repeat("b", 100) {
-		t.Fatalf("stderr = %q", got)
+	if got := readAll(t, o, 0); got != want.String() {
+		t.Fatalf("ReadAt output = %q", got)
 	}
 }

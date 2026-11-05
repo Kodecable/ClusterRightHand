@@ -30,8 +30,9 @@ export const AUTH_PAYLOAD_VERSION = 1;
 export const PRIV_MAJOR = 3;
 /**
  * Incompatible changes bump the major version, so a peer with another major is refused; the minor
- * stays additive and never refuses a handshake. PrivMajor 3 renames `TrustSummary.groups` to
- * `aliases` (D110); 2 carried the `task.exit.result` element and the line-range `file.read` spec.
+ * stays additive and never refuses a handshake. PrivMajor 3 merges the two output streams into one
+ * and adds `file.write.create_parent_dirs` (D114), and renames `TrustSummary.groups` to `aliases`
+ * (D110); 2 carried the `task.exit.result` element and the line-range `file.read` spec.
  */
 export const PRIV_MINOR = 0;
 

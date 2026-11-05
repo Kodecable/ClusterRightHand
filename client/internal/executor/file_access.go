@@ -38,6 +38,10 @@ type fileAccess interface {
 	// against the target path, as the open the unprivileged edit did; a write reports the directory
 	// it could not open. The caller closes the returned directory.
 	openWrite(path string, edit bool) (*writeTarget, error)
+	// makeParentDirs creates the missing parent directories of a file.write destination like
+	// mkdir -p: mode 0755 before the umask, and owned by uid/gid when either is requested (the same
+	// identity the file itself is created with). Existing directories are left alone.
+	makeParentDirs(path string, uid, gid int) error
 	// openExisting opens the file an edit reads, inside the directory its target was resolved to.
 	openExisting(t *writeTarget) (*os.File, error)
 }
@@ -220,6 +224,49 @@ func (plainAccess) openWrite(path string, edit bool) (*writeTarget, error) {
 	return t, nil
 }
 
+// makeParentDirs creates the missing parents of the write target, following a final symbolic link
+// like the write itself does: the directories needed are those of the file the link points to.
+func (plainAccess) makeParentDirs(path string, uid, gid int) error {
+	target, _, err := resolveWriteTarget(path)
+	if err != nil {
+		return err
+	}
+	return mkdirAll(filepath.Dir(target), uid, gid)
+}
+
+// mkdirAll creates dir and its missing parents with mode 0755 (before the umask) and gives the
+// directories it created the requested owner and group.
+func mkdirAll(dir string, uid, gid int) error {
+	var missing []string
+	for p := dir; ; p = filepath.Dir(p) {
+		_, err := os.Lstat(p)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		missing = append(missing, p)
+		if parent := filepath.Dir(p); parent != p {
+			continue
+		}
+		break
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if uid < 0 && gid < 0 {
+		return nil
+	}
+	// Top-down, so a directory is owned before anything is created in it.
+	for i := len(missing) - 1; i >= 0; i-- {
+		if err := os.Chown(missing[i], uid, gid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // openExisting opens the destination for reading. A symbolic link that appeared after the target
 // was resolved is followed, as a normal open does.
 func (plainAccess) openExisting(t *writeTarget) (*os.File, error) {
@@ -398,6 +445,49 @@ func (a privilegedAccess) openWrite(path string, _ bool) (*writeTarget, error) {
 		return nil, err
 	}
 	return t, nil
+}
+
+// makeParentDirs creates the missing parents of path below "/", one component at a time, with
+// openat2(RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS): a symbolic link anywhere on the way is refused, as
+// every privileged path is. New directories are 0755 before the umask and owned by uid/gid when
+// requested.
+func (a privilegedAccess) makeParentDirs(path string, uid, gid int) error {
+	dir := filepath.Dir(path)
+	if dir == "/" {
+		return nil
+	}
+	parts := strings.Split(strings.TrimPrefix(dir, "/"), "/")
+	parent, err := a.root.open("/", unix.O_PATH|unix.O_DIRECTORY)
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+	for i, name := range parts {
+		rel := "/" + strings.Join(parts[:i+1], "/")
+		child, err := a.root.open(rel, unix.O_PATH|unix.O_DIRECTORY)
+		if err == nil {
+			parent.Close()
+			parent = child
+			continue
+		}
+		if !errors.Is(err, unix.ENOENT) {
+			return err
+		}
+		if err := unix.Mkdirat(int(parent.Fd()), name, 0o755); err != nil {
+			return &os.PathError{Op: "mkdir", Path: rel, Err: err}
+		}
+		if uid >= 0 || gid >= 0 {
+			if err := unix.Fchownat(int(parent.Fd()), name, uid, gid, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+				return &os.PathError{Op: "chown", Path: rel, Err: err}
+			}
+		}
+		if child, err = a.root.open(rel, unix.O_PATH|unix.O_DIRECTORY); err != nil {
+			return err
+		}
+		parent.Close()
+		parent = child
+	}
+	return nil
 }
 
 // openExisting opens the destination for reading. O_NOFOLLOW covers the race between the stat check

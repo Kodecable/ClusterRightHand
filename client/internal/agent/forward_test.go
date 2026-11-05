@@ -437,34 +437,26 @@ func waitSummaryWhere(t *testing.T, w *crhsWatch, what string, match func(protoc
 }
 
 // waitExit collects the task's output until its task.exit arrives.
-func waitExit(t *testing.T, w *crhsWatch) (stdout, stderr string, exit protocol.TaskExit) {
+func waitExit(t *testing.T, w *crhsWatch) (output string, exit protocol.TaskExit) {
 	t.Helper()
 	deadline := time.After(20 * time.Second)
 	for {
 		select {
 		case out := <-w.outputs:
-			if out.Stream == protocol.StreamStdout {
-				stdout += string(out.Data)
-			} else {
-				stderr += string(out.Data)
-			}
+			output += string(out.Data)
 		case exit = <-w.exits:
 			// task.exit follows the whole output of the task.
 			for {
 				select {
 				case out := <-w.outputs:
-					if out.Stream == protocol.StreamStdout {
-						stdout += string(out.Data)
-					} else {
-						stderr += string(out.Data)
-					}
+					output += string(out.Data)
 				default:
-					return stdout, stderr, exit
+					return output, exit
 				}
 			}
 		case <-deadline:
 			t.Fatal("timed out waiting for task.exit")
-			return "", "", protocol.TaskExit{}
+			return "", protocol.TaskExit{}
 		}
 	}
 }
@@ -644,15 +636,15 @@ func TestForwardExactExec(t *testing.T) {
 	if err := waitCh(t, replies, "task.start response"); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
-	stdout, stderr, exit := waitExit(t, w)
-	if stdout != "out" || stderr != "oops" {
-		t.Fatalf("stdout %q stderr %q", stdout, stderr)
+	output, exit := waitExit(t, w)
+	if output != "outoops" {
+		t.Fatalf("output %q, want stdout and stderr in write order", output)
 	}
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 3 {
 		t.Fatalf("task.exit = %+v", exit)
 	}
-	if exit.StdoutEnd != 3 || exit.StderrEnd != 4 {
-		t.Fatalf("ends = %d/%d, want 3/4", exit.StdoutEnd, exit.StderrEnd)
+	if exit.OutputEnd != 7 {
+		t.Fatalf("output_end = %d, want 7", exit.OutputEnd)
 	}
 	// The relayed "out" and "oops" have no newline, so the merged output is one line.
 	if exit.OutputLines != 1 {
@@ -660,8 +652,8 @@ func TestForwardExactExec(t *testing.T) {
 	}
 	frames := w.frames.snapshot()
 	accepted := indexOf(frames, "response task.start ok=true")
-	output := indexOf(frames, "event task.output")
-	if accepted < 0 || output < 0 || accepted > output {
+	outputAt := indexOf(frames, "event task.output")
+	if accepted < 0 || outputAt < 0 || accepted > outputAt {
 		t.Fatalf("task.output did not follow the accepted response: %v", frames)
 	}
 }
@@ -709,7 +701,7 @@ func TestForwardFileWrite(t *testing.T) {
 	if err := waitCh(t, replies, "task.input response"); err != nil {
 		t.Fatalf("task.input: %v", err)
 	}
-	_, _, exit := waitExit(t, w)
+	_, exit := waitExit(t, w)
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
 	}
@@ -762,9 +754,9 @@ func TestForwardAuthorizationOnlyUserSigned(t *testing.T) {
 	if err := waitCh(t, replies, "the user-signed task"); err != nil {
 		t.Fatalf("user-signed task.start: %v", err)
 	}
-	stdout, _, exit := waitExit(t, w)
-	if stdout != "owner approved\n" || exit.Outcome.Code != 0 {
-		t.Fatalf("stdout %q, exit %+v", stdout, exit)
+	output, exit := waitExit(t, w)
+	if output != "owner approved\n" || exit.Outcome.Code != 0 {
+		t.Fatalf("output %q, exit %+v", output, exit)
 	}
 }
 
@@ -916,9 +908,9 @@ func TestForwardLocalApproval(t *testing.T) {
 	if err := waitCh(t, replies, "task.start response"); err != nil {
 		t.Fatalf("task.start after approval: %v", err)
 	}
-	stdout, _, exit := waitExit(t, w)
-	if stdout != "approved locally\n" {
-		t.Fatalf("stdout = %q", stdout)
+	output, exit := waitExit(t, w)
+	if output != "approved locally\n" {
+		t.Fatalf("output = %q", output)
 	}
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
@@ -947,9 +939,9 @@ func TestForwardHelperLost(t *testing.T) {
 	}
 	env.stop()
 
-	stdout, _, exit := waitExit(t, w)
-	if stdout != "" {
-		t.Fatalf("stdout = %q, want none", stdout)
+	output, exit := waitExit(t, w)
+	if output != "" {
+		t.Fatalf("output = %q, want none", output)
 	}
 	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "helper_lost" {
 		t.Fatalf("task.exit = %+v, want helper_lost", exit)
@@ -1001,7 +993,7 @@ func TestForwardCancelAndQuery(t *testing.T) {
 	if err := waitCh(t, replies, "task.cancel response"); err != nil {
 		t.Fatalf("task.cancel: %v", err)
 	}
-	_, _, exit := waitExit(t, w)
+	_, exit := waitExit(t, w)
 	if !exit.Cancelled || exit.Outcome.Kind != protocol.OutcomeSignal || exit.Outcome.Signal != "TERM" {
 		t.Fatalf("task.exit = %+v, want a cancelled task", exit)
 	}
@@ -1030,9 +1022,9 @@ func TestForwardNonPrivilegedUnaffected(t *testing.T) {
 	if !strings.Contains(remote.Message, "not reachable") {
 		t.Fatalf("message = %q", remote.Message)
 	}
-	stdout, _, exit := waitExit(t, w)
-	if stdout != "plain" || exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
-		t.Fatalf("stdout %q, exit %+v", stdout, exit)
+	output, exit := waitExit(t, w)
+	if output != "plain" || exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
+		t.Fatalf("output %q, exit %+v", output, exit)
 	}
 }
 
@@ -1311,7 +1303,7 @@ func TestForwardRequestTimeout(t *testing.T) {
 	}
 
 	// The outcome is unknowable here, so the task ends the way a lost helper does.
-	_, _, exit := waitExit(t, w)
+	_, exit := waitExit(t, w)
 	if exit.TaskID != "fwd-timeout-1" {
 		t.Fatalf("task.exit = %+v", exit)
 	}

@@ -3640,17 +3640,9 @@ msgstr "Status only"
 msgid "Status only."
 msgstr "Status only."
 
-#: src/components/task-result.tsx
-msgid "stderr"
-msgstr "stderr"
-
 #: src/components/task-form-fields.tsx
 msgid "Stdin (optional)"
 msgstr "Stdin (optional)"
-
-#: src/components/task-result.tsx
-msgid "stdout"
-msgstr "stdout"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Steps"

@@ -327,7 +327,7 @@ func TestPrivilegedExecEnvironment(t *testing.T) {
 		t.Fatalf("res %+v", res)
 	}
 	want := PrivilegedPath + "|y|/"
-	if got := readAll(t, o, stdout, 0); got != want {
+	if got := readAll(t, o, 0); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 
@@ -340,7 +340,7 @@ func TestPrivilegedExecEnvironment(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("res %+v", res)
 	}
-	if got := readAll(t, o, stdout, 0); got != PrivilegedPath+"\n" {
+	if got := readAll(t, o, 0); got != PrivilegedPath+"\n" {
 		t.Fatalf("printenv PATH = %q", got)
 	}
 
@@ -401,6 +401,48 @@ func fileModeBits(t *testing.T, path string) string {
 // TestFileWriteSpecialModes covers the mode of a file.write: setuid, setgid and sticky are kept,
 // both when the request names them and when an existing file's mode is reused
 // (doc/privilege.md 方法与目标).
+func TestPrivilegedFileWriteCreateParentDirs(t *testing.T) {
+	dir := privateDir(t)
+	p := filepath.Join(dir, "a", "b", "f")
+	s := writeSpec(p, "hello")
+	s.CreateParentDirs = true
+	if _, err := runPrivileged(t, s, strings.NewReader("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if readFileStr(t, p) != "hello" {
+		t.Fatal("content")
+	}
+	for _, d := range []string{"a", filepath.Join("a", "b")} {
+		fi, err := os.Stat(filepath.Join(dir, d))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o755 {
+			t.Fatalf("%s mode = %v, want 0755 before the umask", d, fi.Mode())
+		}
+	}
+
+	// Without create_parent_dirs a missing parent is still not_found.
+	s = writeSpec(filepath.Join(dir, "x", "y", "f"), "x")
+	_, err := runPrivileged(t, s, strings.NewReader("x"))
+	wantCode(t, err, "not_found")
+}
+
+func TestPrivilegedFileWriteCreateParentDirsRefusesSymlink(t *testing.T) {
+	dir := privateDir(t)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	s := writeSpec(filepath.Join(dir, "link", "a", "f"), "x")
+	s.CreateParentDirs = true
+	_, err := runPrivileged(t, s, strings.NewReader("x"))
+	wantCode(t, err, "symlink_not_allowed")
+	if _, err := os.Stat(filepath.Join(outside, "a")); !os.IsNotExist(err) {
+		t.Fatal("created a directory outside the resolved path")
+	}
+}
+
 func TestFileWriteSpecialModes(t *testing.T) {
 	test := func(t *testing.T, run func(t *testing.T, spec *protocol.FileWriteSpec, input io.Reader) error) {
 		dir := privateDir(t)

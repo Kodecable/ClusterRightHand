@@ -193,8 +193,7 @@ const EXEC_SHELL: TaskStart = {
 const TASK_STATUS_RUNNING: TaskStatus = {
 	taskId: "t-run",
 	state: "running",
-	stdoutEnd: 10,
-	stderrEnd: 2,
+	outputEnd: 10,
 };
 
 function taskStartWithSpec(taskId: string, spec: TaskStart["spec"], output: TaskStart["output"]): TaskStart {
@@ -233,10 +232,10 @@ const WRITE_RESULT: TaskResult = { kind: "file.write", bytes: 3, created: true }
 const EDIT_RESULT: TaskResult = { kind: "file.edit", replacements: 2 };
 
 /**
- * The task.exit frame of a task that ran cleanly, kept `stdoutEnd` bytes, counted `outputLines`
- * lines of merged output and reported `result`.
+ * The task.exit frame of a task that ran cleanly, kept `outputEnd` bytes, counted `outputLines`
+ * lines of output and reported `result`.
  */
-function exitFrame(taskId: string, result: TaskResult, stdoutEnd = 0, outputLines = 0): Frame {
+function exitFrame(taskId: string, result: TaskResult, outputEnd = 0, outputLines = 0): Frame {
 	return {
 		kind: "event",
 		name: "task.exit",
@@ -245,8 +244,7 @@ function exitFrame(taskId: string, result: TaskResult, stdoutEnd = 0, outputLine
 			outcome: { kind: "code", value: 0 },
 			timedOut: false,
 			cancelled: false,
-			stdoutEnd,
-			stderrEnd: 0,
+			outputEnd,
 			outputFile: "",
 			outputLines,
 			result,
@@ -318,7 +316,7 @@ export function buildFixture(): CrhFramesFixture {
 	// Commands: one request and one success response per command.
 	addFrame(
 		"request.hello",
-		'request id=1 cmd=hello body=[tasks=[[task_id="t-run", state="running", stdout_end=10, stderr_end=2]], task_kinds=["exec","file.read"], privileged_mode="disabled"]',
+		'request id=1 cmd=hello body=[tasks=[[task_id="t-run", state="running", output_end=10]], task_kinds=["exec","file.read"], privileged_mode="disabled"]',
 		{
 			kind: "request",
 			id: 1,
@@ -326,17 +324,13 @@ export function buildFixture(): CrhFramesFixture {
 			body: { tasks: [TASK_STATUS_RUNNING], taskKinds: ["exec", "file.read"], privilegedMode: "disabled" },
 		},
 	);
-	addFrame(
-		"response.hello",
-		'response id=1 cmd=hello ok=true body=[acks=[[task_id="t-run", stdout_offset=10, stderr_offset=2]]]',
-		{
-			kind: "response",
-			id: 1,
-			cmd: "hello",
-			ok: true,
-			body: { acks: [{ taskId: "t-run", stdoutOffset: 10, stderrOffset: 2 }] },
-		},
-	);
+	addFrame("response.hello", 'response id=1 cmd=hello ok=true body=[acks=[[task_id="t-run", offset=10]]]', {
+		kind: "response",
+		id: 1,
+		cmd: "hello",
+		ok: true,
+		body: { acks: [{ taskId: "t-run", offset: 10 }] },
+	});
 	addFrame("request.ping", "request id=2 cmd=ping body=[seq=42]", {
 		kind: "request",
 		id: 2,
@@ -379,7 +373,7 @@ export function buildFixture(): CrhFramesFixture {
 	);
 	addFrame(
 		"request.task.start.file.write",
-		'request id=6 cmd=task.start body=[task_id="t-write", attempt=1, spec=["file.write", [path="/tmp/x", content=[size=3, sha256=32 bytes of 0x22], overwrite=false, mode=0, owner="", group=""]], privileged=false, authorizations=[], timeout_ms=0, kill_grace_ms=0, output=["status", []]]',
+		'request id=6 cmd=task.start body=[task_id="t-write", attempt=1, spec=["file.write", [path="/tmp/x", content=[size=3, sha256=32 bytes of 0x22], overwrite=false, mode=0, owner="", group="", create_parent_dirs=false]], privileged=false, authorizations=[], timeout_ms=0, kill_grace_ms=0, output=["status", []]]',
 		{
 			kind: "request",
 			id: 6,
@@ -394,6 +388,7 @@ export function buildFixture(): CrhFramesFixture {
 					mode: 0,
 					owner: "",
 					group: "",
+					createParentDirs: false,
 				},
 				{ kind: "status" },
 			),
@@ -497,13 +492,13 @@ export function buildFixture(): CrhFramesFixture {
 	});
 	addFrame(
 		"response.task.query",
-		'response id=12 cmd=task.query ok=true body=[task_id="t-exec-argv", state="exited", stdout_end=6, stderr_end=0]',
+		'response id=12 cmd=task.query ok=true body=[task_id="t-exec-argv", state="exited", output_end=6]',
 		{
 			kind: "response",
 			id: 12,
 			cmd: "task.query",
 			ok: true,
-			body: { taskId: "t-exec-argv", state: "exited", stdoutEnd: 6, stderrEnd: 0 },
+			body: { taskId: "t-exec-argv", state: "exited", outputEnd: 6 },
 		},
 	);
 	addFrame("response.error", 'response id=11 cmd=task.cancel ok=false body=[code="internal_error", message="boom"]', {
@@ -552,18 +547,14 @@ export function buildFixture(): CrhFramesFixture {
 	});
 
 	// Events.
-	addFrame(
-		"event.task.output",
-		'event task.output body=[task_id="t-exec-argv", stream="stdout", offset=0, data=h\'68656c6c6f0a\']',
-		{
-			kind: "event",
-			name: "task.output",
-			body: { taskId: "t-exec-argv", stream: "stdout", offset: 0, data: Buffer.from("hello\n") },
-		},
-	);
+	addFrame("event.task.output", "event task.output body=[task_id=\"t-exec-argv\", offset=0, data=h'68656c6c6f0a']", {
+		kind: "event",
+		name: "task.output",
+		body: { taskId: "t-exec-argv", offset: 0, data: Buffer.from("hello\n") },
+	});
 	addFrame(
 		"event.task.exit.code",
-		'event task.exit body=[task_id="t-exec-argv", outcome=["code", 0], timed_out=false, cancelled=false, stdout_end=6, stderr_end=0, output_file="", output_lines=1, result=null]',
+		'event task.exit body=[task_id="t-exec-argv", outcome=["code", 0], timed_out=false, cancelled=false, output_end=6, output_file="", output_lines=1, result=null]',
 		{
 			kind: "event",
 			name: "task.exit",
@@ -572,8 +563,7 @@ export function buildFixture(): CrhFramesFixture {
 				outcome: { kind: "code", value: 0 },
 				timedOut: false,
 				cancelled: false,
-				stdoutEnd: 6,
-				stderrEnd: 0,
+				outputEnd: 6,
 				outputFile: "",
 				outputLines: 1,
 				result: null,
@@ -582,7 +572,7 @@ export function buildFixture(): CrhFramesFixture {
 	);
 	addFrame(
 		"event.task.exit.signal",
-		'event task.exit body=[task_id="t-exec-shell", outcome=["signal", "TERM"], timed_out=false, cancelled=true, stdout_end=3, stderr_end=0, output_file="", output_lines=0, result=null]',
+		'event task.exit body=[task_id="t-exec-shell", outcome=["signal", "TERM"], timed_out=false, cancelled=true, output_end=3, output_file="", output_lines=0, result=null]',
 		{
 			kind: "event",
 			name: "task.exit",
@@ -591,8 +581,7 @@ export function buildFixture(): CrhFramesFixture {
 				outcome: { kind: "signal", value: "TERM" },
 				timedOut: false,
 				cancelled: true,
-				stdoutEnd: 3,
-				stderrEnd: 0,
+				outputEnd: 3,
 				outputFile: "",
 				outputLines: 0,
 				result: null,
@@ -601,7 +590,7 @@ export function buildFixture(): CrhFramesFixture {
 	);
 	addFrame(
 		"event.task.exit.error",
-		'event task.exit body=[task_id="t-edit", outcome=["error", [code="internal_error", message="failed"]], timed_out=true, cancelled=false, stdout_end=0, stderr_end=0, output_file="/tmp/out", output_lines=0, result=null]',
+		'event task.exit body=[task_id="t-edit", outcome=["error", [code="internal_error", message="failed"]], timed_out=true, cancelled=false, output_end=0, output_file="/tmp/out", output_lines=0, result=null]',
 		{
 			kind: "event",
 			name: "task.exit",
@@ -610,8 +599,7 @@ export function buildFixture(): CrhFramesFixture {
 				outcome: { kind: "error", code: "internal_error", message: "failed" },
 				timedOut: true,
 				cancelled: false,
-				stdoutEnd: 0,
-				stderrEnd: 0,
+				outputEnd: 0,
 				outputFile: "/tmp/out",
 				outputLines: 0,
 				result: null,
@@ -620,7 +608,7 @@ export function buildFixture(): CrhFramesFixture {
 	);
 	addFrame(
 		"event.task.exit.error.bom",
-		'event task.exit body=[task_id="t-bom", outcome=["error", [code="io_error", message="\\uFEFFbom"]], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file="", output_lines=0, result=null]',
+		'event task.exit body=[task_id="t-bom", outcome=["error", [code="io_error", message="\\uFEFFbom"]], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, result=null]',
 		{
 			kind: "event",
 			name: "task.exit",
@@ -629,8 +617,7 @@ export function buildFixture(): CrhFramesFixture {
 				outcome: { kind: "error", code: "io_error", message: "\uFEFFbom" },
 				timedOut: false,
 				cancelled: false,
-				stdoutEnd: 0,
-				stderrEnd: 0,
+				outputEnd: 0,
 				outputFile: "",
 				outputLines: 0,
 				result: null,
@@ -641,27 +628,27 @@ export function buildFixture(): CrhFramesFixture {
 	// TaskResult). One frame per kind; the tag is the task kind.
 	addFrame(
 		"event.task.exit.result.file.read",
-		'event task.exit body=[task_id="t-read", outcome=["code", 0], timed_out=false, cancelled=false, stdout_end=8, stderr_end=0, output_file="", output_lines=0, result=["file.read", [from=1, to=2, eof=true, total=3, too_long=false]]]',
+		'event task.exit body=[task_id="t-read", outcome=["code", 0], timed_out=false, cancelled=false, output_end=8, output_file="", output_lines=0, result=["file.read", [from=1, to=2, eof=true, total=3, too_long=false]]]',
 		exitFrame("t-read", READ_RESULT, 8),
 	);
 	addFrame(
 		"event.task.exit.result.file.stat",
-		'event task.exit body=[task_id="t-stat", outcome=["code", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file="", output_lines=0, result=["file.stat", [path="/tmp/x", type="file", size=7, mode="0644", uid=1000, gid=1000, owner="alice", group="alice", mtime="2026-01-01T00:00:00Z", link_target=null]]]',
+		'event task.exit body=[task_id="t-stat", outcome=["code", 0], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, result=["file.stat", [path="/tmp/x", type="file", size=7, mode="0644", uid=1000, gid=1000, owner="alice", group="alice", mtime="2026-01-01T00:00:00Z", link_target=null]]]',
 		exitFrame("t-stat", STAT_RESULT),
 	);
 	addFrame(
 		"event.task.exit.result.file.list",
-		'event task.exit body=[task_id="t-list", outcome=["code", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file="", output_lines=0, result=["file.list", [entries=[[name="f.txt", type="file", size=7, mode="0644", mtime="2026-01-01T00:00:00Z"]], truncated=false]]]',
+		'event task.exit body=[task_id="t-list", outcome=["code", 0], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, result=["file.list", [entries=[[name="f.txt", type="file", size=7, mode="0644", mtime="2026-01-01T00:00:00Z"]], truncated=false]]]',
 		exitFrame("t-list", LIST_RESULT),
 	);
 	addFrame(
 		"event.task.exit.result.file.write",
-		'event task.exit body=[task_id="t-write", outcome=["code", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file="", output_lines=0, result=["file.write", [bytes=3, created=true]]]',
+		'event task.exit body=[task_id="t-write", outcome=["code", 0], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, result=["file.write", [bytes=3, created=true]]]',
 		exitFrame("t-write", WRITE_RESULT),
 	);
 	addFrame(
 		"event.task.exit.result.file.edit",
-		'event task.exit body=[task_id="t-edit-result", outcome=["code", 0], timed_out=false, cancelled=false, stdout_end=0, stderr_end=0, output_file="", output_lines=0, result=["file.edit", [replacements=2]]]',
+		'event task.exit body=[task_id="t-edit-result", outcome=["code", 0], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, result=["file.edit", [replacements=2]]]',
 		exitFrame("t-edit-result", EDIT_RESULT),
 	);
 	addFrame("event.facts", `event facts body=${FACTS_TEXT}`, { kind: "event", name: "facts", body: FACTS });
@@ -722,15 +709,11 @@ export function buildFixture(): CrhFramesFixture {
 		name: "node.status",
 		body: { nodeId: "node-1", state: "disabled", message: "" },
 	});
-	addFrame(
-		"event.task.output.ack",
-		'event task.output.ack body=[task_id="t-exec-argv", stdout_offset=6, stderr_offset=0]',
-		{
-			kind: "event",
-			name: "task.output.ack",
-			body: { taskId: "t-exec-argv", stdoutOffset: 6, stderrOffset: 0 },
-		},
-	);
+	addFrame("event.task.output.ack", 'event task.output.ack body=[task_id="t-exec-argv", offset=6]', {
+		kind: "event",
+		name: "task.output.ack",
+		body: { taskId: "t-exec-argv", offset: 6 },
+	});
 	addFrame("event.task.exit.ack", 'event task.exit.ack body=[task_id="t-exec-argv"]', {
 		kind: "event",
 		name: "task.exit.ack",

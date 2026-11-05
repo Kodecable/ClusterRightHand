@@ -480,14 +480,12 @@ func (c *forwardClient) waitExit(timeout time.Duration) protocol.TaskExit {
 	}
 }
 
-func (c *forwardClient) stdout() string {
+func (c *forwardClient) output() string {
 	var buf bytes.Buffer
 	for {
 		select {
 		case out := <-c.outputs:
-			if out.Stream == protocol.StreamStdout {
-				buf.Write(out.Data)
-			}
+			buf.Write(out.Data)
 		default:
 			return buf.String()
 		}

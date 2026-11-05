@@ -135,7 +135,7 @@ func TestForcedCwdUnlessExact(t *testing.T) {
 	if exit := forward.waitExit(15 * time.Second); exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
 	}
-	if got := forward.stdout(); got != "/\n" {
+	if got := forward.output(); got != "/\n" {
 		t.Fatalf("prefix task cwd output = %q, want %q", got, "/\n")
 	}
 
@@ -150,7 +150,7 @@ func TestForcedCwdUnlessExact(t *testing.T) {
 	if exit := forward.waitExit(15 * time.Second); exit.Outcome.Code != 0 {
 		t.Fatalf("exact task.exit = %+v", exit)
 	}
-	if got := forward.stdout(); got != env.paths.Dir+"\n" {
+	if got := forward.output(); got != env.paths.Dir+"\n" {
 		t.Fatalf("exact task cwd output = %q, want %q", got, env.paths.Dir+"\n")
 	}
 }
@@ -180,7 +180,7 @@ func TestEnvAllowRefused(t *testing.T) {
 	if exit := forward.waitExit(15 * time.Second); exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
 	}
-	if got := forward.stdout(); got != "visible" {
+	if got := forward.output(); got != "visible" {
 		t.Fatalf("stdout = %q", got)
 	}
 }

@@ -31,7 +31,7 @@ const TASK_START: TaskStart = {
 	output: { kind: "text" },
 };
 
-const TASK_STATUS: TaskStatus = { taskId: "t-1", state: "unknown", stdoutEnd: 0, stderrEnd: 0 };
+const TASK_STATUS: TaskStatus = { taskId: "t-1", state: "unknown", outputEnd: 0 };
 
 interface Pair {
 	a: Peer;
@@ -390,7 +390,7 @@ describe("Peer", () => {
 	it("answers internal_error when a success response exceeds MAX_FRAME_BYTES", async () => {
 		const { a, b, fromB } = makePair();
 		const afterCalls: string[] = [];
-		const acks = Array.from({ length: 13000 }, () => ({ taskId: "t", stdoutOffset: 0, stderrOffset: 0 }));
+		const acks = Array.from({ length: 20000 }, () => ({ taskId: "t", offset: 0 }));
 		b.onRequest("hello", () => afterResponse({ acks }, () => afterCalls.push("after")));
 		const pending = a.request("hello", { tasks: [], taskKinds: [], privilegedMode: "disabled" });
 		expect(fromB.at(-1)).toMatchObject({
@@ -422,8 +422,7 @@ describe("Peer", () => {
 					outcome: { kind: "code", value: 0 },
 					timedOut: false,
 					cancelled: false,
-					stdoutEnd: 0,
-					stderrEnd: 0,
+					outputEnd: 0,
 					outputFile: "",
 					outputLines: 0,
 					result: null,

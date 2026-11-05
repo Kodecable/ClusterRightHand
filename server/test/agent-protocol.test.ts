@@ -381,7 +381,6 @@ describe("agent wire protocol", () => {
 
 		crha.peer.emit("task.output", {
 			taskId: created.id,
-			stream: "stdout",
 			offset: 0,
 			data: Buffer.from("out"),
 		});
@@ -390,8 +389,7 @@ describe("agent wire protocol", () => {
 			outcome: { kind: "code", value: 0 },
 			timedOut: false,
 			cancelled: false,
-			stdoutEnd: 3,
-			stderrEnd: 0,
+			outputEnd: 3,
 			outputFile: "",
 			outputLines: 1,
 			result: null,
@@ -401,12 +399,12 @@ describe("agent wire protocol", () => {
 			return t?.state === "exited" ? t : undefined;
 		});
 		expect(view.exitCode).toBe(0);
-		expect(view.stdoutHead).toBe("out");
+		expect(view.outputHead).toBe("out");
 		await waitFor("exit ack", () => acks.length === 1);
 		expect(acks[0]).toEqual({ taskId: created.id });
 	});
 
-	it("keeps one merged tail in arrival order and stores the reported total line count", async () => {
+	it("keeps the tail of the single output stream and stores the reported total line count", async () => {
 		const { node, crha } = await connectActive("merged-1");
 		const starts: TaskStart[] = [];
 		crha.peer.onRequest("task.start", (start) => {
@@ -423,16 +421,15 @@ describe("agent wire protocol", () => {
 		});
 		await waitFor("task.start", () => starts.length === 1);
 
-		crha.peer.emit("task.output", { taskId: created.id, stream: "stdout", offset: 0, data: Buffer.from("one\n") });
-		crha.peer.emit("task.output", { taskId: created.id, stream: "stderr", offset: 0, data: Buffer.from("two\n") });
-		crha.peer.emit("task.output", { taskId: created.id, stream: "stdout", offset: 4, data: Buffer.from("three\n") });
+		crha.peer.emit("task.output", { taskId: created.id, offset: 0, data: Buffer.from("one\n") });
+		crha.peer.emit("task.output", { taskId: created.id, offset: 4, data: Buffer.from("two\n") });
+		crha.peer.emit("task.output", { taskId: created.id, offset: 8, data: Buffer.from("three\n") });
 		crha.peer.emit("task.exit", {
 			taskId: created.id,
 			outcome: { kind: "code", value: 0 },
 			timedOut: false,
 			cancelled: false,
-			stdoutEnd: 10,
-			stderrEnd: 4,
+			outputEnd: 14,
 			outputFile: "",
 			outputLines: 3,
 			result: null,
@@ -441,10 +438,9 @@ describe("agent wire protocol", () => {
 			const t = await cluster.getTask(created.id);
 			return t?.state === "exited" ? t : undefined;
 		});
-		// The per-stream head/tail columns are unchanged, for the WebUI task page.
-		expect(view.stdoutHead).toBe("one\nthree\n");
-		expect(view.stderrHead).toBe("two\n");
-		// The merged tail interleaves the streams as they arrived and honours the task's line cap.
+		// The single output stream is stored in its head and tail columns.
+		expect(view.outputHead).toBe("one\ntwo\nthree\n");
+		// The output tail honours the task's line cap.
 		expect(view).toMatchObject({
 			outputTail: "two\nthree\n",
 			outputTailLines: 2,
@@ -482,8 +478,7 @@ describe("agent wire protocol", () => {
 			outcome: { kind: "code", value: 0 },
 			timedOut: false,
 			cancelled: false,
-			stdoutEnd: 1234,
-			stderrEnd: 56,
+			outputEnd: 1234,
 			outputFile: "/var/lib/crha/output/t.log",
 			outputLines: 7,
 			result: null,
@@ -495,12 +490,9 @@ describe("agent wire protocol", () => {
 		expect(view).toMatchObject({
 			outputMode: "status",
 			exitCode: 0,
-			stdoutBytes: 1234,
-			stderrBytes: 56,
-			stdoutHead: "",
-			stdoutTail: "",
-			stderrHead: "",
-			stderrTail: "",
+			outputBytes: 1234,
+			outputHead: "",
+			outputTail: "",
 			outputFile: "/var/lib/crha/output/t.log",
 			result: null,
 		});
@@ -531,14 +523,13 @@ describe("agent wire protocol", () => {
 		const data = Buffer.alloc(BATCH_NODE_BYTES + 2 * 1024, 0x61);
 		for (const peer of peers) {
 			const taskId = taskIdByNode.get(peer.node.id) as string;
-			peer.crha.peer.emit("task.output", { taskId, stream: "stdout", offset: 0, data });
+			peer.crha.peer.emit("task.output", { taskId, offset: 0, data });
 			peer.crha.peer.emit("task.exit", {
 				taskId,
 				outcome: { kind: "code", value: 0 },
 				timedOut: false,
 				cancelled: false,
-				stdoutEnd: data.length,
-				stderrEnd: 0,
+				outputEnd: data.length,
 				outputFile: "/tmp/text.log",
 				outputLines: 1,
 				result: null,
@@ -549,7 +540,7 @@ describe("agent wire protocol", () => {
 		expect(view.state).toBe("finished");
 		expect(view.outputMode).toBe("text");
 		const byNode = new Map(view.tasks.map((t) => [t.nodeId, t]));
-		const tails = peers.map((peer) => byNode.get(peer.node.id)?.stdoutTail.length ?? 0);
+		const tails = peers.map((peer) => byNode.get(peer.node.id)?.outputTail.length ?? 0);
 		// Different sockets arrive in no fixed order, but grants are handed out in arrival order: six nodes
 		// get 8 KiB, the next the remaining 2 KiB of the group budget, and the last one nothing.
 		expect([...tails].sort((a, b) => a - b)).toEqual([0, 2048, 8192, 8192, 8192, 8192, 8192, 8192]);
@@ -557,11 +548,8 @@ describe("agent wire protocol", () => {
 		for (const peer of peers) {
 			expect(byNode.get(peer.node.id)).toMatchObject({
 				outputMode: "text",
-				stdoutBytes: data.length,
-				stderrBytes: 0,
-				stdoutHead: "",
-				stderrHead: "",
-				stderrTail: "",
+				outputBytes: data.length,
+				outputHead: "",
 				outputFile: "/tmp/text.log",
 				result: null,
 			});
@@ -586,14 +574,13 @@ describe("agent wire protocol", () => {
 		const data = Buffer.from("first\nsecond\n");
 		for (const peer of peers) {
 			const taskId = peer.crha.starts[0]?.taskId as string;
-			peer.crha.peer.emit("task.output", { taskId, stream: "stdout", offset: 0, data });
+			peer.crha.peer.emit("task.output", { taskId, offset: 0, data });
 			peer.crha.peer.emit("task.exit", {
 				taskId,
 				outcome: { kind: "code", value: 0 },
 				timedOut: false,
 				cancelled: false,
-				stdoutEnd: data.length,
-				stderrEnd: 0,
+				outputEnd: data.length,
 				outputFile: "/tmp/caps.log",
 				outputLines: 2,
 				result: null,
@@ -607,7 +594,7 @@ describe("agent wire protocol", () => {
 			expect(task).toMatchObject({
 				maxLines: 1,
 				maxBytes: 128,
-				stdoutTail: "second\n",
+				outputTail: "second\n",
 				outputLines: 2,
 			});
 		}
@@ -646,14 +633,13 @@ describe("agent wire protocol", () => {
 		const data = Buffer.alloc(BATCH_NODE_BYTES, 0x61);
 		for (let i = 0; i < peers.length; i++) {
 			const next = await waitFor(`task.start ${i + 1}`, () => pending.shift());
-			next.peer.crha.peer.emit("task.output", { taskId: next.taskId, stream: "stdout", offset: 0, data });
+			next.peer.crha.peer.emit("task.output", { taskId: next.taskId, offset: 0, data });
 			next.peer.crha.peer.emit("task.exit", {
 				taskId: next.taskId,
 				outcome: { kind: "code", value: 0 },
 				timedOut: false,
 				cancelled: false,
-				stdoutEnd: data.length,
-				stderrEnd: 0,
+				outputEnd: data.length,
 				outputFile: "/tmp/text.log",
 				outputLines: 1,
 				result: null,
@@ -663,7 +649,7 @@ describe("agent wire protocol", () => {
 		if (!view) throw new Error("group missing");
 		expect(view.state).toBe("finished");
 		const byNode = new Map(view.tasks.map((t) => [t.nodeId, t]));
-		const tails = nodeIds.map((nodeId) => byNode.get(nodeId)?.stdoutTail.length ?? -1);
+		const tails = nodeIds.map((nodeId) => byNode.get(nodeId)?.outputTail.length ?? -1);
 		// A fresh budget per node (the old behaviour) would keep 8 KiB for each of the eight. One budget
 		// for the whole group gives six nodes 8 KiB, the seventh the remaining 2 KiB, the eighth nothing.
 		expect(tails).toEqual([
@@ -706,13 +692,12 @@ describe("agent wire protocol", () => {
 			outcome: { kind: "code" as const, value: 0 },
 			timedOut: false,
 			cancelled: false,
-			stdoutEnd: data.length,
-			stderrEnd: 0,
+			outputEnd: data.length,
 			outputFile: "/tmp/text.log",
 			outputLines: 1,
 			result: null,
 		};
-		first.crha.peer.emit("task.output", { taskId: firstTaskId, stream: "stdout", offset: 0, data });
+		first.crha.peer.emit("task.output", { taskId: firstTaskId, offset: 0, data });
 		first.crha.peer.emit("task.exit", exit);
 		await waitFor("first task recorded", async () => (await cluster.getTask(firstTaskId))?.state === "exited");
 
@@ -727,11 +712,11 @@ describe("agent wire protocol", () => {
 		});
 		expect(
 			await reconnected.peer.request("hello", {
-				tasks: [{ taskId: firstTaskId, state: "exited", stdoutEnd: data.length, stderrEnd: 0 }],
+				tasks: [{ taskId: firstTaskId, state: "exited", outputEnd: data.length }],
 				taskKinds: [],
 				privilegedMode: "",
 			}),
-		).toEqual({ acks: [{ taskId: firstTaskId, stdoutOffset: data.length, stderrOffset: 0 }] });
+		).toEqual({ acks: [{ taskId: firstTaskId, offset: data.length }] });
 		// It has nothing to resend: sending only task.exit is enough and must not close the connection.
 		reconnected.peer.emit("task.exit", exit);
 		await waitFor("exit ack after reconnect", () => exitAcks.length === 1);
@@ -741,14 +726,13 @@ describe("agent wire protocol", () => {
 
 		for (const peer of peers.slice(1)) {
 			const taskId = taskIdByNode.get(peer.node.id) as string;
-			peer.crha.peer.emit("task.output", { taskId, stream: "stdout", offset: 0, data });
+			peer.crha.peer.emit("task.output", { taskId, offset: 0, data });
 			peer.crha.peer.emit("task.exit", {
 				taskId,
 				outcome: { kind: "code", value: 0 },
 				timedOut: false,
 				cancelled: false,
-				stdoutEnd: data.length,
-				stderrEnd: 0,
+				outputEnd: data.length,
 				outputFile: "/tmp/text.log",
 				outputLines: 1,
 				result: null,
@@ -758,7 +742,7 @@ describe("agent wire protocol", () => {
 		if (!view) throw new Error("group missing");
 		expect(view.state).toBe("finished");
 		const byNode = new Map(view.tasks.map((t) => [t.nodeId, t]));
-		const tails = peers.map((peer) => byNode.get(peer.node.id)?.stdoutTail.length ?? -1);
+		const tails = peers.map((peer) => byNode.get(peer.node.id)?.outputTail.length ?? -1);
 		// The reconnected node's 8 KiB was granted once and does not draw from the budget again: the other
 		// seven nodes share the remaining 43008 bytes, so the group still saves its full 51200 bytes.
 		expect([...tails].sort((a, b) => a - b)).toEqual([0, 2048, 8192, 8192, 8192, 8192, 8192, 8192]);
@@ -783,8 +767,7 @@ describe("agent wire protocol", () => {
 		second.peer.onRequest("task.query", (query) => ({
 			taskId: query.taskId,
 			state: "unknown",
-			stdoutEnd: 0,
-			stderrEnd: 0,
+			outputEnd: 0,
 		}));
 		expect(await second.peer.request("hello", HELLO)).toEqual({ acks: [] });
 		const unknown = await waitFor("unknown", async () => {
@@ -804,19 +787,18 @@ describe("agent wire protocol", () => {
 		});
 		expect(
 			await third.peer.request("hello", {
-				tasks: [{ taskId, state: "unknown", stdoutEnd: 0, stderrEnd: 0 }],
+				tasks: [{ taskId, state: "unknown", outputEnd: 0 }],
 				taskKinds: [],
 				privilegedMode: "",
 			}),
-		).toEqual({ acks: [{ taskId, stdoutOffset: 0, stderrOffset: 0 }] });
-		third.peer.emit("task.output", { taskId, stream: "stdout", offset: 0, data: Buffer.from("late") });
+		).toEqual({ acks: [{ taskId, offset: 0 }] });
+		third.peer.emit("task.output", { taskId, offset: 0, data: Buffer.from("late") });
 		third.peer.emit("task.exit", {
 			taskId,
 			outcome: { kind: "code", value: 0 },
 			timedOut: false,
 			cancelled: false,
-			stdoutEnd: 4,
-			stderrEnd: 0,
+			outputEnd: 4,
 			outputFile: "",
 			outputLines: 1,
 			result: null,
@@ -832,8 +814,7 @@ describe("agent wire protocol", () => {
 		expect(late.state).toBe("unknown");
 		expect(JSON.parse(late.late_result as string)).toMatchObject({
 			exit_code: 0,
-			stdout_bytes: 4,
-			stderr_bytes: 0,
+			output_bytes: 4,
 		});
 		await waitFor("exit ack", () => acks.length === 1);
 		expect(acks[0]).toEqual({ taskId });
@@ -877,8 +858,7 @@ describe("agent wire protocol", () => {
 			outcome: { kind: "code", value: 0 },
 			timedOut: false,
 			cancelled: false,
-			stdoutEnd: 0,
-			stderrEnd: 0,
+			outputEnd: 0,
 			outputFile: "",
 			outputLines: 0,
 			result: null,
@@ -894,8 +874,7 @@ describe("agent wire protocol", () => {
 		expect(late.state).toBe("unknown");
 		expect(JSON.parse(late.late_result as string)).toMatchObject({
 			exit_code: 0,
-			stdout_bytes: 0,
-			stderr_bytes: 0,
+			output_bytes: 0,
 		});
 		await waitFor("exit ack without live", () => acks.length === 1);
 		expect(acks[0]).toEqual({ taskId });
@@ -1012,11 +991,11 @@ describe("agent wire protocol", () => {
 			const taskId = created.id;
 			expect(
 				await second.peer.request("hello", {
-					tasks: [{ taskId, state: "running", stdoutEnd: 0, stderrEnd: 0 }],
+					tasks: [{ taskId, state: "running", outputEnd: 0 }],
 					taskKinds: [],
 					privilegedMode: "",
 				}),
-			).toEqual({ acks: [{ taskId, stdoutOffset: 0, stderrOffset: 0 }] });
+			).toEqual({ acks: [{ taskId, offset: 0 }] });
 			const running = await waitFor("running after hello", async () => {
 				const t = await cluster.getTask(taskId);
 				return t?.state === "running" ? t : undefined;
@@ -1025,15 +1004,14 @@ describe("agent wire protocol", () => {
 			const accepted = await db.selectFrom("tasks").select("accepted_at").where("id", "=", taskId).executeTakeFirst();
 			expect(accepted?.accepted_at).not.toBeNull();
 
-			second.peer.emit("task.output", { taskId, stream: "stdout", offset: 0, data: Buffer.from("late") });
+			second.peer.emit("task.output", { taskId, offset: 0, data: Buffer.from("late") });
 			second.peer.emit("task.exit", {
 				taskId,
 				outcome: { kind: "code", value: 0 },
 				result: null,
 				timedOut: false,
 				cancelled: false,
-				stdoutEnd: 4,
-				stderrEnd: 0,
+				outputEnd: 4,
 				outputFile: "",
 				outputLines: 1,
 			});
@@ -1042,7 +1020,7 @@ describe("agent wire protocol", () => {
 				return t?.state === "exited" ? t : undefined;
 			});
 			expect(view.exitCode).toBe(0);
-			expect(view.stdoutHead).toBe("late");
+			expect(view.outputHead).toBe("late");
 		});
 	});
 

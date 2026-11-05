@@ -163,12 +163,10 @@ describe("cluster recovery", () => {
 				dispatched_at: now,
 				accepted_at: state === "running" ? now : null,
 				finished_at: null,
-				stdout_bytes: 0,
-				stderr_bytes: 0,
-				stdout_head: null,
-				stdout_tail: null,
-				stderr_head: null,
-				stderr_tail: null,
+				output_bytes: 0,
+				output_head: null,
+				output_tail: null,
+				notice: null,
 				output_file: null,
 				late_result: null,
 				rule_chain: null,
@@ -227,11 +225,11 @@ describe("cluster recovery", () => {
 			// The node comes back and reports the task; hello clears the grace and keeps it running.
 			const crha = await laterAgents.connect(key, handshakeInit());
 			const welcome = await crha.peer.request("hello", {
-				tasks: [{ taskId: id, state: "running", stdoutEnd: 0, stderrEnd: 0 }],
+				tasks: [{ taskId: id, state: "running", outputEnd: 0 }],
 				taskKinds: [],
 				privilegedMode: "",
 			});
-			expect(welcome.acks).toEqual([{ taskId: id, stdoutOffset: 0, stderrOffset: 0 }]);
+			expect(welcome.acks).toEqual([{ taskId: id, offset: 0 }]);
 			// The grace it would have had long passes; the task is still running.
 			await new Promise((resolve) => setTimeout(resolve, 2 * graceMs));
 			expect(await later.getTask(id)).toMatchObject({ state: "running" });
@@ -261,8 +259,8 @@ describe("cluster recovery", () => {
 			key: ReturnType<typeof generateKeyPair>,
 		): Promise<{ crha: FakeCrha; id: string }> => {
 			const { crha, id } = await running(node, key);
-			crha.output(id, "stdout", 0, OUTPUT);
-			await waitFor("output stored", async () => (await view(id)).stdoutBytes === OUTPUT.length);
+			crha.output(id, 0, OUTPUT);
+			await waitFor("output stored", async () => (await view(id)).outputBytes === OUTPUT.length);
 			return { crha, id };
 		};
 
@@ -270,11 +268,11 @@ describe("cluster recovery", () => {
 		const ackOf = async (key: ReturnType<typeof generateKeyPair>, id: string): Promise<number> => {
 			const second = await agents.connect(key, handshakeInit());
 			const welcome = await second.peer.request("hello", {
-				tasks: [{ taskId: id, state: "running", stdoutEnd: 0, stderrEnd: 0 }],
+				tasks: [{ taskId: id, state: "running", outputEnd: 0 }],
 				taskKinds: [],
 				privilegedMode: "",
 			});
-			return welcome.acks[0]?.stdoutOffset ?? -1;
+			return welcome.acks[0]?.offset ?? -1;
 		};
 
 		const expireByDisconnect = async (crha: FakeCrha, id: string) => {

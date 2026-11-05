@@ -21,12 +21,12 @@ const baseTask = (overrides: Partial<TaskView> = {}): TaskView =>
 		cancelled: false,
 		errorCode: null,
 		errorMessage: null,
-		stdoutBytes: 12,
-		stderrBytes: 0,
-		stdoutHead: "hello world\n",
-		stdoutTail: "",
-		stderrHead: "",
-		stderrTail: "",
+		outputBytes: 12,
+		outputHead: "hello world\n",
+		outputTail: "",
+		outputTailLines: 0,
+		outputLines: 1,
+		notice: null,
 		outputFile: null,
 		outputMode: "full",
 		privileged: false,
@@ -37,12 +37,12 @@ const baseTask = (overrides: Partial<TaskView> = {}): TaskView =>
 	}) as TaskView;
 
 describe("TaskResult", () => {
-	test("a clean exit shows the state, exit code and stdout", async () => {
+	test("a clean exit shows the state, exit code and output", async () => {
 		await renderWithRouter(<TaskResult task={baseTask()} />);
 		expect(screen.getByText("Exited")).toBeInTheDocument();
 		expect(screen.getByText("Exit code")).toBeInTheDocument();
 		expect(screen.getByText("0")).toBeInTheDocument();
-		expect(screen.getByLabelText("stdout")).toHaveTextContent("hello world");
+		expect(screen.getByLabelText("output")).toHaveTextContent("hello world");
 	});
 
 	test("a non-zero exit is the command's own failure", async () => {
@@ -109,14 +109,19 @@ describe("TaskResult", () => {
 	test("output head and tail with a gap show the omitted marker", async () => {
 		await renderWithRouter(
 			<TaskResult
-				task={baseTask({ stdoutBytes: 1000, stdoutHead: "start\n", stdoutTail: "end\n", stderrHead: "err\n" })}
+				task={baseTask({
+					outputBytes: 1000,
+					outputHead: "start\n",
+					outputTail: "end\n",
+					notice: "crh: privileged was ignored\n",
+				})}
 			/>,
 		);
-		const stdout = screen.getByLabelText("stdout");
-		expect(stdout).toHaveTextContent("start");
-		expect(stdout).toHaveTextContent("end");
-		expect(stdout).toHaveTextContent("bytes omitted");
-		expect(screen.getByLabelText("stderr")).toHaveTextContent("err");
+		const output = screen.getByLabelText("output");
+		expect(output).toHaveTextContent("start");
+		expect(output).toHaveTextContent("end");
+		expect(output).toHaveTextContent("bytes omitted");
+		expect(screen.getByTestId("task-notice")).toHaveTextContent("privileged was ignored");
 	});
 
 	test("waiting for approval links to the approval page", async () => {
@@ -147,15 +152,14 @@ describe("TaskResult", () => {
 		expect(screen.getByText(/laptop \(user\)/)).toBeInTheDocument();
 	});
 
-	test("text output mode shows the combined tail", async () => {
+	test("text output mode shows the kept tail", async () => {
 		await renderWithRouter(
 			<TaskResult
 				task={baseTask({
 					outputMode: "text",
-					stdoutBytes: 40,
-					stderrBytes: 2,
-					stdoutTail: "tail text\n",
-					stdoutHead: "",
+					outputBytes: 42,
+					outputTail: "tail text\n",
+					outputHead: "",
 				})}
 			/>,
 		);
@@ -168,28 +172,26 @@ describe("TaskResult", () => {
 				task={baseTask({
 					kind: "file.read",
 					outputMode: "head",
-					stdoutBytes: 120,
-					stderrBytes: 0,
-					stdoutHead: "one\ntwo\n",
-					stdoutTail: "",
+					outputBytes: 120,
+					outputHead: "one\ntwo\n",
+					outputTail: "",
 				})}
 			/>,
 		);
 		expect(screen.getByLabelText("output")).toHaveTextContent("one two");
 	});
 
-	test("head output mode shows the notice crhs kept", async () => {
+	test("head output mode shows the notice above the output", async () => {
 		const notice = "crh: privileged was ignored: SSH nodes run tasks as the SSH user\n";
 		await renderWithRouter(
 			<TaskResult
 				task={baseTask({
 					kind: "file.read",
 					outputMode: "head",
-					stdoutBytes: 8,
-					stderrBytes: notice.length,
-					stdoutHead: "one\ntwo\n",
-					stdoutTail: "",
-					stderrHead: notice,
+					outputBytes: 8,
+					outputHead: "one\ntwo\n",
+					outputTail: "",
+					notice,
 				})}
 			/>,
 		);
@@ -213,11 +215,7 @@ describe("TaskResult", () => {
 
 	test("status output mode shows the notice crhs kept", async () => {
 		const notice = "crh: privileged was ignored: SSH nodes run tasks as the SSH user\n";
-		await renderWithRouter(
-			<TaskResult
-				task={baseTask({ outputMode: "status", outputFile: null, stderrBytes: notice.length, stderrHead: notice })}
-			/>,
-		);
+		await renderWithRouter(<TaskResult task={baseTask({ outputMode: "status", outputFile: null, notice })} />);
 		expect(screen.getByTestId("task-notice")).toHaveTextContent("privileged was ignored");
 	});
 

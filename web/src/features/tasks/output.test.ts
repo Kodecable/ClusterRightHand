@@ -41,17 +41,31 @@ describe("joinOutput", () => {
 
 describe("batchOutput", () => {
 	const base = {
-		stdoutBytes: 100,
-		stderrBytes: 20,
-		stdoutHead: "head\n",
-		stdoutTail: "tail\n",
+		outputBytes: 120,
+		outputHead: "head\n",
+		outputTail: "tail\n",
 		outputFile: "/var/lib/crha/output/t.log",
 	};
 
-	test("reads the fields by output mode", () => {
-		expect(batchOutput({ ...base, outputMode: "full" })).toEqual({ kind: "full" });
-		expect(batchOutput({ ...base, outputMode: "text" })).toEqual({ kind: "tail", text: "tail\n", bytes: 120 });
-		expect(batchOutput({ ...base, outputMode: "head" })).toEqual({ kind: "head", text: "head\n", bytes: 100 });
+	test("reads the single stream's fields by output mode", () => {
+		expect(batchOutput({ ...base, outputMode: "full" })).toEqual({
+			kind: "output",
+			head: "head\n",
+			tail: "tail\n",
+			bytes: 120,
+		});
+		expect(batchOutput({ ...base, outputMode: "text", outputHead: "" })).toEqual({
+			kind: "output",
+			head: "",
+			tail: "tail\n",
+			bytes: 120,
+		});
+		expect(batchOutput({ ...base, outputMode: "head", outputTail: "" })).toEqual({
+			kind: "output",
+			head: "head\n",
+			tail: "",
+			bytes: 120,
+		});
 		expect(batchOutput({ ...base, outputMode: "status" })).toEqual({
 			kind: "status",
 			file: "/var/lib/crha/output/t.log",

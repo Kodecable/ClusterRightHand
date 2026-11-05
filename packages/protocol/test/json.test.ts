@@ -50,6 +50,7 @@ const specs: TaskSpec[] = [
 		mode: 0o644,
 		owner: "",
 		group: "",
+		createParentDirs: true,
 	},
 	{
 		kind: "file.edit",
@@ -113,6 +114,7 @@ describe("JSON forms", () => {
 				mode: 0,
 				owner: "",
 				group: "",
+				createParentDirs: false,
 			},
 		],
 		[
@@ -125,6 +127,7 @@ describe("JSON forms", () => {
 				mode: 0,
 				owner: "",
 				group: "",
+				createParentDirs: false,
 			},
 		],
 		[
@@ -137,6 +140,7 @@ describe("JSON forms", () => {
 				mode: 0,
 				owner: "",
 				group: "",
+				createParentDirs: false,
 			},
 		],
 		["negative start line", { kind: "file.read", path: "/", startLine: -1, lineCount: 1 }],
@@ -145,7 +149,22 @@ describe("JSON forms", () => {
 		["edits not an array", { kind: "file.edit", path: "/", edits: {} }],
 		["edit missing newText", { kind: "file.edit", path: "/", edits: [{ oldText: "a" }] }],
 		["file.stat extra field", { kind: "file.stat", path: "/", extra: 1 }],
-		["file.write missing content", { kind: "file.write", path: "/", overwrite: false, mode: 0, owner: "", group: "" }],
+		[
+			"file.write missing content",
+			{ kind: "file.write", path: "/", overwrite: false, mode: 0, owner: "", group: "", createParentDirs: false },
+		],
+		[
+			"file.write missing createParentDirs",
+			{
+				kind: "file.write",
+				path: "/",
+				content: { size: 0, sha256: "0".repeat(64) },
+				overwrite: false,
+				mode: 0,
+				owner: "",
+				group: "",
+			},
+		],
 	];
 
 	it.each(badSpecs)("rejects bad TaskSpec: %s", (_name, value) => {

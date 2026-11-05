@@ -51,7 +51,7 @@ describe.skipIf(!hasGo)("privileged tasks end to end", () => {
 			expect(t.privileged).toBe(true);
 			// It was refused before acceptance: nothing ran and there is no output.
 			expect(t.exitCode).toBeNull();
-			expect(t.stdoutBytes).toBe(0);
+			expect(t.outputBytes).toBe(0);
 		});
 
 		it("fails a privileged file task the same way", async () => {

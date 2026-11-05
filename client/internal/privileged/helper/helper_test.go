@@ -133,14 +133,10 @@ func (s *session) request(cmd string, body, resp any) error {
 }
 
 // finish waits for task.exit and collects the output that arrived before it.
-func (s *session) finish() (stdout, stderr []byte, exit protocol.TaskExit) {
+func (s *session) finish() (output []byte, exit protocol.TaskExit) {
 	s.t.Helper()
 	collect := func(out protocol.TaskOutput) {
-		if out.Stream == protocol.StreamStdout {
-			stdout = append(stdout, out.Data...)
-		} else {
-			stderr = append(stderr, out.Data...)
-		}
+		output = append(output, out.Data...)
 	}
 	for {
 		select {
@@ -152,7 +148,7 @@ func (s *session) finish() (stdout, stderr []byte, exit protocol.TaskExit) {
 				case out := <-s.outputs:
 					collect(out)
 				default:
-					return stdout, stderr, exit
+					return output, exit
 				}
 			}
 		case <-time.After(15 * time.Second):
@@ -216,15 +212,15 @@ func TestRunExecTask(t *testing.T) {
 	if err := s.start(execTask("exec-1", "printf out; printf oops >&2; exit 3")); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
-	stdout, stderr, exit := s.finish()
-	if string(stdout) != "out" || string(stderr) != "oops" {
-		t.Fatalf("stdout %q stderr %q", stdout, stderr)
+	output, exit := s.finish()
+	if string(output) != "outoops" {
+		t.Fatalf("output %q, want stdout and stderr in write order", output)
 	}
 	if exit.TaskID != "exec-1" || exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 3 {
 		t.Fatalf("task.exit = %+v", exit)
 	}
-	if exit.StdoutEnd != 3 || exit.StderrEnd != 4 {
-		t.Fatalf("ends = %d/%d", exit.StdoutEnd, exit.StderrEnd)
+	if exit.OutputEnd != 7 {
+		t.Fatalf("output_end = %d, want 7", exit.OutputEnd)
 	}
 	if exit.OutputFile != "" {
 		t.Fatalf("output_file = %q, want empty (the parent owns the output file)", exit.OutputFile)
@@ -262,16 +258,12 @@ func TestRunFileReadTask(t *testing.T) {
 	if err := s.start(ts); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
-	stdout, stderr, exit := s.finish()
-	if string(stdout) != "file content" {
-		t.Fatalf("stdout %q", stdout)
+	output, exit := s.finish()
+	if string(output) != "file content" {
+		t.Fatalf("output %q", output)
 	}
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
-	}
-	// The page metadata is the task's result, not a line in an output stream (doc/protocol.md TaskResult).
-	if len(stderr) != 0 {
-		t.Fatalf("stderr %q, want empty", stderr)
 	}
 	if exit.Result == nil || exit.Result.FileRead == nil {
 		t.Fatalf("task.exit result = %+v", exit.Result)
@@ -295,7 +287,7 @@ func TestRunFileReadTask(t *testing.T) {
 	if err := s.start(ts); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
-	_, _, exit = s.finish()
+	_, exit = s.finish()
 	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "symlink_not_allowed" {
 		t.Fatalf("task.exit = %+v", exit)
 	}
@@ -317,9 +309,9 @@ func TestRunInput(t *testing.T) {
 	if err := s.request(protocol.CmdTaskInput, protocol.TaskInput{TaskID: "input-1", Offset: 5, Data: data[5:]}, &empty); err != nil {
 		t.Fatalf("task.input: %v", err)
 	}
-	stdout, _, exit := s.finish()
-	if string(stdout) != string(data) {
-		t.Fatalf("stdout %q", stdout)
+	output, exit := s.finish()
+	if string(output) != string(data) {
+		t.Fatalf("output %q", output)
 	}
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
@@ -361,7 +353,7 @@ func TestRunInputMismatch(t *testing.T) {
 	if err := s.request(protocol.CmdTaskInput, protocol.TaskInput{TaskID: "mismatch-1", Offset: 0, Data: []byte("abce")}, &empty); err != nil {
 		t.Fatalf("task.input: %v", err)
 	}
-	_, _, exit := s.finish()
+	_, exit := s.finish()
 	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "input_mismatch" {
 		t.Fatalf("task.exit = %+v", exit)
 	}
@@ -400,7 +392,7 @@ func TestRunInputMismatchNeverStarts(t *testing.T) {
 	if err := s.request(protocol.CmdTaskInput, protocol.TaskInput{TaskID: ts.TaskID, Offset: 0, Data: []byte("abce")}, &empty); err != nil {
 		t.Fatalf("task.input: %v", err)
 	}
-	_, _, exit := s.finish()
+	_, exit := s.finish()
 	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "input_mismatch" {
 		t.Fatalf("task.exit = %+v", exit)
 	}
@@ -437,9 +429,9 @@ func TestRunInputWaitsForComplete(t *testing.T) {
 	}, &empty); err != nil {
 		t.Fatalf("task.input: %v", err)
 	}
-	stdout, _, exit := s.finish()
-	if string(stdout) != string(data) {
-		t.Fatalf("stdout %q, want %q", stdout, data)
+	output, exit := s.finish()
+	if string(output) != string(data) {
+		t.Fatalf("output %q, want %q", output, data)
 	}
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
@@ -473,7 +465,7 @@ func TestRunCancelWhileWaitingForInput(t *testing.T) {
 	if err := s.request(protocol.CmdTaskCancel, protocol.TaskCancel{TaskID: ts.TaskID}, &empty); err != nil {
 		t.Fatalf("task.cancel: %v", err)
 	}
-	_, _, exit := s.finish()
+	_, exit := s.finish()
 	if !exit.Cancelled || exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "cancelled" {
 		t.Fatalf("task.exit = %+v, want a cancelled task", exit)
 	}
@@ -496,7 +488,7 @@ func TestRunTimeoutWhileWaitingForInput(t *testing.T) {
 	if err := s.start(ts); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
-	_, _, exit := s.finish()
+	_, exit := s.finish()
 	if !exit.TimedOut {
 		t.Fatalf("task.exit = %+v, want timed out", exit)
 	}
@@ -521,7 +513,7 @@ func TestRunCancel(t *testing.T) {
 	if err := s.request(protocol.CmdTaskCancel, protocol.TaskCancel{TaskID: "cancel-1"}, &empty); err != nil {
 		t.Fatalf("task.cancel: %v", err)
 	}
-	_, _, exit := s.finish()
+	_, exit := s.finish()
 	if !exit.Cancelled || exit.Outcome.Kind != protocol.OutcomeSignal || exit.Outcome.Signal != "TERM" {
 		t.Fatalf("task.exit = %+v", exit)
 	}
@@ -537,7 +529,7 @@ func TestRunTimeout(t *testing.T) {
 	if err := s.start(ts); err != nil {
 		t.Fatalf("task.start: %v", err)
 	}
-	_, _, exit := s.finish()
+	_, exit := s.finish()
 	if !exit.TimedOut || exit.Outcome.Kind != protocol.OutcomeSignal || exit.Outcome.Signal != "TERM" {
 		t.Fatalf("task.exit = %+v", exit)
 	}
@@ -564,7 +556,7 @@ func TestRunQuery(t *testing.T) {
 	if status.TaskID != "query-1" || (status.State != protocol.TaskRunning && status.State != protocol.TaskExited) {
 		t.Fatalf("status = %+v", status)
 	}
-	s.finish()
+	_, _ = s.finish()
 }
 
 func TestRunSecondTaskRejected(t *testing.T) {
@@ -580,7 +572,7 @@ func TestRunSecondTaskRejected(t *testing.T) {
 	if !errors.As(err, &remote) || remote.Code != "already_accepted" {
 		t.Fatalf("second task.start = %v, want already_accepted", err)
 	}
-	s.finish()
+	_, _ = s.finish()
 }
 
 // TestRunStdinEOFLetsTaskFinish covers the disconnect rule: closing the helper's stdin before the
@@ -594,9 +586,9 @@ func TestRunStdinEOFLetsTaskFinish(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	stdout, _, exit := s.finish()
-	if string(stdout) != "done" || exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
-		t.Fatalf("stdout %q exit %+v", stdout, exit)
+	output, exit := s.finish()
+	if string(output) != "done" || exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
+		t.Fatalf("output %q exit %+v", output, exit)
 	}
 	if time.Since(start) < 250*time.Millisecond {
 		t.Fatalf("the task was ended early (%v)", time.Since(start))
@@ -678,7 +670,7 @@ func TestRunIncompleteInputOnEOF(t *testing.T) {
 	if err := s.toHelper.Close(); err != nil {
 		t.Fatal(err)
 	}
-	_, _, exit := s.finish()
+	_, exit := s.finish()
 	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "input_incomplete" {
 		t.Fatalf("task.exit = %+v, want input_incomplete", exit)
 	}

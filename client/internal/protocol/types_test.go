@@ -110,14 +110,14 @@ func TestRoundTripAllTypes(t *testing.T) {
 			})
 		}},
 		{"Welcome", "", func(t *testing.T) {
-			checkRoundTrip(t, "", Welcome{Acks: []OutputAck{{TaskID: "t", StdoutOffset: 1, StderrOffset: 2}}})
+			checkRoundTrip(t, "", Welcome{Acks: []OutputAck{{TaskID: "t", Offset: 1}}})
 		}},
-		{"OutputAck", "8361740102", func(t *testing.T) {
-			checkRoundTrip(t, "8361740102", OutputAck{TaskID: "t", StdoutOffset: 1, StderrOffset: 2})
+		{"OutputAck", "82617401", func(t *testing.T) {
+			checkRoundTrip(t, "82617401", OutputAck{TaskID: "t", Offset: 1})
 		}},
-		{"TaskStatus", "8461746772756e6e696e670102", func(t *testing.T) {
-			checkRoundTrip(t, "8461746772756e6e696e670102",
-				TaskStatus{TaskID: "t", State: TaskRunning, StdoutEnd: 1, StderrEnd: 2})
+		{"TaskStatus", "8361746772756e6e696e6701", func(t *testing.T) {
+			checkRoundTrip(t, "8361746772756e6e696e6701",
+				TaskStatus{TaskID: "t", State: TaskRunning, OutputEnd: 1})
 		}},
 		{"TaskStart", "", func(t *testing.T) {
 			checkRoundTrip(t, "", TaskStart{
@@ -137,8 +137,7 @@ func TestRoundTripAllTypes(t *testing.T) {
 				Outcome:     Outcome{Kind: OutcomeCode, Code: 1},
 				TimedOut:    true,
 				Cancelled:   false,
-				StdoutEnd:   3,
-				StderrEnd:   4,
+				OutputEnd:   3,
 				OutputFile:  "/tmp/out.log",
 				OutputLines: 5,
 			})
@@ -187,7 +186,7 @@ func TestRoundTripAllTypes(t *testing.T) {
 		{"TaskCancel", "816174", func(t *testing.T) { checkRoundTrip(t, "816174", TaskCancel{TaskID: "t"}) }},
 		{"TaskQuery", "816174", func(t *testing.T) { checkRoundTrip(t, "816174", TaskQuery{TaskID: "t"}) }},
 		{"TaskOutput", "", func(t *testing.T) {
-			checkRoundTrip(t, "", TaskOutput{TaskID: "t", Stream: StreamStderr, Offset: 9, Data: []byte("abc")})
+			checkRoundTrip(t, "", TaskOutput{TaskID: "t", Offset: 9, Data: []byte("abc")})
 		}},
 		{"TaskExitAck", "816174", func(t *testing.T) { checkRoundTrip(t, "816174", TaskExitAck{TaskID: "t"}) }},
 		{"ExecSpec", "", func(t *testing.T) { checkRoundTrip(t, "", sampleExecSpec()) }},
@@ -198,7 +197,7 @@ func TestRoundTripAllTypes(t *testing.T) {
 		{"FileWriteSpec", "", func(t *testing.T) {
 			checkRoundTrip(t, "", FileWriteSpec{
 				Path: "/tmp/x", Content: InputRef{Size: 1, SHA256: hash}, Overwrite: true,
-				Mode: 0o600, Owner: "root", Group: "root",
+				Mode: 0o600, Owner: "root", Group: "root", CreateParentDirs: true,
 			})
 		}},
 		{"FileEditSpec", "", func(t *testing.T) {
@@ -380,8 +379,7 @@ func TestUnknownEnum(t *testing.T) {
 		raw  []any
 		v    any
 	}{
-		{"stream", []any{"t", "bogus", uint64(0), []byte{}}, &TaskOutput{}},
-		{"task state", []any{"t", "bogus", uint64(0), uint64(0)}, &TaskStatus{}},
+		{"task state", []any{"t", "bogus", uint64(0)}, &TaskStatus{}},
 		{"node state", []any{uint64(1), uint64(0), []string{}, "conn", int64(0), "bogus", "n"}, &HandshakeResponse{}},
 		{"node status state", []any{"n", "bogus", "m"}, &NodeStatus{}},
 	}
@@ -477,9 +475,6 @@ func TestUnselectedUnionBranchIsNotValidated(t *testing.T) {
 func TestEnumEncodingRejectsUnknown(t *testing.T) {
 	if _, err := Marshal(TaskStatus{State: "bogus"}); err == nil {
 		t.Fatal("Marshal accepted an unknown task state")
-	}
-	if _, err := Marshal(TaskOutput{Stream: "bogus"}); err == nil {
-		t.Fatal("Marshal accepted an unknown stream")
 	}
 	if _, err := Marshal(NodeStatus{State: "bogus"}); err == nil {
 		t.Fatal("Marshal accepted an unknown node status state")

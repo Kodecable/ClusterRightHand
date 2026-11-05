@@ -53,7 +53,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 			const t = await crhs.runTask(node.nodeId, { kind: "exec", argv: ["/usr/bin/env"] });
 			const done = await node.taskState(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: false });
-			const env = parseEnv(done.stdoutHead + done.stdoutTail);
+			const env = parseEnv(done.outputHead + done.outputTail);
 			expect(env).toMatchObject({
 				HOME: "/home/crha",
 				USER: "crha",
@@ -69,7 +69,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 			const t = await node.task({ kind: "exec", argv: ["/usr/bin/env"] });
 			const done = await node.taskState(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: true });
-			const env = parseEnv(done.stdoutHead + done.stdoutTail);
+			const env = parseEnv(done.outputHead + done.outputTail);
 			expect(env).toMatchObject({
 				HOME: "/root",
 				USER: "root",
@@ -90,7 +90,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 			});
 			const plainDone = await node.taskState(plain.id);
 			expect(plainDone.state).toBe("exited");
-			expect(parseEnv(plainDone.stdoutHead + plainDone.stdoutTail).HOME).toBe("/tmp/crh-unprivileged-home");
+			expect(parseEnv(plainDone.outputHead + plainDone.outputTail).HOME).toBe("/tmp/crh-unprivileged-home");
 
 			const privileged = await node.task({
 				kind: "exec",
@@ -99,7 +99,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 			});
 			const privilegedDone = await node.taskState(privileged.id);
 			expect(privilegedDone.state).toBe("exited");
-			expect(parseEnv(privilegedDone.stdoutHead + privilegedDone.stdoutTail).HOME).toBe("/tmp/crh-privileged-home");
+			expect(parseEnv(privilegedDone.outputHead + privilegedDone.outputTail).HOME).toBe("/tmp/crh-privileged-home");
 		}, 60_000);
 
 		it("reports the shells it discovered in facts", async () => {
@@ -113,7 +113,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 			const t = await node.task({ kind: "exec", argv: ["id", "-u"] });
 			const done = await node.taskState(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: true });
-			expect(done.stdoutHead).toBe("0\n");
+			expect(done.outputHead).toBe("0\n");
 		}, 60_000);
 
 		it("runs a file.write and a file.read as root", async () => {
@@ -128,7 +128,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 			const read = await node.task({ kind: "file.read", path: "/root/crh-native.txt" });
 			const r = await node.taskState(read.id);
 			expect(r.state).toBe("exited");
-			expect(r.stdoutHead + r.stdoutTail).toContain("native-file");
+			expect(r.outputHead + r.outputTail).toContain("native-file");
 		}, 60_000);
 
 		it("cancels a running task through the helper", async () => {
@@ -164,7 +164,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 			const t = await node.task({ kind: "exec", argv: ["id", "-u"] });
 			const done = await node.taskState(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
-			expect(done.stdoutHead).toBe("0\n");
+			expect(done.outputHead).toBe("0\n");
 		}, 60_000);
 
 		it("fails privileged_unsupported when doas does not allow the helper", async () => {
@@ -176,7 +176,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 				expect(done.state).toBe("failed");
 				expect(done.errorCode).toBe("privileged_unsupported");
 				expect(done.errorMessage?.length).toBeGreaterThan(0);
-				expect(done.stdoutBytes).toBe(0);
+				expect(done.outputBytes).toBe(0);
 			} finally {
 				const restored = await node.exec(["/bin/mv", "/etc/doas.conf.off", "/etc/doas.conf"]);
 				expect(restored.code).toBe(0);
@@ -193,7 +193,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 			const t = await node.task({ kind: "exec", argv: ["id", "-u"] });
 			const done = await node.taskState(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: true });
-			expect(done.stdoutHead).toBe("998\n");
+			expect(done.outputHead).toBe("998\n");
 		}, 60_000);
 
 		it("runs a privileged file task as the non-privileged user", async () => {
@@ -220,7 +220,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 			const done = await node.taskState(t.id);
 			expect(done).toMatchObject({ state: "failed", errorCode: "privileged_unsupported", privileged: true });
 			expect(done.exitCode).toBeNull();
-			expect(done.stdoutBytes).toBe(0);
+			expect(done.outputBytes).toBe(0);
 		}, 60_000);
 
 		it("refuses a privileged file task the same way", async () => {
@@ -233,7 +233,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 			const t = await crhs.runTask(node.nodeId, { kind: "exec", argv: ["id", "-u"] });
 			const done = await node.taskState(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: false });
-			expect(done.stdoutHead).toBe("998\n");
+			expect(done.outputHead).toBe("998\n");
 		}, 60_000);
 	});
 });

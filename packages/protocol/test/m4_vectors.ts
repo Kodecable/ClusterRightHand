@@ -118,6 +118,7 @@ export const SPECS: Record<string, TaskSpec> = {
 		mode: 0o644,
 		owner: "root",
 		group: "root",
+		createParentDirs: false,
 	},
 	"file.edit": {
 		kind: "file.edit",
