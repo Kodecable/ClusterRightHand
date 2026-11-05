@@ -4,7 +4,7 @@ import { type KeyboardEvent, useEffect, useId, useLayoutEffect, useRef, useState
 import { toast } from "sonner";
 import { ErrorText } from "@/components/error-state";
 import { Textarea } from "@/components/ui/textarea";
-import type { SessionView, SessionWaitingKind } from "@/lib/api/types";
+import type { SessionView } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { useAbortSession, useCompactSession, useSendMessage } from "./api";
 import { ComposerFooter } from "./composer-footer";
@@ -18,7 +18,6 @@ export interface ComposerProps {
 	session: SessionView;
 	/** There is something this session (or its tree) runs that Stop can end. */
 	stoppable: boolean;
-	waitingKind: SessionWaitingKind | null;
 }
 
 /**
@@ -34,7 +33,7 @@ export function Composer(props: ComposerProps) {
 	return <ComposerForm key={props.session.id} {...props} />;
 }
 
-function ComposerForm({ session, stoppable, waitingKind }: ComposerProps) {
+function ComposerForm({ session, stoppable }: ComposerProps) {
 	const { t, i18n } = useLingui();
 	const [text, setText] = useState("");
 	// The server dedupes sends by request id, so a retry after a lost response
@@ -210,23 +209,10 @@ function ComposerForm({ session, stoppable, waitingKind }: ComposerProps) {
 		);
 	}
 
-	const reason =
-		waitingKind === "approval"
-			? t`The session is waiting for an approval.`
-			: waitingKind === "authorization"
-				? t`The session is waiting for a signature.`
-				: waitingKind === "quota"
-					? t`The session is paused: its token quota is used up.`
-					: undefined;
 	const error = send.error ?? compact.error;
 
 	return (
 		<div className="shrink-0 bg-background/80 px-3 pt-1 pb-2" data-slot="composer">
-			{reason !== undefined && (
-				<p className="border-b bg-warn-bg/60 px-3 py-1.5 text-xs text-warn" role="status" data-testid="waiting-reason">
-					{reason}
-				</p>
-			)}
 			<form
 				onSubmit={(event) => {
 					event.preventDefault();

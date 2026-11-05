@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster, summarize } from "../src/cluster/cluster.ts";
 import { GROUP_INTERRUPTED_REASON, outputModeFor, resolveTargets, TaskGroups } from "../src/cluster/task-groups.ts";
+import { taskStartOf } from "../src/cluster/task-start.ts";
 import { createRootRuleSet } from "../src/policy/store.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
@@ -204,6 +205,24 @@ describeBackends("task groups", (backend) => {
 		expect(view?.tasks.map((t) => t.nodeId).sort()).toEqual([...nodeIds].sort());
 		expect(view?.tasks.every((t) => t.state === "failed" && t.errorCode === "node_offline")).toBe(true);
 		expect(view?.skipped).toEqual([]);
+	});
+
+	it("gives every member the group's timeout", async () => {
+		const groups = new TaskGroups(db, cluster);
+		const id = await groups.create({
+			targets: [ids["web-1"] as string],
+			nodeIds: [ids["web-1"], ids["web-2"]] as string[],
+			spec: spec(),
+			actor: actor(),
+			timeoutMs: 30_000,
+		});
+		const view = await groups.wait(id, 5000);
+		expect(view?.tasks.map((task) => task.timeoutMs)).toEqual([30_000, 30_000]);
+		// task.start takes the timeout from the member's row, the same value the single-task path sends.
+		const rows = await db.selectFrom("tasks").selectAll().where("task_group_id", "=", id).execute();
+		expect(rows.map((row) => taskStartOf(row.id, row, spec(), { privileged: false }).timeoutMs)).toEqual([
+			30_000, 30_000,
+		]);
 	});
 
 	it("stops launching after a failure with failFast", async () => {

@@ -315,6 +315,7 @@ async function createCall(ctx: ToolContext, args: CallArgs, options: StartOption
 		...(options.outputMode === undefined ? {} : { outputMode: options.outputMode }),
 		...(args.parallel === undefined ? {} : { parallel: args.parallel }),
 		...(args.fail_fast === undefined ? {} : { failFast: args.fail_fast }),
+		...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
 		...(options.maxLines === undefined ? {} : { maxLines: options.maxLines }),
 		...(options.maxBytes === undefined ? {} : { maxBytes: options.maxBytes }),
 		...(ctx.callKey ? { id: derivedId(`group:${ctx.callKey}`) } : {}),

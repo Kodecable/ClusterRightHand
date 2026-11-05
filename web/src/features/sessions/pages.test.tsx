@@ -6,8 +6,9 @@ import {
 	createRouter,
 	RouterProvider,
 } from "@tanstack/react-router";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { approvalKeys } from "@/features/approvals/api";
 import type { ApprovalList, SessionListItem, SessionView } from "@/lib/api/types";
 import { LocaleProvider } from "@/lib/i18n";
 import { activateLocale } from "@/test/render";
@@ -70,6 +71,47 @@ function item(overrides: Partial<SessionListItem> = {}): SessionListItem {
 	};
 }
 
+/** The event stream subscription the page opens; open and events can be pushed from a test. */
+class FakeEventSource {
+	static instances: FakeEventSource[] = [];
+	readonly listeners = new Map<string, Set<(event: Event) => void>>();
+	readonly url: string;
+
+	constructor(url: string) {
+		this.url = url;
+		FakeEventSource.instances.push(this);
+		// The connection opens on its own, as a browser's EventSource does.
+		queueMicrotask(() => this.emit("open"));
+	}
+
+	addEventListener(name: string, listener: (event: Event) => void): void {
+		let listeners = this.listeners.get(name);
+		if (listeners === undefined) {
+			listeners = new Set();
+			this.listeners.set(name, listeners);
+		}
+		listeners.add(listener);
+	}
+
+	close(): void {}
+
+	emit(name: string, data?: unknown): void {
+		for (const listener of this.listeners.get(name) ?? []) {
+			listener(data === undefined ? new Event(name) : ({ data: JSON.stringify(data) } as MessageEvent));
+		}
+	}
+}
+
+/** The page's `/sessions/:id/events` stream, once the page has opened it. */
+async function sessionEvents(sessionId: string): Promise<FakeEventSource> {
+	const source = await waitFor(() => {
+		const found = FakeEventSource.instances.find((instance) => instance.url.endsWith(`/sessions/${sessionId}/events`));
+		if (found === undefined) throw new Error("the page opened no event stream");
+		return found;
+	});
+	return source;
+}
+
 /** The page at `/sessions/s1`, with the list row the app would already have loaded. */
 async function renderSessionPage({ session, treeRow }: { session: SessionView; treeRow?: SessionListItem }) {
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -79,6 +121,7 @@ async function renderSessionPage({ session, treeRow }: { session: SessionView; t
 			pageParams: [null],
 		});
 	}
+	vi.stubGlobal("EventSource", FakeEventSource);
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL) => {
@@ -109,16 +152,18 @@ async function renderSessionPage({ session, treeRow }: { session: SessionView; t
 		history: createMemoryHistory({ initialEntries: [`/sessions/${session.id}`] }),
 	});
 	await router.load();
-	return render(
+	const result = render(
 		<LocaleProvider initialLocale="en">
 			<QueryClientProvider client={client}>
 				<RouterProvider router={router} />
 			</QueryClientProvider>
 		</LocaleProvider>,
 	);
+	return { ...result, client };
 }
 
 afterEach(() => {
+	FakeEventSource.instances = [];
 	vi.unstubAllGlobals();
 });
 
@@ -170,5 +215,63 @@ describe("SessionPage layout", () => {
 		const rules = screen.getByTestId("composer-rules");
 		expect(rules).toHaveTextContent("Auto Review");
 		expect(rules).not.toHaveTextContent("auto_review");
+	});
+
+	test("puts the waiting reason at the top and refreshes approvals as soon as the wait changes", async () => {
+		const { client } = await renderSessionPage({
+			session: sessionView({ state: "awaiting", waitingKind: "approval" }),
+		});
+		await screen.findByTestId("session-page");
+		const banner = await screen.findByTestId("waiting-reason");
+		const waits = screen.getByTestId("session-waits");
+		expect(banner).toHaveTextContent("The session is waiting for an approval.");
+		// The single-line banner sits under the header, before the waiting cards; the composer has no strip.
+		const header = screen.getByTestId("session-header");
+		expect(header.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(banner.compareDocumentPosition(waits) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		const composer = document.querySelector<HTMLElement>('[data-slot="composer"]');
+		expect(composer).not.toBeNull();
+		expect(within(composer as HTMLElement).queryByTestId("waiting-reason")).toBeNull();
+
+		const invalidate = vi.spyOn(client, "invalidateQueries");
+		act(() => {
+			client.setQueryData(sessionKeys.detail("s1"), sessionView({ state: "awaiting", waitingKind: "authorization" }));
+		});
+		await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: approvalKeys.list() }));
+		expect(screen.getByTestId("waiting-reason")).toHaveTextContent("The session is waiting for a signature.");
+	});
+
+	test("refreshes approvals when a live tool reports that it waits", async () => {
+		const { client } = await renderSessionPage({
+			session: sessionView({ state: "awaiting", waitingKind: "approval" }),
+		});
+		await screen.findByTestId("session-page");
+		await screen.findByTestId("waiting-reason");
+		const source = await sessionEvents("s1");
+		const invalidate = vi.spyOn(client, "invalidateQueries");
+
+		act(() => {
+			source.emit("events", [
+				{
+					type: "tool_execution_update",
+					toolCallId: "call-1",
+					toolName: "exec",
+					details: { state: "awaiting_authorization", authorization_url: "/tasks/t1" },
+				},
+			]);
+		});
+
+		await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: approvalKeys.list() }));
+	});
+
+	test("shows no Working banner while the session merely runs", async () => {
+		await renderSessionPage({ session: sessionView() });
+		await screen.findByTestId("session-page");
+		const source = await sessionEvents("s1");
+		act(() => {
+			source.emit("events", [{ type: "run_start", inputs: [] }]);
+		});
+		expect(screen.queryByText("Working…")).not.toBeInTheDocument();
+		expect(screen.queryByRole("status")).not.toBeInTheDocument();
 	});
 });

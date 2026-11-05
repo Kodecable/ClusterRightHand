@@ -106,7 +106,7 @@ export function SessionWaits({
 
 	if (approvals.isPending) {
 		return (
-			<div className="shrink-0 border-b bg-muted/30 px-3 py-2" data-testid="session-waits">
+			<div className="shrink-0 bg-muted/30 px-3 py-2" data-testid="session-waits">
 				<p className="text-sm text-muted-foreground">
 					<Trans>Loading the waiting decisions…</Trans>
 				</p>
@@ -115,7 +115,7 @@ export function SessionWaits({
 	}
 
 	return (
-		<div className="grid shrink-0 gap-2 border-b bg-muted/30 px-3 py-2" data-testid="session-waits">
+		<div className="grid shrink-0 gap-2 bg-muted/30 px-3 py-2" data-testid="session-waits">
 			{quotaWait !== null && (
 				<QuotaCard
 					wait={quotaWait}

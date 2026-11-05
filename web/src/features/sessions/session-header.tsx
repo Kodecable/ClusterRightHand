@@ -119,7 +119,7 @@ export function SessionHeader({ session }: { session: SessionView }) {
 	const [shareOpen, setShareOpen] = useState(false);
 
 	return (
-		<header className="flex shrink-0 items-center gap-2 bg-background/80 px-3 py-2" data-testid="session-header">
+		<header className="flex shrink-0 items-center gap-2 bg-background/80 px-3 pt-2 pb-1" data-testid="session-header">
 			<Button
 				type="button"
 				variant="ghost"

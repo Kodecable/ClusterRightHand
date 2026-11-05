@@ -104,7 +104,7 @@ function renderComposer(props: { canChat?: boolean; stoppable?: boolean; session
 		});
 		return (
 			<QueryClientProvider client={client}>
-				<Composer session={session} stoppable={props.stoppable ?? false} waitingKind={null} />
+				<Composer session={session} stoppable={props.stoppable ?? false} />
 			</QueryClientProvider>
 		);
 	};
@@ -391,7 +391,7 @@ describe("ComposerFooter", () => {
 		expect(screen.getByTestId("composer-budget")).toHaveTextContent("∞");
 		view.rerender(
 			<QueryClientProvider client={new QueryClient()}>
-				<Composer session={sessionView({ budgetRemaining: -5 })} stoppable={false} waitingKind={null} />
+				<Composer session={sessionView({ budgetRemaining: -5 })} stoppable={false} />
 			</QueryClientProvider>,
 		);
 		const budget = screen.getByTestId("composer-budget");

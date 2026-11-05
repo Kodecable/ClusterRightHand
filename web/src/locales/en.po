@@ -65,8 +65,8 @@ msgstr "{0, plural, one {# byte} other {# bytes}}"
 msgid "{0, plural, one {# member} other {# members}}"
 msgstr "{0, plural, one {# member} other {# members}}"
 
-#. placeholder {0}: events.state.queued
-#: src/features/sessions/pages.tsx
+#. placeholder {0}: queued
+#: src/features/sessions/session-banner.tsx
 msgid "{0, plural, one {# message queued} other {# messages queued}}"
 msgstr "{0, plural, one {# message queued} other {# messages queued}}"
 
@@ -1045,7 +1045,7 @@ msgstr "Connect Claude Code with:"
 msgid "Connected"
 msgstr "Connected"
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-banner.tsx
 msgid "Connecting…"
 msgstr "Connecting…"
 
@@ -2985,7 +2985,7 @@ msgstr "Reasoning"
 msgid "Recent tasks"
 msgstr "Recent tasks"
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-banner.tsx
 msgid "Reconnecting…"
 msgstr "Reconnecting…"
 
@@ -3143,8 +3143,8 @@ msgstr "Reset the password of {0}"
 msgid "Result"
 msgstr "Result"
 
-#. placeholder {0}: events.state.retry
-#: src/features/sessions/pages.tsx
+#. placeholder {0}: retry
+#: src/features/sessions/session-banner.tsx
 msgid "Retrying after an error: {0}"
 msgstr "Retrying after an error: {0}"
 
@@ -3896,15 +3896,15 @@ msgstr "The run was stopped."
 msgid "The running instance, if any, is stopped, and the run history is deleted. Sessions the runs created stay, without their schedule."
 msgstr "The running instance, if any, is stopped, and the run history is deleted. Sessions the runs created stay, without their schedule."
 
-#: src/features/sessions/composer.tsx
+#: src/features/sessions/session-banner.tsx
 msgid "The session is paused: its token quota is used up."
 msgstr "The session is paused: its token quota is used up."
 
-#: src/features/sessions/composer.tsx
+#: src/features/sessions/session-banner.tsx
 msgid "The session is waiting for a signature."
 msgstr "The session is waiting for a signature."
 
-#: src/features/sessions/composer.tsx
+#: src/features/sessions/session-banner.tsx
 msgid "The session is waiting for an approval."
 msgstr "The session is waiting for an approval."
 
@@ -4322,10 +4322,6 @@ msgstr "Work"
 #: src/components/task-form-fields.tsx
 msgid "Working directory (optional)"
 msgstr "Working directory (optional)"
-
-#: src/features/sessions/pages.tsx
-msgid "Working…"
-msgstr "Working…"
 
 #: src/components/approval-card.tsx
 msgid "Yes"

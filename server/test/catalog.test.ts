@@ -1022,6 +1022,29 @@ describe("exec budgets", () => {
 		}
 	});
 
+	it("passes exec's timeout to each member of a batch", async () => {
+		const f = await fixture("batch-timeout-user");
+		try {
+			await addGroup(f.db, f.nodeId, "prod");
+			const created: Record<string, unknown>[] = [];
+			const taskGroups = {
+				create: async (input: Record<string, unknown>) => {
+					created.push(input);
+					return "g1";
+				},
+				get: async () => group({ id: "g1", state: "finished", nodeIds: [f.nodeId], outputMode: "text", tasks: [] }),
+				wait: async () => group({ id: "g1", state: "finished", nodeIds: [f.nodeId], outputMode: "text", tasks: [] }),
+			} as unknown as TaskGroups;
+			await tool("exec").handler({ targets: ["prod"], cmd: "true", timeout: 30, wait: 0 } as never, {
+				...f.base,
+				taskGroups,
+			});
+			expect(created[0]?.timeoutMs).toBe(30_000);
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
 	it("returns status JSON for a batch with with_output: false", async () => {
 		const f = await fixture("batch-status-user");
 		try {

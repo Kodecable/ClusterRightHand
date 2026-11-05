@@ -65,8 +65,8 @@ msgstr "{0, plural, one {# 字节} other {# 字节}}"
 msgid "{0, plural, one {# member} other {# members}}"
 msgstr "{0, plural, one {# 名成员} other {# 名成员}}"
 
-#. placeholder {0}: events.state.queued
-#: src/features/sessions/pages.tsx
+#. placeholder {0}: queued
+#: src/features/sessions/session-banner.tsx
 msgid "{0, plural, one {# message queued} other {# messages queued}}"
 msgstr "{0, plural, one {已排队 # 条消息} other {已排队 # 条消息}}"
 
@@ -1045,7 +1045,7 @@ msgstr "用以下命令连接 Claude Code："
 msgid "Connected"
 msgstr "已连接"
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-banner.tsx
 msgid "Connecting…"
 msgstr "正在连接…"
 
@@ -2985,7 +2985,7 @@ msgstr "推理"
 msgid "Recent tasks"
 msgstr "最近任务"
 
-#: src/features/sessions/pages.tsx
+#: src/features/sessions/session-banner.tsx
 msgid "Reconnecting…"
 msgstr "正在重新连接…"
 
@@ -3143,8 +3143,8 @@ msgstr "重置 {0} 的密码"
 msgid "Result"
 msgstr "结果"
 
-#. placeholder {0}: events.state.retry
-#: src/features/sessions/pages.tsx
+#. placeholder {0}: retry
+#: src/features/sessions/session-banner.tsx
 msgid "Retrying after an error: {0}"
 msgstr "出错后正在重试：{0}"
 
@@ -3896,15 +3896,15 @@ msgstr "运行已停止。"
 msgid "The running instance, if any, is stopped, and the run history is deleted. Sessions the runs created stay, without their schedule."
 msgstr "正在运行的实例（如有）会被停止，运行历史会被删除。运行创建的会话会保留，但不再关联此计划任务。"
 
-#: src/features/sessions/composer.tsx
+#: src/features/sessions/session-banner.tsx
 msgid "The session is paused: its token quota is used up."
 msgstr "会话已暂停：token 配额已用完。"
 
-#: src/features/sessions/composer.tsx
+#: src/features/sessions/session-banner.tsx
 msgid "The session is waiting for a signature."
 msgstr "会话正在等待签名。"
 
-#: src/features/sessions/composer.tsx
+#: src/features/sessions/session-banner.tsx
 msgid "The session is waiting for an approval."
 msgstr "会话正在等待审批。"
 
@@ -4322,10 +4322,6 @@ msgstr "工作"
 #: src/components/task-form-fields.tsx
 msgid "Working directory (optional)"
 msgstr "工作目录（可选）"
-
-#: src/features/sessions/pages.tsx
-msgid "Working…"
-msgstr "处理中…"
 
 #: src/components/approval-card.tsx
 msgid "Yes"
