@@ -142,8 +142,6 @@ sessions          (id, org_id, owner_user_id, conversation_id, parent_session_id
                    usage_tokens,                        -- 统计口径：本会话及其 subagent 的输入 + 输出 token（D101）
                    context_tokens nullable)             -- 本会话最近一次主 agent 调用的输入大小；第一次调用前为 null
                    -- 规则在 rule_sets
-usage_ledger      (id, org_id, session_id, chain json, input_tokens, output_tokens, cost, created_at)
-                  -- 按链逐级汇总，用于配额检查
 model_providers   (id, org_id, provider_id, kind[builtin|openai-compatible], builtin, name, base_url,
                    secret_id, models json, headers json, enabled)
                   -- key 在 secrets；headers 只放网关路由头，不放凭据
