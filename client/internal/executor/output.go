@@ -48,8 +48,12 @@ type Output struct {
 
 	totalBytes uint64
 	totalLines uint64
-	ends       [StreamSlots]uint64 // indexed by StreamIndex
-	segments   []segment           // in arrival order, both streams interleaved
+	// lastByte and hasBytes keep the end of the merged stream, so Lines can count a trailing line
+	// that has no newline. The count is updated once per written byte, not per sent chunk.
+	lastByte byte
+	hasBytes bool
+	ends     [StreamSlots]uint64 // indexed by StreamIndex
+	segments []segment           // in arrival order, both streams interleaved
 	// streams indexes segments by stream, in stream offset order, so ReadAt can binary search the
 	// first segment of an offset instead of scanning every segment.
 	streams     [StreamSlots][]int
@@ -130,6 +134,7 @@ func (o *Output) append(stream protocol.Stream, p []byte) {
 	o.ends[idx] += n
 	o.totalBytes += n
 	o.totalLines += uint64(bytes.Count(p, []byte{'\n'}))
+	o.lastByte, o.hasBytes = p[len(p)-1], true
 
 	if o.file == nil && !o.dropped && o.overThreshold() {
 		o.spill()
@@ -287,6 +292,21 @@ func (o *Output) End(stream protocol.Stream) uint64 {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.ends[StreamIndex(stream)]
+}
+
+// Lines returns the number of lines of the merged output, the same bytes the spill file holds:
+// the newline count, plus one when the output does not end with a newline, and 0 when nothing was
+// written (doc/protocol.md TaskExit).
+func (o *Output) Lines() uint64 {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if !o.hasBytes {
+		return 0
+	}
+	if o.lastByte == '\n' {
+		return o.totalLines
+	}
+	return o.totalLines + 1
 }
 
 // Path returns the spill file, or "" if output stayed in memory.

@@ -28,7 +28,7 @@ describe("node access grants api (sqlite)", () => {
 
 	beforeAll(async () => {
 		db = await openTestDb("sqlite");
-		cluster = new Cluster(db);
+		cluster = new Cluster(db, { nodeOfflineGraceMs: 10 });
 		app = makeApp(db, undefined, { cluster });
 		const admin = await createUser(db, { username: "root", kind: "admin", password: "password-123" });
 		const member = await createUser(db, { username: "alice", kind: "member", password: "password-123" });

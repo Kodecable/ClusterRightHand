@@ -234,6 +234,8 @@ describe("SSH tasks", () => {
 		expect(done.stdoutBytes).toBe(OUTPUT.length);
 		expect(done.stdoutHead).toBe("");
 		expect(done.outputFile).toBeNull();
+		// crhs sees all SSH output itself, so it counts the merged lines instead of reading task.exit.
+		expect(done.outputLines).toBe(1);
 		expect(session.taskCommands()).toHaveLength(1);
 	});
 
@@ -252,5 +254,18 @@ describe("SSH tasks", () => {
 		});
 		expect(done.stderrHead).toBe("");
 		expect(done.stderrBytes).toBe(0);
+	});
+
+	it("counts the merged output's lines, including a last line without a newline", async () => {
+		const node = await addSshNode("ssh-lines");
+		const session = new FakeSession();
+		session.taskOutput = Buffer.from("a\nb");
+		fake.connect = async () => session;
+		const task = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
+		const done = await waitFor("finished", async () => {
+			const current = await view(task.id);
+			return current.state === "exited" ? current : undefined;
+		});
+		expect(done).toMatchObject({ outputLines: 2, outputTail: "a\nb", outputTailLines: 2 });
 	});
 });

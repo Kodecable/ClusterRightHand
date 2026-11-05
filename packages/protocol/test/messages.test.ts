@@ -126,6 +126,7 @@ const taskExit: TaskExit = {
 	stdoutEnd: 6,
 	stderrEnd: 0,
 	outputFile: "",
+	outputLines: 1,
 	result: null,
 };
 const readResult: TaskResult = { kind: "file.read", from: 1, to: 2, eof: true, total: 3, tooLong: false };

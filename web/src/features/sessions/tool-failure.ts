@@ -1,11 +1,12 @@
 import type { TaskGroupView, TaskView } from "@/lib/api/types";
-import type { JsonObject } from "./sessionState";
+import type { Json, JsonObject } from "./sessionState";
 import { prettyJson } from "./sessionState";
 
 /**
  * The failure a tool result reports (doc/webui.md#工具卡片): the one badge a tool card shows beyond its call
- * status. It is read from the result JSON as the tool returned it, never from a live lookup, so a card keeps the
- * verdict its call had at the time.
+ * status. It is read from the result `details` (D112) or, for a transcript recorded before they existed,
+ * from the result JSON, never from a live lookup, so a card keeps the verdict its call had at the time. A
+ * result marked `isError` without a task verdict is a failure too.
  *
  * A single task result carries `task_id` and `state`; a task group carries `task_group_id` and `nodes` with one
  * such result per node. The failure rule is the same for both:
@@ -40,6 +41,30 @@ export function taskFailure(value: JsonObject): ToolFailure | undefined {
 	const exitCode = typeof value.exit_code === "number" ? value.exit_code : undefined;
 	if (exitCode !== undefined && exitCode !== 0) return { kind: "failed", reason: "exit", exitCode };
 	return undefined;
+}
+
+/** The failure a returned tool result reports (doc/webui.md "工具卡片"), or undefined when it did not fail. */
+export function toolResultFailure(result: {
+	text: string;
+	isError: boolean;
+	details: Json | undefined;
+}): ToolFailure | undefined {
+	// The details carry the same fields as the JSON the old results put in the text (D112). Only a call
+	// recorded before that change has no details, so its text is parsed as the fallback.
+	const failure =
+		result.details === undefined || result.details === null ? toolFailure(result.text) : detailsFailure(result.details);
+	if (failure !== undefined) return failure;
+	return result.isError ? { kind: "failed", reason: "state" } : undefined;
+}
+
+/** The failure of a tool result's details: a single task or a task group, or undefined for no failure. */
+export function detailsFailure(details: Json): ToolFailure | undefined {
+	if (details === null || typeof details !== "object" || Array.isArray(details)) return undefined;
+	const value = details as JsonObject;
+	const nodes = groupNodes(value);
+	if (nodes !== undefined) return groupFailure(value, nodes);
+	if (typeof value.task_id !== "string") return undefined;
+	return taskFailure(value);
 }
 
 /** The failure of a tool result's JSON text: a single task or a task group, or undefined for no failure. */

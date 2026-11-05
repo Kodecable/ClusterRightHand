@@ -70,7 +70,13 @@ describe("user authorizations", () => {
 		await bindMasterKey(db, masterKey);
 		signing = await loadAuthorizationSigningKey(db, masterKey);
 		audit = new Audit(db);
-		cluster = new Cluster(db, { authorizationKey: signing, trustWaitMs: 100, audit, clockWarnMs: 60_000 });
+		cluster = new Cluster(db, {
+			authorizationKey: signing,
+			trustWaitMs: 100,
+			audit,
+			clockWarnMs: 60_000,
+			nodeOfflineGraceMs: 100,
+		});
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		const ownerUser = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
@@ -399,13 +405,39 @@ describe("user authorizations", () => {
 		expect(submitted[0]).toMatchObject({ target_type: "authorization", target_id: pending.id });
 	});
 
-	it("dispatches a signature submitted while the node was away once it reconnects", async () => {
+	it("dispatches a signature submitted while the node was away once it reconnects within the grace", async () => {
 		const { node, crha, key } = await connect("pending-offline", (id) => summaryOf(id, [ownerEntry()]));
 		const task = await createPrivileged(node.id);
 		await waitState(task.id, "awaiting_authorization");
 		const pending = (await pendingFor(task.id)).authorization as { id: string; payload: string };
 
-		// The node goes away before the owner signs; the submission is stored but dispatches nothing.
+		// The node goes away before the owner signs; the submission waits for the offline grace (D113).
+		crha.ws.close();
+		await crha.closed;
+		await waitFor("link detached", () => !cluster.isConnected(node.id));
+		const submission = submit(signedAuthorization(new Uint8Array(Buffer.from(pending.payload, "base64"))));
+
+		// It reconnects and reports the same trust summary: the stored signature is used, no re-signing.
+		const second = await agents.connect(key, handshakeInit());
+		expect(await second.peer.request("hello", { ...START, privilegedMode: "forward" })).toEqual({ acks: [] });
+		await waitFor("link ready again", () => cluster.isConnected(node.id));
+		second.trust({ kind: "ok", summary: summaryOf(node.id, [ownerEntry()]) });
+		const res = await submission;
+		expect(res.status).toBe(200);
+		expect((await res.json()) as Record<string, unknown>).toEqual({
+			authorization: { id: pending.id, dispatched: [task.id] },
+		});
+		await waitFor("task.start after the reconnect", () => second.starts.length === 1);
+		expect(second.starts[0]?.authorizations).toHaveLength(1);
+		await waitState(task.id, "running");
+	});
+
+	it("fails a signature submitted while the node stays away after the grace", async () => {
+		const { node, crha } = await connect("pending-stays-offline", (id) => summaryOf(id, [ownerEntry()]));
+		const task = await createPrivileged(node.id);
+		await waitState(task.id, "awaiting_authorization");
+		const pending = (await pendingFor(task.id)).authorization as { id: string; payload: string };
+
 		crha.ws.close();
 		await crha.closed;
 		await waitFor("link detached", () => !cluster.isConnected(node.id));
@@ -414,15 +446,9 @@ describe("user authorizations", () => {
 		expect((await res.json()) as Record<string, unknown>).toEqual({
 			authorization: { id: pending.id, dispatched: [] },
 		});
-
-		// It reconnects and reports the same trust summary: the stored signature is used, no re-signing.
-		const second = await agents.connect(key, handshakeInit());
-		expect(await second.peer.request("hello", { ...START, privilegedMode: "forward" })).toEqual({ acks: [] });
-		await waitFor("link ready again", () => cluster.isConnected(node.id));
-		second.trust({ kind: "ok", summary: summaryOf(node.id, [ownerEntry()]) });
-		await waitFor("task.start after the reconnect", () => second.starts.length === 1);
-		expect(second.starts[0]?.authorizations).toHaveLength(1);
-		await waitState(task.id, "running");
+		// Previously the task kept waiting for the node; now the submission ends it after the grace.
+		const failed = await waitState(task.id, "failed");
+		expect(failed).toMatchObject({ errorCode: "node_offline", errorMessage: "the node is not connected" });
 	});
 
 	it("refuses a submission signed by another user's key, an expired one and one without a deadline", async () => {

@@ -133,13 +133,14 @@ func TestRoundTripAllTypes(t *testing.T) {
 		}},
 		{"TaskExit", "", func(t *testing.T) {
 			checkRoundTrip(t, "", TaskExit{
-				TaskID:     "t",
-				Outcome:    Outcome{Kind: OutcomeCode, Code: 1},
-				TimedOut:   true,
-				Cancelled:  false,
-				StdoutEnd:  3,
-				StderrEnd:  4,
-				OutputFile: "/tmp/out.log",
+				TaskID:      "t",
+				Outcome:     Outcome{Kind: OutcomeCode, Code: 1},
+				TimedOut:    true,
+				Cancelled:   false,
+				StdoutEnd:   3,
+				StderrEnd:   4,
+				OutputFile:  "/tmp/out.log",
+				OutputLines: 5,
 			})
 		}},
 		{"TaskExit with a result", "", func(t *testing.T) {
@@ -331,7 +332,7 @@ func TestWrongTupleLength(t *testing.T) {
 		{"hello as map", "a0", &Hello{}},
 		{"error as map", "a0", &Error{}},
 		{"input ref extra", "82015820" + repeatHex("00", HashSize) + "00", &InputRef{}},
-		{"task exit short", "860000f4f40000", &TaskExit{}},
+		{"task exit short", "8761748264636f646500f4f4000060", &TaskExit{}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

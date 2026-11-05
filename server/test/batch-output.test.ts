@@ -5,6 +5,7 @@ import {
 	BATCH_NODE_BYTES,
 	BATCH_NODE_LINES,
 	BatchAccumulator,
+	checkedOutputLimits,
 	createLiveTask,
 	GroupBudget,
 } from "../src/cluster/batch-output.ts";
@@ -263,6 +264,7 @@ describe("createLiveTask", () => {
 			stdoutTail: null,
 			stderrHead: null,
 			stderrTail: null,
+			outputTail: null,
 		});
 		// task.exit's ends override the totals for a status task.
 		expect(live.snapshot({ stdout: 42, stderr: 7 })).toMatchObject({ stdoutBytes: 42, stderrBytes: 7 });
@@ -281,17 +283,53 @@ describe("createLiveTask", () => {
 		});
 	});
 
-	it("full keeps the head and the tail as before", () => {
+	it("full keeps the head and the tail as before and one merged tail in arrival order", () => {
 		const live = createLiveTask("full");
-		live.append("stdout", 0, Buffer.from("hello"));
-		live.append("stderr", 0, Buffer.from("oops"));
+		live.append("stdout", 0, Buffer.from("a\n"));
+		live.append("stderr", 0, Buffer.from("b\n"));
+		live.append("stdout", 2, Buffer.from("c"));
 		expect(live.snapshot()).toMatchObject({
-			stdoutBytes: 5,
-			stderrBytes: 4,
-			stdoutHead: Buffer.from("hello"),
-			stdoutTail: Buffer.from("hello"),
-			stderrHead: Buffer.from("oops"),
-			stderrTail: Buffer.from("oops"),
+			stdoutBytes: 3,
+			stderrBytes: 2,
+			stdoutHead: Buffer.from("a\nc"),
+			stdoutTail: Buffer.from("a\nc"),
+			stderrHead: Buffer.from("b\n"),
+			stderrTail: Buffer.from("b\n"),
+			// stdout and stderr interleaved as they arrived, not per stream.
+			outputTail: Buffer.from("a\nb\nc"),
 		});
+	});
+
+	it("full caps its merged tail at the task's limits", () => {
+		const byLines = createLiveTask("full", undefined, { maxLines: 1, maxBytes: 100 });
+		byLines.append("stdout", 0, Buffer.from("one\ntwo\n"));
+		expect(byLines.snapshot().outputTail?.toString()).toBe("two\n");
+
+		const byBytes = createLiveTask("full", undefined, { maxLines: 10, maxBytes: 5 });
+		byBytes.append("stdout", 0, Buffer.from("one\ntwo\n"));
+		// The byte cut lands after a newline, so the kept tail starts at "two\n".
+		expect(byBytes.snapshot().outputTail?.toString()).toBe("two\n");
+	});
+
+	it("validates per-node limits and clamps them to the group total", () => {
+		expect(checkedOutputLimits()).toEqual({ maxLines: null, maxBytes: null });
+		expect(checkedOutputLimits(1, 1)).toEqual({ maxLines: 1, maxBytes: 1 });
+		expect(() => checkedOutputLimits(0)).toThrow(/maxLines/);
+		expect(() => checkedOutputLimits(BATCH_GROUP_LINES + 1)).toThrow(/maxLines/);
+		expect(() => checkedOutputLimits(undefined, 0)).toThrow(/maxBytes/);
+		expect(() => checkedOutputLimits(undefined, BATCH_GROUP_BYTES + 1)).toThrow(/maxBytes/);
+
+		const budget = new GroupBudget({ node: { maxLines: 1, maxBytes: 4 }, total: { maxLines: 10, maxBytes: 20 } });
+		expect(budget).toMatchObject({ nodeMaxLines: 1, nodeMaxBytes: 4, totalLines: 10, totalBytes: 20 });
+		const first = new BatchAccumulator("text", budget);
+		expect(first.append("stdout", 0, Buffer.from("abc\ndef\n"))).toBe(true);
+		expect(first.grant).toEqual({ bytes: 4, lines: 1 });
+		expect(first.kept().toString()).toBe("def\n");
+		expect(first.keptLines).toBe(1);
+		// The next node draws what is left from the same total.
+		const second = new BatchAccumulator("text", budget);
+		expect(second.append("stdout", 0, Buffer.from("ghi\n"))).toBe(true);
+		expect(second.grant).toEqual({ bytes: 4, lines: 1 });
+		expect(budget.bytesLeft).toBe(12);
 	});
 });

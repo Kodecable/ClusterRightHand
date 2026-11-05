@@ -70,7 +70,8 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 			]);
 			const sub = await runtime.submit(session.id, owner, "say hi on the node", "r1");
 			expect(await waitSubmission(runtime, session.id, sub)).toEqual({ status: "done", answer: "done" });
-			expect(JSON.parse(seen)).toMatchObject({ state: "exited", exit_code: 0, stdout: "from-agent\n" });
+			// The tool result the model sees is text: the command's output, then the note block.
+			expect(seen).toBe("from-agent\n");
 		} finally {
 			await runtime.close();
 		}
@@ -102,7 +103,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 			const res = await env.crhs.api(`/api/tasks/${waiting.id}/approval`, { body: { decision: "approve" } });
 			expect(res.status).toBe(200);
 			expect(await waitSubmission(runtime, session.id, sub)).toEqual({ status: "done", answer: "ok" });
-			expect(JSON.parse(seen)).toMatchObject({ task_id: waiting.id, state: "exited", stdout: "approved\n" });
+			expect(seen).toBe("approved\n");
 		} finally {
 			await runtime.close();
 		}
@@ -391,8 +392,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		runtime = await open();
 		try {
 			expect(await waitSubmission(runtime, session.id, sub)).toEqual({ status: "done", answer: "after restart" });
-			const result = JSON.parse(seen);
-			expect(result).toMatchObject({ task_id: running.id, state: "exited", stdout: "survived\n" });
+			expect(seen).toBe("survived\n");
 			const tasks = await env.crhs.db.selectFrom("tasks").select("id").where("actor_id", "=", session.id).execute();
 			expect(tasks.map((t) => t.id)).toEqual([running.id]);
 		} finally {

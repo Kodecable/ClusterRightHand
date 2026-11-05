@@ -120,7 +120,7 @@ describe("task list api (sqlite)", () => {
 
 	beforeAll(async () => {
 		db = await openTestDb("sqlite");
-		cluster = new Cluster(db);
+		cluster = new Cluster(db, { nodeOfflineGraceMs: 10 });
 		groups = new TaskGroups(db, cluster, {});
 		app = makeApp(db, undefined, { cluster, taskGroups: groups });
 		for (const [name, kind] of [

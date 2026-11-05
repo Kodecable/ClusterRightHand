@@ -214,7 +214,9 @@ describeBackends("task group node limit", (backend) => {
 				arguments: { targets: [allGroupId], cmd: "true" },
 			});
 			expect(res.isError).toBe(true);
-			expect((res.content as { type: string; text: string }[])[0]?.text).toBe(LIMIT_MESSAGE);
+			expect((res.content as { type: string; text: string }[])[0]?.text).toBe(
+				`error invalid_argument: ${LIMIT_MESSAGE}`,
+			);
 		} finally {
 			await client.close();
 		}

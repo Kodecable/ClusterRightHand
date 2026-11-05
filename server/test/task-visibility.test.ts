@@ -93,7 +93,7 @@ describe("task visibility (sqlite)", () => {
 
 	beforeEach(async () => {
 		db = await openTestDb("sqlite");
-		cluster = new Cluster(db);
+		cluster = new Cluster(db, { nodeOfflineGraceMs: 10 });
 		groups = new TaskGroups(db, cluster, {});
 		app = makeApp(db, undefined, { cluster, taskGroups: groups });
 		const alice = await createUser(db, { username: "alice", kind: "member", password: "password-123" });

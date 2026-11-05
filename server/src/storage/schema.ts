@@ -210,6 +210,9 @@ export interface TasksTable extends ApprovalColumns {
 	timeout_ms: number | null;
 	/** `full` for a single task; the task group's mode for its tasks. */
 	output_mode: OutputMode;
+	/** The capped output this task keeps (D112); null takes the default for its mode. */
+	max_lines: number | null;
+	max_bytes: number | null;
 	state: TaskState;
 	exit_code: number | null;
 	signal: string | null;
@@ -231,6 +234,10 @@ export interface TasksTable extends ApprovalColumns {
 	stdout_tail: string | null;
 	stderr_head: string | null;
 	stderr_tail: string | null;
+	/** The merged stdout+stderr tail in arrival order, base64 like the other output columns (D112). */
+	output_tail: string | null;
+	/** Total lines of the merged output, reported by crha in task.exit (D112). */
+	output_lines: number | null;
 	output_file: string | null;
 	/** The task's structured result in the JSON form of doc/protocol.md TaskResult; null when it has none. */
 	result: string | null;
@@ -247,6 +254,9 @@ export interface TaskGroupsTable extends ApprovalColumns {
 	fail_fast: number;
 	/** The batch output mode, fixed when the task group is created. */
 	output_mode: BatchOutputMode;
+	/** Per-node caps for the kept output (D112); null takes the defaults, 8KB / 128 lines. */
+	node_max_lines: number | null;
+	node_max_bytes: number | null;
 	/** 1 when the task group's tasks are privileged tasks (doc/privilege.md). */
 	privileged: number;
 	skipped: string;

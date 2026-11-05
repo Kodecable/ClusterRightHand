@@ -553,6 +553,15 @@ export interface TaskView {
 	stdoutTail: string;
 	stderrHead: string;
 	stderrTail: string;
+	/** A single task's merged stdout/stderr tail in arrival order (D112); "" for the batch modes. */
+	outputTail: string;
+	/** Lines shown by `outputTail`; a last line without a newline counts. */
+	outputTailLines: number;
+	/** Total lines of the merged output; null until the node reports it in task.exit. */
+	outputLines: number | null;
+	/** The task's output budget; null is the default for its mode (D112). */
+	maxLines: number | null;
+	maxBytes: number | null;
 	outputFile: string | null;
 	/** full for a single task; text, status or head for a batch node (doc/execution-plane.md#输出). */
 	outputMode: "full" | "text" | "status" | "head";
@@ -610,6 +619,9 @@ export interface TaskGroupView {
 	failFast: boolean;
 	/** status or text for an exec group; head for a file operation (doc/execution-plane.md#输出). */
 	outputMode: "status" | "text" | "head";
+	/** Per-node output caps (D112); null means the defaults, 8KB / 128 lines. */
+	nodeMaxLines: number | null;
+	nodeMaxBytes: number | null;
 	/** Whether the group's tasks are privileged tasks (doc/privilege.md). */
 	privileged: boolean;
 	skipped: string[];

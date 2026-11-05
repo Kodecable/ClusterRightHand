@@ -492,7 +492,8 @@ export type TranscriptItem =
 			status: "pending" | "running" | "done";
 			output: string;
 			details: Json | undefined;
-			result: { text: string; isError: boolean; details: Json | undefined } | undefined;
+			/** The result's content blocks, one per block: a text result has a raw and a note block (D112). */
+			result: { text: string; isError: boolean; details: Json | undefined; blocks?: string[] } | undefined;
 	  }
 	| { kind: "error"; key: string; reason: "aborted" | "failed"; message: string | null }
 	| { kind: "compaction"; key: string; text: string }
@@ -502,6 +503,11 @@ function userText(content: string | { type: string; text?: string }[]): string {
 	return typeof content === "string"
 		? content
 		: content.map((c) => (c.type === "text" ? (c.text ?? "") : "[image]")).join("");
+}
+
+/** The result's text blocks in order; an old result has exactly one. */
+function textBlocks(content: { type: string; text?: string }[]): string[] {
+	return content.filter((c) => c.type === "text").map((c) => c.text ?? "");
 }
 
 /**
@@ -564,7 +570,14 @@ export function transcript(state: SessionState): TranscriptItem[] {
 					status: res ? "done" : (live?.status ?? "pending"),
 					output: live?.output ?? "",
 					details: res?.details ?? live?.details,
-					result: res ? { text: userText(res.content), isError: res.isError, details: res.details } : undefined,
+					result: res
+						? {
+								text: userText(res.content),
+								isError: res.isError,
+								details: res.details,
+								blocks: textBlocks(res.content),
+							}
+						: undefined,
 				});
 			}
 		});

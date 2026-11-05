@@ -84,17 +84,19 @@ type TaskStart struct {
 }
 
 // TaskExit is the task.exit event body. Result carries the task's structured result; it is nil for
-// a kind that reports none (doc/protocol.md TaskResult).
+// a kind that reports none (doc/protocol.md TaskResult). OutputLines is the line count of the
+// merged stdout/stderr output, the same bytes the output file holds.
 type TaskExit struct {
-	_          struct{} `cbor:",toarray"`
-	TaskID     string
-	Outcome    Outcome
-	TimedOut   bool
-	Cancelled  bool
-	StdoutEnd  Uint
-	StderrEnd  Uint
-	OutputFile string
-	Result     *TaskResult
+	_           struct{} `cbor:",toarray"`
+	TaskID      string
+	Outcome     Outcome
+	TimedOut    bool
+	Cancelled   bool
+	StdoutEnd   Uint
+	StderrEnd   Uint
+	OutputFile  string
+	OutputLines Uint
+	Result      *TaskResult
 }
 
 // Facts is the facts event body. It is the protocol's one map-structured body: hostname is required,

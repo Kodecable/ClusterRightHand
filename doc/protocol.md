@@ -2,7 +2,7 @@
 
 [execution-plane.md](execution-plane.md#自有协议m35) 规定协议的语义；本文规定**线上格式**，TS（`packages/protocol`）和 Go（`client/internal/protocol`）都按本文手写，用 `test/interop/` 的 fixture 交叉验证。两者不一致时以本文为准；本文有歧义时先改本文。
 
-协议版本：`protocol_major = 2`，`protocol_minor = 0`。大版本 2 是本批的不兼容修改（`file.read` 改为按行、`task.exit` 增加第 8 个元素 `result`）；大版本 1 中 `minor = 1` 是 M4 的命令集合，`minor = 0` 是 M3.5 的命令集合。Noise prologue 为 `"crh/2" ‖ 挑战`。
+协议版本：`protocol_major = 3`，`protocol_minor = 0`。大版本 3 去掉了 `Facts.groups`、把 `TrustSummary.groups` 改为 `aliases`（D110），并在 `task.exit` 的 `output_file` 之后增加 `output_lines`（D112）；大版本 2 是 `file.read` 改为按行、`task.exit` 增加 `result`；大版本 1 中 `minor = 1` 是 M4 的命令集合，`minor = 0` 是 M3.5 的命令集合。Noise prologue 为 `"crh/3" ‖ 挑战`。
 
 ## 编码规则
 

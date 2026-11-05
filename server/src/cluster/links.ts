@@ -101,6 +101,8 @@ export function attach(core: ClusterCore, conn: NodeConnection, node: NodeRow): 
 		trustWaiters: new Set(),
 	};
 	core.links.set(node.id, link);
+	// A dispatch waiting out the offline grace re-checks the link now, then waits for hello.
+	core.notifyLink(node.id);
 	previous?.conn.close("replaced by a new connection");
 	const timer = core.graceTimers.get(node.id);
 	if (timer) clearTimeout(timer);
@@ -149,6 +151,7 @@ function detach(core: ClusterCore, link: NodeLink): void {
 	const nodeId = link.conn.nodeId;
 	if (core.links.get(nodeId) !== link) return; // already replaced
 	core.links.delete(nodeId);
+	core.notifyLink(nodeId);
 	if (!link.active) return;
 	auditConnection(core, link, "node.disconnected");
 	core.background("markNodeSeen failed", markNodeSeen(core.db, nodeId));
@@ -231,17 +234,8 @@ async function onFacts(core: ClusterCore, nodeId: string, facts: Facts): Promise
 }
 
 /** Waits for this connection's first trust summary; crhs does not query it itself. */
-export async function waitTrust(core: ClusterCore, link: NodeLink): Promise<void> {
-	if (link.trustFresh) return;
-	await new Promise<void>((resolve) => {
-		const wake = () => {
-			clearTimeout(timer);
-			link.trustWaiters.delete(wake);
-			resolve();
-		};
-		const timer = setTimeout(wake, core.trustWaitMs);
-		link.trustWaiters.add(wake);
-	});
+export function waitTrust(core: ClusterCore, link: NodeLink, timeoutMs?: number): Promise<void> {
+	return core.waitTrust(link, timeoutMs);
 }
 
 /** Reconciles the client's task list with ours, answers with Welcome, then queries the rest. */
@@ -275,7 +269,9 @@ async function onHello(core: ClusterCore, link: NodeLink, hello: Hello): Promise
 			continue;
 		}
 		// After a crhs restart the output is gone from memory: start over and let the client resend it all.
-		const live = core.live.get(t.taskId) ?? newLive(core, t.taskId, nodeId, row.output_mode, row.task_group_id);
+		const live =
+			core.live.get(t.taskId) ??
+			newLive(core, t.taskId, nodeId, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
 		acks.push({
 			taskId: t.taskId,
 			stdoutOffset: live.output.end("stdout"),
@@ -305,6 +301,7 @@ async function onHello(core: ClusterCore, link: NodeLink, hello: Hello): Promise
 	}
 	return afterResponse({ acks }, () => {
 		link.ready = true;
+		core.notifyLink(nodeId);
 		for (const { id } of open) {
 			if (reported.has(id)) continue;
 			link.queried.add(id);

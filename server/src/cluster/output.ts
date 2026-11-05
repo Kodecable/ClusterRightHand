@@ -16,11 +16,14 @@ export class StreamAccumulator {
 		return this.#end;
 	}
 
-	/** Returns false if the chunk leaves a gap (data was lost). */
-	append(offset: number, data: Uint8Array): boolean {
-		if (offset > this.#end) return false;
+	/**
+	 * Appends what is fresh in a chunk and returns it, or null if the chunk leaves a gap (data was
+	 * lost). An overlapping resend returns an empty buffer: it was already received.
+	 */
+	append(offset: number, data: Uint8Array): Buffer | null {
+		if (offset > this.#end) return null;
 		const skip = this.#end - offset;
-		if (skip >= data.length) return true;
+		if (skip >= data.length) return Buffer.alloc(0);
 		const fresh = Buffer.from(data.subarray(skip));
 		if (this.#head.length < OUTPUT_KEEP_BYTES) {
 			this.#head = Buffer.concat([this.#head, fresh.subarray(0, OUTPUT_KEEP_BYTES - this.#head.length)]);
@@ -29,7 +32,7 @@ export class StreamAccumulator {
 		if (this.#tail.length > OUTPUT_KEEP_BYTES * 2)
 			this.#tail = this.#tail.subarray(this.#tail.length - OUTPUT_KEEP_BYTES);
 		this.#end += fresh.length;
-		return true;
+		return fresh;
 	}
 
 	head(): Buffer {
@@ -55,8 +58,9 @@ function limitLines(buf: Buffer, side: "head" | "tail"): Buffer {
 }
 
 /**
- * Keeps the last `lines` lines of a tail: a trailing newline ends the last line, so at most `lines`
- * newline characters remain (none when `lines` is 0). Shared with the batch tail accumulator.
+ * Keeps the last `lines` lines of a per-stream tail: a trailing newline ends the last line, so at
+ * most `lines` newline characters remain (none when `lines` is 0). The budget component rolls its
+ * tails with its own newline allowance instead (`tailByNewlines` in batch-output.ts).
  */
 export function tailLines(buf: Buffer, lines: number): Buffer {
 	if (lines <= 0) {
@@ -68,4 +72,41 @@ export function tailLines(buf: Buffer, lines: number): Buffer {
 		if (buf[i] === 0x0a && ++count === lines) return buf.subarray(i + 1);
 	}
 	return buf;
+}
+
+/**
+ * Lines in output, by the protocol's rule (doc/protocol.md TaskExit.output_lines): newline characters,
+ * plus one for a non-empty last line that has no newline. Zero for no output.
+ */
+export function countOutputLines(data: string | Uint8Array): number {
+	const length = data.length;
+	if (length === 0) return 0;
+	let newlines = 0;
+	if (typeof data === "string") {
+		for (let i = 0; i < length; i++) if (data.charCodeAt(i) === 0x0a) newlines++;
+		return newlines + (data.charCodeAt(length - 1) === 0x0a ? 0 : 1);
+	}
+	for (let i = 0; i < length; i++) if (data[i] === 0x0a) newlines++;
+	return newlines + (data[length - 1] === 0x0a ? 0 : 1);
+}
+
+/**
+ * Counts the lines of a merged output as chunks arrive (an SSH task's output, which crhs sees in full):
+ * newline characters, plus one for a non-empty last line that has no newline.
+ */
+export class LineCounter {
+	#newlines = 0;
+	#bytes = 0;
+	#last = 0;
+
+	add(data: Uint8Array): void {
+		if (data.length === 0) return;
+		for (let i = 0; i < data.length; i++) if (data[i] === 0x0a) this.#newlines++;
+		this.#bytes += data.length;
+		this.#last = data[data.length - 1] ?? 0;
+	}
+
+	get lines(): number {
+		return this.#bytes === 0 ? 0 : this.#newlines + (this.#last === 0x0a ? 0 : 1);
+	}
 }

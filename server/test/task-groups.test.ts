@@ -92,7 +92,7 @@ describeBackends("task groups", (backend) => {
 		db = await openTestDb(backend);
 		const u = await createUser(db, { username: "alice", kind: "member" });
 		user = { sessionId: "s", userId: u.id, username: u.username, kind: "member" };
-		cluster = new Cluster(db);
+		cluster = new Cluster(db, { nodeOfflineGraceMs: 10 });
 		await addNode("web-1", ["web", "prod"]);
 		await addNode("web-2", ["web"]);
 		await addNode("db-1", ["prod"]);
@@ -224,7 +224,7 @@ describeBackends("task groups", (backend) => {
 
 	it("ends a group whose run throws instead of finishing it", async () => {
 		const probe = probeDb(db);
-		const probedCluster = new Cluster(probe.db);
+		const probedCluster = new Cluster(probe.db, { nodeOfflineGraceMs: 10 });
 		const probedGroups = new TaskGroups(probe.db, probedCluster);
 		try {
 			const groupId = "group-failure";
@@ -287,7 +287,7 @@ describeBackends("task groups", (backend) => {
 			.execute();
 		await createRootRuleSet(db, await defaultOrgId(db), { type: "api_token", id: tokenId }, "yolo");
 		const probe = probeDb(db);
-		const probedCluster = new Cluster(probe.db);
+		const probedCluster = new Cluster(probe.db, { nodeOfflineGraceMs: 10 });
 		const probedGroups = new TaskGroups(probe.db, probedCluster);
 		try {
 			const chain = [{ type: "api_token" as const, id: tokenId }];

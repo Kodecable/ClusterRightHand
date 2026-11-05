@@ -12,9 +12,22 @@ import type { TasksTable } from "../storage/schema.ts";
 import { KeyedQueue } from "../util/keyed-queue.ts";
 import type { GroupBudget } from "./batch-output.ts";
 import type { NodeLink } from "./links.ts";
+import { getNode, type NodeRow } from "./nodes.ts";
 import type { SshConnection } from "./ssh-runner.ts";
 import type { Live } from "./task-state.ts";
-import { type Actor, type ClusterOptions, type TaskView, UNKNOWN_OUTPUT_KEEP_MS } from "./types.ts";
+import {
+	type Actor,
+	type ClusterOptions,
+	NODE_OFFLINE_GRACE_MS,
+	type TaskView,
+	UNKNOWN_OUTPUT_KEEP_MS,
+} from "./types.ts";
+
+/** A node that is ready to take a task.start, with its current connection (none for SSH). */
+export interface ReadyNode {
+	node: NodeRow;
+	link?: NodeLink;
+}
 
 /** The timestamp every write of a state change records, as the database keeps it. */
 export function now(): string {
@@ -26,6 +39,8 @@ export class ClusterCore {
 	readonly db: Db;
 	/** How long a node may stay disconnected before its tasks are reported unknown (doc/execution-plane.md#断线恢复). */
 	readonly graceMs: number;
+	/** How long a task waits for its offline node before failing node_offline (D113). */
+	readonly nodeOfflineGraceMs: number;
 	readonly unknownKeepMs: number;
 	/** TaskInput chunk size; one frame stays under MAX_FRAME_BYTES. */
 	readonly chunkBytes: number;
@@ -59,6 +74,8 @@ export class ClusterCore {
 	readonly cancelledBy = new Map<string, Actor>();
 	/** The waiters of waitTask, woken on every state change. */
 	readonly waiters = new Map<string, Set<() => void>>();
+	/** Tasks waiting for a node's link to change (the offline grace, D113). */
+	readonly linkWaiters = new Map<string, Set<() => void>>();
 	/** Serializes database updates per task, since frames are handled asynchronously. */
 	readonly taskQueue = new KeyedQueue("task queue");
 	/** Serializes trust.summary processing per node, so a rejection never plans against an older report. */
@@ -75,6 +92,7 @@ export class ClusterCore {
 	constructor(db: Db, options: ClusterOptions = {}) {
 		this.db = db;
 		this.graceMs = options.reconnectGraceMs ?? 120_000;
+		this.nodeOfflineGraceMs = options.nodeOfflineGraceMs ?? NODE_OFFLINE_GRACE_MS;
 		this.unknownKeepMs = options.unknownOutputKeepMs ?? UNKNOWN_OUTPUT_KEEP_MS;
 		this.chunkBytes = options.inputChunkBytes ?? 48 * 1024;
 		this.idleMs = options.idleTimeoutMs ?? 90_000;
@@ -129,6 +147,88 @@ export class ClusterCore {
 		this.waiters.delete(id);
 	}
 
+	/** Wakes the tasks waiting for this node's link (attach, detach, hello ready, trust report). */
+	notifyLink(nodeId: string): void {
+		const waiters = this.linkWaiters.get(nodeId);
+		if (!waiters) return;
+		this.linkWaiters.delete(nodeId);
+		for (const wake of [...waiters]) wake();
+	}
+
+	/** Waits for a node's link to change, at most `timeoutMs`; the offline grace also polls. */
+	waitLink(nodeId: string, timeoutMs: number): Promise<void> {
+		return new Promise<void>((resolve) => {
+			const waiters = this.linkWaiters.get(nodeId) ?? new Set<() => void>();
+			this.linkWaiters.set(nodeId, waiters);
+			const done = () => {
+				clearTimeout(timer);
+				waiters.delete(done);
+				resolve();
+			};
+			const timer = setTimeout(done, timeoutMs);
+			waiters.add(done);
+		});
+	}
+
+	/** Waits for this connection's first trust summary; crhs does not query it itself. */
+	waitTrust(link: NodeLink, timeoutMs: number = this.trustWaitMs): Promise<void> {
+		if (link.trustFresh) return Promise.resolve();
+		return new Promise<void>((resolve) => {
+			const wake = () => {
+				clearTimeout(timer);
+				link.trustWaiters.delete(wake);
+				resolve();
+			};
+			const timer = setTimeout(wake, timeoutMs);
+			link.trustWaiters.add(wake);
+		});
+	}
+
+	/** A node that is ready right now, without waiting: an online link (or an SSH route). */
+	readyNodeNow(nodeId: string): Promise<ReadyNode | undefined> {
+		return this.#readyNode(nodeId, { trust: false }, 0);
+	}
+
+	/**
+	 * Waits up to NODE_OFFLINE_GRACE_MS for a node to be ready to take a task.start (D113): an active,
+	 * ready link, and for a forward privileged task also a fresh trust report. SSH nodes have no
+	 * connection to wait for: they are ready while a route exists. Returns undefined when the grace
+	 * ran out, the server is closing or waits were ended.
+	 */
+	async waitNodeReady(nodeId: string, options: { trust?: boolean } = {}): Promise<ReadyNode | undefined> {
+		// An SSH node has no standing connection to wait for: without a route it can never become ready, so
+		// fail at once instead of polling for the whole grace (doc/execution-plane.md#节点不在线).
+		const node = await getNode(this.db, nodeId);
+		if (node?.transport === "ssh" && this.sshRoute === undefined) return undefined;
+		const deadline = Date.now() + this.nodeOfflineGraceMs;
+		for (;;) {
+			const ready = await this.#readyNode(nodeId, options, deadline);
+			if (ready) return ready;
+			if (this.closing || this.waitsEnded) return undefined;
+			const left = deadline - Date.now();
+			if (left <= 0) return undefined;
+			// A link change wakes the wait at once; the short timer catches a status change in the database.
+			await this.waitLink(nodeId, Math.min(left, 250));
+		}
+	}
+
+	async #readyNode(nodeId: string, options: { trust?: boolean }, deadline: number): Promise<ReadyNode | undefined> {
+		const node = await getNode(this.db, nodeId);
+		if (!node) return undefined;
+		if (node.transport === "ssh") {
+			return node.status === "active" && this.sshRoute !== undefined ? { node } : undefined;
+		}
+		const link = this.links.get(nodeId);
+		if (node.status !== "active" || !link || link.conn.closed || !link.ready) return undefined;
+		if (options.trust && !link.trustFresh) {
+			const left = deadline - Date.now();
+			if (left <= 0) return undefined;
+			await this.waitTrust(link, Math.min(left, this.trustWaitMs));
+			return undefined;
+		}
+		return { node, link };
+	}
+
 	/**
 	 * Ends every waitTask at once without closing anything: each returns the task's current view, and so does
 	 * every waitTask started afterwards. Shutdown calls it after the agent runtime closes, so a handler holding
@@ -140,6 +240,8 @@ export class ClusterCore {
 		this.waitsEnded = true;
 		for (const waiters of [...this.waiters.values()]) for (const wake of [...waiters]) wake();
 		this.waiters.clear();
+		for (const nodeId of [...this.linkWaiters.keys()]) this.notifyLink(nodeId);
+		for (const link of this.links.values()) for (const wake of [...link.trustWaiters]) wake();
 	}
 
 	/** Waits until the pending background writes and the keyed task queues have settled. */

@@ -25,6 +25,7 @@ import { closeSsh } from "./ssh-runner.ts";
 import * as tasks from "./task-state.ts";
 import type { Actor, ApprovalDecision, ApprovalRecord, ClusterOptions, CreateTaskInput, TaskView } from "./types.ts";
 
+export { countOutputLines } from "./output.ts";
 export { EMPTY_INPUT_REF, operationOfJson, specFromRow, summarize } from "./spec.ts";
 export type {
 	Actor,
@@ -35,7 +36,13 @@ export type {
 	CreateTaskInput,
 	TaskView,
 } from "./types.ts";
-export { AUTHORIZATION_CODES, AUTHORIZATION_WAIT_MS, TERMINAL, UNKNOWN_OUTPUT_KEEP_MS } from "./types.ts";
+export {
+	AUTHORIZATION_CODES,
+	AUTHORIZATION_WAIT_MS,
+	NODE_OFFLINE_GRACE_MS,
+	TERMINAL,
+	UNKNOWN_OUTPUT_KEEP_MS,
+} from "./types.ts";
 
 /**
  * The Cluster core's execution side: node connections, task dispatch, the task state machine and its
@@ -161,7 +168,8 @@ export class Cluster {
 
 	/**
 	 * Creates a task. With a rule chain it is first judged: denied, left waiting for approval, or
-	 * dispatched. A node that is not connected at dispatch fails it at once with node_offline.
+	 * dispatched. A node that is not connected at dispatch gets the offline grace (D113) and then
+	 * fails with node_offline.
 	 */
 	createTask(input: CreateTaskInput): Promise<TaskView> {
 		return tasks.createTask(this.#core, input);

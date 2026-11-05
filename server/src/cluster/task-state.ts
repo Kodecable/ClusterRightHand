@@ -21,7 +21,17 @@ import type { OutputMode, TaskState as TaskRowState, TasksTable } from "../stora
 import { newId } from "../util/id.ts";
 import { parseTaskAuthorization } from "./authorization.ts";
 import { planPrivileged, withdrawLocal } from "./authorization-flow.ts";
-import { createLiveTask, GroupBudget, type LiveTask, type OutputSnapshot } from "./batch-output.ts";
+import {
+	BATCH_GROUP_BYTES,
+	BATCH_GROUP_LINES,
+	BATCH_NODE_BYTES,
+	BATCH_NODE_LINES,
+	checkedOutputLimits,
+	createLiveTask,
+	GroupBudget,
+	type LiveTask,
+	type OutputSnapshot,
+} from "./batch-output.ts";
 import type { NodeConnection } from "./connection.ts";
 import { type ClusterCore, now } from "./core.ts";
 import { userCanAccessNode } from "./node-access.ts";
@@ -60,6 +70,7 @@ const EMPTY_OUTPUT: OutputSnapshot = {
 	stdoutTail: null,
 	stderrHead: null,
 	stderrTail: null,
+	outputTail: null,
 };
 
 /**
@@ -184,10 +195,12 @@ export async function evaluateForNodes(
 
 /**
  * Creates a task. With a rule chain it is first judged: denied, left waiting for approval, or
- * dispatched. A node that is not connected at dispatch fails it at once with node_offline.
+ * dispatched. A node that is not connected at dispatch gets the offline grace (D113) and then
+ * fails with node_offline.
  */
 export async function createTask(core: ClusterCore, input: CreateTaskInput): Promise<TaskView> {
 	if (core.closing) throw new Error("the server is shutting down");
+	const limits = checkedOutputLimits(input.maxLines, input.maxBytes);
 	const node = await getNode(core.db, input.nodeId);
 	if (!node) throw new Error(`no such node: ${input.nodeId}`);
 	const kind = input.spec.kind;
@@ -230,6 +243,8 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 		privileged: input.privileged ? 1 : 0,
 		timeout_ms: input.timeoutMs ?? null,
 		output_mode: input.outputMode ?? "full",
+		max_lines: limits.maxLines,
+		max_bytes: limits.maxBytes,
 		// Allowed tasks pass through awaiting_approval only for the instant before dispatch.
 		state: denied ? "denied" : "awaiting_approval",
 		exit_code: null,
@@ -251,6 +266,8 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 		stdout_tail: null,
 		stderr_head: null,
 		stderr_tail: null,
+		output_tail: null,
+		output_lines: null,
 		result: null,
 		output_file: null,
 		late_result: null,
@@ -338,38 +355,36 @@ export async function dispatch(
 	inputBytes: Uint8Array,
 	opts: { privileged?: boolean; timeoutMs?: number },
 ): Promise<void> {
-	const ssh = node.transport === "ssh";
-	const link = core.links.get(node.id);
-	const row = await core.row(id);
+	let row = await core.row(id);
 	// Access may have been revoked while the task waited for approval or a signature (D108). Check again
 	// immediately before anything is sent; a revoked task ends without reaching the node.
 	if (row && !(await userCanAccessNode(core.db, row.on_behalf_of_user_id, node.id))) {
 		await failNodeAccessRevoked(core, id, row, ["awaiting_approval"]);
 		return;
 	}
-	const fresh = await getNode(core.db, node.id);
-	const online =
-		fresh?.status === "active" && (ssh ? core.sshRoute !== undefined : link?.ready === true && !link.conn.closed);
-	if (!online) {
-		await endTask(core, id, {
-			write: {
-				from: ["awaiting_approval"],
-				set: {
-					state: "failed",
-					error_code: "node_offline",
-					error_message: "the node is not connected",
-					pending_input: null,
-					handler_type: null,
-					handler_session_id: null,
-				},
-			},
-			group: row?.task_group_id ?? null,
-		});
+	const before = await getNode(core.db, node.id);
+	const ssh = node.transport === "ssh";
+	// A forward privileged task also waits for its new connection's trust report (D113).
+	const trust = !ssh && row?.privileged === 1 && before?.privileged_mode === "forward";
+	// A connected node dispatches at once; planPrivileged then waits for the trust report as before.
+	// D113: a node that is off when crhs wants to send gets the grace to reconnect, not an instant failure.
+	const ready = (await core.readyNodeNow(node.id)) ?? (await core.waitNodeReady(node.id, { trust }));
+	if (!ready) {
+		await failNodeOffline(core, id, row);
 		return;
 	}
+	// The row may have been cancelled or settled while the grace ran.
+	row = await core.row(id);
+	if (row?.state !== "awaiting_approval") return;
+	if (!(await userCanAccessNode(core.db, row.on_behalf_of_user_id, node.id))) {
+		await failNodeAccessRevoked(core, id, row, ["awaiting_approval"]);
+		return;
+	}
+	const fresh = ready.node;
+	const link = ready.link;
 	// A privileged task on a forward node needs an authorization before task.start (doc/privilege.md#授权路径).
 	// native/ignore/reject nodes, SSH nodes and ordinary tasks keep the plain dispatch below.
-	if (!ssh && link && row?.privileged === 1 && fresh?.privileged_mode === "forward") {
+	if (!ssh && link && row.privileged === 1 && fresh.privileged_mode === "forward") {
 		await planPrivileged(core, id, fresh, link, spec, inputBytes, opts, ["awaiting_approval"]);
 		return;
 	}
@@ -388,7 +403,7 @@ export async function dispatch(
 	if (res.numUpdatedRows === 0n) return;
 	core.notify(id);
 	if (ssh) {
-		newLive(core, id, node.id, row?.output_mode ?? "full", row?.task_group_id ?? null);
+		newLive(core, id, node.id, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
 		core.background(
 			"ssh task failed",
 			runSsh(
@@ -402,10 +417,35 @@ export async function dispatch(
 			),
 		);
 	} else if (link) {
-		newLive(core, id, node.id, row?.output_mode ?? "full", row?.task_group_id ?? null);
+		newLive(core, id, node.id, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
 		// The start may be refused or the link may drop; the state machine follows the response.
 		core.background("task dispatch failed", dispatchRemote(core, link, id, spec, inputBytes, opts));
 	}
+}
+
+/** Ends a task whose node never became ready within the offline grace (D113). */
+export async function failNodeOffline(
+	core: ClusterCore,
+	id: string,
+	row: Selectable<TasksTable> | undefined,
+	from: readonly TaskRowState[] = ["awaiting_approval"],
+): Promise<void> {
+	await endTask(core, id, {
+		write: {
+			from,
+			set: {
+				state: "failed",
+				error_code: "node_offline",
+				error_message: "the node is not connected",
+				pending_input: null,
+				handler_type: null,
+				handler_session_id: null,
+			},
+		},
+		live: "none",
+		group: row?.task_group_id ?? null,
+		onChange: row?.actor_id,
+	});
 }
 
 /**
@@ -485,7 +525,9 @@ export async function onExit(core: ClusterCore, conn: NodeConnection, exit: Task
 		conn.peer.emit("task.exit.ack", { taskId: row.id });
 		return;
 	}
-	const live = existing ?? newLive(core, exit.taskId, conn.nodeId, row.output_mode, row.task_group_id);
+	const live =
+		existing ??
+		newLive(core, exit.taskId, conn.nodeId, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
 	// TaskExit follows all output on the wire; if bytes are missing, the client will resend after a
 	// reconnect and send TaskExit again. Record what we have only when complete. A `status` task gets
 	// no task.output at all, so there is nothing to wait for (doc/execution-plane.md#输出).
@@ -509,6 +551,7 @@ export async function onExit(core: ClusterCore, conn: NodeConnection, exit: Task
 		cancelled: exit.cancelled ? 1 : 0,
 		result: exit.result === null ? null : JSON.stringify(taskResultToJson(exit.result)),
 		...outputColumns(output),
+		output_lines: exit.outputLines,
 		output_file: exit.outputFile || null,
 	};
 	if (row.state === "unknown") {
@@ -1011,18 +1054,36 @@ export async function cancelTask(
 // ---- live output ----
 
 /** The live record of a task between dispatch and its recorded end. */
-export function newLive(core: ClusterCore, id: string, nodeId: string, mode: OutputMode, groupId: string | null): Live {
+export function newLive(
+	core: ClusterCore,
+	id: string,
+	nodeId: string,
+	mode: OutputMode,
+	groupId: string | null,
+	maxLines: number | null = null,
+	maxBytes: number | null = null,
+): Live {
 	// `text` and `head` draw from the group's budget; a single task's `full` keeps its own head/tail.
-	const budget = mode === "text" || mode === "head" ? budgetFor(core, budgetKey(groupId, id)) : undefined;
-	const live: Live = { id, nodeId, groupId, output: createLiveTask(mode, budget) };
+	const budget =
+		mode === "text" || mode === "head" ? budgetFor(core, budgetKey(groupId, id), maxLines, maxBytes) : undefined;
+	const limits =
+		mode === "full" ? { maxLines: maxLines ?? BATCH_GROUP_LINES, maxBytes: maxBytes ?? BATCH_GROUP_BYTES } : undefined;
+	const live: Live = { id, nodeId, groupId, output: createLiveTask(mode, budget, limits) };
 	core.live.set(id, live);
 	return live;
 }
 
-function budgetFor(core: ClusterCore, key: string): GroupBudget {
+/**
+ * The group's budget, created from the per-node caps the task group stored (D112). Every member stored
+ * the same caps; a later reconnect re-creates the budget from the first member's row.
+ */
+function budgetFor(core: ClusterCore, key: string, maxLines: number | null, maxBytes: number | null): GroupBudget {
 	let budget = core.budgets.get(key);
 	if (!budget) {
-		budget = new GroupBudget();
+		budget = new GroupBudget({
+			node: { maxLines: maxLines ?? BATCH_NODE_LINES, maxBytes: maxBytes ?? BATCH_NODE_BYTES },
+			total: { maxLines: BATCH_GROUP_LINES, maxBytes: BATCH_GROUP_BYTES },
+		});
 		core.budgets.set(key, budget);
 	}
 	return budget;

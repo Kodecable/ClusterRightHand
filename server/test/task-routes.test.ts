@@ -25,7 +25,7 @@ describe("task routes: privileged (sqlite)", () => {
 	beforeAll(async () => {
 		db = await openTestDb("sqlite");
 		audit = new Audit(db);
-		cluster = new Cluster(db, { audit });
+		cluster = new Cluster(db, { audit, nodeOfflineGraceMs: 10 });
 		groups = new TaskGroups(db, cluster, { audit });
 		app = makeApp(db, undefined, { cluster, taskGroups: groups, audit });
 		const user = await createUser(db, { username: "alice", kind: "member", password: "password-123" });
@@ -144,6 +144,42 @@ describe("task routes: privileged (sqlite)", () => {
 		expect(res.status).toBe(201);
 		const { task } = (await res.json()) as { task: TaskView };
 		expect(task.privileged).toBe(false);
+	});
+
+	it("accepts output budgets for a single task and a task group", async () => {
+		const single = await post(`/api/nodes/${nodeId}/tasks`, {
+			kind: "exec",
+			argv: ["true"],
+			maxLines: 3,
+			maxBytes: 2048,
+			waitMs: 5000,
+		});
+		expect(single.status).toBe(201);
+		const { task } = (await single.json()) as { task: TaskView };
+		expect(task).toMatchObject({ maxLines: 3, maxBytes: 2048, state: "failed", errorCode: "node_offline" });
+
+		const batch = await post("/api/task-groups", {
+			kind: "exec",
+			argv: ["true"],
+			targets: ["n1"],
+			outputMode: "text",
+			maxLines: 2,
+			maxBytes: 1024,
+			waitMs: 5000,
+		});
+		expect(batch.status).toBe(201);
+		const { taskGroup } = (await batch.json()) as { taskGroup: TaskGroupView };
+		expect(taskGroup).toMatchObject({ nodeMaxLines: 2, nodeMaxBytes: 1024 });
+		expect(taskGroup.tasks[0]).toMatchObject({ maxLines: 2, maxBytes: 1024 });
+
+		for (const body of [
+			{ kind: "exec", argv: ["true"], maxLines: 0 },
+			{ kind: "exec", argv: ["true"], maxLines: 2001 },
+			{ kind: "exec", argv: ["true"], maxBytes: 0 },
+			{ kind: "exec", argv: ["true"], maxBytes: 50 * 1024 + 1 },
+		]) {
+			expect((await post(`/api/nodes/${nodeId}/tasks`, body)).status).toBe(400);
+		}
 	});
 
 	it("rejects a non-boolean flag instead of ignoring it", async () => {

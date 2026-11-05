@@ -39,6 +39,8 @@ const GROUP: TaskGroupView = {
 	parallel: 10,
 	failFast: false,
 	outputMode: "status",
+	nodeMaxLines: null,
+	nodeMaxBytes: null,
 	privileged: false,
 	skipped: [],
 	tasks: [],

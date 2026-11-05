@@ -29,6 +29,9 @@ export interface CreateTaskInput {
 	timeoutMs?: number;
 	/** How much output to keep; single tasks use `full`, a task group's tasks get its mode. */
 	outputMode?: OutputMode;
+	/** The task's output budget (D112); for a task group's member, the group's per-node caps. */
+	maxLines?: number;
+	maxBytes?: number;
 	actor: Actor;
 	taskGroupId?: string;
 	/** The rule chain, root first; omitted when a user acts in person (doc/access-control.md#规则链). */
@@ -84,6 +87,8 @@ export interface TaskView {
 	signal: string | null;
 	timedOut: boolean;
 	cancelled: boolean;
+	/** The task's timeout in milliseconds; null when it had none (used by the text note "timed out after N s"). */
+	timeoutMs: number | null;
 	errorCode: string | null;
 	errorMessage: string | null;
 	stdoutBytes: number;
@@ -96,6 +101,15 @@ export interface TaskView {
 	stdoutTail: string;
 	stderrHead: string;
 	stderrTail: string;
+	/** A single task's merged stdout+stderr tail in arrival order (D112); "" for the batch modes. */
+	outputTail: string;
+	/** Lines of the merged tail, counted by newline characters; a last line without one counts. */
+	outputTailLines: number;
+	/** Total lines of the merged output; null until crha reports it in task.exit (or an SSH task counts it). */
+	outputLines: number | null;
+	/** The task's output budget; null means the default for its mode (D112). */
+	maxLines: number | null;
+	maxBytes: number | null;
 	outputFile: string | null;
 	/** How much output was kept for this task (doc/execution-plane.md#输出). */
 	outputMode: OutputMode;
@@ -130,6 +144,8 @@ export interface TaskView {
 export interface ClusterOptions {
 	/** How long a node may stay disconnected before its tasks are reported unknown(connection_lost). */
 	reconnectGraceMs?: number;
+	/** How long a task waits for its offline node before failing node_offline (D113). */
+	nodeOfflineGraceMs?: number;
 	/** How long a task reported unknown keeps its output for a late result (UNKNOWN_OUTPUT_KEEP_MS). */
 	unknownOutputKeepMs?: number;
 	/** TaskInput chunk size; one frame must stay under MAX_FRAME_BYTES (60 KiB). */
@@ -169,6 +185,12 @@ export const GROUP_TERMINAL: ReadonlySet<TaskGroupState> = new Set(["finished", 
  * where it stopped; after it the buffer is dropped so a node that never returns cannot leak it.
  */
 export const UNKNOWN_OUTPUT_KEEP_MS = 10 * 60 * 1000;
+
+/**
+ * How long a task waits for its node to reconnect before it fails with node_offline (D113). The wait
+ * covers the seconds after a crhs restart in which nodes reconnect and short network hiccups.
+ */
+export const NODE_OFFLINE_GRACE_MS = 30_000;
 
 /**
  * Codes a crha answers `task.start` with before accepting, for which the task may be retried with a

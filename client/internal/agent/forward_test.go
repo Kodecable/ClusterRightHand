@@ -654,6 +654,10 @@ func TestForwardExactExec(t *testing.T) {
 	if exit.StdoutEnd != 3 || exit.StderrEnd != 4 {
 		t.Fatalf("ends = %d/%d, want 3/4", exit.StdoutEnd, exit.StderrEnd)
 	}
+	// The relayed "out" and "oops" have no newline, so the merged output is one line.
+	if exit.OutputLines != 1 {
+		t.Fatalf("output_lines = %d, want 1", exit.OutputLines)
+	}
 	frames := w.frames.snapshot()
 	accepted := indexOf(frames, "response task.start ok=true")
 	output := indexOf(frames, "event task.output")

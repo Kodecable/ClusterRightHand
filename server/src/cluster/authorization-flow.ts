@@ -335,9 +335,24 @@ async function onLocalState(core: ClusterCore, id: string, attempt: number, stat
 		return;
 	}
 	// Approved: task.start with the approval instead of an authorization (doc/protocol.md#taskstart).
-	const node = await getNode(core.db, row.node_id);
-	const link = core.links.get(row.node_id);
-	if (!node || !link || link.conn.closed || !link.ready || !record) return;
+	if (!record) return;
+	const before = await getNode(core.db, row.node_id);
+	// A connected node dispatches as before. D113: a node that dropped waits for the grace, and a
+	// forward privileged task also for the new connection's trust report.
+	const ready =
+		(await core.readyNodeNow(row.node_id)) ??
+		(await core.waitNodeReady(row.node_id, { trust: before?.privileged_mode === "forward" }));
+	if (!ready?.link) {
+		await finishAuthorization(core, id, row, "failed", "node_offline", "the node is not connected", {
+			...record,
+			pending: null,
+			local: null,
+			updatedAt: new Date().toISOString(),
+		});
+		return;
+	}
+	const node = ready.node;
+	const link = ready.link;
 	// A member of a group that already ended (interrupted by a restart) never dispatches again.
 	if (await groupEnded(core, row.task_group_id)) return;
 	// The local approval may arrive long after the task was parked: access can have been revoked since (D108).
@@ -372,7 +387,7 @@ async function onLocalState(core: ClusterCore, id: string, attempt: number, stat
 		handler_session_id: null,
 	});
 	if (!claimed) return;
-	newLive(core, id, node.id, row.output_mode, row.task_group_id);
+	newLive(core, id, node.id, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
 	core.background("task group state update failed", syncGroupState(core, row.task_group_id));
 	const start = taskStartOf(id, row, spec, { privileged: true, attempt });
 	await sendAuthorizedStart(core, link, node.id, id, spec, input, start, updated);
@@ -817,7 +832,7 @@ async function claimOwnerAuthorization(
 		handler_session_id: null,
 	});
 	if (!claimed) return null;
-	newLive(core, row.id, node.id, row.output_mode, row.task_group_id);
+	newLive(core, row.id, node.id, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
 	core.background("task group state update failed", syncGroupState(core, row.task_group_id));
 	// The task no longer waits for a signature; the session it belongs to runs again (doc/agent-runtime.md#会话状态).
 	core.onChange?.(row.actor_id);
@@ -908,11 +923,11 @@ export async function submitAuthorization(
 		.execute();
 	// Judge every covered task first, then claim all of them, then send: a rejection of one
 	// task.start must not re-plan (and change the attempt of) a sibling still about to be sent.
-	const judged: JudgedSubmission[] = [];
-	for (const { id } of rows) {
-		const entry = await core.taskQueue.run(id, () => judgeSubmitted(core, id, submitted, material));
-		if (entry) judged.push(entry);
-	}
+	// The tasks are judged concurrently so a whole group on an offline node waits out one grace, not one
+	// grace per member; each task's own queue still serializes its writes (D113).
+	const judged = (
+		await Promise.all(rows.map(({ id }) => core.taskQueue.run(id, () => judgeSubmitted(core, id, submitted, material))))
+	).filter((entry): entry is JudgedSubmission => entry !== null);
 	// The Authorization is one object for the whole group (D88), so it carries the union of the
 	// cosignatures the covered nodes need; a node ignores a signature of a key it does not trust.
 	const keys = new Set(submitted.signatures.map(signatureKey));
@@ -966,9 +981,24 @@ async function judgeSubmitted(
 	if (payload.taskIds !== null) {
 		if (!payload.taskIds.includes(id) || payload.attempt !== row.attempt) return null;
 	}
-	const node = await getNode(core.db, row.node_id);
-	const link = core.links.get(row.node_id);
-	if (!node || !link || link.conn.closed || !link.ready || !link.trustFresh) return null;
+	// D113: the submission waits for its node within the grace; a node that stays away fails the task
+	// here instead of leaving it waiting for a signature that already arrived.
+	const ready = await core.waitNodeReady(row.node_id, { trust: true });
+	if (!ready?.link) {
+		const previous = parseTaskAuthorization(row.authorization);
+		await finishAuthorization(
+			core,
+			id,
+			row,
+			"failed",
+			"node_offline",
+			"the node is not connected",
+			previous ? { ...previous, pending: null, local: null, updatedAt: new Date().toISOString() } : null,
+		);
+		return null;
+	}
+	const node = ready.node;
+	const link = ready.link;
 	const report = parseTrustReport(node.trust_report);
 	if (report?.kind !== "ok") return null;
 	const task = { id, attempt: row.attempt, spec: specFromRow(row.spec, "task") };
@@ -1163,7 +1193,7 @@ async function dispatchCrhs(
 		handler_session_id: null,
 	});
 	if (!claimed) return;
-	newLive(core, id, node.id, row.output_mode, row.task_group_id);
+	newLive(core, id, node.id, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
 	core.background("task group state update failed", syncGroupState(core, row.task_group_id));
 	const start = taskStartOf(id, row, spec, {
 		privileged: true,
@@ -1201,6 +1231,24 @@ async function sendAuthorizedStart(
 		});
 		return;
 	}
+	// D113: the task is claimed for dispatch but the frame has not left yet; if the link dropped in
+	// between, the node still gets the grace to come back before the send fails.
+	const node = await getNode(core.db, nodeId);
+	const ready =
+		(await core.readyNodeNow(nodeId)) ??
+		(await core.waitNodeReady(nodeId, { trust: node?.privileged_mode === "forward" }));
+	if (!ready?.link) {
+		await finish(core, nodeId, id, {
+			state: "failed",
+			error_code: "node_offline",
+			error_message: "the node is not connected",
+			pending_input: null,
+			handler_type: null,
+			handler_session_id: null,
+		});
+		return;
+	}
+	link = ready.link;
 	try {
 		await link.conn.peer.request("task.start", start);
 	} catch (err) {
@@ -1387,9 +1435,16 @@ export async function useStoredAuthorizations(core: ClusterCore, nodeId: string)
 async function dispatchStored(core: ClusterCore, id: string): Promise<void> {
 	const row = await core.row(id);
 	if (row?.state !== "awaiting_authorization") return;
-	const node = await getNode(core.db, row.node_id);
-	const link = core.links.get(row.node_id);
-	if (!node || !link || link.conn.closed || !link.ready || !link.trustFresh) return;
+	// D113: a stored signature is used once the node is back; a node still away after the grace fails
+	// the task instead of leaving it waiting forever.
+	const ready = await core.waitNodeReady(row.node_id, { trust: true });
+	if (!ready?.link) {
+		const previous = parseTaskAuthorization(row.authorization);
+		await finishAuthorization(core, id, row, "failed", "node_offline", "the node is not connected", previous);
+		return;
+	}
+	const node = ready.node;
+	const link = ready.link;
 	const report = parseTrustReport(node.trust_report);
 	if (report?.kind !== "ok") return;
 	const previous = parseTaskAuthorization(row.authorization);

@@ -107,7 +107,7 @@ describe("Passkey authorization submission", () => {
 		await bindMasterKey(db, masterKey);
 		signing = await loadAuthorizationSigningKey(db, masterKey);
 		audit = new Audit(db);
-		cluster = new Cluster(db, { authorizationKey: signing, trustWaitMs: 100, audit });
+		cluster = new Cluster(db, { authorizationKey: signing, trustWaitMs: 100, audit, nodeOfflineGraceMs: 10 });
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });

@@ -50,6 +50,8 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 			spec,
 			input,
 			timeoutMs,
+			maxLines: optionalInt(body, "maxLines"),
+			maxBytes: optionalInt(body, "maxBytes"),
 			privileged: optionalBool(body, "privileged") === true,
 			actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
 		});
@@ -77,6 +79,8 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 			input,
 			outputMode,
 			timeoutMs: optionalInt(body, "timeoutMs"),
+			maxLines: optionalInt(body, "maxLines"),
+			maxBytes: optionalInt(body, "maxBytes"),
 			parallel: optionalInt(body, "parallel"),
 			failFast: body.failFast === true,
 			privileged: optionalBool(body, "privileged") === true,

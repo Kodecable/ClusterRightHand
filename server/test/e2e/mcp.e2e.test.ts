@@ -41,10 +41,22 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 		return client;
 	};
 
+	const result = async (client: Client, name: string, args: Record<string, unknown>) =>
+		await client.callTool({ name, arguments: args });
+	const resultText = (res: Awaited<ReturnType<typeof result>>) =>
+		(res.content as { type: string; text: string }[]).map((block) => block.text).join("\n");
+
+	const callText = async (client: Client, name: string, args: Record<string, unknown>): Promise<string> => {
+		const res = await result(client, name, args);
+		const text = resultText(res);
+		if (res.isError) throw new Error(`tool error: ${text}`);
+		return text;
+	};
+
 	// biome-ignore lint/suspicious/noExplicitAny: tool results are JSON text
 	const call = async (client: Client, name: string, args: Record<string, unknown>): Promise<any> => {
-		const res = await client.callTool({ name, arguments: args });
-		const text = (res.content as { type: string; text: string }[])[0]?.text ?? "";
+		const res = await result(client, name, args);
+		const text = resultText(res);
 		if (res.isError) throw new Error(`tool error: ${text}`);
 		return JSON.parse(text);
 	};
@@ -60,6 +72,7 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 				"list_nodes",
 				"node_info",
 				"read_file",
+				"stat",
 				"task_cancel",
 				"task_wait",
 				"write_file",
@@ -72,23 +85,33 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 
 	it("runs commands and file operations under yolo", async () => {
 		const client = await connect((await token("yolo")).token);
-		const r = await call(client, "exec", { targets: [nodeName], cmd: "echo hello; echo oops >&2; exit 3" });
-		expect(r).toMatchObject({ state: "exited", exit_code: 3, stdout: "hello\n", stderr: "oops\n" });
+		// exec is text: the merged output, then the note block with the exit status. A nonzero exit is an error result.
+		const exited = await result(client, "exec", {
+			targets: [nodeName],
+			cmd: "echo hello; echo oops >&2; exit 3",
+		});
+		const r = resultText(exited);
+		expect(exited.isError).toBe(true);
+		expect(r).toContain("hello\n");
+		expect(r).toContain("oops\n");
+		expect(r).toContain(`${nodeName} · exit 3`);
 
 		const path = join(env.dir, "mcp-file.txt");
 		expect(await call(client, "write_file", { targets: [nodeName], path, content: "one\ntwo\n" })).toMatchObject({
 			state: "exited",
 		});
-		await call(client, "edit_file", { node: nodeName, path, edits: [{ oldText: "two", newText: "three" }] });
-		expect(await call(client, "read_file", { targets: [nodeName], path })).toMatchObject({ stdout: "one\nthree\n" });
+		await call(client, "edit_file", { node: nodeName, path, edits: [{ old_text: "two", new_text: "three" }] });
+		const page = await callText(client, "read_file", { targets: [nodeName], path });
+		expect(page).toContain("one\nthree\n");
+		expect(page).toContain(`${nodeName}:${path} · lines 1-2 of 2 (end of file)`);
 		// A directory listing is the task's structured result, not JSON text in its output.
 		const listing = await call(client, "list_dir", { targets: [nodeName], path: env.dir });
 		expect(listing).toMatchObject({ state: "exited", truncated: false });
 		expect(listing.entries.map((e: { name: string }) => e.name)).toContain("mcp-file.txt");
 		// write_file refuses to overwrite by default
-		expect(await call(client, "write_file", { targets: [nodeName], path, content: "x" })).toMatchObject({
-			state: "failed",
-		});
+		const refused = await result(client, "write_file", { targets: [nodeName], path, content: "x" });
+		expect(refused.isError).toBe(true);
+		expect(resultText(refused)).toContain('"error"');
 		await client.close();
 	});
 
@@ -96,15 +119,13 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 		const client = await connect((await token("yolo")).token);
 		const path = join(env.dir, "mcp-lines.txt");
 		await call(client, "write_file", { targets: [nodeName], path, content: "one\ntwo\nthree\n" });
-		// The node itself pages: a line offset needs no byte cursor, and the result carries the lines.
-		const first = await call(client, "read_file", { targets: [nodeName], path, limit: 2 });
-		expect(first).toMatchObject({
-			stdout: "one\ntwo\n",
-			lines: { from: 1, to: 2 },
-			truncated: { note: "Use offset=3 to continue." },
-		});
-		const next = await call(client, "read_file", { targets: [nodeName], path, offset: 3 });
-		expect(next).toMatchObject({ stdout: "three\n", lines: { from: 3, to: 3 }, total: 3 });
+		// The node itself pages: a line offset needs no byte cursor, and the note carries the range.
+		const first = await callText(client, "read_file", { targets: [nodeName], path, limit: 2 });
+		expect(first).toContain("one\ntwo\n");
+		expect(first).toContain(`${nodeName}:${path} · lines 1-2. Use offset=3 to continue.`);
+		const next = await callText(client, "read_file", { targets: [nodeName], path, offset: 3 });
+		expect(next).toContain("three\n");
+		expect(next).toContain(`${nodeName}:${path} · lines 3-3 of 3 (end of file)`);
 		await client.close();
 	});
 
@@ -147,38 +168,34 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 	it("waits for approval under ask, then finishes once the user approves", async () => {
 		const t = await token("ask");
 		const client = await connect(t.token);
-		// Reads are allowed by the ask preset.
-		expect(await call(client, "read_file", { targets: [nodeName], path: "/etc/hostname" })).toMatchObject({
-			state: "exited",
-		});
-		const pending = await call(client, "exec", { targets: [nodeName], argv: ["echo", "approved"], wait: 1 });
-		expect(pending).toMatchObject({
-			state: "awaiting_approval",
-			approval: { url: expect.stringContaining(pending.task_id) },
-		});
+		// Reads are allowed by the ask preset; a file tool blocks to its result and returns text.
+		const hostname = await callText(client, "read_file", { targets: [nodeName], path: "/etc/hostname" });
+		expect(hostname).toContain("(end of file)");
+		const pending = await callText(client, "exec", { targets: [nodeName], argv: ["echo", "approved"], wait: 1 });
+		expect(pending).toContain("waiting for approval:");
+		const pendingId = /task_id ([^\s.]+)\./.exec(pending)?.[1];
+		expect(pendingId).toBeDefined();
+		if (!pendingId) throw new Error("the pending note carries no task id");
 
 		const approvals = (await env.crhs.api("/api/approvals")).json;
-		expect(approvals.tasks.map((x: { id: string }) => x.id)).toEqual([pending.task_id]);
-		const decided = await env.crhs.api(`/api/tasks/${pending.task_id}/approval`, {
+		expect(approvals.tasks.map((x: { id: string }) => x.id)).toEqual([pendingId]);
+		const decided = await env.crhs.api(`/api/tasks/${pendingId}/approval`, {
 			body: { decision: "approve", always: { action: "allow", method: "exec", exact: "echo approved" } },
 		});
 		expect(decided.status).toBe(200);
-		expect(await call(client, "task_wait", { task_id: pending.task_id })).toMatchObject({
-			state: "exited",
-			exit_code: 0,
-			stdout: "approved\n",
-		});
+		expect(await callText(client, "task_wait", { task_id: pendingId })).toContain("approved\n");
 		// "Always allow" took effect: the same command now runs at once.
-		expect(await call(client, "exec", { targets: [nodeName], argv: ["echo", "approved"] })).toMatchObject({
-			state: "exited",
-		});
+		expect(await callText(client, "exec", { targets: [nodeName], argv: ["echo", "approved"] })).toContain(
+			`${nodeName} · exit 0`,
+		);
 		// Rejection reaches the client as the task's outcome.
-		const second = await call(client, "exec", { targets: [nodeName], cmd: "rm -rf /tmp/nothing", wait: 0 });
-		await env.crhs.api(`/api/tasks/${second.task_id}/approval`, { body: { decision: "reject", reason: "no" } });
-		expect(await call(client, "task_wait", { task_id: second.task_id })).toMatchObject({
-			state: "rejected",
-			error: { code: "approval_rejected", message: "no" },
-		});
+		const second = await callText(client, "exec", { targets: [nodeName], cmd: "rm -rf /tmp/nothing", wait: 0 });
+		const secondId = /task_id ([^\s.]+)\./.exec(second)?.[1];
+		if (!secondId) throw new Error("the second note carries no task id");
+		await env.crhs.api(`/api/tasks/${secondId}/approval`, { body: { decision: "reject", reason: "no" } });
+		const rejected = await result(client, "task_wait", { task_id: secondId });
+		expect(rejected.isError).toBe(true);
+		expect(resultText(rejected)).toContain("error approval_rejected: no");
 		await client.close();
 	});
 
@@ -186,14 +203,14 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 		const t = await token("ask");
 		const client = await connect(t.token);
 		// The node group name selects several nodes; one node name would be a single task.
-		const g = await call(client, "exec", { targets: ["e2e"], cmd: "echo batch", output: "text", wait: 0 });
-		expect(g).toMatchObject({ state: "awaiting_approval", nodes: [] });
-		await env.crhs.api(`/api/task-groups/${g.task_group_id}/approval`, { body: { decision: "approve" } });
-		const done = await call(client, "task_wait", { task_group_id: g.task_group_id });
-		expect(done).toMatchObject({
-			state: "finished",
-			nodes: [expect.objectContaining({ exit_code: 0, output: "batch\n" })],
-		});
+		const g = await callText(client, "exec", { targets: ["e2e"], cmd: "echo batch", output: "text", wait: 0 });
+		expect(g).toContain("waiting for approval:");
+		const groupId = /task_group_id ([^\s.]+)\./.exec(g)?.[1];
+		expect(groupId).toBeDefined();
+		if (!groupId) throw new Error("the group note carries no id");
+		await env.crhs.api(`/api/task-groups/${groupId}/approval`, { body: { decision: "approve" } });
+		const done = await callText(client, "task_wait", { task_group_id: groupId });
+		expect(done).toContain("batch\n");
 		await client.close();
 	});
 

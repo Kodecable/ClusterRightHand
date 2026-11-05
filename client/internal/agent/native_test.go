@@ -221,6 +221,9 @@ func TestPrivilegedNativeExec(t *testing.T) {
 	if exit.StdoutEnd != 3 || exit.StderrEnd != 4 {
 		t.Fatalf("ends = %d/%d, want 3/4", exit.StdoutEnd, exit.StderrEnd)
 	}
+	if exit.OutputLines != 1 {
+		t.Fatalf("output_lines = %d, want 1 for the merged \"out\"/\"oops\"", exit.OutputLines)
+	}
 	if exit.OutputFile != "" {
 		t.Fatalf("output_file = %q, want the agent's own (empty for in-memory output)", exit.OutputFile)
 	}
@@ -330,6 +333,9 @@ func TestPrivilegedNativeOutputSpill(t *testing.T) {
 	}
 	if uint64(exit.StdoutEnd) != uint64(len(stdout)) {
 		t.Fatalf("stdout_end = %d, want %d", exit.StdoutEnd, len(stdout))
+	}
+	if exit.OutputLines != 2000 {
+		t.Fatalf("output_lines = %d, want 2000", exit.OutputLines)
 	}
 }
 

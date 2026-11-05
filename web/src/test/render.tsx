@@ -94,10 +94,12 @@ export async function renderWithRouter(ui: React.ReactElement, locale: TestLocal
 	});
 	await router.load();
 	return render(
-		<ThemeProvider>
-			<LocaleProvider initialLocale={locale}>
-				<RouterProvider router={router} />
-			</LocaleProvider>
-		</ThemeProvider>,
+		<QueryClientProvider client={testQueryClient()}>
+			<ThemeProvider>
+				<LocaleProvider initialLocale={locale}>
+					<RouterProvider router={router} />
+				</LocaleProvider>
+			</ThemeProvider>
+		</QueryClientProvider>,
 	);
 }

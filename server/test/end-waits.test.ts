@@ -221,8 +221,9 @@ describe("ending waits at shutdown", () => {
 		const call = tool.handler({ task_group_id: id, wait: 1 }, ctx);
 		expect(await settledWithin(call, 100)).toBe(false);
 		groups.endWaits();
-		const result = (await withTimeout(call, 2_000, "the task_wait tool call")) as Record<string, unknown>;
-		expect(result).toMatchObject({ task_group_id: id, state: "awaiting_approval" });
+		const result = await withTimeout(call, 2_000, "the task_wait tool call");
+		const value = JSON.parse(result.content[0]?.text ?? "") as Record<string, unknown>;
+		expect(value).toMatchObject({ task_group_id: id, state: "awaiting_approval" });
 		expect(statuses[0]).toMatchObject({ task_group_id: id, state: "awaiting_approval" });
 	});
 });

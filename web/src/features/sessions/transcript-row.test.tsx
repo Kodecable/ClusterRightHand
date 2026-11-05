@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { taskKeys } from "@/features/tasks/api";
 import type { TaskGroupView, TaskView } from "@/lib/api/types";
-import { renderWithI18n, testQueryClient } from "@/test/render";
+import { renderWithI18n, renderWithRouter, testQueryClient } from "@/test/render";
 import type { Json, TranscriptItem } from "./sessionState";
 import { callStillOpen, TranscriptRow, toolLine } from "./transcript-row";
 import { TranscriptStreams } from "./transcript-streams";
@@ -165,7 +165,39 @@ describe("TranscriptRow", () => {
 		expect(toolLine("task_wait", { task_group_id: "g1" })).toBe("task_wait · g1");
 		expect(toolLine("exec", { argv: ["bash", "-c", "true"], targets: ["a", "b"] })).toBe("exec · a, b · bash -c true");
 		expect(toolLine("node_info", { node: "app-1" })).toBe("node_info · app-1");
+		expect(toolLine("stat", { targets: ["web-1"], path: "/etc/hosts" })).toBe("stat · web-1 · /etc/hosts");
+		expect(
+			toolLine("edit_file", {
+				node: "web-1",
+				path: "/etc/nginx/nginx.conf",
+				edits: [{ old_text: "a", new_text: "b" }],
+			}),
+		).toBe("edit_file · web-1 · /etc/nginx/nginx.conf");
 		expect(toolLine("list_nodes", {})).toBe("list_nodes");
+	});
+
+	test("a text result shows each content block in its own monospace block", async () => {
+		renderRow({
+			kind: "tool",
+			key: "a1/0",
+			callId: "call-1",
+			name: "exec",
+			args: { cmd: "true" },
+			status: "done",
+			output: "",
+			details: undefined,
+			result: {
+				text: "hello\nweb-1 · exit 0",
+				isError: false,
+				details: undefined,
+				blocks: ["hello\n", "web-1 · exit 0"],
+			},
+		});
+		fireEvent.click(screen.getByTestId("tool-toggle"));
+		const blocks = await screen.findAllByLabelText("Tool result");
+		expect(blocks).toHaveLength(2);
+		expect(blocks[0]).toHaveTextContent("hello");
+		expect(blocks[1]).toHaveTextContent("web-1 · exit 0");
 	});
 
 	test("a running tool shows its live output store", async () => {
@@ -230,7 +262,7 @@ describe("TranscriptRow", () => {
 
 describe("TranscriptRow tool status icon", () => {
 	const toolItem = (
-		result?: { text: string; isError?: boolean },
+		result?: { text: string; isError?: boolean; details?: Json; blocks?: string[] },
 		status: "pending" | "running" | "done" = "done",
 		details?: Json,
 	): TranscriptItem => ({
@@ -243,7 +275,14 @@ describe("TranscriptRow tool status icon", () => {
 		output: "",
 		details,
 		result:
-			result === undefined ? undefined : { text: result.text, isError: result.isError ?? false, details: undefined },
+			result === undefined
+				? undefined
+				: {
+						text: result.text,
+						isError: result.isError ?? false,
+						details: result.details,
+						...(result.blocks === undefined ? {} : { blocks: result.blocks }),
+					},
 	});
 
 	const card = () => screen.getByTestId("tool-card");
@@ -331,6 +370,38 @@ describe("TranscriptRow tool status icon", () => {
 		expect(card()).toHaveAttribute("data-tool-status", "failed");
 		expect(icon()).toHaveAccessibleName("Partly failed");
 		expect(screen.getByTestId("tool-toggle")).not.toHaveTextContent("Partly failed");
+	});
+
+	test("a returned text result is judged from its details without a JSON result", () => {
+		renderRow(
+			toolItem({
+				text: "web-1 · exit 2",
+				isError: true,
+				details: { task_id: "t1", node: "web-1", state: "exited", exit_code: 2 },
+			}),
+		);
+		expect(card()).toHaveAttribute("data-tool-status", "failed");
+		expect(icon()).toHaveAccessibleName("Exit 2");
+		expect(icon()).toHaveClass("text-danger");
+	});
+
+	test("a details group with a failed member is partly failed", () => {
+		renderRow(
+			toolItem({
+				text: "task group g1 · 2 nodes · 1 succeeded, 1 failed",
+				isError: false,
+				details: {
+					task_group_id: "g1",
+					state: "finished",
+					nodes: [
+						{ task_id: "a", node: "web-1", state: "exited", exit_code: 0 },
+						{ task_id: "b", node: "web-2", state: "exited", exit_code: 1 },
+					],
+				},
+			}),
+		);
+		expect(card()).toHaveAttribute("data-tool-status", "failed");
+		expect(icon()).toHaveAccessibleName("Partly failed");
 	});
 
 	test("a tool error result is a failed wrench, labelled Failed", () => {
@@ -600,6 +671,30 @@ describe("a tool result whose task was cleaned up", () => {
 		expect(screen.queryByText("no such task")).not.toBeInTheDocument();
 	});
 
+	test("the expanded dialog links the task id from the result details", async () => {
+		mockTaskError(404, "no such task");
+		renderRow({
+			kind: "tool",
+			key: "a1/0",
+			callId: "call-1",
+			name: "exec",
+			args: { cmd: "true" },
+			status: "done",
+			output: "",
+			details: undefined,
+			result: {
+				// A text result carries no JSON the card could have read the id from.
+				text: "web-1 · exit 0",
+				isError: false,
+				details: { task_id: "t1", node: "web-1", state: "exited" },
+			},
+		});
+		fireEvent.click(screen.getByTestId("tool-toggle"));
+
+		const notice = await screen.findByTestId("task-gone");
+		expect(notice).toHaveTextContent("The task was cleaned up or does not exist");
+	});
+
 	test("another error in the expanded dialog keeps the danger message", async () => {
 		mockTaskError(500, "boom");
 		renderRow(returned());
@@ -607,5 +702,42 @@ describe("a tool result whose task was cleaned up", () => {
 
 		expect(await screen.findByText("boom")).toHaveClass("text-danger");
 		expect(screen.queryByTestId("task-gone")).not.toBeInTheDocument();
+	});
+});
+
+describe("a returned task group", () => {
+	test("links its page from the result details", async () => {
+		const { getByTestId } = await renderWithRouter(
+			<TranscriptRow
+				item={{
+					kind: "tool",
+					key: "a1/0",
+					callId: "call-1",
+					name: "exec",
+					args: { cmd: "true" },
+					status: "done",
+					output: "",
+					details: undefined,
+					result: {
+						text: "task group g1 · 2 nodes · 2 succeeded, 0 failed",
+						isError: false,
+						details: {
+							task_group_id: "g1",
+							state: "finished",
+							nodes: [
+								{ task_id: "a", node: "web-1", state: "exited", exit_code: 0 },
+								{ task_id: "b", node: "web-2", state: "exited", exit_code: 0 },
+							],
+						},
+					},
+				}}
+				streams={new TranscriptStreams()}
+				sessionActive
+			/>,
+		);
+		fireEvent.click(getByTestId("tool-toggle"));
+
+		const link = await screen.findByRole("link", { name: "Open the task group page" });
+		expect(link).toHaveAttribute("href", "/task-groups/g1");
 	});
 });

@@ -38,7 +38,7 @@ const model = () => ({ provider: faux.provider.id, modelId: faux.getModel().id }
 beforeAll(async () => {
 	db = await openTestDb("sqlite");
 	audit = new Audit(db);
-	cluster = new Cluster(db, { audit });
+	cluster = new Cluster(db, { audit, nodeOfflineGraceMs: 10 });
 	const models = new ModelConfig(db, MasterKey.generate());
 	models.addProvider(faux.provider);
 	await models.reload();

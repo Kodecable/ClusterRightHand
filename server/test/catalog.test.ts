@@ -1,17 +1,36 @@
 import type { JsonTaskResult, TaskSpec } from "@crh/protocol";
 import { describe, expect, it } from "vitest";
+import type * as z from "zod/v4";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import type { TaskAuthorizationRecord } from "../src/cluster/authorization.ts";
 import type { Cluster, TaskView } from "../src/cluster/cluster.ts";
 import type { TaskGroups, TaskGroupView } from "../src/cluster/task-groups.ts";
 import type { Db } from "../src/storage/db.ts";
-import { TOOLS, type ToolContext, taskResult } from "../src/tools/catalog.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { callTool } from "../src/tools/adapter.ts";
+import { TOOLS, type ToolContext } from "../src/tools/catalog.ts";
+import type { ToolResult } from "../src/tools/render.ts";
+import { execResult, execTaskResult, readGroupResult, readTaskResult, taskDetails } from "../src/tools/task-tool.ts";
+import { createUser, defaultOrgId, NotFoundError, UserError } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
 
+type AnyTool = {
+	name: string;
+	input: z.ZodType;
+	output: "text" | "json";
+	handler: (args: never, ctx: ToolContext) => Promise<ToolResult>;
+};
+
+const tool = (name: string): AnyTool => {
+	const found = TOOLS.find((candidate) => candidate.name === name);
+	if (!found) throw new Error(`${name} tool missing`);
+	return found as unknown as AnyTool;
+};
+
 const ctx = {
 	approvalUrl: (kind: string, id: string) => `http://crh.test/approvals/${kind}/${id}`,
+	taskUrl: (id: string) => `http://crh.test/tasks/${id}`,
+	taskGroupUrl: (id: string) => `http://crh.test/task-groups/${id}`,
 } as unknown as ToolContext;
 
 function task(overrides: Partial<TaskView>): TaskView {
@@ -29,6 +48,7 @@ function task(overrides: Partial<TaskView>): TaskView {
 		signal: null,
 		timedOut: false,
 		cancelled: false,
+		timeoutMs: null,
 		errorCode: null,
 		errorMessage: null,
 		stdoutBytes: 0,
@@ -37,6 +57,11 @@ function task(overrides: Partial<TaskView>): TaskView {
 		stdoutTail: "",
 		stderrHead: "",
 		stderrTail: "",
+		outputTail: "",
+		outputTailLines: 0,
+		outputLines: null,
+		maxLines: null,
+		maxBytes: null,
 		outputFile: null,
 		outputMode: "full",
 		privileged: false,
@@ -52,6 +77,54 @@ function task(overrides: Partial<TaskView>): TaskView {
 		handlerSessionId: null,
 		...overrides,
 	};
+}
+
+function group(overrides: Partial<TaskGroupView>): TaskGroupView {
+	return {
+		id: "g1",
+		state: "finished",
+		targets: ["n1"],
+		refs: {},
+		nodeIds: ["n1"],
+		parallel: 1,
+		failFast: false,
+		outputMode: "status",
+		nodeMaxLines: null,
+		nodeMaxBytes: null,
+		privileged: false,
+		skipped: [],
+		tasks: [],
+		createdAt: "2026-01-01T00:00:00.000Z",
+		finishedAt: "2026-01-01T00:00:00.000Z",
+		summary: "true",
+		kind: "exec",
+		ruleChain: null,
+		approval: null,
+		actorType: "user",
+		actorId: "u1",
+		onBehalfOfUserId: "u1",
+		operation: null,
+		rootSessionId: null,
+		handlerType: null,
+		handlerSessionId: null,
+		...overrides,
+	};
+}
+
+function jsonOf(result: ToolResult): Record<string, unknown> {
+	return JSON.parse(result.content[0]?.text ?? "") as Record<string, unknown>;
+}
+
+function texts(result: ToolResult): string[] {
+	return result.content.map((block) => block.text);
+}
+
+function execResultText(g: TaskGroupView, names: Map<string, string>): ToolResult {
+	return execResult(ctx, { kind: "task_group", taskGroup: g, names });
+}
+
+function execResultStatus(g: TaskGroupView, names: Map<string, string>): ToolResult {
+	return execResult(ctx, { kind: "task_group", taskGroup: { ...g, outputMode: "status" }, names });
 }
 
 /** A direct node grant for the tool tests: nodes belong to the organization (D108). */
@@ -71,1494 +144,1375 @@ async function grantNode(db: Db, userId: string, nodeId: string): Promise<void> 
 		.execute();
 }
 
-describe("batch output tool parameter", () => {
-	const exec = TOOLS.find((tool) => tool.name === "exec");
-	if (!exec) throw new Error("exec tool missing");
-
-	it("defaults to status and only accepts status or text", () => {
-		const parsed = exec.input.parse({ targets: ["web-1"], cmd: "true" }) as { output?: string };
-		// Omitted in the schema (the handler applies the default) so a model may leave it out.
-		expect(parsed.output).toBeUndefined();
-		expect(exec.input.safeParse({ targets: ["web-1"], cmd: "true", output: "text" }).success).toBe(true);
-		expect(exec.input.safeParse({ targets: ["web-1"], cmd: "true", output: "full" }).success).toBe(false);
-	});
-
-	it("hands the group status by default and text when asked", async () => {
-		const db = await openTestDb("sqlite");
-		try {
-			const user = await createUser(db, { username: "tool-user", kind: "member" });
-			const sessionUser: SessionUser = {
-				sessionId: "s",
-				userId: user.id,
-				username: user.username,
-				kind: "member",
-			};
-			const nodeId = newId();
-			const now = new Date().toISOString();
-			await db
-				.insertInto("nodes")
-				.values({
-					id: nodeId,
-					org_id: await defaultOrgId(db),
-					name: "web-1",
-					name_key: "web-1",
-					transport: "client",
-					status: "active",
-					public_key: null,
-					hostname: "web-1",
-					facts: null,
-					client_version: null,
-					privileged_mode: null,
-					last_seen_at: null,
-					created_at: now,
-					approved_at: now,
-					approved_by_user_id: null,
-					ssh_host: null,
-					ssh_port: null,
-					ssh_user: null,
-					ssh_host_key: null,
-					ssh_credential_id: null,
-					ssh_jumps: null,
-				})
-				.execute();
-			await grantNode(db, user.id, nodeId);
-			await addGroup(db, nodeId, "prod");
-			const created: { outputMode?: string }[] = [];
-			const groups = {
-				create: async (input: { outputMode?: string }) => {
-					created.push(input);
-					return "g1";
-				},
-				wait: async () => ({
-					id: "g1",
-					state: "finished",
-					targets: ["web-1"],
-					refs: {},
-					nodeIds: [nodeId],
-					parallel: 1,
-					failFast: false,
-					outputMode: "status",
-					skipped: [],
-					tasks: [],
-					createdAt: now,
-					finishedAt: now,
-				}),
-			};
-			const toolCtx = {
-				db,
-				cluster: {} as Cluster,
-				taskGroups: groups as unknown as TaskGroups,
-				user: sessionUser,
-				actor: { type: "system", id: "test", onBehalfOfUserId: user.id },
-				chain: [],
-				approvalUrl: () => "http://crh.test/",
-			} as unknown as ToolContext;
-			await exec.handler({ targets: ["prod"], cmd: "true" }, toolCtx);
-			await exec.handler({ targets: ["prod"], cmd: "true", output: "text" }, toolCtx);
-			// The tool leaves exec's default (status) to the group; text is passed through.
-			expect(created.map((input) => input.outputMode)).toEqual([undefined, "text"]);
-		} finally {
-			await db.destroy();
-		}
-	});
-});
-
-describe("taskResult output modes", () => {
-	it("shows a text task's combined tail and notes the truncation", () => {
-		const short = taskResult(
-			task({ outputMode: "text", stdoutTail: "out\nerr\n", stdoutBytes: 4, stderrBytes: 4, outputFile: "/out" }),
-			"web-1",
-			ctx,
-		);
-		expect(short).toMatchObject({ output: "out\nerr\n" });
-		expect(short.stdout).toBeUndefined();
-		expect(short.truncated).toBeUndefined();
-
-		const cut = taskResult(
-			task({ outputMode: "text", stdoutTail: "tail\n", stdoutBytes: 90 * 1024, stderrBytes: 10 * 1024 }),
-			"web-1",
-			ctx,
-		);
-		expect(cut).toMatchObject({
-			output: "tail\n",
-			truncated: { stdout_bytes: 90 * 1024, stderr_bytes: 10 * 1024, note: expect.stringContaining("only the end") },
-		});
-	});
-
-	it("shows only the output file for a status task", () => {
-		const r = taskResult(
-			task({ outputMode: "status", stdoutBytes: 1024, outputFile: "/var/lib/crha/output/t.log" }),
-			"web-1",
-			ctx,
-		);
-		expect(r).toMatchObject({
-			output_file: "/var/lib/crha/output/t.log",
-			note: "full output is on the node; read it with read_file",
-		});
-		expect(r.stdout).toBeUndefined();
-		expect(r.output).toBeUndefined();
-	});
-
-	it("says SSH nodes keep no output when no file was reported", () => {
-		const r = taskResult(task({ outputMode: "status", stdoutBytes: 10 }), "ssh-1", ctx);
-		expect(r.output_file).toBeUndefined();
-		expect(r.note).toContain("SSH nodes keep no output");
-		expect(r.notice).toBeUndefined();
-	});
-
-	it("shows the notice crhs kept for a status task", () => {
-		const notice = "crh: privileged was ignored: SSH nodes run tasks as the SSH user\n";
-		const r = taskResult(task({ outputMode: "status", stderrBytes: notice.length, stderrHead: notice }), "ssh-1", ctx);
-		expect(r.notice).toBe(notice);
-		// The notice does not stand in for the missing output file.
-		expect(r.output_file).toBeUndefined();
-		expect(r.note).toContain("SSH nodes keep no output");
-	});
-
-	it("shows the notice crhs kept for a head task", () => {
-		const notice = "crh: privileged was ignored: SSH nodes run tasks as the SSH user\n";
-		const r = taskResult(
-			task({
-				kind: "file.read",
-				outputMode: "head",
-				stdoutHead: "one\ntwo\n",
-				stdoutBytes: 8,
-				stderrBytes: notice.length,
-				stderrHead: notice,
-			}),
-			"ssh-1",
-			ctx,
-		);
-		expect(r.notice).toBe(notice);
-		// The notice is not part of the page the node kept.
-		expect(r.output).toBe("one\ntwo\n");
-		expect(r.truncated).toBeUndefined();
-	});
-
-	it("does not blame SSH when a status task never ran", () => {
-		const r = taskResult(
-			task({
-				outputMode: "status",
-				state: "failed",
-				exitCode: null,
-				errorCode: "node_offline",
-				errorMessage: "the node is not connected",
-			}),
-			"web-1",
-			ctx,
-		);
-		expect(r.note).toBeUndefined();
-		expect(r.error).toEqual({ code: "node_offline", message: "the node is not connected" });
-	});
-
-	it("leaves full-mode results as they were", () => {
-		const r = taskResult(task({ stdoutHead: "hello\n", stdoutBytes: 6 }), "web-1", ctx);
-		expect(r).toMatchObject({ stdout: "hello\n" });
-		expect(r.output).toBeUndefined();
-	});
-
-	it("shows that a task was privileged", () => {
-		expect(taskResult(task({ privileged: true }), "web-1", ctx)).toMatchObject({ privileged: true });
-		expect(taskResult(task({ privileged: false }), "web-1", ctx).privileged).toBeUndefined();
-	});
-
-	it("shows the authorization plan of a task that waits for a signature", () => {
-		const authorization: TaskAuthorizationRecord = {
-			plan: {
-				paths: [{ path: "user", entries: [{ name: "alice", role: "user", credential: "sshsig" }] }],
-			},
-			tried: ["crhs"],
-			dispatchedPath: null,
-			payloadId: "6d4a",
-			attempt: 2,
-			trustDigest: "abc",
-			pending: null,
-			local: null,
-			lastRejection: { code: "authorization_rejected", message: "denied", attempt: 1, at: "2026-01-01T00:00:00.000Z" },
-			updatedAt: "2026-01-01T00:00:00.000Z",
-		};
-		const r = taskResult(task({ state: "awaiting_authorization", privileged: true, authorization }), "web-1", ctx);
-		expect(r).toMatchObject({ state: "awaiting_authorization", privileged: true });
-		expect(r.authorization).toMatchObject({
-			status: "waiting for the owner's authorization",
-			attempt: 2,
-			paths: ["user: alice"],
-			last_rejection: { code: "authorization_rejected", message: "denied", attempt: 1 },
-		});
-		// The implicit context has no absolute URLs: the session UI gets the in-app hash link.
-		expect((r.authorization as Record<string, unknown>).url).toBe("/tasks/t1");
-		expect((r.authorization as Record<string, unknown>).next).toContain("authorize it in the WebUI");
-		expect(r.next).toBe("call task_wait with this task_id to keep waiting");
-
-		// With a local path and a task URL the model is told both ways to authorize it.
-		const withLocal: TaskAuthorizationRecord = {
-			...authorization,
-			plan: {
-				paths: [
-					{ path: "user", entries: [{ name: "alice", role: "user", credential: "sshsig" }] },
-					{ path: "local", entries: [{ name: "local-admins", role: "local" }] },
-				],
-			},
-		};
-		const withUrl = {
-			approvalUrl: (kind: string, id: string) => `http://crh.test/approvals/${kind}/${id}`,
-			taskUrl: (id: string) => `http://crh.test/tasks/${id}`,
-		} as unknown as ToolContext;
-		const local = taskResult(
-			task({ state: "awaiting_authorization", privileged: true, authorization: withLocal }),
-			"web-1",
-			withUrl,
-		);
-		expect((local.authorization as Record<string, unknown>).url).toBe("http://crh.test/tasks/t1");
-		expect((local.authorization as Record<string, unknown>).next).toContain('"crha approve t1"');
-	});
-});
-
-describe("node facts", () => {
-	/** A node of the user with stored facts JSON; returns the db, its node_info result and its list_nodes entry. */
-	async function withNode(name: string, facts: Record<string, unknown>) {
-		const db = await openTestDb("sqlite");
-		const user = await createUser(db, { username: `${name}-user`, kind: "member" });
-		const now = new Date().toISOString();
-		const nodeId = newId();
-		await db
-			.insertInto("nodes")
-			.values({
-				id: nodeId,
-				org_id: await defaultOrgId(db),
-				name,
-				name_key: name.toLowerCase(),
-				transport: "client",
-				status: "active",
-				public_key: null,
-				hostname: name,
-				facts: JSON.stringify(facts),
-				client_version: null,
-				privileged_mode: null,
-				last_seen_at: null,
-				created_at: now,
-				approved_at: now,
-				approved_by_user_id: null,
-				ssh_host: null,
-				ssh_port: null,
-				ssh_user: null,
-				ssh_host_key: null,
-				ssh_credential_id: null,
-				ssh_jumps: null,
-			})
-			.execute();
-		await grantNode(db, user.id, nodeId);
-		const toolCtx = {
-			db,
-			cluster: { isConnected: () => false } as unknown as Cluster,
-			taskGroups: {} as TaskGroups,
-			user: {
-				sessionId: "s",
-				userId: user.id,
-				username: user.username,
-				kind: "member",
-			} satisfies SessionUser,
-			actor: { type: "user", id: user.id, onBehalfOfUserId: user.id },
-			chain: [],
-			approvalUrl: () => "http://crh.test/",
-		} as unknown as ToolContext;
-		const info = (await (
-			TOOLS.find((tool) => tool.name === "node_info") as { handler: (a: unknown, c: ToolContext) => Promise<unknown> }
-		).handler({ node: name }, toolCtx)) as { facts: Record<string, unknown>; notes: unknown };
-		const nodes = (await (
-			TOOLS.find((tool) => tool.name === "list_nodes") as {
-				handler: (a: unknown, c: ToolContext) => Promise<unknown>;
-			}
-		).handler({}, toolCtx)) as { nodes: { name: string; os?: string }[] };
-		const listed = nodes.nodes.find((n) => n.name === name);
-		if (!listed) throw new Error(`list_nodes does not list ${name}`);
-		return { db, info, listed };
-	}
-
-	it("shows the shells a node reported", async () => {
-		const { db, info } = await withNode("web-1", {
-			hostname: "web-1",
-			osId: "ubuntu",
-			osVersionId: "24.04",
-			osPrettyName: "Ubuntu 24.04",
-			kernel: "6.8",
-			arch: "x86_64",
-			initSystem: "systemd",
-			packageManagers: ["apt"],
-			privilegeTools: ["sudo"],
-			notesPath: "",
-			clockOffsetMs: 0,
-			shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
-		});
-		try {
-			expect(info.facts.shells).toEqual({ sh: "/bin/sh", bash: "/usr/bin/bash" });
-		} finally {
-			await db.destroy();
-		}
-	});
-
-	it("leaves facts the node did not report absent", async () => {
-		const { db, info } = await withNode("web-2", {
-			hostname: "web-2",
-			shells: { sh: "/bin/sh" },
-		});
-		try {
-			// The absent optional keys stay absent: no notes path, no bash, no clock offset.
-			expect(info.facts).toEqual({ hostname: "web-2", shells: { sh: "/bin/sh" } });
-			expect(info.notes).toBeNull();
-		} finally {
-			await db.destroy();
-		}
-	});
-
-	it("reports the OS pretty name in list_nodes", async () => {
-		const { db, listed } = await withNode("web-3", {
-			hostname: "web-3",
-			osId: "ubuntu",
-			osPrettyName: "Ubuntu 24.04",
-		});
-		try {
-			expect(listed.os).toBe("Ubuntu 24.04");
-		} finally {
-			await db.destroy();
-		}
-	});
-
-	it("falls back to the OS id in list_nodes when the pretty name is absent", async () => {
-		const { db, listed } = await withNode("web-4", { hostname: "web-4", osId: "debian" });
-		try {
-			expect(listed.os).toBe("debian");
-		} finally {
-			await db.destroy();
-		}
-	});
-
-	it("has no OS in list_nodes for a node whose facts do not carry one", async () => {
-		const { db, listed } = await withNode("web-5", { shells: { sh: "/bin/sh" } });
-		try {
-			expect(listed.os).toBeUndefined();
-		} finally {
-			await db.destroy();
-		}
-	});
-});
-
-describe("the statuses a wait publishes", () => {
-	/** A node of the user, so resolveTargets finds it. */
-	async function setup() {
-		const db = await openTestDb("sqlite");
-		const user = await createUser(db, { username: "wait-user", kind: "member" });
-		const nodeId = newId();
-		const now = new Date().toISOString();
-		await db
-			.insertInto("nodes")
-			.values({
-				id: nodeId,
-				org_id: await defaultOrgId(db),
-				name: "web-1",
-				name_key: "web-1",
-				transport: "client",
-				status: "active",
-				public_key: null,
-				hostname: "web-1",
-				facts: null,
-				client_version: null,
-				privileged_mode: null,
-				last_seen_at: null,
-				created_at: now,
-				approved_at: now,
-				approved_by_user_id: null,
-				ssh_host: null,
-				ssh_port: null,
-				ssh_user: null,
-				ssh_host_key: null,
-				ssh_credential_id: null,
-				ssh_jumps: null,
-			})
-			.execute();
-		await grantNode(db, user.id, nodeId);
-		const sessionUser: SessionUser = { sessionId: "s", userId: user.id, username: user.username, kind: "member" };
-		return { db, nodeId, now, user: sessionUser };
-	}
-
-	it("reports the signing page while a task waits for the user's signature", async () => {
-		const { db, nodeId, now, user } = await setup();
-		try {
-			const states = ["awaiting_authorization", "exited"];
-			let reads = 0;
-			const cluster = {
-				createTask: async () => task({ id: "t1", nodeId, state: "awaiting_authorization" }),
-				getTask: async (id: string) => task({ id, nodeId, state: (states[Math.min(reads++, 1)] ?? "exited") as never }),
-				waitTask: async (id: string) => task({ id, nodeId, state: "exited" }),
-			};
-			const statuses: Record<string, unknown>[] = [];
-			const toolCtx = {
-				db,
-				cluster: cluster as unknown as Cluster,
-				taskGroups: {} as TaskGroups,
-				user,
-				actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
-				chain: [],
-				approvalUrl: (kind: string, id: string) => `/approvals/${kind}/${id}`,
-				taskUrl: (id: string) => `/tasks/${id}`,
-				waitThroughApproval: true,
-				onStatus: async (status: Record<string, unknown>) => {
-					statuses.push(status);
-				},
-			} as unknown as ToolContext;
-			const exec = TOOLS.find((t) => t.name === "exec");
-			if (!exec) throw new Error("exec tool missing");
-			await exec.handler({ targets: ["web-1"], cmd: "true", wait: 1 }, toolCtx);
-			// The first status carries only the id and the state: the WebUI follows the task by it.
-			expect(statuses[0]).toEqual({ task_id: "t1", state: "awaiting_authorization" });
-			expect(statuses[1]).toEqual({
-				task_id: "t1",
-				state: "awaiting_authorization",
-				authorization_url: "/tasks/t1",
-			});
-			expect(statuses.at(-1)).toEqual({ task_id: "t1", state: "exited" });
-			expect(now).toBeDefined();
-		} finally {
-			await db.destroy();
-		}
-	}, 15_000);
-
-	it("reports the group page while a group waits for the user's signature", async () => {
-		const { db, nodeId, now, user } = await setup();
-		try {
-			await addGroup(db, nodeId, "prod");
-			const group = {
-				id: "g1",
-				state: "awaiting_authorization",
-				targets: ["web-1"],
-				refs: {},
-				nodeIds: [nodeId],
-				parallel: 1,
-				failFast: false,
-				outputMode: "status",
-				skipped: [],
-				tasks: [task({ id: "t1", nodeId, state: "awaiting_authorization" })],
-				createdAt: now,
-				finishedAt: null,
-			};
-			const groups = {
-				create: async () => "g1",
-				get: async () => group,
-				wait: async () => ({ ...group, state: "finished", tasks: [{ ...group.tasks[0], state: "exited" }] }),
-			};
-			const statuses: Record<string, unknown>[] = [];
-			const toolCtx = {
-				db,
-				cluster: {} as Cluster,
-				taskGroups: groups as unknown as TaskGroups,
-				user,
-				actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
-				chain: [],
-				approvalUrl: (kind: string, id: string) => `/approvals/${kind}/${id}`,
-				taskGroupUrl: (id: string) => `/task-groups/${id}`,
-				waitThroughApproval: true,
-				onStatus: async (status: Record<string, unknown>) => {
-					statuses.push(status);
-				},
-			} as unknown as ToolContext;
-			const exec = TOOLS.find((t) => t.name === "exec");
-			if (!exec) throw new Error("exec tool missing");
-			await exec.handler({ targets: ["prod"], cmd: "true", wait: 1 }, toolCtx);
-			expect(statuses[0]).toEqual({ task_group_id: "g1", state: "awaiting_authorization" });
-			expect(statuses[1]).toEqual({
-				task_group_id: "g1",
-				state: "awaiting_authorization",
-				authorization_url: "/task-groups/g1",
-			});
-			expect(statuses.at(-1)).toEqual({ task_group_id: "g1", state: "finished" });
-		} finally {
-			await db.destroy();
-		}
-	}, 15_000);
-
-	it("carries the task id before the first wait, with and without approval waits", async () => {
-		const { db, nodeId, user } = await setup();
-		try {
-			const cluster = {
-				createTask: async () => task({ id: "t1", nodeId, state: "running" }),
-				getTask: async (id: string) => task({ id, nodeId, state: "running" }),
-				waitTask: async (id: string) => task({ id, nodeId, state: "exited" }),
-			};
-			const exec = TOOLS.find((t) => t.name === "exec");
-			if (!exec) throw new Error("exec tool missing");
-			// An agent waits through approvals, an MCP caller does not; both publish the id before waiting.
-			for (const waitThroughApproval of [true, false]) {
-				const statuses: Record<string, unknown>[] = [];
-				const toolCtx = {
-					db,
-					cluster: cluster as unknown as Cluster,
-					taskGroups: {} as TaskGroups,
-					user,
-					actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
-					chain: [],
-					approvalUrl: (kind: string, id: string) => `/approvals/${kind}/${id}`,
-					waitThroughApproval,
-					onStatus: async (status: Record<string, unknown>) => {
-						statuses.push(status);
-					},
-				} as unknown as ToolContext;
-				await exec.handler({ targets: ["web-1"], cmd: "true", wait: 1 }, toolCtx);
-				expect(statuses[0], `waitThroughApproval=${waitThroughApproval}`).toEqual({
-					task_id: "t1",
-					state: "running",
-				});
-			}
-		} finally {
-			await db.destroy();
-		}
-	}, 15_000);
-
-	it("carries the task group id before the first wait, with and without approval waits", async () => {
-		const { db, nodeId, now, user } = await setup();
-		try {
-			await addGroup(db, nodeId, "prod");
-			const group = {
-				id: "g1",
-				state: "running",
-				targets: ["web-1"],
-				refs: {},
-				nodeIds: [nodeId],
-				parallel: 1,
-				failFast: false,
-				outputMode: "status",
-				skipped: [],
-				tasks: [task({ id: "t1", nodeId, state: "running" })],
-				createdAt: now,
-				finishedAt: null,
-			};
-			const groups = {
-				create: async () => "g1",
-				get: async () => group,
-				wait: async () => ({ ...group, state: "finished", tasks: [{ ...group.tasks[0], state: "exited" }] }),
-			};
-			const exec = TOOLS.find((t) => t.name === "exec");
-			if (!exec) throw new Error("exec tool missing");
-			for (const waitThroughApproval of [true, false]) {
-				const statuses: Record<string, unknown>[] = [];
-				const toolCtx = {
-					db,
-					cluster: {} as Cluster,
-					taskGroups: groups as unknown as TaskGroups,
-					user,
-					actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
-					chain: [],
-					approvalUrl: (kind: string, id: string) => `/approvals/${kind}/${id}`,
-					waitThroughApproval,
-					onStatus: async (status: Record<string, unknown>) => {
-						statuses.push(status);
-					},
-				} as unknown as ToolContext;
-				await exec.handler({ targets: ["prod"], cmd: "true", wait: 1 }, toolCtx);
-				expect(statuses[0], `waitThroughApproval=${waitThroughApproval}`).toEqual({
-					task_group_id: "g1",
-					state: "running",
-				});
-			}
-		} finally {
-			await db.destroy();
-		}
-	}, 15_000);
-});
-
-describe("the privileged tool parameter", () => {
-	const tool = (name: string) => {
-		const found = TOOLS.find((t) => t.name === name);
-		if (!found) throw new Error(`${name} tool missing`);
-		return found;
-	};
-	const valid: Record<string, Record<string, unknown>> = {
-		exec: { targets: ["web-1"], cmd: "true" },
-		read_file: { targets: ["web-1"], path: "/etc/hosts" },
-		write_file: { targets: ["web-1"], path: "/tmp/x", content: "x" },
-		edit_file: { node: "web-1", path: "/tmp/x", edits: [{ oldText: "a", newText: "b" }] },
-		list_dir: { targets: ["web-1"], path: "/tmp" },
-	};
-
-	it("is an optional boolean on every task tool", () => {
-		for (const [name, body] of Object.entries(valid)) {
-			const t = tool(name);
-			expect(t.input.safeParse(body).success, name).toBe(true);
-			expect(t.input.safeParse({ ...body, privileged: true }).success, name).toBe(true);
-			expect(t.input.safeParse({ ...body, privileged: "true" }).success, name).toBe(false);
-		}
-	});
-
-	it("passes it to task creation and reports it in the result", async () => {
-		const db = await openTestDb("sqlite");
-		try {
-			const user = await createUser(db, { username: "priv-tool-user", kind: "member" });
-			const sessionUser: SessionUser = {
-				sessionId: "s",
-				userId: user.id,
-				username: user.username,
-				kind: "member",
-			};
-			const nodeId = newId();
-			const now = new Date().toISOString();
-			await db
-				.insertInto("nodes")
-				.values({
-					id: nodeId,
-					org_id: await defaultOrgId(db),
-					name: "web-1",
-					name_key: "web-1",
-					transport: "client",
-					status: "active",
-					public_key: null,
-					hostname: "web-1",
-					facts: null,
-					client_version: null,
-					privileged_mode: null,
-					last_seen_at: null,
-					created_at: now,
-					approved_at: now,
-					approved_by_user_id: null,
-					ssh_host: null,
-					ssh_port: null,
-					ssh_user: null,
-					ssh_host_key: null,
-					ssh_credential_id: null,
-					ssh_jumps: null,
-				})
-				.execute();
-			await grantNode(db, user.id, nodeId);
-			await addGroup(db, nodeId, "prod");
-			const created: { privileged?: boolean }[] = [];
-			const page = {
-				stdoutHead: "127.0.0.1 localhost\n",
-				result: { kind: "file.read", from: 1, to: 1, eof: true, total: 1, tooLong: false } satisfies JsonTaskResult,
-			};
-			const cluster = {
-				createTask: async (input: { privileged?: boolean }) => {
-					created.push(input);
-					return task({ id: "t1", privileged: input.privileged === true, ...page });
-				},
-				waitTask: async () => task({ id: "t1", privileged: true, ...page }),
-			} as unknown as Cluster;
-			const groups = {
-				create: async () => "g1",
-				wait: async () => ({
-					id: "g1",
-					state: "finished",
-					targets: ["web-1"],
-					refs: {},
-					nodeIds: [nodeId],
-					parallel: 1,
-					failFast: false,
-					outputMode: "status",
-					privileged: true,
-					skipped: [],
-					tasks: [task({ id: "t1", privileged: true, ...page })],
-					createdAt: now,
-					finishedAt: now,
-				}),
-			} as unknown as TaskGroups;
-			const toolCtx = {
-				db,
-				cluster,
-				taskGroups: groups,
-				user: sessionUser,
-				actor: { type: "system", id: "test", onBehalfOfUserId: user.id },
-				chain: [],
-				approvalUrl: () => "http://crh.test/",
-			} as unknown as ToolContext;
-
-			await tool("exec").handler({ targets: ["web-1"], cmd: "true", privileged: true }, toolCtx);
-			await tool("exec").handler({ targets: ["web-1"], cmd: "true" }, toolCtx);
-			expect(created.map((input) => input.privileged)).toEqual([true, false]);
-
-			const single = (await tool("read_file").handler(
-				{ targets: ["web-1"], path: "/etc/hosts", privileged: true },
-				toolCtx,
-			)) as Record<string, unknown>;
-			expect(single.privileged).toBe(true);
-
-			const batch = (await tool("exec").handler(
-				{ targets: ["prod"], cmd: "true", privileged: true },
-				toolCtx,
-			)) as Record<string, unknown>;
-			expect(batch.privileged).toBe(true);
-			expect((batch.nodes as Record<string, unknown>[])[0]?.privileged).toBe(true);
-		} finally {
-			await db.destroy();
-		}
-	});
-});
-
-const tool = (name: string) => {
-	const found = TOOLS.find((t) => t.name === name);
-	if (!found) throw new Error(`${name} tool missing`);
-	return found;
-};
-
-/** A user, their node and a tool context acting for them. */
-async function seedToolContext(db: Db, name: string): Promise<{ user: SessionUser; nodeId: string; ctx: ToolContext }> {
-	const user = await createUser(db, { username: name, kind: "member" });
-	const sessionUser: SessionUser = { sessionId: "s", userId: user.id, username: user.username, kind: "member" };
-	const nodeId = newId();
-	const now = new Date().toISOString();
-	await db
-		.insertInto("nodes")
-		.values({
-			id: nodeId,
-			org_id: await defaultOrgId(db),
-			name: "web-1",
-			name_key: "web-1",
-			transport: "client",
-			status: "active",
-			public_key: null,
-			hostname: "web-1",
-			facts: null,
-			client_version: null,
-			privileged_mode: null,
-			last_seen_at: null,
-			created_at: now,
-			approved_at: now,
-			approved_by_user_id: null,
-			ssh_host: null,
-			ssh_port: null,
-			ssh_user: null,
-			ssh_host_key: null,
-			ssh_credential_id: null,
-			ssh_jumps: null,
-		})
-		.execute();
-	await grantNode(db, user.id, nodeId);
-	return {
-		user: sessionUser,
-		nodeId,
-		ctx: {
-			db,
-			cluster: {} as Cluster,
-			taskGroups: {} as TaskGroups,
-			user: sessionUser,
-			actor: { type: "user", id: user.id, onBehalfOfUserId: user.id },
-			chain: [],
-			approvalUrl: (kind: string, id: string) => `http://crh.test/approvals/${kind}/${id}`,
-		} as unknown as ToolContext,
-	};
-}
-
-/** Inserts a node owned by `userId` and returns its id. */
-async function addGroup(db: Db, nodeId: string, name: string): Promise<string> {
-	const node = await db.selectFrom("nodes").select("org_id").where("id", "=", nodeId).executeTakeFirstOrThrow();
-	let group = await db
-		.selectFrom("node_groups")
-		.select("id")
-		.where("org_id", "=", node.org_id)
-		.where("name_key", "=", name.toLowerCase())
-		.executeTakeFirst();
-	if (!group) {
-		group = { id: newId() };
-		const now = new Date().toISOString();
-		await db
-			.insertInto("node_groups")
-			.values({
-				id: group.id,
-				org_id: node.org_id,
-				name,
-				name_key: name.toLowerCase(),
-				created_at: now,
-				updated_at: now,
-			})
-			.execute();
-	}
-	await db.insertInto("node_group_members").values({ node_group_id: group.id, node_id: nodeId }).execute();
-	return group.id;
-}
-
-async function addNode(db: Db, userId: string, name: string): Promise<string> {
+async function addNode(
+	db: Db,
+	userId: string,
+	input: {
+		name: string;
+		transport?: "client" | "ssh";
+		status?: "active" | "pending" | "disabled";
+		facts?: Record<string, unknown> | null;
+		clientVersion?: string | null;
+		lastSeenAt?: string | null;
+	},
+): Promise<{ id: string; name: string }> {
 	const id = newId();
 	const now = new Date().toISOString();
+	const transport = input.transport ?? "client";
 	await db
 		.insertInto("nodes")
 		.values({
 			id,
 			org_id: await defaultOrgId(db),
-			name,
-			name_key: name.toLowerCase(),
-			transport: "client",
-			status: "active",
+			name: input.name,
+			name_key: input.name.toLowerCase(),
+			transport,
+			status: input.status ?? "active",
 			public_key: null,
-			hostname: name,
-			facts: null,
-			client_version: null,
+			hostname: input.name,
+			facts: input.facts === undefined || input.facts === null ? null : JSON.stringify(input.facts),
+			client_version: input.clientVersion ?? null,
 			privileged_mode: null,
-			last_seen_at: null,
+			last_seen_at: input.lastSeenAt ?? null,
 			created_at: now,
 			approved_at: now,
 			approved_by_user_id: null,
-			ssh_host: null,
-			ssh_port: null,
-			ssh_user: null,
+			ssh_host: transport === "ssh" ? "10.0.0.1" : null,
+			ssh_port: transport === "ssh" ? 22 : null,
+			ssh_user: transport === "ssh" ? "root" : null,
 			ssh_host_key: null,
 			ssh_credential_id: null,
 			ssh_jumps: null,
 		})
 		.execute();
 	await grantNode(db, userId, id);
-	return id;
+	return { id, name: input.name };
 }
 
-describe("targets decide the result shape", () => {
-	it("runs one task for one node name and a task group for a group or several entries", async () => {
-		const db = await openTestDb("sqlite");
-		try {
-			const { user, ctx: baseCtx } = await seedToolContext(db, "group-user");
-			for (const [name, group] of [
-				["g-1", "prod"],
-				["g-2", "prod"],
-				["solo", "one"],
-			] as const) {
-				const id = await addNode(db, user.userId, name);
-				await addGroup(db, id, group);
-			}
-			const created: { nodeId: string }[] = [];
-			const groupInputs: { targets: string[]; nodeIds: string[]; outputMode?: string }[] = [];
-			const cluster = {
-				createTask: async (input: { nodeId: string }) => {
-					created.push(input);
-					return task({ id: "t1", nodeId: input.nodeId });
-				},
-				waitTask: async () => task({ id: "t1" }),
-			} as unknown as Cluster;
-			const groupViews = {
-				create: async (input: { targets: string[]; nodeIds: string[]; outputMode?: string }) => {
-					groupInputs.push(input);
-					return "g1";
-				},
-				get: async () => ({
-					id: "g1",
-					state: "finished",
-					targets: [],
-					refs: {},
-					nodeIds: groupInputs[0]?.nodeIds ?? [],
-					parallel: 10,
-					failFast: false,
-					outputMode: groupInputs[0]?.outputMode ?? "status",
-					privileged: false,
-					skipped: [],
-					tasks: (groupInputs[0]?.nodeIds ?? []).map((nodeId, i) => task({ id: `t${i}`, nodeId })),
-					createdAt: "2026-01-01T00:00:00.000Z",
-					finishedAt: "2026-01-01T00:00:00.000Z",
-					summary: "true",
-					kind: "exec",
-					ruleChain: null,
-					approval: null,
-					actorType: "user",
-					actorId: user.userId,
-					onBehalfOfUserId: user.userId,
-					operation: null,
-					rootSessionId: null,
-					handlerType: null,
-					handlerSessionId: null,
-				}),
-				wait: async () => (await groupViews.get("g1")) as unknown,
-			} as unknown as TaskGroups;
-			const ctx = { ...baseCtx, cluster, taskGroups: groupViews } as ToolContext;
+async function addGroup(db: Db, nodeId: string, name: string): Promise<void> {
+	const groupId = newId();
+	await db
+		.insertInto("node_groups")
+		.values({
+			id: groupId,
+			org_id: await defaultOrgId(db),
+			name,
+			name_key: name.toLowerCase(),
+			created_at: new Date().toISOString(),
+			updated_at: new Date().toISOString(),
+		})
+		.execute();
+	await db.insertInto("node_group_members").values({ node_group_id: groupId, node_id: nodeId }).execute();
+}
 
-			// One node name: one task, one task result.
-			await expect(tool("exec").handler({ targets: ["web-1"], cmd: "true" }, ctx)).resolves.toMatchObject({
-				task_id: "t1",
-			});
-			expect(created).toHaveLength(1);
-			expect(groupInputs).toHaveLength(0);
+interface Fixture {
+	db: Db;
+	user: SessionUser;
+	nodeId: string;
+	now: string;
+	base: ToolContext;
+}
 
-			// A group entry is a task group even when it resolves to one node.
-			await tool("exec").handler({ targets: ["prod"], cmd: "true" }, ctx);
-			expect(groupInputs).toHaveLength(1);
-			expect(groupInputs[0]?.nodeIds).toHaveLength(2);
-			// exec's default mode (status) and a file operation's head are the group's decision.
-			expect(groupInputs[0]?.outputMode).toBeUndefined();
+/** A member user with one accessible active node (named `web-1`). */
+async function fixture(name = "tool-user", nodeName = "web-1"): Promise<Fixture> {
+	const db = await openTestDb("sqlite");
+	const created = await createUser(db, { username: name, kind: "member" });
+	const node = await addNode(db, created.id, { name: nodeName });
+	const user: SessionUser = { sessionId: "s", userId: created.id, username: created.username, kind: "member" };
+	return {
+		db,
+		user,
+		nodeId: node.id,
+		now: new Date().toISOString(),
+		base: {
+			db,
+			cluster: {} as Cluster,
+			taskGroups: {} as TaskGroups,
+			user,
+			actor: { type: "user", id: created.id, onBehalfOfUserId: created.id },
+			chain: [],
+			approvalUrl: (kind, id) => `http://crh.test/approvals/${kind}/${id}`,
+			taskUrl: (id) => `http://crh.test/tasks/${id}`,
+			taskGroupUrl: (id) => `http://crh.test/task-groups/${id}`,
+		},
+	};
+}
 
-			// A group that resolves to one node is still a task group: the input, not the resolution, decides.
-			await tool("exec").handler({ targets: ["one"], cmd: "true" }, ctx);
-			expect(groupInputs).toHaveLength(2);
-			expect(groupInputs[1]?.nodeIds).toHaveLength(1);
+/** A page result for the read_file tests. */
+function page(overrides: Partial<Extract<JsonTaskResult, { kind: "file.read" }>> = {}): JsonTaskResult {
+	return { kind: "file.read", from: 1, to: 1, eof: true, total: 1, tooLong: false, ...overrides };
+}
 
-			// Several node names are a task group too.
-			await tool("exec").handler({ targets: ["web-1", "g-1"], cmd: "true" }, ctx);
-			expect(groupInputs).toHaveLength(3);
+describe("the tool catalog", () => {
+	it("lists every tool with its renderer", () => {
+		expect(TOOLS.map((entry) => entry.name)).toEqual([
+			"list_nodes",
+			"node_info",
+			"exec",
+			"read_file",
+			"write_file",
+			"edit_file",
+			"list_dir",
+			"stat",
+			"task_wait",
+			"task_cancel",
+		]);
+		expect(Object.fromEntries(TOOLS.map((entry) => [entry.name, entry.output]))).toMatchObject({
+			list_nodes: "json",
+			node_info: "json",
+			exec: "text",
+			read_file: "text",
+			write_file: "json",
+			edit_file: "json",
+			list_dir: "json",
+			stat: "json",
+			task_wait: "text",
+			task_cancel: "json",
+		});
+	});
 
-			// A file operation's group takes no output parameter at all: the group keeps each node's head.
-			await tool("list_dir").handler({ targets: ["web-1", "g-1"], path: "/tmp" }, ctx);
-			expect(groupInputs[3]?.outputMode).toBeUndefined();
-			for (const name of ["read_file", "write_file", "list_dir"]) {
-				expect(Object.keys((tool(name).input as unknown as { shape: object }).shape)).not.toContain("output");
-			}
-			expect(Object.keys((tool("exec").input as unknown as { shape: object }).shape)).toContain("output");
-
-			// edit_file stays single-node: a group there is an error, never an arbitrary pick.
-			await expect(
-				tool("edit_file").handler({ node: "prod", path: "/tmp/x", edits: [{ oldText: "a", newText: "b" }] }, ctx),
-			).rejects.toThrow(/does not name one node/);
-		} finally {
-			await db.destroy();
-		}
+	it("names parameters and fields in snake_case", () => {
+		expect(
+			tool("edit_file").input.parse({
+				node: "web-1",
+				path: "/x",
+				edits: [{ old_text: "a", new_text: "b" }],
+			}),
+		).toBeDefined();
+		expect(
+			tool("edit_file").input.safeParse({
+				node: "web-1",
+				path: "/x",
+				edits: [{ oldText: "a", newText: "b" }],
+			}).success,
+		).toBe(false);
+		expect(tool("exec").input.safeParse({ targets: ["web-1"], cmd: "true", max_lines: 1 }).success).toBe(true);
+		expect(tool("read_file").input.safeParse({ targets: ["web-1"], path: "/x", max_bytes: 10 }).success).toBe(true);
+		// A blocking file tool has no wait parameter: the schema drops it (D111).
+		const parsedRead = tool("read_file").input.parse({ targets: ["web-1"], path: "/x", wait: 1 }) as Record<
+			string,
+			unknown
+		>;
+		expect(parsedRead).not.toHaveProperty("wait");
+		expect(tool("stat").input.safeParse({ targets: ["web-1"], path: "/x" }).success).toBe(true);
 	});
 });
 
-describe("read_file line paging", () => {
-	/** The lines of a file, each with its newline; a last line without one stays unterminated. */
-	function linesOf(content: string): string[] {
-		if (content === "") return [];
-		const parts = content.split("\n");
-		if (parts.at(-1) === "") parts.pop();
-		return parts.map((line, i) => (i === parts.length - 1 && !content.endsWith("\n") ? line : `${line}\n`));
-	}
-
-	/** A fake node: it pages like crha's executor (whole lines, the byte cap, the result JSON). */
-	function pageOf(
-		content: string,
-		startLine: number,
-		lineCount: number,
-		cap = 50 * 1024,
-	): { page: string; result: JsonTaskResult } {
-		const lines = linesOf(content);
-		if (startLine > lines.length) {
-			return {
-				page: "",
-				result: { kind: "file.read", from: 0, to: 0, eof: true, total: lines.length, tooLong: false },
-			};
-		}
-		const picked: string[] = [];
-		let bytes = 0;
-		for (let i = startLine - 1; i < lines.length && picked.length < lineCount; i++) {
-			const size = Buffer.byteLength(lines[i] as string);
-			if (bytes + size > cap) {
-				if (picked.length === 0) {
-					return { page: "", result: { kind: "file.read", from: 0, to: 0, eof: false, total: null, tooLong: true } };
-				}
-				break;
-			}
-			picked.push(lines[i] as string);
-			bytes += size;
-		}
-		const reached = startLine - 1 + picked.length >= lines.length;
-		return {
-			page: picked.join(""),
-			result: {
-				kind: "file.read",
-				from: startLine,
-				to: startLine + picked.length - 1,
-				eof: reached,
-				total: reached ? lines.length : null,
-				tooLong: false,
-			},
-		};
-	}
-
-	/** A tool context whose cluster serves reads from `files`, recording the specs it asked for. */
-	async function readContext(ctx: ToolContext, files: Record<string, string>) {
-		const specs: TaskSpec[] = [];
-		const tasks = new Map<string, TaskView>();
-		let n = 0;
-		const cluster = {
-			createTask: async (input: { id?: string; spec: TaskSpec; nodeId: string }) => {
-				specs.push(input.spec);
-				const spec = input.spec as Extract<TaskSpec, { kind: "file.read" }>;
-				const { page, result } = pageOf(files[spec.path] ?? "", spec.startLine, spec.lineCount);
-				const id = input.id ?? `read-${++n}`;
-				const t = task({
-					id,
-					nodeId: input.nodeId,
-					kind: "file.read",
-					stdoutBytes: Buffer.byteLength(page),
-					stdoutHead: page,
-					result,
-				});
-				tasks.set(id, t);
-				return t;
-			},
-			waitTask: async (id: string) => tasks.get(id),
-		} as unknown as Cluster;
-		return { ctx: { ...ctx, cluster } as ToolContext, specs };
-	}
-
-	it("reads a page of lines with one task and returns its bytes exactly", async () => {
-		const db = await openTestDb("sqlite");
+describe("non-task tools", () => {
+	it("lists connected state, node groups and whether tasks can run", async () => {
+		const f = await fixture("list-user");
 		try {
-			const { ctx } = await seedToolContext(db, "read-user");
-			const path = "/var/log/app.log";
-			const read = await readContext(ctx, { [path]: "one\ntwo\nthree\n" });
-			const all = (await tool("read_file").handler({ targets: ["web-1"], path }, read.ctx)) as {
-				stdout: string;
-				lines: { from: number; to: number };
-				total?: number;
-				truncated?: { note: string };
-			};
-
-			// One call is one line-based task, and the page keeps the file's final newline.
-			expect(read.specs).toEqual([{ kind: "file.read", path, startLine: 1, lineCount: 2_000 }]);
-			expect(all.stdout).toBe("one\ntwo\nthree\n");
-			expect(all.lines).toEqual({ from: 1, to: 3 });
-			expect(all.total).toBe(3);
-			expect(all.truncated).toBeUndefined();
-
-			// A page that stops at the line limit keeps the newline of its last line and gives the cursor.
-			const page = (await tool("read_file").handler({ targets: ["web-1"], path, limit: 2 }, read.ctx)) as {
-				stdout: string;
-				lines: { from: number; to: number };
-				total?: number;
-				truncated?: { note: string };
-			};
-			expect(page.stdout).toBe("one\ntwo\n");
-			expect(page.lines).toEqual({ from: 1, to: 2 });
-			expect(page.total).toBeUndefined();
-			expect(page.truncated).toEqual({ note: "Use offset=3 to continue." });
-
-			// The cursor continues where the page stopped; the node pages by line, so the tool just asks.
-			const next = (await tool("read_file").handler({ targets: ["web-1"], path, offset: 3 }, read.ctx)) as {
-				stdout: string;
-				lines: { from: number; to: number };
-			};
-			expect(next.stdout).toBe("three\n");
-			expect(next.lines).toEqual({ from: 3, to: 3 });
-			expect(read.specs.at(-1)).toMatchObject({ kind: "file.read", startLine: 3 });
-
-			// A start line in the middle reads just that page, without reading the file before it again.
-			const mid = (await tool("read_file").handler({ targets: ["web-1"], path, offset: 2, limit: 1 }, read.ctx)) as {
-				stdout: string;
-				lines: { from: number; to: number };
-			};
-			expect(mid.stdout).toBe("two\n");
-			expect(mid.lines).toEqual({ from: 2, to: 2 });
-
-			// A file whose last line has no newline is returned without one.
-			const bare = await readContext(ctx, { [path]: "one\ntwo" });
-			const noNewline = (await tool("read_file").handler({ targets: ["web-1"], path }, bare.ctx)) as {
-				stdout: string;
-			};
-			expect(noNewline.stdout).toBe("one\ntwo");
+			const client = await addNode(f.db, f.user.userId, {
+				name: "client-1",
+				facts: { hostname: "client-1", osId: "debian", osPrettyName: "Debian 12" },
+				clientVersion: "3.0.0",
+				lastSeenAt: "2026-01-02T00:00:00.000Z",
+			});
+			await addNode(f.db, f.user.userId, { name: "ssh-1", transport: "ssh" });
+			await addNode(f.db, f.user.userId, { name: "off-1", status: "pending" });
+			await addGroup(f.db, client.id, "prod");
+			const cluster = { isConnected: (id: string) => id === client.id } as unknown as Cluster;
+			const result = await tool("list_nodes").handler({} as never, { ...f.base, cluster });
+			const nodes = jsonOf(result).nodes as Record<string, unknown>[];
+			expect(nodes.find((n) => n.name === "client-1")).toMatchObject({
+				connected: true,
+				node_groups: ["prod"],
+				os: "Debian 12",
+				client_version: "3.0.0",
+				last_seen_at: "2026-01-02T00:00:00.000Z",
+				can_run_tasks: true,
+			});
+			expect(nodes.find((n) => n.name === "ssh-1")).toMatchObject({ connected: null, can_run_tasks: true });
+			expect(nodes.find((n) => n.name === "off-1")).toMatchObject({ connected: false, can_run_tasks: false });
+			expect(nodes.find((n) => n.name === "web-1")).toMatchObject({ connected: false, can_run_tasks: false });
+			expect(result.isError).toBe(false);
 		} finally {
-			await db.destroy();
+			await f.db.destroy();
 		}
 	});
 
-	it("reports the end of the file and its line count only when the page reaches it", async () => {
+	it("returns facts with snake_case keys and the node's notes", async () => {
 		const db = await openTestDb("sqlite");
 		try {
-			const { ctx } = await seedToolContext(db, "read-eof-user");
-			const path = "/var/log/short.log";
-			const read = await readContext(ctx, { [path]: `${Array.from({ length: 2_500 }, () => "x").join("\n")}\n` });
-			const first = (await tool("read_file").handler({ targets: ["web-1"], path }, read.ctx)) as {
-				stdout: string;
-				lines: { from: number; to: number };
-				total?: number;
-				truncated?: { note: string };
-			};
-			expect(first.lines).toEqual({ from: 1, to: 2_000 });
-			expect(first.stdout).toBe("x\n".repeat(2_000));
-			expect(first.total).toBeUndefined();
-			expect(first.truncated).toEqual({ note: "Use offset=2001 to continue." });
-			const second = (await tool("read_file").handler({ targets: ["web-1"], path, offset: 2_001 }, read.ctx)) as {
-				stdout: string;
-				lines: { from: number; to: number };
-				total?: number;
-				truncated?: { note: string };
-			};
-			expect(second.lines).toEqual({ from: 2_001, to: 2_500 });
-			expect(second.stdout).toBe("x\n".repeat(500));
-			expect(second.total).toBe(2_500);
-			expect(second.truncated).toBeUndefined();
-		} finally {
-			await db.destroy();
-		}
-	});
-
-	it("stops a page at 50KB with whole lines and continues at the next line", async () => {
-		const db = await openTestDb("sqlite");
-		try {
-			const { ctx } = await seedToolContext(db, "read-big-user");
-			const lines = Array.from({ length: 200 }, (_, i) => `${String(i + 1).padStart(4, "0")} ${"x".repeat(1_000)}`);
-			const read = await readContext(ctx, { "/var/log/big.log": `${lines.join("\n")}\n` });
-			const page = (await tool("read_file").handler({ targets: ["web-1"], path: "/var/log/big.log" }, read.ctx)) as {
-				stdout: string;
-				lines: { from: number; to: number };
-				total?: number;
-				truncated?: { note: string };
-			};
-			expect(Buffer.byteLength(page.stdout)).toBe(50 * 1_006);
-			expect(page.stdout.endsWith("\n")).toBe(true);
-			expect(page.stdout.startsWith("0001 ")).toBe(true);
-			expect(page.lines).toEqual({ from: 1, to: 50 });
-			expect(page.total).toBeUndefined();
-			expect(page.truncated).toEqual({ note: "Use offset=51 to continue." });
-		} finally {
-			await db.destroy();
-		}
-	});
-
-	it("shows nothing and says so when the file is empty, and refuses a line past its end", async () => {
-		const db = await openTestDb("sqlite");
-		try {
-			const { ctx } = await seedToolContext(db, "read-empty-user");
-			const path = "/var/log/empty.log";
-			const empty = await readContext(ctx, { [path]: "" });
-			const nothing = (await tool("read_file").handler({ targets: ["web-1"], path }, empty.ctx)) as {
-				stdout: string;
-				note?: string;
-			};
-			expect(nothing.stdout).toBe("");
-			expect(nothing.note).toBe("the file is empty");
-
-			const tiny = await readContext(ctx, { [path]: "one\ntwo\n" });
-			await expect(tool("read_file").handler({ targets: ["web-1"], path, offset: 5 }, tiny.ctx)).rejects.toThrow(
-				"the file /var/log/empty.log has 2 lines; line 5 is past its end",
-			);
-		} finally {
-			await db.destroy();
-		}
-	});
-
-	it("refuses a line that alone is longer than a page, and points at exec", async () => {
-		const db = await openTestDb("sqlite");
-		try {
-			const { ctx } = await seedToolContext(db, "read-long-user");
-			const path = "/var/log/long.log";
-			const read = await readContext(ctx, { [path]: `${"x".repeat(50 * 1024)}\n` });
-			await expect(tool("read_file").handler({ targets: ["web-1"], path }, read.ctx)).rejects.toThrow(
-				/line 1 alone is longer than the 50 KB a page keeps; read it with exec.*sed -n '1p'/,
-			);
-		} finally {
-			await db.destroy();
-		}
-	});
-
-	it("reads the same file on several nodes: each node keeps its own head and cursor", async () => {
-		const db = await openTestDb("sqlite");
-		try {
-			const { user, nodeId, ctx: baseCtx } = await seedToolContext(db, "read-group-user");
-			const secondId = await addNode(db, user.userId, "web-2");
-			const path = "/var/log/app.log";
-			// The second node's page is cut by the batch budget (144 bytes), the first fits.
-			const first = "one\ntwo\n";
-			const second = "alpha\nbeta\ngamma\ndelta\n";
-			let n = 0;
+			const user = await createUser(db, { username: "facts-user", kind: "member" });
+			const node = await addNode(db, user.id, {
+				name: "web-1",
+				facts: {
+					hostname: "web-1",
+					osId: "ubuntu",
+					osVersionId: "24.04",
+					osPrettyName: "Ubuntu 24.04",
+					kernel: "6.8",
+					arch: "x86_64",
+					initSystem: "systemd",
+					packageManagers: ["apt"],
+					privilegeTools: ["sudo"],
+					notesPath: "/etc/crh/notes.md",
+					clockOffsetMs: 1200,
+					shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
+				},
+				clientVersion: "3.0.0",
+				lastSeenAt: "2026-01-02T00:00:00.000Z",
+			});
+			await addGroup(db, node.id, "prod");
+			const sessionUser: SessionUser = { sessionId: "s", userId: user.id, username: user.username, kind: "member" };
 			const cluster = {
-				createTask: async (input: { spec: TaskSpec; nodeId: string }) => {
-					const spec = input.spec as Extract<TaskSpec, { kind: "file.read" }>;
-					const content = input.nodeId === nodeId ? first : second;
-					const { page, result } = pageOf(content, spec.startLine, spec.lineCount);
-					const id = `g-${++n}`;
-					return task({
-						id,
-						nodeId: input.nodeId,
+				evaluateFor: async () => ({ result: "allow" }),
+				createTask: async () => task({ id: "notes-task", nodeId: node.id }),
+				waitTask: async () =>
+					task({
+						id: "notes-task",
+						nodeId: node.id,
 						kind: "file.read",
-						stdoutBytes: Buffer.byteLength(page),
-						stdoutHead: input.nodeId === nodeId ? page : page.slice(0, 12),
-						result,
-						outputMode: "head",
-					});
-				},
-				waitTask: async () => undefined,
+						stdoutHead: "# web-1\n",
+						result: page({ from: 1, to: 1, eof: true, total: 1 }),
+					}),
 			} as unknown as Cluster;
-			const groupTasks: TaskView[] = [];
-			const groups = {
-				create: async (input: { nodeIds: string[]; spec: TaskSpec }) => {
-					for (const id of input.nodeIds) {
-						groupTasks.push(
-							await cluster.createTask({
-								spec: input.spec,
-								nodeId: id,
-							} as Parameters<typeof cluster.createTask>[0]),
-						);
-					}
-					return "g1";
+			const context = {
+				...f2base(db, sessionUser),
+				cluster,
+			} as ToolContext;
+			const info = await tool("node_info").handler({ node: "web-1" } as never, context);
+			const value = jsonOf(info);
+			expect(value).toMatchObject({
+				name: "web-1",
+				node_groups: ["prod"],
+				client_version: "3.0.0",
+				last_seen_at: "2026-01-02T00:00:00.000Z",
+				facts: {
+					hostname: "web-1",
+					os_id: "ubuntu",
+					os_version_id: "24.04",
+					os_pretty_name: "Ubuntu 24.04",
+					kernel: "6.8",
+					arch: "x86_64",
+					init_system: "systemd",
+					package_managers: ["apt"],
+					privilege_tools: ["sudo"],
+					notes_path: "/etc/crh/notes.md",
+					clock_offset_ms: 1200,
+					shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
 				},
-				get: async () => groupView(),
-				wait: async () => groupView(),
-			} as unknown as TaskGroups;
-			const groupView = () => ({
-				id: "g1",
-				state: "finished" as const,
-				targets: [],
-				refs: {},
-				nodeIds: [nodeId, secondId],
-				parallel: 10,
-				failFast: false,
-				outputMode: "head" as const,
-				privileged: false,
-				skipped: [],
-				tasks: groupTasks,
-				createdAt: "2026-01-01T00:00:00.000Z",
-				finishedAt: "2026-01-01T00:00:00.000Z",
-				summary: path,
-				kind: "file.read",
-				ruleChain: null,
-				approval: null,
-				actorType: "user",
-				actorId: user.userId,
-				onBehalfOfUserId: user.userId,
-				operation: null,
-				rootSessionId: null,
-				handlerType: null,
-				handlerSessionId: null,
+				notes: { path: "/etc/crh/notes.md", content: "# web-1\n" },
 			});
-			const ctx = { ...baseCtx, cluster, taskGroups: groups } as ToolContext;
-			const result = (await tool("read_file").handler({ targets: ["web-1", "web-2"], path }, ctx)) as {
-				nodes: { node: string; stdout: string; lines: { from: number; to: number }; truncated?: { note: string } }[];
-			};
-			expect(result.nodes.map((n) => n.node)).toEqual(["web-1", "web-2"]);
-			expect(result.nodes[0]).toMatchObject({ stdout: "one\ntwo\n", lines: { from: 1, to: 2 } });
-			// The second node's head stops inside "gamma": only whole lines are shown, and the cursor is its own.
-			expect(result.nodes[1]).toMatchObject({
-				stdout: "alpha\nbeta\n",
-				lines: { from: 1, to: 2 },
-				truncated: { note: "Use offset=3 to continue." },
-			});
+			// Diffable: the JSON block has no indentation.
+			expect(info.content[0]?.text).not.toContain("\n");
 		} finally {
 			await db.destroy();
 		}
 	});
+
+	it("maps an unknown node to a no_such_node error result", async () => {
+		const f = await fixture("unknown-node-user");
+		try {
+			const result = await callTool(tool("node_info") as never, { node: "nope" }, f.base, { via: "mcp" });
+			expect(result.isError).toBe(true);
+			expect(jsonOf(result)).toEqual({ error: { code: "no_such_node", message: "no node nope that you can see" } });
+		} finally {
+			await f.db.destroy();
+		}
+	});
 });
 
-describe("tool task scope", () => {
-	it("acts only on its own session, its subtree and its own token's tasks", async () => {
-		const db = await openTestDb("sqlite");
-		try {
-			const user = await createUser(db, { username: "scope-user", kind: "member" });
-			const other = await createUser(db, { username: "scope-other", kind: "member" });
-			const orgId = await defaultOrgId(db);
-			const now = new Date().toISOString();
-			const sessionRow = (id: string, parent: string | null) => ({
-				id,
-				org_id: orgId,
-				owner_user_id: user.id,
-				conversation_id: `conv-${id}`,
-				parent_session_id: parent,
-				root_session_id: parent ?? id,
-				title: id,
-				model: JSON.stringify({ provider: "faux", modelId: "faux" }),
-				status: "active" as const,
-				created_at: now,
-				updated_at: now,
-				state: "idle" as const,
-			});
-			const parentSession = newId();
-			const childSession = newId();
-			const siblingSession = newId();
-			await db
-				.insertInto("sessions")
-				.values([
-					sessionRow(parentSession, null),
-					sessionRow(childSession, parentSession),
-					sessionRow(siblingSession, null),
-				])
-				.execute();
+function f2base(db: Db, user: SessionUser): ToolContext {
+	return {
+		db,
+		cluster: {} as Cluster,
+		taskGroups: {} as TaskGroups,
+		user,
+		actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
+		chain: [],
+		approvalUrl: (kind, id) => `http://crh.test/approvals/${kind}/${id}`,
+		taskUrl: (id) => `http://crh.test/tasks/${id}`,
+		taskGroupUrl: (id) => `http://crh.test/task-groups/${id}`,
+	};
+}
 
-			const tasks = new Map<string, TaskView>();
-			tasks.set("own", task({ id: "own", actorType: "session", actorId: parentSession, onBehalfOfUserId: user.id }));
-			tasks.set(
-				"child",
-				task({ id: "child", actorType: "subagent", actorId: childSession, onBehalfOfUserId: user.id }),
-			);
-			tasks.set(
-				"sibling",
-				task({ id: "sibling", actorType: "session", actorId: siblingSession, onBehalfOfUserId: user.id }),
-			);
-			tasks.set("token", task({ id: "token", actorType: "api_token", actorId: "tok-1", onBehalfOfUserId: user.id }));
-			tasks.set(
-				"foreign",
-				task({ id: "foreign", actorType: "session", actorId: parentSession, onBehalfOfUserId: other.id }),
-			);
+describe("expected tool errors", () => {
+	it("renders a UserError code in the note block of a text tool", async () => {
+		const f = await fixture("error-user");
+		try {
+			const result = await callTool(tool("exec") as never, { targets: ["web-1"] }, f.base, { via: "mcp" });
+			expect(result.isError).toBe(true);
+			expect(texts(result)).toEqual(["error invalid_argument: give either cmd or argv"]);
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("falls back to invalid_argument and not_found without an explicit code", async () => {
+		const f = await fixture("fallback-user");
+		try {
+			const invalid = {
+				name: "fake",
+				output: "json" as const,
+				handler: async () => {
+					throw new UserError("bad argument");
+				},
+			};
+			const bad = await callTool(invalid as never, {}, f.base, { via: "mcp" });
+			expect(jsonOf(bad)).toEqual({ error: { code: "invalid_argument", message: "bad argument" } });
+			const missing = {
+				name: "missing",
+				output: "json" as const,
+				handler: async () => {
+					throw new NotFoundError("gone");
+				},
+			};
+			const gone = await callTool(missing as never, {}, f.base, { via: "mcp" });
+			expect(jsonOf(gone)).toEqual({ error: { code: "not_found", message: "gone" } });
+		} finally {
+			await f.db.destroy();
+		}
+	});
+});
+
+describe("exec text results", () => {
+	it("returns the raw merged tail and a note block with the exit status", () => {
+		const result = execTaskResult(
+			ctx,
+			task({ outputTail: "hello\nworld\n", outputTailLines: 2, outputLines: 2 }),
+			"web-1",
+		);
+		expect(texts(result)).toEqual(["hello\nworld\n", "web-1 · exit 0"]);
+		expect(result.isError).toBe(false);
+		expect(result.details).toMatchObject({ task_id: "t1", node: "web-1", state: "exited", exit_code: 0 });
+	});
+
+	it("shows the line range and the full output path when truncated", () => {
+		const result = execTaskResult(
+			ctx,
+			task({
+				outputTail: "b\nc\n",
+				outputTailLines: 2,
+				outputLines: 5,
+				outputFile: "/var/lib/crha/output/t1.log",
+			}),
+			"web-1",
+		);
+		expect(texts(result)[1]).toBe(
+			"web-1 · exit 0\nShowing lines 4-5 of 5. Full output: /var/lib/crha/output/t1.log (read it with read_file).",
+		);
+	});
+
+	it("names the missing full output by transport and writes no line numbers without truncation", () => {
+		const truncated = execTaskResult(
+			ctx,
+			task({ outputTail: "b\nc\n", outputTailLines: 2, outputLines: 5, outputFile: null }),
+			"ssh-1",
+			"ssh",
+		);
+		expect(texts(truncated)[1]).toContain("This is an SSH node; no full output is kept.");
+		const crha = execTaskResult(
+			ctx,
+			task({ outputTail: "b\nc\n", outputTailLines: 2, outputLines: 5, outputFile: null }),
+			"web-1",
+		);
+		expect(texts(crha)[1]).toContain("The node kept no full output.");
+		expect(texts(crha)[1]).not.toContain("SSH");
+		const whole = execTaskResult(ctx, task({ outputTail: "a\n", outputTailLines: 1, outputLines: 1 }), "web-1");
+		expect(texts(whole)[1]).toBe("web-1 · exit 0");
+	});
+
+	it("marks nonzero exits, timeouts, signals and task errors as errors", () => {
+		const exit = execTaskResult(ctx, task({ state: "exited", exitCode: 2 }), "web-1");
+		expect(exit.isError).toBe(true);
+		expect(texts(exit).at(-1)).toBe("web-1 · exit 2");
+
+		const timeout = execTaskResult(ctx, task({ state: "failed", timedOut: true, timeoutMs: 30_000 }), "web-1");
+		expect(timeout.isError).toBe(true);
+		expect(texts(timeout).at(-1)).toBe("web-1 · timed out after 30 s");
+
+		const signal = execTaskResult(ctx, task({ state: "failed", signal: "SIGKILL" }), "web-1");
+		expect(signal.isError).toBe(true);
+		expect(texts(signal).at(-1)).toBe("web-1 · killed by SIGKILL");
+
+		const failed = execTaskResult(
+			ctx,
+			task({ state: "failed", exitCode: null, errorCode: "node_offline", errorMessage: "the node is not connected" }),
+			"web-1",
+		);
+		expect(failed.isError).toBe(true);
+		expect(texts(failed).at(-1)).toBe("web-1 · error node_offline: the node is not connected");
+
+		const unknown = execTaskResult(
+			ctx,
+			task({
+				state: "unknown",
+				exitCode: null,
+				errorCode: "connection_lost",
+				errorMessage: "the connection was lost",
+			}),
+			"web-1",
+		);
+		expect(unknown.isError).toBe(true);
+		expect(texts(unknown).at(-1)).toContain("error connection_lost:");
+	});
+
+	it("returns notes with the id while a task still runs or waits", () => {
+		const running = execTaskResult(ctx, task({ state: "running" }), "web-1");
+		expect(running.isError).toBe(false);
+		expect(texts(running)).toEqual(["web-1 · still running · task_id t1. Call task_wait with this task_id."]);
+
+		const approval = execTaskResult(ctx, task({ state: "awaiting_approval" }), "web-1");
+		expect(texts(approval)[0]).toBe(
+			"web-1 · waiting for approval: http://crh.test/approvals/task/t1 · task_id t1. Call task_wait with this task_id.",
+		);
+
+		const authorization = execTaskResult(
+			ctx,
+			task({ state: "awaiting_authorization", privileged: true, authorization: authorizationRecord() }),
+			"web-1",
+		);
+		expect(texts(authorization)[0]).toContain("waiting for authorization: http://crh.test/tasks/t1");
+		expect(texts(authorization)[0]).toContain("task_id t1");
+	});
+
+	it("keeps the UI details shape for privileges and authorization", () => {
+		expect(taskDetails(task({ privileged: true }), "web-1")).toMatchObject({ privileged: true });
+		const details = taskDetails(task({ state: "awaiting_authorization", privileged: true }), "web-1");
+		expect(details).toMatchObject({
+			task_id: "t1",
+			node: "web-1",
+			state: "awaiting_authorization",
+			privileged: true,
+		});
+	});
+});
+
+function authorizationRecord(): TaskAuthorizationRecord {
+	return {
+		plan: { paths: [{ path: "user", entries: [{ name: "alice", role: "user", credential: "sshsig" }] }] },
+		tried: ["crhs"],
+		dispatchedPath: null,
+		payloadId: "6d4a",
+		attempt: 2,
+		trustDigest: "abc",
+		pending: null,
+		local: null,
+		lastRejection: null,
+		updatedAt: "2026-01-01T00:00:00.000Z",
+	};
+}
+
+describe("exec task groups", () => {
+	it("renders text mode with a leading group note and one pair per node", () => {
+		const g = group({
+			outputMode: "text",
+			nodeIds: ["n1", "n2"],
+			tasks: [
+				task({ id: "t1", nodeId: "n1", outputMode: "text", stdoutTail: "ok\n", outputLines: 1, outputFile: "/out/1" }),
+				task({
+					id: "t2",
+					nodeId: "n2",
+					outputMode: "text",
+					state: "failed",
+					exitCode: 1,
+					stdoutTail: "bad\n",
+					outputLines: 1,
+					outputFile: "/out/2",
+				}),
+			],
+		});
+		const names = new Map([
+			["n1", "web-1"],
+			["n2", "db-1"],
+		]);
+		const result = execResultText(g, names);
+		expect(result.isError).toBe(true);
+		expect(texts(result)[0]).toBe("task group g1 · 2 nodes · 1 succeeded, 1 failed");
+		expect(texts(result)).toEqual(expect.arrayContaining(["ok\n", "web-1 · exit 0", "bad\n", "db-1 · exit 1"]));
+		expect(result.details).toMatchObject({
+			task_group_id: "g1",
+			state: "finished",
+			nodes: [
+				{ task_id: "t1", node: "web-1", state: "exited", exit_code: 0 },
+				{ task_id: "t2", node: "db-1", state: "failed", exit_code: 1 },
+			],
+		});
+	});
+
+	it("puts the truncation hint in each node's text note", () => {
+		const g = group({
+			outputMode: "text",
+			tasks: [
+				task({
+					id: "t1",
+					nodeId: "n1",
+					outputMode: "text",
+					stdoutTail: "tail\n",
+					outputLines: 10,
+					outputFile: "/out/1",
+				}),
+			],
+		});
+		const result = execResultText(g, new Map([["n1", "web-1"]]));
+		expect(texts(result).at(-1)).toBe(
+			"web-1 · exit 0\nShowing lines 10-10 of 10. Full output: /out/1 (read it with read_file).",
+		);
+	});
+
+	it("keeps status mode JSON and marks a group with a failed node as an error", () => {
+		const g = group({
+			outputMode: "status",
+			tasks: [
+				task({ id: "t1", nodeId: "n1", outputMode: "status", exitCode: 0, outputFile: "/out/1" }),
+				task({ id: "t2", nodeId: "n2", outputMode: "status", state: "failed", exitCode: 1 }),
+			],
+		});
+		const result = execResultStatus(
+			g,
+			new Map([
+				["n1", "web-1"],
+				["n2", "db-1"],
+			]),
+		);
+		expect(result.isError).toBe(true);
+		expect(jsonOf(result)).toMatchObject({
+			task_group_id: "g1",
+			state: "finished",
+			nodes: [
+				{ task_id: "t1", node: "web-1", state: "exited", exit_code: 0, output_file: "/out/1" },
+				{ task_id: "t2", node: "db-1", state: "failed", exit_code: 1 },
+			],
+		});
+		expect(result.details).toMatchObject({ task_group_id: "g1", nodes: expect.any(Array) });
+	});
+
+	it("shows the group id and how to follow it while it is still waiting", () => {
+		const g = group({ state: "running", tasks: [task({ id: "t1", nodeId: "n1", state: "running" })] });
+		const result = execResultStatus(g, new Map([["n1", "web-1"]]));
+		expect(jsonOf(result)).toMatchObject({
+			task_group_id: "g1",
+			state: "running",
+			next: "still running: call task_wait with this task_group_id",
+		});
+		expect(result.isError).toBe(false);
+	});
+});
+
+describe("exec budgets", () => {
+	it("caps a single task's merged tail through createTask", async () => {
+		const f = await fixture("single-budget-user");
+		try {
+			const created: Record<string, unknown>[] = [];
 			const cluster = {
-				getTask: async (id: string) => tasks.get(id),
-				waitTask: async (id: string) => tasks.get(id),
+				createTask: async (input: Record<string, unknown>) => {
+					created.push(input);
+					return task({ id: "t1", nodeId: f.nodeId });
+				},
+				waitTask: async () => task({ id: "t1", nodeId: f.nodeId, outputTail: "last\n", outputTailLines: 1 }),
+			} as unknown as Cluster;
+			await tool("exec").handler({ targets: ["web-1"], cmd: "true", max_lines: 1, max_bytes: 10, wait: 0 } as never, {
+				...f.base,
+				cluster,
+			});
+			expect(created[0]).toMatchObject({ maxLines: 1, maxBytes: 10 });
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("uses text mode for a group and passes max_lines 1 to the group", async () => {
+		const f = await fixture("group-budget-user");
+		try {
+			await addGroup(f.db, f.nodeId, "prod");
+			const created: Record<string, unknown>[] = [];
+			const taskGroups = {
+				create: async (input: Record<string, unknown>) => {
+					created.push(input);
+					return "g1";
+				},
+				get: async () =>
+					group({
+						id: "g1",
+						state: "finished",
+						nodeIds: [f.nodeId],
+						outputMode: "text",
+						tasks: [],
+					}),
+				wait: async () =>
+					group({
+						id: "g1",
+						state: "finished",
+						nodeIds: [f.nodeId],
+						outputMode: "text",
+						tasks: [],
+					}),
+			} as unknown as TaskGroups;
+			const result = await tool("exec").handler({ targets: ["prod"], cmd: "true", max_lines: 1, wait: 0 } as never, {
+				...f.base,
+				taskGroups,
+			});
+			expect(created[0]).toMatchObject({ outputMode: "text", maxLines: 1 });
+			expect(result.isError).toBe(false);
+			expect(texts(result)[0]).toContain("task group g1");
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("rejects output: status together with a budget as invalid_argument", async () => {
+		const f = await fixture("status-budget-user");
+		try {
+			await addGroup(f.db, f.nodeId, "prod");
+			const result = await callTool(
+				tool("exec") as never,
+				{ targets: ["prod"], cmd: "true", output: "status", max_lines: 1 },
+				f.base,
+				{ via: "mcp" },
+			);
+			expect(result.isError).toBe(true);
+			expect(texts(result)[0]).toContain("error invalid_argument:");
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("defaults a batch to status when no budget is given", async () => {
+		const f = await fixture("default-output-user");
+		try {
+			await addGroup(f.db, f.nodeId, "prod");
+			const created: Record<string, unknown>[] = [];
+			const taskGroups = {
+				create: async (input: Record<string, unknown>) => {
+					created.push(input);
+					return "g1";
+				},
+				get: async () => group({ id: "g1", state: "finished", nodeIds: [f.nodeId], outputMode: "status", tasks: [] }),
+				wait: async () => group({ id: "g1", state: "finished", nodeIds: [f.nodeId], outputMode: "status", tasks: [] }),
+			} as unknown as TaskGroups;
+			await tool("exec").handler({ targets: ["prod"], cmd: "true", wait: 0 } as never, {
+				...f.base,
+				taskGroups,
+			});
+			expect(created[0]?.outputMode).toBeUndefined();
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("passes read_file's group budgets and limit", async () => {
+		const f = await fixture("read-budget-user");
+		try {
+			await addGroup(f.db, f.nodeId, "prod");
+			const created: Record<string, unknown>[] = [];
+			const taskGroups = {
+				create: async (input: Record<string, unknown>) => {
+					created.push(input);
+					return "g1";
+				},
+				get: async () => group({ id: "g1", state: "finished", nodeIds: [f.nodeId], outputMode: "head", tasks: [] }),
+			} as unknown as TaskGroups;
+			await tool("read_file").handler({ targets: ["prod"], path: "/etc/hosts", limit: 50, max_bytes: 2048 } as never, {
+				...f.base,
+				taskGroups,
+			});
+			expect(created[0]).toMatchObject({
+				maxLines: 50,
+				maxBytes: 2048,
+				spec: { kind: "file.read", path: "/etc/hosts", startLine: 1, lineCount: 50 },
+			});
+			created.length = 0;
+			await tool("read_file").handler({ targets: ["prod"], path: "/etc/hosts" } as never, {
+				...f.base,
+				taskGroups,
+			});
+			expect(created[0]).toMatchObject({ maxLines: 128, spec: { lineCount: 2000 } });
+		} finally {
+			await f.db.destroy();
+		}
+	});
+});
+
+describe("read_file pages", () => {
+	it("returns the page bytes and says how to continue", () => {
+		const result = execRead(
+			task({
+				kind: "file.read",
+				stdoutHead: "one\ntwo\n",
+				stdoutBytes: 8,
+				result: page({ from: 1, to: 2, eof: false, total: null }),
+			}),
+			"/var/log/x",
+			1,
+			undefined,
+		);
+		expect(texts(result)).toEqual(["one\ntwo\n", "web-1:/var/log/x · lines 1-2. Use offset=3 to continue."]);
+		expect(result.isError).toBe(false);
+	});
+
+	it("reports the total and the end of the file only when the page reached it", () => {
+		const result = execRead(
+			task({
+				kind: "file.read",
+				stdoutHead: "three\n",
+				stdoutBytes: 6,
+				result: page({ from: 3, to: 3, eof: true, total: 3 }),
+			}),
+			"/x",
+			3,
+			undefined,
+		);
+		expect(texts(result)[1]).toBe("web-1:/x · lines 3-3 of 3 (end of file)");
+	});
+
+	it("says the file is empty", () => {
+		const result = execRead(
+			task({ kind: "file.read", result: page({ from: 0, to: 0, eof: true, total: 0 }) }),
+			"/x",
+			1,
+			undefined,
+		);
+		expect(texts(result)).toEqual(["web-1:/x · the file is empty"]);
+		expect(result.isError).toBe(false);
+	});
+
+	it("reports a too-long line and a start past the end with their codes", () => {
+		const tooLong = execRead(
+			task({ kind: "file.read", result: page({ from: 0, to: 0, eof: false, total: null, tooLong: true }) }),
+			"/x",
+			4,
+			undefined,
+		);
+		expect(tooLong.isError).toBe(true);
+		expect(texts(tooLong)[0]).toContain("error line_too_long:");
+		expect(texts(tooLong)[0]).toContain("sed -n '4p' '/x'");
+
+		const pastEnd = execRead(
+			task({ kind: "file.read", result: page({ from: 0, to: 0, eof: false, total: 5 }) }),
+			"/x",
+			9,
+			undefined,
+		);
+		expect(pastEnd.isError).toBe(true);
+		expect(texts(pastEnd)[0]).toContain("error offset_out_of_range:");
+		expect(texts(pastEnd)[0]).toContain("has 5 lines");
+	});
+
+	it("cuts a page at max_bytes on a whole line and continues from there", () => {
+		const result = execRead(
+			task({
+				kind: "file.read",
+				stdoutHead: "one\ntwo\nthree\n",
+				stdoutBytes: 14,
+				outputLines: 3,
+				result: page({ from: 1, to: 3, eof: true, total: 3 }),
+			}),
+			"/x",
+			1,
+			4,
+		);
+		expect(texts(result)).toEqual(["one\n", "web-1:/x · lines 1-1. Use offset=2 to continue."]);
+	});
+
+	it("reads several nodes with their own pages and cursors", () => {
+		const g = group({
+			outputMode: "head",
+			kind: "file.read",
+			nodeIds: ["n1", "n2"],
+			tasks: [
+				task({
+					id: "t1",
+					nodeId: "n1",
+					kind: "file.read",
+					outputMode: "head",
+					stdoutHead: "one\n",
+					stdoutBytes: 4,
+					result: page({ from: 1, to: 1, eof: true, total: 1 }),
+				}),
+				task({
+					id: "t2",
+					nodeId: "n2",
+					kind: "file.read",
+					outputMode: "head",
+					stdoutHead: "a\nb\n",
+					stdoutBytes: 4,
+					result: page({ from: 2, to: 3, eof: false, total: null }),
+				}),
+			],
+		});
+		const result = readGroup(
+			g,
+			new Map([
+				["n1", "web-1"],
+				["n2", "db-1"],
+			]),
+			"/x",
+			1,
+			undefined,
+		);
+		expect(texts(result)).toEqual([
+			"task group · 2 nodes · 2 succeeded, 0 failed",
+			"one\n",
+			"web-1:/x · lines 1-1 of 1 (end of file)",
+			"a\nb\n",
+			"db-1:/x · lines 2-3. Use offset=4 to continue.",
+		]);
+		expect(result.details).toMatchObject({
+			task_group_id: "g1",
+			nodes: [
+				{ task_id: "t1", node: "web-1" },
+				{ task_id: "t2", node: "db-1" },
+			],
+		});
+	});
+});
+
+/** Runs readTaskResult with the default page context. */
+function execRead(t: TaskView, path: string, startLine: number, maxBytes: number | undefined): ToolResult {
+	return readTaskResult(ctx, t, "web-1", path, startLine, maxBytes);
+}
+
+function readGroup(g: TaskGroupView, names: Map<string, string>, path: string, start: number, maxBytes?: number) {
+	return readGroupResult(ctx, g, names, path, start, maxBytes);
+}
+
+describe("file tool JSON results", () => {
+	it("returns list_dir entries and write/edit fields without a task id in the content", async () => {
+		const f = await fixture("file-json-user");
+		try {
+			const results: JsonTaskResult[] = [
+				{
+					kind: "file.list",
+					entries: [{ name: "a.txt", type: "file", size: 1, mode: "0644", mtime: "t" }],
+					truncated: false,
+				},
+				{ kind: "file.write", bytes: 3, created: true },
+				{ kind: "file.edit", replacements: 1 },
+			];
+			const cluster = {
+				createTask: async (input: Record<string, unknown>) =>
+					task({ id: "t1", nodeId: f.nodeId, kind: (input.spec as TaskSpec).kind }),
+				getTask: async () => task({ id: "t1", nodeId: f.nodeId, kind: "file.list", state: "running" }),
+				waitTask: async () => {
+					const result = results.shift();
+					return task({ id: "t1", nodeId: f.nodeId, kind: result?.kind ?? "file.list", result: result ?? null });
+				},
+			} as unknown as Cluster;
+			const context = { ...f.base, cluster };
+			const listing = await tool("list_dir").handler({ targets: ["web-1"], path: "/tmp" } as never, context);
+			expect(jsonOf(listing)).toMatchObject({
+				node: "web-1",
+				state: "exited",
+				entries: [expect.objectContaining({ name: "a.txt" })],
+				truncated: false,
+			});
+			expect(listing.content[0]?.text).not.toContain("task_id");
+			expect(jsonOf(listing)).not.toHaveProperty("task_id");
+			expect(listing.details).toMatchObject({ task_id: "t1", node: "web-1", state: "exited" });
+
+			const written = await tool("write_file").handler(
+				{ targets: ["web-1"], path: "/tmp/x", content: "abc" } as never,
+				context,
+			);
+			expect(jsonOf(written)).toMatchObject({ bytes: 3, created: true });
+			expect(written.details).toMatchObject({ task_id: "t1" });
+
+			const edited = await tool("edit_file").handler(
+				{ node: "web-1", path: "/tmp/x", edits: [{ old_text: "a", new_text: "b" }] } as never,
+				context,
+			);
+			expect(jsonOf(edited)).toMatchObject({ replacements: 1 });
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("maps edit_file's snake_case edits to the protocol's task spec", async () => {
+		const f = await fixture("edit-spec-user");
+		try {
+			const created: Record<string, unknown>[] = [];
+			const cluster = {
+				createTask: async (input: Record<string, unknown>) => {
+					created.push(input);
+					return task({ id: "t1", nodeId: f.nodeId, kind: "file.edit" });
+				},
+				getTask: async () => task({ id: "t1", nodeId: f.nodeId, kind: "file.edit", state: "running" }),
+				waitTask: async () =>
+					task({ id: "t1", nodeId: f.nodeId, kind: "file.edit", result: { kind: "file.edit", replacements: 1 } }),
+			} as unknown as Cluster;
+			await tool("edit_file").handler(
+				{ node: "web-1", path: "/tmp/x", edits: [{ old_text: "a", new_text: "b" }] } as never,
+				{ ...f.base, cluster },
+			);
+			expect(created[0]?.spec).toMatchObject({ kind: "file.edit", edits: [{ oldText: "a", newText: "b" }] });
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("returns stat's attributes and a link target", async () => {
+		const f = await fixture("stat-user");
+		try {
+			const cluster = {
+				createTask: async () => task({ id: "t1", nodeId: f.nodeId, kind: "file.stat" }),
+				getTask: async () => task({ id: "t1", nodeId: f.nodeId, kind: "file.stat", state: "running" }),
+				waitTask: async () =>
+					task({
+						id: "t1",
+						nodeId: f.nodeId,
+						kind: "file.stat",
+						result: {
+							kind: "file.stat",
+							path: "/tmp/link",
+							type: "symlink",
+							size: 5,
+							mode: "0777",
+							uid: 0,
+							gid: 0,
+							owner: "root",
+							group: "root",
+							mtime: "2026-01-01T00:00:00Z",
+							linkTarget: "/tmp/target",
+						},
+					}),
+			} as unknown as Cluster;
+			const result = await tool("stat").handler({ targets: ["web-1"], path: "/tmp/link" } as never, {
+				...f.base,
+				cluster,
+			});
+			expect(jsonOf(result)).toMatchObject({
+				path: "/tmp/link",
+				type: "symlink",
+				size: 5,
+				mode: "0777",
+				owner: "root",
+				link_target: "/tmp/target",
+			});
+			expect(result.details).toMatchObject({ task_id: "t1", node: "web-1" });
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("renders a failed file task as the bare error object", async () => {
+		const f = await fixture("file-error-user");
+		try {
+			const cluster = {
+				createTask: async () => task({ id: "t1", nodeId: f.nodeId, kind: "file.write" }),
+				getTask: async () => task({ id: "t1", nodeId: f.nodeId, kind: "file.write", state: "running" }),
+				waitTask: async () =>
+					task({
+						id: "t1",
+						nodeId: f.nodeId,
+						kind: "file.write",
+						state: "failed",
+						exitCode: null,
+						errorCode: "permission_denied",
+						errorMessage: "permission denied",
+					}),
+			} as unknown as Cluster;
+			const result = await tool("write_file").handler({ targets: ["web-1"], path: "/x", content: "a" } as never, {
+				...f.base,
+				cluster,
+			});
+			expect(result.isError).toBe(true);
+			expect(jsonOf(result)).toEqual({ error: { code: "permission_denied", message: "permission denied" } });
+			expect(result.details).toMatchObject({ task_id: "t1", state: "failed" });
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("renders a group of file tasks with per-node errors and no group id in the content", async () => {
+		const f = await fixture("file-group-user");
+		try {
+			await addGroup(f.db, f.nodeId, "prod");
+			const taskGroups = {
+				create: async () => "g1",
+				get: async () =>
+					group({
+						id: "g1",
+						state: "finished",
+						kind: "file.stat",
+						outputMode: "head",
+						nodeIds: ["n1", "n2"],
+						tasks: [
+							task({
+								id: "t1",
+								nodeId: "n1",
+								kind: "file.stat",
+								result: {
+									kind: "file.stat",
+									path: "/x",
+									type: "file",
+									size: 1,
+									mode: "0644",
+									uid: 0,
+									gid: 0,
+									owner: "root",
+									group: "root",
+									mtime: "t",
+									linkTarget: null,
+								},
+							}),
+							task({
+								id: "t2",
+								nodeId: "n2",
+								kind: "file.stat",
+								state: "failed",
+								exitCode: null,
+								errorCode: "not_found",
+								errorMessage: "no such file",
+							}),
+						],
+					}),
+			} as unknown as TaskGroups;
+			const result = await tool("stat").handler({ targets: ["prod"], path: "/x" } as never, {
+				...f.base,
+				taskGroups,
+			});
+			const value = jsonOf(result);
+			expect(result.isError).toBe(true);
+			expect(value).toMatchObject({
+				state: "finished",
+				nodes: [
+					{ node: "n1", type: "file" },
+					{ node: "n2", error: { code: "not_found" } },
+				],
+			});
+			expect(value).not.toHaveProperty("task_group_id");
+			expect(result.details).toMatchObject({ task_group_id: "g1", nodes: [{ task_id: "t1" }, { task_id: "t2" }] });
+		} finally {
+			await f.db.destroy();
+		}
+	});
+});
+
+describe("blocking file tools", () => {
+	it("cancels its task when the call is aborted", async () => {
+		const f = await fixture("abort-user");
+		try {
+			let state: TaskView["state"] = "running";
+			let cancelled = false;
+			const statuses: Record<string, unknown>[] = [];
+			const cluster = {
+				createTask: async () => task({ id: "t1", nodeId: f.nodeId, kind: "file.write", state: "running" }),
+				getTask: async () =>
+					task({
+						id: "t1",
+						nodeId: f.nodeId,
+						kind: "file.write",
+						state,
+						...(state === "rejected" ? { cancelled: true, errorCode: "cancelled", errorMessage: "aborted" } : {}),
+					}),
+				waitTask: (_id: string, _ms: number, signal?: AbortSignal) =>
+					new Promise<TaskView>((resolve) => {
+						const done = () => resolve(task({ id: "t1", nodeId: f.nodeId, kind: "file.write", state: "running" }));
+						if (signal?.aborted) done();
+						else signal?.addEventListener("abort", done, { once: true });
+					}),
+				cancelTask: async () => {
+					cancelled = true;
+					state = "rejected";
+					return true;
+				},
+			} as unknown as Cluster;
+			const controller = new AbortController();
+			const call = tool("write_file").handler({ targets: ["web-1"], path: "/tmp/x", content: "a" } as never, {
+				...f.base,
+				cluster,
+				signal: controller.signal,
+				onStatus: async (status) => {
+					statuses.push(status);
+				},
+			});
+			setTimeout(() => controller.abort(), 20);
+			const result = await call;
+			expect(cancelled).toBe(true);
+			expect(statuses[0]).toEqual({ task_id: "t1", state: "running" });
+			expect(result.isError).toBe(true);
+			expect(jsonOf(result)).toEqual({ error: { code: "cancelled", message: "aborted" } });
+			expect(result.details).toMatchObject({ task_id: "t1", state: "rejected", cancelled: true });
+		} finally {
+			await f.db.destroy();
+		}
+	});
+});
+
+describe("following up exec", () => {
+	it("rejects a file task with no_such_task", async () => {
+		const f = await fixture("wait-file-user");
+		try {
+			const fileTask = task({
+				id: "t1",
+				nodeId: f.nodeId,
+				kind: "file.read",
+				actorType: "user",
+				actorId: f.user.userId,
+				onBehalfOfUserId: f.user.userId,
+			});
+			const cluster = { getTask: async () => fileTask } as unknown as Cluster;
+			const result = await callTool(
+				tool("task_wait") as never,
+				{ task_id: "t1", wait: 0 },
+				{ ...f.base, cluster },
+				{ via: "mcp" },
+			);
+			expect(result.isError).toBe(true);
+			expect(texts(result)).toEqual(["error no_such_task: no such task"]);
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("rejects a file task group with no_such_task", async () => {
+		const f = await fixture("wait-file-group-user");
+		try {
+			const taskGroups = {
+				get: async () =>
+					group({
+						id: "g1",
+						kind: "file.read",
+						outputMode: "head",
+						state: "finished",
+						actorType: "user",
+						actorId: f.user.userId,
+						onBehalfOfUserId: f.user.userId,
+					}),
+			} as unknown as TaskGroups;
+			const result = await callTool(
+				tool("task_wait") as never,
+				{ task_group_id: "g1", wait: 0 },
+				{ ...f.base, taskGroups },
+				{ via: "mcp" },
+			);
+			expect(result.isError).toBe(true);
+			expect(texts(result)).toEqual(["error no_such_task: no such task group"]);
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("renders an exec task as text with its details", async () => {
+		const f = await fixture("wait-exec-user");
+		try {
+			const cluster = {
+				getTask: async () =>
+					task({
+						id: "t1",
+						nodeId: f.nodeId,
+						actorType: "user",
+						actorId: f.user.userId,
+						onBehalfOfUserId: f.user.userId,
+						outputTail: "done\n",
+						outputTailLines: 1,
+						outputLines: 1,
+					}),
+				waitTask: async () =>
+					task({
+						id: "t1",
+						nodeId: f.nodeId,
+						actorType: "user",
+						actorId: f.user.userId,
+						onBehalfOfUserId: f.user.userId,
+						outputTail: "done\n",
+						outputTailLines: 1,
+						outputLines: 1,
+					}),
+			} as unknown as Cluster;
+			const result = await tool("task_wait").handler({ task_id: "t1", wait: 0 } as never, {
+				...f.base,
+				cluster,
+			});
+			expect(texts(result)).toEqual(["done\n", "web-1 · exit 0"]);
+			expect(result.details).toMatchObject({ task_id: "t1", node: "web-1", state: "exited" });
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("acts only on its own tasks", async () => {
+		const f = await fixture("scope-user");
+		try {
+			const cluster = {
+				getTask: async () =>
+					task({
+						id: "t1",
+						nodeId: f.nodeId,
+						actorType: "user",
+						actorId: "someone-else",
+						onBehalfOfUserId: "someone-else",
+					}),
+			} as unknown as Cluster;
+			const result = await callTool(
+				tool("task_wait") as never,
+				{ task_id: "t1", wait: 0 },
+				{ ...f.base, cluster },
+				{
+					via: "mcp",
+				},
+			);
+			expect(result.isError).toBe(true);
+			expect(texts(result)).toEqual(["error no_such_task: no such task"]);
+		} finally {
+			await f.db.destroy();
+		}
+	});
+
+	it("cancels an exec task and returns JSON", async () => {
+		const f = await fixture("cancel-user");
+		try {
+			const cluster = {
+				getTask: async () =>
+					task({
+						id: "t1",
+						nodeId: f.nodeId,
+						actorType: "user",
+						actorId: f.user.userId,
+						onBehalfOfUserId: f.user.userId,
+					}),
 				cancelTask: async () => true,
 			} as unknown as Cluster;
-			const base = {
-				db,
-				cluster,
-				taskGroups: {} as TaskGroups,
-				user: { sessionId: "s", userId: user.id, username: user.username, kind: "member" as const },
-				chain: [],
-				approvalUrl: (kind: string, id: string) => `http://crh.test/approvals/${kind}/${id}`,
-			};
-			const sessionCtx = {
-				...base,
-				actor: { type: "session", id: parentSession, onBehalfOfUserId: user.id },
-			} as unknown as ToolContext;
-			const tokenCtx = {
-				...base,
-				actor: { type: "api_token", id: "tok-1", onBehalfOfUserId: user.id },
-			} as unknown as ToolContext;
-
-			const wait = (ctx: ToolContext, id: string) => tool("task_wait").handler({ task_id: id }, ctx);
-			const cancel = (ctx: ToolContext, id: string) => tool("task_cancel").handler({ task_id: id }, ctx);
-			await expect(wait(sessionCtx, "own")).resolves.toMatchObject({ task_id: "own" });
-			await expect(wait(sessionCtx, "child")).resolves.toMatchObject({ task_id: "child" });
-			await expect(cancel(sessionCtx, "child")).resolves.toMatchObject({ task_id: "child" });
-			// Another session of the same user, another user's task, and a token's task are out of reach.
-			await expect(wait(sessionCtx, "sibling")).rejects.toThrow(/no such task/);
-			await expect(cancel(sessionCtx, "sibling")).rejects.toThrow(/no such task/);
-			await expect(wait(sessionCtx, "foreign")).rejects.toThrow(/no such task/);
-			await expect(wait(sessionCtx, "token")).rejects.toThrow(/no such task/);
-			// The token reaches its own tasks only.
-			await expect(wait(tokenCtx, "token")).resolves.toMatchObject({ task_id: "token" });
-			await expect(wait(tokenCtx, "own")).rejects.toThrow(/no such task/);
+			const result = await tool("task_cancel").handler({ task_id: "t1" } as never, { ...f.base, cluster });
+			expect(jsonOf(result)).toEqual({ task_id: "t1", cancel_sent: true });
 		} finally {
-			await db.destroy();
+			await f.db.destroy();
 		}
 	});
 });
 
-describe("file tool results", () => {
-	/** A tool context whose cluster serves the given task for every call. */
-	function serving(ctx: ToolContext, t: TaskView): ToolContext {
-		const cluster = { createTask: async () => t, waitTask: async () => t } as unknown as Cluster;
-		return { ...ctx, cluster } as ToolContext;
-	}
-
-	it("list_dir returns the entries of the task's result, not JSON on stdout", async () => {
-		const db = await openTestDb("sqlite");
+describe("the statuses a wait publishes", () => {
+	it("publishes the task id before waiting and the approval link while waiting", async () => {
+		const f = await fixture("status-user");
 		try {
-			const { ctx } = await seedToolContext(db, "list-result-user");
-			const t = task({
-				kind: "file.list",
-				result: {
-					kind: "file.list",
-					truncated: true,
-					entries: [
-						{ name: "a.txt", type: "file", size: 3, mode: "0644", mtime: "2026-01-01T00:00:00Z" },
-						{ name: "sub", type: "dir", size: 0, mode: "0755", mtime: "2026-01-01T00:00:00Z" },
-					],
-				},
-			});
-			const out = (await tool("list_dir").handler({ targets: ["web-1"], path: "/tmp" }, serving(ctx, t))) as Record<
-				string,
-				unknown
-			>;
-			expect(out.entries).toEqual(t.result?.kind === "file.list" ? t.result.entries : []);
-			expect(out.truncated).toBe(true);
-			expect(out.stdout).toBe("");
-		} finally {
-			await db.destroy();
-		}
-	});
-
-	it("write_file and edit_file report what they changed", async () => {
-		const db = await openTestDb("sqlite");
-		try {
-			const { ctx } = await seedToolContext(db, "write-result-user");
-			const written = task({ kind: "file.write", result: { kind: "file.write", bytes: 9, created: true } });
-			const writeOut = (await tool("write_file").handler(
-				{ targets: ["web-1"], path: "/tmp/x", content: "something" },
-				serving(ctx, written),
-			)) as Record<string, unknown>;
-			expect(writeOut).toMatchObject({ bytes: 9, created: true });
-
-			const edited = task({ kind: "file.edit", result: { kind: "file.edit", replacements: 2 } });
-			const editOut = (await tool("edit_file").handler(
-				{ node: "web-1", path: "/tmp/x", edits: [{ oldText: "a", newText: "b" }] },
-				serving(ctx, edited),
-			)) as Record<string, unknown>;
-			expect(editOut).toMatchObject({ replacements: 2 });
-		} finally {
-			await db.destroy();
-		}
-	});
-
-	it("task_wait on a file.read task shows its page and line range", async () => {
-		const db = await openTestDb("sqlite");
-		try {
-			const { user, ctx } = await seedToolContext(db, "wait-result-user");
-			const t = task({
-				id: "read-1",
-				kind: "file.read",
-				// The task belongs to the tool context's actor (doc/agent-runtime.md#cluster-工具).
-				actorType: ctx.actor.type,
-				actorId: ctx.actor.id,
-				onBehalfOfUserId: user.userId,
-				stdoutBytes: 8,
-				stdoutHead: "one\ntwo\n",
-				result: { kind: "file.read", from: 1, to: 2, eof: true, total: 2, tooLong: false },
-			});
+			let reads = 0;
 			const cluster = {
-				getTask: async () => t,
-				waitTask: async () => t,
+				createTask: async () => task({ id: "t1", nodeId: f.nodeId, state: "awaiting_approval" }),
+				getTask: async () =>
+					task({ id: "t1", nodeId: f.nodeId, state: reads++ === 0 ? "awaiting_approval" : "exited" }),
+				waitTask: async () => task({ id: "t1", nodeId: f.nodeId, state: "exited" }),
 			} as unknown as Cluster;
-			const out = (await tool("task_wait").handler({ task_id: t.id }, { ...ctx, cluster })) as Record<string, unknown>;
-			expect(out).toMatchObject({ stdout: "one\ntwo\n", lines: { from: 1, to: 2 }, total: 2 });
+			const statuses: Record<string, unknown>[] = [];
+			const context = {
+				...f.base,
+				cluster,
+				waitThroughApproval: true,
+				onStatus: async (status: Record<string, unknown>) => {
+					statuses.push(status);
+				},
+			};
+			const call = tool("exec").handler({ targets: ["web-1"], cmd: "true", wait: 1 } as never, context);
+			// The approval wait polls once a second; the first status is already out.
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			expect(statuses[0]).toEqual({ task_id: "t1", state: "awaiting_approval" });
+			expect(statuses[1]).toEqual({
+				task_id: "t1",
+				state: "awaiting_approval",
+				approval_url: "http://crh.test/approvals/task/t1",
+			});
+			await call;
 		} finally {
-			await db.destroy();
+			await f.db.destroy();
+		}
+	}, 15_000);
+
+	it("publishes the group id before waiting and the group authorization link", async () => {
+		const f = await fixture("group-status-user");
+		try {
+			await addGroup(f.db, f.nodeId, "prod");
+			const states = ["awaiting_authorization", "awaiting_authorization", "exited"];
+			let reads = 0;
+			const taskGroups = {
+				create: async () => "g1",
+				get: async () => {
+					const state = (states[Math.min(reads++, 2)] ?? "exited") as TaskGroupView["state"];
+					return group({
+						id: "g1",
+						state,
+						kind: "exec",
+						outputMode: "status",
+						nodeIds: [f.nodeId],
+						tasks: [
+							task({
+								id: "t1",
+								nodeId: f.nodeId,
+								state: state === "awaiting_authorization" ? "awaiting_authorization" : "exited",
+							}),
+						],
+					});
+				},
+				wait: async () =>
+					group({
+						id: "g1",
+						state: "finished",
+						kind: "exec",
+						outputMode: "status",
+						nodeIds: [f.nodeId],
+						tasks: [task({ id: "t1", nodeId: f.nodeId, state: "exited" })],
+					}),
+			} as unknown as TaskGroups;
+			const statuses: Record<string, unknown>[] = [];
+			const context = {
+				...f.base,
+				taskGroups,
+				waitThroughApproval: true,
+				onStatus: async (status: Record<string, unknown>) => {
+					statuses.push(status);
+				},
+			};
+			await tool("exec").handler({ targets: ["prod"], cmd: "true", wait: 1 } as never, context);
+			expect(statuses[0]).toEqual({ task_group_id: "g1", state: "awaiting_authorization" });
+			expect(statuses[1]).toEqual({
+				task_group_id: "g1",
+				state: "awaiting_authorization",
+				authorization_url: "http://crh.test/task-groups/g1",
+			});
+			expect(statuses.at(-1)).toEqual({ task_group_id: "g1", state: "finished" });
+		} finally {
+			await f.db.destroy();
+		}
+	}, 15_000);
+});
+
+describe("the privileged tool parameter", () => {
+	it("is an optional boolean on every task tool", () => {
+		const valid: Record<string, Record<string, unknown>> = {
+			exec: { targets: ["web-1"], cmd: "true" },
+			read_file: { targets: ["web-1"], path: "/etc/hosts" },
+			write_file: { targets: ["web-1"], path: "/tmp/x", content: "x" },
+			edit_file: { node: "web-1", path: "/tmp/x", edits: [{ old_text: "a", new_text: "b" }] },
+			list_dir: { targets: ["web-1"], path: "/tmp" },
+			stat: { targets: ["web-1"], path: "/tmp" },
+		};
+		for (const [name, body] of Object.entries(valid)) {
+			const candidate = tool(name);
+			expect(candidate.input.safeParse(body).success, name).toBe(true);
+			expect(candidate.input.safeParse({ ...body, privileged: true }).success, name).toBe(true);
+			expect(candidate.input.safeParse({ ...body, privileged: "true" }).success, name).toBe(false);
 		}
 	});
 
-	it("a list_dir group shows each node's entries", async () => {
-		const db = await openTestDb("sqlite");
+	it("passes it to task creation and reports it in the details", async () => {
+		const f = await fixture("priv-tool-user");
 		try {
-			const { user, nodeId, ctx } = await seedToolContext(db, "list-group-user");
-			const secondId = await addNode(db, user.userId, "web-2");
-			const tasks: TaskView[] = [
-				task({
-					id: "l-1",
-					nodeId,
-					kind: "file.list",
-					outputMode: "head",
-					result: {
-						kind: "file.list",
-						truncated: false,
-						entries: [{ name: "a", type: "file", size: 1, mode: "0644", mtime: "2026-01-01T00:00:00Z" }],
-					},
-				}),
-				task({
-					id: "l-2",
-					nodeId: secondId,
-					kind: "file.list",
-					outputMode: "head",
-					result: {
-						kind: "file.list",
-						truncated: false,
-						entries: [{ name: "b", type: "dir", size: 0, mode: "0755", mtime: "2026-01-01T00:00:00Z" }],
-					},
-				}),
-			];
-			const group = (): TaskGroupView => ({
-				id: "g-list",
-				state: "finished",
-				targets: [],
-				refs: {},
-				nodeIds: [nodeId, secondId],
-				parallel: 10,
-				failFast: false,
-				outputMode: "head",
-				privileged: false,
-				skipped: [],
-				tasks,
-				createdAt: "2026-01-01T00:00:00.000Z",
-				finishedAt: "2026-01-01T00:00:00.000Z",
-				summary: "/tmp",
-				kind: "file.list",
-				ruleChain: null,
-				approval: null,
-				actorType: "user",
-				actorId: user.userId,
-				onBehalfOfUserId: user.userId,
-				operation: null,
-				rootSessionId: null,
-				handlerType: null,
-				handlerSessionId: null,
-			});
-			const groups = {
-				create: async () => "g-list",
-				get: async () => group(),
-				wait: async () => group(),
-			} as unknown as TaskGroups;
-			const out = (await tool("list_dir").handler({ targets: ["web-1", "web-2"], path: "/tmp" }, {
-				...ctx,
-				taskGroups: groups,
-			} as ToolContext)) as { nodes: Record<string, unknown>[] };
-			expect(out.nodes.map((n) => n.node)).toEqual(["web-1", "web-2"]);
-			expect(out.nodes[0]).toMatchObject({ entries: [{ name: "a" }], truncated: false });
-			expect(out.nodes[1]).toMatchObject({ entries: [{ name: "b" }], truncated: false });
+			const created: Record<string, unknown>[] = [];
+			const cluster = {
+				createTask: async (input: Record<string, unknown>) => {
+					created.push(input);
+					return task({ id: "t1", nodeId: f.nodeId, kind: "file.write", privileged: true });
+				},
+				getTask: async () =>
+					task({ id: "t1", nodeId: f.nodeId, kind: "file.write", state: "running", privileged: true }),
+				waitTask: async () =>
+					task({
+						id: "t1",
+						nodeId: f.nodeId,
+						kind: "file.write",
+						privileged: true,
+						result: { kind: "file.write", bytes: 1, created: true },
+					}),
+			} as unknown as Cluster;
+			const result = await tool("write_file").handler(
+				{ targets: ["web-1"], path: "/tmp/x", content: "a", privileged: true } as never,
+				{ ...f.base, cluster },
+			);
+			expect(created[0]).toMatchObject({ privileged: true });
+			expect(jsonOf(result)).toMatchObject({ bytes: 1, created: true });
+			expect(result.details).toMatchObject({ task_id: "t1", privileged: true });
 		} finally {
-			await db.destroy();
+			await f.db.destroy();
 		}
 	});
 });

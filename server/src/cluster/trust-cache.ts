@@ -21,6 +21,7 @@ export async function onTrustSummary(core: ClusterCore, link: NodeLink, report: 
 			link.trustFresh = true;
 			for (const wake of [...link.trustWaiters]) wake();
 			link.trustWaiters.clear();
+			core.notifyLink(nodeId);
 		}
 		return result;
 	});

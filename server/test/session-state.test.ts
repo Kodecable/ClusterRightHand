@@ -63,7 +63,7 @@ const TASK: TaskSpec = {
 beforeAll(async () => {
 	db = await openTestDb("sqlite");
 	audit = new Audit(db);
-	cluster = new Cluster(db, { audit });
+	cluster = new Cluster(db, { audit, nodeOfflineGraceMs: 10 });
 	groups = new TaskGroups(db, cluster, { audit });
 	const models = new ModelConfig(db, MasterKey.generate());
 	models.addProvider(faux.provider);

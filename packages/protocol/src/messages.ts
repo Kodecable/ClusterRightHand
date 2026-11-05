@@ -343,6 +343,9 @@ export const taskExitCodec = tuple([
 	["stdoutEnd", uint],
 	["stderrEnd", uint],
 	["outputFile", text],
+	// The line count of the merged stdout/stderr output: the same bytes the output file holds
+	// (doc/protocol.md TaskExit).
+	["outputLines", uint],
 	["result", nullable(taskResultCodec)],
 ]);
 export type TaskExit = Infer<typeof taskExitCodec>;

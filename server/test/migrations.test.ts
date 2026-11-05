@@ -18,6 +18,7 @@ import { down as down0035, up as up0035 } from "../src/storage/migrations/0035_r
 import { down as down0036, up as up0036 } from "../src/storage/migrations/0036_node_names.ts";
 import { down as down0037, up as up0037 } from "../src/storage/migrations/0037_user_group_member_column.ts";
 import { down as down0038, up as up0038 } from "../src/storage/migrations/0038_node_access_grants.ts";
+import { down as down0039, up as up0039 } from "../src/storage/migrations/0039_output_budgets.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -1367,5 +1368,75 @@ describeBackends("0038 node access grants", (backend) => {
 		// The old owners and deleted node shares cannot be reconstructed; the rows are still there.
 		expect(Number((await sql<{ n: number }>`select count(*) as n from nodes`.execute(db)).rows[0]?.n)).toBe(3);
 		expect(Number((await sql<{ n: number }>`select count(*) as n from shares`.execute(db)).rows[0]?.n)).toBe(1);
+	});
+});
+
+describeBackends("0039 output budgets", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("task_groups")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("output_mode", "text", (c) => c.notNull())
+				.execute();
+			await db.schema
+				.createTable("tasks")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("output_mode", "text", (c) => c.notNull())
+				.addColumn("stdout_tail", "text")
+				.execute();
+			await sql`insert into task_groups (id, output_mode) values ('g1', 'text')`.execute(db);
+			await sql`insert into tasks (id, output_mode, stdout_tail) values ('t1', 'full', 'aGVsbG8=')`.execute(db);
+		});
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("adds the budget and merged-tail columns as nullable", async () => {
+		await applyMigration(backend, db, up0039);
+		expect(await tableColumns(backend, db, "task_groups")).toContain("node_max_lines");
+		expect(await tableColumns(backend, db, "task_groups")).toContain("node_max_bytes");
+		expect(await tableColumns(backend, db, "tasks")).toContain("max_lines");
+		expect(await tableColumns(backend, db, "tasks")).toContain("max_bytes");
+		expect(await tableColumns(backend, db, "tasks")).toContain("output_tail");
+		expect(await tableColumns(backend, db, "tasks")).toContain("output_lines");
+
+		// Existing rows get the defaults at read time: the migration fills nothing in.
+		const group = await sql<{ node_max_lines: number | null; node_max_bytes: number | null }>`
+			select node_max_lines, node_max_bytes from task_groups where id = 'g1'
+		`.execute(db);
+		expect(group.rows[0]).toEqual({ node_max_lines: null, node_max_bytes: null });
+		const task = await sql<{
+			max_lines: number | null;
+			max_bytes: number | null;
+			output_tail: string | null;
+			output_lines: number | null;
+			stdout_tail: string;
+		}>`select max_lines, max_bytes, output_tail, output_lines, stdout_tail from tasks where id = 't1'`.execute(db);
+		expect(task.rows[0]).toEqual({
+			max_lines: null,
+			max_bytes: null,
+			output_tail: null,
+			output_lines: null,
+			stdout_tail: "aGVsbG8=",
+		});
+	});
+
+	it("down drops the columns and keeps the rows", async () => {
+		await applyMigration(backend, db, up0039);
+		await applyMigration(backend, db, down0039);
+		expect(await tableColumns(backend, db, "task_groups")).not.toContain("node_max_lines");
+		expect(await tableColumns(backend, db, "task_groups")).not.toContain("node_max_bytes");
+		expect(await tableColumns(backend, db, "tasks")).not.toContain("max_lines");
+		expect(await tableColumns(backend, db, "tasks")).not.toContain("max_bytes");
+		expect(await tableColumns(backend, db, "tasks")).not.toContain("output_tail");
+		expect(await tableColumns(backend, db, "tasks")).not.toContain("output_lines");
+		expect(Number((await sql<{ n: number }>`select count(*) as n from tasks`.execute(db)).rows[0]?.n)).toBe(1);
+		expect(Number((await sql<{ n: number }>`select count(*) as n from task_groups`.execute(db)).rows[0]?.n)).toBe(1);
 	});
 });

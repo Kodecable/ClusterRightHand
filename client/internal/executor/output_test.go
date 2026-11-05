@@ -50,6 +50,87 @@ func TestOutputInMemory(t *testing.T) {
 	}
 }
 
+// TestOutputLines covers the line count of the merged output (doc/protocol.md TaskExit): the
+// newline count plus a last line without one, and 0 for no output, whether the bytes stayed in
+// memory or were spilled.
+func TestOutputLines(t *testing.T) {
+	type write struct {
+		stream protocol.Stream
+		text   string
+	}
+	for _, tc := range []struct {
+		name   string
+		opts   OutputOptions
+		writes []write
+		want   uint64
+		spill  bool
+	}{
+		{name: "no output in memory", want: 0},
+		{name: "no output always spilled", opts: OutputOptions{AlwaysSpill: true}, want: 0, spill: true},
+		{name: "trailing newline", writes: []write{{stdout, "a\nb\n"}}, want: 2},
+		{name: "no trailing newline", writes: []write{{stdout, "a\nb"}}, want: 2},
+		{name: "single newline", writes: []write{{stderr, "\n"}}, want: 1},
+		{
+			name: "interleaved streams",
+			writes: []write{
+				{stdout, "a\n"},
+				{stderr, "b"},
+				{stdout, "c\n"},
+				{stderr, "d"},
+			},
+			want: 3,
+		},
+		{
+			name:   "spilled with trailing newline",
+			opts:   OutputOptions{SpillBytes: 2},
+			writes: []write{{stdout, "a\n"}, {stderr, "b"}, {stdout, "c\n"}},
+			want:   2,
+			spill:  true,
+		},
+		{
+			name:   "spilled without trailing newline",
+			opts:   OutputOptions{SpillBytes: 2},
+			writes: []write{{stdout, "a\n"}, {stderr, "b"}},
+			want:   2,
+			spill:  true,
+		},
+		{
+			name:   "small always spilled without newline",
+			opts:   OutputOptions{AlwaysSpill: true},
+			writes: []write{{stdout, "x"}},
+			want:   1,
+			spill:  true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := NewOutput("lines", t.TempDir(), tc.opts)
+			var merged strings.Builder
+			for _, w := range tc.writes {
+				if _, err := o.Writer(w.stream).Write([]byte(w.text)); err != nil {
+					t.Fatal(err)
+				}
+				merged.WriteString(w.text)
+			}
+			o.Close()
+			if got := o.Path() != ""; got != tc.spill {
+				t.Fatalf("spilled = %v, want %v (path %q)", got, tc.spill, o.Path())
+			}
+			if tc.spill {
+				data, err := os.ReadFile(o.Path())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(data) != merged.String() {
+					t.Fatalf("file = %q, want %q", data, merged.String())
+				}
+			}
+			if got := o.Lines(); got != tc.want {
+				t.Fatalf("Lines() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestOutputSpillsByBytes(t *testing.T) {
 	dir := t.TempDir()
 	o := NewOutput("t2", dir, OutputOptions{SpillBytes: 10})

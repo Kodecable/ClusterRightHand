@@ -17,7 +17,7 @@ import { SafeMarkdown, StreamingMarkdown } from "@/markdown/SafeMarkdown";
 import { useStreamingText } from "@/markdown/stream-store";
 import type { Json, JsonObject } from "./sessionState";
 import { approvalWait, authorizationWait, prettyJson, type TranscriptItem } from "./sessionState";
-import { type ToolFailure, taskGroupViewFailure, taskViewFailure, toolFailure } from "./tool-failure";
+import { type ToolFailure, taskGroupViewFailure, taskViewFailure, toolResultFailure } from "./tool-failure";
 import type { TranscriptStreams } from "./transcript-streams";
 
 type ToolItem = Extract<TranscriptItem, { kind: "tool" }>;
@@ -71,6 +71,7 @@ const TOOL_SUBJECT_KEYS: Record<string, readonly string[]> = {
 	write_file: ["path", "file"],
 	edit_file: ["path", "file"],
 	list_dir: ["path", "file"],
+	stat: ["path", "file"],
 	subagent: ["task", "prompt"],
 	task_wait: ["task_id", "task_group_id"],
 	task_cancel: ["task_id"],
@@ -112,10 +113,13 @@ export function toolLine(name: string, args: JsonObject): string {
 	return parts.join(" · ");
 }
 
-function toolTaskId(item: ToolItem): string | undefined {
+/** The id a returned call links from its `details`; an old transcript keeps it in the result JSON. */
+function resultId(item: ToolItem, key: "task_id" | "task_group_id"): string | undefined {
+	const fromDetails = detailId(item.result?.details, key);
+	if (fromDetails !== undefined) return fromDetails;
 	const parsed = prettyJson(item.result?.text ?? "");
 	const value = parsed && !Array.isArray(parsed.value) ? parsed.value : undefined;
-	const id = value?.task_id;
+	const id = value?.[key];
 	return typeof id === "string" && id !== "" ? id : undefined;
 }
 
@@ -198,7 +202,7 @@ function ToolCard({
 			? item.details.sessionId
 			: undefined;
 	const subagentId = typeof subagent === "string" && subagent !== "" ? subagent : undefined;
-	const failure = result === undefined ? undefined : toolFailure(result.text);
+	const failure = result === undefined ? undefined : toolResultFailure(result);
 	// Only a call without a result follows a task or task group: a returned call must not fetch.
 	const taskId = returned ? undefined : detailId(item.details, "task_id");
 	const taskGroupId = returned ? undefined : detailId(item.details, "task_group_id");
@@ -279,7 +283,8 @@ function ToolCard({
 	const line = toolLine(item.name, item.args);
 	const rest = line.slice(item.name.length);
 	const liveOutput = result === undefined ? streams.tool(item.callId) : undefined;
-	const taskResultId = toolTaskId(item);
+	const taskResultId = returned ? resultId(item, "task_id") : undefined;
+	const taskGroupResultId = returned ? resultId(item, "task_group_id") : undefined;
 
 	return (
 		<div className="text-xs" data-testid="tool-card" data-tool-status={status}>
@@ -344,14 +349,17 @@ function ToolCard({
 								<span className="text-[11px] font-medium text-muted-foreground">
 									<Trans>Result</Trans>
 								</span>
-								<CodeText
-									text={prettyJson(result.text)?.pretty ?? result.text}
-									maxLines={0}
-									preClassName="max-h-none"
-									label={t`Tool result`}
-									className={result.isError ? "border-danger/40" : undefined}
-								/>
+								<ToolResultContent result={result} />
 								{taskResultId !== undefined && <ToolTask taskId={taskResultId} />}
+								{taskGroupResultId !== undefined && (
+									<Link
+										to="/task-groups/$taskGroupId"
+										params={{ taskGroupId: taskGroupResultId }}
+										className="text-xs text-primary underline underline-offset-2"
+									>
+										<Trans>Open the task group page</Trans>
+									</Link>
+								)}
 							</div>
 						)}
 						{subagentId !== undefined && (
@@ -383,6 +391,45 @@ function ToolLiveOutput({ store }: { store: ReturnType<TranscriptStreams["tool"]
 		<pre className="max-h-72 overflow-auto rounded-md border bg-[var(--code)] p-2 font-mono text-xs whitespace-pre-wrap break-words">
 			{text}
 		</pre>
+	);
+}
+
+/**
+ * A returned tool result (doc/agent-runtime.md#交给模型的输出d112): one JSON block keeps the pretty JSON
+ * view, while a text result shows each raw or note block in its own monospace block.
+ */
+function ToolResultContent({ result }: { result: NonNullable<ToolItem["result"]> }) {
+	const { t } = useLingui();
+	const blocks = result.blocks !== undefined && result.blocks.length > 0 ? result.blocks : [result.text];
+	const only = blocks.length === 1 ? blocks[0] : undefined;
+	const json = only === undefined ? undefined : prettyJson(only);
+	if (json !== undefined) {
+		return (
+			<CodeText
+				text={json.pretty}
+				maxLines={0}
+				preClassName="max-h-none"
+				label={t`Tool result`}
+				className={result.isError ? "border-danger/40" : undefined}
+			/>
+		);
+	}
+	return (
+		<div className="grid gap-1.5" data-testid="tool-result-text">
+			{blocks.map((block, index) => {
+				const key = `${index}:${block.slice(0, 16)}`;
+				return (
+					<CodeText
+						key={key}
+						text={block}
+						maxLines={0}
+						preClassName="max-h-none"
+						label={t`Tool result`}
+						className={result.isError ? "border-danger/40" : undefined}
+					/>
+				);
+			})}
+		</div>
 	);
 }
 

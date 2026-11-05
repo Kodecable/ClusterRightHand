@@ -22,7 +22,18 @@ export interface PublicUser {
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 export const MIN_PASSWORD_LENGTH = 8;
 
-export class UserError extends Error {}
+/**
+ * An expected refusal, shown to the caller as a tool error (doc/agent-runtime.md#错误结果). `code` is the
+ * stable snake_case error code tools use; without one the adapter falls back to `invalid_argument`.
+ */
+export class UserError extends Error {
+	readonly code: string | undefined;
+
+	constructor(message: string, code?: string) {
+		super(message);
+		this.code = code;
+	}
+}
 export class NotFoundError extends UserError {}
 
 export function toPublicUser(row: Omit<Selectable<UsersTable>, "password_hash">): PublicUser {

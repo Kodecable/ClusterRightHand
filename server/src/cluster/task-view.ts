@@ -8,6 +8,7 @@ import type { RuleRef } from "../policy/store.ts";
 import type { TasksTable } from "../storage/schema.ts";
 import { authorizationView } from "./authorization.ts";
 import type { OutputSnapshot } from "./batch-output.ts";
+import { countOutputLines } from "./output.ts";
 import { operationOfJson, summarize } from "./spec.ts";
 import type { Live } from "./task-state.ts";
 import { type ApprovalRecord, type TaskView, TERMINAL } from "./types.ts";
@@ -17,6 +18,8 @@ export function toView(row: Selectable<TasksTable>, live: Live | undefined): Tas
 	const fromLive = live && !TERMINAL.has(row.state);
 	const text = (b: Buffer | null) => (b ? b.toString("utf8") : "");
 	const output = fromLive ? live.output.snapshot() : undefined;
+	// A single task's merged tail; the batch modes keep only their per-stream head/tail fields.
+	const outputTail = output ? text(output.outputTail) : b64(row.output_tail);
 	return {
 		id: row.id,
 		nodeId: row.node_id,
@@ -31,6 +34,7 @@ export function toView(row: Selectable<TasksTable>, live: Live | undefined): Tas
 		signal: row.signal,
 		timedOut: row.timed_out === 1,
 		cancelled: row.cancelled === 1,
+		timeoutMs: row.timeout_ms,
 		errorCode: row.error_code,
 		errorMessage: row.error_message,
 		stdoutBytes: output ? output.stdoutBytes : Number(row.stdout_bytes),
@@ -40,6 +44,11 @@ export function toView(row: Selectable<TasksTable>, live: Live | undefined): Tas
 		stdoutTail: output ? text(output.stdoutTail) : b64(row.stdout_tail),
 		stderrHead: output ? text(output.stderrHead) : b64(row.stderr_head),
 		stderrTail: output ? text(output.stderrTail) : b64(row.stderr_tail),
+		outputTail,
+		outputTailLines: countOutputLines(outputTail),
+		outputLines: row.output_lines === null ? null : Number(row.output_lines),
+		maxLines: row.max_lines,
+		maxBytes: row.max_bytes,
 		outputFile: row.output_file,
 		outputMode: row.output_mode,
 		privileged: row.privileged === 1,
@@ -78,5 +87,6 @@ export function outputColumns(out: OutputSnapshot) {
 		stdout_tail: out.stdoutTail?.toString("base64") ?? null,
 		stderr_head: out.stderrHead?.toString("base64") ?? null,
 		stderr_tail: out.stderrTail?.toString("base64") ?? null,
+		output_tail: out.outputTail?.toString("base64") ?? null,
 	};
 }

@@ -255,6 +255,41 @@ test("a tool call: streamed arguments, running output, result, second turn", () 
 	expect(s.running).toBe(true);
 });
 
+test("a text tool result keeps its blocks and details for the dialog", () => {
+	let s = reduceAll(initialState, [
+		emptySnapshot,
+		{ type: "message_end", entry: userEntry("1", "run it") },
+		{ type: "message_end", entry: assistantEntry("2", [callBlock], "toolUse") },
+	]);
+	const result: EntryRecord = {
+		id: "3",
+		kind: "pi.tool-result",
+		model: [
+			{
+				role: "toolResult",
+				toolCallId: "call-1",
+				toolName: "exec",
+				content: [
+					{ type: "text", text: "out\n" },
+					{ type: "text", text: "web-1 · exit 0" },
+				],
+				details: { task_id: "t1", node: "web-1", state: "exited", exit_code: 0 },
+				isError: false,
+			},
+		],
+	};
+	s = reduceAll(s, [{ type: "entry_appended", entry: result }]);
+
+	const tool = transcript(s).find((i) => i.kind === "tool") as Extract<TranscriptItem, { kind: "tool" }>;
+	expect(tool.result).toEqual({
+		text: "out\nweb-1 · exit 0",
+		isError: false,
+		details: { task_id: "t1", node: "web-1", state: "exited", exit_code: 0 },
+		blocks: ["out\n", "web-1 · exit 0"],
+	});
+	expect(tool.details).toEqual({ task_id: "t1", node: "web-1", state: "exited", exit_code: 0 });
+});
+
 test("nested tool events are ignored; errors and aborts show", () => {
 	let s = reduceAll(initialState, [
 		emptySnapshot,

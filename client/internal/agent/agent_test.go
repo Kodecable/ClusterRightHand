@@ -402,6 +402,11 @@ func TestBatchOutputModes(t *testing.T) {
 			if exit.StdoutEnd != 3 || exit.StderrEnd != 4 {
 				t.Fatalf("ends = %d/%d, want 3/4", exit.StdoutEnd, exit.StderrEnd)
 			}
+			// "out" and "oops" have no newline: one merged line, in every mode and whether or not
+			// the output was spilled (doc/protocol.md TaskExit).
+			if exit.OutputLines != 1 {
+				t.Fatalf("output_lines = %d, want 1", exit.OutputLines)
+			}
 			wantPath := filepath.Join(dir, id+".log")
 			if !tc.wantFile {
 				if exit.OutputFile != "" {
@@ -516,6 +521,9 @@ func TestTaskExitCarriesFileResult(t *testing.T) {
 	exit := waitCh(t, exitCh, "task.exit")
 	if exit.TaskID != id || exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
+	}
+	if exit.OutputLines != 0 {
+		t.Fatalf("output_lines = %d, want 0 for a file task that wrote nothing", exit.OutputLines)
 	}
 	if exit.Result == nil || exit.Result.Kind != protocol.TaskResultFileStat || exit.Result.FileStat == nil {
 		t.Fatalf("task.exit result = %+v", exit.Result)
@@ -735,6 +743,11 @@ func TestTaskStartWithLostResponseIsExecuted(t *testing.T) {
 	}
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit outcome = %+v, want code 0", exit.Outcome)
+	}
+	// "hello\n" was counted when the executor wrote it; resending it on the new connection does not
+	// count it again (doc/protocol.md TaskExit).
+	if exit.OutputLines != 1 {
+		t.Fatalf("output_lines = %d, want 1", exit.OutputLines)
 	}
 	frames := log.snapshot()
 	helloAt := indexOf(frames, "response hello ok=true")

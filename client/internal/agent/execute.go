@@ -107,6 +107,7 @@ func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
 	exit.StdoutEnd = protocol.Uint(t.output.End(protocol.StreamStdout))
 	exit.StderrEnd = protocol.Uint(t.output.End(protocol.StreamStderr))
 	exit.OutputFile = protocol.CleanText(t.output.Path())
+	exit.OutputLines = protocol.Uint(t.output.Lines())
 
 	a.mu.Lock()
 	if t.inputErr != nil {

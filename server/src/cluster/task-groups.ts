@@ -9,6 +9,7 @@ import type { Db } from "../storage/db.ts";
 import type { BatchOutputMode, TaskGroupState, TaskGroupsTable } from "../storage/schema.ts";
 import { defaultOrgId, UserError } from "../users/service.ts";
 import { derivedId, newId } from "../util/id.ts";
+import { checkedOutputLimits } from "./batch-output.ts";
 import {
 	type Actor,
 	type AgentRequest,
@@ -69,7 +70,7 @@ export interface ResolvedTargets {
  * `_all` simply expands to the current members the user can access.
  */
 export async function resolveTargets(db: Db, user: SessionUser, targets: string[]): Promise<ResolvedTargets> {
-	if (targets.length === 0) throw new UserError("targets must not be empty");
+	if (targets.length === 0) throw new UserError("targets must not be empty", "invalid_argument");
 	const orgId = await defaultOrgId(db);
 	const nodes = (await listNodesForUser(db, user)).filter((n) => n.status === "active");
 	const nodeGroups = await db.selectFrom("node_groups").select(["id", "name"]).where("org_id", "=", orgId).execute();
@@ -91,14 +92,14 @@ export async function resolveTargets(db: Db, user: SessionUser, targets: string[
 			continue;
 		}
 		const nodeGroup = nodeGroups.find((g) => g.id === target || nameKey(g.name) === nameKey(target));
-		if (!nodeGroup) throw new UserError(`no node or node group ${target} that you can access`);
+		if (!nodeGroup) throw new UserError(`no node or node group ${target} that you can access`, "no_such_node");
 		addRef(nodeGroup.id);
 		for (const n of nodes) {
 			if (n.nodeGroups.some((g) => g.id === nodeGroup.id)) ids.add(n.id);
 		}
 	}
-	if (ids.size === 0) throw new UserError("the targets match no node that you can access");
-	if (ids.size > MAX_TARGETS) throw new UserError(`at most ${MAX_TARGETS} targets per batch`);
+	if (ids.size === 0) throw new UserError("the targets match no node that you can access", "no_such_node");
+	if (ids.size > MAX_TARGETS) throw new UserError(`at most ${MAX_TARGETS} targets per batch`, "invalid_argument");
 	const singleNode = targets.length === 1 && refs[0] !== ALL_TARGET && nodes.some((n) => n.id === refs[0]);
 	return { targets: refs, nodeIds: [...ids], singleNode };
 }
@@ -136,6 +137,9 @@ export interface TaskGroupView {
 	failFast: boolean;
 	/** The mode fixed at creation; every task in the group uses it. */
 	outputMode: BatchOutputMode;
+	/** Per-node output caps (D112); null means the defaults, 8KB / 128 lines. */
+	nodeMaxLines: number | null;
+	nodeMaxBytes: number | null;
 	/** Whether the group's tasks are privileged tasks (doc/privilege.md). */
 	privileged: boolean;
 	skipped: string[];
@@ -261,6 +265,8 @@ export class TaskGroups {
 		const parallel = Math.min(Math.max(input.parallel ?? DEFAULT_PARALLEL, 1), MAX_PARALLEL);
 		const outputMode = outputModeFor(input.spec.kind, input.outputMode);
 		if (input.id && (await this.#row(input.id))) return input.id;
+		// The per-node caps are copied to every member task; reject a bad budget before writing anything.
+		const limits = checkedOutputLimits(input.maxLines, input.maxBytes);
 		// Reject before writing anything: truncating would make the caller think every node ran (D85).
 		const nodeIds = [...new Set(input.nodeIds)];
 		if (nodeIds.length > MAX_GROUP_NODES) {
@@ -296,6 +302,8 @@ export class TaskGroups {
 				parallel,
 				fail_fast: input.failFast ? 1 : 0,
 				output_mode: outputMode,
+				node_max_lines: limits.maxLines,
+				node_max_bytes: limits.maxBytes,
 				privileged: privileged ? 1 : 0,
 				skipped: "[]",
 				state: waiting ? "awaiting_approval" : "running",
@@ -682,6 +690,8 @@ export class TaskGroups {
 			privileged: row.privileged === 1,
 			...(row.pending_input ? { input: Buffer.from(row.pending_input, "base64") } : {}),
 			...(row.timeout_ms !== null ? { timeoutMs: row.timeout_ms } : {}),
+			...(row.node_max_lines !== null ? { maxLines: row.node_max_lines } : {}),
+			...(row.node_max_bytes !== null ? { maxBytes: row.node_max_bytes } : {}),
 			failFast: row.fail_fast === 1,
 			actor: { type: row.actor_type as Actor["type"], id: row.actor_id, onBehalfOfUserId: row.on_behalf_of_user_id },
 			...(row.rule_chain ? { chain: JSON.parse(row.rule_chain) as RuleRef[] } : {}),
@@ -711,6 +721,8 @@ export class TaskGroups {
 			parallel: row.parallel,
 			failFast: row.fail_fast === 1,
 			outputMode: row.output_mode,
+			nodeMaxLines: row.node_max_lines,
+			nodeMaxBytes: row.node_max_bytes,
 			privileged: row.privileged === 1,
 			skipped: JSON.parse(row.skipped) as string[],
 			tasks,

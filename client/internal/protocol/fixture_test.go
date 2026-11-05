@@ -612,52 +612,56 @@ func expectedFixtureValue(id string) (any, bool) {
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventTaskExit,
 			Body: TaskExit{
-				TaskID:     "t-exec-argv",
-				Outcome:    Outcome{Kind: OutcomeCode, Code: 0},
-				TimedOut:   false,
-				Cancelled:  false,
-				StdoutEnd:  6,
-				StderrEnd:  0,
-				OutputFile: "",
+				TaskID:      "t-exec-argv",
+				Outcome:     Outcome{Kind: OutcomeCode, Code: 0},
+				TimedOut:    false,
+				Cancelled:   false,
+				StdoutEnd:   6,
+				StderrEnd:   0,
+				OutputFile:  "",
+				OutputLines: 1,
 			},
 		}, true
 	case "event.task.exit.signal":
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventTaskExit,
 			Body: TaskExit{
-				TaskID:     "t-exec-shell",
-				Outcome:    Outcome{Kind: OutcomeSignal, Signal: "TERM"},
-				TimedOut:   false,
-				Cancelled:  true,
-				StdoutEnd:  3,
-				StderrEnd:  0,
-				OutputFile: "",
+				TaskID:      "t-exec-shell",
+				Outcome:     Outcome{Kind: OutcomeSignal, Signal: "TERM"},
+				TimedOut:    false,
+				Cancelled:   true,
+				StdoutEnd:   3,
+				StderrEnd:   0,
+				OutputFile:  "",
+				OutputLines: 0,
 			},
 		}, true
 	case "event.task.exit.error":
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventTaskExit,
 			Body: TaskExit{
-				TaskID:     "t-edit",
-				Outcome:    Outcome{Kind: OutcomeError, Error: &Error{Code: "internal_error", Message: "failed"}},
-				TimedOut:   true,
-				Cancelled:  false,
-				StdoutEnd:  0,
-				StderrEnd:  0,
-				OutputFile: "/tmp/out",
+				TaskID:      "t-edit",
+				Outcome:     Outcome{Kind: OutcomeError, Error: &Error{Code: "internal_error", Message: "failed"}},
+				TimedOut:    true,
+				Cancelled:   false,
+				StdoutEnd:   0,
+				StderrEnd:   0,
+				OutputFile:  "/tmp/out",
+				OutputLines: 0,
 			},
 		}, true
 	case "event.task.exit.error.bom":
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventTaskExit,
 			Body: TaskExit{
-				TaskID:     "t-bom",
-				Outcome:    Outcome{Kind: OutcomeError, Error: &Error{Code: "io_error", Message: "\ufeffbom"}},
-				TimedOut:   false,
-				Cancelled:  false,
-				StdoutEnd:  0,
-				StderrEnd:  0,
-				OutputFile: "",
+				TaskID:      "t-bom",
+				Outcome:     Outcome{Kind: OutcomeError, Error: &Error{Code: "io_error", Message: "\ufeffbom"}},
+				TimedOut:    false,
+				Cancelled:   false,
+				StdoutEnd:   0,
+				StderrEnd:   0,
+				OutputFile:  "",
+				OutputLines: 0,
 			},
 		}, true
 	case "event.task.exit.result.file.read":

@@ -64,7 +64,7 @@ describe("privileged forward dispatch", () => {
 		signing = await loadAuthorizationSigningKey(db, masterKey);
 		audit = new Audit(db);
 		// A short trust wait keeps the "no report" case fast; every other test reports before dispatching.
-		cluster = new Cluster(db, { authorizationKey: signing, trustWaitMs: 100, audit });
+		cluster = new Cluster(db, { authorizationKey: signing, trustWaitMs: 100, audit, nodeOfflineGraceMs: 10 });
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });

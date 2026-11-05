@@ -38,6 +38,7 @@ import * as m0035 from "./migrations/0035_retention_indexes.ts";
 import * as m0036 from "./migrations/0036_node_names.ts";
 import * as m0037 from "./migrations/0037_user_group_member_column.ts";
 import * as m0038 from "./migrations/0038_node_access_grants.ts";
+import * as m0039 from "./migrations/0039_output_budgets.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -79,6 +80,7 @@ const migrations: Record<string, Migration> = {
 	"0036_node_names": m0036,
 	"0037_user_group_member_column": m0037,
 	"0038_node_access_grants": m0038,
+	"0039_output_budgets": m0039,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };

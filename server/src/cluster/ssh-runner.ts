@@ -7,6 +7,7 @@ import type { Updateable } from "kysely";
 import type { TasksTable } from "../storage/schema.ts";
 import type { ClusterCore } from "./core.ts";
 import { markNodeSeen, type NodeRow, setSshNodeFacts } from "./nodes.ts";
+import { LineCounter } from "./output.ts";
 import { connect as connectSsh, SshError, type SshSession } from "./ssh/connection.ts";
 import {
 	probeShells,
@@ -83,14 +84,22 @@ export async function runSsh(
 	privileged: boolean,
 ): Promise<void> {
 	const live = core.live.get(id) as Live;
+	// crhs sees all of an SSH task's output itself, so it counts the merged output's lines here.
+	const lines = new LineCounter();
 	let isStarted = false;
 	// SSH has no privileged mode: the task runs as the SSH user, and its output says so before
 	// anything else (doc/execution-plane.md#ssh-传输). Written once, before the first run, so a
 	// stale pooled connection that is replaced does not repeat it.
 	let noticeWritten = false;
 	const sink = {
-		stdout: (d: Uint8Array) => void live.output.append("stdout", live.output.end("stdout"), d),
-		stderr: (d: Uint8Array) => void live.output.append("stderr", live.output.end("stderr"), d),
+		stdout: (d: Uint8Array) => {
+			lines.add(d);
+			void live.output.append("stdout", live.output.end("stdout"), d);
+		},
+		stderr: (d: Uint8Array) => {
+			lines.add(d);
+			void live.output.append("stderr", live.output.end("stderr"), d);
+		},
 		started: () => {
 			isStarted = true;
 			core.background(
@@ -106,7 +115,8 @@ export async function runSsh(
 	// take a long time, so the check is repeated around them, not left to the exec alone.
 	const cancelledFields = (): Updateable<TasksTable> => ({ state: "exited", cancelled: 1 });
 	// SSH keeps no full output (no output file): status saves only byte counts, text its budgeted tail.
-	const outputFields = () => outputColumns(live.output.snapshot());
+	// It sees the whole output, so it also has the merged line count TaskExit would report.
+	const outputFields = () => ({ ...outputColumns(live.output.snapshot()), output_lines: lines.lines });
 	try {
 		let fields: Updateable<TasksTable>;
 		// A pooled connection may have died without notice; nothing has run yet, so retry once fresh.

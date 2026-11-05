@@ -57,7 +57,7 @@ export function mcpRoutes(db: Db, options: McpOptions): Hono {
 
 function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { origin: string }): McpServer {
 	const server = new McpServer({ name: "clusterrighthand", version: options.version ?? "0.0.0" });
-	const ctx: ToolContext = {
+	const baseCtx: ToolContext = {
 		db,
 		cluster: options.cluster,
 		taskGroups: options.taskGroups,
@@ -76,13 +76,19 @@ function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { origin: 
 				inputSchema: tool.input,
 				annotations: { readOnlyHint: tool.readOnly, openWorldHint: true },
 			},
-			async (args: unknown) => {
-				const outcome = await callTool(tool, args, ctx, {
-					via: "mcp",
-					...(options.audit ? { audit: options.audit } : {}),
-				});
-				if (!outcome.ok) return { content: [{ type: "text" as const, text: outcome.error }], isError: true };
-				return { content: [{ type: "text" as const, text: JSON.stringify(outcome.result, null, 2) }] };
+			// The request's abort signal ends a wait; the file tools also cancel their task when it fires
+			// (D111: a closed MCP request must not leave a write to run after an approval).
+			async (args, extra) => {
+				const call = await callTool(
+					tool,
+					args,
+					{ ...baseCtx, signal: extra.mcpReq.signal },
+					{
+						via: "mcp",
+						...(options.audit ? { audit: options.audit } : {}),
+					},
+				);
+				return { content: call.content, isError: call.isError };
 			},
 		);
 	}

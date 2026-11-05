@@ -105,7 +105,7 @@ describe("approvals api (sqlite)", () => {
 	beforeAll(async () => {
 		db = await openTestDb(backend);
 		audit = new Audit(db);
-		cluster = new Cluster(db, { audit });
+		cluster = new Cluster(db, { audit, nodeOfflineGraceMs: 10 });
 		groups = new TaskGroups(db, cluster, { audit });
 		app = makeApp(db, undefined, { cluster, taskGroups: groups, audit });
 		for (const [name, kind] of [

@@ -393,6 +393,7 @@ describe("agent wire protocol", () => {
 			stdoutEnd: 3,
 			stderrEnd: 0,
 			outputFile: "",
+			outputLines: 1,
 			result: null,
 		});
 		const view = await waitFor("exited", async () => {
@@ -403,6 +404,60 @@ describe("agent wire protocol", () => {
 		expect(view.stdoutHead).toBe("out");
 		await waitFor("exit ack", () => acks.length === 1);
 		expect(acks[0]).toEqual({ taskId: created.id });
+	});
+
+	it("keeps one merged tail in arrival order and stores the reported total line count", async () => {
+		const { node, crha } = await connectActive("merged-1");
+		const starts: TaskStart[] = [];
+		crha.peer.onRequest("task.start", (start) => {
+			starts.push(start);
+			return {};
+		});
+		crha.peer.onEvent("task.exit.ack", () => {});
+		const created = await cluster.createTask({
+			nodeId: node.id,
+			spec: EXEC,
+			maxLines: 2,
+			maxBytes: 1024,
+			actor: { type: "system", id: "test", onBehalfOfUserId: owner.userId },
+		});
+		await waitFor("task.start", () => starts.length === 1);
+
+		crha.peer.emit("task.output", { taskId: created.id, stream: "stdout", offset: 0, data: Buffer.from("one\n") });
+		crha.peer.emit("task.output", { taskId: created.id, stream: "stderr", offset: 0, data: Buffer.from("two\n") });
+		crha.peer.emit("task.output", { taskId: created.id, stream: "stdout", offset: 4, data: Buffer.from("three\n") });
+		crha.peer.emit("task.exit", {
+			taskId: created.id,
+			outcome: { kind: "code", value: 0 },
+			timedOut: false,
+			cancelled: false,
+			stdoutEnd: 10,
+			stderrEnd: 4,
+			outputFile: "",
+			outputLines: 3,
+			result: null,
+		});
+		const view = await waitFor("exited", async () => {
+			const t = await cluster.getTask(created.id);
+			return t?.state === "exited" ? t : undefined;
+		});
+		// The per-stream head/tail columns are unchanged, for the WebUI task page.
+		expect(view.stdoutHead).toBe("one\nthree\n");
+		expect(view.stderrHead).toBe("two\n");
+		// The merged tail interleaves the streams as they arrived and honours the task's line cap.
+		expect(view).toMatchObject({
+			outputTail: "two\nthree\n",
+			outputTailLines: 2,
+			outputLines: 3,
+			maxLines: 2,
+			maxBytes: 1024,
+		});
+		const row = await db
+			.selectFrom("tasks")
+			.select("output_tail")
+			.where("id", "=", created.id)
+			.executeTakeFirstOrThrow();
+		expect(Buffer.from(row.output_tail ?? "", "base64").toString()).toBe("two\nthree\n");
 	});
 
 	it("records a status task from task.exit alone, without any task.output", async () => {
@@ -430,6 +485,7 @@ describe("agent wire protocol", () => {
 			stdoutEnd: 1234,
 			stderrEnd: 56,
 			outputFile: "/var/lib/crha/output/t.log",
+			outputLines: 7,
 			result: null,
 		});
 		const view = await waitFor("exited", async () => {
@@ -484,6 +540,7 @@ describe("agent wire protocol", () => {
 				stdoutEnd: data.length,
 				stderrEnd: 0,
 				outputFile: "/tmp/text.log",
+				outputLines: 1,
 				result: null,
 			});
 		}
@@ -509,6 +566,60 @@ describe("agent wire protocol", () => {
 				result: null,
 			});
 		}
+	});
+
+	it("honours a task group's per-node caps in text mode", async () => {
+		const peers = [await connectActive("caps-1"), await connectActive("caps-2")];
+		for (const peer of peers) peer.crha.peer.onEvent("task.exit.ack", () => {});
+		const groups = new TaskGroups(db, cluster);
+		const groupId = await groups.create({
+			targets: ["group:caps"],
+			nodeIds: peers.map((peer) => peer.node.id),
+			spec: EXEC,
+			actor: { type: "system", id: "test", onBehalfOfUserId: owner.userId },
+			parallel: 2,
+			outputMode: "text",
+			maxLines: 1,
+			maxBytes: 128,
+		});
+		await waitFor("all task starts", () => peers.every((peer) => peer.crha.starts.length === 1));
+		const data = Buffer.from("first\nsecond\n");
+		for (const peer of peers) {
+			const taskId = peer.crha.starts[0]?.taskId as string;
+			peer.crha.peer.emit("task.output", { taskId, stream: "stdout", offset: 0, data });
+			peer.crha.peer.emit("task.exit", {
+				taskId,
+				outcome: { kind: "code", value: 0 },
+				timedOut: false,
+				cancelled: false,
+				stdoutEnd: data.length,
+				stderrEnd: 0,
+				outputFile: "/tmp/caps.log",
+				outputLines: 2,
+				result: null,
+			});
+		}
+		const view = await groups.wait(groupId, 10_000);
+		if (!view) throw new Error("group missing");
+		expect(view).toMatchObject({ state: "finished", nodeMaxLines: 1, nodeMaxBytes: 128 });
+		// Each node keeps only its last line; the caps were copied to every member task.
+		for (const task of view.tasks) {
+			expect(task).toMatchObject({
+				maxLines: 1,
+				maxBytes: 128,
+				stdoutTail: "second\n",
+				outputLines: 2,
+			});
+		}
+		const rows = await db
+			.selectFrom("tasks")
+			.select(["max_lines", "max_bytes"])
+			.where("task_group_id", "=", groupId)
+			.execute();
+		expect(rows).toEqual([
+			{ max_lines: 1, max_bytes: 128 },
+			{ max_lines: 1, max_bytes: 128 },
+		]);
 	});
 
 	it("keeps a text group's budget until the group ends, even with parallel: 1", async () => {
@@ -544,6 +655,7 @@ describe("agent wire protocol", () => {
 				stdoutEnd: data.length,
 				stderrEnd: 0,
 				outputFile: "/tmp/text.log",
+				outputLines: 1,
 				result: null,
 			});
 		}
@@ -597,6 +709,7 @@ describe("agent wire protocol", () => {
 			stdoutEnd: data.length,
 			stderrEnd: 0,
 			outputFile: "/tmp/text.log",
+			outputLines: 1,
 			result: null,
 		};
 		first.crha.peer.emit("task.output", { taskId: firstTaskId, stream: "stdout", offset: 0, data });
@@ -637,6 +750,7 @@ describe("agent wire protocol", () => {
 				stdoutEnd: data.length,
 				stderrEnd: 0,
 				outputFile: "/tmp/text.log",
+				outputLines: 1,
 				result: null,
 			});
 		}
@@ -704,6 +818,7 @@ describe("agent wire protocol", () => {
 			stdoutEnd: 4,
 			stderrEnd: 0,
 			outputFile: "",
+			outputLines: 1,
 			result: null,
 		});
 		const late = await waitFor("late result", async () => {
@@ -765,6 +880,7 @@ describe("agent wire protocol", () => {
 			stdoutEnd: 0,
 			stderrEnd: 0,
 			outputFile: "",
+			outputLines: 0,
 			result: null,
 		});
 		const late = await waitFor("late result without live", async () => {
@@ -919,6 +1035,7 @@ describe("agent wire protocol", () => {
 				stdoutEnd: 4,
 				stderrEnd: 0,
 				outputFile: "",
+				outputLines: 1,
 			});
 			const view = await waitFor("exited after replay", async () => {
 				const t = await cluster.getTask(taskId);
