@@ -24,7 +24,8 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 	describe("with a connected node", () => {
 		let env: Env;
 		beforeAll(async () => {
-			env = await Env.create(bin, tmp);
+			// Shorten the offline grace (D113; the default is 30 s) so the offline-node test reaches the failure.
+			env = await Env.create(bin, tmp, { nodeOfflineGraceMs: 500 });
 			await env.bringUp();
 		}, 60_000);
 		afterAll(async () => {

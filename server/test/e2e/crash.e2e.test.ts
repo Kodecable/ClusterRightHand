@@ -243,11 +243,12 @@ describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 		crhs.start();
 		await up();
 
-		// The second model request carries the tool result: the real output of the one task.
+		// The second model request carries the tool result: the real output of the one task. The result is
+		// text (D111/D112); the task id is UI-only metadata in its `details`, never sent to the model, so the
+		// task-API check below ties the output to the task that was running before the crash.
 		await waitFor("the model asked again", () => model.requests.length === 2, 60_000);
 		const toolResult = model.requests[1]?.messages.find((m) => m.role === "tool");
 		expect(JSON.stringify(toolResult)).toContain("survived");
-		expect(JSON.stringify(toolResult)).toContain(running.id);
 		const tasks = await tasksOf();
 		expect(tasks.map((t: { id: string }) => t.id)).toEqual([running.id]);
 		expect(tasks[0]).toMatchObject({ state: "exited", exitCode: 0 });

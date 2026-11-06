@@ -246,7 +246,8 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 				]);
 				const sub = await runtime.submit(session.id, owner, "delegate", "r1");
 				expect(await waitSubmission(runtime, session.id, sub)).toEqual({ status: "done", answer: "parent done" });
-				expect(JSON.parse(childSaw)).toMatchObject({ state: "denied", error: { code: "policy_denied" } });
+				// The exec result the model sees is text (D111/D112); a task denied by the rules renders as a note.
+				expect(childSaw).toContain(`[${nodeName}, error policy_denied: denied by the authorization rules]`);
 				expect(parentSaw).toBe("child: denied");
 				const child = await env.crhs.db
 					.selectFrom("sessions")

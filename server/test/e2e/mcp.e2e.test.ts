@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildCrha, Env, goAvailable } from "./harness.ts";
+import { buildCrha, E2E_GROUP_NAME, Env, goAvailable } from "./harness.ts";
 
 const hasGo = await goAvailable();
 
@@ -203,7 +203,12 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 		const t = await token("ask");
 		const client = await connect(t.token);
 		// The node group name selects several nodes; one node name would be a single task.
-		const g = await callText(client, "exec", { targets: ["e2e"], cmd: "echo batch", with_output: true, wait: 0 });
+		const g = await callText(client, "exec", {
+			targets: [E2E_GROUP_NAME],
+			cmd: "echo batch",
+			with_output: true,
+			wait: 0,
+		});
 		expect(g).toContain("waiting for approval:");
 		const groupId = /task_group_id ([^\s.]+)\./.exec(g)?.[1];
 		expect(groupId).toBeDefined();

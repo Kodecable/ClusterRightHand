@@ -37,6 +37,11 @@ const execFileAsync = promisify(execFile);
 export { fauxAssistantMessage, fauxText, fauxToolCall };
 export const CLIENT_DIR = resolve(import.meta.dirname, "../../../client");
 export const CRHS_MAIN = resolve(import.meta.dirname, "../../src/main.ts");
+/**
+ * The node group `bringUp` creates and puts the node in. It must differ from the node's name (the enrollment
+ * token's nameHint "e2e"): nodes and node groups share one name namespace (D109).
+ */
+export const E2E_GROUP_NAME = "e2e-group";
 
 export async function goAvailable(): Promise<boolean> {
 	try {
@@ -399,9 +404,10 @@ export class Env {
 		const approved = await this.crhs.api(`/api/nodes/${node.id}/approve`, { body: {} });
 		if (approved.status !== 200) throw new Error(`approve: ${approved.status}`);
 		await this.waitConnected();
-		// crhs manages node groups (D109); one named "e2e" lets an MCP tool address this node as a
-		// task group by its bare name (D110 removed crha-side groups).
-		const created = await this.crhs.api("/api/node-groups", { body: { name: "e2e" } });
+		// crhs manages node groups (D109); one named E2E_GROUP_NAME lets an MCP tool address this node as a
+		// task group by its bare name (D110 removed crha-side groups). The name must not collide with the
+		// node's own name "e2e": D109 puts both in one namespace.
+		const created = await this.crhs.api("/api/node-groups", { body: { name: E2E_GROUP_NAME } });
 		if (created.status !== 201) {
 			throw new Error(`create node group: ${created.status} ${JSON.stringify(created.json)}`);
 		}
@@ -411,7 +417,7 @@ export class Env {
 			body: { nodeIds: [this.nodeId] },
 		});
 		if (members.status !== 200) {
-			throw new Error(`add node to the e2e group: ${members.status} ${JSON.stringify(members.json)}`);
+			throw new Error(`add node to ${E2E_GROUP_NAME}: ${members.status} ${JSON.stringify(members.json)}`);
 		}
 	}
 

@@ -1,6 +1,6 @@
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, request } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -194,13 +194,30 @@ describe.skipIf(!hasGo)("crhs SIGTERM shutdown with a connected node", () => {
 		await login();
 		await waitFor("node online", async () => (await api(`/api/nodes/${nodeId}`)).json.node.connected === true);
 
+		// A request whose body never arrives keeps the request drain open, so shutdown cannot finish
+		// before the second signal: otherwise a fast graceful shutdown can exit 0 before SIGINT is handled.
+		const hanging = request({
+			host: "127.0.0.1",
+			port,
+			path: "/api/auth/login",
+			method: "POST",
+			headers: { "content-type": "application/json" },
+		});
+		hanging.on("error", () => {});
+		hanging.write('{"username":');
+		await new Promise((resolve) => setTimeout(resolve, 100));
+
 		const before = crhs.log.length;
 		const child = crhs.child;
 		const ended = crhs.stop("SIGTERM");
+		// The drain holds the graceful shutdown here, so the second signal arrives while it is underway.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(child?.exitCode).toBeNull();
 		// A different signal, so the kernel cannot coalesce the two: the first handler starts the shutdown,
 		// the second finds it underway and exits 1.
 		child?.kill("SIGINT");
 		expect(await ended).toEqual({ code: 1, signal: null });
 		expect(crhs.log.slice(before)).toMatch(/crhs: SIG(?:INT|TERM) during shutdown, exiting/);
+		hanging.destroy();
 	}, 120_000);
 });
