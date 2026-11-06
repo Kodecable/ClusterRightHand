@@ -159,7 +159,7 @@ describe("startup reconciliation", () => {
 		const first = await open();
 		const session = await first.createSession(localOwner, {
 			model: localModel(),
-			preset: "yolo",
+			rulePreset: "yolo",
 			title: "settled while down",
 		});
 		faux.setResponses([fauxAssistantMessage([fauxText("done")])]);
@@ -228,7 +228,7 @@ describe("startup reconciliation", () => {
 		try {
 			const session = await first.createSession(localOwner, {
 				model: localModel(),
-				preset: "yolo",
+				rulePreset: "yolo",
 				title: "reopened while running",
 			});
 			let release!: () => void;
@@ -274,12 +274,12 @@ describe("startup reconciliation", () => {
 			// waits for a decision the settled run can no longer hand to its agent.
 			const session = await first.createSession(localOwner, {
 				model: localModel(),
-				preset: "ask",
+				rulePreset: "ask",
 				title: "waits through a reopen",
 			});
 			const settled = await first.createSession(localOwner, {
 				model: localModel(),
-				preset: "yolo",
+				rulePreset: "yolo",
 				title: "settled while the reopen runs",
 			});
 			faux.setResponses([fauxAssistantMessage([fauxText("done")])]);
@@ -344,7 +344,7 @@ describe("startup reconciliation", () => {
 		const first = await open();
 		const session = await first.createSession(localOwner, {
 			model: localModel(),
-			preset: "ask",
+			rulePreset: "ask",
 			title: "decided while down",
 		});
 		faux.setResponses([
@@ -408,7 +408,7 @@ describe("startup reconciliation", () => {
 		const first = await open();
 		const session = await first.createSession(localOwner, {
 			model: localModel(),
-			preset: "ask",
+			rulePreset: "ask",
 			title: "idle while unsettled",
 		});
 		faux.setResponses([
@@ -471,7 +471,7 @@ describe("startup reconciliation", () => {
 		const first = await open();
 		const stale = await first.createSession(localOwner, {
 			model: localModel(),
-			preset: "yolo",
+			rulePreset: "yolo",
 			title: "stale running",
 		});
 		faux.setResponses([fauxAssistantMessage([fauxText("done")])]);
@@ -546,7 +546,7 @@ describe("startup reconciliation", () => {
 		const first = await open();
 		const session = await first.createSession(localOwner, {
 			model: localModel(),
-			preset: "ask",
+			rulePreset: "ask",
 			title: "migrated awaiting",
 		});
 		faux.setResponses([

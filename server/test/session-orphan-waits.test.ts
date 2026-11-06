@@ -157,7 +157,7 @@ async function waitingGroup(sessionId: string): Promise<{ groupId: string; membe
 
 /** A session with a run that stays open until `release` is called. */
 async function liveSession(title: string) {
-	const session = await runtime.createSession(owner, { model: model(), preset: "ask", title });
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "ask", title });
 	let release!: () => void;
 	const gate = new Promise<void>((resolve) => {
 		release = resolve;
@@ -210,7 +210,7 @@ it("a run that ends without its task ends the task's signature wait", async () =
 });
 
 it("startup ends the waits of idle sessions and leaves a user's own task alone", async () => {
-	const session = await runtime.createSession(owner, { model: model(), preset: "ask", title: "restart" });
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "ask", title: "restart" });
 	const approval = await waitingTask({ type: "session", id: session.id }, "awaiting_approval");
 	const signature = await waitingTask({ type: "session", id: session.id }, "awaiting_authorization");
 	const { memberId } = await waitingGroup(session.id);
@@ -257,7 +257,7 @@ it("a signature wait expires AUTHORIZATION_WAIT_MS after it began", async () => 
 });
 
 it("stops a subagent's freshly dispatched command instead of leaving it waiting", async () => {
-	const parent = await runtime.createSession(owner, { model: model(), preset: "ask", title: "stop-parent" });
+	const parent = await runtime.createSession(owner, { model: model(), rulePreset: "ask", title: "stop-parent" });
 	const child = await runtime.createSubagent(parent.id, {
 		callKey: "stop-child",
 		task: "run something",

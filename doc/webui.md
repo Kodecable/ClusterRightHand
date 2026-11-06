@@ -405,7 +405,7 @@ web/src/
   - StatusBadge / StatusDot：节点、任务、会话、授权、计划任务运行的状态，配色和翻译统一；
   - RelativeTime / DateTime：基于 `Intl`；
   - CopyButton、CodeText（等宽、可折叠的长输出）。
-- **表单**：基于 react-hook-form + zod 的 Form 字段封装；以及 ModelSelect、PresetSelect、NodePicker（单选和多选）、TaskFormFields（exec / file.read / file.write / file.list，同时用于 RunPanel、Batch 和规则测试）。
+- **表单**：基于 react-hook-form + zod 的 Form 字段封装；以及 ModelSelect、RulePresetSelect、NodePicker（单选和多选）、TaskFormFields（exec / file.read / file.write / file.list，同时用于 RunPanel、Batch 和规则测试）。
 - **任务**：TaskResult（输出、退出码、截断提示；输出只有一个流，D114，`notice` 在输出上方单独显示）、TaskSummary 行。这些同时用在任务页、批量、审批和会话的工具卡片里。
 - **决策卡片**：ApprovalCard（批准 / 拒绝，带规则说明）、AuthorizationCard（签名 payload、复制 `crha grant` 命令、Passkey 签名）、QuotaCard（加额度 / 停止）。这些同时用在会话、审批页、任务页和任务组页。
 - **对话框**：ConfirmDialog（危险操作二次确认）、FormDialog，以及 DialogScrollArea（统一的可滚动正文：给焦点环留边距，并用 `scrollbar-gutter` 和右侧内边距避免滚动条压住内容）。

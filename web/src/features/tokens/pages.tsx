@@ -12,14 +12,14 @@ import { TokenStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { ApiTokenView } from "@/lib/api/types";
-import { presetLabel } from "@/lib/preset";
+import { rulePresetLabel } from "@/lib/rule-preset";
 import { useApiTokens, useDeleteApiToken, useRevokeApiToken } from "./api";
 import { CreateTokenDialog } from "./create-token-dialog";
 import { RulesDialog } from "./rules-dialog";
 import { tokenStatus } from "./tokenStatus";
 
 /**
- * API tokens (doc/mcp.md): create once-shown secrets, edit the preset and the
+ * API tokens (doc/mcp.md): create once-shown secrets, edit the rule preset and the
  * extra rules, revoke an active token or delete an inactive one.
  */
 export function TokensPage() {
@@ -40,12 +40,12 @@ export function TokensPage() {
 				cell: ({ row }) => <span className="truncate font-medium">{row.original.name}</span>,
 			},
 			{
-				id: "preset",
-				header: t`Preset`,
+				id: "rulePreset",
+				header: t`Rule preset`,
 				size: 110,
 				cell: ({ row }) => {
-					const preset = row.original.rules?.preset;
-					return <span className="text-xs">{preset === undefined ? "–" : presetLabel(preset)}</span>;
+					const rulePreset = row.original.rules?.rulePreset;
+					return <span className="text-xs">{rulePreset === undefined ? "–" : rulePresetLabel(rulePreset)}</span>;
 				},
 			},
 			{

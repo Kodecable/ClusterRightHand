@@ -1,7 +1,7 @@
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import { type ConversationId, createRegistry, Harness, UsageDoc } from "@earendil-works/pi-durable";
 import type { SessionUser } from "../auth/sessions.ts";
-import type { Preset } from "../policy/rules.ts";
+import type { RulePreset } from "../policy/rules.ts";
 import { clusterExtension } from "./extension.ts";
 import { meteredModels } from "./metering.ts";
 import type { ModelRef } from "./models.ts";
@@ -137,7 +137,7 @@ export class AgentRuntime {
 		ref.current = runtime;
 		// Resume only now: a resumed run must find the runtime (compaction and tool metering look it up).
 		runtime.#harness.resume(); // runs and tool calls the last process left unfinished
-		// Auto Review for roots whose preset asks for it (tokens, sessions and schedules alike), then route child
+		// Auto Review for roots whose rule preset asks for it (tokens, sessions and schedules alike), then route child
 		// approvals to an ancestor's agent where the chain allows it.
 		const reviewer = new Reviewer(options.db, options.models, options.cluster, options.taskGroups);
 		options.cluster.onAwaitingApproval = async (task) => {
@@ -229,7 +229,7 @@ export class AgentRuntime {
 		input: {
 			title?: string;
 			model: ModelRef;
-			preset: Preset;
+			rulePreset: RulePreset;
 			instructions?: string;
 			budgetRemaining?: number | null;
 		},
@@ -250,7 +250,7 @@ export class AgentRuntime {
 
 	async configure(
 		sessionId: string,
-		change: { title?: string; model?: ModelRef; preset?: Preset; budgetRemaining?: number | null },
+		change: { title?: string; model?: ModelRef; rulePreset?: RulePreset; budgetRemaining?: number | null },
 	): Promise<SessionView> {
 		return configure(this.#host, sessionId, change);
 	}

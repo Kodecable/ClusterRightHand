@@ -41,12 +41,12 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 		});
 		return res.headers.get("set-cookie")?.match(/crh_session=([^;]+)/)?.[0] as string;
 	};
-	const newSession = async (preset?: string, cookie = crhs().cookie) => {
+	const newSession = async (rulePreset?: string, cookie = crhs().cookie) => {
 		const res = await as(cookie, "/api/sessions", {
-			body: { model: model(), ...(preset ? { preset } : {}), title: `s${++seq}` },
+			body: { model: model(), ...(rulePreset ? { rulePreset } : {}), title: `s${++seq}` },
 		});
 		expect(res.status).toBe(201);
-		return res.json.session as { id: string; title: string; rules: { preset: string } | null };
+		return res.json.session as { id: string; title: string; rules: { rulePreset: string } | null };
 	};
 	const send = (id: string, text: string, requestId = `req-${++seq}`, cookie = crhs().cookie) =>
 		as(cookie, `/api/sessions/${id}/messages`, { body: { text, requestId } });
@@ -140,14 +140,14 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			for (const body of bad) expect((await as(crhs().cookie, "/api/sessions", { body })).status).toBe(400);
 		});
 
-		it("refuses an unknown preset", async () => {
-			const res = await as(crhs().cookie, "/api/sessions", { body: { model: model(), preset: "chaos" } });
+		it("refuses an unknown rule preset", async () => {
+			const res = await as(crhs().cookie, "/api/sessions", { body: { model: model(), rulePreset: "chaos" } });
 			expect(res.status).toBe(400);
 		});
 
 		it("creates a yolo session that shows up in the list", async () => {
 			const s = await newSession("yolo");
-			expect(s.rules?.preset).toBe("yolo");
+			expect(s.rules?.rulePreset).toBe("yolo");
 			const list = (await crhs().api("/api/sessions")).json.items as { id: string }[];
 			expect(list.map((x) => x.id)).toContain(s.id);
 			const got = await crhs().api(`/api/sessions/${s.id}`);
@@ -155,20 +155,20 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			expect(got.json.session).toMatchObject({ id: s.id, status: "active", model: model() });
 		});
 
-		it("defaults the preset to ask", async () => {
+		it("defaults the rule preset to ask", async () => {
 			const res = await as(crhs().cookie, "/api/sessions", { body: { model: model() } });
 			expect(res.status).toBe(201);
-			expect(res.json.session.rules.preset).toBe("ask");
+			expect(res.json.session.rules.rulePreset).toBe("ask");
 			expect(res.json.session.title).toBe("New session");
 		});
 
-		it("patches the title and rejects a bad preset", async () => {
+		it("patches the title and rejects a bad rule preset", async () => {
 			const s = await newSession();
 			const ok = await crhs().api(`/api/sessions/${s.id}`, { method: "PATCH", body: { title: "renamed" } });
 			expect(ok.json.session.title).toBe("renamed");
-			expect((await crhs().api(`/api/sessions/${s.id}`, { method: "PATCH", body: { preset: "chaos" } })).status).toBe(
-				400,
-			);
+			expect(
+				(await crhs().api(`/api/sessions/${s.id}`, { method: "PATCH", body: { rulePreset: "chaos" } })).status,
+			).toBe(400);
 			expect(
 				(
 					await crhs().api(`/api/sessions/${s.id}`, {
@@ -248,9 +248,9 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			expect(waiting).toMatchObject({ actorType: "session", state: "awaiting_approval" });
 			// The session's owner sees it; another member does not.
 			expect((await as(member, "/api/approvals")).json.tasks).toEqual([]);
-			const patch = await crhs().api(`/api/sessions/${s.id}`, { method: "PATCH", body: { preset: "yolo" } });
+			const patch = await crhs().api(`/api/sessions/${s.id}`, { method: "PATCH", body: { rulePreset: "yolo" } });
 			expect(patch.status).toBe(200);
-			expect(patch.json.session.rules.preset).toBe("yolo");
+			expect(patch.json.session.rules.rulePreset).toBe("yolo");
 			expect(await waitSubmission(s.id, sub.json.submissionId)).toEqual({
 				status: "done",
 				answer: "ran",
@@ -262,7 +262,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			expect(await auditOf("task.approved", waiting.id)).toEqual([]);
 			const changed = await auditOf("rules.changed", s.id);
 			expect(changed).toHaveLength(1);
-			expect(changed[0]?.detail).toMatchObject({ preset: "yolo" });
+			expect(changed[0]?.detail).toMatchObject({ rule_preset: "yolo" });
 		});
 	});
 
@@ -360,11 +360,11 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			expect((await crhs().api("/api/sessions?scope=all")).json.items.map((x: { id: string }) => x.id)).toContain(s.id);
 			// Visible, but looking in does not drive it (doc/access-control.md#归属与分享).
 			expect((await send(s.id, "hi", "r-a")).status).toBe(403);
-			expect((await crhs().api(`/api/sessions/${s.id}`, { method: "PATCH", body: { preset: "yolo" } })).status).toBe(
-				403,
-			);
+			expect(
+				(await crhs().api(`/api/sessions/${s.id}`, { method: "PATCH", body: { rulePreset: "yolo" } })).status,
+			).toBe(403);
 			expect((await crhs().api(`/api/sessions/${s.id}/abort`, { method: "POST", body: {} })).status).toBe(403);
-			expect((await as(member, `/api/sessions/${s.id}`)).json.session.rules.preset).toBe("ask");
+			expect((await as(member, `/api/sessions/${s.id}`)).json.session.rules.rulePreset).toBe("ask");
 			// Watching is allowed for the administrator.
 			const stream = await openEvents(s.id);
 			try {
@@ -400,7 +400,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			await waitSubmission(s.id, sub.json.submissionId);
 			const created = await auditOf("session.created", s.id);
 			expect(created).toHaveLength(1);
-			expect(created[0]?.detail).toMatchObject({ preset: "yolo", model: model() });
+			expect(created[0]?.detail).toMatchObject({ rule_preset: "yolo", model: model() });
 			const messages = await auditOf("session.message", s.id);
 			expect(messages).toHaveLength(1);
 			expect(messages[0]?.detail).toMatchObject({ submission_id: sub.json.submissionId, chars: "audit me".length });

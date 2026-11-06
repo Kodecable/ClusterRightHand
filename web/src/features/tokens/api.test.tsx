@@ -60,7 +60,7 @@ function RevokeTokenHarness() {
 function SaveRulesHarness() {
 	const save = useSetTokenRules();
 	return (
-		<button type="button" onClick={() => save.mutate({ id: "token-1", body: { preset: "yolo" } })}>
+		<button type="button" onClick={() => save.mutate({ id: "token-1", body: { rulePreset: "yolo" } })}>
 			Save
 		</button>
 	);

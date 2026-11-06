@@ -98,7 +98,10 @@ async function seed(
 }
 
 const newSession = async (who: string, title: string): Promise<string> => {
-	const res = await call(app, "/api/sessions", { cookie: cookie[who], body: { title, model: model(), preset: "ask" } });
+	const res = await call(app, "/api/sessions", {
+		cookie: cookie[who],
+		body: { title, model: model(), rulePreset: "ask" },
+	});
 	expect(res.status).toBe(201);
 	return ((await res.json()) as { session: { id: string } }).session.id;
 };
@@ -341,7 +344,7 @@ describe("GET /api/sessions", () => {
 		// `GET /sessions/:id` still returns the full session view.
 		const full = (await (await call(app, `/api/sessions/${a1}`, { cookie: cookie.alice })).json()) as {
 			session: {
-				rules: { preset: string } | null;
+				rules: { rulePreset: string } | null;
 				budgetUsedTokens: number;
 				usageTokens: number;
 				contextTokens: number | null;
@@ -352,7 +355,7 @@ describe("GET /api/sessions", () => {
 		expect(full.session.budgetUsedTokens).toBe(0);
 		expect(full.session.usageTokens).toBe(0);
 		expect(full.session.contextTokens).toBeNull();
-		expect(full.session.rules?.preset).toBe("ask");
+		expect(full.session.rules?.rulePreset).toBe("ask");
 	});
 
 	it("aggregates a tree's state and waiting kind into its root's item", async () => {

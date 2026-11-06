@@ -29,7 +29,7 @@ test("a session with more than 100 entries loads older history at the top withou
 	crhs.faux.setResponses(
 		Array.from({ length: MESSAGES }, (_, index) => fauxAssistantMessage([fauxText(`answer ${index + 1}`)])),
 	);
-	const created = await crhs.api("/api/sessions", { body: { title: "Long history", model, preset: "yolo" } });
+	const created = await crhs.api("/api/sessions", { body: { title: "Long history", model, rulePreset: "yolo" } });
 	expect(created.status).toBe(201);
 	const sessionId = created.json.session.id as string;
 

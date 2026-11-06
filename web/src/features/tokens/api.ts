@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invalidatePendingDecisions } from "@/features/approvals/api";
 import { enc, http } from "@/lib/api/client";
-import type { ApiTokenView, Preset, Rule } from "@/lib/api/types";
+import type { ApiTokenView, Rule, RulePreset } from "@/lib/api/types";
 
 export const tokenKeys = {
 	all: ["api-tokens"] as const,
@@ -17,7 +17,7 @@ export function useApiTokens() {
 
 export interface CreateTokenInput {
 	name: string;
-	preset: Preset;
+	rulePreset: RulePreset;
 	days: number | null;
 }
 
@@ -52,7 +52,7 @@ export function useDeleteApiToken() {
 export function useSetTokenRules() {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: ({ id, body }: { id: string; body: { preset?: Preset; rules?: Rule[] } }) =>
+		mutationFn: ({ id, body }: { id: string; body: { rulePreset?: RulePreset; rules?: Rule[] } }) =>
 			http.put<{ apiToken: ApiTokenView }>(`/api-tokens/${enc(id)}/rules`, body).then((r) => r.apiToken),
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: tokenKeys.all });

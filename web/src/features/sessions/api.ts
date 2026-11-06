@@ -292,7 +292,7 @@ export function useSessionShares(id: string | undefined) {
 export interface CreateSessionInput {
 	title?: string;
 	model: SessionView["model"];
-	preset: string;
+	rulePreset: string;
 	/** The new session's remaining budget (D101); null or omitted: unlimited. */
 	budgetRemaining?: number | null;
 }
@@ -318,8 +318,8 @@ export function usePatchSession(id: string) {
 		onSuccess: (session, patch) => {
 			queryClient.setQueryData(sessionKeys.detail(id), session);
 			void queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
-			// A preset change re-evaluates the waiting tasks on the server.
-			if (patch.preset !== undefined) invalidatePendingDecisions(queryClient);
+			// A rule preset change re-evaluates the waiting tasks on the server.
+			if (patch.rulePreset !== undefined) invalidatePendingDecisions(queryClient);
 		},
 	});
 }

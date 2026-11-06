@@ -29,16 +29,18 @@ test("the schedule form drops redundant help and warns only for Ask and Yolo", a
 	await expect(dialog.getByTestId("schedule-preview-time")).toHaveCount(2);
 	await expect(dialog.getByText("……")).toBeVisible();
 
-	const askNote = dialog.getByText("The Ask preset can often pause the schedule while it waits for your confirmation.");
+	const askNote = dialog.getByText(
+		"The Ask rule preset can often pause the schedule while it waits for your confirmation.",
+	);
 	await expect(askNote).toHaveClass(/text-warn/);
 
-	await page.getByLabel("Preset").click();
+	await page.getByLabel("Rule preset").click();
 	await page.getByRole("option", { name: "Auto Review" }).click();
 	await expect(askNote).toHaveCount(0);
 
-	await page.getByLabel("Preset").click();
+	await page.getByLabel("Rule preset").click();
 	await page.getByRole("option", { name: "Yolo" }).click();
-	await expect(dialog.getByText("The Yolo preset runs every action without asking or checking.")).toHaveClass(
+	await expect(dialog.getByText("The Yolo rule preset runs every action without asking or checking.")).toHaveClass(
 		/text-warn/,
 	);
 });
@@ -70,7 +72,7 @@ test("create a schedule and run it now", async ({ page }) => {
 		name: "Nightly check",
 		prompt: "Check the nodes",
 		model: { provider: "faux", modelId: "faux-1" },
-		preset: "ask",
+		rulePreset: "ask",
 		cron: "0 9 * * *",
 		enabled: true,
 	});

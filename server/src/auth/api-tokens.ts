@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { type RefMap, ruleRefs } from "../policy/refs.ts";
-import type { Preset } from "../policy/rules.ts";
+import type { RulePreset } from "../policy/rules.ts";
 import { createRootRuleSet, deleteRuleSet, getRuleSet, type StoredRuleSet } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId, NotFoundError, UserError } from "../users/service.ts";
@@ -37,7 +37,7 @@ export interface ApiTokenView {
 export async function createApiToken(
 	db: Db,
 	user: SessionUser,
-	input: { name: string; preset: Preset; days?: number | null },
+	input: { name: string; rulePreset: RulePreset; days?: number | null },
 ): Promise<{ token: string; view: ApiTokenView }> {
 	const name = input.name.trim();
 	if (!name || name.length > 100) throw new UserError("name must be 1 to 100 characters");
@@ -64,7 +64,7 @@ export async function createApiToken(
 				last_used_at: null,
 			})
 			.execute();
-		await createRootRuleSet(trx, orgId, { type: "api_token", id }, input.preset);
+		await createRootRuleSet(trx, orgId, { type: "api_token", id }, input.rulePreset);
 	});
 	return { token, view: (await getApiToken(db, user, id)) as ApiTokenView };
 }

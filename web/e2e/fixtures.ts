@@ -91,14 +91,14 @@ export function modelName(crhs: InProcessCrhs): string {
 export async function newSession(
 	page: Page,
 	title: string,
-	preset: "Ask" | "Yolo" | "Auto Review" = "Ask",
+	rulePreset: "Ask" | "Yolo" | "Auto Review" = "Ask",
 ): Promise<void> {
 	await page.goto("/sessions");
 	await page.getByTestId("new-session-button").click();
 	const dialog = page.getByRole("dialog", { name: "New session" });
 	await dialog.getByLabel("Title").fill(title);
-	await dialog.getByLabel("Preset").click();
-	await page.getByRole("option", { name: preset, exact: true }).click();
+	await dialog.getByLabel("Rule preset").click();
+	await page.getByRole("option", { name: rulePreset, exact: true }).click();
 	await dialog.getByRole("button", { name: "Create session" }).click();
 	await expect(page.getByTestId("session-title")).toHaveValue(title);
 }

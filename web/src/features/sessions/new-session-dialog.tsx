@@ -5,18 +5,18 @@ import { toast } from "sonner";
 import { FormDialog } from "@/components/dialogs";
 import { ErrorText } from "@/components/error-state";
 import { ModelSelect } from "@/components/model-select";
-import { PresetSelect } from "@/components/preset-select";
+import { RulePresetSelect } from "@/components/rule-preset-select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useCreateSession } from "@/features/sessions/api";
 import { useModels } from "@/features/settings/api";
 import { errorMessage } from "@/lib/api/client";
-import type { ModelRef, Preset } from "@/lib/api/types";
+import type { ModelRef, RulePreset } from "@/lib/api/types";
 import { parseQuotaInput, type QuotaError } from "@/lib/quota";
 
 /**
- * "New session" (doc/webui.md "侧边列表"): title, model, preset and a token
- * quota (empty = unlimited). A yolo preset is called out because it lets the
+ * "New session" (doc/webui.md "侧边列表"): title, model, rule preset and a token
+ * quota (empty = unlimited). A yolo rule preset is called out because it lets the
  * agent act without asking.
  */
 export function NewSessionDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -26,7 +26,7 @@ export function NewSessionDialog({ open, onOpenChange }: { open: boolean; onOpen
 	const create = useCreateSession();
 	const [title, setTitle] = useState("");
 	const [model, setModel] = useState<ModelRef | undefined>(undefined);
-	const [preset, setPreset] = useState<Preset>("ask");
+	const [rulePreset, setRulePreset] = useState<RulePreset>("ask");
 	const [quotaText, setQuotaText] = useState("");
 	const [quotaError, setQuotaError] = useState<QuotaError>();
 
@@ -58,7 +58,7 @@ export function NewSessionDialog({ open, onOpenChange }: { open: boolean; onOpen
 			const session = await create.mutateAsync({
 				...(title.trim() !== "" ? { title: title.trim() } : {}),
 				model: chosen,
-				preset,
+				rulePreset,
 				budgetRemaining: quota.quota,
 			});
 			toast.success(t`Session created.`);
@@ -109,10 +109,10 @@ export function NewSessionDialog({ open, onOpenChange }: { open: boolean; onOpen
 			</div>
 
 			<div className="grid gap-1.5">
-				<Label htmlFor="new-session-preset">
-					<Trans>Preset</Trans>
+				<Label htmlFor="new-session-rule-preset">
+					<Trans>Rule preset</Trans>
 				</Label>
-				<PresetSelect id="new-session-preset" value={preset} onChange={setPreset} />
+				<RulePresetSelect id="new-session-rule-preset" value={rulePreset} onChange={setRulePreset} />
 			</div>
 
 			<div className="grid gap-1.5">
@@ -128,7 +128,7 @@ export function NewSessionDialog({ open, onOpenChange }: { open: boolean; onOpen
 				/>
 			</div>
 
-			{preset === "yolo" && (
+			{rulePreset === "yolo" && (
 				<p className="text-xs text-warn" role="status">
 					<Trans>Yolo lets the agent run anything on your nodes without asking.</Trans>
 				</p>

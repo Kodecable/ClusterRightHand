@@ -12,7 +12,7 @@ const form = (overrides: Partial<ScheduleFormState> = {}): ScheduleFormState => 
 	name: "nightly check",
 	prompt: "Check the nodes",
 	model: { provider: "faux", modelId: "faux-model" },
-	preset: "ask",
+	rulePreset: "ask",
 	tokenBudget: "",
 	cron: "*/5 * * * *",
 	timezone: "Europe/Berlin",
@@ -28,7 +28,7 @@ describe("parseScheduleForm", () => {
 				name: "nightly check",
 				prompt: "Check the nodes",
 				model: { provider: "faux", modelId: "faux-model" },
-				preset: "ask",
+				rulePreset: "ask",
 				tokenBudget: null,
 				cron: "*/5 * * * *",
 				timezone: "Europe/Berlin",
@@ -93,7 +93,7 @@ describe("scheduleState", () => {
 	});
 });
 
-describe("preset notes and run notes", () => {
+describe("rule preset notes and run notes", () => {
 	test("a run's parts expose the reason and the manual flag", () => {
 		const run: ScheduleRunView = {
 			id: "r1",

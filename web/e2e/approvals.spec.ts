@@ -8,7 +8,7 @@ type TaskSpec = Parameters<InProcessCrhs["cluster"]["createTask"]>[0]["spec"];
 
 /** Creates an Ask token through the API and returns it. */
 async function askToken(crhs: InProcessCrhs, name: string): Promise<{ id: string; name: string }> {
-	const created = await crhs.api("/api/api-tokens", { body: { name, preset: "ask", days: 30 } });
+	const created = await crhs.api("/api/api-tokens", { body: { name, rulePreset: "ask", days: 30 } });
 	expect(created.status).toBe(201);
 	return { id: created.json.apiToken.id as string, name };
 }

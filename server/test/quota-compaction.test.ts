@@ -56,7 +56,7 @@ afterAll(async () => {
 it("charges compaction's summary and pauses the next tool call when it empties the quota", async () => {
 	const session = await runtime.createSession(owner, {
 		model: model(),
-		preset: "yolo",
+		rulePreset: "yolo",
 		title: "compacted",
 		budgetRemaining: 5,
 	});

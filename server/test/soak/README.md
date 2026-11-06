@@ -46,7 +46,7 @@ measured.
    crhs's authorization key (`role = "crhs"`, `kinds = ["execute"]`, generous `allow` rules, no `deny`), so privileged
    tasks are self-signed by crhs and need no human signature.
 4. Runs `SESSIONS` sessions with `CONCURRENCY` sessions side by side; each session runs `TURNS` turns sequentially.
-   Sessions use the **yolo** preset (no approval waits) and no token quota.
+   Sessions use the **yolo** rule preset (no approval waits) and no token quota.
 5. Every turn the faux model replies with `TOOLS_PER_TURN` real `exec` tool calls, targets spread round-robin over the
    nodes. A `PRIV_RATIO` share is marked privileged, a `BIG_OUTPUT_RATIO` share prints 64 KiB (more than the 50 KiB
    that makes crha spill output to its output dir); the rest prints `OUTPUT_BYTES`.

@@ -75,7 +75,7 @@ afterAll(async () => {
 it("keeps the session idle when its run ends during a recompute", async () => {
 	const session = await runtime.createSession(owner, {
 		model: { provider: faux.provider.id, modelId: faux.getModel().id },
-		preset: "yolo",
+		rulePreset: "yolo",
 		title: "recompute race",
 	});
 	let release!: () => void;

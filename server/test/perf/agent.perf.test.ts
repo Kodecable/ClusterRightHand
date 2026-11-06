@@ -84,7 +84,9 @@ describe("agent runtime performance", () => {
 		try {
 			const before = heapMiB();
 			const sessions = await Promise.all(
-				Array.from({ length: 20 }, (_, i) => runtime.createSession(owner, { model, preset: "yolo", title: `s${i}` })),
+				Array.from({ length: 20 }, (_, i) =>
+					runtime.createSession(owner, { model, rulePreset: "yolo", title: `s${i}` }),
+				),
 			);
 			faux.setResponses(Array.from({ length: 200 }, (_, i) => turn(i)).flat());
 			const t0 = performance.now();
@@ -106,7 +108,7 @@ describe("agent runtime performance", () => {
 	it("one long session: turn latency does not grow with its length", async () => {
 		const runtime = await open();
 		try {
-			const s = await runtime.createSession(owner, { model, preset: "yolo" });
+			const s = await runtime.createSession(owner, { model, rulePreset: "yolo" });
 			faux.setResponses(Array.from({ length: 120 }, (_, i) => turn(i)).flat());
 			const times: number[] = [];
 			for (let i = 0; i < 120; i++) {

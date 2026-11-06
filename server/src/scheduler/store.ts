@@ -2,8 +2,8 @@ import { Cron } from "croner";
 import { type Selectable, sql } from "kysely";
 import type { ModelRef } from "../agent/models.ts";
 import type { AuditActor } from "../audit/audit.ts";
-import type { Preset, Rule } from "../policy/rules.ts";
-import { createRootRuleSet, getRuleSet, type RuleRef, type StoredRuleSet, setPreset } from "../policy/store.ts";
+import type { Rule, RulePreset } from "../policy/rules.ts";
+import { createRootRuleSet, getRuleSet, type RuleRef, type StoredRuleSet, setRulePreset } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import type { ScheduleRunsTable, SchedulesTable } from "../storage/schema.ts";
 import { defaultOrgId, UserError } from "../users/service.ts";
@@ -138,7 +138,7 @@ export interface ScheduleInput {
 	name: string;
 	prompt: string;
 	model: ModelRef;
-	preset: Preset;
+	rulePreset: RulePreset;
 	tokenBudget: number | null;
 	cron: string;
 	timezone: string;
@@ -167,7 +167,7 @@ export function parseTokenBudget(raw: unknown): number | null {
 	return raw;
 }
 
-/** Creates the schedule and its rule-chain root (with the preset) in one transaction. */
+/** Creates the schedule and its rule-chain root (with the rule preset) in one transaction. */
 export async function createSchedule(
 	db: Db,
 	ownerUserId: string,
@@ -199,7 +199,7 @@ export async function createSchedule(
 				updated_at: now,
 			})
 			.execute();
-		await createRootRuleSet(trx, orgId, { type: "schedule", id }, input.preset);
+		await createRootRuleSet(trx, orgId, { type: "schedule", id }, input.rulePreset);
 	});
 	return (await getSchedule(db, id)) as Schedule;
 }
@@ -220,7 +220,7 @@ export async function listSchedules(db: Db, ownerUserId: string): Promise<Schedu
 	return rows.map(parseSchedule);
 }
 
-/** The rule set of a schedule (the root of its chain); includes the preset the form edits. */
+/** The rule set of a schedule (the root of its chain); includes the rule preset the form edits. */
 export async function scheduleRuleSet(db: Db, id: string): Promise<StoredRuleSet | null> {
 	return (await getRuleSet(db, { type: "schedule", id })) ?? null;
 }
@@ -229,7 +229,7 @@ export interface SchedulePatch {
 	name?: string;
 	prompt?: string;
 	model?: ModelRef;
-	preset?: Preset;
+	rulePreset?: RulePreset;
 	tokenBudget?: number | null;
 	cron?: string;
 	timezone?: string;
@@ -239,7 +239,7 @@ export interface SchedulePatch {
 
 /**
  * Applies a partial change and recomputes `next_run_at` when the cron, the timezone or `enabled` changed
- * (doc/scheduling.md#生命周期). Changing the prompt, model, preset or budget only affects later runs.
+ * (doc/scheduling.md#生命周期). Changing the prompt, model, rule preset or budget only affects later runs.
  */
 export async function updateSchedule(
 	db: Db,
@@ -271,7 +271,8 @@ export async function updateSchedule(
 			})
 			.where("id", "=", schedule.id)
 			.execute();
-		if (patch.preset !== undefined) await setPreset(trx, { type: "schedule", id: schedule.id }, patch.preset);
+		if (patch.rulePreset !== undefined)
+			await setRulePreset(trx, { type: "schedule", id: schedule.id }, patch.rulePreset);
 	});
 	return (await getSchedule(db, schedule.id)) as Schedule;
 }
@@ -279,14 +280,14 @@ export async function updateSchedule(
 /**
  * Removes a schedule: its runs go with it (foreign key), its sessions keep no link (foreign key sets the column
  * null). The rule set stays, like an API token's, so the chains of past tasks keep resolving; each session a run
- * created is promoted to a root with the schedule's preset first (its own rule set was an inherit-only level).
+ * created is promoted to a root with the schedule's rule preset first (its own rule set was an inherit-only level).
  * Returns the sessions that lost their schedule, so the caller can publish the change to the session list.
  */
 export async function deleteSchedule(db: Db, schedule: Schedule): Promise<string[]> {
 	const rules = await getRuleSet(db, { type: "schedule", id: schedule.id });
 	const sessions = await db.selectFrom("sessions").select("id").where("schedule_id", "=", schedule.id).execute();
 	for (const session of sessions) {
-		await promoteSessionRuleSet(db, schedule.orgId, session.id, rules?.preset ?? "ask", rules?.rules ?? []);
+		await promoteSessionRuleSet(db, schedule.orgId, session.id, rules?.rulePreset ?? "ask", rules?.rules ?? []);
 	}
 	await db.transaction().execute(async (trx) => {
 		await trx.deleteFrom("schedule_runs").where("schedule_id", "=", schedule.id).execute();
@@ -305,12 +306,12 @@ async function promoteSessionRuleSet(
 	db: Db,
 	orgId: string,
 	sessionId: string,
-	preset: Preset,
+	rulePreset: RulePreset,
 	rules: Rule[],
 ): Promise<void> {
 	await db.transaction().execute(async (trx) => {
 		await trx.deleteFrom("rule_sets").where("scope_type", "=", "session").where("scope_id", "=", sessionId).execute();
-		await createRootRuleSet(trx, orgId, { type: "session", id: sessionId }, preset, rules);
+		await createRootRuleSet(trx, orgId, { type: "session", id: sessionId }, rulePreset, rules);
 	});
 }
 
@@ -395,7 +396,7 @@ export async function disableSchedulesOfOwner(
 	return schedules;
 }
 
-/** The rule ref of a schedule, for reevaluating waiting tasks after a preset change. */
+/** The rule ref of a schedule, for reevaluating waiting tasks after a rule preset change. */
 export function scheduleRef(id: string): RuleRef {
 	return { type: "schedule", id };
 }

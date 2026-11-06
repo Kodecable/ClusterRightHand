@@ -82,9 +82,9 @@ describe("task list api (sqlite)", () => {
 		stdin: null,
 	});
 
-	/** An api token of alice, with the given preset (ask = require-approval, yolo = allow). */
-	const newToken = async (preset = "ask") => {
-		const res = await call(app, "/api/api-tokens", { cookie: cookies.alice, body: { name: "t", preset } });
+	/** An api token of alice, with the given rule preset (ask = require-approval, yolo = allow). */
+	const newToken = async (rulePreset = "ask") => {
+		const res = await call(app, "/api/api-tokens", { cookie: cookies.alice, body: { name: "t", rulePreset } });
 		return ((await res.json()) as { apiToken: { id: string } }).apiToken.id;
 	};
 

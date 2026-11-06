@@ -332,9 +332,9 @@ export interface RuleSetsTable {
 	org_id: string;
 	scope_type: RuleScopeType;
 	scope_id: string;
-	preset: string | null;
+	rule_preset: string | null;
 	default_action: string;
-	/** JSON Rule[], the rules added on top of the preset's. */
+	/** JSON Rule[], the rules added on top of the rule preset's. */
 	rules: string;
 	updated_at: string;
 }

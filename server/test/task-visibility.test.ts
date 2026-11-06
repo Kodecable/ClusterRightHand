@@ -181,7 +181,7 @@ describe("task visibility (sqlite)", () => {
 
 	it("ends a task waiting for approval with node_access_revoked when the grant is removed", async () => {
 		const alice = { sessionId: "s", userId: aliceId, username: "alice", kind: "member" as const };
-		const { view: token } = await createApiToken(db, alice, { name: "t", preset: "ask" });
+		const { view: token } = await createApiToken(db, alice, { name: "t", rulePreset: "ask" });
 		const task = await cluster.createTask({
 			nodeId,
 			spec,

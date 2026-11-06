@@ -8,12 +8,12 @@ import {
 	type Method,
 	type Operation,
 	operationOf,
-	type Preset,
 	parseRuleSet,
-	presetRuleSet,
 	type Rule,
+	type RulePreset,
 	type RuleSet,
 	ruleMatches,
+	rulePresetRuleSet,
 } from "../src/policy/rules.ts";
 import { UserError } from "../src/users/service.ts";
 
@@ -259,9 +259,9 @@ describe("evaluate: chains", () => {
 	});
 });
 
-describe("presetRuleSet", () => {
+describe("rulePresetRuleSet", () => {
 	const methods: Method[] = ["exec", "file.read", "file.write"];
-	const table: [Preset, Method, Action][] = [
+	const table: [RulePreset, Method, Action][] = [
 		["ask", "exec", "require-approval"],
 		["ask", "file.read", "allow"],
 		["ask", "file.write", "require-approval"],
@@ -273,20 +273,20 @@ describe("presetRuleSet", () => {
 		["yolo", "file.write", "allow"],
 	];
 
-	it.each(table)("%s + %s -> %s", (preset, method, expected) => {
-		expect(result([{ scope: { type: "session", id: "r" }, set: presetRuleSet(preset) }], op(method, "/any"))).toBe(
-			expected,
-		);
+	it.each(table)("%s + %s -> %s", (rulePreset, method, expected) => {
+		expect(
+			result([{ scope: { type: "session", id: "r" }, set: rulePresetRuleSet(rulePreset) }], op(method, "/any")),
+		).toBe(expected);
 	});
 
-	it("covers every method for every preset", () => {
+	it("covers every method for every rule preset", () => {
 		expect(table).toHaveLength(3 * methods.length);
 	});
 
 	it("has the documented shape", () => {
-		expect(presetRuleSet("yolo")).toEqual({ default: "allow", rules: [] });
+		expect(rulePresetRuleSet("yolo")).toEqual({ default: "allow", rules: [] });
 		for (const p of ["ask", "auto_review"] as const) {
-			expect(presetRuleSet(p)).toEqual({
+			expect(rulePresetRuleSet(p)).toEqual({
 				default: "require-approval",
 				rules: [{ action: "allow", method: "file.read", privileged: false }],
 			});
@@ -295,19 +295,19 @@ describe("presetRuleSet", () => {
 
 	it("ask and auto review let ordinary reads pass but never a privileged task (D86)", () => {
 		for (const p of ["ask", "auto_review"] as const) {
-			const chain = [{ scope: { type: "session", id: "r" }, set: presetRuleSet(p) }];
+			const chain = [{ scope: { type: "session", id: "r" }, set: rulePresetRuleSet(p) }];
 			expect(result(chain, op("file.read", "/etc/hosts", NODE, true))).toBe("require-approval");
 			expect(result(chain, op("file.read", "/etc/hosts"))).toBe("allow");
 			expect(result(chain, op("file.write", "/etc/hosts", NODE, true))).toBe("require-approval");
 			expect(result(chain, op("exec", "uptime", NODE, true))).toBe("require-approval");
 		}
 		// Yolo allows everything, privileged or not.
-		const yolo = [{ scope: { type: "session", id: "r" }, set: presetRuleSet("yolo") }];
+		const yolo = [{ scope: { type: "session", id: "r" }, set: rulePresetRuleSet("yolo") }];
 		expect(result(yolo, op("exec", "uptime", NODE, true))).toBe("allow");
 	});
 
-	it("user rules appended to a preset can tighten or extend it", () => {
-		const set = presetRuleSet("ask");
+	it("user rules appended to a rule preset can tighten or extend it", () => {
+		const set = rulePresetRuleSet("ask");
 		set.rules.push({ action: "allow", method: "exec", nodes: ["node-id-1"], prefix: "systemctl status " });
 		set.rules.push({ action: "deny", method: "file.read", prefix: "/etc/shadow" });
 		const chain = [{ scope: { type: "session", id: "r" }, set }];
@@ -318,9 +318,9 @@ describe("presetRuleSet", () => {
 	});
 
 	it("returns a fresh object each time", () => {
-		const a = presetRuleSet("ask");
+		const a = rulePresetRuleSet("ask");
 		a.rules.push({ action: "deny" });
-		expect(presetRuleSet("ask").rules).toHaveLength(1);
+		expect(rulePresetRuleSet("ask").rules).toHaveLength(1);
 	});
 });
 

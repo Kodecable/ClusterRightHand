@@ -18,7 +18,7 @@ test("a session shared for chat lets a member drive it; view only lets them look
 	const created = await crhs.api("/api/sessions", {
 		body: {
 			title: "Shared chat",
-			preset: "yolo",
+			rulePreset: "yolo",
 			model: { provider: crhs.faux.provider.id, modelId: crhs.faux.getModel().id },
 		},
 	});
@@ -85,7 +85,7 @@ test("only the owner and administrators manage shares", async ({ crhs }) => {
 	const created = await crhs.api("/api/sessions", {
 		body: {
 			title: "Mine",
-			preset: "ask",
+			rulePreset: "ask",
 			model: { provider: crhs.faux.provider.id, modelId: crhs.faux.getModel().id },
 		},
 	});

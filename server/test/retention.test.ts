@@ -659,7 +659,7 @@ describeBackends("durable task retention and the agent runtime", (backend) => {
 			runtime = await AgentRuntime.open({ ...options, storage: opened.storage });
 			const user = await createUser(db, { username: "retention-owner", kind: "member", password: "password-123" });
 			const owner: SessionUser = { sessionId: "test", userId: user.id, username: user.username, kind: "member" };
-			const session = await runtime.createSession(owner, { model: model(), preset: "yolo", title: "retention" });
+			const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "retention" });
 
 			// One tool call: a generation task and a tool task, both terminal when the answer arrives.
 			faux.setResponses([

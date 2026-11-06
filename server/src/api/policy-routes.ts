@@ -5,7 +5,7 @@ import type { ApprovalDecision, Cluster, TaskView } from "../cluster/cluster.ts"
 import type { TaskGroups, TaskGroupView } from "../cluster/task-groups.ts";
 import { parseRulesForWrite } from "../policy/refs.ts";
 import type { Rule } from "../policy/rules.ts";
-import { appendRule, parsePreset, type RuleRef, setPreset, setRules } from "../policy/store.ts";
+import { appendRule, parseRulePreset, type RuleRef, setRulePreset, setRules } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId, UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
@@ -37,14 +37,14 @@ export function policyRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups, a
 		const days = body.days === null ? null : body.days === undefined ? undefined : Number(body.days);
 		const { token, view } = await createApiToken(db, user, {
 			name: typeof body.name === "string" ? body.name : "",
-			preset: parsePreset(body.preset ?? "ask"),
+			rulePreset: parseRulePreset(body.rulePreset ?? "ask"),
 			days,
 		});
 		void audit.record({
 			actor: userActor(user),
 			action: "api_token.created",
 			target: { type: "api_token", id: view.id },
-			detail: { name: view.name, preset: view.rules?.preset, expires_at: view.expiresAt },
+			detail: { name: view.name, rule_preset: view.rules?.rulePreset, expires_at: view.expiresAt },
 		});
 		return c.json({ token, apiToken: view }, 201);
 	});
@@ -90,7 +90,7 @@ export function policyRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups, a
 		return c.json({ ok: true });
 	});
 
-	/** Changes a token's preset and/or the rules added on top; `{ preset?, rules? }`. */
+	/** Changes a token's rule preset and/or the rules added on top; `{ rulePreset?, rules? }`. */
 	app.put("/api-tokens/:id/rules", async (c) => {
 		const user = c.get("user");
 		const id = c.req.param("id");
@@ -98,16 +98,16 @@ export function policyRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups, a
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
 		const ref: RuleRef = { type: "api_token", id };
-		const preset = body.preset === undefined ? undefined : parsePreset(body.preset);
+		const rulePreset = body.rulePreset === undefined ? undefined : parseRulePreset(body.rulePreset);
 		const rules =
 			body.rules === undefined ? undefined : await parseRulesForWrite(db, await defaultOrgId(db), body.rules);
-		if (preset) await setPreset(db, ref, preset);
+		if (rulePreset) await setRulePreset(db, ref, rulePreset);
 		if (rules) await setRules(db, ref, rules);
 		void audit.record({
 			actor: userActor(user),
 			action: "rules.changed",
 			target: { type: "api_token", id },
-			detail: { preset, rules },
+			detail: { rule_preset: rulePreset, rules },
 		});
 		await rulesChanged(ref);
 		return c.json({ apiToken: await getApiToken(db, user, id) });

@@ -2,7 +2,7 @@ import type { Db } from "../storage/db.ts";
 import type { RuleScopeType, RuleSetsTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { newId } from "../util/id.ts";
-import { type ChainLevel, PRESETS, type Preset, presetRuleSet, type Rule, type RuleSet } from "./rules.ts";
+import { type ChainLevel, RULE_PRESETS, type Rule, type RulePreset, type RuleSet, rulePresetRuleSet } from "./rules.ts";
 
 /** One level of a rule chain, as stored on tasks: root first. */
 export interface RuleRef {
@@ -13,8 +13,8 @@ export interface RuleRef {
 export interface StoredRuleSet {
 	scope: RuleRef;
 	/** Roots only. */
-	preset: Preset | null;
-	/** The rules added on top of the preset's (roots), or all rules (sub-levels). */
+	rulePreset: RulePreset | null;
+	/** The rules added on top of the rule preset's (roots), or all rules (sub-levels). */
 	rules: Rule[];
 	default: RuleSet["default"];
 	updatedAt: string;
@@ -23,18 +23,18 @@ export interface StoredRuleSet {
 function fromRow(row: RuleSetsTable): StoredRuleSet {
 	return {
 		scope: { type: row.scope_type, id: row.scope_id },
-		preset: row.preset as Preset | null,
+		rulePreset: row.rule_preset as RulePreset | null,
 		rules: JSON.parse(row.rules) as Rule[],
 		default: row.default_action as RuleSet["default"],
 		updatedAt: row.updated_at,
 	};
 }
 
-export function parsePreset(raw: unknown): Preset {
-	if (typeof raw !== "string" || !(PRESETS as readonly string[]).includes(raw)) {
-		throw new UserError(`preset must be one of ${PRESETS.join(", ")}`);
+export function parseRulePreset(raw: unknown): RulePreset {
+	if (typeof raw !== "string" || !(RULE_PRESETS as readonly string[]).includes(raw)) {
+		throw new UserError(`rule preset must be one of ${RULE_PRESETS.join(", ")}`);
 	}
-	return raw as Preset;
+	return raw as RulePreset;
 }
 
 export async function getRuleSet(db: Db, ref: RuleRef): Promise<StoredRuleSet | undefined> {
@@ -47,12 +47,12 @@ export async function getRuleSet(db: Db, ref: RuleRef): Promise<StoredRuleSet | 
 	return row ? fromRow(row) : undefined;
 }
 
-/** Creates the rule set of a chain root with a preset and the rules added on top of it. */
+/** Creates the rule set of a chain root with a rule preset and the rules added on top of it. */
 export async function createRootRuleSet(
 	db: Db,
 	orgId: string,
 	ref: RuleRef,
-	preset: Preset,
+	rulePreset: RulePreset,
 	rules: Rule[] = [],
 ): Promise<void> {
 	await db
@@ -62,15 +62,15 @@ export async function createRootRuleSet(
 			org_id: orgId,
 			scope_type: ref.type,
 			scope_id: ref.id,
-			preset,
-			default_action: presetRuleSet(preset).default,
+			rule_preset: rulePreset,
+			default_action: rulePresetRuleSet(rulePreset).default,
 			rules: JSON.stringify(rules),
 			updated_at: new Date().toISOString(),
 		})
 		.execute();
 }
 
-/** Creates the rule set of a lower level (a subagent): full rules, no preset; it can only tighten. */
+/** Creates the rule set of a lower level (a subagent): full rules, no rule preset; it can only tighten. */
 export async function createRuleSet(db: Db, orgId: string, ref: RuleRef, set: RuleSet): Promise<void> {
 	await db
 		.insertInto("rule_sets")
@@ -79,7 +79,7 @@ export async function createRuleSet(db: Db, orgId: string, ref: RuleRef, set: Ru
 			org_id: orgId,
 			scope_type: ref.type,
 			scope_id: ref.id,
-			preset: null,
+			rule_preset: null,
 			default_action: set.default,
 			rules: JSON.stringify(set.rules),
 			updated_at: new Date().toISOString(),
@@ -87,19 +87,23 @@ export async function createRuleSet(db: Db, orgId: string, ref: RuleRef, set: Ru
 		.execute();
 }
 
-/** Changes a root's preset; the rules added on top are kept. */
-export async function setPreset(db: Db, ref: RuleRef, preset: Preset): Promise<void> {
+/** Changes a root's rule preset; the rules added on top are kept. */
+export async function setRulePreset(db: Db, ref: RuleRef, rulePreset: RulePreset): Promise<void> {
 	const res = await db
 		.updateTable("rule_sets")
-		.set({ preset, default_action: presetRuleSet(preset).default, updated_at: new Date().toISOString() })
+		.set({
+			rule_preset: rulePreset,
+			default_action: rulePresetRuleSet(rulePreset).default,
+			updated_at: new Date().toISOString(),
+		})
 		.where("scope_type", "=", ref.type)
 		.where("scope_id", "=", ref.id)
-		.where("preset", "is not", null)
+		.where("rule_preset", "is not", null)
 		.executeTakeFirst();
 	if (res.numUpdatedRows === 0n) throw new NotFoundError("no such rule set");
 }
 
-/** Replaces the rules added on top of the preset (or a sub-level's rules). */
+/** Replaces the rules added on top of the rule preset (or a sub-level's rules). */
 export async function setRules(db: Db, ref: RuleRef, rules: Rule[]): Promise<void> {
 	const res = await db
 		.updateTable("rule_sets")
@@ -123,10 +127,10 @@ export async function deleteRuleSet(db: Db, ref: RuleRef): Promise<void> {
 	await db.deleteFrom("rule_sets").where("scope_type", "=", ref.type).where("scope_id", "=", ref.id).execute();
 }
 
-/** The effective rule set of one level: a root's preset rules come before the rules added on top. */
+/** The effective rule set of one level: a root's rule preset rules come before the rules added on top. */
 export function effectiveRuleSet(stored: StoredRuleSet): RuleSet {
-	if (!stored.preset) return { default: stored.default, rules: stored.rules };
-	const base = presetRuleSet(stored.preset);
+	if (!stored.rulePreset) return { default: stored.default, rules: stored.rules };
+	const base = rulePresetRuleSet(stored.rulePreset);
 	return { default: base.default, rules: [...base.rules, ...stored.rules] };
 }
 

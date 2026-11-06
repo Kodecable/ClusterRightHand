@@ -222,7 +222,7 @@ export interface SessionView {
 export interface SessionPatch {
 	title?: string;
 	model?: ModelRef;
-	preset?: Preset;
+	rulePreset?: RulePreset;
 	/** Replaces the remaining budget at any level (null: unlimited). */
 	budgetRemaining?: number | null;
 }
@@ -239,7 +239,7 @@ export type TaskState =
 
 export type RuleAction = "allow" | "deny" | "require-approval";
 export type RuleMethod = "exec" | "file.read" | "file.write";
-export type Preset = "ask" | "auto_review" | "yolo";
+export type RulePreset = "ask" | "auto_review" | "yolo";
 
 export interface Rule {
 	action: RuleAction;
@@ -290,7 +290,7 @@ export interface TaskGroupApprovalRecord {
 
 export interface StoredRuleSet {
 	scope: RuleRef;
-	preset: Preset | null;
+	rulePreset: RulePreset | null;
 	rules: Rule[];
 	default: string;
 	updatedAt: string;
@@ -678,7 +678,7 @@ export interface ScheduleView {
 	name: string;
 	prompt: string;
 	model: ModelRef;
-	preset: Preset | null;
+	rulePreset: RulePreset | null;
 	rules: Rule[];
 	/** Display names for the UUIDs referenced by `rules`; null means the object was deleted. */
 	refs: RefMap;
@@ -703,7 +703,7 @@ export interface ScheduleInput {
 	name: string;
 	prompt: string;
 	model: ModelRef;
-	preset: Preset;
+	rulePreset: RulePreset;
 	tokenBudget: number | null;
 	cron: string;
 	timezone: string;

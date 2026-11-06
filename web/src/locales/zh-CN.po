@@ -695,7 +695,7 @@ msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行，/compact �
 #~ msgid "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
 #~ msgstr "Ask：每次审批都要等你，而下一次触发仍会结束本次运行。如果你不在，无人值守的运行会在下次触发时被停止。"
 
-#: src/features/tokens/preset-help.tsx
+#: src/features/tokens/rule-preset-help.tsx
 msgid "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
 msgstr "Ask：普通读取直接执行，其他操作（包括所有特权任务）都等待你审批。"
 
@@ -765,7 +765,7 @@ msgstr "Auto Review 会把无法判断的审批交给该模型。未设置时使
 #~ msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
 #~ msgstr "Auto Review：审批先交给复核模型；有风险的操作仍会等你，注意事项与 Ask 相同。"
 
-#: src/features/tokens/preset-help.tsx
+#: src/features/tokens/rule-preset-help.tsx
 msgid "Auto Review: approvals first go to the review model; anything risky still waits for your approval."
 msgstr "Auto Review：审批先交给复核模型；有风险的操作仍会等待你审批。"
 
@@ -886,8 +886,8 @@ msgid "Change the model; it applies from the next turn."
 msgstr "更换模型；从下一轮开始生效。"
 
 #: src/features/sessions/composer-footer.tsx
-msgid "Change the preset; it applies to the next tool call."
-msgstr "更换预设；从下一次工具调用开始生效。"
+msgid "Change the rule preset; it applies to the next tool call."
+msgstr "更换规则预设；从下一次工具调用开始生效。"
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Chat"
@@ -2882,23 +2882,23 @@ msgstr "前缀匹配"
 msgid "Preparing the payload to sign…"
 msgstr "正在准备待签名的载荷…"
 
-#: src/components/preset-select.tsx
+#: src/components/rule-preset-select.tsx
 #: src/features/schedules/schedule-form.tsx
 #: src/features/sessions/new-session-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/tokens/rules-dialog.tsx
-msgid "Preset"
-msgstr "预设"
+msgid "Rule preset"
+msgstr "规则预设"
 
 #: src/features/tokens/rules-dialog.tsx
-msgid "Preset saved."
-msgstr "预设已保存。"
+msgid "Rule preset saved."
+msgstr "规则预设已保存。"
 
-#. placeholder {0}: presetLabel(preset)
+#. placeholder {0}: rulePresetLabel(rulePreset)
 #: src/features/sessions/composer-footer.tsx
-msgid "Preset: {0}"
-msgstr "预设：{0}"
+msgid "Rule preset: {0}"
+msgstr "规则预设：{0}"
 
 #: src/components/approval-card.tsx
 #: src/components/task-form-fields.tsx
@@ -3313,8 +3313,8 @@ msgid "Save password"
 msgstr "保存密码"
 
 #: src/features/tokens/rules-dialog.tsx
-msgid "Save preset"
-msgstr "保存预设"
+msgid "Save rule preset"
+msgstr "保存规则预设"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Save provider"
@@ -3783,8 +3783,8 @@ msgid "That number is too large."
 msgstr "这个数字太大了。"
 
 #: src/features/schedules/scheduleForm.ts
-msgid "The Ask preset can often pause the schedule while it waits for your confirmation."
-msgstr "Ask 预设可能经常导致计划任务暂停等待您的确认。"
+msgid "The Ask rule preset can often pause the schedule while it waits for your confirmation."
+msgstr "Ask 规则预设可能经常导致计划任务暂停等待您的确认。"
 
 #: src/features/settings/providers.ts
 msgid "The base URL must start with http:// or https://."
@@ -3937,8 +3937,8 @@ msgid "The user can sign in with this password immediately."
 msgstr "用户可以立即使用此密码登录。"
 
 #: src/features/schedules/scheduleForm.ts
-msgid "The Yolo preset runs every action without asking or checking."
-msgstr "Yolo 预设所有操作都不经询问或检查直接运行。"
+msgid "The Yolo rule preset runs every action without asking or checking."
+msgstr "Yolo 规则预设所有操作都不经询问或检查直接运行。"
 
 #: src/app/shell/user-menu.tsx
 msgid "Theme"
@@ -4343,7 +4343,7 @@ msgstr "Yolo 允许此令牌在你的节点上不经询问执行任何操作。"
 #~ msgid "Yolo: everything runs without asking, including privileged tasks allowed by the node's own policy."
 #~ msgstr "Yolo：所有操作都不经询问直接运行，包括节点自身策略允许的特权任务。"
 
-#: src/features/tokens/preset-help.tsx
+#: src/features/tokens/rule-preset-help.tsx
 msgid "Yolo: everything runs without asking."
 msgstr "Yolo：所有操作都不经询问直接运行。"
 

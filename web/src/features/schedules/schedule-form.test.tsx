@@ -6,7 +6,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { AvailableModel } from "@/lib/api/types";
 import { activateLocale, renderWithI18n } from "@/test/render";
 import { ScheduleForm, scheduleFormStateOf } from "./schedule-form";
-import { type ParsedSchedule, presetNoteText } from "./scheduleForm";
+import { type ParsedSchedule, rulePresetNoteText } from "./scheduleForm";
 
 const MODELS: AvailableModel[] = [{ provider: "faux", modelId: "faux-1", name: "Faux One", contextWindow: 128_000 }];
 
@@ -71,9 +71,9 @@ describe("ScheduleForm", () => {
 
 	test("warns for Ask and Yolo, and says nothing for Auto Review", () => {
 		activateLocale("en");
-		expect(presetNoteText(i18n, "ask")).toMatch(/pause the schedule/);
-		expect(presetNoteText(i18n, "auto_review")).toBeNull();
-		expect(presetNoteText(i18n, "yolo")).toMatch(/without asking or checking/);
+		expect(rulePresetNoteText(i18n, "ask")).toMatch(/pause the schedule/);
+		expect(rulePresetNoteText(i18n, "auto_review")).toBeNull();
+		expect(rulePresetNoteText(i18n, "yolo")).toMatch(/without asking or checking/);
 	});
 
 	test("shows translated validation codes and does not submit", async () => {

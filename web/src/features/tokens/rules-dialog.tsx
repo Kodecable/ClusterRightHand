@@ -1,22 +1,22 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useId, useState } from "react";
 import { toast } from "sonner";
-import { PresetSelect } from "@/components/preset-select";
+import { RulePresetSelect } from "@/components/rule-preset-select";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { ApiTokenView, Preset, Rule } from "@/lib/api/types";
+import type { ApiTokenView, Rule, RulePreset } from "@/lib/api/types";
 import { refNames, rulesWithNames } from "@/lib/refs";
 import { useSetTokenRules } from "./api";
-import { PresetHelp } from "./preset-help";
+import { RulePresetHelp } from "./rule-preset-help";
 
-/** A token's preset and its extra rules (a JSON list, edited as text). */
+/** A token's rule preset and its extra rules (a JSON list, edited as text). */
 export function RulesDialog({ token, onClose }: { token: ApiTokenView; onClose: () => void }) {
 	const { t } = useLingui();
 	const prefix = useId();
 	const save = useSetTokenRules();
-	const [preset, setPreset] = useState<Preset>(token.rules?.preset ?? "ask");
+	const [rulePreset, setRulePreset] = useState<RulePreset>(token.rules?.rulePreset ?? "ask");
 	// Show names rather than the stored UUIDs; the server accepts names on write (D109).
 	const [text, setText] = useState(() =>
 		JSON.stringify({ rules: rulesWithNames(token.rules?.rules ?? [], refNames(token.refs)) }, null, 2),
@@ -62,21 +62,29 @@ export function RulesDialog({ token, onClose }: { token: ApiTokenView; onClose: 
 				<div className="grid gap-3">
 					<div className="flex flex-wrap items-end gap-2">
 						<div className="grid gap-1.5">
-							<Label htmlFor={`${prefix}-preset`}>{t`Preset`}</Label>
-							<PresetSelect id={`${prefix}-preset`} className="w-40" value={preset} onChange={setPreset} />
+							<Label htmlFor={`${prefix}-rulePreset`}>{t`Rule preset`}</Label>
+							<RulePresetSelect
+								id={`${prefix}-rulePreset`}
+								className="w-40"
+								value={rulePreset}
+								onChange={setRulePreset}
+							/>
 						</div>
 						<Button
 							type="button"
 							variant="outline"
-							disabled={save.isPending || preset === token.rules?.preset}
+							disabled={save.isPending || rulePreset === token.rules?.rulePreset}
 							onClick={() =>
-								save.mutate({ id: token.id, body: { preset } }, { onSuccess: () => toast.success(t`Preset saved.`) })
+								save.mutate(
+									{ id: token.id, body: { rulePreset } },
+									{ onSuccess: () => toast.success(t`Rule preset saved.`) },
+								)
 							}
 						>
-							<Trans>Save preset</Trans>
+							<Trans>Save rule preset</Trans>
 						</Button>
 						<span className="text-xs text-muted-foreground">
-							<PresetHelp preset={preset} />
+							<RulePresetHelp rulePreset={rulePreset} />
 						</span>
 					</div>
 

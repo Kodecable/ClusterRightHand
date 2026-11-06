@@ -31,7 +31,7 @@ function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 		updatedAt: "2026-01-01T00:00:00.000Z",
 		rules: {
 			scope: { type: "user", id: "u1" },
-			preset: "yolo",
+			rulePreset: "yolo",
 			rules: [],
 			default: "ask",
 			updatedAt: "2026-01-01T00:00:00.000Z",
@@ -368,7 +368,7 @@ describe("Composer", () => {
 });
 
 describe("ComposerFooter", () => {
-	test("shows the preset name, the remaining budget, the context fill and the total usage", async () => {
+	test("shows the rule preset name, the remaining budget, the context fill and the total usage", async () => {
 		mockFetch();
 		renderComposer();
 		await waitFor(() => expect(screen.getByTestId("composer-context")).toHaveTextContent("50%"));
@@ -406,14 +406,14 @@ describe("ComposerFooter", () => {
 		expect(screen.queryByTestId("composer-context")).not.toBeInTheDocument();
 	});
 
-	test("a subagent has no preset picker but shows its rules summary", async () => {
+	test("a subagent has no rule preset picker but shows its rules summary", async () => {
 		mockFetch();
 		renderComposer({
 			session: {
 				parentSessionId: "root-1",
 				rules: {
 					scope: { type: "session", id: "s1" },
-					preset: null,
+					rulePreset: null,
 					rules: [{ action: "allow", method: "file.read" }],
 					default: "inherit",
 					updatedAt: "2026-01-01T00:00:00.000Z",
@@ -421,7 +421,7 @@ describe("ComposerFooter", () => {
 			},
 		});
 		expect(screen.getByTestId("composer-rules")).toHaveTextContent("Rules: 1");
-		expect(screen.queryByRole("button", { name: "Preset" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Rule preset" })).not.toBeInTheDocument();
 	});
 
 	test("the icon button is Stop for an empty draft while stoppable, Send otherwise", () => {

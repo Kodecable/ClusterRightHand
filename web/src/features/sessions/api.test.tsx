@@ -183,7 +183,7 @@ function AbortSessionHarness() {
 }
 
 describe("session mutations", () => {
-	test("a preset change refreshes the tasks the server re-evaluated", async () => {
+	test("a rule preset change refreshes the tasks the server re-evaluated", async () => {
 		const calls = mockFetch();
 		const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
 		client.setQueryData(approvalKeys.list(), APPROVALS);
@@ -191,7 +191,7 @@ describe("session mutations", () => {
 
 		render(
 			<QueryClientProvider client={client}>
-				<PatchSessionHarness patch={{ preset: "yolo" }} />
+				<PatchSessionHarness patch={{ rulePreset: "yolo" }} />
 			</QueryClientProvider>,
 		);
 

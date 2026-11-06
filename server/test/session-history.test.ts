@@ -137,7 +137,7 @@ afterAll(async () => {
 });
 
 const createSession = async (title: string) => {
-	const session = await runtime.createSession(alice, { title, model: model(), preset: "ask" });
+	const session = await runtime.createSession(alice, { title, model: model(), rulePreset: "ask" });
 	return session.id;
 };
 

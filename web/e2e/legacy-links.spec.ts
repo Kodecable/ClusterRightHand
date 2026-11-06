@@ -6,7 +6,7 @@ test.use({ withNode: true });
 
 /** Creates an Ask token through the API; the task below is asked by it. */
 async function askToken(crhs: InProcessCrhs, name: string): Promise<{ id: string; userId: string }> {
-	const created = await crhs.api("/api/api-tokens", { body: { name, preset: "ask", days: 30 } });
+	const created = await crhs.api("/api/api-tokens", { body: { name, rulePreset: "ask", days: 30 } });
 	if (created.status !== 201) throw new Error(`token: ${created.status}`);
 	const me = await crhs.api("/api/me");
 	return { id: created.json.apiToken.id, userId: me.json.user.id };

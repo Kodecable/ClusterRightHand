@@ -11,7 +11,7 @@ const SCHEDULE: ScheduleView = {
 	name: "Nightly check",
 	prompt: "Check the nodes",
 	model: { provider: "faux", modelId: "faux-1" },
-	preset: "ask",
+	rulePreset: "ask",
 	rules: [],
 	refs: {},
 	tokenBudget: null,

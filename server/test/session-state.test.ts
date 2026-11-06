@@ -144,7 +144,7 @@ const taskOf = async (id: string) => (await cluster.getTask(id)) as TaskView;
 const groupOf = async (id: string) => (await groups.get(id)) as TaskGroupView;
 
 it("a root runs while its latest input runs and is idle when it ends", async () => {
-	const session = await runtime.createSession(owner, { model: model(), preset: "yolo", title: "root states" });
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "root states" });
 	expect(session.state).toBe("idle");
 	expect(session.waitingKind).toBeNull();
 	faux.setResponses([
@@ -164,7 +164,7 @@ it("a root runs while its latest input runs and is idle when it ends", async () 
 });
 
 it("a subagent runs while its input runs and is idle when it ends", async () => {
-	const parent = await runtime.createSession(owner, { model: model(), preset: "yolo", title: "child states" });
+	const parent = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "child states" });
 	const child = await runtime.createSubagent(parent.id, {
 		callKey: "state-child",
 		task: "child work",
@@ -189,7 +189,7 @@ it("a subagent runs while its input runs and is idle when it ends", async () => 
 it("an exhausted root quota makes it awaiting/quota; a grant resumes the run and it ends idle", async () => {
 	const session = await runtime.createSession(owner, {
 		model: model(),
-		preset: "yolo",
+		rulePreset: "yolo",
 		title: "root quota states",
 		budgetRemaining: 1,
 	});
@@ -225,7 +225,7 @@ it("an exhausted root quota makes it awaiting/quota; a grant resumes the run and
 });
 
 it("a tool call waiting for an approval makes the session awaiting/approval, then running, then idle", async () => {
-	const session = await runtime.createSession(owner, { model: model(), preset: "ask", title: "approval states" });
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "ask", title: "approval states" });
 	faux.setResponses([
 		fauxAssistantMessage([fauxToolCall("exec", { targets: ["web-1"], cmd: "true" }, { id: "approval-state-tool" })], {
 			stopReason: "toolUse",
@@ -268,7 +268,11 @@ it("a tool call waiting for an approval makes the session awaiting/approval, the
 });
 
 it("a task that has not been dispatched yet is not an approval wait", async () => {
-	const session = await runtime.createSession(owner, { model: model(), preset: "ask", title: "dispatch transient" });
+	const session = await runtime.createSession(owner, {
+		model: model(),
+		rulePreset: "ask",
+		title: "dispatch transient",
+	});
 	let release!: () => void;
 	const gate = new Promise<void>((resolve) => {
 		release = resolve;
@@ -303,7 +307,7 @@ it("a task that has not been dispatched yet is not an approval wait", async () =
 it("a task waiting for a signature makes the session awaiting/authorization", async () => {
 	const session = await runtime.createSession(owner, {
 		model: model(),
-		preset: "ask",
+		rulePreset: "ask",
 		title: "authorization states",
 	});
 	let release!: () => void;
@@ -346,7 +350,7 @@ it("a task waiting for a signature makes the session awaiting/authorization", as
 });
 
 it("a task group waiting for approval is the session's approval wait too", async () => {
-	const session = await runtime.createSession(owner, { model: model(), preset: "ask", title: "group states" });
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "ask", title: "group states" });
 	faux.setResponses([
 		fauxAssistantMessage([fauxToolCall("exec", { targets: ["batch"], cmd: "true" }, { id: "group-state-tool" })], {
 			stopReason: "toolUse",
@@ -388,7 +392,7 @@ it("a task group waiting for approval is the session's approval wait too", async
 });
 
 it("overlapping waits use quota > approval > authorization, and a read never revives idle", async () => {
-	const session = await runtime.createSession(owner, { model: model(), preset: "ask", title: "overlap states" });
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "ask", title: "overlap states" });
 	let release!: () => void;
 	const gate = new Promise<void>((resolve) => {
 		release = resolve;

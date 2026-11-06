@@ -7,7 +7,7 @@ import { chargeCall } from "./quota.ts";
 import { type CallTokens, callTokens, estimateRequestTokens } from "./tokens.ts";
 
 /**
- * Auto Review (doc/access-control.md#规则链): for a root whose preset is auto_review (a token, a session, or the
+ * Auto Review (doc/access-control.md#规则链): for a root whose rule preset is auto_review (a token, a session, or the
  * schedule a scheduled run's chain starts with), a task that needs approval is first judged by a model. It approves what is clearly safe and leaves the rest for the user. The reviewer sees
  * only the operation itself, never the conversation or node output, so one injected text cannot steer both the
  * agent and its reviewer (doc/agent-runtime.md#提示注入).
@@ -126,7 +126,7 @@ export class Reviewer {
 	async #wanted(chain: RuleRef[] | null): Promise<ModelRef | null> {
 		const root = chain?.[0];
 		if (!root) return null;
-		if ((await getRuleSet(this.#db, root))?.preset !== "auto_review") return null;
+		if ((await getRuleSet(this.#db, root))?.rulePreset !== "auto_review") return null;
 		return (await this.#modelFor(root)) ?? null;
 	}
 

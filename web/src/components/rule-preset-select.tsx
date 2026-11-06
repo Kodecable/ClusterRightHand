@@ -1,12 +1,12 @@
 import { useLingui } from "@lingui/react/macro";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Preset } from "@/lib/api/types";
-import { PRESETS, presetIcon, presetLabel } from "@/lib/preset";
+import type { RulePreset } from "@/lib/api/types";
+import { RULE_PRESETS, rulePresetIcon, rulePresetLabel } from "@/lib/rule-preset";
 import { cn } from "@/lib/utils";
 
-export interface PresetSelectProps {
-	value: Preset;
-	onChange: (preset: Preset) => void;
+export interface RulePresetSelectProps {
+	value: RulePreset;
+	onChange: (rulePreset: RulePreset) => void;
 	disabled?: boolean;
 	id?: string;
 	label?: string;
@@ -20,10 +20,10 @@ export interface PresetSelectProps {
 
 /**
  * The rule preset picker. The labels are product names ("Ask", "Yolo"); the
- * explanation of each preset belongs next to the form (scheduleForm's
- * `presetNote`), not in the option text.
+ * explanation of each rule preset belongs next to the form (scheduleForm's
+ * `rulePresetNote`), not in the option text.
  */
-export function PresetSelect({
+export function RulePresetSelect({
 	value,
 	onChange,
 	disabled,
@@ -33,20 +33,20 @@ export function PresetSelect({
 	variant = "default",
 	title,
 	dataTestId,
-}: PresetSelectProps) {
+}: RulePresetSelectProps) {
 	const { t } = useLingui();
 	const inline = variant === "inline";
 	return (
 		<Select
 			value={value}
 			onValueChange={(next) => {
-				if (typeof next === "string") onChange(next as Preset);
+				if (typeof next === "string") onChange(next as RulePreset);
 			}}
 			disabled={disabled}
 		>
 			<SelectTrigger
 				id={id}
-				aria-label={label ?? t`Preset`}
+				aria-label={label ?? t`Rule preset`}
 				title={title}
 				size={inline ? "xs" : "default"}
 				showIcon={!inline}
@@ -60,11 +60,11 @@ export function PresetSelect({
 			>
 				<SelectValue>
 					{(current: string | null) => {
-						const Icon = presetIcon(current);
+						const Icon = rulePresetIcon(current);
 						return (
 							<span className="flex items-center gap-1.5">
 								{Icon !== undefined && <Icon className="size-3.5" aria-hidden="true" />}
-								{presetLabel(current)}
+								{rulePresetLabel(current)}
 							</span>
 						);
 					}}
@@ -76,12 +76,12 @@ export function PresetSelect({
 				alignItemWithTrigger={inline ? false : undefined}
 				className={inline ? "w-56" : undefined}
 			>
-				{PRESETS.map((preset) => {
-					const Icon = preset.icon;
+				{RULE_PRESETS.map((rulePreset) => {
+					const Icon = rulePreset.icon;
 					return (
-						<SelectItem key={preset.value} value={preset.value}>
+						<SelectItem key={rulePreset.value} value={rulePreset.value}>
 							<Icon className="size-3.5" aria-hidden="true" />
-							{preset.label}
+							{rulePreset.label}
 						</SelectItem>
 					);
 				})}

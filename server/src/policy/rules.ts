@@ -12,9 +12,9 @@ import { UserError } from "../users/service.ts";
 export type Action = "allow" | "deny" | "require-approval";
 export type DefaultAction = Action | "inherit";
 export type Method = "exec" | "file.read" | "file.write";
-export type Preset = "ask" | "auto_review" | "yolo";
+export type RulePreset = "ask" | "auto_review" | "yolo";
 
-export const PRESETS: readonly Preset[] = ["ask", "auto_review", "yolo"];
+export const RULE_PRESETS: readonly RulePreset[] = ["ask", "auto_review", "yolo"];
 const METHODS: readonly Method[] = ["exec", "file.read", "file.write"];
 const ACTIONS: readonly Action[] = ["allow", "deny", "require-approval"];
 const MAX_RULES = 200;
@@ -70,9 +70,9 @@ export interface Evaluation {
 	levels: LevelResult[];
 }
 
-/** The rules a root preset stands for; rules the user adds come after these. */
-export function presetRuleSet(preset: Preset): RuleSet {
-	if (preset === "yolo") return { default: "allow", rules: [] };
+/** The rules a root rule preset stands for; rules the user adds come after these. */
+export function rulePresetRuleSet(rulePreset: RulePreset): RuleSet {
+	if (rulePreset === "yolo") return { default: "allow", rules: [] };
 	// ask and auto_review differ in who answers the approval, not in the rules. Reads may pass, but a
 	// privileged read still waits: native and ignore nodes have no other gate than these rules (D86).
 	return {

@@ -16,7 +16,7 @@ test("create an API token once and revoke it", async ({ page }) => {
 	await expect(page.getByText("Copy this token now. It will not be shown again.")).toBeVisible();
 	await expect(page.getByText("crh_created_once", { exact: true })).toBeVisible();
 	const created = api.state.requests.find((request) => request.method === "POST" && request.url === "/api/api-tokens");
-	expect(created?.body).toEqual({ name: "laptop", preset: "ask", days: 90 });
+	expect(created?.body).toEqual({ name: "laptop", rulePreset: "ask", days: 90 });
 
 	await page.getByRole("button", { name: "Done" }).click();
 	await expect(dialog).toBeHidden();

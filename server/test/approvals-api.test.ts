@@ -69,8 +69,8 @@ describe("approvals api (sqlite)", () => {
 		return id;
 	};
 
-	const newToken = async (preset = "ask") => {
-		const res = await call(app, "/api/api-tokens", { cookie: cookies.alice, body: { name: "t", preset } });
+	const newToken = async (rulePreset = "ask") => {
+		const res = await call(app, "/api/api-tokens", { cookie: cookies.alice, body: { name: "t", rulePreset } });
 		return ((await res.json()) as { apiToken: { id: string } }).apiToken.id;
 	};
 	const execSpec = (...argv: string[]): TaskSpec => ({
@@ -278,7 +278,7 @@ describe("approvals api (sqlite)", () => {
 		const tok = await newToken();
 		const a = await mkTask(tok, execSpec("one"));
 		const b = await mkTask(tok, execSpec("two"));
-		expect((await putRules(tok, { preset: "yolo" })).status).toBe(200);
+		expect((await putRules(tok, { rulePreset: "yolo" })).status).toBe(200);
 		for (const id of [a.id, b.id]) {
 			const v = await task(id);
 			expect(v.state).toBe("failed");
@@ -317,7 +317,7 @@ describe("approvals api (sqlite)", () => {
 		expect(t.privileged).toBe(true);
 		expect(t.state).toBe("awaiting_approval");
 		expect(t.approval?.evaluation.result).toBe("require-approval");
-		// The matched rule was the preset's ordinary-read allow, which does not cover privileged reads.
+		// The matched rule was the rule preset's ordinary-read allow, which does not cover privileged reads.
 		expect(t.approval?.evaluation.levels[0]?.own).toBe("require-approval");
 		await cluster.decide(t.id, { decision: "rejected", by: { type: "user", id: "x" }, at: new Date().toISOString() });
 	});
@@ -391,7 +391,7 @@ describe("approvals api (sqlite)", () => {
 			});
 			const g = (await groups.get(id)) as TaskGroupView;
 			expect(g.privileged).toBe(true);
-			// The preset's ordinary-read allow does not cover a privileged read.
+			// The rule preset's ordinary-read allow does not cover a privileged read.
 			expect(g.state).toBe("awaiting_approval");
 			expect(g.approval?.nodes.every((n) => n.evaluation.result === "require-approval")).toBe(true);
 			expect((await decide("alice", `/api/task-groups/${id}/approval`, { decision: "approve" })).status).toBe(200);

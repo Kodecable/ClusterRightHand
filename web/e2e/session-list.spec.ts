@@ -24,7 +24,7 @@ async function createSessionFor(crhs: InProcessCrhs, cookie: string, title: stri
 		headers: { "content-type": "application/json", cookie },
 		body: JSON.stringify({
 			title,
-			preset: "ask",
+			rulePreset: "ask",
 			model: { provider: crhs.faux.provider.id, modelId: crhs.faux.getModel().id },
 		}),
 	});

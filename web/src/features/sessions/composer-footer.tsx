@@ -2,13 +2,13 @@ import { useLingui } from "@lingui/react/macro";
 import { ArrowUpIcon, DropletIcon, ShieldCheckIcon, SquareIcon } from "lucide-react";
 import { useState } from "react";
 import { ModelSelect } from "@/components/model-select";
-import { PresetSelect } from "@/components/preset-select";
+import { RulePresetSelect } from "@/components/rule-preset-select";
 import { Button } from "@/components/ui/button";
 import { useModels } from "@/features/settings/api";
-import type { Preset, SessionView } from "@/lib/api/types";
+import type { RulePreset, SessionView } from "@/lib/api/types";
 import { formatNumber, formatTokens } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
-import { presetIcon, presetLabel } from "@/lib/preset";
+import { rulePresetIcon, rulePresetLabel } from "@/lib/rule-preset";
 import { cn } from "@/lib/utils";
 import { usePatchSession } from "./api";
 import { QuotaDialog } from "./quota-dialog";
@@ -17,7 +17,7 @@ import { QuotaDialog } from "./quota-dialog";
  * The footer inside the composer box (doc/webui.md#输入框页脚): model, rules and
  * budget on the left, the stop and send buttons on the right. The context ring
  * and the tree's total usage sit on their own centered line under the box, in
- * ComposerMeta, so the footer keeps room for the model and the preset at every
+ * ComposerMeta, so the footer keeps room for the model and the rule preset at every
  * width. The budget and the total usage accumulate up the chain, so a session's
  * numbers include its subagents'; the context fill is the session's own last
  * main call (doc/agent-runtime.md#会话状态).
@@ -110,11 +110,11 @@ function ModelControl({ session }: { session: SessionView }) {
 	);
 }
 
-/** The preset with its icon; only a root session has one, so a subagent shows its rules summary instead. */
+/** The rule preset with its icon; only a root session has one, so a subagent shows its rules summary instead. */
 function RulesControl({ session }: { session: SessionView }) {
 	const { t } = useLingui();
 	const patch = usePatchSession(session.id);
-	const preset = session.rules?.preset ?? "ask";
+	const rulePreset = session.rules?.rulePreset ?? "ask";
 	const ruleCount = session.rules?.rules.length ?? 0;
 	const isRoot = session.parentSessionId === null;
 
@@ -131,27 +131,27 @@ function RulesControl({ session }: { session: SessionView }) {
 			</span>
 		);
 	}
-	const PresetIcon = presetIcon(preset) ?? ShieldCheckIcon;
+	const RulePresetIcon = rulePresetIcon(rulePreset) ?? ShieldCheckIcon;
 	if (!session.capabilities.configure) {
 		return (
 			<span
 				className="inline-flex min-w-0 shrink items-center gap-1 px-1.5 text-xs text-muted-foreground"
 				data-testid="composer-rules"
-				title={t`Preset: ${presetLabel(preset)}`}
+				title={t`Rule preset: ${rulePresetLabel(rulePreset)}`}
 			>
-				<PresetIcon className="size-3.5 shrink-0" aria-hidden="true" />
-				<span className="min-w-0 truncate">{presetLabel(preset)}</span>
+				<RulePresetIcon className="size-3.5 shrink-0" aria-hidden="true" />
+				<span className="min-w-0 truncate">{rulePresetLabel(rulePreset)}</span>
 			</span>
 		);
 	}
 	return (
-		<PresetSelect
+		<RulePresetSelect
 			variant="inline"
 			dataTestId="composer-rules"
-			title={t`Change the preset; it applies to the next tool call.`}
-			value={preset as Preset}
+			title={t`Change the rule preset; it applies to the next tool call.`}
+			value={rulePreset as RulePreset}
 			disabled={patch.isPending}
-			onChange={(next) => patch.mutate({ preset: next })}
+			onChange={(next) => patch.mutate({ rulePreset: next })}
 		/>
 	);
 }

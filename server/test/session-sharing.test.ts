@@ -75,8 +75,8 @@ afterAll(async () => {
 	await db.destroy();
 });
 
-async function newSession(cookie: string, title: string, preset = "ask") {
-	const res = await call(app, "/api/sessions", { cookie, body: { title, model: model(), preset } });
+async function newSession(cookie: string, title: string, rulePreset = "ask") {
+	const res = await call(app, "/api/sessions", { cookie, body: { title, model: model(), rulePreset } });
 	expect(res.status).toBe(201);
 	return (
 		(await res.json()) as {
@@ -151,7 +151,7 @@ it("chat drives the session for its owner; audits name both", async () => {
 
 	// Sending is the only shared power: the session's rules, model and title stay the owner's.
 	expect(
-		(await call(app, `/api/sessions/${s.id}`, { method: "PATCH", cookie: bob, body: { preset: "yolo" } })).status,
+		(await call(app, `/api/sessions/${s.id}`, { method: "PATCH", cookie: bob, body: { rulePreset: "yolo" } })).status,
 	).toBe(403);
 	expect((await call(app, `/api/sessions/${s.id}/shares`, { cookie: bob })).status).toBe(403);
 });

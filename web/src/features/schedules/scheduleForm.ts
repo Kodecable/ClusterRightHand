@@ -1,6 +1,6 @@
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
-import type { ModelRef, Preset, ScheduleRunStatus, ScheduleRunView, ScheduleView } from "@/lib/api/types";
+import type { ModelRef, RulePreset, ScheduleRunStatus, ScheduleRunView, ScheduleView } from "@/lib/api/types";
 import { parseQuotaInput } from "@/lib/quota";
 
 /** Pure form and display helpers for schedules (doc/scheduling.md); the pages only render them. */
@@ -9,7 +9,7 @@ export interface ScheduleFormState {
 	name: string;
 	prompt: string;
 	model: ModelRef | undefined;
-	preset: Preset;
+	rulePreset: RulePreset;
 	tokenBudget: string;
 	cron: string;
 	timezone: string;
@@ -64,7 +64,7 @@ export interface ParsedSchedule {
 	name: string;
 	prompt: string;
 	model: ModelRef;
-	preset: Preset;
+	rulePreset: RulePreset;
 	tokenBudget: number | null;
 	cron: string;
 	timezone: string;
@@ -126,7 +126,7 @@ export function parseScheduleForm(
 			name,
 			prompt,
 			model: state.model,
-			preset: state.preset,
+			rulePreset: state.rulePreset,
 			tokenBudget: budget.quota,
 			cron,
 			timezone,
@@ -157,14 +157,14 @@ export function runStatusText(i18n: I18n, status: ScheduleRunStatus): string {
 	return i18n._(RUN_STATUS_TEXT[status]);
 }
 
-const PRESET_NOTES: Partial<Record<Preset, MessageDescriptor>> = {
-	ask: msg`The Ask preset can often pause the schedule while it waits for your confirmation.`,
-	yolo: msg`The Yolo preset runs every action without asking or checking.`,
+const RULE_PRESET_NOTES: Partial<Record<RulePreset, MessageDescriptor>> = {
+	ask: msg`The Ask rule preset can often pause the schedule while it waits for your confirmation.`,
+	yolo: msg`The Yolo rule preset runs every action without asking or checking.`,
 };
 
-/** The explanation shown under the preset picker, or null when the preset needs no callout. */
-export function presetNoteText(i18n: I18n, preset: Preset): string | null {
-	const note = PRESET_NOTES[preset];
+/** The explanation shown under the rule preset picker, or null when the rule preset needs no callout. */
+export function rulePresetNoteText(i18n: I18n, rulePreset: RulePreset): string | null {
+	const note = RULE_PRESET_NOTES[rulePreset];
 	return note === undefined ? null : i18n._(note);
 }
 

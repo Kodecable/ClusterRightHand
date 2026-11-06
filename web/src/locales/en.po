@@ -695,7 +695,7 @@ msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line, /co
 #~ msgid "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
 #~ msgstr "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
 
-#: src/features/tokens/preset-help.tsx
+#: src/features/tokens/rule-preset-help.tsx
 msgid "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
 msgstr "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
 
@@ -765,7 +765,7 @@ msgstr "Auto Review sends approvals it cannot decide to this model. Without one,
 #~ msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
 #~ msgstr "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
 
-#: src/features/tokens/preset-help.tsx
+#: src/features/tokens/rule-preset-help.tsx
 msgid "Auto Review: approvals first go to the review model; anything risky still waits for your approval."
 msgstr "Auto Review: approvals first go to the review model; anything risky still waits for your approval."
 
@@ -886,8 +886,8 @@ msgid "Change the model; it applies from the next turn."
 msgstr "Change the model; it applies from the next turn."
 
 #: src/features/sessions/composer-footer.tsx
-msgid "Change the preset; it applies to the next tool call."
-msgstr "Change the preset; it applies to the next tool call."
+msgid "Change the rule preset; it applies to the next tool call."
+msgstr "Change the rule preset; it applies to the next tool call."
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Chat"
@@ -2882,23 +2882,23 @@ msgstr "prefix"
 msgid "Preparing the payload to sign…"
 msgstr "Preparing the payload to sign…"
 
-#: src/components/preset-select.tsx
+#: src/components/rule-preset-select.tsx
 #: src/features/schedules/schedule-form.tsx
 #: src/features/sessions/new-session-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/tokens/rules-dialog.tsx
-msgid "Preset"
-msgstr "Preset"
+msgid "Rule preset"
+msgstr "Rule preset"
 
 #: src/features/tokens/rules-dialog.tsx
-msgid "Preset saved."
-msgstr "Preset saved."
+msgid "Rule preset saved."
+msgstr "Rule preset saved."
 
-#. placeholder {0}: presetLabel(preset)
+#. placeholder {0}: rulePresetLabel(rulePreset)
 #: src/features/sessions/composer-footer.tsx
-msgid "Preset: {0}"
-msgstr "Preset: {0}"
+msgid "Rule preset: {0}"
+msgstr "Rule preset: {0}"
 
 #: src/components/approval-card.tsx
 #: src/components/task-form-fields.tsx
@@ -3313,8 +3313,8 @@ msgid "Save password"
 msgstr "Save password"
 
 #: src/features/tokens/rules-dialog.tsx
-msgid "Save preset"
-msgstr "Save preset"
+msgid "Save rule preset"
+msgstr "Save rule preset"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Save provider"
@@ -3783,8 +3783,8 @@ msgid "That number is too large."
 msgstr "That number is too large."
 
 #: src/features/schedules/scheduleForm.ts
-msgid "The Ask preset can often pause the schedule while it waits for your confirmation."
-msgstr "The Ask preset can often pause the schedule while it waits for your confirmation."
+msgid "The Ask rule preset can often pause the schedule while it waits for your confirmation."
+msgstr "The Ask rule preset can often pause the schedule while it waits for your confirmation."
 
 #: src/features/settings/providers.ts
 msgid "The base URL must start with http:// or https://."
@@ -3937,8 +3937,8 @@ msgid "The user can sign in with this password immediately."
 msgstr "The user can sign in with this password immediately."
 
 #: src/features/schedules/scheduleForm.ts
-msgid "The Yolo preset runs every action without asking or checking."
-msgstr "The Yolo preset runs every action without asking or checking."
+msgid "The Yolo rule preset runs every action without asking or checking."
+msgstr "The Yolo rule preset runs every action without asking or checking."
 
 #: src/app/shell/user-menu.tsx
 msgid "Theme"
@@ -4343,7 +4343,7 @@ msgstr "Yolo lets this token run anything on your nodes without asking."
 #~ msgid "Yolo: everything runs without asking, including privileged tasks allowed by the node's own policy."
 #~ msgstr "Yolo: everything runs without asking, including privileged tasks allowed by the node's own policy."
 
-#: src/features/tokens/preset-help.tsx
+#: src/features/tokens/rule-preset-help.tsx
 msgid "Yolo: everything runs without asking."
 msgstr "Yolo: everything runs without asking."
 

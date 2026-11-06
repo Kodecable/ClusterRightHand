@@ -9,8 +9,8 @@ import {
 import { encodeCursor } from "../api/cursor.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import { ruleRefs } from "../policy/refs.ts";
-import type { Preset } from "../policy/rules.ts";
-import { createRootRuleSet, createRuleSet, getRuleSet, setPreset } from "../policy/store.ts";
+import type { RulePreset } from "../policy/rules.ts";
+import { createRootRuleSet, createRuleSet, getRuleSet, setRulePreset } from "../policy/store.ts";
 import { defaultOrgId } from "../users/service.ts";
 import { newId } from "../util/id.ts";
 import type { ModelRef } from "./models.ts";
@@ -44,7 +44,7 @@ export async function createSession(
 	input: {
 		title?: string;
 		model: ModelRef;
-		preset: Preset;
+		rulePreset: RulePreset;
 		instructions?: string;
 		budgetRemaining?: number | null;
 	},
@@ -89,13 +89,13 @@ export async function createSession(
 				state_changed_at: now,
 			})
 			.execute();
-		await createRootRuleSet(trx, orgId, { type: "session", id }, input.preset);
+		await createRootRuleSet(trx, orgId, { type: "session", id }, input.rulePreset);
 	});
 	void host.audit?.record({
 		actor: { type: "user", id: owner.userId, onBehalfOfUserId: owner.userId },
 		action: "session.created",
 		target: { type: "session", id },
-		detail: { model: input.model, preset: input.preset },
+		detail: { model: input.model, rule_preset: input.rulePreset },
 	});
 	host.sessionList.publishSession(id);
 	return (await getSession(host, id)) as SessionView;
@@ -104,7 +104,7 @@ export async function createSession(
 /**
  * Creates the session a schedule run submits to (doc/scheduling.md): a root session with a fixed id derived
  * from the run, `schedule_id` set and `token_budget` as its root quota. Its rule set is a lower level (no
- * preset, `default: inherit`) under the schedule's root, so the chain is [schedule, session]. A retried call
+ * rule preset, `default: inherit`) under the schedule's root, so the chain is [schedule, session]. A retried call
  * finds the session its first attempt created.
  */
 export async function createScheduledSession(
@@ -159,7 +159,7 @@ export async function createScheduledSession(
 		actor: { type: "schedule", id: input.scheduleId, onBehalfOfUserId: owner.userId },
 		action: "session.created",
 		target: { type: "session", id: input.id },
-		detail: { model: input.model, preset: null, schedule_id: input.scheduleId },
+		detail: { model: input.model, rule_preset: null, schedule_id: input.scheduleId },
 	});
 	host.sessionList.publishSession(input.id);
 	return (await getSession(host, input.id)) as SessionView;
@@ -197,7 +197,7 @@ async function sessionView(host: RuntimeHost, row: SessionRow): Promise<SessionV
 export async function configure(
 	host: RuntimeHost,
 	sessionId: string,
-	change: { title?: string; model?: ModelRef; preset?: Preset; budgetRemaining?: number | null },
+	change: { title?: string; model?: ModelRef; rulePreset?: RulePreset; budgetRemaining?: number | null },
 ): Promise<SessionView> {
 	const { row, conversation } = await loadConversation(host, sessionId);
 	if (change.model) {
@@ -210,8 +210,8 @@ export async function configure(
 			host.context,
 		);
 	}
-	if (change.preset && row.parent_session_id === null)
-		await setPreset(host.db, { type: "session", id: sessionId }, change.preset);
+	if (change.rulePreset && row.parent_session_id === null)
+		await setRulePreset(host.db, { type: "session", id: sessionId }, change.rulePreset);
 	if (change.budgetRemaining !== undefined) {
 		// Setting the remaining budget replaces it at any level, the root included; null removes the limit (D92).
 		await setQuota(host.db, sessionId, change.budgetRemaining);

@@ -222,7 +222,7 @@ describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 			() => ({ content: "the command finished" }),
 		);
 		const session = (
-			await api("/api/sessions", { body: { model: { provider: "fake", modelId: "fake-1" }, preset: "yolo" } })
+			await api("/api/sessions", { body: { model: { provider: "fake", modelId: "fake-1" }, rulePreset: "yolo" } })
 		).json.session;
 		expect((await api(`/api/sessions/${session.id}/messages`, { body: { text: "go", requestId: "r1" } })).status).toBe(
 			202,
@@ -258,7 +258,7 @@ describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 			() => ({ content: "recovered answer" }),
 		);
 		const session = (
-			await api("/api/sessions", { body: { model: { provider: "fake", modelId: "fake-1" }, preset: "yolo" } })
+			await api("/api/sessions", { body: { model: { provider: "fake", modelId: "fake-1" }, rulePreset: "yolo" } })
 		).json.session;
 		const before = model.streaming.length;
 		expect(

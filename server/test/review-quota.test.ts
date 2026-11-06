@@ -91,7 +91,7 @@ const spec: TaskSpec = { kind: "exec", command: { argv: ["echo", "hi"] }, env: {
 it("charges an Auto Review answer to the reviewed session and its chain", async () => {
 	const session = await runtime.createSession(owner, {
 		model: model(),
-		preset: "auto_review",
+		rulePreset: "auto_review",
 		title: "reviewed",
 		budgetRemaining: 1_000_000,
 	});
@@ -124,7 +124,7 @@ it("does not charge a review when the root is not a session", async () => {
 	const tokenId = newId();
 	await createRootRuleSet(db, await defaultOrgId(db), { type: "api_token", id: tokenId }, "auto_review");
 	await setReviewModel(db, model());
-	const other = await runtime.createSession(owner, { model: model(), preset: "yolo", title: "unrelated" });
+	const other = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "unrelated" });
 	const before = await db.selectFrom("sessions").select(["id", "budget_used_tokens", "usage_tokens"]).execute();
 	faux.setResponses([fauxAssistantMessage([fauxText(ANSWER)])]);
 	const task = await cluster.createTask({

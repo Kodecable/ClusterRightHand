@@ -69,7 +69,7 @@ afterAll(async () => {
 it("compacts on request, places a manual summary and audits session.compacted", async () => {
 	const session = await runtime.createSession(owner, {
 		model: model(),
-		preset: "yolo",
+		rulePreset: "yolo",
 		title: "manual compaction",
 	});
 	faux.setResponses([fauxAssistantMessage([fauxText("hi")])]);
@@ -113,7 +113,7 @@ it("compacts on request, places a manual summary and audits session.compacted", 
 });
 
 it("refuses an archived session", async () => {
-	const session = await runtime.createSession(owner, { model: model(), preset: "yolo", title: "archived" });
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "archived" });
 	// There is no archive endpoint yet; the row's status is what the runtime refuses (doc/agent-runtime.md#会话).
 	await db
 		.updateTable("sessions")
@@ -126,7 +126,7 @@ it("refuses an archived session", async () => {
 it("refuses when the session's token quota is used up", async () => {
 	const session = await runtime.createSession(owner, {
 		model: model(),
-		preset: "yolo",
+		rulePreset: "yolo",
 		title: "exhausted",
 		budgetRemaining: 0,
 	});
@@ -136,7 +136,7 @@ it("refuses when the session's token quota is used up", async () => {
 });
 
 it("the route rejects too-long instructions and a view-only share", async () => {
-	const session = await runtime.createSession(owner, { model: model(), preset: "yolo", title: "route" });
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "route" });
 	const path = `/api/sessions/${session.id}/compact`;
 
 	const tooLong = await call(app, path, { cookie: ownerCookie, body: { instructions: "x".repeat(2001) } });
@@ -158,7 +158,7 @@ it("the route rejects too-long instructions and a view-only share", async () => 
 it("shows a manual compaction as running until its summary is placed", async () => {
 	const session = await runtime.createSession(owner, {
 		model: model(),
-		preset: "yolo",
+		rulePreset: "yolo",
 		title: "compaction state",
 	});
 	faux.setResponses([fauxAssistantMessage([fauxText("hi")])]);
@@ -189,7 +189,7 @@ it("shows a manual compaction as running until its summary is placed", async () 
 it("returns a stopped manual compaction to idle without placing a summary", async () => {
 	const session = await runtime.createSession(owner, {
 		model: model(),
-		preset: "yolo",
+		rulePreset: "yolo",
 		title: "stopped compaction",
 	});
 	faux.setResponses([fauxAssistantMessage([fauxText("hi")])]);
@@ -259,7 +259,7 @@ describe("with the default compaction policy", () => {
 	it("reports nothing to compact when the recent window holds the whole conversation", async () => {
 		const session = await localRuntime.createSession(localOwner, {
 			model: defaultModel(),
-			preset: "yolo",
+			rulePreset: "yolo",
 			title: "nothing to compact",
 		});
 		defaultFaux.setResponses([fauxAssistantMessage([fauxText("hi")])]);

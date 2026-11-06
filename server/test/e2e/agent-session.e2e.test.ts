@@ -55,7 +55,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 	it("runs a command under yolo and answers with the result", async () => {
 		const runtime = await open();
 		try {
-			const session = await runtime.createSession(owner, { model, preset: "yolo", title: "t1" });
+			const session = await runtime.createSession(owner, { model, rulePreset: "yolo", title: "t1" });
 			let seen = "";
 			faux.setResponses([
 				fauxAssistantMessage([fauxToolCall("exec", { targets: [nodeName], cmd: "echo from-agent" }, { id: "c1" })], {
@@ -80,7 +80,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 	it("waits through an approval under ask", async () => {
 		const runtime = await open();
 		try {
-			const session = await runtime.createSession(owner, { model, preset: "ask" });
+			const session = await runtime.createSession(owner, { model, rulePreset: "ask" });
 			let seen = "";
 			faux.setResponses([
 				fauxAssistantMessage(
@@ -140,7 +140,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 			taskGroups: new TaskGroups(env.crhs.db, env.crhs.cluster),
 		});
 		try {
-			const session = await runtime.createSession(owner, { model, preset: "yolo" });
+			const session = await runtime.createSession(owner, { model, rulePreset: "yolo" });
 			failNext = true;
 			await expect(runtime.submit(session.id, owner, "boom", "r1")).rejects.toThrow();
 			await waitFor("the Harness reopened", () => runtime.reopened === 1, 15_000);
@@ -156,7 +156,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		it("lets the reviewer approve a safe command, and leaves a risky one for the user", async () => {
 			const runtime = await open();
 			try {
-				const session = await runtime.createSession(owner, { model, preset: "auto_review" });
+				const session = await runtime.createSession(owner, { model, rulePreset: "auto_review" });
 				const prompts: string[] = [];
 				faux.setResponses([
 					fauxAssistantMessage([fauxToolCall("exec", { targets: [nodeName], argv: ["uptime"] }, { id: "c1" })], {
@@ -213,7 +213,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		it("runs a child session whose rules can only tighten the parent's", async () => {
 			const runtime = await open();
 			try {
-				const session = await runtime.createSession(owner, { model, preset: "yolo" });
+				const session = await runtime.createSession(owner, { model, rulePreset: "yolo" });
 				let childSaw = "";
 				let parentSaw = "";
 				faux.setResponses([
@@ -271,7 +271,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		it("pauses a child whose quota runs out and lets the parent grant more", async () => {
 			const runtime = await open();
 			try {
-				const session = await runtime.createSession(owner, { model, preset: "yolo" });
+				const session = await runtime.createSession(owner, { model, rulePreset: "yolo" });
 				let n = 0;
 				// Context-driven: the child and the parent consume responses in an order the test does not control.
 				const next = (context: { messages: { role: string; content: unknown }[] }) => {
@@ -336,7 +336,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		it("sends a child's approval to the user", async () => {
 			const runtime = await open();
 			try {
-				const session = await runtime.createSession(owner, { model, preset: "ask" });
+				const session = await runtime.createSession(owner, { model, rulePreset: "ask" });
 				faux.setResponses([
 					fauxAssistantMessage([fauxToolCall("subagent", { task: "say hi" }, { id: "p1" })], { stopReason: "toolUse" }),
 					fauxAssistantMessage(
@@ -364,7 +364,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 
 	it("reattaches to the same Cluster task after crhs restarts mid-call", async () => {
 		let runtime = await open();
-		const session = await runtime.createSession(owner, { model, preset: "yolo" });
+		const session = await runtime.createSession(owner, { model, rulePreset: "yolo" });
 		let seen = "";
 		faux.setResponses([
 			fauxAssistantMessage(

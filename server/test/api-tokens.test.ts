@@ -24,7 +24,7 @@ interface TokenBody {
 		expiresAt: string | null;
 		revokedAt: string | null;
 		lastUsedAt: string | null;
-		rules: { preset: string | null; rules: unknown[] } | null;
+		rules: { rulePreset: string | null; rules: unknown[] } | null;
 	};
 }
 
@@ -80,29 +80,29 @@ describeBackends("api tokens", (backend) => {
 			expect((JSON.parse(text) as { tokens: { id: string }[] }).tokens.map((t) => t.id)).toContain(body.apiToken.id);
 		});
 
-		it("defaults to 90 days and the ask preset", async () => {
+		it("defaults to 90 days and the ask rule preset", async () => {
 			const { body } = await create("alice", { name: "d" });
 			const left = Date.parse(body.apiToken.expiresAt as string) - Date.now();
 			expect(Math.abs(left - 90 * DAY)).toBeLessThan(60_000);
-			expect(body.apiToken.rules?.preset).toBe("ask");
+			expect(body.apiToken.rules?.rulePreset).toBe("ask");
 			expect(body.apiToken.rules?.rules).toEqual([]);
 		});
 
-		it("takes days, null for no expiry, and a preset", async () => {
-			const none = await create("alice", { name: "n", days: null, preset: "yolo" });
+		it("takes days, null for no expiry, and a rule preset", async () => {
+			const none = await create("alice", { name: "n", days: null, rulePreset: "yolo" });
 			expect(none.res.status).toBe(201);
 			expect(none.body.apiToken.expiresAt).toBeNull();
-			expect(none.body.apiToken.rules?.preset).toBe("yolo");
-			const seven = await create("alice", { name: "7", days: 7, preset: "auto_review" });
+			expect(none.body.apiToken.rules?.rulePreset).toBe("yolo");
+			const seven = await create("alice", { name: "7", days: 7, rulePreset: "auto_review" });
 			expect(Math.abs(Date.parse(seven.body.apiToken.expiresAt as string) - Date.now() - 7 * DAY)).toBeLessThan(60_000);
-			expect(seven.body.apiToken.rules?.preset).toBe("auto_review");
+			expect(seven.body.apiToken.rules?.rulePreset).toBe("auto_review");
 		});
 
 		it("rejects bad input", async () => {
 			expect((await create("alice", { name: "x", days: 400 })).res.status).toBe(400);
 			expect((await create("alice", { name: "x", days: 0 })).res.status).toBe(400);
 			expect((await create("alice", { name: "x", days: 1.5 })).res.status).toBe(400);
-			expect((await create("alice", { name: "x", preset: "bogus" })).res.status).toBe(400);
+			expect((await create("alice", { name: "x", rulePreset: "bogus" })).res.status).toBe(400);
 			expect((await create("alice", { name: "  " })).res.status).toBe(400);
 			expect((await create("alice", { name: "x".repeat(101) })).res.status).toBe(400);
 		});
@@ -146,7 +146,7 @@ describeBackends("api tokens", (backend) => {
 			const { token } = await createApiToken(
 				db,
 				{ sessionId: "s", userId: u.id, username: "carol", kind: "member" },
-				{ name: "c", preset: "ask" },
+				{ name: "c", rulePreset: "ask" },
 			);
 			expect(await resolveApiToken(db, token)).toBeDefined();
 			await db.updateTable("users").set({ status: "disabled" }).where("id", "=", u.id).execute();
@@ -167,7 +167,7 @@ describeBackends("api tokens", (backend) => {
 						await call(app, `/api/api-tokens/${id}/rules`, {
 							cookie: cookies[who],
 							method: "PUT",
-							body: { preset: "yolo" },
+							body: { rulePreset: "yolo" },
 						})
 					).status,
 				).toBe(404);
@@ -201,35 +201,35 @@ describeBackends("api tokens", (backend) => {
 	});
 
 	describe("rules", () => {
-		it("changes preset and rules, and audits it", async () => {
+		it("changes rule preset and rules, and audits it", async () => {
 			const { body } = await create("alice", { name: "rules" });
 			const id = body.apiToken.id;
 			const put = (b: unknown) =>
 				call(app, `/api/api-tokens/${id}/rules`, { cookie: cookies.alice, method: "PUT", body: b });
 
-			let res = await put({ preset: "yolo" });
+			let res = await put({ rulePreset: "yolo" });
 			expect(res.status).toBe(200);
 			let view = ((await res.json()) as TokenBody).apiToken;
-			expect(view.rules?.preset).toBe("yolo");
+			expect(view.rules?.rulePreset).toBe("yolo");
 			expect(view.rules?.rules).toEqual([]);
 
 			const rules = [{ action: "deny", method: "exec", prefix: "rm " }];
 			res = await put({ rules });
 			view = ((await res.json()) as TokenBody).apiToken;
-			expect(view.rules?.preset).toBe("yolo"); // kept
+			expect(view.rules?.rulePreset).toBe("yolo"); // kept
 			expect(view.rules?.rules).toEqual(rules);
 
-			res = await put({ preset: "ask", rules: [] });
+			res = await put({ rulePreset: "ask", rules: [] });
 			view = ((await res.json()) as TokenBody).apiToken;
-			expect(view.rules).toMatchObject({ preset: "ask", rules: [] });
+			expect(view.rules).toMatchObject({ rulePreset: "ask", rules: [] });
 
 			await audit.flush();
 			const ev = (await (await call(app, `/api/audit?action=rules.changed&targetId=${id}`, ck("alice"))).json()) as {
-				items: { action: string; targetType: string; detail: { preset?: string } }[];
+				items: { action: string; targetType: string; detail: { rule_preset?: string } }[];
 			};
 			expect(ev.items).toHaveLength(3);
 			expect(ev.items[0]).toMatchObject({ action: "rules.changed", targetType: "api_token" });
-			expect(ev.items[2]?.detail.preset).toBe("yolo");
+			expect(ev.items[2]?.detail.rule_preset).toBe("yolo");
 		});
 
 		it("resolves node names to UUIDs at write time and returns display names", async () => {
@@ -305,12 +305,12 @@ describeBackends("api tokens", (backend) => {
 			expect((await put({ rules: [{ action: "allow", regex: ".*" }] })).status).toBe(400);
 			expect((await put({ rules: [{ action: "maybe" }] })).status).toBe(400);
 			expect((await put({ rules: "x" })).status).toBe(400);
-			expect((await put({ preset: "nope" })).status).toBe(400);
+			expect((await put({ rulePreset: "nope" })).status).toBe(400);
 			const list = (await (await call(app, "/api/api-tokens", ck("alice"))).json()) as {
 				tokens: TokenBody["apiToken"][];
 			};
 			const t = list.tokens.find((x) => x.id === id);
-			expect(t?.rules).toMatchObject({ preset: "ask", rules: [] });
+			expect(t?.rules).toMatchObject({ rulePreset: "ask", rules: [] });
 		});
 	});
 

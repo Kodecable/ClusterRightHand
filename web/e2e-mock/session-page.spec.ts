@@ -28,7 +28,7 @@ async function openFooterPage(page: Page, overrides: Record<string, unknown> = {
 	return api;
 }
 
-test("the composer shows the model, the preset and the budget in the footer, and the context and usage below it", async ({
+test("the composer shows the model, the rule preset and the budget in the footer, and the context and usage below it", async ({
 	page,
 }) => {
 	await openFooterPage(page);
@@ -45,7 +45,7 @@ test("the composer shows the model, the preset and the budget in the footer, and
 	await expect(page.getByTestId("session-header").getByTestId("composer-budget")).toHaveCount(0);
 });
 
-test("the model and preset controls open their option lists directly", async ({ page }) => {
+test("the model and rule preset controls open their option lists directly", async ({ page }) => {
 	await openFooterPage(page);
 	const heights = await page.evaluate(() => {
 		const height = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`)?.offsetHeight;

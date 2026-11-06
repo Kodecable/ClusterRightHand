@@ -73,7 +73,7 @@ afterAll(async () => {
 	await db.destroy();
 });
 
-const root = (title = "root") => runtime.createSession(owner, { model: model(), preset: "yolo", title });
+const root = (title = "root") => runtime.createSession(owner, { model: model(), rulePreset: "yolo", title });
 const child = (parentId: string, key: string, quota: number | null, rules = { default: "inherit", rules: [] }) =>
 	runtime.createSubagent(parentId, { callKey: key, task: `task ${key}`, rules: rules as never, quota });
 
@@ -111,7 +111,7 @@ it("each model call charges every level of the chain that has a quota, not the u
 it("a root with a quota is charged like any other level", async () => {
 	const r = await runtime.createSession(owner, {
 		model: model(),
-		preset: "yolo",
+		rulePreset: "yolo",
 		title: "charged root",
 		budgetRemaining: 1_000,
 	});
@@ -390,7 +390,7 @@ it("an exhausted ancestor's request goes to its own direct parent", async () => 
 it("the API sets a quota on a root at creation and by PATCH, and clears it with null", async () => {
 	const created = await call(app, "/api/sessions", {
 		cookie: ownerCookie,
-		body: { model: model(), preset: "yolo", title: "api root quota", budgetRemaining: 100 },
+		body: { model: model(), rulePreset: "yolo", title: "api root quota", budgetRemaining: 100 },
 	});
 	expect(created.status).toBe(201);
 	const createdBody = (await created.json()) as { session: { id: string; budgetRemaining: number | null } };
@@ -416,7 +416,7 @@ it("the API sets a quota on a root at creation and by PATCH, and clears it with 
 
 	const invalid = await call(app, "/api/sessions", {
 		cookie: ownerCookie,
-		body: { model: model(), preset: "yolo", budgetRemaining: -5 },
+		body: { model: model(), rulePreset: "yolo", budgetRemaining: -5 },
 	});
 	expect(invalid.status).toBe(400);
 
@@ -434,7 +434,7 @@ it("the API sets a quota on a root at creation and by PATCH, and clears it with 
 it("a root's used-up quota waits for its owner: listed, then granted with an audit", async () => {
 	const session = await runtime.createSession(owner, {
 		model: model(),
-		preset: "yolo",
+		rulePreset: "yolo",
 		title: "root quota wait",
 		budgetRemaining: 1,
 	});
@@ -511,7 +511,7 @@ it("a root's used-up quota waits for its owner: listed, then granted with an aud
 it("the owner's deny ends the paused root run and audits quota.denied", async () => {
 	const session = await runtime.createSession(owner, {
 		model: model(),
-		preset: "yolo",
+		rulePreset: "yolo",
 		title: "root quota deny",
 		budgetRemaining: 1,
 	});
@@ -554,7 +554,7 @@ it("the owner's deny ends the paused root run and audits quota.denied", async ()
 it("a subagent paused on its root's quota is the owner's request, not its parent's", async () => {
 	const r = await runtime.createSession(owner, {
 		model: model(),
-		preset: "yolo",
+		rulePreset: "yolo",
 		title: "ancestor root",
 		budgetRemaining: 1,
 	});
@@ -617,7 +617,7 @@ it("wakes a quota handler after a restart", async () => {
 	});
 	let second: AgentRuntime | undefined;
 	try {
-		const r = await first.createSession(localOwner, { model: model(), preset: "yolo" });
+		const r = await first.createSession(localOwner, { model: model(), rulePreset: "yolo" });
 		const p = await first.createSubagent(r.id, {
 			callKey: "restart-parent",
 			task: "parent work",

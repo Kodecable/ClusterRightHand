@@ -1,9 +1,9 @@
 import { Trans } from "@lingui/react/macro";
-import type { Preset } from "@/lib/api/types";
+import type { RulePreset } from "@/lib/api/types";
 
-/** The explanation of a preset, shown under the picker where it is chosen. */
-export function PresetHelp({ preset }: { preset: Preset }) {
-	switch (preset) {
+/** The explanation of a rule preset, shown under the picker where it is chosen. */
+export function RulePresetHelp({ rulePreset }: { rulePreset: RulePreset }) {
+	switch (rulePreset) {
 		case "ask":
 			return (
 				<Trans>

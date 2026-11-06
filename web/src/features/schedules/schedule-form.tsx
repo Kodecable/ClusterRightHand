@@ -7,18 +7,18 @@ import { z } from "zod";
 import { ErrorText } from "@/components/error-state";
 import { CheckboxField, FieldShell, TextareaField, TextField } from "@/components/form";
 import { ModelSelect } from "@/components/model-select";
-import { PresetSelect } from "@/components/preset-select";
+import { RulePresetSelect } from "@/components/rule-preset-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDebouncedValue } from "@/hooks/use-debounced";
-import type { AvailableModel, ModelRef, Preset } from "@/lib/api/types";
+import type { AvailableModel, ModelRef, RulePreset } from "@/lib/api/types";
 import { formatDateTimeNumeric } from "@/lib/format";
 import { useSchedulePreview } from "./api";
 import {
 	defaultTimezone,
 	type ParsedSchedule,
 	parseScheduleForm,
-	presetNoteText,
+	rulePresetNoteText,
 	type ScheduleFormErrorCode,
 	type ScheduleFormErrors,
 	type ScheduleFormState,
@@ -42,7 +42,7 @@ export function scheduleFormStateOf(schedule?: {
 	name: string;
 	prompt: string;
 	model: ModelRef;
-	preset: Preset | null;
+	rulePreset: RulePreset | null;
 	tokenBudget: number | null;
 	cron: string;
 	timezone: string;
@@ -53,7 +53,7 @@ export function scheduleFormStateOf(schedule?: {
 		name: schedule?.name ?? "",
 		prompt: schedule?.prompt ?? "",
 		model: schedule?.model,
-		preset: schedule?.preset ?? "ask",
+		rulePreset: schedule?.rulePreset ?? "ask",
 		tokenBudget:
 			schedule?.tokenBudget === null || schedule?.tokenBudget === undefined ? "" : String(schedule.tokenBudget),
 		cron: schedule?.cron ?? "0 9 * * *",
@@ -74,7 +74,7 @@ function buildSchema(i18n: I18n) {
 			name: z.string(),
 			prompt: z.string(),
 			model: z.custom<ModelRef | undefined>(),
-			preset: z.enum(["ask", "auto_review", "yolo"]),
+			rulePreset: z.enum(["ask", "auto_review", "yolo"]),
 			tokenBudget: z.string(),
 			cron: z.string(),
 			timezone: z.string(),
@@ -96,7 +96,7 @@ function buildSchema(i18n: I18n) {
 
 /**
  * The form shared by "New schedule" and the detail page (doc/scheduling.md
- * "形态"): name, prompt, model, preset, budget, the cron and timezone with a
+ * "形态"): name, prompt, model, rule preset, budget, the cron and timezone with a
  * live preview, catch-up and enabled.
  */
 export function ScheduleForm({
@@ -125,7 +125,7 @@ export function ScheduleForm({
 		resolver: zodResolver(schema),
 		defaultValues: initial,
 	});
-	const preset = useWatch({ control: form.control, name: "preset" });
+	const rulePreset = useWatch({ control: form.control, name: "rulePreset" });
 	const cron = useWatch({ control: form.control, name: "cron" });
 	const timezone = useWatch({ control: form.control, name: "timezone" });
 	const debouncedCron = useDebouncedValue(cron.trim(), 300);
@@ -137,11 +137,11 @@ export function ScheduleForm({
 		if ("input" in parsed) onSubmit(parsed.input);
 	});
 
-	const fieldError = (field: keyof ScheduleFormErrors | "preset"): string | undefined => {
+	const fieldError = (field: keyof ScheduleFormErrors | "rulePreset"): string | undefined => {
 		const code = form.formState.errors[field]?.message;
 		return typeof code === "string" ? code : undefined;
 	};
-	const presetNote = presetNoteText(i18n, preset);
+	const rulePresetNote = rulePresetNoteText(i18n, rulePreset);
 
 	return (
 		<form onSubmit={submit} className="grid gap-3" noValidate data-testid="schedule-form">
@@ -168,17 +168,17 @@ export function ScheduleForm({
 						)}
 					/>
 				</FieldShell>
-				<FieldShell id={id("preset")} label={t`Preset`} error={fieldError("preset")}>
+				<FieldShell id={id("rulePreset")} label={t`Rule preset`} error={fieldError("rulePreset")}>
 					<Controller
 						control={form.control}
-						name="preset"
+						name="rulePreset"
 						render={({ field }) => (
-							<PresetSelect id={id("preset")} value={field.value} onChange={(next) => field.onChange(next)} />
+							<RulePresetSelect id={id("rulePreset")} value={field.value} onChange={(next) => field.onChange(next)} />
 						)}
 					/>
 				</FieldShell>
 			</div>
-			{presetNote !== null && <p className="text-sm text-warn">{presetNote}</p>}
+			{rulePresetNote !== null && <p className="text-sm text-warn">{rulePresetNote}</p>}
 
 			<FieldShell id={id("tokenBudget")} label={t`Token budget`} error={fieldError("tokenBudget")}>
 				<Input

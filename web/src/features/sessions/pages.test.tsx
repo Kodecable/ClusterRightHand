@@ -36,7 +36,7 @@ function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 		updatedAt: "2026-01-01T00:00:00.000Z",
 		rules: {
 			scope: { type: "user", id: "u1" },
-			preset: "auto_review",
+			rulePreset: "auto_review",
 			rules: [],
 			default: "ask",
 			updatedAt: "2026-01-01T00:00:00.000Z",
@@ -208,7 +208,7 @@ describe("SessionPage layout", () => {
 		expect(screen.getByTestId("abort-session")).toBeEnabled();
 	});
 
-	test("shows the preset by its product name in the composer footer", async () => {
+	test("shows the rule preset by its product name in the composer footer", async () => {
 		await renderSessionPage({ session: sessionView() });
 		await screen.findByTestId("session-page");
 

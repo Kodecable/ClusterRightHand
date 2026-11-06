@@ -131,7 +131,7 @@ describeBackends("task group node limit", (backend) => {
 		groups = new TaskGroups(db, cluster);
 		app = makeApp(db, undefined, { cluster, taskGroups: groups });
 		cookie = await login(app, "alice", "password-123");
-		token = (await createApiToken(db, user, { name: "limit", preset: "yolo" })).token;
+		token = (await createApiToken(db, user, { name: "limit", rulePreset: "yolo" })).token;
 	});
 	afterEach(async () => {
 		await db.destroy();

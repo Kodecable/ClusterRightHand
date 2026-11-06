@@ -72,7 +72,7 @@ export interface AgentRequest {
 export interface ApprovalRecord {
 	evaluation: Evaluation;
 	decision?: ApprovalDecision;
-	/** Auto Review's verdict, when the root's preset asked for one. */
+	/** Auto Review's verdict, when the root's rule preset asked for one. */
 	review?: { decision: "approve" | "escalate"; reason: string; model: string };
 	/** Set while (or after) an ancestor's agent had the request. */
 	agent?: AgentRequest;

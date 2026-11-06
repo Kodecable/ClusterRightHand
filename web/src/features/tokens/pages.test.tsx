@@ -69,7 +69,7 @@ describe("CreateTokenDialog", () => {
 		expect(screen.getByText(/claude mcp add --transport http crh/)).toBeInTheDocument();
 
 		const created = calls.find((call) => call.method === "POST" && call.url === "/api/api-tokens");
-		expect(created?.body).toEqual({ name: "laptop", preset: "ask", days: 90 });
+		expect(created?.body).toEqual({ name: "laptop", rulePreset: "ask", days: 90 });
 		expect(onCreated).toHaveBeenCalledTimes(1);
 		// Closing and reopening cannot recover the secret: it lives only in the
 		// dialog's state, and the server never returns it again.
@@ -80,23 +80,23 @@ describe("CreateTokenDialog", () => {
 		await waitFor(() => expect(screen.getByRole("button", { name: "Create token" })).toBeInTheDocument());
 	});
 
-	test("the preset warning is shown for Yolo", async () => {
+	test("the rule preset warning is shown for Yolo", async () => {
 		mockFetch();
 		renderDialog();
 		const user = userEvent.setup();
-		await user.click(screen.getByLabelText("Preset"));
+		await user.click(screen.getByLabelText("Rule preset"));
 		await user.click(await screen.findByRole("option", { name: "Yolo" }));
 		await screen.findByText("Yolo lets this token run anything on your nodes without asking.");
 	});
 });
 
 describe("TokensPage", () => {
-	test("shows a token's preset by its product name", async () => {
+	test("shows a token's rule preset by its product name", async () => {
 		const token: ApiTokenView = {
 			...API_TOKEN,
 			rules: {
 				scope: { type: "api_token", id: API_TOKEN.id },
-				preset: "auto_review",
+				rulePreset: "auto_review",
 				rules: [],
 				default: "ask",
 				updatedAt: "2026-01-01T00:00:00.000Z",

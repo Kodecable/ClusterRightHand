@@ -122,7 +122,7 @@ it("keeps one input estimate per conversation and drops it when the response rea
 });
 
 it("a session accumulates both measures independently, and the context follows its last main call", async () => {
-	const session = await runtime.createSession(owner, { model: model(), preset: "yolo", title: "measures" });
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "measures" });
 	faux.setResponses([fauxAssistantMessage([fauxText("first answer")])]);
 	const first = await runtime.submit(session.id, owner, "one", "measures-1");
 	expect((await waitSubmission(runtime, session.id, first)).status).toBe("done");
@@ -159,7 +159,7 @@ it("estimates both measures from a message the upstream reported no usage for", 
 	// where the message keeps the zero usage the scripted response carries. The estimate is the shared one.
 	const session = await runtime.createSession(owner, {
 		model: model(),
-		preset: "yolo",
+		rulePreset: "yolo",
 		title: "estimated",
 		budgetRemaining: 1_000_000,
 	});
@@ -186,7 +186,7 @@ it("estimates both measures from a message the upstream reported no usage for", 
 });
 
 it("usage accumulates up the tree, so a root shows its whole tree", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "yolo", title: "tree" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "tree" });
 	const child = await runtime.createSubagent(root.id, {
 		callKey: "measures-child",
 		task: "child work",
@@ -230,7 +230,7 @@ it("backfills a pre-D101 session from durable's persisted usage at the next star
 	});
 	let second: AgentRuntime | undefined;
 	try {
-		const root = await first.createSession(localOwner, { model: model(), preset: "yolo", title: "persisted" });
+		const root = await first.createSession(localOwner, { model: model(), rulePreset: "yolo", title: "persisted" });
 		const child = await first.createSubagent(root.id, {
 			callKey: "backfill-child",
 			task: "child work",

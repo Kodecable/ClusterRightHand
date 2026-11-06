@@ -68,7 +68,7 @@ export async function createSoakSessions(
 			await runtime.createSession(owner, {
 				title: `soak session ${index + 1}`,
 				model,
-				preset: "yolo",
+				rulePreset: "yolo",
 			}),
 		);
 	}

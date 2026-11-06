@@ -140,7 +140,7 @@ it("writes the state of the latest recompute, not a stale awaiting", async () =>
 	try {
 		const session = await runtime.createSession(owner, {
 			model: { provider: faux.provider.id, modelId: faux.getModel().id },
-			preset: "yolo",
+			rulePreset: "yolo",
 			title: "refresh order",
 		});
 		// Hold a real run open: with a settled latest input refreshState computes idle before it reads tasks.

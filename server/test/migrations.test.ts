@@ -20,6 +20,7 @@ import { down as down0037, up as up0037 } from "../src/storage/migrations/0037_u
 import { down as down0038, up as up0038 } from "../src/storage/migrations/0038_node_access_grants.ts";
 import { down as down0039, up as up0039 } from "../src/storage/migrations/0039_output_budgets.ts";
 import { down as down0040, up as up0040 } from "../src/storage/migrations/0040_one_output_stream.ts";
+import { down as down0041, up as up0041 } from "../src/storage/migrations/0041_rule_preset.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -1609,5 +1610,51 @@ describeBackends("0040 one output stream", (backend) => {
 		expect(row.rows[0]?.stdout_head).toBe(b64("out\noops\n"));
 		expect(row.rows[0]?.stdout_tail).toBe(b64("out\noops\n"));
 		expect(Number((await sql<{ n: number }>`select count(*) as n from tasks`.execute(db)).rows[0]?.n)).toBe(4);
+	});
+});
+
+describeBackends("0041 rule preset", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("rule_sets")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("preset", "text")
+				.addColumn("default_action", "text", (c) => c.notNull())
+				.addColumn("rules", "text", (c) => c.notNull())
+				.execute();
+		});
+		await sql`insert into rule_sets (id, preset, default_action, rules) values
+			('root', 'yolo', 'allow', '[]'), ('sub', null, 'inherit', '[]')`.execute(db);
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("renames rule preset to rule_preset and keeps the rows", async () => {
+		await applyMigration(backend, db, up0041);
+		expect(await tableColumns(backend, db, "rule_sets")).toEqual(["id", "rule_preset", "default_action", "rules"]);
+		const rows = await sql<{ id: string; rule_preset: string | null; default_action: string }>`
+			select id, rule_preset, default_action from rule_sets order by id
+		`.execute(db);
+		expect(rows.rows).toEqual([
+			{ id: "root", rule_preset: "yolo", default_action: "allow" },
+			{ id: "sub", rule_preset: null, default_action: "inherit" },
+		]);
+
+		await applyMigration(backend, db, down0041);
+		expect(await tableColumns(backend, db, "rule_sets")).toEqual(["id", "preset", "default_action", "rules"]);
+		const restored = await sql<{
+			id: string;
+			preset: string | null;
+		}>`select id, preset from rule_sets order by id`.execute(db);
+		expect(restored.rows).toEqual([
+			{ id: "root", preset: "yolo" },
+			{ id: "sub", preset: null },
+		]);
 	});
 });

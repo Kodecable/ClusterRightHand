@@ -126,7 +126,7 @@ export function sessionView(item: SessionListItem, overrides: Partial<SessionVie
 		updatedAt: item.updatedAt,
 		rules: {
 			scope: { type: "user", id: item.ownerUserId },
-			preset: "ask",
+			rulePreset: "ask",
 			rules: [],
 			default: "ask",
 			updatedAt: item.updatedAt,
@@ -663,7 +663,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		// --- API tokens ----------------------------------------------------
 		if (path === "/api/api-tokens" && method === "GET") return json({ tokens: state.tokens });
 		if (path === "/api/api-tokens" && method === "POST") {
-			const input = body as { name: string; preset: string; days: number | null };
+			const input = body as { name: string; rulePreset: string; days: number | null };
 			const apiToken: ApiTokenView = {
 				id: `token-${state.tokens.length + 1}`,
 				name: input.name,
@@ -674,7 +674,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				lastUsedAt: null,
 				rules: {
 					scope: { type: "api_token", id: `token-${state.tokens.length + 1}` },
-					preset: input.preset as "ask" | "auto_review" | "yolo",
+					rulePreset: input.rulePreset as "ask" | "auto_review" | "yolo",
 					rules: [],
 					default: "ask",
 					updatedAt: "2026-01-01T00:00:00.000Z",
@@ -696,8 +696,8 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const id = decodeURIComponent(tokenRules[1] as string);
 			const token = state.tokens.find((candidate) => candidate.id === id);
 			if (token) {
-				const patch = body as { preset?: string; rules?: unknown[] };
-				if (patch.preset !== undefined && token.rules) token.rules.preset = patch.preset as never;
+				const patch = body as { rulePreset?: string; rules?: unknown[] };
+				if (patch.rulePreset !== undefined && token.rules) token.rules.rulePreset = patch.rulePreset as never;
 				if (patch.rules !== undefined && token.rules) token.rules.rules = patch.rules as never;
 			}
 			return json({ apiToken: token });
@@ -1140,7 +1140,7 @@ export function scheduleView(overrides: Partial<ScheduleView> = {}): ScheduleVie
 		name: "Nightly check",
 		prompt: "Check the nodes",
 		model: { provider: "faux", modelId: "faux-1" },
-		preset: "ask",
+		rulePreset: "ask",
 		rules: [],
 		refs: {},
 		tokenBudget: null,

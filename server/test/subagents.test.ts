@@ -155,7 +155,7 @@ const approvalOf = async (id: string) => {
 };
 
 it("runs a subagent in the background and waits for its answer", async () => {
-	const parent = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const parent = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const child = await subagent(parent.id, "bg-1", { default: "inherit", rules: [] });
 	expect(child.created).toBe(true);
 	// Idempotent: the same tool call finds the same session.
@@ -173,14 +173,14 @@ it("runs a subagent in the background and waits for its answer", async () => {
 });
 
 it("nests at most two levels below a root session", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const first = await subagent(root.id, "depth-1", { default: "inherit", rules: [] });
 	const second = await subagent(first.id, "depth-2", { default: "inherit", rules: [] });
 	await expect(subagent(second.id, "depth-3", { default: "inherit", rules: [] })).rejects.toThrow(/at most 2/);
 });
 
 it("an idle session is not revived by a live run", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const child = await subagent(root.id, "sticky-stop", { default: "inherit", rules: [] });
 	let started!: () => void;
 	const running = new Promise<void>((resolve) => {
@@ -204,7 +204,7 @@ it("an idle session is not revived by a live run", async () => {
 });
 
 it("a user message to an idle subagent runs and ends idle again", async () => {
-	const parent = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const parent = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const child = await subagent(parent.id, "user-message", { default: "inherit", rules: [] });
 	faux.setResponses([fauxAssistantMessage([fauxText("first answer")])]);
 	await runtime.startSubagent(child.id, "one", "user-message-1");
@@ -231,7 +231,7 @@ it("a user message to an idle subagent runs and ends idle again", async () => {
 });
 
 it("removes the subagent tool at the depth limit", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const first = await subagent(root.id, "depth-tool-1", { default: "inherit", rules: [] });
 	expect(await toolNames(storage, db, first.id)).toContain("subagent");
 	const second = await subagent(first.id, "depth-tool-2", { default: "inherit", rules: [] });
@@ -241,7 +241,7 @@ it("removes the subagent tool at the depth limit", async () => {
 });
 
 it("reuses the subagent conversation after a crash before the session row", async () => {
-	const parent = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const parent = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const first = await subagent(parent.id, "idem-crash", { default: "inherit", rules: [] });
 	const before = await db
 		.selectFrom("sessions")
@@ -263,7 +263,7 @@ it("reuses the subagent conversation after a crash before the session row", asyn
 });
 
 it("hands a grandchild's approval to the parent agent and wakes it", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const parent = await subagent(root.id, "route-parent", { default: "inherit", rules: [] });
 	const child = await subagent(parent.id, "route-child", { default: "require-approval", rules: [] });
 
@@ -295,7 +295,7 @@ it("hands a grandchild's approval to the parent agent and wakes it", async () =>
 });
 
 it("can deny or escalate a request; escalating leaves it for the user", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const parent = await subagent(root.id, "decide-parent", { default: "inherit", rules: [] });
 	const child = await subagent(parent.id, "decide-child", { default: "require-approval", rules: [] });
 
@@ -323,7 +323,7 @@ it("can deny or escalate a request; escalating leaves it for the user", async ()
 });
 
 it("skips an ancestor that does not allow and hands the request to the root agent", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const parent = await subagent(root.id, "strict-parent", { default: "require-approval", rules: [] });
 	const child = await subagent(parent.id, "strict-child", { default: "require-approval", rules: [] });
 	faux.setResponses([fauxAssistantMessage([fauxText("noted")])]);
@@ -343,7 +343,7 @@ it("skips an ancestor that does not allow and hands the request to the root agen
 });
 
 it("a subagent's waiting tool call makes it awaiting, and it runs again once settled", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "ask" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "ask" });
 	// Neither ancestor allows the operation, so the child's request stays with the user: the test can
 	// decide it directly.
 	const parent = await subagent(root.id, "state-parent", { default: "require-approval", rules: [] });
@@ -390,7 +390,7 @@ it("a subagent's waiting tool call makes it awaiting, and it runs again once set
 });
 
 it("records the handler and root session of a waiting approval", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const parent = await subagent(root.id, "handler-parent", { default: "inherit", rules: [] });
 	const child = await subagent(parent.id, "handler-child", { default: "require-approval", rules: [] });
 	const task = await execTask([root.id, parent.id, child.id]);
@@ -444,7 +444,7 @@ it("records the handler and root session of a waiting approval", async () => {
 });
 
 it("a task from a root session waits for its owner, not its agent", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "ask" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "ask" });
 	const task = await execTask([root.id]);
 	const row = await db
 		.selectFrom("tasks")
@@ -461,7 +461,7 @@ it("a task from a root session waits for its owner, not its agent", async () => 
 });
 
 it("hands a Yolo root's subagent approval to the root agent, not the user", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const child = await subagent(root.id, "root-route-child", { default: "require-approval", rules: [] });
 	// The root is woken with follow-up inputs; their answers are irrelevant to the routing.
 	faux.setResponses([
@@ -504,7 +504,7 @@ it("hands a Yolo root's subagent approval to the root agent, not the user", asyn
 });
 
 it("leaves an Ask root's subagent approval with the user", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "ask" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "ask" });
 	const child = await subagent(root.id, "ask-root-child", { default: "require-approval", rules: [] });
 	const task = await execTask([root.id, child.id]);
 	const row = await db
@@ -523,7 +523,7 @@ it("leaves an Ask root's subagent approval with the user", async () => {
 });
 
 it("sends a request the root agent escalates back to the user", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const child = await subagent(root.id, "root-escalate-child", { default: "require-approval", rules: [] });
 	faux.setResponses([fauxAssistantMessage([fauxText("noted")])]);
 	try {
@@ -549,7 +549,7 @@ it("sends a request the root agent escalates back to the user", async () => {
 });
 
 it("hands a subagent group's approval to the root agent too", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const child = await subagent(root.id, "root-group-child", { default: "require-approval", rules: [] });
 	faux.setResponses([fauxAssistantMessage([fauxText("noted")])]);
 	try {
@@ -576,7 +576,7 @@ it("hands a subagent group's approval to the root agent too", async () => {
 });
 
 it("stops a request routed to a root's agent with the root", async () => {
-	const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const child = await subagent(root.id, "root-stop-child", { default: "require-approval", rules: [] });
 	faux.setResponses([fauxAssistantMessage([fauxText("noted")])]);
 	const task = await execTask([root.id, child.id]);
@@ -591,7 +591,7 @@ it("stops a request routed to a root's agent with the root", async () => {
 });
 
 it("stopping a session stops its subagents", async () => {
-	const parent = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+	const parent = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	const child = await subagent(parent.id, "cancel-child", { default: "inherit", rules: [] });
 	faux.setResponses([fauxAssistantMessage([fauxText("never seen")])]);
 	await runtime.startSubagent(child.id, "long work", "subagent:cancel-child");

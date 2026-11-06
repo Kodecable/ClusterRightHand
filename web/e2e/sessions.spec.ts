@@ -28,7 +28,7 @@ test("create a session, send a message and see the streamed answer", async ({ ad
 	await expect(page.getByTestId("transcript-scroller")).toContainText("Hello from the faux model.");
 });
 
-test("title and preset can be changed", async ({ adminPage: page }) => {
+test("title and rule preset can be changed", async ({ adminPage: page }) => {
 	await newSession(page, "Rename me");
 	const title = page.getByTestId("session-title");
 	await title.fill("Renamed");
@@ -37,9 +37,9 @@ test("title and preset can be changed", async ({ adminPage: page }) => {
 	// The title is shown once: a root session has no breadcrumb that repeats it.
 	await expect(page.getByTestId("session-breadcrumb")).toHaveCount(0);
 
-	// The preset is in the composer footer now: click it, pick Yolo, and the footer says so.
+	// The rule preset is in the composer footer now: click it, pick Yolo, and the footer says so.
 	await page.getByTestId("composer-rules").click();
-	await page.getByLabel("Preset").click();
+	await page.getByLabel("Rule preset").click();
 	await page.getByRole("option", { name: "Yolo", exact: true }).click();
 	await page.keyboard.press("Escape");
 	await page.reload();

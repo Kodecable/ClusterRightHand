@@ -48,7 +48,7 @@ describeBackends("pending subagent requests", (backend) => {
 	});
 
 	it("returns no requests when no subagent is waiting", async () => {
-		const root = await runtime.createSession(owner, { model: model(), preset: "yolo" });
+		const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 		const child = await runtime.createSubagent(root.id, {
 			callKey: "idle-child",
 			task: "child work",

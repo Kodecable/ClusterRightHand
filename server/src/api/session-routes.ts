@@ -36,7 +36,7 @@ import type { SessionUser } from "../auth/sessions.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import type { MasterKey } from "../keys/master-key.ts";
-import { parsePreset } from "../policy/store.ts";
+import { parseRulePreset } from "../policy/store.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
@@ -339,7 +339,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		const budgetRemaining = body.budgetRemaining === undefined ? undefined : parseQuota(body.budgetRemaining);
 		const session = await runtime.createSession(c.get("user"), {
 			model: parseModelRef(body.model),
-			preset: parsePreset(body.preset ?? "ask"),
+			rulePreset: parseRulePreset(body.rulePreset ?? "ask"),
 			...(typeof body.title === "string" ? { title: body.title } : {}),
 			...(budgetRemaining === undefined ? {} : { budgetRemaining }),
 		});
@@ -480,11 +480,11 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		if (!v.capabilities.configure) return jsonError(c, 403, "the owner only");
 		const s = v.session;
 		const body = (await readJsonObject(c)) ?? {};
-		const preset = body.preset === undefined ? undefined : parsePreset(body.preset);
+		const rulePreset = body.rulePreset === undefined ? undefined : parseRulePreset(body.rulePreset);
 		const session = await runtime.configure(s.id, {
 			...(typeof body.title === "string" ? { title: body.title } : {}),
 			...(body.model !== undefined ? { model: parseModelRef(body.model) } : {}),
-			...(preset ? { preset } : {}),
+			...(rulePreset ? { rulePreset } : {}),
 			...(body.budgetRemaining !== undefined ? { budgetRemaining: parseQuota(body.budgetRemaining) } : {}),
 		});
 		if (body.budgetRemaining !== undefined) {
@@ -495,12 +495,12 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 				detail: { budget_remaining: body.budgetRemaining },
 			});
 		}
-		if (preset) {
+		if (rulePreset) {
 			void c.get("audit").record({
 				actor: userActor(c.get("user")),
 				action: "rules.changed",
 				target: { type: "session", id: s.id },
-				detail: { preset },
+				detail: { rule_preset: rulePreset },
 			});
 			// Waiting tool calls may not need approval any more (doc/access-control.md#审批).
 			const ref = { type: "session" as const, id: s.id };

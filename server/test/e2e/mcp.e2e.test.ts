@@ -25,8 +25,8 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 		await rm(tmp, { recursive: true, force: true });
 	});
 
-	const token = async (preset: string) => {
-		const res = await env.crhs.api("/api/api-tokens", { body: { name: `mcp-${preset}`, preset } });
+	const token = async (rulePreset: string) => {
+		const res = await env.crhs.api("/api/api-tokens", { body: { name: `mcp-${rulePreset}`, rulePreset } });
 		expect(res.status).toBe(201);
 		return { token: res.json.token as string, id: res.json.apiToken.id as string };
 	};
@@ -168,7 +168,7 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 	it("waits for approval under ask, then finishes once the user approves", async () => {
 		const t = await token("ask");
 		const client = await connect(t.token);
-		// Reads are allowed by the ask preset; a file tool blocks to its result and returns text.
+		// Reads are allowed by the ask rule preset; a file tool blocks to its result and returns text.
 		const hostname = await callText(client, "read_file", { targets: [nodeName], path: "/etc/hostname" });
 		expect(hostname).toContain("(end of file)");
 		const pending = await callText(client, "exec", { targets: [nodeName], argv: ["echo", "approved"], wait: 1 });

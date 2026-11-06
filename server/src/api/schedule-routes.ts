@@ -5,7 +5,7 @@ import { userActor } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { ruleRefs } from "../policy/refs.ts";
-import { parsePreset } from "../policy/store.ts";
+import { parseRulePreset } from "../policy/store.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import {
 	createSchedule,
@@ -62,7 +62,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 			name: schedule.name,
 			prompt: schedule.prompt,
 			model: schedule.model,
-			preset: rules?.preset ?? null,
+			rulePreset: rules?.rulePreset ?? null,
 			rules: rules?.rules ?? [],
 			refs: await ruleRefs(db, schedule.orgId, rules?.rules ?? []),
 			tokenBudget: schedule.tokenBudget,
@@ -118,7 +118,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 				name: requiredString(body, "name"),
 				prompt: requiredString(body, "prompt"),
 				model,
-				preset: parsePreset(body.preset ?? "ask"),
+				rulePreset: parseRulePreset(body.rulePreset ?? "ask"),
 				tokenBudget: parseTokenBudget(body.tokenBudget),
 				cron: requiredString(body, "cron"),
 				timezone: requiredString(body, "timezone"),
@@ -131,7 +131,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 			actor: userActor(user),
 			action: "schedule.created",
 			target: { type: "schedule", id: schedule.id },
-			detail: scheduleDetail(schedule, { preset: parsePreset(body.preset ?? "ask") }),
+			detail: scheduleDetail(schedule, { rule_preset: parseRulePreset(body.rulePreset ?? "ask") }),
 		});
 		// The loop picks the new trigger up at once (doc/scheduling.md#调度).
 		options.scheduler.wake();
@@ -148,7 +148,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 		if (!body) return jsonError(c, 400, "expected a JSON object");
 		const model: ModelRef | undefined = body.model === undefined ? undefined : parseModelRef(body.model);
 		if (model) options.models.assertAvailable(model);
-		const preset = body.preset === undefined ? undefined : parsePreset(body.preset);
+		const rulePreset = body.rulePreset === undefined ? undefined : parseRulePreset(body.rulePreset);
 		const updated = await updateSchedule(
 			db,
 			schedule,
@@ -156,7 +156,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 				...(typeof body.name === "string" ? { name: body.name } : {}),
 				...(typeof body.prompt === "string" ? { prompt: body.prompt } : {}),
 				...(model ? { model } : {}),
-				...(preset ? { preset } : {}),
+				...(rulePreset ? { rulePreset } : {}),
 				...(body.tokenBudget === undefined ? {} : { tokenBudget: parseTokenBudget(body.tokenBudget) }),
 				...(typeof body.cron === "string" ? { cron: body.cron } : {}),
 				...(typeof body.timezone === "string" ? { timezone: body.timezone } : {}),
@@ -171,7 +171,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 			target: { type: "schedule", id: schedule.id },
 			detail: {
 				...changedDetail(body),
-				...(preset ? { preset } : {}),
+				...(rulePreset ? { rule_preset: rulePreset } : {}),
 				next_run_at: updated.nextRunAt,
 			},
 		});
@@ -183,8 +183,8 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 				detail: { next_run_at: updated.nextRunAt },
 			});
 		}
-		// A preset change can settle already-waiting approvals in the schedule's sessions.
-		if (preset) {
+		// A rule preset change can settle already-waiting approvals in the schedule's sessions.
+		if (rulePreset) {
 			const ref = scheduleRef(schedule.id);
 			await options.cluster.reevaluate(ref);
 			await options.taskGroups.reevaluate(ref);

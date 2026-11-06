@@ -121,7 +121,7 @@ it("removes the subagent tool only from sessions at the depth limit, without rea
 	let legacy = "";
 	let legacyConversation = "";
 	try {
-		const root = await first.createSession(owner, { model: model(), preset: "yolo", title: "depth root" });
+		const root = await first.createSession(owner, { model: model(), rulePreset: "yolo", title: "depth root" });
 		middle = (await first.createSubagent(root.id, { callKey: "depth-middle", task: "middle", rules, quota: null })).id;
 		legacy = (await first.createSubagent(root.id, { callKey: "depth-legacy", task: "legacy", rules, quota: null })).id;
 		await db.updateTable("sessions").set({ parent_session_id: middle }).where("id", "=", legacy).execute();

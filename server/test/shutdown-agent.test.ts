@@ -143,7 +143,7 @@ describe("agent runtime shutdown", () => {
 		expect(await fake.peer.request("hello", { tasks: [], taskKinds: [], privilegedMode: "" })).toEqual({ acks: [] });
 		await waitFor("node connected", () => cluster.isConnected(nodeId));
 
-		sessionId = (await runtime.createSession(owner, { model: model(), preset: "yolo", title: "shutdown" })).id;
+		sessionId = (await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "shutdown" })).id;
 		consoleErrors = [];
 		vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
 			consoleErrors.push(args.map(String).join(" "));

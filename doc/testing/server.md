@@ -39,7 +39,7 @@ the production code, with no HTTP or protocol stubs. Only the model is fake.
 | `crash.e2e.test.ts` | SIGKILL of a real crhs during a model stream, restart, one final answer |
 | `mcp.e2e.test.ts` | tool listing; exec and file tools under yolo; line paging on a real crha; `node_info`; approvals; batch as one approval; token rejection; audit events |
 | `privileged.e2e.test.ts` | the mode reported in `hello`; `privileged_unsupported` for exec and file; ordinary tasks unchanged |
-| `sessions-api.e2e.test.ts` | model and preset validation, session creation, title patch, `requestId` idempotency, exec as the session owner |
+| `sessions-api.e2e.test.ts` | model and rule preset validation, session creation, title patch, `requestId` idempotency, exec as the session owner |
 | `shutdown.e2e.test.ts` | graceful exit, open event streams and waits end, second signal exits non-zero |
 
 ### Harness pieces

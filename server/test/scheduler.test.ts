@@ -109,7 +109,7 @@ const makeSchedule = (
 		name: "nightly check",
 		prompt: "Check the nodes",
 		model: model(),
-		preset: "yolo",
+		rulePreset: "yolo",
 		tokenBudget: null,
 		cron: "*/5 * * * *",
 		timezone: "UTC",
@@ -247,7 +247,7 @@ it("fires a due schedule once, creates the run's session and advances next_run_a
 		.where("scope_type", "=", "session")
 		.where("scope_id", "=", run.sessionId as string)
 		.executeTakeFirstOrThrow();
-	expect(rules).toMatchObject({ preset: null, default_action: "inherit" });
+	expect(rules).toMatchObject({ rule_preset: null, default_action: "inherit" });
 	const fired = await db
 		.selectFrom("audit_events")
 		.selectAll()
@@ -397,7 +397,7 @@ it("turns a manual run into a session through the same path, with the user as ac
 
 it("builds the [schedule, session] chain for approvals and Auto Review", async () => {
 	const owner = await newOwner("owner-chain");
-	const schedule = await makeSchedule(owner, { preset: "ask" });
+	const schedule = await makeSchedule(owner, { rulePreset: "ask" });
 	faux.setResponses([fauxAssistantMessage([fauxText("waiting")])]);
 	await startAt("2026-01-05T09:01:00.000Z");
 	const scheduleRun = await scheduler.runNow(schedule.id, owner);
@@ -424,9 +424,9 @@ it("builds the [schedule, session] chain for approvals and Auto Review", async (
 		.executeTakeFirstOrThrow();
 	expect(row).toMatchObject({ root_session_id: sessionId, handler_type: "user", handler_session_id: null });
 
-	// Auto Review reads the preset and the model from the schedule root of the chain.
+	// Auto Review reads the rule preset and the model from the schedule root of the chain.
 	await setReviewModel(db, model());
-	const auto = await makeSchedule(owner, { name: "auto", preset: "auto_review" });
+	const auto = await makeSchedule(owner, { name: "auto", rulePreset: "auto_review" });
 	faux.setResponses([fauxAssistantMessage([fauxText("scheduled")])]);
 	const autoRun = await scheduler.runNow(auto.id, owner);
 	await waitFor("the Auto Review run to settle", async () =>
@@ -456,7 +456,7 @@ it("builds the [schedule, session] chain for approvals and Auto Review", async (
 it("builds the [schedule, session] chain for a scheduled session's own tool calls", async () => {
 	const owner = await newOwner("owner-agent-chain");
 	const nodeId = await addNode(owner);
-	const schedule = await makeSchedule(owner, { preset: "ask" });
+	const schedule = await makeSchedule(owner, { rulePreset: "ask" });
 	faux.setResponses([
 		fauxAssistantMessage([fauxToolCall("exec", { targets: [nodeId], cmd: "echo hi" }, { id: "chain-tool" })], {
 			stopReason: "toolUse",
@@ -960,7 +960,7 @@ it("stops the session a crash left running after marking its run preempted, befo
 
 it("stops the running instance and unlinks the sessions when the schedule is deleted", async () => {
 	const owner = await newOwner("owner-delete");
-	const schedule = await makeSchedule(owner, { preset: "yolo" });
+	const schedule = await makeSchedule(owner, { rulePreset: "yolo" });
 	let started!: () => void;
 	const inFlight = new Promise<void>((resolve) => {
 		started = resolve;
@@ -990,14 +990,14 @@ it("stops the running instance and unlinks the sessions when the schedule is del
 	await expect(runtime.waitForSubmission(submission)).resolves.toEqual({ status: "unanswered", reason: "aborted" });
 	const session = await sessionRow(sessionId);
 	expect(session.schedule_id).toBeNull();
-	// The session stays usable: its inherit-only level was promoted to a root with the schedule's preset.
+	// The session stays usable: its inherit-only level was promoted to a root with the schedule's rule preset.
 	const rules = await db
 		.selectFrom("rule_sets")
 		.selectAll()
 		.where("scope_type", "=", "session")
 		.where("scope_id", "=", sessionId)
 		.executeTakeFirstOrThrow();
-	expect(rules).toMatchObject({ preset: "yolo", default_action: "allow" });
+	expect(rules).toMatchObject({ rule_preset: "yolo", default_action: "allow" });
 	const audited = await db
 		.selectFrom("audit_events")
 		.selectAll()
@@ -1041,7 +1041,7 @@ it("validates the API input and keeps schedules owner-only", async () => {
 		name: "api schedule",
 		prompt: "do it",
 		model: model(),
-		preset: "ask",
+		rulePreset: "ask",
 		tokenBudget: null,
 		cron: "*/10 * * * *",
 		timezone: "UTC",
@@ -1056,7 +1056,7 @@ it("validates the API input and keeps schedules owner-only", async () => {
 		{ ...base, enabled: false, timezone: "Not/AZone" },
 		{ ...base, name: "" },
 		{ ...base, prompt: "" },
-		{ ...base, preset: "sometimes" },
+		{ ...base, rulePreset: "sometimes" },
 		{ ...base, model: { provider: "nope", modelId: "none" } },
 	]) {
 		const res = await call(app, "/api/schedules", { method: "POST", cookie: ownerCookie, body: bad });
@@ -1082,9 +1082,9 @@ it("validates the API input and keeps schedules owner-only", async () => {
 	const created = await call(app, "/api/schedules", { method: "POST", cookie: ownerCookie, body: base });
 	expect(created.status).toBe(201);
 	const view = (await created.json()) as {
-		schedule: { id: string; preset: string; nextRunAt: string; preview: string[]; inProgress: boolean };
+		schedule: { id: string; rulePreset: string; nextRunAt: string; preview: string[]; inProgress: boolean };
 	};
-	expect(view.schedule.preset).toBe("ask");
+	expect(view.schedule.rulePreset).toBe("ask");
 	expect(view.schedule.nextRunAt).toBe("2026-01-05T09:10:00.000Z");
 	expect(view.schedule.preview.slice(0, 2)).toEqual(["2026-01-05T09:10:00.000Z", "2026-01-05T09:20:00.000Z"]);
 	expect(view.schedule.inProgress).toBe(false);
@@ -1152,11 +1152,11 @@ it("validates the API input and keeps schedules owner-only", async () => {
 	const prompted = await call(app, `/api/schedules/${id}`, {
 		method: "PATCH",
 		cookie: ownerCookie,
-		body: { prompt: "do it differently", preset: "yolo" },
+		body: { prompt: "do it differently", rulePreset: "yolo" },
 	});
-	const promptedView = (await prompted.json()) as { schedule: { nextRunAt: string; preset: string } };
+	const promptedView = (await prompted.json()) as { schedule: { nextRunAt: string; rulePreset: string } };
 	expect(promptedView.schedule.nextRunAt).toBe("2026-01-05T09:15:00.000Z");
-	expect(promptedView.schedule.preset).toBe("yolo");
+	expect(promptedView.schedule.rulePreset).toBe("yolo");
 	// Disabling clears the next trigger and audits it; sessions can be filtered by the schedule.
 	const disabled = await call(app, `/api/schedules/${id}`, {
 		method: "PATCH",

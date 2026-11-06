@@ -9,14 +9,14 @@ import { CodeText } from "@/components/code-text";
 import { CopyButton } from "@/components/copy-button";
 import { FormDialog } from "@/components/dialogs";
 import { TextField } from "@/components/form";
-import { PresetSelect } from "@/components/preset-select";
+import { RulePresetSelect } from "@/components/rule-preset-select";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Preset } from "@/lib/api/types";
+import type { RulePreset } from "@/lib/api/types";
 import { useCreateApiToken } from "./api";
-import { PresetHelp } from "./preset-help";
+import { RulePresetHelp } from "./rule-preset-help";
 import { mcpCommand } from "./tokenStatus";
 
 const EXPIRY_OPTIONS = ["30", "90", "365", "never"] as const;
@@ -30,7 +30,7 @@ const EXPIRY_LABELS: Record<(typeof EXPIRY_OPTIONS)[number], MessageDescriptor> 
 
 interface CreateTokenValues {
 	name: string;
-	preset: Preset;
+	rulePreset: RulePreset;
 	days: string;
 }
 
@@ -44,23 +44,23 @@ export function CreateTokenDialog({ onClose, onCreated }: { onClose: () => void;
 		() =>
 			z.object({
 				name: z.string().trim().min(1, t`A name is required.`).max(100, t`The name must be at most 100 characters.`),
-				preset: z.enum(["ask", "auto_review", "yolo"]),
+				rulePreset: z.enum(["ask", "auto_review", "yolo"]),
 				days: z.string(),
 			}),
 		[t],
 	);
 	const form = useForm<CreateTokenValues>({
 		resolver: zodResolver(schema),
-		defaultValues: { name: "", preset: "ask", days: "90" },
+		defaultValues: { name: "", rulePreset: "ask", days: "90" },
 	});
-	const preset = form.watch("preset");
+	const rulePreset = form.watch("rulePreset");
 	const days = form.watch("days");
 	const command = created ? mcpCommand(window.location.origin, created) : "";
 	const submit = form.handleSubmit((values) => {
 		create.mutate(
 			{
 				name: values.name.trim(),
-				preset: values.preset,
+				rulePreset: values.rulePreset,
 				days: values.days === "never" ? null : Number(values.days),
 			},
 			{
@@ -131,10 +131,14 @@ export function CreateTokenDialog({ onClose, onCreated }: { onClose: () => void;
 		>
 			<TextField control={form.control} name="name" label={t`Name`} placeholder={t`Claude Code on the laptop`} />
 			<div className="grid gap-1.5">
-				<Label htmlFor={`${prefix}-preset`}>{t`Preset`}</Label>
-				<PresetSelect id={`${prefix}-preset`} value={preset} onChange={(next) => form.setValue("preset", next)} />
+				<Label htmlFor={`${prefix}-rulePreset`}>{t`Rule preset`}</Label>
+				<RulePresetSelect
+					id={`${prefix}-rulePreset`}
+					value={rulePreset}
+					onChange={(next) => form.setValue("rulePreset", next)}
+				/>
 				<p className="text-xs text-muted-foreground">
-					<PresetHelp preset={preset} />
+					<RulePresetHelp rulePreset={rulePreset} />
 				</p>
 			</div>
 			<div className="grid gap-1.5">
@@ -163,7 +167,7 @@ export function CreateTokenDialog({ onClose, onCreated }: { onClose: () => void;
 					<Trans>A token that never expires stays valid until you revoke it.</Trans>
 				</p>
 			)}
-			{preset === "yolo" && (
+			{rulePreset === "yolo" && (
 				<p className="text-sm text-warn">
 					<Trans>Yolo lets this token run anything on your nodes without asking.</Trans>
 				</p>
