@@ -8,24 +8,34 @@ import type { SessionView } from "@/lib/api/types";
 import { parseQuotaInput, type QuotaError } from "@/lib/quota";
 import { usePatchSession } from "./api";
 
-/** The owner's budget dialog: empty means unlimited, a number is the remaining budget (D101). */
-export function QuotaDialog({
-	session,
+/**
+ * The budget field, shared by the session footer (patches the session) and the draft page (local state):
+ * empty means unlimited, a number is the remaining budget (D101). The caller closes the dialog when its
+ * save succeeds.
+ */
+export function BudgetDialog({
 	open,
 	onOpenChange,
+	value,
+	busy = false,
+	onSave,
 }: {
-	session: SessionView;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	value: number | null;
+	busy?: boolean;
+	onSave: (quota: number | null) => void;
 }) {
 	const { t } = useLingui();
-	const patch = usePatchSession(session.id);
-	const [text, setText] = useState(session.budgetRemaining === null ? "" : String(session.budgetRemaining));
+	const [text, setText] = useState(value === null ? "" : String(value));
 	const [error, setError] = useState<QuotaError>();
 
 	useEffect(() => {
-		if (open) setText(session.budgetRemaining === null ? "" : String(session.budgetRemaining));
-	}, [open, session.budgetRemaining]);
+		if (open) {
+			setText(value === null ? "" : String(value));
+			setError(undefined);
+		}
+	}, [open, value]);
 
 	const errorText = (code: QuotaError): string => {
 		switch (code) {
@@ -45,15 +55,7 @@ export function QuotaDialog({
 			return;
 		}
 		setError(undefined);
-		patch.mutate(
-			{ budgetRemaining: parsed.quota },
-			{
-				onSuccess: () => {
-					toast.success(t`Quota saved.`);
-					onOpenChange(false);
-				},
-			},
-		);
+		onSave(parsed.quota);
 	};
 
 	return (
@@ -62,7 +64,7 @@ export function QuotaDialog({
 			onOpenChange={onOpenChange}
 			title={<Trans>Token budget</Trans>}
 			submitLabel={<Trans>Save</Trans>}
-			busy={patch.isPending}
+			busy={busy}
 			error={error !== undefined ? errorText(error) : undefined}
 			className="sm:max-w-sm"
 			onSubmit={save}
@@ -78,5 +80,38 @@ export function QuotaDialog({
 				onChange={(event) => setText(event.target.value)}
 			/>
 		</FormDialog>
+	);
+}
+
+/** The owner's budget dialog for an existing session. */
+export function QuotaDialog({
+	session,
+	open,
+	onOpenChange,
+}: {
+	session: SessionView;
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+}) {
+	const { t } = useLingui();
+	const patch = usePatchSession(session.id);
+	return (
+		<BudgetDialog
+			open={open}
+			onOpenChange={onOpenChange}
+			value={session.budgetRemaining}
+			busy={patch.isPending}
+			onSave={(budgetRemaining) => {
+				patch.mutate(
+					{ budgetRemaining },
+					{
+						onSuccess: () => {
+							toast.success(t`Quota saved.`);
+							onOpenChange(false);
+						},
+					},
+				);
+			}}
+		/>
 	);
 }

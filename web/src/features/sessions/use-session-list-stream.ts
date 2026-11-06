@@ -3,26 +3,19 @@ import { useEffect } from "react";
 import { subscribeSse } from "@/lib/api/sse";
 import type { SessionListItem } from "@/lib/api/types";
 import { type SessionListData, sessionKeys } from "./api";
-import { isSessionListItem, removeSessionListItem, type SessionListFilter, upsertSessionListItem } from "./list-patch";
+import {
+	isSessionListItem,
+	removeSessionListItem,
+	type SessionListFilter,
+	sessionListFilter,
+	upsertSessionListItem,
+} from "./list-patch";
 import { publishSessionListUpsert } from "./list-stream-bus";
 
 export interface SessionStreamOptions {
 	/** Current user id and admin flag: the filter needs them to patch `scope`/`q` lists. */
 	viewer: { id: string; isAdmin: boolean };
 	enabled?: boolean;
-}
-
-interface ListParams {
-	scope: SessionListFilter["scope"];
-	q: string;
-}
-
-function parseParams(queryKey: readonly unknown[]): ListParams | null {
-	const params = queryKey[2];
-	if (params === null || typeof params !== "object") return null;
-	const record = params as Record<string, unknown>;
-	if (typeof record.scope !== "string" || typeof record.q !== "string") return null;
-	return { scope: record.scope as ListParams["scope"], q: record.q };
 }
 
 /**
@@ -46,9 +39,8 @@ export function useSessionListStream({ viewer, enabled = true }: SessionStreamOp
 			update: (pages: NonNullable<SessionListData["pages"]>, filter: SessionListFilter) => SessionListData["pages"],
 		) => {
 			for (const query of queryClient.getQueryCache().findAll({ queryKey: sessionKeys.list() })) {
-				const params = parseParams(query.queryKey);
-				if (!params) continue;
-				const filter: SessionListFilter = { ...params, viewerId, isAdmin };
+				const filter = sessionListFilter(query.queryKey, { viewerId, isAdmin });
+				if (!filter) continue;
 				queryClient.setQueryData<SessionListData>(query.queryKey, (data) => {
 					if (!data) return data;
 					const pages = update(data.pages, filter);

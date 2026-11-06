@@ -1,5 +1,5 @@
 import { useLingui } from "@lingui/react/macro";
-import { Outlet, useParams } from "@tanstack/react-router";
+import { Outlet, useLocation, useParams } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import { SessionList } from "./session-list";
 
@@ -14,7 +14,10 @@ import { SessionList } from "./session-list";
 export function SessionsLayout() {
 	const { t } = useLingui();
 	const params = useParams({ strict: false }) as { sessionId?: string };
-	const openSession = params.sessionId !== undefined && params.sessionId !== "";
+	const location = useLocation();
+	// The draft page is a session-shaped page too (D117): it takes the second column instead of the list.
+	const draft = location.pathname === "/sessions/new";
+	const openSession = draft || (params.sessionId !== undefined && params.sessionId !== "");
 	return (
 		<div className="flex min-h-0 flex-1" data-slot="sessions-layout" data-open-session={openSession ? "true" : "false"}>
 			<aside

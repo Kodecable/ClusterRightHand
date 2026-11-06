@@ -126,7 +126,9 @@ describe.skipIf(!hasGo)("crhs SIGTERM shutdown with a connected node", () => {
 
 	it("ends an open session event stream and exits 0 well under the timeout", async () => {
 		const model = await setUpModel();
-		const created = await api("/api/sessions", { body: { model } });
+		const created = await api("/api/sessions", {
+			body: { requestId: "shutdown-stream", message: "hello", model },
+		});
 		expect(created.status).toBe(201);
 		const sessionId = created.json.session.id;
 

@@ -12,6 +12,7 @@ const MODELS: AvailableModel[] = [
 		name: "Faux One",
 		contextWindow: 128_000,
 		thinkingLevels: ["off", "low", "high"],
+		thinkingLabels: { off: "Off", low: "Quick", high: "Deep" },
 		input: ["text"],
 	},
 	{
@@ -56,6 +57,8 @@ interface Call {
 
 function mockApi(presets: ModelPreset[] = PRESETS): { calls: Call[] } {
 	const calls: Call[] = [];
+	// A save refreshes the query: keep the server-side values so the cards see their own write.
+	const stored = presets.map((preset) => ({ ...preset }));
 	const json = (body: unknown) =>
 		new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 	vi.stubGlobal(
@@ -69,13 +72,12 @@ function mockApi(presets: ModelPreset[] = PRESETS): { calls: Call[] } {
 				body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
 			});
 			if (url === "/api/models") return json({ models: MODELS });
-			if (url === "/api/model-presets") return json({ presets });
+			if (url === "/api/model-presets") return json({ presets: stored });
 			if (url.startsWith("/api/model-presets/") && method === "PUT") {
 				const kind = url.slice("/api/model-presets/".length) as ModelPreset["kind"];
-				const preset = presets.find((candidate) => candidate.kind === kind);
-				return json({
-					preset: { ...(preset as ModelPreset), ...(calls.at(-1)?.body as object) },
-				});
+				const preset = stored.find((candidate) => candidate.kind === kind);
+				Object.assign(preset as ModelPreset, calls.at(-1)?.body as object);
+				return json({ preset });
 			}
 			return new Response(JSON.stringify({ error: "not found" }), { status: 404 });
 		}),
@@ -106,9 +108,6 @@ describe("ModelPresetsSection", () => {
 		const user = userEvent.setup();
 		const { session, review, title } = await renderSection();
 
-		expect(
-			within(session).getByText("The session preset only changes the system prompt; each session picks its own model."),
-		).toBeVisible();
 		// The session card has no model select; review and title do.
 		expect(within(session).queryByLabelText("Model")).toBeNull();
 		expect(within(review).getByLabelText("Model")).toBeVisible();
@@ -127,7 +126,8 @@ describe("ModelPresetsSection", () => {
 		const user = userEvent.setup();
 		const { review } = await renderSection();
 
-		await choose(user, review, "Thinking level", "High");
+		// The custom model names its own levels.
+		await choose(user, review, "Thinking level", "Deep");
 		fireEvent.change(within(review).getByLabelText("System prompt"), { target: { value: "Look closely." } });
 		await user.click(within(review).getByTestId("save-model-preset-review"));
 
@@ -138,6 +138,42 @@ describe("ModelPresetsSection", () => {
 			model: { provider: "faux", modelId: "one", thinkingLevel: "high" },
 			systemPrompt: "Look closely.",
 		});
+	});
+
+	test("the review card follows the session's model without a thinking level", async () => {
+		const { calls } = mockApi();
+		const user = userEvent.setup();
+		const { review } = await renderSection();
+
+		// Following the session hides the level select: the root session's own level is used.
+		await choose(user, review, "Model", "Use the session's model");
+		expect(within(review).queryByLabelText("Thinking level")).toBeNull();
+		await user.click(within(review).getByTestId("save-model-preset-review"));
+		await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+		const save = calls.find((call) => call.method === "PUT");
+		expect(save?.body).toEqual({ model: null, systemPrompt: "Be careful." });
+
+		// A specific model carries its own level in the model ref.
+		calls.length = 0;
+		await choose(user, review, "Model", "Faux One");
+		await choose(user, review, "Thinking level", "Deep");
+		await user.click(within(review).getByTestId("save-model-preset-review"));
+		await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+		const chosen = calls.find((call) => call.method === "PUT");
+		expect(chosen?.body).toEqual({
+			model: { provider: "faux", modelId: "one", thinkingLevel: "high" },
+			systemPrompt: "Be careful.",
+		});
+	});
+
+	test("the model-level selector hides the levels the model list leaves out", async () => {
+		mockApi();
+		const user = userEvent.setup();
+		const { review } = await renderSection();
+
+		await user.click(within(review).getByLabelText("Thinking level"));
+		expect(await screen.findByRole("option", { name: "Deep" })).toBeVisible();
+		expect(screen.queryByRole("option", { name: "Medium" })).toBeNull();
 	});
 
 	test("saves the session card's prompt only, with whitespace meaning the default", async () => {

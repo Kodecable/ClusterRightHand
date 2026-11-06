@@ -106,8 +106,15 @@ async function waitFor<T>(what: string, probe: () => Promise<T | undefined>, tim
 	}
 }
 
-async function autoReviewSession(title: string): Promise<string> {
-	const session = await runtime.createSession(owner, { model: model(), rulePreset: "auto_review", title });
+async function autoReviewSession(
+	title: string,
+	thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high",
+): Promise<string> {
+	const session = await runtime.createSession(owner, {
+		model: { ...model(), ...(thinkingLevel && thinkingLevel !== "off" ? { thinkingLevel } : {}) },
+		rulePreset: "auto_review",
+		title,
+	});
 	return session.id;
 }
 
@@ -286,4 +293,20 @@ it("sends the tool and a forced tool_choice on the wire", async () => {
 	expect(body.messages[0]).toMatchObject({ role: "system" });
 	expect(body.messages[0]?.content).toContain("Answer by calling submit_review.");
 	expect(body.messages[0]?.content).not.toContain("Answer with exactly one line of JSON");
+});
+
+it("follows the session's own level when the review preset has no model", async () => {
+	const levelOf = (seen: unknown[]) =>
+		(seen[0] as { options: { reasoning?: string; toolChoice?: unknown } }).options.reasoning;
+
+	// With no review model, the root session's model and level are used as-is: no fixed, clamped level.
+	await runtime.modelPresets.update("review", { model: null });
+	const high = await review(await autoReviewSession("follow high level", "high"), REVIEW_ANSWER("approve", "safe"));
+	expect(levelOf(high.seen)).toBe("high");
+
+	const low = await review(await autoReviewSession("follow low level", "low"), REVIEW_ANSWER("approve", "safe"));
+	expect(levelOf(low.seen)).toBe("low");
+
+	const off = await review(await autoReviewSession("follow off level"), REVIEW_ANSWER("approve", "safe"));
+	expect(levelOf(off.seen)).toBeUndefined();
 });

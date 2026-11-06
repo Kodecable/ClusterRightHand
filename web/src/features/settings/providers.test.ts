@@ -32,7 +32,7 @@ describe("rowToModel", () => {
 			name: " Model One ",
 			contextWindow: "200000",
 			maxTokens: "16000",
-			acceptImages: true,
+			imageUnderstanding: true,
 		};
 		expect(converted(row)).toEqual({
 			id: "m1",
@@ -58,35 +58,100 @@ describe("rowToModel", () => {
 		});
 	});
 
-	test("format mode omits auto, maps levels and keeps a disabled level as null", () => {
+	test("standard mode omits auto and maps the levels with values", () => {
 		const row: ModelRow = {
 			...emptyModelRow(),
 			id: "m1",
-			thinkingMode: "format",
+			thinkingMode: "standard",
 			formatLevels: {
 				...emptyModelRow().formatLevels,
 				low: { kind: "value", value: " low " },
-				xhigh: { kind: "disabled", value: "ignored" },
 			},
 		};
-		expect(converted(row).thinking).toEqual({ mode: "format", levels: { low: "low", xhigh: null } });
+		expect(converted(row).thinking).toEqual({ mode: "standard", levels: { low: "low" } });
 		expect(converted({ ...row, format: "deepseek" }).thinking).toEqual({
-			mode: "format",
+			mode: "standard",
 			format: "deepseek",
-			levels: { low: "low", xhigh: null },
+			levels: { low: "low" },
 		});
 		// Responses always sends reasoning.effort, so the server rejects a format there.
 		expect(converted({ ...row, api: "openai-responses", format: "deepseek" }).thinking).toEqual({
-			mode: "format",
-			levels: { low: "low", xhigh: null },
+			mode: "standard",
+			levels: { low: "low" },
 		});
 	});
 
-	test("format mode requires a value for a mapped level", () => {
+	test("display names are omitted at their default, kept when renamed and empty when hidden", () => {
 		const row: ModelRow = {
 			...emptyModelRow(),
 			id: "m1",
-			thinkingMode: "format",
+			thinkingMode: "standard",
+			labels: {
+				...emptyModelRow().labels,
+				high: "Fast",
+				low: "",
+				medium: " medium ",
+			},
+		};
+		// `medium` equals its id and `off`/others keep their ids: only two labels are stored.
+		expect(converted(row).thinking).toEqual({
+			mode: "standard",
+			levels: {},
+			labels: { high: "Fast", low: "" },
+		});
+		// Off may be renamed but never hidden.
+		const hiddenOff = { ...row, labels: { ...row.labels, off: "  " } };
+		expect(errors(hiddenOff).labels).toEqual({ off: "off-level-hidden" });
+	});
+
+	test("xhigh and max are hidden by default and offered by a non-empty display name", () => {
+		const row: ModelRow = { ...emptyModelRow(), id: "m1", thinkingMode: "standard" };
+		// Both start empty, with the level id only as the placeholder.
+		expect(row.labels.xhigh).toBe("");
+		expect(row.labels.max).toBe("");
+		expect(row.labels.minimal).toBe("minimal");
+		expect(row.labels.high).toBe("high");
+		expect(row.labels.off).toBe("off");
+		// Left untouched, they add no label and no mapping.
+		expect(converted(row).thinking).toEqual({ mode: "standard", levels: {} });
+		// Typing the level id (or any name) is the offer marker pi-ai is missing.
+		expect(converted({ ...row, labels: { ...row.labels, xhigh: "xhigh", max: "Extreme" } }).thinking).toEqual({
+			mode: "standard",
+			levels: {},
+			labels: { xhigh: "xhigh", max: "Extreme" },
+		});
+		// Clearing a name that a mapping offers keeps the explicit hide.
+		const mapped: ModelRow = {
+			...row,
+			formatLevels: { ...row.formatLevels, xhigh: { kind: "value", value: "xhigh" } },
+		};
+		expect(converted(mapped).thinking).toEqual({
+			mode: "standard",
+			levels: { xhigh: "xhigh" },
+			labels: { xhigh: "" },
+		});
+		// The default name of a mapped level is omitted; the mapping alone offers it.
+		expect(converted({ ...mapped, labels: { ...mapped.labels, xhigh: "xhigh" } }).thinking).toEqual({
+			mode: "standard",
+			levels: { xhigh: "xhigh" },
+		});
+	});
+
+	test("a hidden off level in another mode does not block a model without thinking", () => {
+		const row: ModelRow = {
+			...emptyModelRow(),
+			id: "m1",
+			thinkingMode: "none",
+			labels: { ...emptyModelRow().labels, off: "" },
+		};
+		expect(converted(row)).not.toHaveProperty("thinking");
+	});
+
+	test("standard mode requires a value for a mapped level", () => {
+		const row: ModelRow = {
+			...emptyModelRow(),
+			id: "m1",
+			thinkingMode: "standard",
 			formatLevels: {
 				...emptyModelRow().formatLevels,
 				medium: { kind: "value", value: "  " },
@@ -95,11 +160,11 @@ describe("rowToModel", () => {
 		expect(errors(row).formatLevels).toEqual({ medium: "level-value-required" });
 	});
 
-	test("body mode parses each listed level and rejects non-object JSON", () => {
+	test("custom mode parses each listed level and rejects non-object JSON", () => {
 		const row: ModelRow = {
 			...emptyModelRow(),
 			id: "m1",
-			thinkingMode: "body",
+			thinkingMode: "custom",
 			bodyLevels: {
 				...emptyModelRow().bodyLevels,
 				off: '{"thinking":{"type":"disabled"}}',
@@ -107,7 +172,7 @@ describe("rowToModel", () => {
 			},
 		};
 		expect(converted(row).thinking).toEqual({
-			mode: "body",
+			mode: "custom",
 			levels: {
 				off: { thinking: { type: "disabled" } },
 				high: { reasoning: { effort: "high" } },
@@ -138,7 +203,7 @@ describe("rowToModel", () => {
 });
 
 describe("modelToRow", () => {
-	test("round-trips every stored value of a format-thinking model", () => {
+	test("round-trips every stored value of a standard-thinking model", () => {
 		const stored: CustomModel = {
 			id: "chat-model",
 			name: "Chat Model",
@@ -146,13 +211,18 @@ describe("modelToRow", () => {
 			contextWindow: 128_000,
 			maxTokens: 8_192,
 			input: ["text"],
-			thinking: { mode: "format", format: "deepseek", levels: { low: "low", xhigh: null } },
+			thinking: {
+				mode: "standard",
+				format: "deepseek",
+				levels: { low: "low" },
+				labels: { off: "None", high: "Fast" },
+			},
 			compat: { maxTokensField: "max_completion_tokens" },
 		};
 		expect(converted(modelToRow(stored))).toEqual(stored);
 	});
 
-	test("round-trips every stored value of a body-thinking model", () => {
+	test("round-trips every stored value of a custom-thinking model", () => {
 		const stored: CustomModel = {
 			id: "resp-model",
 			api: "openai-responses",
@@ -160,14 +230,75 @@ describe("modelToRow", () => {
 			maxTokens: 16_000,
 			input: ["text", "image"],
 			thinking: {
-				mode: "body",
+				mode: "custom",
 				levels: {
 					off: { thinking: { type: "disabled" } },
 					high: { reasoning: { effort: "high" } },
 				},
+				labels: { high: "Deep" },
 			},
 		};
 		expect(converted(modelToRow(stored))).toEqual(stored);
+	});
+
+	test("prefills xhigh and max only when the stored config offers them", () => {
+		const mapped = modelToRow({
+			id: "mapped",
+			api: "openai-completions",
+			contextWindow: 128_000,
+			maxTokens: 8_192,
+			input: ["text"],
+			thinking: { mode: "standard", levels: { xhigh: "xhigh", low: "low" } },
+		});
+		expect(mapped.labels.xhigh).toBe("xhigh");
+		expect(mapped.labels.max).toBe("");
+		expect(mapped.formatLevels.xhigh).toEqual({ kind: "value", value: "xhigh" });
+		// Saving the untouched row keeps the stored shape and leaves the invisible max row alone.
+		expect(converted(mapped).thinking).toEqual({ mode: "standard", levels: { xhigh: "xhigh", low: "low" } });
+
+		const named = modelToRow({
+			id: "named",
+			api: "openai-completions",
+			contextWindow: 128_000,
+			maxTokens: 8_192,
+			input: ["text"],
+			thinking: { mode: "standard", levels: {}, labels: { xhigh: "Extreme" } },
+		});
+		expect(named.labels.xhigh).toBe("Extreme");
+		expect(named.labels.max).toBe("");
+		expect(converted(named).thinking).toEqual({
+			mode: "standard",
+			levels: {},
+			labels: { xhigh: "Extreme" },
+		});
+
+		const plain = modelToRow({
+			id: "plain",
+			api: "openai-completions",
+			contextWindow: 128_000,
+			maxTokens: 8_192,
+			input: ["text"],
+		});
+		expect(plain.labels.xhigh).toBe("");
+		expect(plain.labels.max).toBe("");
+	});
+
+	test("shows a stored standard null as an empty display name and hides it on save", () => {
+		const row = modelToRow({
+			id: "chat-model",
+			api: "openai-completions",
+			contextWindow: 128_000,
+			maxTokens: 8_192,
+			input: ["text"],
+			thinking: { mode: "standard", levels: { low: "low", xhigh: null }, labels: { xhigh: "Extreme" } },
+		});
+		expect(row.labels.xhigh).toBe("");
+		expect(row.formatLevels.xhigh).toEqual({ kind: "default", value: "" });
+		// The level was already hidden (null), so saving keeps the shape minimal: no label.
+		expect(converted(row).thinking).toEqual({
+			mode: "standard",
+			levels: { low: "low" },
+		});
 	});
 
 	test("turns a model without thinking or compat into an empty sheet", () => {
@@ -181,7 +312,7 @@ describe("modelToRow", () => {
 		expect(row.thinkingMode).toBe("none");
 		expect(row.format).toBe("");
 		expect(row.compatText).toBe("");
-		expect(row.acceptImages).toBe(false);
+		expect(row.imageUnderstanding).toBe(false);
 	});
 });
 

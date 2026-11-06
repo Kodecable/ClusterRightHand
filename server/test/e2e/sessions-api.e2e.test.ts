@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { SessionUser } from "../../src/auth/sessions.ts";
+import type { RulePreset } from "../../src/policy/rules.ts";
 import { createUser } from "../../src/users/service.ts";
 import { waitSubmission as waitSubmissionOf } from "../helpers/runtime.ts";
 import { buildCrha, Env, goAvailable, pkill, waitFor } from "./harness.ts";
@@ -18,6 +20,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 	let member = "";
 	let member2 = "";
 	let seq = 0;
+	const owners = new Map<string, SessionUser>();
 	const crhs = () => env.crhs;
 	const model = () => ({ provider: crhs().faux.provider.id, modelId: crhs().faux.getModel().id });
 
@@ -33,20 +36,34 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 		return { status: res.status, json: text ? JSON.parse(text) : undefined };
 	};
 	const loginAs = async (username: string) => {
-		await createUser(crhs().db, { username, kind: "member", password: "member-password" });
+		const user = await createUser(crhs().db, { username, kind: "member", password: "member-password" });
 		const res = await fetch(`${crhs().url}/api/auth/login`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ username, password: "member-password" }),
 		});
-		return res.headers.get("set-cookie")?.match(/crh_session=([^;]+)/)?.[0] as string;
-	};
-	const newSession = async (rulePreset?: string, cookie = crhs().cookie) => {
-		const res = await as(cookie, "/api/sessions", {
-			body: { model: model(), ...(rulePreset ? { rulePreset } : {}), title: `s${++seq}` },
+		const cookie = res.headers.get("set-cookie")?.match(/crh_session=([^;]+)/)?.[0] as string;
+		owners.set(cookie, {
+			sessionId: `test-${username}`,
+			userId: user.id,
+			username: user.username,
+			kind: user.kind,
 		});
-		expect(res.status).toBe(201);
-		return res.json.session as { id: string; title: string | null; rules: { rulePreset: string } | null };
+		return cookie;
+	};
+	/**
+	 * Setup only: creates a session without a run through the runtime, because the HTTP route now always
+	 * submits a first message (D117) and most tests here then drive `/messages` themselves.
+	 */
+	const newSession = async (rulePreset?: string, cookie = crhs().cookie) => {
+		const owner = owners.get(cookie);
+		const runtime = crhs().runtime;
+		if (!owner || !runtime) throw new Error("no owner or agent runtime");
+		return runtime.createSession(owner, {
+			model: model(),
+			rulePreset: (rulePreset ?? "ask") as RulePreset,
+			title: `s${++seq}`,
+		});
 	};
 	const send = (id: string, text: string, requestId = `req-${++seq}`, cookie = crhs().cookie) =>
 		as(cookie, `/api/sessions/${id}/messages`, { body: { text, requestId } });
@@ -110,6 +127,17 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 		env = await Env.create(await buildCrha(tmp), tmp, {}, {}, { agent: true });
 		await env.bringUp();
 		nodeName = (await crhs().api(`/api/nodes/${env.nodeId}`)).json.node.name;
+		const admin = await crhs()
+			.db.selectFrom("users")
+			.select(["id", "username", "kind"])
+			.where("username", "=", "root")
+			.executeTakeFirstOrThrow();
+		owners.set(crhs().cookie, {
+			sessionId: "test-root",
+			userId: admin.id,
+			username: admin.username,
+			kind: admin.kind,
+		});
 		member = await loginAs("member1");
 		member2 = await loginAs("member2");
 	}, 180_000);
@@ -137,12 +165,53 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 				{},
 				{ model: { ...model(), thinkingLevel: "extreme" } },
 			];
-			for (const body of bad) expect((await as(crhs().cookie, "/api/sessions", { body })).status).toBe(400);
+			for (const body of bad) {
+				expect(
+					(await as(crhs().cookie, "/api/sessions", { body: { requestId: `bad-${++seq}`, message: "hi", ...body } }))
+						.status,
+				).toBe(400);
+			}
 		});
 
 		it("refuses an unknown rule preset", async () => {
-			const res = await as(crhs().cookie, "/api/sessions", { body: { model: model(), rulePreset: "chaos" } });
+			const res = await as(crhs().cookie, "/api/sessions", {
+				body: { requestId: "bad-rule", message: "hi", model: model(), rulePreset: "chaos" },
+			});
 			expect(res.status).toBe(400);
+		});
+
+		it("creates and submits in one request and returns the existing session on a retry", async () => {
+			crhs().faux.setResponses([fauxAssistantMessage([fauxText("one request")])]);
+			const requestId = `one-request-${++seq}`;
+			const first = await as(crhs().cookie, "/api/sessions", {
+				body: { requestId, message: "hi", model: model(), rulePreset: "ask", title: "one request" },
+			});
+			expect(first.status).toBe(201);
+			const again = await as(crhs().cookie, "/api/sessions", {
+				body: { requestId, message: "hi", model: model(), rulePreset: "ask", title: "one request" },
+			});
+			expect(again.status).toBe(200);
+			expect(again.json.session.id).toBe(first.json.session.id);
+			const rows = await crhs()
+				.db.selectFrom("sessions")
+				.selectAll()
+				.where("create_request_id", "=", requestId)
+				.execute();
+			expect(rows).toHaveLength(1);
+			const submissionId = rows[0]?.last_submission_id;
+			expect(submissionId).toBeTruthy();
+			expect(await waitSubmission(first.json.session.id, submissionId as string)).toEqual({
+				status: "done",
+				answer: "one request",
+			});
+		});
+
+		it("requires requestId and message", async () => {
+			const post = (body: unknown) => as(crhs().cookie, "/api/sessions", { body });
+			expect((await post({ model: model(), message: "hi" })).status).toBe(400);
+			expect((await post({ requestId: "no-message", model: model() })).status).toBe(400);
+			expect((await post({ requestId: "spaces", message: "   ", model: model() })).status).toBe(400);
+			expect((await post({ requestId: "x".repeat(129), message: "hi", model: model() })).status).toBe(400);
 		});
 
 		it("creates a yolo session that shows up in the list", async () => {
@@ -156,7 +225,9 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 		});
 
 		it("defaults the rule preset to ask", async () => {
-			const res = await as(crhs().cookie, "/api/sessions", { body: { model: model() } });
+			const res = await as(crhs().cookie, "/api/sessions", {
+				body: { requestId: `default-ask-${++seq}`, message: "hi", model: model() },
+			});
 			expect(res.status).toBe(201);
 			expect(res.json.session.rules.rulePreset).toBe("ask");
 			// A root without a title stores null; the WebUI shows its default name and generation is pending (D116).

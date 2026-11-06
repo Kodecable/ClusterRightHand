@@ -4,9 +4,11 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
+import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
+import type { RulePreset } from "../src/policy/rules.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser } from "../src/users/service.ts";
 import { addUserGroupMember, createUserGroup } from "../src/users/user-groups.ts";
@@ -32,6 +34,7 @@ let carolId = "";
 let groupId = "";
 const faux = fauxProvider();
 let seq = 0;
+const owners = new Map<string, SessionUser>();
 
 const model = () => ({ provider: faux.provider.id, modelId: faux.getModel().id });
 
@@ -65,6 +68,19 @@ beforeAll(async () => {
 	alice = await login(app, "alice", PASSWORD);
 	bob = await login(app, "bob", PASSWORD);
 	carol = await login(app, "carol", PASSWORD);
+	for (const [cookie, created] of [
+		[admin, root],
+		[alice, a],
+		[bob, b],
+		[carol, c],
+	] as const) {
+		owners.set(cookie, {
+			sessionId: `test-${created.username}`,
+			userId: created.id,
+			username: created.username,
+			kind: created.kind,
+		});
+	}
 	const group = await createUserGroup(db, "ops");
 	groupId = group.id;
 	await addUserGroupMember(db, group.id, bobId);
@@ -75,9 +91,14 @@ afterAll(async () => {
 	await db.destroy();
 });
 
-async function newSession(cookie: string, title: string, rulePreset = "ask") {
-	const res = await call(app, "/api/sessions", { cookie, body: { title, model: model(), rulePreset } });
-	expect(res.status).toBe(201);
+async function newSession(cookie: string, title: string, rulePreset: RulePreset = "ask") {
+	// Setup only: the HTTP create route now always submits a first message (D117), and these tests need a
+	// session without a run, so the runtime creates it and the API renders the viewer's view of it.
+	const owner = owners.get(cookie);
+	if (!owner) throw new Error("unknown cookie");
+	const created = await runtime.createSession(owner, { title, model: model(), rulePreset });
+	const res = await call(app, `/api/sessions/${created.id}`, { cookie });
+	expect(res.status).toBe(200);
 	return (
 		(await res.json()) as {
 			session: {

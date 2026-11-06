@@ -44,6 +44,26 @@ export function isSessionListItem(value: unknown): value is SessionListItem {
 	);
 }
 
+/**
+ * The list filter a query key stands for, or null when the key is not a session-list page. Both the
+ * session-list stream and the create-session insertion read the filter from the cache key this way.
+ */
+export function sessionListFilter(
+	queryKey: readonly unknown[],
+	viewer: { viewerId: string; isAdmin: boolean },
+): SessionListFilter | null {
+	const params = queryKey[2];
+	if (params === null || typeof params !== "object") return null;
+	const record = params as Record<string, unknown>;
+	if (typeof record.scope !== "string" || typeof record.q !== "string") return null;
+	return {
+		scope: record.scope as SessionListScope,
+		q: record.q,
+		viewerId: viewer.viewerId,
+		isAdmin: viewer.isAdmin,
+	};
+}
+
 /** Whether a row belongs in a list with these filters. `all` is never allowed for a non-admin. */
 export function sessionMatchesFilter(item: SessionListItem, filter: SessionListFilter): boolean {
 	if (filter.scope === "all" && !filter.isAdmin) return false;

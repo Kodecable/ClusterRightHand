@@ -61,6 +61,49 @@ describe("Dialog (Base UI)", () => {
 	});
 });
 
+/** A dialog opened from inside another dialog: Base UI treats it as nested. */
+function NestedDialogHarness() {
+	return (
+		<Dialog defaultOpen>
+			<DialogContent data-testid="parent-dialog">
+				<DialogHeader>
+					<DialogTitle>Parent dialog</DialogTitle>
+				</DialogHeader>
+				<Dialog defaultOpen>
+					<DialogContent data-testid="child-dialog">
+						<DialogHeader>
+							<DialogTitle>Child dialog</DialogTitle>
+						</DialogHeader>
+					</DialogContent>
+				</Dialog>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+describe("nested dialogs", () => {
+	test("renders the nested backdrop and leaves the parent popup undimmed", async () => {
+		renderWithI18n(<NestedDialogHarness />);
+		const parent = await screen.findByTestId("parent-dialog");
+		const child = await screen.findByTestId("child-dialog");
+
+		// Base UI still marks the parent as having an open child; no styles hang off that now.
+		await waitFor(() => expect(parent).toHaveAttribute("data-nested-dialog-open"));
+		expect(child).toHaveAttribute("data-nested");
+		expect(parent.className).not.toContain("scale-[");
+		expect(parent.className).not.toContain("after:");
+
+		// A nested dialog renders its own backdrop with the regular look, above the parent popup
+		// and below its own popup (portal order: parent overlay, parent popup, child overlay, child popup).
+		const overlays = document.querySelectorAll('[data-slot="dialog-overlay"]');
+		expect(overlays).toHaveLength(2);
+		expect(overlays[1]?.className).toBe(overlays[0]?.className);
+		expect(overlays[1]).toHaveClass("fixed", "inset-0", "z-50", "bg-black/10");
+		expect(parent.compareDocumentPosition(overlays[1] as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect((overlays[1] as Node).compareDocumentPosition(child) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+});
+
 function SheetHarness() {
 	const [open, setOpen] = useState(false);
 	return (

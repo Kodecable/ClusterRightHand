@@ -390,6 +390,8 @@ export interface SessionsTable {
 	title: string | null;
 	/** Whether a title still wants generating; cleared by a success or a manual rename (SQLite/PostgreSQL 0/1). */
 	title_pending: ColumnType<number, number | undefined, number | undefined>;
+	/** The client request id that created the session and its first message (D117); unique per owner. */
+	create_request_id: ColumnType<string | null, string | null | undefined, string | null>;
 	/** JSON ModelRef. */
 	model: string;
 	status: "active" | "archived";

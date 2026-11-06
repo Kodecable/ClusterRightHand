@@ -1,5 +1,5 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { PlusIcon, SearchIcon } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Virtualizer, type VirtualizerHandle } from "virtua";
@@ -13,7 +13,6 @@ import { useModels } from "@/features/settings/api";
 import { useDebouncedValue } from "@/hooks/use-debounced";
 import { flattenCursorPages, lastCursor } from "@/lib/api/query";
 import { useSessions } from "./api";
-import { NewSessionDialog } from "./new-session-dialog";
 import { groupSessionRows, type SessionGroupKey } from "./session-groups";
 import { SessionListItemRow } from "./session-list-item";
 import { useSessionListStream } from "./use-session-list-stream";
@@ -30,17 +29,23 @@ import { useSessionListStream } from "./use-session-list-stream";
 export function SessionList({ selectedId }: { selectedId?: string }) {
 	const { t } = useLingui();
 	const navigate = useNavigate();
+	const location = useLocation();
 	const auth = useAuth();
 	const isAdmin = auth.user?.kind === "admin";
 	const [search, setSearch] = useState("");
 	const q = useDebouncedValue(search.trim(), 250);
-	const [creating, setCreating] = useState(false);
 	const [activeIndex, setActiveIndex] = useState(0);
 	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const virtualizer = useRef<VirtualizerHandle | null>(null);
 
 	const models = useModels();
 	const noModels = models.data !== undefined && models.data.length === 0;
+	// "New session" opens the draft page and calls no API (D117); pressing it on the draft does nothing.
+	const draft = location.pathname === "/sessions/new";
+	const openDraft = () => {
+		if (draft) return;
+		void navigate({ to: "/sessions/new" });
+	};
 	const sessions = useSessions({ q });
 	const items = useMemo(() => flattenCursorPages(sessions.data), [sessions.data]);
 	const hasMore = lastCursor(sessions.data) !== null;
@@ -152,7 +157,7 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 					data-testid="new-session-button"
 					disabled={noModels}
 					title={noModels ? t`No model is configured` : undefined}
-					onClick={() => setCreating(true)}
+					onClick={openDraft}
 				>
 					<PlusIcon />
 					<Trans>New session</Trans>
@@ -199,7 +204,7 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 						}
 						action={
 							q === "" ? (
-								<Button type="button" size="sm" disabled={noModels} onClick={() => setCreating(true)}>
+								<Button type="button" size="sm" disabled={noModels} onClick={openDraft}>
 									<PlusIcon />
 									<Trans>New session</Trans>
 								</Button>
@@ -229,8 +234,6 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 					</p>
 				)}
 			</div>
-
-			<NewSessionDialog open={creating} onOpenChange={setCreating} />
 		</div>
 	);
 }

@@ -11,9 +11,8 @@ async function toolCard(page: Page) {
 }
 
 test("create a session, send a message and see the streamed answer", async ({ adminPage: page, crhs }) => {
-	crhs.faux.setResponses([fauxAssistantMessage([fauxText("Hello from the faux model.")])]);
 	await newSession(page, "First chat");
-	await expect(page.getByTestId("transcript-scroller")).toContainText("No messages yet");
+	crhs.faux.setResponses([fauxAssistantMessage([fauxText("Hello from the faux model.")])]);
 	await sendMessage(page, "Say hello");
 	const log = page.getByTestId("transcript-scroller");
 	await expect(log).toContainText("Say hello");
@@ -52,6 +51,7 @@ test.describe("with a node", () => {
 
 	test("a tool call shows a card with the result (yolo)", async ({ adminPage: page, crhs, env }) => {
 		if (!env) throw new Error("withNode");
+		await newSession(page, "Tools", "Yolo");
 		crhs.faux.setResponses([
 			fauxAssistantMessage(
 				[fauxToolCall("exec", { targets: [env.nodeId], cmd: "echo from-agent" }, { id: "call-1" })],
@@ -61,7 +61,6 @@ test.describe("with a node", () => {
 			),
 			fauxAssistantMessage([fauxText("The command printed from-agent.")]),
 		]);
-		await newSession(page, "Tools", "Yolo");
 		await sendMessage(page, "run echo");
 		const card = await toolCard(page);
 		await card.getByTestId("tool-toggle").click();
@@ -77,6 +76,7 @@ test.describe("with a node", () => {
 		env,
 	}) => {
 		if (!env) throw new Error("withNode");
+		await newSession(page, "Ask chat");
 		crhs.faux.setResponses([
 			fauxAssistantMessage(
 				[fauxToolCall("exec", { targets: [env.nodeId], cmd: "echo approve-me" }, { id: "call-1" })],
@@ -86,7 +86,6 @@ test.describe("with a node", () => {
 			),
 			fauxAssistantMessage([fauxText("Approved and done.")]),
 		]);
-		await newSession(page, "Ask chat");
 		await sendMessage(page, "run it");
 		const sessionUrl = page.url();
 		await expect(page.getByTestId("waiting-reason")).toContainText("waiting for an approval");
@@ -110,13 +109,13 @@ test.describe("with a node", () => {
 
 	test("Stop ends a run that waits for approval", async ({ adminPage: page, crhs, env }) => {
 		if (!env) throw new Error("withNode");
+		await newSession(page, "Stop chat");
 		crhs.faux.setResponses([
 			fauxAssistantMessage([fauxToolCall("exec", { targets: [env.nodeId], cmd: "echo never" }, { id: "call-1" })], {
 				stopReason: "toolUse",
 			}),
 			fauxAssistantMessage([fauxText("unused")]),
 		]);
-		await newSession(page, "Stop chat");
 		await sendMessage(page, "run it");
 		await expect(page.getByTestId("waiting-reason")).toContainText("waiting for an approval");
 		await page.getByTestId("abort-session").click();
@@ -125,7 +124,7 @@ test.describe("with a node", () => {
 	});
 });
 
-test("admin model settings: add a custom provider and see its model in the new-session dialog", async ({
+test("admin model settings: add a custom provider and see its model in the new-session draft", async ({
 	adminPage: page,
 }) => {
 	await page.goto("/settings/models");
@@ -150,10 +149,10 @@ test("admin model settings: add a custom provider and see its model in the new-s
 
 	await page.goto("/sessions");
 	await page.getByTestId("new-session-button").click();
-	const create = page.getByRole("dialog", { name: "New session" });
-	await create.getByLabel("Model").click();
+	await expect(page).toHaveURL(/\/sessions\/new$/);
+	await page.getByTestId("composer-model").click();
 	await expect(page.getByRole("option", { name: "tiny-1" })).toBeAttached();
-	await create.getByRole("button", { name: "Cancel" }).click();
+	await page.keyboard.press("Escape");
 
 	await page.goto("/settings/models");
 	await page.getByRole("button", { name: "Delete local-llm" }).click();

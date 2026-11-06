@@ -4,6 +4,7 @@ import { expect, newSession, sendMessage, test } from "./fixtures.ts";
 test.use({ withAgent: true });
 
 test("a subagent session appears in its parent's child list", async ({ adminPage: page, crhs }) => {
+	await newSession(page, "Parent session", "Yolo");
 	crhs.faux.setResponses([
 		fauxAssistantMessage(
 			[
@@ -16,7 +17,6 @@ test("a subagent session appears in its parent's child list", async ({ adminPage
 		fauxAssistantMessage([fauxText("child two")]),
 		fauxAssistantMessage([fauxText("both children answered")]),
 	]);
-	await newSession(page, "Parent session", "Yolo");
 	await sendMessage(page, "delegate to two subagents");
 
 	// The compact line above the composer counts them; opening it shows both, from

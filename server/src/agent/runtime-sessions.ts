@@ -10,7 +10,7 @@ import { encodeCursor } from "../api/cursor.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import { ruleRefs } from "../policy/refs.ts";
 import type { RulePreset } from "../policy/rules.ts";
-import { createRootRuleSet, createRuleSet, getRuleSet, setRulePreset } from "../policy/store.ts";
+import { createRootRuleSet, createRuleSet, deleteRuleSet, getRuleSet, setRulePreset } from "../policy/store.ts";
 import { defaultOrgId } from "../users/service.ts";
 import { newId } from "../util/id.ts";
 import { type ModelRef, modelRefView, thinkingLevelOf } from "./models.ts";
@@ -21,6 +21,7 @@ import { notifyQuotaWaiters } from "./runtime-quota.ts";
 import { invalidateInboxes } from "./runtime-requests.ts";
 import { endSessionWork, refreshState } from "./runtime-state.ts";
 import { descendants } from "./runtime-subagents.ts";
+import { submit } from "./runtime-submissions.ts";
 import { type SessionRow, sessionChain } from "./session-chain.ts";
 import { markSessionsIdle } from "./session-state.ts";
 
@@ -47,6 +48,8 @@ export async function createSession(
 		rulePreset: RulePreset;
 		instructions?: string;
 		budgetRemaining?: number | null;
+		/** The client request id that created this session and its first message (D117). */
+		createRequestId?: string;
 	},
 ): Promise<SessionView> {
 	const model = host.models.resolveRef(input.model);
@@ -65,35 +68,45 @@ export async function createSession(
 	const now = new Date().toISOString();
 	const orgId = await defaultOrgId(host.db);
 	const title = input.title?.trim() || null;
-	await host.db.transaction().execute(async (trx) => {
-		await trx
-			.insertInto("sessions")
-			.values({
-				id,
-				org_id: orgId,
-				owner_user_id: owner.userId,
-				conversation_id: String(conversation.id),
-				parent_session_id: null,
-				root_session_id: id,
-				title,
-				// A user-created root without a title wants one generated at its first run end (D116).
-				title_pending: title === null ? 1 : 0,
-				model: JSON.stringify(model),
-				status: "active",
-				created_at: now,
-				updated_at: now,
-				archived_at: null,
-				// A root without a remaining budget is unlimited and never charged; any level may have one (D92).
-				quota_tokens: input.budgetRemaining ?? null,
-				state: "idle",
-				waiting_kind: null,
-				waiting_level_id: null,
-				waiting_handler_id: null,
-				state_changed_at: now,
-			})
-			.execute();
-		await createRootRuleSet(trx, orgId, { type: "session", id }, input.rulePreset);
-	});
+	try {
+		await host.db.transaction().execute(async (trx) => {
+			await trx
+				.insertInto("sessions")
+				.values({
+					id,
+					org_id: orgId,
+					owner_user_id: owner.userId,
+					conversation_id: String(conversation.id),
+					parent_session_id: null,
+					root_session_id: id,
+					title,
+					// A user-created root without a title wants one generated at its first run end (D116).
+					title_pending: title === null ? 1 : 0,
+					create_request_id: input.createRequestId ?? null,
+					model: JSON.stringify(model),
+					status: "active",
+					created_at: now,
+					updated_at: now,
+					archived_at: null,
+					// A root without a remaining budget is unlimited and never charged; any level may have one (D92).
+					quota_tokens: input.budgetRemaining ?? null,
+					state: "idle",
+					waiting_kind: null,
+					waiting_level_id: null,
+					waiting_handler_id: null,
+					state_changed_at: now,
+				})
+				.execute();
+			await createRootRuleSet(trx, orgId, { type: "session", id }, input.rulePreset);
+		});
+	} catch (err) {
+		// The row did not commit (a concurrent create with the same request id, or a database failure): no
+		// session owns this conversation, so stop it rather than leave it running unattached.
+		await conversation.abort(host.context).catch((abortError: unknown) => {
+			if (!host.closing()) console.error("agent runtime: aborting an unowned conversation failed:", abortError);
+		});
+		throw err;
+	}
 	void host.audit?.record({
 		actor: { type: "user", id: owner.userId, onBehalfOfUserId: owner.userId },
 		action: "session.created",
@@ -102,6 +115,112 @@ export async function createSession(
 	});
 	host.sessionList.publishSession(id);
 	return (await getSession(host, id)) as SessionView;
+}
+
+/** What the client sent to create a session and submit its first message in one request (D117). */
+export interface CreateSessionWithMessageInput {
+	/** The client-generated idempotency key: one request id creates one session and one submission. */
+	requestId: string;
+	message: string;
+	title?: string;
+	model: ModelRef;
+	rulePreset: RulePreset;
+	budgetRemaining?: number | null;
+}
+
+/**
+ * Creates a session and submits its first message (D117, doc/agent-runtime.md#会话). The create request id is
+ * stored on the session and makes a retry return the session the first attempt made, without a second
+ * submission. The submission's own request id is derived from it, so retrying the submit is idempotent too.
+ *
+ * A failure after the row exists removes the session again: there is no durable conversation deletion, so its
+ * conversation is aborted first (nothing of it may keep running unattached) and then forgotten; the row and its
+ * rule set are deleted in one transaction.
+ */
+export async function createSessionWithMessage(
+	host: RuntimeHost,
+	owner: SessionUser,
+	input: CreateSessionWithMessageInput,
+): Promise<{ session: SessionView; created: boolean }> {
+	const existing = await findSessionByCreateRequestId(host, owner.userId, input.requestId);
+	if (existing) return { session: existing, created: false };
+
+	let session: SessionView;
+	try {
+		session = await createSession(host, owner, {
+			...(input.title === undefined ? {} : { title: input.title }),
+			model: input.model,
+			rulePreset: input.rulePreset,
+			...(input.budgetRemaining === undefined ? {} : { budgetRemaining: input.budgetRemaining }),
+			createRequestId: input.requestId,
+		});
+	} catch (err) {
+		// A concurrent request with the same id won the unique index: return its session, not a second one.
+		const raced = await findSessionByCreateRequestId(host, owner.userId, input.requestId).catch(() => undefined);
+		if (raced) return { session: raced, created: false };
+		throw err;
+	}
+
+	try {
+		await submit(host, session.id, owner, input.message, submissionRequestIdFor(input.requestId));
+	} catch (err) {
+		await removeCreatedSession(host, session.id).catch((cleanupError: unknown) => {
+			console.error("agent runtime: removing a session whose first message failed failed:", cleanupError);
+		});
+		throw err;
+	}
+	return { session: (await getSession(host, session.id)) ?? session, created: true };
+}
+
+/** The session a user created with this request id, if one exists (D117). */
+export async function findSessionByCreateRequestId(
+	host: RuntimeHost,
+	ownerUserId: string,
+	requestId: string,
+): Promise<SessionView | undefined> {
+	const row = await host.db
+		.selectFrom("sessions")
+		.select("id")
+		.where("owner_user_id", "=", ownerUserId)
+		.where("create_request_id", "=", requestId)
+		.executeTakeFirst();
+	return row ? getSession(host, row.id) : undefined;
+}
+
+/** The submission request id derived from the create one; the same create id always retries the same submit. */
+function submissionRequestIdFor(createRequestId: string): string {
+	return `create:${createRequestId}`;
+}
+
+/**
+ * Removes a session whose creation did not finish. Durable has no conversation deletion, so the conversation is
+ * aborted (a submission admitted just before the failure must not keep running without its session) and then
+ * forgotten by this process; its records stay in durable storage. The rule set is deleted before the row in one
+ * transaction, and the list stream is told about the removal before the row goes away.
+ */
+async function removeCreatedSession(host: RuntimeHost, sessionId: string): Promise<void> {
+	const row = await host.db
+		.selectFrom("sessions")
+		.select("conversation_id")
+		.where("id", "=", sessionId)
+		.executeTakeFirst();
+	const conversationId = row?.conversation_id;
+	if (conversationId !== undefined) {
+		const conversation = await conversationOf(host, { conversation_id: conversationId });
+		if (conversation) {
+			try {
+				await conversation.abort(host.context);
+			} catch (err) {
+				if (!host.closing()) console.error("agent runtime: aborting a failed session's conversation failed:", err);
+			}
+		}
+		host.sessionsByConversation.delete(conversationId);
+	}
+	await host.sessionList.publishSessionRemoved(sessionId);
+	await host.db.transaction().execute(async (trx) => {
+		await deleteRuleSet(trx, { type: "session", id: sessionId });
+		await trx.deleteFrom("sessions").where("id", "=", sessionId).execute();
+	});
 }
 
 /**

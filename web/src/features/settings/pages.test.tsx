@@ -38,7 +38,7 @@ const CUSTOM: ModelProviderView = {
 			contextWindow: 200_000,
 			maxTokens: 16_000,
 			input: ["text", "image"],
-			thinking: { mode: "body", levels: { high: { reasoning: { effort: "high" } } } },
+			thinking: { mode: "custom", levels: { high: { reasoning: { effort: "high" } } } },
 		},
 		{
 			id: "chat-model",
@@ -46,7 +46,12 @@ const CUSTOM: ModelProviderView = {
 			contextWindow: 128_000,
 			maxTokens: 8_192,
 			input: ["text"],
-			thinking: { mode: "format", format: "deepseek", levels: { low: "low", xhigh: null } },
+			thinking: {
+				mode: "standard",
+				format: "deepseek",
+				levels: { low: "low", xhigh: null },
+				labels: { low: "Fast" },
+			},
 			compat: { maxTokensField: "max_completion_tokens" },
 		},
 	],
@@ -105,7 +110,7 @@ afterEach(() => {
 });
 
 describe("ModelSettingsPage", () => {
-	test("puts the providers section first, then the presets, under the Models page title", async () => {
+	test("puts the presets section first, then the providers, under the Models page title", async () => {
 		const json = (body: unknown) =>
 			new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 		vi.stubGlobal(
@@ -120,9 +125,9 @@ describe("ModelSettingsPage", () => {
 		);
 		renderWithI18n(<ModelSettingsPage />);
 		expect(await screen.findByRole("heading", { name: "Models" })).toBeVisible();
-		const providers = await screen.findByRole("heading", { name: "Model providers" });
 		const presets = await screen.findByRole("heading", { name: "Model presets" });
-		expect(providers.compareDocumentPosition(presets) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		const providers = await screen.findByRole("heading", { name: "Model providers" });
+		expect(presets.compareDocumentPosition(providers) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 		const section = screen.getByTestId("model-providers");
 		expect(within(section).getByTestId("add-provider")).toBeVisible();
 	});
@@ -163,7 +168,6 @@ describe("ProviderDialog", () => {
 		const user = userEvent.setup();
 		expect(screen.getByLabelText("Kind")).toHaveTextContent("Pi built-in");
 		expect(screen.getByLabelText("Provider")).toHaveTextContent("faux");
-		expect(screen.getByText("Only API keys are supported; OAuth sign-in is not available.")).toBeInTheDocument();
 		expect(screen.queryByRole("table", { name: "Models" })).not.toBeInTheDocument();
 
 		await fill(user, screen.getByLabelText("Base URL"), "https://pi.example");
@@ -175,7 +179,7 @@ describe("ProviderDialog", () => {
 		expect(save?.body).toEqual({ kind: "builtin", baseUrl: "https://pi.example", enabled: true, apiKey: "sk-pi" });
 	});
 
-	test("creates a custom provider with body and format thinking models", async () => {
+	test("creates a custom provider with custom and standard thinking models", async () => {
 		const { calls } = mockFetch();
 		renderProvider();
 		const user = userEvent.setup();
@@ -192,6 +196,8 @@ describe("ProviderDialog", () => {
 		await fill(user, within(extra).getByLabelText("Header 1 value"), "edge");
 
 		const session = screen.getByRole("group", { name: "Session id fields" });
+		expect(within(session).getByText("Headers")).toBeVisible();
+		expect(within(session).getByText("Body fields")).toBeVisible();
 		await user.click(within(session).getByRole("button", { name: "Add header" }));
 		await fill(user, within(session).getByLabelText("Session id header 1"), "x-opencode-session");
 		await user.click(within(session).getByRole("button", { name: "Add field" }));
@@ -199,35 +205,55 @@ describe("ProviderDialog", () => {
 
 		await user.click(screen.getByRole("button", { name: "Add model" }));
 		let dialog = await screen.findByRole("dialog", { name: "Add model" });
+		// Base UI marks a dialog opened inside another one as nested (it must not close the parent).
+		expect(dialog).toHaveAttribute("data-nested");
+		// ...and marks the parent popup; the nested dialog brings its own blurred backdrop.
+		expect(screen.getByTestId("provider-dialog")).toHaveAttribute("data-nested-dialog-open");
+		expect(screen.getByTestId("provider-dialog")).toBeInTheDocument();
 		await fill(user, within(dialog).getByLabelText("Model id"), "resp-model");
 		await fill(user, within(dialog).getByLabelText("Display name"), "Responder");
 		await choose(user, "Protocol", "Responses", dialog);
 		await fill(user, within(dialog).getByLabelText("Context window"), "200000");
 		await fill(user, within(dialog).getByLabelText("Max output tokens"), "16000");
-		await user.click(within(dialog).getByRole("checkbox", { name: "Accept images" }));
-		await choose(user, "Thinking", "Request body mode", dialog);
+		await user.click(within(dialog).getByRole("checkbox", { name: "Image understanding" }));
+		await choose(user, "Thinking", "Custom", dialog);
+		const highDisplayName = within(dialog).getByLabelText("high display name");
+		expect(highDisplayName).toHaveValue("high");
+		expect(highDisplayName).toHaveAttribute("placeholder", "high");
 		change(within(dialog).getByLabelText("high request body JSON"), '{"reasoning":{"effort":"high"}}');
+		change(highDisplayName, "Deep");
 		await user.click(within(dialog).getByRole("button", { name: "Save model" }));
 		await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add model" })).not.toBeInTheDocument());
 
 		await user.click(screen.getByRole("button", { name: "Add model" }));
 		dialog = await screen.findByRole("dialog", { name: "Add model" });
 		await fill(user, within(dialog).getByLabelText("Model id"), "chat-model");
-		await choose(user, "Thinking", "Format mode", dialog);
+		await choose(user, "Thinking", "Standard", dialog);
 		expect(within(dialog).getByLabelText("Thinking format")).toHaveTextContent("Auto (omit)");
 		await choose(user, "Thinking format", "deepseek", dialog);
+		// The level column is gone: the display name input defaults to the level id and
+		// keeps it as its placeholder once cleared (which is what hides the level).
+		expect(within(dialog).queryByRole("columnheader", { name: "Level" })).not.toBeInTheDocument();
+		expect(within(dialog).getByRole("columnheader", { name: "Display name" })).toBeInTheDocument();
+		const standardHigh = within(dialog).getByLabelText("high display name");
+		expect(standardHigh).toHaveValue("high");
+		expect(standardHigh).toHaveAttribute("placeholder", "high");
 		await choose(user, "low mapping", "Mapped value", dialog);
 		await fill(user, within(dialog).getByLabelText("low value"), "low");
-		await choose(user, "xhigh mapping", "Disabled (null)", dialog);
+		change(within(dialog).getByLabelText("low display name"), "Fast");
+		const mediumDisplayName = within(dialog).getByLabelText("medium display name");
+		change(mediumDisplayName, "");
+		expect(mediumDisplayName).toHaveValue("");
+		expect(mediumDisplayName).toHaveAttribute("placeholder", "medium");
 		await user.click(within(dialog).getByRole("button", { name: "Save model" }));
 		await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add model" })).not.toBeInTheDocument());
 
 		const table = screen.getByRole("table", { name: "Models" });
 		expect(table).toHaveTextContent("resp-model");
 		expect(table).toHaveTextContent("Responses");
-		expect(table).toHaveTextContent("Request body mode");
+		expect(table).toHaveTextContent("Custom");
 		expect(table).toHaveTextContent("chat-model");
-		expect(table).toHaveTextContent("Format mode");
+		expect(table).toHaveTextContent("Standard");
 		expect(table).toHaveTextContent("deepseek");
 
 		await user.click(screen.getByRole("button", { name: "Save provider" }));
@@ -250,7 +276,11 @@ describe("ProviderDialog", () => {
 					contextWindow: 200_000,
 					maxTokens: 16_000,
 					input: ["text", "image"],
-					thinking: { mode: "body", levels: { high: { reasoning: { effort: "high" } } } },
+					thinking: {
+						mode: "custom",
+						levels: { high: { reasoning: { effort: "high" } } },
+						labels: { high: "Deep" },
+					},
 				},
 				{
 					id: "chat-model",
@@ -258,7 +288,12 @@ describe("ProviderDialog", () => {
 					contextWindow: 128_000,
 					maxTokens: 8_192,
 					input: ["text"],
-					thinking: { mode: "format", format: "deepseek", levels: { low: "low", xhigh: null } },
+					thinking: {
+						mode: "standard",
+						format: "deepseek",
+						levels: { low: "low" },
+						labels: { low: "Fast", medium: "" },
+					},
 				},
 			],
 		});
@@ -286,7 +321,7 @@ describe("ProviderDialog", () => {
 		expect(table).toHaveTextContent("200000");
 		expect(table).toHaveTextContent("16000");
 		expect(table).toHaveTextContent("Yes");
-		expect(table).toHaveTextContent("Request body mode");
+		expect(table).toHaveTextContent("Custom");
 		expect(table).toHaveTextContent("chat-model");
 		expect(table).toHaveTextContent("deepseek");
 		expect(table).toHaveTextContent("No");
@@ -298,8 +333,8 @@ describe("ProviderDialog", () => {
 		expect(within(dialog).getByLabelText("Protocol")).toHaveTextContent("Responses");
 		expect(within(dialog).getByLabelText("Context window")).toHaveValue("200000");
 		expect(within(dialog).getByLabelText("Max output tokens")).toHaveValue("16000");
-		expect(within(dialog).getByRole("checkbox", { name: "Accept images" })).toBeChecked();
-		expect(within(dialog).getByLabelText("Thinking")).toHaveTextContent("Request body mode");
+		expect(within(dialog).getByRole("checkbox", { name: "Image understanding" })).toBeChecked();
+		expect(within(dialog).getByLabelText("Thinking")).toHaveTextContent("Custom");
 		expect(within(dialog).getByLabelText("high request body JSON")).toHaveValue(
 			'{\n  "reasoning": {\n    "effort": "high"\n  }\n}',
 		);
@@ -311,12 +346,14 @@ describe("ProviderDialog", () => {
 		await user.click(screen.getByRole("button", { name: "Edit model 2" }));
 		dialog = await screen.findByRole("dialog", { name: "Edit model chat-model" });
 		expect(within(dialog).getByLabelText("Protocol")).toHaveTextContent("Chat Completions");
-		expect(within(dialog).getByLabelText("Thinking")).toHaveTextContent("Format mode");
+		expect(within(dialog).getByLabelText("Thinking")).toHaveTextContent("Standard");
 		expect(within(dialog).getByLabelText("Thinking format")).toHaveTextContent("deepseek");
 		expect(within(dialog).getByLabelText("low mapping")).toHaveTextContent("Mapped value");
+		expect(within(dialog).getByLabelText("low display name")).toHaveValue("Fast");
 		expect(within(dialog).getByLabelText("low value")).toHaveValue("low");
 		expect(within(dialog).getByLabelText("medium mapping")).toHaveTextContent("Default (omitted)");
-		expect(within(dialog).getByLabelText("xhigh mapping")).toHaveTextContent("Disabled (null)");
+		expect(within(dialog).getByLabelText("medium display name")).toHaveValue("medium");
+		expect(within(dialog).getByLabelText("xhigh display name")).toHaveValue("");
 		await user.click(within(dialog).getByRole("button", { name: "Compat (JSON, advanced)" }));
 		expect(within(dialog).getByLabelText("Compat JSON")).toHaveValue(
 			'{\n  "maxTokensField": "max_completion_tokens"\n}',
@@ -345,7 +382,7 @@ describe("ProviderDialog", () => {
 					contextWindow: 200_000,
 					maxTokens: 16_000,
 					input: ["text", "image"],
-					thinking: { mode: "body", levels: { high: { reasoning: { effort: "high" } } } },
+					thinking: { mode: "custom", levels: { high: { reasoning: { effort: "high" } } } },
 				},
 				{
 					id: "chat-model",
@@ -353,7 +390,12 @@ describe("ProviderDialog", () => {
 					contextWindow: 128_000,
 					maxTokens: 8_192,
 					input: ["text"],
-					thinking: { mode: "format", format: "deepseek", levels: { low: "low", xhigh: null } },
+					thinking: {
+						mode: "standard",
+						format: "deepseek",
+						levels: { low: "low" },
+						labels: { low: "Fast" },
+					},
 					compat: { maxTokensField: "max_completion_tokens" },
 				},
 			],
@@ -361,7 +403,46 @@ describe("ProviderDialog", () => {
 		expect(save?.body).not.toHaveProperty("apiKey");
 	});
 
-	test("validates request body and compat JSON before closing the model sheet", async () => {
+	test("shows the level id through the display name field and scrolls only the dialog body", async () => {
+		mockFetch();
+		renderProvider(CUSTOM);
+		const user = userEvent.setup();
+
+		// Custom mode: there is no separate level column or label. The display name input
+		// defaults to the level id and keeps it as the placeholder when cleared (hidden).
+		await user.click(screen.getByRole("button", { name: "Edit model 1" }));
+		const customDialog = await screen.findByRole("dialog", { name: "Edit model resp-model" });
+		expect(within(customDialog).queryByText("Level")).not.toBeInTheDocument();
+		const highDisplayName = within(customDialog).getByLabelText("high display name");
+		expect(highDisplayName).toHaveValue("high");
+		expect(highDisplayName).toHaveAttribute("placeholder", "high");
+		change(highDisplayName, "");
+		expect(highDisplayName).toHaveValue("");
+		expect(highDisplayName).toHaveAttribute("placeholder", "high");
+
+		// The header and footer stay outside the scrolling body, inside the clipped rounded frame.
+		const body = customDialog.querySelector('[data-slot="dialog-scroll-area"]');
+		expect(body).not.toBeNull();
+		expect(body?.contains(highDisplayName)).toBe(true);
+		expect(body?.contains(within(customDialog).getByRole("button", { name: "Save model" }))).toBe(false);
+		expect(body?.querySelector('[data-slot="dialog-header"]')).toBeNull();
+		expect(body?.querySelector('[data-slot="dialog-footer"]')).toBeNull();
+
+		await user.click(within(customDialog).getByRole("button", { name: "Cancel" }));
+		await waitFor(() =>
+			expect(screen.queryByRole("dialog", { name: "Edit model resp-model" })).not.toBeInTheDocument(),
+		);
+
+		// Standard mode: the mapping table has no level column either.
+		await user.click(screen.getByRole("button", { name: "Edit model 2" }));
+		const standardDialog = await screen.findByRole("dialog", { name: "Edit model chat-model" });
+		expect(within(standardDialog).queryByRole("columnheader", { name: "Level" })).not.toBeInTheDocument();
+		expect(within(standardDialog).getByRole("columnheader", { name: "Display name" })).toBeInTheDocument();
+		expect(within(standardDialog).getByLabelText("high display name")).toHaveValue("high");
+		expect(within(standardDialog).getByLabelText("high display name")).toHaveAttribute("placeholder", "high");
+	});
+
+	test("validates request body and compat JSON before closing the model dialog", async () => {
 		const { calls } = mockFetch();
 		renderProvider();
 		const user = userEvent.setup();
@@ -370,7 +451,7 @@ describe("ProviderDialog", () => {
 		await user.click(screen.getByRole("button", { name: "Add model" }));
 		let dialog = await screen.findByRole("dialog", { name: "Add model" });
 		await fill(user, within(dialog).getByLabelText("Model id"), "m1");
-		await choose(user, "Thinking", "Request body mode", dialog);
+		await choose(user, "Thinking", "Custom", dialog);
 		const high = within(dialog).getByLabelText("high request body JSON");
 		change(high, "{");
 		await user.click(within(dialog).getByRole("button", { name: "Save model" }));

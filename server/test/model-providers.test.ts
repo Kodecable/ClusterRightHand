@@ -217,8 +217,17 @@ describeBackends("model providers api", (backend) => {
 	});
 
 	it("a session cannot use a model of a disabled or deleted provider", async () => {
+		let request = 0;
 		const mk = () =>
-			call(app, "/api/sessions", { cookie: admin, body: { model: { provider: "my-proxy", modelId: "m-1" } } });
+			call(app, "/api/sessions", {
+				cookie: admin,
+				body: {
+					requestId: `provider-session-${++request}`,
+					message: "hello",
+					title: "Provider session",
+					model: { provider: "my-proxy", modelId: "m-1" },
+				},
+			});
 		expect((await mk()).status).toBe(201);
 		await put("my-proxy", proxy({ enabled: false }));
 		expect((await mk()).status).toBe(400);

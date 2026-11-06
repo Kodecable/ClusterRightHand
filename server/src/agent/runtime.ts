@@ -19,10 +19,13 @@ import { chargeCompaction, decideRootQuota, rememberProviderSession, waitForQuot
 import { decideAgentRequest, invalidateInboxes, pendingAgentRequests, routeAwaiting } from "./runtime-requests.ts";
 import {
 	abort,
+	type CreateSessionWithMessageInput,
 	configure,
 	createScheduledSession,
 	createSession,
+	createSessionWithMessage,
 	entriesPage,
+	findSessionByCreateRequestId,
 	getSession,
 	hasSubagents,
 	sessionAt,
@@ -265,6 +268,18 @@ export class AgentRuntime {
 
 	async getSession(id: string): Promise<SessionView | undefined> {
 		return getSession(this.#host, id);
+	}
+	/** Creates a session and submits its first message in one idempotent request (D117). */
+	async createSessionWithMessage(
+		owner: SessionUser,
+		input: CreateSessionWithMessageInput,
+	): Promise<{ session: SessionView; created: boolean }> {
+		return createSessionWithMessage(this.#host, owner, input);
+	}
+
+	/** The session a user already created with this request id (D117). */
+	async findSessionByCreateRequestId(ownerUserId: string, requestId: string): Promise<SessionView | undefined> {
+		return findSessionByCreateRequestId(this.#host, ownerUserId, requestId);
 	}
 
 	async createScheduledSession(

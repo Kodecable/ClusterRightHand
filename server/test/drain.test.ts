@@ -170,10 +170,19 @@ describe("request drain", () => {
 		try {
 			await crhs.loginAdmin();
 			const model = { provider: crhs.faux.provider.id, modelId: crhs.faux.getModel().id };
-			const created = await crhs.api("/api/sessions", { body: { model } });
-			expect(created.status).toBe(201);
+			const owner = await crhs.db
+				.selectFrom("users")
+				.select(["id", "username", "kind"])
+				.where("username", "=", "root")
+				.executeTakeFirstOrThrow();
+			const runtime = crhs.runtime;
+			if (!runtime) throw new Error("the agent runtime did not start");
+			const created = await runtime.createSession(
+				{ sessionId: "test-drain", userId: owner.id, username: owner.username, kind: owner.kind },
+				{ model, rulePreset: "ask" },
+			);
 
-			const response = await fetch(`${crhs.url}/api/sessions/${created.json.session.id}/events`, {
+			const response = await fetch(`${crhs.url}/api/sessions/${created.id}/events`, {
 				headers: { cookie: crhs.cookie },
 			});
 			expect(response.status).toBe(200);

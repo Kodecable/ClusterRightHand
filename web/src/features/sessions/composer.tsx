@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { SessionView } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { useAbortSession, useCompactSession, useSendMessage } from "./api";
-import { ComposerFooter } from "./composer-footer";
+import { SessionComposerFooter } from "./composer-footer";
 import { ComposerMeta } from "./composer-meta";
 import { parseSlashCommand, type SlashCommand, slashSuggestions } from "./slash-commands";
 
@@ -311,7 +311,7 @@ function ComposerForm({ session, stoppable }: ComposerProps) {
 						</div>
 					)}
 					<div className="px-2 pb-1.5">
-						<ComposerFooter
+						<SessionComposerFooter
 							session={session}
 							stoppable={stoppable}
 							sending={pending}

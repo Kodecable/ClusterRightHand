@@ -764,6 +764,8 @@ export interface AvailableModel extends ModelRef {
 	contextWindow: number;
 	/** The levels this model supports, `off` included. */
 	thinkingLevels: ThinkingLevel[];
+	/** Custom models only: the display name of every offered level (its id by default). */
+	thinkingLabels?: Partial<Record<ThinkingLevel, string>>;
 	input: ("text" | "image")[];
 }
 
@@ -771,11 +773,13 @@ export interface AvailableModel extends ModelRef {
 export type CustomApi = "openai-completions" | "openai-responses";
 
 export interface ThinkingConfig {
-	mode: "format" | "body";
+	mode: "standard" | "custom";
 	/** Chat Completions only. */
 	format?: string;
-	/** Format mode: level -> upstream value (null: unsupported). Body mode: level -> request body patch. */
+	/** Standard mode: level -> upstream value (null: unsupported). Custom mode: level -> request body patch. */
 	levels: Partial<Record<ThinkingLevel, string | null | Record<string, unknown>>>;
+	/** Per-level display names; an empty string hides the level. */
+	labels?: Partial<Record<ThinkingLevel, string>>;
 }
 
 export interface CustomModel {

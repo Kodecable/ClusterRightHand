@@ -85,8 +85,10 @@ API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引�
 
 `thinking` 有两种写法，二选一：
 
-- **格式写法** `{ mode: "format", format?, levels }`：由 pi-ai 生成思考参数。`format` 只用于 Chat Completions，取 pi-ai 的 `thinkingFormat`（OpenAI 风格 `reasoning_effort`、`deepseek`、`qwen`、`openrouter`、`chat-template` 等），不填时 pi-ai 按 URL 判断；Responses 一律是 `reasoning.effort`。`levels` 是档位映射（pi-ai 的 `thinkingLevelMap`）：`{ "<档位>": "<发给上游的值>" | null }`，null 表示不支持这一档，未列出的 `minimal`–`high` 原样发送，`xhigh` / `max` 只有列出时才可用。
-- **请求体写法** `{ mode: "body", levels }`：`levels` 是 `{ "<档位>": <JSON 对象> }`，选中某档时把对应对象深合并进请求体（在 pi-ai 组好请求之后，经 payload 钩子），例如 `{ "off": { "thinking": { "type": "disabled" } }, "high": { "thinking": { "type": "enabled", "budget_tokens": 16000 } } }`。可用档位是 `off` 加上列出的键（未列出 `off` 时，`off` 不合并任何内容）；pi-ai 自己的思考参数在这种写法下不发送（实现时确认，必要时由钩子删除）。
+- **标准** `{ mode: "standard", format?, levels, labels? }`：由 pi-ai 生成思考参数。`format` 只用于 Chat Completions，取 pi-ai 的 `thinkingFormat`（OpenAI 风格 `reasoning_effort`、`deepseek`、`qwen`、`openrouter`、`chat-template` 等），不填时 pi-ai 按 URL 判断；Responses 一律是 `reasoning.effort`。`levels` 是档位映射（pi-ai 的 `thinkingLevelMap`）：`{ "<档位>": "<发给上游的值>" }`，未列出的 `minimal`–`high` 原样发送，`xhigh` / `max` 只有列出时才可用（接口仍接受 null 表示不支持，界面改用显示名隐藏）。
+- **自定义** `{ mode: "custom", levels, labels? }`：`levels` 是 `{ "<档位>": <JSON 对象> }`，选中某档时把对应对象深合并进请求体（在 pi-ai 组好请求之后，经 payload 钩子），例如 `{ "off": { "thinking": { "type": "disabled" } }, "high": { "thinking": { "type": "enabled", "budget_tokens": 16000 } } }`。可用档位是 `off` 加上列出的键（未列出 `off` 时，`off` 不合并任何内容），再去掉被隐藏的；pi-ai 自己的思考参数在这种写法下不发送（实现时确认，必要时由钩子删除）。
+
+`labels` 是各档位的显示名（只有自定义模型有；Pi 内置模型的档位用界面翻译的标准名）：没有这个键时显示档位 id 本身（例如 `high`；`xhigh` / `max` 没有映射值时默认隐藏），空字符串表示隐藏这一档；`xhigh` / `max` 有非空显示名而没有映射值时，原样发送档位 id：选择器不显示，服务端也按不支持处理；`off` 可以改名但不能隐藏。`/api/models` 的每一项带 `thinkingLabels`。迁移 0046 把旧的 `format` / `body` 改写为 `standard` / `custom`。
 
 两种写法下，思考内容的解析（`reasoning_content` 等）都由 pi-ai 负责，不受影响。
 
@@ -203,7 +205,7 @@ API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引�
 
 - 会话属于创建它的用户。会话能做什么，由操作者链上的授权规则决定；设了配额的级别（子会话、计划任务的会话）还受 token 配额限制，见 [access-control.md](access-control.md#授权规则)。
 - 会话记录在业务表 `sessions` 中，`conversation_id` 关联 durable 的 Conversation。
-- 会话在发送第一条消息时才创建（D117）：`POST /api/sessions { requestId, model, rulePreset, budgetRemaining?, title?, message }` 在一个请求里建会话、提交消息并返回会话。`requestId` 由客户端为每个草稿生成（UUID），同一用户重复提交同一个 `requestId` 返回已建的会话，不再建第二个；提交消息失败时删除刚建的会话和对话，接口返回错误。没有 `message` 的创建请求是 400。
+- 会话在发送第一条消息时才创建（D117）：`POST /api/sessions { requestId, model, rulePreset, budgetRemaining?, title?, message }` 在一个请求里建会话、提交消息并返回会话。`requestId` 由客户端为每个草稿生成（UUID），同一用户重复提交同一个 `requestId` 返回已建的会话，不再建第二个；提交消息失败时中止刚建的对话（durable 没有删除对话的接口，对话记录留在 durable 存储里但不再被引用），在一个事务里删除会话行和它的规则集，推送列表的移除事件，接口返回错误。没有 `message` 的创建请求是 400。
 - 标题见下文"模型预设"中的标题生成。
 - WebUI 通过 `watch` 订阅会话视图，经 SSE（`/api/sessions/:id/events`）推送增量。
 - 开启自动压缩，阈值由模型的上下文窗口决定（参数见下文"默认值"）。

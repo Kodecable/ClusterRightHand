@@ -102,6 +102,15 @@ it("rejects a session model, unknown kinds and unconfigured or unsupported revie
 	expect((await put("review", ["not", "an", "object"])).status).toBe(400);
 });
 
+it("rejects a preset thinking level: it belongs in the model ref", async () => {
+	for (const kind of ["session", "review", "title"]) {
+		const res = await put(kind, { thinkingLevel: "medium" });
+		expect(res.status).toBe(400);
+		expect(((await res.json()) as { error: string }).error).toBe("thinkingLevel belongs in model");
+	}
+	expect((await put("review", { thinkingLevel: null })).status).toBe(400);
+});
+
 it("saves a review model with a thinking level and a custom prompt", async () => {
 	const res = await put("review", { model: { ...ref(), thinkingLevel: "high" }, systemPrompt: "  Be careful.  " });
 	expect(res.status).toBe(200);

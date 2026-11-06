@@ -99,6 +99,12 @@ const sessionsIndexRoute = createRoute({
 	component: lazyRouteComponent(sessionsIndexPageChunk, "SessionsPage"),
 });
 
+const newSessionRoute = createRoute({
+	getParentRoute: () => sessionsRoute,
+	path: "new",
+	component: lazyRouteComponent(sessionPageChunk, "NewSessionPage"),
+});
+
 const sessionRoute = createRoute({
 	getParentRoute: () => sessionsRoute,
 	path: "$sessionId",
@@ -244,7 +250,7 @@ const routeTree = rootRoute.addChildren([
 	loginRoute,
 	authenticatedRoute.addChildren([
 		indexRoute,
-		sessionsRoute.addChildren([sessionsIndexRoute, sessionRoute]),
+		sessionsRoute.addChildren([sessionsIndexRoute, newSessionRoute, sessionRoute]),
 		schedulesRoute,
 		scheduleDetailRoute,
 		tasksRoute,

@@ -105,15 +105,15 @@ function buildSchema(i18n: I18n) {
 function ThinkingSummary({ row }: { row: ModelRow }) {
 	const { t } = useLingui();
 	if (row.thinkingMode === "none") return <span>{t`None`}</span>;
-	if (row.thinkingMode === "format") {
+	if (row.thinkingMode === "standard") {
 		return (
 			<span className="flex items-center gap-1">
-				<span>{t`Format mode`}</span>
+				<span>{t`Standard`}</span>
 				<code className="font-mono text-xs">{row.format || t`auto`}</code>
 			</span>
 		);
 	}
-	return <span>{t`Request body mode`}</span>;
+	return <span>{t`Custom`}</span>;
 }
 
 /** The custom provider's extra request headers, one key/value row each. */
@@ -123,9 +123,6 @@ function HeadersEditor({ form }: { form: ProviderForm }) {
 	return (
 		<fieldset className="grid gap-2">
 			<legend className="text-sm font-medium">{t`Extra headers`}</legend>
-			<p className="text-xs text-muted-foreground">
-				{t`Sent with every request; put credentials in the API key, not here.`}
-			</p>
 			{fields.length > 0 && (
 				<div className="grid gap-2">
 					<div className="grid grid-cols-[1fr_1fr_auto] gap-2 text-xs text-muted-foreground">
@@ -176,12 +173,9 @@ function SessionIdEditor({ form }: { form: ProviderForm }) {
 	return (
 		<fieldset className="grid gap-2">
 			<legend className="text-sm font-medium">{t`Session id fields`}</legend>
-			<p className="text-xs text-muted-foreground">
-				{t`The crh session id is written to these request headers and body fields (dot paths).`}
-			</p>
 			<div className="grid gap-3 sm:grid-cols-2">
 				<div className="grid content-start gap-2">
-					<span className="text-xs text-muted-foreground">{t`Session id headers`}</span>
+					<span className="text-xs text-muted-foreground">{t`Headers`}</span>
 					{headers.fields.map((field, index) => (
 						<div key={field.id} className="flex gap-2">
 							<Input
@@ -209,7 +203,7 @@ function SessionIdEditor({ form }: { form: ProviderForm }) {
 					</div>
 				</div>
 				<div className="grid content-start gap-2">
-					<span className="text-xs text-muted-foreground">{t`Session id body fields`}</span>
+					<span className="text-xs text-muted-foreground">{t`Body fields`}</span>
 					{body.fields.map((field, index) => (
 						<div key={field.id} className="flex gap-2">
 							<Input
@@ -241,7 +235,7 @@ function SessionIdEditor({ form }: { form: ProviderForm }) {
 	);
 }
 
-/** The custom provider's models: a compact table whose rows open the model sheet. */
+/** The custom provider's models: a compact table whose rows open the nested model dialog. */
 function ModelRows({ form }: { form: ProviderForm }) {
 	const { t } = useLingui();
 	const { fields, append, remove, update } = useFieldArray({ control: form.control, name: "models" });
@@ -276,7 +270,7 @@ function ModelRows({ form }: { form: ProviderForm }) {
 									</TableCell>
 									<TableCell className="text-xs">{row.contextWindow}</TableCell>
 									<TableCell className="text-xs">{row.maxTokens}</TableCell>
-									<TableCell className="text-xs">{row.acceptImages ? t`Yes` : t`No`}</TableCell>
+									<TableCell className="text-xs">{row.imageUnderstanding ? t`Yes` : t`No`}</TableCell>
 									<TableCell className="text-xs">
 										<ThinkingSummary row={row} />
 									</TableCell>
@@ -400,13 +394,12 @@ export function ProviderDialog({
 				if (!open) onClose();
 			}}
 			title={editing ? t`Edit provider ${existing.providerId}` : t`Add model provider`}
-			description={<Trans>Sessions use the models of the enabled providers.</Trans>}
 			submitLabel={<Trans>Save provider</Trans>}
 			busy={save.isPending}
 			submitDisabled={providerId === ""}
 			error={save.error !== null ? save.error.message : undefined}
 			testId="provider-dialog"
-			className="max-h-[90vh] overflow-y-auto sm:max-w-3xl"
+			className="sm:max-w-3xl"
 			onSubmit={() => void submit()}
 		>
 			<div className="grid gap-3 sm:grid-cols-2">
@@ -440,27 +433,17 @@ export function ProviderDialog({
 			</div>
 
 			{kind === "builtin" ? (
-				<>
-					<TextField
-						control={form.control}
-						name="baseUrl"
-						type="url"
-						label={t`Base URL`}
-						placeholder="https://api.example.com/v1"
-						description={t`Optional; overrides the provider's endpoint.`}
-					/>
-					<p className="text-xs text-muted-foreground">
-						<Trans>Only API keys are supported; OAuth sign-in is not available.</Trans>
-					</p>
-				</>
+				<TextField
+					control={form.control}
+					name="baseUrl"
+					type="url"
+					label={t`Base URL`}
+					placeholder="https://api.example.com/v1"
+					description={t`Optional, overrides the provider's default endpoint.`}
+				/>
 			) : (
 				<div className="grid gap-3 sm:grid-cols-2">
-					<TextField
-						control={form.control}
-						name="name"
-						label={t`Name`}
-						description={t`Optional; defaults to the provider id.`}
-					/>
+					<TextField control={form.control} name="name" label={t`Name`} />
 					<TextField
 						control={form.control}
 						name="baseUrl"

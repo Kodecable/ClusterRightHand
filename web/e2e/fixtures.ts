@@ -87,7 +87,11 @@ export function modelName(crhs: InProcessCrhs): string {
 	return crhs.faux.getModel().name ?? crhs.faux.getModel().id;
 }
 
-/** Creates a session through the UI dialog, leaving its page open. */
+/**
+ * Creates a session through the draft page (D117), leaving its page open. The first message creates the
+ * session; callers that script the faux model must queue their responses after this helper, because the
+ * bootstrap message spends one model request. The title is set through the header afterwards.
+ */
 export async function newSession(
 	page: Page,
 	title: string,
@@ -95,12 +99,20 @@ export async function newSession(
 ): Promise<void> {
 	await page.goto("/sessions");
 	await page.getByTestId("new-session-button").click();
-	const dialog = page.getByRole("dialog", { name: "New session" });
-	await dialog.getByLabel("Title").fill(title);
-	await dialog.getByLabel("Rule preset").click();
+	await expect(page).toHaveURL(/\/sessions\/new$/);
+	await page.getByTestId("composer-rules").click();
 	await page.getByRole("option", { name: rulePreset, exact: true }).click();
-	await dialog.getByRole("button", { name: "Create session" }).click();
-	await expect(page.getByTestId("session-title")).toHaveValue(title);
+	await page.getByTestId("new-session-input").fill("start");
+	await page.getByTestId("new-session-input").press("Enter");
+	await expect(page.getByTestId("session-page")).toBeVisible();
+	const titleInput = page.getByTestId("session-title");
+	await titleInput.fill(title);
+	await titleInput.press("Enter");
+	await expect(titleInput).toHaveValue(title);
+	// The bootstrap run has no scripted answer: wait until it has settled, so a caller that queues its own
+	// responses next cannot have them consumed by it (title generation included).
+	await expect(page.getByTestId("abort-session")).toHaveCount(0, { timeout: 20_000 });
+	await page.waitForTimeout(200);
 }
 
 /** Types into the message composer and sends with Enter. */

@@ -7,8 +7,10 @@ import {
 	DialogDescription,
 	DialogFooter,
 	DialogHeader,
+	DialogScrollArea,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 /**
  * A second confirmation for a dangerous action. The caller owns the mutation;
@@ -61,11 +63,13 @@ export function ConfirmDialog({
 
 /**
  * A dialog that wraps a form: title, description, fields, an error line and
- * the cancel/submit footer. The caller keeps validation in react-hook-form and
- * passes `onSubmit` as the form's submit handler; `busy` disables the footer,
- * and `submitDisabled` holds the submit button back on its own (an empty
- * required field, for example). Native constraint validation stays off, as in
- * the hand-written dialogs this replaced: every form keeps its own zod checks.
+ * the cancel/submit footer. The header and footer stay fixed while the fields
+ * scroll in their own body, inside the popup's clipped rounded frame. The
+ * caller keeps validation in react-hook-form and passes `onSubmit` as the
+ * form's submit handler; `busy` disables the footer, and `submitDisabled` holds
+ * the submit button back on its own (an empty required field, for example).
+ * Native constraint validation stays off, as in the hand-written dialogs this
+ * replaced: every form keeps its own zod checks.
  */
 export function FormDialog({
 	open,
@@ -100,26 +104,33 @@ export function FormDialog({
 	const { t } = useLingui();
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent data-slot="form-dialog" className={className} data-testid={testId}>
-				<DialogHeader>
+			<DialogContent
+				data-slot="form-dialog"
+				className={cn("flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0", className)}
+				data-testid={testId}
+			>
+				<DialogHeader className="border-b p-4 pr-12">
 					<DialogTitle>{title}</DialogTitle>
 					{description !== undefined && <DialogDescription>{description}</DialogDescription>}
 				</DialogHeader>
 				<form
-					className="grid gap-3"
+					className="flex min-h-0 flex-1 flex-col"
 					noValidate
 					onSubmit={(event) => {
 						event.preventDefault();
 						onSubmit();
 					}}
 				>
-					{children}
+					{/* The header and footer stay put; only this body scrolls inside the rounded frame. */}
+					<DialogScrollArea className="mx-0 my-0 grid flex-1 content-start gap-3 px-4 py-4">
+						{children}
+					</DialogScrollArea>
 					{error !== undefined && error !== null && (
-						<p role="alert" className="text-sm text-danger">
+						<p role="alert" className="shrink-0 px-4 pb-3 text-sm text-danger">
 							{error}
 						</p>
 					)}
-					<DialogFooter>
+					<DialogFooter className="mx-0 mb-0 rounded-none">
 						<Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
 							{cancelLabel ?? <Trans>Cancel</Trans>}
 						</Button>

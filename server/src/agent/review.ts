@@ -129,16 +129,19 @@ export class Reviewer {
 
 	/** The model for one root: the configured review model, else (for a session or schedule) the root's own model. */
 	async #modelFor(root: RuleRef): Promise<ModelRef | null> {
-		const configured = this.#presets.get("review").model;
-		if (configured) return configured;
+		const preset = this.#presets.get("review");
+		if (preset.model) return preset.model;
+		let ref: ModelRef | null = null;
 		if (root.type === "schedule") {
 			// A scheduled run's chain root is the schedule, which carries the model its sessions run on.
 			const row = await this.#db.selectFrom("schedules").select("model").where("id", "=", root.id).executeTakeFirst();
-			return row ? (JSON.parse(row.model) as ModelRef) : null;
+			ref = row ? (JSON.parse(row.model) as ModelRef) : null;
+		} else if (root.type === "session") {
+			const row = await this.#db.selectFrom("sessions").select("model").where("id", "=", root.id).executeTakeFirst();
+			ref = row ? (JSON.parse(row.model) as ModelRef) : null;
 		}
-		if (root.type !== "session") return null;
-		const row = await this.#db.selectFrom("sessions").select("model").where("id", "=", root.id).executeTakeFirst();
-		return row ? (JSON.parse(row.model) as ModelRef) : null;
+		// Following the root keeps its own model and thinking level.
+		return ref;
 	}
 
 	/**

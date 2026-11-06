@@ -1,11 +1,13 @@
 import { useLingui } from "@lingui/react/macro";
 import { LightbulbIcon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { ThinkingLevel } from "@/lib/api/types";
-import { thinkingLevelLabel } from "@/lib/thinking-level";
+import type { AvailableModel, ThinkingLevel } from "@/lib/api/types";
+import { thinkingLevelName } from "@/lib/thinking-level";
 import { cn } from "@/lib/utils";
 
 export interface ThinkingLevelSelectProps {
+	/** The current model, for its custom display names; built-in models use localized names. */
+	model?: AvailableModel;
 	/** Only the current model's supported levels, `off` included. */
 	levels: ThinkingLevel[];
 	value: ThinkingLevel;
@@ -25,6 +27,7 @@ export interface ThinkingLevelSelectProps {
  * only `off`.
  */
 export function ThinkingLevelSelect({
+	model,
 	levels,
 	value,
 	onChange,
@@ -61,7 +64,7 @@ export function ThinkingLevelSelect({
 				<SelectValue>
 					{(current: string | null) => {
 						const level = (current as ThinkingLevel | null) ?? "off";
-						const text = thinkingLevelLabel(i18n, level);
+						const text = thinkingLevelName(i18n, model, level);
 						return inline ? (
 							<span className="inline-flex min-w-0 items-center gap-1">
 								<LightbulbIcon className="size-3.5 shrink-0" aria-hidden="true" />
@@ -76,7 +79,7 @@ export function ThinkingLevelSelect({
 			<SelectContent side={inline ? "top" : undefined} align={inline ? "start" : undefined}>
 				{levels.map((level) => (
 					<SelectItem key={level} value={level}>
-						{thinkingLevelLabel(i18n, level)}
+						{thinkingLevelName(i18n, model, level)}
 					</SelectItem>
 				))}
 			</SelectContent>

@@ -80,7 +80,10 @@ export class ModelPresets {
 		const rows = await this.#db.selectFrom("model_presets").selectAll().where("org_id", "=", orgId).execute();
 		const cache = new Map<ModelPresetKind, StoredModelPreset>();
 		for (const row of rows) {
-			cache.set(row.kind, { model: parseRef(row.model), systemPrompt: row.system_prompt });
+			cache.set(row.kind, {
+				model: parseRef(row.model),
+				systemPrompt: row.system_prompt,
+			});
 		}
 		this.#orgId = orgId;
 		this.#cache = cache;

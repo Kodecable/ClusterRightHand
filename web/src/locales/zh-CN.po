@@ -11,10 +11,6 @@ msgstr ""
 msgid "A mapped level value is required."
 msgstr "填写映射值后才可使用该档。"
 
-#: src/features/settings/model-dialog.tsx
-msgid "Accept images"
-msgstr "接收图片"
-
 #: src/features/settings/pages.tsx
 msgid "Add a Pi built-in provider or a custom endpoint."
 msgstr "添加 Pi 内置提供方或自定义端点。"
@@ -38,6 +34,10 @@ msgstr "自动（不指定）"
 #: src/features/settings/model-dialog.tsx
 msgid "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
 msgstr "自动表示由 pi-ai 根据 Base URL 判断。Responses 固定发送 reasoning.effort。"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Body fields"
+msgstr "请求体字段"
 
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -67,15 +67,7 @@ msgstr "自定义"
 
 #: src/features/settings/model-dialog.tsx
 msgid "Default (omitted)"
-msgstr "默认（不发送）"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Disabled (null)"
-msgstr "禁用（null）"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Each level's JSON object is merged into the request body; leave a level empty to not offer it."
-msgstr "每档的 JSON 对象会合并进请求体；留空表示不提供该档。"
+msgstr "默认"
 
 #. placeholder {0}: index + 1
 #. placeholder {0}: initial.id
@@ -87,11 +79,6 @@ msgstr "编辑模型 {0}"
 #: src/features/settings/provider-dialog.tsx
 msgid "Extra headers"
 msgstr "额外请求头"
-
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Format mode"
-msgstr "格式写法"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Header"
@@ -108,8 +95,12 @@ msgid "Header {0} value"
 msgstr "请求头 {0} 值"
 
 #: src/features/settings/provider-dialog.tsx
+msgid "Headers"
+msgstr "请求头"
+
+#: src/features/settings/provider-dialog.tsx
 msgid "Image"
-msgstr "图片"
+msgstr "图像"
 
 #: src/features/settings/model-dialog.tsx
 msgid "Level mapping"
@@ -140,30 +131,18 @@ msgid "Model ids must be unique."
 msgstr "模型 id 不能重复。"
 
 #: src/features/settings/model-dialog.tsx
-msgid "Models of this provider are offered to sessions; each one maps to the fields pi-ai needs."
-msgstr "该提供方的模型会提供给会话选择；每个模型对应 pi-ai 需要的字段。"
-
-#: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "None"
 msgstr "不支持"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Only API keys are supported; OAuth sign-in is not available."
-msgstr "只支持 API key，不支持 OAuth 登录。"
 
 #. js-lingui-explicit-id
 #: src/app/shell/app-sidebar.tsx
 msgid "Ops console"
 msgstr "运维控制台"
 
-#: src/features/settings/model-dialog.tsx
-msgid "Optional; defaults to the model id."
-msgstr "可选；默认使用模型 id。"
-
 #: src/features/settings/provider-dialog.tsx
-msgid "Optional; overrides the provider's endpoint."
-msgstr "可选；覆盖提供方的端点。"
+msgid "Optional, overrides the provider's default endpoint."
+msgstr "可选，覆盖默认提供方的端点。"
 
 #. js-lingui-explicit-id
 #: src/app/shell/app-sidebar.tsx
@@ -223,11 +202,6 @@ msgstr "删除会话 id 请求体字段 {0}"
 msgid "Remove session id header {0}"
 msgstr "删除会话 id 请求头 {0}"
 
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Request body mode"
-msgstr "请求体写法"
-
 #: src/features/settings/providers.ts
 msgid "Request body overrides must be a JSON object."
 msgstr "请求体覆盖必须是 JSON 对象。"
@@ -249,18 +223,10 @@ msgstr "Responses"
 msgid "Save model"
 msgstr "保存模型"
 
-#: src/features/settings/provider-dialog.tsx
-msgid "Sent with every request; put credentials in the API key, not here."
-msgstr "随每个请求发送；凭据放在 API key 里，不要放在这里。"
-
 #. placeholder {0}: index + 1
 #: src/features/settings/provider-dialog.tsx
 msgid "Session id body field {0}"
 msgstr "会话 id 请求体字段 {0}"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Session id body fields"
-msgstr "会话 id 请求体字段"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Session id fields"
@@ -270,14 +236,6 @@ msgstr "会话 id 字段"
 #: src/features/settings/provider-dialog.tsx
 msgid "Session id header {0}"
 msgstr "会话 id 请求头 {0}"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Session id headers"
-msgstr "会话 id 请求头"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "The crh session id is written to these request headers and body fields (dot paths)."
-msgstr "这些请求头和请求体字段（点分路径）会填入 crh 会话 id。"
 
 #: src/features/settings/model-dialog.tsx
 msgid "Thinking format"
@@ -1019,10 +977,6 @@ msgstr "授权已提交。"
 #: src/features/schedules/pages.tsx
 msgid "Authorizations"
 msgstr "授权"
-
-#: src/features/settings/model-presets.tsx
-msgid "When a root's rule preset is Auto Review, every approval goes to this model first: it approves clearly low-risk operations and hands the rest to the user. Without one, each session's or schedule's own model is used."
-msgstr "当根会话或计划任务的规则预设为自动复核时，每次审批都会先交给该模型：它批准明确低风险的操作，其余交由用户决定。未设置时，使用每个会话或计划任务自己的模型。"
 
 #: src/features/schedules/scheduleForm.ts
 #~ msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
@@ -2938,10 +2892,6 @@ msgstr "可选"
 msgid "Optional; at least 8 characters."
 msgstr "可选；至少 8 个字符。"
 
-#: src/features/settings/provider-dialog.tsx
-msgid "Optional; defaults to the provider id."
-msgstr "可选；默认使用提供方 ID。"
-
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Optional; defaults to the target's host."
 msgstr "可选；默认使用目标主机。"
@@ -3612,10 +3562,6 @@ msgstr "会话"
 #: src/features/settings/pages.tsx
 #~ msgid "Sessions use the models of the enabled providers below."
 #~ msgstr "会话使用下面已启用提供方的模型。"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Sessions use the models of the enabled providers."
-msgstr "会话使用已启用提供方的模型。"
 
 #: src/features/settings/pages.tsx
 msgid "set"
@@ -4648,17 +4594,50 @@ msgid "The model list could not be loaded."
 msgstr "无法加载模型列表。"
 
 #: src/features/settings/model-presets.tsx
-msgid "The session preset only changes the system prompt; each session picks its own model."
-msgstr "会话预设只修改系统提示词；每个会话自己选择模型。"
-
-#: src/features/settings/model-presets.tsx
-msgid "The title preset's model writes conversation titles. Without one, the session's model is used."
-msgstr "标题生成预设的模型负责生成会话标题。未设置时使用会话的模型。"
-
-#: src/features/settings/model-presets.tsx
 msgid "Title generation"
 msgstr "标题生成"
 
 #: src/features/settings/model-presets.tsx
 msgid "Use the session's model"
 msgstr "使用会话的模型"
+
+#: src/features/sessions/new-session-page.tsx
+msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
+msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行。"
+
+#: src/features/sessions/new-session-page.tsx
+msgid "Compaction is not available before the session exists."
+msgstr "会话创建前不能压缩上下文。"
+
+#: src/features/sessions/new-session-page.tsx
+msgid "No model"
+msgstr "无模型"
+
+#: src/features/sessions/new-session-page.tsx
+msgid "What's on your plan today?"
+msgstr "今天有什么安排？"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Image understanding"
+msgstr "图像理解"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Request body (JSON)"
+msgstr "请求体（JSON）"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Standard"
+msgstr "标准"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
+msgstr "每档的 JSON 对象会合并进请求体；只有同时填写请求体和显示名，该档才会被提供。"
+
+#: src/features/settings/providers.ts
+msgid "Off cannot be hidden; give it a display name."
+msgstr "off 档不能隐藏；请给它一个显示名。"
+
+#: src/features/settings/model-dialog.tsx
+msgid "{level} display name"
+msgstr "{level} 显示名"

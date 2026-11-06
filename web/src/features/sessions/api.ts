@@ -19,6 +19,7 @@ import type {
 	SessionShare,
 	SessionView,
 } from "@/lib/api/types";
+import { sessionListFilter, upsertSessionListItem } from "./list-patch";
 import { subscribeSessionListUpserts } from "./list-stream-bus";
 import type { EntryRecord } from "./sessionState";
 
@@ -290,6 +291,9 @@ export function useSessionShares(id: string | undefined) {
 }
 
 export interface CreateSessionInput {
+	/** The draft's idempotency key: one request id creates one session and submits one message (D117). */
+	requestId: string;
+	message: string;
 	title?: string;
 	model: SessionView["model"];
 	rulePreset: string;
@@ -297,17 +301,53 @@ export interface CreateSessionInput {
 	budgetRemaining?: number | null;
 }
 
+/**
+ * The error stays on the draft page's own line; the caller inserts the returned session into the list it
+ * came from, so no list invalidation races that insertion.
+ */
 export function useCreateSession() {
-	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (input: CreateSessionInput) =>
 			http.post<{ session: SessionView }>("/sessions", input).then((r) => r.session),
-		onSuccess: () => {
-			void queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
-		},
-		// The new-session dialog keeps the failure on its own error line.
 		meta: { toast: false },
 	});
+}
+
+/** The list row of a session the caller just created: its own, with no share and no parent. */
+export function sessionListItemFromView(session: SessionView): SessionListItem {
+	return {
+		id: session.id,
+		title: session.title,
+		ownerUserId: session.ownerUserId,
+		ownerName: session.ownerUsername ?? "",
+		scheduleId: session.scheduleId,
+		shared: false,
+		state: session.state,
+		waitingKind: session.waitingKind,
+		updatedAt: session.updatedAt,
+	};
+}
+
+/**
+ * Inserts a just-created session into every loaded session list, respecting each list's scope and search
+ * (D117): the draft page runs before the list's SSE upsert arrives, and the reader must already see the
+ * session they were sent to.
+ */
+export function insertSessionIntoListCaches(
+	queryClient: QueryClient,
+	session: SessionView,
+	viewer: { id: string; isAdmin: boolean },
+): void {
+	const item = sessionListItemFromView(session);
+	for (const query of queryClient.getQueryCache().findAll({ queryKey: sessionKeys.list() })) {
+		const filter = sessionListFilter(query.queryKey, { viewerId: viewer.id, isAdmin: viewer.isAdmin });
+		if (!filter) continue;
+		queryClient.setQueryData<SessionListData>(query.queryKey, (data) => {
+			if (!data) return data;
+			const pages = upsertSessionListItem(data.pages, item, filter);
+			return pages === data.pages ? data : { ...data, pages };
+		});
+	}
 }
 
 export function usePatchSession(id: string) {

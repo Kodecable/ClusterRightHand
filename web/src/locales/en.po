@@ -11,10 +11,6 @@ msgstr ""
 msgid "A mapped level value is required."
 msgstr "A mapped level value is required."
 
-#: src/features/settings/model-dialog.tsx
-msgid "Accept images"
-msgstr "Accept images"
-
 #: src/features/settings/pages.tsx
 msgid "Add a Pi built-in provider or a custom endpoint."
 msgstr "Add a Pi built-in provider or a custom endpoint."
@@ -38,6 +34,10 @@ msgstr "Auto (omit)"
 #: src/features/settings/model-dialog.tsx
 msgid "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
 msgstr "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Body fields"
+msgstr "Body fields"
 
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -69,14 +69,6 @@ msgstr "Custom"
 msgid "Default (omitted)"
 msgstr "Default (omitted)"
 
-#: src/features/settings/model-dialog.tsx
-msgid "Disabled (null)"
-msgstr "Disabled (null)"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Each level's JSON object is merged into the request body; leave a level empty to not offer it."
-msgstr "Each level's JSON object is merged into the request body; leave a level empty to not offer it."
-
 #. placeholder {0}: index + 1
 #. placeholder {0}: initial.id
 #: src/features/settings/model-dialog.tsx
@@ -87,11 +79,6 @@ msgstr "Edit model {0}"
 #: src/features/settings/provider-dialog.tsx
 msgid "Extra headers"
 msgstr "Extra headers"
-
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Format mode"
-msgstr "Format mode"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Header"
@@ -106,6 +93,10 @@ msgstr "Header {0} name"
 #: src/features/settings/provider-dialog.tsx
 msgid "Header {0} value"
 msgstr "Header {0} value"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Headers"
+msgstr "Headers"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Image"
@@ -140,30 +131,18 @@ msgid "Model ids must be unique."
 msgstr "Model ids must be unique."
 
 #: src/features/settings/model-dialog.tsx
-msgid "Models of this provider are offered to sessions; each one maps to the fields pi-ai needs."
-msgstr "Models of this provider are offered to sessions; each one maps to the fields pi-ai needs."
-
-#: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "None"
 msgstr "None"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Only API keys are supported; OAuth sign-in is not available."
-msgstr "Only API keys are supported; OAuth sign-in is not available."
 
 #. js-lingui-explicit-id
 #: src/app/shell/app-sidebar.tsx
 msgid "Ops console"
 msgstr "Ops console"
 
-#: src/features/settings/model-dialog.tsx
-msgid "Optional; defaults to the model id."
-msgstr "Optional; defaults to the model id."
-
 #: src/features/settings/provider-dialog.tsx
-msgid "Optional; overrides the provider's endpoint."
-msgstr "Optional; overrides the provider's endpoint."
+msgid "Optional, overrides the provider's default endpoint."
+msgstr "Optional, overrides the provider's default endpoint."
 
 #. js-lingui-explicit-id
 #: src/app/shell/app-sidebar.tsx
@@ -223,11 +202,6 @@ msgstr "Remove session id body field {0}"
 msgid "Remove session id header {0}"
 msgstr "Remove session id header {0}"
 
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Request body mode"
-msgstr "Request body mode"
-
 #: src/features/settings/providers.ts
 msgid "Request body overrides must be a JSON object."
 msgstr "Request body overrides must be a JSON object."
@@ -249,18 +223,10 @@ msgstr "Responses"
 msgid "Save model"
 msgstr "Save model"
 
-#: src/features/settings/provider-dialog.tsx
-msgid "Sent with every request; put credentials in the API key, not here."
-msgstr "Sent with every request; put credentials in the API key, not here."
-
 #. placeholder {0}: index + 1
 #: src/features/settings/provider-dialog.tsx
 msgid "Session id body field {0}"
 msgstr "Session id body field {0}"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Session id body fields"
-msgstr "Session id body fields"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Session id fields"
@@ -270,14 +236,6 @@ msgstr "Session id fields"
 #: src/features/settings/provider-dialog.tsx
 msgid "Session id header {0}"
 msgstr "Session id header {0}"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Session id headers"
-msgstr "Session id headers"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "The crh session id is written to these request headers and body fields (dot paths)."
-msgstr "The crh session id is written to these request headers and body fields (dot paths)."
 
 #: src/features/settings/model-dialog.tsx
 msgid "Thinking format"
@@ -1019,10 +977,6 @@ msgstr "Authorization submitted."
 #: src/features/schedules/pages.tsx
 msgid "Authorizations"
 msgstr "Authorizations"
-
-#: src/features/settings/model-presets.tsx
-msgid "When a root's rule preset is Auto Review, every approval goes to this model first: it approves clearly low-risk operations and hands the rest to the user. Without one, each session's or schedule's own model is used."
-msgstr "When a root's rule preset is Auto Review, every approval goes to this model first: it approves clearly low-risk operations and hands the rest to the user. Without one, each session's or schedule's own model is used."
 
 #: src/features/schedules/scheduleForm.ts
 #~ msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
@@ -2938,10 +2892,6 @@ msgstr "Optional"
 msgid "Optional; at least 8 characters."
 msgstr "Optional; at least 8 characters."
 
-#: src/features/settings/provider-dialog.tsx
-msgid "Optional; defaults to the provider id."
-msgstr "Optional; defaults to the provider id."
-
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Optional; defaults to the target's host."
 msgstr "Optional; defaults to the target's host."
@@ -3612,10 +3562,6 @@ msgstr "Sessions"
 #: src/features/settings/pages.tsx
 #~ msgid "Sessions use the models of the enabled providers below."
 #~ msgstr "Sessions use the models of the enabled providers below."
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Sessions use the models of the enabled providers."
-msgstr "Sessions use the models of the enabled providers."
 
 #: src/features/settings/pages.tsx
 msgid "set"
@@ -4648,17 +4594,50 @@ msgid "The model list could not be loaded."
 msgstr "The model list could not be loaded."
 
 #: src/features/settings/model-presets.tsx
-msgid "The session preset only changes the system prompt; each session picks its own model."
-msgstr "The session preset only changes the system prompt; each session picks its own model."
-
-#: src/features/settings/model-presets.tsx
-msgid "The title preset's model writes conversation titles. Without one, the session's model is used."
-msgstr "The title preset's model writes conversation titles. Without one, the session's model is used."
-
-#: src/features/settings/model-presets.tsx
 msgid "Title generation"
 msgstr "Title generation"
 
 #: src/features/settings/model-presets.tsx
 msgid "Use the session's model"
 msgstr "Use the session's model"
+
+#: src/features/sessions/new-session-page.tsx
+msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
+msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
+
+#: src/features/sessions/new-session-page.tsx
+msgid "Compaction is not available before the session exists."
+msgstr "Compaction is not available before the session exists."
+
+#: src/features/sessions/new-session-page.tsx
+msgid "No model"
+msgstr "No model"
+
+#: src/features/sessions/new-session-page.tsx
+msgid "What's on your plan today?"
+msgstr "What's on your plan today?"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Image understanding"
+msgstr "Image understanding"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Request body (JSON)"
+msgstr "Request body (JSON)"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Standard"
+msgstr "Standard"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
+msgstr "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
+
+#: src/features/settings/providers.ts
+msgid "Off cannot be hidden; give it a display name."
+msgstr "Off cannot be hidden; give it a display name."
+
+#: src/features/settings/model-dialog.tsx
+msgid "{level} display name"
+msgstr "{level} display name"

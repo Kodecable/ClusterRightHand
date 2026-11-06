@@ -204,8 +204,9 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	});
 
 	/**
-	 * `{ model?: ModelRef | null, systemPrompt?: string | null }`: omitted fields stay unchanged, null clears.
-	 * The session preset never chooses a model; review and title models are resolved (with their thinking level).
+	 * `{ model?: ModelRef | null, systemPrompt?: string | null }`: omitted fields stay unchanged, null
+	 * clears. The session preset never chooses a model; review and title models are resolved with their
+	 * thinking level, which belongs in the model ref.
 	 */
 	app.put("/model-presets/:kind", async (c) => {
 		if (!admin(c)) return jsonError(c, 403, "administrators only");
@@ -214,6 +215,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
 		const has = (key: string) => Object.hasOwn(body, key);
+		if (has("thinkingLevel")) throw new UserError("thinkingLevel belongs in model");
 		let model: ModelRef | null | undefined;
 		if (has("model")) {
 			if (kind === "session") {
@@ -369,17 +371,31 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		});
 	});
 
+	/**
+	 * Creates a session and submits its first message in one request (D117): `{ requestId, model, rulePreset,
+	 * budgetRemaining?, title?, message }`. A retry with the same request id returns the session the first
+	 * attempt made (200) instead of creating another; a new session is 201. A failure to submit removes the
+	 * new session again.
+	 */
 	app.post("/sessions", async (c) => {
 		const body = (await readJsonObject(c)) ?? {};
+		const requestId = typeof body.requestId === "string" ? body.requestId.trim() : "";
+		if (requestId === "" || requestId.length > 128) {
+			return jsonError(c, 400, "requestId is required and must be at most 128 characters");
+		}
+		const message = typeof body.message === "string" ? body.message.trim() : "";
+		if (message === "") return jsonError(c, 400, "message is required");
 		// Any level may have a remaining budget; null (or no field) is unlimited and never charged (D92, D101).
 		const budgetRemaining = body.budgetRemaining === undefined ? undefined : parseQuota(body.budgetRemaining);
-		const session = await runtime.createSession(c.get("user"), {
+		const { session, created } = await runtime.createSessionWithMessage(c.get("user"), {
+			requestId,
+			message,
 			model: parseModelRef(body.model),
 			rulePreset: parseRulePreset(body.rulePreset ?? "ask"),
 			...(typeof body.title === "string" ? { title: body.title } : {}),
 			...(budgetRemaining === undefined ? {} : { budgetRemaining }),
 		});
-		return c.json({ session: (await decorate(c, [session]))[0] }, 201);
+		return c.json({ session: (await decorate(c, [session]))[0] }, created ? 201 : 200);
 	});
 
 	app.get("/sessions/:id", async (c) => {

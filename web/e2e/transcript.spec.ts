@@ -44,6 +44,7 @@ test("a faux-model session streams text, runs a tool call, waits for an inline a
 	env,
 }) => {
 	if (!env) throw new Error("withNode");
+	await newSession(page, "Transcript run", "Yolo");
 	crhs.faux.setResponses([
 		fauxAssistantMessage(
 			[fauxToolCall("exec", { targets: [env.nodeId], cmd: "sleep 0.4; echo approve-me" }, { id: "call-1" })],
@@ -53,7 +54,6 @@ test("a faux-model session streams text, runs a tool call, waits for an inline a
 		),
 		fauxAssistantMessage([fauxText(`Approved and done. ${"The command printed approve-me. ".repeat(40)}`)]),
 	]);
-	await newSession(page, "Transcript run", "Yolo");
 	// Switch to Ask through the composer footer: the tool call then waits for the owner's approval.
 	await page.getByTestId("composer-rules").click();
 	await page.getByLabel("Rule preset").click();
@@ -116,6 +116,14 @@ test("a faux-model session streams text, runs a tool call, waits for an inline a
 });
 
 test("the transcript renders Markdown safely with no remote request", async ({ adminPage: page, crhs }) => {
+	let remoteRequests = 0;
+	await page.route("**/*", (route) => {
+		const url = route.request().url();
+		if (url.startsWith(crhs.url) || url === "about:blank") return route.fallback();
+		remoteRequests += 1;
+		return route.abort();
+	});
+	await newSession(page, "Safe markdown");
 	crhs.faux.setResponses([
 		fauxAssistantMessage([
 			fauxText(
@@ -129,14 +137,6 @@ test("the transcript renders Markdown safely with no remote request", async ({ a
 			),
 		]),
 	]);
-	let remoteRequests = 0;
-	await page.route("**/*", (route) => {
-		const url = route.request().url();
-		if (url.startsWith(crhs.url) || url === "about:blank") return route.fallback();
-		remoteRequests += 1;
-		return route.abort();
-	});
-	await newSession(page, "Safe markdown");
 	await sendMessage(page, "show me");
 	await expect(page.getByTestId("safe-markdown").first()).toBeVisible({ timeout: 20_000 });
 	await expect(page.getByTestId("transcript-scroller")).toContainText("Normal");

@@ -260,7 +260,10 @@ describe("agent runtime shutdown", () => {
 		});
 		expect(message.status).toBe(503);
 		expect(await message.json()).toEqual({ error: "server is shutting down" });
-		const created = await call(app, "/api/sessions", { cookie, body: { model: model() } });
+		const created = await call(app, "/api/sessions", {
+			cookie,
+			body: { requestId: "closing", message: "hi", model: model() },
+		});
 		expect(created.status).toBe(503);
 		// A clean error: no closed-Harness exception reached Hono's default handler.
 		expect(consoleErrors).toEqual([]);

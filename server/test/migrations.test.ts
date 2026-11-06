@@ -24,6 +24,8 @@ import { down as down0041, up as up0041 } from "../src/storage/migrations/0041_r
 import { down as down0042, up as up0042 } from "../src/storage/migrations/0042_custom_model_providers.ts";
 import { down as down0043, up as up0043 } from "../src/storage/migrations/0043_model_presets.ts";
 import { down as down0044, up as up0044 } from "../src/storage/migrations/0044_session_title_pending.ts";
+import { down as down0045, up as up0045 } from "../src/storage/migrations/0045_sessions_create_request_id.ts";
+import { down as down0046, up as up0046 } from "../src/storage/migrations/0046_thinking_modes_and_labels.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
@@ -1853,5 +1855,183 @@ describeBackends("0044 session title pending", (backend) => {
 			select title, title_pending from sessions where id = 'null-title'
 		`.execute(db);
 		expect(inserted.rows).toEqual([{ title: null, title_pending: 0 }]);
+	});
+});
+
+describeBackends("0045 session create request id", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend);
+		await applyMigration(backend, db, down0045);
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	const indexNames = async (): Promise<string[]> => {
+		if (backend === "postgres") {
+			const rows = await sql<{ name: string }>`
+				select indexname as name from pg_indexes
+				where schemaname = current_schema() and indexname = 'sessions_owner_create_request_unique'
+			`.execute(db);
+			return rows.rows.map((row) => row.name);
+		}
+		const rows = await sql<{ name: string }>`
+			select name from sqlite_master
+			where type = 'index' and name = 'sessions_owner_create_request_unique'
+		`.execute(db);
+		return rows.rows.map((row) => row.name);
+	};
+
+	it("adds a nullable request id, unique per owner, and drops both on rollback", async () => {
+		const alice = await createUser(db, { username: "create-request-alice", kind: "member" });
+		const bob = await createUser(db, { username: "create-request-bob", kind: "member" });
+		const orgId = await defaultOrgId(db);
+		const now = "2026-01-01T00:00:00.000Z";
+		const insertBefore = (id: string, owner: string) =>
+			sql`
+				insert into sessions (
+					id, org_id, owner_user_id, conversation_id, parent_session_id, title, model, status,
+					created_at, updated_at, archived_at, last_submission_id, state, waiting_kind, waiting_level_id,
+					waiting_handler_id, state_changed_at
+				) values (
+					${id}, ${orgId}, ${owner}, ${`conv-${id}`}, null, null, ${"{}"}, ${"active"},
+					${now}, ${now}, null, null, ${"idle"}, null, null, null, null
+				)
+			`.execute(db);
+		const insert = (id: string, owner: string, requestId: string | null) =>
+			sql`
+				insert into sessions (
+					id, org_id, owner_user_id, conversation_id, parent_session_id, title, model, status,
+					created_at, updated_at, archived_at, last_submission_id, state, waiting_kind, waiting_level_id,
+					waiting_handler_id, state_changed_at, create_request_id
+				) values (
+					${id}, ${orgId}, ${owner}, ${`conv-${id}`}, null, null, ${"{}"}, ${"active"},
+					${now}, ${now}, null, null, ${"idle"}, null, null, null, null, ${requestId}
+				)
+			`.execute(db);
+
+		// Sessions that predate the column get null and keep working.
+		await insertBefore("existing-1", alice.id);
+		await insertBefore("existing-2", alice.id);
+		await applyMigration(backend, db, up0045);
+		expect(await tableColumns(backend, db, "sessions")).toContain("create_request_id");
+		expect(await indexNames()).toEqual(["sessions_owner_create_request_unique"]);
+
+		// A null request id is not deduplicated: any number of sessions may have none.
+		const nulls = await sql<{ n: number }>`
+			select count(*) as n from sessions where create_request_id is null and owner_user_id = ${alice.id}
+		`.execute(db);
+		expect(Number(nulls.rows[0]?.n)).toBe(2);
+
+		await insert("alice-request", alice.id, "same-request");
+		// The same request id for another owner is a different creation.
+		await insert("bob-request", bob.id, "same-request");
+		await expect(insert("alice-duplicate", alice.id, "same-request")).rejects.toThrow();
+		// Reusing it for the same owner is also rejected on update.
+		await expect(
+			sql`update sessions set create_request_id = 'same-request' where id = 'existing-1'`.execute(db),
+		).rejects.toThrow();
+
+		await applyMigration(backend, db, down0045);
+		expect(await tableColumns(backend, db, "sessions")).not.toContain("create_request_id");
+		expect(await indexNames()).toEqual([]);
+	});
+});
+
+describeBackends("0046 thinking modes and labels", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("model_providers")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("kind", "text", (c) => c.notNull())
+				.addColumn("models", "text")
+				.execute();
+			await db.schema
+				.createTable("model_presets")
+				.addColumn("org_id", "text", (c) => c.notNull())
+				.addColumn("kind", "text", (c) => c.notNull())
+				.addColumn("model", "text")
+				.addColumn("system_prompt", "text")
+				.addColumn("updated_at", "text", (c) => c.notNull())
+				.addPrimaryKeyConstraint("model_presets_pk", ["org_id", "kind"])
+				.execute();
+		});
+		const models = JSON.stringify([
+			{
+				id: "standard",
+				thinking: { mode: "format", format: "deepseek", levels: { low: "low", xhigh: null } },
+			},
+			{
+				id: "custom",
+				thinking: { mode: "body", levels: { high: { thinking: { type: "enabled" } } } },
+			},
+		]);
+		await sql`insert into model_providers (id, kind, models) values
+			('proxy', 'custom', ${models}),
+			('builtin', 'builtin', null)`.execute(db);
+		await sql`insert into model_presets (org_id, kind, model, system_prompt, updated_at) values
+			('org-1', 'review', ${JSON.stringify({ provider: "proxy", modelId: "standard" })}, null, '2026-01-01T00:00:00.000Z')`.execute(
+			db,
+		);
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("renames the modes and reverses it", async () => {
+		await applyMigration(backend, db, up0046);
+
+		const rows = await sql<{ id: string; models: string | null }>`
+			select id, models from model_providers order by id
+		`.execute(db);
+		expect(JSON.parse(rows.rows.find((row) => row.id === "proxy")?.models ?? "[]")).toEqual([
+			{
+				id: "standard",
+				thinking: { mode: "standard", format: "deepseek", levels: { low: "low", xhigh: null } },
+			},
+			{
+				id: "custom",
+				thinking: { mode: "custom", levels: { high: { thinking: { type: "enabled" } } } },
+			},
+		]);
+		// Built-in rows carry no models and stay untouched.
+		expect(rows.rows.find((row) => row.id === "builtin")?.models).toBeNull();
+
+		await applyMigration(backend, db, down0046);
+		const restored = await sql<{ id: string; models: string | null }>`
+			select id, models from model_providers order by id
+		`.execute(db);
+		expect(JSON.parse(restored.rows.find((row) => row.id === "proxy")?.models ?? "[]")).toEqual([
+			{
+				id: "standard",
+				thinking: { mode: "format", format: "deepseek", levels: { low: "low", xhigh: null } },
+			},
+			{
+				id: "custom",
+				thinking: { mode: "body", levels: { high: { thinking: { type: "enabled" } } } },
+			},
+		]);
+	});
+
+	it("leaves an unreadable model list and rows without thinking untouched", async () => {
+		await sql`insert into model_providers (id, kind, models) values ('broken', 'custom', '{not json')`.execute(db);
+		const before = JSON.stringify([{ id: "plain", thinking: undefined }]);
+		await sql`insert into model_providers (id, kind, models) values ('plain', 'custom', ${before})`.execute(db);
+		await applyMigration(backend, db, up0046);
+		const rows = await sql<{ id: string; models: string | null }>`
+			select id, models from model_providers where id in ('broken', 'plain') order by id
+		`.execute(db);
+		expect(rows.rows).toEqual([
+			{ id: "broken", models: "{not json" },
+			{ id: "plain", models: before },
+		]);
 	});
 });

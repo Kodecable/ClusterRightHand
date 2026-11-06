@@ -15,9 +15,9 @@ import { ModelPresetsSection } from "./model-presets";
 import { ProviderDialog } from "./provider-dialog";
 
 /**
- * Model providers (administrators only, doc/webui.md "Models"): Pi built-in
- * providers and custom endpoints, their keys (never displayed back), and the
- * three model presets.
+ * Model settings (administrators only, doc/webui.md "Models"): the three model
+ * presets first, then the Pi built-in providers and custom endpoints and their
+ * keys (never displayed back).
  */
 export function ModelSettingsPage() {
 	const { t } = useLingui();
@@ -127,6 +127,7 @@ export function ModelSettingsPage() {
 	return (
 		<Page data-testid="models-page">
 			<PageHeader title={<Trans>Models</Trans>} />
+			<ModelPresetsSection />
 			<section className="grid gap-3" aria-labelledby="model-providers-heading" data-testid="model-providers">
 				<div className="flex flex-wrap items-start justify-between gap-2">
 					<div>
@@ -158,7 +159,6 @@ export function ModelSettingsPage() {
 					}
 				/>
 			</section>
-			<ModelPresetsSection />
 			{editing !== undefined && providers.data && (
 				<ProviderDialog
 					existing={editing === "new" ? undefined : editing}

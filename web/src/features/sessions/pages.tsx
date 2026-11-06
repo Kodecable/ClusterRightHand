@@ -139,3 +139,5 @@ export function SessionPage() {
 		</div>
 	);
 }
+
+export { NewSessionPage } from "./new-session-page";

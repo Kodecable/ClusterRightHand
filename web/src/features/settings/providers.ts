@@ -43,10 +43,10 @@ export const CUSTOM_APIS = ["openai-completions", "openai-responses"] as const s
 /** The selected protocol names (doc/agent-runtime.md#自定义提供方). */
 export type CustomApiValue = (typeof CUSTOM_APIS)[number];
 
-export type ThinkingMode = "none" | "format" | "body";
+export type ThinkingMode = "none" | "standard" | "custom";
 
-/** One level of the format-mode map: omitted (default), a mapped string, or disabled (null). */
-export type FormatLevelKind = "default" | "value" | "disabled";
+/** One level of the standard-mode map: omitted (default), or a mapped string value. */
+export type FormatLevelKind = "default" | "value";
 
 export interface FormatLevelRow {
 	kind: FormatLevelKind;
@@ -60,13 +60,15 @@ export interface ModelRow {
 	api: CustomApiValue;
 	contextWindow: string;
 	maxTokens: string;
-	acceptImages: boolean;
+	imageUnderstanding: boolean;
 	thinkingMode: ThinkingMode;
 	/** Chat Completions only; "" means auto (pi-ai decides from the URL). */
 	format: string;
 	formatLevels: Record<ThinkingLevel, FormatLevelRow>;
 	/** JSON text per level; empty means the level is not offered. */
 	bodyLevels: Record<ThinkingLevel, string>;
+	/** Display name per level; `minimal`–`high` default to the id, `xhigh`/`max` start empty (hidden). */
+	labels: Record<ThinkingLevel, string>;
 	/** Advanced pi-ai options (JSON text). */
 	compatText: string;
 }
@@ -92,6 +94,7 @@ export type ProviderFormErrorCode =
 	| "level-value-required"
 	| "level-invalid-json"
 	| "level-not-object"
+	| "off-level-hidden"
 	| "compat-invalid-json"
 	| "compat-not-object";
 
@@ -107,6 +110,7 @@ const MESSAGES: Record<ProviderFormErrorCode, MessageDescriptor> = {
 	"level-value-required": msg`A mapped level value is required.`,
 	"level-invalid-json": msg`Request body overrides must be valid JSON.`,
 	"level-not-object": msg`Request body overrides must be a JSON object.`,
+	"off-level-hidden": msg`Off cannot be hidden; give it a display name.`,
 	"compat-invalid-json": msg`Compat must be valid JSON.`,
 	"compat-not-object": msg`Compat must be a JSON object.`,
 };
@@ -127,6 +131,23 @@ function emptyBodyLevels(): Record<ThinkingLevel, string> {
 	return Object.fromEntries(THINKING_LEVELS.map((level) => [level, ""])) as Record<ThinkingLevel, string>;
 }
 
+/**
+ * A level's display name defaults to its id, except `xhigh` / `max`: pi-ai only offers those when they
+ * are mapped or named, so they start hidden (an empty name with the id as its placeholder). `off` can be
+ * renamed but never hidden.
+ */
+function emptyLabels(): Record<ThinkingLevel, string> {
+	return Object.fromEntries(THINKING_LEVELS.map((level) => [level, isMappedOnlyLevel(level) ? "" : level])) as Record<
+		ThinkingLevel,
+		string
+	>;
+}
+
+/** `xhigh` and `max` are hidden unless the stored config offers them. */
+function isMappedOnlyLevel(level: ThinkingLevel): boolean {
+	return level === "xhigh" || level === "max";
+}
+
 /** A blank model row for the add dialog. */
 export function emptyModelRow(): ModelRow {
 	return {
@@ -135,11 +156,12 @@ export function emptyModelRow(): ModelRow {
 		api: "openai-completions",
 		contextWindow: "128000",
 		maxTokens: "8192",
-		acceptImages: false,
+		imageUnderstanding: false,
 		thinkingMode: "none",
 		format: "",
 		formatLevels: emptyFormatLevels(),
 		bodyLevels: emptyBodyLevels(),
+		labels: emptyLabels(),
 		compatText: "",
 	};
 }
@@ -155,11 +177,12 @@ export function modelToRow(model: CustomModel): ModelRow {
 		api: model.api,
 		contextWindow: String(model.contextWindow),
 		maxTokens: String(model.maxTokens),
-		acceptImages: model.input.includes("image"),
+		imageUnderstanding: model.input.includes("image"),
 		thinkingMode: thinking === undefined ? "none" : thinking.mode,
-		format: thinking?.mode === "format" ? (thinking.format ?? "") : "",
-		formatLevels: formatLevelsToRow(thinking?.mode === "format" ? thinking.levels : undefined),
-		bodyLevels: bodyLevelsToRow(thinking?.mode === "body" ? thinking.levels : undefined),
+		format: thinking?.mode === "standard" ? (thinking.format ?? "") : "",
+		formatLevels: formatLevelsToRow(thinking?.mode === "standard" ? thinking.levels : undefined),
+		bodyLevels: bodyLevelsToRow(thinking?.mode === "custom" ? thinking.levels : undefined),
+		labels: labelsToRow(thinking),
 		compatText: model.compat === undefined ? "" : JSON.stringify(model.compat, null, 2),
 	};
 }
@@ -172,7 +195,36 @@ function formatLevelsToRow(
 	for (const level of THINKING_LEVELS) {
 		if (!Object.hasOwn(levels, level)) continue;
 		const value = levels[level];
-		values[level] = value === null ? { kind: "disabled", value: "" } : { kind: "value", value: String(value) };
+		// A stored null was the old "disabled" choice; leaving the map empty plus an empty
+		// display name (in `labelsToRow`) hides the level now.
+		if (value === null) continue;
+		values[level] = { kind: "value", value: String(value) };
+	}
+	return values;
+}
+
+/**
+ * The stored display names, with the level id as the default. A standard-mode level stored as
+ * null shows as an empty display name, because that is how the level is hidden now. `xhigh` and
+ * `max` are only offered when the stored config maps them or names them, so those two start
+ * empty and show the id when the stored config offers them.
+ */
+function labelsToRow(thinking: CustomModel["thinking"]): Record<ThinkingLevel, string> {
+	const values = emptyLabels();
+	if (thinking === undefined) return values;
+	for (const level of THINKING_LEVELS) {
+		// A stored null is the old "disabled" choice: it hides the level, so it wins over any label.
+		if (thinking.mode === "standard" && thinking.levels[level] === null) {
+			values[level] = "";
+			continue;
+		}
+		const label = thinking.labels?.[level];
+		if (label !== undefined) {
+			values[level] = label;
+			continue;
+		}
+		// A mapped value (or a body-mode request body) offers the level; show its id as the name.
+		if (isMappedOnlyLevel(level) && thinking.levels[level] !== undefined) values[level] = level;
 	}
 	return values;
 }
@@ -196,6 +248,7 @@ export interface ModelFormErrors {
 	maxTokens?: ProviderFormErrorCode;
 	formatLevels?: Partial<Record<ThinkingLevel, ProviderFormErrorCode>>;
 	bodyLevels?: Partial<Record<ThinkingLevel, ProviderFormErrorCode>>;
+	labels?: Partial<Record<ThinkingLevel, ProviderFormErrorCode>>;
 	compat?: ProviderFormErrorCode;
 }
 
@@ -240,17 +293,45 @@ export function rowToModel(row: ModelRow): { model: CustomModel } | { errors: Mo
 	const maxTokens = Number(row.maxTokens);
 	if (!Number.isInteger(maxTokens) || maxTokens < 1) errors.maxTokens = "max-tokens-invalid";
 
+	// Display names: the level id is the default and is omitted; an empty name hides the level.
+	// `xhigh`/`max` start empty and are stored only when they are offered (a mapped value or body)
+	// or named, so an untouched hidden row adds no label.
+	const labels: Partial<Record<ThinkingLevel, string>> = {};
+	if (row.thinkingMode !== "none") {
+		const labelErrors: Partial<Record<ThinkingLevel, ProviderFormErrorCode>> = {};
+		for (const level of THINKING_LEVELS) {
+			const label = row.labels[level].trim();
+			if (level === "off" && label === "") {
+				labelErrors.off = "off-level-hidden";
+				continue;
+			}
+			if (isMappedOnlyLevel(level)) {
+				const offered =
+					row.thinkingMode === "standard"
+						? row.formatLevels[level].kind === "value"
+						: row.bodyLevels[level].trim() !== "";
+				if (label === "") {
+					// An empty name hides the level; record it only when the config would otherwise offer it.
+					if (offered) labels[level] = "";
+				} else if (!(offered && label === level)) {
+					// A mapped level keeps the id as its default name; anything else is stored.
+					labels[level] = label;
+				}
+			} else if (label !== level) {
+				labels[level] = label;
+			}
+		}
+		if (Object.keys(labelErrors).length > 0) errors.labels = labelErrors;
+	}
+	const withLabels = Object.keys(labels).length > 0 ? { labels } : {};
+
 	let thinking: CustomModel["thinking"];
-	if (row.thinkingMode === "format") {
+	if (row.thinkingMode === "standard") {
 		const levels: Partial<Record<ThinkingLevel, string | null>> = {};
 		const levelErrors: Partial<Record<ThinkingLevel, ProviderFormErrorCode>> = {};
 		for (const level of THINKING_LEVELS) {
 			const entry = row.formatLevels[level];
 			if (entry.kind === "default") continue;
-			if (entry.kind === "disabled") {
-				levels[level] = null;
-				continue;
-			}
 			const value = entry.value.trim();
 			if (value === "") {
 				levelErrors[level] = "level-value-required";
@@ -260,12 +341,13 @@ export function rowToModel(row: ModelRow): { model: CustomModel } | { errors: Mo
 		}
 		if (Object.keys(levelErrors).length > 0) errors.formatLevels = levelErrors;
 		thinking = {
-			mode: "format",
+			mode: "standard",
 			// Responses always sends reasoning.effort; the server rejects a format there.
 			...(row.api === "openai-completions" && row.format !== "" ? { format: row.format } : {}),
 			levels,
+			...withLabels,
 		};
-	} else if (row.thinkingMode === "body") {
+	} else if (row.thinkingMode === "custom") {
 		const levels: Partial<Record<ThinkingLevel, Record<string, unknown>>> = {};
 		const levelErrors: Partial<Record<ThinkingLevel, ProviderFormErrorCode>> = {};
 		for (const level of THINKING_LEVELS) {
@@ -276,7 +358,7 @@ export function rowToModel(row: ModelRow): { model: CustomModel } | { errors: Mo
 			else levels[level] = parsed.value;
 		}
 		if (Object.keys(levelErrors).length > 0) errors.bodyLevels = levelErrors;
-		thinking = { mode: "body", levels };
+		thinking = { mode: "custom", levels, ...withLabels };
 	}
 
 	let compat: Record<string, unknown> | undefined;
@@ -293,7 +375,7 @@ export function rowToModel(row: ModelRow): { model: CustomModel } | { errors: Mo
 		api: row.api,
 		contextWindow,
 		maxTokens,
-		input: row.acceptImages ? ["text", "image"] : ["text"],
+		input: row.imageUnderstanding ? ["text", "image"] : ["text"],
 		...(thinking !== undefined ? { thinking } : {}),
 		...(compat !== undefined ? { compat } : {}),
 	};
@@ -322,6 +404,7 @@ function firstModelError(errors: ModelFormErrors): ProviderFormErrorCode {
 		errors.maxTokens ??
 		Object.values(errors.formatLevels ?? {})[0] ??
 		Object.values(errors.bodyLevels ?? {})[0] ??
+		Object.values(errors.labels ?? {})[0] ??
 		errors.compat ??
 		"model-id-required"
 	);

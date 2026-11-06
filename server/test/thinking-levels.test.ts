@@ -19,6 +19,8 @@ vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const PLAIN = "plain-model";
 const THINK = "think-model";
+const LABELED = "labeled-model";
+const EXTRA = "extra-levels";
 const MODEL_ID = "m-1";
 
 /** A minimal OpenAI-compatible endpoint, recording every request body. */
@@ -114,13 +116,50 @@ describe("thinking levels end to end", () => {
 			kind: "custom",
 			providerId: THINK,
 			baseUrl: stub.url,
-			models: modelsOf({ mode: "format", format: "openai", levels: {} }) as never,
+			models: modelsOf({ mode: "standard", format: "openai", levels: {} }) as never,
+		});
+		await saveModelProvider(db, masterKey, {
+			kind: "custom",
+			providerId: LABELED,
+			baseUrl: stub.url,
+			models: modelsOf({
+				mode: "standard",
+				levels: { high: "high" },
+				// A renamed level and a hidden one.
+				labels: { off: "None", high: "Deep", low: "" },
+			}) as never,
 		});
 		await saveModelProvider(db, masterKey, {
 			kind: "custom",
 			providerId: PLAIN,
 			baseUrl: stub.url,
 			models: modelsOf() as never,
+		});
+		const extraModel = (id: string, thinking: Record<string, unknown>) => ({
+			id,
+			api: "openai-completions",
+			contextWindow: 4096,
+			maxTokens: 512,
+			input: ["text"],
+			thinking,
+		});
+		// xhigh/max are offered by a mapped value or a non-empty display name; a hidden label wins
+		// over a mapping, and no label plus no mapping keeps pi-ai's default (not offered).
+		await saveModelProvider(db, masterKey, {
+			kind: "custom",
+			providerId: EXTRA,
+			baseUrl: stub.url,
+			models: [
+				extraModel("xhigh-named", { mode: "standard", levels: {}, labels: { xhigh: "Extreme" } }),
+				extraModel("xhigh-mapped", { mode: "standard", levels: { xhigh: "xhigh" } }),
+				extraModel("xhigh-hidden", {
+					mode: "standard",
+					levels: { xhigh: "xhigh" },
+					labels: { xhigh: "" },
+				}),
+				extraModel("xhigh-unmapped", { mode: "standard", levels: {} }),
+				extraModel("max-named", { mode: "standard", levels: {}, labels: { max: "Maximum" } }),
+			] as never,
 		});
 		await models.reload();
 		const scheduler = new Scheduler({ db, runtime, audit });
@@ -141,19 +180,86 @@ describe("thinking levels end to end", () => {
 		const res = await request("/api/models");
 		expect(res.status).toBe(200);
 		const { models: list } = (await res.json()) as {
-			models: { provider: string; modelId: string; thinkingLevels: string[]; input: string[] }[];
+			models: {
+				provider: string;
+				modelId: string;
+				thinkingLevels: string[];
+				thinkingLabels?: Record<string, string>;
+				input: string[];
+			}[];
 		};
 		const think = list.find((model) => model.provider === THINK && model.modelId === MODEL_ID);
 		expect(think?.thinkingLevels).toEqual(["off", "minimal", "low", "medium", "high"]);
+		// A custom model without explicit labels exposes each level id as its display name.
+		expect(think?.thinkingLabels).toEqual({
+			off: "off",
+			minimal: "minimal",
+			low: "low",
+			medium: "medium",
+			high: "high",
+		});
 		expect(think?.input).toEqual(["text", "image"]);
 		const plain = list.find((model) => model.provider === PLAIN && model.modelId === MODEL_ID);
 		expect(plain?.thinkingLevels).toEqual(["off"]);
 		expect(plain?.input).toEqual(["text", "image"]);
+
+		// Custom models expose a display name for every offered level; a hidden level is not offered.
+		const labeled = list.find((model) => model.provider === LABELED && model.modelId === MODEL_ID);
+		expect(labeled?.thinkingLevels).toEqual(["off", "minimal", "medium", "high"]);
+		expect(labeled?.thinkingLabels).toEqual({
+			off: "None",
+			minimal: "minimal",
+			medium: "medium",
+			high: "Deep",
+		});
+
+		const extra = (modelId: string) => list.find((model) => model.provider === EXTRA && model.modelId === modelId);
+		const baseLevels = ["off", "minimal", "low", "medium", "high"];
+		// A non-empty display name without a mapped value offers xhigh and sends its id.
+		expect(extra("xhigh-named")?.thinkingLevels).toEqual([...baseLevels, "xhigh"]);
+		expect(extra("xhigh-named")?.thinkingLabels).toMatchObject({ xhigh: "Extreme" });
+		// A mapped value offers it without any label; the display name falls back to the id.
+		expect(extra("xhigh-mapped")?.thinkingLevels).toEqual([...baseLevels, "xhigh"]);
+		expect(extra("xhigh-mapped")?.thinkingLabels).toMatchObject({ xhigh: "xhigh" });
+		// An empty label hides it even when mapped.
+		expect(extra("xhigh-hidden")?.thinkingLevels).toEqual(baseLevels);
+		expect(extra("xhigh-hidden")?.thinkingLabels).not.toHaveProperty("xhigh");
+		// Neither a label nor a mapping: pi-ai's default is not to offer it.
+		expect(extra("xhigh-unmapped")?.thinkingLevels).toEqual(baseLevels);
+		// max follows the same rule.
+		expect(extra("max-named")?.thinkingLevels).toEqual([...baseLevels, "max"]);
+		expect(extra("max-named")?.thinkingLabels).toMatchObject({ max: "Maximum" });
+
+		// The pi-ai map the display names build: a name sends the level id, an empty label hides,
+		// and no label/mapping leaves the key absent.
+		expect(models.models.getModel(EXTRA, "xhigh-named")?.thinkingLevelMap).toMatchObject({ xhigh: "xhigh" });
+		expect(models.models.getModel(EXTRA, "xhigh-mapped")?.thinkingLevelMap).toMatchObject({ xhigh: "xhigh" });
+		expect(models.models.getModel(EXTRA, "xhigh-hidden")?.thinkingLevelMap).toMatchObject({ xhigh: null });
+		expect(models.models.getModel(EXTRA, "xhigh-unmapped")?.thinkingLevelMap).not.toHaveProperty("xhigh");
+		expect(models.models.getModel(EXTRA, "max-named")?.thinkingLevelMap).toMatchObject({ max: "max" });
+	});
+
+	it("rejects a hidden level like any unsupported level", async () => {
+		const hidden = await request("/api/sessions", {
+			body: {
+				requestId: "thinking-level-hidden",
+				message: "hello",
+				model: { provider: LABELED, modelId: MODEL_ID, thinkingLevel: "low" },
+			},
+		});
+		expect(hidden.status).toBe(400);
+		expect(((await hidden.json()) as { error: string }).error).toBe(
+			`thinking level low is not supported by ${LABELED}/${MODEL_ID}; supported: off, minimal, medium, high`,
+		);
 	});
 
 	it("rejects an explicit level the model does not support on session create and patch", async () => {
 		const unsupported = await request("/api/sessions", {
-			body: { model: { provider: THINK, modelId: MODEL_ID, thinkingLevel: "xhigh" } },
+			body: {
+				requestId: "thinking-level-bad",
+				message: "hello",
+				model: { provider: THINK, modelId: MODEL_ID, thinkingLevel: "xhigh" },
+			},
 		});
 		expect(unsupported.status).toBe(400);
 		expect(((await unsupported.json()) as { error: string }).error).toBe(
@@ -161,12 +267,19 @@ describe("thinking levels end to end", () => {
 		);
 
 		const created = await request("/api/sessions", {
-			body: { model: { provider: THINK, modelId: MODEL_ID, thinkingLevel: "high" } },
+			body: {
+				requestId: "thinking-level-high",
+				message: "hello",
+				title: "Thinking levels",
+				model: { provider: THINK, modelId: MODEL_ID, thinkingLevel: "high" },
+			},
 		});
 		expect(created.status).toBe(201);
 		const session = ((await created.json()) as { session: { id: string; model: { thinkingLevel: string } } }).session;
 		sessionId = session.id;
 		expect(session.model).toEqual({ provider: THINK, modelId: MODEL_ID, thinkingLevel: "high" });
+		// The create request also submitted `hello`; let that run finish before the next test scripts requests.
+		await runtime.waitForIdle();
 
 		const badPatch = await request(`/api/sessions/${sessionId}`, {
 			method: "PATCH",

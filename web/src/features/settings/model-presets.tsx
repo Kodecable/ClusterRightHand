@@ -1,6 +1,6 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ChevronRightIcon } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { groupModels, modelKey, parseModelKey } from "@/components/model-select";
 import { ThinkingLevelSelect } from "@/components/thinking-level-select";
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { AvailableModel, ModelPreset, ModelRef, ThinkingLevel } from "@/lib/api/types";
-import { supportedThinkingLevels, withThinkingLevel } from "@/lib/thinking-level";
+import { availableModel, supportedThinkingLevels, withThinkingLevel } from "@/lib/thinking-level";
 import { useModelPresets, useModels, useSaveModelPreset } from "./api";
 
 const NONE = "__session__";
@@ -63,19 +63,6 @@ export function ModelPresetsSection() {
 	);
 }
 
-const DESCRIPTIONS: Record<ModelPreset["kind"], () => ReactNode> = {
-	session: () => <Trans>The session preset only changes the system prompt; each session picks its own model.</Trans>,
-	review: () => (
-		<Trans>
-			When a root's rule preset is Auto Review, every approval goes to this model first: it approves clearly low-risk
-			operations and hands the rest to the user. Without one, each session's or schedule's own model is used.
-		</Trans>
-	),
-	title: () => (
-		<Trans>The title preset's model writes conversation titles. Without one, the session's model is used.</Trans>
-	),
-};
-
 function ModelPresetCard({ preset, models }: { preset: ModelPreset; models: AvailableModel[] }) {
 	const { t } = useLingui();
 	const save = useSaveModelPreset();
@@ -90,6 +77,7 @@ function ModelPresetCard({ preset, models }: { preset: ModelPreset; models: Avai
 		setPrompt(preset.systemPrompt ?? "");
 	}, [preset]);
 
+	const currentModel = availableModel(models, model ?? undefined);
 	const levels = supportedThinkingLevels(models, model ?? undefined);
 	const currentLevel = levels.includes(level) ? level : (levels[0] ?? "off");
 	const title =
@@ -140,7 +128,6 @@ function ModelPresetCard({ preset, models }: { preset: ModelPreset; models: Avai
 					<Trans>Save</Trans>
 				</Button>
 			</div>
-			<p className="text-sm text-muted-foreground">{DESCRIPTIONS[preset.kind]()}</p>
 
 			{preset.kind !== "session" && (
 				<div className="grid gap-1.5">
@@ -180,6 +167,7 @@ function ModelPresetCard({ preset, models }: { preset: ModelPreset; models: Avai
 					<Label htmlFor={`model-preset-${preset.kind}-thinking`}>{t`Thinking level`}</Label>
 					<ThinkingLevelSelect
 						id={`model-preset-${preset.kind}-thinking`}
+						model={currentModel}
 						levels={levels}
 						value={currentLevel}
 						onChange={setLevel}

@@ -171,7 +171,7 @@ describeBackends("custom model providers", (backend) => {
 		stub.requests.length = 0;
 	});
 
-	it("format mode: pi-ai maps the level and applies the format to Chat Completions", async () => {
+	it("standard mode: pi-ai maps the level and applies the format to Chat Completions", async () => {
 		const provider = await configure([
 			{
 				id: "m-1",
@@ -179,7 +179,7 @@ describeBackends("custom model providers", (backend) => {
 				contextWindow: 4096,
 				maxTokens: 512,
 				input: ["text"],
-				thinking: { mode: "format", format: "openai", levels: { high: "ultra" } },
+				thinking: { mode: "standard", format: "openai", levels: { high: "ultra" } },
 			},
 		]);
 		await ask(provider, "m-1", { reasoning: "high" });
@@ -188,7 +188,7 @@ describeBackends("custom model providers", (backend) => {
 		expect(model && getSupportedThinkingLevels(model)).toEqual(["off", "minimal", "low", "medium", "high"]);
 	});
 
-	it("format mode: Responses sends reasoning.effort", async () => {
+	it("standard mode: Responses sends reasoning.effort", async () => {
 		const provider = await configure([
 			{
 				id: "m-1",
@@ -196,14 +196,14 @@ describeBackends("custom model providers", (backend) => {
 				contextWindow: 4096,
 				maxTokens: 512,
 				input: ["text"],
-				thinking: { mode: "format", levels: { high: "high" } },
+				thinking: { mode: "standard", levels: { high: "high" } },
 			},
 		]);
 		await ask(provider, "m-1", { reasoning: "high" });
 		expect(lastBody().reasoning).toEqual({ effort: "high", summary: "auto" });
 	});
 
-	it("body mode: Chat Completions merges the level and sends no pi thinking params", async () => {
+	it("standard mode: labels rename levels and an empty label hides one", async () => {
 		const provider = await configure([
 			{
 				id: "m-1",
@@ -212,7 +212,91 @@ describeBackends("custom model providers", (backend) => {
 				maxTokens: 512,
 				input: ["text"],
 				thinking: {
-					mode: "body",
+					mode: "standard",
+					levels: { high: "ultra" },
+					labels: { off: "None", high: "", xhigh: "Extreme" },
+				},
+			},
+		]);
+		const model = models.models.getModel(provider, "m-1");
+		// `high` is hidden by its empty label; `xhigh` is offered by its non-empty name and sends its id.
+		expect(model && getSupportedThinkingLevels(model)).toEqual(["off", "minimal", "low", "medium", "xhigh"]);
+		expect(model?.thinkingLevelMap?.xhigh).toBe("xhigh");
+		expect(models.available().find((m) => m.provider === provider)?.thinkingLabels).toEqual({
+			off: "None",
+			minimal: "minimal",
+			low: "low",
+			medium: "medium",
+			xhigh: "Extreme",
+		});
+		expect(() => models.resolveRef({ provider, modelId: "m-1", thinkingLevel: "high" })).toThrow(
+			/thinking level high is not supported/,
+		);
+	});
+
+	it("custom mode: a level is offered only with a body and a non-empty display name", async () => {
+		const provider = await configure([
+			{
+				id: "m-1",
+				api: "openai-completions",
+				contextWindow: 4096,
+				maxTokens: 512,
+				input: ["text"],
+				thinking: {
+					mode: "custom",
+					levels: {
+						medium: { thinking: { type: "enabled", budget_tokens: 4000 } },
+						high: { thinking: { type: "enabled", budget_tokens: 8000 } },
+					},
+					// `medium` has a body but no display name, `low` has a name but no body.
+					labels: { medium: "", low: "Low" },
+				},
+			},
+		]);
+		const model = models.models.getModel(provider, "m-1");
+		expect(model && getSupportedThinkingLevels(model)).toEqual(["off", "high"]);
+		expect(models.available().find((m) => m.provider === provider)?.thinkingLabels).toEqual({
+			off: "off",
+			high: "high",
+		});
+	});
+
+	it("rejects invalid display names and a hidden off level", async () => {
+		for (const [labels, pattern] of [
+			[{ off: "" }, /labels\.off: off cannot be hidden/],
+			[{ high: 3 }, /labels\.high: expected a string/],
+			[{ turbo: "x" }, /labels\.turbo: unknown thinking level/],
+		] as const) {
+			await expect(
+				saveModelProvider(db, masterKey, {
+					kind: "custom",
+					providerId: "bad-labels",
+					baseUrl: stub.url,
+					models: [
+						{
+							id: "m-1",
+							api: "openai-completions",
+							contextWindow: 4096,
+							maxTokens: 512,
+							input: ["text"],
+							thinking: { mode: "standard", levels: {}, labels },
+						},
+					],
+				}),
+			).rejects.toThrow(pattern);
+		}
+	});
+
+	it("custom mode: Chat Completions merges the level and sends no pi thinking params", async () => {
+		const provider = await configure([
+			{
+				id: "m-1",
+				api: "openai-completions",
+				contextWindow: 4096,
+				maxTokens: 512,
+				input: ["text"],
+				thinking: {
+					mode: "custom",
 					levels: {
 						off: { thinking: { type: "disabled" } },
 						high: { thinking: { type: "enabled", budget_tokens: 16000 }, metadata: { nested: { a: 1 } } },
@@ -236,7 +320,7 @@ describeBackends("custom model providers", (backend) => {
 		expect(lastBody()).not.toHaveProperty("reasoning_effort");
 	});
 
-	it("body mode: Responses merges the level and strips reasoning/include", async () => {
+	it("custom mode: Responses merges the level and strips reasoning/include", async () => {
 		const provider = await configure([
 			{
 				id: "m-1",
@@ -245,7 +329,7 @@ describeBackends("custom model providers", (backend) => {
 				maxTokens: 512,
 				input: ["text"],
 				thinking: {
-					mode: "body",
+					mode: "custom",
 					levels: { high: { thinking: { type: "enabled", budget_tokens: 8000 } } },
 				},
 			},
@@ -259,7 +343,7 @@ describeBackends("custom model providers", (backend) => {
 		expect(model && getSupportedThinkingLevels(model)).toEqual(["off", "high"]);
 	});
 
-	it("body mode: off is available and merges nothing when it is not listed", async () => {
+	it("custom mode: off is available and merges nothing when it is not listed", async () => {
 		const provider = await configure([
 			{
 				id: "m-1",
@@ -267,7 +351,7 @@ describeBackends("custom model providers", (backend) => {
 				contextWindow: 4096,
 				maxTokens: 512,
 				input: ["text"],
-				thinking: { mode: "body", levels: { high: { thinking: { type: "enabled" } } } },
+				thinking: { mode: "custom", levels: { high: { thinking: { type: "enabled" } } } },
 			},
 		]);
 		const model = models.models.getModel(provider, "m-1");
@@ -277,7 +361,7 @@ describeBackends("custom model providers", (backend) => {
 		expect(lastBody()).not.toHaveProperty("reasoning_effort");
 	});
 
-	it("body mode: Responses at off with no off entry still strips pi's reasoning", async () => {
+	it("custom mode: Responses at off with no off entry still strips pi's reasoning", async () => {
 		const provider = await configure([
 			{
 				id: "m-1",
@@ -285,7 +369,7 @@ describeBackends("custom model providers", (backend) => {
 				contextWindow: 4096,
 				maxTokens: 512,
 				input: ["text"],
-				thinking: { mode: "body", levels: { high: { thinking: { type: "enabled" } } } },
+				thinking: { mode: "custom", levels: { high: { thinking: { type: "enabled" } } } },
 			},
 		]);
 		await ask(provider, "m-1", { reasoning: "off" });
@@ -386,12 +470,12 @@ describeBackends("custom model providers", (backend) => {
 			],
 		});
 		const cases: [Record<string, unknown>, RegExp][] = [
-			[{ thinking: { mode: "format", levels: { turbo: "x" } } }, /thinking\.levels\.turbo/],
-			[{ thinking: { mode: "format", levels: { high: 3 } } }, /thinking\.levels\.high/],
+			[{ thinking: { mode: "standard", levels: { turbo: "x" } } }, /thinking\.levels\.turbo/],
+			[{ thinking: { mode: "standard", levels: { high: 3 } } }, /thinking\.levels\.high/],
 			[{ api: "azure-openai-responses" }, /api/],
-			[{ api: "openai-responses", thinking: { mode: "format", format: "openai", levels: {} } }, /thinking\.format/],
-			[{ thinking: { mode: "body", format: "openai", levels: {} } }, /thinking\.format/],
-			[{ thinking: { mode: "body", levels: { high: "x" } } }, /thinking\.levels\.high/],
+			[{ api: "openai-responses", thinking: { mode: "standard", format: "openai", levels: {} } }, /thinking\.format/],
+			[{ thinking: { mode: "custom", format: "openai", levels: {} } }, /thinking\.format/],
+			[{ thinking: { mode: "custom", levels: { high: "x" } } }, /thinking\.levels\.high/],
 			[{ input: ["image"] }, /input/],
 			[{ contextWindow: 1023 }, /contextWindow/],
 			[{ maxTokens: 0 }, /maxTokens/],
@@ -438,7 +522,7 @@ describeBackends("custom model providers", (backend) => {
 					contextWindow: 4096,
 					maxTokens: 512,
 					input: ["text"],
-					thinking: { mode: "body", levels: { low: { a: 1 } } },
+					thinking: { mode: "custom", levels: { low: { a: 1 } } },
 					compat: { supportsDeveloperRole: false },
 				},
 			],
@@ -503,5 +587,5 @@ describeBackends("custom model providers", (backend) => {
 			await cluster.close();
 			await runtimeDb.destroy();
 		}
-	});
+	}, 30_000);
 });

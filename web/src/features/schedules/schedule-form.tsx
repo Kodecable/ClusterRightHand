@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { useDebouncedValue } from "@/hooks/use-debounced";
 import type { AvailableModel, ModelRef, RulePreset } from "@/lib/api/types";
 import { formatDateTimeNumeric } from "@/lib/format";
-import { supportedThinkingLevels } from "@/lib/thinking-level";
+import { availableModel, supportedThinkingLevels } from "@/lib/thinking-level";
 import { useSchedulePreview } from "./api";
 import {
 	defaultTimezone,
@@ -130,6 +130,7 @@ export function ScheduleForm({
 		defaultValues: initial,
 	});
 	const model = useWatch({ control: form.control, name: "model" });
+	const chosenModel = availableModel(models, model);
 	const thinkingLevels = supportedThinkingLevels(models, model);
 	const rulePreset = useWatch({ control: form.control, name: "rulePreset" });
 	const cron = useWatch({ control: form.control, name: "cron" });
@@ -184,6 +185,7 @@ export function ScheduleForm({
 						render={({ field }) => (
 							<ThinkingLevelSelect
 								id={id("thinkingLevel")}
+								model={chosenModel}
 								levels={thinkingLevels}
 								value={field.value}
 								onChange={field.onChange}

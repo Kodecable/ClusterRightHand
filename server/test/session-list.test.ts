@@ -98,12 +98,11 @@ async function seed(
 }
 
 const newSession = async (who: string, title: string): Promise<string> => {
-	const res = await call(app, "/api/sessions", {
-		cookie: cookie[who],
-		body: { title, model: model(), rulePreset: "ask" },
-	});
-	expect(res.status).toBe(201);
-	return ((await res.json()) as { session: { id: string } }).session.id;
+	// Setup only: the HTTP create route now always submits a first message (D117), while most list tests just
+	// need a session; the runtime creates it without a run.
+	const owner = user[who];
+	if (!owner) throw new Error("unknown user");
+	return (await runtime.createSession(owner, { title, model: model(), rulePreset: "ask" })).id;
 };
 
 /** Shares a session as its owner, alice, and returns the share id. */

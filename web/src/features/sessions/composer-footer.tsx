@@ -1,19 +1,45 @@
 import { useLingui } from "@lingui/react/macro";
 import { ArrowUpIcon, DropletIcon, LightbulbIcon, ShieldCheckIcon, SquareIcon } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { ModelSelect } from "@/components/model-select";
 import { RulePresetSelect } from "@/components/rule-preset-select";
 import { ThinkingLevelSelect } from "@/components/thinking-level-select";
 import { Button } from "@/components/ui/button";
 import { useModels } from "@/features/settings/api";
-import type { RulePreset, SessionView } from "@/lib/api/types";
+import type { ModelRef, RulePreset, SessionView, ThinkingLevel } from "@/lib/api/types";
 import { formatNumber, formatTokens } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { rulePresetIcon, rulePresetLabel } from "@/lib/rule-preset";
-import { supportedThinkingLevels, thinkingLevelLabel } from "@/lib/thinking-level";
+import { availableModel, supportedThinkingLevels, thinkingLevelName } from "@/lib/thinking-level";
 import { cn } from "@/lib/utils";
 import { usePatchSession } from "./api";
-import { QuotaDialog } from "./quota-dialog";
+import { BudgetDialog } from "./quota-dialog";
+
+/**
+ * Everything the footer controls show and change; a session page feeds it from
+ * the session and PATCHes, the draft page from local state (D117). The footer
+ * itself is shared, so the two pages cannot drift apart.
+ */
+export interface ComposerFooterState {
+	/** Undefined when no model is configured yet (the draft page disables sending). */
+	model: ModelRef | undefined;
+	thinkingLevel: ThinkingLevel;
+	rulePreset: RulePreset;
+	budgetRemaining: number | null;
+	/** Whether the caller may change model, thinking level and rules. */
+	configure: boolean;
+	/** A root has a rule preset; a subagent shows its rule count instead. */
+	isRoot: boolean;
+	ruleCount: number;
+	/** A change is being saved; the session footer disables its pickers meanwhile. */
+	pending: boolean;
+	onModelChange: (model: ModelRef) => void;
+	onThinkingLevelChange: (level: ThinkingLevel) => void;
+	onRulePresetChange: (rulePreset: RulePreset) => void;
+	/** Resolves when a session's change is saved; the draft page resolves at once. */
+	onBudgetChange: (quota: number | null) => void | Promise<void>;
+}
 
 /**
  * The footer inside the composer box (doc/webui.md#输入框页脚): model, rules and
@@ -25,14 +51,14 @@ import { QuotaDialog } from "./quota-dialog";
  * main call (doc/agent-runtime.md#会话状态).
  */
 export function ComposerFooter({
-	session,
+	state,
 	stoppable,
 	sending,
 	sendDisabled,
 	onStop,
 	stopPending,
 }: {
-	session: SessionView;
+	state: ComposerFooterState;
 	/** A run (this session's or, for a root, its tree's) can be stopped. */
 	stoppable: boolean;
 	sending: boolean;
@@ -45,14 +71,14 @@ export function ComposerFooter({
 		<div className="flex min-w-0 items-center gap-2" data-testid="composer-footer">
 			<div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
 				<span className="flex min-w-0 shrink items-center">
-					<ModelControl session={session} />
+					<ModelControl state={state} />
 				</span>
-				<ThinkingControl session={session} />
+				<ThinkingControl state={state} />
 				<span className="flex shrink-0 items-center">
-					<RulesControl session={session} />
+					<RulesControl state={state} />
 				</span>
 				<span className="shrink-0">
-					<BudgetControl session={session} />
+					<BudgetControl state={state} />
 				</span>
 			</div>
 			<div className="flex shrink-0 items-center gap-1.5">
@@ -86,14 +112,63 @@ export function ComposerFooter({
 	);
 }
 
+/** The session page's footer: its model, level, rules and budget are PATCHed onto the session. */
+export function SessionComposerFooter({
+	session,
+	stoppable,
+	sending,
+	sendDisabled,
+	onStop,
+	stopPending,
+}: {
+	session: SessionView;
+	stoppable: boolean;
+	sending: boolean;
+	sendDisabled: boolean;
+	onStop: () => void;
+	stopPending: boolean;
+}) {
+	const { t } = useLingui();
+	const patch = usePatchSession(session.id);
+	const state: ComposerFooterState = {
+		model: session.model,
+		thinkingLevel: session.model.thinkingLevel ?? "off",
+		rulePreset: (session.rules?.rulePreset ?? "ask") as RulePreset,
+		budgetRemaining: session.budgetRemaining,
+		configure: session.capabilities.configure,
+		isRoot: session.parentSessionId === null,
+		ruleCount: session.rules?.rules.length ?? 0,
+		pending: patch.isPending,
+		onModelChange: (model) => patch.mutate({ model }),
+		onThinkingLevelChange: (thinkingLevel) =>
+			patch.mutate({
+				model: { provider: session.model.provider, modelId: session.model.modelId, thinkingLevel },
+			}),
+		onRulePresetChange: (rulePreset) => patch.mutate({ rulePreset }),
+		onBudgetChange: async (budgetRemaining) => {
+			await patch.mutateAsync({ budgetRemaining });
+			toast.success(t`Quota saved.`);
+		},
+	};
+	return (
+		<ComposerFooter
+			state={state}
+			stoppable={stoppable}
+			sending={sending}
+			sendDisabled={sendDisabled}
+			onStop={onStop}
+			stopPending={stopPending}
+		/>
+	);
+}
+
 /** The model as a direct picker; a change is stored on the conversation and applies from the next turn. */
-function ModelControl({ session }: { session: SessionView }) {
+function ModelControl({ state }: { state: ComposerFooterState }) {
 	const { t } = useLingui();
 	const models = useModels();
-	const patch = usePatchSession(session.id);
-	const label = `${session.model.provider}/${session.model.modelId}`;
+	const label = state.model === undefined ? t`No model` : `${state.model.provider}/${state.model.modelId}`;
 
-	if (!session.capabilities.configure) {
+	if (!state.configure) {
 		return (
 			<span className="min-w-0 truncate font-mono text-xs text-muted-foreground" title={label}>
 				{label}
@@ -106,9 +181,9 @@ function ModelControl({ session }: { session: SessionView }) {
 			dataTestId="composer-model"
 			title={t`Change the model; it applies from the next turn.`}
 			models={models.data ?? []}
-			value={session.model}
-			disabled={patch.isPending}
-			onChange={(model) => patch.mutate({ model })}
+			value={state.model}
+			disabled={state.pending}
+			onChange={state.onModelChange}
 		/>
 	);
 }
@@ -118,16 +193,15 @@ function ModelControl({ session }: { session: SessionView }) {
  * `off`, and read-only without `configure` like the model picker. A change is
  * stored on the conversation and applies from the next turn.
  */
-function ThinkingControl({ session }: { session: SessionView }) {
+function ThinkingControl({ state }: { state: ComposerFooterState }) {
 	const { t, i18n } = useLingui();
 	const models = useModels();
-	const patch = usePatchSession(session.id);
-	const level = session.model.thinkingLevel ?? "off";
-	const levels = supportedThinkingLevels(models.data ?? [], session.model);
+	const current = availableModel(models.data ?? [], state.model);
+	const levels = supportedThinkingLevels(models.data ?? [], state.model);
 	if (levels.length <= 1 && levels[0] === "off") return null;
-	const label = thinkingLevelLabel(i18n, level);
+	const label = thinkingLevelName(i18n, current, state.thinkingLevel);
 
-	if (!session.capabilities.configure) {
+	if (!state.configure) {
 		return (
 			<span
 				className="inline-flex min-w-0 shrink items-center gap-1 px-1.5 text-xs text-muted-foreground"
@@ -143,31 +217,25 @@ function ThinkingControl({ session }: { session: SessionView }) {
 		<span className="flex shrink-0 items-center">
 			<ThinkingLevelSelect
 				variant="inline"
+				model={current}
 				dataTestId="composer-thinking"
 				title={t`Change the thinking level; it applies from the next turn.`}
 				levels={levels}
-				value={level}
-				disabled={patch.isPending}
-				onChange={(thinkingLevel) =>
-					patch.mutate({
-						model: { provider: session.model.provider, modelId: session.model.modelId, thinkingLevel },
-					})
-				}
+				value={state.thinkingLevel}
+				disabled={state.pending}
+				onChange={state.onThinkingLevelChange}
 			/>
 		</span>
 	);
 }
 
 /** The rule preset with its icon; only a root session has one, so a subagent shows its rules summary instead. */
-function RulesControl({ session }: { session: SessionView }) {
+function RulesControl({ state }: { state: ComposerFooterState }) {
 	const { t } = useLingui();
-	const patch = usePatchSession(session.id);
-	const rulePreset = session.rules?.rulePreset ?? "ask";
-	const ruleCount = session.rules?.rules.length ?? 0;
-	const isRoot = session.parentSessionId === null;
+	const RulePresetIcon = rulePresetIcon(state.rulePreset) ?? ShieldCheckIcon;
 
-	if (!isRoot) {
-		const label = ruleCount === 0 ? t`No rules` : t`Rules: ${ruleCount}`;
+	if (!state.isRoot) {
+		const label = state.ruleCount === 0 ? t`No rules` : t`Rules: ${state.ruleCount}`;
 		return (
 			<span
 				className="inline-flex min-w-0 shrink items-center gap-1 px-1.5 text-xs text-muted-foreground"
@@ -179,16 +247,15 @@ function RulesControl({ session }: { session: SessionView }) {
 			</span>
 		);
 	}
-	const RulePresetIcon = rulePresetIcon(rulePreset) ?? ShieldCheckIcon;
-	if (!session.capabilities.configure) {
+	if (!state.configure) {
 		return (
 			<span
 				className="inline-flex min-w-0 shrink items-center gap-1 px-1.5 text-xs text-muted-foreground"
 				data-testid="composer-rules"
-				title={t`Rule preset: ${rulePresetLabel(rulePreset)}`}
+				title={t`Rule preset: ${rulePresetLabel(state.rulePreset)}`}
 			>
 				<RulePresetIcon className="size-3.5 shrink-0" aria-hidden="true" />
-				<span className="min-w-0 truncate">{rulePresetLabel(rulePreset)}</span>
+				<span className="min-w-0 truncate">{rulePresetLabel(state.rulePreset)}</span>
 			</span>
 		);
 	}
@@ -197,19 +264,19 @@ function RulesControl({ session }: { session: SessionView }) {
 			variant="inline"
 			dataTestId="composer-rules"
 			title={t`Change the rule preset; it applies to the next tool call.`}
-			value={rulePreset as RulePreset}
-			disabled={patch.isPending}
-			onChange={(next) => patch.mutate({ rulePreset: next })}
+			value={state.rulePreset}
+			disabled={state.pending}
+			onChange={state.onRulePresetChange}
 		/>
 	);
 }
 
 /** The remaining budget, in auto units; clicking opens the quota dialog for a caller who may change it. */
-function BudgetControl({ session }: { session: SessionView }) {
+function BudgetControl({ state }: { state: ComposerFooterState }) {
 	const { t } = useLingui();
 	const { locale } = useLocale();
 	const [open, setOpen] = useState(false);
-	const remaining = session.budgetRemaining;
+	const remaining = state.budgetRemaining;
 	const exhausted = remaining !== null && remaining <= 0;
 	const label = remaining === null ? "∞" : formatTokens(Math.max(0, remaining), locale);
 	const title =
@@ -219,7 +286,7 @@ function BudgetControl({ session }: { session: SessionView }) {
 				? t`The budget is used up.`
 				: t`${formatNumber(remaining, locale)} tokens left`;
 
-	if (!session.capabilities.configure) {
+	if (!state.configure) {
 		return (
 			<span
 				data-testid="composer-budget"
@@ -248,7 +315,18 @@ function BudgetControl({ session }: { session: SessionView }) {
 				<DropletIcon className="size-3.5" aria-hidden="true" />
 				<span className="whitespace-nowrap">{label}</span>
 			</Button>
-			<QuotaDialog session={session} open={open} onOpenChange={setOpen} />
+			<BudgetDialog
+				open={open}
+				onOpenChange={setOpen}
+				value={remaining}
+				busy={state.pending}
+				onSave={(quota) => {
+					// A local draft save resolves at once; a session PATCH closes when it succeeds.
+					const saved = state.onBudgetChange(quota);
+					if (saved === undefined) setOpen(false);
+					else void saved.then(() => setOpen(false)).catch(() => undefined);
+				}}
+			/>
 		</>
 	);
 }

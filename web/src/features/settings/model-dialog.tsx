@@ -5,10 +5,17 @@ import { FieldShell } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+	Dialog,
+	DialogContent,
+	DialogFooter,
+	DialogHeader,
+	DialogScrollArea,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import type { CustomApi, ThinkingLevel } from "@/lib/api/types";
@@ -73,21 +80,24 @@ function ErrorText({ children }: { children: ReactNode }) {
 }
 
 /**
- * The level mapping of the format mode: each row is omitted ("default"), a
- * mapped string value, or `null` ("disabled"), matching pi-ai's thinkingLevelMap.
+ * The level mapping of the standard mode: each row is omitted ("default") or a mapped string
+ * value. The display name input carries the level: `minimal`–`high` default to the level id and
+ * show it as their placeholder, while `xhigh`/`max` start empty (hidden) because pi-ai offers
+ * them only when they are mapped or named. An empty name hides the level.
  */
 function FormatLevelTable({
 	row,
 	errors,
 	patchLevel,
+	patchLabel,
 }: {
 	row: ModelRow;
 	errors: ModelFormErrors;
 	patchLevel: (level: ThinkingLevel, next: { kind?: FormatLevelKind; value?: string }) => void;
+	patchLabel: (level: ThinkingLevel, label: string) => void;
 }) {
 	const { t, i18n } = useLingui();
-	const kindLabel = (kind: FormatLevelKind) =>
-		kind === "default" ? t`Default (omitted)` : kind === "value" ? t`Mapped value` : t`Disabled (null)`;
+	const kindLabel = (kind: FormatLevelKind) => (kind === "default" ? t`Default (omitted)` : t`Mapped value`);
 	return (
 		<>
 			<Label>{t`Level mapping`}</Label>
@@ -95,7 +105,7 @@ function FormatLevelTable({
 				<Table aria-label={t`Thinking level mapping`}>
 					<TableHeader>
 						<TableRow>
-							<TableHead className="w-16">{t`Level`}</TableHead>
+							<TableHead className="w-40">{t`Display name`}</TableHead>
 							<TableHead className="w-44">{t`Mapping`}</TableHead>
 							<TableHead>{t`Value`}</TableHead>
 						</TableRow>
@@ -104,10 +114,18 @@ function FormatLevelTable({
 						{THINKING_LEVELS.map((level) => {
 							const entry = row.formatLevels[level];
 							const error = errors.formatLevels?.[level];
+							const labelError = errors.labels?.[level];
 							return (
 								<TableRow key={level}>
 									<TableCell>
-										<code className="font-mono text-xs">{level}</code>
+										<Input
+											aria-label={t`${level} display name`}
+											placeholder={level}
+											aria-invalid={labelError !== undefined || undefined}
+											value={row.labels[level]}
+											onChange={(event) => patchLabel(level, event.target.value)}
+										/>
+										{labelError !== undefined && <ErrorText>{providerErrorText(i18n, labelError)}</ErrorText>}
 									</TableCell>
 									<TableCell>
 										<Select
@@ -120,7 +138,6 @@ function FormatLevelTable({
 											<SelectContent>
 												<SelectItem value="default">{t`Default (omitted)`}</SelectItem>
 												<SelectItem value="value">{t`Mapped value`}</SelectItem>
-												<SelectItem value="disabled">{t`Disabled (null)`}</SelectItem>
 											</SelectContent>
 										</Select>
 									</TableCell>
@@ -144,17 +161,17 @@ function FormatLevelTable({
 	);
 }
 
-/** The request-body mode: one optional JSON object per level (empty means not offered). */
+/** The custom (request-body) mode: one optional JSON object and display name per level. */
 function BodyLevelRows({
 	row,
 	errors,
 	patchLevel,
-	prefix,
+	patchLabel,
 }: {
 	row: ModelRow;
 	errors: ModelFormErrors;
 	patchLevel: (level: ThinkingLevel, text: string) => void;
-	prefix: string;
+	patchLabel: (level: ThinkingLevel, label: string) => void;
 }) {
 	const { t, i18n } = useLingui();
 	return (
@@ -162,20 +179,30 @@ function BodyLevelRows({
 			<div>
 				<Label>{t`Request body per level`}</Label>
 				<p className="text-xs text-muted-foreground">
-					{t`Each level's JSON object is merged into the request body; leave a level empty to not offer it.`}
+					{t`Each level's JSON object is merged into the request body; a level is offered only with a body and a display name.`}
 				</p>
 			</div>
+			<div className="hidden grid-cols-[10rem_1fr] gap-2 text-xs text-muted-foreground sm:grid">
+				<span>{t`Display name`}</span>
+				<span>{t`Request body (JSON)`}</span>
+			</div>
 			{THINKING_LEVELS.map((level) => {
-				const id = `${prefix}-body-${level}`;
 				const error = errors.bodyLevels?.[level];
+				const labelError = errors.labels?.[level];
 				return (
-					<div key={level} className="grid grid-cols-[3.5rem_1fr] items-start gap-2">
-						<Label htmlFor={id} className="pt-2 font-mono text-xs">
-							{level}
-						</Label>
+					<div key={level} className="grid gap-2 sm:grid-cols-[10rem_1fr]">
+						<div className="grid gap-1">
+							<Input
+								aria-label={t`${level} display name`}
+								placeholder={level}
+								aria-invalid={labelError !== undefined || undefined}
+								value={row.labels[level]}
+								onChange={(event) => patchLabel(level, event.target.value)}
+							/>
+							{labelError !== undefined && <ErrorText>{providerErrorText(i18n, labelError)}</ErrorText>}
+						</div>
 						<div className="grid gap-1">
 							<Textarea
-								id={id}
 								aria-label={t`${level} request body JSON`}
 								aria-invalid={error !== undefined || undefined}
 								className="font-mono text-xs"
@@ -197,9 +224,10 @@ function BodyLevelRows({
 const AUTO_FORMAT = "__auto";
 
 /**
- * The model sheet of a custom provider (doc/agent-runtime.md#自定义提供方): all
- * pi-ai fields, including both thinking modes and the advanced compat JSON.
- * It is a sheet rather than a second dialog so the wide level tables fit.
+ * The model editor of a custom provider (doc/agent-runtime.md#自定义提供方): all pi-ai fields,
+ * including both thinking modes and the advanced compat JSON. It is a dialog nested in the
+ * provider dialog (Base UI nested dialogs); the header and footer stay fixed while the body
+ * scrolls inside the popup's rounded frame.
  */
 export function ModelDialog({
 	initial,
@@ -225,6 +253,8 @@ export function ModelDialog({
 		}));
 	const patchBodyLevel = (level: ThinkingLevel, text: string) =>
 		setRow((current) => ({ ...current, bodyLevels: { ...current.bodyLevels, [level]: text } }));
+	const patchLabel = (level: ThinkingLevel, label: string) =>
+		setRow((current) => ({ ...current, labels: { ...current.labels, [level]: label } }));
 
 	const submit = () => {
 		const converted = rowToModel(row);
@@ -242,8 +272,8 @@ export function ModelDialog({
 	];
 	const thinkingOptions: readonly SelectOption[] = [
 		{ value: "none", label: t`None` },
-		{ value: "format", label: t`Format mode` },
-		{ value: "body", label: t`Request body mode` },
+		{ value: "standard", label: t`Standard` },
+		{ value: "custom", label: t`Custom` },
 	];
 	const formatOptions: readonly SelectOption[] = [
 		{ value: AUTO_FORMAT, label: t`Auto (omit)` },
@@ -251,20 +281,20 @@ export function ModelDialog({
 	];
 
 	return (
-		<Sheet
+		<Dialog
 			open
 			onOpenChange={(open) => {
 				if (!open) onClose();
 			}}
 		>
-			<SheetContent side="right" className="w-full gap-0 sm:max-w-2xl" data-testid="model-dialog">
-				<SheetHeader className="border-b pr-12">
-					<SheetTitle>{editing ? t`Edit model ${initial.id}` : t`Add model`}</SheetTitle>
-					<SheetDescription>
-						{t`Models of this provider are offered to sessions; each one maps to the fields pi-ai needs.`}
-					</SheetDescription>
-				</SheetHeader>
-				<div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto p-4">
+			<DialogContent
+				className="flex max-h-[90vh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
+				data-testid="model-dialog"
+			>
+				<DialogHeader className="border-b p-4 pr-12">
+					<DialogTitle>{editing ? t`Edit model ${initial.id}` : t`Add model`}</DialogTitle>
+				</DialogHeader>
+				<DialogScrollArea className="mx-0 my-0 grid min-h-0 flex-1 content-start gap-4 px-4 py-4">
 					<div className="grid gap-3 sm:grid-cols-2">
 						<FieldShell id={`${prefix}-id`} label={t`Model id`} error={errorText(i18n, errors.id)}>
 							<Input
@@ -274,11 +304,7 @@ export function ModelDialog({
 								onChange={(event) => patch({ id: event.target.value })}
 							/>
 						</FieldShell>
-						<FieldShell
-							id={`${prefix}-name`}
-							label={t`Display name`}
-							description={t`Optional; defaults to the model id.`}
-						>
+						<FieldShell id={`${prefix}-name`} label={t`Display name`}>
 							<Input id={`${prefix}-name`} value={row.name} onChange={(event) => patch({ name: event.target.value })} />
 						</FieldShell>
 						<SelectInput
@@ -316,10 +342,10 @@ export function ModelDialog({
 					<div className="flex items-center gap-2">
 						<Checkbox
 							id={`${prefix}-images`}
-							checked={row.acceptImages}
-							onCheckedChange={(checked) => patch({ acceptImages: Boolean(checked) })}
+							checked={row.imageUnderstanding}
+							onCheckedChange={(checked) => patch({ imageUnderstanding: Boolean(checked) })}
 						/>
-						<Label htmlFor={`${prefix}-images`}>{t`Accept images`}</Label>
+						<Label htmlFor={`${prefix}-images`}>{t`Image understanding`}</Label>
 					</div>
 
 					<SelectInput
@@ -329,7 +355,7 @@ export function ModelDialog({
 						options={thinkingOptions}
 					/>
 
-					{row.thinkingMode === "format" && (
+					{row.thinkingMode === "standard" && (
 						<div className="grid gap-3">
 							{row.api === "openai-completions" && (
 								<SelectInput
@@ -340,12 +366,12 @@ export function ModelDialog({
 									description={t`Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort.`}
 								/>
 							)}
-							<FormatLevelTable row={row} errors={errors} patchLevel={patchFormatLevel} />
+							<FormatLevelTable row={row} errors={errors} patchLevel={patchFormatLevel} patchLabel={patchLabel} />
 						</div>
 					)}
 
-					{row.thinkingMode === "body" && (
-						<BodyLevelRows row={row} errors={errors} patchLevel={patchBodyLevel} prefix={prefix} />
+					{row.thinkingMode === "custom" && (
+						<BodyLevelRows row={row} errors={errors} patchLevel={patchBodyLevel} patchLabel={patchLabel} />
 					)}
 
 					<Collapsible>
@@ -369,17 +395,17 @@ export function ModelDialog({
 							{errors.compat !== undefined && <ErrorText>{providerErrorText(i18n, errors.compat)}</ErrorText>}
 						</CollapsibleContent>
 					</Collapsible>
-				</div>
-				<SheetFooter className="border-t">
+				</DialogScrollArea>
+				<DialogFooter className="mx-0 mb-0 rounded-none">
 					<Button type="button" variant="outline" onClick={onClose}>
 						{t`Cancel`}
 					</Button>
 					<Button type="button" onClick={submit}>
 						{t`Save model`}
 					</Button>
-				</SheetFooter>
-			</SheetContent>
-		</Sheet>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
 	);
 }
 

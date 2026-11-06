@@ -390,7 +390,14 @@ it("an exhausted ancestor's request goes to its own direct parent", async () => 
 it("the API sets a quota on a root at creation and by PATCH, and clears it with null", async () => {
 	const created = await call(app, "/api/sessions", {
 		cookie: ownerCookie,
-		body: { model: model(), rulePreset: "yolo", title: "api root quota", budgetRemaining: 100 },
+		body: {
+			requestId: "quota-create",
+			message: "hello",
+			model: model(),
+			rulePreset: "yolo",
+			title: "api root quota",
+			budgetRemaining: 100,
+		},
 	});
 	expect(created.status).toBe(201);
 	const createdBody = (await created.json()) as { session: { id: string; budgetRemaining: number | null } };
@@ -416,7 +423,13 @@ it("the API sets a quota on a root at creation and by PATCH, and clears it with 
 
 	const invalid = await call(app, "/api/sessions", {
 		cookie: ownerCookie,
-		body: { model: model(), rulePreset: "yolo", budgetRemaining: -5 },
+		body: {
+			requestId: "quota-create-invalid",
+			message: "hello",
+			model: model(),
+			rulePreset: "yolo",
+			budgetRemaining: -5,
+		},
 	});
 	expect(invalid.status).toBe(400);
 

@@ -38,6 +38,17 @@ export const THINKING_LEVELS: readonly ModelThinkingLevel[] = [
 	"max",
 ];
 
+/** Whether an explicit display name hides a level; an empty string hides it. */
+export function levelIsHidden(labels: ThinkingLevelLabels | undefined, level: ModelThinkingLevel): boolean {
+	return labels !== undefined && Object.hasOwn(labels, level) && labels[level] === "";
+}
+
+/** The display name of a level: its explicit label, else the level id itself. */
+export function levelDisplayName(labels: ThinkingLevelLabels | undefined, level: ModelThinkingLevel): string {
+	const label = labels?.[level];
+	return label === undefined ? level : label;
+}
+
 /** The level a ref runs at: an absent level is `off` (doc/agent-runtime.md#思考档位). */
 export function thinkingLevelOf(ref: ModelRef): ModelThinkingLevel {
 	return ref.thinkingLevel ?? "off";
@@ -82,19 +93,27 @@ export const THINKING_FORMATS: readonly NonNullable<OpenAICompletionsCompat["thi
 	"ant-ling",
 ];
 
+/**
+ * Per-level display names of a custom model. A missing key uses the level id itself; an empty
+ * string hides the level (doc/agent-runtime.md#思考档位).
+ */
+export type ThinkingLevelLabels = Partial<Record<ModelThinkingLevel, string>>;
+
 /** pi-ai generates the thinking parameters (`thinkingFormat`, `thinkingLevelMap`). */
 export interface ThinkingFormatConfig {
-	mode: "format";
+	mode: "standard";
 	/** Chat Completions only; Responses always sends `reasoning.effort`. */
 	format?: NonNullable<OpenAICompletionsCompat["thinkingFormat"]>;
 	/** pi-ai's level map; a null level is unsupported. */
 	levels: Partial<Record<ModelThinkingLevel, string | null>>;
+	labels?: ThinkingLevelLabels;
 }
 
 /** The selected level's object is deep-merged into the request body by the payload hook. */
 export interface ThinkingBodyConfig {
-	mode: "body";
+	mode: "custom";
 	levels: Partial<Record<ModelThinkingLevel, Record<string, unknown>>>;
+	labels?: ThinkingLevelLabels;
 }
 
 export type ThinkingConfig = ThinkingFormatConfig | ThinkingBodyConfig;
@@ -263,15 +282,15 @@ function validateSessionId(raw: unknown, prefix: string): SessionIdConfig | null
 	return config;
 }
 
-/** Validates a level map (`thinking.levels`); format values are strings/null, body values objects. */
-function validateLevels(raw: unknown, mode: "format" | "body", prefix: string): Record<string, unknown> {
+/** Validates a level map (`thinking.levels`); standard values are strings/null, custom values objects. */
+function validateLevels(raw: unknown, mode: "standard" | "custom", prefix: string): Record<string, unknown> {
 	if (!isPlainObject(raw)) throw new UserError(`${prefix}.levels: expected an object`);
 	const levels: Record<string, unknown> = {};
 	for (const [level, value] of Object.entries(raw)) {
 		if (!THINKING_LEVELS.includes(level as ModelThinkingLevel)) {
 			throw new UserError(`${prefix}.levels.${level}: unknown thinking level`);
 		}
-		if (mode === "format") {
+		if (mode === "standard") {
 			if (value !== null && (typeof value !== "string" || value.length === 0)) {
 				throw new UserError(`${prefix}.levels.${level}: expected a non-empty string or null`);
 			}
@@ -281,6 +300,28 @@ function validateLevels(raw: unknown, mode: "format" | "body", prefix: string): 
 		levels[level] = value;
 	}
 	return levels;
+}
+
+/**
+ * Validates `thinking.labels`: display names of custom models. Missing levels use their id, an empty
+ * string hides the level, and `off` can be renamed but never hidden.
+ */
+function validateLabels(raw: unknown, prefix: string): ThinkingLevelLabels | undefined {
+	if (raw === undefined) return undefined;
+	if (!isPlainObject(raw)) throw new UserError(`${prefix}.labels: expected an object`);
+	const labels: ThinkingLevelLabels = {};
+	for (const [level, value] of Object.entries(raw)) {
+		if (!THINKING_LEVELS.includes(level as ModelThinkingLevel)) {
+			throw new UserError(`${prefix}.labels.${level}: unknown thinking level`);
+		}
+		if (typeof value !== "string") throw new UserError(`${prefix}.labels.${level}: expected a string`);
+		const label = value.trim();
+		if (level === "off" && label === "") {
+			throw new UserError(`${prefix}.labels.off: off cannot be hidden`);
+		}
+		labels[level as ModelThinkingLevel] = label;
+	}
+	return Object.keys(labels).length === 0 ? undefined : labels;
 }
 
 /** TypeBox errors name the field path, e.g. `models[1].compat.maxTokensField: ...`. */
@@ -325,7 +366,8 @@ function validateModel(raw: unknown, index: number): CustomModel {
 	if (raw.thinking !== undefined) {
 		const value = raw.thinking;
 		if (!isPlainObject(value)) throw new UserError(`${prefix}.thinking: expected an object`);
-		if (value.mode === "format") {
+		const labels = validateLabels(value.labels, `${prefix}.thinking`);
+		if (value.mode === "standard") {
 			let format: ThinkingFormatConfig["format"];
 			if (value.format !== undefined) {
 				// Responses always sends reasoning.effort; a format is a Chat Completions concept.
@@ -338,20 +380,22 @@ function validateModel(raw: unknown, index: number): CustomModel {
 				format = value.format as ThinkingFormatConfig["format"];
 			}
 			thinking = {
-				mode: "format",
+				mode: "standard",
 				...(format ? { format } : {}),
-				levels: validateLevels(value.levels, "format", `${prefix}.thinking`) as ThinkingFormatConfig["levels"],
+				levels: validateLevels(value.levels, "standard", `${prefix}.thinking`) as ThinkingFormatConfig["levels"],
+				...(labels ? { labels } : {}),
 			};
-		} else if (value.mode === "body") {
+		} else if (value.mode === "custom") {
 			if (value.format !== undefined) {
-				throw new UserError(`${prefix}.thinking.format: format is only allowed in format mode`);
+				throw new UserError(`${prefix}.thinking.format: format is only allowed in standard mode`);
 			}
 			thinking = {
-				mode: "body",
-				levels: validateLevels(value.levels, "body", `${prefix}.thinking`) as ThinkingBodyConfig["levels"],
+				mode: "custom",
+				levels: validateLevels(value.levels, "custom", `${prefix}.thinking`) as ThinkingBodyConfig["levels"],
+				...(labels ? { labels } : {}),
 			};
 		} else {
-			throw new UserError(`${prefix}.thinking.mode: must be format or body`);
+			throw new UserError(`${prefix}.thinking.mode: must be standard or custom`);
 		}
 	}
 
@@ -549,15 +593,27 @@ function customPiModel(
 	const thinking = model.thinking;
 	const compat = { ...((model.compat ?? {}) as Record<string, unknown>) };
 	let thinkingLevelMap: ThinkingLevelMap | undefined;
-	if (thinking?.mode === "format") {
+	if (thinking?.mode === "standard") {
 		if (thinking.format) compat.thinkingFormat = thinking.format;
-		thinkingLevelMap = thinking.levels;
-	} else if (thinking?.mode === "body") {
-		// Every level pi-ai could offer, except `off`, is unsupported unless the body map lists it.
+		// A hidden level maps to null so pi-ai does not offer it; an explicit null (the old
+		// "disabled" choice) already means the same. pi-ai offers xhigh/max only when the map has a
+		// value for them, so a non-empty display name without a mapped value offers the level and
+		// sends its id as-is.
+		const map: ThinkingLevelMap = { ...thinking.levels };
+		for (const level of THINKING_LEVELS) {
+			if (levelIsHidden(thinking.labels, level)) map[level] = null;
+			else if ((level === "xhigh" || level === "max") && map[level] === undefined) {
+				if (thinking.labels?.[level] !== undefined) map[level] = level;
+			}
+		}
+		thinkingLevelMap = map;
+	} else if (thinking?.mode === "custom") {
+		// Every level pi-ai could offer, except `off`, is unsupported unless the body map lists it
+		// with a visible display name.
 		const map: ThinkingLevelMap = {};
 		for (const level of THINKING_LEVELS) {
 			if (level === "off") continue;
-			map[level] = Object.hasOwn(thinking.levels, level) ? level : null;
+			map[level] = Object.hasOwn(thinking.levels, level) && !levelIsHidden(thinking.labels, level) ? level : null;
 		}
 		thinkingLevelMap = map;
 		if (model.api === "openai-completions") {
@@ -693,7 +749,7 @@ function customProvider(
 				? clampThinkingLevel(model, options.reasoning)
 				: "off"
 			: ((options?.reasoningEffort as ModelThinkingLevel | undefined) ?? "off");
-		const bodyConfig = config?.thinking?.mode === "body" ? config.thinking : undefined;
+		const bodyConfig = config?.thinking?.mode === "custom" ? config.thinking : undefined;
 		const body = bodyConfig?.levels[level];
 		// Body mode always owns the payload's thinking parameters: even a level with no body entry must drop
 		// pi-ai's own parameters (doc/agent-runtime.md#自定义提供方).
@@ -741,6 +797,8 @@ export class ModelConfig {
 	readonly models: MutableModels;
 	/** Tests: providers added in code (e.g. pi-ai's faux provider), kept across reloads. */
 	readonly #extra: Provider[] = [];
+	/** Custom models by `provider/modelId`, for their per-level display names (`available`). */
+	readonly #customModels = new Map<string, CustomModel>();
 	/** Installed by the runtime: provider session id -> crh session id (doc/agent-runtime.md#自定义提供方). */
 	#providerSessionId: ProviderSessionResolver = () => undefined;
 	#providerSessionFor: (sessionId: string) => string | undefined = () => undefined;
@@ -780,6 +838,7 @@ export class ModelConfig {
 		const rows = await this.#db.selectFrom("model_providers").selectAll().where("enabled", "=", 1).execute();
 		const builtins = new Map(builtinProviders().map((p) => [p.id, p]));
 		this.models.clearProviders();
+		this.#customModels.clear();
 		for (const p of this.#extra) this.models.setProvider(p);
 		for (const row of rows) {
 			let key: string | undefined;
@@ -796,6 +855,9 @@ export class ModelConfig {
 				const base = builtins.get(row.builtin ?? "");
 				if (base) this.models.setProvider(withKey(base, key, row.base_url));
 			} else {
+				for (const model of parseJson<CustomModel[]>(row.models) ?? []) {
+					this.#customModels.set(`${row.provider_id}/${model.id}`, model);
+				}
 				this.models.setProvider(customProvider(row, key, (id) => this.resolveProviderSession(id)));
 			}
 		}
@@ -809,17 +871,30 @@ export class ModelConfig {
 		name: string;
 		contextWindow: number;
 		thinkingLevels: ModelThinkingLevel[];
+		/** Custom models only: the display name of every offered level (its id by default). */
+		thinkingLabels?: ThinkingLevelLabels;
 		input: ("text" | "image")[];
 	}[] {
-		return this.models.getModels().map((m) => ({
-			provider: m.provider,
-			providerName: this.models.getProvider(m.provider)?.name ?? m.provider,
-			modelId: m.id,
-			name: m.name,
-			contextWindow: m.contextWindow,
-			thinkingLevels: getSupportedThinkingLevels(m),
-			input: [...m.input],
-		}));
+		return this.models.getModels().map((m) => {
+			const custom = this.#customModels.get(`${m.provider}/${m.id}`);
+			const thinkingLevels = getSupportedThinkingLevels(m);
+			return {
+				provider: m.provider,
+				providerName: this.models.getProvider(m.provider)?.name ?? m.provider,
+				modelId: m.id,
+				name: m.name,
+				contextWindow: m.contextWindow,
+				thinkingLevels,
+				...(custom
+					? {
+							thinkingLabels: Object.fromEntries(
+								thinkingLevels.map((level) => [level, levelDisplayName(custom.thinking?.labels, level)]),
+							) as ThinkingLevelLabels,
+						}
+					: {}),
+				input: [...m.input],
+			};
+		});
 	}
 
 	assertAvailable(ref: ModelRef): void {
