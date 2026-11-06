@@ -3,7 +3,18 @@ import { login, mockApi } from "./helpers";
 
 test("the schedule form drops redundant help and warns only for Ask and Yolo", async ({ page }) => {
 	await mockApi(page, {
-		state: { models: [{ provider: "faux", modelId: "faux-1", name: "Faux One", contextWindow: 128_000 }] },
+		state: {
+			models: [
+				{
+					provider: "faux",
+					modelId: "faux-1",
+					name: "Faux One",
+					contextWindow: 128_000,
+					thinkingLevels: ["off"],
+					input: ["text"],
+				},
+			],
+		},
 	});
 	await login(page);
 	await page.goto("/schedules");
@@ -48,7 +59,16 @@ test("the schedule form drops redundant help and warns only for Ask and Yolo", a
 test("create a schedule and run it now", async ({ page }) => {
 	const api = await mockApi(page, {
 		state: {
-			models: [{ provider: "faux", modelId: "faux-1", name: "Faux One", contextWindow: 128_000 }],
+			models: [
+				{
+					provider: "faux",
+					modelId: "faux-1",
+					name: "Faux One",
+					contextWindow: 128_000,
+					thinkingLevels: ["off"],
+					input: ["text"],
+				},
+			],
 		},
 	});
 	await login(page);
@@ -71,7 +91,7 @@ test("create a schedule and run it now", async ({ page }) => {
 	expect(created?.body).toMatchObject({
 		name: "Nightly check",
 		prompt: "Check the nodes",
-		model: { provider: "faux", modelId: "faux-1" },
+		model: { provider: "faux", modelId: "faux-1", thinkingLevel: "off" },
 		rulePreset: "ask",
 		cron: "0 9 * * *",
 		enabled: true,

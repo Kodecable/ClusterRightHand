@@ -6,13 +6,15 @@ import { FormDialog } from "@/components/dialogs";
 import { ErrorText } from "@/components/error-state";
 import { ModelSelect } from "@/components/model-select";
 import { RulePresetSelect } from "@/components/rule-preset-select";
+import { ThinkingLevelSelect } from "@/components/thinking-level-select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useCreateSession } from "@/features/sessions/api";
 import { useModels } from "@/features/settings/api";
 import { errorMessage } from "@/lib/api/client";
-import type { ModelRef, RulePreset } from "@/lib/api/types";
+import type { ModelRef, RulePreset, ThinkingLevel } from "@/lib/api/types";
 import { parseQuotaInput, type QuotaError } from "@/lib/quota";
+import { supportedThinkingLevels, withThinkingLevel } from "@/lib/thinking-level";
 
 /**
  * "New session" (doc/webui.md "侧边列表"): title, model, rule preset and a token
@@ -26,6 +28,7 @@ export function NewSessionDialog({ open, onOpenChange }: { open: boolean; onOpen
 	const create = useCreateSession();
 	const [title, setTitle] = useState("");
 	const [model, setModel] = useState<ModelRef | undefined>(undefined);
+	const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("off");
 	const [rulePreset, setRulePreset] = useState<RulePreset>("ask");
 	const [quotaText, setQuotaText] = useState("");
 	const [quotaError, setQuotaError] = useState<QuotaError>();
@@ -34,6 +37,7 @@ export function NewSessionDialog({ open, onOpenChange }: { open: boolean; onOpen
 	const noModels = models.data !== undefined && available.length === 0;
 	const chosen =
 		model ?? (available[0] ? { provider: available[0].provider, modelId: available[0].modelId } : undefined);
+	const thinkingLevels = supportedThinkingLevels(available, chosen);
 
 	const quotaErrorText = (error: QuotaError): string => {
 		switch (error) {
@@ -57,7 +61,7 @@ export function NewSessionDialog({ open, onOpenChange }: { open: boolean; onOpen
 		try {
 			const session = await create.mutateAsync({
 				...(title.trim() !== "" ? { title: title.trim() } : {}),
-				model: chosen,
+				model: withThinkingLevel(chosen, thinkingLevel),
 				rulePreset,
 				budgetRemaining: quota.quota,
 			});
@@ -105,7 +109,27 @@ export function NewSessionDialog({ open, onOpenChange }: { open: boolean; onOpen
 				<Label htmlFor="new-session-model">
 					<Trans>Model</Trans>
 				</Label>
-				<ModelSelect id="new-session-model" models={available} value={chosen} onChange={setModel} />
+				<ModelSelect
+					id="new-session-model"
+					models={available}
+					value={chosen}
+					onChange={(next) => {
+						setModel(next);
+						setThinkingLevel("off");
+					}}
+				/>
+			</div>
+
+			<div className="grid gap-1.5">
+				<Label htmlFor="new-session-thinking">
+					<Trans>Thinking level</Trans>
+				</Label>
+				<ThinkingLevelSelect
+					id="new-session-thinking"
+					levels={thinkingLevels}
+					value={thinkingLevel}
+					onChange={setThinkingLevel}
+				/>
 			</div>
 
 			<div className="grid gap-1.5">

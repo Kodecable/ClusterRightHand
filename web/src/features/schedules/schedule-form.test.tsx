@@ -8,7 +8,24 @@ import { activateLocale, renderWithI18n } from "@/test/render";
 import { ScheduleForm, scheduleFormStateOf } from "./schedule-form";
 import { type ParsedSchedule, rulePresetNoteText } from "./scheduleForm";
 
-const MODELS: AvailableModel[] = [{ provider: "faux", modelId: "faux-1", name: "Faux One", contextWindow: 128_000 }];
+const MODELS: AvailableModel[] = [
+	{
+		provider: "faux",
+		modelId: "faux-1",
+		name: "Faux One",
+		contextWindow: 128_000,
+		thinkingLevels: ["off", "high"],
+		input: ["text"],
+	},
+	{
+		provider: "faux",
+		modelId: "faux-2",
+		name: "Faux Plain",
+		contextWindow: 128_000,
+		thinkingLevels: ["off"],
+		input: ["text"],
+	},
+];
 
 function mockFetch(): { calls: { body: unknown; url: string }[] } {
 	const calls: { body: unknown; url: string }[] = [];
@@ -67,6 +84,34 @@ describe("ScheduleForm", () => {
 			expect(time).toHaveTextContent(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
 		}
 		expect(screen.getByText("……")).toBeInTheDocument();
+	});
+
+	test("sends the selected thinking level and resets it when the model changes", async () => {
+		mockFetch();
+		const onSubmit = vi.fn();
+		renderForm(onSubmit);
+		const user = userEvent.setup();
+		const thinking = screen.getByLabelText("Thinking level");
+		expect(thinking).toHaveTextContent("Off");
+		await user.click(thinking);
+		await user.click(await screen.findByRole("option", { name: "High" }));
+		await waitFor(() => expect(screen.getByLabelText("Thinking level")).toHaveTextContent("High"));
+		await user.type(screen.getByLabelText("Name"), "Nightly check");
+		await user.click(screen.getByRole("button", { name: "Save schedule" }));
+		await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+		expect(onSubmit.mock.calls[0]?.[0]?.model).toEqual({
+			provider: "faux",
+			modelId: "faux-1",
+			thinkingLevel: "high",
+		});
+
+		// A new model resets the level to off; the body then has no level.
+		await user.click(screen.getByLabelText("Model"));
+		await user.click(await screen.findByRole("option", { name: "Faux Plain" }));
+		await waitFor(() => expect(screen.getByLabelText("Thinking level")).toHaveTextContent("Off"));
+		await user.click(screen.getByRole("button", { name: "Save schedule" }));
+		await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+		expect(onSubmit.mock.calls[1]?.[0]?.model).toEqual({ provider: "faux", modelId: "faux-2" });
 	});
 
 	test("warns for Ask and Yolo, and says nothing for Auto Review", () => {

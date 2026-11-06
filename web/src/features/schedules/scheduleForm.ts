@@ -1,7 +1,15 @@
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
-import type { ModelRef, RulePreset, ScheduleRunStatus, ScheduleRunView, ScheduleView } from "@/lib/api/types";
+import type {
+	ModelRef,
+	RulePreset,
+	ScheduleRunStatus,
+	ScheduleRunView,
+	ScheduleView,
+	ThinkingLevel,
+} from "@/lib/api/types";
 import { parseQuotaInput } from "@/lib/quota";
+import { withThinkingLevel } from "@/lib/thinking-level";
 
 /** Pure form and display helpers for schedules (doc/scheduling.md); the pages only render them. */
 
@@ -9,6 +17,7 @@ export interface ScheduleFormState {
 	name: string;
 	prompt: string;
 	model: ModelRef | undefined;
+	thinkingLevel: ThinkingLevel;
 	rulePreset: RulePreset;
 	tokenBudget: string;
 	cron: string;
@@ -125,7 +134,7 @@ export function parseScheduleForm(
 		input: {
 			name,
 			prompt,
-			model: state.model,
+			model: withThinkingLevel(state.model, state.thinkingLevel),
 			rulePreset: state.rulePreset,
 			tokenBudget: budget.quota,
 			cron,

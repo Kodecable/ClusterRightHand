@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { SessionView } from "@/lib/api/types";
+import type { AvailableModel, SessionView } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
 import { Composer } from "./composer";
 
@@ -51,7 +52,18 @@ function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 	};
 }
 
-function mockFetch(replies: Reply[] = []): Call[] {
+const DEFAULT_MODELS: AvailableModel[] = [
+	{
+		provider: "faux",
+		modelId: "faux-1",
+		name: "Faux One",
+		contextWindow: 128_000,
+		thinkingLevels: ["off"],
+		input: ["text"],
+	},
+];
+
+function mockFetch(replies: Reply[] = [], models: AvailableModel[] = DEFAULT_MODELS): Call[] {
 	const calls: Call[] = [];
 	vi.stubGlobal(
 		"fetch",
@@ -61,7 +73,7 @@ function mockFetch(replies: Reply[] = []): Call[] {
 			if (url.endsWith("/api/models")) {
 				return new Response(
 					JSON.stringify({
-						models: [{ provider: "faux", modelId: "faux-1", name: "Faux One", contextWindow: 128_000 }],
+						models,
 					}),
 					{ status: 200, headers: { "content-type": "application/json" } },
 				);
@@ -383,6 +395,52 @@ describe("ComposerFooter", () => {
 		expect(screen.getByTestId("composer-rules").querySelector(".lucide-shield-alert")).not.toBeNull();
 		expect(screen.getByTestId("composer-budget").querySelector(".lucide-droplet")).not.toBeNull();
 		expect(screen.getByTestId("composer-usage").querySelector(".lucide-database")).not.toBeNull();
+	});
+
+	test("the thinking picker lists only the model's levels and PATCHes the model with the level", async () => {
+		const calls = mockFetch(
+			[],
+			[
+				{
+					provider: "faux",
+					modelId: "faux-1",
+					name: "Faux One",
+					contextWindow: 128_000,
+					thinkingLevels: ["off", "low", "high"],
+					input: ["text"],
+				},
+			],
+		);
+		renderComposer({ session: { model: { provider: "faux", modelId: "faux-1", thinkingLevel: "high" } } });
+		const user = userEvent.setup();
+		const trigger = await screen.findByTestId("composer-thinking");
+		expect(trigger).toHaveTextContent("High");
+		await user.click(trigger);
+		await user.click(await screen.findByRole("option", { name: "Low" }));
+		await waitFor(() => expect(calls).toHaveLength(1));
+		expect(calls[0]).toEqual({
+			url: "/api/sessions/s1",
+			body: { model: { provider: "faux", modelId: "faux-1", thinkingLevel: "low" } },
+		});
+	});
+
+	test("the thinking picker is hidden when the model only supports off", async () => {
+		mockFetch(
+			[],
+			[
+				{
+					provider: "faux",
+					modelId: "faux-1",
+					name: "Faux One",
+					contextWindow: 128_000,
+					thinkingLevels: ["off"],
+					input: ["text"],
+				},
+			],
+		);
+		renderComposer();
+		await waitFor(() => expect(screen.getByTestId("composer-rules")).toBeInTheDocument());
+		expect(screen.queryByTestId("composer-thinking")).not.toBeInTheDocument();
 	});
 
 	test("an unlimited budget reads infinity, and a negative one reads 0 in the danger tone", async () => {

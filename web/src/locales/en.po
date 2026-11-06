@@ -4557,3 +4557,41 @@ msgstr "You cannot disable your own account."
 #: src/features/sessions/composer.tsx
 msgid "You have view access: the owner can let you send messages by sharing it for chat."
 msgstr "You have view access: the owner can let you send messages by sharing it for chat."
+
+#: src/components/thinking-level-select.tsx
+#: src/features/schedules/schedule-form.tsx
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Thinking level"
+msgstr "Thinking level"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "Change the thinking level; it applies from the next turn."
+msgstr "Change the thinking level; it applies from the next turn."
+
+#: src/lib/thinking-level.ts
+msgid "Off"
+msgstr "Off"
+
+#: src/lib/thinking-level.ts
+msgid "Minimal"
+msgstr "Minimal"
+
+#: src/lib/thinking-level.ts
+msgid "Low"
+msgstr "Low"
+
+#: src/lib/thinking-level.ts
+msgid "Medium"
+msgstr "Medium"
+
+#: src/lib/thinking-level.ts
+msgid "High"
+msgstr "High"
+
+#: src/lib/thinking-level.ts
+msgid "Extra high"
+msgstr "Extra high"
+
+#: src/lib/thinking-level.ts
+msgid "Max"
+msgstr "Max"

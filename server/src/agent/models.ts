@@ -5,6 +5,7 @@ import {
 	clampThinkingLevel,
 	createModels,
 	createProvider,
+	getSupportedThinkingLevels,
 	type MutableModels,
 	type Provider,
 } from "@earendil-works/pi-ai/models";
@@ -36,6 +37,16 @@ export const THINKING_LEVELS: readonly ModelThinkingLevel[] = [
 	"xhigh",
 	"max",
 ];
+
+/** The level a ref runs at: an absent level is `off` (doc/agent-runtime.md#思考档位). */
+export function thinkingLevelOf(ref: ModelRef): ModelThinkingLevel {
+	return ref.thinkingLevel ?? "off";
+}
+
+/** The API shape of a ref: the effective level is always present, `off` when none was stored. */
+export function modelRefView(ref: ModelRef): ModelRef & { thinkingLevel: ModelThinkingLevel } {
+	return { provider: ref.provider, modelId: ref.modelId, thinkingLevel: thinkingLevelOf(ref) };
+}
 
 /** Parses `{ provider, modelId, thinkingLevel? }` from user input; throws UserError. */
 export function parseModelRef(raw: unknown): ModelRef {
@@ -682,8 +693,11 @@ function customProvider(
 				? clampThinkingLevel(model, options.reasoning)
 				: "off"
 			: ((options?.reasoningEffort as ModelThinkingLevel | undefined) ?? "off");
-		const body = config?.thinking?.mode === "body" ? config.thinking.levels[level] : undefined;
-		const needsPayload = body !== undefined || (session !== undefined && sessionBody.length > 0);
+		const bodyConfig = config?.thinking?.mode === "body" ? config.thinking : undefined;
+		const body = bodyConfig?.levels[level];
+		// Body mode always owns the payload's thinking parameters: even a level with no body entry must drop
+		// pi-ai's own parameters (doc/agent-runtime.md#自定义提供方).
+		const needsPayload = bodyConfig !== undefined || (session !== undefined && sessionBody.length > 0);
 		const nextHeaders =
 			session !== undefined && sessionHeaders.length > 0
 				? { ...options?.headers, ...Object.fromEntries(sessionHeaders.map((name) => [name, session])) }
@@ -697,7 +711,7 @@ function customProvider(
 				// Body mode owns the thinking parameters: drop whatever pi-ai added before merging. The
 				// compat overrides above stop Chat Completions from adding them; Responses has no compat
 				// switch, so its `reasoning`/`include` are removed here.
-				if (config?.thinking?.mode === "body") stripThinking(next, model.api as CustomApi);
+				if (bodyConfig) stripThinking(next, model.api as CustomApi);
 				if (body !== undefined) deepMerge(next, body);
 				if (session !== undefined) for (const path of sessionBody) setPath(next, path, session);
 			}
@@ -787,14 +801,24 @@ export class ModelConfig {
 		}
 	}
 
-	/** Models sessions may pick: those of enabled providers. */
-	available(): { provider: string; providerName: string; modelId: string; name: string; contextWindow: number }[] {
+	/** Models sessions may pick: those of enabled providers, with their levels and input kinds. */
+	available(): {
+		provider: string;
+		providerName: string;
+		modelId: string;
+		name: string;
+		contextWindow: number;
+		thinkingLevels: ModelThinkingLevel[];
+		input: ("text" | "image")[];
+	}[] {
 		return this.models.getModels().map((m) => ({
 			provider: m.provider,
 			providerName: this.models.getProvider(m.provider)?.name ?? m.provider,
 			modelId: m.id,
 			name: m.name,
 			contextWindow: m.contextWindow,
+			thinkingLevels: getSupportedThinkingLevels(m),
+			input: [...m.input],
 		}));
 	}
 
@@ -802,5 +826,32 @@ export class ModelConfig {
 		if (!this.models.getModel(ref.provider, ref.modelId)) {
 			throw new UserError(`model ${ref.provider}/${ref.modelId} is not configured`);
 		}
+	}
+
+	/**
+	 * Resolves a model reference to the level it runs at (doc/agent-runtime.md#思考档位): an explicit level must be
+	 * supported by the model, otherwise a model change keeps the previous level, clamped to the nearest supported
+	 * one. The returned ref omits `off`, the stored convention; callers use `thinkingLevelOf` for the durable config.
+	 */
+	resolveRef(ref: ModelRef, previousLevel?: ModelThinkingLevel): ModelRef {
+		const model = this.models.getModel(ref.provider, ref.modelId);
+		if (!model) throw new UserError(`model ${ref.provider}/${ref.modelId} is not configured`);
+		let level: ModelThinkingLevel;
+		if (ref.thinkingLevel !== undefined) {
+			const supported = getSupportedThinkingLevels(model);
+			if (!supported.includes(ref.thinkingLevel)) {
+				throw new UserError(
+					`thinking level ${ref.thinkingLevel} is not supported by ${ref.provider}/${ref.modelId}; supported: ${supported.join(", ")}`,
+				);
+			}
+			level = ref.thinkingLevel;
+		} else {
+			level = clampThinkingLevel(model, previousLevel ?? "off");
+		}
+		return {
+			provider: ref.provider,
+			modelId: ref.modelId,
+			...(level === "off" ? {} : { thinkingLevel: level }),
+		};
 	}
 }

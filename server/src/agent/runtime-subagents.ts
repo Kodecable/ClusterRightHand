@@ -12,7 +12,7 @@ import type { RuleSet } from "../policy/rules.ts";
 import { createRuleSet } from "../policy/store.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { derivedId } from "../util/id.ts";
-import type { ModelRef } from "./models.ts";
+import { type ModelRef, thinkingLevelOf } from "./models.ts";
 import type { AgentRequestView, RuntimeHost } from "./runtime-core.ts";
 import { conversationOf, loadConversation, loadSession } from "./runtime-core.ts";
 import { nextRequests, pendingAgentRequests } from "./runtime-requests.ts";
@@ -86,7 +86,7 @@ export async function descendants(host: RuntimeHost, sessionId: string): Promise
 export async function createSubagent(
 	host: RuntimeHost,
 	parentId: string,
-	input: { callKey: string; task: string; rules: RuleSet; quota: number | null },
+	input: { callKey: string; task: string; rules: RuleSet; quota: number | null; model?: ModelRef },
 ): Promise<{ id: string; created: boolean }> {
 	const parent = await loadSession(host, parentId);
 	let depth = 0;
@@ -111,7 +111,11 @@ export async function createSubagent(
 		}
 		return { id: childId, created: false };
 	}
-	const model = JSON.parse(parent.model) as ModelRef;
+	// The parent may pick the child's model (like its rules and quota); without one the child inherits the
+	// parent's, keeping its thinking level clamped to the child's model (D115).
+	const parentModel = JSON.parse(parent.model) as ModelRef;
+	const requested = input.model ?? { provider: parentModel.provider, modelId: parentModel.modelId };
+	const model = host.models.resolveRef(requested, thinkingLevelOf(parentModel));
 	const parentConversation = await conversationOf(host, parent);
 	if (!parentConversation) throw new NotFoundError("the parent's conversation is missing");
 	// Create the ownerless conversation and the link to it in one commit; a rerun after a crash finds the link
@@ -130,7 +134,7 @@ export async function createSubagent(
 	await conversation.configure(
 		{
 			model: { provider: model.provider, modelId: model.modelId },
-			...(model.thinkingLevel ? { thinkingLevel: model.thinkingLevel } : {}),
+			thinkingLevel: thinkingLevelOf(model),
 		},
 		host.context,
 	);
@@ -147,7 +151,7 @@ export async function createSubagent(
 				parent_session_id: parent.id,
 				root_session_id: parent.root_session_id ?? parent.id,
 				title: input.task.slice(0, 80),
-				model: parent.model,
+				model: JSON.stringify(model),
 				status: "active",
 				created_at: now,
 				updated_at: now,

@@ -190,7 +190,7 @@ export interface SessionView {
 	parentSessionId: string | null;
 	/** The schedule whose run created this session; null for every other session. */
 	scheduleId: string | null;
-	model: ModelRef & { thinkingLevel?: string };
+	model: ModelRef;
 	status: "active" | "archived";
 	createdAt: string;
 	updatedAt: string;
@@ -746,21 +746,26 @@ export interface SshNodeDetails {
 	credential: { id: string; name: string | null };
 }
 
+/** pi-ai's thinking levels (doc/agent-runtime.md#思考档位). */
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+/** A model choice; an absent thinking level means `off`. */
 export interface ModelRef {
 	provider: string;
 	modelId: string;
+	thinkingLevel?: ThinkingLevel;
 }
 
 export interface AvailableModel extends ModelRef {
 	name: string;
 	contextWindow: number;
+	/** The levels this model supports, `off` included. */
+	thinkingLevels: ThinkingLevel[];
+	input: ("text" | "image")[];
 }
 
 /** The protocol a custom model speaks. */
 export type CustomApi = "openai-completions" | "openai-responses";
-
-/** pi-ai's thinking levels (doc/agent-runtime.md#思考档位). */
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface ThinkingConfig {
 	mode: "format" | "body";

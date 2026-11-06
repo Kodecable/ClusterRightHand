@@ -12,6 +12,7 @@ const form = (overrides: Partial<ScheduleFormState> = {}): ScheduleFormState => 
 	name: "nightly check",
 	prompt: "Check the nodes",
 	model: { provider: "faux", modelId: "faux-model" },
+	thinkingLevel: "off",
 	rulePreset: "ask",
 	tokenBudget: "",
 	cron: "*/5 * * * *",
@@ -38,6 +39,25 @@ describe("parseScheduleForm", () => {
 		});
 		expect(parseScheduleForm(form({ tokenBudget: "2500" }))).toMatchObject({ input: { tokenBudget: 2500 } });
 		expect(parseScheduleForm(form({ name: "  trim me  " }))).toMatchObject({ input: { name: "trim me" } });
+	});
+
+	test("keeps an explicit thinking level and omits off", () => {
+		expect(parseScheduleForm(form({ thinkingLevel: "high" }))).toEqual({
+			input: {
+				name: "nightly check",
+				prompt: "Check the nodes",
+				model: { provider: "faux", modelId: "faux-model", thinkingLevel: "high" },
+				rulePreset: "ask",
+				tokenBudget: null,
+				cron: "*/5 * * * *",
+				timezone: "Europe/Berlin",
+				catchUp: false,
+				enabled: true,
+			},
+		});
+		expect(parseScheduleForm(form({ thinkingLevel: "off" }))).toMatchObject({
+			input: { model: { provider: "faux", modelId: "faux-model" } },
+		});
 	});
 
 	test("validation failures are codes, not sentences", () => {

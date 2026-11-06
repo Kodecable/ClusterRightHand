@@ -17,6 +17,7 @@ import type { RuleRef } from "../policy/store.ts";
 import { callTool } from "../tools/adapter.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
 import { UserError } from "../users/service.ts";
+import { THINKING_LEVELS } from "./models.ts";
 import { chargeCall, exhaustedLevel, parseQuota, setContextTokens } from "./quota.ts";
 import type { AgentRuntime } from "./runtime.ts";
 import type { AgentRequestView, AgentRuntimeOptions } from "./runtime-core.ts";
@@ -253,6 +254,20 @@ export function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { cur
 			background: Type.Optional(
 				Type.Boolean({ description: "Return at once with the session id; fetch the answer with subagent_wait" }),
 			),
+			model: Type.Optional(
+				Type.Object({
+					provider: Type.String({ description: "Provider id" }),
+					modelId: Type.String({ description: "Model id" }),
+					thinkingLevel: Type.Optional(
+						Type.Union(
+							THINKING_LEVELS.map((level) => Type.Literal(level)),
+							{
+								description: "Thinking level; omit to keep the parent's level, clamped to the model",
+							},
+						),
+					),
+				}),
+			),
 		}),
 		// A rerun after a restart finds the child session and submission it made before.
 		replay: "safe",
@@ -270,6 +285,7 @@ export function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { cur
 				task: args.task,
 				rules,
 				quota,
+				...(args.model ? { model: args.model } : {}),
 			});
 			// A UI watching the parent finds the child here.
 			await api.details({ sessionId: child.id }, context);

@@ -1,14 +1,16 @@
 import { useLingui } from "@lingui/react/macro";
-import { ArrowUpIcon, DropletIcon, ShieldCheckIcon, SquareIcon } from "lucide-react";
+import { ArrowUpIcon, DropletIcon, LightbulbIcon, ShieldCheckIcon, SquareIcon } from "lucide-react";
 import { useState } from "react";
 import { ModelSelect } from "@/components/model-select";
 import { RulePresetSelect } from "@/components/rule-preset-select";
+import { ThinkingLevelSelect } from "@/components/thinking-level-select";
 import { Button } from "@/components/ui/button";
 import { useModels } from "@/features/settings/api";
 import type { RulePreset, SessionView } from "@/lib/api/types";
 import { formatNumber, formatTokens } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { rulePresetIcon, rulePresetLabel } from "@/lib/rule-preset";
+import { supportedThinkingLevels, thinkingLevelLabel } from "@/lib/thinking-level";
 import { cn } from "@/lib/utils";
 import { usePatchSession } from "./api";
 import { QuotaDialog } from "./quota-dialog";
@@ -45,6 +47,7 @@ export function ComposerFooter({
 				<span className="flex min-w-0 shrink items-center">
 					<ModelControl session={session} />
 				</span>
+				<ThinkingControl session={session} />
 				<span className="flex shrink-0 items-center">
 					<RulesControl session={session} />
 				</span>
@@ -107,6 +110,51 @@ function ModelControl({ session }: { session: SessionView }) {
 			disabled={patch.isPending}
 			onChange={(model) => patch.mutate({ model })}
 		/>
+	);
+}
+
+/**
+ * The thinking level right after the model; hidden when the model only supports
+ * `off`, and read-only without `configure` like the model picker. A change is
+ * stored on the conversation and applies from the next turn.
+ */
+function ThinkingControl({ session }: { session: SessionView }) {
+	const { t, i18n } = useLingui();
+	const models = useModels();
+	const patch = usePatchSession(session.id);
+	const level = session.model.thinkingLevel ?? "off";
+	const levels = supportedThinkingLevels(models.data ?? [], session.model);
+	if (levels.length <= 1 && levels[0] === "off") return null;
+	const label = thinkingLevelLabel(i18n, level);
+
+	if (!session.capabilities.configure) {
+		return (
+			<span
+				className="inline-flex min-w-0 shrink items-center gap-1 px-1.5 text-xs text-muted-foreground"
+				data-testid="composer-thinking"
+				title={label}
+			>
+				<LightbulbIcon className="size-3.5 shrink-0" aria-hidden="true" />
+				<span className="min-w-0 truncate">{label}</span>
+			</span>
+		);
+	}
+	return (
+		<span className="flex shrink-0 items-center">
+			<ThinkingLevelSelect
+				variant="inline"
+				dataTestId="composer-thinking"
+				title={t`Change the thinking level; it applies from the next turn.`}
+				levels={levels}
+				value={level}
+				disabled={patch.isPending}
+				onChange={(thinkingLevel) =>
+					patch.mutate({
+						model: { provider: session.model.provider, modelId: session.model.modelId, thinkingLevel },
+					})
+				}
+			/>
+		</span>
 	);
 }
 

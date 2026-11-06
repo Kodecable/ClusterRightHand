@@ -1,7 +1,16 @@
 import { expect, type Page, test } from "@playwright/test";
 import { login, mockApi, openSession, sessionListItem, sessionView, snapshotEvent, userEntry } from "./helpers";
 
-const MODELS = [{ provider: "faux", modelId: "faux-1", name: "Faux One", contextWindow: 128_000 }];
+const MODELS = [
+	{
+		provider: "faux",
+		modelId: "faux-1",
+		name: "Faux One",
+		contextWindow: 128_000,
+		thinkingLevels: ["off"],
+		input: ["text"],
+	},
+];
 
 /** A session page whose footer has every counter, with the model list its context ring needs. */
 async function openFooterPage(page: Page, overrides: Record<string, unknown> = {}) {

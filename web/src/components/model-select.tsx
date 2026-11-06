@@ -29,7 +29,16 @@ export function groupModels(models: AvailableModel[], current?: ModelRef): Map<s
 	const groups = new Map<string, AvailableModel[]>();
 	const all =
 		current !== undefined && !models.some((model) => modelKey(model) === modelKey(current))
-			? [...models, { ...current, name: current.modelId, contextWindow: 0 }]
+			? [
+					...models,
+					{
+						...current,
+						name: current.modelId,
+						contextWindow: 0,
+						thinkingLevels: ["off"] as AvailableModel["thinkingLevels"],
+						input: ["text"] as AvailableModel["input"],
+					},
+				]
 			: models;
 	for (const model of all) groups.set(model.provider, [...(groups.get(model.provider) ?? []), model]);
 	return groups;

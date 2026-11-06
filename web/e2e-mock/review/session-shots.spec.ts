@@ -165,7 +165,16 @@ const state = {
 			state: "running",
 		} as never),
 	},
-	models: [{ provider: "faux", modelId: "faux-1", name: "Faux One", contextWindow: 128_000 }],
+	models: [
+		{
+			provider: "faux",
+			modelId: "faux-1",
+			name: "Faux One",
+			contextWindow: 128_000,
+			thinkingLevels: ["off"],
+			input: ["text"],
+		},
+	],
 	events: { s1: events },
 };
 

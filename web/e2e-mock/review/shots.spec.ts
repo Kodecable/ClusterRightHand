@@ -56,7 +56,16 @@ const state = {
 	tokens: [apiTokenView()],
 	audit: [auditEvent(), auditEvent({ id: "evt-2", action: "task.approved" } as never)],
 	providers: [providerView()],
-	models: [{ provider: "faux", modelId: "faux-1", name: "Faux One", contextWindow: 128_000 }],
+	models: [
+		{
+			provider: "faux",
+			modelId: "faux-1",
+			name: "Faux One",
+			contextWindow: 128_000,
+			thinkingLevels: ["off"],
+			input: ["text"],
+		},
+	],
 	directory: { users: [USER], userGroups: [userGroup()] },
 	userGroups: [userGroup()],
 	users: [USER],

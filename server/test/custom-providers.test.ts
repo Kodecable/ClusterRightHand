@@ -277,6 +277,23 @@ describeBackends("custom model providers", (backend) => {
 		expect(lastBody()).not.toHaveProperty("reasoning_effort");
 	});
 
+	it("body mode: Responses at off with no off entry still strips pi's reasoning", async () => {
+		const provider = await configure([
+			{
+				id: "m-1",
+				api: "openai-responses",
+				contextWindow: 4096,
+				maxTokens: 512,
+				input: ["text"],
+				thinking: { mode: "body", levels: { high: { thinking: { type: "enabled" } } } },
+			},
+		]);
+		await ask(provider, "m-1", { reasoning: "off" });
+		expect(lastBody()).not.toHaveProperty("reasoning");
+		expect(lastBody()).not.toHaveProperty("include");
+		expect(lastBody()).not.toHaveProperty("thinking");
+	});
+
 	it("no thinking: only off, and reasoning false", async () => {
 		const provider = await configure([
 			{ id: "m-1", api: "openai-completions", contextWindow: 4096, maxTokens: 512, input: ["text"] },

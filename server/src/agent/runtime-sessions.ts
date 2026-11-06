@@ -13,7 +13,7 @@ import type { RulePreset } from "../policy/rules.ts";
 import { createRootRuleSet, createRuleSet, getRuleSet, setRulePreset } from "../policy/store.ts";
 import { defaultOrgId } from "../users/service.ts";
 import { newId } from "../util/id.ts";
-import type { ModelRef } from "./models.ts";
+import { type ModelRef, modelRefView, thinkingLevelOf } from "./models.ts";
 import { budgetUsedTokens, contextTokens, setQuota, usageTokens } from "./quota.ts";
 import type { RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runtime-core.ts";
 import { conversationOf, loadConversation } from "./runtime-core.ts";
@@ -49,13 +49,13 @@ export async function createSession(
 		budgetRemaining?: number | null;
 	},
 ): Promise<SessionView> {
-	host.models.assertAvailable(input.model);
+	const model = host.models.resolveRef(input.model);
 	const conversation = await host.harness().createConversation(
 		{
 			ownership: { kind: "ownerless" },
 			agent: {
-				model: { provider: input.model.provider, modelId: input.model.modelId },
-				...(input.model.thinkingLevel ? { thinkingLevel: input.model.thinkingLevel } : {}),
+				model: { provider: model.provider, modelId: model.modelId },
+				thinkingLevel: thinkingLevelOf(model),
 				...(input.instructions ? { instructions: input.instructions } : {}),
 			},
 		},
@@ -75,7 +75,7 @@ export async function createSession(
 				parent_session_id: null,
 				root_session_id: id,
 				title: input.title?.trim() || "New session",
-				model: JSON.stringify(input.model),
+				model: JSON.stringify(model),
 				status: "active",
 				created_at: now,
 				updated_at: now,
@@ -95,7 +95,7 @@ export async function createSession(
 		actor: { type: "user", id: owner.userId, onBehalfOfUserId: owner.userId },
 		action: "session.created",
 		target: { type: "session", id },
-		detail: { model: input.model, rule_preset: input.rulePreset },
+		detail: { model, rule_preset: input.rulePreset },
 	});
 	host.sessionList.publishSession(id);
 	return (await getSession(host, id)) as SessionView;
@@ -114,13 +114,13 @@ export async function createScheduledSession(
 ): Promise<SessionView> {
 	const existing = await getSession(host, input.id);
 	if (existing) return existing;
-	host.models.assertAvailable(input.model);
+	const model = host.models.resolveRef(input.model);
 	const conversation = await host.harness().createConversation(
 		{
 			ownership: { kind: "ownerless" },
 			agent: {
-				model: { provider: input.model.provider, modelId: input.model.modelId },
-				...(input.model.thinkingLevel ? { thinkingLevel: input.model.thinkingLevel } : {}),
+				model: { provider: model.provider, modelId: model.modelId },
+				thinkingLevel: thinkingLevelOf(model),
 			},
 		},
 		host.context,
@@ -139,7 +139,7 @@ export async function createScheduledSession(
 				root_session_id: input.id,
 				schedule_id: input.scheduleId,
 				title: input.title.trim() || "Scheduled run",
-				model: JSON.stringify(input.model),
+				model: JSON.stringify(model),
 				status: "active",
 				created_at: now,
 				updated_at: now,
@@ -159,7 +159,7 @@ export async function createScheduledSession(
 		actor: { type: "schedule", id: input.scheduleId, onBehalfOfUserId: owner.userId },
 		action: "session.created",
 		target: { type: "session", id: input.id },
-		detail: { model: input.model, rule_preset: null, schedule_id: input.scheduleId },
+		detail: { model, rule_preset: null, schedule_id: input.scheduleId },
 	});
 	host.sessionList.publishSession(input.id);
 	return (await getSession(host, input.id)) as SessionView;
@@ -178,7 +178,7 @@ async function sessionView(host: RuntimeHost, row: SessionRow): Promise<SessionV
 		ownerUserId: row.owner_user_id,
 		parentSessionId: row.parent_session_id,
 		scheduleId: row.schedule_id,
-		model: JSON.parse(row.model) as ModelRef,
+		model: modelRefView(JSON.parse(row.model) as ModelRef),
 		status: row.status,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
@@ -200,12 +200,15 @@ export async function configure(
 	change: { title?: string; model?: ModelRef; rulePreset?: RulePreset; budgetRemaining?: number | null },
 ): Promise<SessionView> {
 	const { row, conversation } = await loadConversation(host, sessionId);
+	let model: ModelRef | undefined;
 	if (change.model) {
-		host.models.assertAvailable(change.model);
+		// A model change without a level keeps the session's level, clamped to the new model (D115).
+		const stored = JSON.parse(row.model) as ModelRef;
+		model = host.models.resolveRef(change.model, thinkingLevelOf(stored));
 		await conversation.configure(
 			{
-				model: { provider: change.model.provider, modelId: change.model.modelId },
-				thinkingLevel: change.model.thinkingLevel ?? null,
+				model: { provider: model.provider, modelId: model.modelId },
+				thinkingLevel: thinkingLevelOf(model),
 			},
 			host.context,
 		);
@@ -224,7 +227,7 @@ export async function configure(
 		.updateTable("sessions")
 		.set({
 			...(change.title?.trim() ? { title: change.title.trim() } : {}),
-			...(change.model ? { model: JSON.stringify(change.model) } : {}),
+			...(model ? { model: JSON.stringify(model) } : {}),
 			updated_at: new Date().toISOString(),
 		})
 		.where("id", "=", sessionId)

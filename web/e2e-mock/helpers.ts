@@ -121,7 +121,7 @@ export function sessionView(item: SessionListItem, overrides: Partial<SessionVie
 		ownerUserId: item.ownerUserId,
 		parentSessionId: null,
 		scheduleId: item.scheduleId,
-		model: { provider: "faux", modelId: "faux-1" },
+		model: { provider: "faux", modelId: "faux-1", thinkingLevel: "off" },
 		status: "active",
 		createdAt: item.updatedAt,
 		updatedAt: item.updatedAt,
@@ -834,6 +834,8 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 						modelId: model.id,
 						name: model.name ?? model.id,
 						contextWindow: model.contextWindow,
+						thinkingLevels: model.thinking ? ["off", "low", "medium", "high"] : ["off"],
+						input: model.input,
 					})),
 				];
 				return json({ provider });
@@ -1165,7 +1167,7 @@ export function scheduleView(overrides: Partial<ScheduleView> = {}): ScheduleVie
 		ownerUserId: USER.id,
 		name: "Nightly check",
 		prompt: "Check the nodes",
-		model: { provider: "faux", modelId: "faux-1" },
+		model: { provider: "faux", modelId: "faux-1", thinkingLevel: "off" },
 		rulePreset: "ask",
 		rules: [],
 		refs: {},

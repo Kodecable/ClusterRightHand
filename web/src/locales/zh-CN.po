@@ -4557,3 +4557,41 @@ msgstr "不能停用自己的账号。"
 #: src/features/sessions/composer.tsx
 msgid "You have view access: the owner can let you send messages by sharing it for chat."
 msgstr "你拥有查看权限：所有者可以通过聊天共享让你发送消息。"
+
+#: src/components/thinking-level-select.tsx
+#: src/features/schedules/schedule-form.tsx
+#: src/features/sessions/new-session-dialog.tsx
+msgid "Thinking level"
+msgstr "思考档位"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "Change the thinking level; it applies from the next turn."
+msgstr "修改思考档位；从下一轮起生效。"
+
+#: src/lib/thinking-level.ts
+msgid "Off"
+msgstr "关闭"
+
+#: src/lib/thinking-level.ts
+msgid "Minimal"
+msgstr "最低"
+
+#: src/lib/thinking-level.ts
+msgid "Low"
+msgstr "低"
+
+#: src/lib/thinking-level.ts
+msgid "Medium"
+msgstr "中"
+
+#: src/lib/thinking-level.ts
+msgid "High"
+msgstr "高"
+
+#: src/lib/thinking-level.ts
+msgid "Extra high"
+msgstr "很高"
+
+#: src/lib/thinking-level.ts
+msgid "Max"
+msgstr "最高"

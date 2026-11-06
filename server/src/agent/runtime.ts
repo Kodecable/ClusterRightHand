@@ -349,6 +349,7 @@ export class AgentRuntime {
 			task: string;
 			rules: Parameters<typeof createSubagent>[2]["rules"];
 			quota: number | null;
+			model?: ModelRef;
 		},
 	): Promise<{ id: string; created: boolean }> {
 		return createSubagent(this.#host, parentId, input);

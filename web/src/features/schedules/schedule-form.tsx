@@ -8,11 +8,13 @@ import { ErrorText } from "@/components/error-state";
 import { CheckboxField, FieldShell, TextareaField, TextField } from "@/components/form";
 import { ModelSelect } from "@/components/model-select";
 import { RulePresetSelect } from "@/components/rule-preset-select";
+import { ThinkingLevelSelect } from "@/components/thinking-level-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDebouncedValue } from "@/hooks/use-debounced";
 import type { AvailableModel, ModelRef, RulePreset } from "@/lib/api/types";
 import { formatDateTimeNumeric } from "@/lib/format";
+import { supportedThinkingLevels } from "@/lib/thinking-level";
 import { useSchedulePreview } from "./api";
 import {
 	defaultTimezone,
@@ -53,6 +55,7 @@ export function scheduleFormStateOf(schedule?: {
 		name: schedule?.name ?? "",
 		prompt: schedule?.prompt ?? "",
 		model: schedule?.model,
+		thinkingLevel: schedule?.model.thinkingLevel ?? "off",
 		rulePreset: schedule?.rulePreset ?? "ask",
 		tokenBudget:
 			schedule?.tokenBudget === null || schedule?.tokenBudget === undefined ? "" : String(schedule.tokenBudget),
@@ -74,6 +77,7 @@ function buildSchema(i18n: I18n) {
 			name: z.string(),
 			prompt: z.string(),
 			model: z.custom<ModelRef | undefined>(),
+			thinkingLevel: z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]),
 			rulePreset: z.enum(["ask", "auto_review", "yolo"]),
 			tokenBudget: z.string(),
 			cron: z.string(),
@@ -125,6 +129,8 @@ export function ScheduleForm({
 		resolver: zodResolver(schema),
 		defaultValues: initial,
 	});
+	const model = useWatch({ control: form.control, name: "model" });
+	const thinkingLevels = supportedThinkingLevels(models, model);
 	const rulePreset = useWatch({ control: form.control, name: "rulePreset" });
 	const cron = useWatch({ control: form.control, name: "cron" });
 	const timezone = useWatch({ control: form.control, name: "timezone" });
@@ -163,7 +169,24 @@ export function ScheduleForm({
 								id={id("model")}
 								models={models}
 								value={field.value}
-								onChange={(model) => field.onChange(model)}
+								onChange={(next) => {
+									field.onChange(next);
+									form.setValue("thinkingLevel", "off");
+								}}
+							/>
+						)}
+					/>
+				</FieldShell>
+				<FieldShell id={id("thinkingLevel")} label={t`Thinking level`}>
+					<Controller
+						control={form.control}
+						name="thinkingLevel"
+						render={({ field }) => (
+							<ThinkingLevelSelect
+								id={id("thinkingLevel")}
+								levels={thinkingLevels}
+								value={field.value}
+								onChange={field.onChange}
 							/>
 						)}
 					/>

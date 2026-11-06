@@ -1,6 +1,6 @@
 import { type Context, Hono } from "hono";
 import type { ModelConfig, ModelRef } from "../agent/models.ts";
-import { parseModelRef } from "../agent/models.ts";
+import { modelRefView, parseModelRef, thinkingLevelOf } from "../agent/models.ts";
 import { userActor } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
@@ -61,7 +61,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 			ownerUserId: schedule.ownerUserId,
 			name: schedule.name,
 			prompt: schedule.prompt,
-			model: schedule.model,
+			model: modelRefView(schedule.model),
 			rulePreset: rules?.rulePreset ?? null,
 			rules: rules?.rules ?? [],
 			refs: await ruleRefs(db, schedule.orgId, rules?.rules ?? []),
@@ -109,8 +109,8 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 		const user = c.get("user");
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
-		const model = parseModelRef(body.model);
-		options.models.assertAvailable(model);
+		// Creating has no previous model: no level means off, an explicit level must be supported.
+		const model = options.models.resolveRef(parseModelRef(body.model));
 		const schedule = await createSchedule(
 			db,
 			user.userId,
@@ -146,8 +146,11 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 		const schedule = await own(c);
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
-		const model: ModelRef | undefined = body.model === undefined ? undefined : parseModelRef(body.model);
-		if (model) options.models.assertAvailable(model);
+		// A model change without a level keeps the schedule's level, clamped to the new model (D115).
+		const model: ModelRef | undefined =
+			body.model === undefined
+				? undefined
+				: options.models.resolveRef(parseModelRef(body.model), thinkingLevelOf(schedule.model));
 		const rulePreset = body.rulePreset === undefined ? undefined : parseRulePreset(body.rulePreset);
 		const updated = await updateSchedule(
 			db,
