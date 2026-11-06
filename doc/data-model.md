@@ -119,7 +119,7 @@ authorizations    (id,                                   -- SHA-256(CBOR(payload
                    attempt,                               -- 同一 task_id 的授权尝试
                    created_at)
 rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,
-                   preset[ask|auto_review|yolo] nullable,          -- 只有根有，决定 default 和基础规则
+                   rule_preset[ask|auto_review|yolo] nullable,     -- 规则预设（D116 前叫 preset），只有根有，决定 default 和基础规则
                    default_action[allow|inherit|require-approval|deny], rules json, updated_at)
                   -- 授权规则，见 access-control.md；rules[].nodes 存节点 / 节点组 UUID 或 `_all`；用户和组织没有规则；配额在 sessions
 ```
@@ -132,7 +132,11 @@ rule_sets         (id, org_id, scope_type[session|schedule|api_token], scope_id,
 
 ```
 sessions          (id, org_id, owner_user_id, conversation_id, parent_session_id nullable,
-                   title, model json, status, created_at, updated_at, archived_at,
+                   title nullable,                      -- 为空时界面显示 New Session / 新会话（D116）
+                   title_pending,                       -- 需要生成标题；生成成功或用户改过标题后置假
+                   create_request_id nullable,          -- 创建请求的 requestId，(owner_user_id, create_request_id) 唯一（D117）
+                   model json,                          -- { provider, modelId, thinkingLevel? }
+                   status, created_at, updated_at, archived_at,
                    schedule_id nullable,                -- 由计划任务创建的根会话；计划任务删除后置空
                    last_submission_id nullable,         -- 最近一次输入；父会话靠它 subagent_wait
                    quota_tokens nullable,               -- 剩余 token 配额，有符号；null 不限且不扣（用户创建的根默认）
@@ -146,9 +150,13 @@ sessions          (id, org_id, owner_user_id, conversation_id, parent_session_id
                    usage_tokens,                        -- 统计口径：本会话及其 subagent 的输入 + 输出 token（D101）
                    context_tokens nullable)             -- 本会话最近一次主 agent 调用的输入大小；第一次调用前为 null
                    -- 规则在 rule_sets
-model_providers   (id, org_id, provider_id, kind[builtin|openai-compatible], builtin, name, base_url,
-                   secret_id, models json, headers json, enabled)
-                  -- key 在 secrets；headers 只放网关路由头，不放凭据
+model_providers   (id, org_id, provider_id, kind[builtin|custom], builtin, name, base_url,
+                   secret_id, models json, headers json, session_id json nullable, enabled)
+                  -- builtin = Pi 内置，custom = 自定义（D115，取代 openai-compatible）；key 在 secrets；
+                  -- headers 只放网关路由头，不放凭据；session_id = { headers?, body? }：填 crh 会话 id 的字段；
+                  -- models（仅 custom）：[{ id, name?, api, contextWindow, maxTokens, input, thinking?, compat? }]
+model_presets     (org_id, kind[session|review|title], model json nullable, system_prompt nullable, updated_at)
+                  -- 模型预设（D116），主键 (org_id, kind)；session 的 model 恒为空；取代 server_meta.review_model
 ```
 
 > 两个 token 度量见 [agent-runtime.md](agent-runtime.md#配额)（D101）：`budget_used_tokens` 只计输出、决定配额何时暂停；`usage_tokens` 计输入 + 输出、只用于展示，两者都在链上累加。`context_tokens` 只由主 agent 的模型调用写入，压缩和 Auto Review 不写。上游没有上报用量时，输入按调用实际发出的请求内容估算：生成只有请求的 `messages`，压缩和 Auto Review 是系统提示加消息。

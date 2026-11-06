@@ -54,10 +54,48 @@ interface AgentRuntime {
 
 ## 模型配置
 
-- 管理员在 WebUI 的模型设置里添加 provider：pi-ai 内置的 provider（DeepSeek、Anthropic 等），或任意 OpenAI 兼容端点（`base_url` + 模型列表）。
-- API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引用，接口从不返回 key 本身。
-- OpenAI 兼容端点可以配置额外请求头（`model_providers.headers`，迁移 0011），用于网关必需的路由头，例如 opencode zen 的 `x-opencode-session`；凭据仍放在 API key 字段。
-- crhs 只从数据库读配置，不读环境变量，避免部署环境的变量悄悄改变行为。
+管理员在 WebUI 的模型页添加提供方（provider），分两类（D115）：
+
+- **Pi 内置**（`kind = builtin`）：pi-ai 的 `builtinProviders()`（DeepSeek、Anthropic 等）。模型清单、上下文窗口、是否支持思考和档位映射都来自 pi-ai，跟随 pi-ai 的版本；crhs 只提供 API key 和可选的 `base_url` 覆盖。只支持 API key：pi-ai 里几家提供方另有 OAuth（订阅登录），crhs 不接，界面和文档都写明这一点。
+- **自定义**（`kind = custom`）：任意兼容端点，取代原来的 `openai-compatible`（迁移时旧行改为 `custom`，每个模型补 `api: openai-completions`，其余不变）。
+
+API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引用，接口从不返回 key 本身。crhs 只从数据库读配置，不读环境变量，避免部署环境的变量悄悄改变行为。
+
+### 自定义提供方
+
+提供方一级：
+
+| 字段 | 说明 |
+|---|---|
+| `baseUrl` | http(s) 端点，例如 `https://opencode.ai/zen/v1` |
+| API key | 可选（本地无鉴权的服务可以不填） |
+| `headers` | 额外请求头，只放网关路由头，不放凭据（凭据放 API key） |
+| `sessionId` | `{ headers?: string[], body?: string[] }`：这些请求头 / 请求体字段（点分路径，如 `metadata.session_id`）填当前请求所属的 **crh 会话 id**。例如 opencode 的 `x-opencode-session`。子会话填它自己的 id；自动复核和标题生成填被复核 / 被命名的会话 id |
+
+每个模型：
+
+| 字段 | 说明 |
+|---|---|
+| `id`、`name?` | 上游的模型 id 和显示名 |
+| `api` | `openai-completions`（Chat Completions）或 `openai-responses`（Responses） |
+| `contextWindow`、`maxTokens` | 上下文窗口和单次最大输出 token；自动压缩的阈值由 `contextWindow` 决定 |
+| `input` | `["text"]` 或 `["text", "image"]`；图片目前只打通模型链路（pi-ai 的图片内容块），提交和输入框还没有附件 |
+| `thinking?` | 不填表示不支持思考，只有 `off`；见下文 |
+| `compat?` | 高级：按所选协议用 pi-ai 的 `CompatSchemasByApi[api]` 校验（例如 `maxTokensField`、`supportsDeveloperRole`），不填的字段沿用 pi-ai 按 URL 的自动判断 |
+
+`thinking` 有两种写法，二选一：
+
+- **格式写法** `{ mode: "format", format?, levels }`：由 pi-ai 生成思考参数。`format` 只用于 Chat Completions，取 pi-ai 的 `thinkingFormat`（OpenAI 风格 `reasoning_effort`、`deepseek`、`qwen`、`openrouter`、`chat-template` 等），不填时 pi-ai 按 URL 判断；Responses 一律是 `reasoning.effort`。`levels` 是档位映射（pi-ai 的 `thinkingLevelMap`）：`{ "<档位>": "<发给上游的值>" | null }`，null 表示不支持这一档，未列出的 `minimal`–`high` 原样发送，`xhigh` / `max` 只有列出时才可用。
+- **请求体写法** `{ mode: "body", levels }`：`levels` 是 `{ "<档位>": <JSON 对象> }`，选中某档时把对应对象深合并进请求体（在 pi-ai 组好请求之后，经 payload 钩子），例如 `{ "off": { "thinking": { "type": "disabled" } }, "high": { "thinking": { "type": "enabled", "budget_tokens": 16000 } } }`。可用档位是 `off` 加上列出的键（未列出 `off` 时，`off` 不合并任何内容）；pi-ai 自己的思考参数在这种写法下不发送（实现时确认，必要时由钩子删除）。
+
+两种写法下，思考内容的解析（`reasoning_content` 等）都由 pi-ai 负责，不受影响。
+
+### 思考档位
+
+- 档位与 pi-ai 一致：`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。模型可用的档位由 pi-ai 的 `getSupportedThinkingLevels` 给出（自定义模型按上面的 `thinking` 换算成 pi-ai 的模型字段后同样由它计算）。
+- 会话、子会话和计划任务的模型都是 `{ provider, modelId, thinkingLevel? }`；不填是 `off`。
+- 明确给出的档位必须是该模型可用的档位，否则 400。只换模型、不给档位时保留原档位，新模型不支持就调整到最近的可用档（pi-ai 的 `clampThinkingLevel`：先往高找，再往低找）。
+- 会话视图的 `model` 带 `thinkingLevel`；`GET /api/models` 的每一项带 `thinkingLevels`（可用档位）和 `input`。
 
 ## Cluster 工具
 
@@ -165,10 +203,41 @@ interface AgentRuntime {
 
 - 会话属于创建它的用户。会话能做什么，由操作者链上的授权规则决定；设了配额的级别（子会话、计划任务的会话）还受 token 配额限制，见 [access-control.md](access-control.md#授权规则)。
 - 会话记录在业务表 `sessions` 中，`conversation_id` 关联 durable 的 Conversation。
+- 会话在发送第一条消息时才创建（D117）：`POST /api/sessions { requestId, model, rulePreset, budgetRemaining?, title?, message }` 在一个请求里建会话、提交消息并返回会话。`requestId` 由客户端为每个草稿生成（UUID），同一用户重复提交同一个 `requestId` 返回已建的会话，不再建第二个；提交消息失败时删除刚建的会话和对话，接口返回错误。没有 `message` 的创建请求是 400。
+- 标题见下文"模型预设"中的标题生成。
 - WebUI 通过 `watch` 订阅会话视图，经 SSE（`/api/sessions/:id/events`）推送增量。
 - 开启自动压缩，阈值由模型的上下文窗口决定（参数见下文"默认值"）。
 - 用户也可以手动压缩：WebUI 输入框中输入 `/compact [指令]`，或调用 `POST /api/sessions/:id/compact`（`{ instructions? }`，需要 chat 权限）；调用 durable 的 `compact()`，摘要在后台生成，空闲时立即放入、否则在下一轮边界放入；同样计入配额，配额耗尽时拒绝；写审计 `session.compacted`。接口最多等 2 秒返回 `outcome`：`started`（已开始或已完成摘要）、`nothing`（没有可压缩的内容：最近约 2 万 token 的对话消息始终原样保留）、`failed`；WebUI 只在 `nothing` 和 `failed` 时提示。
 - 会话可以分享给其他用户或用户组（`view` / `chat`）。被分享的用户发消息时，会话仍以所有者的身份行事，见 [access-control.md](access-control.md#归属访问授权与分享)；实际发消息的用户记录在审计中。
+
+## 模型预设
+
+模型页除了提供方，还列出三项**模型预设**（D116），存在 `model_presets`（每个组织每项一行）：
+
+| 预设 | 模型 | 系统提示词 | 固定附加的协议说明 |
+|---|---|---|---|
+| 会话 | 不设（每个会话自己选） | 可选 | 工具说明 |
+| 自动复核 | 可选，含思考档位；未设时用根会话（或计划任务）的模型和档位，API token 根没有模型时上交给用户（与现在相同） | 可选 | 判定工具 `submit_review` 的定义，以及"必须调用它作答" |
+| 标题生成 | 可选；未设时用该会话的模型。思考档位固定为最低：模型支持 `off` 就关闭，否则用它可用的最低一档 | 可选 | 标题的输出格式 |
+
+- 系统提示词 = （自定义提示词，没有时用默认提示词）+ 协议说明。代码里把现在的提示词拆成两段：默认提示词（会话的身份和风格；自动复核的判定标准；标题生成的要求）和协议说明（会话的工具用法；复核的判定工具；标题的输出格式）。协议说明不可编辑。
+- 会话的系统提示词之后仍是会话自己的 `instructions`（子会话的委派说明等）。
+- 改动从下一次模型请求起对所有会话生效：crhs 把预设缓存在内存，改动时刷新。
+- 自动复核用强制工具调用作答：请求带唯一的工具 `submit_review({ decision: "approve" | "escalate", reason: string })` 并以 `toolChoice` 强制调用，判定取自工具参数（按 schema 校验，`reason` 截到 300 字符）。上游忽略 `toolChoice`、没有调用工具时，退回解析正文里的一行 JSON；仍然读不出来就上交给用户。只有明确的 `approve` 才批准。请求带上所用模型的思考档位。
+- 原来的 `/settings/review-model`（`server_meta.review_model`）迁到"自动复核"预设，接口改为 `GET/PUT /api/model-presets/:kind`（`kind` = `session` / `review` / `title`，管理员）。
+
+### 标题生成
+
+- `sessions.title` 可以为空，界面显示为 New Session / 新会话（按界面语言，不写进库）。`sessions.title_pending` 表示"需要生成标题"。
+- 用户创建的根会话：创建时没给标题则为真，给了则为假。子会话（标题是委派任务的开头）和计划任务的会话（标题是计划任务名）为假。
+- 每次运行结束（会话回到空闲，且这次运行有最终正文）而 `title_pending` 为真时，在后台生成标题，不阻塞会话：
+  - 输入只有最新一轮的用户输入和模型的最终正文，只取文字（去掉思考、工具调用和工具结果），各截取前 2000 个字符。
+  - 输出取第一行，去掉首尾引号和标点，最长 60 个字符；为空视为失败。语言跟随用户输入。
+  - 写入时在同一个事务里再检查 `title_pending`：仍为真才写标题并置假，同时更新 `updated_at` 并推送会话更新；用户在生成期间改过标题时丢弃结果。
+  - 失败（模型错误、输出为空、配额已耗尽时不生成）只记日志，标记保持为真，下一轮结束后再试。同一会话同时只有一个生成在进行；不持久化，重启后由下一轮触发。
+  - token 照自动复核的做法计到该会话（预算和用量都沿链累加），不写 `context_tokens`。
+- 用户改标题（`PATCH /sessions/:id { title }`）时 `title_pending` 置假；把标题改成空也置假（显示为默认名，不再自动生成）。
+- 迁移时已有会话的 `title_pending` 一律为假（不给旧会话补标题）；标题是旧默认值 `New session` 的改为空。
 
 ## subagent
 

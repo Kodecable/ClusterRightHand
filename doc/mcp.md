@@ -6,7 +6,7 @@
 
 - 传输：Streamable HTTP，路径 `/mcp`。
 - 鉴权：`Authorization: Bearer <api-token>`，见 [access-control.md](access-control.md#api-token)。OAuth 后续再加。
-- 在 WebUI 的"API tokens"页面创建 token（选择 Ask 或 Yolo），然后在 Claude Code 中添加：
+- 在 WebUI 的"API tokens"页面创建 token（选择规则预设 Ask 或 Yolo），然后在 Claude Code 中添加：
 
   ```sh
   claude mcp add --transport http crh https://<crhs>/mcp --header "Authorization: Bearer crh_…"
@@ -22,7 +22,7 @@
 
 结果是 MCP 的内容块：`exec` 和 `read_file` 是原文块加说明块，其余工具是一个 JSON 文本块；失败时 `isError: true`（D112，见 [agent-runtime.md](agent-runtime.md#交给模型的输出d112)）。agent 的 `details` 不发给 MCP 客户端。
 
-能访问哪些节点，与 token 所属用户相同（管理员是全部节点，其他人是访问授权覆盖的节点）；能对这些节点做什么，由 token 的规则决定：token 是 MCP 规则链的根，创建时选择 Ask 或 Yolo（Auto Review 在 M3 之后可用），见 [access-control.md](access-control.md#授权规则)。需要审批时直接交给 token 所属的用户。
+能访问哪些节点，与 token 所属用户相同（管理员是全部节点，其他人是访问授权覆盖的节点）；能对这些节点做什么，由 token 的规则决定：token 是 MCP 规则链的根，创建时选择规则预设 Ask 或 Yolo（Auto Review 在 M3 之后可用），见 [access-control.md](access-control.md#授权规则)。需要审批时直接交给 token 所属的用户。
 
 ## 与 agent 模式的差异
 

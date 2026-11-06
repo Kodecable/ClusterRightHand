@@ -13,7 +13,7 @@
 | `name` | 名称 |
 | `prompt` | 每次运行提交给新会话的用户消息 |
 | `model` | 会话使用的模型 |
-| `preset` | 规则预设（Ask / Auto Review / Yolo），计划任务是规则链的根，见下文 |
+| `rulePreset` | 规则预设（Ask / Auto Review / Yolo），计划任务是规则链的根，见下文 |
 | `token_budget` | 每次运行的 token 上限，写入新会话根上的配额；`null` 不限 |
 | `cron` / `timezone` | 5 字段 cron 表达式（精度到分钟，用 `croner` 解析），IANA 时区；夏令时按 croner 的处理 |
 | `catch_up` | 停机期间错过的触发是否补跑一次 |
@@ -71,6 +71,6 @@
 ## 生命周期
 
 - 所有者被停用或删除时，停用其计划任务（写 `schedule.disabled`）。
-- 修改 `cron` / `timezone` 后重新计算 `next_run_at`；修改 `prompt` / `model` / `preset` / `token_budget` 只影响之后的运行。
+- 修改 `cron` / `timezone` 后重新计算 `next_run_at`；修改 `prompt` / `model` / `rulePreset` / `token_budget` 只影响之后的运行。
 - 停用计划任务不结束正在运行的实例；删除计划任务时结束它，删除它的运行记录，已有会话的 `schedule_id` 置空。这些会话原本是计划任务下面的一级（不带预设、继承上级），删除时把它们的规则集提升为根，带上计划任务的预设和规则，实际生效的规则不变；计划任务的规则集保留，以便已有任务记录中的规则链仍能解析。
 - 计划任务不支持分享；MCP 和 agent 工具不能管理计划任务（只有 WebUI 和 API）。
