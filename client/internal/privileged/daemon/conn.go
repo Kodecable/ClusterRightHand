@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/audit"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/authz"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/state"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/taskrun"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
@@ -36,19 +35,13 @@ type conn struct {
 	stream *wire.Stream
 	peer   *protocol.Peer
 
-	mu    sync.Mutex
-	tasks map[string]*connTask
+	// session holds the accepted tasks of a forward connection. Deferred.After launches a
+	// task after the task.start success response, or the connection teardown does when that
+	// response could not be sent (the acceptance already stands). A task leaves the session
+	// when its execution ends.
+	session *taskrun.Session
 
 	closeOnce sync.Once
-}
-
-// connTask is one accepted task of a connection. launch starts the task at most once; it is
-// called by Deferred.After after the task.start success response, or by the connection
-// teardown when that response could not be sent (the acceptance already stands). The entry
-// leaves the connection's table when the task's execution ends.
-type connTask struct {
-	task   *taskrun.Task
-	launch func()
 }
 
 // serveConn authenticates the peer with SO_PEERCRED, negotiates a role and serves the
@@ -59,7 +52,7 @@ func (s *Server) serveConn(nc net.Conn) {
 		_ = nc.Close()
 		return
 	}
-	c := &conn{s: s, nc: nc, tasks: make(map[string]*connTask)}
+	c := &conn{s: s, nc: nc}
 	s.registerConn(c)
 	defer s.unregisterConn(c)
 
@@ -101,6 +94,11 @@ func (s *Server) serveConn(nc net.Conn) {
 	c.role = hello.Role
 	c.stream = wire.NewStreamFor(nc, nc, negotiated, hello.Role)
 	c.peer = c.stream.Peer()
+	c.session = taskrun.NewSession(c.peer, taskrun.SessionOptions{
+		Env:    s.opts.Env,
+		Log:    connLog{s},
+		OnExit: s.unregisterTask,
+	})
 	if hello.Role == wire.RoleForward {
 		s.addForward(c)
 	}
@@ -144,9 +142,7 @@ func (c *conn) registerHandlers() {
 	switch c.role {
 	case wire.RoleForward:
 		p.HandleRequest(protocol.CmdTaskStart, c.handleTaskStart)
-		p.HandleRequest(protocol.CmdTaskInput, c.handleTaskInput)
-		p.HandleRequest(protocol.CmdTaskCancel, c.handleTaskCancel)
-		p.HandleRequest(protocol.CmdTaskQuery, c.handleTaskQuery)
+		c.session.HandleRequests()
 		p.HandleRequest(wire.CmdTrustQuery, c.handleTrustQuery)
 		p.HandleRequest(protocol.CmdLocalRequest, c.handleLocalRequest)
 		p.HandleRequest(protocol.CmdLocalWithdraw, c.handleLocalWithdraw)
@@ -162,38 +158,8 @@ func (c *conn) registerHandlers() {
 // that can no longer be completed is failed, as with a native helper whose stdin closed;
 // otherwise a task reading stdin would never finish.
 func (c *conn) launchAccepted() {
-	c.mu.Lock()
-	tasks := make([]*connTask, 0, len(c.tasks))
-	for _, ct := range c.tasks {
-		tasks = append(tasks, ct)
-	}
-	c.mu.Unlock()
-	for _, ct := range tasks {
-		ct.task.EndInput()
-		ct.launch()
-	}
-}
-
-// task returns the connection's task with id, or nil.
-func (c *conn) task(id string) *taskrun.Task {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if ct := c.tasks[id]; ct != nil {
-		return ct.task
-	}
-	return nil
-}
-
-// forgetTask drops a task whose execution ended from the connection's table, so a forward
-// connection that lives for days does not retain every task it ever ran. Afterwards
-// task.input for the id is unknown_task and task.cancel is the same no-op success as for any
-// unknown task (doc/protocol.md task.cancel).
-func (c *conn) forgetTask(ct *connTask) {
-	c.mu.Lock()
-	if c.tasks[ct.task.ID()] == ct {
-		delete(c.tasks, ct.task.ID())
-	}
-	c.mu.Unlock()
+	c.session.EndInput()
+	c.session.LaunchAll()
 }
 
 // handleTaskStart verifies an authorization, persists the used records, logs the acceptance
@@ -203,10 +169,10 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 	if err := protocol.UnmarshalBody(raw, &ts); err != nil {
 		return nil, err
 	}
-	decided, refusal := c.s.decide(&ts)
-	if refusal != nil {
-		c.s.logRefusal(&ts, refusal)
-		return nil, refusal
+	decided, refused := c.s.decide(&ts)
+	if refused != nil {
+		c.s.logRefusal(&ts, refused)
+		return nil, refused.remote()
 	}
 
 	now := c.s.now()
@@ -226,15 +192,13 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 	}
 	if err := c.s.store.AddUsed(record); err != nil {
 		if errors.Is(err, state.ErrAlreadyRecorded) {
-			refusal := &protocol.RemoteError{
-				Code:    string(resultAlreadyAccepted),
-				Message: fmt.Sprintf("step %d: task %s already ran on this node", 5, ts.TaskID),
-			}
-			c.s.logRefusal(&ts, refusal)
-			return nil, refusal
+			refused := stepRefusal(authz.ResultAlreadyAccepted, authz.StepOneShot,
+				fmt.Sprintf("task %s already ran on this node", ts.TaskID))
+			c.s.logRefusal(&ts, refused)
+			return nil, refused.remote()
 		}
 		c.s.log.Error("persist used record", "task", ts.TaskID, "err", err)
-		return nil, &protocol.RemoteError{Code: "internal_error", Message: "persist used record: " + err.Error()}
+		return nil, &protocol.RemoteError{Code: protocol.CodeInternalError, Message: "persist used record: " + err.Error()}
 	}
 
 	runStart := executionStart(&ts, decided)
@@ -255,24 +219,19 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 		// The acceptance is already persisted, so the task id is burned either way. Do not
 		// execute a privileged task whose acceptance could not be audited.
 		c.s.log.Error("write the local log; refusing to execute", "task", ts.TaskID, "err", err)
-		return nil, &protocol.RemoteError{Code: "internal_error", Message: "local log: " + err.Error()}
+		return nil, &protocol.RemoteError{Code: protocol.CodeInternalError, Message: "local log: " + err.Error()}
 	}
 
-	task, err := taskrun.New(runStart, c.outputEmitter(ts.TaskID), c.s.opts.Env)
+	task, err := c.session.Accept(runStart)
 	if err != nil {
 		c.s.log.Error("prepare an accepted task", "task", ts.TaskID, "err", err)
-		return nil, &protocol.RemoteError{Code: "internal_error", Message: err.Error()}
+		return nil, &protocol.RemoteError{Code: protocol.CodeInternalError, Message: err.Error()}
 	}
-	ct := &connTask{task: task}
-	ct.launch = func() { c.startTask(ct) }
-	c.mu.Lock()
-	c.tasks[ts.TaskID] = ct
-	c.mu.Unlock()
 	c.s.registerTask(task)
 	if decided.approval != nil {
 		c.s.consumeApproval(approvalKey{taskID: ts.TaskID, attempt: uint64(ts.Attempt)})
 	}
-	return protocol.Deferred{Body: protocol.Empty{}, After: ct.launch}, nil
+	return protocol.Deferred{Body: protocol.Empty{}, After: func() { c.session.Launch(task) }}, nil
 }
 
 // executionStart prepares the task.start the executor receives. The cwd of a task that was
@@ -289,77 +248,34 @@ func executionStart(ts *protocol.TaskStart, decided *decidedTask) protocol.TaskS
 	return out
 }
 
-// outputEmitter turns the task's output into crh-priv task.output events.
-func (c *conn) outputEmitter(taskID string) taskrun.Emit {
-	return func(off uint64, data []byte) error {
-		return c.peer.Emit(protocol.EventTaskOutput, protocol.TaskOutput{
-			TaskID: taskID, Offset: protocol.Uint(off), Data: data,
-		})
-	}
+// connLog records the outcome of a forward connection's tasks in the local log. The
+// acceptance is logged by handleTaskStart, so a task's start adds nothing.
+type connLog struct{ s *Server }
+
+// TaskStarted implements taskrun.Log.
+func (connLog) TaskStarted(*taskrun.Task) {}
+
+// TaskFinished implements taskrun.Log.
+func (l connLog) TaskFinished(t *taskrun.Task, exit *protocol.TaskExit, took time.Duration) {
+	ts := t.TaskStart()
+	_ = l.s.opts.Log.Log(audit.Record{
+		Event:      "task.finished",
+		TaskID:     ts.TaskID,
+		Attempt:    ts.Attempt,
+		Outcome:    taskrun.OutcomeText(exit.Outcome),
+		TimedOut:   exit.TimedOut,
+		Cancelled:  exit.Cancelled,
+		OutputEnd:  uint64(exit.OutputEnd),
+		DurationMS: took.Milliseconds(),
+	})
 }
 
-// startTask runs an accepted task and records its outcome. It is called exactly once per
-// task by taskrun.Task.Start's own once.
-func (c *conn) startTask(ct *connTask) {
-	var started time.Time
-	ct.task.Start(
-		func() { started = time.Now() },
-		func(exit *protocol.TaskExit) {
-			ts := ct.task.TaskStart()
-			_ = c.s.opts.Log.Log(audit.Record{
-				Event:      "task.finished",
-				TaskID:     ts.TaskID,
-				Attempt:    ts.Attempt,
-				Outcome:    taskrun.OutcomeText(exit.Outcome),
-				TimedOut:   exit.TimedOut,
-				Cancelled:  exit.Cancelled,
-				OutputEnd:  uint64(exit.OutputEnd),
-				DurationMS: time.Since(started).Milliseconds(),
-			})
-			if err := c.peer.Emit(protocol.EventTaskExit, exit); err != nil {
-				// The forward connection is gone; the task still ran and is in the local log.
-				_ = c.s.opts.Log.Log(audit.Record{
-					Event: "task.exit.undelivered", TaskID: ts.TaskID, Detail: err.Error(),
-				})
-			}
-			c.s.unregisterTask(ct.task)
-			c.forgetTask(ct)
-		},
-	)
-}
-
-func (c *conn) handleTaskInput(_ context.Context, raw cbor.RawMessage) (any, error) {
-	var in protocol.TaskInput
-	if err := protocol.UnmarshalBody(raw, &in); err != nil {
-		return nil, err
-	}
-	task := c.task(in.TaskID)
-	if task == nil {
-		return nil, &protocol.RemoteError{Code: "unknown_task", Message: "unknown task " + in.TaskID}
-	}
-	return task.Input(in)
-}
-
-func (c *conn) handleTaskCancel(_ context.Context, raw cbor.RawMessage) (any, error) {
-	var cancel protocol.TaskCancel
-	if err := protocol.UnmarshalBody(raw, &cancel); err != nil {
-		return nil, err
-	}
-	if task := c.task(cancel.TaskID); task != nil {
-		task.Cancel(cancel.TaskID)
-	}
-	return protocol.Empty{}, nil
-}
-
-func (c *conn) handleTaskQuery(_ context.Context, raw cbor.RawMessage) (any, error) {
-	var query protocol.TaskQuery
-	if err := protocol.UnmarshalBody(raw, &query); err != nil {
-		return nil, err
-	}
-	if task := c.task(query.TaskID); task != nil {
-		return task.Status(query), nil
-	}
-	return protocol.TaskStatus{TaskID: query.TaskID, State: protocol.TaskUnknown}, nil
+// ExitUndelivered implements taskrun.Log: the forward connection is gone; the task still ran
+// and is in the local log.
+func (l connLog) ExitUndelivered(t *taskrun.Task, err error) {
+	_ = l.s.opts.Log.Log(audit.Record{
+		Event: "task.exit.undelivered", TaskID: t.TaskStart().TaskID, Detail: err.Error(),
+	})
 }
 
 func (c *conn) handleTrustQuery(_ context.Context, raw cbor.RawMessage) (any, error) {
@@ -372,31 +288,17 @@ func (c *conn) handleTrustQuery(_ context.Context, raw cbor.RawMessage) (any, er
 
 // logRefusal records a refused task.start in the local log. The code, step and message are
 // the ones returned to the caller.
-func (s *Server) logRefusal(ts *protocol.TaskStart, refusal *protocol.RemoteError) {
-	step := 0
-	message := refusal.Message
-	if rest, ok := strings.CutPrefix(message, "step "); ok {
-		if n, _, found := strings.Cut(rest, ": "); found {
-			if parsed, err := parseStep(n); err == nil {
-				step, message = parsed, rest[len(n)+2:]
-			}
-		}
-	}
+func (s *Server) logRefusal(ts *protocol.TaskStart, refused *refusal) {
 	if err := s.opts.Log.Log(audit.Record{
 		Event:   "task.refused",
 		TaskID:  ts.TaskID,
 		Attempt: ts.Attempt,
-		Code:    refusal.Code,
-		Step:    step,
-		Message: message,
+		Code:    refused.code,
+		Step:    refused.step,
+		Message: refused.message,
 	}); err != nil {
 		s.log.Warn("write local log", "err", err)
 	}
-}
-
-// parseStep parses the step number of a "step N: ..." refusal message.
-func parseStep(text string) (int, error) {
-	return strconv.Atoi(text)
 }
 
 func (c *conn) handlePendingList(_ context.Context, raw cbor.RawMessage) (any, error) {

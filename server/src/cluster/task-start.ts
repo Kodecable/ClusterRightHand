@@ -1,7 +1,16 @@
-import type { TaskSpec, TaskStart } from "@crh/protocol";
-import type { Selectable } from "kysely";
+/**
+ * A task's start on a client node (doc/protocol.md#taskstart): the task.start frame built from the row,
+ * the input a waiting task keeps on its row, and the one send of task.start with its input chunks that
+ * the plain and the authorized dispatch share.
+ */
+import { ConnectionError, ProtocolError, RemoteError, type TaskSpec, type TaskStart } from "@crh/protocol";
+import type { Selectable, Updateable } from "kysely";
 import type { TasksTable } from "../storage/schema.ts";
+import type { NodeConnection } from "./connection.ts";
+import type { ClusterCore } from "./core.ts";
 import { OUTPUT_KEEP_BYTES, OUTPUT_KEEP_LINES } from "./output.ts";
+import { finish, onAccepted } from "./task-end.ts";
+import { AUTHORIZATION_CODES } from "./types.ts";
 
 /** What tells one dispatch path's task.start from another's; everything else comes from the row. */
 interface TaskStartOptions {
@@ -58,4 +67,81 @@ function outputModeOf(row: Selectable<TasksTable> | undefined): TaskStart["outpu
 /** The row's value when set, never above the default. */
 function cap(value: number | null | undefined, max: number): number {
 	return value === null || value === undefined ? max : Math.min(value, max);
+}
+
+/** The input a waiting task keeps in `pending_input` (base64); empty when it has none. */
+export function pendingInputOf(row: Pick<Selectable<TasksTable>, "pending_input">): Uint8Array {
+	return row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0);
+}
+
+/** The `pending_input` column of a task that starts waiting again with this input: null for none. */
+export function pendingInputColumn(inputBytes: Uint8Array): string | null {
+	return inputBytes.length > 0 ? Buffer.from(inputBytes).toString("base64") : null;
+}
+
+/** How one dispatch path follows the answer to its task.start. */
+interface StartFollowUp {
+	/**
+	 * Runs a write that settles the task. The plain dispatch sends from the background and serializes the
+	 * write on the task's queue; the authorized dispatch runs it directly.
+	 */
+	settle: (write: () => Promise<void>) => Promise<void>;
+	/**
+	 * A retryable authorization rejection (an authorization_* code) before acceptance: nothing ran.
+	 * Without this hook such a rejection ends the task `rejected` with the node's code.
+	 */
+	onAuthorizationRejected?: (err: RemoteError) => Promise<void>;
+}
+
+/**
+ * Sends `task.start` exactly once, then, once accepted, the input as pipelined `task.input` requests.
+ * See doc/execution-plane.md#不重复执行与授权重试.
+ */
+export async function sendTaskStart(
+	core: ClusterCore,
+	link: { conn: NodeConnection },
+	nodeId: string,
+	start: TaskStart,
+	inputBytes: Uint8Array,
+	followUp: StartFollowUp,
+): Promise<void> {
+	const id = start.taskId;
+	try {
+		await link.conn.peer.request("task.start", start);
+	} catch (err) {
+		if (err instanceof ConnectionError) {
+			// The task stays dispatched; the grace timer reports dispatch_unconfirmed, never a retry.
+			return;
+		}
+		if (err instanceof RemoteError) {
+			const authorization = AUTHORIZATION_CODES.has(err.code);
+			if (authorization && followUp.onAuthorizationRejected) {
+				await followUp.onAuthorizationRejected(err);
+				return;
+			}
+			const final: Updateable<TasksTable> = authorization
+				? { state: "rejected", error_code: err.code, error_message: err.message }
+				: { state: "failed", error_code: err.code, error_message: err.message };
+			await followUp.settle(() => finish(core, nodeId, id, final));
+			return;
+		}
+		if (err instanceof ProtocolError) {
+			// Raised locally while encoding: the request was never sent, so nothing can have run.
+			await followUp.settle(() =>
+				finish(core, nodeId, id, { state: "failed", error_code: "invalid_spec", error_message: err.message }),
+			);
+			return;
+		}
+		console.error("task.start failed:", err);
+		link.conn.close("send failed");
+		return;
+	}
+	await followUp.settle(() => onAccepted(core, nodeId, id));
+	// Pipelined: crha processes the chunks in order; a failed chunk fails the task on its side.
+	for (let off = 0; off < inputBytes.length; off += core.chunkBytes) {
+		const data = inputBytes.subarray(off, off + core.chunkBytes);
+		void link.conn.peer
+			.request("task.input", { taskId: id, offset: off, data })
+			.catch((err: unknown) => console.error(`task.input for ${id} failed:`, err));
+	}
 }

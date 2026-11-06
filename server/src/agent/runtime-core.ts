@@ -18,7 +18,7 @@ import { NotFoundError } from "../users/service.ts";
 import type { ModelPresets } from "./model-presets.ts";
 import type { ModelConfig, ModelRef } from "./models.ts";
 import type { SessionRow } from "./session-chain.ts";
-import type { SessionListHub } from "./session-list.ts";
+import type { SessionListHub } from "./session-list-hub.ts";
 import type { SessionState, WaitingKind } from "./session-state.ts";
 
 /**

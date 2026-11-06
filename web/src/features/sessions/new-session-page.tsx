@@ -2,7 +2,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronLeftIcon } from "lucide-react";
-import { type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ErrorText } from "@/components/error-state";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,38 +10,38 @@ import { useAuth } from "@/features/auth/session";
 import { useModels } from "@/features/settings/api";
 import { errorMessage } from "@/lib/api/client";
 import type { ModelRef, RulePreset, ThinkingLevel } from "@/lib/api/types";
+import { readStorage, writeStorage } from "@/lib/storage";
 import { supportedThinkingLevels, withThinkingLevel } from "@/lib/thinking-level";
 import { insertSessionIntoListCaches, useCreateSession } from "./api";
 import { ComposerFooter, type ComposerFooterState } from "./composer-footer";
-import { parseSlashCommand } from "./slash-commands";
+import { ComposerShell, handleComposerKey, UnknownCommandHint, useTextareaAutosize } from "./composer-input";
+import { isUnknownSlashCommand, parseSlashCommand } from "./slash-commands";
 
 /** Where the draft remembers the model of the last session it created (D117). */
 export const NEW_SESSION_MODEL_STORAGE_KEY = "crh.newSession.model";
 
 function readStoredModel(): ModelRef | undefined {
+	const raw = readStorage(NEW_SESSION_MODEL_STORAGE_KEY);
+	if (raw === null) return undefined;
+	let parsed: unknown;
 	try {
-		const raw = localStorage.getItem(NEW_SESSION_MODEL_STORAGE_KEY);
-		if (raw === null) return undefined;
-		const parsed: unknown = JSON.parse(raw);
-		if (parsed === null || typeof parsed !== "object") return undefined;
-		const record = parsed as Record<string, unknown>;
-		if (typeof record.provider !== "string" || typeof record.modelId !== "string") return undefined;
-		return { provider: record.provider, modelId: record.modelId };
+		parsed = JSON.parse(raw);
 	} catch {
 		return undefined;
 	}
+	if (parsed === null || typeof parsed !== "object") return undefined;
+	const record = parsed as Record<string, unknown>;
+	if (typeof record.provider !== "string" || typeof record.modelId !== "string") return undefined;
+	return { provider: record.provider, modelId: record.modelId };
 }
 
+/** `writeStorage` never throws: a disabled or full localStorage must not stop a session from being created. */
 function writeStoredModel(model: ModelRef): void {
-	try {
-		localStorage.setItem(
-			NEW_SESSION_MODEL_STORAGE_KEY,
-			JSON.stringify({ provider: model.provider, modelId: model.modelId }),
-		);
-	} catch {
-		// A disabled or full localStorage must not stop a session from being created.
-	}
+	writeStorage(NEW_SESSION_MODEL_STORAGE_KEY, JSON.stringify({ provider: model.provider, modelId: model.modelId }));
 }
+
+/** The draft's textarea grows up to half of the window. */
+const halfWindowHeight = (): number => Math.floor(window.innerHeight / 2);
 
 const sameModel = (a: ModelRef | undefined, b: ModelRef): boolean =>
 	a !== undefined && a.provider === b.provider && a.modelId === b.modelId;
@@ -84,19 +84,13 @@ export function NewSessionPage() {
 		setThinkingLevel(levels.includes("off") ? "off" : (levels[0] ?? "off"));
 	}, [levels, thinkingLevel]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the textarea's scrollHeight changes with the draft
-	useLayoutEffect(() => {
-		const element = textareaRef.current;
-		if (element === null) return;
-		element.style.height = "auto";
-		element.style.height = `${Math.min(element.scrollHeight, Math.floor(window.innerHeight / 2))}px`;
-	}, [text]);
+	useTextareaAutosize(textareaRef, text, halfWindowHeight);
 
 	const parsedCommand = parseSlashCommand(text);
 	// The session does not exist yet, so there is nothing to compact. `/compact` stays a draft that is not
 	// sent; the hint says why rather than silently posting it as a message.
 	const compactUnavailable = parsedCommand?.command.name === "compact";
-	const unknownCommand = parsedCommand === undefined && /^\/\S+$/.test(text);
+	const unknownCommand = isUnknownSlashCommand(text);
 	const canSend = chosen !== undefined && text.trim() !== "" && !create.isPending && !compactUnavailable;
 
 	const submit = async () => {
@@ -127,13 +121,6 @@ export function NewSessionPage() {
 			// Stay on the draft with the text and the same request id: the retry is deduplicated by the server.
 			setSendError(errorMessage(err));
 		}
-	};
-
-	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-		if (event.nativeEvent.isComposing) return;
-		if (event.key !== "Enter" || event.shiftKey) return;
-		event.preventDefault();
-		void submit();
 	};
 
 	const footer: ComposerFooterState = {
@@ -180,67 +167,51 @@ export function NewSessionPage() {
 					</h1>
 				</div>
 			</div>
-			<div className="shrink-0 bg-background/80 px-3 pt-1 pb-2" data-slot="composer">
-				<form
-					onSubmit={(event) => {
-						event.preventDefault();
-						void submit();
+			<ComposerShell inputId="new-session-input" onSubmit={() => void submit()}>
+				<Textarea
+					ref={textareaRef}
+					id="new-session-input"
+					data-testid="new-session-input"
+					rows={1}
+					value={text}
+					disabled={create.isPending}
+					style={{ maxHeight: "50vh", fieldSizing: "fixed" }}
+					placeholder={t`Ask the agent to do something. Enter sends, Shift+Enter adds a line.`}
+					onKeyDown={(event) => handleComposerKey(event, () => void submit())}
+					onChange={(event) => {
+						// Editing does not start a new request id: the draft's id lasts until the session exists.
+						setText(event.target.value);
+						setSendError(undefined);
 					}}
-				>
-					<div className="relative rounded-xl border border-input bg-background shadow-sm transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/30 dark:bg-input/30">
-						<label className="sr-only" htmlFor="new-session-input">
-							<Trans>Message</Trans>
-						</label>
-						<Textarea
-							ref={textareaRef}
-							id="new-session-input"
-							data-testid="new-session-input"
-							rows={1}
-							value={text}
-							disabled={create.isPending}
-							style={{ maxHeight: "50vh", fieldSizing: "fixed" }}
-							placeholder={t`Ask the agent to do something. Enter sends, Shift+Enter adds a line.`}
-							onKeyDown={onKeyDown}
-							onChange={(event) => {
-								// Editing does not start a new request id: the draft's id lasts until the session exists.
-								setText(event.target.value);
-								setSendError(undefined);
-							}}
-							className="min-h-9 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-3 py-2 shadow-none focus-visible:ring-0 dark:bg-transparent"
-						/>
-						{compactUnavailable && (
-							<p className="px-3 pb-1 text-xs text-warn" data-testid="slash-hint">
-								<Trans>Compaction is not available before the session exists.</Trans>
-							</p>
-						)}
-						{unknownCommand && !compactUnavailable && (
-							<p className="px-3 pb-1 text-xs text-muted-foreground" data-testid="slash-hint">
-								<Trans>Unknown command: it will be sent as a message.</Trans>
-							</p>
-						)}
-						{sendError !== undefined && (
-							<div className="px-3 pb-1" data-testid="new-session-error">
-								<ErrorText error={new Error(sendError)} />
-							</div>
-						)}
-						{noModels && (
-							<p className="px-3 pb-1 text-xs text-warn" role="status">
-								<Trans>No models are configured, so sessions cannot start.</Trans>
-							</p>
-						)}
-						<div className="px-2 pb-1.5">
-							<ComposerFooter
-								state={footer}
-								stoppable={false}
-								sending={create.isPending}
-								sendDisabled={!canSend}
-								onStop={() => {}}
-								stopPending={false}
-							/>
-						</div>
+					className="min-h-9 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-3 py-2 shadow-none focus-visible:ring-0 dark:bg-transparent"
+				/>
+				{compactUnavailable && (
+					<p className="px-3 pb-1 text-xs text-warn" data-testid="slash-hint">
+						<Trans>Compaction is not available before the session exists.</Trans>
+					</p>
+				)}
+				{unknownCommand && !compactUnavailable && <UnknownCommandHint />}
+				{sendError !== undefined && (
+					<div className="px-3 pb-1" data-testid="new-session-error">
+						<ErrorText error={new Error(sendError)} />
 					</div>
-				</form>
-			</div>
+				)}
+				{noModels && (
+					<p className="px-3 pb-1 text-xs text-warn" role="status">
+						<Trans>No models are configured, so sessions cannot start.</Trans>
+					</p>
+				)}
+				<div className="px-2 pb-1.5">
+					<ComposerFooter
+						state={footer}
+						stoppable={false}
+						sending={create.isPending}
+						sendDisabled={!canSend}
+						onStop={() => {}}
+						stopPending={false}
+					/>
+				</div>
+			</ComposerShell>
 		</div>
 	);
 }

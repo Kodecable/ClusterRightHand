@@ -426,7 +426,7 @@ func (p *Peer) handleRequest(f *Frame) error {
 
 	if !negotiated || handler == nil {
 		// The cmd field already carries the name; do not repeat it in the message.
-		return p.sendErrorResponse(f.ID, f.Name, "unsupported_command", "command is not supported")
+		return p.sendErrorResponse(f.ID, f.Name, CodeUnsupportedCommand, "command is not supported")
 	}
 	return p.runRequest(f, handler)
 }
@@ -515,25 +515,25 @@ func (p *Peer) runRequest(f *Frame, handler RequestHandler) error {
 		if errors.As(err, &protocolErr) {
 			return protocolErr
 		}
-		return p.sendErrorResponse(f.ID, f.Name, "internal_error", err.Error())
+		return p.sendErrorResponse(f.ID, f.Name, CodeInternalError, err.Error())
 	}
 
 	result, after := unwrapDeferred(result)
 
 	raw, err := Marshal(result)
 	if err != nil {
-		return p.sendErrorResponse(f.ID, f.Name, "internal_error", err.Error())
+		return p.sendErrorResponse(f.ID, f.Name, CodeInternalError, err.Error())
 	}
 	// A success body must be valid for the command's schema even if the caller ignores it;
 	// a handler result that is not cannot be sent as a success response.
 	if schema, ok := p.schemas(f.Name); ok {
 		if err := schema.validateResponse(raw); err != nil {
-			return p.sendErrorResponse(f.ID, f.Name, "internal_error", err.Error())
+			return p.sendErrorResponse(f.ID, f.Name, CodeInternalError, err.Error())
 		}
 	}
 	frame, err := (&Frame{Kind: FrameResponse, ID: f.ID, Name: f.Name, OK: true, Body: raw}).Encode()
 	if err != nil {
-		return p.sendErrorResponse(f.ID, f.Name, "internal_error", err.Error())
+		return p.sendErrorResponse(f.ID, f.Name, CodeInternalError, err.Error())
 	}
 	if err := p.sendFrame(frame); err != nil {
 		return err

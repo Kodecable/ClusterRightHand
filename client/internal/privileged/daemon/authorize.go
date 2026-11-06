@@ -13,8 +13,6 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
-const resultAlreadyAccepted = authz.ResultAlreadyAccepted
-
 // maxApprovals bounds the pending and approved local requests a daemon keeps in memory. A
 // compromised crhs can send local.request for arbitrary task ids, so the list must not grow
 // without limit; reaching the cap refuses new requests until the approver withdraws or decides
@@ -36,22 +34,48 @@ type decidedTask struct {
 	exact bool
 }
 
-// decide verifies task.start against the current configuration and persistent state. A
-// refusal is returned as the *protocol.RemoteError the caller sends; nothing has been
-// persisted or executed in that case.
-func (s *Server) decide(ts *protocol.TaskStart) (*decidedTask, *protocol.RemoteError) {
+// refusal is a refused task.start: its error code, the verification step of
+// doc/privilege.md 校验流程 it failed (0 for a malformed task.start outside the flow) and the
+// message. The local log records the step and message separately; the error response
+// combines them (remote).
+type refusal struct {
+	code    string
+	step    int
+	message string
+}
+
+// stepRefusal is the refusal of a verification step.
+func stepRefusal(result authz.Result, step int, message string) *refusal {
+	return &refusal{code: string(result), step: step, message: message}
+}
+
+// remote builds the task.start error response: code plus "step N: message", as
+// doc/protocol.md requires, or the bare message of a refusal outside the flow.
+func (r *refusal) remote() *protocol.RemoteError {
+	if r.step == 0 {
+		return &protocol.RemoteError{Code: r.code, Message: r.message}
+	}
+	return &protocol.RemoteError{
+		Code:    r.code,
+		Message: fmt.Sprintf("step %d: %s", r.step, r.message),
+	}
+}
+
+// decide verifies task.start against the current configuration and persistent state. On a
+// refusal nothing has been persisted or executed.
+func (s *Server) decide(ts *protocol.TaskStart) (*decidedTask, *refusal) {
 	cfg := s.Config()
 	decided := &decidedTask{}
 	if err := taskrun.Validate(*ts); err != nil {
 		var remote *protocol.RemoteError
 		if errors.As(err, &remote) {
-			return nil, remote
+			return nil, &refusal{code: remote.Code, message: remote.Message}
 		}
-		return nil, &protocol.RemoteError{Code: "invalid_spec", Message: err.Error()}
+		return nil, &refusal{code: protocol.CodeInvalidSpec, message: err.Error()}
 	}
 	specHash, err := protocol.SpecSHA256(&ts.Spec)
 	if err != nil {
-		return nil, &protocol.RemoteError{Code: "invalid_spec", Message: err.Error()}
+		return nil, &refusal{code: protocol.CodeInvalidSpec, message: err.Error()}
 	}
 	decided.specHash = specHash
 
@@ -168,15 +192,6 @@ func (s *Server) verifySignature(cfg *config.Config, payload []byte, signature *
 	}
 }
 
-// stepRefusal builds the task.start error response: code plus "step N: message", as
-// doc/protocol.md requires.
-func stepRefusal(result authz.Result, step int, message string) *protocol.RemoteError {
-	return &protocol.RemoteError{
-		Code:    string(result),
-		Message: fmt.Sprintf("step %d: %s", step, message),
-	}
-}
-
 // approvedApproval returns the approved local request for (task id, attempt), or nil.
 func (s *Server) approvedApproval(taskID string, attempt uint64) *approval {
 	s.approvalMu.Lock()
@@ -243,19 +258,19 @@ func (s *Server) consumeApproval(key approvalKey) {
 // approver never approves one spec while crhs executes another.
 func (s *Server) requestLocal(req *protocol.LocalRequest) (protocol.LocalState, *protocol.RemoteError) {
 	if req.TaskID == "" {
-		return protocol.LocalState{}, &protocol.RemoteError{Code: "invalid_spec", Message: "task id must not be empty"}
+		return protocol.LocalState{}, &protocol.RemoteError{Code: protocol.CodeInvalidSpec, Message: "task id must not be empty"}
 	}
 	if req.Attempt < 1 {
-		return protocol.LocalState{}, &protocol.RemoteError{Code: "invalid_spec", Message: "attempt must be at least 1"}
+		return protocol.LocalState{}, &protocol.RemoteError{Code: protocol.CodeInvalidSpec, Message: "attempt must be at least 1"}
 	}
 	specHash, err := protocol.SpecSHA256(&req.Spec)
 	if err != nil {
-		return protocol.LocalState{}, &protocol.RemoteError{Code: "invalid_spec", Message: err.Error()}
+		return protocol.LocalState{}, &protocol.RemoteError{Code: protocol.CodeInvalidSpec, Message: err.Error()}
 	}
 	cfg := s.Config()
 	if !cfg.HasLocalEntry() {
 		return protocol.LocalState{}, &protocol.RemoteError{
-			Code:    "local_not_trusted",
+			Code:    protocol.CodeLocalNotTrusted,
 			Message: "this node has no local trust entry",
 		}
 	}
@@ -265,7 +280,7 @@ func (s *Server) requestLocal(req *protocol.LocalRequest) (protocol.LocalState, 
 		if existing.specHash != specHash {
 			s.approvalMu.Unlock()
 			return protocol.LocalState{}, &protocol.RemoteError{
-				Code:    "invalid_spec",
+				Code:    protocol.CodeInvalidSpec,
 				Message: "a different spec is already pending for this task id and attempt",
 			}
 		}
@@ -276,7 +291,7 @@ func (s *Server) requestLocal(req *protocol.LocalRequest) (protocol.LocalState, 
 	if live := s.liveApprovalsLocked(); live >= maxApprovals {
 		s.approvalMu.Unlock()
 		return protocol.LocalState{}, &protocol.RemoteError{
-			Code:    "privileged_unavailable",
+			Code:    protocol.CodePrivilegedUnavailable,
 			Message: fmt.Sprintf("too many pending local approvals (%d); decide or withdraw one first", live),
 		}
 	}
@@ -305,7 +320,7 @@ func (s *Server) withdrawLocal(taskID string, attempt uint64) {
 func (s *Server) decideLocal(uid uint32, verdict *protocol.LocalVerdict, approve bool) (protocol.LocalState, *protocol.RemoteError) {
 	if !s.localUIDAllowed(uid) {
 		return protocol.LocalState{}, &protocol.RemoteError{
-			Code:    "local_not_trusted",
+			Code:    protocol.CodeLocalNotTrusted,
 			Message: fmt.Sprintf("uid %d is not a local approver", uid),
 		}
 	}
@@ -319,7 +334,7 @@ func (s *Server) decideLocal(uid uint32, verdict *protocol.LocalVerdict, approve
 	if rec == nil {
 		s.approvalMu.Unlock()
 		return protocol.LocalState{}, &protocol.RemoteError{
-			Code:    "unknown_task",
+			Code:    protocol.CodeUnknownTask,
 			Message: fmt.Sprintf("no local request for task %s attempt %d", verdict.TaskID, verdict.Attempt),
 		}
 	}
@@ -328,7 +343,7 @@ func (s *Server) decideLocal(uid uint32, verdict *protocol.LocalVerdict, approve
 		// re-requested the same key with different content, or the verdict is for another task.
 		s.approvalMu.Unlock()
 		return protocol.LocalState{}, &protocol.RemoteError{
-			Code:    "invalid_spec",
+			Code:    protocol.CodeInvalidSpec,
 			Message: fmt.Sprintf("the spec of task %s attempt %d differs from the one that was shown", verdict.TaskID, verdict.Attempt),
 		}
 	}
@@ -341,7 +356,7 @@ func (s *Server) decideLocal(uid uint32, verdict *protocol.LocalVerdict, approve
 		state := rec.state
 		s.approvalMu.Unlock()
 		return protocol.LocalState{}, &protocol.RemoteError{
-			Code:    "already_decided",
+			Code:    protocol.CodeAlreadyDecided,
 			Message: fmt.Sprintf("task %s attempt %d was already decided (%s)", verdict.TaskID, verdict.Attempt, state.Kind),
 		}
 	}

@@ -6,9 +6,11 @@
  * - `core.ts`: the state and helpers every module shares;
  * - `links.ts`: node connections, hello, the reconnect grace;
  * - `trust-cache.ts`: the trust reports;
- * - `authorization-flow.ts`: the authorization of privileged tasks;
+ * - `authorization-flow.ts`: the authorization of privileged tasks (the entry points of `authorization/`);
  * - `ssh-runner.ts`: SSH nodes;
- * - `task-state.ts`: the task state machine and its endings.
+ * - `task-state.ts`: the task state machine (the entry points of `task-dispatch.ts`, `task-end.ts`,
+ *   `task-approval.ts`, `task-wait.ts` and `live-output.ts`);
+ * - `approval.ts`: what the approval of a task and of a task group share.
  */
 import type { NodeStatus, TaskSpec } from "@crh/protocol";
 import type { SessionUser } from "../auth/sessions.ts";

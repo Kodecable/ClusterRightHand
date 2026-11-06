@@ -1,4 +1,4 @@
-import type { TranscriptItem } from "./sessionState";
+import type { TranscriptItem } from "./transcript-items";
 
 type UserItem = Extract<TranscriptItem, { kind: "user" }>;
 type TextItem = Extract<TranscriptItem, { kind: "text" }>;

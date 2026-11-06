@@ -37,6 +37,15 @@ export function parseSlashCommand(text: string): { command: SlashCommand; args: 
 }
 
 /**
+ * Whether a draft is a lone `/token` that names no registered command: it is
+ * still a normal message, and the composer says so while the user can still
+ * fix it.
+ */
+export function isUnknownSlashCommand(text: string): boolean {
+	return parseSlashCommand(text) === undefined && /^\/\S+$/.test(text);
+}
+
+/**
  * The commands to suggest for a draft that is still one `/token` (no
  * whitespace yet): `/` lists every command, `/co` narrows to `/compact`, and
  * `/<unknown>` lists nothing. Whitespace anywhere, a leading space included,

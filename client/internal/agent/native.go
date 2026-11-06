@@ -17,7 +17,6 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
-	"github.com/fxamacker/cbor/v2"
 )
 
 // DefaultNativeTimeout bounds spawning the escalation tool, the crh-priv handshake and the forwarded
@@ -47,7 +46,7 @@ type nativeRun struct {
 func (r *nativeRun) prepare(a *Agent, _ context.Context, t *task) error {
 	n, err := a.startNative(t.spec)
 	if err != nil {
-		return &protocol.RemoteError{Code: "privileged_unsupported", Message: err.Error()}
+		return &protocol.RemoteError{Code: protocol.CodePrivilegedUnsupported, Message: err.Error()}
 	}
 	r.conn = n
 	return nil
@@ -107,7 +106,9 @@ type nativeConn struct {
 	// inputs queues the task.input chunks and task.cancel for one forwarding goroutine.
 	inputs *nativeInputQueue
 	// events buffers task.output and task.exit until the task is accepted and its handlers exist.
-	events *bufferedEvents
+	// The read loop must run before the forwarded task.start is awaited, and the helper may
+	// already send output while the task is being accepted.
+	events *relayRouter
 
 	// loopStarted says whether the stream read loop was started, so a failed start knows whether it
 	// has to wait for the loop before reaping the process.
@@ -149,7 +150,7 @@ func (a *Agent) startNative(ts *protocol.TaskStart) (*nativeConn, error) {
 		stdin:    stdin,
 		log:      a.log,
 		inputs:   newNativeInputQueue(),
-		events:   newBufferedEvents(protocol.EventTaskOutput, protocol.EventTaskExit),
+		events:   newRelayRouter(),
 		loopDone: make(chan struct{}),
 		done:     make(chan struct{}),
 	}
@@ -173,9 +174,9 @@ func (a *Agent) startNative(ts *protocol.TaskStart) (*nativeConn, error) {
 
 	n.stream = wire.NewStream(stdout, stdin, negotiated)
 	peer := n.stream.Peer()
-	for _, name := range []string{protocol.EventTaskOutput, protocol.EventTaskExit} {
-		peer.HandleEvent(name, n.events.handler(name))
-	}
+	output, exit := n.events.eventHandlers(func(string) string { return ts.TaskID })
+	peer.HandleEvent(protocol.EventTaskOutput, output)
+	peer.HandleEvent(protocol.EventTaskExit, exit)
 	n.loopStarted = true
 	go func() {
 		n.loopErr = n.stream.Run()
@@ -269,10 +270,7 @@ func nativeFailure(argv []string, stderr *nativeStderr, err error) error {
 // its handlers exist, which is also when the buffered events are replayed.
 func (r *nativeRun) run(a *Agent, t *task) {
 	n := r.conn
-	err := n.events.attach(map[string]protocol.EventHandler{
-		protocol.EventTaskOutput: a.nativeOutput(t),
-		protocol.EventTaskExit:   a.nativeExit(t),
-	})
+	err := n.events.attach(t.id, a.relayTaskHandlers(t, "native helper"))
 	if err != nil {
 		// A malformed event is fatal for the connection: the helper cannot be trusted past it.
 		n.stream.Close(err)
@@ -314,35 +312,6 @@ func (*nativeRun) lost(a *Agent, t *task, err error) {
 		message = err.Error()
 	}
 	a.finishRelayed(t, helperLostExit(t.id, message))
-}
-
-// nativeOutput writes the helper's output into the task's own executor.Output, so the spill file,
-// resume after a reconnect and the acknowledgements keep working unchanged.
-func (a *Agent) nativeOutput(t *task) protocol.EventHandler {
-	return func(body cbor.RawMessage) error {
-		var out protocol.TaskOutput
-		if err := protocol.UnmarshalBody(body, &out); err != nil {
-			return err
-		}
-		if out.TaskID != t.id {
-			return fmt.Errorf("native helper sent output for task %q, want %q", out.TaskID, t.id)
-		}
-		return a.relayOutput(t, &out)
-	}
-}
-
-func (a *Agent) nativeExit(t *task) protocol.EventHandler {
-	return func(body cbor.RawMessage) error {
-		var exit protocol.TaskExit
-		if err := protocol.UnmarshalBody(body, &exit); err != nil {
-			return err
-		}
-		if exit.TaskID != t.id {
-			return fmt.Errorf("native helper sent task.exit for %q, want %q", exit.TaskID, t.id)
-		}
-		a.finishRelayed(t, &exit)
-		return nil
-	}
 }
 
 // forward sends the queued task.input chunks and task.cancel to the helper, in order. It never waits
@@ -421,60 +390,6 @@ func (w *nativeStderr) lastLine() string {
 		}
 	}
 	return ""
-}
-
-// bufferedEvents holds the helper's task.output and task.exit events that arrive before the task is
-// accepted and its real handlers are attached. The read loop must run before the forwarded
-// task.start is awaited, and the helper may already send output while the task is being accepted.
-type bufferedEvents struct {
-	mu       sync.Mutex
-	handlers map[string]protocol.EventHandler
-	pending  []bufferedEvent
-}
-
-type bufferedEvent struct {
-	name string
-	body cbor.RawMessage
-}
-
-func newBufferedEvents(names ...string) *bufferedEvents {
-	b := &bufferedEvents{handlers: make(map[string]protocol.EventHandler, len(names))}
-	for _, name := range names {
-		b.handlers[name] = nil
-	}
-	return b
-}
-
-// handler buffers the event until attach installs the real one.
-func (b *bufferedEvents) handler(name string) protocol.EventHandler {
-	return func(body cbor.RawMessage) error {
-		b.mu.Lock()
-		defer b.mu.Unlock()
-		if h := b.handlers[name]; h != nil {
-			return h(body)
-		}
-		b.pending = append(b.pending, bufferedEvent{name: name, body: body})
-		return nil
-	}
-}
-
-// attach installs the real handlers and replays the buffered events in arrival order.
-func (b *bufferedEvents) attach(handlers map[string]protocol.EventHandler) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	for name, h := range handlers {
-		b.handlers[name] = h
-	}
-	pending := b.pending
-	b.pending = nil
-	for _, e := range pending {
-		if h := b.handlers[e.name]; h != nil {
-			if err := h(e.body); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 // nativeInputQueue orders the task.input chunks and the task.cancel that the agent forwards to the

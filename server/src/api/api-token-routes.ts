@@ -1,0 +1,105 @@
+import { Hono } from "hono";
+import { type Audit, userActor } from "../audit/audit.ts";
+import { createApiToken, deleteApiToken, getApiToken, listApiTokens, revokeApiToken } from "../auth/api-tokens.ts";
+import type { ApprovalDecision, Cluster } from "../cluster/cluster.ts";
+import type { TaskGroups } from "../cluster/task-groups.ts";
+import { parseRulesForWrite } from "../policy/refs.ts";
+import { parseRulePreset, type RuleRef, setRulePreset, setRules } from "../policy/store.ts";
+import type { Db } from "../storage/db.ts";
+import { defaultOrgId } from "../users/service.ts";
+import { reevaluateAfterRuleChange } from "./approval-routes.ts";
+import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
+
+/**
+ * API tokens with their rules. Management needs a WebUI session: these routes sit behind requireUser, and
+ * API tokens only work at /mcp.
+ */
+export function apiTokenRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups, audit: Audit) {
+	const app = new Hono<AppEnv>();
+
+	app.get("/api-tokens", async (c) => c.json({ tokens: await listApiTokens(db, c.get("user")) }));
+
+	app.post("/api-tokens", async (c) => {
+		const user = c.get("user");
+		const body = (await readJsonObject(c)) ?? {};
+		const days = body.days === null ? null : body.days === undefined ? undefined : Number(body.days);
+		const { token, view } = await createApiToken(db, user, {
+			name: typeof body.name === "string" ? body.name : "",
+			rulePreset: parseRulePreset(body.rulePreset ?? "ask"),
+			days,
+		});
+		void audit.record({
+			actor: userActor(user),
+			action: "api_token.created",
+			target: { type: "api_token", id: view.id },
+			detail: { name: view.name, rule_preset: view.rules?.rulePreset, expires_at: view.expiresAt },
+		});
+		return c.json({ token, apiToken: view }, 201);
+	});
+
+	app.post("/api-tokens/:id/revoke", async (c) => {
+		const user = c.get("user");
+		await revokeApiToken(db, user, c.req.param("id"));
+		void audit.record({
+			actor: userActor(user),
+			action: "api_token.revoked",
+			target: { type: "api_token", id: c.req.param("id") },
+		});
+		// What the token started and is still waiting for approval will not run.
+		const decision: ApprovalDecision = {
+			decision: "rejected",
+			by: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
+			at: new Date().toISOString(),
+			reason: "the API token was revoked",
+		};
+		for (const table of ["tasks", "task_groups"] as const) {
+			const rows = await db
+				.selectFrom(table)
+				.select("id")
+				.where("state", "=", "awaiting_approval")
+				.where("actor_type", "=", "api_token")
+				.where("actor_id", "=", c.req.param("id"))
+				.execute();
+			for (const { id } of rows) {
+				await (table === "tasks" ? cluster.decide(id, decision) : taskGroups.decide(id, decision));
+			}
+		}
+		return c.json({ apiToken: await getApiToken(db, user, c.req.param("id")) });
+	});
+
+	app.delete("/api-tokens/:id", async (c) => {
+		const user = c.get("user");
+		await deleteApiToken(db, user, c.req.param("id"));
+		void audit.record({
+			actor: userActor(user),
+			action: "api_token.deleted",
+			target: { type: "api_token", id: c.req.param("id") },
+		});
+		return c.json({ ok: true });
+	});
+
+	/** Changes a token's rule preset and/or the rules added on top; `{ rulePreset?, rules? }`. */
+	app.put("/api-tokens/:id/rules", async (c) => {
+		const user = c.get("user");
+		const id = c.req.param("id");
+		if (!(await getApiToken(db, user, id))) return jsonError(c, 404, "no such token");
+		const body = await readJsonObject(c);
+		if (!body) return jsonError(c, 400, "expected a JSON object");
+		const ref: RuleRef = { type: "api_token", id };
+		const rulePreset = body.rulePreset === undefined ? undefined : parseRulePreset(body.rulePreset);
+		const rules =
+			body.rules === undefined ? undefined : await parseRulesForWrite(db, await defaultOrgId(db), body.rules);
+		if (rulePreset) await setRulePreset(db, ref, rulePreset);
+		if (rules) await setRules(db, ref, rules);
+		void audit.record({
+			actor: userActor(user),
+			action: "rules.changed",
+			target: { type: "api_token", id },
+			detail: { rule_preset: rulePreset, rules },
+		});
+		await reevaluateAfterRuleChange(cluster, taskGroups, ref);
+		return c.json({ apiToken: await getApiToken(db, user, id) });
+	});
+
+	return app;
+}

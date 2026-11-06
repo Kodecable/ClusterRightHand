@@ -501,9 +501,7 @@ func TestFinishedTasksLeaveConnection(t *testing.T) {
 	// task.exit goes out before the exit callback drops the entry, so wait for the drop.
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		c.mu.Lock()
-		left := len(c.tasks)
-		c.mu.Unlock()
+		left := c.session.Len()
 		if left == 0 {
 			break
 		}

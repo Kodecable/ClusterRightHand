@@ -1,20 +1,9 @@
-import { type Context, Hono, type Next } from "hono";
-import { streamSSE } from "hono/streaming";
-import { isModelPresetKind } from "../agent/model-presets.ts";
-import {
-	builtinProviderIds,
-	deleteModelProvider,
-	listModelProviders,
-	type ModelConfig,
-	type ModelRef,
-	parseModelRef,
-	saveModelProvider,
-} from "../agent/models.ts";
+import { type Context, Hono, type MiddlewareHandler } from "hono";
+import { parseModelRef } from "../agent/models.ts";
 import { parseQuota } from "../agent/quota.ts";
 import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
 import {
 	type SessionListScope,
-	type SessionListSubscriber,
 	sessionChildItem,
 	sessionChildrenQuery,
 	sessionListCursor,
@@ -35,23 +24,19 @@ import { userActor } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
-import type { MasterKey } from "../keys/master-key.ts";
 import { parseRulePreset } from "../policy/store.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
-import { UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { type CursorSpec, cursorRows, decodeCursor, parseLimit } from "./cursor.ts";
-import type { RequestDrain } from "./drain.ts";
+import type { SessionStreams } from "./session-events-routes.ts";
 
 export interface SessionRoutesOptions {
 	runtime: AgentRuntime;
-	models: ModelConfig;
-	masterKey: MasterKey;
 	cluster: Cluster;
 	taskGroups: TaskGroups;
-	/** Shutdown bookkeeping: its abort ends the event streams, and each stream keeps shutdown waiting. */
-	drain?: RequestDrain;
+	/** The open event streams: removing a share may end some of them. */
+	streams: SessionStreams;
 	/** Tells the scheduler when a scheduled run's root quota was denied, so the run ends failed (doc/scheduling.md). */
 	scheduler?: Scheduler;
 }
@@ -69,198 +54,50 @@ const SESSION_CURSOR: CursorSpec = {
 const HISTORY_CURSOR: CursorSpec = { columns: [], idType: "number" };
 /** History pages default to 100 entries (doc/webui.md#会话事件流和历史). */
 const DEFAULT_HISTORY = 100;
-const SCOPES: ReadonlySet<string> = new Set(["mine", "shared", "visible", "all"]);
+/** The scopes of the session list and of its stream. */
+export const SESSION_SCOPES: ReadonlySet<string> = new Set(["mine", "shared", "visible", "all"]);
 
-/** `stream.sleep`, but wakes up when the stream ends, so shutdown need not wait out a ping interval. */
-function sleepFor(ms: number, signal: AbortSignal): Promise<void> {
-	return new Promise((resolve) => {
-		if (signal.aborted) return resolve();
-		const timer = setTimeout(done, ms);
-		function done() {
-			clearTimeout(timer);
-			signal.removeEventListener("abort", done);
-			resolve();
-		}
-		signal.addEventListener("abort", done, { once: true });
-	});
+/** A session the caller can see, with their capabilities on it. */
+export type VisibleSession = { session: SessionView } & SessionPermissions;
+
+/** The session and its capabilities for the user; undefined when they cannot see it. */
+export async function visibleSession(
+	db: Db,
+	runtime: AgentRuntime,
+	user: SessionUser,
+	id: string,
+): Promise<VisibleSession | undefined> {
+	const info = await sessionCapabilities(db, user, id);
+	if (!info) return undefined;
+	const session = await runtime.getSession(id);
+	return session ? { session, ...info } : undefined;
 }
 
-/** Sessions (chat with the agent) and model configuration; doc/agent-runtime.md. Expects requireUser. */
-export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
-	const { runtime, models } = options;
-	type LiveStream = { user: SessionUser; sessionId: string; abort: () => void };
-	const streams = new Set<LiveStream>();
-	const drain = options.drain;
-	/** Ends a stream the way a client disconnect does: its abort controller fires and the loop below runs out. */
-	const endStream = (stream: LiveStream) => {
-		streams.delete(stream);
-		stream.abort();
-	};
-	/**
-	 * The viewer as the account is now. A stream opened before a kind change or a disable would otherwise keep
-	 * the capabilities it was opened with.
-	 */
-	const currentViewer = async (user: SessionUser): Promise<SessionUser | undefined> => {
-		const row = await db
-			.selectFrom("users")
-			.select(["id", "username", "kind", "status"])
-			.where("id", "=", user.userId)
-			.executeTakeFirst();
-		if (row?.status !== "active") return undefined;
-		return { ...user, username: row.username, kind: row.kind };
-	};
-	/** A share change or an account change can remove access to a session or to a root whose subagents it watches. */
-	const revalidateStreams = async () => {
-		for (const stream of [...streams]) {
-			const viewer = await currentViewer(stream.user);
-			if (viewer && (await sessionCapabilities(db, viewer, stream.sessionId))) continue;
-			endStream(stream);
-		}
-	};
-	// A user's status/kind, a user group membership or a share change reaches the streams through the session list
-	// hub, which the user routes also hold: this is the same path for every access change.
-	const unsubscribeVisibility = runtime.sessionList.onVisibilityChanged(revalidateStreams);
-	// Shutdown ends every stream, so no request outlives the database it may still need.
-	drain?.shutdown.signal.addEventListener(
-		"abort",
-		() => {
-			unsubscribeVisibility();
-			for (const stream of [...streams]) endStream(stream);
-			options.runtime.sessionList.close();
-		},
-		{ once: true },
-	);
-	const app = new Hono<AppEnv>();
-
-	const admin = (c: Context<AppEnv>) => c.get("user").kind === "admin";
-
-	// Shutdown closes the runtime before the drain is idle (main.ts): a session request still in flight must
-	// fail with a normal error instead of reaching the closed Harness.
-	const refuseWhenClosing = async (c: Context<AppEnv>, next: Next) => {
+/**
+ * Shutdown closes the runtime before the drain is idle (main.ts): a session request still in flight must
+ * fail with a normal error instead of reaching the closed Harness. Registered on `/sessions` and
+ * `/sessions/*` before any session route.
+ */
+export function refuseWhenClosing(runtime: AgentRuntime): MiddlewareHandler<AppEnv> {
+	return async (c, next) => {
 		if (runtime.closing) return jsonError(c, 503, "server is shutting down");
 		await next();
 	};
-	app.use("/sessions", refuseWhenClosing);
-	app.use("/sessions/*", refuseWhenClosing);
+}
 
-	// ---- models ----
-
-	app.get("/models", (c) => c.json({ models: models.available() }));
-
-	app.get("/model-providers", async (c) => {
-		if (!admin(c)) return jsonError(c, 403, "administrators only");
-		return c.json({ providers: await listModelProviders(db), builtin: builtinProviderIds() });
-	});
-
-	app.put("/model-providers/:providerId", async (c) => {
-		if (!admin(c)) return jsonError(c, 403, "administrators only");
-		const body = await readJsonObject(c);
-		if (!body) return jsonError(c, 400, "expected a JSON object");
-		const has = (key: string) => Object.hasOwn(body, key);
-		const provider = await saveModelProvider(db, options.masterKey, {
-			providerId: c.req.param("providerId"),
-			kind: body.kind as "builtin" | "custom",
-			...(has("name") ? { name: body.name } : {}),
-			...(has("baseUrl") ? { baseUrl: body.baseUrl } : {}),
-			...(has("apiKey") ? { apiKey: body.apiKey } : {}),
-			...(has("models") ? { models: body.models } : {}),
-			...(has("headers") ? { headers: body.headers } : {}),
-			...(has("sessionId") ? { sessionId: body.sessionId } : {}),
-			...(has("enabled") ? { enabled: body.enabled } : {}),
-		});
-		await models.reload();
-		void c.get("audit").record({
-			actor: userActor(c.get("user")),
-			action: "model_provider.saved",
-			target: { type: "model_provider", id: provider.providerId },
-			detail: {
-				kind: provider.kind,
-				base_url: provider.baseUrl,
-				api_key_set: provider.hasApiKey,
-				enabled: provider.enabled,
-			},
-		});
-		return c.json({ provider });
-	});
-
-	app.delete("/model-providers/:providerId", async (c) => {
-		if (!admin(c)) return jsonError(c, 403, "administrators only");
-		await deleteModelProvider(db, c.req.param("providerId"));
-		await models.reload();
-		void c.get("audit").record({
-			actor: userActor(c.get("user")),
-			action: "model_provider.deleted",
-			target: { type: "model_provider", id: c.req.param("providerId") },
-		});
-		return c.json({ ok: true });
-	});
-
-	// ---- model presets (D116, doc/agent-runtime.md#模型预设) ----
-
-	/** All three presets with their fixed default prompts and protocol texts (administrators only). */
-	app.get("/model-presets", async (c) => {
-		if (!admin(c)) return jsonError(c, 403, "administrators only");
-		return c.json({ presets: runtime.modelPresets.list() });
-	});
-
-	/**
-	 * `{ model?: ModelRef | null, systemPrompt?: string | null }`: omitted fields stay unchanged, null
-	 * clears. The session preset never chooses a model; review and title models are resolved with their
-	 * thinking level, which belongs in the model ref.
-	 */
-	app.put("/model-presets/:kind", async (c) => {
-		if (!admin(c)) return jsonError(c, 403, "administrators only");
-		const kind = c.req.param("kind");
-		if (!isModelPresetKind(kind)) return jsonError(c, 400, "kind must be session, review or title");
-		const body = await readJsonObject(c);
-		if (!body) return jsonError(c, 400, "expected a JSON object");
-		const has = (key: string) => Object.hasOwn(body, key);
-		if (has("thinkingLevel")) throw new UserError("thinkingLevel belongs in model");
-		let model: ModelRef | null | undefined;
-		if (has("model")) {
-			if (kind === "session") {
-				if (body.model !== null) throw new UserError("the session preset does not choose a model");
-				model = null;
-			} else if (body.model === null) {
-				model = null;
-			} else {
-				model = models.resolveRef(parseModelRef(body.model));
-			}
-		}
-		let systemPrompt: string | null | undefined;
-		if (has("systemPrompt")) {
-			const value = body.systemPrompt;
-			if (value !== null && typeof value !== "string") {
-				throw new UserError("systemPrompt must be a string or null");
-			}
-			const trimmed = typeof value === "string" ? value.trim() : null;
-			systemPrompt = trimmed === "" ? null : trimmed;
-		}
-		const preset = await runtime.modelPresets.update(kind, { model, systemPrompt });
-		void c.get("audit").record({
-			actor: userActor(c.get("user")),
-			action: "settings.model_preset",
-			target: { type: "settings", id: "model_preset" },
-			detail: {
-				kind,
-				model: preset.model,
-				system_prompt_chars: preset.systemPrompt?.length ?? 0,
-			},
-		});
-		return c.json({ preset });
-	});
+/**
+ * Sessions (chat with the agent); doc/agent-runtime.md. Expects requireUser and refuseWhenClosing; the
+ * event streams are in session-events-routes.ts, registered first.
+ */
+export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
+	const { runtime, streams } = options;
+	const app = new Hono<AppEnv>();
 
 	// ---- sessions: the owner, users it is shared with (view / chat), and administrators (view unless shared chat) ----
 
-	type Visible = { session: SessionView } & SessionPermissions;
-
 	/** The session and its capabilities for the caller; undefined when they cannot see it. */
-	const visible = async (c: Context<AppEnv>, id: string): Promise<Visible | undefined> => {
-		const info = await sessionCapabilities(db, c.get("user"), id);
-		if (!info) return undefined;
-		const session = await runtime.getSession(id);
-		return session ? { session, ...info } : undefined;
-	};
+	const visible = (c: Context<AppEnv>, id: string): Promise<VisibleSession | undefined> =>
+		visibleSession(db, runtime, c.get("user"), id);
 	const usernames = async (ids: string[]): Promise<Map<string, string>> =>
 		new Map(
 			ids.length === 0
@@ -296,7 +133,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.get("/sessions", async (c) => {
 		const user = c.get("user");
 		const scope = c.req.query("scope") ?? "mine";
-		if (!SCOPES.has(scope)) return jsonError(c, 400, "scope must be mine, shared, visible or all");
+		if (!SESSION_SCOPES.has(scope)) return jsonError(c, 400, "scope must be mine, shared, visible or all");
 		if (scope === "all" && user.kind !== "admin") return jsonError(c, 403, "administrators only");
 		const limit = parseLimit(c.req.query("limit"));
 		const rawCursor = c.req.query("cursor");
@@ -322,52 +159,6 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			// The query's `shared` EXISTS is 0/1 on SQLite and a boolean on PostgreSQL.
 			items: page.rows.map((row) => sessionListItem(row, user.userId, Boolean(row.shared))),
 			nextCursor: page.nextCursor,
-		});
-	});
-
-	/**
-	 * Session list changes as server-sent events (doc/webui.md#会话列表): `upsert` carries the item as this
-	 * subscriber sees it, `remove` says the session is gone (deleted, no longer shared, archived), and `ping`
-	 * keeps the connection alive. No initial snapshot: the client fetches page one and reconnects after errors.
-	 */
-	app.get("/sessions/stream", (c) => {
-		// The stream takes the list's scopes; omitted keeps the historical audience (every administrator gets
-		// every root session). The WebUI asks for `visible` so its stream matches the list it patches.
-		const scope = c.req.query("scope");
-		if (scope !== undefined && !SCOPES.has(scope)) {
-			return jsonError(c, 400, "scope must be mine, shared, visible or all");
-		}
-		if (scope === "all" && c.get("user").kind !== "admin") return jsonError(c, 403, "administrators only");
-		return streamSSE(c, async (stream) => {
-			const abort = new AbortController();
-			let queue: Promise<unknown> = Promise.resolve();
-			const subscriber: SessionListSubscriber = {
-				user: c.get("user"),
-				scope: scope as SessionListScope | undefined,
-				send: (event, data) => {
-					queue = queue.then(() => stream.writeSSE({ event, data: JSON.stringify(data) }));
-					void queue.catch(() => stream.abort());
-				},
-				close: () => stream.abort(),
-			};
-			const unsubscribe = runtime.sessionList.subscribe(subscriber);
-			stream.onAbort(() => {
-				unsubscribe();
-				abort.abort();
-			});
-			// As with a session's event stream, the connection keeps shutdown waiting until it ends.
-			const release = drain?.hold();
-			try {
-				if (drain?.shutdown.signal.aborted) stream.abort();
-				if (abort.signal.aborted) return;
-				while (!abort.signal.aborted) {
-					await sleepFor(15_000, abort.signal);
-					if (!abort.signal.aborted) await stream.writeSSE({ event: "ping", data: "" });
-				}
-			} finally {
-				unsubscribe();
-				release?.();
-			}
 		});
 	});
 
@@ -511,7 +302,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			: [];
 		await unshareSession(db, v.session.id, c.req.param("shareId"));
 		await runtime.sessionList.publishShareRemoved(v.session.id, audience);
-		await revalidateStreams();
+		await streams.revalidate();
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "session.unshared",
@@ -642,45 +433,6 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		if (!v.capabilities.chat) return jsonError(c, 403, "chat access is required");
 		await runtime.abort(v.session.id, c.get("user"));
 		return c.json({ ok: true });
-	});
-
-	/** Server-sent events: `snapshot` first, then `events` batches as the session changes. */
-	app.get("/sessions/:id/events", async (c) => {
-		const v = await visible(c, c.req.param("id"));
-		if (!v) return jsonError(c, 404, "no such session");
-		return streamSSE(c, async (stream) => {
-			const abort = new AbortController();
-			const live: LiveStream = { user: c.get("user"), sessionId: v.session.id, abort: () => stream.abort() };
-			stream.onAbort(() => {
-				streams.delete(live);
-				abort.abort();
-			});
-			streams.add(live);
-			// The stream outlives its response, so it keeps shutdown waiting until this callback returns.
-			const release = drain?.hold();
-			try {
-				// Shutdown may have begun between authentication and the stream opening: end it now.
-				if (drain?.shutdown.signal.aborted) stream.abort();
-				if (abort.signal.aborted) return;
-				let queue = Promise.resolve();
-				const stop = await runtime.watch(
-					v.session.id,
-					(events) => {
-						queue = queue.then(() => stream.writeSSE({ event: "events", data: JSON.stringify(events) }));
-						return queue;
-					},
-					abort.signal,
-				);
-				// Keep the stream (and proxies) alive while the session is quiet.
-				while (!abort.signal.aborted) {
-					await sleepFor(15_000, abort.signal);
-					if (!abort.signal.aborted) await stream.writeSSE({ event: "ping", data: "" });
-				}
-				await stop();
-			} finally {
-				release?.();
-			}
-		});
 	});
 
 	/**

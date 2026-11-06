@@ -1,6 +1,6 @@
 import type { TaskGroupView, TaskView } from "@/lib/api/types";
-import type { Json, JsonObject } from "./sessionState";
-import { prettyJson } from "./sessionState";
+import type { Json, JsonObject } from "./session-events";
+import { prettyJson } from "./tool-details";
 
 /**
  * The failure a tool result reports (doc/webui.md#工具卡片): the one badge a tool card shows beyond its call

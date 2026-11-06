@@ -21,7 +21,7 @@ import type {
 } from "@/lib/api/types";
 import { sessionListFilter, upsertSessionListItem } from "./list-patch";
 import { subscribeSessionListUpserts } from "./list-stream-bus";
-import type { EntryRecord } from "./sessionState";
+import type { EntryRecord } from "./session-events";
 
 /** Query keys for every session-shaped query. The list key carries its `scope`/`q`. */
 export const sessionKeys = {

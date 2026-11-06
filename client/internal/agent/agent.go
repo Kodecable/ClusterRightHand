@@ -462,7 +462,7 @@ func (a *Agent) send(peer *protocol.Peer, ob *outbound) error {
 	}
 	exit.Outcome = protocol.Outcome{
 		Kind:  protocol.OutcomeError,
-		Error: &protocol.Error{Code: "internal_error", Message: "task.exit could not be encoded"},
+		Error: &protocol.Error{Code: protocol.CodeInternalError, Message: "task.exit could not be encoded"},
 	}
 	retryErr := peer.Emit(ob.name, ob.body)
 	if retryErr == nil {

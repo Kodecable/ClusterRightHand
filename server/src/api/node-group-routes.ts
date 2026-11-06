@@ -12,6 +12,7 @@ import { visibleNodeIds } from "../cluster/nodes.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
+import { adminOnly } from "./middleware.ts";
 
 /**
  * Node groups: administrators manage them, every signed-in user may list them (doc/access-control.md#用户模型).
@@ -30,9 +31,8 @@ export function nodeGroupRoutes(db: Db) {
 		});
 	});
 
-	app.post("/node-groups", async (c) => {
+	app.post("/node-groups", adminOnly, async (c) => {
 		const user = c.get("user");
-		if (user.kind !== "admin") return jsonError(c, 403, "administrators only");
 		const body = await readJsonObject(c);
 		const name = typeof body?.name === "string" ? body.name : "";
 		const group = await createNodeGroup(db, await defaultOrgId(db), name);
@@ -45,9 +45,8 @@ export function nodeGroupRoutes(db: Db) {
 		return c.json({ group }, 201);
 	});
 
-	app.patch("/node-groups/:id", async (c) => {
+	app.patch("/node-groups/:id", adminOnly, async (c) => {
 		const user = c.get("user");
-		if (user.kind !== "admin") return jsonError(c, 403, "administrators only");
 		const id = c.req.param("id");
 		const before = await getNodeGroup(db, id);
 		if (!before) return jsonError(c, 404, "no such node group");
@@ -63,9 +62,8 @@ export function nodeGroupRoutes(db: Db) {
 		return c.json({ group });
 	});
 
-	app.delete("/node-groups/:id", async (c) => {
+	app.delete("/node-groups/:id", adminOnly, async (c) => {
 		const user = c.get("user");
-		if (user.kind !== "admin") return jsonError(c, 403, "administrators only");
 		const id = c.req.param("id");
 		const before = await getNodeGroup(db, id);
 		if (!before) return jsonError(c, 404, "no such node group");
@@ -79,9 +77,8 @@ export function nodeGroupRoutes(db: Db) {
 		return c.json({ ok: true });
 	});
 
-	app.put("/node-groups/:id/members", async (c) => {
+	app.put("/node-groups/:id/members", adminOnly, async (c) => {
 		const user = c.get("user");
-		if (user.kind !== "admin") return jsonError(c, 403, "administrators only");
 		const id = c.req.param("id");
 		const before = await getNodeGroup(db, id);
 		if (!before) return jsonError(c, 404, "no such node group");

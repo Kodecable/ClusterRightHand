@@ -182,8 +182,9 @@ func (a *Agent) dialForward(ctx context.Context) (*forwardConn, error) {
 		done:       make(chan struct{}),
 	}
 	fc.peer = fc.stream.Peer()
-	fc.peer.HandleEvent(protocol.EventTaskOutput, a.handleForwardOutput)
-	fc.peer.HandleEvent(protocol.EventTaskExit, a.handleForwardExit)
+	output, exit := a.relay.eventHandlers(func(taskID string) string { return taskID })
+	fc.peer.HandleEvent(protocol.EventTaskOutput, output)
+	fc.peer.HandleEvent(protocol.EventTaskExit, exit)
 	fc.peer.HandleEvent(protocol.EventTrustSummary, a.handleForwardSummary)
 	fc.peer.HandleEvent(protocol.EventLocalDecision, a.handleForwardLocalDecision)
 	return fc, nil
@@ -389,7 +390,7 @@ func (a *Agent) relayForward(ctx context.Context, cmd string, req, resp any) err
 func (a *Agent) relayOn(ctx context.Context, fc *forwardConn, cmd string, req, resp any) error {
 	if !fc.negotiated.Has(cmd) {
 		return &protocol.RemoteError{
-			Code:    "privileged_unsupported",
+			Code:    protocol.CodePrivilegedUnsupported,
 			Message: "the privileged mode does not implement " + cmd,
 		}
 	}
@@ -416,28 +417,12 @@ func forwardUnavailable(err error) *protocol.RemoteError {
 	if err != nil {
 		message += ": " + err.Error()
 	}
-	return &protocol.RemoteError{Code: "privileged_unavailable", Message: protocol.ErrorMessage(message)}
+	return &protocol.RemoteError{Code: protocol.CodePrivilegedUnavailable, Message: protocol.ErrorMessage(message)}
 }
 
 // notForwardError refuses a privileged mode command in a mode that does not forward.
 func notForwardError(mode string) *protocol.RemoteError {
-	return &protocol.RemoteError{Code: "privileged_unsupported", Message: "privileged mode is " + mode + ", not forward"}
-}
-
-func (a *Agent) handleForwardOutput(body cbor.RawMessage) error {
-	var out protocol.TaskOutput
-	if err := protocol.UnmarshalBody(body, &out); err != nil {
-		return err
-	}
-	return a.relay.route(out.TaskID, relayEvent{output: &out})
-}
-
-func (a *Agent) handleForwardExit(body cbor.RawMessage) error {
-	var exit protocol.TaskExit
-	if err := protocol.UnmarshalBody(body, &exit); err != nil {
-		return err
-	}
-	return a.relay.route(exit.TaskID, relayEvent{exit: &exit})
+	return &protocol.RemoteError{Code: protocol.CodePrivilegedUnsupported, Message: "privileged mode is " + mode + ", not forward"}
 }
 
 // handleForwardSummary forwards the daemon's trust report to crhs. The daemon pushes one after
@@ -583,21 +568,7 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // It runs once the task is registered, so events that arrived while the task was being accepted
 // are replayed in order.
 func (a *Agent) attachForward(t *task) {
-	err := a.relay.attach(t.id, &relayHandlers{
-		output: func(out *protocol.TaskOutput) error {
-			if out.TaskID != t.id {
-				return fmt.Errorf("the privileged mode sent output for task %q, want %q", out.TaskID, t.id)
-			}
-			return a.relayOutput(t, out)
-		},
-		exit: func(exit *protocol.TaskExit) error {
-			if exit.TaskID != t.id {
-				return fmt.Errorf("the privileged mode sent task.exit for %q, want %q", exit.TaskID, t.id)
-			}
-			a.finishRelayed(t, exit)
-			return nil
-		},
-	})
+	err := a.relay.attach(t.id, a.relayTaskHandlers(t, "the privileged mode"))
 	if err != nil {
 		// A malformed buffered event makes the connection unusable: the daemon cannot be trusted
 		// past it. Closing the socket ends the read loop and with it the running tasks.
@@ -614,12 +585,12 @@ func (a *Agent) forwardInput(ctx context.Context, t *task, in *protocol.TaskInpu
 	err := a.relayForward(ctx, protocol.CmdTaskInput, in, nil)
 	if err != nil {
 		var remote *protocol.RemoteError
-		if errors.As(err, &remote) && remote.Code == "privileged_unavailable" {
+		if errors.As(err, &remote) && remote.Code == protocol.CodePrivilegedUnavailable {
 			// The chunk did not reach the daemon (or its answer was lost), so the task can never
 			// get the input it declared. Fail the input and cancel the task there, instead of
 			// leaving it waiting for bytes that will not come.
 			a.mu.Lock()
-			a.failInputLocked(t, "input_incomplete", "the privileged mode did not accept the task input")
+			a.failInputLocked(t, protocol.CodeInputIncomplete, "the privileged mode did not accept the task input")
 			a.mu.Unlock()
 		}
 		return nil, err

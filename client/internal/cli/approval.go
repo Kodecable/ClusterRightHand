@@ -2,15 +2,215 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/authz"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/localclient"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 )
+
+// defaultApprovalSocket is the socket `crha pending`, `crha approve` and `crha deny` try when
+// neither --socket nor CRHA_PRIVILEGED_SOCKET is set. It exists only for manual local approval
+// typed on the node; nothing else in crha may use it.
+const defaultApprovalSocket = "/run/crha/privileged.sock"
+
+// approvalSocketEnv overrides defaultApprovalSocket for the local approval commands.
+const approvalSocketEnv = "CRHA_PRIVILEGED_SOCKET"
+
+// approvalSocketUsage is the --socket help of the local approval commands.
+const approvalSocketUsage = "path to the privileged mode's socket (default: $" + approvalSocketEnv + " or " + defaultApprovalSocket + ")"
+
+// resolveApprovalSocket resolves the socket of the local approval commands. An explicitly set
+// --socket wins, then a non-empty CRHA_PRIVILEGED_SOCKET, then defaultApprovalSocket.
+func resolveApprovalSocket(flagValue string, flagSet bool) string {
+	if flagSet {
+		return flagValue
+	}
+	if value := os.Getenv(approvalSocketEnv); value != "" {
+		return value
+	}
+	return defaultApprovalSocket
+}
+
+func newPendingCmd() *cobra.Command {
+	var socketPath string
+	cmd := &cobra.Command{
+		Use:   "pending",
+		Short: "List tasks pending local approval",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			socket := resolveApprovalSocket(socketPath, cmd.Flags().Changed("socket"))
+			return showPending(cmd.Context(), cmd.OutOrStdout(), socket)
+		},
+	}
+	cmd.Flags().StringVar(&socketPath, "socket", "", approvalSocketUsage)
+	return cmd
+}
+
+func newApproveCmd() *cobra.Command {
+	var socketPath string
+	var attempt uint64
+	var yes bool
+	cmd := &cobra.Command{
+		Use:   "approve <task-id>",
+		Short: "Approve a pending task locally",
+		Long: `Approve the local request of one task. The complete specification and its spec_sha256 are
+shown, and the same hash is sent with the approval; the privileged mode refuses it if the
+pending specification changed in the meantime. When several attempts of the task are pending,
+the highest attempt is approved unless --attempt is given. The verdict is confirmed on the
+terminal; --yes skips the confirmation.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			socket := resolveApprovalSocket(socketPath, cmd.Flags().Changed("socket"))
+			return decidePending(cmd.Context(), cmd.OutOrStdout(), socket, args[0], attempt, "", true, yes)
+		},
+	}
+	cmd.Flags().StringVar(&socketPath, "socket", "", approvalSocketUsage)
+	cmd.Flags().Uint64Var(&attempt, "attempt", 0, "approve this attempt instead of the highest pending one")
+	cmd.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
+	return cmd
+}
+
+func newDenyCmd() *cobra.Command {
+	var socketPath, message string
+	var attempt uint64
+	var yes bool
+	cmd := &cobra.Command{
+		Use:   "deny <task-id>",
+		Short: "Deny a pending task locally",
+		Long: `Deny the local request of one task. The complete specification and its spec_sha256 are shown,
+and the same hash is sent with the denial; the privileged mode refuses it if the pending
+specification changed in the meantime. The verdict is confirmed on the terminal; --yes skips
+the confirmation.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			socket := resolveApprovalSocket(socketPath, cmd.Flags().Changed("socket"))
+			return decidePending(cmd.Context(), cmd.OutOrStdout(), socket, args[0], attempt, message, false, yes)
+		},
+	}
+	cmd.Flags().StringVar(&socketPath, "socket", "", approvalSocketUsage)
+	cmd.Flags().Uint64Var(&attempt, "attempt", 0, "deny this attempt instead of the highest pending one")
+	cmd.Flags().StringVar(&message, "message", "", "reason shown to crhs and the user")
+	cmd.Flags().BoolVar(&yes, "yes", false, "do not ask for confirmation")
+	return cmd
+}
+
+// showPending prints the tasks waiting for local approval with their complete specification
+// and spec_sha256, which `crha approve` and `crha deny` need to bind the verdict.
+func showPending(ctx context.Context, out io.Writer, socket string) error {
+	client, err := localclient.Dial(ctx, socket, version.Version)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	entries, err := client.Pending(ctx)
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		fmt.Fprintln(out, "no tasks are pending local approval")
+		return nil
+	}
+	for i := range entries {
+		fmt.Fprintf(out, "task %s attempt %d (received %s, note %s)\n",
+			entries[i].TaskID, entries[i].Attempt,
+			formatMillis(int64(entries[i].ReceivedAtMS)), noteText(entries[i].Note))
+		if err := printApproval(out, approvalViewFor(&entries[i])); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// noteText keeps a note on one line and quotes it when it has spaces.
+func noteText(note string) string {
+	if note == "" {
+		return "-"
+	}
+	return fmt.Sprintf("%q", note)
+}
+
+// decidePending approves or denies one task after showing the complete specification. attempt
+// 0 selects the highest pending attempt of that task, as the brief for `crha approve` requires.
+func decidePending(ctx context.Context, out io.Writer, socket, taskID string, attempt uint64, message string, approve, yes bool) error {
+	client, err := localclient.Dial(ctx, socket, version.Version)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	entries, err := client.Pending(ctx)
+	if err != nil {
+		return err
+	}
+	entry, ok := chooseEntry(entries, taskID, attempt)
+	if !ok {
+		if attempt != 0 {
+			return fmt.Errorf("no pending local request for task %s attempt %d", taskID, attempt)
+		}
+		return fmt.Errorf("no pending local request for task %s", taskID)
+	}
+	view := approvalViewFor(entry)
+	if err := printApproval(out, view); err != nil {
+		return err
+	}
+	hash, err := protocol.SpecSHA256(&entry.Spec)
+	if err != nil {
+		return fmt.Errorf("hash the task spec: %w", err)
+	}
+	action, verb := "approve", "Approve"
+	if !approve {
+		action, verb = "deny", "Deny"
+	}
+	question := fmt.Sprintf("%s task %s attempt %d with spec_sha256 %s?", verb, taskID, entry.Attempt, view.SpecSHA256)
+	if err := confirmApproval(question, yes); err != nil {
+		return fmt.Errorf("%s task %s: %w", action, taskID, err)
+	}
+	if approve {
+		err = client.Approve(ctx, taskID, uint64(entry.Attempt), hash, message)
+	} else {
+		err = client.Deny(ctx, taskID, uint64(entry.Attempt), hash, message)
+	}
+	if err != nil {
+		return err
+	}
+	decided := "approved"
+	if !approve {
+		decided = "denied"
+	}
+	fmt.Fprintf(out, "%s task %s attempt %d\n", decided, taskID, entry.Attempt)
+	return nil
+}
+
+// chooseEntry returns the requested pending attempt or, when attempt is 0, the highest pending
+// attempt of taskID.
+func chooseEntry(entries []protocol.PendingEntry, taskID string, attempt uint64) (*protocol.PendingEntry, bool) {
+	var best *protocol.PendingEntry
+	for i := range entries {
+		entry := &entries[i]
+		if entry.TaskID != taskID {
+			continue
+		}
+		if attempt != 0 {
+			if uint64(entry.Attempt) == attempt {
+				return entry, true
+			}
+			continue
+		}
+		if best == nil || uint64(entry.Attempt) > uint64(best.Attempt) {
+			best = entry
+		}
+	}
+	return best, best != nil
+}
 
 // approvalView is the complete specification an approver decides on. `crha pending` and
 // `crha approve` / `crha deny` print it, together with the spec_sha256 the verdict is bound to

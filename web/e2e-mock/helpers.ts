@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import type { AgentEvent, EntryRecord as SessionEntry } from "../src/features/sessions/sessionState";
+import type { AgentEvent, EntryRecord as SessionEntry } from "../src/features/sessions/session-events";
 import type {
 	ApiTokenView,
 	ApprovalList,

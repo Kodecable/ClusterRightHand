@@ -6,9 +6,9 @@ import { resolveTargets, type TaskGroups } from "../cluster/task-groups.ts";
 import { taskRelation } from "../cluster/task-visibility.ts";
 import type { Db } from "../storage/db.ts";
 import type { TaskState } from "../storage/schema.ts";
-import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
+import { UserError } from "../users/service.ts";
+import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
 import { type CursorSpec, cursorRows, decodeCursor, descendingKeyset, encodeCursor, parseLimit } from "./cursor.ts";
-import { BadRequest } from "./errors.ts";
 
 const MAX_WAIT_MS = 10 * 60 * 1000;
 /** Lines a file.read reads when the request names none: pi's read default (doc/agent-runtime.md#默认值). */
@@ -67,7 +67,7 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		if (!body) return jsonError(c, 400, "expected a JSON object");
 		const targets = body.targets;
 		if (!Array.isArray(targets) || !targets.every((t) => typeof t === "string")) {
-			throw new BadRequest("targets must be an array of node or node-group names, ids or _all");
+			throw new UserError("targets must be an array of node or node-group names, ids or _all");
 		}
 		const outputMode = parseOutputMode(body);
 		const resolved = await resolveTargets(db, user, targets);
@@ -213,14 +213,14 @@ function parseTask(body: Record<string, unknown>): { spec: TaskSpec; input?: Uin
 		case "exec": {
 			const argv = body.argv;
 			if (argv !== undefined && !(Array.isArray(argv) && argv.every((a) => typeof a === "string"))) {
-				throw new BadRequest("argv must be an array of strings");
+				throw new UserError("argv must be an array of strings");
 			}
 			const env = body.env ?? {};
 			if (typeof env !== "object" || env === null || Object.values(env).some((v) => typeof v !== "string")) {
-				throw new BadRequest("env must map names to strings");
+				throw new UserError("env must map names to strings");
 			}
-			const stdin = optionalStr(body, "stdin");
-			const shell = optionalStr(body, "shell") ?? "";
+			const stdin = optionalString(body, "stdin");
+			const shell = optionalString(body, "shell") ?? "";
 			// An empty argv falls back to the shell, as the protobuf command did before M3.5.
 			const command = (argv as string[] | undefined)?.length ? { argv: argv as string[] } : { shell };
 			return {
@@ -228,7 +228,7 @@ function parseTask(body: Record<string, unknown>): { spec: TaskSpec; input?: Uin
 					kind: "exec",
 					command,
 					env: env as Record<string, string>,
-					cwd: optionalStr(body, "cwd") ?? "",
+					cwd: optionalString(body, "cwd") ?? "",
 					stdin: null,
 				},
 				input: stdin === undefined ? undefined : Buffer.from(stdin),
@@ -237,17 +237,17 @@ function parseTask(body: Record<string, unknown>): { spec: TaskSpec; input?: Uin
 		case "file.read": {
 			const startLine = optionalInt(body, "startLine") ?? 1;
 			const lineCount = optionalInt(body, "lineCount") ?? DEFAULT_READ_LINES;
-			if (startLine < 1 || lineCount < 1) throw new BadRequest("startLine and lineCount must be at least 1");
+			if (startLine < 1 || lineCount < 1) throw new UserError("startLine and lineCount must be at least 1");
 			return { spec: { kind: "file.read", path: str(body, "path"), startLine, lineCount } };
 		}
 		case "file.write": {
-			const content = optionalStr(body, "content");
-			const base64 = optionalStr(body, "contentBase64");
+			const content = optionalString(body, "content");
+			const base64 = optionalString(body, "contentBase64");
 			if ((content === undefined) === (base64 === undefined)) {
-				throw new BadRequest("exactly one of content and contentBase64 is required");
+				throw new UserError("exactly one of content and contentBase64 is required");
 			}
 			const input = content !== undefined ? Buffer.from(content) : Buffer.from(base64 as string, "base64");
-			if (input.length > MAX_INPUT_BYTES) throw new BadRequest("content too large");
+			if (input.length > MAX_INPUT_BYTES) throw new UserError("content too large");
 			return {
 				spec: {
 					kind: "file.write",
@@ -255,8 +255,8 @@ function parseTask(body: Record<string, unknown>): { spec: TaskSpec; input?: Uin
 					content: EMPTY_INPUT_REF,
 					overwrite: body.overwrite === true,
 					mode: optionalInt(body, "mode") ?? 0,
-					owner: optionalStr(body, "owner") ?? "",
-					group: optionalStr(body, "group") ?? "",
+					owner: optionalString(body, "owner") ?? "",
+					group: optionalString(body, "group") ?? "",
 					createParentDirs: optionalBool(body, "createParentDirs") === true,
 				},
 				input,
@@ -268,7 +268,7 @@ function parseTask(body: Record<string, unknown>): { spec: TaskSpec; input?: Uin
 				!Array.isArray(edits) ||
 				!edits.every((e) => typeof e?.oldText === "string" && typeof e?.newText === "string")
 			) {
-				throw new BadRequest("edits must be an array of { oldText, newText }");
+				throw new UserError("edits must be an array of { oldText, newText }");
 			}
 			return {
 				spec: {
@@ -283,20 +283,13 @@ function parseTask(body: Record<string, unknown>): { spec: TaskSpec; input?: Uin
 		case "file.list":
 			return { spec: { kind: "file.list", path: str(body, "path"), limit: optionalInt(body, "limit") ?? 0 } };
 		default:
-			throw new BadRequest("kind must be exec, file.read, file.write, file.edit, file.stat or file.list");
+			throw new UserError("kind must be exec, file.read, file.write, file.edit, file.stat or file.list");
 	}
 }
 
 function str(body: Record<string, unknown>, key: string): string {
 	const value = body[key];
-	if (typeof value !== "string" || value === "") throw new BadRequest(`${key} is required`);
-	return value;
-}
-
-function optionalStr(body: Record<string, unknown>, key: string): string | undefined {
-	const value = body[key];
-	if (value === undefined) return undefined;
-	if (typeof value !== "string") throw new BadRequest(`${key} must be a string`);
+	if (typeof value !== "string" || value === "") throw new UserError(`${key} is required`);
 	return value;
 }
 
@@ -304,7 +297,7 @@ function optionalInt(body: Record<string, unknown>, key: string): number | undef
 	const value = body[key];
 	if (value === undefined) return undefined;
 	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-		throw new BadRequest(`${key} must be a non-negative integer`);
+		throw new UserError(`${key} must be a non-negative integer`);
 	}
 	return value;
 }
@@ -313,7 +306,7 @@ function optionalInt(body: Record<string, unknown>, key: string): number | undef
 function optionalBool(body: Record<string, unknown>, key: string): boolean | undefined {
 	const value = body[key];
 	if (value === undefined) return undefined;
-	if (typeof value !== "boolean") throw new BadRequest(`${key} must be a boolean`);
+	if (typeof value !== "boolean") throw new UserError(`${key} must be a boolean`);
 	return value;
 }
 
@@ -325,7 +318,7 @@ function parseOutputMode(body: Record<string, unknown>): "status" | "text" | "he
 	const value = body.outputMode;
 	if (value === undefined) return undefined;
 	if (value !== "status" && value !== "text" && value !== "head") {
-		throw new BadRequest('outputMode must be "status", "text" or "head"');
+		throw new UserError('outputMode must be "status", "text" or "head"');
 	}
 	return value;
 }

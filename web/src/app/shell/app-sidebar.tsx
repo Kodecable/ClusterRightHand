@@ -37,7 +37,7 @@ function Logo() {
  * the collapsed-icon mode with tooltips (doc/webui.md "外壳").
  */
 export function AppSidebar() {
-	const { i18n } = useLingui();
+	const { i18n, t } = useLingui();
 	const pathname = useRouterState({ select: (state) => state.location.pathname });
 	const user = useAuth().user;
 	const approvals = useApprovals();
@@ -82,7 +82,7 @@ export function AppSidebar() {
 							<Logo />
 							<div className="grid flex-1 text-left leading-tight">
 								<span className="truncate text-sm font-semibold">ClusterRightHand</span>
-								<span className="truncate text-xs text-muted-foreground">{i18n._({ id: "Ops console" })}</span>
+								<span className="truncate text-xs text-muted-foreground">{t`Ops console`}</span>
 							</div>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
@@ -127,7 +127,7 @@ export function AppSidebar() {
 															// these later variants win over its peer-* base classes.
 															"peer-hover/menu-button:text-primary-foreground peer-data-active/menu-button:text-primary-foreground",
 														)}
-														aria-label={i18n._({ id: "Pending approvals" })}
+														aria-label={t`Pending approvals`}
 													>
 														{pending > 99 ? "99+" : pending}
 													</SidebarMenuBadge>

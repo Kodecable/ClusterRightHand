@@ -12,6 +12,9 @@ import { mcpRoutes } from "../mcp/mcp.ts";
 import type { AuthorizationSigningKey } from "../privilege/key.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
+import { apiTokenRoutes } from "./api-token-routes.ts";
+import { approvalRoutes } from "./approval-routes.ts";
+import { auditRoutes } from "./audit-routes.ts";
 import { type AuthRoutesOptions, authRoutes } from "./auth-routes.ts";
 import { authorizationRoutes } from "./authorization-routes.ts";
 import type { AppEnv } from "./context.ts";
@@ -19,13 +22,15 @@ import { credentialRoutes } from "./credential-routes.ts";
 import { RequestDrain } from "./drain.ts";
 import { apiErrorHandler } from "./errors.ts";
 import { csrfGuard, requireUser } from "./middleware.ts";
+import { modelPresetRoutes } from "./model-preset-routes.ts";
+import { modelProviderRoutes } from "./model-provider-routes.ts";
 import { nodeAccessRoutes } from "./node-access-routes.ts";
 import { nodeGroupRoutes } from "./node-group-routes.ts";
 import { nodeRoutes } from "./node-routes.ts";
-import { policyRoutes } from "./policy-routes.ts";
 import { privilegeRoutes } from "./privilege-routes.ts";
 import { scheduleRoutes } from "./schedule-routes.ts";
-import { sessionRoutes } from "./session-routes.ts";
+import { SessionStreams, sessionEventRoutes } from "./session-events-routes.ts";
+import { refuseWhenClosing, sessionRoutes } from "./session-routes.ts";
 import { sshRoutes } from "./ssh-routes.ts";
 import { taskRoutes } from "./task-routes.ts";
 import { userRoutes } from "./user-routes.ts";
@@ -103,20 +108,29 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	if (options.cluster) {
 		const taskGroups = options.taskGroups ?? new TaskGroups(db, options.cluster, { audit });
 		app.route("/api", taskRoutes(db, options.cluster, taskGroups));
-		app.route("/api", policyRoutes(db, options.cluster, taskGroups, audit));
+		app.route("/api", apiTokenRoutes(db, options.cluster, taskGroups, audit));
+		app.route("/api", approvalRoutes(db, options.cluster, taskGroups, audit));
+		app.route("/api", auditRoutes(db));
 		if (options.agent && options.masterKey) {
-			// The session routes reach the agent runtime: during shutdown they answer with the shutdown rather
-			// than with the closed Harness's exception (main.ts). No other route group uses the runtime.
+			const { runtime, models } = options.agent;
+			// The session and model routes reach the agent runtime: during shutdown they answer with the shutdown
+			// rather than with the closed Harness's exception (main.ts). No other route group uses the runtime.
 			const sessions = new Hono<AppEnv>();
 			sessions.onError(apiErrorHandler({ closing: () => options.agent?.runtime.closing === true }));
+			sessions.use("/sessions", refuseWhenClosing(runtime));
+			sessions.use("/sessions/*", refuseWhenClosing(runtime));
+			sessions.route("/", modelProviderRoutes(db, { models, masterKey: options.masterKey }));
+			sessions.route("/", modelPresetRoutes({ runtime, models }));
+			const streams = new SessionStreams(db, runtime, drain);
+			// The event streams first: `GET /sessions/stream` must not be taken for `GET /sessions/:id`.
+			sessions.route("/", sessionEventRoutes(db, { runtime, streams, drain }));
 			sessions.route(
 				"/",
 				sessionRoutes(db, {
-					...options.agent,
-					masterKey: options.masterKey,
+					runtime,
 					cluster: options.cluster,
 					taskGroups,
-					drain,
+					streams,
 					...(options.scheduler ? { scheduler: options.scheduler } : {}),
 				}),
 			);

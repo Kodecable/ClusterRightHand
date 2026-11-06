@@ -48,9 +48,11 @@ type Entry struct {
 	RequireTask  bool
 	RequireUV    bool
 	// MaxTTL is the max_ttl field; nil means no limit.
-	MaxTTL   *time.Duration
-	Allow    []protocol.GuardRule
-	Deny     []protocol.GuardRule
+	MaxTTL *time.Duration
+	Allow  []protocol.GuardRule
+	Deny   []protocol.GuardRule
+	// Guard is Allow and Deny compiled (CompileGuard). nil compiles them for every decision.
+	Guard    *Guard
 	EnvAllow []string
 	// UIDs are the uids allowed to approve locally; used only for role local.
 	UIDs []uint32

@@ -18,9 +18,10 @@ import { ChildrenBar } from "./children-bar";
 import { Composer } from "./composer";
 import { SessionBanner } from "./session-banner";
 import { SessionHeader } from "./session-header";
+import { isCompacting, type LiveTool } from "./session-reducer";
 import { SessionWaits } from "./session-waits";
-import { isCompacting, type LiveTool, transcript } from "./sessionState";
 import { Transcript } from "./transcript";
+import { transcript } from "./transcript-items";
 import { useSessionEvents } from "./use-session-events";
 
 /** The live tool calls whose details say they wait for an approval or a signature. */

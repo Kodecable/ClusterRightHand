@@ -37,7 +37,7 @@ func Ref(spec *protocol.TaskSpec) *protocol.InputRef {
 // the declaration is refused before the task is accepted.
 func ValidateRef(ref *protocol.InputRef) *protocol.RemoteError {
 	if ref != nil && ref.Size == 0 && ref.SHA256 != emptySHA256 {
-		return &protocol.RemoteError{Code: "invalid_spec", Message: "input size 0 requires the sha256 of empty input"}
+		return &protocol.RemoteError{Code: protocol.CodeInvalidSpec, Message: "input size 0 requires the sha256 of empty input"}
 	}
 	return nil
 }
@@ -97,13 +97,13 @@ type ChunkResult struct {
 func (in *Input) Accept(taskID string, chunk *protocol.TaskInput) ChunkResult {
 	tooLarge := func() *protocol.RemoteError {
 		return &protocol.RemoteError{
-			Code:    "input_too_large",
+			Code:    protocol.CodeInputTooLarge,
 			Message: fmt.Sprintf("task %s input exceeds the declared %d bytes", taskID, in.size),
 		}
 	}
 	if uint64(chunk.Offset) != in.offset {
 		return ChunkResult{Refusal: &protocol.RemoteError{
-			Code:    "input_out_of_order",
+			Code:    protocol.CodeInputOutOfOrder,
 			Message: fmt.Sprintf("task %s input offset %d, want %d", taskID, chunk.Offset, in.offset),
 		}}
 	}
@@ -119,7 +119,7 @@ func (in *Input) Accept(taskID string, chunk *protocol.TaskInput) ChunkResult {
 		return ChunkResult{
 			Refusal: tooLarge(),
 			Failure: &protocol.Error{
-				Code:    "input_mismatch",
+				Code:    protocol.CodeInputMismatch,
 				Message: fmt.Sprintf("task %s input is longer than the declared %d bytes", taskID, in.size),
 			},
 		}
@@ -128,7 +128,7 @@ func (in *Input) Accept(taskID string, chunk *protocol.TaskInput) ChunkResult {
 	_, _ = in.hasher.Write(chunk.Data)
 	if in.offset == in.size && !bytes.Equal(in.hasher.Sum(nil), in.want[:]) {
 		return ChunkResult{Failure: &protocol.Error{
-			Code:    "input_mismatch",
+			Code:    protocol.CodeInputMismatch,
 			Message: fmt.Sprintf("task %s input does not match the declared sha256", taskID),
 		}}
 	}

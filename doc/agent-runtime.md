@@ -46,7 +46,7 @@ interface AgentRuntime {
 ## 存储
 
 - **SQLite**：直接使用 durable 官方的 `SqliteStorage`（`SqliteStorage.open(db, { prefix: "pi_" })`），与业务表在同一个数据库文件中，用自己的连接。node:sqlite 是同步的，两条连接不能各自等锁（见 [data-model.md](data-model.md)）：两个连接共享进程内的一个语句队列，Kysely 的事务以 `BEGIN IMMEDIATE` 开始；Harness 重新打开时旧的存储会关闭。不移植，跟随上游维护。
-- **PostgreSQL**：`PgStorage`（`server/src/agent/pg-storage.ts`），从官方 1.4.0 的 `storage/sqlite/storage.ts` 移植到 `pg`：记录仍以 TEXT 保存 JSON（JSONB 会拒绝孤立代理项并重排键），ID 用 BIGINT，事务内一次提交一个批次。
+- **PostgreSQL**：`PgStorage`（`server/src/storage/pg-durable/`），从官方 1.4.0 的 `storage/sqlite/storage.ts` 移植到 `pg`：记录仍以 TEXT 保存 JSON（JSONB 会拒绝孤立代理项并重排键），ID 用 BIGINT，事务内一次提交一个批次。
 - 两者都在 CI 中跑官方的 `registerStorageConformance`（各 25 个用例）。
 - 表名统一加 `pi_` 前缀，与业务表放在同一个库。
 - durable 要求同一存储只被一个进程打开：PG 下 `PgStorage` 在独立连接上持有 `pg_try_advisory_lock`，拿不到就拒绝打开，锁连接断开后存储拒绝一切操作；SQLite 下 crhs 本身是单进程。

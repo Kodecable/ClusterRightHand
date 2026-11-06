@@ -23,7 +23,7 @@ func fileEdit(acc fileAccess, s *protocol.FileEditSpec) (*protocol.TaskResult, e
 		return nil, err
 	}
 	if len(s.Edits) == 0 {
-		return nil, errf("invalid_spec", "edits must not be empty")
+		return nil, errf(protocol.CodeInvalidSpec, "edits must not be empty")
 	}
 	t, err := acc.openWrite(path, true)
 	if err != nil {
@@ -40,7 +40,7 @@ func fileEdit(acc fileAccess, s *protocol.FileEditSpec) (*protocol.TaskResult, e
 		return nil, err
 	}
 	if fi.IsDir() {
-		return nil, errf("is_directory", "%s is a directory", path)
+		return nil, errf(protocol.CodeIsDirectory, "%s is a directory", path)
 	}
 	if err := checkNotSpecial(fi, path); err != nil {
 		return nil, err
@@ -51,14 +51,14 @@ func fileEdit(acc fileAccess, s *protocol.FileEditSpec) (*protocol.TaskResult, e
 		}
 	}
 	if fi.Size() > maxEditSize {
-		return nil, errf("too_large", "%s is %d bytes, limit is %d", path, fi.Size(), maxEditSize)
+		return nil, errf(protocol.CodeTooLarge, "%s is %d bytes, limit is %d", path, fi.Size(), maxEditSize)
 	}
 	raw, err := io.ReadAll(io.LimitReader(f, maxEditSize+1))
 	if err != nil {
 		return nil, err
 	}
 	if len(raw) > maxEditSize {
-		return nil, errf("too_large", "%s exceeds %d bytes", path, maxEditSize)
+		return nil, errf(protocol.CodeTooLarge, "%s exceeds %d bytes", path, maxEditSize)
 	}
 
 	var bom []byte
@@ -132,21 +132,21 @@ func applyEdits(content string, edits []protocol.Edit, path string) (string, err
 		e := &edits[i]
 		old := normalizeToLF(e.OldText)
 		if old == "" {
-			return "", errf("invalid_spec", "edits[%d].old_text must not be empty in %s", i, path)
+			return "", errf(protocol.CodeInvalidSpec, "edits[%d].old_text must not be empty in %s", i, path)
 		}
 		idx := strings.Index(content, old)
 		if idx < 0 {
-			return "", errf("edit_no_match", "could not find edits[%d] in %s; old_text must match exactly including whitespace and newlines", i, path)
+			return "", errf(protocol.CodeEditNoMatch, "could not find edits[%d] in %s; old_text must match exactly including whitespace and newlines", i, path)
 		}
 		if n := strings.Count(content, old); n > 1 {
-			return "", errf("edit_ambiguous", "found %d occurrences of edits[%d] in %s; add more context to make it unique", n, i, path)
+			return "", errf(protocol.CodeEditAmbiguous, "found %d occurrences of edits[%d] in %s; add more context to make it unique", n, i, path)
 		}
 		matched = append(matched, matchedEdit{i, idx, len(old), normalizeToLF(e.NewText)})
 	}
 	sort.Slice(matched, func(a, b int) bool { return matched[a].start < matched[b].start })
 	for i := 1; i < len(matched); i++ {
 		if p, c := matched[i-1], matched[i]; p.start+p.length > c.start {
-			return "", errf("edit_overlap", "edits[%d] and edits[%d] overlap in %s", p.index, c.index, path)
+			return "", errf(protocol.CodeEditOverlap, "edits[%d] and edits[%d] overlap in %s", p.index, c.index, path)
 		}
 	}
 	var b strings.Builder
@@ -159,7 +159,7 @@ func applyEdits(content string, edits []protocol.Edit, path string) (string, err
 	b.WriteString(content[pos:])
 	out := b.String()
 	if out == content {
-		return "", errf("edit_no_change", "no changes made to %s; the replacements produced identical content", path)
+		return "", errf(protocol.CodeEditNoChange, "no changes made to %s; the replacements produced identical content", path)
 	}
 	return out, nil
 }

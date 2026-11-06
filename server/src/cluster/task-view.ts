@@ -8,9 +8,9 @@ import type { RuleRef } from "../policy/store.ts";
 import type { TasksTable } from "../storage/schema.ts";
 import { authorizationView } from "./authorization.ts";
 import type { OutputSnapshot } from "./batch-output.ts";
+import type { Live } from "./live-output.ts";
 import { countOutputLines } from "./output.ts";
 import { operationOfJson, summarize } from "./spec.ts";
-import type { Live } from "./task-state.ts";
 import { type ApprovalRecord, type TaskView, TERMINAL } from "./types.ts";
 
 export function toView(row: Selectable<TasksTable>, live: Live | undefined): TaskView {

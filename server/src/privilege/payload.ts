@@ -11,6 +11,7 @@ import {
 	taskSpecCodec,
 } from "@crh/protocol";
 import { isUuid } from "../cluster/names.ts";
+import type { Method } from "../policy/rules.ts";
 
 /** SHA-256(CBOR(TaskSpec)): what an `exact` authorization commits to. */
 export function specSha256(spec: TaskSpec): Uint8Array {
@@ -34,8 +35,6 @@ export interface BuiltAuthorization {
 	/** SHA-256 of `bytes`, lowercase hex: the `authorizations.id` column. */
 	id: string;
 }
-
-export type Method = "exec" | "file.read" | "file.write";
 
 /** The command restriction of a payload: exact is bound to one spec, prefix only to a target prefix. */
 export type AuthorizationCommand =

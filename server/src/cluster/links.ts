@@ -17,11 +17,12 @@ import {
 	type TaskStatus,
 	type Welcome,
 } from "@crh/protocol";
-import { onLocalDecision } from "./authorization-flow.ts";
+import { onLocalDecision } from "./authorization/local-approval.ts";
 import type { NodeConnection } from "./connection.ts";
 import type { ClusterCore } from "./core.ts";
+import { dropLive, newLive, ownLive } from "./live-output.ts";
 import { getNode, markNodeSeen, type NodeRow, updateNodeFacts } from "./nodes.ts";
-import { dropLive, markUnknown, newLive, onAccepted, onExit, ownLive } from "./task-state.ts";
+import { markUnknown, onAccepted, onExit } from "./task-end.ts";
 import { onTrustSummary } from "./trust-cache.ts";
 import { recorded, TERMINAL } from "./types.ts";
 

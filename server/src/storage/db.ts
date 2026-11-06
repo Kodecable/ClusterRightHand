@@ -3,9 +3,9 @@ import type { Storage } from "@earendil-works/pi-durable";
 import { SqliteStorage } from "@earendil-works/pi-durable/storage/sqlite";
 import { Kysely, PostgresDialect } from "kysely";
 import pg from "pg";
-import { PgStorage } from "../agent/pg-storage.ts";
 import type { DatabaseConfig } from "../config.ts";
 import { openAgentSqliteDatabase, openSqliteDialect } from "./node-sqlite.ts";
+import { PgStorage } from "./pg-durable/index.ts";
 import type { Database } from "./schema.ts";
 
 export type Db = Kysely<Database>;

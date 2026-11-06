@@ -121,7 +121,7 @@ func (a *Agent) handleTaskStart(ctx context.Context, body cbor.RawMessage) (any,
 // deferred sweep or the closed-peer check below starts it.
 func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) {
 	if ts.TaskID == "" {
-		return nil, &protocol.RemoteError{Code: "invalid_spec", Message: "task id must not be empty"}
+		return nil, &protocol.RemoteError{Code: protocol.CodeInvalidSpec, Message: "task id must not be empty"}
 	}
 	// A malformed sha256 cannot reach here: protocol.Hash decodes to exactly 32 bytes.
 	a.mu.Lock()
@@ -133,7 +133,7 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 	}
 	a.mu.Unlock()
 	if dup {
-		return nil, &protocol.RemoteError{Code: "already_accepted", Message: "task " + ts.TaskID + " was already accepted"}
+		return nil, &protocol.RemoteError{Code: protocol.CodeAlreadyAccepted, Message: "task " + ts.TaskID + " was already accepted"}
 	}
 	// The mode decides how the task runs. A privileged task this mode cannot run is refused before
 	// an output file or an input stream is created for it.
@@ -202,14 +202,14 @@ func (a *Agent) newRun(ts *protocol.TaskStart) (taskRun, error) {
 	case config.ModeForward:
 		return &forwardRun{}, nil
 	default:
-		return nil, &protocol.RemoteError{Code: "privileged_unsupported", Message: "privileged tasks are not supported by this crha"}
+		return nil, &protocol.RemoteError{Code: protocol.CodePrivilegedUnsupported, Message: "privileged tasks are not supported by this crha"}
 	}
 }
 
 // checkTaskKind rejects a task whose kind this agent does not implement. A decoded TaskSpec always
 // has a body for its kind; the nil checks guard programmatic input.
 func checkTaskKind(spec protocol.TaskSpec) *protocol.RemoteError {
-	invalid := &protocol.RemoteError{Code: "invalid_spec", Message: "task spec has no body"}
+	invalid := &protocol.RemoteError{Code: protocol.CodeInvalidSpec, Message: "task spec has no body"}
 	switch spec.Kind {
 	case protocol.TaskSpecExec:
 		if spec.Exec == nil {
@@ -237,7 +237,7 @@ func checkTaskKind(spec protocol.TaskSpec) *protocol.RemoteError {
 		}
 	default:
 		// Cannot happen after decoding; keep the guard for a future kind this build does not know.
-		return &protocol.RemoteError{Code: "unsupported_kind", Message: fmt.Sprintf("unsupported task kind %q", spec.Kind)}
+		return &protocol.RemoteError{Code: protocol.CodeUnsupportedKind, Message: fmt.Sprintf("unsupported task kind %q", spec.Kind)}
 	}
 	return nil
 }
@@ -277,7 +277,7 @@ func (a *Agent) input(ctx context.Context, in *protocol.TaskInput) (any, error) 
 	t := a.tasks[in.TaskID]
 	a.mu.Unlock()
 	if t == nil {
-		return nil, &protocol.RemoteError{Code: "unknown_task", Message: "unknown task " + in.TaskID}
+		return nil, &protocol.RemoteError{Code: protocol.CodeUnknownTask, Message: "unknown task " + in.TaskID}
 	}
 	return t.run.input(a, ctx, t, in)
 }
@@ -320,7 +320,7 @@ func (a *Agent) abortIncompleteInputLocked(t *task) {
 	if t.done || t.inputComplete() {
 		return
 	}
-	a.failInputLocked(t, "input_incomplete", "connection closed before the task input was complete")
+	a.failInputLocked(t, protocol.CodeInputIncomplete, "connection closed before the task input was complete")
 }
 
 func (a *Agent) handleTaskCancel(ctx context.Context, body cbor.RawMessage) (any, error) {

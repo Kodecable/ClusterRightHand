@@ -4,8 +4,10 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { taskKeys } from "@/features/tasks/api";
 import type { TaskGroupView, TaskView } from "@/lib/api/types";
 import { renderWithI18n, renderWithRouter, testQueryClient } from "@/test/render";
-import type { Json, TranscriptItem } from "./sessionState";
-import { callStillOpen, TranscriptRow, toolLine } from "./transcript-row";
+import type { Json } from "./session-events";
+import { callStillOpen, toolLine } from "./tool-call";
+import type { TranscriptItem } from "./transcript-items";
+import { TranscriptRow } from "./transcript-row";
 import { TranscriptStreams } from "./transcript-streams";
 
 afterEach(() => {

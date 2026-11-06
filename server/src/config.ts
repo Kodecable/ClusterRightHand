@@ -49,7 +49,7 @@ export const DEFAULT_RETENTION_AUDIT_MS = 180 * 24 * 60 * 60 * 1000;
 export const DEFAULT_RETENTION_PI_TASKS_MS = 7 * 24 * 60 * 60 * 1000;
 /**
  * The shortest retention (doc/data-model.md#保留期): a durable tool call that reruns after a crash reattaches
- * to its cluster task by id (cluster/task-state.ts createTask), so deleting the row too soon could dispatch
+ * to its cluster task by id (cluster/task-dispatch.ts createTask), so deleting the row too soon could dispatch
  * the command a second time.
  */
 export const MIN_RETENTION_MS = 24 * 60 * 60 * 1000;

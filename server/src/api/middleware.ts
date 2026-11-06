@@ -39,7 +39,22 @@ export function requireUser(db: Db): MiddlewareHandler<AppEnv> {
 	};
 }
 
-export const requireAdmin: MiddlewareHandler<AppEnv> = async (c, next) => {
-	if (c.get("user").kind !== "admin") return jsonError(c, 403, "administrator only");
-	await next();
-};
+/** Administrators only: anyone else gets a 403 with `message`. Expects requireUser to have run. */
+function adminGate(message: string): MiddlewareHandler<AppEnv> {
+	return async (c, next) => {
+		if (c.get("user").kind !== "admin") return jsonError(c, 403, message);
+		await next();
+	};
+}
+
+/**
+ * Administrators only, for every route under a path (`app.use`): the users, user groups and node access
+ * grants routes. Its 403 reads "administrator only", unlike `adminOnly`'s; both texts are kept as they were.
+ */
+export const requireAdmin = adminGate("administrator only");
+
+/**
+ * Administrators only, as the first handler of one route (`app.get(path, adminOnly, handler)`), so a method
+ * or path no route has stays unanswered as before. Its 403 reads "administrators only".
+ */
+export const adminOnly = adminGate("administrators only");

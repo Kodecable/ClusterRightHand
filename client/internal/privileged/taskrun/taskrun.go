@@ -69,7 +69,7 @@ type Task struct {
 // *protocol.RemoteError with code invalid_spec.
 func Validate(ts protocol.TaskStart) error {
 	if ts.TaskID == "" {
-		return &protocol.RemoteError{Code: "invalid_spec", Message: "task id must not be empty"}
+		return &protocol.RemoteError{Code: protocol.CodeInvalidSpec, Message: "task id must not be empty"}
 	}
 	// A zero-size input still commits crhs to the SHA-256 of empty input; a different hash can
 	// never match, so it is refused before the task is accepted.
@@ -105,7 +105,7 @@ func New(ts protocol.TaskStart, emit Emit, env *execenv.Environment) (*Task, err
 			if err != nil {
 				cancel()
 				return nil, &protocol.RemoteError{
-					Code:    "internal_error",
+					Code:    protocol.CodeInternalError,
 					Message: "spool the task input: " + err.Error(),
 				}
 			}
@@ -207,7 +207,7 @@ func (t *Task) run() executor.Result {
 			}
 		}
 		if _, err := t.spool.Seek(0, io.SeekStart); err != nil {
-			return executor.Result{Err: &executor.Error{Code: "io_error", Message: "rewind the task input: " + err.Error()}}
+			return executor.Result{Err: &executor.Error{Code: protocol.CodeIOError, Message: "rewind the task input: " + err.Error()}}
 		}
 	}
 	return executor.RunTask(t.ctx, &t.start.Spec, t.reader(), t.sink, executor.TaskOptions{
@@ -257,12 +257,12 @@ func (t *Task) beforeStart(err error) executor.Result {
 	if errors.Is(err, errInputCancelled) {
 		return executor.Result{
 			Cancelled: true,
-			Err:       &executor.Error{Code: "cancelled", Message: err.Error()},
+			Err:       &executor.Error{Code: protocol.CodeCancelled, Message: err.Error()},
 		}
 	}
 	return executor.Result{
 		TimedOut: true,
-		Err:      &executor.Error{Code: "timeout", Message: err.Error()},
+		Err:      &executor.Error{Code: protocol.CodeTimeout, Message: err.Error()},
 	}
 }
 
@@ -284,7 +284,7 @@ func (t *Task) Input(in protocol.TaskInput) (any, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if in.TaskID != t.id {
-		return nil, &protocol.RemoteError{Code: "unknown_task", Message: "unknown task " + in.TaskID}
+		return nil, &protocol.RemoteError{Code: protocol.CodeUnknownTask, Message: "unknown task " + in.TaskID}
 	}
 	res := t.input.Accept(t.id, &in)
 	if res.Failure != nil {
@@ -296,7 +296,7 @@ func (t *Task) Input(in protocol.TaskInput) (any, error) {
 				// The spool is gone once the task ended or was aborted; a late chunk has nowhere to
 				// go and must not replace the task's outcome.
 				if !t.finished && t.inputErr == nil && t.ctx.Err() == nil {
-					t.failInputLocked("io_error", "spool the task input: "+err.Error())
+					t.failInputLocked(protocol.CodeIOError, "spool the task input: "+err.Error())
 				}
 				return protocol.Empty{}, nil
 			}
@@ -354,7 +354,7 @@ func (t *Task) EndInput() {
 	if t.finished || t.input.Complete() {
 		return
 	}
-	t.failInputLocked("input_incomplete", "the crh-priv stream ended before the task input was complete")
+	t.failInputLocked(protocol.CodeInputIncomplete, "the crh-priv stream ended before the task input was complete")
 }
 
 // Status returns the task.query response for q. A query for another task is unknown.

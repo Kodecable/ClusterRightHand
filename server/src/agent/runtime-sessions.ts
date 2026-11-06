@@ -14,7 +14,7 @@ import { createRootRuleSet, createRuleSet, deleteRuleSet, getRuleSet, setRulePre
 import { defaultOrgId } from "../users/service.ts";
 import { newId } from "../util/id.ts";
 import { type ModelRef, modelRefView, thinkingLevelOf } from "./models.ts";
-import { budgetUsedTokens, contextTokens, setQuota, usageTokens } from "./quota.ts";
+import { sessionTokens, setQuota } from "./quota.ts";
 import type { RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runtime-core.ts";
 import { conversationOf, loadConversation } from "./runtime-core.ts";
 import { notifyQuotaWaiters } from "./runtime-quota.ts";
@@ -312,9 +312,7 @@ async function sessionView(host: RuntimeHost, row: SessionRow): Promise<SessionV
 		waitingKind: row.waiting_kind,
 		waitingLevelId: row.waiting_level_id,
 		budgetRemaining: row.quota_tokens === null ? null : Number(row.quota_tokens),
-		budgetUsedTokens: await budgetUsedTokens(host.db, row.id),
-		usageTokens: await usageTokens(host.db, row.id),
-		contextTokens: await contextTokens(host.db, row.id),
+		...(await sessionTokens(host.db, row.id)),
 	};
 }
 

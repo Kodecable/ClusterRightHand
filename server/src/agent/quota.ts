@@ -26,26 +26,44 @@ export async function setQuota(db: Db, sessionId: string, quota: number | null):
 	await db.updateTable("sessions").set({ quota_tokens: quota }).where("id", "=", sessionId).execute();
 }
 
-/** The budget measure: output tokens spent by the session and its subagents (doc/agent-runtime.md#配额). */
-export async function budgetUsedTokens(db: Db, sessionId: string): Promise<number> {
+/** A session's token counters (D101); a missing session reads as zero usage and no context. */
+export interface SessionTokens {
+	/** The budget measure: output tokens spent by the session and its subagents (doc/agent-runtime.md#配额). */
+	budgetUsedTokens: number;
+	/** The statistics measure: input + output tokens of the session and its subagents (D101). */
+	usageTokens: number;
+	/** The context fill of the session's own last main-agent call; null before the first one (D101). */
+	contextTokens: number | null;
+}
+
+/** Reads the three token counters of one session row in one query. */
+export async function sessionTokens(db: Db, sessionId: string): Promise<SessionTokens> {
 	const row = await db
 		.selectFrom("sessions")
-		.select("budget_used_tokens")
+		.select(["budget_used_tokens", "usage_tokens", "context_tokens"])
 		.where("id", "=", sessionId)
 		.executeTakeFirst();
-	return Number(row?.budget_used_tokens ?? 0);
+	return {
+		budgetUsedTokens: Number(row?.budget_used_tokens ?? 0),
+		usageTokens: Number(row?.usage_tokens ?? 0),
+		contextTokens:
+			row?.context_tokens === null || row?.context_tokens === undefined ? null : Number(row.context_tokens),
+	};
+}
+
+/** The budget measure: output tokens spent by the session and its subagents (doc/agent-runtime.md#配额). */
+export async function budgetUsedTokens(db: Db, sessionId: string): Promise<number> {
+	return (await sessionTokens(db, sessionId)).budgetUsedTokens;
 }
 
 /** The statistics measure: input + output tokens of the session and its subagents (D101). */
 export async function usageTokens(db: Db, sessionId: string): Promise<number> {
-	const row = await db.selectFrom("sessions").select("usage_tokens").where("id", "=", sessionId).executeTakeFirst();
-	return Number(row?.usage_tokens ?? 0);
+	return (await sessionTokens(db, sessionId)).usageTokens;
 }
 
 /** The context fill of the session's own last main-agent call; null before the first one (D101). */
 export async function contextTokens(db: Db, sessionId: string): Promise<number | null> {
-	const row = await db.selectFrom("sessions").select("context_tokens").where("id", "=", sessionId).executeTakeFirst();
-	return row?.context_tokens === null || row?.context_tokens === undefined ? null : Number(row.context_tokens);
+	return (await sessionTokens(db, sessionId)).contextTokens;
 }
 
 /** Stores the input size of the session's own last main-agent call (D101). */

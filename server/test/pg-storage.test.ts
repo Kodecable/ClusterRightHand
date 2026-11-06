@@ -4,7 +4,7 @@ import type { ConversationId, EntryId, Storage } from "@earendil-works/pi-durabl
 import { registerStorageConformance } from "@earendil-works/pi-durable/testing";
 import pg from "pg";
 import { describe, expect, it } from "vitest";
-import { PgStorage } from "../src/agent/pg-storage.ts";
+import { PgStorage } from "../src/storage/pg-durable/index.ts";
 
 const pgUrl = process.env.CRH_TEST_PG_URL;
 const context = BACKGROUND_CONTEXT;

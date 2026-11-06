@@ -82,12 +82,15 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
 		return err
 	}
 	stream := wire.NewStream(in, out, negotiated)
-	h := &helper{stream: stream, log: logw, env: opts.Env, done: make(chan struct{})}
-	peer := stream.Peer()
-	peer.HandleRequest(protocol.CmdTaskStart, h.handleStart)
-	peer.HandleRequest(protocol.CmdTaskInput, h.handleInput)
-	peer.HandleRequest(protocol.CmdTaskCancel, h.handleCancel)
-	peer.HandleRequest(protocol.CmdTaskQuery, h.handleQuery)
+	h := &helper{log: logw, done: make(chan struct{})}
+	h.session = taskrun.NewSession(stream.Peer(), taskrun.SessionOptions{
+		Env:          opts.Env,
+		Log:          h,
+		OnExit:       func(*taskrun.Task) { close(h.done) },
+		KeepFinished: true,
+	})
+	stream.Peer().HandleRequest(protocol.CmdTaskStart, h.handleStart)
+	h.session.HandleRequests()
 
 	errc := make(chan error, 1)
 	go func() { errc <- stream.Run() }()
@@ -99,15 +102,15 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
 			// The task is accepted, so it runs even when the response could not be sent. No more
 			// task.input can arrive either, so an incomplete input would wait forever; an input that
 			// is complete or absent leaves the task alone.
-			h.launchAccepted()
-			h.endInput()
+			h.session.LaunchAll()
+			h.session.EndInput()
 			<-h.done
 		}
 	case <-h.done:
 	case <-ctx.Done():
 		if h.accepted() {
-			h.launchAccepted()
-			h.abort()
+			h.session.LaunchAll()
+			h.session.Abort()
 			<-h.done
 		}
 		return ctx.Err()
@@ -134,10 +137,9 @@ func (h *helper) completed() bool {
 
 // helper is one native helper session. The task is set once and never replaced.
 type helper struct {
-	stream *wire.Stream
-	log    io.Writer
-	env    *execenv.Environment
-	done   chan struct{}
+	session *taskrun.Session
+	log     io.Writer
+	done    chan struct{}
 
 	mu   sync.Mutex
 	task *taskrun.Task
@@ -159,114 +161,14 @@ func (h *helper) handleStart(_ context.Context, body cbor.RawMessage) (any, erro
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.task != nil {
-		return nil, &protocol.RemoteError{Code: "already_accepted", Message: "the native helper executes exactly one task"}
+		return nil, &protocol.RemoteError{Code: protocol.CodeAlreadyAccepted, Message: "the native helper executes exactly one task"}
 	}
-	t, err := taskrun.New(ts, func(off uint64, data []byte) error {
-		return h.stream.Peer().Emit(protocol.EventTaskOutput, protocol.TaskOutput{
-			TaskID: ts.TaskID, Offset: protocol.Uint(off), Data: data,
-		})
-	}, h.env)
+	t, err := h.session.Accept(ts)
 	if err != nil {
 		return nil, err
 	}
 	h.task = t
-	return protocol.Deferred{Body: protocol.Empty{}, After: func() { h.launch(t) }}, nil
-}
-
-// launch starts the accepted task's execution exactly once. Peer calls Deferred.After only after the
-// task.start success response went out; when that send fails, the acceptance already stands and the
-// task must still run, with its outcome recorded in the local log.
-func (h *helper) launch(t *taskrun.Task) {
-	var started time.Time
-	t.Start(
-		func() {
-			started = time.Now()
-			h.logStart(t)
-		},
-		func(exit *protocol.TaskExit) {
-			h.logExit(t, exit, time.Since(started))
-			if err := h.stream.Peer().Emit(protocol.EventTaskExit, exit); err != nil {
-				// The parent is gone. The task itself has finished and is recorded in the local log;
-				// there is nobody left to tell.
-				h.logLine(logRecord{Event: "task.exit.undelivered", TaskID: t.ID(), Detail: err.Error()})
-			}
-			close(h.done)
-		},
-	)
-}
-
-// launchAccepted launches the accepted task if Deferred.After never ran because the response could
-// not be sent. taskrun.Task.Start runs the task at most once, so a racing Deferred.After is safe.
-func (h *helper) launchAccepted() {
-	h.mu.Lock()
-	t := h.task
-	h.mu.Unlock()
-	if t != nil {
-		h.launch(t)
-	}
-}
-
-func (h *helper) handleInput(_ context.Context, body cbor.RawMessage) (any, error) {
-	var in protocol.TaskInput
-	if err := protocol.UnmarshalBody(body, &in); err != nil {
-		return nil, err
-	}
-	h.mu.Lock()
-	t := h.task
-	h.mu.Unlock()
-	if t == nil {
-		return nil, &protocol.RemoteError{Code: "unknown_task", Message: "unknown task " + in.TaskID}
-	}
-	return t.Input(in)
-}
-
-func (h *helper) handleCancel(_ context.Context, body cbor.RawMessage) (any, error) {
-	var c protocol.TaskCancel
-	if err := protocol.UnmarshalBody(body, &c); err != nil {
-		return nil, err
-	}
-	h.mu.Lock()
-	t := h.task
-	h.mu.Unlock()
-	if t != nil {
-		t.Cancel(c.TaskID)
-	}
-	return protocol.Empty{}, nil
-}
-
-func (h *helper) handleQuery(_ context.Context, body cbor.RawMessage) (any, error) {
-	var q protocol.TaskQuery
-	if err := protocol.UnmarshalBody(body, &q); err != nil {
-		return nil, err
-	}
-	h.mu.Lock()
-	t := h.task
-	h.mu.Unlock()
-	if t == nil {
-		return protocol.TaskStatus{TaskID: q.TaskID, State: protocol.TaskUnknown}, nil
-	}
-	return t.Status(q), nil
-}
-
-// endInput fails an input that can no longer be completed because the stream ended; the task cannot
-// read the rest, and leaving the reader blocked would keep the helper alive forever.
-func (h *helper) endInput() {
-	h.mu.Lock()
-	t := h.task
-	h.mu.Unlock()
-	if t != nil {
-		t.EndInput()
-	}
-}
-
-// abort cancels the running task, e.g. when the helper itself is asked to stop.
-func (h *helper) abort() {
-	h.mu.Lock()
-	t := h.task
-	h.mu.Unlock()
-	if t != nil {
-		t.Abort()
-	}
+	return protocol.Deferred{Body: protocol.Empty{}, After: func() { h.session.Launch(t) }}, nil
 }
 
 // logRecord is one line of the helper's local audit log on stderr. The native helper is the only
@@ -288,7 +190,8 @@ type logRecord struct {
 	Detail     string             `json:"detail,omitempty"`
 }
 
-func (h *helper) logStart(t *taskrun.Task) {
+// TaskStarted implements taskrun.Log.
+func (h *helper) TaskStarted(t *taskrun.Task) {
 	ts := t.TaskStart()
 	spec := ts.Spec
 	h.logLine(logRecord{
@@ -301,7 +204,8 @@ func (h *helper) logStart(t *taskrun.Task) {
 	})
 }
 
-func (h *helper) logExit(t *taskrun.Task, exit *protocol.TaskExit, took time.Duration) {
+// TaskFinished implements taskrun.Log.
+func (h *helper) TaskFinished(t *taskrun.Task, exit *protocol.TaskExit, took time.Duration) {
 	ts := t.TaskStart()
 	h.logLine(logRecord{
 		Event:      "task.exit",
@@ -315,6 +219,12 @@ func (h *helper) logExit(t *taskrun.Task, exit *protocol.TaskExit, took time.Dur
 		OutputEnd:  exit.OutputEnd,
 		DurationMS: took.Milliseconds(),
 	})
+}
+
+// ExitUndelivered implements taskrun.Log: the parent is gone. The task itself has finished and is
+// recorded in the local log; there is nobody left to tell.
+func (h *helper) ExitUndelivered(t *taskrun.Task, err error) {
+	h.logLine(logRecord{Event: "task.exit.undelivered", TaskID: t.ID(), Detail: err.Error()})
 }
 
 // logLine writes one JSON line. A write failure is ignored: stderr may already be gone, and the task

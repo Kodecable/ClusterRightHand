@@ -48,7 +48,7 @@ import {
 	unsettledSubmissionRequests,
 	waitForSubmission,
 } from "./runtime-submissions.ts";
-import { SessionListHub } from "./session-list.ts";
+import { SessionListHub } from "./session-list-hub.ts";
 import type { SessionState } from "./session-state.ts";
 import { backfillUsageTokens } from "./usage-backfill.ts";
 import { wakePendingAgents } from "./wakes.ts";

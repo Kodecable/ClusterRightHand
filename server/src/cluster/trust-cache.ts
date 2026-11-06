@@ -4,7 +4,8 @@
  * are used once the node reports again.
  */
 import type { TrustReport } from "@crh/protocol";
-import { replanAwaiting, resendLocalRequests, useStoredAuthorizations } from "./authorization-flow.ts";
+import { resendLocalRequests } from "./authorization/local-approval.ts";
+import { replanAwaiting, useStoredAuthorizations } from "./authorization/sweeps.ts";
 import type { ClusterCore } from "./core.ts";
 import type { NodeLink } from "./links.ts";
 import { recordTrustReport } from "./trust.ts";

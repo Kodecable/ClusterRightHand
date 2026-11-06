@@ -1,5 +1,6 @@
 import { StreamingTextStore } from "@/markdown/stream-store";
-import type { SessionState, TextBlock, ThinkingBlock } from "./sessionState";
+import type { TextBlock, ThinkingBlock } from "./session-events";
+import type { SessionState } from "./session-reducer";
 
 /**
  * The per-row text stores of one session view (doc/webui.md "流式输出").

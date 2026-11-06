@@ -217,15 +217,14 @@ async function generateTitle(host: RuntimeHost, sessionId: string, submissionId:
 	}
 
 	const now = new Date().toISOString();
-	const written = await host.db.transaction().execute(async (trx) => {
-		const result = await trx
-			.updateTable("sessions")
-			.set({ title, title_pending: 0, updated_at: now })
-			.where("id", "=", sessionId)
-			.where("title_pending", "=", 1)
-			.executeTakeFirst();
-		return result.numUpdatedRows > 0n;
-	});
+	// One conditional UPDATE: the `title_pending` check and the write are atomic without a transaction.
+	const result = await host.db
+		.updateTable("sessions")
+		.set({ title, title_pending: 0, updated_at: now })
+		.where("id", "=", sessionId)
+		.where("title_pending", "=", 1)
+		.executeTakeFirst();
+	const written = result.numUpdatedRows > 0n;
 	// A manual rename during the generation cleared `title_pending`; its title wins and this one is dropped.
 	if (written) host.sessionList.publishSession(sessionId);
 }

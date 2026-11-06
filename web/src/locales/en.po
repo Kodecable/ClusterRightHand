@@ -7,148 +7,6 @@ msgstr ""
 "X-Generator: @lingui/cli\n"
 "Language: en\n"
 
-#: src/features/settings/providers.ts
-msgid "A mapped level value is required."
-msgstr "A mapped level value is required."
-
-#: src/features/settings/pages.tsx
-msgid "Add a Pi built-in provider or a custom endpoint."
-msgstr "Add a Pi built-in provider or a custom endpoint."
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Add field"
-msgstr "Add field"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Add header"
-msgstr "Add header"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Advanced pi-ai options, validated against the protocol's schema. Leave empty for auto-detection."
-msgstr "Advanced pi-ai options, validated against the protocol's schema. Leave empty for auto-detection."
-
-#: src/features/settings/model-dialog.tsx
-msgid "Auto (omit)"
-msgstr "Auto (omit)"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
-msgstr "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Body fields"
-msgstr "Body fields"
-
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Chat Completions"
-msgstr "Chat Completions"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Compat (JSON, advanced)"
-msgstr "Compat (JSON, advanced)"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Compat JSON"
-msgstr "Compat JSON"
-
-#: src/features/settings/providers.ts
-msgid "Compat must be a JSON object."
-msgstr "Compat must be a JSON object."
-
-#: src/features/settings/providers.ts
-msgid "Compat must be valid JSON."
-msgstr "Compat must be valid JSON."
-
-#: src/features/settings/pages.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Custom"
-msgstr "Custom"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Default (omitted)"
-msgstr "Default (omitted)"
-
-#. placeholder {0}: index + 1
-#. placeholder {0}: initial.id
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Edit model {0}"
-msgstr "Edit model {0}"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Extra headers"
-msgstr "Extra headers"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Header"
-msgstr "Header"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Header {0} name"
-msgstr "Header {0} name"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Header {0} value"
-msgstr "Header {0} value"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Headers"
-msgstr "Headers"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Image"
-msgstr "Image"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Level mapping"
-msgstr "Level mapping"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Mapped value"
-msgstr "Mapped value"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Mapping"
-msgstr "Mapping"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Max output"
-msgstr "Max output"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Max output tokens"
-msgstr "Max output tokens"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Model id"
-msgstr "Model id"
-
-#: src/features/settings/providers.ts
-msgid "Model ids must be unique."
-msgstr "Model ids must be unique."
-
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "None"
-msgstr "None"
-
-#. js-lingui-explicit-id
-#: src/app/shell/app-sidebar.tsx
-msgid "Ops console"
-msgstr "Ops console"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Optional, overrides the provider's default endpoint."
-msgstr "Optional, overrides the provider's default endpoint."
-
-#. js-lingui-explicit-id
-#: src/app/shell/app-sidebar.tsx
-msgid "Pending approvals"
-msgstr "Pending approvals"
-
 #: src/components/task-result.tsx
 msgid " (a new file)"
 msgstr " (a new file)"
@@ -172,99 +30,6 @@ msgstr " (the batch was interrupted)"
 #: src/components/task-result.tsx
 msgid ", {total} lines in all"
 msgstr ", {total} lines in all"
-
-#: src/features/settings/pages.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Pi built-in"
-msgstr "Pi built-in"
-
-#: src/features/settings/pages.tsx
-msgid "Pi built-in providers and custom endpoints; their keys are never shown back."
-msgstr "Pi built-in providers and custom endpoints; their keys are never shown back."
-
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Protocol"
-msgstr "Protocol"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Remove header {0}"
-msgstr "Remove header {0}"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Remove session id body field {0}"
-msgstr "Remove session id body field {0}"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Remove session id header {0}"
-msgstr "Remove session id header {0}"
-
-#: src/features/settings/providers.ts
-msgid "Request body overrides must be a JSON object."
-msgstr "Request body overrides must be a JSON object."
-
-#: src/features/settings/providers.ts
-msgid "Request body overrides must be valid JSON."
-msgstr "Request body overrides must be valid JSON."
-
-#: src/features/settings/model-dialog.tsx
-msgid "Request body per level"
-msgstr "Request body per level"
-
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Responses"
-msgstr "Responses"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Save model"
-msgstr "Save model"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Session id body field {0}"
-msgstr "Session id body field {0}"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Session id fields"
-msgstr "Session id fields"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Session id header {0}"
-msgstr "Session id header {0}"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Thinking format"
-msgstr "Thinking format"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Thinking level mapping"
-msgstr "Thinking level mapping"
-
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Value"
-msgstr "Value"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "auto"
-msgstr "auto"
-
-#: src/features/settings/model-dialog.tsx
-msgid "{level} mapping"
-msgstr "{level} mapping"
-
-#: src/features/settings/model-dialog.tsx
-msgid "{level} request body JSON"
-msgstr "{level} request body JSON"
-
-#: src/features/settings/model-dialog.tsx
-msgid "{level} value"
-msgstr "{level} value"
 
 #: src/components/task-result.tsx
 msgid "… {omitted} bytes omitted …"
@@ -292,8 +57,8 @@ msgstr "{0, plural, one {# member} other {# members}}"
 
 #. placeholder {0}: queued
 #: src/features/sessions/session-banner.tsx
-msgid "{0, plural, one {# message queued} other {# messages queued}}"
-msgstr "{0, plural, one {# message queued} other {# messages queued}}"
+#~ msgid "{0, plural, one {# message queued} other {# messages queued}}"
+#~ msgstr "{0, plural, one {# message queued} other {# messages queued}}"
 
 #. placeholder {0}: value.length
 #: src/components/node-group-picker.tsx
@@ -386,6 +151,22 @@ msgstr "{exact} tokens in total"
 #~ msgid "{groupKind} on {groupTargets}"
 #~ msgstr "{groupKind} on {groupTargets}"
 
+#: src/features/settings/model-dialog.tsx
+msgid "{level} display name"
+msgstr "{level} display name"
+
+#: src/features/settings/model-dialog.tsx
+msgid "{level} mapping"
+msgstr "{level} mapping"
+
+#: src/features/settings/model-dialog.tsx
+msgid "{level} request body JSON"
+msgstr "{level} request body JSON"
+
+#: src/features/settings/model-dialog.tsx
+msgid "{level} value"
+msgstr "{level} value"
+
 #: src/markdown/CodeBlock.tsx
 msgid "{lineCount, plural, one {# line} other {# lines}}"
 msgstr "{lineCount, plural, one {# line} other {# lines}}"
@@ -393,6 +174,10 @@ msgstr "{lineCount, plural, one {# line} other {# lines}}"
 #: src/components/code-text.tsx
 msgid "{lines, plural, one {# line} other {# lines}}"
 msgstr "{lines, plural, one {# line} other {# lines}}"
+
+#: src/features/sessions/session-banner.tsx
+msgid "{queued, plural, one {# message queued} other {# messages queued}}"
+msgstr "{queued, plural, one {# message queued} other {# messages queued}}"
 
 #: src/features/sessions/children-bar.tsx
 msgid "{running} running"
@@ -477,6 +262,10 @@ msgstr "A label for this key, for example \"laptop\"."
 #: src/components/task-result.tsx
 msgid "A line alone is longer than the 50 KB a page keeps."
 msgstr "A line alone is longer than the 50 KB a page keeps."
+
+#: src/features/settings/providers.ts
+msgid "A mapped level value is required."
+msgstr "A mapped level value is required."
 
 #: src/features/schedules/scheduleForm.ts
 #: src/features/tokens/create-token-dialog.tsx
@@ -638,6 +427,10 @@ msgstr "Add"
 msgid "Add a Passkey"
 msgstr "Add a Passkey"
 
+#: src/features/settings/pages.tsx
+msgid "Add a Pi built-in provider or a custom endpoint."
+msgstr "Add a Pi built-in provider or a custom endpoint."
+
 #: src/features/nodes/pages.tsx
 msgid "Add a signing credential or connect crhs before configuring trust."
 msgstr "Add a signing credential or connect crhs before configuring trust."
@@ -654,6 +447,14 @@ msgstr "Add an SSH key"
 msgid "Add an SSH key or register a Passkey to sign authorizations for privileged tasks."
 msgstr "Add an SSH key or register a Passkey to sign authorizations for privileged tasks."
 
+#: src/features/settings/provider-dialog.tsx
+msgid "Add field"
+msgstr "Add field"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Add header"
+msgstr "Add header"
+
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Add jump host"
 msgstr "Add jump host"
@@ -662,6 +463,7 @@ msgstr "Add jump host"
 msgid "Add member"
 msgstr "Add member"
 
+#: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Add model"
 msgstr "Add model"
@@ -721,6 +523,10 @@ msgstr "Administrator"
 #: src/features/ssh-credentials/pages.tsx
 msgid "Administrators only"
 msgstr "Administrators only"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Advanced pi-ai options, validated against the protocol's schema. Leave empty for auto-detection."
+msgstr "Advanced pi-ai options, validated against the protocol's schema. Leave empty for auto-detection."
 
 #: src/features/nodes/add-node-dialog.tsx
 msgid "After the node connects it appears as pending; compare its key fingerprint with <0>crha status</0> on the node before approving."
@@ -790,6 +596,10 @@ msgstr "Already tried: {0}."
 #: src/components/approval-card.tsx
 msgid "Always allow rule"
 msgstr "Always allow rule"
+
+#: src/features/settings/model-presets.tsx
+msgid "Always appended"
+msgstr "Always appended"
 
 #: src/features/node-groups/pages.tsx
 msgid "An administrator creates node groups."
@@ -892,7 +702,7 @@ msgstr "Approve node"
 msgid "Approved"
 msgstr "Approved"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Arguments"
 msgstr "Arguments"
 
@@ -908,9 +718,9 @@ msgstr "Ask an administrator to configure one."
 msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line, /compact summarizes older context."
 msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line, /compact summarizes older context."
 
-#: src/features/sessions/composer.tsx
-#~ msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
-#~ msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
+#: src/features/sessions/new-session-page.tsx
+msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
+msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
 
 #: src/features/schedules/scheduleForm.ts
 #~ msgid "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
@@ -978,6 +788,22 @@ msgstr "Authorization submitted."
 msgid "Authorizations"
 msgstr "Authorizations"
 
+#: src/features/settings/provider-dialog.tsx
+msgid "auto"
+msgstr "auto"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Auto (omit)"
+msgstr "Auto (omit)"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
+msgstr "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
+
+#: src/features/settings/model-presets.tsx
+msgid "Auto review"
+msgstr "Auto review"
+
 #: src/features/schedules/scheduleForm.ts
 #~ msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
 #~ msgstr "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
@@ -1009,6 +835,7 @@ msgstr "Awaiting signature"
 msgid "Back"
 msgstr "Back"
 
+#: src/features/sessions/new-session-page.tsx
 #: src/features/sessions/session-header.tsx
 msgid "Back to the session list"
 msgstr "Back to the session list"
@@ -1029,6 +856,10 @@ msgstr "Batch run"
 #: src/features/batch/pages.tsx
 msgid "Batch started."
 msgstr "Batch started."
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Body fields"
+msgstr "Body fields"
 
 #: src/components/quota-card.tsx
 msgid "Budget"
@@ -1064,6 +895,7 @@ msgstr "By"
 #: src/features/nodes/add-node-dialog.tsx
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/schedules/create-schedule-dialog.tsx
+#: src/features/settings/model-dialog.tsx
 msgid "Cancel"
 msgstr "Cancel"
 
@@ -1073,7 +905,7 @@ msgstr "Cancel task"
 
 #: src/components/status-badge.tsx
 #: src/components/task-result.tsx
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 msgid "Cancelled"
 msgstr "Cancelled"
 
@@ -1098,9 +930,22 @@ msgstr "Change the model; it applies from the next turn."
 msgid "Change the rule preset; it applies to the next tool call."
 msgstr "Change the rule preset; it applies to the next tool call."
 
+#: src/features/sessions/composer-footer.tsx
+msgid "Change the thinking level; it applies from the next turn."
+msgstr "Change the thinking level; it applies from the next turn."
+
+#: src/features/settings/model-presets.tsx
+msgid "Changes take effect on the next model request."
+msgstr "Changes take effect on the next model request."
+
 #: src/features/sessions/share-dialog.tsx
 msgid "Chat"
 msgstr "Chat"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Chat Completions"
+msgstr "Chat Completions"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Check the highlighted fields."
@@ -1226,6 +1071,10 @@ msgstr "Compacting context"
 msgid "Compaction failed."
 msgstr "Compaction failed."
 
+#: src/features/sessions/new-session-page.tsx
+msgid "Compaction is not available before the session exists."
+msgstr "Compaction is not available before the session exists."
+
 #: src/features/sessions/composer.tsx
 #~ msgid "Compaction requested: older messages will be summarized in the background. A short conversation has nothing to summarize yet."
 #~ msgstr "Compaction requested: older messages will be summarized in the background. A short conversation has nothing to summarize yet."
@@ -1233,6 +1082,22 @@ msgstr "Compaction failed."
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Compare it with the output of <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> on that host (the server picks one of its keys, usually ED25519). Only confirm if one of them matches."
 msgstr "Compare it with the output of <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> on that host (the server picks one of its keys, usually ED25519). Only confirm if one of them matches."
+
+#: src/features/settings/model-dialog.tsx
+msgid "Compat (JSON, advanced)"
+msgstr "Compat (JSON, advanced)"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Compat JSON"
+msgstr "Compat JSON"
+
+#: src/features/settings/providers.ts
+msgid "Compat must be a JSON object."
+msgstr "Compat must be a JSON object."
+
+#: src/features/settings/providers.ts
+msgid "Compat must be valid JSON."
+msgstr "Compat must be valid JSON."
 
 #: src/features/sessions/session-list.tsx
 msgid "Configure a model provider"
@@ -1270,6 +1135,7 @@ msgstr "Content"
 msgid "Context compacted"
 msgstr "Context compacted"
 
+#: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Context window"
 msgstr "Context window"
@@ -1411,8 +1277,8 @@ msgid "Create schedule"
 msgstr "Create schedule"
 
 #: src/features/sessions/new-session-dialog.tsx
-msgid "Create session"
-msgstr "Create session"
+#~ msgid "Create session"
+#~ msgstr "Create session"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Create SSH credential"
@@ -1495,6 +1361,12 @@ msgstr "Cron"
 msgid "Current password"
 msgstr "Current password"
 
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Custom"
+msgstr "Custom"
+
 #: src/app/shell/user-menu.tsx
 msgid "Dark"
 msgstr "Dark"
@@ -1526,6 +1398,18 @@ msgstr "Decision recorded."
 #: src/components/approval-card.tsx
 msgid "default"
 msgstr "default"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Default (omitted)"
+msgstr "Default (omitted)"
+
+#: src/features/settings/model-presets.tsx
+msgid "Default prompt"
+msgstr "Default prompt"
+
+#: src/features/settings/model-presets.tsx
+msgid "Default prompt and protocol"
+msgstr "Default prompt and protocol"
 
 #: src/features/schedules/schedule-form.tsx
 #~ msgid "Defaults to this browser's timezone."
@@ -1706,12 +1590,13 @@ msgstr "Discard"
 msgid "Dispatched"
 msgstr "Dispatched"
 
+#: src/features/settings/model-dialog.tsx
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
 msgid "Display name"
 msgstr "Display name"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Done"
@@ -1720,6 +1605,10 @@ msgstr "Done"
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Down"
 msgstr "Down"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
+msgstr "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
 
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Each rule needs a target after the method."
@@ -1738,14 +1627,15 @@ msgstr "Each rule: action (allow, deny, require-approval), optional method (exec
 #~ msgstr "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes, and exact or prefix."
 
 #: src/features/settings/review-model-card.tsx
-msgid "Each session's own model"
-msgstr "Each session's own model"
+#~ msgid "Each session's own model"
+#~ msgstr "Each session's own model"
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Each token has its own rules; what they do not allow waits for your approval."
 msgstr "Each token has its own rules; what they do not allow waits for your approval."
 
 #: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Edit"
 msgstr "Edit"
 
@@ -1761,6 +1651,13 @@ msgstr "Edit {0}"
 #: src/features/node-groups/pages.tsx
 msgid "Edit members"
 msgstr "Edit members"
+
+#. placeholder {0}: index + 1
+#. placeholder {0}: initial.id
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Edit model {0}"
+msgstr "Edit model {0}"
 
 #: src/features/nodes/pages.tsx
 msgid "Edit node groups"
@@ -1815,14 +1712,12 @@ msgid "Enrollment command"
 msgstr "Enrollment command"
 
 #: src/components/quota-card.tsx
-#: src/features/sessions/new-session-dialog.tsx
 #: src/features/sessions/quota-dialog.tsx
 msgid "Enter a positive number of tokens to add."
 msgstr "Enter a positive number of tokens to add."
 
 #: src/components/quota-card.tsx
 #: src/features/schedules/scheduleForm.ts
-#: src/features/sessions/new-session-dialog.tsx
 #: src/features/sessions/quota-dialog.tsx
 msgid "Enter a whole number of tokens, or leave it empty for unlimited."
 msgstr "Enter a whole number of tokens, or leave it empty for unlimited."
@@ -1913,7 +1808,7 @@ msgid "exact"
 msgstr "exact"
 
 #. placeholder {0}: value.exitCode ?? ""
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 msgid "Exit {0}"
 msgstr "Exit {0}"
 
@@ -1966,6 +1861,14 @@ msgstr "Expires after"
 msgid "Export trust snippet"
 msgstr "Export trust snippet"
 
+#: src/features/settings/provider-dialog.tsx
+msgid "Extra headers"
+msgstr "Extra headers"
+
+#: src/lib/thinking-level.ts
+msgid "Extra high"
+msgstr "Extra high"
+
 #. placeholder {0}: facts.length
 #: src/features/nodes/pages.tsx
 msgid "Facts ({0})"
@@ -1980,7 +1883,7 @@ msgid "failed"
 msgstr "failed"
 
 #: src/components/status-badge.tsx
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 msgid "Failed"
 msgstr "Failed"
 
@@ -2056,9 +1959,31 @@ msgstr "Group"
 #~ msgid "Groups saved."
 #~ msgstr "Groups saved."
 
+#: src/features/settings/provider-dialog.tsx
+msgid "Header"
+msgstr "Header"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Header {0} name"
+msgstr "Header {0} name"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Header {0} value"
+msgstr "Header {0} value"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Headers"
+msgstr "Headers"
+
 #: src/features/nodes/crhs-key-panel.tsx
 msgid "Hide trust snippet"
 msgstr "Hide trust snippet"
+
+#: src/lib/thinking-level.ts
+msgid "High"
+msgstr "High"
 
 #: src/features/nodes/ssh-node-section.tsx
 msgid "Hop"
@@ -2094,6 +2019,14 @@ msgstr "Idle"
 #: src/features/nodes/pages.tsx
 msgid "ignored (SSH)"
 msgstr "ignored (SSH)"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Image"
+msgstr "Image"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Image understanding"
+msgstr "Image understanding"
 
 #: src/features/tasks/task-group-result.tsx
 msgid "Interrupted"
@@ -2218,9 +2151,17 @@ msgstr "Last used"
 msgid "Leave empty to keep the current key"
 msgstr "Leave empty to keep the current key"
 
+#: src/features/settings/model-presets.tsx
+msgid "Leave empty to use the default prompt."
+msgstr "Leave empty to use the default prompt."
+
 #: src/components/approval-card.tsx
 msgid "Level"
 msgstr "Level"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Level mapping"
+msgstr "Level mapping"
 
 #: src/app/shell/user-menu.tsx
 msgid "Light"
@@ -2263,7 +2204,7 @@ msgstr "Loading older messages…"
 msgid "Loading shares…"
 msgstr "Loading shares…"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Loading task…"
 msgstr "Loading task…"
 
@@ -2273,6 +2214,7 @@ msgstr "Loading the waiting decisions…"
 
 #: src/features/approvals/pages.tsx
 #: src/features/sessions/children-bar.tsx
+#: src/features/settings/model-presets.tsx
 #: src/features/tasks/task-group-page.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Loading…"
@@ -2282,18 +2224,46 @@ msgstr "Loading…"
 msgid "Log out"
 msgstr "Log out"
 
+#: src/lib/thinking-level.ts
+msgid "Low"
+msgstr "Low"
+
 #: src/features/settings/provider-dialog.tsx
 msgid "Lowercase letters, digits and dashes."
 msgstr "Lowercase letters, digits and dashes."
+
+#: src/features/settings/model-dialog.tsx
+msgid "Mapped value"
+msgstr "Mapped value"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Mapping"
+msgstr "Mapping"
 
 #: src/components/approval-card.tsx
 msgid "Matched rule"
 msgstr "Matched rule"
 
+#: src/lib/thinking-level.ts
+msgid "Max"
+msgstr "Max"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Max output"
+msgstr "Max output"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Max output tokens"
+msgstr "Max output tokens"
+
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Max TTL"
 msgstr "Max TTL"
+
+#: src/lib/thinking-level.ts
+msgid "Medium"
+msgstr "Medium"
 
 #: src/features/users/kind-select.tsx
 #: src/features/users/new-user-dialog.tsx
@@ -2320,9 +2290,13 @@ msgid "Members of {0}"
 msgstr "Members of {0}"
 
 #: src/features/nodes/node-trust.tsx
-#: src/features/sessions/composer.tsx
+#: src/features/sessions/composer-input.tsx
 msgid "Message"
 msgstr "Message"
+
+#: src/lib/thinking-level.ts
+msgid "Minimal"
+msgstr "Minimal"
 
 #: src/components/task-result.tsx
 msgid "Mode"
@@ -2330,10 +2304,21 @@ msgstr "Mode"
 
 #: src/components/model-select.tsx
 #: src/features/schedules/schedule-form.tsx
-#: src/features/sessions/new-session-dialog.tsx
-#: src/features/settings/review-model-card.tsx
+#: src/features/settings/model-presets.tsx
 msgid "Model"
 msgstr "Model"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Model id"
+msgstr "Model id"
+
+#: src/features/settings/providers.ts
+msgid "Model ids must be unique."
+msgstr "Model ids must be unique."
+
+#: src/features/settings/model-presets.tsx
+msgid "Model presets"
+msgstr "Model presets"
 
 #: src/features/settings/pages.tsx
 msgid "Model providers"
@@ -2416,8 +2401,8 @@ msgstr "New requests appear here and in the sidebar badge."
 msgid "New schedule"
 msgstr "New schedule"
 
-#: src/features/sessions/new-session-dialog.tsx
 #: src/features/sessions/session-list.tsx
+#: src/features/sessions/sessions-index-page.tsx
 msgid "New session"
 msgstr "New session"
 
@@ -2458,6 +2443,7 @@ msgid "Nightly check"
 msgstr "Nightly check"
 
 #: src/components/approval-card.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "No"
 msgstr "No"
 
@@ -2514,6 +2500,10 @@ msgstr "No members."
 msgid "No messages yet. Start the conversation below."
 msgstr "No messages yet. Start the conversation below."
 
+#: src/features/sessions/composer-footer.tsx
+msgid "No model"
+msgstr "No model"
+
 #: src/features/sessions/session-list.tsx
 msgid "No model is configured"
 msgstr "No model is configured"
@@ -2526,13 +2516,14 @@ msgstr "No model providers yet"
 msgid "No models are configured, so schedules cannot run."
 msgstr "No models are configured, so schedules cannot run."
 
+#: src/features/sessions/new-session-page.tsx
 #: src/features/sessions/session-list.tsx
 msgid "No models are configured, so sessions cannot start."
 msgstr "No models are configured, so sessions cannot start."
 
 #: src/features/sessions/new-session-dialog.tsx
-msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
-msgstr "No models are configured, so sessions cannot start. Ask an administrator to configure one."
+#~ msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
+#~ msgstr "No models are configured, so sessions cannot start. Ask an administrator to configure one."
 
 #: src/features/node-groups/pages.tsx
 msgid "No node groups yet"
@@ -2558,7 +2549,7 @@ msgstr "No output is kept (SSH nodes keep no output)."
 msgid "No output was kept."
 msgstr "No output was kept."
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "No output yet."
 msgstr "No output yet."
 
@@ -2566,7 +2557,7 @@ msgstr "No output yet."
 msgid "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
 msgstr "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 msgid "No result"
 msgstr "No result"
 
@@ -2654,6 +2645,7 @@ msgid "Node created."
 msgstr "Node created."
 
 #: src/features/nodes/access-grants.tsx
+#: src/features/nodes/trust-warnings.tsx
 msgid "Node group"
 msgstr "Node group"
 
@@ -2750,6 +2742,11 @@ msgstr "Nodes"
 msgid "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
 msgstr "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
 
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "None"
+msgstr "None"
+
 #: src/components/approval-card.tsx
 msgid "Not a valid rule: {error}"
 msgstr "Not a valid rule: {error}"
@@ -2805,6 +2802,14 @@ msgstr "Nothing to compact yet: the most recent ~20k tokens of the conversation 
 msgid "Nothing to show."
 msgstr "Nothing to show."
 
+#: src/lib/thinking-level.ts
+msgid "Off"
+msgstr "Off"
+
+#: src/features/settings/providers.ts
+msgid "Off cannot be hidden; give it a display name."
+msgstr "Off cannot be hidden; give it a display name."
+
 #: src/components/status-badge.tsx
 msgid "Offline"
 msgstr "Offline"
@@ -2855,11 +2860,11 @@ msgstr "Open approval page"
 msgid "Open task"
 msgstr "Open task"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Open the signing page"
 msgstr "Open the signing page"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Open the subagent's session"
 msgstr "Open the subagent's session"
 
@@ -2872,6 +2877,7 @@ msgid "Open the task group"
 msgstr "Open the task group"
 
 #: src/features/sessions/session-waits.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Open the task group page"
 msgstr "Open the task group page"
 
@@ -2883,10 +2889,18 @@ msgstr "Open the task page"
 #~ msgid "Operate"
 #~ msgstr "Operate"
 
+#: src/app/shell/app-sidebar.tsx
+msgid "Ops console"
+msgstr "Ops console"
+
 #: src/features/credentials/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Optional"
 msgstr "Optional"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Optional, overrides the provider's default endpoint."
+msgstr "Optional, overrides the provider's default endpoint."
 
 #: src/features/users/new-user-dialog.tsx
 msgid "Optional; at least 8 characters."
@@ -2939,7 +2953,7 @@ msgstr "Output"
 msgid "Output file"
 msgstr "Output file"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Output so far"
 msgstr "Output so far"
 
@@ -2971,7 +2985,7 @@ msgstr "Parallel"
 msgid "Parallel must be a positive whole number."
 msgstr "Parallel must be a positive whole number."
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 msgid "Partly failed"
 msgstr "Partly failed"
 
@@ -3026,9 +3040,22 @@ msgstr "Pending"
 msgid "Pending approval"
 msgstr "Pending approval"
 
+#: src/app/shell/app-sidebar.tsx
+msgid "Pending approvals"
+msgstr "Pending approvals"
+
 #: src/features/sessions/share-dialog.tsx
 msgid "People you share this session with; view access is read-only, chat access can send messages."
 msgstr "People you share this session with; view access is read-only, chat access can send messages."
+
+#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Pi built-in"
+msgstr "Pi built-in"
+
+#: src/features/settings/pages.tsx
+msgid "Pi built-in providers and custom endpoints; their keys are never shown back."
+msgstr "Pi built-in providers and custom endpoints; their keys are never shown back."
 
 #: src/features/sessions/sessions-index-page.tsx
 msgid "Pick a session from the list, or start a new one."
@@ -3054,23 +3081,9 @@ msgstr "prefix"
 msgid "Preparing the payload to sign…"
 msgstr "Preparing the payload to sign…"
 
-#: src/components/rule-preset-select.tsx
-#: src/features/schedules/schedule-form.tsx
-#: src/features/sessions/new-session-dialog.tsx
-#: src/features/tokens/create-token-dialog.tsx
-#: src/features/tokens/pages.tsx
-#: src/features/tokens/rules-dialog.tsx
-msgid "Rule preset"
-msgstr "Rule preset"
-
-#: src/features/tokens/rules-dialog.tsx
-msgid "Rule preset saved."
-msgstr "Rule preset saved."
-
-#. placeholder {0}: rulePresetLabel(rulePreset)
-#: src/features/sessions/composer-footer.tsx
-msgid "Rule preset: {0}"
-msgstr "Rule preset: {0}"
+#: src/features/settings/model-presets.tsx
+msgid "Preset saved."
+msgstr "Preset saved."
 
 #: src/components/approval-card.tsx
 #: src/components/task-form-fields.tsx
@@ -3099,6 +3112,11 @@ msgstr "Privileges"
 #: src/features/schedules/schedule-form.tsx
 msgid "Prompt"
 msgstr "Prompt"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Protocol"
+msgstr "Protocol"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Provider"
@@ -3137,6 +3155,7 @@ msgstr "Queued"
 msgid "Quota decision recorded."
 msgstr "Quota decision recorded."
 
+#: src/features/sessions/composer-footer.tsx
 #: src/features/sessions/quota-dialog.tsx
 msgid "Quota saved."
 msgstr "Quota saved."
@@ -3229,6 +3248,11 @@ msgid "Remove access to {target} for {grantee}"
 msgstr "Remove access to {target} for {grantee}"
 
 #. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Remove header {0}"
+msgstr "Remove header {0}"
+
+#. placeholder {0}: index + 1
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Remove jump host {0}"
 msgstr "Remove jump host {0}"
@@ -3237,6 +3261,16 @@ msgstr "Remove jump host {0}"
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove model {0}"
 msgstr "Remove model {0}"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Remove session id body field {0}"
+msgstr "Remove session id body field {0}"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Remove session id header {0}"
+msgstr "Remove session id header {0}"
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Remove share"
@@ -3272,6 +3306,22 @@ msgstr "Repeat the new password."
 msgid "Report"
 msgstr "Report"
 
+#: src/features/settings/model-dialog.tsx
+msgid "Request body (JSON)"
+msgstr "Request body (JSON)"
+
+#: src/features/settings/providers.ts
+msgid "Request body overrides must be a JSON object."
+msgstr "Request body overrides must be a JSON object."
+
+#: src/features/settings/providers.ts
+msgid "Request body overrides must be valid JSON."
+msgstr "Request body overrides must be valid JSON."
+
+#: src/features/settings/model-dialog.tsx
+msgid "Request body per level"
+msgstr "Request body per level"
+
 #: src/components/approval-card.tsx
 msgid "Requested"
 msgstr "Requested"
@@ -3293,7 +3343,12 @@ msgstr "Reset password"
 msgid "Reset the password of {0}"
 msgstr "Reset the password of {0}"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Responses"
+msgstr "Responses"
+
+#: src/features/sessions/tool-dialog.tsx
 #: src/features/tasks/task-group-result.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Result"
@@ -3301,24 +3356,28 @@ msgstr "Result"
 
 #. placeholder {0}: retry
 #: src/features/sessions/session-banner.tsx
-msgid "Retrying after an error: {0}"
-msgstr "Retrying after an error: {0}"
+#~ msgid "Retrying after an error: {0}"
+#~ msgstr "Retrying after an error: {0}"
+
+#: src/features/sessions/session-banner.tsx
+msgid "Retrying after an error: {retry}"
+msgstr "Retrying after an error: {retry}"
 
 #: src/features/authorizations/pages.tsx
 msgid "reusable"
 msgstr "reusable"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Review and approve"
 msgstr "Review and approve"
 
 #: src/features/settings/review-model-card.tsx
-msgid "Review model"
-msgstr "Review model"
+#~ msgid "Review model"
+#~ msgstr "Review model"
 
 #: src/features/settings/review-model-card.tsx
-msgid "Review model saved."
-msgstr "Review model saved."
+#~ msgid "Review model saved."
+#~ msgstr "Review model saved."
 
 #: src/features/tokens/pages.tsx
 msgid "Revoke"
@@ -3359,6 +3418,23 @@ msgstr "Route"
 msgid "Rule chain evaluation"
 msgstr "Rule chain evaluation"
 
+#: src/components/rule-preset-select.tsx
+#: src/features/schedules/schedule-form.tsx
+#: src/features/tokens/create-token-dialog.tsx
+#: src/features/tokens/pages.tsx
+#: src/features/tokens/rules-dialog.tsx
+msgid "Rule preset"
+msgstr "Rule preset"
+
+#: src/features/tokens/rules-dialog.tsx
+msgid "Rule preset saved."
+msgstr "Rule preset saved."
+
+#. placeholder {0}: rulePresetLabel(state.rulePreset)
+#: src/features/sessions/composer-footer.tsx
+msgid "Rule preset: {0}"
+msgstr "Rule preset: {0}"
+
 #: src/components/approval-card.tsx
 msgid "Rule to add to the caller's rule set"
 msgstr "Rule to add to the caller's rule set"
@@ -3378,9 +3454,14 @@ msgstr "Rules of {0}"
 msgid "Rules saved."
 msgstr "Rules saved."
 
+#. placeholder {0}: state.ruleCount
 #: src/features/sessions/composer-footer.tsx
-msgid "Rules: {ruleCount}"
-msgstr "Rules: {ruleCount}"
+msgid "Rules: {0}"
+msgstr "Rules: {0}"
+
+#: src/features/sessions/composer-footer.tsx
+#~ msgid "Rules: {ruleCount}"
+#~ msgstr "Rules: {ruleCount}"
 
 #: src/features/nodes/run-panel.tsx
 msgid "Run"
@@ -3440,7 +3521,7 @@ msgid "running"
 msgstr "running"
 
 #: src/components/status-badge.tsx
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Running"
 msgstr "Running"
@@ -3452,13 +3533,17 @@ msgstr "Running"
 #: src/components/dialogs.tsx
 #: src/features/nodes/rename-node-button.tsx
 #: src/features/sessions/quota-dialog.tsx
-#: src/features/settings/review-model-card.tsx
+#: src/features/settings/model-presets.tsx
 msgid "Save"
 msgstr "Save"
 
 #: src/features/node-groups/dialogs.tsx
 msgid "Save members"
 msgstr "Save members"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Save model"
+msgstr "Save model"
 
 #: src/features/nodes/node-groups-dialog.tsx
 msgid "Save node groups"
@@ -3468,13 +3553,13 @@ msgstr "Save node groups"
 msgid "Save password"
 msgstr "Save password"
 
-#: src/features/tokens/rules-dialog.tsx
-msgid "Save rule preset"
-msgstr "Save rule preset"
-
 #: src/features/settings/provider-dialog.tsx
 msgid "Save provider"
 msgstr "Save provider"
+
+#: src/features/tokens/rules-dialog.tsx
+msgid "Save rule preset"
+msgstr "Save rule preset"
 
 #: src/features/tokens/rules-dialog.tsx
 msgid "Save rules"
@@ -3537,13 +3622,28 @@ msgid "Send"
 msgstr "Send"
 
 #: src/features/schedules/run-history.tsx
+#: src/features/settings/model-presets.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Session"
 msgstr "Session"
 
 #: src/features/sessions/new-session-dialog.tsx
-msgid "Session created."
-msgstr "Session created."
+#~ msgid "Session created."
+#~ msgstr "Session created."
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id body field {0}"
+msgstr "Session id body field {0}"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id fields"
+msgstr "Session id fields"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id header {0}"
+msgstr "Session id header {0}"
 
 #: src/features/sessions/sessions-layout.tsx
 msgid "Session list"
@@ -3756,9 +3856,14 @@ msgstr "SSH route"
 msgid "ssh-keygen recipe"
 msgstr "ssh-keygen recipe"
 
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Standard"
+msgstr "Standard"
+
 #: src/features/sessions/new-session-dialog.tsx
-msgid "Start a conversation with the agent; it acts on your nodes through the same rules."
-msgstr "Start a conversation with the agent; it acts on your nodes through the same rules."
+#~ msgid "Start a conversation with the agent; it acts on your nodes through the same rules."
+#~ msgstr "Start a conversation with the agent; it acts on your nodes through the same rules."
 
 #: src/components/task-form-fields.tsx
 msgid "Start line"
@@ -3849,6 +3954,10 @@ msgstr "Summary"
 msgid "System"
 msgstr "System"
 
+#: src/features/settings/model-presets.tsx
+msgid "System prompt"
+msgstr "System prompt"
+
 #: src/features/batch/pages.tsx
 msgid "Tail of output"
 msgstr "Tail of output"
@@ -3929,7 +4038,6 @@ msgstr "text"
 
 #: src/components/quota-card.tsx
 #: src/features/schedules/scheduleForm.ts
-#: src/features/sessions/new-session-dialog.tsx
 #: src/features/sessions/quota-dialog.tsx
 msgid "That number is too large."
 msgstr "That number is too large."
@@ -3982,6 +4090,10 @@ msgstr "The listing is truncated: the directory has more entries than are shown.
 #: src/features/schedules/schedule-form.tsx
 #~ msgid "The model every new session of this schedule uses."
 #~ msgstr "The model every new session of this schedule uses."
+
+#: src/features/settings/model-presets.tsx
+msgid "The model list could not be loaded."
+msgstr "The model list could not be loaded."
 
 #: src/features/credentials/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
@@ -4121,8 +4233,24 @@ msgid "They can no longer see this node or run tasks on it."
 msgstr "They can no longer see this node or run tasks on it."
 
 #: src/features/sessions/transcript-row.tsx
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Thinking"
 msgstr "Thinking"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Thinking format"
+msgstr "Thinking format"
+
+#: src/components/thinking-level-select.tsx
+#: src/features/schedules/schedule-form.tsx
+#: src/features/settings/model-presets.tsx
+msgid "Thinking level"
+msgstr "Thinking level"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Thinking level mapping"
+msgstr "Thinking level mapping"
 
 #: src/features/nodes/trust-warnings.tsx
 msgid "This alias is for a node group the node is not in. Reusable authorizations addressed to that group still work here. Remove the alias from aliases in privileged.toml on the node:"
@@ -4165,7 +4293,7 @@ msgid "Time"
 msgstr "Time"
 
 #: src/components/task-result.tsx
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 msgid "Timed out"
 msgstr "Timed out"
 
@@ -4178,8 +4306,12 @@ msgid "Timezone"
 msgstr "Timezone"
 
 #: src/features/sessions/new-session-dialog.tsx
-msgid "Title"
-msgstr "Title"
+#~ msgid "Title"
+#~ msgstr "Title"
+
+#: src/features/settings/model-presets.tsx
+msgid "Title generation"
+msgstr "Title generation"
 
 #: src/features/sessions/session-header.tsx
 msgid "Title saved."
@@ -4193,14 +4325,18 @@ msgstr "Today"
 msgid "Toggle sidebar"
 msgstr "Toggle sidebar"
 
+#: src/components/ui/sidebar.tsx
+msgid "Toggle Sidebar"
+msgstr "Toggle Sidebar"
+
 #: src/features/schedules/schedule-form.tsx
 #: src/features/sessions/quota-dialog.tsx
 msgid "Token budget"
 msgstr "Token budget"
 
 #: src/features/sessions/new-session-dialog.tsx
-msgid "Token budget (empty = unlimited)"
-msgstr "Token budget (empty = unlimited)"
+#~ msgid "Token budget (empty = unlimited)"
+#~ msgstr "Token budget (empty = unlimited)"
 
 #: src/components/quota-card.tsx
 msgid "Token budget used up"
@@ -4226,11 +4362,11 @@ msgstr "Token revoked."
 msgid "Tokens to add"
 msgstr "Tokens to add"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Tool arguments"
 msgstr "Tool arguments"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Tool result"
 msgstr "Tool result"
 
@@ -4243,6 +4379,7 @@ msgid "Triggered for"
 msgstr "Triggered for"
 
 #: src/features/nodes/node-trust.tsx
+#: src/features/nodes/trust-warnings.tsx
 msgid "Trust"
 msgstr "Trust"
 
@@ -4285,7 +4422,7 @@ msgstr "unknown"
 msgid "Unknown"
 msgstr "Unknown"
 
-#: src/features/sessions/composer.tsx
+#: src/features/sessions/composer-input.tsx
 msgid "Unknown command: it will be sent as a message."
 msgstr "Unknown command: it will be sent as a message."
 
@@ -4294,7 +4431,6 @@ msgstr "Unknown command: it will be sent as a message."
 msgid "unlimited"
 msgstr "unlimited"
 
-#: src/features/sessions/new-session-dialog.tsx
 #: src/features/sessions/quota-dialog.tsx
 msgid "Unlimited"
 msgstr "Unlimited"
@@ -4306,8 +4442,8 @@ msgstr "Unprivileged identity"
 #: src/features/sessions/children-bar.tsx
 #: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list-item.tsx
-msgid "Untitled session"
-msgstr "Untitled session"
+#~ msgid "Untitled session"
+#~ msgstr "Untitled session"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Up"
@@ -4329,6 +4465,10 @@ msgstr "Use at least 8 characters, or leave it empty."
 #: src/features/users/reset-password-dialog.tsx
 msgid "Use at least 8 characters."
 msgstr "Use at least 8 characters."
+
+#: src/features/settings/model-presets.tsx
+msgid "Use the session's model"
+msgstr "Use the session's model"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Used by"
@@ -4390,6 +4530,11 @@ msgstr "Username"
 msgid "Users"
 msgstr "Users"
 
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Value"
+msgstr "Value"
+
 #: src/features/sessions/share-dialog.tsx
 msgid "View"
 msgstr "View"
@@ -4426,7 +4571,7 @@ msgstr "Waiting for the owner's authorization."
 msgid "Waiting for the payload to sign; the card appears when it is ready."
 msgstr "Waiting for the payload to sign; the card appears when it is ready."
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Waiting for your approval."
 msgstr "Waiting for your approval."
 
@@ -4439,7 +4584,7 @@ msgid "Waiting for your signature"
 msgstr "Waiting for your signature"
 
 #: src/components/task-result.tsx
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Waiting for your signature."
 msgstr "Waiting for your signature."
 
@@ -4454,6 +4599,10 @@ msgstr "What the new session should do"
 #: src/features/tokens/rules-dialog.tsx
 msgid "What this token may do without approval; anything else waits for you."
 msgstr "What this token may do without approval; anything else waits for you."
+
+#: src/features/sessions/new-session-page.tsx
+msgid "What's on your plan today?"
+msgstr "What's on your plan today?"
 
 #: src/features/schedules/run-history.tsx
 msgid "When"
@@ -4476,6 +4625,7 @@ msgid "Working directory (optional)"
 msgstr "Working directory (optional)"
 
 #: src/components/approval-card.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Yes"
 msgstr "Yes"
 
@@ -4484,8 +4634,8 @@ msgid "Yesterday"
 msgstr "Yesterday"
 
 #: src/features/sessions/new-session-dialog.tsx
-msgid "Yolo lets the agent run anything on your nodes without asking."
-msgstr "Yolo lets the agent run anything on your nodes without asking."
+#~ msgid "Yolo lets the agent run anything on your nodes without asking."
+#~ msgstr "Yolo lets the agent run anything on your nodes without asking."
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Yolo lets this token run anything on your nodes without asking."
@@ -4514,130 +4664,3 @@ msgstr "You cannot disable your own account."
 #: src/features/sessions/composer.tsx
 msgid "You have view access: the owner can let you send messages by sharing it for chat."
 msgstr "You have view access: the owner can let you send messages by sharing it for chat."
-
-#: src/components/thinking-level-select.tsx
-#: src/features/schedules/schedule-form.tsx
-#: src/features/sessions/new-session-dialog.tsx
-msgid "Thinking level"
-msgstr "Thinking level"
-
-#: src/features/sessions/composer-footer.tsx
-msgid "Change the thinking level; it applies from the next turn."
-msgstr "Change the thinking level; it applies from the next turn."
-
-#: src/lib/thinking-level.ts
-msgid "Off"
-msgstr "Off"
-
-#: src/lib/thinking-level.ts
-msgid "Minimal"
-msgstr "Minimal"
-
-#: src/lib/thinking-level.ts
-msgid "Low"
-msgstr "Low"
-
-#: src/lib/thinking-level.ts
-msgid "Medium"
-msgstr "Medium"
-
-#: src/lib/thinking-level.ts
-msgid "High"
-msgstr "High"
-
-#: src/lib/thinking-level.ts
-msgid "Extra high"
-msgstr "Extra high"
-
-#: src/lib/thinking-level.ts
-msgid "Max"
-msgstr "Max"
-
-#: src/features/settings/model-presets.tsx
-msgid "Always appended"
-msgstr "Always appended"
-
-#: src/features/settings/model-presets.tsx
-msgid "Auto review"
-msgstr "Auto review"
-
-#: src/features/settings/model-presets.tsx
-msgid "Changes take effect on the next model request."
-msgstr "Changes take effect on the next model request."
-
-#: src/features/settings/model-presets.tsx
-msgid "Default prompt"
-msgstr "Default prompt"
-
-#: src/features/settings/model-presets.tsx
-msgid "Default prompt and protocol"
-msgstr "Default prompt and protocol"
-
-#: src/features/settings/model-presets.tsx
-msgid "Leave empty to use the default prompt."
-msgstr "Leave empty to use the default prompt."
-
-#: src/features/settings/model-presets.tsx
-msgid "Model presets"
-msgstr "Model presets"
-
-#: src/features/settings/model-presets.tsx
-msgid "Preset saved."
-msgstr "Preset saved."
-
-#: src/features/settings/model-presets.tsx
-msgid "System prompt"
-msgstr "System prompt"
-
-#: src/features/settings/model-presets.tsx
-msgid "The model list could not be loaded."
-msgstr "The model list could not be loaded."
-
-#: src/features/settings/model-presets.tsx
-msgid "Title generation"
-msgstr "Title generation"
-
-#: src/features/settings/model-presets.tsx
-msgid "Use the session's model"
-msgstr "Use the session's model"
-
-#: src/features/sessions/new-session-page.tsx
-msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
-msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
-
-#: src/features/sessions/new-session-page.tsx
-msgid "Compaction is not available before the session exists."
-msgstr "Compaction is not available before the session exists."
-
-#: src/features/sessions/new-session-page.tsx
-msgid "No model"
-msgstr "No model"
-
-#: src/features/sessions/new-session-page.tsx
-msgid "What's on your plan today?"
-msgstr "What's on your plan today?"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Image understanding"
-msgstr "Image understanding"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Request body (JSON)"
-msgstr "Request body (JSON)"
-
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Standard"
-msgstr "Standard"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
-msgstr "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
-
-#: src/features/settings/providers.ts
-msgid "Off cannot be hidden; give it a display name."
-msgstr "Off cannot be hidden; give it a display name."
-
-#: src/features/settings/model-dialog.tsx
-msgid "{level} display name"
-msgstr "{level} display name"

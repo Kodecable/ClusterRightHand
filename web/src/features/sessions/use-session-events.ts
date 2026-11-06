@@ -1,14 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { enc } from "@/lib/api/client";
 import { subscribeSse } from "@/lib/api/sse";
-import {
-	type AgentEvent,
-	type EntryRecord,
-	initialState,
-	prependHistory,
-	reduceAll,
-	type SessionState,
-} from "./sessionState";
+import type { AgentEvent, EntryRecord } from "./session-events";
+import { initialState, prependHistory, reduceAll, type SessionState } from "./session-reducer";
 import { TranscriptStreams } from "./transcript-streams";
 
 export type Connection = "connecting" | "live" | "reconnecting";

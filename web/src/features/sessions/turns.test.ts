@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { TranscriptItem } from "./sessionState";
+import type { TranscriptItem } from "./transcript-items";
 import { buildTranscriptTurns } from "./turns";
 
 const user = (key: string, at?: number): TranscriptItem => ({

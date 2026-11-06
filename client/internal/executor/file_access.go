@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"golang.org/x/sys/unix"
 )
 
@@ -67,7 +68,7 @@ type fileAttr struct {
 // can no more be read to its end than a FIFO (doc/privilege.md 方法与目标).
 func notRegular(err error, path string) error {
 	if errors.Is(err, unix.ENXIO) {
-		return errf("not_regular_file", "%s is not a regular file", path)
+		return errf(protocol.CodeNotRegularFile, "%s is not a regular file", path)
 	}
 	return err
 }
@@ -76,7 +77,7 @@ func notRegular(err error, path string) error {
 // may block forever even when the task is cancelled (doc/privilege.md 方法与目标).
 func checkNotSpecial(fi fs.FileInfo, path string) error {
 	if fi.Mode()&fs.ModeNamedPipe != 0 || fi.Mode()&fs.ModeSocket != 0 {
-		return errf("not_regular_file", "%s is not a regular file", path)
+		return errf(protocol.CodeNotRegularFile, "%s is not a regular file", path)
 	}
 	return nil
 }
@@ -123,7 +124,7 @@ func readLink(f *os.File) (string, error) {
 func splitParent(p string) (dir, base string, err error) {
 	dir, base = filepath.Split(p)
 	if base == "" || strings.ContainsRune(base, '/') || base == "." || base == ".." {
-		return "", "", errf("is_directory", "%s is a directory", p)
+		return "", "", errf(protocol.CodeIsDirectory, "%s is a directory", p)
 	}
 	return filepath.Clean(dir), base, nil
 }
@@ -171,7 +172,7 @@ func (plainAccess) openList(path string) (*os.File, error) {
 				return nil, &os.PathError{Op: "open", Path: path, Err: err}
 			}
 		}
-		return nil, errf("not_a_directory", "%s is not a directory", path)
+		return nil, errf(protocol.CodeNotADirectory, "%s is not a directory", path)
 	}
 	// O_DIRECTORY keeps the open from succeeding if the path stopped being a directory after the
 	// stat: opening a FIFO or device that replaced it would have the side effects the stat avoids.
@@ -198,7 +199,7 @@ func (plainAccess) openWrite(path string, edit bool) (*writeTarget, error) {
 		return nil, err
 	}
 	if fi != nil && fi.IsDir() {
-		return nil, errf("is_directory", "%s is a directory", path)
+		return nil, errf(protocol.CodeIsDirectory, "%s is a directory", path)
 	}
 	dir, name, err := splitParent(target)
 	if err != nil {
@@ -208,8 +209,8 @@ func (plainAccess) openWrite(path string, edit bool) (*writeTarget, error) {
 	// reading it would need more.
 	fd, err := unix.Open(dir, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
-		// An edit opens the target itself, so HEAD named the target when its parent was missing; a
-		// write creates a temporary file in the parent, and the new message names the directory.
+		// An edit opens the target itself, so its error names the target when the parent is
+		// missing; a write creates a temporary file in the parent, so its error names the directory.
 		report := dir
 		if edit {
 			report = target
@@ -314,7 +315,7 @@ func resolveWriteTarget(path string) (string, fs.FileInfo, error) {
 		}
 		path = link
 	}
-	return "", nil, errf("io_error", "too many levels of symbolic links in %s", path)
+	return "", nil, errf(protocol.CodeIOError, "too many levels of symbolic links in %s", path)
 }
 
 // privilegedFileRoot is an fd for "/" that privileged file tasks resolve their paths from.
@@ -360,7 +361,7 @@ func beneath(p string) string {
 func openat2Error(p string, err error) error {
 	switch {
 	case errors.Is(err, unix.ELOOP):
-		return errf("symlink_not_allowed", "%s contains a symbolic link", p)
+		return errf(protocol.CodeSymlinkNotAllowed, "%s contains a symbolic link", p)
 	case errors.Is(err, unix.ENOSYS), errors.Is(err, unix.EPERM):
 		return errf("openat2_unavailable", "cannot resolve %s safely: openat2 with RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS is unavailable (%v)", p, err)
 	}
@@ -402,7 +403,7 @@ func (a privilegedAccess) openList(path string) (*os.File, error) {
 	}
 	if !fi.IsDir() {
 		f.Close()
-		return nil, errf("not_a_directory", "%s is not a directory", path)
+		return nil, errf(protocol.CodeNotADirectory, "%s is not a directory", path)
 	}
 	return f, nil
 }
@@ -433,10 +434,10 @@ func (a privilegedAccess) openWrite(path string, _ bool) (*writeTarget, error) {
 		switch st.Mode & unix.S_IFMT {
 		case unix.S_IFLNK:
 			dfd.Close()
-			return nil, errf("symlink_not_allowed", "%s is a symbolic link", path)
+			return nil, errf(protocol.CodeSymlinkNotAllowed, "%s is a symbolic link", path)
 		case unix.S_IFDIR:
 			dfd.Close()
-			return nil, errf("is_directory", "%s is a directory", path)
+			return nil, errf(protocol.CodeIsDirectory, "%s is a directory", path)
 		}
 		t.existing = &fileAttr{mode: st.Mode, uid: int(st.Uid), gid: int(st.Gid)}
 	case errors.Is(err, unix.ENOENT):
@@ -499,10 +500,10 @@ func (a privilegedAccess) openExisting(t *writeTarget) (*os.File, error) {
 	if err != nil {
 		switch {
 		case errors.Is(err, unix.ELOOP):
-			return nil, errf("symlink_not_allowed", "%s is a symbolic link", t.path)
+			return nil, errf(protocol.CodeSymlinkNotAllowed, "%s is a symbolic link", t.path)
 		case errors.Is(err, unix.ENOENT) && t.existing == nil:
-			// HEAD's privileged edit failed at the stat of the missing file and reported the bare
-			// errno; keep that message now that the open reports the missing file.
+			// A missing file is reported as the bare errno, without the path: a privileged edit
+			// of a missing file fails with "no such file or directory".
 			return nil, unix.ENOENT
 		}
 		return nil, notRegular(err, t.path)

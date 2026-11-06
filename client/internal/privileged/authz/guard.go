@@ -129,18 +129,41 @@ func (s ruleSet) allows(method, target string) bool {
 	return false
 }
 
-// guardAllows applies a trust entry's deny and allow lists in the documented order: any
-// deny hit rejects, and a non-empty allow list must contain a hit.
-func guardAllows(entry *Entry, method, target string) bool {
-	deny := compileRules(entry.Deny)
-	if deny.denies(method, target) {
+// Guard is a trust entry's deny and allow lists, compiled. A configuration loader builds it
+// once with CompileGuard, so Decide does not recompile the rules for every task.start.
+type Guard struct {
+	deny  ruleSet
+	allow ruleSet
+	// hasAllow reports a non-empty allow list; an empty one places no restriction.
+	hasAllow bool
+}
+
+// CompileGuard compiles a trust entry's allow and deny lists. A list that does not compile
+// fails closed when the guard is applied (see ruleSet).
+func CompileGuard(allow, deny []protocol.GuardRule) *Guard {
+	return &Guard{deny: compileRules(deny), allow: compileRules(allow), hasAllow: len(allow) != 0}
+}
+
+// allows applies the deny and allow lists in the documented order: any deny hit rejects, and
+// a non-empty allow list must contain a hit.
+func (g *Guard) allows(method, target string) bool {
+	if g.deny.denies(method, target) {
 		return false
 	}
-	allow := compileRules(entry.Allow)
-	if len(entry.Allow) == 0 {
+	if !g.hasAllow {
 		return true
 	}
-	return allow.allows(method, target)
+	return g.allow.allows(method, target)
+}
+
+// guardAllows applies a trust entry's guard rules: its compiled Guard, or Allow and Deny
+// compiled now when the entry carries none.
+func guardAllows(entry *Entry, method, target string) bool {
+	guard := entry.Guard
+	if guard == nil {
+		guard = CompileGuard(entry.Allow, entry.Deny)
+	}
+	return guard.allows(method, target)
 }
 
 // envAllowed reports whether every environment variable the task carries is listed in the

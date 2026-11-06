@@ -12,9 +12,9 @@ import type { TasksTable } from "../storage/schema.ts";
 import { KeyedQueue } from "../util/keyed-queue.ts";
 import type { GroupBudget } from "./batch-output.ts";
 import type { NodeLink } from "./links.ts";
+import type { Live } from "./live-output.ts";
 import { getNode, type NodeRow } from "./nodes.ts";
 import type { SshConnection } from "./ssh-runner.ts";
-import type { Live } from "./task-state.ts";
 import {
 	type Actor,
 	type ClusterOptions,
@@ -187,6 +187,14 @@ export class ClusterCore {
 	/** A node that is ready right now, without waiting: an online link (or an SSH route). */
 	readyNodeNow(nodeId: string): Promise<ReadyNode | undefined> {
 		return this.#readyNode(nodeId, { trust: false }, 0);
+	}
+
+	/**
+	 * A node ready to take a task.start: at once when it is connected, else after waitNodeReady (D113).
+	 * `trust` applies only to the wait: a connected node is ready even before its new trust report.
+	 */
+	async readyNode(nodeId: string, options: { trust?: boolean } = {}): Promise<ReadyNode | undefined> {
+		return (await this.readyNodeNow(nodeId)) ?? (await this.waitNodeReady(nodeId, options));
 	}
 
 	/**

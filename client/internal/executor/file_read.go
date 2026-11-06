@@ -25,7 +25,7 @@ func fileRead(ctx context.Context, acc fileAccess, s *protocol.FileReadSpec, std
 		return nil, err
 	}
 	if fi.IsDir() {
-		return nil, errf("is_directory", "%s is a directory", s.Path)
+		return nil, errf(protocol.CodeIsDirectory, "%s is a directory", s.Path)
 	}
 	if err := checkNotSpecial(fi, s.Path); err != nil {
 		return nil, err
@@ -48,7 +48,7 @@ func fileRead(ctx context.Context, acc fileAccess, s *protocol.FileReadSpec, std
 // byte cap, whole lines only; it does not read the rest of the file (doc/protocol.md#任务).
 func readPage(ctx context.Context, r io.Reader, s *protocol.FileReadSpec, stdout io.Writer) (*protocol.FileReadResult, error) {
 	if s.StartLine < 1 || s.LineCount < 1 {
-		return nil, errf("invalid_spec", "startLine and lineCount must be at least 1")
+		return nil, errf(protocol.CodeInvalidSpec, "startLine and lineCount must be at least 1")
 	}
 	res := protocol.FileReadResult{}
 	lr := &lineReader{br: bufio.NewReaderSize(r, 64<<10)}

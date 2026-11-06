@@ -196,7 +196,7 @@ pi_tasks = "7d"  # durable 已结束的运行记录；"off" 表示永久保留
 ```
 
 - `tasks`（默认 `90d`）同时作用于 `tasks`、`task_groups` 和 `authorizations`；`audit`（默认 `180d`）作用于 `audit_events`；`pi_tasks`（默认 `7d`）作用于 pi-durable 的 `pi_tasks`。值可以是 `ms` / `s` / `m` / `h` / `d` 组合的时长（如 `1d12h`），`off` 表示不清理。
-- 除 `off` 外最短 1 天，配置更短会启动失败。durable 工具调用在崩溃后重跑时按任务 id 重新挂到原来的集群任务（`cluster/task-state.ts` 的 `createTask`）；如果任务行已被删掉，同一条命令会被再次下发。
+- 除 `off` 外最短 1 天，配置更短会启动失败。durable 工具调用在崩溃后重跑时按任务 id 重新挂到原来的集群任务（`cluster/task-dispatch.ts` 的 `createTask`）；如果任务行已被删掉，同一条命令会被再次下发。
 - `tasks`：只删终态（`exited`、`failed`、`rejected`、`unknown`、`denied`）且 `finished_at < 截止时间`的行；非终态（等待审批/授权、已下发、运行中）和 `finished_at` 为 NULL 的行无论多老都保留。
 - `task_groups`：只删终态（`finished`、`interrupted`、`rejected`）且 `finished_at < 截止时间`的行。
 - `authorizations`：删 `deadline < 截止时间`的行（D103 起每条授权都有截止时间）；`deadline` 为 NULL 的旧行保留。

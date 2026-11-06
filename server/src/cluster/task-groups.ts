@@ -9,21 +9,28 @@ import type { Db } from "../storage/db.ts";
 import type { BatchOutputMode, TaskGroupState, TaskGroupsTable } from "../storage/schema.ts";
 import { defaultOrgId, UserError } from "../users/service.ts";
 import { derivedId, newId } from "../util/id.ts";
+import {
+	agentRouting,
+	agentRoutingAudit,
+	approvalAudit,
+	chainWith,
+	mergeApproval,
+	reviewAudit,
+	rulesApproval,
+} from "./approval.ts";
 import { checkedOutputLimits } from "./batch-output.ts";
+import type { Cluster } from "./cluster.ts";
+import { ALL_TARGET, nameKey } from "./names.ts";
+import { listNodesForUser } from "./nodes.ts";
+import { operationOfJson, specFromRow, summarize } from "./spec.ts";
 import {
 	type Actor,
 	type AgentRequest,
 	type ApprovalDecision,
-	type Cluster,
 	type CreateTaskInput,
-	operationOfJson,
-	specFromRow,
-	summarize,
 	type TaskView,
 	TERMINAL,
-} from "./cluster.ts";
-import { ALL_TARGET, nameKey } from "./names.ts";
-import { listNodesForUser } from "./nodes.ts";
+} from "./types.ts";
 
 export const DEFAULT_PARALLEL = 10;
 /** One task group targets at most this many nodes, after target expansion and de-duplication (D85). */
@@ -515,10 +522,7 @@ export class TaskGroups {
 		// Build the input before changing state: a legacy spec that cannot be read must fail the request
 		// without leaving a group that is running but has no tasks.
 		const input = approved ? this.#inputFromRow(row) : undefined;
-		const record: TaskGroupApprovalRecord = {
-			...(JSON.parse(row.approval ?? "{}") as TaskGroupApprovalRecord),
-			decision,
-		};
+		const record = mergeApproval<TaskGroupApprovalRecord>(row.approval, { decision });
 		const res = await this.#db
 			.updateTable("task_groups")
 			.set({
@@ -534,16 +538,7 @@ export class TaskGroups {
 			.executeTakeFirst();
 		if (res.numUpdatedRows === 0n) return false;
 		this.onChange?.(row.actor_id);
-		this.#auditLater({
-			actor: {
-				type: decision.by.type,
-				id: decision.by.id,
-				onBehalfOfUserId: decision.by.onBehalfOfUserId ?? row.on_behalf_of_user_id,
-			},
-			action: "task_group.approval",
-			target: { type: "task_group", id },
-			detail: { decision: decision.decision, reason: decision.reason },
-		});
+		this.#auditLater(approvalAudit("task_group", id, row.on_behalf_of_user_id, decision));
 		if (approved && input) {
 			const started = await this.#startedNodes(id);
 			const remaining = (JSON.parse(row.node_ids) as string[]).filter((n) => !started.has(n));
@@ -566,77 +561,55 @@ export class TaskGroups {
 		return true;
 	}
 
+	/**
+	 * Stores Auto Review's verdict on a waiting group. Unlike a task's (task-approval.ts), a group's approval
+	 * steps run on no queue: the write here is unguarded, the routing writes below guard on the state.
+	 */
 	async recordReview(id: string, review: NonNullable<TaskGroupApprovalRecord["review"]>): Promise<void> {
 		const row = await this.#row(id);
 		if (row?.state !== "awaiting_approval") return;
-		const record: TaskGroupApprovalRecord = {
-			...(JSON.parse(row.approval ?? "{}") as TaskGroupApprovalRecord),
-			review,
-		};
+		const record = mergeApproval<TaskGroupApprovalRecord>(row.approval, { review });
 		await this.#db
 			.updateTable("task_groups")
 			.set({ approval: JSON.stringify(record) })
 			.where("id", "=", id)
 			.execute();
-		this.#auditLater({
-			actor: { type: "system", id: "auto-review", onBehalfOfUserId: row.on_behalf_of_user_id },
-			action: "task_group.review",
-			target: { type: "task_group", id },
-			detail: review,
-		});
+		this.#auditLater(reviewAudit("task_group", id, row.on_behalf_of_user_id, review));
 	}
 
 	/** Hands a waiting group's approval to an ancestor session's agent (doc/agent-runtime.md#处理子会话的请求). */
-	async requestAgentDecision(id: string, session: string): Promise<boolean> {
-		const row = await this.#row(id);
-		if (row?.state !== "awaiting_approval") return false;
-		const record: TaskGroupApprovalRecord = {
-			...(JSON.parse(row.approval ?? "{}") as TaskGroupApprovalRecord),
-			agent: { session, state: "pending" },
-		};
-		const res = await this.#db
-			.updateTable("task_groups")
-			.set({ approval: JSON.stringify(record), handler_type: "agent", handler_session_id: session })
-			.where("id", "=", id)
-			.where("state", "=", "awaiting_approval")
-			.executeTakeFirst();
-		if (res.numUpdatedRows === 0n) return false;
-		this.onChange?.(row.actor_id);
-		this.#auditLater({
-			actor: { type: "system", id: "agent-routing" },
-			action: "task_group.agent_request",
-			target: { type: "task_group", id },
-			detail: { session },
-		});
-		return true;
+	requestAgentDecision(id: string, session: string): Promise<boolean> {
+		return this.#routeAgentDecision(id, session, "pending");
 	}
 
 	/** The agent passed the request on to the user: the approval page takes it from here. */
-	async escalateAgentDecision(id: string, session: string): Promise<boolean> {
+	escalateAgentDecision(id: string, session: string): Promise<boolean> {
+		return this.#routeAgentDecision(id, session, "escalated");
+	}
+
+	/** Routes a waiting group's approval to an agent or back to the user; false when it is no longer waiting. */
+	async #routeAgentDecision(id: string, session: string, state: AgentRequest["state"]): Promise<boolean> {
 		const row = await this.#row(id);
 		if (row?.state !== "awaiting_approval") return false;
-		const record: TaskGroupApprovalRecord = {
-			...(JSON.parse(row.approval ?? "{}") as TaskGroupApprovalRecord),
-			agent: { session, state: "escalated" },
-		};
+		const routing = agentRouting(session, state);
+		const record = mergeApproval<TaskGroupApprovalRecord>(row.approval, { agent: routing.agent });
 		const res = await this.#db
 			.updateTable("task_groups")
-			.set({ approval: JSON.stringify(record), handler_type: "user", handler_session_id: null })
+			.set({ approval: JSON.stringify(record), ...routing.handler })
 			.where("id", "=", id)
 			.where("state", "=", "awaiting_approval")
 			.executeTakeFirst();
 		if (res.numUpdatedRows === 0n) return false;
 		this.onChange?.(row.actor_id);
-		this.#auditLater({
-			actor: { type: "system", id: "agent-routing" },
-			action: "task_group.agent_escalated",
-			target: { type: "task_group", id },
-			detail: { session },
-		});
+		this.#auditLater(agentRoutingAudit("task_group", id, session, state));
 		return true;
 	}
 
-	/** Re-judges waiting groups on a chain whose rules changed; settles those that no longer need approval. */
+	/**
+	 * Re-judges waiting groups on a chain whose rules changed; settles those that no longer need approval.
+	 * Unlike a task's reevaluate (task-approval.ts), there is no deny branch here: only require-approval
+	 * keeps a group waiting, and it runs on no queue.
+	 */
 	async reevaluate(ref: RuleRef): Promise<void> {
 		const rows = await this.#db
 			.selectFrom("task_groups")
@@ -645,8 +618,8 @@ export class TaskGroups {
 			.where("rule_chain", "is not", null)
 			.execute();
 		for (const row of rows) {
-			const chain = JSON.parse(row.rule_chain ?? "[]") as RuleRef[];
-			if (!chain.some((r) => r.type === ref.type && r.id === ref.id)) continue;
+			const chain = chainWith(row.rule_chain, ref);
+			if (!chain) continue;
 			let spec: TaskSpec;
 			try {
 				spec = specFromRow(row.spec, "task group");
@@ -671,12 +644,7 @@ export class TaskGroups {
 			}
 			if (!stillWaiting) {
 				// Each task is judged again when it is created, so nodes now denied end up denied.
-				await this.decide(row.id, {
-					decision: "approved",
-					by: { type: "system", id: "rules" },
-					at: now(),
-					reason: "allowed by changed rules",
-				});
+				await this.decide(row.id, rulesApproval(now()));
 			}
 		}
 	}

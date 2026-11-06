@@ -7,148 +7,6 @@ msgstr ""
 "X-Generator: @lingui/cli\n"
 "Language: zh-CN\n"
 
-#: src/features/settings/providers.ts
-msgid "A mapped level value is required."
-msgstr "填写映射值后才可使用该档。"
-
-#: src/features/settings/pages.tsx
-msgid "Add a Pi built-in provider or a custom endpoint."
-msgstr "添加 Pi 内置提供方或自定义端点。"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Add field"
-msgstr "添加字段"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Add header"
-msgstr "添加请求头"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Advanced pi-ai options, validated against the protocol's schema. Leave empty for auto-detection."
-msgstr "高级 pi-ai 选项，按所选协议校验；留空表示自动判断。"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Auto (omit)"
-msgstr "自动（不指定）"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
-msgstr "自动表示由 pi-ai 根据 Base URL 判断。Responses 固定发送 reasoning.effort。"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Body fields"
-msgstr "请求体字段"
-
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Chat Completions"
-msgstr "Chat Completions"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Compat (JSON, advanced)"
-msgstr "compat（JSON，高级）"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Compat JSON"
-msgstr "compat JSON"
-
-#: src/features/settings/providers.ts
-msgid "Compat must be a JSON object."
-msgstr "compat 必须是 JSON 对象。"
-
-#: src/features/settings/providers.ts
-msgid "Compat must be valid JSON."
-msgstr "compat 必须是有效的 JSON。"
-
-#: src/features/settings/pages.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Custom"
-msgstr "自定义"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Default (omitted)"
-msgstr "默认"
-
-#. placeholder {0}: index + 1
-#. placeholder {0}: initial.id
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Edit model {0}"
-msgstr "编辑模型 {0}"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Extra headers"
-msgstr "额外请求头"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Header"
-msgstr "请求头"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Header {0} name"
-msgstr "请求头 {0} 名称"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Header {0} value"
-msgstr "请求头 {0} 值"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Headers"
-msgstr "请求头"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Image"
-msgstr "图像"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Level mapping"
-msgstr "档位映射"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Mapped value"
-msgstr "映射值"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Mapping"
-msgstr "映射"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Max output"
-msgstr "最大输出"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Max output tokens"
-msgstr "最大输出 token"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Model id"
-msgstr "模型 id"
-
-#: src/features/settings/providers.ts
-msgid "Model ids must be unique."
-msgstr "模型 id 不能重复。"
-
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "None"
-msgstr "不支持"
-
-#. js-lingui-explicit-id
-#: src/app/shell/app-sidebar.tsx
-msgid "Ops console"
-msgstr "运维控制台"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Optional, overrides the provider's default endpoint."
-msgstr "可选，覆盖默认提供方的端点。"
-
-#. js-lingui-explicit-id
-#: src/app/shell/app-sidebar.tsx
-msgid "Pending approvals"
-msgstr "待处理审批"
-
 #: src/components/task-result.tsx
 msgid " (a new file)"
 msgstr "（新文件）"
@@ -172,99 +30,6 @@ msgstr "（批量运行被中断）"
 #: src/components/task-result.tsx
 msgid ", {total} lines in all"
 msgstr "，共 {total} 行"
-
-#: src/features/settings/pages.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Pi built-in"
-msgstr "Pi 内置"
-
-#: src/features/settings/pages.tsx
-msgid "Pi built-in providers and custom endpoints; their keys are never shown back."
-msgstr "Pi 内置提供方和自定义端点；密钥不会回显。"
-
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Protocol"
-msgstr "协议"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Remove header {0}"
-msgstr "删除请求头 {0}"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Remove session id body field {0}"
-msgstr "删除会话 id 请求体字段 {0}"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Remove session id header {0}"
-msgstr "删除会话 id 请求头 {0}"
-
-#: src/features/settings/providers.ts
-msgid "Request body overrides must be a JSON object."
-msgstr "请求体覆盖必须是 JSON 对象。"
-
-#: src/features/settings/providers.ts
-msgid "Request body overrides must be valid JSON."
-msgstr "请求体覆盖必须是有效的 JSON。"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Request body per level"
-msgstr "各档请求体"
-
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Responses"
-msgstr "Responses"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Save model"
-msgstr "保存模型"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Session id body field {0}"
-msgstr "会话 id 请求体字段 {0}"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Session id fields"
-msgstr "会话 id 字段"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Session id header {0}"
-msgstr "会话 id 请求头 {0}"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Thinking format"
-msgstr "思考格式"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Thinking level mapping"
-msgstr "思考档位映射"
-
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Value"
-msgstr "值"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "auto"
-msgstr "自动"
-
-#: src/features/settings/model-dialog.tsx
-msgid "{level} mapping"
-msgstr "{level} 映射"
-
-#: src/features/settings/model-dialog.tsx
-msgid "{level} request body JSON"
-msgstr "{level} 请求体 JSON"
-
-#: src/features/settings/model-dialog.tsx
-msgid "{level} value"
-msgstr "{level} 值"
 
 #: src/components/task-result.tsx
 msgid "… {omitted} bytes omitted …"
@@ -292,8 +57,8 @@ msgstr "{0, plural, one {# 名成员} other {# 名成员}}"
 
 #. placeholder {0}: queued
 #: src/features/sessions/session-banner.tsx
-msgid "{0, plural, one {# message queued} other {# messages queued}}"
-msgstr "{0, plural, one {已排队 # 条消息} other {已排队 # 条消息}}"
+#~ msgid "{0, plural, one {# message queued} other {# messages queued}}"
+#~ msgstr "{0, plural, one {已排队 # 条消息} other {已排队 # 条消息}}"
 
 #. placeholder {0}: value.length
 #: src/components/node-group-picker.tsx
@@ -386,6 +151,22 @@ msgstr "共 {exact} 个 token"
 #~ msgid "{groupKind} on {groupTargets}"
 #~ msgstr "{groupKind}，目标：{groupTargets}"
 
+#: src/features/settings/model-dialog.tsx
+msgid "{level} display name"
+msgstr "{level} 显示名"
+
+#: src/features/settings/model-dialog.tsx
+msgid "{level} mapping"
+msgstr "{level} 映射"
+
+#: src/features/settings/model-dialog.tsx
+msgid "{level} request body JSON"
+msgstr "{level} 请求体 JSON"
+
+#: src/features/settings/model-dialog.tsx
+msgid "{level} value"
+msgstr "{level} 值"
+
 #: src/markdown/CodeBlock.tsx
 msgid "{lineCount, plural, one {# line} other {# lines}}"
 msgstr "{lineCount, plural, one {# 行} other {# 行}}"
@@ -393,6 +174,10 @@ msgstr "{lineCount, plural, one {# 行} other {# 行}}"
 #: src/components/code-text.tsx
 msgid "{lines, plural, one {# line} other {# lines}}"
 msgstr "{lines, plural, one {# 行} other {# 行}}"
+
+#: src/features/sessions/session-banner.tsx
+msgid "{queued, plural, one {# message queued} other {# messages queued}}"
+msgstr "{queued, plural, one {已排队 # 条消息} other {已排队 # 条消息}}"
 
 #: src/features/sessions/children-bar.tsx
 msgid "{running} running"
@@ -477,6 +262,10 @@ msgstr "此密钥的名称，例如“laptop”。"
 #: src/components/task-result.tsx
 msgid "A line alone is longer than the 50 KB a page keeps."
 msgstr "单独一行超过一页保留的 50 KB。"
+
+#: src/features/settings/providers.ts
+msgid "A mapped level value is required."
+msgstr "填写映射值后才可使用该档。"
 
 #: src/features/schedules/scheduleForm.ts
 #: src/features/tokens/create-token-dialog.tsx
@@ -638,6 +427,10 @@ msgstr "添加"
 msgid "Add a Passkey"
 msgstr "添加 Passkey"
 
+#: src/features/settings/pages.tsx
+msgid "Add a Pi built-in provider or a custom endpoint."
+msgstr "添加 Pi 内置提供方或自定义端点。"
+
 #: src/features/nodes/pages.tsx
 msgid "Add a signing credential or connect crhs before configuring trust."
 msgstr "配置信任前，请先添加签名凭据或连接 crhs。"
@@ -654,6 +447,14 @@ msgstr "添加 SSH 密钥"
 msgid "Add an SSH key or register a Passkey to sign authorizations for privileged tasks."
 msgstr "添加 SSH 密钥或注册 Passkey，以便为特权任务签名授权。"
 
+#: src/features/settings/provider-dialog.tsx
+msgid "Add field"
+msgstr "添加字段"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Add header"
+msgstr "添加请求头"
+
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Add jump host"
 msgstr "添加跳板机"
@@ -662,6 +463,7 @@ msgstr "添加跳板机"
 msgid "Add member"
 msgstr "添加成员"
 
+#: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Add model"
 msgstr "添加模型"
@@ -721,6 +523,10 @@ msgstr "管理员"
 #: src/features/ssh-credentials/pages.tsx
 msgid "Administrators only"
 msgstr "仅管理员"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Advanced pi-ai options, validated against the protocol's schema. Leave empty for auto-detection."
+msgstr "高级 pi-ai 选项，按所选协议校验；留空表示自动判断。"
 
 #: src/features/nodes/add-node-dialog.tsx
 msgid "After the node connects it appears as pending; compare its key fingerprint with <0>crha status</0> on the node before approving."
@@ -790,6 +596,10 @@ msgstr "已尝试：{0}。"
 #: src/components/approval-card.tsx
 msgid "Always allow rule"
 msgstr "始终允许规则"
+
+#: src/features/settings/model-presets.tsx
+msgid "Always appended"
+msgstr "始终附加"
 
 #: src/features/node-groups/pages.tsx
 msgid "An administrator creates node groups."
@@ -892,7 +702,7 @@ msgstr "批准节点"
 msgid "Approved"
 msgstr "已批准"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Arguments"
 msgstr "参数"
 
@@ -908,9 +718,9 @@ msgstr "请让管理员配置一个。"
 msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line, /compact summarizes older context."
 msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行，/compact 压缩较早的上下文。"
 
-#: src/features/sessions/composer.tsx
-#~ msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
-#~ msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行。"
+#: src/features/sessions/new-session-page.tsx
+msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
+msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行。"
 
 #: src/features/schedules/scheduleForm.ts
 #~ msgid "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
@@ -978,6 +788,22 @@ msgstr "授权已提交。"
 msgid "Authorizations"
 msgstr "授权"
 
+#: src/features/settings/provider-dialog.tsx
+msgid "auto"
+msgstr "自动"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Auto (omit)"
+msgstr "自动（不指定）"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
+msgstr "自动表示由 pi-ai 根据 Base URL 判断。Responses 固定发送 reasoning.effort。"
+
+#: src/features/settings/model-presets.tsx
+msgid "Auto review"
+msgstr "自动复核"
+
 #: src/features/schedules/scheduleForm.ts
 #~ msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
 #~ msgstr "Auto Review：审批先交给复核模型；有风险的操作仍会等你，注意事项与 Ask 相同。"
@@ -1009,6 +835,7 @@ msgstr "等待签名"
 msgid "Back"
 msgstr "上一步"
 
+#: src/features/sessions/new-session-page.tsx
 #: src/features/sessions/session-header.tsx
 msgid "Back to the session list"
 msgstr "返回会话列表"
@@ -1029,6 +856,10 @@ msgstr "批量运行"
 #: src/features/batch/pages.tsx
 msgid "Batch started."
 msgstr "批量运行已开始。"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Body fields"
+msgstr "请求体字段"
 
 #: src/components/quota-card.tsx
 msgid "Budget"
@@ -1064,6 +895,7 @@ msgstr "操作者"
 #: src/features/nodes/add-node-dialog.tsx
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/schedules/create-schedule-dialog.tsx
+#: src/features/settings/model-dialog.tsx
 msgid "Cancel"
 msgstr "取消"
 
@@ -1073,7 +905,7 @@ msgstr "取消任务"
 
 #: src/components/status-badge.tsx
 #: src/components/task-result.tsx
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 msgid "Cancelled"
 msgstr "已取消"
 
@@ -1098,9 +930,22 @@ msgstr "更换模型；从下一轮开始生效。"
 msgid "Change the rule preset; it applies to the next tool call."
 msgstr "更换规则预设；从下一次工具调用开始生效。"
 
+#: src/features/sessions/composer-footer.tsx
+msgid "Change the thinking level; it applies from the next turn."
+msgstr "修改思考档位；从下一轮起生效。"
+
+#: src/features/settings/model-presets.tsx
+msgid "Changes take effect on the next model request."
+msgstr "改动从下一次模型请求起生效。"
+
 #: src/features/sessions/share-dialog.tsx
 msgid "Chat"
 msgstr "聊天"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Chat Completions"
+msgstr "Chat Completions"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Check the highlighted fields."
@@ -1226,6 +1071,10 @@ msgstr "正在压缩上下文"
 msgid "Compaction failed."
 msgstr "压缩失败。"
 
+#: src/features/sessions/new-session-page.tsx
+msgid "Compaction is not available before the session exists."
+msgstr "会话创建前不能压缩上下文。"
+
 #: src/features/sessions/composer.tsx
 #~ msgid "Compaction requested: older messages will be summarized in the background. A short conversation has nothing to summarize yet."
 #~ msgstr "已请求压缩：较早的消息会在后台生成摘要。对话较短时暂时没有可压缩的内容。"
@@ -1233,6 +1082,22 @@ msgstr "压缩失败。"
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Compare it with the output of <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> on that host (the server picks one of its keys, usually ED25519). Only confirm if one of them matches."
 msgstr "请与那台主机上 <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> 的输出比对（服务器会选其中一把密钥，通常是 ED25519）。只有匹配时才确认。"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Compat (JSON, advanced)"
+msgstr "compat（JSON，高级）"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Compat JSON"
+msgstr "compat JSON"
+
+#: src/features/settings/providers.ts
+msgid "Compat must be a JSON object."
+msgstr "compat 必须是 JSON 对象。"
+
+#: src/features/settings/providers.ts
+msgid "Compat must be valid JSON."
+msgstr "compat 必须是有效的 JSON。"
 
 #: src/features/sessions/session-list.tsx
 msgid "Configure a model provider"
@@ -1270,6 +1135,7 @@ msgstr "内容"
 msgid "Context compacted"
 msgstr "上下文已压缩"
 
+#: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Context window"
 msgstr "上下文窗口"
@@ -1411,8 +1277,8 @@ msgid "Create schedule"
 msgstr "创建计划任务"
 
 #: src/features/sessions/new-session-dialog.tsx
-msgid "Create session"
-msgstr "创建会话"
+#~ msgid "Create session"
+#~ msgstr "创建会话"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Create SSH credential"
@@ -1495,6 +1361,12 @@ msgstr "Cron"
 msgid "Current password"
 msgstr "当前密码"
 
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Custom"
+msgstr "自定义"
+
 #: src/app/shell/user-menu.tsx
 msgid "Dark"
 msgstr "深色"
@@ -1526,6 +1398,18 @@ msgstr "决定已记录。"
 #: src/components/approval-card.tsx
 msgid "default"
 msgstr "默认"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Default (omitted)"
+msgstr "默认"
+
+#: src/features/settings/model-presets.tsx
+msgid "Default prompt"
+msgstr "默认提示词"
+
+#: src/features/settings/model-presets.tsx
+msgid "Default prompt and protocol"
+msgstr "默认提示词与协议说明"
 
 #: src/features/schedules/schedule-form.tsx
 #~ msgid "Defaults to this browser's timezone."
@@ -1706,12 +1590,13 @@ msgstr "放弃"
 msgid "Dispatched"
 msgstr "已派发"
 
+#: src/features/settings/model-dialog.tsx
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
 msgid "Display name"
 msgstr "显示名"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Done"
@@ -1720,6 +1605,10 @@ msgstr "完成"
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Down"
 msgstr "下移"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
+msgstr "每档的 JSON 对象会合并进请求体；只有同时填写请求体和显示名，该档才会被提供。"
 
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Each rule needs a target after the method."
@@ -1738,14 +1627,15 @@ msgstr "每条规则：action（allow、deny、require-approval）、可选 meth
 #~ msgstr "每条规则：action（allow、deny、require-approval）、可选 method（exec、file.read、file.write）、nodes，以及 exact 或 prefix。"
 
 #: src/features/settings/review-model-card.tsx
-msgid "Each session's own model"
-msgstr "每个会话自己的模型"
+#~ msgid "Each session's own model"
+#~ msgstr "每个会话自己的模型"
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Each token has its own rules; what they do not allow waits for your approval."
 msgstr "每个令牌有自己的规则；规则不允许的操作会等待你审批。"
 
 #: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Edit"
 msgstr "编辑"
 
@@ -1761,6 +1651,13 @@ msgstr "编辑 {0}"
 #: src/features/node-groups/pages.tsx
 msgid "Edit members"
 msgstr "编辑成员"
+
+#. placeholder {0}: index + 1
+#. placeholder {0}: initial.id
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Edit model {0}"
+msgstr "编辑模型 {0}"
 
 #: src/features/nodes/pages.tsx
 msgid "Edit node groups"
@@ -1815,14 +1712,12 @@ msgid "Enrollment command"
 msgstr "注册命令"
 
 #: src/components/quota-card.tsx
-#: src/features/sessions/new-session-dialog.tsx
 #: src/features/sessions/quota-dialog.tsx
 msgid "Enter a positive number of tokens to add."
 msgstr "请输入要添加的 token 数量（正整数）。"
 
 #: src/components/quota-card.tsx
 #: src/features/schedules/scheduleForm.ts
-#: src/features/sessions/new-session-dialog.tsx
 #: src/features/sessions/quota-dialog.tsx
 msgid "Enter a whole number of tokens, or leave it empty for unlimited."
 msgstr "请输入整数 token 数，留空表示不限。"
@@ -1913,7 +1808,7 @@ msgid "exact"
 msgstr "精确匹配"
 
 #. placeholder {0}: value.exitCode ?? ""
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 msgid "Exit {0}"
 msgstr "退出码 {0}"
 
@@ -1966,6 +1861,14 @@ msgstr "有效期"
 msgid "Export trust snippet"
 msgstr "导出信任片段"
 
+#: src/features/settings/provider-dialog.tsx
+msgid "Extra headers"
+msgstr "额外请求头"
+
+#: src/lib/thinking-level.ts
+msgid "Extra high"
+msgstr "很高"
+
 #. placeholder {0}: facts.length
 #: src/features/nodes/pages.tsx
 msgid "Facts ({0})"
@@ -1980,7 +1883,7 @@ msgid "failed"
 msgstr "失败"
 
 #: src/components/status-badge.tsx
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 msgid "Failed"
 msgstr "失败"
 
@@ -2056,9 +1959,31 @@ msgstr "用户组"
 #~ msgid "Groups saved."
 #~ msgstr "组已保存。"
 
+#: src/features/settings/provider-dialog.tsx
+msgid "Header"
+msgstr "请求头"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Header {0} name"
+msgstr "请求头 {0} 名称"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Header {0} value"
+msgstr "请求头 {0} 值"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Headers"
+msgstr "请求头"
+
 #: src/features/nodes/crhs-key-panel.tsx
 msgid "Hide trust snippet"
 msgstr "隐藏信任片段"
+
+#: src/lib/thinking-level.ts
+msgid "High"
+msgstr "高"
 
 #: src/features/nodes/ssh-node-section.tsx
 msgid "Hop"
@@ -2094,6 +2019,14 @@ msgstr "空闲"
 #: src/features/nodes/pages.tsx
 msgid "ignored (SSH)"
 msgstr "忽略（SSH）"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Image"
+msgstr "图像"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Image understanding"
+msgstr "图像理解"
 
 #: src/features/tasks/task-group-result.tsx
 msgid "Interrupted"
@@ -2218,9 +2151,17 @@ msgstr "最后使用"
 msgid "Leave empty to keep the current key"
 msgstr "留空以保留当前密钥"
 
+#: src/features/settings/model-presets.tsx
+msgid "Leave empty to use the default prompt."
+msgstr "留空表示使用默认提示词。"
+
 #: src/components/approval-card.tsx
 msgid "Level"
 msgstr "层级"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Level mapping"
+msgstr "档位映射"
 
 #: src/app/shell/user-menu.tsx
 msgid "Light"
@@ -2263,7 +2204,7 @@ msgstr "正在加载更早的消息…"
 msgid "Loading shares…"
 msgstr "正在加载共享…"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Loading task…"
 msgstr "正在加载任务…"
 
@@ -2273,6 +2214,7 @@ msgstr "正在加载等待处理的决定…"
 
 #: src/features/approvals/pages.tsx
 #: src/features/sessions/children-bar.tsx
+#: src/features/settings/model-presets.tsx
 #: src/features/tasks/task-group-page.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Loading…"
@@ -2282,18 +2224,46 @@ msgstr "加载中…"
 msgid "Log out"
 msgstr "退出登录"
 
+#: src/lib/thinking-level.ts
+msgid "Low"
+msgstr "低"
+
 #: src/features/settings/provider-dialog.tsx
 msgid "Lowercase letters, digits and dashes."
 msgstr "小写字母、数字和短横线。"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Mapped value"
+msgstr "映射值"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Mapping"
+msgstr "映射"
 
 #: src/components/approval-card.tsx
 msgid "Matched rule"
 msgstr "匹配规则"
 
+#: src/lib/thinking-level.ts
+msgid "Max"
+msgstr "最高"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Max output"
+msgstr "最大输出"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Max output tokens"
+msgstr "最大输出 token"
+
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Max TTL"
 msgstr "最大 TTL"
+
+#: src/lib/thinking-level.ts
+msgid "Medium"
+msgstr "中"
 
 #: src/features/users/kind-select.tsx
 #: src/features/users/new-user-dialog.tsx
@@ -2320,9 +2290,13 @@ msgid "Members of {0}"
 msgstr "{0} 的成员"
 
 #: src/features/nodes/node-trust.tsx
-#: src/features/sessions/composer.tsx
+#: src/features/sessions/composer-input.tsx
 msgid "Message"
 msgstr "消息"
+
+#: src/lib/thinking-level.ts
+msgid "Minimal"
+msgstr "最低"
 
 #: src/components/task-result.tsx
 msgid "Mode"
@@ -2330,10 +2304,21 @@ msgstr "权限"
 
 #: src/components/model-select.tsx
 #: src/features/schedules/schedule-form.tsx
-#: src/features/sessions/new-session-dialog.tsx
-#: src/features/settings/review-model-card.tsx
+#: src/features/settings/model-presets.tsx
 msgid "Model"
 msgstr "模型"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Model id"
+msgstr "模型 id"
+
+#: src/features/settings/providers.ts
+msgid "Model ids must be unique."
+msgstr "模型 id 不能重复。"
+
+#: src/features/settings/model-presets.tsx
+msgid "Model presets"
+msgstr "模型预设"
 
 #: src/features/settings/pages.tsx
 msgid "Model providers"
@@ -2416,8 +2401,8 @@ msgstr "新的请求会出现在这里和侧边栏角标中。"
 msgid "New schedule"
 msgstr "新建计划任务"
 
-#: src/features/sessions/new-session-dialog.tsx
 #: src/features/sessions/session-list.tsx
+#: src/features/sessions/sessions-index-page.tsx
 msgid "New session"
 msgstr "新会话"
 
@@ -2458,6 +2443,7 @@ msgid "Nightly check"
 msgstr "夜间检查"
 
 #: src/components/approval-card.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "No"
 msgstr "否"
 
@@ -2514,6 +2500,10 @@ msgstr "没有成员。"
 msgid "No messages yet. Start the conversation below."
 msgstr "还没有消息。在下方开始对话。"
 
+#: src/features/sessions/composer-footer.tsx
+msgid "No model"
+msgstr "无模型"
+
 #: src/features/sessions/session-list.tsx
 msgid "No model is configured"
 msgstr "尚未配置模型"
@@ -2526,13 +2516,14 @@ msgstr "还没有模型提供方"
 msgid "No models are configured, so schedules cannot run."
 msgstr "尚未配置模型，计划任务无法运行。"
 
+#: src/features/sessions/new-session-page.tsx
 #: src/features/sessions/session-list.tsx
 msgid "No models are configured, so sessions cannot start."
 msgstr "尚未配置模型，会话无法启动。"
 
 #: src/features/sessions/new-session-dialog.tsx
-msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
-msgstr "尚未配置模型，会话无法启动。请让管理员配置一个。"
+#~ msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
+#~ msgstr "尚未配置模型，会话无法启动。请让管理员配置一个。"
 
 #: src/features/node-groups/pages.tsx
 msgid "No node groups yet"
@@ -2558,7 +2549,7 @@ msgstr "未保留输出（SSH 节点不保留输出）。"
 msgid "No output was kept."
 msgstr "未保留任何输出。"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "No output yet."
 msgstr "还没有输出。"
 
@@ -2566,7 +2557,7 @@ msgstr "还没有输出。"
 msgid "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
 msgstr "此节点未信任你的任何 Passkey 用于此命令；请使用下方的 SSH 密钥签名。"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 msgid "No result"
 msgstr "无结果"
 
@@ -2654,6 +2645,7 @@ msgid "Node created."
 msgstr "节点已创建。"
 
 #: src/features/nodes/access-grants.tsx
+#: src/features/nodes/trust-warnings.tsx
 msgid "Node group"
 msgstr "节点组"
 
@@ -2750,6 +2742,11 @@ msgstr "节点"
 msgid "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
 msgstr "信任该凭据的节点会停止接受其签名。它已签发的授权在截止时间前仍然有效。"
 
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "None"
+msgstr "不支持"
+
 #: src/components/approval-card.tsx
 msgid "Not a valid rule: {error}"
 msgstr "规则无效：{error}"
@@ -2805,6 +2802,14 @@ msgstr "暂无可压缩的内容：对话中最近约 2 万 token 始终原样�
 msgid "Nothing to show."
 msgstr "没有可显示的内容。"
 
+#: src/lib/thinking-level.ts
+msgid "Off"
+msgstr "关闭"
+
+#: src/features/settings/providers.ts
+msgid "Off cannot be hidden; give it a display name."
+msgstr "off 档不能隐藏；请给它一个显示名。"
+
 #: src/components/status-badge.tsx
 msgid "Offline"
 msgstr "离线"
@@ -2855,11 +2860,11 @@ msgstr "打开审批页"
 msgid "Open task"
 msgstr "打开任务"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Open the signing page"
 msgstr "打开签名页"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Open the subagent's session"
 msgstr "打开子会话"
 
@@ -2872,6 +2877,7 @@ msgid "Open the task group"
 msgstr "打开任务组"
 
 #: src/features/sessions/session-waits.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Open the task group page"
 msgstr "打开任务组页"
 
@@ -2883,10 +2889,18 @@ msgstr "打开任务页"
 #~ msgid "Operate"
 #~ msgstr "操作"
 
+#: src/app/shell/app-sidebar.tsx
+msgid "Ops console"
+msgstr "运维控制台"
+
 #: src/features/credentials/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Optional"
 msgstr "可选"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Optional, overrides the provider's default endpoint."
+msgstr "可选，覆盖默认提供方的端点。"
 
 #: src/features/users/new-user-dialog.tsx
 msgid "Optional; at least 8 characters."
@@ -2939,7 +2953,7 @@ msgstr "输出"
 msgid "Output file"
 msgstr "输出文件"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Output so far"
 msgstr "目前的输出"
 
@@ -2971,7 +2985,7 @@ msgstr "并发数"
 msgid "Parallel must be a positive whole number."
 msgstr "并发数必须是正整数。"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 msgid "Partly failed"
 msgstr "部分失败"
 
@@ -3026,9 +3040,22 @@ msgstr "待处理"
 msgid "Pending approval"
 msgstr "待审批"
 
+#: src/app/shell/app-sidebar.tsx
+msgid "Pending approvals"
+msgstr "待处理审批"
+
 #: src/features/sessions/share-dialog.tsx
 msgid "People you share this session with; view access is read-only, chat access can send messages."
 msgstr "与你共享此会话的人；查看权限只读，聊天权限可以发送消息。"
+
+#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Pi built-in"
+msgstr "Pi 内置"
+
+#: src/features/settings/pages.tsx
+msgid "Pi built-in providers and custom endpoints; their keys are never shown back."
+msgstr "Pi 内置提供方和自定义端点；密钥不会回显。"
 
 #: src/features/sessions/sessions-index-page.tsx
 msgid "Pick a session from the list, or start a new one."
@@ -3054,23 +3081,9 @@ msgstr "前缀匹配"
 msgid "Preparing the payload to sign…"
 msgstr "正在准备待签名的载荷…"
 
-#: src/components/rule-preset-select.tsx
-#: src/features/schedules/schedule-form.tsx
-#: src/features/sessions/new-session-dialog.tsx
-#: src/features/tokens/create-token-dialog.tsx
-#: src/features/tokens/pages.tsx
-#: src/features/tokens/rules-dialog.tsx
-msgid "Rule preset"
-msgstr "规则预设"
-
-#: src/features/tokens/rules-dialog.tsx
-msgid "Rule preset saved."
-msgstr "规则预设已保存。"
-
-#. placeholder {0}: rulePresetLabel(rulePreset)
-#: src/features/sessions/composer-footer.tsx
-msgid "Rule preset: {0}"
-msgstr "规则预设：{0}"
+#: src/features/settings/model-presets.tsx
+msgid "Preset saved."
+msgstr "预设已保存。"
 
 #: src/components/approval-card.tsx
 #: src/components/task-form-fields.tsx
@@ -3099,6 +3112,11 @@ msgstr "特权"
 #: src/features/schedules/schedule-form.tsx
 msgid "Prompt"
 msgstr "提示词"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Protocol"
+msgstr "协议"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Provider"
@@ -3137,6 +3155,7 @@ msgstr "排队中"
 msgid "Quota decision recorded."
 msgstr "配额决定已记录。"
 
+#: src/features/sessions/composer-footer.tsx
 #: src/features/sessions/quota-dialog.tsx
 msgid "Quota saved."
 msgstr "配额已保存。"
@@ -3229,6 +3248,11 @@ msgid "Remove access to {target} for {grantee}"
 msgstr "移除 {grantee} 对 {target} 的访问权限"
 
 #. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Remove header {0}"
+msgstr "删除请求头 {0}"
+
+#. placeholder {0}: index + 1
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Remove jump host {0}"
 msgstr "移除跳板机 {0}"
@@ -3237,6 +3261,16 @@ msgstr "移除跳板机 {0}"
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove model {0}"
 msgstr "移除模型 {0}"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Remove session id body field {0}"
+msgstr "删除会话 id 请求体字段 {0}"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Remove session id header {0}"
+msgstr "删除会话 id 请求头 {0}"
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Remove share"
@@ -3272,6 +3306,22 @@ msgstr "请再次输入新密码。"
 msgid "Report"
 msgstr "报告"
 
+#: src/features/settings/model-dialog.tsx
+msgid "Request body (JSON)"
+msgstr "请求体（JSON）"
+
+#: src/features/settings/providers.ts
+msgid "Request body overrides must be a JSON object."
+msgstr "请求体覆盖必须是 JSON 对象。"
+
+#: src/features/settings/providers.ts
+msgid "Request body overrides must be valid JSON."
+msgstr "请求体覆盖必须是有效的 JSON。"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Request body per level"
+msgstr "各档请求体"
+
 #: src/components/approval-card.tsx
 msgid "Requested"
 msgstr "请求时间"
@@ -3293,7 +3343,12 @@ msgstr "重置密码"
 msgid "Reset the password of {0}"
 msgstr "重置 {0} 的密码"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Responses"
+msgstr "Responses"
+
+#: src/features/sessions/tool-dialog.tsx
 #: src/features/tasks/task-group-result.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Result"
@@ -3301,24 +3356,28 @@ msgstr "结果"
 
 #. placeholder {0}: retry
 #: src/features/sessions/session-banner.tsx
-msgid "Retrying after an error: {0}"
-msgstr "出错后正在重试：{0}"
+#~ msgid "Retrying after an error: {0}"
+#~ msgstr "出错后正在重试：{0}"
+
+#: src/features/sessions/session-banner.tsx
+msgid "Retrying after an error: {retry}"
+msgstr "出错后正在重试：{retry}"
 
 #: src/features/authorizations/pages.tsx
 msgid "reusable"
 msgstr "可复用"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Review and approve"
 msgstr "查看并批准"
 
 #: src/features/settings/review-model-card.tsx
-msgid "Review model"
-msgstr "复核模型"
+#~ msgid "Review model"
+#~ msgstr "复核模型"
 
 #: src/features/settings/review-model-card.tsx
-msgid "Review model saved."
-msgstr "复核模型已保存。"
+#~ msgid "Review model saved."
+#~ msgstr "复核模型已保存。"
 
 #: src/features/tokens/pages.tsx
 msgid "Revoke"
@@ -3359,6 +3418,23 @@ msgstr "路由"
 msgid "Rule chain evaluation"
 msgstr "规则链评估"
 
+#: src/components/rule-preset-select.tsx
+#: src/features/schedules/schedule-form.tsx
+#: src/features/tokens/create-token-dialog.tsx
+#: src/features/tokens/pages.tsx
+#: src/features/tokens/rules-dialog.tsx
+msgid "Rule preset"
+msgstr "规则预设"
+
+#: src/features/tokens/rules-dialog.tsx
+msgid "Rule preset saved."
+msgstr "规则预设已保存。"
+
+#. placeholder {0}: rulePresetLabel(state.rulePreset)
+#: src/features/sessions/composer-footer.tsx
+msgid "Rule preset: {0}"
+msgstr "规则预设：{0}"
+
 #: src/components/approval-card.tsx
 msgid "Rule to add to the caller's rule set"
 msgstr "添加到调用方规则集的规则"
@@ -3378,9 +3454,14 @@ msgstr "{0} 的规则"
 msgid "Rules saved."
 msgstr "规则已保存。"
 
+#. placeholder {0}: state.ruleCount
 #: src/features/sessions/composer-footer.tsx
-msgid "Rules: {ruleCount}"
-msgstr "规则：{ruleCount}"
+msgid "Rules: {0}"
+msgstr "规则：{0}"
+
+#: src/features/sessions/composer-footer.tsx
+#~ msgid "Rules: {ruleCount}"
+#~ msgstr "规则：{ruleCount}"
 
 #: src/features/nodes/run-panel.tsx
 msgid "Run"
@@ -3440,7 +3521,7 @@ msgid "running"
 msgstr "运行中"
 
 #: src/components/status-badge.tsx
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Running"
 msgstr "运行中"
@@ -3452,13 +3533,17 @@ msgstr "运行中"
 #: src/components/dialogs.tsx
 #: src/features/nodes/rename-node-button.tsx
 #: src/features/sessions/quota-dialog.tsx
-#: src/features/settings/review-model-card.tsx
+#: src/features/settings/model-presets.tsx
 msgid "Save"
 msgstr "保存"
 
 #: src/features/node-groups/dialogs.tsx
 msgid "Save members"
 msgstr "保存成员"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Save model"
+msgstr "保存模型"
 
 #: src/features/nodes/node-groups-dialog.tsx
 msgid "Save node groups"
@@ -3468,13 +3553,13 @@ msgstr "保存节点组"
 msgid "Save password"
 msgstr "保存密码"
 
-#: src/features/tokens/rules-dialog.tsx
-msgid "Save rule preset"
-msgstr "保存规则预设"
-
 #: src/features/settings/provider-dialog.tsx
 msgid "Save provider"
 msgstr "保存提供方"
+
+#: src/features/tokens/rules-dialog.tsx
+msgid "Save rule preset"
+msgstr "保存规则预设"
 
 #: src/features/tokens/rules-dialog.tsx
 msgid "Save rules"
@@ -3537,13 +3622,28 @@ msgid "Send"
 msgstr "发送"
 
 #: src/features/schedules/run-history.tsx
+#: src/features/settings/model-presets.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Session"
 msgstr "会话"
 
 #: src/features/sessions/new-session-dialog.tsx
-msgid "Session created."
-msgstr "会话已创建。"
+#~ msgid "Session created."
+#~ msgstr "会话已创建。"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id body field {0}"
+msgstr "会话 id 请求体字段 {0}"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id fields"
+msgstr "会话 id 字段"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id header {0}"
+msgstr "会话 id 请求头 {0}"
 
 #: src/features/sessions/sessions-layout.tsx
 msgid "Session list"
@@ -3756,9 +3856,14 @@ msgstr "SSH 路由"
 msgid "ssh-keygen recipe"
 msgstr "ssh-keygen 命令"
 
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Standard"
+msgstr "标准"
+
 #: src/features/sessions/new-session-dialog.tsx
-msgid "Start a conversation with the agent; it acts on your nodes through the same rules."
-msgstr "与 agent 开始对话；它会按照与其它操作相同的规则在你的节点上执行。"
+#~ msgid "Start a conversation with the agent; it acts on your nodes through the same rules."
+#~ msgstr "与 agent 开始对话；它会按照与其它操作相同的规则在你的节点上执行。"
 
 #: src/components/task-form-fields.tsx
 msgid "Start line"
@@ -3849,6 +3954,10 @@ msgstr "摘要"
 msgid "System"
 msgstr "跟随系统"
 
+#: src/features/settings/model-presets.tsx
+msgid "System prompt"
+msgstr "系统提示词"
+
 #: src/features/batch/pages.tsx
 msgid "Tail of output"
 msgstr "输出末尾"
@@ -3929,7 +4038,6 @@ msgstr "文本"
 
 #: src/components/quota-card.tsx
 #: src/features/schedules/scheduleForm.ts
-#: src/features/sessions/new-session-dialog.tsx
 #: src/features/sessions/quota-dialog.tsx
 msgid "That number is too large."
 msgstr "这个数字太大了。"
@@ -3982,6 +4090,10 @@ msgstr "列表已截断：目录中的条目比显示的更多。"
 #: src/features/schedules/schedule-form.tsx
 #~ msgid "The model every new session of this schedule uses."
 #~ msgstr "此计划任务的每个新会话使用的模型。"
+
+#: src/features/settings/model-presets.tsx
+msgid "The model list could not be loaded."
+msgstr "无法加载模型列表。"
 
 #: src/features/credentials/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
@@ -4121,8 +4233,24 @@ msgid "They can no longer see this node or run tasks on it."
 msgstr "他们将无法再查看此节点，也无法在其上执行任务。"
 
 #: src/features/sessions/transcript-row.tsx
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Thinking"
 msgstr "思考"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Thinking format"
+msgstr "思考格式"
+
+#: src/components/thinking-level-select.tsx
+#: src/features/schedules/schedule-form.tsx
+#: src/features/settings/model-presets.tsx
+msgid "Thinking level"
+msgstr "思考档位"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Thinking level mapping"
+msgstr "思考档位映射"
 
 #: src/features/nodes/trust-warnings.tsx
 msgid "This alias is for a node group the node is not in. Reusable authorizations addressed to that group still work here. Remove the alias from aliases in privileged.toml on the node:"
@@ -4165,7 +4293,7 @@ msgid "Time"
 msgstr "时间"
 
 #: src/components/task-result.tsx
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-card.tsx
 msgid "Timed out"
 msgstr "已超时"
 
@@ -4178,8 +4306,12 @@ msgid "Timezone"
 msgstr "时区"
 
 #: src/features/sessions/new-session-dialog.tsx
-msgid "Title"
-msgstr "标题"
+#~ msgid "Title"
+#~ msgstr "标题"
+
+#: src/features/settings/model-presets.tsx
+msgid "Title generation"
+msgstr "标题生成"
 
 #: src/features/sessions/session-header.tsx
 msgid "Title saved."
@@ -4193,14 +4325,18 @@ msgstr "今天"
 msgid "Toggle sidebar"
 msgstr "切换侧边栏"
 
+#: src/components/ui/sidebar.tsx
+msgid "Toggle Sidebar"
+msgstr "切换侧边栏"
+
 #: src/features/schedules/schedule-form.tsx
 #: src/features/sessions/quota-dialog.tsx
 msgid "Token budget"
 msgstr "Token 预算"
 
 #: src/features/sessions/new-session-dialog.tsx
-msgid "Token budget (empty = unlimited)"
-msgstr "token 预算（留空 = 不限）"
+#~ msgid "Token budget (empty = unlimited)"
+#~ msgstr "token 预算（留空 = 不限）"
 
 #: src/components/quota-card.tsx
 msgid "Token budget used up"
@@ -4226,11 +4362,11 @@ msgstr "令牌已吊销。"
 msgid "Tokens to add"
 msgstr "要添加的 token 数"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Tool arguments"
 msgstr "工具参数"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Tool result"
 msgstr "工具结果"
 
@@ -4243,6 +4379,7 @@ msgid "Triggered for"
 msgstr "触发时间"
 
 #: src/features/nodes/node-trust.tsx
+#: src/features/nodes/trust-warnings.tsx
 msgid "Trust"
 msgstr "信任"
 
@@ -4285,7 +4422,7 @@ msgstr "未知"
 msgid "Unknown"
 msgstr "未知"
 
-#: src/features/sessions/composer.tsx
+#: src/features/sessions/composer-input.tsx
 msgid "Unknown command: it will be sent as a message."
 msgstr "未知命令：将作为普通消息发送。"
 
@@ -4294,7 +4431,6 @@ msgstr "未知命令：将作为普通消息发送。"
 msgid "unlimited"
 msgstr "不限制"
 
-#: src/features/sessions/new-session-dialog.tsx
 #: src/features/sessions/quota-dialog.tsx
 msgid "Unlimited"
 msgstr "不限"
@@ -4306,8 +4442,8 @@ msgstr "非特权身份"
 #: src/features/sessions/children-bar.tsx
 #: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list-item.tsx
-msgid "Untitled session"
-msgstr "未命名会话"
+#~ msgid "Untitled session"
+#~ msgstr "未命名会话"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Up"
@@ -4329,6 +4465,10 @@ msgstr "使用至少 8 个字符，或留空。"
 #: src/features/users/reset-password-dialog.tsx
 msgid "Use at least 8 characters."
 msgstr "至少使用 8 个字符。"
+
+#: src/features/settings/model-presets.tsx
+msgid "Use the session's model"
+msgstr "使用会话的模型"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Used by"
@@ -4390,6 +4530,11 @@ msgstr "用户名"
 msgid "Users"
 msgstr "用户"
 
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Value"
+msgstr "值"
+
 #: src/features/sessions/share-dialog.tsx
 msgid "View"
 msgstr "查看"
@@ -4426,7 +4571,7 @@ msgstr "等待所有者授权。"
 msgid "Waiting for the payload to sign; the card appears when it is ready."
 msgstr "正在等待可签名的载荷；准备好后会显示卡片。"
 
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Waiting for your approval."
 msgstr "正在等待你的批准。"
 
@@ -4439,7 +4584,7 @@ msgid "Waiting for your signature"
 msgstr "等待你签名"
 
 #: src/components/task-result.tsx
-#: src/features/sessions/transcript-row.tsx
+#: src/features/sessions/tool-dialog.tsx
 msgid "Waiting for your signature."
 msgstr "等待你的签名。"
 
@@ -4454,6 +4599,10 @@ msgstr "新会话应该做什么"
 #: src/features/tokens/rules-dialog.tsx
 msgid "What this token may do without approval; anything else waits for you."
 msgstr "此令牌无需审批即可执行的操作；其他操作会等待你。"
+
+#: src/features/sessions/new-session-page.tsx
+msgid "What's on your plan today?"
+msgstr "今天有什么安排？"
 
 #: src/features/schedules/run-history.tsx
 msgid "When"
@@ -4476,6 +4625,7 @@ msgid "Working directory (optional)"
 msgstr "工作目录（可选）"
 
 #: src/components/approval-card.tsx
+#: src/features/settings/provider-dialog.tsx
 msgid "Yes"
 msgstr "是"
 
@@ -4484,8 +4634,8 @@ msgid "Yesterday"
 msgstr "昨天"
 
 #: src/features/sessions/new-session-dialog.tsx
-msgid "Yolo lets the agent run anything on your nodes without asking."
-msgstr "Yolo 允许 agent 不经询问就在你的节点上执行任何操作。"
+#~ msgid "Yolo lets the agent run anything on your nodes without asking."
+#~ msgstr "Yolo 允许 agent 不经询问就在你的节点上执行任何操作。"
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Yolo lets this token run anything on your nodes without asking."
@@ -4514,130 +4664,3 @@ msgstr "不能停用自己的账号。"
 #: src/features/sessions/composer.tsx
 msgid "You have view access: the owner can let you send messages by sharing it for chat."
 msgstr "你拥有查看权限：所有者可以通过聊天共享让你发送消息。"
-
-#: src/components/thinking-level-select.tsx
-#: src/features/schedules/schedule-form.tsx
-#: src/features/sessions/new-session-dialog.tsx
-msgid "Thinking level"
-msgstr "思考档位"
-
-#: src/features/sessions/composer-footer.tsx
-msgid "Change the thinking level; it applies from the next turn."
-msgstr "修改思考档位；从下一轮起生效。"
-
-#: src/lib/thinking-level.ts
-msgid "Off"
-msgstr "关闭"
-
-#: src/lib/thinking-level.ts
-msgid "Minimal"
-msgstr "最低"
-
-#: src/lib/thinking-level.ts
-msgid "Low"
-msgstr "低"
-
-#: src/lib/thinking-level.ts
-msgid "Medium"
-msgstr "中"
-
-#: src/lib/thinking-level.ts
-msgid "High"
-msgstr "高"
-
-#: src/lib/thinking-level.ts
-msgid "Extra high"
-msgstr "很高"
-
-#: src/lib/thinking-level.ts
-msgid "Max"
-msgstr "最高"
-
-#: src/features/settings/model-presets.tsx
-msgid "Always appended"
-msgstr "始终附加"
-
-#: src/features/settings/model-presets.tsx
-msgid "Auto review"
-msgstr "自动复核"
-
-#: src/features/settings/model-presets.tsx
-msgid "Changes take effect on the next model request."
-msgstr "改动从下一次模型请求起生效。"
-
-#: src/features/settings/model-presets.tsx
-msgid "Default prompt"
-msgstr "默认提示词"
-
-#: src/features/settings/model-presets.tsx
-msgid "Default prompt and protocol"
-msgstr "默认提示词与协议说明"
-
-#: src/features/settings/model-presets.tsx
-msgid "Leave empty to use the default prompt."
-msgstr "留空表示使用默认提示词。"
-
-#: src/features/settings/model-presets.tsx
-msgid "Model presets"
-msgstr "模型预设"
-
-#: src/features/settings/model-presets.tsx
-msgid "Preset saved."
-msgstr "预设已保存。"
-
-#: src/features/settings/model-presets.tsx
-msgid "System prompt"
-msgstr "系统提示词"
-
-#: src/features/settings/model-presets.tsx
-msgid "The model list could not be loaded."
-msgstr "无法加载模型列表。"
-
-#: src/features/settings/model-presets.tsx
-msgid "Title generation"
-msgstr "标题生成"
-
-#: src/features/settings/model-presets.tsx
-msgid "Use the session's model"
-msgstr "使用会话的模型"
-
-#: src/features/sessions/new-session-page.tsx
-msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
-msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行。"
-
-#: src/features/sessions/new-session-page.tsx
-msgid "Compaction is not available before the session exists."
-msgstr "会话创建前不能压缩上下文。"
-
-#: src/features/sessions/new-session-page.tsx
-msgid "No model"
-msgstr "无模型"
-
-#: src/features/sessions/new-session-page.tsx
-msgid "What's on your plan today?"
-msgstr "今天有什么安排？"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Image understanding"
-msgstr "图像理解"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Request body (JSON)"
-msgstr "请求体（JSON）"
-
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Standard"
-msgstr "标准"
-
-#: src/features/settings/model-dialog.tsx
-msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
-msgstr "每档的 JSON 对象会合并进请求体；只有同时填写请求体和显示名，该档才会被提供。"
-
-#: src/features/settings/providers.ts
-msgid "Off cannot be hidden; give it a display name."
-msgstr "off 档不能隐藏；请给它一个显示名。"
-
-#: src/features/settings/model-dialog.tsx
-msgid "{level} display name"
-msgstr "{level} 显示名"

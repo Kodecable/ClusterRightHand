@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/fxamacker/cbor/v2"
+
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
@@ -19,8 +21,8 @@ const maxBufferedRelayEvents = 256
 // forever, so the set only has to be large enough that the daemon's own backlog fits.
 const maxFinishedRelayTasks = 1024
 
-// relayRouter routes the task events of one multiplexed privileged peer to the task they
-// belong to. The peer starts a task as soon as it wrote the task.start response, and that
+// relayRouter routes the task events of a privileged peer (the multiplexed privileged mode
+// connection, or the native helper of one task) to the task they belong to. The peer starts a task as soon as it wrote the task.start response, and that
 // response can reach the read loop before the caller of the relayed request has registered the
 // task here, so events of a task without handlers are buffered and replayed in order by attach.
 // The read loop of the peer is the only router, so the per-task ordering of its events is kept.
@@ -121,6 +123,49 @@ func (r *relayRouter) discard(taskID string) {
 	}
 }
 
+// eventHandlers returns the task.output and task.exit handlers of a privileged peer: they decode
+// each event and route it under the task id key returns for the event's own task id. The daemon
+// connection routes by the event's id; a native helper runs one task, so all of its events are
+// routed to that task, whose handlers reject an event for another id.
+func (r *relayRouter) eventHandlers(key func(taskID string) string) (output, exit protocol.EventHandler) {
+	output = func(body cbor.RawMessage) error {
+		var out protocol.TaskOutput
+		if err := protocol.UnmarshalBody(body, &out); err != nil {
+			return err
+		}
+		return r.route(key(out.TaskID), relayEvent{output: &out})
+	}
+	exit = func(body cbor.RawMessage) error {
+		var exit protocol.TaskExit
+		if err := protocol.UnmarshalBody(body, &exit); err != nil {
+			return err
+		}
+		return r.route(key(exit.TaskID), relayEvent{exit: &exit})
+	}
+	return output, exit
+}
+
+// relayTaskHandlers relays a privileged peer's events of t into the task: output into its own
+// spool, task.exit as its outcome. peer names the peer in the error for an event of another
+// task.
+func (a *Agent) relayTaskHandlers(t *task, peer string) *relayHandlers {
+	return &relayHandlers{
+		output: func(out *protocol.TaskOutput) error {
+			if out.TaskID != t.id {
+				return fmt.Errorf("%s sent output for task %q, want %q", peer, out.TaskID, t.id)
+			}
+			return a.relayOutput(t, out)
+		},
+		exit: func(exit *protocol.TaskExit) error {
+			if exit.TaskID != t.id {
+				return fmt.Errorf("%s sent task.exit for %q, want %q", peer, exit.TaskID, t.id)
+			}
+			a.finishRelayed(t, exit)
+			return nil
+		},
+	}
+}
+
 // relayOutput records one task.output chunk of a task that runs in a privileged peer (the
 // native helper or the privileged mode) into the agent's own output spool, so the spill file,
 // resume after a reconnect and acknowledgements work unchanged.
@@ -175,7 +220,7 @@ func helperLostExit(taskID, message string) *protocol.TaskExit {
 		TaskID: taskID,
 		Outcome: protocol.Outcome{
 			Kind:  protocol.OutcomeError,
-			Error: &protocol.Error{Code: "helper_lost", Message: protocol.ErrorMessage(message)},
+			Error: &protocol.Error{Code: protocol.CodeHelperLost, Message: protocol.ErrorMessage(message)},
 		},
 	}
 }

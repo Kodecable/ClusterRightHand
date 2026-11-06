@@ -33,7 +33,7 @@ func errf(code, format string, args ...any) *Error {
 // symbolic link at the end of a write or edit path is followed to its target. stdout receives the
 // task's text output (the page of a file.read) and input carries the file.write content (nil for
 // other kinds). It returns the task's structured result, or nil with an *Error (other errors are
-// wrapped into Error{Code: "io_error"}).
+// wrapped into Error{Code: protocol.CodeIOError}).
 func RunFile(ctx context.Context, spec *protocol.TaskSpec, input io.Reader, stdout io.Writer) (*protocol.TaskResult, error) {
 	return runFileTask(ctx, spec, input, stdout, plainAccess{})
 }
@@ -60,31 +60,31 @@ func runFileTask(ctx context.Context, spec *protocol.TaskSpec, input io.Reader, 
 	switch spec.Kind {
 	case protocol.TaskSpecFileRead:
 		if spec.FileRead == nil {
-			return nil, errf("invalid_spec", "file.read task has no spec")
+			return nil, errf(protocol.CodeInvalidSpec, "file.read task has no spec")
 		}
 		result, err = fileRead(ctx, acc, spec.FileRead, stdout)
 	case protocol.TaskSpecFileWrite:
 		if spec.FileWrite == nil {
-			return nil, errf("invalid_spec", "file.write task has no spec")
+			return nil, errf(protocol.CodeInvalidSpec, "file.write task has no spec")
 		}
 		result, err = fileWrite(ctx, acc, spec.FileWrite, input)
 	case protocol.TaskSpecFileEdit:
 		if spec.FileEdit == nil {
-			return nil, errf("invalid_spec", "file.edit task has no spec")
+			return nil, errf(protocol.CodeInvalidSpec, "file.edit task has no spec")
 		}
 		result, err = fileEdit(acc, spec.FileEdit)
 	case protocol.TaskSpecFileStat:
 		if spec.FileStat == nil {
-			return nil, errf("invalid_spec", "file.stat task has no spec")
+			return nil, errf(protocol.CodeInvalidSpec, "file.stat task has no spec")
 		}
 		result, err = fileStat(acc, spec.FileStat)
 	case protocol.TaskSpecFileList:
 		if spec.FileList == nil {
-			return nil, errf("invalid_spec", "file.list task has no spec")
+			return nil, errf(protocol.CodeInvalidSpec, "file.list task has no spec")
 		}
 		result, err = fileList(ctx, acc, spec.FileList)
 	default:
-		err = errf("invalid_spec", "not a file task: %q", spec.Kind)
+		err = errf(protocol.CodeInvalidSpec, "not a file task: %q", spec.Kind)
 	}
 	return result, normalizeErr(err)
 }
@@ -97,7 +97,7 @@ func normalizeErr(err error) error {
 	case errors.As(err, &te):
 		return te
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return errf("cancelled", "%v", err)
+		return errf(protocol.CodeCancelled, "%v", err)
 	default:
 		return mapErr(err)
 	}
@@ -106,20 +106,20 @@ func normalizeErr(err error) error {
 func mapErr(err error) *Error {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return errf("not_found", "%v", err)
+		return errf(protocol.CodeNotFound, "%v", err)
 	case errors.Is(err, fs.ErrPermission):
-		return errf("permission_denied", "%v", err)
+		return errf(protocol.CodePermissionDenied, "%v", err)
 	case errors.Is(err, syscall.EISDIR):
-		return errf("is_directory", "%v", err)
+		return errf(protocol.CodeIsDirectory, "%v", err)
 	case errors.Is(err, syscall.ENOTDIR):
-		return errf("not_found", "%v", err)
+		return errf(protocol.CodeNotFound, "%v", err)
 	}
-	return errf("io_error", "%v", err)
+	return errf(protocol.CodeIOError, "%v", err)
 }
 
 func checkPath(p string) error {
 	if !filepath.IsAbs(p) || filepath.Clean(p) != p {
-		return errf("invalid_spec", "path must be absolute and clean: %q", p)
+		return errf(protocol.CodeInvalidSpec, "path must be absolute and clean: %q", p)
 	}
 	return nil
 }

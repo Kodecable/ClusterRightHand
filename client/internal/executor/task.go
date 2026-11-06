@@ -34,7 +34,7 @@ type TaskOptions struct {
 func RunTask(ctx context.Context, spec *protocol.TaskSpec, in io.Reader, out Sink, opts TaskOptions) Result {
 	if spec.Kind == protocol.TaskSpecExec {
 		if spec.Exec == nil {
-			return Result{Err: errf("invalid_spec", "exec task has no spec")}
+			return Result{Err: errf(protocol.CodeInvalidSpec, "exec task has no spec")}
 		}
 		return RunExec(ctx, spec.Exec, in, out, ExecOptions{
 			Timeout: opts.Timeout, KillGrace: opts.KillGrace, Privileged: opts.Privileged, Env: opts.Env,
@@ -59,9 +59,9 @@ func fileResult(result *protocol.TaskResult, err error) Result {
 	}
 	var e *Error
 	if errors.As(err, &e) {
-		return Result{Err: e, Cancelled: e.Code == "cancelled"}
+		return Result{Err: e, Cancelled: e.Code == protocol.CodeCancelled}
 	}
-	return Result{Err: &Error{Code: "io_error", Message: err.Error()}}
+	return Result{Err: &Error{Code: protocol.CodeIOError, Message: err.Error()}}
 }
 
 // Outcome returns the task.exit outcome of a finished task.
@@ -80,7 +80,7 @@ func (r Result) Outcome() protocol.Outcome {
 		// RunExec always fills one of the three fields; guard a programmatic Result anyway.
 		return protocol.Outcome{
 			Kind:  protocol.OutcomeError,
-			Error: &protocol.Error{Code: "internal_error", Message: "task finished without an outcome"},
+			Error: &protocol.Error{Code: protocol.CodeInternalError, Message: "task finished without an outcome"},
 		}
 	}
 }

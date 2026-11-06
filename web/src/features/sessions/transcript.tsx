@@ -3,7 +3,7 @@ import { ArrowDownIcon, LoaderCircleIcon } from "lucide-react";
 import { type UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Virtualizer } from "virtua";
 import { Button } from "@/components/ui/button";
-import type { TranscriptItem } from "./sessionState";
+import type { TranscriptItem } from "./transcript-items";
 import { TranscriptRow, TurnSummaryRow } from "./transcript-row";
 import type { TranscriptStreams } from "./transcript-streams";
 import { buildTranscriptTurns } from "./turns";

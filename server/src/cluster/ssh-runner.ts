@@ -6,6 +6,7 @@ import { type TaskSpec, taskResultToJson } from "@crh/protocol";
 import type { Updateable } from "kysely";
 import type { TasksTable } from "../storage/schema.ts";
 import type { ClusterCore } from "./core.ts";
+import { dropLive, type Live } from "./live-output.ts";
 import { markNodeSeen, type NodeRow, setSshNodeFacts } from "./nodes.ts";
 import { LineCounter } from "./output.ts";
 import { connect as connectSsh, SshError, type SshSession } from "./ssh/connection.ts";
@@ -18,7 +19,7 @@ import {
 	type SshShells,
 } from "./ssh/exec.ts";
 import { FileTaskError, runSftpFileTask } from "./ssh/file-task.ts";
-import { dropLive, finish, type Live, markUnknown, onAccepted } from "./task-state.ts";
+import { finish, markUnknown, onAccepted } from "./task-end.ts";
 import { outputColumns } from "./task-view.ts";
 import type { ClusterOptions } from "./types.ts";
 

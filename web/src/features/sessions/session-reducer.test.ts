@@ -1,18 +1,8 @@
 import { describe, expect, test } from "vitest";
-import {
-	type AgentEvent,
-	applyOutput,
-	approvalWait,
-	authorizationWait,
-	type EntryRecord,
-	initialState,
-	isCompacting,
-	prependHistory,
-	prettyJson,
-	reduceAll,
-	type TranscriptItem,
-	transcript,
-} from "./sessionState";
+import type { AgentEvent, EntryRecord } from "./session-events";
+import { applyOutput, initialState, isCompacting, prependHistory, reduceAll } from "./session-reducer";
+import { approvalWait, authorizationWait, prettyJson } from "./tool-details";
+import { type TranscriptItem, transcript } from "./transcript-items";
 
 const usage = (total: number) => ({
 	input: 1,

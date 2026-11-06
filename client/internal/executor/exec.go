@@ -59,7 +59,7 @@ func RunExec(ctx context.Context, spec *protocol.ExecSpec, stdin io.Reader, out 
 	if environment == nil {
 		resolved, err := execenv.Resolve(execenv.Options{Privileged: opts.Privileged})
 		if err != nil {
-			return Result{Err: &Error{Code: "internal_error", Message: err.Error()}}
+			return Result{Err: &Error{Code: protocol.CodeInternalError, Message: err.Error()}}
 		}
 		environment = resolved
 	}
@@ -68,7 +68,7 @@ func RunExec(ctx context.Context, spec *protocol.ExecSpec, stdin io.Reader, out 
 		return Result{Err: err}
 	}
 	if spec.Cwd != "" && !strings.HasPrefix(spec.Cwd, "/") {
-		return Result{Err: &Error{Code: "invalid_spec", Message: "cwd must be absolute"}}
+		return Result{Err: &Error{Code: protocol.CodeInvalidSpec, Message: "cwd must be absolute"}}
 	}
 	grace := opts.KillGrace
 	if grace == 0 {
@@ -102,9 +102,9 @@ func RunExec(ctx context.Context, spec *protocol.ExecSpec, stdin io.Reader, out 
 	cmd.WaitDelay = pipeWait
 
 	if err := cmd.Start(); err != nil {
-		code := "spawn_failed"
+		code := protocol.CodeSpawnFailed
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
-			code = "not_found"
+			code = protocol.CodeNotFound
 		}
 		return Result{Err: &Error{Code: code, Message: err.Error()}}
 	}
@@ -169,10 +169,10 @@ func taskEnv(environment *execenv.Environment, extra map[string]string, privileg
 	}
 	for k, v := range extra {
 		if k == "" || strings.ContainsAny(k, "=\x00") {
-			return nil, errf("invalid_spec", "invalid environment variable name %q", k)
+			return nil, errf(protocol.CodeInvalidSpec, "invalid environment variable name %q", k)
 		}
 		if strings.ContainsRune(v, 0) {
-			return nil, errf("invalid_spec", "environment variable %q contains a NUL byte", k)
+			return nil, errf(protocol.CodeInvalidSpec, "environment variable %q contains a NUL byte", k)
 		}
 		if execenv.IsOverride(k) {
 			continue // crha's own variables never reach a task
@@ -202,7 +202,7 @@ func resolvePrivileged(name string) (string, *Error) {
 	}
 	found, err := execenv.LookPathIn(PrivilegedPath, name)
 	if err != nil {
-		return "", errf("not_found", "executable %q not found in PATH", name)
+		return "", errf(protocol.CodeNotFound, "executable %q not found in PATH", name)
 	}
 	return found, nil
 }
@@ -214,25 +214,25 @@ func execArgv(spec *protocol.ExecSpec, sh string) ([]string, *Error) {
 	cmd := spec.Command
 	switch {
 	case len(cmd.Argv) > 0 && cmd.Shell != "":
-		return nil, &Error{Code: "invalid_spec", Message: "argv and shell are mutually exclusive"}
+		return nil, &Error{Code: protocol.CodeInvalidSpec, Message: "argv and shell are mutually exclusive"}
 	case cmd.Kind == protocol.CommandArgv:
 		if len(cmd.Argv) == 0 {
-			return nil, &Error{Code: "invalid_spec", Message: "argv must not be empty"}
+			return nil, &Error{Code: protocol.CodeInvalidSpec, Message: "argv must not be empty"}
 		}
 		return cmd.Argv, nil
 	case cmd.Kind == protocol.CommandShell:
 		if cmd.Shell == "" {
-			return nil, &Error{Code: "invalid_spec", Message: "shell must not be empty"}
+			return nil, &Error{Code: protocol.CodeInvalidSpec, Message: "shell must not be empty"}
 		}
 		return []string{sh, "-c", cmd.Shell}, nil
 	default:
-		return nil, &Error{Code: "invalid_spec", Message: "command must be argv or shell"}
+		return nil, &Error{Code: protocol.CodeInvalidSpec, Message: "command must be argv or shell"}
 	}
 }
 
 func fillExit(res *Result, ps *os.ProcessState, waitErr error) {
 	if ps == nil {
-		res.Err = &Error{Code: "io_error", Message: waitErr.Error()}
+		res.Err = &Error{Code: protocol.CodeIOError, Message: waitErr.Error()}
 		return
 	}
 	ws, ok := ps.Sys().(syscall.WaitStatus)

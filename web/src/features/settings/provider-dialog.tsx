@@ -2,8 +2,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { I18n } from "@lingui/core";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { PlusIcon, Trash2Icon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { useFieldArray, useForm } from "react-hook-form";
+import { type ComponentProps, useEffect, useMemo, useState } from "react";
+import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { FormDialog } from "@/components/dialogs";
@@ -42,6 +42,34 @@ interface ProviderValues {
 }
 
 type ProviderForm = ReturnType<typeof useForm<ProviderValues>>;
+
+/** The text cells of the header and session id rows. */
+type RowPath =
+	| `headers.${number}.name`
+	| `headers.${number}.value`
+	| `sessionHeaders.${number}.value`
+	| `sessionBody.${number}.value`;
+
+/**
+ * One row cell bound through a `Controller`: a keystroke re-renders this input
+ * only, not the whole provider form.
+ */
+function RowInput({
+	control,
+	name,
+	...props
+}: { control: ProviderForm["control"]; name: RowPath } & Omit<
+	ComponentProps<typeof Input>,
+	"name" | "value" | "onChange"
+>) {
+	return (
+		<Controller
+			control={control}
+			name={name}
+			render={({ field }) => <Input {...props} ref={field.ref} value={field.value} onChange={field.onChange} />}
+		/>
+	);
+}
 
 function providerValues(provider: ModelProviderView | undefined, builtin: string[]): ProviderValues {
 	return {
@@ -132,15 +160,15 @@ function HeadersEditor({ form }: { form: ProviderForm }) {
 					</div>
 					{fields.map((field, index) => (
 						<div key={field.id} className="grid grid-cols-[1fr_1fr_auto] gap-2">
-							<Input
+							<RowInput
 								aria-label={t`Header ${index + 1} name`}
-								value={form.watch(`headers.${index}.name`)}
-								onChange={(event) => form.setValue(`headers.${index}.name`, event.target.value)}
+								control={form.control}
+								name={`headers.${index}.name`}
 							/>
-							<Input
+							<RowInput
 								aria-label={t`Header ${index + 1} value`}
-								value={form.watch(`headers.${index}.value`)}
-								onChange={(event) => form.setValue(`headers.${index}.value`, event.target.value)}
+								control={form.control}
+								name={`headers.${index}.value`}
 							/>
 							<Button
 								type="button"
@@ -178,11 +206,11 @@ function SessionIdEditor({ form }: { form: ProviderForm }) {
 					<span className="text-xs text-muted-foreground">{t`Headers`}</span>
 					{headers.fields.map((field, index) => (
 						<div key={field.id} className="flex gap-2">
-							<Input
+							<RowInput
 								aria-label={t`Session id header ${index + 1}`}
 								placeholder="x-opencode-session"
-								value={form.watch(`sessionHeaders.${index}.value`)}
-								onChange={(event) => form.setValue(`sessionHeaders.${index}.value`, event.target.value)}
+								control={form.control}
+								name={`sessionHeaders.${index}.value`}
 							/>
 							<Button
 								type="button"
@@ -206,11 +234,11 @@ function SessionIdEditor({ form }: { form: ProviderForm }) {
 					<span className="text-xs text-muted-foreground">{t`Body fields`}</span>
 					{body.fields.map((field, index) => (
 						<div key={field.id} className="flex gap-2">
-							<Input
+							<RowInput
 								aria-label={t`Session id body field ${index + 1}`}
 								placeholder="metadata.session_id"
-								value={form.watch(`sessionBody.${index}.value`)}
-								onChange={(event) => form.setValue(`sessionBody.${index}.value`, event.target.value)}
+								control={form.control}
+								name={`sessionBody.${index}.value`}
 							/>
 							<Button
 								type="button"

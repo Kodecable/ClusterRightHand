@@ -67,7 +67,7 @@ func fileWrite(ctx context.Context, acc fileAccess, s *protocol.FileWriteSpec, i
 		return nil, err
 	}
 	if uint64(n) != uint64(want.Size) || !bytes.Equal(h.Sum(nil), want.SHA256[:]) {
-		return nil, errf("input_mismatch", "content does not match declared size/sha256 (got %d bytes)", n)
+		return nil, errf(protocol.CodeInputMismatch, "content does not match declared size/sha256 (got %d bytes)", n)
 	}
 
 	mode := fs.FileMode(0o644)
@@ -104,14 +104,14 @@ func lookupIDs(owner, group string) (uid, gid int, err error) {
 	if owner != "" {
 		u, e := user.Lookup(owner)
 		if e != nil {
-			return 0, 0, errf("invalid_spec", "unknown owner %q", owner)
+			return 0, 0, errf(protocol.CodeInvalidSpec, "unknown owner %q", owner)
 		}
 		uid, _ = strconv.Atoi(u.Uid)
 	}
 	if group != "" {
 		g, e := user.LookupGroup(group)
 		if e != nil {
-			return 0, 0, errf("invalid_spec", "unknown group %q", group)
+			return 0, 0, errf(protocol.CodeInvalidSpec, "unknown group %q", group)
 		}
 		gid, _ = strconv.Atoi(g.Gid)
 	}
@@ -137,7 +137,7 @@ func createTempAt(dir *os.File, base string) (string, *os.File, error) {
 		}
 		return name, os.NewFile(uintptr(fd), name), nil
 	}
-	return "", nil, errf("io_error", "cannot create a temporary file in %s", dir.Name())
+	return "", nil, errf(protocol.CodeIOError, "cannot create a temporary file in %s", dir.Name())
 }
 
 // publishAt fsyncs and closes tmp, renames it to base in the directory fd and fsyncs the directory.
@@ -156,10 +156,10 @@ func publishAt(dir *os.File, tmpName string, tmp *os.File, base, path string, no
 	dirfd := int(dir.Fd())
 	if err := unix.Renameat2(dirfd, tmpName, dirfd, base, uint(flags)); err != nil {
 		if errors.Is(err, unix.EEXIST) {
-			return errf("exists", "%s already exists", path)
+			return errf(protocol.CodeExists, "%s already exists", path)
 		}
-		// Report the rename error itself, as HEAD did: a LinkError would prefix it with the temporary
-		// file's random name, which the user cannot act on.
+		// Report the bare rename error: a LinkError would prefix it with the temporary file's
+		// random name, which the user cannot act on.
 		return err
 	}
 	return syncDirectory(dirfd)
