@@ -101,7 +101,7 @@ async function queryRequests(host: RuntimeHost, handlerId: string): Promise<Agen
 			kind: "quota",
 			id: wait.sessionId,
 			sessionId: wait.sessionId,
-			summary: `${wait.levelTitle} is at ${wait.levelQuota ?? "unlimited"} tokens; the subagent is paused`,
+			summary: `${wait.levelTitle ?? "the session"} is at ${wait.levelQuota ?? "unlimited"} tokens; the subagent is paused`,
 			nodeId: null,
 			createdAt: wait.since,
 		});

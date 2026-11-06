@@ -61,11 +61,17 @@ describe("sessionMatchesFilter", () => {
 		expect(sessionMatchesFilter(item(), filter({ q: "  DEPLOY " }))).toBe(true);
 		expect(sessionMatchesFilter(item(), filter({ q: "network" }))).toBe(false);
 	});
+
+	test("a session with no title yet is listed but never matches a search", () => {
+		expect(sessionMatchesFilter(item({ title: null }), filter())).toBe(true);
+		expect(sessionMatchesFilter(item({ title: null }), filter({ q: "deploy" }))).toBe(false);
+	});
 });
 
 describe("isSessionListItem", () => {
 	test("accepts a well-formed row and rejects malformed payloads", () => {
 		expect(isSessionListItem(item())).toBe(true);
+		expect(isSessionListItem(item({ title: null }))).toBe(true);
 		for (const value of [null, undefined, 42, "x", {}, { ...item(), id: "" }, { ...item(), title: 3 }]) {
 			expect(isSessionListItem(value), JSON.stringify(value)).toBe(false);
 		}

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ModelProviderView } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
+import { ModelSettingsPage } from "./pages";
 import { ProviderDialog } from "./provider-dialog";
 
 const BUILTIN: ModelProviderView = {
@@ -101,6 +102,30 @@ function change(element: HTMLElement, text: string) {
 
 afterEach(() => {
 	vi.unstubAllGlobals();
+});
+
+describe("ModelSettingsPage", () => {
+	test("puts the providers section first, then the presets, under the Models page title", async () => {
+		const json = (body: unknown) =>
+			new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = String(input);
+				if (url === "/api/model-providers") return json({ providers: [BUILTIN], builtin: ["faux"] });
+				if (url === "/api/models") return json({ models: [] });
+				if (url === "/api/model-presets") return json({ presets: [] });
+				return json({});
+			}),
+		);
+		renderWithI18n(<ModelSettingsPage />);
+		expect(await screen.findByRole("heading", { name: "Models" })).toBeVisible();
+		const providers = await screen.findByRole("heading", { name: "Model providers" });
+		const presets = await screen.findByRole("heading", { name: "Model presets" });
+		expect(providers.compareDocumentPosition(presets) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		const section = screen.getByTestId("model-providers");
+		expect(within(section).getByTestId("add-provider")).toBeVisible();
+	});
 });
 
 describe("ProviderDialog", () => {

@@ -46,7 +46,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			body: { model: model(), ...(rulePreset ? { rulePreset } : {}), title: `s${++seq}` },
 		});
 		expect(res.status).toBe(201);
-		return res.json.session as { id: string; title: string; rules: { rulePreset: string } | null };
+		return res.json.session as { id: string; title: string | null; rules: { rulePreset: string } | null };
 	};
 	const send = (id: string, text: string, requestId = `req-${++seq}`, cookie = crhs().cookie) =>
 		as(cookie, `/api/sessions/${id}/messages`, { body: { text, requestId } });
@@ -159,7 +159,8 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			const res = await as(crhs().cookie, "/api/sessions", { body: { model: model() } });
 			expect(res.status).toBe(201);
 			expect(res.json.session.rules.rulePreset).toBe("ask");
-			expect(res.json.session.title).toBe("New session");
+			// A root without a title stores null; the WebUI shows its default name and generation is pending (D116).
+			expect(res.json.session.title).toBeNull();
 		});
 
 		it("patches the title and rejects a bad rule preset", async () => {

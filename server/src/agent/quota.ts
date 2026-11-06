@@ -104,8 +104,8 @@ export interface QuotaWaitView {
 	sessionId: string;
 	/** The exhausted level to top up. */
 	levelId: string;
-	sessionTitle: string;
-	levelTitle: string;
+	sessionTitle: string | null;
+	levelTitle: string | null;
 	levelQuota: number | null;
 	/** The session whose agent handles the wait (the level's parent); empty for a root level, which the owner handles. */
 	handlerId: string;
@@ -118,7 +118,7 @@ async function waitView(
 		id: string;
 		waiting_level_id: string;
 		waiting_handler_id: string | null;
-		title: string;
+		title: string | null;
 		state_changed_at: string | null;
 	},
 ): Promise<QuotaWaitView | undefined> {

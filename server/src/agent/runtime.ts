@@ -91,6 +91,7 @@ export class AgentRuntime {
 			taskGroups: options.taskGroups,
 			context: BACKGROUND_CONTEXT,
 			sessionList: this.#sessionList,
+			modelPresets: presets,
 			harness: () => this.#harness,
 			closing: () => this.#closing,
 			stopping: new Set(),
@@ -104,6 +105,7 @@ export class AgentRuntime {
 			learnedProviders: new Set(),
 			pendingWakes: new Map(),
 			idleWatchers: new Set(),
+			titleGenerating: new Set(),
 		};
 		// Custom providers fill their session id fields from the crh session id, not durable's provider id
 		// (doc/agent-runtime.md#自定义提供方). Auto Review asks for the reverse: the provider session id of

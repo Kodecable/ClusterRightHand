@@ -15,6 +15,7 @@ import type { RefMap } from "../policy/refs.ts";
 import type { StoredRuleSet } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError } from "../users/service.ts";
+import type { ModelPresets } from "./model-presets.ts";
 import type { ModelConfig, ModelRef } from "./models.ts";
 import type { SessionRow } from "./session-chain.ts";
 import type { SessionListHub } from "./session-list.ts";
@@ -28,7 +29,8 @@ import type { SessionState, WaitingKind } from "./session-state.ts";
 
 export interface SessionView {
 	id: string;
-	title: string;
+	/** Null until generated or set; the WebUI shows its localized default name. */
+	title: string | null;
 	ownerUserId: string;
 	parentSessionId: string | null;
 	/** The schedule whose run created this session; null for every other session (doc/scheduling.md). */
@@ -123,6 +125,8 @@ export interface RuntimeHost {
 	readonly taskGroups: TaskGroups;
 	readonly context: Context;
 	readonly sessionList: SessionListHub;
+	/** The cached model presets (D116): prompt sections, Auto Review and title generation read them. */
+	readonly modelPresets: ModelPresets;
 	/** The open Harness; a failed one is replaced on reopen, so always read it through here. */
 	harness(): Harness;
 	/** Whether close() has begun: the Harness refuses every new operation from here on. */
@@ -149,6 +153,8 @@ export interface RuntimeHost {
 	readonly pendingWakes: Map<string, Map<string, string>>;
 	/** Handlers with a `waitForIdle` observer attached. */
 	readonly idleWatchers: Set<string>;
+	/** Sessions with a title generation in flight (memory only; a restart waits for the next run end). */
+	readonly titleGenerating: Set<string>;
 }
 
 /** The session's row; `missing` words the NotFoundError (callers name what the user asked for). */

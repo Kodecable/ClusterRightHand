@@ -6,7 +6,7 @@ import {
 	createRouter,
 	RouterProvider,
 } from "@tanstack/react-router";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { approvalKeys } from "@/features/approvals/api";
 import type { ApprovalList, SessionListItem, SessionView } from "@/lib/api/types";
@@ -179,6 +179,40 @@ describe("SessionPage layout", () => {
 		expect(header).not.toHaveTextContent("Idle");
 		expect(header.querySelector("[data-testid='abort-session']")).toBeNull();
 		expect(header.querySelector("[data-testid='session-title']")).not.toBeNull();
+	});
+
+	test("a session with no title shows the default name", async () => {
+		await renderSessionPage({ session: sessionView({ title: null }) });
+		await screen.findByTestId("session-page");
+		const input = screen.getByTestId("session-title");
+		expect(input).toHaveValue("");
+		expect(input).toHaveAttribute("placeholder", "New Session");
+	});
+
+	test("clearing the title sends an empty title", async () => {
+		await renderSessionPage({ session: sessionView() });
+		await screen.findByTestId("session-page");
+
+		// A blank edit is sent as an empty title (the server turns it into null and stops generation).
+		fireEvent.change(screen.getByTestId("session-title"), { target: { value: "   " } });
+		fireEvent.blur(screen.getByTestId("session-title"));
+		await waitFor(() => {
+			expect(
+				vi
+					.mocked(fetch)
+					.mock.calls.some(
+						([inputPath, init]) =>
+							String(inputPath).endsWith("/api/sessions/s1") && (init as RequestInit | undefined)?.method === "PATCH",
+					),
+			).toBe(true);
+		});
+		const patch = vi
+			.mocked(fetch)
+			.mock.calls.find(
+				([inputPath, init]) =>
+					String(inputPath).endsWith("/api/sessions/s1") && (init as RequestInit | undefined)?.method === "PATCH",
+			);
+		expect(JSON.parse(String((patch?.[1] as RequestInit | undefined)?.body))).toEqual({ title: "" });
 	});
 
 	test("the stop button follows the session's own run and, for a root, its tree's", async () => {

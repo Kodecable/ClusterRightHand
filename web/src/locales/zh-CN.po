@@ -199,6 +199,10 @@ msgstr "，共 {total} 行"
 msgid "Pi built-in"
 msgstr "Pi 内置"
 
+#: src/features/settings/pages.tsx
+msgid "Pi built-in providers and custom endpoints; their keys are never shown back."
+msgstr "Pi 内置提供方和自定义端点；密钥不会回显。"
+
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Protocol"
@@ -1016,9 +1020,9 @@ msgstr "授权已提交。"
 msgid "Authorizations"
 msgstr "授权"
 
-#: src/features/settings/review-model-card.tsx
-msgid "Auto Review sends approvals it cannot decide to this model. Without one, each session's own model is used."
-msgstr "Auto Review 会把无法判断的审批交给该模型。未设置时使用每个会话自己的模型。"
+#: src/features/settings/model-presets.tsx
+msgid "When a root's rule preset is Auto Review, every approval goes to this model first: it approves clearly low-risk operations and hands the rest to the user. Without one, each session's or schedule's own model is used."
+msgstr "当根会话或计划任务的规则预设为自动复核时，每次审批都会先交给该模型：它批准明确低风险的操作，其余交由用户决定。未设置时，使用每个会话或计划任务自己的模型。"
 
 #: src/features/schedules/scheduleForm.ts
 #~ msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
@@ -2461,6 +2465,13 @@ msgstr "新建计划任务"
 #: src/features/sessions/new-session-dialog.tsx
 #: src/features/sessions/session-list.tsx
 msgid "New session"
+msgstr "新会话"
+
+#: src/components/quota-card.tsx
+#: src/features/sessions/children-bar.tsx
+#: src/features/sessions/session-header.tsx
+#: src/features/sessions/session-list-item.tsx
+msgid "New Session"
 msgstr "新会话"
 
 #: src/components/task-form-fields.tsx

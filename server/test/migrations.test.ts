@@ -23,6 +23,8 @@ import { down as down0040, up as up0040 } from "../src/storage/migrations/0040_o
 import { down as down0041, up as up0041 } from "../src/storage/migrations/0041_rule_preset.ts";
 import { down as down0042, up as up0042 } from "../src/storage/migrations/0042_custom_model_providers.ts";
 import { down as down0043, up as up0043 } from "../src/storage/migrations/0043_model_presets.ts";
+import { down as down0044, up as up0044 } from "../src/storage/migrations/0044_session_title_pending.ts";
+import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -1792,5 +1794,64 @@ describeBackends("0043 model presets", (backend) => {
 		expect(restored.rows).toEqual([
 			{ key: "review_model", value: JSON.stringify({ provider: "faux", modelId: "faux-1", thinkingLevel: "high" }) },
 		]);
+	});
+});
+
+describeBackends("0044 session title pending", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend);
+		await applyMigration(backend, db, down0044);
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("makes the title nullable, adds the flag and clears the old default title", async () => {
+		const user = await createUser(db, { username: "title-owner", kind: "member" });
+		const orgId = await defaultOrgId(db);
+		const now = "2026-01-01T00:00:00.000Z";
+		const insert = (id: string, title: string) =>
+			sql`
+				insert into sessions (
+					id, org_id, owner_user_id, conversation_id, parent_session_id, title, model, status,
+					created_at, updated_at, archived_at, last_submission_id, state, waiting_kind, waiting_level_id,
+					waiting_handler_id, state_changed_at
+				) values (
+					${id}, ${orgId}, ${user.id}, ${`conv-${id}`}, null, ${title}, ${"{}"}, ${"active"},
+					${now}, ${now}, null, null, ${"idle"}, null, null, null, null
+				)
+			`.execute(db);
+		await insert("old-default", "New session");
+		await insert("named", "Plan the migration");
+
+		await applyMigration(backend, db, up0044);
+
+		const columns = await tableColumns(backend, db, "sessions");
+		expect(columns).toContain("title_pending");
+		const rows = await sql<{ id: string; title: string | null; title_pending: number }>`
+			select id, title, title_pending from sessions order by id
+		`.execute(db);
+		expect(rows.rows).toEqual([
+			{ id: "named", title: "Plan the migration", title_pending: 0 },
+			{ id: "old-default", title: null, title_pending: 0 },
+		]);
+		// The relaxed column really accepts null, and the flag defaults to false on a new row.
+		await sql`
+			insert into sessions (
+				id, org_id, owner_user_id, conversation_id, parent_session_id, title, model, status,
+				created_at, updated_at, archived_at, last_submission_id, state, waiting_kind, waiting_level_id,
+				waiting_handler_id, state_changed_at
+			) values (
+				${"null-title"}, ${orgId}, ${user.id}, ${"conv-null-title"}, null, null, ${"{}"}, ${"active"},
+				${now}, ${now}, null, null, ${"idle"}, null, null, null, null
+			)
+		`.execute(db);
+		const inserted = await sql<{ title: string | null; title_pending: number }>`
+			select title, title_pending from sessions where id = 'null-title'
+		`.execute(db);
+		expect(inserted.rows).toEqual([{ title: null, title_pending: 0 }]);
 	});
 });

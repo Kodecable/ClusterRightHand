@@ -126,31 +126,39 @@ export function ModelSettingsPage() {
 
 	return (
 		<Page data-testid="models-page">
-			<PageHeader
-				title={<Trans>Model providers</Trans>}
-				actions={
+			<PageHeader title={<Trans>Models</Trans>} />
+			<section className="grid gap-3" aria-labelledby="model-providers-heading" data-testid="model-providers">
+				<div className="flex flex-wrap items-start justify-between gap-2">
+					<div>
+						<h2 id="model-providers-heading" className="text-sm font-semibold">
+							<Trans>Model providers</Trans>
+						</h2>
+						<p className="text-sm text-muted-foreground">
+							<Trans>Pi built-in providers and custom endpoints; their keys are never shown back.</Trans>
+						</p>
+					</div>
 					<Button type="button" onClick={() => setEditing("new")} data-testid="add-provider">
 						<PlusIcon />
 						<Trans>Add provider</Trans>
 					</Button>
-				}
-			/>
+				</div>
+				<DataTable
+					label={t`Model providers`}
+					columns={columns}
+					data={providers.data?.providers ?? []}
+					getRowId={(provider) => provider.id}
+					loading={providers.isLoading}
+					error={providers.isError ? providers.error : undefined}
+					onRetry={() => void providers.refetch()}
+					empty={
+						<EmptyState
+							title={<Trans>No model providers yet</Trans>}
+							description={<Trans>Add a Pi built-in provider or a custom endpoint.</Trans>}
+						/>
+					}
+				/>
+			</section>
 			<ModelPresetsSection />
-			<DataTable
-				label={t`Model providers`}
-				columns={columns}
-				data={providers.data?.providers ?? []}
-				getRowId={(provider) => provider.id}
-				loading={providers.isLoading}
-				error={providers.isError ? providers.error : undefined}
-				onRetry={() => void providers.refetch()}
-				empty={
-					<EmptyState
-						title={<Trans>No model providers yet</Trans>}
-						description={<Trans>Add a Pi built-in provider or a custom endpoint.</Trans>}
-					/>
-				}
-			/>
 			{editing !== undefined && providers.data && (
 				<ProviderDialog
 					existing={editing === "new" ? undefined : editing}

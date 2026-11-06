@@ -29,6 +29,11 @@ describe("SessionListItemRow", () => {
 		expect(slot.querySelector("[role='img']")).toBeNull();
 	});
 
+	test("a session with no title yet shows the default name", async () => {
+		await renderWithRouter(<SessionListItemRow item={item({ title: null })} selected={false} tabIndex={-1} />);
+		expect(screen.getByText("New Session")).toBeInTheDocument();
+	});
+
 	test("a running row shows the dot", async () => {
 		await renderWithRouter(<SessionListItemRow item={item({ state: "running" })} selected={false} tabIndex={-1} />);
 		expect(screen.getByRole("img", { name: "Running" })).toBeInTheDocument();

@@ -171,7 +171,9 @@ export class Reviewer {
 				...(providerRequestId ? { sessionId: providerRequestId } : {}),
 				// The review runs at the review model's thinking level; `off` is pi-ai's "no reasoning" option.
 				...(level === "off" ? {} : { reasoning: level }),
-				toolChoice: forcedToolChoice(resolved, REVIEW_TOOL_NAME),
+				// Anthropic rejects a forced tool together with extended thinking. Only a no-thinking review
+				// forces submit_review; with thinking on the tool stays offered and the text-JSON fallback works.
+				toolChoice: level === "off" ? forcedToolChoice(resolved, REVIEW_TOOL_NAME) : "auto",
 			});
 			const text = answer.content.flatMap((c) => (c.type === "text" ? [c.text] : [])).join("");
 			const outcome = outcomeFromToolCalls(answer.content) ?? parseOutcome(text);

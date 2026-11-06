@@ -24,7 +24,7 @@ export function SessionListItemRow({
 }) {
 	const { t, i18n } = useLingui();
 	const wait = waitingKindLabel(item.waitingKind);
-	const title = sessionTitle(item, t`Untitled session`);
+	const title = sessionTitle(item, t`New Session`);
 	const dot = item.state === "running" || item.state === "awaiting";
 	const tooltip = wait === undefined ? undefined : i18n._(wait);
 

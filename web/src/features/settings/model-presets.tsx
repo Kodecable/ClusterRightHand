@@ -67,7 +67,8 @@ const DESCRIPTIONS: Record<ModelPreset["kind"], () => ReactNode> = {
 	session: () => <Trans>The session preset only changes the system prompt; each session picks its own model.</Trans>,
 	review: () => (
 		<Trans>
-			Auto Review sends approvals it cannot decide to this model. Without one, each session's own model is used.
+			When a root's rule preset is Auto Review, every approval goes to this model first: it approves clearly low-risk
+			operations and hands the rest to the user. Without one, each session's or schedule's own model is used.
 		</Trans>
 	),
 	title: () => (

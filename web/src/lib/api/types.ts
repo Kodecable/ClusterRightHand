@@ -154,7 +154,8 @@ export type SessionWaitingKind = "quota" | "approval" | "authorization";
 /** The lightweight row of `GET /api/sessions` (doc/webui.md "SessionListItem"). */
 export interface SessionListItem {
 	id: string;
-	title: string;
+	/** Null until generated or set; the UI shows its localized default name (D116). */
+	title: string | null;
 	ownerUserId: string;
 	ownerName: string;
 	scheduleId: string | null;
@@ -185,7 +186,8 @@ export interface SessionListQuery extends CursorQuery {
 
 export interface SessionView {
 	id: string;
-	title: string;
+	/** Null until generated or set; the UI shows its localized default name (D116). */
+	title: string | null;
 	ownerUserId: string;
 	parentSessionId: string | null;
 	/** The schedule whose run created this session; null for every other session. */
@@ -646,7 +648,8 @@ export interface QuotaApproval {
 	sessionId: string;
 	/** The exhausted level to top up; the root. */
 	levelId: string;
-	title: string;
+	/** Null when the session has no title yet; show the localized default name. */
+	title: string | null;
 	since: string;
 	/** Remaining budget tokens at the level; zero or negative (D101). */
 	budgetRemaining: number;

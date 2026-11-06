@@ -16,7 +16,8 @@ import type { SessionState, WaitingKind } from "./session-state.ts";
 /** The list's item; `GET /api/sessions/:id` still returns the full session. */
 export interface SessionListItem {
 	id: string;
-	title: string;
+	/** Null until generated or set; the WebUI shows its localized default name (D116). */
+	title: string | null;
 	ownerUserId: string;
 	ownerName: string;
 	scheduleId: string | null;
@@ -48,7 +49,7 @@ export interface SessionListFilter {
 /** The columns both lists turn into an item: the root list aggregates the tree into `state`, the children list reads it as is. */
 export interface SessionItemRow {
 	id: string;
-	title: string;
+	title: string | null;
 	owner_user_id: string;
 	schedule_id: string | null;
 	state: SessionState;
@@ -188,9 +189,10 @@ export async function sessionListQuery(db: Db, user: SessionUser, filter: Sessio
 	}
 	if (filter.q) {
 		// lower() on both sides: SQLite's LIKE is case-insensitive for ASCII only, PostgreSQL's is
-		// case-sensitive for everything; ESCAPE keeps % and _ literal.
+		// case-sensitive for everything; ESCAPE keeps % and _ literal. A NULL title (not generated yet)
+		// cannot match; coalesce keeps the comparison a boolean instead of SQL NULL either way.
 		const pattern = `%${escapeLike(filter.q)}%`;
-		query = query.where(sql<SqlBool>`lower(sessions.title) like lower(${pattern}) escape '\\'`);
+		query = query.where(sql<SqlBool>`lower(coalesce(sessions.title, '')) like lower(${pattern}) escape '\\'`);
 	}
 	if (filter.cursor) {
 		query = query.where(descendingKeyset(["sessions.updated_at"], filter.cursor, "sessions.id"));

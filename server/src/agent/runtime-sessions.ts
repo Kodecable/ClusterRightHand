@@ -64,6 +64,7 @@ export async function createSession(
 	const id = newId();
 	const now = new Date().toISOString();
 	const orgId = await defaultOrgId(host.db);
+	const title = input.title?.trim() || null;
 	await host.db.transaction().execute(async (trx) => {
 		await trx
 			.insertInto("sessions")
@@ -74,7 +75,9 @@ export async function createSession(
 				conversation_id: String(conversation.id),
 				parent_session_id: null,
 				root_session_id: id,
-				title: input.title?.trim() || "New session",
+				title,
+				// A user-created root without a title wants one generated at its first run end (D116).
+				title_pending: title === null ? 1 : 0,
 				model: JSON.stringify(model),
 				status: "active",
 				created_at: now,
@@ -139,6 +142,8 @@ export async function createScheduledSession(
 				root_session_id: input.id,
 				schedule_id: input.scheduleId,
 				title: input.title.trim() || "Scheduled run",
+				// A scheduled run's title is its schedule's name; it never generates one (D116).
+				title_pending: 0,
 				model: JSON.stringify(model),
 				status: "active",
 				created_at: now,
@@ -226,7 +231,8 @@ export async function configure(
 	await host.db
 		.updateTable("sessions")
 		.set({
-			...(change.title?.trim() ? { title: change.title.trim() } : {}),
+			// Any manual title ends generation, a blank one included: null shows the default name and stays (D116).
+			...(change.title === undefined ? {} : { title: change.title.trim() || null, title_pending: 0 }),
 			...(model ? { model: JSON.stringify(model) } : {}),
 			updated_at: new Date().toISOString(),
 		})

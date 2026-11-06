@@ -151,6 +151,8 @@ export async function createSubagent(
 				parent_session_id: parent.id,
 				root_session_id: parent.root_session_id ?? parent.id,
 				title: input.task.slice(0, 80),
+				// A child's title is the start of its task; it never generates one (D116).
+				title_pending: 0,
 				model: JSON.stringify(model),
 				status: "active",
 				created_at: now,
@@ -264,7 +266,7 @@ export async function subagentSessions(
 ): Promise<
 	{
 		id: string;
-		title: string;
+		title: string | null;
 		state: SessionState;
 		createdAt: string;
 		lastSubmissionId: string | null;

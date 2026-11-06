@@ -43,6 +43,7 @@ import * as m0040 from "./migrations/0040_one_output_stream.ts";
 import * as m0041 from "./migrations/0041_rule_preset.ts";
 import * as m0042 from "./migrations/0042_custom_model_providers.ts";
 import * as m0043 from "./migrations/0043_model_presets.ts";
+import * as m0044 from "./migrations/0044_session_title_pending.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -89,6 +90,7 @@ const migrations: Record<string, Migration> = {
 	"0041_rule_preset": m0041,
 	"0042_custom_model_providers": m0042,
 	"0043_model_presets": m0043,
+	"0044_session_title_pending": m0044,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };

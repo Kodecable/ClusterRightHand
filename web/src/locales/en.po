@@ -199,6 +199,10 @@ msgstr ", {total} lines in all"
 msgid "Pi built-in"
 msgstr "Pi built-in"
 
+#: src/features/settings/pages.tsx
+msgid "Pi built-in providers and custom endpoints; their keys are never shown back."
+msgstr "Pi built-in providers and custom endpoints; their keys are never shown back."
+
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Protocol"
@@ -1016,9 +1020,9 @@ msgstr "Authorization submitted."
 msgid "Authorizations"
 msgstr "Authorizations"
 
-#: src/features/settings/review-model-card.tsx
-msgid "Auto Review sends approvals it cannot decide to this model. Without one, each session's own model is used."
-msgstr "Auto Review sends approvals it cannot decide to this model. Without one, each session's own model is used."
+#: src/features/settings/model-presets.tsx
+msgid "When a root's rule preset is Auto Review, every approval goes to this model first: it approves clearly low-risk operations and hands the rest to the user. Without one, each session's or schedule's own model is used."
+msgstr "When a root's rule preset is Auto Review, every approval goes to this model first: it approves clearly low-risk operations and hands the rest to the user. Without one, each session's or schedule's own model is used."
 
 #: src/features/schedules/scheduleForm.ts
 #~ msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
@@ -2462,6 +2466,13 @@ msgstr "New schedule"
 #: src/features/sessions/session-list.tsx
 msgid "New session"
 msgstr "New session"
+
+#: src/components/quota-card.tsx
+#: src/features/sessions/children-bar.tsx
+#: src/features/sessions/session-header.tsx
+#: src/features/sessions/session-list-item.tsx
+msgid "New Session"
+msgstr "New Session"
 
 #: src/components/task-form-fields.tsx
 msgid "New text"

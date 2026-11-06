@@ -7,6 +7,7 @@ import { DateTime } from "@/components/relative-time";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { sessionTitle } from "@/features/sessions/session-item";
 import type { QuotaApproval } from "@/lib/api/types";
 import { formatNumber } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
@@ -111,7 +112,7 @@ export function QuotaCard({
 							params={{ sessionId: wait.sessionId }}
 							className="text-primary underline underline-offset-2"
 						>
-							{wait.title}
+							{sessionTitle(wait, t`New Session`)}
 						</Link>
 					</h2>
 					<p className="font-mono text-xs text-muted-foreground">{wait.levelId}</p>

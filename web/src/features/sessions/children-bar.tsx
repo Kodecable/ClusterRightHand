@@ -134,7 +134,7 @@ function ChildNode({ item, depth, onNavigate }: { item: SessionListItem; depth: 
 					className="min-w-0 flex-1 truncate text-sm hover:underline"
 					onClick={onNavigate}
 				>
-					{sessionTitle(item, t`Untitled session`)}
+					{sessionTitle(item, t`New Session`)}
 				</Link>
 			</div>
 			{expanded && <NestedChildren parentId={item.id} depth={depth + 1} onNavigate={onNavigate} />}

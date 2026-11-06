@@ -29,7 +29,7 @@ export function isSessionListItem(value: unknown): value is SessionListItem {
 	if (
 		typeof item.id !== "string" ||
 		item.id === "" ||
-		typeof item.title !== "string" ||
+		(item.title !== null && typeof item.title !== "string") ||
 		typeof item.ownerUserId !== "string" ||
 		typeof item.state !== "string" ||
 		!STATES.has(item.state) ||
@@ -51,7 +51,8 @@ export function sessionMatchesFilter(item: SessionListItem, filter: SessionListF
 	if (filter.scope === "shared" && !item.shared) return false;
 	if (filter.scope === "visible" && item.ownerUserId !== filter.viewerId && !item.shared) return false;
 	const query = filter.q.trim().toLowerCase();
-	if (query !== "" && !item.title.toLowerCase().includes(query)) return false;
+	// A null title is not searchable: the list search matches stored titles only.
+	if (query !== "" && !(item.title?.toLowerCase().includes(query) ?? false)) return false;
 	return true;
 }
 

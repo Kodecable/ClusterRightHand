@@ -16,7 +16,8 @@ export function waitingKindLabel(kind: SessionWaitingKind | null): MessageDescri
 	}
 }
 
-/** The title shown for a row; a blank title from the server still needs a visible label. */
+/** The title shown for a row; a null or blank title from the server still needs a visible label (D116). */
 export function sessionTitle(item: Pick<SessionListItem, "title">, fallback: string): string {
-	return item.title.trim() === "" ? fallback : item.title;
+	if (item.title === null || item.title.trim() === "") return fallback;
+	return item.title;
 }

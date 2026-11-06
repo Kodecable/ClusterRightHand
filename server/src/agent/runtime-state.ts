@@ -12,6 +12,7 @@ import {
 	sessionsWithSubmissions,
 	setSessionState,
 } from "./session-state.ts";
+import { maybeGenerateTitle } from "./title.ts";
 
 /**
  * A session's run state (doc/agent-runtime.md#会话状态): recomputed from durable and the session's wait
@@ -148,12 +149,21 @@ async function taskWaitKind(host: RuntimeHost, sessionId: string): Promise<"appr
  * Ends the session's run when its latest input settles (done, rejected or aborted alike): the session is
  * idle until a new input. Only the latest input's settlement writes idle, so an older run cannot stop a
  * newer one (doc/agent-runtime.md#会话状态).
+ *
+ * The run end is also where title generation is triggered for a root that still wants a title
+ * (doc/agent-runtime.md#标题生成); `generateTitle: false` is for a run that already ended before a restart —
+ * generation is not persisted, so the next run end triggers it instead.
  */
-export async function settleInput(host: RuntimeHost, sessionId: string, submissionId: string): Promise<void> {
+export async function settleInput(
+	host: RuntimeHost,
+	sessionId: string,
+	submissionId: string,
+	options: { generateTitle?: boolean } = {},
+): Promise<void> {
 	if (host.closing()) return;
 	const row = await host.db
 		.selectFrom("sessions")
-		.select(["last_submission_id", "state"])
+		.select(["last_submission_id", "parent_session_id", "title_pending"])
 		.where("id", "=", sessionId)
 		.executeTakeFirst();
 	if (!row || row.last_submission_id !== submissionId) return;
@@ -177,6 +187,16 @@ export async function settleInput(host: RuntimeHost, sessionId: string, submissi
 	// waiting for a decision nobody will act on: the run is over, so end those waits too.
 	if (!host.stopping.has(sessionId)) {
 		await endSessionWork(host, [sessionId], "the session's run ended", { includeRunning: false });
+	}
+	// Background: the run end never waits for the title. A stopped run, a child and a scheduled run have no
+	// pending title (or must not start one); the generator re-checks the row anyway.
+	if (
+		options.generateTitle !== false &&
+		!host.stopping.has(sessionId) &&
+		row.parent_session_id === null &&
+		row.title_pending === 1
+	) {
+		maybeGenerateTitle(host, sessionId, submissionId);
 	}
 }
 
@@ -330,7 +350,7 @@ function watchSubmission(host: RuntimeHost, sessionId: string, submissionId: str
 		const submission = await host.harness().submission(Number(submissionId) as unknown as SubmissionId, host.context);
 		if (!submission) return;
 		await submission.wait(host.context);
-		await settleInput(host, sessionId, submissionId);
+		await settleInput(host, sessionId, submissionId, { generateTitle: false });
 	})().catch((err: unknown) => {
 		console.error("agent runtime: recording a resumed run's end failed:", err);
 	});

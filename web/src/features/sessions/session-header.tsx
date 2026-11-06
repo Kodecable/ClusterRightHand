@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { SessionView } from "@/lib/api/types";
 import { usePatchSession, useSession } from "./api";
+import { sessionTitle } from "./session-item";
 import { SessionMarkers } from "./session-markers";
 import { ShareDialog } from "./share-dialog";
 
@@ -21,7 +22,7 @@ function ParentChain({ id }: { id: string }) {
 	const parent = useSession(id);
 	const { t } = useLingui();
 	if (!parent.data) return null;
-	const parentTitle = parent.data.title.trim() === "" ? t`Untitled session` : parent.data.title;
+	const parentTitle = sessionTitle(parent.data, t`New Session`);
 	return (
 		<>
 			<BreadcrumbItem>
@@ -63,20 +64,21 @@ function SessionBreadcrumb({ session }: { session: SessionView }) {
 function TitleEditor({ session }: { session: SessionView }) {
 	const { t } = useLingui();
 	const patch = usePatchSession(session.id);
-	const [value, setValue] = useState(session.title);
-	useEffect(() => setValue(session.title), [session.title]);
+	const [value, setValue] = useState(session.title ?? "");
+	useEffect(() => setValue(session.title ?? ""), [session.title]);
 
 	if (!session.capabilities.configure) {
-		return <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{session.title || t`Untitled session`}</h1>;
+		return <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{sessionTitle(session, t`New Session`)}</h1>;
 	}
 
 	const save = () => {
 		if (patch.isPending) return;
 		const title = value.trim();
-		if (title === "" || title === session.title) {
-			setValue(session.title);
+		if (title === (session.title ?? "")) {
+			setValue(session.title ?? "");
 			return;
 		}
+		// A blank edit is a real change: it clears the title and stops generation (D116); the default name shows.
 		patch.mutate({ title }, { onSuccess: () => toast.success(t`Title saved.`) });
 	};
 
@@ -95,13 +97,14 @@ function TitleEditor({ session }: { session: SessionView }) {
 				id="session-title"
 				data-testid="session-title"
 				value={value}
+				placeholder={t`New Session`}
 				maxLength={200}
 				disabled={patch.isPending}
 				className="h-8 border-transparent bg-transparent px-1 text-lg font-semibold shadow-none hover:border-input focus-visible:border-input dark:bg-transparent"
 				onChange={(event) => setValue(event.target.value)}
 				onBlur={save}
 				onKeyDown={(event) => {
-					if (event.key === "Escape") setValue(session.title);
+					if (event.key === "Escape") setValue(session.title ?? "");
 				}}
 			/>
 		</form>

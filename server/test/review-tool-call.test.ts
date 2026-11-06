@@ -209,7 +209,9 @@ it("approves through the submit_review tool call and passes the thinking level",
 	expect(reviewed.approval?.decision?.decision).toBe("approved");
 	const call = seen[0] as { options: { reasoning?: string; toolChoice?: unknown }; context: { messages: unknown[] } };
 	expect(call.options.reasoning).toBe("high");
-	expect(call.options.toolChoice).toMatchObject({ type: "function", function: { name: "submit_review" } });
+	// Anthropic rejects a forced tool with extended thinking, so a thinking review leaves the choice automatic
+	// and still offers submit_review (the text-JSON fallback stays available).
+	expect(call.options.toolChoice).toBe("auto");
 	expect(JSON.stringify(call.context)).toContain("submit_review");
 });
 

@@ -171,7 +171,7 @@ export function policyRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups, a
 		const quotas: {
 			sessionId: string;
 			levelId: string;
-			title: string;
+			title: string | null;
 			since: string;
 			/** The level's remaining budget; zero or negative (D92, D101). */
 			budgetRemaining: number;

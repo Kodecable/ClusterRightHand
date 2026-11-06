@@ -20,6 +20,11 @@ describe("QuotaCard", () => {
 		expect(screen.getByText("lvl-root")).toBeInTheDocument();
 	});
 
+	test("shows the default name when the session has no title yet", async () => {
+		await renderWithRouter(<QuotaCard wait={{ ...wait, title: null }} onDecide={() => {}} />);
+		expect(screen.getByRole("link", { name: "New Session" })).toHaveAttribute("href", "/sessions/s1");
+	});
+
 	test("rejects a non-numeric amount without deciding", async () => {
 		const onDecide = vi.fn<(decision: QuotaDecision) => void>();
 		await renderWithRouter(<QuotaCard wait={wait} onDecide={onDecide} />);

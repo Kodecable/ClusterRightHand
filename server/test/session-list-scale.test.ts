@@ -169,7 +169,7 @@ it("pages mine, all and a search correctly at 100,000 sessions, and reports the 
 
 	const search = await timed(() => list(aliceCookie, "?q=needle&limit=50"));
 	expect(search.value.items).toHaveLength(NEEDLES);
-	expect(search.value.items.every((item) => item.title.includes("needle"))).toBe(true);
+	expect(search.value.items.every((item) => item.title?.includes("needle") ?? false)).toBe(true);
 	expect(search.value.items.map((item) => item.id)).toEqual(expected((index) => index % 10_000 === 5, 50));
 
 	const percent = await list(aliceCookie, `?q=${encodeURIComponent("%")}`);

@@ -386,7 +386,10 @@ export interface SessionsTable {
 	root_session_id: string;
 	/** The schedule whose run created this root session; nulled when the schedule is deleted. */
 	schedule_id: string | null;
-	title: string;
+	/** Generated or user-given title; null shows the WebUI's localized default (doc/agent-runtime.md#标题生成). */
+	title: string | null;
+	/** Whether a title still wants generating; cleared by a success or a manual rename (SQLite/PostgreSQL 0/1). */
+	title_pending: ColumnType<number, number | undefined, number | undefined>;
 	/** JSON ModelRef. */
 	model: string;
 	status: "active" | "archived";
