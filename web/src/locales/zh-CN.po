@@ -7,10 +7,163 @@ msgstr ""
 "X-Generator: @lingui/cli\n"
 "Language: zh-CN\n"
 
+#: src/features/settings/providers.ts
+msgid "A mapped level value is required."
+msgstr "填写映射值后才可使用该档。"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Accept images"
+msgstr "接收图片"
+
+#: src/features/settings/pages.tsx
+msgid "Add a Pi built-in provider or a custom endpoint."
+msgstr "添加 Pi 内置提供方或自定义端点。"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Add field"
+msgstr "添加字段"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Add header"
+msgstr "添加请求头"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Advanced pi-ai options, validated against the protocol's schema. Leave empty for auto-detection."
+msgstr "高级 pi-ai 选项，按所选协议校验；留空表示自动判断。"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Auto (omit)"
+msgstr "自动（不指定）"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
+msgstr "自动表示由 pi-ai 根据 Base URL 判断。Responses 固定发送 reasoning.effort。"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Chat Completions"
+msgstr "Chat Completions"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Compat (JSON, advanced)"
+msgstr "compat（JSON，高级）"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Compat JSON"
+msgstr "compat JSON"
+
+#: src/features/settings/providers.ts
+msgid "Compat must be a JSON object."
+msgstr "compat 必须是 JSON 对象。"
+
+#: src/features/settings/providers.ts
+msgid "Compat must be valid JSON."
+msgstr "compat 必须是有效的 JSON。"
+
+#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Custom"
+msgstr "自定义"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Default (omitted)"
+msgstr "默认（不发送）"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Disabled (null)"
+msgstr "禁用（null）"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Each level's JSON object is merged into the request body; leave a level empty to not offer it."
+msgstr "每档的 JSON 对象会合并进请求体；留空表示不提供该档。"
+
+#. placeholder {0}: index + 1
+#. placeholder {0}: initial.id
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Edit model {0}"
+msgstr "编辑模型 {0}"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Extra headers"
+msgstr "额外请求头"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Format mode"
+msgstr "格式写法"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Header"
+msgstr "请求头"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Header {0} name"
+msgstr "请求头 {0} 名称"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Header {0} value"
+msgstr "请求头 {0} 值"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Image"
+msgstr "图片"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Level mapping"
+msgstr "档位映射"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Mapped value"
+msgstr "映射值"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Mapping"
+msgstr "映射"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Max output"
+msgstr "最大输出"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Max output tokens"
+msgstr "最大输出 token"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Model id"
+msgstr "模型 id"
+
+#: src/features/settings/providers.ts
+msgid "Model ids must be unique."
+msgstr "模型 id 不能重复。"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Models of this provider are offered to sessions; each one maps to the fields pi-ai needs."
+msgstr "该提供方的模型会提供给会话选择；每个模型对应 pi-ai 需要的字段。"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "None"
+msgstr "不支持"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Only API keys are supported; OAuth sign-in is not available."
+msgstr "只支持 API key，不支持 OAuth 登录。"
+
 #. js-lingui-explicit-id
 #: src/app/shell/app-sidebar.tsx
 msgid "Ops console"
 msgstr "运维控制台"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Optional; defaults to the model id."
+msgstr "可选；默认使用模型 id。"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Optional; overrides the provider's endpoint."
+msgstr "可选；覆盖提供方的端点。"
 
 #. js-lingui-explicit-id
 #: src/app/shell/app-sidebar.tsx
@@ -40,6 +193,116 @@ msgstr "（批量运行被中断）"
 #: src/components/task-result.tsx
 msgid ", {total} lines in all"
 msgstr "，共 {total} 行"
+
+#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Pi built-in"
+msgstr "Pi 内置"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Protocol"
+msgstr "协议"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Remove header {0}"
+msgstr "删除请求头 {0}"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Remove session id body field {0}"
+msgstr "删除会话 id 请求体字段 {0}"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Remove session id header {0}"
+msgstr "删除会话 id 请求头 {0}"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Request body mode"
+msgstr "请求体写法"
+
+#: src/features/settings/providers.ts
+msgid "Request body overrides must be a JSON object."
+msgstr "请求体覆盖必须是 JSON 对象。"
+
+#: src/features/settings/providers.ts
+msgid "Request body overrides must be valid JSON."
+msgstr "请求体覆盖必须是有效的 JSON。"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Request body per level"
+msgstr "各档请求体"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Responses"
+msgstr "Responses"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Save model"
+msgstr "保存模型"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Sent with every request; put credentials in the API key, not here."
+msgstr "随每个请求发送；凭据放在 API key 里，不要放在这里。"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id body field {0}"
+msgstr "会话 id 请求体字段 {0}"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id body fields"
+msgstr "会话 id 请求体字段"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id fields"
+msgstr "会话 id 字段"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id header {0}"
+msgstr "会话 id 请求头 {0}"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id headers"
+msgstr "会话 id 请求头"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "The crh session id is written to these request headers and body fields (dot paths)."
+msgstr "这些请求头和请求体字段（点分路径）会填入 crh 会话 id。"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Thinking format"
+msgstr "思考格式"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Thinking level mapping"
+msgstr "思考档位映射"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Value"
+msgstr "值"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "auto"
+msgstr "自动"
+
+#: src/features/settings/model-dialog.tsx
+msgid "{level} mapping"
+msgstr "{level} 映射"
+
+#: src/features/settings/model-dialog.tsx
+msgid "{level} request body JSON"
+msgstr "{level} 请求体 JSON"
+
+#: src/features/settings/model-dialog.tsx
+msgid "{level} value"
+msgstr "{level} 值"
 
 #: src/components/task-result.tsx
 msgid "… {omitted} bytes omitted …"
@@ -408,10 +671,6 @@ msgstr "操作者类型"
 #: src/features/users/user-groups-section.tsx
 msgid "Add"
 msgstr "添加"
-
-#: src/features/settings/pages.tsx
-msgid "Add a built-in provider or an OpenAI-compatible endpoint."
-msgstr "添加内置提供方或 OpenAI 兼容端点。"
 
 #: src/features/credentials/pages.tsx
 msgid "Add a Passkey"
@@ -838,14 +1097,6 @@ msgstr "预算已用尽（超出 {0}）· 已花 {usedText}"
 #: src/features/nodes/pages.tsx
 msgid "Build the `[[trust]]` block for this node's privileged.toml. The node enforces it; this page only exports it."
 msgstr "为这个节点的 privileged.toml 生成 `[[trust]]` 块。节点负责执行，此页面只负责导出。"
-
-#: src/features/settings/pages.tsx
-msgid "Built-in"
-msgstr "内置"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Built-in provider"
-msgstr "内置提供方"
 
 #: src/features/tasks/task-columns.tsx
 msgid "By"
@@ -1687,10 +1938,6 @@ msgstr "你可以访问的每个节点，包括之后添加的节点。"
 #~ msgid "Every node you can operate, including nodes added later."
 #~ msgstr "你能操作的所有节点，包括之后添加的节点。"
 
-#: src/features/settings/providers.ts
-msgid "Every request header value must be a string."
-msgstr "每个请求头的值都必须是字符串。"
-
 #: src/features/schedules/schedule-form.tsx
 #~ msgid "Every run starts a fresh session with this prompt."
 #~ msgstr "每次运行都会用此提示词启动一个新会话。"
@@ -1760,10 +2007,6 @@ msgstr "有效期"
 #: src/features/nodes/crhs-key-panel.tsx
 msgid "Export trust snippet"
 msgstr "导出信任片段"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Extra headers for gateways; credentials belong in the API key field."
-msgstr "网关所需的额外请求头；凭据应放在 API 密钥字段。"
 
 #. placeholder {0}: facts.length
 #: src/features/nodes/pages.tsx
@@ -2089,10 +2332,6 @@ msgstr "小写字母、数字和短横线。"
 msgid "Matched rule"
 msgstr "匹配规则"
 
-#: src/features/settings/provider-dialog.tsx
-msgid "Max tokens"
-msgstr "最大 token 数"
-
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Max TTL"
@@ -2137,26 +2376,6 @@ msgstr "权限"
 #: src/features/settings/review-model-card.tsx
 msgid "Model"
 msgstr "模型"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Model {0} context window"
-msgstr "模型 {0} 上下文窗口"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Model {0} id"
-msgstr "模型 {0} ID"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Model {0} max tokens"
-msgstr "模型 {0} 最大 token 数"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Model {0} reasoning"
-msgstr "模型 {0} 推理"
 
 #: src/features/settings/pages.tsx
 msgid "Model providers"
@@ -2695,14 +2914,6 @@ msgstr "打开任务组页"
 msgid "Open the task page"
 msgstr "打开任务页"
 
-#: src/features/settings/pages.tsx
-msgid "OpenAI-compatible"
-msgstr "OpenAI 兼容"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "OpenAI-compatible endpoint"
-msgstr "OpenAI 兼容端点"
-
 #: src/features/nodes/node-shares.tsx
 #~ msgid "Operate"
 #~ msgstr "操作"
@@ -2977,10 +3188,6 @@ msgstr "原因"
 msgid "Reason (optional, used when rejecting)"
 msgstr "原因（可选，拒绝时使用）"
 
-#: src/features/settings/provider-dialog.tsx
-msgid "Reasoning"
-msgstr "推理"
-
 #: src/features/nodes/node-tasks.tsx
 msgid "Recent tasks"
 msgstr "最近任务"
@@ -3103,18 +3310,6 @@ msgstr "请再次输入新密码。"
 #: src/features/nodes/node-trust.tsx
 msgid "Report"
 msgstr "报告"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Request headers (JSON, optional)"
-msgstr "请求头（JSON，可选）"
-
-#: src/features/settings/providers.ts
-msgid "Request headers must be a JSON object."
-msgstr "请求头必须是 JSON 对象。"
-
-#: src/features/settings/providers.ts
-msgid "Request headers must be valid JSON."
-msgstr "请求头必须是有效的 JSON。"
 
 #: src/components/approval-card.tsx
 msgid "Requested"

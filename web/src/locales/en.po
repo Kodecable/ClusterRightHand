@@ -7,10 +7,163 @@ msgstr ""
 "X-Generator: @lingui/cli\n"
 "Language: en\n"
 
+#: src/features/settings/providers.ts
+msgid "A mapped level value is required."
+msgstr "A mapped level value is required."
+
+#: src/features/settings/model-dialog.tsx
+msgid "Accept images"
+msgstr "Accept images"
+
+#: src/features/settings/pages.tsx
+msgid "Add a Pi built-in provider or a custom endpoint."
+msgstr "Add a Pi built-in provider or a custom endpoint."
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Add field"
+msgstr "Add field"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Add header"
+msgstr "Add header"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Advanced pi-ai options, validated against the protocol's schema. Leave empty for auto-detection."
+msgstr "Advanced pi-ai options, validated against the protocol's schema. Leave empty for auto-detection."
+
+#: src/features/settings/model-dialog.tsx
+msgid "Auto (omit)"
+msgstr "Auto (omit)"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
+msgstr "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Chat Completions"
+msgstr "Chat Completions"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Compat (JSON, advanced)"
+msgstr "Compat (JSON, advanced)"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Compat JSON"
+msgstr "Compat JSON"
+
+#: src/features/settings/providers.ts
+msgid "Compat must be a JSON object."
+msgstr "Compat must be a JSON object."
+
+#: src/features/settings/providers.ts
+msgid "Compat must be valid JSON."
+msgstr "Compat must be valid JSON."
+
+#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Custom"
+msgstr "Custom"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Default (omitted)"
+msgstr "Default (omitted)"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Disabled (null)"
+msgstr "Disabled (null)"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Each level's JSON object is merged into the request body; leave a level empty to not offer it."
+msgstr "Each level's JSON object is merged into the request body; leave a level empty to not offer it."
+
+#. placeholder {0}: index + 1
+#. placeholder {0}: initial.id
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Edit model {0}"
+msgstr "Edit model {0}"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Extra headers"
+msgstr "Extra headers"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Format mode"
+msgstr "Format mode"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Header"
+msgstr "Header"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Header {0} name"
+msgstr "Header {0} name"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Header {0} value"
+msgstr "Header {0} value"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Image"
+msgstr "Image"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Level mapping"
+msgstr "Level mapping"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Mapped value"
+msgstr "Mapped value"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Mapping"
+msgstr "Mapping"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Max output"
+msgstr "Max output"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Max output tokens"
+msgstr "Max output tokens"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Model id"
+msgstr "Model id"
+
+#: src/features/settings/providers.ts
+msgid "Model ids must be unique."
+msgstr "Model ids must be unique."
+
+#: src/features/settings/model-dialog.tsx
+msgid "Models of this provider are offered to sessions; each one maps to the fields pi-ai needs."
+msgstr "Models of this provider are offered to sessions; each one maps to the fields pi-ai needs."
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "None"
+msgstr "None"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Only API keys are supported; OAuth sign-in is not available."
+msgstr "Only API keys are supported; OAuth sign-in is not available."
+
 #. js-lingui-explicit-id
 #: src/app/shell/app-sidebar.tsx
 msgid "Ops console"
 msgstr "Ops console"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Optional; defaults to the model id."
+msgstr "Optional; defaults to the model id."
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Optional; overrides the provider's endpoint."
+msgstr "Optional; overrides the provider's endpoint."
 
 #. js-lingui-explicit-id
 #: src/app/shell/app-sidebar.tsx
@@ -40,6 +193,116 @@ msgstr " (the batch was interrupted)"
 #: src/components/task-result.tsx
 msgid ", {total} lines in all"
 msgstr ", {total} lines in all"
+
+#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Pi built-in"
+msgstr "Pi built-in"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Protocol"
+msgstr "Protocol"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Remove header {0}"
+msgstr "Remove header {0}"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Remove session id body field {0}"
+msgstr "Remove session id body field {0}"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Remove session id header {0}"
+msgstr "Remove session id header {0}"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Request body mode"
+msgstr "Request body mode"
+
+#: src/features/settings/providers.ts
+msgid "Request body overrides must be a JSON object."
+msgstr "Request body overrides must be a JSON object."
+
+#: src/features/settings/providers.ts
+msgid "Request body overrides must be valid JSON."
+msgstr "Request body overrides must be valid JSON."
+
+#: src/features/settings/model-dialog.tsx
+msgid "Request body per level"
+msgstr "Request body per level"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Responses"
+msgstr "Responses"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Save model"
+msgstr "Save model"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Sent with every request; put credentials in the API key, not here."
+msgstr "Sent with every request; put credentials in the API key, not here."
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id body field {0}"
+msgstr "Session id body field {0}"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id body fields"
+msgstr "Session id body fields"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id fields"
+msgstr "Session id fields"
+
+#. placeholder {0}: index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id header {0}"
+msgstr "Session id header {0}"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Session id headers"
+msgstr "Session id headers"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "The crh session id is written to these request headers and body fields (dot paths)."
+msgstr "The crh session id is written to these request headers and body fields (dot paths)."
+
+#: src/features/settings/model-dialog.tsx
+msgid "Thinking format"
+msgstr "Thinking format"
+
+#: src/features/settings/model-dialog.tsx
+msgid "Thinking level mapping"
+msgstr "Thinking level mapping"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "Value"
+msgstr "Value"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "auto"
+msgstr "auto"
+
+#: src/features/settings/model-dialog.tsx
+msgid "{level} mapping"
+msgstr "{level} mapping"
+
+#: src/features/settings/model-dialog.tsx
+msgid "{level} request body JSON"
+msgstr "{level} request body JSON"
+
+#: src/features/settings/model-dialog.tsx
+msgid "{level} value"
+msgstr "{level} value"
 
 #: src/components/task-result.tsx
 msgid "… {omitted} bytes omitted …"
@@ -408,10 +671,6 @@ msgstr "Actor type"
 #: src/features/users/user-groups-section.tsx
 msgid "Add"
 msgstr "Add"
-
-#: src/features/settings/pages.tsx
-msgid "Add a built-in provider or an OpenAI-compatible endpoint."
-msgstr "Add a built-in provider or an OpenAI-compatible endpoint."
 
 #: src/features/credentials/pages.tsx
 msgid "Add a Passkey"
@@ -838,14 +1097,6 @@ msgstr "Budget used up ({0} over) · {usedText} spent"
 #: src/features/nodes/pages.tsx
 msgid "Build the `[[trust]]` block for this node's privileged.toml. The node enforces it; this page only exports it."
 msgstr "Build the `[[trust]]` block for this node's privileged.toml. The node enforces it; this page only exports it."
-
-#: src/features/settings/pages.tsx
-msgid "Built-in"
-msgstr "Built-in"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Built-in provider"
-msgstr "Built-in provider"
 
 #: src/features/tasks/task-columns.tsx
 msgid "By"
@@ -1687,10 +1938,6 @@ msgstr "Every node you can access, including nodes added later."
 #~ msgid "Every node you can operate, including nodes added later."
 #~ msgstr "Every node you can operate, including nodes added later."
 
-#: src/features/settings/providers.ts
-msgid "Every request header value must be a string."
-msgstr "Every request header value must be a string."
-
 #: src/features/schedules/schedule-form.tsx
 #~ msgid "Every run starts a fresh session with this prompt."
 #~ msgstr "Every run starts a fresh session with this prompt."
@@ -1760,10 +2007,6 @@ msgstr "Expires after"
 #: src/features/nodes/crhs-key-panel.tsx
 msgid "Export trust snippet"
 msgstr "Export trust snippet"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Extra headers for gateways; credentials belong in the API key field."
-msgstr "Extra headers for gateways; credentials belong in the API key field."
 
 #. placeholder {0}: facts.length
 #: src/features/nodes/pages.tsx
@@ -2089,10 +2332,6 @@ msgstr "Lowercase letters, digits and dashes."
 msgid "Matched rule"
 msgstr "Matched rule"
 
-#: src/features/settings/provider-dialog.tsx
-msgid "Max tokens"
-msgstr "Max tokens"
-
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Max TTL"
@@ -2137,26 +2376,6 @@ msgstr "Mode"
 #: src/features/settings/review-model-card.tsx
 msgid "Model"
 msgstr "Model"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Model {0} context window"
-msgstr "Model {0} context window"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Model {0} id"
-msgstr "Model {0} id"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Model {0} max tokens"
-msgstr "Model {0} max tokens"
-
-#. placeholder {0}: index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Model {0} reasoning"
-msgstr "Model {0} reasoning"
 
 #: src/features/settings/pages.tsx
 msgid "Model providers"
@@ -2695,14 +2914,6 @@ msgstr "Open the task group page"
 msgid "Open the task page"
 msgstr "Open the task page"
 
-#: src/features/settings/pages.tsx
-msgid "OpenAI-compatible"
-msgstr "OpenAI-compatible"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "OpenAI-compatible endpoint"
-msgstr "OpenAI-compatible endpoint"
-
 #: src/features/nodes/node-shares.tsx
 #~ msgid "Operate"
 #~ msgstr "Operate"
@@ -2977,10 +3188,6 @@ msgstr "Reason"
 msgid "Reason (optional, used when rejecting)"
 msgstr "Reason (optional, used when rejecting)"
 
-#: src/features/settings/provider-dialog.tsx
-msgid "Reasoning"
-msgstr "Reasoning"
-
 #: src/features/nodes/node-tasks.tsx
 msgid "Recent tasks"
 msgstr "Recent tasks"
@@ -3103,18 +3310,6 @@ msgstr "Repeat the new password."
 #: src/features/nodes/node-trust.tsx
 msgid "Report"
 msgstr "Report"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Request headers (JSON, optional)"
-msgstr "Request headers (JSON, optional)"
-
-#: src/features/settings/providers.ts
-msgid "Request headers must be a JSON object."
-msgstr "Request headers must be a JSON object."
-
-#: src/features/settings/providers.ts
-msgid "Request headers must be valid JSON."
-msgstr "Request headers must be valid JSON."
 
 #: src/components/approval-card.tsx
 msgid "Requested"

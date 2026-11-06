@@ -8,6 +8,7 @@ import type {
 	AvailableModel,
 	CredentialView,
 	Directory,
+	ModelProviderInput,
 	ModelProviderView,
 	ModelRef,
 	NodeAccessGrant,
@@ -793,28 +794,53 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		if (providerMatch) {
 			const providerId = decodeURIComponent(providerMatch[1] as string);
 			if (method === "PUT") {
-				const input = body as ModelProviderView & { apiKey?: string | null };
+				const input = body as ModelProviderInput & { apiKey?: string | null };
 				const existing = state.providers.find((candidate) => candidate.providerId === providerId);
+				const apiKey = input.apiKey;
 				const provider: ModelProviderView = {
-					...(existing ?? {
-						id: `provider-${state.providers.length + 1}`,
-						providerId,
-						builtin: input.kind === "builtin" ? providerId : null,
-					}),
-					...input,
+					id: existing?.id ?? `provider-${state.providers.length + 1}`,
 					providerId,
+					kind: input.kind,
+					builtin: input.kind === "builtin" ? providerId : null,
+					name: input.name?.trim() || existing?.name || providerId,
+					baseUrl: input.baseUrl ?? null,
 					hasApiKey:
-						input.apiKey === null
+						apiKey === null
 							? false
-							: typeof input.apiKey === "string" && input.apiKey !== ""
+							: typeof apiKey === "string" && apiKey !== ""
 								? true
 								: (existing?.hasApiKey ?? false),
+					models: input.kind === "custom" ? (input.models ?? existing?.models ?? []) : null,
+					headers:
+						input.kind === "custom"
+							? input.headers !== undefined
+								? input.headers
+								: (existing?.headers ?? null)
+							: null,
+					sessionId:
+						input.kind === "custom"
+							? input.sessionId !== undefined
+								? input.sessionId
+								: (existing?.sessionId ?? null)
+							: null,
+					enabled: input.enabled ?? existing?.enabled ?? true,
 				};
 				state.providers = [...state.providers.filter((candidate) => candidate.providerId !== providerId), provider];
+				// Saving a provider refreshes the available models, as the real server does (`models.reload()`).
+				state.models = [
+					...state.models.filter((model) => model.provider !== providerId),
+					...(provider.models ?? []).map((model) => ({
+						provider: providerId,
+						modelId: model.id,
+						name: model.name ?? model.id,
+						contextWindow: model.contextWindow,
+					})),
+				];
 				return json({ provider });
 			}
 			if (method === "DELETE") {
 				state.providers = state.providers.filter((candidate) => candidate.providerId !== providerId);
+				state.models = state.models.filter((model) => model.provider !== providerId);
 				return json({ ok: true });
 			}
 		}
@@ -1212,6 +1238,7 @@ export function providerView(overrides: Partial<ModelProviderView> = {}): ModelP
 		hasApiKey: false,
 		models: null,
 		headers: null,
+		sessionId: null,
 		enabled: true,
 		...overrides,
 	};

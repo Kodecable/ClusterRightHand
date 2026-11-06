@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { login, mockApi } from "./helpers";
 
-test("add an OpenAI-compatible model provider", async ({ page }) => {
+test("add a custom model provider", async ({ page }) => {
 	const api = await mockApi(page);
 	await login(page);
 	await page.goto("/settings/models");
@@ -12,13 +12,17 @@ test("add an OpenAI-compatible model provider", async ({ page }) => {
 	await expect(dialog).toBeVisible();
 
 	await page.getByLabel("Kind").click();
-	await page.getByRole("option", { name: "OpenAI-compatible endpoint" }).click();
+	await page.getByRole("option", { name: "Custom" }).click();
 	await page.getByLabel("Provider id").fill("myllm");
 	await page.getByLabel("Name").fill("My LLM");
 	await page.getByLabel("Base URL").fill("https://llm.example/v1");
-	await page.getByLabel("Model 1 id").fill("model-a");
 	await page.getByLabel("API key").fill("sk-secret");
-	await page.getByRole("button", { name: "Save provider" }).click();
+	await dialog.getByRole("button", { name: "Add model" }).click();
+	const model = page.getByTestId("model-dialog");
+	await model.getByLabel("Model id").fill("model-a");
+	await model.getByRole("button", { name: "Save model" }).click();
+	await expect(page.getByTestId("model-dialog")).toHaveCount(0);
+	await dialog.getByRole("button", { name: "Save provider" }).click();
 
 	await expect(page.getByText("Provider saved.")).toBeVisible();
 	await expect(page.getByRole("table", { name: "Model providers" })).toContainText("myllm");
@@ -29,12 +33,20 @@ test("add an OpenAI-compatible model provider", async ({ page }) => {
 		(request) => request.method === "PUT" && request.url === "/api/model-providers/myllm",
 	);
 	expect(saved?.body).toMatchObject({
-		kind: "openai-compatible",
+		kind: "custom",
 		name: "My LLM",
 		baseUrl: "https://llm.example/v1",
 		apiKey: "sk-secret",
 		enabled: true,
-		models: [{ id: "model-a", contextWindow: 128000, maxTokens: 8192 }],
+		models: [
+			{
+				id: "model-a",
+				api: "openai-completions",
+				contextWindow: 128000,
+				maxTokens: 8192,
+				input: ["text"],
+			},
+		],
 	});
 	expect(api.state.providers[0]).toMatchObject({ providerId: "myllm", hasApiKey: true });
 

@@ -15,9 +15,9 @@ import { ProviderDialog } from "./provider-dialog";
 import { ReviewModelCard } from "./review-model-card";
 
 /**
- * Model providers (administrators only, doc/webui.md "Models"): builtin
- * providers and OpenAI-compatible endpoints, their keys (never displayed
- * back), and the model Auto Review uses.
+ * Model providers (administrators only, doc/webui.md "Models"): Pi built-in
+ * providers and custom endpoints, their keys (never displayed back), and the
+ * model Auto Review uses.
  */
 export function ModelSettingsPage() {
 	const { t } = useLingui();
@@ -39,7 +39,7 @@ export function ModelSettingsPage() {
 				header: t`Kind`,
 				size: 160,
 				cell: ({ row }) => (
-					<span className="text-xs">{row.original.kind === "builtin" ? t`Built-in` : t`OpenAI-compatible`}</span>
+					<span className="text-xs">{row.original.kind === "builtin" ? t`Pi built-in` : t`Custom`}</span>
 				),
 			},
 			{
@@ -147,7 +147,7 @@ export function ModelSettingsPage() {
 				empty={
 					<EmptyState
 						title={<Trans>No model providers yet</Trans>}
-						description={<Trans>Add a built-in provider or an OpenAI-compatible endpoint.</Trans>}
+						description={<Trans>Add a Pi built-in provider or a custom endpoint.</Trans>}
 					/>
 				}
 			/>

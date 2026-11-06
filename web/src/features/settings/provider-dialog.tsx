@@ -2,19 +2,30 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { I18n } from "@lingui/core";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { PlusIcon, Trash2Icon } from "lucide-react";
-import { useId, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { FormDialog } from "@/components/dialogs";
-import { CheckboxField, SelectField, TextareaField, TextField } from "@/components/form";
+import { CheckboxField, SelectField, TextField } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { CustomModel, ModelProviderInput, ModelProviderView } from "@/lib/api/types";
+import type { ModelProviderInput, ModelProviderView } from "@/lib/api/types";
 import { useSaveModelProvider } from "./api";
-import { type ModelRow, PROVIDER_ID_PATTERN, parseHeaders, providerErrorText, rowsToModels } from "./providers";
+import { ModelDialog } from "./model-dialog";
+import {
+	emptyModelRow,
+	type HeaderRow,
+	type ModelRow,
+	modelToRow,
+	PROVIDER_ID_PATTERN,
+	providerErrorText,
+	rowsToHeaders,
+	rowsToModels,
+	rowsToSessionId,
+	type SessionIdRow,
+} from "./providers";
 
 interface ProviderValues {
 	kind: "builtin" | "custom";
@@ -24,16 +35,13 @@ interface ProviderValues {
 	apiKey: string;
 	removeKey: boolean;
 	enabled: boolean;
-	headersText: string;
+	headers: HeaderRow[];
+	sessionHeaders: SessionIdRow[];
+	sessionBody: SessionIdRow[];
 	models: ModelRow[];
 }
 
-const row = (model?: CustomModel): ModelRow => ({
-	id: model?.id ?? "",
-	contextWindow: String(model?.contextWindow ?? 128_000),
-	maxTokens: String(model?.maxTokens ?? 8_192),
-	reasoning: model?.thinking !== undefined,
-});
+type ProviderForm = ReturnType<typeof useForm<ProviderValues>>;
 
 function providerValues(provider: ModelProviderView | undefined, builtin: string[]): ProviderValues {
 	return {
@@ -46,8 +54,10 @@ function providerValues(provider: ModelProviderView | undefined, builtin: string
 		apiKey: "",
 		removeKey: false,
 		enabled: provider?.enabled ?? true,
-		headersText: provider?.headers ? JSON.stringify(provider.headers, null, 2) : "",
-		models: provider?.models?.length ? provider.models.map((model) => row(model)) : [row()],
+		headers: Object.entries(provider?.headers ?? {}).map(([name, value]) => ({ name, value })),
+		sessionHeaders: (provider?.sessionId?.headers ?? []).map((value) => ({ value })),
+		sessionBody: (provider?.sessionId?.body ?? []).map((value) => ({ value })),
+		models: (provider?.models ?? []).map((model) => modelToRow(model)),
 	};
 }
 
@@ -62,15 +72,12 @@ function buildSchema(i18n: I18n) {
 			apiKey: z.string(),
 			removeKey: z.boolean(),
 			enabled: z.boolean(),
-			headersText: z.string(),
-			models: z.array(
-				z.object({
-					id: z.string(),
-					contextWindow: z.string(),
-					maxTokens: z.string(),
-					reasoning: z.boolean(),
-				}),
-			),
+			headers: z.array(z.object({ name: z.string(), value: z.string() })),
+			sessionHeaders: z.array(z.object({ value: z.string() })),
+			sessionBody: z.array(z.object({ value: z.string() })),
+			// The model rows are validated by `rowsToModels` below; a per-row schema would only
+			// duplicate the conversion and lose the field-level errors the model sheet shows.
+			models: z.custom<ModelRow[]>((value) => Array.isArray(value)),
 		})
 		.superRefine((values, context) => {
 			if (!PROVIDER_ID_PATTERN.test(values.providerId)) {
@@ -91,18 +98,155 @@ function buildSchema(i18n: I18n) {
 			if ("error" in models) {
 				context.addIssue({ code: "custom", path: ["models"], message: message(models.error) });
 			}
-			const headers = parseHeaders(values.headersText);
-			if ("error" in headers) {
-				context.addIssue({ code: "custom", path: ["headersText"], message: message(headers.error) });
-			}
 		});
 }
 
-/** The provider form's model rows: id, context window, max output tokens and reasoning. */
-function ModelRows({ form }: { form: ReturnType<typeof useForm<ProviderValues>> }) {
+/** A compact summary of a model's thinking configuration for the provider table. */
+function ThinkingSummary({ row }: { row: ModelRow }) {
 	const { t } = useLingui();
-	const { fields, append, remove } = useFieldArray({ control: form.control, name: "models" });
-	const prefix = useId();
+	if (row.thinkingMode === "none") return <span>{t`None`}</span>;
+	if (row.thinkingMode === "format") {
+		return (
+			<span className="flex items-center gap-1">
+				<span>{t`Format mode`}</span>
+				<code className="font-mono text-xs">{row.format || t`auto`}</code>
+			</span>
+		);
+	}
+	return <span>{t`Request body mode`}</span>;
+}
+
+/** The custom provider's extra request headers, one key/value row each. */
+function HeadersEditor({ form }: { form: ProviderForm }) {
+	const { t } = useLingui();
+	const { fields, append, remove } = useFieldArray({ control: form.control, name: "headers" });
+	return (
+		<fieldset className="grid gap-2">
+			<legend className="text-sm font-medium">{t`Extra headers`}</legend>
+			<p className="text-xs text-muted-foreground">
+				{t`Sent with every request; put credentials in the API key, not here.`}
+			</p>
+			{fields.length > 0 && (
+				<div className="grid gap-2">
+					<div className="grid grid-cols-[1fr_1fr_auto] gap-2 text-xs text-muted-foreground">
+						<span>{t`Header`}</span>
+						<span>{t`Value`}</span>
+						<span />
+					</div>
+					{fields.map((field, index) => (
+						<div key={field.id} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+							<Input
+								aria-label={t`Header ${index + 1} name`}
+								value={form.watch(`headers.${index}.name`)}
+								onChange={(event) => form.setValue(`headers.${index}.name`, event.target.value)}
+							/>
+							<Input
+								aria-label={t`Header ${index + 1} value`}
+								value={form.watch(`headers.${index}.value`)}
+								onChange={(event) => form.setValue(`headers.${index}.value`, event.target.value)}
+							/>
+							<Button
+								type="button"
+								size="icon-xs"
+								variant="ghost"
+								aria-label={t`Remove header ${index + 1}`}
+								onClick={() => remove(index)}
+							>
+								<Trash2Icon />
+							</Button>
+						</div>
+					))}
+				</div>
+			)}
+			<div>
+				<Button type="button" size="sm" variant="outline" onClick={() => append({ name: "", value: "" })}>
+					<PlusIcon />
+					<Trans>Add header</Trans>
+				</Button>
+			</div>
+		</fieldset>
+	);
+}
+
+/** Request header names and request body dot paths that receive the crh session id. */
+function SessionIdEditor({ form }: { form: ProviderForm }) {
+	const { t } = useLingui();
+	const headers = useFieldArray({ control: form.control, name: "sessionHeaders" });
+	const body = useFieldArray({ control: form.control, name: "sessionBody" });
+	return (
+		<fieldset className="grid gap-2">
+			<legend className="text-sm font-medium">{t`Session id fields`}</legend>
+			<p className="text-xs text-muted-foreground">
+				{t`The crh session id is written to these request headers and body fields (dot paths).`}
+			</p>
+			<div className="grid gap-3 sm:grid-cols-2">
+				<div className="grid content-start gap-2">
+					<span className="text-xs text-muted-foreground">{t`Session id headers`}</span>
+					{headers.fields.map((field, index) => (
+						<div key={field.id} className="flex gap-2">
+							<Input
+								aria-label={t`Session id header ${index + 1}`}
+								placeholder="x-opencode-session"
+								value={form.watch(`sessionHeaders.${index}.value`)}
+								onChange={(event) => form.setValue(`sessionHeaders.${index}.value`, event.target.value)}
+							/>
+							<Button
+								type="button"
+								size="icon-xs"
+								variant="ghost"
+								aria-label={t`Remove session id header ${index + 1}`}
+								onClick={() => headers.remove(index)}
+							>
+								<Trash2Icon />
+							</Button>
+						</div>
+					))}
+					<div>
+						<Button type="button" size="sm" variant="outline" onClick={() => headers.append({ value: "" })}>
+							<PlusIcon />
+							<Trans>Add header</Trans>
+						</Button>
+					</div>
+				</div>
+				<div className="grid content-start gap-2">
+					<span className="text-xs text-muted-foreground">{t`Session id body fields`}</span>
+					{body.fields.map((field, index) => (
+						<div key={field.id} className="flex gap-2">
+							<Input
+								aria-label={t`Session id body field ${index + 1}`}
+								placeholder="metadata.session_id"
+								value={form.watch(`sessionBody.${index}.value`)}
+								onChange={(event) => form.setValue(`sessionBody.${index}.value`, event.target.value)}
+							/>
+							<Button
+								type="button"
+								size="icon-xs"
+								variant="ghost"
+								aria-label={t`Remove session id body field ${index + 1}`}
+								onClick={() => body.remove(index)}
+							>
+								<Trash2Icon />
+							</Button>
+						</div>
+					))}
+					<div>
+						<Button type="button" size="sm" variant="outline" onClick={() => body.append({ value: "" })}>
+							<PlusIcon />
+							<Trans>Add field</Trans>
+						</Button>
+					</div>
+				</div>
+			</div>
+		</fieldset>
+	);
+}
+
+/** The custom provider's models: a compact table whose rows open the model sheet. */
+function ModelRows({ form }: { form: ProviderForm }) {
+	const { t } = useLingui();
+	const { fields, append, remove, update } = useFieldArray({ control: form.control, name: "models" });
+	const models = form.watch("models");
+	const [editing, setEditing] = useState<number | "new">();
 	return (
 		<fieldset className="grid gap-2">
 			<legend className="text-sm font-medium">{t`Models`}</legend>
@@ -111,68 +255,61 @@ function ModelRows({ form }: { form: ReturnType<typeof useForm<ProviderValues>> 
 					<TableHeader>
 						<TableRow>
 							<TableHead>{t`Id`}</TableHead>
+							<TableHead>{t`Protocol`}</TableHead>
 							<TableHead>{t`Context window`}</TableHead>
-							<TableHead>{t`Max tokens`}</TableHead>
-							<TableHead>{t`Reasoning`}</TableHead>
-							<TableHead className="w-16" />
+							<TableHead>{t`Max output`}</TableHead>
+							<TableHead>{t`Image`}</TableHead>
+							<TableHead>{t`Thinking`}</TableHead>
+							<TableHead className="w-32" />
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{fields.map((field, index) => (
-							<TableRow key={field.id}>
-								<TableCell>
-									<Input
-										id={`${prefix}-model-${index}-id`}
-										aria-label={t`Model ${index + 1} id`}
-										value={form.watch(`models.${index}.id`)}
-										onChange={(event) => form.setValue(`models.${index}.id`, event.target.value)}
-									/>
-								</TableCell>
-								<TableCell>
-									<Input
-										id={`${prefix}-model-${index}-context`}
-										aria-label={t`Model ${index + 1} context window`}
-										inputMode="numeric"
-										value={form.watch(`models.${index}.contextWindow`)}
-										onChange={(event) => form.setValue(`models.${index}.contextWindow`, event.target.value)}
-									/>
-								</TableCell>
-								<TableCell>
-									<Input
-										id={`${prefix}-model-${index}-max`}
-										aria-label={t`Model ${index + 1} max tokens`}
-										inputMode="numeric"
-										value={form.watch(`models.${index}.maxTokens`)}
-										onChange={(event) => form.setValue(`models.${index}.maxTokens`, event.target.value)}
-									/>
-								</TableCell>
-								<TableCell>
-									<input
-										type="checkbox"
-										aria-label={t`Model ${index + 1} reasoning`}
-										checked={form.watch(`models.${index}.reasoning`)}
-										onChange={(event) => form.setValue(`models.${index}.reasoning`, event.target.checked)}
-									/>
-								</TableCell>
-								<TableCell>
-									<Button
-										type="button"
-										size="icon-xs"
-										variant="ghost"
-										aria-label={t`Remove model ${index + 1}`}
-										disabled={fields.length === 1}
-										onClick={() => remove(index)}
-									>
-										<Trash2Icon />
-									</Button>
-								</TableCell>
-							</TableRow>
-						))}
+						{fields.map((field, index) => {
+							const row = models[index] ?? emptyModelRow();
+							return (
+								<TableRow key={field.id}>
+									<TableCell>
+										<code className="font-mono text-xs">{row.id || "–"}</code>
+									</TableCell>
+									<TableCell className="text-xs">
+										{row.api === "openai-completions" ? t`Chat Completions` : t`Responses`}
+									</TableCell>
+									<TableCell className="text-xs">{row.contextWindow}</TableCell>
+									<TableCell className="text-xs">{row.maxTokens}</TableCell>
+									<TableCell className="text-xs">{row.acceptImages ? t`Yes` : t`No`}</TableCell>
+									<TableCell className="text-xs">
+										<ThinkingSummary row={row} />
+									</TableCell>
+									<TableCell>
+										<span className="flex flex-nowrap items-center gap-1">
+											<Button
+												type="button"
+												size="xs"
+												variant="outline"
+												aria-label={t`Edit model ${index + 1}`}
+												onClick={() => setEditing(index)}
+											>
+												<Trans>Edit</Trans>
+											</Button>
+											<Button
+												type="button"
+												size="icon-xs"
+												variant="ghost"
+												aria-label={t`Remove model ${index + 1}`}
+												onClick={() => remove(index)}
+											>
+												<Trash2Icon />
+											</Button>
+										</span>
+									</TableCell>
+								</TableRow>
+							);
+						})}
 					</TableBody>
 				</Table>
 			</div>
 			<div>
-				<Button type="button" size="sm" variant="outline" onClick={() => append(row())}>
+				<Button type="button" size="sm" variant="outline" onClick={() => setEditing("new")}>
 					<PlusIcon />
 					<Trans>Add model</Trans>
 				</Button>
@@ -181,6 +318,18 @@ function ModelRows({ form }: { form: ReturnType<typeof useForm<ProviderValues>> 
 				<p role="alert" className="text-xs text-danger">
 					{form.formState.errors.models.message}
 				</p>
+			)}
+			{editing !== undefined && (
+				<ModelDialog
+					editing={editing !== "new"}
+					initial={editing === "new" ? emptyModelRow() : (models[editing] ?? emptyModelRow())}
+					onClose={() => setEditing(undefined)}
+					onSave={(model) => {
+						if (editing === "new") append(model);
+						else update(editing, model);
+						setEditing(undefined);
+					}}
+				/>
 			)}
 		</fieldset>
 	);
@@ -199,7 +348,6 @@ export function ProviderDialog({
 	onSaved: () => void;
 }) {
 	const { t, i18n } = useLingui();
-	const prefix = useId();
 	const save = useSaveModelProvider();
 	const schema = useMemo(() => buildSchema(i18n), [i18n]);
 	const form = useForm<ProviderValues>({
@@ -207,18 +355,29 @@ export function ProviderDialog({
 		defaultValues: providerValues(existing, builtin),
 	});
 	const kind = form.watch("kind");
+	const providerId = form.watch("providerId");
 	const editing = existing !== undefined;
+
+	// A new provider starts on the first Pi built-in id; switching back from
+	// custom must not leave a custom id that is not in the select's options.
+	useEffect(() => {
+		if (editing || kind !== "builtin") return;
+		if (!builtin.includes(form.getValues("providerId"))) form.setValue("providerId", builtin[0] ?? "");
+	}, [editing, kind, builtin, form]);
 
 	const submit = form.handleSubmit((values) => {
 		const body: ModelProviderInput = { kind: values.kind, enabled: values.enabled };
-		if (values.kind === "custom") {
+		if (values.kind === "builtin") {
+			const baseUrl = values.baseUrl.trim();
+			body.baseUrl = baseUrl === "" ? null : baseUrl;
+		} else {
 			const models = rowsToModels(values.models);
-			const headers = parseHeaders(values.headersText);
-			if ("error" in models || "error" in headers) return;
+			if ("error" in models) return;
 			body.name = values.name.trim() || values.providerId;
 			body.baseUrl = values.baseUrl.trim();
 			body.models = models.models;
-			body.headers = headers.headers;
+			body.headers = rowsToHeaders(values.headers);
+			body.sessionId = rowsToSessionId(values.sessionHeaders, values.sessionBody);
 		}
 		if (values.removeKey) body.apiKey = null;
 		else if (values.apiKey !== "") body.apiKey = values.apiKey;
@@ -244,10 +403,10 @@ export function ProviderDialog({
 			description={<Trans>Sessions use the models of the enabled providers.</Trans>}
 			submitLabel={<Trans>Save provider</Trans>}
 			busy={save.isPending}
-			submitDisabled={form.watch("providerId") === ""}
+			submitDisabled={providerId === ""}
 			error={save.error !== null ? save.error.message : undefined}
 			testId="provider-dialog"
-			className="sm:max-w-2xl"
+			className="max-h-[90vh] overflow-y-auto sm:max-w-3xl"
 			onSubmit={() => void submit()}
 		>
 			<div className="grid gap-3 sm:grid-cols-2">
@@ -257,8 +416,8 @@ export function ProviderDialog({
 					label={t`Kind`}
 					disabled={editing}
 					options={[
-						{ value: "builtin", label: t`Built-in provider` },
-						{ value: "custom", label: t`OpenAI-compatible endpoint` },
+						{ value: "builtin", label: t`Pi built-in` },
+						{ value: "custom", label: t`Custom` },
 					]}
 				/>
 				{kind === "builtin" ? (
@@ -280,56 +439,59 @@ export function ProviderDialog({
 				)}
 			</div>
 
-			{kind === "custom" && (
+			{kind === "builtin" ? (
 				<>
-					<div className="grid gap-3 sm:grid-cols-2">
-						<TextField
-							control={form.control}
-							name="name"
-							label={t`Name`}
-							description={t`Optional; defaults to the provider id.`}
-						/>
-						<TextField
-							control={form.control}
-							name="baseUrl"
-							type="url"
-							label={t`Base URL`}
-							placeholder="https://api.example.com/v1"
-						/>
-					</div>
-					<ModelRows form={form} />
-					<TextareaField
+					<TextField
 						control={form.control}
-						name="headersText"
-						label={t`Request headers (JSON, optional)`}
-						rows={3}
-						placeholder={'{"x-opencode-session": "crhs"}'}
-						description={t`Extra headers for gateways; credentials belong in the API key field.`}
+						name="baseUrl"
+						type="url"
+						label={t`Base URL`}
+						placeholder="https://api.example.com/v1"
+						description={t`Optional; overrides the provider's endpoint.`}
 					/>
+					<p className="text-xs text-muted-foreground">
+						<Trans>Only API keys are supported; OAuth sign-in is not available.</Trans>
+					</p>
 				</>
+			) : (
+				<div className="grid gap-3 sm:grid-cols-2">
+					<TextField
+						control={form.control}
+						name="name"
+						label={t`Name`}
+						description={t`Optional; defaults to the provider id.`}
+					/>
+					<TextField
+						control={form.control}
+						name="baseUrl"
+						type="url"
+						label={t`Base URL`}
+						placeholder="https://api.example.com/v1"
+					/>
+				</div>
 			)}
 
-			<div className="grid gap-1.5">
-				<Label htmlFor={`${prefix}-api-key`}>{t`API key`}</Label>
-				<Input
-					id={`${prefix}-api-key`}
-					type="password"
-					autoComplete="off"
-					value={form.watch("apiKey")}
-					disabled={form.watch("removeKey")}
-					placeholder={existing?.hasApiKey ? t`Leave empty to keep the current key` : t`Optional`}
-					onChange={(event) => form.setValue("apiKey", event.target.value)}
-				/>
-				{form.formState.errors.apiKey?.message !== undefined && (
-					<p role="alert" className="text-xs text-danger">
-						{form.formState.errors.apiKey.message}
-					</p>
-				)}
-			</div>
+			<TextField
+				control={form.control}
+				name="apiKey"
+				type="password"
+				autoComplete="off"
+				label={t`API key`}
+				disabled={form.watch("removeKey")}
+				placeholder={existing?.hasApiKey ? t`Leave empty to keep the current key` : t`Optional`}
+			/>
 			{existing?.hasApiKey === true && (
 				<CheckboxField control={form.control} name="removeKey" label={t`Remove the stored key`} />
 			)}
 			<CheckboxField control={form.control} name="enabled" label={t`Enabled`} />
+
+			{kind === "custom" && (
+				<>
+					<HeadersEditor form={form} />
+					<SessionIdEditor form={form} />
+					<ModelRows form={form} />
+				</>
+			)}
 		</FormDialog>
 	);
 }

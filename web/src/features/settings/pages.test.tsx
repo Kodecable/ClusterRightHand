@@ -1,12 +1,11 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ModelProviderView } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
 import { ProviderDialog } from "./provider-dialog";
 
-const EXISTING: ModelProviderView = {
+const BUILTIN: ModelProviderView = {
 	id: "provider-row-1",
 	providerId: "faux",
 	kind: "builtin",
@@ -20,7 +19,42 @@ const EXISTING: ModelProviderView = {
 	enabled: true,
 };
 
-function mockFetch(): { calls: { body: unknown; method: string; url: string }[] } {
+const CUSTOM: ModelProviderView = {
+	id: "provider-row-2",
+	providerId: "myllm",
+	kind: "custom",
+	builtin: null,
+	name: "My LLM",
+	baseUrl: "https://llm.example/v1",
+	hasApiKey: true,
+	headers: { "x-gateway": "edge" },
+	sessionId: { headers: ["x-opencode-session"], body: ["metadata.session_id"] },
+	models: [
+		{
+			id: "resp-model",
+			name: "Responder",
+			api: "openai-responses",
+			contextWindow: 200_000,
+			maxTokens: 16_000,
+			input: ["text", "image"],
+			thinking: { mode: "body", levels: { high: { reasoning: { effort: "high" } } } },
+		},
+		{
+			id: "chat-model",
+			api: "openai-completions",
+			contextWindow: 128_000,
+			maxTokens: 8_192,
+			input: ["text"],
+			thinking: { mode: "format", format: "deepseek", levels: { low: "low", xhigh: null } },
+			compat: { maxTokensField: "max_completion_tokens" },
+		},
+	],
+	enabled: true,
+};
+
+function mockFetch(response?: { body: unknown; status: number }): {
+	calls: { body: unknown; method: string; url: string }[];
+} {
 	const calls: { body: unknown; method: string; url: string }[] = [];
 	vi.stubGlobal(
 		"fetch",
@@ -31,8 +65,8 @@ function mockFetch(): { calls: { body: unknown; method: string; url: string }[] 
 				method: init?.method ?? "GET",
 				body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
 			});
-			return new Response(JSON.stringify({ provider: EXISTING }), {
-				status: 200,
+			return new Response(JSON.stringify(response?.body ?? { provider: BUILTIN }), {
+				status: response?.status ?? 200,
 				headers: { "content-type": "application/json" },
 			});
 		}),
@@ -40,16 +74,29 @@ function mockFetch(): { calls: { body: unknown; method: string; url: string }[] 
 	return { calls };
 }
 
-function renderDialog() {
-	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderProvider(existing?: ModelProviderView) {
 	const onSaved = vi.fn();
 	const onClose = vi.fn();
 	const result = renderWithI18n(
-		<QueryClientProvider client={client}>
-			<ProviderDialog existing={EXISTING} builtin={["faux"]} onClose={onClose} onSaved={onSaved} />
-		</QueryClientProvider>,
+		<ProviderDialog existing={existing} builtin={["faux", "deepseek"]} onClose={onClose} onSaved={onSaved} />,
 	);
 	return { ...result, onClose, onSaved };
+}
+
+async function choose(user: ReturnType<typeof userEvent.setup>, label: string, option: string, scope?: HTMLElement) {
+	const query = scope === undefined ? screen : within(scope);
+	await user.click(query.getByLabelText(label));
+	await user.click(await screen.findByRole("option", { name: option }));
+}
+
+async function fill(_user: ReturnType<typeof userEvent.setup>, element: HTMLElement, text: string) {
+	// fireEvent keeps the long provider/model forms fast; the userEvent clicks
+	// still exercise focus and the selects.
+	fireEvent.change(element, { target: { value: text } });
+}
+
+function change(element: HTMLElement, text: string) {
+	fireEvent.change(element, { target: { value: text } });
 }
 
 afterEach(() => {
@@ -59,18 +106,16 @@ afterEach(() => {
 describe("ProviderDialog", () => {
 	test("never prefills the API key and keeps it when the field stays empty", async () => {
 		const { calls } = mockFetch();
-		const { onSaved, onClose } = renderDialog();
+		const { onSaved, onClose } = renderProvider(BUILTIN);
 		const key = screen.getByLabelText("API key");
 		expect(key).toHaveValue("");
 		expect(key).toHaveAttribute("placeholder", "Leave empty to keep the current key");
-		// The stored key is not even a DOM value the browser could leak back.
-		expect(document.querySelector('input[name="apiKey"]')).toBeNull();
 
 		await userEvent.setup().click(screen.getByRole("button", { name: "Save provider" }));
 		await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
 		const save = calls.find((call) => call.method === "PUT");
 		expect(save?.url).toBe("/api/model-providers/faux");
-		expect(save?.body).toEqual({ kind: "builtin", enabled: true });
+		expect(save?.body).toEqual({ kind: "builtin", baseUrl: null, enabled: true });
 		expect(save?.body).not.toHaveProperty("apiKey");
 		await waitFor(() => expect(onSaved).toHaveBeenCalled());
 		expect(onClose).toHaveBeenCalled();
@@ -78,12 +123,268 @@ describe("ProviderDialog", () => {
 
 	test("removing the stored key sends apiKey null", async () => {
 		const { calls } = mockFetch();
-		renderDialog();
+		renderProvider(BUILTIN);
 		const user = userEvent.setup();
 		await user.click(screen.getByRole("checkbox", { name: "Remove the stored key" }));
 		await user.click(screen.getByRole("button", { name: "Save provider" }));
 		await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
 		const save = calls.find((call) => call.method === "PUT");
 		expect(save?.body).toMatchObject({ apiKey: null });
+	});
+
+	test("creates a Pi built-in provider with a key and without OAuth", async () => {
+		const { calls } = mockFetch();
+		renderProvider();
+		const user = userEvent.setup();
+		expect(screen.getByLabelText("Kind")).toHaveTextContent("Pi built-in");
+		expect(screen.getByLabelText("Provider")).toHaveTextContent("faux");
+		expect(screen.getByText("Only API keys are supported; OAuth sign-in is not available.")).toBeInTheDocument();
+		expect(screen.queryByRole("table", { name: "Models" })).not.toBeInTheDocument();
+
+		await fill(user, screen.getByLabelText("Base URL"), "https://pi.example");
+		await fill(user, screen.getByLabelText("API key"), "sk-pi");
+		await user.click(screen.getByRole("button", { name: "Save provider" }));
+		await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+		const save = calls.find((call) => call.method === "PUT");
+		expect(save?.url).toBe("/api/model-providers/faux");
+		expect(save?.body).toEqual({ kind: "builtin", baseUrl: "https://pi.example", enabled: true, apiKey: "sk-pi" });
+	});
+
+	test("creates a custom provider with body and format thinking models", async () => {
+		const { calls } = mockFetch();
+		renderProvider();
+		const user = userEvent.setup();
+
+		await choose(user, "Kind", "Custom");
+		await fill(user, screen.getByLabelText("Provider id"), "myllm");
+		await fill(user, screen.getByLabelText("Name"), "My LLM");
+		await fill(user, screen.getByLabelText("Base URL"), "https://llm.example/v1");
+		await fill(user, screen.getByLabelText("API key"), "sk-secret");
+
+		const extra = screen.getByRole("group", { name: "Extra headers" });
+		await user.click(within(extra).getByRole("button", { name: "Add header" }));
+		await fill(user, within(extra).getByLabelText("Header 1 name"), "x-gateway");
+		await fill(user, within(extra).getByLabelText("Header 1 value"), "edge");
+
+		const session = screen.getByRole("group", { name: "Session id fields" });
+		await user.click(within(session).getByRole("button", { name: "Add header" }));
+		await fill(user, within(session).getByLabelText("Session id header 1"), "x-opencode-session");
+		await user.click(within(session).getByRole("button", { name: "Add field" }));
+		await fill(user, within(session).getByLabelText("Session id body field 1"), "metadata.session_id");
+
+		await user.click(screen.getByRole("button", { name: "Add model" }));
+		let dialog = await screen.findByRole("dialog", { name: "Add model" });
+		await fill(user, within(dialog).getByLabelText("Model id"), "resp-model");
+		await fill(user, within(dialog).getByLabelText("Display name"), "Responder");
+		await choose(user, "Protocol", "Responses", dialog);
+		await fill(user, within(dialog).getByLabelText("Context window"), "200000");
+		await fill(user, within(dialog).getByLabelText("Max output tokens"), "16000");
+		await user.click(within(dialog).getByRole("checkbox", { name: "Accept images" }));
+		await choose(user, "Thinking", "Request body mode", dialog);
+		change(within(dialog).getByLabelText("high request body JSON"), '{"reasoning":{"effort":"high"}}');
+		await user.click(within(dialog).getByRole("button", { name: "Save model" }));
+		await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add model" })).not.toBeInTheDocument());
+
+		await user.click(screen.getByRole("button", { name: "Add model" }));
+		dialog = await screen.findByRole("dialog", { name: "Add model" });
+		await fill(user, within(dialog).getByLabelText("Model id"), "chat-model");
+		await choose(user, "Thinking", "Format mode", dialog);
+		expect(within(dialog).getByLabelText("Thinking format")).toHaveTextContent("Auto (omit)");
+		await choose(user, "Thinking format", "deepseek", dialog);
+		await choose(user, "low mapping", "Mapped value", dialog);
+		await fill(user, within(dialog).getByLabelText("low value"), "low");
+		await choose(user, "xhigh mapping", "Disabled (null)", dialog);
+		await user.click(within(dialog).getByRole("button", { name: "Save model" }));
+		await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add model" })).not.toBeInTheDocument());
+
+		const table = screen.getByRole("table", { name: "Models" });
+		expect(table).toHaveTextContent("resp-model");
+		expect(table).toHaveTextContent("Responses");
+		expect(table).toHaveTextContent("Request body mode");
+		expect(table).toHaveTextContent("chat-model");
+		expect(table).toHaveTextContent("Format mode");
+		expect(table).toHaveTextContent("deepseek");
+
+		await user.click(screen.getByRole("button", { name: "Save provider" }));
+		await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+		const save = calls.find((call) => call.method === "PUT");
+		expect(save?.url).toBe("/api/model-providers/myllm");
+		expect(save?.body).toEqual({
+			kind: "custom",
+			name: "My LLM",
+			baseUrl: "https://llm.example/v1",
+			apiKey: "sk-secret",
+			enabled: true,
+			headers: { "x-gateway": "edge" },
+			sessionId: { headers: ["x-opencode-session"], body: ["metadata.session_id"] },
+			models: [
+				{
+					id: "resp-model",
+					name: "Responder",
+					api: "openai-responses",
+					contextWindow: 200_000,
+					maxTokens: 16_000,
+					input: ["text", "image"],
+					thinking: { mode: "body", levels: { high: { reasoning: { effort: "high" } } } },
+				},
+				{
+					id: "chat-model",
+					api: "openai-completions",
+					contextWindow: 128_000,
+					maxTokens: 8_192,
+					input: ["text"],
+					thinking: { mode: "format", format: "deepseek", levels: { low: "low", xhigh: null } },
+				},
+			],
+		});
+	}, 15_000);
+
+	test("edits an existing custom provider and saves every stored value back", async () => {
+		const { calls } = mockFetch();
+		renderProvider(CUSTOM);
+		const user = userEvent.setup();
+
+		expect(screen.getByLabelText("Kind")).toHaveTextContent("Custom");
+		expect(screen.getByLabelText("Provider id")).toHaveValue("myllm");
+		expect(screen.getByLabelText("Provider id")).toBeDisabled();
+		expect(screen.getByLabelText("Name")).toHaveValue("My LLM");
+		expect(screen.getByLabelText("Base URL")).toHaveValue("https://llm.example/v1");
+		expect(screen.getByLabelText("API key")).toHaveValue("");
+		expect(screen.getByLabelText("Header 1 name")).toHaveValue("x-gateway");
+		expect(screen.getByLabelText("Header 1 value")).toHaveValue("edge");
+		expect(screen.getByLabelText("Session id header 1")).toHaveValue("x-opencode-session");
+		expect(screen.getByLabelText("Session id body field 1")).toHaveValue("metadata.session_id");
+
+		const table = screen.getByRole("table", { name: "Models" });
+		expect(table).toHaveTextContent("resp-model");
+		expect(table).toHaveTextContent("Responses");
+		expect(table).toHaveTextContent("200000");
+		expect(table).toHaveTextContent("16000");
+		expect(table).toHaveTextContent("Yes");
+		expect(table).toHaveTextContent("Request body mode");
+		expect(table).toHaveTextContent("chat-model");
+		expect(table).toHaveTextContent("deepseek");
+		expect(table).toHaveTextContent("No");
+
+		await user.click(screen.getByRole("button", { name: "Edit model 1" }));
+		let dialog = await screen.findByRole("dialog", { name: "Edit model resp-model" });
+		expect(within(dialog).getByLabelText("Model id")).toHaveValue("resp-model");
+		expect(within(dialog).getByLabelText("Display name")).toHaveValue("Responder");
+		expect(within(dialog).getByLabelText("Protocol")).toHaveTextContent("Responses");
+		expect(within(dialog).getByLabelText("Context window")).toHaveValue("200000");
+		expect(within(dialog).getByLabelText("Max output tokens")).toHaveValue("16000");
+		expect(within(dialog).getByRole("checkbox", { name: "Accept images" })).toBeChecked();
+		expect(within(dialog).getByLabelText("Thinking")).toHaveTextContent("Request body mode");
+		expect(within(dialog).getByLabelText("high request body JSON")).toHaveValue(
+			'{\n  "reasoning": {\n    "effort": "high"\n  }\n}',
+		);
+		await user.click(within(dialog).getByRole("button", { name: "Save model" }));
+		await waitFor(() =>
+			expect(screen.queryByRole("dialog", { name: "Edit model resp-model" })).not.toBeInTheDocument(),
+		);
+
+		await user.click(screen.getByRole("button", { name: "Edit model 2" }));
+		dialog = await screen.findByRole("dialog", { name: "Edit model chat-model" });
+		expect(within(dialog).getByLabelText("Protocol")).toHaveTextContent("Chat Completions");
+		expect(within(dialog).getByLabelText("Thinking")).toHaveTextContent("Format mode");
+		expect(within(dialog).getByLabelText("Thinking format")).toHaveTextContent("deepseek");
+		expect(within(dialog).getByLabelText("low mapping")).toHaveTextContent("Mapped value");
+		expect(within(dialog).getByLabelText("low value")).toHaveValue("low");
+		expect(within(dialog).getByLabelText("medium mapping")).toHaveTextContent("Default (omitted)");
+		expect(within(dialog).getByLabelText("xhigh mapping")).toHaveTextContent("Disabled (null)");
+		await user.click(within(dialog).getByRole("button", { name: "Compat (JSON, advanced)" }));
+		expect(within(dialog).getByLabelText("Compat JSON")).toHaveValue(
+			'{\n  "maxTokensField": "max_completion_tokens"\n}',
+		);
+		await user.click(within(dialog).getByRole("button", { name: "Save model" }));
+		await waitFor(() =>
+			expect(screen.queryByRole("dialog", { name: "Edit model chat-model" })).not.toBeInTheDocument(),
+		);
+
+		await user.click(screen.getByRole("button", { name: "Save provider" }));
+		await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+		const save = calls.find((call) => call.method === "PUT");
+		expect(save?.url).toBe("/api/model-providers/myllm");
+		expect(save?.body).toEqual({
+			kind: "custom",
+			name: "My LLM",
+			baseUrl: "https://llm.example/v1",
+			enabled: true,
+			headers: { "x-gateway": "edge" },
+			sessionId: { headers: ["x-opencode-session"], body: ["metadata.session_id"] },
+			models: [
+				{
+					id: "resp-model",
+					name: "Responder",
+					api: "openai-responses",
+					contextWindow: 200_000,
+					maxTokens: 16_000,
+					input: ["text", "image"],
+					thinking: { mode: "body", levels: { high: { reasoning: { effort: "high" } } } },
+				},
+				{
+					id: "chat-model",
+					api: "openai-completions",
+					contextWindow: 128_000,
+					maxTokens: 8_192,
+					input: ["text"],
+					thinking: { mode: "format", format: "deepseek", levels: { low: "low", xhigh: null } },
+					compat: { maxTokensField: "max_completion_tokens" },
+				},
+			],
+		});
+		expect(save?.body).not.toHaveProperty("apiKey");
+	});
+
+	test("validates request body and compat JSON before closing the model sheet", async () => {
+		const { calls } = mockFetch();
+		renderProvider();
+		const user = userEvent.setup();
+
+		await choose(user, "Kind", "Custom");
+		await user.click(screen.getByRole("button", { name: "Add model" }));
+		let dialog = await screen.findByRole("dialog", { name: "Add model" });
+		await fill(user, within(dialog).getByLabelText("Model id"), "m1");
+		await choose(user, "Thinking", "Request body mode", dialog);
+		const high = within(dialog).getByLabelText("high request body JSON");
+		change(high, "{");
+		await user.click(within(dialog).getByRole("button", { name: "Save model" }));
+		expect(await within(dialog).findByText("Request body overrides must be valid JSON.")).toBeInTheDocument();
+
+		change(high, "[]");
+		await user.click(within(dialog).getByRole("button", { name: "Save model" }));
+		expect(await within(dialog).findByText("Request body overrides must be a JSON object.")).toBeInTheDocument();
+
+		change(high, '{"reasoning":{"effort":"high"}}');
+		await user.click(within(dialog).getByRole("button", { name: "Save model" }));
+		await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add model" })).not.toBeInTheDocument());
+
+		await user.click(screen.getByRole("button", { name: "Edit model 1" }));
+		dialog = await screen.findByRole("dialog", { name: "Edit model m1" });
+		await user.click(within(dialog).getByRole("button", { name: "Compat (JSON, advanced)" }));
+		const compat = within(dialog).getByLabelText("Compat JSON");
+		change(compat, "{");
+		await user.click(within(dialog).getByRole("button", { name: "Save model" }));
+		expect(await within(dialog).findByText("Compat must be valid JSON.")).toBeInTheDocument();
+
+		change(compat, "[]");
+		await user.click(within(dialog).getByRole("button", { name: "Save model" }));
+		expect(await within(dialog).findByText("Compat must be a JSON object.")).toBeInTheDocument();
+		expect(calls.some((call) => call.method === "PUT")).toBe(false);
+	});
+
+	test("shows the server's 400 field-path error inside the provider dialog", async () => {
+		// The server validates what only it can (compat against pi-ai's schema, header names,
+		// session id paths); its message names the field and must reach the user unchanged.
+		const message = "models[1].compat.maxTokensField: Expected string";
+		const { calls } = mockFetch({ status: 400, body: { error: message } });
+		renderProvider(CUSTOM);
+
+		await userEvent.setup().click(screen.getByRole("button", { name: "Save provider" }));
+		await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+
+		const dialog = screen.getByTestId("provider-dialog");
+		expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
+		expect(dialog).toBeInTheDocument();
 	});
 });

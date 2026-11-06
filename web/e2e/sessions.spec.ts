@@ -125,7 +125,7 @@ test.describe("with a node", () => {
 	});
 });
 
-test("admin model settings: add an OpenAI-compatible provider and see its model in the new-session dialog", async ({
+test("admin model settings: add a custom provider and see its model in the new-session dialog", async ({
 	adminPage: page,
 }) => {
 	await page.goto("/settings/models");
@@ -133,12 +133,16 @@ test("admin model settings: add an OpenAI-compatible provider and see its model 
 	await page.getByTestId("add-provider").click();
 	const dialog = page.getByRole("dialog", { name: "Add model provider" });
 	await dialog.getByLabel("Kind").click();
-	await page.getByRole("option", { name: "OpenAI-compatible endpoint" }).click();
+	await page.getByRole("option", { name: "Custom" }).click();
 	await dialog.getByLabel("Provider id").fill("local-llm");
 	await dialog.getByLabel("Name").fill("Local LLM");
 	await dialog.getByLabel("Base URL").fill("http://127.0.0.1:9/v1");
-	await dialog.getByLabel("Model 1 id").fill("tiny-1");
 	await dialog.getByLabel("API key").fill("sk-secret");
+	await dialog.getByRole("button", { name: "Add model" }).click();
+	const model = page.getByTestId("model-dialog");
+	await model.getByLabel("Model id").fill("tiny-1");
+	await model.getByRole("button", { name: "Save model" }).click();
+	await expect(page.getByTestId("model-dialog")).toHaveCount(0);
 	await dialog.getByRole("button", { name: "Save provider" }).click();
 	const row = page.getByRole("row").filter({ hasText: "local-llm" });
 	await expect(row).toContainText("tiny-1");
