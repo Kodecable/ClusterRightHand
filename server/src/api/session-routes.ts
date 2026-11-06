@@ -2,7 +2,6 @@ import { type Context, Hono, type Next } from "hono";
 import { streamSSE } from "hono/streaming";
 import {
 	builtinProviderIds,
-	type CompatibleModel,
 	deleteModelProvider,
 	listModelProviders,
 	type ModelConfig,
@@ -155,17 +154,17 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		if (!admin(c)) return jsonError(c, 403, "administrators only");
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
+		const has = (key: string) => Object.hasOwn(body, key);
 		const provider = await saveModelProvider(db, options.masterKey, {
 			providerId: c.req.param("providerId"),
-			kind: body.kind as "builtin" | "openai-compatible",
-			...(typeof body.name === "string" ? { name: body.name } : {}),
-			...(body.baseUrl === null || typeof body.baseUrl === "string" ? { baseUrl: body.baseUrl as string | null } : {}),
-			...(body.apiKey === null || typeof body.apiKey === "string" ? { apiKey: body.apiKey as string | null } : {}),
-			...(Array.isArray(body.models) ? { models: body.models as CompatibleModel[] } : {}),
-			...(body.headers === null || (typeof body.headers === "object" && !Array.isArray(body.headers))
-				? { headers: body.headers as Record<string, string> | null }
-				: {}),
-			...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}),
+			kind: body.kind as "builtin" | "custom",
+			...(has("name") ? { name: body.name } : {}),
+			...(has("baseUrl") ? { baseUrl: body.baseUrl } : {}),
+			...(has("apiKey") ? { apiKey: body.apiKey } : {}),
+			...(has("models") ? { models: body.models } : {}),
+			...(has("headers") ? { headers: body.headers } : {}),
+			...(has("sessionId") ? { sessionId: body.sessionId } : {}),
+			...(has("enabled") ? { enabled: body.enabled } : {}),
 		});
 		await models.reload();
 		void c.get("audit").record({

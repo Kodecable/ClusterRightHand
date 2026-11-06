@@ -138,7 +138,11 @@ export function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { cur
 			// The serialized messages are the input basis when the upstream reports no usage (D101). durable's
 			// `beforeRequest` exposes only those; the system prompt and tool declarations are not part of it.
 			beforeRequest: async (request, api) => {
-				requestInput.set(String(api.conversationId), estimateRequestTokens(request.messages));
+				const conversationId = String(api.conversationId);
+				requestInput.set(conversationId, estimateRequestTokens(request.messages));
+				// Custom providers may put the crh session id into request headers/body; the mapping must be
+				// known before the first generation request, not only after its response (D115).
+				await runtimeRef.current?.rememberProviderSession(conversationId);
 				return undefined;
 			},
 			// The budget measure counts the output at every level; a level whose quota is not above zero stops its

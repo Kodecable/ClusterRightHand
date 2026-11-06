@@ -41,6 +41,7 @@ import * as m0038 from "./migrations/0038_node_access_grants.ts";
 import * as m0039 from "./migrations/0039_output_budgets.ts";
 import * as m0040 from "./migrations/0040_one_output_stream.ts";
 import * as m0041 from "./migrations/0041_rule_preset.ts";
+import * as m0042 from "./migrations/0042_custom_model_providers.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -85,6 +86,7 @@ const migrations: Record<string, Migration> = {
 	"0039_output_budgets": m0039,
 	"0040_one_output_stream": m0040,
 	"0041_rule_preset": m0041,
+	"0042_custom_model_providers": m0042,
 };
 
 const provider: MigrationProvider = { getMigrations: async () => migrations };

@@ -405,14 +405,16 @@ export interface ModelProvidersTable {
 	id: string;
 	org_id: string;
 	provider_id: string;
-	kind: "builtin" | "openai-compatible";
+	kind: "builtin" | "custom";
 	builtin: string | null;
 	name: string;
 	base_url: string | null;
 	secret_id: string | null;
 	models: string | null;
-	/** openai-compatible: JSON Record<string, string>, extra request headers. */
+	/** custom: JSON Record<string, string>, extra request headers. */
 	headers: string | null;
+	/** custom: JSON { headers?: string[], body?: string[] }, fields that carry the crh session id. */
+	session_id: string | null;
 	enabled: number;
 	created_at: CreatedAt;
 	updated_at: string;

@@ -16,6 +16,7 @@ const EXISTING: ModelProviderView = {
 	hasApiKey: true,
 	models: null,
 	headers: null,
+	sessionId: null,
 	enabled: true,
 };
 

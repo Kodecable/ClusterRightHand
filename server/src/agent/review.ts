@@ -79,8 +79,16 @@ export class Reviewer {
 		return row ? (JSON.parse(row.model) as ModelRef) : null;
 	}
 
-	/** Asks the reviewer, and reports what the answer costs so the owning session can be charged (D92, D101). */
-	async #ask(model: ModelRef, operation: string): Promise<{ outcome: ReviewOutcome; tokens: CallTokens }> {
+	/**
+	 * Asks the reviewer, and reports what the answer costs so the owning session can be charged (D92, D101).
+	 * `sessionId` is the crh session whose task is judged: a custom provider's session id fields carry it
+	 * (D115). Durability passes provider session ids in its own requests, so resolve the reverse mapping here.
+	 */
+	async #ask(
+		model: ModelRef,
+		operation: string,
+		sessionId: string | undefined,
+	): Promise<{ outcome: ReviewOutcome; tokens: CallTokens }> {
 		const resolved = this.#models.models.getModel(model.provider, model.modelId);
 		const name = `${model.provider}/${model.modelId}`;
 		if (!resolved)
@@ -93,7 +101,12 @@ export class Reviewer {
 				systemPrompt: SYSTEM,
 				messages: [{ role: "user" as const, content: operation, timestamp: Date.now() }],
 			};
-			const answer = await this.#models.models.completeSimple(resolved, request);
+			const providerSessionId = sessionId ? this.#models.providerSessionIdFor(sessionId) : undefined;
+			const answer = await this.#models.models.completeSimple(
+				resolved,
+				request,
+				(providerSessionId ?? sessionId) ? { sessionId: providerSessionId ?? sessionId } : undefined,
+			);
 			const text = answer.content.flatMap((c) => (c.type === "text" ? [c.text] : [])).join("");
 			return {
 				outcome: { ...parseOutcome(text), model: name },
@@ -134,7 +147,11 @@ export class Reviewer {
 	async reviewTask(task: TaskView): Promise<void> {
 		const model = await this.#wanted(task.ruleChain);
 		if (!model || !task.operation) return;
-		const { outcome, tokens } = await this.#ask(model, describe(task.operation, task.nodeId, task.actorType));
+		const { outcome, tokens } = await this.#ask(
+			model,
+			describe(task.operation, task.nodeId, task.actorType),
+			sessionOfActor(task.actorType, task.actorId),
+		);
 		await this.#charge(task.actorType, task.actorId, tokens);
 		await this.#cluster.recordReview(task.id, outcome);
 		if (outcome.decision === "approve") await this.#cluster.decide(task.id, decision(outcome));
@@ -146,11 +163,17 @@ export class Reviewer {
 		const { outcome, tokens } = await this.#ask(
 			model,
 			describe(group.operation, `${group.nodeIds.length} nodes (${group.targets.join(", ")})`, group.actorType),
+			sessionOfActor(group.actorType, group.actorId),
 		);
 		await this.#charge(group.actorType, group.actorId, tokens);
 		await this.#taskGroups.recordReview(group.id, outcome);
 		if (outcome.decision === "approve") await this.#taskGroups.decide(group.id, decision(outcome));
 	}
+}
+
+/** A task's actor names the session that requested it; API tokens have no session. */
+function sessionOfActor(actorType: string, actorId: string): string | undefined {
+	return actorType === "session" || actorType === "subagent" ? actorId : undefined;
 }
 
 function describe(op: { method: string; target: string }, where: string, actor: string): string {

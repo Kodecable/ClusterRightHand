@@ -756,35 +756,61 @@ export interface AvailableModel extends ModelRef {
 	contextWindow: number;
 }
 
-export interface CompatibleModel {
+/** The protocol a custom model speaks. */
+export type CustomApi = "openai-completions" | "openai-responses";
+
+/** pi-ai's thinking levels (doc/agent-runtime.md#思考档位). */
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface ThinkingConfig {
+	mode: "format" | "body";
+	/** Chat Completions only. */
+	format?: string;
+	/** Format mode: level -> upstream value (null: unsupported). Body mode: level -> request body patch. */
+	levels: Partial<Record<ThinkingLevel, string | null | Record<string, unknown>>>;
+}
+
+export interface CustomModel {
 	id: string;
 	name?: string;
+	api: CustomApi;
 	contextWindow: number;
 	maxTokens: number;
-	reasoning?: boolean;
+	input: ("text" | "image")[];
+	thinking?: ThinkingConfig;
+	compat?: Record<string, unknown>;
+}
+
+/** Request headers / body paths that carry the crh session id (custom providers). */
+export interface SessionIdConfig {
+	headers?: string[];
+	body?: string[];
 }
 
 export interface ModelProviderView {
 	id: string;
 	providerId: string;
-	kind: "builtin" | "openai-compatible";
+	kind: "builtin" | "custom";
 	builtin: string | null;
 	name: string;
 	baseUrl: string | null;
 	hasApiKey: boolean;
-	models: CompatibleModel[] | null;
+	models: CustomModel[] | null;
 	headers: Record<string, string> | null;
+	sessionId: SessionIdConfig | null;
 	enabled: boolean;
 }
 
 export interface ModelProviderInput {
-	kind: "builtin" | "openai-compatible";
+	kind: "builtin" | "custom";
 	name?: string;
 	baseUrl?: string | null;
 	/** Omitted: keep the current key; null: remove it. */
 	apiKey?: string | null;
-	models?: CompatibleModel[];
-	/** Extra request headers (openai-compatible); null removes them. */
+	models?: CustomModel[];
+	/** Extra request headers (custom); null removes them. */
 	headers?: Record<string, string> | null;
+	/** Session id fields (custom); null removes them. */
+	sessionId?: SessionIdConfig | null;
 	enabled?: boolean;
 }

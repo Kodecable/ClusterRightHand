@@ -101,6 +101,18 @@ export class AgentRuntime {
 			pendingWakes: new Map(),
 			idleWatchers: new Set(),
 		};
+		// Custom providers fill their session id fields from the crh session id, not durable's provider id
+		// (doc/agent-runtime.md#自定义提供方). Auto Review asks for the reverse: the provider session id of
+		// the session whose task it judges.
+		options.models.setSessionResolver(
+			(providerSessionId) => this.#host.providerSessions.get(providerSessionId),
+			(sessionId) => {
+				for (const [providerSessionId, mapped] of this.#host.providerSessions) {
+					if (mapped === sessionId) return providerSessionId;
+				}
+				return undefined;
+			},
+		);
 	}
 
 	static async #openHarness(options: AgentRuntimeOptions, ref: { current?: AgentRuntime }): Promise<Harness> {

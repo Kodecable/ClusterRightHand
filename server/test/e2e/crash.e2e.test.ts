@@ -175,10 +175,10 @@ describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 		const provider = await api("/api/model-providers/fake", {
 			method: "PUT",
 			body: {
-				kind: "openai-compatible",
+				kind: "custom",
 				baseUrl: `http://127.0.0.1:${modelPort}/v1`,
 				apiKey: "test",
-				models: [{ id: "fake-1", contextWindow: 128_000, maxTokens: 4096 }],
+				models: [{ id: "fake-1", api: "openai-completions", input: ["text"], contextWindow: 128_000, maxTokens: 4096 }],
 			},
 		});
 		expect(provider.status).toBe(200);

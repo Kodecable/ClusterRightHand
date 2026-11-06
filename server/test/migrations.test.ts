@@ -21,6 +21,7 @@ import { down as down0038, up as up0038 } from "../src/storage/migrations/0038_n
 import { down as down0039, up as up0039 } from "../src/storage/migrations/0039_output_budgets.ts";
 import { down as down0040, up as up0040 } from "../src/storage/migrations/0040_one_output_stream.ts";
 import { down as down0041, up as up0041 } from "../src/storage/migrations/0041_rule_preset.ts";
+import { down as down0042, up as up0042 } from "../src/storage/migrations/0042_custom_model_providers.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -1655,6 +1656,82 @@ describeBackends("0041 rule preset", (backend) => {
 		expect(restored.rows).toEqual([
 			{ id: "root", preset: "yolo" },
 			{ id: "sub", preset: null },
+		]);
+	});
+});
+
+describeBackends("0042 custom model providers", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("model_providers")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("kind", "text", (c) => c.notNull())
+				.addColumn("models", "text")
+				.execute();
+		});
+		const models = JSON.stringify([
+			{ id: "a", name: "A", contextWindow: 4096, maxTokens: 512, reasoning: true },
+			{ id: "b", contextWindow: 8192, maxTokens: 1024, reasoning: false },
+			{ id: "c", contextWindow: 16384, maxTokens: 2048 },
+		]);
+		await sql`insert into model_providers (id, kind, models) values
+			('compat', 'openai-compatible', ${models}),
+			('builtin', 'builtin', null)`.execute(db);
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("renames the kind, upgrades every model and adds session_id", async () => {
+		await applyMigration(backend, db, up0042);
+		expect(await tableColumns(backend, db, "model_providers")).toEqual(["id", "kind", "models", "session_id"]);
+		const rows = await sql<{ id: string; kind: string; models: string | null; session_id: string | null }>`
+			select id, kind, models, session_id from model_providers order by id
+		`.execute(db);
+		const compat = rows.rows.find((row) => row.id === "compat");
+		expect(compat?.kind).toBe("custom");
+		expect(compat?.session_id).toBeNull();
+		const models = JSON.parse(compat?.models ?? "[]") as Record<string, unknown>[];
+		expect(models).toEqual([
+			{
+				id: "a",
+				name: "A",
+				contextWindow: 4096,
+				maxTokens: 512,
+				api: "openai-completions",
+				input: ["text"],
+				thinking: { mode: "format", levels: {} },
+			},
+			{ id: "b", contextWindow: 8192, maxTokens: 1024, api: "openai-completions", input: ["text"] },
+			{ id: "c", contextWindow: 16384, maxTokens: 2048, api: "openai-completions", input: ["text"] },
+		]);
+		// Built-in rows never carried models and are otherwise untouched.
+		expect(rows.rows.find((row) => row.id === "builtin")).toMatchObject({
+			kind: "builtin",
+			models: null,
+			session_id: null,
+		});
+	});
+
+	it("down restores the old kind and model shape", async () => {
+		await applyMigration(backend, db, up0042);
+		await applyMigration(backend, db, down0042);
+		expect(await tableColumns(backend, db, "model_providers")).toEqual(["id", "kind", "models"]);
+		const rows = await sql<{ id: string; kind: string; models: string | null }>`
+			select id, kind, models from model_providers order by id
+		`.execute(db);
+		const compat = rows.rows.find((row) => row.id === "compat");
+		expect(compat?.kind).toBe("openai-compatible");
+		const models = JSON.parse(compat?.models ?? "[]") as Record<string, unknown>[];
+		expect(models).toEqual([
+			{ id: "a", name: "A", contextWindow: 4096, maxTokens: 512, reasoning: true },
+			{ id: "b", contextWindow: 8192, maxTokens: 1024 },
+			{ id: "c", contextWindow: 16384, maxTokens: 2048 },
 		]);
 	});
 });

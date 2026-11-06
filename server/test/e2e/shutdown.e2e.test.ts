@@ -48,9 +48,11 @@ describe.skipIf(!hasGo)("crhs SIGTERM shutdown with a connected node", () => {
 		const res = await api("/api/model-providers/e2e", {
 			method: "PUT",
 			body: {
-				kind: "openai-compatible",
+				kind: "custom",
 				baseUrl: "http://127.0.0.1:9/v1",
-				models: [{ id: "test-model", contextWindow: 8192, maxTokens: 1024 }],
+				models: [
+					{ id: "test-model", api: "openai-completions", input: ["text"], contextWindow: 8192, maxTokens: 1024 },
+				],
 			},
 		});
 		expect(res.status, JSON.stringify(res.json)).toBe(200);

@@ -1,6 +1,6 @@
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
-import type { CompatibleModel } from "@/lib/api/types";
+import type { CustomModel } from "@/lib/api/types";
 
 /**
  * Pure validation of the model provider form (doc/agent-runtime.md "模型"):
@@ -49,9 +49,9 @@ export function providerErrorText(i18n: I18n, error: ProviderFormErrorCode): str
 }
 
 /** The form's model rows as the API shape. */
-export function rowsToModels(rows: ModelRow[]): { models: CompatibleModel[] } | { error: ProviderFormErrorCode } {
+export function rowsToModels(rows: ModelRow[]): { models: CustomModel[] } | { error: ProviderFormErrorCode } {
 	if (rows.length === 0) return { error: "models-required" };
-	const models: CompatibleModel[] = [];
+	const models: CustomModel[] = [];
 	for (const row of rows) {
 		const id = row.id.trim();
 		if (id === "") return { error: "model-id-required" };
@@ -63,9 +63,13 @@ export function rowsToModels(rows: ModelRow[]): { models: CompatibleModel[] } | 
 		if (!Number.isInteger(maxTokens) || maxTokens < 1) return { error: "max-tokens-invalid" };
 		models.push({
 			id,
+			api: "openai-completions",
 			contextWindow,
 			maxTokens,
-			...(row.reasoning ? { reasoning: true } : {}),
+			input: ["text"],
+			// The old form only knows whether reasoning is on; a format block with no level overrides is
+			// exactly the old `reasoning: true` (the full thinking editor is a later WebUI task).
+			...(row.reasoning ? { thinking: { mode: "format" as const, levels: {} } } : {}),
 		});
 	}
 	return { models };

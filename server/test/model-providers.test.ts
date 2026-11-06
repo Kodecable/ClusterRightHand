@@ -42,10 +42,10 @@ describeBackends("model providers api", (backend) => {
 		return ((await r.json()) as { items: { targetId: string; detail: Record<string, unknown> }[] }).items;
 	};
 	const proxy = (extra: Record<string, unknown> = {}) => ({
-		kind: "openai-compatible",
+		kind: "custom",
 		name: "My proxy",
 		baseUrl: "http://127.0.0.1:9/v1",
-		models: [{ id: "m-1", contextWindow: 32768, maxTokens: 4096 }],
+		models: [{ id: "m-1", api: "openai-completions", input: ["text"], contextWindow: 32768, maxTokens: 4096 }],
 		...extra,
 	});
 
@@ -130,12 +130,12 @@ describeBackends("model providers api", (backend) => {
 		expect(Buffer.from(ct, "base64url").toString("latin1")).not.toContain(KEY);
 	});
 
-	it("an openai-compatible provider offers its models", async () => {
+	it("a custom provider offers its models", async () => {
 		const res = await put("my-proxy", proxy({ apiKey: "proxy-key-xyz" }));
 		expect(res.status).toBe(200);
 		expect(((await res.json()) as { provider: unknown }).provider).toMatchObject({
 			providerId: "my-proxy",
-			kind: "openai-compatible",
+			kind: "custom",
 			name: "My proxy",
 			baseUrl: "http://127.0.0.1:9/v1",
 			hasApiKey: true,
@@ -144,16 +144,16 @@ describeBackends("model providers api", (backend) => {
 		expect(await modelList()).toContainEqual(expect.objectContaining({ provider: "my-proxy", modelId: "m-1" }));
 	});
 
-	it("validates openai-compatible providers", async () => {
+	it("validates custom providers", async () => {
 		const bad = [
 			proxy({ baseUrl: undefined }),
 			proxy({ baseUrl: "ftp://x" }),
 			proxy({ models: [] }),
 			proxy({ models: undefined }),
-			proxy({ models: [{ id: "a", contextWindow: 10, maxTokens: 5 }] }),
-			proxy({ models: [{ id: "a", contextWindow: 4096.5, maxTokens: 5 }] }),
-			proxy({ models: [{ id: "a", contextWindow: 4096, maxTokens: 0 }] }),
-			proxy({ models: [{ contextWindow: 4096, maxTokens: 5 }] }),
+			proxy({ models: [{ id: "a", api: "openai-completions", input: ["text"], contextWindow: 10, maxTokens: 5 }] }),
+			proxy({ models: [{ id: "a", api: "openai-completions", input: ["text"], contextWindow: 4096.5, maxTokens: 5 }] }),
+			proxy({ models: [{ id: "a", api: "openai-completions", input: ["text"], contextWindow: 4096, maxTokens: 0 }] }),
+			proxy({ models: [{ api: "openai-completions", input: ["text"], contextWindow: 4096, maxTokens: 5 }] }),
 		];
 		for (const body of bad) expect((await put("bad-proxy", body)).status).toBe(400);
 		expect((await providers()).providers.map((p) => p.providerId)).not.toContain("bad-proxy");

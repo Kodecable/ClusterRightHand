@@ -12,12 +12,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { ModelProviderInput, ModelProviderView } from "@/lib/api/types";
+import type { CustomModel, ModelProviderInput, ModelProviderView } from "@/lib/api/types";
 import { useSaveModelProvider } from "./api";
 import { type ModelRow, PROVIDER_ID_PATTERN, parseHeaders, providerErrorText, rowsToModels } from "./providers";
 
 interface ProviderValues {
-	kind: "builtin" | "openai-compatible";
+	kind: "builtin" | "custom";
 	providerId: string;
 	name: string;
 	baseUrl: string;
@@ -28,11 +28,11 @@ interface ProviderValues {
 	models: ModelRow[];
 }
 
-const row = (model?: { id: string; contextWindow: number; maxTokens: number; reasoning?: boolean }): ModelRow => ({
+const row = (model?: CustomModel): ModelRow => ({
 	id: model?.id ?? "",
 	contextWindow: String(model?.contextWindow ?? 128_000),
 	maxTokens: String(model?.maxTokens ?? 8_192),
-	reasoning: model?.reasoning === true,
+	reasoning: model?.thinking !== undefined,
 });
 
 function providerValues(provider: ModelProviderView | undefined, builtin: string[]): ProviderValues {
@@ -55,7 +55,7 @@ function buildSchema(i18n: I18n) {
 	const message = (code: Parameters<typeof providerErrorText>[1]) => providerErrorText(i18n, code);
 	return z
 		.object({
-			kind: z.enum(["builtin", "openai-compatible"]),
+			kind: z.enum(["builtin", "custom"]),
 			providerId: z.string(),
 			name: z.string(),
 			baseUrl: z.string(),
@@ -80,7 +80,7 @@ function buildSchema(i18n: I18n) {
 					message: message("provider-id-invalid"),
 				});
 			}
-			if (values.kind !== "openai-compatible") return;
+			if (values.kind !== "custom") return;
 			const baseUrl = values.baseUrl.trim();
 			if (baseUrl === "") {
 				context.addIssue({ code: "custom", path: ["baseUrl"], message: message("base-url-required") });
@@ -211,7 +211,7 @@ export function ProviderDialog({
 
 	const submit = form.handleSubmit((values) => {
 		const body: ModelProviderInput = { kind: values.kind, enabled: values.enabled };
-		if (values.kind === "openai-compatible") {
+		if (values.kind === "custom") {
 			const models = rowsToModels(values.models);
 			const headers = parseHeaders(values.headersText);
 			if ("error" in models || "error" in headers) return;
@@ -258,7 +258,7 @@ export function ProviderDialog({
 					disabled={editing}
 					options={[
 						{ value: "builtin", label: t`Built-in provider` },
-						{ value: "openai-compatible", label: t`OpenAI-compatible endpoint` },
+						{ value: "custom", label: t`OpenAI-compatible endpoint` },
 					]}
 				/>
 				{kind === "builtin" ? (
@@ -280,7 +280,7 @@ export function ProviderDialog({
 				)}
 			</div>
 
-			{kind === "openai-compatible" && (
+			{kind === "custom" && (
 				<>
 					<div className="grid gap-3 sm:grid-cols-2">
 						<TextField
