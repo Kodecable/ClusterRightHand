@@ -3,7 +3,6 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@ear
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
-import { setReviewModel } from "../src/agent/review.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import { sessionStateOf } from "../src/agent/session-state.ts";
 import { Audit } from "../src/audit/audit.ts";
@@ -425,7 +424,7 @@ it("builds the [schedule, session] chain for approvals and Auto Review", async (
 	expect(row).toMatchObject({ root_session_id: sessionId, handler_type: "user", handler_session_id: null });
 
 	// Auto Review reads the rule preset and the model from the schedule root of the chain.
-	await setReviewModel(db, model());
+	await runtime.modelPresets.update("review", { model: model() });
 	const auto = await makeSchedule(owner, { name: "auto", rulePreset: "auto_review" });
 	faux.setResponses([fauxAssistantMessage([fauxText("scheduled")])]);
 	const autoRun = await scheduler.runNow(auto.id, owner);
@@ -450,7 +449,7 @@ it("builds the [schedule, session] chain for approvals and Auto Review", async (
 	const decided = await cluster.getTask(reviewed.id);
 	const approval = decided?.approval as { decision?: { by: { type: string; id: string } } } | null;
 	expect(approval?.decision?.by).toEqual({ type: "system", id: "auto-review" });
-	await setReviewModel(db, null);
+	await runtime.modelPresets.update("review", { model: null });
 });
 
 it("builds the [schedule, session] chain for a scheduled session's own tool calls", async () => {

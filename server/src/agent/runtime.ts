@@ -4,6 +4,7 @@ import type { SessionUser } from "../auth/sessions.ts";
 import type { RulePreset } from "../policy/rules.ts";
 import { clusterExtension } from "./extension.ts";
 import { meteredModels } from "./metering.ts";
+import { ModelPresets } from "./model-presets.ts";
 import type { ModelRef } from "./models.ts";
 import { Reviewer } from "./review.ts";
 import type {
@@ -73,10 +74,13 @@ export class AgentRuntime {
 	#runtimeRef: { current?: AgentRuntime } = {};
 	/** Open WebUI session-list streams; writes publish here, coalesced per session. */
 	readonly #sessionList: SessionListHub;
+	/** The cached model presets (D116): the prompt sections and Auto Review read them synchronously. */
+	readonly modelPresets: ModelPresets;
 
-	private constructor(harness: Harness, options: AgentRuntimeOptions) {
+	private constructor(harness: Harness, options: AgentRuntimeOptions, presets: ModelPresets) {
 		this.#harness = harness;
 		this.#options = options;
+		this.modelPresets = presets;
 		this.#sessionList = new SessionListHub({ db: options.db, ...(options.sessionList ?? {}) });
 		this.#host = {
 			db: options.db,
@@ -115,9 +119,13 @@ export class AgentRuntime {
 		);
 	}
 
-	static async #openHarness(options: AgentRuntimeOptions, ref: { current?: AgentRuntime }): Promise<Harness> {
+	static async #openHarness(
+		options: AgentRuntimeOptions,
+		ref: { current?: AgentRuntime },
+		presets: ModelPresets,
+	): Promise<Harness> {
 		const registry = createRegistry();
-		registry.install(clusterExtension(options, ref));
+		registry.install(clusterExtension(options, ref, presets));
 		const storage = typeof options.storage === "function" ? await options.storage() : options.storage;
 		const harness = await Harness.open(
 			storage,
@@ -144,14 +152,18 @@ export class AgentRuntime {
 
 	static async open(options: AgentRuntimeOptions): Promise<AgentRuntime> {
 		const ref: { current?: AgentRuntime } = {};
-		const runtime = new AgentRuntime(await AgentRuntime.#openHarness(options, ref), options);
+		// The preset cache is loaded once, before any request: the system prompt section reads it synchronously
+		// and a write refreshes it (D116).
+		const presets = new ModelPresets(options.db);
+		await presets.load();
+		const runtime = new AgentRuntime(await AgentRuntime.#openHarness(options, ref, presets), options, presets);
 		runtime.#runtimeRef = ref;
 		ref.current = runtime;
 		// Resume only now: a resumed run must find the runtime (compaction and tool metering look it up).
 		runtime.#harness.resume(); // runs and tool calls the last process left unfinished
 		// Auto Review for roots whose rule preset asks for it (tokens, sessions and schedules alike), then route child
 		// approvals to an ancestor's agent where the chain allows it.
-		const reviewer = new Reviewer(options.db, options.models, options.cluster, options.taskGroups);
+		const reviewer = new Reviewer(options.db, options.models, options.cluster, options.taskGroups, presets);
 		options.cluster.onAwaitingApproval = async (task) => {
 			await reviewer.reviewTask(task);
 			await routeAwaiting(runtime.#host, "task", task.actorId, task.id, task.approval);
@@ -195,7 +207,7 @@ export class AgentRuntime {
 			for (let attempt = 0; !this.#closing; attempt++) {
 				await new Promise((r) => setTimeout(r, Math.min(30_000, 500 * 2 ** attempt)));
 				try {
-					this.#harness = await AgentRuntime.#openHarness(this.#options, this.#runtimeRef);
+					this.#harness = await AgentRuntime.#openHarness(this.#options, this.#runtimeRef, this.modelPresets);
 					this.#harness.resume();
 					invalidateInboxes(this.#host);
 					this.reopened++;

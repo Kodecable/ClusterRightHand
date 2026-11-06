@@ -1,8 +1,12 @@
+import type { Api, Model, TextContent, ThinkingContent, Tool, ToolCall, ToolChoice } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+import { Value } from "typebox/value";
 import type { ApprovalDecision, Cluster, TaskView } from "../cluster/cluster.ts";
 import type { TaskGroups, TaskGroupView } from "../cluster/task-groups.ts";
 import { getRuleSet, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
-import type { ModelConfig, ModelRef } from "./models.ts";
+import type { ModelPresets } from "./model-presets.ts";
+import { type ModelConfig, type ModelRef, thinkingLevelOf } from "./models.ts";
 import { chargeCall } from "./quota.ts";
 import { type CallTokens, callTokens, estimateRequestTokens } from "./tokens.ts";
 
@@ -11,15 +15,40 @@ import { type CallTokens, callTokens, estimateRequestTokens } from "./tokens.ts"
  * schedule a scheduled run's chain starts with), a task that needs approval is first judged by a model. It approves what is clearly safe and leaves the rest for the user. The reviewer sees
  * only the operation itself, never the conversation or node output, so one injected text cannot steer both the
  * agent and its reviewer (doc/agent-runtime.md#提示注入).
+ *
+ * D116: the reviewer answers through the forced tool `submit_review`; a model that ignores `toolChoice` still
+ * works through the old one-line-JSON fallback, and anything unreadable escalates.
  */
 
-const META_KEY = "review_model";
-
-const SYSTEM = `You review operations an automated agent wants to run on a user's servers. You see one operation at a time.
+/** The default review prompt: the criteria. A custom prompt replaces it. */
+export const DEFAULT_REVIEW_PROMPT = `You review operations an automated agent wants to run on a user's servers. You see one operation at a time.
 Approve only when it is clearly low-risk: it does not destroy or overwrite data, does not change security settings,
 credentials, users, firewall or network configuration, does not install or remove software, and does not stop
-important services. Anything else, or anything you are unsure about, escalate to the human.
-Answer with exactly one line of JSON: {"decision":"approve"|"escalate","reason":"<one short sentence>"}`;
+important services. Anything else, or anything you are unsure about, escalate to the human.`;
+
+/** The review protocol: the decision tool and the instruction to answer through it. Always appended. */
+export const REVIEW_PROTOCOL = `The submit_review tool takes:
+- decision: "approve" or "escalate"
+- reason: one short sentence explaining the decision.
+
+Answer by calling submit_review.`;
+
+/** The full review system prompt: the custom prompt when set, else the default, then the fixed protocol. */
+export function reviewSystemPrompt(custom: string | null | undefined): string {
+	return `${custom ?? DEFAULT_REVIEW_PROMPT}\n\n${REVIEW_PROTOCOL}`;
+}
+
+export const REVIEW_TOOL_NAME = "submit_review";
+
+/** The forced decision tool; its arguments carry the outcome (doc/agent-runtime.md#模型预设). */
+export const REVIEW_TOOL: Tool = {
+	name: REVIEW_TOOL_NAME,
+	description: "Submit the review decision for the operation.",
+	parameters: Type.Object({
+		decision: Type.Union([Type.Literal("approve"), Type.Literal("escalate")]),
+		reason: Type.String(),
+	}),
+};
 
 export interface ReviewOutcome {
 	decision: "approve" | "escalate";
@@ -27,18 +56,49 @@ export interface ReviewOutcome {
 	model: string;
 }
 
-export async function getReviewModel(db: Db): Promise<ModelRef | null> {
-	const row = await db.selectFrom("server_meta").select("value").where("key", "=", META_KEY).executeTakeFirst();
-	return row ? (JSON.parse(row.value) as ModelRef) : null;
+/**
+ * A forced tool choice in the shape the model's protocol expects. pi-ai's provider-neutral `ToolChoice`
+ * is only `"auto" | "none"`; every provider implementation passes a forced choice through and accepts its
+ * own shape, so the value is cast where it leaves the simple option's nominal type.
+ */
+function forcedToolChoice(model: Model<Api>, name: string): ToolChoice {
+	switch (model.api) {
+		case "anthropic-messages":
+		case "bedrock-converse-stream":
+			return { type: "tool", name } as unknown as ToolChoice;
+		case "google-generative-ai":
+		case "google-vertex":
+			// Gemini has no named forced choice here; ANY forces a function call, and submit_review is the only tool.
+			return "any" as ToolChoice;
+		case "openai-codex-responses":
+			return "required" as ToolChoice;
+		case "openai-responses":
+		case "azure-openai-responses":
+			return { type: "function", name } as unknown as ToolChoice;
+		default:
+			return { type: "function", function: { name } } as unknown as ToolChoice;
+	}
 }
 
-export async function setReviewModel(db: Db, model: ModelRef | null): Promise<void> {
-	await db.deleteFrom("server_meta").where("key", "=", META_KEY).execute();
-	if (model)
-		await db
-			.insertInto("server_meta")
-			.values({ key: META_KEY, value: JSON.stringify(model) })
-			.execute();
+type AnswerContent = TextContent | ThinkingContent | ToolCall;
+
+/**
+ * The outcome a `submit_review` call carries, or undefined when the answer has no such call (then the text
+ * fallback decides). Arguments that do not match the schema escalate.
+ */
+function outcomeFromToolCalls(
+	content: readonly AnswerContent[],
+): { decision: "approve" | "escalate"; reason: string } | undefined {
+	const call = content.find((block): block is ToolCall => block.type === "toolCall" && block.name === REVIEW_TOOL_NAME);
+	if (!call) return undefined;
+	if (!Value.Check(REVIEW_TOOL.parameters, call.arguments)) {
+		return { decision: "escalate", reason: "the reviewer's answer could not be read" };
+	}
+	const args = call.arguments as { decision: "approve" | "escalate"; reason: string };
+	return {
+		decision: args.decision === "approve" ? "approve" : "escalate",
+		reason: args.reason.slice(0, 300),
+	};
 }
 
 function parseOutcome(text: string): { decision: "approve" | "escalate"; reason: string } {
@@ -57,17 +117,19 @@ export class Reviewer {
 	readonly #models: ModelConfig;
 	readonly #cluster: Cluster;
 	readonly #taskGroups: TaskGroups;
+	readonly #presets: ModelPresets;
 
-	constructor(db: Db, models: ModelConfig, cluster: Cluster, taskGroups: TaskGroups) {
+	constructor(db: Db, models: ModelConfig, cluster: Cluster, taskGroups: TaskGroups, presets: ModelPresets) {
 		this.#db = db;
 		this.#models = models;
 		this.#cluster = cluster;
 		this.#taskGroups = taskGroups;
+		this.#presets = presets;
 	}
 
 	/** The model for one root: the configured review model, else (for a session or schedule) the root's own model. */
 	async #modelFor(root: RuleRef): Promise<ModelRef | null> {
-		const configured = await getReviewModel(this.#db);
+		const configured = this.#presets.get("review").model;
 		if (configured) return configured;
 		if (root.type === "schedule") {
 			// A scheduled run's chain root is the schedule, which carries the model its sessions run on.
@@ -98,20 +160,28 @@ export class Reviewer {
 			};
 		try {
 			const request = {
-				systemPrompt: SYSTEM,
+				systemPrompt: reviewSystemPrompt(this.#presets.get("review").systemPrompt),
 				messages: [{ role: "user" as const, content: operation, timestamp: Date.now() }],
+				tools: [REVIEW_TOOL],
 			};
 			const providerSessionId = sessionId ? this.#models.providerSessionIdFor(sessionId) : undefined;
-			const answer = await this.#models.models.completeSimple(
-				resolved,
-				request,
-				(providerSessionId ?? sessionId) ? { sessionId: providerSessionId ?? sessionId } : undefined,
-			);
+			const providerRequestId = providerSessionId ?? sessionId;
+			const level = thinkingLevelOf(model);
+			const answer = await this.#models.models.completeSimple(resolved, request, {
+				...(providerRequestId ? { sessionId: providerRequestId } : {}),
+				// The review runs at the review model's thinking level; `off` is pi-ai's "no reasoning" option.
+				...(level === "off" ? {} : { reasoning: level }),
+				toolChoice: forcedToolChoice(resolved, REVIEW_TOOL_NAME),
+			});
 			const text = answer.content.flatMap((c) => (c.type === "text" ? [c.text] : [])).join("");
+			const outcome = outcomeFromToolCalls(answer.content) ?? parseOutcome(text);
 			return {
-				outcome: { ...parseOutcome(text), model: name },
+				outcome: { ...outcome, model: name },
 				// The review's request (system prompt plus messages) is the input basis when no usage is reported.
-				tokens: callTokens(answer, estimateRequestTokens(request)),
+				tokens: callTokens(
+					answer,
+					estimateRequestTokens({ systemPrompt: request.systemPrompt, messages: request.messages }),
+				),
 			};
 		} catch (err) {
 			return {

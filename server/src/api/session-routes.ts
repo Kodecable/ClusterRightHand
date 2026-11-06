@@ -1,15 +1,16 @@
 import { type Context, Hono, type Next } from "hono";
 import { streamSSE } from "hono/streaming";
+import { isModelPresetKind } from "../agent/model-presets.ts";
 import {
 	builtinProviderIds,
 	deleteModelProvider,
 	listModelProviders,
 	type ModelConfig,
+	type ModelRef,
 	parseModelRef,
 	saveModelProvider,
 } from "../agent/models.ts";
 import { parseQuota } from "../agent/quota.ts";
-import { getReviewModel, setReviewModel } from "../agent/review.ts";
 import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
 import {
 	type SessionListScope,
@@ -38,6 +39,7 @@ import type { MasterKey } from "../keys/master-key.ts";
 import { parseRulePreset } from "../policy/store.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
+import { UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { type CursorSpec, cursorRows, decodeCursor, parseLimit } from "./cursor.ts";
 import type { RequestDrain } from "./drain.ts";
@@ -193,22 +195,57 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		return c.json({ ok: true });
 	});
 
-	app.get("/settings/review-model", async (c) => c.json({ model: await getReviewModel(db) }));
+	// ---- model presets (D116, doc/agent-runtime.md#模型预设) ----
 
-	/** `{ model: ModelRef | null }`: the model Auto Review uses; null: each session's own model (tokens: none). */
-	app.put("/settings/review-model", async (c) => {
+	/** All three presets with their fixed default prompts and protocol texts (administrators only). */
+	app.get("/model-presets", async (c) => {
 		if (!admin(c)) return jsonError(c, 403, "administrators only");
+		return c.json({ presets: runtime.modelPresets.list() });
+	});
+
+	/**
+	 * `{ model?: ModelRef | null, systemPrompt?: string | null }`: omitted fields stay unchanged, null clears.
+	 * The session preset never chooses a model; review and title models are resolved (with their thinking level).
+	 */
+	app.put("/model-presets/:kind", async (c) => {
+		if (!admin(c)) return jsonError(c, 403, "administrators only");
+		const kind = c.req.param("kind");
+		if (!isModelPresetKind(kind)) return jsonError(c, 400, "kind must be session, review or title");
 		const body = await readJsonObject(c);
-		const model = body?.model === null ? null : parseModelRef(body?.model);
-		if (model) models.assertAvailable(model);
-		await setReviewModel(db, model);
+		if (!body) return jsonError(c, 400, "expected a JSON object");
+		const has = (key: string) => Object.hasOwn(body, key);
+		let model: ModelRef | null | undefined;
+		if (has("model")) {
+			if (kind === "session") {
+				if (body.model !== null) throw new UserError("the session preset does not choose a model");
+				model = null;
+			} else if (body.model === null) {
+				model = null;
+			} else {
+				model = models.resolveRef(parseModelRef(body.model));
+			}
+		}
+		let systemPrompt: string | null | undefined;
+		if (has("systemPrompt")) {
+			const value = body.systemPrompt;
+			if (value !== null && typeof value !== "string") {
+				throw new UserError("systemPrompt must be a string or null");
+			}
+			const trimmed = typeof value === "string" ? value.trim() : null;
+			systemPrompt = trimmed === "" ? null : trimmed;
+		}
+		const preset = await runtime.modelPresets.update(kind, { model, systemPrompt });
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
-			action: "settings.review_model",
-			target: { type: "settings", id: "review_model" },
-			detail: { model },
+			action: "settings.model_preset",
+			target: { type: "settings", id: "model_preset" },
+			detail: {
+				kind,
+				model: preset.model,
+				system_prompt_chars: preset.systemPrompt?.length ?? 0,
+			},
 		});
-		return c.json({ model });
+		return c.json({ preset });
 	});
 
 	// ---- sessions: the owner, users it is shared with (view / chat), and administrators (view unless shared chat) ----

@@ -1,12 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http } from "@/lib/api/client";
-import type { AvailableModel, ModelProviderInput, ModelProviderView, ModelRef } from "@/lib/api/types";
+import type {
+	AvailableModel,
+	ModelPreset,
+	ModelPresetInput,
+	ModelPresetKind,
+	ModelProviderInput,
+	ModelProviderView,
+} from "@/lib/api/types";
 
 export const settingsKeys = {
 	all: ["settings"] as const,
 	models: () => ["settings", "models"] as const,
 	providers: () => ["settings", "model-providers"] as const,
-	reviewModel: () => ["settings", "review-model"] as const,
+	presets: () => ["settings", "model-presets"] as const,
 };
 
 export function useModels() {
@@ -42,20 +49,20 @@ export function useDeleteModelProvider() {
 	});
 }
 
-/** The model Auto Review uses; null means each session's own model. */
-export function useReviewModel() {
+/** The three model presets (D116): the model page's session, auto review and title cards. */
+export function useModelPresets() {
 	return useQuery({
-		queryKey: settingsKeys.reviewModel(),
-		queryFn: ({ signal }) =>
-			http.get<{ model: ModelRef | null }>("/settings/review-model", { signal }).then((r) => r.model),
+		queryKey: settingsKeys.presets(),
+		queryFn: ({ signal }) => http.get<{ presets: ModelPreset[] }>("/model-presets", { signal }).then((r) => r.presets),
 	});
 }
 
-export function useSetReviewModel() {
+/** Saves one preset; omitted fields stay unchanged, and a whitespace prompt clears it. */
+export function useSaveModelPreset() {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: (model: ModelRef | null) =>
-			http.put<{ model: ModelRef | null }>("/settings/review-model", { model }).then((r) => r.model),
-		onSuccess: () => void queryClient.invalidateQueries({ queryKey: settingsKeys.reviewModel() }),
+		mutationFn: ({ kind, input }: { kind: ModelPresetKind; input: ModelPresetInput }) =>
+			http.put<{ preset: ModelPreset }>(`/model-presets/${kind}`, input).then((r) => r.preset),
+		onSuccess: () => void queryClient.invalidateQueries({ queryKey: settingsKeys.presets() }),
 	});
 }

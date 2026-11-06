@@ -819,3 +819,24 @@ export interface ModelProviderInput {
 	sessionId?: SessionIdConfig | null;
 	enabled?: boolean;
 }
+
+/** One model preset kind (D116, doc/agent-runtime.md "模型预设"). */
+export type ModelPresetKind = "session" | "review" | "title";
+
+export interface ModelPreset {
+	kind: ModelPresetKind;
+	/** null: the root's own model (review/title) or unset (session). */
+	model: ModelRef | null;
+	/** null: the default prompt. */
+	systemPrompt: string | null;
+	/** The prompt used when no custom one is set. */
+	defaultPrompt: string;
+	/** The fixed protocol text, always appended. */
+	protocol: string;
+}
+
+/** PUT /model-presets/:kind; omitted fields stay unchanged, null clears. */
+export interface ModelPresetInput {
+	model?: ModelRef | null;
+	systemPrompt?: string | null;
+}

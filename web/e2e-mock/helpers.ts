@@ -8,9 +8,11 @@ import type {
 	AvailableModel,
 	CredentialView,
 	Directory,
+	ModelPreset,
+	ModelPresetInput,
+	ModelPresetKind,
 	ModelProviderInput,
 	ModelProviderView,
-	ModelRef,
 	NodeAccessGrant,
 	NodeGroup,
 	NodeTrust,
@@ -86,7 +88,7 @@ export interface FakeState {
 	tokens: ApiTokenView[];
 	providers: ModelProviderView[];
 	builtinProviders: string[];
-	reviewModel: ModelRef | null;
+	presets: ModelPreset[];
 	credentials: CredentialView[];
 	audit: AuditEvent[];
 	users: User[];
@@ -312,7 +314,30 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		tokens: [],
 		providers: [],
 		builtinProviders: ["faux"],
-		reviewModel: null,
+		presets: [
+			{
+				kind: "session",
+				model: null,
+				systemPrompt: null,
+				defaultPrompt:
+					"You are ClusterRightHand, an assistant that operates the user's servers through the cluster tools.",
+				protocol: "- Start with list_nodes when you do not know the nodes yet.",
+			},
+			{
+				kind: "review",
+				model: null,
+				systemPrompt: null,
+				defaultPrompt: "You review operations an automated agent wants to run on a user's servers.",
+				protocol: "Answer by calling submit_review.",
+			},
+			{
+				kind: "title",
+				model: null,
+				systemPrompt: null,
+				defaultPrompt: "Write a short title for this conversation.",
+				protocol: "Reply with the title only, on one line, at most 60 characters, without quotes.",
+			},
+		],
 		credentials: [],
 		audit: [],
 		users: [],
@@ -846,10 +871,25 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				return json({ ok: true });
 			}
 		}
-		if (path === "/api/settings/review-model" && method === "GET") return json({ model: state.reviewModel });
-		if (path === "/api/settings/review-model" && method === "PUT") {
-			state.reviewModel = (body as { model: ModelRef | null }).model;
-			return json({ model: state.reviewModel });
+		if (path === "/api/model-presets" && method === "GET") return json({ presets: state.presets });
+		if (path.startsWith("/api/model-presets/") && method === "PUT") {
+			const kind = path.slice("/api/model-presets/".length) as ModelPresetKind;
+			const input = body as ModelPresetInput;
+			const existing = state.presets.find((preset) => preset.kind === kind);
+			if (!existing) return json({ error: "not found" }, 404);
+			const prompt =
+				input.systemPrompt === undefined
+					? existing.systemPrompt
+					: input.systemPrompt?.trim()
+						? input.systemPrompt
+						: null;
+			const preset: ModelPreset = {
+				...existing,
+				...(input.model !== undefined ? { model: input.model } : {}),
+				systemPrompt: prompt,
+			};
+			state.presets = state.presets.map((candidate) => (candidate.kind === kind ? preset : candidate));
+			return json({ preset });
 		}
 
 		// --- credentials and authorizations --------------------------------

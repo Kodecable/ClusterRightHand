@@ -4,7 +4,6 @@ import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import { budgetUsedTokens, contextTokens, usageTokens } from "../src/agent/quota.ts";
-import { setReviewModel } from "../src/agent/review.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
@@ -123,7 +122,7 @@ it("does not charge a review when the root is not a session", async () => {
 	// An API token root has no session to charge: the review runs (a configured review model), but nothing is spent.
 	const tokenId = newId();
 	await createRootRuleSet(db, await defaultOrgId(db), { type: "api_token", id: tokenId }, "auto_review");
-	await setReviewModel(db, model());
+	await runtime.modelPresets.update("review", { model: model() });
 	const other = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "unrelated" });
 	const before = await db.selectFrom("sessions").select(["id", "budget_used_tokens", "usage_tokens"]).execute();
 	faux.setResponses([fauxAssistantMessage([fauxText(ANSWER)])]);

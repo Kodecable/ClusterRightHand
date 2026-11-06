@@ -4595,3 +4595,59 @@ msgstr "很高"
 #: src/lib/thinking-level.ts
 msgid "Max"
 msgstr "最高"
+
+#: src/features/settings/model-presets.tsx
+msgid "Always appended"
+msgstr "始终附加"
+
+#: src/features/settings/model-presets.tsx
+msgid "Auto review"
+msgstr "自动复核"
+
+#: src/features/settings/model-presets.tsx
+msgid "Changes take effect on the next model request."
+msgstr "改动从下一次模型请求起生效。"
+
+#: src/features/settings/model-presets.tsx
+msgid "Default prompt"
+msgstr "默认提示词"
+
+#: src/features/settings/model-presets.tsx
+msgid "Default prompt and protocol"
+msgstr "默认提示词与协议说明"
+
+#: src/features/settings/model-presets.tsx
+msgid "Leave empty to use the default prompt."
+msgstr "留空表示使用默认提示词。"
+
+#: src/features/settings/model-presets.tsx
+msgid "Model presets"
+msgstr "模型预设"
+
+#: src/features/settings/model-presets.tsx
+msgid "Preset saved."
+msgstr "预设已保存。"
+
+#: src/features/settings/model-presets.tsx
+msgid "System prompt"
+msgstr "系统提示词"
+
+#: src/features/settings/model-presets.tsx
+msgid "The model list could not be loaded."
+msgstr "无法加载模型列表。"
+
+#: src/features/settings/model-presets.tsx
+msgid "The session preset only changes the system prompt; each session picks its own model."
+msgstr "会话预设只修改系统提示词；每个会话自己选择模型。"
+
+#: src/features/settings/model-presets.tsx
+msgid "The title preset's model writes conversation titles. Without one, the session's model is used."
+msgstr "标题生成预设的模型负责生成会话标题。未设置时使用会话的模型。"
+
+#: src/features/settings/model-presets.tsx
+msgid "Title generation"
+msgstr "标题生成"
+
+#: src/features/settings/model-presets.tsx
+msgid "Use the session's model"
+msgstr "使用会话的模型"

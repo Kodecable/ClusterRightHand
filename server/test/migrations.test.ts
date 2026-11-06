@@ -22,6 +22,7 @@ import { down as down0039, up as up0039 } from "../src/storage/migrations/0039_o
 import { down as down0040, up as up0040 } from "../src/storage/migrations/0040_one_output_stream.ts";
 import { down as down0041, up as up0041 } from "../src/storage/migrations/0041_rule_preset.ts";
 import { down as down0042, up as up0042 } from "../src/storage/migrations/0042_custom_model_providers.ts";
+import { down as down0043, up as up0043 } from "../src/storage/migrations/0043_model_presets.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 /** Applies a migration's schema changes under the same DDL lock as the migrator. */
@@ -1732,6 +1733,64 @@ describeBackends("0042 custom model providers", (backend) => {
 			{ id: "a", name: "A", contextWindow: 4096, maxTokens: 512, reasoning: true },
 			{ id: "b", contextWindow: 8192, maxTokens: 1024 },
 			{ id: "c", contextWindow: 16384, maxTokens: 2048 },
+		]);
+	});
+});
+
+describeBackends("0043 model presets", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend, { migrate: false });
+		await withDdlLockOn(backend, async () => {
+			await db.schema
+				.createTable("orgs")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("created_at", "text", (c) => c.notNull())
+				.execute();
+			await db.schema
+				.createTable("server_meta")
+				.addColumn("key", "text", (c) => c.primaryKey())
+				.addColumn("value", "text", (c) => c.notNull())
+				.execute();
+		});
+		await sql`insert into orgs (id, created_at) values ('org-1', '2026-01-01T00:00:00.000Z')`.execute(db);
+		const review = JSON.stringify({ provider: "faux", modelId: "faux-1", thinkingLevel: "high" });
+		await sql`insert into server_meta (key, value) values ('review_model', ${review})`.execute(db);
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("creates the table and moves review_model into the default org's review row", async () => {
+		await applyMigration(backend, db, up0043);
+		expect(await tableColumns(backend, db, "model_presets")).toEqual([
+			"org_id",
+			"kind",
+			"model",
+			"system_prompt",
+			"updated_at",
+		]);
+		const rows = await sql<{ org_id: string; kind: string; model: string | null; system_prompt: string | null }>`
+			select org_id, kind, model, system_prompt from model_presets
+		`.execute(db);
+		expect(rows.rows).toEqual([
+			{
+				org_id: "org-1",
+				kind: "review",
+				model: JSON.stringify({ provider: "faux", modelId: "faux-1", thinkingLevel: "high" }),
+				system_prompt: null,
+			},
+		]);
+		const meta = await sql<{ key: string }>`select key from server_meta`.execute(db);
+		expect(meta.rows).toEqual([]);
+
+		await applyMigration(backend, db, down0043);
+		expect(await tableColumns(backend, db, "model_presets")).toBeUndefined();
+		const restored = await sql<{ key: string; value: string }>`select key, value from server_meta`.execute(db);
+		expect(restored.rows).toEqual([
+			{ key: "review_model", value: JSON.stringify({ provider: "faux", modelId: "faux-1", thinkingLevel: "high" }) },
 		]);
 	});
 });

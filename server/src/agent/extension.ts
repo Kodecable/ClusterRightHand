@@ -17,6 +17,7 @@ import type { RuleRef } from "../policy/store.ts";
 import { callTool } from "../tools/adapter.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
 import { UserError } from "../users/service.ts";
+import type { ModelPresets } from "./model-presets.ts";
 import { THINKING_LEVELS } from "./models.ts";
 import { chargeCall, exhaustedLevel, parseQuota, setContextTokens } from "./quota.ts";
 import type { AgentRuntime } from "./runtime.ts";
@@ -31,9 +32,13 @@ import { callTokens, estimateRequestTokens, RequestEstimates } from "./tokens.ts
  * behave exactly as the runtime documents.
  */
 
-const SYSTEM_PROMPT = `You are ClusterRightHand, an assistant that operates the user's servers ("nodes") through the cluster tools.
+/** The default session prompt: the identity and the tone. A custom prompt replaces it (D116). */
+export const DEFAULT_SESSION_PROMPT = `You are ClusterRightHand, an assistant that operates the user's servers ("nodes") through the cluster tools.
 
-- Start with list_nodes or node_info when you do not know the nodes yet.
+Be concise.`;
+
+/** The session protocol: the cluster tools' usage. Always appended to the prompt, custom or default. */
+export const SESSION_TOOL_GUIDE = `- Start with list_nodes or node_info when you do not know the nodes yet.
 - Every node tool takes targets. One node entry runs one task; a node group, _all or several entries run one task per node and return one result per node.
 - Prefer reading (read_file, list_dir, stat) before changing anything; explain what you are about to change.
 - exec cmd runs in the node's POSIX sh (sh -c); for bash syntax use argv ["bash", "-c", …] after checking node_info facts.shells.bash.
@@ -44,8 +49,12 @@ const SYSTEM_PROMPT = `You are ClusterRightHand, an assistant that operates the 
 - The file tools (read_file, write_file, edit_file, list_dir, stat) block until the task ends, approval included, and never return a task id.
 - Commands and changes may wait for the user's approval; a rejected task comes back with an error code and the user's reason. Respect it and do not try to get around it.
 - A task can end "unknown": its outcome could not be confirmed. Check the node's state before retrying.
-- Delegate self-contained work to subagent; settle a subagent's requests with subagent_decide, and fetch a background subagent's answer with subagent_wait.
-- Be concise.`;
+- Delegate self-contained work to subagent; settle a subagent's requests with subagent_decide, and fetch a background subagent's answer with subagent_wait.`;
+
+/** The full session system prompt: the custom prompt when set, else the default, then the fixed tool guide. */
+export function sessionSystemPrompt(custom: string | null | undefined): string {
+	return `${custom ?? DEFAULT_SESSION_PROMPT}\n\n${SESSION_TOOL_GUIDE}`;
+}
 
 // ---- the cluster tools as durable tools ----
 
@@ -96,7 +105,11 @@ async function toolContextFor(
 	};
 }
 
-export function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { current?: AgentRuntime }): Extension {
+export function clusterExtension(
+	options: AgentRuntimeOptions,
+	runtimeRef: { current?: AgentRuntime },
+	presets: ModelPresets,
+): Extension {
 	// The input estimate of each conversation's current request, from `beforeRequest` for its `afterResponse`
 	// (D101: the request's serialized messages are the generation basis for input tokens the upstream does not
 	// report; durable's hook sees no system prompt or tool declarations).
@@ -452,7 +465,7 @@ export function clusterExtension(options: AgentRuntimeOptions, runtimeRef: { cur
 	return defineExtension({
 		name: "crh",
 		tools: [...tools, subagent, subagentWait, subagentList, subagentCancel, subagentDecide],
-		sections: [section("crh", () => SYSTEM_PROMPT, { tag: false })],
+		sections: [section("crh", () => sessionSystemPrompt(presets.get("session").systemPrompt), { tag: false })],
 		hooks,
 	});
 }

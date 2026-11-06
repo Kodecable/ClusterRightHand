@@ -358,6 +358,19 @@ export interface AuditEventsTable {
 	detail: string;
 }
 
+/** One model preset kind (D116, doc/agent-runtime.md#模型预设). */
+export type ModelPresetKind = "session" | "review" | "title";
+
+export interface ModelPresetsTable {
+	org_id: string;
+	kind: ModelPresetKind;
+	/** JSON ModelRef; null: unset. */
+	model: string | null;
+	/** Custom system prompt; null: use the default prompt. */
+	system_prompt: string | null;
+	updated_at: string;
+}
+
 /** A session's run state (doc/agent-runtime.md#会话状态): roots and subagents share it. */
 export type SessionState = "idle" | "running" | "awaiting";
 /** What an awaiting session waits for; quota outranks approval, approval outranks authorization. */
@@ -492,6 +505,7 @@ export interface Database {
 	audit_events: AuditEventsTable;
 	sessions: SessionsTable;
 	model_providers: ModelProvidersTable;
+	model_presets: ModelPresetsTable;
 	schedules: SchedulesTable;
 	schedule_runs: ScheduleRunsTable;
 }

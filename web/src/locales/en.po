@@ -4595,3 +4595,59 @@ msgstr "Extra high"
 #: src/lib/thinking-level.ts
 msgid "Max"
 msgstr "Max"
+
+#: src/features/settings/model-presets.tsx
+msgid "Always appended"
+msgstr "Always appended"
+
+#: src/features/settings/model-presets.tsx
+msgid "Auto review"
+msgstr "Auto review"
+
+#: src/features/settings/model-presets.tsx
+msgid "Changes take effect on the next model request."
+msgstr "Changes take effect on the next model request."
+
+#: src/features/settings/model-presets.tsx
+msgid "Default prompt"
+msgstr "Default prompt"
+
+#: src/features/settings/model-presets.tsx
+msgid "Default prompt and protocol"
+msgstr "Default prompt and protocol"
+
+#: src/features/settings/model-presets.tsx
+msgid "Leave empty to use the default prompt."
+msgstr "Leave empty to use the default prompt."
+
+#: src/features/settings/model-presets.tsx
+msgid "Model presets"
+msgstr "Model presets"
+
+#: src/features/settings/model-presets.tsx
+msgid "Preset saved."
+msgstr "Preset saved."
+
+#: src/features/settings/model-presets.tsx
+msgid "System prompt"
+msgstr "System prompt"
+
+#: src/features/settings/model-presets.tsx
+msgid "The model list could not be loaded."
+msgstr "The model list could not be loaded."
+
+#: src/features/settings/model-presets.tsx
+msgid "The session preset only changes the system prompt; each session picks its own model."
+msgstr "The session preset only changes the system prompt; each session picks its own model."
+
+#: src/features/settings/model-presets.tsx
+msgid "The title preset's model writes conversation titles. Without one, the session's model is used."
+msgstr "The title preset's model writes conversation titles. Without one, the session's model is used."
+
+#: src/features/settings/model-presets.tsx
+msgid "Title generation"
+msgstr "Title generation"
+
+#: src/features/settings/model-presets.tsx
+msgid "Use the session's model"
+msgstr "Use the session's model"

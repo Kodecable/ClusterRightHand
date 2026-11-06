@@ -11,13 +11,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { ModelProviderView } from "@/lib/api/types";
 import { useDeleteModelProvider, useModelProviders } from "./api";
+import { ModelPresetsSection } from "./model-presets";
 import { ProviderDialog } from "./provider-dialog";
-import { ReviewModelCard } from "./review-model-card";
 
 /**
  * Model providers (administrators only, doc/webui.md "Models"): Pi built-in
  * providers and custom endpoints, their keys (never displayed back), and the
- * model Auto Review uses.
+ * three model presets.
  */
 export function ModelSettingsPage() {
 	const { t } = useLingui();
@@ -135,7 +135,7 @@ export function ModelSettingsPage() {
 					</Button>
 				}
 			/>
-			<ReviewModelCard />
+			<ModelPresetsSection />
 			<DataTable
 				label={t`Model providers`}
 				columns={columns}
