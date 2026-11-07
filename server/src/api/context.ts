@@ -7,7 +7,7 @@ export interface AppEnv {
 	Variables: { user: SessionUser; audit: Audit };
 }
 
-export function jsonError(c: Context, status: 400 | 401 | 403 | 404 | 409 | 429 | 503, message: string) {
+export function jsonError(c: Context, status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 503, message: string) {
 	return c.json({ error: message }, status);
 }
 

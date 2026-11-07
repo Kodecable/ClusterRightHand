@@ -1,5 +1,6 @@
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { Hono } from "hono";
+import { jsonBodyLimit, MAX_INPUT_BODY_BYTES } from "../api/body-limit.ts";
 import type { Audit } from "../audit/audit.ts";
 import { resolveApiToken, type TokenIdentity } from "../auth/api-tokens.ts";
 import type { Cluster } from "../cluster/cluster.ts";
@@ -35,7 +36,9 @@ export function mcpRoutes(db: Db, options: McpOptions): Hono {
 		{ onerror: (err) => console.error("mcp:", err.message) },
 	);
 
-	app.all("/mcp", async (c) => {
+	// A tool call can carry a task's stdin or file content, so /mcp takes the same larger limit as the task
+	// input routes (the default 1 MiB limit is skipped for it in app.ts).
+	app.all("/mcp", jsonBodyLimit(MAX_INPUT_BODY_BYTES), async (c) => {
 		const header = c.req.header("authorization") ?? "";
 		const token = /^Bearer\s+(\S+)$/i.exec(header)?.[1];
 		const identity = token ? await resolveApiToken(db, token) : undefined;

@@ -99,7 +99,7 @@ export function resolveLang(raw: string | undefined | null): LangKey | null {
 	if (cleaned.length === 0) return null;
 	if (BUILTIN_LANGS.has(cleaned)) return cleaned as BuiltinLang;
 	if (Object.hasOwn(LANGUAGE_LOADERS, cleaned)) return cleaned as LazyLang;
-	return ALIASES[cleaned] ?? null;
+	return Object.hasOwn(ALIASES, cleaned) ? (ALIASES[cleaned] ?? null) : null;
 }
 
 let corePromise: Promise<HighlighterGeneric<string, string>> | null = null;
@@ -149,7 +149,9 @@ export function ensureLanguage(key: LangKey): Promise<boolean> {
 
 	const task = (async () => {
 		try {
-			const loader = LANGUAGE_LOADERS[key as LazyLang];
+			// The key comes from resolveLang or PREWARM_LANGS; an inherited name has no own loader.
+			const loader = Object.hasOwn(LANGUAGE_LOADERS, key) ? LANGUAGE_LOADERS[key as LazyLang] : undefined;
+			if (!loader) return false;
 			const module = await loader();
 			const highlighter = await getHighlighter();
 			await highlighter.loadLanguage(module.default);

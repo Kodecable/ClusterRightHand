@@ -12,6 +12,7 @@
   claude mcp add --transport http crh https://<crhs>/mcp --header "Authorization: Bearer crh_…"
   ```
 - 实现：`@modelcontextprotocol/server` v2 的 `createMcpHandler`，无状态（每个请求一个 `McpServer` 实例），同时服务 2026-07-28 和 2025 年版本的客户端。
+- 请求体上限与任务输入接口相同（`ceil(64 MiB / 3) * 4 + 64 KiB`），因为 `write_file` 的 `content` 和 `exec` 的 `stdin` 都装在 JSON 请求里；超过返回 413。
 - 只支持 stdio 的客户端可以使用通用的 stdio ↔ HTTP 桥（例如 `mcp-remote`），CRH 不提供自己的桥。
 
 ## 工具

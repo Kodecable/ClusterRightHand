@@ -7,13 +7,13 @@ import { taskRelation } from "../cluster/task-visibility.ts";
 import type { Db } from "../storage/db.ts";
 import type { TaskState } from "../storage/schema.ts";
 import { UserError } from "../users/service.ts";
+import { jsonBodyLimit, MAX_INPUT_BASE64_LENGTH, MAX_INPUT_BODY_BYTES, MAX_INPUT_BYTES } from "./body-limit.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
 import { type CursorSpec, cursorRows, decodeCursor, descendingKeyset, encodeCursor, parseLimit } from "./cursor.ts";
 
 const MAX_WAIT_MS = 10 * 60 * 1000;
 /** Lines a file.read reads when the request names none: pi's read default (doc/agent-runtime.md#默认值). */
 const DEFAULT_READ_LINES = 2000;
-const MAX_INPUT_BYTES = 64 * 1024 * 1024;
 /** GET /tasks orders by `created_at desc, id desc` (doc/webui.md#api-约定). */
 const TASKS_CURSOR: CursorSpec = { columns: [{ name: "created_at", type: "string" }], idType: "string" };
 
@@ -35,7 +35,7 @@ const ACTOR_TYPES: ReadonlySet<string> = new Set(["user", "session", "subagent",
 export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 	const app = new Hono<AppEnv>();
 
-	app.post("/nodes/:id/tasks", async (c) => {
+	app.post("/nodes/:id/tasks", jsonBodyLimit(MAX_INPUT_BODY_BYTES), async (c) => {
 		const user = c.get("user");
 		const nodeId = c.req.param("id");
 		const access = await nodeAccess(db, user, nodeId);
@@ -61,7 +61,7 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 	});
 
 	// Batch execution: one task per target node; see doc/agent-runtime.md#批量执行.
-	app.post("/task-groups", async (c) => {
+	app.post("/task-groups", jsonBodyLimit(MAX_INPUT_BODY_BYTES), async (c) => {
 		const user = c.get("user");
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
@@ -220,6 +220,9 @@ function parseTask(body: Record<string, unknown>): { spec: TaskSpec; input?: Uin
 				throw new UserError("env must map names to strings");
 			}
 			const stdin = optionalString(body, "stdin");
+			if (stdin !== undefined && Buffer.byteLength(stdin, "utf8") > MAX_INPUT_BYTES) {
+				throw new UserError("stdin too large");
+			}
 			const shell = optionalString(body, "shell") ?? "";
 			// An empty argv falls back to the shell, as the protobuf command did before M3.5.
 			const command = (argv as string[] | undefined)?.length ? { argv: argv as string[] } : { shell };
@@ -245,6 +248,10 @@ function parseTask(body: Record<string, unknown>): { spec: TaskSpec; input?: Uin
 			const base64 = optionalString(body, "contentBase64");
 			if ((content === undefined) === (base64 === undefined)) {
 				throw new UserError("exactly one of content and contentBase64 is required");
+			}
+			// Checked before decoding, so an oversized string never becomes a buffer.
+			if (base64 !== undefined && base64.length > MAX_INPUT_BASE64_LENGTH) {
+				throw new UserError("contentBase64 too large");
 			}
 			const input = content !== undefined ? Buffer.from(content) : Buffer.from(base64 as string, "base64");
 			if (input.length > MAX_INPUT_BYTES) throw new UserError("content too large");

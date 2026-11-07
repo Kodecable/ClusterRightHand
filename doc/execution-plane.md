@@ -252,6 +252,7 @@ event     = [2, event, body]
 - crhs 发现有未终结的任务不在客户端的列表中，就发 `task.query`；客户端返回不认识的 task id，任务标记为 `unknown(executor_restarted)`。
 - crhs 重启后内存中的输出已经丢失，`welcome` 中的确认偏移为 0，crha 从头补发（crha 在收到 `task.exit.ack` 之前一直保留输出），所以 crhs 重启也不会丢输出。
 - 大的输入（exec 的 stdin、文件内容）在 `task.start` 被 **accepted** 之后以 `task.input` 分块发送，`task.start` 中只带大小和 SHA-256。这样授权拒绝时不必传输输入；同一 task id 的授权重试（`attempt + 1`）也会重新发送输入。输入发送途中断线无法续传，crha 发现输入不完整，任务失败。
+- 单个输入不超过 64 MiB（stdin 的 UTF-8 字节数，或写入内容的字节数）；API 的请求体上限见 [webui.md](webui.md#api-约定w1-实现w2-按此编码) 与 [mcp.md](mcp.md#接入)。
 - 断线超过一定时间（默认 2 分钟），服务端先把这些任务对上层报告为 `unknown(connection_lost)`（尚未确认接受的为 `unknown(dispatch_unconfirmed)`）；如果之后客户端重连并报告了结果，再以“迟到结果”补记到审计和任务记录中，但不会改变已经返回给 agent 的结论。
 - crhs 重启时对遗留的 `dispatched` / `running` 任务做同样的处理：客户端节点的任务从重启起算这段宽限期（期间重连则由 `hello` / `task.query` 恢复），SSH 节点的任务立即为 `unknown(connection_lost)`，连接已随进程消失。重启时还在认领与下发之间的任务先以 `failed(dispatch_interrupted)` 结束，见上文。
 - 为迟到结果保留在内存中的输出有上限（`UNKNOWN_OUTPUT_KEEP_MS`，10 分钟）；节点重连后查询到它也不认识该任务时立即释放，不必等满时限。

@@ -17,6 +17,7 @@ import { approvalRoutes } from "./approval-routes.ts";
 import { auditRoutes } from "./audit-routes.ts";
 import { type AuthRoutesOptions, authRoutes } from "./auth-routes.ts";
 import { authorizationRoutes } from "./authorization-routes.ts";
+import { DEFAULT_BODY_LIMIT, jsonBodyLimit, takesLargeBody } from "./body-limit.ts";
 import type { AppEnv } from "./context.ts";
 import { credentialRoutes } from "./credential-routes.ts";
 import { RequestDrain } from "./drain.ts";
@@ -73,6 +74,11 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	// First, so that a request arriving during shutdown is refused before it can authenticate or query the
 	// database; requests already being handled are counted until they settle.
 	app.use("*", drain.middleware());
+
+	// Every route starts with the default limit, so no handler parses an unbounded body. The task input
+	// routes and /mcp set their own, larger limit before their handlers (body-limit.ts).
+	const defaultBodyLimit = jsonBodyLimit(DEFAULT_BODY_LIMIT);
+	app.use("*", (c, next) => (takesLargeBody(c.req.path) ? next() : defaultBodyLimit(c, next)));
 
 	app.use("/api/*", csrfGuard);
 	app.use("/api/*", async (c, next) => {

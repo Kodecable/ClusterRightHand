@@ -58,9 +58,34 @@ interface ValidProvider {
 
 const HEADER_NAME = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
 const BODY_PATH_SEGMENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/** Names that address an object's prototype chain instead of a field of the request body. */
+const UNSAFE_PROPERTY_KEYS: ReadonlySet<string> = new Set(["__proto__", "constructor", "prototype"]);
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Whether `key` is one of the names that must never be written into a JSON object by configuration. */
+export function isUnsafePropertyKey(key: string): boolean {
+	return UNSAFE_PROPERTY_KEYS.has(key);
+}
+
+/**
+ * Rejects the unsafe names anywhere in a custom thinking level's request-body JSON, which is merged into
+ * the provider's payload: a `__proto__` key would otherwise be assigned into the prototype.
+ */
+function validateRequestBodyKeys(value: unknown, prefix: string): void {
+	if (Array.isArray(value)) {
+		for (const [index, entry] of value.entries()) validateRequestBodyKeys(entry, `${prefix}[${index}]`);
+		return;
+	}
+	if (!isPlainObject(value)) return;
+	for (const [key, entry] of Object.entries(value)) {
+		if (isUnsafePropertyKey(key)) {
+			throw new UserError(`${prefix}.${key}: a request body cannot contain __proto__, constructor or prototype`);
+		}
+		validateRequestBodyKeys(entry, `${prefix}.${key}`);
+	}
 }
 
 /**
@@ -104,6 +129,11 @@ function validateSessionId(raw: unknown, prefix: string): SessionIdConfig | null
 				throw new UserError(`${prefix}.body[${index}]: expected a dot-separated path`);
 			}
 			for (const segment of path.split(".")) {
+				if (isUnsafePropertyKey(segment)) {
+					throw new UserError(
+						`${prefix}.body[${index}]: ${JSON.stringify(path)} cannot use __proto__, constructor or prototype`,
+					);
+				}
 				if (!BODY_PATH_SEGMENT.test(segment)) {
 					throw new UserError(
 						`${prefix}.body[${index}]: ${JSON.stringify(path)} is not a dot-separated identifier path`,
@@ -129,8 +159,9 @@ function validateLevels(raw: unknown, mode: "standard" | "custom", prefix: strin
 			if (value !== null && (typeof value !== "string" || value.length === 0)) {
 				throw new UserError(`${prefix}.levels.${level}: expected a non-empty string or null`);
 			}
-		} else if (!isPlainObject(value)) {
-			throw new UserError(`${prefix}.levels.${level}: expected an object`);
+		} else {
+			if (!isPlainObject(value)) throw new UserError(`${prefix}.levels.${level}: expected an object`);
+			validateRequestBodyKeys(value, `${prefix}.levels.${level}`);
 		}
 		levels[level] = value;
 	}

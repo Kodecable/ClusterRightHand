@@ -15,7 +15,7 @@ import {
 	type SessionIdConfig,
 	THINKING_LEVELS,
 } from "./model-types.ts";
-import { isPlainObject } from "./model-validate.ts";
+import { isPlainObject, isUnsafePropertyKey } from "./model-validate.ts";
 
 /** Wraps a built-in provider's api-key auth: the key (and base URL override) come from crhs. */
 export function withKey(provider: Provider, key: string | undefined, baseUrl: string | null): Provider {
@@ -96,10 +96,14 @@ function customPiModel(
 	} as Model<Api>;
 }
 
-/** Deep-merges `source` into `target` (objects recursively, everything else replaces). */
-function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
+/**
+ * Deep-merges `source` into `target` (objects recursively, everything else replaces). Prototype names are
+ * skipped, and an existing object is only descended into when it is an own property of `target`.
+ */
+export function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
 	for (const [key, value] of Object.entries(source)) {
-		const current = target[key];
+		if (isUnsafePropertyKey(key)) continue;
+		const current = Object.hasOwn(target, key) ? target[key] : undefined;
 		if (isPlainObject(current) && isPlainObject(value)) {
 			deepMerge(current, value);
 		} else {
@@ -135,15 +139,19 @@ function stripThinking(payload: Record<string, unknown>, api: CustomApi): void {
 	}
 }
 
-/** Sets a dot-separated path to `value`, creating intermediate objects. */
-function setPath(target: Record<string, unknown>, path: string, value: unknown): void {
+/**
+ * Sets a dot-separated path to `value`, creating intermediate objects. A path with a prototype name is
+ * ignored, and an intermediate object is only reused when it is an own property of the object above it.
+ */
+export function setPath(target: Record<string, unknown>, path: string, value: unknown): void {
 	const segments = path.split(".");
+	if (segments.some(isUnsafePropertyKey)) return;
 	let current = target;
 	for (const [index, segment] of segments.entries()) {
 		if (index === segments.length - 1) {
 			current[segment] = value;
 		} else {
-			const next = current[segment];
+			const next = Object.hasOwn(current, segment) ? current[segment] : undefined;
 			if (!isPlainObject(next)) current[segment] = {};
 			current = current[segment] as Record<string, unknown>;
 		}

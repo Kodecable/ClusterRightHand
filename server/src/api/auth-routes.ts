@@ -11,6 +11,8 @@ import { requireUser } from "./middleware.ts";
 
 /** Verified against when the username does not exist, so both cases take the same time. */
 const dummyHash = hashPassword("crh-dummy-password");
+/** A failed attempt's audit record keeps at most this much of the request's username. */
+const MAX_AUDITED_USERNAME = 256;
 
 export interface AuthRoutesOptions {
 	limiter?: LoginLimiter;
@@ -42,7 +44,7 @@ export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 				actor: { type: "system", id: "auth", onBehalfOfUserId: user?.id ?? null },
 				action: "auth.login_failed",
 				target: user ? { type: "user", id: user.id } : undefined,
-				detail: { username, reason, address },
+				detail: { username: username.slice(0, MAX_AUDITED_USERNAME), reason, address },
 			});
 		const ok = await verifyPassword(password, user?.password_hash ?? (await dummyHash));
 		if (!user?.password_hash || !ok || user.status !== "active") {

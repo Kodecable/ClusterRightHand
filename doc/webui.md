@@ -285,6 +285,10 @@ web/src/
   - `GET /api/schedules/:id/runs`；
   - `GET /api/authorizations`：仅管理员，返回整个组织的授权；只按 `limit` / `cursor` 分页。
 
+**请求体上限：**
+- 普通 JSON 接口的请求体最多 1 MiB，超过返回 413 和 `{ "error": "request body too large" }`；`POST /api/auth/login` 同样在解析、鉴权和限流之前拒绝。
+- 任务输入接口（`POST /api/nodes/:id/tasks`、`POST /api/task-groups`）按 64 MiB 的输入上限放宽：请求体最多 `ceil(64 MiB / 3) * 4 + 64 KiB`，供 base64 后的 `contentBase64` 和 JSON 的其他字段使用。`contentBase64` 解码前的字符数不超过 `ceil(64 MiB / 3) * 4`，`stdin` 的 UTF-8 字节数不超过 64 MiB；这两项超限是 400。
+
 **`SessionListItem`：**
 
 ```ts

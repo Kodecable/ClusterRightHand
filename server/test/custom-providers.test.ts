@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
+import { deepMerge, setPath } from "../src/agent/custom-provider.ts";
 import { type CustomModel, ModelConfig, saveModelProvider } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
@@ -479,6 +480,23 @@ describeBackends("custom model providers", (backend) => {
 			[{ input: ["image"] }, /input/],
 			[{ contextWindow: 1023 }, /contextWindow/],
 			[{ maxTokens: 0 }, /maxTokens/],
+			[
+				{
+					thinking: JSON.parse('{"mode":"custom","levels":{"high":{"__proto__":{"polluted":true}}}}') as Record<
+						string,
+						unknown
+					>,
+				},
+				/thinking\.levels\.high\.__proto__/,
+			],
+			[
+				{
+					thinking: JSON.parse(
+						'{"mode":"custom","levels":{"high":{"nested":[{"constructor":{"prototype":{"polluted":true}}}]}}}',
+					) as Record<string, unknown>,
+				},
+				/thinking\.levels\.high\.nested\[0\]\.constructor/,
+			],
 		];
 		for (const [extra, pattern] of cases) {
 			await expect(saveModelProvider(db, masterKey, provider(extra))).rejects.toThrow(pattern);
@@ -492,15 +510,17 @@ describeBackends("custom model providers", (backend) => {
 				models: [{ id: "m-1", api: "openai-completions", contextWindow: 4096, maxTokens: 512, input: ["text"] }],
 			}),
 		).rejects.toThrow(/sessionId\.headers\[0\]/);
-		await expect(
-			saveModelProvider(db, masterKey, {
-				kind: "custom",
-				providerId: "bad",
-				baseUrl: stub.url,
-				sessionId: { body: ["metadata.bad path"] },
-				models: [{ id: "m-1", api: "openai-completions", contextWindow: 4096, maxTokens: 512, input: ["text"] }],
-			}),
-		).rejects.toThrow(/sessionId\.body\[0\]/);
+		for (const path of ["metadata.bad path", "__proto__.x", "constructor.prototype.x", "metadata.prototype"]) {
+			await expect(
+				saveModelProvider(db, masterKey, {
+					kind: "custom",
+					providerId: "bad",
+					baseUrl: stub.url,
+					sessionId: { body: [path] },
+					models: [{ id: "m-1", api: "openai-completions", contextWindow: 4096, maxTokens: 512, input: ["text"] }],
+				}),
+			).rejects.toThrow(/sessionId\.body\[0\]/);
+		}
 		await expect(
 			saveModelProvider(db, masterKey, {
 				kind: "openai-compatible" as never,
@@ -511,6 +531,22 @@ describeBackends("custom model providers", (backend) => {
 		await expect(
 			saveModelProvider(db, masterKey, { kind: "custom", providerId: "Bad", baseUrl: stub.url }),
 		).rejects.toThrow(UserError);
+	});
+
+	it("setPath and deepMerge never write prototype names", () => {
+		const target: Record<string, unknown> = {};
+		setPath(target, "__proto__.polluted", "yes");
+		setPath(target, "metadata.__proto__.polluted", "yes");
+		expect(target).toEqual({});
+		setPath(target, "metadata.session_id", "s");
+		deepMerge(
+			target,
+			JSON.parse(
+				'{"__proto__":{"polluted":"yes"},"constructor":{"prototype":{"polluted":"yes"}},"safe":{"a":1}}',
+			) as Record<string, unknown>,
+		);
+		expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+		expect(target).toEqual({ metadata: { session_id: "s" }, safe: { a: 1 } });
 	});
 
 	it("the view never contains the key and lists the new fields", async () => {
