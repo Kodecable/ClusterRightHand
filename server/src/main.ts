@@ -21,7 +21,7 @@ import { buildKeyExport, decryptKeyExport, encryptKeyExport, verifyKeyExportAgai
 import { bindMasterKey, KeyError, MasterKey, readMasterKeyFile, writeMasterKeyFile } from "./keys/master-key.ts";
 import { loadAuthorizationSigningKey } from "./privilege/key.ts";
 import { Scheduler } from "./scheduler/scheduler.ts";
-import { type Db, openAgentStorage, openDb } from "./storage/db.ts";
+import { createStorageOpener, type Db, openAgentStorage, openDb } from "./storage/db.ts";
 import { migrateToLatest } from "./storage/migrate.ts";
 import { startRetentionSweep } from "./storage/retention.ts";
 import { createUser, findUserByUsername, setPassword, UserError } from "./users/service.ts";
@@ -177,16 +177,10 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	const models = new ModelConfig(db, masterKey);
 	await models.reload();
 	// A function, so that a Harness a storage error closed is reopened on fresh storage.
-	let closeAgentStorage = async () => {};
-	const openStorage = async () => {
-		await closeAgentStorage();
-		const opened = await openAgentStorage(config.database);
-		closeAgentStorage = opened.close;
-		return opened.storage;
-	};
+	const agentStorage = createStorageOpener(() => openAgentStorage(config.database));
 	const runtime = await AgentRuntime.open({
 		db,
-		storage: openStorage,
+		storage: agentStorage.open,
 		models,
 		cluster,
 		taskGroups,
@@ -257,7 +251,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		// would let the call return a non-final state, which durable records as its outcome.
 		await scheduler.stop();
 		await runtime.close();
-		await closeAgentStorage();
+		await agentStorage.close();
 		// 3. Only HTTP and MCP waits are left: end them, so each returns its current state at once and step 4
 		// does not wait out its timeout.
 		cluster.endWaits();

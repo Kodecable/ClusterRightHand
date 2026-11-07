@@ -4,7 +4,8 @@ import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster, summarize } from "../src/cluster/cluster.ts";
 import { GROUP_INTERRUPTED_REASON, outputModeFor, resolveTargets, TaskGroups } from "../src/cluster/task-groups.ts";
 import { taskStartOf } from "../src/cluster/task-start.ts";
-import { createRootRuleSet } from "../src/policy/store.ts";
+import type { Rule, RulePreset } from "../src/policy/rules.ts";
+import { createRootRuleSet, setRules } from "../src/policy/store.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
@@ -137,6 +138,28 @@ describeBackends("task groups", (backend) => {
 	const spec = (): TaskSpec => ({ kind: "exec", command: { argv: ["true"] }, env: {}, cwd: "", stdin: null });
 	const readSpec = (): TaskSpec => ({ kind: "file.read", path: "/etc/hosts", startLine: 1, lineCount: 10 });
 	const actor = () => ({ type: "user" as const, id: user.userId, onBehalfOfUserId: user.userId });
+
+	/** An API token's rule chain, with the preset and rules a task group is judged by. */
+	async function addChain(preset: RulePreset, rules: Rule[] = []) {
+		const tokenId = newId();
+		await db
+			.insertInto("api_tokens")
+			.values({
+				id: tokenId,
+				org_id: await defaultOrgId(db),
+				user_id: user.userId,
+				name: "group chain",
+				token_hash: newId(),
+				created_at: new Date().toISOString(),
+				expires_at: null,
+				revoked_at: null,
+				last_used_at: null,
+			})
+			.execute();
+		const ref = { type: "api_token" as const, id: tokenId };
+		await createRootRuleSet(db, await defaultOrgId(db), ref, preset, rules);
+		return ref;
+	}
 
 	it("describes a read by the lines it asks for", () => {
 		// The summary is what the approval pages and the task lists show, so the range is visible there.
@@ -329,6 +352,108 @@ describeBackends("task groups", (backend) => {
 		} finally {
 			await probedCluster.close();
 		}
+	});
+
+	it("re-judges members when a rule denies a node the group waited on", async () => {
+		const nodeA = ids["web-1"] as string;
+		const nodeB = ids["web-2"] as string;
+		const ref = await addChain("yolo", [{ action: "require-approval", method: "exec", nodes: [nodeA] }]);
+		const groups = new TaskGroups(db, cluster);
+		const id = await groups.create({
+			targets: [nodeA],
+			nodeIds: [nodeA, nodeB],
+			spec: spec(),
+			actor: actor(),
+			chain: [ref],
+		});
+		expect((await groups.get(id))?.state).toBe("awaiting_approval");
+
+		// Only node A waited; a rule added now denies it, while node B is still allowed.
+		await setRules(db, ref, [{ action: "deny", method: "exec", nodes: [nodeA] }]);
+		await groups.reevaluate(ref);
+
+		const view = await groups.wait(id, 5000);
+		expect(view?.state).toBe("finished");
+		expect(view?.approval?.decision).toMatchObject({ decision: "approved", by: { type: "system", id: "rules" } });
+		const denied = view?.tasks.find((task) => task.nodeId === nodeA);
+		expect(denied).toMatchObject({ state: "denied", errorCode: "policy_denied" });
+		const deniedRow = await db
+			.selectFrom("tasks")
+			.select("dispatched_at")
+			.where("id", "=", denied?.id as string)
+			.executeTakeFirstOrThrow();
+		expect(deniedRow.dispatched_at).toBeNull();
+		// Node B still runs; it is offline here, which is the dispatch this test can observe.
+		expect(view?.tasks.find((task) => task.nodeId === nodeB)).toMatchObject({
+			state: "failed",
+			errorCode: "node_offline",
+		});
+	});
+
+	it("rejects a group when every node is denied", async () => {
+		const nodeA = ids["web-1"] as string;
+		const nodeB = ids["web-2"] as string;
+		const ref = await addChain("ask");
+		const groups = new TaskGroups(db, cluster);
+		const id = await groups.create({
+			targets: [nodeA, nodeB],
+			nodeIds: [nodeA, nodeB],
+			spec: spec(),
+			actor: actor(),
+			chain: [ref],
+		});
+		expect((await groups.get(id))?.state).toBe("awaiting_approval");
+
+		await setRules(db, ref, [
+			{ action: "deny", method: "exec", nodes: [nodeA] },
+			{ action: "deny", method: "exec", nodes: [nodeB] },
+		]);
+		await groups.reevaluate(ref);
+
+		const view = await groups.get(id);
+		expect(view?.state).toBe("rejected");
+		expect(view?.approval?.decision).toMatchObject({
+			decision: "rejected",
+			by: { type: "system", id: "rules" },
+			reason: "denied by the authorization rules",
+		});
+		expect(view?.tasks).toEqual([]);
+	});
+
+	it("keeps a node denied when a human approves after a deny rule was added", async () => {
+		const nodeA = ids["web-1"] as string;
+		const nodeB = ids["web-2"] as string;
+		const ref = await addChain("yolo", [{ action: "require-approval", method: "exec", nodes: [nodeA] }]);
+		const groups = new TaskGroups(db, cluster);
+		const id = await groups.create({
+			targets: [nodeA],
+			nodeIds: [nodeA, nodeB],
+			spec: spec(),
+			actor: actor(),
+			chain: [ref],
+		});
+		expect((await groups.get(id))?.state).toBe("awaiting_approval");
+
+		await setRules(db, ref, [{ action: "deny", method: "exec", nodes: [nodeA] }]);
+		expect(
+			await groups.decide(id, {
+				decision: "approved",
+				by: { type: "user", id: user.userId },
+				at: new Date().toISOString(),
+				reason: "approved by hand",
+			}),
+		).toBe(true);
+
+		const view = await groups.wait(id, 5000);
+		expect(view?.state).toBe("finished");
+		expect(view?.tasks.find((task) => task.nodeId === nodeA)).toMatchObject({
+			state: "denied",
+			errorCode: "policy_denied",
+		});
+		expect(view?.tasks.find((task) => task.nodeId === nodeB)).toMatchObject({
+			state: "failed",
+			errorCode: "node_offline",
+		});
 	});
 
 	it("marks groups left running by a previous process as interrupted", async () => {

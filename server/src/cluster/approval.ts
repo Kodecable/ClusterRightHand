@@ -3,7 +3,7 @@
  * merged into the stored approval JSON, the handler columns of an agent routing, the decision of the
  * rules after they changed, and the audit events of a decision, an Auto Review verdict and an agent
  * routing. Each side keeps its own row writes and its own serialization: a task's approval runs on
- * core.taskQueue (task-approval.ts), a group's guards its writes on the group's state (task-groups.ts).
+ * core.taskQueue (task-approval.ts), a group's on TaskGroups' per-group approval queue (task-groups.ts).
  */
 import type { AuditInput } from "../audit/audit.ts";
 import type { RuleRef } from "../policy/store.ts";
@@ -50,6 +50,11 @@ export function chainWith(ruleChain: string | null, ref: RuleRef): RuleRef[] | n
 /** The decision recorded when changed rules no longer require an approval. */
 export function rulesApproval(at: string): ApprovalDecision {
 	return { decision: "approved", by: { type: "system", id: "rules" }, at, reason: "allowed by changed rules" };
+}
+
+/** The decision recorded when changed rules deny every node of a waiting group. */
+export function rulesRejection(at: string): ApprovalDecision {
+	return { decision: "rejected", by: { type: "system", id: "rules" }, at, reason: "denied by the authorization rules" };
 }
 
 /** `<subject>.approval`: who settled the request and how. */

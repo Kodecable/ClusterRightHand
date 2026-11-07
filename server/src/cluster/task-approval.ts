@@ -121,8 +121,8 @@ export function escalateAgentDecision(core: ClusterCore, id: string, session: st
 
 /**
  * Routes a waiting task's approval to an agent or back to the user. The write is not guarded on the
- * state: the task's queue already keeps a decision from settling it in between (a group's routing,
- * which has no queue, guards its write instead).
+ * state: the task's queue already keeps a decision from settling it in between (a group's routing runs
+ * on the group's approval queue and guards its write as well).
  */
 function routeAgentDecision(
 	core: ClusterCore,
@@ -149,7 +149,8 @@ function routeAgentDecision(
 /**
  * Judges waiting tasks again after rules on their chain changed (doc/access-control.md#审批): allow
  * dispatches them, deny ends them, require-approval leaves them waiting. (A task group's reevaluate
- * settles a group only on allow; see TaskGroups.reevaluate.)
+ * settles the whole group: it approves when no node still requires approval, and rejects when every
+ * node is denied; see TaskGroups.reevaluate.)
  */
 export async function reevaluate(core: ClusterCore, ref: RuleRef): Promise<void> {
 	const rows = await core.db

@@ -9,6 +9,7 @@ import type { Db } from "../storage/db.ts";
 import type { BatchOutputMode, TaskGroupState, TaskGroupsTable } from "../storage/schema.ts";
 import { defaultOrgId, UserError } from "../users/service.ts";
 import { derivedId, newId } from "../util/id.ts";
+import { KeyedQueue } from "../util/keyed-queue.ts";
 import {
 	agentRouting,
 	agentRoutingAudit,
@@ -17,6 +18,7 @@ import {
 	mergeApproval,
 	reviewAudit,
 	rulesApproval,
+	rulesRejection,
 } from "./approval.ts";
 import { checkedOutputLimits } from "./batch-output.ts";
 import type { Cluster } from "./cluster.ts";
@@ -190,6 +192,8 @@ export class TaskGroups {
 	onChange: ((actorId: string) => void) | undefined;
 	/** Resolved when a waiting group is settled. */
 	readonly #settled = new Map<string, Deferred>();
+	/** Serializes a group's approval steps, so a decision, a review and a re-evaluation cannot interleave. */
+	readonly #approvalQueue = new KeyedQueue("task group approval queue");
 	/** Set by endWaits(): every current and later wait returns the group's current view at once. */
 	#waitsEnded = false;
 	/** Waiters of wait(), woken by endWaits(). */
@@ -227,12 +231,14 @@ export class TaskGroups {
 	}
 
 	/**
-	 * Waits for the group runs this process started. Call after Cluster.close(): its wake-ups end the
-	 * waitTask calls and its refusal of new tasks ends the workers; unfinished groups are recovered on
-	 * the next start.
+	 * Waits for the group runs this process started and the approval steps still queued. Call after
+	 * Cluster.close(): its wake-ups end the waitTask calls and its refusal of new tasks ends the workers;
+	 * unfinished groups are recovered on the next start.
 	 */
 	async close(): Promise<void> {
-		while (this.#running.size > 0) await Promise.all(this.#running.values());
+		while (this.#running.size > 0 || this.#approvalQueue.size > 0) {
+			await Promise.all([...this.#running.values(), ...this.#approvalQueue.pending]);
+		}
 	}
 
 	/** Groups left running by a previous process can no longer start their remaining nodes. */
@@ -354,6 +360,7 @@ export class TaskGroups {
 				if (view) void hook(view).catch((err: unknown) => console.error("review:", err));
 			}
 		} else {
+			// Never waited: the judgments just made are fresh, so the members reuse them.
 			this.#start(id, { ...input, outputMode }, nodeIds, parallel, undefined, evaluations);
 		}
 		return id;
@@ -513,9 +520,18 @@ export class TaskGroups {
 
 	/**
 	 * Settles a group waiting for approval: approving starts its non-denied nodes, rejecting (or expiry)
-	 * ends it. Returns false if it is not waiting. Who may decide is checked by the caller.
+	 * ends it. Runs on the group's approval queue, so decisions, reviews and re-evaluations cannot
+	 * interleave. Returns false if it is not waiting. Who may decide is checked by the caller.
 	 */
-	async decide(id: string, decision: ApprovalDecision): Promise<boolean> {
+	decide(id: string, decision: ApprovalDecision): Promise<boolean> {
+		return this.#approvalQueue.run(id, () => this.#decide(id, decision));
+	}
+
+	/**
+	 * The unqueued body of decide(): callers already hold the group's queue slot. Approving lets every
+	 * remaining member judge itself again, so a node a rule now denies ends denied.
+	 */
+	async #decide(id: string, decision: ApprovalDecision): Promise<boolean> {
 		const row = await this.#row(id);
 		if (row?.state !== "awaiting_approval") return false;
 		const approved = decision.decision === "approved";
@@ -540,18 +556,10 @@ export class TaskGroups {
 		this.onChange?.(row.actor_id);
 		this.#auditLater(approvalAudit("task_group", id, row.on_behalf_of_user_id, decision));
 		if (approved && input) {
+			// Members created while the group waited (the denied ones from create()) are not started again.
 			const started = await this.#startedNodes(id);
 			const remaining = (JSON.parse(row.node_ids) as string[]).filter((n) => !started.has(n));
-			// The members reuse the judgments the group recorded, instead of running the chain again.
-			const evaluated = (JSON.parse(row.approval ?? "{}") as TaskGroupApprovalRecord).nodes ?? [];
-			this.#start(
-				id,
-				input,
-				remaining,
-				row.parallel,
-				{ ...decision, taskGroupId: id },
-				new Map(evaluated.map((node) => [node.nodeId, node.evaluation])),
-			);
+			this.#start(id, input, remaining, row.parallel, { ...decision, taskGroupId: id });
 		} else {
 			// A rejected group never runs; release anything its denied tasks may have held.
 			this.#cluster.releaseGroupBudget(id);
@@ -561,20 +569,19 @@ export class TaskGroups {
 		return true;
 	}
 
-	/**
-	 * Stores Auto Review's verdict on a waiting group. Unlike a task's (task-approval.ts), a group's approval
-	 * steps run on no queue: the write here is unguarded, the routing writes below guard on the state.
-	 */
+	/** Stores Auto Review's verdict on a waiting group, on the group's approval queue. */
 	async recordReview(id: string, review: NonNullable<TaskGroupApprovalRecord["review"]>): Promise<void> {
-		const row = await this.#row(id);
-		if (row?.state !== "awaiting_approval") return;
-		const record = mergeApproval<TaskGroupApprovalRecord>(row.approval, { review });
-		await this.#db
-			.updateTable("task_groups")
-			.set({ approval: JSON.stringify(record) })
-			.where("id", "=", id)
-			.execute();
-		this.#auditLater(reviewAudit("task_group", id, row.on_behalf_of_user_id, review));
+		await this.#approvalQueue.run(id, async () => {
+			const row = await this.#row(id);
+			if (row?.state !== "awaiting_approval") return;
+			const record = mergeApproval<TaskGroupApprovalRecord>(row.approval, { review });
+			await this.#db
+				.updateTable("task_groups")
+				.set({ approval: JSON.stringify(record) })
+				.where("id", "=", id)
+				.execute();
+			this.#auditLater(reviewAudit("task_group", id, row.on_behalf_of_user_id, review));
+		});
 	}
 
 	/** Hands a waiting group's approval to an ancestor session's agent (doc/agent-runtime.md#处理子会话的请求). */
@@ -587,28 +594,30 @@ export class TaskGroups {
 		return this.#routeAgentDecision(id, session, "escalated");
 	}
 
-	/** Routes a waiting group's approval to an agent or back to the user; false when it is no longer waiting. */
-	async #routeAgentDecision(id: string, session: string, state: AgentRequest["state"]): Promise<boolean> {
-		const row = await this.#row(id);
-		if (row?.state !== "awaiting_approval") return false;
-		const routing = agentRouting(session, state);
-		const record = mergeApproval<TaskGroupApprovalRecord>(row.approval, { agent: routing.agent });
-		const res = await this.#db
-			.updateTable("task_groups")
-			.set({ approval: JSON.stringify(record), ...routing.handler })
-			.where("id", "=", id)
-			.where("state", "=", "awaiting_approval")
-			.executeTakeFirst();
-		if (res.numUpdatedRows === 0n) return false;
-		this.onChange?.(row.actor_id);
-		this.#auditLater(agentRoutingAudit("task_group", id, session, state));
-		return true;
+	/** Routes a waiting group's approval to an agent or back to the user, on the group's approval queue. */
+	#routeAgentDecision(id: string, session: string, state: AgentRequest["state"]): Promise<boolean> {
+		return this.#approvalQueue.run(id, async () => {
+			const row = await this.#row(id);
+			if (row?.state !== "awaiting_approval") return false;
+			const routing = agentRouting(session, state);
+			const record = mergeApproval<TaskGroupApprovalRecord>(row.approval, { agent: routing.agent });
+			const res = await this.#db
+				.updateTable("task_groups")
+				.set({ approval: JSON.stringify(record), ...routing.handler })
+				.where("id", "=", id)
+				.where("state", "=", "awaiting_approval")
+				.executeTakeFirst();
+			if (res.numUpdatedRows === 0n) return false;
+			this.onChange?.(row.actor_id);
+			this.#auditLater(agentRoutingAudit("task_group", id, session, state));
+			return true;
+		});
 	}
 
 	/**
-	 * Re-judges waiting groups on a chain whose rules changed; settles those that no longer need approval.
-	 * Unlike a task's reevaluate (task-approval.ts), there is no deny branch here: only require-approval
-	 * keeps a group waiting, and it runs on no queue.
+	 * Re-judges waiting groups on a chain whose rules changed, one group at a time on its approval queue.
+	 * A group whose nodes all deny is rejected; one that no longer has a node requiring approval is
+	 * approved, and its members then judge themselves again, so denied nodes end denied.
 	 */
 	async reevaluate(ref: RuleRef): Promise<void> {
 		const rows = await this.#db
@@ -618,34 +627,42 @@ export class TaskGroups {
 			.where("rule_chain", "is not", null)
 			.execute();
 		for (const row of rows) {
-			const chain = chainWith(row.rule_chain, ref);
-			if (!chain) continue;
-			let spec: TaskSpec;
-			try {
-				spec = specFromRow(row.spec, "task group");
-			} catch (err) {
-				// A row migration 0019 left behind must not stop the other waiting groups from settling.
-				console.warn(`task group ${row.id}: ${err instanceof Error ? err.message : String(err)}`);
-				continue;
-			}
-			const nodes = await this.#db
-				.selectFrom("nodes")
-				.selectAll()
-				.where("id", "in", JSON.parse(row.node_ids))
-				.execute();
-			let stillWaiting = false;
-			try {
-				for (const node of nodes) {
-					const evaluation = await this.#cluster.evaluateFor(node, spec, chain, row.privileged === 1);
-					if (evaluation.result === "require-approval") stillWaiting = true;
+			await this.#approvalQueue.run(row.id, async () => {
+				// The group may have been settled while it waited for its queue slot.
+				const current = await this.#row(row.id);
+				if (current?.state !== "awaiting_approval") return;
+				const chain = chainWith(current.rule_chain, ref);
+				if (!chain) return;
+				let spec: TaskSpec;
+				try {
+					spec = specFromRow(current.spec, "task group");
+				} catch (err) {
+					// A row migration 0019 left behind must not stop the other waiting groups from settling.
+					console.warn(`task group ${current.id}: ${err instanceof Error ? err.message : String(err)}`);
+					return;
 				}
-			} catch {
-				continue; // a level is gone; expiry ends the group
-			}
-			if (!stillWaiting) {
-				// Each task is judged again when it is created, so nodes now denied end up denied.
-				await this.decide(row.id, rulesApproval(now()));
-			}
+				const nodes = await this.#db
+					.selectFrom("nodes")
+					.selectAll()
+					.where("id", "in", JSON.parse(current.node_ids))
+					.execute();
+				let stillWaiting = false;
+				let allDenied = nodes.length > 0;
+				try {
+					for (const node of nodes) {
+						const evaluation = await this.#cluster.evaluateFor(node, spec, chain, current.privileged === 1);
+						if (evaluation.result === "require-approval") stillWaiting = true;
+						if (evaluation.result !== "deny") allDenied = false;
+					}
+				} catch {
+					return; // a level is gone; expiry ends the group
+				}
+				if (allDenied) {
+					await this.#decide(current.id, rulesRejection(now()));
+				} else if (!stillWaiting) {
+					await this.#decide(current.id, rulesApproval(now()));
+				}
+			});
 		}
 	}
 
