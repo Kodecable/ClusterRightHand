@@ -1,7 +1,9 @@
+import { scryptSync } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { LoginLimiter } from "../src/auth/login-limiter.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser } from "../src/users/service.ts";
+import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { newId } from "../src/util/id.ts";
 import { type App, call, login, makeApp, sessionCookie } from "./helpers/api.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
 
@@ -64,6 +66,36 @@ describeBackends("api auth", (backend) => {
 		it("rejects a user without a password", async () => {
 			const res = await call(app, "/api/auth/login", { body: { username: "nopass", password: "anything-at-all" } });
 			expect(res.status).toBe(401);
+		});
+
+		it("rehashes an accepted password without applying the policy to it", async () => {
+			// A hash with the old parameters, for a password shorter than the minimum: the login already proved
+			// the password is right, so only the hash format may change.
+			const salt = Buffer.alloc(16, 3);
+			const key = scryptSync("short", salt, 32, { N: 16384, r: 8, p: 1 });
+			const oldHash = `scrypt$16384$8$1$${salt.toString("base64url")}$${key.toString("base64url")}`;
+			const id = newId();
+			await db
+				.insertInto("users")
+				.values({
+					id,
+					org_id: await defaultOrgId(db),
+					username: "oldpass",
+					display_name: "oldpass",
+					email: null,
+					kind: "member",
+					password_hash: oldHash,
+					status: "active",
+					created_at: new Date().toISOString(),
+				})
+				.execute();
+
+			const res = await call(app, "/api/auth/login", { body: { username: "oldpass", password: "short" } });
+			expect(res.status).toBe(200);
+			const row = await db.selectFrom("users").select("password_hash").where("id", "=", id).executeTakeFirstOrThrow();
+			// The test suite hashes with N=2^10, so a rehashed row carries those parameters.
+			expect(row.password_hash).not.toBe(oldHash);
+			expect(row.password_hash?.startsWith("scrypt$1024$8$1$")).toBe(true);
 		});
 
 		it("returns 400 for missing fields, wrong types and malformed bodies", async () => {
@@ -226,6 +258,41 @@ describeBackends("api auth", (backend) => {
 				headers: { origin: "http://localhost:8080" },
 			});
 			expect(res.status).toBe(401); // got past the guard
+		});
+
+		it("ignores case and the scheme's default port on either side", async () => {
+			const cases: [string, string][] = [
+				["https://example.com", "example.com:443"],
+				["https://Example.COM", "EXAMPLE.COM:443"],
+				["http://example.com", "example.com:80"],
+				["https://example.com:443", "example.com"],
+				["http://example.com:80", "example.com"],
+				["http://example.com:443", "example.com:443"],
+			];
+			for (const [origin, host] of cases) {
+				const res = await call(app, "/api/auth/login", {
+					body: { username: "ghost", password: "x" },
+					headers: { origin, host },
+				});
+				expect(res.status, `${origin} vs ${host}`).toBe(401); // got past the guard
+			}
+		});
+
+		it("rejects a mismatched or wrong-scheme port", async () => {
+			const cases: [string, string][] = [
+				["https://example.com:8443", "example.com:443"],
+				["https://example.com", "example.com:8443"],
+				["https://example.com", "example.com:80"],
+				["http://example.com:8080", "example.com:80"],
+				["http://example.com", "example.com:443"],
+			];
+			for (const [origin, host] of cases) {
+				const res = await call(app, "/api/auth/login", {
+					body: { username: "ghost", password: "x" },
+					headers: { origin, host },
+				});
+				expect(res.status, `${origin} vs ${host}`).toBe(403);
+			}
 		});
 
 		it("does not apply to GET", async () => {

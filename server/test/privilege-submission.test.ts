@@ -28,6 +28,7 @@ import { type AuthorizationCommand, buildAuthorization, specSha256 } from "../sr
 import { signSshsig, verifySshsig } from "../src/privilege/sshsig.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { newId } from "../src/util/id.ts";
 import { type FakeCrha, handshakeInit, TestAgentServer, waitFor } from "./helpers/agent.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { createSshKey, type TestSshKey } from "./helpers/authenticator.ts";
@@ -201,6 +202,15 @@ describe("user authorizations", () => {
 	const ownerEntry = (overrides: Partial<TrustEntry> = {}): TrustEntry =>
 		sshEntry("alice", "user", {
 			key: { kind: "sshsig", publicKey: ownerKey.line, fingerprint: ownerKey.fingerprint },
+			maxTtlMs: 24 * HOUR,
+			allow: [{ method: "exec", match: "prefix", pattern: "systemctl restart " }],
+			...overrides,
+		});
+
+	/** The other user's SSH key, allowed to restart nginx. */
+	const otherEntry = (overrides: Partial<TrustEntry> = {}): TrustEntry =>
+		sshEntry("bob", "user", {
+			key: { kind: "sshsig", publicKey: otherKey.line, fingerprint: otherKey.fingerprint },
 			maxTtlMs: 24 * HOUR,
 			allow: [{ method: "exec", match: "prefix", pattern: "systemctl restart " }],
 			...overrides,
@@ -546,6 +556,99 @@ describe("user authorizations", () => {
 			.where("id", "=", pending.id)
 			.executeTakeFirstOrThrow();
 		expect(JSON.parse(stored.signatures)).toHaveLength(2);
+	});
+
+	it("stores a submitted authorization in the issuer's organization", async () => {
+		// A second organization: the issuer's own must be stored, not the first organization of the install.
+		const orgId = newId();
+		await db
+			.insertInto("orgs")
+			.values({ id: orgId, name: "second", created_at: new Date(Date.now() + 1000).toISOString() })
+			.execute();
+		await db.updateTable("users").set({ org_id: orgId }).where("id", "=", owner.userId).execute();
+
+		const built = buildAuthorization({
+			nodes: [crypto.randomUUID()],
+			command: null,
+			issuedAtMs: Date.now(),
+			deadlineMs: Date.now() + HOUR,
+		});
+		const res = await submit(signedAuthorization(built.bytes));
+		expect(res.status).toBe(200);
+		const stored = await db
+			.selectFrom("authorizations")
+			.select("org_id")
+			.where("id", "=", built.id)
+			.executeTakeFirstOrThrow();
+		expect(stored.org_id).toBe(orgId);
+	});
+
+	it("does not append a cosignature to another issuer's stored authorization", async () => {
+		const { node, crha } = await connect("cosign-other", (id) =>
+			summaryOf(id, [
+				otherEntry({ kinds: ["execute", "require-cosign"] }),
+				crhsTrustEntry({ kinds: ["cosign"], allow: [] }),
+			]),
+		);
+		await db
+			.insertInto("node_access_grants")
+			.values({
+				id: newId(),
+				org_id: await defaultOrgId(db),
+				grantee_type: "user",
+				grantee_id: other.userId,
+				target_type: "node",
+				target_id: node.id,
+				created_by_user_id: owner.userId,
+				created_at: new Date().toISOString(),
+			})
+			.execute();
+		const task = await cluster.createTask({
+			nodeId: node.id,
+			spec: EXEC,
+			privileged: true,
+			actor: { type: "user", id: other.userId, onBehalfOfUserId: other.userId },
+		});
+		await waitState(task.id, "awaiting_authorization");
+		const pending = (await pendingFor(task.id, other.cookie)).authorization as { id: string; payload: string };
+		const payloadBytes = new Uint8Array(Buffer.from(pending.payload, "base64"));
+		// The owner already stored a row for the same payload (the id is the payload's hash).
+		const ownerSignature: Signature = {
+			kind: "sshsig",
+			blob: signSshsig(ownerKey.privateKey, ownerKey.blob, payloadBytes),
+		};
+		const ownerSignatures = JSON.stringify([
+			{ kind: "sshsig", blob: Buffer.from(ownerSignature.blob).toString("base64") },
+		]);
+		await db
+			.insertInto("authorizations")
+			.values({
+				id: pending.id,
+				org_id: await defaultOrgId(db),
+				payload: Buffer.from(payloadBytes).toString("base64"),
+				signatures: ownerSignatures,
+				issuer_user_id: owner.userId,
+				task_ids: JSON.stringify([task.id]),
+				deadline: new Date(Date.now() + HOUR).toISOString(),
+				created_at: new Date().toISOString(),
+			})
+			.execute();
+
+		// The other user signs the same payload and submits it: the node accepts it with crhs's cosignature,
+		// but the stored row belongs to the owner and must keep its signatures.
+		const res = await submit(signedAuthorization(payloadBytes, otherKey), other.cookie);
+		expect(res.status).toBe(200);
+		await waitFor("task.start", () => crha.starts.length === 1);
+		const wire = authorizationCodec.decode(decodeCbor(crha.starts[0]?.authorizations[0] as Uint8Array));
+		expect(wire.signatures).toHaveLength(2);
+		await waitState(task.id, "running");
+		const stored = await db
+			.selectFrom("authorizations")
+			.select(["issuer_user_id", "signatures"])
+			.where("id", "=", pending.id)
+			.executeTakeFirstOrThrow();
+		expect(stored.issuer_user_id).toBe(owner.userId);
+		expect(JSON.parse(stored.signatures)).toEqual(JSON.parse(ownerSignatures));
 	});
 
 	it("shows a missing cosignature in the plan and refuses the task", async () => {

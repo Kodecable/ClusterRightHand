@@ -117,7 +117,10 @@ export async function getApiToken(db: Db, user: SessionUser, id: string): Promis
 	return row ? toView(db, row) : undefined;
 }
 
-/** Revokes a token; its rule set stays, so that past tasks keep their chain. */
+/**
+ * Revokes a token: it stops authenticating at once, while its rule set stays for the tasks that already
+ * ran, whose rule chain names it. Deleting the token later removes that rule set too.
+ */
 export async function revokeApiToken(db: Db, user: SessionUser, id: string): Promise<void> {
 	const res = await db
 		.updateTable("api_tokens")
@@ -129,7 +132,11 @@ export async function revokeApiToken(db: Db, user: SessionUser, id: string): Pro
 	if (res.numUpdatedRows === 0n) throw new NotFoundError("no such active token");
 }
 
-/** Deletes a token for good; only revoked or expired tokens. */
+/**
+ * Deletes a token for good, its rule set included: the rules exist only for this token, so they go with it.
+ * Tasks that already ran keep the chain they stored, but its token level can no longer be resolved. Only a
+ * revoked or expired token may be deleted, so an active one cannot be removed by accident.
+ */
 export async function deleteApiToken(db: Db, user: SessionUser, id: string): Promise<void> {
 	const row = await db
 		.selectFrom("api_tokens")
@@ -141,8 +148,11 @@ export async function deleteApiToken(db: Db, user: SessionUser, id: string): Pro
 	if (!row.revoked_at && !(row.expires_at && row.expires_at < new Date().toISOString())) {
 		throw new UserError("revoke the token before deleting it");
 	}
-	await db.deleteFrom("api_tokens").where("id", "=", id).execute();
-	await deleteRuleSet(db, { type: "api_token", id });
+	// One transaction: a token row deleted without its rule set would leave rules that no request can reach.
+	await db.transaction().execute(async (trx) => {
+		await trx.deleteFrom("api_tokens").where("id", "=", id).execute();
+		await deleteRuleSet(trx, { type: "api_token", id });
+	});
 }
 
 export interface TokenIdentity {

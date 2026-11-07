@@ -26,6 +26,9 @@ export const SUPPORTED_ALGORITHM_IDS: readonly number[] = [-7, -8, -257];
 /** How long a registration challenge stays valid. */
 export const REGISTRATION_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
+/** The most pending registration challenges kept across all users; the oldest is evicted first. */
+export const MAX_PENDING_REGISTRATIONS = 10_000;
+
 /** A WebAuthn problem with the request; the API reports it as a 400. */
 export class WebauthnError extends Error {
 	override name = "WebauthnError";
@@ -89,13 +92,20 @@ interface PendingRegistration {
 /**
  * Server-side, single-use registration challenges. They live in memory only: a crhs restart just makes
  * the user start the registration again, and nothing secret is kept in them.
+ *
+ * A user has at most one pending challenge: issuing a new one replaces the previous, so a logged-in user
+ * cannot grow the store one request at a time. Across all users at most `maxPending` challenges are kept;
+ * issuing beyond that evicts the oldest challenge first.
  */
 export class RegistrationChallenges {
 	readonly #pending = new Map<string, PendingRegistration>();
+	readonly #byUser = new Map<string, string>();
 	readonly #now: () => number;
+	readonly #maxPending: number;
 
-	constructor(now: () => number = Date.now) {
+	constructor(now: () => number = Date.now, maxPending: number = MAX_PENDING_REGISTRATIONS) {
 		this.#now = now;
+		this.#maxPending = Math.max(1, maxPending);
 	}
 
 	/** Creates the creation options and remembers the challenge for `ttlMs`. */
@@ -119,11 +129,16 @@ export class RegistrationChallenges {
 		});
 		const challenge = options.challenge;
 		this.#prune();
+		// The new challenge replaces this user's previous one, so it needs no extra global slot.
+		const previous = this.#byUser.get(input.userId);
+		if (previous !== undefined) this.#pending.delete(previous);
+		while (this.#pending.size >= this.#maxPending) this.#evictOldest();
 		this.#pending.set(challenge, {
 			rp: input.rp,
 			userId: input.userId,
 			expiresAt: this.#now() + (input.ttlMs ?? REGISTRATION_CHALLENGE_TTL_MS),
 		});
+		this.#byUser.set(input.userId, challenge);
 		return { options, challenge };
 	}
 
@@ -132,14 +147,25 @@ export class RegistrationChallenges {
 		const pending = this.#pending.get(challenge);
 		if (!pending) return undefined;
 		this.#pending.delete(challenge);
+		if (this.#byUser.get(pending.userId) === challenge) this.#byUser.delete(pending.userId);
 		return pending.expiresAt >= this.#now() ? pending : undefined;
 	}
 
 	#prune(): void {
 		const now = this.#now();
 		for (const [challenge, pending] of this.#pending) {
-			if (pending.expiresAt < now) this.#pending.delete(challenge);
+			if (pending.expiresAt >= now) continue;
+			this.#pending.delete(challenge);
+			if (this.#byUser.get(pending.userId) === challenge) this.#byUser.delete(pending.userId);
 		}
+	}
+
+	#evictOldest(): void {
+		const oldest = this.#pending.entries().next();
+		if (oldest.done) return;
+		const [challenge, pending] = oldest.value;
+		this.#pending.delete(challenge);
+		if (this.#byUser.get(pending.userId) === challenge) this.#byUser.delete(pending.userId);
 	}
 }
 

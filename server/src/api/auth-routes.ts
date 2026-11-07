@@ -5,7 +5,7 @@ import { LoginLimiter } from "../auth/login-limiter.ts";
 import { hashPassword, needsRehash, verifyPassword } from "../auth/password.ts";
 import { createWebSession, revokeUserWebSessions, revokeWebSession, SESSION_COOKIE } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
-import { findUserByUsername, setPassword, toPublicUser, UserError } from "../users/service.ts";
+import { findUserByUsername, setPassword, storePasswordHash, toPublicUser, UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { requireUser } from "./middleware.ts";
 
@@ -53,7 +53,8 @@ export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 			return jsonError(c, 401, "invalid username or password");
 		}
 		limiter.reset(keys);
-		if (needsRehash(user.password_hash)) await setPassword(db, user.id, password);
+		// The password just verified, so the rehash stores it without the policy check a new password gets.
+		if (needsRehash(user.password_hash)) await storePasswordHash(db, user.id, password);
 
 		const { token, expiresAt } = await createWebSession(db, user.id, {
 			ip: address ?? null,

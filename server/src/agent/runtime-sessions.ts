@@ -19,7 +19,7 @@ import { sessionTokens, setQuota } from "./quota.ts";
 import type { RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runtime-core.ts";
 import { conversationOf, loadConversation } from "./runtime-core.ts";
 import { notifyQuotaWaiters } from "./runtime-quota.ts";
-import { invalidateInboxes } from "./runtime-requests.ts";
+import { forgetInbox, invalidateInboxes } from "./runtime-requests.ts";
 import { endSessionWork, refreshState } from "./runtime-state.ts";
 import { descendants } from "./runtime-subagents.ts";
 import { submit } from "./runtime-submissions.ts";
@@ -194,6 +194,33 @@ function submissionRequestIdFor(createRequestId: string): string {
 }
 
 /**
+ * Drops this process's caches of a session that no longer exists (a creation that failed, or any later
+ * removal): the conversation mapping, the provider session ids learned from it, the subagent marker, its
+ * request inbox and the waits and wakes held for it. Each is a lookup for work that can still arrive, so
+ * none of them may outlive the row it describes. Durable keeps the conversation's records.
+ */
+export function forgetSessionCaches(host: RuntimeHost, sessionId: string, conversationId?: string): void {
+	if (conversationId !== undefined) {
+		host.sessionsByConversation.delete(conversationId);
+		host.learnedProviders.delete(conversationId);
+	}
+	for (const [providerSessionId, mapped] of host.providerSessions) {
+		if (mapped === sessionId) host.providerSessions.delete(providerSessionId);
+	}
+	host.subagentParents.delete(sessionId);
+	forgetInbox(host, sessionId);
+	host.pendingWakes.delete(sessionId);
+	host.idleWatchers.delete(sessionId);
+	host.titleGenerating.delete(sessionId);
+	host.deniedWaits.delete(sessionId);
+	const quotaWaiters = host.quotaWaiters.get(sessionId);
+	if (quotaWaiters) {
+		for (const wake of [...quotaWaiters]) wake();
+		host.quotaWaiters.delete(sessionId);
+	}
+}
+
+/**
  * Removes a session whose creation did not finish. Durable has no conversation deletion, so the conversation is
  * aborted (a submission admitted just before the failure must not keep running without its session) and then
  * forgotten by this process; its records stay in durable storage. The rule set is deleted before the row in one
@@ -215,8 +242,8 @@ async function removeCreatedSession(host: RuntimeHost, sessionId: string): Promi
 				if (!host.closing()) console.error("agent runtime: aborting a failed session's conversation failed:", err);
 			}
 		}
-		host.sessionsByConversation.delete(conversationId);
 	}
+	forgetSessionCaches(host, sessionId, conversationId);
 	await host.sessionList.publishSessionRemoved(sessionId);
 	await host.db.transaction().execute(async (trx) => {
 		await deleteRuleSet(trx, { type: "session", id: sessionId });

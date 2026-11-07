@@ -28,7 +28,7 @@ import {
 	verifyAgainstTrust,
 } from "../../privilege/submission.ts";
 import type { TaskState as TaskRowState, TasksTable } from "../../storage/schema.ts";
-import { defaultOrgId, UserError } from "../../users/service.ts";
+import { NotFoundError, UserError } from "../../users/service.ts";
 import { parseTaskAuthorization, serializeTaskAuthorization, type TaskAuthorizationRecord } from "../authorization.ts";
 import { type ClusterCore, now } from "../core.ts";
 import type { NodeLink } from "../links.ts";
@@ -157,11 +157,15 @@ export async function findReusableAuthorization(
 	skip: ReadonlySet<string>,
 ): Promise<ReusableAuthorizationLookup> {
 	const ownerId = row.on_behalf_of_user_id;
+	// The owner's organization, the same value insertOwnerAuthorization stores: an authorization is kept in
+	// the organization of the user who issued it.
+	const owner = await core.db.selectFrom("users").select("org_id").where("id", "=", ownerId).executeTakeFirst();
+	if (!owner) return null;
 	const stored = await core.db
 		.selectFrom("authorizations")
 		.selectAll()
 		.where("issuer_user_id", "=", ownerId)
-		.where("org_id", "=", node.org_id)
+		.where("org_id", "=", owner.org_id)
 		.orderBy("created_at")
 		.execute();
 	if (stored.length === 0) return null;
@@ -492,7 +496,7 @@ export async function submitAuthorization(
 		await sendAuthorizedStart(core, entry.nodeId, claim.start, claim.input, claim.record);
 		dispatched.push(claim.start.taskId);
 	}
-	if (cosignatures.length > 0) await storeCosignatures(core, submitted, cosignatures);
+	if (cosignatures.length > 0) await storeCosignatures(core, submitted, cosignatures, user.userId);
 	return { id: submitted.id, dispatched };
 }
 
@@ -542,6 +546,10 @@ async function judgeSubmitted(
 	return { row, node, link, signatures: judged.signatures, cosigned: judged.cosigned };
 }
 
+/**
+ * Stores a submitted payload for display and reuse, in the issuer's organization: that is the value
+ * findReusableAuthorization compares when it looks for an authorization of the task's owner.
+ */
 async function insertOwnerAuthorization(
 	core: ClusterCore,
 	user: SessionUser,
@@ -553,11 +561,13 @@ async function insertOwnerAuthorization(
 		.where("id", "=", submitted.id)
 		.executeTakeFirst();
 	if (existing) return false;
+	const owner = await core.db.selectFrom("users").select("org_id").where("id", "=", user.userId).executeTakeFirst();
+	if (!owner) throw new NotFoundError("no such user");
 	await core.db
 		.insertInto("authorizations")
 		.values({
 			id: submitted.id,
-			org_id: await defaultOrgId(core.db),
+			org_id: owner.org_id,
 			payload: Buffer.from(submitted.payloadBytes).toString("base64"),
 			signatures: signaturesToJson(submitted.signatures),
 			issuer_user_id: user.userId,
@@ -569,15 +579,22 @@ async function insertOwnerAuthorization(
 	return true;
 }
 
+/**
+ * Appends crhs's cosignatures to the row of the submitting owner. A row stored by someone else is left
+ * alone: its id names the same payload, so the lookup by id alone would otherwise let a second submitter
+ * add signatures to an authorization it does not own.
+ */
 async function storeCosignatures(
 	core: ClusterCore,
 	submitted: SubmittedAuthorization,
 	cosignatures: Signature[],
+	ownerId: string,
 ): Promise<void> {
 	const row = await core.db
 		.selectFrom("authorizations")
 		.select("signatures")
 		.where("id", "=", submitted.id)
+		.where("issuer_user_id", "=", ownerId)
 		.executeTakeFirst();
 	if (!row) return;
 	const stored = signaturesFromJson(row.signatures);
@@ -586,6 +603,7 @@ async function storeCosignatures(
 		.updateTable("authorizations")
 		.set({ signatures: signaturesToJson(combined) })
 		.where("id", "=", submitted.id)
+		.where("issuer_user_id", "=", ownerId)
 		.execute();
 }
 

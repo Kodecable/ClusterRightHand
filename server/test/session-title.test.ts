@@ -1,4 +1,4 @@
-import type { Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -8,7 +8,7 @@ import { budgetUsedTokens, contextTokens, usageTokens } from "../src/agent/quota
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import type { SessionListItem } from "../src/agent/session-list.ts";
 import { sessionStateOf } from "../src/agent/session-state.ts";
-import { sanitizeTitle, titleThinking } from "../src/agent/title.ts";
+import { sanitizeTitle, TITLE_TIMEOUT_MS, titleThinking } from "../src/agent/title.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
@@ -278,6 +278,56 @@ it("keeps pending after a failed generation and retries at the next run end", as
 	expect((await waitSubmission(runtime, session.id, second)).status).toBe("done");
 	await waitTitle(session.id, "Recovered title");
 	expect(await sessionRow(session.id)).toEqual({ title: "Recovered title", title_pending: 0 });
+});
+
+it("cuts a hanging generation at the title limit and retries at the next run end", async () => {
+	faux.setResponses([]);
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
+	const originalTimeout = AbortSignal.timeout.bind(AbortSignal);
+	const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+		expect(ms).toBe(TITLE_TIMEOUT_MS);
+		return originalTimeout(20);
+	});
+	const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+	let titleOptions: { timeoutMs?: number; signal?: AbortSignal } | undefined;
+	let started: (() => void) | undefined;
+	const generationStarted = new Promise<void>((resolve) => {
+		started = resolve;
+	});
+	try {
+		faux.setResponses([
+			answer("First answer"),
+			(_context, options) => {
+				titleOptions = options;
+				started?.();
+				return new Promise<AssistantMessage>((_resolve, reject) => {
+					options?.signal?.addEventListener("abort", () => reject(options.signal?.reason), { once: true });
+				});
+			},
+		]);
+		const first = await runtime.submit(session.id, owner, "First input", "title-timeout");
+		expect((await waitSubmission(runtime, session.id, first)).status).toBe("done");
+		await generationStarted;
+		expect(titleOptions?.timeoutMs).toBe(TITLE_TIMEOUT_MS);
+		expect(titleOptions?.signal).toBeInstanceOf(AbortSignal);
+		await vi.waitFor(
+			() => {
+				expect(errors.mock.calls.some(([message]) => String(message).includes(`session ${session.id}`))).toBe(true);
+			},
+			{ timeout: 10_000, interval: 25 },
+		);
+		// The generating state was cleared and the failed attempt left the title pending.
+		expect(await sessionRow(session.id)).toEqual({ title: null, title_pending: 1 });
+
+		faux.setResponses([answer("Second answer"), answer("Recovered title")]);
+		const second = await runtime.submit(session.id, owner, "Second input", "title-timeout-retry");
+		expect((await waitSubmission(runtime, session.id, second)).status).toBe("done");
+		await waitTitle(session.id, "Recovered title");
+		expect(await sessionRow(session.id)).toEqual({ title: "Recovered title", title_pending: 0 });
+	} finally {
+		timeoutSpy.mockRestore();
+		errors.mockRestore();
+	}
 });
 
 it("does not generate while a quota level is exhausted", async () => {

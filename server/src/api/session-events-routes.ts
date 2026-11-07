@@ -132,14 +132,15 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 				},
 				close: () => stream.abort(),
 			};
-			const unsubscribe = runtime.sessionList.subscribe(subscriber);
+			let unsubscribe: (() => void) | undefined;
 			stream.onAbort(() => {
-				unsubscribe();
+				unsubscribe?.();
 				abort.abort();
 			});
 			// As with a session's event stream, the connection keeps shutdown waiting until it ends.
 			const release = drain?.hold();
 			try {
+				unsubscribe = runtime.sessionList.subscribe(subscriber);
 				if (drain?.shutdown.signal.aborted) stream.abort();
 				if (abort.signal.aborted) return;
 				while (!abort.signal.aborted) {
@@ -147,7 +148,7 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 					if (!abort.signal.aborted) await stream.writeSSE({ event: "ping", data: "" });
 				}
 			} finally {
-				unsubscribe();
+				unsubscribe?.();
 				release?.();
 			}
 		});
@@ -170,12 +171,13 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 			streams.add(live);
 			// The stream outlives its response, so it keeps shutdown waiting until this callback returns.
 			const release = drain?.hold();
+			let stop: (() => void) | undefined;
 			try {
 				// Shutdown may have begun between authentication and the stream opening: end it now.
 				if (drain?.shutdown.signal.aborted) stream.abort();
 				if (abort.signal.aborted) return;
 				let queue = Promise.resolve();
-				const stop = await runtime.watch(
+				stop = await runtime.watch(
 					v.session.id,
 					(events) => {
 						queue = queue.then(() => stream.writeSSE({ event: "events", data: JSON.stringify(events) }));
@@ -188,8 +190,10 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 					await sleepFor(15_000, abort.signal);
 					if (!abort.signal.aborted) await stream.writeSSE({ event: "ping", data: "" });
 				}
-				await stop();
 			} finally {
+				// A failed write must still end the watch and forget the stream, not leave both behind.
+				streams.delete(live);
+				if (stop) await stop();
 				release?.();
 			}
 		});

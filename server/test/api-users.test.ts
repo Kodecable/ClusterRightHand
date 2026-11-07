@@ -111,6 +111,15 @@ describeBackends("api users", (backend) => {
 			expect((await patch(u.id, [])).status).toBe(400);
 		});
 
+		it("PATCH rejects a display name that is empty after trimming", async () => {
+			const created = await call(app, "/api/users", { cookie: admin, body: { username: "blank-name" } });
+			const id = ((await created.json()) as { user: { id: string } }).user.id;
+			const res = await patch(id, { displayName: " \t " });
+			expect(res.status).toBe(400);
+			expect(((await res.json()) as { error: string }).error).toMatch(/displayName/);
+			expect((await byName("blank-name")).displayName).toBe("blank-name");
+		});
+
 		it("PATCH of an unknown user is a 404", async () => {
 			const res = await patch("does-not-exist", { displayName: "x" });
 			expect(res.status).toBe(404);

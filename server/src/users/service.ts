@@ -98,14 +98,22 @@ export async function createUser(
 	return toPublicUser(row);
 }
 
-export async function setPassword(db: Db, userId: string, password: string): Promise<void> {
-	validatePassword(password);
+/**
+ * Stores a new hash for the user without checking the password policy. The login rehash uses it: the
+ * password was already verified, so a changed minimum length must not refuse a correct login.
+ */
+export async function storePasswordHash(db: Db, userId: string, password: string): Promise<void> {
 	const result = await db
 		.updateTable("users")
 		.set({ password_hash: await hashPassword(password) })
 		.where("id", "=", userId)
 		.executeTakeFirst();
 	if (result.numUpdatedRows === 0n) throw new NotFoundError("no such user");
+}
+
+export async function setPassword(db: Db, userId: string, password: string): Promise<void> {
+	validatePassword(password);
+	await storePasswordHash(db, userId, password);
 }
 
 export async function findUserByUsername(db: Db, username: string) {
@@ -134,7 +142,11 @@ export async function updateUser(
 	options: { by?: string } = {},
 ): Promise<PublicUser> {
 	const set: Partial<Pick<UsersTable, "display_name" | "email" | "kind" | "status">> = {};
-	if (patch.displayName !== undefined) set.display_name = patch.displayName.trim();
+	if (patch.displayName !== undefined) {
+		const displayName = patch.displayName.trim();
+		if (!displayName) throw new UserError("displayName must not be empty");
+		set.display_name = displayName;
+	}
 	if (patch.email !== undefined) set.email = patch.email?.trim() || null;
 	if (patch.kind !== undefined) set.kind = patch.kind;
 	if (patch.status !== undefined) set.status = patch.status;

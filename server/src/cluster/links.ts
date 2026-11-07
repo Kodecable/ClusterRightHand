@@ -26,6 +26,7 @@ import {
 	DISPATCH_INTERRUPTED,
 	DISPATCH_INTERRUPTED_MESSAGE,
 	endTask,
+	groupEnded,
 	markUnknown,
 	onAccepted,
 	onExit,
@@ -297,6 +298,17 @@ async function onHello(core: ClusterCore, link: NodeLink, hello: Hello): Promise
 	}
 	const acks: OutputAck[] = [];
 	const reported = new Set<string>();
+	// Every member of the same group reports it, so the group's state is read once.
+	const endedGroups = new Map<string, boolean>();
+	const groupHasEnded = async (groupId: string | null): Promise<boolean> => {
+		if (groupId === null) return false;
+		let ended = endedGroups.get(groupId);
+		if (ended === undefined) {
+			ended = await groupEnded(core, groupId);
+			endedGroups.set(groupId, ended);
+		}
+		return ended;
+	};
 	for (const t of hello.tasks) {
 		const row = await core.row(t.taskId);
 		if (!row || row.node_id !== nodeId) continue;
@@ -313,7 +325,9 @@ async function onHello(core: ClusterCore, link: NodeLink, hello: Hello): Promise
 		// After a crhs restart the output is gone from memory: start over and let the client resend it all.
 		const live =
 			core.live.get(t.taskId) ??
-			newLive(core, t.taskId, nodeId, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
+			newLive(core, t.taskId, nodeId, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes, {
+				groupEnded: await groupHasEnded(row.task_group_id),
+			});
 		acks.push({ taskId: t.taskId, offset: live.output.end });
 	}
 	// The queries must not overtake the welcome, so they start only once it has been sent.

@@ -7,6 +7,7 @@ import { parseRulesForWrite } from "../policy/refs.ts";
 import { parseRulePreset, type RuleRef, setRulePreset, setRules } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../users/service.ts";
+import { rejectWaitingTokenWork } from "./api-token-waits.ts";
 import { reevaluateAfterRuleChange } from "./approval-routes.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 
@@ -45,25 +46,14 @@ export function apiTokenRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			action: "api_token.revoked",
 			target: { type: "api_token", id: c.req.param("id") },
 		});
-		// What the token started and is still waiting for approval will not run.
+		// What the token started and is still waiting for approval will not run; expiry sweeps the same rows.
 		const decision: ApprovalDecision = {
 			decision: "rejected",
 			by: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
 			at: new Date().toISOString(),
 			reason: "the API token was revoked",
 		};
-		for (const table of ["tasks", "task_groups"] as const) {
-			const rows = await db
-				.selectFrom(table)
-				.select("id")
-				.where("state", "=", "awaiting_approval")
-				.where("actor_type", "=", "api_token")
-				.where("actor_id", "=", c.req.param("id"))
-				.execute();
-			for (const { id } of rows) {
-				await (table === "tasks" ? cluster.decide(id, decision) : taskGroups.decide(id, decision));
-			}
-		}
+		await rejectWaitingTokenWork(db, cluster, taskGroups, c.req.param("id"), decision);
 		return c.json({ apiToken: await getApiToken(db, user, c.req.param("id")) });
 	});
 
@@ -89,8 +79,12 @@ export function apiTokenRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		const rulePreset = body.rulePreset === undefined ? undefined : parseRulePreset(body.rulePreset);
 		const rules =
 			body.rules === undefined ? undefined : await parseRulesForWrite(db, await defaultOrgId(db), body.rules);
-		if (rulePreset) await setRulePreset(db, ref, rulePreset);
-		if (rules) await setRules(db, ref, rules);
+		// One transaction: a failure after the preset was written would leave the token with the new preset and
+		// the old rules, which is a policy the caller never asked for.
+		await db.transaction().execute(async (trx) => {
+			if (rulePreset) await setRulePreset(trx, ref, rulePreset);
+			if (rules) await setRules(trx, ref, rules);
+		});
 		void audit.record({
 			actor: userActor(user),
 			action: "rules.changed",

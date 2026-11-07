@@ -308,8 +308,10 @@ export class Peer {
 			this.#replyError(id, cmd, err.code, err.message);
 			return;
 		}
-		const text = err instanceof Error ? err.message : String(err);
-		this.#replyError(id, cmd, "internal_error", text);
+		// Any other exception may carry SQL, paths or other server internals: log it locally and answer with a
+		// generic code. A handler that wants a specific refusal must throw RemoteError.
+		console.error(`peer: handler for ${cmd} failed:`, err);
+		this.#replyError(id, cmd, "internal_error", "internal server error");
 	}
 
 	#sendQuietly(frame: Frame): void {

@@ -240,6 +240,21 @@ it("closing a share ends an already open event stream", async () => {
 	await reader?.cancel();
 });
 
+it("shares the same pair concurrently without a unique-constraint failure", async () => {
+	const s = await newSession(alice, "concurrent shares");
+	const results = await Promise.all(
+		Array.from({ length: 8 }, (_, i) =>
+			share(s.id, alice, { granteeType: "user", granteeId: bobId, access: i % 2 === 0 ? "view" : "chat" }),
+		),
+	);
+	expect(results.map((res) => res.status)).toEqual(Array.from({ length: 8 }, () => 200));
+	const { shares } = (await (await call(app, `/api/sessions/${s.id}/shares`, { cookie: alice })).json()) as {
+		shares: { granteeId: string; access: string }[];
+	};
+	expect(shares).toHaveLength(1);
+	expect(shares[0]).toMatchObject({ granteeId: bobId, access: expect.stringMatching(/^(view|chat)$/) });
+});
+
 it("administrators look and may share, but do not drive", async () => {
 	const s = await newSession(alice, "admin looks");
 	const res = await get(s.id, admin);

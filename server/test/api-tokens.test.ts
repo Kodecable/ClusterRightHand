@@ -1,4 +1,6 @@
+import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { rejectExpiredTokenWaits } from "../src/api/api-token-waits.ts";
 import { Audit } from "../src/audit/audit.ts";
 import { createApiToken, resolveApiToken } from "../src/auth/api-tokens.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
@@ -32,6 +34,7 @@ describeBackends("api tokens", (backend) => {
 	let db: Db;
 	let app: App;
 	let cluster: Cluster;
+	let taskGroups: TaskGroups;
 	let audit: Audit;
 	const cookies: Record<string, string> = {};
 	const users: Record<string, SessionUser> = {};
@@ -42,11 +45,89 @@ describeBackends("api tokens", (backend) => {
 	};
 	const ck = (who: string) => ({ cookie: cookies[who] });
 
+	/** A task the token started that still waits for its approval. */
+	const insertWaitingTask = async (tokenId: string): Promise<string> => {
+		const id = newId();
+		const now = new Date().toISOString();
+		await db
+			.insertInto("tasks")
+			.values({
+				id,
+				org_id: await defaultOrgId(db),
+				node_id: "no-such-node",
+				task_group_id: null,
+				kind: "exec",
+				spec: JSON.stringify({ kind: "exec", command: { argv: ["true"] }, env: {}, cwd: "", stdin: null }),
+				input_size: null,
+				input_sha256: null,
+				privileged: 0,
+				attempt: 1,
+				timeout_ms: null,
+				output_mode: "full",
+				state: "awaiting_approval",
+				exit_code: null,
+				signal: null,
+				timed_out: 0,
+				cancelled: 0,
+				error_code: null,
+				error_message: null,
+				actor_type: "api_token",
+				actor_id: tokenId,
+				on_behalf_of_user_id: users.alice?.userId as string,
+				created_at: now,
+				dispatched_at: null,
+				accepted_at: null,
+				finished_at: null,
+				output_bytes: 0,
+				output_head: null,
+				output_tail: null,
+				notice: null,
+				output_file: null,
+				late_result: null,
+				rule_chain: null,
+				approval: null,
+				pending_input: null,
+				root_session_id: null,
+				handler_type: "user",
+				handler_session_id: null,
+			})
+			.execute();
+		return id;
+	};
+
+	/** A task group the token started that still waits for its approval. */
+	const insertWaitingGroup = async (tokenId: string): Promise<string> => {
+		const id = newId();
+		await db
+			.insertInto("task_groups")
+			.values({
+				id,
+				org_id: await defaultOrgId(db),
+				targets: JSON.stringify(["web-1"]),
+				node_ids: JSON.stringify(["no-such-node"]),
+				kind: "exec",
+				parallel: 1,
+				fail_fast: 0,
+				output_mode: "status",
+				privileged: 0,
+				skipped: "[]",
+				state: "awaiting_approval",
+				actor_type: "api_token",
+				actor_id: tokenId,
+				on_behalf_of_user_id: users.alice?.userId as string,
+				created_at: new Date().toISOString(),
+				finished_at: null,
+			})
+			.execute();
+		return id;
+	};
+
 	beforeAll(async () => {
 		db = await openTestDb(backend);
 		audit = new Audit(db);
 		cluster = new Cluster(db, { audit });
-		app = makeApp(db, undefined, { cluster, taskGroups: new TaskGroups(db, cluster, { audit }), audit });
+		taskGroups = new TaskGroups(db, cluster, { audit });
+		app = makeApp(db, undefined, { cluster, taskGroups, audit });
 		for (const [name, kind] of [
 			["alice", "member"],
 			["bob", "member"],
@@ -198,6 +279,57 @@ describeBackends("api tokens", (backend) => {
 			const rs = await db.selectFrom("rule_sets").select("id").where("scope_id", "=", id).execute();
 			expect(rs).toEqual([]);
 		});
+		it("rejects the token's waiting tasks and groups on revoke", async () => {
+			const { body } = await create("alice", { name: "revoke-waiting" });
+			const tokenId = body.apiToken.id;
+			const taskId = await insertWaitingTask(tokenId);
+			const groupId = await insertWaitingGroup(tokenId);
+			const res = await call(app, `/api/api-tokens/${tokenId}/revoke`, { cookie: cookies.alice, body: {} });
+			expect(res.status).toBe(200);
+			expect(
+				await db.selectFrom("tasks").select(["state", "error_code"]).where("id", "=", taskId).executeTakeFirstOrThrow(),
+			).toMatchObject({ state: "rejected", error_code: "approval_rejected" });
+			expect(
+				(await db.selectFrom("task_groups").select("state").where("id", "=", groupId).executeTakeFirstOrThrow()).state,
+			).toBe("rejected");
+		});
+
+		it("rejects an expired token's waiting work once, like revoke", async () => {
+			const expired = await create("alice", { name: "expired-waiting" });
+			const live = await create("alice", { name: "still-valid" });
+			const expiredTask = await insertWaitingTask(expired.body.apiToken.id);
+			const expiredGroup = await insertWaitingGroup(expired.body.apiToken.id);
+			const liveTask = await insertWaitingTask(live.body.apiToken.id);
+			await db
+				.updateTable("api_tokens")
+				.set({ expires_at: new Date(Date.now() - 60_000).toISOString() })
+				.where("id", "=", expired.body.apiToken.id)
+				.execute();
+
+			expect(await rejectExpiredTokenWaits(db, cluster, taskGroups)).toBe(2);
+			expect(
+				await db
+					.selectFrom("tasks")
+					.select(["state", "error_message"])
+					.where("id", "=", expiredTask)
+					.executeTakeFirstOrThrow(),
+			).toMatchObject({ state: "rejected", error_message: "the API token expired" });
+			const group = await db
+				.selectFrom("task_groups")
+				.select(["state", "approval"])
+				.where("id", "=", expiredGroup)
+				.executeTakeFirstOrThrow();
+			expect(group.state).toBe("rejected");
+			expect(JSON.parse(group.approval as string)).toMatchObject({
+				decision: { decision: "rejected", reason: "the API token expired" },
+			});
+			// A token that has not expired keeps its waiting task.
+			expect(
+				await db.selectFrom("tasks").select("state").where("id", "=", liveTask).executeTakeFirstOrThrow(),
+			).toMatchObject({ state: "awaiting_approval" });
+			// The sweep is idempotent: the first run left nothing waiting.
+			expect(await rejectExpiredTokenWaits(db, cluster, taskGroups)).toBe(0);
+		});
 	});
 
 	describe("rules", () => {
@@ -230,6 +362,29 @@ describeBackends("api tokens", (backend) => {
 			expect(ev.items).toHaveLength(3);
 			expect(ev.items[0]).toMatchObject({ action: "rules.changed", targetType: "api_token" });
 			expect(ev.items[2]?.detail.rule_preset).toBe("yolo");
+		});
+
+		it.skipIf(backend !== "sqlite")("rolls the rule preset back when the rules cannot be written", async () => {
+			const { body } = await create("alice", { name: "atomic" });
+			const id = body.apiToken.id;
+			await sql`create trigger fail_rule_update before update of rules on rule_sets begin select raise(abort, 'injected rule failure'); end`.execute(
+				db,
+			);
+			try {
+				const res = await call(app, `/api/api-tokens/${id}/rules`, {
+					cookie: cookies.alice,
+					method: "PUT",
+					body: { rulePreset: "yolo", rules: [] },
+				});
+				expect(res.status).toBe(500);
+			} finally {
+				await sql`drop trigger fail_rule_update`.execute(db);
+			}
+			// Both statements are one transaction: the preset must not stay changed when the rules write failed.
+			const list = (await (await call(app, "/api/api-tokens", ck("alice"))).json()) as {
+				tokens: TokenBody["apiToken"][];
+			};
+			expect(list.tokens.find((token) => token.id === id)?.rules).toMatchObject({ rulePreset: "ask", rules: [] });
 		});
 
 		it("resolves node names to UUIDs at write time and returns display names", async () => {

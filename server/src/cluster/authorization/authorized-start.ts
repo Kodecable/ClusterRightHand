@@ -94,22 +94,9 @@ export async function dispatchCrhs(
 		);
 		return;
 	}
-	if (await storeAuthorization(core, node, authorization, signatures)) {
-		// crhs-signed authorizations are audited like user ones (doc/access-control.md#记录内容).
-		core.auditLater({
-			actor: { type: "system", id: "cluster", onBehalfOfUserId: row.on_behalf_of_user_id },
-			action: "authorization.issued",
-			target: { type: "authorization", id: authorization.id },
-			detail: {
-				node_id: node.id,
-				task_id: id,
-				attempt: row.attempt,
-				deadline:
-					authorization.payload.deadlineMs === null ? null : new Date(authorization.payload.deadlineMs).toISOString(),
-				trust_digest: record.trustDigest,
-			},
-		});
-	}
+	// The row is stored before the claim: the task's record names its payload id, and a claim that loses a
+	// race leaves the payload behind for an audit trail, even though no task.start is sent.
+	const stored = await storeAuthorization(core, node, authorization, signatures);
 	const updated: TaskAuthorizationRecord = {
 		...withoutRequests(record),
 		dispatchedPath: "crhs",
@@ -126,6 +113,24 @@ export async function dispatchCrhs(
 		handler_session_id: null,
 	});
 	if (!claimed) return;
+	// crhs-signed authorizations are audited like user ones, but only once their task.start will be sent: a
+	// cancelled task must not leave an authorization.issued event for a payload the node never received
+	// (doc/access-control.md#记录内容).
+	if (stored) {
+		core.auditLater({
+			actor: { type: "system", id: "cluster", onBehalfOfUserId: row.on_behalf_of_user_id },
+			action: "authorization.issued",
+			target: { type: "authorization", id: authorization.id },
+			detail: {
+				node_id: node.id,
+				task_id: id,
+				attempt: row.attempt,
+				deadline:
+					authorization.payload.deadlineMs === null ? null : new Date(authorization.payload.deadlineMs).toISOString(),
+				trust_digest: record.trustDigest,
+			},
+		});
+	}
 	newLive(core, id, node.id, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
 	core.background("task group state update failed", syncGroupState(core, row.task_group_id));
 	const start = taskStartOf(id, row, spec, {

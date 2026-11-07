@@ -8,6 +8,7 @@ import {
 	NoiseError,
 	type TransportCiphers,
 } from "../src/index.ts";
+import { initiatorForTest, responderForTest } from "../src/testing.ts";
 
 interface Vector {
 	fields: Map<string, string>;
@@ -50,13 +51,13 @@ describe("Noise_IK_25519_ChaChaPoly_BLAKE2s", () => {
 		const prologue = f("prologue");
 		const initStatic = keyPairFromPrivate(f("init_static"));
 		const respStatic = keyPairFromPrivate(f("resp_static"));
-		const initiator = HandshakeState.initiator({
+		const initiator = initiatorForTest({
 			prologue,
 			staticKey: initStatic,
 			remoteStaticKey: respStatic.publicKey,
 			ephemeralKey: keyPairFromPrivate(f("gen_init_ephemeral")),
 		});
-		const responder = HandshakeState.responder({
+		const responder = responderForTest({
 			prologue,
 			staticKey: respStatic,
 			ephemeralKey: keyPairFromPrivate(f("gen_resp_ephemeral")),
@@ -108,6 +109,26 @@ describe("handshake failures", () => {
 		msg[40] = (msg[40] ?? 0) ^ 1;
 		const responder = HandshakeState.responder({ prologue: Buffer.from("p"), staticKey: server });
 		expect(() => responder.readMessage(msg)).toThrow(NoiseError);
+		// The failed authentication tag leaves the cipher state advanced: every later call fails closed.
+		expect(() => responder.readMessage(msg)).toThrow(/unusable/);
+		expect(() => responder.writeMessage(Buffer.from("payload"))).toThrow(/unusable/);
+		expect(() => responder.split()).toThrow(/unusable/);
+	});
+
+	it("fails closed on the initiator after a tampered message 2", () => {
+		const server = generateKeyPair();
+		const initiator = HandshakeState.initiator({
+			prologue: Buffer.from("p"),
+			staticKey: generateKeyPair(),
+			remoteStaticKey: server.publicKey,
+		});
+		const responder = HandshakeState.responder({ prologue: Buffer.from("p"), staticKey: server });
+		responder.readMessage(initiator.writeMessage(new Uint8Array(0)));
+		const msg = responder.writeMessage(Buffer.from("welcome"));
+		msg[msg.length - 1] = (msg[msg.length - 1] ?? 0) ^ 1;
+		expect(() => initiator.readMessage(msg)).toThrow(NoiseError);
+		expect(() => initiator.readMessage(msg)).toThrow(/unusable/);
+		expect(() => initiator.split()).toThrow(/unusable/);
 	});
 
 	it("fails when the initiator has the wrong server key", () => {
@@ -175,13 +196,13 @@ describe("interop fixture", () => {
 		const b = (k: string) => hex(f[k] ?? "");
 		const prologue = Buffer.concat([Buffer.from("crh/3"), b("challenge")]);
 		const server = keyPairFromPrivate(b("server_static"));
-		const i = HandshakeState.initiator({
+		const i = initiatorForTest({
 			prologue,
 			staticKey: keyPairFromPrivate(b("client_static")),
 			remoteStaticKey: server.publicKey,
 			ephemeralKey: keyPairFromPrivate(b("client_ephemeral")),
 		});
-		const r = HandshakeState.responder({
+		const r = responderForTest({
 			prologue,
 			staticKey: server,
 			ephemeralKey: keyPairFromPrivate(b("server_ephemeral")),

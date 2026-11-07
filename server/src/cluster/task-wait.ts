@@ -47,6 +47,9 @@ export async function waitTask(
 			const done = () => {
 				clearTimeout(timer);
 				waiters.delete(done);
+				// A wait that timed out or was aborted leaves no empty set behind; only a notify removes the
+				// whole entry otherwise, and a task nobody wakes again would keep one.
+				if (waiters.size === 0 && core.waiters.get(id) === waiters) core.waiters.delete(id);
 				signal?.removeEventListener("abort", done);
 				resolve();
 			};

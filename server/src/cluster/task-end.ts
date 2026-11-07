@@ -206,7 +206,9 @@ export async function onExit(core: ClusterCore, conn: NodeConnection, exit: Task
 	}
 	const live =
 		existing ??
-		newLive(core, exit.taskId, conn.nodeId, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
+		newLive(core, exit.taskId, conn.nodeId, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes, {
+			groupEnded: await groupEnded(core, row.task_group_id),
+		});
 	// TaskExit follows all output on the wire; if bytes are missing, the client will resend after a
 	// reconnect and send TaskExit again. Record what we have only when complete. A `status` task gets
 	// no task.output at all, so there is nothing to wait for (doc/execution-plane.md#输出).

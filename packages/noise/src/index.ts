@@ -184,14 +184,11 @@ export interface InitiatorOptions {
 	staticKey: KeyPair;
 	/** The responder's static public key, known in advance (IK). */
 	remoteStaticKey: Uint8Array;
-	/** Fixed ephemeral key, for test vectors only. */
-	ephemeralKey?: KeyPair;
 }
 
 export interface ResponderOptions {
 	prologue: Uint8Array;
 	staticKey: KeyPair;
-	ephemeralKey?: KeyPair;
 }
 
 export interface TransportCiphers {
@@ -217,9 +214,14 @@ export class HandshakeState {
 	#rs: Uint8Array | undefined;
 	#re: Uint8Array | undefined;
 	#step = 0;
+	#unusable = false;
 	readonly #fixedEphemeral: KeyPair | undefined;
 
-	private constructor(initiator: boolean, prologue: Uint8Array, s: KeyPair, rs?: Uint8Array, e?: KeyPair) {
+	/**
+	 * Subclasses only: the test-only factories in testing.ts pin an ephemeral key to reproduce Noise vectors.
+	 * Production callers use `initiator` or `responder`.
+	 */
+	protected constructor(initiator: boolean, prologue: Uint8Array, s: KeyPair, rs?: Uint8Array, e?: KeyPair) {
 		this.#initiator = initiator;
 		this.#s = s;
 		this.#rs = rs;
@@ -232,17 +234,11 @@ export class HandshakeState {
 
 	static initiator(options: InitiatorOptions): HandshakeState {
 		if (options.remoteStaticKey.length !== DH_LEN) throw new NoiseError("remote static key must be 32 bytes");
-		return new HandshakeState(
-			true,
-			options.prologue,
-			options.staticKey,
-			Uint8Array.from(options.remoteStaticKey),
-			options.ephemeralKey,
-		);
+		return new HandshakeState(true, options.prologue, options.staticKey, Uint8Array.from(options.remoteStaticKey));
 	}
 
 	static responder(options: ResponderOptions): HandshakeState {
-		return new HandshakeState(false, options.prologue, options.staticKey, undefined, options.ephemeralKey);
+		return new HandshakeState(false, options.prologue, options.staticKey);
 	}
 
 	/** The peer's static public key; for the responder, available after reading message 1. */
@@ -254,11 +250,26 @@ export class HandshakeState {
 		return this.#step === 2;
 	}
 
+	#assertUsable(): void {
+		if (this.#unusable) throw new NoiseError("handshake is unusable after a decryption failure");
+	}
+
 	#newEphemeral(): KeyPair {
 		return this.#fixedEphemeral ?? generateKeyPair();
 	}
 
+	/** A failed authentication tag invalidates the whole state: the cipher state has already advanced. */
+	#decryptAndHash(ciphertext: Uint8Array): Buffer {
+		try {
+			return this.#ss.decryptAndHash(ciphertext);
+		} catch (err) {
+			this.#unusable = true;
+			throw err;
+		}
+	}
+
 	writeMessage(payload: Uint8Array): Buffer {
+		this.#assertUsable();
 		const ss = this.#ss;
 		let out: Buffer;
 		if (this.#step === 0 && this.#initiator) {
@@ -286,6 +297,7 @@ export class HandshakeState {
 	}
 
 	readMessage(message: Uint8Array): Buffer {
+		this.#assertUsable();
 		if (message.length > MAX_MESSAGE_LEN) throw new NoiseError("handshake message too large");
 		const ss = this.#ss;
 		let payload: Buffer;
@@ -295,9 +307,9 @@ export class HandshakeState {
 			this.#re = Uint8Array.from(re);
 			ss.mixHash(re);
 			ss.mixKey(dh(this.#s.privateKey, re));
-			const rs = ss.decryptAndHash(message.subarray(DH_LEN, DH_LEN * 2 + TAG_LEN));
+			const rs = this.#decryptAndHash(message.subarray(DH_LEN, DH_LEN * 2 + TAG_LEN));
 			ss.mixKey(dh(this.#s.privateKey, rs));
-			payload = ss.decryptAndHash(message.subarray(DH_LEN * 2 + TAG_LEN));
+			payload = this.#decryptAndHash(message.subarray(DH_LEN * 2 + TAG_LEN));
 			this.#rs = Uint8Array.from(rs);
 		} else if (this.#step === 1 && this.#initiator) {
 			if (message.length < DH_LEN + TAG_LEN) throw new NoiseError("message 2 too short");
@@ -307,7 +319,7 @@ export class HandshakeState {
 			const e = this.#e as KeyPair;
 			ss.mixKey(dh(e.privateKey, re));
 			ss.mixKey(dh(this.#s.privateKey, re));
-			payload = ss.decryptAndHash(message.subarray(DH_LEN));
+			payload = this.#decryptAndHash(message.subarray(DH_LEN));
 		} else {
 			throw new NoiseError("readMessage called out of turn");
 		}
@@ -317,6 +329,7 @@ export class HandshakeState {
 
 	/** After both messages: the transport ciphers for this side. */
 	split(): TransportCiphers {
+		this.#assertUsable();
 		if (!this.isComplete) throw new NoiseError("handshake not complete");
 		const [c1, c2] = this.#ss.split();
 		return this.#initiator

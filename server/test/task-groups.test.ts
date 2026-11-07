@@ -486,6 +486,32 @@ describeBackends("task groups", (backend) => {
 		expect(view?.skipped.sort()).toEqual([ids["web-1"], ids["web-2"]].sort());
 	});
 
+	it("ends a parked wait when recover() interrupts the group", async () => {
+		const ref = await addChain("ask");
+		const groups = new TaskGroups(db, cluster);
+		const id = await groups.create({
+			targets: [ids["web-1"] as string],
+			nodeIds: [ids["web-1"] as string],
+			spec: spec(),
+			actor: actor(),
+			chain: [ref],
+		});
+		expect((await groups.get(id))?.state).toBe("awaiting_approval");
+		const parked = groups.wait(id, 5000);
+		// wait() reads the row once, then parks on the group's settled entry.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		// A group a previous process left running is interrupted by recover(); a wait held on it must return
+		// then, not at its own timeout.
+		await db.updateTable("task_groups").set({ state: "running" }).where("id", "=", id).execute();
+		await groups.recover();
+		const view = await Promise.race([
+			parked,
+			new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 2000)),
+		]);
+		if (view === "timeout") throw new Error("the parked wait did not end when the group was interrupted");
+		expect(view?.state).toBe("interrupted");
+	});
+
 	/** Inserts a task row as a previous process would have left it. */
 	const insertTask = async (input: {
 		group: string;

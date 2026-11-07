@@ -215,4 +215,53 @@ describe("signing credentials API", () => {
 		now += 2_000;
 		expect(challenges.take(expired.challenge)).toBeUndefined();
 	});
+
+	it("keeps at most one pending registration challenge per user", async () => {
+		const challenges = new RegistrationChallenges();
+		const rp = { rpId: "crh.example.com", rpName: "CRH", origins: ["https://crh.example.com"] };
+		const issue = (userId: string) =>
+			challenges.issue({
+				rp,
+				userId,
+				userName: userId,
+				userDisplayName: userId,
+				excludeCredentialIds: [],
+			});
+
+		const first = await issue("u1");
+		const second = await issue("u1");
+		const other = await issue("u2");
+		// A new request replaces the user's previous challenge instead of adding another one.
+		expect(challenges.take(first.challenge)).toBeUndefined();
+		expect(challenges.take(second.challenge)).toMatchObject({ userId: "u1" });
+		expect(challenges.take(other.challenge)).toMatchObject({ userId: "u2" });
+	});
+
+	it("evicts the oldest registration challenge at the global cap", async () => {
+		const challenges = new RegistrationChallenges(Date.now, 2);
+		const rp = { rpId: "crh.example.com", rpName: "CRH", origins: ["https://crh.example.com"] };
+		const issue = (userId: string) =>
+			challenges.issue({
+				rp,
+				userId,
+				userName: userId,
+				userDisplayName: userId,
+				excludeCredentialIds: [],
+			});
+
+		const first = await issue("u1");
+		const second = await issue("u2");
+		// Replacing a user's own challenge does not evict someone else's.
+		const replacement = await issue("u1");
+		expect(challenges.take(first.challenge)).toBeUndefined();
+		expect(challenges.take(second.challenge)).toMatchObject({ userId: "u2" });
+		expect(challenges.take(replacement.challenge)).toMatchObject({ userId: "u1" });
+
+		const one = await issue("u3");
+		const two = await issue("u4");
+		const three = await issue("u5");
+		expect(challenges.take(one.challenge)).toBeUndefined();
+		expect(challenges.take(two.challenge)).toMatchObject({ userId: "u4" });
+		expect(challenges.take(three.challenge)).toMatchObject({ userId: "u5" });
+	});
 });

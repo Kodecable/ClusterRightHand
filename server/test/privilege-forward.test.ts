@@ -10,17 +10,23 @@ import {
 	type TaskSpec,
 	type TrustEntry,
 	type TrustSummary,
+	taskSpecToJson,
 } from "@crh/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
+import { dispatchCrhs } from "../src/cluster/authorization/authorized-start.ts";
+import type { TaskAuthorizationRecord } from "../src/cluster/authorization.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
+import { ClusterCore } from "../src/cluster/core.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
+import type { NodeLink } from "../src/cluster/links.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
 import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
 import { trustDigest } from "../src/cluster/trust.ts";
 import { bindMasterKey, MasterKey } from "../src/keys/master-key.ts";
 import { authzEntryFromTrust, decide } from "../src/privilege/authz.ts";
 import { type AuthorizationSigningKey, loadAuthorizationSigningKey } from "../src/privilege/key.ts";
+import { buildAuthorization, specSha256 } from "../src/privilege/payload.ts";
 import { verifySshsig } from "../src/privilege/sshsig.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
@@ -778,6 +784,108 @@ describe("privileged forward dispatch", () => {
 			const bare = makeApp(db);
 			const missing = await call(bare, "/api/privilege/crhs-key", { cookie });
 			expect(missing.status).toBe(503);
+		});
+	});
+
+	describe("authorization audit", () => {
+		it("does not record authorization.issued when the claim loses the task", async () => {
+			const node = await addNode("audit-claim", generateKeyPair().publicKey);
+			const id = newId();
+			const now = new Date().toISOString();
+			await db
+				.insertInto("tasks")
+				.values({
+					id,
+					org_id: node.org_id,
+					node_id: node.id,
+					task_group_id: null,
+					kind: EXEC.kind,
+					spec: JSON.stringify(taskSpecToJson(EXEC)),
+					input_size: null,
+					input_sha256: null,
+					privileged: 1,
+					attempt: 1,
+					timeout_ms: null,
+					output_mode: "full",
+					state: "awaiting_approval",
+					exit_code: null,
+					signal: null,
+					timed_out: 0,
+					cancelled: 0,
+					error_code: null,
+					error_message: null,
+					actor_type: "user",
+					actor_id: owner.userId,
+					on_behalf_of_user_id: owner.userId,
+					created_at: now,
+					dispatched_at: null,
+					accepted_at: null,
+					finished_at: null,
+					output_bytes: 0,
+					output_head: null,
+					output_tail: null,
+					notice: null,
+					output_file: null,
+					late_result: null,
+					rule_chain: null,
+					approval: null,
+					pending_input: null,
+					root_session_id: null,
+					handler_type: "user",
+					handler_session_id: null,
+				})
+				.execute();
+			const row = await db.selectFrom("tasks").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+			// Another path settles the task between the row read and the claim.
+			await db.updateTable("tasks").set({ state: "rejected", error_code: "cancelled" }).where("id", "=", id).execute();
+
+			const authorization = buildAuthorization({
+				nodes: [node.id],
+				command: {
+					method: "exec",
+					exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) },
+				},
+				issuedAtMs: Date.now(),
+				deadlineMs: Date.now() + 60_000,
+				taskIds: [id],
+				attempt: 1,
+			});
+			const record: TaskAuthorizationRecord = {
+				plan: { paths: [] },
+				tried: [],
+				dispatchedPath: null,
+				payloadId: null,
+				attempt: 1,
+				trustDigest: null,
+				pending: null,
+				local: null,
+				lastRejection: null,
+				updatedAt: now,
+			};
+			const core = new ClusterCore(db, { authorizationKey: signing, audit });
+			await dispatchCrhs(
+				core,
+				id,
+				row,
+				node,
+				{} as unknown as NodeLink,
+				EXEC,
+				new Uint8Array(),
+				{},
+				record,
+				authorization,
+				["awaiting_approval"],
+			);
+
+			await audit.flush();
+			expect(await auditRows("authorization.issued")).toEqual([]);
+			// The payload row stays: it is written before the claim, and the record names it.
+			expect(
+				await db.selectFrom("authorizations").select("id").where("id", "=", authorization.id).executeTakeFirst(),
+			).toBeDefined();
+			expect((await db.selectFrom("tasks").select("state").where("id", "=", id).executeTakeFirstOrThrow()).state).toBe(
+				"rejected",
+			);
 		});
 	});
 });

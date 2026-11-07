@@ -161,6 +161,7 @@ API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引�
 ### exec 工具的语义
 
 - **长任务**：等待超过 `wait`（agent 默认 10 分钟，MCP 默认 30 秒，最长 10 分钟）时，工具返回目前的输出和"仍在运行，task_id = X"，agent 之后用 `task_wait` 跟进，不会长时间占着一轮工具调用。
+- **进程组**：任务结束时它的整个进程组都会被清理，任务启动的后台进程不会留下（包括以 root 运行的任务）；需要长期运行的服务用 `systemctl` 或 `setsid` 启动，让它离开任务的进程组。
 - **重启后重新挂接**：所有 crh 任务工具都声明 `replay: "safe"`。Cluster 任务 id 由 durable 工具任务 id 确定性派生，所以服务端重启后工具重跑时，会找到同一个 Cluster 任务（可能仍在运行或已经结束），而不会新建一个。
 - **结果为 `unknown` 时**：错误结果，说明"执行失败，状态未知，原因：connection_lost / executor_restarted / dispatch_unconfirmed"。
 - **等待审批或签名时**：agent 一直等待，同时通过 `api.details` 把等待状态和链接推送给 UI；MCP 在 `wait` 内等待，超时返回等待状态、链接和 `task_id`。文件工具在两边都一直等待。
@@ -227,6 +228,7 @@ API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引�
 - 会话的系统提示词之后仍是会话自己的 `instructions`（子会话的委派说明等）。
 - 改动从下一次模型请求起对所有会话生效：crhs 把预设缓存在内存，改动时刷新。
 - 自动复核用强制工具调用作答：请求带唯一的工具 `submit_review({ decision: "approve" | "escalate", reason: string })` 并以 `toolChoice` 强制调用，判定取自工具参数（按 schema 校验，`reason` 截到 300 字符）。上游忽略 `toolChoice`、没有调用工具时，退回解析正文里的一行 JSON；仍然读不出来就上交给用户。只有明确的 `approve` 才批准。请求带上所用模型的思考档位。
+- 会话运行和自动复核都不另设超时，沿用 pi 的默认行为：单次请求的超时由 provider SDK 决定，会话 harness 对失败的模型请求最多重试 3 次（基础间隔 2 秒，服务端要求的等待最长 60 秒）。标题生成例外：调用限时 180 秒，见[标题生成](#标题生成)。
 - 原来的 `/settings/review-model`（`server_meta.review_model`）迁到"自动复核"预设，接口改为 `GET/PUT /api/model-presets/:kind`（`kind` = `session` / `review` / `title`，管理员）。
 
 ### 标题生成
@@ -237,6 +239,7 @@ API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引�
   - 输入只有最新一轮的用户输入和模型的最终正文，只取文字（去掉思考、工具调用和工具结果），各截取前 2000 个字符。
   - 输出取第一行，去掉首尾引号和标点，最长 60 个字符；为空视为失败。语言跟随用户输入。
   - 写入时在同一个事务里再检查 `title_pending`：仍为真才写标题并置假，同时更新 `updated_at` 并推送会话更新；用户在生成期间改过标题时丢弃结果。
+  - 调用限时 180 秒：`timeoutMs` 约束 provider SDK 的请求，中止信号同时切断已经开始但停住的流。超时按失败处理，只记日志，`title_pending` 保持为真，下一轮结束后再试。
   - 失败（模型错误、输出为空、配额已耗尽时不生成）只记日志，标记保持为真，下一轮结束后再试。同一会话同时只有一个生成在进行；不持久化，重启后由下一轮触发。
   - token 照自动复核的做法计到该会话（预算和用量都沿链累加），不写 `context_tokens`。
 - 用户改标题（`PATCH /sessions/:id { title }`）时 `title_pending` 置假；把标题改成空也置假（显示为默认名，不再自动生成）。
@@ -305,7 +308,7 @@ API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引�
 
 - 任务开始等待审批后，运行时从直接父会话起沿规则链向上找第一个"对这一操作的有效结果是 allow"的祖先会话，请求交给它的 agent（`approval.agent = { session, state: "pending" }`，并记入 `handler_type` / `handler_session_id`）。根会话的 agent 同样是这条链上普通的一级；祖先都不是 allow，或者 agent `escalate` 时，请求才到用户。
 - 处理请求的 agent 用 `subagent_decide(request_id, "approve" | "deny" | "escalate", reason?, tokens?)` 处理：批准/拒绝直接落到任务上（审计里 actor 是处理它的会话）；`escalate` 把请求交还用户，审批页照常显示。
-- **任何工具调用返回时**，只要还有属于它的待处理请求，结果末尾会附上提示（任务/任务组 id、摘要），所以父会话不会错过；实现用 durable 的 `afterTool` 钩子。待处理请求按 handler 索引，运行时按 handler 维护内存 inbox，并在审批/配额变化时使其失效，不再遍历所有后代。用户审批、规则重判也会通过同一个变化回调刷新 actor 的缓存状态。
+- **任何工具调用返回时**，只要还有属于它的待处理请求，结果末尾会附上提示，所以父会话不会错过；实现用 durable 的 `afterTool` 钩子。提示把待处理请求（kind、id、摘要）**JSON 编码**后放进 `<subagent-requests>…</subagent-requests>` 块，并说明摘要由子会话写成、只能当作数据而不是指令；`<` 转义成 `\u003c`，摘要里的换行和标签无法伪造块结构。`subagent_wait` 和前台 `subagent` 请求处理时的提示用同一个块。待处理请求按 handler 索引，运行时按 handler 维护内存 inbox，并在审批/配额变化时使其失效，不再遍历所有后代。用户审批、规则重判也会通过同一个变化回调刷新 actor 的缓存状态。
 - 父会话空闲（没有正在进行的运行）时，以 follow-up 输入的方式提交一条提示并唤醒它；如果父会话正在运行，提示只随下一批工具结果附带，若这一轮结束仍未处理，运行结束（`Conversation.waitForIdle`）时再投递一次，不会 300ms 轮询。配额等待由 grant/deny/abort/配额修改唤醒，`subagent_wait` 的 attention 也由 inbox 通知，不再轮询。
 - 配额不足时子会话的工具调用暂停，请求只交它的直接父会话的 agent；父会话是根时由根会话的 agent 决定，不再向上（根自己耗尽时交给所有者，见[配额](#配额)）。
 

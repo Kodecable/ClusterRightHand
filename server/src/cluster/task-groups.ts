@@ -230,6 +230,12 @@ export class TaskGroups {
 				.catch((err: unknown) => console.error(`audit: failed to record ${input.action}:`, err));
 	}
 
+	/** Releases a wait() parked on the group: the group ended, by a decision or by any other path. */
+	#settle(id: string): void {
+		this.#settled.get(id)?.resolve();
+		this.#settled.delete(id);
+	}
+
 	/**
 	 * Waits for the group runs this process started and the approval steps still queued. Call after
 	 * Cluster.close(): its wake-ups end the waitTask calls and its refusal of new tasks ends the workers;
@@ -260,6 +266,7 @@ export class TaskGroups {
 			// arrive, so it is cancelled with the reason instead of being left waiting forever.
 			await this.#endWaiting(row.id);
 			this.#cluster.releaseGroupBudget(row.id);
+			this.#settle(row.id);
 		}
 	}
 
@@ -494,6 +501,7 @@ export class TaskGroups {
 			})
 			.where("id", "=", id)
 			.execute();
+		this.#settle(id);
 	}
 
 	/**
@@ -516,6 +524,7 @@ export class TaskGroups {
 			.where("id", "=", id)
 			.execute();
 		await this.#endWaiting(id, reason);
+		this.#settle(id);
 	}
 
 	/**
@@ -564,8 +573,7 @@ export class TaskGroups {
 			// A rejected group never runs; release anything its denied tasks may have held.
 			this.#cluster.releaseGroupBudget(id);
 		}
-		this.#settled.get(id)?.resolve();
-		this.#settled.delete(id);
+		this.#settle(id);
 		return true;
 	}
 

@@ -123,6 +123,13 @@ function truncate(text: string): string {
 }
 
 /**
+ * The title call's time limit, in milliseconds. `timeoutMs` bounds each provider SDK request, and the abort
+ * signal also stops a stream that stalls after the response has started. A call cut by this limit follows the
+ * ordinary failure path: the generating state is cleared and the session stays pending for the next run.
+ */
+export const TITLE_TIMEOUT_MS = 180_000;
+
+/**
  * Generates a title for the run that just ended, if the session still needs one. The caller must not await this
  * on the run's end path: it returns at once and generation continues in the background. `sessionId` is only a
  * hint for an overlapping trigger; every check is repeated from the database.
@@ -206,6 +213,8 @@ async function generateTitle(host: RuntimeHost, sessionId: string, submissionId:
 			sessionId: providerSessionId ?? sessionId,
 			maxTokens,
 			...(level === "off" ? {} : { reasoning: level }),
+			timeoutMs: TITLE_TIMEOUT_MS,
+			signal: AbortSignal.timeout(TITLE_TIMEOUT_MS),
 		},
 	);
 	await chargeCall(host.db, sessionId, callTokens(answer, estimateRequestTokens({ systemPrompt, messages })));

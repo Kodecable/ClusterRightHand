@@ -286,7 +286,8 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 						.join("\n");
 					const childId = /subagent_wait\("([0-9a-f-]{36})"\)/.exec(all)?.[1];
 					if (text.includes("waiting for your decision")) {
-						const requestId = /quota ([0-9a-f-]{36})/.exec(text)?.[1];
+						// The request is the JSON entry of the delimited <subagent-requests> block.
+						const requestId = /"kind":"quota","id":"([0-9a-f-]{36})"/.exec(text)?.[1];
 						return fauxAssistantMessage(
 							[
 								fauxToolCall(

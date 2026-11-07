@@ -5,7 +5,8 @@
  *   node test/generate-noise-interop.ts
  */
 import { writeFileSync } from "node:fs";
-import { HandshakeState, keyPairFromPrivate } from "../../noise/src/index.ts";
+import { keyPairFromPrivate } from "../../noise/src/index.ts";
+import { initiatorForTest, responderForTest } from "../../noise/src/testing.ts";
 import { NOISE_PROLOGUE_PREFIX } from "../src/messages.ts";
 
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
@@ -24,13 +25,13 @@ const serverToClient = bytes("server says hi");
 
 const prologue = Buffer.concat([Buffer.from(NOISE_PROLOGUE_PREFIX), challenge]);
 const server = keyPairFromPrivate(Buffer.from(serverStatic, "hex"));
-const initiator = HandshakeState.initiator({
+const initiator = initiatorForTest({
 	prologue,
 	staticKey: keyPairFromPrivate(Buffer.from(clientStatic, "hex")),
 	remoteStaticKey: server.publicKey,
 	ephemeralKey: keyPairFromPrivate(Buffer.from(clientEphemeral, "hex")),
 });
-const responder = HandshakeState.responder({
+const responder = responderForTest({
 	prologue,
 	staticKey: server,
 	ephemeralKey: keyPairFromPrivate(Buffer.from(serverEphemeral, "hex")),

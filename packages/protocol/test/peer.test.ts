@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { encode as encodeCbor } from "../src/cbor.ts";
 import { decodeFrame, encodeFrame, type Frame, MAX_ERROR_MESSAGE_BYTES, ProtocolError } from "../src/frame.ts";
 import type { Facts, TaskStart, TaskStatus } from "../src/messages.ts";
@@ -110,7 +110,7 @@ describe("Peer", () => {
 			throw new RemoteError("invalid_spec", "empty task id");
 		});
 		b.onRequest("task.cancel", () => {
-			throw new Error("boom");
+			throw new RemoteError("not_cancellable", "the task already finished");
 		});
 		await expect(a.request("task.start", TASK_START)).rejects.toMatchObject({
 			name: "RemoteError",
@@ -119,9 +119,34 @@ describe("Peer", () => {
 		});
 		await expect(a.request("task.cancel", { taskId: "t-1" })).rejects.toMatchObject({
 			name: "RemoteError",
-			code: "internal_error",
-			message: "boom",
+			code: "not_cancellable",
+			message: "the task already finished",
 		});
+	});
+
+	it("answers a plain handler error with internal_error and logs it locally", async () => {
+		const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const { a, b, fromB } = makePair();
+			b.onRequest("task.cancel", () => {
+				throw new Error("select secret from pg_shadow at /srv/data");
+			});
+			await expect(a.request("task.cancel", { taskId: "t-1" })).rejects.toMatchObject({
+				name: "RemoteError",
+				code: "internal_error",
+				message: "internal server error",
+			});
+			const errors = fromB.flatMap((frame) => (frame.kind === "response" && !frame.ok ? [frame.error] : []));
+			expect(errors).toHaveLength(1);
+			expect(JSON.stringify(errors[0])).not.toContain("pg_shadow");
+			expect(logs).toHaveBeenCalledTimes(1);
+			const [prefix, logged] = logs.mock.calls[0] ?? [];
+			expect(String(prefix)).toContain("task.cancel");
+			expect((logged as Error).message).toContain("pg_shadow");
+			expect((logged as Error).stack).toContain("pg_shadow");
+		} finally {
+			logs.mockRestore();
+		}
 	});
 
 	it("sends exactly one error response with a bounded message", async () => {
@@ -139,14 +164,14 @@ describe("Peer", () => {
 		expect(errors[0]?.message.length).toBe(MAX_ERROR_MESSAGE_BYTES);
 	});
 
-	it("makes a lone surrogate in a handler error message well-formed", async () => {
+	it("makes a lone surrogate in a remote error message well-formed", async () => {
 		const { a, b, fromB } = makePair();
 		b.onRequest("task.cancel", () => {
-			throw new Error("bad \ud800 name");
+			throw new RemoteError("invalid_spec", "bad \ud800 name");
 		});
 		await expect(a.request("task.cancel", { taskId: "t-1" })).rejects.toMatchObject({
 			name: "RemoteError",
-			code: "internal_error",
+			code: "invalid_spec",
 			message: "bad \uFFFD name",
 		});
 		const errors = fromB.flatMap((frame) => (frame.kind === "response" && !frame.ok ? [frame.error] : []));
@@ -296,16 +321,22 @@ describe("Peer", () => {
 
 	it("does not report request handler failures through onError", async () => {
 		const errors: Error[] = [];
-		const { a, b } = makePair(SUPPORTED_NAMES, undefined, undefined, (error) => errors.push(error));
-		b.onRequest("task.cancel", async () => {
-			throw new Error("boom");
-		});
-		await expect(a.request("task.cancel", { taskId: "t-1" })).rejects.toMatchObject({
-			name: "RemoteError",
-			code: "internal_error",
-			message: "boom",
-		});
-		expect(errors).toEqual([]);
+		const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const { a, b } = makePair(SUPPORTED_NAMES, undefined, undefined, (error) => errors.push(error));
+			b.onRequest("task.cancel", async () => {
+				throw new Error("boom");
+			});
+			await expect(a.request("task.cancel", { taskId: "t-1" })).rejects.toMatchObject({
+				name: "RemoteError",
+				code: "internal_error",
+				message: "internal server error",
+			});
+			expect(errors).toEqual([]);
+			expect(logs).toHaveBeenCalledTimes(1);
+		} finally {
+			logs.mockRestore();
+		}
 	});
 
 	it("sends the success response before running an afterResponse hook", () => {

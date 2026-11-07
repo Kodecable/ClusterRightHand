@@ -6,6 +6,7 @@ import { serve } from "@hono/node-server";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { ModelConfig } from "./agent/models.ts";
 import { AgentRuntime } from "./agent/runtime.ts";
+import { rejectExpiredTokenWaits } from "./api/api-token-waits.ts";
 import { createApp } from "./api/app.ts";
 import { RequestDrain } from "./api/drain.ts";
 import { Audit } from "./audit/audit.ts";
@@ -189,6 +190,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	});
 	// Signature waits that outlived their deadline while crhs was down end before requests are served (D98).
 	await cluster.expireAuthorizationWaits();
+	// A token that expired while crhs was down must not leave its waiting work behind either.
+	await rejectExpiredTokenWaits(db, cluster, taskGroups);
 	// Recovery (leftover pending runs, then runs that ended while the process was down) happens before the loop.
 	const scheduler = new Scheduler({ db, runtime, audit });
 	const drain = new RequestDrain();
@@ -220,7 +223,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	});
 	// The last sweeps are awaited at shutdown, so they cannot write after the database is destroyed.
 	let sweepRun: Promise<void> = Promise.resolve();
-	// Every five minutes: expired login sessions, and signature waits past their deadline (D98).
+	// Every five minutes: expired login sessions, signature waits past their deadline (D98), and the waiting
+	// work of expired API tokens.
 	const sweep = setInterval(
 		() => {
 			sweepRun = Promise.all([
@@ -228,6 +232,9 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 				cluster
 					.expireAuthorizationWaits()
 					.catch((err: unknown) => console.error("authorization wait sweep failed:", err)),
+				rejectExpiredTokenWaits(db, cluster, taskGroups).catch((err: unknown) =>
+					console.error("API token expiry sweep failed:", err),
+				),
 			]).then(() => {});
 		},
 		5 * 60 * 1000,

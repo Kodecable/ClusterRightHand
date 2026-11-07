@@ -255,6 +255,7 @@ web/src/
   - `(owner_user_id, parent_session_id, updated_at, id)`；
   - `scope=all` 用 `(parent_session_id, updated_at, id)`。
 - 搜索：标题用 `LIKE` 子串匹配，参数做转义。SQLite 和 PG 都适用；数据量再大时再考虑 FTS 或 trigram。
+  - 大小写不敏感是**按数据库实现**的：两边都对 `lower()` 后的标题和模式比较，SQLite 的 `lower()` 只折叠 ASCII 字母（`A`–`Z`），所以带重音或其他字母表的标题在 SQLite 上按原样匹配；PostgreSQL 的 `lower()` 按 Unicode 折叠。需要跨两种后端一致时，搜索词只用 ASCII 字母，或不要在标题里依赖非 ASCII 的大小写。带变音符号的字母（如 `Ä` / `ä`）、希腊字母和西里尔字母在 SQLite 上是不同的字符。
 - 会话的状态、标题或消息变化时，必须更新 `updated_at`。实现时核对所有写入点。
 - `GET /api/sessions/stream?scope=`（SSE）：
   - 只推送当前用户可见的根会话的变化：`upsert`（携带 `SessionListItem`）和 `remove`；

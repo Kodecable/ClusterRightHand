@@ -7,6 +7,17 @@ import { type AppEnv, jsonError } from "./context.ts";
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
+ * A host, optionally with a port, in the form an Origin and a Host header compare in: lower-case, and without
+ * the default port of `scheme`. The scheme is the Origin's; a Host header has none of its own, so the proxy's
+ * `host:443` for an https origin equals `example.com`.
+ */
+function normalizedHost(host: string, scheme: string): string {
+	const lower = host.trim().toLowerCase();
+	const defaultPort = scheme === "https" ? ":443" : scheme === "http" ? ":80" : undefined;
+	return defaultPort !== undefined && lower.endsWith(defaultPort) ? lower.slice(0, -defaultPort.length) : lower;
+}
+
+/**
  * CSRF defence for cookie-authenticated requests: state-changing requests must be JSON (which a cross-site
  * form cannot send without a CORS preflight) and, when the browser sends Origin, it must match the Host.
  * The session cookie is also SameSite=Strict.
@@ -19,11 +30,15 @@ export const csrfGuard: MiddlewareHandler = async (c, next) => {
 		}
 		const origin = c.req.header("origin");
 		if (origin !== undefined) {
-			let originHost: string | undefined;
+			let originUrl: URL | undefined;
 			try {
-				originHost = new URL(origin).host;
+				originUrl = new URL(origin);
 			} catch {}
-			if (originHost !== c.req.header("host")) return jsonError(c, 403, "cross-origin request rejected");
+			const scheme = originUrl?.protocol.slice(0, -1) ?? "";
+			const host = c.req.header("host");
+			if (!originUrl || host === undefined || normalizedHost(host, scheme) !== normalizedHost(originUrl.host, scheme)) {
+				return jsonError(c, 403, "cross-origin request rejected");
+			}
 		}
 	}
 	await next();

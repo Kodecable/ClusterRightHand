@@ -28,6 +28,7 @@ import { down as down0043, up as up0043 } from "../src/storage/migrations/0043_m
 import { down as down0044, up as up0044 } from "../src/storage/migrations/0044_session_title_pending.ts";
 import { down as down0045, up as up0045 } from "../src/storage/migrations/0045_sessions_create_request_id.ts";
 import { down as down0046, up as up0046 } from "../src/storage/migrations/0046_thinking_modes_and_labels.ts";
+import { down as down0047, up as up0047 } from "../src/storage/migrations/0047_session_state_default.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
@@ -2050,6 +2051,142 @@ describeBackends("0046 thinking modes and labels", (backend) => {
 			{ id: "broken", models: "{not json" },
 			{ id: "plain", models: before },
 		]);
+	});
+});
+
+describeBackends("0047 session state default", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend);
+		await applyMigration(backend, db, down0047);
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	const expectedIndexes = [
+		"sessions_last_submission_idx",
+		"sessions_owner_create_request_unique",
+		"sessions_owner_idx",
+		"sessions_owner_parent_updated_idx",
+		"sessions_parent_idx",
+		"sessions_parent_updated_idx",
+		"sessions_root_state_idx",
+		"sessions_schedule_idx",
+		"sessions_state_live_idx",
+		"sessions_waiting_handler_idx",
+	];
+
+	const sessionIndexes = async (): Promise<string[]> => {
+		const rows =
+			backend === "postgres"
+				? await sql<{ name: string }>`
+						select c.relname as name
+						from pg_index i
+						join pg_class c on c.oid = i.indexrelid
+						join pg_namespace n on n.oid = c.relnamespace
+						where i.indrelid = 'sessions'::regclass
+							and n.nspname = current_schema()
+							and not i.indisprimary
+							and not exists (select 1 from pg_constraint con where con.conindid = i.indexrelid)
+						order by c.relname
+					`.execute(db)
+				: await sql<{ name: string }>`
+						select name from sqlite_master
+						where type = 'index' and tbl_name = 'sessions' and name not like 'sqlite_autoindex%'
+						order by name
+					`.execute(db);
+		return rows.rows.map((row) => row.name);
+	};
+
+	const insertSession = async (id: string, state?: string): Promise<void> => {
+		const orgId = await defaultOrgId(db);
+		const user = await createUser(db, { username: `owner-${id}`, kind: "member" });
+		const now = "2026-01-01T00:00:00.000Z";
+		const stateColumn = state === undefined ? sql`` : sql`, state`;
+		const stateValue = state === undefined ? sql`` : sql`, ${state}`;
+		await sql`
+			insert into sessions (
+				id, org_id, owner_user_id, conversation_id, title, title_pending, model, status,
+				created_at, updated_at, budget_used_tokens, create_request_id${stateColumn}
+			) values (
+				${id}, ${orgId}, ${user.id}, ${`conv-${id}`}, ${"Kept title"}, 0, ${"{}"}, ${"active"},
+				${now}, ${now}, 7, null${stateValue}
+			)
+		`.execute(db);
+	};
+
+	const states = async (): Promise<Record<string, string>> =>
+		Object.fromEntries(
+			(await sql<{ id: string; state: string }>`select id, state from sessions order by id`.execute(db)).rows.map(
+				(row) => [row.id, row.state],
+			),
+		);
+
+	it("defaults to idle, rewrites rows with the old default and keeps the table and indexes intact", async () => {
+		// The old default applies when no state is given; the other two rows are explicit.
+		await insertSession("legacy-default");
+		await insertSession("legacy-active", "active");
+		await insertSession("legacy-idle", "idle");
+
+		await applyMigration(backend, db, up0047);
+
+		// PostgreSQL appends columns added by ALTER TABLE, so only the set of columns is compared.
+		expect((await tableColumns(backend, db, "sessions"))?.toSorted()).toEqual(
+			[
+				"id",
+				"org_id",
+				"owner_user_id",
+				"conversation_id",
+				"parent_session_id",
+				"title",
+				"title_pending",
+				"model",
+				"status",
+				"created_at",
+				"updated_at",
+				"archived_at",
+				"budget_used_tokens",
+				"last_submission_id",
+				"quota_tokens",
+				"state",
+				"waiting_level_id",
+				"state_changed_at",
+				"waiting_handler_id",
+				"schedule_id",
+				"waiting_kind",
+				"root_session_id",
+				"usage_tokens",
+				"context_tokens",
+				"create_request_id",
+			].toSorted(),
+		);
+		expect(await sessionIndexes()).toEqual(expectedIndexes);
+		expect(await states()).toEqual({
+			"legacy-active": "idle",
+			"legacy-default": "idle",
+			"legacy-idle": "idle",
+		});
+		// The rebuild copied the rest of the row unchanged.
+		const kept = await sql<{ title: string | null; title_pending: number; budget_used_tokens: number | string }>`
+			select title, title_pending, budget_used_tokens from sessions where id = 'legacy-default'
+		`.execute(db);
+		// PostgreSQL returns a bigint as a string.
+		expect(kept.rows.map((row) => ({ ...row, budget_used_tokens: Number(row.budget_used_tokens) }))).toEqual([
+			{ title: "Kept title", title_pending: 0, budget_used_tokens: 7 },
+		]);
+
+		// A new row without a state takes the new default.
+		await insertSession("new-after-up");
+		expect(await states()).toMatchObject({ "new-after-up": "idle" });
+
+		await applyMigration(backend, db, down0047);
+		expect(await sessionIndexes()).toEqual(expectedIndexes);
+		await insertSession("new-after-down");
+		// Rollback restores the old default; rows already moved to idle stay there.
+		expect(await states()).toMatchObject({ "new-after-down": "active", "legacy-idle": "idle" });
 	});
 });
 

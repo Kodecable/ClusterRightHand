@@ -163,6 +163,9 @@ export class ClusterCore {
 			const done = () => {
 				clearTimeout(timer);
 				waiters.delete(done);
+				// A timed-out wait must not leave an empty set behind: nothing would remove it until the next
+				// link change, and a node that is never seen again would keep one.
+				if (waiters.size === 0 && this.linkWaiters.get(nodeId) === waiters) this.linkWaiters.delete(nodeId);
 				resolve();
 			};
 			const timer = setTimeout(done, timeoutMs);

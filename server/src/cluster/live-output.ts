@@ -32,7 +32,12 @@ export const EMPTY_OUTPUT: OutputSnapshot = {
 	outputTail: null,
 };
 
-/** The live record of a task between dispatch and its recorded end. */
+/**
+ * The live record of a task between dispatch and its recorded end. A `text` or `head` task draws from its
+ * group's shared budget. `groupEnded` says the group already ended: the record then gets a budget of its
+ * own, because re-creating the group's released budget would leave an entry in the budget map for a late
+ * result that no other task shares.
+ */
 export function newLive(
 	core: ClusterCore,
 	id: string,
@@ -41,15 +46,29 @@ export function newLive(
 	groupId: string | null,
 	maxLines: number | null = null,
 	maxBytes: number | null = null,
+	options: { groupEnded?: boolean } = {},
 ): Live {
 	// `text` and `head` draw from the group's budget; a single task's `full` keeps its own head/tail.
-	const budget =
-		mode === "text" || mode === "head" ? budgetFor(core, budgetKey(groupId, id), maxLines, maxBytes) : undefined;
+	let budget: GroupBudget | undefined;
+	if (mode === "text" || mode === "head") {
+		budget =
+			options.groupEnded === true
+				? ownBudget(maxLines, maxBytes)
+				: budgetFor(core, budgetKey(groupId, id), maxLines, maxBytes);
+	}
 	const limits =
 		mode === "full" ? { maxLines: maxLines ?? BATCH_GROUP_LINES, maxBytes: maxBytes ?? BATCH_GROUP_BYTES } : undefined;
 	const live: Live = { id, nodeId, groupId, output: createLiveTask(mode, budget, limits) };
 	core.live.set(id, live);
 	return live;
+}
+
+/** The budget of one task that is not shared: it lives only as long as the live record that draws on it. */
+function ownBudget(maxLines: number | null, maxBytes: number | null): GroupBudget {
+	return new GroupBudget({
+		node: { maxLines: maxLines ?? BATCH_NODE_LINES, maxBytes: maxBytes ?? BATCH_NODE_BYTES },
+		total: { maxLines: BATCH_GROUP_LINES, maxBytes: BATCH_GROUP_BYTES },
+	});
 }
 
 /**
@@ -59,10 +78,7 @@ export function newLive(
 function budgetFor(core: ClusterCore, key: string, maxLines: number | null, maxBytes: number | null): GroupBudget {
 	let budget = core.budgets.get(key);
 	if (!budget) {
-		budget = new GroupBudget({
-			node: { maxLines: maxLines ?? BATCH_NODE_LINES, maxBytes: maxBytes ?? BATCH_NODE_BYTES },
-			total: { maxLines: BATCH_GROUP_LINES, maxBytes: BATCH_GROUP_BYTES },
-		});
+		budget = ownBudget(maxLines, maxBytes);
 		core.budgets.set(key, budget);
 	}
 	return budget;

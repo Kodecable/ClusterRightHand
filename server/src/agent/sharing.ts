@@ -199,31 +199,36 @@ export async function shareSession(
 			throw new UserError("the owner already has full access");
 		}
 
-		const existing = await trx
+		// One statement for both cases: two concurrent shares of the same pair would otherwise both read no
+		// row and the loser would fail on the unique constraint instead of returning the share.
+		await trx
+			.insertInto("shares")
+			.values({
+				id: newId(),
+				org_id: session.org_id,
+				resource_type: "session",
+				resource_id: input.sessionId,
+				grantee_type: input.granteeType,
+				grantee_id: input.granteeId,
+				access: input.access,
+				created_by_user_id: input.createdBy,
+				created_at: new Date().toISOString(),
+			})
+			.onConflict((oc) =>
+				oc
+					.columns(["resource_type", "resource_id", "grantee_type", "grantee_id"])
+					.doUpdateSet({ access: input.access }),
+			)
+			.execute();
+		const saved = await trx
 			.selectFrom("shares")
 			.selectAll()
 			.where("resource_type", "=", "session")
 			.where("resource_id", "=", input.sessionId)
 			.where("grantee_type", "=", input.granteeType)
 			.where("grantee_id", "=", input.granteeId)
-			.executeTakeFirst();
-		if (existing) {
-			await trx.updateTable("shares").set({ access: input.access }).where("id", "=", existing.id).execute();
-			return toSessionShare({ ...existing, access: input.access }, name);
-		}
-		const row: Selectable<SharesTable> = {
-			id: newId(),
-			org_id: session.org_id,
-			resource_type: "session",
-			resource_id: input.sessionId,
-			grantee_type: input.granteeType,
-			grantee_id: input.granteeId,
-			access: input.access,
-			created_by_user_id: input.createdBy,
-			created_at: new Date().toISOString(),
-		};
-		await trx.insertInto("shares").values(row).execute();
-		return toSessionShare(row, name);
+			.executeTakeFirstOrThrow();
+		return toSessionShare(saved, name);
 	});
 }
 
