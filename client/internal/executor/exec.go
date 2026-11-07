@@ -38,6 +38,9 @@ type ExecOptions struct {
 	// it for this task, which only tests and programmatic callers do: the modes themselves resolve at
 	// start and let a failure end the process (doc/execution-plane.md#exec-的执行环境).
 	Env *execenv.Environment
+	// noPidFD forces the pgid fallback of process reaping, for tests: no pidfd is requested and
+	// group signals use kill(-pgid).
+	noPidFD bool
 }
 
 // Result is the outcome of a finished task.
@@ -52,8 +55,10 @@ type Result struct {
 	TaskResult *protocol.TaskResult
 }
 
-// RunExec runs an exec task in its own process group. Cancelling ctx (crhs's TaskCancel) or the timeout
-// sends SIGTERM to the group, then SIGKILL after the grace period.
+// RunExec runs an exec task in its own process group. When the task ends, normally or through
+// cancellation or the timeout, the rest of its process group is killed before the leader is
+// reaped, so background children cannot outlive the task. Cancelling ctx (crhs's TaskCancel) or the
+// timeout sends SIGTERM to the group, then SIGKILL after the grace period.
 func RunExec(ctx context.Context, spec *protocol.ExecSpec, stdin io.Reader, out Sink, opts ExecOptions) Result {
 	environment := opts.Env
 	if environment == nil {
@@ -99,6 +104,10 @@ func RunExec(ctx context.Context, spec *protocol.ExecSpec, stdin io.Reader, out 
 	cmd.Stdout = output
 	cmd.Stderr = output
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	pidfd := -1
+	if !opts.noPidFD && pidfdWorks() {
+		cmd.SysProcAttr.PidFD = &pidfd
+	}
 	cmd.WaitDelay = pipeWait
 
 	if err := cmd.Start(); err != nil {
@@ -108,46 +117,10 @@ func RunExec(ctx context.Context, spec *protocol.ExecSpec, stdin io.Reader, out 
 		}
 		return Result{Err: &Error{Code: code, Message: err.Error()}}
 	}
-	pgid := cmd.Process.Pid
-
-	var timeout <-chan time.Time
-	if opts.Timeout > 0 {
-		t := time.NewTimer(opts.Timeout)
-		defer t.Stop()
-		timeout = t.C
+	if pidfd >= 0 {
+		defer unix.Close(pidfd)
 	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-
-	var res Result
-	var kill <-chan time.Time
-	terminate := func() {
-		_ = unix.Kill(-pgid, unix.SIGTERM)
-		kill = time.After(grace)
-	}
-	ctxDone := ctx.Done()
-	for {
-		select {
-		case <-ctxDone:
-			res.Cancelled = true
-			ctxDone = nil
-			terminate()
-		case <-timeout:
-			res.TimedOut = true
-			timeout = nil
-			terminate()
-		case <-kill:
-			_ = unix.Kill(-pgid, unix.SIGKILL)
-			kill = nil
-		case err := <-done:
-			if (res.Cancelled || res.TimedOut) && kill != nil {
-				// The leader is gone; don't leave its group running past the grace period.
-				go func(k <-chan time.Time) { <-k; _ = unix.Kill(-pgid, unix.SIGKILL) }(kill)
-			}
-			fillExit(&res, cmd.ProcessState, err)
-			return res
-		}
-	}
+	return newTaskProcess(cmd, pidfd).run(ctx, opts.Timeout, grace)
 }
 
 // taskEnv builds the environment of one task from the resolved environment and the task's own

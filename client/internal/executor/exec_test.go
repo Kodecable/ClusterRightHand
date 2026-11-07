@@ -2,9 +2,15 @@ package executor
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
@@ -91,11 +97,72 @@ func TestExecSignalAndTimeout(t *testing.T) {
 }
 
 func TestExecCancel(t *testing.T) {
+	pidPath := filepath.Join(t.TempDir(), "pid")
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
-	res, _ := runExec(t, ctx, &protocol.ExecSpec{Command: protocol.Command{Kind: protocol.CommandArgv, Argv: []string{"sleep", "30"}}}, "", ExecOptions{})
-	if !res.Cancelled || res.Signal != "TERM" {
+	defer cancel()
+	out := NewOutput("x", "", OutputOptions{})
+	done := make(chan Result, 1)
+	go func() {
+		done <- RunExec(ctx, &protocol.ExecSpec{
+			Command: protocol.Command{
+				Kind:  protocol.CommandShell,
+				Shell: `sleep 100 & echo $! > "$CRH_PID_FILE"; wait`,
+			},
+			Env: map[string]string{"CRH_PID_FILE": pidPath},
+		}, nil, out, ExecOptions{})
+	}()
+	pid := waitPIDFile(t, pidPath)
+	cancel()
+	res := <-done
+	out.Close()
+	if !res.Cancelled || res.Signal != "TERM" || res.Err != nil {
 		t.Fatalf("cancel: %+v", res)
+	}
+	expectProcessGone(t, pid)
+}
+
+func TestExecKillsBackgroundChildOnNormalEnd(t *testing.T) {
+	for _, mode := range []struct {
+		name    string
+		noPidFD bool
+	}{
+		{"pidfd", false},
+		{"no pidfd", true},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			res, out := runExec(t, context.Background(), &protocol.ExecSpec{Command: protocol.Command{
+				Kind: protocol.CommandShell, Shell: "sleep 100 & echo $!",
+			}}, "", ExecOptions{noPidFD: mode.noPidFD})
+			if code(res) != 0 || res.Err != nil {
+				t.Fatalf("task ended with %+v, output %q", res, out)
+			}
+			expectProcessGone(t, backgroundPID(t, out))
+		})
+	}
+}
+
+func TestExecTimeoutKillsBackgroundChild(t *testing.T) {
+	for _, mode := range []struct {
+		name    string
+		noPidFD bool
+	}{
+		{"pidfd", false},
+		{"no pidfd", true},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			pidPath := filepath.Join(t.TempDir(), "pid")
+			res, _ := runExec(t, context.Background(), &protocol.ExecSpec{
+				Command: protocol.Command{
+					Kind:  protocol.CommandShell,
+					Shell: `sleep 100 & echo $! > "$CRH_PID_FILE"; wait`,
+				},
+				Env: map[string]string{"CRH_PID_FILE": pidPath},
+			}, "", ExecOptions{Timeout: 2 * time.Second, KillGrace: time.Second, noPidFD: mode.noPidFD})
+			if !res.TimedOut || res.Signal != "TERM" || res.Err != nil {
+				t.Fatalf("timeout: %+v", res)
+			}
+			expectProcessGone(t, readPIDFile(t, pidPath))
+		})
 	}
 }
 
@@ -104,5 +171,62 @@ func TestExecBackgroundChildDoesNotBlock(t *testing.T) {
 	res, out := runExec(t, context.Background(), &protocol.ExecSpec{Command: protocol.Command{Kind: protocol.CommandShell, Shell: "sleep 20 & echo started"}}, "", ExecOptions{})
 	if code(res) != 0 || out != "started\n" || time.Since(start) > 10*time.Second {
 		t.Fatalf("%+v %q after %v", res, out, time.Since(start))
+	}
+}
+
+// backgroundPID parses the pid the shell printed with $!.
+func backgroundPID(t *testing.T, out string) int {
+	t.Helper()
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		t.Fatalf("output %q does not hold the background pid", out)
+	}
+	return pid
+}
+
+// waitPIDFile polls until the command wrote its background pid to path.
+func waitPIDFile(t *testing.T, path string) int {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if data, err := os.ReadFile(path); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 0 {
+				return pid
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pid file %s did not appear", path)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func readPIDFile(t *testing.T, path string) int {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read pid file: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatalf("pid file %q holds %q", path, data)
+	}
+	return pid
+}
+
+// expectProcessGone polls until pid no longer exists, so the test does not depend on how quickly
+// the kernel reaps a killed process.
+func expectProcessGone(t *testing.T, pid int) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		err := unix.Kill(pid, 0)
+		if errors.Is(err, unix.ESRCH) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("background process %d is still running: %v", pid, err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

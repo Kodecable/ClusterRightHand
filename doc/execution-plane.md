@@ -11,9 +11,9 @@
 | kind | 说明 |
 |---|---|
 | `exec` | 执行命令：`argv`（直接执行）或 `shell`（`sh -c`）；可选 `env`、`cwd`、`stdin`、超时 |
-| `file.read` | 按行读文件：从第 `start_line` 行起最多 `line_count` 行，整页不超过 50KB；节点从文件开头扫描，发完整行，不读到文件末尾；页面字节走输出流，页面的行范围和文件末尾信息在 `task.exit` 的 `result` 里（见 [protocol.md](protocol.md#taskresult)） |
+| `file.read` | 按行读文件：从第 `start_line` 行起最多 `line_count` 行，整页不超过 50KB；节点从文件开头扫描，发完整行，不读到文件末尾；页面字节走输出流，页面的行范围和文件末尾信息在 `task.exit` 的 `result` 里（见 [protocol.md](protocol.md#taskresult)）。crha 只读常规文件：读取前先检查类型，设备、FIFO、socket 和目录以 `not_regular_file` 拒绝 |
 | `file.write` | 原子写（临时文件 + rename）；可设置 mode/owner。默认只**创建新文件**，目标已存在时失败（`renameat2` 的 `RENAME_NOREPLACE`）；`overwrite = true` 时才覆盖。结果（写入字节数、是否新建）在 `task.exit` 的 `result` 里 |
-| `file.edit` | 按原文替换，格式与 pi 的 edit 工具相同：`edits[]`，每项 `oldText` / `newText`，`oldText` 必须在文件中出现且只出现一次，所有替换都针对原始内容匹配；保留 BOM 和换行风格；结果原子写回。结果（替换数量）在 `task.exit` 的 `result` 里 |
+| `file.edit` | 按原文替换，格式与 pi 的 edit 工具相同：`edits[]`，每项 `oldText` / `newText`，`oldText` 必须在文件中出现且只出现一次，所有替换都针对原始内容匹配；保留 BOM 和换行风格；结果原子写回。crha 只编辑常规文件：打开前先检查类型，设备、FIFO、socket 和目录以 `not_regular_file` 拒绝。结果（替换数量）在 `task.exit` 的 `result` 里 |
 | `file.stat` | 文件元信息，作为 `task.exit` 的 `result` 返回 |
 | `file.list` | 列目录，有条目数上限，条目作为 `task.exit` 的 `result` 返回 |
 
@@ -26,6 +26,7 @@
 - **审批延迟**：特权编辑的 `exact` 授权绑定 `edits` 本身，用户批准的是"把这段改成那段"。等待审批期间文件变了，只要 `oldText` 仍然唯一匹配，执行的仍然是用户批准的那个修改；不匹配就失败。
 - **防覆盖**：`file.write` 默认只创建新文件，避免模型用整文件写入意外覆盖现有内容；确实需要整体替换时显式打开 `overwrite`。
 - **符号链接**：非特权的 `file.write` / `file.edit` 经过符号链接时写链接指向的目标并保留链接本身（`file.write` 遇到悬空链接会创建目标）；特权任务仍拒绝任何一级符号链接（`symlink_not_allowed`，见 privilege.md）。
+- **目标目录**：`file.write` 先在目标目录里创建 0600 的临时文件，写完 fsync 后 rename 到目标名，所以目录必须允许 crha 创建文件。目录对所有人可写且**没有 sticky 位**时，本机其他用户可以在 rename 之前替换或挪走这个临时文件，最终发布的内容就不再是 crha 写入的；这类目录不是 `file.write` 支持的目标（需要共享写入时给目录加 sticky 位，例如 `/tmp`）。`file.edit` 的原子写回使用同样的临时文件，规则相同。
 - 剩余的竞态（crha 读取和 rename 之间的极短窗口）与 pi 在本地编辑时相同，接受。
 
 PTY 交互、文件传输等后续再加。
@@ -39,7 +40,7 @@ kind, spec     见上
 privileged     true | false             # true 时为特权任务，走授权链路，见 privilege.md
 attempt        1, 2, 3, ...             # 同一 task id 的授权尝试；payload 和 task.start 都带
 authorization  可选：特权任务的一个授权对象（payload + signatures[]）；本地批准时为空，见 privilege.md
-timeout_ms     仅 exec：超时后先发 SIGTERM，宽限期过后发 SIGKILL（杀整个进程组）；file.* 任务没有超时，只能由取消结束
+timeout_ms     仅 exec：超时后先发 SIGTERM，宽限期过后发 SIGKILL（杀整个进程组）；任务结束时整个进程组同样会被清理（见[进程组与结束清理](#进程组与结束清理)）；file.* 任务没有超时，只能由取消结束
 output_mode    full | text | status：单任务为 full（头尾 + 超阈值落盘）；任务组为 text 或 status，默认 status
 ```
 
@@ -68,6 +69,13 @@ crha 节点上的 exec（非特权模式、特权模式、native helper）不原
 - **授权和显示**：签名、规则匹配（`exact` / `prefix` / RE2）、`spec_sha256` 和界面显示中，`shell` 命令仍渲染为 `/bin/sh -c '<cmd>'`。这里的 `/bin/sh` 表示"节点发现的 sh"，不是字面路径；crhs 和 crha 的渲染不因节点而变。
 - 同样的方法（`/etc/shells` 中文件名为 `bash` 的第一个路径，然后在 PATH 中查找 `bash`）发现 bash，找不到不算错误。两者都由非特权模式在 `facts` 的 `shells` 中上报（见 [protocol.md](protocol.md#命令与事件)），agent 用它判断能否 `bash -c`。
 - `C.UTF-8` 在 glibc 2.35 起内置；更老的系统可能没有这个 locale，程序会退回 C locale 并可能在 stderr 打印警告。crha 不检测。
+
+### 进程组与结束清理
+
+每个 exec 任务都在自己的进程组里运行（`setpgid`）。任务结束时——正常退出、超时或取消——crha 先向整个进程组发 SIGKILL，再回收任务进程：组里剩下的后台子进程随任务一起结束，以 root 运行的任务也无法留下守护进程。需要长期运行的服务用 `systemctl` 启动（或 `setsid`、其他服务管理器），让它离开任务的进程组；任务里直接 `cmd &` 启动的后台进程会在任务结束时被杀掉。
+
+- 取消和超时保持原来的顺序：先向进程组发 SIGTERM，宽限期（`kill_grace_ms`）过后发 SIGKILL；正常退出时只补一次 SIGKILL，清理组内残留。
+- **pidfd**：内核 5.3+ 提供 pidfd，5.4+ 支持 `waitid(P_PIDFD)`，6.9+ 支持用 pidfd 给整个进程组发信号（`PIDFD_SIGNAL_PROCESS_GROUP`）。crha 用 pidfd 等待并确认任务进程退出，在回收它之前清理进程组，pid 和 pgid 在信号发出前不会被复用。内核不支持对应能力时依次退回 `waitid(P_PID)` 和 `kill(-pgid, …)`，并且只在任务进程尚未回收（还是僵尸进程）时用 pgid 发信号；任务进程一旦被回收，crha 不再用 pgid 发任何信号。
 
 ### 状态机（服务端视角）
 

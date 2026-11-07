@@ -73,6 +73,9 @@ type Server struct {
 	conns    map[*conn]struct{}
 	forwards map[*conn]struct{}
 	tasks    map[*taskrun.Task]struct{}
+	// idle is closed while no accepted task is running. registerTask opens a new channel for the
+	// next busy period; unregisterTask closes it when the last task finished.
+	idle chan struct{}
 
 	approvalMu sync.Mutex
 	approvals  map[approvalKey]*approval
@@ -117,8 +120,10 @@ func New(cfg *config.Config, opts Options) (*Server, error) {
 		conns:     make(map[*conn]struct{}),
 		forwards:  make(map[*conn]struct{}),
 		tasks:     make(map[*taskrun.Task]struct{}),
+		idle:      make(chan struct{}),
 		approvals: make(map[approvalKey]*approval),
 	}
+	close(s.idle)
 	s.cfg.Store(cfg)
 	return s, nil
 }
@@ -276,21 +281,24 @@ func (s *Server) shutdown() {
 	}
 }
 
-// waitTasks waits until no accepted task is running. It returns false on timeout.
+// waitTasks waits until no accepted task is running. It returns false when timeout expires first.
 func (s *Server) waitTasks(timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	for {
 		s.mu.Lock()
-		if len(s.tasks) == 0 {
-			s.mu.Unlock()
+		idle := s.idle
+		done := len(s.tasks) == 0
+		s.mu.Unlock()
+		if done {
 			return true
 		}
-		if !time.Now().Before(deadline) {
-			s.mu.Unlock()
+		select {
+		case <-idle:
+			// The task set emptied; check again whether another task took its place.
+		case <-timer.C:
 			return false
 		}
-		s.mu.Unlock()
-		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -314,14 +322,23 @@ func (s *Server) unregisterConn(c *conn) {
 func (s *Server) registerTask(t *taskrun.Task) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(s.tasks) == 0 {
+		s.idle = make(chan struct{})
+	}
 	s.tasks[t] = struct{}{}
 }
 
-// unregisterTask removes a finished task.
+// unregisterTask removes a finished task and wakes waitTasks once none are left.
 func (s *Server) unregisterTask(t *taskrun.Task) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, ok := s.tasks[t]; !ok {
+		return
+	}
 	delete(s.tasks, t)
+	if len(s.tasks) == 0 {
+		close(s.idle)
+	}
 }
 
 // forwardConns returns a snapshot of the forward connections.
