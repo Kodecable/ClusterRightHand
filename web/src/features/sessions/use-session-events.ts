@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { enc } from "@/lib/api/client";
+import { type ApiError, enc } from "@/lib/api/client";
 import { subscribeSse } from "@/lib/api/sse";
 import type { AgentEvent, EntryRecord } from "./session-events";
 import { initialState, prependHistory, reduceAll, type SessionState } from "./session-reducer";
@@ -11,6 +11,11 @@ export interface SessionEvents {
 	/** The structural transcript state; the streaming text itself lives in `streams`. */
 	state: SessionState;
 	connection: Connection;
+	/**
+	 * A terminal stream failure (401, 403 or 404): the subscription closed and
+	 * no reconnect is scheduled, so the page must not keep showing its state.
+	 */
+	error: ApiError | undefined;
 	streams: TranscriptStreams;
 	/** Prepends a page loaded from `GET /sessions/:id/entries`, without disturbing the live stream. */
 	applyHistory: (entries: readonly EntryRecord[], historyCursor: string | null) => void;
@@ -55,6 +60,7 @@ function structureKey(state: SessionState): string {
 		state.entries.length,
 		first,
 		last,
+		state.liveKey ?? "",
 		blocks,
 		tools,
 		state.running,
@@ -79,6 +85,7 @@ function structureKey(state: SessionState): string {
 export function useSessionEvents(id: string | undefined): SessionEvents {
 	const [state, setState] = useState<SessionState>(initialState);
 	const [connection, setConnection] = useState<Connection>("connecting");
+	const [error, setError] = useState<ApiError | undefined>(undefined);
 	const [childrenRevision, setChildrenRevision] = useState(0);
 	const stateRef = useRef<SessionState>(initialState);
 	const publishedKey = useRef<string | null>(null);
@@ -90,6 +97,7 @@ export function useSessionEvents(id: string | undefined): SessionEvents {
 		publishedKey.current = null;
 		streams.disposeAll();
 		setState(initialState);
+		setError(undefined);
 		if (id === undefined || id === "") {
 			setConnection("connecting");
 			return;
@@ -107,7 +115,9 @@ export function useSessionEvents(id: string | undefined): SessionEvents {
 				stateRef.current = next;
 				streams.sync(next);
 				const key = structureKey(next);
-				if (key !== publishedKey.current) {
+				// A snapshot can change hidden state (the streamed-row keys it drops)
+				// without changing the list's structure; it must still reach React.
+				if (events.some((event) => event.type === "snapshot") || key !== publishedKey.current) {
 					publishedKey.current = key;
 					setState(next);
 				}
@@ -115,6 +125,7 @@ export function useSessionEvents(id: string | undefined): SessionEvents {
 			},
 			onOpen: () => setConnection("live"),
 			onError: () => setConnection("reconnecting"),
+			onTerminal: (terminal) => setError(terminal),
 		});
 		return () => {
 			unsubscribe();
@@ -137,5 +148,5 @@ export function useSessionEvents(id: string | undefined): SessionEvents {
 		[streams],
 	);
 
-	return { state, connection, streams, applyHistory, childrenRevision };
+	return { state, connection, error, streams, applyHistory, childrenRevision };
 }

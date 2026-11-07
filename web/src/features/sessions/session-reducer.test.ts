@@ -409,6 +409,88 @@ describe("history pages", () => {
 		expect(tools[1]).toMatchObject({ kind: "tool", callId: "c1", status: "done" });
 	});
 
+	test("a reconnect snapshot keeps the older pages that were already loaded", () => {
+		let s = reduceAll(initialState, [
+			{
+				type: "snapshot",
+				snapshot: {
+					entries: [userEntry("10", "newest"), assistantEntry("11", [{ type: "text", text: "answer" }])],
+					tools: [],
+					inbox: [],
+					historyCursor: "h2",
+				},
+			},
+		]);
+		s = prependHistory(s, [userEntry("8", "older"), assistantEntry("9", [{ type: "text", text: "old" }])], "h1");
+		s = reduceAll(s, [
+			{
+				type: "snapshot",
+				snapshot: {
+					entries: [userEntry("10", "newest"), assistantEntry("11", [{ type: "text", text: "answer" }])],
+					tools: [],
+					inbox: [],
+					historyCursor: "h2",
+				},
+			},
+		]);
+		expect(s.entries.map((entry) => entry.id)).toEqual(["8", "9", "10", "11"]);
+		// The oldest loaded page still defines where older pages continue.
+		expect(s.historyCursor).toBe("h1");
+		expect(transcript(s).map((item) => item.key)).toEqual(["8", "9/0", "10", "11/0"]);
+
+		// A snapshot that repeats a loaded entry does not duplicate it.
+		s = reduceAll(s, [
+			{
+				type: "snapshot",
+				snapshot: {
+					entries: [
+						userEntry("9", "old"),
+						userEntry("10", "newest"),
+						assistantEntry("11", [{ type: "text", text: "answer" }]),
+					],
+					tools: [],
+					inbox: [],
+					historyCursor: "h2",
+				},
+			},
+		]);
+		expect(s.entries.map((entry) => entry.id)).toEqual(["8", "9", "10", "11"]);
+		expect(s.historyCursor).toBe("h1");
+	});
+
+	test("a reconnect snapshot without overlap replaces the loaded pages", () => {
+		const loaded = Array.from({ length: 10 }, (_, index) => userEntry(String(index + 1), `old ${index + 1}`));
+		let s = reduceAll(initialState, [
+			{ type: "snapshot", snapshot: { entries: loaded, tools: [], inbox: [], historyCursor: "h-old" } },
+		]);
+		const snapshot = Array.from({ length: 100 }, (_, index) => userEntry(String(200 + index), `new ${200 + index}`));
+		s = reduceAll(s, [
+			{ type: "snapshot", snapshot: { entries: snapshot, tools: [], inbox: [], historyCursor: "h-new" } },
+		]);
+		// More than a snapshot page arrived while disconnected: the old page and the snapshot do not touch,
+		// so keeping it would leave a gap no cursor could load.
+		expect(s.entries.map((entry) => entry.id)).toEqual(snapshot.map((entry) => entry.id));
+		expect(s.historyCursor).toBe("h-new");
+	});
+
+	test("the oldest snapshot entry, not its first array entry, bounds the kept page", () => {
+		// A snapshot lists a compaction before the messages it kept, so its first
+		// array entry has a higher id than the page it belongs to.
+		const compaction: EntryRecord = {
+			id: "1126",
+			kind: "pi.compaction",
+			model: [{ role: "user", content: "Summary" }],
+		};
+		const entries = [compaction, assistantEntry("1013", [{ type: "text", text: "kept" }])];
+		let s = reduceAll(initialState, [
+			{ type: "snapshot", snapshot: { entries, tools: [], inbox: [], historyCursor: "h1" } },
+		]);
+		s = prependHistory(s, [userEntry("959", "very old")], "h0");
+		s = reduceAll(s, [{ type: "snapshot", snapshot: { entries, tools: [], inbox: [], historyCursor: "h1" } }]);
+		expect(s.entries.map((entry) => entry.id)).toEqual(["959", "1126", "1013"]);
+		expect(s.historyCursor).toBe("h0");
+	});
+
 	test("a compaction entry is a note row, not a user bubble", () => {
 		const s = reduceAll(initialState, [
 			{

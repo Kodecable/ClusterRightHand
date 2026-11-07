@@ -820,6 +820,21 @@ describe("GET /api/sessions/:id/children", () => {
 });
 
 describe("GET /api/sessions/stream", () => {
+	it("answers HEAD without opening a stream", async () => {
+		expect(runtime.sessionList.subscriberCount).toBe(0);
+		const visible = await call(app, "/api/sessions/stream?scope=visible", { method: "HEAD", cookie: cookie.alice });
+		expect(visible.status).toBe(200);
+		expect(await visible.text()).toBe("");
+		expect(runtime.sessionList.subscriberCount).toBe(0);
+		// A stream would still hold the drain after the response returned.
+		expect(await Promise.race([drain.waitForIdle().then(() => true), sleep(100).then(() => false)])).toBe(true);
+
+		expect((await call(app, "/api/sessions/stream?scope=all", { method: "HEAD", cookie: cookie.bob })).status).toBe(
+			403,
+		);
+		expect((await call(app, "/api/sessions/stream", { method: "HEAD" })).status).toBe(401);
+	});
+
 	it("sends an upsert only to subscribers who can see the session, and a remove on unshare", async () => {
 		const shared = await newSession("alice", "stream shared");
 		const hidden = await newSession("bob", "stream hidden");

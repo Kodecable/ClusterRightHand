@@ -113,7 +113,16 @@ async function sessionEvents(sessionId: string): Promise<FakeEventSource> {
 }
 
 /** The page at `/sessions/s1`, with the list row the app would already have loaded. */
-async function renderSessionPage({ session, treeRow }: { session: SessionView; treeRow?: SessionListItem }) {
+async function renderSessionPage({
+	session,
+	treeRow,
+	eventsStatus,
+}: {
+	session: SessionView;
+	treeRow?: SessionListItem;
+	/** The status the failed event stream's HEAD probe sees; defaults to 200 like the real stream route. */
+	eventsStatus?: number;
+}) {
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 	if (treeRow !== undefined) {
 		client.setQueryData(sessionKeys.listPage("mine", ""), {
@@ -124,10 +133,11 @@ async function renderSessionPage({ session, treeRow }: { session: SessionView; t
 	vi.stubGlobal("EventSource", FakeEventSource);
 	vi.stubGlobal(
 		"fetch",
-		vi.fn(async (input: RequestInfo | URL) => {
+		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 			const path = new URL(String(input), "http://localhost").pathname;
 			const json = (body: unknown) =>
 				new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+			if (init?.method === "HEAD") return new Response(null, { status: eventsStatus ?? 200 });
 			if (path === `/api/sessions/${session.id}`) return json({ session, shares: [] });
 			if (path === `/api/sessions/${session.id}/children`) return json({ items: [], nextCursor: null });
 			if (path === `/api/sessions/${session.id}/children/summary`)
@@ -307,5 +317,18 @@ describe("SessionPage layout", () => {
 		});
 		expect(screen.queryByText("Working…")).not.toBeInTheDocument();
 		expect(screen.queryByRole("status")).not.toBeInTheDocument();
+	});
+
+	test("a terminal stream error replaces the stale page with its error state", async () => {
+		await renderSessionPage({ session: sessionView(), eventsStatus: 404 });
+		await screen.findByTestId("session-page");
+		const source = await sessionEvents("s1");
+
+		act(() => {
+			source.emit("error");
+		});
+
+		await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("HTTP 404"));
+		expect(screen.queryByTestId("session-page")).not.toBeInTheDocument();
 	});
 });

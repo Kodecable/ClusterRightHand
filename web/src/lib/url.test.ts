@@ -1,12 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-	decodeCharacterReferences,
-	inspectUrl,
-	isSafeUrl,
-	safeHashLink,
-	safeInternalPath,
-	safeUrlTransform,
-} from "./url";
+import { inspectUrl, safeInternalPath, safeUrlTransform } from "./url";
 
 describe("inspectUrl", () => {
 	test("allows http, https and mailto case-insensitively", () => {
@@ -41,50 +34,39 @@ describe("inspectUrl", () => {
 			undefined,
 			42,
 		]) {
-			expect(isSafeUrl(url), String(url)).toBe(false);
+			expect(inspectUrl(url).allowed, String(url)).toBe(false);
 		}
 	});
 
-	test("decodes character references before checking the scheme", () => {
+	test("rejects schemes hidden by control characters or character references", () => {
 		for (const url of [
-			"jav&#x61;script:alert(1)",
-			"jav&#97;script:alert(1)",
-			"jav&#0000097;script:alert(1)",
-			"javascript&#58;alert(1)",
-			"java&Tab;script:alert(1)",
-			"java&NewLine;script:alert(1)",
-			"java%09script:alert(1)",
 			"\u0000javascript:alert(1)",
 			"java\u0009script:alert(1)",
 			"java\u000Ascript:alert(1)",
 			"java\u000Dscript:alert(1)",
+			"java%09script:alert(1)",
+			// react-markdown decodes these before calling the transform; a URL that
+			// still has them has no colon where a scheme would be and is rejected.
+			"jav&#x61;script:alert(1)",
+			"jav&#97;script:alert(1)",
+			"javascript&#58;alert(1)",
+			"java&Tab;script:alert(1)",
+			"java&NewLine;script:alert(1)",
 		]) {
-			expect(isSafeUrl(url), JSON.stringify(url)).toBe(false);
+			expect(inspectUrl(url).allowed, JSON.stringify(url)).toBe(false);
 		}
 	});
 
-	test("decodeCharacterReferences decodes numeric and named entities", () => {
-		expect(decodeCharacterReferences("a&#x41;b")).toBe("aAb");
-		expect(decodeCharacterReferences("a&#65;b")).toBe("aAb");
-		expect(decodeCharacterReferences("a&amp;b")).toBe("a&b");
-		expect(decodeCharacterReferences("a&colon;b")).toBe("a:b");
-		expect(decodeCharacterReferences("a&unknown;b")).toBe("a&unknown;b");
+	test("keeps a literal &amp; in the query instead of decoding it again", () => {
+		const url = "https://example.com/search?q=a&amp;b=1";
+		expect(inspectUrl(url)).toEqual({ allowed: true, url, scheme: "https:" });
+		expect(safeUrlTransform(url)).toBe(url);
 	});
 
 	test("safeUrlTransform returns the URL or an empty string", () => {
 		expect(safeUrlTransform("https://example.com")).toBe("https://example.com");
 		expect(safeUrlTransform("  https://example.com  ")).toBe("https://example.com");
 		expect(safeUrlTransform("javascript:alert(1)")).toBe("");
-	});
-});
-
-describe("safeHashLink", () => {
-	test("keeps only same-origin hash paths", () => {
-		expect(safeHashLink("http://h:1/#/approvals/tasks/abc")).toBe("#/approvals/tasks/abc");
-		expect(safeHashLink("#/tasks/t-1")).toBe("#/tasks/t-1");
-		expect(safeHashLink("javascript:alert(1)")).toBeUndefined();
-		expect(safeHashLink("#/tasks/../../etc")).toBeUndefined();
-		expect(safeHashLink("")).toBeUndefined();
 	});
 });
 

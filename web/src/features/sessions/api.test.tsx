@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { approvalKeys } from "@/features/approvals/api";
 import { taskKeys } from "@/features/tasks/api";
 import type { ApprovalList, SessionListItem, SessionPatch, SessionView } from "@/lib/api/types";
-import { sessionKeys, useAbortSession, usePatchSession, useSessionTreeSync } from "./api";
+import { sessionKeys, useAbortSession, usePatchSession, useSessionRootId, useSessionTreeSync } from "./api";
 import { publishSessionListUpsert } from "./list-stream-bus";
 
 const APPROVALS: ApprovalList = {
@@ -59,6 +59,12 @@ function item(overrides: Partial<SessionListItem> = {}): SessionListItem {
 function Harness({ sessionId, rootId }: { sessionId: string; rootId: string }) {
 	const tree = useSessionTreeSync(sessionId, rootId);
 	return <span data-testid="tree-state">{tree?.state ?? "unknown"}</span>;
+}
+
+function RootHarness({ session, seen }: { session: SessionView | undefined; seen: string[] }) {
+	const root = useSessionRootId(session);
+	seen.push(root ?? "none");
+	return <span data-testid="root-id">{root ?? "none"}</span>;
 }
 
 function setup({
@@ -161,6 +167,73 @@ describe("useSessionTreeSync", () => {
 		});
 
 		expect(treeState()).toBe("running");
+	});
+
+	test("rescans the loaded list pages only when a session-list query changes", () => {
+		const { client } = setup({
+			sessionId: "child-1",
+			rootId: "root-1",
+			seed: (queryClient) =>
+				queryClient.setQueryData(sessionKeys.listPage("mine", ""), {
+					pages: [{ items: [item({ id: "root-1", state: "idle" })], nextCursor: null }],
+					pageParams: [null],
+				}),
+		});
+		const readPages = vi.spyOn(client, "getQueriesData");
+
+		act(() => {
+			client.setQueryData(["unrelated"], { ok: true });
+			client.setQueryData(sessionKeys.detail("root-1"), detail({ id: "root-1" }));
+		});
+		expect(readPages).not.toHaveBeenCalled();
+
+		act(() => {
+			client.setQueryData(sessionKeys.listPage("mine", ""), {
+				pages: [{ items: [item({ id: "root-1", state: "running" })], nextCursor: null }],
+				pageParams: [null],
+			});
+		});
+		expect(readPages).toHaveBeenCalled();
+		expect(treeState()).toBe("running");
+	});
+});
+
+describe("useSessionRootId", () => {
+	test("switching trees never yields the previous tree's root", async () => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+		});
+		const views = [
+			detail({ id: "root-a", parentSessionId: null }),
+			detail({ id: "parent-a", parentSessionId: "root-a" }),
+			detail({ id: "child-a", parentSessionId: "parent-a" }),
+			detail({ id: "root-b", parentSessionId: null }),
+			detail({ id: "parent-b", parentSessionId: "root-b" }),
+			detail({ id: "child-b", parentSessionId: "parent-b" }),
+		];
+		for (const view of views) client.setQueryData(sessionKeys.detail(view.id), view);
+		const childA = views.find((view) => view.id === "child-a");
+		const childB = views.find((view) => view.id === "child-b");
+		if (childA === undefined || childB === undefined) throw new Error("missing test session");
+		const seen: string[] = [];
+
+		const view = render(
+			<QueryClientProvider client={client}>
+				<RootHarness session={childA} seen={seen} />
+			</QueryClientProvider>,
+		);
+		await waitFor(() => expect(screen.getByTestId("root-id")).toHaveTextContent("root-a"));
+
+		// The first render after the switch must already use the new tree's chain;
+		// the old tree's cached pages may not leak its root into that render.
+		seen.length = 0;
+		view.rerender(
+			<QueryClientProvider client={client}>
+				<RootHarness session={childB} seen={seen} />
+			</QueryClientProvider>,
+		);
+		expect(seen).not.toContain("root-a");
+		await waitFor(() => expect(screen.getByTestId("root-id")).toHaveTextContent("root-b"));
 	});
 });
 

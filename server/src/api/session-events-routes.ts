@@ -117,6 +117,9 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 			return jsonError(c, 400, "scope must be mine, shared, visible or all");
 		}
 		if (scope === "all" && c.get("user").kind !== "admin") return jsonError(c, 403, "administrators only");
+		// A HEAD probe checks access without opening a stream: Hono serves HEAD with this GET handler and
+		// drops the body, so `streamSSE` here would register and hold a stream nobody reads.
+		if (c.req.method === "HEAD") return c.body(null, 200);
 		return streamSSE(c, async (stream) => {
 			const abort = new AbortController();
 			let queue: Promise<unknown> = Promise.resolve();
@@ -154,6 +157,9 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 	app.get("/sessions/:id/events", async (c) => {
 		const v = await visibleSession(db, runtime, c.get("user"), c.req.param("id"));
 		if (!v) return jsonError(c, 404, "no such session");
+		// A HEAD probe checks access without opening a stream: Hono serves HEAD with this GET handler and
+		// drops the body, so `streamSSE` here would register and hold a stream nobody reads.
+		if (c.req.method === "HEAD") return c.body(null, 200);
 		return streamSSE(c, async (stream) => {
 			const abort = new AbortController();
 			const live: LiveStream = { user: c.get("user"), sessionId: v.session.id, abort: () => stream.abort() };

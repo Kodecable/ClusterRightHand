@@ -1,3 +1,5 @@
+import { ApiError, notifyUnauthorized } from "./client";
+
 /**
  * A small Server-Sent-Events subscription with explicit reconnect and
  * exponential backoff.
@@ -8,6 +10,11 @@
  * backoff, to count attempts, and to refetch the first page after a gap (the
  * contract requires that: events missed while disconnected are not replayed).
  *
+ * An `EventSource` error does not carry the HTTP status, so a failed attempt is
+ * probed with a `HEAD` request before deciding what to do: a lost session
+ * (401), a session the viewer may not see (403) or a deleted one (404) is
+ * terminal, while network errors and 5xx responses are retried.
+ *
  * The returned function ends the subscription for good; it is meant for a
  * `useEffect` cleanup.
  */
@@ -17,8 +24,13 @@ export interface SseHandlers {
 	onEvent: (event: string, data: unknown) => void;
 	/** The connection opened; `reconnected` is false for the first connection. */
 	onOpen?: (reconnected: boolean) => void;
-	/** A connection attempt failed (the next one is already scheduled). */
+	/** A retryable connection attempt failed (the next one is already scheduled). */
 	onError?: (error: unknown) => void;
+	/**
+	 * The endpoint answered with 401, 403 or 404. The subscription is closed and
+	 * no reconnect is scheduled; a 401 also clears the auth store.
+	 */
+	onTerminal?: (error: ApiError) => void;
 }
 
 export interface SseOptions extends SseHandlers {
@@ -30,10 +42,39 @@ export interface SseOptions extends SseHandlers {
 	maxDelayMs?: number;
 	/** Test seam: defaults to the global EventSource. */
 	eventSourceFactory?: (url: string) => EventSource;
+	/** Test seam: defaults to a `HEAD` request against the global fetch. */
+	statusProbe?: (url: string) => Promise<number | undefined>;
 }
 
 const DEFAULT_BASE_DELAY = 1_000;
 const DEFAULT_MAX_DELAY = 30_000;
+
+/** The HTTP status of a failed `EventSource`, when the event carries one (tests and future browsers). */
+function eventStatus(error: unknown): number | undefined {
+	if (typeof error !== "object" || error === null) return undefined;
+	const status = (error as { status?: unknown }).status;
+	return typeof status === "number" ? status : undefined;
+}
+
+/**
+ * Ask the endpoint for the status of the failed connection. A `HEAD` request
+ * runs the route's access checks but sends no body, so it does not open a
+ * second event stream.
+ */
+async function probeStatus(url: string): Promise<number | undefined> {
+	if (typeof fetch === "undefined") return undefined;
+	try {
+		const response = await fetch(url, {
+			method: "HEAD",
+			credentials: "same-origin",
+			cache: "no-store",
+			headers: { accept: "text/event-stream" },
+		});
+		return response.status;
+	} catch {
+		return undefined;
+	}
+}
 
 export function subscribeSse({
 	url,
@@ -41,9 +82,11 @@ export function subscribeSse({
 	onEvent,
 	onOpen,
 	onError,
+	onTerminal,
 	baseDelayMs = DEFAULT_BASE_DELAY,
 	maxDelayMs = DEFAULT_MAX_DELAY,
 	eventSourceFactory,
+	statusProbe = probeStatus,
 }: SseOptions): () => void {
 	const create =
 		eventSourceFactory ?? (typeof EventSource === "undefined" ? null : (target: string) => new EventSource(target));
@@ -54,6 +97,22 @@ export function subscribeSse({
 	let attempts = 0;
 	let everOpened = false;
 	let timer: ReturnType<typeof setTimeout> | null = null;
+
+	const fail = async (error: unknown) => {
+		const status = eventStatus(error) ?? (await statusProbe(url));
+		if (closed) return;
+		if (status === 401) {
+			notifyUnauthorized();
+			onTerminal?.(new ApiError(status, "HTTP 401"));
+			return;
+		}
+		if (status === 403 || status === 404) {
+			onTerminal?.(new ApiError(status, `HTTP ${status}`));
+			return;
+		}
+		onError?.(error);
+		scheduleReconnect();
+	};
 
 	const connect = () => {
 		if (closed) return;
@@ -66,11 +125,10 @@ export function subscribeSse({
 			onOpen?.(reconnected);
 		});
 		current.addEventListener("error", (error) => {
-			if (closed) return;
-			onError?.(error);
+			if (closed || source !== current) return;
 			current.close();
 			source = null;
-			scheduleReconnect();
+			void fail(error);
 		});
 		for (const name of events) {
 			current.addEventListener(name, (event) => {

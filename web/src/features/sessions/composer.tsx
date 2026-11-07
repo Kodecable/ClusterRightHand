@@ -52,30 +52,56 @@ function ComposerForm({ session, stoppable }: ComposerProps) {
 	const abort = useAbortSession(session.id);
 	const pending = send.isPending || compact.isPending;
 
-	// The textarea grows with its content, but never past half of the transcript's height.
+	// The textarea grows with its content, but never past half of the transcript
+	// pane: the pane is what the page has left above the composer, so banners,
+	// waits and the composer itself all change the height that matters. Only the
+	// pane's size and the page's direct children are observed; a streaming frame
+	// that mutates rows deep inside the transcript does not force a layout here.
 	useEffect(() => {
-		let observed: HTMLElement | null = null;
-		const resize = new ResizeObserver(() => measure());
-		const measure = () => {
-			const transcript = document.querySelector<HTMLElement>('[data-slot="transcript"]');
-			const page = document.querySelector<HTMLElement>('[data-testid="session-page"]');
-			if (transcript !== null && transcript !== observed) {
-				if (observed !== null) resize.unobserve(observed);
-				observed = transcript;
-				resize.observe(transcript);
-			}
+		const page = textareaRef.current?.closest<HTMLElement>('[data-testid="session-page"]') ?? null;
+		let transcript: HTMLElement | null = null;
+		let frame: number | null = null;
+
+		const read = () => {
 			const available = transcript?.clientHeight ?? page?.clientHeight ?? window.innerHeight;
 			const next = Math.max(36, Math.floor(available / 2));
 			setMaxHeight((current) => (current === next ? current : next));
 		};
-		measure();
-		const mutation = new MutationObserver(measure);
-		mutation.observe(document.body, { childList: true, subtree: true });
-		window.addEventListener("resize", measure);
+		// A size change and a structural change can arrive in the same frame.
+		const schedule = () => {
+			if (frame !== null) return;
+			frame = requestAnimationFrame(() => {
+				frame = null;
+				read();
+			});
+		};
+		const resize = new ResizeObserver(schedule);
+		const observeTranscript = () => {
+			const next = page?.querySelector<HTMLElement>('[data-slot="transcript"]') ?? null;
+			if (next === transcript) return;
+			if (transcript !== null) resize.unobserve(transcript);
+			transcript = next;
+			if (transcript !== null) resize.observe(transcript);
+		};
+		observeTranscript();
+		read();
+		// The transcript mounts after its skeleton (and the page may add or remove
+		// banners next to it). Watching the page's own child list catches that
+		// without seeing mutations inside the transcript.
+		let mutation: MutationObserver | null = null;
+		if (page !== null) {
+			mutation = new MutationObserver(() => {
+				observeTranscript();
+				schedule();
+			});
+			mutation.observe(page, { childList: true });
+		}
+		window.addEventListener("resize", schedule);
 		return () => {
+			if (frame !== null) cancelAnimationFrame(frame);
 			resize.disconnect();
-			mutation.disconnect();
-			window.removeEventListener("resize", measure);
+			mutation?.disconnect();
+			window.removeEventListener("resize", schedule);
 		};
 	}, []);
 

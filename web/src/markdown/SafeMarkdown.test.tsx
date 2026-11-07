@@ -115,6 +115,13 @@ describe("SafeMarkdown correctness", () => {
 		expect(container.querySelector('a[href="https://example.com/x"]')).not.toBeNull();
 	});
 
+	test("a URL whose query contains &amp; is kept as written after one decode", () => {
+		const { container } = renderMarkdown(<SafeMarkdown text={"[search](https://example.com/?q=1&amp;amp;b=2)"} />);
+		// The markdown parser decodes `&amp;amp;` once; the transform must not turn
+		// the resulting literal `&amp;` text into `&`.
+		expect(container.querySelector('a[href="https://example.com/?q=1&amp;b=2"]')).not.toBeNull();
+	});
+
 	test("streaming a small document chunk by chunk matches the one-shot render", () => {
 		const oneShot = renderMarkdown(<SafeMarkdown text={edgeCases} />);
 		const expected = normalise(oneShot.container.textContent);

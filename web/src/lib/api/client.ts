@@ -28,6 +28,11 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): voi
 	unauthorizedHandler = handler;
 }
 
+/** Run the same session-lost handler that a 401 from `request()` runs. */
+export function notifyUnauthorized(): void {
+	unauthorizedHandler?.();
+}
+
 /** Drop the query parameters whose value is undefined or an empty string. */
 export function queryString(params: Record<string, string | number | boolean | null | undefined>): string {
 	const search = new URLSearchParams();
@@ -74,7 +79,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 	const response = await fetch(`/api${path}`, init);
 	if (!response.ok) {
 		const { message, code } = await errorDetails(response);
-		if (response.status === 401 && !options.skipUnauthorized) unauthorizedHandler?.();
+		if (response.status === 401 && !options.skipUnauthorized) notifyUnauthorized();
 		throw new ApiError(response.status, message, code);
 	}
 	if (response.status === 204) return undefined as T;

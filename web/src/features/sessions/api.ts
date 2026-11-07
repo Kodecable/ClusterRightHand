@@ -6,7 +6,7 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { invalidatePendingDecisions } from "@/features/approvals/api";
 import { enc, http, queryString } from "@/lib/api/client";
 import { flattenCursorPages, prefetchCursorInfiniteQuery, useCursorInfiniteQuery } from "@/lib/api/query";
@@ -97,16 +97,25 @@ export function useSession(id: string | undefined) {
  * without a request. Undefined while the chain is still loading.
  */
 export function useSessionRootId(session: SessionView | undefined): string | undefined {
-	const [chain, setChain] = useState<string[]>([]);
+	const sessionId = session?.id;
 	const parentSessionId = session?.parentSessionId ?? null;
+	// The discovered chain is stored with the session it belongs to, so a switch
+	// to another tree renders with that tree's first parent immediately.
+	const [chain, setChain] = useState<{ sessionId: string | undefined; ids: string[] }>(() => ({
+		sessionId,
+		ids: parentSessionId === null ? [] : [parentSessionId],
+	}));
+	const ids = chain.sessionId === sessionId ? chain.ids : parentSessionId === null ? [] : [parentSessionId];
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: a new page starts a new chain
 	useEffect(() => {
-		setChain(parentSessionId === null ? [] : [parentSessionId]);
-	}, [session?.id]);
+		setChain((current) => {
+			if (current.sessionId === sessionId) return current;
+			return { sessionId, ids: parentSessionId === null ? [] : [parentSessionId] };
+		});
+	}, [parentSessionId, sessionId]);
 
 	const queries = useQueries({
-		queries: chain.map((id) => ({
+		queries: ids.map((id) => ({
 			queryKey: sessionKeys.detail(id),
 			queryFn: ({ signal }: { signal: AbortSignal }) => fetchSession(id, signal),
 		})),
@@ -115,9 +124,12 @@ export function useSessionRootId(session: SessionView | undefined): string | und
 	const lastParentId = last?.parentSessionId ?? null;
 
 	useEffect(() => {
-		if (lastParentId === null) return;
-		setChain((current) => (current.includes(lastParentId) ? current : [...current, lastParentId]));
-	}, [lastParentId]);
+		if (lastParentId === null || sessionId === undefined) return;
+		setChain((current) => {
+			if (current.sessionId !== sessionId || current.ids.includes(lastParentId)) return current;
+			return { sessionId, ids: [...current.ids, lastParentId] };
+		});
+	}, [lastParentId, sessionId]);
 
 	if (session === undefined) return undefined;
 	if (parentSessionId === null) return session.id;
@@ -199,16 +211,51 @@ export function useSessionTreeChildren(id: string, enabled: boolean) {
  */
 function useCachedSessionListItem(id: string | undefined): SessionListItem | undefined {
 	const queryClient = useQueryClient();
-	const subscribe = useCallback((notify: () => void) => queryClient.getQueryCache().subscribe(notify), [queryClient]);
+	const cache = useRef<{
+		queryClient: QueryClient;
+		id: string | undefined;
+		item: SessionListItem | undefined;
+		dirty: boolean;
+	}>({ queryClient, id, item: undefined, dirty: true });
+
+	const subscribe = useCallback(
+		(notify: () => void) =>
+			queryClient.getQueryCache().subscribe((event) => {
+				// Session detail, children and approval updates must not rescan the
+				// list pages; only the list's own queries can change this item.
+				if (!matchesSessionListKey(event.query.queryKey)) return;
+				cache.current.dirty = true;
+				notify();
+			}),
+		[queryClient],
+	);
 	const read = useCallback(() => {
-		if (id === undefined || id === "") return undefined;
-		for (const [, data] of queryClient.getQueriesData<SessionListData>({ queryKey: sessionKeys.list() })) {
-			const item = flattenCursorPages(data).find((candidate) => candidate.id === id);
-			if (item !== undefined) return item;
+		const current = cache.current;
+		if (current.queryClient !== queryClient || current.id !== id) {
+			current.queryClient = queryClient;
+			current.id = id;
+			current.item = undefined;
+			current.dirty = true;
 		}
-		return undefined;
+		if (!current.dirty) return current.item;
+		let item: SessionListItem | undefined;
+		if (id !== undefined && id !== "") {
+			for (const [, data] of queryClient.getQueriesData<SessionListData>({ queryKey: sessionKeys.list() })) {
+				item = flattenCursorPages(data).find((candidate) => candidate.id === id);
+				if (item !== undefined) break;
+			}
+		}
+		current.item = item;
+		current.dirty = false;
+		return item;
 	}, [queryClient, id]);
 	return useSyncExternalStore(subscribe, read);
+}
+
+/** Whether a query key belongs to a loaded session list page (`["sessions", "list", …]`). */
+function matchesSessionListKey(queryKey: readonly unknown[]): boolean {
+	const listKey = sessionKeys.list();
+	return listKey.every((part, index) => queryKey[index] === part);
 }
 
 /**

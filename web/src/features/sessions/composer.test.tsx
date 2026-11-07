@@ -352,6 +352,46 @@ describe("Composer", () => {
 		expect(input().value).toBe("draft for s2");
 	});
 
+	test("mutations elsewhere in the document do not measure the transcript", async () => {
+		mockFetch();
+		const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+		renderWithI18n(
+			<QueryClientProvider client={client}>
+				<div data-testid="session-page">
+					<div data-slot="transcript" data-testid="fixture-transcript" />
+					<Composer session={sessionView()} stoppable={false} />
+				</div>
+			</QueryClientProvider>,
+		);
+		const transcript = screen.getByTestId("fixture-transcript");
+		let reads = 0;
+		Object.defineProperty(transcript, "clientHeight", {
+			configurable: true,
+			get: () => {
+				reads += 1;
+				return 600;
+			},
+		});
+
+		// A mutation elsewhere (a toast, a portal, another page's DOM) is not the
+		// transcript pane and must not force a measurement.
+		const elsewhere = document.createElement("div");
+		document.body.append(elsewhere);
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		});
+		expect(reads).toBe(0);
+
+		// The transcript mounting or being replaced is a page-level change: the
+		// observer finds it again and measures once on the next frame.
+		screen.getByTestId("session-page").append(document.createElement("div"));
+		await act(async () => {
+			await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+		});
+		expect(reads).toBeGreaterThan(0);
+		elsewhere.remove();
+	});
+
 	test("a retried send reuses the request id until the text changes", async () => {
 		const calls = mockFetch([
 			{ status: 500, body: { error: "lost the answer" } },

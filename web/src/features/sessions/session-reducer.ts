@@ -40,7 +40,7 @@ export interface SessionState {
 	 * the whole Markdown tree (doc/webui.md "SafeMarkdown" has the block cache).
 	 */
 	liveKey: string | undefined;
-	/** Counter that keeps `liveKey` unique per streamed message in this view. */
+	/** Counter that keeps `liveKey` unique per streamed message in this view, across reconnect snapshots. */
 	liveCount: number;
 	/** Entry id → its live render key, for messages that arrived through the stream. */
 	streamedKeys: Record<string, string>;
@@ -88,6 +88,49 @@ function addEntry(entries: SessionState["entries"], entry: EntryRecord | undefin
 	const shown = shownEntry(entry);
 	if (!shown || entries.some((e) => e.id === shown.id)) return entries;
 	return [...entries, shown];
+}
+
+/** The numeric commit order of an entry id; entry ids are conversation sequence numbers. */
+function entrySequence(id: string): number | undefined {
+	if (id.trim() === "") return undefined;
+	const value = Number(id);
+	return Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * A snapshot only carries the newest page of entries (doc/webui.md "会话事件流和历史").
+ * Older pages the reader already loaded are not repeated in it, so they stay in
+ * front on a reconnect, provided the two ranges overlap: at least one entry of
+ * the previous state also appears in the snapshot. That overlap proves the
+ * snapshot begins at or before the previous state's newest entry, so nothing
+ * between them is missing. Without it (more than a page of entries were added
+ * while disconnected), keeping the old page would leave a gap that no history
+ * cursor can load, so the snapshot replaces the transcript and supplies the
+ * cursor. Entries are identified by their numeric commit order; a snapshot
+ * whose entries have no order replaces the transcript as before.
+ */
+function mergeSnapshotEntries(
+	previous: SessionState["entries"],
+	entries: readonly EntryRecord[],
+): { entries: SessionState["entries"]; keptOlder: boolean } {
+	let next: SessionState["entries"] = [];
+	for (const entry of entries) next = addEntry(next, entry);
+	const previousIds = new Set(previous.map((entry) => entry.id));
+	const continuous = entries.some((entry) => previousIds.has(String(entry.id)));
+	if (!continuous) return { entries: next, keptOlder: false };
+	let oldest: number | undefined;
+	for (const entry of next) {
+		const sequence = entrySequence(entry.id);
+		if (sequence !== undefined && (oldest === undefined || sequence < oldest)) oldest = sequence;
+	}
+	if (oldest === undefined) return { entries: next, keptOlder: false };
+	const seen = new Set(next.map((entry) => entry.id));
+	const older = previous.filter((entry) => {
+		const sequence = entrySequence(entry.id);
+		return sequence !== undefined && sequence < oldest && !seen.has(entry.id);
+	});
+	if (older.length === 0) return { entries: next, keptOlder: false };
+	return { entries: [...older, ...next], keptOlder: true };
 }
 
 /**
@@ -196,8 +239,7 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 	switch (event.type) {
 		case "snapshot": {
 			if ("snapshot" in event) return reduce(state, { ...event.snapshot, type: "snapshot" });
-			let entries: SessionState["entries"] = [];
-			for (const e of event.entries) entries = addEntry(entries, e);
+			const snapshotEntries = mergeSnapshotEntries(state.entries, event.entries);
 			const tools: Record<string, LiveTool> = {};
 			for (const t of event.tools) {
 				tools[t.callId] = {
@@ -209,12 +251,15 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 				};
 			}
 			const streaming = asAssistant(event.generation?.message);
+			// The counter never resets: a reconnect snapshot can carry another
+			// generation, and its rows must not inherit a finished message's store.
+			const live = streaming === undefined ? undefined : nextLiveKey(state);
 			return {
 				ready: true,
-				entries,
+				entries: snapshotEntries.entries,
 				streaming,
-				liveKey: streaming === undefined ? undefined : "live/1",
-				liveCount: streaming === undefined ? 0 : 1,
+				liveKey: live?.liveKey,
+				liveCount: live?.liveCount ?? state.liveCount,
 				streamedKeys: {},
 				tools,
 				running: event.run !== undefined,
@@ -223,7 +268,9 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 				retry: event.generation?.retry?.error,
 				failure: undefined,
 				usage: event.usage,
-				historyCursor: event.historyCursor ?? null,
+				// Older pages that were kept already end before the snapshot's page,
+				// so the cursor that follows them is still the previous one.
+				historyCursor: snapshotEntries.keptOlder ? state.historyCursor : (event.historyCursor ?? null),
 			};
 		}
 		case "run_start":

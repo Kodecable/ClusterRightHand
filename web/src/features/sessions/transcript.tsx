@@ -18,6 +18,11 @@ interface Anchor {
 	top: number;
 }
 
+interface PrependAnchor extends Anchor {
+	/** The transcript's first item when the page was requested; the anchor is applied once this changes. */
+	firstId: string;
+}
+
 type TranscriptDisplayRow =
 	| { kind: "item"; key: string; item: TranscriptItem }
 	| {
@@ -74,9 +79,10 @@ export function Transcript({
 	const prevLength = useRef(0);
 	const settleToken = useRef(0);
 	const programmaticAt = useRef(0);
-	const prependAnchor = useRef<Anchor | null>(null);
+	const prependAnchor = useRef<PrependAnchor | null>(null);
 	const realignToken = useRef(0);
 	const loadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const firstId = items[0]?.key ?? "";
 
 	const publishAtBottom = useCallback((value: boolean) => {
 		if (atBottomRef.current === value) return;
@@ -149,11 +155,12 @@ export function Transcript({
 	const capturePrependAnchor = useCallback(() => {
 		const element = scrollRef.current;
 		const anchor = visibleAnchor();
-		if (!element || !anchor) return;
-		prependAnchor.current = anchor;
-		element.dataset.prependAnchorId = anchor.id;
-		element.dataset.prependAnchorTop = String(anchor.top);
-	}, [visibleAnchor]);
+		if (!element || !anchor || firstId === "") return;
+		const recorded = { ...anchor, firstId };
+		prependAnchor.current = recorded;
+		element.dataset.prependAnchorId = recorded.id;
+		element.dataset.prependAnchorTop = String(recorded.top);
+	}, [firstId, visibleAnchor]);
 
 	const realign = useCallback((anchor: Anchor, durationMs: number) => {
 		const token = ++realignToken.current;
@@ -203,22 +210,29 @@ export function Transcript({
 	useLayoutEffect(() => {
 		const appended = items.length > prevLength.current && prevFirstId.current !== null;
 		prevLength.current = items.length;
-		const firstId = items[0]?.key ?? null;
-		const prepended = prevFirstId.current !== null && firstId !== prevFirstId.current && appended;
-		prevFirstId.current = firstId;
+		const nextFirstId = items[0]?.key ?? null;
+		const prepended = prevFirstId.current !== null && nextFirstId !== prevFirstId.current && appended;
+		prevFirstId.current = nextFirstId;
 		if (prepended) return;
 		if (followingRef.current && appended) pinToEnd();
 	}, [items.length, items, pinToEnd]);
 
 	// A prepended history page: re-align the recorded anchor until the new rows
-	// have been measured, then let go.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: runs when the prepended rows are committed
+	// have been measured, then let go. The anchor belongs to the page that was
+	// requested in front of `anchor.firstId`; a streaming update would only add
+	// rows at the bottom, so it must not consume the anchor before that page
+	// arrives.
 	useLayoutEffect(() => {
 		const anchor = prependAnchor.current;
 		if (anchor === null) return;
+		if (firstId === "") {
+			prependAnchor.current = null;
+			return;
+		}
+		if (firstId === anchor.firstId) return;
 		prependAnchor.current = null;
 		realign(anchor, ANCHOR_MS);
-	}, [items.length, realign]);
+	}, [firstId, realign]);
 
 	useEffect(() => {
 		const root = scrollRef.current;
@@ -331,7 +345,6 @@ export function Transcript({
 		});
 	}, []);
 
-	const firstId = items[0]?.key ?? "";
 	const previousFirst = prevFirstId.current;
 	const shift = previousFirst !== null && firstId !== "" && firstId !== previousFirst;
 

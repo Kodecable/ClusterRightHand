@@ -96,6 +96,15 @@ export function SessionPage() {
 			</div>
 		);
 	}
+	// The event stream can end without a new session fetch, e.g. when the session was deleted after the page
+	// loaded. A 401 is left to the auth store's redirect; the other terminal statuses replace the stale view.
+	if (events.error !== undefined && events.error.status !== 401) {
+		return (
+			<div className="p-6">
+				<ErrorState error={events.error} retry={() => void session.refetch()} />
+			</div>
+		);
+	}
 	if (!session.data) return null;
 	const view = session.data;
 	const isRoot = view.parentSessionId === null;
