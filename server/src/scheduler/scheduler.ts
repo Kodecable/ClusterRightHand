@@ -6,7 +6,7 @@ import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import type { Database } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
-import { errorText } from "../util/errors.ts";
+import { errorText, isUniqueViolation } from "../util/errors.ts";
 import { derivedId, newId } from "../util/id.ts";
 import {
 	deleteSchedule as deleteStoredSchedule,
@@ -16,6 +16,7 @@ import {
 	lastRunAtOrBefore,
 	listRuns,
 	MISSED_TOLERANCE_MS,
+	NeverFiresError,
 	nextRunAfter,
 	type Schedule,
 	type ScheduleRun,
@@ -35,6 +36,18 @@ import {
 /** Longest the loop sleeps; wakes sooner when the next run is closer (doc/scheduling.md#调度). */
 export const MAX_SLEEP_MS = 60_000;
 
+/** Backoff after a failed trigger; doubles per consecutive failure of the same schedule (doc/scheduling.md#调度). */
+export const FAILURE_BACKOFF_MS = 60_000;
+
+/** The backoff never grows past this. */
+export const MAX_FAILURE_BACKOFF_MS = 60 * 60_000;
+
+/** A run just written, and whether it was the schedule's last trigger (its cron never fires again). */
+interface InsertedRun {
+	run: ScheduleRun;
+	lastTrigger: boolean;
+}
+
 export interface SchedulerOptions {
 	db: Db;
 	runtime: AgentRuntime;
@@ -48,10 +61,6 @@ export interface SchedulerOptions {
 function defaultTimer(fn: () => void, ms: number): () => void {
 	const timer = setTimeout(fn, ms);
 	return () => clearTimeout(timer);
-}
-
-function isUniqueViolation(err: unknown): boolean {
-	return /unique|duplicate/i.test(errorText(err));
 }
 
 /** Why a submission that did not finish normally counts as failed (doc/scheduling.md#调度). */
@@ -95,6 +104,8 @@ export class Scheduler {
 	#lifecycle = new AbortController();
 	/** The owner's deny while a scheduled run waits for its root quota; the next finish reads and clears it. */
 	#quotaDenied = new Map<string, string>();
+	/** Consecutive failed triggers per schedule id; a successful pass resets the count (doc/scheduling.md#调度). */
+	#failures = new Map<string, number>();
 
 	constructor(options: SchedulerOptions) {
 		this.#db = options.db;
@@ -158,11 +169,11 @@ export class Scheduler {
 		if (!schedule) throw new NotFoundError("no such schedule");
 		const owner = await this.#ownerUser(schedule.ownerUserId);
 		if (!owner) throw new UserError("the schedule's owner is disabled");
-		const run = await this.#insertRun(schedule, this.#now(), true);
-		if (run) {
+		const fired = await this.#insertRun(schedule, this.#now(), true);
+		if (fired) {
 			await this.#record(userActor(user), "schedule.fired", schedule, {
-				run_id: run.id,
-				fire_time: run.fireTime,
+				run_id: fired.run.id,
+				fire_time: fired.run.fireTime,
 				manual: true,
 			});
 			// The same line as the loop: a manual run never submits alongside a timed pass (doc/scheduling.md).
@@ -174,7 +185,7 @@ export class Scheduler {
 					void this.#arm(0);
 				}
 			}
-			return (await getRun(this.#db, run.id)) ?? run;
+			return (await getRun(this.#db, fired.run.id)) ?? fired.run;
 		}
 		// A manual click in the same millisecond as the previous one lands on the same fire time.
 		const existing = await listRuns(this.#db, scheduleId, 1);
@@ -192,6 +203,7 @@ export class Scheduler {
 		if (!schedule) throw new NotFoundError("no such schedule");
 		await this.#stopRunning(schedule);
 		const sessions = await deleteStoredSchedule(this.#db, schedule);
+		this.#failures.delete(scheduleId);
 		// The sessions lost their schedule link, which the list shows; publish the new items.
 		for (const sessionId of sessions) this.#runtime.sessionList.publishSession(sessionId);
 	}
@@ -324,15 +336,58 @@ export class Scheduler {
 			if (!schedule.enabled) {
 				// Disabled between the query and this read: the trigger did not fire (doc/scheduling.md#审计).
 				await this.#skip(schedule, { fire_time: row.next_run_at, reason: "disabled" });
+				this.#failures.delete(schedule.id);
 				continue;
 			}
 			if (!schedule.nextRunAt) continue;
 			try {
 				await this.#fireOne(schedule, now);
+				this.#failures.delete(schedule.id);
 			} catch (err) {
 				console.error(`scheduler: firing schedule ${schedule.id} failed:`, err);
+				await this.#backOff(schedule, err, now).catch((backoffError: unknown) => {
+					console.error(`scheduler: backing off schedule ${schedule.id} failed:`, backoffError);
+				});
 			}
 		}
+	}
+
+	/**
+	 * Ends a trigger that could not fire (doc/scheduling.md#调度). A cron with no further fire time never runs
+	 * again, so its schedule is disabled; any other failure moves `next_run_at` out by a doubling backoff
+	 * (1 minute, then 2, 4, …, capped at an hour), so the loop does not spin on a trigger that keeps failing.
+	 */
+	async #backOff(schedule: Schedule, err: unknown, now: Date): Promise<void> {
+		if (err instanceof NeverFiresError) {
+			await this.#disableNeverFires(schedule, now);
+			return;
+		}
+		const failures = (this.#failures.get(schedule.id) ?? 0) + 1;
+		this.#failures.set(schedule.id, failures);
+		const delay = Math.min(FAILURE_BACKOFF_MS * 2 ** (failures - 1), MAX_FAILURE_BACKOFF_MS);
+		await this.#db
+			.updateTable("schedules")
+			.set({ next_run_at: new Date(now.getTime() + delay).toISOString(), updated_at: now.toISOString() })
+			.where("id", "=", schedule.id)
+			// A concurrent edit already chose another next time; keep it.
+			.where("next_run_at", "=", schedule.nextRunAt as string)
+			.execute();
+	}
+
+	/**
+	 * Disables a schedule whose cron will never fire again and audits it. Conditional on the next time the
+	 * failed trigger was for, so a concurrent edit with a cron that does fire is left alone.
+	 */
+	async #disableNeverFires(schedule: Schedule, now: Date): Promise<void> {
+		const res = await this.#db
+			.updateTable("schedules")
+			.set({ enabled: 0, next_run_at: null, updated_at: now.toISOString() })
+			.where("id", "=", schedule.id)
+			.where("next_run_at", "=", schedule.nextRunAt as string)
+			.executeTakeFirst();
+		if (res.numUpdatedRows === 0n) return;
+		this.#failures.delete(schedule.id);
+		await this.#record(scheduleActor(schedule), "schedule.disabled", schedule, { reason: "never_fires" });
 	}
 
 	async #fireOne(schedule: Schedule, now: Date): Promise<void> {
@@ -380,13 +435,15 @@ export class Scheduler {
 		nextFrom: Date,
 		expectedNext: string,
 	): Promise<void> {
-		const run = await this.#insertRun(schedule, fireTime, manual, nextFrom, expectedNext);
-		if (!run) return;
+		const fired = await this.#insertRun(schedule, fireTime, manual, nextFrom, expectedNext);
+		if (!fired) return;
 		await this.#record(actor, "schedule.fired", schedule, {
-			run_id: run.id,
-			fire_time: run.fireTime,
+			run_id: fired.run.id,
+			fire_time: fired.run.fireTime,
 			manual,
 		});
+		if (fired.lastTrigger)
+			await this.#record(scheduleActor(schedule), "schedule.disabled", schedule, { reason: "never_fires" });
 	}
 
 	/** Inserts a pending run (and the schedule's next time, unless manual); undefined when it already exists. */
@@ -396,16 +453,27 @@ export class Scheduler {
 		manual: boolean,
 		nextFrom?: Date,
 		expectedNext?: string,
-	): Promise<ScheduleRun | undefined> {
+	): Promise<InsertedRun | undefined> {
 		const id = newId();
 		const now = this.#now().toISOString();
+		let lastTrigger = false;
 		try {
 			const created = await this.#db.transaction().execute(async (trx) => {
 				if (!manual) {
-					const next = nextRunAfter(schedule.cron, schedule.timezone, nextFrom ?? fireTime);
+					let next: string | null;
+					try {
+						next = nextRunAfter(schedule.cron, schedule.timezone, nextFrom ?? fireTime);
+					} catch (err) {
+						if (!(err instanceof NeverFiresError)) throw err;
+						// This trigger is the last one: fire it, then disable the schedule in the same transaction.
+						next = null;
+						lastTrigger = true;
+					}
 					let update = trx
 						.updateTable("schedules")
-						.set({ next_run_at: next, updated_at: now })
+						.set(
+							lastTrigger ? { enabled: 0, next_run_at: null, updated_at: now } : { next_run_at: next, updated_at: now },
+						)
 						.where("id", "=", schedule.id);
 					if (expectedNext !== undefined) update = update.where("next_run_at", "=", expectedNext);
 					const res = await update.executeTakeFirst();
@@ -431,20 +499,28 @@ export class Scheduler {
 			if (!created) return undefined;
 		} catch (err) {
 			if (isUniqueViolation(err)) {
-				// The transaction rolled the next time back too; advance it, or the loop retries this trigger forever.
+				// A run for this trigger is already written. The transaction rolled the next time back too; advance
+				// it, or the loop retries this trigger forever. If the cron has no fire time left, the existing run
+				// is the schedule's last one: disable it instead of writing a second one.
 				if (!manual && nextFrom !== undefined && expectedNext !== undefined) {
-					await this.#advance(
-						schedule,
-						expectedNext,
-						nextRunAfter(schedule.cron, schedule.timezone, nextFrom),
-						this.#now(),
-					);
+					try {
+						await this.#advance(
+							schedule,
+							expectedNext,
+							nextRunAfter(schedule.cron, schedule.timezone, nextFrom),
+							this.#now(),
+						);
+					} catch (advanceError) {
+						if (!(advanceError instanceof NeverFiresError)) throw advanceError;
+						await this.#disableNeverFires(schedule, this.#now());
+					}
 				}
 				return undefined;
 			}
 			throw err;
 		}
-		return getRun(this.#db, id);
+		const run = await getRun(this.#db, id);
+		return run ? { run, lastTrigger } : undefined;
 	}
 
 	/** Moves `next_run_at` forward without firing (a skipped trigger). */

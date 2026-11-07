@@ -5,7 +5,7 @@
 - 主键统一使用 UUIDv7，以 TEXT 存储（PG 中可用 `uuid` 类型，由 Kysely 方言处理）。
 - JSON 字段在两种方言中都存 `TEXT`（JSON 文本）；只在应用层解析，不依赖数据库的 JSON 查询能力。不用 `jsonb`：它会拒绝孤立代理项并重排键。
 - 时间统一存 UTC，两种方言都用 ISO 8601 文本（不用 `timestamptz`）。
-- 迁移用 Kysely Migrator，每个迁移对两种方言都要能跑。
+- 迁移用 Kysely Migrator，每个迁移对两种方言都要能跑。SQLite 的 DDL 本身是事务性的，但 Kysely 的 `SqliteAdapter` 报告不支持事务性 DDL；`server/src/storage/migrate.ts` 在这个 Kysely 实例的适配器上打开该标志，所以一批待执行的迁移（含迁移记录的写入）在同一个 `BEGIN IMMEDIATE` 事务里运行，中途失败时 schema 和迁移记录都保持原样。迁移里的表重建照常遵守 `PRAGMA foreign_keys = ON`：需要丢父表时先把依赖它的数据读入内存或暂存到没有外键的表（0036 先读出旧的组缓存，0038 暂存并重建 `node_group_members`），没有迁移需要临时关闭外键。PostgreSQL 本来就把整批迁移放在一个事务里，行为不变。
 
 durable 的表由 `SqlStorage` 管理，统一加 `pi_` 前缀，不在本文档中列出。
 

@@ -327,6 +327,111 @@ it("rejects a duplicate fire: the unique (schedule_id, fire_time) index keeps on
 	).rejects.toThrow(/unique|duplicate/i);
 });
 
+it("backs off a schedule whose trigger keeps failing instead of spinning", async () => {
+	const owner = await newOwner("owner-backoff");
+	const schedule = await makeSchedule(owner);
+	await setNextRun(schedule.id, new Date("2026-01-05T09:00:00.000Z"));
+	// An unparseable cron makes every trigger for this schedule fail after the due time is read.
+	await db.updateTable("schedules").set({ cron: "not a cron" }).where("id", "=", schedule.id).execute();
+	const error = vi.spyOn(console, "error").mockImplementation(() => {});
+	const failures = () => error.mock.calls.filter(([message]) => String(message).includes(schedule.id)).length;
+	try {
+		await startAt("2026-01-05T09:01:00.000Z");
+		// The failed trigger moved the next attempt a minute out; it is not left due.
+		expect((await getSchedule(db, schedule.id))?.nextRunAt).toBe("2026-01-05T09:02:00.000Z");
+		expect(failures()).toBe(1);
+		expect(clock.timerCount).toBe(1);
+
+		// Nothing retries it before the backoff expires.
+		await clock.advance(30_000);
+		expect(failures()).toBe(1);
+		expect((await getSchedule(db, schedule.id))?.nextRunAt).toBe("2026-01-05T09:02:00.000Z");
+
+		// The next failure doubles the delay, so a permanently failing schedule wakes ever less often.
+		await clock.advance(30_000);
+		expect(failures()).toBe(2);
+		expect((await getSchedule(db, schedule.id))?.nextRunAt).toBe("2026-01-05T09:04:00.000Z");
+	} finally {
+		error.mockRestore();
+		await db.updateTable("schedules").set({ enabled: 0, next_run_at: null }).where("id", "=", schedule.id).execute();
+	}
+});
+
+it("fires the last trigger of a cron that never fires again, then disables it", async () => {
+	const owner = await newOwner("owner-never-fires");
+	const schedule = await makeSchedule(owner);
+	const due = new Date("2026-01-05T09:00:00.000Z");
+	await setNextRun(schedule.id, due);
+	// February 30th never comes: the due trigger is the last one this expression can produce.
+	await db.updateTable("schedules").set({ cron: "0 0 30 2 *" }).where("id", "=", schedule.id).execute();
+	faux.setResponses([fauxAssistantMessage([fauxText("the last run")])]);
+
+	await startAt("2026-01-05T09:01:00.000Z");
+	const run = await waitFor("the last run", async () => {
+		const latest = (await runsOf(schedule.id))[0];
+		return latest?.status === "succeeded" ? latest : undefined;
+	});
+	expect(run.fireTime).toBe(due.toISOString());
+	const after = await getSchedule(db, schedule.id);
+	expect(after).toMatchObject({ enabled: false, nextRunAt: null });
+	// The last trigger ran exactly once; a later pass has nothing left to fire.
+	await scheduler.tick();
+	expect(await runsOf(schedule.id)).toHaveLength(1);
+	const fired = await db
+		.selectFrom("audit_events")
+		.selectAll()
+		.where("action", "=", "schedule.fired")
+		.where("target_id", "=", schedule.id)
+		.execute();
+	expect(fired).toHaveLength(1);
+	const disabled = await db
+		.selectFrom("audit_events")
+		.selectAll()
+		.where("action", "=", "schedule.disabled")
+		.where("target_id", "=", schedule.id)
+		.execute();
+	expect(disabled).toHaveLength(1);
+	expect(JSON.parse(disabled[0]?.detail ?? "{}")).toEqual({ reason: "never_fires" });
+});
+
+it("keeps an already written last run when the next fire time cannot be computed", async () => {
+	const owner = await newOwner("owner-last-written");
+	const schedule = await makeSchedule(owner);
+	const due = new Date("2026-01-05T09:00:00.000Z");
+	await setNextRun(schedule.id, due);
+	await db.updateTable("schedules").set({ cron: "0 0 30 2 *" }).where("id", "=", schedule.id).execute();
+	// A run for the last trigger is already written (a retried fire): it must be kept, not duplicated.
+	const existing = newId();
+	await db
+		.insertInto("schedule_runs")
+		.values({
+			id: existing,
+			schedule_id: schedule.id,
+			fire_time: due.toISOString(),
+			manual: 0,
+			status: "succeeded",
+			session_id: null,
+			reason: null,
+			created_at: due.toISOString(),
+			started_at: null,
+			finished_at: due.toISOString(),
+		})
+		.execute();
+
+	await startAt("2026-01-05T09:01:00.000Z");
+	const runs = await runsOf(schedule.id);
+	expect(runs.map((row) => row.id)).toEqual([existing]);
+	expect(await getSchedule(db, schedule.id)).toMatchObject({ enabled: false, nextRunAt: null });
+	const disabled = await db
+		.selectFrom("audit_events")
+		.selectAll()
+		.where("action", "=", "schedule.disabled")
+		.where("target_id", "=", schedule.id)
+		.execute();
+	expect(disabled).toHaveLength(1);
+	expect(JSON.parse(disabled[0]?.detail ?? "{}")).toEqual({ reason: "never_fires" });
+});
+
 it("skips missed triggers without catch-up and runs only the most recent one with it", async () => {
 	const owner = await newOwner("owner-missed");
 	const skipping = await makeSchedule(owner, { name: "skipping", catchUp: false });

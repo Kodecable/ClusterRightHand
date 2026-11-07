@@ -40,13 +40,15 @@
 
 **手动运行**：WebUI 的"立即运行"与定时触发走同一条路径，`schedule_runs.manual = true`，`fire_time` 为点击时间，发起方是点击的用户；有实例在运行时先确认"会结束当前运行"。停用的计划任务也可以手动运行（停用只停止定时触发）。
 
+**触发失败**：某个计划的触发抛错时（这次触发没有写入运行记录，`next_run_at` 仍停在过去），调度器按该计划的连续失败次数退避：`next_run_at` 改为当前时间加 1 分钟、2 分钟、4 分钟……最多 1 小时，一次成功后计数清零。调度循环因此不会以 0 ms 间隔反复重试同一个触发。cron 不再有下一次触发时间时（`nextRunAfter` 返回空，例如 2 月 30 日），当前这个触发仍会写入运行记录并执行一次——它是最后一次触发，不会丢失也不会重复——然后计划被停用（`enabled = 0`、`next_run_at = null`），并写一条 `schedule.disabled`，`reason` 为 `never_fires`。
+
 ## 审计
 
 调度器的每个决策都写审计（actor 为 `system`，手动运行和配置修改为用户，target 是计划任务）：
 
 | 事件 | 内容 |
 |---|---|
-| `schedule.created` / `schedule.updated` / `schedule.deleted` / `schedule.enabled` / `schedule.disabled` | 配置变化 |
+| `schedule.created` / `schedule.updated` / `schedule.deleted` / `schedule.enabled` / `schedule.disabled` | 配置变化。`schedule.disabled` 的 `reason` 为 `never_fires` 时表示 cron 不再有触发时间，由调度器停用 |
 | `schedule.fired` | 定时或手动触发，带 run id、`fire_time`、`manual` |
 | `schedule.skipped` | 没有触发及原因：停机期间错过（`catch_up = false`）、计划任务已停用、所有者已停用 |
 | `schedule.run_started` | 带 run id 和会话 id |

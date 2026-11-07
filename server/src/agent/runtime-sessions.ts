@@ -11,7 +11,8 @@ import type { SessionUser } from "../auth/sessions.ts";
 import { ruleRefs } from "../policy/refs.ts";
 import type { RulePreset } from "../policy/rules.ts";
 import { createRootRuleSet, createRuleSet, deleteRuleSet, getRuleSet, setRulePreset } from "../policy/store.ts";
-import { defaultOrgId } from "../users/service.ts";
+import { defaultOrgId, UserError } from "../users/service.ts";
+import { isUniqueViolation } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 import { type ModelRef, modelRefView, thinkingLevelOf } from "./models.ts";
 import { sessionTokens, setQuota } from "./quota.ts";
@@ -66,9 +67,9 @@ export async function createSession(
 	);
 	const id = newId();
 	const now = new Date().toISOString();
-	const orgId = await defaultOrgId(host.db);
 	const title = input.title?.trim() || null;
 	try {
+		const orgId = await defaultOrgId(host.db);
 		await host.db.transaction().execute(async (trx) => {
 			await trx
 				.insertInto("sessions")
@@ -226,8 +227,9 @@ async function removeCreatedSession(host: RuntimeHost, sessionId: string): Promi
 /**
  * Creates the session a schedule run submits to (doc/scheduling.md): a root session with a fixed id derived
  * from the run, `schedule_id` set and `token_budget` as its root quota. Its rule set is a lower level (no
- * rule preset, `default: inherit`) under the schedule's root, so the chain is [schedule, session]. A retried call
- * finds the session its first attempt created.
+ * rule preset, `default: inherit`) under the schedule's root, so the chain is [schedule, session]. A retried
+ * call finds the session its first attempt created; when two concurrent calls build the same derived id, the
+ * losing call aborts the conversation it opened and returns the winner's session.
  */
 export async function createScheduledSession(
 	host: RuntimeHost,
@@ -248,37 +250,51 @@ export async function createScheduledSession(
 		host.context,
 	);
 	const now = new Date().toISOString();
-	const orgId = await defaultOrgId(host.db);
-	await host.db.transaction().execute(async (trx) => {
-		await trx
-			.insertInto("sessions")
-			.values({
-				id: input.id,
-				org_id: orgId,
-				owner_user_id: owner.userId,
-				conversation_id: String(conversation.id),
-				parent_session_id: null,
-				root_session_id: input.id,
-				schedule_id: input.scheduleId,
-				title: input.title.trim() || "Scheduled run",
-				// A scheduled run's title is its schedule's name; it never generates one (D116).
-				title_pending: 0,
-				model: JSON.stringify(model),
-				status: "active",
-				created_at: now,
-				updated_at: now,
-				archived_at: null,
-				// The budget is the new session's root remaining; null means unlimited (D92).
-				quota_tokens: input.budgetRemaining,
-				state: "idle",
-				waiting_kind: null,
-				waiting_level_id: null,
-				waiting_handler_id: null,
-				state_changed_at: now,
-			})
-			.execute();
-		await createRuleSet(trx, orgId, { type: "session", id: input.id }, { default: "inherit", rules: [] });
-	});
+	try {
+		const orgId = await defaultOrgId(host.db);
+		await host.db.transaction().execute(async (trx) => {
+			await trx
+				.insertInto("sessions")
+				.values({
+					id: input.id,
+					org_id: orgId,
+					owner_user_id: owner.userId,
+					conversation_id: String(conversation.id),
+					parent_session_id: null,
+					root_session_id: input.id,
+					schedule_id: input.scheduleId,
+					title: input.title.trim() || "Scheduled run",
+					// A scheduled run's title is its schedule's name; it never generates one (D116).
+					title_pending: 0,
+					model: JSON.stringify(model),
+					status: "active",
+					created_at: now,
+					updated_at: now,
+					archived_at: null,
+					// The budget is the new session's root remaining; null means unlimited (D92).
+					quota_tokens: input.budgetRemaining,
+					state: "idle",
+					waiting_kind: null,
+					waiting_level_id: null,
+					waiting_handler_id: null,
+					state_changed_at: now,
+				})
+				.execute();
+			await createRuleSet(trx, orgId, { type: "session", id: input.id }, { default: "inherit", rules: [] });
+		});
+	} catch (err) {
+		// The row did not commit: no session owns this conversation, so stop it rather than leave it running
+		// unattached. A unique conflict on the derived id means a concurrent call inserted it first; return that
+		// session instead of failing the retry.
+		await conversation.abort(host.context).catch((abortError: unknown) => {
+			if (!host.closing()) console.error("agent runtime: aborting an unowned conversation failed:", abortError);
+		});
+		if (isUniqueViolation(err)) {
+			const winner = await getSession(host, input.id);
+			if (winner) return winner;
+		}
+		throw err;
+	}
 	void host.audit?.record({
 		actor: { type: "schedule", id: input.scheduleId, onBehalfOfUserId: owner.userId },
 		action: "session.created",
@@ -322,39 +338,74 @@ export async function configure(
 	change: { title?: string; model?: ModelRef; rulePreset?: RulePreset; budgetRemaining?: number | null },
 ): Promise<SessionView> {
 	const { row, conversation } = await loadConversation(host, sessionId);
+	// Only a chain root has a rule preset; a subagent's rules come from its parent (doc/access-control.md#授权规则).
+	if (change.rulePreset !== undefined && row.parent_session_id !== null)
+		throw new UserError("a subagent's rule preset is set by its parent");
 	let model: ModelRef | undefined;
 	if (change.model) {
 		// A model change without a level keeps the session's level, clamped to the new model (D115).
 		const stored = JSON.parse(row.model) as ModelRef;
 		model = host.models.resolveRef(change.model, thinkingLevelOf(stored));
-		await conversation.configure(
-			{
-				model: { provider: model.provider, modelId: model.modelId },
-				thinkingLevel: thinkingLevelOf(model),
-			},
-			host.context,
-		);
 	}
-	if (change.rulePreset && row.parent_session_id === null)
-		await setRulePreset(host.db, { type: "session", id: sessionId }, change.rulePreset);
-	if (change.budgetRemaining !== undefined) {
+	const previousPreset =
+		change.rulePreset === undefined
+			? undefined
+			: (await getRuleSet(host.db, { type: "session", id: sessionId }))?.rulePreset;
+	const ref = { type: "session" as const, id: sessionId };
+	const restoreRow = {
+		...(change.title === undefined ? {} : { title: row.title, title_pending: row.title_pending }),
+		...(model ? { model: row.model } : {}),
+		...(change.budgetRemaining === undefined ? {} : { quota_tokens: row.quota_tokens }),
+		updated_at: row.updated_at,
+	};
+	// All SQL writes go in one transaction. The session's conversation lives in pi-durable's storage on another
+	// connection to the same SQLite file: that connection would wait for this transaction's write lock, which
+	// cannot commit until the conversation call returns (doc/data-model.md), so the conversation is configured
+	// after the commit and a failure there restores the SQL side with a compensating write.
+	await host.db.transaction().execute(async (trx) => {
 		// Setting the remaining budget replaces it at any level, the root included; null removes the limit (D92).
-		await setQuota(host.db, sessionId, change.budgetRemaining);
+		if (change.budgetRemaining !== undefined) await setQuota(trx, sessionId, change.budgetRemaining);
+		await trx
+			.updateTable("sessions")
+			.set({
+				// Any manual title ends generation, a blank one included: null shows the default name and stays (D116).
+				...(change.title === undefined ? {} : { title: change.title.trim() || null, title_pending: 0 }),
+				...(model ? { model: JSON.stringify(model) } : {}),
+				updated_at: new Date().toISOString(),
+			})
+			.where("id", "=", sessionId)
+			.execute();
+		if (change.rulePreset !== undefined) await setRulePreset(trx, ref, change.rulePreset);
+	});
+	if (model) {
+		try {
+			await conversation.configure(
+				{
+					model: { provider: model.provider, modelId: model.modelId },
+					thinkingLevel: thinkingLevelOf(model),
+				},
+				host.context,
+			);
+		} catch (err) {
+			// The row now names a model the conversation did not take: put the previous values back, in one
+			// transaction, so a reader never sees a configuration the conversation does not have.
+			try {
+				await host.db.transaction().execute(async (trx) => {
+					await trx.updateTable("sessions").set(restoreRow).where("id", "=", sessionId).execute();
+					if (previousPreset) await setRulePreset(trx, ref, previousPreset);
+				});
+			} catch (restoreError) {
+				console.error("agent runtime: restoring a session after a failed model change failed:", restoreError);
+			}
+			throw err;
+		}
+	}
+	if (change.budgetRemaining !== undefined) {
 		notifyQuotaWaiters(host);
 		invalidateInboxes(host);
 		// A wait on this level (or on a root above it) may be over now.
 		await refreshState(host, sessionId);
 	}
-	await host.db
-		.updateTable("sessions")
-		.set({
-			// Any manual title ends generation, a blank one included: null shows the default name and stays (D116).
-			...(change.title === undefined ? {} : { title: change.title.trim() || null, title_pending: 0 }),
-			...(model ? { model: JSON.stringify(model) } : {}),
-			updated_at: new Date().toISOString(),
-		})
-		.where("id", "=", sessionId)
-		.execute();
 	host.sessionList.publishSession(sessionId);
 	return (await getSession(host, sessionId)) as SessionView;
 }

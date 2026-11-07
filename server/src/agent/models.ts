@@ -60,6 +60,8 @@ export class ModelConfig {
 	/** Installed by the runtime: provider session id -> crh session id (doc/agent-runtime.md#自定义提供方). */
 	#providerSessionId: ProviderSessionResolver = () => undefined;
 	#providerSessionFor: (sessionId: string) => string | undefined = () => undefined;
+	/** Tail of the reload queue: a reload starts only after the one before it has finished. */
+	#reloadTail: Promise<void> = Promise.resolve();
 
 	constructor(db: Db, masterKey: MasterKey) {
 		this.#db = db;
@@ -92,12 +94,26 @@ export class ModelConfig {
 		this.models.setProvider(provider);
 	}
 
+	/**
+	 * Rebuilds the registry from the stored providers.
+	 *
+	 * Everything asynchronous (rows, decrypted keys) is read first and the complete provider list and
+	 * custom-model map are built, then the registry is replaced without an await in between: a resolve during a
+	 * reload sees the previous configuration or the new one, never an empty registry. Reloads run one after
+	 * another, so a reload requested while another runs reads the database only after that reload has finished.
+	 */
 	async reload(): Promise<void> {
+		const run = this.#reloadTail.then(() => this.#rebuild());
+		// A failed reload must not block the next one; its caller still sees this reload's error.
+		this.#reloadTail = run.catch(() => {});
+		await run;
+	}
+
+	async #rebuild(): Promise<void> {
 		const rows = await this.#db.selectFrom("model_providers").selectAll().where("enabled", "=", 1).execute();
 		const builtins = new Map(builtinProviders().map((p) => [p.id, p]));
-		this.models.clearProviders();
-		this.#customModels.clear();
-		for (const p of this.#extra) this.models.setProvider(p);
+		const providers: Provider[] = [];
+		const customModels = new Map<string, CustomModel>();
 		for (const row of rows) {
 			let key: string | undefined;
 			if (row.secret_id) {
@@ -111,14 +127,21 @@ export class ModelConfig {
 			}
 			if (row.kind === "builtin") {
 				const base = builtins.get(row.builtin ?? "");
-				if (base) this.models.setProvider(withKey(base, key, row.base_url));
+				if (base) providers.push(withKey(base, key, row.base_url));
 			} else {
 				for (const model of parseJson<CustomModel[]>(row.models) ?? []) {
-					this.#customModels.set(`${row.provider_id}/${model.id}`, model);
+					customModels.set(`${row.provider_id}/${model.id}`, model);
 				}
-				this.models.setProvider(customProvider(row, key, (id) => this.resolveProviderSession(id)));
+				providers.push(customProvider(row, key, (id) => this.resolveProviderSession(id)));
 			}
 		}
+		// From here to the end there is no await: the registry changes in one step. Providers added in code are
+		// read here rather than before the waits, so one added while a reload is reading is kept.
+		const all = [...this.#extra, ...providers];
+		this.models.clearProviders();
+		for (const provider of all) this.models.setProvider(provider);
+		this.#customModels.clear();
+		for (const [ref, model] of customModels) this.#customModels.set(ref, model);
 	}
 
 	/** Models sessions may pick: those of enabled providers, with their levels and input kinds. */

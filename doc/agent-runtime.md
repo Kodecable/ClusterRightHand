@@ -206,6 +206,7 @@ API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引�
 - 会话属于创建它的用户。会话能做什么，由操作者链上的授权规则决定；设了配额的级别（子会话、计划任务的会话）还受 token 配额限制，见 [access-control.md](access-control.md#授权规则)。
 - 会话记录在业务表 `sessions` 中，`conversation_id` 关联 durable 的 Conversation。
 - 会话在发送第一条消息时才创建（D117）：`POST /api/sessions { requestId, model, rulePreset, budgetRemaining?, title?, message }` 在一个请求里建会话、提交消息并返回会话。`requestId` 由客户端为每个草稿生成（UUID），同一用户重复提交同一个 `requestId` 返回已建的会话，不再建第二个；提交消息失败时中止刚建的对话（durable 没有删除对话的接口，对话记录留在 durable 存储里但不再被引用），在一个事务里删除会话行和它的规则集，推送列表的移除事件，接口返回错误。没有 `message` 的创建请求是 400。
+- 所有者可以 `PATCH /api/sessions/:id` 改标题、模型、配额和根会话的规则预设。这些 SQL 写入在一个事务里完成；对话的模型配置在这之后写入 durable，这一步失败时行里的旧值（标题、模型、配额、规则预设）会被写回，读取方不会看到对话实际不接受的配置。子会话的规则预设由父会话在创建时给出，对子会话传 `rulePreset` 返回 400。
 - 标题见下文"模型预设"中的标题生成。
 - WebUI 通过 `watch` 订阅会话视图，经 SSE（`/api/sessions/:id/events`）推送增量。
 - 开启自动压缩，阈值由模型的上下文窗口决定（参数见下文"默认值"）。

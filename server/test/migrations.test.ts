@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import { CompiledQuery, type Kysely, sql } from "kysely";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { Migration } from "kysely/migration";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonIdleSessions, sessionsWithSubmissions } from "../src/agent/session-state.ts";
 import type { Db } from "../src/storage/db.ts";
+import { migrateToLatest, runMigrations } from "../src/storage/migrate.ts";
 import { up } from "../src/storage/migrations/0019_cbor_protocol.ts";
 import { up as up0020 } from "../src/storage/migrations/0020_output_mode.ts";
 import { up as up0022 } from "../src/storage/migrations/0022_m4_privilege.ts";
@@ -1367,6 +1369,21 @@ describeBackends("0038 node access grants", (backend) => {
 		});
 	});
 
+	it("rebuilds the tables inside a transaction with foreign keys enforced", async () => {
+		// The migrator runs every pending migration inside one transaction; the app's connection enforces
+		// foreign keys, so dropping the parent before its child would cascade the memberships away.
+		await db.transaction().execute(async (trx) => {
+			await up0038(trx as unknown as Kysely<unknown>);
+		});
+
+		const members = await sql<{ node_group_id: string; node_id: string }>`
+			select node_group_id, node_id from node_group_members
+		`.execute(db);
+		expect(members.rows).toEqual([{ node_group_id: "g1", node_id: "n-alice" }]);
+		const grants = await sql<{ n: number }>`select count(*) as n from node_access_grants`.execute(db);
+		expect(Number(grants.rows[0]?.n)).toBe(4);
+	});
+
 	it("down restores the nullable owner columns and drops the grants", async () => {
 		await applyMigration(backend, db, up0038);
 		await applyMigration(backend, db, down0038);
@@ -2033,5 +2050,97 @@ describeBackends("0046 thinking modes and labels", (backend) => {
 			{ id: "broken", models: "{not json" },
 			{ id: "plain", models: before },
 		]);
+	});
+});
+
+/**
+ * SQLite's DDL is transactional, so a failed migration batch must leave neither half a table rebuild nor a
+ * migration record behind. PostgreSQL's migrator already wraps the batch (and is covered by the backend suites).
+ */
+describe("SQLite migration transactions", () => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb("sqlite", { migrate: false });
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	const first: Migration = {
+		up: async (migrationDb) => {
+			await migrationDb.schema
+				.createTable("b5_items")
+				.addColumn("id", "text", (c) => c.primaryKey())
+				.addColumn("label", "text", (c) => c.notNull())
+				.execute();
+			await sql`insert into b5_items (id, label) values ('item', 'kept')`.execute(migrationDb);
+		},
+	};
+
+	/** Rebuilds a table the way 0038 and 0044 do: copy into a new table, drop the old one, rename the copy. */
+	async function rebuildItems(migrationDb: Kysely<unknown>): Promise<void> {
+		await migrationDb.schema
+			.createTable("b5_items_new")
+			.addColumn("id", "text", (c) => c.primaryKey())
+			.addColumn("label", "text", (c) => c.notNull())
+			.execute();
+		await sql`insert into b5_items_new (id, label) select id, label from b5_items`.execute(migrationDb);
+		await migrationDb.schema.dropTable("b5_items").execute();
+		await migrationDb.schema.alterTable("b5_items_new").renameTo("b5_items").execute();
+	}
+
+	const failing: Migration = {
+		up: async (migrationDb) => {
+			await rebuildItems(migrationDb);
+			throw new Error("migration failed after the table rebuild");
+		},
+	};
+
+	const fixed: Migration = {
+		up: async (migrationDb) => {
+			await rebuildItems(migrationDb);
+			await migrationDb.schema.alterTable("b5_items").addColumn("extra", "text").execute();
+		},
+	};
+
+	const list = (last: Migration) => ({ "0001_first": first, "0002_second": last });
+
+	const migrationNames = async (): Promise<string[]> =>
+		(await sql<{ name: string }>`select name from kysely_migration order by name`.execute(db)).rows.map(
+			(row) => row.name,
+		);
+
+	const itemRows = async (): Promise<{ id: string; label: string }[]> =>
+		(await sql<{ id: string; label: string }>`select id, label from b5_items order by id`.execute(db)).rows;
+
+	it("rolls back a failed table rebuild and lets the fixed migrations run", async () => {
+		await expect(runMigrations(db, list(failing))).rejects.toThrow("migration 0002_second failed");
+
+		// The second migration rebuilt and renamed the table before throwing; the whole batch is one
+		// transaction, so the first migration's table and row and the migrator's insert are rolled back too.
+		const tables = await sql<{ name: string }>`
+			select name from sqlite_master where type = 'table' and name like 'b5_%' order by name
+		`.execute(db);
+		expect(tables.rows).toEqual([]);
+		expect(await migrationNames()).toEqual([]);
+
+		await runMigrations(db, list(fixed));
+		expect(await migrationNames()).toEqual(["0001_first", "0002_second"]);
+		expect(await itemRows()).toEqual([{ id: "item", label: "kept" }]);
+		expect(await tableColumns("sqlite", db, "b5_items")).toEqual(["id", "label", "extra"]);
+	});
+
+	it("runs the real migrations after a failed batch", async () => {
+		await expect(runMigrations(db, list(failing))).rejects.toThrow("migration 0002_second failed");
+		await migrateToLatest(db);
+
+		const sessions = await sql<{ name: string }>`
+			select name from sqlite_master where type = 'table' and name = 'sessions'
+		`.execute(db);
+		expect(sessions.rows).toEqual([{ name: "sessions" }]);
+		expect((await migrationNames()).length).toBeGreaterThan(0);
+		expect((await migrationNames()).every((name) => name !== "0002_second")).toBe(true);
 	});
 });

@@ -109,10 +109,17 @@ export function validateCron(cron: string, timezone: string): void {
 	cronOf(cron, timezone);
 }
 
+/** Thrown when a cron expression has no further fire time (for example a date that never comes). */
+export class NeverFiresError extends UserError {
+	constructor() {
+		super("the cron expression never fires");
+	}
+}
+
 /** The next fire time after `from`, as an ISO 8601 UTC string. */
 export function nextRunAfter(cron: string, timezone: string, from: Date): string {
 	const next = cronOf(cron, timezone).nextRun(from);
-	if (!next) throw new UserError("the cron expression never fires");
+	if (!next) throw new NeverFiresError();
 	return next.toISOString();
 }
 
