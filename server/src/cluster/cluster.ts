@@ -42,6 +42,7 @@ export {
 	AUTHORIZATION_CODES,
 	AUTHORIZATION_WAIT_MS,
 	NODE_OFFLINE_GRACE_MS,
+	TASK_CANCELLED_CODE,
 	TERMINAL,
 	UNKNOWN_OUTPUT_KEEP_MS,
 } from "./types.ts";
@@ -244,9 +245,12 @@ export class Cluster {
 	/**
 	 * Asks the node to cancel a running task. A task that still waits for its approval or its
 	 * authorization signature was never dispatched, so it ends here instead (there is no node-side task).
-	 * Returns false if the task already ended or the node is offline. `message` replaces the default reason of
-	 * a task that ends before dispatch (e.g. its session was stopped). `by` is the actor who asked for the
-	 * cancellation: the task.finished audit event names it, or the system when it is absent.
+	 * A task claimed for dispatch records the request on its row and returns true even while the node is
+	 * offline, so the dispatch path ends it instead of sending its task.start
+	 * (doc/execution-plane.md#任务取消). Returns false if the task already ended, or when it already runs
+	 * and the node is offline. `message` replaces the default reason of a task that ends before dispatch
+	 * (e.g. its session was stopped). `by` is the actor who asked for the cancellation: the task.finished
+	 * audit event names it, or the system when it is absent.
 	 */
 	cancelTask(id: string, message?: string, by?: Actor): Promise<boolean> {
 		return tasks.cancelTask(this.#core, id, message, by);

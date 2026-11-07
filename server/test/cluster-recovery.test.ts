@@ -1,10 +1,12 @@
 import { generateKeyPair } from "@crh/noise";
 import { type TaskSpec, taskSpecToJson } from "@crh/protocol";
+import type { Insertable } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cluster } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
 import type { Db } from "../src/storage/db.ts";
+import type { TasksTable } from "../src/storage/schema.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { type FakeCrha, handshakeInit, TestAgentServer, waitFor } from "./helpers/agent.ts";
@@ -131,7 +133,11 @@ describe("cluster recovery", () => {
 	};
 
 	/** Inserts a task row as a previous process would have left it. */
-	const seedTask = async (node: NodeRow, state: "dispatched" | "running"): Promise<string> => {
+	const seedTask = async (
+		node: NodeRow,
+		state: "dispatched" | "running" | "awaiting_approval",
+		overrides: Partial<Insertable<TasksTable>> = {},
+	): Promise<string> => {
 		const id = newId();
 		const now = new Date().toISOString();
 		await db
@@ -175,6 +181,7 @@ describe("cluster recovery", () => {
 				root_session_id: null,
 				handler_type: null,
 				handler_session_id: null,
+				...overrides,
 			})
 			.execute();
 		return id;
@@ -210,6 +217,25 @@ describe("cluster recovery", () => {
 				return task?.state === "unknown" ? task : undefined;
 			});
 			expect(unknown.errorCode).toBe("dispatch_unconfirmed");
+		});
+
+		it("ends a task left between its claim and its dispatch as dispatch_interrupted", async () => {
+			const key = generateKeyPair();
+			const node = await addNode("restart-interrupted", key.publicKey);
+			const interrupted = await seedTask(node, "awaiting_approval", { handler_type: null });
+			const waiting = await seedTask(node, "awaiting_approval", { handler_type: "user" });
+
+			later = new Cluster(db, { reconnectGraceMs: GRACE_MS });
+			await later.recover();
+			const failed = await later.getTask(interrupted);
+			expect(failed).toMatchObject({
+				state: "failed",
+				errorCode: "dispatch_interrupted",
+				errorMessage: "the server stopped before the task was dispatched",
+			});
+			expect(failed?.finishedAt).not.toBeNull();
+			// A task that really waits for an approval has a handler and is left alone.
+			expect(await later.getTask(waiting)).toMatchObject({ state: "awaiting_approval", finishedAt: null });
 		});
 
 		it("leaves a task of a node that reconnects within the grace alone", async () => {

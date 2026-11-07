@@ -1,9 +1,8 @@
 /** Reading a task, waiting for its end and cancelling it (doc/execution-plane.md#状态机). */
-import { ConnectionError } from "@crh/protocol";
 import { withdrawLocal } from "./authorization/common.ts";
 import { parseTaskAuthorization } from "./authorization.ts";
 import type { ClusterCore } from "./core.ts";
-import { endTask } from "./task-end.ts";
+import { CANCELLED_BEFORE_START_MESSAGE, cancelledTaskFields, endTask, requestTaskCancel } from "./task-end.ts";
 import { toView } from "./task-view.ts";
 import { type Actor, type TaskView, TERMINAL } from "./types.ts";
 
@@ -61,49 +60,63 @@ export async function waitTask(
 /**
  * Asks the node to cancel a running task. A task that still waits for its approval or its
  * authorization signature was never dispatched, so it ends here instead (there is no node-side task).
- * Returns false if the task already ended or the node is offline. `message` replaces the default reason of
- * a task that ends before dispatch (e.g. its session was stopped). `by` is the actor who asked for the
- * cancellation: the task.finished audit event names it, or the system when it is absent.
+ * A task that was claimed for dispatch records the request on its row first, so the dispatch path
+ * that has not sent task.start yet ends it instead of running it (doc/execution-plane.md#任务取消).
+ * Returns false if the task already ended, or when it runs and the node is offline. `message` replaces
+ * the default reason of a task that ends before dispatch (e.g. its session was stopped). `by` is the
+ * actor who asked for the cancellation: the task.finished audit event names it, or the system when it
+ * is absent.
  */
 export async function cancelTask(
 	core: ClusterCore,
 	id: string,
-	message = "the task was cancelled before it was dispatched",
+	message = CANCELLED_BEFORE_START_MESSAGE,
 	by?: Actor,
 ): Promise<boolean> {
-	const row = await core.row(id);
+	let row = await core.row(id);
 	if (!row || TERMINAL.has(row.state)) return false;
-	if (by) core.cancelledBy.set(id, by);
+	let flagged = false;
+	if (row.state === "dispatched") {
+		// The claim may turn into running while this runs (onAccepted), or back to waiting after an
+		// authorization retry: follow the row instead of cancelling against a stale state.
+		for (;;) {
+			const res = await core.db
+				.updateTable("tasks")
+				.set({ cancelled: 1 })
+				.where("id", "=", id)
+				.where("state", "=", "dispatched")
+				.executeTakeFirst();
+			if (res.numUpdatedRows > 0n) {
+				flagged = true;
+				break;
+			}
+			const current = await core.row(id);
+			if (!current || TERMINAL.has(current.state)) return false;
+			row = current;
+			if (row.state !== "dispatched") break;
+		}
+	}
 	if (row.state === "awaiting_approval" || row.state === "awaiting_authorization") {
+		if (by) core.cancelledBy.set(id, by);
 		const record = parseTaskAuthorization(row.authorization);
 		const link = core.links.get(row.node_id);
 		return endTask(core, id, {
-			write: {
-				from: [row.state],
-				set: {
-					state: "rejected",
-					error_code: "cancelled",
-					error_message: message,
-					cancelled: 1,
-					pending_input: null,
-					handler_type: null,
-					handler_session_id: null,
-				},
-			},
+			write: { from: [row.state], set: cancelledTaskFields(message) },
 			afterWrite: () => withdrawLocal(link, id, record),
 			group: row.task_group_id,
 			onChange: row.actor_id,
 		});
 	}
+	if (flagged && by) core.cancelledBy.set(id, by);
 	const ssh = core.sshCancels.get(id);
 	if (ssh) {
+		if (by) core.cancelledBy.set(id, by);
 		ssh.abort();
 		return true;
 	}
-	const link = core.links.get(row.node_id);
-	if (!link?.ready) return false;
-	void link.conn.peer.request("task.cancel", { taskId: id }).catch((err: unknown) => {
-		if (!(err instanceof ConnectionError)) console.error(`task.cancel for ${id} failed:`, err);
-	});
-	return true;
+	if (requestTaskCancel(core, row.node_id, id)) {
+		if (by) core.cancelledBy.set(id, by);
+		return true;
+	}
+	return flagged;
 }

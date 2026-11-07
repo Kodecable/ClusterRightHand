@@ -88,11 +88,10 @@ export async function runSsh(
 	// crhs sees all of an SSH task's output itself, so it counts the single stream's lines here.
 	const lines = new LineCounter();
 	let isStarted = false;
-	// SSH has no privileged mode: the task runs as the SSH user. The notice is crhs's own, so it lives
-	// in tasks.notice and never in the output (D114); every output mode keeps it, status included.
-	if (privileged) {
-		await core.db.updateTable("tasks").set({ notice: SSH_PRIVILEGED_NOTICE }).where("id", "=", id).execute();
-	}
+	// Registered before the first await so a cancel that arrives while the notice or the connection is
+	// written still aborts this run (doc/execution-plane.md#ssh-传输).
+	const ac = new AbortController();
+	core.sshCancels.set(id, ac);
 	const sink = {
 		// The remote wrapper merged stderr into stdout after printing the pid (D114), so this is the
 		// single output stream. Anything the wrapper still writes on stderr is appended defensively.
@@ -112,26 +111,31 @@ export async function runSsh(
 			);
 		},
 	};
-	const ac = new AbortController();
-	core.sshCancels.set(id, ac);
 	// Cancelled before the remote command started: nothing ran, so the task ends as a cancellation
 	// rather than running on (doc/execution-plane.md#ssh-传输). The connect and the shell probe can
-	// take a long time, so the check is repeated around them, not left to the exec alone.
+	// take a long time, so the check is repeated around them, not left to the exec alone. The row's
+	// flag also covers a cancel that came between the dispatch claim and this run.
+	const cancelled = async (): Promise<boolean> => ac.signal.aborted || (await core.row(id))?.cancelled === 1;
 	const cancelledFields = (): Updateable<TasksTable> => ({ state: "exited", cancelled: 1 });
 	// SSH keeps no full output (no output file): status saves only the byte count, text its budgeted
 	// tail, head the page's head. It sees the whole stream, so it also has the line count TaskExit
 	// would report.
 	const outputFields = () => ({ ...outputColumns(live.output.snapshot()), output_lines: lines.lines });
 	try {
+		// SSH has no privileged mode: the task runs as the SSH user. The notice is crhs's own, so it lives
+		// in tasks.notice and never in the output (D114); every output mode keeps it, status included.
+		if (privileged) {
+			await core.db.updateTable("tasks").set({ notice: SSH_PRIVILEGED_NOTICE }).where("id", "=", id).execute();
+		}
 		let fields: Updateable<TasksTable>;
 		// A pooled connection may have died without notice; nothing has run yet, so retry once fresh.
 		for (let attempt = 0; ; attempt++) {
-			if (ac.signal.aborted) {
+			if (await cancelled()) {
 				fields = cancelledFields();
 				break;
 			}
 			const link = await sshSession(core, node);
-			if (ac.signal.aborted) {
+			if (await cancelled()) {
 				fields = cancelledFields();
 				break;
 			}

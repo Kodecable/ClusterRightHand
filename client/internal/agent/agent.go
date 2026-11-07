@@ -146,7 +146,11 @@ type Agent struct {
 	// and was acknowledged. acceptedOrder is the FIFO order for eviction at maxAcceptedTasks.
 	accepted      map[string]struct{}
 	acceptedOrder []string
-	kick          chan struct{}
+	// cancelTombstones holds the ids of tasks cancelled before this agent knew them, with the time
+	// they were recorded; cancelTombstoneOrder is the FIFO order for eviction at maxCancelTombstones.
+	cancelTombstones     map[string]time.Time
+	cancelTombstoneOrder []cancelTombstone
+	kick                 chan struct{}
 	// The current active connection, for RefreshFacts and Reconnect.
 	conn *transport.Conn
 	peer *protocol.Peer
@@ -169,12 +173,13 @@ func New(opts Options) *Agent {
 		opts.Logger = slog.Default()
 	}
 	a := &Agent{
-		opts:     opts,
-		log:      opts.Logger,
-		tasks:    map[string]*task{},
-		accepted: map[string]struct{}{},
-		kick:     make(chan struct{}, 1),
-		relay:    newRelayRouter(),
+		opts:             opts,
+		log:              opts.Logger,
+		tasks:            map[string]*task{},
+		accepted:         map[string]struct{}{},
+		cancelTombstones: map[string]time.Time{},
+		kick:             make(chan struct{}, 1),
+		relay:            newRelayRouter(),
 	}
 	if opts.PrivilegedMode == config.ModeForward {
 		// The first connection attempt has not finished yet; crhs must not wait for it.

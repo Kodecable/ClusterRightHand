@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/executor"
@@ -11,6 +12,22 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/taskinput"
 	"github.com/fxamacker/cbor/v2"
 )
+
+// A task.cancel may reach crha before the task.start it is meant for: crhs claims a task before it
+// sends it. The id of an unknown cancelled task is remembered for cancelTombstoneTTL, so a task.start
+// that arrives afterwards is refused instead of running. maxCancelTombstones bounds the memory; the
+// oldest entry is evicted when it is full.
+const cancelTombstoneTTL = 10 * time.Minute
+
+// maxCancelTombstones is a variable so tests can lower it.
+var maxCancelTombstones = 1024
+
+// cancelTombstone is one recorded cancellation, with the time it was recorded for expiry and for
+// telling a stale order entry from a newer tombstone of the same id.
+type cancelTombstone struct {
+	id string
+	at time.Time
+}
 
 // task is one accepted task. Its fields are the same for every mode; the mode that executes it, with
 // that mode's state and code, is its taskRun.
@@ -125,6 +142,7 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 	}
 	// A malformed sha256 cannot reach here: protocol.Hash decodes to exactly 32 bytes.
 	a.mu.Lock()
+	cancelled := a.takeCancelledLocked(ts.TaskID)
 	_, dup := a.accepted[ts.TaskID]
 	if !dup {
 		// An id whose entry was evicted must still be refused while its task is held: the
@@ -132,6 +150,9 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 		_, dup = a.tasks[ts.TaskID]
 	}
 	a.mu.Unlock()
+	if cancelled {
+		return nil, &protocol.RemoteError{Code: protocol.CodeCancelled, Message: "the task was cancelled before it started"}
+	}
 	if dup {
 		return nil, &protocol.RemoteError{Code: protocol.CodeAlreadyAccepted, Message: "task " + ts.TaskID + " was already accepted"}
 	}
@@ -323,6 +344,9 @@ func (a *Agent) abortIncompleteInputLocked(t *task) {
 	a.failInputLocked(t, protocol.CodeInputIncomplete, "connection closed before the task input was complete")
 }
 
+// handleTaskCancel stops a running task. A cancel for a task this agent does not know is recorded:
+// the task.start may still be on its way, and running it after a cancel would execute a command crhs
+// already gave up on.
 func (a *Agent) handleTaskCancel(ctx context.Context, body cbor.RawMessage) (any, error) {
 	var c protocol.TaskCancel
 	if err := protocol.UnmarshalBody(body, &c); err != nil {
@@ -331,11 +355,47 @@ func (a *Agent) handleTaskCancel(ctx context.Context, body cbor.RawMessage) (any
 	a.mu.Lock()
 	t := a.tasks[c.TaskID]
 	running := t != nil && !t.done
+	if t == nil {
+		// A task this agent accepted once is known even after its exit; only a truly unknown id needs
+		// the tombstone that refuses a task.start still on its way.
+		if _, known := a.accepted[c.TaskID]; !known {
+			a.tombstoneCancelledLocked(c.TaskID)
+		}
+	}
 	a.mu.Unlock()
 	if running {
 		t.run.cancel(a, ctx, t)
 	}
 	return protocol.Empty{}, nil
+}
+
+// tombstoneCancelledLocked records the cancel of a task this agent does not know. a.mu must be held.
+func (a *Agent) tombstoneCancelledLocked(id string) {
+	if _, ok := a.cancelTombstones[id]; ok {
+		return
+	}
+	at := time.Now()
+	a.cancelTombstones[id] = at
+	a.cancelTombstoneOrder = append(a.cancelTombstoneOrder, cancelTombstone{id: id, at: at})
+	for len(a.cancelTombstoneOrder) > maxCancelTombstones {
+		oldest := a.cancelTombstoneOrder[0]
+		a.cancelTombstoneOrder = a.cancelTombstoneOrder[1:]
+		if current, ok := a.cancelTombstones[oldest.id]; ok && current.Equal(oldest.at) {
+			delete(a.cancelTombstones, oldest.id)
+		}
+	}
+}
+
+// takeCancelledLocked reports whether the id was cancelled before this agent knew the task, and
+// forgets the tombstone: the task.start is refused once, and a later start of the same id is judged on
+// its own. An expired tombstone no longer counts. a.mu must be held.
+func (a *Agent) takeCancelledLocked(id string) bool {
+	at, ok := a.cancelTombstones[id]
+	if !ok {
+		return false
+	}
+	delete(a.cancelTombstones, id)
+	return time.Since(at) < cancelTombstoneTTL
 }
 
 func (a *Agent) handleTaskQuery(ctx context.Context, body cbor.RawMessage) (any, error) {

@@ -22,7 +22,14 @@ import type { NodeConnection } from "./connection.ts";
 import type { ClusterCore } from "./core.ts";
 import { dropLive, newLive, ownLive } from "./live-output.ts";
 import { getNode, markNodeSeen, type NodeRow, updateNodeFacts } from "./nodes.ts";
-import { markUnknown, onAccepted, onExit } from "./task-end.ts";
+import {
+	DISPATCH_INTERRUPTED,
+	DISPATCH_INTERRUPTED_MESSAGE,
+	endTask,
+	markUnknown,
+	onAccepted,
+	onExit,
+} from "./task-end.ts";
 import { onTrustSummary } from "./trust-cache.ts";
 import { recorded, TERMINAL } from "./types.ts";
 
@@ -50,14 +57,17 @@ export function trustFresh(core: ClusterCore, nodeId: string): boolean {
 }
 
 /**
- * Settles the tasks a previous process left unfinished (doc/execution-plane.md#断线恢复). A client
- * node's dispatched or running tasks are treated as detached now, so the reconnect grace they get is
- * the same as after a disconnect: a node that comes back within it resolves them through hello, and
- * one that does not leaves them `unknown`. An SSH node has no connection to resume: its tasks are
- * `unknown(connection_lost)` at once. Called at startup, before any node connects.
+ * Settles the tasks a previous process left unfinished (doc/execution-plane.md#断线恢复). A task it
+ * left between its claim and its task.start is ended as failed(dispatch_interrupted): nobody waits to
+ * approve it, and its input is gone. A client node's dispatched or running tasks are treated as
+ * detached now, so the reconnect grace they get is the same as after a disconnect: a node that comes
+ * back within it resolves them through hello, and one that does not leaves them `unknown`. An SSH node
+ * has no connection to resume: its tasks are `unknown(connection_lost)` at once. Called at startup,
+ * before any node connects.
  */
 export async function recover(core: ClusterCore): Promise<void> {
 	if (core.closing) return;
+	await endInterruptedDispatches(core);
 	const rows = await core.db
 		.selectFrom("tasks")
 		.select(["id", "node_id"])
@@ -71,6 +81,41 @@ export async function recover(core: ClusterCore): Promise<void> {
 			continue;
 		}
 		armGrace(core, row.node_id);
+	}
+}
+
+/**
+ * Ends the tasks a previous process left between their claim and their task.start. A task allowed to
+ * dispatch is written as `awaiting_approval` with no handler for that instant, so nobody could decide
+ * it and its input is gone; leaving it there would also make a reattached tool call wait forever
+ * (doc/execution-plane.md#断线恢复).
+ */
+async function endInterruptedDispatches(core: ClusterCore): Promise<void> {
+	const rows = await core.db
+		.selectFrom("tasks")
+		.select(["id", "task_group_id", "actor_id"])
+		.where("state", "=", "awaiting_approval")
+		.where("handler_type", "is", null)
+		.execute();
+	for (const row of rows) {
+		await core.taskQueue.run(row.id, () =>
+			endTask(core, row.id, {
+				write: {
+					from: ["awaiting_approval"],
+					set: {
+						state: "failed",
+						error_code: DISPATCH_INTERRUPTED,
+						error_message: DISPATCH_INTERRUPTED_MESSAGE,
+						pending_input: null,
+						handler_type: null,
+						handler_session_id: null,
+					},
+				},
+				group: row.task_group_id,
+				awaitGroup: true,
+				onChange: row.actor_id,
+			}),
+		);
 	}
 }
 

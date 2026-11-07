@@ -1513,6 +1513,101 @@ func TestAcceptedSetEviction(t *testing.T) {
 	}
 }
 
+// TestCancelTombstoneRefusesLateStart covers a task.cancel that overtakes its task.start: the agent
+// does not know the task, remembers the cancellation, and refuses the late start with cancelled.
+func TestCancelTombstoneRefusesLateStart(t *testing.T) {
+	a := newTestAgent(t, Options{})
+	cancelTask(t, a, "late")
+
+	ts := execTask("late", "true")
+	_, err := a.start(context.Background(), &ts)
+	var remote *protocol.RemoteError
+	if !errors.As(err, &remote) || remote.Code != protocol.CodeCancelled {
+		t.Fatalf("task.start after cancel = %v, want cancelled", err)
+	}
+	if remote.Message != "the task was cancelled before it started" {
+		t.Fatalf("task.start message = %q", remote.Message)
+	}
+	// The refusal consumed the tombstone: a later start of the same id is judged on its own.
+	if _, err := a.start(context.Background(), &ts); err != nil {
+		t.Fatalf("second task.start: %v", err)
+	}
+}
+
+// TestCancelTombstoneCoversPrivilegedStart checks the tombstone before the mode is chosen: a
+// privileged task cancelled before it was known is refused as cancelled, not run or reported as a
+// mode the agent does not support.
+func TestCancelTombstoneCoversPrivilegedStart(t *testing.T) {
+	a := newTestAgent(t, Options{PrivilegedMode: "forward"})
+	cancelTask(t, a, "priv-late")
+
+	ts := execTask("priv-late", "true")
+	ts.Privileged = true
+	_, err := a.start(context.Background(), &ts)
+	var remote *protocol.RemoteError
+	if !errors.As(err, &remote) || remote.Code != protocol.CodeCancelled {
+		t.Fatalf("privileged task.start after cancel = %v, want cancelled", err)
+	}
+}
+
+// TestCancelTombstoneExpires covers the lifetime of a recorded cancellation: after the TTL the id is
+// no longer considered cancelled.
+func TestCancelTombstoneExpires(t *testing.T) {
+	a := newTestAgent(t, Options{})
+	a.mu.Lock()
+	a.cancelTombstones["old"] = time.Now().Add(-cancelTombstoneTTL - time.Minute)
+	a.mu.Unlock()
+
+	ts := execTask("old", "true")
+	if _, err := a.start(context.Background(), &ts); err != nil {
+		t.Fatalf("an expired tombstone refused the start: %v", err)
+	}
+}
+
+// TestCancelTombstoneCap covers eviction: past maxCancelTombstones the oldest cancellation is
+// forgotten and the newest is kept.
+func TestCancelTombstoneCap(t *testing.T) {
+	old := maxCancelTombstones
+	maxCancelTombstones = 2
+	defer func() { maxCancelTombstones = old }()
+
+	a := newTestAgent(t, Options{})
+	for _, id := range []string{"t1", "t2", "t3"} {
+		cancelTask(t, a, id)
+	}
+	a.mu.Lock()
+	size := len(a.cancelTombstones)
+	_, hasT1 := a.cancelTombstones["t1"]
+	_, hasT3 := a.cancelTombstones["t3"]
+	a.mu.Unlock()
+	if size != maxCancelTombstones || hasT1 || !hasT3 {
+		t.Fatalf("tombstones = %d, hasT1 = %v, hasT3 = %v", size, hasT1, hasT3)
+	}
+
+	evicted := execTask("t1", "true")
+	if _, err := a.start(context.Background(), &evicted); err != nil {
+		t.Fatalf("the evicted id was still refused: %v", err)
+	}
+	kept := execTask("t3", "true")
+	_, err := a.start(context.Background(), &kept)
+	var remote *protocol.RemoteError
+	if !errors.As(err, &remote) || remote.Code != protocol.CodeCancelled {
+		t.Fatalf("the kept id was not refused: %v", err)
+	}
+}
+
+// cancelTask sends one task.cancel for an id the agent does not know.
+func cancelTask(t *testing.T, a *Agent, id string) {
+	t.Helper()
+	body, err := protocol.Marshal(protocol.TaskCancel{TaskID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.handleTaskCancel(context.Background(), body); err != nil {
+		t.Fatalf("task.cancel: %v", err)
+	}
+}
+
 // TestAcceptedSetKeepsRunningTasks covers the eviction rule: an id whose task is still held is never
 // evicted, and a re-sent task.start for it is refused. Evicting it would let the duplicate overwrite
 // the running task in a.tasks, and the task would be executed twice.

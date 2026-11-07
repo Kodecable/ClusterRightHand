@@ -155,6 +155,49 @@ describe("SSH exec cancellation", () => {
 		return { session: session as unknown as SshSession, commands };
 	}
 
+	it("acts on an abort that fired while the exec channel was opening", async () => {
+		const handlers = new Map<string, (arg?: unknown) => void>();
+		let closes = 0;
+		let release!: () => void;
+		const channel = {
+			on: (event: string, fn: (arg?: unknown) => void) => handlers.set(event, fn),
+			stderr: { on: () => {}, resume: () => {} },
+			end: () => {},
+			close: () => {
+				closes++;
+				handlers.get("exit")?.(null);
+				handlers.get("close")?.();
+			},
+		};
+		const session = {
+			exec: (_command: string, onChannel?: (channel: unknown) => void) =>
+				new Promise((resolve) => {
+					release = () => {
+						onChannel?.(channel);
+						resolve(channel);
+					};
+				}),
+			onClose: () => () => {},
+			closed: false,
+		} as unknown as SshSession;
+
+		const controller = new AbortController();
+		const running = runSshExec(
+			session,
+			execSpec({ argv: ["sleep", "30"] }),
+			undefined,
+			{ stdout: () => {}, stderr: () => {}, started: () => {} },
+			{ signal: controller.signal },
+		);
+		// The channel is still opening: the abort fires before the listener can be attached.
+		controller.abort();
+		release();
+		const result = await running;
+		// The cancellation is acted on as soon as the channel exists instead of being lost.
+		expect(result.cancelled).toBe(true);
+		expect(closes).toBe(1);
+	});
+
 	it("runs nothing when the task was cancelled before it started", async () => {
 		const { session, commands } = recordingSession();
 		const controller = new AbortController();

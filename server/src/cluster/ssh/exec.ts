@@ -239,6 +239,9 @@ export async function runSshExec(
 			terminate();
 		};
 		options.signal?.addEventListener("abort", onAbort, { once: true });
+		// The signal may have fired while the channel was being opened, before the listener existed:
+		// the abort event is already gone, so act on the state itself.
+		if (options.signal?.aborted) onAbort();
 		if (options.timeoutMs) {
 			timers.push(
 				setTimeout(() => {

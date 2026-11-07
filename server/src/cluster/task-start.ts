@@ -9,8 +9,8 @@ import type { TasksTable } from "../storage/schema.ts";
 import type { NodeConnection } from "./connection.ts";
 import type { ClusterCore } from "./core.ts";
 import { OUTPUT_KEEP_BYTES, OUTPUT_KEEP_LINES } from "./output.ts";
-import { finish, onAccepted } from "./task-end.ts";
-import { AUTHORIZATION_CODES } from "./types.ts";
+import { cancelledTaskFields, finish, onAccepted } from "./task-end.ts";
+import { AUTHORIZATION_CODES, TASK_CANCELLED_CODE } from "./types.ts";
 
 /** What tells one dispatch path's task.start from another's; everything else comes from the row. */
 interface TaskStartOptions {
@@ -106,6 +106,14 @@ export async function sendTaskStart(
 	followUp: StartFollowUp,
 ): Promise<void> {
 	const id = start.taskId;
+	// The task was claimed for dispatch, but it may have been cancelled or given up on since then: the
+	// last check comes immediately before the frame leaves (doc/execution-plane.md#任务取消).
+	const row = await core.row(id);
+	if (row?.state !== "dispatched") return;
+	if (row.cancelled === 1) {
+		await followUp.settle(() => finish(core, nodeId, id, cancelledTaskFields()));
+		return;
+	}
 	try {
 		await link.conn.peer.request("task.start", start);
 	} catch (err) {
@@ -114,6 +122,11 @@ export async function sendTaskStart(
 			return;
 		}
 		if (err instanceof RemoteError) {
+			if (err.code === TASK_CANCELLED_CODE) {
+				// The node recorded the cancel of this id before it knew the task: nothing ran.
+				await followUp.settle(() => finish(core, nodeId, id, cancelledTaskFields()));
+				return;
+			}
 			const authorization = AUTHORIZATION_CODES.has(err.code);
 			if (authorization && followUp.onAuthorizationRejected) {
 				await followUp.onAuthorizationRejected(err);

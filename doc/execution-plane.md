@@ -106,6 +106,8 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 
 向 agent 报告的内容是："失败，状态未知，原因是 xxx"。是否重试、重试前要不要先检查机器状态，由 agent 或使用者决定。
 
+crhs 重启时，停在认领和 `task.start` 之间的任务（`awaiting_approval` 且 `handler_type` 为空）以 `failed`、`error_code = dispatch_interrupted` 结束，原因写明服务器在任务下发前停止：没有人能审批它，输入也已丢失，重新挂接的调用不会永远等待。真正等审批的任务总有处理者（`handler_type` 非空）；任务组先于普通任务恢复，组成员按任务组的中断语义结束。
+
 ### 节点不在线
 
 crhs 要向节点发送 `task.start` 而节点没有连接时（D113），最多等待 `NODE_OFFLINE_GRACE`（30 秒）让它重连；期间重连上（`forward` 节点还要等到新的信任报告）就照常下发，否则任务以 `failed(node_offline)` 结束。任务从未下发，不属于 `unknown`。
@@ -124,6 +126,13 @@ crhs 要向节点发送 `task.start` 而节点没有连接时（D113），最多
 - 已 accepted 的任务即使之后失败/unknown，也不重发；重连后只发 `task.query`。
 - 客户端收到不认识 task id 的 `task.query` 时，正常响应（`ok = true`）状态 `unknown`；这不是错误。
 - 客户端不持久化任务，也不做任何重放；task id 的 accepted/executed 记录只在客户端内存中，重启后靠 `query` 得到 `unknown(executor_restarted)`。
+
+### 任务取消
+
+- 等待审批或签名的任务还没有节点侧任务：取消直接把它以 `rejected`、`error_code = cancelled` 结束，并撤回未完成的本地批准请求。
+- 已经认领（`dispatched`）、但 `task.start` 还没有发出或还没有被接受的任务：crhs 先把 `tasks.cancelled` 记为 1，再给节点发 `task.cancel`；节点离线时也返回成功。真正发送的那一次 `task.start` 之前会重新读行：已经不是 `dispatched`（例如已被 `task.query` 标记为 `unknown`）就不发送；`cancelled = 1` 则以 `rejected`、`error_code = cancelled` 结束，不发送。
+- crha 对还不认识的 task id 记下取消（10 分钟、最多 1024 个，满了淘汰最旧的），之后到达的 `task.start` 以 `cancelled` 拒绝；`task.start` 已被接受（accepted）时，crhs 在 `onAccepted` 里补发一次 `task.cancel`，覆盖取消先到节点的窗口。
+- SSH 节点同样先在行上记下取消；连接、shell 探测和执行 channel 打开期间收到的取消都不会漏掉，尚未启动的远端命令不会执行。
 
 ## 输出
 
@@ -220,11 +229,12 @@ event     = [2, event, body]
 
 命令响应的语义：
 
-- **`task.start`**：`ok = true` 就是 accepted。crha 发出成功响应前，必须已在内存中把这个 task id 记为 accepted；该任务的 `task.output`/`task.exit` 一定排在这个响应之后（crha 先发响应再启动进程，消息流有序）。`ok = false` 的错误码分两类：
+- **`task.start`**：`ok = true` 就是 accepted。crha 发出成功响应前，必须已在内存中把这个 task id 记为 accepted；该任务的 `task.output`/`task.exit` 一定排在这个响应之后（crha 先发响应再启动进程，消息流有序）。`ok = false` 的错误码分三类：
   - `authorization_*`：可重试。crha 不记录这个 task id，crhs 把任务转回 `awaiting_authorization`，之后用 `attempt + 1` 重新下发。
+  - `cancelled`：取消先于 `task.start` 到达节点（crha 记住了这个 id 的取消），任务没有执行；crhs 以 `rejected`、`error_code = cancelled` 结束，不重试。
   - 其他（`unsupported_kind`、`local_policy_denied`、`invalid_spec` 等）：终态，任务结束为 `failed`。
   - 同一 task id 已经 accepted 过时返回 `already_accepted`，按协议 bug 处理，绝不再次执行。
-- **`task.cancel`**：响应只表示已收到并发出信号（任务已结束也返回 ok）；最终结果以 `task.exit`（`cancelled = true`）为准。
+- **`task.cancel`**：响应只表示已收到并发出信号（任务已结束也返回 ok）；最终结果以 `task.exit`（`cancelled = true`）为准。对已经认领但还没收到 accepted 的任务，crhs 把取消记在任务行上，因此节点离线也返回 ok；crha 对未知 task id 的取消会记住，稍后到达的 `task.start` 以 `cancelled` 拒绝（见上）。
 - **`task.query`**：`ok = true`，状态为 `running` / `exited` / `unknown`（客户端不认识这个 task id）；`ok = false` 只用于格式错误等真正的错误。
 
 `task.start` 的接受/拒绝、`task.query` 的状态、`hello`/`welcome` 的断线恢复都是命令响应；任务输出、退出、facts、trust summary、node status 和两个 ack 都是事件。抽象是“双向命令/事件”，不是只有客户端推送。
@@ -243,7 +253,7 @@ event     = [2, event, body]
 - crhs 重启后内存中的输出已经丢失，`welcome` 中的确认偏移为 0，crha 从头补发（crha 在收到 `task.exit.ack` 之前一直保留输出），所以 crhs 重启也不会丢输出。
 - 大的输入（exec 的 stdin、文件内容）在 `task.start` 被 **accepted** 之后以 `task.input` 分块发送，`task.start` 中只带大小和 SHA-256。这样授权拒绝时不必传输输入；同一 task id 的授权重试（`attempt + 1`）也会重新发送输入。输入发送途中断线无法续传，crha 发现输入不完整，任务失败。
 - 断线超过一定时间（默认 2 分钟），服务端先把这些任务对上层报告为 `unknown(connection_lost)`（尚未确认接受的为 `unknown(dispatch_unconfirmed)`）；如果之后客户端重连并报告了结果，再以“迟到结果”补记到审计和任务记录中，但不会改变已经返回给 agent 的结论。
-- crhs 重启时对遗留的 `dispatched` / `running` 任务做同样的处理：客户端节点的任务从重启起算这段宽限期（期间重连则由 `hello` / `task.query` 恢复），SSH 节点的任务立即为 `unknown(connection_lost)`，连接已随进程消失。
+- crhs 重启时对遗留的 `dispatched` / `running` 任务做同样的处理：客户端节点的任务从重启起算这段宽限期（期间重连则由 `hello` / `task.query` 恢复），SSH 节点的任务立即为 `unknown(connection_lost)`，连接已随进程消失。重启时还在认领与下发之间的任务先以 `failed(dispatch_interrupted)` 结束，见上文。
 - 为迟到结果保留在内存中的输出有上限（`UNKNOWN_OUTPUT_KEEP_MS`，10 分钟）；节点重连后查询到它也不认识该任务时立即释放，不必等满时限。
 
 ## 通信安全
@@ -409,7 +419,7 @@ SSH 节点可以配置一个或多个跳板（等价于 OpenSSH 的 `ProxyJump`�
 
 - **sh 的发现**：每条新建的连接（连接池换新连接时也一样）先执行一次探测，按与 crha 相同的顺序找 sh 和 bash：`/etc/shells` 中第一个文件名为 `sh` / `bash` 的存在且可执行的绝对路径，然后 `command -v`。结果写入节点 `facts` 的 `shells`（SSH 节点的 facts 只有这一项），之后这条连接上的任务都用探测到的 sh；探测不到 sh 时用 `/bin/sh`。授权和显示的渲染与 crha 节点相同，仍是 `/bin/sh -c '<cmd>'`。
 - **进程组**：sshd 启动命令时已经为它新建会话，命令所在 shell 的 pid 就是进程组 id。远端命令是 `cd <cwd> || exit 127; exec env -- LANG=C.UTF-8 LC_ALL=C.UTF-8 [K=V…] <sh> -c '<wrapper>' crh <argv…>`（`shell` 命令的 argv 是 `<sh> -c <cmd>`），wrapper 先在 stderr 第一行输出 `$$`（crhs 解析后剥掉），然后 `exec 2>&1` 把之后的 stderr 并入 stdout（D114），再 `exec` 真正的命令；所以 SSH 节点的输出同样只有一个流，crhs 不需要自己合并。不用 `setsid(1)`：调用者已经是进程组组长时它会 fork，退出码就丢了。
-- **取消与超时**：另开 exec channel 执行 `kill -TERM -- -<pgid>`，宽限期后 `kill -KILL`；与 crha 相同，结果报告为 signal。在建立连接或探测 shell 期间取消的任务从未执行，以 `exited`、`cancelled = true` 结束，不会补发命令。
+- **取消与超时**：另开 exec channel 执行 `kill -TERM -- -<pgid>`，宽限期后 `kill -KILL`；与 crha 相同，结果报告为 signal。在建立连接或探测 shell 期间取消的任务从未执行，以 `exited`、`cancelled = true` 结束，不会补发命令。取消在任务认领时就登记（早于任何等待），启动命令前还会检查任务行的 `cancelled` 标记；exec channel 打开后才挂上的 abort 监听会立即补查已经触发的 signal。
 - **退出状态**：短命令的输出和退出状态可能与 channel 打开确认在同一个包里到达，监听器必须在 channel 打开的回调中同步挂上。
 - **连接**：每个节点复用一条连接（keepalive 10 秒、3 次），任何一跳断开都关闭整条连接。池中的连接已失效而任务尚未开始时，换新连接重试一次。
 - **结果**：连接失败（远端还没开始执行）为 `failed(connect_failed | host_key_mismatch)`；远端开始执行后连接断开为 `unknown(connection_lost)`。输出只有 crhs 保存的头尾，没有输出文件。

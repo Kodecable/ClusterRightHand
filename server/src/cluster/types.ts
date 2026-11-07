@@ -194,6 +194,9 @@ export const UNKNOWN_OUTPUT_KEEP_MS = 10 * 60 * 1000;
  */
 export const NODE_OFFLINE_GRACE_MS = 30_000;
 
+/** A crha's answer to a `task.start` for a task it was told to cancel before starting (doc/protocol.md#taskstart). */
+export const TASK_CANCELLED_CODE = "cancelled";
+
 /**
  * Codes a crha answers `task.start` with before accepting, for which the task may be retried with a
  * higher attempt (doc/protocol.md#taskstart). Other codes are terminal.

@@ -24,7 +24,14 @@ import { dropLive, newLive } from "../live-output.ts";
 import { userCanAccessNode } from "../node-access.ts";
 import type { NodeRow } from "../nodes.ts";
 import { getNode } from "../nodes.ts";
-import { finish, NODE_ACCESS_REVOKED, NODE_ACCESS_REVOKED_MESSAGE, syncGroupState, updateTask } from "../task-end.ts";
+import {
+	cancelledTaskFields,
+	finish,
+	NODE_ACCESS_REVOKED,
+	NODE_ACCESS_REVOKED_MESSAGE,
+	syncGroupState,
+	updateTask,
+} from "../task-end.ts";
 import { pendingInputColumn, sendTaskStart, taskStartOf } from "../task-start.ts";
 import { finishAuthorization, withdrawLocal, withoutRequests } from "./common.ts";
 import { replanWaiting } from "./plan.ts";
@@ -161,6 +168,12 @@ export async function sendAuthorizedStart(
 	const node = await getNode(core.db, nodeId);
 	const ready = await core.readyNode(nodeId, { trust: node?.privileged_mode === "forward" });
 	if (!ready?.link) {
+		// Nothing was sent: a cancellation recorded in the meantime ends the task as cancelled, not offline.
+		const current = await core.row(id);
+		if (current?.cancelled === 1) {
+			await finish(core, nodeId, id, cancelledTaskFields());
+			return;
+		}
 		await finish(core, nodeId, id, {
 			state: "failed",
 			error_code: "node_offline",
@@ -199,6 +212,11 @@ async function retryAuthorization(
 	await core.trustQueue.tail(link.conn.nodeId);
 	const row = await core.row(id);
 	if (row?.state !== "dispatched") return; // accepted (or ended) meanwhile: never retried
+	// A cancel arrived while the task.start was on its way: the task must not go back to waiting.
+	if (row.cancelled === 1) {
+		await finish(core, link.conn.nodeId, id, cancelledTaskFields());
+		return;
+	}
 	const attempt = row.attempt + 1;
 	// Only crhs's own signature path is ruled out for good (D83): the owner may sign again for the
 	// new attempt, and so may a local approver.

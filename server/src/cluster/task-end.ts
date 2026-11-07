@@ -4,14 +4,14 @@
  * waiters, the group's state, the session inbox and the task.finished audit).
  */
 import { createHash } from "node:crypto";
-import { type TaskExit, taskResultToJson } from "@crh/protocol";
+import { ConnectionError, type TaskExit, taskResultToJson } from "@crh/protocol";
 import type { Insertable, Selectable, Updateable } from "kysely";
 import type { TaskState as TaskRowState, TasksTable } from "../storage/schema.ts";
 import type { NodeConnection } from "./connection.ts";
 import { type ClusterCore, now } from "./core.ts";
 import { dropLive, EMPTY_OUTPUT, keepUnknownOutput, newLive } from "./live-output.ts";
 import { outputColumns } from "./task-view.ts";
-import { type Actor, GROUP_TERMINAL, recorded, TERMINAL } from "./types.ts";
+import { type Actor, GROUP_TERMINAL, recorded, TASK_CANCELLED_CODE, TERMINAL } from "./types.ts";
 
 /**
  * The row write that ends a task: an update of a task that was running, or the insert of a task that
@@ -60,8 +60,30 @@ interface TaskEnd {
 export const NODE_ACCESS_REVOKED = "node_access_revoked";
 /** The error message that goes with NODE_ACCESS_REVOKED. */
 export const NODE_ACCESS_REVOKED_MESSAGE = "access to the node was revoked before the task was dispatched";
+/** The error code of a task a previous process left between its claim and its dispatch. */
+export const DISPATCH_INTERRUPTED = "dispatch_interrupted";
+/** The error message that goes with DISPATCH_INTERRUPTED. */
+export const DISPATCH_INTERRUPTED_MESSAGE = "the server stopped before the task was dispatched";
+/** The reason of a task cancelled after it was claimed but before it reached the node. */
+export const CANCELLED_BEFORE_START_MESSAGE = "the task was cancelled before it was dispatched";
 
 // ---- endings before dispatch ----
+
+/**
+ * The terminal row of a task cancelled after it was claimed (or while it waited) but before it started:
+ * nothing ran, so it is `rejected`/`cancelled` like a waiting task a cancel ends.
+ */
+export function cancelledTaskFields(message = CANCELLED_BEFORE_START_MESSAGE): Updateable<TasksTable> {
+	return {
+		state: "rejected",
+		error_code: TASK_CANCELLED_CODE,
+		error_message: message,
+		cancelled: 1,
+		pending_input: null,
+		handler_type: null,
+		handler_session_id: null,
+	};
+}
 
 /** Ends a waiting task whose on_behalf_of user no longer has access to the node (D108). */
 export async function failNodeAccessRevoked(
@@ -151,6 +173,24 @@ export async function onAccepted(core: ClusterCore, nodeId: string, taskId: stri
 		.where("state", "=", "dispatched")
 		.execute();
 	core.notify(taskId);
+	// The cancel may have reached the node before its task.start, or the start may have overtaken the
+	// cancel: the node now knows the task, so the cancel has to follow it (doc/execution-plane.md#任务取消).
+	const row = await core.row(taskId);
+	if (row?.cancelled === 1) requestTaskCancel(core, nodeId, taskId);
+}
+
+/**
+ * Sends task.cancel without awaiting the answer. A node that does not know the task accepts it and
+ * remembers the id, so a task.start arriving afterwards is refused with `cancelled`.
+ * Returns false when the node has no ready link.
+ */
+export function requestTaskCancel(core: ClusterCore, nodeId: string, taskId: string): boolean {
+	const link = core.links.get(nodeId);
+	if (!link?.ready) return false;
+	void link.conn.peer.request("task.cancel", { taskId }).catch((err: unknown) => {
+		if (!(err instanceof ConnectionError)) console.error(`task.cancel for ${taskId} failed:`, err);
+	});
+	return true;
 }
 
 /** task.exit: the node reports the task's end, with the output it says it sent before it. */

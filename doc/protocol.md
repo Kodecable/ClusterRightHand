@@ -69,7 +69,7 @@ Error    = [code: text, message: text]
 | `ping` | C→S | `[seq: uint]` | `[seq: uint]`（原样返回） | |
 | `task.start` | S→C | `TaskStart` | `[]` | 见下 |
 | `task.input` | S→C | `[task_id: text, offset: uint, data: bytes]` | `[]` | `unknown_task`、`input_out_of_order`、`input_too_large` |
-| `task.cancel` | S→C | `[task_id: text]` | `[]` | 无（未知或已结束的任务也返回成功） |
+| `task.cancel` | S→C | `[task_id: text]` | `[]` | 无（未知或已结束的任务也返回成功；未知 id 的取消会被记住，见 `task.start`） |
 | `task.query` | S→C | `[task_id: text]` | `TaskStatus` | 无（未知任务返回 `state = "unknown"`） |
 
 M4（1.1）新增的命令和事件见 [M4：提权](#m4提权)。
@@ -121,6 +121,8 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
 
     `message` 写明失败的校验步骤（privilege.md 的“校验流程”编号）。规则和路径拒绝也是可重试的：crhs 签名路径被拒，不代表所有者的签名也会被拒；crhs 重试时不会再走同一条 crhs 签名路径（D83），不会循环。
   - 终态（任务结束为 `failed`，`error_code` 即此码）：`invalid_spec`（空 id、哈希长度不对等、`size` 为 0 但 `sha256` 不是空输入的 SHA-256）、`unsupported_kind`、`privileged_unsupported`（`reject` 模式；`native` 的提权工具不可用或 helper 版本不符；M3.5 的 crha）、`privileged_unavailable`（`forward` 但特权模式不可达）、`local_policy_denied`、`already_accepted`（校验第 5 步：本任务 id 已在本机执行过）。
+  - `cancelled`：crha 先收到该 task id 的 `task.cancel`、之后才收到 `task.start`（取消先于任务到达节点）。任务没有执行，crhs 把它结束为 `rejected`、`error_code = cancelled`，不重试。
+- 对 crha 还不认识的 task id，`task.cancel` 记下这次取消：最多 1024 个 id，10 分钟后过期，满了淘汰最旧的。之后到达的 `task.start` 返回 `cancelled`（见上），不会补跑。
 - `forward` 时非特权模式把 `task.start` 原样转给特权模式（见 [crh-priv](#crh-priv非特权模式--特权模式)），特权模式的响应就是这里的响应。转发请求有超时（30 秒）：超时的 `task.start` 当作已接受（请求可能已在特权模式排队，之后仍会执行），非特权模式尽力请特权模式取消它，并以 `helper_lost` 结束（结果未知，crhs 不重试）。非特权模式在转发 `authorization_*` 错误之前，先向特权模式重新查询 `TrustSummary`，digest 变化时先发 `trust.summary` 事件，再发错误响应；因此 crhs 处理错误时缓存已经是最新的。
 - `task.input` 只在成功响应之后发送；crhs 可以流水线发送多个分块，不必逐个等待响应；crha 按顺序处理。
 - `file.read` 按行读：`start_line` 从 1 开始，任务是"从这一行起最多 `line_count` 行，整页不超过 50KB（`FileReadMaxBytes`）"。节点从文件开头扫到起始行，只发整行，遇到第一条放不下的行就停下，**不读到文件末尾**。输出就是页面字节本身（保留文件自己的换行）；页面之外的信息放在 `task.exit` 的 `result`（见 [TaskResult](#taskresult)），不进输出流：`from` / `to` 是页面首行和末行的行号，页面为空时都是 0；`eof` 表示扫描到了文件末尾；`total` 只在 `eof` 时出现，是文件总行数；`too_long` 表示请求的首行本身就超过 50KB，此时页面为空。
