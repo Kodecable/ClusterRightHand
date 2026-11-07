@@ -541,6 +541,48 @@ func TestGrantLongFlags(t *testing.T) {
 	}
 }
 
+// TestGrantPrefixWarning covers the word-boundary warning of --prefix: a prefix that does not end
+// with a space or "/" also matches longer words, and the warning says so without changing the
+// prefix that is signed.
+func TestGrantPrefixWarning(t *testing.T) {
+	keyPath, _ := generateSSHKey(t)
+	useSSHKeygen(t, "ssh-keygen")
+
+	stdout, stderr, err := runCLI(t, "grant",
+		"--nodes", testNodeA,
+		"--method", "exec", "--prefix", "systemctl restart nginx",
+		"--deadline", "1h",
+		"--key", keyPath, "--yes")
+	if err != nil {
+		t.Fatalf("grant: %v\nstderr: %s", err, stderr)
+	}
+	for _, want := range []string{"warning: --prefix", "also matches longer words", "nginx-evil", "end it with a space"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr has no %q:\n%s", want, stderr)
+		}
+	}
+	payload, err := protocol.DecodeAuthorizationPayload(decodeAuthorization(t, stdout).Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := payload.Command.Match.Prefix.Target; got != "systemctl restart nginx" {
+		t.Fatalf("prefix = %q, want the given one unchanged", got)
+	}
+
+	// A prefix that already ends at a word boundary needs no warning.
+	_, stderr, err = runCLI(t, "grant",
+		"--nodes", testNodeA,
+		"--method", "exec", "--prefix", "systemctl restart nginx ",
+		"--deadline", "1h",
+		"--key", keyPath, "--yes")
+	if err != nil {
+		t.Fatalf("grant: %v\nstderr: %s", err, stderr)
+	}
+	if strings.Contains(stderr, "also matches longer words") {
+		t.Fatalf("a word-boundary prefix was warned about:\n%s", stderr)
+	}
+}
+
 // TestDarmorSignature covers the PEM armor ssh-keygen wraps an SSHSIG blob in.
 func TestDarmorSignature(t *testing.T) {
 	blob := []byte("SSHSIG and some bytes")

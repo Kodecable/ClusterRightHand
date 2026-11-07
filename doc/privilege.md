@@ -101,7 +101,7 @@ crha 特权模式（不联网）
   - 写入：用同样方式打开父目录，在父目录 fd 下创建临时文件，写完后 `renameat2`（`overwrite = false` 时用 `RENAME_NOREPLACE`）。
   - **fail closed**：`openat2` 返回 `ENOSYS`（内核早于 5.6）或 `EPERM`（seccomp）时拒绝特权文件操作并说明环境不支持，不降级为 `lstat` + `open`。
   - `RESOLVE_NO_SYMLINKS` 不防硬链接和 bind mount。规则放行的目录应当只有目标身份可写。
-  - 读取和列目录时以非阻塞方式打开，目标是 FIFO 或 socket 时拒绝（`code = not_regular_file`），否则读 FIFO 会永久阻塞，取消也无法打断。
+  - 读取和编辑只接受常规文件：先用 `O_PATH` 打开并 fstat（非特权模式先 stat），确认是常规文件后才按同一路径打开读取。字符/块设备、FIFO、socket 和目录以 `code = not_regular_file` 拒绝，所以打开设备不会有副作用，也不会为没有写端的 FIFO 永远阻塞。读取仍以非阻塞方式打开。
   - `file.write` 的 `mode` 原样保留 setuid、setgid、sticky 位；`prefix` 授权和防护规则不约束 `mode` / `owner`，需要约束时用 `exact`。
 
 ## 授权
@@ -316,7 +316,7 @@ kinds = ["execute"]
 **执行环境**：
 - 以特权模式自身的 Linux 身份执行；
 - 环境变量：固定 PATH，`HOME`/`USER`/`LOGNAME` 取 root 账户，`SHELL` 为发现到的 sh，`LANG`/`LC_ALL` 为 `C.UTF-8`；任务的变量只保留 `env_allow` 中允许、且任务提供了的，可以覆盖除 PATH 以外的这些变量（见 [execution-plane.md](execution-plane.md#exec-的执行环境)）；
-- 有 stdin 的任务：特权模式先把 stdin 完整写入 0600 临时文件并核对大小和 `sha256`，通过后才启动进程，否则 `exact` 授权批准的 stdin 可以在校验前就被进程读到；
+- 有 stdin 的任务：特权模式先把 stdin 完整写入特权状态目录下 `stdin/` 子目录（0700，属主为特权模式）里的 0600 暂存文件，并核对大小和 `sha256`，通过后才启动进程，否则 `exact` 授权批准的 stdin 可以在校验前就被进程读到。写暂存文件前按声明大小检查该文件系统的剩余空间，至少保留 5% 或 64 MiB 中较大者，放不下就以 `input_too_large` 拒绝；暂存文件在任务结束时删除。native helper 没有 `privileged.toml`，默认根目录为 `/var/lib/crha/privileged`，可用环境变量 `CRHA_PRIVILEGED_STDIN_DIR` 覆盖（`sudo` 需要 `env_keep`）；
 - 非 `exact` 授权时 cwd 固定为 `/`；
 - 进程放进新的进程组；
 - 特权模式自己执行超时控制。
@@ -339,8 +339,8 @@ kinds = ["execute"]
 
 **只用于单任务**：任务组（批量执行）中的任务不走本地批准，crhs 不发送 `local.request`；没有其他路径时该节点的任务直接以 `authorization_required` 失败，消息提示改为对单个节点执行。逐节点登录批准与批量执行的初衷相悖，也避免 crhs 为任务组逐节点跟踪本地批准状态。
 
-1. crhs 选择本地批准路径时，向节点发送 `local.request`（任务 id、attempt、规格），任务进入待批准列表；**此时不发送 `task.start`**。
-2. `crha pending` 显示完整规格（方法、目标、argv、env、cwd、stdin 或内容的大小和哈希、`file.read` 的起始行和行数、mode、owner、overwrite、edits）和 `spec_sha256`。`crha approve` / `crha deny` 再次显示将要批准的规格并要求确认（`--yes` 跳过），请求中带上这个 `spec_sha256`；特权模式与待批准记录的哈希比较，不一致就拒绝，所以 crhs 不能在管理员查看之后换掉规格。特权模式记录批准人的 uid（拒绝则直接记录拒绝），结果通过 `local.decision` 事件告诉 crhs。
+1. crhs 选择本地批准路径时，向节点发送 `local.request`（任务 id、attempt、规格，以及 stdin 或文件内容的前 4 KiB `input_preview`），任务进入待批准列表；**此时不发送 `task.start`**，也不传输完整输入。
+2. `crha pending` 显示完整规格（方法、目标、argv、env、cwd、stdin 或内容的大小和哈希及其前 4 KiB 预览、`file.read` 的起始行和行数、mode、owner、overwrite、edits）和 `spec_sha256`；文本预览转义控制字符，二进制预览只显示大小和哈希，解释器命令带有 stdin 会作为脚本执行时的警告。`crha approve` / `crha deny` 再次显示将要批准的规格并要求确认（`--yes` 跳过），请求中带上这个 `spec_sha256`；特权模式与待批准记录的哈希比较，不一致就拒绝，所以 crhs 不能在管理员查看之后换掉规格。特权模式记录批准人的 uid（拒绝则直接记录拒绝），结果通过 `local.decision` 事件告诉 crhs。
 3. crhs 收到 `approved` 后，用同一 attempt 发送 `task.start`（`authorizations` 为空）。特权模式此时按上面的流程校验：第 3、4 步不适用（没有授权对象）；第 5 步只检查本任务 id 未执行过；第 6 步核对规格哈希与批准时相同；第 7 步使用批准人所在 `local` 信任项的规则。通过后消耗这条批准记录，任务 id 同样记入已用列表。
 
 待批准和已批准的记录只在特权模式的内存中，不自动超时；crhs 撤回（`local.withdraw`）、拒绝或特权模式重启时结束。特权模式重启后，crhs 会重新发送 `local.request`。等待期间断线不会让任务变成 `unknown`，因为执行只由 `task.start` 触发。

@@ -237,7 +237,8 @@ func TestFileRead(t *testing.T) {
 	wantCode(t, err, "invalid_spec")
 
 	_, err = run(t, &protocol.FileReadSpec{Path: dir, StartLine: 1, LineCount: 1}, nil)
-	wantCode(t, err, "is_directory")
+	wantCode(t, err, "not_regular_file")
+	wantMessage(t, err, dir+" is not a regular file")
 	_, err = run(t, &protocol.FileReadSpec{Path: filepath.Join(dir, "nope"), StartLine: 1, LineCount: 1}, nil)
 	wantCode(t, err, "not_found")
 }
@@ -373,9 +374,6 @@ func TestFileReadCancelled(t *testing.T) {
 	}
 }
 
-// TestFileSpecialFilesDoNotBlock covers FIFOs and sockets: opening one for reading blocks in
-// open(2) (a FIFO waits for a writer) and a cancellation cannot interrupt it, so read, edit and
-// list refuse them with not_regular_file like the privileged executor (doc/privilege.md 方法与目标).
 // TestRunTaskCarriesFileResult covers what a task.exit reports for a file task: the result is in the
 // task's Result, and the output streams keep no metadata (doc/protocol.md TaskResult).
 func TestRunTaskCarriesFileResult(t *testing.T) {
@@ -446,6 +444,9 @@ func TestRunTaskCarriesFileResult(t *testing.T) {
 	}
 }
 
+// TestFileSpecialFilesDoNotBlock covers FIFOs and sockets: opening one for reading blocks in
+// open(2) (a FIFO waits for a writer) and a cancellation cannot interrupt it, so read, edit and
+// list refuse them with not_regular_file like the privileged executor (doc/privilege.md 方法与目标).
 func TestFileSpecialFilesDoNotBlock(t *testing.T) {
 	dir := t.TempDir()
 	fifo := filepath.Join(dir, "fifo")
@@ -496,6 +497,89 @@ func TestFileSpecialFilesDoNotBlock(t *testing.T) {
 			wantCode(t, runSpecial(t, spec), "not_regular_file")
 		})
 	}
+}
+
+// TestFileReadEditRequireRegularFile covers the type rule of file.read and file.edit: only a regular
+// file is opened, so a character device is never read (or opened) and a directory is refused with
+// the same code. A symbolic link to a regular file keeps working in the unprivileged mode, which
+// follows it.
+func TestFileReadEditRequireRegularFile(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "f")
+	writeFile(t, p, "one\ntwo\n", 0o644)
+	link := filepath.Join(dir, "link")
+	linkAt(t, p, link)
+
+	read := func(t *testing.T, path string) (*protocol.TaskResult, error) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return RunFile(ctx, &protocol.TaskSpec{
+			Kind:     protocol.TaskSpecFileRead,
+			FileRead: &protocol.FileReadSpec{Path: path, StartLine: 2, LineCount: 10},
+		}, nil, io.Discard)
+	}
+	edit := func(t *testing.T, path string) error {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := RunFile(ctx, &protocol.TaskSpec{
+			Kind:     protocol.TaskSpecFileEdit,
+			FileEdit: &protocol.FileEditSpec{Path: path, Edits: []protocol.Edit{{OldText: "one", NewText: "1"}}},
+		}, nil, io.Discard)
+		return err
+	}
+
+	// A regular file and a symbolic link to it still work.
+	page, err := read(t, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.FileRead == nil || page.FileRead.To != 2 {
+		t.Fatalf("read result: %+v", page.FileRead)
+	}
+	if _, err := read(t, link); err != nil {
+		t.Fatalf("read through a symbolic link: %v", err)
+	}
+	if err := edit(t, link); err != nil {
+		t.Fatalf("edit through a symbolic link: %v", err)
+	}
+	if got := readFileStr(t, p); got != "1\ntwo\n" {
+		t.Fatalf("target = %q", got)
+	}
+
+	// A directory is not a regular file for either task.
+	if _, err := read(t, dir); err == nil {
+		t.Fatal("read a directory")
+	} else {
+		wantCode(t, err, "not_regular_file")
+		wantMessage(t, err, dir+" is not a regular file")
+	}
+	if err := edit(t, dir); err == nil {
+		t.Fatal("edited a directory")
+	} else {
+		wantCode(t, err, "not_regular_file")
+		wantMessage(t, err, dir+" is not a regular file")
+	}
+
+	// A character device is refused, and the read of /dev/zero starts past the first line: the scan
+	// used to loop on ErrBufferFull there instead of reaching the end of the file.
+	dev := ""
+	for _, candidate := range []string{"/dev/zero", "/dev/null"} {
+		if fi, err := os.Stat(candidate); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
+			dev = candidate
+			break
+		}
+	}
+	if dev == "" {
+		t.Skip("no character device to read")
+	}
+	_, err = read(t, dev)
+	wantCode(t, err, "not_regular_file")
+	wantMessage(t, err, dev+" is not a regular file")
+	err = edit(t, dev)
+	wantCode(t, err, "not_regular_file")
+	wantMessage(t, err, dev+" is not a regular file")
 }
 
 // TestFileListRefusesWithoutOpening covers a listing of a path that is not a directory: HEAD
@@ -1022,7 +1106,8 @@ func TestFileEditErrors(t *testing.T) {
 	wantCode(t, err, "not_found")
 	wantMessage(t, err, "open "+noParent+": no such file or directory")
 	_, err = edit(t, dir, "a", "b")
-	wantCode(t, err, "is_directory")
+	wantCode(t, err, "not_regular_file")
+	wantMessage(t, err, dir+" is not a regular file")
 
 	if got := readFileStr(t, p); got != "foo bar foo\nbaz\n" {
 		t.Fatalf("file modified: %q", got)

@@ -27,7 +27,10 @@ func TestLocalApprovalFlow(t *testing.T) {
 	ctx := requestContext(t)
 
 	ts := execTask("local-1", 1, "/bin/echo", "approved")
-	request := protocol.LocalRequest{TaskID: "local-1", Attempt: 1, Spec: ts.Spec, Note: "please run"}
+	request := protocol.LocalRequest{
+		TaskID: "local-1", Attempt: 1, Spec: ts.Spec, Note: "please run",
+		InputPreview: []byte("echo approved\n"),
+	}
 	state, err := forward.localRequest(ctx, request)
 	if err != nil {
 		t.Fatalf("local.request: %v", err)
@@ -54,6 +57,9 @@ func TestLocalApprovalFlow(t *testing.T) {
 	}
 	if entries[0].Note != "please run" {
 		t.Fatalf("note = %q", entries[0].Note)
+	}
+	if got := string(entries[0].InputPreview); got != "echo approved\n" {
+		t.Fatalf("input preview = %q", got)
 	}
 	method, target, err := authz.Target(&entries[0].Spec)
 	if err != nil || method != "exec" || target != "/bin/echo approved" {

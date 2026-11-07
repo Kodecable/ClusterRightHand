@@ -8,11 +8,16 @@ package taskrun
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/executor"
@@ -23,6 +28,15 @@ import (
 // OutputChunk bounds one task.output event: a 64 KiB read from the executor would not fit a
 // crh-priv frame.
 const OutputChunk = 32 << 10
+
+// spoolSubdir is the stdin staging directory below the privileged mode's state directory. It is
+// created 0700 and owned by the privileged process; a spool file is 0600 and is removed when the
+// task ends.
+const spoolSubdir = "stdin"
+
+// spoolMinFree is the free space staging always leaves on its filesystem, in bytes. The larger of
+// this and 5% of the filesystem must remain free.
+const spoolMinFree = 64 << 20
 
 // Errors that end a task before its process starts.
 var (
@@ -79,10 +93,99 @@ func Validate(ts protocol.TaskStart) error {
 	return nil
 }
 
+// newSpool creates the file that collects a task's stdin. The file lives in the privileged mode's
+// stdin directory, is 0600, and is created only after the declared size fits the filesystem's free
+// space with the reserve kept for everything else.
+func newSpool(root string, size uint64) (*os.File, *protocol.RemoteError) {
+	dir, err := prepareSpoolDir(root)
+	if err != nil {
+		return nil, &protocol.RemoteError{
+			Code:    protocol.CodeInternalError,
+			Message: "prepare the stdin staging directory: " + err.Error(),
+		}
+	}
+	if size > 0 {
+		if remoteErr := checkSpoolSpace(dir, size); remoteErr != nil {
+			return nil, remoteErr
+		}
+	}
+	f, err := os.CreateTemp(dir, "crh-stdin-")
+	if err != nil {
+		return nil, &protocol.RemoteError{
+			Code:    protocol.CodeInternalError,
+			Message: "spool the task input: " + err.Error(),
+		}
+	}
+	return f, nil
+}
+
+// prepareSpoolDir returns root/stdin, creating it 0700 and owned by the privileged process. An
+// existing directory with another owner is refused: staging a task's stdin must not write into
+// somebody else's directory.
+func prepareSpoolDir(root string) (string, error) {
+	if root == "" {
+		return "", errors.New("no stdin staging directory is configured")
+	}
+	dir := filepath.Join(root, spoolSubdir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return "", err
+	}
+	if !fi.IsDir() {
+		return "", fmt.Errorf("%s is not a directory", dir)
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", fmt.Errorf("cannot determine the owner of %s", dir)
+	}
+	if int(st.Uid) != os.Geteuid() {
+		return "", fmt.Errorf("%s is owned by uid %d, but the privileged mode runs as uid %d",
+			dir, st.Uid, os.Geteuid())
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// checkSpoolSpace refuses a declared stdin that would leave the filesystem with less than the
+// larger of 5% of its size and spoolMinFree free.
+func checkSpoolSpace(dir string, size uint64) *protocol.RemoteError {
+	var st unix.Statfs_t
+	if err := unix.Statfs(dir, &st); err != nil {
+		return &protocol.RemoteError{
+			Code:    protocol.CodeInternalError,
+			Message: fmt.Sprintf("stat the stdin staging filesystem %s: %v", dir, err),
+		}
+	}
+	total := uint64(st.Blocks) * uint64(st.Bsize)
+	free := uint64(st.Bavail) * uint64(st.Bsize)
+	if spoolFits(total, free, size) {
+		return nil
+	}
+	reserve := max(total/20, uint64(spoolMinFree))
+	return &protocol.RemoteError{
+		Code: protocol.CodeInputTooLarge,
+		Message: fmt.Sprintf("cannot stage %d bytes of stdin in %s: %d bytes free, at least %d must stay free",
+			size, dir, free, reserve),
+	}
+}
+
+// spoolFits reports whether staging size bytes leaves the larger of 5% of the filesystem and
+// spoolMinFree free.
+func spoolFits(total, free, size uint64) bool {
+	reserve := max(total/20, uint64(spoolMinFree))
+	return free >= size && free-size >= reserve
+}
+
 // New prepares a task. It validates task.start with Validate. env is the environment the privileged
 // process resolved when it started (execenv.Resolve); nil resolves it per task, which only tests and
-// programmatic callers do.
-func New(ts protocol.TaskStart, emit Emit, env *execenv.Environment) (*Task, error) {
+// programmatic callers do. spoolRoot is the privileged state directory; a task's stdin is staged in
+// its stdin subdirectory while the input is verified. An empty spoolRoot refuses a task with input.
+func New(ts protocol.TaskStart, emit Emit, env *execenv.Environment, spoolRoot string) (*Task, error) {
 	if err := Validate(ts); err != nil {
 		return nil, err
 	}
@@ -98,16 +201,14 @@ func New(ts protocol.TaskStart, emit Emit, env *execenv.Environment) (*Task, err
 				t.in.Close()
 			}
 		default:
-			// os.CreateTemp creates the file with O_EXCL and mode 0600 in a private directory;
-			// the contents are only ever read back through this fd. The file is removed once
-			// the task ends, and a task whose input never completes never starts.
-			spool, err := os.CreateTemp("", "crh-stdin-")
-			if err != nil {
+			// The staging directory belongs to the privileged mode, not $TMPDIR, so a large
+			// declared stdin cannot fill a shared temporary filesystem. The declared size is
+			// checked against the free space before the file is created; the contents are only
+			// ever read back through this fd and the file is removed once the task ends.
+			spool, remoteErr := newSpool(spoolRoot, uint64(ref.Size))
+			if remoteErr != nil {
 				cancel()
-				return nil, &protocol.RemoteError{
-					Code:    protocol.CodeInternalError,
-					Message: "spool the task input: " + err.Error(),
-				}
+				return nil, remoteErr
 			}
 			t.spool, t.spoolPath = spool, spool.Name()
 			t.inputReady = make(chan struct{})

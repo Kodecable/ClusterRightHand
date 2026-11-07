@@ -782,7 +782,8 @@ func expectedFixtureValue(id string) (any, bool) {
 				Spec: TaskSpec{Kind: TaskSpecFileRead, FileRead: &FileReadSpec{
 					Path: "/etc/hosts", StartLine: 1, LineCount: 100,
 				}},
-				Note: "restart nginx",
+				Note:         "restart nginx",
+				InputPreview: []byte{},
 			},
 		}, true
 	case "response.local.request":

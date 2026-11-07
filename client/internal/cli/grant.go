@@ -94,6 +94,9 @@ func runGrant(cmd *cobra.Command, opts *grantOptions) error {
 	if err != nil {
 		return err
 	}
+	if warning := prefixWarning(payload); warning != "" {
+		fmt.Fprintln(stderr, warning)
+	}
 	view, err := json.MarshalIndent(grantViewFor(payload, raw), "", "  ")
 	if err != nil {
 		return err
@@ -365,6 +368,21 @@ func parseDeadline(text string, now time.Time) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("grant: --deadline %q is in the past", text)
 	}
 	return deadline, nil
+}
+
+// prefixWarning explains that a prefix is matched by characters, not words: when it does not end
+// at a word boundary it also allows longer targets. Matching itself is unchanged.
+func prefixWarning(payload *protocol.AuthorizationPayload) string {
+	command := payload.Command
+	if command == nil || command.Match.Kind != protocol.AuthMatchPrefix || command.Match.Prefix == nil {
+		return ""
+	}
+	prefix := command.Match.Prefix.Target
+	if strings.HasSuffix(prefix, " ") || strings.HasSuffix(prefix, "/") {
+		return ""
+	}
+	return fmt.Sprintf("warning: --prefix %q also matches longer words, for example %q; end it with a space if longer matches are not intended",
+		prefix, prefix+"-evil")
 }
 
 // grantView is the human-readable form of a payload: what the user confirms before signing.

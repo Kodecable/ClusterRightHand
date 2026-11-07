@@ -26,6 +26,9 @@ type Log interface {
 type SessionOptions struct {
 	// Env is the environment passed to New for every task.
 	Env *execenv.Environment
+	// SpoolRoot is the privileged state directory whose stdin subdirectory stages a task's stdin
+	// while it is verified. It is required for a task that declares input.
+	SpoolRoot string
 	// Log records the tasks' start and outcome.
 	Log Log
 	// OnExit runs after a task's task.exit was emitted (or could not be). nil does nothing.
@@ -63,7 +66,7 @@ func (s *Session) HandleRequests() {
 // Accept prepares an accepted task with New and adds it to the session. Its output goes out as
 // task.output events. The task does not run until Launch.
 func (s *Session) Accept(ts protocol.TaskStart) (*Task, error) {
-	t, err := New(ts, s.outputEmitter(ts.TaskID), s.opts.Env)
+	t, err := New(ts, s.outputEmitter(ts.TaskID), s.opts.Env, s.opts.SpoolRoot)
 	if err != nil {
 		return nil, err
 	}

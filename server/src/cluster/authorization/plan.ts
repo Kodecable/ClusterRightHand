@@ -227,7 +227,7 @@ async function parkForAuthorization(
 		await refreshGroupPending(core, row.task_group_id);
 		return;
 	}
-	if (localPath) await sendLocalRequest(core, id, link, spec, updated);
+	if (localPath) await sendLocalRequest(core, id, link, spec, inputBytes, updated);
 }
 
 // ---- task groups: one payload for every waiting task (D88) ----

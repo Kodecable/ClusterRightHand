@@ -33,18 +33,31 @@ import { replanWaiting } from "./plan.ts";
 /** A task's local approval request note, shown by `crha pending`. */
 const LOCAL_REQUEST_NOTE = "crhs asks for this task to be approved on the node";
 
+/**
+ * How much of a task's stdin or file content `local.request` carries, so the approver can see what
+ * will be executed without moving the whole input before approval (doc/privilege.md 本地批准).
+ */
+const INPUT_PREVIEW_BYTES = 4 * 1024;
+
 /** Sends `local.request` and follows the answer: pending, approved (dispatch) or denied (reject). */
 export async function sendLocalRequest(
 	core: ClusterCore,
 	id: string,
 	link: NodeLink,
 	spec: TaskSpec,
+	inputBytes: Uint8Array,
 	record: TaskAuthorizationRecord,
 ): Promise<void> {
 	const attempt = record.attempt;
 	let state: LocalState;
 	try {
-		const request: LocalRequest = { taskId: id, attempt, spec, note: LOCAL_REQUEST_NOTE };
+		const request: LocalRequest = {
+			taskId: id,
+			attempt,
+			spec,
+			note: LOCAL_REQUEST_NOTE,
+			inputPreview: inputBytes.subarray(0, INPUT_PREVIEW_BYTES),
+		};
 		state = (await link.conn.peer.request("local.request", request)) as LocalState;
 	} catch (err) {
 		if (err instanceof RemoteError && err.code === "local_not_trusted") {
@@ -154,5 +167,5 @@ async function resendLocalRequest(core: ClusterCore, id: string, link: NodeLink)
 	if (row?.state !== "awaiting_authorization" || link.conn.closed || !link.ready) return;
 	const record = parseTaskAuthorization(row.authorization);
 	if (!record || record.local === null) return;
-	await sendLocalRequest(core, id, link, specFromRow(row.spec, "task"), record);
+	await sendLocalRequest(core, id, link, specFromRow(row.spec, "task"), pendingInputOf(row), record);
 }

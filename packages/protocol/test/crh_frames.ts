@@ -512,7 +512,7 @@ export function buildFixture(): CrhFramesFixture {
 	// M4 (optional) commands and events.
 	addFrame(
 		"request.local.request",
-		'request id=14 cmd=local.request body=[task_id="t-read", attempt=1, spec=["file.read", [path="/etc/hosts", startLine=1, lineCount=100]], note="restart nginx"]',
+		'request id=14 cmd=local.request body=[task_id="t-read", attempt=1, spec=["file.read", [path="/etc/hosts", startLine=1, lineCount=100]], note="restart nginx", input_preview=bytes(0)]',
 		{
 			kind: "request",
 			id: 14,
@@ -522,6 +522,7 @@ export function buildFixture(): CrhFramesFixture {
 				attempt: 1,
 				spec: { kind: "file.read", path: "/etc/hosts", startLine: 1, lineCount: 100 },
 				note: "restart nginx",
+				inputPreview: new Uint8Array(0),
 			},
 		},
 	);

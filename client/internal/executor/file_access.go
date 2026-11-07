@@ -18,8 +18,10 @@ import (
 // any level (doc/privilege.md 方法与目标). Once a file or directory is open, both modes run the same
 // operation on its fd.
 type fileAccess interface {
-	// openReading opens path for reading, without blocking in open(2) on a FIFO that has no writer:
-	// that open waits for a writer, and a cancelled task cannot interrupt it.
+	// openReading opens a regular file for reading. The type is checked before the file is opened:
+	// opening a character or block device can have side effects, and a FIFO that has no writer
+	// would block in open(2) where a cancelled task cannot interrupt it. Any other type, including
+	// a directory, is not_regular_file.
 	openReading(path string) (*os.File, error)
 	// openStat opens path itself for a stat, without following a symbolic link: the unprivileged
 	// mode reports the link it finds, the privileged one refuses it while resolving.
@@ -44,7 +46,8 @@ type fileAccess interface {
 	// mkdir -p: mode 0755 before the umask, and owned by uid/gid when either is requested (the same
 	// identity the file itself is created with). Existing directories are left alone.
 	makeParentDirs(path string, uid, gid int) error
-	// openExisting opens the file an edit reads, inside the directory its target was resolved to.
+	// openExisting opens the regular file an edit reads, inside the directory its target was
+	// resolved to. The type is checked before the open, as openReading does.
 	openExisting(t *writeTarget) (*os.File, error)
 }
 
@@ -65,13 +68,42 @@ type fileAttr struct {
 	uid, gid int
 }
 
-// notRegular maps ENXIO, which is what opening a socket inode returns, to not_regular_file: a socket
-// can no more be read to its end than a FIFO (doc/privilege.md 方法与目标).
-func notRegular(err error, path string) error {
-	if errors.Is(err, unix.ENXIO) {
+// checkRegular refuses a path that is not a regular file: reading a character or block device can
+// have side effects, a FIFO or socket cannot be read to its end, and a directory is not a file
+// (doc/privilege.md 方法与目标).
+func checkRegular(fi fs.FileInfo, path string) error {
+	if !fi.Mode().IsRegular() {
 		return errf(protocol.CodeNotRegularFile, "%s is not a regular file", path)
 	}
-	return err
+	return nil
+}
+
+// checkOpenedRegular rechecks the type on the opened fd, so a path replaced between the type check
+// and the open is still refused before it is read. It closes f on failure.
+func checkOpenedRegular(f *os.File, path string) error {
+	fi, err := f.Stat()
+	if err == nil {
+		err = checkRegular(fi, path)
+	}
+	if err != nil {
+		f.Close()
+		return err
+	}
+	return nil
+}
+
+// statForOpen stats path the way the open that follows it resolves the path, and reports a failure
+// with the open operation the task would have attempted.
+func statForOpen(path string) (fs.FileInfo, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		var pe *os.PathError
+		if errors.As(err, &pe) {
+			return nil, &os.PathError{Op: "open", Path: pe.Path, Err: pe.Err}
+		}
+		return nil, err
+	}
+	return fi, nil
 }
 
 // checkNotSpecial refuses a FIFO or socket: neither can be read to its end, and reading a FIFO
@@ -135,12 +167,25 @@ func splitParent(p string) (dir, base string, err error) {
 // link (resolveWriteTarget).
 type plainAccess struct{}
 
+// openReading stats the path before opening it, following a final symbolic link as the open does:
+// only a regular file is opened, so a device is never touched and a FIFO is never waited on.
 func (plainAccess) openReading(path string) (*os.File, error) {
+	fi, err := statForOpen(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkRegular(fi, path); err != nil {
+		return nil, err
+	}
 	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 	if err != nil {
-		return nil, notRegular(&os.PathError{Op: "open", Path: path, Err: err}, path)
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
 	}
-	return os.NewFile(uintptr(fd), path), nil
+	f := os.NewFile(uintptr(fd), path)
+	if err := checkOpenedRegular(f, path); err != nil {
+		return nil, err
+	}
+	return f, nil
 }
 
 // openStat opens the path itself, without following a final symbolic link, so the stat reports the
@@ -200,6 +245,9 @@ func (plainAccess) openWrite(path string, edit bool) (*writeTarget, error) {
 		return nil, err
 	}
 	if fi != nil && fi.IsDir() {
+		if edit {
+			return nil, checkRegular(fi, path)
+		}
 		return nil, errf(protocol.CodeIsDirectory, "%s is a directory", path)
 	}
 	dir, name, err := splitParent(target)
@@ -269,12 +317,23 @@ func mkdirAll(dir string, uid, gid int) error {
 	return nil
 }
 
-// openExisting opens the destination for reading. A symbolic link that appeared after the target
-// was resolved is followed, as a normal open does.
+// openExisting opens the destination for reading after a stat, so a special file is refused without
+// being opened. A symbolic link that appeared after the target was resolved is followed, as a normal
+// open does.
 func (plainAccess) openExisting(t *writeTarget) (*os.File, error) {
+	fi, err := statForOpen(t.path)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkRegular(fi, t.path); err != nil {
+		return nil, err
+	}
 	f, err := openAt(t.dir, t.name, unix.O_RDONLY|unix.O_NONBLOCK, t.path)
 	if err != nil {
-		return nil, notRegular(err, t.path)
+		return nil, err
+	}
+	if err := checkOpenedRegular(f, t.path); err != nil {
+		return nil, err
 	}
 	return f, nil
 }
@@ -373,10 +432,28 @@ func openat2Error(p string, err error) error {
 // any level (doc/privilege.md 方法与目标).
 type privilegedAccess struct{ root *privilegedFileRoot }
 
+// openReading opens the path as O_PATH first, stats that descriptor, and opens the regular file only
+// after the type is known: opening a device can have side effects, and a FIFO with no writer would
+// wait in open(2) where a cancellation cannot interrupt it.
 func (a privilegedAccess) openReading(path string) (*os.File, error) {
+	probe, err := a.root.open(path, unix.O_PATH)
+	if err != nil {
+		return nil, err
+	}
+	fi, err := probe.Stat()
+	probe.Close()
+	if err != nil {
+		return nil, err
+	}
+	if err := checkRegular(fi, path); err != nil {
+		return nil, err
+	}
 	f, err := a.root.open(path, unix.O_RDONLY|unix.O_NONBLOCK)
 	if err != nil {
-		return nil, notRegular(err, path)
+		return nil, err
+	}
+	if err := checkOpenedRegular(f, path); err != nil {
+		return nil, err
 	}
 	return f, nil
 }
@@ -436,7 +513,7 @@ func (privilegedAccess) statEntry(dir *os.File, name string) (unix.Stat_t, error
 	return st, err
 }
 
-func (a privilegedAccess) openWrite(path string, _ bool) (*writeTarget, error) {
+func (a privilegedAccess) openWrite(path string, edit bool) (*writeTarget, error) {
 	dir, name, err := splitParent(path)
 	if err != nil {
 		return nil, err
@@ -458,6 +535,9 @@ func (a privilegedAccess) openWrite(path string, _ bool) (*writeTarget, error) {
 			return nil, errf(protocol.CodeSymlinkNotAllowed, "%s is a symbolic link", path)
 		case unix.S_IFDIR:
 			dfd.Close()
+			if edit {
+				return nil, errf(protocol.CodeNotRegularFile, "%s is not a regular file", path)
+			}
 			return nil, errf(protocol.CodeIsDirectory, "%s is a directory", path)
 		}
 		t.existing = &fileAttr{mode: st.Mode, uid: int(st.Uid), gid: int(st.Gid)}
@@ -512,22 +592,44 @@ func (a privilegedAccess) makeParentDirs(path string, uid, gid int) error {
 	return nil
 }
 
-// openExisting opens the destination for reading. O_NOFOLLOW covers the race between the stat check
-// in openWrite and this open: the final component is never followed, and the parent comes from the
-// already resolved directory fd. O_NONBLOCK keeps the open from waiting for a FIFO writer that a
-// cancellation cannot wake (doc/privilege.md 方法与目标).
+// openExisting opens the destination through an O_PATH fd first and only then opens the regular file
+// for reading. O_NOFOLLOW covers the race between the stat check in openWrite and this open: the
+// final component is never followed, and the parent comes from the already resolved directory fd.
+// O_NONBLOCK keeps the open from waiting for a FIFO writer that a cancellation cannot wake
+// (doc/privilege.md 方法与目标).
 func (a privilegedAccess) openExisting(t *writeTarget) (*os.File, error) {
+	probe, err := openAt(t.dir, t.name, unix.O_PATH|unix.O_NOFOLLOW, t.path)
+	if err != nil {
+		if errors.Is(err, unix.ENOENT) && t.existing == nil {
+			// A missing file is reported as the bare errno, without the path: a privileged edit
+			// of a missing file fails with "no such file or directory".
+			return nil, unix.ENOENT
+		}
+		return nil, err
+	}
+	fi, err := probe.Stat()
+	probe.Close()
+	if err != nil {
+		return nil, err
+	}
+	if fi.Mode()&fs.ModeSymlink != 0 {
+		return nil, errf(protocol.CodeSymlinkNotAllowed, "%s is a symbolic link", t.path)
+	}
+	if err := checkRegular(fi, t.path); err != nil {
+		return nil, err
+	}
 	f, err := openAt(t.dir, t.name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, t.path)
 	if err != nil {
 		switch {
 		case errors.Is(err, unix.ELOOP):
 			return nil, errf(protocol.CodeSymlinkNotAllowed, "%s is a symbolic link", t.path)
 		case errors.Is(err, unix.ENOENT) && t.existing == nil:
-			// A missing file is reported as the bare errno, without the path: a privileged edit
-			// of a missing file fails with "no such file or directory".
 			return nil, unix.ENOENT
 		}
-		return nil, notRegular(err, t.path)
+		return nil, err
+	}
+	if err := checkOpenedRegular(f, t.path); err != nil {
+		return nil, err
 	}
 	return f, nil
 }

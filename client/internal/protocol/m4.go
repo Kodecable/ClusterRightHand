@@ -263,13 +263,16 @@ func (r *TrustReport) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-// LocalRequest is the local.request command body.
+// LocalRequest is the local.request command body. InputPreview is the first bytes of the task's
+// stdin or file content, so an approver can see what will be executed; nil means the sender did not
+// provide one (doc/privilege.md 本地批准).
 type LocalRequest struct {
-	_       struct{} `cbor:",toarray"`
-	TaskID  string
-	Attempt Uint
-	Spec    TaskSpec
-	Note    string
+	_            struct{} `cbor:",toarray"`
+	TaskID       string
+	Attempt      Uint
+	Spec         TaskSpec
+	Note         string
+	InputPreview []byte
 }
 
 // LocalStateKind is a LocalState union tag.
@@ -450,7 +453,8 @@ type Authorization struct {
 	Signatures []Signature
 }
 
-// PendingEntry is one entry of the crh-priv pending.list response.
+// PendingEntry is one entry of the crh-priv pending.list response. InputPreview is the beginning of
+// the task's stdin or file content, as sent with local.request.
 type PendingEntry struct {
 	_            struct{} `cbor:",toarray"`
 	TaskID       string
@@ -458,6 +462,7 @@ type PendingEntry struct {
 	Spec         TaskSpec
 	Note         string
 	ReceivedAtMS Int
+	InputPreview []byte
 }
 
 // LocalVerdict is the crh-priv local.approve / local.deny request body. SpecSHA256 binds the

@@ -64,6 +64,7 @@ func startSession(t *testing.T, version string) *session {
 	outR, outW := io.Pipe() // helper -> client (the helper's stdout)
 	logBuf := &lockedBuffer{}
 	runDone := make(chan struct{})
+	spool := t.TempDir()
 	s := &session{
 		t:          t,
 		toHelper:   inW,
@@ -75,7 +76,7 @@ func startSession(t *testing.T, version string) *session {
 		log:        logBuf,
 	}
 	go func() {
-		s.runErr = Run(context.Background(), inR, outW, Options{Version: version, Log: logBuf})
+		s.runErr = Run(context.Background(), inR, outW, Options{Version: version, Log: logBuf, SpoolRoot: spool})
 		inR.Close()
 		outW.Close()
 		close(runDone)
@@ -609,7 +610,7 @@ func TestRunEarlyStreamEnd(t *testing.T) {
 	outR, outW := io.Pipe()
 	runDone := make(chan error, 1)
 	go func() {
-		err := Run(context.Background(), inR, outW, Options{Version: testVersion})
+		err := Run(context.Background(), inR, outW, Options{Version: testVersion, SpoolRoot: t.TempDir()})
 		inR.Close()
 		outW.Close()
 		runDone <- err
@@ -688,7 +689,7 @@ func TestRunVersionMismatch(t *testing.T) {
 	outR, outW := io.Pipe()
 	runDone := make(chan error, 1)
 	go func() {
-		err := Run(context.Background(), inR, outW, Options{Version: testVersion})
+		err := Run(context.Background(), inR, outW, Options{Version: testVersion, SpoolRoot: t.TempDir()})
 		inR.Close()
 		outW.Close()
 		runDone <- err

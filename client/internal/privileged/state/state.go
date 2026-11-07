@@ -9,9 +9,12 @@
 // and does not parse is ignored, because that append never became durable.
 //
 // In memory the list is capped. Evicting a record whose authorization is still acceptable
-// raises a watermark: an authorization issued at or before the watermark must be signed
-// again, so evicting a used pair can never make it usable again. The watermark is memory only;
-// a restart loads the whole file and rebuilds it.
+// raises a watermark: an authorization issued at or before the watermark must be signed again,
+// so eviction cannot make a used pair usable again while the process runs. The watermark is
+// memory only, and compaction writes only the live records: after a restart the watermark is
+// rebuilt from those records, so a record that was both evicted and compacted away leaves no
+// trace and its authorization can be used again until its deadline. That is the documented
+// trade-off of the used list (doc/privilege.md 已用列表), not a guarantee across restarts.
 package state
 
 import (

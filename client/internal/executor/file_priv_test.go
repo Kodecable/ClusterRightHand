@@ -275,7 +275,8 @@ func TestPrivilegedFileErrors(t *testing.T) {
 	_, err := runPrivileged(t, &protocol.FileReadSpec{Path: filepath.Join(dir, "missing")}, nil)
 	wantCode(t, err, "not_found")
 	_, err = runPrivileged(t, &protocol.FileReadSpec{Path: dir}, nil)
-	wantCode(t, err, "is_directory")
+	wantCode(t, err, "not_regular_file")
+	wantMessage(t, err, dir+" is not a regular file")
 	_, err = runPrivileged(t, &protocol.FileListSpec{Path: filepath.Join(dir, "missing")}, nil)
 	wantCode(t, err, "not_found")
 	_, err = runPrivileged(t, &protocol.FileEditSpec{Path: filepath.Join(dir, "missing"), Edits: []protocol.Edit{{OldText: "a", NewText: "b"}}}, nil)
@@ -546,6 +547,73 @@ func TestPrivilegedFileSpecialFiles(t *testing.T) {
 			wantCode(t, runSpecial(t, spec), "not_regular_file")
 		})
 	}
+}
+
+// TestPrivilegedFileReadEditRequireRegularFile covers the type rule of privileged file.read and
+// file.edit: the path is opened as O_PATH first, so a device is never opened for reading and a
+// directory is refused as not_regular_file.
+func TestPrivilegedFileReadEditRequireRegularFile(t *testing.T) {
+	dir := privateDir(t)
+	p := filepath.Join(dir, "f")
+	writeFile(t, p, "one\ntwo\n", 0o644)
+
+	read := func(t *testing.T, path string) (*protocol.TaskResult, error) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return RunFilePrivileged(ctx, privilegedSpec(&protocol.FileReadSpec{
+			Path: path, StartLine: 2, LineCount: 10,
+		}), nil, io.Discard)
+	}
+	edit := func(t *testing.T, path string) error {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := RunFilePrivileged(ctx, privilegedSpec(&protocol.FileEditSpec{
+			Path: path, Edits: []protocol.Edit{{OldText: "one", NewText: "1"}},
+		}), nil, io.Discard)
+		return err
+	}
+
+	if _, err := read(t, p); err != nil {
+		t.Fatal(err)
+	}
+	if err := edit(t, p); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFileStr(t, p); got != "1\ntwo\n" {
+		t.Fatalf("content = %q", got)
+	}
+
+	if _, err := read(t, dir); err == nil {
+		t.Fatal("read a directory")
+	} else {
+		wantCode(t, err, "not_regular_file")
+		wantMessage(t, err, dir+" is not a regular file")
+	}
+	if err := edit(t, dir); err == nil {
+		t.Fatal("edited a directory")
+	} else {
+		wantCode(t, err, "not_regular_file")
+		wantMessage(t, err, dir+" is not a regular file")
+	}
+
+	dev := ""
+	for _, candidate := range []string{"/dev/zero", "/dev/null"} {
+		if fi, err := os.Stat(candidate); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
+			dev = candidate
+			break
+		}
+	}
+	if dev == "" {
+		t.Skip("no character device to read")
+	}
+	_, err := read(t, dev)
+	wantCode(t, err, "not_regular_file")
+	wantMessage(t, err, dev+" is not a regular file")
+	err = edit(t, dev)
+	wantCode(t, err, "not_regular_file")
+	wantMessage(t, err, dev+" is not a regular file")
 }
 
 // TestPrivilegedFileListChecksTypeBeforeOpening covers the order of a privileged listing: it stats

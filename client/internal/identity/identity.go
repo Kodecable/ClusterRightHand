@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,14 +20,25 @@ func Fingerprint(public []byte) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
+// LoadKeypair reads and decodes crha's static key pair. The key is opened once and both the
+// permission check and the read use that fd: the mode that is checked is the mode of the file that
+// is read, not of whatever the path names afterwards.
 func LoadKeypair(path string) (noise.Keypair, error) {
-	raw, err := readKey(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return noise.Keypair{}, err
 	}
-	info, err := os.Stat(path)
-	if err == nil && info.Mode().Perm()&0o077 != 0 {
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return noise.Keypair{}, err
+	}
+	if info.Mode().Perm()&0o077 != 0 {
 		return noise.Keypair{}, fmt.Errorf("%s must not be accessible by group or others (chmod 600)", path)
+	}
+	raw, err := decodeKey(f, path)
+	if err != nil {
+		return noise.Keypair{}, err
 	}
 	return noise.KeypairFromPrivate(raw)
 }
@@ -44,7 +56,16 @@ func SaveServerKey(path string, public []byte) error {
 }
 
 func readKey(path string) ([]byte, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return decodeKey(f, path)
+}
+
+func decodeKey(r io.Reader, path string) ([]byte, error) {
+	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}
@@ -55,22 +76,56 @@ func readKey(path string) ([]byte, error) {
 	return key, nil
 }
 
+// writeKey publishes a new key file without ever replacing an existing one. The key is written to a
+// temporary file in the same directory, fsynced, then linked to the final name: link(2) fails if the
+// name exists, so a concurrent or earlier write is never clobbered, and a crash before the link
+// leaves only a temporary file. The directory is fsynced once the name is published.
 func writeKey(path string, key []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-	if errors.Is(err, os.ErrExist) {
-		return fmt.Errorf("%s already exists", path)
-	}
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".crh-*")
 	if err != nil {
 		return err
 	}
-	if _, err := f.WriteString(base64.StdEncoding.EncodeToString(key) + "\n"); err != nil {
-		f.Close()
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
 		return err
 	}
-	return f.Close()
+	if _, err := tmp.WriteString(base64.StdEncoding.EncodeToString(key) + "\n"); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Link(tmpName, path); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("%s already exists", path)
+		}
+		return err
+	}
+	if err := os.Remove(tmpName); err != nil {
+		return err
+	}
+	return syncDir(dir)
+}
+
+// syncDir fsyncs the directory a key was published in.
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 // Keypair is a Noise static key pair.

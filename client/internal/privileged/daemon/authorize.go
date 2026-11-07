@@ -216,12 +216,13 @@ func (s *Server) liveApprovalsLocked() int {
 
 // localRequest is the body an approval record reports.
 type localRequest struct {
-	taskID     string
-	attempt    uint64
-	spec       protocol.TaskSpec
-	specHash   [32]byte
-	note       string
-	receivedAt time.Time
+	taskID       string
+	attempt      uint64
+	spec         protocol.TaskSpec
+	specHash     [32]byte
+	note         string
+	inputPreview []byte
+	receivedAt   time.Time
 }
 
 // approvalKey identifies one local approval.
@@ -296,12 +297,13 @@ func (s *Server) requestLocal(req *protocol.LocalRequest) (protocol.LocalState, 
 		}
 	}
 	rec := &approval{localRequest: localRequest{
-		taskID:     req.TaskID,
-		attempt:    uint64(req.Attempt),
-		spec:       req.Spec,
-		specHash:   specHash,
-		note:       req.Note,
-		receivedAt: s.now(),
+		taskID:       req.TaskID,
+		attempt:      uint64(req.Attempt),
+		spec:         req.Spec,
+		specHash:     specHash,
+		note:         req.Note,
+		inputPreview: append([]byte(nil), req.InputPreview...),
+		receivedAt:   s.now(),
 	}, state: protocol.LocalState{Kind: protocol.LocalStatePending}}
 	s.approvals[key] = rec
 	s.approvalMu.Unlock()
@@ -404,6 +406,7 @@ func (s *Server) pendingEntries() []protocol.PendingEntry {
 			Spec:         rec.spec,
 			Note:         rec.note,
 			ReceivedAtMS: protocol.Int(rec.receivedAt.UnixMilli()),
+			InputPreview: append([]byte(nil), rec.inputPreview...),
 		})
 	}
 	return out

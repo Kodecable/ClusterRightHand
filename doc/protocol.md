@@ -2,7 +2,7 @@
 
 [execution-plane.md](execution-plane.md#自有协议m35) 规定协议的语义；本文规定**线上格式**，TS（`packages/protocol`）和 Go（`client/internal/protocol`）都按本文手写，用 `test/interop/` 的 fixture 交叉验证。两者不一致时以本文为准；本文有歧义时先改本文。
 
-协议版本：`protocol_major = 3`，`protocol_minor = 0`。大版本 3 去掉了 `Facts.groups`、把 `TrustSummary.groups` 改为 `aliases`（D110），并在 `task.exit` 的 `output_file` 之后增加 `output_lines`（D112），把输出合并成一个流、`file.write` 增加 `create_parent_dirs`（D114）；大版本 2 是 `file.read` 改为按行、`task.exit` 增加 `result`；大版本 1 中 `minor = 1` 是 M4 的命令集合，`minor = 0` 是 M3.5 的命令集合。Noise prologue 为 `"crh/3" ‖ 挑战`。
+协议版本：`protocol_major = 3`，`protocol_minor = 0`。大版本 3 去掉了 `Facts.groups`、把 `TrustSummary.groups` 改为 `aliases`（D110），并在 `task.exit` 的 `output_file` 之后增加 `output_lines`（D112），把输出合并成一个流、`file.write` 增加 `create_parent_dirs`（D114），`local.request` 增加 `input_preview`；大版本 2 是 `file.read` 改为按行、`task.exit` 增加 `result`；大版本 1 中 `minor = 1` 是 M4 的命令集合，`minor = 0` 是 M3.5 的命令集合。Noise prologue 为 `"crh/3" ‖ 挑战`。
 
 ## 编码规则
 
@@ -125,7 +125,7 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 恰好 32 字节
 - 对 crha 还不认识的 task id，`task.cancel` 记下这次取消：最多 1024 个 id，10 分钟后过期，满了淘汰最旧的。之后到达的 `task.start` 返回 `cancelled`（见上），不会补跑。
 - `forward` 时非特权模式把 `task.start` 原样转给特权模式（见 [crh-priv](#crh-priv非特权模式--特权模式)），特权模式的响应就是这里的响应。转发请求有超时（30 秒）：超时的 `task.start` 当作已接受（请求可能已在特权模式排队，之后仍会执行），非特权模式尽力请特权模式取消它，并以 `helper_lost` 结束（结果未知，crhs 不重试）。非特权模式在转发 `authorization_*` 错误之前，先向特权模式重新查询 `TrustSummary`，digest 变化时先发 `trust.summary` 事件，再发错误响应；因此 crhs 处理错误时缓存已经是最新的。
 - `task.input` 只在成功响应之后发送；crhs 可以流水线发送多个分块，不必逐个等待响应；crha 按顺序处理。
-- `file.read` 按行读：`start_line` 从 1 开始，任务是"从这一行起最多 `line_count` 行，整页不超过 50KB（`FileReadMaxBytes`）"。节点从文件开头扫到起始行，只发整行，遇到第一条放不下的行就停下，**不读到文件末尾**。输出就是页面字节本身（保留文件自己的换行）；页面之外的信息放在 `task.exit` 的 `result`（见 [TaskResult](#taskresult)），不进输出流：`from` / `to` 是页面首行和末行的行号，页面为空时都是 0；`eof` 表示扫描到了文件末尾；`total` 只在 `eof` 时出现，是文件总行数；`too_long` 表示请求的首行本身就超过 50KB，此时页面为空。
+- `file.read` 按行读：`start_line` 从 1 开始，任务是"从这一行起最多 `line_count` 行，整页不超过 50KB（`FileReadMaxBytes`）"。节点从文件开头扫到起始行，只发整行，遇到第一条放不下的行就停下，**不读到文件末尾**。输出就是页面字节本身（保留文件自己的换行）；页面之外的信息放在 `task.exit` 的 `result`（见 [TaskResult](#taskresult)），不进输出流：`from` / `to` 是页面首行和末行的行号，页面为空时都是 0；`eof` 表示扫描到了文件末尾；`total` 只在 `eof` 时出现，是文件总行数；`too_long` 表示请求的首行本身就超过 50KB，此时页面为空。`file.read` 和 `file.edit` 只操作常规文件：读取/编辑前先检查类型，字符/块设备、FIFO、socket 和目录都以 `not_regular_file` 拒绝（`message` 为"`<path>` is not a regular file"），不会打开设备或等待 FIFO 的写端。`file.edit` 的目标已存在但非常规文件时同样拒绝；`file.write` 不打开已存在的目标（只 stat 以保留 mode/owner，发布用 rename），所以不在此列。
 
 ## 事件
 
@@ -216,13 +216,13 @@ TaskResult = ["file.edit", [replacements: 1]]
 
 ```text
 TrustReport  = ["ok", TrustSummary] | ["unavailable", [message: text]] | ["not_forward", []]
-LocalRequest = [task_id: text, attempt: uint, spec: TaskSpec, note: text]
+LocalRequest = [task_id: text, attempt: uint, spec: TaskSpec, note: text, input_preview: bytes]
 LocalState   = ["pending", []] | ["approved", []] | ["denied", [message: text]]
 ```
 
 - **`trust.summary`**：crha 在 `hello` 的响应之后发送一次，之后每当报告变化（digest 变化、特权模式连上或断开）时再发送。crhs 不主动查询。`privileged_mode` 不是 `forward` 时报告 `not_forward`。
 - **本地批准**只用于单任务（任务组中的任务不发送 `local.request`），且不占用 `task.start`：
-  1. crhs 发送 `local.request`，特权模式把 `(task_id, attempt, spec)` 加入待批准列表，响应当前状态（同一 `(task_id, attempt)` 重复请求是幂等的，返回已有状态）；
+  1. crhs 发送 `local.request`，其中 `input_preview` 是任务 stdin 或文件内容的前 4 KiB（没有输入时为空），特权模式把 `(task_id, attempt, spec, input_preview)` 加入待批准列表，响应当前状态（同一 `(task_id, attempt)` 重复请求是幂等的，返回已有状态）；
   2. 有人执行 `crha approve` / `crha deny` 后，crha 发送 `local.decision`；
   3. 状态为 `approved` 后，crhs 用同一 `attempt` 发送 `task.start`，`authorizations` 为空；特权模式核对 `spec` 的 `spec_sha256` 与批准时相同，消耗这条批准记录。
   - 用户改在 WebUI 中签名，或任务被取消时，crhs 发送 `local.withdraw`。
@@ -293,7 +293,7 @@ PrivWelcome = [priv_major: 3, priv_minor: 0, commands: [text], crha_version: tex
 ```
 
 - 必需的名字：`native` 是 `task.*` 这一组；`forward` 是 `task.*`、`trust.query`、`trust.summary`，其余（`local.*`）可选，缺少时非特权模式不提供对应功能；`local` 是该角色的全部名字。之后新增的名字都是可选的，靠名字协商。
-- `priv_major` 必须相等：任一方发现对端的 `priv_major` 不同就关闭连接。大版本 3 是本批的版本（`TrustSummary.groups` 改为 `aliases`，D110；`task.output` / `task.exit` 只有一个输出流，`file.write` 增加 `create_parent_dirs`，D114）；大版本 2 增加了 `task.exit.result` 并把 `file.read` 改为按行；`crha` 及其特权模式总是一起升级，所以旧的特权模式进程不会被新的非特权模式使用。`priv_minor` 只做增量（新增可选名字），不参与拒绝。
+- `priv_major` 必须相等：任一方发现对端的 `priv_major` 不同就关闭连接。大版本 3 是本批的版本（`TrustSummary.groups` 改为 `aliases`，D110；`task.output` / `task.exit` 只有一个输出流，`file.write` 增加 `create_parent_dirs`，D114；`local.request` 与 `pending.list` 增加 `input_preview`）；大版本 2 增加了 `task.exit.result` 并把 `file.read` 改为按行；`crha` 及其特权模式总是一起升级，所以旧的特权模式进程不会被新的非特权模式使用。`priv_minor` 只做增量（新增可选名字），不参与拒绝。
 - `forward` 下非特权模式还要求 `PrivWelcome.crha_version` 与自己完全相同。不同时按特权模式不可达处理：特权任务以 `privileged_unavailable` 失败，非特权模式记一条日志，写明双方的版本。这覆盖了只换 `crha` 二进制、没有重启特权模式的升级。
 - `role` 必须与对端身份一致：`forward` 要求 peer uid 等于 `unprivileged_uid`；`local` 要求 peer uid 在某个 `local` 信任项的 `uids` 中；`native` 只在 stdio 上出现，此时要求 `crha_version` 完全相等。不一致时特权侧关闭连接。
 
@@ -305,7 +305,7 @@ PrivWelcome = [priv_major: 3, priv_minor: 0, commands: [text], crha_version: tex
 | `trust.summary` | P→U | forward | 事件 `TrustReport`（特权模式发出的恒为 `ok`），reload 后 digest 变化时推送；非特权模式原样转给 crhs |
 | `local.request` / `local.withdraw` | U→P | forward | 同上文 |
 | `local.decision` | P→U | forward | 同上文 |
-| `pending.list` | L→P | local | 请求 `[]`，响应 `[[task_id: text, attempt: uint, spec: TaskSpec, note: text, received_at_ms: int]]` |
+| `pending.list` | L→P | local | 请求 `[]`，响应 `[[task_id: text, attempt: uint, spec: TaskSpec, note: text, received_at_ms: int, input_preview: bytes]]` |
 | `local.approve` / `local.deny` | L→P | local | 请求 `[task_id: text, attempt: uint, spec_sha256: bytes, message: text]`（`spec_sha256` 恰好 32 字节，必须等于待批准记录的规格哈希，否则 `invalid_spec`），响应 `[]` |
 
 - **断开**：`forward` 的连接断开时，特权模式中已 accepted 的任务继续运行到结束，结果写入本地日志；它们的输出不再回传。非特权模式以 `error`、`code = helper_lost`（“任务可能仍在运行”）结束这些任务；`task.start` 已发出但响应因断开丢失时同样按 accepted 处理并以 `helper_lost` 结束，避免 crhs 重试一个可能已执行的任务。非特权模式自身重启时不认识这些任务，crhs 照常按 `unknown` 处理。`native` 的 stdin 关闭时，helper 等当前任务结束后退出。

@@ -34,13 +34,32 @@ type Options struct {
 	// Env is the task environment the helper resolved when it started. nil resolves it per task,
 	// which only tests do (doc/execution-plane.md#exec-的执行环境).
 	Env *execenv.Environment
+	// SpoolRoot is the privileged state directory whose stdin subdirectory stages a task's stdin
+	// while its size and SHA-256 are verified. Empty refuses a task that declares input.
+	SpoolRoot string
 }
+
+// DefaultSpoolRoot is the state directory the native helper stages stdin in when it has no
+// privileged.toml (native mode). SpoolRootEnv overrides it.
+const DefaultSpoolRoot = "/var/lib/crha/privileged"
+
+// SpoolRootEnv names the environment variable that overrides DefaultSpoolRoot, for a helper whose
+// state directory is not the default one.
+const SpoolRootEnv = "CRHA_PRIVILEGED_STDIN_DIR"
 
 // resolveEnv resolves the helper's execution environment when it starts. It is a variable so tests
 // can exercise a node without a shell, which must fail the handshake (and with it the node's
 // privileged tasks) rather than run them with a guessed shell.
 var resolveEnv = func() (*execenv.Environment, error) {
 	return execenv.Resolve(execenv.Options{Privileged: true})
+}
+
+// spoolRoot returns the privileged state directory for stdin staging.
+func spoolRoot() string {
+	if dir := os.Getenv(SpoolRootEnv); dir != "" {
+		return dir
+	}
+	return DefaultSpoolRoot
 }
 
 // Stdio runs the helper on the process's standard streams. stdin must be the crh-priv stream; a
@@ -56,7 +75,7 @@ func Stdio(ctx context.Context, in *os.File, out, log io.Writer, crhaVersion str
 	if err != nil {
 		return err
 	}
-	return Run(ctx, in, out, Options{Version: crhaVersion, Log: log, Env: env})
+	return Run(ctx, in, out, Options{Version: crhaVersion, Log: log, Env: env, SpoolRoot: spoolRoot()})
 }
 
 // IsTerminal reports whether f is a terminal.
@@ -87,6 +106,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
 	h := &helper{log: logw, done: make(chan struct{})}
 	h.session = taskrun.NewSession(stream.Peer(), taskrun.SessionOptions{
 		Env:          opts.Env,
+		SpoolRoot:    opts.SpoolRoot,
 		Log:          h,
 		OnExit:       func(*taskrun.Task) { close(h.done) },
 		KeepFinished: true,

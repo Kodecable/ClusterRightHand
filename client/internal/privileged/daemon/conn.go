@@ -96,9 +96,10 @@ func (s *Server) serveConn(nc net.Conn) {
 	c.stream = wire.NewStreamFor(nc, nc, negotiated, hello.Role)
 	peer := c.stream.Peer()
 	session := taskrun.NewSession(peer, taskrun.SessionOptions{
-		Env:    s.opts.Env,
-		Log:    connLog{s},
-		OnExit: s.unregisterTask,
+		Env:       s.opts.Env,
+		SpoolRoot: s.Config().StateDir,
+		Log:       connLog{s},
+		OnExit:    s.unregisterTask,
 	})
 	if !c.setPeer(peer, session) {
 		return

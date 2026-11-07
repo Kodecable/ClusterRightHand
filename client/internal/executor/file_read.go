@@ -9,8 +9,8 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
-// fileRead executes a file.read task: it opens the file as the mode permits, refuses a directory and
-// the files that cannot be read to their end, and writes the requested page to stdout.
+// fileRead executes a file.read task: it opens a regular file as the mode permits, refusing every
+// other type before the open, and writes the requested page to stdout.
 func fileRead(ctx context.Context, acc fileAccess, s *protocol.FileReadSpec, stdout io.Writer) (*protocol.TaskResult, error) {
 	if err := checkPath(s.Path); err != nil {
 		return nil, err
@@ -20,20 +20,8 @@ func fileRead(ctx context.Context, acc fileAccess, s *protocol.FileReadSpec, std
 		return nil, err
 	}
 	defer f.Close()
-	fi, err := f.Stat()
-	if err != nil {
+	if err := clearNonblocking(f); err != nil {
 		return nil, err
-	}
-	if fi.IsDir() {
-		return nil, errf(protocol.CodeIsDirectory, "%s is a directory", s.Path)
-	}
-	if err := checkNotSpecial(fi, s.Path); err != nil {
-		return nil, err
-	}
-	if fi.Mode().IsRegular() {
-		if err := clearNonblocking(f); err != nil {
-			return nil, err
-		}
 	}
 	page, err := readPage(ctx, f, s, stdout)
 	if err != nil {

@@ -25,8 +25,21 @@ import (
 // with the helper's arguments, so no sudo or doas is needed (doc/privilege.md, native). The
 // fake-helper mode is a stand-in helper for the lost task.start response tests.
 func TestMain(m *testing.M) {
+	// The helper stages task stdin below a privileged state directory. The test process is not
+	// root, so point it at a temporary directory that the helper process inherits; in the helper
+	// process itself the same variable points at its own temporary directory.
+	spool, spoolErr := os.MkdirTemp("", "crh-test-stdin-")
+	if spoolErr == nil {
+		os.Setenv(helper.SpoolRootEnv, spool)
+	}
+	cleanup := func() {
+		if spoolErr == nil {
+			_ = os.RemoveAll(spool)
+		}
+	}
 	if len(os.Args) >= 3 && os.Args[1] == "privileged" && os.Args[2] == "stdio" {
 		err := helper.Stdio(context.Background(), os.Stdin, os.Stdout, os.Stderr, version.Version)
+		cleanup()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "crha privileged stdio:", err)
 			os.Exit(1)
@@ -34,13 +47,17 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	if len(os.Args) >= 3 && os.Args[1] == "fake-helper" {
-		if err := runFakeHelper(os.Args[2]); err != nil {
+		err := runFakeHelper(os.Args[2])
+		cleanup()
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "fake helper:", err)
 			os.Exit(1)
 		}
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
 
 // runFakeHelper is the helper side of the lost task.start response tests. It speaks the crh-priv

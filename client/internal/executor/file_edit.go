@@ -15,8 +15,8 @@ import (
 
 var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
 
-// fileEdit executes a file.edit task: it opens the file as the mode permits, applies every edit to
-// the original content at once, and publishes the result with the file's own mode and owner.
+// fileEdit executes a file.edit task: it opens a regular file as the mode permits, applies every
+// edit to the original content at once, and publishes the result with the file's own mode and owner.
 func fileEdit(acc fileAccess, s *protocol.FileEditSpec) (*protocol.TaskResult, error) {
 	path := s.Path
 	if err := checkPath(path); err != nil {
@@ -39,16 +39,11 @@ func fileEdit(acc fileAccess, s *protocol.FileEditSpec) (*protocol.TaskResult, e
 	if err != nil {
 		return nil, err
 	}
-	if fi.IsDir() {
-		return nil, errf(protocol.CodeIsDirectory, "%s is a directory", path)
-	}
-	if err := checkNotSpecial(fi, path); err != nil {
+	if err := checkRegular(fi, path); err != nil {
 		return nil, err
 	}
-	if fi.Mode().IsRegular() {
-		if err := clearNonblocking(f); err != nil {
-			return nil, err
-		}
+	if err := clearNonblocking(f); err != nil {
+		return nil, err
 	}
 	if fi.Size() > maxEditSize {
 		return nil, errf(protocol.CodeTooLarge, "%s is %d bytes, limit is %d", path, fi.Size(), maxEditSize)

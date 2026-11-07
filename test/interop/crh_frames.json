@@ -122,8 +122,8 @@
 		},
 		{
 			"id": "request.local.request",
-			"description": "request id=14 cmd=local.request body=[task_id=\"t-read\", attempt=1, spec=[\"file.read\", [path=\"/etc/hosts\", startLine=1, lineCount=100]], note=\"restart nginx\"]",
-			"hex": "84000e6d6c6f63616c2e726571756573748466742d7265616401826966696c652e72656164836a2f6574632f686f7374730118646d72657374617274206e67696e78"
+			"description": "request id=14 cmd=local.request body=[task_id=\"t-read\", attempt=1, spec=[\"file.read\", [path=\"/etc/hosts\", startLine=1, lineCount=100]], note=\"restart nginx\", input_preview=bytes(0)]",
+			"hex": "84000e6d6c6f63616c2e726571756573748566742d7265616401826966696c652e72656164836a2f6574632f686f7374730118646d72657374617274206e67696e7840"
 		},
 		{
 			"id": "response.local.request",

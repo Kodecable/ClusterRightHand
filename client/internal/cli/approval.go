@@ -8,7 +8,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -244,6 +248,10 @@ type approvalView struct {
 type approvalInput struct {
 	Size   uint64 `json:"size"`
 	SHA256 string `json:"sha256"`
+	// Preview is the first bytes of the content, escaped for a terminal, or a binary description.
+	// printApproval shows it as text below the JSON view. It is empty when the privileged mode did
+	// not send a preview (doc/privilege.md 本地批准).
+	Preview string `json:"-"`
 }
 
 type approvalEdit struct {
@@ -282,7 +290,7 @@ func approvalViewFor(entry *protocol.PendingEntry) approvalView {
 				}
 			}
 			view.Cwd = spec.Exec.Cwd
-			view.Stdin = approvalInputFor(spec.Exec.Stdin)
+			view.Stdin = approvalInputFor(spec.Exec.Stdin, entry.InputPreview)
 		}
 	case protocol.TaskSpecFileRead:
 		if spec.FileRead != nil {
@@ -293,7 +301,7 @@ func approvalViewFor(entry *protocol.PendingEntry) approvalView {
 	case protocol.TaskSpecFileWrite:
 		if spec.FileWrite != nil {
 			view.Path = spec.FileWrite.Path
-			view.Content = approvalInputFor(&spec.FileWrite.Content)
+			view.Content = approvalInputFor(&spec.FileWrite.Content, entry.InputPreview)
 			overwrite := spec.FileWrite.Overwrite
 			view.Overwrite = &overwrite
 			if spec.FileWrite.Mode != 0 {
@@ -322,20 +330,113 @@ func approvalViewFor(entry *protocol.PendingEntry) approvalView {
 	return view
 }
 
-func approvalInputFor(ref *protocol.InputRef) *approvalInput {
+// approvalPreviewBytes bounds the content shown to an approver, matching what local.request carries.
+const approvalPreviewBytes = 4 << 10
+
+func approvalInputFor(ref *protocol.InputRef, preview []byte) *approvalInput {
 	if ref == nil {
 		return nil
 	}
-	return &approvalInput{Size: uint64(ref.Size), SHA256: hex.EncodeToString(ref.SHA256[:])}
+	sha := hex.EncodeToString(ref.SHA256[:])
+	in := &approvalInput{Size: uint64(ref.Size), SHA256: sha}
+	if preview != nil {
+		in.Preview = approvalPreviewText(preview, uint64(ref.Size), sha)
+	}
+	return in
 }
 
-// printApproval writes one view as indented JSON so every field of the spec is visible.
+// approvalPreviewText renders the beginning of stdin or file content for an approver. Text keeps
+// newlines and tabs but escapes every other control character; a truncated text ends with the
+// number of bytes not shown, and content that is not valid UTF-8 is described instead.
+func approvalPreviewText(preview []byte, size uint64, sha string) string {
+	shown := preview
+	if len(shown) > approvalPreviewBytes {
+		shown = shown[:approvalPreviewBytes]
+	}
+	if !utf8.Valid(shown) {
+		return fmt.Sprintf("binary, %d bytes, sha256 %s", size, sha)
+	}
+	text := escapeControl(shown)
+	if text == "" {
+		text = "(empty)"
+	}
+	if size > uint64(len(shown)) {
+		text += fmt.Sprintf("\n(%d more bytes)", size-uint64(len(shown)))
+	}
+	return text
+}
+
+// escapeControl keeps newlines and tabs and escapes every other control character, so a terminal
+// shows the content as text without acting on escape sequences.
+func escapeControl(b []byte) string {
+	var out strings.Builder
+	for _, r := range string(b) {
+		if r == '\n' || r == '\t' {
+			out.WriteRune(r)
+			continue
+		}
+		if unicode.IsControl(r) {
+			quoted := strconv.QuoteRune(r)
+			out.WriteString(quoted[1 : len(quoted)-1])
+			continue
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
+}
+
+// scriptInterpreters are the argv[0] base names whose stdin is commonly executed as a script.
+func isScriptInterpreter(base string) bool {
+	switch base {
+	case "sh", "bash", "dash", "zsh", "ksh", "perl", "ruby", "node", "php", "lua":
+		return true
+	}
+	return strings.HasPrefix(base, "python")
+}
+
+// interpreterWarning returns the warning shown when an interpreter's stdin is present, so an
+// approver does not miss the script that will be read from it.
+func interpreterWarning(view approvalView) string {
+	if len(view.Argv) == 0 || view.Stdin == nil || view.Stdin.Size == 0 {
+		return ""
+	}
+	base := filepath.Base(view.Argv[0])
+	if !isScriptInterpreter(base) {
+		return ""
+	}
+	return fmt.Sprintf("stdin is executed as a script by %q", base)
+}
+
+// printApproval writes one view as indented JSON so every field of the spec is visible, then the
+// stdin or content preview as text, then the interpreter warning when the command reads its stdin
+// as a script.
 func printApproval(out io.Writer, view approvalView) error {
 	encoded, err := json.MarshalIndent(view, "", "  ")
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(out, "%s\n", encoded)
+	if _, err := fmt.Fprintf(out, "%s\n", encoded); err != nil {
+		return err
+	}
+	if err := printInputPreview(out, "stdin", view.Stdin); err != nil {
+		return err
+	}
+	if err := printInputPreview(out, "content", view.Content); err != nil {
+		return err
+	}
+	if warning := interpreterWarning(view); warning != "" {
+		_, err = fmt.Fprintf(out, "warning: %s\n", warning)
+	}
+	return err
+}
+
+// printInputPreview writes the content an approver must see as text, not as a JSON string: a
+// newline in a stdin script stays a line break.
+func printInputPreview(out io.Writer, label string, in *approvalInput) error {
+	if in == nil || in.Preview == "" {
+		return nil
+	}
+	_, err := fmt.Fprintf(out, "%s preview:\n%s\n", label, in.Preview)
 	return err
 }
 

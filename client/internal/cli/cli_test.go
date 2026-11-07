@@ -220,6 +220,7 @@ func TestApprovalView(t *testing.T) {
 				Cwd:     "/srv",
 				Stdin:   stdin,
 			}},
+			InputPreview: []byte("hello"),
 		},
 		{
 			TaskID: "t-write", Attempt: 1,
@@ -231,6 +232,7 @@ func TestApprovalView(t *testing.T) {
 				Owner:     "root",
 				Group:     "root",
 			}},
+			InputPreview: []byte("hello"),
 		},
 		{
 			TaskID: "t-edit", Attempt: 1,
@@ -262,6 +264,9 @@ func TestApprovalView(t *testing.T) {
 	if exec.Stdin == nil || exec.Stdin.Size != 5 || exec.Stdin.SHA256 != hex.EncodeToString(sum[:]) {
 		t.Fatalf("stdin = %+v", exec.Stdin)
 	}
+	if exec.Stdin.Preview != "hello" {
+		t.Fatalf("stdin preview = %q, want hello", exec.Stdin.Preview)
+	}
 	if exec.SpecSHA256 != hex.EncodeToString(hash[:]) {
 		t.Fatalf("spec_sha256 = %q, want %x", exec.SpecSHA256, hash)
 	}
@@ -271,7 +276,8 @@ func TestApprovalView(t *testing.T) {
 
 	write := approvalViewFor(&entries[1])
 	if write.Method != "file.write" || write.Path != "/etc/nginx/nginx.conf" || write.Content == nil ||
-		write.Content.Size != 5 || write.Mode != "0o4755" || write.Owner != "root" || write.Group != "root" ||
+		write.Content.Size != 5 || write.Content.Preview != "hello" ||
+		write.Mode != "0o4755" || write.Owner != "root" || write.Group != "root" ||
 		write.Overwrite == nil || !*write.Overwrite {
 		t.Fatalf("write view = %+v", write)
 	}
@@ -301,6 +307,73 @@ func TestApprovalView(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"start_line": 10`) || !strings.Contains(out.String(), `"line_count": 50`) {
 		t.Fatalf("printed read view has no line range:\n%s", out.String())
+	}
+}
+
+// TestApprovalPreview covers what an approver sees of stdin or file content: text with control
+// characters escaped, a truncation marker, a binary description, and the interpreter warning.
+func TestApprovalPreview(t *testing.T) {
+	sha := "abc123"
+	for _, tc := range []struct {
+		name    string
+		preview []byte
+		size    uint64
+		want    string
+	}{
+		{"text", []byte("echo hello\n"), 11, "echo hello\n"},
+		{"control characters", []byte("a\x00b\x1b[31m\n\t"), 10, "a\\x00b\\x1b[31m\n\t"},
+		{"empty", []byte{}, 0, "(empty)"},
+		{"truncated", bytes.Repeat([]byte("x"), 4096), 5000, strings.Repeat("x", 4096) + "\n(904 more bytes)"},
+		{"binary", []byte{0xff, 0xfe, 0x00}, 3, "binary, 3 bytes, sha256 " + sha},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := approvalPreviewText(tc.preview, tc.size, sha); got != tc.want {
+				t.Fatalf("preview = %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		name  string
+		argv  []string
+		stdin *approvalInput
+		want  string
+	}{{"bash reads stdin", []string{"/bin/bash", "-s"}, &approvalInput{Size: 3}, `warning: stdin is executed as a script by "bash"`},
+		{"python3 reads stdin", []string{"python3.12", "-"}, &approvalInput{Size: 3}, `warning: stdin is executed as a script by "python3.12"`},
+		{"no stdin", []string{"bash"}, nil, ""},
+		{"empty stdin", []string{"bash"}, &approvalInput{Size: 0}, ""},
+		{"not an interpreter", []string{"bashful"}, &approvalInput{Size: 3}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			view := approvalView{Argv: tc.argv, Stdin: tc.stdin}
+			var out bytes.Buffer
+			if err := printApproval(&out, view); err != nil {
+				t.Fatal(err)
+			}
+			if tc.want == "" {
+				if strings.Contains(out.String(), "warning:") {
+					t.Fatalf("unexpected warning:\n%s", out.String())
+				}
+				return
+			}
+			if !strings.Contains(out.String(), tc.want) {
+				t.Fatalf("output has no %q:\n%s", tc.want, out.String())
+			}
+		})
+	}
+
+	// The preview is printed as text below the JSON view, so a newline in a script stays a line
+	// break instead of becoming a JSON escape.
+	view := approvalView{Stdin: &approvalInput{Size: 11, Preview: "echo hello\n"}}
+	var out bytes.Buffer
+	if err := printApproval(&out, view); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "stdin preview:\necho hello\n") {
+		t.Fatalf("output has no readable preview:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), `"preview"`) {
+		t.Fatalf("preview is still inside the JSON view:\n%s", out.String())
 	}
 }
 

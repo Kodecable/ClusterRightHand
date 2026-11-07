@@ -31,8 +31,9 @@ export const PRIV_MAJOR = 3;
 /**
  * Incompatible changes bump the major version, so a peer with another major is refused; the minor
  * stays additive and never refuses a handshake. PrivMajor 3 merges the two output streams into one
- * and adds `file.write.create_parent_dirs` (D114), and renames `TrustSummary.groups` to `aliases`
- * (D110); 2 carried the `task.exit.result` element and the line-range `file.read` spec.
+ * and adds `file.write.create_parent_dirs` (D114) and `input_preview` to local approval, and renames
+ * `TrustSummary.groups` to `aliases` (D110); 2 carried the `task.exit.result` element and the
+ * line-range `file.read` spec.
  */
 export const PRIV_MINOR = 0;
 
@@ -118,6 +119,8 @@ export const localRequestCodec = tuple([
 	["attempt", uint],
 	["spec", taskSpecCodec],
 	["note", text],
+	/** The beginning of the task's stdin or file content, so the approver can see it. */
+	["inputPreview", bytes],
 ]);
 export type LocalRequest = Infer<typeof localRequestCodec>;
 
@@ -245,6 +248,7 @@ export const pendingEntryCodec = tuple([
 	["spec", taskSpecCodec],
 	["note", text],
 	["receivedAtMs", int],
+	["inputPreview", bytes],
 ]);
 export type PendingEntry = Infer<typeof pendingEntryCodec>;
 

@@ -841,6 +841,7 @@ function bodyVectors(): (HexVector & { codec: string; digestHex?: string })[] {
 			attempt: 2,
 			spec: execArgv,
 			note: "crhs signature was rejected; falling back to local approval",
+			inputPreview: new Uint8Array(0),
 		}),
 		body("local.withdraw", "withdraw a local approval request", "LocalWithdraw", localWithdrawCodec, {
 			taskId: "0192f000-0000-7000-8000-000000000021",
@@ -862,6 +863,7 @@ function bodyVectors(): (HexVector & { codec: string; digestHex?: string })[] {
 			spec: execArgv,
 			note: "",
 			receivedAtMs: NOW,
+			inputPreview: new Uint8Array(0),
 		}),
 	];
 }

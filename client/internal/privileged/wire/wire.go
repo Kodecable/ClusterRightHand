@@ -18,8 +18,9 @@ import (
 const (
 	// PrivMajor and PrivMinor are the crh-priv versions carried by PrivHello and PrivWelcome. They
 	// version the crh-priv protocol itself, not the crhs <-> crha protocol. Major 3 renames
-	// TrustSummary.groups to aliases (D110); major 2 carried the task.exit.result element and the
-	// line-range file.read spec. A peer with a different major is refused, because crha and its
+	// TrustSummary.groups to aliases (D110) and adds input_preview to local.request and pending.list;
+	// major 2 carried the task.exit.result element and the line-range file.read spec. A peer with a
+	// different major is refused, because crha and its
 	// privileged mode always upgrade together (doc/protocol.md, crh-priv：非特权模式 ↔ 特权模式).
 	// The minor stays additive and never refuses a handshake.
 	PrivMajor = 3
