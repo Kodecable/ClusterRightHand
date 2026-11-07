@@ -33,13 +33,14 @@ type conn struct {
 	role wire.Role
 
 	stream *wire.Stream
-	peer   *protocol.Peer
 
-	// session holds the accepted tasks of a forward connection. Deferred.After launches a
-	// task after the task.start success response, or the connection teardown does when that
-	// response could not be sent (the acceptance already stands). A task leaves the session
-	// when its execution ends.
+	// mu orders the peer and session the handshake installs against close. Both are set once;
+	// close reads the peer under mu so a connection closed while its handshake completes
+	// closes the peer too (setPeer closes it when close already ran).
+	mu      sync.Mutex
+	peer    *protocol.Peer
 	session *taskrun.Session
+	closed  bool
 
 	closeOnce sync.Once
 }
@@ -93,12 +94,15 @@ func (s *Server) serveConn(nc net.Conn) {
 	_ = nc.SetDeadline(time.Time{})
 	c.role = hello.Role
 	c.stream = wire.NewStreamFor(nc, nc, negotiated, hello.Role)
-	c.peer = c.stream.Peer()
-	c.session = taskrun.NewSession(c.peer, taskrun.SessionOptions{
+	peer := c.stream.Peer()
+	session := taskrun.NewSession(peer, taskrun.SessionOptions{
 		Env:    s.opts.Env,
 		Log:    connLog{s},
 		OnExit: s.unregisterTask,
 	})
+	if !c.setPeer(peer, session) {
+		return
+	}
 	if hello.Role == wire.RoleForward {
 		s.addForward(c)
 	}
@@ -117,14 +121,47 @@ func (s *Server) serveConn(nc net.Conn) {
 	c.launchAccepted()
 }
 
+// setPeer installs the peer and session the handshake negotiated. It reports false when the
+// connection was already closed: close has run and will never see the peer, so the peer is closed
+// here instead.
+func (c *conn) setPeer(peer *protocol.Peer, session *taskrun.Session) bool {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		peer.Close(errors.New("connection closed"))
+		return false
+	}
+	c.peer, c.session = peer, session
+	c.mu.Unlock()
+	return true
+}
+
+// currentPeer returns the connection's peer, or nil before the handshake completed.
+func (c *conn) currentPeer() *protocol.Peer {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.peer
+}
+
+// currentSession returns the connection's task session, or nil before the handshake completed.
+func (c *conn) currentSession() *taskrun.Session {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.session
+}
+
 // close tears down the connection. It is idempotent.
 func (c *conn) close() {
 	c.closeOnce.Do(func() {
+		c.mu.Lock()
+		c.closed = true
+		peer := c.peer
+		c.mu.Unlock()
 		// Close the socket first: Peer.Close waits for an in-flight frame write, and a peer
 		// that stopped reading must not hold the connection or daemon shutdown open.
 		_ = c.nc.Close()
-		if c.peer != nil {
-			c.peer.Close(errors.New("connection closed"))
+		if peer != nil {
+			peer.Close(errors.New("connection closed"))
 		}
 	})
 }
@@ -138,11 +175,15 @@ func (s *Server) addForward(c *conn) {
 
 // registerHandlers installs the role's crh-priv command handlers.
 func (c *conn) registerHandlers() {
-	p := c.peer
+	p := c.currentPeer()
+	session := c.currentSession()
+	if p == nil || session == nil {
+		return
+	}
 	switch c.role {
 	case wire.RoleForward:
 		p.HandleRequest(protocol.CmdTaskStart, c.handleTaskStart)
-		c.session.HandleRequests()
+		session.HandleRequests()
 		p.HandleRequest(wire.CmdTrustQuery, c.handleTrustQuery)
 		p.HandleRequest(protocol.CmdLocalRequest, c.handleLocalRequest)
 		p.HandleRequest(protocol.CmdLocalWithdraw, c.handleLocalWithdraw)
@@ -158,8 +199,12 @@ func (c *conn) registerHandlers() {
 // that can no longer be completed is failed, as with a native helper whose stdin closed;
 // otherwise a task reading stdin would never finish.
 func (c *conn) launchAccepted() {
-	c.session.EndInput()
-	c.session.LaunchAll()
+	session := c.currentSession()
+	if session == nil {
+		return
+	}
+	session.EndInput()
+	session.LaunchAll()
 }
 
 // handleTaskStart verifies an authorization, persists the used records, logs the acceptance
@@ -222,7 +267,8 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 		return nil, &protocol.RemoteError{Code: protocol.CodeInternalError, Message: "local log: " + err.Error()}
 	}
 
-	task, err := c.session.Accept(runStart)
+	session := c.currentSession()
+	task, err := session.Accept(runStart)
 	if err != nil {
 		c.s.log.Error("prepare an accepted task", "task", ts.TaskID, "err", err)
 		return nil, &protocol.RemoteError{Code: protocol.CodeInternalError, Message: err.Error()}
@@ -231,7 +277,7 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 	if decided.approval != nil {
 		c.s.consumeApproval(approvalKey{taskID: ts.TaskID, attempt: uint64(ts.Attempt)})
 	}
-	return protocol.Deferred{Body: protocol.Empty{}, After: func() { c.session.Launch(task) }}, nil
+	return protocol.Deferred{Body: protocol.Empty{}, After: func() { session.Launch(task) }}, nil
 }
 
 // executionStart prepares the task.start the executor receives. The cwd of a task that was

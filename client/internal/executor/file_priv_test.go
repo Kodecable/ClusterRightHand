@@ -547,3 +547,75 @@ func TestPrivilegedFileSpecialFiles(t *testing.T) {
 		})
 	}
 }
+
+// TestPrivilegedFileListChecksTypeBeforeOpening covers the order of a privileged listing: it stats
+// the path with O_PATH first and opens only a directory for reading. A mode-000 FIFO is refused as
+// not_regular_file because no read open is attempted, a regular file is still not_a_directory, and
+// a directory is still listed.
+func TestPrivilegedFileListChecksTypeBeforeOpening(t *testing.T) {
+	dir := privateDir(t)
+	regular := filepath.Join(dir, "regular")
+	writeFile(t, regular, "x", 0o644)
+	fifo := filepath.Join(dir, "fifo")
+	if err := unix.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	noReadFIFO := filepath.Join(dir, "fifo-no-read")
+	if err := unix.Mkfifo(noReadFIFO, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	type listOut struct {
+		result *protocol.TaskResult
+		err    error
+	}
+	list := func(t *testing.T, path string) listOut {
+		t.Helper()
+		done := make(chan listOut, 1)
+		go func() {
+			result, err := RunFilePrivileged(context.Background(),
+				privilegedSpec(&protocol.FileListSpec{Path: path}), nil, io.Discard)
+			done <- listOut{result: result, err: err}
+		}()
+		select {
+		case out := <-done:
+			return out
+		case <-time.After(5 * time.Second):
+			t.Fatal("listing a non-directory blocked the task")
+			return listOut{}
+		}
+	}
+
+	out := list(t, dir)
+	if out.err != nil {
+		t.Fatalf("list directory: %v", out.err)
+	}
+	var names []string
+	for _, e := range listResult(t, out.result).Entries {
+		names = append(names, e.Name)
+	}
+	if got := strings.Join(names, ","); got != "fifo,fifo-no-read,regular" {
+		t.Fatalf("list: %s", got)
+	}
+
+	// No writer ever opens either FIFO. The mode-000 one would fail a read open with
+	// permission_denied, so not_regular_file shows the type decided from the O_PATH fd alone.
+	wantCode(t, list(t, fifo).err, "not_regular_file")
+	wantCode(t, list(t, noReadFIFO).err, "not_regular_file")
+
+	// A regular file keeps the not_a_directory result an open-and-stat listing reported.
+	wantCode(t, list(t, regular).err, "not_a_directory")
+	wantMessage(t, list(t, regular).err, regular+" is not a directory")
+
+	// An unreadable regular file reports permission_denied without being opened.
+	if os.Geteuid() != 0 {
+		unreadable := filepath.Join(dir, "unreadable")
+		writeFile(t, unreadable, "x", 0o600)
+		if err := os.Chmod(unreadable, 0); err != nil {
+			t.Fatal(err)
+		}
+		err := list(t, unreadable).err
+		wantCode(t, err, "permission_denied")
+		wantMessage(t, err, "permission denied")
+	}
+}

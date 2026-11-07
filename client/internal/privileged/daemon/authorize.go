@@ -412,7 +412,11 @@ func (s *Server) pendingEntries() []protocol.PendingEntry {
 // pushLocalDecision tells every forward connection about a decision.
 func (s *Server) pushLocalDecision(decision protocol.LocalDecision) {
 	for _, c := range s.forwardConns() {
-		if err := c.peer.Emit(protocol.EventLocalDecision, decision); err != nil {
+		peer := c.currentPeer()
+		if peer == nil {
+			continue
+		}
+		if err := peer.Emit(protocol.EventLocalDecision, decision); err != nil {
 			s.log.Debug("local.decision was not delivered", "task", decision.TaskID, "err", err)
 		}
 	}

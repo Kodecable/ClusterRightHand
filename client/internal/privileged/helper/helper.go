@@ -68,7 +68,9 @@ func IsTerminal(f *os.File) bool {
 // Run serves one native helper session on in/out: the crh-priv handshake, exactly one task.start,
 // its input, output and exit. It returns when the task ended and task.exit was emitted, or when the
 // stream failed. EOF on stdin before the task ends does not abort the task: it runs to its end and
-// the outcome goes to the local log (doc/privilege.md, native).
+// the outcome goes to the local log (doc/privilege.md, native). Once the task ended, Run closes in
+// when it is an io.Closer, so the receive loop can stop and a response it is still sending is not
+// cut off by closing the output.
 func Run(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
 	logw := io.Discard
 	if opts.Log != nil {
@@ -107,6 +109,10 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
 			<-h.done
 		}
 	case <-h.done:
+		// A task.cancel or the last task.input can end the task while the receive loop is still
+		// sending that request's response. Stop the loop only after it had its chance, so the peer
+		// never waits for a response that was already produced.
+		streamErr = stopReceive(in, errc)
 	case <-ctx.Done():
 		if h.accepted() {
 			h.session.LaunchAll()
@@ -126,6 +132,30 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
 		return nil
 	}
 	return nil
+}
+
+// stopReceive ends the stream's receive loop once the task ended and waits for it to return. The
+// loop may still be sending the response of the request that ended the task; closing in makes its
+// next read stop, but only after that send finished. A reader that cannot be closed leaves the loop
+// running, so Run does not wait for it. A read that fails because Run closed in is not a protocol
+// violation.
+func stopReceive(in io.Reader, errc <-chan error) error {
+	closer, ok := in.(io.Closer)
+	if !ok {
+		return nil
+	}
+	select {
+	case err := <-errc:
+		_ = closer.Close()
+		return err
+	default:
+	}
+	_ = closer.Close()
+	err := <-errc
+	if errors.Is(err, io.ErrClosedPipe) || errors.Is(err, os.ErrClosed) {
+		return nil
+	}
+	return err
 }
 
 // completed reports whether the task has finished.

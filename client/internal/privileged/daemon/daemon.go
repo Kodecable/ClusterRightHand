@@ -381,7 +381,11 @@ func (s *Server) reload() {
 	}
 	report := protocol.TrustReport{Kind: protocol.TrustReportOK, Summary: summary}
 	for _, c := range s.forwardConns() {
-		if err := c.peer.Emit(protocol.EventTrustSummary, report); err != nil {
+		peer := c.currentPeer()
+		if peer == nil {
+			continue
+		}
+		if err := peer.Emit(protocol.EventTrustSummary, report); err != nil {
 			s.log.Warn("push trust.summary", "err", err)
 		}
 	}

@@ -28,11 +28,12 @@ type fileAccess interface {
 	// or socket is not_regular_file, any other non-directory is not_a_directory. The unprivileged
 	// mode stats the path first and opens it only when it is a directory: opening a character or
 	// block device can have side effects (a tty raises DTR, a tape rewinds). The privileged mode
-	// opens it with openat2 and stats the descriptor, as it does for every operation.
+	// opens the path as O_PATH with openat2, stats the descriptor, and opens only a directory for
+	// reading.
 	openList(path string) (*os.File, error)
 	// statEntry stats the directory entry name below dir, without following a final symbolic link.
-	// The unprivileged mode names the entry path in the error, as the path-based stat did; the
-	// privileged one reports the error as it did before it worked through the directory fd.
+	// The unprivileged mode names the entry path in the error; the privileged one reports the raw
+	// error.
 	statEntry(dir *os.File, name string) (unix.Stat_t, error)
 	// openWrite resolves the destination of a write or edit of path and opens the directory it is
 	// published into. edit says the destination must already exist, so a missing parent is reported
@@ -183,8 +184,8 @@ func (plainAccess) openList(path string) (*os.File, error) {
 	return f, nil
 }
 
-// statEntry stats one entry through the directory fd. The error keeps the "lstat dir/name" wording
-// of the path-based stat the listing used before it worked through the fd.
+// statEntry stats one entry through the directory fd. The error names the entry path like lstat,
+// so a failed stat of an entry reports the path the listing asked about.
 func (plainAccess) statEntry(dir *os.File, name string) (unix.Stat_t, error) {
 	var st unix.Stat_t
 	if err := unix.Fstatat(int(dir.Fd()), name, &st, unix.AT_SYMLINK_NOFOLLOW); err != nil {
@@ -385,10 +386,13 @@ func (a privilegedAccess) openStat(path string) (*os.File, error) {
 	return a.root.open(path, unix.O_PATH)
 }
 
-// openList opens the path with openat2 and stats the descriptor, as every privileged operation does:
-// the path is resolved without a symbolic link, and the type checks run on the fd.
+// openList opens the path with O_PATH and stats the descriptor, so the type is known before the path
+// is opened for reading: opening a character or block device can have side effects, and a FIFO with
+// no writer would wait in open(2). A directory is then reopened for reading relative to the O_PATH
+// fd. A FIFO or socket is not_regular_file; any other non-directory is not_a_directory, or
+// permission_denied when its mode does not allow reading it.
 func (a privilegedAccess) openList(path string) (*os.File, error) {
-	f, err := a.openReading(path)
+	f, err := a.root.open(path, unix.O_PATH)
 	if err != nil {
 		return nil, err
 	}
@@ -402,13 +406,30 @@ func (a privilegedAccess) openList(path string) (*os.File, error) {
 		return nil, err
 	}
 	if !fi.IsDir() {
+		readErr := unix.Faccessat2(int(f.Fd()), "", unix.R_OK, unix.AT_EMPTY_PATH|unix.AT_EACCESS)
 		f.Close()
+		// A kernel before 5.8 has no faccessat2, so a file that may not be readable is reported as
+		// not a directory instead of permission_denied. The listing still never opens it.
+		if readErr != nil && !errors.Is(readErr, unix.ENOSYS) {
+			return nil, readErr
+		}
 		return nil, errf(protocol.CodeNotADirectory, "%s is not a directory", path)
 	}
-	return f, nil
+	// Reopen the directory itself through the O_PATH fd: the fd pins the directory the stat checked,
+	// so the listing cannot be redirected to a FIFO or device that replaced it.
+	how := unix.OpenHow{
+		Flags:   uint64(unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC),
+		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS,
+	}
+	fd, err := unix.Openat2(int(f.Fd()), ".", &how)
+	f.Close()
+	if err != nil {
+		return nil, openat2Error(path, err)
+	}
+	return os.NewFile(uintptr(fd), path), nil
 }
 
-// statEntry reports the raw Fstatat error, as the privileged listing did before it was shared.
+// statEntry reports the raw Fstatat error.
 func (privilegedAccess) statEntry(dir *os.File, name string) (unix.Stat_t, error) {
 	var st unix.Stat_t
 	err := unix.Fstatat(int(dir.Fd()), name, &st, unix.AT_SYMLINK_NOFOLLOW)

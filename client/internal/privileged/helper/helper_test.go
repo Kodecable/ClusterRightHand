@@ -105,7 +105,13 @@ func startSession(t *testing.T, version string) *session {
 		s.exits <- exit
 		return nil
 	})
-	go func() { s.streamErr <- s.stream.Run() }()
+	go func() {
+		err := s.stream.Run()
+		// A request still waiting when the helper closes its output fails with ErrClosed instead of
+		// waiting forever for a response the stream can no longer carry.
+		s.stream.Peer().Close(err)
+		s.streamErr <- err
+	}()
 	t.Cleanup(func() {
 		inW.Close()
 		outR.Close()
@@ -759,5 +765,49 @@ func TestStdioRefusesTerminal(t *testing.T) {
 	w.Close()
 	if err := Stdio(context.Background(), r, io.Discard, io.Discard, testVersion); err == nil {
 		t.Fatal("expected a handshake error")
+	}
+}
+
+// closeReporter is a reader that records when it is closed and whose Read never returns.
+type closeReporter struct{ closed chan struct{} }
+
+func (r *closeReporter) Read([]byte) (int, error) {
+	<-r.closed
+	return 0, io.EOF
+}
+
+func (r *closeReporter) Close() error {
+	close(r.closed)
+	return nil
+}
+
+// TestStopReceiveWaitsForTheStream covers the helper's close order once a task ended: closing the
+// input stops the receive loop, and Run must wait for that loop to return so a response it is still
+// sending is not cut off by closing the output.
+func TestStopReceiveWaitsForTheStream(t *testing.T) {
+	in := &closeReporter{closed: make(chan struct{})}
+	errc := make(chan error, 1)
+	result := make(chan error, 1)
+	go func() { result <- stopReceive(in, errc) }()
+
+	select {
+	case <-in.closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stopReceive did not close the input")
+	}
+	select {
+	case err := <-result:
+		t.Fatalf("stopReceive returned before the stream loop ended: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	errc <- io.EOF
+	select {
+	case err := <-result:
+		if !errors.Is(err, io.EOF) {
+			t.Fatalf("stopReceive = %v, want the stream error", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("stopReceive did not return after the stream loop ended")
 	}
 }
