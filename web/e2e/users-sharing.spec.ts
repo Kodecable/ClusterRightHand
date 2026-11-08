@@ -64,17 +64,16 @@ test("admin grants node access; removing it hides the node again", async ({ admi
 
 		// Member sees the node and may run tasks; the access section itself stays admin-only.
 		await mp.getByRole("button", { name: "Refresh" }).click();
-		await expect(mp.getByRole("link", { name: nodeName })).toBeVisible({ timeout: 15_000 });
-		await mp.getByRole("link", { name: nodeName }).click();
-		await expect(mp.getByRole("heading", { name: nodeName })).toBeVisible();
+		await expect(mp.getByRole("link", { name: nodeName, exact: true })).toBeVisible({ timeout: 15_000 });
+		await mp.getByRole("link", { name: nodeName, exact: true }).click();
+		await expect(mp.getByRole("heading", { name: nodeName, exact: true })).toBeVisible();
 		await expect(mp.getByTestId("node-access")).toHaveCount(0);
 		await expect(mp.getByRole("heading", { name: "Run a task" })).toBeVisible();
 		await mp.getByRole("textbox", { name: "Shell command" }).fill("echo member-ran");
 		await mp.getByRole("button", { name: "Run", exact: true }).click();
-		await expect(mp.locator('[data-slot="task-result"]').getByRole("region", { name: /stdout/ })).toContainText(
-			"member-ran",
-			{ timeout: 20_000 },
-		);
+		await expect(
+			mp.locator('[data-slot="task-result"]').getByRole("region", { name: "output", exact: true }),
+		).toContainText("member-ran", { timeout: 20_000 });
 
 		// Removing the grant hides the node again (404 when accessed by id).
 		await page.goto(`/nodes/${nodeId}`);
@@ -83,7 +82,8 @@ test("admin grants node access; removing it hides the node again", async ({ admi
 		await expect(page.getByText("No access grants yet.")).toBeVisible();
 		const denied = await mp.request.post(`/api/nodes/${nodeId}/tasks`, { data: { kind: "exec", shell: "true" } });
 		expect(denied.status()).toBe(404);
-		await mp.getByRole("button", { name: "Refresh" }).click();
+		// The member is on the node page (which has its own Refresh buttons); their node list no longer has it.
+		await mp.goto("/nodes");
 		await expect(mp.getByText("An administrator grants access to nodes.")).toBeVisible({ timeout: 15_000 });
 	} finally {
 		await ctx.close();

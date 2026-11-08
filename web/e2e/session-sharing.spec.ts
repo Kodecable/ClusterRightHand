@@ -1,9 +1,39 @@
+import type { InProcessCrhs } from "../../server/test/e2e/harness.ts";
 import { fauxAssistantMessage, fauxText } from "../../server/test/e2e/harness.ts";
-import { expect, login, test } from "./fixtures.ts";
+import { createSessionViaApi, expect, login, test } from "./fixtures.ts";
 
 test.use({ withAgent: true });
 
 const MEMBER = { username: "mallory", password: "member-password-1" };
+
+async function loginCookie(crhs: InProcessCrhs, username: string, password: string): Promise<string> {
+	const response = await fetch(`${crhs.url}/api/auth/login`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ username, password }),
+	});
+	const cookie = response.headers.get("set-cookie")?.match(/crh_session=[^;]+/)?.[0];
+	if (response.status !== 200 || !cookie) throw new Error(`login ${username}: ${response.status}`);
+	return cookie;
+}
+
+/** Calls the API as a given session cookie; `crhs.api` always acts as ADMIN. */
+async function apiAs(
+	crhs: InProcessCrhs,
+	cookie: string,
+	path: string,
+	init: { method?: string; body?: unknown } = {},
+): Promise<{ status: number; json: unknown }> {
+	const headers: Record<string, string> = { cookie };
+	if (init.body !== undefined) headers["content-type"] = "application/json";
+	const response = await fetch(`${crhs.url}${path}`, {
+		method: init.method ?? (init.body === undefined ? "GET" : "POST"),
+		headers,
+		body: init.body === undefined ? undefined : JSON.stringify(init.body),
+	});
+	const text = await response.text();
+	return { status: response.status, json: text ? JSON.parse(text) : undefined };
+}
 
 test("a session shared for chat lets a member drive it; view only lets them look", async ({
 	adminPage: page,
@@ -15,15 +45,11 @@ test("a session shared for chat lets a member drive it; view only lets them look
 	});
 	expect(user.status).toBe(201);
 	const userId = user.json.user.id as string;
-	const created = await crhs.api("/api/sessions", {
-		body: {
-			title: "Shared chat",
-			rulePreset: "yolo",
-			model: { provider: crhs.faux.provider.id, modelId: crhs.faux.getModel().id },
-		},
+	const sessionId = await createSessionViaApi(crhs, {
+		title: "Shared chat",
+		message: "start",
+		rulePreset: "yolo",
 	});
-	expect(created.status).toBe(201);
-	const sessionId = created.json.session.id as string;
 
 	await page.goto(`/sessions/${sessionId}`);
 	await page.getByTestId("share-session").click();
@@ -81,21 +107,53 @@ test("a session shared for chat lets a member drive it; view only lets them look
 	}
 });
 
-test("only the owner and administrators manage shares", async ({ crhs }) => {
-	const created = await crhs.api("/api/sessions", {
-		body: {
-			title: "Mine",
-			rulePreset: "ask",
-			model: { provider: crhs.faux.provider.id, modelId: crhs.faux.getModel().id },
-		},
+test("only the owner creates shares; administrators list and revoke them", async ({ crhs }) => {
+	const member = await crhs.api("/api/users", {
+		body: { username: MEMBER.username, password: MEMBER.password, kind: "member" },
 	});
-	const sessionId = created.json.session.id as string;
-	const res = await crhs.api(`/api/sessions/${sessionId}/shares`, {
+	expect(member.status).toBe(201);
+	const memberId = member.json.user.id as string;
+	const memberCookie = await loginCookie(crhs, MEMBER.username, MEMBER.password);
+	const sessionId = await createSessionViaApi(crhs, {
+		title: "Mine",
+		message: "hello",
+		rulePreset: "yolo",
+		cookie: memberCookie,
+	});
+	const adminId = (await crhs.api("/api/me")).json.user.id as string;
+
+	// Nobody can share a session with themselves.
+	const self = await apiAs(crhs, memberCookie, `/api/sessions/${sessionId}/shares`, {
+		method: "PUT",
+		body: { granteeType: "user", granteeId: memberId, access: "view" },
+	});
+	expect(self.status).toBe(400);
+
+	// The owner may share; here with the administrator so they can list and revoke it.
+	const shared = await apiAs(crhs, memberCookie, `/api/sessions/${sessionId}/shares`, {
+		method: "PUT",
+		body: { granteeType: "user", granteeId: adminId, access: "view" },
+	});
+	expect(shared.status).toBe(200);
+
+	const shares = await crhs.api(`/api/sessions/${sessionId}/shares`);
+	expect(shares.status).toBe(200);
+	expect(shares.json.shares).toHaveLength(1);
+
+	// An administrator sees the session and its shares but cannot create another one.
+	const denied = await crhs.api(`/api/sessions/${sessionId}/shares`, {
 		method: "PUT",
 		body: { granteeType: "user", granteeId: "nobody", access: "view" },
 	});
-	expect(res.status).toBe(404);
-	const shares = await crhs.api(`/api/sessions/${sessionId}/shares`);
-	expect(shares.status).toBe(200);
-	expect(shares.json.shares).toEqual([]);
+	expect(denied.status).toBe(403);
+	expect(denied.json.error).toBe("only the owner can share this session");
+
+	// Revoking an existing share is allowed for the administrator.
+	const revoked = await crhs.api(`/api/sessions/${sessionId}/shares/${shares.json.shares[0].id}`, {
+		method: "DELETE",
+		// A state-changing request must be JSON (CSRF guard), even without fields.
+		body: {},
+	});
+	expect(revoked.status).toBe(200);
+	expect((await crhs.api(`/api/sessions/${sessionId}/shares`)).json.shares).toEqual([]);
 });

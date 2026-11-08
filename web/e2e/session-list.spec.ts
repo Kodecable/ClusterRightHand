@@ -1,6 +1,6 @@
 import type { Browser, Page } from "@playwright/test";
 import type { InProcessCrhs } from "../../server/test/e2e/harness.ts";
-import { expect, login, newSession, test } from "./fixtures.ts";
+import { createSessionViaApi, expect, login, newSession, test } from "./fixtures.ts";
 
 test.use({ withAgent: true });
 
@@ -16,21 +16,6 @@ async function secondAdminPage(
 	await login(page);
 	await expect(page.getByTestId("page-title")).toHaveText("Sessions");
 	return { page, close: () => context.close() };
-}
-
-async function createSessionFor(crhs: InProcessCrhs, cookie: string, title: string): Promise<string> {
-	const response = await fetch(`${crhs.url}/api/sessions`, {
-		method: "POST",
-		headers: { "content-type": "application/json", cookie },
-		body: JSON.stringify({
-			title,
-			rulePreset: "ask",
-			model: { provider: crhs.faux.provider.id, modelId: crhs.faux.getModel().id },
-		}),
-	});
-	const json = (await response.json()) as { session?: { id: string } };
-	if (response.status !== 201 || !json.session) throw new Error(`create session: ${response.status}`);
-	return json.session.id;
 }
 
 async function loginCookie(crhs: InProcessCrhs, username: string, password: string): Promise<string> {
@@ -73,8 +58,15 @@ test("search and the visible scope show the caller's own and shared sessions", a
 	expect(member.status).toBe(201);
 	const memberId = member.json.user.id as string;
 	const memberCookie = await loginCookie(crhs, MEMBER.username, MEMBER.password);
-	await createSessionFor(crhs, memberCookie, "Member beta session");
-	const adminSession = await createSessionFor(crhs, crhs.cookie, "Deploy the cluster");
+	await createSessionViaApi(crhs, {
+		title: "Member beta session",
+		message: "member session",
+		cookie: memberCookie,
+	});
+	const adminSession = await createSessionViaApi(crhs, {
+		title: "Deploy the cluster",
+		message: "deploy the cluster",
+	});
 
 	await page.goto("/sessions");
 	await expect(page.locator('[data-testid="session-item"]', { hasText: "Deploy the cluster" })).toBeVisible({

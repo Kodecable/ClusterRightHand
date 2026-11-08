@@ -56,8 +56,8 @@ test("a faux-model session streams text, runs a tool call, waits for an inline a
 	]);
 	// Switch to Ask through the composer footer: the tool call then waits for the owner's approval.
 	await page.getByTestId("composer-rules").click();
-	await page.getByLabel("Rule preset").click();
 	await page.getByRole("option", { name: "Ask", exact: true }).click();
+	await expect(page.getByTestId("composer-rules")).toContainText("Ask");
 	await page.keyboard.press("Escape");
 
 	const sessionId = await page.evaluate(() =>

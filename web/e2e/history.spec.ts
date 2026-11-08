@@ -1,6 +1,6 @@
 import type { InProcessCrhs } from "../../server/test/e2e/harness.ts";
 import { fauxAssistantMessage, fauxText } from "../../server/test/e2e/harness.ts";
-import { expect, test } from "./fixtures.ts";
+import { createSessionViaApi, expect, test } from "./fixtures.ts";
 
 test.use({ withAgent: true });
 
@@ -25,15 +25,18 @@ test("a session with more than 100 entries loads older history at the top withou
 	adminPage: page,
 	crhs,
 }) => {
-	const model = { provider: crhs.faux.provider.id, modelId: crhs.faux.getModel().id };
 	crhs.faux.setResponses(
 		Array.from({ length: MESSAGES }, (_, index) => fauxAssistantMessage([fauxText(`answer ${index + 1}`)])),
 	);
-	const created = await crhs.api("/api/sessions", { body: { title: "Long history", model, rulePreset: "yolo" } });
-	expect(created.status).toBe(201);
-	const sessionId = created.json.session.id as string;
+	// The first message creates the session (D117); the rest are sent into it. Both kinds are answered,
+	// so the session ends with one user and one assistant entry per message.
+	const sessionId = await createSessionViaApi(crhs, {
+		title: "Long history",
+		message: "message 1",
+		rulePreset: "yolo",
+	});
 
-	for (let index = 1; index <= MESSAGES; index++) {
+	for (let index = 2; index <= MESSAGES; index++) {
 		const posted = await crhs.api(`/api/sessions/${sessionId}/messages`, {
 			body: { text: `message ${index}`, requestId: `r-${index}` },
 		});

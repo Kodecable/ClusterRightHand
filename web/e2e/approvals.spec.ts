@@ -54,7 +54,7 @@ test("approve and always allow adds a rule to the token and runs the task", asyn
 
 	await page.goto(`/tasks/${task.id}`);
 	await expect(page.getByText("Exited").first()).toBeVisible({ timeout: 20_000 });
-	await expect(page.getByRole("region", { name: /stdout/ })).toContainText("hi");
+	await expect(page.getByRole("region", { name: "output", exact: true })).toContainText("hi");
 
 	const tokens = await crhs.api("/api/api-tokens");
 	const view = tokens.json.tokens.find((candidate: { id: string }) => candidate.id === token.id);

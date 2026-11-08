@@ -38,8 +38,8 @@ test("title and rule preset can be changed", async ({ adminPage: page }) => {
 
 	// The rule preset is in the composer footer now: click it, pick Yolo, and the footer says so.
 	await page.getByTestId("composer-rules").click();
-	await page.getByLabel("Rule preset").click();
 	await page.getByRole("option", { name: "Yolo", exact: true }).click();
+	await expect(page.getByTestId("composer-rules")).toContainText("Yolo");
 	await page.keyboard.press("Escape");
 	await page.reload();
 	await expect(page.getByTestId("page-title")).toHaveText("Sessions");
@@ -63,10 +63,13 @@ test.describe("with a node", () => {
 		]);
 		await sendMessage(page, "run echo");
 		const card = await toolCard(page);
-		await card.getByTestId("tool-toggle").click();
 		await expect(card).toContainText("echo from-agent");
-		await expect(card).toContainText("exited");
-		await expect(card).toContainText("output");
+		// The card opens a dialog with the call's result and the task it ran.
+		await card.getByTestId("tool-toggle").click();
+		const dialog = page.getByTestId("tool-dialog");
+		await expect(dialog).toContainText("Result");
+		await expect(dialog).toContainText("Exited");
+		await expect(dialog.getByRole("region", { name: "output", exact: true })).toContainText("from-agent");
 		await expect(page.getByTestId("transcript-scroller")).toContainText("The command printed from-agent.");
 	});
 
@@ -91,7 +94,7 @@ test.describe("with a node", () => {
 		await expect(page.getByTestId("waiting-reason")).toContainText("waiting for an approval");
 		const card = await toolCard(page);
 		await card.getByTestId("tool-toggle").click();
-		await card.getByRole("link", { name: "Review and approve" }).click();
+		await page.getByTestId("tool-dialog").getByRole("link", { name: "Review and approve" }).click();
 		await expect(page).toHaveURL(/\/approvals\/tasks\//);
 		await page.getByRole("button", { name: "Approve", exact: true }).click();
 		await expect(page.getByRole("heading", { name: "Already settled" })).toBeVisible();

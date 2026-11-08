@@ -12,7 +12,7 @@ function taskResult(page: import("@playwright/test").Page) {
 	return page.locator('[data-slot="task-result"]');
 }
 
-test("runs a shell command and shows stdout, stderr and the exit code", async ({ adminPage: page }) => {
+test("runs a shell command and shows its merged output and the exit code", async ({ adminPage: page }) => {
 	await page.getByRole("textbox", { name: "Shell command" }).fill("echo hello; echo oops >&2; exit 3");
 	await page.getByRole("button", { name: "Run", exact: true }).click();
 	const result = taskResult(page);
@@ -20,8 +20,12 @@ test("runs a shell command and shows stdout, stderr and the exit code", async ({
 	await expect(result.getByText("Exited (3)")).toBeVisible({ timeout: 20_000 });
 	await expect(result.getByText("Exit code")).toBeVisible();
 	await expect(result.locator("dd", { hasText: /^3$/ })).toBeVisible();
-	await expect(result.getByRole("region", { name: /stdout/ })).toContainText("hello");
-	await expect(result.getByRole("region", { name: /stderr/ })).toContainText("oops");
+	// The task output is one stream (D114): stdout and stderr arrive together.
+	const output = result.getByRole("region", { name: "output", exact: true });
+	await expect(output).toHaveCount(1);
+	await expect(output).toContainText("hello");
+	await expect(output).toContainText("oops");
+	await expect(result.getByRole("region", { name: /stderr/ })).toHaveCount(0);
 });
 
 test("cancels a running task from the UI", async ({ adminPage: page }) => {

@@ -24,7 +24,9 @@ test("create a schedule, run it now and open the run's session", async ({ adminP
 	await newSchedule(page, crhs, "Nightly check", "Check the nodes");
 
 	// The form previewed the next fire times the server computed for the cron.
-	await expect(page.getByRole("status", { name: "Next runs" })).not.toContainText("Next runs: -");
+	const preview = page.getByRole("status", { name: "Expected triggers" });
+	await expect(preview).toContainText("Expected to fire at:");
+	await expect(preview.getByTestId("schedule-preview-time").first()).toBeVisible();
 
 	await page.getByRole("button", { name: "Run now" }).click();
 	const history = page.getByRole("table", { name: "Schedule runs" });

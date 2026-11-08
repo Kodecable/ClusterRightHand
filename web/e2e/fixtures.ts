@@ -112,6 +112,40 @@ export function modelName(crhs: InProcessCrhs): string {
 }
 
 /**
+ * Creates a session through `POST /api/sessions` (D117): the first message is part of creation, so the
+ * request carries a `message` and a `requestId`. Returns the new session's id.
+ */
+export async function createSessionViaApi(
+	crhs: InProcessCrhs,
+	input: {
+		title: string;
+		message: string;
+		rulePreset?: "ask" | "yolo" | "auto_review";
+		/** Defaults to ADMIN's cookie; a member's own cookie creates a session they own. */
+		cookie?: string;
+		requestId?: string;
+	},
+): Promise<string> {
+	const response = await fetch(`${crhs.url}/api/sessions`, {
+		method: "POST",
+		headers: { "content-type": "application/json", cookie: input.cookie ?? crhs.cookie },
+		body: JSON.stringify({
+			requestId: input.requestId ?? crypto.randomUUID(),
+			message: input.message,
+			title: input.title,
+			rulePreset: input.rulePreset ?? "ask",
+			model: { provider: crhs.faux.provider.id, modelId: crhs.faux.getModel().id },
+		}),
+	});
+	if (response.status !== 201) {
+		throw new Error(`create session: ${response.status} ${await response.text()}`);
+	}
+	const json = (await response.json()) as { session?: { id: string } };
+	if (!json.session) throw new Error("create session: no session in the response");
+	return json.session.id;
+}
+
+/**
  * Creates a session through the draft page (D117), leaving its page open. The first message creates the
  * session; callers that script the faux model must queue their responses after this helper, because the
  * bootstrap message spends one model request. The title is set through the header afterwards.
