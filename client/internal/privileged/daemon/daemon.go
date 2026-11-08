@@ -55,6 +55,9 @@ type Options struct {
 	// disk endurance. It lowers security: after the privileged mode restarts, a one-shot
 	// authorization can run again until its deadline.
 	NoPersistUsed bool
+	// WriteTimeout bounds one frame write to a privileged connection. Zero uses
+	// writeFrameTimeout (10 s). Tests lower it to exercise the timeout without waiting.
+	WriteTimeout time.Duration
 }
 
 // Server is one privileged-mode daemon.
@@ -63,6 +66,9 @@ type Server struct {
 	cfg  atomic.Pointer[config.Config]
 	log  *slog.Logger
 	now  func() time.Time
+	// writeTimeout bounds one frame write to a privileged connection (writeFrameTimeout when the
+	// caller set none).
+	writeTimeout time.Duration
 
 	store *state.Store
 
@@ -112,16 +118,21 @@ func New(cfg *config.Config, opts Options) (*Server, error) {
 		logger.Warn("the used list is kept in memory only; after the privileged mode restarts, " +
 			"a one-shot authorization can run again until its deadline")
 	}
+	writeTimeout := opts.WriteTimeout
+	if writeTimeout <= 0 {
+		writeTimeout = writeFrameTimeout
+	}
 	s := &Server{
-		opts:      opts,
-		log:       logger,
-		now:       now,
-		store:     store,
-		conns:     make(map[*conn]struct{}),
-		forwards:  make(map[*conn]struct{}),
-		tasks:     make(map[*taskrun.Task]struct{}),
-		idle:      make(chan struct{}),
-		approvals: make(map[approvalKey]*approval),
+		opts:         opts,
+		log:          logger,
+		now:          now,
+		writeTimeout: writeTimeout,
+		store:        store,
+		conns:        make(map[*conn]struct{}),
+		forwards:     make(map[*conn]struct{}),
+		tasks:        make(map[*taskrun.Task]struct{}),
+		idle:         make(chan struct{}),
+		approvals:    make(map[approvalKey]*approval),
 	}
 	close(s.idle)
 	s.cfg.Store(cfg)
@@ -398,13 +409,10 @@ func (s *Server) reload() {
 	}
 	report := protocol.TrustReport{Kind: protocol.TrustReportOK, Summary: summary}
 	for _, c := range s.forwardConns() {
-		peer := c.currentPeer()
-		if peer == nil {
-			continue
-		}
-		if err := peer.Emit(protocol.EventTrustSummary, report); err != nil {
-			s.log.Warn("push trust.summary", "err", err)
-		}
+		// Queue the push instead of writing it here: a peer that stopped reading must not keep
+		// the Run loop (and SIGTERM handling) behind its socket buffer. A timed-out write closes
+		// that connection (doc/privilege.md 特权模式).
+		c.enqueue(protocol.EventTrustSummary, report)
 	}
 }
 

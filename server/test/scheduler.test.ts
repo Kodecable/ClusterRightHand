@@ -1156,6 +1156,70 @@ it("stops the running instance and unlinks the sessions when the schedule is del
 	expect(audited).toHaveLength(1);
 });
 
+it("serializes deletion with an in-flight submit instead of leaving an inheriting session behind", async () => {
+	const owner = await newOwner("owner-delete-submit");
+	const schedule = await makeSchedule(owner, { rulePreset: "ask" });
+	faux.setResponses([fauxAssistantMessage([fauxText("submitted")])]);
+	await startAt("2026-01-05T09:01:00.000Z");
+
+	// Pause the submit after it passed its schedule check and before it inserts its session. Without the queue,
+	// removal would delete the schedule in this window, then the session would appear unlinked with an inherit-only
+	// rule set whose parent root no longer exists.
+	let reached!: () => void;
+	const inSubmit = new Promise<void>((resolve) => {
+		reached = resolve;
+	});
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const original = runtime.createScheduledSession.bind(runtime);
+	const create = vi.spyOn(runtime, "createScheduledSession").mockImplementation(async (user, input) => {
+		reached();
+		await gate;
+		return original(user, input);
+	});
+	try {
+		const running = scheduler.runNow(schedule.id, owner);
+		await inSubmit;
+
+		let removed = false;
+		const removing = scheduler.remove(schedule.id).then(() => {
+			removed = true;
+		});
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		// Removal waits for the submit's queue turn; it must not delete the schedule while the session insert is
+		// about to happen.
+		expect(removed).toBe(false);
+		expect(await getSchedule(db, schedule.id)).toBeDefined();
+
+		release();
+		const run = await running;
+		await removing;
+		const sessionId = derivedId(`schedule-run:${run.id}`);
+		expect(await getSchedule(db, schedule.id)).toBeUndefined();
+		expect(await runOf(run.id)).toBeUndefined();
+		await waitFor("the deleted schedule's session to become idle", async () => {
+			const row = await sessionRow(sessionId);
+			return row.state === "idle" ? true : undefined;
+		});
+		const session = await sessionRow(sessionId);
+		expect(session.schedule_id).toBeNull();
+		// The promoted rule set is a root: no chain with an `inherit` root remains.
+		const rules = await db
+			.selectFrom("rule_sets")
+			.selectAll()
+			.where("scope_type", "=", "session")
+			.where("scope_id", "=", sessionId)
+			.executeTakeFirstOrThrow();
+		expect(rules.rule_preset).toBe("ask");
+		expect(rules.default_action).not.toBe("inherit");
+	} finally {
+		release();
+		create.mockRestore();
+	}
+});
+
 it("disables a disabled owner's schedules", async () => {
 	const owner = await newOwner("owner-disabled");
 	const admin = await newOwner("admin-disable", "admin");

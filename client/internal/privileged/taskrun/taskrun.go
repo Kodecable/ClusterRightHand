@@ -75,7 +75,8 @@ type Task struct {
 	inputErr *protocol.Error
 	finished bool
 
-	startOnce sync.Once
+	startOnce   sync.Once
+	discardOnce sync.Once
 }
 
 // Validate checks the parts of task.start that are neither schema nor authorization: a
@@ -218,6 +219,19 @@ func New(ts protocol.TaskStart, emit Emit, env *execenv.Environment, spoolRoot s
 		}
 	}
 	return t, nil
+}
+
+// Discard releases a prepared task that will not run: it cancels the task and closes and
+// removes its staged stdin. Call it only before Start; it is idempotent.
+func (t *Task) Discard() {
+	t.discardOnce.Do(func() {
+		t.abort()
+		if t.spool == nil {
+			return
+		}
+		_ = t.spool.Close()
+		_ = os.Remove(t.spoolPath)
+	})
 }
 
 // ID returns the task id.

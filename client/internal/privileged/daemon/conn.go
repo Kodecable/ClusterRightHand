@@ -25,6 +25,26 @@ import (
 // shutdown.
 const handshakeTimeout = 10 * time.Second
 
+const (
+	// writeFrameTimeout bounds one frame write to a privileged connection. A peer that stops
+	// reading must not block a caller (or the daemon's Run loop) forever; a write that exceeds
+	// it closes the connection because the stream cannot be resumed in the middle of a frame.
+	writeFrameTimeout = 10 * time.Second
+	// maxForwardConns caps the forward connections that receive trust.summary and local.decision.
+	// Forward connections are the unprivileged peer's; refusing beyond the cap keeps one process
+	// from adding connections without limit (doc/privilege.md 特权模式).
+	maxForwardConns = 8
+	// forwardOutboxSize buffers the events queued for one forward connection. Enqueuing never
+	// waits for the peer; the writer drains the queue on its own goroutine.
+	forwardOutboxSize = 64
+)
+
+// outbound is one event queued for a connection's writer.
+type outbound struct {
+	name string
+	body any
+}
+
 // conn is one accepted unix-socket connection and the role it negotiated.
 type conn struct {
 	s    *Server
@@ -41,6 +61,11 @@ type conn struct {
 	peer    *protocol.Peer
 	session *taskrun.Session
 	closed  bool
+	// done is closed by close so a queued writer stops even before the socket is torn down.
+	done chan struct{}
+	// outbox holds trust.summary and local.decision events for this connection. Their order is
+	// kept, and a slow peer only delays its own goroutine, never pushLocalDecision or reload.
+	outbox chan outbound
 
 	closeOnce sync.Once
 }
@@ -53,7 +78,7 @@ func (s *Server) serveConn(nc net.Conn) {
 		_ = nc.Close()
 		return
 	}
-	c := &conn{s: s, nc: nc}
+	c := &conn{s: s, nc: nc, outbox: make(chan outbound, forwardOutboxSize)}
 	s.registerConn(c)
 	defer s.unregisterConn(c)
 
@@ -85,6 +110,17 @@ func (s *Server) serveConn(nc net.Conn) {
 	hello, negotiated, err := wire.ServerHandshake(nc, nc, wire.ServerOptions{
 		Roles:       roles,
 		CRHAVersion: s.opts.Version,
+		// Reserve the forward slot before the welcome: a peer over the cap must fail the
+		// handshake, and the slot is released by unregisterConn if the handshake still fails.
+		BeforeWelcome: func(hello *wire.PrivHello) error {
+			if hello.Role != wire.RoleForward {
+				return nil
+			}
+			if !s.addForward(c) {
+				return fmt.Errorf("too many forward connections (max %d)", maxForwardConns)
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		s.log.Warn("crh-priv handshake failed", "uid", uid, "err", err)
@@ -93,7 +129,9 @@ func (s *Server) serveConn(nc net.Conn) {
 	}
 	_ = nc.SetDeadline(time.Time{})
 	c.role = hello.Role
-	c.stream = wire.NewStreamFor(nc, nc, negotiated, hello.Role)
+	// Every frame write gets its own deadline. A timed-out write closes the socket, so a peer
+	// that never reads cannot keep a write (or Close behind it) blocked.
+	c.stream = wire.NewStreamFor(nc, writeDeadlineWriter{conn: nc, timeout: s.writeTimeout}, negotiated, hello.Role)
 	peer := c.stream.Peer()
 	session := taskrun.NewSession(peer, taskrun.SessionOptions{
 		Env:       s.opts.Env,
@@ -105,7 +143,13 @@ func (s *Server) serveConn(nc net.Conn) {
 		return
 	}
 	if hello.Role == wire.RoleForward {
-		s.addForward(c)
+		// The slot was reserved before the welcome; this is idempotent and also covers a caller
+		// that did not run BeforeWelcome.
+		if !s.addForward(c) {
+			c.close()
+			return
+		}
+		go c.drainOutbox()
 	}
 	c.registerHandlers()
 
@@ -157,9 +201,16 @@ func (c *conn) close() {
 		c.mu.Lock()
 		c.closed = true
 		peer := c.peer
+		done := c.done
+		if done == nil {
+			done = make(chan struct{})
+			c.done = done
+		}
 		c.mu.Unlock()
+		close(done)
 		// Close the socket first: Peer.Close waits for an in-flight frame write, and a peer
-		// that stopped reading must not hold the connection or daemon shutdown open.
+		// that stopped reading must not hold the connection or daemon shutdown open. The write
+		// deadline above makes that write fail even if the peer keeps the connection open.
 		_ = c.nc.Close()
 		if peer != nil {
 			peer.Close(errors.New("connection closed"))
@@ -167,11 +218,102 @@ func (c *conn) close() {
 	})
 }
 
-// addForward adds c to the set of connections that receive trust.summary and local.decision.
-func (s *Server) addForward(c *conn) {
+// doneSignal returns the connection's done channel, creating it for a conn built without the
+// serveConn constructor (tests).
+func (c *conn) doneSignal() chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.done == nil {
+		c.done = make(chan struct{})
+	}
+	return c.done
+}
+
+// addForward adds c to the set of connections that receive trust.summary and local.decision. It
+// reports false when maxForwardConns connections are already registered; an existing c is
+// idempotent.
+func (s *Server) addForward(c *conn) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, ok := s.forwards[c]; ok {
+		return true
+	}
+	if len(s.forwards) >= maxForwardConns {
+		return false
+	}
 	s.forwards[c] = struct{}{}
+	return true
+}
+
+// enqueue queues one event for c without waiting for the peer. A full queue drops the event: a
+// connection that cannot keep up with 64 events while its writes are deadline-bounded is being
+// closed by the writer anyway, and blocking here would put the slowness back on the caller.
+func (c *conn) enqueue(name string, body any) {
+	c.mu.Lock()
+	if c.closed || c.outbox == nil {
+		c.mu.Unlock()
+		return
+	}
+	done := c.done
+	if done == nil {
+		done = make(chan struct{})
+		c.done = done
+	}
+	c.mu.Unlock()
+	select {
+	case c.outbox <- outbound{name: name, body: body}:
+	case <-done:
+	default:
+		if c.s != nil {
+			c.s.log.Warn("dropping a crh-priv event for a connection whose queue is full", "event", name)
+		}
+	}
+}
+
+// drainOutbox writes queued events in order. Only a forward connection has one; a failed write
+// usually means the writer closed the socket on its deadline, so the connection is torn down.
+func (c *conn) drainOutbox() {
+	done := c.doneSignal()
+	for {
+		select {
+		case msg := <-c.outbox:
+			peer := c.currentPeer()
+			if peer == nil {
+				continue
+			}
+			if err := peer.Emit(msg.name, msg.body); err != nil {
+				if c.s != nil {
+					c.s.log.Debug("push a crh-priv event failed", "event", msg.name, "err", err)
+				}
+				c.close()
+				return
+			}
+		case <-done:
+			return
+		}
+	}
+}
+
+// writeDeadlineWriter gives every write to one connection a fresh deadline. A timed-out write
+// closes the socket: WriteFrame may already have sent part of a frame, so the stream cannot be
+// resumed, and closing also releases Peer.Close waiting on the peer's send lock.
+type writeDeadlineWriter struct {
+	conn    net.Conn
+	timeout time.Duration
+}
+
+func (w writeDeadlineWriter) Write(p []byte) (int, error) {
+	if err := w.conn.SetWriteDeadline(time.Now().Add(w.timeout)); err != nil {
+		return 0, err
+	}
+	n, err := w.conn.Write(p)
+	if err != nil {
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			_ = w.conn.Close()
+		}
+	}
+	return n, err
 }
 
 // registerHandlers installs the role's crh-priv command handlers.
@@ -208,8 +350,10 @@ func (c *conn) launchAccepted() {
 	session.LaunchAll()
 }
 
-// handleTaskStart verifies an authorization, persists the used records, logs the acceptance
-// and starts the task after the success response (doc/privilege.md 校验流程 steps 2–10).
+// handleTaskStart verifies an authorization, prepares the task's staging, persists the used
+// records, logs the acceptance and starts the task after the success response (doc/privilege.md
+// 校验流程 steps 2–10). Staging is prepared before AddUsed: a refusal with input_too_large must
+// not burn the task id, so the same id can be retried (doc/privilege.md 校验流程).
 func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, error) {
 	var ts protocol.TaskStart
 	if err := protocol.UnmarshalBody(raw, &ts); err != nil {
@@ -220,6 +364,29 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 		c.s.logRefusal(&ts, refused)
 		return nil, refused.remote()
 	}
+
+	session := c.currentSession()
+	runStart := executionStart(&ts, decided)
+	task, err := session.Prepare(runStart)
+	if err != nil {
+		var remote *protocol.RemoteError
+		if errors.As(err, &remote) {
+			// A resource refusal (input_too_large) keeps its protocol code and writes no used
+			// record; the caller can retry this task id with a smaller input.
+			c.s.logRefusal(&ts, &refusal{code: remote.Code, message: remote.Message})
+			return nil, remote
+		}
+		c.s.log.Error("prepare a task", "task", ts.TaskID, "err", err)
+		return nil, &protocol.RemoteError{Code: protocol.CodeInternalError, Message: err.Error()}
+	}
+	// Any failure before the task joins the session releases its staging: the task id stays
+	// unused (or, for a log failure after AddUsed, no spool file is left behind).
+	accepted := false
+	defer func() {
+		if !accepted {
+			task.Discard()
+		}
+	}()
 
 	now := c.s.now()
 	record := state.Record{
@@ -247,7 +414,6 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 		return nil, &protocol.RemoteError{Code: protocol.CodeInternalError, Message: "persist used record: " + err.Error()}
 	}
 
-	runStart := executionStart(&ts, decided)
 	entry := decided.decision.Entry
 	authID := ""
 	if decided.authorization != nil {
@@ -268,12 +434,8 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 		return nil, &protocol.RemoteError{Code: protocol.CodeInternalError, Message: "local log: " + err.Error()}
 	}
 
-	session := c.currentSession()
-	task, err := session.Accept(runStart)
-	if err != nil {
-		c.s.log.Error("prepare an accepted task", "task", ts.TaskID, "err", err)
-		return nil, &protocol.RemoteError{Code: protocol.CodeInternalError, Message: err.Error()}
-	}
+	session.Add(task)
+	accepted = true
 	c.s.registerTask(task)
 	if decided.approval != nil {
 		c.s.consumeApproval(approvalKey{taskID: ts.TaskID, attempt: uint64(ts.Attempt)})

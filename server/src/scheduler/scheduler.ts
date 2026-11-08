@@ -8,6 +8,7 @@ import type { Database } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { errorText, isUniqueViolation } from "../util/errors.ts";
 import { derivedId, newId } from "../util/id.ts";
+import { KeyedQueue } from "../util/keyed-queue.ts";
 import {
 	deleteSchedule as deleteStoredSchedule,
 	disableSchedulesOfOwner,
@@ -99,6 +100,12 @@ export class Scheduler {
 	#again = false;
 	/** Runs already being submitted by this process; the derived id makes a retried submit harmless anyway. */
 	#submitting = new Set<string>();
+	/**
+	 * Serializes a schedule's removal with its submission. A submit checks the schedule's existence and creates
+	 * its session inside this turn, so a removal cannot delete the schedule between that check and the insert; the
+	 * removal then stops the run the submit created instead of leaving an unlinked, inheriting session behind.
+	 */
+	#scheduleQueue = new KeyedQueue("schedule queue");
 	#watchers = new Set<Promise<void>>();
 	/** Aborts in-flight run watchers on stop; recreated so a stopped scheduler can be started again. */
 	#lifecycle = new AbortController();
@@ -197,15 +204,23 @@ export class Scheduler {
 	/**
 	 * Deletes a schedule (doc/scheduling.md#生命周期): stop the running instance with the session's normal stop
 	 * path, then remove the schedule, its runs and the sessions' link (`DELETE /api/schedules/:id`).
+	 *
+	 * The removal runs in the schedule's queue turn, so a submit that already claimed a run finishes first: its
+	 * session exists by the time the stop runs, and the deletion cannot race the session's insert.
 	 */
 	async remove(scheduleId: string): Promise<void> {
 		const schedule = await getSchedule(this.#db, scheduleId);
 		if (!schedule) throw new NotFoundError("no such schedule");
-		await this.#stopRunning(schedule);
-		const sessions = await deleteStoredSchedule(this.#db, schedule);
-		this.#failures.delete(scheduleId);
-		// The sessions lost their schedule link, which the list shows; publish the new items.
-		for (const sessionId of sessions) this.#runtime.sessionList.publishSession(sessionId);
+		await this.#scheduleQueue.run(scheduleId, async () => {
+			// Includes claimed runs: a submit that got as far as `started_at` is serialized before this turn, so
+			// its session is visible to #stopRunning now. A claimed run left by a crash has no session and is
+			// deleted with the rest.
+			await this.#stopRunning(schedule);
+			const sessions = await deleteStoredSchedule(this.#db, schedule);
+			this.#failures.delete(scheduleId);
+			// The sessions lost their schedule link, which the list shows; publish the new items.
+			for (const sessionId of sessions) this.#runtime.sessionList.publishSession(sessionId);
+		});
 	}
 
 	async #stopRunning(schedule: Schedule): Promise<void> {
@@ -564,57 +579,64 @@ export class Scheduler {
 	async #submitRun(runId: string): Promise<void> {
 		const run = await getRun(this.#db, runId);
 		if (run?.status !== "pending") return;
-		// The claim is `started_at`, not the status: the run stays `pending` until its session is submitted, and
-		// preemption must still count it as an instance (doc/scheduling.md#同时只有一个实例). A claimed run left by
-		// a crash is claimed again here; the derived session id and request id make the resubmit harmless.
-		const claimed = await this.#db
-			.updateTable("schedule_runs")
-			.set({ started_at: this.#now().toISOString() })
-			.where("id", "=", runId)
-			.where("status", "=", "pending")
-			.executeTakeFirst();
-		if (claimed.numUpdatedRows === 0n) return;
-		const schedule = await getSchedule(this.#db, run.scheduleId);
-		if (!schedule) return;
-		const owner = await this.#ownerUser(schedule.ownerUserId);
-		if (!owner) {
-			await this.#fail(schedule, run.id, "the schedule's owner is disabled");
-			return;
-		}
-		// One instance at a time: the previous run is stopped before the new session exists (doc/scheduling.md).
-		await this.#preemptPrevious(schedule, run.id);
-		const sessionId = derivedId(`schedule-run:${run.id}`);
-		let submissionId: string;
-		try {
-			await this.#runtime.createScheduledSession(owner, {
-				id: sessionId,
-				title: schedule.name,
-				model: schedule.model,
-				budgetRemaining: schedule.tokenBudget,
-				scheduleId: schedule.id,
+		await this.#scheduleQueue.run(run.scheduleId, async () => {
+			// A removal may have deleted the run while this turn waited for the schedule's queue.
+			const current = await getRun(this.#db, runId);
+			if (current?.status !== "pending") return;
+			// The claim is `started_at`, not the status: the run stays `pending` until its session is submitted, and
+			// preemption must still count it as an instance (doc/scheduling.md#同时只有一个实例). A claimed run left by
+			// a crash is claimed again here; the derived session id and request id make the resubmit harmless.
+			const claimed = await this.#db
+				.updateTable("schedule_runs")
+				.set({ started_at: this.#now().toISOString() })
+				.where("id", "=", runId)
+				.where("status", "=", "pending")
+				.executeTakeFirst();
+			if (claimed.numUpdatedRows === 0n) return;
+			// Re-check the schedule inside the serialization, before the session exists: a removal that ran first
+			// deleted the run above, and one that runs later waits for this turn and stops the session it creates.
+			const schedule = await getSchedule(this.#db, current.scheduleId);
+			if (!schedule) return;
+			const owner = await this.#ownerUser(schedule.ownerUserId);
+			if (!owner) {
+				await this.#fail(schedule, current.id, "the schedule's owner is disabled");
+				return;
+			}
+			// One instance at a time: the previous run is stopped before the new session exists (doc/scheduling.md).
+			await this.#preemptPrevious(schedule, current.id);
+			const sessionId = derivedId(`schedule-run:${current.id}`);
+			let submissionId: string;
+			try {
+				await this.#runtime.createScheduledSession(owner, {
+					id: sessionId,
+					title: schedule.name,
+					model: schedule.model,
+					budgetRemaining: schedule.tokenBudget,
+					scheduleId: schedule.id,
+				});
+				submissionId = await this.#runtime.submitAsSchedule(
+					sessionId,
+					schedule.id,
+					schedule.prompt,
+					this.#requestId(schedule.id, current.fireTime),
+				);
+			} catch (err) {
+				await this.#fail(schedule, current.id, errorText(err), sessionId);
+				return;
+			}
+			const res = await this.#db
+				.updateTable("schedule_runs")
+				.set({ status: "running", session_id: sessionId, started_at: this.#now().toISOString() })
+				.where("id", "=", current.id)
+				.where("status", "=", "pending")
+				.executeTakeFirst();
+			if (res.numUpdatedRows === 0n) return;
+			await this.#record(scheduleActor(schedule), "schedule.run_started", schedule, {
+				run_id: current.id,
+				session_id: sessionId,
 			});
-			submissionId = await this.#runtime.submitAsSchedule(
-				sessionId,
-				schedule.id,
-				schedule.prompt,
-				this.#requestId(schedule.id, run.fireTime),
-			);
-		} catch (err) {
-			await this.#fail(schedule, run.id, errorText(err), sessionId);
-			return;
-		}
-		const res = await this.#db
-			.updateTable("schedule_runs")
-			.set({ status: "running", session_id: sessionId, started_at: this.#now().toISOString() })
-			.where("id", "=", run.id)
-			.where("status", "=", "pending")
-			.executeTakeFirst();
-		if (res.numUpdatedRows === 0n) return;
-		await this.#record(scheduleActor(schedule), "schedule.run_started", schedule, {
-			run_id: run.id,
-			session_id: sessionId,
+			this.#watchRun(current.id, sessionId, submissionId);
 		});
-		this.#watchRun(run.id, sessionId, submissionId);
 	}
 
 	/** Stops the schedule's other running runs and marks them `preempted` (doc/scheduling.md#同时只有一个实例). */

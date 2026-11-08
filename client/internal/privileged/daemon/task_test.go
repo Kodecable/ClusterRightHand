@@ -142,6 +142,45 @@ func TestExpiredRefused(t *testing.T) {
 	}
 }
 
+// TestStagingFailureKeepsTaskIDUnused covers a resource refusal before the used record: a task
+// whose declared stdin cannot be staged is refused with input_too_large, writes no used record
+// and can be retried with the same task id (doc/privilege.md 校验流程).
+func TestStagingFailureKeepsTaskIDUnused(t *testing.T) {
+	keys := newTestKeys(t)
+	env := crhsOnlyEnv(t, keys)
+	client := dialForward(t, env.paths.Socket)
+	ctx := requestContext(t)
+
+	huge := execTask("staging-1", 1, "/bin/true")
+	huge.Spec.Exec.Stdin = &protocol.InputRef{Size: protocol.Uint(1<<53 - 1), SHA256: protocol.Hash{}}
+	payload := payloadFor("staging-1", 1, exactCommand(t, &huge.Spec), nil)
+	huge.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
+	remote := expectRemoteCode(t, client.start(ctx, huge), protocol.CodeInputTooLarge)
+	if remote.Message == "" {
+		t.Fatal("the staging refusal has no message")
+	}
+	refused := waitLogRecord(t, env.paths.Log, "task.refused", "staging-1", 5*time.Second)
+	if refused["code"] != protocol.CodeInputTooLarge {
+		t.Fatalf("task.refused record = %v", refused)
+	}
+
+	// The id was not used: a retry with a higher attempt starts a normal task instead of
+	// being refused as already_accepted.
+	retry := execTask("staging-1", 2, "/bin/echo", "retried")
+	payload = payloadFor("staging-1", 2, exactCommand(t, &retry.Spec), nil)
+	retry.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
+	if err := client.start(ctx, retry); err != nil {
+		t.Fatalf("retry task.start: %v", err)
+	}
+	exit := client.waitExit(15 * time.Second)
+	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
+		t.Fatalf("retry task.exit = %+v", exit)
+	}
+	if got := client.output(); got != "retried\n" {
+		t.Fatalf("retry stdout = %q", got)
+	}
+}
+
 func TestWrongAttemptRefused(t *testing.T) {
 	keys := newTestKeys(t)
 	env := crhsOnlyEnv(t, keys)

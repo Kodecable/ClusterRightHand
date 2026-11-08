@@ -269,14 +269,18 @@ export async function updateSchedule(
  * null). The rule set stays, like an API token's, so the chains of past tasks keep resolving; each session a run
  * created is promoted to a root with the schedule's rule preset first (its own rule set was an inherit-only level).
  * Returns the sessions that lost their schedule, so the caller can publish the change to the session list.
+ *
+ * The select, the promotions and the deletions share one transaction: a session inserted between a separate select
+ * and the link update would keep an inherit-only rule set with no root above it, and every evaluation of its chain
+ * would throw. The caller also serializes this with the schedule's submit, so no new session is in flight here.
  */
 export async function deleteSchedule(db: Db, schedule: Schedule): Promise<string[]> {
-	const rules = await getRuleSet(db, { type: "schedule", id: schedule.id });
-	const sessions = await db.selectFrom("sessions").select("id").where("schedule_id", "=", schedule.id).execute();
-	for (const session of sessions) {
-		await promoteSessionRuleSet(db, schedule.orgId, session.id, rules?.rulePreset ?? "ask", rules?.rules ?? []);
-	}
-	await db.transaction().execute(async (trx) => {
+	return await db.transaction().execute(async (trx) => {
+		const rules = await getRuleSet(trx, { type: "schedule", id: schedule.id });
+		const sessions = await trx.selectFrom("sessions").select("id").where("schedule_id", "=", schedule.id).execute();
+		for (const session of sessions) {
+			await promoteSessionRuleSet(trx, schedule.orgId, session.id, rules?.rulePreset ?? "ask", rules?.rules ?? []);
+		}
 		await trx.deleteFrom("schedule_runs").where("schedule_id", "=", schedule.id).execute();
 		await trx
 			.updateTable("sessions")
@@ -284,8 +288,8 @@ export async function deleteSchedule(db: Db, schedule: Schedule): Promise<string
 			.where("schedule_id", "=", schedule.id)
 			.execute();
 		await trx.deleteFrom("schedules").where("id", "=", schedule.id).execute();
+		return sessions.map((session) => session.id);
 	});
-	return sessions.map((session) => session.id);
 }
 
 /** Replaces a scheduled session's rule set with a root-level one that keeps the schedule's policy. */
@@ -296,10 +300,8 @@ async function promoteSessionRuleSet(
 	rulePreset: RulePreset,
 	rules: Rule[],
 ): Promise<void> {
-	await db.transaction().execute(async (trx) => {
-		await trx.deleteFrom("rule_sets").where("scope_type", "=", "session").where("scope_id", "=", sessionId).execute();
-		await createRootRuleSet(trx, orgId, { type: "session", id: sessionId }, rulePreset, rules);
-	});
+	await db.deleteFrom("rule_sets").where("scope_type", "=", "session").where("scope_id", "=", sessionId).execute();
+	await createRootRuleSet(db, orgId, { type: "session", id: sessionId }, rulePreset, rules);
 }
 
 export async function getRun(db: Db, id: string): Promise<ScheduleRun | undefined> {

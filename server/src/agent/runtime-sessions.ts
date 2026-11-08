@@ -1,6 +1,7 @@
 import type { SessionEntriesPage } from "@crh/api";
 import { withAbortSignal } from "@earendil-works/chord/context";
 import {
+	type AgentEvent,
 	type Conversation,
 	type ConversationId,
 	type Cursor,
@@ -36,9 +37,32 @@ import { markSessionsIdle } from "./session-state.ts";
 /** Entries a snapshot carries; older ones are paged through `GET /api/sessions/:id/entries`. */
 const SNAPSHOT_ENTRIES = 100;
 
+/** Whether a pi message is shown in the chat; the system prompt and tool schemas are not. */
+function isShownMessage(message: { readonly role?: string }): boolean {
+	return message.role !== "system";
+}
+
 /** System messages (the prompt and tool schemas) are not shown in the chat; neither is the entry that holds them. */
 function isShownEntry(entry: { readonly model?: readonly { readonly role?: string }[] }): boolean {
-	return !(entry.model ?? []).some((message) => message.role === "system");
+	return (entry.model ?? []).every(isShownMessage);
+}
+
+/**
+ * Whether a live pi event may reach the WebUI. The snapshot drops unseen entries; a live event that carries a
+ * message or a full entry must apply the same rule here, or the system prompt would leak onto the live path only.
+ */
+function isShownEvent(event: AgentEvent): boolean {
+	switch (event.type) {
+		case "message_start":
+			return isShownMessage(event.message);
+		case "message_end":
+		case "entry_appended":
+			return isShownEntry(event.entry);
+		case "tool_execution_end":
+			return event.entry === undefined || isShownEntry(event.entry);
+		default:
+			return true;
+	}
 }
 
 export async function createSession(
@@ -484,9 +508,10 @@ export async function watch(
 	// The client may have gone while the snapshot was being sent; starting the watch then would throw.
 	if (signal?.aborted) return () => stream.stop();
 	stream.start(async (events) => {
-		// The system prompt and tool schemas come as system messages: large, and nothing a chat UI shows.
+		// The system prompt and tool schemas come as system messages: large, and nothing a chat UI shows. The
+		// snapshot path filters them out; the live path must not reintroduce them through message_end.
 		const converted = events
-			.filter((event) => event.type !== "message_start" || event.message.role !== "system")
+			.filter(isShownEvent)
 			.map(toSessionEvent)
 			.filter((event): event is SessionEvent => event !== null);
 		if (converted.length > 0) await onEvents(converted);

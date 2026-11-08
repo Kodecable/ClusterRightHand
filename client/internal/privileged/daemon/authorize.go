@@ -412,16 +412,12 @@ func (s *Server) pendingEntries() []protocol.PendingEntry {
 	return out
 }
 
-// pushLocalDecision tells every forward connection about a decision.
+// pushLocalDecision tells every forward connection about a decision. The enqueue is non-blocking:
+// the deciding local command must not wait for a forward peer that stopped reading (its write
+// times out and closes that connection; doc/privilege.md 本地批准).
 func (s *Server) pushLocalDecision(decision protocol.LocalDecision) {
 	for _, c := range s.forwardConns() {
-		peer := c.currentPeer()
-		if peer == nil {
-			continue
-		}
-		if err := peer.Emit(protocol.EventLocalDecision, decision); err != nil {
-			s.log.Debug("local.decision was not delivered", "task", decision.TaskID, "err", err)
-		}
+		c.enqueue(protocol.EventLocalDecision, decision)
 	}
 }
 

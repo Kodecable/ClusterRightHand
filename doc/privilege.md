@@ -83,6 +83,8 @@ crha 特权模式（不联网）
 
 非特权模式把特权任务连同授权原样转给特权模式；特权模式校验后执行，并把输出经 socket 回传给非特权模式。
 
+特权模式最多接受 8 个 `forward` 连接；握手时超过上限的连接被拒绝并关闭。每个连接上的每帧写入有 10 秒期限：对端不读时该帧写入超时，连接被关闭。`trust.summary` 和 `local.decision` 按连接排队、由该连接自己的写 goroutine 发送，所以 `crha approve` 和 SIGHUP reload 不会因为某个不读的连接而卡住，reload 也不会因此让 Run 循环忽略 SIGTERM。
+
 **修改信任配置本身就是特权任务**（对 `privileged.toml` 的 `file.write`，然后向特权模式进程发 SIGHUP；该文件的路径由配置给出），需要现有信任项授权。crhs 无法绕过授权修改它。建议 crhs 信任项默认 deny `file.write /etc/crha/`，让信任配置只能由用户授权修改，或者在节点上本地修改。
 
 ## 方法与目标

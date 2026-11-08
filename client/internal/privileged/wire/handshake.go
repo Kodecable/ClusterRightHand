@@ -48,6 +48,12 @@ type ServerOptions struct {
 	// CRHAVersion is this build's version. For the native role the peer's version must equal it
 	// (doc/protocol.md: native 只在 stdio 上出现，此时要求 crha_version 完全相等).
 	CRHAVersion string
+	// BeforeWelcome runs after the hello is accepted and before the welcome is written. An
+	// error refuses the handshake without a welcome, so the peer sees a closed connection and a
+	// local resource limit (for example the daemon's forward-connection cap) can be enforced
+	// while the peer still expects the handshake. The daemon uses it to reserve the connection's
+	// forward slot atomically: a rejected handshake must not leave a counted connection.
+	BeforeWelcome func(*PrivHello) error
 }
 
 // allows reports whether the server accepts hello's role.
@@ -141,6 +147,11 @@ func ServerHandshake(r io.Reader, w io.Writer, opts ServerOptions) (*PrivHello, 
 	// priv_minor is not checked: it only adds optional names, negotiated by intersection.
 	if opts.Role == RoleNative && hello.CRHAVersion != opts.CRHAVersion {
 		return nil, nil, fmt.Errorf("crh-priv: peer crha version %q, want %q", hello.CRHAVersion, opts.CRHAVersion)
+	}
+	if opts.BeforeWelcome != nil {
+		if err := opts.BeforeWelcome(&hello); err != nil {
+			return nil, nil, fmt.Errorf("crh-priv: refusing the %q role: %w", hello.Role, err)
+		}
 	}
 	negotiated, err := negotiate(hello.Role, hello.Commands)
 	if err != nil {

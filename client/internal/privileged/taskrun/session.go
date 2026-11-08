@@ -63,16 +63,29 @@ func (s *Session) HandleRequests() {
 	s.peer.HandleRequest(protocol.CmdTaskQuery, s.handleQuery)
 }
 
+// Prepare creates a task and its staging without adding it to the session. Its output goes out as
+// task.output events. A caller that must persist something before accepting the task (the daemon's
+// used record) prepares first and adds it only after that succeeded, so a resource failure cannot
+// burn a one-shot authorization; a task that is not added is released with Task.Discard.
+func (s *Session) Prepare(ts protocol.TaskStart) (*Task, error) {
+	return New(ts, s.outputEmitter(ts.TaskID), s.opts.Env, s.opts.SpoolRoot)
+}
+
+// Add adds a prepared task to the session. The task does not run until Launch.
+func (s *Session) Add(t *Task) {
+	s.mu.Lock()
+	s.tasks[t.ID()] = t
+	s.mu.Unlock()
+}
+
 // Accept prepares an accepted task with New and adds it to the session. Its output goes out as
 // task.output events. The task does not run until Launch.
 func (s *Session) Accept(ts protocol.TaskStart) (*Task, error) {
-	t, err := New(ts, s.outputEmitter(ts.TaskID), s.opts.Env, s.opts.SpoolRoot)
+	t, err := s.Prepare(ts)
 	if err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
-	s.tasks[ts.TaskID] = t
-	s.mu.Unlock()
+	s.Add(t)
 	return t, nil
 }
 

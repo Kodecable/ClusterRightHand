@@ -79,6 +79,8 @@ type testEnv struct {
 	cfg    *config.Config
 	log    *audit.Logger
 	server *Server
+	// writeTimeout overrides Options.WriteTimeout for the next start (tests only).
+	writeTimeout time.Duration
 
 	cancel context.CancelFunc
 	done   chan error
@@ -132,7 +134,12 @@ func (e *testEnv) start() {
 	if err != nil {
 		e.t.Fatalf("open log: %v", err)
 	}
-	server, err := New(cfg, Options{ConfigPath: e.paths.Config, Version: "test", Log: log})
+	server, err := New(cfg, Options{
+		ConfigPath:   e.paths.Config,
+		Version:      "test",
+		Log:          log,
+		WriteTimeout: e.writeTimeout,
+	})
 	if err != nil {
 		log.Close()
 		e.t.Fatalf("New: %v", err)
@@ -381,6 +388,24 @@ type forwardClient struct {
 	summaries chan protocol.TrustReport
 	decisions chan protocol.LocalDecision
 	done      chan struct{}
+}
+
+// dialForwardNoRead completes a forward handshake and then stops reading, so the daemon's
+// writes fill the socket buffer. The connection is closed at the end of the test.
+func dialForwardNoRead(t *testing.T, socket string) net.Conn {
+	t.Helper()
+	conn, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatalf("dial %s: %v", socket, err)
+	}
+	if _, _, err := wire.ClientHandshake(conn, conn, wire.ClientOptions{
+		Role: wire.RoleForward, CRHAVersion: "test",
+	}); err != nil {
+		conn.Close()
+		t.Fatalf("handshake: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn
 }
 
 func dialForward(t *testing.T, socket string) *forwardClient {

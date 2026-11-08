@@ -402,3 +402,33 @@ it("streams wire-shaped events for a faux-model run: text, a tool call and a sna
 	if (resultEntry === undefined) throw new Error("no tool-result entry");
 	expect(resultEntry).not.toHaveProperty("conversationId");
 });
+
+it("never streams a system-role message_end on the live path", async () => {
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "live prompt" });
+	const events: SessionEvent[] = [];
+	const stop = await runtime.watch(session.id, (batch) => {
+		// The live path converts pi events directly; the snapshot carrying the system prompt is filtered separately.
+		events.push(...(JSON.parse(JSON.stringify(batch)) as SessionEvent[]));
+	});
+	try {
+		faux.setResponses([fauxAssistantMessage([fauxText("answered")])]);
+		const submission = await runtime.submit(session.id, owner, "hello", "live-system-prompt-1");
+		expect(await waitSubmission(runtime, session.id, submission)).toEqual({ status: "done", answer: "answered" });
+		// run_end is the last event of the run: every earlier live batch was delivered by now.
+		await vi.waitFor(() => expect(events.some((event) => event.type === "run_end")).toBe(true), { timeout: 5_000 });
+	} finally {
+		stop();
+	}
+
+	// Durable appends the prompt as a system entry; the live path must not turn that entry into a message_end.
+	const entries = events.flatMap((event) => {
+		if (event.type === "message_end" || event.type === "entry_appended") return [event.entry];
+		if (event.type === "tool_execution_end" && event.entry) return [event.entry];
+		return [];
+	});
+	expect(entries.length).toBeGreaterThan(0);
+	for (const entry of entries) {
+		expect((entry.model ?? []).some((message) => message.role === "system")).toBe(false);
+	}
+	expect(events.some((event) => event.type === "message_start" && event.message.role === "system")).toBe(false);
+});

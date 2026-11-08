@@ -62,6 +62,25 @@ func TestSpoolLivesBelowStateDir(t *testing.T) {
 	}
 }
 
+// TestDiscardRemovesPreparedStaging covers the cleanup a caller uses when it prepared a task but
+// then refused or failed before adding it to the session (for example the daemon's used-record
+// write). The task never runs, so Discard must release the staged file itself.
+func TestDiscardRemovesPreparedStaging(t *testing.T) {
+	root := t.TempDir()
+	sum := sha256.Sum256([]byte("abc"))
+	task, err := New(stdinStart(3, protocol.Hash(sum)), func(uint64, []byte) error { return nil }, nil, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := task.spoolPath
+	task.Discard()
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("staged stdin was not removed: %v", err)
+	}
+	// Discarding again is a no-op.
+	task.Discard()
+}
+
 // TestSpoolRefusesInputThatDoesNotFit covers the free-space rule: the declared size is checked
 // before the file is created, and a declaration larger than the filesystem fails with the input
 // error code instead of filling it.
