@@ -6,10 +6,11 @@ import { secretAad } from "../keys/export.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import type { ModelProvidersTable } from "../storage/schema.ts";
-import { defaultOrgId, NotFoundError, UserError } from "../users/service.ts";
+import { defaultOrgId } from "../users/service.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 import type { CustomModel, SessionIdConfig } from "./model-types.ts";
-import { type ModelProviderInput, validate } from "./model-validate.ts";
+import { type ModelProviderFields, validate } from "./model-validate.ts";
 
 export type { ModelProviderView };
 
@@ -64,7 +65,7 @@ export function normalizeBaseUrl(baseUrl: string | null): string | null {
 export async function saveModelProvider(
 	db: Db,
 	masterKey: MasterKey,
-	input: ModelProviderInput,
+	input: ModelProviderFields,
 ): Promise<ModelProviderView> {
 	const valid = validate(input);
 	const now = new Date().toISOString();

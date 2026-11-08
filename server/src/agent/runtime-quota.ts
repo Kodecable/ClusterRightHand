@@ -1,7 +1,7 @@
 import type { Context } from "@earendil-works/chord/context";
 import type { ConversationId } from "@earendil-works/pi-durable";
 import { ProviderDoc } from "@earendil-works/pi-durable";
-import { NotFoundError, UserError } from "../users/service.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { chargeCall, exhaustedLevel, grantQuota } from "./quota.ts";
 import type { RuntimeHost } from "./runtime-core.ts";
 import { refreshState } from "./runtime-state.ts";

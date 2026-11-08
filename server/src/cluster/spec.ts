@@ -5,8 +5,8 @@
 import { createHash } from "node:crypto";
 import { type InputRef, type TaskSpec, taskSpecFromJson } from "@crh/protocol";
 import { type Method, operationOf } from "../policy/rules.ts";
-import { UserError } from "../users/service.ts";
-import { shellQuote } from "./ssh/exec.ts";
+import { UserError } from "../util/errors.ts";
+import { shellQuote } from "../util/shell-quote.ts";
 
 /**
  * The ref of an empty input. file.write always carries one; callers set it and createTask overwrites it

@@ -9,22 +9,21 @@ import {
 	type SnapshotEvent as PiSnapshotEvent,
 	watchEvents,
 } from "@earendil-works/pi-durable";
-import { encodeCursor } from "../api/cursor.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import { ruleRefs } from "../policy/refs.ts";
 import type { RulePreset } from "../policy/rules.ts";
 import { createRootRuleSet, createRuleSet, deleteRuleSet, getRuleSet, setRulePreset } from "../policy/store.ts";
-import { defaultOrgId, UserError } from "../users/service.ts";
-import { isUniqueViolation } from "../util/errors.ts";
+import { defaultOrgId } from "../users/service.ts";
+import { encodeCursor } from "../util/cursor.ts";
+import { isUniqueViolation, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 import { type ModelRef, modelRefView, thinkingLevelOf } from "./models.ts";
 import { setQuota } from "./quota.ts";
 import type { RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runtime-core.ts";
 import { conversationOf, loadConversation } from "./runtime-core.ts";
 import { endSessionWork, refreshState } from "./runtime-state.ts";
-import { descendants } from "./runtime-subagents.ts";
 import { submit } from "./runtime-submissions.ts";
-import { type SessionRow, sessionChain } from "./session-chain.ts";
+import { type SessionRow, sessionChain, sessionDescendants } from "./session-chain.ts";
 import { toEntryRecord, toSessionEvent, toSnapshotEvent } from "./session-events.ts";
 import { markSessionsIdle } from "./session-state.ts";
 
@@ -459,7 +458,7 @@ export async function configure(
 /** Stops the current run: queued inputs are withdrawn and running tool calls aborted. */
 export async function abort(host: RuntimeHost, sessionId: string, by?: SessionUser): Promise<void> {
 	const { conversation } = await loadConversation(host, sessionId);
-	const sessions = [sessionId, ...(await descendants(host, sessionId))];
+	const sessions = [sessionId, ...(await sessionDescendants(host.db, sessionId))];
 	for (const id of sessions) host.sessionFlags.beginStop(id);
 	try {
 		await conversation.abort(host.context);

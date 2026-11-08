@@ -66,13 +66,6 @@ export function formatDateTime(value: DateInput, locale: string): string {
 	}).format(date);
 }
 
-/** A full date, e.g. "Oct 31, 2026". */
-export function formatDate(value: DateInput, locale: string): string {
-	const date = toDate(value);
-	if (!date) return "–";
-	return dateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" }).format(date);
-}
-
 /** Seconds precision, e.g. "Oct 31, 2026, 20:08:29". */
 export function formatDateTimeSeconds(value: DateInput, locale: string): string {
 	const date = toDate(value);

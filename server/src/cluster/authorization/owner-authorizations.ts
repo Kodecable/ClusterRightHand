@@ -28,7 +28,7 @@ import {
 	verifyAgainstTrust,
 } from "../../privilege/submission.ts";
 import type { TaskState as TaskRowState, TasksTable } from "../../storage/schema.ts";
-import { NotFoundError, UserError } from "../../users/service.ts";
+import { NotFoundError, UserError } from "../../util/errors.ts";
 import { parseTaskAuthorization, serializeTaskAuthorization, type TaskAuthorizationRecord } from "../authorization.ts";
 import { type ClusterCore, now } from "../core.ts";
 import type { NodeLink } from "../links.ts";
@@ -38,6 +38,7 @@ import { nodeGroupsForNodes } from "../node-groups.ts";
 import type { NodeRow } from "../nodes.ts";
 import { specFromRow } from "../spec.ts";
 import {
+	endIfNodeUnready,
 	groupEnded,
 	NODE_ACCESS_REVOKED,
 	NODE_ACCESS_REVOKED_MESSAGE,
@@ -531,9 +532,8 @@ async function judgeSubmitted(
 	// here instead of leaving it waiting for a signature that already arrived.
 	const ready = await core.waitNodeReady(row.node_id, { trust: true });
 	if (!ready?.link) {
-		await core.taskQueue.run(id, async () => {
-			const current = await core.row(id);
-			if (current?.state !== "awaiting_authorization") return;
+		await endIfNodeUnready(core, id, ready, async (current) => {
+			if (current.state !== "awaiting_authorization") return;
 			const previous = parseTaskAuthorization(current.authorization);
 			await finishNodeOffline(core, id, current, previous ? withoutRequests(previous) : null);
 		});

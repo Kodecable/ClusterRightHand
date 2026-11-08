@@ -10,7 +10,7 @@ import {
 import { sql } from "kysely";
 import type { RuleSet } from "../policy/rules.ts";
 import { createRuleSet } from "../policy/store.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { derivedId } from "../util/id.ts";
 import { type ModelRef, thinkingLevelOf } from "./models.ts";
 import type { AgentRequestView, RuntimeHost } from "./runtime-core.ts";
@@ -18,7 +18,7 @@ import { conversationOf, loadConversation, loadSession } from "./runtime-core.ts
 import { nextRequests, pendingAgentRequests } from "./runtime-requests.ts";
 import { refreshStates } from "./runtime-state.ts";
 import { recordInput } from "./runtime-submissions.ts";
-import { sessionAncestors } from "./session-chain.ts";
+import { MAX_SESSION_TREE_DEPTH, sessionAncestors } from "./session-chain.ts";
 import type { SessionState } from "./session-state.ts";
 
 /**
@@ -64,28 +64,6 @@ export async function enforceDepthToolLimits(host: RuntimeHost): Promise<void> {
 		const agent = await conversation.agent(host.context);
 		if (agent.tools.some((tool) => tool.name === "subagent")) await hideSubagentTool(host, conversation);
 	}
-}
-
-/**
- * A cycle guard for the session tree. Legitimate subagents nest at most `MAX_SUBAGENT_DEPTH` levels, but old
- * data may be deeper, so the bound is well above the real limit: it only stops a corrupt parent cycle.
- */
-const MAX_SESSION_TREE_DEPTH = 100;
-
-/** The ids of every session below this one, depth first. One recursive query, not one query per level. */
-export async function descendants(host: RuntimeHost, sessionId: string): Promise<string[]> {
-	const result = await sql<{ id: string }>`
-		with recursive session_tree(id, depth, path) as (
-			select id, 1, id from sessions where parent_session_id = ${sessionId}
-			union all
-			select child.id, session_tree.depth + 1, session_tree.path || '/' || child.id
-			from sessions as child
-			join session_tree on child.parent_session_id = session_tree.id
-			where session_tree.depth < ${MAX_SESSION_TREE_DEPTH}
-		)
-		select id from session_tree order by path
-	`.execute(host.db);
-	return result.rows.map((row) => row.id);
 }
 
 /**

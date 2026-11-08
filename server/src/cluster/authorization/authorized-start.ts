@@ -26,6 +26,8 @@ import type { NodeRow } from "../nodes.ts";
 import { getNode } from "../nodes.ts";
 import {
 	cancelledTaskFields,
+	endIfNodeUnready,
+	failNodeOffline,
 	finish,
 	NODE_ACCESS_REVOKED,
 	NODE_ACCESS_REVOKED_MESSAGE,
@@ -226,19 +228,18 @@ export async function sendAuthorizedStart(
 	const ready = await core.readyNode(nodeId, { trust: node?.privileged_mode === "forward" });
 	if (!ready?.link) {
 		// Nothing was sent: a cancellation recorded in the meantime ends the task as cancelled, not offline.
-		await core.taskQueue.run(id, async () => {
-			const current = await core.row(id);
-			if (current?.cancelled === 1) {
+		await endIfNodeUnready(core, id, ready, async (current) => {
+			if (current.cancelled === 1) {
 				await finish(core, nodeId, id, cancelledTaskFields());
 				return;
 			}
-			await finish(core, nodeId, id, {
-				state: "failed",
-				error_code: "node_offline",
-				error_message: "the node is not connected",
-				pending_input: null,
-				handler_type: null,
-				handler_session_id: null,
+			await failNodeOffline(core, id, {
+				from: ["dispatched", "running"],
+				nodeId,
+				live: "drop",
+				always: true,
+				group: "row",
+				awaitGroup: true,
 			});
 		});
 		return;

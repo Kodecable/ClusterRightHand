@@ -9,7 +9,7 @@ import type { TasksTable } from "../../storage/schema.ts";
 import { serializeTaskAuthorization, type TaskAuthorizationRecord } from "../authorization.ts";
 import type { ClusterCore } from "../core.ts";
 import type { NodeLink } from "../links.ts";
-import { endTask } from "../task-end.ts";
+import { endTask, failNodeOffline } from "../task-end.ts";
 
 /** The error code of a task a forward node cannot take because its aliases lack a node group the authorization addresses (D110). */
 export const ALIAS_MISSING = "alias_missing";
@@ -81,14 +81,24 @@ export async function finishAuthorization(
 	});
 }
 
-/** Ends a waiting task whose node did not become ready within the offline grace (D113). */
+/**
+ * Ends a waiting task whose node did not become ready within the offline grace (D113), keeping the
+ * record it was waiting on. The outstanding local request is withdrawn first, even when the write
+ * loses the race (doc/privilege.md#本地批准).
+ */
 export async function finishNodeOffline(
 	core: ClusterCore,
 	id: string,
 	row: Selectable<TasksTable>,
 	record: TaskAuthorizationRecord | null,
 ): Promise<void> {
-	await finishAuthorization(core, id, row, "failed", "node_offline", "the node is not connected", record);
+	withdrawLocal(core.links.get(row.node_id), id, record);
+	await failNodeOffline(core, id, {
+		from: [row.state],
+		row,
+		live: "drop",
+		set: { dispatched_at: null, ...(record ? { authorization: serializeTaskAuthorization(record) } : {}) },
+	});
 }
 
 /**

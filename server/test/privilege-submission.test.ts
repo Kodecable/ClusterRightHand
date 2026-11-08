@@ -1284,7 +1284,7 @@ describe("user authorizations", () => {
 		// The list is an administrative view now; owners keep the signing and waiting endpoints.
 		const forbidden = await call(app, "/api/authorizations", { cookie: owner.cookie });
 		expect(forbidden.status).toBe(403);
-		expect(((await forbidden.json()) as { error: string }).error).toBe("only administrators can list authorizations");
+		expect(((await forbidden.json()) as { error: string }).error).toBe("administrators only");
 
 		const list = (await (await call(app, "/api/authorizations", { cookie: adminCookie })).json()) as {
 			items: {

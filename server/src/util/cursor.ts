@@ -1,5 +1,5 @@
 import { type RawBuilder, type SqlBool, sql } from "kysely";
-import { UserError } from "../users/service.ts";
+import { UserError } from "./errors.ts";
 
 /**
  * Keyset cursors for the WebUI's list APIs (doc/webui.md#api-约定): an opaque base64url string holding the

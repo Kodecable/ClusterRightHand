@@ -1,5 +1,5 @@
 import type { Db } from "../storage/db.ts";
-import { UserError } from "../users/service.ts";
+import { UserError } from "./errors.ts";
 
 /**
  * Node and node-group names (D109, doc/access-control.md#用户模型). Names are display values: uniqueness and

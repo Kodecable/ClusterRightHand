@@ -1,4 +1,4 @@
-import { UserError } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
 import { countOutputLines, StreamAccumulator } from "./output.ts";
 
 /**

@@ -1,5 +1,5 @@
 import { sessionCapabilities } from "../agent/sharing.ts";
-import type { SessionUser } from "../auth/sessions.ts";
+import { isAdmin, type SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 
 /**
@@ -22,7 +22,7 @@ export interface TaskRelation {
 }
 
 export async function taskRelation(db: Db, user: SessionUser, subject: TaskSubject): Promise<TaskRelation> {
-	if (user.kind === "admin") return { visible: true, acts: true };
+	if (isAdmin(user)) return { visible: true, acts: true };
 	if (subject.onBehalfOfUserId === user.userId) return { visible: true, acts: true };
 	if (subject.actorType === "session" || subject.actorType === "subagent") {
 		const permissions = await sessionCapabilities(db, user, subject.actorId);

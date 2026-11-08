@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import { HashBusyError } from "../auth/hash-gate.ts";
 import { SshError } from "../cluster/ssh/connection.ts";
 import { WebauthnError } from "../privilege/webauthn.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { type AppEnv, jsonError } from "./context.ts";
 
 /**

@@ -1,4 +1,4 @@
-import { type SessionUser, webSessionAlive } from "../auth/sessions.ts";
+import { isAdmin, type SessionUser, webSessionAlive } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import {
 	type SessionListItem,
@@ -329,7 +329,7 @@ export class SessionListHub {
 			case "visible":
 				return owner || shared;
 			default:
-				return owner || shared || subscriber.user.kind === "admin";
+				return owner || shared || isAdmin(subscriber.user);
 		}
 	}
 

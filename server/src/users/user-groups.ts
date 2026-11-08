@@ -1,8 +1,9 @@
 import type { UserGroup } from "@crh/api";
 import { deleteGrantsForUserGroup } from "../cluster/node-access.ts";
 import type { Db } from "../storage/db.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
-import { defaultOrgId, NotFoundError, UserError } from "./service.ts";
+import { defaultOrgId } from "./service.ts";
 
 export type { UserGroup };
 

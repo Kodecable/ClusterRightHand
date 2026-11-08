@@ -10,7 +10,7 @@ import { userActor } from "../audit/audit.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
-import { adminOnly } from "./middleware.ts";
+import { requireAdmin } from "./middleware.ts";
 
 export interface ModelProviderRoutesOptions {
 	models: ModelConfig;
@@ -27,11 +27,11 @@ export function modelProviderRoutes(db: Db, options: ModelProviderRoutesOptions)
 
 	app.get("/models", (c) => c.json({ models: models.available() }));
 
-	app.get("/model-providers", adminOnly, async (c) => {
+	app.get("/model-providers", requireAdmin, async (c) => {
 		return c.json({ providers: await listModelProviders(db), builtin: builtinProviderIds() });
 	});
 
-	app.put("/model-providers/:providerId", adminOnly, async (c) => {
+	app.put("/model-providers/:providerId", requireAdmin, async (c) => {
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
 		const has = (key: string) => Object.hasOwn(body, key);
@@ -61,7 +61,7 @@ export function modelProviderRoutes(db: Db, options: ModelProviderRoutesOptions)
 		return c.json({ provider });
 	});
 
-	app.delete("/model-providers/:providerId", adminOnly, async (c) => {
+	app.delete("/model-providers/:providerId", requireAdmin, async (c) => {
 		await deleteModelProvider(db, c.req.param("providerId"));
 		await models.reload();
 		void c.get("audit").record({

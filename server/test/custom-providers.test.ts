@@ -11,7 +11,8 @@ import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser, UserError } from "../src/users/service.ts";
+import { createUser } from "../src/users/service.ts";
+import { UserError } from "../src/util/errors.ts";
 import { waitFor } from "./helpers/agent.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
 

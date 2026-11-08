@@ -135,6 +135,49 @@ describe("approvals api (sqlite)", () => {
 		await cluster.decide(t.id, { decision: "rejected", by: { type: "user", id: "x" }, at: new Date().toISOString() });
 	});
 
+	it("does not list another user's quota-paused root", async () => {
+		const orgId = await defaultOrgId(db);
+		const now = new Date().toISOString();
+		const insertPausedRoot = async (owner: string, title: string) => {
+			const id = newId();
+			await db
+				.insertInto("sessions")
+				.values({
+					id,
+					org_id: orgId,
+					owner_user_id: owner,
+					conversation_id: `conv-${id}`,
+					parent_session_id: null,
+					root_session_id: id,
+					schedule_id: null,
+					title,
+					model: JSON.stringify({ provider: "faux", modelId: "faux" }),
+					status: "active",
+					created_at: now,
+					updated_at: now,
+					archived_at: null,
+					last_submission_id: null,
+					state: "awaiting",
+					waiting_kind: "quota",
+					waiting_level_id: id,
+					waiting_handler_id: null,
+					state_changed_at: now,
+					quota_tokens: 0,
+				})
+				.execute();
+			return id;
+		};
+		const aliceSession = await insertPausedRoot(uid.alice as string, "alice paused");
+		const bobSession = await insertPausedRoot(uid.bob as string, "bob paused");
+		const quotasOf = async (who: string) => {
+			const res = await call(app, "/api/approvals", { cookie: cookies[who] });
+			return ((await res.json()) as { quotas: { sessionId: string }[] }).quotas.map((quota) => quota.sessionId);
+		};
+		expect(await quotasOf("alice")).toContain(aliceSession);
+		expect(await quotasOf("alice")).not.toContain(bobSession);
+		expect(await quotasOf("bob")).toEqual([bobSession]);
+	});
+
 	it("lists several waiting tasks in creation order with their full views", async () => {
 		const tok = await newToken();
 		const first = await mkTask(tok, execSpec("first"));

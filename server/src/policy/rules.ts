@@ -8,9 +8,9 @@ import type {
 	RuleMethod,
 } from "@crh/api";
 import type { TaskSpec } from "@crh/protocol";
-import { ALL_TARGET, isUuid, NAME_RE } from "../cluster/names.ts";
-import { shellQuote } from "../cluster/ssh/exec.ts";
-import { UserError } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
+import { ALL_TARGET, isUuid, NAME_RE } from "../util/names.ts";
+import { shellQuote } from "../util/shell-quote.ts";
 
 /**
  * Authorization rules along a rule chain; see doc/access-control.md#授权规则. Pure functions: loading

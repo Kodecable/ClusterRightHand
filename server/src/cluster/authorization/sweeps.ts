@@ -12,6 +12,7 @@ import { parseTaskAuthorization } from "../authorization.ts";
 import type { ClusterCore } from "../core.ts";
 import { getNode } from "../nodes.ts";
 import { specFromRow } from "../spec.ts";
+import { endIfNodeUnready } from "../task-end.ts";
 import { parseTrustReport } from "../trust.ts";
 import { type ApprovalRecord, AUTHORIZATION_WAIT_MS } from "../types.ts";
 import { sendAuthorizedStart } from "./authorized-start.ts";
@@ -50,11 +51,9 @@ async function dispatchStored(core: ClusterCore, id: string): Promise<void> {
 	// the task instead of leaving it waiting forever.
 	const ready = await core.waitNodeReady(row.node_id, { trust: true });
 	if (!ready?.link) {
-		await core.taskQueue.run(id, async () => {
-			// The row may have been re-planned or ended while the grace ran: end only a still-waiting task,
-			// from the row read in this turn.
-			const current = await core.row(id);
-			if (current?.state !== "awaiting_authorization") return;
+		// The row may have been re-planned or ended while the grace ran: end only a still-waiting task.
+		await endIfNodeUnready(core, id, ready, async (current) => {
+			if (current.state !== "awaiting_authorization") return;
 			await finishNodeOffline(core, id, current, parseTaskAuthorization(current.authorization));
 		});
 		return;

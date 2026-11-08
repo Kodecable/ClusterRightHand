@@ -1,7 +1,7 @@
 import type { RefMap, RefTarget } from "@crh/api";
-import { ALL_TARGET, isUuid, nameKey } from "../cluster/names.ts";
 import type { Db } from "../storage/db.ts";
-import { UserError } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
+import { ALL_TARGET, isUuid, nameKey } from "../util/names.ts";
 import { parseRuleSet, parseRules, type Rule, type RuleSet } from "./rules.ts";
 
 export type { RefMap, RefTarget };

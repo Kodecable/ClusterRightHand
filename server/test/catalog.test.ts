@@ -10,7 +10,8 @@ import { callTool } from "../src/tools/adapter.ts";
 import { TOOLS, type ToolContext } from "../src/tools/catalog.ts";
 import type { ToolResult } from "../src/tools/render.ts";
 import { execResult, execTaskResult, readGroupResult, readTaskResult, taskDetails } from "../src/tools/task-render.ts";
-import { createUser, defaultOrgId, NotFoundError, UserError } from "../src/users/service.ts";
+import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { NotFoundError, UserError } from "../src/util/errors.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
 

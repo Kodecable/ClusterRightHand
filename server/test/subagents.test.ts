@@ -11,7 +11,7 @@ import { QuotaWaits } from "../src/agent/runtime-host/quota-waits.ts";
 import { SessionCaches } from "../src/agent/runtime-host/session-caches.ts";
 import { SessionFlags } from "../src/agent/runtime-host/session-flags.ts";
 import { forgetSessionCaches } from "../src/agent/runtime-sessions.ts";
-import { descendants } from "../src/agent/runtime-subagents.ts";
+import { sessionDescendants } from "../src/agent/session-chain.ts";
 import { markSessionsIdle, sessionStateOf } from "../src/agent/session-state.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
@@ -198,10 +198,10 @@ it("walks a three-level session tree with siblings in one query", async () => {
 	const leftSecond = await subagent(left.id, "tree-left-second", { default: "inherit", rules: [] });
 	const host = { db: probe.db } as unknown as RuntimeHost;
 	const counter = probe.count((node) => node.kind === "RawNode");
-	const belowRoot = await descendants(host, root.id);
+	const belowRoot = await sessionDescendants(host.db, root.id);
 	expect(counter.stop()).toBe(1);
 	expect(new Set(belowRoot)).toEqual(new Set([left.id, right.id, leftFirst.id, leftSecond.id]));
-	expect(await descendants(host, leftFirst.id)).toEqual([]);
+	expect(await sessionDescendants(host.db, leftFirst.id)).toEqual([]);
 
 	expect(await runtime.isDescendant(root.id, leftFirst.id)).toBe(true);
 	expect(await runtime.isDescendant(left.id, leftSecond.id)).toBe(true);

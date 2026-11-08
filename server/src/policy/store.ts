@@ -1,7 +1,7 @@
 import type { RuleRef as ApiRuleRef, StoredRuleSet as ApiStoredRuleSet } from "@crh/api";
 import type { Db } from "../storage/db.ts";
 import type { RuleScopeType, RuleSetsTable } from "../storage/schema.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 import { type ChainLevel, RULE_PRESETS, type Rule, type RulePreset, type RuleSet, rulePresetRuleSet } from "./rules.ts";
 

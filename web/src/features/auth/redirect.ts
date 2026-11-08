@@ -1,14 +1,14 @@
+import { safeInternalPath } from "@/lib/url";
+
 /**
  * A redirect target from the login page must stay inside this app: a path on
- * this origin, never `//host`, never an absolute URL. This keeps the
- * "deep link survives login" behaviour from becoming an open redirect.
+ * this origin, never `//host`, never an absolute URL. It follows the same rule
+ * as the server-sent links (`safeInternalPath`), so surrounding whitespace is
+ * trimmed and inner whitespace, control characters and dot segments are
+ * refused; the login page falls back to its default path when this is
+ * undefined. This keeps the "deep link survives login" behaviour from becoming
+ * an open redirect.
  */
 export function safeRedirectPath(value: string | undefined | null): string | undefined {
-	if (typeof value !== "string" || value === "") return undefined;
-	if (!value.startsWith("/") || value.startsWith("//")) return undefined;
-	// Backslashes are normalised to slashes by some browsers; reject them too.
-	if (value.includes("\\")) return undefined;
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point.
-	if (/[\u0000-\u001f\u007f]/.test(value)) return undefined;
-	return value;
+	return safeInternalPath(value);
 }

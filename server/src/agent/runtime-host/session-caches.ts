@@ -8,6 +8,8 @@ export class SessionCaches {
 	readonly #sessionsByConversation = new Map<string, SessionInfo>();
 	readonly #subagentParents = new Set<string>();
 	readonly #providerSessions = new Map<string, string>();
+	/** The reverse of `#providerSessions`, so the per-session lookup is not a scan over every provider id. */
+	readonly #providerSessionIds = new Map<string, string>();
 	readonly #learnedProviders = new Set<string>();
 
 	/** The session a conversation belongs to, when it was already looked up. */
@@ -36,10 +38,7 @@ export class SessionCaches {
 
 	/** The provider session id of a crh session, for a custom provider's session id fields (D115). */
 	providerSessionIdFor(sessionId: string): string | undefined {
-		for (const [providerSessionId, mapped] of this.#providerSessions) {
-			if (mapped === sessionId) return providerSessionId;
-		}
-		return undefined;
+		return this.#providerSessionIds.get(sessionId);
 	}
 
 	/** Whether the conversation's provider document was already read. */
@@ -49,7 +48,10 @@ export class SessionCaches {
 
 	/** Remembers a provider session id learned from the conversation, and marks the conversation read. */
 	rememberProviderSession(conversationId: string, providerSessionId: string, sessionId: string): void {
+		const previous = this.#providerSessionIds.get(sessionId);
+		if (previous !== undefined && previous !== providerSessionId) this.#providerSessions.delete(previous);
 		this.#providerSessions.set(providerSessionId, sessionId);
+		this.#providerSessionIds.set(sessionId, providerSessionId);
 		this.#learnedProviders.add(conversationId);
 	}
 
@@ -62,9 +64,9 @@ export class SessionCaches {
 			this.#sessionsByConversation.delete(conversationId);
 			this.#learnedProviders.delete(conversationId);
 		}
-		for (const [providerSessionId, mapped] of this.#providerSessions) {
-			if (mapped === sessionId) this.#providerSessions.delete(providerSessionId);
-		}
+		const providerSessionId = this.#providerSessionIds.get(sessionId);
+		if (providerSessionId !== undefined) this.#providerSessions.delete(providerSessionId);
+		this.#providerSessionIds.delete(sessionId);
 		this.#subagentParents.delete(sessionId);
 	}
 }

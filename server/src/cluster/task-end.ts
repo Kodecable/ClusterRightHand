@@ -8,7 +8,7 @@ import { ConnectionError, type TaskExit, taskResultToJson } from "@crh/protocol"
 import type { Insertable, Selectable, Updateable } from "kysely";
 import type { TaskState as TaskRowState, TasksTable } from "../storage/schema.ts";
 import type { NodeConnection } from "./connection.ts";
-import { type ClusterCore, now } from "./core.ts";
+import { type ClusterCore, now, type ReadyNode } from "./core.ts";
 import { dropLive, EMPTY_OUTPUT, keepUnknownOutput, newLive } from "./live-output.ts";
 import { insertTask, writeTask } from "./task-rows.ts";
 import { outputColumns } from "./task-view.ts";
@@ -78,6 +78,10 @@ export const NODE_DELETED = "node_deleted";
 export const NODE_DELETED_MESSAGE = "the node was deleted before the task was dispatched";
 /** The reason of a task cancelled after it was claimed but before it reached the node. */
 export const CANCELLED_BEFORE_START_MESSAGE = "the task was cancelled before it was dispatched";
+/** The error code of a task whose node never became ready within the offline grace (D113). */
+export const NODE_OFFLINE = "node_offline";
+/** The error message that goes with NODE_OFFLINE. */
+export const NODE_OFFLINE_MESSAGE = "the node is not connected";
 
 // ---- endings before dispatch ----
 
@@ -124,29 +128,72 @@ export async function failNodeAccessRevoked(
 	});
 }
 
-/** Ends a task whose node never became ready within the offline grace (D113). */
-export async function failNodeOffline(
-	core: ClusterCore,
-	id: string,
-	row: Selectable<TasksTable> | undefined,
-	from: readonly TaskRowState[] = ["awaiting_approval"],
-): Promise<void> {
-	await endTask(core, id, {
+/** How one node_offline ending ends its task: the states it may still be in, and the side effects it had. */
+interface NodeOfflineEnd {
+	/** The states the task may still be in for this ending to apply. */
+	from: readonly TaskRowState[];
+	/** The row this ending read: its rev guards the write, and its group and actor drive the side effects. */
+	row?: Pick<Selectable<TasksTable>, "rev" | "task_group_id" | "actor_id">;
+	/** Fields the caller records with the failure (its authorization record, a cleared dispatch stamp). */
+	set?: Updateable<TasksTable>;
+	/** The node the task was being sent to; with it the write matches only that task on that node. */
+	nodeId?: string;
+	/** What happens to the live output; "none" for a task that never had one (it was still waiting). */
+	live?: "drop" | "keep" | "none";
+	/** The group whose state is re-derived; defaults to the row's own group. */
+	group?: string | null | "row";
+	/** Whether the group sync is awaited (the dispatch side does). */
+	awaitGroup?: boolean;
+	/** The dispatch side must clean up after a task another path has already ended. */
+	always?: boolean;
+}
+
+/**
+ * Ends a task whose node never became ready within the offline grace (D113), from whichever states it
+ * still waits in: the plain dispatch's awaiting_approval, a signature wait's state, or the dispatch
+ * side's dispatched/running. Every ending writes the same failure columns; `end` keeps the side effects
+ * each site had (the live output, the group sync, the actor refresh).
+ */
+export async function failNodeOffline(core: ClusterCore, id: string, end: NodeOfflineEnd): Promise<boolean> {
+	return endTask(core, id, {
 		write: {
-			from,
-			rev: row?.rev,
+			from: end.from,
+			rev: end.row?.rev,
+			nodeId: end.nodeId,
 			set: {
 				state: "failed",
-				error_code: "node_offline",
-				error_message: "the node is not connected",
+				error_code: NODE_OFFLINE,
+				error_message: NODE_OFFLINE_MESSAGE,
 				pending_input: null,
 				handler_type: null,
 				handler_session_id: null,
+				...end.set,
 			},
 		},
-		live: "none",
-		group: row?.task_group_id ?? null,
-		onChange: row?.actor_id,
+		live: end.live ?? "none",
+		...(end.always ? { always: true } : {}),
+		group: end.group ?? end.row?.task_group_id ?? null,
+		...(end.awaitGroup ? { awaitGroup: true } : {}),
+		onChange: end.row?.actor_id,
+	});
+}
+
+/**
+ * The failure branch of a dispatch that waited for its node: the wait itself ran outside any turn
+ * (D118); `ready` without a link means the ending runs in the task's own turn, on a fresh read, so a
+ * cancellation or another ending that settled the row meanwhile is not overwritten. `end` decides from
+ * that row whether it still needs ending.
+ */
+export async function endIfNodeUnready(
+	core: ClusterCore,
+	id: string,
+	ready: ReadyNode | undefined,
+	end: (row: Selectable<TasksTable>) => Promise<void>,
+): Promise<void> {
+	if (ready?.link) return;
+	await core.taskQueue.run(id, async () => {
+		const row = await core.row(id);
+		if (row) await end(row);
 	});
 }
 

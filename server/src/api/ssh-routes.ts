@@ -1,5 +1,6 @@
 import { type Context, Hono } from "hono";
 import { userActor } from "../audit/audit.ts";
+import { isAdmin } from "../auth/sessions.ts";
 import { nodeGroupsForNodes } from "../cluster/node-groups.ts";
 import { getNode, nodeAccess, toPublicNode } from "../cluster/nodes.ts";
 import { probeHostKey, testRoute } from "../cluster/ssh/connection.ts";
@@ -16,7 +17,7 @@ import {
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
-import { adminOnly } from "./middleware.ts";
+import { requireAdmin } from "./middleware.ts";
 
 /**
  * Adding SSH nodes: crhs generates a key (the user installs its public half), probes each hop's host key
@@ -25,11 +26,11 @@ import { adminOnly } from "./middleware.ts";
 export function sshRoutes(db: Db, masterKey: MasterKey) {
 	const app = new Hono<AppEnv>();
 
-	app.get("/ssh-credentials", adminOnly, async (c) => {
+	app.get("/ssh-credentials", requireAdmin, async (c) => {
 		return c.json({ credentials: await listSshCredentials(db) });
 	});
 
-	app.post("/ssh-credentials", adminOnly, async (c) => {
+	app.post("/ssh-credentials", requireAdmin, async (c) => {
 		const body = await readJsonObject(c);
 		const name = typeof body?.name === "string" ? body.name : "";
 		const credential = await createSshCredential(db, masterKey, name);
@@ -42,7 +43,7 @@ export function sshRoutes(db: Db, masterKey: MasterKey) {
 		return c.json({ credential }, 201);
 	});
 
-	app.delete("/ssh-credentials/:id", adminOnly, async (c) => {
+	app.delete("/ssh-credentials/:id", requireAdmin, async (c) => {
 		const id = c.req.param("id");
 		const usedBy = (await sshCredentialUsage(db, id)).get(id) ?? [];
 		if (usedBy.length > 0) return jsonError(c, 409, "the credential is in use by a node");
@@ -55,7 +56,7 @@ export function sshRoutes(db: Db, masterKey: MasterKey) {
 		return c.json({ ok: true });
 	});
 
-	app.post("/ssh-nodes/probe", adminOnly, async (c) => {
+	app.post("/ssh-nodes/probe", requireAdmin, async (c) => {
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
 		const route = await routeFromInput(db, masterKey, body as unknown as SshTargetInput);
@@ -64,7 +65,7 @@ export function sshRoutes(db: Db, masterKey: MasterKey) {
 	});
 
 	// Before creating: does the key work on every hop, and can the account run commands?
-	app.post("/ssh-nodes/test", adminOnly, async (c) => {
+	app.post("/ssh-nodes/test", requireAdmin, async (c) => {
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
 		const route = await routeFromInput(db, masterKey, body as unknown as SshTargetInput);
@@ -78,7 +79,7 @@ export function sshRoutes(db: Db, masterKey: MasterKey) {
 		const access = await nodeAccess(db, c.get("user"), id);
 		const node = access ? await getNode(db, id) : undefined;
 		if (!access || !node) return { error: jsonError(c, 404, "no such node") };
-		if (c.get("user").kind !== "admin") return { error: jsonError(c, 403, "administrators only") };
+		if (!isAdmin(c.get("user"))) return { error: jsonError(c, 403, "administrators only") };
 		if (node.transport !== "ssh") return { error: jsonError(c, 400, "not an SSH node") };
 		return { node };
 	};
@@ -90,7 +91,7 @@ export function sshRoutes(db: Db, masterKey: MasterKey) {
 		return c.json({ ok: true });
 	});
 
-	app.post("/ssh-nodes", adminOnly, async (c) => {
+	app.post("/ssh-nodes", requireAdmin, async (c) => {
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
 		if (body.nodeGroups !== undefined) {

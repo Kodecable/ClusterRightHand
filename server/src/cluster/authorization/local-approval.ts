@@ -26,6 +26,7 @@ import { userCanAccessNode } from "../node-access.ts";
 import { getNode } from "../nodes.ts";
 import { specFromRow } from "../spec.ts";
 import {
+	endIfNodeUnready,
 	groupEnded,
 	NODE_ACCESS_REVOKED,
 	NODE_ACCESS_REVOKED_MESSAGE,
@@ -156,11 +157,9 @@ async function dispatchLocalApproval(core: ClusterCore, id: string, attempt: num
 	// forward privileged task also for the new connection's trust report.
 	const ready = await core.readyNode(before.node_id, { trust: node?.privileged_mode === "forward" });
 	if (!ready?.link) {
-		await core.taskQueue.run(id, async () => {
-			// The row may have been cancelled or re-planned while the grace ran: only a still-waiting
-			// attempt fails, from the row read in this turn.
-			const current = await core.row(id);
-			if (current?.state !== "awaiting_authorization" || current.attempt !== attempt) return;
+		// The row may have been cancelled or re-planned while the grace ran: only a still-waiting attempt fails.
+		await endIfNodeUnready(core, id, ready, async (current) => {
+			if (current.state !== "awaiting_authorization" || current.attempt !== attempt) return;
 			const record = parseTaskAuthorization(current.authorization);
 			await finishNodeOffline(core, id, current, record ? withoutRequests(record) : null);
 		});

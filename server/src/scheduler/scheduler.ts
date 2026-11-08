@@ -5,8 +5,7 @@ import { userActor } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import type { Database } from "../storage/schema.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
-import { errorText, isUniqueViolation } from "../util/errors.ts";
+import { errorText, isUniqueViolation, NotFoundError, UserError } from "../util/errors.ts";
 import { derivedId, newId } from "../util/id.ts";
 import { KeyedQueue } from "../util/keyed-queue.ts";
 import {

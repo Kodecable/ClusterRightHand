@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { listAuditEvents } from "../audit/audit.ts";
 import type { Db } from "../storage/db.ts";
+import { type CursorSpec, cursorRows, decodeCursor, encodeCursor, parseLimit } from "../util/cursor.ts";
 import type { AppEnv } from "./context.ts";
-import { type CursorSpec, cursorRows, decodeCursor, encodeCursor, parseLimit } from "./cursor.ts";
 
 /** `GET /api/audit` pages over `seq desc` (doc/webui.md#api-约定); the id is carried by the shared format. */
 const AUDIT_CURSOR: CursorSpec = { columns: [{ name: "seq", type: "number" }], idType: "string" };

@@ -265,6 +265,11 @@ export class Cluster {
 		return tasks.groupTasks(this.#core, groupId);
 	}
 
+	/** Several task groups' tasks in one query; each group is in creation order. */
+	groupTasksMany(groupIds: readonly string[]): Promise<Map<string, TaskView[]>> {
+		return tasks.groupTasksMany(this.#core, groupIds);
+	}
+
 	/**
 	 * Waits until the task is in a final state, the timeout passes or endWaits() ends the waits; returns its
 	 * current view (never undefined for an existing task). A wait ended by shutdown returns at once, so a

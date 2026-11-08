@@ -1,5 +1,5 @@
 import type { AuditEvent } from "@crh/api";
-import type { SessionUser } from "../auth/sessions.ts";
+import { isAdmin, type SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../users/service.ts";
 import { newId } from "../util/id.ts";
@@ -104,7 +104,7 @@ export async function listAuditEvents(db: Db, user: SessionUser, q: AuditQuery):
 		.selectAll()
 		.orderBy("seq", "desc")
 		.limit(Math.min(q.limit ?? 100, 500));
-	if (user.kind !== "admin") sel = sel.where("on_behalf_of_user_id", "=", user.userId);
+	if (!isAdmin(user)) sel = sel.where("on_behalf_of_user_id", "=", user.userId);
 	if (q.action)
 		sel = q.action.endsWith(".") ? sel.where("action", "like", `${q.action}%`) : sel.where("action", "=", q.action);
 	if (q.targetType) sel = sel.where("target_type", "=", q.targetType);

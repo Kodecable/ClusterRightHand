@@ -26,7 +26,8 @@ import { Scheduler } from "./scheduler/scheduler.ts";
 import { createStorageOpener, type Db, openAgentStorage, openDb } from "./storage/db.ts";
 import { migrateToLatest } from "./storage/migrate.ts";
 import { startRetentionSweep } from "./storage/retention.ts";
-import { createUser, findUserByUsername, setPassword, UserError } from "./users/service.ts";
+import { createUser, findUserByUsername, setPassword } from "./users/service.ts";
+import { UserError } from "./util/errors.ts";
 
 const USAGE = `usage: crhs [--config <path>] <command>
 

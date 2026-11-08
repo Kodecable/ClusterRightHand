@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
-import { resolveWebSession, SESSION_COOKIE } from "../auth/sessions.ts";
+import { isAdmin, resolveWebSession, SESSION_COOKIE } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import { type AppEnv, jsonError } from "./context.ts";
 
@@ -54,22 +54,12 @@ export function requireUser(db: Db): MiddlewareHandler<AppEnv> {
 	};
 }
 
-/** Administrators only: anyone else gets a 403 with `message`. Expects requireUser to have run. */
-function adminGate(message: string): MiddlewareHandler<AppEnv> {
-	return async (c, next) => {
-		if (c.get("user").kind !== "admin") return jsonError(c, 403, message);
-		await next();
-	};
-}
-
 /**
- * Administrators only, for every route under a path (`app.use`): the users, user groups and node access
- * grants routes. Its 403 reads "administrator only", unlike `adminOnly`'s; both texts are kept as they were.
+ * Administrators only, for every route under a path (`app.use`) or as the first handler of one route
+ * (`app.get(path, requireAdmin, handler)`); either way a non-administrator gets a 403 reading
+ * "administrators only". Expects requireUser to have run.
  */
-export const requireAdmin = adminGate("administrator only");
-
-/**
- * Administrators only, as the first handler of one route (`app.get(path, adminOnly, handler)`), so a method
- * or path no route has stays unanswered as before. Its 403 reads "administrators only".
- */
-export const adminOnly = adminGate("administrators only");
+export const requireAdmin: MiddlewareHandler<AppEnv> = async (c, next) => {
+	if (!isAdmin(c.get("user"))) return jsonError(c, 403, "administrators only");
+	await next();
+};

@@ -1,8 +1,8 @@
 import type { NodeGroup, NodeGroupRef } from "@crh/api";
 import type { Db } from "../storage/db.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
-import { assertNameAvailable, isUuid, nameKey, validateName } from "./names.ts";
+import { assertNameAvailable, isUuid, nameKey, validateName } from "../util/names.ts";
 import { deleteGrantsForNodeGroup } from "./node-access.ts";
 
 /**

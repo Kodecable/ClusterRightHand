@@ -10,7 +10,8 @@ import { createWebSession, revokeUserWebSessions, revokeWebSession, SESSION_COOK
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import type { Db } from "../storage/db.ts";
-import { findUserByUsername, setPassword, storePasswordHash, toPublicUser, UserError } from "../users/service.ts";
+import { findUserByUsername, setPassword, storePasswordHash, toPublicUser } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
 import { rejectRevokedTokenWaits } from "./api-token-waits.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { requireUser } from "./middleware.ts";

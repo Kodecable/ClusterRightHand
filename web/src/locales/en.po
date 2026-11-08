@@ -1741,13 +1741,13 @@ msgid "Enrollment command"
 msgstr "Enrollment command"
 
 #: src/components/quota-card.tsx
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 msgid "Enter a positive number of tokens to add."
 msgstr "Enter a positive number of tokens to add."
 
 #: src/components/quota-card.tsx
 #: src/features/schedules/scheduleForm.ts
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 msgid "Enter a whole number of tokens, or leave it empty for unlimited."
 msgstr "Enter a whole number of tokens, or leave it empty for unlimited."
 
@@ -3193,7 +3193,7 @@ msgid "Quota decision recorded."
 msgstr "Quota decision recorded."
 
 #: src/features/sessions/composer-footer.tsx
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 msgid "Quota saved."
 msgstr "Quota saved."
 
@@ -3248,7 +3248,7 @@ msgstr "Reject node"
 msgid "Rejected"
 msgstr "Rejected"
 
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 msgid "Remaining budget tokens (empty = unlimited)"
 msgstr "Remaining budget tokens (empty = unlimited)"
 
@@ -3577,7 +3577,7 @@ msgstr "Running a security check…"
 
 #: src/components/dialogs.tsx
 #: src/features/nodes/rename-node-button.tsx
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 #: src/features/settings/model-presets.tsx
 msgid "Save"
 msgstr "Save"
@@ -4091,7 +4091,7 @@ msgstr "text"
 
 #: src/components/quota-card.tsx
 #: src/features/schedules/scheduleForm.ts
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 msgid "That number is too large."
 msgstr "That number is too large."
 
@@ -4387,7 +4387,7 @@ msgid "Toggle Sidebar"
 msgstr "Toggle Sidebar"
 
 #: src/features/schedules/schedule-form.tsx
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 msgid "Token budget"
 msgstr "Token budget"
 
@@ -4492,7 +4492,7 @@ msgstr "Unknown command: it will be sent as a message."
 msgid "unlimited"
 msgstr "unlimited"
 
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 msgid "Unlimited"
 msgstr "Unlimited"
 

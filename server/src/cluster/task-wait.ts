@@ -44,6 +44,28 @@ export async function groupTasks(core: ClusterCore, groupId: string): Promise<Ta
 	return rows.map((row) => toView(row, core.live.get(row.id)));
 }
 
+/** Several groups' tasks in one query, each group in creation order; a group with no rows has no entry. */
+export async function groupTasksMany(core: ClusterCore, groupIds: readonly string[]): Promise<Map<string, TaskView[]>> {
+	const groupIdSet = [...new Set(groupIds)];
+	if (groupIdSet.length === 0) return new Map();
+	const rows = await core.db
+		.selectFrom("tasks")
+		.selectAll()
+		.where("task_group_id", "in", groupIdSet)
+		.orderBy("created_at")
+		.orderBy("id")
+		.execute();
+	const byGroup = new Map<string, TaskView[]>();
+	for (const row of rows) {
+		if (row.task_group_id === null) continue;
+		const view = toView(row, core.live.get(row.id));
+		const group = byGroup.get(row.task_group_id);
+		if (group) group.push(view);
+		else byGroup.set(row.task_group_id, [view]);
+	}
+	return byGroup;
+}
+
 /**
  * Waits until the task is in a final state, the timeout passes or endWaits() ends the waits; returns its
  * current view (never undefined for an existing task). A wait ended by shutdown returns at once, so a

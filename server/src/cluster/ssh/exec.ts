@@ -1,4 +1,5 @@
 import type { ExecSpec } from "@crh/protocol";
+import { shellQuote } from "../../util/shell-quote.ts";
 import type { SshSession } from "./connection.ts";
 
 export const DEFAULT_KILL_GRACE_MS = 5_000;
@@ -18,11 +19,6 @@ export interface SshExecSink {
 	stderr(data: Uint8Array): void;
 	/** The remote process started. */
 	started(): void;
-}
-
-/** POSIX single quoting: the result is one shell word with no expansion. */
-export function shellQuote(s: string): string {
-	return /^[A-Za-z0-9_@%+=:,./-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { NAME_MAX, nameKey, normalizeName, validateName } from "../src/cluster/names.ts";
-import { UserError } from "../src/users/service.ts";
+import { UserError } from "../src/util/errors.ts";
+import { NAME_MAX, nameKey, normalizeName, validateName } from "../src/util/names.ts";
 
 describe("validateName", () => {
 	it("accepts the documented shape and keeps the case", () => {

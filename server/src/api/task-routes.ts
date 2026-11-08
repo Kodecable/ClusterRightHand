@@ -1,15 +1,23 @@
 import type { TaskSpec } from "@crh/protocol";
 import { Hono } from "hono";
+import { isAdmin } from "../auth/sessions.ts";
 import { type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
 import { nodeAccess } from "../cluster/nodes.ts";
 import { resolveTargets, type TaskGroups } from "../cluster/task-groups.ts";
 import { taskRelation } from "../cluster/task-visibility.ts";
 import type { Db } from "../storage/db.ts";
 import type { TaskState } from "../storage/schema.ts";
-import { UserError } from "../users/service.ts";
+import {
+	type CursorSpec,
+	cursorRows,
+	decodeCursor,
+	descendingKeyset,
+	encodeCursor,
+	parseLimit,
+} from "../util/cursor.ts";
+import { UserError } from "../util/errors.ts";
 import { jsonBodyLimit, MAX_INPUT_BASE64_LENGTH, MAX_INPUT_BODY_BYTES, MAX_INPUT_BYTES } from "./body-limit.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
-import { type CursorSpec, cursorRows, decodeCursor, descendingKeyset, encodeCursor, parseLimit } from "./cursor.ts";
 
 const MAX_WAIT_MS = 10 * 60 * 1000;
 /** Lines a file.read reads when the request names none: pi's read default (doc/agent-runtime.md#默认值). */
@@ -125,7 +133,7 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 			.where("node_id", "=", nodeId)
 			.orderBy("created_at", "desc")
 			.limit(50);
-		if (user.kind !== "admin") query = query.where("on_behalf_of_user_id", "=", user.userId);
+		if (!isAdmin(user)) query = query.where("on_behalf_of_user_id", "=", user.userId);
 		const rows = await query.execute();
 		const tasks = await Promise.all(rows.map((r) => cluster.getTask(r.id)));
 		return c.json({ tasks: tasks.filter(Boolean) });
@@ -164,7 +172,7 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		let query = db.selectFrom("tasks").select(["id", "created_at"]);
 		// (a)/(b) of doc/access-control.md: administrators list everything, everyone else their own tasks.
 		// Session viewers reach a shared session's task by id, not through this list.
-		if (user.kind !== "admin") query = query.where("on_behalf_of_user_id", "=", user.userId);
+		if (!isAdmin(user)) query = query.where("on_behalf_of_user_id", "=", user.userId);
 		if (filterNode !== undefined) query = query.where("node_id", "=", filterNode);
 		if (state !== undefined) query = query.where("state", "=", state as TaskState);
 		if (actorType !== undefined) query = query.where("actor_type", "=", actorType);

@@ -14,7 +14,7 @@ import { rulePresetIcon, rulePresetLabel } from "@/lib/rule-preset";
 import { availableModel, supportedThinkingLevels, thinkingLevelName } from "@/lib/thinking-level";
 import { cn } from "@/lib/utils";
 import { usePatchSession } from "./api";
-import { BudgetDialog } from "./quota-dialog";
+import { BudgetDialog } from "./budget-dialog";
 
 /**
  * Everything the footer controls show and change; a session page feeds it from

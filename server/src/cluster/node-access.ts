@@ -1,10 +1,10 @@
 import type { AccessTargetType, GranteeType, NodeAccess, NodeAccessGrant } from "@crh/api";
 import type { Selectable } from "kysely";
-import type { SessionUser } from "../auth/sessions.ts";
+import { isAdmin, type SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import type { NodeAccessGrantsTable } from "../storage/schema.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
 import { userGroupIds } from "../users/shares.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 
 /**
@@ -44,7 +44,7 @@ async function grantedTargets(db: Db, userId: string): Promise<{ nodeIds: Set<st
 
 /** Every node the user can see: all of them for an administrator, otherwise the granted set. */
 export async function accessibleNodeIds(db: Db, user: SessionUser): Promise<string[]> {
-	if (user.kind === "admin") {
+	if (isAdmin(user)) {
 		return (await db.selectFrom("nodes").select("id").execute()).map((row) => row.id);
 	}
 	const { nodeIds, nodeGroupIds } = await grantedTargets(db, user.userId);
@@ -63,7 +63,7 @@ export async function accessibleNodeIds(db: Db, user: SessionUser): Promise<stri
 export async function nodeAccess(db: Db, user: SessionUser, nodeId: string): Promise<NodeAccess | undefined> {
 	const node = await db.selectFrom("nodes").select("id").where("id", "=", nodeId).executeTakeFirst();
 	if (!node) return undefined;
-	if (user.kind === "admin") return "admin";
+	if (isAdmin(user)) return "admin";
 	const { nodeIds, nodeGroupIds } = await grantedTargets(db, user.userId);
 	if (nodeIds.has(nodeId)) return "granted";
 	if (nodeGroupIds.size === 0) return undefined;

@@ -3,7 +3,7 @@ import { streamSSE } from "hono/streaming";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import type { SessionListScope, SessionListSubscriber } from "../agent/session-list.ts";
 import { sessionCapabilities } from "../agent/sharing.ts";
-import { type SessionUser, webSessionAlive } from "../auth/sessions.ts";
+import { isAdmin, type SessionUser, webSessionAlive } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import { type AppEnv, jsonError } from "./context.ts";
 import type { RequestDrain } from "./drain.ts";
@@ -129,7 +129,7 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 		if (scope !== undefined && !SESSION_SCOPES.has(scope)) {
 			return jsonError(c, 400, "scope must be mine, shared, visible or all");
 		}
-		if (scope === "all" && c.get("user").kind !== "admin") return jsonError(c, 403, "administrators only");
+		if (scope === "all" && !isAdmin(c.get("user"))) return jsonError(c, 403, "administrators only");
 		// A HEAD probe checks access without opening a stream: Hono serves HEAD with this GET handler and
 		// drops the body, so `streamSSE` here would register and hold a stream nobody reads.
 		if (c.req.method === "HEAD") return c.body(null, 200);

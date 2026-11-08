@@ -2,7 +2,7 @@ import type { Selectable } from "kysely";
 import { sql } from "kysely";
 import type { Db } from "../storage/db.ts";
 import type { SessionsTable } from "../storage/schema.ts";
-import { UserError } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
 import { sessionAncestors, sessionChain } from "./session-chain.ts";
 import type { CallTokens } from "./tokens.ts";
 

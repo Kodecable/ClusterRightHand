@@ -24,10 +24,9 @@ import {
 	validateCron,
 } from "../scheduler/store.ts";
 import type { Db } from "../storage/db.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
-import { errorText } from "../util/errors.ts";
+import { type CursorSpec, cursorRows, decodeCursor, encodeCursor, parseLimit } from "../util/cursor.ts";
+import { errorText, NotFoundError, UserError } from "../util/errors.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
-import { type CursorSpec, cursorRows, decodeCursor, encodeCursor, parseLimit } from "./cursor.ts";
 
 /** `GET /schedules/:id/runs` pages over `fire_time desc, id desc`. */
 const RUNS_CURSOR: CursorSpec = { columns: [{ name: "fire_time", type: "string" }], idType: "string" };

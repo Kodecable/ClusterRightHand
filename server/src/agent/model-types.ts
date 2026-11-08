@@ -12,7 +12,7 @@ import type {
 	ThinkingLevelLabels,
 } from "@crh/api";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
-import { UserError } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
 
 export type {
 	CustomApi,

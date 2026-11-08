@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { userActor } from "../audit/audit.ts";
+import { isAdmin } from "../auth/sessions.ts";
 import { createEnrollmentToken } from "../cluster/enrollment.ts";
 import { nodeGroupsForNodes, resolveNodeGroupIds, setNodeGroupsForNode } from "../cluster/node-groups.ts";
 import {
@@ -19,7 +20,7 @@ import { trustWarningsForRows } from "../cluster/trust-warnings.ts";
 import type { Db } from "../storage/db.ts";
 import type { AppOptions } from "./app.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
-import { adminOnly } from "./middleware.ts";
+import { requireAdmin } from "./middleware.ts";
 
 /** Expects requireUser to have run. */
 export function nodeRoutes(db: Db, options: AppOptions = {}) {
@@ -27,12 +28,6 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 
 	/** The caller's access to the node, or undefined when the node is hidden from them. */
 	const access = (c: { get(k: "user"): AppEnv["Variables"]["user"] }, id: string) => nodeAccess(db, c.get("user"), id);
-	/**
-	 * D108: only administrators manage nodes; a node they cannot see is still a 404, so callers check `access`
-	 * first. The access level adds nothing here: nodeAccess resolves administrators, and only them, to "admin".
-	 */
-	const canManage = (user: AppEnv["Variables"]["user"]) => user.kind === "admin";
-
 	const clockWarnMs = options.clockWarnMs ?? 60_000;
 	const crhsFingerprint = options.authorizationKey?.fingerprint;
 
@@ -56,7 +51,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const trustWarnings =
 			(await trustWarningsForRows(db, [row], new Map([[id, nodeGroups]]), { crhsFingerprint })).get(id) ?? [];
 		const node = live(toPublicNode(row, level, nodeGroups, trustWarnings));
-		if (!canManage(c.get("user"))) return c.json({ node });
+		if (!isAdmin(c.get("user"))) return c.json({ node });
 		return c.json({ node, ssh: (await sshNodeDetails(db, row)) ?? null });
 	});
 
@@ -69,7 +64,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		return c.json({ trust: trustView(row, options.cluster?.trustFresh(id) ?? false) });
 	});
 
-	app.post("/enrollment-tokens", adminOnly, async (c) => {
+	app.post("/enrollment-tokens", requireAdmin, async (c) => {
 		if (!options.serverFingerprint) return c.json({ error: "server fingerprint is not configured" }, 500);
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
@@ -91,7 +86,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	const manageable = async (c: Parameters<typeof access>[0], id: string) => {
 		const level = await access(c, id);
 		if (!level) return { error: { status: 404 as const, message: "no such node" } };
-		if (!canManage(c.get("user"))) return { error: { status: 403 as const, message: "administrators only" } };
+		if (!isAdmin(c.get("user"))) return { error: { status: 403 as const, message: "administrators only" } };
 		return { level };
 	};
 

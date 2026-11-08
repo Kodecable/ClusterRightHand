@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { sql } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
-import { UserError } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
 import { exhaustedLevel } from "./quota.ts";
 import type { RuntimeHost } from "./runtime-core.ts";
 import { loadConversation } from "./runtime-core.ts";

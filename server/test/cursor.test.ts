@@ -1,5 +1,6 @@
 import type { Kysely } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { Db } from "../src/storage/db.ts";
 import {
 	CursorError,
 	type CursorKey,
@@ -8,8 +9,7 @@ import {
 	descendingKeyset,
 	encodeCursor,
 	parseLimit,
-} from "../src/api/cursor.ts";
-import type { Db } from "../src/storage/db.ts";
+} from "../src/util/cursor.ts";
 import { openTestDb } from "./helpers/db.ts";
 
 const TEXT_CURSOR = { columns: [{ name: "created_at", type: "string" }], idType: "string" } as const;

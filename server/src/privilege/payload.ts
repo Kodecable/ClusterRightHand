@@ -10,8 +10,8 @@ import {
 	type TaskSpec,
 	taskSpecCodec,
 } from "@crh/protocol";
-import { isUuid } from "../cluster/names.ts";
 import type { Method } from "../policy/rules.ts";
+import { isUuid } from "../util/names.ts";
 
 /** SHA-256(CBOR(TaskSpec)): what an `exact` authorization commits to. */
 export function specSha256(spec: TaskSpec): Uint8Array {

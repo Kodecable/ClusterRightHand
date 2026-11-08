@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { userActor } from "../audit/audit.ts";
+import { isAdmin } from "../auth/sessions.ts";
 import {
 	createNodeGroup,
 	deleteNodeGroup,
@@ -12,7 +13,7 @@ import { visibleNodeIds } from "../cluster/nodes.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
-import { adminOnly } from "./middleware.ts";
+import { requireAdmin } from "./middleware.ts";
 
 /**
  * Node groups: administrators manage them, every signed-in user may list them (doc/access-control.md#用户模型).
@@ -24,14 +25,14 @@ export function nodeGroupRoutes(db: Db) {
 	app.get("/node-groups", async (c) => {
 		const user = c.get("user");
 		const groups = await listNodeGroups(db);
-		if (user.kind === "admin") return c.json({ groups });
+		if (isAdmin(user)) return c.json({ groups });
 		const visible = new Set(await visibleNodeIds(db, user));
 		return c.json({
 			groups: groups.map((group) => ({ ...group, memberIds: group.memberIds.filter((id) => visible.has(id)) })),
 		});
 	});
 
-	app.post("/node-groups", adminOnly, async (c) => {
+	app.post("/node-groups", requireAdmin, async (c) => {
 		const user = c.get("user");
 		const body = await readJsonObject(c);
 		const name = typeof body?.name === "string" ? body.name : "";
@@ -45,7 +46,7 @@ export function nodeGroupRoutes(db: Db) {
 		return c.json({ group }, 201);
 	});
 
-	app.patch("/node-groups/:id", adminOnly, async (c) => {
+	app.patch("/node-groups/:id", requireAdmin, async (c) => {
 		const user = c.get("user");
 		const id = c.req.param("id");
 		const before = await getNodeGroup(db, id);
@@ -62,7 +63,7 @@ export function nodeGroupRoutes(db: Db) {
 		return c.json({ group });
 	});
 
-	app.delete("/node-groups/:id", adminOnly, async (c) => {
+	app.delete("/node-groups/:id", requireAdmin, async (c) => {
 		const user = c.get("user");
 		const id = c.req.param("id");
 		const before = await getNodeGroup(db, id);
@@ -77,7 +78,7 @@ export function nodeGroupRoutes(db: Db) {
 		return c.json({ ok: true });
 	});
 
-	app.put("/node-groups/:id/members", adminOnly, async (c) => {
+	app.put("/node-groups/:id/members", requireAdmin, async (c) => {
 		const user = c.get("user");
 		const id = c.req.param("id");
 		const before = await getNodeGroup(db, id);

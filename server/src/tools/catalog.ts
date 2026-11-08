@@ -1,6 +1,6 @@
 import type { TaskSpec } from "@crh/protocol";
-import { sql } from "kysely";
 import * as z from "zod/v4";
+import { sessionDescendants } from "../agent/session-chain.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import { type Actor, type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
 import { listNodesForUser, type PublicNode } from "../cluster/nodes.ts";
@@ -8,7 +8,7 @@ import type { TaskGroups } from "../cluster/task-groups.ts";
 import { resolveTargets } from "../cluster/task-groups.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
-import { UserError } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
 import { nodeInfoFields, readNotes, readNotesBatch } from "./node-info.ts";
 import { jsonResult, type ToolOutput, type ToolResult } from "./render.ts";
 import {
@@ -554,18 +554,6 @@ const taskCancel = define({
 	},
 });
 
-/** The sessions below `sessionId`; their tasks are the only other ones its tools may act on. */
-function descendantsOf(sessionId: string) {
-	return sql<{ id: string }>`
-		with recursive subtree(id) as (
-			select id from sessions where parent_session_id = ${sessionId}
-			union all
-			select child.id from sessions as child join subtree on child.parent_session_id = subtree.id
-		)
-		select id from subtree
-	`;
-}
-
 /**
  * Whether the caller may act on work started for `actorType` / `actorId` (doc/agent-runtime.md#cluster-工具,
  * doc/access-control.md#操作者): its own session or token, or a session in its subtree. Anything else, even
@@ -577,8 +565,8 @@ async function mayActFor(ctx: ToolContext, actorType: string, actorId: string): 
 	// Only a session has a subtree; an API token's own tasks are the only ones it may touch.
 	if (ctx.actor.type !== "session" && ctx.actor.type !== "subagent") return false;
 	if (actorType !== "session" && actorType !== "subagent") return false;
-	const { rows } = await descendantsOf(ctx.actor.id).execute(ctx.db);
-	return rows.some((row) => row.id === actorId);
+	const descendants = await sessionDescendants(ctx.db, ctx.actor.id);
+	return descendants.includes(actorId);
 }
 
 /**

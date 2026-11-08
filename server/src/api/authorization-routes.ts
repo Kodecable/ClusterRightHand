@@ -15,8 +15,17 @@ import {
 	type SubmittedAuthorization,
 } from "../privilege/submission.ts";
 import type { Db } from "../storage/db.ts";
+import { usernamesById } from "../users/service.ts";
+import {
+	type CursorSpec,
+	cursorRows,
+	decodeCursor,
+	descendingKeyset,
+	encodeCursor,
+	parseLimit,
+} from "../util/cursor.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
-import { type CursorSpec, cursorRows, decodeCursor, descendingKeyset, encodeCursor, parseLimit } from "./cursor.ts";
+import { requireAdmin } from "./middleware.ts";
 
 /** `GET /authorizations` pages over `created_at desc, id desc` (doc/webui.md#api-约定). */
 const AUTHORIZATIONS_CURSOR: CursorSpec = { columns: [{ name: "created_at", type: "string" }], idType: "string" };
@@ -57,10 +66,10 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 	 * The organization's authorizations; administrators only (doc/access-control.md#审计).
 	 * Keyset paginated: the old hard cap of 200 rows is gone (doc/webui.md#api-约定).
 	 */
-	app.get("/authorizations", async (c) => {
+	app.get("/authorizations", requireAdmin, async (c) => {
 		const user = c.get("user");
 		const orgId = await orgOf(db, user.userId);
-		if (user.kind !== "admin" || orgId === undefined) {
+		if (orgId === undefined) {
 			return jsonError(c, 403, "only administrators can list authorizations");
 		}
 		const limit = parseLimit(c.req.query("limit"));
@@ -77,12 +86,7 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 		const issuerIds = [
 			...new Set(page.rows.flatMap((row) => (row.issuer_user_id === null ? [] : [row.issuer_user_id]))),
 		];
-		const users = new Map(
-			(issuerIds.length === 0
-				? []
-				: await db.selectFrom("users").select(["id", "username"]).where("id", "in", issuerIds).execute()
-			).map((row) => [row.id, row.username]),
-		);
+		const users = await usernamesById(db, issuerIds);
 		const items: AuthorizationSummary[] = page.rows.map((row) => {
 			let decoded: ReturnType<typeof decodedPayloadOf> | null = null;
 			try {

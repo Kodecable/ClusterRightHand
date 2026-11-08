@@ -4,6 +4,7 @@ import { hashPassword } from "../auth/password.ts";
 import type { Db } from "../storage/db.ts";
 import { isPostgres } from "../storage/dialect.ts";
 import type { UsersTable } from "../storage/schema.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 
 export type { UserKind, UserStatus };
@@ -13,20 +14,6 @@ export type PublicUser = User;
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 export const MIN_PASSWORD_LENGTH = 8;
-
-/**
- * An expected refusal, shown to the caller as a tool error (doc/agent-runtime.md#错误结果). `code` is the
- * stable snake_case error code tools use; without one the adapter falls back to `invalid_argument`.
- */
-export class UserError extends Error {
-	readonly code: string | undefined;
-
-	constructor(message: string, code?: string) {
-		super(message);
-		this.code = code;
-	}
-}
-export class NotFoundError extends UserError {}
 
 export function toPublicUser(row: Omit<Selectable<UsersTable>, "password_hash">): PublicUser {
 	return {
@@ -38,6 +25,16 @@ export function toPublicUser(row: Omit<Selectable<UsersTable>, "password_hash">)
 		status: row.status,
 		createdAt: row.created_at,
 	};
+}
+
+/**
+ * The usernames of the given users, keyed by id: a page names only the users it shows, not the whole
+ * organization. An empty list skips the query.
+ */
+export async function usernamesById(db: Db, ids: readonly string[]): Promise<Map<string, string>> {
+	if (ids.length === 0) return new Map();
+	const rows = await db.selectFrom("users").select(["id", "username"]).where("id", "in", ids).execute();
+	return new Map(rows.map((row) => [row.id, row.username]));
 }
 
 /** v1 has exactly one organization; it is created on first use. */

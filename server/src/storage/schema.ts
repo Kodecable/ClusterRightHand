@@ -1,4 +1,19 @@
+import type {
+	BatchOutputMode,
+	ModelPresetKind,
+	OutputMode,
+	ScheduleRunStatus,
+	TaskGroupState,
+	TaskState,
+} from "@crh/api";
 import type { ColumnType, Generated } from "kysely";
+
+/**
+ * The task, output and schedule unions describe the API as well as the columns. They are imported for the
+ * table interfaces below and re-exported so callers that know a column's type through the schema keep their
+ * existing import path.
+ */
+export type { BatchOutputMode, ModelPresetKind, OutputMode, ScheduleRunStatus, TaskGroupState, TaskState };
 
 /** Timestamps are stored as ISO 8601 UTC strings on both dialects; see doc/data-model.md. */
 type CreatedAt = ColumnType<string, string, never>;
@@ -156,25 +171,8 @@ export interface EnrollmentTokensTable {
 	created_at: CreatedAt;
 }
 
-export type TaskState =
-	| "awaiting_approval"
-	/** Policy passed, but a privileged task still needs a signature (doc/privilege.md). */
-	| "awaiting_authorization"
-	| "denied"
-	| "dispatched"
-	| "running"
-	| "exited"
-	| "failed"
-	| "rejected"
-	| "unknown";
-
 /** Who must handle a waiting approval: an agent session, or the user (the task's on_behalf user). */
 export type ApprovalHandlerType = "agent" | "user";
-
-/** How much output crhs keeps for a task (doc/execution-plane.md#输出). */
-export type OutputMode = "full" | "text" | "status" | "head";
-/** A task group is a batch, so it chooses between the two batch modes only. */
-export type BatchOutputMode = "status" | "text" | "head";
 
 /** Columns shared by tasks and task groups for the rule chain and approval (doc/access-control.md#审批). */
 interface ApprovalColumns {
@@ -275,15 +273,6 @@ export interface TaskGroupsTable extends ApprovalColumns {
 	timeout_ms: number | null;
 }
 
-export type TaskGroupState =
-	| "awaiting_approval"
-	| "awaiting_authorization"
-	| "running"
-	| "finished"
-	| "interrupted"
-	| "rejected"
-	| "cancelled";
-
 export interface AuthorizationsTable {
 	/** Hex SHA-256 of the payload bytes. */
 	id: string;
@@ -363,9 +352,6 @@ export interface AuditEventsTable {
 	/** Canonical JSON. */
 	detail: string;
 }
-
-/** One model preset kind (D116, doc/agent-runtime.md#模型预设). */
-export type ModelPresetKind = "session" | "review" | "title";
 
 export interface ModelPresetsTable {
 	org_id: string;
@@ -474,8 +460,6 @@ export interface SchedulesTable {
 	created_at: CreatedAt;
 	updated_at: string;
 }
-
-export type ScheduleRunStatus = "pending" | "running" | "succeeded" | "failed" | "preempted";
 
 export interface ScheduleRunsTable {
 	id: string;

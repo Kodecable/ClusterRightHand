@@ -1,4 +1,4 @@
-import type { TaskGroupApprovalRecord, TaskGroupView } from "@crh/api";
+import type { RefMap, TaskGroupApprovalRecord, TaskGroupView } from "@crh/api";
 import { type TaskSpec, taskSpecToJson } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import type { Audit, AuditInput } from "../audit/audit.ts";
@@ -8,9 +8,11 @@ import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import type { BatchOutputMode, TaskGroupsTable } from "../storage/schema.ts";
-import { defaultOrgId, UserError } from "../users/service.ts";
+import { defaultOrgId } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
 import { derivedId, newId } from "../util/id.ts";
 import { KeyedQueue } from "../util/keyed-queue.ts";
+import { ALL_TARGET, nameKey } from "../util/names.ts";
 import {
 	agentRouting,
 	agentRoutingAudit,
@@ -23,7 +25,6 @@ import {
 } from "./approval.ts";
 import { checkedOutputLimits } from "./batch-output.ts";
 import type { Cluster } from "./cluster.ts";
-import { ALL_TARGET, nameKey } from "./names.ts";
 import { listNodesForUser } from "./nodes.ts";
 import { operationOfJson, specFromRow, summarize } from "./spec.ts";
 import { pendingInputColumn, pendingInputOf } from "./task-start.ts";
@@ -795,13 +796,56 @@ export class TaskGroups {
 	async get(id: string): Promise<TaskGroupView | undefined> {
 		const row = await this.#row(id);
 		if (!row) return undefined;
-		const tasks = await this.#cluster.groupTasks(id);
+		return this.#view(row, await this.#cluster.groupTasks(id));
+	}
+
+	/**
+	 * Several groups in a few queries, in the input order; an id with no row is omitted, like `get` returning
+	 * undefined. A caller showing a list must not read the rows, members and reference names per group.
+	 */
+	async getMany(ids: readonly string[]): Promise<TaskGroupView[]> {
+		if (ids.length === 0) return [];
+		const unique = [...new Set(ids)];
+		const rows = await this.#db.selectFrom("task_groups").selectAll().where("id", "in", unique).execute();
+		if (rows.length === 0) return [];
+		const tasksByGroup = await this.#cluster.groupTasksMany(unique);
+		const targetsByOrg = new Map<string, Set<string>>();
+		for (const row of rows) {
+			const targets = targetsByOrg.get(row.org_id) ?? new Set<string>();
+			for (const target of JSON.parse(row.targets) as string[]) targets.add(target);
+			targetsByOrg.set(row.org_id, targets);
+		}
+		// All groups of one list share an organization; the reference names are resolved once per organization.
+		const refsByOrg = new Map<string, RefMap>(
+			await Promise.all(
+				[...targetsByOrg].map(
+					async ([orgId, targets]) => [orgId, await targetRefs(this.#db, orgId, [...targets])] as const,
+				),
+			),
+		);
+		const byId = new Map(rows.map((row) => [row.id, row] as const));
+		const out: TaskGroupView[] = [];
+		for (const id of ids) {
+			const row = byId.get(id);
+			if (!row) continue;
+			const targets = JSON.parse(row.targets) as string[];
+			const allRefs: RefMap = refsByOrg.get(row.org_id) ?? {};
+			const refs: RefMap = {};
+			// targetRefs stores only UUID references; `_all` and historical entries stay absent, as in `get`.
+			for (const target of targets) if (Object.hasOwn(allRefs, target)) refs[target] = allRefs[target] ?? null;
+			out.push(await this.#view(row, tasksByGroup.get(id) ?? [], refs));
+		}
+		return out;
+	}
+
+	/** One group's view; `refs` is passed when a caller resolved several groups' targets in one query. */
+	async #view(row: Selectable<TaskGroupsTable>, tasks: TaskView[], refs?: RefMap): Promise<TaskGroupView> {
 		const targets = JSON.parse(row.targets) as string[];
 		return {
 			id: row.id,
 			state: row.state,
 			targets,
-			refs: await targetRefs(this.#db, row.org_id, targets),
+			refs: refs ?? (await targetRefs(this.#db, row.org_id, targets)),
 			nodeIds: JSON.parse(row.node_ids) as string[],
 			parallel: row.parallel,
 			failFast: row.fail_fast === 1,

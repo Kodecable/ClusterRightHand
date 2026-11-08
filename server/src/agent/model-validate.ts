@@ -5,7 +5,7 @@ import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { CompatSchemasByApi } from "@earendil-works/pi-ai/providers/compat-schema";
 import { Value } from "typebox/value";
 import type { ModelProvidersTable } from "../storage/schema.ts";
-import { UserError } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
 import {
 	type CustomApi,
 	type CustomModel,
@@ -27,7 +27,11 @@ export function builtinProviderIds(): string[] {
 		.sort();
 }
 
-export interface ModelProviderInput {
+/**
+ * The raw body of `PUT /api/model-providers/:providerId` before validation: fields are `unknown`, and the
+ * route supplies `providerId` rather than the JSON body. `ModelProviderInput` is the trusted wire type.
+ */
+export interface ModelProviderFields {
 	kind: ModelProvidersTable["kind"];
 	/** builtin: pi-ai's provider id (also the provider id references use); custom: a new id. */
 	providerId: string;
@@ -277,7 +281,7 @@ function validateModel(raw: unknown, index: number): CustomModel {
 	};
 }
 
-export function validate(input: ModelProviderInput): ValidProvider {
+export function validate(input: ModelProviderFields): ValidProvider {
 	if (!PROVIDER_ID.test(input.providerId)) throw new UserError("provider id must be lowercase letters, digits and -");
 	if (input.kind !== "builtin" && input.kind !== "custom") throw new UserError("kind must be builtin or custom");
 	if (input.name !== undefined && typeof input.name !== "string") throw new UserError("name must be a string");

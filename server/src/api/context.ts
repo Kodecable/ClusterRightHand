@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import type { Audit } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
-import { UserError } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
 
 export interface AppEnv {
 	Variables: { user: SessionUser; audit: Audit };

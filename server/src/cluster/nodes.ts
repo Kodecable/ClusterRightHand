@@ -1,12 +1,12 @@
 import type { PublicNode } from "@crh/api";
 import { factsFromJson, type JsonFacts } from "@crh/protocol";
 import type { Selectable } from "kysely";
-import type { SessionUser } from "../auth/sessions.ts";
+import { isAdmin, type SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import type { NodesTable } from "../storage/schema.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
+import { assertNameAvailable, nameKey, validateName } from "../util/names.ts";
 import { keyFingerprint } from "./identity.ts";
-import { assertNameAvailable, nameKey, validateName } from "./names.ts";
 import { accessibleNodeIds, deleteGrantsForNode, type NodeAccess } from "./node-access.ts";
 import { type NodeGroupRef, nodeGroupsForNodes } from "./node-groups.ts";
 import { type TrustWarning, trustWarningsForRows } from "./trust-warnings.ts";
@@ -95,12 +95,7 @@ export async function listNodesForUser(
 	// One context for the whole listing: the node groups and registered credentials are loaded once.
 	const warnings = await trustWarningsForRows(db, rows, nodeGroups, options);
 	return rows.map((row) =>
-		toPublicNode(
-			row,
-			user.kind === "admin" ? "admin" : "granted",
-			nodeGroups.get(row.id) ?? [],
-			warnings.get(row.id) ?? [],
-		),
+		toPublicNode(row, isAdmin(user) ? "admin" : "granted", nodeGroups.get(row.id) ?? [], warnings.get(row.id) ?? []),
 	);
 }
 

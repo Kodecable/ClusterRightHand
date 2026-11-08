@@ -22,14 +22,15 @@ import {
 	unshareSession,
 } from "../agent/sharing.ts";
 import { userActor } from "../audit/audit.ts";
-import type { SessionUser } from "../auth/sessions.ts";
+import { isAdmin, type SessionUser } from "../auth/sessions.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { parseRulePreset } from "../policy/store.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
+import { usernamesById } from "../users/service.ts";
+import { type CursorSpec, cursorRows, decodeCursor, parseLimit } from "../util/cursor.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
-import { type CursorSpec, cursorRows, decodeCursor, parseLimit } from "./cursor.ts";
 import type { SessionStreams } from "./session-events-routes.ts";
 
 export interface SessionRoutesOptions {
@@ -99,27 +100,43 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	/** The session and its capabilities for the caller; undefined when they cannot see it. */
 	const visible = (c: Context<AppEnv>, id: string): Promise<VisibleSession | undefined> =>
 		visibleSession(db, runtime, c.get("user"), id);
-	const usernames = async (ids: string[]): Promise<Map<string, string>> =>
-		new Map(
-			ids.length === 0
-				? []
-				: (await db.selectFrom("users").select(["id", "username"]).where("id", "in", ids).execute()).map((u) => [
-						u.id,
-						u.username,
-					]),
-		);
+	/** A capability that gates a session route, and the 403 each one answers with. */
+	const CAPABILITY_DENIED = {
+		chat: "chat access is required",
+		manageShares: "the owner or an administrator",
+		createShares: "only the owner can share this session",
+		configure: "the owner only",
+	} as const;
+	/**
+	 * The session and the caller's capabilities, or the response the route returns instead: the visibility
+	 * 404, then the capability's 403. `"owner"` is the owner-only check for the paths no capability names
+	 * exactly (the root quota decision), answered "the owner only" like `configure`.
+	 */
+	const requireSession = async (
+		c: Context<AppEnv>,
+		id: string,
+		capability?: keyof typeof CAPABILITY_DENIED | "owner",
+	): Promise<VisibleSession | Response> => {
+		const v = await visible(c, id);
+		if (!v) return jsonError(c, 404, "no such session");
+		if (capability === undefined) return v;
+		if (capability === "owner") {
+			return v.session.ownerUserId === c.get("user").userId ? v : jsonError(c, 403, "the owner only");
+		}
+		return v.capabilities[capability] ? v : jsonError(c, 403, CAPABILITY_DENIED[capability]);
+	};
 	const decorate = async (c: Context<AppEnv>, views: SessionView[]): Promise<ApiSessionView[]> => {
 		const user = c.get("user");
-		const names = await usernames([...new Set(views.map((v) => v.ownerUserId))]);
+		const names = await usernamesById(db, [...new Set(views.map((v) => v.ownerUserId))]);
 		const shared = await sharedSessionAccess(db, user.userId);
 		return views.map((v) => {
 			const isOwner = v.ownerUserId === user.userId;
-			const isAdmin = user.kind === "admin";
+			const admin = isAdmin(user);
 			const share = shared.get(v.id);
 			return {
 				...v,
-				relationship: isOwner ? ("owner" as const) : isAdmin ? ("admin" as const) : ("shared" as const),
-				capabilities: capabilitiesFor(isOwner, isAdmin, share),
+				relationship: isOwner ? ("owner" as const) : admin ? ("admin" as const) : ("shared" as const),
+				capabilities: capabilitiesFor(isOwner, admin, share),
 				ownerUsername: names.get(v.ownerUserId) ?? null,
 			};
 		});
@@ -135,7 +152,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		const user = c.get("user");
 		const scope = c.req.query("scope") ?? "mine";
 		if (!SESSION_SCOPES.has(scope)) return jsonError(c, 400, "scope must be mine, shared, visible or all");
-		if (scope === "all" && user.kind !== "admin") return jsonError(c, 403, "administrators only");
+		if (scope === "all" && !isAdmin(user)) return jsonError(c, 403, "administrators only");
 		const limit = parseLimit(c.req.query("limit"));
 		const rawCursor = c.req.query("cursor");
 		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, SESSION_CURSOR);
@@ -191,8 +208,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	});
 
 	app.get("/sessions/:id", async (c) => {
-		const v = await visible(c, c.req.param("id"));
-		if (!v) return jsonError(c, 404, "no such session");
+		const v = await requireSession(c, c.req.param("id"));
+		if (v instanceof Response) return v;
 		// The state is a cache of the run and its waits; refresh it from durable and the task table before showing it.
 		await runtime.refreshState(v.session.id);
 		const session = (await runtime.getSession(v.session.id)) ?? v.session;
@@ -215,8 +232,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	 * its tree root's `upsert` on `/api/sessions/stream`, which every session in the tree republishes.
 	 */
 	app.get("/sessions/:id/children", async (c) => {
-		const v = await visible(c, c.req.param("id"));
-		if (!v) return jsonError(c, 404, "no such session");
+		const v = await requireSession(c, c.req.param("id"));
+		if (v instanceof Response) return v;
 		const limit = parseLimit(c.req.query("limit"));
 		const rawCursor = c.req.query("cursor");
 		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, SESSION_CURSOR);
@@ -237,8 +254,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	 * endpoint; visibility is `GET /sessions/:id`'s.
 	 */
 	app.get("/sessions/:id/children/summary", async (c) => {
-		const v = await visible(c, c.req.param("id"));
-		if (!v) return jsonError(c, 404, "no such session");
+		const v = await requireSession(c, c.req.param("id"));
+		if (v instanceof Response) return v;
 		const rows = await db
 			.selectFrom("sessions")
 			.select(["state"])
@@ -257,16 +274,14 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	});
 
 	app.get("/sessions/:id/shares", async (c) => {
-		const v = await visible(c, c.req.param("id"));
-		if (!v) return jsonError(c, 404, "no such session");
-		if (!v.capabilities.manageShares) return jsonError(c, 403, "the owner or an administrator");
+		const v = await requireSession(c, c.req.param("id"), "manageShares");
+		if (v instanceof Response) return v;
 		return c.json({ shares: await listSessionShares(db, v.session.id) });
 	});
 
 	app.put("/sessions/:id/shares", async (c) => {
-		const v = await visible(c, c.req.param("id"));
-		if (!v) return jsonError(c, 404, "no such session");
-		if (!v.capabilities.createShares) return jsonError(c, 403, "only the owner can share this session");
+		const v = await requireSession(c, c.req.param("id"), "createShares");
+		if (v instanceof Response) return v;
 		const body = await readJsonObject(c);
 		if (body?.granteeType !== "user" && body?.granteeType !== "user_group")
 			return jsonError(c, 400, "granteeType must be user or user_group");
@@ -298,9 +313,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	});
 
 	app.delete("/sessions/:id/shares/:shareId", async (c) => {
-		const v = await visible(c, c.req.param("id"));
-		if (!v) return jsonError(c, 404, "no such session");
-		if (!v.capabilities.manageShares) return jsonError(c, 403, "the owner or an administrator");
+		const v = await requireSession(c, c.req.param("id"), "manageShares");
+		if (v instanceof Response) return v;
 		const share = (await listSessionShares(db, v.session.id)).find((s) => s.id === c.req.param("shareId"));
 		// Who the share reached, captured before the row goes: losing it may remove the session from their list.
 		const audience = share
@@ -324,9 +338,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	});
 
 	app.patch("/sessions/:id", async (c) => {
-		const v = await visible(c, c.req.param("id"));
-		if (!v) return jsonError(c, 404, "no such session");
-		if (!v.capabilities.configure) return jsonError(c, 403, "the owner only");
+		const v = await requireSession(c, c.req.param("id"), "configure");
+		if (v instanceof Response) return v;
 		const s = v.session;
 		const body = (await readJsonObject(c)) ?? {};
 		const rulePreset = body.rulePreset === undefined ? undefined : parseRulePreset(body.rulePreset);
@@ -361,9 +374,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 
 	/** `{ text, requestId }`: requestId makes a retried send land once. The session acts for its owner. */
 	app.post("/sessions/:id/messages", async (c) => {
-		const v = await visible(c, c.req.param("id"));
-		if (!v) return jsonError(c, 404, "no such session");
-		if (!v.capabilities.chat) return jsonError(c, 403, "chat access is required");
+		const v = await requireSession(c, c.req.param("id"), "chat");
+		if (v instanceof Response) return v;
 		const body = await readJsonObject(c);
 		const text = typeof body?.text === "string" ? body.text.trim() : "";
 		const requestId = typeof body?.requestId === "string" && body.requestId ? body.requestId.slice(0, 200) : undefined;
@@ -375,9 +387,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 
 	/** `{ instructions? }`: a manual compaction; the summary is made in the background (doc/agent-runtime.md#会话). */
 	app.post("/sessions/:id/compact", async (c) => {
-		const v = await visible(c, c.req.param("id"));
-		if (!v) return jsonError(c, 404, "no such session");
-		if (!v.capabilities.chat) return jsonError(c, 403, "chat access is required");
+		const v = await requireSession(c, c.req.param("id"), "chat");
+		if (v instanceof Response) return v;
 		const body = await readJsonObject(c);
 		const trimmed = typeof body?.instructions === "string" ? body.instructions.trim() : "";
 		if (trimmed.length > 2000) return jsonError(c, 400, "instructions must be at most 2000 characters");
@@ -391,10 +402,9 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	 * (doc/agent-runtime.md#配额). Only the owner decides, like the approvals on the approvals page.
 	 */
 	app.post("/sessions/:id/quota", async (c) => {
-		const v = await visible(c, c.req.param("id"));
-		if (!v) return jsonError(c, 404, "no such session");
+		const v = await requireSession(c, c.req.param("id"), "owner");
+		if (v instanceof Response) return v;
 		const user = c.get("user");
-		if (v.session.ownerUserId !== user.userId) return jsonError(c, 403, "the owner only");
 		const body = await readJsonObject(c);
 		if (body?.decision !== "approve" && body?.decision !== "deny") {
 			return jsonError(c, 400, 'decision must be "approve" or "deny"');
@@ -434,9 +444,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	});
 
 	app.post("/sessions/:id/abort", async (c) => {
-		const v = await visible(c, c.req.param("id"));
-		if (!v) return jsonError(c, 404, "no such session");
-		if (!v.capabilities.chat) return jsonError(c, 403, "chat access is required");
+		const v = await requireSession(c, c.req.param("id"), "chat");
+		if (v instanceof Response) return v;
 		await runtime.abort(v.session.id, c.get("user"));
 		return c.json({ ok: true });
 	});
@@ -448,8 +457,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	 * same as for `/events`.
 	 */
 	app.get("/sessions/:id/entries", async (c) => {
-		const v = await visible(c, c.req.param("id"));
-		if (!v) return jsonError(c, 404, "no such session");
+		const v = await requireSession(c, c.req.param("id"));
+		if (v instanceof Response) return v;
 		const limit = parseLimit(c.req.query("limit"), DEFAULT_HISTORY);
 		const before = c.req.query("before");
 		const beforeId = before === undefined ? undefined : Number(decodeCursor(before, HISTORY_CURSOR).id);

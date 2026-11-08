@@ -3,9 +3,9 @@ import type { Selectable } from "kysely";
 import type { Audit } from "../audit/audit.ts";
 import type { Db } from "../storage/db.ts";
 import type { NodesTable } from "../storage/schema.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
-import { availableGeneratedName, nameKey } from "./names.ts";
+import { availableGeneratedName, nameKey } from "../util/names.ts";
 
 export class EnrollmentError extends UserError {}
 

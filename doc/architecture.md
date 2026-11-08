@@ -27,6 +27,7 @@
 - **Cluster API 是唯一的执行入口。** WebUI 里的手动操作、Agent 工具调用、MCP 调用、计划任务，最终都调用 Cluster API 创建任务。策略检查、审批、授权签发和审计全部在 Cluster 核心中完成，调用方无法绕过。
 - **执行平面不感知 agent。** 客户端只认识任务 id；任务的"来源"（哪个会话、哪个用户、哪个计划任务）只记录在服务端。
 - **Agent 层可替换。** pi-durable 隔离在 `AgentRuntime` 接口之后；Cluster 核心和门面层不直接依赖 pi 的任何类型。
+- **依赖方向向下。** `util/` 不依赖 `api/`、`agent/` 或 `cluster/`；policy 和 cluster 通过 `util/` 使用名称、Shell 引号、游标与错误类型，不为了一个工具反向依赖上层模块。
 
 ### 组件职责
 
@@ -69,7 +70,8 @@ ClusterRightHand/
 │   ├── src/agent/          AgentRuntime 接口与 durable 实现、cluster 工具
 │   ├── src/storage/        Kysely 封装（含 node:sqlite 适配）、迁移、durable SqlStorage
 │   ├── src/api/            WebUI API、MCP 门面
-│   └── src/scheduler/
+│   ├── src/scheduler/
+│   └── src/util/           通用工具：名称、Shell 引号、游标、错误（不依赖 agent/cluster）
 ├── web/                @crh/web：WebUI（Vite + React）
 ├── client/             Go 模块 github.com/Kodecable/ClusterRightHand/client
 │   ├── cmd/crha/           单一二进制（cobra）

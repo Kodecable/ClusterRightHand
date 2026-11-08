@@ -1,5 +1,5 @@
 import type { Audit } from "../audit/audit.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import type { ClusterTool, ToolContext } from "./catalog.ts";
 import { errorResult, type ToolResult } from "./render.ts";
 

@@ -23,7 +23,7 @@ import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import { secretAad } from "../keys/export.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
-import { UserError } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
 import { customProvider, type ProviderSessionResolver, withKey } from "./custom-provider.ts";
 import { type CompleteMeter, meteredModels } from "./metering.ts";
 import { parseJson } from "./model-providers.ts";
@@ -53,7 +53,7 @@ export {
 	type ThinkingLevelLabels,
 	thinkingLevelOf,
 } from "./model-types.ts";
-export { builtinProviderIds, type ModelProviderInput } from "./model-validate.ts";
+export { builtinProviderIds, type ModelProviderFields } from "./model-validate.ts";
 
 /**
  * The model registry for the agent runtime, from the configured providers. Rebuilt when an administrator

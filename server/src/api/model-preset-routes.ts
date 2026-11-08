@@ -3,9 +3,9 @@ import { isModelPresetKind } from "../agent/model-presets.ts";
 import { type ModelConfig, type ModelRef, parseModelRef } from "../agent/models.ts";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import { userActor } from "../audit/audit.ts";
-import { UserError } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
-import { adminOnly } from "./middleware.ts";
+import { requireAdmin } from "./middleware.ts";
 
 export interface ModelPresetRoutesOptions {
 	runtime: AgentRuntime;
@@ -18,7 +18,7 @@ export function modelPresetRoutes(options: ModelPresetRoutesOptions) {
 	const app = new Hono<AppEnv>();
 
 	/** All three presets with their fixed default prompts and protocol texts (administrators only). */
-	app.get("/model-presets", adminOnly, async (c) => {
+	app.get("/model-presets", requireAdmin, async (c) => {
 		return c.json({ presets: runtime.modelPresets.list() });
 	});
 
@@ -27,7 +27,7 @@ export function modelPresetRoutes(options: ModelPresetRoutesOptions) {
 	 * clears. The session preset never chooses a model; review and title models are resolved with their
 	 * thinking level, which belongs in the model ref.
 	 */
-	app.put("/model-presets/:kind", adminOnly, async (c) => {
+	app.put("/model-presets/:kind", requireAdmin, async (c) => {
 		const kind = c.req.param("kind");
 		if (!isModelPresetKind(kind)) return jsonError(c, 400, "kind must be session, review or title");
 		const body = await readJsonObject(c);

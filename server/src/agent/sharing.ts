@@ -1,10 +1,11 @@
 import type { SessionCapabilities, SessionRelationship, SessionShare, SessionShareAccess } from "@crh/api";
 import type { Selectable } from "kysely";
-import type { SessionUser } from "../auth/sessions.ts";
+import { isAdmin, type SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import type { SharesTable } from "../storage/schema.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
+import { usernamesById } from "../users/service.ts";
 import { stronger, userGroupIds } from "../users/shares.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 import { sessionAncestors } from "./session-chain.ts";
 
@@ -106,12 +107,12 @@ export async function sessionCapabilities(
 		.executeTakeFirst();
 	if (!row) return undefined;
 	const isOwner = row.owner_user_id === user.userId;
-	const isAdmin = user.kind === "admin";
+	const admin = isAdmin(user);
 	const share = isOwner ? undefined : await shareAccessFor(db, await sharedSessionAccess(db, user.userId), sessionId);
-	if (!isOwner && !isAdmin && !share) return undefined;
+	if (!isOwner && !admin && !share) return undefined;
 	return {
-		relationship: isOwner ? "owner" : isAdmin ? "admin" : "shared",
-		capabilities: capabilitiesFor(isOwner, isAdmin, share),
+		relationship: isOwner ? "owner" : admin ? "admin" : "shared",
+		capabilities: capabilitiesFor(isOwner, admin, share),
 		shared: share !== undefined,
 	};
 }
@@ -129,15 +130,7 @@ export async function listSessionShares(db: Db, sessionId: string): Promise<Sess
 	// Only the grantees of these shares are named, not every user and group in the organization.
 	const userIds = [...new Set(rows.filter((r) => r.grantee_type === "user").map((r) => r.grantee_id))];
 	const groupIds = [...new Set(rows.filter((r) => r.grantee_type !== "user").map((r) => r.grantee_id))];
-	const users =
-		userIds.length === 0
-			? new Map<string, string>()
-			: new Map(
-					(await db.selectFrom("users").select(["id", "username"]).where("id", "in", userIds).execute()).map((u) => [
-						u.id,
-						u.username,
-					]),
-				);
+	const users = await usernamesById(db, userIds);
 	const groups =
 		groupIds.length === 0
 			? new Map<string, string>()

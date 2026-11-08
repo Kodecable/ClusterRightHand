@@ -3,9 +3,10 @@ import ssh2 from "ssh2";
 import { secretAad } from "../../keys/export.ts";
 import type { MasterKey } from "../../keys/master-key.ts";
 import type { Db } from "../../storage/db.ts";
-import { defaultOrgId, NotFoundError, UserError } from "../../users/service.ts";
+import { defaultOrgId } from "../../users/service.ts";
+import { NotFoundError, UserError } from "../../util/errors.ts";
 import { newId } from "../../util/id.ts";
-import { assertNameAvailable, availableGeneratedName, nameKey, validateName } from "../names.ts";
+import { assertNameAvailable, availableGeneratedName, nameKey, validateName } from "../../util/names.ts";
 import type { NodeRow } from "../nodes.ts";
 import type { SshHop, SshRoute } from "./connection.ts";
 

@@ -1,12 +1,9 @@
-import type { SessionView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import { FormDialog } from "@/components/dialogs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { parseQuotaInput, type QuotaError } from "@/lib/quota";
-import { usePatchSession } from "./api";
 
 /**
  * The budget field, shared by the session footer (patches the session) and the draft page (local state):
@@ -80,38 +77,5 @@ export function BudgetDialog({
 				onChange={(event) => setText(event.target.value)}
 			/>
 		</FormDialog>
-	);
-}
-
-/** The owner's budget dialog for an existing session. */
-export function QuotaDialog({
-	session,
-	open,
-	onOpenChange,
-}: {
-	session: SessionView;
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-}) {
-	const { t } = useLingui();
-	const patch = usePatchSession(session.id);
-	return (
-		<BudgetDialog
-			open={open}
-			onOpenChange={onOpenChange}
-			value={session.budgetRemaining}
-			busy={patch.isPending}
-			onSave={(budgetRemaining) => {
-				patch.mutate(
-					{ budgetRemaining },
-					{
-						onSuccess: () => {
-							toast.success(t`Quota saved.`);
-							onOpenChange(false);
-						},
-					},
-				);
-			}}
-		/>
 	);
 }

@@ -15,7 +15,7 @@ import {
 	ruleMatches,
 	rulePresetRuleSet,
 } from "../src/policy/rules.ts";
-import { UserError } from "../src/users/service.ts";
+import { UserError } from "../src/util/errors.ts";
 
 const GROUP_WEB = "group-web-id";
 const GROUP_PROD = "group-prod-id";

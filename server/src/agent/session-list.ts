@@ -1,11 +1,11 @@
 import type { SessionListItem, SessionListScope } from "@crh/api";
 import { type ExpressionBuilder, type RawBuilder, type SqlBool, sql } from "kysely";
-import { type CursorKey, descendingKeyset, encodeCursor } from "../api/cursor.ts";
-import type { SessionUser } from "../auth/sessions.ts";
+import { isAdmin, type SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import type { Database } from "../storage/schema.ts";
-import { UserError } from "../users/service.ts";
 import { userGroupIds } from "../users/shares.ts";
+import { type CursorKey, descendingKeyset, encodeCursor } from "../util/cursor.ts";
+import { UserError } from "../util/errors.ts";
 import type { SessionState, WaitingKind } from "./session-state.ts";
 
 export { SessionListHub, type SessionListHubOptions, type SessionListSubscriber } from "./session-list-hub.ts";
@@ -156,7 +156,7 @@ export async function sessionListQuery(db: Db, user: SessionUser, filter: Sessio
 			query = query.where((eb) => eb.or([eb("sessions.owner_user_id", "=", user.userId), shareReachesViewer(eb)]));
 			break;
 		case "all":
-			if (user.kind !== "admin") throw new UserError("administrators only");
+			if (!isAdmin(user)) throw new UserError("administrators only");
 			break;
 	}
 	if (filter.q) {

@@ -16,7 +16,7 @@ import { parseRuleSetForWrite } from "../policy/refs.ts";
 import type { RuleRef } from "../policy/store.ts";
 import { callTool } from "../tools/adapter.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
-import { UserError } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
 import type { ModelPresets } from "./model-presets.ts";
 import { THINKING_LEVELS } from "./models.ts";
 import { chargeCall, exhaustedLevel, parseQuota, setContextTokens } from "./quota.ts";

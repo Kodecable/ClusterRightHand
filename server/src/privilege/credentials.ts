@@ -7,7 +7,7 @@ import type { CredentialView } from "@crh/api";
 import type { Selectable } from "kysely";
 import type { Db } from "../storage/db.ts";
 import type { UserCredentialsTable } from "../storage/schema.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 import type { OwnerCredentials } from "./planner.ts";
 import { authorizedKeyLine, parseAuthorizedKey, sshFingerprint } from "./sshsig.ts";

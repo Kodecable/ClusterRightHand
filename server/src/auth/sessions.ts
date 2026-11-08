@@ -15,6 +15,14 @@ export interface SessionUser {
 	kind: "admin" | "member";
 }
 
+/**
+ * Whether a user is an administrator: the one predicate the admin gate and every conditional
+ * "administrators may also …" check use, so the two kinds are never compared by hand.
+ */
+export function isAdmin(user: Pick<SessionUser, "kind">): boolean {
+	return user.kind === "admin";
+}
+
 export async function createWebSession(
 	db: Db,
 	userId: string,

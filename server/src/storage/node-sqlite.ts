@@ -17,6 +17,13 @@ import { type SqliteLock, sqliteLock } from "./sqlite-lock.ts";
 /** node:sqlite waits this long for another process's lock; in process the queue is what serializes writers. */
 const BUSY_TIMEOUT_MS = 5_000;
 
+/**
+ * How many prepared statements one connection keeps. Every distinct `IN (?, ?, …)` length produces another
+ * text, so an unbounded cache would follow list sizes forever; 256 covers the statements a request path
+ * repeats, and an evicted text is simply prepared again.
+ */
+export const PREPARED_STATEMENT_CACHE_LIMIT = 256;
+
 /** Adapts node:sqlite to the interface Kysely's SqliteDialect expects (modelled on better-sqlite3). */
 export function openNodeSqlite(path: string): SqliteDatabase {
 	const db = new DatabaseSync(path);
@@ -27,7 +34,9 @@ export function openNodeSqlite(path: string): SqliteDatabase {
 		`PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`,
 	);
 	// Kysely prepares every statement it runs; a query text is prepared once and reused, as the agent
-	// storage's own adapter does. The connection closes its statements with the database.
+	// storage's own adapter does. The map is an LRU: a hit is re-inserted so Map's insertion order stays
+	// least-recently-used first, and inserting past the cap drops the oldest reference. An evicted statement is
+	// not closed: a stream may still be iterating it, and node:sqlite closes its statements with the database.
 	const statements = new Map<string, SqliteStatement>();
 	const params = (parameters: ReadonlyArray<unknown>) => parameters as SQLInputValue[];
 	return {
@@ -37,7 +46,11 @@ export function openNodeSqlite(path: string): SqliteDatabase {
 		},
 		prepare(sql): SqliteStatement {
 			const cached = statements.get(sql);
-			if (cached) return cached;
+			if (cached) {
+				statements.delete(sql);
+				statements.set(sql, cached);
+				return cached;
+			}
 			const stmt = db.prepare(sql);
 			const prepared: SqliteStatement = {
 				reader: stmt.columns().length > 0,
@@ -45,6 +58,10 @@ export function openNodeSqlite(path: string): SqliteDatabase {
 				run: (parameters) => stmt.run(...params(parameters)),
 				iterate: (parameters) => stmt.iterate(...params(parameters)),
 			};
+			if (statements.size >= PREPARED_STATEMENT_CACHE_LIMIT) {
+				const oldest = statements.keys().next();
+				if (!oldest.done) statements.delete(oldest.value);
+			}
 			statements.set(sql, prepared);
 			return prepared;
 		},

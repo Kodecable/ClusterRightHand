@@ -7,7 +7,8 @@ import { parseRulesForWrite } from "../policy/refs.ts";
 import type { Rule } from "../policy/rules.ts";
 import { appendRule, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
-import { defaultOrgId, UserError } from "../users/service.ts";
+import { defaultOrgId } from "../users/service.ts";
+import { UserError } from "../util/errors.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 
 type QuotaRequest = QuotaApproval;
@@ -180,7 +181,8 @@ async function taskViews(cluster: Cluster, rows: { id: string }[]): Promise<Task
 }
 
 async function taskGroupViews(taskGroups: TaskGroups, rows: { id: string }[]): Promise<TaskGroupView[]> {
-	return (await Promise.all(rows.map((r) => taskGroups.get(r.id)))).filter(Boolean) as TaskGroupView[];
+	// One read for rows, members and reference names, not three per waiting group.
+	return taskGroups.getMany(rows.map((row) => row.id));
 }
 
 /**
@@ -189,37 +191,42 @@ async function taskGroupViews(taskGroups: TaskGroups, rows: { id: string }[]): P
  * sees them; admins see only their own, like the approvals above.
  */
 async function quotaRequests(db: Db, userId: string): Promise<QuotaRequest[]> {
+	// Only this user's paused rows; other users' rows never leave the database.
 	const pausedRows = await db
 		.selectFrom("sessions")
-		.select(["waiting_level_id", "owner_user_id"])
+		.select("waiting_level_id")
 		.where("state", "=", "awaiting")
 		.where("waiting_kind", "=", "quota")
 		.where("waiting_handler_id", "is", null)
+		.where("owner_user_id", "=", userId)
 		.where("waiting_level_id", "is not", null)
 		.execute();
+	// One level may carry several paused runs; keep the first sighting, so the list keeps its scan order.
+	const levelIds = [
+		...new Set(pausedRows.map((row) => row.waiting_level_id).filter((id): id is string => id !== null)),
+	];
+	if (levelIds.length === 0) return [];
+	const levels = await db
+		.selectFrom("sessions")
+		.select([
+			"id",
+			"title",
+			"parent_session_id",
+			"quota_tokens",
+			"budget_used_tokens",
+			"state_changed_at",
+			"owner_user_id",
+		])
+		.where("id", "in", levelIds)
+		.execute();
+	const byId = new Map(levels.map((level) => [level.id, level] as const));
 	const quotas: QuotaRequest[] = [];
-	const seenRoots = new Set<string>();
-	for (const paused of pausedRows) {
-		const levelId = paused.waiting_level_id;
-		if (!levelId || seenRoots.has(levelId) || paused.owner_user_id !== userId) continue;
-		const level = await db
-			.selectFrom("sessions")
-			.select([
-				"id",
-				"title",
-				"parent_session_id",
-				"quota_tokens",
-				"budget_used_tokens",
-				"state_changed_at",
-				"owner_user_id",
-			])
-			.where("id", "=", levelId)
-			.executeTakeFirst();
+	for (const levelId of levelIds) {
+		const level = byId.get(levelId);
 		if (!level || level.parent_session_id !== null || level.owner_user_id !== userId) continue;
 		if (level.quota_tokens === null) continue;
 		const budgetRemaining = Number(level.quota_tokens);
 		if (budgetRemaining > 0) continue;
-		seenRoots.add(levelId);
 		quotas.push({
 			sessionId: level.id,
 			levelId: level.id,

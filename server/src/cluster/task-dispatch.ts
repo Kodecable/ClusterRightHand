@@ -21,7 +21,14 @@ import { nodeGroupIdsForNodes } from "./node-groups.ts";
 import { getNode, type NodeRow } from "./nodes.ts";
 import { summarize, withInputRef } from "./spec.ts";
 import { runSsh } from "./ssh-runner.ts";
-import { auditActor, endTask, endUndispatched, failNodeAccessRevoked, failNodeOffline } from "./task-end.ts";
+import {
+	auditActor,
+	endIfNodeUnready,
+	endTask,
+	endUndispatched,
+	failNodeAccessRevoked,
+	failNodeOffline,
+} from "./task-end.ts";
 import { writeTask } from "./task-rows.ts";
 import { pendingInputColumn, sendTaskStart, taskStartOf } from "./task-start.ts";
 import { getTask } from "./task-wait.ts";
@@ -248,10 +255,10 @@ export async function dispatch(
 	// D113: a node that is off when crhs wants to send gets the grace to reconnect, not an instant failure.
 	const ready = await core.readyNode(node.id, { trust });
 	if (!ready) {
-		await core.taskQueue.run(id, async () => {
-			// The row may have been cancelled or settled while the grace ran: only a still-waiting task fails.
-			const current = await core.row(id);
-			if (current?.state === "awaiting_approval") await failNodeOffline(core, id, current);
+		// The row may have been cancelled or settled while the grace ran: only a still-waiting task fails.
+		await endIfNodeUnready(core, id, ready, async (current) => {
+			if (current.state !== "awaiting_approval") return;
+			await failNodeOffline(core, id, { from: ["awaiting_approval"], row: current });
 		});
 		return;
 	}

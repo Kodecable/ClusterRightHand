@@ -1741,13 +1741,13 @@ msgid "Enrollment command"
 msgstr "注册命令"
 
 #: src/components/quota-card.tsx
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 msgid "Enter a positive number of tokens to add."
 msgstr "请输入要添加的 token 数量（正整数）。"
 
 #: src/components/quota-card.tsx
 #: src/features/schedules/scheduleForm.ts
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 msgid "Enter a whole number of tokens, or leave it empty for unlimited."
 msgstr "请输入整数 token 数，留空表示不限。"
 
@@ -3193,7 +3193,7 @@ msgid "Quota decision recorded."
 msgstr "配额决定已记录。"
 
 #: src/features/sessions/composer-footer.tsx
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 msgid "Quota saved."
 msgstr "配额已保存。"
 
@@ -3248,7 +3248,7 @@ msgstr "拒绝节点"
 msgid "Rejected"
 msgstr "已拒绝"
 
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 msgid "Remaining budget tokens (empty = unlimited)"
 msgstr "剩余预算 token（留空 = 不限）"
 
@@ -3577,7 +3577,7 @@ msgstr "正在进行安全验证…"
 
 #: src/components/dialogs.tsx
 #: src/features/nodes/rename-node-button.tsx
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 #: src/features/settings/model-presets.tsx
 msgid "Save"
 msgstr "保存"
@@ -4091,7 +4091,7 @@ msgstr "文本"
 
 #: src/components/quota-card.tsx
 #: src/features/schedules/scheduleForm.ts
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 msgid "That number is too large."
 msgstr "这个数字太大了。"
 
@@ -4387,7 +4387,7 @@ msgid "Toggle Sidebar"
 msgstr "切换侧边栏"
 
 #: src/features/schedules/schedule-form.tsx
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 msgid "Token budget"
 msgstr "Token 预算"
 
@@ -4492,7 +4492,7 @@ msgstr "未知命令：将作为普通消息发送。"
 msgid "unlimited"
 msgstr "不限制"
 
-#: src/features/sessions/quota-dialog.tsx
+#: src/features/sessions/budget-dialog.tsx
 msgid "Unlimited"
 msgstr "不限"
 

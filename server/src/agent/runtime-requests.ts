@@ -1,6 +1,6 @@
 import { type ApprovalRecord, summarize } from "../cluster/cluster.ts";
 import type { TaskGroupApprovalRecord } from "../cluster/task-groups.ts";
-import { NotFoundError, UserError } from "../users/service.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { awaitingQuotaChildren, grantQuota } from "./quota.ts";
 import type { AgentRequestView, RuntimeHost } from "./runtime-core.ts";
 import type { Inbox } from "./runtime-host/inboxes.ts";

@@ -12,7 +12,7 @@ import type { Audit } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import type { Db } from "../storage/db.ts";
-import { NotFoundError } from "../users/service.ts";
+import { NotFoundError } from "../util/errors.ts";
 import type { ModelPresets } from "./model-presets.ts";
 import type { ModelConfig } from "./models.ts";
 import type { HandlerWakes } from "./runtime-host/handler-wakes.ts";
