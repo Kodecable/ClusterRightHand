@@ -11,4 +11,4 @@
 export { releaseGroupBudget } from "./live-output.ts";
 export { decide, escalateAgentDecision, recordReview, reevaluate, requestAgentDecision } from "./task-approval.ts";
 export { createTask, evaluateFor, evaluateForNodes } from "./task-dispatch.ts";
-export { cancelTask, getTask, groupTasks, waitTask } from "./task-wait.ts";
+export { cancelTask, getTask, getTasks, groupTasks, waitTask } from "./task-wait.ts";

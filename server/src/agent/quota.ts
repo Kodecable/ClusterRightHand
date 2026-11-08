@@ -106,6 +106,37 @@ export async function exhaustedLevel(db: Db, sessionId: string): Promise<string 
 	return undefined;
 }
 
+/** A cycle guard for a session chain; legitimate chains are far shorter than this. */
+const MAX_CHAIN_DEPTH = 100;
+
+/**
+ * `exhaustedLevel` for several sessions at once: one recursive query over all their chains, so a read that
+ * needs the paused level of every child does not walk each chain separately. Returns the highest exhausted
+ * level of each session that has one.
+ */
+export async function exhaustedLevels(db: Db, sessionIds: readonly string[]): Promise<Map<string, string>> {
+	if (sessionIds.length === 0) return new Map();
+	const rows = await sql<{ start_id: string; level_id: string }>`
+		with recursive chain(start_id, id, parent_session_id, quota_tokens, depth) as (
+			select id, id, parent_session_id, quota_tokens, 0
+			from sessions
+			where id in (${sql.join(sessionIds)})
+			union all
+			select chain.start_id, parent.id, parent.parent_session_id, parent.quota_tokens, chain.depth + 1
+			from chain
+			join sessions as parent on parent.id = chain.parent_session_id
+			where chain.depth < ${MAX_CHAIN_DEPTH}
+		)
+		select start_id, id as level_id
+		from chain
+		where quota_tokens is not null and quota_tokens <= 0
+		order by start_id, depth desc
+	`.execute(db);
+	const out = new Map<string, string>();
+	for (const row of rows.rows) if (!out.has(row.start_id)) out.set(row.start_id, row.level_id);
+	return out;
+}
+
 /** Adds tokens to an exhausted level; only the paused call's state change ends the wait. */
 export async function grantQuota(db: Db, levelId: string, tokens: number): Promise<void> {
 	if (!Number.isInteger(tokens) || tokens <= 0) throw new UserError("tokens must be a positive integer");

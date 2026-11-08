@@ -139,14 +139,15 @@ export function clusterExtension(
 		node_id: r.nodeId,
 		created_at: r.createdAt,
 	});
-	const sessionOf = async (conversationId: unknown) =>
-		(
-			await options.db
-				.selectFrom("sessions")
-				.select("id")
-				.where("conversation_id", "=", String(conversationId))
-				.executeTakeFirst()
-		)?.id;
+	// The conversation -> session mapping never changes while the row exists, and runtime.sessionAt caches it in
+	// the same map `forgetSessionCaches` clears when a session is removed (a failed creation included).
+	const sessionOf = async (conversationId: unknown) => {
+		const id = String(conversationId);
+		const runtime = runtimeRef.current;
+		if (runtime) return (await runtime.sessionAt(id))?.id;
+		return (await options.db.selectFrom("sessions").select("id").where("conversation_id", "=", id).executeTakeFirst())
+			?.id;
+	};
 	const hooks = [
 		hook(ToolTask, {
 			// Every tool result reminds the parent of subagent requests it must settle (doc/agent-runtime.md#处理子会话的请求).

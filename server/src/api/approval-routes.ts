@@ -181,7 +181,8 @@ async function signatureRequestRows(db: Db, userId: string) {
 }
 
 async function taskViews(cluster: Cluster, rows: { id: string }[]): Promise<TaskView[]> {
-	return (await Promise.all(rows.map((r) => cluster.getTask(r.id)))).filter(Boolean) as TaskView[];
+	// One query for the whole list, not one per waiting row.
+	return cluster.getTasks(rows.map((row) => row.id));
 }
 
 async function taskGroupViews(taskGroups: TaskGroups, rows: { id: string }[]): Promise<TaskGroupView[]> {

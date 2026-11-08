@@ -3,6 +3,7 @@ import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
+import { listSessionShares } from "../src/agent/sharing.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
@@ -321,6 +322,22 @@ it("an administrator chats only when explicitly shared chat", async () => {
 		(await call(app, `/api/sessions/${s.id}`, { method: "PATCH", cookie: admin, body: { title: "mine" } })).status,
 	).toBe(403);
 	expect((await call(app, `/api/sessions/${s.id}/shares`, { cookie: admin })).status).toBe(200);
+});
+
+it("names user and group grantees from just the shares", async () => {
+	const s = await newSession(alice, "grantee names");
+	expect((await share(s.id, alice, { granteeType: "user", granteeId: bobId, access: "view" })).status).toBe(200);
+	expect((await share(s.id, alice, { granteeType: "user_group", granteeId: groupId, access: "chat" })).status).toBe(
+		200,
+	);
+	const shares = await listSessionShares(db, s.id);
+	expect(shares).toHaveLength(2);
+	expect(shares.map((x) => [x.granteeType, x.granteeId, x.granteeName, x.access])).toEqual(
+		expect.arrayContaining([
+			["user", bobId, "bob", "view"],
+			["user_group", groupId, "ops", "chat"],
+		]),
+	);
 });
 
 it("rejects bad shares and keeps the owner supreme", async () => {

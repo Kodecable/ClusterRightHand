@@ -4,6 +4,9 @@ import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
+import type { RuntimeHost } from "../src/agent/runtime-core.ts";
+import { forgetSessionCaches } from "../src/agent/runtime-sessions.ts";
+import { descendants } from "../src/agent/runtime-subagents.ts";
 import { markSessionsIdle, sessionStateOf } from "../src/agent/session-state.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
@@ -16,6 +19,7 @@ import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { type DbProbe, probeDb, tableOf } from "./helpers/db-probe.ts";
 import { toolNames, waitSubmission } from "./helpers/runtime.ts";
 
 // A loaded machine can push these past the default 5 s timeout.
@@ -23,6 +27,7 @@ vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /** Background subagents and the parent agent's handling of their approvals (doc/agent-runtime.md#subagent). */
 let db: Db;
+let probe: DbProbe;
 let cluster: Cluster;
 let audit: Audit;
 let groups: TaskGroups;
@@ -37,6 +42,7 @@ const model = () => ({ provider: faux.provider.id, modelId: faux.getModel().id }
 
 beforeAll(async () => {
 	db = await openTestDb("sqlite");
+	probe = probeDb(db);
 	audit = new Audit(db);
 	cluster = new Cluster(db, { audit, nodeOfflineGraceMs: 10 });
 	const models = new ModelConfig(db, MasterKey.generate());
@@ -44,7 +50,7 @@ beforeAll(async () => {
 	await models.reload();
 	groups = new TaskGroups(db, cluster, { audit });
 	runtime = await AgentRuntime.open({
-		db,
+		db: probe.db,
 		storage,
 		models,
 		cluster,
@@ -177,6 +183,71 @@ it("nests at most two levels below a root session", async () => {
 	const first = await subagent(root.id, "depth-1", { default: "inherit", rules: [] });
 	const second = await subagent(first.id, "depth-2", { default: "inherit", rules: [] });
 	await expect(subagent(second.id, "depth-3", { default: "inherit", rules: [] })).rejects.toThrow(/at most 2/);
+});
+
+it("walks a three-level session tree with siblings in one query", async () => {
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
+	const left = await subagent(root.id, "tree-left", { default: "inherit", rules: [] });
+	const right = await subagent(root.id, "tree-right", { default: "inherit", rules: [] });
+	const leftFirst = await subagent(left.id, "tree-left-first", { default: "inherit", rules: [] });
+	const leftSecond = await subagent(left.id, "tree-left-second", { default: "inherit", rules: [] });
+	const host = { db: probe.db } as unknown as RuntimeHost;
+	const counter = probe.count((node) => node.kind === "RawNode");
+	const belowRoot = await descendants(host, root.id);
+	expect(counter.stop()).toBe(1);
+	expect(new Set(belowRoot)).toEqual(new Set([left.id, right.id, leftFirst.id, leftSecond.id]));
+	expect(await descendants(host, leftFirst.id)).toEqual([]);
+
+	expect(await runtime.isDescendant(root.id, leftFirst.id)).toBe(true);
+	expect(await runtime.isDescendant(left.id, leftSecond.id)).toBe(true);
+	expect(await runtime.isDescendant(left.id, right.id)).toBe(false);
+	expect(await runtime.isDescendant(leftFirst.id, root.id)).toBe(false);
+	expect(await runtime.isDescendant(root.id, root.id)).toBe(false);
+});
+
+it("caches the conversation-to-session lookup and forgets it with the other caches", async () => {
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
+	const row = await db
+		.selectFrom("sessions")
+		.select("conversation_id")
+		.where("id", "=", session.id)
+		.executeTakeFirstOrThrow();
+	const counter = probe.count((node) => tableOf(node) === "sessions");
+	const first = await runtime.sessionAt(row.conversation_id);
+	const second = await runtime.sessionAt(row.conversation_id);
+	expect(second).toBe(first);
+	expect(counter.stop()).toBe(1);
+
+	const host = {
+		sessionsByConversation: new Map([[row.conversation_id, first]]),
+		learnedProviders: new Set([row.conversation_id]),
+		providerSessions: new Map([["provider-session", session.id]]),
+		subagentParents: new Set([session.id]),
+		inboxes: new Map(),
+		pendingWakes: new Map(),
+		idleWatchers: new Set(),
+		titleGenerating: new Set(),
+		deniedWaits: new Set(),
+		quotaWaiters: new Map(),
+	} as unknown as RuntimeHost;
+	forgetSessionCaches(host, session.id, row.conversation_id);
+	expect(host.sessionsByConversation.has(row.conversation_id)).toBe(false);
+	expect(host.learnedProviders.has(row.conversation_id)).toBe(false);
+	expect(host.providerSessions.size).toBe(0);
+});
+
+it("reconciles a child's stale state from the batched read", async () => {
+	const root = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
+	const child = await subagent(root.id, "stale-state", { default: "inherit", rules: [] });
+	// No input ever ran, so a live row is stale: the read must compute idle and write it back.
+	await db
+		.updateTable("sessions")
+		.set({ state: "running", waiting_kind: null, waiting_level_id: null, waiting_handler_id: null })
+		.where("id", "=", child.id)
+		.execute();
+	const children = await runtime.subagentSessions(root.id);
+	expect(children.find((c) => c.id === child.id)?.state).toBe("idle");
+	expect(await sessionStateOf(db, child.id)).toBe("idle");
 });
 
 it("an idle session is not revived by a live run", async () => {

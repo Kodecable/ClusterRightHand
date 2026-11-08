@@ -11,6 +11,26 @@ export async function getTask(core: ClusterCore, id: string): Promise<TaskView |
 	return row ? toView(row, core.live.get(id)) : undefined;
 }
 
+/**
+ * Several tasks in one query, in the input order. An id that no longer has a row is omitted, like a
+ * `getTask` that returned undefined; a caller showing a list (approvals, signatures) must not read per row.
+ */
+export async function getTasks(core: ClusterCore, ids: readonly string[]): Promise<TaskView[]> {
+	if (ids.length === 0) return [];
+	const rows = await core.db
+		.selectFrom("tasks")
+		.selectAll()
+		.where("id", "in", [...new Set(ids)])
+		.execute();
+	const byId = new Map(rows.map((row) => [row.id, toView(row, core.live.get(row.id))]));
+	const out: TaskView[] = [];
+	for (const id of ids) {
+		const view = byId.get(id);
+		if (view) out.push(view);
+	}
+	return out;
+}
+
 /** A group's tasks in creation order, in one query: a batch shows every member, one read per member is N+1. */
 export async function groupTasks(core: ClusterCore, groupId: string): Promise<TaskView[]> {
 	const rows = await core.db

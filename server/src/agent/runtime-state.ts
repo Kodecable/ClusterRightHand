@@ -1,7 +1,7 @@
 import type { SubmissionId } from "@earendil-works/pi-durable";
 import { sql } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
-import { exhaustedLevel } from "./quota.ts";
+import { exhaustedLevel, exhaustedLevels } from "./quota.ts";
 import type { RuntimeHost } from "./runtime-core.ts";
 import { forgetInbox, invalidateInboxes } from "./runtime-requests.ts";
 import { parentOf, type SessionRow } from "./session-chain.ts";
@@ -24,7 +24,13 @@ import { maybeGenerateTitle } from "./title.ts";
 const RECONCILE_CHUNK = 500;
 
 /** The columns the state computation reads from a session row. */
-type StateRow = Pick<SessionRow, "id" | "state" | "waiting_kind" | "last_submission_id">;
+type StateRow = Pick<
+	SessionRow,
+	"id" | "state" | "waiting_kind" | "waiting_level_id" | "waiting_handler_id" | "last_submission_id"
+>;
+
+/** The state a session deserves and what an awaiting one waits for. */
+type DesiredState = { state: SessionState; wait: SessionWait | null };
 
 /**
  * Recomputes a session's state from durable and its wait sources (doc/agent-runtime.md#会话状态): a quota wait
@@ -80,6 +86,83 @@ async function refreshStateOnce(host: RuntimeHost, sessionId: string): Promise<S
 		row.waiting_level_id !== (desired.wait?.levelId ?? null);
 	if (changed) invalidateInboxes(host);
 	return desired.state;
+}
+
+/**
+ * Recomputes several sessions' states with a constant number of reads, then hands only the rows whose stored
+ * state is stale to `refreshState` (which re-reads and writes them with the same coalescing as every other
+ * caller). A read path such as `subagentSessions` needs current states but must not pay a full recompute per
+ * child; a row already in the expected state costs no write at all.
+ */
+export async function refreshStates(host: RuntimeHost, rows: readonly StateRow[]): Promise<Map<string, SessionState>> {
+	const states = new Map<string, SessionState>();
+	const live: StateRow[] = [];
+	for (const row of rows) {
+		if (row.state === "idle") states.set(row.id, "idle");
+		else live.push(row);
+	}
+	if (live.length === 0) return states;
+
+	// A recompute already running for a row must be shared, not duplicated: refreshState coalesces it and reads
+	// the latest data itself.
+	const pending = new Map<string, Promise<SessionState>>();
+	const batched: StateRow[] = [];
+	for (const row of live) {
+		if (host.refreshes.has(row.id)) pending.set(row.id, refreshState(host, row.id));
+		else batched.push(row);
+	}
+
+	if (batched.length > 0) {
+		// Durable's queued/placed submissions are exactly the unsettled ones; one inspect reads them all,
+		// instead of two durable reads per child.
+		const { submissions } = await host.harness().inspect(host.context);
+		const unsettled = new Set(submissions.map((submission) => String(submission.id)));
+		const quotaLevels = await exhaustedLevels(
+			host.db,
+			batched.filter((row) => row.state === "awaiting" && row.waiting_kind === "quota").map((row) => row.id),
+		);
+		const waits = await taskWaitKinds(
+			host.db,
+			batched.map((row) => row.id),
+		);
+		for (const row of batched) {
+			const quotaLevel = quotaLevels.get(row.id);
+			let desired: DesiredState;
+			if (quotaLevel) {
+				desired = { state: "awaiting", wait: { kind: "quota", levelId: quotaLevel } };
+			} else if (!row.last_submission_id || !unsettled.has(row.last_submission_id)) {
+				desired = { state: "idle", wait: null };
+			} else {
+				const kind = waits.get(row.id);
+				desired = kind ? { state: "awaiting", wait: { kind, levelId: null } } : { state: "running", wait: null };
+			}
+			// A non-root quota wait owes its handler (the level's parent). A row that lost it needs the full
+			// recompute that sets it; everything else in the expected state needs no write.
+			const missingHandler =
+				desired.state === "awaiting" &&
+				desired.wait?.kind === "quota" &&
+				row.waiting_handler_id === null &&
+				desired.wait.levelId !== row.id;
+			if (sameState(row, desired) && !missingHandler && !host.refreshes.has(row.id)) {
+				states.set(row.id, desired.state);
+				// `refreshState` publishes every live row it recomputes, even when the state is unchanged; keep
+				// that signal (a later fetch is a no-op when there are no subscribers).
+				host.sessionList.publishSession(row.id);
+				continue;
+			}
+			pending.set(row.id, refreshState(host, row.id));
+		}
+	}
+
+	for (const [id, state] of pending) states.set(id, await state);
+	return states;
+}
+
+/** Whether the row already stores exactly the state the batched recompute found. */
+function sameState(row: StateRow, desired: DesiredState): boolean {
+	const kind = desired.state === "awaiting" ? (desired.wait?.kind ?? null) : null;
+	const levelId = desired.state === "awaiting" && kind === "quota" ? (desired.wait?.levelId ?? null) : null;
+	return row.state === desired.state && row.waiting_kind === kind && row.waiting_level_id === levelId;
 }
 
 /** The state a live (or stale) row deserves; `settled` says its latest input's run is over. */
@@ -143,6 +226,36 @@ async function taskWaitKind(host: RuntimeHost, sessionId: string): Promise<"appr
 	if (await waiting("awaiting_approval")) return "approval";
 	if (await waiting("awaiting_authorization")) return "authorization";
 	return undefined;
+}
+
+/**
+ * `taskWaitKind` for several sessions at once: one query per table, then the same approval-over-signature
+ * priority per session. Only sessions with a wait are in the result.
+ */
+async function taskWaitKinds(
+	db: RuntimeHost["db"],
+	sessionIds: readonly string[],
+): Promise<Map<string, "approval" | "authorization">> {
+	const out = new Map<string, "approval" | "authorization">();
+	if (sessionIds.length === 0) return out;
+	for (const table of ["tasks", "task_groups"] as const) {
+		const rows = await db
+			.selectFrom(table)
+			.select(["actor_id", "state", "handler_type"])
+			.where("actor_type", "in", ["session", "subagent"])
+			.where("actor_id", "in", [...sessionIds])
+			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
+			.execute();
+		for (const row of rows) {
+			if (row.state === "awaiting_approval") {
+				// A row without a handler is the instant before dispatch, not an approval anyone can decide.
+				if (row.handler_type !== null) out.set(row.actor_id, "approval");
+			} else if (out.get(row.actor_id) !== "approval") {
+				out.set(row.actor_id, "authorization");
+			}
+		}
+	}
+	return out;
 }
 
 /**

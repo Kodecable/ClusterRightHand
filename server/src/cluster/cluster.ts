@@ -227,6 +227,11 @@ export class Cluster {
 		return tasks.getTask(this.#core, id);
 	}
 
+	/** Several tasks in one query, in the input order; missing ids are omitted. */
+	getTasks(ids: readonly string[]): Promise<TaskView[]> {
+		return tasks.getTasks(this.#core, ids);
+	}
+
 	/** A task group's tasks in creation order, in one query. */
 	groupTasks(groupId: string): Promise<TaskView[]> {
 		return tasks.groupTasks(this.#core, groupId);

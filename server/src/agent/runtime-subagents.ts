@@ -16,7 +16,7 @@ import { type ModelRef, thinkingLevelOf } from "./models.ts";
 import type { AgentRequestView, RuntimeHost } from "./runtime-core.ts";
 import { conversationOf, loadConversation, loadSession } from "./runtime-core.ts";
 import { nextRequests, pendingAgentRequests } from "./runtime-requests.ts";
-import { refreshState } from "./runtime-state.ts";
+import { refreshStates } from "./runtime-state.ts";
 import { recordInput } from "./runtime-submissions.ts";
 import { sessionAncestors } from "./session-chain.ts";
 import type { SessionState } from "./session-state.ts";
@@ -66,16 +66,26 @@ export async function enforceDepthToolLimits(host: RuntimeHost): Promise<void> {
 	}
 }
 
-/** The ids of every session below this one, depth first. */
+/**
+ * A cycle guard for the session tree. Legitimate subagents nest at most `MAX_SUBAGENT_DEPTH` levels, but old
+ * data may be deeper, so the bound is well above the real limit: it only stops a corrupt parent cycle.
+ */
+const MAX_SESSION_TREE_DEPTH = 100;
+
+/** The ids of every session below this one, depth first. One recursive query, not one query per level. */
 export async function descendants(host: RuntimeHost, sessionId: string): Promise<string[]> {
-	const children = await host.db
-		.selectFrom("sessions")
-		.select("id")
-		.where("parent_session_id", "=", sessionId)
-		.execute();
-	const out: string[] = [];
-	for (const c of children) out.push(c.id, ...(await descendants(host, c.id)));
-	return out;
+	const result = await sql<{ id: string }>`
+		with recursive session_tree(id, depth, path) as (
+			select id, 1, id from sessions where parent_session_id = ${sessionId}
+			union all
+			select child.id, session_tree.depth + 1, session_tree.path || '/' || child.id
+			from sessions as child
+			join session_tree on child.parent_session_id = session_tree.id
+			where session_tree.depth < ${MAX_SESSION_TREE_DEPTH}
+		)
+		select id from session_tree order by path
+	`.execute(host.db);
+	return result.rows.map((row) => row.id);
 }
 
 /**
@@ -279,8 +289,9 @@ export async function subagentSessions(
 		.where("parent_session_id", "=", sessionId)
 		.orderBy("created_at", "desc")
 		.execute();
-	const states = new Map<string, SessionState>();
-	for (const r of rows) states.set(r.id, await refreshState(host, r.id));
+	// One batched recompute over all children; only a child whose stored state is stale falls back to the
+	// coalesced single-session refresh that writes it (doc/agent-runtime.md#会话状态).
+	const states = await refreshStates(host, rows);
 	const pending = await pendingAgentRequests(host, sessionId);
 	return rows.map((r) => ({
 		id: r.id,
@@ -294,7 +305,19 @@ export async function subagentSessions(
 
 /** True when `childId` is this session's own subagent or below one (so it may wait for or stop it). */
 export async function isDescendant(host: RuntimeHost, sessionId: string, childId: string): Promise<boolean> {
-	return (await descendants(host, sessionId)).includes(childId);
+	// Walk up from the child, not down through the whole subtree: the check costs the chain's length, not its size.
+	const result = await sql<{ id: string }>`
+		with recursive ancestors(id, depth) as (
+			select parent_session_id, 1 from sessions where id = ${childId} and parent_session_id is not null
+			union all
+			select parent.parent_session_id, ancestors.depth + 1
+			from ancestors
+			join sessions as parent on parent.id = ancestors.id
+			where ancestors.depth < ${MAX_SESSION_TREE_DEPTH} and parent.parent_session_id is not null
+		)
+		select id from ancestors where id = ${sessionId} limit 1
+	`.execute(host.db);
+	return result.rows.length > 0;
 }
 
 /**

@@ -149,12 +149,28 @@ export async function listSessionShares(db: Db, sessionId: string): Promise<Sess
 		.orderBy("created_at")
 		.orderBy("id")
 		.execute();
-	const users = new Map(
-		(await db.selectFrom("users").select(["id", "username"]).execute()).map((u) => [u.id, u.username]),
-	);
-	const groups = new Map(
-		(await db.selectFrom("user_groups").select(["id", "name"]).execute()).map((g) => [g.id, g.name]),
-	);
+	if (rows.length === 0) return [];
+	// Only the grantees of these shares are named, not every user and group in the organization.
+	const userIds = [...new Set(rows.filter((r) => r.grantee_type === "user").map((r) => r.grantee_id))];
+	const groupIds = [...new Set(rows.filter((r) => r.grantee_type !== "user").map((r) => r.grantee_id))];
+	const users =
+		userIds.length === 0
+			? new Map<string, string>()
+			: new Map(
+					(await db.selectFrom("users").select(["id", "username"]).where("id", "in", userIds).execute()).map((u) => [
+						u.id,
+						u.username,
+					]),
+				);
+	const groups =
+		groupIds.length === 0
+			? new Map<string, string>()
+			: new Map(
+					(await db.selectFrom("user_groups").select(["id", "name"]).where("id", "in", groupIds).execute()).map((g) => [
+						g.id,
+						g.name,
+					]),
+				);
 	return rows.map((r) =>
 		toSessionShare(r, (r.grantee_type === "user" ? users.get(r.grantee_id) : groups.get(r.grantee_id)) ?? null),
 	);

@@ -135,6 +135,34 @@ describe("approvals api (sqlite)", () => {
 		await cluster.decide(t.id, { decision: "rejected", by: { type: "user", id: "x" }, at: new Date().toISOString() });
 	});
 
+	it("lists several waiting tasks in creation order with their full views", async () => {
+		const tok = await newToken();
+		const first = await mkTask(tok, execSpec("first"));
+		const second = await mkTask(tok, execSpec("second"), nodes[1] as string);
+		try {
+			const list = await pending("alice");
+			const shown = list.tasks.filter((t) => t.id === first.id || t.id === second.id);
+			expect(shown.map((t) => t.id)).toEqual([first.id, second.id]);
+			expect(shown).toEqual([await task(first.id), await task(second.id)]);
+			expect(shown[0]).toMatchObject({
+				state: "awaiting_approval",
+				nodeId: nodes[0],
+				kind: "exec",
+				actorType: "api_token",
+				actorId: tok,
+				taskGroupId: null,
+			});
+		} finally {
+			for (const t of [first, second]) {
+				await cluster.decide(t.id, {
+					decision: "rejected",
+					by: { type: "user", id: "x" },
+					at: new Date().toISOString(),
+				});
+			}
+		}
+	});
+
 	it("hides a request routed to an agent and refuses a user decision", async () => {
 		const tok = await newToken();
 		const t = await mkTask(tok);

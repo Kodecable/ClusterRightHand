@@ -71,8 +71,15 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 			(limitPlusOne) => query.orderBy("created_at", "desc").orderBy("id", "desc").limit(limitPlusOne).execute(),
 			(row) => encodeCursor([row.created_at], row.id),
 		);
+		// Name only the issuers of this page, not every user in the organization.
+		const issuerIds = [
+			...new Set(page.rows.flatMap((row) => (row.issuer_user_id === null ? [] : [row.issuer_user_id]))),
+		];
 		const users = new Map(
-			(await db.selectFrom("users").select(["id", "username"]).execute()).map((row) => [row.id, row.username]),
+			(issuerIds.length === 0
+				? []
+				: await db.selectFrom("users").select(["id", "username"]).where("id", "in", issuerIds).execute()
+			).map((row) => [row.id, row.username]),
 		);
 		return c.json({
 			items: page.rows.map((row) => {

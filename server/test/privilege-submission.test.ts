@@ -1210,6 +1210,7 @@ describe("user authorizations", () => {
 		const list = (await (await call(app, "/api/authorizations", { cookie: adminCookie })).json()) as {
 			items: {
 				id: string;
+				issuerUsername: string | null;
 				command: { method: string; match: string; target: string; specSha256: string };
 				nodes: string[];
 				taskIds: string[] | null;
@@ -1217,6 +1218,8 @@ describe("user authorizations", () => {
 		};
 		expect(list.items.map((entry) => entry.id).sort()).toEqual([mine, theirs].sort());
 		const stored = list.items.find((entry) => entry.id === theirs);
+		expect(stored?.issuerUsername).toBe("other");
+		expect(list.items.find((entry) => entry.id === mine)?.issuerUsername).toBe("owner");
 		expect(stored).not.toHaveProperty("revokedAt");
 		expect(stored?.command).toEqual({
 			method: "exec",

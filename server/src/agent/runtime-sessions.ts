@@ -15,7 +15,7 @@ import { defaultOrgId, UserError } from "../users/service.ts";
 import { isUniqueViolation } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 import { type ModelRef, modelRefView, thinkingLevelOf } from "./models.ts";
-import { sessionTokens, setQuota } from "./quota.ts";
+import { setQuota } from "./quota.ts";
 import type { RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runtime-core.ts";
 import { conversationOf, loadConversation } from "./runtime-core.ts";
 import { notifyQuotaWaiters } from "./runtime-quota.ts";
@@ -355,7 +355,10 @@ async function sessionView(host: RuntimeHost, row: SessionRow): Promise<SessionV
 		waitingKind: row.waiting_kind,
 		waitingLevelId: row.waiting_level_id,
 		budgetRemaining: row.quota_tokens === null ? null : Number(row.quota_tokens),
-		...(await sessionTokens(host.db, row.id)),
+		// The row already carries the token counters `sessionTokens` would read, so `getSession` costs no extra query.
+		budgetUsedTokens: Number(row.budget_used_tokens),
+		usageTokens: Number(row.usage_tokens),
+		contextTokens: row.context_tokens === null ? null : Number(row.context_tokens),
 	};
 }
 
