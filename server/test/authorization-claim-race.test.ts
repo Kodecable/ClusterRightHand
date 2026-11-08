@@ -1,7 +1,7 @@
 /**
- * Regression test for the stale-row claim of `submitAuthorization` that used to regress a task's attempt
- * (doc/audit-2026-11-06.md, 低 / 服务端 cluster: "`submitAuthorization` 使用判定阶段读到的旧行 … 如果中间发生过
- * `refreshGroupPending`，attempt 可能回退"). The race is now prevented by the row version (D118): the claim
+ * Regression test for the stale-row claim of `submitAuthorization` that used to regress a task's attempt:
+ * the claim judged the row read at decision time, so a `refreshGroupPending` in between could roll the
+ * attempt back. The race is now prevented by the row version (D118): the claim
  * re-reads the row in its own queue turn, so it judges the refreshed attempt, and its write is guarded by
  * that row's `rev`.
  *
