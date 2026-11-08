@@ -26,6 +26,7 @@ import type { Cluster } from "./cluster.ts";
 import { ALL_TARGET, nameKey } from "./names.ts";
 import { listNodesForUser } from "./nodes.ts";
 import { operationOfJson, specFromRow, summarize } from "./spec.ts";
+import { pendingInputColumn, pendingInputOf } from "./task-start.ts";
 import {
 	type Actor,
 	type AgentRequest,
@@ -292,7 +293,8 @@ export class TaskGroups {
 				finished_at: null,
 				rule_chain: input.chain ? JSON.stringify(input.chain) : null,
 				approval: approval ? JSON.stringify(approval) : null,
-				pending_input: waiting && input.input ? Buffer.from(input.input).toString("base64") : null,
+				// An empty but present input has always been stored as "" here; the helper uses null for no bytes.
+				pending_input: waiting && input.input ? (pendingInputColumn(input.input) ?? "") : null,
 				spec: JSON.stringify(taskSpecToJson(input.spec)),
 				timeout_ms: input.timeoutMs ?? null,
 				root_session_id: root?.id ?? null,
@@ -541,11 +543,13 @@ export class TaskGroups {
 			const row = await this.#row(id);
 			if (row?.state !== "awaiting_approval") return;
 			const record = mergeApproval<TaskGroupApprovalRecord>(row.approval, { review });
-			await this.#db
+			const res = await this.#db
 				.updateTable("task_groups")
 				.set({ approval: JSON.stringify(record) })
 				.where("id", "=", id)
-				.execute();
+				.where("state", "=", "awaiting_approval")
+				.executeTakeFirst();
+			if (res.numUpdatedRows === 0n) return;
 			this.#auditLater(reviewAudit("task_group", id, row.on_behalf_of_user_id, review));
 		});
 	}
@@ -639,7 +643,7 @@ export class TaskGroups {
 			spec: specFromRow(row.spec, "task group"),
 			outputMode: row.output_mode,
 			privileged: row.privileged === 1,
-			...(row.pending_input ? { input: Buffer.from(row.pending_input, "base64") } : {}),
+			...(row.pending_input ? { input: pendingInputOf(row) } : {}),
 			...(row.timeout_ms !== null ? { timeoutMs: row.timeout_ms } : {}),
 			...(row.node_max_lines !== null ? { maxLines: row.node_max_lines } : {}),
 			...(row.node_max_bytes !== null ? { maxBytes: row.node_max_bytes } : {}),

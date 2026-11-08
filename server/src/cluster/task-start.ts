@@ -76,12 +76,12 @@ function cap(value: number | null | undefined, max: number): number {
 	return value === null || value === undefined ? max : Math.min(value, max);
 }
 
-/** The input a waiting task keeps in `pending_input` (base64); empty when it has none. */
-export function pendingInputOf(row: Pick<Selectable<TasksTable>, "pending_input">): Uint8Array {
+/** The input a waiting task or task group keeps in `pending_input` (base64); empty when it has none. */
+export function pendingInputOf(row: Pick<{ pending_input: string | null }, "pending_input">): Uint8Array {
 	return row.pending_input ? Buffer.from(row.pending_input, "base64") : new Uint8Array(0);
 }
 
-/** The `pending_input` column of a task that starts waiting again with this input: null for none. */
+/** The `pending_input` column of a task or task group that starts waiting again with this input: null for none. */
 export function pendingInputColumn(inputBytes: Uint8Array): string | null {
 	return inputBytes.length > 0 ? Buffer.from(inputBytes).toString("base64") : null;
 }

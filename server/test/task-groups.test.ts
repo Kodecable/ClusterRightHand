@@ -1,5 +1,6 @@
 import type { TaskSpec } from "@crh/protocol";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster, summarize } from "../src/cluster/cluster.ts";
 import { GROUP_INTERRUPTED_REASON, outputModeFor, resolveTargets, TaskGroups } from "../src/cluster/task-groups.ts";
@@ -418,6 +419,51 @@ describeBackends("task groups", (backend) => {
 			reason: "denied by the authorization rules",
 		});
 		expect(view?.tasks).toEqual([]);
+	});
+
+	it("does not record a review once the group has left awaiting_approval", async () => {
+		const ref = await addChain("ask");
+		const audit = new Audit(db);
+		const probe = probeDb(db);
+		const groups = new TaskGroups(probe.db, cluster, { audit });
+		const id = await groups.create({
+			targets: [ids["web-1"] as string],
+			nodeIds: [ids["web-1"] as string],
+			spec: spec(),
+			actor: actor(),
+			chain: [ref],
+		});
+		const waiting = await db
+			.selectFrom("task_groups")
+			.select("approval")
+			.where("id", "=", id)
+			.executeTakeFirstOrThrow();
+		expect(waiting.approval).not.toBeNull();
+
+		// Settle the group after recordReview has read it as waiting, so its guarded write matches no row.
+		probe.onNext(
+			(node) => node.kind === "SelectQueryNode" && tableOf(node) === "task_groups",
+			async () => {
+				await db.updateTable("task_groups").set({ state: "finished" }).where("id", "=", id).execute();
+			},
+		);
+		await groups.recordReview(id, { decision: "approve", reason: "looks safe", model: "test-model" });
+		await audit.flush();
+
+		const settled = await db
+			.selectFrom("task_groups")
+			.select(["state", "approval"])
+			.where("id", "=", id)
+			.executeTakeFirstOrThrow();
+		expect(settled.state).toBe("finished");
+		expect(settled.approval).toBe(waiting.approval);
+		const audits = await db
+			.selectFrom("audit_events")
+			.select("action")
+			.where("target_type", "=", "task_group")
+			.where("target_id", "=", id)
+			.execute();
+		expect(audits.map((event) => event.action)).not.toContain("task_group.review");
 	});
 
 	it("keeps a node denied when a human approves after a deny rule was added", async () => {

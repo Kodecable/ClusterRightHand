@@ -23,7 +23,7 @@ import { summarize, withInputRef } from "./spec.ts";
 import { runSsh } from "./ssh-runner.ts";
 import { auditActor, endTask, endUndispatched, failNodeAccessRevoked, failNodeOffline } from "./task-end.ts";
 import { writeTask } from "./task-rows.ts";
-import { sendTaskStart, taskStartOf } from "./task-start.ts";
+import { pendingInputColumn, sendTaskStart, taskStartOf } from "./task-start.ts";
 import { getTask } from "./task-wait.ts";
 import type { ApprovalRecord, CreateTaskInput, TaskView } from "./types.ts";
 
@@ -148,7 +148,8 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 		late_result: null,
 		rule_chain: input.chain ? JSON.stringify(input.chain) : null,
 		approval: approval ? JSON.stringify(approval) : null,
-		pending_input: waiting && input.input ? Buffer.from(inputBytes).toString("base64") : null,
+		// An empty but present input has always been stored as "" here; the helper uses null for no bytes.
+		pending_input: waiting && input.input ? (pendingInputColumn(inputBytes) ?? "") : null,
 		root_session_id: root?.id ?? null,
 		// Until an ancestor agent is routed, the user (the task's on_behalf user) is the handler.
 		handler_type: waiting ? "user" : null,
