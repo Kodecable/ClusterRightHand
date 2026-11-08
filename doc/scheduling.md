@@ -25,6 +25,8 @@
 
 同一个计划任务同时只有一个运行中的实例。新的运行（定时或手动）开始时，如果上一个实例还没结束，就先**强制结束**它：走会话的停止流程，取消它的任务和 subagent 子树，运行记为 `preempted`，再启动新的。
 
+一个运行在根提交结束时记为 `succeeded`，但它启动的**后台 subagent** 可能还在运行。下一次触发会检查该计划任务之前已结束（`succeeded` / `failed` / `preempted`）的运行，若其会话树里仍有 `running` / `awaiting` 的工作，就对该会话执行同样的停止流程（`abort` 会走完整棵子树）；已经空闲的会话不产生操作。被停止的运行保持原来的状态，不改写为 `preempted`，另写一条 `schedule.leftover_stopped` 审计。这样"同时只有一个实例"也覆盖上一个实例留下的后台工作。
+
 上一个实例停在等待审批、等待签名或等待配额也一样会被结束；周期短于用户处理所需的时间时，每次都会在处理前被结束。这是有意的：计划任务的每次运行只在下一次触发之前有效。正在节点上执行的任务会被取消，可能留下做了一半的状态。
 
 ## 调度
@@ -53,6 +55,7 @@
 | `schedule.skipped` | 没有触发及原因：停机期间错过（`catch_up = false`）、计划任务已停用、所有者已停用 |
 | `schedule.run_started` | 带 run id 和会话 id |
 | `schedule.run_preempted` | 上一个实例被强制结束，带被结束的 run id 和会话 id |
+| `schedule.leftover_stopped` | 上一次已结束的运行留下的后台工作在下一次触发时被停止，带 run id 和会话 id；运行状态不变 |
 | `schedule.run_finished` | `succeeded` / `failed`，带原因 |
 
 ## 授权规则与配额

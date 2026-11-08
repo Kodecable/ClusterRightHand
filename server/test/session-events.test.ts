@@ -8,7 +8,7 @@ import { AgentRuntime } from "../src/agent/runtime.ts";
 import { RequestDrain } from "../src/api/drain.ts";
 import { SessionStreams } from "../src/api/session-events-routes.ts";
 import { Audit } from "../src/audit/audit.ts";
-import type { SessionUser } from "../src/auth/sessions.ts";
+import { resolveWebSession, revokeWebSession, type SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
@@ -94,8 +94,47 @@ it("answers HEAD with the access checks and opens no stream", async () => {
 	expect(await drainIdle()).toBe(true);
 });
 
-/** The real SSE write, captured before a test makes ping writes fail. */
 const writeSSE = SSEStreamingApi.prototype.writeSSE;
+
+/** Runs the 15 s keep-alive ping at once, without touching the writes (for the revocation re-check). */
+function fastPings(): () => void {
+	const originalSetTimeout = globalThis.setTimeout;
+	const timer = vi
+		.spyOn(globalThis, "setTimeout")
+		.mockImplementation((handler, timeout, ...args) =>
+			originalSetTimeout(handler, timeout === 15_000 ? 0 : timeout, ...args),
+		);
+	return () => timer.mockRestore();
+}
+
+/**
+ * Reads a stream to its end in the background. `closed()` says whether it ended, so a test can check that
+ * one stream stayed open while another was ended without starting a second concurrent read.
+ */
+function track(reader: ReadableStreamDefaultReader<Uint8Array>): { done: Promise<void>; closed: () => boolean } {
+	let closed = false;
+	const done = (async () => {
+		try {
+			for (;;) {
+				const { done: ended } = await reader.read();
+				if (ended) break;
+			}
+		} catch {
+			// An aborted body rejects a pending read; that is the stream ending too.
+		} finally {
+			closed = true;
+		}
+	})();
+	return { done, closed: () => closed };
+}
+
+/** Resolves true when the promise settled within `ms`. */
+async function settlesWithin(promise: Promise<unknown>, ms = 3_000): Promise<boolean> {
+	return await Promise.race([
+		promise.then(() => true),
+		new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms)),
+	]);
+}
 
 /**
  * Makes the keep-alive ping write throw on the next stream: the 15 s sleep becomes immediate, and only
@@ -167,6 +206,96 @@ it("unsubscribes the session list stream when a ping write throws", async () => 
 	} finally {
 		restore();
 		subscribe.mockRestore();
+	}
+});
+
+it("ends the streams of a revoked WebUI session and keeps the one a password change kept", async () => {
+	const carol = await createUser(db, { username: "carol-streams", kind: "member", password: "carol-password-1" });
+	const kept = await login(app, "carol-streams", "carol-password-1");
+	const revoked = await login(app, "carol-streams", "carol-password-1");
+	const ownerRow: SessionUser = {
+		sessionId: "test-carol-streams",
+		userId: carol.id,
+		username: carol.username,
+		kind: carol.kind,
+	};
+	const session = await runtime.createSession(ownerRow, {
+		model: model(),
+		rulePreset: "yolo",
+		title: "revoked stream",
+	});
+
+	// Two sessions, each with a per-session event stream and a session-list stream.
+	const eventKept = await call(app, `/api/sessions/${session.id}/events`, { cookie: kept });
+	const eventRevoked = await call(app, `/api/sessions/${session.id}/events`, { cookie: revoked });
+	expect(eventKept.status).toBe(200);
+	expect(eventRevoked.status).toBe(200);
+	const keptReader = eventKept.body?.getReader();
+	const revokedReader = eventRevoked.body?.getReader();
+	if (!keptReader || !revokedReader) throw new Error("no stream body");
+	await keptReader.read(); // the snapshot
+	await revokedReader.read();
+	const keptEvents = track(keptReader);
+	const revokedEvents = track(revokedReader);
+
+	const listKept = await call(app, "/api/sessions/stream", { cookie: kept });
+	const listRevoked = await call(app, "/api/sessions/stream", { cookie: revoked });
+	const keptListReader = listKept.body?.getReader();
+	const revokedListReader = listRevoked.body?.getReader();
+	if (!keptListReader || !revokedListReader) throw new Error("no list stream body");
+	const keptList = track(keptListReader);
+	const revokedList = track(revokedListReader);
+
+	// The change revokes every other WebUI session of the user and keeps the one that made the request.
+	const changed = await call(app, "/api/auth/password", {
+		cookie: kept,
+		body: { currentPassword: "carol-password-1", newPassword: "carol-password-2" },
+	});
+	expect(changed.status).toBe(200);
+	expect(await settlesWithin(revokedEvents.done)).toBe(true);
+	expect(await settlesWithin(revokedList.done)).toBe(true);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	expect(keptEvents.closed()).toBe(false);
+	expect(keptList.closed()).toBe(false);
+
+	// A logout revokes the session that made it, and ends its streams too.
+	const out = await call(app, "/api/auth/logout", { method: "POST", cookie: kept, body: {} });
+	expect(out.status).toBe(200);
+	expect(await settlesWithin(keptEvents.done)).toBe(true);
+	expect(await settlesWithin(keptList.done)).toBe(true);
+});
+
+it("re-checks the WebUI session on every ping and ends the stream when the row is gone", async () => {
+	const dave = await createUser(db, { username: "dave-streams", kind: "member", password: "dave-password-1" });
+	const cookie = await login(app, "dave-streams", "dave-password-1");
+	const ownerRow: SessionUser = {
+		sessionId: "test-dave-streams",
+		userId: dave.id,
+		username: dave.username,
+		kind: dave.kind,
+	};
+	const session = await runtime.createSession(ownerRow, { model: model(), rulePreset: "yolo", title: "ping check" });
+	const restore = fastPings();
+	try {
+		const events = await call(app, `/api/sessions/${session.id}/events`, { cookie });
+		const list = await call(app, "/api/sessions/stream", { cookie });
+		const eventsReader = events.body?.getReader();
+		const listReader = list.body?.getReader();
+		if (!eventsReader || !listReader) throw new Error("no stream body");
+		await eventsReader.read(); // the snapshot
+		const eventsTrack = track(eventsReader);
+		const listTrack = track(listReader);
+
+		// Bypass logout/password: delete the row directly, so only the ping check can notice it.
+		const token = cookie.slice(cookie.indexOf("=") + 1);
+		const webSession = await resolveWebSession(db, token);
+		if (!webSession) throw new Error("the test session did not resolve");
+		await revokeWebSession(db, webSession.sessionId);
+
+		expect(await settlesWithin(eventsTrack.done)).toBe(true);
+		expect(await settlesWithin(listTrack.done)).toBe(true);
+	} finally {
+		restore();
 	}
 });
 

@@ -32,6 +32,7 @@ import {
 	type AgentRequest,
 	type ApprovalDecision,
 	type CreateTaskInput,
+	GROUP_TERMINAL,
 	type TaskView,
 	TERMINAL,
 } from "./types.ts";
@@ -64,6 +65,8 @@ const HOUR = 3_600_000;
 export const GROUP_INTERRUPTED_REASON = "the task group was interrupted by a restart";
 /** Why a member that never started ends when its group's run threw (doc/execution-plane.md#状态机). */
 export const GROUP_FAILED_REASON = "the task group failed";
+/** Why a member that never started ends when the group is cancelled (doc/execution-plane.md#状态机). */
+export const GROUP_CANCELLED_REASON = "the task group was cancelled";
 
 /** Targets resolved at task-group creation: stored references and the expanded, operable nodes. */
 export interface ResolvedTargets {
@@ -145,6 +148,12 @@ export class TaskGroups {
 	readonly #cluster: Cluster;
 	readonly #audit: Audit | undefined;
 	readonly #running = new Map<string, Promise<void>>();
+	/**
+	 * In-memory stop flag per group, set by cancel() or by a worker that threw. A flag is enough even when
+	 * persist fails: the workers check it before every node, so no further member is created. The reason is
+	 * kept for the members cancelled here; the group row has no reason column (doc/execution-plane.md#状态机).
+	 */
+	readonly #cancelled = new Map<string, string>();
 	/** Called once for every group that starts waiting for approval (Auto Review hooks in here). */
 	onAwaitingApproval: ((group: TaskGroupView) => Promise<void>) | undefined;
 	/** Called after a group starts waiting or its approval state/handler changes (the runtime refreshes its inbox). */
@@ -227,6 +236,72 @@ export class TaskGroups {
 			this.#cluster.releaseGroupBudget(row.id);
 			this.#settle(row.id);
 		}
+	}
+
+	/**
+	 * Cancels a group and every member that has not ended (doc/execution-plane.md#状态机). The flag is
+	 * checked by the group's workers before they take the next node and after every wait, so a large batch
+	 * stops creating members even though only the members that exist can be cancelled. A group with no run
+	 * in this process (still waiting for approval, or left over by a caller) moves to `cancelled` here; a
+	 * running group's worker moves it when it returns, so the run and its skipped nodes agree.
+	 *
+	 * Returns false when the group is already terminal (nothing to cancel).
+	 */
+	async cancel(id: string, reason: string = GROUP_CANCELLED_REASON, by?: Actor): Promise<boolean> {
+		const row = await this.#row(id);
+		if (!row || GROUP_TERMINAL.has(row.state)) return false;
+		this.#cancelled.set(id, reason);
+		const owned = this.#running.has(id);
+		let ended = false;
+		if (!owned) {
+			// Nobody in this process owns the group (waiting for approval, or a stale row): end it here.
+			ended = await this.#markCancelled(id, row);
+			// A member's state sync can move the group between the read and the write; one retry on the
+			// current row is enough, and a decision that started a run is left to that run's worker.
+			if (!ended && !this.#running.has(id)) {
+				const current = await this.#row(id);
+				if (current && !GROUP_TERMINAL.has(current.state)) ended = await this.#markCancelled(id, current);
+			}
+			if (ended) {
+				this.#cluster.releaseGroupBudget(id);
+				this.#settle(id);
+				this.#cancelled.delete(id);
+			}
+		}
+		// Cancel what exists either way: this wakes a worker parked in waitTask so it can see the flag,
+		// and ends the waiting members of a group that had no run to do it.
+		await this.#cancelMembers(id, reason, by);
+		return ended || this.#running.has(id);
+	}
+
+	/** Writes a group's cancelled end state if it is still in the state read, with its unstarted nodes skipped. */
+	async #markCancelled(id: string, row: Selectable<TaskGroupsTable>): Promise<boolean> {
+		const started = await this.#startedNodes(id);
+		const nodeIds = JSON.parse(row.node_ids) as string[];
+		const updated = await this.#db
+			.updateTable("task_groups")
+			.set({
+				state: "cancelled",
+				skipped: JSON.stringify(nodeIds.filter((nodeId) => !started.has(nodeId))),
+				finished_at: now(),
+				handler_type: null,
+				handler_session_id: null,
+			})
+			.where("id", "=", id)
+			.where("state", "=", row.state)
+			.executeTakeFirst();
+		return updated.numUpdatedRows > 0n;
+	}
+
+	/** Cancels every member that has not reached a terminal state, including ones still waiting to dispatch. */
+	async #cancelMembers(groupId: string, reason: string, by?: Actor): Promise<void> {
+		const rows = await this.#db
+			.selectFrom("tasks")
+			.select("id")
+			.where("task_group_id", "=", groupId)
+			.where("state", "not in", [...TERMINAL])
+			.execute();
+		for (const { id } of rows) await this.#cluster.cancelTask(id, reason, by);
 	}
 
 	/** Ends the members of an interrupted group that never reached the node. */
@@ -388,64 +463,128 @@ export class TaskGroups {
 		let failure: unknown;
 		// Shutdown ends the waits: waitTask then returns at once, so a loop must check this or it would spin.
 		const ending = () => this.#waitsEnded || this.#cluster.waitsEnded;
+		const cancelled = () => this.#cancelled.has(id);
 		const worker = async () => {
 			for (;;) {
-				if (input.failFast && failed) return;
+				// The group's cancel() (a stopped session, an aborted tool call) stops taking nodes at once.
+				if (cancelled() || (input.failFast && failed)) return;
 				const nodeId = queue.shift();
 				if (nodeId === undefined) return;
 				if (ending()) {
+					queue.unshift(nodeId);
 					abandoned = true;
+					return;
+				}
+				if (cancelled()) {
+					// Not started: put it back so it is recorded as skipped by the cancellation.
+					queue.unshift(nodeId);
 					return;
 				}
 				const created = await this.#cluster.createTask(
 					this.#taskInput(input, id, nodeId, approvedBy, evaluations?.get(nodeId)),
 				);
+				// cancel() cancelled the members it could see before this one existed; end it before waiting.
+				if (cancelled()) {
+					await this.#cluster.cancelTask(created.id, this.#cancelled.get(id) ?? GROUP_CANCELLED_REASON);
+					continue;
+				}
 				if (created.state === "awaiting_authorization") {
 					parked.push(created);
 					continue;
 				}
 				let done = await this.#cluster.waitTask(created.id, HOUR);
 				while (done && !TERMINAL.has(done.state)) {
+					if (cancelled()) return;
 					if (ending()) {
 						abandoned = true;
 						break;
 					}
 					done = await this.#cluster.waitTask(created.id, HOUR);
 				}
+				if (cancelled()) return;
 				if (done && countsAsFailure(done)) failed = true;
+			}
+		};
+		/** A worker that threw stops the others: set the flag, and cancel the members they are waiting on. */
+		const guardedWorker = async () => {
+			try {
+				await worker();
+			} catch (err) {
+				if (failure === undefined) failure = err;
+				this.#cancelled.set(id, GROUP_FAILED_REASON);
+				try {
+					await this.#cancelMembers(id, `${GROUP_FAILED_REASON}: ${err instanceof Error ? err.message : String(err)}`);
+				} catch (cancelErr) {
+					console.error(`task group ${id}: cancelling its members after a failure failed:`, cancelErr);
+				}
 			}
 		};
 		const settleParked = async (task: TaskView) => {
 			// waitTask returns on every state change, so keep waiting until the task is final.
 			let done: TaskView | undefined = task;
 			while (done && !TERMINAL.has(done.state)) {
+				if (cancelled()) return;
 				if (ending()) {
 					abandoned = true;
 					return;
 				}
 				done = await this.#cluster.waitTask(task.id, HOUR);
 			}
+			if (cancelled()) return;
 			if (done && countsAsFailure(done)) failed = true;
 		};
 		try {
-			await Promise.all(Array.from({ length: Math.min(parallel, queue.length) }, worker));
+			// Every worker runs to its own return: one throwing must not let Promise.all resolve (and the
+			// group finish) while the others are still creating members.
+			await Promise.all(Array.from({ length: Math.min(parallel, queue.length) }, guardedWorker));
 			// A parked task still belongs to the group, so the group is not finished while it waits.
-			for (let task = parked.shift(); task !== undefined; task = parked.shift()) await settleParked(task);
+			if (failure === undefined && !cancelled()) {
+				for (let task = parked.shift(); task !== undefined; task = parked.shift()) await settleParked(task);
+			}
 		} catch (err) {
 			failure = err;
 		} finally {
 			try {
 				// Shutdown leaves an unfinished group to recover(), which marks it interrupted on the next start.
 				if (!this.#cluster.closing && !abandoned) {
-					if (failure === undefined) await this.#finish(id, queue);
-					else await this.#fail(id, nodeIds, failure);
+					if (failure !== undefined) await this.#fail(id, nodeIds, failure);
+					else if (cancelled()) await this.#finishCancelled(id, queue);
+					else await this.#finish(id, queue);
 				}
 			} finally {
 				// The group is done as a whole; its tasks may already have been dropped one by one.
 				this.#cluster.releaseGroupBudget(id);
+				this.#cancelled.delete(id);
 			}
 		}
 		if (failure !== undefined) throw failure;
+	}
+
+	/**
+	 * Ends a cancelled run (doc/execution-plane.md#状态机): no member may start any more, so the nodes still in
+	 * the queue are recorded as skipped. The members already created were cancelled by cancel(); this is also
+	 * the last chance to catch one created in the dispatch window after that.
+	 */
+	async #finishCancelled(id: string, skipped: string[]): Promise<void> {
+		const reason = this.#cancelled.get(id) ?? GROUP_CANCELLED_REASON;
+		await this.#db
+			.updateTable("task_groups")
+			.set({
+				state: "cancelled",
+				skipped: JSON.stringify(skipped),
+				finished_at: now(),
+				handler_type: null,
+				handler_session_id: null,
+			})
+			.where("id", "=", id)
+			.where("state", "not in", [...GROUP_TERMINAL])
+			.execute();
+		try {
+			await this.#cancelMembers(id, reason);
+		} catch (err) {
+			console.error(`task group ${id}: cancelling its remaining members failed:`, err);
+		}
+		this.#settle(id);
 	}
 
 	/** The group's members all settled (or were skipped): the group is finished. */

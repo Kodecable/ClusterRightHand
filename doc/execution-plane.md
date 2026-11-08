@@ -101,8 +101,9 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 - 任务组中的任务彼此独立：部分节点已执行、部分节点在 `awaiting_authorization` 时，已执行的任务不回滚；任务组最终可以是混合结果。若所有未完成任务都在等授权，任务组显示 `awaiting_authorization`，否则保持 `running`。
 - 允许下发的任务在创建时先写成 `awaiting_approval`、随即下发；这段极短的时间里它的 `handler_type` 为空，并不是在等审批。真正等审批的任务总有处理者（`handler_type` 非空）。下发这一步抛错时任务以 `failed`、`error_code = internal_error` 结束，不会把这个中间状态留在表里。
 - `fail_fast` 只影响尚未启动的节点，不回滚已启动/已完成的任务；可重试的授权拒绝不算最终失败。
-- crhs 重启时仍在运行的任务组标记为 `interrupted`：没有创建任务的节点记入 `skipped`，已创建但还没有下发的成员任务（`awaiting_approval` / `awaiting_authorization`）以 `rejected`、`error_code = cancelled` 结束，原因写明任务组被重启中断。`finished`、`interrupted`、`rejected` 的组不再下发任何成员。
-- 任务组在运行中抛错（例如创建成员时存储失败）时同样以 `interrupted` 结束，而不是 `finished`：没有创建任务的节点记入 `skipped`，已创建但还没有下发的成员以同样的方式取消，原因写成 `the task group failed: …`。没有单独的"失败"组状态：组不会重试，`interrupted` 就是"没有跑完"的那个状态。
+- crhs 重启时仍在运行的任务组标记为 `interrupted`：没有创建任务的节点记入 `skipped`，已创建但还没有下发的成员任务（`awaiting_approval` / `awaiting_authorization`）以 `rejected`、`error_code = cancelled` 结束，原因写明任务组被重启中断。`finished`、`interrupted`、`rejected`、`cancelled` 的组不再下发任何成员。
+- 任务组在运行中抛错（例如创建成员时存储失败）时同样以 `interrupted` 结束，而不是 `finished`：没有创建任务的节点记入 `skipped`，已创建但还没有下发的成员以同样的方式取消，原因写成 `the task group failed: …`。没有单独的"失败"组状态：组不会重试，`interrupted` 就是"没有跑完"的那个状态。一个 worker 抛错后，其余 worker 也不会再取下一个节点。
+- 任务组被取消时以 `cancelled` 结束：停止会话、中止阻塞的文件工具调用、`task_cancel` 指定任务组，都会设置一个进程内的停止标记，worker 在取下一个节点前和每次等待返回后检查它，因此尚未创建的节点不会再生效；已创建的成员（包括停在 `awaiting_approval` / `awaiting_authorization` 的）按任务取消结束。没有创建任务的节点记入 `skipped`。取消是用户或调用方的决定，不是失败：工具结果写 `cancelled`，但组成员各自可能因 `cancelled` 而失败。任务组没有单独的 `reason` 列，取消原因只写进成员任务的 `error_message`。
 
 `unknown` 是执行平面唯一的"结果不确定"状态，reason 取值：
 

@@ -340,12 +340,22 @@ export async function endSessionWork(
 			await host.taskGroups.decide(group.id, decision);
 			continue;
 		}
-		// A running group may still have members waiting for their signature; a stop also cancels the rest.
+		if (includeRunning) {
+			// Stop the group itself, not only its current members: its workers would otherwise create the
+			// remaining nodes (doc/execution-plane.md#状态机).
+			await host.taskGroups.cancel(
+				group.id,
+				reason,
+				by ? { type: "user", id: by.userId, onBehalfOfUserId: by.userId } : undefined,
+			);
+			continue;
+		}
+		// The run ended normally: a background group keeps running, but its signature waits are over.
 		const members = await host.db
 			.selectFrom("tasks")
 			.select("id")
 			.where("task_group_id", "=", group.id)
-			.where("state", "in", includeRunning ? ["awaiting_authorization", ...live] : ["awaiting_authorization"])
+			.where("state", "=", "awaiting_authorization")
 			.execute();
 		for (const t of members)
 			await host.cluster.cancelTask(

@@ -97,7 +97,7 @@ export function useCancelTask(id: string) {
 	});
 }
 
-const GROUP_ENDED = new Set(["finished", "interrupted", "rejected"]);
+const GROUP_ENDED = new Set(["finished", "interrupted", "rejected", "cancelled"]);
 
 /**
  * A task group that will not change any more. A tool card whose task group ended stops following it, and its wait

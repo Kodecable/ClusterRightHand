@@ -118,7 +118,7 @@ export function ownLive(core: ClusterCore, nodeId: string, taskId: string): Live
 
 /**
  * Releases the output budget a batch `text` group shares. TaskGroups calls this when the group itself is
- * done (finished, interrupted or rejected), not when its last task ends: with `parallel: 1` every node
+ * done (finished, interrupted, rejected or cancelled), not when its last task ends: with `parallel: 1` every node
  * would otherwise get a fresh budget. Returns whether a budget was still held.
  */
 export function releaseGroupBudget(core: ClusterCore, groupId: string): boolean {

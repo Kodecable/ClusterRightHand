@@ -148,6 +148,7 @@ API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引�
   - 批量参数（`parallel`、`fail_fast`）在单任务时被忽略。
 - 可选参数：`parallel`（并发数，默认 10）、`fail_fast`（出现失败后不再启动剩余节点）。
 - Cluster 核心为一次批量调用创建一个**任务组**，每个节点一个任务，审计中可以按任务组查询。
+- 任务组可以整体取消：停止会话、中止阻塞的文件工具调用或 `task_cancel(task_group_id=…)` 会设置进程内的停止标记，worker 不再创建剩余节点，已创建的成员按任务取消结束，任务组以 `cancelled` 结束（[execution-plane.md](execution-plane.md#状态机)）。`task_wait` / `task_cancel` 都接受 `task_group_id`。
 - `exec` 默认带输出（`with_output: true`，D114）：每节点保留尾部，默认 8KB/128 行；所有节点共享单任务 50KB/2000 行预算；按输出到达顺序分配，预算耗尽后忽略后续节点，允许整个节点被丢弃；完整输出仍在节点文件。
 - `exec` 的 `with_output: false`：单任务和批量都只返回状态、退出码和完整输出文件路径（JSON），不返回输出；节点总是把输出落盘。
 - 文件操作的任务组固定保留每个节点的**头部**：每节点默认 8KB/128 行，共享同一个 50KB/2000 行预算。`read_file` 的每个节点带自己的行范围和继续偏移，节点之间没有共同的偏移或行数限制；预算耗尽而没有保留内容的节点会在结果里说明，让它单独重读。`write_file`、`edit_file`、`list_dir`、`stat` 没有页面可保留，它们的结果来自任务的 `result`，不受这个预算影响。

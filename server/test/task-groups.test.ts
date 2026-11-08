@@ -10,6 +10,7 @@ import { createRootRuleSet, setRules } from "../src/policy/store.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
+import { waitFor } from "./helpers/agent.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
 import { probeDb, tableOf } from "./helpers/db-probe.ts";
 
@@ -263,6 +264,82 @@ describeBackends("task groups", (backend) => {
 		const view = await groups.wait(id, 5000);
 		expect(view?.tasks).toHaveLength(1);
 		expect(view?.skipped).toHaveLength(2);
+	});
+
+	it("cancels a group's workers so no later member is created", async () => {
+		// Long enough that the two members stay in the dispatch window while the test cancels them; a short
+		// grace would let the workers finish their nodes and take the next ones before cancel() is called.
+		const slow = new Cluster(db, { nodeOfflineGraceMs: 500 });
+		const groups = new TaskGroups(db, slow);
+		try {
+			const nodeIds: string[] = [];
+			for (let i = 0; i < 10; i++) {
+				await addNode(`cancel-${i}`, []);
+				nodeIds.push(ids[`cancel-${i}`] as string);
+			}
+			const id = await groups.create({
+				targets: [nodeIds[0] as string],
+				nodeIds,
+				spec: spec(),
+				actor: actor(),
+				parallel: 2,
+			});
+			const count = async () => {
+				const row = await db
+					.selectFrom("tasks")
+					.select((eb) => eb.fn.countAll().as("n"))
+					.where("task_group_id", "=", id)
+					.executeTakeFirstOrThrow();
+				return Number(row.n);
+			};
+			await waitFor("the first two members", async () => (await count()) >= 2);
+			expect(await groups.cancel(id, "the user stopped the batch")).toBe(true);
+			const view = await groups.wait(id, 5000);
+			expect(view?.state).toBe("cancelled");
+			// Only the two members the workers had started exist; the other eight were never created.
+			expect(view?.tasks).toHaveLength(2);
+			expect(view?.skipped.sort()).toEqual(nodeIds.slice(2).sort());
+			expect(view?.tasks.every((task) => task.state === "rejected" && task.errorCode === "cancelled")).toBe(true);
+		} finally {
+			await slow.close();
+		}
+	});
+
+	it("stops the other workers when one throws", async () => {
+		const probe = probeDb(db);
+		const probedCluster = new Cluster(probe.db, { nodeOfflineGraceMs: 10 });
+		const probedGroups = new TaskGroups(probe.db, probedCluster);
+		try {
+			const nodeIds: string[] = [];
+			for (let i = 0; i < 8; i++) {
+				await addNode(`throw-${i}`, []);
+				nodeIds.push(ids[`throw-${i}`] as string);
+			}
+			const groupId = "group-worker-throw";
+			// The second id lookup of the batch throws: one worker fails while the other is still in flight.
+			let reads = 0;
+			probe.onNext(
+				(node) => tableOf(node) === "tasks" && ++reads === 2,
+				() => {
+					throw new Error("injected worker failure");
+				},
+			);
+			await probedGroups.create({
+				id: groupId,
+				targets: [nodeIds[0] as string],
+				nodeIds,
+				spec: spec(),
+				actor: actor(),
+				parallel: 2,
+			});
+			const view = await probedGroups.wait(groupId, 5000);
+			expect(view?.state).toBe("interrupted");
+			// The surviving worker saw the failure flag after its own member and stopped taking nodes.
+			expect(view?.tasks.length).toBeLessThan(nodeIds.length);
+			expect(view?.skipped).toHaveLength(nodeIds.length - (view?.tasks.length ?? 0));
+		} finally {
+			await probedCluster.close();
+		}
 	});
 
 	it("ends a group whose run throws instead of finishing it", async () => {
@@ -556,6 +633,32 @@ describeBackends("task groups", (backend) => {
 		]);
 		if (view === "timeout") throw new Error("the parked wait did not end when the group was interrupted");
 		expect(view?.state).toBe("interrupted");
+	});
+
+	it("cancels a group that is still waiting for its approval and ends its wait", async () => {
+		const ref = await addChain("ask");
+		const groups = new TaskGroups(db, cluster);
+		const nodeIds = [ids["web-1"], ids["web-2"]] as string[];
+		const id = await groups.create({
+			targets: [ids["web-1"] as string],
+			nodeIds,
+			spec: spec(),
+			actor: actor(),
+			chain: [ref],
+		});
+		expect((await groups.get(id))?.state).toBe("awaiting_approval");
+		const parked = groups.wait(id, 5000);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(await groups.cancel(id, "the user cancelled the batch")).toBe(true);
+		const view = await Promise.race([
+			parked,
+			new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 2000)),
+		]);
+		if (view === "timeout") throw new Error("the parked wait did not end when the group was cancelled");
+		expect(view?.state).toBe("cancelled");
+		// A waiting group created no member, so every node is recorded as skipped.
+		expect(view?.skipped.sort()).toEqual(nodeIds.sort());
+		expect(view?.tasks).toEqual([]);
 	});
 
 	/** Inserts a task row as a previous process would have left it. */

@@ -1,4 +1,4 @@
-import type { SessionUser } from "../auth/sessions.ts";
+import { type SessionUser, webSessionAlive } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import {
 	type SessionListItem,
@@ -163,6 +163,19 @@ export class SessionListHub {
 	endUserStreams(userId: string): void {
 		for (const subscriber of [...this.#subscribers]) {
 			if (subscriber.user.userId === userId) this.#end(subscriber);
+		}
+	}
+
+	/**
+	 * Ends the streams of a user whose WebUI session was revoked without disabling the user (logout, password
+	 * change, an administrator's password reset). The row is gone or expired, so the subscriber's cookie would
+	 * no longer authenticate a new request.
+	 */
+	async revalidateWebSessions(userId: string): Promise<void> {
+		for (const subscriber of [...this.#subscribers]) {
+			if (subscriber.user.userId !== userId) continue;
+			if (await webSessionAlive(this.#db, subscriber.user.sessionId)) continue;
+			this.#end(subscriber);
 		}
 	}
 

@@ -3,7 +3,7 @@ import { streamSSE } from "hono/streaming";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import type { SessionListScope, SessionListSubscriber } from "../agent/session-list.ts";
 import { sessionCapabilities } from "../agent/sharing.ts";
-import type { SessionUser } from "../auth/sessions.ts";
+import { type SessionUser, webSessionAlive } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import { type AppEnv, jsonError } from "./context.ts";
 import type { RequestDrain } from "./drain.ts";
@@ -49,6 +49,19 @@ export class SessionStreams {
 		for (const stream of [...this.#streams]) {
 			const viewer = await this.#currentViewer(stream.user);
 			if (viewer && (await sessionCapabilities(this.#db, viewer, stream.sessionId))) continue;
+			this.#end(stream);
+		}
+	}
+
+	/**
+	 * Ends the streams of a user whose WebUI session was revoked (logout, password change, an administrator's
+	 * reset). The SSE loop re-checks every 15 s anyway; this ends them while the request that revoked the
+	 * session is still running, the same way endUserStreams ends the session-list streams.
+	 */
+	async revalidateWebSessions(userId: string): Promise<void> {
+		for (const stream of [...this.#streams]) {
+			if (stream.user.userId !== userId) continue;
+			if (await webSessionAlive(this.#db, stream.user.sessionId)) continue;
 			this.#end(stream);
 		}
 	}
@@ -145,7 +158,14 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 				if (abort.signal.aborted) return;
 				while (!abort.signal.aborted) {
 					await sleepFor(15_000, abort.signal);
-					if (!abort.signal.aborted) await stream.writeSSE({ event: "ping", data: "" });
+					if (abort.signal.aborted) break;
+					// WebUI sessions can be revoked after the stream authenticated (logout, password change);
+					// the connection must not keep reading with the old cookie.
+					if (!(await webSessionAlive(db, subscriber.user.sessionId))) {
+						stream.abort();
+						break;
+					}
+					await stream.writeSSE({ event: "ping", data: "" });
 				}
 			} finally {
 				unsubscribe?.();
@@ -188,7 +208,13 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 				// Keep the stream (and proxies) alive while the session is quiet.
 				while (!abort.signal.aborted) {
 					await sleepFor(15_000, abort.signal);
-					if (!abort.signal.aborted) await stream.writeSSE({ event: "ping", data: "" });
+					if (abort.signal.aborted) break;
+					// The cookie may have been revoked since this stream opened; end it instead of pinging.
+					if (!(await webSessionAlive(db, live.user.sessionId))) {
+						stream.abort();
+						break;
+					}
+					await stream.writeSSE({ event: "ping", data: "" });
 				}
 			} finally {
 				// A failed write must still end the watch and forget the stream, not leave both behind.

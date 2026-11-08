@@ -26,7 +26,7 @@ export type ToolFailure =
 	| { kind: "partly-failed" };
 
 const FAILED_STATES = new Set(["failed", "denied", "rejected", "unknown"]);
-const FAILED_GROUP_STATES = new Set(["interrupted", "rejected"]);
+const FAILED_GROUP_STATES = new Set(["interrupted", "rejected", "cancelled"]);
 
 /** The failure of one task result (`{ task_id, state, ... }`), or undefined when it did not fail. */
 export function taskFailure(value: JsonObject): ToolFailure | undefined {
@@ -93,7 +93,7 @@ export function taskViewFailure(task: TaskView): ToolFailure | undefined {
 	return undefined;
 }
 
-/** The failure of a task group view: interrupted or rejected, or a set of members that partly failed. */
+/** The failure of a task group view: interrupted, rejected or cancelled, or members that partly failed. */
 export function taskGroupViewFailure(group: TaskGroupView): ToolFailure | undefined {
 	if (FAILED_GROUP_STATES.has(group.state)) return { kind: "failed", reason: "state" };
 	const failed = group.tasks.filter((task) => taskViewFailure(task) !== undefined).length;
@@ -109,7 +109,7 @@ function groupNodes(value: JsonObject): JsonObject[] | undefined {
 	);
 }
 
-/** Partly failed when some members failed, failed when all did or the group was interrupted or rejected. */
+/** Partly failed when some members failed, failed when all did or the group was interrupted, rejected or cancelled. */
 function groupFailure(value: JsonObject, nodes: readonly JsonObject[]): ToolFailure | undefined {
 	const state = typeof value.state === "string" ? value.state : undefined;
 	if (state !== undefined && FAILED_GROUP_STATES.has(state)) return { kind: "failed", reason: "state" };

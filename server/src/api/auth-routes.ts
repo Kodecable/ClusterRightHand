@@ -4,7 +4,7 @@ import { userActor } from "../audit/audit.ts";
 import { revokeAllApiTokens } from "../auth/api-tokens.ts";
 import { type CaptchaChallengeParameters, issueLoginChallenge, verifyLoginChallenge } from "../auth/captcha.ts";
 import { HashBusyError } from "../auth/hash-gate.ts";
-import { LoginLimiter, loginAttemptKeys } from "../auth/login-limiter.ts";
+import { LoginLimiter, loginAttemptKeys, passwordAttemptKeys } from "../auth/login-limiter.ts";
 import { hashPassword, needsRehash, verifyPassword } from "../auth/password.ts";
 import { createWebSession, revokeUserWebSessions, revokeWebSession, SESSION_COOKIE } from "../auth/sessions.ts";
 import type { Cluster } from "../cluster/cluster.ts";
@@ -33,6 +33,11 @@ export interface AuthRoutesOptions {
 	captcha?: "cap" | "none";
 	/** Lowers the proof-of-work cost for the "cap" tests; production keeps capjs-core's defaults. */
 	captchaChallenge?: CaptchaChallengeParameters;
+	/**
+	 * Ends the user's open SSE streams whose WebUI session no longer exists (logout, password change). The
+	 * app wires it to SessionStreams and the session-list hub; the 15 s ping check is the fallback.
+	 */
+	revalidateWebSessions?: (userId: string) => Promise<void> | void;
 }
 
 export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
@@ -120,7 +125,7 @@ export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 				});
 			let ok: boolean;
 			try {
-				ok = await verifyPassword(password, user?.password_hash ?? (await dummyHash));
+				ok = await verifyPassword(password, user?.password_hash ?? (await dummyHash), "login");
 			} catch (err) {
 				// A full hash queue is the server's state, not a guess: give the reservation back (503 follows).
 				if (err instanceof HashBusyError) for (const key of keys.all) limiter.refund(key);
@@ -164,6 +169,8 @@ export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 	app.use("/logout", requireUser(db));
 	app.post("/logout", async (c) => {
 		await revokeWebSession(db, c.get("user").sessionId);
+		// The SSE loops keep the cookie they authenticated with; end this session's streams now.
+		await options.revalidateWebSessions?.(c.get("user").userId);
 		deleteCookie(c, SESSION_COOKIE, { path: "/" });
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
@@ -185,29 +192,60 @@ export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 			return jsonError(c, 400, "revokeApiTokens must be a boolean");
 		}
 		const me = c.get("user");
-		const row = await db.selectFrom("users").select("password_hash").where("id", "=", me.userId).executeTakeFirst();
-		if (!row?.password_hash || !(await verifyPassword(current, row.password_hash))) {
-			return jsonError(c, 403, "current password is wrong");
+		const address = options.clientAddress?.(c);
+		// The same limiter as login, keyed by account and address: guessing the current password is an
+		// online guess too, and a wrong one counts exactly like a failed login (doc/webui.md#登录).
+		const keys = passwordAttemptKeys(address, me.userId);
+		const verifyKey = `password-user:${me.userId}`;
+		// One in-flight hash per account; two concurrent changes would both verify and race the write.
+		if (!limiter.beginVerify(verifyKey)) {
+			return jsonError(c, 429, "a password change for this account is already in progress", {
+				code: "password_change_in_progress",
+			});
+		}
+		if (!limiter.reserve(keys.all)) {
+			limiter.endVerify(verifyKey);
+			return jsonError(c, 429, "too many failed attempts, try again later", { code: "rate_limited" });
 		}
 		try {
-			await setPassword(db, me.userId, next);
-		} catch (err) {
-			if (err instanceof UserError) return jsonError(c, 400, err.message);
-			throw err;
+			const row = await db.selectFrom("users").select("password_hash").where("id", "=", me.userId).executeTakeFirst();
+			let ok: boolean;
+			try {
+				ok = row?.password_hash ? await verifyPassword(current, row.password_hash) : false;
+			} catch (err) {
+				// A full gate is the server's state, not a guess: give the reservation back (503 follows).
+				if (err instanceof HashBusyError) for (const key of keys.all) limiter.refund(key);
+				throw err;
+			}
+			if (!ok) return jsonError(c, 403, "current password is wrong");
+			// The password was right, so this is not a failed attempt; only the other-session revocation
+			// below can fail. Clear before the write, like a successful login.
+			limiter.clearUser(keys.userKey);
+			if (keys.addressKey !== undefined) limiter.refund(keys.addressKey);
+			try {
+				await setPassword(db, me.userId, next);
+			} catch (err) {
+				if (err instanceof UserError) return jsonError(c, 400, err.message);
+				throw err;
+			}
+			// Sign out every other session; keep this one.
+			await revokeUserWebSessions(db, me.userId, { except: me.sessionId });
+			// Every other open stream now holds a session that no longer exists; this one stays open.
+			await options.revalidateWebSessions?.(me.userId);
+			// Web sessions and API tokens are separate: a password change leaves tokens usable unless asked.
+			const revokeApiTokens = body?.revokeApiTokens === true;
+			const revokedApiTokens = revokeApiTokens ? await revokeAllApiTokens(db, me.userId) : [];
+			await rejectRevokedTokenWaits(db, options.cluster, options.taskGroups, revokedApiTokens, me.userId);
+			void c.get("audit").record({
+				actor: userActor(me),
+				action: "auth.password_changed",
+				target: { type: "user", id: me.userId },
+				detail: { revoke_api_tokens: revokeApiTokens, revoked_api_tokens: revokedApiTokens.length },
+			});
+			return c.json({ ok: true });
+		} finally {
+			limiter.endVerify(verifyKey);
 		}
-		// Sign out every other session; keep this one.
-		await revokeUserWebSessions(db, me.userId, { except: me.sessionId });
-		// Web sessions and API tokens are separate: a password change leaves tokens usable unless asked.
-		const revokeApiTokens = body?.revokeApiTokens === true;
-		const revokedApiTokens = revokeApiTokens ? await revokeAllApiTokens(db, me.userId) : [];
-		await rejectRevokedTokenWaits(db, options.cluster, options.taskGroups, revokedApiTokens, me.userId);
-		void c.get("audit").record({
-			actor: userActor(me),
-			action: "auth.password_changed",
-			target: { type: "user", id: me.userId },
-			detail: { revoke_api_tokens: revokeApiTokens, revoked_api_tokens: revokedApiTokens.length },
-		});
-		return c.json({ ok: true });
 	});
 
 	return app;

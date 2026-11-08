@@ -130,4 +130,46 @@ describe("Argon2id concurrency gate", () => {
 		).rejects.toThrow("boom");
 		await expect(withHashSlot(async () => 7)).resolves.toBe(7);
 	});
+
+	it("keeps a slot for a login while other hashes use theirs", async () => {
+		// Two slots: other may hold one, so a login still starts at once even with other work queued.
+		resetHashGateForTesting({ concurrency: 2, queue: 4 });
+		let release: () => void = () => {};
+		const hold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const other = withHashSlot(async () => {
+			await hold;
+			return "other";
+		}, "other");
+		// This one waits: other already holds its one allowed slot.
+		const queuedOther = withHashSlot(async () => "queued-other", "other");
+		// The login passes the waiting other and runs in the reserved slot.
+		await expect(withHashSlot(async () => "login", "login")).resolves.toBe("login");
+		release();
+		await expect(other).resolves.toBe("other");
+		await expect(queuedOther).resolves.toBe("queued-other");
+	});
+
+	it("caps other's queue share while login may use the whole queue", async () => {
+		// Four queue places, so other may wait for two; the third other is rejected even though the
+		// login queue behind it would still have room.
+		resetHashGateForTesting({ concurrency: 1, queue: 4 });
+		let release: () => void = () => {};
+		const hold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const first = withHashSlot(async () => {
+			await hold;
+		}, "other");
+		const second = withHashSlot(async () => {}, "other");
+		const third = withHashSlot(async () => {}, "other");
+		await expect(withHashSlot(async () => {}, "other")).rejects.toBeInstanceOf(HashBusyError);
+		const login = withHashSlot(async () => "login", "login");
+		release();
+		await expect(first).resolves.toBeUndefined();
+		await expect(second).resolves.toBeUndefined();
+		await expect(third).resolves.toBeUndefined();
+		await expect(login).resolves.toBe("login");
+	});
 });

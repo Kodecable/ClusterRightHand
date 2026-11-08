@@ -88,7 +88,12 @@ export function recorded(state: TaskRowState): boolean {
 }
 
 /** A task group in one of these states runs nothing more (doc/execution-plane.md#状态机). */
-export const GROUP_TERMINAL: ReadonlySet<TaskGroupState> = new Set(["finished", "interrupted", "rejected"]);
+export const GROUP_TERMINAL: ReadonlySet<TaskGroupState> = new Set([
+	"finished",
+	"interrupted",
+	"rejected",
+	"cancelled",
+]);
 
 /**
  * How long the output of a task reported `unknown` stays in memory for a late result. The client keeps

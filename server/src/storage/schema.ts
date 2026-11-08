@@ -281,7 +281,8 @@ export type TaskGroupState =
 	| "running"
 	| "finished"
 	| "interrupted"
-	| "rejected";
+	| "rejected"
+	| "cancelled";
 
 export interface AuthorizationsTable {
 	/** Hex SHA-256 of the payload bytes. */

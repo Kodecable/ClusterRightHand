@@ -185,7 +185,7 @@ web/src/
   - 子会话的实时状态不再显示在工具调用行上，只显示在子会话栏和子会话浮层里。
 - 停下的卡片（没有结果，但不会再有结果）：
   - 用状态详情里的 `task_id` / `task_group_id` 跟进任务或任务组：转圈期间每 5 秒普通读取一次，停下时再读一次。不用长轮询：一个会话可能同时有很多未返回的调用，每个长轮询都会占住浏览器对同一来源仅有的几个连接。只有没有结果的卡片跟进；返回了的调用不查询。
-  - 任务到了终态、或任务组是 `finished` / `interrupted` / `rejected` 时，按任务视图判断结果：失败用危险色，标签用具体原因，否则普通颜色、标签是 `Done`。
+  - 任务到了终态、或任务组是 `finished` / `interrupted` / `rejected` / `cancelled` 时，按任务视图判断结果：失败用危险色，标签用具体原因，否则普通颜色、标签是 `Done`。
   - 会话变成 idle 而任务还没结束、或者连 id 都不知道时，结果未知：普通颜色，标签是 `No result`（中文“无结果”）。
   - `data-tool-status` 在停下的卡片上是 `empty`；任务失败时是 `failed`。
   - 状态详情里的 id 由服务端在第一次等待前推送，见 [agent-runtime.md](agent-runtime.md#exec-工具的语义)。
@@ -194,7 +194,7 @@ web/src/
   - 返回的调用按工具结果的 `details` 判断（D112：模型看到的内容可能是文本，不再解析它），不做实时查询；
   - 停下的调用按跟进到的 `TaskView` / `TaskGroupView` 字段判断，规则相同；
   - 单个任务（`details` 有 `task_id` 和 `state`）：`failed` / `denied` / `rejected` / `unknown` 算失败；`exited` 时非零 `exit_code`、有 `signal`、`timed_out` 或 `cancelled` 也算失败（用户取消按失败处理）；
-  - 任务组（`details` 有 `task_group_id` 和 `nodes`）：部分成员失败时算失败，标签写“部分失败”；全部失败或组是 `interrupted` / `rejected` 时也失败，标签写 `Failed`；
+  - 任务组（`details` 有 `task_group_id` 和 `nodes`）：部分成员失败时算失败，标签写“部分失败”；全部失败或组是 `interrupted` / `rejected` / `cancelled` 时也失败，标签写 `Failed`；
   - 失败以外的结果（`read_file` 没有 `exit_code`、`exit 0`、仍在 `running` 的任务、全部成功的组）不影响状态，也不显示 `exit N` 文本。
 
 **新建会话（D117）：**

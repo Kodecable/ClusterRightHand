@@ -28,6 +28,8 @@ export interface UserRoutesOptions {
 	/** With taskGroups, rejects the waiting work of tokens an administrator's password reset revokes. */
 	cluster?: Cluster;
 	taskGroups?: TaskGroups;
+	/** Ends the user's per-session SSE streams after a password reset revokes their WebUI sessions. */
+	revalidateWebSessions?: (userId: string) => Promise<void> | void;
 }
 
 /** Expects requireUser to have run. */
@@ -144,6 +146,8 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 		const actor = c.get("user");
 		await setPassword(db, id, password);
 		await revokeUserWebSessions(db, id);
+		// Every open stream of that user now holds a revoked WebUI session; end them with the reset.
+		await options.revalidateWebSessions?.(id);
 		// Tokens are opt-in: an administrator may reset a password without ending the user's MCP access.
 		const revokeApiTokens = body?.revokeApiTokens === true;
 		const revokedApiTokens = revokeApiTokens ? await revokeAllApiTokens(db, id) : [];

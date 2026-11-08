@@ -129,6 +129,17 @@ describe("TaskGroupResult", () => {
 		expect(screen.getByText(/the batch was interrupted/)).toBeInTheDocument();
 	});
 
+	test("a cancelled group has its own badge and says so under the skipped nodes", async () => {
+		await renderResult(
+			<TaskGroupResult
+				taskGroup={group({ state: "cancelled", skipped: ["node-1"] })}
+				names={new Map([["node-1", "worker-01"]])}
+			/>,
+		);
+		expect(screen.getAllByText("Cancelled").length).toBeGreaterThan(0);
+		expect(screen.getByText(/the batch was cancelled/)).toBeInTheDocument();
+	});
+
 	test("targets are named through refs, including deleted and _all", async () => {
 		await renderResult(
 			<TaskGroupResult

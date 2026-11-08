@@ -27,6 +27,10 @@ msgstr "（覆盖已有文件）"
 msgid " (the batch was interrupted)"
 msgstr "（批量运行被中断）"
 
+#: src/features/tasks/task-group-result.tsx
+msgid " (the batch was cancelled)"
+msgstr "（批量运行已取消）"
+
 #: src/components/task-result.tsx
 msgid ", {total} lines in all"
 msgstr "，共 {total} 行"

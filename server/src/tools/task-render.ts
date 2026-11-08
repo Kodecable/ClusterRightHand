@@ -243,6 +243,8 @@ export function groupTextNote(
 		fields.push(`waiting for authorization: ${ctx.taskGroupUrl?.(group.id) ?? `/task-groups/${group.id}`}`);
 	} else if (group.state === "running") {
 		fields.push("still running");
+	} else if (group.state === "cancelled") {
+		fields.push("cancelled");
 	} else if (group.state === "interrupted" || group.state === "rejected") {
 		fields.push(group.state);
 	}

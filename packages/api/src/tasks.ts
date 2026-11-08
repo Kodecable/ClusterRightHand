@@ -30,7 +30,8 @@ export type TaskGroupState =
 	| "running"
 	| "finished"
 	| "interrupted"
-	| "rejected";
+	| "rejected"
+	| "cancelled";
 
 /** One entry of a `file.list` result (doc/protocol.md TaskResult). */
 export type FileListEntryView = JsonFileListEntry;

@@ -645,6 +645,49 @@ it("preempts the previous instance: stops its session, marks the run preempted a
 	expect((await runsOf(schedule.id)).map((run) => run.status)).toEqual(["succeeded", "preempted"]);
 });
 
+it("stops a previous run's leftover background subagent at the next trigger", async () => {
+	const owner = await newOwner("owner-leftover");
+	const schedule = await makeSchedule(owner);
+	faux.setResponses([fauxAssistantMessage([fauxText("root done")]), fauxAssistantMessage([fauxText("next run")])]);
+	await startAt("2026-01-05T09:01:00.000Z");
+	const first = await scheduler.runNow(schedule.id, owner);
+	await waitFor("the first run to succeed", async () =>
+		(await runOf(first.id))?.status === "succeeded" ? true : undefined,
+	);
+	const firstSession = first.sessionId as string;
+	// A background subagent outlives the root submission: the run is succeeded while the child is still
+	// working, which is exactly the leftover the next trigger must stop.
+	const child = await runtime.createSubagent(firstSession, {
+		callKey: `leftover:${first.id}`,
+		task: "keep working after the root answers",
+		rules: { default: "inherit", rules: [] },
+		quota: null,
+	});
+	await db
+		.updateTable("sessions")
+		.set({ state: "running", state_changed_at: clock.now().toISOString() })
+		.where("id", "=", child.id)
+		.execute();
+
+	await clock.advance(1_000);
+	const second = await scheduler.runNow(schedule.id, owner);
+	await waitFor("the second run to succeed", async () =>
+		(await runOf(second.id))?.status === "succeeded" ? true : undefined,
+	);
+	// The abort walked the previous run's subtree and ended the background child.
+	expect(await sessionStateOf(db, child.id)).toBe("idle");
+	// Its run keeps the status it had; only the leftover work was stopped.
+	expect((await runOf(first.id))?.status).toBe("succeeded");
+	const audits = await db
+		.selectFrom("audit_events")
+		.selectAll()
+		.where("action", "=", "schedule.leftover_stopped")
+		.where("target_id", "=", schedule.id)
+		.execute();
+	expect(audits).toHaveLength(1);
+	expect(JSON.parse(audits[0]?.detail ?? "{}")).toMatchObject({ run_id: first.id, session_id: firstSession });
+});
+
 it("marks a run failed when its submission does not end normally", async () => {
 	const owner = await newOwner("owner-model-error");
 	const schedule = await makeSchedule(owner);

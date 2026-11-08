@@ -67,6 +67,12 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	// Built once so the password routes reject the waiting work of revoked tokens through the same task groups.
 	const cluster = options.cluster;
 	const taskGroups = cluster ? (options.taskGroups ?? new TaskGroups(db, cluster, { audit })) : undefined;
+	/**
+	 * Filled in with the SSE routes below, which are built after the auth routes: logout and a password change
+	 * end the affected streams immediately, and the streams' own ping check is only the fallback.
+	 */
+	let revalidateWebSessions: ((userId: string) => Promise<void>) | undefined;
+	const onWebSessionsRevoked = (userId: string): Promise<void> | void => revalidateWebSessions?.(userId);
 
 	// One error handler for every route (see errors.ts), so each route group keeps only its own routes.
 	app.onError(apiErrorHandler());
@@ -100,7 +106,14 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 		});
 	});
 
-	app.route("/api/auth", authRoutes(db, { ...options, ...(taskGroups ? { taskGroups } : {}) }));
+	app.route(
+		"/api/auth",
+		authRoutes(db, {
+			...options,
+			...(taskGroups ? { taskGroups } : {}),
+			revalidateWebSessions: onWebSessionsRevoked,
+		}),
+	);
 
 	app.use("/api/*", requireUser(db));
 	app.route(
@@ -109,6 +122,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 			...(options.agent ? { sessions: options.agent.runtime.sessionList } : {}),
 			...(cluster ? { cluster } : {}),
 			...(taskGroups ? { taskGroups } : {}),
+			revalidateWebSessions: onWebSessionsRevoked,
 		}),
 	);
 	app.route("/api", nodeRoutes(db, options));
@@ -134,6 +148,10 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 			sessions.route("/", modelProviderRoutes(db, { models, masterKey: options.masterKey }));
 			sessions.route("/", modelPresetRoutes({ runtime, models }));
 			const streams = new SessionStreams(db, runtime, drain);
+			revalidateWebSessions = async (userId) => {
+				await streams.revalidateWebSessions(userId);
+				await runtime.sessionList.revalidateWebSessions(userId);
+			};
 			// The event streams first: `GET /sessions/stream` must not be taken for `GET /sessions/:id`.
 			sessions.route("/", sessionEventRoutes(db, { runtime, streams, drain }));
 			sessions.route(

@@ -1,5 +1,5 @@
 import { argon2, randomBytes, timingSafeEqual } from "node:crypto";
-import { HashBusyError, withHashSlot } from "./hash-gate.ts";
+import { HashBusyError, type HashKind, withHashSlot } from "./hash-gate.ts";
 
 const ALGORITHM = "argon2id";
 const VERSION = 19;
@@ -99,25 +99,27 @@ function format(params: Argon2Parameters, salt: Buffer, hash: Buffer): string {
 	return `$${ALGORITHM}$v=${VERSION}$m=${params.memory},t=${params.passes},p=${params.parallelism}$${encodeBase64(salt)}$${encodeBase64(hash)}`;
 }
 
-export async function hashPassword(password: string): Promise<string> {
+export async function hashPassword(password: string, kind: HashKind = "other"): Promise<string> {
 	if (typeof password !== "string" || password.length > MAX_PASSWORD_LENGTH) {
 		throw new RangeError(`password must be at most ${MAX_PASSWORD_LENGTH} characters`);
 	}
 	const salt = randomBytes(SALT_LENGTH);
 	const params = current;
-	const key = await withHashSlot(() =>
-		derive(Buffer.from(password.normalize("NFKC"), "utf8"), salt, params, TAG_LENGTH),
+	const key = await withHashSlot(
+		() => derive(Buffer.from(password.normalize("NFKC"), "utf8"), salt, params, TAG_LENGTH),
+		kind,
 	);
 	return format(params, salt, key);
 }
 
-export async function verifyPassword(password: string, encoded: string): Promise<boolean> {
+export async function verifyPassword(password: string, encoded: string, kind: HashKind = "other"): Promise<boolean> {
 	if (typeof password !== "string" || password.length > MAX_PASSWORD_LENGTH) return false;
 	const parsed = parse(encoded);
 	if (!parsed) return false;
 	try {
-		const key = await withHashSlot(() =>
-			derive(Buffer.from(password.normalize("NFKC"), "utf8"), parsed.salt, parsed, parsed.hash.length),
+		const key = await withHashSlot(
+			() => derive(Buffer.from(password.normalize("NFKC"), "utf8"), parsed.salt, parsed, parsed.hash.length),
+			kind,
 		);
 		return timingSafeEqual(key, parsed.hash);
 	} catch (err) {

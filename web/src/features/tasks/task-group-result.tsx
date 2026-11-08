@@ -20,6 +20,7 @@ const GROUP_STATES: Record<string, MessageDescriptor> = {
 	finished: msg`Finished`,
 	interrupted: msg`Interrupted`,
 	rejected: msg`Rejected`,
+	cancelled: msg`Cancelled`,
 };
 
 function taskGroupTone(state: string): "ok" | "danger" | "info" | "warn" | "muted" {
@@ -28,6 +29,7 @@ function taskGroupTone(state: string): "ok" | "danger" | "info" | "warn" | "mute
 			return "ok";
 		case "rejected":
 		case "interrupted":
+		case "cancelled":
 			return "danger";
 		case "running":
 			return "info";
@@ -187,6 +189,7 @@ export function TaskGroupResult({
 				<p className="text-xs text-muted-foreground">
 					<Trans>Skipped: {skipped}</Trans>
 					{taskGroup.state === "interrupted" && <Trans> (the batch was interrupted)</Trans>}
+					{taskGroup.state === "cancelled" && <Trans> (the batch was cancelled)</Trans>}
 				</p>
 			)}
 		</section>

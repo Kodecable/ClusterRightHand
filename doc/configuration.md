@@ -82,7 +82,9 @@ Passkey 的依赖方设置。`rp_id` 与 `origins` 必须同时设置或同时�
 - 每个 Argon2id 哈希默认占 64 MiB（`m = 65536` KiB、`t = 3`、`p = 1`），所以**峰值内存约为 `argon2_concurrency × 64 MiB`**（默认约 128 MiB），再加上排队请求的少量开销。不要把 `argon2_concurrency` 设得超过机器愿意为登录承担的内存量。
 - 哈希在 libuv 线程池中执行，默认只有 4 个线程（`UV_THREADPOOL_SIZE`）。`argon2_concurrency` 超过 2 时请同时调大 `UV_THREADPOOL_SIZE`；否则文件、DNS 等其它线程池任务会和登录哈希抢线程。
 - 运行中的计算达到 `argon2_concurrency` 后，新计算进入队列；队列也满时立即返回 HTTP 503、`Retry-After: 1`、`{ "error": "the server is busy, try again", "code": "hash_busy" }`。
+- 登录永远优先：`POST /api/auth/login` 的哈希可以用满 `argon2_concurrency` 个槽位和整个队列；其它哈希（修改密码、管理员重置、创建用户）最多用 `argon2_concurrency - 1` 个运行槽位（并发为 1 时就是那一个）和一半的队列长度。因此已登录用户把自己改密码的请求堆满，也不会让站点登录拿不到槽位而返回 503。登录等待者在槽位释放时先于其它哈希被唤醒。
 - `captcha = "cap"` 时，`POST /api/auth/login` 必须带 `cap`；挑战由 `POST /api/auth/login/challenge` 签发，有效期 2 分钟，绑定客户端地址、用户名和密码。`"none"` 关闭该检查（只建议在不能运行浏览器的受控环境使用）。
+- `POST /api/auth/password` 与登录共用失败计数器和客户端地址键：当前密码错误按失败登录计数（默认连续 10 次后 15 分钟内 429），同一账号同时只允许一个修改请求在验证密码（并发请求 429）。成功修改清除该账号的失败计数。
 
 ## 未知键与错误
 

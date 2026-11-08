@@ -1,5 +1,6 @@
 /**
- * In-memory limiter for failed logins, keyed by client address and by address + username.
+ * In-memory limiter for failed logins and password changes, keyed by client address and by
+ * address + username (or by account for a password change).
  *
  * It is per process and resets on restart; that is enough to stop online guessing against one
  * crhs. The attempt is reserved (counted as a failure) before Argon2id runs, so a burst of
@@ -19,6 +20,17 @@ export interface LoginAttemptKeys {
 
 export function loginAttemptKeys(address: string | undefined, username: string): LoginAttemptKeys {
 	const userKey = `addr-user:${address ?? ""}\0${username.trim().toLowerCase()}`;
+	const addressKey = address === undefined ? undefined : `addr:${address}`;
+	return { all: addressKey === undefined ? [userKey] : [userKey, addressKey], addressKey, userKey };
+}
+
+/**
+ * The keys a password change's wrong current-password attempts are counted under: the account (an id,
+ * not the username) and the client address, which is the same address key a login uses. A successful
+ * change clears the account key and gives back its own address reservation, like a successful login.
+ */
+export function passwordAttemptKeys(address: string | undefined, userId: string): LoginAttemptKeys {
+	const userKey = `user:${userId}`;
 	const addressKey = address === undefined ? undefined : `addr:${address}`;
 	return { all: addressKey === undefined ? [userKey] : [userKey, addressKey], addressKey, userKey };
 }

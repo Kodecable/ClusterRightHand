@@ -77,8 +77,9 @@ task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail
                    root_session_id nullable,                          -- 规则链根会话，按会话树查等待项
                    handler_type[agent|user] nullable,                 -- 等审批时谁处理；user 即 on_behalf_of_user_id
                    handler_session_id nullable,                       -- handler_type=agent 时处理的会话
-                   state[awaiting_approval|awaiting_authorization|running|finished|interrupted|rejected],
-                                                                      -- interrupted：重启中断；已创建但未下发的成员任务以 cancelled 结束
+                   state[awaiting_approval|awaiting_authorization|running|finished|interrupted|rejected|cancelled],
+                                                                      -- interrupted：重启中断；cancelled：会话停止/工具调用中止时取消；
+                                                                      -- 已创建但未下发的成员任务以 cancelled 结束
                    actor_type, actor_id, on_behalf_of_user_id, created_at, finished_at)
 tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json, input_size, input_sha256,
                    privileged, attempt, timeout_ms, output_mode[full|text|status|head],  -- 单任务 full；组内任务随组
@@ -198,7 +199,7 @@ pi_tasks = "7d"  # durable 已结束的运行记录；"off" 表示永久保留
 - `tasks`（默认 `90d`）同时作用于 `tasks`、`task_groups` 和 `authorizations`；`audit`（默认 `180d`）作用于 `audit_events`；`pi_tasks`（默认 `7d`）作用于 pi-durable 的 `pi_tasks`。值可以是 `ms` / `s` / `m` / `h` / `d` 组合的时长（如 `1d12h`），`off` 表示不清理。
 - 除 `off` 外最短 1 天，配置更短会启动失败。durable 工具调用在崩溃后重跑时按任务 id 重新挂到原来的集群任务（`cluster/task-dispatch.ts` 的 `createTask`）；如果任务行已被删掉，同一条命令会被再次下发。
 - `tasks`：只删终态（`exited`、`failed`、`rejected`、`unknown`、`denied`）且 `finished_at < 截止时间`的行；非终态（等待审批/授权、已下发、运行中）和 `finished_at` 为 NULL 的行无论多老都保留。
-- `task_groups`：只删终态（`finished`、`interrupted`、`rejected`）且 `finished_at < 截止时间`的行。
+- `task_groups`：只删终态（`finished`、`interrupted`、`rejected`、`cancelled`）且 `finished_at < 截止时间`的行。
 - `authorizations`：删 `deadline < 截止时间`的行（D103 起每条授权都有截止时间）；`deadline` 为 NULL 的旧行保留。
 - `audit_events`：删 `ts < 截止时间` 且 `seq <= max(seq) - 16384` 的行。保留最新 16384 个序号（按序号距离，不按行数，允许空洞）：SQLite 的 `seq` 是 rowid（没有 AUTOINCREMENT），删空表后编号会从头开始；时钟大幅前跳时也不会把整份日志清空，持有 `max(seq)` 的行永远不会被删。
 - `pi_tasks`：只删 `status = 'terminal'` 且任务记录中数字 `endedAt < 截止时间`（epoch 毫秒）的行；同一事务里先删它的任务范围文档（`pi_documents` 中 `scope_kind = 'task'`、`owner_id` 为该任务的行）及其 `pi_document_revisions`，再删任务行。以下行无论多老都保留：非终态（`pending`、`running`、`waiting`、`sleeping`、`completing`，`completing` 仍是活任务）；没有数字 `endedAt` 的终态记录；仍被未结束任务引用为 `owner`、出现在等待任务 `state.on` 中、或作为某个会话的 `owner_task_id` 的终态任务。对话内容在 `pi_entries`，不在此列。

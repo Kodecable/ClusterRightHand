@@ -223,9 +223,9 @@ async function cancelBlockingGroup(ctx: ToolContext, group: TaskGroupView): Prom
 		// The approval may have been settled just before the abort: the group can already be running.
 		latest = (await ctx.taskGroups.get(latest.id)) ?? latest;
 	}
-	for (const task of latest.tasks) {
-		if (!TERMINAL.has(task.state)) await ctx.cluster.cancelTask(task.id, abortReason(), ctx.actor);
-	}
+	// Cancel the group itself, so its workers stop creating the remaining nodes; the per-member loop this
+	// replaces only stopped the members that already existed (doc/execution-plane.md#状态机).
+	if (!GROUP_TERMINAL.has(latest.state)) await ctx.taskGroups.cancel(latest.id, abortReason(), ctx.actor);
 }
 
 /** Pushes a task group's waiting status, with its approval or signature link, to the UI. */

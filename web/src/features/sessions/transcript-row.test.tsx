@@ -492,8 +492,8 @@ describe("callStillOpen", () => {
 		}
 	});
 
-	test("a group that finished, was interrupted or was rejected stops the wait", () => {
-		for (const state of ["finished", "interrupted", "rejected"]) {
+	test("a group that finished, was interrupted, rejected or cancelled stops the wait", () => {
+		for (const state of ["finished", "interrupted", "rejected", "cancelled"]) {
 			expect(callStillOpen({ sessionActive: true, taskState: undefined, taskGroupState: state }), state).toBe(false);
 		}
 	});

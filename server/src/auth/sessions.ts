@@ -54,6 +54,22 @@ export async function resolveWebSession(db: Db, token: string, now = new Date())
 	return { sessionId: row.id, userId: row.user_id, username: row.username, kind: row.kind };
 }
 
+/**
+ * Whether a WebUI session is still usable (doc/webui.md#会话事件流和历史): the row exists, has not expired,
+ * and its user is still active. Open server-sent event streams keep their cookie for the life of the
+ * connection, so they re-check this instead of trusting the authentication they started with; logout and a
+ * password change delete the row, which is what ends the stream.
+ */
+export async function webSessionAlive(db: Db, webSessionId: string, now = new Date()): Promise<boolean> {
+	const row = await db
+		.selectFrom("web_sessions as s")
+		.innerJoin("users as u", "u.id", "s.user_id")
+		.select(["s.expires_at", "u.status"])
+		.where("s.id", "=", webSessionId)
+		.executeTakeFirst();
+	return row !== undefined && row.status === "active" && Date.parse(row.expires_at) > now.getTime();
+}
+
 export async function revokeWebSession(db: Db, sessionId: string): Promise<void> {
 	await db.deleteFrom("web_sessions").where("id", "=", sessionId).execute();
 }

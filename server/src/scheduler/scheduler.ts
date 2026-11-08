@@ -654,6 +654,44 @@ export class Scheduler {
 				console.error(`scheduler: stopping preempted session ${row.session_id} failed:`, err);
 			}
 		}
+		// A run is `succeeded` when its root submission ends, but a background subagent it started can keep
+		// running. That work belongs to the previous instance, so the next trigger stops it too; the run's
+		// status stays as it was (doc/scheduling.md#同时只有一个实例). One query joins the schedule's finished
+		// runs with their session trees and keeps only a tree that still has a `running` / `awaiting` session
+		// (`schedule_runs` is never pruned, so per-run queries would grow without bound); an idle leftover
+		// costs no abort, and an already stopped one is not aborted again. The second join branch covers a
+		// root whose `root_session_id` was never backfilled.
+		const previous = await this.#db
+			.selectFrom("schedule_runs as r")
+			.innerJoin("sessions as s", (join) =>
+				join.on((eb) =>
+					eb.or([
+						eb("s.root_session_id", "=", eb.ref("r.session_id")),
+						eb.and([eb("s.id", "=", eb.ref("r.session_id")), eb("s.root_session_id", "is", null)]),
+					]),
+				),
+			)
+			.select(["r.id", "r.session_id"])
+			.distinct()
+			.where("r.schedule_id", "=", schedule.id)
+			.where("r.id", "!=", currentRunId)
+			.where("r.status", "in", ["succeeded", "failed", "preempted"])
+			.where("s.state", "!=", "idle")
+			.execute();
+		for (const run of previous) {
+			const sessionId = run.session_id;
+			if (!sessionId) continue;
+			try {
+				await this.#runtime.abort(sessionId);
+			} catch (err) {
+				console.error(`scheduler: stopping leftover work of run ${run.id} (${sessionId}) failed:`, err);
+				continue;
+			}
+			await this.#record(scheduleActor(schedule), "schedule.leftover_stopped", schedule, {
+				run_id: run.id,
+				session_id: sessionId,
+			});
+		}
 	}
 
 	/** Watches one run's submission; settles the run when it ends. Never polls. */

@@ -523,12 +523,31 @@ const taskWait = define({
 const taskCancel = define({
 	name: "task_cancel",
 	description:
-		"Cancel a running exec task (TERM, then KILL after a grace period). File tools never return task ids, so " +
-		"they cannot be cancelled.",
-	input: z.object({ task_id: z.string() }),
+		"Cancel a running exec task (TERM, then KILL after a grace period) or an exec task group (stops its workers " +
+		"and every unfinished member). File tools never return task ids, so they cannot be cancelled.",
+	input: z.object({
+		task_id: z.string().optional(),
+		task_group_id: z.string().optional(),
+	}),
 	readOnly: false,
 	output: "json",
 	handler: async (args, ctx) => {
+		if (args.task_group_id) {
+			const group = await ctx.taskGroups.get(args.task_group_id);
+			if (
+				!group ||
+				group.onBehalfOfUserId !== ctx.user.userId ||
+				!(await mayActFor(ctx, group.actorType, group.actorId)) ||
+				group.kind !== "exec"
+			) {
+				throw new UserError("no such task group", "no_such_task");
+			}
+			return jsonResult({
+				task_group_id: group.id,
+				cancel_sent: await ctx.taskGroups.cancel(group.id, undefined, ctx.actor),
+			});
+		}
+		if (!args.task_id) throw new UserError("give task_id or task_group_id", "invalid_argument");
 		const t = await ownTask(ctx, args.task_id);
 		if (t.kind !== "exec") throw new UserError("no such task", "no_such_task");
 		return jsonResult({ task_id: t.id, cancel_sent: await ctx.cluster.cancelTask(t.id, undefined, ctx.actor) });

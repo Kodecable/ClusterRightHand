@@ -118,8 +118,8 @@ describe("toolFailure", () => {
 		).toEqual({ kind: "failed", reason: "state" });
 	});
 
-	test("an interrupted or rejected group is failed", () => {
-		for (const state of ["interrupted", "rejected"]) {
+	test("an interrupted, rejected or cancelled group is failed", () => {
+		for (const state of ["interrupted", "rejected", "cancelled"]) {
 			expect(
 				toolFailure(
 					result({
@@ -293,8 +293,8 @@ describe("taskGroupViewFailure", () => {
 		});
 	});
 
-	test("an interrupted or rejected group is failed whatever its members did", () => {
-		for (const state of ["interrupted", "rejected"] as const) {
+	test("an interrupted, rejected or cancelled group is failed whatever its members did", () => {
+		for (const state of ["interrupted", "rejected", "cancelled"] as const) {
 			expect(taskGroupViewFailure(group({ state })), state).toEqual({ kind: "failed", reason: "state" });
 		}
 	});
