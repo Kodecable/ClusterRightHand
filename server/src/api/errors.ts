@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { HashBusyError } from "../auth/hash-gate.ts";
 import { SshError } from "../cluster/ssh/connection.ts";
 import { WebauthnError } from "../privilege/webauthn.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
@@ -16,6 +17,12 @@ export function apiErrorHandler(options: { closing?: () => boolean } = {}) {
 		// The session routes reach the agent runtime, which shutdown closes under requests already in flight
 		// (main.ts): those answer with the shutdown, not with the closed Harness's exception.
 		if (options.closing?.()) return jsonError(c, 503, "server is shutting down");
+		if (err instanceof HashBusyError) {
+			return jsonError(c, 503, "the server is busy, try again", {
+				code: "hash_busy",
+				headers: { "Retry-After": "1" },
+			});
+		}
 		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
 		if (err instanceof UserError) return jsonError(c, 400, err.message);
 		if (err instanceof WebauthnError) return jsonError(c, 400, err.message);

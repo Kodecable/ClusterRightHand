@@ -70,6 +70,14 @@ web/src/
 - 写操作用 mutation，成功后弹 toast 并让相关 query 失效。
 - 原来的 `APPROVALS_CHANGED` 窗口事件，改为让 Query 缓存失效。
 
+### 登录人机验证
+
+`[auth] captcha = "cap"` 时（默认），密码登录前先做一次不可见的 Cap 工作量证明：
+
+- 提交表单后才向 `POST /api/auth/login/challenge` 申请挑战（不提前预取），挑战绑定本次提交的用户名、密码和客户端地址；tag 用 `@noble/hashes` 计算 SHA-256，不依赖只存在于安全上下文的 `crypto.subtle`，所以通过局域网 HTTP 打开也能用。
+- `cap-widget` 和两个 WASM 都按需加载，是 `web/dist/assets` 里带 hash 的自有资源；`CAP_CUSTOM_WASM_URL` / `CAP_CUSTOM_HASHWX_URL` 指向它们，并设置 `CAP_DISABLE_WIDGET_REF = true`，不从 CDN 加载。
+- 验证期间按钮显示“正在进行安全验证…”并保持禁用。登录返回 403 `captcha_failed`（例如挑战过期）时自动重新求解并重试一次；第二次失败在表单旁显示错误。
+
 ### 外壳
 
 - 使用 shadcn `Sidebar`：

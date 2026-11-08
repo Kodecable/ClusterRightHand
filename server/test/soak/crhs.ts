@@ -91,6 +91,7 @@ export async function openSoakCrhs(params: SoakParams, faux: FauxProviderHandle)
 		masterKey,
 		audit,
 		limiter: new LoginLimiter(),
+		captcha: "none",
 	});
 	const server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" });
 	server.on("upgrade", (req, socket, head) => {

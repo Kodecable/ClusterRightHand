@@ -7,7 +7,8 @@ import type { Db } from "../../src/storage/db.ts";
 export type App = Hono<AppEnv>;
 
 export function makeApp(db: Db, limiter = new LoginLimiter(), extra: Partial<AppOptions> = {}): App {
-	return createApp(db, { limiter, clientAddress: () => "198.51.100.7", ...extra });
+	// Tests predating the captcha use the plain login; the "cap" suites opt in through `extra`.
+	return createApp(db, { limiter, clientAddress: () => "198.51.100.7", captcha: "none", ...extra });
 }
 
 export interface Req {

@@ -2,12 +2,16 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test as base, expect, type Page } from "@playwright/test";
+import type { AppOptions } from "../../server/src/api/app.ts";
+import { createUser } from "../../server/src/users/service.ts";
 import { Env, InProcessCrhs } from "../../server/test/e2e/harness.ts";
 import { CRHA_BIN, WEB_DIST } from "./global-setup.ts";
 
 export { expect };
 
 export const ADMIN = { username: "root", password: "admin-password" };
+
+type CaptchaMode = "cap" | "none";
 
 interface Options {
 	/** Also enroll, approve and connect a real crha node (`test.use({ withNode: true })`). */
@@ -16,12 +20,16 @@ interface Options {
 	withAgent: boolean;
 	/** Tokens per second of the faux model's stream; 0 streams as fast as possible. */
 	streamRate: number;
+	/** The server's `[auth] captcha`; the login-captcha spec opts into "cap" (default "none" keeps other specs fast). */
+	captcha: CaptchaMode;
+	/** Lower the proof-of-work cost for the captcha spec; null keeps the server's production defaults. */
+	captchaChallenge: { challengeCount: number; challengeSize: number; challengeDifficulty: number } | null;
 }
 
 interface Fixtures {
 	/** The node environment when withNode is set. */
 	env: Env | undefined;
-	/** A fresh crhs serving the built WebUI, with the administrator ADMIN logged in through the API. */
+	/** A fresh crhs serving the built WebUI; ADMIN exists and is logged in through the API unless captcha is cap. */
 	crhs: InProcessCrhs;
 	/** `page`, already logged in as ADMIN. */
 	adminPage: Page;
@@ -31,8 +39,13 @@ export const test = base.extend<Options & Fixtures>({
 	withNode: [false, { option: true }],
 	withAgent: [false, { option: true }],
 	streamRate: [0, { option: true }],
-	env: async ({ withNode, withAgent, streamRate }, use) => {
+	captcha: ["none" as CaptchaMode, { option: true }],
+	captchaChallenge: [null, { option: true }],
+	env: async ({ withNode, withAgent, streamRate, captcha }, use) => {
 		if (!withNode) return use(undefined);
+		if (captcha === "cap") {
+			throw new Error("withNode does not support captcha: cap; the login-captcha spec runs without a node");
+		}
 		const dir = await mkdtemp(join(tmpdir(), "crh-ui-"));
 		const env = await Env.create(
 			CRHA_BIN,
@@ -52,22 +65,33 @@ export const test = base.extend<Options & Fixtures>({
 			await rm(dir, { recursive: true, force: true });
 		}
 	},
-	crhs: async ({ env, withAgent, streamRate }, use) => {
+	crhs: async ({ env, withAgent, streamRate, captcha, captchaChallenge }, use) => {
 		if (env) return use(env.crhs);
 		const dir = await mkdtemp(join(tmpdir(), "crh-ui-agent-"));
+		const appOptions: Partial<AppOptions> = { webRoot: WEB_DIST, captcha };
+		if (captchaChallenge !== null) appOptions.captchaChallenge = captchaChallenge;
 		const crhs = await InProcessCrhs.create(
 			{},
-			{ webRoot: WEB_DIST },
+			appOptions,
 			withAgent ? dir : undefined,
 			streamRate > 0 ? { tokensPerSecond: streamRate } : undefined,
 		);
-		await crhs.loginAdmin();
+		if (captcha === "cap") {
+			// loginAdmin() logs in through the API and cannot answer a challenge; create the account directly so
+			// the spec can sign in through the real form.
+			await createUser(crhs.db, { username: ADMIN.username, kind: "admin", password: ADMIN.password });
+		} else {
+			await crhs.loginAdmin();
+		}
 		await use(crhs);
 		await crhs.destroy();
 		await rm(dir, { recursive: true, force: true });
 	},
 	baseURL: async ({ crhs }, use) => use(crhs.url),
-	adminPage: async ({ page, crhs }, use) => {
+	adminPage: async ({ page, crhs, captcha }, use) => {
+		if (captcha === "cap") {
+			throw new Error("adminPage needs a session cookie; use the login form when captcha is cap");
+		}
 		const [name, value] = crhs.cookie.split("=", 2) as [string, string];
 		await page.context().addCookies([{ name, value, url: crhs.url }]);
 		await use(page);

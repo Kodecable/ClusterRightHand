@@ -47,7 +47,7 @@
 
 | 部分 | 选型 |
 |---|---|
-| 服务端 | Node.js（≥ 22.19，pi 的最低要求）、TypeScript |
+| 服务端 | Node.js（≥ 24.7，`node:crypto` 的 Argon2id）、TypeScript |
 | 数据库访问 | Kysely；方言为 SQLite（node:sqlite 或 better-sqlite3）和 PostgreSQL（pg） |
 | Agent | `@earendil-works/pi-durable`、`@earendil-works/pi-ai`（锁定精确版本） |
 | WebUI | React |

@@ -10,7 +10,7 @@ import { TextField } from "@/components/form";
 import { Spinner } from "@/components/spinner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useLogin } from "@/features/auth/api";
+import { loginErrorMessage, useLogin, useLoginOptions } from "@/features/auth/api";
 import { safeRedirectPath } from "@/features/auth/redirect";
 import { useAuth } from "@/features/auth/session";
 
@@ -30,6 +30,8 @@ export function LoginPage() {
 	const search = useSearch({ from: "/login" });
 	const auth = useAuth();
 	const login = useLogin();
+	const loginOptions = useLoginOptions();
+	const captcha = loginOptions.data?.captcha ?? "none";
 
 	const schema = useMemo(
 		() =>
@@ -51,12 +53,15 @@ export function LoginPage() {
 	}, [auth.status, navigate]);
 
 	const submit = form.handleSubmit(async (values) => {
-		await login.mutateAsync(values, {
-			onSuccess: () => {
-				const target = safeRedirectPath(search.redirect) ?? "/sessions";
-				void navigate({ href: target, replace: true });
+		await login.mutateAsync(
+			{ ...values, captcha },
+			{
+				onSuccess: () => {
+					const target = safeRedirectPath(search.redirect) ?? "/sessions";
+					void navigate({ href: target, replace: true });
+				},
 			},
-		});
+		);
 	});
 
 	return (
@@ -84,10 +89,15 @@ export function LoginPage() {
 							label={<Trans>Password</Trans>}
 							autoComplete="current-password"
 						/>
-						{login.error !== null && <ErrorText error={login.error} />}
-						<Button type="submit" disabled={login.isPending} className="mt-1">
+						{login.error !== null && <ErrorText error={loginErrorMessage(login.error) ?? login.error} />}
+						<Button
+							type="submit"
+							disabled={login.isPending || loginOptions.isPending}
+							className="mt-1"
+							aria-busy={login.isPending || undefined}
+						>
 							{login.isPending && <Spinner className="size-4" decorative />}
-							<Trans>Sign in</Trans>
+							{login.isPending && captcha === "cap" ? <Trans>Running a security check…</Trans> : <Trans>Sign in</Trans>}
 						</Button>
 					</form>
 				</CardContent>

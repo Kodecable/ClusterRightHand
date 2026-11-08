@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { http, setUnauthorizedHandler } from "@/lib/api/client";
 import type { User } from "@/lib/api/types";
+import type { LoginCaptcha } from "./captcha";
 
 export type AuthStatus = "unknown" | "authenticated" | "anonymous";
 
@@ -49,8 +50,9 @@ export class AuthStore {
 		return this.current;
 	}
 
-	async login(username: string, password: string): Promise<User> {
-		const { user } = await http.post<{ user: User }>("/auth/login", { username, password }, { skipUnauthorized: true });
+	async login(username: string, password: string, cap?: LoginCaptcha): Promise<User> {
+		const body = cap === undefined ? { username, password } : { username, password, cap };
+		const { user } = await http.post<{ user: User }>("/auth/login", body, { skipUnauthorized: true });
 		this.set({ status: "authenticated", user });
 		return user;
 	}

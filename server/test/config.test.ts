@@ -4,7 +4,7 @@ import { parseConfig } from "../src/config.ts";
 describe("parseConfig", () => {
 	it("applies defaults", () => {
 		expect(parseConfig("")).toEqual({
-			listen: { host: "127.0.0.1", port: 8080 },
+			listen: { host: "127.0.0.1", port: 8080, realIpHeader: null },
 			database: { driver: "sqlite", path: "/var/lib/crhs/crhs.db" },
 			masterKeyFile: "/etc/crhs/master.key",
 			webRoot: expect.stringMatching(/web\/dist$/),
@@ -15,7 +15,28 @@ describe("parseConfig", () => {
 				auditMs: 180 * 24 * 60 * 60 * 1000,
 				piTasksMs: 7 * 24 * 60 * 60 * 1000,
 			},
+			auth: { argon2Concurrency: 2, argon2Queue: 32, captcha: "cap" },
 		});
+	});
+
+	it("reads the real-IP header and the auth table", () => {
+		const config = parseConfig(
+			'[listen]\nreal_ip_header = "X-Forwarded-For"\n[auth]\nargon2_concurrency = 1\nargon2_queue = 0\ncaptcha = "none"\n',
+		);
+		expect(config.listen.realIpHeader).toBe("X-Forwarded-For");
+		expect(config.auth).toEqual({ argon2Concurrency: 1, argon2Queue: 0, captcha: "none" });
+		expect(parseConfig('[listen]\nreal_ip_header = "X-Real-IP"\n').listen.realIpHeader).toBe("X-Real-IP");
+	});
+
+	it("rejects bad real-IP headers and auth values", () => {
+		expect(() => parseConfig("[listen]\nreal_ip_header = 1\n")).toThrow(/listen\.real_ip_header/);
+		expect(() => parseConfig('[listen]\nreal_ip_header = "X Forwarded For"\n')).toThrow(/listen\.real_ip_header/);
+		expect(() => parseConfig('[listen]\nreal_ip_header = ""\n')).toThrow(/listen\.real_ip_header/);
+		expect(() => parseConfig("[auth]\nargon2_concurrency = 0\n")).toThrow(/auth\.argon2_concurrency/);
+		expect(() => parseConfig("[auth]\nargon2_concurrency = 1.5\n")).toThrow(/auth\.argon2_concurrency/);
+		expect(() => parseConfig("[auth]\nargon2_queue = -1\n")).toThrow(/auth\.argon2_queue/);
+		expect(() => parseConfig('[auth]\ncaptcha = "sometimes"\n')).toThrow(/auth\.captcha/);
+		expect(() => parseConfig("[auth]\nunknown = 1\n")).toThrow(/unknown configuration key auth\.unknown/);
 	});
 
 	it("reads postgres settings", () => {

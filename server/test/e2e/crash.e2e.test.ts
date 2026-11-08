@@ -154,7 +154,7 @@ describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 		const config = join(tmp, "crhs.toml");
 		await writeFile(
 			config,
-			`master_key_file = "${join(tmp, "master.key")}"\n[listen]\nhost = "127.0.0.1"\nport = ${port}\n[database]\ndriver = "sqlite"\npath = "${join(tmp, "crhs.db")}"\n`,
+			`master_key_file = "${join(tmp, "master.key")}"\n[listen]\nhost = "127.0.0.1"\nport = ${port}\n[database]\ndriver = "sqlite"\npath = "${join(tmp, "crhs.db")}"\n[auth]\ncaptcha = "none"\n`,
 		);
 		await execFileAsync(process.execPath, [MAIN, "-c", config, "keys", "init"]);
 		const add = execFile(process.execPath, [MAIN, "-c", config, "user", "add", "root", "--admin"]);

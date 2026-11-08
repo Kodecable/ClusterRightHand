@@ -621,6 +621,10 @@ msgstr "An administrator grants access to nodes."
 #~ msgid "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
 #~ msgstr "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
 
+#: src/features/auth/api.ts
+msgid "Another sign-in from this address is already in progress. Try again."
+msgstr "Another sign-in from this address is already in progress. Try again."
+
 #: src/features/tasks/pages.tsx
 msgid "Any actor"
 msgstr "Any actor"
@@ -2056,6 +2060,10 @@ msgstr "Image understanding"
 #: src/features/tasks/task-group-result.tsx
 msgid "Interrupted"
 msgstr "Interrupted"
+
+#: src/features/auth/api.ts
+msgid "Invalid username or password."
+msgstr "Invalid username or password."
 
 #: src/components/authorization-card.tsx
 #: src/components/status-badge.tsx
@@ -3555,6 +3563,10 @@ msgstr "running"
 msgid "Running"
 msgstr "Running"
 
+#: src/features/auth/login-page.tsx
+msgid "Running a security check…"
+msgstr "Running a security check…"
+
 #: src/features/schedules/schedule-form.tsx
 #~ msgid "Runs once when crhs starts again if a trigger was missed while it was down."
 #~ msgstr "Runs once when crhs starts again if a trigger was missed while it was down."
@@ -3638,6 +3650,14 @@ msgstr "Schedules"
 #: src/features/sessions/session-list.tsx
 msgid "Search sessions"
 msgstr "Search sessions"
+
+#: src/features/auth/api.ts
+msgid "Sign-in could not be completed. Check your connection and try again."
+msgstr "Sign-in could not be completed. Check your connection and try again."
+
+#: src/features/auth/api.ts
+msgid "Security verification failed. Try again."
+msgstr "Security verification failed. Try again."
 
 #: src/components/share-editor.tsx
 #: src/features/nodes/access-grants.tsx
@@ -4189,6 +4209,10 @@ msgstr "The run was stopped."
 msgid "The running instance, if any, is stopped, and the run history is deleted. Sessions the runs created stay, without their schedule."
 msgstr "The running instance, if any, is stopped, and the run history is deleted. Sessions the runs created stay, without their schedule."
 
+#: src/features/auth/api.ts
+msgid "The server is busy. Try again later."
+msgstr "The server is busy. Try again later."
+
 #: src/features/sessions/session-banner.tsx
 msgid "The session is paused: its token quota is used up."
 msgstr "The session is paused: its token quota is used up."
@@ -4390,6 +4414,10 @@ msgstr "Token revoked."
 #: src/components/quota-card.tsx
 msgid "Tokens to add"
 msgstr "Tokens to add"
+
+#: src/features/auth/api.ts
+msgid "Too many failed attempts. Try again later."
+msgstr "Too many failed attempts. Try again later."
 
 #: src/features/sessions/tool-dialog.tsx
 msgid "Tool arguments"

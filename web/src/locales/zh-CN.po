@@ -621,6 +621,10 @@ msgstr "节点访问权限由管理员授予。"
 #~ msgid "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
 #~ msgstr "授权在其载荷指定的节点上有效，直到截止时间、被用完（一次性授权）或在这里被吊销。离线的节点会在下次连接后收到吊销信息。"
 
+#: src/features/auth/api.ts
+msgid "Another sign-in from this address is already in progress. Try again."
+msgstr "该地址已有登录请求正在进行，请稍后再试。"
+
 #: src/features/tasks/pages.tsx
 msgid "Any actor"
 msgstr "任意操作者"
@@ -2056,6 +2060,10 @@ msgstr "图像理解"
 #: src/features/tasks/task-group-result.tsx
 msgid "Interrupted"
 msgstr "已中断"
+
+#: src/features/auth/api.ts
+msgid "Invalid username or password."
+msgstr "用户名或密码错误。"
 
 #: src/components/authorization-card.tsx
 #: src/components/status-badge.tsx
@@ -3555,6 +3563,10 @@ msgstr "运行中"
 msgid "Running"
 msgstr "运行中"
 
+#: src/features/auth/login-page.tsx
+msgid "Running a security check…"
+msgstr "正在进行安全验证…"
+
 #: src/features/schedules/schedule-form.tsx
 #~ msgid "Runs once when crhs starts again if a trigger was missed while it was down."
 #~ msgstr "如果停机期间错过了触发，crhs 重启后会补运行一次。"
@@ -3638,6 +3650,14 @@ msgstr "计划任务"
 #: src/features/sessions/session-list.tsx
 msgid "Search sessions"
 msgstr "搜索会话"
+
+#: src/features/auth/api.ts
+msgid "Sign-in could not be completed. Check your connection and try again."
+msgstr "无法完成登录，请检查网络后重试。"
+
+#: src/features/auth/api.ts
+msgid "Security verification failed. Try again."
+msgstr "安全验证失败，请重试。"
 
 #: src/components/share-editor.tsx
 #: src/features/nodes/access-grants.tsx
@@ -4189,6 +4209,10 @@ msgstr "运行已停止。"
 msgid "The running instance, if any, is stopped, and the run history is deleted. Sessions the runs created stay, without their schedule."
 msgstr "正在运行的实例（如有）会被停止，运行历史会被删除。运行创建的会话会保留，但不再关联此计划任务。"
 
+#: src/features/auth/api.ts
+msgid "The server is busy. Try again later."
+msgstr "服务器繁忙，请稍后重试"
+
 #: src/features/sessions/session-banner.tsx
 msgid "The session is paused: its token quota is used up."
 msgstr "会话已暂停：token 配额已用完。"
@@ -4390,6 +4414,10 @@ msgstr "令牌已吊销。"
 #: src/components/quota-card.tsx
 msgid "Tokens to add"
 msgstr "要添加的 token 数"
+
+#: src/features/auth/api.ts
+msgid "Too many failed attempts. Try again later."
+msgstr "失败次数过多，请稍后重试。"
 
 #: src/features/sessions/tool-dialog.tsx
 msgid "Tool arguments"

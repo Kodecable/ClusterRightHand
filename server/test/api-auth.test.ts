@@ -1,4 +1,4 @@
-import { scryptSync } from "node:crypto";
+import { argon2Sync } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { LoginLimiter } from "../src/auth/login-limiter.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -17,7 +17,9 @@ describeBackends("api auth", (backend) => {
 
 	beforeAll(async () => {
 		db = await openTestDb(backend);
-		app = makeApp(db);
+		// This file makes many deliberate failures from one address (wrong passwords, CSRF probes). Keep the
+		// shared app out of the limiter's way; the rate-limit suite below uses its own small limiters.
+		app = makeApp(db, new LoginLimiter(1000, 15 * 60 * 1000));
 		await createUser(db, { username: "root", kind: "admin", password: "root-password" });
 		await createUser(db, { username: "alice", kind: "member", password: "alice-password" });
 		await createUser(db, { username: "nopass", kind: "member" });
@@ -35,7 +37,7 @@ describeBackends("api auth", (backend) => {
 			const body = (await res.json()) as { user: Record<string, unknown> };
 			expect(body.user.username).toBe("alice");
 			expect(body.user).not.toHaveProperty("password_hash");
-			expect(JSON.stringify(body)).not.toContain("scrypt");
+			expect(JSON.stringify(body)).not.toContain("argon2");
 			const setCookie = res.headers.get("set-cookie") ?? "";
 			expect(setCookie).toMatch(/^crh_session=[A-Za-z0-9_-]{20,};/);
 			expect(setCookie).toMatch(/HttpOnly/i);
@@ -69,11 +71,19 @@ describeBackends("api auth", (backend) => {
 		});
 
 		it("rehashes an accepted password without applying the policy to it", async () => {
-			// A hash with the old parameters, for a password shorter than the minimum: the login already proved
-			// the password is right, so only the hash format may change.
+			// A hash with parameters other than the current ones, for a password shorter than the minimum: the
+			// login already proved the password is right, so only the hash parameters may change.
 			const salt = Buffer.alloc(16, 3);
-			const key = scryptSync("short", salt, 32, { N: 16384, r: 8, p: 1 });
-			const oldHash = `scrypt$16384$8$1$${salt.toString("base64url")}$${key.toString("base64url")}`;
+			const key = argon2Sync("argon2id", {
+				message: Buffer.from("short", "utf8"),
+				nonce: salt,
+				parallelism: 1,
+				tagLength: 32,
+				memory: 4096,
+				passes: 1,
+			});
+			const b64 = (value: Buffer) => value.toString("base64").replace(/=+$/, "");
+			const oldHash = `$argon2id$v=19$m=4096,t=1,p=1$${b64(salt)}$${b64(key)}`;
 			const id = newId();
 			await db
 				.insertInto("users")
@@ -93,9 +103,9 @@ describeBackends("api auth", (backend) => {
 			const res = await call(app, "/api/auth/login", { body: { username: "oldpass", password: "short" } });
 			expect(res.status).toBe(200);
 			const row = await db.selectFrom("users").select("password_hash").where("id", "=", id).executeTakeFirstOrThrow();
-			// The test suite hashes with N=2^10, so a rehashed row carries those parameters.
+			// The test suite hashes with m=1024 KiB, t=1, so a rehashed row carries those parameters.
 			expect(row.password_hash).not.toBe(oldHash);
-			expect(row.password_hash?.startsWith("scrypt$1024$8$1$")).toBe(true);
+			expect(row.password_hash?.startsWith("$argon2id$v=19$m=1024,t=1,p=1$")).toBe(true);
 		});
 
 		it("returns 400 for missing fields, wrong types and malformed bodies", async () => {
@@ -143,19 +153,23 @@ describeBackends("api auth", (backend) => {
 			expect(other.status).toBe(429);
 		});
 
-		it("a successful login resets the counters", async () => {
-			const limited = makeApp(db, new LoginLimiter(3, 60_000));
+		it("a successful login gives back only its own reservation on the address key", async () => {
+			const limited = makeApp(db, new LoginLimiter(4, 60_000));
 			for (let i = 0; i < 2; i++) {
 				await call(limited, "/api/auth/login", { body: { username: "alice", password: "wrong-wrong" } });
 			}
 			expect(
 				(await call(limited, "/api/auth/login", { body: { username: "alice", password: "alice-password" } })).status,
 			).toBe(200);
+			// The two earlier failures stay on the address key, so a third failure reaches its limit.
 			for (let i = 0; i < 2; i++) {
 				expect(
 					(await call(limited, "/api/auth/login", { body: { username: "alice", password: "wrong-wrong" } })).status,
 				).toBe(401);
 			}
+			expect(
+				(await call(limited, "/api/auth/login", { body: { username: "alice", password: "alice-password" } })).status,
+			).toBe(429);
 		});
 	});
 

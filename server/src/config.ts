@@ -23,8 +23,25 @@ export interface WebauthnConfig {
 	origins: string[];
 }
 
+/** Login security settings (doc/configuration.md and doc/access-control.md). */
+export interface AuthConfig {
+	/** Argon2id computations allowed to run at once; peak memory is roughly this times 64 MiB. */
+	argon2Concurrency: number;
+	/** Argon2id computations allowed to wait; when full a request fails with 503 `hash_busy`. */
+	argon2Queue: number;
+	/** Whether password login requires a Cap proof-of-work challenge. */
+	captcha: "cap" | "none";
+}
+
+export interface ListenConfig {
+	host: string;
+	port: number;
+	/** A header such as X-Forwarded-For whose first non-empty element is the client address; null = direct. */
+	realIpHeader: string | null;
+}
+
 export interface Config {
-	listen: { host: string; port: number };
+	listen: ListenConfig;
 	database: DatabaseConfig;
 	masterKeyFile: string;
 	/** Built WebUI (web/dist); served at /. */
@@ -35,12 +52,18 @@ export interface Config {
 	webauthn: WebauthnConfig;
 	/** When the retention sweep deletes old rows. */
 	retention: RetentionConfig;
+	/** Login hashing and proof-of-work settings. */
+	auth: AuthConfig;
 }
 
 export const DEFAULT_CONFIG_PATH = "/etc/crhs/crhs.toml";
 /** crhs warns when a node's clock differs by more than 60 s (doc/privilege.md#时钟). */
 export const DEFAULT_CLOCK_WARN_MS = 60_000;
 export const DEFAULT_RP_NAME = "ClusterRightHand";
+/** Two Argon2id hashes at once fit the default libuv threadpool (doc/configuration.md). */
+export const DEFAULT_ARGON2_CONCURRENCY = 2;
+export const DEFAULT_ARGON2_QUEUE = 32;
+export const DEFAULT_CAPTCHA = "cap";
 /** Tasks, task groups and authorizations are kept for 90 days by default. */
 export const DEFAULT_RETENTION_TASKS_MS = 90 * 24 * 60 * 60 * 1000;
 /** Audit events are kept for 180 days by default. */
@@ -83,10 +106,19 @@ export async function loadConfig(path: string): Promise<Config> {
 
 export function parseConfig(text: string): Config {
 	const raw = parse(text);
-	rejectUnknown(raw, "", ["listen", "database", "master_key_file", "web_root", "clock_warn", "webauthn", "retention"]);
+	rejectUnknown(raw, "", [
+		"listen",
+		"database",
+		"master_key_file",
+		"web_root",
+		"clock_warn",
+		"webauthn",
+		"retention",
+		"auth",
+	]);
 	const listen = table(raw, "listen");
 	const database = table(raw, "database");
-	rejectUnknown(listen, "listen.", ["host", "port"]);
+	rejectUnknown(listen, "listen.", ["host", "port", "real_ip_header"]);
 	rejectUnknown(database, "database.", ["driver", "path", "url"]);
 
 	const driver = database.driver ?? "sqlite";
@@ -108,14 +140,51 @@ export function parseConfig(text: string): Config {
 		raw.clock_warn === undefined ? DEFAULT_CLOCK_WARN_MS : parseDurationMs(raw.clock_warn, "clock_warn");
 
 	return {
-		listen: { host: str(listen, "host", "listen.host", "127.0.0.1"), port },
+		listen: {
+			host: str(listen, "host", "listen.host", "127.0.0.1"),
+			port,
+			realIpHeader: headerName(listen.real_ip_header, "listen.real_ip_header"),
+		},
 		database: db,
 		masterKeyFile: str(raw, "master_key_file", "master_key_file", "/etc/crhs/master.key"),
 		webRoot: str(raw, "web_root", "web_root", fileURLToPath(new URL("../../web/dist", import.meta.url))),
 		clockWarnMs: clockWarn,
 		webauthn: webauthnConfig(raw),
 		retention: retentionConfig(raw),
+		auth: authConfig(raw),
 	};
+}
+
+/** `[auth]`: the Argon2id concurrency gate and whether password login needs a Cap proof of work. */
+function authConfig(raw: Record<string, unknown>): AuthConfig {
+	const table_ = table(raw, "auth");
+	rejectUnknown(table_, "auth.", ["argon2_concurrency", "argon2_queue", "captcha"]);
+	const captcha = table_.captcha ?? DEFAULT_CAPTCHA;
+	if (captcha !== "cap" && captcha !== "none") {
+		throw new Error('auth.captcha must be "cap" or "none"');
+	}
+	return {
+		argon2Concurrency: integer(table_.argon2_concurrency, "auth.argon2_concurrency", DEFAULT_ARGON2_CONCURRENCY, 1),
+		argon2Queue: integer(table_.argon2_queue, "auth.argon2_queue", DEFAULT_ARGON2_QUEUE, 0),
+		captcha,
+	};
+}
+
+function integer(value: unknown, name: string, fallback: number, minimum: number): number {
+	const number = value ?? fallback;
+	if (typeof number !== "number" || !Number.isSafeInteger(number) || number < minimum) {
+		throw new Error(`${name} must be an integer >= ${minimum}`);
+	}
+	return number;
+}
+
+/** An HTTP header name (RFC 9110 token); null when the key is absent. */
+function headerName(value: unknown, name: string): string | null {
+	if (value === undefined) return null;
+	if (typeof value !== "string" || !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(value)) {
+		throw new Error(`${name} must be an HTTP header name such as "X-Forwarded-For"`);
+	}
+	return value;
 }
 
 /** `[retention]`: a duration or "off" (null, keep forever); the default applies when the key is absent. */

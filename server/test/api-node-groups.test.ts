@@ -67,7 +67,7 @@ describe("api node groups", () => {
 	beforeAll(async () => {
 		db = await openTestDb("sqlite");
 		audit = new Audit(db);
-		app = createApp(db, { serverFingerprint: "fp-test", audit });
+		app = createApp(db, { serverFingerprint: "fp-test", audit, captcha: "none" });
 		for (const [name, kind] of [
 			["root", "admin"],
 			["member", "member"],

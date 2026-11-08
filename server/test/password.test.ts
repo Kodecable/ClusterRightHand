@@ -1,26 +1,42 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { HashBusyError, resetHashGateForTesting, withHashSlot } from "../src/auth/hash-gate.ts";
 import {
-	DEFAULT_HASH_PARAMETERS,
+	DEFAULT_ARGON2_PARAMETERS,
 	hashPassword,
 	needsRehash,
-	setHashParametersForTesting,
+	setArgon2ParametersForTesting,
 	verifyPassword,
 } from "../src/auth/password.ts";
 
-// The production scrypt cost makes one hash take hundreds of milliseconds; a loaded machine can push
-// the default 5 s timeout over.
+// Argon2id is memory-hard even at the test cost; a loaded machine can push the default 5 s timeout over.
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
+const TEST_PARAMETERS = { memory: 2048, passes: 1, parallelism: 1 };
+
+function base64(buffer: Buffer): string {
+	return buffer.toString("base64").replace(/=+$/, "");
+}
+
 describe("password hashing", () => {
-	// vitest.setup.ts lowers the cost for other suites; this one checks the production parameters.
-	beforeAll(() => setHashParametersForTesting(DEFAULT_HASH_PARAMETERS));
+	// vitest.setup.ts lowers the cost for other suites; this suite uses a slightly larger one, and one test
+	// restores the production parameters.
+	beforeEach(() => setArgon2ParametersForTesting(TEST_PARAMETERS));
 
 	it("round-trips and rejects wrong passwords", async () => {
 		const encoded = await hashPassword("correct horse");
-		expect(encoded).toMatch(/^scrypt\$131072\$8\$1\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/);
+		expect(encoded).toMatch(/^\$argon2id\$v=19\$m=2048,t=1,p=1\$[A-Za-z0-9+/]{22}\$[A-Za-z0-9+/]{43}$/);
 		expect(await verifyPassword("correct horse", encoded)).toBe(true);
 		expect(await verifyPassword("wrong horse", encoded)).toBe(false);
 		expect(await verifyPassword("", encoded)).toBe(false);
+		expect(needsRehash(encoded)).toBe(false);
+	});
+
+	it("uses the documented production parameters by default", async () => {
+		setArgon2ParametersForTesting(DEFAULT_ARGON2_PARAMETERS);
+		expect(DEFAULT_ARGON2_PARAMETERS).toEqual({ memory: 65536, passes: 3, parallelism: 1 });
+		const encoded = await hashPassword("correct horse");
+		expect(encoded).toMatch(/^\$argon2id\$v=19\$m=65536,t=3,p=1\$[A-Za-z0-9+/]{22}\$[A-Za-z0-9+/]{43}$/);
+		expect(await verifyPassword("correct horse", encoded)).toBe(true);
 		expect(needsRehash(encoded)).toBe(false);
 	});
 
@@ -43,46 +59,75 @@ describe("password hashing", () => {
 		expect(await verifyPassword("a".repeat(1025), encoded)).toBe(false);
 	});
 
-	it("returns false for malformed encodings", async () => {
+	it("returns false for malformed encodings, including old scrypt hashes", async () => {
+		const salt = base64(Buffer.alloc(16, 7));
+		const tag = base64(Buffer.alloc(32, 9));
 		const bad = [
 			"",
 			"garbage",
-			"scrypt$131072$8$1$abc",
-			"bcrypt$131072$8$1$AAAA$AAAA",
-			"scrypt$x$8$1$AAAA$AAAA",
-			"scrypt$131072$8$1$$",
-			"scrypt$131072$8$1$AAAA$AAAA",
-			"scrypt$131072$8$1$AA AA$AAAA",
+			// A pre-Argon2 hash is simply invalid now; no migration is needed.
+			"scrypt$131072$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"$argon2id$v=19$m=2048,t=1,p=1$abc$def",
+			`$argon2i$v=19$m=2048,t=1,p=1$${salt}$${tag}`,
+			`$argon2id$v=18$m=2048,t=1,p=1$${salt}$${tag}`,
+			`$argon2id$v=19$m=1048577,t=3,p=1$${salt}$${tag}`,
+			`$argon2id$v=19$m=2048,t=21,p=1$${salt}$${tag}`,
+			`$argon2id$v=19$m=2048,t=1,p=17$${salt}$${tag}`,
+			`$argon2id$v=19$m=2040,t=1,p=1$${salt}$${tag}`,
+			`$argon2id$v=19$t=1,m=2048,p=1$${salt}$${tag}`,
+			`$argon2id$v=19$m=2048,t=1,p=1$${base64(Buffer.alloc(15, 7))}$${tag}`,
+			`$argon2id$v=19$m=2048,t=1,p=1$${salt}$${base64(Buffer.alloc(31, 9))}`,
+			`$argon2id$v=19$m=2048,t=1,p=1$${salt.slice(0, -2)}-_$${tag}`,
+			`$argon2id$v=19$m=2048,t=1,p=1$AAAA AAAA$${tag}`,
 		];
 		for (const encoded of bad) {
-			expect(await verifyPassword("pw", encoded)).toBe(false);
-			expect(needsRehash(encoded)).toBe(true);
+			expect(await verifyPassword("pw", encoded), encoded).toBe(false);
+			expect(needsRehash(encoded), encoded).toBe(true);
 		}
 	});
 
-	it("rejects tampered or absurd parameters", async () => {
+	it("rejects tampered parameters and flags a changed parameter set for rehash", async () => {
 		const encoded = await hashPassword("pw");
 		const [, , , , salt, hash] = encoded.split("$");
-		const variants = [
-			`scrypt$131073$8$1$${salt}$${hash}`,
-			`scrypt$${2 ** 21}$8$1$${salt}$${hash}`,
-			`scrypt$131072$33$1$${salt}$${hash}`,
-			`scrypt$131072$8$17$${salt}$${hash}`,
-			`scrypt$131072$8$0$${salt}$${hash}`,
-			`scrypt$131072$8$1$${salt}$${hash?.slice(0, -4)}`,
-		];
-		for (const v of variants) expect(await verifyPassword("pw", v)).toBe(false);
-		// Valid format but different parameters: hash no longer matches.
-		expect(await verifyPassword("pw", `scrypt$16384$8$1$${salt}$${hash}`)).toBe(false);
+		// Valid PHC, but a different m derives a different key.
+		expect(await verifyPassword("pw", `$argon2id$v=19$m=4096,t=1,p=1$${salt}$${hash}`)).toBe(false);
+		expect(await verifyPassword("pw", `$argon2id$v=19$m=1024,t=1,p=1$${salt}$${hash}`)).toBe(false);
+
+		setArgon2ParametersForTesting({ memory: 4096, passes: 1, parallelism: 1 });
+		expect(needsRehash(encoded)).toBe(true);
+		// Verification uses the parameters embedded in the hash, not the current ones.
+		expect(await verifyPassword("pw", encoded)).toBe(true);
+		expect(needsRehash(await hashPassword("pw"))).toBe(false);
+	});
+});
+
+describe("Argon2id concurrency gate", () => {
+	afterEach(() => resetHashGateForTesting());
+
+	it("runs one computation, lets one wait, and rejects the third with HashBusyError", async () => {
+		resetHashGateForTesting({ concurrency: 1, queue: 1 });
+		let release: () => void = () => {};
+		const hold = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const first = withHashSlot(async () => {
+			await hold;
+			return 1;
+		});
+		const second = withHashSlot(async () => 2);
+		await expect(withHashSlot(async () => 3)).rejects.toBeInstanceOf(HashBusyError);
+		release();
+		await expect(first).resolves.toBe(1);
+		await expect(second).resolves.toBe(2);
 	});
 
-	it("keeps old parameter sets working and flags them for rehash", async () => {
-		const { scryptSync } = await import("node:crypto");
-		const salt = Buffer.alloc(16, 7);
-		const key = scryptSync("old pw", salt, 32, { N: 16384, r: 8, p: 1 });
-		const encoded = `scrypt$16384$8$1$${salt.toString("base64url")}$${key.toString("base64url")}`;
-		expect(await verifyPassword("old pw", encoded)).toBe(true);
-		expect(await verifyPassword("new pw", encoded)).toBe(false);
-		expect(needsRehash(encoded)).toBe(true);
+	it("releases the slot when the computation throws", async () => {
+		resetHashGateForTesting({ concurrency: 1, queue: 0 });
+		await expect(
+			withHashSlot(async () => {
+				throw new Error("boom");
+			}),
+		).rejects.toThrow("boom");
+		await expect(withHashSlot(async () => 7)).resolves.toBe(7);
 	});
 });

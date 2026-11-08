@@ -16,8 +16,9 @@ in-process by default.
   parallel files do not introspect each other's schemas.
 - **A live sshd** is enabled by `CRH_TEST_SSH` + `CRH_TEST_SSH_KEY` for the SSH routing and SFTP file
   suites. Everything else in the SSH area uses fakes for the `ssh2` interfaces.
-- `server/vitest.setup.ts` lowers scrypt's cost; `test/password.test.ts` restores the production parameters
-  where cost is the point.
+- `server/vitest.setup.ts` lowers Argon2id's cost; `test/password.test.ts` restores the production parameters
+  where cost is the point. The login suites default to `captcha = "none"`; `test/api-captcha.test.ts` exercises
+  the Cap proof of work end to end with a test solver.
 
 ```bash
 pnpm --filter @crh/server test

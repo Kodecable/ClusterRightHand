@@ -254,6 +254,7 @@ export class InProcessCrhs {
 			masterKey: this.masterKey,
 			audit: this.audit,
 			limiter: new LoginLimiter(),
+			captcha: "none",
 			...this.appOptions,
 		});
 		const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });

@@ -1,4 +1,5 @@
-import { setHashParametersForTesting } from "./src/auth/password.ts";
+import { setArgon2ParametersForTesting } from "./src/auth/password.ts";
 
-// scrypt at production cost takes ~0.4 s per hash; test/password.test.ts restores it where the cost matters.
-setHashParametersForTesting({ N: 2 ** 10, r: 8, p: 1 });
+// Argon2id at production cost holds 64 MiB and takes hundreds of milliseconds; test/password.test.ts
+// restores the production parameters where the cost is the point. m=1024 KiB, t=1 keeps every suite fast.
+setArgon2ParametersForTesting({ memory: 1024, passes: 1, parallelism: 1 });

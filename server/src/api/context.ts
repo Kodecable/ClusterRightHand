@@ -7,8 +7,20 @@ export interface AppEnv {
 	Variables: { user: SessionUser; audit: Audit };
 }
 
-export function jsonError(c: Context, status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 503, message: string) {
-	return c.json({ error: message }, status);
+export interface JsonErrorOptions {
+	/** A stable snake_case code clients may branch on; omitted when the message alone is enough. */
+	code?: string;
+	headers?: Record<string, string>;
+}
+
+export function jsonError(
+	c: Context,
+	status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 503,
+	message: string,
+	options: JsonErrorOptions = {},
+) {
+	for (const [name, value] of Object.entries(options.headers ?? {})) c.header(name, value);
+	return c.json({ error: message, ...(options.code === undefined ? {} : { code: options.code }) }, status);
 }
 
 /** Reads a JSON object body; anything else is a 400 handled by the caller. */

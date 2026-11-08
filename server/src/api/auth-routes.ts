@@ -2,7 +2,9 @@ import { type Context, Hono } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
 import { userActor } from "../audit/audit.ts";
 import { revokeAllApiTokens } from "../auth/api-tokens.ts";
-import { LoginLimiter } from "../auth/login-limiter.ts";
+import { type CaptchaChallengeParameters, issueLoginChallenge, verifyLoginChallenge } from "../auth/captcha.ts";
+import { HashBusyError } from "../auth/hash-gate.ts";
+import { LoginLimiter, loginAttemptKeys } from "../auth/login-limiter.ts";
 import { hashPassword, needsRehash, verifyPassword } from "../auth/password.ts";
 import { createWebSession, revokeUserWebSessions, revokeWebSession, SESSION_COOKIE } from "../auth/sessions.ts";
 import type { Cluster } from "../cluster/cluster.ts";
@@ -17,19 +19,52 @@ import { requireUser } from "./middleware.ts";
 const dummyHash = hashPassword("crh-dummy-password");
 /** A failed attempt's audit record keeps at most this much of the request's username. */
 const MAX_AUDITED_USERNAME = 256;
+/** `base64url_nopad(SHA-256(...))` is 43 characters. */
+const CAPTCHA_TAG_RE = /^[A-Za-z0-9_-]{43}$/;
 
 export interface AuthRoutesOptions {
 	limiter?: LoginLimiter;
-	/** The client address used for rate limiting; tests run without a socket. */
+	/** The client address used for rate limiting and the captcha scope; tests run without a socket. */
 	clientAddress?: (c: Context) => string | undefined;
 	/** With taskGroups, rejects the waiting work of tokens a password change revokes; tests may omit them. */
 	cluster?: Cluster;
 	taskGroups?: TaskGroups;
+	/** `[auth] captcha`; "cap" by default, tests pass "none". */
+	captcha?: "cap" | "none";
+	/** Lowers the proof-of-work cost for the "cap" tests; production keeps capjs-core's defaults. */
+	captchaChallenge?: CaptchaChallengeParameters;
 }
 
 export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 	const limiter = options.limiter ?? new LoginLimiter();
+	const captcha = options.captcha ?? "cap";
 	const app = new Hono<AppEnv>();
+
+	app.get("/login-options", (c) => c.json({ captcha }));
+
+	app.post("/login/challenge", async (c) => {
+		if (captcha === "none") return jsonError(c, 404, "captcha is disabled");
+		const body = await readJsonObject(c);
+		const username = body?.username;
+		const tag = body?.tag;
+		if (typeof username !== "string" || typeof tag !== "string") {
+			return jsonError(c, 400, "username and tag are required");
+		}
+		if (!CAPTCHA_TAG_RE.test(tag)) return jsonError(c, 400, "tag must be a 43-character base64url string");
+		const address = options.clientAddress?.(c);
+		// The login would be rate-limited before it reads the password; do not let the client burn CPU first.
+		if (limiter.isBlocked(loginAttemptKeys(address, username).all)) {
+			return jsonError(c, 429, "too many failed attempts, try again later", { code: "rate_limited" });
+		}
+		return c.json(
+			await issueLoginChallenge({
+				address,
+				username,
+				tag,
+				parameters: options.captchaChallenge,
+			}),
+		);
+	});
 
 	app.post("/login", async (c) => {
 		const body = await readJsonObject(c);
@@ -39,49 +74,91 @@ export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 			return jsonError(c, 400, "username and password are required");
 		}
 		const address = options.clientAddress?.(c);
-		// Without a known client address only the per-username limit applies; a shared "unknown" key would let
-		// anyone lock every account out.
-		const keys = [`user:${username.trim().toLowerCase()}`, ...(address ? [`addr:${address}`] : [])];
-		// Rate-limited attempts are not audited: a brute-force run would otherwise fill the audit log.
-		if (limiter.isBlocked(keys)) return jsonError(c, 429, "too many failed attempts, try again later");
 
-		const user = await findUserByUsername(db, username);
-		const failed = (reason: string) =>
-			void c.get("audit").record({
-				actor: { type: "system", id: "auth", onBehalfOfUserId: user?.id ?? null },
-				action: "auth.login_failed",
-				target: user ? { type: "user", id: user.id } : undefined,
-				detail: { username: username.slice(0, MAX_AUDITED_USERNAME), reason, address },
+		// The PoW is checked before the limiter and before Argon2id: a failure here is not a login attempt.
+		if (captcha === "cap") {
+			const cap = body?.cap;
+			if (cap === undefined || cap === null) {
+				return jsonError(c, 400, "captcha is required", { code: "captcha_required" });
+			}
+			const submission: Record<string, unknown> =
+				typeof cap === "object" && !Array.isArray(cap) ? (cap as Record<string, unknown>) : {};
+			const result = await verifyLoginChallenge({
+				address,
+				username,
+				password,
+				token: submission.token,
+				solutions: submission.solutions,
 			});
-		const ok = await verifyPassword(password, user?.password_hash ?? (await dummyHash));
-		if (!user?.password_hash || !ok || user.status !== "active") {
-			limiter.recordFailure(keys);
-			failed(!user ? "unknown_user" : !user.password_hash ? "no_password" : !ok ? "wrong_password" : "disabled");
-			return jsonError(c, 401, "invalid username or password");
+			if (!result.success) {
+				return c.json({ error: "captcha check failed", code: "captcha_failed", reason: result.reason }, 403);
+			}
 		}
-		limiter.reset(keys);
-		// The password just verified, so the rehash stores it without the policy check a new password gets.
-		if (needsRehash(user.password_hash)) await storePasswordHash(db, user.id, password);
 
-		const { token, expiresAt } = await createWebSession(db, user.id, {
-			ip: address ?? null,
-			userAgent: c.req.header("user-agent"),
-		});
-		setCookie(c, SESSION_COOKIE, token, {
-			path: "/",
-			httpOnly: true,
-			sameSite: "Strict",
-			secure: !isLoopbackHost(c.req.header("host")),
-			expires: expiresAt,
-		});
-		void c.get("audit").record({
-			actor: { type: "user", id: user.id, onBehalfOfUserId: user.id },
-			action: "auth.login",
-			target: { type: "user", id: user.id },
-			detail: { username: user.username, address },
-		});
-		const { password_hash: _, ...publicRow } = user;
-		return c.json({ user: toPublicUser(publicRow) });
+		// Without a known client address only the address+username key applies; a shared "unknown" key would let
+		// anyone lock every account out.
+		const keys = loginAttemptKeys(address, username);
+		// Check-and-increment as one synchronous step: a burst of concurrent requests cannot all pass it. This
+		// attempt is counted as a failure up front; a success gives its own reservation back below.
+		// The in-flight check comes first so a request turned away here is not counted as a failure.
+		if (address !== undefined && !limiter.beginVerify(address)) {
+			return jsonError(c, 429, "a login from this address is already in progress", { code: "login_in_progress" });
+		}
+		if (!limiter.reserve(keys.all)) {
+			if (address !== undefined) limiter.endVerify(address);
+			return jsonError(c, 429, "too many failed attempts, try again later", { code: "rate_limited" });
+		}
+
+		try {
+			const user = await findUserByUsername(db, username);
+			const failed = (reason: string) =>
+				void c.get("audit").record({
+					actor: { type: "system", id: "auth", onBehalfOfUserId: user?.id ?? null },
+					action: "auth.login_failed",
+					target: user ? { type: "user", id: user.id } : undefined,
+					detail: { username: username.slice(0, MAX_AUDITED_USERNAME), reason, address },
+				});
+			let ok: boolean;
+			try {
+				ok = await verifyPassword(password, user?.password_hash ?? (await dummyHash));
+			} catch (err) {
+				// A full hash queue is the server's state, not a guess: give the reservation back (503 follows).
+				if (err instanceof HashBusyError) for (const key of keys.all) limiter.refund(key);
+				throw err;
+			}
+			if (!user?.password_hash || !ok || user.status !== "active") {
+				failed(!user ? "unknown_user" : !user.password_hash ? "no_password" : !ok ? "wrong_password" : "disabled");
+				return jsonError(c, 401, "invalid username or password");
+			}
+			// Clear only this address+username pair; the address key keeps its failures for other users. The
+			// successful attempt itself was reserved above, so take that one back.
+			limiter.clearUser(keys.userKey);
+			if (keys.addressKey !== undefined) limiter.refund(keys.addressKey);
+			// The password just verified, so the rehash stores it without the policy check a new password gets.
+			if (needsRehash(user.password_hash)) await storePasswordHash(db, user.id, password);
+
+			const { token, expiresAt } = await createWebSession(db, user.id, {
+				ip: address ?? null,
+				userAgent: c.req.header("user-agent"),
+			});
+			setCookie(c, SESSION_COOKIE, token, {
+				path: "/",
+				httpOnly: true,
+				sameSite: "Strict",
+				secure: !isLoopbackHost(c.req.header("host")),
+				expires: expiresAt,
+			});
+			void c.get("audit").record({
+				actor: { type: "user", id: user.id, onBehalfOfUserId: user.id },
+				action: "auth.login",
+				target: { type: "user", id: user.id },
+				detail: { username: user.username, address },
+			});
+			const { password_hash: _, ...publicRow } = user;
+			return c.json({ user: toPublicUser(publicRow) });
+		} finally {
+			if (address !== undefined) limiter.endVerify(address);
+		}
 	});
 
 	app.use("/logout", requireUser(db));

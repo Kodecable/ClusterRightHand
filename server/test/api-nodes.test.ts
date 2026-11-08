@@ -42,6 +42,7 @@ describeBackends("api nodes", (backend) => {
 		app = createApp(db, {
 			serverFingerprint: "fp-test",
 			clientAddress: () => "198.51.100.7",
+			captcha: "none",
 			masterKey: MasterKey.generate(),
 		});
 		for (const [name, kind] of [

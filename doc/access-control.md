@@ -40,6 +40,50 @@
 
 在只信任用户的节点上，crhs 侧的任何身份都不足以提权，必须由该节点信任数组中的用户本人签名（或在节点上本地批准），见 [privilege.md](privilege.md)。
 
+## 登录、限流与验证
+
+密码登录（`POST /api/auth/login`）在验证密码之前先做限流和（默认开启的）工作量证明；Passkey 登录不经过这些步骤。所有限制都在 crhs 进程内，重启后清零。
+
+### 客户端地址
+
+- 默认使用连接 socket 的对端地址（`listen.real_ip_header` 不设置时）。
+- 设置 `listen.real_ip_header = "X-Forwarded-For"`（或 `X-Real-IP` 等）后，取该请求头，按 `,` 分割，去掉两端空白，使用**第一个非空元素**；头不存在或为空时回退到 socket 对端地址。没有受信代理列表，也不从右向左跳过代理追加的地址。
+- 部署者负责让反向代理**覆盖**客户端传入的同名头。crhs 直接暴露在网络上时这个头可以被任意伪造；默认 `listen.host = "127.0.0.1"` 并配合防火墙。
+- 不支持 RFC 7239 的 `Forwarded` 头格式。该地址同时用于登录限流、Cap PoW 的 scope 和 Web 会话记录的 IP。详见 [configuration.md](configuration.md#listen)。
+
+### 限流
+
+- 每个登录尝试有两个 key：`addr:<address>` 和 `addr-user:<address>\0<小写并 trim 的用户名>`，不再有只按用户名的 key。没有已知地址时（测试或没有 socket）只用 `addr-user:\0<用户名>`。
+- **在 Argon2id 之前预占**：`isBlocked` 检查和两个 key 的计数在同一个同步步骤里完成（`LoginLimiter.reserve`），所以一批并发请求不可能全部通过检查。这次尝试从一开始就计为失败。
+- 成功时只删掉本次的 `addr-user` key，并从 `addr` key 的计数里扣回本次预占的一次；`addr` 上其他用户名造成的失败保留。因此持有有效账号的人不能靠穿插成功登录把地址计数清零，继续撞其他用户名。
+- 同一地址在同一时刻只允许一个登录进入密码校验（在限流预占之后、Argon2id 之前获取）。第二个并发登录返回 429，`code = "login_in_progress"`。
+- 达到上限（默认 10 次失败 / 15 分钟）后，登录和挑战接口都返回 429，`code = "rate_limited"`。被限流的尝试不写审计，避免暴力破解把审计写满。
+
+### 密码哈希
+
+- 使用 `node:crypto` 的 Argon2id（Node ≥ 24.7），不再使用 scrypt。哈希是 PHC 字符串：`$argon2id$v=19$m=65536,t=3,p=1$<salt>$<tag>`，标准 base64 无填充。
+- 默认 `m = 65536` KiB（64 MiB）、`t = 3`、`p = 1`，salt 16 字节、tag 32 字节。解析时拒绝 `m > 1 GiB`、`t > 20`、`p > 16`、salt 小于 16 字节或 tag 不是 32 字节的串；旧 scrypt 哈希现在只是无效串，验证返回 false。
+- 密码先做 NFKC 归一化，最长 1024 个字符。`needsRehash` 在参数变化时让登录顺手重算哈希。
+- 所有 Argon2id 计算（哈希和验证、所有调用方）都经过一个进程级闸门：默认最多 2 个运行、32 个排队；队列满时立即返回 503、`Retry-After: 1`、`code = "hash_busy"`。峰值内存约为并发数 × 64 MiB；哈希在 libuv 线程池中执行（默认 4 个线程，`UV_THREADPOOL_SIZE`），配置见 [configuration.md](configuration.md#auth)。
+
+### Cap 工作量证明（无状态）
+
+`[auth] captcha = "cap"`（默认）时，密码登录前必须先取得并解出一个 Cap 挑战。挑战由 capjs-core 签发成一个 HMAC 签名的 JWT，crhs 不保存任何状态；有效期 2 分钟。
+
+1. `GET /api/auth/login-options` 返回 `{ "captcha": "cap" | "none" }`。
+2. `POST /api/auth/login/challenge`，body `{ username, tag }`，返回 `{ challenge, token, expires }`。`tag` 是 43 个 base64url 字符；crhs 只校验长度和字符集，无法从用户名单独验证它（它包含密码）。
+3. Web 端解出 `solutions` 后，把 `{ token, solutions }` 放进登录 body 的 `cap` 字段。crhs 用提交的用户名和密码重算 tag 和 scope，再调用 capjs-core 验证；验证失败返回 403，`code = "captcha_failed"`，并带 `reason`（如 `scope_mismatch`、`expired`、`invalid_solution`）。验证失败不计入登录失败，也不运行 Argon2id。
+
+绑定关系：
+
+- `tag = base64url_nopad(SHA-256(UTF-8(username) || 0x00 || UTF-8(password)))`，使用提交的原始字符串，不做 trim 或归一化。
+- `scope = base64url(HMAC-SHA256(scopeKey, address || 0x00 || username || 0x00 || tag))`，地址是上一节的客户端地址（未知时为空串）。
+- capjs-core 的 token 里保存 scope，验证时要求它和用当前提交的用户名、密码算出的 scope 相同。因此挑战同时绑定地址、用户名和密码。
+
+**无状态绑定的理由**：挑战 token 是可重放的——crhs 不记录已用 nonce，重放一个 token 只会重复同一个猜测。若密码错误，重放仍然是同一个错误密码，每次重放都计入限流并触发一次 Argon2id；若密码正确，重放本来就需要已经知道密码，等同于重复一次正常登录。要换一个密码去猜，tag 就变了，scope 也随之改变，攻击者必须重新申请挑战并重新做一次 PoW，不能拿一个已经解出的 token 去试探多个密码。再加上"同一地址同时只有一个登录进入校验"，重放一个针对正确密码的有效 token 也无法在同一地址上放大并发 Argon2id 或并发建立会话。
+
+`[auth] captcha = "none"` 时挑战接口返回 404，登录忽略 `cap` 字段；只建议在不能运行浏览器的受控环境使用。
+
 ## 归属、访问授权与分享
 
 节点和节点组属于**组织**，由管理员管理；会话、计划任务和 API token 属于创建它的**用户**：

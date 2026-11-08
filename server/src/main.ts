@@ -3,13 +3,14 @@ import { readFile, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import { parseArgs } from "node:util";
 import { serve } from "@hono/node-server";
-import { getConnInfo } from "@hono/node-server/conninfo";
 import { ModelConfig } from "./agent/models.ts";
 import { AgentRuntime } from "./agent/runtime.ts";
 import { rejectExpiredTokenWaits } from "./api/api-token-waits.ts";
 import { createApp } from "./api/app.ts";
+import { createClientAddress } from "./api/client-address.ts";
 import { RequestDrain } from "./api/drain.ts";
 import { Audit } from "./audit/audit.ts";
+import { configureHashGate } from "./auth/hash-gate.ts";
 import { deleteExpiredWebSessions } from "./auth/sessions.ts";
 import { readSecret } from "./cli/prompt.ts";
 import { AgentServer } from "./cluster/agent-server.ts";
@@ -64,6 +65,8 @@ try {
 	console.error(`crhs: ${values.config}: ${(err as Error).message}`);
 	process.exit(2);
 }
+// Every Argon2id computation, including `user add` and `user passwd`, goes through this one gate.
+configureHashGate({ concurrency: config.auth.argon2Concurrency, queue: config.auth.argon2Queue });
 const db = openDb(config.database);
 await migrateToLatest(db);
 
@@ -196,7 +199,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	const scheduler = new Scheduler({ db, runtime, audit });
 	const drain = new RequestDrain();
 	const app = createApp(db, {
-		clientAddress: (c) => getConnInfo(c).remote.address,
+		clientAddress: createClientAddress(config.listen.realIpHeader),
+		captcha: config.auth.captcha,
 		serverFingerprint: identity.fingerprint,
 		serverPublicKey: identity.keyPair.publicKey,
 		cluster,

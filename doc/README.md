@@ -11,6 +11,7 @@ ClusterRightHand（下称 CRH）是一个用于管理 VPS 集群的 agent 平台
 | 文档 | 内容 |
 |---|---|
 | [architecture.md](architecture.md) | 总体架构、组件划分、技术栈、仓库结构 |
+| [configuration.md](configuration.md) | crhs 配置文件：监听与真实 IP、数据库、WebAuthn、保留期、Argon2id 并发与登录 Captcha |
 | [execution-plane.md](execution-plane.md) | 执行平面：任务模型与语义、CBOR 客户端协议（M3.5）、通信安全（WSS + Noise）、节点注册、SSH 传输、批量输出 |
 | [protocol.md](protocol.md) | crhs ↔ crha 协议的线上格式（M3.5）：CBOR 元组 schema、握手载荷、帧、命令/事件、JSON 存储形式、fixture |
 | [privilege.md](privilege.md) | 提权与授权：特权任务的四种处理方式、crha 特权模式、方法与目标、授权结构、信任别名、信任缓存、联署 |

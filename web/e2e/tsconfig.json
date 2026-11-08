@@ -3,7 +3,10 @@
 	"compilerOptions": {
 		"lib": ["es2024", "dom"],
 		"types": ["node"],
-		"noEmit": true
+		"noEmit": true,
+		"paths": {
+			"@crh/protocol": ["../../packages/protocol/src/index.ts"]
+		}
 	},
 	"include": [".", "../playwright.config.ts"]
 }
