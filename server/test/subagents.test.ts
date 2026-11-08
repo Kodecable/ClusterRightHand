@@ -468,7 +468,7 @@ it("a subagent's waiting tool call makes it awaiting, and it runs again once set
 				by: { type: "user", id: owner.userId },
 				at: new Date().toISOString(),
 			}),
-		).toBe(true);
+		).toBe("approved");
 		await waitFor("idle after the run", async () =>
 			(await sessionStateOf(db, child.id)) === "idle" ? true : undefined,
 		);

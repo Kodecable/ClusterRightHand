@@ -123,6 +123,8 @@ describeBackends("api tokens", (backend) => {
 				on_behalf_of_user_id: onBehalfOfUserId,
 				created_at: new Date().toISOString(),
 				finished_at: null,
+				handler_type: "user",
+				handler_session_id: null,
 			})
 			.execute();
 		return id;

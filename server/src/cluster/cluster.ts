@@ -25,7 +25,16 @@ import * as links from "./links.ts";
 import type { NodeRow } from "./nodes.ts";
 import { closeSsh } from "./ssh-runner.ts";
 import * as tasks from "./task-state.ts";
-import type { Actor, ApprovalDecision, ApprovalRecord, ClusterOptions, CreateTaskInput, TaskView } from "./types.ts";
+import type {
+	Actor,
+	ApprovalDecision,
+	ApprovalExpect,
+	ApprovalRecord,
+	ClusterOptions,
+	CreateTaskInput,
+	DecisionResult,
+	TaskView,
+} from "./types.ts";
 
 export { countOutputLines } from "./output.ts";
 export { EMPTY_INPUT_REF, operationOfJson, specFromRow, summarize } from "./spec.ts";
@@ -33,9 +42,11 @@ export type {
 	Actor,
 	AgentRequest,
 	ApprovalDecision,
+	ApprovalExpect,
 	ApprovalRecord,
 	ClusterOptions,
 	CreateTaskInput,
+	DecisionResult,
 	TaskView,
 } from "./types.ts";
 export {
@@ -197,11 +208,21 @@ export class Cluster {
 	}
 
 	/**
-	 * Settles a task waiting for approval. Returns false if it is not waiting (already settled, or never
-	 * needed approval). Who may decide is checked by the caller.
+	 * Settles a task waiting for approval. Returns false if it is not waiting with the handler `expect`
+	 * names (already settled, or the handler changed since the caller's read); `node_deleted` when the
+	 * approval was recorded but the node was gone, so the task ended without dispatching. The expectation
+	 * is checked again in the task's turn (D118); omitted, any handler will do, but the row must have one.
 	 */
-	decide(id: string, decision: ApprovalDecision): Promise<boolean> {
-		return tasks.decide(this.#core, id, decision);
+	decide(id: string, decision: ApprovalDecision, expect?: ApprovalExpect): Promise<DecisionResult> {
+		return tasks.decide(this.#core, id, decision, expect);
+	}
+
+	/**
+	 * Ends the waiting tasks of a node that was just deleted (doc/execution-plane.md#状态机): they can
+	 * never dispatch, and nothing else would ever settle them. Returns how many tasks ended.
+	 */
+	endNodeTasks(nodeId: string): Promise<number> {
+		return tasks.endNodeTasks(this.#core, nodeId);
 	}
 
 	/** Stores Auto Review's verdict on a waiting task. */

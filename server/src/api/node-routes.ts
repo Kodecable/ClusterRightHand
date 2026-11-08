@@ -160,6 +160,8 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		if (m.error) return jsonError(c, m.error.status, m.error.message);
 		const before = await getNode(db, id);
 		await deleteNode(db, id);
+		// tasks.node_id has no foreign key: a waiting task would survive its node and could never dispatch.
+		await options.cluster?.endNodeTasks(id);
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "node.deleted",

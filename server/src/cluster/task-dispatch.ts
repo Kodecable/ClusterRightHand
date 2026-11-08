@@ -95,8 +95,9 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 	let verdict: "allow" | "deny" | "require-approval" = "allow";
 	const privileged = input.privileged === true;
 	if (input.chain) {
-		// A task group already judged its nodes: judging them again would repeat the chain's reads.
-		const evaluation = input.evaluation ?? (await evaluateFor(core, node, input.spec, input.chain, privileged));
+		// Every task is judged at creation, including a task group member: the group's own judgment is
+		// only about whether the whole group waits, and rules may have changed since (doc/access-control.md#审批).
+		const evaluation = await evaluateFor(core, node, input.spec, input.chain, privileged);
 		approval = { evaluation };
 		verdict = evaluation.result;
 		if (verdict === "require-approval" && input.approvedBy) {
@@ -104,8 +105,12 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 			verdict = "allow";
 		}
 	}
-	const waiting = verdict === "require-approval";
+	const waiting = verdict === "require-approval" && input.noWait !== true;
+	// A group member that cannot wait ends here instead of parking inside a group that already started:
+	// nobody would ever decide it, and the group would wait for it forever (doc/execution-plane.md#状态机).
+	const rejected = verdict === "require-approval" && input.noWait === true;
 	const denied = verdict === "deny";
+	const endedAtCreation = denied || rejected;
 	// Group waiting approvals by session tree: the first session of the chain (a schedule comes before it).
 	const root = input.chain?.find((ref) => ref.type === "session");
 	const values: Insertable<TasksTable> = {
@@ -124,20 +129,24 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 		max_lines: limits.maxLines,
 		max_bytes: limits.maxBytes,
 		// Allowed tasks pass through awaiting_approval only for the instant before dispatch.
-		state: denied ? "denied" : "awaiting_approval",
+		state: denied ? "denied" : rejected ? "rejected" : "awaiting_approval",
 		exit_code: null,
 		signal: null,
 		timed_out: 0,
 		cancelled: 0,
-		error_code: denied ? "policy_denied" : null,
-		error_message: denied ? "denied by the authorization rules" : null,
+		error_code: denied ? "policy_denied" : rejected ? "approval_required" : null,
+		error_message: denied
+			? "denied by the authorization rules"
+			: rejected
+				? "rules changed while the group ran: this node now requires approval"
+				: null,
 		actor_type: input.actor.type,
 		actor_id: input.actor.id,
 		on_behalf_of_user_id: input.actor.onBehalfOfUserId,
 		created_at: now(),
 		dispatched_at: null,
 		accepted_at: null,
-		finished_at: denied ? now() : null,
+		finished_at: endedAtCreation ? now() : null,
 		output_bytes: 0,
 		output_head: null,
 		output_tail: null,
@@ -156,9 +165,9 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 		handler_session_id: null,
 	};
 	await endTask(core, id, {
-		write: { insert: values, ended: denied },
-		// A denied task never runs: it keeps no output, no one waits for it, and its task.created
-		// audit carries the reason (no task.finished is recorded for it).
+		write: { insert: values, ended: endedAtCreation },
+		// A denied or rejected-before-dispatch task never runs: it keeps no output, no one waits for it,
+		// and its task.created audit carries the reason (no task.finished is recorded for it).
 		notify: false,
 		audit: false,
 	});
@@ -177,7 +186,7 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 			approved_by_group: approval?.decision ? input.taskGroupId : undefined,
 		},
 	});
-	if (!waiting && !denied) {
+	if (!waiting && !denied && !rejected) {
 		try {
 			// dispatch() manages its own turns: the wait for the node happens outside them (D118).
 			await dispatch(core, id, node, spec, inputBytes, input);

@@ -256,7 +256,7 @@ it("a tool call waiting for an approval makes the session awaiting/approval, the
 			by: { type: "user", id: owner.userId },
 			at: new Date().toISOString(),
 		}),
-	).toBe(true);
+	).toBe("approved");
 	await waitFor("running after the approval", async () =>
 		(await sessionStateOf(db, session.id)) === "running" ? true : undefined,
 	);

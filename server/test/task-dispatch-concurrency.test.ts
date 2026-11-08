@@ -213,22 +213,23 @@ describe("main chain dispatch and the task queue (D118)", () => {
 	it("returns node_offline after the grace when a task on an offline node is approved", async () => {
 		const id = await createWaitingTask("approve-offline");
 		const started = Date.now();
-		expect(await approve(id)).toBe(true);
+		expect(await approve(id)).toBe("approved");
 		const decideMs = Date.now() - started;
 		// The approval waited out the grace for the node instead of failing or returning at once.
 		expect(decideMs).toBeGreaterThanOrEqual(GRACE_MS - 100);
 		expect(await rowOf(id)).toMatchObject({ state: "failed", error_code: "node_offline" });
 	});
 
-	it("does not block a second decide while the first waits out the offline grace", async () => {
+	it("refuses a second decide without waiting for the dispatch grace", async () => {
 		const id = await createWaitingTask("approve-busy");
 		const approving = approve(id);
-		// The decision is recorded in its turn; the dispatch now waits out the offline grace.
+		// The decision is recorded in its turn and clears the handler; the dispatch now waits out the grace.
 		await waitFor("the decision recorded", async () => {
-			const approval = (await rowOf(id))?.approval;
-			return approval ? JSON.parse(approval).decision?.decision === "approved" : false;
+			const row = await rowOf(id);
+			return row?.handler_type === null && JSON.parse(row.approval ?? "{}").decision?.decision === "approved";
 		});
-		// A second decide is a turn on the same task: it must not wait for the first dispatch's grace.
+		// A second decide is a turn on the same task: the row no longer waits for anyone, so it is refused
+		// at once instead of blocking on the first dispatch's grace — or overwriting an approved task.
 		const started = Date.now();
 		expect(
 			await cluster.decide(id, {
@@ -237,15 +238,16 @@ describe("main chain dispatch and the task queue (D118)", () => {
 				at: new Date().toISOString(),
 				reason: "changed my mind",
 			}),
-		).toBe(true);
+		).toBe(false);
 		expect(Date.now() - started).toBeLessThan(GRACE_MS / 2);
-		// The first decide still settles the decision it recorded, after its grace finds it rejected.
-		expect(await approving).toBe(true);
+		// The first decide still settles the decision it recorded, after its grace finds the node offline.
+		expect(await approving).toBe("approved");
 		expect(await rowOf(id)).toMatchObject({
-			state: "rejected",
-			error_code: "approval_rejected",
-			error_message: "changed my mind",
+			state: "failed",
+			error_code: "node_offline",
 		});
+		const approval = JSON.parse((await rowOf(id))?.approval ?? "{}");
+		expect(approval.decision).toMatchObject({ decision: "approved" });
 	});
 
 	/** Creates a task that waits for approval while its node is offline. */

@@ -93,13 +93,16 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 - crha 在 `task.start` 成功响应（accepted）**之前**因授权拒绝时，明确允许用 `attempt + 1` 重试：任务回到 `awaiting_authorization`，不是终态；不会重发已接受的任务。
 - `awaiting_authorization` 没有自动超时；由用户拒绝、取消任务或规则变化结束。
 - `denied` 的 `error_code` 为 `policy_denied`；审批被拒绝（包括 token 吊销）时为 `rejected`，`error_code` 为 `approval_rejected`。
+- 审批通过时，决定与 `handler_type = null`、`handler_session_id = null` 在同一次写入里生效：任务从"等人"变成"允许、等待认领"（与创建后直接下发相同的形状），用户和 agent 的等待列表按处理者过滤，于是它立即从列表消失。认领之前状态仍是 `awaiting_approval`，但第二次决定、规则变化、Auto Review 和重启恢复都不会再把它当成等待项；随后认领进入 `dispatched`。
 - `awaiting_authorization` 最终失败时为 `rejected`，error code 取 `authorization_required`、`authorization_invalid`、`authorization_expired` 或 `authorization_rejected`（用户/本地最终拒绝）。
 - 按节点组 UUID 签发的可复用授权在缺少别名的 `forward` 节点上不下发：该节点的任务直接以 `failed`/`error_code = alias_missing` 结束（D110，见 [privilege.md](privilege.md#授权路径)）。
 - 等待审批的任务把输入（stdin、写入内容）暂存在 `tasks.pending_input`，下发时取出并清空；批准时节点不在线，按下文"节点不在线"的宽限期等待重连，之后以 `failed(node_offline)` 结束，不再排队等节点。
 - 特权任务没有等待就直接用所有者已有的可复用授权下发时，输入取自创建时的内存，不经过 `pending_input`；`task.start` 被拒绝、任务回到 `awaiting_authorization` 时再写入 `pending_input`，供下一次尝试使用。
 - 任务组需要审批时整组等待（`task_groups.state = awaiting_approval`），还没有创建任务，规格和输入暂存在任务组上；被规则拒绝的节点立即得到一个 `denied` 任务。批准后剩余节点照常按并发数执行。
+- 任务组的每个成员都在创建时按当前规则重新判定，整组是否等待过审批不影响这一点：直接运行的组在运行中新增的规则也会作用于尚未创建的节点。判定为 `require-approval` 的成员不会在运行中的组里停下来等审批，而是以 `rejected`、`error_code = approval_required` 结束（原因写明规则在组运行期间变化）；`deny` 仍以 `denied` 结束。
 - 任务组中的任务彼此独立：部分节点已执行、部分节点在 `awaiting_authorization` 时，已执行的任务不回滚；任务组最终可以是混合结果。若所有未完成任务都在等授权，任务组显示 `awaiting_authorization`，否则保持 `running`。
 - 允许下发的任务在创建时先写成 `awaiting_approval`、随即下发；这段极短的时间里它的 `handler_type` 为空，并不是在等审批。真正等审批的任务总有处理者（`handler_type` 非空）。下发这一步抛错时任务以 `failed`、`error_code = internal_error` 结束，不会把这个中间状态留在表里。
+- `tasks.node_id` 没有外键。删除节点时，crhs 在该节点所有仍在 `awaiting_approval` / `awaiting_authorization` 的任务自己的队列轮里、按正常结束路径把它们以 `failed`、`error_code = node_deleted` 结束；任务组的成员同样处理，组随后按正常状态机结束。审批时若节点已经被删除，任务也直接以 `node_deleted` 结束，且不为此追加"以后都允许"规则。
 - `fail_fast` 只影响尚未启动的节点，不回滚已启动/已完成的任务；可重试的授权拒绝不算最终失败。
 - crhs 重启时仍在运行的任务组标记为 `interrupted`：没有创建任务的节点记入 `skipped`，已创建但还没有下发的成员任务（`awaiting_approval` / `awaiting_authorization`）以 `rejected`、`error_code = cancelled` 结束，原因写明任务组被重启中断。`finished`、`interrupted`、`rejected`、`cancelled` 的组不再下发任何成员。
 - 任务组在运行中抛错（例如创建成员时存储失败）时同样以 `interrupted` 结束，而不是 `finished`：没有创建任务的节点记入 `skipped`，已创建但还没有下发的成员以同样的方式取消，原因写成 `the task group failed: …`。没有单独的"失败"组状态：组不会重试，`interrupted` 就是"没有跑完"的那个状态。一个 worker 抛错后，其余 worker 也不会再取下一个节点。
@@ -115,7 +118,7 @@ created ──▶ awaiting_approval ──▶ awaiting_authorization ──▶ d
 
 向 agent 报告的内容是："失败，状态未知，原因是 xxx"。是否重试、重试前要不要先检查机器状态，由 agent 或使用者决定。
 
-crhs 重启时，停在认领和 `task.start` 之间的任务（`awaiting_approval` 且 `handler_type` 为空）以 `failed`、`error_code = dispatch_interrupted` 结束，原因写明服务器在任务下发前停止：没有人能审批它，输入也已丢失，重新挂接的调用不会永远等待。真正等审批的任务总有处理者（`handler_type` 非空）；任务组先于普通任务恢复，组成员按任务组的中断语义结束。
+crhs 重启时，停在认领和 `task.start` 之间的任务（`awaiting_approval` 且 `handler_type` 为空）以 `failed`、`error_code = dispatch_interrupted` 结束，原因写明服务器在任务下发前停止：没有人能审批它，输入也已丢失，重新挂接的调用不会永远等待。审批通过后、认领前也是这个形状，因此重启同样按这里结束，而不会被当成新的审批请求。真正等审批的任务总有处理者（`handler_type` 非空）；任务组先于普通任务恢复，组成员按任务组的中断语义结束。
 
 ### 节点不在线
 
@@ -167,6 +170,7 @@ crhs 要向节点发送 `task.start` 而节点没有连接时（D113），最多
 
 - `POST /api/authorizations` 校验签名、存储授权之后就返回 `{ authorization: { id } }`；等待节点、判定、认领和发送都在后台完成，结果反映在任务状态上。
 - 创建任务、批准任务这些请求仍然会等下发结果返回，但等待节点时不占用任务的队列。
+- 规则变化触发的重新判定（`reevaluate`）只同步记录允许/拒绝的决定：允许的下发在后台完成。改规则、追加"以后都允许"这类请求因此不会被离线节点的 30 秒宽限期按任务串行拖住。
 
 ## 输出
 

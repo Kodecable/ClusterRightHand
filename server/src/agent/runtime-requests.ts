@@ -166,12 +166,16 @@ export async function decideAgentRequest(
 				throw new UserError("the request is no longer waiting");
 		} else {
 			const at = new Date().toISOString();
-			const ok = await host.cluster.decide(requestId, {
-				decision: decision === "approve" ? "approved" : "rejected",
-				by: { ...by, onBehalfOfUserId: task.on_behalf_of_user_id },
-				at,
-				...(reason ? { reason } : {}),
-			});
+			const ok = await host.cluster.decide(
+				requestId,
+				{
+					decision: decision === "approve" ? "approved" : "rejected",
+					by: { ...by, onBehalfOfUserId: task.on_behalf_of_user_id },
+					at,
+					...(reason ? { reason } : {}),
+				},
+				{ handlerType: "agent", handlerSessionId: sessionId },
+			);
 			if (!ok) throw new UserError("the request is no longer waiting");
 		}
 		host.wakes.drop(sessionId, `agent-request:task:${requestId}`);
@@ -224,12 +228,16 @@ export async function decideAgentRequest(
 		if (!(await host.taskGroups.escalateAgentDecision(requestId, sessionId)))
 			throw new UserError("the request is no longer waiting");
 	} else {
-		const ok = await host.taskGroups.decide(requestId, {
-			decision: decision === "approve" ? "approved" : "rejected",
-			by: { ...by, onBehalfOfUserId: group.on_behalf_of_user_id },
-			at: new Date().toISOString(),
-			...(reason ? { reason } : {}),
-		});
+		const ok = await host.taskGroups.decide(
+			requestId,
+			{
+				decision: decision === "approve" ? "approved" : "rejected",
+				by: { ...by, onBehalfOfUserId: group.on_behalf_of_user_id },
+				at: new Date().toISOString(),
+				...(reason ? { reason } : {}),
+			},
+			{ handlerType: "agent", handlerSessionId: sessionId },
+		);
 		if (!ok) throw new UserError("the request is no longer waiting");
 	}
 	host.wakes.drop(sessionId, `agent-request:task_group:${requestId}`);

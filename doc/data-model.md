@@ -75,7 +75,8 @@ task_groups       (id, org_id, targets json, node_ids json, kind, parallel, fail
                    spec json nullable, timeout_ms nullable, pending_input nullable,
                                                                       -- 等待审批时暂存要执行的内容
                    root_session_id nullable,                          -- 规则链根会话，按会话树查等待项
-                   handler_type[agent|user] nullable,                 -- 等审批时谁处理；user 即 on_behalf_of_user_id
+                   handler_type[agent|user] nullable,                 -- 等审批时谁处理；user 即 on_behalf_of_user_id；
+                                                                       -- null 表示不在等审批（批准后、启动/下发前的形状）
                    handler_session_id nullable,                       -- handler_type=agent 时处理的会话
                    state[awaiting_approval|awaiting_authorization|running|finished|interrupted|rejected|cancelled],
                                                                       -- interrupted：重启中断；cancelled：会话停止/工具调用中止时取消；
@@ -86,13 +87,14 @@ tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json,
                    max_lines nullable, max_bytes nullable,            -- 本任务的输出预算（D112）；组内任务随组，单任务 null 为 2000 行 / 50KB
                    state[awaiting_approval|awaiting_authorization|denied|dispatched|running|exited|failed|rejected|unknown],
                    exit_code, signal, timed_out, cancelled,
-                   error_code, error_message,                         -- 执行器错误码、拒绝原因或 unknown 的原因
+                   error_code, error_message,                         -- 执行器错误码、拒绝原因或 unknown 的原因（如 policy_denied、approval_rejected、approval_required、node_offline、node_deleted）
                    actor_type, actor_id, on_behalf_of_user_id,
                    rule_chain json nullable,                          -- 从根开始的规则链；用户本人操作时为空
                    approval json nullable,                            -- 规则判断记录（每一级），以及审批决定：结果、决定者、时间、理由
                    pending_input nullable,                            -- 等待审批/授权时暂存的输入（base64）
                    root_session_id nullable,                          -- 规则链根会话，按会话树查等待项
-                   handler_type[agent|user] nullable,                 -- 等审批时谁处理；user 即 on_behalf_of_user_id
+                   handler_type[agent|user] nullable,                 -- 等审批时谁处理；user 即 on_behalf_of_user_id；
+                                                                       -- null 表示不在等审批（批准后、启动/下发前的形状）
                    handler_session_id nullable,                       -- handler_type=agent 时处理的会话
                    authorization json nullable,                       -- M4：授权状态、方案、payload id、trust digest
                    created_at, dispatched_at, accepted_at, finished_at,
@@ -106,6 +108,8 @@ tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json,
 ```
 
 crhs 不保存完整输出。批量默认 `status` 只保存状态和输出文件路径；`text` 受单节点和总预算限制。完整输出由 crha 在节点上保存为普通文件并负责清理，见 [execution-plane.md](execution-plane.md#输出)。SSH 不保存完整输出。
+
+`tasks.node_id` 没有外键：节点行删除后任务历史仍在。删除节点时 crhs 负责结束该节点上还在 `awaiting_approval` / `awaiting_authorization` 的任务（`failed` / `error_code = node_deleted`），否则它们永远等不到下发；审批时节点已不存在也按同一错误结束（见 [execution-plane.md](execution-plane.md#状态机)）。
 
 `tasks.spec` 和 `task_groups.spec` 是创建时的 JSON 形式，按当时的协议版本解释。协议大版本 2 把 `file.read` 的 JSON 字段从 `offset` / `limit` 改为 `startLine` / `lineCount`：升级前创建、仍在等待审批或签名的这类任务和任务组无法下发，读取时以 `stored spec cannot be read` 失败。D114 给 `file.write` 增加了 `createParentDirs`：迁移把已存的 `file.write` 规格都补上 `"createParentDirs": false`，所以旧任务照常可读。
 

@@ -749,6 +749,51 @@ describe("privileged forward dispatch", () => {
 			expect(byNode.get(b.node.id)).toMatchObject({ state: "rejected", errorCode: "cancelled" });
 			expect(finished.skipped).toEqual([]);
 		});
+
+		it("finishes a group when a deleted node ends its waiting member", async () => {
+			const groups = new TaskGroups(db, cluster, { audit });
+			const a = await connect("group-delete-a");
+			const b = await connect("group-delete-b");
+			await addCredential();
+			const summaryA = summaryOf(a.node.id, [crhsEntry()]);
+			const summaryB = summaryOf(b.node.id, [aliceEntry()]);
+			a.crha.trust({ kind: "ok", summary: summaryA });
+			b.crha.trust({ kind: "ok", summary: summaryB });
+			await waitTrust(a.node.id, summaryA);
+			await waitTrust(b.node.id, summaryB);
+
+			const groupId = await groups.create({
+				targets: [a.node.name, b.node.name],
+				nodeIds: [a.node.id, b.node.id],
+				spec: EXEC,
+				privileged: true,
+				actor: actor(),
+				parallel: 2,
+				outputMode: "status",
+			});
+			await waitFor("task.start on node A", () => a.crha.starts.length === 1);
+			const view = async () => (await groups.get(groupId)) as TaskGroupView;
+			await waitFor("group running", async () => (await view()).state === "running");
+			const taskA = (await view()).tasks.find((task) => task.nodeId === a.node.id);
+			const taskB = (await view()).tasks.find((task) => task.nodeId === b.node.id);
+			if (!taskA || !taskB) throw new Error("group tasks missing");
+			expect(taskB.state).toBe("awaiting_authorization");
+
+			a.crha.exit(taskA.id, { kind: "code", value: 0 });
+			await waitFor("group awaiting_authorization", async () => (await view()).state === "awaiting_authorization");
+
+			// Deleting node B ends its parked member; the group's worker then sees the member settled and
+			// finishes the group instead of waiting for a signature that can never arrive.
+			expect(await cluster.endNodeTasks(b.node.id)).toBe(1);
+			const finished = await waitFor("group finished", async () => {
+				const group = await view();
+				return group.state === "finished" ? group : undefined;
+			});
+			const byNode = new Map(finished.tasks.map((task) => [task.nodeId, task]));
+			expect(byNode.get(a.node.id)).toMatchObject({ state: "exited", exitCode: 0 });
+			expect(byNode.get(b.node.id)).toMatchObject({ state: "failed", errorCode: "node_deleted" });
+			expect(finished.skipped).toEqual([]);
+		});
 	});
 
 	describe("privilege API", () => {

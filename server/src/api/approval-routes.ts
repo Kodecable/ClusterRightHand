@@ -58,6 +58,7 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		const user = c.get("user");
 		if (subject.userId !== user.userId || !subject.chain) return jsonError(c, 404, "no such approval");
 		if (!subject.waiting) return jsonError(c, 409, "it is no longer waiting for approval");
+		if (subject.handlerType === null) return jsonError(c, 409, "it is no longer waiting for approval");
 		if (subject.handlerType !== "user") return jsonError(c, 409, "an agent is handling this request");
 		const body = await readJsonObject(c);
 		if (!body || (body.decision !== "approve" && body.decision !== "reject")) {
@@ -80,10 +81,11 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		}
 		const ok =
 			subject.kind === "task"
-				? await cluster.decide(subject.id, decision)
-				: await taskGroups.decide(subject.id, decision);
-		// The rule is a consequence of the decision: a request that is no longer waiting must not leave it behind.
-		if (ok && always) {
+				? await cluster.decide(subject.id, decision, { handlerType: "user" })
+				: await taskGroups.decide(subject.id, decision, { handlerType: "user" });
+		// The rule is a consequence of the decision: a request that is no longer waiting must not leave it
+		// behind, and neither must an approval that only ended the task because its node was deleted.
+		if (ok && always && ok !== "node_deleted") {
 			await appendRule(db, root, always);
 			void audit.record({
 				actor: userActor(user),

@@ -227,6 +227,8 @@ describe("approvals api (sqlite)", () => {
 		});
 		expect(res.status).toBe(200);
 		expect((await task(a.id)).errorCode).toBe("node_offline");
+		// The reevaluation that the new rule triggered dispatches in the background (M1).
+		await cluster.drain();
 		const vb = await task(b.id);
 		expect(vb.state).toBe("failed");
 		expect(vb.errorCode).toBe("node_offline");
@@ -307,6 +309,8 @@ describe("approvals api (sqlite)", () => {
 		const a = await mkTask(tok, execSpec("one"));
 		const b = await mkTask(tok, execSpec("two"));
 		expect((await putRules(tok, { rulePreset: "yolo" })).status).toBe(200);
+		// The allows reevaluation recorded are dispatched in the background (M1).
+		await cluster.drain();
 		for (const id of [a.id, b.id]) {
 			const v = await task(id);
 			expect(v.state).toBe("failed");

@@ -72,6 +72,10 @@ export const NODE_ACCESS_REVOKED_MESSAGE = "access to the node was revoked befor
 export const DISPATCH_INTERRUPTED = "dispatch_interrupted";
 /** The error message that goes with DISPATCH_INTERRUPTED. */
 export const DISPATCH_INTERRUPTED_MESSAGE = "the server stopped before the task was dispatched";
+/** The error code of a waiting task whose node was deleted before it could dispatch. */
+export const NODE_DELETED = "node_deleted";
+/** The error message that goes with NODE_DELETED. */
+export const NODE_DELETED_MESSAGE = "the node was deleted before the task was dispatched";
 /** The reason of a task cancelled after it was claimed but before it reached the node. */
 export const CANCELLED_BEFORE_START_MESSAGE = "the task was cancelled before it was dispatched";
 
@@ -169,6 +173,63 @@ export async function endUndispatched(core: ClusterCore, id: string, error: unkn
 	} catch (cleanupError) {
 		console.error(`task ${id}: ending a task whose dispatch failed failed:`, cleanupError);
 	}
+}
+
+/**
+ * Ends a waiting task whose node no longer exists: there is nothing left to dispatch it to, and without a
+ * node row every later check would report success without ever sending it. `set` carries what the caller
+ * recorded with the ending (an approval decision, for instance). Returns whether the row matched.
+ */
+export async function failNodeDeleted(
+	core: ClusterCore,
+	id: string,
+	row: Selectable<TasksTable>,
+	set: Updateable<TasksTable> = {},
+): Promise<boolean> {
+	return endTask(core, id, {
+		write: {
+			from: [row.state],
+			rev: row.rev,
+			set: {
+				state: "failed",
+				error_code: NODE_DELETED,
+				error_message: NODE_DELETED_MESSAGE,
+				pending_input: null,
+				handler_type: null,
+				handler_session_id: null,
+				...set,
+			},
+		},
+		live: "none",
+		group: row.task_group_id ?? null,
+		awaitGroup: true,
+		onChange: row.actor_id,
+	});
+}
+
+/**
+ * Ends the waiting tasks of a node that was just deleted (doc/execution-plane.md#状态机): `tasks.node_id`
+ * has no foreign key, so the rows stay behind and nothing would ever dispatch them. Each ending runs in
+ * that task's own turn, on the row read there, so it cannot overwrite an approval or a cancellation that
+ * settled the task meanwhile. Returns how many rows ended.
+ */
+export async function endNodeTasks(core: ClusterCore, nodeId: string): Promise<number> {
+	const rows = await core.db
+		.selectFrom("tasks")
+		.select("id")
+		.where("node_id", "=", nodeId)
+		.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
+		.execute();
+	let ended = 0;
+	for (const { id } of rows) {
+		await core.taskQueue.run(id, async () => {
+			const row = await core.row(id);
+			if (row?.node_id !== nodeId) return;
+			if (row.state !== "awaiting_approval" && row.state !== "awaiting_authorization") return;
+			if (await failNodeDeleted(core, id, row)) ended++;
+		});
+	}
+	return ended;
 }
 
 // ---- the node's reports ----

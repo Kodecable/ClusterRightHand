@@ -388,7 +388,7 @@ describeBackends("task groups", (backend) => {
 		}
 	});
 
-	it("judges a batch's chain once and reads its tasks in one query", async () => {
+	it("judges every member at creation and reads its tasks in one query", async () => {
 		// A rule chain the group can judge: an API token's rules, allowed without approval.
 		const tokenId = newId();
 		await db
@@ -420,8 +420,9 @@ describeBackends("task groups", (backend) => {
 				chain,
 			});
 			const view = await probedGroups.wait(id, 5000);
-			// The chain is read once for the whole group, and its members reuse the group's judgments.
-			expect(ruleReads.stop()).toBe(1);
+			// One read judges the group (does it wait as a whole?); every member is judged again when it
+			// is created, so a rule changed mid-run still applies.
+			expect(ruleReads.stop()).toBe(4);
 			expect(view?.state).toBe("finished");
 			expect(view?.tasks).toHaveLength(3);
 			const taskReads = probe.count((node) => node.kind === "SelectQueryNode" && tableOf(node) === "tasks");
@@ -496,6 +497,82 @@ describeBackends("task groups", (backend) => {
 			reason: "denied by the authorization rules",
 		});
 		expect(view?.tasks).toEqual([]);
+	});
+
+	it("applies a deny rule added while a direct-run group is running", async () => {
+		const nodeA = ids["web-1"] as string;
+		const nodeB = ids["web-2"] as string;
+		const ref = await addChain("yolo");
+		const probe = probeDb(db);
+		// A direct-run group is allowed as a whole; the rule lands after that judgment but before the
+		// members judge themselves, as if the user changed it while the batch was starting.
+		probe.onNext(
+			(node) => node.kind === "SelectQueryNode" && tableOf(node) === "rule_sets",
+			async () => {
+				await setRules(db, ref, [{ action: "deny", method: "exec", nodes: [nodeB] }]);
+			},
+		);
+		const probedCluster = new Cluster(probe.db, { nodeOfflineGraceMs: 10 });
+		const probedGroups = new TaskGroups(probe.db, probedCluster);
+		try {
+			const id = await probedGroups.create({
+				targets: [nodeA],
+				nodeIds: [nodeA, nodeB],
+				spec: spec(),
+				actor: actor(),
+				chain: [ref],
+				parallel: 2,
+			});
+			const view = await probedGroups.wait(id, 5000);
+			expect(view?.state).toBe("finished");
+			const byNode = new Map(view?.tasks.map((task) => [task.nodeId, task]));
+			// Node A was judged before the rule changed; node B is judged when its member is created.
+			expect(byNode.get(nodeA)).toMatchObject({ state: "failed", errorCode: "node_offline" });
+			expect(byNode.get(nodeB)).toMatchObject({ state: "denied", errorCode: "policy_denied" });
+		} finally {
+			await probedCluster.close();
+		}
+	});
+
+	it("rejects a member that would need approval and counts it as a failure", async () => {
+		const nodeA = ids["web-1"] as string;
+		const nodeB = ids["web-2"] as string;
+		const nodeC = ids["db-1"] as string;
+		const ref = await addChain("yolo");
+		const probe = probeDb(db);
+		probe.onNext(
+			(node) => node.kind === "SelectQueryNode" && tableOf(node) === "rule_sets",
+			async () => {
+				await setRules(db, ref, [{ action: "require-approval", method: "exec", nodes: [nodeA] }]);
+			},
+		);
+		const probedCluster = new Cluster(probe.db, { nodeOfflineGraceMs: 10 });
+		const probedGroups = new TaskGroups(probe.db, probedCluster);
+		try {
+			const id = await probedGroups.create({
+				targets: [nodeA],
+				nodeIds: [nodeA, nodeB, nodeC],
+				spec: spec(),
+				actor: actor(),
+				chain: [ref],
+				parallel: 1,
+				failFast: true,
+			});
+			const view = await probedGroups.wait(id, 5000);
+			expect(view?.state).toBe("finished");
+			// A group that is already running cannot stop for an approval: the member ends rejected, and
+			// fail_fast treats that as the failure that stops the remaining nodes.
+			expect(view?.tasks).toHaveLength(1);
+			expect(view?.tasks[0]).toMatchObject({
+				nodeId: nodeA,
+				state: "rejected",
+				errorCode: "approval_required",
+				errorMessage: "rules changed while the group ran: this node now requires approval",
+			});
+			expect(view?.skipped.sort()).toEqual([nodeB, nodeC].sort());
+		} finally {
+			await probedCluster.close();
+		}
 	});
 
 	it("does not record a review once the group has left awaiting_approval", async () => {

@@ -31,6 +31,7 @@ import {
 	type Actor,
 	type AgentRequest,
 	type ApprovalDecision,
+	type ApprovalExpect,
 	type CreateTaskInput,
 	GROUP_TERMINAL,
 	type TaskView,
@@ -119,7 +120,7 @@ export async function resolveTargets(db: Db, user: SessionUser, targets: string[
 }
 
 export interface CreateTaskGroupInput
-	extends Omit<CreateTaskInput, "nodeId" | "taskGroupId" | "approvedBy" | "evaluation"> {
+	extends Omit<CreateTaskInput, "nodeId" | "taskGroupId" | "approvedBy" | "noWait"> {
 	targets: string[];
 	nodeIds: string[];
 	parallel?: number;
@@ -334,12 +335,10 @@ export class TaskGroups {
 		if (!first) throw new UserError("no nodes");
 
 		let approval: TaskGroupApprovalRecord | undefined;
-		let evaluations: Map<string, Evaluation> | undefined;
 		const privileged = input.privileged === true;
 		if (input.chain) {
 			// One pass over the chain and one query for the nodes' groups, not two queries per node.
 			const judged = await this.#cluster.evaluateForNodes(nodes, input.spec, input.chain, privileged);
-			evaluations = judged;
 			approval = { nodes: nodes.map((node) => ({ nodeId: node.id, evaluation: judged.get(node.id) as Evaluation })) };
 		}
 		const waiting = approval?.nodes.some((n) => n.evaluation.result === "require-approval") ?? false;
@@ -402,19 +401,14 @@ export class TaskGroups {
 				if (view) void hook(view).catch((err: unknown) => console.error("review:", err));
 			}
 		} else {
-			// Never waited: the judgments just made are fresh, so the members reuse them.
-			this.#start(id, { ...input, outputMode }, nodeIds, parallel, undefined, evaluations);
+			// Every member is judged again when it is created, even though this group runs at once: a rule
+			// added while the group runs must still apply to the nodes that have not started yet.
+			this.#start(id, { ...input, outputMode }, nodeIds, parallel, undefined);
 		}
 		return id;
 	}
 
-	#taskInput(
-		input: CreateTaskGroupInput,
-		groupId: string,
-		nodeId: string,
-		approvedBy?: ApprovalDecision,
-		evaluation?: Evaluation,
-	) {
+	#taskInput(input: CreateTaskGroupInput, groupId: string, nodeId: string, approvedBy?: ApprovalDecision) {
 		const { nodeIds: _n, targets: _t, parallel: _p, failFast: _f, id: _i, ...task } = input;
 		// A group with a stable id gives its tasks stable ids too, so a rerun reattaches to them.
 		const id = input.id ? derivedId(`${input.id}/${nodeId}`) : undefined;
@@ -426,19 +420,14 @@ export class TaskGroups {
 			taskGroupId: groupId,
 			...(id ? { id } : {}),
 			...(approvedBy ? { approvedBy } : {}),
-			...(evaluation ? { evaluation } : {}),
+			// A member cannot stop to wait for an approval: only an approved group covers require-approval,
+			// and a direct-run group has already started (doc/access-control.md#审批).
+			noWait: !approvedBy,
 		};
 	}
 
-	#start(
-		id: string,
-		input: CreateTaskGroupInput,
-		nodeIds: string[],
-		parallel: number,
-		approvedBy?: ApprovalDecision,
-		evaluations?: Map<string, Evaluation>,
-	) {
-		const run = this.#run(id, input, nodeIds, parallel, approvedBy, evaluations)
+	#start(id: string, input: CreateTaskGroupInput, nodeIds: string[], parallel: number, approvedBy?: ApprovalDecision) {
+		const run = this.#run(id, input, nodeIds, parallel, approvedBy)
 			.catch((err: unknown) => console.error(`task group ${id} failed:`, err))
 			.finally(() => this.#running.delete(id));
 		this.#running.set(id, run);
@@ -450,7 +439,6 @@ export class TaskGroups {
 		nodeIds: string[],
 		parallel: number,
 		approvedBy?: ApprovalDecision,
-		evaluations?: Map<string, Evaluation>,
 	): Promise<void> {
 		const queue = [...nodeIds];
 		// Tasks that wait for an authorization signature do not hold a worker slot: another node may still
@@ -480,9 +468,7 @@ export class TaskGroups {
 					queue.unshift(nodeId);
 					return;
 				}
-				const created = await this.#cluster.createTask(
-					this.#taskInput(input, id, nodeId, approvedBy, evaluations?.get(nodeId)),
-				);
+				const created = await this.#cluster.createTask(this.#taskInput(input, id, nodeId, approvedBy));
 				// cancel() cancelled the members it could see before this one existed; end it before waiting.
 				if (cancelled()) {
 					await this.#cluster.cancelTask(created.id, this.#cancelled.get(id) ?? GROUP_CANCELLED_REASON);
@@ -629,19 +615,22 @@ export class TaskGroups {
 	/**
 	 * Settles a group waiting for approval: approving starts its non-denied nodes, rejecting (or expiry)
 	 * ends it. Runs on the group's approval queue, so decisions, reviews and re-evaluations cannot
-	 * interleave. Returns false if it is not waiting. Who may decide is checked by the caller.
+	 * interleave. Returns false if it is not waiting with the handler the caller expects. Who may decide
+	 * is checked by the caller; `expect` is checked again on the row read in the queue turn.
 	 */
-	decide(id: string, decision: ApprovalDecision): Promise<boolean> {
-		return this.#approvalQueue.run(id, () => this.#decide(id, decision));
+	decide(id: string, decision: ApprovalDecision, expect?: ApprovalExpect): Promise<boolean> {
+		return this.#approvalQueue.run(id, () => this.#decide(id, decision, expect));
 	}
 
 	/**
 	 * The unqueued body of decide(): callers already hold the group's queue slot. Approving lets every
-	 * remaining member judge itself again, so a node a rule now denies ends denied.
+	 * remaining member judge itself again, so a node a rule now denies ends denied. The handler check
+	 * repeats the caller's read: a request routed to an agent must not be decided by the user page (and
+	 * the other way around) when the two read the row at different times.
 	 */
-	async #decide(id: string, decision: ApprovalDecision): Promise<boolean> {
+	async #decide(id: string, decision: ApprovalDecision, expect?: ApprovalExpect): Promise<boolean> {
 		const row = await this.#row(id);
-		if (row?.state !== "awaiting_approval") return false;
+		if (row?.state !== "awaiting_approval" || !matchesHandler(row, expect)) return false;
 		const approved = decision.decision === "approved";
 		// Build the input before changing state: a legacy spec that cannot be read must fail the request
 		// without leaving a group that is running but has no tasks.
@@ -680,7 +669,8 @@ export class TaskGroups {
 	async recordReview(id: string, review: NonNullable<TaskGroupApprovalRecord["review"]>): Promise<void> {
 		await this.#approvalQueue.run(id, async () => {
 			const row = await this.#row(id);
-			if (row?.state !== "awaiting_approval") return;
+			// A settled or approved group is no longer a request; a late review must not write it.
+			if (row?.state !== "awaiting_approval" || row.handler_type === null) return;
 			const record = mergeApproval<TaskGroupApprovalRecord>(row.approval, { review });
 			const res = await this.#db
 				.updateTable("task_groups")
@@ -707,7 +697,8 @@ export class TaskGroups {
 	#routeAgentDecision(id: string, session: string, state: AgentRequest["state"]): Promise<boolean> {
 		return this.#approvalQueue.run(id, async () => {
 			const row = await this.#row(id);
-			if (row?.state !== "awaiting_approval") return false;
+			// The group is settled or already starting: routing it again would make it look waiting.
+			if (row?.state !== "awaiting_approval" || row.handler_type === null) return false;
 			const routing = agentRouting(session, state);
 			const record = mergeApproval<TaskGroupApprovalRecord>(row.approval, { agent: routing.agent });
 			const res = await this.#db
@@ -877,6 +868,21 @@ export class TaskGroups {
 
 function now(): string {
 	return new Date().toISOString();
+}
+
+/**
+ * Whether the group row's handler matches what the caller read outside the approval queue. The omitted
+ * expectation still requires a handler: a waiting group always has one, so a null handler means it is
+ * no longer waiting for a decision.
+ */
+function matchesHandler(row: Selectable<TaskGroupsTable>, expect?: ApprovalExpect): boolean {
+	if (!expect) return row.handler_type !== null;
+	if (expect.handlerType === "any-waiting") {
+		if (row.handler_type === null) return false;
+	} else if (row.handler_type !== expect.handlerType) {
+		return false;
+	}
+	return expect.handlerSessionId === undefined || row.handler_session_id === expect.handlerSessionId;
 }
 
 /** Whether a settled task makes fail_fast stop the remaining nodes. */

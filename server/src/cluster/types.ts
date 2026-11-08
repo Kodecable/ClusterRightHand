@@ -5,7 +5,6 @@
 import type { AgentRequest, ApprovalDecision, ApprovalRecord, TaskView } from "@crh/api";
 import type { TaskSpec } from "@crh/protocol";
 import type { Audit } from "../audit/audit.ts";
-import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { AuthorizationSigningKey } from "../privilege/key.ts";
 import type { OutputMode, TaskGroupState, TaskState as TaskRowState } from "../storage/schema.ts";
@@ -39,16 +38,35 @@ export interface CreateTaskInput {
 	/** Set for the tasks of an approved task group: a require-approval result counts as approved. */
 	approvedBy?: ApprovalDecision;
 	/**
-	 * The task group's fresh judgment of this node, passed only when the group starts at once: a member
-	 * of an approved group is judged again, since the rules may have changed while the group waited.
+	 * A task group member that cannot stop to wait for an approval: a require-approval verdict ends it
+	 * `rejected` instead of leaving it waiting inside a group that already started
+	 * (doc/access-control.md#审批).
 	 */
-	evaluation?: Evaluation;
+	noWait?: boolean;
 	/**
 	 * A caller-chosen id. If a task with it exists, createTask returns that task instead of creating one: a tool
 	 * call that reruns after a crash reattaches to the task its first attempt started (doc/agent-runtime.md).
 	 */
 	id?: string;
 }
+
+/** What decide() expects of the waiting row's handler when its turn runs (D118: the read is checked again). */
+export interface ApprovalExpect {
+	/**
+	 * The handler the row must have. `any-waiting` only requires one (the default when the caller passes
+	 * no expectation): a row without a handler is already allowed and being dispatched, not waiting.
+	 */
+	handlerType: "user" | "agent" | "any-waiting";
+	/** For `agent`, the session that must handle it; omitted when the caller only knows the kind. */
+	handlerSessionId?: string | null;
+}
+
+/**
+ * What a task decision did: `approved` recorded a decision and dispatched (or will dispatch), `rejected`
+ * ended the task, `node_deleted` approved it but ended it because its node was gone; false means it was
+ * not waiting for a decision with the expected handler.
+ */
+export type DecisionResult = "approved" | "rejected" | "node_deleted" | false;
 
 export type { AgentRequest, ApprovalDecision, ApprovalRecord, TaskView };
 

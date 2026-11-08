@@ -23,48 +23,67 @@ import { type ClusterCore, now } from "./core.ts";
 import { getNode, type NodeRow } from "./nodes.ts";
 import { specFromRow } from "./spec.ts";
 import { dispatch, evaluateFor } from "./task-dispatch.ts";
-import { endTask, endUndispatched } from "./task-end.ts";
+import { endTask, endUndispatched, failNodeDeleted } from "./task-end.ts";
 import { writeTask } from "./task-rows.ts";
 import { pendingInputOf } from "./task-start.ts";
-import type { AgentRequest, ApprovalDecision, ApprovalRecord } from "./types.ts";
+import type { AgentRequest, ApprovalDecision, ApprovalExpect, ApprovalRecord, DecisionResult } from "./types.ts";
 
 /**
- * Settles a task waiting for approval. Returns false if it is not waiting (already settled, or never
- * needed approval). Who may decide is checked by the caller.
+ * Settles a task waiting for approval. Returns false if it is not waiting with the handler the caller
+ * expects (already settled, never needed approval, or the handler changed); `node_deleted` when the
+ * approval was recorded but the node had been deleted, so the task ended instead of dispatching.
+ *
+ * `expect` is checked again in the task's turn, on the row read there: the route's read is only a hint,
+ * and a row without a handler is already allowed and being dispatched, not waiting for a decision. With
+ * no expectation, any non-null handler matches.
  *
  * The decision (and, for an approval, the spec and input the dispatch needs) is recorded in the task's
  * turn; the dispatch itself runs after it, so an HTTP approve still waits for the dispatch result without
  * holding the task's queue across the offline grace and the whole send (D118).
  */
-export async function decide(core: ClusterCore, id: string, decision: ApprovalDecision): Promise<boolean> {
+export async function decide(
+	core: ClusterCore,
+	id: string,
+	decision: ApprovalDecision,
+	expect?: ApprovalExpect,
+): Promise<DecisionResult> {
 	const decided = await core.taskQueue.run(id, async (): Promise<DecidedApproval | false> => {
 		const row = await core.row(id);
-		if (row?.state !== "awaiting_approval") return false;
+		if (row?.state !== "awaiting_approval" || !matchesHandler(row, expect)) return false;
 		const record = mergeApproval<ApprovalRecord>(row.approval, { decision });
 		if (decision.decision === "approved") {
 			// Read the spec before recording the decision: migration 0019 may have left a row it could not
 			// convert, and the caller gets a client error instead of a half-approved task.
 			const spec = specFromRow(row.spec, "task");
+			const node = await getNode(core.db, row.node_id);
+			if (!node) {
+				// The node was deleted while the task waited. There is nothing to dispatch to, so the task
+				// ends as node_deleted with the decision it did get; the caller must not append an "always"
+				// rule for a task that could not be approved (doc/execution-plane.md#状态机).
+				const ended = await failNodeDeleted(core, id, row, { approval: JSON.stringify(record) });
+				if (!ended) return false;
+				core.background("task approval audit failed", auditApproval(core, row, decision));
+				return { kind: "node_deleted", actorId: row.actor_id };
+			}
+			// The approval also drops the handler: from here the row is the allowed shape awaiting its
+			// claim, so a second decision, a rule change or a restart cannot mistake it for a fresh request.
 			const recorded = await writeTask(
 				core.db,
 				id,
 				{ states: ["awaiting_approval"], rev: row.rev },
-				{ approval: JSON.stringify(record) },
+				{ approval: JSON.stringify(record), handler_type: null, handler_session_id: null },
 			);
 			if (!recorded) return false;
-			const node = await getNode(core.db, row.node_id);
 			core.background("task approval audit failed", auditApproval(core, row, decision));
 			return {
 				kind: "approved",
 				actorId: row.actor_id,
-				dispatch: node
-					? {
-							node,
-							spec,
-							input: pendingInputOf(row),
-							opts: { privileged: row.privileged === 1, timeoutMs: row.timeout_ms ?? undefined },
-						}
-					: null,
+				dispatch: {
+					node,
+					spec,
+					input: pendingInputOf(row),
+					opts: { privileged: row.privileged === 1, timeoutMs: row.timeout_ms ?? undefined },
+				},
 			};
 		}
 		const rejected = await endTask(core, id, {
@@ -90,7 +109,10 @@ export async function decide(core: ClusterCore, id: string, decision: ApprovalDe
 		return { kind: "rejected" };
 	});
 	if (!decided) return false;
-	if (decided.kind === "rejected") return true;
+	if (decided.kind === "rejected") return "rejected";
+	if (decided.kind === "node_deleted") return "node_deleted";
+	// The row no longer waits for anyone: refresh the inbox before a dispatch may spend the offline grace.
+	core.onChange?.(decided.actorId);
 	if (decided.dispatch) {
 		try {
 			// Outside the turn: dispatch waits for the node and sends from its own short turn (D118).
@@ -109,23 +131,37 @@ export async function decide(core: ClusterCore, id: string, decision: ApprovalDe
 			throw err;
 		}
 	}
-	core.onChange?.(decided.actorId);
-	return true;
+	return "approved";
+}
+
+/**
+ * Whether the row's handler matches what the caller read outside the turn. The omitted expectation still
+ * requires a handler: a null one is an allowed task between its approval and its claim, not a request.
+ */
+function matchesHandler(row: Selectable<TasksTable>, expect?: ApprovalExpect): boolean {
+	if (!expect) return row.handler_type !== null;
+	if (expect.handlerType === "any-waiting") {
+		if (row.handler_type === null) return false;
+	} else if (row.handler_type !== expect.handlerType) {
+		return false;
+	}
+	return expect.handlerSessionId === undefined || row.handler_session_id === expect.handlerSessionId;
 }
 
 /** What decide's turn recorded, for the work that runs after it. */
 type DecidedApproval =
 	| { kind: "rejected" }
+	| { kind: "node_deleted"; actorId: string }
 	| {
 			kind: "approved";
 			actorId: string;
-			/** The dispatch to run after the turn; null when the node row is gone (the task no longer dispatches). */
+			/** The dispatch to run after the turn. */
 			dispatch: {
 				node: NodeRow;
 				spec: TaskSpec;
 				input: Uint8Array;
 				opts: { privileged?: boolean; timeoutMs?: number };
-			} | null;
+			};
 	  };
 
 async function auditApproval(core: ClusterCore, row: Selectable<TasksTable>, d: ApprovalDecision): Promise<void> {
@@ -136,7 +172,8 @@ async function auditApproval(core: ClusterCore, row: Selectable<TasksTable>, d: 
 export async function recordReview(core: ClusterCore, id: string, review: ApprovalReview): Promise<void> {
 	await core.taskQueue.run(id, async () => {
 		const row = await core.row(id);
-		if (row?.state !== "awaiting_approval") return;
+		// A row without a handler is approved and on its way to dispatch: a late review must not write it.
+		if (row?.state !== "awaiting_approval" || row.handler_type === null) return;
 		const record = mergeApproval<ApprovalRecord>(row.approval, { review });
 		const recorded = await writeTask(
 			core.db,
@@ -165,6 +202,7 @@ export function escalateAgentDecision(core: ClusterCore, id: string, session: st
 /**
  * Routes a waiting task's approval to an agent or back to the user. The write is guarded on the state
  * and the `rev` the row was read at, so a decision that settled the task in between is not overwritten.
+ * A row without a handler is approved and being dispatched: routing it would make it look waiting again.
  */
 function routeAgentDecision(
 	core: ClusterCore,
@@ -174,7 +212,8 @@ function routeAgentDecision(
 ): Promise<boolean> {
 	return core.taskQueue.run(id, async () => {
 		const row = await core.row(id);
-		if (row?.state !== "awaiting_approval") return false;
+		// The task is settled or approved and being dispatched: routing it again would make it look waiting.
+		if (row?.state !== "awaiting_approval" || row.handler_type === null) return false;
 		const routing = agentRouting(session, state);
 		const record = mergeApproval<ApprovalRecord>(row.approval, { agent: routing.agent });
 		const routed = await writeTask(
@@ -195,12 +234,18 @@ function routeAgentDecision(
  * dispatches them, deny ends them, require-approval leaves them waiting. (A task group's reevaluate
  * settles the whole group: it approves when no node still requires approval, and rejects when every
  * node is denied; see TaskGroups.reevaluate.)
+ *
+ * Only rows with a handler are waiting for a decision: an allowed task between its approval and its
+ * claim has none, and re-judging it would write a second decision and start a duplicate dispatch. The
+ * allows are dispatched in the background: waiting for an offline node's grace would otherwise hold the
+ * caller's HTTP request for up to NODE_OFFLINE_GRACE_MS per task, serially.
  */
 export async function reevaluate(core: ClusterCore, ref: RuleRef): Promise<void> {
 	const rows = await core.db
 		.selectFrom("tasks")
 		.selectAll()
 		.where("state", "=", "awaiting_approval")
+		.where("handler_type", "is not", null)
 		.where("rule_chain", "is not", null)
 		.execute();
 	for (const row of rows) {
@@ -215,12 +260,17 @@ export async function reevaluate(core: ClusterCore, ref: RuleRef): Promise<void>
 			continue; // a level is gone (e.g. a revoked token); expiry ends the task
 		}
 		if (evaluation.result === "allow") {
-			await decide(core, row.id, rulesApproval(now()));
+			// The decision is recorded in the task's turn; the dispatch then waits for the node outside
+			// this call, and decide() ends the task itself when the dispatch fails.
+			core.background(
+				`task ${row.id}: dispatch after a rule change failed`,
+				decide(core, row.id, rulesApproval(now())),
+			);
 		} else if (evaluation.result === "deny") {
 			await core.taskQueue.run(row.id, async () => {
 				// The row may have changed while it was judged: write the denial at the rev read in this turn.
 				const current = await core.row(row.id);
-				if (current?.state !== "awaiting_approval") return;
+				if (current?.state !== "awaiting_approval" || current.handler_type === null) return;
 				await endTask(core, row.id, {
 					write: {
 						from: ["awaiting_approval"],
