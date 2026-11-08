@@ -18,6 +18,8 @@ export function useLogout(): UseMutationResult<void, Error, void> {
 export interface ChangePasswordInput {
 	currentPassword: string;
 	newPassword: string;
+	/** End every API token of the user as well (the server defaults to false). */
+	revokeApiTokens?: boolean;
 }
 
 export function useChangePassword(): UseMutationResult<void, Error, ChangePasswordInput> {

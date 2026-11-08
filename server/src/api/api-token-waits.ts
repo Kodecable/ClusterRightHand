@@ -49,6 +49,28 @@ export async function rejectWaitingTokenWork(
 }
 
 /**
+ * Rejects the waiting work of tokens a password change just revoked, with the decision the single-token
+ * revoke route records. A router built without a cluster and task groups (some tests) still revokes the
+ * tokens; only this rejection is skipped there.
+ */
+export async function rejectRevokedTokenWaits(
+	db: Db,
+	cluster: Cluster | undefined,
+	taskGroups: TaskGroups | undefined,
+	tokenIds: readonly string[],
+	byUserId: string,
+): Promise<void> {
+	if (!cluster || !taskGroups || tokenIds.length === 0) return;
+	const decision: ApprovalDecision = {
+		decision: "rejected",
+		by: { type: "user", id: byUserId, onBehalfOfUserId: byUserId },
+		at: new Date().toISOString(),
+		reason: "the API token was revoked",
+	};
+	for (const tokenId of tokenIds) await rejectWaitingTokenWork(db, cluster, taskGroups, tokenId, decision);
+}
+
+/**
  * Rejects the waiting work of every token whose expiry has passed and that was not revoked (revocation
  * already rejected its work). Run by the periodic sweep; a second run after the first settles nothing
  * again, because no waiting row is left. Returns how many requests a decision settled.

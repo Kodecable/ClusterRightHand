@@ -19,6 +19,7 @@ import {
 	type HeaderRow,
 	type ModelRow,
 	modelToRow,
+	normalizeBaseUrl,
 	PROVIDER_ID_PATTERN,
 	providerErrorText,
 	rowsToHeaders,
@@ -89,7 +90,10 @@ function providerValues(provider: ModelProviderView | undefined, builtin: string
 	};
 }
 
-function buildSchema(i18n: I18n) {
+function buildSchema(
+	i18n: I18n,
+	original: { baseUrl: string | null; hasStoredKey: boolean } = { baseUrl: null, hasStoredKey: false },
+) {
 	const message = (code: Parameters<typeof providerErrorText>[1]) => providerErrorText(i18n, code);
 	return z
 		.object({
@@ -122,6 +126,15 @@ function buildSchema(i18n: I18n) {
 			} else if (!/^https?:\/\//.test(baseUrl)) {
 				context.addIssue({ code: "custom", path: ["baseUrl"], message: message("base-url-invalid") });
 			}
+			// A new endpoint would receive the stored key: the server refuses it, so ask for the key here.
+			if (
+				original.hasStoredKey &&
+				!values.removeKey &&
+				normalizeBaseUrl(baseUrl) !== normalizeBaseUrl(original.baseUrl) &&
+				values.apiKey.trim() === ""
+			) {
+				context.addIssue({ code: "custom", path: ["apiKey"], message: message("api-key-required") });
+			}
 			const models = rowsToModels(values.models);
 			if ("error" in models) {
 				context.addIssue({ code: "custom", path: ["models"], message: message(models.error) });
@@ -151,6 +164,12 @@ function HeadersEditor({ form }: { form: ProviderForm }) {
 	return (
 		<fieldset className="grid gap-2">
 			<legend className="text-sm font-medium">{t`Extra headers`}</legend>
+			<p className="text-xs text-muted-foreground">
+				<Trans>
+					Headers are stored and shown in plaintext, not as secrets. Do not put API keys or Authorization tokens here;
+					use the API key field.
+				</Trans>
+			</p>
 			{fields.length > 0 && (
 				<div className="grid gap-2">
 					<div className="grid grid-cols-[1fr_1fr_auto] gap-2 text-xs text-muted-foreground">
@@ -371,14 +390,22 @@ export function ProviderDialog({
 }) {
 	const { t, i18n } = useLingui();
 	const save = useSaveModelProvider();
-	const schema = useMemo(() => buildSchema(i18n), [i18n]);
+	const editing = existing !== undefined;
+	const originalBaseUrl = existing?.kind === "custom" ? existing.baseUrl : null;
+	const hasStoredKey = existing?.kind === "custom" && existing.hasApiKey;
+	const schema = useMemo(
+		() => buildSchema(i18n, { baseUrl: originalBaseUrl, hasStoredKey }),
+		[i18n, originalBaseUrl, hasStoredKey],
+	);
 	const form = useForm<ProviderValues>({
 		resolver: zodResolver(schema),
 		defaultValues: providerValues(existing, builtin),
 	});
 	const kind = form.watch("kind");
 	const providerId = form.watch("providerId");
-	const editing = existing !== undefined;
+	const baseUrl = form.watch("baseUrl");
+	// The server refuses a new endpoint without a new key; the same check here shows why before submitting.
+	const baseUrlChanged = editing && hasStoredKey && normalizeBaseUrl(baseUrl) !== normalizeBaseUrl(originalBaseUrl);
 
 	// A new provider starts on the first Pi built-in id; switching back from
 	// custom must not leave a custom id that is not in the select's options.
@@ -489,7 +516,16 @@ export function ProviderDialog({
 				autoComplete="off"
 				label={t`API key`}
 				disabled={form.watch("removeKey")}
-				placeholder={existing?.hasApiKey ? t`Leave empty to keep the current key` : t`Optional`}
+				description={
+					baseUrlChanged ? <Trans>Changing the base URL requires re-entering the API key.</Trans> : undefined
+				}
+				placeholder={
+					baseUrlChanged
+						? t`Required for the new base URL`
+						: existing?.hasApiKey
+							? t`Leave empty to keep the current key`
+							: t`Optional`
+				}
 			/>
 			{existing?.hasApiKey === true && (
 				<CheckboxField control={form.control} name="removeKey" label={t`Remove the stored key`} />

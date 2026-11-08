@@ -60,7 +60,7 @@ function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 		rules: null,
 		refs: {},
 		relationship: "owner",
-		capabilities: { view: true, chat: true, manageShares: true, configure: true },
+		capabilities: { view: true, chat: true, manageShares: true, createShares: true, configure: true },
 		ownerUsername: "ops",
 		state: "idle",
 		waitingKind: null,

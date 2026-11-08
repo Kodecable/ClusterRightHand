@@ -12,6 +12,21 @@ import type { CustomApi, CustomModel, SessionIdConfig, ThinkingLevel } from "@/l
 /** Provider ids: lowercase letters, digits and dashes (the server accepts the same set). */
 export const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
+/**
+ * A base URL as compared when deciding whether an edit moves the endpoint (the server ignores case,
+ * default ports and one trailing slash too).
+ */
+export function normalizeBaseUrl(baseUrl: string | null | undefined): string {
+	if (baseUrl === null || baseUrl === undefined) return "";
+	const trimmed = baseUrl.trim();
+	try {
+		const url = new URL(trimmed).toString();
+		return url.endsWith("/") ? url.slice(0, -1) : url;
+	} catch {
+		return trimmed.replace(/\/+$/, "");
+	}
+}
+
 /** pi-ai's thinking levels, from "off" to "max" (mirrors server/src/agent/models.ts). */
 export const THINKING_LEVELS = [
 	"off",
@@ -86,6 +101,7 @@ export type ProviderFormErrorCode =
 	| "provider-id-invalid"
 	| "base-url-required"
 	| "base-url-invalid"
+	| "api-key-required"
 	| "models-required"
 	| "model-id-required"
 	| "model-id-duplicate"
@@ -102,6 +118,7 @@ const MESSAGES: Record<ProviderFormErrorCode, MessageDescriptor> = {
 	"provider-id-invalid": msg`A provider id is lowercase letters, digits and dashes.`,
 	"base-url-required": msg`A base URL is required.`,
 	"base-url-invalid": msg`The base URL must start with http:// or https://.`,
+	"api-key-required": msg`Changing the base URL requires re-entering the API key.`,
 	"models-required": msg`List at least one model.`,
 	"model-id-required": msg`Every model needs an id.`,
 	"model-id-duplicate": msg`Model ids must be unique.`,

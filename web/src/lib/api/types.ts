@@ -130,7 +130,10 @@ export type SessionRelationship = "owner" | "admin" | "shared";
 export interface SessionCapabilities {
 	view: boolean;
 	chat: boolean;
+	/** List and revoke shares: the owner and administrators. */
 	manageShares: boolean;
+	/** Create a share: only the session's owner. */
+	createShares: boolean;
 	configure: boolean;
 }
 

@@ -159,7 +159,12 @@ export function SessionHeader({ session }: { session: SessionView }) {
 					<Share2Icon />
 				</Button>
 			)}
-			<ShareDialog sessionId={session.id} open={shareOpen} onOpenChange={setShareOpen} />
+			<ShareDialog
+				sessionId={session.id}
+				canCreateShares={session.capabilities.createShares}
+				open={shareOpen}
+				onOpenChange={setShareOpen}
+			/>
 		</header>
 	);
 }

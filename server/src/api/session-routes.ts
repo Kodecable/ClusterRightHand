@@ -258,19 +258,24 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.get("/sessions/:id/shares", async (c) => {
 		const v = await visible(c, c.req.param("id"));
 		if (!v) return jsonError(c, 404, "no such session");
-		if (!v.capabilities.manageShares) return jsonError(c, 403, "the owner only");
+		if (!v.capabilities.manageShares) return jsonError(c, 403, "the owner or an administrator");
 		return c.json({ shares: await listSessionShares(db, v.session.id) });
 	});
 
 	app.put("/sessions/:id/shares", async (c) => {
 		const v = await visible(c, c.req.param("id"));
 		if (!v) return jsonError(c, 404, "no such session");
-		if (!v.capabilities.manageShares) return jsonError(c, 403, "the owner only");
+		if (!v.capabilities.createShares) return jsonError(c, 403, "only the owner can share this session");
 		const body = await readJsonObject(c);
 		if (body?.granteeType !== "user" && body?.granteeType !== "user_group")
 			return jsonError(c, 400, "granteeType must be user or user_group");
 		if (typeof body?.granteeId !== "string" || !body.granteeId) return jsonError(c, 400, "granteeId is required");
 		if (body?.access !== "view" && body?.access !== "chat") return jsonError(c, 400, "access must be view or chat");
+		// A share to oneself would duplicate the caller's own access (and, for an administrator, turn a
+		// read-only relationship into a driveable one).
+		if (body.granteeType === "user" && body.granteeId === c.get("user").userId) {
+			return jsonError(c, 400, "a session cannot be shared with yourself");
+		}
 		const share = await shareSession(db, {
 			sessionId: v.session.id,
 			granteeType: body.granteeType,
@@ -294,7 +299,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.delete("/sessions/:id/shares/:shareId", async (c) => {
 		const v = await visible(c, c.req.param("id"));
 		if (!v) return jsonError(c, 404, "no such session");
-		if (!v.capabilities.manageShares) return jsonError(c, 403, "the owner only");
+		if (!v.capabilities.manageShares) return jsonError(c, 403, "the owner or an administrator");
 		const share = (await listSessionShares(db, v.session.id)).find((s) => s.id === c.req.param("shareId"));
 		// Who the share reached, captured before the row goes: losing it may remove the session from their list.
 		const audience = share

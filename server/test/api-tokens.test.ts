@@ -46,7 +46,10 @@ describeBackends("api tokens", (backend) => {
 	const ck = (who: string) => ({ cookie: cookies[who] });
 
 	/** A task the token started that still waits for its approval. */
-	const insertWaitingTask = async (tokenId: string): Promise<string> => {
+	const insertWaitingTask = async (
+		tokenId: string,
+		onBehalfOfUserId = users.alice?.userId as string,
+	): Promise<string> => {
 		const id = newId();
 		const now = new Date().toISOString();
 		await db
@@ -73,7 +76,7 @@ describeBackends("api tokens", (backend) => {
 				error_message: null,
 				actor_type: "api_token",
 				actor_id: tokenId,
-				on_behalf_of_user_id: users.alice?.userId as string,
+				on_behalf_of_user_id: onBehalfOfUserId,
 				created_at: now,
 				dispatched_at: null,
 				accepted_at: null,
@@ -96,7 +99,10 @@ describeBackends("api tokens", (backend) => {
 	};
 
 	/** A task group the token started that still waits for its approval. */
-	const insertWaitingGroup = async (tokenId: string): Promise<string> => {
+	const insertWaitingGroup = async (
+		tokenId: string,
+		onBehalfOfUserId = users.alice?.userId as string,
+	): Promise<string> => {
 		const id = newId();
 		await db
 			.insertInto("task_groups")
@@ -114,7 +120,7 @@ describeBackends("api tokens", (backend) => {
 				state: "awaiting_approval",
 				actor_type: "api_token",
 				actor_id: tokenId,
-				on_behalf_of_user_id: users.alice?.userId as string,
+				on_behalf_of_user_id: onBehalfOfUserId,
 				created_at: new Date().toISOString(),
 				finished_at: null,
 			})
@@ -329,6 +335,173 @@ describeBackends("api tokens", (backend) => {
 			).toMatchObject({ state: "awaiting_approval" });
 			// The sweep is idempotent: the first run left nothing waiting.
 			expect(await rejectExpiredTokenWaits(db, cluster, taskGroups)).toBe(0);
+		});
+	});
+
+	describe("password changes", () => {
+		const newUser = async (name: string) => {
+			const u = await createUser(db, { username: name, kind: "member", password: "password-123" });
+			users[name] = { sessionId: "s", userId: u.id, username: name, kind: "member" };
+			cookies[name] = await login(app, name, "password-123");
+			return u;
+		};
+
+		it("self password change revokes every token when asked, in the audit too", async () => {
+			await newUser("pw-self-revoke");
+			const first = await create("pw-self-revoke", { name: "a" });
+			const second = await create("pw-self-revoke", { name: "b" });
+			const untouched = await create("alice", { name: "self-revoke-untouched" });
+			const res = await call(app, "/api/auth/password", {
+				cookie: cookies["pw-self-revoke"],
+				body: { currentPassword: "password-123", newPassword: "new-password-123", revokeApiTokens: true },
+			});
+			expect(res.status).toBe(200);
+			expect(await resolveApiToken(db, first.body.token)).toBeUndefined();
+			expect(await resolveApiToken(db, second.body.token)).toBeUndefined();
+			expect(await resolveApiToken(db, untouched.body.token)).toBeDefined();
+
+			await audit.flush();
+			const events = await db
+				.selectFrom("audit_events")
+				.selectAll()
+				.where("action", "=", "auth.password_changed")
+				.where("target_id", "=", users["pw-self-revoke"]?.userId as string)
+				.execute();
+			expect(events).toHaveLength(1);
+			expect(JSON.parse(events[0]?.detail ?? "{}")).toMatchObject({
+				revoke_api_tokens: true,
+				revoked_api_tokens: 2,
+			});
+		});
+
+		it("self password change leaves tokens when the flag is absent or false", async () => {
+			for (const [name, flag] of [
+				["pw-self-keep-absent", undefined],
+				["pw-self-keep-false", false],
+			] as const) {
+				await newUser(name);
+				const { body } = await create(name, { name: "keep" });
+				const res = await call(app, "/api/auth/password", {
+					cookie: cookies[name],
+					body: {
+						currentPassword: "password-123",
+						newPassword: "new-password-123",
+						...(flag === undefined ? {} : { revokeApiTokens: flag }),
+					},
+				});
+				expect(res.status).toBe(200);
+				expect(await resolveApiToken(db, body.token)).toBeDefined();
+			}
+		});
+
+		it("an admin reset revokes every token when asked", async () => {
+			const target = await newUser("pw-reset-revoke");
+			const first = await create("pw-reset-revoke", { name: "a" });
+			const second = await create("pw-reset-revoke", { name: "b" });
+			const res = await call(app, `/api/users/${target.id}/password`, {
+				cookie: cookies.root,
+				body: { password: "reset-password-123", revokeApiTokens: true },
+			});
+			expect(res.status).toBe(200);
+			expect(await resolveApiToken(db, first.body.token)).toBeUndefined();
+			expect(await resolveApiToken(db, second.body.token)).toBeUndefined();
+
+			await audit.flush();
+			const events = await db
+				.selectFrom("audit_events")
+				.selectAll()
+				.where("action", "=", "user.password_reset")
+				.where("target_id", "=", target.id)
+				.execute();
+			expect(JSON.parse(events[0]?.detail ?? "{}")).toMatchObject({
+				revoke_api_tokens: true,
+				revoked_api_tokens: 2,
+			});
+		});
+
+		it("an admin reset keeps tokens when the flag is absent or false", async () => {
+			for (const [name, flag] of [
+				["pw-reset-keep-absent", undefined],
+				["pw-reset-keep-false", false],
+			] as const) {
+				const target = await newUser(name);
+				const { body } = await create(name, { name: "keep" });
+				const res = await call(app, `/api/users/${target.id}/password`, {
+					cookie: cookies.root,
+					body: { password: "reset-password-123", ...(flag === undefined ? {} : { revokeApiTokens: flag }) },
+				});
+				expect(res.status).toBe(200);
+				expect(await resolveApiToken(db, body.token)).toBeDefined();
+			}
+		});
+		it("self password change rejects a revoked token's waiting task and group", async () => {
+			const target = await newUser("pw-self-revoke-waits");
+			const { body } = await create("pw-self-revoke-waits", { name: "waits" });
+			const taskId = await insertWaitingTask(body.apiToken.id, target.id);
+			const groupId = await insertWaitingGroup(body.apiToken.id, target.id);
+			const res = await call(app, "/api/auth/password", {
+				cookie: cookies["pw-self-revoke-waits"],
+				body: { currentPassword: "password-123", newPassword: "new-password-123", revokeApiTokens: true },
+			});
+			expect(res.status).toBe(200);
+			const task = await db
+				.selectFrom("tasks")
+				.select(["state", "error_code", "error_message", "approval"])
+				.where("id", "=", taskId)
+				.executeTakeFirstOrThrow();
+			expect(task).toMatchObject({
+				state: "rejected",
+				error_code: "approval_rejected",
+				error_message: "the API token was revoked",
+			});
+			expect(JSON.parse(task.approval as string)).toMatchObject({
+				decision: {
+					decision: "rejected",
+					by: { type: "user", id: target.id, onBehalfOfUserId: target.id },
+					reason: "the API token was revoked",
+				},
+			});
+			expect(
+				(await db.selectFrom("task_groups").select("state").where("id", "=", groupId).executeTakeFirstOrThrow()).state,
+			).toBe("rejected");
+		});
+
+		it("self password change leaves a token's waiting task when the flag is false", async () => {
+			const target = await newUser("pw-self-keep-waits");
+			const { body } = await create("pw-self-keep-waits", { name: "waits" });
+			const taskId = await insertWaitingTask(body.apiToken.id, target.id);
+			const res = await call(app, "/api/auth/password", {
+				cookie: cookies["pw-self-keep-waits"],
+				body: { currentPassword: "password-123", newPassword: "new-password-123", revokeApiTokens: false },
+			});
+			expect(res.status).toBe(200);
+			expect(
+				(await db.selectFrom("tasks").select("state").where("id", "=", taskId).executeTakeFirstOrThrow()).state,
+			).toBe("awaiting_approval");
+		});
+
+		it("an admin reset rejects the revoked token's waiting task as the administrator", async () => {
+			const target = await newUser("pw-reset-revoke-waits");
+			const { body } = await create("pw-reset-revoke-waits", { name: "waits" });
+			const taskId = await insertWaitingTask(body.apiToken.id, target.id);
+			const res = await call(app, `/api/users/${target.id}/password`, {
+				cookie: cookies.root,
+				body: { password: "reset-password-123", revokeApiTokens: true },
+			});
+			expect(res.status).toBe(200);
+			const task = await db
+				.selectFrom("tasks")
+				.select(["state", "error_message", "approval"])
+				.where("id", "=", taskId)
+				.executeTakeFirstOrThrow();
+			expect(task).toMatchObject({ state: "rejected", error_message: "the API token was revoked" });
+			expect(JSON.parse(task.approval as string)).toMatchObject({
+				decision: {
+					decision: "rejected",
+					by: { type: "user", id: users.root?.userId, onBehalfOfUserId: users.root?.userId },
+					reason: "the API token was revoked",
+				},
+			});
 		});
 	});
 

@@ -233,6 +233,44 @@ describeBackends("model providers api", (backend) => {
 		expect((await mk()).status).toBe(400);
 	});
 
+	it("changing a custom provider's base URL requires a new API key", async () => {
+		const providerOf = async (providerId: string) =>
+			(
+				(await (await call(app, "/api/model-providers", { cookie: admin })).json()) as {
+					providers: { providerId: string; baseUrl: string | null; hasApiKey: boolean }[];
+				}
+			).providers.find((p) => p.providerId === providerId);
+		expect((await put("url-proxy", proxy({ apiKey: "url-key-1" }))).status).toBe(200);
+		// A slash-only difference is the same endpoint: the stored key stays usable.
+		expect((await put("url-proxy", proxy({ baseUrl: "http://127.0.0.1:9/v1/" }))).status).toBe(200);
+		expect((await providerOf("url-proxy"))?.hasApiKey).toBe(true);
+
+		// A different endpoint without a new key is refused, and nothing moves.
+		const refused = await put("url-proxy", proxy({ baseUrl: "http://127.0.0.1:9/v2" }));
+		expect(refused.status).toBe(400);
+		expect(((await refused.json()) as { error: string }).error).toMatch(/requires re-entering the API key/);
+		expect(await providerOf("url-proxy")).toMatchObject({ baseUrl: "http://127.0.0.1:9/v1/", hasApiKey: true });
+		// An empty key is not a new key.
+		expect((await put("url-proxy", proxy({ baseUrl: "http://127.0.0.1:9/v2", apiKey: "" }))).status).toBe(400);
+
+		// A non-empty key lets the endpoint move.
+		expect((await put("url-proxy", proxy({ baseUrl: "http://127.0.0.1:9/v2", apiKey: "url-key-2" }))).status).toBe(200);
+		expect(await providerOf("url-proxy")).toMatchObject({ baseUrl: "http://127.0.0.1:9/v2", hasApiKey: true });
+		// Removing the key while moving sends no key anywhere, so it is allowed too.
+		expect((await put("url-proxy", proxy({ baseUrl: "http://127.0.0.1:9/v4", apiKey: null }))).status).toBe(200);
+		expect(await providerOf("url-proxy")).toMatchObject({ baseUrl: "http://127.0.0.1:9/v4", hasApiKey: false });
+
+		// A provider that never had a key may move without one.
+		expect((await put("url-proxy-no-key", proxy())).status).toBe(200);
+		expect((await put("url-proxy-no-key", proxy({ baseUrl: "http://127.0.0.1:9/v3" }))).status).toBe(200);
+		expect(await providerOf("url-proxy-no-key")).toMatchObject({ baseUrl: "http://127.0.0.1:9/v3", hasApiKey: false });
+		// Leave the state the later count-based tests expect.
+		for (const id of ["url-proxy", "url-proxy-no-key"])
+			expect(
+				(await call(app, `/api/model-providers/${id}`, { method: "DELETE", cookie: admin, body: {} })).status,
+			).toBe(200);
+	});
+
 	it("delete removes the provider, its secret and its models", async () => {
 		await put("my-proxy", proxy({ apiKey: "k2-secret", enabled: true }));
 		const secrets = (await secretRows()).length;

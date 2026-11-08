@@ -5,7 +5,7 @@ import { secretAad } from "../keys/export.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import type { ModelProvidersTable } from "../storage/schema.ts";
-import { defaultOrgId, NotFoundError } from "../users/service.ts";
+import { defaultOrgId, NotFoundError, UserError } from "../users/service.ts";
 import { newId } from "../util/id.ts";
 import type { CustomModel, SessionIdConfig } from "./model-types.ts";
 import { type ModelProviderInput, validate } from "./model-validate.ts";
@@ -58,6 +58,21 @@ export async function listModelProviders(db: Db): Promise<ModelProviderView[]> {
 	return (await db.selectFrom("model_providers").selectAll().orderBy("provider_id").execute()).map(toView);
 }
 
+/**
+ * A base URL as compared when deciding whether an update moves the endpoint: case and default ports are
+ * normalised by `URL`, and one trailing slash is ignored. An unparsable value falls back to its trimmed text.
+ */
+export function normalizeBaseUrl(baseUrl: string | null): string | null {
+	if (baseUrl === null) return null;
+	const trimmed = baseUrl.trim();
+	try {
+		const url = new URL(trimmed).toString();
+		return url.endsWith("/") ? url.slice(0, -1) : url;
+	} catch {
+		return trimmed === "" ? null : trimmed.replace(/\/+$/, "");
+	}
+}
+
 /** Creates or replaces the provider with this provider id (administrators only; checked by the caller). */
 export async function saveModelProvider(
 	db: Db,
@@ -73,6 +88,19 @@ export async function saveModelProvider(
 			.selectAll()
 			.where("provider_id", "=", valid.providerId)
 			.executeTakeFirst();
+		// Moving an existing custom provider to another endpoint re-sends its stored key there, so the
+		// administrator must re-enter the key: a typo or a tampered update cannot redirect the secret.
+		const hasStoredKey = existing?.kind === "custom" && existing.secret_id !== null;
+		// A new key, or removing the key (null), both mean the stored key is not sent to the new endpoint.
+		const newApiKey = valid.apiKey === null || (typeof valid.apiKey === "string" && valid.apiKey !== "");
+		if (
+			hasStoredKey &&
+			valid.kind === "custom" &&
+			normalizeBaseUrl(existing?.base_url ?? null) !== normalizeBaseUrl(valid.baseUrl) &&
+			!newApiKey
+		) {
+			throw new UserError("changing baseUrl requires re-entering the API key");
+		}
 		let secretId = existing?.secret_id ?? null;
 		if (valid.apiKey === null && secretId) {
 			await trx.deleteFrom("secrets").where("id", "=", secretId).execute();

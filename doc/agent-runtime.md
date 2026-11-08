@@ -69,8 +69,10 @@ API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引�
 |---|---|
 | `baseUrl` | http(s) 端点，例如 `https://opencode.ai/zen/v1` |
 | API key | 可选（本地无鉴权的服务可以不填） |
-| `headers` | 额外请求头，只放网关路由头，不放凭据（凭据放 API key） |
+| `headers` | 额外请求头，只放网关路由头，不放凭据（凭据放 API key）。这些头以明文存储并原样返回、显示，不当作机密 |
 | `sessionId` | `{ headers?: string[], body?: string[] }`：这些请求头 / 请求体字段（点分路径，如 `metadata.session_id`）填当前请求所属的 **crh 会话 id**。例如 opencode 的 `x-opencode-session`。子会话填它自己的 id；自动复核和标题生成填被复核 / 被命名的会话 id |
+
+已有自定义提供方修改 `baseUrl` 时，请求必须同时带上新的非空 `apiKey`（规范化后比较；只有从未存过 key 的提供方例外），否则返回 400：已存的 key 不能被悄悄发往新地址。headers 不需要重新确认。
 
 每个模型：
 
@@ -227,7 +229,7 @@ API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引�
 - 系统提示词 = （自定义提示词，没有时用默认提示词）+ 协议说明。代码里把现在的提示词拆成两段：默认提示词（会话的身份和风格；自动复核的判定标准；标题生成的要求）和协议说明（会话的工具用法；复核的判定工具；标题的输出格式）。协议说明不可编辑。
 - 会话的系统提示词之后仍是会话自己的 `instructions`（子会话的委派说明等）。
 - 改动从下一次模型请求起对所有会话生效：crhs 把预设缓存在内存，改动时刷新。
-- 自动复核用强制工具调用作答：请求带唯一的工具 `submit_review({ decision: "approve" | "escalate", reason: string })` 并以 `toolChoice` 强制调用，判定取自工具参数（按 schema 校验，`reason` 截到 300 字符）。上游忽略 `toolChoice`、没有调用工具时，退回解析正文里的一行 JSON；仍然读不出来就上交给用户。只有明确的 `approve` 才批准。请求带上所用模型的思考档位。
+- 自动复核用工具调用作答：请求带唯一的工具 `submit_review({ decision: "approve" | "escalate", reason: string })` 并以 `toolChoice` 强制调用，判定取自工具参数（按 schema 校验，`reason` 截到 300 字符）。上游忽略 `toolChoice`、没有调用 `submit_review` 时（包括只回复正文的情况），一律上交给用户：不再解析正文里的 JSON。只有明确的 `approve` 才批准。请求带上所用模型的思考档位。
 - 会话运行和自动复核都不另设超时，沿用 pi 的默认行为：单次请求的超时由 provider SDK 决定，会话 harness 对失败的模型请求最多重试 3 次（基础间隔 2 秒，服务端要求的等待最长 60 秒）。标题生成例外：调用限时 180 秒，见[标题生成](#标题生成)。
 - 原来的 `/settings/review-model`（`server_meta.review_model`）迁到"自动复核"预设，接口改为 `GET/PUT /api/model-presets/:kind`（`kind` = `session` / `review` / `title`，管理员）。
 

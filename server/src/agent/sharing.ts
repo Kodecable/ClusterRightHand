@@ -18,7 +18,10 @@ export type SessionShareAccess = "view" | "chat";
 export interface SessionCapabilities {
 	view: boolean;
 	chat: boolean;
+	/** Whether the caller may list and revoke shares: the owner and administrators. */
 	manageShares: boolean;
+	/** Whether the caller may create a share: only the session's owner. */
+	createShares: boolean;
 	configure: boolean;
 }
 
@@ -43,7 +46,10 @@ export function capabilitiesFor(
 	return {
 		view: isOwner || isAdmin || share !== undefined,
 		chat: isOwner || share === "chat",
+		// An administrator may see and revoke existing shares, but creating one would let them into a
+		// session that is otherwise read-only for them, so only the owner may share.
 		manageShares: isOwner || isAdmin,
+		createShares: isOwner,
 		configure: isOwner,
 	};
 }
@@ -109,7 +115,8 @@ async function shareAccessFor(
 
 /**
  * What the user may do with the session; undefined if they cannot see it. Shares on an ancestor reach it.
- * Administrators view everything and manage shares, but chat only through an explicit chat share.
+ * Administrators view everything and may list and revoke shares, but only the owner may create one, and
+ * administrators chat only through an explicit chat share.
  */
 export async function sessionCapabilities(
 	db: Db,
@@ -195,6 +202,9 @@ export async function shareSession(
 			.where("id", "=", input.sessionId)
 			.executeTakeFirst();
 		if (!session) throw new NotFoundError("no such session");
+		if (input.granteeType === "user" && input.granteeId === input.createdBy) {
+			throw new UserError("a session cannot be shared with yourself");
+		}
 		if (input.granteeType === "user" && input.granteeId === session.owner_user_id) {
 			throw new UserError("the owner already has full access");
 		}

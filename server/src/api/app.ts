@@ -4,7 +4,6 @@ import { sql } from "kysely";
 import type { ModelConfig } from "../agent/models.ts";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import { Audit } from "../audit/audit.ts";
-import type { Cluster } from "../cluster/cluster.ts";
 import { TaskGroups } from "../cluster/task-groups.ts";
 import type { WebauthnConfig } from "../config.ts";
 import type { MasterKey } from "../keys/master-key.ts";
@@ -41,8 +40,6 @@ export interface AppOptions extends AuthRoutesOptions {
 	serverFingerprint?: string;
 	/** crhs's Noise static public key, served to `crha enroll`. */
 	serverPublicKey?: Uint8Array;
-	cluster?: Cluster;
-	taskGroups?: TaskGroups;
 	/** crhs's authorization signing key, for the crhs trust entry and its snippet (doc/privilege.md#crhs-侧). */
 	authorizationKey?: AuthorizationSigningKey;
 	/** Needed for SSH credentials and nodes. */
@@ -67,6 +64,9 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	const app = new Hono<AppEnv>();
 	const audit = options.audit ?? new Audit(db);
 	const drain = options.drain ?? new RequestDrain();
+	// Built once so the password routes reject the waiting work of revoked tokens through the same task groups.
+	const cluster = options.cluster;
+	const taskGroups = cluster ? (options.taskGroups ?? new TaskGroups(db, cluster, { audit })) : undefined;
 
 	// One error handler for every route (see errors.ts), so each route group keeps only its own routes.
 	app.onError(apiErrorHandler());
@@ -100,22 +100,28 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 		});
 	});
 
-	app.route("/api/auth", authRoutes(db, options));
+	app.route("/api/auth", authRoutes(db, { ...options, ...(taskGroups ? { taskGroups } : {}) }));
 
 	app.use("/api/*", requireUser(db));
-	app.route("/api", userRoutes(db, { ...(options.agent ? { sessions: options.agent.runtime.sessionList } : {}) }));
+	app.route(
+		"/api",
+		userRoutes(db, {
+			...(options.agent ? { sessions: options.agent.runtime.sessionList } : {}),
+			...(cluster ? { cluster } : {}),
+			...(taskGroups ? { taskGroups } : {}),
+		}),
+	);
 	app.route("/api", nodeRoutes(db, options));
 	app.route("/api", nodeGroupRoutes(db));
 	app.route("/api", nodeAccessRoutes(db));
 	app.route("/api", privilegeRoutes({ authorizationKey: options.authorizationKey }));
 	app.route("/api", credentialRoutes(db, { webauthn: options.webauthn }));
-	app.route("/api", authorizationRoutes(db, { cluster: options.cluster }));
+	app.route("/api", authorizationRoutes(db, { cluster }));
 	if (options.masterKey) app.route("/api", sshRoutes(db, options.masterKey));
-	if (options.cluster) {
-		const taskGroups = options.taskGroups ?? new TaskGroups(db, options.cluster, { audit });
-		app.route("/api", taskRoutes(db, options.cluster, taskGroups));
-		app.route("/api", apiTokenRoutes(db, options.cluster, taskGroups, audit));
-		app.route("/api", approvalRoutes(db, options.cluster, taskGroups, audit));
+	if (cluster && taskGroups) {
+		app.route("/api", taskRoutes(db, cluster, taskGroups));
+		app.route("/api", apiTokenRoutes(db, cluster, taskGroups, audit));
+		app.route("/api", approvalRoutes(db, cluster, taskGroups, audit));
 		app.route("/api", auditRoutes(db));
 		if (options.agent && options.masterKey) {
 			const { runtime, models } = options.agent;
@@ -134,7 +140,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 				"/",
 				sessionRoutes(db, {
 					runtime,
-					cluster: options.cluster,
+					cluster,
 					taskGroups,
 					streams,
 					...(options.scheduler ? { scheduler: options.scheduler } : {}),
@@ -148,13 +154,13 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 				scheduleRoutes(db, {
 					scheduler: options.scheduler,
 					models: options.agent.models,
-					cluster: options.cluster,
+					cluster,
 					taskGroups,
 				}),
 			);
 		}
 		// Bearer-token authenticated, outside /api's cookie sessions and CSRF guard.
-		app.route("/", mcpRoutes(db, { cluster: options.cluster, taskGroups, audit }));
+		app.route("/", mcpRoutes(db, { cluster, taskGroups, audit }));
 	}
 
 	if (options.webRoot) {

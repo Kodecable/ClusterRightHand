@@ -593,6 +593,14 @@ msgstr "已处理"
 msgid "Already tried: {0}."
 msgstr "已尝试：{0}。"
 
+#: src/features/auth/change-password-dialog.tsx
+msgid "Also revoke all of my API tokens"
+msgstr "同时吊销我的全部 API token"
+
+#: src/features/users/reset-password-dialog.tsx
+msgid "Also revoke all of this user's API tokens"
+msgstr "同时吊销该用户的全部 API token"
+
 #: src/components/approval-card.tsx
 msgid "Always allow rule"
 msgstr "始终允许规则"
@@ -937,6 +945,19 @@ msgstr "修改思考档位；从下一轮起生效。"
 #: src/features/settings/model-presets.tsx
 msgid "Changes take effect on the next model request."
 msgstr "改动从下一次模型请求起生效。"
+
+#: src/features/settings/provider-dialog.tsx
+#: src/features/settings/providers.ts
+msgid "Changing the base URL requires re-entering the API key."
+msgstr "修改 Base URL 需要重新输入 API key。"
+
+#: src/features/users/reset-password-dialog.tsx
+msgid "Changing the password signs out the user's web sessions but does not revoke their existing API tokens. Tick this to revoke all of them too."
+msgstr "修改密码会登出该用户的 Web 会话，但不会吊销已有的 API token。勾选后同时吊销全部 API token。"
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Changing the password signs out your other web sessions but does not revoke existing API tokens. Tick this to revoke all of them too."
+msgstr "修改密码会登出你的其他 Web 会话，但不会吊销已有的 API token。勾选后同时吊销全部 API token。"
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Chat"
@@ -1976,6 +1997,10 @@ msgstr "请求头 {0} 值"
 #: src/features/settings/provider-dialog.tsx
 msgid "Headers"
 msgstr "请求头"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Headers are stored and shown in plaintext, not as secrets. Do not put API keys or Authorization tokens here; use the API key field."
+msgstr "请求头以明文存储和显示，不当作机密；不要在这里填写 API key 或 Authorization token，请使用 API key 字段。"
 
 #: src/features/nodes/crhs-key-panel.tsx
 msgid "Hide trust snippet"
@@ -3333,6 +3358,10 @@ msgstr "要求精确命令"
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Require user verification"
 msgstr "要求用户验证"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Required for the new base URL"
+msgstr "新的 Base URL 需要填写 API key"
 
 #: src/features/users/pages.tsx
 msgid "Reset password"

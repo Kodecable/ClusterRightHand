@@ -479,6 +479,32 @@ describe("ProviderDialog", () => {
 		expect(calls.some((call) => call.method === "PUT")).toBe(false);
 	});
 
+	test("asks for a new key when an existing custom provider's base URL changes", async () => {
+		const { calls } = mockFetch();
+		renderProvider(CUSTOM);
+		const user = userEvent.setup();
+		// Headers are not secrets and are shown in plaintext; the dialog says so beside the editor.
+		expect(screen.getByText(/Headers are stored and shown in plaintext/)).toBeVisible();
+
+		change(screen.getByLabelText("Base URL"), "https://other.example/v1");
+		expect(screen.getByText("Changing the base URL requires re-entering the API key.")).toBeVisible();
+		await user.click(screen.getByRole("button", { name: "Save provider" }));
+		await waitFor(() =>
+			expect(screen.getAllByText("Changing the base URL requires re-entering the API key.")).toHaveLength(2),
+		);
+		expect(calls.some((call) => call.method === "PUT")).toBe(false);
+
+		await fill(user, screen.getByLabelText("API key"), "sk-new-endpoint");
+		await user.click(screen.getByRole("button", { name: "Save provider" }));
+		await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+		const save = calls.find((call) => call.method === "PUT");
+		expect(save?.body).toMatchObject({
+			kind: "custom",
+			baseUrl: "https://other.example/v1",
+			apiKey: "sk-new-endpoint",
+		});
+	});
+
 	test("shows the server's 400 field-path error inside the provider dialog", async () => {
 		// The server validates what only it can (compat against pi-ai's schema, header names,
 		// session id paths); its message names the field and must reach the user unchanged.

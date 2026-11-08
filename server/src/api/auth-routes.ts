@@ -1,11 +1,15 @@
 import { type Context, Hono } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
 import { userActor } from "../audit/audit.ts";
+import { revokeAllApiTokens } from "../auth/api-tokens.ts";
 import { LoginLimiter } from "../auth/login-limiter.ts";
 import { hashPassword, needsRehash, verifyPassword } from "../auth/password.ts";
 import { createWebSession, revokeUserWebSessions, revokeWebSession, SESSION_COOKIE } from "../auth/sessions.ts";
+import type { Cluster } from "../cluster/cluster.ts";
+import type { TaskGroups } from "../cluster/task-groups.ts";
 import type { Db } from "../storage/db.ts";
 import { findUserByUsername, setPassword, storePasswordHash, toPublicUser, UserError } from "../users/service.ts";
+import { rejectRevokedTokenWaits } from "./api-token-waits.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { requireUser } from "./middleware.ts";
 
@@ -18,6 +22,9 @@ export interface AuthRoutesOptions {
 	limiter?: LoginLimiter;
 	/** The client address used for rate limiting; tests run without a socket. */
 	clientAddress?: (c: Context) => string | undefined;
+	/** With taskGroups, rejects the waiting work of tokens a password change revokes; tests may omit them. */
+	cluster?: Cluster;
+	taskGroups?: TaskGroups;
 }
 
 export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
@@ -97,6 +104,9 @@ export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 		if (typeof current !== "string" || typeof next !== "string") {
 			return jsonError(c, 400, "currentPassword and newPassword are required");
 		}
+		if (body?.revokeApiTokens !== undefined && typeof body.revokeApiTokens !== "boolean") {
+			return jsonError(c, 400, "revokeApiTokens must be a boolean");
+		}
 		const me = c.get("user");
 		const row = await db.selectFrom("users").select("password_hash").where("id", "=", me.userId).executeTakeFirst();
 		if (!row?.password_hash || !(await verifyPassword(current, row.password_hash))) {
@@ -110,10 +120,15 @@ export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 		}
 		// Sign out every other session; keep this one.
 		await revokeUserWebSessions(db, me.userId, { except: me.sessionId });
+		// Web sessions and API tokens are separate: a password change leaves tokens usable unless asked.
+		const revokeApiTokens = body?.revokeApiTokens === true;
+		const revokedApiTokens = revokeApiTokens ? await revokeAllApiTokens(db, me.userId) : [];
+		await rejectRevokedTokenWaits(db, options.cluster, options.taskGroups, revokedApiTokens, me.userId);
 		void c.get("audit").record({
 			actor: userActor(me),
 			action: "auth.password_changed",
 			target: { type: "user", id: me.userId },
+			detail: { revoke_api_tokens: revokeApiTokens, revoked_api_tokens: revokedApiTokens.length },
 		});
 		return c.json({ ok: true });
 	});

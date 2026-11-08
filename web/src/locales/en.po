@@ -593,6 +593,14 @@ msgstr "Already settled"
 msgid "Already tried: {0}."
 msgstr "Already tried: {0}."
 
+#: src/features/auth/change-password-dialog.tsx
+msgid "Also revoke all of my API tokens"
+msgstr "Also revoke all of my API tokens"
+
+#: src/features/users/reset-password-dialog.tsx
+msgid "Also revoke all of this user's API tokens"
+msgstr "Also revoke all of this user's API tokens"
+
 #: src/components/approval-card.tsx
 msgid "Always allow rule"
 msgstr "Always allow rule"
@@ -937,6 +945,19 @@ msgstr "Change the thinking level; it applies from the next turn."
 #: src/features/settings/model-presets.tsx
 msgid "Changes take effect on the next model request."
 msgstr "Changes take effect on the next model request."
+
+#: src/features/settings/provider-dialog.tsx
+#: src/features/settings/providers.ts
+msgid "Changing the base URL requires re-entering the API key."
+msgstr "Changing the base URL requires re-entering the API key."
+
+#: src/features/users/reset-password-dialog.tsx
+msgid "Changing the password signs out the user's web sessions but does not revoke their existing API tokens. Tick this to revoke all of them too."
+msgstr "Changing the password signs out the user's web sessions but does not revoke their existing API tokens. Tick this to revoke all of them too."
+
+#: src/features/auth/change-password-dialog.tsx
+msgid "Changing the password signs out your other web sessions but does not revoke existing API tokens. Tick this to revoke all of them too."
+msgstr "Changing the password signs out your other web sessions but does not revoke existing API tokens. Tick this to revoke all of them too."
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Chat"
@@ -1976,6 +1997,10 @@ msgstr "Header {0} value"
 #: src/features/settings/provider-dialog.tsx
 msgid "Headers"
 msgstr "Headers"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Headers are stored and shown in plaintext, not as secrets. Do not put API keys or Authorization tokens here; use the API key field."
+msgstr "Headers are stored and shown in plaintext, not as secrets. Do not put API keys or Authorization tokens here; use the API key field."
 
 #: src/features/nodes/crhs-key-panel.tsx
 msgid "Hide trust snippet"
@@ -3333,6 +3358,10 @@ msgstr "Require the exact command"
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Require user verification"
 msgstr "Require user verification"
+
+#: src/features/settings/provider-dialog.tsx
+msgid "Required for the new base URL"
+msgstr "Required for the new base URL"
 
 #: src/features/users/pages.tsx
 msgid "Reset password"

@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 import type { SessionListHub } from "../agent/session-list.ts";
 import { userActor } from "../audit/audit.ts";
+import { revokeAllApiTokens } from "../auth/api-tokens.ts";
 import { revokeUserWebSessions } from "../auth/sessions.ts";
+import type { Cluster } from "../cluster/cluster.ts";
+import type { TaskGroups } from "../cluster/task-groups.ts";
 import { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
 import { createUser, listUsers, setPassword, toPublicUser, updateUser } from "../users/service.ts";
@@ -12,6 +15,7 @@ import {
 	listUserGroups,
 	removeUserGroupMember,
 } from "../users/user-groups.ts";
+import { rejectRevokedTokenWaits } from "./api-token-waits.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
 import { requireAdmin } from "./middleware.ts";
 
@@ -21,6 +25,9 @@ const STATUSES = new Set(["active", "disabled"]);
 export interface UserRoutesOptions {
 	/** The session list stream: membership and account changes alter what a user may see. */
 	sessions?: SessionListHub;
+	/** With taskGroups, rejects the waiting work of tokens an administrator's password reset revokes. */
+	cluster?: Cluster;
+	taskGroups?: TaskGroups;
 }
 
 /** Expects requireUser to have run. */
@@ -130,13 +137,22 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 		const body = await readJsonObject(c);
 		const password = body ? optionalString(body, "password") : undefined;
 		if (!password) return jsonError(c, 400, "password is required");
+		if (body?.revokeApiTokens !== undefined && typeof body.revokeApiTokens !== "boolean") {
+			return jsonError(c, 400, "revokeApiTokens must be a boolean");
+		}
 		const id = c.req.param("id");
+		const actor = c.get("user");
 		await setPassword(db, id, password);
 		await revokeUserWebSessions(db, id);
+		// Tokens are opt-in: an administrator may reset a password without ending the user's MCP access.
+		const revokeApiTokens = body?.revokeApiTokens === true;
+		const revokedApiTokens = revokeApiTokens ? await revokeAllApiTokens(db, id) : [];
+		await rejectRevokedTokenWaits(db, options.cluster, options.taskGroups, revokedApiTokens, actor.userId);
 		void c.get("audit").record({
-			actor: userActor(c.get("user")),
+			actor: userActor(actor),
 			action: "user.password_reset",
 			target: { type: "user", id },
+			detail: { revoke_api_tokens: revokeApiTokens, revoked_api_tokens: revokedApiTokens.length },
 		});
 		return c.json({ ok: true });
 	});

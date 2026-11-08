@@ -10,14 +10,17 @@ import { useSessionShares, useShareSession, useUnshareSession } from "@/features
 /**
  * The share dialog of a session (doc/access-control.md "归属与分享"): the
  * current shares, adding a user or user group with view/chat access, and removing
- * one. A share is only offered while the caller has `manageShares`.
+ * one. The dialog opens while the caller has `manageShares`; only the owner
+ * (`createShares`) gets the add control, while an administrator can still revoke.
  */
 export function ShareDialog({
 	sessionId,
+	canCreateShares,
 	open,
 	onOpenChange,
 }: {
 	sessionId: string;
+	canCreateShares: boolean;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
@@ -76,25 +79,27 @@ export function ShareDialog({
 					</p>
 				)}
 
-				<ShareEditor
-					layout="stacked"
-					accessOptions={[
-						{ value: "view", label: <Trans>View</Trans> },
-						{ value: "chat", label: <Trans>Chat</Trans> },
-					]}
-					defaultAccess="view"
-					userGroupLabel={<Trans>User group</Trans>}
-					busy={share.isPending}
-					onAdd={async ({ granteeType, granteeId, access }) => {
-						try {
-							await share.mutateAsync({ granteeType, granteeId, access });
-							toast.success(t`Shared.`);
-							return true;
-						} catch {
-							return false;
-						}
-					}}
-				/>
+				{canCreateShares && (
+					<ShareEditor
+						layout="stacked"
+						accessOptions={[
+							{ value: "view", label: <Trans>View</Trans> },
+							{ value: "chat", label: <Trans>Chat</Trans> },
+						]}
+						defaultAccess="view"
+						userGroupLabel={<Trans>User group</Trans>}
+						busy={share.isPending}
+						onAdd={async ({ granteeType, granteeId, access }) => {
+							try {
+								await share.mutateAsync({ granteeType, granteeId, access });
+								toast.success(t`Shared.`);
+								return true;
+							} catch {
+								return false;
+							}
+						}}
+					/>
+				)}
 
 				<ErrorText error={shares.error ?? share.error ?? unshare.error} />
 			</DialogContent>

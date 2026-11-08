@@ -5,13 +5,14 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { FormDialog } from "@/components/dialogs";
-import { TextField } from "@/components/form";
+import { CheckboxField, TextField } from "@/components/form";
 import { useChangePassword } from "@/features/auth/api";
 
 interface ChangePasswordValues {
 	currentPassword: string;
 	newPassword: string;
 	confirmPassword: string;
+	revokeApiTokens: boolean;
 }
 
 /**
@@ -30,6 +31,7 @@ export function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; on
 					currentPassword: z.string().min(1, t`Enter your current password.`),
 					newPassword: z.string().min(8, t`Use at least 8 characters.`),
 					confirmPassword: z.string().min(1, t`Repeat the new password.`),
+					revokeApiTokens: z.boolean(),
 				})
 				.refine((values) => values.newPassword === values.confirmPassword, {
 					message: t`The new passwords do not match.`,
@@ -40,12 +42,16 @@ export function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; on
 
 	const form = useForm<ChangePasswordValues>({
 		resolver: zodResolver(schema),
-		defaultValues: { currentPassword: "", newPassword: "", confirmPassword: "" },
+		defaultValues: { currentPassword: "", newPassword: "", confirmPassword: "", revokeApiTokens: false },
 	});
 
 	const submit = form.handleSubmit(async (values) => {
 		await mutation.mutateAsync(
-			{ currentPassword: values.currentPassword, newPassword: values.newPassword },
+			{
+				currentPassword: values.currentPassword,
+				newPassword: values.newPassword,
+				revokeApiTokens: values.revokeApiTokens,
+			},
 			{
 				onSuccess: () => {
 					toast.success(t`Password changed.`);
@@ -95,6 +101,17 @@ export function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; on
 				type="password"
 				autoComplete="new-password"
 				label={<Trans>Repeat new password</Trans>}
+			/>
+			<CheckboxField
+				control={form.control}
+				name="revokeApiTokens"
+				label={<Trans>Also revoke all of my API tokens</Trans>}
+				description={
+					<Trans>
+						Changing the password signs out your other web sessions but does not revoke existing API tokens. Tick this
+						to revoke all of them too.
+					</Trans>
+				}
 			/>
 		</FormDialog>
 	);

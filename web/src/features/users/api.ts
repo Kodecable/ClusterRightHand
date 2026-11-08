@@ -60,8 +60,16 @@ export function useUpdateUser() {
 
 export function useSetUserPassword() {
 	return useMutation({
-		mutationFn: ({ id, password }: { id: string; password: string }) =>
-			http.post<{ ok: true }>(`/users/${enc(id)}/password`, { password }),
+		mutationFn: ({
+			id,
+			password,
+			revokeApiTokens,
+		}: {
+			id: string;
+			password: string;
+			/** End every API token of the target user as well (the server defaults to false). */
+			revokeApiTokens?: boolean;
+		}) => http.post<{ ok: true }>(`/users/${enc(id)}/password`, { password, revokeApiTokens }),
 	});
 }
 

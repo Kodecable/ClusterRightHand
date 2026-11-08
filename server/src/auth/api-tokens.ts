@@ -133,6 +133,23 @@ export async function revokeApiToken(db: Db, user: SessionUser, id: string): Pro
 }
 
 /**
+ * Revokes every active token of a user; returns the ids it revoked, whose count a password change audits.
+ * A password change uses it to end MCP access a stolen token would otherwise keep. Authentication reads
+ * the row on every request, so no cache has to be cleared here (unlike a web session, which is also read
+ * per request).
+ */
+export async function revokeAllApiTokens(db: Db, userId: string): Promise<string[]> {
+	const rows = await db
+		.updateTable("api_tokens")
+		.set({ revoked_at: new Date().toISOString() })
+		.where("user_id", "=", userId)
+		.where("revoked_at", "is", null)
+		.returning("id")
+		.execute();
+	return rows.map((row) => row.id);
+}
+
+/**
  * Deletes a token for good, its rule set included: the rules exist only for this token, so they go with it.
  * Tasks that already ran keep the chain they stored, but its token level can no longer be resolved. Only a
  * revoked or expired token may be deleted, so an active one cannot be removed by accident.

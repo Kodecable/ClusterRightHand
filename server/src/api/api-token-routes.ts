@@ -1,13 +1,13 @@
 import { Hono } from "hono";
 import { type Audit, userActor } from "../audit/audit.ts";
 import { createApiToken, deleteApiToken, getApiToken, listApiTokens, revokeApiToken } from "../auth/api-tokens.ts";
-import type { ApprovalDecision, Cluster } from "../cluster/cluster.ts";
+import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { parseRulesForWrite } from "../policy/refs.ts";
 import { parseRulePreset, type RuleRef, setRulePreset, setRules } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../users/service.ts";
-import { rejectWaitingTokenWork } from "./api-token-waits.ts";
+import { rejectRevokedTokenWaits } from "./api-token-waits.ts";
 import { reevaluateAfterRuleChange } from "./approval-routes.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 
@@ -47,13 +47,7 @@ export function apiTokenRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			target: { type: "api_token", id: c.req.param("id") },
 		});
 		// What the token started and is still waiting for approval will not run; expiry sweeps the same rows.
-		const decision: ApprovalDecision = {
-			decision: "rejected",
-			by: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
-			at: new Date().toISOString(),
-			reason: "the API token was revoked",
-		};
-		await rejectWaitingTokenWork(db, cluster, taskGroups, c.req.param("id"), decision);
+		await rejectRevokedTokenWaits(db, cluster, taskGroups, [c.req.param("id")], user.userId);
 		return c.json({ apiToken: await getApiToken(db, user, c.req.param("id")) });
 	});
 

@@ -104,7 +104,13 @@ async function newSession(cookie: string, title: string, rulePreset: RulePreset 
 			session: {
 				id: string;
 				relationship: string;
-				capabilities: { view: boolean; chat: boolean; manageShares: boolean; configure: boolean };
+				capabilities: {
+					view: boolean;
+					chat: boolean;
+					manageShares: boolean;
+					createShares: boolean;
+					configure: boolean;
+				};
 				ownerUserId: string;
 			};
 		}
@@ -255,26 +261,45 @@ it("shares the same pair concurrently without a unique-constraint failure", asyn
 	expect(shares[0]).toMatchObject({ granteeId: bobId, access: expect.stringMatching(/^(view|chat)$/) });
 });
 
-it("administrators look and may share, but do not drive", async () => {
+it("administrators look and may list and revoke shares, but cannot create one", async () => {
 	const s = await newSession(alice, "admin looks");
 	const res = await get(s.id, admin);
 	expect(res.status).toBe(200);
 	expect(
 		(
 			(await res.json()) as {
-				session: { relationship: string; capabilities: { chat: boolean; manageShares: boolean; configure: boolean } };
+				session: {
+					relationship: string;
+					capabilities: { chat: boolean; manageShares: boolean; createShares: boolean; configure: boolean };
+				};
 			}
 		).session,
 	).toMatchObject({
 		relationship: "admin",
-		capabilities: { chat: false, manageShares: true, configure: false },
+		capabilities: { chat: false, manageShares: true, createShares: false, configure: false },
 	});
 	expect((await messages(s.id, admin)).status).toBe(403);
 	// The administrator sees it in `all`, but no share reaches them, so it is not `shared` (no share icon).
 	expect((await list(admin, "?scope=all")).find((x) => x.id === s.id)?.shared).toBe(false);
-	// Administrators may manage shares (doc/access-control.md#归属与分享).
-	expect((await share(s.id, admin, { granteeType: "user", granteeId: carolId, access: "view" })).status).toBe(200);
-	expect((await get(s.id, carol)).status).toBe(200);
+	// Creating a share is the owner's alone (doc/access-control.md#归属与分享).
+	const created = await share(s.id, admin, { granteeType: "user", granteeId: carolId, access: "view" });
+	expect(created.status).toBe(403);
+	expect(((await created.json()) as { error: string }).error).toBe("only the owner can share this session");
+	expect((await get(s.id, carol)).status).toBe(404);
+
+	// An existing share can be listed and revoked by an administrator.
+	expect((await share(s.id, alice, { granteeType: "user", granteeId: carolId, access: "view" })).status).toBe(200);
+	expect((await call(app, `/api/sessions/${s.id}/shares`, { cookie: admin })).status).toBe(200);
+	const { shares } = (await (await call(app, `/api/sessions/${s.id}/shares`, { cookie: admin })).json()) as {
+		shares: { id: string }[];
+	};
+	const revoked = await call(app, `/api/sessions/${s.id}/shares/${shares[0]?.id}`, {
+		method: "DELETE",
+		cookie: admin,
+		body: {},
+	});
+	expect(revoked.status).toBe(200);
+	expect((await get(s.id, carol)).status).toBe(404);
 });
 
 it("an administrator chats only when explicitly shared chat", async () => {
@@ -300,7 +325,9 @@ it("an administrator chats only when explicitly shared chat", async () => {
 
 it("rejects bad shares and keeps the owner supreme", async () => {
 	const s = await newSession(alice, "validation");
-	expect((await share(s.id, alice, { granteeType: "user", granteeId: aliceId, access: "view" })).status).toBe(400);
+	const self = await share(s.id, alice, { granteeType: "user", granteeId: aliceId, access: "view" });
+	expect(self.status).toBe(400);
+	expect(((await self.json()) as { error: string }).error).toBe("a session cannot be shared with yourself");
 	expect((await share(s.id, alice, { granteeType: "user", granteeId: bobId, access: "operate" })).status).toBe(400);
 	expect((await share(s.id, alice, { granteeType: "nobody", granteeId: bobId, access: "view" })).status).toBe(400);
 	expect((await share(s.id, alice, { granteeType: "user", granteeId: "missing", access: "view" })).status).toBe(404);

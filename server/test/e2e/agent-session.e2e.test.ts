@@ -165,7 +165,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 					// the reviewer, which sees only the operation
 					(context) => {
 						prompts.push(JSON.stringify(context.messages));
-						return fauxAssistantMessage([fauxText('{"decision":"approve","reason":"read-only"}')]);
+						return fauxAssistantMessage([fauxToolCall("submit_review", { decision: "approve", reason: "read-only" })]);
 					},
 					fauxAssistantMessage(
 						[fauxToolCall("exec", { targets: [nodeName], argv: ["rm", "-rf", "/tmp/x"] }, { id: "c2" })],
@@ -173,7 +173,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 							stopReason: "toolUse",
 						},
 					),
-					fauxAssistantMessage([fauxText('{"decision":"escalate","reason":"deletes files"}')]),
+					fauxAssistantMessage([fauxToolCall("submit_review", { decision: "escalate", reason: "deletes files" })]),
 					fauxAssistantMessage([fauxText("all done")]),
 				]);
 				const sub = await runtime.submit(session.id, owner, "check and clean", "r1");
