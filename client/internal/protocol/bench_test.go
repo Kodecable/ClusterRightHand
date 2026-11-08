@@ -46,3 +46,38 @@ func BenchmarkReceiveTaskOutput(b *testing.B) {
 		}
 	}
 }
+
+// benchFrame returns one encoded 32 KiB task.output event frame: the representative large frame
+// DecodeFrame and decodeAny see on the receive path.
+func benchFrame(b *testing.B) []byte {
+	b.Helper()
+	frame, err := EncodeEvent(EventTaskOutput, benchOutput())
+	if err != nil {
+		b.Fatal(err)
+	}
+	return frame
+}
+
+// BenchmarkDecodeAny measures only the profile stage of one task.output frame.
+func BenchmarkDecodeAny(b *testing.B) {
+	frame := benchFrame(b)
+	b.SetBytes(int64(len(frame)))
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if _, err := decodeAny(frame); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkDecodeFrame measures the whole frame decode of one task.output frame.
+func BenchmarkDecodeFrame(b *testing.B) {
+	frame := benchFrame(b)
+	b.SetBytes(int64(len(frame)))
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if _, err := DecodeFrame(frame); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

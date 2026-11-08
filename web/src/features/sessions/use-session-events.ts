@@ -43,16 +43,17 @@ function isAgentEvent(value: unknown): value is AgentEvent {
  * A cheap identity of everything the transcript list has to re-render for.
  * Deliberately excludes the growing text of the streaming message and of a
  * running tool: those live in `TranscriptStreams`, subscribed by their row.
+ *
+ * Tool details are part of it because a details-only update would otherwise never
+ * reach React. The reducer serializes them once when they change (`detailsKey`),
+ * so a batch costs no `JSON.stringify` over the whole tool map.
  */
-function structureKey(state: SessionState): string {
+export function structureKey(state: SessionState): string {
 	const first = state.entries[0]?.id ?? "";
 	const last = state.entries[state.entries.length - 1]?.id ?? "";
 	const blocks = state.streaming?.content.map((block) => block.type).join(",") ?? "";
-	// The details are what a tool card shows besides its status (an approval link, a
-	// task's exit code), and they arrive in `tool_execution_update` events of their
-	// own; without them a details-only batch would never reach React.
 	const tools = Object.values(state.tools)
-		.map((tool) => `${tool.callId}:${tool.status}:${tool.details === undefined ? "" : JSON.stringify(tool.details)}`)
+		.map((tool) => `${tool.callId}:${tool.status}:${tool.detailsKey}`)
 		.sort()
 		.join(",");
 	return [

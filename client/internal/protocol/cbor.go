@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"sort"
@@ -42,7 +43,7 @@ func mustEncMode() cbor.EncMode {
 // rejects duplicate map keys, indefinite lengths, tags (including bignum tags), floats'
 // non-finite values, invalid UTF-8, undefined and custom simple values, and trailing
 // bytes. Finite floats are rejected separately because fxamacker has no "no float"
-// option; see validateProfileValue.
+// option; decodeAny checks them itself and UnmarshalBody's re-encode cannot produce one.
 func mustDecMode() cbor.DecMode {
 	reject := make([]func(*cbor.SimpleValueRegistry) error, 0, 253)
 	for sv := 0; sv <= 255; sv++ {
@@ -353,51 +354,101 @@ func appendMapHead(dst []byte, n uint64) []byte {
 	}
 }
 
-// decodeAny decodes one value according to the CBOR profile and verifies that
-// re-encoding it reproduces the input exactly. It is the profile-level codec used by
-// the golden vector tests and as Unmarshal's first stage.
+// maxProfileNesting is the profile's maximum number of nested arrays and maps, the same
+// limit the TS decoder enforces (MAX_NESTING in packages/protocol/src/cbor.ts).
+const maxProfileNesting = 64
+
+// The container limits are fxamacker's defaults, which the old decMode.UnmarshalFirst
+// stage enforced before the value was decoded; the single pass enforces them as it reads.
+const (
+	maxProfileArrayElements = 131072
+	maxProfileMapPairs      = 131072
+)
+
+// decodeAny decodes exactly one value according to the CBOR profile in a single pass.
+// It is the profile-level codec used by the golden vector tests and as Unmarshal's first
+// stage. Every canonical-encoding rule is checked while reading (shortest heads, sorted
+// and duplicate-free map keys, no tags/indefinite forms/floats/simple values), so the
+// input needs neither a second decode nor a re-encode comparison to be proven canonical.
 func decodeAny(data []byte) (any, error) {
-	var raw cbor.RawMessage
-	rest, err := decMode.UnmarshalFirst(data, &raw)
+	if len(data) == 0 {
+		return nil, errors.New("empty CBOR value")
+	}
+	d := profileDecoder{data: data}
+	v, err := d.value(0)
 	if err != nil {
 		return nil, err
 	}
-	v, err := decodeProfileValue(raw)
-	if err != nil {
-		return nil, err
-	}
-	if len(rest) != 0 {
-		return nil, fmt.Errorf("%d bytes of extraneous data", len(rest))
-	}
-	if err := validateProfileValue(v); err != nil {
-		return nil, err
-	}
-	encoded, err := encMode.Marshal(v)
-	if err != nil {
-		return nil, fmt.Errorf("re-encode: %w", err)
-	}
-	if !bytes.Equal(encoded, data) {
-		return nil, fmt.Errorf("non-canonical encoding: re-encoded as %x", encoded)
+	if d.off != len(data) {
+		return nil, fmt.Errorf("%d bytes of extraneous data", len(data)-d.off)
 	}
 	return v, nil
 }
 
-// decodeProfileValue decodes one well-formed CBOR item into the profile's Go
-// representation. Arrays and maps are decoded item by item so every map key can be
-// inspected before it becomes a Go value; scalar values are left to decMode.
-func decodeProfileValue(raw []byte) (any, error) {
-	if len(raw) == 0 {
-		return nil, errors.New("empty CBOR value")
+// profileDecoder is a cursor over one CBOR value. It produces the same Go representation
+// decodeAny always returned: uint64/int64 (or *big.Int below math.MinInt64), []byte,
+// string, []any and profileMap.
+type profileDecoder struct {
+	data []byte
+	off  int
+}
+
+// value decodes one item. depth is the number of arrays and maps already open.
+func (d *profileDecoder) value(depth int) (any, error) {
+	if d.off >= len(d.data) {
+		return nil, errors.New("unexpected end of CBOR data")
 	}
-	switch raw[0] >> 5 {
-	case 4: // array
-		var elems []cbor.RawMessage
-		if err := decMode.Unmarshal(raw, &elems); err != nil {
+	head := d.data[d.off]
+	ai := head & 0x1f
+	switch head >> 5 {
+	case 0: // uint
+		n, err := d.argument(ai)
+		if err != nil {
 			return nil, err
 		}
-		values := make([]any, 0, len(elems))
-		for _, elem := range elems {
-			v, err := decodeProfileValue(elem)
+		return n, nil
+	case 1: // negative integer
+		n, err := d.argument(ai)
+		if err != nil {
+			return nil, err
+		}
+		if n > math.MaxInt64 {
+			// Same form decMode's BigIntDecodePointer produces for values below MinInt64.
+			bi := new(big.Int).SetUint64(n)
+			bi.Add(bi, big.NewInt(1))
+			bi.Neg(bi)
+			return bi, nil
+		}
+		return int64(-1) ^ int64(n), nil
+	case 2: // byte string
+		n, err := d.argument(ai)
+		if err != nil {
+			return nil, err
+		}
+		return d.byteString(n)
+	case 3: // text string
+		n, err := d.argument(ai)
+		if err != nil {
+			return nil, err
+		}
+		return d.textString(n)
+	case 4: // array
+		n, err := d.argument(ai)
+		if err != nil {
+			return nil, err
+		}
+		if depth >= maxProfileNesting {
+			return nil, fmt.Errorf("value nests more than %d levels deep", maxProfileNesting)
+		}
+		if n > maxProfileArrayElements {
+			return nil, fmt.Errorf("array declares %d elements, more than the %d allowed", n, maxProfileArrayElements)
+		}
+		if n > uint64(len(d.data)-d.off) {
+			return nil, fmt.Errorf("array declares %d elements but the input holds %d bytes", n, len(d.data)-d.off)
+		}
+		values := make([]any, 0, int(n))
+		for range n {
+			v, err := d.value(depth + 1)
 			if err != nil {
 				return nil, err
 			}
@@ -405,83 +456,151 @@ func decodeProfileValue(raw []byte) (any, error) {
 		}
 		return values, nil
 	case 5: // map
-		return decodeProfileMap(raw)
-	default:
-		var v any
-		if err := decMode.Unmarshal(raw, &v); err != nil {
-			return nil, err
-		}
-		return v, nil
-	}
-}
-
-// decodeProfileMap decodes a CBOR map after checking that every key is a text string or
-// an integer. The check runs on the raw key item, so a byte-string, array, map, bool or
-// null key gets errMapKeyType instead of a decoder type or hashability error.
-func decodeProfileMap(raw []byte) (profileMap, error) {
-	n, headerLen, err := profileMapHead(raw)
-	if err != nil {
-		return nil, err
-	}
-	if n > uint64(len(raw))/2 {
-		return nil, fmt.Errorf("map declares %d pairs but the input is %d bytes", n, len(raw))
-	}
-	entries := make(profileMap, 0, int(n))
-	rest := raw[headerLen:]
-	for len(rest) > 0 {
-		var rawKey, rawValue cbor.RawMessage
-		if rest, err = decMode.UnmarshalFirst(rest, &rawKey); err != nil {
-			return nil, err
-		}
-		if err := checkMapKeyType(rawKey); err != nil {
-			return nil, err
-		}
-		if rest, err = decMode.UnmarshalFirst(rest, &rawValue); err != nil {
-			return nil, err
-		}
-		key, err := decodeProfileValue(rawKey)
+		n, err := d.argument(ai)
 		if err != nil {
 			return nil, err
 		}
-		value, err := decodeProfileValue(rawValue)
+		return d.mapValue(n, depth)
+	case 6: // tag
+		return nil, errors.New("tags are not allowed")
+	default: // major 7: false, true, null, simple values and floats
+		return d.simpleValue(ai)
+	}
+}
+
+// argument reads the argument of a head with additional information ai. Definite lengths
+// only, and the shortest form is required (RFC 8949 §4.2.1); the old re-encode comparison
+// rejected a non-shortest head, this rejects it directly.
+func (d *profileDecoder) argument(ai byte) (uint64, error) {
+	if ai < 24 {
+		d.off++
+		return uint64(ai), nil
+	}
+	if ai > 27 {
+		return 0, errors.New("indefinite or reserved length")
+	}
+	width := 1 << (ai - 24)
+	start := d.off + 1
+	end := start + width
+	if end > len(d.data) {
+		return 0, errors.New("unexpected end of CBOR data")
+	}
+	d.off = end
+	var n uint64
+	for _, b := range d.data[start:end] {
+		n = n<<8 | uint64(b)
+	}
+	minimum := uint64(24)
+	if width > 1 {
+		minimum = uint64(1) << (4 * width)
+	}
+	if n < minimum {
+		return 0, fmt.Errorf("non-canonical encoding: non-shortest argument %d in a %d-byte head", n, width)
+	}
+	return n, nil
+}
+
+// byteString copies n bytes after the head. The copy keeps the decoded value from aliasing
+// the frame buffer, like decMode's decode into any did.
+func (d *profileDecoder) byteString(n uint64) (any, error) {
+	if n > uint64(len(d.data)-d.off) {
+		return nil, errors.New("unexpected end of CBOR data")
+	}
+	b := make([]byte, n)
+	copy(b, d.data[d.off:d.off+int(n)])
+	d.off += int(n)
+	return b, nil
+}
+
+// textString decodes n UTF-8 bytes after the head.
+func (d *profileDecoder) textString(n uint64) (any, error) {
+	if n > uint64(len(d.data)-d.off) {
+		return nil, errors.New("unexpected end of CBOR data")
+	}
+	raw := d.data[d.off : d.off+int(n)]
+	if !utf8.Valid(raw) {
+		return nil, errors.New("text is not valid UTF-8")
+	}
+	d.off += int(n)
+	return string(raw), nil
+}
+
+// mapValue decodes n pairs. Core deterministic encoding orders keys by their encoded bytes,
+// so checking that order while reading proves the re-encoded map would equal the input;
+// equal adjacent keys are the duplicate-key error the old re-encode caught.
+func (d *profileDecoder) mapValue(n uint64, depth int) (profileMap, error) {
+	if depth >= maxProfileNesting {
+		return nil, fmt.Errorf("value nests more than %d levels deep", maxProfileNesting)
+	}
+	if n > maxProfileMapPairs {
+		return nil, fmt.Errorf("map declares %d pairs, more than the %d allowed", n, maxProfileMapPairs)
+	}
+	if n > uint64(len(d.data)-d.off)/2 {
+		return nil, fmt.Errorf("map declares %d pairs but the input is %d bytes", n, len(d.data))
+	}
+	entries := make(profileMap, 0, int(n))
+	var previousKey []byte
+	for range n {
+		if d.off >= len(d.data) {
+			return nil, errors.New("unexpected end of CBOR data")
+		}
+		// The key type check runs before decoding, as decodeProfileMap did: a byte string,
+		// array, map, bool or null key gets errMapKeyType rather than a decoder error.
+		switch d.data[d.off] >> 5 {
+		case 0, 1, 3:
+		default:
+			return nil, errMapKeyType
+		}
+		keyStart := d.off
+		key, err := d.value(depth + 1)
+		if err != nil {
+			return nil, err
+		}
+		rawKey := d.data[keyStart:d.off]
+		if previousKey != nil {
+			switch bytes.Compare(previousKey, rawKey) {
+			case 0:
+				return nil, errors.New("duplicate map key")
+			case 1:
+				return nil, errors.New("non-canonical encoding: map keys are not sorted")
+			}
+		}
+		previousKey = rawKey
+		value, err := d.value(depth + 1)
 		if err != nil {
 			return nil, err
 		}
 		entries = append(entries, profileMapEntry{key: key, value: value})
 	}
-	if uint64(len(entries)) != n {
-		return nil, fmt.Errorf("map declares %d pairs but holds %d", n, len(entries))
-	}
 	return entries, nil
 }
 
-// profileMapHead parses the definite-length map header at the start of raw.
-func profileMapHead(raw []byte) (n uint64, headerLen int, err error) {
-	switch ai := raw[0] & 0x1f; {
-	case ai < 24:
-		return uint64(ai), 1, nil
-	case ai == 24:
-		if len(raw) < 2 {
-			return 0, 0, errors.New("truncated map header")
+// simpleValue decodes major type 7. The profile allows false, true and null only; floats
+// and every other simple value are rejected.
+func (d *profileDecoder) simpleValue(ai byte) (any, error) {
+	switch ai {
+	case 20: // false
+		d.off++
+		return false, nil
+	case 21: // true
+		d.off++
+		return true, nil
+	case 22: // null
+		d.off++
+		return nil, nil
+	case 23:
+		return nil, errors.New("undefined is not allowed")
+	case 24:
+		if d.off+2 > len(d.data) {
+			return nil, errors.New("unexpected end of CBOR data")
 		}
-		return uint64(raw[1]), 2, nil
-	case ai == 25:
-		if len(raw) < 3 {
-			return 0, 0, errors.New("truncated map header")
-		}
-		return uint64(binary.BigEndian.Uint16(raw[1:3])), 3, nil
-	case ai == 26:
-		if len(raw) < 5 {
-			return 0, 0, errors.New("truncated map header")
-		}
-		return uint64(binary.BigEndian.Uint32(raw[1:5])), 5, nil
-	case ai == 27:
-		if len(raw) < 9 {
-			return 0, 0, errors.New("truncated map header")
-		}
-		return binary.BigEndian.Uint64(raw[1:9]), 9, nil
+		value := d.data[d.off+1]
+		d.off += 2
+		return nil, fmt.Errorf("simple value %d is not allowed", value)
+	case 25, 26, 27:
+		return nil, errors.New("floats are not allowed")
 	default:
-		return 0, 0, errors.New("map must have a definite length")
+		return nil, errors.New("invalid simple value")
 	}
 }
 
@@ -496,50 +615,6 @@ func checkMapKeyType(raw []byte) error {
 		return nil
 	default:
 		return errMapKeyType
-	}
-}
-
-// validateProfileValue rejects CBOR values the profile does not allow but the decoder
-// would otherwise accept: floats (finite ones) and custom simple values. It also repeats
-// the map key check on decoded values.
-func validateProfileValue(v any) error {
-	switch v := v.(type) {
-	case nil, bool, uint64, int64, string, []byte, *big.Int, big.Int:
-		return nil
-	case float32, float64:
-		return errors.New("floats are not allowed")
-	case []any:
-		for _, elem := range v {
-			if err := validateProfileValue(elem); err != nil {
-				return err
-			}
-		}
-		return nil
-	case profileMap:
-		for _, pair := range v {
-			if !profileMapKey(pair.key) {
-				return errMapKeyType
-			}
-			if err := validateProfileValue(pair.value); err != nil {
-				return err
-			}
-		}
-		return nil
-	case cbor.SimpleValue:
-		return fmt.Errorf("simple value %d is not allowed", v)
-	default:
-		return fmt.Errorf("unexpected CBOR value of type %T", v)
-	}
-}
-
-// profileMapKey reports whether a decoded key has one of the Go forms of a text or
-// integer CBOR key.
-func profileMapKey(key any) bool {
-	switch key.(type) {
-	case string, uint64, int64, *big.Int, big.Int:
-		return true
-	default:
-		return false
 	}
 }
 

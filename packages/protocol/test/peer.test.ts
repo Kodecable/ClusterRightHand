@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { encode as encodeCbor } from "../src/cbor.ts";
 import { decodeFrame, encodeFrame, type Frame, MAX_ERROR_MESSAGE_BYTES, ProtocolError } from "../src/frame.ts";
 import type { Facts, TaskStart, TaskStatus } from "../src/messages.ts";
-import { afterResponse, ConnectionError, Peer, RemoteError } from "../src/peer.ts";
+import { afterResponse, ConnectionError, Peer, RemoteError, RequestTimeoutError } from "../src/peer.ts";
 import { type CommandResponse, SUPPORTED_NAMES } from "../src/registry.ts";
 
 const FACTS: Facts = {
@@ -528,5 +528,193 @@ describe("Peer", () => {
 			peer.receive(encodeFrame({ kind: "request", id: 1, cmd: "task.start", body: TASK_START })),
 		).not.toThrow();
 		expect(afterCalls).toEqual([]);
+	});
+
+	describe("request timeout", () => {
+		it("rejects with RequestTimeoutError, frees the pending entry and ignores the late response", async () => {
+			vi.useFakeTimers();
+			try {
+				const sent: Frame[] = [];
+				const peer = new Peer({
+					negotiated: SUPPORTED_NAMES,
+					send: (bytes) => {
+						sent.push(decodeFrame(bytes));
+					},
+				});
+				const pending = peer.request("ping", { seq: 1 }, { timeoutMs: 25 });
+				const rejected = expect(pending).rejects.toMatchObject({
+					name: "RequestTimeoutError",
+					cmd: "ping",
+					timeoutMs: 25,
+				});
+				expect(sent).toHaveLength(1);
+				expect(vi.getTimerCount()).toBe(1);
+				await vi.advanceTimersByTimeAsync(25);
+				await rejected;
+				expect(vi.getTimerCount()).toBe(0);
+
+				// The response may already be on the wire: it is dropped, not a fatal unknown id.
+				expect(() =>
+					peer.receive(encodeFrame({ kind: "response", id: 1, cmd: "ping", ok: true, body: { seq: 1 } })),
+				).not.toThrow();
+				// Any other unknown id is still a protocol error.
+				expect(() =>
+					peer.receive(encodeFrame({ kind: "response", id: 99, cmd: "ping", ok: true, body: { seq: 1 } })),
+				).toThrow(ProtocolError);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("clears the timer when the response arrives first", async () => {
+			vi.useFakeTimers();
+			try {
+				const peer = new Peer({ negotiated: SUPPORTED_NAMES, send: () => {} });
+				const pending = peer.request("ping", { seq: 1 }, { timeoutMs: 25 });
+				expect(vi.getTimerCount()).toBe(1);
+				peer.receive(encodeFrame({ kind: "response", id: 1, cmd: "ping", ok: true, body: { seq: 1 } }));
+				await expect(pending).resolves.toEqual({ seq: 1 });
+				expect(vi.getTimerCount()).toBe(0);
+				await vi.advanceTimersByTimeAsync(1000);
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("clears timers on close and allows a per-request deadline of zero", async () => {
+			vi.useFakeTimers();
+			try {
+				const peer = new Peer({ negotiated: SUPPORTED_NAMES, send: () => {} });
+				const noDeadline = peer.request("ping", { seq: 1 }, { timeoutMs: 0 });
+				expect(vi.getTimerCount()).toBe(0);
+				const pending = peer.request("ping", { seq: 2 });
+				expect(vi.getTimerCount()).toBe(1);
+				const noDeadlineRejected = expect(noDeadline).rejects.toBeInstanceOf(ConnectionError);
+				const pendingRejected = expect(pending).rejects.toMatchObject({
+					name: "ConnectionError",
+					reason: "connection lost",
+				});
+				peer.close("connection lost");
+				expect(vi.getTimerCount()).toBe(0);
+				await noDeadlineRejected;
+				await pendingRejected;
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("uses the constructor deadline for ordinary requests", async () => {
+			vi.useFakeTimers();
+			try {
+				const peer = new Peer({ negotiated: SUPPORTED_NAMES, send: () => {}, requestTimeoutMs: 40 });
+				const pending = peer.request("ping", { seq: 1 });
+				const rejected = expect(pending).rejects.toBeInstanceOf(RequestTimeoutError);
+				await vi.advanceTimersByTimeAsync(40);
+				await rejected;
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+	});
+
+	describe("inbound concurrency cap", () => {
+		it("answers busy above the cap and counts a slot down when its handler settles", async () => {
+			const replies: Frame[] = [];
+			const resolvers: (() => void)[] = [];
+			const peer = new Peer({
+				negotiated: SUPPORTED_NAMES,
+				maxConcurrentRequests: 1,
+				send: (bytes) => {
+					replies.push(decodeFrame(bytes));
+				},
+			});
+			peer.onRequest("ping", () => {
+				return new Promise((resolve) => {
+					resolvers.push(() => resolve({ seq: 1 }));
+				});
+			});
+
+			peer.receive(encodeFrame({ kind: "request", id: 1, cmd: "ping", body: { seq: 1 } }));
+			peer.receive(encodeFrame({ kind: "request", id: 2, cmd: "ping", body: { seq: 2 } }));
+			expect(resolvers).toHaveLength(1);
+			expect(replies.at(-1)).toMatchObject({
+				kind: "response",
+				id: 2,
+				cmd: "ping",
+				ok: false,
+				error: { code: "busy" },
+			});
+
+			resolvers[0]?.();
+			await delay(0);
+			expect(replies.at(-1)).toMatchObject({ kind: "response", id: 1, cmd: "ping", ok: true });
+
+			// The slot is free again: a third request runs its handler.
+			peer.receive(encodeFrame({ kind: "request", id: 3, cmd: "ping", body: { seq: 3 } }));
+			expect(resolvers).toHaveLength(2);
+			resolvers[1]?.();
+			await delay(0);
+			expect(replies.at(-1)).toMatchObject({ kind: "response", id: 3, cmd: "ping", ok: true });
+		});
+
+		it("releases the slot after a throwing handler", async () => {
+			const replies: Frame[] = [];
+			const peer = new Peer({
+				negotiated: SUPPORTED_NAMES,
+				maxConcurrentRequests: 1,
+				send: (bytes) => {
+					replies.push(decodeFrame(bytes));
+				},
+			});
+			peer.onRequest("ping", () => {
+				throw new RemoteError("internal_error", "boom");
+			});
+			peer.receive(encodeFrame({ kind: "request", id: 1, cmd: "ping", body: { seq: 1 } }));
+			expect(replies.at(-1)).toMatchObject({ kind: "response", id: 1, ok: false });
+
+			peer.onRequest("ping", (body) => body);
+			peer.receive(encodeFrame({ kind: "request", id: 2, cmd: "ping", body: { seq: 2 } }));
+			expect(replies.at(-1)).toMatchObject({ kind: "response", id: 2, ok: true });
+		});
+
+		it("releases the slot when an async handler rejects", async () => {
+			const replies: Frame[] = [];
+			const peer = new Peer({
+				negotiated: SUPPORTED_NAMES,
+				maxConcurrentRequests: 1,
+				send: (bytes) => {
+					replies.push(decodeFrame(bytes));
+				},
+			});
+			peer.onRequest("ping", async () => {
+				await delay(1);
+				throw new RemoteError("internal_error", "async boom");
+			});
+			peer.receive(encodeFrame({ kind: "request", id: 1, cmd: "ping", body: { seq: 1 } }));
+			peer.receive(encodeFrame({ kind: "request", id: 2, cmd: "ping", body: { seq: 2 } }));
+			expect(replies.at(-1)).toMatchObject({ kind: "response", id: 2, ok: false, error: { code: "busy" } });
+			await delay(5);
+			expect(replies.at(-1)).toMatchObject({ kind: "response", id: 1, ok: false });
+
+			peer.receive(encodeFrame({ kind: "request", id: 3, cmd: "ping", body: { seq: 3 } }));
+			await delay(5);
+			expect(replies.at(-1)).toMatchObject({ kind: "response", id: 3, ok: false });
+		});
+
+		it("does not limit events", () => {
+			const seen: unknown[] = [];
+			const peer = new Peer({
+				negotiated: SUPPORTED_NAMES,
+				maxConcurrentRequests: 1,
+				send: () => {},
+			});
+			peer.onRequest("ping", () => new Promise(() => {}));
+			peer.onEvent("task.exit.ack", (body) => {
+				seen.push(body);
+			});
+			peer.receive(encodeFrame({ kind: "request", id: 1, cmd: "ping", body: { seq: 1 } }));
+			peer.receive(encodeFrame({ kind: "event", name: "task.exit.ack", body: { taskId: "t-1" } }));
+			expect(seen).toEqual([{ taskId: "t-1" }]);
+		});
 	});
 });

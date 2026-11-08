@@ -24,6 +24,17 @@ export interface LiveTool {
 	args?: JsonObject;
 	output: string;
 	details?: Json;
+	/**
+	 * `details` serialized once, when it changes (empty string for no details). The
+	 * transcript's structure key uses this instead of re-stringifying every tool on
+	 * every SSE batch; it is exactly what `JSON.stringify(details)` returned before.
+	 */
+	detailsKey: string;
+}
+
+/** The memoized structure-key part of a tool's details. */
+function detailsKeyOf(details: Json | undefined): string {
+	return details === undefined ? "" : (JSON.stringify(details) ?? "");
 }
 
 export interface SessionState {
@@ -232,7 +243,7 @@ export function applyOutput(
 }
 
 function liveTool(state: SessionState, callId: string, name: string): LiveTool {
-	return state.tools[callId] ?? { callId, name, status: "pending", output: "" };
+	return state.tools[callId] ?? { callId, name, status: "pending", output: "", detailsKey: "" };
 }
 
 export function reduce(state: SessionState, event: AgentEvent): SessionState {
@@ -248,6 +259,7 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 					status: t.status,
 					output: t.output ?? "",
 					...(t.details === undefined ? {} : { details: t.details }),
+					detailsKey: detailsKeyOf(t.details),
 				};
 			}
 			const streaming = asAssistant(event.generation?.message);
@@ -320,6 +332,12 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 				...prev,
 				status: prev.status === "done" ? "done" : "running",
 				output: applyOutput(prev.output, event.output),
+				// Only a details-bearing update changes the serialized key; an update that
+				// only streams output keeps it, exactly like the old per-batch stringify.
+				detailsKey:
+					event.details === undefined
+						? prev.detailsKey
+						: detailsKeyOf(event.details === null ? undefined : event.details),
 				...(event.details === undefined
 					? {}
 					: event.details === null

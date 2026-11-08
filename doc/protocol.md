@@ -54,12 +54,12 @@ Error    = [code: text, message: text]
 - 命令名和事件名（`cmd`、`name`）不超过 64 字节；解码帧时超过即协议错误（不回 `unsupported_command`）。
 - `id` 由请求方分配，从 1 开始递增；两个方向的 id 空间各自独立，响应的 `id` 属于请求方。
 - 响应的 `cmd` 必须等于对应请求的 `cmd`。收到未知 `id` 或 `cmd` 不符的响应是协议错误。
-- 响应可以乱序到达（按 `id` 匹配）。连接关闭时所有未完成请求以连接错误结束；请求本身没有超时（连接的空闲超时兜底）。
+- 响应可以乱序到达（按 `id` 匹配）。连接关闭时所有未完成请求以连接错误结束。实现可以给请求设置超时（当前 TS `Peer` 默认 60 秒）；超时后撤销该请求并忽略迟到的响应，不关闭连接。
 - 收到未协商的命令：响应 `unsupported_command`。收到未协商的事件：协议错误。
 - 本方 schema 认识的命令，无论是否协商、是否注册了处理函数，都先按 schema 解码 body，失败即协议错误；只有本方完全不认识的命令名才不解码 body、直接响应 `unsupported_command`。成功响应的 body 同样总是按 schema 解码校验，与调用方是否关心结果无关。
 - 处理函数已返回、但成功响应无法编码（body 不合 schema、帧超过 `MAX_FRAME_BYTES` 等）时，改发 `internal_error` 错误响应，绝不静默不回；此时“响应后执行”的钩子不运行。错误响应本身也无法发出时（连接已关闭），按连接错误处理。
 
-通用错误码：`unsupported_command`、`node_pending`（受限连接上的非允许命令）、`internal_error`。
+通用错误码：`unsupported_command`、`node_pending`（受限连接上的非允许命令）、`busy`（本端并发请求处理已满，该请求未执行）、`internal_error`。
 
 ## 命令
 

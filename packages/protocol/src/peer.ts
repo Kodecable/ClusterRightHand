@@ -25,7 +25,57 @@ export class ConnectionError extends Error {
 	}
 }
 
+/**
+ * A request was sent but the peer did not answer within its deadline. The id is
+ * forgotten: a response that arrives later is ignored. The request may or may not
+ * have run on the remote side, so a caller must not retry a non-idempotent command
+ * on this error alone.
+ */
+export class RequestTimeoutError extends Error {
+	override name = "RequestTimeoutError";
+	readonly cmd: string;
+	readonly timeoutMs: number;
+
+	constructor(cmd: string, timeoutMs: number) {
+		super(`request ${cmd} timed out after ${timeoutMs} ms`);
+		this.cmd = cmd;
+		this.timeoutMs = timeoutMs;
+	}
+
+	/** Alias for `timeoutMs`, for callers that only need the deadline. */
+	get timeout(): number {
+		return this.timeoutMs;
+	}
+}
+
 export type SendFunction = (bytes: Uint8Array) => void | Promise<void>;
+
+export interface RequestOptions {
+	/**
+	 * Per-request deadline. `0` disables it. Defaults to
+	 * `PeerOptions.requestTimeoutMs` (60 s).
+	 */
+	timeoutMs?: number;
+}
+
+/**
+ * Default deadline for one request. Every caller-side command round trip is expected
+ * to complete well inside this: a forwarded crh-priv request already gives up after
+ * 30 s (`DefaultForwardRequestTimeout` in the Go agent), and no command waits for a
+ * human or for a whole task run — `local.request` answers `pending` immediately and
+ * task results arrive as events. A command that genuinely needs longer can pass
+ * `{ timeoutMs }` explicitly (or `0` to wait until close).
+ */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+
+/** Default cap on concurrently running inbound request handlers. */
+export const DEFAULT_MAX_CONCURRENT_REQUESTS = 64;
+
+/** Error code of a request refused because the inbound handler cap is reached. */
+export const REQUEST_BUSY_CODE = "busy";
+
+/** How many timed-out request ids are remembered to swallow their late responses. */
+const MAX_TIMED_OUT_IDS = 1024;
 
 export interface PeerOptions {
 	/** Send one encoded frame. May be async; failures close the connection. */
@@ -34,6 +84,18 @@ export interface PeerOptions {
 	negotiated: Iterable<string>;
 	/** Reports a throwing event handler; the caller should close the connection. */
 	onError?: (error: Error) => void;
+	/**
+	 * Deadline for a request that does not pass its own. `0` disables timeout
+	 * tracking. Defaults to {@link DEFAULT_REQUEST_TIMEOUT_MS}.
+	 */
+	requestTimeoutMs?: number;
+	/**
+	 * Maximum inbound request handlers running at once. A request above the cap is
+	 * answered immediately with {@link REQUEST_BUSY_CODE} instead of running
+	 * its handler. `0` disables the limit. Events are not limited. Defaults to
+	 * {@link DEFAULT_MAX_CONCURRENT_REQUESTS}.
+	 */
+	maxConcurrentRequests?: number;
 }
 
 /**
@@ -68,6 +130,7 @@ interface PendingRequest {
 	readonly cmd: string;
 	readonly resolve: (body: unknown) => void;
 	readonly reject: (error: Error) => void;
+	timer: ReturnType<typeof setTimeout> | undefined;
 }
 
 type RequestHandler = (body: unknown) => unknown;
@@ -92,8 +155,18 @@ export class Peer {
 	readonly negotiated: ReadonlySet<string>;
 	readonly #sendFn: SendFunction;
 	readonly #onError: ((error: Error) => void) | undefined;
+	readonly #requestTimeoutMs: number;
+	readonly #maxConcurrentRequests: number;
+	#activeRequests = 0;
 	#nextId = 1;
 	readonly #pending = new Map<number, PendingRequest>();
+	/**
+	 * Ids whose request timed out. Their response may still be on the wire; it is
+	 * dropped instead of being treated as an unknown response id (a fatal protocol
+	 * error). Bounded: after many timeouts the oldest tombstone is forgotten, and a
+	 * response that arrives that much later is a protocol error again.
+	 */
+	readonly #timedOut = new Set<number>();
 	readonly #requestHandlers = new Map<string, RequestHandler>();
 	readonly #eventHandlers = new Map<string, EventHandler>();
 	#closed = false;
@@ -103,30 +176,54 @@ export class Peer {
 		this.#sendFn = options.send;
 		this.#onError = options.onError;
 		this.negotiated = new Set(options.negotiated);
+		this.#requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+		const max = options.maxConcurrentRequests ?? DEFAULT_MAX_CONCURRENT_REQUESTS;
+		this.#maxConcurrentRequests = max > 0 ? max : Number.POSITIVE_INFINITY;
 	}
 
 	/** Send a command and resolve with its success response body. */
-	request<C extends CommandName>(cmd: C, body: CommandRequest<C>): Promise<CommandResponse<C>> {
+	request<C extends CommandName>(
+		cmd: C,
+		body: CommandRequest<C>,
+		options: RequestOptions = {},
+	): Promise<CommandResponse<C>> {
 		if (this.#closed) return Promise.reject(new ConnectionError(this.#closeReason));
 		if (!this.negotiated.has(cmd)) {
 			return Promise.reject(new ProtocolError(`command not negotiated: ${cmd}`));
 		}
+		const timeoutMs = options.timeoutMs ?? this.#requestTimeoutMs;
 		const id = this.#nextId++;
 		return new Promise<CommandResponse<C>>((resolve, reject) => {
-			this.#pending.set(id, {
+			const pending: PendingRequest = {
 				cmd,
 				resolve: (value) => resolve(value as CommandResponse<C>),
 				reject,
-			});
+				timer: undefined,
+			};
+			this.#pending.set(id, pending);
+			if (timeoutMs > 0) {
+				const timer = setTimeout(() => {
+					if (!this.#pending.delete(id)) return;
+					pending.timer = undefined;
+					this.#rememberTimedOut(id);
+					reject(new RequestTimeoutError(cmd, timeoutMs));
+				}, timeoutMs);
+				// A request alone must not keep the process alive.
+				(timer as { unref?: () => void }).unref?.();
+				pending.timer = timer;
+			}
 			try {
 				const sent = this.#sendFn(encodeFrame({ kind: "request", id, cmd, body }));
 				if (isPromiseLike(sent)) {
 					Promise.resolve(sent).catch((err) => {
-						if (this.#pending.delete(id)) reject(toError(err));
+						if (this.#pending.delete(id)) {
+							this.#clearTimer(pending);
+							reject(toError(err));
+						}
 					});
 				}
 			} catch (err) {
-				this.#pending.delete(id);
+				if (this.#pending.delete(id)) this.#clearTimer(pending);
 				reject(toError(err));
 			}
 		});
@@ -181,8 +278,25 @@ export class Peer {
 		this.#closed = true;
 		this.#closeReason = reason;
 		const error = new ConnectionError(reason);
-		for (const pending of this.#pending.values()) pending.reject(error);
+		for (const pending of this.#pending.values()) {
+			this.#clearTimer(pending);
+			pending.reject(error);
+		}
 		this.#pending.clear();
+		this.#timedOut.clear();
+	}
+
+	#clearTimer(pending: PendingRequest): void {
+		if (pending.timer === undefined) return;
+		clearTimeout(pending.timer);
+		pending.timer = undefined;
+	}
+
+	#rememberTimedOut(id: number): void {
+		this.#timedOut.add(id);
+		if (this.#timedOut.size <= MAX_TIMED_OUT_IDS) return;
+		const oldest = this.#timedOut.values().next().value;
+		if (oldest !== undefined) this.#timedOut.delete(oldest);
 	}
 
 	#dispatchRequest(id: number, cmd: string, body: unknown): void {
@@ -191,30 +305,49 @@ export class Peer {
 			this.#replyError(id, cmd, "unsupported_command", `unsupported command: ${cmd}`);
 			return;
 		}
+		if (this.#activeRequests >= this.#maxConcurrentRequests) {
+			// Refuse before running the handler instead of queueing: the sender learns the
+			// request was not accepted and may retry, and its request timeout stays short.
+			this.#replyError(id, cmd, REQUEST_BUSY_CODE, "too many concurrent requests");
+			return;
+		}
+		this.#activeRequests += 1;
+		let released = false;
+		const release = (): void => {
+			if (released) return;
+			released = true;
+			this.#activeRequests -= 1;
+		};
 		let result: unknown;
 		try {
 			result = handler(body);
 		} catch (err) {
-			this.#replyHandlerError(id, cmd, err);
+			this.#replyHandlerError(id, cmd, err, release);
 			return;
 		}
 		if (isPromiseLike(result)) {
 			Promise.resolve(result).then(
-				(response) => this.#replyResult(id, cmd, response),
-				(err) => this.#replyHandlerError(id, cmd, err),
+				(response) => this.#replyResult(id, cmd, response, release),
+				(err) => this.#replyHandlerError(id, cmd, err, release),
 			);
 		} else {
-			this.#replyResult(id, cmd, result);
+			this.#replyResult(id, cmd, result, release);
 		}
 	}
 
 	#dispatchResponse(frame: Extract<Frame, { kind: "response" }>): void {
 		const pending = this.#pending.get(frame.id);
-		if (pending === undefined) throw new ProtocolError(`unknown response id: ${frame.id}`);
+		if (pending === undefined) {
+			// A response that lost the race against its request's timeout is benign: the
+			// caller already got RequestTimeoutError. Any other unknown id is a protocol error.
+			if (this.#timedOut.delete(frame.id)) return;
+			throw new ProtocolError(`unknown response id: ${frame.id}`);
+		}
 		if (pending.cmd !== frame.cmd) {
 			throw new ProtocolError(`response cmd mismatch for id ${frame.id}: expected ${pending.cmd}, got ${frame.cmd}`);
 		}
 		this.#pending.delete(frame.id);
+		this.#clearTimer(pending);
 		if (frame.ok) {
 			pending.resolve(frame.body);
 		} else {
@@ -240,16 +373,16 @@ export class Peer {
 		this.#onError?.(toError(error));
 	}
 
-	#replyResult(id: number, cmd: string, result: unknown): void {
+	#replyResult(id: number, cmd: string, result: unknown, done: () => void): void {
 		if (result instanceof AfterResponse) {
-			this.#replyOkAfter(id, cmd, result.body, result.after);
+			this.#replyOkAfter(id, cmd, result.body, result.after, done);
 		} else {
-			this.#replyOk(id, cmd, result);
+			this.#replyOk(id, cmd, result, done);
 		}
 	}
 
-	#replyOk(id: number, cmd: string, body: unknown): void {
-		this.#replySuccess(id, cmd, body);
+	#replyOk(id: number, cmd: string, body: unknown, done: () => void): void {
+		this.#replySuccess(id, cmd, body, undefined, done);
 	}
 
 	/**
@@ -258,35 +391,41 @@ export class Peer {
 	 * send fails; if the success body cannot be encoded, answer with
 	 * `internal_error` instead and do not run `after`.
 	 */
-	#replyOkAfter(id: number, cmd: string, body: unknown, after: () => void): void {
-		this.#replySuccess(id, cmd, body, after);
+	#replyOkAfter(id: number, cmd: string, body: unknown, after: () => void, done: () => void): void {
+		this.#replySuccess(id, cmd, body, after, done);
 	}
 
-	#replySuccess(id: number, cmd: string, body: unknown, after?: () => void): void {
-		if (this.#closed) return;
+	#replySuccess(id: number, cmd: string, body: unknown, after: (() => void) | undefined, done: () => void): void {
+		if (this.#closed) {
+			done();
+			return;
+		}
 		let bytes: Uint8Array;
 		try {
 			bytes = encodeFrame({ kind: "response", id, cmd, ok: true, body });
 		} catch (err) {
-			this.#replyError(id, cmd, "internal_error", err instanceof Error ? err.message : String(err));
+			this.#replyError(id, cmd, "internal_error", err instanceof Error ? err.message : String(err), done);
 			return;
 		}
 		let sent: void | Promise<void>;
 		try {
 			sent = this.#sendFn(bytes);
 		} catch {
+			done();
 			return;
 		}
 		if (isPromiseLike(sent)) {
 			Promise.resolve(sent).then(
 				() => {
 					this.#runAfter(after);
+					done();
 				},
-				() => {},
+				() => done(),
 			);
 			return;
 		}
 		this.#runAfter(after);
+		done();
 	}
 
 	/** A throwing after-response hook is a handler bug: report it, never throw out of receive(). */
@@ -299,23 +438,26 @@ export class Peer {
 		}
 	}
 
-	#replyError(id: number, cmd: string, code: string, message: string): void {
-		this.#sendQuietly({ kind: "response", id, cmd, ok: false, error: { code, message: errorMessage(message) } });
+	#replyError(id: number, cmd: string, code: string, message: string, done?: () => void): void {
+		this.#sendQuietly({ kind: "response", id, cmd, ok: false, error: { code, message: errorMessage(message) } }, done);
 	}
 
-	#replyHandlerError(id: number, cmd: string, err: unknown): void {
+	#replyHandlerError(id: number, cmd: string, err: unknown, done: () => void): void {
 		if (err instanceof RemoteError) {
-			this.#replyError(id, cmd, err.code, err.message);
+			this.#replyError(id, cmd, err.code, err.message, done);
 			return;
 		}
 		// Any other exception may carry SQL, paths or other server internals: log it locally and answer with a
 		// generic code. A handler that wants a specific refusal must throw RemoteError.
 		console.error(`peer: handler for ${cmd} failed:`, err);
-		this.#replyError(id, cmd, "internal_error", "internal server error");
+		this.#replyError(id, cmd, "internal_error", "internal server error", done);
 	}
 
-	#sendQuietly(frame: Frame): void {
-		if (this.#closed) return;
+	#sendQuietly(frame: Frame, done?: () => void): void {
+		if (this.#closed) {
+			done?.();
+			return;
+		}
 		let bytes: Uint8Array;
 		try {
 			bytes = encodeFrame(frame);
@@ -323,13 +465,22 @@ export class Peer {
 			// An error response that cannot be encoded is a bug: close the connection rather
 			// than leaving the remote request pending forever.
 			this.#onError?.(toError(err));
+			done?.();
 			return;
 		}
 		try {
 			const sent = this.#sendFn(bytes);
-			if (isPromiseLike(sent)) Promise.resolve(sent).catch(() => {});
+			if (isPromiseLike(sent)) {
+				Promise.resolve(sent).then(
+					() => done?.(),
+					() => done?.(),
+				);
+			} else {
+				done?.();
+			}
 		} catch {
 			// A transport failure is reported by close(); nothing more to do here.
+			done?.();
 		}
 	}
 }

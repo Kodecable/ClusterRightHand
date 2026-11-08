@@ -3,7 +3,14 @@
  * the input a waiting task keeps on its row, and the one send of task.start with its input chunks that
  * the plain and the authorized dispatch share.
  */
-import { ConnectionError, ProtocolError, RemoteError, type TaskSpec, type TaskStart } from "@crh/protocol";
+import {
+	ConnectionError,
+	ProtocolError,
+	RemoteError,
+	RequestTimeoutError,
+	type TaskSpec,
+	type TaskStart,
+} from "@crh/protocol";
 import type { Selectable, Updateable } from "kysely";
 import type { TasksTable } from "../storage/schema.ts";
 import type { NodeConnection } from "./connection.ts";
@@ -119,6 +126,12 @@ export async function sendTaskStart(
 	} catch (err) {
 		if (err instanceof ConnectionError) {
 			// The task stays dispatched; the grace timer reports dispatch_unconfirmed, never a retry.
+			return;
+		}
+		if (err instanceof RequestTimeoutError) {
+			// The request left, but its answer was lost. The task may have been accepted: never resend.
+			// Closing starts the grace timer, which reports dispatch_unconfirmed.
+			link.conn.close("task.start timed out");
 			return;
 		}
 		if (err instanceof RemoteError) {
