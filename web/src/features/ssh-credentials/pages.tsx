@@ -1,3 +1,4 @@
+import type { SshCredential } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { LockKeyholeIcon, PlusIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import { Fragment, useId, useMemo, useState } from "react";
@@ -18,7 +19,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/features/auth/session";
 import { errorMessage } from "@/lib/api/client";
-import type { SshCredential } from "@/lib/api/types";
 import { useCreateSshCredential, useDeleteSshCredential, useSshCredentials } from "./api";
 
 /** The public key as one truncated line; the full authorized_keys line is in the title and the copy button. */

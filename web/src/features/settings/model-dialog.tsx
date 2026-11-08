@@ -1,3 +1,4 @@
+import type { CustomApi, ThinkingLevel } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
 import { ChevronRightIcon } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
@@ -18,7 +19,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import type { CustomApi, ThinkingLevel } from "@/lib/api/types";
 import {
 	type FormatLevelKind,
 	type ModelFormErrors,

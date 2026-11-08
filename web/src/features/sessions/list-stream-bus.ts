@@ -1,4 +1,4 @@
-import type { SessionListItem } from "@/lib/api/types";
+import type { SessionListItem } from "@crh/api";
 
 /**
  * The upserts of `GET /api/sessions/stream`, as a small broadcast for the rest

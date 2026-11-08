@@ -1,3 +1,4 @@
+import type { GranteeType } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { type ReactNode, useId, useMemo, useState } from "react";
 import { FieldShell } from "@/components/form";
@@ -5,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useDirectory } from "@/features/users/api";
-import type { GranteeType } from "@/lib/api/types";
 
 export interface ShareDraft<A extends string> {
 	granteeType: GranteeType;

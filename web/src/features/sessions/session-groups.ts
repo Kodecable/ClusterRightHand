@@ -1,4 +1,4 @@
-import type { SessionListItem } from "@/lib/api/types";
+import type { SessionListItem } from "@crh/api";
 
 /**
  * The session list's date groups (doc/webui.md#侧边列表): Today, Yesterday, Within 7 days, Within 30 days, then

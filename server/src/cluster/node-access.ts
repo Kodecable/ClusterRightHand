@@ -1,3 +1,4 @@
+import type { AccessTargetType, GranteeType, NodeAccess, NodeAccessGrant } from "@crh/api";
 import type { Selectable } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
@@ -12,26 +13,10 @@ import { newId } from "../util/id.ts";
  * groups, directly to the node or to a node group it is a member of. There is one level: see it and run tasks.
  */
 
-export type NodeAccess = "admin" | "granted";
+export type { AccessTargetType, GranteeType, NodeAccess, NodeAccessGrant };
 
 /** A grantee already has a grant on that target; the REST route maps it to 409. */
 export class DuplicateGrantError extends UserError {}
-export type GranteeType = "user" | "user_group";
-export type AccessTargetType = "node" | "node_group";
-
-export interface NodeAccessGrant {
-	id: string;
-	granteeType: GranteeType;
-	granteeId: string;
-	/** Username or user group name, for display; null when the grantee was deleted. */
-	granteeName: string | null;
-	targetType: AccessTargetType;
-	targetId: string;
-	/** Node or node group name, for display; null when the target was deleted. */
-	targetName: string | null;
-	createdAt: string;
-	createdByUserId: string;
-}
 
 /** The node and node-group ids a member reaches through direct and user-group grants. */
 async function grantedTargets(db: Db, userId: string): Promise<{ nodeIds: Set<string>; nodeGroupIds: Set<string> }> {

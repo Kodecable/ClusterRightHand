@@ -1,3 +1,4 @@
+import type { NodeGroup, NodeGroupRef } from "@crh/api";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { newId } from "../util/id.ts";
@@ -10,14 +11,7 @@ import { deleteGrantsForNodeGroup } from "./node-access.ts";
  * transaction. References elsewhere store the group's UUID; names are only input and display.
  */
 
-export interface NodeGroupRef {
-	id: string;
-	name: string;
-}
-
-export interface NodeGroup extends NodeGroupRef {
-	memberIds: string[];
-}
+export type { NodeGroup, NodeGroupRef };
 
 function toRef(row: { id: string; name: string }): NodeGroupRef {
 	return { id: row.id, name: row.name };

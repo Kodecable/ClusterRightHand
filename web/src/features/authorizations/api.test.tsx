@@ -1,9 +1,9 @@
+import type { ApprovalList } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { approvalKeys } from "@/features/approvals/api";
 import { taskKeys } from "@/features/tasks/api";
-import type { ApprovalList } from "@/lib/api/types";
 import { authorizationKeys, useSubmitAuthorization } from "./api";
 
 const APPROVALS: ApprovalList = {

@@ -1,7 +1,7 @@
+import type { TaskGroupView, TaskRequest } from "@crh/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { taskKeys } from "@/features/tasks/api";
 import { http } from "@/lib/api/client";
-import type { TaskGroupView, TaskRequest } from "@/lib/api/types";
 
 export interface CreateBatchInput extends TaskRequest {
 	targets: string[];

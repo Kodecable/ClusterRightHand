@@ -147,7 +147,7 @@ export class Reviewer {
 		operation: string,
 		sessionId: string | undefined,
 	): Promise<{ outcome: ReviewOutcome; tokens: CallTokens }> {
-		const resolved = this.#models.models.getModel(model.provider, model.modelId);
+		const resolved = this.#models.getModel(model.provider, model.modelId);
 		const name = `${model.provider}/${model.modelId}`;
 		if (!resolved)
 			return {
@@ -163,7 +163,7 @@ export class Reviewer {
 			const providerSessionId = sessionId ? this.#models.providerSessionIdFor(sessionId) : undefined;
 			const providerRequestId = providerSessionId ?? sessionId;
 			const level = thinkingLevelOf(model);
-			const answer = await this.#models.models.completeSimple(resolved, request, {
+			const answer = await this.#models.completeSimple(resolved, request, {
 				...(providerRequestId ? { sessionId: providerRequestId } : {}),
 				// The review runs at the review model's thinking level; `off` is pi-ai's "no reasoning" option.
 				...(level === "off" ? {} : { reasoning: level }),

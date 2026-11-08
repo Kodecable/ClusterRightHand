@@ -1,3 +1,4 @@
+import type { ApprovalList, QuotaApproval } from "@crh/api";
 import { type Context, Hono } from "hono";
 import { type Audit, userActor } from "../audit/audit.ts";
 import type { ApprovalDecision, Cluster, TaskView } from "../cluster/cluster.ts";
@@ -9,17 +10,7 @@ import type { Db } from "../storage/db.ts";
 import { defaultOrgId, UserError } from "../users/service.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 
-/** A root whose quota is used up, waiting for its owner (doc/agent-runtime.md#配额). */
-interface QuotaRequest {
-	sessionId: string;
-	levelId: string;
-	title: string | null;
-	since: string;
-	/** The level's remaining budget; zero or negative (D92, D101). */
-	budgetRemaining: number;
-	/** The budget measure spent by the tree, for the summary line. */
-	budgetUsedTokens: number;
-}
+type QuotaRequest = QuotaApproval;
 
 /** After any rule change: settle what no longer needs approval. */
 export async function reevaluateAfterRuleChange(cluster: Cluster, taskGroups: TaskGroups, ref: RuleRef): Promise<void> {
@@ -40,12 +31,13 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		const quotas = await quotaRequests(db, user.userId);
 		const signatureTasks = await taskViews(cluster, signatureRows.tasks);
 		const signatureTaskGroups = await taskGroupViews(taskGroups, signatureRows.taskGroups);
-		return c.json({
+		const body: ApprovalList = {
 			tasks,
 			taskGroups: approvalTaskGroups,
 			authorizations: { tasks: signatureTasks, taskGroups: signatureTaskGroups },
 			quotas,
-		});
+		};
+		return c.json(body);
 	});
 
 	/**

@@ -1,3 +1,4 @@
+import type { SessionChildrenSummary, SessionListItem } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { ChevronDownIcon, ChevronRightIcon, UsersIcon } from "lucide-react";
@@ -8,7 +9,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { flattenCursorPages } from "@/lib/api/query";
-import type { SessionChildrenSummary, SessionListItem } from "@/lib/api/types";
 import { type SessionChildrenQuery, useSessionTreeChildren } from "./api";
 import { sessionTitle } from "./session-item";
 

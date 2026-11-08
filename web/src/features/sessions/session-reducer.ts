@@ -1,15 +1,16 @@
 /**
- * Client state of one agent session, as a pure reducer over pi-durable "agent events" (the `events` SSE batches).
- * The first event of every connection is a `snapshot`, which replaces everything.
+ * Client state of one agent session, as a pure reducer over the server's `events` SSE batches
+ * (the `@crh/api` session events). The first event of every connection is a `snapshot`, which replaces
+ * everything.
  */
 
 import type {
-	AgentEvent,
 	EntryRecord,
 	Json,
 	JsonObject,
 	Message,
 	MessageChange,
+	SessionEvent,
 	TextBlock,
 	ThinkingBlock,
 	ToolCallBlock,
@@ -246,13 +247,13 @@ function liveTool(state: SessionState, callId: string, name: string): LiveTool {
 	return state.tools[callId] ?? { callId, name, status: "pending", output: "", detailsKey: "" };
 }
 
-export function reduce(state: SessionState, event: AgentEvent): SessionState {
+export function reduce(state: SessionState, event: SessionEvent): SessionState {
 	switch (event.type) {
 		case "snapshot": {
-			if ("snapshot" in event) return reduce(state, { ...event.snapshot, type: "snapshot" });
-			const snapshotEntries = mergeSnapshotEntries(state.entries, event.entries);
+			const { snapshot } = event;
+			const snapshotEntries = mergeSnapshotEntries(state.entries, snapshot.entries);
 			const tools: Record<string, LiveTool> = {};
-			for (const t of event.tools) {
+			for (const t of snapshot.tools) {
 				tools[t.callId] = {
 					callId: t.callId,
 					name: t.name,
@@ -262,7 +263,7 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 					detailsKey: detailsKeyOf(t.details),
 				};
 			}
-			const streaming = asAssistant(event.generation?.message);
+			const streaming = asAssistant(snapshot.generation?.message);
 			// The counter never resets: a reconnect snapshot can carry another
 			// generation, and its rows must not inherit a finished message's store.
 			const live = streaming === undefined ? undefined : nextLiveKey(state);
@@ -274,15 +275,15 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 				liveCount: live?.liveCount ?? state.liveCount,
 				streamedKeys: {},
 				tools,
-				running: event.run !== undefined,
-				compactions: (event.compactions ?? []).map((c) => ({ taskId: String(c.taskId), reason: c.reason })),
-				queued: event.inbox.length,
-				retry: event.generation?.retry?.error,
+				running: snapshot.run !== undefined,
+				compactions: (snapshot.compactions ?? []).map((c) => ({ taskId: String(c.taskId), reason: c.reason })),
+				queued: snapshot.inbox.length,
+				retry: snapshot.generation?.retry?.error,
 				failure: undefined,
-				usage: event.usage,
+				usage: snapshot.usage,
 				// Older pages that were kept already end before the snapshot's page,
 				// so the cursor that follows them is still the previous one.
-				historyCursor: snapshotEntries.keptOlder ? state.historyCursor : (event.historyCursor ?? null),
+				historyCursor: snapshotEntries.keptOlder ? state.historyCursor : (snapshot.historyCursor ?? null),
 			};
 		}
 		case "run_start":
@@ -380,7 +381,7 @@ export function reduce(state: SessionState, event: AgentEvent): SessionState {
 	}
 }
 
-export function reduceAll(state: SessionState, events: readonly AgentEvent[]): SessionState {
+export function reduceAll(state: SessionState, events: readonly SessionEvent[]): SessionState {
 	return events.reduce(reduce, state);
 }
 

@@ -135,13 +135,12 @@ export const TITLE_TIMEOUT_MS = 180_000;
  * hint for an overlapping trigger; every check is repeated from the database.
  */
 export function maybeGenerateTitle(host: RuntimeHost, sessionId: string, submissionId: string): void {
-	if (host.titleGenerating.has(sessionId)) return;
-	host.titleGenerating.add(sessionId);
+	if (!host.sessionFlags.beginTitle(sessionId)) return;
 	void generateTitle(host, sessionId, submissionId)
 		.catch((err: unknown) => {
 			if (!host.closing()) console.error(`title generation: session ${sessionId} failed:`, err);
 		})
-		.finally(() => host.titleGenerating.delete(sessionId));
+		.finally(() => host.sessionFlags.endTitle(sessionId));
 }
 
 async function generateTitle(host: RuntimeHost, sessionId: string, submissionId: string): Promise<void> {
@@ -189,7 +188,7 @@ async function generateTitle(host: RuntimeHost, sessionId: string, submissionId:
 
 	const preset = host.modelPresets.get("title");
 	const ref = preset.model ?? (JSON.parse(row.model) as ModelRef);
-	const resolved = host.models.models.getModel(ref.provider, ref.modelId);
+	const resolved = host.models.getModel(ref.provider, ref.modelId);
 	if (!resolved) {
 		console.error(`title generation: model ${ref.provider}/${ref.modelId} is not configured`);
 		return;
@@ -205,7 +204,7 @@ async function generateTitle(host: RuntimeHost, sessionId: string, submissionId:
 	];
 	const { level, maxTokens } = titleThinking(resolved);
 	const providerSessionId = host.models.providerSessionIdFor(sessionId);
-	const answer = await host.models.models.completeSimple(
+	const answer = await host.models.completeSimple(
 		resolved,
 		{ systemPrompt, messages },
 		{

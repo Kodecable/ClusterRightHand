@@ -1,3 +1,4 @@
+import type { TaskGroupView } from "@crh/api";
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
@@ -11,7 +12,6 @@ import { Badge } from "@/components/ui/badge";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
 import { useAuth } from "@/features/auth/session";
 import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
-import type { TaskGroupView } from "@/lib/api/types";
 
 const GROUP_STATES: Record<string, MessageDescriptor> = {
 	awaiting_approval: msg`Awaiting approval`,

@@ -1,6 +1,6 @@
+import type { SessionListItem, SessionWaitingKind } from "@crh/api";
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
-import type { SessionListItem, SessionWaitingKind } from "@/lib/api/types";
 
 /** The label of the wait behind `waitingKind`, or undefined for a non-waiting row. */
 export function waitingKindLabel(kind: SessionWaitingKind | null): MessageDescriptor | undefined {

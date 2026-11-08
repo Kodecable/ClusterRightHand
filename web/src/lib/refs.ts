@@ -1,4 +1,4 @@
-import type { RefMap, Rule } from "@/lib/api/types";
+import type { RefMap, Rule } from "@crh/api";
 import { ALL_TARGET } from "@/lib/names";
 
 /**

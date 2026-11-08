@@ -1,13 +1,14 @@
+import type { AvailableModel, ModelPreset } from "@crh/api";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { AvailableModel, ModelPreset } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
 import { ModelPresetsSection } from "./model-presets";
 
 const MODELS: AvailableModel[] = [
 	{
 		provider: "faux",
+		providerName: "faux",
 		modelId: "one",
 		name: "Faux One",
 		contextWindow: 128_000,
@@ -17,6 +18,7 @@ const MODELS: AvailableModel[] = [
 	},
 	{
 		provider: "faux",
+		providerName: "faux",
 		modelId: "plain",
 		name: "Faux Plain",
 		contextWindow: 32_000,

@@ -3,20 +3,18 @@ import { type ConversationId, createRegistry, Harness, UsageDoc } from "@earendi
 import type { SessionUser } from "../auth/sessions.ts";
 import type { RulePreset } from "../policy/rules.ts";
 import { clusterExtension } from "./extension.ts";
-import { meteredModels } from "./metering.ts";
 import { ModelPresets } from "./model-presets.ts";
 import type { ModelRef } from "./models.ts";
 import { Reviewer } from "./review.ts";
-import type {
-	AgentRuntimeOptions,
-	Inbox,
-	RuntimeHost,
-	SessionEvent,
-	SessionInfo,
-	SessionView,
-} from "./runtime-core.ts";
+import type { AgentRuntimeOptions, RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runtime-core.ts";
+import { HandlerWakes } from "./runtime-host/handler-wakes.ts";
+import { Inboxes } from "./runtime-host/inboxes.ts";
+import { QuotaWaits } from "./runtime-host/quota-waits.ts";
+import { SessionCaches } from "./runtime-host/session-caches.ts";
+import { SessionFlags } from "./runtime-host/session-flags.ts";
+import { StateRefreshes } from "./runtime-host/state-refreshes.ts";
 import { chargeCompaction, decideRootQuota, rememberProviderSession, waitForQuota } from "./runtime-quota.ts";
-import { decideAgentRequest, invalidateInboxes, pendingAgentRequests, routeAwaiting } from "./runtime-requests.ts";
+import { decideAgentRequest, pendingAgentRequests, routeAwaiting } from "./runtime-requests.ts";
 import {
 	abort,
 	type CreateSessionWithMessageInput,
@@ -54,8 +52,10 @@ import { backfillUsageTokens } from "./usage-backfill.ts";
 import { wakePendingAgents } from "./wakes.ts";
 
 /**
- * The agent runtime behind our own interface (doc/agent-runtime.md#agentruntime-抽象): pi-durable types do not
- * leave the runtime modules. One Harness over one Storage holds every session as a conversation.
+ * The agent runtime behind our own interface (doc/agent-runtime.md#agentruntime-抽象). In server/src, pi packages
+ * are used only inside this directory and the storage adapters in server/src/storage/; the WebUI receives crh's
+ * own types from `@crh/api`, converted in session-events.ts, and test/pi-boundary.test.ts keeps every other src
+ * import out. One Harness over one Storage holds every session as a conversation.
  *
  * This is the facade: the public API the rest of the server calls, delegating to the modules that each own one
  * concern — session lifecycle (runtime-sessions), run state and reconciliation (runtime-state), submissions
@@ -97,30 +97,19 @@ export class AgentRuntime {
 			modelPresets: presets,
 			harness: () => this.#harness,
 			closing: () => this.#closing,
-			stopping: new Set(),
-			sessionsByConversation: new Map(),
-			subagentParents: new Set(),
-			inboxes: new Map<string, Inbox>(),
-			quotaWaiters: new Map(),
-			refreshes: new Map(),
-			deniedWaits: new Set(),
-			providerSessions: new Map(),
-			learnedProviders: new Set(),
-			pendingWakes: new Map(),
-			idleWatchers: new Set(),
-			titleGenerating: new Set(),
+			sessionCaches: new SessionCaches(),
+			refreshes: new StateRefreshes(),
+			inboxes: new Inboxes(),
+			quotaWaits: new QuotaWaits(),
+			wakes: new HandlerWakes(),
+			sessionFlags: new SessionFlags(),
 		};
 		// Custom providers fill their session id fields from the crh session id, not durable's provider id
 		// (doc/agent-runtime.md#自定义提供方). Auto Review asks for the reverse: the provider session id of
 		// the session whose task it judges.
 		options.models.setSessionResolver(
-			(providerSessionId) => this.#host.providerSessions.get(providerSessionId),
-			(sessionId) => {
-				for (const [providerSessionId, mapped] of this.#host.providerSessions) {
-					if (mapped === sessionId) return providerSessionId;
-				}
-				return undefined;
-			},
+			(providerSessionId) => this.#host.sessionCaches.providerSessionOf(providerSessionId),
+			(sessionId) => this.#host.sessionCaches.providerSessionIdFor(sessionId),
 		);
 	}
 
@@ -136,7 +125,7 @@ export class AgentRuntime {
 			storage,
 			{
 				// Compaction's summarization is metered here; Auto Review charges itself (doc/agent-runtime.md#配额).
-				models: meteredModels(options.models.models, async (providerSessionId, message, context) => {
+				models: options.models.metered(async (providerSessionId, message, context) => {
 					await ref.current?.chargeCompaction(providerSessionId, message, context);
 				}),
 				registry,
@@ -181,7 +170,7 @@ export class AgentRuntime {
 		};
 		// The cluster owns the durable approval rows; refresh the actor's cached state and request lists.
 		const approvalChanged = (actorId: string) => {
-			invalidateInboxes(runtime.#host);
+			runtime.#host.inboxes.clear();
 			void runtime.refreshState(actorId).catch((err: unknown) => {
 				console.error("agent runtime: refreshing a subagent after an approval change failed:", err);
 			});
@@ -214,7 +203,7 @@ export class AgentRuntime {
 				try {
 					this.#harness = await AgentRuntime.#openHarness(this.#options, this.#runtimeRef, this.modelPresets);
 					this.#harness.resume();
-					invalidateInboxes(this.#host);
+					this.#host.inboxes.clear();
 					this.reopened++;
 				} catch (err) {
 					console.error("agent runtime: reopening failed:", err);

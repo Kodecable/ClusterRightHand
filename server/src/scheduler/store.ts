@@ -1,3 +1,4 @@
+import type { ScheduleInput, ScheduleRunView } from "@crh/api";
 import { Cron } from "croner";
 import { type Selectable, sql } from "kysely";
 import type { ModelRef } from "../agent/models.ts";
@@ -34,18 +35,7 @@ export interface Schedule {
 	updatedAt: string;
 }
 
-export interface ScheduleRun {
-	id: string;
-	scheduleId: string;
-	fireTime: string;
-	manual: boolean;
-	status: ScheduleRunsTable["status"];
-	sessionId: string | null;
-	reason: string | null;
-	createdAt: string;
-	startedAt: string | null;
-	finishedAt: string | null;
-}
+export type ScheduleRun = ScheduleRunView;
 
 /** How late a due trigger may be and still count as that trigger (doc/scheduling.md#调度). */
 export const MISSED_TOLERANCE_MS = 60_000;
@@ -141,17 +131,7 @@ export function lastRunAtOrBefore(cron: string, timezone: string, at: Date): Dat
 }
 
 /** Fields a user may set; the API validates them before they reach here. */
-export interface ScheduleInput {
-	name: string;
-	prompt: string;
-	model: ModelRef;
-	rulePreset: RulePreset;
-	tokenBudget: number | null;
-	cron: string;
-	timezone: string;
-	catchUp: boolean;
-	enabled: boolean;
-}
+export type { ScheduleInput };
 
 function validName(name: string): string {
 	const trimmed = name.trim();

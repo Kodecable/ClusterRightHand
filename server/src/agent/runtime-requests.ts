@@ -2,12 +2,12 @@ import { type ApprovalRecord, summarize } from "../cluster/cluster.ts";
 import type { TaskGroupApprovalRecord } from "../cluster/task-groups.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { awaitingQuotaChildren, grantQuota } from "./quota.ts";
-import type { AgentRequestView, Inbox, RuntimeHost } from "./runtime-core.ts";
-import { notifyQuotaWaiters } from "./runtime-quota.ts";
+import type { AgentRequestView, RuntimeHost } from "./runtime-core.ts";
+import type { Inbox } from "./runtime-host/inboxes.ts";
 import { refreshState } from "./runtime-state.ts";
 import { parentOf, sessionAncestors } from "./session-chain.ts";
 import { markSessionsIdle } from "./session-state.ts";
-import { dropWake, dropWakePrefix, wakeParent } from "./wakes.ts";
+import { wakeParent } from "./wakes.ts";
 
 /**
  * Requests waiting for one session's agent (doc/agent-runtime.md#处理子会话的请求): a cache over the durable
@@ -39,12 +39,7 @@ export async function pendingAgentRequests(host: RuntimeHost, sessionId: string)
 }
 
 function inboxOf(host: RuntimeHost, handlerId: string): Inbox {
-	let inbox = host.inboxes.get(handlerId);
-	if (!inbox) {
-		inbox = { requests: new Map(), loaded: false, waiters: new Set() };
-		host.inboxes.set(handlerId, inbox);
-	}
-	return inbox;
+	return host.inboxes.inbox(handlerId);
 }
 
 async function ensureInbox(host: RuntimeHost, handlerId: string): Promise<Inbox> {
@@ -53,9 +48,8 @@ async function ensureInbox(host: RuntimeHost, handlerId: string): Promise<Inbox>
 		if (inbox.loaded) return inbox;
 		const requests = await queryRequests(host, handlerId);
 		// An approval change during the read deleted the entry; load the replacement instead of caching stale data.
-		if (host.inboxes.get(handlerId) !== inbox) continue;
-		inbox.requests = new Map(requests.map((request) => [requestKey(request), request]));
-		inbox.loaded = true;
+		if (host.inboxes.current(handlerId) !== inbox) continue;
+		host.inboxes.load(inbox, new Map(requests.map((request) => [requestKey(request), request])));
 		return inbox;
 	}
 }
@@ -109,20 +103,6 @@ async function queryRequests(host: RuntimeHost, handlerId: string): Promise<Agen
 	return out;
 }
 
-/** Forgets one handler's request cache; waiters are woken before the entry disappears. */
-export function forgetInbox(host: RuntimeHost, handlerId: string): void {
-	const inbox = host.inboxes.get(handlerId);
-	if (!inbox) return;
-	for (const wake of inbox.waiters) wake();
-	inbox.waiters.clear();
-	host.inboxes.delete(handlerId);
-}
-
-/** Drops cached request lists and wakes `waitSubagent`; the cluster calls this on any approval change. */
-export function invalidateInboxes(host: RuntimeHost): void {
-	for (const handlerId of [...host.inboxes.keys()]) forgetInbox(host, handlerId);
-}
-
 /** Resolves with the handler's next pending requests; no polling (the inbox notifies it). */
 export async function nextRequests(
 	host: RuntimeHost,
@@ -135,7 +115,7 @@ export async function nextRequests(
 		let resolve!: () => void;
 		const changed = new Promise<void>((r) => {
 			resolve = r;
-			inbox.waiters.add(r);
+			host.inboxes.addWaiter(inbox, r);
 		});
 		let onAbort: (() => void) | undefined;
 		const aborted = new Promise<"aborted">((r) => {
@@ -149,7 +129,7 @@ export async function nextRequests(
 			const outcome = await Promise.race([changed.then(() => "changed" as const), aborted]);
 			if (outcome === "aborted") throw new Error("aborted");
 		} finally {
-			inbox.waiters.delete(resolve);
+			host.inboxes.removeWaiter(inbox, resolve);
 			if (onAbort) signal.removeEventListener("abort", onAbort);
 		}
 	}
@@ -194,7 +174,7 @@ export async function decideAgentRequest(
 			});
 			if (!ok) throw new UserError("the request is no longer waiting");
 		}
-		dropWake(host, sessionId, `agent-request:task:${requestId}`);
+		host.wakes.drop(sessionId, `agent-request:task:${requestId}`);
 		await refreshState(host, task.actor_id);
 		return "task";
 	}
@@ -209,7 +189,7 @@ export async function decideAgentRequest(
 		}
 		if (decision === "deny") {
 			// A call paused right now is told by the in-memory mark, so it ends instead of waiting again.
-			if (host.quotaWaiters.get(requestId)?.size) host.deniedWaits.add(requestId);
+			if (host.quotaWaits.hasWaiters(requestId)) host.quotaWaits.markDenied(requestId);
 			await markSessionsIdle(host.db, [requestId]);
 		} else {
 			if (tokens === undefined) throw new UserError("give the quota wait tokens to grant");
@@ -223,9 +203,9 @@ export async function decideAgentRequest(
 			target: { type: "session", id: requestId },
 			detail: { level: levelId, ...(reason ? { reason } : {}), ...(tokens ? { tokens } : {}) },
 		});
-		dropWakePrefix(host, sessionId, `quota-request:${requestId}:`);
-		notifyQuotaWaiters(host);
-		invalidateInboxes(host);
+		host.wakes.dropPrefix(sessionId, `quota-request:${requestId}:`);
+		host.quotaWaits.wakeAll();
+		host.inboxes.clear();
 		// A denial already left the session idle; a grant lets the paused call resume and write `running` itself.
 		if (decision === "deny") await refreshState(host, requestId);
 		return "quota";
@@ -252,7 +232,7 @@ export async function decideAgentRequest(
 		});
 		if (!ok) throw new UserError("the request is no longer waiting");
 	}
-	dropWake(host, sessionId, `agent-request:task_group:${requestId}`);
+	host.wakes.drop(sessionId, `agent-request:task_group:${requestId}`);
 	await refreshState(host, group.actor_id);
 	return "task_group";
 }

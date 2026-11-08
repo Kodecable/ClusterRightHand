@@ -1,7 +1,7 @@
+import type { SessionListItem } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { SessionStatusDot } from "@/components/status-badge";
-import type { SessionListItem } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { sessionTitle, waitingKindLabel } from "./session-item";
 import { SessionMarkers } from "./session-markers";

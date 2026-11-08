@@ -1,3 +1,4 @@
+import type { GuardRule, NodeTrust, TrustEntry, TrustEntryKey } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
@@ -9,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useNodeGroups } from "@/features/node-groups/api";
 import { useNodeTrust } from "@/features/nodes/api";
-import type { GuardRule, NodeTrust, TrustEntry, TrustEntryKey } from "@/lib/api/types";
 import { formatDuration } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 
@@ -17,11 +17,11 @@ import { useLocale } from "@/lib/i18n";
 export function trustKeyText(key: TrustEntryKey): string {
 	switch (key.kind) {
 		case "sshsig":
-			return key.fingerprint ?? key.publicKey ?? "";
+			return key.fingerprint;
 		case "webauthn":
-			return key.rpId ?? "";
+			return key.rpId;
 		case "local":
-			return (key.uids ?? []).join(", ");
+			return key.uids.join(", ");
 	}
 }
 
@@ -86,9 +86,7 @@ function TrustRules({ entry }: { entry: TrustEntry }) {
 							mono: entry.deny.length > 0,
 						},
 						{ label: t`Environment`, value: entry.envAllow.join(", ") || "–", mono: true },
-						...(entry.key.publicKey !== undefined
-							? [{ label: t`Public key`, value: entry.key.publicKey, mono: true }]
-							: []),
+						...(entry.key.kind === "sshsig" ? [{ label: t`Public key`, value: entry.key.publicKey, mono: true }] : []),
 					]}
 				/>
 			</div>

@@ -1,3 +1,4 @@
+import type { AvailableModel, ModelRef } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
 import {
 	Select,
@@ -8,7 +9,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import type { AvailableModel, ModelRef } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 const SEPARATOR = "\u0000";
@@ -33,6 +33,7 @@ export function groupModels(models: AvailableModel[], current?: ModelRef): Map<s
 					...models,
 					{
 						...current,
+						providerName: current.provider,
 						name: current.modelId,
 						contextWindow: 0,
 						thinkingLevels: ["off"] as AvailableModel["thinkingLevels"],

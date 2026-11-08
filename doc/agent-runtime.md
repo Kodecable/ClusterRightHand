@@ -41,7 +41,7 @@ interface AgentRuntime {
 }
 ```
 
-实现为 `DurableAgentRuntime`。pi 的类型不越过这层接口；WebUI 收到的会话视图由我们自己的 `SessionView` 类型描述（v1 可以直接透传 durable 的视图结构，但要经过这层转换，以后才能替换）。
+实现为 `DurableAgentRuntime`。pi 的包只在 `server/src/agent/` 和 `server/src/storage/` 的存储适配器里直接使用；WebUI 收到的会话视图和事件由我们自己的 `@crh/api` 类型描述（`server/src/agent/session-events.ts` 逐字段转换）。`server/test/pi-boundary.test.ts` 扫描 `server/src`，这两个目录之外再 import `@earendil-works/*` 会失败。
 
 ## 存储
 

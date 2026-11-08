@@ -1,3 +1,4 @@
+import type { AvailableModel, ModelPreset, ModelRef, ThinkingLevel } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ChevronRightIcon } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -17,7 +18,6 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { AvailableModel, ModelPreset, ModelRef, ThinkingLevel } from "@/lib/api/types";
 import { availableModel, supportedThinkingLevels, withThinkingLevel } from "@/lib/thinking-level";
 import { useModelPresets, useModels, useSaveModelPreset } from "./api";
 

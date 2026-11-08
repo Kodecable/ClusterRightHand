@@ -1,10 +1,10 @@
+import type { NodeGroup } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { ChevronsUpDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { NodeGroup } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 /** Pick any number of existing node groups (a checkbox list in a popover). */

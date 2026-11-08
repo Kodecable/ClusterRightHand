@@ -1,3 +1,4 @@
+import type { NodeGroup, PublicNode } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -8,7 +9,6 @@ import { EmptyHint } from "@/components/empty-state";
 import { FieldShell } from "@/components/form";
 import { NodePicker } from "@/components/node-picker";
 import { Input } from "@/components/ui/input";
-import type { NodeGroup, PublicNode } from "@/lib/api/types";
 import { NAME_MAX, type NameProblem, nameProblem } from "@/lib/names";
 import { useCreateNodeGroup, useRenameNodeGroup, useSetNodeGroupMembers } from "./api";
 

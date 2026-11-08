@@ -1,3 +1,4 @@
+import type { AuthorizationSummary, DecodedAuthorizationPayload } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { RefreshCwIcon } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -9,7 +10,6 @@ import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { AuthorizationSummary, DecodedAuthorizationPayload } from "@/lib/api/types";
 import { useAuthorizations } from "./api";
 
 /** The command a payload authorizes, as one line. */

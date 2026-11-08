@@ -4,6 +4,7 @@
  * audits an actual change, and treats the kept report as stale until the next report.
  */
 import { createHash } from "node:crypto";
+import type { NodeTrust, TrustStatus } from "@crh/api";
 import {
 	encode as encodeCbor,
 	type GuardRule,
@@ -18,7 +19,7 @@ import type { Audit } from "../audit/audit.ts";
 import type { Db } from "../storage/db.ts";
 import type { NodeRow } from "./nodes.ts";
 
-export type TrustStatus = TrustReport["kind"];
+export type { TrustStatus };
 
 /** `digest = SHA-256(CBOR(TrustSummary))`, lowercase hex (doc/protocol.md#trustsummary). */
 export function trustDigest(summary: TrustSummary): string {
@@ -293,16 +294,7 @@ export function trustUnavailableMessage(report: TrustReport | null): string {
 	return "";
 }
 
-export interface NodeTrustView {
-	status: TrustStatus | null;
-	/** The `unavailable` message; null for the other reports. */
-	message: string | null;
-	digest: string | null;
-	updatedAt: string | null;
-	/** The last report is kept after a disconnect but is stale until the connection reports again. */
-	stale: boolean;
-	summary: TrustSummary | null;
-}
+export type NodeTrustView = NodeTrust;
 
 /** The trust panel of a node (doc/privilege.md#信任缓存). */
 export function trustView(row: NodeRow, fresh: boolean): NodeTrustView {

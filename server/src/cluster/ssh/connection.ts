@@ -1,15 +1,10 @@
 import { createHash } from "node:crypto";
 import type { Duplex } from "node:stream";
+import type { SshHop } from "@crh/api";
 import { Client, type ClientChannel, type ConnectConfig, type SFTPWrapper } from "ssh2";
 
 /** One SSH hop. The last hop of a route is the node itself. */
-export interface SshHop {
-	host: string;
-	port: number;
-	user: string;
-	/** Pinned host key fingerprint, "SHA256:<base64>" as OpenSSH prints it. Empty only while probing. */
-	hostKey: string;
-}
+export type { SshHop };
 
 export interface SshRoute {
 	hops: SshHop[];

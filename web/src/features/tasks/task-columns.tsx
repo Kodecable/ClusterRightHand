@@ -1,3 +1,4 @@
+import type { TaskView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
@@ -6,7 +7,6 @@ import { RelativeTime } from "@/components/relative-time";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeText } from "@/components/task-result";
 import { Badge } from "@/components/ui/badge";
-import type { TaskView } from "@/lib/api/types";
 import { taskActor } from "./actor";
 
 export interface TaskColumnOptions {

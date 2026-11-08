@@ -1,6 +1,6 @@
+import type { ApprovalBody, Evaluation, TaskGroupView, TaskView } from "@crh/api";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
-import type { ApprovalBody, Evaluation, TaskGroupView, TaskView } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
 import { ApprovalCard } from "./approval-card";
 

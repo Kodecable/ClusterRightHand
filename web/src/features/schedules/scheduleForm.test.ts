@@ -1,5 +1,5 @@
+import type { ScheduleRunView, ScheduleView } from "@crh/api";
 import { describe, expect, test } from "vitest";
-import type { ScheduleRunView, ScheduleView } from "@/lib/api/types";
 import {
 	defaultTimezone,
 	parseScheduleForm,

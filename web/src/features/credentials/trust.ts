@@ -1,4 +1,4 @@
-import type { CredentialView } from "@/lib/api/types";
+import type { CredentialView } from "@crh/api";
 
 /** A TOML basic string; the only characters that need escaping are the quote and the backslash. */
 export function tomlString(value: string): string {

@@ -1,3 +1,4 @@
+import type { ApiTokenView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { KeySquareIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -11,7 +12,6 @@ import { DateTime } from "@/components/relative-time";
 import { TokenStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { ApiTokenView } from "@/lib/api/types";
 import { rulePresetLabel } from "@/lib/rule-preset";
 import { useApiTokens, useDeleteApiToken, useRevokeApiToken } from "./api";
 import { CreateTokenDialog } from "./create-token-dialog";

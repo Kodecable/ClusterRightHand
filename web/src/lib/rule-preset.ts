@@ -1,5 +1,5 @@
+import type { RulePreset } from "@crh/api";
 import { type LucideIcon, ShieldAlertIcon, ShieldEllipsisIcon, ShieldQuestionMarkIcon } from "lucide-react";
-import type { RulePreset } from "@/lib/api/types";
 
 /**
  * The rule presets in menu order, under the product names the UI shows: the

@@ -1,8 +1,8 @@
+import type { TrustWarning, TrustWarningSeverity } from "@crh/api";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { CircleAlertIcon, InfoIcon, TriangleAlertIcon } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
-import type { TrustWarning, TrustWarningSeverity } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 const SEVERITY_STYLES: Record<TrustWarningSeverity, string> = {

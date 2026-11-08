@@ -1,3 +1,4 @@
+import type { RulePreset } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
@@ -14,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { RulePreset } from "@/lib/api/types";
 import { useCreateApiToken } from "./api";
 import { RulePresetHelp } from "./rule-preset-help";
 import { mcpCommand } from "./tokenStatus";

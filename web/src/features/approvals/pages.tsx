@@ -1,3 +1,4 @@
+import type { ApprovalBody, QuotaApproval, TaskGroupView, TaskView } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -13,7 +14,6 @@ import { TaskStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useDecideQuota } from "@/features/sessions/api";
-import type { ApprovalBody, QuotaApproval, TaskGroupView, TaskView } from "@/lib/api/types";
 import { useApprovalLookups, useApprovals, useApprovalTask, useApprovalTaskGroup, useDecideApproval } from "./api";
 import { pendingCount } from "./pending";
 

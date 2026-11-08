@@ -1,3 +1,4 @@
+import type { User, UserKind, UserStatus } from "@crh/api";
 import type { Selectable } from "kysely";
 import { hashPassword } from "../auth/password.ts";
 import type { Db } from "../storage/db.ts";
@@ -5,19 +6,10 @@ import { isPostgres } from "../storage/dialect.ts";
 import type { UsersTable } from "../storage/schema.ts";
 import { newId } from "../util/id.ts";
 
-export type UserKind = UsersTable["kind"];
-export type UserStatus = UsersTable["status"];
+export type { UserKind, UserStatus };
 
-/** The fields of a user that may leave the server. */
-export interface PublicUser {
-	id: string;
-	username: string;
-	displayName: string;
-	email: string | null;
-	kind: UserKind;
-	status: UserStatus;
-	createdAt: string;
-}
+/** The fields of a user that may leave the server; the API's `User`. */
+export type PublicUser = User;
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 export const MIN_PASSWORD_LENGTH = 8;

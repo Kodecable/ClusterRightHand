@@ -1,4 +1,4 @@
-import type { CursorPage, SessionListItem, SessionListScope } from "@/lib/api/types";
+import type { CursorPage, SessionListItem, SessionListScope } from "@crh/api";
 
 /**
  * The session-list SSE patch, as pure functions (doc/webui.md "会话列表实时推送"):

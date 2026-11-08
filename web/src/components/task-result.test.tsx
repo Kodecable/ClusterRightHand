@@ -1,6 +1,6 @@
+import type { TaskView } from "@crh/api";
 import { screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
-import type { TaskView } from "@/lib/api/types";
 import { renderWithRouter } from "@/test/render";
 import { TaskOutcomeText, TaskResult, TaskSummary } from "./task-result";
 
@@ -142,6 +142,8 @@ describe("TaskResult", () => {
 						payloadId: "p1",
 						attempt: 3,
 						trustDigest: null,
+						pending: null,
+						local: null,
 						lastRejection: null,
 						updatedAt: "2026-01-01T00:00:00.000Z",
 					},

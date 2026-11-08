@@ -1,7 +1,7 @@
+import type { ModelProviderView } from "@crh/api";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { ModelProviderView } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
 import { ModelSettingsPage } from "./pages";
 import { ProviderDialog } from "./provider-dialog";

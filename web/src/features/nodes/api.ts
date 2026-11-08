@@ -1,15 +1,7 @@
+import type { CrhsKey, NodeGroupRef, NodeTrust, PublicNode, SshNodeDetails, SshTargetInput, TaskView } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { nodeGroupKeys } from "@/features/node-groups/keys";
 import { enc, http } from "@/lib/api/client";
-import type {
-	CrhsKey,
-	NodeGroupRef,
-	NodeTrust,
-	PublicNode,
-	SshNodeDetails,
-	SshTargetBody,
-	TaskView,
-} from "@/lib/api/types";
 
 export const nodeKeys = {
 	all: ["nodes"] as const,
@@ -103,7 +95,7 @@ export function useEnrollmentToken() {
 /** Probes the route's next unpinned hop and returns the fingerprint the wizard shows for confirmation. */
 export function useProbeSshHost() {
 	return useMutation({
-		mutationFn: (body: SshTargetBody) => http.post<{ hop: number; fingerprint: string }>("/ssh-nodes/probe", body),
+		mutationFn: (body: SshTargetInput) => http.post<{ hop: number; fingerprint: string }>("/ssh-nodes/probe", body),
 	});
 }
 
@@ -111,7 +103,7 @@ export function useProbeSshHost() {
 export function useCreateSshNode() {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: (body: SshTargetBody & { name: string }) =>
+		mutationFn: (body: SshTargetInput & { name: string }) =>
 			http.post<{ node: PublicNode }>("/ssh-nodes", body).then((r) => r.node),
 		onSuccess: () => void queryClient.invalidateQueries({ queryKey: nodeKeys.all }),
 	});
@@ -121,7 +113,7 @@ export function useCreateSshNode() {
 export function useTestSshRoute() {
 	// The TestConnection button reports success and failure inline.
 	return useMutation({
-		mutationFn: (body: SshTargetBody) => http.post<{ ok: true }>("/ssh-nodes/test", body),
+		mutationFn: (body: SshTargetInput) => http.post<{ ok: true }>("/ssh-nodes/test", body),
 		meta: { toast: false },
 	});
 }

@@ -1,3 +1,4 @@
+import type { PendingAuthorization, PendingPasskey, TaskGroupPendingTask } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { useState } from "react";
@@ -15,7 +16,6 @@ import {
 	sshKeygenRecipe,
 } from "@/features/authorizations/authorization";
 import { errorMessage } from "@/lib/api/client";
-import type { PendingAuthorization, PendingPasskey, TaskGroupPendingTask } from "@/lib/api/types";
 import { useLocale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 

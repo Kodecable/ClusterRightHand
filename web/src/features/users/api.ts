@@ -1,7 +1,7 @@
+import type { Directory, User, UserGroup, UserKind } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { authStore } from "@/features/auth/session";
 import { enc, http } from "@/lib/api/client";
-import type { Directory, User, UserGroup, UserKind } from "@/lib/api/types";
 
 export const userKeys = {
 	all: ["users"] as const,

@@ -1,7 +1,7 @@
+import type { NodeGroup } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { nodeKeys } from "@/features/nodes/api";
 import { enc, http } from "@/lib/api/client";
-import type { NodeGroup } from "@/lib/api/types";
 import { nodeGroupKeys } from "./keys";
 
 /**

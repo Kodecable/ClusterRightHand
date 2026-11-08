@@ -1,3 +1,4 @@
+import type { UserKind } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useLingui } from "@lingui/react/macro";
 import { useMemo } from "react";
@@ -6,7 +7,6 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { FormDialog } from "@/components/dialogs";
 import { SelectField, TextField } from "@/components/form";
-import type { UserKind } from "@/lib/api/types";
 import { useCreateUser } from "./api";
 
 interface NewUserValues {

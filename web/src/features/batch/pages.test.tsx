@@ -1,8 +1,8 @@
+import type { NodeGroup, PublicNode, TaskGroupView } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { NodeGroup, PublicNode, TaskGroupView } from "@/lib/api/types";
 import { renderWithRouter } from "@/test/render";
 import { BatchPage } from "./pages";
 
@@ -46,6 +46,17 @@ const GROUP: TaskGroupView = {
 	tasks: [],
 	createdAt: "2026-01-01T00:00:00.000Z",
 	finishedAt: "2026-01-01T00:01:00.000Z",
+	summary: "uptime",
+	kind: "exec",
+	ruleChain: null,
+	approval: null,
+	actorType: "user",
+	actorId: "u1",
+	onBehalfOfUserId: "u1",
+	operation: null,
+	rootSessionId: null,
+	handlerType: null,
+	handlerSessionId: null,
 };
 
 function mockFetch(): { calls: { url: string; method: string; body: unknown }[] } {

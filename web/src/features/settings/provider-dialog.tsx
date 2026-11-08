@@ -1,3 +1,4 @@
+import type { ModelProviderInput, ModelProviderView } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { I18n } from "@lingui/core";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -11,7 +12,6 @@ import { CheckboxField, SelectField, TextField } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { ModelProviderInput, ModelProviderView } from "@/lib/api/types";
 import { useSaveModelProvider } from "./api";
 import { ModelDialog } from "./model-dialog";
 import {

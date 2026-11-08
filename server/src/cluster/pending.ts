@@ -3,6 +3,13 @@
  * (doc/m4.md M4.4, doc/privilege.md#授权路径). Only the owner may read the payload: it is the exact
  * bytes to sign, and nothing about it is secret, but another user has nothing to do with it.
  */
+import type {
+	DecodedAuthorizationPayload,
+	PendingAuthorization,
+	PendingPasskey,
+	TaskGroupPending,
+	TaskGroupPendingTask,
+} from "@crh/api";
 import type { AuthorizationPayload } from "@crh/protocol";
 import { decodeAuthorizationPayload } from "@crh/protocol";
 import { webauthnCredentials } from "../privilege/credentials.ts";
@@ -13,48 +20,11 @@ import { getNode } from "./nodes.ts";
 import { parseTrustReport } from "./trust.ts";
 
 /** A decoded payload, in the JSON form the waiting page renders. */
-export interface DecodedPayloadView {
-	nodes: string[];
-	command:
-		| { method: string; match: "exact"; target: string; specSha256: string }
-		| { method: string; match: "prefix"; target: string }
-		| null;
-	issuedAt: string;
-	deadline: string | null;
-	taskIds: string[] | null;
-	attempt: number | null;
-	note: string;
-}
+export type DecodedPayloadView = DecodedAuthorizationPayload;
 
-/** One of the owner's Passkeys that a node's trust summary would accept for the payload. */
-export interface PendingPasskey {
-	credentialId: string;
-	name: string;
-	rpId: string;
-	origins: string[];
-	requireUv: boolean;
-	/** The trust entry that would accept it. */
-	entry: string;
-}
+export type { PendingPasskey };
 
-export interface PendingAuthorizationView {
-	/** Hex SHA-256 of the payload bytes; the id the submission carries. */
-	id: string;
-	/** Base64 CBOR payload bytes, as `crha grant --payload` takes them. */
-	payload: string;
-	decoded: DecodedPayloadView;
-	/** The WebAuthn challenge, base64url (doc/protocol.md#授权对象). */
-	challenge: string;
-	deadline: string | null;
-	taskIds: string[];
-	attempt: number;
-	/** The owner's Passkeys this node trusts for the command. */
-	passkeys: PendingPasskey[];
-	/** Whether a local approval was requested on the node for this task. */
-	localRequested: boolean;
-	lastRejection: TaskAuthorizationRecord["lastRejection"];
-	tried: TaskAuthorizationRecord["tried"];
-}
+export type PendingAuthorizationView = PendingAuthorization;
 
 /** The decoded payload of a stored record; null when the row cannot be decoded (fail closed). */
 export function decodedPayloadOf(payload: AuthorizationPayload): DecodedPayloadView {
@@ -157,22 +127,9 @@ export async function pendingForTask(
 	};
 }
 
-/** One waiting task of a group, for the group's waiting page. */
-export interface TaskGroupPendingTask {
-	id: string;
-	nodeId: string;
-	nodeName: string;
-	attempt: number;
-	state: string;
-	localRequested: boolean;
-	lastRejection: TaskAuthorizationRecord["lastRejection"];
-	tried: TaskAuthorizationRecord["tried"];
-}
+export type { TaskGroupPendingTask };
 
-export interface TaskGroupPendingView {
-	authorization: PendingAuthorizationView;
-	tasks: TaskGroupPendingTask[];
-}
+export type TaskGroupPendingView = TaskGroupPending;
 
 /**
  * The shared payload of a group's waiting tasks (all of them hold the same one, D88) and the state

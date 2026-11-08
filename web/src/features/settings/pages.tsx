@@ -1,3 +1,4 @@
+import type { ModelProviderView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -9,7 +10,6 @@ import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { ModelProviderView } from "@/lib/api/types";
 import { useDeleteModelProvider, useModelProviders } from "./api";
 import { ModelPresetsSection } from "./model-presets";
 import { ProviderDialog } from "./provider-dialog";

@@ -1,3 +1,4 @@
+import type { AvailableModel, ModelRef, RulePreset } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { I18n } from "@lingui/core";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -12,7 +13,6 @@ import { ThinkingLevelSelect } from "@/components/thinking-level-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDebouncedValue } from "@/hooks/use-debounced";
-import type { AvailableModel, ModelRef, RulePreset } from "@/lib/api/types";
 import { formatDateTimeNumeric } from "@/lib/format";
 import { availableModel, supportedThinkingLevels } from "@/lib/thinking-level";
 import { useSchedulePreview } from "./api";

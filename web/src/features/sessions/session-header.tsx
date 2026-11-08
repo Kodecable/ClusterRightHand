@@ -1,3 +1,4 @@
+import type { SessionView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronLeftIcon, Share2Icon } from "lucide-react";
@@ -12,7 +13,6 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { SessionView } from "@/lib/api/types";
 import { usePatchSession, useSession } from "./api";
 import { sessionTitle } from "./session-item";
 import { SessionMarkers } from "./session-markers";

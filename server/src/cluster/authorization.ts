@@ -8,73 +8,19 @@
  * are stored, not recomputed, so the same payload survives a crhs restart and only changes on a
  * re-plan (a new attempt or a changed trust digest, doc/m4.md#阶段).
  */
+import type {
+	PendingPayloadView,
+	PlannedPathView,
+	TaskAuthorizationPlanView,
+	TaskAuthorizationRejection,
+	TaskAuthorizationView,
+} from "@crh/api";
 import type { Signature } from "@crh/protocol";
-import type { AuthorizationPath, AuthorizationPlan, PlannedPath } from "../privilege/planner.ts";
+import type { AuthorizationPlan, PlannedPath } from "../privilege/planner.ts";
 
-/** One path of a plan, flattened for display. */
-export interface PlannedPathView {
-	path: AuthorizationPath;
-	/** The trust entries that would accept the authorization; one name for crhs and local. */
-	entries: {
-		name: string;
-		role: "crhs" | "user" | "local";
-		/** The owner's credential a user entry matches. */
-		credential?: "sshsig" | "webauthn";
-		/** `require-cosign` requested by the entry, and whether the node offers a crhs cosignature. */
-		cosign?: "required" | "available" | "missing";
-	}[];
-	/** user path only: how long the payload is valid, capped by the strictest accepting entry's max_ttl. */
-	ttlMs?: number;
-}
+export type { PendingPayloadView, PlannedPathView, TaskAuthorizationPlanView, TaskAuthorizationRejection };
 
-export interface TaskAuthorizationPlanView {
-	paths: PlannedPathView[];
-	/** Why there is no usable path; set exactly when `paths` is empty. */
-	reason?: string;
-}
-
-/** The payload the owner has to sign (doc/m4.md M4.4). */
-export interface PendingPayloadView {
-	/** Base64 of the exact CBOR payload bytes; `crha grant --payload` and WebAuthn sign exactly these. */
-	payload: string;
-	/** Hex SHA-256 of the payload bytes: the authorization id a submission carries. */
-	id: string;
-	/** ISO 8601 deadline; never null for a planned user path (one-shot authorizations need one). */
-	deadline: string | null;
-	/** The task ids the payload covers. */
-	taskIds: string[];
-	/** The attempt every covered task uses (a task group shares the highest one). */
-	attempt: number;
-}
-
-export interface TaskAuthorizationRejection {
-	code: string;
-	message: string;
-	/** The attempt crha rejected. */
-	attempt: number;
-	at: string;
-}
-
-export interface TaskAuthorizationRecord {
-	/** The plan computed from the trust summary of the last attempt. */
-	plan: TaskAuthorizationPlanView;
-	/** Paths a crha rejection already ruled out for this task. */
-	tried: AuthorizationPath[];
-	/** The path the last `task.start` used; null when nothing was sent yet. */
-	dispatchedPath: AuthorizationPath | null;
-	/** The `authorizations.id` of the last signature sent (crhs's or the owner's). */
-	payloadId: string | null;
-	/** The attempt of the last `task.start`. */
-	attempt: number;
-	/** Hex digest of the TrustSummary the plan was computed from. */
-	trustDigest: string | null;
-	/** The payload to sign while the task waits for the owner; null otherwise. */
-	pending: PendingPayloadView | null;
-	/** The attempt a `local.request` was sent for; null when none is outstanding. */
-	local: { attempt: number } | null;
-	lastRejection: TaskAuthorizationRejection | null;
-	updatedAt: string;
-}
+export type TaskAuthorizationRecord = TaskAuthorizationView;
 
 function pathView(path: PlannedPath): PlannedPathView {
 	switch (path.path) {

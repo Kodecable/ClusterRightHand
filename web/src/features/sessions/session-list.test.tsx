@@ -1,3 +1,4 @@
+import type { AvailableModel } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
@@ -10,7 +11,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { authStore } from "@/features/auth/session";
-import type { AvailableModel } from "@/lib/api/types";
 import { LocaleProvider } from "@/lib/i18n";
 import { activateLocale } from "@/test/render";
 import { SessionList } from "./session-list";
@@ -18,6 +18,7 @@ import { SessionList } from "./session-list";
 const MODELS: AvailableModel[] = [
 	{
 		provider: "faux",
+		providerName: "faux",
 		modelId: "faux-1",
 		name: "Faux One",
 		contextWindow: 128_000,

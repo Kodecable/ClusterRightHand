@@ -1,6 +1,6 @@
+import type { AvailableModel, ModelRef, ThinkingLevel } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
-import type { AvailableModel, ModelRef, ThinkingLevel } from "@/lib/api/types";
 
 /** pi-ai's levels, lowest to highest (doc/agent-runtime.md#思考档位). */
 export const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];

@@ -1,8 +1,8 @@
+import type { PublicNode } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { PublicNode } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
 import { SshNodeWizard } from "./ssh-wizard";
 

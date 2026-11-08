@@ -3,6 +3,7 @@
  * and Passkeys a user signs privileged tasks with. The planner only considers the user trust entries
  * that match a credential of the task's owner, and submissions are only accepted from them.
  */
+import type { CredentialView } from "@crh/api";
 import type { Selectable } from "kysely";
 import type { Db } from "../storage/db.ts";
 import type { UserCredentialsTable } from "../storage/schema.ts";
@@ -14,21 +15,7 @@ import type { StoredWebauthnCredential } from "./webauthn.ts";
 
 export type CredentialKind = UserCredentialsTable["kind"];
 
-/** One credential as the API shows it. */
-export interface CredentialView {
-	id: string;
-	kind: CredentialKind;
-	name: string;
-	createdAt: string;
-	/** ssh: the authorized_keys line; webauthn: the COSE public key, base64. */
-	publicKey: string;
-	/** ssh only: the OpenSSH `SHA256:…` fingerprint a TrustSummary reports. */
-	fingerprint: string | null;
-	/** webauthn only. */
-	credentialId: string | null;
-	rpId: string | null;
-	origins: string[];
-}
+export type { CredentialView };
 
 export function credentialView(row: Selectable<UserCredentialsTable>): CredentialView {
 	return {

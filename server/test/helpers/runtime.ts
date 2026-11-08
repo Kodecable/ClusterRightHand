@@ -1,11 +1,6 @@
+import type { EntryRecord } from "@crh/api";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import {
-	type AgentState,
-	AssistantEntry,
-	type ConversationId,
-	type EntryRecord,
-	type Storage,
-} from "@earendil-works/pi-durable";
+import type { AgentState, ConversationId, Storage } from "@earendil-works/pi-durable";
 import type { AgentRuntime } from "../../src/agent/runtime.ts";
 import type { Db } from "../../src/storage/db.ts";
 import { TOOLS } from "../../src/tools/catalog.ts";
@@ -32,13 +27,16 @@ export async function waitSubmission(
 	const settled = await runtime.waitForSubmission(submissionId, signal);
 	if (settled.status !== "done") return { status: "unanswered", reason: settled.reason };
 	const { entries } = await runtime.entriesPage(sessionId, undefined, 100);
-	const answer = [...entries].reverse().find((entry) => AssistantEntry.is(entry));
+	const answer = [...entries].reverse().find((entry) => entry.kind === "pi.assistant");
 	return { status: "done", answer: answerText(answer) };
 }
 
 function answerText(entry: EntryRecord | undefined): string {
-	const message = entry?.model?.[0] as { content?: { type: string; text?: string }[] } | undefined;
-	return (message?.content ?? []).flatMap((c) => (c.type === "text" && c.text ? [c.text] : [])).join("");
+	const message = entry?.model?.[0];
+	if (message?.role !== "assistant") return "";
+	return message.content
+		.flatMap((block) => (block.type === "text" && "text" in block && block.text ? [block.text] : []))
+		.join("");
 }
 
 /**

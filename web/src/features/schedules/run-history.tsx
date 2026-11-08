@@ -1,3 +1,4 @@
+import type { ScheduleRunView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
@@ -6,7 +7,6 @@ import { EmptyState } from "@/components/empty-state";
 import { DateTime } from "@/components/relative-time";
 import { ScheduleStatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import type { ScheduleRunView } from "@/lib/api/types";
 import { useScheduleRuns } from "./api";
 import { runNoteParts, runStatusText } from "./scheduleForm";
 

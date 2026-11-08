@@ -3,6 +3,7 @@
  * (pasted `crha grant` output or a Passkey assertion), the administrators' list, and the pending
  * payload the waiting page shows its owner.
  */
+import type { AuthorizationSummary } from "@crh/api";
 import { type AuthorizationPayload, decodeAuthorizationPayload } from "@crh/protocol";
 import { Hono } from "hono";
 import type { Cluster } from "../cluster/cluster.ts";
@@ -82,28 +83,26 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 				: await db.selectFrom("users").select(["id", "username"]).where("id", "in", issuerIds).execute()
 			).map((row) => [row.id, row.username]),
 		);
-		return c.json({
-			items: page.rows.map((row) => {
-				let decoded: ReturnType<typeof decodedPayloadOf> | null = null;
-				try {
-					decoded = decodedPayloadOf(parseStoredPayload(row.payload));
-				} catch {}
-				return {
-					id: row.id,
-					issuerUserId: row.issuer_user_id,
-					issuerUsername: row.issuer_user_id ? (users.get(row.issuer_user_id) ?? null) : null,
-					nodes: decoded?.nodes ?? [],
-					command: decoded?.command ?? null,
-					taskIds: row.task_ids === null ? null : (JSON.parse(row.task_ids) as string[]),
-					attempt: decoded?.attempt ?? null,
-					note: decoded?.note ?? "",
-					issuedAt: decoded?.issuedAt ?? null,
-					deadline: row.deadline,
-					createdAt: row.created_at,
-				};
-			}),
-			nextCursor: page.nextCursor,
+		const items: AuthorizationSummary[] = page.rows.map((row) => {
+			let decoded: ReturnType<typeof decodedPayloadOf> | null = null;
+			try {
+				decoded = decodedPayloadOf(parseStoredPayload(row.payload));
+			} catch {}
+			return {
+				id: row.id,
+				issuerUserId: row.issuer_user_id,
+				issuerUsername: row.issuer_user_id ? (users.get(row.issuer_user_id) ?? null) : null,
+				nodes: decoded?.nodes ?? [],
+				command: decoded?.command ?? null,
+				taskIds: row.task_ids === null ? null : (JSON.parse(row.task_ids) as string[]),
+				attempt: decoded?.attempt ?? null,
+				note: decoded?.note ?? "",
+				issuedAt: decoded?.issuedAt ?? null,
+				deadline: row.deadline,
+				createdAt: row.created_at,
+			};
 		});
+		return c.json({ items, nextCursor: page.nextCursor });
 	});
 
 	/** The pending payload of a task, for its owner (doc/m4.md M4.4); other users get a 403. */

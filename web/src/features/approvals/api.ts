@@ -1,8 +1,8 @@
+import type { ApiTokenView, ApprovalBody, ApprovalList, PublicNode, TaskGroupView, TaskView } from "@crh/api";
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNodeGroups } from "@/features/node-groups/api";
 import { taskKeys } from "@/features/tasks/api";
 import { enc, http } from "@/lib/api/client";
-import type { ApiTokenView, ApprovalBody, ApprovalList, PublicNode, TaskGroupView, TaskView } from "@/lib/api/types";
 
 export const approvalKeys = {
 	all: ["approvals"] as const,

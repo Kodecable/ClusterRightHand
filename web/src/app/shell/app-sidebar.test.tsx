@@ -1,9 +1,9 @@
+import type { User } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { authStore } from "@/features/auth/session";
-import type { User } from "@/lib/api/types";
 import { renderWithRouter } from "@/test/render";
 import { AppSidebar } from "./app-sidebar";
 

@@ -120,7 +120,7 @@ describeBackends("model config reload", (backend) => {
 	it("serializes concurrent reloads and ends with the last database state", async () => {
 		await save("old", "m-old", KEY);
 		await models.reload();
-		expect(models.models.getModel("old", "m-old")).toBeDefined();
+		expect(models.getModel("old", "m-old")).toBeDefined();
 
 		pauseSecretReads();
 		const first = models.reload();
@@ -131,13 +131,13 @@ describeBackends("model config reload", (backend) => {
 		const second = models.reload();
 		await sleep(20);
 		// The second reload waits for the first: nothing of the new configuration is visible yet.
-		expect(models.models.getModel("old", "m-old")).toBeDefined();
-		expect(models.models.getModel("new", "m-new")).toBeUndefined();
+		expect(models.getModel("old", "m-old")).toBeDefined();
+		expect(models.getModel("new", "m-new")).toBeUndefined();
 
 		release();
 		await Promise.all([first, second]);
-		expect(models.models.getModel("old", "m-old")).toBeUndefined();
-		expect(models.models.getModel("new", "m-new")).toBeDefined();
+		expect(models.getModel("old", "m-old")).toBeUndefined();
+		expect(models.getModel("new", "m-new")).toBeDefined();
 		expect(models.available().map((model) => `${model.provider}/${model.modelId}`)).toEqual(["new/m-new"]);
 	});
 });

@@ -5,6 +5,7 @@
  * know. Warnings are computed from the cached TrustReport and crhs-managed node group membership;
  * they explain why a group-addressed reusable authorization may not reach the node.
  */
+import type { TrustWarning, TrustWarningKind, TrustWarningSeverity } from "@crh/api";
 import type { TrustEntry, TrustSummary } from "@crh/protocol";
 import { isOwnCrhsEntry, type OwnerCredentials, ownerCredentialOf } from "../privilege/planner.ts";
 import type { Db } from "../storage/db.ts";
@@ -12,21 +13,7 @@ import type { NodeGroupRef } from "./node-groups.ts";
 import type { NodeRow } from "./nodes.ts";
 import { parseTrustReport } from "./trust.ts";
 
-export type TrustWarningKind = "alias_superfluous" | "alias_unknown" | "alias_missing" | "trust_unknown";
-export type TrustWarningSeverity = "danger" | "warning" | "info";
-
-/** One out-of-sync line of a node's trust configuration. */
-export interface TrustWarning {
-	kind: TrustWarningKind;
-	severity: TrustWarningSeverity;
-	/** The alias or node group UUID the warning is about; null for a trust entry. */
-	uuid: string | null;
-	/** The node group the UUID names, when it is one. */
-	nodeGroupName: string | null;
-	/** The trust entry name, for `trust_unknown`. */
-	trustName: string | null;
-	message: string;
-}
+export type { TrustWarning, TrustWarningKind, TrustWarningSeverity };
 
 /** What the warnings need beyond the node's cached report: the node groups and the keys crhs knows. */
 export interface TrustWarningContext {

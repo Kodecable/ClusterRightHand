@@ -1,21 +1,16 @@
+import type { RefMap, RefTarget } from "@crh/api";
 import { ALL_TARGET, isUuid, nameKey } from "../cluster/names.ts";
 import type { Db } from "../storage/db.ts";
 import { UserError } from "../users/service.ts";
 import { parseRuleSet, parseRules, type Rule, type RuleSet } from "./rules.ts";
+
+export type { RefMap, RefTarget };
 
 /**
  * Rule and task-group references (D109): inputs accept names (case-insensitive), UUIDs or `_all`, and the
  * database stores UUIDs. These helpers do the write-time resolution and the reverse lookup used by API
  * responses to display names. A reference whose object was deleted has no name: it is reported as null.
  */
-
-export interface RefTarget {
-	kind: "node" | "node_group";
-	name: string;
-}
-
-/** Each stored reference (UUID) mapped to its current name, or null when it no longer exists. */
-export type RefMap = Record<string, RefTarget | null>;
 
 async function lookupRef(db: Db, orgId: string, ref: string): Promise<RefTarget | null> {
 	const node = await db

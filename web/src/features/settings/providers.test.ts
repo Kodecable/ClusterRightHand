@@ -1,5 +1,5 @@
+import type { CustomModel } from "@crh/api";
 import { describe, expect, test } from "vitest";
-import type { CustomModel } from "@/lib/api/types";
 import {
 	emptyModelRow,
 	type ModelRow,

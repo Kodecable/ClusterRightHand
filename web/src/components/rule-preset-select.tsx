@@ -1,6 +1,6 @@
+import type { RulePreset } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { RulePreset } from "@/lib/api/types";
 import { RULE_PRESETS, rulePresetIcon, rulePresetLabel } from "@/lib/rule-preset";
 import { cn } from "@/lib/utils";
 

@@ -1,8 +1,8 @@
+import type { PendingAuthorization } from "@crh/api";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import type { SubmitAuthorizationInput } from "@/features/authorizations/api";
-import type { PendingAuthorization } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
 import { AuthorizationCard } from "./authorization-card";
 

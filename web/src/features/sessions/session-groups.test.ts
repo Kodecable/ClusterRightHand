@@ -1,5 +1,5 @@
+import type { SessionListItem } from "@crh/api";
 import { describe, expect, test } from "vitest";
-import type { SessionListItem } from "@/lib/api/types";
 import { groupSessionRows, sessionGroup, sessionGroupKey } from "./session-groups";
 
 /** A local-time date, so the test does not depend on the machine's time zone. */

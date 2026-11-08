@@ -1,10 +1,10 @@
+import type { SessionView } from "@crh/api";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ErrorText } from "@/components/error-state";
 import { Textarea } from "@/components/ui/textarea";
-import type { SessionView } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { useAbortSession, useCompactSession, useSendMessage } from "./api";
 import { SessionComposerFooter } from "./composer-footer";

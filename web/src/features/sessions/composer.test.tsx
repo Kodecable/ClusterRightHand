@@ -1,9 +1,9 @@
+import type { AvailableModel, SessionView } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { AvailableModel, SessionView } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
 import { Composer } from "./composer";
 
@@ -34,7 +34,7 @@ function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 			scope: { type: "user", id: "u1" },
 			rulePreset: "yolo",
 			rules: [],
-			default: "ask",
+			default: "require-approval",
 			updatedAt: "2026-01-01T00:00:00.000Z",
 		},
 		refs: {},
@@ -55,6 +55,7 @@ function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 const DEFAULT_MODELS: AvailableModel[] = [
 	{
 		provider: "faux",
+		providerName: "faux",
 		modelId: "faux-1",
 		name: "Faux One",
 		contextWindow: 128_000,
@@ -444,6 +445,7 @@ describe("ComposerFooter", () => {
 			[
 				{
 					provider: "faux",
+					providerName: "faux",
 					modelId: "faux-1",
 					name: "Faux One",
 					contextWindow: 128_000,
@@ -471,6 +473,7 @@ describe("ComposerFooter", () => {
 			[
 				{
 					provider: "faux",
+					providerName: "faux",
 					modelId: "faux-1",
 					name: "Faux One",
 					contextWindow: 128_000,
@@ -502,6 +505,7 @@ describe("ComposerFooter", () => {
 			[
 				{
 					provider: "faux",
+					providerName: "faux",
 					modelId: "faux-1",
 					name: "Faux One",
 					contextWindow: 128_000,

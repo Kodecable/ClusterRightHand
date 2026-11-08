@@ -1,6 +1,6 @@
+import type { TaskView } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
-import type { TaskView } from "@/lib/api/types";
 
 const TERMINAL = new Set(["exited", "failed", "rejected", "unknown", "denied"]);
 

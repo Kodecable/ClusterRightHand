@@ -1,3 +1,4 @@
+import type { ModelRef, RulePreset, ThinkingLevel } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -9,7 +10,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/features/auth/session";
 import { useModels } from "@/features/settings/api";
 import { errorMessage } from "@/lib/api/client";
-import type { ModelRef, RulePreset, ThinkingLevel } from "@/lib/api/types";
 import { readStorage, writeStorage } from "@/lib/storage";
 import { supportedThinkingLevels, withThinkingLevel } from "@/lib/thinking-level";
 import { insertSessionIntoListCaches, useCreateSession } from "./api";

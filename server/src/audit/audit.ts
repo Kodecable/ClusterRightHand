@@ -1,3 +1,4 @@
+import type { AuditEvent } from "@crh/api";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../users/service.ts";
@@ -18,18 +19,7 @@ export interface AuditInput {
 	detail?: Record<string, unknown>;
 }
 
-export interface AuditEvent {
-	seq: number;
-	id: string;
-	ts: string;
-	actorType: string;
-	actorId: string;
-	onBehalfOfUserId: string | null;
-	action: string;
-	targetType: string | null;
-	targetId: string | null;
-	detail: Record<string, unknown>;
-}
+export type { AuditEvent };
 
 /** JSON with object keys sorted at every level and no whitespace; how a record's detail is stored. */
 export function canonicalJson(value: unknown): string {

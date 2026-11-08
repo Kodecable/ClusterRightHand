@@ -1,5 +1,5 @@
+import type { RuleMethod } from "@crh/api";
 import { toBase64url, tomlString } from "@/features/credentials/trust";
-import type { RuleMethod } from "@/lib/api/types";
 
 export { tomlString };
 

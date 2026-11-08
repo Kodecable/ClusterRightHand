@@ -1,8 +1,8 @@
+import type { NodeAccessGrant, User, UserGroup } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { authStore } from "@/features/auth/session";
-import type { NodeAccessGrant, User, UserGroup } from "@/lib/api/types";
 import { renderWithRouter } from "@/test/render";
 import { UsersPage } from "./pages";
 

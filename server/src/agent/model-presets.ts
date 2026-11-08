@@ -1,3 +1,4 @@
+import type { ModelPreset } from "@crh/api";
 import type { Db } from "../storage/db.ts";
 import type { ModelPresetKind } from "../storage/schema.ts";
 import { defaultOrgId } from "../users/service.ts";
@@ -30,11 +31,7 @@ export interface StoredModelPreset {
 }
 
 /** What the API returns for one kind. */
-export interface ModelPresetView extends StoredModelPreset {
-	kind: ModelPresetKind;
-	defaultPrompt: string;
-	protocol: string;
-}
+export type ModelPresetView = ModelPreset;
 
 /** The fixed prompt and protocol of each kind, for the API's read-only view. */
 const TEXTS: Record<ModelPresetKind, { defaultPrompt: string; protocol: string }> = {

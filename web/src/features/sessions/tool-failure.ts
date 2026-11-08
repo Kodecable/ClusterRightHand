@@ -1,4 +1,4 @@
-import type { TaskGroupView, TaskView } from "@/lib/api/types";
+import type { TaskGroupView, TaskView } from "@crh/api";
 import type { Json, JsonObject } from "./session-events";
 import { prettyJson } from "./tool-details";
 

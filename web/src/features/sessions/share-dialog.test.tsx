@@ -1,6 +1,6 @@
+import type { SessionShare } from "@crh/api";
 import { screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { SessionShare } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
 import { ShareDialog } from "./share-dialog";
 

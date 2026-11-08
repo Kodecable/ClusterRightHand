@@ -1,6 +1,6 @@
+import type { CredentialView } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http } from "@/lib/api/client";
-import type { CredentialView } from "@/lib/api/types";
 
 export const credentialKeys = {
 	all: ["credentials"] as const,

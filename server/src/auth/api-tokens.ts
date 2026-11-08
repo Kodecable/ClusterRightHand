@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { type RefMap, ruleRefs } from "../policy/refs.ts";
+import type { ApiTokenView } from "@crh/api";
+import { ruleRefs } from "../policy/refs.ts";
 import type { RulePreset } from "../policy/rules.ts";
-import { createRootRuleSet, deleteRuleSet, getRuleSet, type StoredRuleSet } from "../policy/store.ts";
+import { createRootRuleSet, deleteRuleSet, getRuleSet } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId, NotFoundError, UserError } from "../users/service.ts";
 import { newId } from "../util/id.ts";
@@ -16,19 +17,7 @@ const DAY = 86_400_000;
 /** last_used_at is written at most this often per token. */
 const TOUCH_INTERVAL_MS = 60_000;
 
-export interface ApiTokenView {
-	id: string;
-	name: string;
-	userId: string;
-	createdAt: string;
-	/** null: never expires. */
-	expiresAt: string | null;
-	revokedAt: string | null;
-	lastUsedAt: string | null;
-	rules: StoredRuleSet | null;
-	/** Display names for the UUIDs referenced by `rules`; null means the object was deleted. */
-	refs: RefMap;
-}
+export type { ApiTokenView };
 
 /**
  * Creates a token owned by `user`, the root of its own rule chain (doc/access-control.md#api-token).

@@ -137,11 +137,11 @@ describeBackends("custom model providers", (backend) => {
 			reasoning?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 		} = {},
 	) => {
-		const model = models.models.getModel(providerId, modelId);
+		const model = models.getModel(providerId, modelId);
 		expect(model).toBeDefined();
 		// pi-ai's simple options spell "off" as no level at all, like durable's requests.
 		const { reasoning, ...rest } = options;
-		await models.models.completeSimple(
+		await models.completeSimple(
 			model as NonNullable<typeof model>,
 			{ messages: [{ role: "user", content: "hi", timestamp: Date.now() }] },
 			{ ...rest, ...(reasoning && reasoning !== "off" ? { reasoning } : {}) },
@@ -185,7 +185,7 @@ describeBackends("custom model providers", (backend) => {
 		]);
 		await ask(provider, "m-1", { reasoning: "high" });
 		expect(lastBody().reasoning_effort).toBe("ultra");
-		const model = models.models.getModel(provider, "m-1");
+		const model = models.getModel(provider, "m-1");
 		expect(model && getSupportedThinkingLevels(model)).toEqual(["off", "minimal", "low", "medium", "high"]);
 	});
 
@@ -219,7 +219,7 @@ describeBackends("custom model providers", (backend) => {
 				},
 			},
 		]);
-		const model = models.models.getModel(provider, "m-1");
+		const model = models.getModel(provider, "m-1");
 		// `high` is hidden by its empty label; `xhigh` is offered by its non-empty name and sends its id.
 		expect(model && getSupportedThinkingLevels(model)).toEqual(["off", "minimal", "low", "medium", "xhigh"]);
 		expect(model?.thinkingLevelMap?.xhigh).toBe("xhigh");
@@ -254,7 +254,7 @@ describeBackends("custom model providers", (backend) => {
 				},
 			},
 		]);
-		const model = models.models.getModel(provider, "m-1");
+		const model = models.getModel(provider, "m-1");
 		expect(model && getSupportedThinkingLevels(model)).toEqual(["off", "high"]);
 		expect(models.available().find((m) => m.provider === provider)?.thinkingLabels).toEqual({
 			off: "off",
@@ -312,7 +312,7 @@ describeBackends("custom model providers", (backend) => {
 		expect(body).not.toHaveProperty("reasoning_effort");
 		expect(body).not.toHaveProperty("enable_thinking");
 		expect(body).not.toHaveProperty("chat_template_kwargs");
-		const model = models.models.getModel(provider, "m-1");
+		const model = models.getModel(provider, "m-1");
 		expect(model && getSupportedThinkingLevels(model)).toEqual(["off", "high"]);
 
 		// `off` listed: its body is merged too, still without any pi thinking parameter.
@@ -340,7 +340,7 @@ describeBackends("custom model providers", (backend) => {
 		expect(body.thinking).toEqual({ type: "enabled", budget_tokens: 8000 });
 		expect(body).not.toHaveProperty("reasoning");
 		expect(body).not.toHaveProperty("include");
-		const model = models.models.getModel(provider, "m-1");
+		const model = models.getModel(provider, "m-1");
 		expect(model && getSupportedThinkingLevels(model)).toEqual(["off", "high"]);
 	});
 
@@ -355,7 +355,7 @@ describeBackends("custom model providers", (backend) => {
 				thinking: { mode: "custom", levels: { high: { thinking: { type: "enabled" } } } },
 			},
 		]);
-		const model = models.models.getModel(provider, "m-1");
+		const model = models.getModel(provider, "m-1");
 		expect(model && getSupportedThinkingLevels(model)).toEqual(["off", "high"]);
 		await ask(provider, "m-1", { reasoning: "off" });
 		expect(lastBody()).not.toHaveProperty("thinking");
@@ -383,7 +383,7 @@ describeBackends("custom model providers", (backend) => {
 		const provider = await configure([
 			{ id: "m-1", api: "openai-completions", contextWindow: 4096, maxTokens: 512, input: ["text"] },
 		]);
-		const model = models.models.getModel(provider, "m-1");
+		const model = models.getModel(provider, "m-1");
 		expect(model?.reasoning).toBe(false);
 		expect(model && getSupportedThinkingLevels(model)).toEqual(["off"]);
 		await ask(provider, "m-1");
@@ -403,7 +403,7 @@ describeBackends("custom model providers", (backend) => {
 			],
 			{ headers: { "x-extra": "yes" }, sessionId: { headers: ["x-crh-session"], body: ["metadata.session_id"] } },
 		);
-		expect(models.models.getModel(provider, "m-1")?.input).toEqual(["text", "image"]);
+		expect(models.getModel(provider, "m-1")?.input).toEqual(["text", "image"]);
 		const request = await ask(provider, "m-1", { sessionId: "provider-1" });
 		expect(request.headers["x-crh-session"]).toBe("crh-session-1");
 		expect(request.headers["x-extra"]).toBe("yes");
@@ -564,7 +564,7 @@ describeBackends("custom model providers", (backend) => {
 			],
 			{ headers: { "x-extra": "yes" }, sessionId: { body: ["metadata.session_id"] } },
 		);
-		const view = (await models.models.getModel(provider, "m-1")) as never;
+		const view = (await models.getModel(provider, "m-1")) as never;
 		expect(view).toBeDefined();
 		const rows = await db.selectFrom("model_providers").selectAll().where("provider_id", "=", provider).execute();
 		expect(rows[0]?.models).not.toContain(KEY);

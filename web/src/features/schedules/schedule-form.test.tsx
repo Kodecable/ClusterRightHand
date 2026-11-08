@@ -1,9 +1,9 @@
+import type { AvailableModel } from "@crh/api";
 import { i18n } from "@lingui/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { AvailableModel } from "@/lib/api/types";
 import { activateLocale, renderWithI18n } from "@/test/render";
 import { ScheduleForm, scheduleFormStateOf } from "./schedule-form";
 import { type ParsedSchedule, rulePresetNoteText } from "./scheduleForm";
@@ -11,6 +11,7 @@ import { type ParsedSchedule, rulePresetNoteText } from "./scheduleForm";
 const MODELS: AvailableModel[] = [
 	{
 		provider: "faux",
+		providerName: "faux",
 		modelId: "faux-1",
 		name: "Faux One",
 		contextWindow: 128_000,
@@ -19,6 +20,7 @@ const MODELS: AvailableModel[] = [
 	},
 	{
 		provider: "faux",
+		providerName: "faux",
 		modelId: "faux-2",
 		name: "Faux Plain",
 		contextWindow: 128_000,

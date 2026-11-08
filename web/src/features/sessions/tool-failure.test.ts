@@ -1,5 +1,5 @@
+import type { TaskGroupView, TaskView } from "@crh/api";
 import { describe, expect, test } from "vitest";
-import type { TaskGroupView, TaskView } from "@/lib/api/types";
 import { detailsFailure, taskGroupViewFailure, taskViewFailure, toolFailure, toolResultFailure } from "./tool-failure";
 
 const result = (value: Record<string, unknown>): string => JSON.stringify(value);
@@ -68,7 +68,7 @@ describe("toolFailure", () => {
 	});
 
 	test("every failed state counts", () => {
-		for (const state of ["failed", "denied", "rejected", "unknown"]) {
+		for (const state of ["failed", "denied", "rejected", "unknown"] as const) {
 			expect(toolFailure(result({ task_id: "t1", state }))).toEqual({ kind: "failed", reason: "state" });
 		}
 	});
@@ -270,7 +270,7 @@ describe("taskViewFailure", () => {
 			kind: "failed",
 			reason: "cancelled",
 		});
-		for (const state of ["failed", "denied", "rejected", "unknown"]) {
+		for (const state of ["failed", "denied", "rejected", "unknown"] as const) {
 			expect(taskViewFailure(view({ state })), state).toEqual({ kind: "failed", reason: "state" });
 		}
 	});

@@ -5,6 +5,11 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import type { RuntimeHost } from "../src/agent/runtime-core.ts";
+import { HandlerWakes } from "../src/agent/runtime-host/handler-wakes.ts";
+import { Inboxes } from "../src/agent/runtime-host/inboxes.ts";
+import { QuotaWaits } from "../src/agent/runtime-host/quota-waits.ts";
+import { SessionCaches } from "../src/agent/runtime-host/session-caches.ts";
+import { SessionFlags } from "../src/agent/runtime-host/session-flags.ts";
 import { forgetSessionCaches } from "../src/agent/runtime-sessions.ts";
 import { descendants } from "../src/agent/runtime-subagents.ts";
 import { markSessionsIdle, sessionStateOf } from "../src/agent/session-state.ts";
@@ -218,22 +223,35 @@ it("caches the conversation-to-session lookup and forgets it with the other cach
 	expect(second).toBe(first);
 	expect(counter.stop()).toBe(1);
 
+	if (!first) throw new Error("the conversation lookup must return the session");
 	const host = {
-		sessionsByConversation: new Map([[row.conversation_id, first]]),
-		learnedProviders: new Set([row.conversation_id]),
-		providerSessions: new Map([["provider-session", session.id]]),
-		subagentParents: new Set([session.id]),
-		inboxes: new Map(),
-		pendingWakes: new Map(),
-		idleWatchers: new Set(),
-		titleGenerating: new Set(),
-		deniedWaits: new Set(),
-		quotaWaiters: new Map(),
+		sessionCaches: new SessionCaches(),
+		inboxes: new Inboxes(),
+		wakes: new HandlerWakes(),
+		sessionFlags: new SessionFlags(),
+		quotaWaits: new QuotaWaits(),
 	} as unknown as RuntimeHost;
+	host.sessionCaches.rememberSession(row.conversation_id, first);
+	host.sessionCaches.rememberProviderSession(row.conversation_id, "provider-session", session.id);
+	host.sessionCaches.rememberSubagentParent(session.id);
+	host.inboxes.inbox(session.id);
+	host.wakes.queue(session.id, "agent-request:task:t1", "a request is waiting");
+	host.wakes.watch(session.id);
+	host.sessionFlags.beginTitle(session.id);
+	let woken = 0;
+	host.quotaWaits.wait(session.id, () => woken++);
+	host.quotaWaits.markDenied(session.id);
 	forgetSessionCaches(host, session.id, row.conversation_id);
-	expect(host.sessionsByConversation.has(row.conversation_id)).toBe(false);
-	expect(host.learnedProviders.has(row.conversation_id)).toBe(false);
-	expect(host.providerSessions.size).toBe(0);
+	expect(host.sessionCaches.sessionFor(row.conversation_id)).toBeUndefined();
+	expect(host.sessionCaches.hasLearnedProvider(row.conversation_id)).toBe(false);
+	expect(host.sessionCaches.providerSessionIdFor(session.id)).toBeUndefined();
+	expect(host.inboxes.current(session.id)).toBeUndefined();
+	expect(host.wakes.pending(session.id)).toBeUndefined();
+	expect(host.wakes.isWatching(session.id)).toBe(false);
+	expect(host.sessionFlags.beginTitle(session.id)).toBe(true);
+	host.sessionFlags.endTitle(session.id);
+	expect(host.quotaWaits.takeDenied(session.id)).toBe(false);
+	expect(woken).toBe(1);
 });
 
 it("reconciles a child's stale state from the batched read", async () => {

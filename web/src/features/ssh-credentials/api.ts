@@ -1,6 +1,6 @@
+import type { SshCredential } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http } from "@/lib/api/client";
-import type { SshCredential } from "@/lib/api/types";
 
 export const sshCredentialKeys = {
 	all: ["ssh-credentials"] as const,

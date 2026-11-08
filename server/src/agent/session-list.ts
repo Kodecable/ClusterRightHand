@@ -1,3 +1,4 @@
+import type { SessionListItem, SessionListScope } from "@crh/api";
 import { type ExpressionBuilder, type RawBuilder, type SqlBool, sql } from "kysely";
 import { type CursorKey, descendingKeyset, encodeCursor } from "../api/cursor.ts";
 import type { SessionUser } from "../auth/sessions.ts";
@@ -15,30 +16,7 @@ export { SessionListHub, type SessionListHubOptions, type SessionListSubscriber 
  * always computed for the subscriber it is sent to, because `shared` depends on who asks.
  */
 
-/** The list's item; `GET /api/sessions/:id` still returns the full session. */
-export interface SessionListItem {
-	id: string;
-	/** Null until generated or set; the WebUI shows its localized default name (D116). */
-	title: string | null;
-	ownerUserId: string;
-	ownerName: string;
-	scheduleId: string | null;
-	/** Owned by someone else and reached through a direct or group share (an administrator too, if shared). */
-	shared: boolean;
-	/** The whole session tree's state: any awaiting → awaiting, else any running → running, else idle. */
-	state: SessionState;
-	/** The highest-priority wait among the tree's awaiting sessions; null unless `state` is `awaiting`. */
-	waitingKind: WaitingKind | null;
-	updatedAt: string;
-	/**
-	 * The session's parent, for the children list (`GET /api/sessions/:id/children`); absent from the root
-	 * list, which only holds roots. The children list shows the session's own state, not the tree's aggregate.
-	 */
-	parentSessionId?: string | null;
-}
-
-/** `visible` is the owner-and-shared union the WebUI lists; `all` is administrators only. */
-export type SessionListScope = "mine" | "shared" | "visible" | "all";
+export type { SessionListItem, SessionListScope };
 
 export interface SessionListFilter {
 	scope: SessionListScope;

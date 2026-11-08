@@ -1,7 +1,7 @@
+import type { ScheduleView } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import type { ScheduleView } from "@/lib/api/types";
 import { renderWithRouter } from "@/test/render";
 import { SchedulesPage } from "./pages";
 

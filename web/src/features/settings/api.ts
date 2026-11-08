@@ -1,5 +1,3 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { enc, http } from "@/lib/api/client";
 import type {
 	AvailableModel,
 	ModelPreset,
@@ -7,7 +5,9 @@ import type {
 	ModelPresetKind,
 	ModelProviderInput,
 	ModelProviderView,
-} from "@/lib/api/types";
+} from "@crh/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { enc, http } from "@/lib/api/client";
 
 export const settingsKeys = {
 	all: ["settings"] as const,

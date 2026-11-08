@@ -1,3 +1,4 @@
+import type { AccessTargetType, GranteeType, NodeAccessGrant } from "@crh/api";
 import type { I18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -16,7 +17,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useAuth } from "@/features/auth/session";
 import { useUserGroups, useUsers } from "@/features/users/api";
 import { ApiError, errorMessage } from "@/lib/api/client";
-import type { AccessTargetType, GranteeType, NodeAccessGrant } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { useCreateNodeAccessGrant, useDeleteNodeAccessGrant, useNodeAccessGrants } from "./access-api";
 

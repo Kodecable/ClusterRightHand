@@ -232,11 +232,11 @@ describe("thinking levels end to end", () => {
 
 		// The pi-ai map the display names build: a name sends the level id, an empty label hides,
 		// and no label/mapping leaves the key absent.
-		expect(models.models.getModel(EXTRA, "xhigh-named")?.thinkingLevelMap).toMatchObject({ xhigh: "xhigh" });
-		expect(models.models.getModel(EXTRA, "xhigh-mapped")?.thinkingLevelMap).toMatchObject({ xhigh: "xhigh" });
-		expect(models.models.getModel(EXTRA, "xhigh-hidden")?.thinkingLevelMap).toMatchObject({ xhigh: null });
-		expect(models.models.getModel(EXTRA, "xhigh-unmapped")?.thinkingLevelMap).not.toHaveProperty("xhigh");
-		expect(models.models.getModel(EXTRA, "max-named")?.thinkingLevelMap).toMatchObject({ max: "max" });
+		expect(models.getModel(EXTRA, "xhigh-named")?.thinkingLevelMap).toMatchObject({ xhigh: "xhigh" });
+		expect(models.getModel(EXTRA, "xhigh-mapped")?.thinkingLevelMap).toMatchObject({ xhigh: "xhigh" });
+		expect(models.getModel(EXTRA, "xhigh-hidden")?.thinkingLevelMap).toMatchObject({ xhigh: null });
+		expect(models.getModel(EXTRA, "xhigh-unmapped")?.thinkingLevelMap).not.toHaveProperty("xhigh");
+		expect(models.getModel(EXTRA, "max-named")?.thinkingLevelMap).toMatchObject({ max: "max" });
 	});
 
 	it("rejects a hidden level like any unsupported level", async () => {

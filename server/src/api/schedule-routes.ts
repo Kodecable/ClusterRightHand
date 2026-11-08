@@ -1,3 +1,4 @@
+import type { ScheduleView } from "@crh/api";
 import { type Context, Hono } from "hono";
 import type { ModelConfig, ModelRef } from "../agent/models.ts";
 import { modelRefView, parseModelRef, thinkingLevelOf } from "../agent/models.ts";
@@ -44,7 +45,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 	const app = new Hono<AppEnv>();
 
 	/** The schedule's API shape, including what the list and form show about it. */
-	async function view(schedule: Schedule) {
+	async function view(schedule: Schedule): Promise<ScheduleView> {
 		const rules = await scheduleRuleSet(db, schedule.id);
 		const [last, running] = await Promise.all([latestRun(db, schedule.id), runInProgress(db, schedule.id)]);
 		// A row saved before cron/timezone were validated must not fail the list: an invalid stored

@@ -1,5 +1,5 @@
+import type { PendingAuthorization } from "@crh/api";
 import { describe, expect, test } from "vitest";
-import type { PendingAuthorization } from "@/lib/api/types";
 import { authorizationLines, commandText, grantCommand, sshKeygenRecipe } from "./authorization";
 
 const PENDING: PendingAuthorization = {

@@ -1,6 +1,6 @@
+import type { AuditEvent, AuditQuery, CursorPage } from "@crh/api";
 import { http, queryString } from "@/lib/api/client";
 import { useCursorInfiniteQuery } from "@/lib/api/query";
-import type { AuditEvent, AuditQuery, CursorPage } from "@/lib/api/types";
 
 export const auditKeys = {
 	all: ["audit"] as const,

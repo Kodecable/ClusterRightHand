@@ -27,6 +27,7 @@
 		"@types/ws": "^8.18.2"
 	},
 	"dependencies": {
+		"@crh/api": "workspace:*",
 		"@crh/noise": "workspace:*",
 		"@crh/protocol": "workspace:*",
 		"@earendil-works/chord": "1.4.0",

@@ -1,3 +1,4 @@
+import type { ApprovalBody, Evaluation, Operation, Rule, TaskGroupView, TaskView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useState } from "react";
 import { ErrorText } from "@/components/error-state";
@@ -10,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { actorLabel, alwaysRule } from "@/features/approvals/rules";
-import type { ApprovalBody, Evaluation, Operation, Rule, TaskGroupView, TaskView } from "@/lib/api/types";
 import { ruleWithNames } from "@/lib/refs";
 import { cn } from "@/lib/utils";
 

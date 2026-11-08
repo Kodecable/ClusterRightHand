@@ -1,8 +1,8 @@
+import type { TaskGroupView, TaskView } from "@crh/api";
 import type { QueryClient } from "@tanstack/react-query";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { taskKeys } from "@/features/tasks/api";
-import type { TaskGroupView, TaskView } from "@/lib/api/types";
 import { renderWithI18n, renderWithRouter, testQueryClient } from "@/test/render";
 import type { Json } from "./session-events";
 import { callStillOpen, toolLine } from "./tool-call";

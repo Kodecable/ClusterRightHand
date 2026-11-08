@@ -1,6 +1,6 @@
+import type { User } from "@crh/api";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { User } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
 import { ResetPasswordDialog } from "./reset-password-dialog";
 

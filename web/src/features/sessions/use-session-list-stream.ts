@@ -1,7 +1,7 @@
+import type { SessionListItem } from "@crh/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { subscribeSse } from "@/lib/api/sse";
-import type { SessionListItem } from "@/lib/api/types";
 import { type SessionListData, sessionKeys } from "./api";
 import {
 	isSessionListItem,

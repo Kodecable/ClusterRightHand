@@ -169,14 +169,14 @@ describeBackends("model providers api", (backend) => {
 				}
 			).providers.find((p) => p.providerId === "my-proxy");
 		expect((await list())?.headers).toEqual(headers);
-		expect(models.models.getModel("my-proxy", "m-1")?.headers).toEqual(headers);
+		expect(models.getModel("my-proxy", "m-1")?.headers).toEqual(headers);
 		// Omitted: unchanged (an edit of the models or the name must not drop them).
 		await put("my-proxy", proxy({ name: "My proxy" }));
 		expect((await list())?.headers).toEqual(headers);
 		// null: removed, from the provider and from its models.
 		await put("my-proxy", proxy({ headers: null }));
 		expect((await list())?.headers).toBeNull();
-		expect(models.models.getModel("my-proxy", "m-1")?.headers).toBeUndefined();
+		expect(models.getModel("my-proxy", "m-1")?.headers).toBeUndefined();
 	});
 
 	it("rejects headers that would break the request", async () => {

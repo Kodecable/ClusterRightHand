@@ -1,6 +1,6 @@
+import type { TaskRequest } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
-import type { TaskRequest } from "@/lib/api/types";
 import { splitArgv } from "./argv";
 
 export const KINDS = ["exec", "file.read", "file.write", "file.edit", "file.stat", "file.list"] as const;

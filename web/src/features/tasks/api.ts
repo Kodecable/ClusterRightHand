@@ -1,7 +1,7 @@
+import type { CursorPage, CursorQuery, TaskGroupView, TaskRequest, TaskView } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http, queryString } from "@/lib/api/client";
 import { useCursorInfiniteQuery } from "@/lib/api/query";
-import type { CursorPage, CursorQuery, TaskGroupView, TaskRequest, TaskView } from "@/lib/api/types";
 import { isTerminal } from "./output";
 
 /**

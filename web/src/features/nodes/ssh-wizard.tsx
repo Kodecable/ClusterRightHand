@@ -1,3 +1,4 @@
+import type { PublicNode } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -17,7 +18,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCreateSshNode, useProbeSshHost, useTestSshRoute } from "@/features/nodes/api";
 import { useCreateSshCredential, useSshCredentials } from "@/features/ssh-credentials/api";
-import type { PublicNode } from "@/lib/api/types";
 import {
 	addJump,
 	editHop,

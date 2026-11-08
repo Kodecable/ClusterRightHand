@@ -1,3 +1,4 @@
+import type { NodeAccessGrant, User } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -13,7 +14,6 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/session";
 import { useNodeAccessGrants } from "@/features/nodes/access-api";
 import { GranteeAccessList } from "@/features/nodes/access-grants";
-import type { NodeAccessGrant, User } from "@/lib/api/types";
 import { useUpdateUser, useUsers } from "./api";
 import { KindSelect } from "./kind-select";
 import { NewUserDialog } from "./new-user-dialog";

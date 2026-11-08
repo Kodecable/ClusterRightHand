@@ -1,3 +1,4 @@
+import type { ApprovalBody, SessionView, TaskGroupView, TaskView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -6,7 +7,6 @@ import { ApprovalCard } from "@/components/approval-card";
 import { QuotaCard } from "@/components/quota-card";
 import { useApprovalLookups, useApprovals, useDecideApproval } from "@/features/approvals/api";
 import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
-import type { ApprovalBody, SessionView, TaskGroupView, TaskView } from "@/lib/api/types";
 import { sessionKeys, useDecideQuota } from "./api";
 
 function SessionAuthorization({ kind, id, sessionId }: { kind: "task" | "task_group"; id: string; sessionId: string }) {

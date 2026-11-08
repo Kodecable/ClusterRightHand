@@ -1,7 +1,7 @@
+import type { NodeGroupRef, RefMap } from "@crh/api";
 import { Trans } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { Fragment } from "react";
-import type { NodeGroupRef, RefMap } from "@/lib/api/types";
 import { ALL_TARGET } from "@/lib/names";
 import { cn } from "@/lib/utils";
 

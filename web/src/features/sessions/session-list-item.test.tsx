@@ -1,6 +1,6 @@
+import type { SessionListItem } from "@crh/api";
 import { screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
-import type { SessionListItem } from "@/lib/api/types";
 import { renderWithRouter } from "@/test/render";
 import { SessionListItemRow } from "./session-list-item";
 

@@ -1,15 +1,10 @@
+import type { UserGroup } from "@crh/api";
 import { deleteGrantsForUserGroup } from "../cluster/node-access.ts";
 import type { Db } from "../storage/db.ts";
 import { newId } from "../util/id.ts";
 import { defaultOrgId, NotFoundError, UserError } from "./service.ts";
 
-export interface UserGroup {
-	id: string;
-	name: string;
-	source: "local";
-	createdAt: string;
-	memberIds: string[];
-}
+export type { UserGroup };
 
 const USER_GROUP_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 

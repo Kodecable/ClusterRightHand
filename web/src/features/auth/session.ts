@@ -1,6 +1,6 @@
+import type { User } from "@crh/api";
 import { useSyncExternalStore } from "react";
 import { http, setUnauthorizedHandler } from "@/lib/api/client";
-import type { User } from "@/lib/api/types";
 import type { LoginCaptcha } from "./captcha";
 
 export type AuthStatus = "unknown" | "authenticated" | "anonymous";

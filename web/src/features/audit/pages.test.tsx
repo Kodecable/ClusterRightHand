@@ -1,8 +1,8 @@
+import type { AuditEvent } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { AuditEvent } from "@/lib/api/types";
 import { renderWithRouter } from "@/test/render";
 import { AuditPage } from "./pages";
 

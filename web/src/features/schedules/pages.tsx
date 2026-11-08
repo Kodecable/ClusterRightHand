@@ -1,3 +1,4 @@
+import type { ScheduleView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PlusIcon, Trash2Icon } from "lucide-react";
@@ -15,7 +16,6 @@ import { ScheduleStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useModels } from "@/features/settings/api";
-import type { ScheduleView } from "@/lib/api/types";
 import { useDeleteSchedule, usePatchSchedule, useSchedule, useSchedules } from "./api";
 import { CreateScheduleDialog } from "./create-schedule-dialog";
 import { RunHistory } from "./run-history";

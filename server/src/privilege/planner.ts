@@ -7,6 +7,7 @@
  * a hypothetical valid signature (`decide`), so crhs cannot pick a path the node would reject.
  * A plan is only a prediction: crha re-verifies everything before executing.
  */
+import type { AuthorizationPath } from "@crh/api";
 import type { TaskSpec, TrustEntry, TrustSummary } from "@crh/protocol";
 import { type AuthzEntry, type AuthzSignature, authzEntryFromTrust, decide } from "./authz.ts";
 import { cosignRequired, hasCosign } from "./cosign.ts";
@@ -21,7 +22,7 @@ export const CRHS_AUTHORIZATION_TTL_MS = 5 * 60 * 1000;
  */
 export const USER_AUTHORIZATION_TTL_MS = 24 * 60 * 60 * 1000;
 
-export type AuthorizationPath = "crhs" | "user" | "local";
+export type { AuthorizationPath };
 
 /** The owner's registered credentials (doc/m4.md crhs 侧数据 `user_credentials`). */
 export interface OwnerCredentials {

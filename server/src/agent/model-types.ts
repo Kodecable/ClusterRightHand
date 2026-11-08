@@ -1,8 +1,28 @@
 // Model references and the stored shape of custom providers, shared by the model registry, validation and the
 // custom provider adapter.
 
-import type { ModelThinkingLevel, OpenAICompletionsCompat } from "@earendil-works/pi-ai";
+import type {
+	CustomApi,
+	CustomModel,
+	SessionIdConfig,
+	ThinkingBodyConfig,
+	ThinkingConfig,
+	ThinkingFormat,
+	ThinkingFormatConfig,
+	ThinkingLevelLabels,
+} from "@crh/api";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { UserError } from "../users/service.ts";
+
+export type {
+	CustomApi,
+	CustomModel,
+	SessionIdConfig,
+	ThinkingBodyConfig,
+	ThinkingConfig,
+	ThinkingFormatConfig,
+	ThinkingLevelLabels,
+};
 
 /** What a session runs on. */
 export interface ModelRef {
@@ -59,11 +79,8 @@ export function parseModelRef(raw: unknown): ModelRef {
 	};
 }
 
-/** The protocol a custom model speaks. */
-export type CustomApi = "openai-completions" | "openai-responses";
-
 /** The pi-ai thinking-parameter formats a Chat Completions model may ask for. */
-export const THINKING_FORMATS: readonly NonNullable<OpenAICompletionsCompat["thinkingFormat"]>[] = [
+export const THINKING_FORMATS: readonly ThinkingFormat[] = [
 	"openai",
 	"openrouter",
 	"deepseek",
@@ -76,47 +93,3 @@ export const THINKING_FORMATS: readonly NonNullable<OpenAICompletionsCompat["thi
 	"string-thinking",
 	"ant-ling",
 ];
-
-/**
- * Per-level display names of a custom model. A missing key uses the level id itself; an empty
- * string hides the level (doc/agent-runtime.md#思考档位).
- */
-export type ThinkingLevelLabels = Partial<Record<ModelThinkingLevel, string>>;
-
-/** pi-ai generates the thinking parameters (`thinkingFormat`, `thinkingLevelMap`). */
-export interface ThinkingFormatConfig {
-	mode: "standard";
-	/** Chat Completions only; Responses always sends `reasoning.effort`. */
-	format?: NonNullable<OpenAICompletionsCompat["thinkingFormat"]>;
-	/** pi-ai's level map; a null level is unsupported. */
-	levels: Partial<Record<ModelThinkingLevel, string | null>>;
-	labels?: ThinkingLevelLabels;
-}
-
-/** The selected level's object is deep-merged into the request body by the payload hook. */
-export interface ThinkingBodyConfig {
-	mode: "custom";
-	levels: Partial<Record<ModelThinkingLevel, Record<string, unknown>>>;
-	labels?: ThinkingLevelLabels;
-}
-
-export type ThinkingConfig = ThinkingFormatConfig | ThinkingBodyConfig;
-
-/** One model of a custom provider (doc/agent-runtime.md#自定义提供方). */
-export interface CustomModel {
-	id: string;
-	name?: string;
-	api: CustomApi;
-	contextWindow: number;
-	maxTokens: number;
-	input: ("text" | "image")[];
-	thinking?: ThinkingConfig;
-	/** Advanced pi-ai options, validated against the selected API's compat schema. */
-	compat?: Record<string, unknown>;
-}
-
-/** Request headers / body paths that carry the crh session id. */
-export interface SessionIdConfig {
-	headers?: string[];
-	body?: string[];
-}

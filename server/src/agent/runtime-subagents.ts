@@ -178,7 +178,7 @@ export async function createSubagent(
 			.execute();
 		await createRuleSet(trx, parent.org_id, { type: "session", id: childId }, input.rules);
 	});
-	host.subagentParents.add(parent.id);
+	host.sessionCaches.rememberSubagentParent(parent.id);
 	void host.audit?.record({
 		actor: {
 			type: parent.parent_session_id ? "subagent" : "session",

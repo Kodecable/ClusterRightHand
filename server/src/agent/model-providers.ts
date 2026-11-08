@@ -1,5 +1,6 @@
 // Stored model providers: listing, saving (with their API key secret) and deleting.
 
+import type { ModelProviderView } from "@crh/api";
 import type { Selectable } from "kysely";
 import { secretAad } from "../keys/export.ts";
 import type { MasterKey } from "../keys/master-key.ts";
@@ -10,21 +11,7 @@ import { newId } from "../util/id.ts";
 import type { CustomModel, SessionIdConfig } from "./model-types.ts";
 import { type ModelProviderInput, validate } from "./model-validate.ts";
 
-export interface ModelProviderView {
-	id: string;
-	providerId: string;
-	kind: ModelProvidersTable["kind"];
-	builtin: string | null;
-	name: string;
-	baseUrl: string | null;
-	hasApiKey: boolean;
-	models: CustomModel[] | null;
-	/** Extra request headers (custom only). */
-	headers: Record<string, string> | null;
-	/** Fields that carry the crh session id (custom only). */
-	sessionId: SessionIdConfig | null;
-	enabled: boolean;
-}
+export type { ModelProviderView };
 
 const SECRET_KIND = "model_api_key";
 

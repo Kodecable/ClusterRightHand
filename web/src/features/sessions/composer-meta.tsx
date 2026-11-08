@@ -1,7 +1,7 @@
+import type { SessionView } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
 import { DatabaseIcon } from "lucide-react";
 import { useModels } from "@/features/settings/api";
-import type { SessionView } from "@/lib/api/types";
 import { formatNumber, formatTokens } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";

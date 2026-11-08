@@ -1,3 +1,4 @@
+import type { PublicNode } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
@@ -16,7 +17,6 @@ import { NodeStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/session";
-import type { PublicNode } from "@/lib/api/types";
 import { NodeAccessSection } from "./access-grants";
 import { AddNodeDialog } from "./add-node-dialog";
 import { AddSshNodeDialog } from "./add-ssh-node-dialog";

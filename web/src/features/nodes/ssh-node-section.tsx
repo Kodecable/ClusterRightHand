@@ -1,8 +1,8 @@
+import type { PublicNode, SshNodeDetails } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { TestConnection } from "@/components/test-connection";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useTestSshNode } from "@/features/nodes/api";
-import type { PublicNode, SshNodeDetails } from "@/lib/api/types";
 
 /** Route, pinned host keys and credential of an SSH node, with a connection test. */
 export function SshNodeSection({

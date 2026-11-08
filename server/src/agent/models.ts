@@ -2,11 +2,20 @@
 // model-validate.ts, stored providers in model-providers.ts and the pi-ai adapters in custom-provider.ts; this module
 // re-exports what the rest of the server uses.
 
-import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { AvailableModel } from "@crh/api";
+import type {
+	Api,
+	AssistantMessage,
+	Context,
+	Model,
+	ModelsSimpleStreamOptions,
+	ModelThinkingLevel,
+} from "@earendil-works/pi-ai";
 import {
 	clampThinkingLevel,
 	createModels,
 	getSupportedThinkingLevels,
+	type Models,
 	type MutableModels,
 	type Provider,
 } from "@earendil-works/pi-ai/models";
@@ -16,6 +25,7 @@ import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import { UserError } from "../users/service.ts";
 import { customProvider, type ProviderSessionResolver, withKey } from "./custom-provider.ts";
+import { type CompleteMeter, meteredModels } from "./metering.ts";
 import { parseJson } from "./model-providers.ts";
 import { type CustomModel, levelDisplayName, type ModelRef, type ThinkingLevelLabels } from "./model-types.ts";
 
@@ -47,12 +57,13 @@ export { builtinProviderIds, type ModelProviderInput } from "./model-validate.ts
 
 /**
  * The model registry for the agent runtime, from the configured providers. Rebuilt when an administrator
- * changes the configuration (`reload`).
+ * changes the configuration (`reload`). The pi-ai registry is private: callers inside the agent directory ask
+ * this class for the few operations they need, so the boundary test can keep pi imports in this directory.
  */
 export class ModelConfig {
 	readonly #db: Db;
 	readonly #masterKey: MasterKey;
-	readonly models: MutableModels;
+	readonly #models: MutableModels;
 	/** Tests: providers added in code (e.g. pi-ai's faux provider), kept across reloads. */
 	readonly #extra: Provider[] = [];
 	/** Custom models by `provider/modelId`, for their per-level display names (`available`). */
@@ -66,7 +77,7 @@ export class ModelConfig {
 	constructor(db: Db, masterKey: MasterKey) {
 		this.#db = db;
 		this.#masterKey = masterKey;
-		this.models = createModels();
+		this.#models = createModels();
 	}
 
 	/** Installs the runtime's provider-session mapping, used for custom providers' session id fields. */
@@ -91,7 +102,22 @@ export class ModelConfig {
 
 	addProvider(provider: Provider): void {
 		this.#extra.push(provider);
-		this.models.setProvider(provider);
+		this.#models.setProvider(provider);
+	}
+
+	/** One configured model, or undefined when no enabled provider offers it. */
+	getModel(provider: string, modelId: string): Model<Api> | undefined {
+		return this.#models.getModel(provider, modelId);
+	}
+
+	/** The one-shot completion Auto Review and title generation use, on the configured registry. */
+	completeSimple(model: Model<Api>, context: Context, options?: ModelsSimpleStreamOptions): Promise<AssistantMessage> {
+		return this.#models.completeSimple(model, context, options);
+	}
+
+	/** The registry the Harness gets, wrapped so its compaction calls are metered (doc/agent-runtime.md#配额). */
+	metered(onComplete: CompleteMeter): Models {
+		return meteredModels(this.#models, onComplete);
 	}
 
 	/**
@@ -138,30 +164,20 @@ export class ModelConfig {
 		// From here to the end there is no await: the registry changes in one step. Providers added in code are
 		// read here rather than before the waits, so one added while a reload is reading is kept.
 		const all = [...this.#extra, ...providers];
-		this.models.clearProviders();
-		for (const provider of all) this.models.setProvider(provider);
+		this.#models.clearProviders();
+		for (const provider of all) this.#models.setProvider(provider);
 		this.#customModels.clear();
 		for (const [ref, model] of customModels) this.#customModels.set(ref, model);
 	}
 
 	/** Models sessions may pick: those of enabled providers, with their levels and input kinds. */
-	available(): {
-		provider: string;
-		providerName: string;
-		modelId: string;
-		name: string;
-		contextWindow: number;
-		thinkingLevels: ModelThinkingLevel[];
-		/** Custom models only: the display name of every offered level (its id by default). */
-		thinkingLabels?: ThinkingLevelLabels;
-		input: ("text" | "image")[];
-	}[] {
-		return this.models.getModels().map((m) => {
+	available(): AvailableModel[] {
+		return this.#models.getModels().map((m) => {
 			const custom = this.#customModels.get(`${m.provider}/${m.id}`);
 			const thinkingLevels = getSupportedThinkingLevels(m);
 			return {
 				provider: m.provider,
-				providerName: this.models.getProvider(m.provider)?.name ?? m.provider,
+				providerName: this.#models.getProvider(m.provider)?.name ?? m.provider,
 				modelId: m.id,
 				name: m.name,
 				contextWindow: m.contextWindow,
@@ -179,7 +195,7 @@ export class ModelConfig {
 	}
 
 	assertAvailable(ref: ModelRef): void {
-		if (!this.models.getModel(ref.provider, ref.modelId)) {
+		if (!this.#models.getModel(ref.provider, ref.modelId)) {
 			throw new UserError(`model ${ref.provider}/${ref.modelId} is not configured`);
 		}
 	}
@@ -190,7 +206,7 @@ export class ModelConfig {
 	 * one. The returned ref omits `off`, the stored convention; callers use `thinkingLevelOf` for the durable config.
 	 */
 	resolveRef(ref: ModelRef, previousLevel?: ModelThinkingLevel): ModelRef {
-		const model = this.models.getModel(ref.provider, ref.modelId);
+		const model = this.#models.getModel(ref.provider, ref.modelId);
 		if (!model) throw new UserError(`model ${ref.provider}/${ref.modelId} is not configured`);
 		let level: ModelThinkingLevel;
 		if (ref.thinkingLevel !== undefined) {

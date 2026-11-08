@@ -1,8 +1,8 @@
+import type { PublicNode } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/dialogs";
 import { ErrorState } from "@/components/error-state";
-import type { PublicNode } from "@/lib/api/types";
 import { useApproveNode, useDeleteNode } from "./api";
 
 /** The approve/reject confirmation of a pending node, with its key fingerprint. */

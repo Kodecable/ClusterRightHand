@@ -472,10 +472,12 @@ async function streamRun(
 			[
 				{
 					type: "snapshot",
-					entries: [userEntry("u1", "show me the incident brief")],
-					tools: [],
-					inbox: [],
-					historyCursor: null,
+					snapshot: {
+						entries: [userEntry("u1", "show me the incident brief")],
+						tools: [],
+						inbox: [],
+						historyCursor: null,
+					},
 				},
 			],
 		);

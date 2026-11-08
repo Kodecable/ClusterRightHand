@@ -1,6 +1,6 @@
+import type { SessionView as ApiSessionView, SessionEvent } from "@crh/api";
 import type { Context } from "@earendil-works/chord/context";
 import type {
-	AgentEvent,
 	CompactionSettings,
 	Conversation,
 	ConversationId,
@@ -11,52 +11,28 @@ import type {
 import type { Audit } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
-import type { RefMap } from "../policy/refs.ts";
-import type { StoredRuleSet } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError } from "../users/service.ts";
 import type { ModelPresets } from "./model-presets.ts";
-import type { ModelConfig, ModelRef } from "./models.ts";
+import type { ModelConfig } from "./models.ts";
+import type { HandlerWakes } from "./runtime-host/handler-wakes.ts";
+import type { Inboxes } from "./runtime-host/inboxes.ts";
+import type { QuotaWaits } from "./runtime-host/quota-waits.ts";
+import type { SessionCaches } from "./runtime-host/session-caches.ts";
+import type { SessionFlags } from "./runtime-host/session-flags.ts";
+import type { StateRefreshes } from "./runtime-host/state-refreshes.ts";
 import type { SessionRow } from "./session-chain.ts";
 import type { SessionListHub } from "./session-list-hub.ts";
-import type { SessionState, WaitingKind } from "./session-state.ts";
 
 /**
  * The pieces every runtime module shares: the services, the open Harness and the runtime's caches. One
  * instance per `AgentRuntime`, which delegates its public API to the modules that take it (doc/agent-runtime.md).
- * pi-durable types stay inside these modules; the facade's public API has none.
+ * pi packages stay inside this directory and the storage adapters in server/src/storage/ (in server/src); the
+ * facade's public API has none (test/pi-boundary.test.ts).
  */
 
-export interface SessionView {
-	id: string;
-	/** Null until generated or set; the WebUI shows its localized default name. */
-	title: string | null;
-	ownerUserId: string;
-	parentSessionId: string | null;
-	/** The schedule whose run created this session; null for every other session (doc/scheduling.md). */
-	scheduleId: string | null;
-	model: ModelRef;
-	status: "active" | "archived";
-	createdAt: string;
-	updatedAt: string;
-	rules: StoredRuleSet | null;
-	/** Display names for the UUIDs referenced by `rules`; null means the object was deleted. */
-	refs: RefMap;
-	/** The session's own run state (doc/agent-runtime.md#会话状态). */
-	state: SessionState;
-	/** Why the session waits; null unless `state` is `awaiting`. */
-	waitingKind: WaitingKind | null;
-	/** While awaiting a quota: the exhausted level to top up. */
-	waitingLevelId: string | null;
-	/** Remaining budget tokens; null: unlimited. Signed: a response may overspend it (D92). */
-	budgetRemaining: number | null;
-	/** The budget measure: output tokens spent by this session and its subagents (D92, D101). */
-	budgetUsedTokens: number;
-	/** The statistics measure: input + output tokens of this session and its subagents (D101). */
-	usageTokens: number;
-	/** The input size of this session's own last main-agent call; null before the first (D101). */
-	contextTokens: number | null;
-}
+/** The session row without the per-caller decorations the API adds (relationship, capabilities, owner name). */
+export type SessionView = Omit<ApiSessionView, "relationship" | "capabilities" | "ownerUsername" | "shares">;
 
 /** An approval handed to an ancestor session's agent (doc/agent-runtime.md#处理子会话的请求). */
 export interface AgentRequestView {
@@ -69,8 +45,8 @@ export interface AgentRequestView {
 	createdAt: string;
 }
 
-/** What a UI receives: a snapshot to start from, then batches of events (pi-durable's agent events, for now). */
-export type SessionEvent = AgentEvent;
+/** What a UI receives: a snapshot to start from, then batches of the `@crh/api` session events (never pi's). */
+export type { SessionEvent };
 
 /** The session a conversation belongs to, for the tools' per-call lookups (the mapping never changes). */
 export interface SessionInfo {
@@ -78,14 +54,6 @@ export interface SessionInfo {
 	ownerUserId: string;
 	orgId: string;
 	parentSessionId: string | null;
-}
-
-/** Requests waiting for one handler's agent, loaded from the database and invalidated on approval changes. */
-export interface Inbox {
-	requests: Map<string, AgentRequestView>;
-	loaded: boolean;
-	/** Resolved when the pending set may have changed; `waitSubagent` uses this instead of polling. */
-	waiters: Set<() => void>;
 }
 
 export interface AgentRuntimeOptions {
@@ -131,30 +99,18 @@ export interface RuntimeHost {
 	harness(): Harness;
 	/** Whether close() has begun: the Harness refuses every new operation from here on. */
 	closing(): boolean;
-	/** Sessions being stopped: their run ends during the stop, and the stop, not the run end, ends their waits. */
-	readonly stopping: Set<string>;
-	/** conversation id -> session, for the tools' per-call lookups (the mapping never changes). */
-	readonly sessionsByConversation: Map<string, SessionInfo>;
-	/** Sessions known to have subagents; checked once per session, then cheap. */
-	readonly subagentParents: Set<string>;
+	/** What the runtime remembers about sessions: conversation, subagent and provider-session lookups. */
+	readonly sessionCaches: SessionCaches;
+	/** Recomputations of session state in flight, coalesced per session (D118). */
+	readonly refreshes: StateRefreshes;
 	/** Pending requests by handler, a cache over tasks/task_groups/quota waits. */
-	readonly inboxes: Map<string, Inbox>;
-	/** Waiters for a quota wait's session; grant/deny/abort/quota edit wakes them. */
-	readonly quotaWaiters: Map<string, Set<() => void>>;
-	/** Sessions whose state is being recomputed, and whether a request arrived while it ran (doc/agent-runtime.md#会话状态). */
-	readonly refreshes: Map<string, { again: boolean; done: Promise<SessionState> }>;
-	/** Sessions whose paused call was denied but whose tool has not ended yet: their wait must not be re-created. */
-	readonly deniedWaits: Set<string>;
-	/** Provider session id -> session, so a compaction's summarization is charged to its conversation (D92). */
-	readonly providerSessions: Map<string, string>;
-	/** Conversations whose provider document was already read. */
-	readonly learnedProviders: Set<string>;
-	/** Follow-up inputs held while the handler runs; flushed once it is idle. */
-	readonly pendingWakes: Map<string, Map<string, string>>;
-	/** Handlers with a `waitForIdle` observer attached. */
-	readonly idleWatchers: Set<string>;
-	/** Sessions with a title generation in flight (memory only; a restart waits for the next run end). */
-	readonly titleGenerating: Set<string>;
+	readonly inboxes: Inboxes;
+	/** Waiters for a quota wait's session; grant/deny/abort/quota edit wakes them, and denials are marked here. */
+	readonly quotaWaits: QuotaWaits;
+	/** Follow-up inputs held while a handler runs, flushed once it is idle. */
+	readonly wakes: HandlerWakes;
+	/** Stops and title generations in flight (memory only). */
+	readonly sessionFlags: SessionFlags;
 }
 
 /** The session's row; `missing` words the NotFoundError (callers name what the user asked for). */

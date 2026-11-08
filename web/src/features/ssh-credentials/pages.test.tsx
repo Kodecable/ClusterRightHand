@@ -1,3 +1,4 @@
+import type { SshCredential, User } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -5,7 +6,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { AppSidebar } from "@/app/shell/app-sidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { authStore } from "@/features/auth/session";
-import type { SshCredential, User } from "@/lib/api/types";
 import { renderWithRouter } from "@/test/render";
 import { SshCredentialsPage } from "./pages";
 

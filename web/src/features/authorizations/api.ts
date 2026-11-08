@@ -1,7 +1,3 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { invalidatePendingDecisions } from "@/features/approvals/api";
-import { enc, http, queryString } from "@/lib/api/client";
-import { useCursorInfiniteQuery } from "@/lib/api/query";
 import type {
 	AuthorizationSummary,
 	CursorPage,
@@ -9,7 +5,11 @@ import type {
 	TaskGroupPending,
 	TaskGroupPendingTask,
 	TaskGroupView,
-} from "@/lib/api/types";
+} from "@crh/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { invalidatePendingDecisions } from "@/features/approvals/api";
+import { enc, http, queryString } from "@/lib/api/client";
+import { useCursorInfiniteQuery } from "@/lib/api/query";
 
 export const authorizationKeys = {
 	all: ["authorizations"] as const,

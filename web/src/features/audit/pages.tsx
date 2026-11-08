@@ -1,3 +1,4 @@
+import type { AuditEvent, AuditQuery } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { RefreshCwIcon } from "lucide-react";
@@ -13,7 +14,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useDirectory } from "@/features/users/api";
-import type { AuditEvent, AuditQuery } from "@/lib/api/types";
 import { useAuditEvents } from "./api";
 
 /** The actor's id, as a tooltip: the cell itself shows the display name when the directory has one. */

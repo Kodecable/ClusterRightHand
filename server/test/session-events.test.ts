@@ -1,4 +1,5 @@
-import { fauxProvider } from "@earendil-works/pi-ai/providers/faux";
+import type { SessionEvent } from "@crh/api";
+import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { SSEStreamingApi } from "hono/streaming";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
@@ -15,6 +16,9 @@ import type { Db } from "../src/storage/db.ts";
 import { createUser } from "../src/users/service.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { waitSubmission } from "./helpers/runtime.ts";
+
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const PASSWORD = "session-events-password";
 const faux = fauxProvider();
@@ -24,6 +28,7 @@ let db: Db;
 let app: App;
 let runtime: AgentRuntime;
 let drain: RequestDrain;
+let owner: SessionUser;
 let alice = "";
 let bob = "";
 let sessionId = "";
@@ -59,12 +64,13 @@ beforeAll(async () => {
 	await createUser(db, { username: "bob", kind: "member", password: PASSWORD });
 	alice = await login(app, "alice", PASSWORD);
 	bob = await login(app, "bob", PASSWORD);
-	const owner: SessionUser = {
+	const ownerRow: SessionUser = {
 		sessionId: "test-alice",
 		userId: aliceRow.id,
 		username: aliceRow.username,
 		kind: aliceRow.kind,
 	};
+	owner = ownerRow;
 	sessionId = (await runtime.createSession(owner, { title: "event stream", model: model(), rulePreset: "ask" })).id;
 });
 
@@ -162,4 +168,108 @@ it("unsubscribes the session list stream when a ping write throws", async () => 
 		restore();
 		subscribe.mockRestore();
 	}
+});
+
+it("streams wire-shaped events for a faux-model run: text, a tool call and a snapshot", async () => {
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "wire shapes" });
+	const events: SessionEvent[] = [];
+	const stop = await runtime.watch(session.id, (batch) => {
+		// Exactly what the SSE route writes: the converted objects, serialized.
+		events.push(...(JSON.parse(JSON.stringify(batch)) as SessionEvent[]));
+	});
+	try {
+		faux.setResponses([
+			fauxAssistantMessage([fauxToolCall("list_nodes", {}, { id: "wire-call" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("all done")]),
+		]);
+		const submission = await runtime.submit(session.id, owner, "list the nodes", "wire-shapes-1");
+		expect(await waitSubmission(runtime, session.id, submission)).toEqual({ status: "done", answer: "all done" });
+		await vi.waitFor(() => expect(events.some((event) => event.type === "run_end")).toBe(true), { timeout: 5_000 });
+	} finally {
+		stop();
+	}
+
+	// The events the WebUI's reducer ignores are dropped at the boundary, not serialized.
+	const types = events.map((event) => event.type);
+	expect(types).not.toContain("agent_changed");
+	expect(types).not.toContain("submission");
+	expect(types).not.toContain("deferred_poll");
+
+	// The snapshot is the wrapped wire form, with no pi-only live state.
+	const snapshot = events.find((event) => event.type === "snapshot");
+	if (snapshot?.type !== "snapshot") throw new Error("no snapshot");
+	expect(snapshot.snapshot).toMatchObject({ tools: expect.any(Array), inbox: [], historyCursor: null });
+	expect(snapshot.snapshot).not.toHaveProperty("nestedTools");
+	expect(snapshot.snapshot).not.toHaveProperty("agent");
+	expect(snapshot.snapshot).not.toHaveProperty("compactionFailure");
+
+	// A representative assistant message: the wire fields are there, pi's provider bookkeeping is not.
+	const startEvent = events.find((event) => event.type === "message_start" && event.message.role === "assistant");
+	if (startEvent?.type !== "message_start") throw new Error("no assistant message_start");
+	const start = startEvent.message;
+	if (start.role !== "assistant") throw new Error("not an assistant message");
+	for (const field of [
+		"api",
+		"provider",
+		"model",
+		"responseModel",
+		"responseId",
+		"providerThinkingLevel",
+		"thinkingLevel",
+		"diagnostics",
+		"deferred",
+		"rawStopReason",
+		"endTurn",
+	]) {
+		expect(start).not.toHaveProperty(field);
+	}
+	expect(start.content).toEqual([expect.objectContaining({ type: "toolCall", name: "list_nodes" })]);
+	const callBlock = start.content.find((block) => block.type === "toolCall");
+	if (callBlock === undefined) throw new Error("no toolCall block");
+	expect("thoughtSignature" in callBlock).toBe(false);
+	expect("namespace" in callBlock).toBe(false);
+
+	// Tool events carry the call identity and args, not pi's task bookkeeping.
+	const toolStart = events.find((event) => event.type === "tool_execution_start");
+	expect(toolStart).toMatchObject({
+		type: "tool_execution_start",
+		toolCallId: "wire-call",
+		toolName: "list_nodes",
+		args: {},
+	});
+	expect(toolStart).not.toHaveProperty("taskId");
+	expect(toolStart).not.toHaveProperty("parentTaskId");
+
+	// Committed entries keep identity, kind, messages and data; durable bookkeeping stays in the server.
+	for (const event of events) {
+		const entry = event.type === "message_end" || event.type === "entry_appended" ? event.entry : undefined;
+		if (entry === undefined) continue;
+		expect(entry).not.toHaveProperty("conversationId");
+		expect(entry).not.toHaveProperty("byTaskId");
+		expect(entry).not.toHaveProperty("head");
+		expect(entry).not.toHaveProperty("edits");
+	}
+
+	const toolEnd = events.find((event) => event.type === "tool_execution_end" && event.toolName === "list_nodes");
+	if (toolEnd?.type !== "tool_execution_end") throw new Error("no tool_execution_end");
+	expect(toolEnd.entry?.kind).toBe("pi.tool-result");
+	const result = toolEnd.entry?.model?.[0];
+	if (result?.role !== "toolResult") throw new Error("no tool result message");
+	expect(result).not.toHaveProperty("nestedCalls");
+	expect(result).not.toHaveProperty("usage");
+
+	// A fresh snapshot after the run carries the same converted entries.
+	const later: SessionEvent[] = [];
+	const stopLater = await runtime.watch(session.id, (batch) => {
+		later.push(...(JSON.parse(JSON.stringify(batch)) as SessionEvent[]));
+	});
+	stopLater();
+	const latest = later.find((event) => event.type === "snapshot");
+	if (latest?.type !== "snapshot") throw new Error("no snapshot after the run");
+	expect(latest.snapshot.entries.map((entry) => entry.kind)).toEqual(
+		expect.arrayContaining(["pi.user", "pi.assistant", "pi.tool-result"]),
+	);
+	const resultEntry = latest.snapshot.entries.find((entry) => entry.kind === "pi.tool-result");
+	if (resultEntry === undefined) throw new Error("no tool-result entry");
+	expect(resultEntry).not.toHaveProperty("conversationId");
 });

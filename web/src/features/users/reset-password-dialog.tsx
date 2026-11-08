@@ -1,3 +1,4 @@
+import type { User } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useLingui } from "@lingui/react/macro";
 import { useMemo } from "react";
@@ -6,7 +7,6 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { FormDialog } from "@/components/dialogs";
 import { CheckboxField, TextField } from "@/components/form";
-import type { User } from "@/lib/api/types";
 import { useSetUserPassword } from "./api";
 
 /** An administrator's password reset for another account, optionally ending its API tokens. */

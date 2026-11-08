@@ -1,3 +1,4 @@
+import type { SessionCapabilities, SessionRelationship, SessionShare, SessionShareAccess } from "@crh/api";
 import type { Selectable } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
@@ -12,20 +13,7 @@ import { sessionAncestors } from "./session-chain.ts";
  * drives it within the owner's nodes and the session's own rules, and approvals still go to the owner.
  */
 
-export type SessionShareAccess = "view" | "chat";
-
-/** Effective capabilities of one user on one session; computed per request, never stored. */
-export interface SessionCapabilities {
-	view: boolean;
-	chat: boolean;
-	/** Whether the caller may list and revoke shares: the owner and administrators. */
-	manageShares: boolean;
-	/** Whether the caller may create a share: only the session's owner. */
-	createShares: boolean;
-	configure: boolean;
-}
-
-export type SessionRelationship = "owner" | "admin" | "shared";
+export type { SessionCapabilities, SessionRelationship, SessionShare, SessionShareAccess };
 
 export interface SessionPermissions {
 	relationship: SessionRelationship;
@@ -52,18 +40,6 @@ export function capabilitiesFor(
 		createShares: isOwner,
 		configure: isOwner,
 	};
-}
-
-export interface SessionShare {
-	id: string;
-	sessionId: string;
-	granteeType: "user" | "user_group";
-	granteeId: string;
-	/** Username or user group name, for display. */
-	granteeName: string | null;
-	access: SessionShareAccess;
-	createdByUserId: string;
-	createdAt: string;
 }
 
 /** The share levels of a session, weakest first (a node share orders `view < operate` instead). */

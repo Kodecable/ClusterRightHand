@@ -3,7 +3,6 @@ import { sql } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
 import { exhaustedLevel, exhaustedLevels } from "./quota.ts";
 import type { RuntimeHost } from "./runtime-core.ts";
-import { forgetInbox, invalidateInboxes } from "./runtime-requests.ts";
 import { parentOf, type SessionRow } from "./session-chain.ts";
 import {
 	nonIdleSessions,
@@ -38,33 +37,12 @@ type DesiredState = { state: SessionState; wait: SessionWait | null };
  * unsettled. An idle session is never revived here — only a new input does that — so a late correction
  * cannot restart a run that already ended.
  *
- * Refreshes of the same session are serialized and coalesced (doc/agent-runtime.md#会话状态): a request while
- * one is running marks it dirty and shares its promise, and the running one recomputes once more after it
- * finishes, so the last write is always computed from data read after the latest request.
+ * `StateRefreshes.run` serializes and coalesces refreshes of the same session: a request while one is running
+ * marks it dirty and shares its promise, and the running one recomputes once more after it finishes, so the
+ * last write is always computed from data read after the latest request.
  */
 export function refreshState(host: RuntimeHost, sessionId: string): Promise<SessionState> {
-	const running = host.refreshes.get(sessionId);
-	if (running) {
-		running.again = true;
-		return running.done;
-	}
-	// The entry is in the map before the first read suspends, so a concurrent request marks it instead of
-	// starting its own recompute. A second pass runs only when a request arrived during the first.
-	const entry = { again: false, done: Promise.resolve<SessionState>("idle") };
-	entry.done = (async () => {
-		try {
-			let state: SessionState = "idle";
-			do {
-				entry.again = false;
-				state = await refreshStateOnce(host, sessionId);
-			} while (entry.again);
-			return state;
-		} finally {
-			host.refreshes.delete(sessionId);
-		}
-	})();
-	host.refreshes.set(sessionId, entry);
-	return entry.done;
+	return host.refreshes.run(sessionId, () => refreshStateOnce(host, sessionId));
 }
 
 /** One recomputation of the session's state from the data read now; `refreshState` runs it in order. */
@@ -84,7 +62,7 @@ async function refreshStateOnce(host: RuntimeHost, sessionId: string): Promise<S
 		row.state !== desired.state ||
 		row.waiting_kind !== (desired.wait?.kind ?? null) ||
 		row.waiting_level_id !== (desired.wait?.levelId ?? null);
-	if (changed) invalidateInboxes(host);
+	if (changed) host.inboxes.clear();
 	return desired.state;
 }
 
@@ -108,7 +86,7 @@ export async function refreshStates(host: RuntimeHost, rows: readonly StateRow[]
 	const pending = new Map<string, Promise<SessionState>>();
 	const batched: StateRow[] = [];
 	for (const row of live) {
-		if (host.refreshes.has(row.id)) pending.set(row.id, refreshState(host, row.id));
+		if (host.refreshes.isRunning(row.id)) pending.set(row.id, refreshState(host, row.id));
 		else batched.push(row);
 	}
 
@@ -143,7 +121,7 @@ export async function refreshStates(host: RuntimeHost, rows: readonly StateRow[]
 				desired.wait?.kind === "quota" &&
 				row.waiting_handler_id === null &&
 				desired.wait.levelId !== row.id;
-			if (sameState(row, desired) && !missingHandler && !host.refreshes.has(row.id)) {
+			if (sameState(row, desired) && !missingHandler && !host.refreshes.isRunning(row.id)) {
 				states.set(row.id, desired.state);
 				// `refreshState` publishes every live row it recomputes, even when the state is unchanged; keep
 				// that signal (a later fetch is a no-op when there are no subscribers).
@@ -295,17 +273,17 @@ export async function settleInput(
 		.where("last_submission_id", "=", submissionId)
 		.execute();
 	host.sessionList.publishSession(sessionId);
-	forgetInbox(host, sessionId);
+	host.inboxes.forget(sessionId);
 	// A tool call that ended without its task (aborted by durable, abandoned after restarts) left the task
 	// waiting for a decision nobody will act on: the run is over, so end those waits too.
-	if (!host.stopping.has(sessionId)) {
+	if (!host.sessionFlags.isStopping(sessionId)) {
 		await endSessionWork(host, [sessionId], "the session's run ended", { includeRunning: false });
 	}
 	// Background: the run end never waits for the title. A stopped run, a child and a scheduled run have no
 	// pending title (or must not start one); the generator re-checks the row anyway.
 	if (
 		options.generateTitle !== false &&
-		!host.stopping.has(sessionId) &&
+		!host.sessionFlags.isStopping(sessionId) &&
 		row.parent_session_id === null &&
 		row.title_pending === 1
 	) {

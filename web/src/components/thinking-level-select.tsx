@@ -1,7 +1,7 @@
+import type { AvailableModel, ThinkingLevel } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
 import { LightbulbIcon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { AvailableModel, ThinkingLevel } from "@/lib/api/types";
 import { thinkingLevelName } from "@/lib/thinking-level";
 import { cn } from "@/lib/utils";
 

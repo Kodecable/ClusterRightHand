@@ -1,3 +1,4 @@
+import type { CursorPage } from "@crh/api";
 import type { InfiniteData } from "@tanstack/react-query";
 import {
 	keepPreviousData,
@@ -9,7 +10,6 @@ import {
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError } from "./client";
-import type { CursorPage } from "./types";
 
 /**
  * Query defaults: a minute of freshness (SSE and mutations keep the cache

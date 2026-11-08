@@ -1,3 +1,4 @@
+import type { ModelRef, RulePreset, SessionView, ThinkingLevel } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
 import { ArrowUpIcon, DropletIcon, LightbulbIcon, ShieldCheckIcon, SquareIcon } from "lucide-react";
 import { useState } from "react";
@@ -7,7 +8,6 @@ import { RulePresetSelect } from "@/components/rule-preset-select";
 import { ThinkingLevelSelect } from "@/components/thinking-level-select";
 import { Button } from "@/components/ui/button";
 import { useModels } from "@/features/settings/api";
-import type { ModelRef, RulePreset, SessionView, ThinkingLevel } from "@/lib/api/types";
 import { formatNumber, formatTokens } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { rulePresetIcon, rulePresetLabel } from "@/lib/rule-preset";

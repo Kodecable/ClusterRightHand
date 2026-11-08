@@ -1,6 +1,6 @@
+import type { CustomApi, CustomModel, SessionIdConfig, ThinkingFormat, ThinkingLevel } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
-import type { CustomApi, CustomModel, SessionIdConfig, ThinkingLevel } from "@/lib/api/types";
 
 /**
  * Pure conversion and validation between the model provider form and the API
@@ -360,7 +360,7 @@ export function rowToModel(row: ModelRow): { model: CustomModel } | { errors: Mo
 		thinking = {
 			mode: "standard",
 			// Responses always sends reasoning.effort; the server rejects a format there.
-			...(row.api === "openai-completions" && row.format !== "" ? { format: row.format } : {}),
+			...(row.api === "openai-completions" && row.format !== "" ? { format: row.format as ThinkingFormat } : {}),
 			levels,
 			...withLabels,
 		};

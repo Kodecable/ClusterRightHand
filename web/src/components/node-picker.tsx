@@ -1,3 +1,4 @@
+import type { PublicNode } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { ChevronsUpDownIcon } from "lucide-react";
 import { NodeStatusBadge } from "@/components/status-badge";
@@ -6,7 +7,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { PublicNode } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 interface BaseProps {

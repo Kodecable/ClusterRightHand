@@ -1,3 +1,4 @@
+import type { QuotaApproval } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
@@ -8,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { sessionTitle } from "@/features/sessions/session-item";
-import type { QuotaApproval } from "@/lib/api/types";
 import { formatNumber } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { parseGrantInput, type QuotaError, quotaStatus } from "@/lib/quota";

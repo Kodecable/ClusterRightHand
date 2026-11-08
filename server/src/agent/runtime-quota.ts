@@ -4,7 +4,6 @@ import { ProviderDoc } from "@earendil-works/pi-durable";
 import { NotFoundError, UserError } from "../users/service.ts";
 import { chargeCall, exhaustedLevel, grantQuota } from "./quota.ts";
 import type { RuntimeHost } from "./runtime-core.ts";
-import { invalidateInboxes } from "./runtime-requests.ts";
 import { refreshState } from "./runtime-state.ts";
 import { parentOf } from "./session-chain.ts";
 import { markSessionsIdle, type SessionWait, setSessionState } from "./session-state.ts";
@@ -26,7 +25,7 @@ import { wakeQuota } from "./wakes.ts";
 export async function waitForQuota(host: RuntimeHost, sessionId: string, context: Context): Promise<"ok" | "denied"> {
 	for (;;) {
 		// The owner denied while this call was setting up or between waits: end it instead of waiting again.
-		if (host.deniedWaits.delete(sessionId)) return "denied";
+		if (host.quotaWaits.takeDenied(sessionId)) return "denied";
 		const waiter = quotaWaiter(host, sessionId, context.abortSignal);
 		try {
 			const level = await exhaustedLevel(host.db, sessionId);
@@ -34,7 +33,7 @@ export async function waitForQuota(host: RuntimeHost, sessionId: string, context
 				const write = await setSessionState(host.db, sessionId, "running", null, { onlyIfLive: true });
 				host.sessionList.publishSession(sessionId);
 				// The quota request is gone; drop it from the handler's cache before returning.
-				invalidateInboxes(host);
+				host.inboxes.clear();
 				// The run ended while this call waited: do not revive it or run the task.
 				if (!write.applied) return "denied";
 				return "ok";
@@ -48,9 +47,9 @@ export async function waitForQuota(host: RuntimeHost, sessionId: string, context
 			// A root level has no parent to handle its wait: the owner sees it in the approvals API, and the
 			// session paused on that level already carries the wait (doc/agent-runtime.md#配额).
 			// A deny/abort could have landed between the check and the write; do not wake for an ended wait.
-			if (host.deniedWaits.delete(sessionId)) return "denied";
+			if (host.quotaWaits.takeDenied(sessionId)) return "denied";
 			// The handler's inbox cache must see the new quota request.
-			invalidateInboxes(host);
+			host.inboxes.clear();
 			if (parent) await wakeQuota(host, parent, sessionId, level, since);
 			// Grant/deny/abort/quota edit resolves this; the next loop re-checks the durable state.
 			await waiter.promise;
@@ -71,9 +70,7 @@ function quotaWaiter(
 	const promise = new Promise<void>((r) => {
 		resolve = r;
 	});
-	const waiters = host.quotaWaiters.get(sessionId) ?? new Set<() => void>();
-	waiters.add(resolve);
-	host.quotaWaiters.set(sessionId, waiters);
+	const cancelWaiter = host.quotaWaits.wait(sessionId, resolve);
 	const onAbort = () => resolve();
 	if (signal) {
 		if (signal.aborted) resolve();
@@ -82,16 +79,10 @@ function quotaWaiter(
 	return {
 		promise,
 		cancel: () => {
-			waiters.delete(resolve);
-			if (waiters.size === 0) host.quotaWaiters.delete(sessionId);
+			cancelWaiter();
 			signal?.removeEventListener("abort", onAbort);
 		},
 	};
-}
-
-/** Wakes every paused call; a grant, deny, abort or quota edit calls this. */
-export function notifyQuotaWaiters(host: RuntimeHost): void {
-	for (const waiters of host.quotaWaiters.values()) for (const wake of waiters) wake();
 }
 
 /**
@@ -122,7 +113,7 @@ export async function decideRootQuota(
 	if (decision === "deny") {
 		// The paused calls end like an agent's deny; a call waiting right now is told by the in-memory mark,
 		// so it ends instead of waiting again.
-		for (const row of paused) if (host.quotaWaiters.get(row.id)?.size) host.deniedWaits.add(row.id);
+		for (const row of paused) if (host.quotaWaits.hasWaiters(row.id)) host.quotaWaits.markDenied(row.id);
 		await markSessionsIdle(
 			host.db,
 			paused.map((row) => row.id),
@@ -131,8 +122,8 @@ export async function decideRootQuota(
 		if (tokens === undefined) throw new UserError("give the quota wait tokens to grant");
 		await grantQuota(host.db, rootId, tokens);
 	}
-	notifyQuotaWaiters(host);
-	invalidateInboxes(host);
+	host.quotaWaits.wakeAll();
+	host.inboxes.clear();
 	// On a deny every paused run already ended idle; on a grant each paused call resumes and writes `running`.
 	if (decision === "deny") for (const row of paused) await refreshState(host, row.id);
 	await refreshState(host, rootId);
@@ -141,7 +132,7 @@ export async function decideRootQuota(
 
 /** Remembers which session owns a conversation's provider session id, for metering its compaction (D92). */
 export async function rememberProviderSession(host: RuntimeHost, conversationId: string): Promise<void> {
-	if (host.learnedProviders.has(conversationId)) return;
+	if (host.sessionCaches.hasLearnedProvider(conversationId)) return;
 	const provider = await host
 		.harness()
 		.snapshot(ProviderDoc, Number(conversationId) as unknown as ConversationId, host.context);
@@ -153,8 +144,7 @@ export async function rememberProviderSession(host: RuntimeHost, conversationId:
 		.where("conversation_id", "=", conversationId)
 		.executeTakeFirst();
 	if (!row) return;
-	host.providerSessions.set(providerSessionId, row.id);
-	host.learnedProviders.add(conversationId);
+	host.sessionCaches.rememberProviderSession(conversationId, providerSessionId, row.id);
 }
 
 /**
@@ -168,7 +158,7 @@ export async function chargeCompaction(
 	message: AccountedMessage,
 	context: { readonly messages: readonly unknown[]; readonly systemPrompt?: string },
 ): Promise<void> {
-	const sessionId = host.providerSessions.get(providerSessionId);
+	const sessionId = host.sessionCaches.providerSessionOf(providerSessionId);
 	if (!sessionId) return;
 	const tokens = callTokens(message, estimateRequestTokens(context));
 	await chargeCall(host.db, sessionId, tokens);

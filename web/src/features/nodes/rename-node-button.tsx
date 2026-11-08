@@ -1,3 +1,4 @@
+import type { PublicNode } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useId, useState } from "react";
 import { toast } from "sonner";
@@ -5,7 +6,6 @@ import { FormDialog } from "@/components/dialogs";
 import { FieldShell } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { PublicNode } from "@/lib/api/types";
 import { useRenameNode } from "./api";
 
 /** The "Rename" button of a node page and the one-field dialog it opens. */

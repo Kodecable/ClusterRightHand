@@ -1,3 +1,4 @@
+import type { NodeAccessGrant, User, UserGroup } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { PlusIcon, Trash2Icon, UserPlusIcon, XIcon } from "lucide-react";
 import { useId, useState } from "react";
@@ -9,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { GranteeAccessList } from "@/features/nodes/access-grants";
-import type { NodeAccessGrant, User, UserGroup } from "@/lib/api/types";
 import {
 	useAddUserGroupMember,
 	useCreateUserGroup,

@@ -1,8 +1,8 @@
+import type { ApiTokenView } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { ApiTokenView } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
 import { CreateTokenDialog } from "./create-token-dialog";
 import { TokensPage } from "./pages";
@@ -98,7 +98,7 @@ describe("TokensPage", () => {
 				scope: { type: "api_token", id: API_TOKEN.id },
 				rulePreset: "auto_review",
 				rules: [],
-				default: "ask",
+				default: "require-approval",
 				updatedAt: "2026-01-01T00:00:00.000Z",
 			},
 		};

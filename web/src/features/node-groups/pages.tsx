@@ -1,3 +1,4 @@
+import type { NodeGroup } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PencilIcon, PlusIcon, Trash2Icon, UserPenIcon } from "lucide-react";
@@ -17,7 +18,6 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/session";
 import { NodeAccessSection } from "@/features/nodes/access-grants";
 import { useNodes } from "@/features/nodes/api";
-import type { NodeGroup } from "@/lib/api/types";
 import { useDeleteNodeGroup, useNodeGroups } from "./api";
 import { NodeGroupMembersDialog, NodeGroupNameDialog } from "./dialogs";
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ApiError, enc } from "@/lib/api/client";
 import { subscribeSse } from "@/lib/api/sse";
-import type { AgentEvent, EntryRecord } from "./session-events";
+import type { EntryRecord, SessionEvent } from "./session-events";
 import { initialState, prependHistory, reduceAll, type SessionState } from "./session-reducer";
 import { TranscriptStreams } from "./transcript-streams";
 
@@ -28,14 +28,14 @@ export interface SessionEvents {
 }
 
 /** Whether an event makes the session's child list stale. */
-function touchesChildren(event: AgentEvent): boolean {
+function touchesChildren(event: SessionEvent): boolean {
 	if (event.type === "snapshot") return true;
 	if (event.type !== "tool_execution_update" && event.type !== "tool_execution_end") return false;
-	return (event as { toolName?: unknown }).toolName === "subagent";
+	return event.toolName === "subagent";
 }
 
 /** The shape the stream promises; anything else is dropped rather than fed to the reducer. */
-function isAgentEvent(value: unknown): value is AgentEvent {
+function isSessionEvent(value: unknown): value is SessionEvent {
 	return value !== null && typeof value === "object" && typeof (value as { type?: unknown }).type === "string";
 }
 
@@ -109,7 +109,7 @@ export function useSessionEvents(id: string | undefined): SessionEvents {
 			events: ["events"],
 			onEvent: (name, data) => {
 				if (name !== "events" || !Array.isArray(data)) return;
-				const events = data.filter(isAgentEvent);
+				const events = data.filter(isSessionEvent);
 				if (events.length === 0) return;
 				if (events.some(touchesChildren)) setChildrenRevision((value) => value + 1);
 				const next = reduceAll(stateRef.current, events);

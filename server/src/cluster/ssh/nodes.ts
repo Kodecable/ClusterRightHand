@@ -1,3 +1,4 @@
+import type { SshCredential, SshNodeDetails, SshTargetInput } from "@crh/api";
 import ssh2 from "ssh2";
 import { secretAad } from "../../keys/export.ts";
 import type { MasterKey } from "../../keys/master-key.ts";
@@ -12,18 +13,11 @@ const SECRET_KIND = "ssh_private_key";
 const HOST_KEY = /^SHA256:[A-Za-z0-9+/]{43}$/;
 const MAX_JUMPS = 5;
 
+export type { SshCredential, SshNodeDetails, SshTargetInput };
+
 export interface SshCredentialUser {
 	id: string;
 	name: string;
-}
-
-export interface SshCredential {
-	id: string;
-	name: string;
-	publicKey: string;
-	createdAt: string;
-	/** The nodes this credential authenticates; its key is used on every hop of their route. */
-	usedBy: SshCredentialUser[];
 }
 
 /**
@@ -113,15 +107,6 @@ async function credentialKey(db: Db, masterKey: MasterKey, credentialId: string)
 	return masterKey.decrypt(secret.ciphertext, secretAad(secret.id, secret.kind)).toString("utf8");
 }
 
-export interface SshTargetInput {
-	host: string;
-	port?: number;
-	user: string;
-	hostKey?: string;
-	jumps?: { host: string; port?: number; user: string; hostKey?: string }[];
-	credentialId: string;
-}
-
 function hop(h: { host: string; port?: number; user: string; hostKey?: string }, what: string): SshHop {
 	if (typeof h.host !== "string" || !/^[A-Za-z0-9.:_-]{1,253}$/.test(h.host))
 		throw new UserError(`${what}: invalid host`);
@@ -206,12 +191,6 @@ export async function deleteSshCredential(db: Db, credentialId: string): Promise
 		await trx.deleteFrom("ssh_credentials").where("id", "=", credentialId).execute();
 		await trx.deleteFrom("secrets").where("id", "=", cred.secret_id).execute();
 	});
-}
-
-export interface SshNodeDetails {
-	/** Jump hosts in order, then the node itself; every host key is pinned. */
-	hops: SshHop[];
-	credential: { id: string; name: string | null };
 }
 
 /** How crhs reaches an SSH node, for administrators. */

@@ -1,8 +1,8 @@
+import type { User } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { authStore } from "@/features/auth/session";
-import type { User } from "@/lib/api/types";
 import { useUpdateUser } from "./api";
 
 const ME: User = {

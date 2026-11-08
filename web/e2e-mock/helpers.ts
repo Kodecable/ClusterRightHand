@@ -1,5 +1,3 @@
-import { expect, type Page } from "@playwright/test";
-import type { AgentEvent, EntryRecord as SessionEntry } from "../src/features/sessions/session-events";
 import type {
 	ApiTokenView,
 	ApprovalList,
@@ -27,7 +25,9 @@ import type {
 	TaskView,
 	User,
 	UserGroup,
-} from "../src/lib/api/types";
+} from "@crh/api";
+import { expect, type Page } from "@playwright/test";
+import type { EntryRecord as SessionEntry, SessionEvent } from "../src/features/sessions/session-events";
 
 export const USER: User = {
 	id: "user-1",
@@ -70,7 +70,7 @@ export interface FakeState {
 	/** Details by session id; a missing one is derived from the list item. */
 	details: Record<string, SessionView>;
 	/** The event batch sent when the test opens a session's fake stream. */
-	events: Record<string, AgentEvent[]>;
+	events: Record<string, SessionEvent[]>;
 	/** The older history page served for `?before=<historyCursor>`. */
 	olderEntries: Record<string, { entries: SessionEntry[]; historyCursor: string | null }>;
 	/** Child sessions by parent id (`GET /api/sessions/:id/children`). */
@@ -272,7 +272,7 @@ export function makeTranscript(count: number, prefix = "e"): SessionEntry[] {
 	return entries;
 }
 
-export function snapshotEvent(entries: SessionEntry[], historyCursor: string | null): AgentEvent[] {
+export function snapshotEvent(entries: SessionEntry[], historyCursor: string | null): SessionEvent[] {
 	return [{ type: "snapshot", snapshot: { entries, tools: [], inbox: [], historyCursor } }];
 }
 
@@ -1155,7 +1155,7 @@ export async function openMenuSection(page: Page, testId: string): Promise<void>
 }
 
 /** Open one session from the list and deliver its snapshot event. */
-export async function openSession(page: Page, api: ApiMock, sessionId: string, events?: AgentEvent[]): Promise<void> {
+export async function openSession(page: Page, api: ApiMock, sessionId: string, events?: SessionEvent[]): Promise<void> {
 	await page.locator(`[data-session-id="${sessionId}"]`).click();
 	await api.waitForStream(`/api/sessions/${sessionId}/events`);
 	await api.emit(`/api/sessions/${sessionId}/events`, "events", events ?? api.state.events[sessionId] ?? []);
@@ -1297,4 +1297,4 @@ export function sshCredentialView(overrides: Partial<SshCredential> = {}): SshCr
 	};
 }
 
-export type { AgentEvent, SessionEntry };
+export type { SessionEntry, SessionEvent };

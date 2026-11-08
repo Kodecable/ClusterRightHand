@@ -1,8 +1,8 @@
+import type { User } from "@crh/api";
 import { i18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { type UseMutationResult, useMutation, useQuery } from "@tanstack/react-query";
 import { ApiError, http } from "@/lib/api/client";
-import type { User } from "@/lib/api/types";
 import type { LoginCaptcha } from "./captcha";
 import { authStore } from "./session";
 

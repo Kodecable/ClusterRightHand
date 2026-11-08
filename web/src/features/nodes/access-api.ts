@@ -1,6 +1,6 @@
+import type { AccessTargetType, GranteeType, NodeAccessGrant, NodeAccessGrantFilter } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http, queryString } from "@/lib/api/client";
-import type { AccessTargetType, GranteeType, NodeAccessGrant, NodeAccessGrantFilter } from "@/lib/api/types";
 
 export const accessGrantKeys = {
 	all: ["node-access-grants"] as const,

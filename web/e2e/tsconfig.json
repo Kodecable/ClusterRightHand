@@ -5,6 +5,7 @@
 		"types": ["node"],
 		"noEmit": true,
 		"paths": {
+			"@crh/api": ["../../packages/api/src/index.ts"],
 			"@crh/protocol": ["../../packages/protocol/src/index.ts"]
 		}
 	},

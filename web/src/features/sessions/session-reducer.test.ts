@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { AgentEvent, EntryRecord } from "./session-events";
+import type { EntryRecord, SessionEvent } from "./session-events";
 import { applyOutput, initialState, isCompacting, prependHistory, reduceAll } from "./session-reducer";
 import { approvalWait, authorizationWait, prettyJson } from "./tool-details";
 import { type TranscriptItem, transcript } from "./transcript-items";
@@ -22,27 +22,24 @@ const assistantEntry = (id: string, content: unknown[], stopReason = "stop"): En
 	kind: "pi.assistant",
 	model: [{ role: "assistant", content: content as never, stopReason }],
 });
-const emptySnapshot: AgentEvent = { type: "snapshot", snapshot: { entries: [], tools: [], inbox: [] } };
-
-test("an unwrapped snapshot works too", () => {
-	const s = reduceAll(initialState, [{ type: "snapshot", entries: [userEntry("1", "x")], tools: [], inbox: [] }]);
-	expect(s.entries).toHaveLength(1);
-});
+const emptySnapshot: SessionEvent = { type: "snapshot", snapshot: { entries: [], tools: [], inbox: [] } };
 
 test("a snapshot builds the transcript and the in-flight message", () => {
 	const s = reduceAll(initialState, [
 		{
 			type: "snapshot",
-			entries: [
-				userEntry("1", "hi"),
-				assistantEntry("2", [{ type: "text", text: "hello" }]),
-				{ id: "3", kind: "pi.system" },
-			],
-			run: { inputs: ["s1"] },
-			generation: { attempt: 1, message: { role: "assistant", content: [{ type: "text", text: "par" }] } },
-			tools: [{ callId: "c", name: "exec", status: "running", output: "abc" }],
-			inbox: [],
-			usage: { models: { "faux/x": usage(1500) }, tools: {} },
+			snapshot: {
+				entries: [
+					userEntry("1", "hi"),
+					assistantEntry("2", [{ type: "text", text: "hello" }]),
+					{ id: "3", kind: "pi.system" },
+				],
+				run: { inputs: [1] },
+				generation: { attempt: 1, message: { role: "assistant", content: [{ type: "text", text: "par" }] } },
+				tools: [{ callId: "c", name: "exec", status: "running", output: "abc" }],
+				inbox: [],
+				usage: { models: { "faux/x": usage(1500) }, tools: {} },
+			},
 		},
 	]);
 	expect(s.ready).toBe(true);
@@ -67,7 +64,7 @@ test("a reconnect snapshot resets the state", () => {
 test("user message, streamed text and the committed entry", () => {
 	let s = reduceAll(initialState, [
 		emptySnapshot,
-		{ type: "run_start", inputs: ["s1"] },
+		{ type: "run_start", inputs: [1] },
 		{ type: "message_start", message: { role: "user", content: "hi" } },
 		{ type: "message_end", entry: userEntry("1", "hi") },
 		{ type: "turn_start" },
@@ -85,7 +82,7 @@ test("user message, streamed text and the committed entry", () => {
 		{ type: "message_update", changes: [{ type: "text_delta", contentIndex: 0, delta: "lo" }] },
 		{ type: "message_end", entry: assistantEntry("2", [{ type: "text", text: "Hello" }]) },
 		{ type: "turn_end" },
-		{ type: "run_end", inputs: ["s1"] },
+		{ type: "run_end", inputs: [1] },
 	]);
 	expect(s.streaming).toBeUndefined();
 	expect(s.running).toBe(false);
@@ -116,9 +113,11 @@ test("a snapshot does not claim live rows", () => {
 	const s = reduceAll(initialState, [
 		{
 			type: "snapshot",
-			entries: [assistantEntry("2", [{ type: "text", text: "hello" }])],
-			tools: [],
-			inbox: [],
+			snapshot: {
+				entries: [assistantEntry("2", [{ type: "text", text: "hello" }])],
+				tools: [],
+				inbox: [],
+			},
 		},
 	]);
 	expect(transcript(s)).toEqual([{ kind: "text", key: "2/0", text: "hello", streaming: false }]);
@@ -146,7 +145,7 @@ const callBlock = { type: "toolCall", id: "call-1", name: "exec", arguments: { n
 test("a tool call: streamed arguments, running output, result, second turn", () => {
 	let s = reduceAll(initialState, [
 		emptySnapshot,
-		{ type: "run_start", inputs: ["s1"] },
+		{ type: "run_start", inputs: [1] },
 		{ type: "message_end", entry: userEntry("1", "run it") },
 		{ type: "message_start", message: { role: "assistant", content: [] } },
 		{
@@ -227,7 +226,7 @@ test("a tool call: streamed arguments, running output, result, second turn", () 
 			changes: [{ type: "text_start", contentIndex: 0, block: { type: "text", text: "Done" } }],
 		},
 		{ type: "message_end", entry: assistantEntry("4", [{ type: "text", text: "Done" }]) },
-		{ type: "run_end", inputs: ["s1"] },
+		{ type: "run_end", inputs: [1] },
 	]);
 	expect(s.entries).toHaveLength(4);
 	tool = transcript(s).find((i) => i.kind === "tool") as typeof tool;
@@ -236,7 +235,7 @@ test("a tool call: streamed arguments, running output, result, second turn", () 
 
 	// second turn
 	s = reduceAll(s, [
-		{ type: "run_start", inputs: ["s2"] },
+		{ type: "run_start", inputs: [2] },
 		{ type: "message_end", entry: userEntry("5", "again") },
 		{ type: "message_start", message: { role: "assistant", content: [{ type: "text", text: "" }] } },
 		{ type: "message_update", changes: [{ type: "text_delta", contentIndex: 0, delta: "Sure" }] },
@@ -298,7 +297,7 @@ test("retry and failure state", () => {
 	expect(s.retry).toBe("overloaded");
 	s = reduceAll(s, [
 		{ type: "auto_retry_end", attempt: 1 },
-		{ type: "task_failed", taskId: "t", kind: "x", message: "boom" },
+		{ type: "task_failed", taskId: 1, kind: "x", message: "boom" },
 	]);
 	expect(s.retry).toBeUndefined();
 	expect(s.failure).toBe("boom");
@@ -349,7 +348,7 @@ describe("history pages", () => {
 				type: "snapshot",
 				snapshot: {
 					entries: [userEntry("10", "newest"), assistantEntry("11", [{ type: "text", text: "answer" }])],
-					run: { inputs: ["s2"] },
+					run: { inputs: [2] },
 					generation: { attempt: 1, message: { role: "assistant", content: [{ type: "text", text: "par" }] } },
 					tools: [{ callId: "live", name: "exec", status: "running", output: "50%" }],
 					inbox: [],
@@ -552,7 +551,7 @@ describe("history pages", () => {
 });
 
 describe("live compactions", () => {
-	test("a snapshot carries the live compactions with string task ids", () => {
+	test("a snapshot carries the live compactions with numeric task ids", () => {
 		const s = reduceAll(initialState, [
 			{
 				type: "snapshot",
@@ -562,20 +561,20 @@ describe("live compactions", () => {
 					inbox: [],
 					compactions: [
 						{ taskId: 7, reason: "manual", blocking: false, attempt: 1 },
-						{ taskId: "t9", reason: "threshold", blocking: true, attempt: 1, retry: { at: 1, error: "slow" } },
+						{ taskId: 9, reason: "threshold", blocking: true, attempt: 1, retry: { at: 1, error: "slow" } },
 					],
 				},
 			},
 		]);
 		expect(s.compactions).toEqual([
 			{ taskId: "7", reason: "manual" },
-			{ taskId: "t9", reason: "threshold" },
+			{ taskId: "9", reason: "threshold" },
 		]);
 		expect(isCompacting(s)).toBe(true);
 		// The builder appends one live row per compaction, after everything already shown.
 		expect(transcript(s)).toEqual([
 			{ kind: "compacting", key: "compacting/7" },
-			{ kind: "compacting", key: "compacting/t9" },
+			{ kind: "compacting", key: "compacting/9" },
 		]);
 	});
 
@@ -584,7 +583,7 @@ describe("live compactions", () => {
 			emptySnapshot,
 			{ type: "compaction_start", taskId: 1, reason: "manual", blocking: false },
 			{ type: "compaction_start", taskId: 1, reason: "manual", blocking: false },
-			{ type: "compaction_start", taskId: "2", reason: "overflow", blocking: true },
+			{ type: "compaction_start", taskId: 2, reason: "overflow", blocking: true },
 		]);
 		expect(s.compactions).toEqual([
 			{ taskId: "1", reason: "manual" },
@@ -593,7 +592,7 @@ describe("live compactions", () => {
 		s = reduceAll(s, [{ type: "compaction_end", taskId: 1, reason: "manual" }]);
 		expect(s.compactions).toEqual([{ taskId: "2", reason: "overflow" }]);
 		expect(transcript(s).at(-1)).toEqual({ kind: "compacting", key: "compacting/2" });
-		s = reduceAll(s, [{ type: "compaction_end", taskId: "2", reason: "overflow", error: "boom" }]);
+		s = reduceAll(s, [{ type: "compaction_end", taskId: 2, reason: "overflow", error: "boom" }]);
 		expect(s.compactions).toEqual([]);
 		expect(isCompacting(s)).toBe(false);
 		expect(transcript(s).some((item) => item.kind === "compacting")).toBe(false);
@@ -602,9 +601,9 @@ describe("live compactions", () => {
 	test("run_end keeps a manual compaction, which outlives the run", () => {
 		const s = reduceAll(initialState, [
 			emptySnapshot,
-			{ type: "run_start", inputs: ["s1"] },
+			{ type: "run_start", inputs: [1] },
 			{ type: "compaction_start", taskId: 3, reason: "manual", blocking: false },
-			{ type: "run_end", inputs: ["s1"] },
+			{ type: "run_end", inputs: [1] },
 		]);
 		expect(s.running).toBe(false);
 		expect(s.compactions).toEqual([{ taskId: "3", reason: "manual" }]);

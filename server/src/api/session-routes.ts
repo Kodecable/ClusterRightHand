@@ -1,3 +1,4 @@
+import type { SessionView as ApiSessionView } from "@crh/api";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { parseModelRef } from "../agent/models.ts";
 import { parseQuota } from "../agent/quota.ts";
@@ -107,7 +108,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 						u.username,
 					]),
 		);
-	const decorate = async (c: Context<AppEnv>, views: SessionView[]) => {
+	const decorate = async (c: Context<AppEnv>, views: SessionView[]): Promise<ApiSessionView[]> => {
 		const user = c.get("user");
 		const names = await usernames([...new Set(views.map((v) => v.ownerUserId))]);
 		const shared = await sharedSessionAccess(db, user.userId);

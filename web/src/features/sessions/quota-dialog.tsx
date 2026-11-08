@@ -1,10 +1,10 @@
+import type { SessionView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { FormDialog } from "@/components/dialogs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { SessionView } from "@/lib/api/types";
 import { parseQuotaInput, type QuotaError } from "@/lib/quota";
 import { usePatchSession } from "./api";
 

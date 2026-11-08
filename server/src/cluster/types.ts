@@ -2,13 +2,13 @@
  * The types of the Cluster's public surface and the constants of the task state machine. The modules
  * of this directory build on them; cluster.ts re-exports them as the Cluster's own API.
  */
-import type { JsonTaskResult, TaskSpec } from "@crh/protocol";
+import type { AgentRequest, ApprovalDecision, ApprovalRecord, TaskView } from "@crh/api";
+import type { TaskSpec } from "@crh/protocol";
 import type { Audit } from "../audit/audit.ts";
 import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { AuthorizationSigningKey } from "../privilege/key.ts";
 import type { OutputMode, TaskGroupState, TaskState as TaskRowState } from "../storage/schema.ts";
-import type { TaskAuthorizationRecord } from "./authorization.ts";
 import type { NodeRow } from "./nodes.ts";
 import type { SshRoute } from "./ssh/connection.ts";
 
@@ -50,98 +50,7 @@ export interface CreateTaskInput {
 	id?: string;
 }
 
-/** How an approval was settled. */
-export interface ApprovalDecision {
-	decision: "approved" | "rejected";
-	by: { type: string; id: string; onBehalfOfUserId?: string };
-	at: string;
-	reason?: string;
-	/** The task group whose approval covered this task. */
-	taskGroupId?: string;
-}
-
-/**
- * A request handed to the agent of an ancestor session instead of going straight to the user
- * (doc/agent-runtime.md#处理子会话的请求).
- */
-export interface AgentRequest {
-	/** The session whose agent decides; its agent calls subagent_decide. */
-	session: string;
-	/** `escalated`: its agent passed it on to the user. */
-	state: "pending" | "escalated";
-}
-
-/** The approval state of a tool call: how the rules judged it, then how it was settled. */
-export interface ApprovalRecord {
-	evaluation: Evaluation;
-	decision?: ApprovalDecision;
-	/** Auto Review's verdict, when the root's rule preset asked for one. */
-	review?: { decision: "approve" | "escalate"; reason: string; model: string };
-	/** Set while (or after) an ancestor's agent had the request. */
-	agent?: AgentRequest;
-}
-
-export interface TaskView {
-	id: string;
-	nodeId: string;
-	kind: string;
-	state: TaskRowState;
-	exitCode: number | null;
-	signal: string | null;
-	timedOut: boolean;
-	cancelled: boolean;
-	/** The task's timeout in milliseconds; null when it had none (used by the text note "timed out after N s"). */
-	timeoutMs: number | null;
-	errorCode: string | null;
-	errorMessage: string | null;
-	/** Bytes of the single output stream (D114). */
-	outputBytes: number;
-	/** The kept head of the output stream; the batch `text` mode keeps only a tail, so this is "". */
-	outputHead: string;
-	/**
-	 * The kept tail of the output stream: a single task's or a batch `text` node's tail. A trailing
-	 * newline ends the last line.
-	 */
-	outputTail: string;
-	/** Lines of the kept tail, counted by newline characters; a last line without one counts. */
-	outputTailLines: number;
-	/** Total lines of the output; null until crha reports it in task.exit (or an SSH task counts it). */
-	outputLines: number | null;
-	/** crhs's own note about the task (the SSH privileged notice); it is not part of the output (D114). */
-	notice: string | null;
-	/** The task's output budget; null means the default for its mode (D112). */
-	maxLines: number | null;
-	maxBytes: number | null;
-	outputFile: string | null;
-	/** How much output was kept for this task (doc/execution-plane.md#输出). */
-	outputMode: OutputMode;
-	/** Whether this is a privileged task (doc/privilege.md). */
-	privileged: boolean;
-	/** The authorization plan and its history for a privileged task; null for the others (doc/m4.md#crhs-侧数据). */
-	authorization: TaskAuthorizationRecord | null;
-	/**
-	 * The task's structured result in its JSON form; null for a kind that reports none, for a task
-	 * that is still running and for one that failed (doc/protocol.md TaskResult).
-	 */
-	result: JsonTaskResult | null;
-	/** One line describing what ran: the command line or the path. */
-	summary: string;
-	/** What authorization rules match on (doc/privilege.md#方法与目标); null if the spec cannot be read. */
-	operation: { method: string; target: string } | null;
-	actorType: string;
-	actorId: string;
-	onBehalfOfUserId: string;
-	createdAt: string;
-	finishedAt: string | null;
-	taskGroupId: string | null;
-	ruleChain: RuleRef[] | null;
-	approval: ApprovalRecord | null;
-	/** The chain's first session, for grouping approvals by session tree (a schedule may come before it). */
-	rootSessionId: string | null;
-	/** Who handles a waiting approval; null when it is not waiting. */
-	handlerType: "agent" | "user" | null;
-	handlerSessionId: string | null;
-}
+export type { AgentRequest, ApprovalDecision, ApprovalRecord, TaskView };
 
 export interface ClusterOptions {
 	/** How long a node may stay disconnected before its tasks are reported unknown(connection_lost). */

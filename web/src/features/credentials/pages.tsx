@@ -1,3 +1,4 @@
+import type { CredentialView } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { startRegistration } from "@simplewebauthn/browser";
@@ -22,7 +23,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { CredentialView } from "@/lib/api/types";
 import { useAddSshCredential, useCredentials, useDeleteCredential, usePasskeyOptions, useRegisterPasskey } from "./api";
 import { credentialTrustSnippet } from "./trust";
 

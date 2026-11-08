@@ -1,7 +1,7 @@
+import type { User, UserKind } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { User, UserKind } from "@/lib/api/types";
 import { useUpdateUser } from "./api";
 
 /** The inline administrator/member switch of a user row; your own kind cannot change. */

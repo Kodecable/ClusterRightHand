@@ -1,7 +1,7 @@
+import type { CursorPage, ScheduleInput, ScheduleRunView, ScheduleView } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http, queryString } from "@/lib/api/client";
 import { useCursorInfiniteQuery } from "@/lib/api/query";
-import type { CursorPage, ScheduleInput, ScheduleRunView, ScheduleView } from "@/lib/api/types";
 
 export const scheduleKeys = {
 	all: ["schedules"] as const,

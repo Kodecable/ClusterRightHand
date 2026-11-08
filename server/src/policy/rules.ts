@@ -1,4 +1,12 @@
 import { posix } from "node:path";
+import type {
+	Evaluation as ApiEvaluation,
+	LevelResult as ApiLevelResult,
+	Rule as ApiRule,
+	RulePreset as ApiRulePreset,
+	RuleAction,
+	RuleMethod,
+} from "@crh/api";
 import type { TaskSpec } from "@crh/protocol";
 import { ALL_TARGET, isUuid, NAME_RE } from "../cluster/names.ts";
 import { shellQuote } from "../cluster/ssh/exec.ts";
@@ -9,10 +17,10 @@ import { UserError } from "../users/service.ts";
  * rule sets and acting on the result belong to the callers.
  */
 
-export type Action = "allow" | "deny" | "require-approval";
+export type Action = RuleAction;
 export type DefaultAction = Action | "inherit";
-export type Method = "exec" | "file.read" | "file.write";
-export type RulePreset = "ask" | "auto_review" | "yolo";
+export type Method = RuleMethod;
+export type RulePreset = ApiRulePreset;
 
 export const RULE_PRESETS: readonly RulePreset[] = ["ask", "auto_review", "yolo"];
 const METHODS: readonly Method[] = ["exec", "file.read", "file.write"];
@@ -20,18 +28,7 @@ const ACTIONS: readonly Action[] = ["allow", "deny", "require-approval"];
 const MAX_RULES = 200;
 const MAX_PATTERN = 1000;
 
-export interface Rule {
-	action: Action;
-	method?: Method;
-	/** Node/node-group UUIDs or `_all` (D109); omitted means every node. */
-	nodes?: string[];
-	/** true matches only privileged tasks, false only ordinary ones; omitted matches both (D86). */
-	privileged?: boolean;
-	exact?: string;
-	prefix?: string;
-	// No regex: crhs would run it on its event loop, where one backtracking pattern stalls everything.
-	// crha's trust rules have regex, with RE2 (doc/privilege.md).
-}
+export type Rule = ApiRule;
 
 export interface RuleSet {
 	default: DefaultAction;
@@ -54,21 +51,8 @@ export interface Operation {
 	privileged: boolean;
 }
 
-export interface LevelResult {
-	scope: { type: string; id: string };
-	/** This level's own result, before combining with the levels above. */
-	own: DefaultAction;
-	/** Index of the deciding rule in this level's rules; absent when the default applied. */
-	rule?: number;
-	/** The deciding rule itself, kept with the evaluation so that later rule edits do not change history. */
-	matched?: Rule;
-	effective: Action;
-}
-
-export interface Evaluation {
-	result: Action;
-	levels: LevelResult[];
-}
+export type LevelResult = ApiLevelResult;
+export type Evaluation = ApiEvaluation;
 
 /** The rules a root rule preset stands for; rules the user adds come after these. */
 export function rulePresetRuleSet(rulePreset: RulePreset): RuleSet {

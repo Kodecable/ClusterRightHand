@@ -1,3 +1,4 @@
+import type { TaskAuthorizationView, TaskResultView, TaskView } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { CopyButton } from "@/components/copy-button";
@@ -7,7 +8,6 @@ import { TaskStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/session";
 import { batchOutput, joinOutput, statusOutputNoteKey, taskErrorText, taskOutcome } from "@/features/tasks/output";
-import type { TaskAuthorizationView, TaskResultView, TaskView } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 import { DecisionView, EvaluationTable } from "./approval-card";
 

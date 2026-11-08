@@ -1,7 +1,7 @@
+import type { ApiTokenView, Rule, RulePreset } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invalidatePendingDecisions } from "@/features/approvals/api";
 import { enc, http } from "@/lib/api/client";
-import type { ApiTokenView, Rule, RulePreset } from "@/lib/api/types";
 
 export const tokenKeys = {
 	all: ["api-tokens"] as const,

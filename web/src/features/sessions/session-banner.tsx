@@ -1,5 +1,5 @@
+import type { SessionWaitingKind } from "@crh/api";
 import { Plural, Trans } from "@lingui/react/macro";
-import type { SessionWaitingKind } from "@/lib/api/types";
 
 export interface SessionBannerProps {
 	connection: "connecting" | "live" | "reconnecting";

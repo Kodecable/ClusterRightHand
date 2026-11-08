@@ -4,7 +4,7 @@
  * React component so it can be tested directly; labels are keys that the card
  * translates.
  */
-import type { PendingAuthorization } from "@/lib/api/types";
+import type { PendingAuthorization } from "@crh/api";
 import { formatDateTime } from "@/lib/format";
 
 export type PayloadLineKey =

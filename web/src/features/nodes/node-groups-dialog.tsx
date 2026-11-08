@@ -1,3 +1,4 @@
+import type { PublicNode } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -6,7 +7,6 @@ import { ErrorText } from "@/components/error-state";
 import { NodeGroupPicker } from "@/components/node-group-picker";
 import { Spinner } from "@/components/spinner";
 import { useNodeGroups } from "@/features/node-groups/api";
-import type { PublicNode } from "@/lib/api/types";
 import { useSetNodeGroups } from "./api";
 
 /**

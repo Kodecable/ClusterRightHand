@@ -1,3 +1,4 @@
+import type { RuleRef as ApiRuleRef, StoredRuleSet as ApiStoredRuleSet } from "@crh/api";
 import type { Db } from "../storage/db.ts";
 import type { RuleScopeType, RuleSetsTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../users/service.ts";
@@ -5,20 +6,8 @@ import { newId } from "../util/id.ts";
 import { type ChainLevel, RULE_PRESETS, type Rule, type RulePreset, type RuleSet, rulePresetRuleSet } from "./rules.ts";
 
 /** One level of a rule chain, as stored on tasks: root first. */
-export interface RuleRef {
-	type: RuleScopeType;
-	id: string;
-}
-
-export interface StoredRuleSet {
-	scope: RuleRef;
-	/** Roots only. */
-	rulePreset: RulePreset | null;
-	/** The rules added on top of the rule preset's (roots), or all rules (sub-levels). */
-	rules: Rule[];
-	default: RuleSet["default"];
-	updatedAt: string;
-}
+export type RuleRef = ApiRuleRef;
+export type StoredRuleSet = ApiStoredRuleSet;
 
 function fromRow(row: RuleSetsTable): StoredRuleSet {
 	return {
@@ -41,7 +30,7 @@ export async function getRuleSet(db: Db, ref: RuleRef): Promise<StoredRuleSet | 
 	const row = await db
 		.selectFrom("rule_sets")
 		.selectAll()
-		.where("scope_type", "=", ref.type)
+		.where("scope_type", "=", ref.type as RuleScopeType)
 		.where("scope_id", "=", ref.id)
 		.executeTakeFirst();
 	return row ? fromRow(row) : undefined;
@@ -60,7 +49,7 @@ export async function createRootRuleSet(
 		.values({
 			id: newId(),
 			org_id: orgId,
-			scope_type: ref.type,
+			scope_type: ref.type as RuleScopeType,
 			scope_id: ref.id,
 			rule_preset: rulePreset,
 			default_action: rulePresetRuleSet(rulePreset).default,
@@ -77,7 +66,7 @@ export async function createRuleSet(db: Db, orgId: string, ref: RuleRef, set: Ru
 		.values({
 			id: newId(),
 			org_id: orgId,
-			scope_type: ref.type,
+			scope_type: ref.type as RuleScopeType,
 			scope_id: ref.id,
 			rule_preset: null,
 			default_action: set.default,
@@ -96,7 +85,7 @@ export async function setRulePreset(db: Db, ref: RuleRef, rulePreset: RulePreset
 			default_action: rulePresetRuleSet(rulePreset).default,
 			updated_at: new Date().toISOString(),
 		})
-		.where("scope_type", "=", ref.type)
+		.where("scope_type", "=", ref.type as RuleScopeType)
 		.where("scope_id", "=", ref.id)
 		.where("rule_preset", "is not", null)
 		.executeTakeFirst();
@@ -108,7 +97,7 @@ export async function setRules(db: Db, ref: RuleRef, rules: Rule[]): Promise<voi
 	const res = await db
 		.updateTable("rule_sets")
 		.set({ rules: JSON.stringify(rules), updated_at: new Date().toISOString() })
-		.where("scope_type", "=", ref.type)
+		.where("scope_type", "=", ref.type as RuleScopeType)
 		.where("scope_id", "=", ref.id)
 		.executeTakeFirst();
 	if (res.numUpdatedRows === 0n) throw new NotFoundError("no such rule set");
@@ -124,7 +113,11 @@ export async function appendRule(db: Db, ref: RuleRef, rule: Rule): Promise<void
 }
 
 export async function deleteRuleSet(db: Db, ref: RuleRef): Promise<void> {
-	await db.deleteFrom("rule_sets").where("scope_type", "=", ref.type).where("scope_id", "=", ref.id).execute();
+	await db
+		.deleteFrom("rule_sets")
+		.where("scope_type", "=", ref.type as RuleScopeType)
+		.where("scope_id", "=", ref.id)
+		.execute();
 }
 
 /** The effective rule set of one level: a root's rule preset rules come before the rules added on top. */

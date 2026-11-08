@@ -1,4 +1,4 @@
-import type { PublicNode } from "@/lib/api/types";
+import type { PublicNode } from "@crh/api";
 
 /**
  * Whether the caller may run tasks on this node (doc/access-control.md#归属访问授权与分享): one access level,

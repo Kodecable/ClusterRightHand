@@ -1,3 +1,4 @@
+import type { PublicNode } from "@crh/api";
 import { factsFromJson, type JsonFacts } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
@@ -12,32 +13,7 @@ import { type TrustWarning, trustWarningsForRows } from "./trust-warnings.ts";
 
 export type NodeRow = Selectable<NodesTable>;
 export { type NodeAccess, nodeAccess } from "./node-access.ts";
-
-export interface PublicNode {
-	id: string;
-	name: string;
-	transport: NodesTable["transport"];
-	status: NodesTable["status"];
-	hostname: string | null;
-	clientVersion: string | null;
-	privilegedMode: string | null;
-	lastSeenAt: string | null;
-	createdAt: string;
-	approvedAt: string | null;
-	/** The crhs-managed node groups the node is in. */
-	nodeGroups: NodeGroupRef[];
-	access: NodeAccess;
-	/** The JSON form of the node's facts; null until it reported any. */
-	facts: JsonFacts | null;
-	/** base64url(SHA-256(public key)), as printed by `crha enroll` and `crha status`. */
-	keyFingerprint: string | null;
-	/** Whether crha is connected right now; null for SSH nodes, which connect per task. Set by the API layer. */
-	connected: boolean | null;
-	/** A clock warning when the node's clock is too far from crhs's (doc/privilege.md#时钟). */
-	clockWarning: string | null;
-	/** Out-of-sync trust aliases and unknown trust entries of the node (doc/privilege.md#信任缓存, D110). */
-	trustWarnings: TrustWarning[];
-}
+export type { PublicNode };
 
 /**
  * A warning line when a node's clock differs from crhs's by more than `warnMs`

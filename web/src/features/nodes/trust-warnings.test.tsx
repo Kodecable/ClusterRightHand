@@ -1,6 +1,6 @@
+import type { TrustWarning } from "@crh/api";
 import { screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
-import type { TrustWarning } from "@/lib/api/types";
 import { renderWithI18n } from "@/test/render";
 import { TrustWarningList } from "./trust-warnings";
 

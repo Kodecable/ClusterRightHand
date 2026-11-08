@@ -20,6 +20,7 @@
 	"dependencies": {
 		"@base-ui/react": "1.9.0",
 		"@cap.js/wasm": "0.0.8",
+		"@crh/api": "workspace:*",
 		"@hookform/resolvers": "6.0.0",
 		"@lingui/core": "6.11.0",
 		"@lingui/react": "6.11.0",

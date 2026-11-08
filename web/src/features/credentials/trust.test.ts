@@ -1,5 +1,5 @@
+import type { CredentialView } from "@crh/api";
 import { describe, expect, test } from "vitest";
-import type { CredentialView } from "@/lib/api/types";
 import { credentialTrustSnippet, toBase64url, tomlString, trustSnippet } from "./trust";
 
 describe("tomlString", () => {

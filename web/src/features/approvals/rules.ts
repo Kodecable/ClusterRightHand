@@ -1,4 +1,4 @@
-import type { Operation, Rule } from "@/lib/api/types";
+import type { Operation, Rule } from "@crh/api";
 
 /**
  * The allow rule offered by "Approve and always allow", built from the

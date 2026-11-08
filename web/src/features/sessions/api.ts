@@ -1,3 +1,12 @@
+import type {
+	CursorPage,
+	SessionChildrenSummary,
+	SessionListItem,
+	SessionListScope,
+	SessionPatch,
+	SessionShare,
+	SessionView,
+} from "@crh/api";
 import {
 	type InfiniteData,
 	type QueryClient,
@@ -10,18 +19,9 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { invalidatePendingDecisions } from "@/features/approvals/api";
 import { enc, http, queryString } from "@/lib/api/client";
 import { flattenCursorPages, prefetchCursorInfiniteQuery, useCursorInfiniteQuery } from "@/lib/api/query";
-import type {
-	CursorPage,
-	SessionChildrenSummary,
-	SessionListItem,
-	SessionListScope,
-	SessionPatch,
-	SessionShare,
-	SessionView,
-} from "@/lib/api/types";
 import { sessionListFilter, upsertSessionListItem } from "./list-patch";
 import { subscribeSessionListUpserts } from "./list-stream-bus";
-import type { EntryRecord } from "./session-events";
+import type { SessionEntriesPage } from "./session-events";
 
 /** Query keys for every session-shaped query. The list key carries its `scope`/`q`. */
 export const sessionKeys = {
@@ -79,7 +79,7 @@ export function prefetchSessions(queryClient: QueryClient, params: SessionListPa
 
 async function fetchSession(id: string, signal: AbortSignal): Promise<SessionView> {
 	const result = await http.get<{ session: SessionView; shares?: SessionShare[] }>(`/sessions/${enc(id)}`, { signal });
-	return { ...result.session, shares: result.shares } as SessionView;
+	return { ...result.session, shares: result.shares };
 }
 
 export function useSession(id: string | undefined) {
@@ -301,10 +301,7 @@ export function useSessionTreeSync(
 	return published?.id === rootId ? published : undefined;
 }
 
-export interface SessionEntriesPage {
-	entries: EntryRecord[];
-	historyCursor: string | null;
-}
+export type { SessionEntriesPage } from "./session-events";
 
 /**
  * One page of older entries: `before` is the `historyCursor` of the page that

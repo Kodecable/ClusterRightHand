@@ -1,12 +1,13 @@
+import type { TaskGroupApprovalRecord, TaskGroupView } from "@crh/api";
 import { type TaskSpec, taskSpecToJson } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import type { Audit, AuditInput } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
-import { type RefMap, targetRefs } from "../policy/refs.ts";
+import { targetRefs } from "../policy/refs.ts";
 import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
-import type { BatchOutputMode, TaskGroupState, TaskGroupsTable } from "../storage/schema.ts";
+import type { BatchOutputMode, TaskGroupsTable } from "../storage/schema.ts";
 import { defaultOrgId, UserError } from "../users/service.ts";
 import { derivedId, newId } from "../util/id.ts";
 import { KeyedQueue } from "../util/keyed-queue.ts";
@@ -127,50 +128,7 @@ export interface CreateTaskGroupInput
 }
 
 /** The approval state of a task group: per-node evaluations, then the one decision for the group. */
-export interface TaskGroupApprovalRecord {
-	nodes: { nodeId: string; evaluation: Evaluation }[];
-	decision?: ApprovalDecision;
-	review?: { decision: "approve" | "escalate"; reason: string; model: string };
-	agent?: AgentRequest;
-}
-
-export interface TaskGroupView {
-	id: string;
-	state: TaskGroupState;
-	/** Stored target UUIDs or `_all`; names are in `refs`. */
-	targets: string[];
-	/** Display names for the UUID targets; null means the node or node group was deleted. */
-	refs: RefMap;
-	nodeIds: string[];
-	parallel: number;
-	failFast: boolean;
-	/** The mode fixed at creation; every task in the group uses it. */
-	outputMode: BatchOutputMode;
-	/** Per-node output caps (D112); null means the defaults, 8KB / 128 lines. */
-	nodeMaxLines: number | null;
-	nodeMaxBytes: number | null;
-	/** Whether the group's tasks are privileged tasks (doc/privilege.md). */
-	privileged: boolean;
-	skipped: string[];
-	tasks: TaskView[];
-	createdAt: string;
-	finishedAt: string | null;
-	/** What runs on each node, for display. */
-	summary: string;
-	kind: string;
-	ruleChain: RuleRef[] | null;
-	approval: TaskGroupApprovalRecord | null;
-	actorType: string;
-	actorId: string;
-	onBehalfOfUserId: string;
-	/** What authorization rules match on, the same for every node. */
-	operation: { method: string; target: string } | null;
-	/** Root session of the rule chain, for grouping approvals by session tree. */
-	rootSessionId: string | null;
-	/** Who handles a waiting approval; null when it is not waiting. */
-	handlerType: "agent" | "user" | null;
-	handlerSessionId: string | null;
-}
+export type { TaskGroupApprovalRecord, TaskGroupView };
 
 interface Deferred {
 	promise: Promise<void>;

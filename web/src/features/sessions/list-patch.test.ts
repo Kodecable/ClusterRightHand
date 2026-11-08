@@ -1,5 +1,5 @@
+import type { CursorPage, SessionListItem } from "@crh/api";
 import { describe, expect, test } from "vitest";
-import type { CursorPage, SessionListItem } from "@/lib/api/types";
 import {
 	isSessionListItem,
 	removeSessionListItem,

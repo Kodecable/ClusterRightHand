@@ -1,3 +1,4 @@
+import type { ApiTokenView, Rule, RulePreset } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useId, useState } from "react";
 import { toast } from "sonner";
@@ -6,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { ApiTokenView, Rule, RulePreset } from "@/lib/api/types";
 import { refNames, rulesWithNames } from "@/lib/refs";
 import { useSetTokenRules } from "./api";
 import { RulePresetHelp } from "./rule-preset-help";

@@ -1,10 +1,10 @@
+import type { ScheduleView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/dialogs";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import type { ScheduleView } from "@/lib/api/types";
 import { usePatchSchedule, useRunSchedule } from "./api";
 
 /** "Run now", with the confirmation the docs require when an instance is in progress. */

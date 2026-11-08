@@ -1,9 +1,9 @@
 import { describe, expect, test, vi } from "vitest";
-import type { AgentEvent, EntryRecord } from "./session-events";
+import type { EntryRecord, SessionEvent } from "./session-events";
 import { initialState, reduceAll } from "./session-reducer";
 import { TranscriptStreams } from "./transcript-streams";
 
-const emptySnapshot: AgentEvent = { type: "snapshot", snapshot: { entries: [], tools: [], inbox: [] } };
+const emptySnapshot: SessionEvent = { type: "snapshot", snapshot: { entries: [], tools: [], inbox: [] } };
 
 const assistantEntry = (id: string, text: string): EntryRecord => ({
 	id,
@@ -11,7 +11,7 @@ const assistantEntry = (id: string, text: string): EntryRecord => ({
 	model: [{ role: "assistant", content: [{ type: "text", text }], stopReason: "stop" }],
 });
 
-const startText = (text: string): AgentEvent[] => [
+const startText = (text: string): SessionEvent[] => [
 	{ type: "message_start", message: { role: "assistant", content: [] } },
 	{
 		type: "message_update",

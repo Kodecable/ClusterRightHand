@@ -56,11 +56,11 @@ async function wake(host: RuntimeHost, handlerId: string, requestId: string, con
 	state.dispose();
 	if (live?.run) {
 		// The handler is running; afterTool shows the request. If it ends without handling it, flush the wake.
-		queueWake(host, handlerId, requestId, content);
+		host.wakes.queue(handlerId, requestId, content);
 		watchIdle(host, handlerId);
 		return;
 	}
-	dropWake(host, handlerId, requestId);
+	host.wakes.drop(handlerId, requestId);
 	await submitWake(host, handlerId, requestId, content);
 }
 
@@ -73,30 +73,10 @@ async function submitWake(host: RuntimeHost, handlerId: string, requestId: strin
 	await recordInput(host, handlerId, submission);
 }
 
-function queueWake(host: RuntimeHost, handlerId: string, requestId: string, content: string): void {
-	const wakes = host.pendingWakes.get(handlerId) ?? new Map<string, string>();
-	wakes.set(requestId, content);
-	host.pendingWakes.set(handlerId, wakes);
-}
-
-export function dropWake(host: RuntimeHost, handlerId: string, requestId: string): void {
-	const wakes = host.pendingWakes.get(handlerId);
-	if (!wakes) return;
-	wakes.delete(requestId);
-	if (wakes.size === 0) host.pendingWakes.delete(handlerId);
-}
-
-export function dropWakePrefix(host: RuntimeHost, handlerId: string, prefix: string): void {
-	const wakes = host.pendingWakes.get(handlerId);
-	if (!wakes) return;
-	for (const requestId of wakes.keys()) if (requestId.startsWith(prefix)) wakes.delete(requestId);
-	if (wakes.size === 0) host.pendingWakes.delete(handlerId);
-}
-
 /** Watches a running handler once; `waitForIdle` resolves when its own run ends, not by polling. */
 function watchIdle(host: RuntimeHost, handlerId: string): void {
-	if (host.idleWatchers.has(handlerId)) return;
-	host.idleWatchers.add(handlerId);
+	if (host.wakes.isWatching(handlerId)) return;
+	host.wakes.watch(handlerId);
 	void (async () => {
 		try {
 			const row = await host.db.selectFrom("sessions").selectAll().where("id", "=", handlerId).executeTakeFirst();
@@ -105,26 +85,26 @@ function watchIdle(host: RuntimeHost, handlerId: string): void {
 			if (!conversation) return;
 			await conversation.waitForIdle(host.context);
 		} finally {
-			host.idleWatchers.delete(handlerId);
+			host.wakes.unwatch(handlerId);
 		}
 		await flushWakes(host, handlerId);
 	})().catch((err: unknown) => {
-		host.idleWatchers.delete(handlerId);
+		host.wakes.unwatch(handlerId);
 		console.error("agent runtime: flushing a subagent wake failed:", err);
 	});
 }
 
 async function flushWakes(host: RuntimeHost, handlerId: string): Promise<void> {
-	const wakes = host.pendingWakes.get(handlerId);
+	const wakes = host.wakes.pending(handlerId);
 	if (!wakes?.size) return;
 	const row = await host.db.selectFrom("sessions").selectAll().where("id", "=", handlerId).executeTakeFirst();
 	if (!row) {
-		host.pendingWakes.delete(handlerId);
+		host.wakes.dropAll(handlerId);
 		return;
 	}
 	const conversation = await conversationOf(host, row);
 	if (!conversation) {
-		host.pendingWakes.delete(handlerId);
+		host.wakes.dropAll(handlerId);
 		return;
 	}
 	const state = await conversation.viewState(host.context);
@@ -137,7 +117,7 @@ async function flushWakes(host: RuntimeHost, handlerId: string): Promise<void> {
 	}
 	// A rule change, token revoke or a decision may have settled the request after it was queued.
 	const pending = new Set((await pendingAgentRequests(host, handlerId)).map(requestKey));
-	host.pendingWakes.delete(handlerId);
+	host.wakes.dropAll(handlerId);
 	for (const [requestId, content] of wakes) {
 		const key = wakeRequestKey(requestId);
 		if (key && !pending.has(key)) continue;

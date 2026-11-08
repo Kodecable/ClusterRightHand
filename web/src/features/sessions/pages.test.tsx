@@ -1,3 +1,4 @@
+import type { ApprovalList, SessionListItem, SessionView } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
@@ -9,7 +10,6 @@ import {
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { approvalKeys } from "@/features/approvals/api";
-import type { ApprovalList, SessionListItem, SessionView } from "@/lib/api/types";
 import { LocaleProvider } from "@/lib/i18n";
 import { activateLocale } from "@/test/render";
 import { sessionKeys } from "./api";
@@ -38,7 +38,7 @@ function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 			scope: { type: "user", id: "u1" },
 			rulePreset: "auto_review",
 			rules: [],
-			default: "ask",
+			default: "require-approval",
 			updatedAt: "2026-01-01T00:00:00.000Z",
 		},
 		refs: {},

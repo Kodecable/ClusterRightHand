@@ -1,9 +1,11 @@
+import type { SessionEntriesPage } from "@crh/api";
 import { withAbortSignal } from "@earendil-works/chord/context";
 import {
 	type Conversation,
 	type ConversationId,
 	type Cursor,
-	type EntryRecord,
+	type EntryRecord as PiEntryRecord,
+	type SnapshotEvent as PiSnapshotEvent,
 	watchEvents,
 } from "@earendil-works/pi-durable";
 import { encodeCursor } from "../api/cursor.ts";
@@ -18,12 +20,11 @@ import { type ModelRef, modelRefView, thinkingLevelOf } from "./models.ts";
 import { setQuota } from "./quota.ts";
 import type { RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runtime-core.ts";
 import { conversationOf, loadConversation } from "./runtime-core.ts";
-import { notifyQuotaWaiters } from "./runtime-quota.ts";
-import { forgetInbox, invalidateInboxes } from "./runtime-requests.ts";
 import { endSessionWork, refreshState } from "./runtime-state.ts";
 import { descendants } from "./runtime-subagents.ts";
 import { submit } from "./runtime-submissions.ts";
 import { type SessionRow, sessionChain } from "./session-chain.ts";
+import { toEntryRecord, toSessionEvent, toSnapshotEvent } from "./session-events.ts";
 import { markSessionsIdle } from "./session-state.ts";
 
 /**
@@ -200,24 +201,11 @@ function submissionRequestIdFor(createRequestId: string): string {
  * none of them may outlive the row it describes. Durable keeps the conversation's records.
  */
 export function forgetSessionCaches(host: RuntimeHost, sessionId: string, conversationId?: string): void {
-	if (conversationId !== undefined) {
-		host.sessionsByConversation.delete(conversationId);
-		host.learnedProviders.delete(conversationId);
-	}
-	for (const [providerSessionId, mapped] of host.providerSessions) {
-		if (mapped === sessionId) host.providerSessions.delete(providerSessionId);
-	}
-	host.subagentParents.delete(sessionId);
-	forgetInbox(host, sessionId);
-	host.pendingWakes.delete(sessionId);
-	host.idleWatchers.delete(sessionId);
-	host.titleGenerating.delete(sessionId);
-	host.deniedWaits.delete(sessionId);
-	const quotaWaiters = host.quotaWaiters.get(sessionId);
-	if (quotaWaiters) {
-		for (const wake of [...quotaWaiters]) wake();
-		host.quotaWaiters.delete(sessionId);
-	}
+	host.sessionCaches.forgetSession(sessionId, conversationId);
+	host.inboxes.forget(sessionId);
+	host.wakes.forget(sessionId);
+	host.sessionFlags.endTitle(sessionId);
+	host.quotaWaits.forget(sessionId);
 }
 
 /**
@@ -431,8 +419,8 @@ export async function configure(
 		}
 	}
 	if (change.budgetRemaining !== undefined) {
-		notifyQuotaWaiters(host);
-		invalidateInboxes(host);
+		host.quotaWaits.wakeAll();
+		host.inboxes.clear();
 		// A wait on this level (or on a root above it) may be over now.
 		await refreshState(host, sessionId);
 	}
@@ -444,7 +432,7 @@ export async function configure(
 export async function abort(host: RuntimeHost, sessionId: string, by?: SessionUser): Promise<void> {
 	const { conversation } = await loadConversation(host, sessionId);
 	const sessions = [sessionId, ...(await descendants(host, sessionId))];
-	for (const id of sessions) host.stopping.add(id);
+	for (const id of sessions) host.sessionFlags.beginStop(id);
 	try {
 		await conversation.abort(host.context);
 		// Subagents are ownerless conversations: their abort is explicit, and it must come before the work is
@@ -467,15 +455,15 @@ export async function abort(host: RuntimeHost, sessionId: string, by?: SessionUs
 		// ends after it is cleared would take the "run ended" path and miss its running tasks.
 		await markSessionsIdle(host.db, sessions);
 		for (const id of sessions) host.sessionList.publishSession(id);
-		for (const id of sessions) host.deniedWaits.delete(id);
+		for (const id of sessions) host.quotaWaits.clearDenied(id);
 		// Clear a quota wait of an ancestor that only the aborted subtree caused.
 		const root = (await sessionChain(host.db, sessionId)).at(-1);
 		if (root) await refreshState(host, root);
-		notifyQuotaWaiters(host);
-		invalidateInboxes(host);
-		for (const id of sessions) host.pendingWakes.delete(id);
+		host.quotaWaits.wakeAll();
+		host.inboxes.clear();
+		for (const id of sessions) host.wakes.dropAll(id);
 	} finally {
-		for (const id of sessions) host.stopping.delete(id);
+		for (const id of sessions) host.sessionFlags.endStop(id);
 	}
 }
 
@@ -495,9 +483,14 @@ export async function watch(
 	await onEvents([await snapshotEvent(host, conversation, stream.snapshot)]);
 	// The client may have gone while the snapshot was being sent; starting the watch then would throw.
 	if (signal?.aborted) return () => stream.stop();
-	// The system prompt and tool schemas come as system messages: large, and nothing a chat UI shows.
-	const shown = (e: SessionEvent) => (e as { message?: { role?: string } }).message?.role !== "system";
-	stream.start(async (events) => onEvents((events as SessionEvent[]).filter(shown)));
+	stream.start(async (events) => {
+		// The system prompt and tool schemas come as system messages: large, and nothing a chat UI shows.
+		const converted = events
+			.filter((event) => event.type !== "message_start" || event.message.role !== "system")
+			.map(toSessionEvent)
+			.filter((event): event is SessionEvent => event !== null);
+		if (converted.length > 0) await onEvents(converted);
+	});
 	return () => stream.stop();
 }
 
@@ -510,7 +503,7 @@ export async function watch(
 async function snapshotEvent(
 	host: RuntimeHost,
 	conversation: Conversation,
-	snapshot: { readonly entries: readonly EntryRecord[] },
+	snapshot: PiSnapshotEvent,
 ): Promise<SessionEvent> {
 	const entries = snapshot.entries.filter(isShownEntry);
 	const kept = entries.slice(-SNAPSHOT_ENTRIES);
@@ -526,10 +519,7 @@ async function snapshotEvent(
 			historyCursor = encodeCursor([], Number(oldestEntry.id));
 		}
 	}
-	return {
-		type: "snapshot",
-		snapshot: { ...snapshot, entries: kept, historyCursor },
-	} as unknown as SessionEvent;
+	return toSnapshotEvent(snapshot, kept, historyCursor);
 }
 
 /** Whether the conversation has any record (shown or not) older than `entryId`; one indexed read. */
@@ -554,10 +544,10 @@ export async function entriesPage(
 	sessionId: string,
 	before: number | undefined,
 	limit: number,
-): Promise<{ entries: EntryRecord[]; historyCursor: string | null }> {
+): Promise<SessionEntriesPage> {
 	const { conversation } = await loadConversation(host, sessionId);
 	const wanted = limit + 1;
-	const collected: EntryRecord[] = [];
+	const collected: PiEntryRecord[] = [];
 	let cursor: Cursor | undefined = before === undefined ? undefined : { after: before, order: "descending" };
 	while (collected.length < wanted) {
 		const page = await conversation.entries({ order: "descending" }, wanted - collected.length, cursor, host.context);
@@ -568,14 +558,14 @@ export async function entriesPage(
 	const pageEntries = collected.slice(0, limit);
 	const oldest = pageEntries[pageEntries.length - 1];
 	return {
-		entries: pageEntries.reverse(),
+		entries: pageEntries.reverse().map(toEntryRecord),
 		historyCursor: collected.length > limit && oldest ? encodeCursor([], Number(oldest.id)) : null,
 	};
 }
 
 /** The session a conversation belongs to, for tool calls that only know their conversation id. */
 export async function sessionAt(host: RuntimeHost, conversationId: string): Promise<SessionInfo | undefined> {
-	const cached = host.sessionsByConversation.get(conversationId);
+	const cached = host.sessionCaches.sessionFor(conversationId);
 	if (cached) return cached;
 	const row = await host.db
 		.selectFrom("sessions")
@@ -589,19 +579,19 @@ export async function sessionAt(host: RuntimeHost, conversationId: string): Prom
 		orgId: row.org_id,
 		parentSessionId: row.parent_session_id,
 	};
-	host.sessionsByConversation.set(conversationId, session);
+	host.sessionCaches.rememberSession(conversationId, session);
 	return session;
 }
 
 /** Whether the session's tools need to look for subagent requests; cached after the first check. */
 export async function hasSubagents(host: RuntimeHost, sessionId: string): Promise<boolean> {
-	if (host.subagentParents.has(sessionId)) return true;
+	if (host.sessionCaches.hasSubagentParent(sessionId)) return true;
 	const row = await host.db
 		.selectFrom("sessions")
 		.select("id")
 		.where("parent_session_id", "=", sessionId)
 		.limit(1)
 		.executeTakeFirst();
-	if (row) host.subagentParents.add(sessionId);
+	if (row) host.sessionCaches.rememberSubagentParent(sessionId);
 	return row !== undefined;
 }

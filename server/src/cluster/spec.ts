@@ -4,7 +4,7 @@
  */
 import { createHash } from "node:crypto";
 import { type InputRef, type TaskSpec, taskSpecFromJson } from "@crh/protocol";
-import { operationOf } from "../policy/rules.ts";
+import { type Method, operationOf } from "../policy/rules.ts";
 import { UserError } from "../users/service.ts";
 import { shellQuote } from "./ssh/exec.ts";
 
@@ -39,7 +39,7 @@ export function specFromRow(specJson: string | null, what: string): TaskSpec {
 	}
 }
 
-export function operationOfJson(specJson: string): { method: string; target: string } | null {
+export function operationOfJson(specJson: string): { method: Method; target: string } | null {
 	try {
 		return operationOf(taskSpecFromJson(JSON.parse(specJson)));
 	} catch {

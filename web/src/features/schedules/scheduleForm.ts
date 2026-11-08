@@ -1,13 +1,6 @@
+import type { ModelRef, RulePreset, ScheduleRunStatus, ScheduleRunView, ScheduleView, ThinkingLevel } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
-import type {
-	ModelRef,
-	RulePreset,
-	ScheduleRunStatus,
-	ScheduleRunView,
-	ScheduleView,
-	ThinkingLevel,
-} from "@/lib/api/types";
 import { parseQuotaInput } from "@/lib/quota";
 import { withThinkingLevel } from "@/lib/thinking-level";
 

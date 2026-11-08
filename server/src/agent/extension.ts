@@ -140,7 +140,7 @@ export function clusterExtension(
 		created_at: r.createdAt,
 	});
 	// The conversation -> session mapping never changes while the row exists, and runtime.sessionAt caches it in
-	// the same map `forgetSessionCaches` clears when a session is removed (a failed creation included).
+	// the session cache `forgetSessionCaches` clears when a session is removed (a failed creation included).
 	const sessionOf = async (conversationId: unknown) => {
 		const id = String(conversationId);
 		const runtime = runtimeRef.current;

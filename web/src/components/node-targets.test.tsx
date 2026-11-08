@@ -1,6 +1,6 @@
+import type { RefMap } from "@crh/api";
 import { screen, within } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
-import type { RefMap } from "@/lib/api/types";
 import { renderWithRouter } from "@/test/render";
 import { NodeTargetList } from "./node-targets";
 
