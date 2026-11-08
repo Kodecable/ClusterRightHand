@@ -270,7 +270,7 @@ describe("Passkey authorization submission", () => {
 		});
 		expect(res.status).toBe(200);
 		expect((await res.json()) as Record<string, unknown>).toEqual({
-			authorization: { id: pending.authorization.id, dispatched: [task.id] },
+			authorization: { id: pending.authorization.id },
 		});
 		await waitFor("task.start", () => crha.starts.length === 1);
 		const wire = authorizationCodec.decode(decodeCbor(crha.starts[0]?.authorizations[0] as Uint8Array));

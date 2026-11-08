@@ -303,7 +303,8 @@ describePodman("privileged system: forward", () => {
 			]);
 			const submitted = await submitAuthorization(crhs, signed.stdout.trim());
 			expect(submitted.status).toBe(200);
-			expect(submitted.json.authorization?.dispatched).toEqual([]);
+			// The dispatch runs in the background (D118); drain before reading the task it left alone.
+			await crhs.cluster.drain();
 			// Still waiting, nothing ran. The one-shot payload crhs offers is cosigned and works.
 			expect((await crhs.getTask(t.id)).state).toBe("awaiting_authorization");
 			await authorizeWithCli(node, t.id);
@@ -459,7 +460,7 @@ describePodman("privileged system: forward", () => {
 			// Replaying the same authorization dispatches nothing and runs nothing again.
 			const replay = await submitAuthorization(crhs, submitted.authorization);
 			expect(replay.status).toBe(200);
-			expect(replay.json.authorization?.dispatched).toEqual([]);
+			await crhs.cluster.drain();
 			const lines = await node.exec(["/bin/sh", "-c", "wc -l < /root/crh-runs"]);
 			expect(lines.stdout.trim()).toBe("1");
 			// The used list survives a privileged mode restart.

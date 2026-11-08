@@ -32,12 +32,26 @@ import {
 	syncGroupState,
 	updateTask,
 } from "../task-end.ts";
+import { writeTask } from "../task-rows.ts";
 import { pendingInputColumn, sendTaskStart, taskStartOf } from "../task-start.ts";
 import { finishAuthorization, withdrawLocal, withoutRequests } from "./common.ts";
 import { replanWaiting } from "./plan.ts";
 
-/** Signs the planned payload with crhs's key, stores it and sends it inside task.start. */
-export async function dispatchCrhs(
+/** A claimed privileged task whose task.start may now be sent, outside the turn that claimed it (D118). */
+export interface AuthorizedStart {
+	nodeId: string;
+	start: TaskStart;
+	input: Uint8Array;
+	record: TaskAuthorizationRecord;
+}
+
+/**
+ * Claims the task for crhs's own signature: signs and encodes the payload, stores it, withdraws a local
+ * request, and writes the rev-guarded claim. The task.start is NOT sent here: it waits for the node's
+ * answer, so its caller sends it outside the turn (D118). Returns what to send, or null when the claim
+ * lost (the task then dispatches from no path).
+ */
+export async function claimCrhs(
 	core: ClusterCore,
 	id: string,
 	row: Selectable<TasksTable>,
@@ -49,7 +63,7 @@ export async function dispatchCrhs(
 	record: TaskAuthorizationRecord,
 	authorization: BuiltAuthorization,
 	from: readonly TaskRowState[],
-): Promise<void> {
+): Promise<AuthorizedStart | null> {
 	const key = core.authorizationKey;
 	if (!key) {
 		await finishAuthorization(
@@ -61,7 +75,7 @@ export async function dispatchCrhs(
 			"crhs has no authorization signing key",
 			record,
 		);
-		return;
+		return null;
 	}
 	let encoded: Uint8Array;
 	let signatures: Signature[];
@@ -79,7 +93,7 @@ export async function dispatchCrhs(
 			`cannot encode the authorization: ${errorText(err)}`,
 			record,
 		);
-		return;
+		return null;
 	}
 	// An authorization may take at most half a frame so the rest of task.start still fits (doc/protocol.md#授权对象).
 	if (encoded.length > MAX_FRAME_BYTES / 2) {
@@ -92,7 +106,7 @@ export async function dispatchCrhs(
 			`the authorization is ${encoded.length} bytes, more than half a frame`,
 			record,
 		);
-		return;
+		return null;
 	}
 	// The row is stored before the claim: the task's record names its payload id, and a claim that loses a
 	// race leaves the payload behind for an audit trail, even though no task.start is sent.
@@ -104,15 +118,21 @@ export async function dispatchCrhs(
 		attempt: row.attempt,
 	};
 	withdrawLocal(link, id, record);
-	const claimed = await updateTask(core, id, from, {
-		state: "dispatched",
-		dispatched_at: now(),
-		authorization: serializeTaskAuthorization(updated),
-		pending_input: null,
-		handler_type: null,
-		handler_session_id: null,
-	});
-	if (!claimed) return;
+	const claimed = await updateTask(
+		core,
+		id,
+		from,
+		{
+			state: "dispatched",
+			dispatched_at: now(),
+			authorization: serializeTaskAuthorization(updated),
+			pending_input: null,
+			handler_type: null,
+			handler_session_id: null,
+		},
+		row.rev,
+	);
+	if (!claimed) return null;
 	// crhs-signed authorizations are audited like user ones, but only once their task.start will be sent: a
 	// cancelled task must not leave an authorization.issued event for a payload the node never received
 	// (doc/access-control.md#记录内容).
@@ -139,13 +159,41 @@ export async function dispatchCrhs(
 		authorizations: [encoded],
 		timeoutMs: opts.timeoutMs ?? row.timeout_ms ?? 0,
 	});
-	await sendAuthorizedStart(core, node.id, start, inputBytes, updated);
+	return { nodeId: node.id, start, input: inputBytes, record: updated };
+}
+
+/**
+ * Claims and sends with crhs's own signature in one call, for callers outside a turn. claimCrhs() is the
+ * turn body (planPrivileged calls it inside its plan turn); the send is outside it. The row the caller
+ * read is not trusted: the claim re-reads it in the turn, so a stale caller row cannot write itself back.
+ */
+export async function dispatchCrhs(
+	core: ClusterCore,
+	id: string,
+	_row: Selectable<TasksTable>,
+	node: NodeRow,
+	link: NodeLink,
+	spec: TaskSpec,
+	inputBytes: Uint8Array,
+	opts: { timeoutMs?: number },
+	record: TaskAuthorizationRecord,
+	authorization: BuiltAuthorization,
+	from: readonly TaskRowState[],
+): Promise<void> {
+	const claim = await core.taskQueue.run(id, async () => {
+		const fresh = await core.row(id);
+		if (!fresh) return null;
+		return claimCrhs(core, id, fresh, node, link, spec, inputBytes, opts, record, authorization, from);
+	});
+	if (claim) await sendAuthorizedStart(core, claim.nodeId, claim.start, claim.input, claim.record);
 }
 
 /**
  * Sends an authorized task.start and follows up: accepted, terminal failure, or a retryable
  * authorization rejection that re-plans with `attempt + 1` (doc/execution-plane.md#不重复执行与授权重试).
- * The task is already claimed (`dispatched`); the node's current link is looked up here.
+ * The task is already claimed (`dispatched`); the node's current link is looked up here. Always called
+ * outside a task turn (D118): the readiness wait is outside, the writes that settle the task are one
+ * turn each, in the task's queue.
  */
 export async function sendAuthorizedStart(
 	core: ClusterCore,
@@ -156,43 +204,49 @@ export async function sendAuthorizedStart(
 ): Promise<void> {
 	const id = start.taskId;
 	// Last check before the frame leaves: never send for a user who has lost access in the meantime (D108).
-	const current = await core.row(id);
-	if (current && !(await userCanAccessNode(core.db, current.on_behalf_of_user_id, nodeId))) {
-		await finish(core, nodeId, id, {
-			state: "failed",
-			error_code: NODE_ACCESS_REVOKED,
-			error_message: NODE_ACCESS_REVOKED_MESSAGE,
-			pending_input: null,
-			handler_type: null,
-			handler_session_id: null,
-		});
-		return;
-	}
+	const revoked = await core.taskQueue.run(id, async () => {
+		const current = await core.row(id);
+		if (current && !(await userCanAccessNode(core.db, current.on_behalf_of_user_id, nodeId))) {
+			await finish(core, nodeId, id, {
+				state: "failed",
+				error_code: NODE_ACCESS_REVOKED,
+				error_message: NODE_ACCESS_REVOKED_MESSAGE,
+				pending_input: null,
+				handler_type: null,
+				handler_session_id: null,
+			});
+			return true;
+		}
+		return false;
+	});
+	if (revoked) return;
 	// D113: the task is claimed for dispatch but the frame has not left yet; if the link dropped in
 	// between, the node still gets the grace to come back before the send fails.
 	const node = await getNode(core.db, nodeId);
 	const ready = await core.readyNode(nodeId, { trust: node?.privileged_mode === "forward" });
 	if (!ready?.link) {
 		// Nothing was sent: a cancellation recorded in the meantime ends the task as cancelled, not offline.
-		const current = await core.row(id);
-		if (current?.cancelled === 1) {
-			await finish(core, nodeId, id, cancelledTaskFields());
-			return;
-		}
-		await finish(core, nodeId, id, {
-			state: "failed",
-			error_code: "node_offline",
-			error_message: "the node is not connected",
-			pending_input: null,
-			handler_type: null,
-			handler_session_id: null,
+		await core.taskQueue.run(id, async () => {
+			const current = await core.row(id);
+			if (current?.cancelled === 1) {
+				await finish(core, nodeId, id, cancelledTaskFields());
+				return;
+			}
+			await finish(core, nodeId, id, {
+				state: "failed",
+				error_code: "node_offline",
+				error_message: "the node is not connected",
+				pending_input: null,
+				handler_type: null,
+				handler_session_id: null,
+			});
 		});
 		return;
 	}
 	const link = ready.link;
-	// The authorized path runs on its caller's queue (or none): its writes are not queued again here.
+	// No write happens inside sendTaskStart without the task's queue: every answer is settled in a turn.
 	await sendTaskStart(core, link, nodeId, start, inputBytes, {
-		settle: (write) => write(),
+		settle: (write) => core.taskQueue.run(id, write),
 		onAuthorizationRejected: (err) =>
 			retryAuthorization(core, link, id, start.spec, inputBytes, record, err.code, err.message),
 	});
@@ -200,7 +254,9 @@ export async function sendAuthorizedStart(
 
 /**
  * A crha rejected the authorization before accepting, so nothing ran: the path that was sent is
- * ruled out, the attempt advances and the plan is recomputed from the refreshed trust summary.
+ * ruled out, the attempt advances and the plan is recomputed from the refreshed trust summary. The read
+ * and the rev-guarded write are one turn; the re-plan (which waits for trust outside its own turns)
+ * runs after it.
  */
 async function retryAuthorization(
 	core: ClusterCore,
@@ -214,47 +270,51 @@ async function retryAuthorization(
 ): Promise<void> {
 	// crha refreshes its trust summary before sending an authorization_* error on the same connection, and the
 	// summaries that arrived before this call must be stored before the plan is recomputed (doc/protocol.md#taskstart).
+	// The tail is awaited outside the task turn: the trust work it waits for may need a task turn of its own.
 	await core.trustQueue.tail(link.conn.nodeId);
-	const row = await core.row(id);
-	if (row?.state !== "dispatched") return; // accepted (or ended) meanwhile: never retried
-	// A cancel arrived while the task.start was on its way: the task must not go back to waiting.
-	if (row.cancelled === 1) {
-		await finish(core, link.conn.nodeId, id, cancelledTaskFields());
-		return;
-	}
-	const attempt = row.attempt + 1;
-	// Only crhs's own signature path is ruled out for good (D83): the owner may sign again for the
-	// new attempt, and so may a local approver.
-	const tried =
-		record.dispatchedPath === "crhs" ? [...new Set<AuthorizationPath>([...record.tried, "crhs"])] : record.tried;
-	const updated: TaskAuthorizationRecord = {
-		...withoutRequests(record),
-		tried,
-		attempt,
-		lastRejection: { code, message, attempt: row.attempt, at: new Date().toISOString() },
-	};
-	withdrawLocal(link, id, record);
-	const res = await core.db
-		.updateTable("tasks")
-		.set({
-			state: "awaiting_authorization",
+	const row = await core.taskQueue.run(id, async (): Promise<Selectable<TasksTable> | null> => {
+		const current = await core.row(id);
+		if (current?.state !== "dispatched") return null; // accepted (or ended) meanwhile: never retried
+		// A cancel arrived while the task.start was on its way: the task must not go back to waiting.
+		if (current.cancelled === 1) {
+			await finish(core, link.conn.nodeId, id, cancelledTaskFields());
+			return null;
+		}
+		const attempt = current.attempt + 1;
+		// Only crhs's own signature path is ruled out for good (D83): the owner may sign again for the
+		// new attempt, and so may a local approver.
+		const tried =
+			record.dispatchedPath === "crhs" ? [...new Set<AuthorizationPath>([...record.tried, "crhs"])] : record.tried;
+		const updated: TaskAuthorizationRecord = {
+			...withoutRequests(record),
+			tried,
 			attempt,
-			authorization: serializeTaskAuthorization(updated),
-			pending_input: pendingInputColumn(inputBytes),
-			dispatched_at: null,
-			handler_type: "user",
-			handler_session_id: null,
-		})
-		.where("id", "=", id)
-		.where("state", "=", "dispatched")
-		.executeTakeFirst();
-	if (res.numUpdatedRows === 0n) return;
-	dropLive(core, id);
-	core.notify(id);
-	core.background("task group state update failed", syncGroupState(core, row.task_group_id));
-	// The task waits for a signature again; the session is awaiting it (doc/agent-runtime.md#会话状态).
-	core.onChange?.(row.actor_id);
-	await replanWaiting(core, id, row, { spec, input: inputBytes });
+			lastRejection: { code, message, attempt: current.attempt, at: new Date().toISOString() },
+		};
+		withdrawLocal(link, id, record);
+		const returned = await writeTask(
+			core.db,
+			id,
+			{ states: ["dispatched"], rev: current.rev },
+			{
+				state: "awaiting_authorization",
+				attempt,
+				authorization: serializeTaskAuthorization(updated),
+				pending_input: pendingInputColumn(inputBytes),
+				dispatched_at: null,
+				handler_type: "user",
+				handler_session_id: null,
+			},
+		);
+		if (!returned) return null;
+		dropLive(core, id);
+		core.notify(id);
+		core.background("task group state update failed", syncGroupState(core, current.task_group_id));
+		// The task waits for a signature again; the session is awaiting it (doc/agent-runtime.md#会话状态).
+		core.onChange?.(current.actor_id);
+		return current;
+	});
+	if (row) await replanWaiting(core, id, row, { spec, input: inputBytes });
 }
 
 /**

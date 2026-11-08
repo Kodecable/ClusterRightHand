@@ -20,6 +20,7 @@ import {
 } from "./ssh/exec.ts";
 import { FileTaskError, runSftpFileTask } from "./ssh/file-task.ts";
 import { finish, markUnknown, onAccepted } from "./task-end.ts";
+import { writeTask } from "./task-rows.ts";
 import { outputColumns } from "./task-view.ts";
 import type { ClusterOptions } from "./types.ts";
 
@@ -125,7 +126,12 @@ export async function runSsh(
 		// SSH has no privileged mode: the task runs as the SSH user. The notice is crhs's own, so it lives
 		// in tasks.notice and never in the output (D114); every output mode keeps it, status included.
 		if (privileged) {
-			await core.db.updateTable("tasks").set({ notice: SSH_PRIVILEGED_NOTICE }).where("id", "=", id).execute();
+			await writeTask(
+				core.db,
+				id,
+				{ states: ["dispatched", "running"], nodeId: node.id },
+				{ notice: SSH_PRIVILEGED_NOTICE },
+			);
 		}
 		let fields: Updateable<TasksTable>;
 		// A pooled connection may have died without notice; nothing has run yet, so retry once fresh.

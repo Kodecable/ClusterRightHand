@@ -5,7 +5,7 @@
  */
 import { createHash } from "node:crypto";
 import { type TaskSpec, taskSpecToJson } from "@crh/protocol";
-import type { Insertable } from "kysely";
+import type { Insertable, Selectable } from "kysely";
 import { type Evaluation, evaluate, operationOf } from "../policy/rules.ts";
 import { loadChain, type RuleRef } from "../policy/store.ts";
 import type { TasksTable } from "../storage/schema.ts";
@@ -14,6 +14,7 @@ import { planPrivileged } from "./authorization/plan.ts";
 import { checkedOutputLimits } from "./batch-output.ts";
 import type { NodeConnection } from "./connection.ts";
 import { type ClusterCore, now } from "./core.ts";
+import type { NodeLink } from "./links.ts";
 import { newLive } from "./live-output.ts";
 import { userCanAccessNode } from "./node-access.ts";
 import { nodeGroupIdsForNodes } from "./node-groups.ts";
@@ -21,6 +22,7 @@ import { getNode, type NodeRow } from "./nodes.ts";
 import { summarize, withInputRef } from "./spec.ts";
 import { runSsh } from "./ssh-runner.ts";
 import { auditActor, endTask, endUndispatched, failNodeAccessRevoked, failNodeOffline } from "./task-end.ts";
+import { writeTask } from "./task-rows.ts";
 import { sendTaskStart, taskStartOf } from "./task-start.ts";
 import { getTask } from "./task-wait.ts";
 import type { ApprovalRecord, CreateTaskInput, TaskView } from "./types.ts";
@@ -176,7 +178,8 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 	});
 	if (!waiting && !denied) {
 		try {
-			await core.taskQueue.run(id, () => dispatch(core, id, node, spec, inputBytes, input));
+			// dispatch() manages its own turns: the wait for the node happens outside them (D118).
+			await dispatch(core, id, node, spec, inputBytes, input);
 		} catch (err) {
 			// The row was written to be dispatched at once: it must not stay in awaiting_approval, where it
 			// would look like an approval nobody can decide (doc/execution-plane.md#状态机).
@@ -194,7 +197,19 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 	return view;
 }
 
-/** Moves a task out of awaiting_approval: sends it, parks it for authorization, or fails it. */
+/** What the dispatch turn decided, for the work that runs after it. */
+type DispatchTurn =
+	| { kind: "done" }
+	/** A privileged task on a forward node: planPrivileged decides the path outside the turn. */
+	| { kind: "plan"; link: NodeLink }
+	/** The plain claim matched: the start may be sent (outside the turn) from this row. */
+	| { kind: "claimed"; row: Selectable<TasksTable> };
+
+/**
+ * Moves a task out of awaiting_approval: sends it, parks it for authorization, or fails it. Called
+ * outside any queue turn (D118): the wait for the node is outside, the claim and the access checks are
+ * one short turn, and the send (or the planning of a privileged task) follows outside it.
+ */
 export async function dispatch(
 	core: ClusterCore,
 	id: string,
@@ -203,55 +218,81 @@ export async function dispatch(
 	inputBytes: Uint8Array,
 	opts: { privileged?: boolean; timeoutMs?: number },
 ): Promise<void> {
-	let row = await core.row(id);
-	// Access may have been revoked while the task waited for approval or a signature (D108). Check again
-	// immediately before anything is sent; a revoked task ends without reaching the node.
-	if (row && !(await userCanAccessNode(core.db, row.on_behalf_of_user_id, node.id))) {
-		await failNodeAccessRevoked(core, id, row, ["awaiting_approval"]);
-		return;
-	}
-	const before = await getNode(core.db, node.id);
+	// Access may have been revoked while the task waited for approval or a signature (D108). The check
+	// and the failure it writes are one turn on a fresh read, before anything waits for the node.
+	const before = await core.taskQueue.run(id, async (): Promise<Selectable<TasksTable> | null> => {
+		const current = await core.row(id);
+		if (!current) return null;
+		if (!(await userCanAccessNode(core.db, current.on_behalf_of_user_id, node.id))) {
+			await failNodeAccessRevoked(core, id, current, ["awaiting_approval"]);
+			return null;
+		}
+		return current;
+	});
+	if (!before) return;
+	const nodeNow = await getNode(core.db, node.id);
 	const ssh = node.transport === "ssh";
 	// A forward privileged task also waits for its new connection's trust report (D113).
-	const trust = !ssh && row?.privileged === 1 && before?.privileged_mode === "forward";
+	const trust = !ssh && before.privileged === 1 && nodeNow?.privileged_mode === "forward";
 	// A connected node dispatches at once; planPrivileged then waits for the trust report as before.
 	// D113: a node that is off when crhs wants to send gets the grace to reconnect, not an instant failure.
 	const ready = await core.readyNode(node.id, { trust });
 	if (!ready) {
-		await failNodeOffline(core, id, row);
-		return;
-	}
-	// The row may have been cancelled or settled while the grace ran.
-	row = await core.row(id);
-	if (row?.state !== "awaiting_approval") return;
-	if (!(await userCanAccessNode(core.db, row.on_behalf_of_user_id, node.id))) {
-		await failNodeAccessRevoked(core, id, row, ["awaiting_approval"]);
+		await core.taskQueue.run(id, async () => {
+			// The row may have been cancelled or settled while the grace ran: only a still-waiting task fails.
+			const current = await core.row(id);
+			if (current?.state === "awaiting_approval") await failNodeOffline(core, id, current);
+		});
 		return;
 	}
 	const fresh = ready.node;
 	const link = ready.link;
-	// A privileged task on a forward node needs an authorization before task.start (doc/privilege.md#授权路径).
-	// native/ignore/reject nodes, SSH nodes and ordinary tasks keep the plain dispatch below.
-	if (!ssh && link && row.privileged === 1 && fresh.privileged_mode === "forward") {
-		await planPrivileged(core, id, fresh, link, spec, inputBytes, opts, ["awaiting_approval"]);
+	const outcome = await core.taskQueue.run(id, async (): Promise<DispatchTurn> => {
+		// The row may have been cancelled or settled while the grace ran.
+		const current = await core.row(id);
+		if (current?.state !== "awaiting_approval") return { kind: "done" };
+		if (!(await userCanAccessNode(core.db, current.on_behalf_of_user_id, fresh.id))) {
+			await failNodeAccessRevoked(core, id, current, ["awaiting_approval"]);
+			return { kind: "done" };
+		}
+		// A privileged task on a forward node needs an authorization before task.start (doc/privilege.md#授权路径).
+		// native/ignore/reject nodes, SSH nodes and ordinary tasks keep the plain claim below.
+		if (!ssh && link && current.privileged === 1 && fresh.privileged_mode === "forward") {
+			return { kind: "plan", link };
+		}
+		const claimed = await writeTask(
+			core.db,
+			id,
+			{ states: ["awaiting_approval"], rev: current.rev },
+			{
+				state: "dispatched",
+				dispatched_at: now(),
+				pending_input: null,
+				handler_type: null,
+				handler_session_id: null,
+			},
+		);
+		if (!claimed) return { kind: "done" };
+		core.notify(id);
+		return { kind: "claimed", row: current };
+	});
+	if (outcome.kind === "plan") {
+		// The plan waits for the trust report and plans in its own turn, outside this one.
+		await planPrivileged(core, id, fresh, outcome.link, spec, inputBytes, opts, ["awaiting_approval"]);
 		return;
 	}
-	const res = await core.db
-		.updateTable("tasks")
-		.set({
-			state: "dispatched",
-			dispatched_at: now(),
-			pending_input: null,
-			handler_type: null,
-			handler_session_id: null,
-		})
-		.where("id", "=", id)
-		.where("state", "=", "awaiting_approval")
-		.executeTakeFirst();
-	if (res.numUpdatedRows === 0n) return;
-	core.notify(id);
+	if (outcome.kind !== "claimed") return;
+	const claimedRow = outcome.row;
 	if (ssh) {
-		newLive(core, id, node.id, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
+		newLive(
+			core,
+			id,
+			node.id,
+			claimedRow.output_mode,
+			claimedRow.task_group_id,
+			claimedRow.max_lines,
+			claimedRow.max_bytes,
+		);
 		core.background(
 			"ssh task failed",
 			runSsh(
@@ -265,7 +306,15 @@ export async function dispatch(
 			),
 		);
 	} else if (link) {
-		newLive(core, id, node.id, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
+		newLive(
+			core,
+			id,
+			node.id,
+			claimedRow.output_mode,
+			claimedRow.task_group_id,
+			claimedRow.max_lines,
+			claimedRow.max_bytes,
+		);
 		// The start may be refused or the link may drop; the state machine follows the response.
 		core.background("task dispatch failed", dispatchRemote(core, link, id, spec, inputBytes, opts));
 	}

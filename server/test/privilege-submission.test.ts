@@ -13,9 +13,10 @@ import {
 	type TrustEntry,
 	type TrustSummary,
 } from "@crh/protocol";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
 import { Cluster, EMPTY_INPUT_REF } from "../src/cluster/cluster.ts";
+import { ClusterCore } from "../src/cluster/core.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import { createNodeGroup, setNodeGroupsForNode } from "../src/cluster/node-groups.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
@@ -76,7 +77,8 @@ describe("user authorizations", () => {
 			trustWaitMs: 100,
 			audit,
 			clockWarnMs: 60_000,
-			nodeOfflineGraceMs: 100,
+			// Long enough that a submission which returned before the grace visibly did not wait it out.
+			nodeOfflineGraceMs: 1_000,
 		});
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
@@ -367,7 +369,7 @@ describe("user authorizations", () => {
 
 		const res = await submit(signedAuthorization(payloadBytes));
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ authorization: { id: pending.id, dispatched: [task.id] } });
+		expect(await res.json()).toEqual({ authorization: { id: pending.id } });
 
 		await waitFor("task.start", () => crha.starts.length === 1);
 		const start = crha.starts[0];
@@ -435,14 +437,14 @@ describe("user authorizations", () => {
 		const res = await submission;
 		expect(res.status).toBe(200);
 		expect((await res.json()) as Record<string, unknown>).toEqual({
-			authorization: { id: pending.id, dispatched: [task.id] },
+			authorization: { id: pending.id },
 		});
 		await waitFor("task.start after the reconnect", () => second.starts.length === 1);
 		expect(second.starts[0]?.authorizations).toHaveLength(1);
 		await waitState(task.id, "running");
 	});
 
-	it("fails a signature submitted while the node stays away after the grace", async () => {
+	it("returns before an offline node's grace runs out, then fails the task in the background", async () => {
 		const { node, crha } = await connect("pending-stays-offline", (id) => summaryOf(id, [ownerEntry()]));
 		const task = await createPrivileged(node.id);
 		await waitState(task.id, "awaiting_authorization");
@@ -451,26 +453,84 @@ describe("user authorizations", () => {
 		crha.ws.close();
 		await crha.closed;
 		await waitFor("link detached", () => !cluster.isConnected(node.id));
+		const started = Date.now();
 		const res = await submit(signedAuthorization(new Uint8Array(Buffer.from(pending.payload, "base64"))));
+		const elapsed = Date.now() - started;
 		expect(res.status).toBe(200);
-		expect((await res.json()) as Record<string, unknown>).toEqual({
-			authorization: { id: pending.id, dispatched: [] },
-		});
-		// Previously the task kept waiting for the node; now the submission ends it after the grace.
+		expect((await res.json()) as Record<string, unknown>).toEqual({ authorization: { id: pending.id } });
+		// The dispatch waits for the node in the background (D118): it did not hold the response for the
+		// one-second grace, and the task still waits for it right after the response.
+		expect(elapsed).toBeLessThan(500);
+		expect((await taskView(task.id)).state).toBe("awaiting_authorization");
+		// The background grace runs out; the task ends without a second request.
 		const failed = await waitState(task.id, "failed");
 		expect(failed).toMatchObject({ errorCode: "node_offline", errorMessage: "the node is not connected" });
 	});
 
-	it("refuses a submission signed by another user's key, an expired one and one without a deadline", async () => {
+	it("drain waits for an in-flight background dispatch", async () => {
+		const { node, crha } = await connect("drain-1", (id) => summaryOf(id, [ownerEntry()]));
+		const task = await createPrivileged(node.id);
+		await waitState(task.id, "awaiting_authorization");
+		const pending = (await pendingFor(task.id)).authorization as { id: string; payload: string };
+		crha.ws.close();
+		await crha.closed;
+		await waitFor("link detached", () => !cluster.isConnected(node.id));
+
+		// Hold the background dispatch where it waits for its node: the same window the offline grace
+		// creates. The HTTP response must not wait for it, but drain()/close() must.
+		const original = ClusterCore.prototype.waitNodeReady;
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let waiting = false;
+		const spy = vi.spyOn(ClusterCore.prototype, "waitNodeReady").mockImplementation(async function (
+			this: ClusterCore,
+			nodeId: string,
+			options?: { trust?: boolean },
+		) {
+			if (nodeId === node.id) {
+				waiting = true;
+				await gate;
+				return undefined; // the grace ran out
+			}
+			return original.call(this, nodeId, options);
+		});
+		try {
+			const res = await submit(signedAuthorization(new Uint8Array(Buffer.from(pending.payload, "base64"))));
+			expect(res.status).toBe(200);
+			expect((await res.json()) as Record<string, unknown>).toEqual({ authorization: { id: pending.id } });
+			await waitFor("the background dispatch waiting for its node", () => waiting);
+
+			let settled = false;
+			const drained = cluster.drain().then(() => {
+				settled = true;
+			});
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			expect(settled).toBe(false);
+
+			release();
+			await drained;
+			expect(await taskView(task.id)).toMatchObject({ state: "failed", errorCode: "node_offline" });
+		} finally {
+			release();
+			spy.mockRestore();
+		}
+	});
+
+	it("refuses a submission signed by another user's key, an expired one, one without a deadline and one issued in the future", async () => {
 		const { node } = await connect("pending-2", (id) => summaryOf(id, [ownerEntry()]));
 		const task = await createPrivileged(node.id);
 		await waitState(task.id, "awaiting_authorization");
-		const pending = (await pendingFor(task.id)).authorization as { payload: string };
+		const pending = (await pendingFor(task.id)).authorization as { id: string; payload: string };
 		const payloadBytes = new Uint8Array(Buffer.from(pending.payload, "base64"));
 
 		const foreign = await submit(signedAuthorization(payloadBytes, otherKey));
 		expect(foreign.status).toBe(400);
 		expect(((await foreign.json()) as { error: string }).error).toMatch(/none of the signatures/);
+		expect(
+			await db.selectFrom("authorizations").select("id").where("id", "=", pending.id).executeTakeFirst(),
+		).toBeUndefined();
 
 		const expired = buildAuthorization({
 			nodes: [node.id],
@@ -483,6 +543,25 @@ describe("user authorizations", () => {
 		const late = await submit(signedAuthorization(expired.bytes));
 		expect(late.status).toBe(400);
 		expect(((await late.json()) as { error: string }).error).toMatch(/expired/);
+		expect(
+			await db.selectFrom("authorizations").select("id").where("id", "=", expired.id).executeTakeFirst(),
+		).toBeUndefined();
+
+		// crhs refuses an authorization whose issued_at is too far ahead of its own clock.
+		const future = buildAuthorization({
+			nodes: [node.id],
+			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			issuedAtMs: Date.now() + HOUR,
+			deadlineMs: Date.now() + 2 * HOUR,
+			taskIds: [task.id],
+			attempt: 1,
+		});
+		const early = await submit(signedAuthorization(future.bytes));
+		expect(early.status).toBe(400);
+		expect(((await early.json()) as { error: string }).error).toBe("the authorization was issued in the future");
+		expect(
+			await db.selectFrom("authorizations").select("id").where("id", "=", future.id).executeTakeFirst(),
+		).toBeUndefined();
 
 		// Every authorization must carry a deadline; without one it is refused before storage and
 		// could never be accepted by the node anyway.
@@ -500,6 +579,7 @@ describe("user authorizations", () => {
 		expect(
 			await db.selectFrom("authorizations").select("id").where("id", "=", withoutDeadline.id).executeTakeFirst(),
 		).toBeUndefined();
+		// None of the refused submissions moved the task or dispatched anything.
 		expect((await taskView(task.id)).state).toBe("awaiting_authorization");
 	});
 
@@ -726,9 +806,7 @@ describe("user authorizations", () => {
 		});
 		const res = await submit(signedAuthorization(submitted.bytes));
 		expect(res.status).toBe(200);
-		expect((await res.json()) as Record<string, unknown>).toEqual({
-			authorization: { id: submitted.id, dispatched: [] },
-		});
+		expect((await res.json()) as Record<string, unknown>).toEqual({ authorization: { id: submitted.id } });
 		const failed = await waitState(task.id, "failed");
 		expect(failed.errorCode).toBe("alias_missing");
 		expect(failed.errorMessage).toContain(`node group web (${group.id})`);
@@ -754,7 +832,9 @@ describe("user authorizations", () => {
 		});
 		const res = await submit(signedAuthorization(submitted.bytes));
 		expect(res.status).toBe(200);
-		expect((await res.json()) as Record<string, unknown>).toMatchObject({ authorization: { dispatched: [] } });
+		expect((await res.json()) as Record<string, unknown>).toEqual({ authorization: { id: submitted.id } });
+		// Let the background judgment finish: the task must stay waiting for the local approval.
+		await cluster.drain();
 		expect((await taskView(task.id)).state).toBe("awaiting_authorization");
 		expect(crha.localRequests).toHaveLength(1);
 		expect(crha.starts).toHaveLength(0);
@@ -977,10 +1057,7 @@ describe("user authorizations", () => {
 		);
 		expect(submitted.status).toBe(200);
 		expect((await submitted.json()) as Record<string, unknown>).toEqual({
-			authorization: {
-				id: shared.taskGroup.authorization.id,
-				dispatched: expect.arrayContaining(tasks.map((task) => task.id)),
-			},
+			authorization: { id: shared.taskGroup.authorization.id },
 		});
 		await waitFor("both starts", () => a.crha.starts.length === 1 && b.crha.starts.length === 1);
 		expect(Buffer.from(a.crha.starts[0]?.authorizations[0] as Uint8Array)).toEqual(
@@ -1099,11 +1176,13 @@ describe("user authorizations", () => {
 		});
 		// A restart interrupts the group; a signature that arrives afterwards must not start the member.
 		await db.updateTable("task_groups").set({ state: "interrupted" }).where("id", "=", groupId).execute();
-		const { authorization } = await pendingFor(waiting.id);
-		const payload = new Uint8Array(Buffer.from((authorization as { payload: string }).payload, "base64"));
+		const pending = (await pendingFor(waiting.id)).authorization as { id: string; payload: string };
+		const payload = new Uint8Array(Buffer.from(pending.payload, "base64"));
 		const res = await submit(signedAuthorization(payload));
 		expect(res.status).toBe(200);
-		expect((await res.json()) as Record<string, unknown>).toMatchObject({ authorization: { dispatched: [] } });
+		expect((await res.json()) as Record<string, unknown>).toEqual({ authorization: { id: pending.id } });
+		// Wait for the background dispatch: it must leave the interrupted group's member alone.
+		await cluster.drain();
 		expect(crha.starts).toHaveLength(0);
 		expect((await taskView(waiting.id)).state).toBe("awaiting_authorization");
 	});

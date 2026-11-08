@@ -1,10 +1,10 @@
 /**
  * The approval of a single task (doc/access-control.md#审批): a user's or an agent's decision, Auto
  * Review's verdict, the routing to an ancestor session's agent, and the rules judging waiting tasks again
- * after they changed. The parts a task group's approval shares are in approval.ts; here every step runs
- * on the task's queue, so the row writes need no state guard of their own.
+ * after they changed. The parts a task group's approval shares are in approval.ts; the writes here are
+ * guarded by the row version (D118), and decide() dispatches outside its turn instead of holding it.
  */
-import { taskSpecFromJson } from "@crh/protocol";
+import { type TaskSpec, taskSpecFromJson } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
@@ -20,19 +20,24 @@ import {
 	rulesApproval,
 } from "./approval.ts";
 import { type ClusterCore, now } from "./core.ts";
-import { getNode } from "./nodes.ts";
+import { getNode, type NodeRow } from "./nodes.ts";
 import { specFromRow } from "./spec.ts";
 import { dispatch, evaluateFor } from "./task-dispatch.ts";
 import { endTask, endUndispatched } from "./task-end.ts";
+import { writeTask } from "./task-rows.ts";
 import { pendingInputOf } from "./task-start.ts";
 import type { AgentRequest, ApprovalDecision, ApprovalRecord } from "./types.ts";
 
 /**
  * Settles a task waiting for approval. Returns false if it is not waiting (already settled, or never
  * needed approval). Who may decide is checked by the caller.
+ *
+ * The decision (and, for an approval, the spec and input the dispatch needs) is recorded in the task's
+ * turn; the dispatch itself runs after it, so an HTTP approve still waits for the dispatch result without
+ * holding the task's queue across the offline grace and the whole send (D118).
  */
-export function decide(core: ClusterCore, id: string, decision: ApprovalDecision): Promise<boolean> {
-	return core.taskQueue.run(id, async () => {
+export async function decide(core: ClusterCore, id: string, decision: ApprovalDecision): Promise<boolean> {
+	const decided = await core.taskQueue.run(id, async (): Promise<DecidedApproval | false> => {
 		const row = await core.row(id);
 		if (row?.state !== "awaiting_approval") return false;
 		const record = mergeApproval<ApprovalRecord>(row.approval, { decision });
@@ -40,33 +45,32 @@ export function decide(core: ClusterCore, id: string, decision: ApprovalDecision
 			// Read the spec before recording the decision: migration 0019 may have left a row it could not
 			// convert, and the caller gets a client error instead of a half-approved task.
 			const spec = specFromRow(row.spec, "task");
-			await core.db
-				.updateTable("tasks")
-				.set({ approval: JSON.stringify(record) })
-				.where("id", "=", id)
-				.execute();
+			const recorded = await writeTask(
+				core.db,
+				id,
+				{ states: ["awaiting_approval"], rev: row.rev },
+				{ approval: JSON.stringify(record) },
+			);
+			if (!recorded) return false;
 			const node = await getNode(core.db, row.node_id);
-			const input = pendingInputOf(row);
 			core.background("task approval audit failed", auditApproval(core, row, decision));
-			if (node) {
-				try {
-					await dispatch(core, id, node, spec, input, {
-						privileged: row.privileged === 1,
-						timeoutMs: row.timeout_ms ?? undefined,
-					});
-				} catch (err) {
-					// The decision is recorded, so the task is no longer waiting for one: it must not keep the
-					// row in awaiting_approval (doc/execution-plane.md#状态机).
-					await endUndispatched(core, id, err);
-					throw err;
-				}
-			}
-			core.onChange?.(row.actor_id);
-			return true;
+			return {
+				kind: "approved",
+				actorId: row.actor_id,
+				dispatch: node
+					? {
+							node,
+							spec,
+							input: pendingInputOf(row),
+							opts: { privileged: row.privileged === 1, timeoutMs: row.timeout_ms ?? undefined },
+						}
+					: null,
+			};
 		}
 		const rejected = await endTask(core, id, {
 			write: {
 				from: ["awaiting_approval"],
+				rev: row.rev,
 				set: {
 					state: "rejected",
 					error_code: "approval_rejected",
@@ -83,9 +87,46 @@ export function decide(core: ClusterCore, id: string, decision: ApprovalDecision
 		if (!rejected) return false;
 		// The rejection is audited as an approval, not as a task.finished (doc/access-control.md#记录内容).
 		core.background("task approval audit failed", auditApproval(core, row, decision));
-		return true;
+		return { kind: "rejected" };
 	});
+	if (!decided) return false;
+	if (decided.kind === "rejected") return true;
+	if (decided.dispatch) {
+		try {
+			// Outside the turn: dispatch waits for the node and sends from its own short turn (D118).
+			await dispatch(
+				core,
+				id,
+				decided.dispatch.node,
+				decided.dispatch.spec,
+				decided.dispatch.input,
+				decided.dispatch.opts,
+			);
+		} catch (err) {
+			// The decision is recorded, so the task is no longer waiting for one: it must not keep the
+			// row in awaiting_approval (doc/execution-plane.md#状态机).
+			await endUndispatched(core, id, err);
+			throw err;
+		}
+	}
+	core.onChange?.(decided.actorId);
+	return true;
 }
+
+/** What decide's turn recorded, for the work that runs after it. */
+type DecidedApproval =
+	| { kind: "rejected" }
+	| {
+			kind: "approved";
+			actorId: string;
+			/** The dispatch to run after the turn; null when the node row is gone (the task no longer dispatches). */
+			dispatch: {
+				node: NodeRow;
+				spec: TaskSpec;
+				input: Uint8Array;
+				opts: { privileged?: boolean; timeoutMs?: number };
+			} | null;
+	  };
 
 async function auditApproval(core: ClusterCore, row: Selectable<TasksTable>, d: ApprovalDecision): Promise<void> {
 	core.auditLater(approvalAudit("task", row.id, row.on_behalf_of_user_id, d));
@@ -97,11 +138,13 @@ export async function recordReview(core: ClusterCore, id: string, review: Approv
 		const row = await core.row(id);
 		if (row?.state !== "awaiting_approval") return;
 		const record = mergeApproval<ApprovalRecord>(row.approval, { review });
-		await core.db
-			.updateTable("tasks")
-			.set({ approval: JSON.stringify(record) })
-			.where("id", "=", id)
-			.execute();
+		const recorded = await writeTask(
+			core.db,
+			id,
+			{ states: ["awaiting_approval"], rev: row.rev },
+			{ approval: JSON.stringify(record) },
+		);
+		if (!recorded) return;
 		core.auditLater(reviewAudit("task", id, row.on_behalf_of_user_id, review));
 	});
 }
@@ -120,9 +163,8 @@ export function escalateAgentDecision(core: ClusterCore, id: string, session: st
 }
 
 /**
- * Routes a waiting task's approval to an agent or back to the user. The write is not guarded on the
- * state: the task's queue already keeps a decision from settling it in between (a group's routing runs
- * on the group's approval queue and guards its write as well).
+ * Routes a waiting task's approval to an agent or back to the user. The write is guarded on the state
+ * and the `rev` the row was read at, so a decision that settled the task in between is not overwritten.
  */
 function routeAgentDecision(
 	core: ClusterCore,
@@ -135,11 +177,13 @@ function routeAgentDecision(
 		if (row?.state !== "awaiting_approval") return false;
 		const routing = agentRouting(session, state);
 		const record = mergeApproval<ApprovalRecord>(row.approval, { agent: routing.agent });
-		await core.db
-			.updateTable("tasks")
-			.set({ approval: JSON.stringify(record), ...routing.handler })
-			.where("id", "=", id)
-			.execute();
+		const routed = await writeTask(
+			core.db,
+			id,
+			{ states: ["awaiting_approval"], rev: row.rev },
+			{ approval: JSON.stringify(record), ...routing.handler },
+		);
+		if (!routed) return false;
 		core.onChange?.(row.actor_id);
 		core.auditLater(agentRoutingAudit("task", id, session, state));
 		return true;
@@ -174,9 +218,13 @@ export async function reevaluate(core: ClusterCore, ref: RuleRef): Promise<void>
 			await decide(core, row.id, rulesApproval(now()));
 		} else if (evaluation.result === "deny") {
 			await core.taskQueue.run(row.id, async () => {
+				// The row may have changed while it was judged: write the denial at the rev read in this turn.
+				const current = await core.row(row.id);
+				if (current?.state !== "awaiting_approval") return;
 				await endTask(core, row.id, {
 					write: {
 						from: ["awaiting_approval"],
+						rev: current.rev,
 						set: {
 							state: "denied",
 							error_code: "policy_denied",
@@ -187,7 +235,7 @@ export async function reevaluate(core: ClusterCore, ref: RuleRef): Promise<void>
 							handler_session_id: null,
 						},
 					},
-					onChange: row.actor_id,
+					onChange: current.actor_id,
 				});
 			});
 		}

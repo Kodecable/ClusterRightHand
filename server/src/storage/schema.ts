@@ -204,6 +204,11 @@ export interface TasksTable extends ApprovalColumns {
 	input_sha256: string | null;
 	/** Dispatch attempt, from 1; only an authorization retry increments it (doc/protocol.md#task.start). */
 	attempt: number;
+	/**
+	 * Row version (D118): every write to the row bumps it, and a write derived from an earlier read
+	 * names the `rev` it read so a row changed in between is not overwritten with a stale decision.
+	 */
+	rev: ColumnType<number, number | undefined, number>;
 	privileged: number;
 	/** JSON authorization plan/state (doc/m4.md#crhs-侧数据): plan, payload id, attempt, trust digest, tried paths, last rejection. */
 	authorization: ColumnType<string | null, string | null | undefined, string | null>;

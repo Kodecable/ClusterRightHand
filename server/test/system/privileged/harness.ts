@@ -578,7 +578,7 @@ export async function signPayload(bin: string, keyPath: string, payload: string)
 export async function submitAuthorization(
 	crhs: InProcessCrhs,
 	authorization: string,
-): Promise<{ status: number; json: { authorization?: { id: string; dispatched: string[] }; error?: string } }> {
+): Promise<{ status: number; json: { authorization?: { id: string }; error?: string } }> {
 	return crhs.api("/api/authorizations", { body: { authorization } });
 }
 

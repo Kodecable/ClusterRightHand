@@ -121,6 +121,8 @@ export async function sendTaskStart(
 		await followUp.settle(() => finish(core, nodeId, id, cancelledTaskFields()));
 		return;
 	}
+	// task.start waits for the node's answer: it must not be sent from a task queue turn (D118).
+	core.assertOutsideTaskTurn("task.start");
 	try {
 		await link.conn.peer.request("task.start", start);
 	} catch (err) {

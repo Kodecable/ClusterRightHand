@@ -19,7 +19,7 @@ function mockFetch(): string[] {
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL) => {
 			calls.push(new URL(String(input), "http://localhost").pathname);
-			return new Response(JSON.stringify({ authorization: { id: "auth-1", dispatched: [] } }), {
+			return new Response(JSON.stringify({ authorization: { id: "auth-1" } }), {
 				status: 200,
 				headers: { "content-type": "application/json" },
 			});

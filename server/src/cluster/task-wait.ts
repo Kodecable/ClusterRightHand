@@ -3,6 +3,7 @@ import { withdrawLocal } from "./authorization/common.ts";
 import { parseTaskAuthorization } from "./authorization.ts";
 import type { ClusterCore } from "./core.ts";
 import { CANCELLED_BEFORE_START_MESSAGE, cancelledTaskFields, endTask, requestTaskCancel } from "./task-end.ts";
+import { writeTask } from "./task-rows.ts";
 import { toView } from "./task-view.ts";
 import { type Actor, type TaskView, TERMINAL } from "./types.ts";
 
@@ -80,6 +81,9 @@ export async function waitTask(
 	}
 }
 
+/** How often a cancel of a waiting task re-reads a row another path keeps changing. */
+const CANCEL_ROUNDS = 5;
+
 /**
  * Asks the node to cancel a running task. A task that still waits for its approval or its
  * authorization signature was never dispatched, so it ends here instead (there is no node-side task).
@@ -103,13 +107,15 @@ export async function cancelTask(
 		// The claim may turn into running while this runs (onAccepted), or back to waiting after an
 		// authorization retry: follow the row instead of cancelling against a stale state.
 		for (;;) {
-			const res = await core.db
-				.updateTable("tasks")
-				.set({ cancelled: 1 })
-				.where("id", "=", id)
-				.where("state", "=", "dispatched")
-				.executeTakeFirst();
-			if (res.numUpdatedRows > 0n) {
+			const flaggedNow = await writeTask(
+				core.db,
+				id,
+				{ states: ["dispatched"], rev: row.rev },
+				{ cancelled: 1 },
+				// A cancel is the user's decision; it writes and retries without holding the task's turn.
+				{ outOfTurn: true },
+			);
+			if (flaggedNow) {
 				flagged = true;
 				break;
 			}
@@ -121,14 +127,27 @@ export async function cancelTask(
 	}
 	if (row.state === "awaiting_approval" || row.state === "awaiting_authorization") {
 		if (by) core.cancelledBy.set(id, by);
-		const record = parseTaskAuthorization(row.authorization);
-		const link = core.links.get(row.node_id);
-		return endTask(core, id, {
-			write: { from: [row.state], set: cancelledTaskFields(message) },
-			afterWrite: () => withdrawLocal(link, id, record),
-			group: row.task_group_id,
-			onChange: row.actor_id,
-		});
+		// A cancel is the user's decision, not one derived from the row: when another path bumped `rev` in
+		// between (a group refresh, a re-plan), read again and cancel the current row instead of giving up.
+		// The withdrawn local request is the one on the row that is actually cancelled.
+		for (let attempt = 0; attempt < CANCEL_ROUNDS; attempt++) {
+			const record = parseTaskAuthorization(row.authorization);
+			const link = core.links.get(row.node_id);
+			const ended = await endTask(core, id, {
+				write: { from: [row.state], rev: row.rev, outOfTurn: true, set: cancelledTaskFields(message) },
+				afterWrite: () => withdrawLocal(link, id, record),
+				group: row.task_group_id,
+				onChange: row.actor_id,
+			});
+			if (ended) return true;
+			const current = await core.row(id);
+			if (!current || (current.state !== "awaiting_approval" && current.state !== "awaiting_authorization")) {
+				// It left the waiting states meanwhile (dispatched, or ended): cancel it as what it is now.
+				return current && !TERMINAL.has(current.state) ? cancelTask(core, id, message, by) : false;
+			}
+			row = current;
+		}
+		return false;
 	}
 	if (flagged && by) core.cancelledBy.set(id, by);
 	const ssh = core.sshCancels.get(id);

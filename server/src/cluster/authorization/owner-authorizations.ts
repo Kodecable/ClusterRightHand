@@ -60,7 +60,7 @@ import {
 const SUBMISSION_CLOCK_SKEW_MS = 60_000;
 
 /** A task claimed for an owner authorization and ready to be sent. */
-interface ClaimedAuthorization {
+export interface ClaimedAuthorization {
 	start: TaskStart;
 	record: TaskAuthorizationRecord;
 	input: Uint8Array;
@@ -79,11 +79,8 @@ interface JudgedSubmission {
 
 /** A waiting task of a submission that was judged and claimed; sending happens after all of them. */
 interface PreparedSubmission {
-	link: NodeLink;
 	nodeId: string;
 	claim: ClaimedAuthorization;
-	/** Every signature the Authorization carries (the union of the group's cosignatures included). */
-	signatures: Signature[];
 }
 
 export type ReusableAuthorizationLookup =
@@ -324,8 +321,11 @@ function decideOwnerAuthorization(input: {
  * Claims a task for an owner authorization: the attempt is fixed, the pending payload is cleared
  * and the local approval request withdrawn. Sending is separate, so a whole task group can be
  * claimed before the first task.start is sent and a rejection cannot change a sibling's attempt.
+ * This is the turn body (D118): planPrivileged calls it inside its plan turn, and every caller outside
+ * a turn (the stored-authorization sweep, a submission) wraps it in a turn of the task's queue from a
+ * fresh read. The task.start is sent after that turn.
  */
-async function claimOwnerAuthorization(
+export async function claimOwnerAuthorization(
 	core: ClusterCore,
 	row: Selectable<TasksTable>,
 	node: NodeRow,
@@ -376,15 +376,21 @@ async function claimOwnerAuthorization(
 		updatedAt: new Date().toISOString(),
 	};
 	withdrawLocal(link, row.id, record);
-	const claimed = await updateTask(core, row.id, from, {
-		state: "dispatched",
-		attempt,
-		dispatched_at: now(),
-		authorization: serializeTaskAuthorization(updated),
-		pending_input: null,
-		handler_type: null,
-		handler_session_id: null,
-	});
+	const claimed = await updateTask(
+		core,
+		row.id,
+		from,
+		{
+			state: "dispatched",
+			attempt,
+			dispatched_at: now(),
+			authorization: serializeTaskAuthorization(updated),
+			pending_input: null,
+			handler_type: null,
+			handler_session_id: null,
+		},
+		row.rev,
+	);
 	if (!claimed) return null;
 	newLive(core, row.id, node.id, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
 	core.background("task group state update failed", syncGroupState(core, row.task_group_id));
@@ -406,34 +412,20 @@ async function claimOwnerAuthorization(
 	return { start, record: updated, input, cosigned };
 }
 
-/** Claims and sends one owner authorization (the reuse path of a single task). */
-export async function dispatchOwnerAuthorization(
-	core: ClusterCore,
-	row: Selectable<TasksTable>,
-	node: NodeRow,
-	link: NodeLink,
-	submitted: SubmittedAuthorization,
-	cosigned: boolean,
-	from: readonly TaskRowState[] = ["awaiting_authorization"],
-	inputBytes?: Uint8Array,
-): Promise<boolean> {
-	const prepared = await claimOwnerAuthorization(core, row, node, link, submitted, cosigned, from, inputBytes);
-	if (!prepared) return false;
-	await sendAuthorizedStart(core, node.id, prepared.start, prepared.input, prepared.record);
-	return true;
-}
-
 // ---- a submitted authorization ----
 
 /**
- * POST /api/authorizations: checks a user's authorization, stores it (for display and reuse) and
- * dispatches every waiting task of that user it covers (doc/m4.md M4.4).
+ * POST /api/authorizations: checks a user's authorization and stores it (for display and reuse). Only
+ * the failures the caller can fix are synchronous (the signature, the deadline and the issuer's clock);
+ * finding the waiting tasks it covers, judging them, claiming them, sending their task.start and
+ * storing crhs's cosignatures continue in the background (D118), and the outcome shows up in the task
+ * states (doc/m4.md M4.4).
  */
 export async function submitAuthorization(
 	core: ClusterCore,
 	user: SessionUser,
 	submitted: SubmittedAuthorization,
-): Promise<{ id: string; dispatched: string[] }> {
+): Promise<{ id: string }> {
 	const material = await loadUserSigningMaterial(core.db, user.userId);
 	await assertSubmittingUser(material, submitted.payloadBytes, submitted.signatures);
 	const nowMs = Date.now();
@@ -461,6 +453,23 @@ export async function submitAuthorization(
 			duplicate: !stored,
 		},
 	});
+	// Tracked by the core, so close() waits for an in-flight dispatch before the database is destroyed.
+	core.background("authorization dispatch failed", dispatchSubmittedAuthorization(core, user, submitted, material));
+	return { id: submitted.id };
+}
+
+/**
+ * The background half of a submission (D118): judges every waiting task of the user the authorization
+ * covers, claims the accepted ones, then sends their task.start and stores crhs's cosignatures. The
+ * order matters: all judgments happen before the first claim, and all claims before the first send, so
+ * one node's rejection cannot change the attempt of a sibling that is still about to be sent.
+ */
+async function dispatchSubmittedAuthorization(
+	core: ClusterCore,
+	user: SessionUser,
+	submitted: SubmittedAuthorization,
+	material: UserSigningMaterial,
+): Promise<void> {
 	const rows = await core.db
 		.selectFrom("tasks")
 		.select("id")
@@ -468,13 +477,13 @@ export async function submitAuthorization(
 		.where("on_behalf_of_user_id", "=", user.userId)
 		.orderBy("created_at")
 		.execute();
-	// Judge every covered task first, then claim all of them, then send: a rejection of one
-	// task.start must not re-plan (and change the attempt of) a sibling still about to be sent.
 	// The tasks are judged concurrently so a whole group on an offline node waits out one grace, not one
-	// grace per member; each task's own queue still serializes its writes (D113).
-	const judged = (
-		await Promise.all(rows.map(({ id }) => core.taskQueue.run(id, () => judgeSubmitted(core, id, submitted, material))))
-	).filter((entry): entry is JudgedSubmission => entry !== null);
+	// grace per member. The judge waits for its node, so it runs outside the task turn; its failure
+	// writes run in a turn on a fresh read, and the claim below re-reads the row in a turn of its own
+	// (D118).
+	const judged = (await Promise.all(rows.map(({ id }) => judgeSubmitted(core, id, submitted, material)))).filter(
+		(entry): entry is JudgedSubmission => entry !== null,
+	);
 	// The Authorization is one object for the whole group (D88), so it carries the union of the
 	// cosignatures the covered nodes need; a node ignores a signature of a key it does not trust.
 	const cosignatures = newSignatures(
@@ -484,23 +493,28 @@ export async function submitAuthorization(
 	const signatures = [...submitted.signatures, ...cosignatures];
 	const prepared: PreparedSubmission[] = [];
 	for (const entry of judged) {
-		const claim = await core.taskQueue.run(entry.row.id, () =>
-			claimOwnerAuthorization(core, entry.row, entry.node, entry.link, { ...submitted, signatures }, entry.cosigned),
-		);
+		// Judge and claim are separate turns: the row read by the judge may have been changed in between
+		// (a sibling's re-plan refreshes the group's attempt). Claim from a fresh read, not from that row.
+		const claim = await core.taskQueue.run(entry.row.id, async () => {
+			const fresh = await core.row(entry.row.id);
+			if (!fresh) return null;
+			return claimOwnerAuthorization(core, fresh, entry.node, entry.link, { ...submitted, signatures }, entry.cosigned);
+		});
 		if (!claim) continue;
-		prepared.push({ link: entry.link, nodeId: entry.node.id, claim, signatures });
+		prepared.push({ nodeId: entry.node.id, claim });
 	}
-	const dispatched: string[] = [];
 	for (const entry of prepared) {
 		const { claim } = entry;
 		await sendAuthorizedStart(core, entry.nodeId, claim.start, claim.input, claim.record);
-		dispatched.push(claim.start.taskId);
 	}
 	if (cosignatures.length > 0) await storeCosignatures(core, submitted, cosignatures, user.userId);
-	return { id: submitted.id, dispatched };
 }
 
-/** One waiting task of the submitting user, judged against its node's fresh trust summary. */
+/**
+ * One waiting task of the submitting user, judged against its node's fresh trust summary. The wait for
+ * the node and the judgment run outside the task's turn; the failure writes run in a turn on a fresh
+ * read (D118), and the claim is a later turn of its own.
+ */
 async function judgeSubmitted(
 	core: ClusterCore,
 	id: string,
@@ -517,8 +531,12 @@ async function judgeSubmitted(
 	// here instead of leaving it waiting for a signature that already arrived.
 	const ready = await core.waitNodeReady(row.node_id, { trust: true });
 	if (!ready?.link) {
-		const previous = parseTaskAuthorization(row.authorization);
-		await finishNodeOffline(core, id, row, previous ? withoutRequests(previous) : null);
+		await core.taskQueue.run(id, async () => {
+			const current = await core.row(id);
+			if (current?.state !== "awaiting_authorization") return;
+			const previous = parseTaskAuthorization(current.authorization);
+			await finishNodeOffline(core, id, current, previous ? withoutRequests(previous) : null);
+		});
 		return null;
 	}
 	const node = ready.node;
@@ -540,7 +558,13 @@ async function judgeSubmitted(
 		// task here instead of leaving it waiting forever (D110), unless local approval can still
 		// authorize this single task.
 		const missing = await missingAliasForAuthorization(core, input);
-		if (missing !== null) await failAliasMissing(core, row, parseTaskAuthorization(row.authorization), missing);
+		if (missing !== null) {
+			await core.taskQueue.run(id, async () => {
+				const current = await core.row(id);
+				if (current?.state !== "awaiting_authorization") return;
+				await failAliasMissing(core, current, parseTaskAuthorization(current.authorization), missing);
+			});
+		}
 		return null;
 	}
 	return { row, node, link, signatures: judged.signatures, cosigned: judged.cosigned };

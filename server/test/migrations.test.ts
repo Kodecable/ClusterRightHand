@@ -29,6 +29,7 @@ import { down as down0044, up as up0044 } from "../src/storage/migrations/0044_s
 import { down as down0045, up as up0045 } from "../src/storage/migrations/0045_sessions_create_request_id.ts";
 import { down as down0046, up as up0046 } from "../src/storage/migrations/0046_thinking_modes_and_labels.ts";
 import { down as down0047, up as up0047 } from "../src/storage/migrations/0047_session_state_default.ts";
+import { down as down0048, up as up0048 } from "../src/storage/migrations/0048_task_rev.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
@@ -2187,6 +2188,52 @@ describeBackends("0047 session state default", (backend) => {
 		await insertSession("new-after-down");
 		// Rollback restores the old default; rows already moved to idle stay there.
 		expect(await states()).toMatchObject({ "new-after-down": "active", "legacy-idle": "idle" });
+	});
+});
+
+describeBackends("0048 task rev", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend);
+		await applyMigration(backend, db, down0048);
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	const insertTask = async (id: string): Promise<void> => {
+		await sql`
+			insert into tasks (
+				id, org_id, node_id, kind, spec, privileged, state, timed_out, cancelled, actor_type,
+				actor_id, on_behalf_of_user_id, created_at
+			) values (
+				${id}, ${await defaultOrgId(db)}, ${"node-1"}, ${"exec"}, ${"{}"}, 0, ${"awaiting_approval"}, 0, 0,
+				${"user"}, ${"user-1"}, ${"user-1"}, ${"2026-01-01T00:00:00.000Z"}
+			)
+		`.execute(db);
+	};
+
+	const revOf = async (id: string): Promise<number> => {
+		const row = await sql<{ rev: number | string }>`select rev from tasks where id = ${id}`.execute(db);
+		return Number(row.rows[0]?.rev);
+	};
+
+	it("adds rev with a zero default, keeps it on an existing row and reverses it", async () => {
+		expect(await tableColumns(backend, db, "tasks")).not.toContain("rev");
+		await insertTask("legacy");
+
+		await applyMigration(backend, db, up0048);
+		expect(await tableColumns(backend, db, "tasks")).toContain("rev");
+		expect(await revOf("legacy")).toBe(0);
+
+		// A later insert takes the same default.
+		await insertTask("after-up");
+		expect(await revOf("after-up")).toBe(0);
+
+		await applyMigration(backend, db, down0048);
+		expect(await tableColumns(backend, db, "tasks")).not.toContain("rev");
 	});
 });
 

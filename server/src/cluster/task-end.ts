@@ -10,6 +10,7 @@ import type { TaskState as TaskRowState, TasksTable } from "../storage/schema.ts
 import type { NodeConnection } from "./connection.ts";
 import { type ClusterCore, now } from "./core.ts";
 import { dropLive, EMPTY_OUTPUT, keepUnknownOutput, newLive } from "./live-output.ts";
+import { insertTask, writeTask } from "./task-rows.ts";
 import { outputColumns } from "./task-view.ts";
 import { type Actor, GROUP_TERMINAL, recorded, TASK_CANCELLED_CODE, TERMINAL } from "./types.ts";
 
@@ -23,7 +24,14 @@ type TaskRowWrite =
 			insert: Insertable<TasksTable>;
 			ended: boolean;
 	  }
-	| { from: readonly TaskRowState[]; set: Updateable<TasksTable>; nodeId?: string };
+	| {
+			from: readonly TaskRowState[];
+			set: Updateable<TasksTable>;
+			nodeId?: string;
+			rev?: number;
+			/** The documented out-of-turn ending (a cancel, see task-rows.ts#TaskRowWriteOptions). */
+			outOfTurn?: boolean;
+	  };
 
 /**
  * One ending of a task: the row write, then the side effects every ending shares, in this order: the
@@ -95,6 +103,7 @@ export async function failNodeAccessRevoked(
 	await endTask(core, id, {
 		write: {
 			from,
+			rev: row.rev,
 			set: {
 				state: "failed",
 				error_code: NODE_ACCESS_REVOKED,
@@ -121,6 +130,7 @@ export async function failNodeOffline(
 	await endTask(core, id, {
 		write: {
 			from,
+			rev: row?.rev,
 			set: {
 				state: "failed",
 				error_code: "node_offline",
@@ -165,13 +175,7 @@ export async function endUndispatched(core: ClusterCore, id: string, error: unkn
 
 /** The node accepted the start: the task runs. */
 export async function onAccepted(core: ClusterCore, nodeId: string, taskId: string): Promise<void> {
-	await core.db
-		.updateTable("tasks")
-		.set({ state: "running", accepted_at: now() })
-		.where("id", "=", taskId)
-		.where("node_id", "=", nodeId)
-		.where("state", "=", "dispatched")
-		.execute();
+	await writeTask(core.db, taskId, { states: ["dispatched"], nodeId }, { state: "running", accepted_at: now() });
 	core.notify(taskId);
 	// The cancel may have reached the node before its task.start, or the start may have overtaken the
 	// cancel: the node now knows the task, so the cancel has to follow it (doc/execution-plane.md#任务取消).
@@ -232,11 +236,12 @@ export async function onExit(core: ClusterCore, conn: NodeConnection, exit: Task
 	};
 	if (row.state === "unknown") {
 		// Already reported as unknown: keep that answer, but record what really happened.
-		await core.db
-			.updateTable("tasks")
-			.set({ late_result: JSON.stringify(fields) })
-			.where("id", "=", row.id)
-			.execute();
+		await writeTask(
+			core.db,
+			row.id,
+			{ states: ["unknown"], nodeId: conn.nodeId },
+			{ late_result: JSON.stringify(fields) },
+		);
 	} else if (!TERMINAL.has(row.state)) {
 		await finish(core, conn.nodeId, row.id, { ...fields, state: outcome.kind === "error" ? "failed" : "exited" });
 	}
@@ -255,10 +260,10 @@ export async function endTask(core: ClusterCore, id: string, end: TaskEnd): Prom
 	const { write } = end;
 	let updated: boolean;
 	if ("insert" in write) {
-		await core.db.insertInto("tasks").values(write.insert).execute();
+		await insertTask(core.db, write.insert);
 		updated = write.ended;
 	} else {
-		updated = await writeTerminal(core, id, write.from, write.set, write.nodeId);
+		updated = await writeTerminal(core, id, write.from, write.set, write.nodeId, write.rev, write.outOfTurn);
 	}
 	if (!updated && !end.always) return false;
 	if (end.live === "drop") dropLive(core, id);
@@ -278,22 +283,17 @@ export async function endTask(core: ClusterCore, id: string, end: TaskEnd): Prom
 	return updated;
 }
 
-/** The guarded row write of an ending: only a task in one of `from` (on `nodeId`) is written. */
+/** The guarded row write of an ending: only a task in one of `from` (on `nodeId`, at `rev`) is written. */
 async function writeTerminal(
 	core: ClusterCore,
 	id: string,
 	from: readonly TaskRowState[],
 	set: Updateable<TasksTable>,
 	nodeId?: string,
+	rev?: number,
+	outOfTurn?: boolean,
 ): Promise<boolean> {
-	let update = core.db
-		.updateTable("tasks")
-		.set({ ...set, finished_at: now() })
-		.where("id", "=", id)
-		.where("state", "in", [...from]);
-	if (nodeId !== undefined) update = update.where("node_id", "=", nodeId);
-	const res = await update.executeTakeFirst();
-	return res.numUpdatedRows > 0n;
+	return writeTask(core.db, id, { states: from, nodeId, rev }, { ...set, finished_at: now() }, { outOfTurn });
 }
 
 /** The dispatch side's ending: the outcome the node reported, on a task that was sent to it. */
@@ -325,20 +325,16 @@ export async function markUnknown(core: ClusterCore, id: string, reason: string)
 	});
 }
 
-/** Updates a task only from the states the caller has observed, so a settled task is never rewritten. */
+/** Updates a task only from the states the caller has observed (and at `rev`, when it read the row). */
 export async function updateTask(
 	core: ClusterCore,
 	id: string,
 	from: readonly TaskRowState[],
 	set: Updateable<TasksTable>,
+	rev?: number,
 ): Promise<boolean> {
-	const res = await core.db
-		.updateTable("tasks")
-		.set(set)
-		.where("id", "=", id)
-		.where("state", "in", [...from])
-		.executeTakeFirst();
-	if (res.numUpdatedRows === 0n) return false;
+	const updated = await writeTask(core.db, id, { states: from, rev }, set);
+	if (!updated) return false;
 	core.notify(id);
 	return true;
 }

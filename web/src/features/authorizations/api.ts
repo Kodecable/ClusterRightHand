@@ -60,18 +60,26 @@ export function usePendingAuthorization(kind: "task" | "task_group", id: string 
 
 export type SubmitAuthorizationInput = { authorization: string } | { payloadId: string; webauthn: unknown };
 
+/** The dispatch usually claims the task within this window; refresh once more after it. */
+const DISPATCH_REFRESH_MS = 1_000;
+
 /** Submit the pasted `crha grant` output or a Passkey assertion. */
 export function useSubmitAuthorization() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (input: SubmitAuthorizationInput) =>
-			http
-				.post<{ authorization: { id: string; dispatched: string[] } }>("/authorizations", input)
-				.then((r) => r.authorization),
+			http.post<{ authorization: { id: string } }>("/authorizations", input).then((r) => r.authorization),
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: authorizationKeys.all });
 			// The approvals list carries the pending signatures; signing settles a task.
 			invalidatePendingDecisions(queryClient);
+			// The dispatch continues after this response (D118) and no SSE carries a task's state, so
+			// refresh the pending card and the task views once more after the claim has landed. The
+			// existing polls cover anything slower, such as an offline node's grace.
+			setTimeout(() => {
+				void queryClient.invalidateQueries({ queryKey: authorizationKeys.all });
+				invalidatePendingDecisions(queryClient);
+			}, DISPATCH_REFRESH_MS);
 		},
 		// The authorization card renders the failure beside its paste box.
 		meta: { toast: false },

@@ -47,7 +47,7 @@ export function withdrawLocal(
 	});
 }
 
-/** Ends a task that could not be authorized, with the plan and the reason on its record. */
+/** Ends a task that could not be authorized, with the plan and the reason on its record. Callers run this in a turn of the task's queue (D118); returns whether the row matched. */
 export async function finishAuthorization(
 	core: ClusterCore,
 	id: string,
@@ -56,13 +56,14 @@ export async function finishAuthorization(
 	code: string,
 	message: string,
 	record: TaskAuthorizationRecord | null,
-): Promise<void> {
+): Promise<boolean> {
 	// Withdraw first, even when the row turns out settled: another path may have claimed the task
 	// while its request was still outstanding on the node (doc/privilege.md#本地批准).
 	withdrawLocal(core.links.get(row.node_id), id, record);
-	await endTask(core, id, {
+	return endTask(core, id, {
 		write: {
 			from: [row.state],
+			rev: row.rev,
 			set: {
 				state,
 				error_code: code,

@@ -15,6 +15,7 @@ import type { NodeLink } from "./links.ts";
 import type { Live } from "./live-output.ts";
 import { getNode, type NodeRow } from "./nodes.ts";
 import type { SshConnection } from "./ssh-runner.ts";
+import { TASK_QUEUE_LABEL } from "./task-rows.ts";
 import {
 	type Actor,
 	type ClusterOptions,
@@ -77,7 +78,7 @@ export class ClusterCore {
 	/** Tasks waiting for a node's link to change (the offline grace, D113). */
 	readonly linkWaiters = new Map<string, Set<() => void>>();
 	/** Serializes database updates per task, since frames are handled asynchronously. */
-	readonly taskQueue = new KeyedQueue("task queue");
+	readonly taskQueue = new KeyedQueue(TASK_QUEUE_LABEL);
 	/** Serializes trust.summary processing per node, so a rejection never plans against an older report. */
 	readonly trustQueue = new KeyedQueue("trust queue");
 	/** Serializes the shared payload of a task group's waiting tasks. */
@@ -88,6 +89,8 @@ export class ClusterCore {
 	waitsEnded = false;
 	/** Fire-and-forget writes started by the connection and close paths; close() waits for them. */
 	readonly pending = new Set<Promise<void>>();
+	/** The D118 turn violations already logged; production logs each call site once, never crashes. */
+	readonly #turnWarnings = new Set<string>();
 
 	constructor(db: Db, options: ClusterOptions = {}) {
 		this.db = db;
@@ -138,6 +141,22 @@ export class ClusterCore {
 		return work;
 	}
 
+	/**
+	 * D118: a task queue turn only reads the row, decides and writes it. A path that would wait for a
+	 * node (`waitNodeReady`, `waitTrust`) or send a request that waits for an answer (`task.start`,
+	 * `local.request`) calls this first. Under tests it throws, so a regression fails the suite; in
+	 * production it is logged once with a stack and the work continues (a violation must never crash
+	 * the cluster).
+	 */
+	assertOutsideTaskTurn(what: string): void {
+		if (!this.taskQueue.inTurn()) return;
+		const message = `${what} inside a task queue turn (D118)`;
+		if (process.env.VITEST) throw new Error(message);
+		if (this.#turnWarnings.has(what)) return;
+		this.#turnWarnings.add(what);
+		console.error(`${message}\n${new Error(message).stack ?? ""}`);
+	}
+
 	async row(id: string): Promise<Selectable<TasksTable> | undefined> {
 		return this.db.selectFrom("tasks").selectAll().where("id", "=", id).executeTakeFirst();
 	}
@@ -175,6 +194,7 @@ export class ClusterCore {
 
 	/** Waits for this connection's first trust summary; crhs does not query it itself. */
 	waitTrust(link: NodeLink, timeoutMs: number = this.trustWaitMs): Promise<void> {
+		this.assertOutsideTaskTurn("waitTrust");
 		if (link.trustFresh) return Promise.resolve();
 		return new Promise<void>((resolve) => {
 			const wake = () => {
@@ -207,6 +227,7 @@ export class ClusterCore {
 	 * ran out, the server is closing or waits were ended.
 	 */
 	async waitNodeReady(nodeId: string, options: { trust?: boolean } = {}): Promise<ReadyNode | undefined> {
+		this.assertOutsideTaskTurn("waitNodeReady");
 		// An SSH node has no standing connection to wait for: without a route it can never become ready, so
 		// fail at once instead of polling for the whole grace (doc/execution-plane.md#节点不在线).
 		const node = await getNode(this.db, nodeId);

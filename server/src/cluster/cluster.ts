@@ -154,6 +154,15 @@ export class Cluster {
 		await this.#core.audit?.flush();
 	}
 
+	/**
+	 * Waits until the background work and the keyed queues have settled. close() does this before the
+	 * database is destroyed; a caller that must know a fire-and-forget dispatch is done (a submitted
+	 * authorization's dispatch runs in the background, D118) can await it as well.
+	 */
+	drain(): Promise<void> {
+		return this.#core.drain();
+	}
+
 	/** How the rule chain judges running `spec` on a node. */
 	evaluateFor(node: NodeRow, spec: TaskSpec, chain: RuleRef[], privileged: boolean): Promise<Evaluation> {
 		return tasks.evaluateFor(this.#core, node, spec, chain, privileged);
@@ -179,13 +188,11 @@ export class Cluster {
 	}
 
 	/**
-	 * POST /api/authorizations: checks a user's authorization, stores it (for display and reuse) and
-	 * dispatches every waiting task of that user it covers (doc/m4.md M4.4).
+	 * POST /api/authorizations: checks a user's authorization and stores it (for display and reuse). The
+	 * waiting tasks it covers are judged, claimed and sent in the background (D118), so this returns
+	 * once the authorization is stored; their outcome shows up in the task states (doc/m4.md M4.4).
 	 */
-	submitAuthorization(
-		user: SessionUser,
-		submitted: SubmittedAuthorization,
-	): Promise<{ id: string; dispatched: string[] }> {
+	submitAuthorization(user: SessionUser, submitted: SubmittedAuthorization): Promise<{ id: string }> {
 		return authorizations.submitAuthorization(this.#core, user, submitted);
 	}
 

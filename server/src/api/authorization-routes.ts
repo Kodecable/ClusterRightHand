@@ -48,7 +48,8 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 			return jsonError(c, 400, "give authorization (base64) or payloadId and webauthn");
 		}
 		const result = await options.cluster.submitAuthorization(user, submitted);
-		return c.json({ authorization: { id: result.id, dispatched: result.dispatched } });
+		// The submission's dispatch continues in the background (D118); its outcome shows up in the task states.
+		return c.json({ authorization: { id: result.id } });
 	});
 
 	/**
