@@ -182,9 +182,18 @@ describeBackends("api tokens", (backend) => {
 			expect(none.res.status).toBe(201);
 			expect(none.body.apiToken.expiresAt).toBeNull();
 			expect(none.body.apiToken.rules?.rulePreset).toBe("yolo");
-			const seven = await create("alice", { name: "7", days: 7, rulePreset: "auto_review" });
+			const seven = await create("alice", { name: "7", days: 7, rulePreset: "yolo" });
 			expect(Math.abs(Date.parse(seven.body.apiToken.expiresAt as string) - Date.now() - 7 * DAY)).toBeLessThan(60_000);
-			expect(seven.body.apiToken.rules?.rulePreset).toBe("auto_review");
+			expect(seven.body.apiToken.rules?.rulePreset).toBe("yolo");
+		});
+
+		it("rejects the auto_review rule preset: tokens may only be Ask or Yolo", async () => {
+			const { res, body } = await create("alice", { name: "reviewed", rulePreset: "auto_review" });
+			expect(res.status).toBe(400);
+			expect((body as unknown as { error: string }).error).toBe(
+				"API tokens support only the ask and yolo rule presets",
+			);
+			expect(body.apiToken).toBeUndefined();
 		});
 
 		it("rejects bad input", async () => {
@@ -537,6 +546,21 @@ describeBackends("api tokens", (backend) => {
 			expect(ev.items).toHaveLength(3);
 			expect(ev.items[0]).toMatchObject({ action: "rules.changed", targetType: "api_token" });
 			expect(ev.items[2]?.detail.rule_preset).toBe("yolo");
+		});
+
+		it("rejects auto_review when updating rules", async () => {
+			const { body } = await create("alice", { name: "no-review" });
+			const res = await call(app, `/api/api-tokens/${body.apiToken.id}/rules`, {
+				cookie: cookies.alice,
+				method: "PUT",
+				body: { rulePreset: "auto_review" },
+			});
+			expect(res.status).toBe(400);
+			expect(await res.json()).toEqual({ error: "API tokens support only the ask and yolo rule presets" });
+			const list = (await (await call(app, "/api/api-tokens", ck("alice"))).json()) as {
+				tokens: TokenBody["apiToken"][];
+			};
+			expect(list.tokens.find((token) => token.id === body.apiToken.id)?.rules?.rulePreset).toBe("ask");
 		});
 
 		it.skipIf(backend !== "sqlite")("rolls the rule preset back when the rules cannot be written", async () => {

@@ -10,6 +10,8 @@ export interface RulePresetSelectProps {
 	disabled?: boolean;
 	id?: string;
 	label?: string;
+	/** The choices to offer; all three by default. Token dialogs pass API_TOKEN_RULE_PRESETS. */
+	presets?: readonly RulePreset[];
 	/** Trigger width: full width by default, a fixed width where the picker sits beside a button. */
 	className?: string;
 	/** `inline` drops the form-field chrome for a composer footer trigger. */
@@ -29,6 +31,7 @@ export function RulePresetSelect({
 	disabled,
 	id,
 	label,
+	presets,
 	className,
 	variant = "default",
 	title,
@@ -36,6 +39,7 @@ export function RulePresetSelect({
 }: RulePresetSelectProps) {
 	const { t } = useLingui();
 	const inline = variant === "inline";
+	const choices = presets ? RULE_PRESETS.filter((entry) => presets.includes(entry.value)) : RULE_PRESETS;
 	return (
 		<Select
 			value={value}
@@ -76,7 +80,7 @@ export function RulePresetSelect({
 				alignItemWithTrigger={inline ? false : undefined}
 				className={inline ? "w-56" : undefined}
 			>
-				{RULE_PRESETS.map((rulePreset) => {
+				{choices.map((rulePreset) => {
 					const Icon = rulePreset.icon;
 					return (
 						<SelectItem key={rulePreset.value} value={rulePreset.value}>

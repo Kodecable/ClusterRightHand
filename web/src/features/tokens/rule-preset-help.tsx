@@ -10,12 +10,6 @@ export function RulePresetHelp({ rulePreset }: { rulePreset: RulePreset }) {
 					Ask: ordinary reads run, everything else (including every privileged task) waits for your approval.
 				</Trans>
 			);
-		case "auto_review":
-			return (
-				<Trans>
-					Auto Review: approvals first go to the review model; anything risky still waits for your approval.
-				</Trans>
-			);
 		case "yolo":
 			return <Trans>Yolo: everything runs without asking.</Trans>;
 	}

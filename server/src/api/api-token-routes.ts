@@ -1,10 +1,17 @@
 import { Hono } from "hono";
 import { type Audit, userActor } from "../audit/audit.ts";
-import { createApiToken, deleteApiToken, getApiToken, listApiTokens, revokeApiToken } from "../auth/api-tokens.ts";
+import {
+	createApiToken,
+	deleteApiToken,
+	getApiToken,
+	listApiTokens,
+	parseApiTokenRulePreset,
+	revokeApiToken,
+} from "../auth/api-tokens.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { parseRulesForWrite } from "../policy/refs.ts";
-import { parseRulePreset, type RuleRef, setRulePreset, setRules } from "../policy/store.ts";
+import { type RuleRef, setRulePreset, setRules } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../users/service.ts";
 import { rejectRevokedTokenWaits } from "./api-token-waits.ts";
@@ -26,7 +33,7 @@ export function apiTokenRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		const days = body.days === null ? null : body.days === undefined ? undefined : Number(body.days);
 		const { token, view } = await createApiToken(db, user, {
 			name: typeof body.name === "string" ? body.name : "",
-			rulePreset: parseRulePreset(body.rulePreset ?? "ask"),
+			rulePreset: parseApiTokenRulePreset(body.rulePreset ?? "ask"),
 			days,
 		});
 		void audit.record({
@@ -70,7 +77,7 @@ export function apiTokenRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
 		const ref: RuleRef = { type: "api_token", id };
-		const rulePreset = body.rulePreset === undefined ? undefined : parseRulePreset(body.rulePreset);
+		const rulePreset = body.rulePreset === undefined ? undefined : parseApiTokenRulePreset(body.rulePreset);
 		const rules =
 			body.rules === undefined ? undefined : await parseRulesForWrite(db, await defaultOrgId(db), body.rules);
 		// One transaction: a failure after the preset was written would leave the token with the new preset and

@@ -1,6 +1,6 @@
 import { ShieldAlertIcon, ShieldEllipsisIcon, ShieldQuestionMarkIcon } from "lucide-react";
 import { describe, expect, test } from "vitest";
-import { RULE_PRESETS, rulePresetLabel } from "./rule-preset";
+import { API_TOKEN_RULE_PRESETS, RULE_PRESETS, rulePresetLabel } from "./rule-preset";
 
 describe("rulePresetLabel", () => {
 	test("shows the product name, never the raw server value", () => {
@@ -17,6 +17,10 @@ describe("rulePresetLabel", () => {
 
 	test("lists every rule preset once, in menu order", () => {
 		expect(RULE_PRESETS.map((entry) => entry.value)).toEqual(["ask", "auto_review", "yolo"]);
+	});
+
+	test("offers API tokens only Ask and Yolo", () => {
+		expect(API_TOKEN_RULE_PRESETS).toEqual(["ask", "yolo"]);
 	});
 
 	test("gives each rule preset its own shield icon", () => {

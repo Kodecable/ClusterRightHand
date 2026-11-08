@@ -104,7 +104,8 @@ tasks             (id, org_id, node_id, task_group_id nullable, kind, spec json,
                    output_lines nullable,                             -- 合并输出的总行数（crha 在 task.exit 上报；SSH 节点由 crhs 统计）
                    output_file nullable,                              -- 完整输出在节点上的路径（crha 保存）
                    result json nullable,                              -- 文件任务的结构化结果（protocol.md TaskResult）
-                   late_result nullable)                              -- 已报告 unknown 之后才到达的真实结果
+                   late_result nullable,                              -- 已报告 unknown 之后才到达的真实结果
+                   rev)                                               -- 行版本（D118，迁移 0048）：每次写 tasks 都加一；基于较早读取的写入会比较它，不一致时不覆盖
 ```
 
 crhs 不保存完整输出。批量默认 `status` 只保存状态和输出文件路径；`text` 受单节点和总预算限制。完整输出由 crha 在节点上保存为普通文件并负责清理，见 [execution-plane.md](execution-plane.md#输出)。SSH 不保存完整输出。

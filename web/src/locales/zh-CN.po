@@ -825,8 +825,8 @@ msgstr "自动复核"
 #~ msgstr "Auto Review：审批先交给复核模型；有风险的操作仍会等你，注意事项与 Ask 相同。"
 
 #: src/features/tokens/rule-preset-help.tsx
-msgid "Auto Review: approvals first go to the review model; anything risky still waits for your approval."
-msgstr "Auto Review：审批先交给复核模型；有风险的操作仍会等待你审批。"
+#~ msgid "Auto Review: approvals first go to the review model; anything risky still waits for your approval."
+#~ msgstr "Auto Review：审批先交给复核模型；有风险的操作仍会等待你审批。"
 
 #: src/components/status-badge.tsx
 msgid "Awaiting"

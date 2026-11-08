@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { ApiTokenView } from "@crh/api";
 import { ruleRefs } from "../policy/refs.ts";
 import type { RulePreset } from "../policy/rules.ts";
-import { createRootRuleSet, deleteRuleSet, getRuleSet } from "../policy/store.ts";
+import { createRootRuleSet, deleteRuleSet, getRuleSet, parseRulePreset } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId, NotFoundError, UserError } from "../users/service.ts";
 import { newId } from "../util/id.ts";
@@ -20,6 +20,18 @@ const TOUCH_INTERVAL_MS = 60_000;
 export type { ApiTokenView };
 
 /**
+ * API tokens support only Ask and Yolo: Auto Review sees only the operation, and no session or user
+ * instruction stands behind a token's request, so it cannot stand in for the user's approval. Both the routes and createApiToken go through this check.
+ */
+export function parseApiTokenRulePreset(raw: unknown): RulePreset {
+	const rulePreset = parseRulePreset(raw);
+	if (rulePreset === "auto_review") {
+		throw new UserError("API tokens support only the ask and yolo rule presets");
+	}
+	return rulePreset;
+}
+
+/**
  * Creates a token owned by `user`, the root of its own rule chain (doc/access-control.md#api-token).
  * `days`: lifetime, default 90, at most 365; null never expires. The token is returned only here.
  */
@@ -34,6 +46,7 @@ export async function createApiToken(
 	if (days !== null && (!Number.isInteger(days) || days < 1 || days > MAX_TOKEN_DAYS)) {
 		throw new UserError(`days must be between 1 and ${MAX_TOKEN_DAYS}, or null for no expiry`);
 	}
+	const rulePreset = parseApiTokenRulePreset(input.rulePreset);
 	const token = TOKEN_PREFIX + randomBytes(32).toString("base64url");
 	const id = newId();
 	const now = new Date();
@@ -53,7 +66,7 @@ export async function createApiToken(
 				last_used_at: null,
 			})
 			.execute();
-		await createRootRuleSet(trx, orgId, { type: "api_token", id }, input.rulePreset);
+		await createRootRuleSet(trx, orgId, { type: "api_token", id }, rulePreset);
 	});
 	return { token, view: (await getApiToken(db, user, id)) as ApiTokenView };
 }

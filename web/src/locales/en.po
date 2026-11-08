@@ -825,8 +825,8 @@ msgstr "Auto review"
 #~ msgstr "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
 
 #: src/features/tokens/rule-preset-help.tsx
-msgid "Auto Review: approvals first go to the review model; anything risky still waits for your approval."
-msgstr "Auto Review: approvals first go to the review model; anything risky still waits for your approval."
+#~ msgid "Auto Review: approvals first go to the review model; anything risky still waits for your approval."
+#~ msgstr "Auto Review: approvals first go to the review model; anything risky still waits for your approval."
 
 #: src/components/status-badge.tsx
 msgid "Awaiting"

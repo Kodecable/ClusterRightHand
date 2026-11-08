@@ -54,6 +54,10 @@ function isShownEntry(entry: { readonly model?: readonly { readonly role?: strin
 function isShownEvent(event: AgentEvent): boolean {
 	switch (event.type) {
 		case "message_start":
+			// `message_start` carries only the entry's first message (pi-durable emits `entry.model[0]`) while
+			// `message_end` is judged on the whole entry; with today's one-message entries (the system prompt is
+			// its own entry) they agree. If an entry ever mixed a shown first message with a later system
+			// message, the start would pass while the end is dropped.
 			return isShownMessage(event.message);
 		case "message_end":
 		case "entry_appended":

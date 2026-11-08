@@ -19,8 +19,8 @@ import { openTestDb } from "./helpers/db.ts";
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * Auto Review is a model call: its output is charged to the session that owns the reviewed task (D92). A task
- * whose root is not a session (an API token) is not charged anywhere.
+ * Auto Review is a model call: its output is charged to the session that owns the reviewed task (D92). API
+ * tokens never use Auto Review, so a token root cannot spend a session's quota.
  */
 let db: Db;
 let cluster: Cluster;
@@ -118,8 +118,9 @@ it("charges an Auto Review answer to the reviewed session and its chain", async 
 	});
 });
 
-it("does not charge a review when the root is not a session", async () => {
-	// An API token root has no session to charge: the review runs (a configured review model), but nothing is spent.
+it("does not review a task whose root is an API token", async () => {
+	// An API token root has no user instructions for the reviewer, so it never gets an Auto Review even if the
+	// stored rule set says auto_review (the migration moves those to ask).
 	const tokenId = newId();
 	await createRootRuleSet(db, await defaultOrgId(db), { type: "api_token", id: tokenId }, "auto_review");
 	await runtime.modelPresets.update("review", { model: model() });
@@ -132,13 +133,14 @@ it("does not charge a review when the root is not a session", async () => {
 		chain: [{ type: "api_token", id: tokenId }],
 		actor: { type: "api_token", id: tokenId, onBehalfOfUserId: owner.userId },
 	});
-	const reviewed = await waitFor("the API token review", async () => {
-		const view = await cluster.getTask(task.id);
-		return view?.approval?.review ? view : undefined;
-	});
-	expect(reviewed.approval?.review?.decision).toBe("escalate");
+	// The awaiting hook is detached from createTask, so give it a moment to find nothing to review.
+	await new Promise((resolve) => setTimeout(resolve, 200));
+	const view = await cluster.getTask(task.id);
+	expect(view?.state).toBe("awaiting_approval");
+	expect(view?.approval?.review).toBeUndefined();
+	// The reviewer never ran: its prepared answer is still pending.
+	expect(faux.getPendingResponseCount()).toBe(1);
 	expect(await budgetUsedTokens(db, other.id)).toBe(0);
-	// No session was charged by the review: only the earlier test's session carries its own spend.
 	const after = await db.selectFrom("sessions").select(["id", "budget_used_tokens", "usage_tokens"]).execute();
 	expect(after).toEqual(before);
 });

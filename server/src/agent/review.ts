@@ -11,10 +11,12 @@ import { chargeCall } from "./quota.ts";
 import { type CallTokens, callTokens, estimateRequestTokens } from "./tokens.ts";
 
 /**
- * Auto Review (doc/access-control.md#规则链): for a root whose rule preset is auto_review (a token, a session, or the
- * schedule a scheduled run's chain starts with), a task that needs approval is first judged by a model. It approves what is clearly safe and leaves the rest for the user. The reviewer sees
- * only the operation itself, never the conversation or node output, so one injected text cannot steer both the
- * agent and its reviewer (doc/agent-runtime.md#提示注入).
+ * Auto Review (doc/access-control.md#规则链): for a root whose rule preset is auto_review (a session, or the
+ * schedule a scheduled run's chain starts with), a task that needs approval is first judged by a model. API
+ * tokens never use it: no session or user instruction stands behind a token's request, so an operation-only
+ * review is not enough to replace the user's approval. It approves what is clearly safe and leaves the rest for
+ * the user. The reviewer sees only the operation itself, never the conversation or node output, so one injected
+ * text cannot steer both the agent and its reviewer (doc/agent-runtime.md#提示注入).
  *
  * D116: the reviewer answers through the tool `submit_review`; a model that ignores `toolChoice` and answers
  * in text has not answered at all, so the operation escalates. Only a schema-valid tool call can approve.
@@ -209,6 +211,8 @@ export class Reviewer {
 	async #wanted(chain: RuleRef[] | null): Promise<ModelRef | null> {
 		const root = chain?.[0];
 		if (!root) return null;
+		// API tokens do not support Auto Review (doc/access-control.md#api-token); 0049 moved old ones to ask.
+		if (root.type === "api_token") return null;
 		if ((await getRuleSet(this.#db, root))?.rulePreset !== "auto_review") return null;
 		return (await this.#modelFor(root)) ?? null;
 	}

@@ -23,7 +23,7 @@
 
 结果是 MCP 的内容块：`exec` 和 `read_file` 是原文块加说明块，其余工具是一个 JSON 文本块；失败时 `isError: true`（D112，见 [agent-runtime.md](agent-runtime.md#交给模型的输出d112)）。agent 的 `details` 不发给 MCP 客户端。
 
-能访问哪些节点，与 token 所属用户相同（管理员是全部节点，其他人是访问授权覆盖的节点）；能对这些节点做什么，由 token 的规则决定：token 是 MCP 规则链的根，创建时选择规则预设 Ask 或 Yolo（Auto Review 在 M3 之后可用），见 [access-control.md](access-control.md#授权规则)。需要审批时直接交给 token 所属的用户。
+能访问哪些节点，与 token 所属用户相同（管理员是全部节点，其他人是访问授权覆盖的节点）；能对这些节点做什么，由 token 的规则决定：token 是 MCP 规则链的根，创建时只能选择 Ask 或 Yolo（不支持 Auto Review，原因见 access-control.md），见 [access-control.md](access-control.md#授权规则)。需要审批时直接交给 token 所属的用户。
 
 ## 与 agent 模式的差异
 
@@ -33,7 +33,7 @@
 | 规则链的根 | 根会话 | API token |
 | 等待审批 | 工具一直等待，UI 显示审批状态 | `exec` 在 `wait` 内等待；超时返回"等待审批中，task_id = X，审批链接 = …"，客户端之后用 `task_wait` 跟进。文件工具一直等待，不返回任务 id（D111）；客户端自己的调用超时先到时，请求被关闭，任务随之取消 |
 | 长任务 | 同左 | 同左：超过 `wait` 返回 task_id，之后用 `task_wait`；完整输出用 `read_file` 读取节点上的输出文件 |
-| 策略与审计 | Cluster 核心 | 同一个 Cluster 核心，规则可以按来源类型区分 |
+| 策略与审计 | Cluster 核心 | 同一个 Cluster 核心；每个 API token、每个会话都是自己的规则链根，各有自己的规则集 |
 
 ## 后续
 

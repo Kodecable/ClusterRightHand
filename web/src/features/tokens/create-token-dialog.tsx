@@ -1,4 +1,3 @@
-import type { RulePreset } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
@@ -15,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { API_TOKEN_RULE_PRESETS } from "@/lib/rule-preset";
 import { useCreateApiToken } from "./api";
 import { RulePresetHelp } from "./rule-preset-help";
 import { mcpCommand } from "./tokenStatus";
@@ -30,7 +30,7 @@ const EXPIRY_LABELS: Record<(typeof EXPIRY_OPTIONS)[number], MessageDescriptor> 
 
 interface CreateTokenValues {
 	name: string;
-	rulePreset: RulePreset;
+	rulePreset: (typeof API_TOKEN_RULE_PRESETS)[number];
 	days: string;
 }
 
@@ -44,7 +44,7 @@ export function CreateTokenDialog({ onClose, onCreated }: { onClose: () => void;
 		() =>
 			z.object({
 				name: z.string().trim().min(1, t`A name is required.`).max(100, t`The name must be at most 100 characters.`),
-				rulePreset: z.enum(["ask", "auto_review", "yolo"]),
+				rulePreset: z.enum(API_TOKEN_RULE_PRESETS),
 				days: z.string(),
 			}),
 		[t],
@@ -135,7 +135,10 @@ export function CreateTokenDialog({ onClose, onCreated }: { onClose: () => void;
 				<RulePresetSelect
 					id={`${prefix}-rulePreset`}
 					value={rulePreset}
-					onChange={(next) => form.setValue("rulePreset", next)}
+					presets={API_TOKEN_RULE_PRESETS}
+					onChange={(next) => {
+						if (next === "ask" || next === "yolo") form.setValue("rulePreset", next);
+					}}
 				/>
 				<p className="text-xs text-muted-foreground">
 					<RulePresetHelp rulePreset={rulePreset} />

@@ -48,6 +48,7 @@ import * as m0045 from "./migrations/0045_sessions_create_request_id.ts";
 import * as m0046 from "./migrations/0046_thinking_modes_and_labels.ts";
 import * as m0047 from "./migrations/0047_session_state_default.ts";
 import * as m0048 from "./migrations/0048_task_rev.ts";
+import * as m0049 from "./migrations/0049_api_token_rule_preset.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -99,6 +100,7 @@ const migrations: Record<string, Migration> = {
 	"0046_thinking_modes_and_labels": m0046,
 	"0047_session_state_default": m0047,
 	"0048_task_rev": m0048,
+	"0049_api_token_rule_preset": m0049,
 };
 
 /** Options shared by the migration entry points. */

@@ -80,11 +80,12 @@ describe("CreateTokenDialog", () => {
 		await waitFor(() => expect(screen.getByRole("button", { name: "Create token" })).toBeInTheDocument());
 	});
 
-	test("the rule preset warning is shown for Yolo", async () => {
+	test("offers only Ask and Yolo, and warns for Yolo", async () => {
 		mockFetch();
 		renderDialog();
 		const user = userEvent.setup();
 		await user.click(screen.getByLabelText("Rule preset"));
+		expect(screen.queryByRole("option", { name: "Auto Review" })).not.toBeInTheDocument();
 		await user.click(await screen.findByRole("option", { name: "Yolo" }));
 		await screen.findByText("Yolo lets this token run anything on your nodes without asking.");
 	});
@@ -96,7 +97,7 @@ describe("TokensPage", () => {
 			...API_TOKEN,
 			rules: {
 				scope: { type: "api_token", id: API_TOKEN.id },
-				rulePreset: "auto_review",
+				rulePreset: "yolo",
 				rules: [],
 				default: "require-approval",
 				updatedAt: "2026-01-01T00:00:00.000Z",
@@ -119,7 +120,7 @@ describe("TokensPage", () => {
 			</QueryClientProvider>,
 		);
 
-		expect(await screen.findByText("Auto Review")).toBeInTheDocument();
-		expect(screen.queryByText("auto_review")).not.toBeInTheDocument();
+		expect(await screen.findByText("Yolo")).toBeInTheDocument();
+		expect(screen.queryByText("yolo")).not.toBeInTheDocument();
 	});
 });

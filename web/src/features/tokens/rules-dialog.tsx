@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { refNames, rulesWithNames } from "@/lib/refs";
+import { API_TOKEN_RULE_PRESETS } from "@/lib/rule-preset";
 import { useSetTokenRules } from "./api";
 import { RulePresetHelp } from "./rule-preset-help";
 
@@ -67,6 +68,7 @@ export function RulesDialog({ token, onClose }: { token: ApiTokenView; onClose: 
 								id={`${prefix}-rulePreset`}
 								className="w-40"
 								value={rulePreset}
+								presets={API_TOKEN_RULE_PRESETS}
 								onChange={setRulePreset}
 							/>
 						</div>

@@ -15,6 +15,12 @@ export const RULE_PRESETS: readonly { value: RulePreset; label: string; icon: Lu
 	{ value: "yolo", label: "Yolo", icon: ShieldAlertIcon },
 ];
 
+/**
+ * API tokens support only Ask and Yolo: Auto Review needs the user's instructions, and a token has none
+ * (doc/access-control.md#api-token). Sessions and schedules keep all three.
+ */
+export const API_TOKEN_RULE_PRESETS = ["ask", "yolo"] as const satisfies readonly RulePreset[];
+
 /** The display name of a rule preset, or "" when there is none (a token without rules). */
 export function rulePresetLabel(rulePreset: string | null | undefined): string {
 	return RULE_PRESETS.find((entry) => entry.value === rulePreset)?.label ?? "";

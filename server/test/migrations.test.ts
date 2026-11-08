@@ -30,6 +30,7 @@ import { down as down0045, up as up0045 } from "../src/storage/migrations/0045_s
 import { down as down0046, up as up0046 } from "../src/storage/migrations/0046_thinking_modes_and_labels.ts";
 import { down as down0047, up as up0047 } from "../src/storage/migrations/0047_session_state_default.ts";
 import { down as down0048, up as up0048 } from "../src/storage/migrations/0048_task_rev.ts";
+import { up as up0049 } from "../src/storage/migrations/0049_api_token_rule_preset.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
@@ -2234,6 +2235,61 @@ describeBackends("0048 task rev", (backend) => {
 
 		await applyMigration(backend, db, down0048);
 		expect(await tableColumns(backend, db, "tasks")).not.toContain("rev");
+	});
+});
+
+describeBackends("0049 api token rule preset", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend);
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	const insertRuleSet = async (id: string, scopeType: string, rulePreset: string): Promise<void> => {
+		await sql`
+			insert into rule_sets (id, org_id, scope_type, scope_id, rule_preset, default_action, rules, updated_at)
+			values (
+				${id}, ${await defaultOrgId(db)}, ${scopeType}, ${id}, ${rulePreset}, ${"require-approval"}, ${"[]"},
+				${"2026-01-01T00:00:00.000Z"}
+			)
+		`.execute(db);
+	};
+
+	const presets = async (): Promise<Record<string, string | null>> => {
+		const rows = await sql<{ scope_id: string; rule_preset: string | null }>`
+			select scope_id, rule_preset from rule_sets
+		`.execute(db);
+		return Object.fromEntries(rows.rows.map((row) => [row.scope_id, row.rule_preset]));
+	};
+
+	it("moves only API token auto_review roots to ask, and is idempotent", async () => {
+		await insertRuleSet("token-auto", "api_token", "auto_review");
+		await insertRuleSet("token-ask", "api_token", "ask");
+		await insertRuleSet("token-yolo", "api_token", "yolo");
+		await insertRuleSet("session-auto", "session", "auto_review");
+		await insertRuleSet("schedule-auto", "schedule", "auto_review");
+
+		await applyMigration(backend, db, up0049);
+		expect(await presets()).toEqual({
+			"token-auto": "ask",
+			"token-ask": "ask",
+			"token-yolo": "yolo",
+			"session-auto": "auto_review",
+			"schedule-auto": "auto_review",
+		});
+
+		await applyMigration(backend, db, up0049);
+		expect(await presets()).toEqual({
+			"token-auto": "ask",
+			"token-ask": "ask",
+			"token-yolo": "yolo",
+			"session-auto": "auto_review",
+			"schedule-auto": "auto_review",
+		});
 	});
 });
 
