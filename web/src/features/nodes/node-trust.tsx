@@ -1,12 +1,10 @@
 import type { GuardRule, NodeTrust, TrustEntry, TrustEntryKey } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { ErrorState } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
 import { DateTime } from "@/components/relative-time";
 import { CardSkeleton } from "@/components/skeletons";
-import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useNodeGroups } from "@/features/node-groups/api";
 import { useNodeTrust } from "@/features/nodes/api";
@@ -102,25 +100,14 @@ function TrustRules({ entry }: { entry: TrustEntry }) {
 export function NodeTrustPanel({ nodeId }: { nodeId: string }) {
 	const { t } = useLingui();
 	const { locale } = useLocale();
-	const queryClient = useQueryClient();
 	const trust = useNodeTrust(nodeId);
 	const data: NodeTrust | undefined = trust.data;
 
 	return (
 		<section className="grid gap-2" aria-labelledby="node-trust-heading" data-testid="node-trust">
-			<div className="flex items-center justify-between gap-2">
-				<h2 id="node-trust-heading" className="text-sm font-semibold">
-					<Trans>Trust</Trans>
-				</h2>
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					onClick={() => void queryClient.invalidateQueries({ queryKey: ["nodes", "trust", nodeId] })}
-				>
-					<Trans>Refresh</Trans>
-				</Button>
-			</div>
+			<h2 id="node-trust-heading" className="text-sm font-semibold">
+				<Trans>Trust</Trans>
+			</h2>
 			{trust.isError ? (
 				<ErrorState error={trust.error} retry={() => void trust.refetch()} compact />
 			) : !data ? (

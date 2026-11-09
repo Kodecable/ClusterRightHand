@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogScrollArea, DialogTitle } fr
 import { useTask } from "@/features/tasks/api";
 import { isNotFound } from "@/lib/api/client";
 import { safeInternalPath } from "@/lib/url";
+import { cn, linkClass } from "@/lib/utils";
 import { useStreamingText } from "@/markdown/stream-store";
 import { resultId, type ToolItem } from "./tool-call";
 import { approvalWait, authorizationWait, prettyJson } from "./tool-details";
@@ -117,7 +118,7 @@ export function ToolDialog({
 								<Link
 									to="/task-groups/$taskGroupId"
 									params={{ taskGroupId: taskGroupResultId }}
-									className="text-xs text-primary underline underline-offset-2"
+									className={cn("text-xs", linkClass)}
 								>
 									<Trans>Open the task group page</Trans>
 								</Link>
@@ -125,11 +126,7 @@ export function ToolDialog({
 						</div>
 					)}
 					{subagentId !== undefined && (
-						<Link
-							to="/sessions/$sessionId"
-							params={{ sessionId: subagentId }}
-							className="text-xs text-primary underline underline-offset-2"
-						>
+						<Link to="/sessions/$sessionId" params={{ sessionId: subagentId }} className={cn("text-xs", linkClass)}>
 							<Trans>Open the subagent's session</Trans>
 						</Link>
 					)}

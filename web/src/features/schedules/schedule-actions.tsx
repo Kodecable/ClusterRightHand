@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { usePatchSchedule, useRunSchedule } from "./api";
 
 /** "Run now", with the confirmation the docs require when an instance is in progress. */
-export function RunNowButton({ schedule }: { schedule: ScheduleView }) {
+export function RunNowButton({ schedule, size = "sm" }: { schedule: ScheduleView; size?: "xs" | "sm" }) {
 	const { t } = useLingui();
 	const run = useRunSchedule();
 	const [confirm, setConfirm] = useState(false);
@@ -25,7 +25,7 @@ export function RunNowButton({ schedule }: { schedule: ScheduleView }) {
 			<Button
 				type="button"
 				variant="outline"
-				size="sm"
+				size={size}
 				disabled={run.isPending}
 				onClick={() => (schedule.inProgress ? setConfirm(true) : start())}
 			>

@@ -1,6 +1,5 @@
 import type { AuthorizationSummary, DecodedAuthorizationPayload } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
-import { RefreshCwIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
@@ -146,12 +145,6 @@ export function AuthorizationsPage() {
 						Every authorization carries a deadline. It is valid on the nodes its payload names until that deadline or
 						until it is used up (one-shot authorizations).
 					</Trans>
-				}
-				actions={
-					<Button type="button" variant="outline" onClick={() => void authorizations.refetch()}>
-						<RefreshCwIcon />
-						<Trans>Refresh</Trans>
-					</Button>
 				}
 			/>
 			<DataTable

@@ -1,3 +1,4 @@
+import type { TaskView } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -5,7 +6,47 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { renderWithRouter } from "@/test/render";
 import { TasksPage } from "./pages";
 
-function mockApi(): { urls: string[] } {
+const TASK: TaskView = {
+	id: "task-1",
+	nodeId: "node-1",
+	kind: "exec",
+	summary: "echo hi",
+	operation: null,
+	actorType: "user",
+	actorId: "u1",
+	onBehalfOfUserId: "u1",
+	state: "exited",
+	exitCode: 0,
+	signal: null,
+	timedOut: false,
+	cancelled: false,
+	timeoutMs: null,
+	errorCode: null,
+	errorMessage: null,
+	outputBytes: 0,
+	outputHead: "",
+	outputTail: "",
+	outputTailLines: 0,
+	outputLines: null,
+	notice: null,
+	maxLines: null,
+	maxBytes: null,
+	outputFile: null,
+	outputMode: "status",
+	privileged: false,
+	authorization: null,
+	result: null,
+	createdAt: "2026-01-01T00:00:00.000Z",
+	finishedAt: "2026-01-01T00:00:01.000Z",
+	taskGroupId: null,
+	ruleChain: null,
+	approval: null,
+	rootSessionId: null,
+	handlerType: null,
+	handlerSessionId: null,
+};
+
+function mockApi(items: TaskView[] = []): { urls: string[] } {
 	const urls: string[] = [];
 	vi.stubGlobal(
 		"fetch",
@@ -13,7 +54,7 @@ function mockApi(): { urls: string[] } {
 			const url = String(input);
 			urls.push(url);
 			const body = url.startsWith("/api/tasks")
-				? { items: [], nextCursor: null }
+				? { items, nextCursor: null }
 				: url.startsWith("/api/nodes")
 					? { nodes: [] }
 					: url.startsWith("/api/directory")
@@ -55,6 +96,14 @@ describe("TasksPage filters", () => {
 		await waitFor(() =>
 			expect(urls.some((url) => url.startsWith("/api/tasks") && url.includes("state=failed"))).toBe(true),
 		);
+	});
+
+	test("a task row links to the task page and the summary stays plain text", async () => {
+		mockApi([TASK]);
+		await renderPage();
+		const link = await screen.findByRole("link", { name: "echo hi" });
+		expect(link).toHaveAttribute("href", "/tasks/task-1");
+		expect(screen.getByText("echo hi").closest("a")).toBeNull();
 	});
 
 	test("does not link to the approvals page", async () => {

@@ -1,6 +1,6 @@
 import type { AuditEvent } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { renderWithRouter } from "@/test/render";
@@ -83,6 +83,19 @@ describe("AuditPage filters", () => {
 		await waitFor(() =>
 			expect(urls.some((url) => url.startsWith("/api/audit?") && url.includes("cursor=next"))).toBe(true),
 		);
+	});
+
+	test("activating a row opens the event detail dialog", async () => {
+		mockAudit();
+		await renderPage();
+		const row = (await screen.findByText("task.approval")).closest('[role="row"]');
+		if (!(row instanceof HTMLElement)) throw new Error("no audit row");
+		// The per-row Detail button is gone; the whole row activates the dialog.
+		expect(within(row).queryByRole("button", { name: "Detail" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
+		const user = userEvent.setup();
+		await user.click(within(row).getByRole("button", { name: "Detail of event 42" }));
+		expect(await screen.findByRole("dialog", { name: "Event 42" })).toBeInTheDocument();
 	});
 
 	test("an empty result shows the empty state", async () => {

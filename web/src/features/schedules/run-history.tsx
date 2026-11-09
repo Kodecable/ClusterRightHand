@@ -1,16 +1,14 @@
 import type { ScheduleRunView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { RelativeTime } from "@/components/relative-time";
 import { ScheduleStatusBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
 import { useScheduleRuns } from "./api";
 import { runNoteParts, runStatusText } from "./scheduleForm";
 
-/** A schedule's last 20 runs, polling while an instance is in progress. */
+/** A schedule's last 20 runs, polling while an instance is in progress; a run with a session links to it. */
 export function RunHistory({ scheduleId, inProgress }: { scheduleId: string; inProgress: boolean }) {
 	const { t, i18n } = useLingui();
 	const runs = useScheduleRuns(scheduleId, 20, inProgress ? 2_000 : false);
@@ -46,13 +44,7 @@ export function RunHistory({ scheduleId, inProgress }: { scheduleId: string; inP
 					row.original.sessionId === null ? (
 						<span className="text-muted-foreground">–</span>
 					) : (
-						<Link
-							to="/sessions/$sessionId"
-							params={{ sessionId: row.original.sessionId }}
-							className="font-mono text-xs text-primary underline underline-offset-2"
-						>
-							{row.original.sessionId.slice(0, 8)}
-						</Link>
+						<code className="font-mono text-xs">{row.original.sessionId.slice(0, 8)}</code>
 					),
 			},
 			{
@@ -79,14 +71,9 @@ export function RunHistory({ scheduleId, inProgress }: { scheduleId: string; inP
 
 	return (
 		<section className="grid gap-2" aria-labelledby="schedule-runs-heading" data-testid="schedule-runs">
-			<div className="flex items-center justify-between gap-2">
-				<h2 id="schedule-runs-heading" className="text-sm font-semibold">
-					<Trans>Run history</Trans>
-				</h2>
-				<Button type="button" variant="outline" size="sm" onClick={() => void runs.refetch()}>
-					<Trans>Refresh</Trans>
-				</Button>
-			</div>
+			<h2 id="schedule-runs-heading" className="text-sm font-semibold">
+				<Trans>Run history</Trans>
+			</h2>
 			<DataTable
 				label={t`Schedule runs`}
 				columns={columns}
@@ -98,6 +85,10 @@ export function RunHistory({ scheduleId, inProgress }: { scheduleId: string; inP
 				hasMore={runs.hasNextPage}
 				loadingMore={runs.isFetchingNextPage}
 				onLoadMore={() => void runs.fetchNextPage()}
+				rowLink={(run) =>
+					run.sessionId === null ? undefined : { to: "/sessions/$sessionId", params: { sessionId: run.sessionId } }
+				}
+				rowLabel={(run) => t`Open session ${(run.sessionId ?? "").slice(0, 8)}`}
 				empty={
 					<EmptyState
 						title={<Trans>No runs yet</Trans>}

@@ -2,7 +2,7 @@ import type { CredentialView } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { startRegistration } from "@simplewebauthn/browser";
-import { FingerprintIcon, KeyRoundIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
+import { FingerprintIcon, KeyRoundIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -254,15 +254,7 @@ export function CredentialsPage() {
 
 	return (
 		<Page data-testid="credentials-page">
-			<PageHeader
-				title={<Trans>Signing credentials</Trans>}
-				actions={
-					<Button type="button" variant="outline" onClick={() => void credentials.refetch()}>
-						<RefreshCwIcon />
-						<Trans>Refresh</Trans>
-					</Button>
-				}
-			/>
+			<PageHeader title={<Trans>Signing credentials</Trans>} />
 			<div className="grid gap-4 lg:grid-cols-2">
 				<AddSshKeyForm />
 				<AddPasskeyCard />

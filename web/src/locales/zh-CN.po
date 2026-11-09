@@ -207,10 +207,6 @@ msgstr "/{name}：{description}（不会作为消息发送）"
 msgid "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
 msgstr "`crha grant` 会解码载荷供你确认，用 `ssh-keygen -Y sign -n crh-auth-v1` 签名，并输出可粘贴到下方的授权。手工操作等价于："
 
-#: src/features/approvals/pages.tsx
-msgid "← Approvals"
-msgstr "← 审批"
-
 #: src/features/tokens/create-token-dialog.tsx
 msgid "30 days"
 msgstr "30 天"
@@ -520,6 +516,10 @@ msgstr "privileged.toml 的 aliases"
 #: src/features/batch/pages.tsx
 msgid "All accessible nodes"
 msgstr "所有可访问的节点"
+
+#: src/features/approvals/pages.tsx
+msgid "All approvals"
+msgstr "全部审批"
 
 #: src/features/settings/pages.tsx
 msgid "all built-in models"
@@ -1368,7 +1368,6 @@ msgstr "删除凭据"
 msgid "Delete node group"
 msgstr "删除节点组"
 
-#. placeholder {0}: deleting.name
 #. placeholder {0}: group.name
 #: src/features/node-groups/pages.tsx
 msgid "Delete node group {0}?"
@@ -1450,18 +1449,10 @@ msgstr "已拒绝"
 msgid "Deny"
 msgstr "拒绝"
 
-#: src/features/audit/pages.tsx
-msgid "Detail"
-msgstr "详情"
-
-#. placeholder {0}: row.original.seq
+#. placeholder {0}: event.seq
 #: src/features/audit/pages.tsx
 msgid "Detail of event {0}"
 msgstr "事件 {0} 的详情"
-
-#: src/features/tasks/task-columns.tsx
-msgid "Details"
-msgstr "详情"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Digest"
@@ -2616,9 +2607,10 @@ msgstr "打开 {0} {1}"
 msgid "Open approval page"
 msgstr "打开审批页"
 
-#: src/features/tasks/task-columns.tsx
-msgid "Open task"
-msgstr "打开任务"
+#. placeholder {0}: (run.sessionId ?? "").slice(0, 8)
+#: src/features/schedules/run-history.tsx
+msgid "Open session {0}"
+msgstr "打开会话 {0}"
 
 #: src/features/sessions/tool-dialog.tsx
 msgid "Open the signing page"
@@ -2901,17 +2893,6 @@ msgstr "最近任务"
 #: src/features/sessions/session-banner.tsx
 msgid "Reconnecting…"
 msgstr "正在重新连接…"
-
-#: src/features/audit/pages.tsx
-#: src/features/authorizations/pages.tsx
-#: src/features/credentials/pages.tsx
-#: src/features/nodes/node-tasks.tsx
-#: src/features/nodes/node-trust.tsx
-#: src/features/nodes/pages.tsx
-#: src/features/schedules/run-history.tsx
-#: src/features/ssh-credentials/pages.tsx
-msgid "Refresh"
-msgstr "刷新"
 
 #: src/features/credentials/pages.tsx
 msgid "Register Passkey"

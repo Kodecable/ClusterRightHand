@@ -45,7 +45,7 @@ test("enrolls a node with a token from the UI and approves it after checking the
 	expect(enrolled.code, enrolled.stdout + enrolled.stderr).toBe(0);
 	env.startCrha();
 
-	await page.getByRole("button", { name: "Refresh" }).click();
+	// The node list polls, so the pending enrolment appears without a refresh.
 	const row = page.getByRole("row", { name: /ui-enrolled/ }).filter({ hasText: "Pending" });
 	await expect(row).toBeVisible({ timeout: 15_000 });
 	await row.getByRole("button", { name: "Approve" }).click();
@@ -58,18 +58,17 @@ test("enrolls a node with a token from the UI and approves it after checking the
 	await approve.getByRole("button", { name: "Approve", exact: true }).click();
 	await expect(approve).toBeHidden();
 
-	await expect(async () => {
-		await page.getByRole("button", { name: "Refresh" }).click();
-		await expect(page.getByRole("row", { name: /ui-enrolled/ })).not.toContainText("Pending", { timeout: 1_000 });
-	}).toPass({ timeout: 20_000 });
+	await expect(page.getByRole("row", { name: /ui-enrolled/ })).not.toContainText("Pending", { timeout: 20_000 });
 	await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(0);
 	await expect.poll(() => env.crhs.cluster.isConnected(node.id), { timeout: 20_000 }).toBe(true);
-	await page.getByRole("button", { name: "Refresh" }).click();
-	await expect(page.getByRole("row", { name: /ui-enrolled/ }).getByText("Connected")).toBeVisible();
+	await expect(page.getByRole("row", { name: /ui-enrolled/ }).getByText("Connected")).toBeVisible({
+		timeout: 20_000,
+	});
 
 	// Once crha stops, the node shows offline.
 	await env.killCrha();
 	await expect.poll(() => env.crhs.cluster.isConnected(node.id), { timeout: 20_000 }).toBe(false);
-	await page.getByRole("button", { name: "Refresh" }).click();
-	await expect(page.getByRole("row", { name: /ui-enrolled/ }).getByText("Offline")).toBeVisible();
+	await expect(page.getByRole("row", { name: /ui-enrolled/ }).getByText("Offline")).toBeVisible({
+		timeout: 20_000,
+	});
 });

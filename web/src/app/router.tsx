@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-router";
 import type { AuthStore } from "@/features/auth/session";
 import { authStore } from "@/features/auth/session";
+import { linkClass } from "@/lib/utils";
 import { sessionPageChunk, sessionsLayoutChunk } from "./lazy-chunks";
 import { AppShell } from "./shell/app-shell";
 
@@ -27,7 +28,7 @@ function NotFoundPage() {
 				<p className="text-sm text-muted-foreground">
 					<Trans>The page you asked for does not exist.</Trans>
 				</p>
-				<Link to="/sessions" className="text-sm text-primary underline underline-offset-2">
+				<Link to="/sessions" className={`text-sm ${linkClass}`}>
 					<Trans>Go to sessions</Trans>
 				</Link>
 			</div>

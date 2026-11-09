@@ -116,6 +116,15 @@ web/src/
 - 任务结果：非 exec 任务（file.read / write / edit / stat / list）以退出码 0 结束、且没有超时、取消或信号时，Outcome 显示“成功”（`Succeeded`）；exec 任务仍显示 `Exit code N`。信号、超时、取消和错误照旧；没有内容时显示 muted 的 en dash “–”。
 - 列表正文统一用表格的 text-sm 和普通前景色；等宽值（id、命令、路径、密钥、cron）保留 `font-mono text-xs`，占位符“–”用 muted。状态列的表头统一为 Status。
 
+### 列表导航、链接与刷新
+
+- 列表行代表一个有详情页的对象时，整行可点：点击进入它的详情页。行里的名称是普通文本（不加主色、不加下划线），唯一的可点提示是鼠标指针和原有的悬停底色。
+- 行导航由共享的 `DataTable` 渲染成真正的 `<Link>`（`absolute inset-0` 覆盖整行），所以中键、Ctrl+点击、在新标签页打开、状态栏 URL 和键盘焦点都正常；无障碍名取对象名称（`rowLabel`）。单元格里的其它链接、按钮、复制按钮、开关必须叠在覆盖层之上（`relative z-10`），点它们不会触发行导航；Tab 顺序里行链接排在第一位。
+- 行的动作不是导航时（审计行打开事件详情弹窗）用同样的覆盖按钮（`onRowActivate`），鼠标和键盘都能触发。
+- 指向“别的对象”的链接统一为前景色加细下划线（`text-foreground underline underline-offset-2`，悬停加粗下划线），不用主色（蓝色），因为蓝色在这里读起来像按钮；`linkClass` 是唯一的来源。按钮不装成链接，导航也不渲染成按钮。唯一的例外是详情页的返回控件：统一用 `ArrowLeftIcon` + “All X”（如 “All nodes”、“All approvals”）的弱化行内链接。
+- 没有“刷新”按钮：列表和区块靠轮询、SSE 或 mutation 失效保持新鲜。审计列表每 10 秒轮询（日志只追加，已加载的页不会跳动），节点信任和节点最近任务每 10 秒轮询，其余列表各自沿用原有的轮询和失效。
+- 编辑动作只放详情页：节点组列表不提供改名、删除或编辑成员，节点列表只保留待批准节点的 Approve / Reject，计划任务列表只保留“立即运行”这个行内动作。
+
 ### 会话界面
 
 **侧边列表：**
@@ -428,7 +437,7 @@ web/src/
 
 - **布局**：AppShell、PageHeader（标题、说明、操作区）、EmptyState、ErrorState、加载骨架。
 - **数据展示**：
-  - DataTable：基于 TanStack Table，支持游标无限加载、列定义、行操作；
+  - DataTable：基于 TanStack Table，支持游标无限加载、列定义、整行导航（`rowLink`）和整行动作（`onRowActivate`）；
   - KeyValue 列表；
   - StatusText / StatusDot：节点、任务、任务组、会话、授权、计划任务运行、API token、用户和模型提供商的状态，配色和翻译统一；StatusText 是彩色纯文本，StatusDot 只用于会话侧边列表；
   - RelativeTime / DateTime：基于 `Intl`；列表用相对时间，绝对时间统一到秒；

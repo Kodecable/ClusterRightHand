@@ -3,13 +3,11 @@ import { Trans } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { Fragment } from "react";
 import { ALL_TARGET } from "@/lib/names";
-import { cn } from "@/lib/utils";
-
-const LINK_CLASS = "text-primary underline underline-offset-2";
+import { cn, linkClass } from "@/lib/utils";
 
 export function NodeLink({ id, name }: { id: string; name: string }) {
 	return (
-		<Link to="/nodes/$nodeId" params={{ nodeId: id }} className={LINK_CLASS}>
+		<Link to="/nodes/$nodeId" params={{ nodeId: id }} className={linkClass}>
 			{name}
 		</Link>
 	);
@@ -17,7 +15,7 @@ export function NodeLink({ id, name }: { id: string; name: string }) {
 
 function NodeGroupLink({ id, name }: { id: string; name: string }) {
 	return (
-		<Link to="/node-groups/$nodeGroupId" params={{ nodeGroupId: id }} className={LINK_CLASS}>
+		<Link to="/node-groups/$nodeGroupId" params={{ nodeGroupId: id }} className={linkClass}>
 			{name}
 		</Link>
 	);

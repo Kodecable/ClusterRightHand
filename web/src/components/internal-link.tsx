@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { MouseEvent, ReactNode } from "react";
-import { cn } from "@/lib/utils";
+import { cn, linkClass } from "@/lib/utils";
 
 /**
  * A link to a server-provided internal path. The path is only rendered when
@@ -25,7 +25,7 @@ export function InternalLink({
 		void navigate({ href });
 	};
 	return (
-		<a href={href} onClick={onClick} className={cn("text-primary underline underline-offset-2", className)}>
+		<a href={href} onClick={onClick} className={cn(linkClass, className)}>
 			{children}
 		</a>
 	);

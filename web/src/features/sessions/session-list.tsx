@@ -12,6 +12,7 @@ import { useAuth } from "@/features/auth/session";
 import { useModels } from "@/features/settings/api";
 import { useDebouncedValue } from "@/hooks/use-debounced";
 import { flattenCursorPages, lastCursor } from "@/lib/api/query";
+import { linkClass } from "@/lib/utils";
 import { useSessions } from "./api";
 import { groupSessionRows, type SessionGroupKey } from "./session-groups";
 import { SessionListItemRow } from "./session-list-item";
@@ -167,7 +168,7 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 					<p role="status" data-testid="no-models-hint" className="rounded-md bg-warn-bg px-2 py-1.5 text-xs text-warn">
 						<Trans>No models are configured, so sessions cannot start.</Trans>{" "}
 						{isAdmin ? (
-							<Link to="/settings/models" className="underline underline-offset-2">
+							<Link to="/settings/models" className={linkClass}>
 								<Trans>Configure a model provider</Trans>
 							</Link>
 						) : (

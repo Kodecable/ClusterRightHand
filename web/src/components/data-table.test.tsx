@@ -1,6 +1,7 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
-import { renderWithI18n } from "@/test/render";
+import { renderWithI18n, renderWithRouter } from "@/test/render";
 import type { DataTableColumn } from "./data-table";
 import { DataTable } from "./data-table";
 
@@ -10,8 +11,14 @@ interface Row {
 	state: string;
 }
 
+const nameColumn: DataTableColumn<Row> = {
+	accessorKey: "name",
+	header: "Name",
+	cell: (info) => String(info.getValue()),
+};
+
 const columns: DataTableColumn<Row>[] = [
-	{ accessorKey: "name", header: "Name", cell: (info) => String(info.getValue()) },
+	nameColumn,
 	{ accessorKey: "state", header: "State", cell: (info) => String(info.getValue()) },
 ];
 
@@ -20,6 +27,22 @@ const rows: Row[] = Array.from({ length: 12 }, (_, index) => ({
 	name: `row ${index}`,
 	state: index % 2 === 0 ? "active" : "idle",
 }));
+
+/** A table whose second cell holds a control that must win over the row overlay. */
+function withAction(onClick: (row: Row) => void): DataTableColumn<Row>[] {
+	return [
+		nameColumn,
+		{
+			id: "action",
+			header: "Action",
+			cell: ({ row }) => (
+				<button type="button" className="relative z-10" onClick={() => onClick(row.original)}>
+					Act on {row.original.name}
+				</button>
+			),
+		},
+	];
+}
 
 describe("DataTable", () => {
 	test("renders columns and rows", () => {
@@ -67,10 +90,72 @@ describe("DataTable", () => {
 		expect(container.querySelector('[data-slot="data-table-virtual"]')).not.toBeNull();
 	});
 
-	test("rows are clickable when a row handler is given", () => {
-		const onRowClick = vi.fn();
-		renderWithI18n(<DataTable data={rows.slice(0, 1)} columns={columns} label="Clickable" onRowClick={onRowClick} />);
-		fireEvent.click(screen.getByText("row 0"));
-		expect(onRowClick).toHaveBeenCalledWith(rows[0]);
+	test("a row link is one real anchor covering the row, named by the item", async () => {
+		await renderWithRouter(
+			<DataTable
+				data={rows.slice(0, 2)}
+				columns={columns}
+				label="Linked"
+				rowLink={(row) => ({ to: "/nodes/$nodeId", params: { nodeId: row.id } })}
+				rowLabel={(row) => row.name}
+			/>,
+		);
+
+		const first = screen.getByRole("link", { name: "row 0" });
+		expect(first).toHaveAttribute("href", "/nodes/r-0");
+		expect(screen.getByRole("link", { name: "row 1" })).toHaveAttribute("href", "/nodes/r-1");
+		// The item's own name stays plain text; the anchor is the invisible overlay in the first cell.
+		expect(screen.getByText("row 0").closest("a")).toBeNull();
+		expect(first.closest('[role="cell"]')).not.toBeNull();
+		// One link per row, and it is the row's only focusable element.
+		expect(screen.getAllByRole("link")).toHaveLength(2);
+	});
+
+	test("an inner control stays above the row link and is not part of it", async () => {
+		const onClick = vi.fn();
+		await renderWithRouter(
+			<DataTable
+				data={rows.slice(0, 1)}
+				columns={withAction(onClick)}
+				label="Actions"
+				rowLink={(row) => ({ to: "/tasks/$taskId", params: { taskId: row.id } })}
+				rowLabel={(row) => row.name}
+			/>,
+		);
+		const button = screen.getByRole("button", { name: "Act on row 0" });
+		// The button sits in its own cell, outside the row's stretched link.
+		expect(button.closest("a")).toBeNull();
+		expect(button).toHaveClass("relative", "z-10");
+		fireEvent.click(button);
+		expect(onClick).toHaveBeenCalledWith(rows[0]);
+		// The click belongs to the button: the row did not navigate away.
+		expect(screen.getByRole("table", { name: "Actions" })).toBeInTheDocument();
+		// The row link itself still navigates.
+		fireEvent.click(screen.getByRole("link", { name: "row 0" }));
+		await waitFor(() => expect(screen.queryByRole("table", { name: "Actions" })).not.toBeInTheDocument());
+	});
+
+	test("onRowActivate renders a stretched button reachable by click and keyboard", async () => {
+		const onRowActivate = vi.fn();
+		renderWithI18n(
+			<DataTable
+				data={rows.slice(0, 2)}
+				columns={columns}
+				label="Activatable"
+				onRowActivate={onRowActivate}
+				rowLabel={(row) => `Event ${row.id}`}
+			/>,
+			"en",
+		);
+		const first = screen.getByRole("button", { name: "Event r-0" });
+		expect(screen.getByRole("button", { name: "Event r-1" })).toBeInTheDocument();
+		fireEvent.click(first);
+		expect(onRowActivate).toHaveBeenCalledWith(rows[0]);
+
+		const user = userEvent.setup();
+		first.focus();
+		await user.keyboard("{Enter}");
+		await user.keyboard(" ");
+		expect(onRowActivate).toHaveBeenCalledTimes(3);
 	});
 });

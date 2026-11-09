@@ -60,7 +60,7 @@ test("finished tasks are listed on the node page and open on their own page", as
 	const row = page.getByRole("row").filter({ hasText: "echo listed-task" });
 	await expect(row).toBeVisible({ timeout: 20_000 });
 	await expect(row.getByText("Exit code 0")).toBeVisible();
-	await row.getByRole("link", { name: "Open task" }).click();
+	await row.getByRole("link", { name: "echo listed-task" }).click();
 	await expect(page.getByTestId("task-page")).toBeVisible();
 	await expect(page.getByTestId("task-page")).toContainText("listed-task");
 	// The node link shows the node's name (not its id) but still points at the node.

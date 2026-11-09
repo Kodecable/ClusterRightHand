@@ -12,7 +12,7 @@ import { sessionTitle } from "@/features/sessions/session-item";
 import { formatNumber } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { parseGrantInput, type QuotaError, quotaStatus } from "@/lib/quota";
-import { cn } from "@/lib/utils";
+import { cn, linkClass } from "@/lib/utils";
 
 /**
  * The remaining-budget line (doc/agent-runtime.md#配额, D101): no limit, remaining, or used up. The numbers are
@@ -107,11 +107,7 @@ export function QuotaCard({
 			<div className="flex min-w-0 flex-wrap items-baseline justify-between gap-2">
 				<div className="min-w-0">
 					<h2 className="truncate text-sm font-semibold">
-						<Link
-							to="/sessions/$sessionId"
-							params={{ sessionId: wait.sessionId }}
-							className="text-primary underline underline-offset-2"
-						>
+						<Link to="/sessions/$sessionId" params={{ sessionId: wait.sessionId }} className={linkClass}>
 							{sessionTitle(wait, t`New Session`)}
 						</Link>
 					</h2>

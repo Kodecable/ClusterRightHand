@@ -207,10 +207,6 @@ msgstr "/{name}: {description} (not sent as a message)"
 msgid "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
 msgstr "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
 
-#: src/features/approvals/pages.tsx
-msgid "← Approvals"
-msgstr "← Approvals"
-
 #: src/features/tokens/create-token-dialog.tsx
 msgid "30 days"
 msgstr "30 days"
@@ -520,6 +516,10 @@ msgstr "Aliases for privileged.toml"
 #: src/features/batch/pages.tsx
 msgid "All accessible nodes"
 msgstr "All accessible nodes"
+
+#: src/features/approvals/pages.tsx
+msgid "All approvals"
+msgstr "All approvals"
 
 #: src/features/settings/pages.tsx
 msgid "all built-in models"
@@ -1368,7 +1368,6 @@ msgstr "Delete credential"
 msgid "Delete node group"
 msgstr "Delete node group"
 
-#. placeholder {0}: deleting.name
 #. placeholder {0}: group.name
 #: src/features/node-groups/pages.tsx
 msgid "Delete node group {0}?"
@@ -1450,18 +1449,10 @@ msgstr "Denied"
 msgid "Deny"
 msgstr "Deny"
 
-#: src/features/audit/pages.tsx
-msgid "Detail"
-msgstr "Detail"
-
-#. placeholder {0}: row.original.seq
+#. placeholder {0}: event.seq
 #: src/features/audit/pages.tsx
 msgid "Detail of event {0}"
 msgstr "Detail of event {0}"
-
-#: src/features/tasks/task-columns.tsx
-msgid "Details"
-msgstr "Details"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Digest"
@@ -2616,9 +2607,10 @@ msgstr "Open {0} {1}"
 msgid "Open approval page"
 msgstr "Open approval page"
 
-#: src/features/tasks/task-columns.tsx
-msgid "Open task"
-msgstr "Open task"
+#. placeholder {0}: (run.sessionId ?? "").slice(0, 8)
+#: src/features/schedules/run-history.tsx
+msgid "Open session {0}"
+msgstr "Open session {0}"
 
 #: src/features/sessions/tool-dialog.tsx
 msgid "Open the signing page"
@@ -2901,17 +2893,6 @@ msgstr "Recent tasks"
 #: src/features/sessions/session-banner.tsx
 msgid "Reconnecting…"
 msgstr "Reconnecting…"
-
-#: src/features/audit/pages.tsx
-#: src/features/authorizations/pages.tsx
-#: src/features/credentials/pages.tsx
-#: src/features/nodes/node-tasks.tsx
-#: src/features/nodes/node-trust.tsx
-#: src/features/nodes/pages.tsx
-#: src/features/schedules/run-history.tsx
-#: src/features/ssh-credentials/pages.tsx
-msgid "Refresh"
-msgstr "Refresh"
 
 #: src/features/credentials/pages.tsx
 msgid "Register Passkey"

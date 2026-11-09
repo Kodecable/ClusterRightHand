@@ -6,6 +6,7 @@ import { ApprovalCard } from "@/components/approval-card";
 import { QuotaCard } from "@/components/quota-card";
 import { useApprovalLookups, useApprovals, useDecideApproval } from "@/features/approvals/api";
 import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
+import { linkClass } from "@/lib/utils";
 import { sessionKeys, useDecideQuota } from "./api";
 
 function SessionAuthorization({ kind, id, sessionId }: { kind: "task" | "task_group"; id: string; sessionId: string }) {
@@ -27,15 +28,11 @@ function SessionAuthorization({ kind, id, sessionId }: { kind: "task" | "task_gr
 					<p className="text-sm text-muted-foreground">
 						<Trans>The pending payload is being prepared…</Trans>{" "}
 						{kind === "task" ? (
-							<Link to="/tasks/$taskId" params={{ taskId: id }} className="text-primary underline underline-offset-2">
+							<Link to="/tasks/$taskId" params={{ taskId: id }} className={linkClass}>
 								<Trans>Open the task page</Trans>
 							</Link>
 						) : (
-							<Link
-								to="/task-groups/$taskGroupId"
-								params={{ taskGroupId: id }}
-								className="text-primary underline underline-offset-2"
-							>
+							<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: id }} className={linkClass}>
 								<Trans>Open the task group page</Trans>
 							</Link>
 						)}

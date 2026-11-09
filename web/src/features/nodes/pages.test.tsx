@@ -115,6 +115,16 @@ describe("NodesPage administrator actions", () => {
 		expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
 	});
 
+	test("the node name is plain text and the whole row links to the node page", async () => {
+		await renderPage(ADMIN, [node()]);
+		const link = await screen.findByRole("link", { name: "worker-01" });
+		expect(link).toHaveAttribute("href", "/nodes/node-1");
+		// The name itself is not a link; the row's stretched link carries the accessible name.
+		expect(screen.getByText("worker-01").closest("a")).toBeNull();
+		// There is no page-level refresh button: the list polls.
+		expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
+	});
+
 	test("a member without grants gets the explanation, not the admin instructions", async () => {
 		await renderPage(MEMBER, []);
 		expect(await screen.findByText("An administrator grants access to nodes.")).toBeInTheDocument();

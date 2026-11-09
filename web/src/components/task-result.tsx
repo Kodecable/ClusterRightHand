@@ -8,7 +8,7 @@ import { TaskStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/session";
 import { batchOutput, joinOutput, statusOutputNoteKey, taskErrorText, taskOutcome } from "@/features/tasks/output";
-import { cn } from "@/lib/utils";
+import { cn, linkClass } from "@/lib/utils";
 import { DecisionView, EvaluationTable } from "./approval-card";
 
 /** The authorization plan of a task that waits for a signature (doc/privilege.md#授权路径). */
@@ -154,11 +154,7 @@ export function TaskFacts({
 	const auth = useAuth();
 	const user = auth.user;
 	const approvalLink = (
-		<Link
-			to="/approvals/tasks/$taskId"
-			params={{ taskId: task.id }}
-			className="text-primary underline underline-offset-2"
-		>
+		<Link to="/approvals/tasks/$taskId" params={{ taskId: task.id }} className={linkClass}>
 			<Trans>Open approval page</Trans>
 		</Link>
 	);

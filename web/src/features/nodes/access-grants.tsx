@@ -17,7 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useAuth } from "@/features/auth/session";
 import { useUserGroups, useUsers } from "@/features/users/api";
 import { ApiError, errorMessage } from "@/lib/api/client";
-import { cn } from "@/lib/utils";
+import { cn, linkClass } from "@/lib/utils";
 import { useCreateNodeAccessGrant, useDeleteNodeAccessGrant, useNodeAccessGrants } from "./access-api";
 
 /** The display name of a grantee; a deleted one stays identifiable as such. */
@@ -49,11 +49,7 @@ export function AccessTargetLink({ grant, className }: { grant: NodeAccessGrant;
 	}
 	if (grant.targetType === "node") {
 		return (
-			<Link
-				to="/nodes/$nodeId"
-				params={{ nodeId: grant.targetId }}
-				className={cn("text-primary underline underline-offset-2", className)}
-			>
+			<Link to="/nodes/$nodeId" params={{ nodeId: grant.targetId }} className={cn(linkClass, className)}>
 				{grant.targetName}
 			</Link>
 		);
@@ -62,7 +58,7 @@ export function AccessTargetLink({ grant, className }: { grant: NodeAccessGrant;
 		<Link
 			to="/node-groups/$nodeGroupId"
 			params={{ nodeGroupId: grant.targetId }}
-			className={cn("text-primary underline underline-offset-2", className)}
+			className={cn(linkClass, className)}
 			title={t`Node group`}
 		>
 			{grant.targetName}

@@ -9,6 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { flattenCursorPages } from "@/lib/api/query";
+import { cn, linkClass } from "@/lib/utils";
 import { type SessionChildrenQuery, useSessionTreeChildren } from "./api";
 import { sessionTitle } from "./session-item";
 
@@ -105,17 +106,22 @@ export function ChildrenBar({
 	);
 }
 
-/** One node of the tree: its state, its title linking to the session, and a lazy toggle for its own children. */
+/**
+ * One node of the tree: its state, its title and a lazy toggle for its own
+ * children. The title's stretched `after` covers the whole row, so the row is
+ * one link, while the expand button stays above it.
+ */
 function ChildNode({ item, depth, onNavigate }: { item: SessionListItem; depth: number; onNavigate: () => void }) {
 	const { t } = useLingui();
 	const [expanded, setExpanded] = useState(false);
 	return (
 		<li>
-			<div className="flex min-w-0 items-center gap-1" style={{ paddingLeft: `${depth * 12}px` }}>
+			<div className="relative flex min-w-0 items-center gap-1" style={{ paddingLeft: `${depth * 12}px` }}>
 				<Button
 					type="button"
 					variant="ghost"
 					size="icon-xs"
+					className="relative z-10"
 					aria-label={expanded ? t`Collapse subagents` : t`Expand subagents`}
 					aria-expanded={expanded}
 					data-testid="children-expand"
@@ -131,7 +137,11 @@ function ChildNode({ item, depth, onNavigate }: { item: SessionListItem; depth: 
 					data-session-id={item.id}
 					data-state={item.state}
 					data-waiting-kind={item.waitingKind ?? undefined}
-					className="min-w-0 flex-1 truncate text-sm hover:underline"
+					className={cn(
+						"min-w-0 flex-1 truncate text-sm after:absolute after:inset-0 after:rounded-sm",
+						linkClass,
+						"focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none",
+					)}
 					onClick={onNavigate}
 				>
 					{sessionTitle(item, t`New Session`)}

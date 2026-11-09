@@ -1,5 +1,6 @@
 // biome-ignore-all lint/a11y: the virtualised body is an ARIA grid over divs; a real <table> cannot host virtua windowed rows, and grid rows are reached through their cells.
 import { Trans } from "@lingui/react/macro";
+import { Link } from "@tanstack/react-router";
 import {
 	type ColumnDef,
 	flexRender,
@@ -18,6 +19,19 @@ import { cn } from "@/lib/utils";
 
 export type DataTableColumn<T extends RowData> = ColumnDef<StockFeatures, T>;
 
+/**
+ * Where a row links to: the router props of one of the detail routes a list row
+ * can point at (doc/webui.md "列表导航"). The union keeps `to` and `params`
+ * checked at the call site instead of trusting a cast inside the table.
+ */
+export type DataTableRowLink =
+	| { to: "/nodes/$nodeId"; params: { nodeId: string } }
+	| { to: "/node-groups/$nodeGroupId"; params: { nodeGroupId: string } }
+	| { to: "/schedules/$scheduleId"; params: { scheduleId: string } }
+	| { to: "/tasks/$taskId"; params: { taskId: string } }
+	| { to: "/sessions/$sessionId"; params: { sessionId: string } }
+	| { to: "/task-groups/$taskGroupId"; params: { taskGroupId: string } };
+
 export interface DataTableProps<T extends RowData> {
 	columns: DataTableColumn<T>[];
 	data: T[];
@@ -30,7 +44,16 @@ export interface DataTableProps<T extends RowData> {
 	error?: unknown;
 	onRetry?: () => void;
 	empty?: React.ReactNode;
-	onRowClick?: (row: T) => void;
+	/**
+	 * Whole-row navigation to the item's own page: a real stretched link, so
+	 * middle-click, Ctrl+click, "open in new tab" and the status bar work. Return
+	 * `undefined` for a row without a page (a run that has no session yet).
+	 */
+	rowLink?: (row: T) => DataTableRowLink | undefined;
+	/** The accessible name of `rowLink` / `onRowActivate`, e.g. the item's name. */
+	rowLabel?: (row: T) => string;
+	/** A whole-row action that is not a navigation (the audit detail dialog). */
+	onRowActivate?: (row: T) => void;
 	/** Rows above this count are virtualised (doc/webui.md "DataTable"). */
 	virtualizeAfter?: number;
 	/** Height of the virtualised viewport. */
@@ -56,6 +79,38 @@ export function actionsHeader(): React.ReactElement {
 
 /** The narrowest a column without a declared size may get below `md`, in rem. */
 const NARROW_COLUMN_MIN_REM = 12;
+
+/**
+ * A stretched row link/button: the element is visually empty and absolutely
+ * covers the row, but it is a real anchor/button, so it takes the pointer, the
+ * keyboard focus and the browser's link affordances. Interactive controls in
+ * the cells sit above it with `relative z-10` (doc/webui.md "列表导航").
+ */
+const ROW_OVERLAY_CLASS =
+	"absolute inset-0 z-0 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset";
+
+/** The row's link: rendered as a {@link Link} so every router anchor behaviour stays intact. */
+function StretchedRowLink({ href, label }: { href: DataTableRowLink; label: string }) {
+	switch (href.to) {
+		case "/nodes/$nodeId":
+			return <Link to={href.to} params={href.params} aria-label={label} className={ROW_OVERLAY_CLASS} />;
+		case "/node-groups/$nodeGroupId":
+			return <Link to={href.to} params={href.params} aria-label={label} className={ROW_OVERLAY_CLASS} />;
+		case "/schedules/$scheduleId":
+			return <Link to={href.to} params={href.params} aria-label={label} className={ROW_OVERLAY_CLASS} />;
+		case "/tasks/$taskId":
+			return <Link to={href.to} params={href.params} aria-label={label} className={ROW_OVERLAY_CLASS} />;
+		case "/sessions/$sessionId":
+			return <Link to={href.to} params={href.params} aria-label={label} className={ROW_OVERLAY_CLASS} />;
+		case "/task-groups/$taskGroupId":
+			return <Link to={href.to} params={href.params} aria-label={label} className={ROW_OVERLAY_CLASS} />;
+	}
+}
+
+/** The row's non-navigation action, stretched over the row like {@link StretchedRowLink}. */
+function StretchedRowButton({ label, onClick }: { label: string; onClick: () => void }) {
+	return <button type="button" aria-label={label} onClick={onClick} className={ROW_OVERLAY_CLASS} />;
+}
 
 function columnSize<T extends RowData>(column: DataTableColumn<T>): number {
 	const size = column.size;
@@ -99,6 +154,11 @@ function minimumWidth<T extends RowData>(columns: DataTableColumn<T>[]): string 
  * The shared table: TanStack Table for the column model, cursor infinite
  * loading through `onLoadMore`, and virtua for the row window once the list is
  * long enough that rendering every row would hurt (a few hundred rows).
+ *
+ * A list row that stands for an item with a detail page navigates there as a
+ * whole (`rowLink`); a row whose action is not a navigation gets
+ * `onRowActivate`. In both cases the affordance is just the pointer cursor and
+ * the accent hover, and the item's own name stays plain text.
  */
 export function DataTable<T extends RowData>({
 	columns,
@@ -111,7 +171,9 @@ export function DataTable<T extends RowData>({
 	error,
 	onRetry,
 	empty,
-	onRowClick,
+	rowLink,
+	rowLabel,
+	onRowActivate,
 	virtualizeAfter = 250,
 	height = 560,
 	rowHeight = 44,
@@ -170,15 +232,30 @@ export function DataTable<T extends RowData>({
 		</div>
 	);
 
-	const renderCells = (row: (typeof rows)[number]) => (
-		<>
-			{row.getVisibleCells().map((cell) => (
-				<div key={cell.id} role="cell" className="min-w-0 truncate px-3 py-2 text-sm">
-					{flexRender(cell.column.columnDef.cell, cell.getContext())}
-				</div>
-			))}
-		</>
-	);
+	/** The row's stretched overlay, rendered in the first cell so it leads the tab order. */
+	const overlayFor = (row: T): React.ReactNode => {
+		const href = rowLink?.(row);
+		const name = rowLabel?.(row) ?? "";
+		if (href !== undefined) return <StretchedRowLink href={href} label={name} />;
+		if (onRowActivate !== undefined) return <StretchedRowButton label={name} onClick={() => onRowActivate(row)} />;
+		return null;
+	};
+
+	const isInteractive = (row: T): boolean => rowLink?.(row) !== undefined || onRowActivate !== undefined;
+
+	const renderCells = (row: (typeof rows)[number]) => {
+		const overlay = overlayFor(row.original as T);
+		return (
+			<>
+				{row.getVisibleCells().map((cell, index) => (
+					<div key={cell.id} role="cell" className="min-w-0 truncate px-3 py-2 text-sm">
+						{index === 0 && overlay}
+						{flexRender(cell.column.columnDef.cell, cell.getContext())}
+					</div>
+				))}
+			</>
+		);
+	};
 
 	const sentinel = hasMore && onLoadMore && <LoadMoreSentinel loading={loadingMore} onLoadMore={onLoadMore} />;
 
@@ -203,7 +280,7 @@ export function DataTable<T extends RowData>({
 							height={height}
 							rowHeight={rowHeight}
 							renderCells={renderCells}
-							onRowClick={onRowClick}
+							isInteractive={isInteractive}
 						/>
 					) : (
 						<div role="rowgroup">
@@ -213,19 +290,10 @@ export function DataTable<T extends RowData>({
 									role="row"
 									data-slot="data-table-row"
 									data-state={row.getIsSelected() ? "selected" : undefined}
-									className={cn("border-b last:border-b-0", onRowClick && "cursor-pointer hover:bg-accent/60")}
-									onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-									onKeyDown={
-										onRowClick
-											? (event) => {
-													if (event.key === "Enter" || event.key === " ") {
-														event.preventDefault();
-														onRowClick(row.original);
-													}
-												}
-											: undefined
-									}
-									tabIndex={onRowClick ? 0 : undefined}
+									className={cn(
+										"relative border-b last:border-b-0",
+										isInteractive(row.original) && "cursor-pointer hover:bg-accent/60",
+									)}
 								>
 									{renderCells(row)}
 								</div>
@@ -244,13 +312,13 @@ function VirtualizedBody<T extends RowData>({
 	height,
 	rowHeight,
 	renderCells,
-	onRowClick,
+	isInteractive,
 }: {
 	rows: ReturnType<Table<StockFeatures, T>["getRowModel"]>["rows"];
 	height: number;
 	rowHeight: number;
 	renderCells: (row: ReturnType<Table<StockFeatures, T>["getRowModel"]>["rows"][number]) => React.ReactNode;
-	onRowClick?: (row: T) => void;
+	isInteractive: (row: T) => boolean;
 }) {
 	return (
 		<div style={{ height }} className="overflow-y-auto" data-slot="data-table-virtual">
@@ -260,20 +328,11 @@ function VirtualizedBody<T extends RowData>({
 						role="row"
 						data-slot="data-table-row"
 						data-row-id={row.id}
-						className={cn("border-b last:border-b-0", onRowClick && "cursor-pointer hover:bg-accent/60")}
+						className={cn(
+							"relative border-b last:border-b-0",
+							isInteractive(row.original as T) && "cursor-pointer hover:bg-accent/60",
+						)}
 						style={{ height: rowHeight }}
-						onClick={onRowClick ? () => onRowClick(row.original as T) : undefined}
-						onKeyDown={
-							onRowClick
-								? (event) => {
-										if (event.key === "Enter" || event.key === " ") {
-											event.preventDefault();
-											onRowClick(row.original as T);
-										}
-									}
-								: undefined
-						}
-						tabIndex={onRowClick ? 0 : undefined}
 					>
 						{renderCells(row as (typeof rows)[number])}
 					</div>

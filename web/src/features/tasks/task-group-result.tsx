@@ -3,6 +3,7 @@ import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
+import { ChevronRightIcon } from "lucide-react";
 import { ApprovalCard, DecisionView } from "@/components/approval-card";
 import { NodeTargetList } from "@/components/node-targets";
 import { StatusText, TaskStatusBadge } from "@/components/status-badge";
@@ -12,6 +13,7 @@ import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api"
 import { useAuth } from "@/features/auth/session";
 import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
 import { taskGroupStatusTone } from "@/lib/status";
+import { linkClass } from "@/lib/utils";
 
 const GROUP_STATES: Record<string, MessageDescriptor> = {
 	awaiting_approval: msg`Awaiting approval`,
@@ -131,11 +133,7 @@ export function TaskGroupResult({
 						{taskGroup.tasks.map((task) => (
 							<tr key={task.id} className="border-t align-top" data-testid="task-group-member" data-task-id={task.id}>
 								<td className="px-2 py-2">
-									<Link
-										to="/nodes/$nodeId"
-										params={{ nodeId: task.nodeId }}
-										className="text-primary underline underline-offset-2"
-									>
+									<Link to="/nodes/$nodeId" params={{ nodeId: task.nodeId }} className={linkClass}>
 										{nodeName(task.nodeId)}
 									</Link>
 								</td>
@@ -147,7 +145,11 @@ export function TaskGroupResult({
 								</td>
 								<td className="px-2 py-2">
 									<details>
-										<summary className="cursor-pointer text-xs text-primary underline underline-offset-2">
+										<summary className="inline-flex cursor-pointer list-none items-center gap-1 text-xs text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+											<ChevronRightIcon
+												className="size-3 transition-transform [details[open]_&]:rotate-90"
+												aria-hidden="true"
+											/>
 											<Trans>Show</Trans>
 										</summary>
 										<div className="mt-2 min-w-80">

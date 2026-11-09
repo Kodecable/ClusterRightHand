@@ -14,6 +14,7 @@ import { PageSkeleton } from "@/components/skeletons";
 import { ScheduleStatusBadge, StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { useModels } from "@/features/settings/api";
+import { linkClass } from "@/lib/utils";
 import { useDeleteSchedule, usePatchSchedule, useSchedule, useSchedules } from "./api";
 import { CreateScheduleDialog } from "./create-schedule-dialog";
 import { RunHistory } from "./run-history";
@@ -39,15 +40,7 @@ export function SchedulesPage() {
 			{
 				id: "name",
 				header: t`Name`,
-				cell: ({ row }) => (
-					<Link
-						to="/schedules/$scheduleId"
-						params={{ scheduleId: row.original.id }}
-						className="truncate font-medium text-primary underline underline-offset-2"
-					>
-						{row.original.name}
-					</Link>
-				),
+				cell: ({ row }) => <span className="truncate font-medium">{row.original.name}</span>,
 			},
 			{
 				id: "cron",
@@ -95,13 +88,21 @@ export function SchedulesPage() {
 				id: "enabled",
 				header: t`Enabled`,
 				size: 96,
-				cell: ({ row }) => <EnabledSwitch schedule={row.original} />,
+				cell: ({ row }) => (
+					<span className="relative z-10 inline-flex">
+						<EnabledSwitch schedule={row.original} />
+					</span>
+				),
 			},
 			{
 				id: "actions",
 				header: actionsHeader,
 				size: 130,
-				cell: ({ row }) => <RunNowButton schedule={row.original} />,
+				cell: ({ row }) => (
+					<span className="relative z-10 inline-flex">
+						<RunNowButton schedule={row.original} size="xs" />
+					</span>
+				),
 			},
 		],
 		[t],
@@ -143,6 +144,8 @@ export function SchedulesPage() {
 				loading={schedules.isLoading}
 				error={schedules.isError ? schedules.error : undefined}
 				onRetry={() => void schedules.refetch()}
+				rowLink={(schedule) => ({ to: "/schedules/$scheduleId", params: { scheduleId: schedule.id } })}
+				rowLabel={(schedule) => schedule.name}
 				empty={<EmptyState title={<Trans>No schedules yet</Trans>} />}
 			/>
 			{creating && models.data && <CreateScheduleDialog models={models.data} onClose={() => setCreating(false)} />}
@@ -234,7 +237,7 @@ export function ScheduleDetailPage() {
 						A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let
 						a fixed command run unattended, issue a reusable authorization for it (no task ids) on the
 					</Trans>{" "}
-					<Link to="/authorizations" className="text-primary underline underline-offset-2">
+					<Link to="/authorizations" className={linkClass}>
 						<Trans>Authorizations</Trans>
 					</Link>{" "}
 					<Trans>

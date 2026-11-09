@@ -1,6 +1,6 @@
 import type { SshCredential } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { LockKeyholeIcon, PlusIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
+import { LockKeyholeIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { Fragment, useId, useMemo, useState } from "react";
 import { CodeText } from "@/components/code-text";
 import { CopyButton } from "@/components/copy-button";
@@ -210,16 +210,10 @@ function SshCredentialsAdminPage() {
 					<Trans>Organization-owned SSH keys that crhs uses to reach nodes. Only administrators can manage them.</Trans>
 				}
 				actions={
-					<>
-						<Button type="button" variant="outline" onClick={() => void credentials.refetch()}>
-							<RefreshCwIcon />
-							<Trans>Refresh</Trans>
-						</Button>
-						<Button type="button" onClick={() => setCreating(true)}>
-							<PlusIcon />
-							<Trans>Create SSH credential</Trans>
-						</Button>
-					</>
+					<Button type="button" onClick={() => setCreating(true)}>
+						<PlusIcon />
+						<Trans>Create SSH credential</Trans>
+					</Button>
 				}
 			/>
 			<DataTable

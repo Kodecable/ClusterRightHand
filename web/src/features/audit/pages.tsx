@@ -1,10 +1,9 @@
 import type { AuditEvent, AuditQuery } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
-import { RefreshCwIcon } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { CodeText } from "@/components/code-text";
-import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { FieldShell } from "@/components/form";
 import { Page } from "@/components/page";
@@ -14,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useDirectory } from "@/features/users/api";
+import { cn, linkClass } from "@/lib/utils";
 import { useAuditEvents } from "./api";
 
 /** The actor's id, as a tooltip: the cell itself shows the display name when the directory has one. */
@@ -46,7 +46,7 @@ function TargetCell({ event }: { event: AuditEvent }) {
 				<Link
 					{...href}
 					aria-label={t`Open ${event.targetType} ${event.targetId}`}
-					className="truncate font-mono text-primary underline underline-offset-2"
+					className={cn("relative z-10 truncate font-mono", linkClass)}
 				>
 					{event.targetId}
 				</Link>
@@ -115,22 +115,6 @@ export function AuditPage() {
 				header: t`Target`,
 				cell: ({ row }) => <TargetCell event={row.original} />,
 			},
-			{
-				id: "detail",
-				header: actionsHeader,
-				size: 100,
-				cell: ({ row }) => (
-					<Button
-						type="button"
-						size="xs"
-						variant="outline"
-						aria-label={t`Detail of event ${row.original.seq}`}
-						onClick={() => setDetail(row.original)}
-					>
-						<Trans>Detail</Trans>
-					</Button>
-				),
-			},
 		];
 	}, [t, names]);
 
@@ -187,10 +171,6 @@ export function AuditPage() {
 						<Button type="submit">
 							<Trans>Filter</Trans>
 						</Button>
-						<Button type="button" variant="outline" onClick={() => void audit.refetch()}>
-							<RefreshCwIcon />
-							<Trans>Refresh</Trans>
-						</Button>
 					</div>
 				</div>
 			</form>
@@ -205,6 +185,8 @@ export function AuditPage() {
 				hasMore={audit.hasNextPage}
 				loadingMore={audit.isFetchingNextPage}
 				onLoadMore={() => void audit.fetchNextPage()}
+				onRowActivate={(event) => setDetail(event)}
+				rowLabel={(event) => t`Detail of event ${event.seq}`}
 				empty={
 					<EmptyState title={<Trans>No events</Trans>} description={<Trans>Nothing matches these filters.</Trans>} />
 				}

@@ -1,6 +1,7 @@
 import type { ApprovalBody, QuotaApproval, TaskGroupView, TaskView } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
+import { ArrowLeftIcon } from "lucide-react";
 import { ApprovalCard } from "@/components/approval-card";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
@@ -10,9 +11,9 @@ import { PageHeader } from "@/components/page-header";
 import { QuotaCard } from "@/components/quota-card";
 import { CardSkeleton } from "@/components/skeletons";
 import { TaskStatusBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
 import { useDecideQuota } from "@/features/sessions/api";
 import { TaskGroupStatus } from "@/features/tasks/task-group-result";
+import { cn, linkClass } from "@/lib/utils";
 import { useApprovalLookups, useApprovals, useApprovalTask, useApprovalTaskGroup, useDecideApproval } from "./api";
 import { pendingCount } from "./pending";
 
@@ -133,11 +134,7 @@ function SignatureSection({
 			<ul className="grid gap-1">
 				{tasks.map((task) => (
 					<li key={task.id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
-						<Link
-							to="/tasks/$taskId"
-							params={{ taskId: task.id }}
-							className="min-w-0 flex-1 truncate text-primary underline underline-offset-2"
-						>
+						<Link to="/tasks/$taskId" params={{ taskId: task.id }} className={cn("min-w-0 flex-1 truncate", linkClass)}>
 							{task.summary || task.kind} · {nodeNames.get(task.nodeId) ?? task.nodeId}
 						</Link>
 						<span>
@@ -151,7 +148,7 @@ function SignatureSection({
 							<Link
 								to="/task-groups/$taskGroupId"
 								params={{ taskGroupId: taskGroup.id }}
-								className="min-w-0 truncate text-primary underline underline-offset-2"
+								className={cn("min-w-0 truncate", linkClass)}
 							>
 								{taskGroup.summary || taskGroup.kind || t`task group`}
 							</Link>
@@ -326,7 +323,8 @@ export function ApprovalTaskPage() {
 					to="/approvals"
 					className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
 				>
-					<Trans>← Approvals</Trans>
+					<ArrowLeftIcon className="size-3.5" />
+					<Trans>All approvals</Trans>
 				</Link>
 			</div>
 			{pending ? (
@@ -341,14 +339,9 @@ export function ApprovalTaskPage() {
 				/>
 			) : (
 				<Settled status={<TaskStatusBadge state={task.data.state} />} title={<Trans>Already settled</Trans>}>
-					<Button
-						render={<Link to="/tasks/$taskId" params={{ taskId: task.data.id }} />}
-						variant="outline"
-						size="sm"
-						nativeButton={false}
-					>
+					<Link to="/tasks/$taskId" params={{ taskId: task.data.id }} className={linkClass}>
 						<Trans>Open the task</Trans>
-					</Button>
+					</Link>
 				</Settled>
 			)}
 		</Page>
@@ -377,7 +370,8 @@ export function ApprovalTaskGroupPage() {
 					to="/approvals"
 					className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
 				>
-					<Trans>← Approvals</Trans>
+					<ArrowLeftIcon className="size-3.5" />
+					<Trans>All approvals</Trans>
 				</Link>
 			</div>
 			{pending ? (
@@ -392,14 +386,9 @@ export function ApprovalTaskGroupPage() {
 				/>
 			) : (
 				<Settled status={<TaskGroupStatus state={taskGroup.data.state} />} title={<Trans>Already settled</Trans>}>
-					<Button
-						render={<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: taskGroup.data.id }} />}
-						variant="outline"
-						size="sm"
-						nativeButton={false}
-					>
+					<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: taskGroup.data.id }} className={linkClass}>
 						<Trans>Open the task group</Trans>
-					</Button>
+					</Link>
 				</Settled>
 			)}
 		</Page>

@@ -56,6 +56,17 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
+test("the schedule name is plain text and the row links to the detail page", async () => {
+	await renderPage([{ ...SCHEDULE, timezone: "Europe/Berlin", previewError: null }]);
+	const link = await screen.findByRole("link", { name: "Nightly check" });
+	expect(link).toHaveAttribute("href", "/schedules/schedule-1");
+	// The name itself is not a link; the row's stretched link carries the accessible name.
+	expect(screen.getByText("Nightly check").closest("a")).toBeNull();
+	// "Run now" stays in the row, and there is no page-level refresh button.
+	expect(screen.getByRole("button", { name: "Run now" })).toBeInTheDocument();
+	expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
+});
+
 test("a schedule whose stored timezone is invalid explains the empty preview", async () => {
 	await renderPage([SCHEDULE]);
 	expect(await screen.findByTestId("schedule-preview-error")).toHaveTextContent("invalid timezone: Not/AZone");

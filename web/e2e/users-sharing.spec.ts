@@ -63,7 +63,7 @@ test("admin grants node access; removing it hides the node again", async ({ admi
 		await expect(page.getByRole("row").filter({ hasText: MEMBER.username })).toContainText(nodeName);
 
 		// Member sees the node and may run tasks; the access section itself stays admin-only.
-		await mp.getByRole("button", { name: "Refresh" }).click();
+		// The node list polls, so the new grant shows up without a refresh.
 		await expect(mp.getByRole("link", { name: nodeName, exact: true })).toBeVisible({ timeout: 15_000 });
 		await mp.getByRole("link", { name: nodeName, exact: true }).click();
 		await expect(mp.getByRole("heading", { name: nodeName, exact: true })).toBeVisible();
@@ -82,7 +82,7 @@ test("admin grants node access; removing it hides the node again", async ({ admi
 		await expect(page.getByText("No access grants yet.")).toBeVisible();
 		const denied = await mp.request.post(`/api/nodes/${nodeId}/tasks`, { data: { kind: "exec", shell: "true" } });
 		expect(denied.status()).toBe(404);
-		// The member is on the node page (which has its own Refresh buttons); their node list no longer has it.
+		// The member is on the node page; their node list no longer has it.
 		await mp.goto("/nodes");
 		await expect(mp.getByText("An administrator grants access to nodes.")).toBeVisible({ timeout: 15_000 });
 	} finally {

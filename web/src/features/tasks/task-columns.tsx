@@ -1,8 +1,7 @@
 import type { TaskView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { actionsHeader, type DataTableColumn } from "@/components/data-table";
+import type { DataTableColumn } from "@/components/data-table";
 import { RelativeTime } from "@/components/relative-time";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeText } from "@/components/task-result";
@@ -14,14 +13,14 @@ export interface TaskColumnOptions {
 	users: Map<string, string>;
 	/** Node names by node id; when given, the table gets a node column. */
 	nodeNames?: Map<string, string>;
-	/** A node's own list: the summary carries the task's kind and every row links to the task. */
+	/** A node's own list: the summary carries the task's kind, and every row links to the task. */
 	perNode?: boolean;
 }
 
 /**
  * The task table columns shared by the tasks page and a node's recent tasks
  * (doc/webui.md "Tasks"): the same cells in the same order, plus the node
- * column on the global list and the details link on the per-node one.
+ * column on the global list. The row itself links to the task on both.
  */
 export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumnOptions): DataTableColumn<TaskView>[] {
 	const { t } = useLingui();
@@ -93,24 +92,6 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 				),
 			},
 		);
-
-		if (perNode) {
-			columns.push({
-				id: "details",
-				header: actionsHeader,
-				size: 80,
-				cell: ({ row }) => (
-					<Link
-						to="/tasks/$taskId"
-						params={{ taskId: row.original.id }}
-						aria-label={t`Open task`}
-						className="text-xs text-primary underline underline-offset-2"
-					>
-						<Trans>Details</Trans>
-					</Link>
-				),
-			});
-		}
 
 		return columns;
 	}, [nodeNames, perNode, t, users]);

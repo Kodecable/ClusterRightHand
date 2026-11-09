@@ -18,6 +18,7 @@ import { AuthorizationWait } from "@/features/authorizations/authorization-wait"
 import { useNodes } from "@/features/nodes/api";
 import { useDirectory } from "@/features/users/api";
 import { isNotFound } from "@/lib/api/client";
+import { cn, linkClass } from "@/lib/utils";
 import { taskActor } from "./actor";
 import { useCancelTask, useTask } from "./api";
 import { isTerminal } from "./output";
@@ -25,7 +26,7 @@ import { isTerminal } from "./output";
 /** A node link that shows the node's name, falling back to its id while the list loads. */
 function NodeLink({ nodeId, names }: { nodeId: string; names: Map<string, string> }) {
 	return (
-		<Link to="/nodes/$nodeId" params={{ nodeId }} className="text-primary underline underline-offset-2">
+		<Link to="/nodes/$nodeId" params={{ nodeId }} className={linkClass}>
 			{names.get(nodeId) ?? nodeId}
 		</Link>
 	);
@@ -84,7 +85,7 @@ export function TaskPage() {
 							<Link
 								to="/sessions/$sessionId"
 								params={{ sessionId: view.rootSessionId }}
-								className="font-mono text-xs text-primary underline underline-offset-2"
+								className={cn("font-mono text-xs", linkClass)}
 							>
 								{view.rootSessionId}
 							</Link>
@@ -100,7 +101,7 @@ export function TaskPage() {
 							<Link
 								to="/task-groups/$taskGroupId"
 								params={{ taskGroupId: view.taskGroupId }}
-								className="font-mono text-xs text-primary underline underline-offset-2"
+								className={cn("font-mono text-xs", linkClass)}
 							>
 								{view.taskGroupId}
 							</Link>

@@ -1,7 +1,7 @@
 import type { PublicNode } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
-import { ArrowLeftIcon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import { ArrowLeftIcon, PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
@@ -59,13 +59,7 @@ export function NodesPage() {
 				header: t`Name`,
 				cell: ({ row }) => (
 					<span className="flex min-w-0 items-center gap-2">
-						<Link
-							to="/nodes/$nodeId"
-							params={{ nodeId: row.original.id }}
-							className="truncate font-medium text-primary underline underline-offset-2"
-						>
-							{row.original.name}
-						</Link>
+						<span className="truncate font-medium">{row.original.name}</span>
 						{row.original.transport === "ssh" && (
 							<Badge variant="secondary">
 								<Trans>SSH</Trans>
@@ -107,7 +101,7 @@ export function NodesPage() {
 				id: "nodeGroups",
 				header: t`Node groups`,
 				size: 180,
-				cell: ({ row }) => <NodeGroupLinks nodeGroups={row.original.nodeGroups} />,
+				cell: ({ row }) => <NodeGroupLinks nodeGroups={row.original.nodeGroups} className="relative z-10" />,
 			},
 			{
 				id: "lastSeen",
@@ -126,7 +120,7 @@ export function NodesPage() {
 				size: 130,
 				cell: ({ row }) =>
 					canDecide(row.original) ? (
-						<span className="flex flex-nowrap items-center gap-1">
+						<span className="relative z-10 flex flex-nowrap items-center gap-1">
 							<Button type="button" size="xs" onClick={() => setPending({ node: row.original, action: "approve" })}>
 								<Trans>Approve</Trans>
 							</Button>
@@ -149,23 +143,17 @@ export function NodesPage() {
 			<PageHeader
 				title={<Trans>Nodes</Trans>}
 				actions={
-					<>
-						<Button type="button" variant="outline" onClick={() => void nodes.refetch()}>
-							<RefreshCwIcon />
-							<Trans>Refresh</Trans>
-						</Button>
-						{user?.kind === "admin" && (
-							<>
-								<Button type="button" variant="outline" onClick={() => setAddingSsh(true)} data-testid="add-ssh-node">
-									<Trans>Add SSH node</Trans>
-								</Button>
-								<Button type="button" onClick={() => setAdding(true)} data-testid="add-node">
-									<PlusIcon />
-									<Trans>Add node</Trans>
-								</Button>
-							</>
-						)}
-					</>
+					user?.kind === "admin" ? (
+						<>
+							<Button type="button" variant="outline" onClick={() => setAddingSsh(true)} data-testid="add-ssh-node">
+								<Trans>Add SSH node</Trans>
+							</Button>
+							<Button type="button" onClick={() => setAdding(true)} data-testid="add-node">
+								<PlusIcon />
+								<Trans>Add node</Trans>
+							</Button>
+						</>
+					) : undefined
 				}
 			/>
 			<DataTable
@@ -176,6 +164,8 @@ export function NodesPage() {
 				loading={nodes.isLoading}
 				error={nodes.isError ? nodes.error : undefined}
 				onRetry={() => void nodes.refetch()}
+				rowLink={(node) => ({ to: "/nodes/$nodeId", params: { nodeId: node.id } })}
+				rowLabel={(node) => node.name}
 				empty={
 					<EmptyState
 						title={<Trans>No nodes yet</Trans>}

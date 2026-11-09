@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PencilIcon, PlusIcon, Trash2Icon, UserPenIcon } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
-import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
@@ -17,14 +17,23 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/session";
 import { NodeAccessSection } from "@/features/nodes/access-grants";
 import { useNodes } from "@/features/nodes/api";
+import { cn, linkClass } from "@/lib/utils";
 import { useDeleteNodeGroup, useNodeGroups } from "./api";
 import { NodeGroupMembersDialog, NodeGroupNameDialog } from "./dialogs";
 
 /** The members of a node group, each linked to its node page. */
-function MemberLinks({ memberIds, nodeNames }: { memberIds: string[]; nodeNames: Map<string, string> }) {
+function MemberLinks({
+	memberIds,
+	nodeNames,
+	className,
+}: {
+	memberIds: string[];
+	nodeNames: Map<string, string>;
+	className?: string;
+}) {
 	if (memberIds.length === 0) return <span className="text-muted-foreground">–</span>;
 	return (
-		<span className="flex flex-wrap items-center gap-x-1">
+		<span className={cn("flex flex-wrap items-center gap-x-1", className)}>
 			{memberIds.map((id, index) => (
 				<Fragment key={id}>
 					{index > 0 && <span className="text-muted-foreground">,</span>}
@@ -64,36 +73,24 @@ function AdminActions({
 }
 
 /**
- * Every node group (doc/access-control.md#用户模型, D109): members links, the
- * UUID to copy for a crha trust alias and, for administrators, create, rename,
- * delete and member editing. Everyone else sees the list read-only.
+ * Every node group (doc/access-control.md#用户模型, D109): members links and the
+ * UUID to copy for a crha trust alias. Editing lives on the detail page; the
+ * list only navigates. Everyone else sees the list read-only.
  */
 export function NodeGroupsPage() {
 	const { t } = useLingui();
 	const nodes = useNodes();
 	const groups = useNodeGroups();
 	const admin = useAuth().user?.kind === "admin";
-	const remove = useDeleteNodeGroup();
 	const [creating, setCreating] = useState(false);
-	const [renaming, setRenaming] = useState<NodeGroup>();
-	const [deleting, setDeleting] = useState<NodeGroup>();
-	const [editingMembers, setEditingMembers] = useState<NodeGroup>();
 	const nodeNames = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
 
-	const columns = useMemo<DataTableColumn<NodeGroup>[]>(() => {
-		const base: DataTableColumn<NodeGroup>[] = [
+	const columns = useMemo<DataTableColumn<NodeGroup>[]>(
+		() => [
 			{
 				id: "name",
 				header: t`Name`,
-				cell: ({ row }) => (
-					<Link
-						to="/node-groups/$nodeGroupId"
-						params={{ nodeGroupId: row.original.id }}
-						className="truncate font-medium text-primary underline underline-offset-2"
-					>
-						{row.original.name}
-					</Link>
-				),
+				cell: ({ row }) => <span className="truncate font-medium">{row.original.name}</span>,
 			},
 			{
 				id: "members",
@@ -104,7 +101,7 @@ export function NodeGroupsPage() {
 						<span className="text-muted-foreground">
 							<Plural value={row.original.memberIds.length} one="# member" other="# members" />
 						</span>
-						<MemberLinks memberIds={row.original.memberIds} nodeNames={nodeNames} />
+						<MemberLinks memberIds={row.original.memberIds} nodeNames={nodeNames} className="relative z-10" />
 					</span>
 				),
 			},
@@ -113,7 +110,7 @@ export function NodeGroupsPage() {
 				header: t`Node group id`,
 				size: 380,
 				cell: ({ row }) => (
-					<span className="flex min-w-0 items-center gap-1">
+					<span className="relative z-10 flex min-w-0 items-center gap-1">
 						<code className="truncate font-mono text-xs text-muted-foreground">{row.original.id}</code>
 						<CopyButton
 							text={row.original.id}
@@ -124,33 +121,9 @@ export function NodeGroupsPage() {
 					</span>
 				),
 			},
-		];
-		if (!admin) return base;
-		return [
-			...base,
-			{
-				id: "actions",
-				header: actionsHeader,
-				size: 300,
-				cell: ({ row }) => {
-					const group = row.original;
-					return (
-						<span className="flex flex-nowrap items-center gap-1">
-							<Button type="button" size="xs" variant="outline" onClick={() => setEditingMembers(group)}>
-								<Trans>Edit members</Trans>
-							</Button>
-							<Button type="button" size="xs" variant="outline" onClick={() => setRenaming(group)}>
-								<Trans>Rename</Trans>
-							</Button>
-							<Button type="button" size="xs" variant="destructive" onClick={() => setDeleting(group)}>
-								<Trans>Delete</Trans>
-							</Button>
-						</span>
-					);
-				},
-			},
-		];
-	}, [admin, nodeNames, t]);
+		],
+		[nodeNames, t],
+	);
 
 	return (
 		<Page data-testid="node-groups-page">
@@ -179,6 +152,8 @@ export function NodeGroupsPage() {
 				loading={groups.isLoading}
 				error={groups.isError ? groups.error : undefined}
 				onRetry={() => void groups.refetch()}
+				rowLink={(group) => ({ to: "/node-groups/$nodeGroupId", params: { nodeGroupId: group.id } })}
+				rowLabel={(group) => group.name}
 				empty={
 					<EmptyState
 						title={<Trans>No node groups yet</Trans>}
@@ -193,40 +168,6 @@ export function NodeGroupsPage() {
 				}
 			/>
 			{creating && <NodeGroupNameDialog onClose={() => setCreating(false)} />}
-			{renaming && <NodeGroupNameDialog group={renaming} onClose={() => setRenaming(undefined)} />}
-			{editingMembers && (
-				<NodeGroupMembersDialog
-					group={editingMembers}
-					nodes={nodes.data ?? []}
-					onClose={() => setEditingMembers(undefined)}
-				/>
-			)}
-			<ConfirmDialog
-				open={deleting !== undefined}
-				onOpenChange={(open) => {
-					if (!open) setDeleting(undefined);
-				}}
-				title={deleting ? t`Delete node group ${deleting.name}?` : ""}
-				description={
-					<Trans>
-						Its members lose this node group. Rules and task groups that reference it keep the reference and display it
-						as deleted.
-					</Trans>
-				}
-				confirmLabel={<Trans>Delete node group</Trans>}
-				busy={remove.isPending}
-				onConfirm={() => {
-					if (!deleting) return;
-					remove.mutate(deleting.id, {
-						onSuccess: () => {
-							setDeleting(undefined);
-						},
-					});
-				}}
-			/>
-			{remove.error !== null && remove.error !== undefined && (
-				<ErrorState error={remove.error} compact retry={() => void remove.reset()} />
-			)}
 		</Page>
 	);
 }
@@ -268,9 +209,9 @@ export function NodeGroupDetailPage() {
 					title={<Trans>No such node group</Trans>}
 					description={<Trans>It may have been deleted.</Trans>}
 					action={
-						<Button variant="outline" render={<Link to="/node-groups" />} nativeButton={false}>
+						<Link to="/node-groups" className={linkClass}>
 							<Trans>All node groups</Trans>
-						</Button>
+						</Link>
 					}
 				/>
 			</Page>

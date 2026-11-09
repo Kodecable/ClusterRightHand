@@ -34,20 +34,27 @@ export function useNode(id: string | undefined) {
 }
 
 export function useNodeTrust(id: string | undefined) {
+	// The node pushes a new report when it reconnects or its configuration
+	// changes; a 10 s poll shows it without a "Refresh" button. Node mutations
+	// invalidate `nodeKeys.all` at once.
 	return useQuery({
 		queryKey: nodeKeys.trust(id ?? ""),
 		enabled: id !== undefined && id !== "",
 		queryFn: ({ signal }) =>
 			http.get<{ trust: NodeTrust }>(`/nodes/${enc(id ?? "")}/trust`, { signal }).then((r) => r.trust),
+		refetchInterval: 10_000,
 	});
 }
 
 export function useNodeTasks(id: string | undefined) {
+	// Tasks also start outside this page (schedules, batch, API tokens); polling
+	// keeps the section current, and the run panel invalidates it at once.
 	return useQuery({
 		queryKey: nodeKeys.tasks(id ?? ""),
 		enabled: id !== undefined && id !== "",
 		queryFn: ({ signal }) =>
 			http.get<{ tasks: TaskView[] }>(`/nodes/${enc(id ?? "")}/tasks`, { signal }).then((r) => r.tasks),
+		refetchInterval: 10_000,
 	});
 }
 

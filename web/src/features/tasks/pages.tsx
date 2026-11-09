@@ -1,5 +1,4 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { DataTable } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
@@ -67,7 +66,6 @@ function FilterSelect({
  */
 export function TasksPage() {
 	const { t, i18n } = useLingui();
-	const navigate = useNavigate();
 	const nodes = useNodes();
 	const directory = useDirectory();
 	const [state, setState] = useState("any");
@@ -141,7 +139,8 @@ export function TasksPage() {
 				hasMore={tasks.hasNextPage ?? false}
 				loadingMore={tasks.isFetchingNextPage}
 				onLoadMore={() => void tasks.fetchNextPage()}
-				onRowClick={(task) => void navigate({ to: "/tasks/$taskId", params: { taskId: task.id } })}
+				rowLink={(task) => ({ to: "/tasks/$taskId", params: { taskId: task.id } })}
+				rowLabel={(task) => task.summary || task.kind}
 				empty={
 					<EmptyState
 						className="border-0 py-10"
