@@ -366,7 +366,7 @@ API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引�
   - **prompt / cache 桶**：`prompt_tokens` 累计每次模型调用输入的 input + cache read + cache write，`cache_read_tokens` 只累计 cache read；与 `usage_tokens` 是同一批调用（本会话、subagent、压缩、Auto Review、标题生成），并在链上逐级累加，所以根的是整棵树的。它们只用于展示，不影响配额。
 - 写入：计数与两个 token 度量在同一条语句里更新（`chargeCall`，配额一节）；`stat_*`、`counted_submission_id` 只写本会话行（SQL 的 CASE 限定），`prompt_tokens` / `cache_read_tokens` 与 `usage_tokens` 一起写链上每一级。API 的 `SessionView.stats` 返回 `{ turns, steps, ttftMs, ttftSteps, decodeMs, decodeTokens, promptTokens, cacheReadTokens }`。
 - 实时更新：WebUI 没有单独的统计事件。每个 step 结束后的 `chargeCall` 之后调用 `sessionList.publishSession`，列表流向该树的根发 `upsert`；会话页的 `useSessionTreeSync` 收到根 upsert 后让 `GET /sessions/:id` 失效并重新取回，统计随 `SessionView` 一起更新（与 `usageTokens` / `contextTokens` 相同）。
-- 已有数据：迁移只加列，默认 0。下次启动时（与统计用量共用 `usage_backfilled_at` 一次性标记，同一事务、只升不降）从 durable 回填：`pi.usage` 求和得到 `prompt_tokens` / `cache_read_tokens`（再按会话树累加）；按对话的历史 entries 数出 assistant 条数得到 `stat_steps`；按顺序数用户条目，在下一条用户条目之前至少跟了一条 assistant 的算一个 turn，得到 `stat_turns`。计时无法回填，保持 0。durable 没有记录的调用（Auto Review 自己的请求等）不在回填里。
+- 已有数据：迁移只加列，默认 0。下次启动时（一次性标记 `session_stats_backfilled_at`，同一事务、只升不降；它取代了只回填用量的 `usage_backfilled_at`，所以已经回填过用量的库也会补上这些统计）从 durable 回填：`pi.usage` 求和得到 `prompt_tokens` / `cache_read_tokens`（再按会话树累加）；按对话的历史 entries 数出 assistant 条数得到 `stat_steps`；按顺序数用户条目，在下一条用户条目之前至少跟了一条 assistant 的算一个 turn，得到 `stat_turns`。计时无法回填，保持 0。durable 没有记录的调用（Auto Review 自己的请求等）不在回填里。
 - 验收：`server/test/session-stats.test.ts` 覆盖两次提交各多个 step 的 turn/step 计数、没有查看者时由提供方流产生 TTFT/解码统计、重试覆盖旧尝试、没有内容 delta / 没有结束事件时只计数、压缩的 `completeSimple` 不产生计时条目、prompt/cache 沿链累加和回填；WebUI 的格式化在 `web/src/features/sessions/generation-stat-format.test.ts` 和 `composer.test.tsx`。
 
 ## 节点笔记

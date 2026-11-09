@@ -252,7 +252,7 @@ it("backfills a pre-D101 session from durable's persisted usage at the next star
 		expect(expectedRoot).toBeGreaterThan(expectedChild);
 		// Pretend the session predates the measure: the column is 0 and the backfill has not run.
 		await localDb.updateTable("sessions").set({ usage_tokens: 0 }).execute();
-		await localDb.deleteFrom("server_meta").where("key", "=", "usage_backfilled_at").execute();
+		await localDb.deleteFrom("server_meta").where("key", "=", "session_stats_backfilled_at").execute();
 		await first.close();
 
 		// The next start reads durable's per-conversation usage and raises each session to its subtree total.

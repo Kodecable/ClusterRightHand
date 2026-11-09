@@ -16,7 +16,10 @@ import type { Db } from "../storage/db.ts";
  * durable recorded without counters (a provider that reported none) contributed 0 here.
  */
 
-const FLAG = "usage_backfilled_at";
+// A new key for the run that added the session statistics: a database whose usage backfill already ran under
+// "usage_backfilled_at" must still get them. Every measure is raised, never lowered, so redoing the usage half
+// there is harmless.
+const FLAG = "session_stats_backfilled_at";
 
 function count(value: number | undefined): number {
 	return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : 0;

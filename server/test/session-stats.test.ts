@@ -475,7 +475,7 @@ it("backfills steps, turns and the prompt/cache tree buckets once", async () => 
 				stat_decode_tokens: 0,
 			})
 			.execute();
-		await localDb.deleteFrom("server_meta").where("key", "=", "usage_backfilled_at").execute();
+		await localDb.deleteFrom("server_meta").where("key", "=", "session_stats_backfilled_at").execute();
 		await first.close();
 
 		// The next start reads durable's per-conversation usage and history; timing cannot be recovered.
