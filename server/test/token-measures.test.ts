@@ -89,10 +89,10 @@ it("the usage measure is input + output, cache included in the input; the budget
 	const message = { usage: USAGE(100, 20, 5, 15), content: [{ type: "text", text: "x".repeat(1_000) }] };
 	expect(accountedOutputTokens(message)).toBe(20);
 	expect(accountedInputTokens(message, 999)).toBe(120);
-	expect(callTokens(message, 999)).toEqual({ budget: 20, usage: 140, context: 120 });
+	expect(callTokens(message, 999)).toEqual({ budget: 20, usage: 140, context: 120, cacheRead: 5 });
 	// No reported usage: both halves are estimated from bytes, and the input estimate is the caller's basis.
 	const estimated = callTokens({ content: [{ type: "text", text: "abcd" }] }, 40);
-	expect(estimated).toEqual({ budget: 2, usage: 42, context: 40 });
+	expect(estimated).toEqual({ budget: 2, usage: 42, context: 40, cacheRead: 0 });
 });
 
 it("estimates a request's input from the bytes of its serialized context", () => {

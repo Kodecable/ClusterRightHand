@@ -347,8 +347,8 @@ API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引�
   - 上游没有上报用量时，两个度量用同一个估算常数：输出按输出内容（文本、可见的推理文本、工具调用名和参数 JSON）的 UTF-8 字节数 × 0.3 估算，向上取整；统计用量的输入按**这次调用实际发出的请求内容**的 JSON 字节数 × 0.3 估算。生成（durable 的 `GenerationTask`）只拿得到请求的 `messages`，估算的就是它的序列化字节，**不包含**系统提示的 sections 和工具定义；压缩和 Auto Review 走 `completeSimple`，估算的是交给它的请求，即系统提示加消息。常数 `ESTIMATED_TOKENS_PER_BYTE = 0.3` 只在一个模块里定义（`server/src/agent/tokens.ts`），两个估算都从这里取。
   - **上下文填充**（`sessions.context_tokens`，API 的 `contextTokens`）：本会话**最近一次主 agent 模型调用**的输入大小（input + cache read + cache write）；压缩和 Auto Review 不写它，第一次调用前为 `null`。WebUI 用会话模型的 `contextWindow` 算百分比。上游没有上报时同样按这次调用实际发出的请求内容估算（生成只有 `messages`，压缩和评审是系统提示 + 消息，基准与统计用量相同）。
   - 两个度量互不影响：预算决定何时暂停，统计用量只用于展示，永远不阻止运行。
-- 每次模型调用之后（durable 1.4.0 没有请求前的拦截点，D72），把这次调用按预算口径计得的 token 从该会话以及链上**每一个设了配额的级别**（含根）扣减；同一笔调用的统计用量累加到同样的那些级别。配额可以为负，负值准确记录这次超出。`budget_used_tokens` 和 `usage_tokens` 在所有级别累计。
-- 已有数据：迁移只改列名并新增两列（预算值原样保留，统计用量从 0 开始）。统计用量在下次启动时用 durable 每个对话持久化的 `pi.usage` 回填（代数求和，再按会话树累加；只升不降），一次性标记写在 `server_meta`。durable 没有记录的调用（Auto Review 自己的请求，以及已经被丢弃的文档）无法回填，只能从 0 起算。
+- 每次模型调用之后（durable 1.4.0 没有请求前的拦截点，D72），把这次调用按预算口径计得的 token 从该会话以及链上**每一个设了配额的级别**（含根）扣减；同一笔调用的统计用量累加到同样的那些级别。配额可以为负，负值准确记录这次超出。`budget_used_tokens` 和 `usage_tokens` 在所有级别累计；`prompt_tokens` / `cache_read_tokens`（见"会话统计"）也是每次调用在同一级别累加。
+- 已有数据：迁移只改列名并新增列（预算值原样保留，统计用量从 0 开始）。统计用量在下次启动时用 durable 每个对话持久化的 `pi.usage` 回填（代数求和，再按会话树累加；只升不降），一次性标记写在 `server_meta`。durable 没有记录的调用（Auto Review 自己的请求，以及已经被丢弃的文档）无法回填，只能从 0 起算。会话统计的列同样从 0 开始，回填见"会话统计"。
 - 验收与查看：`server/test/token-measures.test.ts` 覆盖两个度量独立累加、估算常数和上下文只来自主调用；WebUI 会话页的输入框页脚显示剩余预算、上下文百分比和总用量。审批页的"额度用尽"项（`GET /api/approvals` 的 `quotas[]`）也用 `budgetRemaining` / `budgetUsedTokens` 两个名字。
 - 所有设了配额的级别剩余都 **> 0** 才继续。任何一级不满足，下一次工具调用**暂停**，会话的状态变为 **`awaiting`**（`sessions.state`，`waiting_kind = quota`，`waiting_level_id` 指向那一级），并**只向那一级的直接上级**报告（不跳过任何一级）：
   - 耗尽的是子会话：由它的直接父会话的 agent 用 `subagent_decide(request_id, "approve", tokens: N)` **增加** N（加法；**不按父级剩余封顶**——每次响应本来就扣整条链，封顶没有意义），或者 `deny` 结束暂停的运行。父会话是根时，由根会话的 agent 决定。
@@ -356,6 +356,18 @@ API key 用主密钥加密后存在 `secrets`；`model_providers` 只保存引�
 - 拒绝后暂停的工具调用立即结束，运行结束后会话置为 `idle`，读取或重算不会把它改回 `awaiting`；每次重新耗尽都是新的一次暂停，会再次通知那一级的处理者（状态定义见"会话状态"）。
 - 配额可以在创建时给出（`POST /api/sessions { budgetRemaining }`、`subagent(..., quota)`），也可以由所有者用 `PATCH /api/sessions/:id { budgetRemaining }` 替换剩余量（含根，`null` 取消限制）。
 - 只计算 token，不计算任何货币成本；不设用户级或组织级配额。
+
+## 会话统计
+
+- 会话页输入框下方的生成统计只描述**本会话自己的主 agent 调用**，与上面的配额/用量分开计数：
+  - **step**：本会话主 agent 的一次模型调用，即每一条落进本会话的 assistant 消息。结束时是错误或中止、但生成了 assistant 消息的也照算。标题生成、上下文压缩的摘要、Auto Review 和 subagent 都不是本会话的 step（subagent 是独立会话，有自己的统计）。重试是新的 assistant 消息，因此也是新的 step。
+  - **turn**：本会话一次至少产生一个 step 的用户输入（提交）。同一次运行里的重试和后续工具轮不增加 turn。实现用 `sessions.counted_submission_id`：每个 step 结束时，若会话的 `last_submission_id` 与它不同，`stat_turns + 1` 并记下 `last_submission_id`（同一个提交的后续 step 不再增加）。子会话通过 `startSubagent` 也有自己的提交，规则相同。
+  - **首字时间（TTFT）与解码时间**：计时在**提供方流**上完成，与会话有没有查看者无关。Harness 的 `Models` 由 `meteredModels` 包装（`server/src/agent/metering.ts`），durable 的每次生成用 `streamSimple(model, context, options)` 发起，`options.sessionId` 是对话的 provider session id；crhs 在调用时记下开始 S，在第一个携带内容的流事件（`text_delta` / `thinking_delta` / `toolcall_delta`，或 partial 已有内容的 start/end）记下首字 F，在 done/error 记下结束 E，三者都用 `performance.now()` 的单调时钟。消息结束时 `GenerationTask.afterResponse` 用 crh 会话 id 经会话缓存换回 provider session id，取走这次尝试（取走即删除；重试的新调用覆盖旧尝试），按 `ttft = max(0, F − S)`、`decode_ms = max(0, E − F)` 累加。只有 F 和 E 都存在、且 `usage.output > 0` 时才累加 `stat_ttft_ms` / `stat_ttft_steps` / `stat_decode_ms` / `stat_decode_tokens`；否则只增加 step。尝试按 provider session id 保存在内存里：消息结束、abort、会话拆除（`forgetSessionCaches`）和运行时关闭时清除，并有条数上限兜底，不会无界增长。只有主 agent 的生成（`streamSimple` / `stream`）会开始一条尝试；压缩的 `completeSimple` 只计费、不开始计时，标题生成和 Auto Review 直接走 `ModelConfig.completeSimple`，都不经过这个包装，因此不会产生可能被 `afterResponse` 读到的条目。没有查看者时（计划任务、API token、后台标签页）同样计时。
+  - **prompt / cache 桶**：`prompt_tokens` 累计每次模型调用输入的 input + cache read + cache write，`cache_read_tokens` 只累计 cache read；与 `usage_tokens` 是同一批调用（本会话、subagent、压缩、Auto Review、标题生成），并在链上逐级累加，所以根的是整棵树的。它们只用于展示，不影响配额。
+- 写入：计数与两个 token 度量在同一条语句里更新（`chargeCall`，配额一节）；`stat_*`、`counted_submission_id` 只写本会话行（SQL 的 CASE 限定），`prompt_tokens` / `cache_read_tokens` 与 `usage_tokens` 一起写链上每一级。API 的 `SessionView.stats` 返回 `{ turns, steps, ttftMs, ttftSteps, decodeMs, decodeTokens, promptTokens, cacheReadTokens }`。
+- 实时更新：WebUI 没有单独的统计事件。每个 step 结束后的 `chargeCall` 之后调用 `sessionList.publishSession`，列表流向该树的根发 `upsert`；会话页的 `useSessionTreeSync` 收到根 upsert 后让 `GET /sessions/:id` 失效并重新取回，统计随 `SessionView` 一起更新（与 `usageTokens` / `contextTokens` 相同）。
+- 已有数据：迁移只加列，默认 0。下次启动时（与统计用量共用 `usage_backfilled_at` 一次性标记，同一事务、只升不降）从 durable 回填：`pi.usage` 求和得到 `prompt_tokens` / `cache_read_tokens`（再按会话树累加）；按对话的历史 entries 数出 assistant 条数得到 `stat_steps`；按顺序数用户条目，在下一条用户条目之前至少跟了一条 assistant 的算一个 turn，得到 `stat_turns`。计时无法回填，保持 0。durable 没有记录的调用（Auto Review 自己的请求等）不在回填里。
+- 验收：`server/test/session-stats.test.ts` 覆盖两次提交各多个 step 的 turn/step 计数、没有查看者时由提供方流产生 TTFT/解码统计、重试覆盖旧尝试、没有内容 delta / 没有结束事件时只计数、压缩的 `completeSimple` 不产生计时条目、prompt/cache 沿链累加和回填；WebUI 的格式化在 `web/src/features/sessions/generation-stat-format.test.ts` 和 `composer.test.tsx`。
 
 ## 节点笔记
 

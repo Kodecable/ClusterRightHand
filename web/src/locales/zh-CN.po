@@ -105,6 +105,11 @@ msgstr "{0, plural, one {写入了 # 字节} other {写入了 # 字节}}"
 msgid "{0} on {1}"
 msgstr "在 {1} 上执行 {0}"
 
+#. placeholder {0}: formatTokenRate(rate, locale)
+#: src/features/sessions/composer-meta.tsx
+msgid "{0} tok/s"
+msgstr "{0} tok/s"
+
 #. placeholder {0}: formatNumber(remaining, locale)
 #: src/features/sessions/composer-footer.tsx
 msgid "{0} tokens left"
@@ -135,6 +140,16 @@ msgstr "{count, plural, one {# 项等待中} other {# 项等待中}}"
 #: src/features/sessions/composer-meta.tsx
 msgid "{exact} tokens in total"
 msgstr "共 {exact} 个 token"
+
+#. placeholder {0}: formatNumber(cacheReadTokens, locale)
+#. placeholder {1}: formatNumber(promptTokens, locale)
+#: src/features/sessions/composer-meta.tsx
+msgid "{exact} tokens in total · Cache hit: {0} / {1}"
+msgstr "共 {exact} 个 token · 缓存命中：{0} / {1}"
+
+#: src/features/sessions/composer-meta.tsx
+msgid "{hit}%"
+msgstr "{hit}%"
 
 #: src/features/settings/model-dialog.tsx
 msgid "{level} display name"
@@ -168,6 +183,10 @@ msgstr "{queued, plural, one {已排队 # 条消息} other {已排队 # 条消�
 msgid "{running} running"
 msgstr "{running} 个运行中"
 
+#: src/features/sessions/composer-meta.tsx
+msgid "{steps, plural, one {# step} other {# steps}}"
+msgstr "{steps, plural, one {# 步} other {# 步}}"
+
 #: src/components/approval-card.tsx
 msgid "{taskGroupKind} on {taskGroupTargets}"
 msgstr "{taskGroupKind}，目标：{taskGroupTargets}"
@@ -175,6 +194,10 @@ msgstr "{taskGroupKind}，目标：{taskGroupTargets}"
 #: src/features/sessions/children-bar.tsx
 msgid "{total, plural, one {# subagent} other {# subagents}}"
 msgstr "{total, plural, one {# 个子会话} other {# 个子会话}}"
+
+#: src/features/sessions/composer-meta.tsx
+msgid "{turns, plural, one {# turn} other {# turns}}"
+msgstr "{turns, plural, one {# 轮} other {# 轮}}"
 
 #: src/features/sessions/composer.tsx
 msgid "/{name}: {description} (not sent as a message)"
@@ -744,6 +767,11 @@ msgstr "自动表示由 pi-ai 根据 Base URL 判断。Responses 固定发送 re
 msgid "Auto review"
 msgstr "自动复核"
 
+#. placeholder {0}: formatLatency(averageTtft, locale)
+#: src/features/sessions/composer-meta.tsx
+msgid "Average time to first token: {0}"
+msgstr "平均首字时间：{0}"
+
 #: src/components/status-badge.tsx
 msgid "Awaiting"
 msgstr "等待中"
@@ -1285,6 +1313,11 @@ msgstr "决定者"
 #: src/components/approval-card.tsx
 msgid "Decision"
 msgstr "决定"
+
+#. placeholder {0}: formatTokenRate(rate, locale)
+#: src/features/sessions/composer-meta.tsx
+msgid "Decode speed: {0} tok/s"
+msgstr "解码速度：{0} tok/s"
 
 #: src/components/approval-card.tsx
 msgid "default"

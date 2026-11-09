@@ -2163,9 +2163,23 @@ describeBackends("0047 session state default", (backend) => {
 				"usage_tokens",
 				"context_tokens",
 				"create_request_id",
-				// Added by 0050. The test db starts at the latest schema: PostgreSQL's down/up keeps them, while
-				// SQLite's down rebuilds the table from 0046's column list and drops them.
-				...(backend === "postgres" ? ["reply_at", "owner_read_at"] : []),
+				// Added by 0050 and 0051. The test db starts at the latest schema: PostgreSQL's down/up keeps
+				// them, while SQLite's down rebuilds the table from 0046's column list and drops them.
+				...(backend === "postgres"
+					? [
+							"reply_at",
+							"owner_read_at",
+							"stat_turns",
+							"stat_steps",
+							"stat_ttft_ms",
+							"stat_ttft_steps",
+							"stat_decode_ms",
+							"stat_decode_tokens",
+							"counted_submission_id",
+							"prompt_tokens",
+							"cache_read_tokens",
+						]
+					: []),
 			].toSorted(),
 		);
 		expect(await sessionIndexes()).toEqual(expectedIndexes);

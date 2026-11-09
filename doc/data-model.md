@@ -156,7 +156,12 @@ sessions          (id, org_id, owner_user_id, conversation_id, parent_session_id
                    owner_read_at nullable,              -- 根会话：所有者上次打开这棵树的时间；reply_at > owner_read_at 即未读
                    budget_used_tokens,                  -- 预算口径：本会话及其 subagent 的输出 token（D101）
                    usage_tokens,                        -- 统计口径：本会话及其 subagent 的输入 + 输出 token（D101）
-                   context_tokens nullable)             -- 本会话最近一次主 agent 调用的输入大小；第一次调用前为 null
+                   context_tokens nullable,             -- 本会话最近一次主 agent 调用的输入大小；第一次调用前为 null
+                   stat_turns, stat_steps,              -- 会话统计（agent-runtime.md#会话统计）：本会话的轮数和主 agent 调用数
+                   stat_ttft_ms, stat_ttft_steps,       -- 首字时间总和与观察到的 step 数（平均 TTFT 的分子/分母）
+                   stat_decode_ms, stat_decode_tokens,  -- 首字之后的解码时间总和与输出 token 数（解码速度的分子/分母）
+                   counted_submission_id nullable,      -- 已计入 stat_turns 的最近提交；同一提交的后续 step 不再加轮
+                   prompt_tokens, cache_read_tokens)    -- 整棵树的输入（input + cache read + cache write）和 cache read token
                    -- 规则在 rule_sets
 model_providers   (id, org_id, provider_id, kind[builtin|custom], builtin, name, base_url,
                    secret_id, models json, headers json, session_id json nullable, enabled)
@@ -167,7 +172,7 @@ model_presets     (org_id, kind[session|review|title], model json nullable, syst
                   -- 模型预设（D116），主键 (org_id, kind)；session 的 model 恒为空；取代 server_meta.review_model
 ```
 
-> 两个 token 度量见 [agent-runtime.md](agent-runtime.md#配额)（D101）：`budget_used_tokens` 只计输出、决定配额何时暂停；`usage_tokens` 计输入 + 输出、只用于展示，两者都在链上累加。`context_tokens` 只由主 agent 的模型调用写入，压缩和 Auto Review 不写。上游没有上报用量时，输入按调用实际发出的请求内容估算：生成只有请求的 `messages`，压缩和 Auto Review 是系统提示加消息。
+> 两个 token 度量见 [agent-runtime.md](agent-runtime.md#配额)（D101）：`budget_used_tokens` 只计输出、决定配额何时暂停；`usage_tokens` 计输入 + 输出、只用于展示，两者都在链上累加。`context_tokens` 只由主 agent 的模型调用写入，压缩和 Auto Review 不写。上游没有上报用量时，输入按调用实际发出的请求内容估算：生成只有请求的 `messages`，压缩和 Auto Review 是系统提示加消息。`stat_*` 与 `counted_submission_id` 只描述本会话的主 agent 调用（`prompt_tokens` / `cache_read_tokens` 除外，它们和 `usage_tokens` 一样按树累加），定义与回填见 [agent-runtime.md](agent-runtime.md#会话统计)。
 
 ## 计划任务
 

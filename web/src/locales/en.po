@@ -105,6 +105,11 @@ msgstr "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
 msgid "{0} on {1}"
 msgstr "{0} on {1}"
 
+#. placeholder {0}: formatTokenRate(rate, locale)
+#: src/features/sessions/composer-meta.tsx
+msgid "{0} tok/s"
+msgstr "{0} tok/s"
+
 #. placeholder {0}: formatNumber(remaining, locale)
 #: src/features/sessions/composer-footer.tsx
 msgid "{0} tokens left"
@@ -135,6 +140,16 @@ msgstr "{count, plural, one {# waiting} other {# waiting}}"
 #: src/features/sessions/composer-meta.tsx
 msgid "{exact} tokens in total"
 msgstr "{exact} tokens in total"
+
+#. placeholder {0}: formatNumber(cacheReadTokens, locale)
+#. placeholder {1}: formatNumber(promptTokens, locale)
+#: src/features/sessions/composer-meta.tsx
+msgid "{exact} tokens in total · Cache hit: {0} / {1}"
+msgstr "{exact} tokens in total · Cache hit: {0} / {1}"
+
+#: src/features/sessions/composer-meta.tsx
+msgid "{hit}%"
+msgstr "{hit}%"
 
 #: src/features/settings/model-dialog.tsx
 msgid "{level} display name"
@@ -168,6 +183,10 @@ msgstr "{queued, plural, one {# message queued} other {# messages queued}}"
 msgid "{running} running"
 msgstr "{running} running"
 
+#: src/features/sessions/composer-meta.tsx
+msgid "{steps, plural, one {# step} other {# steps}}"
+msgstr "{steps, plural, one {# step} other {# steps}}"
+
 #: src/components/approval-card.tsx
 msgid "{taskGroupKind} on {taskGroupTargets}"
 msgstr "{taskGroupKind} on {taskGroupTargets}"
@@ -175,6 +194,10 @@ msgstr "{taskGroupKind} on {taskGroupTargets}"
 #: src/features/sessions/children-bar.tsx
 msgid "{total, plural, one {# subagent} other {# subagents}}"
 msgstr "{total, plural, one {# subagent} other {# subagents}}"
+
+#: src/features/sessions/composer-meta.tsx
+msgid "{turns, plural, one {# turn} other {# turns}}"
+msgstr "{turns, plural, one {# turn} other {# turns}}"
 
 #: src/features/sessions/composer.tsx
 msgid "/{name}: {description} (not sent as a message)"
@@ -744,6 +767,11 @@ msgstr "Auto lets pi-ai decide from the base URL. Responses always sends reasoni
 msgid "Auto review"
 msgstr "Auto review"
 
+#. placeholder {0}: formatLatency(averageTtft, locale)
+#: src/features/sessions/composer-meta.tsx
+msgid "Average time to first token: {0}"
+msgstr "Average time to first token: {0}"
+
 #: src/components/status-badge.tsx
 msgid "Awaiting"
 msgstr "Awaiting"
@@ -1285,6 +1313,11 @@ msgstr "Decided by"
 #: src/components/approval-card.tsx
 msgid "Decision"
 msgstr "Decision"
+
+#. placeholder {0}: formatTokenRate(rate, locale)
+#: src/features/sessions/composer-meta.tsx
+msgid "Decode speed: {0} tok/s"
+msgstr "Decode speed: {0} tok/s"
 
 #: src/components/approval-card.tsx
 msgid "default"

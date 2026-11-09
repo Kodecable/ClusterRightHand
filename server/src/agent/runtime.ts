@@ -1,8 +1,9 @@
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
-import { type ConversationId, createRegistry, Harness, UsageDoc } from "@earendil-works/pi-durable";
+import { type ConversationId, type Cursor, createRegistry, Harness, UsageDoc } from "@earendil-works/pi-durable";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { RulePreset } from "../policy/rules.ts";
 import { clusterExtension } from "./extension.ts";
+import { GenerationTimings } from "./latency.ts";
 import { ModelPresets } from "./model-presets.ts";
 import type { ModelRef } from "./models.ts";
 import { Reviewer } from "./review.ts";
@@ -103,7 +104,12 @@ export class AgentRuntime {
 			quotaWaits: new QuotaWaits(),
 			wakes: new HandlerWakes(),
 			sessionFlags: new SessionFlags(),
+			generationTimings: new GenerationTimings(),
 		};
+		// The extension is built before the runtime and the Harness's metered Models resolve the map per request;
+		// both read it through the options, so every Harness (a reopen included) shares this instance
+		// (doc/agent-runtime.md#会话统计).
+		options.generationTimings = this.#host.generationTimings;
 		// Custom providers fill their session id fields from the crh session id, not durable's provider id
 		// (doc/agent-runtime.md#自定义提供方). Auto Review asks for the reverse: the provider session id of
 		// the session whose task it judges.
@@ -125,9 +131,14 @@ export class AgentRuntime {
 			storage,
 			{
 				// Compaction's summarization is metered here; Auto Review charges itself (doc/agent-runtime.md#配额).
-				models: options.models.metered(async (providerSessionId, message, context) => {
-					await ref.current?.chargeCompaction(providerSessionId, message, context);
-				}),
+				// Generation streams are timed as they run, independently of any viewer
+				// (doc/agent-runtime.md#会话统计).
+				models: options.models.metered(
+					async (providerSessionId, message, context) => {
+						await ref.current?.chargeCompaction(providerSessionId, message, context);
+					},
+					() => options.generationTimings,
+				),
 				registry,
 				identity: { attribution: { name: "ClusterRightHand", url: "https://github.com/Kodecable/ClusterRightHand" } },
 				settings: {
@@ -184,9 +195,28 @@ export class AgentRuntime {
 		await endOrphanWaits(runtime.#host);
 		// Sessions created before the per-conversation tool filter existed may still offer subagent at the limit.
 		await enforceDepthToolLimits(runtime.#host);
-		// A session that predates the statistics measure gets it from durable's persisted usage (D101).
-		await backfillUsageTokens(options.db, async (conversationId) =>
-			runtime.#harness.snapshot(UsageDoc, Number(conversationId) as unknown as ConversationId, BACKGROUND_CONTEXT),
+		// A session that predates the statistics measures gets them from durable's persisted usage and history
+		// (D101, doc/agent-runtime.md#会话统计).
+		await backfillUsageTokens(
+			options.db,
+			async (conversationId) =>
+				runtime.#harness.snapshot(UsageDoc, Number(conversationId) as unknown as ConversationId, BACKGROUND_CONTEXT),
+			new Date(),
+			async (conversationId) => {
+				const conversation = await runtime.#harness.conversation(
+					Number(conversationId) as unknown as ConversationId,
+					BACKGROUND_CONTEXT,
+				);
+				if (!conversation) return [];
+				const kinds: { kind: string }[] = [];
+				let cursor: Cursor | undefined;
+				do {
+					const page = await conversation.entries({ order: "ascending" }, 500, cursor, BACKGROUND_CONTEXT);
+					for (const entry of page.items) kinds.push({ kind: entry.kind });
+					cursor = page.next;
+				} while (cursor);
+				return kinds;
+			},
 		);
 		// A restart may have queued nothing for requests that were already waiting: wake idle parents now.
 		await wakePendingAgents(runtime.#host);
@@ -229,6 +259,11 @@ export class AgentRuntime {
 		return this.#closing;
 	}
 
+	/** How many provider sessions hold an unfinished timing (tests): it must not outlive the message. */
+	get pendingTimingCount(): number {
+		return this.#host.generationTimings.size;
+	}
+
 	/** The session list's event hub, for `GET /api/sessions` and `GET /api/sessions/stream`. */
 	get sessionList(): SessionListHub {
 		return this.#sessionList;
@@ -236,6 +271,7 @@ export class AgentRuntime {
 
 	async close(): Promise<void> {
 		this.#closing = true;
+		this.#host.generationTimings.clearAll();
 		await this.#harness.close(this.#host.context);
 		this.#sessionList.close();
 	}

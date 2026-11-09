@@ -52,6 +52,16 @@ function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 		budgetUsedTokens: 0,
 		usageTokens: 0,
 		contextTokens: null,
+		stats: {
+			turns: 0,
+			steps: 0,
+			ttftMs: 0,
+			ttftSteps: 0,
+			decodeMs: 0,
+			decodeTokens: 0,
+			promptTokens: 0,
+			cacheReadTokens: 0,
+		},
 		...overrides,
 	};
 }

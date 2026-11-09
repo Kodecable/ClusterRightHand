@@ -49,6 +49,8 @@ export interface CallTokens {
 	usage: number;
 	/** Input tokens (input + cache read + cache write) of this call, the context fill (D101). */
 	context: number;
+	/** Cache-read tokens the upstream reported for this call's input; 0 (or absent) when it reported none. */
+	cacheRead?: number;
 }
 
 function count(value: number | undefined): number {
@@ -106,7 +108,7 @@ export function accountedInputTokens(message: AccountedMessage, estimatedInput: 
 export function callTokens(message: AccountedMessage, estimatedInput: number): CallTokens {
 	const budget = accountedOutputTokens(message);
 	const context = accountedInputTokens(message, estimatedInput);
-	return { budget, usage: context + budget, context };
+	return { budget, usage: context + budget, context, cacheRead: count(message.usage?.cacheRead) };
 }
 
 /**

@@ -25,6 +25,7 @@ import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import { UserError } from "../util/errors.ts";
 import { customProvider, type ProviderSessionResolver, withKey } from "./custom-provider.ts";
+import type { TimingSink } from "./latency.ts";
 import { type CompleteMeter, meteredModels } from "./metering.ts";
 import { parseJson } from "./model-providers.ts";
 import { type CustomModel, levelDisplayName, type ModelRef, type ThinkingLevelLabels } from "./model-types.ts";
@@ -115,9 +116,13 @@ export class ModelConfig {
 		return this.#models.completeSimple(model, context, options);
 	}
 
-	/** The registry the Harness gets, wrapped so its compaction calls are metered (doc/agent-runtime.md#配额). */
-	metered(onComplete: CompleteMeter): Models {
-		return meteredModels(this.#models, onComplete);
+	/**
+	 * The registry the Harness gets, wrapped so its compaction calls are metered (doc/agent-runtime.md#配额)
+	 * and its generation streams are timed (doc/agent-runtime.md#会话统计). `timing` is resolved per call: the
+	 * runtime is built after the Harness, and a reopen must share the same map.
+	 */
+	metered(onComplete: CompleteMeter, timing: () => TimingSink | undefined): Models {
+		return meteredModels(this.#models, onComplete, timing);
 	}
 
 	/**

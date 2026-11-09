@@ -148,12 +148,13 @@ web/src/
   2. **思考档位**，紧跟模型，例如 `[灯泡] high`：只列出当前模型的 `thinkingLevels`（来自 `/api/models`）；模型只有 `off` 时不显示这一项。选中即 `PATCH { model: { provider, modelId, thinkingLevel } }`，同样从下一轮起生效。
   3. **规则预设**，`[盾牌问号]Ask`、`[盾牌省略号]Auto Review`、`[盾牌感叹号]Yolo`：规则预设名加图标。点击直接展开三个规则预设的列表，不再先弹中间面板；选中即 `PATCH { rulePreset }`。只有根会话能改规则预设；子会话显示纯文本的规则摘要（`规则：N`）。规则预设改动立即写进规则集，**从下一次工具调用起生效**，并且服务端会立刻重判等待中的审批。调用者没有 `capabilities.configure` 时两项都禁用（查询参数的等待和页脚都只读）。
   4. **预算**，`[水滴] 12K`：剩余 token 加自动单位；不设上限时是 `[水滴] ∞`（tooltip 仍是 `No budget limit`，永远不说 "unlimited quota"）；为负时是 `[水滴] 0` 并用危险色。调用者可以改时点击打开配额对话框。
-- 输入框下方单独一行居中：
+- 输入框下方单独一行居中，从左到右三项（统计定义见 [agent-runtime.md](agent-runtime.md#会话统计)）：
+  - **生成统计**：`[仪表] 2 轮 4 步 · 45 tok/s`。轮数和步数来自 `SessionView.stats.turns` / `stats.steps`；`tok/s` 只在 `decodeMs > 0` 时显示，值为 `decodeTokens / (decodeMs / 1000)`，≥ 10 取整数、小于 10 保留一位小数。`steps = 0` 时整项不显示。tooltip 是平均首字时间（`ttftMs / ttftSteps`，如 `1.2s`；`ttftSteps = 0` 时省略）和解码速度。
+  - **总用量**：`[数据库] 1.5M · 75%`（`usageTokens` 的自动单位）。`promptTokens > 0` 时追加缓存命中率 `cacheReadTokens / promptTokens`：整数百分比，非整时向下取整且不显示成 100，只有正好全部命中才是 100%；`promptTokens = 0` 时不显示。tooltip 是精确的总用量，以及 `Cache hit: 7,550 / 10,000` 形式的精确读取/输入数。
   - **上下文**：一个小圆环加百分比，例如 `◔ 42%`；tooltip 是精确的 `contextTokens / contextWindow`。百分比用模型列表里的 `contextWindow` 计算；任意一项未知时不显示。
-  - **总用量**：`[数据库] 1.5M`（`usageTokens` 的自动单位），tooltip 是精确数字。
 - 右端只有一个图标按钮：发送时是向上箭头，停止时是方形。当前有运行可以停止且输入框为空时显示停止，否则显示发送；输入内容后即使还在运行也切换为发送（作为追加消息）。
-- 页脚不再按宽度隐藏计数：预算始终显示，模型和规则在窄屏只用 `min-w-0 truncate` 省略，完整文本在 tooltip 里；发送 / 停止按钮永不缩小或隐藏。上下文和用量在框下单独一行，窄屏可以换行。390 / 768 / 1440 px 三档都有 e2e 断言。
-- 两个度量与上下文的含义见 [agent-runtime.md](agent-runtime.md#配额)，决策见 D101。
+- 页脚不再按宽度隐藏计数：预算始终显示，模型和规则在窄屏只用 `min-w-0 truncate` 省略，完整文本在 tooltip 里；发送 / 停止按钮永不缩小或隐藏。生成统计、用量和上下文在框下单独一行，窄屏可以换行。390 / 768 / 1440 px 三档都有 e2e 断言。
+- 生成统计、两个度量与上下文的含义见 [agent-runtime.md](agent-runtime.md#配额) 和 [agent-runtime.md](agent-runtime.md#会话统计)，决策见 D101。
 
 **子会话栏**（输入框正上方的圆角条，没有子会话时整个条不显示）：
 
@@ -315,10 +316,11 @@ web/src/
 }
 ```
 
-**会话详情与修改**：`GET /sessions/:id` 的 `SessionView` 带两个 token 度量和一个上下文值（D101）：
+**会话详情与修改**：`GET /sessions/:id` 的 `SessionView` 带两个 token 度量、一个上下文值和本会话的生成统计（D101）：
 - `budgetUsedTokens`：预算口径，只计输出，链上累计；
 - `usageTokens`：统计口径，输入 + 输出，链上累计；
 - `contextTokens`：本会话最近一次主 agent 模型调用的输入大小（input + cache read + cache write），第一次调用前为 null；
+- `stats`：`{ turns, steps, ttftMs, ttftSteps, decodeMs, decodeTokens, promptTokens, cacheReadTokens }`。前六项只属于本会话；`promptTokens` / `cacheReadTokens` 与 `usageTokens` 一样是整棵树的，供输入框下方的缓存命中率使用（定义见 [agent-runtime.md](agent-runtime.md#会话统计)）；
 - `budgetRemaining`：剩余预算（原 `quota` 字段改名，null 不限）。
 `POST /sessions` 和 `PATCH /sessions/:id` 用 `budgetRemaining` 取代原来的 `quota` 字段。
 

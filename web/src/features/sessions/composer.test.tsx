@@ -48,6 +48,16 @@ function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 		budgetUsedTokens: 0,
 		usageTokens: 1_500_000,
 		contextTokens: 64_000,
+		stats: {
+			turns: 0,
+			steps: 0,
+			ttftMs: 0,
+			ttftSteps: 0,
+			decodeMs: 0,
+			decodeTokens: 0,
+			promptTokens: 0,
+			cacheReadTokens: 0,
+		},
 		...overrides,
 	};
 }
@@ -437,6 +447,70 @@ describe("ComposerFooter", () => {
 		expect(screen.getByTestId("composer-rules").querySelector(".lucide-shield-alert")).not.toBeNull();
 		expect(screen.getByTestId("composer-budget").querySelector(".lucide-droplet")).not.toBeNull();
 		expect(screen.getByTestId("composer-usage").querySelector(".lucide-database")).not.toBeNull();
+	});
+
+	test("shows turns, steps, the decode speed and the cache hit, with the exact numbers in tooltips", async () => {
+		mockFetch();
+		renderComposer({
+			session: {
+				stats: {
+					turns: 2,
+					steps: 4,
+					ttftMs: 2_400,
+					ttftSteps: 2,
+					decodeMs: 2_000,
+					decodeTokens: 90,
+					promptTokens: 10_000,
+					cacheReadTokens: 7_550,
+				},
+			},
+		});
+		await waitFor(() => expect(screen.getByTestId("composer-activity")).toBeInTheDocument());
+		await waitFor(() => expect(screen.getByTestId("composer-context")).toBeInTheDocument());
+		// The activity line comes first, then the usage, then the context ring.
+		expect(screen.getByTestId("composer-meta").children[0]).toBe(screen.getByTestId("composer-activity"));
+		expect(screen.getByTestId("composer-meta").children[1]).toBe(screen.getByTestId("composer-usage"));
+		expect(screen.getByTestId("composer-meta").children[2]).toBe(screen.getByTestId("composer-context"));
+		expect(screen.getByTestId("composer-activity")).toHaveTextContent("2 turns 4 steps · 45 tok/s");
+		expect(screen.getByTestId("composer-activity")).toHaveAttribute(
+			"title",
+			"Average time to first token: 1.2s · Decode speed: 45 tok/s",
+		);
+		expect(screen.getByTestId("composer-activity").querySelector(".lucide-gauge")).not.toBeNull();
+		expect(screen.getByTestId("composer-usage")).toHaveTextContent("1.5M · 75%");
+		expect(screen.getByTestId("composer-usage")).toHaveAttribute(
+			"title",
+			"1,500,000 tokens in total · Cache hit: 7,550 / 10,000",
+		);
+	});
+
+	test("hides the activity line without a step and the speed without a decode time", async () => {
+		mockFetch();
+		renderComposer();
+		await waitFor(() => expect(screen.getByTestId("composer-context")).toBeInTheDocument());
+		expect(screen.queryByTestId("composer-activity")).not.toBeInTheDocument();
+	});
+
+	test("keeps the activity line but drops the speed when no decode time was measured", async () => {
+		mockFetch();
+		renderComposer({
+			session: {
+				stats: {
+					turns: 1,
+					steps: 2,
+					ttftMs: 0,
+					ttftSteps: 0,
+					decodeMs: 0,
+					decodeTokens: 0,
+					promptTokens: 0,
+					cacheReadTokens: 0,
+				},
+			},
+		});
+		await waitFor(() => expect(screen.getByTestId("composer-activity")).toBeInTheDocument());
+		expect(screen.getByTestId("composer-activity")).toHaveTextContent("1 turn 2 steps");
+		expect(screen.getByTestId("composer-activity")).not.toHaveTextContent("tok/s");
+		expect(screen.getByTestId("composer-activity")).not.toHaveAttribute("title");
 	});
 
 	test("the thinking picker lists only the model's levels and PATCHes the model with the level", async () => {

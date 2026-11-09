@@ -13,6 +13,7 @@ import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError } from "../util/errors.ts";
+import type { GenerationTimings } from "./latency.ts";
 import type { ModelPresets } from "./model-presets.ts";
 import type { ModelConfig } from "./models.ts";
 import type { HandlerWakes } from "./runtime-host/handler-wakes.ts";
@@ -75,6 +76,12 @@ export interface AgentRuntimeOptions {
 	/** Set by clusterExtension; removed from a conversation that has reached the subagent depth limit. */
 	subagentTool?: ToolRegistration;
 	/**
+	 * In-flight generation timings keyed by provider session id, filled in by `AgentRuntime`
+	 * (doc/agent-runtime.md#会话统计). `meteredModels` records an attempt as it streams; the extension takes
+	 * it when the message ends.
+	 */
+	generationTimings?: GenerationTimings;
+	/**
 	 * Compaction policy override; the pi defaults when omitted (doc/agent-runtime.md#默认值). Tests use it to
 	 * make a compaction happen with a few messages.
 	 */
@@ -111,6 +118,8 @@ export interface RuntimeHost {
 	readonly wakes: HandlerWakes;
 	/** Stops and title generations in flight (memory only). */
 	readonly sessionFlags: SessionFlags;
+	/** The in-flight generation attempts, by provider session id (doc/agent-runtime.md#会话统计). */
+	readonly generationTimings: GenerationTimings;
 }
 
 /** The session's row; `missing` words the NotFoundError (callers name what the user asked for). */

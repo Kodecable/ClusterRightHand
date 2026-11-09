@@ -1,8 +1,10 @@
+import type { SessionStats } from "@crh/api";
 import type { Selectable } from "kysely";
 import { sql } from "kysely";
 import type { Db } from "../storage/db.ts";
 import type { SessionsTable } from "../storage/schema.ts";
 import { UserError } from "../util/errors.ts";
+import type { StepTiming } from "./latency.ts";
 import { sessionAncestors, sessionChain } from "./session-chain.ts";
 import type { CallTokens } from "./tokens.ts";
 
@@ -66,6 +68,34 @@ export async function contextTokens(db: Db, sessionId: string): Promise<number |
 	return (await sessionTokens(db, sessionId)).contextTokens;
 }
 
+/** A session's own generation statistics and its tree's token buckets (doc/agent-runtime.md#会话统计). */
+export async function sessionStats(db: Db, sessionId: string): Promise<SessionStats> {
+	const row = await db
+		.selectFrom("sessions")
+		.select([
+			"stat_turns",
+			"stat_steps",
+			"stat_ttft_ms",
+			"stat_ttft_steps",
+			"stat_decode_ms",
+			"stat_decode_tokens",
+			"prompt_tokens",
+			"cache_read_tokens",
+		])
+		.where("id", "=", sessionId)
+		.executeTakeFirst();
+	return {
+		turns: Number(row?.stat_turns ?? 0),
+		steps: Number(row?.stat_steps ?? 0),
+		ttftMs: Number(row?.stat_ttft_ms ?? 0),
+		ttftSteps: Number(row?.stat_ttft_steps ?? 0),
+		decodeMs: Number(row?.stat_decode_ms ?? 0),
+		decodeTokens: Number(row?.stat_decode_tokens ?? 0),
+		promptTokens: Number(row?.prompt_tokens ?? 0),
+		cacheReadTokens: Number(row?.cache_read_tokens ?? 0),
+	};
+}
+
 /** Stores the input size of the session's own last main-agent call (D101). */
 export async function setContextTokens(db: Db, sessionId: string, tokens: number): Promise<void> {
 	await db
@@ -78,18 +108,50 @@ export async function setContextTokens(db: Db, sessionId: string, tokens: number
 /**
  * Charges one model call to every level of the chain, the root included: the budget (output only, reducing each
  * quota; quotas may go negative) and the statistics usage (input + output). Both display counters grow at every
- * level, for `GET /sessions/:id`.
+ * level, for `GET /sessions/:id`. `prompt_tokens` and `cache_read_tokens` (doc/agent-runtime.md#会话统计) grow
+ * with them: the input and cache read of the same calls, so a tree's cache hit is the same set of calls.
+ *
+ * `step` marks a main-agent call of this session: `stat_steps` grows, a new submission grows `stat_turns`, and
+ * `timing` (the provider stream's start, first content and end, doc/agent-runtime.md#会话统计) grows the TTFT
+ * and decode counters. These are the session's own counters, so the single statement's CASE keeps ancestors
+ * unchanged; the counters and the usage measures therefore commit together.
  */
-export async function chargeCall(db: Db, sessionId: string, tokens: CallTokens): Promise<void> {
+export async function chargeCall(
+	db: Db,
+	sessionId: string,
+	tokens: CallTokens,
+	step?: { timing?: StepTiming },
+): Promise<void> {
 	const budget = Math.max(0, Math.round(tokens.budget));
 	const usage = Math.max(0, Math.round(tokens.usage));
+	const prompt = Math.max(0, Math.round(tokens.context));
+	const cacheRead = Math.max(0, Math.round(tokens.cacheRead ?? 0));
 	const levels = await sessionChain(db, sessionId);
 	await db
 		.updateTable("sessions")
 		.set({
 			budget_used_tokens: sql`budget_used_tokens + ${budget}`,
 			usage_tokens: sql`usage_tokens + ${usage}`,
+			prompt_tokens: sql`prompt_tokens + ${prompt}`,
+			cache_read_tokens: sql`cache_read_tokens + ${cacheRead}`,
 			quota_tokens: sql`case when quota_tokens is null then null else quota_tokens - ${budget} end`,
+			...(step
+				? {
+						stat_steps: sql`case when id = ${sessionId} then stat_steps + 1 else stat_steps end`,
+						// One turn per submission that produced a step (doc/agent-runtime.md#会话统计): a retry or
+						// another step of the same submission leaves `counted_submission_id` equal to it.
+						stat_turns: sql`case when id = ${sessionId} and coalesce(counted_submission_id, '') <> coalesce(last_submission_id, '') then stat_turns + 1 else stat_turns end`,
+						counted_submission_id: sql`case when id = ${sessionId} then last_submission_id else counted_submission_id end`,
+					}
+				: {}),
+			...(step?.timing
+				? {
+						stat_ttft_ms: sql`case when id = ${sessionId} then stat_ttft_ms + ${Math.max(0, Math.round(step.timing.ttftMs))} else stat_ttft_ms end`,
+						stat_ttft_steps: sql`case when id = ${sessionId} then stat_ttft_steps + 1 else stat_ttft_steps end`,
+						stat_decode_ms: sql`case when id = ${sessionId} then stat_decode_ms + ${Math.max(0, Math.round(step.timing.decodeMs))} else stat_decode_ms end`,
+						stat_decode_tokens: sql`case when id = ${sessionId} then stat_decode_tokens + ${Math.max(0, Math.round(step.timing.outputTokens))} else stat_decode_tokens end`,
+					}
+				: {}),
 		})
 		.where("id", "in", levels)
 		.execute();

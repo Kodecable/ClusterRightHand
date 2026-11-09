@@ -68,6 +68,17 @@ function isShownEvent(event: AgentEvent): boolean {
 	}
 }
 
+/**
+ * Drops each session's in-flight generation timing (doc/agent-runtime.md#会话统计). The timings are keyed by
+ * provider session id, so each crh session id is resolved through the session cache first.
+ */
+function clearTimings(host: RuntimeHost, sessionIds: readonly string[]): void {
+	for (const id of sessionIds) {
+		const providerSessionId = host.sessionCaches.providerSessionIdFor(id);
+		if (providerSessionId) host.generationTimings.clear(providerSessionId);
+	}
+}
+
 export async function createSession(
 	host: RuntimeHost,
 	owner: SessionUser,
@@ -228,6 +239,8 @@ function submissionRequestIdFor(createRequestId: string): string {
  * none of them may outlive the row it describes. Durable keeps the conversation's records.
  */
 export function forgetSessionCaches(host: RuntimeHost, sessionId: string, conversationId?: string): void {
+	// Clear the timing before the cache mapping is forgotten: the map is keyed by the provider session id.
+	clearTimings(host, [sessionId]);
 	host.sessionCaches.forgetSession(sessionId, conversationId);
 	host.inboxes.forget(sessionId);
 	host.wakes.forget(sessionId);
@@ -374,6 +387,17 @@ async function sessionView(host: RuntimeHost, row: SessionRow): Promise<SessionV
 		budgetUsedTokens: Number(row.budget_used_tokens),
 		usageTokens: Number(row.usage_tokens),
 		contextTokens: row.context_tokens === null ? null : Number(row.context_tokens),
+		// The session's own generation statistics (doc/agent-runtime.md#会话统计); prompt/cache are tree totals.
+		stats: {
+			turns: Number(row.stat_turns),
+			steps: Number(row.stat_steps),
+			ttftMs: Number(row.stat_ttft_ms),
+			ttftSteps: Number(row.stat_ttft_steps),
+			decodeMs: Number(row.stat_decode_ms),
+			decodeTokens: Number(row.stat_decode_tokens),
+			promptTokens: Number(row.prompt_tokens),
+			cacheReadTokens: Number(row.cache_read_tokens),
+		},
 	};
 }
 
@@ -459,6 +483,8 @@ export async function configure(
 export async function abort(host: RuntimeHost, sessionId: string, by?: SessionUser): Promise<void> {
 	const { conversation } = await loadConversation(host, sessionId);
 	const sessions = [sessionId, ...(await sessionDescendants(host.db, sessionId))];
+	// A stopped message produces no timing; its attempt must not be read by a later run.
+	clearTimings(host, sessions);
 	for (const id of sessions) host.sessionFlags.beginStop(id);
 	try {
 		await conversation.abort(host.context);
@@ -491,6 +517,8 @@ export async function abort(host: RuntimeHost, sessionId: string, by?: SessionUs
 		for (const id of sessions) host.wakes.dropAll(id);
 	} finally {
 		for (const id of sessions) host.sessionFlags.endStop(id);
+		// A stream event may have landed after the first clear; nothing will read it for this stopped run.
+		clearTimings(host, sessions);
 	}
 }
 

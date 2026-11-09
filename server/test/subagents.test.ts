@@ -2,6 +2,7 @@ import type { TaskSpec } from "@crh/protocol";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
+import { GenerationTimings } from "../src/agent/latency.ts";
 import { ModelConfig } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import type { RuntimeHost } from "../src/agent/runtime-core.ts";
@@ -230,6 +231,7 @@ it("caches the conversation-to-session lookup and forgets it with the other cach
 		wakes: new HandlerWakes(),
 		sessionFlags: new SessionFlags(),
 		quotaWaits: new QuotaWaits(),
+		generationTimings: new GenerationTimings(),
 	} as unknown as RuntimeHost;
 	host.sessionCaches.rememberSession(row.conversation_id, first);
 	host.sessionCaches.rememberProviderSession(row.conversation_id, "provider-session", session.id);

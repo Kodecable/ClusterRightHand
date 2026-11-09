@@ -17,6 +17,7 @@ import type { RuleRef } from "../policy/store.ts";
 import { callTool } from "../tools/adapter.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
 import { UserError } from "../util/errors.ts";
+import { stepTiming } from "./latency.ts";
 import type { ModelPresets } from "./model-presets.ts";
 import { THINKING_LEVELS } from "./models.ts";
 import { chargeCall, exhaustedLevel, parseQuota, setContextTokens } from "./quota.ts";
@@ -188,7 +189,13 @@ export function clusterExtension(
 				// The provider document is written for this request; remember it for metering a later compaction.
 				if (runtime) await runtime.rememberProviderSession(conversationId);
 				const tokens = callTokens(message, estimatedInput);
-				await chargeCall(options.db, sessionId, tokens);
+				// The provider stream timed this attempt at meter request / first content / stream end, with no
+				// viewer involved (doc/agent-runtime.md#会话统计). The provider session id is durable's identity
+				// for this conversation's stream; taking the attempt also forgets it, so a retry starts afresh.
+				const providerSessionId = options.models.providerSessionIdFor(sessionId);
+				const attempt = providerSessionId ? options.generationTimings?.take(providerSessionId) : undefined;
+				const timing = stepTiming(attempt, message.usage?.output ?? 0);
+				await chargeCall(options.db, sessionId, tokens, { ...(timing ? { timing } : {}) });
 				// The context fill is the session's own last main-agent call, never a compaction or review (D101).
 				await setContextTokens(options.db, sessionId, tokens.context);
 				const over = await exhaustedLevel(options.db, sessionId);

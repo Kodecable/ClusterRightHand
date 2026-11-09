@@ -413,6 +413,24 @@ export interface SessionsTable {
 	usage_tokens: ColumnType<string | number, string | number | undefined, string | number>;
 	/** The input size of this session's own last main-agent call (D101); null before the first. */
 	context_tokens: ColumnType<string | number | null, string | number | null | undefined, string | number | null>;
+	/** Own main-agent steps that ended in this session (doc/agent-runtime.md#会话统计). */
+	stat_steps: ColumnType<string | number, string | number | undefined, string | number>;
+	/** Own user inputs that led to at least one step. */
+	stat_turns: ColumnType<string | number, string | number | undefined, string | number>;
+	/** The newest submission already counted in `stat_turns`; null before the first step. */
+	counted_submission_id: string | null;
+	/** Total time to first streamed delta over the steps it was observed for. */
+	stat_ttft_ms: ColumnType<string | number, string | number | undefined, string | number>;
+	/** Steps whose first delta was observed (the divisor of the average TTFT). */
+	stat_ttft_steps: ColumnType<string | number, string | number | undefined, string | number>;
+	/** Total decode time (message end minus first delta) over the steps that had one. */
+	stat_decode_ms: ColumnType<string | number, string | number | undefined, string | number>;
+	/** Output tokens decoded in `stat_decode_ms`. */
+	stat_decode_tokens: ColumnType<string | number, string | number | undefined, string | number>;
+	/** Input (input + cache read + cache write) tokens of every call, accumulated up the tree. */
+	prompt_tokens: ColumnType<string | number, string | number | undefined, string | number>;
+	/** Cache-read tokens of every call, accumulated up the tree. */
+	cache_read_tokens: ColumnType<string | number, string | number | undefined, string | number>;
 }
 
 export interface ModelProvidersTable {

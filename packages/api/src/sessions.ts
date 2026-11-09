@@ -76,6 +76,26 @@ export interface SessionListQuery extends CursorQuery {
 	q?: string;
 }
 
+/** A session's own generation counters, plus the tree's input and cache-read totals (doc/agent-runtime.md "会话统计"). */
+export interface SessionStats {
+	/** User inputs of this session that led to at least one step. */
+	turns: number;
+	/** Main-agent model calls that ended in this session (retries and tool rounds included). */
+	steps: number;
+	/** Total time to the first streamed delta over `ttftSteps` steps. */
+	ttftMs: number;
+	/** Steps whose first delta was observed; 0 means no timing is known. */
+	ttftSteps: number;
+	/** Total decode time (message end minus first delta) over the steps that had one. */
+	decodeMs: number;
+	/** Output tokens decoded in `decodeMs`. */
+	decodeTokens: number;
+	/** Input (input + cache read + cache write) tokens of this tree's calls. */
+	promptTokens: number;
+	/** Cache-read tokens of this tree's calls. */
+	cacheReadTokens: number;
+}
+
 /**
  * `GET /api/sessions/:id`: the session, how the caller relates to it and
  * their effective capabilities. `shares` is present only for the owner and
@@ -115,6 +135,8 @@ export interface SessionView {
 	usageTokens: number;
 	/** The input size of the session's own last main-agent call; null before the first (D101). */
 	contextTokens: number | null;
+	/** The session's own generation statistics; the token totals cover its whole tree. */
+	stats: SessionStats;
 	shares?: SessionShare[];
 }
 
