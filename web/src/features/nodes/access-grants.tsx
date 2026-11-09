@@ -109,7 +109,7 @@ function RemoveGrantDialog({
 }
 
 /**
- * The access grants a user or a user group holds, as the users page shows them: read-only target links with a
+ * The access grants a user or a user group holds: read-only target links with a
  * remove action (access is granted from a node or a node group page).
  */
 export function GranteeAccessList({
@@ -126,7 +126,7 @@ export function GranteeAccessList({
 	if (grants.length === 0) {
 		return (
 			<span className={cn("whitespace-normal text-muted-foreground", className)}>
-				{empty ?? <Trans>No access.</Trans>}
+				{empty ?? <Trans>No node access</Trans>}
 			</span>
 		);
 	}
@@ -158,6 +158,29 @@ export function GranteeAccessList({
 				<RemoveGrantDialog grant={removing} targetType={removing.targetType} onClose={() => setRemoving(undefined)} />
 			)}
 		</div>
+	);
+}
+
+/**
+ * The admin-only "Node access" section of a user or user group page
+ * (doc/webui.md "Users"): the grants the grantee holds, each linking to its
+ * target with a confirmed remove. The grant list endpoint is administrator-only,
+ * so non-administrators do not see the section.
+ */
+export function GranteeNodeAccessSection({ granteeType, granteeId }: { granteeType: GranteeType; granteeId: string }) {
+	const admin = useAuth().user?.kind === "admin";
+	const grants = useNodeAccessGrants({ granteeType, granteeId }, admin);
+	if (!admin) return null;
+	return (
+		<section className="grid gap-2" aria-labelledby="grantee-node-access-heading" data-testid="grantee-node-access">
+			<h2 id="grantee-node-access-heading" className="text-sm font-semibold">
+				<Trans>Node access</Trans>
+			</h2>
+			<GranteeAccessList grants={grants.data ?? []} />
+			{grants.error !== null && grants.error !== undefined && (
+				<ErrorState error={grants.error} compact retry={() => void grants.refetch()} />
+			)}
+		</section>
 	);
 }
 

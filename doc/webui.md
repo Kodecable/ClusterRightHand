@@ -87,6 +87,7 @@ web/src/
   - 工作：Sessions、Schedules、Tasks、Batch、Approvals（带待办数）
   - 集群：Nodes、Node groups、Credentials\*
   - 管理：Authorizations\*、API tokens、Audit、Models\*、Users\*（\* 仅管理员可见）
+  - 侧边栏只有 Users 一项；`/users/*` 和 `/user-groups/*` 都高亮它。
   - 同一分组里的导航项之间留一点竖直空隙。
 - 底部是用户菜单：主题（跟随系统 / 浅色 / 深色）、语言、修改密码、登出。
 
@@ -124,6 +125,20 @@ web/src/
 - 指向“别的对象”的链接统一为前景色加细下划线（`text-foreground underline underline-offset-2`，悬停加粗下划线），不用主色（蓝色），因为蓝色在这里读起来像按钮；`linkClass` 是唯一的来源。按钮不装成链接，导航也不渲染成按钮。唯一的例外是详情页的返回控件：统一用 `ArrowLeftIcon` + “All X”（如 “All nodes”、“All approvals”）的弱化行内链接。
 - 没有“刷新”按钮：列表和区块靠轮询、SSE 或 mutation 失效保持新鲜。审计列表每 10 秒轮询（日志只追加，已加载的页不会跳动），节点信任和节点最近任务每 10 秒轮询，其余列表各自沿用原有的轮询和失效。
 - 编辑动作只放详情页：节点组列表不提供改名、删除或编辑成员，节点列表只保留待批准节点的 Approve / Reject，计划任务列表只保留“立即运行”这个行内动作。
+- 用户作为操作者或所有者出现时一律渲染成指向 `/users/$userId` 的链接（任务表的 By 列、任务详情的 Asked by、审计的 Actor / On behalf of、审批卡片的 Asked by / Decided by）；查看者有没有权限打开该页由目标页处理。system、API token、agent 等非用户操作者仍是纯文本。会话列表的 shared 提示仍是一行文字。
+
+### 用户与用户组
+
+- `/users` 只对管理员开放。列表显示用户名、显示名、类型、状态和创建时间；类型是纯文本，不再有行内的类型选择、启用/禁用、重置密码或操作列。`New user` 留在页头，行整体链接到 `/users/$userId`。
+- `/users/$userId`（`UserDetailPage`）：
+  - 页头显示显示名（没有时用用户名），返回链接是 `ArrowLeftIcon` + “All users”；事实包括用户名、显示名、角色、状态（`StatusText`）和创建时间（`DateTime`）。
+  - 管理员在这里改角色、启用/禁用（禁用仍需确认；不能停用自己）和重置密码。普通用户只能打开自己的页面，页面上没有任何编辑控件。
+  - 用户组以 `linkClass` 链接到 `/user-groups/$userGroupId`。
+  - 管理员看到 `Node access` 区块：只列出 `user:<id>` 的节点访问授权，节点用 `linkClass` 链接到 `/nodes/$nodeId`，节点组链接到 `/node-groups/$nodeGroupId`；每条授权的移除按钮仍需确认。没有授权时显示纯文本 “No node access”。普通用户看不到这个区块（授权列表接口仅管理员可读）。
+  - `Recent sessions` 和 `Recent tasks` 两个 `DataTable` 只取第一页：会话用 `scope=all&ownerId=`（管理员）或 `scope=visible&ownerId=`（本人），任务用 `userId=`；行分别链接到会话和任务页。时间用 `RelativeTime`。
+  - 用户不存在和“没有权限看这个用户”是同一条 `ErrorState`：“This user doesn't exist or you don't have access.”。
+- `/user-groups/$userGroupId`（`UserGroupDetailPage`）：返回 “All users”；显示名称、创建时间、成员（成员名链接到用户页）；成员可以逐个添加和移除；页头提供重命名和删除（确认后回用户页）。管理员还能看到同样的 `Node access` 区块，列出 `user_group:<id>` 的授权。改名与创建用同一套名称规则，服务端校验并记审计。
+- `/users` 页下方的用户组区域是只读 `DataTable`（名称、成员数、创建时间），行链接到用户组详情；`Create user group` 是这一区域的页头式主操作（默认尺寸 + `PlusIcon`），点击后在对话框里填名称。成员编辑、改名和删除都只在详情页。
 
 ### 会话界面
 
@@ -371,6 +386,12 @@ web/src/
 - 响应 `{ "entries": EntryRecord[], "historyCursor": string | null }`；
 - `entries` 按从旧到新排列，紧接在 `before` 之前；
 - 权限与 `events` 相同。
+
+**用户与用户组详情：**
+- `GET /api/users/:id` 返回 `{ user, userGroups }`：`user` 与 `GET /api/users` 的条目同形，`userGroups` 是 `[{ id, name }]`。管理员可读任意用户；普通用户只能读自己，其他 id 与不存在的用户一样返回 404。
+- `GET /api/user-groups/:id` 返回 `{ group: { id, name, createdAt, members: [{ id, username, displayName }] } }`，仅管理员；不存在时 404。
+- `PATCH /api/user-groups/:id` 的 `{ name }` 按创建时的规则校验并写审计。
+- `GET /api/tasks` 新增 `userId`：按 `on_behalf_of_user_id`（“By”列显示的用户）筛选，先应用原有的可见性规则；`GET /api/sessions` 新增 `ownerId`，管理员配合 `scope=all` 使用，其他 scope 下只会进一步收窄本人可见的列表。
 
 ### 链接
 

@@ -30,7 +30,9 @@ export type DataTableRowLink =
 	| { to: "/schedules/$scheduleId"; params: { scheduleId: string } }
 	| { to: "/tasks/$taskId"; params: { taskId: string } }
 	| { to: "/sessions/$sessionId"; params: { sessionId: string } }
-	| { to: "/task-groups/$taskGroupId"; params: { taskGroupId: string } };
+	| { to: "/task-groups/$taskGroupId"; params: { taskGroupId: string } }
+	| { to: "/users/$userId"; params: { userId: string } }
+	| { to: "/user-groups/$userGroupId"; params: { userGroupId: string } };
 
 export interface DataTableProps<T extends RowData> {
 	columns: DataTableColumn<T>[];
@@ -103,6 +105,10 @@ function StretchedRowLink({ href, label }: { href: DataTableRowLink; label: stri
 		case "/sessions/$sessionId":
 			return <Link to={href.to} params={href.params} aria-label={label} className={ROW_OVERLAY_CLASS} />;
 		case "/task-groups/$taskGroupId":
+			return <Link to={href.to} params={href.params} aria-label={label} className={ROW_OVERLAY_CLASS} />;
+		case "/users/$userId":
+			return <Link to={href.to} params={href.params} aria-label={label} className={ROW_OVERLAY_CLASS} />;
+		case "/user-groups/$userGroupId":
 			return <Link to={href.to} params={href.params} aria-label={label} className={ROW_OVERLAY_CLASS} />;
 	}
 }

@@ -240,6 +240,35 @@ describe("task list api (sqlite)", () => {
 		});
 	});
 
+	it("filters by the requesting user, the By column, including session-actor tasks", async () => {
+		const node = await addNode("by-node");
+		const aliceTask = await mkTask({ nodeId: node, spec: execSpec("echo", "alice-task") });
+		const bobTask = await cluster.createTask({
+			nodeId: node,
+			spec: execSpec("echo", "bob-task"),
+			actor: { type: "user", id: uid.bob as string, onBehalfOfUserId: uid.bob as string },
+		});
+		// A session acts for its owner, and the By column shows that owner, so the filter includes it.
+		const sessionTask = await cluster.createTask({
+			nodeId: node,
+			spec: execSpec("echo", "session-task"),
+			actor: { type: "session", id: "session-by-owner", onBehalfOfUserId: uid.alice as string },
+		});
+
+		const alice = await list("alice", `?userId=${uid.alice}`);
+		expect(alice.items.map((task) => task.id)).toEqual(expect.arrayContaining([aliceTask.id, sessionTask.id]));
+		expect(alice.items.map((task) => task.id)).not.toContain(bobTask.id);
+		expect(alice.items.every((task) => task.onBehalfOfUserId === uid.alice)).toBe(true);
+		// Visibility still applies first: a member cannot list another user's tasks through the filter.
+		expect((await list("bob", `?userId=${uid.alice}`)).items).toEqual([]);
+
+		const adminView = await list("root", `?userId=${uid.bob}`);
+		const ids = adminView.items.map((task) => task.id);
+		expect(ids).toContain(bobTask.id);
+		expect(ids).not.toContain(aliceTask.id);
+		expect(ids).not.toContain(sessionTask.id);
+	});
+
 	it("orders only by created_at desc, id desc", async () => {
 		const node = await addNode("order-node");
 		const tok = await newToken("ask");

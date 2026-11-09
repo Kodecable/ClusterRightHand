@@ -12,6 +12,7 @@ import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskGone } from "@/components/task-gone";
 import { TaskEvaluation, TaskFacts, TaskOutput } from "@/components/task-result";
 import { Button } from "@/components/ui/button";
+import { UserLink } from "@/components/user-link";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
 import { useAuth } from "@/features/auth/session";
 import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
@@ -45,6 +46,10 @@ export function TaskPage() {
 	const decide = useDecideApproval();
 	const cancel = useCancelTask(id);
 	const names = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
+	const userNames = useMemo(
+		() => new Map((directory.data?.users ?? []).map((user) => [user.id, user.displayName || user.username])),
+		[directory.data],
+	);
 
 	if (task.isPending) {
 		return (
@@ -159,10 +164,11 @@ export function TaskPage() {
 					node={<NodeLink nodeId={view.nodeId} names={names} />}
 					askedBy={
 						<span className="flex flex-wrap items-center gap-1.5">
-							<span>{actor.name}</span>
+							<UserLink id={actor.id} name={actor.name} title={actor.id} />
 							<span className="font-mono text-xs text-muted-foreground">{actor.id}</span>
 						</span>
 					}
+					userNames={userNames}
 					extra={links}
 				/>
 			</section>
@@ -205,7 +211,7 @@ export function TaskPage() {
 
 			{view.approval?.decision && (
 				<section className="rounded-lg border p-3" aria-label={t`Approval`}>
-					<DecisionView decision={view.approval.decision} tokenNames={looks.tokenNames} />
+					<DecisionView decision={view.approval.decision} tokenNames={looks.tokenNames} userNames={userNames} />
 				</section>
 			)}
 

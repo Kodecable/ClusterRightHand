@@ -1,4 +1,4 @@
-import type { Directory, User, UserGroup, UserKind } from "@crh/api";
+import type { Directory, User, UserDetail, UserGroup, UserGroupDetail, UserKind } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { authStore } from "@/features/auth/session";
 import { enc, http } from "@/lib/api/client";
@@ -7,6 +7,8 @@ export const userKeys = {
 	all: ["users"] as const,
 	list: () => ["users", "list"] as const,
 	userGroups: () => ["users", "user-groups"] as const,
+	userGroup: (id: string) => ["users", "user-groups", id] as const,
+	detail: (id: string) => ["users", "detail", id] as const,
 	directory: () => ["users", "directory"] as const,
 };
 
@@ -17,10 +19,29 @@ export function useUsers() {
 	});
 }
 
+/** One user with the user groups it belongs to; non-admins may only read their own id. */
+export function useUser(id: string) {
+	return useQuery({
+		queryKey: userKeys.detail(id),
+		enabled: id !== "",
+		queryFn: ({ signal }) => http.get<UserDetail>(`/users/${enc(id)}`, { signal }),
+	});
+}
+
 export function useUserGroups() {
 	return useQuery({
 		queryKey: userKeys.userGroups(),
 		queryFn: ({ signal }) => http.get<{ groups: UserGroup[] }>("/user-groups", { signal }).then((r) => r.groups),
+	});
+}
+
+/** One user group and its members (administrators only). */
+export function useUserGroup(id: string) {
+	return useQuery({
+		queryKey: userKeys.userGroup(id),
+		enabled: id !== "",
+		queryFn: ({ signal }) =>
+			http.get<{ group: UserGroupDetail }>(`/user-groups/${enc(id)}`, { signal }).then((r) => r.group),
 	});
 }
 
@@ -77,6 +98,15 @@ export function useCreateUserGroup() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (name: string) => http.post<{ group: UserGroup }>("/user-groups", { name }).then((r) => r.group),
+		onSuccess: () => void queryClient.invalidateQueries({ queryKey: userKeys.all }),
+	});
+}
+
+export function useRenameUserGroup() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ id, name }: { id: string; name: string }) =>
+			http.patch<{ group: UserGroup }>(`/user-groups/${enc(id)}`, { name }).then((r) => r.group),
 		onSuccess: () => void queryClient.invalidateQueries({ queryKey: userKeys.all }),
 	});
 }

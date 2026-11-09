@@ -786,6 +786,15 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		const userPassword = /^\/api\/users\/([^/]+)\/password$/.exec(path);
 		if (userPassword && method === "POST") return json({ ok: true });
 		const userMatch = /^\/api\/users\/([^/]+)$/.exec(path);
+		if (userMatch && method === "GET") {
+			const id = decodeURIComponent(userMatch[1] as string);
+			const user = state.users.find((candidate) => candidate.id === id);
+			if (!user) return json({ error: "no such user" }, 404);
+			const userGroups = state.userGroups
+				.filter((group) => group.memberIds.includes(id))
+				.map((group) => ({ id: group.id, name: group.name }));
+			return json({ user, userGroups });
+		}
 		if (userMatch && method === "PATCH") {
 			const id = decodeURIComponent(userMatch[1] as string);
 			const user = state.users.find((candidate) => candidate.id === id);
@@ -816,6 +825,27 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			return json({ ok: true });
 		}
 		const userGroupMatch = /^\/api\/user-groups\/([^/]+)$/.exec(path);
+		if (userGroupMatch && method === "GET") {
+			const id = decodeURIComponent(userGroupMatch[1] as string);
+			const group = state.userGroups.find((candidate) => candidate.id === id);
+			if (!group) return json({ error: "no such user group" }, 404);
+			return json({
+				group: {
+					id: group.id,
+					name: group.name,
+					createdAt: group.createdAt,
+					members: state.users
+						.filter((user) => group.memberIds.includes(user.id))
+						.map((user) => ({ id: user.id, username: user.username, displayName: user.displayName })),
+				},
+			});
+		}
+		if (userGroupMatch && method === "PATCH") {
+			const id = decodeURIComponent(userGroupMatch[1] as string);
+			const group = state.userGroups.find((candidate) => candidate.id === id);
+			if (group) group.name = (body as { name: string }).name;
+			return json({ group });
+		}
 		if (userGroupMatch && method === "DELETE") {
 			const id = decodeURIComponent(userGroupMatch[1] as string);
 			state.userGroups = state.userGroups.filter((candidate) => candidate.id !== id);
@@ -941,12 +971,14 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		if (path === "/api/sessions" && method === "GET") {
 			const scope = url.searchParams.get("scope") ?? "mine";
 			const q = (url.searchParams.get("q") ?? "").toLowerCase();
+			const ownerId = url.searchParams.get("ownerId");
 			const start = Number(url.searchParams.get("cursor") ?? "0") || 0;
 			const limit = 20;
 			const visible = state.sessions.filter((item) => {
 				if (scope === "mine" && item.ownerUserId !== state.user.id) return false;
 				if (scope === "shared" && !item.shared) return false;
 				if (scope === "visible" && item.ownerUserId !== state.user.id && !item.shared) return false;
+				if (ownerId !== null && item.ownerUserId !== ownerId) return false;
 				if (q !== "" && !item.title.toLowerCase().includes(q)) return false;
 				return true;
 			});
@@ -997,7 +1029,11 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		const eventMatch = /^\/api\/sessions\/([^/]+)\/events$/.exec(path);
 		if (eventMatch) return json({ error: "the fake EventSource handles events" }, 500);
 
-		if (path === "/api/tasks" && method === "GET") return json({ items: state.tasks, nextCursor: null });
+		if (path === "/api/tasks" && method === "GET") {
+			const userId = url.searchParams.get("userId");
+			const items = userId === null ? state.tasks : state.tasks.filter((task) => task.onBehalfOfUserId === userId);
+			return json({ items, nextCursor: null });
+		}
 		const taskWaitMatch = /^\/api\/tasks\/([^/]+)\/wait$/.exec(path);
 		if (taskWaitMatch && method === "GET") {
 			const id = decodeURIComponent(taskWaitMatch[1] as string);

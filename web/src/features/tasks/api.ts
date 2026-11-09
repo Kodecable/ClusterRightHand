@@ -31,15 +31,17 @@ export interface TaskFilters extends CursorQuery {
 	state?: string;
 	actorType?: string;
 	nodeId?: string;
+	/** Tasks whose requesting user (the "By" column) is this user. */
+	userId?: string;
 }
 
 export function useTasks(filters: TaskFilters = {}) {
-	const { state, actorType, nodeId } = filters;
+	const { state, actorType, nodeId, userId } = filters;
 	return useCursorInfiniteQuery<TaskView>({
 		queryKey: taskKeys.listPage(filters),
 		fetchPage: (cursor, signal) =>
 			http.get<CursorPage<TaskView>>(
-				`/tasks${queryString({ state, actorType, nodeId, cursor, limit: filters.limit })}`,
+				`/tasks${queryString({ state, actorType, nodeId, userId, cursor, limit: filters.limit })}`,
 				{ signal },
 			),
 	});

@@ -7,17 +7,19 @@ import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
-import { createUser, listUsers, setPassword, toPublicUser, updateUser } from "../users/service.ts";
+import { createUser, getUserDetail, listUsers, setPassword, toPublicUser, updateUser } from "../users/service.ts";
 import {
 	addUserGroupMember,
 	createUserGroup,
 	deleteUserGroup,
+	getUserGroupDetail,
 	listUserGroups,
 	removeUserGroupMember,
+	renameUserGroup,
 } from "../users/user-groups.ts";
 import { rejectRevokedTokenWaits } from "./api-token-waits.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
-import { requireAdmin } from "./middleware.ts";
+import { requireAdmin, requireAdminOrSelf } from "./middleware.ts";
 
 const KINDS = new Set(["admin", "member"]);
 const STATUSES = new Set(["active", "disabled"]);
@@ -56,6 +58,17 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 			users: users.map((u) => ({ id: u.id, username: u.username, displayName: u.display_name })),
 			userGroups: groups,
 		});
+	});
+
+	/**
+	 * One user's view. Administrators read anyone; everyone else only themselves, and any other id answers
+	 * the same 404 a missing user gets (an unprivileged caller never learns whether an account exists).
+	 * Registered before the admin middleware for `/users/*`; every other /users route stays admin-only.
+	 */
+	app.get("/users/:id", requireAdminOrSelf, async (c) => {
+		const detail = await getUserDetail(db, c.req.param("id"));
+		if (!detail) return jsonError(c, 404, "no such user");
+		return c.json(detail);
 	});
 
 	app.use("/users/*", requireAdmin);
@@ -163,6 +176,12 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 
 	app.get("/user-groups", async (c) => c.json({ groups: await listUserGroups(db) }));
 
+	app.get("/user-groups/:id", async (c) => {
+		const group = await getUserGroupDetail(db, c.req.param("id"));
+		if (!group) return jsonError(c, 404, "no such user group");
+		return c.json({ group });
+	});
+
 	app.post("/user-groups", async (c) => {
 		const body = await readJsonObject(c);
 		const name = body ? optionalString(body, "name") : undefined;
@@ -175,6 +194,21 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 			detail: { name: group.name },
 		});
 		return c.json({ group }, 201);
+	});
+
+	app.patch("/user-groups/:id", async (c) => {
+		const body = await readJsonObject(c);
+		const name = body ? optionalString(body, "name") : undefined;
+		if (!name) return jsonError(c, 400, "name is required");
+		const group = await renameUserGroup(db, c.req.param("id"), name);
+		if (!group) return jsonError(c, 404, "no such user group");
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "user_group.renamed",
+			target: { type: "user_group", id: group.id },
+			detail: { name: group.name },
+		});
+		return c.json({ group });
 	});
 
 	app.delete("/user-groups/:id", async (c) => {

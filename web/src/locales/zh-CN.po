@@ -56,6 +56,7 @@ msgstr "{0, plural, one {# 字节} other {# 字节}}"
 #. placeholder {0}: row.original.memberIds.length
 #: src/components/node-group-picker.tsx
 #: src/features/node-groups/pages.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "{0, plural, one {# member} other {# members}}"
 msgstr "{0, plural, one {# 名成员} other {# 名成员}}"
 
@@ -328,6 +329,10 @@ msgstr "永不过期的令牌会一直有效，直到你吊销它。"
 msgid "A trailing \".\" matches a prefix, e.g. \"task.\"."
 msgstr "以“.”结尾表示前缀匹配，例如“task.”。"
 
+#: src/features/users/user-group-dialogs.tsx
+msgid "A user group is used for session shares and node access grants."
+msgstr "用户组用于会话分享和节点访问授权。"
+
 #: src/features/nodes/ssh-wizard.tsx
 msgid "A user is required."
 msgstr "必须填写用户。"
@@ -387,7 +392,7 @@ msgid "Actor type"
 msgstr "操作者类型"
 
 #: src/components/quota-card.tsx
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Add"
 msgstr "添加"
 
@@ -427,7 +432,7 @@ msgstr "添加请求头"
 msgid "Add jump host"
 msgstr "添加跳板机"
 
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Add member"
 msgstr "添加成员"
 
@@ -485,6 +490,7 @@ msgstr "管理"
 
 #: src/features/users/kind-select.tsx
 #: src/features/users/new-user-dialog.tsx
+#: src/features/users/pages.tsx
 msgid "Administrator"
 msgstr "管理员"
 
@@ -545,6 +551,11 @@ msgstr "全部计划任务"
 #: src/features/tasks/task-page.tsx
 msgid "All tasks"
 msgstr "全部任务"
+
+#: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
+msgid "All users"
+msgstr "全部用户"
 
 #: src/components/approval-card.tsx
 #: src/features/nodes/node-trust.tsx
@@ -1229,6 +1240,7 @@ msgstr "创建令牌"
 msgid "Create user"
 msgstr "创建用户"
 
+#: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-groups-section.tsx
 msgid "Create user group"
 msgstr "创建用户组"
@@ -1239,6 +1251,8 @@ msgstr "创建用户组"
 #: src/features/tasks/task-columns.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Created"
 msgstr "创建时间"
 
@@ -1342,7 +1356,7 @@ msgstr "默认提示词与协议说明"
 #: src/features/settings/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/tokens/pages.tsx
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Delete"
 msgstr "删除"
 
@@ -1405,17 +1419,12 @@ msgstr "删除令牌"
 msgid "Delete token {0}?"
 msgstr "删除令牌 {0}？"
 
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Delete user group"
 msgstr "删除用户组"
 
-#. placeholder {0}: group.name
-#: src/features/users/user-groups-section.tsx
-msgid "Delete user group {0}"
-msgstr "删除用户组 {0}"
-
-#. placeholder {0}: group.name
-#: src/features/users/user-groups-section.tsx
+#. placeholder {0}: details.name
+#: src/features/users/user-group-page.tsx
 msgid "Delete user group {0}?"
 msgstr "删除用户组 {0}？"
 
@@ -1462,7 +1471,7 @@ msgstr "摘要"
 msgid "Disable"
 msgstr "禁用"
 
-#. placeholder {0}: confirmDisable.username
+#. placeholder {0}: user.username
 #: src/features/users/pages.tsx
 msgid "Disable {0}?"
 msgstr "禁用 {0}？"
@@ -2106,17 +2115,21 @@ msgstr "中"
 
 #: src/features/users/kind-select.tsx
 #: src/features/users/new-user-dialog.tsx
+#: src/features/users/pages.tsx
 msgid "Member"
 msgstr "成员"
 
 #: src/features/node-groups/pages.tsx
+#: src/features/users/user-group-page.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Members"
 msgstr "成员"
 
+#. placeholder {0}: details.name
 #. placeholder {0}: group.name
 #: src/features/node-groups/dialogs.tsx
 #: src/features/node-groups/pages.tsx
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Members of {0}"
 msgstr "{0} 的成员"
 
@@ -2187,6 +2200,7 @@ msgstr "上移跳板机 {0}"
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Name"
 msgstr "名称"
 
@@ -2237,6 +2251,7 @@ msgstr "新会话"
 #: src/features/sessions/children-bar.tsx
 #: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list-item.tsx
+#: src/features/users/pages.tsx
 msgid "New Session"
 msgstr "新会话"
 
@@ -2248,6 +2263,10 @@ msgstr "新文本"
 #: src/features/users/pages.tsx
 msgid "New user"
 msgstr "新建用户"
+
+#: src/features/users/user-group-dialogs.tsx
+msgid "New user group"
+msgstr "新建用户组"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Next"
@@ -2269,10 +2288,6 @@ msgstr "否"
 #: src/features/nodes/access-grants.tsx
 msgid "No access grants yet."
 msgstr "还没有访问权限记录。"
-
-#: src/features/nodes/access-grants.tsx
-msgid "No access."
-msgstr "无访问权限。"
 
 #: src/features/batch/pages.tsx
 msgid "No active nodes you can access."
@@ -2303,7 +2318,7 @@ msgid "No events"
 msgstr "没有事件"
 
 #: src/features/node-groups/pages.tsx
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-page.tsx
 msgid "No members."
 msgstr "没有成员。"
 
@@ -2331,6 +2346,10 @@ msgstr "尚未配置模型，计划任务无法运行。"
 #: src/features/sessions/session-list.tsx
 msgid "No models are configured, so sessions cannot start."
 msgstr "尚未配置模型，会话无法启动。"
+
+#: src/features/nodes/access-grants.tsx
+msgid "No node access"
+msgstr "没有节点访问权限"
 
 #: src/features/node-groups/pages.tsx
 msgid "No node groups yet"
@@ -2385,6 +2404,7 @@ msgid "No session matches"
 msgstr "没有匹配的会话"
 
 #: src/features/sessions/session-list.tsx
+#: src/features/users/pages.tsx
 msgid "No sessions yet"
 msgstr "还没有会话"
 
@@ -2402,6 +2422,7 @@ msgstr "没有这个节点组"
 
 #: src/features/nodes/node-tasks.tsx
 #: src/features/tasks/pages.tsx
+#: src/features/users/pages.tsx
 msgid "No tasks yet"
 msgstr "还没有任务"
 
@@ -2410,10 +2431,11 @@ msgid "No upcoming runs."
 msgstr "没有即将运行的任务。"
 
 #: src/features/users/user-groups-section.tsx
-msgid "No user groups yet."
-msgstr "还没有用户组。"
+msgid "No user groups yet"
+msgstr "还没有用户组"
 
 #: src/features/nodes/access-grants.tsx
+#: src/features/users/pages.tsx
 msgid "No user groups."
 msgstr "没有用户组。"
 
@@ -2434,8 +2456,7 @@ msgstr "没有用户。"
 msgid "Node"
 msgstr "节点"
 
-#: src/features/users/pages.tsx
-#: src/features/users/user-groups-section.tsx
+#: src/features/nodes/access-grants.tsx
 msgid "Node access"
 msgstr "节点访问权限"
 
@@ -2886,7 +2907,12 @@ msgstr "原因"
 msgid "Reason (optional, used when rejecting)"
 msgstr "原因（可选，拒绝时使用）"
 
+#: src/features/users/pages.tsx
+msgid "Recent sessions"
+msgstr "最近的会话"
+
 #: src/features/nodes/node-tasks.tsx
+#: src/features/users/pages.tsx
 msgid "Recent tasks"
 msgstr "最近任务"
 
@@ -2927,9 +2953,9 @@ msgstr "剩余预算 token（留空 = 不限）"
 msgid "Remove"
 msgstr "移除"
 
-#. placeholder {0}: names.get(id) ?? id
-#. placeholder {1}: group.name
-#: src/features/users/user-groups-section.tsx
+#. placeholder {0}: member.username
+#. placeholder {1}: details.name
+#: src/features/users/user-group-page.tsx
 msgid "Remove {0} from {1}"
 msgstr "从 {1} 中移除 {0}"
 
@@ -2985,6 +3011,8 @@ msgstr "删除已保存的密钥"
 #: src/features/node-groups/dialogs.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/rename-node-button.tsx
+#: src/features/users/user-group-dialogs.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Rename"
 msgstr "重命名"
 
@@ -2995,6 +3023,10 @@ msgstr "重命名节点"
 #: src/features/node-groups/dialogs.tsx
 msgid "Rename node group"
 msgstr "重命名节点组"
+
+#: src/features/users/user-group-dialogs.tsx
+msgid "Rename user group"
+msgstr "重命名用户组"
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Repeat new password"
@@ -3094,6 +3126,7 @@ msgid "Revoked"
 msgstr "已吊销"
 
 #: src/features/nodes/node-trust.tsx
+#: src/features/users/pages.tsx
 msgid "Role"
 msgstr "角色"
 
@@ -3274,7 +3307,7 @@ msgstr "安全验证失败，请重试。"
 #: src/components/share-editor.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-wizard.tsx
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Select…"
 msgstr "请选择…"
 
@@ -3285,6 +3318,7 @@ msgstr "发送"
 #: src/features/schedules/run-history.tsx
 #: src/features/settings/model-presets.tsx
 #: src/features/tasks/task-page.tsx
+#: src/features/users/pages.tsx
 msgid "Session"
 msgstr "会话"
 
@@ -3316,6 +3350,11 @@ msgstr "会话标题"
 msgid "Sessions"
 msgstr "会话"
 
+#. placeholder {0}: user.username
+#: src/features/users/pages.tsx
+msgid "Sessions of {0}"
+msgstr "{0} 的会话"
+
 #: src/features/settings/pages.tsx
 msgid "Set"
 msgstr "已设置"
@@ -3344,9 +3383,9 @@ msgstr "{sharedBy} 共享给你"
 msgid "Shares"
 msgstr "共享"
 
-#: src/features/users/user-groups-section.tsx
-msgid "Shares to this user group are removed."
-msgstr "授予这个用户组的分享将被删除。"
+#: src/features/users/user-group-page.tsx
+msgid "Shares to this user group are removed, and its members lose the node access it grants."
+msgstr "授予这个用户组的分享将被删除，组内成员也会失去它授予的节点访问。"
 
 #: src/components/task-form-fields.tsx
 msgid "Shell command"
@@ -3642,6 +3681,11 @@ msgstr "任务组审批"
 msgid "Tasks"
 msgstr "任务"
 
+#. placeholder {0}: user.username
+#: src/features/users/pages.tsx
+msgid "Tasks of {0}"
+msgstr "{0} 的任务"
+
 #: src/components/test-connection.tsx
 msgid "Test connection"
 msgstr "测试连接"
@@ -3898,6 +3942,10 @@ msgstr "此会话正在等待，但没有需要你决定的事项。"
 msgid "This stops the current run. Its history will show it as preempted."
 msgstr "这会停止当前运行，运行历史会把它显示为被抢占。"
 
+#: src/features/users/pages.tsx
+msgid "This user doesn't exist or you don't have access."
+msgstr "用户不存在或无权访问"
+
 #: src/features/nodes/access-grants.tsx
 msgid "This user or user group already has access."
 msgstr "该用户或用户组已拥有访问权限。"
@@ -4046,6 +4094,7 @@ msgid "Up"
 msgstr "上移"
 
 #: src/features/nodes/node-trust.tsx
+#: src/features/users/pages.tsx
 msgid "Updated"
 msgstr "更新时间"
 
@@ -4080,16 +4129,23 @@ msgstr "用户"
 
 #: src/features/nodes/access-grants.tsx
 #: src/features/sessions/share-dialog.tsx
+#: src/features/users/user-group-page.tsx
 msgid "User group"
 msgstr "用户组"
 
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-dialogs.tsx
 msgid "User group name"
 msgstr "用户组名称"
 
+#: src/features/users/pages.tsx
 #: src/features/users/user-groups-section.tsx
 msgid "User groups"
 msgstr "用户组"
+
+#. placeholder {0}: user.username
+#: src/features/users/pages.tsx
+msgid "User groups of {0}"
+msgstr "{0} 所属的用户组"
 
 #: src/features/auth/login-page.tsx
 #: src/features/users/new-user-dialog.tsx

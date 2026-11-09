@@ -2,6 +2,7 @@ import type { ApiTokenView, ApprovalBody, ApprovalList, PublicNode, TaskGroupVie
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNodeGroups } from "@/features/node-groups/api";
 import { taskKeys } from "@/features/tasks/api";
+import { useDirectory } from "@/features/users/api";
 import { enc, http } from "@/lib/api/client";
 
 export const approvalKeys = {
@@ -44,12 +45,14 @@ export function useApprovalLookups() {
 		queryKey: ["api-tokens", "list"],
 		queryFn: ({ signal }) => http.get<{ tokens: ApiTokenView[] }>("/api-tokens", { signal }).then((r) => r.tokens),
 	});
+	const directory = useDirectory();
 	const nodeNames = new Map((nodes.data ?? []).map((node) => [node.id, node.name]));
 	const nodeGroupNames = new Map((nodeGroups.data ?? []).map((group) => [group.id, group.name]));
 	return {
 		nodeNames,
 		refNames: new Map([...nodeNames, ...nodeGroupNames]),
 		tokenNames: new Map((tokens.data ?? []).map((token) => [token.id, token.name])),
+		userNames: new Map((directory.data?.users ?? []).map((user) => [user.id, user.displayName || user.username])),
 	};
 }
 

@@ -27,7 +27,7 @@ import type { SessionEntriesPage } from "./session-events";
 export const sessionKeys = {
 	all: ["sessions"] as const,
 	list: () => ["sessions", "list"] as const,
-	listPage: (scope: string, q: string) => ["sessions", "list", { scope, q }] as const,
+	listPage: (scope: string, q: string, ownerId = "") => ["sessions", "list", { scope, q, ownerId }] as const,
 	detail: (id: string) => ["sessions", "detail", id] as const,
 	children: (id: string) => ["sessions", "children", id] as const,
 	childrenSummary: (id: string) => ["sessions", "children-summary", id] as const,
@@ -42,25 +42,27 @@ export interface SessionListParams {
 	/** Defaults to `visible`, the only scope the web uses. */
 	scope?: SessionListScope;
 	q?: string;
+	/** Only roots owned by this user; on `scope=all` this is the per-user session list. */
+	ownerId?: string;
 }
 
-function listParams({ scope = DEFAULT_SCOPE, q = "" }: SessionListParams): Required<SessionListParams> {
-	return { scope, q };
+function listParams({ scope = DEFAULT_SCOPE, q = "", ownerId = "" }: SessionListParams): Required<SessionListParams> {
+	return { scope, q, ownerId };
 }
 
 function fetchSessionsPage(
-	{ scope, q }: Required<SessionListParams>,
+	{ scope, q, ownerId }: Required<SessionListParams>,
 	cursor: string | undefined,
 	signal: AbortSignal,
 ): Promise<CursorPage<SessionListItem>> {
-	return http.get<CursorPage<SessionListItem>>(`/sessions${queryString({ scope, q, cursor })}`, { signal });
+	return http.get<CursorPage<SessionListItem>>(`/sessions${queryString({ scope, q, ownerId, cursor })}`, { signal });
 }
 
 export function useSessions(params: SessionListParams = {}) {
-	const { scope, q } = listParams(params);
+	const { scope, q, ownerId } = listParams(params);
 	return useCursorInfiniteQuery<SessionListItem>({
-		queryKey: sessionKeys.listPage(scope, q),
-		fetchPage: (cursor, signal) => fetchSessionsPage({ scope, q }, cursor, signal),
+		queryKey: sessionKeys.listPage(scope, q, ownerId),
+		fetchPage: (cursor, signal) => fetchSessionsPage({ scope, q, ownerId }, cursor, signal),
 	});
 }
 
@@ -70,10 +72,10 @@ export function useSessions(params: SessionListParams = {}) {
  * render of the shell. The `useSessions` hook joins the same query.
  */
 export function prefetchSessions(queryClient: QueryClient, params: SessionListParams): Promise<void> {
-	const { scope, q } = listParams(params);
+	const { scope, q, ownerId } = listParams(params);
 	return prefetchCursorInfiniteQuery<SessionListItem>(queryClient, {
-		queryKey: sessionKeys.listPage(scope, q),
-		fetchPage: (cursor, signal) => fetchSessionsPage({ scope, q }, cursor, signal),
+		queryKey: sessionKeys.listPage(scope, q, ownerId),
+		fetchPage: (cursor, signal) => fetchSessionsPage({ scope, q, ownerId }, cursor, signal),
 	});
 }
 

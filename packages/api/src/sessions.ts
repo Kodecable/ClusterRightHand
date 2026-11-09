@@ -74,6 +74,11 @@ export type SessionListScope = "mine" | "shared" | "visible" | "all";
 export interface SessionListQuery extends CursorQuery {
 	scope?: SessionListScope;
 	q?: string;
+	/**
+	 * Only roots owned by this user. Served by the admin-only `all` scope; for
+	 * every other scope it can only narrow what the caller may already see.
+	 */
+	ownerId?: string;
 }
 
 /** A session's own generation counters, plus the tree's input and cache-read totals (doc/agent-runtime.md "会话统计"). */

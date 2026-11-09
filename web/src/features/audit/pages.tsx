@@ -12,6 +12,7 @@ import { DateTime } from "@/components/relative-time";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { UserLink } from "@/components/user-link";
 import { useDirectory } from "@/features/users/api";
 import { cn, linkClass } from "@/lib/utils";
 import { useAuditEvents } from "./api";
@@ -95,7 +96,11 @@ export function AuditPage() {
 				size: 160,
 				cell: ({ row }) => (
 					<span className="block truncate leading-5" title={actorId(row.original)}>
-						{actorText(row.original, userName)}
+						{row.original.actorType === "user" ? (
+							<UserLink id={row.original.actorId} name={userName(row.original.actorId)} />
+						) : (
+							actorText(row.original, userName)
+						)}
 					</span>
 				),
 			},
@@ -107,7 +112,9 @@ export function AuditPage() {
 					row.original.onBehalfOfUserId === null ? (
 						<span className="text-muted-foreground">–</span>
 					) : (
-						<span className="truncate">{userName(row.original.onBehalfOfUserId) ?? row.original.onBehalfOfUserId}</span>
+						<span className="block truncate">
+							<UserLink id={row.original.onBehalfOfUserId} name={userName(row.original.onBehalfOfUserId)} />
+						</span>
 					),
 			},
 			{

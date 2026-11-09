@@ -81,6 +81,8 @@ export async function renderWithRouter(ui: React.ReactElement, locale: TestLocal
 		"/audit",
 		"/settings/models",
 		"/users",
+		"/users/$userId",
+		"/user-groups/$userGroupId",
 		"/task-groups/$taskGroupId",
 		"/sessions/new",
 		"/sessions/$sessionId",

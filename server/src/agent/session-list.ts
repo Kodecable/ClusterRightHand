@@ -23,6 +23,11 @@ export interface SessionListFilter {
 	/** Case-insensitive title substring; `%`, `_` and `\` are matched literally. */
 	q?: string;
 	scheduleId?: string;
+	/**
+	 * Only roots owned by this user. Served by the admin-only `all` scope; for every other scope it can only
+	 * narrow what the caller may already see, so a foreign owner simply yields an empty page.
+	 */
+	ownerId?: string;
 	cursor?: CursorKey;
 }
 
@@ -147,6 +152,9 @@ export async function sessionListQuery(db: Db, user: SessionUser, filter: Sessio
 		.select((eb) => shareReachesViewer(eb).as("shared"))
 		.where("sessions.parent_session_id", "is", null);
 	if (filter.scheduleId !== undefined) query = query.where("sessions.schedule_id", "=", filter.scheduleId);
+	if (filter.ownerId !== undefined && filter.ownerId !== "") {
+		query = query.where("sessions.owner_user_id", "=", filter.ownerId);
+	}
 	switch (filter.scope) {
 		case "mine":
 			query = query.where("sessions.owner_user_id", "=", user.userId);

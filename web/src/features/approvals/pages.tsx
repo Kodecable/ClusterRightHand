@@ -51,11 +51,13 @@ function TaskCards({
 	nodeNames,
 	refNames,
 	tokenNames,
+	userNames,
 }: {
 	tasks: TaskView[];
 	nodeNames: Map<string, string>;
 	refNames: Map<string, string>;
 	tokenNames: Map<string, string>;
+	userNames: Map<string, string>;
 }) {
 	const decide = useDecideApproval();
 	const onDecide = (id: string, body: ApprovalBody) => {
@@ -70,6 +72,7 @@ function TaskCards({
 					nodeNames={nodeNames}
 					refNames={refNames}
 					tokenNames={tokenNames}
+					userNames={userNames}
 					busy={decide.isPending && decide.variables?.id === task.id}
 					error={decide.variables?.id === task.id ? decide.error : undefined}
 					onDecide={(body) => onDecide(task.id, body)}
@@ -84,11 +87,13 @@ function TaskGroupCards({
 	nodeNames,
 	refNames,
 	tokenNames,
+	userNames,
 }: {
 	taskGroups: TaskGroupView[];
 	nodeNames: Map<string, string>;
 	refNames: Map<string, string>;
 	tokenNames: Map<string, string>;
+	userNames: Map<string, string>;
 }) {
 	const decide = useDecideApproval();
 	const onDecide = (id: string, body: ApprovalBody) => {
@@ -103,6 +108,7 @@ function TaskGroupCards({
 					nodeNames={nodeNames}
 					refNames={refNames}
 					tokenNames={tokenNames}
+					userNames={userNames}
 					busy={decide.isPending && decide.variables?.id === taskGroup.id}
 					error={decide.variables?.id === taskGroup.id ? decide.error : undefined}
 					onDecide={(body) => onDecide(taskGroup.id, body)}
@@ -228,6 +234,7 @@ export function ApprovalsPage() {
 						nodeNames={lookups.nodeNames}
 						refNames={lookups.refNames}
 						tokenNames={lookups.tokenNames}
+						userNames={lookups.userNames}
 					/>
 				</ApprovalSection>
 			)}
@@ -244,6 +251,7 @@ export function ApprovalsPage() {
 						nodeNames={lookups.nodeNames}
 						refNames={lookups.refNames}
 						tokenNames={lookups.tokenNames}
+						userNames={lookups.userNames}
 					/>
 				</ApprovalSection>
 			)}
@@ -333,6 +341,7 @@ export function ApprovalTaskPage() {
 					nodeNames={lookups.nodeNames}
 					refNames={lookups.refNames}
 					tokenNames={lookups.tokenNames}
+					userNames={lookups.userNames}
 					busy={decide.isPending}
 					error={decide.error}
 					onDecide={(body) => decide.mutate({ kind: "task", id: task.data?.id ?? "", body })}
@@ -380,6 +389,7 @@ export function ApprovalTaskGroupPage() {
 					nodeNames={lookups.nodeNames}
 					refNames={lookups.refNames}
 					tokenNames={lookups.tokenNames}
+					userNames={lookups.userNames}
 					busy={decide.isPending}
 					error={decide.error}
 					onDecide={(body) => decide.mutate({ kind: "task_group", id: taskGroup.data?.id ?? "", body })}

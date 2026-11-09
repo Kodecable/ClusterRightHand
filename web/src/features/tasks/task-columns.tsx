@@ -6,6 +6,7 @@ import { RelativeTime } from "@/components/relative-time";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeText } from "@/components/task-result";
 import { Badge } from "@/components/ui/badge";
+import { UserLink } from "@/components/user-link";
 import { taskActor } from "./actor";
 
 export interface TaskColumnOptions {
@@ -70,7 +71,7 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 					const actor = taskActor(row.original, (id) => users.get(id));
 					return (
 						<span className="block truncate leading-5" title={actor.id}>
-							{actor.name}
+							<UserLink id={actor.id} name={actor.name} />
 						</span>
 					);
 				},

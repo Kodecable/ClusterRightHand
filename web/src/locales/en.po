@@ -56,6 +56,7 @@ msgstr "{0, plural, one {# byte} other {# bytes}}"
 #. placeholder {0}: row.original.memberIds.length
 #: src/components/node-group-picker.tsx
 #: src/features/node-groups/pages.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "{0, plural, one {# member} other {# members}}"
 msgstr "{0, plural, one {# member} other {# members}}"
 
@@ -328,6 +329,10 @@ msgstr "A token that never expires stays valid until you revoke it."
 msgid "A trailing \".\" matches a prefix, e.g. \"task.\"."
 msgstr "A trailing \".\" matches a prefix, e.g. \"task.\"."
 
+#: src/features/users/user-group-dialogs.tsx
+msgid "A user group is used for session shares and node access grants."
+msgstr "A user group is used for session shares and node access grants."
+
 #: src/features/nodes/ssh-wizard.tsx
 msgid "A user is required."
 msgstr "A user is required."
@@ -387,7 +392,7 @@ msgid "Actor type"
 msgstr "Actor type"
 
 #: src/components/quota-card.tsx
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Add"
 msgstr "Add"
 
@@ -427,7 +432,7 @@ msgstr "Add header"
 msgid "Add jump host"
 msgstr "Add jump host"
 
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Add member"
 msgstr "Add member"
 
@@ -485,6 +490,7 @@ msgstr "Admin"
 
 #: src/features/users/kind-select.tsx
 #: src/features/users/new-user-dialog.tsx
+#: src/features/users/pages.tsx
 msgid "Administrator"
 msgstr "Administrator"
 
@@ -545,6 +551,11 @@ msgstr "All schedules"
 #: src/features/tasks/task-page.tsx
 msgid "All tasks"
 msgstr "All tasks"
+
+#: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
+msgid "All users"
+msgstr "All users"
 
 #: src/components/approval-card.tsx
 #: src/features/nodes/node-trust.tsx
@@ -1229,6 +1240,7 @@ msgstr "Create token"
 msgid "Create user"
 msgstr "Create user"
 
+#: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-groups-section.tsx
 msgid "Create user group"
 msgstr "Create user group"
@@ -1239,6 +1251,8 @@ msgstr "Create user group"
 #: src/features/tasks/task-columns.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Created"
 msgstr "Created"
 
@@ -1342,7 +1356,7 @@ msgstr "Default prompt and protocol"
 #: src/features/settings/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/tokens/pages.tsx
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Delete"
 msgstr "Delete"
 
@@ -1405,17 +1419,12 @@ msgstr "Delete token"
 msgid "Delete token {0}?"
 msgstr "Delete token {0}?"
 
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Delete user group"
 msgstr "Delete user group"
 
-#. placeholder {0}: group.name
-#: src/features/users/user-groups-section.tsx
-msgid "Delete user group {0}"
-msgstr "Delete user group {0}"
-
-#. placeholder {0}: group.name
-#: src/features/users/user-groups-section.tsx
+#. placeholder {0}: details.name
+#: src/features/users/user-group-page.tsx
 msgid "Delete user group {0}?"
 msgstr "Delete user group {0}?"
 
@@ -1462,7 +1471,7 @@ msgstr "Digest"
 msgid "Disable"
 msgstr "Disable"
 
-#. placeholder {0}: confirmDisable.username
+#. placeholder {0}: user.username
 #: src/features/users/pages.tsx
 msgid "Disable {0}?"
 msgstr "Disable {0}?"
@@ -2106,17 +2115,21 @@ msgstr "Medium"
 
 #: src/features/users/kind-select.tsx
 #: src/features/users/new-user-dialog.tsx
+#: src/features/users/pages.tsx
 msgid "Member"
 msgstr "Member"
 
 #: src/features/node-groups/pages.tsx
+#: src/features/users/user-group-page.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Members"
 msgstr "Members"
 
+#. placeholder {0}: details.name
 #. placeholder {0}: group.name
 #: src/features/node-groups/dialogs.tsx
 #: src/features/node-groups/pages.tsx
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Members of {0}"
 msgstr "Members of {0}"
 
@@ -2187,6 +2200,7 @@ msgstr "Move jump host {0} up"
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "Name"
 msgstr "Name"
 
@@ -2237,6 +2251,7 @@ msgstr "New session"
 #: src/features/sessions/children-bar.tsx
 #: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list-item.tsx
+#: src/features/users/pages.tsx
 msgid "New Session"
 msgstr "New Session"
 
@@ -2248,6 +2263,10 @@ msgstr "New text"
 #: src/features/users/pages.tsx
 msgid "New user"
 msgstr "New user"
+
+#: src/features/users/user-group-dialogs.tsx
+msgid "New user group"
+msgstr "New user group"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Next"
@@ -2269,10 +2288,6 @@ msgstr "No"
 #: src/features/nodes/access-grants.tsx
 msgid "No access grants yet."
 msgstr "No access grants yet."
-
-#: src/features/nodes/access-grants.tsx
-msgid "No access."
-msgstr "No access."
 
 #: src/features/batch/pages.tsx
 msgid "No active nodes you can access."
@@ -2303,7 +2318,7 @@ msgid "No events"
 msgstr "No events"
 
 #: src/features/node-groups/pages.tsx
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-page.tsx
 msgid "No members."
 msgstr "No members."
 
@@ -2331,6 +2346,10 @@ msgstr "No models are configured, so schedules cannot run."
 #: src/features/sessions/session-list.tsx
 msgid "No models are configured, so sessions cannot start."
 msgstr "No models are configured, so sessions cannot start."
+
+#: src/features/nodes/access-grants.tsx
+msgid "No node access"
+msgstr "No node access"
 
 #: src/features/node-groups/pages.tsx
 msgid "No node groups yet"
@@ -2385,6 +2404,7 @@ msgid "No session matches"
 msgstr "No session matches"
 
 #: src/features/sessions/session-list.tsx
+#: src/features/users/pages.tsx
 msgid "No sessions yet"
 msgstr "No sessions yet"
 
@@ -2402,6 +2422,7 @@ msgstr "No such node group"
 
 #: src/features/nodes/node-tasks.tsx
 #: src/features/tasks/pages.tsx
+#: src/features/users/pages.tsx
 msgid "No tasks yet"
 msgstr "No tasks yet"
 
@@ -2410,10 +2431,11 @@ msgid "No upcoming runs."
 msgstr "No upcoming runs."
 
 #: src/features/users/user-groups-section.tsx
-msgid "No user groups yet."
-msgstr "No user groups yet."
+msgid "No user groups yet"
+msgstr "No user groups yet"
 
 #: src/features/nodes/access-grants.tsx
+#: src/features/users/pages.tsx
 msgid "No user groups."
 msgstr "No user groups."
 
@@ -2434,8 +2456,7 @@ msgstr "No users."
 msgid "Node"
 msgstr "Node"
 
-#: src/features/users/pages.tsx
-#: src/features/users/user-groups-section.tsx
+#: src/features/nodes/access-grants.tsx
 msgid "Node access"
 msgstr "Node access"
 
@@ -2886,7 +2907,12 @@ msgstr "Reason"
 msgid "Reason (optional, used when rejecting)"
 msgstr "Reason (optional, used when rejecting)"
 
+#: src/features/users/pages.tsx
+msgid "Recent sessions"
+msgstr "Recent sessions"
+
 #: src/features/nodes/node-tasks.tsx
+#: src/features/users/pages.tsx
 msgid "Recent tasks"
 msgstr "Recent tasks"
 
@@ -2927,9 +2953,9 @@ msgstr "Remaining budget tokens (empty = unlimited)"
 msgid "Remove"
 msgstr "Remove"
 
-#. placeholder {0}: names.get(id) ?? id
-#. placeholder {1}: group.name
-#: src/features/users/user-groups-section.tsx
+#. placeholder {0}: member.username
+#. placeholder {1}: details.name
+#: src/features/users/user-group-page.tsx
 msgid "Remove {0} from {1}"
 msgstr "Remove {0} from {1}"
 
@@ -2985,6 +3011,8 @@ msgstr "Remove the stored key"
 #: src/features/node-groups/dialogs.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/rename-node-button.tsx
+#: src/features/users/user-group-dialogs.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Rename"
 msgstr "Rename"
 
@@ -2995,6 +3023,10 @@ msgstr "Rename node"
 #: src/features/node-groups/dialogs.tsx
 msgid "Rename node group"
 msgstr "Rename node group"
+
+#: src/features/users/user-group-dialogs.tsx
+msgid "Rename user group"
+msgstr "Rename user group"
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Repeat new password"
@@ -3094,6 +3126,7 @@ msgid "Revoked"
 msgstr "Revoked"
 
 #: src/features/nodes/node-trust.tsx
+#: src/features/users/pages.tsx
 msgid "Role"
 msgstr "Role"
 
@@ -3274,7 +3307,7 @@ msgstr "Security verification failed. Try again."
 #: src/components/share-editor.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-wizard.tsx
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Select…"
 msgstr "Select…"
 
@@ -3285,6 +3318,7 @@ msgstr "Send"
 #: src/features/schedules/run-history.tsx
 #: src/features/settings/model-presets.tsx
 #: src/features/tasks/task-page.tsx
+#: src/features/users/pages.tsx
 msgid "Session"
 msgstr "Session"
 
@@ -3316,6 +3350,11 @@ msgstr "Session title"
 msgid "Sessions"
 msgstr "Sessions"
 
+#. placeholder {0}: user.username
+#: src/features/users/pages.tsx
+msgid "Sessions of {0}"
+msgstr "Sessions of {0}"
+
 #: src/features/settings/pages.tsx
 msgid "Set"
 msgstr "Set"
@@ -3344,9 +3383,9 @@ msgstr "Shared with you by {sharedBy}"
 msgid "Shares"
 msgstr "Shares"
 
-#: src/features/users/user-groups-section.tsx
-msgid "Shares to this user group are removed."
-msgstr "Shares to this user group are removed."
+#: src/features/users/user-group-page.tsx
+msgid "Shares to this user group are removed, and its members lose the node access it grants."
+msgstr "Shares to this user group are removed, and its members lose the node access it grants."
 
 #: src/components/task-form-fields.tsx
 msgid "Shell command"
@@ -3642,6 +3681,11 @@ msgstr "Task-group approvals"
 msgid "Tasks"
 msgstr "Tasks"
 
+#. placeholder {0}: user.username
+#: src/features/users/pages.tsx
+msgid "Tasks of {0}"
+msgstr "Tasks of {0}"
+
 #: src/components/test-connection.tsx
 msgid "Test connection"
 msgstr "Test connection"
@@ -3898,6 +3942,10 @@ msgstr "This session is waiting, but there is nothing for you to decide."
 msgid "This stops the current run. Its history will show it as preempted."
 msgstr "This stops the current run. Its history will show it as preempted."
 
+#: src/features/users/pages.tsx
+msgid "This user doesn't exist or you don't have access."
+msgstr "This user doesn't exist or you don't have access."
+
 #: src/features/nodes/access-grants.tsx
 msgid "This user or user group already has access."
 msgstr "This user or user group already has access."
@@ -4046,6 +4094,7 @@ msgid "Up"
 msgstr "Up"
 
 #: src/features/nodes/node-trust.tsx
+#: src/features/users/pages.tsx
 msgid "Updated"
 msgstr "Updated"
 
@@ -4080,16 +4129,23 @@ msgstr "User"
 
 #: src/features/nodes/access-grants.tsx
 #: src/features/sessions/share-dialog.tsx
+#: src/features/users/user-group-page.tsx
 msgid "User group"
 msgstr "User group"
 
-#: src/features/users/user-groups-section.tsx
+#: src/features/users/user-group-dialogs.tsx
 msgid "User group name"
 msgstr "User group name"
 
+#: src/features/users/pages.tsx
 #: src/features/users/user-groups-section.tsx
 msgid "User groups"
 msgstr "User groups"
+
+#. placeholder {0}: user.username
+#: src/features/users/pages.tsx
+msgid "User groups of {0}"
+msgstr "User groups of {0}"
 
 #: src/features/auth/login-page.tsx
 #: src/features/users/new-user-dialog.tsx

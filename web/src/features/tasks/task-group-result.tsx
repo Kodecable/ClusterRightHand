@@ -88,6 +88,7 @@ export function TaskGroupResult({
 					nodeNames={lookups.nodeNames}
 					refNames={lookups.refNames}
 					tokenNames={lookups.tokenNames}
+					userNames={lookups.userNames}
 					busy={decide.isPending}
 					error={decide.error}
 					onDecide={(body) => decide.mutate({ kind: "task_group", id: taskGroup.id, body })}
@@ -108,7 +109,11 @@ export function TaskGroupResult({
 			)}
 
 			{taskGroup.state === "rejected" && taskGroup.approval?.decision && (
-				<DecisionView decision={taskGroup.approval.decision} tokenNames={lookups.tokenNames} />
+				<DecisionView
+					decision={taskGroup.approval.decision}
+					tokenNames={lookups.tokenNames}
+					userNames={lookups.userNames}
+				/>
 			)}
 
 			<div className="overflow-x-auto rounded-lg border">

@@ -24,6 +24,33 @@ export interface UserGroup {
 	memberIds: string[];
 }
 
+/** A user group as it appears on another record (a user's memberships). */
+export interface UserGroupRef {
+	id: string;
+	name: string;
+}
+
+/** `GET /api/users/:id`: the user's view plus the user groups it belongs to. */
+export interface UserDetail {
+	user: User;
+	userGroups: UserGroupRef[];
+}
+
+/** One member of a user group, as `GET /api/user-groups/:id` lists it. */
+export interface UserGroupMember {
+	id: string;
+	username: string;
+	displayName: string;
+}
+
+/** `GET /api/user-groups/:id`: the group, its creation time and its members. */
+export interface UserGroupDetail {
+	id: string;
+	name: string;
+	createdAt: string;
+	members: UserGroupMember[];
+}
+
 /** `GET /api/directory`: who a session, a token rule or a share may name. */
 export interface Directory {
 	users: { id: string; username: string; displayName: string }[];

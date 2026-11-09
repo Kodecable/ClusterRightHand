@@ -5,9 +5,20 @@ test.use({ withNode: true });
 
 const MEMBER = { username: "mallory", password: "member-password-1" };
 
-async function addedMemberShowsUp(page: Page): Promise<void> {
-	const group = page.getByTestId("user-group-card").filter({ hasText: "ops" });
-	await expect(group.getByRole("list", { name: "Members of ops" })).toContainText(MEMBER.username);
+async function addedMemberShowsUp(page: Page, label: string): Promise<void> {
+	// Members show their display name (the username when they have none), like every other user reference.
+	const group = page.getByTestId("user-group-members");
+	await expect(group.getByRole("list", { name: "Members of ops" })).toContainText(label);
+}
+
+/** Create a user group from the users page and open its detail page. */
+async function openNewGroup(page: Page, name: string): Promise<void> {
+	await page.getByTestId("create-user-group").click();
+	const dialog = page.getByRole("dialog", { name: "New user group" });
+	await dialog.getByLabel("User group name").fill(name);
+	await dialog.getByRole("button", { name: "Create user group" }).click();
+	await page.getByRole("link", { name, exact: true }).click();
+	await expect(page.getByTestId("user-group-detail")).toBeVisible();
 }
 
 test("admin grants node access; removing it hides the node again", async ({ adminPage: page, browser, crhs, env }) => {
@@ -25,16 +36,17 @@ test("admin grants node access; removing it hides the node again", async ({ admi
 	await dialog.getByRole("button", { name: "Create user" }).click();
 	const userRow = page.getByRole("row").filter({ hasText: MEMBER.username });
 	await expect(userRow).toBeVisible();
-	await expect(userRow.getByLabel(`Kind of ${MEMBER.username}`)).toContainText("Member");
+	// The list has no inline edits; the kind is plain text and the row links to the user page.
+	await expect(userRow).toContainText("Member");
+	await expect(userRow.getByLabel(`Kind of ${MEMBER.username}`)).toHaveCount(0);
+	await expect(page.getByRole("link", { name: MEMBER.username })).toHaveAttribute("href", /\/users\/[0-9a-f-]{36}$/);
 
-	await page.getByLabel("User group name").fill("ops");
-	await page.getByRole("button", { name: "Create user group" }).click();
-	const group = page.getByTestId("user-group-card").filter({ hasText: "ops" });
-	await expect(group).toBeVisible();
+	await openNewGroup(page, "ops");
+	const group = page.getByTestId("user-group-members");
 	await group.getByLabel("Add member").click();
 	await page.getByRole("option", { name: MEMBER.username }).click();
 	await group.getByRole("button", { name: "Add", exact: true }).click();
-	await addedMemberShowsUp(page);
+	await addedMemberShowsUp(page, "Mallory M");
 
 	// Member in a separate browser context: sees no node and no administrator actions.
 	const ctx = await browser.newContext({ baseURL: crhs.url });
@@ -58,9 +70,10 @@ test("admin grants node access; removing it hides the node again", async ({ admi
 		await add.getByRole("button", { name: "Add access" }).click();
 		await expect(access.getByRole("table", { name: `Access grants for ${nodeName}` })).toContainText(MEMBER.username);
 
-		// The grant shows on the users page too.
+		// The grant shows on the user's detail page, not in a users list row.
 		await page.goto("/users");
-		await expect(page.getByRole("row").filter({ hasText: MEMBER.username })).toContainText(nodeName);
+		await page.getByRole("link", { name: MEMBER.username }).click();
+		await expect(page.getByTestId("grantee-node-access")).toContainText(nodeName);
 
 		// Member sees the node and may run tasks; the access section itself stays admin-only.
 		// The node list polls, so the new grant shows up without a refresh.
@@ -96,13 +109,12 @@ test("a grant to a user group gives its members access", async ({ adminPage: pag
 	const nodeName: string = json.nodes[0].name;
 	await crhs.api("/api/users", { body: { username: MEMBER.username, kind: "member", password: MEMBER.password } });
 	await page.goto("/users");
-	await page.getByLabel("User group name").fill("ops");
-	await page.getByRole("button", { name: "Create user group" }).click();
-	const group = page.getByTestId("user-group-card").filter({ hasText: "ops" });
+	await openNewGroup(page, "ops");
+	const group = page.getByTestId("user-group-members");
 	await group.getByLabel("Add member").click();
 	await page.getByRole("option", { name: MEMBER.username }).click();
 	await group.getByRole("button", { name: "Add", exact: true }).click();
-	await addedMemberShowsUp(page);
+	await addedMemberShowsUp(page, MEMBER.username);
 
 	await page.goto(`/nodes/${nodeId}`);
 	const access = page.getByTestId("node-access");
@@ -114,6 +126,11 @@ test("a grant to a user group gives its members access", async ({ adminPage: pag
 	await page.getByRole("option", { name: "ops" }).click();
 	await add.getByRole("button", { name: "Add access" }).click();
 	await expect(access.getByRole("table")).toContainText("ops");
+
+	// The group's detail page lists the grant as well.
+	await page.goto("/users");
+	await page.getByRole("link", { name: "ops", exact: true }).click();
+	await expect(page.getByTestId("grantee-node-access")).toContainText(nodeName);
 
 	const ctx = await browser.newContext({ baseURL: crhs.url });
 	try {

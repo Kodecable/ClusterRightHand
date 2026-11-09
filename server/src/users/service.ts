@@ -1,4 +1,4 @@
-import type { User, UserKind, UserStatus } from "@crh/api";
+import type { User, UserDetail, UserKind, UserStatus } from "@crh/api";
 import type { Selectable } from "kysely";
 import { hashPassword } from "../auth/password.ts";
 import type { Db } from "../storage/db.ts";
@@ -118,6 +118,20 @@ export async function findUserByUsername(db: Db, username: string) {
 export async function listUsers(db: Db): Promise<PublicUser[]> {
 	const rows = await db.selectFrom("users").selectAll().orderBy("username").execute();
 	return rows.map(toPublicUser);
+}
+
+/** `GET /api/users/:id`: the user's public view and the user groups it belongs to. */
+export async function getUserDetail(db: Db, userId: string): Promise<UserDetail | undefined> {
+	const row = await db.selectFrom("users").selectAll().where("id", "=", userId).executeTakeFirst();
+	if (!row) return undefined;
+	const userGroups = await db
+		.selectFrom("user_group_members")
+		.innerJoin("user_groups", "user_groups.id", "user_group_members.user_group_id")
+		.select(["user_groups.id as id", "user_groups.name as name"])
+		.where("user_group_members.user_id", "=", userId)
+		.orderBy("user_groups.name")
+		.execute();
+	return { user: toPublicUser(row), userGroups: userGroups.map((group) => ({ id: group.id, name: group.name })) };
 }
 
 /**

@@ -1,3 +1,4 @@
+import type { UserDetail, UserGroupDetail } from "@crh/api";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Db } from "../src/storage/db.ts";
 import { createUser, type PublicUser } from "../src/users/service.ts";
@@ -210,6 +211,61 @@ describeBackends("api users", (backend) => {
 		});
 	});
 
+	describe("user detail", () => {
+		const detail = (id: string, cookie: string) => call(app, `/api/users/${id}`, { cookie });
+
+		it("an administrator reads any user with the groups it belongs to", async () => {
+			const erin = await byName("erin");
+			const created = await call(app, "/api/user-groups", { cookie: admin, body: { name: "detail-team" } });
+			const group = ((await created.json()) as { group: { id: string; name: string } }).group;
+			expect(
+				(
+					await call(app, `/api/user-groups/${group.id}/members/${erin.id}`, {
+						method: "PUT",
+						cookie: admin,
+						body: {},
+					})
+				).status,
+			).toBe(200);
+
+			const res = await detail(erin.id, admin);
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as UserDetail;
+			expect(body.user).toMatchObject({ id: erin.id, username: "erin", kind: "member" });
+			expect(body.user).not.toHaveProperty("password_hash");
+			expect(body.userGroups).toEqual([{ id: group.id, name: "detail-team" }]);
+		});
+
+		it("a member reads only themselves; every other id is the missing-user 404", async () => {
+			const erin = await byName("erin");
+			const erinCookie = await login(app, "erin", "erin-password");
+			const own = await detail(erin.id, erinCookie);
+			expect(own.status).toBe(200);
+			expect(((await own.json()) as UserDetail).user.username).toBe("erin");
+
+			const other = await detail(adminId, erinCookie);
+			const missing = await detail("does-not-exist", erinCookie);
+			expect(other.status).toBe(404);
+			expect(missing.status).toBe(404);
+			expect(((await other.json()) as { error: string }).error).toBe(
+				((await missing.json()) as { error: string }).error,
+			);
+			// The list stays administrators-only; only the detail endpoint admits the self case.
+			expect((await call(app, "/api/users", { cookie: erinCookie })).status).toBe(403);
+			expect(
+				(await call(app, `/api/users/${erin.id}/password`, { cookie: erinCookie, body: { password: "long-enough-1" } }))
+					.status,
+			).toBe(403);
+		});
+
+		it("a missing user is the same 404 for an administrator", async () => {
+			expect((await detail("does-not-exist", admin)).status).toBe(404);
+			expect(
+				(((await (await detail("does-not-exist", admin)).json()) as { error: string }).error ?? "").length,
+			).toBeGreaterThan(0);
+		});
+	});
+
 	describe("user groups", () => {
 		const groups = async () =>
 			(
@@ -280,6 +336,78 @@ describeBackends("api users", (backend) => {
 				body: {},
 			});
 			expect(badGroup.status).toBe(404);
+		});
+
+		it("returns one group with its members and 404s when it is missing", async () => {
+			const created = await call(app, "/api/user-groups", { cookie: admin, body: { name: "detail-ops" } });
+			const g = ((await created.json()) as { group: { id: string } }).group;
+			const erin = await byName("erin");
+			const hank = await byName("hank");
+			for (const user of [erin, hank]) {
+				await call(app, `/api/user-groups/${g.id}/members/${user.id}`, { method: "PUT", cookie: admin, body: {} });
+			}
+			const res = await call(app, `/api/user-groups/${g.id}`, { cookie: admin });
+			expect(res.status).toBe(200);
+			expect(((await res.json()) as { group: UserGroupDetail }).group).toMatchObject({
+				id: g.id,
+				name: "detail-ops",
+				createdAt: expect.any(String) as string,
+				members: expect.arrayContaining([
+					{ id: erin.id, username: "erin", displayName: "erin" },
+					{ id: hank.id, username: "hank", displayName: "hank" },
+				]),
+			});
+			expect((await call(app, "/api/user-groups/nope", { cookie: admin })).status).toBe(404);
+			const erinCookie = await login(app, "erin", "erin-password");
+			expect((await call(app, `/api/user-groups/${g.id}`, { cookie: erinCookie })).status).toBe(403);
+		});
+
+		it("renames a group with the creation rules and audits it", async () => {
+			const created = await call(app, "/api/user-groups", { cookie: admin, body: { name: "rename-me" } });
+			const g = ((await created.json()) as { group: { id: string } }).group;
+			const other = await call(app, "/api/user-groups", { cookie: admin, body: { name: "taken-name" } });
+			const otherId = ((await other.json()) as { group: { id: string } }).group.id;
+
+			const renamed = await call(app, `/api/user-groups/${g.id}`, {
+				method: "PATCH",
+				cookie: admin,
+				body: { name: " Renamed-Team " },
+			});
+			expect(renamed.status).toBe(200);
+			expect(((await renamed.json()) as { group: { name: string } }).group.name).toBe("renamed-team");
+			const listed = (await groups()).find((group) => group.id === g.id);
+			expect(listed?.name).toBe("renamed-team");
+			expect(
+				(await call(app, `/api/user-groups/${g.id}`, { method: "PATCH", cookie: admin, body: { name: "taken-name" } }))
+					.status,
+			).toBe(400);
+			expect(
+				(await call(app, `/api/user-groups/${g.id}`, { method: "PATCH", cookie: admin, body: { name: "bad name" } }))
+					.status,
+			).toBe(400);
+			expect((await call(app, `/api/user-groups/${g.id}`, { method: "PATCH", cookie: admin, body: {} })).status).toBe(
+				400,
+			);
+			expect(
+				(await call(app, "/api/user-groups/nope", { method: "PATCH", cookie: admin, body: { name: "x-team" } })).status,
+			).toBe(404);
+			const erinCookie = await login(app, "erin", "erin-password");
+			expect(
+				(await call(app, `/api/user-groups/${g.id}`, { method: "PATCH", cookie: erinCookie, body: { name: "x-team" } }))
+					.status,
+			).toBe(403);
+			// The app under test has no audit route (no task runtime); read the recorded event directly.
+			const events = await db
+				.selectFrom("audit_events")
+				.select(["target_id", "detail"])
+				.where("action", "=", "user_group.renamed")
+				.execute();
+			expect(
+				events.some(
+					(event) => event.target_id === g.id && (JSON.parse(event.detail) as { name: string }).name === "renamed-team",
+				),
+			).toBe(true);
+			expect(otherId).not.toBe(g.id);
 		});
 
 		it("an administrator cannot demote or disable themselves; another administrator does", async () => {

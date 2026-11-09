@@ -5,7 +5,7 @@
 
 import type { JsonFileListEntry, JsonTaskResult } from "@crh/protocol";
 import type { TaskAuthorizationView } from "./authorizations.ts";
-import type { RefMap } from "./common.ts";
+import type { CursorQuery, RefMap } from "./common.ts";
 import type { ApprovalRecord, Operation, RuleRef, TaskGroupApprovalRecord } from "./policy.ts";
 
 export type TaskState =
@@ -41,6 +41,15 @@ export type FileListEntryView = JsonFileListEntry;
  * fields are the wire fields in camelCase (doc/protocol.md TaskResult).
  */
 export type TaskResultView = JsonTaskResult;
+
+/** The task page's list filters (doc/webui.md#api-约定). */
+export interface TaskListQuery extends CursorQuery {
+	state?: TaskState;
+	actorType?: string;
+	nodeId?: string;
+	/** Tasks whose requesting user (`onBehalfOfUserId`, the "By" column) is this user. */
+	userId?: string;
+}
 
 export interface TaskView {
 	id: string;

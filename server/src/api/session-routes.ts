@@ -159,6 +159,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, SESSION_CURSOR);
 		const q = c.req.query("q");
 		const scheduleId = c.req.query("scheduleId");
+		const ownerId = c.req.query("ownerId");
 		const page = await cursorRows(
 			limit,
 			async (limitPlusOne) =>
@@ -167,6 +168,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 						scope: scope as SessionListScope,
 						...(q ? { q } : {}),
 						...(scheduleId === undefined ? {} : { scheduleId }),
+						...(ownerId === undefined ? {} : { ownerId }),
 						...(cursor ? { cursor } : {}),
 					})
 				)

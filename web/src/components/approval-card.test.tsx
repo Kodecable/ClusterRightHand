@@ -1,7 +1,7 @@
 import type { ApprovalBody, Evaluation, TaskGroupView, TaskView } from "@crh/api";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
-import { renderWithI18n } from "@/test/render";
+import { renderWithI18n, renderWithRouter } from "@/test/render";
 import { ApprovalCard, DecisionView } from "./approval-card";
 
 const evaluation: Evaluation = {
@@ -104,6 +104,18 @@ describe("ApprovalCard", () => {
 		expect(screen.getByRole("alert")).toHaveTextContent("expected a rule object");
 	});
 
+	test("a user asked-by and decided-by actor links to the user page", async () => {
+		await renderWithRouter(
+			<ApprovalCard
+				item={{ kind: "task", task: task({ actorType: "user", actorId: "u1" }) }}
+				nodeNames={nodeNames}
+				userNames={new Map([["u1", "Ada"]])}
+				onDecide={() => {}}
+			/>,
+		);
+		expect(screen.getByRole("link", { name: "Ada" })).toHaveAttribute("href", "/users/u1");
+	});
+
 	test("a decision shows a coloured status and the asked-by actor label", () => {
 		renderWithI18n(
 			<DecisionView
@@ -116,7 +128,7 @@ describe("ApprovalCard", () => {
 		expect(screen.queryByText(/api_token/)).not.toBeInTheDocument();
 	});
 
-	test("a task group shows one evaluation per node and one entry", () => {
+	test("a task group shows one evaluation per node and one entry", async () => {
 		const taskGroup = {
 			id: "group-1",
 			kind: "exec",
@@ -134,7 +146,7 @@ describe("ApprovalCard", () => {
 				],
 			},
 		} as unknown as TaskGroupView;
-		renderWithI18n(
+		await renderWithRouter(
 			<ApprovalCard
 				item={{ kind: "task_group", taskGroup }}
 				nodeNames={

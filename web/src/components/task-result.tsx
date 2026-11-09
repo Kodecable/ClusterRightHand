@@ -130,6 +130,7 @@ export function TaskFacts({
 	task,
 	node,
 	askedBy,
+	userNames,
 	extra = [],
 	showSummary = true,
 	showState = true,
@@ -142,6 +143,8 @@ export function TaskFacts({
 	node?: React.ReactNode;
 	/** Who asked for the task, when the caller resolved its display name. */
 	askedBy?: React.ReactNode;
+	/** Display names by user id, for a recorded approval decision. */
+	userNames?: Map<string, string>;
 	/** Further page-specific facts, e.g. the links to a session or a task group. */
 	extra?: readonly KeyValueItem[];
 	showSummary?: boolean;
@@ -229,7 +232,12 @@ export function TaskFacts({
 				]
 			: []),
 		...(showDecision && task.approval?.decision
-			? [{ label: <Trans>Approval decision</Trans>, value: <DecisionView decision={task.approval.decision} /> }]
+			? [
+					{
+						label: <Trans>Approval decision</Trans>,
+						value: <DecisionView decision={task.approval.decision} userNames={userNames} />,
+					},
+				]
 			: []),
 		...extra,
 		{ label: <Trans>Created</Trans>, value: <DateTime value={task.createdAt} /> },

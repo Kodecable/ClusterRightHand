@@ -165,6 +165,7 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 			return jsonError(c, 400, `unknown actorType ${actorType}`);
 		}
 		const filterNode = c.req.query("nodeId");
+		const filterUser = c.req.query("userId");
 		const limit = parseLimit(c.req.query("limit"));
 		const rawCursor = c.req.query("cursor");
 		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, TASKS_CURSOR);
@@ -174,6 +175,9 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		// Session viewers reach a shared session's task by id, not through this list.
 		if (!isAdmin(user)) query = query.where("on_behalf_of_user_id", "=", user.userId);
 		if (filterNode !== undefined) query = query.where("node_id", "=", filterNode);
+		// The "By" column shows `on_behalf_of_user_id`, so that is what a user's own task filter matches (a
+		// session or token task still acts for its owner). Applied after the visibility rule above.
+		if (filterUser !== undefined && filterUser !== "") query = query.where("on_behalf_of_user_id", "=", filterUser);
 		if (state !== undefined) query = query.where("state", "=", state as TaskState);
 		if (actorType !== undefined) query = query.where("actor_type", "=", actorType);
 		if (cursor) query = query.where(descendingKeyset(["created_at"], cursor));

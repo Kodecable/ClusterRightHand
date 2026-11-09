@@ -248,6 +248,24 @@ const usersRoute = createRoute({
 	component: lazyRouteComponent(() => import("@/features/users/pages"), "UsersPage"),
 });
 
+/**
+ * One user. Administrators reach anyone; a member reaches their own page even
+ * though the `/users` list stays administrators-only. The route itself does not
+ * guard by kind: the server answers the no-access case with the same 404 a
+ * missing user gets, and the page shows one message for both.
+ */
+const userDetailRoute = createRoute({
+	getParentRoute: () => authenticatedRoute,
+	path: "/users/$userId",
+	component: lazyRouteComponent(() => import("@/features/users/pages"), "UserDetailPage"),
+});
+
+const userGroupDetailRoute = createRoute({
+	getParentRoute: () => authenticatedRoute,
+	path: "/user-groups/$userGroupId",
+	component: lazyRouteComponent(() => import("@/features/users/user-group-page"), "UserGroupDetailPage"),
+});
+
 const routeTree = rootRoute.addChildren([
 	loginRoute,
 	authenticatedRoute.addChildren([
@@ -273,6 +291,8 @@ const routeTree = rootRoute.addChildren([
 		auditRoute,
 		modelSettingsRoute,
 		usersRoute,
+		userDetailRoute,
+		userGroupDetailRoute,
 	]),
 ]);
 

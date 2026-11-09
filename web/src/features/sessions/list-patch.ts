@@ -10,6 +10,8 @@ import type { CursorPage, SessionListItem, SessionListScope } from "@crh/api";
 export interface SessionListFilter {
 	scope: SessionListScope;
 	q: string;
+	/** Only roots owned by this user, for the per-user list on a user's page. */
+	ownerId?: string;
 	viewerId: string;
 	isAdmin: boolean;
 }
@@ -59,6 +61,7 @@ export function sessionListFilter(
 	return {
 		scope: record.scope as SessionListScope,
 		q: record.q,
+		...(typeof record.ownerId === "string" && record.ownerId !== "" ? { ownerId: record.ownerId } : {}),
 		viewerId: viewer.viewerId,
 		isAdmin: viewer.isAdmin,
 	};
@@ -70,6 +73,7 @@ export function sessionMatchesFilter(item: SessionListItem, filter: SessionListF
 	if (filter.scope === "mine" && item.ownerUserId !== filter.viewerId) return false;
 	if (filter.scope === "shared" && !item.shared) return false;
 	if (filter.scope === "visible" && item.ownerUserId !== filter.viewerId && !item.shared) return false;
+	if (filter.ownerId !== undefined && item.ownerUserId !== filter.ownerId) return false;
 	const query = filter.q.trim().toLowerCase();
 	// A null title is not searchable: the list search matches stored titles only.
 	if (query !== "" && !(item.title?.toLowerCase().includes(query) ?? false)) return false;

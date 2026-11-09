@@ -21,7 +21,7 @@ import { useApprovals } from "@/features/approvals/api";
 import { pendingCount } from "@/features/approvals/pending";
 import { useAuth } from "@/features/auth/session";
 import { cn } from "@/lib/utils";
-import { NAV_GROUPS, type NavItem } from "./nav";
+import { NAV_GROUPS, type NavItem, navItemForPath } from "./nav";
 import { UserMenu } from "./user-menu";
 
 function Logo() {
@@ -48,7 +48,9 @@ export function AppSidebar() {
 	const tooltipFor = (label: string) => (!isMobile && state === "collapsed" ? label : undefined);
 	const pending = pendingCount(approvals.data);
 
-	const isActive = (item: NavItem) => pathname === item.to || pathname.startsWith(`${item.to}/`);
+	// The longest matching nav path wins, including aliases such as user groups under Users.
+	const currentNavItem = navItemForPath(pathname);
+	const isActive = (item: NavItem) => item === currentNavItem;
 	const visible = (item: NavItem) => !item.adminOnly || user?.kind === "admin";
 
 	// Arrow-key navigation across the sidebar links, in addition to native Tab.

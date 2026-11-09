@@ -11,6 +11,7 @@ import { StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { UserLink } from "@/components/user-link";
 import { actorLabel, alwaysRule } from "@/features/approvals/rules";
 import { ruleWithNames } from "@/lib/refs";
 import { ruleResultTone } from "@/lib/status";
@@ -29,6 +30,25 @@ const RULE_RESULT_LABELS: Record<string, MessageDescriptor> = {
 function ruleResultLabel(i18n: I18n, result: string): string {
 	const descriptor = RULE_RESULT_LABELS[result];
 	return descriptor === undefined ? result : i18n._(descriptor);
+}
+
+/**
+ * An actor of a task: a user is a link to its page (the destination handles no
+ * access); a token, system, agent or schedule actor stays plain text.
+ */
+function ActorValue({
+	type,
+	id,
+	tokenNames,
+	userNames,
+}: {
+	type: string;
+	id: string;
+	tokenNames?: Map<string, string>;
+	userNames?: Map<string, string>;
+}) {
+	if (type === "user") return <UserLink id={id} name={userNames?.get(id)} title={`user:${id}`} />;
+	return <span>{actorLabel(type, id, tokenNames ?? new Map())}</span>;
 }
 
 /** The rule chain evaluation: for each level its scope, own result, deciding rule and effective result. */
@@ -98,10 +118,13 @@ export function EvaluationTable({
 export function DecisionView({
 	decision,
 	tokenNames = new Map(),
+	userNames,
 }: {
 	decision: NonNullable<TaskView["approval"]>["decision"];
 	/** Resolves an API token's id to its name, for the deciding actor. */
 	tokenNames?: Map<string, string>;
+	/** Display names by user id, for a user actor. */
+	userNames?: Map<string, string>;
 }) {
 	if (!decision) return null;
 	return (
@@ -117,7 +140,9 @@ export function DecisionView({
 				},
 				{
 					label: <Trans>Decided by</Trans>,
-					value: <span>{actorLabel(decision.by.type, decision.by.id, tokenNames)}</span>,
+					value: (
+						<ActorValue type={decision.by.type} id={decision.by.id} tokenNames={tokenNames} userNames={userNames} />
+					),
 				},
 				{ label: <Trans>Decided at</Trans>, value: <DateTime value={decision.at} /> },
 				...(decision.reason ? [{ label: <Trans>Reason</Trans>, value: decision.reason }] : []),
@@ -222,6 +247,7 @@ export function ApprovalCard({
 	nodeNames = new Map(),
 	refNames,
 	tokenNames = new Map(),
+	userNames,
 	onDecide,
 	busy = false,
 	error,
@@ -234,6 +260,8 @@ export function ApprovalCard({
 	/** Current node and node-group names for UUIDs in rules; defaults to `nodeNames`. */
 	refNames?: Map<string, string>;
 	tokenNames?: Map<string, string>;
+	/** Display names by user id, for the asked-by and decided-by user links. */
+	userNames?: Map<string, string>;
 	onDecide: (body: ApprovalBody) => void;
 	busy?: boolean;
 	error?: unknown;
@@ -326,11 +354,23 @@ export function ApprovalCard({
 						{
 							label: <Trans>Asked by</Trans>,
 							value:
-								item.kind === "task"
-									? actorLabel(item.task.actorType, item.task.actorId, tokenNames)
-									: item.taskGroup.actorType !== undefined && item.taskGroup.actorId !== undefined
-										? actorLabel(item.taskGroup.actorType, item.taskGroup.actorId, tokenNames)
-										: "–",
+								item.kind === "task" ? (
+									<ActorValue
+										type={item.task.actorType}
+										id={item.task.actorId}
+										tokenNames={tokenNames}
+										userNames={userNames}
+									/>
+								) : item.taskGroup.actorType !== undefined && item.taskGroup.actorId !== undefined ? (
+									<ActorValue
+										type={item.taskGroup.actorType}
+										id={item.taskGroup.actorId}
+										tokenNames={tokenNames}
+										userNames={userNames}
+									/>
+								) : (
+									"–"
+								),
 						},
 						{ label: <Trans>Requested</Trans>, value: <DateTime value={subject.createdAt} /> },
 					]}

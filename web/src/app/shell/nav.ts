@@ -46,6 +46,8 @@ export interface NavItem {
 	adminOnly?: boolean;
 	/** Shows the pending approvals count. */
 	badge?: "approvals";
+	/** Further paths this one entry also highlights, e.g. user groups under Users. */
+	activeFor?: readonly string[];
 }
 
 export interface NavGroup {
@@ -80,7 +82,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 			{ to: "/tokens", label: msg`API tokens`, icon: KeySquareIcon },
 			{ to: "/audit", label: msg`Audit`, icon: ScrollTextIcon },
 			{ to: "/settings/models", label: msg`Models`, icon: BoxesIcon, adminOnly: true },
-			{ to: "/users", label: msg`Users`, icon: UsersIcon, adminOnly: true },
+			{ to: "/users", label: msg`Users`, icon: UsersIcon, adminOnly: true, activeFor: ["/user-groups"] },
 		],
 	},
 ];
@@ -89,7 +91,7 @@ export const NAV_ITEMS: readonly NavItem[] = NAV_GROUPS.flatMap((group) => group
 
 /** The longest nav path that prefixes `pathname` (so /sessions/123 highlights Sessions). */
 export function navItemForPath(pathname: string): NavItem | undefined {
-	return [...NAV_ITEMS]
-		.sort((a, b) => b.to.length - a.to.length)
-		.find((item) => pathname === item.to || pathname.startsWith(`${item.to}/`));
+	return NAV_ITEMS.flatMap((item) => [item.to, ...(item.activeFor ?? [])].map((path) => ({ item, path })))
+		.sort((a, b) => b.path.length - a.path.length)
+		.find(({ path }) => pathname === path || pathname.startsWith(`${path}/`))?.item;
 }

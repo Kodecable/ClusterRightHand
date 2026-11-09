@@ -14,7 +14,7 @@ function task(overrides: Partial<TaskView> = {}): TaskView {
 		operation: null,
 		actorType: "user",
 		actorId: "u1",
-		onBehalfOfUserId: null,
+		onBehalfOfUserId: "u1",
 		state: "exited",
 		exitCode: 0,
 		signal: null,
@@ -46,7 +46,8 @@ function mockApi(tasks: TaskView[]): void {
 			const json = (payload: unknown) =>
 				new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
 			if (url === "/api/nodes/node-1/tasks") return json({ tasks });
-			if (url === "/api/directory") return json({ users: [], userGroups: [] });
+			if (url === "/api/directory")
+				return json({ users: [{ id: "u1", username: "ada", displayName: "Ada" }], userGroups: [] });
 			return json({});
 		}),
 	);
@@ -71,8 +72,11 @@ test("a recent task's row links to the task page; there is no Details column", a
 	const first = await screen.findByRole("link", { name: "uptime" });
 	expect(first).toHaveAttribute("href", "/tasks/task-1");
 	expect(screen.getByRole("link", { name: "whoami" })).toHaveAttribute("href", "/tasks/task-2");
-	// One row link per task and no separate "Details" link.
-	expect(screen.getAllByRole("link")).toHaveLength(2);
+	// One row link per task, one actor link per row, and no separate "Details" link.
+	expect(screen.getAllByRole("link")).toHaveLength(4);
+	for (const link of screen.getAllByRole("link", { name: "Ada" })) {
+		expect(link).toHaveAttribute("href", "/users/u1");
+	}
 	expect(screen.queryByRole("link", { name: "Details" })).not.toBeInTheDocument();
 	// The summary itself is plain text, and the section has no refresh button.
 	expect(screen.getByText("uptime").closest("a")).toBeNull();

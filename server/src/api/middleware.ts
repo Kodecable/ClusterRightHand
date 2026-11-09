@@ -63,3 +63,14 @@ export const requireAdmin: MiddlewareHandler<AppEnv> = async (c, next) => {
 	if (!isAdmin(c.get("user"))) return jsonError(c, 403, "administrators only");
 	await next();
 };
+
+/**
+ * The `GET /users/:id` case: administrators read anyone, everyone else only the user id in the path. A
+ * different id answers the same 404 a missing user gets, so a member cannot probe for accounts. Every other
+ * `/users` route stays behind {@link requireAdmin}.
+ */
+export const requireAdminOrSelf: MiddlewareHandler<AppEnv> = async (c, next) => {
+	const id = c.req.param("id");
+	if (!isAdmin(c.get("user")) && c.get("user").userId !== id) return jsonError(c, 404, "no such user");
+	await next();
+};

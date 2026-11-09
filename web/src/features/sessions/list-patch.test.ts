@@ -5,6 +5,7 @@ import {
 	markSessionListItemRead,
 	removeSessionListItem,
 	type SessionListFilter,
+	sessionListFilter,
 	sessionMatchesFilter,
 	upsertSessionListItem,
 } from "./list-patch";
@@ -53,6 +54,15 @@ describe("sessionMatchesFilter", () => {
 		expect(sessionMatchesFilter(item({ ownerUserId: "x", shared: false }), filter({ scope: "visible" }))).toBe(false);
 	});
 
+	test("ownerId narrows any list to that owner's roots", () => {
+		expect(sessionMatchesFilter(item(), filter({ ownerId: "me" }))).toBe(true);
+		expect(sessionMatchesFilter(item(), filter({ ownerId: "someone" }))).toBe(false);
+		expect(
+			sessionMatchesFilter(item({ ownerUserId: "x" }), filter({ scope: "all", isAdmin: true, ownerId: "x" })),
+		).toBe(true);
+		expect(sessionMatchesFilter(item(), filter({ scope: "all", isAdmin: true, ownerId: "x" }))).toBe(false);
+	});
+
 	test("all is admin-only and fails closed", () => {
 		expect(sessionMatchesFilter(item(), filter({ scope: "all" }))).toBe(false);
 		expect(sessionMatchesFilter(item(), filter({ scope: "all", isAdmin: true }))).toBe(true);
@@ -67,6 +77,17 @@ describe("sessionMatchesFilter", () => {
 	test("a session with no title yet is listed but never matches a search", () => {
 		expect(sessionMatchesFilter(item({ title: null }), filter())).toBe(true);
 		expect(sessionMatchesFilter(item({ title: null }), filter({ q: "deploy" }))).toBe(false);
+	});
+});
+
+describe("sessionListFilter", () => {
+	test("carries the ownerId of a per-user list key", () => {
+		const viewer = { viewerId: "u1", isAdmin: true };
+		expect(sessionListFilter(["sessions", "list", { scope: "all", q: "", ownerId: "u2" }], viewer)).toMatchObject({
+			scope: "all",
+			ownerId: "u2",
+		});
+		expect(sessionListFilter(["sessions", "list", { scope: "mine", q: "" }], viewer)).not.toHaveProperty("ownerId");
 	});
 });
 

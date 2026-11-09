@@ -430,6 +430,26 @@ describe("GET /api/sessions", () => {
 		expect((await list("bob", "?scope=shared")).items.map((item) => item.id)).toEqual([a1]);
 	});
 
+	it("filters by ownerId, usable with the admin all scope", async () => {
+		const aliceOne = await newSession("alice", "owner filter alice");
+		await sleep(5);
+		const bobOne = await newSession("bob", "owner filter bob");
+
+		const adminAlice = await list("root", `?scope=all&ownerId=${id.alice}`);
+		expect(adminAlice.items.map((item) => item.id)).toContain(aliceOne);
+		expect(adminAlice.items.map((item) => item.id)).not.toContain(bobOne);
+		expect(adminAlice.items.every((item) => item.ownerUserId === id.alice)).toBe(true);
+
+		const adminBob = await list("root", `?scope=all&ownerId=${id.bob}`);
+		expect(adminBob.items.map((item) => item.id)).toContain(bobOne);
+		expect(adminBob.items.map((item) => item.id)).not.toContain(aliceOne);
+
+		// Harmless for a non-admin: the scope already limits the list, so a foreign owner is an empty page.
+		expect((await list("bob", `?ownerId=${id.alice}`)).items).toEqual([]);
+		expect((await list("bob", `?ownerId=${id.bob}`)).items.map((item) => item.id)).toContain(bobOne);
+		expect((await call(app, `/api/sessions?scope=all&ownerId=${id.alice}`, { cookie: cookie.bob })).status).toBe(403);
+	});
+
 	it("scope=visible is the owner-and-shared union, without an administrator override", async () => {
 		const own = await newSession("bob", "visible own");
 		const other = await newSession("alice", "visible other");
