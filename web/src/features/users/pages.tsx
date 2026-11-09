@@ -1,16 +1,17 @@
-import type { SessionListItem, User } from "@crh/api";
-import { Trans, useLingui } from "@lingui/react/macro";
+import type { SessionListItem, User, UserGroupRef } from "@crh/api";
+import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
-import { EmptyHint, EmptyState } from "@/components/empty-state";
+import { EmptyState, TableEmpty } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime, RelativeTime } from "@/components/relative-time";
+import { SectionHeader } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { SessionStatusBadge, StatusText } from "@/components/status-badge";
 import { useTimeColumnWidth } from "@/components/time-column";
@@ -23,8 +24,7 @@ import { sessionTitle } from "@/features/sessions/session-item";
 import { useTasks } from "@/features/tasks/api";
 import { useTaskColumns } from "@/features/tasks/task-columns";
 import { isNotFound } from "@/lib/api/client";
-import { linkClass } from "@/lib/utils";
-import { useUpdateUser, useUser, useUsers } from "./api";
+import { useUpdateUser, useUser, useUserGroups, useUsers } from "./api";
 import { KindSelect } from "./kind-select";
 import { NewUserDialog } from "./new-user-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
@@ -222,6 +222,38 @@ export function UserDetailPage() {
 	const update = useUpdateUser();
 	const [confirmDisable, setConfirmDisable] = useState(false);
 	const [resetting, setResetting] = useState(false);
+	// The user detail response only names the memberships; the admin-only list
+	// carries each group's size, so the count is shown when it is readable.
+	const allGroups = useUserGroups({ enabled: admin });
+	const groupMemberCounts = useMemo(
+		() => new Map((allGroups.data ?? []).map((group) => [group.id, group.memberIds.length])),
+		[allGroups.data],
+	);
+	const groupColumns = useMemo<DataTableColumn<UserGroupRef>[]>(
+		() => [
+			{
+				id: "name",
+				header: t`Name`,
+				minSize: 160,
+				cell: ({ row }) => <span className="truncate font-medium">{row.original.name}</span>,
+				meta: { title: (group: UserGroupRef) => group.name },
+			},
+			{
+				id: "members",
+				header: t`Members`,
+				size: 120,
+				cell: ({ row }) => {
+					const count = groupMemberCounts.get(row.original.id);
+					return count === undefined ? (
+						<span className="text-muted-foreground">–</span>
+					) : (
+						<Plural value={count} one="# member" other="# members" />
+					);
+				},
+			},
+		],
+		[t, groupMemberCounts],
+	);
 
 	if (detail.isPending) {
 		return (
@@ -314,24 +346,20 @@ export function UserDetailPage() {
 				aria-labelledby="user-groups-memberships-heading"
 				data-testid="user-detail-groups"
 			>
-				<h2 id="user-groups-memberships-heading" className="text-sm font-medium">
-					<Trans>User groups</Trans>
-				</h2>
-				{groups.length === 0 ? (
-					<EmptyHint>
-						<Trans>No user groups</Trans>
-					</EmptyHint>
-				) : (
-					<ul className="flex flex-wrap gap-2" aria-label={t`User groups of ${user.username}`}>
-						{groups.map((group) => (
-							<li key={group.id} className="inline-flex min-h-8 items-center rounded-md border px-2 text-sm">
-								<Link to="/user-groups/$userGroupId" params={{ userGroupId: group.id }} className={linkClass}>
-									{group.name}
-								</Link>
-							</li>
-						))}
-					</ul>
-				)}
+				<SectionHeader id="user-groups-memberships-heading" title={<Trans>User groups</Trans>} />
+				<DataTable
+					label={t`User groups of ${user.username}`}
+					columns={groupColumns}
+					data={groups}
+					getRowId={(group) => group.id}
+					rowLink={(group) => ({ to: "/user-groups/$userGroupId", params: { userGroupId: group.id } })}
+					rowLabel={(group) => group.name}
+					empty={
+						<TableEmpty>
+							<Trans>No user groups</Trans>
+						</TableEmpty>
+					}
+				/>
 			</section>
 
 			<GranteeNodeAccessSection granteeType="user" granteeId={user.id} />

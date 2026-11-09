@@ -1,4 +1,4 @@
-import type { ComponentProps, ElementType } from "react";
+import type { ComponentProps, ElementType, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -20,5 +20,30 @@ export function SectionTitle({ className, children, ...props }: ComponentProps<"
 		<h2 className={cn("text-sm font-medium", className)} {...props}>
 			{children}
 		</h2>
+	);
+}
+
+/**
+ * The header row of a table section (doc/webui.md "小节布局"): the section
+ * title on the left and that section's actions on the right, above the table.
+ * Actions never float below the table or below an empty state.
+ */
+export function SectionHeader({
+	id,
+	title,
+	actions,
+	className,
+}: {
+	/** The id the section's `aria-labelledby` names. */
+	id?: string;
+	title: ReactNode;
+	actions?: ReactNode;
+	className?: string;
+}) {
+	return (
+		<div className={cn("flex flex-wrap items-center justify-between gap-2", className)}>
+			<SectionTitle id={id}>{title}</SectionTitle>
+			{actions !== undefined && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+		</div>
 	);
 }

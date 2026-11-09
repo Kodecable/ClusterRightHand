@@ -70,11 +70,6 @@ msgstr "{0, plural, one {# node group selected} other {# node groups selected}}"
 msgid "{0, plural, one {# node selected} other {# nodes selected}}"
 msgstr "{0, plural, one {# node selected} other {# nodes selected}}"
 
-#. placeholder {0}: taskGroup.nodeIds.length
-#: src/features/tasks/task-group-result.tsx
-msgid "{0, plural, one {# node} other {# nodes}}"
-msgstr "{0, plural, one {# node} other {# nodes}}"
-
 #. placeholder {0}: targets.length
 #: src/features/batch/pages.tsx
 msgid "{0, plural, one {# target} other {# targets}}"
@@ -133,6 +128,10 @@ msgstr "{awaiting} awaiting"
 #: src/components/task-result.tsx
 msgid "{bytes, plural, one {# byte} other {# bytes}}"
 msgstr "{bytes, plural, one {# byte} other {# bytes}}"
+
+#: src/features/users/pages.tsx
+msgid "{count, plural, one {# member} other {# members}}"
+msgstr "{count, plural, one {# member} other {# members}}"
 
 #: src/features/approvals/pages.tsx
 msgid "{count, plural, one {# waiting} other {# waiting}}"
@@ -372,6 +371,7 @@ msgstr "Actions"
 
 #: src/components/status-badge.tsx
 #: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Active"
 msgstr "Active"
 
@@ -388,7 +388,7 @@ msgid "Actor type"
 msgstr "Actor type"
 
 #: src/components/quota-card.tsx
-#: src/features/users/user-group-page.tsx
+#: src/features/users/user-group-dialogs.tsx
 msgid "Add"
 msgstr "Add"
 
@@ -428,6 +428,7 @@ msgstr "Add header"
 msgid "Add jump host"
 msgstr "Add jump host"
 
+#: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-group-page.tsx
 msgid "Add member"
 msgstr "Add member"
@@ -459,6 +460,7 @@ msgstr "Admin"
 #: src/features/users/kind-select.tsx
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Administrator"
 msgstr "Administrator"
 
@@ -1417,6 +1419,7 @@ msgstr "Disable user"
 #: src/features/schedules/pages.tsx
 #: src/features/settings/pages.tsx
 #: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Disabled"
 msgstr "Disabled"
 
@@ -1600,6 +1603,10 @@ msgstr "Every model needs an id."
 msgid "Every node you can access, including nodes added later."
 msgstr "Every node you can access, including nodes added later."
 
+#: src/features/users/user-group-dialogs.tsx
+msgid "Everyone is already a member."
+msgstr "Everyone is already a member."
+
 #: src/components/approval-card.tsx
 msgid "exact"
 msgstr "exact"
@@ -1777,6 +1784,7 @@ msgstr "Host key of the {0}:"
 msgid "Host keys"
 msgstr "Host keys"
 
+#: src/features/node-groups/pages.tsx
 #: src/features/nodes/pages.tsx
 msgid "Hostname"
 msgstr "Hostname"
@@ -2039,10 +2047,12 @@ msgstr "Medium"
 #: src/features/users/kind-select.tsx
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Member"
 msgstr "Member"
 
 #: src/features/node-groups/pages.tsx
+#: src/features/users/pages.tsx
 #: src/features/users/user-group-page.tsx
 #: src/features/users/user-groups-section.tsx
 msgid "Members"
@@ -2123,6 +2133,7 @@ msgstr "Move jump host {0} up"
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
+#: src/features/users/pages.tsx
 #: src/features/users/user-groups-section.tsx
 msgid "Name"
 msgstr "Name"
@@ -2246,8 +2257,8 @@ msgid "No"
 msgstr "No"
 
 #: src/features/nodes/access-grants.tsx
-msgid "No access grants yet"
-msgstr "No access grants yet"
+msgid "No access grants"
+msgstr "No access grants"
 
 #: src/features/batch/pages.tsx
 msgid "No active nodes you can access"
@@ -2410,6 +2421,7 @@ msgstr "No users yet"
 #: src/components/authorization-card.tsx
 #: src/components/node-picker.tsx
 #: src/components/task-result.tsx
+#: src/features/node-groups/pages.tsx
 #: src/features/tasks/pages.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
@@ -2801,7 +2813,6 @@ msgstr "Preparing the payload to sign…"
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
 #: src/features/tasks/task-columns.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "Privileged"
 msgstr "Privileged"
 
@@ -2907,11 +2918,10 @@ msgstr "Remaining budget tokens (empty = unlimited)"
 msgid "Remove"
 msgstr "Remove"
 
-#. placeholder {0}: member.username
-#. placeholder {1}: details.name
+#. placeholder {0}: row.original.username
 #: src/features/users/user-group-page.tsx
-msgid "Remove {0} from {1}"
-msgstr "Remove {0} from {1}"
+msgid "Remove {0} from {groupName}"
+msgstr "Remove {0} from {groupName}"
 
 #: src/features/nodes/access-grants.tsx
 msgid "Remove access"
@@ -3044,8 +3054,8 @@ msgstr "Reset the password of {0}"
 msgid "Responses"
 msgstr "Responses"
 
+#: src/features/batch/pages.tsx
 #: src/features/sessions/tool-dialog.tsx
-#: src/features/tasks/task-group-result.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Result"
 msgstr "Result"
@@ -3081,6 +3091,7 @@ msgstr "Revoked"
 
 #: src/features/nodes/node-trust.tsx
 #: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Role"
 msgstr "Role"
 
@@ -3261,7 +3272,7 @@ msgstr "Security verification failed. Try again."
 #: src/components/share-editor.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-wizard.tsx
-#: src/features/users/user-group-page.tsx
+#: src/features/users/user-group-dialogs.tsx
 msgid "Select…"
 msgstr "Select…"
 
@@ -3485,6 +3496,7 @@ msgstr "State"
 
 #: src/components/authorization-card.tsx
 #: src/components/task-result.tsx
+#: src/features/node-groups/pages.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/run-history.tsx
@@ -3493,6 +3505,7 @@ msgstr "State"
 #: src/features/tasks/task-group-result.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Status"
 msgstr "Status"
 
@@ -3567,6 +3580,7 @@ msgid "Tail of output"
 msgstr "Tail of output"
 
 #: src/features/audit/pages.tsx
+#: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-node-section.tsx
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Target"
@@ -3583,10 +3597,6 @@ msgstr "Target type"
 #: src/features/batch/pages.tsx
 msgid "Targets"
 msgstr "Targets"
-
-#: src/features/tasks/task-group-result.tsx
-msgid "Targets:"
-msgstr "Targets:"
 
 #: src/components/approval-card.tsx
 #: src/components/authorization-card.tsx
@@ -4078,6 +4088,8 @@ msgstr "Used by"
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/sessions/share-dialog.tsx
 #: src/features/tasks/pages.tsx
+#: src/features/users/user-group-dialogs.tsx
+#: src/features/users/user-group-page.tsx
 msgid "User"
 msgstr "User"
 

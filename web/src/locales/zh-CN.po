@@ -72,9 +72,6 @@ msgstr "{0, plural, one {已选择 # 个节点} other {已选择 # 个节点}}"
 
 #. placeholder {0}: taskGroup.nodeIds.length
 #: src/features/tasks/task-group-result.tsx
-msgid "{0, plural, one {# node} other {# nodes}}"
-msgstr "{0, plural, one {# 个节点} other {# 个节点}}"
-
 #. placeholder {0}: targets.length
 #: src/features/batch/pages.tsx
 msgid "{0, plural, one {# target} other {# targets}}"
@@ -133,6 +130,10 @@ msgstr "{awaiting} 个等待中"
 #: src/components/task-result.tsx
 msgid "{bytes, plural, one {# byte} other {# bytes}}"
 msgstr "{bytes, plural, one {# 字节} other {# 字节}}"
+
+#: src/features/users/pages.tsx
+msgid "{count, plural, one {# member} other {# members}}"
+msgstr "{count, plural, one {# 名成员} other {# 名成员}}"
 
 #: src/features/approvals/pages.tsx
 msgid "{count, plural, one {# waiting} other {# waiting}}"
@@ -372,6 +373,7 @@ msgstr "操作"
 
 #: src/components/status-badge.tsx
 #: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Active"
 msgstr "活跃"
 
@@ -388,7 +390,7 @@ msgid "Actor type"
 msgstr "操作者类型"
 
 #: src/components/quota-card.tsx
-#: src/features/users/user-group-page.tsx
+#: src/features/users/user-group-dialogs.tsx
 msgid "Add"
 msgstr "添加"
 
@@ -428,6 +430,7 @@ msgstr "添加请求头"
 msgid "Add jump host"
 msgstr "添加跳板机"
 
+#: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-group-page.tsx
 msgid "Add member"
 msgstr "添加成员"
@@ -459,6 +462,7 @@ msgstr "管理"
 #: src/features/users/kind-select.tsx
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Administrator"
 msgstr "管理员"
 
@@ -1417,6 +1421,7 @@ msgstr "禁用用户"
 #: src/features/schedules/pages.tsx
 #: src/features/settings/pages.tsx
 #: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Disabled"
 msgstr "已禁用"
 
@@ -1600,6 +1605,10 @@ msgstr "每个模型都需要 ID。"
 msgid "Every node you can access, including nodes added later."
 msgstr "你可以访问的每个节点，包括之后添加的节点。"
 
+#: src/features/users/user-group-dialogs.tsx
+msgid "Everyone is already a member."
+msgstr "所有用户都已是成员。"
+
 #: src/components/approval-card.tsx
 msgid "exact"
 msgstr "精确匹配"
@@ -1777,6 +1786,7 @@ msgstr "{0} 的主机密钥："
 msgid "Host keys"
 msgstr "主机密钥"
 
+#: src/features/node-groups/pages.tsx
 #: src/features/nodes/pages.tsx
 msgid "Hostname"
 msgstr "主机名"
@@ -2039,10 +2049,12 @@ msgstr "中"
 #: src/features/users/kind-select.tsx
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Member"
 msgstr "成员"
 
 #: src/features/node-groups/pages.tsx
+#: src/features/users/pages.tsx
 #: src/features/users/user-group-page.tsx
 #: src/features/users/user-groups-section.tsx
 msgid "Members"
@@ -2123,6 +2135,7 @@ msgstr "上移跳板机 {0}"
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
+#: src/features/users/pages.tsx
 #: src/features/users/user-groups-section.tsx
 msgid "Name"
 msgstr "名称"
@@ -2246,8 +2259,8 @@ msgid "No"
 msgstr "否"
 
 #: src/features/nodes/access-grants.tsx
-msgid "No access grants yet"
-msgstr "还没有访问授权"
+msgid "No access grants"
+msgstr "暂无访问授权"
 
 #: src/features/batch/pages.tsx
 msgid "No active nodes you can access"
@@ -2410,6 +2423,7 @@ msgstr "还没有用户"
 #: src/components/authorization-card.tsx
 #: src/components/node-picker.tsx
 #: src/components/task-result.tsx
+#: src/features/node-groups/pages.tsx
 #: src/features/tasks/pages.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
@@ -2801,7 +2815,6 @@ msgstr "正在准备待签名的载荷…"
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
 #: src/features/tasks/task-columns.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "Privileged"
 msgstr "特权"
 
@@ -2907,11 +2920,10 @@ msgstr "剩余预算 token（留空 = 不限）"
 msgid "Remove"
 msgstr "移除"
 
-#. placeholder {0}: member.username
-#. placeholder {1}: details.name
+#. placeholder {0}: row.original.username
 #: src/features/users/user-group-page.tsx
-msgid "Remove {0} from {1}"
-msgstr "从 {1} 中移除 {0}"
+msgid "Remove {0} from {groupName}"
+msgstr "将 {0} 移出 {groupName}"
 
 #: src/features/nodes/access-grants.tsx
 msgid "Remove access"
@@ -3044,8 +3056,8 @@ msgstr "重置 {0} 的密码"
 msgid "Responses"
 msgstr "Responses"
 
+#: src/features/batch/pages.tsx
 #: src/features/sessions/tool-dialog.tsx
-#: src/features/tasks/task-group-result.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Result"
 msgstr "结果"
@@ -3081,6 +3093,7 @@ msgstr "已吊销"
 
 #: src/features/nodes/node-trust.tsx
 #: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Role"
 msgstr "角色"
 
@@ -3261,7 +3274,7 @@ msgstr "安全验证失败，请重试。"
 #: src/components/share-editor.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-wizard.tsx
-#: src/features/users/user-group-page.tsx
+#: src/features/users/user-group-dialogs.tsx
 msgid "Select…"
 msgstr "请选择…"
 
@@ -3485,6 +3498,7 @@ msgstr "状态"
 
 #: src/components/authorization-card.tsx
 #: src/components/task-result.tsx
+#: src/features/node-groups/pages.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/run-history.tsx
@@ -3493,6 +3507,7 @@ msgstr "状态"
 #: src/features/tasks/task-group-result.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Status"
 msgstr "状态"
 
@@ -3567,6 +3582,7 @@ msgid "Tail of output"
 msgstr "输出末尾"
 
 #: src/features/audit/pages.tsx
+#: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-node-section.tsx
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Target"
@@ -3583,10 +3599,6 @@ msgstr "目标类型"
 #: src/features/batch/pages.tsx
 msgid "Targets"
 msgstr "目标"
-
-#: src/features/tasks/task-group-result.tsx
-msgid "Targets:"
-msgstr "目标："
 
 #: src/components/approval-card.tsx
 #: src/components/authorization-card.tsx
@@ -4078,6 +4090,8 @@ msgstr "使用节点"
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/sessions/share-dialog.tsx
 #: src/features/tasks/pages.tsx
+#: src/features/users/user-group-dialogs.tsx
+#: src/features/users/user-group-page.tsx
 msgid "User"
 msgstr "用户"
 

@@ -8,7 +8,7 @@ const MEMBER = { username: "mallory", password: "member-password-1" };
 async function addedMemberShowsUp(page: Page, label: string): Promise<void> {
 	// Members show their display name (the username when they have none), like every other user reference.
 	const group = page.getByTestId("user-group-members");
-	await expect(group.getByRole("list", { name: "Members of ops" })).toContainText(label);
+	await expect(group.getByRole("table", { name: "Members of ops" })).toContainText(label);
 }
 
 /** Create a user group from the users page and open its detail page. */
@@ -43,9 +43,11 @@ test("admin grants node access; removing it hides the node again", async ({ admi
 
 	await openNewGroup(page, "ops");
 	const group = page.getByTestId("user-group-members");
-	await group.getByLabel("Add member").click();
+	await group.getByRole("button", { name: "Add member" }).click();
+	const addMember = page.getByRole("dialog", { name: "Add member" });
+	await addMember.getByLabel("User").click();
 	await page.getByRole("option", { name: MEMBER.username }).click();
-	await group.getByRole("button", { name: "Add", exact: true }).click();
+	await addMember.getByRole("button", { name: "Add", exact: true }).click();
 	await addedMemberShowsUp(page, "Mallory M");
 
 	// Member in a separate browser context: sees no node and no administrator actions.
@@ -92,7 +94,7 @@ test("admin grants node access; removing it hides the node again", async ({ admi
 		await page.goto(`/nodes/${nodeId}`);
 		await page.getByRole("button", { name: `Remove access for ${MEMBER.username}` }).click();
 		await page.getByRole("dialog").getByRole("button", { name: "Remove access" }).click();
-		await expect(page.getByText("No access grants yet")).toBeVisible();
+		await expect(page.getByText("No access grants")).toBeVisible();
 		const denied = await mp.request.post(`/api/nodes/${nodeId}/tasks`, { data: { kind: "exec", shell: "true" } });
 		expect(denied.status()).toBe(404);
 		// The member is on the node page; their node list no longer has it.
@@ -111,9 +113,11 @@ test("a grant to a user group gives its members access", async ({ adminPage: pag
 	await page.goto("/users");
 	await openNewGroup(page, "ops");
 	const group = page.getByTestId("user-group-members");
-	await group.getByLabel("Add member").click();
+	await group.getByRole("button", { name: "Add member" }).click();
+	const addMember = page.getByRole("dialog", { name: "Add member" });
+	await addMember.getByLabel("User").click();
 	await page.getByRole("option", { name: MEMBER.username }).click();
-	await group.getByRole("button", { name: "Add", exact: true }).click();
+	await addMember.getByRole("button", { name: "Add", exact: true }).click();
 	await addedMemberShowsUp(page, MEMBER.username);
 
 	await page.goto(`/nodes/${nodeId}`);

@@ -1,18 +1,15 @@
 import type { TaskGroupView } from "@crh/api";
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
-import { Plural, Trans, useLingui } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { ApprovalCard, DecisionView } from "@/components/approval-card";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { NodeTargetList } from "@/components/node-targets";
 import { StatusText, TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeText } from "@/components/task-result";
-import { Badge } from "@/components/ui/badge";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
 import { useAuth } from "@/features/auth/session";
 import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
 import { taskGroupStatusTone } from "@/lib/status";
-import { cn, MONO_CELL } from "@/lib/utils";
 
 const GROUP_STATES: Record<string, MessageDescriptor> = {
 	awaiting_approval: msg`Awaiting approval`,
@@ -32,10 +29,27 @@ export function TaskGroupStatus({ state }: { state: string }) {
 }
 
 /**
- * The result of one task group (doc/webui.md "Task group"): its state, the
- * group approval or signature when it waits, and one row per node with the
- * task's outcome and its full result. Shared by the task-group page and the
- * batch run.
+ * The targets that never ran, under the page title: the group's own state line
+ * only says interrupted/cancelled, so this is where the skipped nodes are named.
+ * Rendered as one short line; the member table already shows every task.
+ */
+export function TaskGroupSkippedNotice({ taskGroup, names }: { taskGroup: TaskGroupView; names: Map<string, string> }) {
+	if (taskGroup.skipped.length === 0) return null;
+	const skipped = taskGroup.skipped.map((id) => names.get(id) ?? id).join(", ");
+	return (
+		<p className="text-sm text-muted-foreground break-words [overflow-wrap:anywhere]" data-testid="task-group-skipped">
+			<Trans>Skipped: {skipped}</Trans>
+			{taskGroup.state === "interrupted" && <Trans> (the batch was interrupted)</Trans>}
+			{taskGroup.state === "cancelled" && <Trans> (the batch was cancelled)</Trans>}
+		</p>
+	);
+}
+
+/**
+ * The result of one task group (doc/webui.md "Task group"): its approval,
+ * signature or decision, then one row per node with the task's status and
+ * outcome. The page title and status live above; the summary, target list and
+ * counts would repeat what the title and rows already say.
  */
 export function TaskGroupResult({
 	taskGroup,
@@ -51,7 +65,6 @@ export function TaskGroupResult({
 	const decide = useDecideApproval();
 	const { t } = useLingui();
 	const nodeName = (id: string) => names.get(id) ?? id;
-	const skipped = taskGroup.skipped.map(nodeName).join(", ");
 	// A shared session's viewers see the task group but may not decide it or sign for its owner.
 	const canAct = currentUser?.kind === "admin" || taskGroup.onBehalfOfUserId === currentUser?.id;
 	const canSign = taskGroup.onBehalfOfUserId === currentUser?.id;
@@ -79,32 +92,6 @@ export function TaskGroupResult({
 
 	return (
 		<section className="grid gap-3" data-testid="task-group-result" data-group-id={taskGroup.id}>
-			<div className="flex flex-wrap items-center gap-2">
-				<h2 className="text-sm font-medium">
-					<Trans>Result</Trans>
-				</h2>
-				<TaskGroupStatus state={taskGroup.state} />
-				{taskGroup.privileged && (
-					<Badge variant="secondary">
-						<Trans>Privileged</Trans>
-					</Badge>
-				)}
-				<span className="text-xs text-muted-foreground">
-					<Plural value={taskGroup.nodeIds.length} one="# node" other="# nodes" />
-				</span>
-			</div>
-
-			{(taskGroup.summary !== undefined || taskGroup.kind !== undefined) && (
-				<p className={cn(MONO_CELL, "text-muted-foreground break-words [overflow-wrap:anywhere]")}>
-					{taskGroup.summary ?? taskGroup.kind}
-				</p>
-			)}
-
-			<p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground" data-testid="task-group-targets">
-				<Trans>Targets:</Trans>
-				<NodeTargetList ids={taskGroup.targets} refs={taskGroup.refs} nodeNames={names} />
-			</p>
-
 			{taskGroup.state === "awaiting_approval" && canAct && (
 				<ApprovalCard
 					item={{ kind: "task_group", taskGroup }}
@@ -148,14 +135,6 @@ export function TaskGroupResult({
 				rowLabel={(task) => nodeName(task.nodeId)}
 				rowData={(task) => ({ "data-testid": "task-group-member", "data-task-id": task.id })}
 			/>
-
-			{taskGroup.skipped.length > 0 && (
-				<p className="text-xs text-muted-foreground break-words [overflow-wrap:anywhere]">
-					<Trans>Skipped: {skipped}</Trans>
-					{taskGroup.state === "interrupted" && <Trans> (the batch was interrupted)</Trans>}
-					{taskGroup.state === "cancelled" && <Trans> (the batch was cancelled)</Trans>}
-				</p>
-			)}
 		</section>
 	);
 }

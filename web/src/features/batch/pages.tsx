@@ -7,7 +7,7 @@ import { NodeGroupPicker } from "@/components/node-group-picker";
 import { NodePicker } from "@/components/node-picker";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
-import { Panel } from "@/components/section";
+import { Panel, SectionTitle } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { TaskFormFields } from "@/components/task-form-fields";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import { buildTargets } from "@/features/batch/targets";
 import { useNodeGroups } from "@/features/node-groups/api";
 import { useNodes } from "@/features/nodes/api";
 import { useTaskGroup } from "@/features/tasks/api";
-import { TaskGroupResult } from "@/features/tasks/task-group-result";
+import { TaskGroupResult, TaskGroupSkippedNotice, TaskGroupStatus } from "@/features/tasks/task-group-result";
 import { buildTaskRequest, emptyForm, type TaskForm, taskFormErrorText } from "@/features/tasks/taskForm";
 
 /**
@@ -234,6 +234,13 @@ export function BatchPage() {
 			{taskGroup.error !== null && taskGroup.error !== undefined && <ErrorText error={taskGroup.error} />}
 			{taskGroup.data !== undefined && (
 				<Panel className="grid gap-3" data-testid="batch-result">
+					<div className="flex flex-wrap items-center gap-2">
+						<SectionTitle>
+							<Trans>Result</Trans>
+						</SectionTitle>
+						<TaskGroupStatus state={taskGroup.data.state} />
+					</div>
+					<TaskGroupSkippedNotice taskGroup={taskGroup.data} names={names} />
 					<TaskGroupResult
 						taskGroup={taskGroup.data}
 						names={names}

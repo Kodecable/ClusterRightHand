@@ -186,6 +186,7 @@ describe("UserDetailPage", () => {
 		route.params = { userId: OTHER.id };
 		const { calls } = await renderPage(<UserDetailPage />, ME, {
 			detail: { user: OTHER, userGroups: [{ id: "group-1", name: "Ops" }] },
+			groups: [OPS_GROUP],
 		});
 
 		expect(await screen.findByRole("heading", { name: "Alice" })).toBeInTheDocument();
@@ -193,7 +194,10 @@ describe("UserDetailPage", () => {
 		expect(screen.getByText("alice")).toBeInTheDocument();
 		expect(screen.getByText("Member")).toBeInTheDocument();
 		expect(screen.getByText("Active")).toBeInTheDocument();
-		expect(screen.getByRole("link", { name: "Ops" })).toHaveAttribute("href", "/user-groups/group-1");
+		// The memberships are a table; the name is the row link and the count comes from the group list.
+		const groupsTable = screen.getByRole("table", { name: "User groups of alice" });
+		expect(within(groupsTable).getByRole("link", { name: "Ops" })).toHaveAttribute("href", "/user-groups/group-1");
+		expect(within(groupsTable).getByText("0 members")).toBeInTheDocument();
 
 		// This row is not the administrator's own, so the kind is editable.
 		const kind = screen.getByLabelText("Kind of alice");
@@ -258,6 +262,8 @@ describe("UserDetailPage", () => {
 		expect(screen.queryByRole("button", { name: "Disable" })).not.toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: "Enable" })).not.toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: "Reset password" })).not.toBeInTheDocument();
+		// An empty membership section is the table's own small empty line, not a separate block.
+		expect(within(screen.getByTestId("user-detail-groups")).getByText("No user groups")).toBeInTheDocument();
 		// The grant list is administrator-only, so a member sees no node access section.
 		expect(screen.queryByRole("heading", { name: "Node access" })).not.toBeInTheDocument();
 		expect(screen.queryByTestId("grantee-node-access")).not.toBeInTheDocument();

@@ -6,13 +6,15 @@ import { Fragment, useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
-import { EmptyHint, EmptyState } from "@/components/empty-state";
+import { EmptyState, TableEmpty } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
 import { NodeLink } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
+import { SectionHeader } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
+import { NodeStatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/session";
 import { NodeAccessSection } from "@/features/nodes/access-grants";
@@ -20,6 +22,11 @@ import { useNodes } from "@/features/nodes/api";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { useDeleteNodeGroup, useNodeGroups } from "./api";
 import { NodeGroupMembersDialog, NodeGroupNameDialog } from "./dialogs";
+
+/** One row of the member table: the stored node id and nothing else. */
+interface MemberRow {
+	nodeId: string;
+}
 
 /** The members of a node group, each linked to its node page. */
 function MemberLinks({
@@ -44,22 +51,10 @@ function MemberLinks({
 	);
 }
 
-/** The header actions an administrator gets for one node group. */
-function AdminActions({
-	onRename,
-	onEditMembers,
-	onDelete,
-}: {
-	onRename: () => void;
-	onEditMembers: () => void;
-	onDelete: () => void;
-}) {
+/** The header actions an administrator gets for one node group; members are edited in their section. */
+function AdminActions({ onRename, onDelete }: { onRename: () => void; onDelete: () => void }) {
 	return (
 		<>
-			<Button type="button" variant="outline" size="sm" onClick={onEditMembers}>
-				<UserPenIcon />
-				<Trans>Edit members</Trans>
-			</Button>
 			<Button type="button" variant="outline" size="sm" onClick={onRename}>
 				<PencilIcon />
 				<Trans>Rename</Trans>
@@ -190,6 +185,50 @@ export function NodeGroupDetailPage() {
 	const [editingMembers, setEditingMembers] = useState(false);
 	const group = groups.data?.find((candidate) => candidate.id === id);
 	const nodeNames = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
+	const nodeById = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node])), [nodes.data]);
+	const memberName = useMemo(
+		() => (memberId: string) => nodeById.get(memberId)?.name ?? nodeNames.get(memberId) ?? memberId,
+		[nodeById, nodeNames],
+	);
+	const memberColumns = useMemo<DataTableColumn<MemberRow>[]>(
+		() => [
+			{
+				id: "name",
+				header: t`Node`,
+				minSize: 160,
+				cell: ({ row }) => <span className="truncate font-medium">{memberName(row.original.nodeId)}</span>,
+				meta: { title: (member: MemberRow) => memberName(member.nodeId) },
+			},
+			{
+				id: "status",
+				header: t`Status`,
+				size: 90,
+				cell: ({ row }) => {
+					const node = nodeById.get(row.original.nodeId);
+					return node === undefined ? (
+						<span className="text-muted-foreground">–</span>
+					) : (
+						<NodeStatusBadge status={node.status} connected={node.connected} />
+					);
+				},
+			},
+			{
+				id: "hostname",
+				header: t`Hostname`,
+				minSize: 140,
+				cell: ({ row }) => {
+					const hostname = nodeById.get(row.original.nodeId)?.hostname;
+					return hostname === null || hostname === undefined || hostname === "" ? (
+						<span className="text-muted-foreground">–</span>
+					) : (
+						<span className={cn("truncate", MONO_CELL)}>{hostname}</span>
+					);
+				},
+				meta: { title: (member: MemberRow) => nodeById.get(member.nodeId)?.hostname ?? undefined },
+			},
+		],
+		[memberName, nodeById, t],
+	);
 
 	if (groups.isError) {
 		return (
@@ -240,13 +279,7 @@ export function NodeGroupDetailPage() {
 					</span>
 				}
 				actions={
-					admin ? (
-						<AdminActions
-							onRename={() => setRenaming(true)}
-							onEditMembers={() => setEditingMembers(true)}
-							onDelete={() => setDeleting(true)}
-						/>
-					) : undefined
+					admin ? <AdminActions onRename={() => setRenaming(true)} onDelete={() => setDeleting(true)} /> : undefined
 				}
 			/>
 
@@ -265,35 +298,32 @@ export function NodeGroupDetailPage() {
 				]}
 			/>
 
-			<section className="grid gap-2" aria-labelledby="node-group-members-heading">
-				<h2 id="node-group-members-heading" className="text-sm font-medium">
-					<Trans>Members</Trans>
-				</h2>
-				{group.memberIds.length === 0 ? (
-					<EmptyHint>
-						<Trans>No members</Trans>
-					</EmptyHint>
-				) : (
-					<ul className="flex flex-wrap gap-2" aria-label={t`Members of ${group.name}`}>
-						{group.memberIds.map((nodeId) => (
-							<li key={nodeId} className="inline-flex min-h-8 items-center rounded-md border px-2 text-sm">
-								<NodeLink id={nodeId} name={nodeNames.get(nodeId) ?? nodeId} />
-							</li>
-						))}
-					</ul>
-				)}
-				{admin && (
-					<Button
-						type="button"
-						size="sm"
-						variant="outline"
-						className="justify-self-start"
-						onClick={() => setEditingMembers(true)}
-					>
-						<UserPenIcon />
-						<Trans>Edit members</Trans>
-					</Button>
-				)}
+			<section className="grid gap-2" aria-labelledby="node-group-members-heading" data-testid="node-group-members">
+				<SectionHeader
+					id="node-group-members-heading"
+					title={<Trans>Members</Trans>}
+					actions={
+						admin ? (
+							<Button type="button" size="sm" variant="outline" onClick={() => setEditingMembers(true)}>
+								<UserPenIcon />
+								<Trans>Edit members</Trans>
+							</Button>
+						) : undefined
+					}
+				/>
+				<DataTable
+					label={t`Members of ${group.name}`}
+					columns={memberColumns}
+					data={group.memberIds.map((nodeId) => ({ nodeId }))}
+					getRowId={(member) => member.nodeId}
+					rowLink={(member) => ({ to: "/nodes/$nodeId", params: { nodeId: member.nodeId } })}
+					rowLabel={(member) => memberName(member.nodeId)}
+					empty={
+						<TableEmpty>
+							<Trans>No members</Trans>
+						</TableEmpty>
+					}
+				/>
 			</section>
 
 			<NodeAccessSection targetType="node_group" targetId={group.id} targetName={group.name} />

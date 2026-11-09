@@ -4,7 +4,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { renderWithRouter } from "@/test/render";
-import { TaskGroupResult } from "./task-group-result";
+import { TaskGroupResult, TaskGroupSkippedNotice, TaskGroupStatus } from "./task-group-result";
 
 const task = (overrides: Partial<TaskView> = {}): TaskView =>
 	({
@@ -118,47 +118,28 @@ describe("TaskGroupResult", () => {
 		expect(screen.getAllByText("Finished").length).toBeGreaterThan(0);
 	});
 
-	test("skipped nodes are named", async () => {
+	test("skipped nodes are named below the title", async () => {
 		await renderResult(
-			<TaskGroupResult
+			<TaskGroupSkippedNotice
 				taskGroup={group({ state: "interrupted", skipped: ["node-1"] })}
 				names={new Map([["node-1", "worker-01"]])}
 			/>,
 		);
-		expect(screen.getByText(/Skipped: worker-01/)).toBeInTheDocument();
+		expect(screen.getByTestId("task-group-skipped")).toHaveTextContent("Skipped: worker-01");
 		expect(screen.getByText(/the batch was interrupted/)).toBeInTheDocument();
 	});
 
-	test("a cancelled group has its own badge and says so under the skipped nodes", async () => {
+	test("a cancelled group shows Cancelled and says the batch was cancelled", async () => {
 		await renderResult(
-			<TaskGroupResult
-				taskGroup={group({ state: "cancelled", skipped: ["node-1"] })}
-				names={new Map([["node-1", "worker-01"]])}
-			/>,
+			<>
+				<TaskGroupStatus state="cancelled" />
+				<TaskGroupSkippedNotice
+					taskGroup={group({ state: "cancelled", skipped: ["node-1"] })}
+					names={new Map([["node-1", "worker-01"]])}
+				/>
+			</>,
 		);
-		expect(screen.getAllByText("Cancelled").length).toBeGreaterThan(0);
+		expect(screen.getByText("Cancelled")).toBeInTheDocument();
 		expect(screen.getByText(/the batch was cancelled/)).toBeInTheDocument();
-	});
-
-	test("targets are named through refs, including deleted and _all", async () => {
-		await renderResult(
-			<TaskGroupResult
-				taskGroup={group({
-					state: "finished",
-					targets: ["node-1", "group-1", "gone", "_all"],
-					refs: {
-						"node-1": { kind: "node", name: "worker-01" },
-						"group-1": { kind: "node_group", name: "web" },
-						gone: null,
-					},
-				})}
-				names={new Map([["node-1", "worker-01"]])}
-			/>,
-		);
-		const targets = screen.getByTestId("task-group-targets");
-		expect(within(targets).getByRole("link", { name: "worker-01" })).toHaveAttribute("href", "/nodes/node-1");
-		expect(within(targets).getByRole("link", { name: "web" })).toHaveAttribute("href", "/node-groups/group-1");
-		expect(within(targets).getByText("Deleted node or node group")).toBeInTheDocument();
-		expect(within(targets).getByText("All accessible nodes")).toBeInTheDocument();
 	});
 });

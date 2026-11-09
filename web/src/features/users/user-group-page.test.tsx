@@ -125,10 +125,16 @@ describe("UserGroupDetailPage", () => {
 		expect(screen.getByRole("link", { name: "All users" })).toHaveAttribute("href", "/users");
 		expect(screen.getByRole("link", { name: "Alice" })).toHaveAttribute("href", "/users/u2");
 
+		const members = screen.getByTestId("user-group-members");
+		expect(within(members).getByRole("columnheader", { name: "Role" })).toBeInTheDocument();
+		expect(within(members).getByRole("columnheader", { name: "Status" })).toBeInTheDocument();
+
 		const user = userEvent.setup();
-		await user.click(screen.getByLabelText("Add member"));
+		await user.click(screen.getByTestId("add-member"));
+		const dialog = await screen.findByTestId("add-member-dialog");
+		await user.click(within(dialog).getByLabelText("User"));
 		await user.click(await screen.findByRole("option", { name: "bob" }));
-		await user.click(screen.getByRole("button", { name: "Add" }));
+		await user.click(within(dialog).getByRole("button", { name: "Add" }));
 		await waitFor(() =>
 			expect(calls.find((call) => call.method === "PUT")?.url).toBe("/api/user-groups/group-1/members/u3"),
 		);
@@ -151,7 +157,7 @@ describe("UserGroupDetailPage", () => {
 
 		const section = await screen.findByTestId("grantee-node-access");
 		expect(await within(section).findByRole("link", { name: "worker-01" })).toHaveAttribute("href", "/nodes/node-1");
-		// A grant on a node group links to the node group page, as GranteeAccessList always has.
+		// A grant on a node group links to the node group page, like a node target.
 		expect(await within(section).findByRole("link", { name: "Ops fleet" })).toHaveAttribute(
 			"href",
 			"/node-groups/ng-1",

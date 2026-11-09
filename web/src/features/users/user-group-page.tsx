@@ -1,38 +1,111 @@
+import type { User, UserGroupMember } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { ArrowLeftIcon, PencilIcon, Trash2Icon, UserPlusIcon, XIcon } from "lucide-react";
-import { useId, useState } from "react";
+import { ArrowLeftIcon, PencilIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
+import { useMemo, useState } from "react";
+import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
-import { EmptyHint } from "@/components/empty-state";
+import { TableEmpty } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
+import { SectionHeader } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
+import { StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UserLink } from "@/components/user-link";
 import { GranteeNodeAccessSection } from "@/features/nodes/access-grants";
-import { useAddUserGroupMember, useDeleteUserGroup, useRemoveUserGroupMember, useUserGroup, useUsers } from "./api";
-import { UserGroupNameDialog } from "./user-group-dialogs";
+import { useDeleteUserGroup, useRemoveUserGroupMember, useUserGroup, useUsers } from "./api";
+import { UserGroupAddMemberDialog, UserGroupNameDialog } from "./user-group-dialogs";
 
-/** One user group (doc/webui.md "Users"): its members, node access and, for administrators, its actions. */
+/** A member's role and status come from the users list; a deleted account has neither. */
+function memberUser(users: Map<string, User>, member: UserGroupMember): User | undefined {
+	return users.get(member.id);
+}
+
+/**
+ * One user group (doc/webui.md "Users"): its creation time, a members table
+ * whose section action adds a member, its node access and, for administrators,
+ * rename and delete in the page header.
+ */
 export function UserGroupDetailPage() {
 	const { t } = useLingui();
 	const params = useParams({ strict: false }) as { userGroupId?: string };
 	const id = params.userGroupId ?? "";
 	const group = useUserGroup(id);
 	const users = useUsers();
-	const add = useAddUserGroupMember();
 	const remove = useRemoveUserGroupMember();
 	const removeGroup = useDeleteUserGroup();
 	const navigate = useNavigate();
-	const pickId = useId();
-	const [pick, setPick] = useState("");
+	const [adding, setAdding] = useState(false);
 	const [renaming, setRenaming] = useState(false);
 	const [deleting, setDeleting] = useState(false);
+	const usersById = useMemo(() => new Map((users.data ?? []).map((user) => [user.id, user])), [users.data]);
+	const groupId = group.data?.id ?? "";
+	const groupName = group.data?.name ?? "";
+	const columns = useMemo<DataTableColumn<UserGroupMember>[]>(
+		() => [
+			{
+				id: "member",
+				header: t`User`,
+				minSize: 160,
+				cell: ({ row }) => {
+					const user = memberUser(usersById, row.original);
+					const name = user?.displayName || user?.username || row.original.displayName || row.original.username;
+					return <span className="truncate font-medium">{name}</span>;
+				},
+				meta: {
+					title: (member: UserGroupMember) => {
+						const user = memberUser(usersById, member);
+						return user?.displayName || user?.username || member.displayName || member.username;
+					},
+				},
+			},
+			{
+				id: "role",
+				header: t`Role`,
+				size: 120,
+				cell: ({ row }) => {
+					const user = memberUser(usersById, row.original);
+					if (user === undefined) return <span className="text-muted-foreground">–</span>;
+					return <span className="truncate">{user.kind === "admin" ? t`Administrator` : t`Member`}</span>;
+				},
+			},
+			{
+				id: "status",
+				header: t`Status`,
+				size: 90,
+				cell: ({ row }) => {
+					const user = memberUser(usersById, row.original);
+					if (user === undefined) return <span className="text-muted-foreground">–</span>;
+					return (
+						<StatusText tone={user.status === "active" ? "ok" : "muted"}>
+							{user.status === "active" ? t`Active` : t`Disabled`}
+						</StatusText>
+					);
+				},
+			},
+			{
+				id: "actions",
+				header: actionsHeader,
+				size: 60,
+				cell: ({ row }) => (
+					<Button
+						type="button"
+						size="icon-xs"
+						variant="ghost"
+						aria-label={t`Remove ${row.original.username} from ${groupName}`}
+						disabled={remove.isPending}
+						onClick={() => remove.mutate({ groupId, userId: row.original.id })}
+					>
+						<XIcon />
+					</Button>
+				),
+			},
+		],
+		[groupId, groupName, remove.isPending, remove.mutate, t, usersById],
+	);
 
 	if (group.isError) {
 		return (
@@ -49,9 +122,6 @@ export function UserGroupDetailPage() {
 		);
 	}
 	const details = group.data;
-	const names = new Map((users.data ?? []).map((user) => [user.id, user.displayName || user.username]));
-	const candidates = (users.data ?? []).filter((user) => !details.members.some((member) => member.id === user.id));
-	const current = pick === "" ? null : pick;
 
 	return (
 		<Page width="detail" data-testid="user-group-detail">
@@ -88,75 +158,45 @@ export function UserGroupDetailPage() {
 			<KeyValueList items={[{ label: t`Created`, value: <DateTime value={details.createdAt} /> }]} />
 
 			<section className="grid gap-2" aria-labelledby="user-group-members-heading" data-testid="user-group-members">
-				<h2 id="user-group-members-heading" className="text-sm font-medium">
-					<Trans>Members</Trans>
-				</h2>
-				{details.members.length === 0 ? (
-					<EmptyHint>
-						<Trans>No members</Trans>
-					</EmptyHint>
-				) : (
-					<ul className="flex flex-wrap gap-2" aria-label={t`Members of ${details.name}`}>
-						{details.members.map((member) => (
-							<li key={member.id} className="inline-flex min-h-8 items-center gap-1 rounded-md border px-2 text-sm">
-								<UserLink id={member.id} name={names.get(member.id) ?? member.displayName} />
-								<Button
-									type="button"
-									size="icon-xs"
-									variant="ghost"
-									aria-label={t`Remove ${member.username} from ${details.name}`}
-									disabled={remove.isPending}
-									onClick={() => remove.mutate({ groupId: details.id, userId: member.id })}
-								>
-									<XIcon />
-								</Button>
-							</li>
-						))}
-					</ul>
+				<SectionHeader
+					id="user-group-members-heading"
+					title={<Trans>Members</Trans>}
+					actions={
+						<Button type="button" size="sm" variant="outline" data-testid="add-member" onClick={() => setAdding(true)}>
+							<PlusIcon />
+							<Trans>Add member</Trans>
+						</Button>
+					}
+				/>
+				<DataTable
+					label={t`Members of ${details.name}`}
+					columns={columns}
+					data={details.members}
+					getRowId={(member) => member.id}
+					rowLink={(member) => ({ to: "/users/$userId", params: { userId: member.id } })}
+					rowLabel={(member) => {
+						const user = memberUser(usersById, member);
+						return user?.displayName || user?.username || member.displayName || member.username;
+					}}
+					empty={
+						<TableEmpty>
+							<Trans>No members</Trans>
+						</TableEmpty>
+					}
+				/>
+				{remove.error !== null && remove.error !== undefined && (
+					<ErrorState error={remove.error} compact retry={() => void remove.reset()} />
 				)}
-				<div className="flex flex-wrap items-end gap-2">
-					<div className="grid min-w-48 gap-1.5">
-						<Label htmlFor={pickId}>{t`Add member`}</Label>
-						<Select value={current} onValueChange={(next) => setPick(String(next ?? ""))}>
-							<SelectTrigger id={pickId} className="w-48">
-								<SelectValue>
-									{(selected: string | null) => candidates.find((user) => user.id === selected)?.username ?? t`Select…`}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								{candidates.map((user) => (
-									<SelectItem key={user.id} value={user.id}>
-										{user.username}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</div>
-					<Button
-						type="button"
-						size="sm"
-						disabled={add.isPending || pick === ""}
-						onClick={() =>
-							add.mutate(
-								{ groupId: details.id, userId: pick },
-								{
-									onSuccess: () => {
-										setPick("");
-									},
-								},
-							)
-						}
-					>
-						<UserPlusIcon />
-						<Trans>Add</Trans>
-					</Button>
-				</div>
-				{add.error !== null && add.error !== undefined && <ErrorState error={add.error} compact />}
-				{remove.error !== null && remove.error !== undefined && <ErrorState error={remove.error} compact />}
 			</section>
 
 			<GranteeNodeAccessSection granteeType="user_group" granteeId={details.id} />
 
+			{adding && (
+				<UserGroupAddMemberDialog
+					group={{ id: details.id, name: details.name, memberIds: details.members.map((member) => member.id) }}
+					onClose={() => setAdding(false)}
+				/>
+			)}
 			{renaming && (
 				<UserGroupNameDialog group={{ id: details.id, name: details.name }} onClose={() => setRenaming(false)} />
 			)}

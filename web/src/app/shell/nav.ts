@@ -61,7 +61,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 		items: [
 			{ to: "/sessions", label: msg`Sessions`, icon: MessageSquareIcon },
 			{ to: "/schedules", label: msg`Schedules`, icon: CalendarClockIcon },
-			{ to: "/tasks", label: msg`Tasks`, icon: ListChecksIcon },
+			{ to: "/tasks", label: msg`Tasks`, icon: ListChecksIcon, activeFor: ["/task-groups"] },
 			{ to: "/batch", label: msg`Batch`, icon: LayersIcon },
 			{ to: "/approvals", label: msg`Approvals`, icon: ShieldCheckIcon, badge: "approvals" },
 		],

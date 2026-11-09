@@ -150,7 +150,13 @@ describe("NodeGroupDetailPage", () => {
 		route.params = { nodeGroupId: "group-1" };
 		await renderPage(ADMIN, <NodeGroupDetailPage />);
 		const page = await screen.findByTestId("node-group-detail");
-		expect(within(page).getAllByRole("button", { name: "Edit members" }).length).toBeGreaterThan(0);
+		// One Edit members button, in the members section header; rename and delete stay in the page header.
+		expect(within(page).getAllByRole("button", { name: "Edit members" })).toHaveLength(1);
+		const members = within(page).getByRole("table", { name: "Members of web" });
+		const member = within(members).getByRole("link", { name: "worker-02" });
+		expect(member).toHaveAttribute("href", "/nodes/node-2");
+		expect(within(members).getByRole("columnheader", { name: "Hostname" })).toBeInTheDocument();
+		expect(within(members).getByText("worker-02.local")).toBeInTheDocument();
 		expect(within(page).getByRole("button", { name: "Rename" })).toBeInTheDocument();
 		expect(within(page).getByRole("button", { name: "Delete" })).toBeInTheDocument();
 	});
@@ -160,7 +166,7 @@ describe("NodeGroupDetailPage", () => {
 		const { calls } = await renderPage(ADMIN, <NodeGroupDetailPage />);
 		const page = await screen.findByTestId("node-group-detail");
 
-		await fireEvent.click(within(page).getAllByRole("button", { name: "Edit members" })[0] as HTMLElement);
+		await fireEvent.click(within(page).getByRole("button", { name: "Edit members" }));
 		const members = screen.getByTestId("node-group-members-dialog");
 		const user = userEvent.setup();
 		await user.click(within(members).getByRole("button", { name: /node selected/ }));

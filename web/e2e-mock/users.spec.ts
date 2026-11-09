@@ -37,10 +37,12 @@ test("create a user and add them to a group", async ({ page }) => {
 	await expect(page.getByTestId("user-group-detail")).toBeVisible();
 	await expect(page.getByTestId("grantee-node-access")).toContainText("No node access");
 	const group = page.getByTestId("user-group-members");
-	await group.getByLabel("Add member").click();
+	await group.getByRole("button", { name: "Add member" }).click();
+	const addMember = page.getByRole("dialog", { name: "Add member" });
+	await addMember.getByLabel("User").click();
 	await page.getByRole("option", { name: "alice" }).click();
-	await group.getByRole("button", { name: "Add", exact: true }).click();
-	await expect(group.getByRole("list", { name: "Members of Ops" })).toContainText("alice");
+	await addMember.getByRole("button", { name: "Add", exact: true }).click();
+	await expect(group.getByRole("table", { name: "Members of Ops" })).toContainText("alice");
 	await expect
 		.poll(() =>
 			api.state.requests.some(

@@ -3,6 +3,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, SquareIcon } from "lucide-react";
 import { useMemo } from "react";
 import { toast } from "sonner";
+import { usePageTitle } from "@/app/shell/page-title";
 import { ApprovalCard, DecisionView } from "@/components/approval-card";
 import { ErrorState } from "@/components/error-state";
 import type { KeyValueItem } from "@/components/key-value";
@@ -52,6 +53,8 @@ export function TaskPage() {
 		() => new Map((directory.data?.users ?? []).map((user) => [user.id, user.displayName || user.username])),
 		[directory.data],
 	);
+	// The shell title names the task by its command, like the page heading does.
+	usePageTitle(task.data === undefined ? undefined : task.data.summary || task.data.kind);
 
 	if (task.isPending) {
 		return (

@@ -28,9 +28,11 @@ export function useUser(id: string) {
 	});
 }
 
-export function useUserGroups() {
+/** The user groups; administrators only, so a member's own page passes `enabled: false`. */
+export function useUserGroups({ enabled = true }: { enabled?: boolean } = {}) {
 	return useQuery({
 		queryKey: userKeys.userGroups(),
+		enabled,
 		queryFn: ({ signal }) => http.get<{ groups: UserGroup[] }>("/user-groups", { signal }).then((r) => r.groups),
 	});
 }

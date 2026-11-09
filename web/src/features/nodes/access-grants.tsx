@@ -7,10 +7,12 @@ import { PlusIcon, XIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog, FormDialog } from "@/components/dialogs";
-import { EmptyHint, EmptyState } from "@/components/empty-state";
+import { EmptyHint, TableEmpty } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { FieldShell } from "@/components/form";
-import { RelativeTime } from "@/components/relative-time";
+import { DateTime } from "@/components/relative-time";
+import { SectionHeader } from "@/components/section";
+import { useTimeColumnWidth } from "@/components/time-column";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -110,76 +112,74 @@ function RemoveGrantDialog({
 }
 
 /**
- * The access grants a user or a user group holds: read-only target links with a
- * remove action (access is granted from a node or a node group page).
- */
-export function GranteeAccessList({
-	grants,
-	empty,
-	className,
-}: {
-	grants: NodeAccessGrant[];
-	empty?: React.ReactNode;
-	className?: string;
-}) {
-	const { t, i18n } = useLingui();
-	const [removing, setRemoving] = useState<NodeAccessGrant>();
-	if (grants.length === 0) {
-		return (
-			<span className={cn("whitespace-normal text-muted-foreground", className)}>
-				{empty ?? <Trans>No node access</Trans>}
-			</span>
-		);
-	}
-	return (
-		<div className={cn("flex flex-wrap items-center gap-1 whitespace-normal", className)}>
-			{grants.map((grant) => {
-				const target = targetDisplayName(i18n, grant);
-				const grantee = granteeDisplayName(i18n, grant);
-				return (
-					<span
-						key={grant.id}
-						className="inline-flex min-h-8 max-w-full items-center gap-1 rounded-md border px-2 text-xs"
-						data-testid="grantee-access-grant"
-					>
-						<AccessTargetLink grant={grant} />
-						<Button
-							type="button"
-							size="icon-xs"
-							variant="ghost"
-							aria-label={t`Remove access to ${target} for ${grantee}`}
-							onClick={() => setRemoving(grant)}
-						>
-							<XIcon />
-						</Button>
-					</span>
-				);
-			})}
-			{removing && (
-				<RemoveGrantDialog grant={removing} targetType={removing.targetType} onClose={() => setRemoving(undefined)} />
-			)}
-		</div>
-	);
-}
-
-/**
  * The admin-only "Node access" section of a user or user group page
- * (doc/webui.md "Users"): the grants the grantee holds, each linking to its
- * target with a confirmed remove. The grant list endpoint is administrator-only,
- * so non-administrators do not see the section.
+ * (doc/webui.md "Users"): one table row per grant the grantee holds, with the
+ * target link, the creation time and a confirmed remove. The grant list
+ * endpoint is administrator-only, so non-administrators do not see the section.
  */
 export function GranteeNodeAccessSection({ granteeType, granteeId }: { granteeType: GranteeType; granteeId: string }) {
+	const { t, i18n } = useLingui();
+	const timeWidth = useTimeColumnWidth();
 	const admin = useAuth().user?.kind === "admin";
 	const grants = useNodeAccessGrants({ granteeType, granteeId }, admin);
+	const [removing, setRemoving] = useState<NodeAccessGrant>();
+	const columns: DataTableColumn<NodeAccessGrant>[] = [
+		{
+			id: "target",
+			header: t`Target`,
+			minSize: 180,
+			cell: ({ row }) => <AccessTargetLink grant={row.original} />,
+			meta: { title: (grant: NodeAccessGrant) => targetDisplayName(i18n, grant) },
+		},
+		{
+			id: "created",
+			header: t`Created`,
+			size: timeWidth,
+			cell: ({ row }) => <DateTime value={row.original.createdAt} />,
+		},
+		{
+			id: "actions",
+			header: actionsHeader,
+			size: 60,
+			cell: ({ row }) => {
+				const target = targetDisplayName(i18n, row.original);
+				const grantee = granteeDisplayName(i18n, row.original);
+				return (
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-xs"
+						aria-label={t`Remove access to ${target} for ${grantee}`}
+						onClick={() => setRemoving(row.original)}
+					>
+						<XIcon />
+					</Button>
+				);
+			},
+		},
+	];
+
 	if (!admin) return null;
 	return (
 		<section className="grid gap-2" aria-labelledby="grantee-node-access-heading" data-testid="grantee-node-access">
-			<h2 id="grantee-node-access-heading" className="text-sm font-medium">
-				<Trans>Node access</Trans>
-			</h2>
-			<GranteeAccessList grants={grants.data ?? []} />
+			<SectionHeader id="grantee-node-access-heading" title={<Trans>Node access</Trans>} />
+			<DataTable
+				label={t`Node access`}
+				columns={columns}
+				data={grants.data ?? []}
+				getRowId={(grant) => grant.id}
+				loading={grants.isLoading}
+				empty={
+					<TableEmpty>
+						<Trans>No node access</Trans>
+					</TableEmpty>
+				}
+			/>
 			{grants.error !== null && grants.error !== undefined && (
 				<ErrorState error={grants.error} compact retry={() => void grants.refetch()} />
+			)}
+			{removing && (
+				<RemoveGrantDialog grant={removing} targetType={removing.targetType} onClose={() => setRemoving(undefined)} />
 			)}
 		</section>
 	);
@@ -305,8 +305,8 @@ function AddAccessDialog({
 /**
  * The admin-only "Access" section of a node or node group page (D108,
  * doc/access-control.md#归属访问授权与分享): who may see and run tasks on the
- * target, the Add access dialog and a confirmed remove. Everyone else does not
- * see the section at all.
+ * target, in a table whose section action opens the Add access dialog. Everyone
+ * else does not see the section at all.
  */
 export function NodeAccessSection({
 	targetType,
@@ -318,6 +318,7 @@ export function NodeAccessSection({
 	targetName: string;
 }) {
 	const { t, i18n } = useLingui();
+	const timeWidth = useTimeColumnWidth();
 	const admin = useAuth().user?.kind === "admin";
 	const grants = useNodeAccessGrants({ targetType, targetId }, admin);
 	const [adding, setAdding] = useState(false);
@@ -346,8 +347,8 @@ export function NodeAccessSection({
 		{
 			id: "created",
 			header: t`Created`,
-			size: 110,
-			cell: ({ row }) => <RelativeTime value={row.original.createdAt} />,
+			size: timeWidth,
+			cell: ({ row }) => <DateTime value={row.original.createdAt} />,
 		},
 		{
 			id: "actions",
@@ -372,39 +373,31 @@ export function NodeAccessSection({
 
 	return (
 		<section className="grid gap-2" aria-labelledby="node-access-heading" data-testid="node-access">
-			<h2 id="node-access-heading" className="text-sm font-medium">
-				<Trans>Access</Trans>
-			</h2>
-			<p className="max-w-3xl text-sm text-muted-foreground">
-				{targetType === "node" ? (
-					<Trans>A granted user or user group can see this node and run tasks on it.</Trans>
-				) : (
-					<Trans>A granted user or user group can see the nodes in this node group and run tasks on them.</Trans>
-				)}
-			</p>
+			<SectionHeader
+				id="node-access-heading"
+				title={<Trans>Access</Trans>}
+				actions={
+					<Button type="button" variant="outline" size="sm" data-testid="add-access" onClick={() => setAdding(true)}>
+						<PlusIcon />
+						<Trans>Add access</Trans>
+					</Button>
+				}
+			/>
 			<DataTable
 				label={t`Access grants for ${targetName}`}
 				columns={columns}
 				data={rows}
 				getRowId={(grant) => grant.id}
 				loading={grants.isLoading}
-				density="compact"
-				empty={<EmptyState bare title={<Trans>No access grants yet</Trans>} />}
+				empty={
+					<TableEmpty>
+						<Trans>No access grants</Trans>
+					</TableEmpty>
+				}
 			/>
 			{grants.error !== null && grants.error !== undefined && (
 				<ErrorState error={grants.error} compact retry={() => void grants.refetch()} />
 			)}
-			<Button
-				type="button"
-				variant="outline"
-				size="sm"
-				className="justify-self-start"
-				data-testid="add-access"
-				onClick={() => setAdding(true)}
-			>
-				<PlusIcon />
-				<Trans>Add access</Trans>
-			</Button>
 			{adding && <AddAccessDialog targetType={targetType} targetId={targetId} onClose={() => setAdding(false)} />}
 			{removing && (
 				<RemoveGrantDialog grant={removing} targetType={targetType} onClose={() => setRemoving(undefined)} />

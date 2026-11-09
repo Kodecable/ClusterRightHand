@@ -103,8 +103,11 @@ afterEach(() => {
 describe("NodeAccessSection", () => {
 	test("an administrator adds and removes a grant", async () => {
 		const { calls, grants } = await renderSection(ADMIN);
-		await screen.findByTestId("node-access");
-		await screen.findByText("No access grants yet");
+		const section = await screen.findByTestId("node-access");
+		expect(within(section).getByRole("heading", { name: "Access" })).toBeInTheDocument();
+		// The action sits in the section header, not below the table.
+		expect(within(section).getByTestId("add-access")).toHaveTextContent("Add access");
+		expect(await within(section).findByText("No access grants")).toBeInTheDocument();
 
 		const user = userEvent.setup();
 		await user.click(screen.getByTestId("add-access"));
@@ -133,13 +136,13 @@ describe("NodeAccessSection", () => {
 				true,
 			),
 		);
-		await waitFor(() => expect(screen.getByText("No access grants yet")).toBeInTheDocument());
+		await waitFor(() => expect(screen.getByText("No access grants")).toBeInTheDocument());
 	});
 
 	test("a member does not see the section", async () => {
 		const { calls } = await renderSection({ ...ADMIN, kind: "member" });
 		expect(screen.queryByTestId("node-access")).not.toBeInTheDocument();
-		expect(screen.queryByText("No access grants yet")).not.toBeInTheDocument();
+		expect(screen.queryByText("No access grants")).not.toBeInTheDocument();
 		expect(calls.some((call) => call.url.startsWith("/api/node-access-grants"))).toBe(false);
 	});
 });
