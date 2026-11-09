@@ -3,7 +3,7 @@ import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState, TableEmpty } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
@@ -11,6 +11,7 @@ import { KeyValueList } from "@/components/key-value";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime, RelativeTime } from "@/components/relative-time";
+import { RowRemoveButton } from "@/components/row-remove-button";
 import { SectionHeader } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { SessionStatusBadge, StatusText } from "@/components/status-badge";
@@ -24,10 +25,11 @@ import { sessionTitle } from "@/features/sessions/session-item";
 import { useTasks } from "@/features/tasks/api";
 import { useTaskColumns } from "@/features/tasks/task-columns";
 import { isNotFound } from "@/lib/api/client";
-import { useUpdateUser, useUser, useUserGroups, useUsers } from "./api";
+import { useRemoveUserGroupMember, useUpdateUser, useUser, useUserGroups, useUsers } from "./api";
 import { KindSelect } from "./kind-select";
 import { NewUserDialog } from "./new-user-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
+import { AddUserToGroupDialog } from "./user-group-dialogs";
 import { UserGroupsSection } from "./user-groups-section";
 
 /**
@@ -179,7 +181,11 @@ function UserActivity({ user }: { user: User }) {
 					onRetry={() => void sessions.refetch()}
 					rowLink={(session) => ({ to: "/sessions/$sessionId", params: { sessionId: session.id } })}
 					rowLabel={(session) => sessionTitle(session, t`New Session`)}
-					empty={<EmptyState bare title={<Trans>No sessions yet</Trans>} />}
+					empty={
+						<TableEmpty>
+							<Trans>No sessions yet</Trans>
+						</TableEmpty>
+					}
 				/>
 			</section>
 			<section className="grid gap-2" aria-labelledby="user-tasks-heading" data-testid="user-tasks">
@@ -197,7 +203,11 @@ function UserActivity({ user }: { user: User }) {
 					rowLink={(task) => ({ to: "/tasks/$taskId", params: { taskId: task.id } })}
 					rowLabel={(task) => task.summary || task.kind}
 					rowLinkColumn="task"
-					empty={<EmptyState bare title={<Trans>No tasks yet</Trans>} />}
+					empty={
+						<TableEmpty>
+							<Trans>No tasks yet</Trans>
+						</TableEmpty>
+					}
 				/>
 			</section>
 		</>
@@ -220,8 +230,11 @@ export function UserDetailPage() {
 	const self = me?.id === id;
 	const detail = useUser(id);
 	const update = useUpdateUser();
+	const removeFromGroup = useRemoveUserGroupMember();
 	const [confirmDisable, setConfirmDisable] = useState(false);
 	const [resetting, setResetting] = useState(false);
+	const [addingToGroup, setAddingToGroup] = useState(false);
+	const [removingGroup, setRemovingGroup] = useState<UserGroupRef>();
 	// The user detail response only names the memberships; the admin-only list
 	// carries each group's size, so the count is shown when it is readable.
 	const allGroups = useUserGroups({ enabled: admin });
@@ -251,8 +264,23 @@ export function UserDetailPage() {
 					);
 				},
 			},
+			...(admin
+				? [
+						{
+							id: "actions",
+							header: actionsHeader,
+							size: 90,
+							cell: ({ row }: { row: { original: UserGroupRef } }) => (
+								<RowRemoveButton
+									label={t`Remove from ${row.original.name}`}
+									onClick={() => setRemovingGroup(row.original)}
+								/>
+							),
+						} satisfies DataTableColumn<UserGroupRef>,
+					]
+				: []),
 		],
-		[t, groupMemberCounts],
+		[t, groupMemberCounts, admin],
 	);
 
 	if (detail.isPending) {
@@ -346,7 +374,24 @@ export function UserDetailPage() {
 				aria-labelledby="user-groups-memberships-heading"
 				data-testid="user-detail-groups"
 			>
-				<SectionHeader id="user-groups-memberships-heading" title={<Trans>User groups</Trans>} />
+				<SectionHeader
+					id="user-groups-memberships-heading"
+					title={<Trans>User groups</Trans>}
+					actions={
+						admin ? (
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								data-testid="add-to-group"
+								onClick={() => setAddingToGroup(true)}
+							>
+								<PlusIcon />
+								<Trans>Add to user group</Trans>
+							</Button>
+						) : undefined
+					}
+				/>
 				<DataTable
 					label={t`User groups of ${user.username}`}
 					columns={groupColumns}
@@ -367,6 +412,39 @@ export function UserDetailPage() {
 			{admin || self ? <UserActivity user={user} /> : null}
 
 			{resetting && <ResetPasswordDialog user={user} onClose={() => setResetting(false)} />}
+			{addingToGroup && (
+				<AddUserToGroupDialog
+					user={{ id: user.id, username: user.username }}
+					excludeGroupIds={groups.map((group) => group.id)}
+					onClose={() => setAddingToGroup(false)}
+				/>
+			)}
+			{removingGroup && (
+				<ConfirmDialog
+					open
+					onOpenChange={(open) => {
+						if (!open) setRemovingGroup(undefined);
+					}}
+					title={t`Remove ${user.username} from ${removingGroup.name}?`}
+					description={t`They lose the node access this user group grants.`}
+					confirmLabel={<Trans>Remove</Trans>}
+					busy={removeFromGroup.isPending}
+					onConfirm={() =>
+						removeFromGroup.mutate(
+							{ groupId: removingGroup.id, userId: user.id },
+							{
+								onSuccess: () => {
+									setRemovingGroup(undefined);
+								},
+							},
+						)
+					}
+				>
+					{removeFromGroup.error !== null && removeFromGroup.error !== undefined && (
+						<ErrorState error={removeFromGroup.error} compact />
+					)}
+				</ConfirmDialog>
+			)}
 			<ConfirmDialog
 				open={confirmDisable}
 				onOpenChange={setConfirmDisable}

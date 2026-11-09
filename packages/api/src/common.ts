@@ -18,6 +18,25 @@ export interface CursorQuery {
 	limit?: number;
 }
 
+/**
+ * Query parameters of the searchable entity lists (`GET /api/users`, `/api/user-groups`,
+ * `/api/nodes`, `/api/node-groups` and `/api/directory`):
+ *
+ * - `q` matches case-insensitively: users by username or display name, user groups and node
+ *   groups by name, nodes by name or hostname. Prefix matches come before substring matches.
+ * - `limit` is 1..100. With it the response also carries `more`, true when more matched.
+ * - `ids` is a comma-separated list of at most 100 ids and returns those items that exist and
+ *   are visible; it cannot be combined with `q` or `limit`. EntityPicker uses it to resolve the
+ *   labels of already-selected values.
+ *
+ * Without any of them a list endpoint returns exactly what it did before search existed.
+ */
+export interface EntityListQuery {
+	q?: string;
+	limit?: number;
+	ids?: string;
+}
+
 /** The current name of a stored node/node-group reference; null when the object was deleted. */
 export interface RefTarget {
 	kind: "node" | "node_group";

@@ -2,7 +2,7 @@ import type { ScheduleRunView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useMemo } from "react";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { EmptyState } from "@/components/empty-state";
+import { TableEmpty } from "@/components/empty-state";
 import { RelativeTime } from "@/components/relative-time";
 import { ScheduleStatusBadge } from "@/components/status-badge";
 import { MONO_CELL } from "@/lib/utils";
@@ -92,11 +92,9 @@ export function RunHistory({ scheduleId, inProgress }: { scheduleId: string; inP
 				rowLabel={(run) => t`Open session ${(run.sessionId ?? "").slice(0, 8)}`}
 				rowLinkColumn="session"
 				empty={
-					<EmptyState
-						bare
-						title={<Trans>No runs yet</Trans>}
-						description={<Trans>This schedule has not fired yet.</Trans>}
-					/>
+					<TableEmpty>
+						<Trans>No runs yet</Trans>
+					</TableEmpty>
 				}
 			/>
 		</section>

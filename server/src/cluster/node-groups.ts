@@ -2,6 +2,14 @@ import type { NodeGroup, NodeGroupRef } from "@crh/api";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
+import {
+	likeContains,
+	lowerCase,
+	parseListQuery,
+	prefixRank,
+	type RawEntityListQuery,
+	textMatches,
+} from "../util/list-query.ts";
 import { assertNameAvailable, isUuid, nameKey, validateName } from "../util/names.ts";
 import { deleteGrantsForNodeGroup } from "./node-access.ts";
 
@@ -50,15 +58,60 @@ export async function nodeGroupIdsForNodes(db: Db, nodeIds: string[]): Promise<M
 	return out;
 }
 
+/** One searchable list page (see `queryUsers`). */
+export interface NodeGroupListPage {
+	items: NodeGroup[];
+	more: boolean;
+}
+
+/**
+ * `GET /api/node-groups` with the optional search parameters (doc/webui.md "实体搜索").
+ * Members are loaded only for the groups in the page; without parameters this is the old list.
+ */
+export async function queryNodeGroups(db: Db, params: RawEntityListQuery): Promise<NodeGroupListPage> {
+	const query = parseListQuery(params);
+	let select = db.selectFrom("node_groups").select(["id", "name"]);
+	if (query.ids !== undefined) select = select.where("id", "in", query.ids);
+	if (query.q !== undefined) {
+		select = select
+			.where(textMatches(["name"], likeContains(query.q)))
+			.orderBy(prefixRank(["name"], query.q))
+			.orderBy(lowerCase("name"))
+			.orderBy("id");
+	} else {
+		select = select.orderBy("name").orderBy("id");
+	}
+	if (query.limit !== undefined) select = select.limit(query.limit + 1);
+	const rows = await select.execute();
+	const more = query.limit !== undefined && rows.length > query.limit;
+	const groups = rows.slice(0, query.limit ?? rows.length);
+	if (groups.length === 0) return { items: [], more };
+	const members = await db
+		.selectFrom("node_group_members")
+		.select(["node_group_id", "node_id"])
+		.where(
+			"node_group_id",
+			"in",
+			groups.map((group) => group.id),
+		)
+		.execute();
+	const memberIds = new Map<string, string[]>();
+	for (const member of members) {
+		const ids = memberIds.get(member.node_group_id) ?? [];
+		ids.push(member.node_id);
+		memberIds.set(member.node_group_id, ids);
+	}
+	return {
+		items: groups.map((group) => ({
+			...toRef(group),
+			memberIds: memberIds.get(group.id) ?? [],
+		})),
+		more,
+	};
+}
+
 export async function listNodeGroups(db: Db): Promise<NodeGroup[]> {
-	const [groups, members] = await Promise.all([
-		db.selectFrom("node_groups").select(["id", "name"]).orderBy("name").orderBy("id").execute(),
-		db.selectFrom("node_group_members").select(["node_group_id", "node_id"]).execute(),
-	]);
-	return groups.map((group) => ({
-		...toRef(group),
-		memberIds: members.filter((m) => m.node_group_id === group.id).map((m) => m.node_id),
-	}));
+	return (await queryNodeGroups(db, {})).items;
 }
 
 export async function getNodeGroup(db: Db, id: string): Promise<NodeGroup | undefined> {

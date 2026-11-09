@@ -329,9 +329,7 @@ export function NodeGroupDetailPage() {
 			<NodeAccessSection targetType="node_group" targetId={group.id} targetName={group.name} />
 
 			{renaming && <NodeGroupNameDialog group={group} onClose={() => setRenaming(false)} />}
-			{editingMembers && (
-				<NodeGroupMembersDialog group={group} nodes={nodes.data ?? []} onClose={() => setEditingMembers(false)} />
-			)}
+			{editingMembers && <NodeGroupMembersDialog group={group} onClose={() => setEditingMembers(false)} />}
 			<ConfirmDialog
 				open={deleting}
 				onOpenChange={setDeleting}

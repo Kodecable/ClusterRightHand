@@ -3,22 +3,21 @@ import type { I18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
-import { PlusIcon, XIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { PlusIcon } from "lucide-react";
+import { useState } from "react";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog, FormDialog } from "@/components/dialogs";
-import { EmptyHint, TableEmpty } from "@/components/empty-state";
+import { TableEmpty } from "@/components/empty-state";
+import { EntityPicker } from "@/components/entity-picker";
 import { ErrorState } from "@/components/error-state";
 import { FieldShell } from "@/components/form";
 import { DateTime } from "@/components/relative-time";
+import { RowRemoveButton } from "@/components/row-remove-button";
 import { SectionHeader } from "@/components/section";
 import { useTimeColumnWidth } from "@/components/time-column";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/features/auth/session";
-import { useUserGroups, useUsers } from "@/features/users/api";
 import { ApiError, errorMessage } from "@/lib/api/client";
 import { cn, linkClass } from "@/lib/utils";
 import { useCreateNodeAccessGrant, useDeleteNodeAccessGrant, useNodeAccessGrants } from "./access-api";
@@ -38,6 +37,11 @@ function targetDisplayName(i18n: I18n, grant: Pick<NodeAccessGrant, "targetType"
 /** A "User" / "User group" badge, so a name alone never hides which kind of grantee it is. */
 function GranteeTypeBadge({ type }: { type: GranteeType }) {
 	return <Badge variant="secondary">{type === "user" ? <Trans>User</Trans> : <Trans>User group</Trans>}</Badge>;
+}
+
+/** A "Node" / "Node group" badge, so a target name alone never hides which kind of target it is. */
+function TargetTypeBadge({ type }: { type: AccessTargetType }) {
+	return <Badge variant="secondary">{type === "node" ? <Trans>Node</Trans> : <Trans>Node group</Trans>}</Badge>;
 }
 
 /** A link to the target of a grant; a deleted target has no page left to link to. */
@@ -114,7 +118,8 @@ function RemoveGrantDialog({
 /**
  * The admin-only "Node access" section of a user or user group page
  * (doc/webui.md "Users"): one table row per grant the grantee holds, with the
- * target link, the creation time and a confirmed remove. The grant list
+ * target link, the creation time and a confirmed remove. The section action
+ * grants another node or node group to the same grantee. The grant list
  * endpoint is administrator-only, so non-administrators do not see the section.
  */
 export function GranteeNodeAccessSection({ granteeType, granteeId }: { granteeType: GranteeType; granteeId: string }) {
@@ -122,13 +127,19 @@ export function GranteeNodeAccessSection({ granteeType, granteeId }: { granteeTy
 	const timeWidth = useTimeColumnWidth();
 	const admin = useAuth().user?.kind === "admin";
 	const grants = useNodeAccessGrants({ granteeType, granteeId }, admin);
+	const [adding, setAdding] = useState(false);
 	const [removing, setRemoving] = useState<NodeAccessGrant>();
 	const columns: DataTableColumn<NodeAccessGrant>[] = [
 		{
 			id: "target",
 			header: t`Target`,
-			minSize: 180,
-			cell: ({ row }) => <AccessTargetLink grant={row.original} />,
+			minSize: 200,
+			cell: ({ row }) => (
+				<span className="flex min-w-0 items-center gap-1.5">
+					<TargetTypeBadge type={row.original.targetType} />
+					<AccessTargetLink grant={row.original} className="truncate" />
+				</span>
+			),
 			meta: { title: (grant: NodeAccessGrant) => targetDisplayName(i18n, grant) },
 		},
 		{
@@ -140,20 +151,15 @@ export function GranteeNodeAccessSection({ granteeType, granteeId }: { granteeTy
 		{
 			id: "actions",
 			header: actionsHeader,
-			size: 60,
+			size: 90,
 			cell: ({ row }) => {
 				const target = targetDisplayName(i18n, row.original);
 				const grantee = granteeDisplayName(i18n, row.original);
 				return (
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-xs"
-						aria-label={t`Remove access to ${target} for ${grantee}`}
+					<RowRemoveButton
+						label={t`Remove access to ${target} for ${grantee}`}
 						onClick={() => setRemoving(row.original)}
-					>
-						<XIcon />
-					</Button>
+					/>
 				);
 			},
 		},
@@ -162,7 +168,16 @@ export function GranteeNodeAccessSection({ granteeType, granteeId }: { granteeTy
 	if (!admin) return null;
 	return (
 		<section className="grid gap-2" aria-labelledby="grantee-node-access-heading" data-testid="grantee-node-access">
-			<SectionHeader id="grantee-node-access-heading" title={<Trans>Node access</Trans>} />
+			<SectionHeader
+				id="grantee-node-access-heading"
+				title={<Trans>Node access</Trans>}
+				actions={
+					<Button type="button" variant="outline" size="sm" data-testid="add-access" onClick={() => setAdding(true)}>
+						<PlusIcon />
+						<Trans>Add access</Trans>
+					</Button>
+				}
+			/>
 			<DataTable
 				label={t`Node access`}
 				columns={columns}
@@ -178,6 +193,14 @@ export function GranteeNodeAccessSection({ granteeType, granteeId }: { granteeTy
 			{grants.error !== null && grants.error !== undefined && (
 				<ErrorState error={grants.error} compact retry={() => void grants.refetch()} />
 			)}
+			{adding && (
+				<AddGranteeAccessDialog
+					granteeType={granteeType}
+					granteeId={granteeId}
+					exclude={(grants.data ?? []).map((grant) => grant.targetId)}
+					onClose={() => setAdding(false)}
+				/>
+			)}
 			{removing && (
 				<RemoveGrantDialog grant={removing} targetType={removing.targetType} onClose={() => setRemoving(undefined)} />
 			)}
@@ -189,29 +212,18 @@ export function GranteeNodeAccessSection({ granteeType, granteeId }: { granteeTy
 function AddAccessDialog({
 	targetType,
 	targetId,
+	exclude,
 	onClose,
 }: {
 	targetType: AccessTargetType;
 	targetId: string;
+	/** Grantees that already hold a grant on this target. */
+	exclude: readonly string[];
 	onClose: () => void;
 }) {
 	const { t } = useLingui();
-	const users = useUsers();
-	const userGroups = useUserGroups();
 	const create = useCreateNodeAccessGrant();
-	const [granteeType, setGranteeType] = useState<GranteeType>("user");
-	const [granteeId, setGranteeId] = useState("");
-
-	const options = useMemo(
-		() =>
-			granteeType === "user"
-				? (users.data ?? [])
-						.filter((user) => user.status === "active")
-						// The grant list shows the server's granteeName, which is the username for a user.
-						.map((user) => ({ id: user.id, label: user.username }))
-				: (userGroups.data ?? []).map((group) => ({ id: group.id, label: group.name })),
-		[granteeType, userGroups.data, users.data],
-	);
+	const [grantee, setGrantee] = useState<{ id: string; type: GranteeType } | null>(null);
 
 	const error =
 		create.error instanceof ApiError && create.error.status === 409
@@ -236,68 +248,116 @@ function AddAccessDialog({
 			}
 			submitLabel={<Trans>Add access</Trans>}
 			busy={create.isPending}
-			submitDisabled={granteeId === ""}
+			submitDisabled={grantee === null}
 			error={error}
-			onSubmit={() =>
+			onSubmit={() => {
+				if (grantee === null) return;
 				create.mutate(
-					{ granteeType, granteeId, targetType, targetId },
+					{ granteeType: grantee.type, granteeId: grantee.id, targetType, targetId },
 					{
 						onSuccess: () => {
 							onClose();
 						},
 					},
-				)
-			}
+				);
+			}}
 			testId="add-access-dialog"
 		>
-			<div className="grid gap-1.5">
-				<Label htmlFor="add-access-type">{t`Type`}</Label>
-				<Select
-					value={granteeType}
-					onValueChange={(next) => {
-						if (next !== "user" && next !== "user_group") return;
-						setGranteeType(next);
-						setGranteeId("");
-					}}
-				>
-					<SelectTrigger id="add-access-type">
-						<SelectValue>
-							{(current: string | null) => (current === "user_group" ? t`User group` : t`User`)}
-						</SelectValue>
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="user">
-							<Trans>User</Trans>
-						</SelectItem>
-						<SelectItem value="user_group">
-							<Trans>User group</Trans>
-						</SelectItem>
-					</SelectContent>
-				</Select>
-			</div>
 			<FieldShell
 				id="add-access-grantee"
-				label={granteeType === "user" ? t`User` : t`User group`}
-				description={granteeType === "user" ? undefined : t`Every current member of the user group gets access.`}
+				label={t`User or user group`}
+				description={t`A user group grants access to every current member.`}
 			>
-				<Select value={granteeId === "" ? null : granteeId} onValueChange={(next) => setGranteeId(String(next ?? ""))}>
-					<SelectTrigger id="add-access-grantee">
-						<SelectValue placeholder={t`Select…`}>
-							{(current: string | null) => options.find((option) => option.id === current)?.label ?? t`Select…`}
-						</SelectValue>
-					</SelectTrigger>
-					<SelectContent>
-						{options.map((option) => (
-							<SelectItem key={option.id} value={option.id}>
-								{option.label}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
+				<EntityPicker
+					id="add-access-grantee"
+					kind="directory"
+					label={t`User or user group`}
+					value={grantee?.id ?? null}
+					onChange={(id, option) => {
+						if (id === null || option === null) {
+							setGrantee(null);
+							return;
+						}
+						setGrantee({ id, type: option.kind === "userGroup" ? "user_group" : "user" });
+					}}
+					exclude={exclude}
+					className="w-full"
+				/>
 			</FieldShell>
-			{options.length === 0 && !users.isLoading && !userGroups.isLoading && (
-				<EmptyHint>{granteeType === "user" ? <Trans>No users</Trans> : <Trans>No user groups</Trans>}</EmptyHint>
-			)}
+		</FormDialog>
+	);
+}
+
+/** The "Add access" dialog on a grantee's page: grant a user or user group a node or node group. */
+function AddGranteeAccessDialog({
+	granteeType,
+	granteeId,
+	exclude,
+	onClose,
+}: {
+	granteeType: GranteeType;
+	granteeId: string;
+	/** Targets that this grantee already has a grant on. */
+	exclude: readonly string[];
+	onClose: () => void;
+}) {
+	const { t } = useLingui();
+	const create = useCreateNodeAccessGrant();
+	const [target, setTarget] = useState<{ id: string; type: AccessTargetType } | null>(null);
+
+	const error =
+		create.error instanceof ApiError && create.error.status === 409
+			? t`This target is already granted to this user or user group.`
+			: create.error
+				? errorMessage(create.error)
+				: undefined;
+
+	return (
+		<FormDialog
+			open
+			onOpenChange={(open) => {
+				if (!open) onClose();
+			}}
+			title={<Trans>Add access</Trans>}
+			description={<Trans>The grantee can see the node or every node in the node group and run tasks on them.</Trans>}
+			submitLabel={<Trans>Add access</Trans>}
+			busy={create.isPending}
+			submitDisabled={target === null}
+			error={error}
+			onSubmit={() => {
+				if (target === null) return;
+				create.mutate(
+					{ granteeType, granteeId, targetType: target.type, targetId: target.id },
+					{
+						onSuccess: () => {
+							onClose();
+						},
+					},
+				);
+			}}
+			testId="grantee-add-access-dialog"
+		>
+			<FieldShell
+				id="grantee-add-access-target"
+				label={t`Node or node group`}
+				description={t`Only targets without an existing grant are listed.`}
+			>
+				<EntityPicker
+					id="grantee-add-access-target"
+					kind="nodeTarget"
+					label={t`Node or node group`}
+					value={target?.id ?? null}
+					onChange={(id, option) => {
+						if (id === null || option === null) {
+							setTarget(null);
+							return;
+						}
+						setTarget({ id, type: option.kind === "nodeGroup" ? "node_group" : "node" });
+					}}
+					exclude={exclude}
+					className="w-full"
+				/>
+			</FieldShell>
 		</FormDialog>
 	);
 }
@@ -353,20 +413,10 @@ export function NodeAccessSection({
 		{
 			id: "actions",
 			header: actionsHeader,
-			size: 70,
+			size: 90,
 			cell: ({ row }) => {
 				const name = granteeDisplayName(i18n, row.original);
-				return (
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-xs"
-						aria-label={t`Remove access for ${name}`}
-						onClick={() => setRemoving(row.original)}
-					>
-						<XIcon />
-					</Button>
-				);
+				return <RowRemoveButton label={t`Remove access for ${name}`} onClick={() => setRemoving(row.original)} />;
 			},
 		},
 	];
@@ -398,7 +448,14 @@ export function NodeAccessSection({
 			{grants.error !== null && grants.error !== undefined && (
 				<ErrorState error={grants.error} compact retry={() => void grants.refetch()} />
 			)}
-			{adding && <AddAccessDialog targetType={targetType} targetId={targetId} onClose={() => setAdding(false)} />}
+			{adding && (
+				<AddAccessDialog
+					targetType={targetType}
+					targetId={targetId}
+					exclude={rows.map((grant) => grant.granteeId)}
+					onClose={() => setAdding(false)}
+				/>
+			)}
 			{removing && (
 				<RemoveGrantDialog grant={removing} targetType={targetType} onClose={() => setRemoving(undefined)} />
 			)}

@@ -169,8 +169,8 @@ describe("NodeGroupDetailPage", () => {
 		await fireEvent.click(within(page).getByRole("button", { name: "Edit members" }));
 		const members = screen.getByTestId("node-group-members-dialog");
 		const user = userEvent.setup();
-		await user.click(within(members).getByRole("button", { name: /node selected/ }));
-		await user.click(await screen.findByRole("checkbox", { name: /worker-01/ }));
+		await user.click(within(members).getByRole("combobox", { name: "Nodes" }));
+		await user.click(await screen.findByRole("option", { name: /worker-01/ }));
 		await user.click(within(members).getByRole("button", { name: "Save members" }));
 		await waitFor(() => {
 			const put = calls.find((call) => call.url === "/api/node-groups/group-1/members" && call.method === "PUT");

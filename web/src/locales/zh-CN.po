@@ -54,24 +54,16 @@ msgstr "{0, plural, one {# 字节} other {# 字节}}"
 
 #. placeholder {0}: group.memberIds.length
 #. placeholder {0}: row.original.memberIds.length
-#: src/components/node-group-picker.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/users/user-groups-section.tsx
 msgid "{0, plural, one {# member} other {# members}}"
 msgstr "{0, plural, one {# 名成员} other {# 名成员}}"
 
-#. placeholder {0}: value.length
-#: src/components/node-group-picker.tsx
-msgid "{0, plural, one {# node group selected} other {# node groups selected}}"
-msgstr "{0, plural, one {已选择 # 个节点组} other {已选择 # 个节点组}}"
+#. placeholder {0}: selectedOptions.length
+#: src/components/entity-picker/entity-picker.tsx
+msgid "{0, plural, one {# selected} other {# selected}}"
+msgstr "{0, plural, one {已选 # 项} other {已选 # 项}}"
 
-#. placeholder {0}: value.length
-#: src/components/node-picker.tsx
-msgid "{0, plural, one {# node selected} other {# nodes selected}}"
-msgstr "{0, plural, one {已选择 # 个节点} other {已选择 # 个节点}}"
-
-#. placeholder {0}: taskGroup.nodeIds.length
-#: src/features/tasks/task-group-result.tsx
 #. placeholder {0}: targets.length
 #: src/features/batch/pages.tsx
 msgid "{0, plural, one {# target} other {# targets}}"
@@ -96,6 +88,11 @@ msgstr "{0, plural, one {在 # 个目标上运行} other {在 # 个目标上运�
 #: src/components/task-result.tsx
 msgid "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
 msgstr "{0, plural, one {写入了 # 字节} other {写入了 # 字节}}"
+
+#. placeholder {0}: user.username
+#: src/features/users/user-group-dialogs.tsx
+msgid "{0} gains the node access this user group grants."
+msgstr "{0} 会获得该用户组授予的节点访问权限。"
 
 #. placeholder {0}: item.task.kind
 #. placeholder {1}: nodeNames.get(item.task.nodeId) ?? item.task.nodeId
@@ -131,6 +128,7 @@ msgstr "{awaiting} 个等待中"
 msgid "{bytes, plural, one {# byte} other {# bytes}}"
 msgstr "{bytes, plural, one {# 字节} other {# 字节}}"
 
+#: src/components/entity-picker/api.ts
 #: src/features/users/pages.tsx
 msgid "{count, plural, one {# member} other {# members}}"
 msgstr "{count, plural, one {# 名成员} other {# 名成员}}"
@@ -330,6 +328,10 @@ msgstr "永不过期的令牌会一直有效，直到你吊销它。"
 msgid "A trailing \".\" matches a prefix, e.g. \"task.\"."
 msgstr "以“.”结尾表示前缀匹配，例如“task.”。"
 
+#: src/features/nodes/access-grants.tsx
+msgid "A user group grants access to every current member."
+msgstr "用户组会为当前每个成员授予访问权限。"
+
 #: src/features/users/user-group-dialogs.tsx
 msgid "A user group is used for session shares and node access grants."
 msgstr "用户组用于会话分享和节点访问授权。"
@@ -442,6 +444,11 @@ msgstr "添加共享"
 #: src/features/credentials/pages.tsx
 msgid "Add SSH key"
 msgstr "添加 SSH 密钥"
+
+#: src/features/users/pages.tsx
+#: src/features/users/user-group-dialogs.tsx
+msgid "Add to user group"
+msgstr "加入用户组"
 
 #: src/features/approvals/pages.tsx
 msgid "Add tokens to the paused run or stop it."
@@ -915,22 +922,45 @@ msgstr "请选择模型。"
 msgid "Choose a new password for your account."
 msgstr "为你的账户设置新密码。"
 
-#: src/components/node-picker.tsx
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Choose a node"
 msgstr "选择节点"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a node group"
+msgstr "选择一个节点组"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a node or node group"
+msgstr "选择一个节点或节点组"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a user"
+msgstr "选择一个用户"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a user group"
+msgstr "选择一个用户组"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a user or user group"
+msgstr "选择一个用户或用户组"
 
 #: src/features/batch/pages.tsx
 msgid "Choose at least one target."
 msgstr "请至少选择一个目标。"
 
-#: src/components/node-group-picker.tsx
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Choose node groups"
 msgstr "选择节点组"
 
-#: src/components/node-picker.tsx
-#: src/features/batch/pages.tsx
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Choose nodes"
 msgstr "选择节点"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose nodes or node groups"
+msgstr "选择节点或节点组"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Choose or create a credential."
@@ -940,6 +970,18 @@ msgstr "请选择或创建凭据。"
 msgid "Choose targets"
 msgstr "选择目标"
 
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose user groups"
+msgstr "选择用户组"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose users"
+msgstr "选择用户"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose users or user groups"
+msgstr "选择用户或用户组"
+
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Claude Code command"
 msgstr "Claude Code 命令"
@@ -947,11 +989,6 @@ msgstr "Claude Code 命令"
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Claude Code on the laptop"
 msgstr "笔记本上的 Claude Code"
-
-#: src/components/node-group-picker.tsx
-#: src/components/node-picker.tsx
-msgid "Clear"
-msgstr "清除"
 
 #: src/features/nodes/pages.tsx
 msgid "Client"
@@ -1585,10 +1622,6 @@ msgstr "事件详情"
 msgid "Every authorization carries a deadline. It is valid on the nodes its payload names until that deadline or until it is used up (one-shot authorizations)."
 msgstr "每个授权都带有截止时间。它在载荷指定的节点上有效，直到该截止时间或被用完（一次性授权）。"
 
-#: src/features/nodes/access-grants.tsx
-msgid "Every current member of the user group gets access."
-msgstr "用户组的每位当前成员都会获得访问权限。"
-
 #: src/features/settings/providers.ts
 msgid "Every model needs a context window of at least 1024 tokens."
 msgstr "每个模型的上下文窗口至少为 1024 个 token。"
@@ -1604,10 +1637,6 @@ msgstr "每个模型都需要 ID。"
 #: src/features/batch/pages.tsx
 msgid "Every node you can access, including nodes added later."
 msgstr "你可以访问的每个节点，包括之后添加的节点。"
-
-#: src/features/users/user-group-dialogs.tsx
-msgid "Everyone is already a member."
-msgstr "所有用户都已是成员。"
 
 #: src/components/approval-card.tsx
 msgid "exact"
@@ -2001,6 +2030,10 @@ msgstr "正在加载任务…"
 msgid "Loading the waiting decisions…"
 msgstr "正在加载等待处理的决定…"
 
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Loading…"
+msgstr "正在加载…"
+
 #: src/app/shell/user-menu.tsx
 msgid "Log out"
 msgstr "退出登录"
@@ -2112,6 +2145,10 @@ msgstr "模型"
 #: src/components/task-result.tsx
 msgid "Modified"
 msgstr "修改时间"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "More results — keep typing to narrow down"
+msgstr "更多结果——请继续输入以缩小范围"
 
 #. placeholder {0}: index + 1
 #: src/features/nodes/ssh-wizard.tsx
@@ -2262,10 +2299,6 @@ msgstr "否"
 msgid "No access grants"
 msgstr "暂无访问授权"
 
-#: src/features/batch/pages.tsx
-msgid "No active nodes you can access"
-msgstr "没有你可访问的活跃节点"
-
 #: src/features/tokens/pages.tsx
 msgid "No API tokens yet"
 msgstr "还没有 API 令牌"
@@ -2289,6 +2322,10 @@ msgstr "还没有凭据"
 #: src/features/audit/pages.tsx
 msgid "No events"
 msgstr "没有事件"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "No matches"
+msgstr "没有匹配项"
 
 #: src/features/node-groups/pages.tsx
 #: src/features/users/user-group-page.tsx
@@ -2403,7 +2440,6 @@ msgstr "还没有任务"
 msgid "No upcoming runs"
 msgstr "没有即将触发的运行"
 
-#: src/features/nodes/access-grants.tsx
 #: src/features/users/pages.tsx
 msgid "No user groups"
 msgstr "没有用户组"
@@ -2412,18 +2448,15 @@ msgstr "没有用户组"
 msgid "No user groups yet"
 msgstr "还没有用户组"
 
-#: src/features/nodes/access-grants.tsx
-msgid "No users"
-msgstr "没有用户"
-
 #: src/features/users/pages.tsx
 msgid "No users yet"
 msgstr "还没有用户"
 
 #: src/components/authorization-card.tsx
-#: src/components/node-picker.tsx
+#: src/components/entity-picker/entity-picker.tsx
 #: src/components/task-result.tsx
 #: src/features/node-groups/pages.tsx
+#: src/features/nodes/access-grants.tsx
 #: src/features/tasks/pages.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
@@ -2434,6 +2467,7 @@ msgstr "节点"
 msgid "Node access"
 msgstr "节点访问权限"
 
+#: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/trust-warnings.tsx
 msgid "Node group"
@@ -2448,9 +2482,9 @@ msgid "Node group name"
 msgstr "节点组名称"
 
 #: src/app/shell/nav.ts
-#: src/components/node-group-picker.tsx
 #: src/features/batch/pages.tsx
 #: src/features/node-groups/pages.tsx
+#: src/features/nodes/node-groups-dialog.tsx
 #: src/features/nodes/pages.tsx
 msgid "Node groups"
 msgstr "节点组"
@@ -2478,13 +2512,16 @@ msgstr "节点密钥指纹：<0>{0}</0>"
 msgid "Node name"
 msgstr "节点名称"
 
+#: src/features/nodes/access-grants.tsx
+msgid "Node or node group"
+msgstr "节点或节点组"
+
 #: src/features/nodes/node-tasks.tsx
 msgid "Node tasks"
 msgstr "节点任务"
 
 #: src/app/shell/nav.ts
 #: src/components/authorization-card.tsx
-#: src/components/node-picker.tsx
 #: src/features/authorizations/pages.tsx
 #: src/features/batch/pages.tsx
 #: src/features/node-groups/dialogs.tsx
@@ -2591,6 +2628,10 @@ msgstr "每行一条规则：方法和目标前缀。留空表示允许任何方
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
 msgstr "只有管理员可以管理 SSH 凭据。"
+
+#: src/features/nodes/access-grants.tsx
+msgid "Only targets without an existing grant are listed."
+msgstr "只列出尚未授权的目标。"
 
 #. placeholder {0}: event.targetType
 #. placeholder {1}: event.targetId
@@ -2916,9 +2957,26 @@ msgstr "已拒绝"
 msgid "Remaining budget tokens (empty = unlimited)"
 msgstr "剩余预算 token（留空 = 不限）"
 
+#: src/components/row-remove-button.tsx
 #: src/features/nodes/ssh-wizard.tsx
+#: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Remove"
 msgstr "移除"
+
+#. placeholder {0}: option.primary
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Remove {0}"
+msgstr "移除 {0}"
+
+#. placeholder {0}: removingMember.username
+#. placeholder {0}: user.username
+#. placeholder {1}: details.name
+#. placeholder {1}: removingGroup.name
+#: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
+msgid "Remove {0} from {1}?"
+msgstr "将 {0} 从 {1} 中移除？"
 
 #. placeholder {0}: row.original.username
 #: src/features/users/user-group-page.tsx
@@ -2940,6 +2998,11 @@ msgstr "移除 {name} 的访问权限？"
 #: src/features/nodes/access-grants.tsx
 msgid "Remove access to {target} for {grantee}"
 msgstr "移除 {grantee} 对 {target} 的访问权限"
+
+#. placeholder {0}: row.original.name
+#: src/features/users/pages.tsx
+msgid "Remove from {0}"
+msgstr "从 {0} 移除"
 
 #. placeholder {0}: index + 1
 #: src/features/settings/provider-dialog.tsx
@@ -3152,10 +3215,6 @@ msgstr "现在运行 {0}？"
 msgid "Run a task"
 msgstr "运行任务"
 
-#: src/features/nodes/node-tasks.tsx
-msgid "Run a task to see it here."
-msgstr "运行一个任务后会显示在这里。"
-
 #: src/features/schedules/run-history.tsx
 msgid "run by hand"
 msgstr "手动运行"
@@ -3263,18 +3322,43 @@ msgstr "计划会话"
 msgid "Schedules"
 msgstr "计划任务"
 
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Search failed"
+msgstr "搜索失败"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Search node groups…"
+msgstr "搜索节点组…"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Search nodes and node groups…"
+msgstr "搜索节点和节点组…"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Search nodes…"
+msgstr "搜索节点…"
+
 #: src/features/sessions/session-list.tsx
 msgid "Search sessions"
 msgstr "搜索会话"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Search user groups…"
+msgstr "搜索用户组…"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Search users and groups…"
+msgstr "搜索用户和用户组…"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Search users…"
+msgstr "搜索用户…"
 
 #: src/features/auth/api.ts
 msgid "Security verification failed. Try again."
 msgstr "安全验证失败，请重试。"
 
-#: src/components/share-editor.tsx
-#: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-wizard.tsx
-#: src/features/users/user-group-dialogs.tsx
 msgid "Select…"
 msgstr "请选择…"
 
@@ -3703,6 +3787,10 @@ msgstr "完整输出位于节点上的 <0>{0}</0>。"
 msgid "The full output stays on the node until the task exits."
 msgstr "完整输出会保留在节点上，直到任务退出。"
 
+#: src/features/nodes/access-grants.tsx
+msgid "The grantee can see the node or every node in the node group and run tasks on them."
+msgstr "被授权者可以看到该节点或节点组中的每个节点，并在这些节点上运行任务。"
+
 #: src/features/tasks/taskForm.ts
 msgid "The limit must be a non-negative whole number."
 msgstr "限制必须是非负整数。"
@@ -3832,10 +3920,6 @@ msgstr "Yolo 规则预设所有操作都不经询问或检查直接运行。"
 msgid "Theme"
 msgstr "主题"
 
-#: src/features/node-groups/dialogs.tsx
-msgid "There are no nodes to add yet"
-msgstr "还没有可添加的节点"
-
 #: src/features/approvals/pages.tsx
 msgid "These passed their rules; they run once you sign them."
 msgstr "这些任务已通过规则检查；签名后就会运行。"
@@ -3855,6 +3939,11 @@ msgstr "他们将无法再查看此节点组中的节点，也无法在这些节
 #: src/features/nodes/access-grants.tsx
 msgid "They can no longer see this node or run tasks on it."
 msgstr "他们将无法再查看此节点，也无法在其上执行任务。"
+
+#: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
+msgid "They lose the node access this user group grants."
+msgstr "他们将失去该用户组授予的节点访问权限。"
 
 #: src/features/sessions/transcript-row.tsx
 #: src/features/settings/model-dialog.tsx
@@ -3896,10 +3985,6 @@ msgstr "这是 privileged.toml 的顶层键。请将它粘贴在第一个 `[[tru
 msgid "This request is no longer waiting for approval; it is"
 msgstr "此请求已不再等待审批；当前状态为"
 
-#: src/features/schedules/run-history.tsx
-msgid "This schedule has not fired yet."
-msgstr "此计划任务尚未触发过。"
-
 #: src/features/sessions/session-waits.tsx
 msgid "This session is waiting, but there is nothing for you to decide."
 msgstr "此会话正在等待，但没有需要你决定的事项。"
@@ -3907,6 +3992,10 @@ msgstr "此会话正在等待，但没有需要你决定的事项。"
 #: src/features/schedules/schedule-actions.tsx
 msgid "This stops the current run. Its history will show it as preempted."
 msgstr "这会停止当前运行，运行历史会把它显示为被抢占。"
+
+#: src/features/nodes/access-grants.tsx
+msgid "This target is already granted to this user or user group."
+msgstr "该目标已授权给这个用户或用户组。"
 
 #: src/features/users/pages.tsx
 msgid "This user doesn't exist or you don't have access."
@@ -4020,9 +4109,7 @@ msgstr "换个搜索词试试。"
 msgid "Try again"
 msgstr "重试"
 
-#: src/components/share-editor.tsx
 #: src/components/task-result.tsx
-#: src/features/nodes/access-grants.tsx
 msgid "Type"
 msgstr "类型"
 
@@ -4085,7 +4172,7 @@ msgstr "使用会话的模型"
 msgid "Used by"
 msgstr "使用节点"
 
-#: src/components/share-editor.tsx
+#: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/sessions/share-dialog.tsx
@@ -4095,8 +4182,10 @@ msgstr "使用节点"
 msgid "User"
 msgstr "用户"
 
+#: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/sessions/share-dialog.tsx
+#: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-group-page.tsx
 msgid "User group"
 msgstr "用户组"
@@ -4114,6 +4203,10 @@ msgstr "用户组"
 #: src/features/users/pages.tsx
 msgid "User groups of {0}"
 msgstr "{0} 所属的用户组"
+
+#: src/features/nodes/access-grants.tsx
+msgid "User or user group"
+msgstr "用户或用户组"
 
 #: src/features/auth/login-page.tsx
 #: src/features/users/new-user-dialog.tsx

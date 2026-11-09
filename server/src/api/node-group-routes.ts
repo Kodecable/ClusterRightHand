@@ -5,7 +5,7 @@ import {
 	createNodeGroup,
 	deleteNodeGroup,
 	getNodeGroup,
-	listNodeGroups,
+	queryNodeGroups,
 	renameNodeGroup,
 	setNodeGroupMembers,
 } from "../cluster/node-groups.ts";
@@ -24,11 +24,21 @@ export function nodeGroupRoutes(db: Db) {
 
 	app.get("/node-groups", async (c) => {
 		const user = c.get("user");
-		const groups = await listNodeGroups(db);
-		if (isAdmin(user)) return c.json({ groups });
+		const params = {
+			q: c.req.query("q"),
+			limit: c.req.query("limit"),
+			ids: c.req.query("ids"),
+		};
+		const page = await queryNodeGroups(db, params);
+		const more = params.limit === undefined ? {} : { more: page.more };
+		if (isAdmin(user)) return c.json({ groups: page.items, ...more });
 		const visible = new Set(await visibleNodeIds(db, user));
 		return c.json({
-			groups: groups.map((group) => ({ ...group, memberIds: group.memberIds.filter((id) => visible.has(id)) })),
+			groups: page.items.map((group) => ({
+				...group,
+				memberIds: group.memberIds.filter((id) => visible.has(id)),
+			})),
+			...more,
 		});
 	});
 

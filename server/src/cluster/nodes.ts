@@ -5,6 +5,14 @@ import { isAdmin, type SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 import type { NodesTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
+import {
+	likeContains,
+	lowerCase,
+	parseListQuery,
+	prefixRank,
+	type RawEntityListQuery,
+	textMatches,
+} from "../util/list-query.ts";
 import { assertNameAvailable, nameKey, validateName } from "../util/names.ts";
 import { keyFingerprint } from "./identity.ts";
 import { accessibleNodeIds, deleteGrantsForNode, type NodeAccess } from "./node-access.ts";
@@ -80,23 +88,61 @@ export async function visibleNodeIds(db: Db, user: SessionUser): Promise<string[
 	return accessibleNodeIds(db, user);
 }
 
+/** One searchable list page (see `queryUsers`). */
+export interface NodeListPage {
+	items: PublicNode[];
+	more: boolean;
+}
+
+/**
+ * `GET /api/nodes` with the optional search parameters (doc/webui.md "实体搜索").
+ * Visibility is unchanged: the query is restricted to the ids `visibleNodeIds` returns,
+ * so a search or an `ids` lookup can never name a node the caller cannot see.
+ */
+export async function queryNodesForUser(
+	db: Db,
+	user: SessionUser,
+	params: RawEntityListQuery,
+	options: { crhsFingerprint?: string } = {},
+): Promise<NodeListPage> {
+	const query = parseListQuery(params);
+	const visible = await visibleNodeIds(db, user);
+	if (visible.length === 0 || query.ids?.length === 0) return { items: [], more: false };
+	let select = db.selectFrom("nodes").selectAll().where("id", "in", visible);
+	if (query.ids !== undefined) select = select.where("id", "in", query.ids);
+	if (query.q !== undefined) {
+		select = select
+			.where(textMatches(["name", "hostname"], likeContains(query.q)))
+			.orderBy(prefixRank(["name", "hostname"], query.q))
+			.orderBy(lowerCase("name"))
+			.orderBy("id");
+	} else {
+		select = select.orderBy("name");
+	}
+	if (query.limit !== undefined) select = select.limit(query.limit + 1);
+	const rows = await select.execute();
+	const more = query.limit !== undefined && rows.length > query.limit;
+	const page = rows.slice(0, query.limit ?? rows.length);
+	const nodeGroups = await nodeGroupsForNodes(
+		db,
+		page.map((r) => r.id),
+	);
+	// One context for the whole listing: the node groups and registered credentials are loaded once.
+	const warnings = await trustWarningsForRows(db, page, nodeGroups, options);
+	return {
+		items: page.map((row) =>
+			toPublicNode(row, isAdmin(user) ? "admin" : "granted", nodeGroups.get(row.id) ?? [], warnings.get(row.id) ?? []),
+		),
+		more,
+	};
+}
+
 export async function listNodesForUser(
 	db: Db,
 	user: SessionUser,
 	options: { crhsFingerprint?: string } = {},
 ): Promise<PublicNode[]> {
-	const ids = await visibleNodeIds(db, user);
-	if (ids.length === 0) return [];
-	const rows = await db.selectFrom("nodes").selectAll().where("id", "in", ids).orderBy("name").execute();
-	const nodeGroups = await nodeGroupsForNodes(
-		db,
-		rows.map((r) => r.id),
-	);
-	// One context for the whole listing: the node groups and registered credentials are loaded once.
-	const warnings = await trustWarningsForRows(db, rows, nodeGroups, options);
-	return rows.map((row) =>
-		toPublicNode(row, isAdmin(user) ? "admin" : "granted", nodeGroups.get(row.id) ?? [], warnings.get(row.id) ?? []),
-	);
+	return (await queryNodesForUser(db, user, {}, options)).items;
 }
 
 export async function approveNode(db: Db, nodeId: string, actorUserId: string, now = new Date()): Promise<NodeRow> {

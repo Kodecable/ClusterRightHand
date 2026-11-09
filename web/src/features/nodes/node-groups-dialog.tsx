@@ -1,11 +1,8 @@
 import type { PublicNode } from "@crh/api";
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { useState } from "react";
 import { FormDialog } from "@/components/dialogs";
-import { ErrorText } from "@/components/error-state";
-import { NodeGroupPicker } from "@/components/node-group-picker";
-import { Spinner } from "@/components/spinner";
-import { useNodeGroups } from "@/features/node-groups/api";
+import { EntityPicker } from "@/components/entity-picker";
 import { useSetNodeGroups } from "./api";
 
 /**
@@ -13,7 +10,7 @@ import { useSetNodeGroups } from "./api";
  * nodes alike: both are managed here now, not by the node's own configuration.
  */
 export function NodeGroupsDialog({ node, onClose }: { node: PublicNode; onClose: () => void }) {
-	const nodeGroups = useNodeGroups();
+	const { t } = useLingui();
 	const save = useSetNodeGroups();
 	const [selected, setSelected] = useState<string[]>(node.nodeGroups.map((group) => group.id));
 
@@ -40,12 +37,13 @@ export function NodeGroupsDialog({ node, onClose }: { node: PublicNode; onClose:
 			}
 			testId="node-groups-dialog"
 		>
-			{nodeGroups.isPending ? (
-				<Spinner />
-			) : (
-				<NodeGroupPicker groups={nodeGroups.data ?? []} value={selected} onChange={setSelected} />
-			)}
-			<ErrorText error={nodeGroups.error} />
+			<EntityPicker
+				kind="nodeGroup"
+				multiple
+				label={t`Node groups`}
+				value={selected}
+				onChange={(ids) => setSelected(ids)}
+			/>
 		</FormDialog>
 	);
 }

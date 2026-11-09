@@ -87,7 +87,6 @@ export function ShareDialog({
 							{ value: "chat", label: <Trans>Chat</Trans> },
 						]}
 						defaultAccess="view"
-						userGroupLabel={<Trans>User group</Trans>}
 						busy={share.isPending}
 						onAdd={async ({ granteeType, granteeId, access }) => {
 							try {

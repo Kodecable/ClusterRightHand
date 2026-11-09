@@ -1,4 +1,4 @@
-import type { User, UserDetail, UserKind, UserStatus } from "@crh/api";
+import type { Directory, User, UserDetail, UserKind, UserStatus } from "@crh/api";
 import type { Selectable } from "kysely";
 import { hashPassword } from "../auth/password.ts";
 import type { Db } from "../storage/db.ts";
@@ -6,6 +6,14 @@ import { isPostgres } from "../storage/dialect.ts";
 import type { UsersTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
+import {
+	likeContains,
+	lowerCase,
+	parseListQuery,
+	prefixRank,
+	type RawEntityListQuery,
+	textMatches,
+} from "../util/list-query.ts";
 
 export type { UserKind, UserStatus };
 
@@ -115,9 +123,102 @@ export async function findUserByUsername(db: Db, username: string) {
 		.executeTakeFirst();
 }
 
+/** One searchable list page: the items and whether the server's `limit` cut more off. */
+export interface UserListPage {
+	items: PublicUser[];
+	more: boolean;
+}
+
+/**
+ * `GET /api/users` with the optional search parameters (doc/webui.md "实体搜索").
+ * Without `q`/`limit`/`ids` the result is the old list: every user, ordered by username.
+ */
+export async function queryUsers(db: Db, params: RawEntityListQuery): Promise<UserListPage> {
+	const query = parseListQuery(params);
+	let select = db.selectFrom("users").selectAll();
+	if (query.ids !== undefined) select = select.where("id", "in", query.ids);
+	if (query.q !== undefined) {
+		select = select
+			.where(textMatches(["username", "display_name"], likeContains(query.q)))
+			.orderBy(prefixRank(["username", "display_name"], query.q))
+			.orderBy(lowerCase("username"))
+			.orderBy("id");
+	} else {
+		select = select.orderBy("username");
+	}
+	if (query.limit !== undefined) select = select.limit(query.limit + 1);
+	const rows = await select.execute();
+	const more = query.limit !== undefined && rows.length > query.limit;
+	return { items: rows.slice(0, query.limit ?? rows.length).map(toPublicUser), more };
+}
+
 export async function listUsers(db: Db): Promise<PublicUser[]> {
-	const rows = await db.selectFrom("users").selectAll().orderBy("username").execute();
-	return rows.map(toPublicUser);
+	return (await queryUsers(db, {})).items;
+}
+
+/** One list of the directory: the matching users and user groups, and whether either list was cut. */
+export interface DirectoryPage extends Directory {
+	more: boolean;
+}
+
+async function directoryUsers(
+	db: Db,
+	query: ReturnType<typeof parseListQuery>,
+): Promise<{ items: Directory["users"]; more: boolean }> {
+	let select = db.selectFrom("users").select(["id", "username", "display_name"]).where("status", "=", "active");
+	if (query.ids !== undefined) select = select.where("id", "in", query.ids);
+	if (query.q !== undefined) {
+		select = select
+			.where(textMatches(["username", "display_name"], likeContains(query.q)))
+			.orderBy(prefixRank(["username", "display_name"], query.q))
+			.orderBy(lowerCase("username"))
+			.orderBy("id");
+	} else {
+		select = select.orderBy("username");
+	}
+	if (query.limit !== undefined) select = select.limit(query.limit + 1);
+	const rows = await select.execute();
+	const more = query.limit !== undefined && rows.length > query.limit;
+	return {
+		items: rows.slice(0, query.limit ?? rows.length).map((row) => ({
+			id: row.id,
+			username: row.username,
+			displayName: row.display_name,
+		})),
+		more,
+	};
+}
+
+async function directoryGroups(
+	db: Db,
+	query: ReturnType<typeof parseListQuery>,
+): Promise<{ items: Directory["userGroups"]; more: boolean }> {
+	let select = db.selectFrom("user_groups").select(["id", "name"]);
+	if (query.ids !== undefined) select = select.where("id", "in", query.ids);
+	if (query.q !== undefined) {
+		select = select
+			.where(textMatches(["name"], likeContains(query.q)))
+			.orderBy(prefixRank(["name"], query.q))
+			.orderBy(lowerCase("name"))
+			.orderBy("id");
+	} else {
+		select = select.orderBy("name");
+	}
+	if (query.limit !== undefined) select = select.limit(query.limit + 1);
+	const rows = await select.execute();
+	const more = query.limit !== undefined && rows.length > query.limit;
+	return { items: rows.slice(0, query.limit ?? rows.length), more };
+}
+
+/**
+ * `GET /api/directory`: who a session, token rule or share may name. A member may search the
+ * directory (unlike `/users` and `/user-groups`); `limit` applies to each list and `more` says
+ * whether either list was cut.
+ */
+export async function queryDirectory(db: Db, params: RawEntityListQuery): Promise<DirectoryPage> {
+	const query = parseListQuery(params);
+	const [users, userGroups] = await Promise.all([directoryUsers(db, query), directoryGroups(db, query)]);
+	return { users: users.items, userGroups: userGroups.items, more: users.more || userGroups.more };
 }
 
 /** `GET /api/users/:id`: the user's public view and the user groups it belongs to. */

@@ -117,11 +117,11 @@ describe("BatchPage targets", () => {
 		const { calls } = await renderPage();
 		const user = userEvent.setup();
 
-		await user.click(await screen.findByRole("button", { name: "Choose nodes" }));
-		await user.click(await screen.findByRole("checkbox", { name: /worker-01/ }));
+		await user.click(await screen.findByRole("combobox", { name: "Nodes" }));
+		await user.click(await screen.findByRole("option", { name: /worker-01/ }));
 		await user.keyboard("{Escape}");
-		await user.click(screen.getByRole("button", { name: "Choose node groups" }));
-		await user.click(await screen.findByRole("checkbox", { name: /web/ }));
+		await user.click(screen.getByRole("combobox", { name: "Node groups" }));
+		await user.click(await screen.findByRole("option", { name: /web/ }));
 		await user.keyboard("{Escape}");
 		await user.type(screen.getByRole("textbox", { name: "Shell command" }), "uptime");
 		await waitFor(() => expect(screen.getByTestId("batch-run")).toBeEnabled());

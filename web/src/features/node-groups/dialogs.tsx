@@ -1,12 +1,11 @@
-import type { NodeGroup, PublicNode } from "@crh/api";
+import type { NodeGroup } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useId, useState } from "react";
 import { FormDialog } from "@/components/dialogs";
-import { EmptyHint } from "@/components/empty-state";
+import { EntityPicker } from "@/components/entity-picker";
 import { FieldShell } from "@/components/form";
-import { NodePicker } from "@/components/node-picker";
 import { Input } from "@/components/ui/input";
 import { NAME_MAX, type NameProblem, nameProblem } from "@/lib/names";
 import { useCreateNodeGroup, useRenameNodeGroup, useSetNodeGroupMembers } from "./api";
@@ -99,15 +98,7 @@ export function NodeGroupNameDialog({
 }
 
 /** Replace a node group's members: every node that should belong to it. */
-export function NodeGroupMembersDialog({
-	group,
-	nodes,
-	onClose,
-}: {
-	group: NodeGroup;
-	nodes: PublicNode[];
-	onClose: () => void;
-}) {
+export function NodeGroupMembersDialog({ group, onClose }: { group: NodeGroup; onClose: () => void }) {
 	const { t } = useLingui();
 	const [selected, setSelected] = useState<string[]>(group.memberIds);
 	const save = useSetNodeGroupMembers();
@@ -134,11 +125,7 @@ export function NodeGroupMembersDialog({
 			}
 			testId="node-group-members-dialog"
 		>
-			{nodes.length === 0 ? (
-				<EmptyHint>{t`There are no nodes to add yet`}</EmptyHint>
-			) : (
-				<NodePicker multiple nodes={nodes} value={selected} onChange={setSelected} label={t`Nodes`} />
-			)}
+			<EntityPicker kind="node" multiple label={t`Nodes`} value={selected} onChange={(ids) => setSelected(ids)} />
 		</FormDialog>
 	);
 }

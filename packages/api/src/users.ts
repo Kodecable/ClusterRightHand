@@ -57,6 +57,23 @@ export interface Directory {
 	userGroups: { id: string; name: string }[];
 }
 
+/** `GET /api/users`; `more` is present only with `limit` (doc/webui.md "实体搜索"). */
+export interface UserListResponse {
+	users: User[];
+	more?: boolean;
+}
+
+/** `GET /api/user-groups`; `more` is present only with `limit`. */
+export interface UserGroupListResponse {
+	groups: UserGroup[];
+	more?: boolean;
+}
+
+/** `GET /api/directory`; `more` is present only with `limit` and covers either list. */
+export interface DirectoryResponse extends Directory {
+	more?: boolean;
+}
+
 /** One of the user's signing credentials (doc/m4.md M4.4). */
 export interface CredentialView {
 	id: string;

@@ -1,7 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useMemo } from "react";
 import { DataTable } from "@/components/data-table";
-import { EmptyState } from "@/components/empty-state";
+import { TableEmpty } from "@/components/empty-state";
 import { useNodeTasks } from "@/features/nodes/api";
 import { useTaskColumns } from "@/features/tasks/task-columns";
 import { useDirectory } from "@/features/users/api";
@@ -34,11 +34,9 @@ export function NodeTaskList({ nodeId }: { nodeId: string }) {
 				rowLabel={(task) => task.summary || task.kind}
 				rowLinkColumn="task"
 				empty={
-					<EmptyState
-						bare
-						title={<Trans>No tasks yet</Trans>}
-						description={<Trans>Run a task to see it here.</Trans>}
-					/>
+					<TableEmpty>
+						<Trans>No tasks yet</Trans>
+					</TableEmpty>
 				}
 			/>
 		</section>

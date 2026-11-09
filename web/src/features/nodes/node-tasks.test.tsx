@@ -89,3 +89,8 @@ test("the summary and the kind are shown together per node", async () => {
 	if (!(row instanceof HTMLElement)) throw new Error("no task row");
 	expect(within(row).getByText("(exec)")).toBeInTheDocument();
 });
+
+test("an empty list uses the table's compact empty line", async () => {
+	await renderList([]);
+	expect(await screen.findByText("No tasks yet")).toHaveAttribute("data-slot", "table-empty");
+});

@@ -51,9 +51,9 @@ test("walks the Add SSH node wizard through credential, target and host key conf
 	expect(lab.status).toBe(201);
 	await page.getByRole("button", { name: "Edit node groups" }).click();
 	const groupsDialog = page.getByRole("dialog", { name: "Node groups of ssh-e2e" });
-	await groupsDialog.getByRole("button", { name: "Choose node groups" }).click();
-	await groupsDialog.getByRole("checkbox", { name: /edge/ }).check();
-	await groupsDialog.getByRole("checkbox", { name: /lab/ }).check();
+	await groupsDialog.getByRole("combobox", { name: "Node groups" }).click();
+	await page.getByRole("option", { name: /edge/ }).click();
+	await page.getByRole("option", { name: /lab/ }).click();
 	await page.keyboard.press("Escape");
 	await groupsDialog.getByRole("button", { name: "Save node groups" }).click();
 	await expect(page.getByRole("definition").filter({ hasText: "edge" })).toBeVisible();

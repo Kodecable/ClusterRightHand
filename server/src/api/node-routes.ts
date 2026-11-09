@@ -8,9 +8,9 @@ import {
 	clockWarning,
 	deleteNode,
 	getNode,
-	listNodesForUser,
 	nodeAccess,
 	type PublicNode,
+	queryNodesForUser,
 	renameNode,
 	toPublicNode,
 } from "../cluster/nodes.ts";
@@ -38,9 +38,18 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		clockWarning: clockWarning(n.facts, clockWarnMs),
 	});
 
-	app.get("/nodes", async (c) =>
-		c.json({ nodes: (await listNodesForUser(db, c.get("user"), { crhsFingerprint })).map(live) }),
-	);
+	app.get("/nodes", async (c) => {
+		const params = {
+			q: c.req.query("q"),
+			limit: c.req.query("limit"),
+			ids: c.req.query("ids"),
+		};
+		const page = await queryNodesForUser(db, c.get("user"), params, { crhsFingerprint });
+		return c.json({
+			nodes: page.items.map(live),
+			...(params.limit === undefined ? {} : { more: page.more }),
+		});
+	});
 
 	app.get("/nodes/:id", async (c) => {
 		const id = c.req.param("id");

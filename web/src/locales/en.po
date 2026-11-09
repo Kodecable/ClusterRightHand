@@ -54,21 +54,15 @@ msgstr "{0, plural, one {# byte} other {# bytes}}"
 
 #. placeholder {0}: group.memberIds.length
 #. placeholder {0}: row.original.memberIds.length
-#: src/components/node-group-picker.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/users/user-groups-section.tsx
 msgid "{0, plural, one {# member} other {# members}}"
 msgstr "{0, plural, one {# member} other {# members}}"
 
-#. placeholder {0}: value.length
-#: src/components/node-group-picker.tsx
-msgid "{0, plural, one {# node group selected} other {# node groups selected}}"
-msgstr "{0, plural, one {# node group selected} other {# node groups selected}}"
-
-#. placeholder {0}: value.length
-#: src/components/node-picker.tsx
-msgid "{0, plural, one {# node selected} other {# nodes selected}}"
-msgstr "{0, plural, one {# node selected} other {# nodes selected}}"
+#. placeholder {0}: selectedOptions.length
+#: src/components/entity-picker/entity-picker.tsx
+msgid "{0, plural, one {# selected} other {# selected}}"
+msgstr "{0, plural, one {# selected} other {# selected}}"
 
 #. placeholder {0}: targets.length
 #: src/features/batch/pages.tsx
@@ -94,6 +88,11 @@ msgstr "{0, plural, one {Run on # target} other {Run on # targets}}"
 #: src/components/task-result.tsx
 msgid "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
 msgstr "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
+
+#. placeholder {0}: user.username
+#: src/features/users/user-group-dialogs.tsx
+msgid "{0} gains the node access this user group grants."
+msgstr "{0} gains the node access this user group grants."
 
 #. placeholder {0}: item.task.kind
 #. placeholder {1}: nodeNames.get(item.task.nodeId) ?? item.task.nodeId
@@ -129,6 +128,7 @@ msgstr "{awaiting} awaiting"
 msgid "{bytes, plural, one {# byte} other {# bytes}}"
 msgstr "{bytes, plural, one {# byte} other {# bytes}}"
 
+#: src/components/entity-picker/api.ts
 #: src/features/users/pages.tsx
 msgid "{count, plural, one {# member} other {# members}}"
 msgstr "{count, plural, one {# member} other {# members}}"
@@ -328,6 +328,10 @@ msgstr "A token that never expires stays valid until you revoke it."
 msgid "A trailing \".\" matches a prefix, e.g. \"task.\"."
 msgstr "A trailing \".\" matches a prefix, e.g. \"task.\"."
 
+#: src/features/nodes/access-grants.tsx
+msgid "A user group grants access to every current member."
+msgstr "A user group grants access to every current member."
+
 #: src/features/users/user-group-dialogs.tsx
 msgid "A user group is used for session shares and node access grants."
 msgstr "A user group is used for session shares and node access grants."
@@ -440,6 +444,11 @@ msgstr "Add share"
 #: src/features/credentials/pages.tsx
 msgid "Add SSH key"
 msgstr "Add SSH key"
+
+#: src/features/users/pages.tsx
+#: src/features/users/user-group-dialogs.tsx
+msgid "Add to user group"
+msgstr "Add to user group"
 
 #: src/features/approvals/pages.tsx
 msgid "Add tokens to the paused run or stop it."
@@ -913,22 +922,45 @@ msgstr "Choose a model."
 msgid "Choose a new password for your account."
 msgstr "Choose a new password for your account."
 
-#: src/components/node-picker.tsx
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Choose a node"
 msgstr "Choose a node"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a node group"
+msgstr "Choose a node group"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a node or node group"
+msgstr "Choose a node or node group"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a user"
+msgstr "Choose a user"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a user group"
+msgstr "Choose a user group"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a user or user group"
+msgstr "Choose a user or user group"
 
 #: src/features/batch/pages.tsx
 msgid "Choose at least one target."
 msgstr "Choose at least one target."
 
-#: src/components/node-group-picker.tsx
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Choose node groups"
 msgstr "Choose node groups"
 
-#: src/components/node-picker.tsx
-#: src/features/batch/pages.tsx
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Choose nodes"
 msgstr "Choose nodes"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose nodes or node groups"
+msgstr "Choose nodes or node groups"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Choose or create a credential."
@@ -938,6 +970,18 @@ msgstr "Choose or create a credential."
 msgid "Choose targets"
 msgstr "Choose targets"
 
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose user groups"
+msgstr "Choose user groups"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose users"
+msgstr "Choose users"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose users or user groups"
+msgstr "Choose users or user groups"
+
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Claude Code command"
 msgstr "Claude Code command"
@@ -945,11 +989,6 @@ msgstr "Claude Code command"
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Claude Code on the laptop"
 msgstr "Claude Code on the laptop"
-
-#: src/components/node-group-picker.tsx
-#: src/components/node-picker.tsx
-msgid "Clear"
-msgstr "Clear"
 
 #: src/features/nodes/pages.tsx
 msgid "Client"
@@ -1583,10 +1622,6 @@ msgstr "Event detail"
 msgid "Every authorization carries a deadline. It is valid on the nodes its payload names until that deadline or until it is used up (one-shot authorizations)."
 msgstr "Every authorization carries a deadline. It is valid on the nodes its payload names until that deadline or until it is used up (one-shot authorizations)."
 
-#: src/features/nodes/access-grants.tsx
-msgid "Every current member of the user group gets access."
-msgstr "Every current member of the user group gets access."
-
 #: src/features/settings/providers.ts
 msgid "Every model needs a context window of at least 1024 tokens."
 msgstr "Every model needs a context window of at least 1024 tokens."
@@ -1602,10 +1637,6 @@ msgstr "Every model needs an id."
 #: src/features/batch/pages.tsx
 msgid "Every node you can access, including nodes added later."
 msgstr "Every node you can access, including nodes added later."
-
-#: src/features/users/user-group-dialogs.tsx
-msgid "Everyone is already a member."
-msgstr "Everyone is already a member."
 
 #: src/components/approval-card.tsx
 msgid "exact"
@@ -1999,6 +2030,10 @@ msgstr "Loading task…"
 msgid "Loading the waiting decisions…"
 msgstr "Loading the waiting decisions…"
 
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Loading…"
+msgstr "Loading…"
+
 #: src/app/shell/user-menu.tsx
 msgid "Log out"
 msgstr "Log out"
@@ -2110,6 +2145,10 @@ msgstr "Models"
 #: src/components/task-result.tsx
 msgid "Modified"
 msgstr "Modified"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "More results — keep typing to narrow down"
+msgstr "More results — keep typing to narrow down"
 
 #. placeholder {0}: index + 1
 #: src/features/nodes/ssh-wizard.tsx
@@ -2260,10 +2299,6 @@ msgstr "No"
 msgid "No access grants"
 msgstr "No access grants"
 
-#: src/features/batch/pages.tsx
-msgid "No active nodes you can access"
-msgstr "No active nodes you can access"
-
 #: src/features/tokens/pages.tsx
 msgid "No API tokens yet"
 msgstr "No API tokens yet"
@@ -2287,6 +2322,10 @@ msgstr "No credentials yet"
 #: src/features/audit/pages.tsx
 msgid "No events"
 msgstr "No events"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "No matches"
+msgstr "No matches"
 
 #: src/features/node-groups/pages.tsx
 #: src/features/users/user-group-page.tsx
@@ -2401,7 +2440,6 @@ msgstr "No tasks yet"
 msgid "No upcoming runs"
 msgstr "No upcoming runs"
 
-#: src/features/nodes/access-grants.tsx
 #: src/features/users/pages.tsx
 msgid "No user groups"
 msgstr "No user groups"
@@ -2410,18 +2448,15 @@ msgstr "No user groups"
 msgid "No user groups yet"
 msgstr "No user groups yet"
 
-#: src/features/nodes/access-grants.tsx
-msgid "No users"
-msgstr "No users"
-
 #: src/features/users/pages.tsx
 msgid "No users yet"
 msgstr "No users yet"
 
 #: src/components/authorization-card.tsx
-#: src/components/node-picker.tsx
+#: src/components/entity-picker/entity-picker.tsx
 #: src/components/task-result.tsx
 #: src/features/node-groups/pages.tsx
+#: src/features/nodes/access-grants.tsx
 #: src/features/tasks/pages.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
@@ -2432,6 +2467,7 @@ msgstr "Node"
 msgid "Node access"
 msgstr "Node access"
 
+#: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/trust-warnings.tsx
 msgid "Node group"
@@ -2446,9 +2482,9 @@ msgid "Node group name"
 msgstr "Node group name"
 
 #: src/app/shell/nav.ts
-#: src/components/node-group-picker.tsx
 #: src/features/batch/pages.tsx
 #: src/features/node-groups/pages.tsx
+#: src/features/nodes/node-groups-dialog.tsx
 #: src/features/nodes/pages.tsx
 msgid "Node groups"
 msgstr "Node groups"
@@ -2476,13 +2512,16 @@ msgstr "Node key fingerprint: <0>{0}</0>"
 msgid "Node name"
 msgstr "Node name"
 
+#: src/features/nodes/access-grants.tsx
+msgid "Node or node group"
+msgstr "Node or node group"
+
 #: src/features/nodes/node-tasks.tsx
 msgid "Node tasks"
 msgstr "Node tasks"
 
 #: src/app/shell/nav.ts
 #: src/components/authorization-card.tsx
-#: src/components/node-picker.tsx
 #: src/features/authorizations/pages.tsx
 #: src/features/batch/pages.tsx
 #: src/features/node-groups/dialogs.tsx
@@ -2589,6 +2628,10 @@ msgstr "One rule per line: method and a target prefix. Empty allows any method a
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
 msgstr "Only administrators can manage SSH credentials."
+
+#: src/features/nodes/access-grants.tsx
+msgid "Only targets without an existing grant are listed."
+msgstr "Only targets without an existing grant are listed."
 
 #. placeholder {0}: event.targetType
 #. placeholder {1}: event.targetId
@@ -2914,9 +2957,26 @@ msgstr "Rejected"
 msgid "Remaining budget tokens (empty = unlimited)"
 msgstr "Remaining budget tokens (empty = unlimited)"
 
+#: src/components/row-remove-button.tsx
 #: src/features/nodes/ssh-wizard.tsx
+#: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
 msgid "Remove"
 msgstr "Remove"
+
+#. placeholder {0}: option.primary
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Remove {0}"
+msgstr "Remove {0}"
+
+#. placeholder {0}: removingMember.username
+#. placeholder {0}: user.username
+#. placeholder {1}: details.name
+#. placeholder {1}: removingGroup.name
+#: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
+msgid "Remove {0} from {1}?"
+msgstr "Remove {0} from {1}?"
 
 #. placeholder {0}: row.original.username
 #: src/features/users/user-group-page.tsx
@@ -2938,6 +2998,11 @@ msgstr "Remove access for {name}?"
 #: src/features/nodes/access-grants.tsx
 msgid "Remove access to {target} for {grantee}"
 msgstr "Remove access to {target} for {grantee}"
+
+#. placeholder {0}: row.original.name
+#: src/features/users/pages.tsx
+msgid "Remove from {0}"
+msgstr "Remove from {0}"
 
 #. placeholder {0}: index + 1
 #: src/features/settings/provider-dialog.tsx
@@ -3150,10 +3215,6 @@ msgstr "Run {0} now?"
 msgid "Run a task"
 msgstr "Run a task"
 
-#: src/features/nodes/node-tasks.tsx
-msgid "Run a task to see it here."
-msgstr "Run a task to see it here."
-
 #: src/features/schedules/run-history.tsx
 msgid "run by hand"
 msgstr "run by hand"
@@ -3261,18 +3322,43 @@ msgstr "Scheduled session"
 msgid "Schedules"
 msgstr "Schedules"
 
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Search failed"
+msgstr "Search failed"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Search node groups…"
+msgstr "Search node groups…"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Search nodes and node groups…"
+msgstr "Search nodes and node groups…"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Search nodes…"
+msgstr "Search nodes…"
+
 #: src/features/sessions/session-list.tsx
 msgid "Search sessions"
 msgstr "Search sessions"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Search user groups…"
+msgstr "Search user groups…"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Search users and groups…"
+msgstr "Search users and groups…"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Search users…"
+msgstr "Search users…"
 
 #: src/features/auth/api.ts
 msgid "Security verification failed. Try again."
 msgstr "Security verification failed. Try again."
 
-#: src/components/share-editor.tsx
-#: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-wizard.tsx
-#: src/features/users/user-group-dialogs.tsx
 msgid "Select…"
 msgstr "Select…"
 
@@ -3701,6 +3787,10 @@ msgstr "The full output is in <0>{0}</0> on the node."
 msgid "The full output stays on the node until the task exits."
 msgstr "The full output stays on the node until the task exits."
 
+#: src/features/nodes/access-grants.tsx
+msgid "The grantee can see the node or every node in the node group and run tasks on them."
+msgstr "The grantee can see the node or every node in the node group and run tasks on them."
+
 #: src/features/tasks/taskForm.ts
 msgid "The limit must be a non-negative whole number."
 msgstr "The limit must be a non-negative whole number."
@@ -3830,10 +3920,6 @@ msgstr "The Yolo rule preset runs every action without asking or checking."
 msgid "Theme"
 msgstr "Theme"
 
-#: src/features/node-groups/dialogs.tsx
-msgid "There are no nodes to add yet"
-msgstr "There are no nodes to add yet"
-
 #: src/features/approvals/pages.tsx
 msgid "These passed their rules; they run once you sign them."
 msgstr "These passed their rules; they run once you sign them."
@@ -3853,6 +3939,11 @@ msgstr "They can no longer see the nodes in this node group or run tasks on them
 #: src/features/nodes/access-grants.tsx
 msgid "They can no longer see this node or run tasks on it."
 msgstr "They can no longer see this node or run tasks on it."
+
+#: src/features/users/pages.tsx
+#: src/features/users/user-group-page.tsx
+msgid "They lose the node access this user group grants."
+msgstr "They lose the node access this user group grants."
 
 #: src/features/sessions/transcript-row.tsx
 #: src/features/settings/model-dialog.tsx
@@ -3894,10 +3985,6 @@ msgstr "This is a top-level key of privileged.toml. Paste it before the first `[
 msgid "This request is no longer waiting for approval; it is"
 msgstr "This request is no longer waiting for approval; it is"
 
-#: src/features/schedules/run-history.tsx
-msgid "This schedule has not fired yet."
-msgstr "This schedule has not fired yet."
-
 #: src/features/sessions/session-waits.tsx
 msgid "This session is waiting, but there is nothing for you to decide."
 msgstr "This session is waiting, but there is nothing for you to decide."
@@ -3905,6 +3992,10 @@ msgstr "This session is waiting, but there is nothing for you to decide."
 #: src/features/schedules/schedule-actions.tsx
 msgid "This stops the current run. Its history will show it as preempted."
 msgstr "This stops the current run. Its history will show it as preempted."
+
+#: src/features/nodes/access-grants.tsx
+msgid "This target is already granted to this user or user group."
+msgstr "This target is already granted to this user or user group."
 
 #: src/features/users/pages.tsx
 msgid "This user doesn't exist or you don't have access."
@@ -4018,9 +4109,7 @@ msgstr "Try a different search."
 msgid "Try again"
 msgstr "Try again"
 
-#: src/components/share-editor.tsx
 #: src/components/task-result.tsx
-#: src/features/nodes/access-grants.tsx
 msgid "Type"
 msgstr "Type"
 
@@ -4083,7 +4172,7 @@ msgstr "Use the session's model"
 msgid "Used by"
 msgstr "Used by"
 
-#: src/components/share-editor.tsx
+#: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/sessions/share-dialog.tsx
@@ -4093,8 +4182,10 @@ msgstr "Used by"
 msgid "User"
 msgstr "User"
 
+#: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/sessions/share-dialog.tsx
+#: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-group-page.tsx
 msgid "User group"
 msgstr "User group"
@@ -4112,6 +4203,10 @@ msgstr "User groups"
 #: src/features/users/pages.tsx
 msgid "User groups of {0}"
 msgstr "User groups of {0}"
+
+#: src/features/nodes/access-grants.tsx
+msgid "User or user group"
+msgstr "User or user group"
 
 #: src/features/auth/login-page.tsx
 #: src/features/users/new-user-dialog.tsx

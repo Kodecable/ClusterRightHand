@@ -1,14 +1,11 @@
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { PlayIcon } from "lucide-react";
 import { useState } from "react";
-import { EmptyHint } from "@/components/empty-state";
+import { type EntityOption, EntityPicker } from "@/components/entity-picker";
 import { ErrorText } from "@/components/error-state";
-import { NodeGroupPicker } from "@/components/node-group-picker";
-import { NodePicker } from "@/components/node-picker";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { Panel, SectionTitle } from "@/components/section";
-import { PageSkeleton } from "@/components/skeletons";
 import { TaskFormFields } from "@/components/task-form-fields";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -17,7 +14,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCreateBatch } from "@/features/batch/api";
 import { buildTargets } from "@/features/batch/targets";
-import { useNodeGroups } from "@/features/node-groups/api";
 import { useNodes } from "@/features/nodes/api";
 import { useTaskGroup } from "@/features/tasks/api";
 import { TaskGroupResult, TaskGroupSkippedNotice, TaskGroupStatus } from "@/features/tasks/task-group-result";
@@ -32,11 +28,12 @@ import { buildTaskRequest, emptyForm, type TaskForm, taskFormErrorText } from "@
 export function BatchPage() {
 	const { t, i18n } = useLingui();
 	const nodes = useNodes();
-	const nodeGroups = useNodeGroups();
 	const create = useCreateBatch();
 	const [form, setForm] = useState<TaskForm>(emptyForm);
 	const [picked, setPicked] = useState<string[]>([]);
+	const [pickedNames, setPickedNames] = useState<Record<string, string>>({});
 	const [pickedNodeGroups, setPickedNodeGroups] = useState<string[]>([]);
+	const [pickedGroupNames, setPickedGroupNames] = useState<Record<string, string>>({});
 	const [all, setAll] = useState(false);
 	const [extra, setExtra] = useState("");
 	const [parallel, setParallel] = useState("");
@@ -45,13 +42,22 @@ export function BatchPage() {
 	const [taskGroupId, setTaskGroupId] = useState<string | undefined>(undefined);
 	const [error, setError] = useState<string>();
 	const taskGroup = useTaskGroup(taskGroupId, true);
+	// The result grid names every node it ran on, including node-group members the pickers never listed.
 	const names = new Map((nodes.data ?? []).map((node) => [node.id, node.name]));
-	const nodeGroupNames = new Map((nodeGroups.data ?? []).map((entry) => [entry.id, entry.name]));
 
-	const operable = (nodes.data ?? []).filter((node) => node.status === "active");
+	// The pickers name their options; keeping the selected names here means the page never needs the
+	// whole node and node-group lists just to submit targets by name (doc/webui.md "实体搜索").
+	const pickNodes = (ids: string[], options: EntityOption[]) => {
+		setPicked(ids);
+		setPickedNames(Object.fromEntries(options.map((option) => [option.id, option.primary])));
+	};
+	const pickNodeGroups = (ids: string[], options: EntityOption[]) => {
+		setPickedNodeGroups(ids);
+		setPickedGroupNames(Object.fromEntries(options.map((option) => [option.id, option.primary])));
+	};
 	const targets = buildTargets({
-		nodes: picked.map((id) => names.get(id) ?? id),
-		nodeGroups: pickedNodeGroups.map((id) => nodeGroupNames.get(id) ?? id),
+		nodes: picked.map((id) => pickedNames[id] ?? id),
+		nodeGroups: pickedNodeGroups.map((id) => pickedGroupNames[id] ?? id),
 		all,
 		extra,
 	});
@@ -98,34 +104,31 @@ export function BatchPage() {
 					<legend className="text-sm font-medium">
 						<Trans>Targets</Trans>
 					</legend>
-					{nodes.isPending ? (
-						<PageSkeleton rows={2} />
-					) : (
-						<div className="grid gap-3 sm:grid-cols-2">
-							<div className="grid gap-1.5">
-								<span className="text-sm font-medium">{t`Nodes`}</span>
-								<NodePicker
-									multiple
-									nodes={operable}
-									value={picked}
-									onChange={setPicked}
-									label={t`Nodes`}
-									placeholder={t`Choose nodes`}
-									disabled={all}
-								/>
-							</div>
-							<div className="grid gap-1.5">
-								<span className="text-sm font-medium">{t`Node groups`}</span>
-								<NodeGroupPicker
-									groups={nodeGroups.data ?? []}
-									value={pickedNodeGroups}
-									onChange={setPickedNodeGroups}
-									disabled={all}
-								/>
-							</div>
+					<div className="grid gap-3 sm:grid-cols-2">
+						<div className="grid gap-1.5">
+							<span className="text-sm font-medium">{t`Nodes`}</span>
+							<EntityPicker
+								kind="node"
+								multiple
+								label={t`Nodes`}
+								value={picked}
+								onChange={pickNodes}
+								disabled={all}
+								includeDisabled={false}
+							/>
 						</div>
-					)}
-					{nodes.data && operable.length === 0 && <EmptyHint>{t`No active nodes you can access`}</EmptyHint>}
+						<div className="grid gap-1.5">
+							<span className="text-sm font-medium">{t`Node groups`}</span>
+							<EntityPicker
+								kind="nodeGroup"
+								multiple
+								label={t`Node groups`}
+								value={pickedNodeGroups}
+								onChange={pickNodeGroups}
+								disabled={all}
+							/>
+						</div>
+					</div>
 					<div className="flex items-start gap-2">
 						<Checkbox
 							id="batch-all"

@@ -35,6 +35,9 @@ const GROUP: UserGroupDetail = {
 	members: [{ id: ALICE.id, username: ALICE.username, displayName: ALICE.displayName }],
 };
 
+const NODE = { id: "node-1", name: "worker-01", hostname: "worker-01.example", status: "active", connected: true };
+const NODE_GROUP = { id: "ng-1", name: "Ops fleet", memberIds: ["node-1"] };
+
 function grant(overrides: Partial<NodeAccessGrant> = {}): NodeAccessGrant {
 	return {
 		id: "grant-1",
@@ -75,7 +78,9 @@ function mockFetch(grants: NodeAccessGrant[] = []): { calls: Call[] } {
 				return json({ group: { ...GROUP, name: (body as { name: string }).name } });
 			if (path === "/api/user-groups/group-1" && method === "DELETE") return json({ ok: true });
 			if (/^\/api\/user-groups\/group-1\/members\/[^/]+$/.test(path)) return json({ ok: true });
-			if (path === "/api/node-access-grants") {
+			if (path === "/api/nodes") return json({ nodes: [NODE] });
+			if (path === "/api/node-groups") return json({ groups: [NODE_GROUP] });
+			if (path === "/api/node-access-grants" && method === "GET") {
 				const granteeType = url.searchParams.get("granteeType");
 				const granteeId = url.searchParams.get("granteeId");
 				return json({
@@ -85,6 +90,16 @@ function mockFetch(grants: NodeAccessGrant[] = []): { calls: Call[] } {
 							(granteeId === null || grant.granteeId === granteeId),
 					),
 				});
+			}
+			if (path === "/api/node-access-grants" && method === "POST") {
+				const input = body as Pick<NodeAccessGrant, "granteeType" | "granteeId" | "targetType" | "targetId">;
+				const created = grant({
+					id: `grant-${grants.length + 1}`,
+					...input,
+					targetName: input.targetType === "node" ? NODE.name : NODE_GROUP.name,
+				});
+				grants.push(created);
+				return json({ grant: created }, 201);
 			}
 			const grantDelete = /^\/api\/node-access-grants\/([^/]+)$/.exec(path);
 			if (grantDelete && method === "DELETE") {
@@ -132,14 +147,18 @@ describe("UserGroupDetailPage", () => {
 		const user = userEvent.setup();
 		await user.click(screen.getByTestId("add-member"));
 		const dialog = await screen.findByTestId("add-member-dialog");
-		await user.click(within(dialog).getByLabelText("User"));
-		await user.click(await screen.findByRole("option", { name: "bob" }));
+		await user.click(within(dialog).getByRole("combobox", { name: "User" }));
+		await user.click(await screen.findByRole("option", { name: /Bob/ }));
 		await user.click(within(dialog).getByRole("button", { name: "Add" }));
 		await waitFor(() =>
 			expect(calls.find((call) => call.method === "PUT")?.url).toBe("/api/user-groups/group-1/members/u3"),
 		);
 
-		await fireEvent.click(screen.getByRole("button", { name: "Remove alice from ops" }));
+		const remove = screen.getByRole("button", { name: "Remove alice from ops" });
+		expect(remove).toHaveTextContent("Remove");
+		await fireEvent.click(remove);
+		const confirm = screen.getByRole("dialog", { name: "Remove alice from ops?" });
+		await fireEvent.click(within(confirm).getByRole("button", { name: "Remove" }));
 		await waitFor(() =>
 			expect(calls.find((call) => call.method === "DELETE" && call.url.includes("/members/"))?.url).toBe(
 				"/api/user-groups/group-1/members/u2",
@@ -156,14 +175,18 @@ describe("UserGroupDetailPage", () => {
 		]);
 
 		const section = await screen.findByTestId("grantee-node-access");
-		expect(await within(section).findByRole("link", { name: "worker-01" })).toHaveAttribute("href", "/nodes/node-1");
-		// A grant on a node group links to the node group page, like a node target.
-		expect(await within(section).findByRole("link", { name: "Ops fleet" })).toHaveAttribute(
-			"href",
-			"/node-groups/ng-1",
-		);
+		const nodeRow = (await within(section).findByRole("link", { name: "worker-01" })).closest('[role="row"]');
+		if (!(nodeRow instanceof HTMLElement)) throw new Error("no node grant row");
+		expect(within(nodeRow).getByText("Node")).toBeInTheDocument();
+		expect(nodeRow).toHaveTextContent("worker-01");
+		// A grant on a node group links to the node group page and carries a Node group badge.
+		const groupRow = (await within(section).findByRole("link", { name: "Ops fleet" })).closest('[role="row"]');
+		if (!(groupRow instanceof HTMLElement)) throw new Error("no node group grant row");
+		expect(within(groupRow).getByText("Node group")).toBeInTheDocument();
+		const remove = within(section).getByRole("button", { name: "Remove access to worker-01 for ops" });
+		expect(remove).toHaveTextContent("Remove");
 
-		await fireEvent.click(within(section).getByRole("button", { name: "Remove access to worker-01 for ops" }));
+		await fireEvent.click(remove);
 		const confirm = screen.getByRole("dialog");
 		await fireEvent.click(within(confirm).getByRole("button", { name: "Remove access" }));
 		await waitFor(() =>
@@ -173,6 +196,34 @@ describe("UserGroupDetailPage", () => {
 		);
 		await waitFor(() => expect(within(section).queryByRole("link", { name: "worker-01" })).not.toBeInTheDocument());
 		expect(within(section).getByRole("link", { name: "Ops fleet" })).toBeInTheDocument();
+	});
+
+	test("adds node access for the group through the merged node target picker", async () => {
+		const { calls } = await renderPage();
+		await screen.findByRole("heading", { name: "ops" });
+
+		const section = screen.getByTestId("grantee-node-access");
+		const user = userEvent.setup();
+		await user.click(within(section).getByTestId("add-access"));
+		const dialog = await screen.findByTestId("grantee-add-access-dialog");
+		await user.click(within(dialog).getByRole("combobox", { name: "Node or node group" }));
+		const groupOption = await screen.findByRole("option", { name: /Ops fleet/ });
+		expect(within(groupOption).getByText("Node group")).toBeInTheDocument();
+		await user.click(groupOption);
+		await user.click(within(dialog).getByRole("button", { name: "Add access" }));
+
+		await waitFor(() =>
+			expect(calls.find((call) => call.method === "POST")?.body).toEqual({
+				granteeType: "user_group",
+				granteeId: GROUP.id,
+				targetType: "node_group",
+				targetId: NODE_GROUP.id,
+			}),
+		);
+		expect(await within(section).findByRole("link", { name: "Ops fleet" })).toHaveAttribute(
+			"href",
+			"/node-groups/ng-1",
+		);
 	});
 
 	test("renames the group", async () => {

@@ -7,13 +7,21 @@ import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
-import { createUser, getUserDetail, listUsers, setPassword, toPublicUser, updateUser } from "../users/service.ts";
+import {
+	createUser,
+	getUserDetail,
+	queryDirectory,
+	queryUsers,
+	setPassword,
+	toPublicUser,
+	updateUser,
+} from "../users/service.ts";
 import {
 	addUserGroupMember,
 	createUserGroup,
 	deleteUserGroup,
 	getUserGroupDetail,
-	listUserGroups,
+	queryUserGroups,
 	removeUserGroupMember,
 	renameUserGroup,
 } from "../users/user-groups.ts";
@@ -47,16 +55,16 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 
 	// Everyone in the organization can look up whom to share with; only names, nothing else.
 	app.get("/directory", async (c) => {
-		const users = await db
-			.selectFrom("users")
-			.select(["id", "username", "display_name"])
-			.where("status", "=", "active")
-			.orderBy("username")
-			.execute();
-		const groups = await db.selectFrom("user_groups").select(["id", "name"]).orderBy("name").execute();
+		const params = {
+			q: c.req.query("q"),
+			limit: c.req.query("limit"),
+			ids: c.req.query("ids"),
+		};
+		const page = await queryDirectory(db, params);
 		return c.json({
-			users: users.map((u) => ({ id: u.id, username: u.username, displayName: u.display_name })),
-			userGroups: groups,
+			users: page.users,
+			userGroups: page.userGroups,
+			...(params.limit === undefined ? {} : { more: page.more }),
 		});
 	});
 
@@ -76,7 +84,15 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 	app.use("/user-groups/*", requireAdmin);
 	app.use("/user-groups", requireAdmin);
 
-	app.get("/users", async (c) => c.json({ users: await listUsers(db) }));
+	app.get("/users", async (c) => {
+		const params = {
+			q: c.req.query("q"),
+			limit: c.req.query("limit"),
+			ids: c.req.query("ids"),
+		};
+		const page = await queryUsers(db, params);
+		return c.json({ users: page.items, ...(params.limit === undefined ? {} : { more: page.more }) });
+	});
 
 	app.post("/users", async (c) => {
 		const body = await readJsonObject(c);
@@ -174,7 +190,15 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 		return c.json({ ok: true });
 	});
 
-	app.get("/user-groups", async (c) => c.json({ groups: await listUserGroups(db) }));
+	app.get("/user-groups", async (c) => {
+		const params = {
+			q: c.req.query("q"),
+			limit: c.req.query("limit"),
+			ids: c.req.query("ids"),
+		};
+		const page = await queryUserGroups(db, params);
+		return c.json({ groups: page.items, ...(params.limit === undefined ? {} : { more: page.more }) });
+	});
 
 	app.get("/user-groups/:id", async (c) => {
 		const group = await getUserGroupDetail(db, c.req.param("id"));

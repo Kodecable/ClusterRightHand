@@ -31,6 +31,12 @@ export interface NodeGroup extends NodeGroupRef {
 	memberIds: string[];
 }
 
+/** `GET /api/node-groups`; `more` is present only with `limit` (doc/webui.md "实体搜索"). */
+export interface NodeGroupListResponse {
+	groups: NodeGroup[];
+	more?: boolean;
+}
+
 /**
  * One node access grant: a user or user group may see and run tasks on a node or on the nodes of a node group.
  * There is one level. `granteeName` / `targetName` are null when the grantee or target was deleted.
@@ -110,6 +116,12 @@ export interface PublicNode {
 	clockWarning: string | null;
 	/** Out-of-sync trust aliases and unknown trust entries (doc/privilege.md#信任缓存, D110). */
 	trustWarnings: TrustWarning[];
+}
+
+/** `GET /api/nodes`; `more` is present only with `limit`. */
+export interface NodeListResponse {
+	nodes: PublicNode[];
+	more?: boolean;
 }
 
 /** What to paste into ~/privileged.toml as the crhs trust entry. */

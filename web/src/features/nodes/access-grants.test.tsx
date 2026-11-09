@@ -54,6 +54,14 @@ function mockFetch(user: User): { calls: Call[]; grants: NodeAccessGrant[] } {
 			const json = (payload: unknown, status = 200) =>
 				new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
 			if (parsed.pathname === "/api/me") return json({ user });
+			if (parsed.pathname === "/api/directory") {
+				const ids = parsed.searchParams.get("ids");
+				const wanted = ids === null ? null : new Set(ids.split(","));
+				return json({
+					users: wanted === null || wanted.has(ALICE.id) ? [ALICE] : [],
+					userGroups: wanted === null || wanted.has(OPS.id) ? [OPS] : [],
+				});
+			}
 			if (parsed.pathname === "/api/users") return json({ users: [ADMIN, ALICE] });
 			if (parsed.pathname === "/api/user-groups") return json({ groups: [OPS] });
 			if (parsed.pathname === "/api/node-access-grants" && method === "GET") return json({ grants });
@@ -112,8 +120,10 @@ describe("NodeAccessSection", () => {
 		const user = userEvent.setup();
 		await user.click(screen.getByTestId("add-access"));
 		const dialog = await screen.findByTestId("add-access-dialog");
-		await user.click(within(dialog).getByLabelText("User"));
-		await user.click(await screen.findByRole("option", { name: "alice" }));
+		// There is no "Type" select any more: one directory picker supplies the grantee type.
+		expect(within(dialog).queryByLabelText("Type")).not.toBeInTheDocument();
+		await user.click(within(dialog).getByRole("combobox", { name: "User or user group" }));
+		await user.click(await screen.findByRole("option", { name: /Alice/ }));
 		await user.click(within(dialog).getByRole("button", { name: "Add access" }));
 
 		await waitFor(() =>
@@ -127,7 +137,9 @@ describe("NodeAccessSection", () => {
 		await waitFor(() => expect(screen.getByText("alice")).toBeInTheDocument());
 		expect(grants).toHaveLength(1);
 
-		await user.click(screen.getByRole("button", { name: "Remove access for alice" }));
+		const remove = screen.getByRole("button", { name: "Remove access for alice" });
+		expect(remove).toHaveTextContent("Remove");
+		await user.click(remove);
 		const confirm = await screen.findByRole("dialog");
 		await user.click(within(confirm).getByRole("button", { name: "Remove access" }));
 
@@ -137,6 +149,38 @@ describe("NodeAccessSection", () => {
 			),
 		);
 		await waitFor(() => expect(screen.getByText("No access grants")).toBeInTheDocument());
+	});
+
+	test("a user group picked in the add-access dialog submits the group grantee type", async () => {
+		const { calls } = await renderSection(ADMIN);
+		const section = await screen.findByTestId("node-access");
+		const user = userEvent.setup();
+
+		await user.click(within(section).getByTestId("add-access"));
+		const dialog = await screen.findByTestId("add-access-dialog");
+		expect(within(dialog).queryByLabelText("Type")).not.toBeInTheDocument();
+		await user.click(within(dialog).getByRole("combobox", { name: "User or user group" }));
+		const groupOption = await screen.findByRole("option", { name: /Ops/ });
+		expect(within(groupOption).getByText("User group")).toBeInTheDocument();
+		await user.click(groupOption);
+		await user.click(within(dialog).getByRole("button", { name: "Add access" }));
+
+		await waitFor(() =>
+			expect(calls.find((call) => call.method === "POST")?.body).toEqual({
+				granteeType: "user_group",
+				granteeId: OPS.id,
+				targetType: "node",
+				targetId: "node-1",
+			}),
+		);
+		await waitFor(() => expect(within(section).getByText("Ops")).toBeInTheDocument());
+
+		// Reopening the dialog hides the grantee that now holds a grant.
+		await user.click(within(section).getByTestId("add-access"));
+		const reopened = await screen.findByTestId("add-access-dialog");
+		await user.click(within(reopened).getByRole("combobox", { name: "User or user group" }));
+		expect(await screen.findByRole("option", { name: /Alice/ })).toBeInTheDocument();
+		expect(screen.queryByRole("option", { name: /Ops/ })).not.toBeInTheDocument();
 	});
 
 	test("a member does not see the section", async () => {

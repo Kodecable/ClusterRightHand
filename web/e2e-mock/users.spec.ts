@@ -39,8 +39,8 @@ test("create a user and add them to a group", async ({ page }) => {
 	const group = page.getByTestId("user-group-members");
 	await group.getByRole("button", { name: "Add member" }).click();
 	const addMember = page.getByRole("dialog", { name: "Add member" });
-	await addMember.getByLabel("User").click();
-	await page.getByRole("option", { name: "alice" }).click();
+	await addMember.getByRole("combobox", { name: "User" }).click();
+	await page.getByRole("option", { name: /Alice/ }).click();
 	await addMember.getByRole("button", { name: "Add", exact: true }).click();
 	await expect(group.getByRole("table", { name: "Members of Ops" })).toContainText("alice");
 	await expect
@@ -48,6 +48,22 @@ test("create a user and add them to a group", async ({ page }) => {
 			api.state.requests.some(
 				(request) =>
 					request.method === "PUT" && request.url === `/api/user-groups/group-1/members/${api.state.users[0]?.id}`,
+			),
+		)
+		.toBe(true);
+
+	// Removing a member is a visible Remove action followed by a confirmation.
+	const removeMember = group.getByRole("button", { name: "Remove alice from Ops" });
+	await expect(removeMember).toContainText("Remove");
+	await removeMember.click();
+	const removeDialog = page.getByRole("dialog", { name: "Remove alice from Ops?" });
+	await removeDialog.getByRole("button", { name: "Remove" }).click();
+	await expect(group.getByRole("table", { name: "Members of Ops" })).not.toContainText("alice");
+	await expect
+		.poll(() =>
+			api.state.requests.some(
+				(request) =>
+					request.method === "DELETE" && request.url === `/api/user-groups/group-1/members/${api.state.users[0]?.id}`,
 			),
 		)
 		.toBe(true);

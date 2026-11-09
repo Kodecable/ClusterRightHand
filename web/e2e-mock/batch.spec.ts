@@ -14,9 +14,9 @@ test("a batch run fills the per-node grid as the tasks finish", async ({ page })
 	await page.goto("/batch");
 	await expect(page.getByTestId("batch-page")).toBeVisible();
 
-	await page.getByRole("button", { name: /Choose nodes/ }).click();
-	await page.getByRole("checkbox", { name: /worker-01/ }).check();
-	await page.getByRole("checkbox", { name: /worker-02/ }).check();
+	await page.getByRole("combobox", { name: "Nodes" }).click();
+	await page.getByRole("option", { name: /worker-01/ }).click();
+	await page.getByRole("option", { name: /worker-02/ }).click();
 	await page.keyboard.press("Escape");
 
 	await page.locator('input[id$="-command"]').fill("uname -a");

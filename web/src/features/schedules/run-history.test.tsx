@@ -64,3 +64,8 @@ test("a run without a session has no link", async () => {
 	await screen.findByText("Succeeded");
 	expect(screen.queryByRole("link")).not.toBeInTheDocument();
 });
+
+test("an empty history uses the table's compact empty line", async () => {
+	await renderHistory([]);
+	expect(await screen.findByText("No runs yet")).toHaveAttribute("data-slot", "table-empty");
+});

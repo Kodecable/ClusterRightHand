@@ -3,22 +3,77 @@ import { deleteGrantsForUserGroup } from "../cluster/node-access.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
+import {
+	likeContains,
+	lowerCase,
+	parseListQuery,
+	prefixRank,
+	type RawEntityListQuery,
+	textMatches,
+} from "../util/list-query.ts";
 import { defaultOrgId } from "./service.ts";
 
 export type { UserGroup };
 
 const USER_GROUP_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
+/** One searchable list page (see `queryUsers`). */
+export interface UserGroupListPage {
+	items: UserGroup[];
+	more: boolean;
+}
+
+/**
+ * `GET /api/user-groups` with the optional search parameters (doc/webui.md "实体搜索").
+ * Members are loaded only for the groups in the page; without parameters this is the old list.
+ */
+export async function queryUserGroups(db: Db, params: RawEntityListQuery): Promise<UserGroupListPage> {
+	const query = parseListQuery(params);
+	let select = db.selectFrom("user_groups").selectAll();
+	if (query.ids !== undefined) select = select.where("id", "in", query.ids);
+	if (query.q !== undefined) {
+		select = select
+			.where(textMatches(["name"], likeContains(query.q)))
+			.orderBy(prefixRank(["name"], query.q))
+			.orderBy(lowerCase("name"))
+			.orderBy("id");
+	} else {
+		select = select.orderBy("name");
+	}
+	if (query.limit !== undefined) select = select.limit(query.limit + 1);
+	const rows = await select.execute();
+	const more = query.limit !== undefined && rows.length > query.limit;
+	const groups = rows.slice(0, query.limit ?? rows.length);
+	if (groups.length === 0) return { items: [], more };
+	const members = await db
+		.selectFrom("user_group_members")
+		.select(["user_group_id", "user_id"])
+		.where(
+			"user_group_id",
+			"in",
+			groups.map((group) => group.id),
+		)
+		.execute();
+	const memberIds = new Map<string, string[]>();
+	for (const member of members) {
+		const ids = memberIds.get(member.user_group_id) ?? [];
+		ids.push(member.user_id);
+		memberIds.set(member.user_group_id, ids);
+	}
+	return {
+		items: groups.map((group) => ({
+			id: group.id,
+			name: group.name,
+			source: group.source,
+			createdAt: group.created_at,
+			memberIds: memberIds.get(group.id) ?? [],
+		})),
+		more,
+	};
+}
+
 export async function listUserGroups(db: Db): Promise<UserGroup[]> {
-	const groups = await db.selectFrom("user_groups").selectAll().orderBy("name").execute();
-	const members = await db.selectFrom("user_group_members").select(["user_group_id", "user_id"]).execute();
-	return groups.map((g) => ({
-		id: g.id,
-		name: g.name,
-		source: g.source,
-		createdAt: g.created_at,
-		memberIds: members.filter((m) => m.user_group_id === g.id).map((m) => m.user_id),
-	}));
+	return (await queryUserGroups(db, {})).items;
 }
 
 function normalizeUserGroupName(name: string): string {

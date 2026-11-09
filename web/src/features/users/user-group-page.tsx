@@ -1,7 +1,7 @@
 import type { User, UserGroupMember } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { ArrowLeftIcon, PencilIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
+import { ArrowLeftIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
@@ -11,6 +11,7 @@ import { KeyValueList } from "@/components/key-value";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
+import { RowRemoveButton } from "@/components/row-remove-button";
 import { SectionHeader } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { StatusText } from "@/components/status-badge";
@@ -41,8 +42,8 @@ export function UserGroupDetailPage() {
 	const [adding, setAdding] = useState(false);
 	const [renaming, setRenaming] = useState(false);
 	const [deleting, setDeleting] = useState(false);
+	const [removingMember, setRemovingMember] = useState<UserGroupMember>();
 	const usersById = useMemo(() => new Map((users.data ?? []).map((user) => [user.id, user])), [users.data]);
-	const groupId = group.data?.id ?? "";
 	const groupName = group.data?.name ?? "";
 	const columns = useMemo<DataTableColumn<UserGroupMember>[]>(
 		() => [
@@ -89,22 +90,16 @@ export function UserGroupDetailPage() {
 			{
 				id: "actions",
 				header: actionsHeader,
-				size: 60,
+				size: 90,
 				cell: ({ row }) => (
-					<Button
-						type="button"
-						size="icon-xs"
-						variant="ghost"
-						aria-label={t`Remove ${row.original.username} from ${groupName}`}
-						disabled={remove.isPending}
-						onClick={() => remove.mutate({ groupId, userId: row.original.id })}
-					>
-						<XIcon />
-					</Button>
+					<RowRemoveButton
+						label={t`Remove ${row.original.username} from ${groupName}`}
+						onClick={() => setRemovingMember(row.original)}
+					/>
 				),
 			},
 		],
-		[groupId, groupName, remove.isPending, remove.mutate, t, usersById],
+		[groupName, t, usersById],
 	);
 
 	if (group.isError) {
@@ -184,9 +179,6 @@ export function UserGroupDetailPage() {
 						</TableEmpty>
 					}
 				/>
-				{remove.error !== null && remove.error !== undefined && (
-					<ErrorState error={remove.error} compact retry={() => void remove.reset()} />
-				)}
 			</section>
 
 			<GranteeNodeAccessSection granteeType="user_group" granteeId={details.id} />
@@ -199,6 +191,30 @@ export function UserGroupDetailPage() {
 			)}
 			{renaming && (
 				<UserGroupNameDialog group={{ id: details.id, name: details.name }} onClose={() => setRenaming(false)} />
+			)}
+			{removingMember && (
+				<ConfirmDialog
+					open
+					onOpenChange={(open) => {
+						if (!open) setRemovingMember(undefined);
+					}}
+					title={t`Remove ${removingMember.username} from ${details.name}?`}
+					description={t`They lose the node access this user group grants.`}
+					confirmLabel={<Trans>Remove</Trans>}
+					busy={remove.isPending}
+					onConfirm={() =>
+						remove.mutate(
+							{ groupId: details.id, userId: removingMember.id },
+							{
+								onSuccess: () => {
+									setRemovingMember(undefined);
+								},
+							},
+						)
+					}
+				>
+					{remove.error !== null && remove.error !== undefined && <ErrorState error={remove.error} compact />}
+				</ConfirmDialog>
 			)}
 			<ConfirmDialog
 				open={deleting}

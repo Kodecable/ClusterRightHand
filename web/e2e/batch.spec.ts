@@ -4,8 +4,8 @@ test.use({ withNode: true });
 
 /** Picks one node by name in the batch page's node popover. */
 async function pickNode(page: import("@playwright/test").Page, name: string): Promise<void> {
-	await page.getByRole("button", { name: /Choose nodes|node selected/ }).click();
-	await page.getByRole("checkbox", { name }).check();
+	await page.getByRole("combobox", { name: "Nodes" }).click();
+	await page.getByRole("option", { name }).click();
 	await page.keyboard.press("Escape");
 }
 
@@ -51,8 +51,8 @@ test("runs a batch on a node-group target", async ({ adminPage: page, crhs, env 
 	});
 	expect(members.status).toBe(200);
 	await page.goto("/batch");
-	await page.getByRole("button", { name: /Choose node groups/ }).click();
-	await page.getByRole("checkbox", { name: /web/ }).check();
+	await page.getByRole("combobox", { name: "Node groups" }).click();
+	await page.getByRole("option", { name: /web/ }).click();
 	await page.keyboard.press("Escape");
 	await page.getByRole("textbox", { name: "Shell command" }).fill("echo from-group; exit 2");
 	await page.getByRole("button", { name: /Run on 1 target/ }).click();

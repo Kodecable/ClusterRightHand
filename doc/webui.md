@@ -127,18 +127,19 @@ web/src/
 - 指向“别的对象”的链接统一为前景色加细下划线（`text-foreground underline underline-offset-2`，悬停加粗下划线），不用主色（蓝色），因为蓝色在这里读起来像按钮；`linkClass` 是唯一的来源。按钮不装成链接，导航也不渲染成按钮。唯一的例外是详情页的返回控件：统一用 `ArrowLeftIcon` + “All X”（如 “All nodes”、“All approvals”）的弱化行内链接。
 - 没有“刷新”按钮：列表和区块靠轮询、SSE 或 mutation 失效保持新鲜。审计列表每 10 秒轮询（日志只追加，已加载的页不会跳动），节点信任和节点最近任务每 10 秒轮询，其余列表各自沿用原有的轮询和失效。
 - 编辑动作只放详情页：节点组列表不提供改名、删除或编辑成员，节点列表只保留待批准节点的 Approve / Reject，计划任务列表只保留“立即运行”这个行内动作。
+- 详情页小节表格的行移除动作统一为 outline `xs` 按钮 + `XIcon` + 可见文字 “Remove”，无障碍名说明移除的对象（如 “Remove access for alice”“Remove alice from ops”），点击后先弹 `ConfirmDialog`，确认后才执行；不再用只有图标的 ghost 按钮，也不在行内直接删除。用户组、用户组成员、用户详情的 Node access、节点/节点组页的 Access 都遵循这一条。
 - 用户作为操作者或所有者出现时一律渲染成指向 `/users/$userId` 的链接（任务表的 By 列、任务详情的 Asked by、审计的 By / On behalf of、审批卡片的 Asked by / Decided by）；查看者有没有权限打开该页由目标页处理。system、API token、agent 等非用户操作者仍是纯文本。会话列表的 shared 提示仍是一行文字。
 
 ### 表格、状态与对话框
 
 - 所有列表只有一个实现：共享的 `DataTable`。详情页里的成员表、审批的规则链、授权的任务表、文件列表、节点访问授权、节点信任、SSH 路由、提供方模型和模型思考档位表也用它，不再手写 `<table>` 或直接使用 ui `Table`。
 - `DataTable` 的列宽：`size` 是固定宽度，`minSize` 给出最小宽度并允许列继续变长。名称列设置 `minSize`（如节点、用户、模型提供方、计划任务），时间列固定为能放下带秒绝对时间的宽度（165px），命令、路径、URL 等长自由文本是唯一允许被截断的内容，不给 `minSize`。表格的最小宽度等于固定宽度、最小宽度和自由文本列的小地板之和；放不下时表头和行一起在 `data-table-scroll` 里横向滚动，不会被裁掉。每个被截断的单元格都有 `title` 显示全文；列可以用 `meta.title` 指定完整文本。
-- 嵌在卡片或对话框里的表用 `density="compact"`；父容器已经有边框时用 `frame={false}`，避免双重边框。表里没有行时把 `EmptyState` 以 `bare` 传入，让空状态落在表格自身的边框内。
+- 嵌在卡片或对话框里的表用 `density="compact"`；父容器已经有边框时用 `frame={false}`，避免双重边框。列表页整表的空状态把 `EmptyState` 以 `bare` 传入，让空状态落在表格自身的边框内；详情页小节表格改用下一条的 `TableEmpty`。
 - 行高与对齐：正文行有统一的最小高度，默认 40px（`min-h-10`）、compact 32px（`min-h-8`），表头固定为 32px / 28px；行网格是 `align-items: center`，单元格只保留水平内边距（`px-3` / `px-2`）和很小的纵向内边距，所以行内的 xs 按钮（h-6）、icon-xs 复制按钮、选择器和开关都落在固定行高内，不再把行撑高、也不让其它单元格的文字贴顶。单元格里的等宽值统一用 `MONO_CELL`（`font-mono text-xs leading-5`），与 text-sm 共用 20px 行盒；行首的整行链接/按钮是块级文本，不增加单元格高度。
 - 详情页的标签/值统一用 `KeyValueList`：网格 `items-start`，标签和值都用 20px 行高（等宽值用 `MONO_CELL`，`text-xs leading-5`），两种字号在同一行框里垂直居中，行距一致；不用基线对齐，因为小字号的值会被下移、把那一行撑高；值是 Select、Button、Switch 等控件时给 `KeyValueItem` 加 `control: true`，这一对的 dt/dd 用 `self-center` 与控件垂直居中。用户组、成员、共享对象、节点访问都用 `DataTable`，不再画芯片列表。
 - 详情页的表格小节用 `SectionHeader`：左边是 `SectionTitle`，右边是该小节的动作按钮（添加用 `size="sm" variant="outline"` + `PlusIcon`，例如 Add member、Add access），下面紧接 `DataTable`。动作不放在表格下方，也不放在空状态下方。
-- 空的小节表格把 `TableEmpty` 传给 `DataTable` 的 `empty`：表格自己的边框里只有一行小号 muted 文本（“No user groups”“No node access”“No members”“No access grants”），所有小节一致；不再用带图标和标题的 `EmptyState`，也不在表格外另写提示。
-- 空状态统一用 `EmptyState`（整块）或 `EmptyHint`（区块内的一行提示，例如 “No subagents”“The node trusts nobody”），表格小节用 `TableEmpty`；这些短提示结尾不加句号。
+- 详情页的小节表格把 `TableEmpty` 传给 `DataTable` 的 `empty`：表格自己的边框里只有一行小号 muted 文本（“No user groups”“No node access”“No members”“No access grants”“No sessions yet”“No tasks yet”“No runs yet”），所有小节一致；不再用带图标和标题的 `EmptyState`，也不在表格外另写提示。用户详情的 Recent sessions / Recent tasks、节点详情的 Recent tasks、计划任务详情的 Run history 等只读小节同样如此。
+- 空状态统一用 `EmptyState`（整页或列表页的整表）或 `EmptyHint`（区块内的一行提示，例如 “No subagents”“The node trusts nobody”），详情页小节表格用 `TableEmpty`；这些短提示结尾不加句号。
 - 加载状态：整页用 `PageSkeleton`（放在 `Page` 里，不用裸 `div p-4`），表体用 `DataTable` 的 spinner，行内或浮层用 `Spinner`；不再出现 “Loading…” 文本。
 - 错误状态：查询失败用 `ErrorState`，表单和卡片内的错误用 `ErrorText`；不再手写 `<p role="alert" className="text-danger">`。列表页和详情页的加载、错误都渲染在 `Page` 里，保持与正常页面相同的宽度和留白。
 - 警告横幅统一为 `WarningBanner`：`rounded-lg border border-warn/30 bg-warn-bg px-3 py-2 text-sm text-warn`（计划任务无模型、会话列表无模型、token 永不过期 / Yolo）。
@@ -160,12 +161,12 @@ web/src/
 - `/users/$userId`（`UserDetailPage`）：
   - 页头显示显示名（没有时用用户名），返回链接是 `ArrowLeftIcon` + “All users”；事实包括用户名、显示名、角色、状态（`StatusText`）和创建时间（`DateTime`）。
   - 管理员在这里改角色、启用/禁用（禁用仍需确认；不能停用自己）和重置密码。普通用户只能打开自己的页面，页面上没有任何编辑控件。
-  - 用户组是 `DataTable`（名称、成员数），行可点、链接到 `/user-groups/$userGroupId`；成员数只在管理员可读用户组列表时显示，否则留空。没有用户组时表格内显示 `TableEmpty` “No user groups”。
-  - 管理员看到 `Node access` 表格：只列出 `user:<id>` 的授权，目标是节点时链接到 `/nodes/$nodeId`、是节点组时链接到 `/node-groups/$nodeGroupId`，创建时间用 `DateTime`，每条授权的移除按钮仍需确认。没有授权时表格内显示 `TableEmpty` “No node access”。普通用户看不到这个区块（授权列表接口仅管理员可读）。
-  - `Recent sessions` 和 `Recent tasks` 两个 `DataTable` 只取第一页：会话用 `scope=all&ownerId=`（管理员）或 `scope=visible&ownerId=`（本人），任务用 `userId=`；行分别链接到会话和任务页。时间用 `RelativeTime`。
+  - 用户组是 `DataTable`（名称、成员数），行可点、链接到 `/user-groups/$userGroupId`；成员数只在管理员可读用户组列表时显示，否则留空。没有用户组时表格内显示 `TableEmpty` “No user groups”。管理员的标题右侧有 `Add to user group`（outline 小按钮 + `PlusIcon`）：对话框用 `userGroup` 选择器并排除用户已加入的组，提交走加入成员接口；每行还有一个 `Remove`（`xs` outline + `XIcon`，可见文字 “Remove”），确认后移除该成员关系并刷新本页。
+  - 管理员看到 `Node access` 表格：只列出 `user:<id>` 的授权，目标名字前有 `Node` / `Node group` 徽标（`Badge variant="secondary"`），目标是节点时链接到 `/nodes/$nodeId`、是节点组时链接到 `/node-groups/$nodeGroupId`，创建时间用 `DateTime`；每行还有 outline `xs` + `XIcon` 的 “Remove”，确认后删除授权。标题右侧的 `Add access` 打开对话框，用一个 `nodeTarget` 选择器同时列出节点和节点组（`Node` / `Node group` 徽标，排除已有授权的目标），grantee 固定为当前用户。没有授权时表格内显示 `TableEmpty` “No node access”。普通用户看不到这个区块（授权列表接口仅管理员可读）。
+  - `Recent sessions` 和 `Recent tasks` 两个 `DataTable` 只取第一页：会话用 `scope=all&ownerId=`（管理员）或 `scope=visible&ownerId=`（本人），任务用 `userId=`；行分别链接到会话和任务页。时间用 `RelativeTime`。没有行时用 `TableEmpty`（“No sessions yet”“No tasks yet”），不用整块的 `EmptyState`。
   - 用户不存在和“没有权限看这个用户”是同一条 `ErrorState`：“This user doesn't exist or you don't have access.”。
-- `/user-groups/$userGroupId`（`UserGroupDetailPage`）：返回 “All users”；显示名称、创建时间，然后是一个 `Members` 小节：标题右侧的 `Add member`（outline 小按钮，打开选择用户的对话框），下面的 `DataTable` 列出用户（整行链接到 `/users/$userId`）、角色、状态和移除按钮；没有成员时表格内显示 `TableEmpty` “No members”。管理员还能看到同样的 `Node access` 表格，列出 `user_group:<id>` 的授权。页头只保留重命名和删除（确认后回用户页）。改名与创建用同一套名称规则，服务端校验并记审计。
-- `/node-groups/$nodeGroupId`：页头只保留改名和删除；`Members` 小节的标题右侧是 `Edit members`（打开现有的成员对话框），表格列出节点（整行链接到 `/nodes/$nodeId`）、状态和 hostname；没有成员时表格内显示 `TableEmpty` “No members”。`Access` 小节列出被授权者（名字旁有 User / User group 徽标）、创建时间（`DateTime`）和移除按钮，`Add access` 是标题右侧的 outline 小按钮；没有授权时表格内显示 `TableEmpty` “No access grants”。
+- `/user-groups/$userGroupId`（`UserGroupDetailPage`）：返回 “All users”；显示名称、创建时间，然后是一个 `Members` 小节：标题右侧的 `Add member`（outline 小按钮，打开选择用户的对话框），下面的 `DataTable` 列出用户（整行链接到 `/users/$userId`）、角色、状态和 `Remove`（outline `xs` + `XIcon`，确认后移除成员）；没有成员时表格内显示 `TableEmpty` “No members”。管理员还能看到同样的 `Node access` 表格，列出 `user_group:<id>` 的授权，目标名字前有 `Node` / `Node group` 徽标，行内 `Remove` 同样先确认；标题右侧的 `Add access` 用同一个 `nodeTarget` 选择器给该用户组新增节点或节点组授权。页头只保留重命名和删除（确认后回用户页）。改名与创建用同一套名称规则，服务端校验并记审计。
+- `/node-groups/$nodeGroupId`：页头只保留改名和删除；`Members` 小节的标题右侧是 `Edit members`（打开现有的成员对话框），表格列出节点（整行链接到 `/nodes/$nodeId`）、状态和 hostname；没有成员时表格内显示 `TableEmpty` “No members”。`Access` 小节列出被授权者（名字旁有 User / User group 徽标）、创建时间（`DateTime`）和 outline `xs` + `XIcon` 的 `Remove`（确认后移除），`Add access` 是标题右侧的 outline 小按钮；它的对话框没有 Type 下拉，而是一个 `directory` 选择器同时列出用户和用户组（带类型徽标），选中项的 kind 决定 grantee 类型。没有授权时表格内显示 `TableEmpty` “No access grants”。
 - `/users` 页下方的用户组区域是只读 `DataTable`（名称、成员数、创建时间），行链接到用户组详情；`New user group` 是这一区域的页头式主操作（默认尺寸 + `PlusIcon`），点击后在对话框里填名称。成员编辑、改名和删除都只在详情页。
 
 ### 会话界面
@@ -421,6 +422,18 @@ web/src/
 - `PATCH /api/user-groups/:id` 的 `{ name }` 按创建时的规则校验并写审计。
 - `GET /api/tasks` 新增 `userId`：按 `on_behalf_of_user_id`（“By”列显示的用户）筛选，先应用原有的可见性规则；`GET /api/sessions` 新增 `ownerId`，管理员配合 `scope=all` 使用，其他 scope 下只会进一步收窄本人可见的列表。
 
+**实体搜索（EntityPicker 的数据接口）：**
+
+`GET /api/users`（管理员）、`GET /api/user-groups`（管理员）、`GET /api/nodes`、`GET /api/node-groups`（可见性规则不变）和 `GET /api/directory`（任何登录用户）接受可选参数：
+
+- `q`：不区分大小写的子串匹配。用户匹配 username 或 displayName；用户组、节点组匹配名称；节点匹配名称或 hostname。`%`、`_`、`\` 按字面量匹配。前缀匹配排在其它匹配之前，然后按名称（不区分大小写）排序。
+- `limit`：1..100 的整数。给出时响应带布尔字段 `more`，表示匹配项是否多于 `limit`；不带 `limit` 时不返回 `more`。
+- `ids`：逗号分隔的 id，最多 100 个。只返回存在且对调用者可见的项，供 EntityPicker 显示已选值；不能和 `q`、`limit` 同时使用。
+- 三个参数都不给时，接口返回与加入搜索前完全相同的结果与顺序（列表页不受影响）。
+- `limit` 不是 1..100 的整数、`ids` 为空或超过 100 个、`ids` 与 `q`/`limit` 组合时返回 400。
+
+响应形状：`GET /api/users` 为 `{ users, more? }`，`GET /api/user-groups` 为 `{ groups, more? }`，`GET /api/nodes` 为 `{ nodes, more? }`，`GET /api/node-groups` 为 `{ groups, more? }`，`GET /api/directory` 为 `{ users, userGroups, more? }`。目录接口的 `limit` 分别作用于两个列表，任一列表被截断时 `more` 为 true。
+
 ### 链接
 
 服务端生成的 WebUI 链接一律改为路径形式（`/approvals/tasks/:id` 等）。
@@ -491,7 +504,8 @@ web/src/
   - StatusText / StatusDot：节点、任务、任务组、会话、授权、计划任务运行、API token、用户和模型提供商的状态，配色和翻译统一；StatusText 是彩色纯文本，StatusDot 只用于会话侧边列表；
   - RelativeTime / DateTime：基于 `Intl`；列表用相对时间，绝对时间统一到秒；
   - CopyButton、CodeText（等宽、可折叠的长输出）。
-- **表单**：基于 react-hook-form + zod 的 Form 字段封装；以及 ModelSelect、RulePresetSelect、NodePicker（单选和多选）、TaskFormFields（exec / file.read / file.write / file.list，同时用于 RunPanel、Batch 和规则测试）。
+- **表单**：基于 react-hook-form + zod 的 Form 字段封装；以及 ModelSelect、RulePresetSelect、EntityPicker、TaskFormFields（exec / file.read / file.write / file.list，同时用于 RunPanel、Batch 和规则测试）。
+- **实体选择器（EntityPicker）**：`web/src/components/entity-picker/` 里唯一的用户 / 用户组 / 节点 / 节点组选择控件，触发器外观与 Select 一致，弹出层带自动聚焦的搜索框。`kind` 取 `user`、`userGroup`、`node`、`nodeGroup`、`directory`（用户和用户组混排）或 `nodeTarget`（节点和节点组混排）；两个混排 kind 的每一行都带类型徽标，`nodeTarget` 同时请求 `/api/nodes` 和 `/api/node-groups` 并合并结果，已选值也分别用两边的 `ids=` 解析。支持单选（`value: string | null`）和多选（`value: string[]`，选中项以 `Badge variant="secondary"` + X 图标显示在触发器下方，列表保持打开）。搜索输入去抖 200 ms，固定请求 `limit=50`，用响应里的 `more` 显示“继续输入以缩小范围”。已选值通过 `ids=` 单独取名称并按 id 列表缓存，所以不在当前搜索结果里的已选值仍显示名称；`exclude` 用于隐藏已有成员或已有授权的目标，`includeDisabled={false}` 让需要保持旧规则的调用方（批量目标）只列出 active 的用户或节点。键盘支持 Up/Down/Home/End/Enter/Escape，combobox/listbox 的 ARIA 角色由 Base UI 的 Combobox 提供。因为它服务于权限、用户组、节点组、批量和分享等所有选择场景，页面不再为选择器下载完整列表；50 条的结果上限也意味着不需要虚拟列表。
 - **任务**：TaskResult（输出、退出码、截断提示；输出只有一个流，D114，`notice` 在输出上方单独显示）、TaskSummary 行。状态 `exited` 统一显示“已结束”，非 exec 任务成功在 Outcome 里显示“成功”，exec 任务显示退出码。这些同时用在任务页、批量、审批和会话的工具卡片里。
 - **决策卡片**：ApprovalCard（批准 / 拒绝，带规则说明）、AuthorizationCard（签名 payload、复制 `crha grant` 命令、Passkey 签名）、QuotaCard（加额度 / 停止）。这些同时用在会话、审批页、任务页和任务组页。
 - **对话框**：ConfirmDialog（危险操作二次确认）、FormDialog，以及 DialogScrollArea（统一的可滚动正文：给焦点环留边距，并用 `scrollbar-gutter` 和右侧内边距避免滚动条压住内容）。

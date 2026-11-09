@@ -1,11 +1,11 @@
 import type { GranteeType } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { type ReactNode, useId, useMemo, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
+import { type EntityOption, EntityPicker } from "@/components/entity-picker";
 import { FieldShell } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useDirectory } from "@/features/users/api";
 
 export interface ShareDraft<A extends string> {
 	granteeType: GranteeType;
@@ -52,7 +52,6 @@ function ShareField({
 export function ShareEditor<A extends string>({
 	accessOptions,
 	defaultAccess,
-	userGroupLabel,
 	layout = "stacked",
 	onAdd,
 	busy = false,
@@ -60,8 +59,6 @@ export function ShareEditor<A extends string>({
 	accessOptions: readonly { value: A; label: ReactNode }[];
 	/** Access the editor starts on, usually "view". */
 	defaultAccess: A;
-	/** How this page names a user group: "User group" on both a node and a session. */
-	userGroupLabel: ReactNode;
 	layout?: "inline" | "stacked";
 	/** Submits the draft; true clears the chosen grantee (the add succeeded). */
 	onAdd: (draft: ShareDraft<A>) => Promise<boolean>;
@@ -69,62 +66,29 @@ export function ShareEditor<A extends string>({
 }) {
 	const { t } = useLingui();
 	const prefix = useId();
-	const directory = useDirectory();
 	const [granteeType, setGranteeType] = useState<GranteeType>("user");
 	const [granteeId, setGranteeId] = useState("");
 	const [access, setAccess] = useState<A>(defaultAccess);
 
-	const grantees = useMemo(
-		() =>
-			granteeType === "user"
-				? (directory.data?.users ?? []).map((user) => ({ id: user.id, label: user.displayName || user.username }))
-				: (directory.data?.userGroups ?? []).map((group) => ({ id: group.id, label: group.name })),
-		[directory.data, granteeType],
-	);
+	// The directory picker holds both kinds; the selected option says which one the share names.
+	const chooseGrantee = (id: string | null, option: EntityOption | null) => {
+		setGranteeId(id ?? "");
+		if (option !== null) setGranteeType(option.kind === "userGroup" ? "user_group" : "user");
+	};
 
 	const add = async () => {
 		if (granteeId === "") return;
 		if (await onAdd({ granteeType, granteeId, access })) setGranteeId("");
 	};
 
-	const typeSelect = (
-		<Select
-			value={granteeType}
-			onValueChange={(next) => {
-				if (next !== "user" && next !== "user_group") return;
-				setGranteeType(next);
-				setGranteeId("");
-			}}
-		>
-			<SelectTrigger id={`${prefix}-type`} className={layout === "inline" ? "w-36" : "w-full"}>
-				<SelectValue>
-					{(current: string | null) => (current === "user_group" ? userGroupLabel : <Trans>User</Trans>)}
-				</SelectValue>
-			</SelectTrigger>
-			<SelectContent>
-				<SelectItem value="user">
-					<Trans>User</Trans>
-				</SelectItem>
-				<SelectItem value="user_group">{userGroupLabel}</SelectItem>
-			</SelectContent>
-		</Select>
-	);
-
 	const granteeSelect = (
-		<Select value={granteeId === "" ? null : granteeId} onValueChange={(next) => setGranteeId(String(next ?? ""))}>
-			<SelectTrigger id={`${prefix}-grantee`} className={layout === "inline" ? "w-56" : "w-full"}>
-				<SelectValue placeholder={t`Select…`}>
-					{(current: string | null) => grantees.find((option) => option.id === current)?.label ?? t`Select…`}
-				</SelectValue>
-			</SelectTrigger>
-			<SelectContent>
-				{grantees.map((option) => (
-					<SelectItem key={option.id} value={option.id}>
-						{option.label}
-					</SelectItem>
-				))}
-			</SelectContent>
-		</Select>
+		<EntityPicker
+			kind="directory"
+			label={t`Grantee`}
+			value={granteeId === "" ? null : granteeId}
+			onChange={chooseGrantee}
+			className={layout === "inline" ? "w-56" : "w-full"}
+		/>
 	);
 
 	const accessSelect = (
@@ -159,9 +123,6 @@ export function ShareEditor<A extends string>({
 					void add();
 				}}
 			>
-				<ShareField layout="inline" id={`${prefix}-type`} label={t`Type`}>
-					{typeSelect}
-				</ShareField>
 				<ShareField layout="inline" id={`${prefix}-grantee`} label={t`Grantee`} className="min-w-48">
 					{granteeSelect}
 				</ShareField>
@@ -177,16 +138,11 @@ export function ShareEditor<A extends string>({
 
 	return (
 		<div className="grid gap-2 rounded-md border p-3">
-			<div className="grid grid-cols-2 gap-2">
-				<ShareField layout="stacked" id={`${prefix}-type`} label={t`Type`}>
-					{typeSelect}
-				</ShareField>
-				<ShareField layout="stacked" id={`${prefix}-access`} label={t`Access`}>
-					{accessSelect}
-				</ShareField>
-			</div>
 			<ShareField layout="stacked" id={`${prefix}-grantee`} label={t`Grantee`}>
 				{granteeSelect}
+			</ShareField>
+			<ShareField layout="stacked" id={`${prefix}-access`} label={t`Access`}>
+				{accessSelect}
 			</ShareField>
 			<Button type="button" size="sm" disabled={granteeId === "" || busy} onClick={() => void add()}>
 				<Trans>Add share</Trans>

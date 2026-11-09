@@ -45,8 +45,8 @@ test("admin grants node access; removing it hides the node again", async ({ admi
 	const group = page.getByTestId("user-group-members");
 	await group.getByRole("button", { name: "Add member" }).click();
 	const addMember = page.getByRole("dialog", { name: "Add member" });
-	await addMember.getByLabel("User").click();
-	await page.getByRole("option", { name: MEMBER.username }).click();
+	await addMember.getByRole("combobox", { name: "User" }).click();
+	await page.getByRole("option", { name: /Mallory M/ }).click();
 	await addMember.getByRole("button", { name: "Add", exact: true }).click();
 	await addedMemberShowsUp(page, "Mallory M");
 
@@ -67,15 +67,18 @@ test("admin grants node access; removing it hides the node again", async ({ admi
 		const access = page.getByTestId("node-access");
 		await access.getByTestId("add-access").click();
 		const add = page.getByTestId("add-access-dialog");
-		await add.getByLabel("User").click();
-		await page.getByRole("option", { name: MEMBER.username }).click();
+		await add.getByRole("combobox", { name: "User or user group" }).click();
+		await page.getByRole("option", { name: /Mallory M/ }).click();
 		await add.getByRole("button", { name: "Add access" }).click();
 		await expect(access.getByRole("table", { name: `Access grants for ${nodeName}` })).toContainText(MEMBER.username);
 
 		// The grant shows on the user's detail page, not in a users list row.
 		await page.goto("/users");
 		await page.getByRole("link", { name: MEMBER.username }).click();
-		await expect(page.getByTestId("grantee-node-access")).toContainText(nodeName);
+		const grants = page.getByTestId("grantee-node-access");
+		await expect(grants).toContainText(nodeName);
+		// The target says whether it is a node or a node group beside its link.
+		await expect(grants.getByText("Node", { exact: true })).toBeVisible();
 
 		// Member sees the node and may run tasks; the access section itself stays admin-only.
 		// The node list polls, so the new grant shows up without a refresh.
@@ -92,7 +95,9 @@ test("admin grants node access; removing it hides the node again", async ({ admi
 
 		// Removing the grant hides the node again (404 when accessed by id).
 		await page.goto(`/nodes/${nodeId}`);
-		await page.getByRole("button", { name: `Remove access for ${MEMBER.username}` }).click();
+		const removeGrant = page.getByRole("button", { name: `Remove access for ${MEMBER.username}` });
+		await expect(removeGrant).toContainText("Remove");
+		await removeGrant.click();
 		await page.getByRole("dialog").getByRole("button", { name: "Remove access" }).click();
 		await expect(page.getByText("No access grants")).toBeVisible();
 		const denied = await mp.request.post(`/api/nodes/${nodeId}/tasks`, { data: { kind: "exec", shell: "true" } });
@@ -115,8 +120,8 @@ test("a grant to a user group gives its members access", async ({ adminPage: pag
 	const group = page.getByTestId("user-group-members");
 	await group.getByRole("button", { name: "Add member" }).click();
 	const addMember = page.getByRole("dialog", { name: "Add member" });
-	await addMember.getByLabel("User").click();
-	await page.getByRole("option", { name: MEMBER.username }).click();
+	await addMember.getByRole("combobox", { name: "User" }).click();
+	await page.getByRole("option", { name: new RegExp(MEMBER.username) }).click();
 	await addMember.getByRole("button", { name: "Add", exact: true }).click();
 	await addedMemberShowsUp(page, MEMBER.username);
 
@@ -124,10 +129,9 @@ test("a grant to a user group gives its members access", async ({ adminPage: pag
 	const access = page.getByTestId("node-access");
 	await access.getByTestId("add-access").click();
 	const add = page.getByTestId("add-access-dialog");
-	await add.getByLabel("Type").click();
-	await page.getByRole("option", { name: "User group", exact: true }).click();
-	await add.getByLabel("User group").click();
-	await page.getByRole("option", { name: "ops" }).click();
+	// One picker supplies the grantee type: picking a user group is the type choice.
+	await add.getByRole("combobox", { name: "User or user group" }).click();
+	await page.getByRole("option", { name: /ops/ }).click();
 	await add.getByRole("button", { name: "Add access" }).click();
 	await expect(access.getByRole("table")).toContainText("ops");
 
