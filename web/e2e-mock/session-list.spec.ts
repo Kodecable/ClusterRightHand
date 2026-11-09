@@ -37,16 +37,26 @@ test("the session list pages by cursor, searches and moves a streamed upsert to 
 		.poll(() => api.state.requests.some((request) => request.url.includes("cursor=20")), { timeout: 10_000 })
 		.toBe(true);
 
-	// Server-side search is debounced.
-	await page.getByTestId("session-search").fill("postgres");
+	// Ctrl+K opens the search dialog; it debounces one server request for the typed keywords.
+	await page.keyboard.press("Control+k");
+	const dialog = page.getByTestId("session-search-dialog");
+	await expect(dialog).toBeVisible();
+	await dialog.getByTestId("session-search-input").fill("postgres");
 	await expect
-		.poll(() => api.state.requests.some((request) => request.url.includes("q=postgres")), { timeout: 10_000 })
+		.poll(
+			() =>
+				api.state.requests.some(
+					(request) => request.url.startsWith("/api/sessions/search?") && request.url.includes("q=postgres"),
+				),
+			{ timeout: 10_000 },
+		)
 		.toBe(true);
-	await expect(page.locator('[data-session-id="s-5"]')).toBeVisible();
+	await expect(dialog).toContainText("postgres failover check");
+	await page.keyboard.press("Escape");
+	await expect(dialog).toHaveCount(0);
+	await expect(page.locator('[data-session-id="s-1"]')).toBeVisible();
 
 	// A stream upsert with the new state fields moves the row to the top.
-	await page.getByTestId("session-search").fill("");
-	await expect(page.locator('[data-session-id="s-1"]')).toBeVisible();
 	await api.emit(
 		"/api/sessions/stream",
 		"upsert",

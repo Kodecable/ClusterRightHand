@@ -173,8 +173,8 @@ web/src/
 
 **侧边列表：**
 - 进入 Sessions 路由后出现第二栏，用 virtua 虚拟滚动，按游标无限加载。`/sessions` 索引路由渲染新建会话的草稿页，不再有“未选择会话”的空状态：`lg` 及以上时列表和草稿并排显示；窄于 `lg` 时导航侧边栏、列表和会话放不下三栏，只显示其中一栏，`/sessions` 显示列表，草稿页（`/sessions/new`）和会话页占满主区域，两者的返回按钮都回到 `/sessions`（窄屏即列表）。
-- 列的最上面是搜索框，紧接一个与搜索框同宽的“新建会话”按钮，下面直接是分组列表。“新建会话”不弹窗，只跳到草稿页 `/sessions/new`（D117，见下文“新建会话”），不调用后端。列里没有横向分隔线，只有列与会话区之间的竖线。
-- 搜索框带防抖，在服务端搜索。
+- 列的最上面是一个外观与搜索框相同的按钮（放大镜 + “搜索会话…” + `⌘K` / `Ctrl K` 提示），点击它或按快捷键打开会话搜索对话框；紧接一个与它同宽的“新建会话”按钮，下面直接是分组列表。“新建会话”不弹窗，只跳到草稿页 `/sessions/new`（D117，见下文“新建会话”），不调用后端。列里没有横向分隔线，只有列与会话区之间的竖线。
+- 列表本身不再按标题过滤，也没有筛选输入框；搜索全部在对话框里完成。
 - 每一项只有标题，一行，超出省略；标题为空时显示 `New Session` / `新会话`（翻译串，不写进库）；不显示所有者和相对时间。由计划任务创建的会话和别人共享给你的会话，在同一行最右侧显示灰色的"计划" / "共享"徽章（共享徽章的 tooltip 写明所有者）；会话页页头的标题右侧显示同样的徽章。等待类型放在整行的 tooltip 里。行首的固定槽位按优先级只显示一个指示：`running` 是 12px 的旋转 `LoaderCircle`（muted 色，无障碍名 "Running"）；`awaiting` 是原来的琥珀色状态点；`idle` 且未读是蓝色状态点（"Unread" / "未读"）；其余为空。槽位始终保留（12px），标题因此对齐。未读只对所有者计算：根会话的 `reply_at` 晚于 `owner_read_at`（或后者为空）即为未读；共享给别人的会话永远不是未读。
 - 按 `updatedAt` 分组（列表本来就按它排序）：`今天`、`昨天`、`7 天内`、`30 天内`，更早的按本地时区的月份分组（`2026-09`）。分组标题是虚拟列表里与条目交错的普通行，所以分页加载和 SSE 打补丁后重新分组即可；键盘上下键只在条目之间移动，跳过标题。
 - 不再显示"共 N 个会话"。
@@ -182,6 +182,15 @@ web/src/
 - 列表只显示调用者能看到的根会话：自己拥有的，加上共享给自己的（`scope=visible`）。共享的会话仍带灰色的“共享”徽章。
 - 不再有范围切换。管理员也没有“全部”视图：管理员看到的同样是自己的加共享的会话。
 - 列表变化由 SSE 推送（见后端部分）。
+
+**会话搜索对话框：**
+- 列表顶部的按钮或 `Ctrl+K` / `⌘K` 打开（每个已登录页面都可用，在输入框里也生效，并阻止浏览器自己的快捷键）；对话框较宽（`sm:max-w-2xl`），顶部输入框自动聚焦，结果区自己滚动。
+- 输入去抖 250 ms，调用 `GET /api/sessions/search?q=&scope=&cursor=&limit=`；`scope` 与会话列表相同（`visible`），关键词按空白切分。结果用游标无限加载，滚到结果底部时取下一页。
+- 每个根会话一组：标题（`titleMatch` 时高亮关键词）、所有者、相对更新时间和状态文本；下面最多 3 条命中：角色（`You` / `Assistant`，子会话命中加 “Subagent: <标题>”（中文“子会话：<标题>”））、相对时间、命中片段（每个关键词都用低调的 `<mark>` 高亮）。`hitCount` 大于显示的命中数时有一行灰字 “N more matches”，点击只打开该会话，不再请求。
+- `contentSearch` 为 `false`（SQLite）时界面不做额外提示，结果只按标题匹配。
+- 状态：未输入时提示 “Type keywords separated by spaces”；加载时显示转圈；没有结果、请求出错（`ErrorText`）各有提示。
+- ↑/↓ 在会话标题行和命中行之间移动，Enter 打开，Esc 关闭；鼠标点击同样有效。listbox / option 角色与 `aria-activedescendant` 提供可访问性。
+- 打开会话标题行（或 “N more matches”）→ `/sessions/$sessionId`；打开命中行 → `/sessions/$hitSessionId?entry=<entryId>`，随后关闭对话框。
 
 **消息视图：**
 - 用 virtua 虚拟滚动，`shift` 处理向上插入的历史。
@@ -191,6 +200,7 @@ web/src/
   - 用户向上滚动后，立即停止跟随，并出现圆形的“跳到最新”图标按钮；按钮背景与会话主体同为 `--background`，靠边框与内容区分。
 - 最终正文开始流式输出时，过程（thinking、工具调用、中间正文）就折到最终输出上方的一行 `已完成，用时 …` 里：这一行带下边框，chevron 紧跟在文字右侧，默认收起，只保留用户输入和最终输出；用时在正文输出期间每秒增长，正文结束后固定。点击展开后按原顺序显示全部过程。还没开始输出最终正文的最后一轮保持展开，含错误的一轮也不折叠。
 - 用时由 entry 的 `timestamp` / `durationMs` 计算：流式期间从用户消息的 `timestamp` 算到当前时间，正文结束后用最终 assistant 的 `timestamp + durationMs` 固定；没有这些字段的旧数据不折叠。
+- 支持 `?entry=<entryId>`（会话搜索的命中行带来）：条目已经在快照或已加载的历史里时，滚动到它的第一条渲染行（居中）并短暂高亮约 2 秒；否则继续按历史分页加载更旧的页（最多 20 页），找到后同样定位。找不到时用 toast 提示 “Couldn't find that message in this session.”。处理完（找到或放弃）用 replace 去掉 `entry` 参数，刷新不会再次跳转。每个 transcript 行带 `data-entry-id`（助手条目的每个块共享同一条目 id），供滚动定位。
 - POC 中的 6 项行为都必须有 e2e 测试。
 
 **会话页头：**
@@ -335,6 +345,20 @@ web/src/
   - `scope` 与列表相同；省略时保持原行为（管理员收到全部根会话），WebUI 用 `scope=visible`，管理员也只收到自己拥有和共享的会话；
   - 连接建立时不发全量数据；
   - 断线重连后，客户端重新拉取第一页。
+
+### 会话内容搜索
+
+- `GET /api/sessions/search?q=&scope=&cursor=&limit=`：按用户消息和助手回复的纯文本搜索根会话。
+  - `q` 必需，按空白切成最多 8 个关键词（忽略空段）；每个关键词都要命中（AND），子串匹配、大小写不敏感（两边都对 `lower()` 后的文本和模式比较，SQLite 的 `lower()` 只折叠 ASCII，与会话列表的标题搜索一致）。`%`、`_`、`\` 按字面匹配。没有关键词时返回 400。
+  - `scope`、可见性和游标与 `GET /api/sessions` 相同（`mine` / `shared` / `visible` / `all`，默认 `mine`；`all` 仅管理员）。根会话命中条件：每个关键词都出现在它的标题，**或**出现在它整棵树（根 + 子会话）任意一条 `pi.user` / `pi.assistant` 记录的 `search_text` 里。只有用户消息的文本和助手的 `text` 块参与搜索；thinking、toolCall、toolResult、system、compaction 不算。
+  - 排序 `updated_at desc, id desc`，`limit` 为 1..50（默认 20）。
+  - 响应 `{ items, nextCursor, contentSearch }`：
+    - `items` 是 `SessionListItem` 加 `titleMatch`、`hitCount`、`hits`；
+    - `titleMatch`：每个关键词都在标题里；
+    - `hitCount`：整棵树里至少包含一个关键词的条目数；
+    - `hits`：最多 3 条命中条目，先按命中关键词数降序、再按条目 id 从新到旧；每条 `{ entryId, sessionId, sessionTitle, role, at, snippet }`。`entryId` 与 `GET /api/sessions/:id/entries` 的 `EntryRecord.id` 同形（数字）；`sessionId` / `sessionTitle` 是条目所属会话（可能是子会话）；`role` 是 `user` 或 `assistant`；`at` 是条目第一条模型消息的 timestamp（ISO 8601，没有则 `null`）；`snippet` 约 120 字符，围绕该条目中第一个出现的关键词（按 `q` 的关键词顺序），空白折叠，两端被截断时加 `…`；
+    - `contentSearch`：PostgreSQL 为 `true`；SQLite 不搜索消息内容，只搜标题，此时为 `false`，且 `hits` 为 `[]`、`hitCount` 为 0。
+- PostgreSQL 的生成列和大小影响见 [data-model.md](data-model.md#会话内容搜索)；SQLite 只做标题匹配。以后内容搜索变慢时先评估 `pg_trgm` 的 GIN 索引，再考虑 FTS。
 
 ### 会话事件流和历史
 

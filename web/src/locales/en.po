@@ -59,6 +59,11 @@ msgstr "{0, plural, one {# byte} other {# bytes}}"
 msgid "{0, plural, one {# member} other {# members}}"
 msgstr "{0, plural, one {# member} other {# members}}"
 
+#. placeholder {0}: row.hidden
+#: src/features/sessions/session-search-dialog.tsx
+msgid "{0, plural, one {# more match} other {# more matches}}"
+msgstr "{0, plural, one {# more match} other {# more matches}}"
+
 #. placeholder {0}: selectedOptions.length
 #: src/components/entity-picker/entity-picker.tsx
 msgid "{0, plural, one {# selected} other {# selected}}"
@@ -693,6 +698,10 @@ msgstr "Ask: ordinary reads run, everything else (including every privileged tas
 msgid "Asked by"
 msgstr "Asked by"
 
+#: src/features/sessions/session-search-dialog.tsx
+msgid "Assistant"
+msgstr "Assistant"
+
 #: src/features/auth/change-password-dialog.tsx
 #: src/features/users/reset-password-dialog.tsx
 msgid "At least 8 characters."
@@ -764,6 +773,7 @@ msgid "Average time to first token: {0}"
 msgstr "Average time to first token: {0}"
 
 #: src/components/status-badge.tsx
+#: src/features/sessions/session-search-dialog.tsx
 msgid "Awaiting"
 msgstr "Awaiting"
 
@@ -1192,6 +1202,10 @@ msgstr "cosignature available"
 #: src/components/task-result.tsx
 msgid "cosignature unavailable"
 msgstr "cosignature unavailable"
+
+#: src/features/sessions/pages.tsx
+msgid "Couldn't find that message in this session."
+msgstr "Couldn't find that message in this session."
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Create"
@@ -1827,6 +1841,7 @@ msgid "Id"
 msgstr "Id"
 
 #: src/components/status-badge.tsx
+#: src/features/sessions/session-search-dialog.tsx
 msgid "Idle"
 msgstr "Idle"
 
@@ -2009,6 +2024,10 @@ msgstr "List at least one model."
 #: src/features/sessions/children-bar.tsx
 msgid "Load more"
 msgstr "Load more"
+
+#: src/features/sessions/session-search-dialog.tsx
+msgid "Loading more"
+msgstr "Loading more"
 
 #: src/features/sessions/session-list.tsx
 msgid "Loading more sessions…"
@@ -2245,6 +2264,7 @@ msgstr "New session"
 #: src/features/sessions/children-bar.tsx
 #: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list-item.tsx
+#: src/features/sessions/session-search-dialog.tsx
 #: src/features/users/pages.tsx
 msgid "New Session"
 msgstr "New Session"
@@ -2327,6 +2347,10 @@ msgstr "No events"
 msgid "No matches"
 msgstr "No matches"
 
+#: src/features/sessions/session-search-dialog.tsx
+msgid "No matching sessions"
+msgstr "No matching sessions"
+
 #: src/features/node-groups/pages.tsx
 #: src/features/users/user-group-page.tsx
 msgid "No members"
@@ -2408,10 +2432,6 @@ msgstr "No runs yet"
 #: src/features/schedules/pages.tsx
 msgid "No schedules yet"
 msgstr "No schedules yet"
-
-#: src/features/sessions/session-list.tsx
-msgid "No session matches"
-msgstr "No session matches"
 
 #: src/features/sessions/session-list.tsx
 #: src/features/users/pages.tsx
@@ -3249,6 +3269,7 @@ msgstr "running"
 
 #: src/components/status-badge.tsx
 #: src/features/sessions/session-list-item.tsx
+#: src/features/sessions/session-search-dialog.tsx
 #: src/features/sessions/tool-card.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Running"
@@ -3338,9 +3359,19 @@ msgstr "Search nodes and node groups…"
 msgid "Search nodes…"
 msgstr "Search nodes…"
 
+#: src/features/sessions/session-search-dialog.tsx
+msgid "Search results"
+msgstr "Search results"
+
 #: src/features/sessions/session-list.tsx
+#: src/features/sessions/session-search-dialog.tsx
 msgid "Search sessions"
 msgstr "Search sessions"
+
+#: src/features/sessions/session-list.tsx
+#: src/features/sessions/session-search-dialog.tsx
+msgid "Search sessions…"
+msgstr "Search sessions…"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Search user groups…"
@@ -3353,6 +3384,10 @@ msgstr "Search users and groups…"
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Search users…"
 msgstr "Search users…"
+
+#: src/features/sessions/session-search-dialog.tsx
+msgid "Searching"
+msgstr "Searching"
 
 #: src/features/auth/api.ts
 msgid "Security verification failed. Try again."
@@ -3628,9 +3663,15 @@ msgstr "Stop task"
 msgid "stopped by the next run"
 msgstr "stopped by the next run"
 
+#: src/features/sessions/session-search-dialog.tsx
 #: src/features/tasks/pages.tsx
 msgid "Subagent"
 msgstr "Subagent"
+
+#. placeholder {0}: row.hit.sessionTitle
+#: src/features/sessions/session-search-dialog.tsx
+msgid "Subagent: {0}"
+msgstr "Subagent: {0}"
 
 #: src/features/sessions/children-bar.tsx
 msgid "Subagents"
@@ -4101,10 +4142,6 @@ msgstr "Trust snippet"
 msgid "Trust warnings"
 msgstr "Trust warnings"
 
-#: src/features/sessions/session-list.tsx
-msgid "Try a different search."
-msgstr "Try a different search."
-
 #: src/components/error-state.tsx
 msgid "Try again"
 msgstr "Try again"
@@ -4112,6 +4149,10 @@ msgstr "Try again"
 #: src/components/task-result.tsx
 msgid "Type"
 msgstr "Type"
+
+#: src/features/sessions/session-search-dialog.tsx
+msgid "Type keywords separated by spaces"
+msgstr "Type keywords separated by spaces"
 
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "unknown"
@@ -4325,6 +4366,10 @@ msgstr "Yolo lets this token run anything on your nodes without asking."
 #: src/features/tokens/rule-preset-help.tsx
 msgid "Yolo: everything runs without asking."
 msgstr "Yolo: everything runs without asking."
+
+#: src/features/sessions/session-search-dialog.tsx
+msgid "You"
+msgstr "You"
 
 #: src/features/users/kind-select.tsx
 msgid "You cannot change your own kind."

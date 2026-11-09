@@ -176,25 +176,31 @@ export function TranscriptRow({
 	item,
 	streams,
 	sessionActive,
+	highlighted = false,
 }: {
 	item: TranscriptItem;
 	streams: TranscriptStreams;
 	/** Whether the session is running or awaiting: an unreturned call stops waiting once it is idle. */
 	sessionActive: boolean;
+	/** Briefly marked after a search hit jumped to this entry (doc/webui.md "跳到消息"). */
+	highlighted?: boolean;
 }) {
 	const { t } = useLingui();
 	return (
 		<article
 			data-testid="message"
 			data-message-id={item.key}
+			data-entry-id={item.entryId}
+			data-highlighted={highlighted ? "true" : undefined}
 			data-kind={item.kind}
 			className={cn(
-				"px-3 pb-2.5",
+				"px-3 pb-2.5 transition-colors duration-700",
 				(item.kind === "tool" ||
 					item.kind === "thinking" ||
 					item.kind === "compaction" ||
 					item.kind === "compacting") &&
 					"pb-1",
+				highlighted && "rounded-md bg-yellow-200/40 ring-2 ring-yellow-400/70 dark:bg-yellow-500/20",
 			)}
 		>
 			{item.kind === "user" && (

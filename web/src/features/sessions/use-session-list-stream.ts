@@ -13,7 +13,7 @@ import {
 import { publishSessionListUpsert } from "./list-stream-bus";
 
 export interface SessionStreamOptions {
-	/** Current user id and admin flag: the filter needs them to patch `scope`/`q` lists. */
+	/** Current user id and admin flag: the filter needs them to patch `scope` lists. */
 	viewer: { id: string; isAdmin: boolean };
 	enabled?: boolean;
 }

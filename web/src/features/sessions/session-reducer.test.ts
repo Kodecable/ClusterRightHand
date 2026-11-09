@@ -89,8 +89,8 @@ test("user message, streamed text and the committed entry", () => {
 	// The committed message keeps the render key of the streamed row, so the
 	// Markdown tree is not remounted when `message_end` arrives.
 	expect(transcript(s)).toEqual([
-		{ kind: "user", key: "1", text: "hi" },
-		{ kind: "text", key: "live/1/0", text: "Hello", streaming: false, live: true },
+		{ kind: "user", key: "1", entryId: "1", text: "hi" },
+		{ kind: "text", key: "live/1/0", entryId: "2", text: "Hello", streaming: false, live: true },
 	]);
 });
 
@@ -120,7 +120,7 @@ test("a snapshot does not claim live rows", () => {
 			},
 		},
 	]);
-	expect(transcript(s)).toEqual([{ kind: "text", key: "2/0", text: "hello", streaming: false }]);
+	expect(transcript(s)).toEqual([{ kind: "text", key: "2/0", entryId: "2", text: "hello", streaming: false }]);
 });
 
 test("thinking streams into its own item", () => {
@@ -286,7 +286,7 @@ test("nested tool events are ignored; errors and aborts show", () => {
 	]);
 	expect(s.tools).toEqual({});
 	s = reduceAll(s, [{ type: "message_end", entry: assistantEntry("1", [], "aborted") }]);
-	expect(transcript(s)).toEqual([{ kind: "error", key: "1/stop", reason: "aborted", message: null }]);
+	expect(transcript(s)).toEqual([{ kind: "error", key: "1/stop", entryId: "1", reason: "aborted", message: null }]);
 });
 
 test("retry and failure state", () => {
@@ -510,9 +510,9 @@ describe("history pages", () => {
 			},
 		]);
 		expect(transcript(s)).toEqual([
-			{ kind: "user", key: "1", text: "before" },
-			{ kind: "compaction", key: "2", text: "Summary of the earlier conversation" },
-			{ kind: "text", key: "3/0", text: "after", streaming: false },
+			{ kind: "user", key: "1", entryId: "1", text: "before" },
+			{ kind: "compaction", key: "2", entryId: "2", text: "Summary of the earlier conversation" },
+			{ kind: "text", key: "3/0", entryId: "3", text: "after", streaming: false },
 		]);
 	});
 

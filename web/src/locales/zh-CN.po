@@ -59,6 +59,11 @@ msgstr "{0, plural, one {# 字节} other {# 字节}}"
 msgid "{0, plural, one {# member} other {# members}}"
 msgstr "{0, plural, one {# 名成员} other {# 名成员}}"
 
+#. placeholder {0}: row.hidden
+#: src/features/sessions/session-search-dialog.tsx
+msgid "{0, plural, one {# more match} other {# more matches}}"
+msgstr "{0, plural, one {# 个更多匹配} other {# 个更多匹配}}"
+
 #. placeholder {0}: selectedOptions.length
 #: src/components/entity-picker/entity-picker.tsx
 msgid "{0, plural, one {# selected} other {# selected}}"
@@ -693,6 +698,10 @@ msgstr "Ask：普通读取直接执行，其他操作（包括所有特权任务
 msgid "Asked by"
 msgstr "请求者"
 
+#: src/features/sessions/session-search-dialog.tsx
+msgid "Assistant"
+msgstr "助手"
+
 #: src/features/auth/change-password-dialog.tsx
 #: src/features/users/reset-password-dialog.tsx
 msgid "At least 8 characters."
@@ -764,6 +773,7 @@ msgid "Average time to first token: {0}"
 msgstr "平均首字时间：{0}"
 
 #: src/components/status-badge.tsx
+#: src/features/sessions/session-search-dialog.tsx
 msgid "Awaiting"
 msgstr "等待中"
 
@@ -1192,6 +1202,10 @@ msgstr "可共同签名"
 #: src/components/task-result.tsx
 msgid "cosignature unavailable"
 msgstr "无法共同签名"
+
+#: src/features/sessions/pages.tsx
+msgid "Couldn't find that message in this session."
+msgstr "在当前会话里找不到这条消息。"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Create"
@@ -1827,6 +1841,7 @@ msgid "Id"
 msgstr "ID"
 
 #: src/components/status-badge.tsx
+#: src/features/sessions/session-search-dialog.tsx
 msgid "Idle"
 msgstr "空闲"
 
@@ -2009,6 +2024,10 @@ msgstr "至少列出一个模型。"
 #: src/features/sessions/children-bar.tsx
 msgid "Load more"
 msgstr "加载更多"
+
+#: src/features/sessions/session-search-dialog.tsx
+msgid "Loading more"
+msgstr "正在加载更多"
 
 #: src/features/sessions/session-list.tsx
 msgid "Loading more sessions…"
@@ -2245,6 +2264,7 @@ msgstr "新会话"
 #: src/features/sessions/children-bar.tsx
 #: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list-item.tsx
+#: src/features/sessions/session-search-dialog.tsx
 #: src/features/users/pages.tsx
 msgid "New Session"
 msgstr "新会话"
@@ -2327,6 +2347,10 @@ msgstr "没有事件"
 msgid "No matches"
 msgstr "没有匹配项"
 
+#: src/features/sessions/session-search-dialog.tsx
+msgid "No matching sessions"
+msgstr "没有匹配的会话"
+
 #: src/features/node-groups/pages.tsx
 #: src/features/users/user-group-page.tsx
 msgid "No members"
@@ -2408,10 +2432,6 @@ msgstr "还没有运行记录"
 #: src/features/schedules/pages.tsx
 msgid "No schedules yet"
 msgstr "还没有计划任务"
-
-#: src/features/sessions/session-list.tsx
-msgid "No session matches"
-msgstr "没有匹配的会话"
 
 #: src/features/sessions/session-list.tsx
 #: src/features/users/pages.tsx
@@ -3249,6 +3269,7 @@ msgstr "运行中"
 
 #: src/components/status-badge.tsx
 #: src/features/sessions/session-list-item.tsx
+#: src/features/sessions/session-search-dialog.tsx
 #: src/features/sessions/tool-card.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Running"
@@ -3338,9 +3359,19 @@ msgstr "搜索节点和节点组…"
 msgid "Search nodes…"
 msgstr "搜索节点…"
 
+#: src/features/sessions/session-search-dialog.tsx
+msgid "Search results"
+msgstr "搜索结果"
+
 #: src/features/sessions/session-list.tsx
+#: src/features/sessions/session-search-dialog.tsx
 msgid "Search sessions"
 msgstr "搜索会话"
+
+#: src/features/sessions/session-list.tsx
+#: src/features/sessions/session-search-dialog.tsx
+msgid "Search sessions…"
+msgstr "搜索会话…"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Search user groups…"
@@ -3353,6 +3384,10 @@ msgstr "搜索用户和用户组…"
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Search users…"
 msgstr "搜索用户…"
+
+#: src/features/sessions/session-search-dialog.tsx
+msgid "Searching"
+msgstr "正在搜索"
 
 #: src/features/auth/api.ts
 msgid "Security verification failed. Try again."
@@ -3628,9 +3663,15 @@ msgstr "停止任务"
 msgid "stopped by the next run"
 msgstr "被下一次运行停止"
 
+#: src/features/sessions/session-search-dialog.tsx
 #: src/features/tasks/pages.tsx
 msgid "Subagent"
 msgstr "子会话"
+
+#. placeholder {0}: row.hit.sessionTitle
+#: src/features/sessions/session-search-dialog.tsx
+msgid "Subagent: {0}"
+msgstr "子会话：{0}"
 
 #: src/features/sessions/children-bar.tsx
 msgid "Subagents"
@@ -4101,10 +4142,6 @@ msgstr "信任片段"
 msgid "Trust warnings"
 msgstr "信任警告"
 
-#: src/features/sessions/session-list.tsx
-msgid "Try a different search."
-msgstr "换个搜索词试试。"
-
 #: src/components/error-state.tsx
 msgid "Try again"
 msgstr "重试"
@@ -4112,6 +4149,10 @@ msgstr "重试"
 #: src/components/task-result.tsx
 msgid "Type"
 msgstr "类型"
+
+#: src/features/sessions/session-search-dialog.tsx
+msgid "Type keywords separated by spaces"
+msgstr "输入用空格分隔的关键词"
 
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "unknown"
@@ -4325,6 +4366,10 @@ msgstr "Yolo 允许此令牌在你的节点上不经询问执行任何操作。"
 #: src/features/tokens/rule-preset-help.tsx
 msgid "Yolo: everything runs without asking."
 msgstr "Yolo：所有操作都不经询问直接运行。"
+
+#: src/features/sessions/session-search-dialog.tsx
+msgid "You"
+msgstr "你"
 
 #: src/features/users/kind-select.tsx
 msgid "You cannot change your own kind."

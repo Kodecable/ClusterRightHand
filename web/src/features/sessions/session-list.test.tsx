@@ -14,6 +14,7 @@ import { authStore } from "@/features/auth/session";
 import { LocaleProvider } from "@/lib/i18n";
 import { activateLocale } from "@/test/render";
 import { SessionList } from "./session-list";
+import { closeSessionSearch, SessionSearchDialog } from "./session-search-dialog";
 
 const MODELS: AvailableModel[] = [
 	{
@@ -51,7 +52,12 @@ async function renderList(initialPath: string) {
 	const sessionsRoute = createRoute({
 		getParentRoute: () => rootRoute,
 		path: "/sessions",
-		component: () => <SessionList />,
+		component: () => (
+			<>
+				<SessionList />
+				<SessionSearchDialog />
+			</>
+		),
 	});
 	const draftRoute = createRoute({
 		getParentRoute: () => rootRoute,
@@ -74,8 +80,26 @@ async function renderList(initialPath: string) {
 }
 
 afterEach(() => {
+	closeSessionSearch();
 	authStore.clear();
 	vi.unstubAllGlobals();
+});
+
+describe("session list search", () => {
+	test("has no title filter input; a search-styled button opens the dialog", async () => {
+		await renderList("/sessions");
+		const user = userEvent.setup();
+		// The old list filter (an input that narrowed the list) is gone.
+		expect(screen.queryByTestId("session-search")).toBeNull();
+		expect(screen.queryByRole("searchbox")).toBeNull();
+
+		const button = await screen.findByTestId("session-search-open");
+		expect(button).toHaveTextContent("Search sessions…");
+		expect(button).toHaveTextContent("Ctrl K");
+		await user.click(button);
+		expect(await screen.findByTestId("session-search-dialog")).toBeInTheDocument();
+		await waitFor(() => expect(screen.getByTestId("session-search-input")).toHaveFocus());
+	});
 });
 
 describe("session list new-session button", () => {

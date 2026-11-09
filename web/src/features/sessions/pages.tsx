@@ -1,7 +1,8 @@
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { ErrorState } from "@/components/error-state";
 import { PageSkeleton } from "@/components/skeletons";
 import { approvalKeys } from "@/features/approvals/api";
@@ -25,6 +26,9 @@ import { Transcript } from "./transcript";
 import { transcript } from "./transcript-items";
 import { useSessionEvents } from "./use-session-events";
 
+/** How many older history pages a jump-to-message may load before giving up (doc/webui.md "跳到消息"). */
+const MAX_JUMP_PAGES = 20;
+
 /** The live tool calls whose details say they wait for an approval or a signature. */
 function waitingTools(tools: Record<string, LiveTool>): string {
 	const waiting: string[] = [];
@@ -41,6 +45,9 @@ function waitingTools(tools: Record<string, LiveTool>): string {
 export function SessionPage() {
 	const params = useParams({ strict: false }) as { sessionId?: string };
 	const sessionId = params.sessionId ?? "";
+	const { entry } = useSearch({ strict: false }) as { entry?: number };
+	const { t } = useLingui();
+	const navigate = useNavigate();
 	const session = useSession(sessionId);
 	const rootId = useSessionRootId(session.data);
 	const tree = useSessionTreeSync(sessionId, rootId);
@@ -50,6 +57,13 @@ export function SessionPage() {
 	const [wantsOlder, setWantsOlder] = useState(false);
 	const history = useSessionHistoryPage(sessionId, events.state.historyCursor, wantsOlder);
 	const items = useMemo(() => transcript(events.state), [events.state]);
+	// Jump-to-message (doc/webui.md "跳到消息"): `entry` is the id a search hit pointed at.
+	const [jumpEntry, setJumpEntry] = useState<number | undefined>(undefined);
+	const [jumpPages, setJumpPages] = useState(0);
+	const [focusEntry, setFocusEntry] = useState<string | undefined>(undefined);
+	const clearJumpParam = useCallback(() => {
+		void navigate({ to: "/sessions/$sessionId", params: { sessionId }, search: {}, replace: true });
+	}, [navigate, sessionId]);
 	// A live compaction keeps the session "doing something" even while no run is active (a manual /compact
 	// outlives the run), so Stop must stay available.
 	const compacting = isCompacting(events.state);
@@ -72,10 +86,54 @@ export function SessionPage() {
 		void queryClient.invalidateQueries({ queryKey: approvalKeys.list() });
 	}, [waitSignal, queryClient]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: a new session starts with no pending older-page request
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new session starts with no pending older-page request and no jump
 	useEffect(() => {
 		setWantsOlder(false);
+		setJumpEntry(undefined);
+		setJumpPages(0);
+		setFocusEntry(undefined);
 	}, [sessionId]);
+
+	// A new `?entry=` starts a jump: reset the page budget that the effects below consume.
+	useEffect(() => {
+		if (entry === undefined) return;
+		setJumpEntry(entry);
+		setJumpPages(0);
+	}, [entry]);
+
+	useEffect(() => {
+		if (jumpEntry === undefined) return;
+		const target = String(jumpEntry);
+		// Either the snapshot or a loaded older page carries the entry; mark the first rendered row.
+		if (items.some((item) => item.entryId === target)) {
+			setFocusEntry(target);
+			setJumpEntry(undefined);
+			clearJumpParam();
+			return;
+		}
+		// The initial snapshot decides whether the entry is already loaded; waiting for it avoids a
+		// pointless history request and gives up only on a page that really has no older entries.
+		if (!events.state.ready) return;
+		if (wantsOlder || history.isFetching) return;
+		if (events.state.historyCursor === null || jumpPages >= MAX_JUMP_PAGES) {
+			toast.error(t`Couldn't find that message in this session.`);
+			setJumpEntry(undefined);
+			clearJumpParam();
+			return;
+		}
+		setJumpPages((pages) => pages + 1);
+		setWantsOlder(true);
+	}, [
+		jumpEntry,
+		items,
+		events.state.ready,
+		events.state.historyCursor,
+		wantsOlder,
+		history.isFetching,
+		jumpPages,
+		clearJumpParam,
+		t,
+	]);
 
 	useEffect(() => {
 		if (!history.data) return;
@@ -175,6 +233,7 @@ export function SessionPage() {
 					hasOlder={events.state.historyCursor !== null}
 					loadingOlder={history.isFetching}
 					onLoadOlder={() => setWantsOlder(true)}
+					focusEntry={focusEntry}
 					empty={<Trans>No messages yet. Start the conversation below.</Trans>}
 				/>
 			) : (

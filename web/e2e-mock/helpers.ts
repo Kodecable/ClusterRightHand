@@ -968,6 +968,35 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			return json({ authorization: { id, revokedAt: "2026-01-02T00:00:00.000Z" } });
 		}
 
+		if (path === "/api/sessions/search" && method === "GET") {
+			const scope = url.searchParams.get("scope") ?? "mine";
+			const keywords = (url.searchParams.get("q") ?? "")
+				.toLowerCase()
+				.split(/\s+/)
+				.filter((keyword) => keyword !== "");
+			const start = Number(url.searchParams.get("cursor") ?? "0") || 0;
+			const limit = 20;
+			const visible = state.sessions.filter((item) => {
+				if (scope === "mine" && item.ownerUserId !== state.user.id) return false;
+				if (scope === "shared" && !item.shared) return false;
+				if (scope === "visible" && item.ownerUserId !== state.user.id && !item.shared) return false;
+				const title = (item.title ?? "").toLowerCase();
+				return keywords.every((keyword) => title.includes(keyword));
+			});
+			const items = visible.slice(start, start + limit).map((item) => ({
+				...item,
+				titleMatch: true,
+				hitCount: 0,
+				hits: [],
+			}));
+			return json({
+				items,
+				nextCursor: start + limit < visible.length ? String(start + limit) : null,
+				// The fake server follows SQLite: titles only.
+				contentSearch: false,
+			});
+		}
+
 		if (path === "/api/sessions" && method === "GET") {
 			const scope = url.searchParams.get("scope") ?? "mine";
 			const q = (url.searchParams.get("q") ?? "").toLowerCase();

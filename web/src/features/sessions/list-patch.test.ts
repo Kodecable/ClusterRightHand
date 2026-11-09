@@ -26,7 +26,6 @@ const item = (overrides: Partial<SessionListItem> = {}): SessionListItem => ({
 
 const filter = (overrides: Partial<SessionListFilter> = {}): SessionListFilter => ({
 	scope: "mine",
-	q: "",
 	viewerId: "me",
 	isAdmin: false,
 	...overrides,
@@ -68,26 +67,19 @@ describe("sessionMatchesFilter", () => {
 		expect(sessionMatchesFilter(item(), filter({ scope: "all", isAdmin: true }))).toBe(true);
 	});
 
-	test("q is a case-insensitive substring of the title", () => {
-		expect(sessionMatchesFilter(item(), filter({ q: "deploy" }))).toBe(true);
-		expect(sessionMatchesFilter(item(), filter({ q: "  DEPLOY " }))).toBe(true);
-		expect(sessionMatchesFilter(item(), filter({ q: "network" }))).toBe(false);
-	});
-
-	test("a session with no title yet is listed but never matches a search", () => {
+	test("a session with no title yet is still listed", () => {
 		expect(sessionMatchesFilter(item({ title: null }), filter())).toBe(true);
-		expect(sessionMatchesFilter(item({ title: null }), filter({ q: "deploy" }))).toBe(false);
 	});
 });
 
 describe("sessionListFilter", () => {
 	test("carries the ownerId of a per-user list key", () => {
 		const viewer = { viewerId: "u1", isAdmin: true };
-		expect(sessionListFilter(["sessions", "list", { scope: "all", q: "", ownerId: "u2" }], viewer)).toMatchObject({
+		expect(sessionListFilter(["sessions", "list", { scope: "all", ownerId: "u2" }], viewer)).toMatchObject({
 			scope: "all",
 			ownerId: "u2",
 		});
-		expect(sessionListFilter(["sessions", "list", { scope: "mine", q: "" }], viewer)).not.toHaveProperty("ownerId");
+		expect(sessionListFilter(["sessions", "list", { scope: "mine" }], viewer)).not.toHaveProperty("ownerId");
 	});
 });
 
@@ -205,7 +197,7 @@ describe("upsertSessionListItem", () => {
 
 	test("removes a row that no longer matches the filter", () => {
 		const pages = [page([item({ id: "a" }), item({ id: "b" })])];
-		const next = upsertSessionListItem(pages, item({ id: "a", title: "Unrelated" }), filter({ q: "deploy" }));
+		const next = upsertSessionListItem(pages, item({ id: "a" }), filter({ ownerId: "someone" }));
 		expect(next[0]?.items.map((row) => row.id)).toEqual(["b"]);
 	});
 

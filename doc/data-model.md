@@ -7,11 +7,27 @@
 - 时间统一存 UTC，两种方言都用 ISO 8601 文本（不用 `timestamptz`）。
 - 迁移用 Kysely Migrator，每个迁移对两种方言都要能跑。SQLite 的 DDL 本身是事务性的，但 Kysely 的 `SqliteAdapter` 报告不支持事务性 DDL；`server/src/storage/migrate.ts` 在这个 Kysely 实例的适配器上打开该标志，所以一批待执行的迁移（含迁移记录的写入）在同一个 `BEGIN IMMEDIATE` 事务里运行，中途失败时 schema 和迁移记录都保持原样。迁移里的表重建照常遵守 `PRAGMA foreign_keys = ON`：需要丢父表时先把依赖它的数据读入内存或暂存到没有外键的表（0036 先读出旧的组缓存，0038 暂存并重建 `node_group_members`），没有迁移需要临时关闭外键。PostgreSQL 本来就把整批迁移放在一个事务里，行为不变。
 
-durable 的表由 `SqlStorage` 管理，统一加 `pi_` 前缀，不在本文档中列出。
+durable 的表由 `SqlStorage` 管理，统一加 `pi_` 前缀，不在本文档中列出（唯一的例外是会话内容搜索在 `pi_entries` 上加的生成列，见下节）。
 
 SQLite 只有一个数据库文件，业务表（Kysely）和 durable 的 `pi_` 表是两条连接打开的同一个文件。node:sqlite 是同步的，两条连接不能各自等锁：写锁被别人占着时 busy handler 会阻塞必须提交那个事务的线程，而 WAL 里先读后写的延迟事务会立即得到 `SQLITE_BUSY_SNAPSHOT`（busy handler 不参与）。所以进程内所有语句走同一个队列，事务（Kysely 的以 `BEGIN IMMEDIATE` 开始）占用队列直到提交或回滚。PostgreSQL 不受影响。两条连接都使用 WAL + `synchronous = NORMAL`：进程崩溃不丢已提交的事务；断电或系统崩溃可能丢失最后几个已提交的事务，但数据库不会损坏。需要更强保证时使用 PostgreSQL。
 
 推荐 PostgreSQL ≥ 14。crhs 每次启动检查 `pi_entries.record` 的压缩方式，不是 lz4 时设为 lz4（只影响之后写入的值，超过约 2 KB 的行才会被压缩）；PostgreSQL 低于 14 或编译时未带 lz4 时跳过并告警；已有的行保持原来的压缩方式，不自动重写。SQLite 没有透明压缩，适合调试和小规模安装，不是推荐的部署方式。
+
+## 会话内容搜索
+
+只有 PostgreSQL 支持消息内容搜索（`GET /api/sessions/search`，见 [webui.md](webui.md#会话内容搜索)）；SQLite 只搜标题。pg-durable 的 PostgreSQL 适配器在 schema 版本 2 中增加：
+
+```sql
+CREATE FUNCTION <prefix>entry_search_text(record text) RETURNS text
+  LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$ ... $$;
+ALTER TABLE <prefix>entries ADD COLUMN search_text TEXT
+  GENERATED ALWAYS AS (<prefix>entry_search_text(record)) STORED;
+```
+
+- 默认前缀 `pi_` 时函数是 `pi_entry_search_text`，列是 `pi_entries.search_text`。函数解析 `record::jsonb`，返回按 `\n` 拼接的文本：`pi.user` 条目里 role 为 `user` 的消息（`content` 是字符串时取该字符串，是数组时取 `type = "text"` 的项的 `text`），以及 `pi.assistant` 条目里的 `text` 块。thinking、toolCall、toolResult、system、compaction 都不参与；没有文本时返回 NULL。每一步都先做 `jsonb_typeof` 检查，形状不符合预期（例如 `model` 不是数组、`text` 不是字符串）时得到 NULL，而不是报错。结果截断到 32768 字符，搜索只在这段文本上进行。
+- 记录本身仍以 TEXT 原样保存，这里只是在生成列里解析；不回写也不改变 `record`。生成列随 INSERT 自动计算，适配器的 INSERT 已列出显式列，因此不需要改写入路径；读取路径也不依赖它。
+- 已有数据库在下一次 `PgStorage.open()` 时通过 `durable_schema` 的版本 2 迁移得到函数和列（与建库走同一批迁移）。`ADD COLUMN ... STORED` 会重写 `pi_entries` 并计算所有历史记录：大表升级需要额外的时间和磁盘，升级期间该表被锁。每条 user/assistant 记录会额外存一份最多 32768 字符的文本（UTF-8 下最多约 128 KiB，走 TOAST 压缩），这是搜索换来的空间开销。
+- 搜索目前是 `lower(search_text) LIKE '%关键词%'` 的扫描；`search_text` 上没有索引。内容量变大时先评估 `pg_trgm` 扩展的 GIN 索引（`gin (search_text gin_trgm_ops)`）；仍不够再考虑 `tsvector`/FTS（会改变分词和子串匹配的语义）。
 
 ## 用户与归属
 

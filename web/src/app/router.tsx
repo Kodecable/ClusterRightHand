@@ -107,9 +107,23 @@ const newSessionRoute = createRoute({
 	component: lazyRouteComponent(sessionPageChunk, "NewSessionPage"),
 });
 
+/** The session page's search: `entry` is the transcript entry a search hit opened (doc/webui.md "跳到消息"). */
+export interface SessionSearch {
+	entry?: number;
+}
+
+/** Parses `?entry=` from a search hit; anything that is not an entry id is dropped. */
+function parseSessionSearch(search: Record<string, unknown>): SessionSearch {
+	const raw = search.entry;
+	const value = typeof raw === "number" ? raw : typeof raw === "string" && /^\d+$/.test(raw) ? Number(raw) : undefined;
+	if (value === undefined || !Number.isSafeInteger(value) || value < 0) return {};
+	return { entry: value };
+}
+
 const sessionRoute = createRoute({
 	getParentRoute: () => sessionsRoute,
 	path: "$sessionId",
+	validateSearch: parseSessionSearch,
 	component: lazyRouteComponent(sessionPageChunk, "SessionPage"),
 });
 

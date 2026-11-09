@@ -21,6 +21,11 @@ const TABLE_NAMES = {
 	documentRevisions: "document_revisions",
 } as const;
 
+/** SQL functions the adapter creates; namespaced with the same prefix as the tables. */
+const FUNCTION_NAMES = {
+	entrySearchText: "entry_search_text",
+} as const;
+
 const INDEX_NAMES = {
 	conversationsByOwnerConversation: "conversations_by_owner_conversation",
 	conversationsByOwnerTask: "conversations_by_owner_task",
@@ -47,10 +52,16 @@ export type PgSchema = {
 	readonly tables: Identifiers<typeof TABLE_NAMES>;
 	/** Quoted index names (an index always lives in its table's schema). */
 	readonly indexes: Identifiers<typeof INDEX_NAMES>;
+	/** Schema-qualified, quoted function names. */
+	readonly functions: Identifiers<typeof FUNCTION_NAMES>;
 };
 
 const MAX_IDENTIFIER_BYTES = 63;
-const LONGEST_NAME = Math.max(...[...Object.values(TABLE_NAMES), ...Object.values(INDEX_NAMES)].map((n) => n.length));
+const LONGEST_NAME = Math.max(
+	...[...Object.values(TABLE_NAMES), ...Object.values(INDEX_NAMES), ...Object.values(FUNCTION_NAMES)].map(
+		(n) => n.length,
+	),
+);
 
 const quoteIdentifier = (name: string): string => `"${name.replaceAll('"', '""')}"`;
 
@@ -72,14 +83,20 @@ export function createSchema(schema: string, prefix: string): PgSchema {
 		indexes: Object.fromEntries(
 			Object.entries(INDEX_NAMES).map(([key, name]) => [key, quoteIdentifier(prefix + name)]),
 		) as Identifiers<typeof INDEX_NAMES>,
+		functions: Object.fromEntries(
+			Object.entries(FUNCTION_NAMES).map(([key, name]) => [key, qualify(name)]),
+		) as Identifiers<typeof FUNCTION_NAMES>,
 	};
 }
 
 type Migration = { readonly version: number; readonly statements: readonly string[] };
 
-/** Ordered schema history. Version 1 is the SQLite schema at pi-durable 1.4.0 (SQLite version 2) in PostgreSQL. */
+/**
+ * Ordered schema history. Version 1 is the SQLite schema at pi-durable 1.4.0 (SQLite version 2) in PostgreSQL;
+ * version 2 adds the generated `search_text` column (and the function that computes it) for session search.
+ */
 export function createMigrations(schema: PgSchema): readonly Migration[] {
-	const { tables, indexes } = schema;
+	const { tables, indexes, functions } = schema;
 	const initialSchema: readonly string[] = [
 		`CREATE TABLE ${tables.durableMetadata} (
 			singleton SMALLINT PRIMARY KEY CHECK (singleton = 1),
@@ -157,7 +174,78 @@ export function createMigrations(schema: PgSchema): readonly Migration[] {
 		)`,
 		`CREATE INDEX ${indexes.documentRevisionsByKind} ON ${tables.documentRevisions} (document_id, kind, seq DESC)`,
 	];
-	return [{ version: 1, statements: initialSchema }];
+	/**
+	 * The searchable text of one entry record (doc/data-model.md#会话内容搜索), or NULL when it carries none: the
+	 * user messages' text (`content` as a string, or the `text` items of an array) and the assistant messages'
+	 * `text` blocks. Thinking, tool calls, tool results, system prompts and compactions never contribute.
+	 * `jsonb_typeof` guards every step, so an unexpected shape yields NULL instead of an error; the result is
+	 * capped at 32768 characters. IMMUTABLE, as a generated column requires.
+	 */
+	const entrySearchText: readonly string[] = [
+		`CREATE FUNCTION ${functions.entrySearchText}(entry_record text)
+			RETURNS text
+			LANGUAGE sql
+			IMMUTABLE
+			PARALLEL SAFE
+			AS $search$
+				WITH root AS (
+					SELECT entry_record::jsonb AS document
+				),
+				messages AS (
+					SELECT message.value AS message, message.ordinality AS message_ord
+					FROM root
+					CROSS JOIN LATERAL jsonb_array_elements(
+						CASE
+							WHEN root.document ->> 'kind' IN ('pi.user', 'pi.assistant')
+								AND jsonb_typeof(root.document -> 'model') = 'array'
+								THEN root.document -> 'model'
+							ELSE '[]'::jsonb
+						END
+					) WITH ORDINALITY AS message(value, ordinality)
+				),
+				parts AS (
+					SELECT
+						root.document ->> 'kind' AS kind,
+						messages.message ->> 'role' AS message_role,
+						messages.message -> 'content' AS content_value,
+						messages.message_ord AS message_ord,
+						content.value AS content_item,
+						content.ordinality AS content_ord
+					FROM messages
+					CROSS JOIN root
+					LEFT JOIN LATERAL jsonb_array_elements(
+						CASE
+							WHEN jsonb_typeof(messages.message -> 'content') = 'array' THEN messages.message -> 'content'
+							ELSE '[]'::jsonb
+						END
+					) WITH ORDINALITY AS content(value, ordinality) ON true
+				),
+				texts AS (
+					SELECT
+						message_ord,
+						coalesce(content_ord, 0) AS content_ord,
+						CASE
+							WHEN kind = 'pi.user' AND message_role = 'user' AND jsonb_typeof(content_value) = 'string'
+								THEN content_value #>> '{}'
+							WHEN ((kind = 'pi.user' AND message_role = 'user') OR (kind = 'pi.assistant' AND message_role = 'assistant'))
+								AND jsonb_typeof(content_item) = 'object'
+								AND content_item ->> 'type' = 'text'
+								AND jsonb_typeof(content_item -> 'text') = 'string'
+								THEN content_item ->> 'text'
+						END AS part_text
+					FROM parts
+				)
+				SELECT left(string_agg(part_text, chr(10) ORDER BY message_ord, content_ord), 32768)
+				FROM texts
+				WHERE part_text IS NOT NULL AND part_text <> ''
+			$search$`,
+		`ALTER TABLE ${tables.entries} ADD COLUMN search_text TEXT
+			GENERATED ALWAYS AS (${functions.entrySearchText}(record)) STORED`,
+	];
+	return [
+		{ version: 1, statements: initialSchema },
+		{ version: 2, statements: entrySearchText },
+	];
 }
 
 /** A signed 64-bit advisory lock key for one purpose on one (schema, prefix) pair. */

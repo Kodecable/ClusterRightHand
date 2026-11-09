@@ -4,12 +4,14 @@ import type {
 	SessionListItem,
 	SessionListScope,
 	SessionPatch,
+	SessionSearchPage,
 	SessionShare,
 	SessionView,
 } from "@crh/api";
 import {
 	type InfiniteData,
 	type QueryClient,
+	useInfiniteQuery,
 	useMutation,
 	useQueries,
 	useQuery,
@@ -23,11 +25,12 @@ import { markSessionListItemRead, sessionListFilter, upsertSessionListItem } fro
 import { subscribeSessionListUpserts } from "./list-stream-bus";
 import type { SessionEntriesPage } from "./session-events";
 
-/** Query keys for every session-shaped query. The list key carries its `scope`/`q`. */
+/** Query keys for every session-shaped query. The list key carries its `scope`/`ownerId`. */
 export const sessionKeys = {
 	all: ["sessions"] as const,
 	list: () => ["sessions", "list"] as const,
-	listPage: (scope: string, q: string, ownerId = "") => ["sessions", "list", { scope, q, ownerId }] as const,
+	listPage: (scope: string, ownerId = "") => ["sessions", "list", { scope, ownerId }] as const,
+	search: (scope: string, q: string) => ["sessions", "search", { scope, q }] as const,
 	detail: (id: string) => ["sessions", "detail", id] as const,
 	children: (id: string) => ["sessions", "children", id] as const,
 	childrenSummary: (id: string) => ["sessions", "children-summary", id] as const,
@@ -35,34 +38,60 @@ export const sessionKeys = {
 	shares: (id: string) => ["sessions", "shares", id] as const,
 };
 
-/** The web's only list scope: the roots the caller owns plus the ones shared with them. */
-const DEFAULT_SCOPE: SessionListScope = "visible";
+/**
+ * The web's only list scope: the roots the caller owns plus the ones shared with
+ * them. The search dialog searches the same scope so a hit is always a session
+ * the list shows.
+ */
+export const SESSION_LIST_SCOPE: SessionListScope = "visible";
 
 export interface SessionListParams {
 	/** Defaults to `visible`, the only scope the web uses. */
 	scope?: SessionListScope;
-	q?: string;
 	/** Only roots owned by this user; on `scope=all` this is the per-user session list. */
 	ownerId?: string;
 }
 
-function listParams({ scope = DEFAULT_SCOPE, q = "", ownerId = "" }: SessionListParams): Required<SessionListParams> {
-	return { scope, q, ownerId };
+function listParams({ scope = SESSION_LIST_SCOPE, ownerId = "" }: SessionListParams): Required<SessionListParams> {
+	return { scope, ownerId };
 }
 
 function fetchSessionsPage(
-	{ scope, q, ownerId }: Required<SessionListParams>,
+	{ scope, ownerId }: Required<SessionListParams>,
 	cursor: string | undefined,
 	signal: AbortSignal,
 ): Promise<CursorPage<SessionListItem>> {
-	return http.get<CursorPage<SessionListItem>>(`/sessions${queryString({ scope, q, ownerId, cursor })}`, { signal });
+	return http.get<CursorPage<SessionListItem>>(`/sessions${queryString({ scope, ownerId, cursor })}`, { signal });
 }
 
 export function useSessions(params: SessionListParams = {}) {
-	const { scope, q, ownerId } = listParams(params);
+	const { scope, ownerId } = listParams(params);
 	return useCursorInfiniteQuery<SessionListItem>({
-		queryKey: sessionKeys.listPage(scope, q, ownerId),
-		fetchPage: (cursor, signal) => fetchSessionsPage({ scope, q, ownerId }, cursor, signal),
+		queryKey: sessionKeys.listPage(scope, ownerId),
+		fetchPage: (cursor, signal) => fetchSessionsPage({ scope, ownerId }, cursor, signal),
+	});
+}
+
+/**
+ * `GET /api/sessions/search` pages (doc/webui.md "会话内容搜索"): every keyword
+ * matches the title or a message of the root's tree. Disabled for an empty
+ * query; the caller debounces the text before passing it here. The page type is
+ * kept whole because `contentSearch` (titles-only on SQLite) comes on every page.
+ */
+export function useSessionSearch(q: string, scope: SessionListScope = SESSION_LIST_SCOPE) {
+	return useInfiniteQuery<
+		SessionSearchPage,
+		Error,
+		InfiniteData<SessionSearchPage, string | null>,
+		readonly unknown[],
+		string | null
+	>({
+		queryKey: sessionKeys.search(scope, q),
+		enabled: q !== "",
+		initialPageParam: null,
+		queryFn: ({ pageParam, signal }) =>
+			http.get<SessionSearchPage>(`/sessions/search${queryString({ q, scope, cursor: pageParam })}`, { signal }),
+		getNextPageParam: (page) => page.nextCursor,
 	});
 }
 
@@ -72,10 +101,10 @@ export function useSessions(params: SessionListParams = {}) {
  * render of the shell. The `useSessions` hook joins the same query.
  */
 export function prefetchSessions(queryClient: QueryClient, params: SessionListParams): Promise<void> {
-	const { scope, q, ownerId } = listParams(params);
+	const { scope, ownerId } = listParams(params);
 	return prefetchCursorInfiniteQuery<SessionListItem>(queryClient, {
-		queryKey: sessionKeys.listPage(scope, q, ownerId),
-		fetchPage: (cursor, signal) => fetchSessionsPage({ scope, q, ownerId }, cursor, signal),
+		queryKey: sessionKeys.listPage(scope, ownerId),
+		fetchPage: (cursor, signal) => fetchSessionsPage({ scope, ownerId }, cursor, signal),
 	});
 }
 
@@ -376,7 +405,7 @@ export function sessionListItemFromView(session: SessionView): SessionListItem {
 }
 
 /**
- * Inserts a just-created session into every loaded session list, respecting each list's scope and search
+ * Inserts a just-created session into every loaded session list, respecting each list's scope
  * (D117): the draft page runs before the list's SSE upsert arrives, and the reader must already see the
  * session they were sent to. A new session has the newest `updatedAt`, so the upsert's sort placement puts it
  * at the top.

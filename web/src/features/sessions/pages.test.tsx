@@ -8,6 +8,8 @@ import {
 	RouterProvider,
 } from "@tanstack/react-router";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { toast } from "sonner";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { approvalKeys } from "@/features/approvals/api";
 import { LocaleProvider } from "@/lib/i18n";
@@ -15,6 +17,23 @@ import { activateLocale } from "@/test/render";
 import { sessionKeys } from "./api";
 import { publishSessionListUpsert } from "./list-stream-bus";
 import { SessionPage } from "./pages";
+import type { EntryRecord, SessionEntriesPage, SessionEvent } from "./session-events";
+
+// jsdom has no layout: render the virtualized rows directly. React 19 passes the
+// Virtualizer's ref as a prop, so the transcript's scrollToIndex handle exists too.
+vi.mock("virtua", async () => {
+	const { createElement } = await import("react");
+	return {
+		Virtualizer: (props: { data: unknown[]; children: (item: unknown) => ReactNode; ref?: { current: unknown } }) => {
+			if (props.ref !== undefined && props.ref !== null) props.ref.current = { scrollToIndex: () => {} };
+			return createElement(
+				"div",
+				null,
+				props.data.map((row) => props.children(row)),
+			);
+		},
+	};
+});
 
 const APPROVALS: ApprovalList = {
 	tasks: [],
@@ -128,12 +147,19 @@ async function renderSessionPage({
 	session,
 	treeRow,
 	eventsStatus,
+	entry,
+	olderPage,
 }: {
 	session: SessionView;
 	treeRow?: SessionListItem;
 	/** The status the failed event stream's HEAD probe sees; defaults to 200 like the real stream route. */
 	eventsStatus?: number;
+	/** The `?entry=` search param a search hit adds. */
+	entry?: number;
+	/** The page `GET /sessions/:id/entries?before=` answers; defaults to an empty, finished history. */
+	olderPage?: (before: string) => SessionEntriesPage;
 }) {
+	const requests: URL[] = [];
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 	if (treeRow !== undefined) {
 		client.setQueryData(sessionKeys.listPage("mine", ""), {
@@ -145,10 +171,16 @@ async function renderSessionPage({
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-			const path = new URL(String(input), "http://localhost").pathname;
+			const url = new URL(String(input), "http://localhost");
+			const path = url.pathname;
+			requests.push(url);
 			const json = (body: unknown) =>
 				new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 			if (init?.method === "HEAD") return new Response(null, { status: eventsStatus ?? 200 });
+			if (path === `/api/sessions/${session.id}/entries`) {
+				const before = url.searchParams.get("before") ?? "";
+				return json(olderPage?.(before) ?? { entries: [], historyCursor: null });
+			}
 			if (path === `/api/sessions/${session.id}`) return json({ session, shares: [] });
 			if (path === `/api/sessions/${session.id}/children`) return json({ items: [], nextCursor: null });
 			if (path === `/api/sessions/${session.id}/children/summary`)
@@ -166,11 +198,15 @@ async function renderSessionPage({
 	const sessionRoute = createRoute({
 		getParentRoute: () => rootRoute,
 		path: "/sessions/$sessionId",
+		validateSearch: (search: Record<string, unknown>): { entry?: number } =>
+			typeof search.entry === "string" ? { entry: Number(search.entry) } : {},
 		component: SessionPage,
 	});
 	const router = createRouter({
 		routeTree: rootRoute.addChildren([sessionRoute]),
-		history: createMemoryHistory({ initialEntries: [`/sessions/${session.id}`] }),
+		history: createMemoryHistory({
+			initialEntries: [entry === undefined ? `/sessions/${session.id}` : `/sessions/${session.id}?entry=${entry}`],
+		}),
 	});
 	await router.load();
 	const result = render(
@@ -180,7 +216,33 @@ async function renderSessionPage({
 			</QueryClientProvider>
 		</LocaleProvider>,
 	);
-	return { ...result, client };
+	return { ...result, client, router, requests };
+}
+
+function userEntry(id: string, text: string): EntryRecord {
+	return {
+		id,
+		kind: "pi.user",
+		model: [{ role: "user", content: [{ type: "text", text }], timestamp: 1_767_225_600_000 }],
+	};
+}
+
+function assistantEntry(id: string, text: string): EntryRecord {
+	return {
+		id,
+		kind: "pi.assistant",
+		model: [{ role: "assistant", content: [{ type: "text", text }], timestamp: 1_767_225_600_000 }],
+	};
+}
+
+function snapshotEvent(entries: EntryRecord[], historyCursor: string | null): SessionEvent[] {
+	return [{ type: "snapshot", snapshot: { entries, tools: [], inbox: [], historyCursor } }];
+}
+
+async function emitSnapshot(source: FakeEventSource, entries: EntryRecord[], historyCursor: string | null) {
+	await act(async () => {
+		source.emit("events", snapshotEvent(entries, historyCursor));
+	});
 }
 
 afterEach(() => {
@@ -376,5 +438,71 @@ describe("SessionPage layout", () => {
 
 		await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("HTTP 404"));
 		expect(screen.queryByTestId("session-page")).not.toBeInTheDocument();
+	});
+});
+
+describe("jump to a searched entry", () => {
+	test("an entry in the loaded snapshot is marked and its param is dropped", async () => {
+		const { router } = await renderSessionPage({ session: sessionView(), entry: 2 });
+		await screen.findByTestId("session-page");
+		const source = await sessionEvents("s1");
+		await emitSnapshot(source, [userEntry("1", "hello"), assistantEntry("2", "the answer")], null);
+
+		const row = await waitFor(
+			() => {
+				const found = document.querySelector<HTMLElement>('[data-entry-id="2"][data-highlighted="true"]');
+				if (found === null) throw new Error("the entry row is not highlighted yet");
+				return found;
+			},
+			{ timeout: 3_000 },
+		);
+		expect(row).toHaveAttribute("data-message-id", "2/0");
+		await waitFor(() => expect(router.state.location.search).not.toHaveProperty("entry"));
+	});
+
+	test("loads older history pages until the entry appears", async () => {
+		const { router, requests } = await renderSessionPage({
+			session: sessionView(),
+			entry: 1,
+			olderPage: () => ({ entries: [userEntry("1", "the oldest"), userEntry("2", "older")], historyCursor: null }),
+		});
+		await screen.findByTestId("session-page");
+		const source = await sessionEvents("s1");
+		await emitSnapshot(source, [userEntry("10", "recent"), userEntry("11", "newest")], "h1");
+
+		await waitFor(
+			() => {
+				const found = document.querySelector<HTMLElement>('[data-entry-id="1"][data-highlighted="true"]');
+				if (found === null) throw new Error("the older entry row is not highlighted yet");
+				return found;
+			},
+			{ timeout: 5_000 },
+		);
+		expect(
+			requests.some((url) => url.pathname === "/api/sessions/s1/entries" && url.searchParams.get("before") === "h1"),
+		).toBe(true);
+		await waitFor(() => expect(router.state.location.search).not.toHaveProperty("entry"));
+	});
+
+	test("gives up after the page cap with a toast", async () => {
+		const error = vi.spyOn(toast, "error").mockImplementation(() => "");
+		let pages = 0;
+		const { router, requests } = await renderSessionPage({
+			session: sessionView(),
+			entry: 999,
+			olderPage: () => {
+				pages += 1;
+				return { entries: [userEntry(`x${pages}`, `older ${pages}`)], historyCursor: `h${pages}` };
+			},
+		});
+		await screen.findByTestId("session-page");
+		const source = await sessionEvents("s1");
+		await emitSnapshot(source, [userEntry("100", "recent")], "h0");
+
+		await waitFor(() => expect(error).toHaveBeenCalledWith("Couldn't find that message in this session."), {
+			timeout: 10_000,
+		});
+		expect(requests.filter((url) => url.pathname === "/api/sessions/s1/entries")).toHaveLength(20);
+		await waitFor(() => expect(router.state.location.search).not.toHaveProperty("entry"));
 	});
 });

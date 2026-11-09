@@ -7,6 +7,7 @@ import { navItemForPath } from "@/app/shell/nav";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { useAuth } from "@/features/auth/session";
+import { SessionSearchDialog } from "@/features/sessions/session-search-dialog";
 import { readStorage, writeStorage } from "@/lib/storage";
 import { AppSidebar } from "./app-sidebar";
 import { PageTitleProvider } from "./page-title";
@@ -71,6 +72,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 						{children}
 					</div>
 				</SidebarInset>
+				{/* One dialog and one Ctrl/⌘+K listener for every authenticated page. */}
+				<SessionSearchDialog />
 			</SidebarProvider>
 		</PageTitleProvider>
 	);

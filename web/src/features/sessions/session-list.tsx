@@ -7,21 +7,25 @@ import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { ListSkeleton } from "@/components/skeletons";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { WarningBanner } from "@/components/warning-banner";
 import { useAuth } from "@/features/auth/session";
 import { useModels } from "@/features/settings/api";
-import { useDebouncedValue } from "@/hooks/use-debounced";
 import { flattenCursorPages, lastCursor } from "@/lib/api/query";
 import { linkClass } from "@/lib/utils";
 import { useSessions } from "./api";
 import { groupSessionRows, type SessionGroupKey } from "./session-groups";
 import { SessionListItemRow } from "./session-list-item";
+import { openSessionSearch } from "./session-search-dialog";
 import { useSessionListStream } from "./use-session-list-stream";
+
+/** Whether the platform's shortcut hint is ⌘K; every other platform uses Ctrl K. */
+function isMac(): boolean {
+	return typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+}
 
 /**
  * The second column of the Sessions route (doc/webui.md "侧边列表"): the
- * search box, a full-width "New session" button, then a virtua list with
+ * search button, a full-width "New session" button, then a virtua list with
  * cursor pages and the live patch from `GET /api/sessions/stream`. The list
  * shows the roots the caller can see: their own and the ones shared with them.
  * Rows are grouped by `updatedAt` (Today, Yesterday, Within 7 days, Within 30
@@ -34,8 +38,6 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 	const location = useLocation();
 	const auth = useAuth();
 	const isAdmin = auth.user?.kind === "admin";
-	const [search, setSearch] = useState("");
-	const q = useDebouncedValue(search.trim(), 250);
 	const [activeIndex, setActiveIndex] = useState(0);
 	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const virtualizer = useRef<VirtualizerHandle | null>(null);
@@ -48,7 +50,7 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 		if (draft) return;
 		void navigate({ to: "/sessions/new" });
 	};
-	const sessions = useSessions({ q });
+	const sessions = useSessions();
 	const items = useMemo(() => flattenCursorPages(sessions.data), [sessions.data]);
 	const hasMore = lastCursor(sessions.data) !== null;
 	// A minute is enough for the day boundary: a header only changes when the clock crosses midnight.
@@ -72,13 +74,6 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 		viewer: { id: auth.user?.id ?? "", isAdmin },
 		enabled: auth.user !== null,
 	});
-
-	// A changed search is a new list: start at the top and drop the old selection index.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: reset only when the search changes
-	useEffect(() => {
-		setActiveIndex(0);
-		if (scrollRef.current) scrollRef.current.scrollTop = 0;
-	}, [q]);
 
 	// Keep the active row on the selected session when arriving by a link.
 	useEffect(() => {
@@ -137,21 +132,23 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 	return (
 		<div className="flex min-h-0 flex-1 flex-col" data-testid="session-list">
 			<div className="grid shrink-0 gap-2 p-2">
-				<div className="relative block">
-					<label className="sr-only" htmlFor="session-search">
-						<Trans>Search sessions</Trans>
-					</label>
-					<SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-					<Input
-						id="session-search"
-						type="search"
-						value={search}
-						placeholder={t`Search sessions`}
-						data-testid="session-search"
-						className="h-7 pl-7 text-sm"
-						onChange={(event) => setSearch(event.target.value)}
-					/>
-				</div>
+				<button
+					type="button"
+					data-testid="session-search-open"
+					data-slot="session-search-button"
+					aria-label={t`Search sessions`}
+					aria-keyshortcuts="Control+K Meta+K"
+					onClick={() => openSessionSearch()}
+					className="flex h-7 w-full items-center gap-2 rounded-lg border border-input bg-transparent px-2 text-left text-sm text-muted-foreground transition-colors outline-none hover:bg-accent/50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30 dark:hover:bg-input/50"
+				>
+					<SearchIcon className="size-3.5 shrink-0" aria-hidden="true" />
+					<span className="min-w-0 flex-1 truncate">
+						<Trans>Search sessions…</Trans>
+					</span>
+					<kbd className="pointer-events-none shrink-0 rounded border bg-muted px-1 py-0.5 font-sans text-[10px] leading-none font-medium text-muted-foreground">
+						{isMac() ? "⌘K" : "Ctrl K"}
+					</kbd>
+				</button>
 				<Button
 					type="button"
 					size="sm"
@@ -200,17 +197,13 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 				{!sessions.isPending && !sessions.isError && items.length === 0 && (
 					<EmptyState
 						className="m-3 py-8"
-						title={q === "" ? <Trans>No sessions yet</Trans> : <Trans>No session matches</Trans>}
-						description={
-							q === "" ? <Trans>Start one, or wait for a scheduled run.</Trans> : <Trans>Try a different search.</Trans>
-						}
+						title={<Trans>No sessions yet</Trans>}
+						description={<Trans>Start one, or wait for a scheduled run.</Trans>}
 						action={
-							q === "" ? (
-								<Button type="button" size="sm" disabled={noModels} onClick={openDraft}>
-									<PlusIcon />
-									<Trans>New session</Trans>
-								</Button>
-							) : undefined
+							<Button type="button" size="sm" disabled={noModels} onClick={openDraft}>
+								<PlusIcon />
+								<Trans>New session</Trans>
+							</Button>
 						}
 					/>
 				)}

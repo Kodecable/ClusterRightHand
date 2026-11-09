@@ -80,13 +80,17 @@ test("search and the visible scope show the caller's own and shared sessions", a
 	await expect(page.getByTestId("scope-mine")).toHaveCount(0);
 	await expect(page.getByTestId("scope-shared")).toHaveCount(0);
 
-	// Server-side search is debounced; the list narrows to the matching title.
-	await page.getByTestId("session-search").fill("deploy");
-	await expect(page.locator('[data-testid="session-item"]', { hasText: "Deploy the cluster" })).toBeVisible();
-	await expect(page.locator('[data-testid="session-item"]', { hasText: "Member beta session" })).toHaveCount(0);
-	await page.getByTestId("session-search").fill("member beta");
-	await expect(page.locator('[data-testid="session-item"]', { hasText: "Member beta session" })).toHaveCount(0);
-	await page.getByTestId("session-search").fill("");
+	// The list's search button opens the session search dialog; its scope is the same visible
+	// union, so the member's unshared session is not a result either.
+	await page.getByTestId("session-search-open").click();
+	const dialog = page.getByTestId("session-search-dialog");
+	await expect(dialog).toBeVisible();
+	await dialog.getByTestId("session-search-input").fill("deploy");
+	await expect(dialog).toContainText("Deploy the cluster");
+	await dialog.getByTestId("session-search-input").fill("member beta");
+	await expect(dialog).toContainText("No matching sessions");
+	await page.keyboard.press("Escape");
+	await expect(dialog).toHaveCount(0);
 
 	// Share the administrator's session with the member: their list is the union, so the row appears
 	// without switching any scope tab.

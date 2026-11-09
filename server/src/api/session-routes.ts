@@ -13,6 +13,7 @@ import {
 	sessionListQuery,
 	shareAudienceUserIds,
 } from "../agent/session-list.ts";
+import { parseSearchKeywords, parseSearchLimit, sessionSearch } from "../agent/session-search.ts";
 import {
 	capabilitiesFor,
 	listSessionShares,
@@ -181,6 +182,31 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			items: page.rows.map((row) => sessionListItem(row, user.userId, Boolean(row.shared))),
 			nextCursor: page.nextCursor,
 		});
+	});
+
+	/**
+	 * Root sessions matching every whitespace-separated keyword of `q` in their title or message text, newest
+	 * activity first, one keyset page at a time (doc/webui.md#会话内容搜索). Titles are searched on both backends;
+	 * message content only on PostgreSQL, where the pg-durable adapter's generated `search_text` column exists.
+	 * So SQLite answers `contentSearch: false` and never fills `hits` or `hitCount`. The scope, visibility and
+	 * cursor are the session list's. Registered before `/sessions/:id`, which would otherwise read "search" as an id.
+	 */
+	app.get("/sessions/search", async (c) => {
+		const user = c.get("user");
+		const scope = c.req.query("scope") ?? "mine";
+		if (!SESSION_SCOPES.has(scope)) return jsonError(c, 400, "scope must be mine, shared, visible or all");
+		if (scope === "all" && !isAdmin(user)) return jsonError(c, 403, "administrators only");
+		const keywords = parseSearchKeywords(c.req.query("q"));
+		const limit = parseSearchLimit(c.req.query("limit"));
+		const rawCursor = c.req.query("cursor");
+		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, SESSION_CURSOR);
+		const page = await sessionSearch(db, user, {
+			scope: scope as SessionListScope,
+			keywords,
+			limit,
+			...(cursor ? { cursor } : {}),
+		});
+		return c.json(page);
 	});
 
 	/**

@@ -3,7 +3,7 @@
 import type { Json, JsonObject, Message, TextBlock, ThinkingBlock, ToolCallBlock } from "./session-events";
 import type { SessionState } from "./session-reducer";
 
-export type TranscriptItem =
+type TranscriptItemRow =
 	| { kind: "user"; key: string; text: string; at?: number }
 	| {
 			kind: "text";
@@ -40,6 +40,15 @@ export type TranscriptItem =
 	| { kind: "error"; key: string; reason: "aborted" | "failed"; message: string | null }
 	| { kind: "compaction"; key: string; text: string }
 	| { kind: "compacting"; key: string };
+
+/**
+ * A rendered transcript row. `entryId` is the durable entry it came from, on every
+ * row of a committed entry (an assistant entry contributes one row per block, all
+ * with the same id). Only the live-only rows (a message that is still streaming,
+ * the running compaction) have no entry yet; the session page's jump-to-message
+ * scrolls to the first row sharing the target entry id.
+ */
+export type TranscriptItem = TranscriptItemRow & { entryId?: string };
 
 function userText(content: string | { type: string; text?: string }[]): string {
 	return typeof content === "string"
@@ -78,11 +87,13 @@ export function transcript(state: SessionState): TranscriptItem[] {
 	for (const { message } of ordered) if (message.role === "toolResult") results.set(message.toolCallId, message);
 	const items: TranscriptItem[] = [];
 	const addAssistant = (
+		entryId: string | undefined,
 		key: string,
 		m: Extract<Message, { role: "assistant" }>,
 		streaming: boolean,
 		liveRow: boolean,
 	) => {
+		const entry = entryId === undefined ? {} : { entryId };
 		const timing = {
 			...(m.timestamp === undefined ? {} : { at: m.timestamp }),
 			...(m.durationMs === undefined ? {} : { durationMs: m.durationMs }),
@@ -94,11 +105,26 @@ export function transcript(state: SessionState): TranscriptItem[] {
 			if (b.type === "text") {
 				const text = (b as TextBlock).text;
 				if (text || streaming)
-					items.push({ kind: "text", key: k, text, streaming, ...(liveRow ? { live: true } : {}), ...timing });
+					items.push({
+						kind: "text",
+						key: k,
+						text,
+						streaming,
+						...entry,
+						...(liveRow ? { live: true } : {}),
+						...timing,
+					});
 			} else if (b.type === "thinking") {
 				const text = (b as ThinkingBlock).thinking;
 				if (text || streaming)
-					items.push({ kind: "thinking", key: k, text, streaming, ...(liveRow ? { live: true } : {}) });
+					items.push({
+						kind: "thinking",
+						key: k,
+						text,
+						streaming,
+						...entry,
+						...(liveRow ? { live: true } : {}),
+					});
 			} else if (b.type === "toolCall") {
 				const call = b as ToolCallBlock;
 				const live = state.tools[call.id];
@@ -106,6 +132,7 @@ export function transcript(state: SessionState): TranscriptItem[] {
 				items.push({
 					kind: "tool",
 					key: k,
+					...entry,
 					callId: call.id,
 					name: call.name,
 					args: call.arguments ?? {},
@@ -127,6 +154,7 @@ export function transcript(state: SessionState): TranscriptItem[] {
 			items.push({
 				kind: "error",
 				key: `${key}/stop`,
+				...entry,
 				reason: m.stopReason === "aborted" ? "aborted" : "failed",
 				message: m.errorMessage ?? null,
 			});
@@ -134,20 +162,21 @@ export function transcript(state: SessionState): TranscriptItem[] {
 	};
 	for (const { id, kind, message } of ordered) {
 		if (kind === "pi.compaction" && message.role === "user") {
-			items.push({ kind: "compaction", key: id, text: userText(message.content) });
+			items.push({ kind: "compaction", key: id, entryId: id, text: userText(message.content) });
 		} else if (message.role === "user")
 			items.push({
 				kind: "user",
 				key: id,
+				entryId: id,
 				text: userText(message.content),
 				...(message.timestamp === undefined ? {} : { at: message.timestamp }),
 			});
 		else if (message.role === "assistant") {
 			const liveKey = state.streamedKeys[id];
-			addAssistant(liveKey ?? id, message, false, liveKey !== undefined);
+			addAssistant(id, liveKey ?? id, message, false, liveKey !== undefined);
 		}
 	}
-	if (state.streaming) addAssistant(state.liveKey ?? "streaming", state.streaming, true, true);
+	if (state.streaming) addAssistant(undefined, state.liveKey ?? "streaming", state.streaming, true, true);
 	// One live row per running compaction, always after everything already shown (doc/webui.md "消息渲染").
 	for (const { taskId } of state.compactions) items.push({ kind: "compacting", key: `compacting/${taskId}` });
 	return items;

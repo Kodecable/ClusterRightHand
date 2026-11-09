@@ -3,13 +3,12 @@ import type { CursorPage, SessionListItem, SessionListScope } from "@crh/api";
 /**
  * The session-list SSE patch, as pure functions (doc/webui.md "会话列表实时推送"):
  * `upsert` inserts, moves or replaces at the row's sort position while respecting
- * the active `scope` and `q`; `remove` drops the row. The hook only supplies the
+ * the active `scope`; `remove` drops the row. The hook only supplies the
  * filter and writes the result into the Query cache.
  */
 
 export interface SessionListFilter {
 	scope: SessionListScope;
-	q: string;
 	/** Only roots owned by this user, for the per-user list on a user's page. */
 	ownerId?: string;
 	viewerId: string;
@@ -57,10 +56,9 @@ export function sessionListFilter(
 	const params = queryKey[2];
 	if (params === null || typeof params !== "object") return null;
 	const record = params as Record<string, unknown>;
-	if (typeof record.scope !== "string" || typeof record.q !== "string") return null;
+	if (typeof record.scope !== "string") return null;
 	return {
 		scope: record.scope as SessionListScope,
-		q: record.q,
 		...(typeof record.ownerId === "string" && record.ownerId !== "" ? { ownerId: record.ownerId } : {}),
 		viewerId: viewer.viewerId,
 		isAdmin: viewer.isAdmin,
@@ -74,9 +72,6 @@ export function sessionMatchesFilter(item: SessionListItem, filter: SessionListF
 	if (filter.scope === "shared" && !item.shared) return false;
 	if (filter.scope === "visible" && item.ownerUserId !== filter.viewerId && !item.shared) return false;
 	if (filter.ownerId !== undefined && item.ownerUserId !== filter.ownerId) return false;
-	const query = filter.q.trim().toLowerCase();
-	// A null title is not searchable: the list search matches stored titles only.
-	if (query !== "" && !(item.title?.toLowerCase().includes(query) ?? false)) return false;
 	return true;
 }
 

@@ -71,6 +71,50 @@ export interface SessionChildrenSummary {
 /** `visible` is the web's only scope: the caller's own roots plus the roots shared with them. */
 export type SessionListScope = "mine" | "shared" | "visible" | "all";
 
+/** One transcript entry that matched a content search (`GET /api/sessions/search`). */
+export interface SessionSearchHit {
+	/** The entry id in the form the transcript API uses (`EntryRecord.id`). */
+	entryId: number;
+	/** The session the entry belongs to; a subagent of the matched root when the hit is in a subagent. */
+	sessionId: string;
+	/** The owning session's title (a subagent's own title for a subagent hit); null until generated. */
+	sessionTitle: string | null;
+	role: "user" | "assistant";
+	/** The entry message's timestamp as ISO 8601; null when the entry carries none. */
+	at: string | null;
+	/** About 120 characters around the first matched keyword, whitespace collapsed, cut edges marked with "…". */
+	snippet: string;
+}
+
+/**
+ * A root session matched by `GET /api/sessions/search`: the list item plus the title/content match details.
+ * On SQLite only titles are searched, so `hits` is empty, `hitCount` is 0 and a match always has `titleMatch`.
+ */
+export interface SessionSearchItem extends SessionListItem {
+	/** Every keyword appears in the root's title. */
+	titleMatch: boolean;
+	/** Entries in the whole tree that contain at least one keyword (0 on SQLite). */
+	hitCount: number;
+	/** Up to three matching entries, most keywords first and then newest first; empty on SQLite. */
+	hits: SessionSearchHit[];
+}
+
+/** `GET /api/sessions/search`: one cursor page of matching root sessions. */
+export interface SessionSearchPage {
+	items: SessionSearchItem[];
+	nextCursor: string | null;
+	/** Whether message content was searched: true on PostgreSQL, false on SQLite (titles only). */
+	contentSearch: boolean;
+}
+
+/** Query parameters of `GET /api/sessions/search`; `q` is required. */
+export interface SessionSearchQuery extends CursorQuery {
+	/** Whitespace-separated keywords, at most 8; every keyword must match. */
+	q: string;
+	/** Same scopes as the session list; default `mine`. */
+	scope?: SessionListScope;
+}
+
 export interface SessionListQuery extends CursorQuery {
 	scope?: SessionListScope;
 	q?: string;

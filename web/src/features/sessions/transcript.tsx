@@ -1,7 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ArrowDownIcon, LoaderCircleIcon } from "lucide-react";
 import { type UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Virtualizer } from "virtua";
+import { Virtualizer, type VirtualizerHandle } from "virtua";
 import { Button } from "@/components/ui/button";
 import type { TranscriptItem } from "./transcript-items";
 import { TranscriptRow, TurnSummaryRow } from "./transcript-row";
@@ -12,6 +12,8 @@ const END_THRESHOLD = 80;
 const SETTLE_MS = 2_000;
 const ANCHOR_MS = 400;
 const LOAD_DEBOUNCE_MS = 120;
+/** How long a jumped-to entry keeps its highlight before it fades (doc/webui.md "跳到消息"). */
+const HIGHLIGHT_MS = 2_000;
 
 interface Anchor {
 	id: string;
@@ -55,6 +57,7 @@ export function Transcript({
 	loadingOlder,
 	onLoadOlder,
 	empty,
+	focusEntry,
 }: {
 	items: TranscriptItem[];
 	streams: TranscriptStreams;
@@ -65,11 +68,17 @@ export function Transcript({
 	loadingOlder: boolean;
 	onLoadOlder: () => void;
 	empty?: React.ReactNode;
+	/** The entry a search hit asked to jump to; once its rows exist the list centers and marks it. */
+	focusEntry?: string;
 }) {
 	const { t } = useLingui();
 	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const sentinelRef = useRef<HTMLDivElement | null>(null);
+	const virtualizer = useRef<VirtualizerHandle | null>(null);
 	const [atBottom, setAtBottom] = useState(true);
+	const [highlighted, setHighlighted] = useState<string | null>(null);
+	const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const handledFocus = useRef<string | null>(null);
 	const atBottomRef = useRef(true);
 	const followingRef = useRef(true);
 	/** Set only by a real wheel/key gesture: a scroll event alone must not cancel the settle loop. */
@@ -348,6 +357,56 @@ export function Transcript({
 	const previousFirst = prevFirstId.current;
 	const shift = previousFirst !== null && firstId !== "" && firstId !== previousFirst;
 
+	// Jump-to-message (doc/webui.md "跳到消息"): the target rows exist once the entry is
+	// loaded. Center the first of them, stop following the end, then fade the highlight.
+	const focusToken = useRef(0);
+	useLayoutEffect(() => {
+		if (focusEntry === undefined || handledFocus.current === focusEntry) return;
+		const index = rows.findIndex((row) => row.kind === "item" && row.item.entryId === focusEntry);
+		if (index === -1) {
+			// Process rows of a completed turn are folded behind its summary; open that
+			// turn so a hit on a thinking/tool entry has a row to scroll to.
+			const folded = turns.find(
+				(turn) =>
+					turn.foldable &&
+					!openTurns.has(turn.key) &&
+					[turn.user, turn.final, ...turn.process, ...turn.after].some((item) => item?.entryId === focusEntry),
+			);
+			if (folded !== undefined) {
+				setOpenTurns((previous) => {
+					const next = new Set(previous);
+					next.add(folded.key);
+					return next;
+				});
+			}
+			return;
+		}
+		handledFocus.current = focusEntry;
+		// Stop the initial "settle to the end" loop, otherwise it would keep pinning the
+		// view to the bottom while the jump is trying to center the target row.
+		settleToken.current += 1;
+		followingRef.current = false;
+		publishAtBottom(false);
+		setHighlighted(focusEntry);
+		const token = ++focusToken.current;
+		const scroll = () => {
+			if (focusToken.current !== token) return;
+			virtualizer.current?.scrollToIndex(index, { align: "center" });
+		};
+		requestAnimationFrame(scroll);
+		// A page that was just prepended is measured after its first paint; align once more.
+		const settle = setTimeout(scroll, 80);
+		if (highlightTimer.current !== null) clearTimeout(highlightTimer.current);
+		highlightTimer.current = setTimeout(() => setHighlighted(null), HIGHLIGHT_MS);
+		return () => clearTimeout(settle);
+	}, [focusEntry, rows, turns, openTurns, publishAtBottom]);
+
+	useEffect(() => {
+		return () => {
+			if (highlightTimer.current !== null) clearTimeout(highlightTimer.current);
+		};
+	}, []);
+
 	return (
 		<div className="relative min-h-0 flex-1" data-slot="transcript">
 			<div
@@ -379,6 +438,7 @@ export function Transcript({
 				)}
 				{items.length > 0 && (
 					<Virtualizer
+						ref={virtualizer}
 						data={rows}
 						itemSize={120}
 						bufferSize={600}
@@ -400,7 +460,13 @@ export function Transcript({
 									onToggle={() => toggleTurn(row.turnKey)}
 								/>
 							) : (
-								<TranscriptRow key={row.key} item={row.item} streams={streams} sessionActive={sessionActive} />
+								<TranscriptRow
+									key={row.key}
+									item={row.item}
+									streams={streams}
+									sessionActive={sessionActive}
+									highlighted={highlighted !== null && row.item.entryId === highlighted}
+								/>
 							)
 						}
 					</Virtualizer>
