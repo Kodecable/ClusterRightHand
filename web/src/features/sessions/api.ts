@@ -376,7 +376,8 @@ export function sessionListItemFromView(session: SessionView): SessionListItem {
 /**
  * Inserts a just-created session into every loaded session list, respecting each list's scope and search
  * (D117): the draft page runs before the list's SSE upsert arrives, and the reader must already see the
- * session they were sent to.
+ * session they were sent to. A new session has the newest `updatedAt`, so the upsert's sort placement puts it
+ * at the top.
  */
 export function insertSessionIntoListCaches(
 	queryClient: QueryClient,

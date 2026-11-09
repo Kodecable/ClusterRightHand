@@ -343,6 +343,7 @@ web/src/
 - `event: remove`，data 为 `{ "id": string }`，会话被删除、取消共享或归档时发送；
 - `event: ping`，每 15 秒一次。
 - 只推送当前用户可见的根会话；连接上带 `scope=visible` 时（WebUI 的用法）不再有管理员的全量视图。会话树里任何会话的状态变化都推送其根会话。客户端按自己当前的 `q` 过滤后，打补丁到已加载的列表；断线重连后重新拉取第一页。
+- 打补丁时按服务端的排序键 `updatedAt desc, id desc` 定位，而不是一律放到最前面：`updated_at` 没变的事件（标记已读、未读/状态变化、按调用统计更新）原地替换、不移动；位置变化时插入它所属的那一页。新位置越过最后一个已加载条目且还有下一页（末页 `nextCursor` 非 null）时丢弃该条，下一页拉取时自然带入；没有下一页则追加到末页末尾。这样日期分组（今天、昨天……）不会因为一次不改 `updated_at` 的 upsert 而乱序或出现重复标题。
 
 **会话事件流** `GET /api/sessions/:id/events`：
 - 第一条 `events` 批次中的 `snapshot` 事件，`entries` 只保留最近的 100 条可显示记录（不含 system 消息），并新增字段 `historyCursor: string | null`（为 null 表示没有更早的记录）。

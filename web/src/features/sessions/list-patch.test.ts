@@ -94,7 +94,10 @@ describe("isSessionListItem", () => {
 });
 
 describe("upsertSessionListItem", () => {
-	test("a stream upsert carries the new state fields and moves the row to the top", () => {
+	/** A 2026-01 day, newest first: the tests sort on the string exactly as the server orders it. */
+	const at = (day: number): string => `2026-01-${String(day).padStart(2, "0")}T00:00:00.000Z`;
+
+	test("a stream upsert carries the new state fields", () => {
 		const pages = [page([item({ id: "a" }), item({ id: "b", state: "idle" })])];
 		const next = upsertSessionListItem(
 			pages,
@@ -105,9 +108,68 @@ describe("upsertSessionListItem", () => {
 		expect(next[0]?.items[1]?.id).toBe("a");
 	});
 
+	test("an upsert with an unchanged updatedAt stays in place", () => {
+		const pages = [
+			page([item({ id: "a", updatedAt: at(3) }), item({ id: "b", updatedAt: at(2) })]),
+			page([item({ id: "c", updatedAt: at(1) })]),
+		];
+		// Marking a tree read changes `unread` but not `updated_at`: the row must not jump to the top.
+		const next = upsertSessionListItem(pages, item({ id: "b", updatedAt: at(2), unread: true }), filter());
+		expect(next[0]?.items.map((row) => row.id)).toEqual(["a", "b"]);
+		expect(next[1]?.items.map((row) => row.id)).toEqual(["c"]);
+		expect(next[0]?.items[1]?.unread).toBe(true);
+	});
+
+	test("a bumped updatedAt moves the row to the top", () => {
+		const pages = [
+			page([item({ id: "a", updatedAt: at(3) }), item({ id: "b", updatedAt: at(2) })]),
+			page([item({ id: "c", updatedAt: at(1) })]),
+		];
+		const next = upsertSessionListItem(pages, item({ id: "b", updatedAt: at(4) }), filter());
+		expect(next[0]?.items.map((row) => row.id)).toEqual(["b", "a"]);
+		expect(next[1]?.items.map((row) => row.id)).toEqual(["c"]);
+	});
+
+	test("an older updatedAt lands in the middle, on the page it belongs to", () => {
+		const pages = [
+			page([item({ id: "a", updatedAt: at(5) }), item({ id: "b", updatedAt: at(4) })]),
+			page([item({ id: "c", updatedAt: at(3) }), item({ id: "e", updatedAt: at(1) })]),
+		];
+		// `b` was on the first page and now sorts between `c` and `e` on the second page.
+		const next = upsertSessionListItem(pages, item({ id: "b", updatedAt: at(2) }), filter());
+		expect(next[0]?.items.map((row) => row.id)).toEqual(["a"]);
+		expect(next[1]?.items.map((row) => row.id)).toEqual(["c", "b", "e"]);
+	});
+
+	test("the server's id desc tie-breaker decides equal updatedAt values", () => {
+		const pages = [page([item({ id: "d", updatedAt: at(2) }), item({ id: "b", updatedAt: at(2) })])];
+		const next = upsertSessionListItem(pages, item({ id: "c", updatedAt: at(2) }), filter());
+		expect(next[0]?.items.map((row) => row.id)).toEqual(["d", "c", "b"]);
+	});
+
+	test("a row beyond the loaded pages is dropped while more pages remain", () => {
+		const pages = [page([item({ id: "a", updatedAt: at(3) }), item({ id: "b", updatedAt: at(2) })], "cursor-2")];
+		const dropped = upsertSessionListItem(pages, item({ id: "new", updatedAt: at(1) }), filter());
+		expect(dropped[0]?.items.map((row) => row.id)).toEqual(["a", "b"]);
+		// A loaded row that became older than every loaded row is removed, not inserted past the cursor.
+		const removed = upsertSessionListItem(pages, item({ id: "b", updatedAt: at(1) }), filter());
+		expect(removed[0]?.items.map((row) => row.id)).toEqual(["a"]);
+	});
+
+	test("a row beyond every loaded row is appended when the list is complete", () => {
+		const pages = [page([item({ id: "a", updatedAt: at(3) })]), page([item({ id: "b", updatedAt: at(2) })])];
+		const next = upsertSessionListItem(pages, item({ id: "new", updatedAt: at(1) }), filter());
+		expect(next[0]?.items.map((row) => row.id)).toEqual(["a"]);
+		expect(next[1]?.items.map((row) => row.id)).toEqual(["b", "new"]);
+	});
+
 	test("inserts a new matching row at the top", () => {
 		const pages = [page([item({ id: "old" })]), page([item({ id: "older" })], "cursor-2")];
-		const next = upsertSessionListItem(pages, item({ id: "new", title: "New" }), filter());
+		const next = upsertSessionListItem(
+			pages,
+			item({ id: "new", title: "New", updatedAt: "2026-02-01T00:00:00.000Z" }),
+			filter(),
+		);
 		expect(next[0]?.items.map((row) => row.id)).toEqual(["new", "old"]);
 		expect(next[1]?.items.map((row) => row.id)).toEqual(["older"]);
 	});

@@ -86,4 +86,24 @@ describe("groupSessionRows", () => {
 	test("no items is no rows", () => {
 		expect(groupSessionRows([], now)).toEqual([]);
 	});
+
+	test("a transient misorder cannot produce duplicate header keys", () => {
+		// `c` belongs to Today but arrives after an older item: its group repeats.
+		const items = [
+			item("a", iso(at(2026, 11, 1, 10))),
+			item("b", iso(at(2026, 9, 15))),
+			item("c", iso(at(2026, 11, 1, 11))),
+		];
+		const rows = groupSessionRows(items, now);
+		expect(rows.map((row) => (row.header ? `#${sessionGroupKey(row.header)}` : (row.item?.id as string)))).toEqual([
+			"#today",
+			"a",
+			"#month:2026-09",
+			"b",
+			"#today",
+			"c",
+		]);
+		expect(new Set(rows.map((row) => row.key)).size).toBe(rows.length);
+		expect(rows.map((row) => row.key)).toContain("header:today:1");
+	});
 });

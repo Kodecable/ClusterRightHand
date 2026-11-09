@@ -4,8 +4,8 @@ import type { SessionListItem } from "@crh/api";
  * The session list's date groups (doc/webui.md#侧边列表): Today, Yesterday, Within 7 days, Within 30 days, then
  * one group per calendar month, all read from `updatedAt` — the field the list is sorted by — in the browser's
  * local time zone. Days are calendar days, so a DST change (a 23- or 25-hour local day) cannot shift a group. The
- * grouping is a pure function of the items, so a paged append or a live patch that moves an item to the top
- * regroups the list by itself.
+ * grouping is a pure function of the items, so a paged append or a live patch that moves an item regroups the
+ * list by itself.
  */
 export type SessionGroupKey =
 	| { kind: "today" }
@@ -53,16 +53,20 @@ export function sessionGroupKey(group: SessionGroupKey): string {
 /**
  * The rows of the virtualised list: a header before each run of items in the same group. The items arrive in
  * `updatedAt desc` order, so a group's items are contiguous; an item that moves to the top of the list moves to
- * Today, and the group it left is regrouped away.
+ * Today, and the group it left is regrouped away. Should items ever arrive out of order, the same group can
+ * recur later; its later headers get a suffixed key so React and virtua never see two rows with one key.
  */
 export function groupSessionRows(items: readonly SessionListItem[], now: Date): SessionListRow[] {
 	const rows: SessionListRow[] = [];
+	const headerCounts = new Map<string, number>();
 	let current: string | undefined;
 	for (const item of items) {
 		const group = sessionGroup(item.updatedAt, now);
 		const key = sessionGroupKey(group);
 		if (key !== current) {
-			rows.push({ key: `header:${key}`, header: group });
+			const seen = headerCounts.get(key) ?? 0;
+			headerCounts.set(key, seen + 1);
+			rows.push({ key: seen === 0 ? `header:${key}` : `header:${key}:${seen}`, header: group });
 			current = key;
 		}
 		rows.push({ key: item.id, item });
