@@ -4,6 +4,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { INLINE_CONTROL_CLASS } from "@/components/inline-control";
 import { renderWithI18n } from "@/test/render";
 import { Composer } from "./composer";
 
@@ -432,11 +433,66 @@ describe("Composer", () => {
 });
 
 describe("ComposerFooter", () => {
+	test("the four inline controls share one type and spacing style", async () => {
+		mockFetch(
+			[],
+			[
+				{
+					provider: "faux",
+					providerName: "faux",
+					modelId: "faux-1",
+					name: "Faux One",
+					contextWindow: 128_000,
+					thinkingLevels: ["off", "high"],
+					input: ["text"],
+				},
+			],
+		);
+		renderComposer();
+		await waitFor(() => expect(screen.getByTestId("composer-thinking")).toBeInTheDocument());
+
+		const shared = INLINE_CONTROL_CLASS.split(/\s+/);
+		for (const testId of ["composer-model", "composer-thinking", "composer-rules", "composer-budget"]) {
+			const control = screen.getByTestId(testId);
+			expect(control).toHaveClass(...shared);
+			// The inline style must replace the form chrome, not stack with it.
+			expect(control).not.toHaveClass("text-sm", "font-mono", "font-medium", "gap-1.5", "text-muted-foreground");
+		}
+
+		for (const testId of ["composer-thinking", "composer-rules", "composer-budget"]) {
+			const icon = screen.getByTestId(testId).querySelector("svg");
+			expect(icon).toHaveClass("size-3.5", "shrink-0");
+			expect(icon).not.toHaveClass("lucide-chevron-down");
+		}
+		for (const testId of ["composer-model", "composer-thinking", "composer-rules"]) {
+			expect(screen.getByTestId(testId).querySelector("svg.lucide-chevron-down")).toBeNull();
+		}
+	});
+
+	test("a read-only footer shows the model name with the full reference in its tooltip", async () => {
+		mockFetch();
+		renderComposer({
+			session: {
+				capabilities: { view: true, chat: true, manageShares: true, createShares: true, configure: false },
+			},
+		});
+		const model = screen.getByTitle("faux/faux-1");
+		expect(model).toHaveClass("text-foreground");
+		await waitFor(() => expect(model).toHaveTextContent("Faux One"));
+		// No picker: the viewer cannot configure the session.
+		expect(screen.queryByTestId("composer-model")).not.toBeInTheDocument();
+	});
+
 	test("shows the rule preset name, the remaining budget, the context fill and the total usage", async () => {
 		mockFetch();
 		renderComposer();
 		await waitFor(() => expect(screen.getByTestId("composer-context")).toHaveTextContent("50%"));
-		expect(screen.getByTestId("composer-model")).toHaveTextContent("faux/faux-1");
+		// The footer shows the display name; the full reference is still in the tooltip.
+		expect(screen.getByTestId("composer-model")).toHaveTextContent("Faux One");
+		expect(screen.getByTestId("composer-model")).toHaveAttribute(
+			"title",
+			"faux/faux-1 — Change the model; it applies from the next turn.",
+		);
 		expect(screen.getByTestId("composer-rules")).toHaveTextContent("Yolo");
 		expect(screen.getByTestId("composer-budget")).toHaveTextContent("12.3K");
 		expect(screen.getByTestId("composer-usage")).toHaveTextContent("1.5M");

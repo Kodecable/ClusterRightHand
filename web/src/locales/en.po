@@ -3783,12 +3783,12 @@ msgid "The port must be between 1 and 65535."
 msgstr "The port must be between 1 and 65535."
 
 #: src/features/sessions/transcript-row.tsx
-msgid "The run failed."
-msgstr "The run failed."
+msgid "The run failed"
+msgstr "The run failed"
 
 #: src/features/sessions/transcript-row.tsx
-msgid "The run was stopped."
-msgstr "The run was stopped."
+msgid "The run was stopped"
+msgstr "The run was stopped"
 
 #: src/features/schedules/pages.tsx
 msgid "The running instance, if any, is stopped, and the run history is deleted. Sessions the runs created stay, without their schedule."

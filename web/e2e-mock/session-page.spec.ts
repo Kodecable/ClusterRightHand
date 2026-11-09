@@ -41,7 +41,7 @@ test("the composer shows the model, the rule preset and the budget in the footer
 	page,
 }) => {
 	await openFooterPage(page);
-	await expect(page.getByTestId("composer-model")).toHaveText("faux/faux-1");
+	await expect(page.getByTestId("composer-model")).toHaveText("Faux One");
 	await expect(page.getByTestId("composer-rules")).toHaveText("Ask");
 	await expect(page.getByTestId("composer-budget")).toHaveText("12.3K");
 	await expect(page.getByTestId("composer-context")).toHaveText("50%");

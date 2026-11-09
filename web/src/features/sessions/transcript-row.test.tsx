@@ -250,7 +250,7 @@ describe("TranscriptRow", () => {
 
 	test("an aborted run and a failed run are errors", () => {
 		const { rerender } = renderRow({ kind: "error", key: "e1", reason: "aborted", message: null });
-		expect(screen.getByRole("alert")).toHaveTextContent("The run was stopped.");
+		expect(screen.getByRole("alert")).toHaveTextContent("The run was stopped");
 		rerender(
 			<TranscriptRow
 				item={{ kind: "error", key: "e2", reason: "failed", message: "boom" }}
@@ -258,7 +258,7 @@ describe("TranscriptRow", () => {
 				sessionActive
 			/>,
 		);
-		expect(screen.getByRole("alert")).toHaveTextContent("The run failed.");
+		expect(screen.getByRole("alert")).toHaveTextContent("The run failed");
 		expect(screen.getByRole("alert")).toHaveTextContent("boom");
 	});
 });

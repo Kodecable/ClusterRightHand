@@ -2,6 +2,7 @@ import type { ModelRef, RulePreset, SessionView, ThinkingLevel } from "@crh/api"
 import { useLingui } from "@lingui/react/macro";
 import { ArrowUpIcon, DropletIcon, LightbulbIcon, ShieldCheckIcon, SquareIcon } from "lucide-react";
 import { useState } from "react";
+import { INLINE_CONTROL_CLASS } from "@/components/inline-control";
 import { ModelSelect } from "@/components/model-select";
 import { RulePresetSelect } from "@/components/rule-preset-select";
 import { ThinkingLevelSelect } from "@/components/thinking-level-select";
@@ -163,11 +164,16 @@ export function SessionComposerFooter({
 function ModelControl({ state }: { state: ComposerFooterState }) {
 	const { t } = useLingui();
 	const models = useModels();
-	const label = state.model === undefined ? t`No model` : `${state.model.provider}/${state.model.modelId}`;
+	const fullName = state.model === undefined ? undefined : `${state.model.provider}/${state.model.modelId}`;
+	const name =
+		state.model === undefined
+			? undefined
+			: (availableModel(models.data ?? [], state.model)?.name ?? state.model.modelId);
+	const label = name ?? t`No model`;
 
 	if (!state.configure) {
 		return (
-			<span className="min-w-0 truncate font-mono text-xs text-muted-foreground" title={label}>
+			<span className="min-w-0 truncate px-1.5 text-xs text-foreground" title={fullName ?? label}>
 				{label}
 			</span>
 		);
@@ -201,7 +207,7 @@ function ThinkingControl({ state }: { state: ComposerFooterState }) {
 	if (!state.configure) {
 		return (
 			<span
-				className="inline-flex min-w-0 shrink items-center gap-1 px-1.5 text-xs text-muted-foreground"
+				className="inline-flex min-w-0 shrink items-center gap-1 px-1.5 text-xs text-foreground"
 				data-testid="composer-thinking"
 				title={label}
 			>
@@ -235,7 +241,7 @@ function RulesControl({ state }: { state: ComposerFooterState }) {
 		const label = state.ruleCount === 0 ? t`No rules` : t`Rules: ${state.ruleCount}`;
 		return (
 			<span
-				className="inline-flex min-w-0 shrink items-center gap-1 px-1.5 text-xs text-muted-foreground"
+				className="inline-flex min-w-0 shrink items-center gap-1 px-1.5 text-xs text-foreground"
 				data-testid="composer-rules"
 				title={label}
 			>
@@ -247,7 +253,7 @@ function RulesControl({ state }: { state: ComposerFooterState }) {
 	if (!state.configure) {
 		return (
 			<span
-				className="inline-flex min-w-0 shrink items-center gap-1 px-1.5 text-xs text-muted-foreground"
+				className="inline-flex min-w-0 shrink items-center gap-1 px-1.5 text-xs text-foreground"
 				data-testid="composer-rules"
 				title={t`Rule preset: ${rulePresetLabel(state.rulePreset)}`}
 			>
@@ -290,10 +296,10 @@ function BudgetControl({ state }: { state: ComposerFooterState }) {
 				title={title}
 				className={cn(
 					"inline-flex shrink-0 items-center gap-1 px-1.5 text-xs whitespace-nowrap",
-					exhausted ? "text-danger" : "text-muted-foreground",
+					exhausted ? "text-danger" : "text-foreground",
 				)}
 			>
-				<DropletIcon className="size-3.5" aria-hidden="true" />
+				<DropletIcon className="size-3.5 shrink-0" aria-hidden="true" />
 				{label}
 			</span>
 		);
@@ -306,10 +312,10 @@ function BudgetControl({ state }: { state: ComposerFooterState }) {
 				size="xs"
 				data-testid="composer-budget"
 				title={title}
-				className={cn("shrink-0 gap-1 px-1.5 font-normal", exhausted && "text-danger")}
+				className={cn(INLINE_CONTROL_CLASS, "whitespace-nowrap", exhausted && "text-danger")}
 				onClick={() => setOpen(true)}
 			>
-				<DropletIcon className="size-3.5" aria-hidden="true" />
+				<DropletIcon className="size-3.5 shrink-0" aria-hidden="true" />
 				<span className="whitespace-nowrap">{label}</span>
 			</Button>
 			<BudgetDialog

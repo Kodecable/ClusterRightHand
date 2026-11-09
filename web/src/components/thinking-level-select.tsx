@@ -1,6 +1,7 @@
 import type { AvailableModel, ThinkingLevel } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
 import { LightbulbIcon } from "lucide-react";
+import { INLINE_CONTROL_CLASS } from "@/components/inline-control";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { thinkingLevelName } from "@/lib/thinking-level";
 import { cn } from "@/lib/utils";
@@ -55,11 +56,7 @@ export function ThinkingLevelSelect({
 				size={inline ? "xs" : "default"}
 				showIcon={!inline}
 				data-testid={dataTestId}
-				className={cn(
-					"w-full",
-					inline &&
-						"w-fit min-w-0 shrink justify-start gap-1 border-0 bg-transparent px-1.5 font-normal shadow-none hover:bg-muted aria-expanded:bg-muted",
-				)}
+				className={cn("w-full", inline && INLINE_CONTROL_CLASS)}
 			>
 				<SelectValue>
 					{(current: string | null) => {

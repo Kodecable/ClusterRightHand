@@ -1,5 +1,6 @@
 import type { RulePreset } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
+import { INLINE_CONTROL_CLASS } from "@/components/inline-control";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RULE_PRESETS, rulePresetIcon, rulePresetLabel } from "@/lib/rule-preset";
 import { cn } from "@/lib/utils";
@@ -55,19 +56,14 @@ export function RulePresetSelect({
 				size={inline ? "xs" : "default"}
 				showIcon={!inline}
 				data-testid={dataTestId}
-				className={cn(
-					"w-full",
-					inline &&
-						"w-fit shrink justify-start gap-1 border-0 bg-transparent px-2 text-xs font-normal shadow-none hover:bg-muted aria-expanded:bg-muted [&>svg]:hidden",
-					className,
-				)}
+				className={cn("w-full", inline && INLINE_CONTROL_CLASS, className)}
 			>
 				<SelectValue>
 					{(current: string | null) => {
 						const Icon = rulePresetIcon(current);
 						return (
-							<span className="flex items-center gap-1.5">
-								{Icon !== undefined && <Icon className="size-3.5" aria-hidden="true" />}
+							<span className="flex items-center gap-1">
+								{Icon !== undefined && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
 								{rulePresetLabel(current)}
 							</span>
 						);

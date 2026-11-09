@@ -225,7 +225,7 @@ export function TranscriptRow({
 			{item.kind === "compacting" && <CompactingRow />}
 			{item.kind === "error" && (
 				<p role="alert" className="text-sm text-danger">
-					{item.reason === "aborted" ? <Trans>The run was stopped.</Trans> : <Trans>The run failed.</Trans>}
+					{item.reason === "aborted" ? <Trans>The run was stopped</Trans> : <Trans>The run failed</Trans>}
 					{item.message !== null && <span className="ml-1 text-muted-foreground">{item.message}</span>}
 				</p>
 			)}

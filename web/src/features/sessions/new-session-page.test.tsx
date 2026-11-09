@@ -155,7 +155,7 @@ describe("NewSessionPage", () => {
 	test("defaults to the last model used, with Ask and an unlimited budget", async () => {
 		localStorage.setItem(NEW_SESSION_MODEL_STORAGE_KEY, JSON.stringify({ provider: "faux", modelId: "faux-2" }));
 		await renderDraft();
-		await waitFor(() => expect(screen.getByTestId("composer-model")).toHaveTextContent("faux/faux-2"));
+		await waitFor(() => expect(screen.getByTestId("composer-model")).toHaveTextContent("Faux Two"));
 		expect(screen.getByTestId("composer-rules")).toHaveTextContent("Ask");
 		expect(screen.getByTestId("composer-budget")).toHaveTextContent("∞");
 		// No header row: the empty transcript holds the centred prompt, and below `lg` the back button.
@@ -171,7 +171,7 @@ describe("NewSessionPage", () => {
 	test("falls back to the first available model when the stored one is gone", async () => {
 		localStorage.setItem(NEW_SESSION_MODEL_STORAGE_KEY, JSON.stringify({ provider: "gone", modelId: "nope" }));
 		await renderDraft();
-		await waitFor(() => expect(screen.getByTestId("composer-model")).toHaveTextContent("faux/faux-1"));
+		await waitFor(() => expect(screen.getByTestId("composer-model")).toHaveTextContent("Faux One"));
 	});
 
 	test("clamps the thinking level to off when the model changes", async () => {
@@ -195,7 +195,7 @@ describe("NewSessionPage", () => {
 			pageParams: [null],
 		});
 		const user = userEvent.setup();
-		await waitFor(() => expect(screen.getByTestId("composer-model")).toHaveTextContent("faux/faux-1"));
+		await waitFor(() => expect(screen.getByTestId("composer-model")).toHaveTextContent("Faux One"));
 
 		await user.click(screen.getByTestId("composer-thinking"));
 		await user.click(await screen.findByRole("option", { name: "High" }));

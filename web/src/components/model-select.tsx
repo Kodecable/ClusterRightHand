@@ -1,5 +1,6 @@
 import type { AvailableModel, ModelRef } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
+import { INLINE_CONTROL_CLASS } from "@/components/inline-control";
 import {
 	Select,
 	SelectContent,
@@ -78,6 +79,10 @@ export function ModelSelect({
 	const { t } = useLingui();
 	const groups = groupModels(models, value);
 	const selected = value ? modelKey(value) : "";
+	// Inline triggers show the display name but keep the full reference in the tooltip.
+	const fullName = value === undefined ? undefined : `${value.provider}/${value.modelId}`;
+	const triggerTitle =
+		inline && fullName !== undefined ? (title === undefined ? fullName : `${fullName} — ${title}`) : title;
 	return (
 		<Select
 			value={selected === "" ? null : selected}
@@ -89,30 +94,19 @@ export function ModelSelect({
 			<SelectTrigger
 				id={id}
 				aria-label={label ?? t`Model`}
-				title={title}
+				title={triggerTitle}
 				size={inline ? "xs" : "default"}
 				showIcon={!inline}
 				data-testid={dataTestId}
-				className={cn(
-					"w-full",
-					inline &&
-						"w-fit min-w-0 shrink justify-start gap-1 border-0 bg-transparent px-2 font-mono text-xs font-normal shadow-none hover:bg-muted aria-expanded:bg-muted [&>svg]:hidden",
-					className,
-				)}
+				className={cn("w-full", inline && INLINE_CONTROL_CLASS, className)}
 			>
 				<SelectValue placeholder={placeholder ?? t`Choose a model`}>
 					{(current: string | null) => {
 						if (!current) return placeholder ?? t`Choose a model`;
 						const parsed = parseModelKey(current);
-						if (inline) {
-							return (
-								<span className="min-w-0 truncate">
-									{parsed.provider}/{parsed.modelId}
-								</span>
-							);
-						}
 						const hit = models.find((model) => model.provider === parsed.provider && model.modelId === parsed.modelId);
-						return hit?.name ?? parsed.modelId;
+						const name = hit?.name ?? parsed.modelId;
+						return inline ? <span className="min-w-0 truncate">{name}</span> : name;
 					}}
 				</SelectValue>
 			</SelectTrigger>
