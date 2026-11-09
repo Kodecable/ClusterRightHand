@@ -1,6 +1,6 @@
 import type { AuditEvent } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { renderWithRouter } from "@/test/render";
@@ -100,11 +100,20 @@ describe("AuditPage filters", () => {
 		await renderPage();
 		const row = (await screen.findByText("task.approval")).closest('[role="row"]');
 		if (!(row instanceof HTMLElement)) throw new Error("no audit row");
-		// The per-row Detail button is gone; the whole row activates the dialog.
-		expect(within(row).queryByRole("button", { name: "Detail" })).not.toBeInTheDocument();
+		// The action cell carries the row's real button; clicking elsewhere on the row also activates it.
+		expect(within(row).getByRole("button", { name: "Detail of event 42" })).toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
 		const user = userEvent.setup();
 		await user.click(within(row).getByRole("button", { name: "Detail of event 42" }));
+		expect(await screen.findByRole("dialog", { name: "Event 42" })).toBeInTheDocument();
+	});
+
+	test("clicking a non-button part of a row opens the event detail dialog too", async () => {
+		mockAudit();
+		await renderPage();
+		const row = (await screen.findByText("task.approval")).closest('[role="row"]');
+		if (!(row instanceof HTMLElement)) throw new Error("no audit row");
+		fireEvent.click(row);
 		expect(await screen.findByRole("dialog", { name: "Event 42" })).toBeInTheDocument();
 	});
 

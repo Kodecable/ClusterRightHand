@@ -10,7 +10,7 @@ test("add an SSH node through the wizard", async ({ page }) => {
 	await expect(page.getByTestId("nodes-page")).toBeVisible();
 
 	await page.getByTestId("add-ssh-node").click();
-	const dialog = page.getByRole("dialog", { name: "Add SSH node" });
+	const dialog = page.getByRole("dialog", { name: "New SSH node" });
 	await expect(dialog).toBeVisible();
 	await expect(dialog.getByTestId("ssh-step-credential")).toBeVisible();
 

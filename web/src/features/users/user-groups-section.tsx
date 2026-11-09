@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { DateTime } from "@/components/relative-time";
+import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
 import { useUserGroups } from "./api";
 import { UserGroupNameDialog } from "./user-group-dialogs";
@@ -16,6 +17,7 @@ import { UserGroupNameDialog } from "./user-group-dialogs";
  */
 export function UserGroupsSection() {
 	const { t } = useLingui();
+	const timeWidth = useTimeColumnWidth();
 	const groups = useUserGroups();
 	const [creating, setCreating] = useState(false);
 
@@ -24,33 +26,35 @@ export function UserGroupsSection() {
 			{
 				id: "name",
 				header: t`Name`,
+				minSize: 140,
 				cell: ({ row }) => <span className="truncate font-medium">{row.original.name}</span>,
+				meta: { title: (group: UserGroup) => group.name },
 			},
 			{
 				id: "members",
 				header: t`Members`,
-				size: 140,
+				size: 120,
 				cell: ({ row }) => <Plural value={row.original.memberIds.length} one="# member" other="# members" />,
 			},
 			{
 				id: "created",
 				header: t`Created`,
-				size: 200,
+				size: timeWidth,
 				cell: ({ row }) => <DateTime value={row.original.createdAt} />,
 			},
 		],
-		[t],
+		[t, timeWidth],
 	);
 
 	return (
 		<section className="grid gap-3" aria-labelledby="user-groups-heading" data-testid="user-groups">
 			<div className="flex flex-wrap items-center justify-between gap-2">
-				<h2 id="user-groups-heading" className="text-sm font-semibold">
+				<h2 id="user-groups-heading" className="text-sm font-medium">
 					<Trans>User groups</Trans>
 				</h2>
 				<Button type="button" onClick={() => setCreating(true)} data-testid="create-user-group">
 					<PlusIcon />
-					<Trans>Create user group</Trans>
+					<Trans>New user group</Trans>
 				</Button>
 			</div>
 			<DataTable
@@ -63,7 +67,7 @@ export function UserGroupsSection() {
 				onRetry={() => void groups.refetch()}
 				rowLink={(group) => ({ to: "/user-groups/$userGroupId", params: { userGroupId: group.id } })}
 				rowLabel={(group) => group.name}
-				empty={<EmptyState title={<Trans>No user groups yet</Trans>} />}
+				empty={<EmptyState bare title={<Trans>No user groups yet</Trans>} />}
 			/>
 			{creating && <UserGroupNameDialog onClose={() => setCreating(false)} />}
 		</section>

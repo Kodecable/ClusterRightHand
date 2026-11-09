@@ -9,12 +9,13 @@ import { FieldShell } from "@/components/form";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
+import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { UserLink } from "@/components/user-link";
 import { useDirectory } from "@/features/users/api";
-import { cn, linkClass } from "@/lib/utils";
+import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { useAuditEvents } from "./api";
 
 /** The actor's id, as a tooltip: the cell itself shows the display name when the directory has one. */
@@ -42,12 +43,12 @@ function TargetCell({ event }: { event: AuditEvent }) {
 		<span className="flex min-w-0 items-center gap-1">
 			<span className="text-muted-foreground">{event.targetType}:</span>
 			{href === null ? (
-				<span className="truncate font-mono">{event.targetId}</span>
+				<span className={cn("truncate", MONO_CELL)}>{event.targetId}</span>
 			) : (
 				<Link
 					{...href}
 					aria-label={t`Open ${event.targetType} ${event.targetId}`}
-					className={cn("relative z-10 truncate font-mono", linkClass)}
+					className={cn("truncate", MONO_CELL, linkClass)}
 				>
 					{event.targetId}
 				</Link>
@@ -62,6 +63,7 @@ function TargetCell({ event }: { event: AuditEvent }) {
  */
 export function AuditPage() {
 	const { t } = useLingui();
+	const timeWidth = useTimeColumnWidth();
 	const prefix = useId();
 	const directory = useDirectory();
 	const [action, setAction] = useState("");
@@ -81,19 +83,20 @@ export function AuditPage() {
 			{
 				id: "ts",
 				header: t`Time`,
-				size: 220,
+				size: timeWidth,
 				cell: ({ row }) => <DateTime value={row.original.ts} />,
 			},
 			{
 				id: "action",
 				header: t`Action`,
-				size: 180,
-				cell: ({ row }) => <code className="font-mono text-xs">{row.original.action}</code>,
+				size: 160,
+				cell: ({ row }) => <code className={MONO_CELL}>{row.original.action}</code>,
+				meta: { title: (event: AuditEvent) => event.action },
 			},
 			{
 				id: "actor",
-				header: t`Actor`,
-				size: 160,
+				header: t`By`,
+				size: 140,
 				cell: ({ row }) => (
 					<span className="block truncate leading-5" title={actorId(row.original)}>
 						{row.original.actorType === "user" ? (
@@ -107,7 +110,7 @@ export function AuditPage() {
 			{
 				id: "onBehalf",
 				header: t`On behalf of`,
-				size: 150,
+				size: 130,
 				cell: ({ row }) =>
 					row.original.onBehalfOfUserId === null ? (
 						<span className="text-muted-foreground">–</span>
@@ -120,16 +123,21 @@ export function AuditPage() {
 			{
 				id: "target",
 				header: t`Target`,
+				minSize: 160,
 				cell: ({ row }) => <TargetCell event={row.original} />,
+				meta: {
+					title: (event: AuditEvent) =>
+						event.targetType !== null && event.targetId !== null ? `${event.targetType}:${event.targetId}` : undefined,
+				},
 			},
 		];
-	}, [t, names]);
+	}, [t, names, timeWidth]);
 
 	return (
 		<Page data-testid="audit-page">
 			<PageHeader title={<Trans>Audit</Trans>} />
 			<form
-				className="flex flex-wrap items-start gap-2"
+				className="flex flex-wrap items-start gap-3"
 				aria-label={t`Audit filters`}
 				onSubmit={(event) => {
 					event.preventDefault();
@@ -194,8 +202,13 @@ export function AuditPage() {
 				onLoadMore={() => void audit.fetchNextPage()}
 				onRowActivate={(event) => setDetail(event)}
 				rowLabel={(event) => t`Detail of event ${event.seq}`}
+				rowActivateColumn="action"
 				empty={
-					<EmptyState title={<Trans>No events</Trans>} description={<Trans>Nothing matches these filters.</Trans>} />
+					<EmptyState
+						bare
+						title={<Trans>No events</Trans>}
+						description={<Trans>Nothing matches these filters.</Trans>}
+					/>
 				}
 			/>
 			{detail && (
@@ -216,6 +229,7 @@ export function AuditPage() {
 							<CodeText
 								text={JSON.stringify(detail.detail, null, 2)}
 								maxLines={60}
+								preClassName="max-h-none whitespace-pre"
 								label={t`Event detail`}
 								copy={false}
 							/>

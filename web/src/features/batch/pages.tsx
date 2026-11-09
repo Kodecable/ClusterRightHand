@@ -7,6 +7,7 @@ import { NodeGroupPicker } from "@/components/node-group-picker";
 import { NodePicker } from "@/components/node-picker";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
+import { Panel } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { TaskFormFields } from "@/components/task-form-fields";
 import { Button } from "@/components/ui/button";
@@ -87,14 +88,14 @@ export function BatchPage() {
 			<PageHeader title={<Trans>Batch run</Trans>} />
 
 			<form
-				className="grid gap-3 rounded-lg border p-3"
+				className="grid gap-3 rounded-lg border p-4"
 				onSubmit={(event) => {
 					event.preventDefault();
 					void submit();
 				}}
 			>
 				<fieldset className="grid gap-2">
-					<legend className="text-sm font-semibold">
+					<legend className="text-sm font-medium">
 						<Trans>Targets</Trans>
 					</legend>
 					{nodes.isPending ? (
@@ -124,7 +125,7 @@ export function BatchPage() {
 							</div>
 						</div>
 					)}
-					{nodes.data && operable.length === 0 && <EmptyHint>{t`No active nodes you can access.`}</EmptyHint>}
+					{nodes.data && operable.length === 0 && <EmptyHint>{t`No active nodes you can access`}</EmptyHint>}
 					<div className="flex items-start gap-2">
 						<Checkbox
 							id="batch-all"
@@ -232,7 +233,7 @@ export function BatchPage() {
 
 			{taskGroup.error !== null && taskGroup.error !== undefined && <ErrorText error={taskGroup.error} />}
 			{taskGroup.data !== undefined && (
-				<div className="rounded-lg border p-3" data-testid="batch-result">
+				<Panel className="grid gap-3" data-testid="batch-result">
 					<TaskGroupResult
 						taskGroup={taskGroup.data}
 						names={names}
@@ -240,7 +241,7 @@ export function BatchPage() {
 							void taskGroup.refetch();
 						}}
 					/>
-				</div>
+				</Panel>
 			)}
 		</Page>
 	);

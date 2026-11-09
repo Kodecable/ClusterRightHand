@@ -2,6 +2,7 @@ import type { CustomApi, ThinkingLevel } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
 import { ChevronRightIcon } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { FieldShell } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -17,7 +18,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import {
 	type FormatLevelKind,
@@ -98,65 +98,82 @@ function FormatLevelTable({
 }) {
 	const { t, i18n } = useLingui();
 	const kindLabel = (kind: FormatLevelKind) => (kind === "default" ? t`Default (omitted)` : t`Mapped value`);
+	const rows = THINKING_LEVELS.map((level) => ({ level }));
+	const columns: DataTableColumn<(typeof rows)[number]>[] = [
+		{
+			id: "label",
+			header: t`Display name`,
+			size: 200,
+			cell: ({ row: levelRow }) => {
+				const level = levelRow.original.level;
+				const labelError = errors.labels?.[level];
+				return (
+					<div className="grid gap-1">
+						<Input
+							aria-label={t`${level} display name`}
+							placeholder={level}
+							aria-invalid={labelError !== undefined || undefined}
+							value={row.labels[level]}
+							onChange={(event) => patchLabel(level, event.target.value)}
+						/>
+						{labelError !== undefined && <ErrorText>{providerErrorText(i18n, labelError)}</ErrorText>}
+					</div>
+				);
+			},
+		},
+		{
+			id: "mapping",
+			header: t`Mapping`,
+			size: 160,
+			cell: ({ row: levelRow }) => {
+				const level = levelRow.original.level;
+				const entry = row.formatLevels[level];
+				return (
+					<Select value={entry.kind} onValueChange={(next) => patchLevel(level, { kind: next as FormatLevelKind })}>
+						<SelectTrigger size="sm" className="w-full" aria-label={t`${level} mapping`}>
+							<SelectValue>{(selected: FormatLevelKind) => kindLabel(selected)}</SelectValue>
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="default">{t`Default (omitted)`}</SelectItem>
+							<SelectItem value="value">{t`Mapped value`}</SelectItem>
+						</SelectContent>
+					</Select>
+				);
+			},
+		},
+		{
+			id: "value",
+			header: t`Value`,
+			minSize: 180,
+			cell: ({ row: levelRow }) => {
+				const level = levelRow.original.level;
+				const entry = row.formatLevels[level];
+				const error = errors.formatLevels?.[level];
+				return (
+					<div className="grid gap-1">
+						<Input
+							aria-label={t`${level} value`}
+							aria-invalid={error !== undefined || undefined}
+							disabled={entry.kind !== "value"}
+							value={entry.value}
+							onChange={(event) => patchLevel(level, { value: event.target.value })}
+						/>
+						{error !== undefined && <ErrorText>{providerErrorText(i18n, error)}</ErrorText>}
+					</div>
+				);
+			},
+		},
+	];
 	return (
 		<>
 			<Label>{t`Level mapping`}</Label>
-			<div className="overflow-auto rounded-lg border">
-				<Table aria-label={t`Thinking level mapping`}>
-					<TableHeader>
-						<TableRow>
-							<TableHead className="w-40">{t`Display name`}</TableHead>
-							<TableHead className="w-44">{t`Mapping`}</TableHead>
-							<TableHead>{t`Value`}</TableHead>
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{THINKING_LEVELS.map((level) => {
-							const entry = row.formatLevels[level];
-							const error = errors.formatLevels?.[level];
-							const labelError = errors.labels?.[level];
-							return (
-								<TableRow key={level}>
-									<TableCell>
-										<Input
-											aria-label={t`${level} display name`}
-											placeholder={level}
-											aria-invalid={labelError !== undefined || undefined}
-											value={row.labels[level]}
-											onChange={(event) => patchLabel(level, event.target.value)}
-										/>
-										{labelError !== undefined && <ErrorText>{providerErrorText(i18n, labelError)}</ErrorText>}
-									</TableCell>
-									<TableCell>
-										<Select
-											value={entry.kind}
-											onValueChange={(next) => patchLevel(level, { kind: next as FormatLevelKind })}
-										>
-											<SelectTrigger size="sm" className="w-full" aria-label={t`${level} mapping`}>
-												<SelectValue>{(selected: FormatLevelKind) => kindLabel(selected)}</SelectValue>
-											</SelectTrigger>
-											<SelectContent>
-												<SelectItem value="default">{t`Default (omitted)`}</SelectItem>
-												<SelectItem value="value">{t`Mapped value`}</SelectItem>
-											</SelectContent>
-										</Select>
-									</TableCell>
-									<TableCell>
-										<Input
-											aria-label={t`${level} value`}
-											aria-invalid={error !== undefined || undefined}
-											disabled={entry.kind !== "value"}
-											value={entry.value}
-											onChange={(event) => patchLevel(level, { value: event.target.value })}
-										/>
-										{error !== undefined && <ErrorText>{providerErrorText(i18n, error)}</ErrorText>}
-									</TableCell>
-								</TableRow>
-							);
-						})}
-					</TableBody>
-				</Table>
-			</div>
+			<DataTable
+				label={t`Thinking level mapping`}
+				columns={columns}
+				data={rows}
+				getRowId={(entry) => entry.level}
+				density="compact"
+			/>
 		</>
 	);
 }
@@ -288,13 +305,13 @@ export function ModelDialog({
 			}}
 		>
 			<DialogContent
-				className="flex max-h-[90vh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
+				className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
 				data-testid="model-dialog"
 			>
 				<DialogHeader className="border-b p-4 pr-12">
-					<DialogTitle>{editing ? t`Edit model ${initial.id}` : t`Add model`}</DialogTitle>
+					<DialogTitle>{editing ? t`Edit model ${initial.id}` : t`New model`}</DialogTitle>
 				</DialogHeader>
-				<DialogScrollArea className="mx-0 my-0 grid min-h-0 flex-1 content-start gap-4 px-4 py-4">
+				<DialogScrollArea className="mx-0 my-0 grid min-h-0 flex-1 content-start gap-3 px-4 py-4">
 					<div className="grid gap-3 sm:grid-cols-2">
 						<FieldShell id={`${prefix}-id`} label={t`Model id`} error={errorText(i18n, errors.id)}>
 							<Input
@@ -376,7 +393,7 @@ export function ModelDialog({
 
 					<Collapsible>
 						<CollapsibleTrigger className="flex w-fit items-center gap-1 text-sm font-medium">
-							<ChevronRightIcon className="size-4" />
+							<ChevronRightIcon className="size-3.5" />
 							{t`Compat (JSON, advanced)`}
 						</CollapsibleTrigger>
 						<CollapsibleContent className="grid gap-1 pt-2">

@@ -115,17 +115,36 @@ web/src/
 - 相对时间（`RelativeTime`）用于列表里显示的时间（任务、节点最近连接、计划任务的下次运行和运行历史、节点的最近任务、访问授权的添加时间等）。它继承所在行的字号和颜色，悬停的 `title` 显示带秒的绝对时间。
 - 绝对时间只有一种格式：`DateTime` 用 `formatDateTimeSeconds`，即带秒的日期时间（UI 语言、浏览器时区）。审计、授权、审批、API token、凭据、SSH 凭据和用户的创建时间等安全相关列表用它；详情页里的绝对时间也用同一格式。`Intl` 不传固定 `timeZone`。
 - 任务结果：非 exec 任务（file.read / write / edit / stat / list）以退出码 0 结束、且没有超时、取消或信号时，Outcome 显示“成功”（`Succeeded`）；exec 任务仍显示 `Exit code N`。信号、超时、取消和错误照旧；没有内容时显示 muted 的 en dash “–”。
-- 列表正文统一用表格的 text-sm 和普通前景色；等宽值（id、命令、路径、密钥、cron）保留 `font-mono text-xs`，占位符“–”用 muted。状态列的表头统一为 Status。
+- 列表正文统一用表格的 text-sm 和普通前景色；等宽值（id、命令、路径、密钥、cron）保留 `font-mono text-xs leading-5`，占位符“–”用 muted。状态列的表头统一为 Status。
 
 ### 列表导航、链接与刷新
 
-- 列表行代表一个有详情页的对象时，整行可点：点击进入它的详情页。行里的名称是普通文本（不加主色、不加下划线），唯一的可点提示是鼠标指针和原有的悬停底色。
-- 行导航由共享的 `DataTable` 渲染成真正的 `<Link>`（`absolute inset-0` 覆盖整行），所以中键、Ctrl+点击、在新标签页打开、状态栏 URL 和键盘焦点都正常；无障碍名取对象名称（`rowLabel`）。单元格里的其它链接、按钮、复制按钮、开关必须叠在覆盖层之上（`relative z-10`），点它们不会触发行导航；Tab 顺序里行链接排在第一位。
-- 行的动作不是导航时（审计行打开事件详情弹窗）用同样的覆盖按钮（`onRowActivate`），鼠标和键盘都能触发。
+- 列表行代表一个有详情页的对象时，整行可点：点击行里的非交互区域进入它的详情页。名称仍然不加主色、不加下划线，可点提示是鼠标指针和原有的悬停底色。
+- 行导航由共享的 `DataTable` 实现，不再使用覆盖整行的 `absolute inset-0` 覆盖层。行元素自己有点击处理：点击前先忽略落在交互元素（`a`、`button`、`input`、`select`、`textarea`、`label`、`summary`、`[role=button]`、`[role=menuitem]`、`[contenteditable]`）里的点击，也忽略带有非空文本选中的点击（复制单元格文字不会跳转）；Ctrl/⌘+点击、Shift+点击和中键点击用行的 href 在新标签页打开。
+- 每行只有一个真正的链接：`DataTable` 把它放在第一个单元格里包住单元格内容，并用 `text-inherit no-underline` 保持普通文本外观、带可见的键盘焦点环，无障碍名取对象名称（`rowLabel`）；它是该行唯一的 Tab 停靠点，中键、Ctrl+点击、“在新标签页打开”和状态栏 URL 都由这个真正的 `<Link>` 提供。第一个单元格不是名称时（任务表的 “Created”、运行历史的触发时间等）用 `rowLinkColumn` 指定名称/摘要所在的列；单元格里的其它链接、按钮、复制按钮、开关各有自己的链接和焦点，点它们不会触发行导航。
+- 因为不再有覆盖层，单元格的 `title` 提示（`RelativeTime` 的绝对时间、被截断文本的全文）可以正常显示，单元格文字也可以选中和复制。
+- 行的动作不是导航时（审计行打开事件详情弹窗）用同样的行点击（`onRowActivate`）：行元素按相同规则响应，并在 `rowActivateColumn` 指定的单元格（审计用操作列）里放一个真正的按钮，无障碍名仍是 “Detail of event {n}”，鼠标和键盘都能触发。
 - 指向“别的对象”的链接统一为前景色加细下划线（`text-foreground underline underline-offset-2`，悬停加粗下划线），不用主色（蓝色），因为蓝色在这里读起来像按钮；`linkClass` 是唯一的来源。按钮不装成链接，导航也不渲染成按钮。唯一的例外是详情页的返回控件：统一用 `ArrowLeftIcon` + “All X”（如 “All nodes”、“All approvals”）的弱化行内链接。
 - 没有“刷新”按钮：列表和区块靠轮询、SSE 或 mutation 失效保持新鲜。审计列表每 10 秒轮询（日志只追加，已加载的页不会跳动），节点信任和节点最近任务每 10 秒轮询，其余列表各自沿用原有的轮询和失效。
 - 编辑动作只放详情页：节点组列表不提供改名、删除或编辑成员，节点列表只保留待批准节点的 Approve / Reject，计划任务列表只保留“立即运行”这个行内动作。
-- 用户作为操作者或所有者出现时一律渲染成指向 `/users/$userId` 的链接（任务表的 By 列、任务详情的 Asked by、审计的 Actor / On behalf of、审批卡片的 Asked by / Decided by）；查看者有没有权限打开该页由目标页处理。system、API token、agent 等非用户操作者仍是纯文本。会话列表的 shared 提示仍是一行文字。
+- 用户作为操作者或所有者出现时一律渲染成指向 `/users/$userId` 的链接（任务表的 By 列、任务详情的 Asked by、审计的 By / On behalf of、审批卡片的 Asked by / Decided by）；查看者有没有权限打开该页由目标页处理。system、API token、agent 等非用户操作者仍是纯文本。会话列表的 shared 提示仍是一行文字。
+
+### 表格、状态与对话框
+
+- 所有列表只有一个实现：共享的 `DataTable`。详情页里的成员表、审批的规则链、授权的任务表、文件列表、节点访问授权、节点信任、SSH 路由、提供方模型和模型思考档位表也用它，不再手写 `<table>` 或直接使用 ui `Table`。
+- `DataTable` 的列宽：`size` 是固定宽度，`minSize` 给出最小宽度并允许列继续变长。名称列设置 `minSize`（如节点、用户、模型提供方、计划任务），时间列固定为能放下带秒绝对时间的宽度（165px），命令、路径、URL 等长自由文本是唯一允许被截断的内容，不给 `minSize`。表格的最小宽度等于固定宽度、最小宽度和自由文本列的小地板之和；放不下时表头和行一起在 `data-table-scroll` 里横向滚动，不会被裁掉。每个被截断的单元格都有 `title` 显示全文；列可以用 `meta.title` 指定完整文本。
+- 嵌在卡片或对话框里的表用 `density="compact"`；父容器已经有边框时用 `frame={false}`，避免双重边框。表里没有行时把 `EmptyState` 以 `bare` 传入，让空状态落在表格自身的边框内。
+- 行高与对齐：正文行有统一的最小高度，默认 40px（`min-h-10`）、compact 32px（`min-h-8`），表头固定为 32px / 28px；行网格是 `align-items: center`，单元格只保留水平内边距（`px-3` / `px-2`）和很小的纵向内边距，所以行内的 xs 按钮（h-6）、icon-xs 复制按钮、选择器和开关都落在固定行高内，不再把行撑高、也不让其它单元格的文字贴顶。单元格里的等宽值统一用 `MONO_CELL`（`font-mono text-xs leading-5`），与 text-sm 共用 20px 行盒；行首的整行链接/按钮是块级文本，不增加单元格高度。
+- 详情页的标签/值统一用 `KeyValueList`：网格 `items-start`，标签和值都用 20px 行高（等宽值用 `MONO_CELL`，`text-xs leading-5`），两种字号在同一行框里垂直居中，行距一致；不用基线对齐，因为小字号的值会被下移、把那一行撑高；值是 Select、Button、Switch 等控件时给 `KeyValueItem` 加 `control: true`，这一对的 dt/dd 用 `self-center` 与控件垂直居中。芯片列表（用户组、成员、共享对象、节点访问）统一 `inline-flex min-h-8 items-center`，文字居中且高度一致。
+- 空状态统一用 `EmptyState`（整块）或 `EmptyHint`（区块内的一行提示，例如 “No members”“No subagents”“The node trusts nobody”“No user groups”），这些短提示结尾不加句号。
+- 加载状态：整页用 `PageSkeleton`（放在 `Page` 里，不用裸 `div p-4`），表体用 `DataTable` 的 spinner，行内或浮层用 `Spinner`；不再出现 “Loading…” 文本。
+- 错误状态：查询失败用 `ErrorState`，表单和卡片内的错误用 `ErrorText`；不再手写 `<p role="alert" className="text-danger">`。列表页和详情页的加载、错误都渲染在 `Page` 里，保持与正常页面相同的宽度和留白。
+- 警告横幅统一为 `WarningBanner`：`rounded-lg border border-warn/30 bg-warn-bg px-3 py-2 text-sm text-warn`（计划任务无模型、会话列表无模型、token 永不过期 / Yolo）。
+- 带边框的区块统一用 `Panel`（`rounded-lg border p-4`），区块标题统一为 `h2 text-sm font-medium`。任务页、批量页、审批 / 授权 / 配额卡片、模型预设卡片、计划任务表单和凭据表单都用同一边框、圆角和内边距，不再混用 `Card` 和 `rounded-xl`。
+- 对话框只有两种宽度：表单和确认用默认宽度，展示代码、payload 或表格的用 `sm:max-w-2xl`（授权 payload、审计详情、规则 JSON、信任片段、提供方、模型和 SSH 向导）。所有页脚都走 `DialogFooter`（或 `FormDialog` / `ConfirmDialog`），不再手写 `flex justify-end gap-2`。
+- 对话框按钮：有未保存操作时关闭按钮写 “Cancel”，仅展示信息时写 “Close”（不再用 “Done”）。创建入口统一写 “New X”（New user、New schedule、New token、New node group、New SSH credential、New user group、New provider、New node、New SSH node、New model）；中文为 “新建 X”。它们都是默认尺寸，次要的创建入口用 outline 并带 `PlusIcon`。
+- 列标题：时间列写 “Created”（不再用 “Added”）；操作者列一律写 “By”（中文 “操作者”），审计也一样。
+- 图标：从列表里移除一项用 `XIcon`，删除整个对象用 `Trash2Icon`；同一上下文里警告三角和展开箭头都用 `size-3.5`。
 
 ### 用户与用户组
 
@@ -138,7 +157,7 @@ web/src/
   - `Recent sessions` 和 `Recent tasks` 两个 `DataTable` 只取第一页：会话用 `scope=all&ownerId=`（管理员）或 `scope=visible&ownerId=`（本人），任务用 `userId=`；行分别链接到会话和任务页。时间用 `RelativeTime`。
   - 用户不存在和“没有权限看这个用户”是同一条 `ErrorState`：“This user doesn't exist or you don't have access.”。
 - `/user-groups/$userGroupId`（`UserGroupDetailPage`）：返回 “All users”；显示名称、创建时间、成员（成员名链接到用户页）；成员可以逐个添加和移除；页头提供重命名和删除（确认后回用户页）。管理员还能看到同样的 `Node access` 区块，列出 `user_group:<id>` 的授权。改名与创建用同一套名称规则，服务端校验并记审计。
-- `/users` 页下方的用户组区域是只读 `DataTable`（名称、成员数、创建时间），行链接到用户组详情；`Create user group` 是这一区域的页头式主操作（默认尺寸 + `PlusIcon`），点击后在对话框里填名称。成员编辑、改名和删除都只在详情页。
+- `/users` 页下方的用户组区域是只读 `DataTable`（名称、成员数、创建时间），行链接到用户组详情；`New user group` 是这一区域的页头式主操作（默认尺寸 + `PlusIcon`），点击后在对话框里填名称。成员编辑、改名和删除都只在详情页。
 
 ### 会话界面
 

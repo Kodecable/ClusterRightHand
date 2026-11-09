@@ -44,7 +44,7 @@ export function NewUserDialog({ onClose }: { onClose: () => void }) {
 			title={t`New user`}
 			description={t`A user without a password cannot sign in until an administrator sets one.`}
 			busy={create.isPending}
-			submitLabel={t`Create user`}
+			submitLabel={t`New user`}
 			onSubmit={() =>
 				void form.handleSubmit((values) => {
 					create.mutate(

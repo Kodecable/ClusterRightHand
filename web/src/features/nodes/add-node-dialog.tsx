@@ -7,13 +7,20 @@ import { FieldShell } from "@/components/form";
 import { DateTime } from "@/components/relative-time";
 import { Spinner } from "@/components/spinner";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useEnrollmentToken } from "@/features/nodes/api";
 import { enrollCommand } from "@/features/nodes/commands";
 
 /**
- * "Add node": creates a one-time enrollment token and shows the command to run
+ * "New node": creates a one-time enrollment token and shows the command to run
  * on the node. The token is shown once; the node appears as pending until an
  * administrator approves its key fingerprint.
  */
@@ -35,7 +42,7 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 			<DialogContent data-testid="add-node-dialog">
 				<DialogHeader>
 					<DialogTitle>
-						<Trans>Add node</Trans>
+						<Trans>New node</Trans>
 					</DialogTitle>
 					<DialogDescription>
 						<Trans>
@@ -85,28 +92,28 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 						</FieldShell>
 					)}
 					<ErrorText error={create.error} />
-					<div className="flex flex-wrap justify-end gap-2">
-						{created ? (
-							<Button type="button" onClick={onClose}>
-								<Trans>Close</Trans>
-							</Button>
-						) : (
-							<>
-								<Button type="button" variant="outline" onClick={onClose}>
-									<Trans>Cancel</Trans>
-								</Button>
-								<Button
-									type="button"
-									disabled={create.isPending}
-									onClick={() => create.mutate(hint.trim() || undefined, { onSuccess: setCreated })}
-								>
-									{create.isPending && <Spinner className="size-4" decorative />}
-									<Trans>Create token</Trans>
-								</Button>
-							</>
-						)}
-					</div>
 				</div>
+				<DialogFooter>
+					{created ? (
+						<Button type="button" onClick={onClose}>
+							<Trans>Close</Trans>
+						</Button>
+					) : (
+						<>
+							<Button type="button" variant="outline" onClick={onClose}>
+								<Trans>Cancel</Trans>
+							</Button>
+							<Button
+								type="button"
+								disabled={create.isPending}
+								onClick={() => create.mutate(hint.trim() || undefined, { onSuccess: setCreated })}
+							>
+								{create.isPending && <Spinner className="size-4" decorative />}
+								<Trans>New token</Trans>
+							</Button>
+						</>
+					)}
+				</DialogFooter>
 			</DialogContent>
 		</Dialog>
 	);

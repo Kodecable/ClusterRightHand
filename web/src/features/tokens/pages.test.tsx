@@ -61,7 +61,7 @@ describe("CreateTokenDialog", () => {
 		const user = userEvent.setup();
 
 		await user.type(screen.getByLabelText("Name"), "laptop");
-		await user.click(screen.getByRole("button", { name: "Create token" }));
+		await user.click(screen.getByRole("button", { name: "New token" }));
 
 		await screen.findByText("Copy this token now. It will not be shown again.");
 		expect(screen.getByText(TOKEN)).toBeInTheDocument();
@@ -77,7 +77,7 @@ describe("CreateTokenDialog", () => {
 		unmount();
 		renderDialog();
 		expect(screen.queryByText(TOKEN)).not.toBeInTheDocument();
-		await waitFor(() => expect(screen.getByRole("button", { name: "Create token" })).toBeInTheDocument());
+		await waitFor(() => expect(screen.getByRole("button", { name: "New token" })).toBeInTheDocument());
 	});
 
 	test("offers only Ask and Yolo, and warns for Yolo", async () => {

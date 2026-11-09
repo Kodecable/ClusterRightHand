@@ -104,7 +104,7 @@ describe("NodeAccessSection", () => {
 	test("an administrator adds and removes a grant", async () => {
 		const { calls, grants } = await renderSection(ADMIN);
 		await screen.findByTestId("node-access");
-		expect(screen.getByText("No access grants yet.")).toBeInTheDocument();
+		await screen.findByText("No access grants yet");
 
 		const user = userEvent.setup();
 		await user.click(screen.getByTestId("add-access"));
@@ -133,13 +133,13 @@ describe("NodeAccessSection", () => {
 				true,
 			),
 		);
-		await waitFor(() => expect(screen.getByText("No access grants yet.")).toBeInTheDocument());
+		await waitFor(() => expect(screen.getByText("No access grants yet")).toBeInTheDocument());
 	});
 
 	test("a member does not see the section", async () => {
 		const { calls } = await renderSection({ ...ADMIN, kind: "member" });
 		expect(screen.queryByTestId("node-access")).not.toBeInTheDocument();
-		expect(screen.queryByText("No access grants yet.")).not.toBeInTheDocument();
+		expect(screen.queryByText("No access grants yet")).not.toBeInTheDocument();
 		expect(calls.some((call) => call.url.startsWith("/api/node-access-grants"))).toBe(false);
 	});
 });

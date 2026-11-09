@@ -63,7 +63,6 @@ export function BudgetDialog({
 			submitLabel={<Trans>Save</Trans>}
 			busy={busy}
 			error={error !== undefined ? errorText(error) : undefined}
-			className="sm:max-w-sm"
 			onSubmit={save}
 		>
 			<Label htmlFor="session-quota">

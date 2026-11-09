@@ -54,17 +54,22 @@ function toDate(value: DateInput): Date | null {
 	return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** Seconds precision, e.g. "Oct 31, 2026, 20:08:29". */
+/**
+ * Seconds precision in a compact, still locale-aware shape: "11/06/2026,
+ * 01:23:45" in en, "2026/11/06 01:23:45" in zh-CN. Narrow enough for the
+ * table's fixed time columns; no explicit `timeZone`, so it is the browser's.
+ */
 export function formatDateTimeSeconds(value: DateInput, locale: string): string {
 	const date = toDate(value);
 	if (!date) return "–";
 	return dateTimeFormat(locale, {
 		year: "numeric",
-		month: "short",
-		day: "numeric",
+		month: "2-digit",
+		day: "2-digit",
 		hour: "2-digit",
 		minute: "2-digit",
 		second: "2-digit",
+		hourCycle: "h23",
 	}).format(date);
 }
 

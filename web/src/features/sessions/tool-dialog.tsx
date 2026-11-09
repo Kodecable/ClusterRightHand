@@ -65,7 +65,7 @@ export function ToolDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="sm:max-w-3xl" data-testid="tool-dialog">
+			<DialogContent className="sm:max-w-2xl" data-testid="tool-dialog">
 				<DialogHeader>
 					<DialogTitle className="pr-6 font-mono text-sm">{item.name}</DialogTitle>
 				</DialogHeader>
@@ -141,12 +141,12 @@ function ToolLiveOutput({ store }: { store: ReturnType<TranscriptStreams["tool"]
 	if (text === "") {
 		return (
 			<p className="text-xs text-muted-foreground">
-				<Trans>No output yet.</Trans>
+				<Trans>No output yet</Trans>
 			</p>
 		);
 	}
 	return (
-		<pre className="max-h-72 overflow-auto rounded-md border bg-[var(--code)] p-2 font-mono text-xs whitespace-pre-wrap break-words">
+		<pre className="max-h-72 overflow-auto rounded-md border bg-[var(--code)] p-2 font-mono text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
 			{text}
 		</pre>
 	);

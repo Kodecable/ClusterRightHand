@@ -13,11 +13,20 @@ import { NodeLink } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
+import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/features/auth/session";
 import { errorMessage } from "@/lib/api/client";
+import { cn, MONO_CELL } from "@/lib/utils";
 import { useCreateSshCredential, useDeleteSshCredential, useSshCredentials } from "./api";
 
 /** The public key as one truncated line; the full authorized_keys line is in the title and the copy button. */
@@ -68,7 +77,7 @@ function CreateCredentialDialog({
 			onOpenChange={(next) => {
 				if (!next) close();
 			}}
-			title={<Trans>Create SSH credential</Trans>}
+			title={<Trans>New SSH credential</Trans>}
 			description={
 				<Trans>
 					crhs generates an ed25519 key pair and keeps the private half. Only its public key leaves the server.
@@ -84,7 +93,7 @@ function CreateCredentialDialog({
 					},
 				});
 			}}
-			submitLabel={<Trans>Create</Trans>}
+			submitLabel={<Trans>New SSH credential</Trans>}
 			busy={create.isPending}
 			submitDisabled={name.trim() === ""}
 			error={create.error ? errorMessage(create.error) : undefined}
@@ -119,12 +128,12 @@ function CreatedCredentialDialog({ credential, onClose }: { credential: SshCrede
 					</DialogDescription>
 				</DialogHeader>
 				<CodeText text={credential.publicKey} maxLines={4} label={t`Public key`} copy={false} />
-				<div className="flex flex-wrap justify-end gap-2">
+				<DialogFooter className="justify-between sm:justify-between">
 					<CopyButton text={credential.publicKey} label={t`Copy public key`} showLabel variant="outline" />
 					<Button type="button" onClick={onClose}>
-						<Trans>Done</Trans>
+						<Trans>Close</Trans>
 					</Button>
-				</div>
+				</DialogFooter>
 			</DialogContent>
 		</Dialog>
 	);
@@ -132,6 +141,7 @@ function CreatedCredentialDialog({ credential, onClose }: { credential: SshCrede
 
 function SshCredentialsAdminPage() {
 	const { t } = useLingui();
+	const timeWidth = useTimeColumnWidth();
 	const credentials = useSshCredentials();
 	const remove = useDeleteSshCredential();
 	const [creating, setCreating] = useState(false);
@@ -143,36 +153,38 @@ function SshCredentialsAdminPage() {
 			{
 				id: "name",
 				header: t`Name`,
+				minSize: 140,
 				cell: ({ row }) => <span className="truncate font-medium">{row.original.name}</span>,
+				meta: { title: (credential: SshCredential) => credential.name },
 			},
 			{
 				id: "publicKey",
 				header: t`Public key`,
 				cell: ({ row }) => (
 					<span className="flex min-w-0 items-center gap-1">
-						<code className="truncate font-mono text-xs leading-5" title={row.original.publicKey}>
+						<code className={cn("truncate", MONO_CELL)} title={row.original.publicKey}>
 							{truncatedKey(row.original.publicKey)}
 						</code>
-						<CopyButton text={row.original.publicKey} label={t`Copy public key`} />
+						<CopyButton text={row.original.publicKey} label={t`Copy public key`} size="icon-xs" />
 					</span>
 				),
 			},
 			{
 				id: "created",
 				header: t`Created`,
-				size: 200,
+				size: timeWidth,
 				cell: ({ row }) => <DateTime value={row.original.createdAt} />,
 			},
 			{
 				id: "usedBy",
 				header: t`Used by`,
-				size: 220,
+				minSize: 140,
 				cell: ({ row }) => <UsedBy credential={row.original} />,
 			},
 			{
 				id: "actions",
 				header: actionsHeader,
-				size: 100,
+				size: 110,
 				cell: ({ row }) => {
 					const used = row.original.usedBy.length > 0;
 					return (
@@ -199,7 +211,7 @@ function SshCredentialsAdminPage() {
 				},
 			},
 		],
-		[t, remove],
+		[t, remove, timeWidth],
 	);
 
 	return (
@@ -212,7 +224,7 @@ function SshCredentialsAdminPage() {
 				actions={
 					<Button type="button" onClick={() => setCreating(true)}>
 						<PlusIcon />
-						<Trans>Create SSH credential</Trans>
+						<Trans>New SSH credential</Trans>
 					</Button>
 				}
 			/>
@@ -226,6 +238,7 @@ function SshCredentialsAdminPage() {
 				onRetry={() => void credentials.refetch()}
 				empty={
 					<EmptyState
+						bare
 						icon={<LockKeyholeIcon className="size-6" />}
 						title={<Trans>No SSH credentials yet</Trans>}
 						description={<Trans>Create one to give crhs a key for SSH nodes and jump hosts.</Trans>}

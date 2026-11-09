@@ -23,7 +23,7 @@ export function AddSshNodeDialog({ onClose }: { onClose: () => void }) {
 			<DialogContent className="sm:max-w-2xl">
 				<DialogHeader>
 					<DialogTitle>
-						<Trans>Add SSH node</Trans>
+						<Trans>New SSH node</Trans>
 					</DialogTitle>
 					<DialogDescription>
 						<Trans>

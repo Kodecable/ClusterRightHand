@@ -136,6 +136,30 @@ describe("ModelSettingsPage", () => {
 		expect(row).toHaveTextContent("Set");
 	});
 
+	test("the providers table fits the standard list width without horizontal scrolling", async () => {
+		const json = (body: unknown) =>
+			new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = String(input);
+				if (url === "/api/model-providers") return json({ providers: [BUILTIN], builtin: ["faux"] });
+				if (url === "/api/models") return json({ models: [] });
+				if (url === "/api/model-presets") return json({ presets: [] });
+				return json({});
+			}),
+		);
+		renderWithI18n(<ModelSettingsPage />);
+		await screen.findByText("Faux");
+		const table = screen.getByTestId("model-providers").querySelector<HTMLElement>('[data-slot="data-table"]');
+		if (table === null) throw new Error("no provider table");
+		// The table's computed minimum (fixed + minimum + flexible floors) stays
+		// inside the ~990px a desktop leaves for the table, so it does not scroll.
+		const minWidth = Number.parseInt(table.style.getPropertyValue("--dt-min-width"), 10);
+		expect(minWidth).toBeGreaterThan(0);
+		expect(minWidth).toBeLessThanOrEqual(960);
+	});
+
 	test("a disabled provider without a key shows plain Disabled and Not set", async () => {
 		const disabled = {
 			...BUILTIN,
@@ -236,8 +260,8 @@ describe("ProviderDialog", () => {
 		await user.click(within(session).getByRole("button", { name: "Add field" }));
 		await fill(user, within(session).getByLabelText("Session id body field 1"), "metadata.session_id");
 
-		await user.click(screen.getByRole("button", { name: "Add model" }));
-		let dialog = await screen.findByRole("dialog", { name: "Add model" });
+		await user.click(screen.getByRole("button", { name: "New model" }));
+		let dialog = await screen.findByRole("dialog", { name: "New model" });
 		// Base UI marks a dialog opened inside another one as nested (it must not close the parent).
 		expect(dialog).toHaveAttribute("data-nested");
 		// ...and marks the parent popup; the nested dialog brings its own blurred backdrop.
@@ -256,10 +280,10 @@ describe("ProviderDialog", () => {
 		change(within(dialog).getByLabelText("high request body JSON"), '{"reasoning":{"effort":"high"}}');
 		change(highDisplayName, "Deep");
 		await user.click(within(dialog).getByRole("button", { name: "Save model" }));
-		await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add model" })).not.toBeInTheDocument());
+		await waitFor(() => expect(screen.queryByRole("dialog", { name: "New model" })).not.toBeInTheDocument());
 
-		await user.click(screen.getByRole("button", { name: "Add model" }));
-		dialog = await screen.findByRole("dialog", { name: "Add model" });
+		await user.click(screen.getByRole("button", { name: "New model" }));
+		dialog = await screen.findByRole("dialog", { name: "New model" });
 		await fill(user, within(dialog).getByLabelText("Model id"), "chat-model");
 		await choose(user, "Thinking", "Standard", dialog);
 		expect(within(dialog).getByLabelText("Thinking format")).toHaveTextContent("Auto (omit)");
@@ -279,7 +303,7 @@ describe("ProviderDialog", () => {
 		expect(mediumDisplayName).toHaveValue("");
 		expect(mediumDisplayName).toHaveAttribute("placeholder", "medium");
 		await user.click(within(dialog).getByRole("button", { name: "Save model" }));
-		await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add model" })).not.toBeInTheDocument());
+		await waitFor(() => expect(screen.queryByRole("dialog", { name: "New model" })).not.toBeInTheDocument());
 
 		const table = screen.getByRole("table", { name: "Models" });
 		expect(table).toHaveTextContent("resp-model");
@@ -481,8 +505,8 @@ describe("ProviderDialog", () => {
 		const user = userEvent.setup();
 
 		await choose(user, "Kind", "Custom");
-		await user.click(screen.getByRole("button", { name: "Add model" }));
-		let dialog = await screen.findByRole("dialog", { name: "Add model" });
+		await user.click(screen.getByRole("button", { name: "New model" }));
+		let dialog = await screen.findByRole("dialog", { name: "New model" });
 		await fill(user, within(dialog).getByLabelText("Model id"), "m1");
 		await choose(user, "Thinking", "Custom", dialog);
 		const high = within(dialog).getByLabelText("high request body JSON");
@@ -496,7 +520,7 @@ describe("ProviderDialog", () => {
 
 		change(high, '{"reasoning":{"effort":"high"}}');
 		await user.click(within(dialog).getByRole("button", { name: "Save model" }));
-		await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add model" })).not.toBeInTheDocument());
+		await waitFor(() => expect(screen.queryByRole("dialog", { name: "New model" })).not.toBeInTheDocument());
 
 		await user.click(screen.getByRole("button", { name: "Edit model 1" }));
 		dialog = await screen.findByRole("dialog", { name: "Edit model m1" });

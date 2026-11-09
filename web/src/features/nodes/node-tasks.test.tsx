@@ -78,8 +78,8 @@ test("a recent task's row links to the task page; there is no Details column", a
 		expect(link).toHaveAttribute("href", "/users/u1");
 	}
 	expect(screen.queryByRole("link", { name: "Details" })).not.toBeInTheDocument();
-	// The summary itself is plain text, and the section has no refresh button.
-	expect(screen.getByText("uptime").closest("a")).toBeNull();
+	// The summary itself is the row's link (the Created column is first).
+	expect(screen.getByText("uptime").closest("a")).toBe(first);
 	expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
 });
 

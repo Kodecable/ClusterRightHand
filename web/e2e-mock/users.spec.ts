@@ -12,7 +12,7 @@ test("create a user and add them to a group", async ({ page }) => {
 	await expect(dialog).toBeVisible();
 	await page.getByLabel("Username").fill("alice");
 	await page.getByLabel("Display name").fill("Alice");
-	await page.getByRole("button", { name: "Create user" }).click();
+	await dialog.getByRole("button", { name: "New user" }).click();
 	await expect(page.getByRole("table", { name: "Users" })).toContainText("alice");
 
 	// The row links to the user page; its own name stays plain text.
@@ -29,7 +29,7 @@ test("create a user and add them to a group", async ({ page }) => {
 	await page.getByTestId("create-user-group").click();
 	const groupDialog = page.getByRole("dialog", { name: "New user group" });
 	await groupDialog.getByLabel("User group name").fill("Ops");
-	await groupDialog.getByRole("button", { name: "Create user group" }).click();
+	await groupDialog.getByRole("button", { name: "New user group" }).click();
 	await expect(page.getByRole("table", { name: "User groups" })).toContainText("Ops");
 
 	// Membership is edited on the group page, not in a card on the users page.

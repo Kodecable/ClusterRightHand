@@ -11,14 +11,14 @@ test("create an API token once and revoke it", async ({ page }) => {
 	const dialog = page.getByTestId("create-token-dialog");
 	await expect(dialog).toBeVisible();
 	await page.getByLabel("Name").fill("laptop");
-	await page.getByRole("button", { name: "Create token" }).click();
+	await dialog.getByRole("button", { name: "New token" }).click();
 
 	await expect(page.getByText("Copy this token now. It will not be shown again.")).toBeVisible();
 	await expect(page.getByText("crh_created_once", { exact: true })).toBeVisible();
 	const created = api.state.requests.find((request) => request.method === "POST" && request.url === "/api/api-tokens");
 	expect(created?.body).toEqual({ name: "laptop", rulePreset: "ask", days: 90 });
 
-	await page.getByRole("button", { name: "Done" }).click();
+	await page.getByRole("button", { name: "Close" }).first().click();
 	await expect(dialog).toBeHidden();
 	await expect(page.getByRole("table", { name: "API tokens" })).toContainText("laptop");
 	// The secret is not part of the list.

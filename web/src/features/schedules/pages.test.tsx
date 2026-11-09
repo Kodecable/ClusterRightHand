@@ -56,12 +56,12 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-test("the schedule name is plain text and the row links to the detail page", async () => {
+test("the schedule name is the row's link to the detail page", async () => {
 	await renderPage([{ ...SCHEDULE, timezone: "Europe/Berlin", previewError: null }]);
 	const link = await screen.findByRole("link", { name: "Nightly check" });
 	expect(link).toHaveAttribute("href", "/schedules/schedule-1");
-	// The name itself is not a link; the row's stretched link carries the accessible name.
-	expect(screen.getByText("Nightly check").closest("a")).toBeNull();
+	// The name itself is the row's single link, inside its first cell.
+	expect(screen.getByText("Nightly check").closest("a")).toBe(link);
 	// "Run now" stays in the row, and there is no page-level refresh button.
 	expect(screen.getByRole("button", { name: "Run now" })).toBeInTheDocument();
 	expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();

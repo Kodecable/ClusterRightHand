@@ -2,7 +2,6 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import { renderWithI18n } from "@/test/render";
 import {
-	AuthorizationStatusBadge,
 	NodeStatusBadge,
 	ScheduleStatusBadge,
 	SessionStatusBadge,
@@ -81,10 +80,8 @@ describe("status family mappings", () => {
 		expect(screen.queryByText("Unknown")).not.toBeInTheDocument();
 	});
 
-	test("authorizations, schedules and tokens", () => {
-		const { rerender } = renderWithI18n(<AuthorizationStatusBadge status="expired" />);
-		expect(screen.getByText("Expired")).toBeInTheDocument();
-		rerender(<ScheduleStatusBadge status="succeeded" />);
+	test("schedules and tokens", () => {
+		const { rerender } = renderWithI18n(<ScheduleStatusBadge status="succeeded" />);
 		expect(screen.getByText("Succeeded")).toBeInTheDocument();
 		rerender(<TokenStatusBadge status="expired" />);
 		expect(screen.getByText("Expired")).toBeInTheDocument();

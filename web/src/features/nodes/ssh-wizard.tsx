@@ -2,12 +2,12 @@ import type { PublicNode } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { PlusIcon } from "lucide-react";
+import { PlusIcon, XIcon } from "lucide-react";
 import { useId, useState } from "react";
 import { CodeText } from "@/components/code-text";
 import { CopyButton } from "@/components/copy-button";
 import { ErrorText } from "@/components/error-state";
-import { FieldShell } from "@/components/form";
+import { FieldShell, FormActions } from "@/components/form";
 import { KeyValueList } from "@/components/key-value";
 import { Spinner } from "@/components/spinner";
 import { TestConnection } from "@/components/test-connection";
@@ -128,7 +128,7 @@ function CredentialStep({
 					}}
 				>
 					<PlusIcon />
-					<Trans>Create credential</Trans>
+					<Trans>New credential</Trans>
 				</Button>
 			</div>
 			{current && (
@@ -193,7 +193,7 @@ function RouteStep({
 				// biome-ignore lint/suspicious/noArrayIndexKey: jumps have no identity beyond their position
 				<fieldset key={`jump-${index}`} className="grid gap-2 rounded-lg border p-3">
 					<legend className="px-1 text-sm font-medium">{t`Jump host ${index + 1}`}</legend>
-					<div className="flex flex-wrap justify-end gap-1">
+					<FormActions className="gap-1">
 						<Button
 							type="button"
 							variant="outline"
@@ -221,9 +221,10 @@ function RouteStep({
 							aria-label={t`Remove jump host ${index + 1}`}
 							onClick={() => onHops(removeJump(hops, index))}
 						>
+							<XIcon />
 							<Trans>Remove</Trans>
 						</Button>
-					</div>
+					</FormActions>
 					<HopFields
 						prefix={`${prefix}-jump-${index}`}
 						hop={hop}
@@ -410,13 +411,13 @@ function WizardCreate({
 				);
 			}}
 		>
-			<Trans>Create node</Trans>
+			<Trans>New node</Trans>
 		</Button>
 	);
 }
 
 /**
- * The four-step "Add SSH node" wizard: credential, route (jump hosts then
+ * The four-step "New SSH node" wizard: credential, route (jump hosts then
  * target), host-key pinning and creation. Each step validates before it lets
  * the user continue, and editing invalidates the step's error.
  */
@@ -484,14 +485,10 @@ export function SshNodeWizard({
 
 			{/* The row keeps its height between steps; only a real message is an alert. */}
 			<div className="min-h-5">
-				{stepError !== undefined && (
-					<p role="alert" className="text-sm text-danger">
-						{stepError}
-					</p>
-				)}
+				<ErrorText error={stepError} />
 			</div>
 
-			<div className="flex flex-wrap items-center justify-end gap-2">
+			<FormActions>
 				{step > 0 && (
 					<Button type="button" variant="outline" onClick={() => go(step - 1)}>
 						<Trans>Back</Trans>
@@ -507,7 +504,7 @@ export function SshNodeWizard({
 				) : (
 					<WizardCreate hops={hops} credentialId={credentialId} name={name} onCreated={onCreated} />
 				)}
-			</div>
+			</FormActions>
 		</div>
 	);
 }

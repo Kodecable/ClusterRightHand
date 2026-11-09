@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PencilIcon, Trash2Icon, UserPlusIcon, XIcon } from "lucide-react";
 import { useId, useState } from "react";
 import { ConfirmDialog } from "@/components/dialogs";
+import { EmptyHint } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
 import { Page } from "@/components/page";
@@ -35,16 +36,16 @@ export function UserGroupDetailPage() {
 
 	if (group.isError) {
 		return (
-			<div className="p-4">
+			<Page width="detail">
 				<ErrorState error={group.error} retry={() => void group.refetch()} />
-			</div>
+			</Page>
 		);
 	}
 	if (!group.data) {
 		return (
-			<div className="p-4">
+			<Page width="detail">
 				<PageSkeleton />
-			</div>
+			</Page>
 		);
 	}
 	const details = group.data;
@@ -87,17 +88,17 @@ export function UserGroupDetailPage() {
 			<KeyValueList items={[{ label: t`Created`, value: <DateTime value={details.createdAt} /> }]} />
 
 			<section className="grid gap-2" aria-labelledby="user-group-members-heading" data-testid="user-group-members">
-				<h2 id="user-group-members-heading" className="text-sm font-semibold">
+				<h2 id="user-group-members-heading" className="text-sm font-medium">
 					<Trans>Members</Trans>
 				</h2>
 				{details.members.length === 0 ? (
-					<p className="text-sm text-muted-foreground">
-						<Trans>No members.</Trans>
-					</p>
+					<EmptyHint>
+						<Trans>No members</Trans>
+					</EmptyHint>
 				) : (
 					<ul className="flex flex-wrap gap-2" aria-label={t`Members of ${details.name}`}>
 						{details.members.map((member) => (
-							<li key={member.id} className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-sm">
+							<li key={member.id} className="inline-flex min-h-8 items-center gap-1 rounded-md border px-2 text-sm">
 								<UserLink id={member.id} name={names.get(member.id) ?? member.displayName} />
 								<Button
 									type="button"

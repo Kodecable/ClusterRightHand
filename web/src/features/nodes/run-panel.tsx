@@ -52,7 +52,7 @@ export function RunPanel({ nodeId }: { nodeId: string }) {
 
 	return (
 		<section className="grid gap-3" aria-labelledby="node-run-heading" data-testid="run-panel">
-			<h2 id="node-run-heading" className="text-sm font-semibold">
+			<h2 id="node-run-heading" className="text-sm font-medium">
 				<Trans>Run a task</Trans>
 			</h2>
 			<form

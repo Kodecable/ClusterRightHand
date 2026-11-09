@@ -98,12 +98,13 @@ describe("TasksPage filters", () => {
 		);
 	});
 
-	test("a task row links to the task page and the summary stays plain text", async () => {
+	test("a task row links to the task page from its summary cell", async () => {
 		mockApi([TASK]);
 		await renderPage();
 		const link = await screen.findByRole("link", { name: "echo hi" });
 		expect(link).toHaveAttribute("href", "/tasks/task-1");
-		expect(screen.getByText("echo hi").closest("a")).toBeNull();
+		// The first column is Created, so the summary cell carries the row link.
+		expect(screen.getByText("echo hi").closest("a")).toBe(link);
 	});
 
 	test("does not link to the approvals page", async () => {

@@ -1,8 +1,9 @@
 import type { PublicNode, SshNodeDetails } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { TestConnection } from "@/components/test-connection";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useTestSshNode } from "@/features/nodes/api";
+import { MONO_CELL } from "@/lib/utils";
 
 /** Route, pinned host keys and credential of an SSH node, with a connection test. */
 export function SshNodeSection({
@@ -16,36 +17,46 @@ export function SshNodeSection({
 }) {
 	const { t } = useLingui();
 	const test = useTestSshNode();
+	const columns: DataTableColumn<SshNodeDetails["hops"][number]>[] = [
+		{
+			id: "hop",
+			header: t`Hop`,
+			size: 110,
+			cell: ({ row }) => (row.index === (details?.hops.length ?? 0) - 1 ? t`Target` : t`Jump host ${row.index + 1}`),
+		},
+		{
+			id: "address",
+			header: t`Address`,
+			minSize: 160,
+			cell: ({ row }) => (
+				<span className={MONO_CELL}>
+					{row.original.user}@{row.original.host}:{row.original.port}
+				</span>
+			),
+			meta: { title: (hop: SshNodeDetails["hops"][number]) => `${hop.user}@${hop.host}:${hop.port}` },
+		},
+		{
+			id: "hostKey",
+			header: t`Pinned host key`,
+			minSize: 180,
+			cell: ({ row }) => <span className={MONO_CELL}>{row.original.hostKey}</span>,
+			meta: { title: (hop: SshNodeDetails["hops"][number]) => hop.hostKey },
+		},
+	];
 	return (
 		<section className="grid gap-2" aria-labelledby="ssh-node-heading" data-testid="ssh-node-section">
-			<h2 id="ssh-node-heading" className="text-sm font-semibold">
+			<h2 id="ssh-node-heading" className="text-sm font-medium">
 				<Trans>SSH</Trans>
 			</h2>
 			{details && (
 				<>
-					<div className="overflow-auto rounded-lg border">
-						<Table aria-label={t`SSH route`}>
-							<TableHeader>
-								<TableRow>
-									<TableHead>{t`Hop`}</TableHead>
-									<TableHead>{t`Address`}</TableHead>
-									<TableHead>{t`Pinned host key`}</TableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{details.hops.map((hop, index) => (
-									// biome-ignore lint/suspicious/noArrayIndexKey: hops have no identity beyond their position
-									<TableRow key={`${hop.host}-${index}`}>
-										<TableCell>{index === details.hops.length - 1 ? t`Target` : t`Jump host ${index + 1}`}</TableCell>
-										<TableCell className="font-mono text-xs">
-											{hop.user}@{hop.host}:{hop.port}
-										</TableCell>
-										<TableCell className="font-mono text-xs">{hop.hostKey}</TableCell>
-									</TableRow>
-								))}
-							</TableBody>
-						</Table>
-					</div>
+					<DataTable
+						label={t`SSH route`}
+						columns={columns}
+						data={details.hops}
+						getRowId={(hop) => `${hop.user}@${hop.host}:${hop.port}`}
+						density="compact"
+					/>
 					<p className="text-sm text-muted-foreground">
 						<Trans>Credential: {details.credential.name ?? details.credential.id}</Trans>
 					</p>

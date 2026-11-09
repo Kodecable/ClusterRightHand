@@ -8,6 +8,7 @@ import { ErrorState } from "@/components/error-state";
 import { ListSkeleton } from "@/components/skeletons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { WarningBanner } from "@/components/warning-banner";
 import { useAuth } from "@/features/auth/session";
 import { useModels } from "@/features/settings/api";
 import { useDebouncedValue } from "@/hooks/use-debounced";
@@ -165,7 +166,7 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 				</Button>
 
 				{noModels && (
-					<p role="status" data-testid="no-models-hint" className="rounded-md bg-warn-bg px-2 py-1.5 text-xs text-warn">
+					<WarningBanner data-testid="no-models-hint">
 						<Trans>No models are configured, so sessions cannot start.</Trans>{" "}
 						{isAdmin ? (
 							<Link to="/settings/models" className={linkClass}>
@@ -174,7 +175,7 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 						) : (
 							<Trans>Ask an administrator to configure one.</Trans>
 						)}
-					</p>
+					</WarningBanner>
 				)}
 			</div>
 
@@ -198,7 +199,7 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 				)}
 				{!sessions.isPending && !sessions.isError && items.length === 0 && (
 					<EmptyState
-						className="m-3 border-0 py-8"
+						className="m-3 py-8"
 						title={q === "" ? <Trans>No sessions yet</Trans> : <Trans>No session matches</Trans>}
 						description={
 							q === "" ? <Trans>Start one, or wait for a scheduled run.</Trans> : <Trans>Try a different search.</Trans>

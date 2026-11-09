@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ErrorText } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
 import { DateTime } from "@/components/relative-time";
+import { Panel } from "@/components/section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +13,7 @@ import { sessionTitle } from "@/features/sessions/session-item";
 import { formatNumber } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { parseGrantInput, type QuotaError, quotaStatus } from "@/lib/quota";
-import { cn, linkClass } from "@/lib/utils";
+import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 
 /**
  * The remaining-budget line (doc/agent-runtime.md#配额, D101): no limit, remaining, or used up. The numbers are
@@ -99,19 +100,20 @@ export function QuotaCard({
 	};
 
 	return (
-		<section
+		<Panel
+			as="section"
 			data-slot="quota-card"
 			aria-label={t`Token budget used up`}
-			className={cn("grid gap-3 rounded-lg border border-warn/30 bg-warn-bg/40 p-4 text-card-foreground", className)}
+			className={cn("grid gap-3 border-warn/30 bg-warn-bg/40 text-card-foreground", className)}
 		>
 			<div className="flex min-w-0 flex-wrap items-baseline justify-between gap-2">
 				<div className="min-w-0">
-					<h2 className="truncate text-sm font-semibold">
+					<h2 className="truncate text-sm font-medium">
 						<Link to="/sessions/$sessionId" params={{ sessionId: wait.sessionId }} className={linkClass}>
 							{sessionTitle(wait, t`New Session`)}
 						</Link>
 					</h2>
-					<p className="font-mono text-xs text-muted-foreground">{wait.levelId}</p>
+					<p className={cn(MONO_CELL, "text-muted-foreground")}>{wait.levelId}</p>
 				</div>
 			</div>
 
@@ -160,6 +162,6 @@ export function QuotaCard({
 			</div>
 
 			{error !== undefined && <ErrorText error={error} />}
-		</section>
+		</Panel>
 	);
 }

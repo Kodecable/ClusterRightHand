@@ -1,15 +1,17 @@
 import type { GuardRule, NodeTrust, TrustEntry, TrustEntryKey } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useMemo } from "react";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { EmptyHint } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
 import { DateTime } from "@/components/relative-time";
 import { CardSkeleton } from "@/components/skeletons";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useNodeGroups } from "@/features/node-groups/api";
 import { useNodeTrust } from "@/features/nodes/api";
 import { formatDuration } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
+import { MONO_CELL } from "@/lib/utils";
 
 /** How a trust entry's key is identified on the node. */
 export function trustKeyText(key: TrustEntryKey): string {
@@ -33,7 +35,7 @@ function TrustAliases({ aliases }: { aliases: readonly string[] }) {
 			{aliases.map((alias, index) => (
 				<span key={alias} className="inline-flex items-center gap-1">
 					{index > 0 && <span className="text-muted-foreground">,</span>}
-					<code className="font-mono text-xs">{alias}</code>
+					<code className={MONO_CELL}>{alias}</code>
 					{names.has(alias) && <span className="text-xs text-muted-foreground">({names.get(alias)})</span>}
 				</span>
 			))}
@@ -102,10 +104,52 @@ export function NodeTrustPanel({ nodeId }: { nodeId: string }) {
 	const { locale } = useLocale();
 	const trust = useNodeTrust(nodeId);
 	const data: NodeTrust | undefined = trust.data;
+	const columns: DataTableColumn<TrustEntry>[] = [
+		{
+			id: "name",
+			header: t`Name`,
+			minSize: 140,
+			cell: ({ row }) => row.original.name,
+			meta: { title: (entry: TrustEntry) => entry.name },
+		},
+		{ id: "role", header: t`Role`, size: 100, cell: ({ row }) => row.original.role },
+		{ id: "format", header: t`Format`, size: 100, cell: ({ row }) => row.original.key.kind },
+		{
+			id: "kinds",
+			header: t`Kinds`,
+			size: 120,
+			cell: ({ row }) =>
+				row.original.kinds.length === 0 ? (
+					<span className="text-muted-foreground">–</span>
+				) : (
+					row.original.kinds.join(", ")
+				),
+		},
+		{
+			id: "flags",
+			header: t`Flags`,
+			minSize: 120,
+			cell: ({ row }) =>
+				trustFlags(row.original) === "–" ? <span className="text-muted-foreground">–</span> : trustFlags(row.original),
+			meta: { title: (entry: TrustEntry) => trustFlags(entry) },
+		},
+		{
+			id: "ttl",
+			header: t`Max TTL`,
+			size: 100,
+			cell: ({ row }) => (row.original.maxTtlMs === null ? t`unlimited` : trustTtlText(row.original.maxTtlMs)),
+		},
+		{
+			id: "key",
+			header: t`Key`,
+			cell: ({ row }) => <span className={MONO_CELL}>{trustKeyText(row.original.key)}</span>,
+			meta: { title: (entry: TrustEntry) => trustKeyText(entry.key) },
+		},
+	];
 
 	return (
 		<section className="grid gap-2" aria-labelledby="node-trust-heading" data-testid="node-trust">
-			<h2 id="node-trust-heading" className="text-sm font-semibold">
+			<h2 id="node-trust-heading" className="text-sm font-medium">
 				<Trans>Trust</Trans>
 			</h2>
 			{trust.isError ? (
@@ -158,43 +202,22 @@ export function NodeTrustPanel({ nodeId }: { nodeId: string }) {
 						]}
 					/>
 					{data.summary === null ? (
-						<p className="text-sm text-muted-foreground">
-							<Trans>The node has not reported its trust configuration.</Trans>
-						</p>
+						<EmptyHint>
+							<Trans>The node has not reported its trust configuration</Trans>
+						</EmptyHint>
 					) : data.summary.trust.length === 0 ? (
-						<p className="text-sm text-muted-foreground">
-							<Trans>The node trusts nobody.</Trans>
-						</p>
+						<EmptyHint>
+							<Trans>The node trusts nobody</Trans>
+						</EmptyHint>
 					) : (
 						<>
-							<div className="overflow-auto rounded-lg border">
-								<Table aria-label={t`Trust entries`}>
-									<TableHeader>
-										<TableRow>
-											<TableHead>{t`Name`}</TableHead>
-											<TableHead>{t`Role`}</TableHead>
-											<TableHead>{t`Format`}</TableHead>
-											<TableHead>{t`Kinds`}</TableHead>
-											<TableHead>{t`Flags`}</TableHead>
-											<TableHead>{t`Max TTL`}</TableHead>
-											<TableHead>{t`Key`}</TableHead>
-										</TableRow>
-									</TableHeader>
-									<TableBody>
-										{data.summary.trust.map((entry) => (
-											<TableRow key={entry.name}>
-												<TableCell>{entry.name}</TableCell>
-												<TableCell>{entry.role}</TableCell>
-												<TableCell>{entry.key.kind}</TableCell>
-												<TableCell>{entry.kinds.join(", ") || "–"}</TableCell>
-												<TableCell>{trustFlags(entry)}</TableCell>
-												<TableCell>{entry.maxTtlMs === null ? t`unlimited` : trustTtlText(entry.maxTtlMs)}</TableCell>
-												<TableCell className="max-w-96 truncate font-mono text-xs">{trustKeyText(entry.key)}</TableCell>
-											</TableRow>
-										))}
-									</TableBody>
-								</Table>
-							</div>
+							<DataTable
+								label={t`Trust entries`}
+								columns={columns}
+								data={data.summary.trust}
+								getRowId={(entry) => entry.name}
+								density="compact"
+							/>
 							<div className="grid gap-2">
 								{data.summary.trust.map((entry) => (
 									<TrustRules key={entry.name} entry={entry} />

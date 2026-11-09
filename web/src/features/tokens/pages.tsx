@@ -9,6 +9,7 @@ import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
 import { TokenStatusBadge } from "@/components/status-badge";
+import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
 import { rulePresetLabel } from "@/lib/rule-preset";
 import { useApiTokens, useDeleteApiToken, useRevokeApiToken } from "./api";
@@ -22,6 +23,7 @@ import { tokenStatus } from "./tokenStatus";
  */
 export function TokensPage() {
 	const { t } = useLingui();
+	const timeWidth = useTimeColumnWidth();
 	const tokens = useApiTokens();
 	const revoke = useRevokeApiToken();
 	const remove = useDeleteApiToken();
@@ -35,12 +37,14 @@ export function TokensPage() {
 			{
 				id: "name",
 				header: t`Name`,
+				minSize: 140,
 				cell: ({ row }) => <span className="truncate font-medium">{row.original.name}</span>,
+				meta: { title: (token: ApiTokenView) => token.name },
 			},
 			{
 				id: "rulePreset",
 				header: t`Rule preset`,
-				size: 110,
+				size: 90,
 				cell: ({ row }) => {
 					const rulePreset = row.original.rules?.rulePreset;
 					return (
@@ -53,32 +57,32 @@ export function TokensPage() {
 			{
 				id: "created",
 				header: t`Created`,
-				size: 200,
+				size: timeWidth,
 				cell: ({ row }) => <DateTime value={row.original.createdAt} />,
 			},
 			{
 				id: "expires",
 				header: t`Expires`,
-				size: 200,
+				size: timeWidth,
 				cell: ({ row }) =>
 					row.original.expiresAt === null ? <Trans>Never</Trans> : <DateTime value={row.original.expiresAt} />,
 			},
 			{
 				id: "lastUsed",
 				header: t`Last used`,
-				size: 200,
+				size: timeWidth,
 				cell: ({ row }) => <DateTime value={row.original.lastUsedAt} />,
 			},
 			{
 				id: "status",
 				header: t`Status`,
-				size: 110,
+				size: 80,
 				cell: ({ row }) => <TokenStatusBadge status={tokenStatus(row.original)} />,
 			},
 			{
 				id: "actions",
 				header: actionsHeader,
-				size: 200,
+				size: 140,
 				cell: ({ row }) => {
 					const token = row.original;
 					const status = tokenStatus(token);
@@ -100,7 +104,7 @@ export function TokensPage() {
 				},
 			},
 		],
-		[t],
+		[t, timeWidth],
 	);
 
 	return (
@@ -110,7 +114,7 @@ export function TokensPage() {
 				actions={
 					<Button type="button" onClick={() => setCreating(true)} data-testid="create-token">
 						<PlusIcon />
-						<Trans>Create token</Trans>
+						<Trans>New token</Trans>
 					</Button>
 				}
 			/>
@@ -124,6 +128,7 @@ export function TokensPage() {
 				onRetry={() => void tokens.refetch()}
 				empty={
 					<EmptyState
+						bare
 						icon={<KeySquareIcon className="size-6" />}
 						title={<Trans>No API tokens yet</Trans>}
 						description={<Trans>Create a token to connect an MCP client.</Trans>}

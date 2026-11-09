@@ -9,7 +9,7 @@ import { NodeTargetList } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { QuotaCard } from "@/components/quota-card";
-import { CardSkeleton } from "@/components/skeletons";
+import { CardSkeleton, PageSkeleton } from "@/components/skeletons";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { useDecideQuota } from "@/features/sessions/api";
 import { TaskGroupStatus } from "@/features/tasks/task-group-result";
@@ -35,7 +35,7 @@ function ApprovalSection({
 	return (
 		<section className="grid gap-2" aria-label={label} data-testid={`approvals-section-${label}`}>
 			<div className="flex items-baseline gap-2">
-				<h2 className="text-sm font-semibold">{title}</h2>
+				<h2 className="text-sm font-medium">{title}</h2>
 				<span className="text-xs text-muted-foreground">
 					<Plural value={count} one="# waiting" other="# waiting" />
 				</span>
@@ -131,7 +131,7 @@ function SignatureSection({
 	if (tasks.length + taskGroups.length === 0) return null;
 	return (
 		<section className="grid gap-2" aria-label={t`Waiting for your signature`} data-testid="signature-section">
-			<h2 className="text-sm font-semibold">
+			<h2 className="text-sm font-medium">
 				<Trans>Waiting for your signature</Trans>
 			</h2>
 			<p className="text-sm text-muted-foreground">
@@ -291,7 +291,7 @@ function Settled({
 }) {
 	return (
 		<div className="grid gap-2 rounded-lg border p-4">
-			<h1 className="text-lg font-semibold">{title}</h1>
+			<h1 className="text-lg font-semibold break-words [overflow-wrap:anywhere]">{title}</h1>
 			<p className="flex flex-wrap items-center gap-2 text-sm">
 				<Trans>This request is no longer waiting for approval; it is</Trans> {status}
 			</p>
@@ -302,9 +302,9 @@ function Settled({
 
 function DetailPending() {
 	return (
-		<p className="p-4 text-sm text-muted-foreground" role="status">
-			<Trans>Loading…</Trans>
-		</p>
+		<Page width="detail">
+			<PageSkeleton />
+		</Page>
 	);
 }
 
@@ -317,9 +317,9 @@ export function ApprovalTaskPage() {
 	if (task.isPending) return <DetailPending />;
 	if (task.error !== null && task.error !== undefined) {
 		return (
-			<div className="p-4">
+			<Page width="detail">
 				<ErrorState error={task.error} retry={() => void task.refetch()} />
-			</div>
+			</Page>
 		);
 	}
 	if (!task.data) return null;
@@ -365,9 +365,9 @@ export function ApprovalTaskGroupPage() {
 	if (taskGroup.isPending) return <DetailPending />;
 	if (taskGroup.error !== null && taskGroup.error !== undefined) {
 		return (
-			<div className="p-4">
+			<Page width="detail">
 				<ErrorState error={taskGroup.error} retry={() => void taskGroup.refetch()} />
-			</div>
+			</Page>
 		);
 	}
 	if (!taskGroup.data) return null;

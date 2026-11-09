@@ -20,8 +20,9 @@ test("runs a batch on a node picked by name", async ({ adminPage: page, crhs }) 
 	await page.getByRole("button", { name: /Run on 1 target/ }).click();
 	const row = page.getByTestId("task-group-member").filter({ hasText: name });
 	await expect(row).toContainText("Finished", { timeout: 20_000 });
-	await row.getByText("Show").click();
-	await expect(row.getByRole("region", { name: "output" })).toContainText("batch-by-name");
+	// The row links to the task page, which shows the same kept output.
+	await row.getByRole("link", { name }).click();
+	await expect(page.getByRole("region", { name: "output" })).toContainText("batch-by-name");
 });
 
 test("batch status shows the node's output file instead of output", async ({ adminPage: page, crhs }) => {
@@ -34,8 +35,8 @@ test("batch status shows the node's output file instead of output", async ({ adm
 	await page.getByRole("button", { name: /Run on 1 target/ }).click();
 	const row = page.getByTestId("task-group-member").filter({ hasText: name });
 	await expect(row).toContainText("Finished", { timeout: 20_000 });
-	await row.getByText("Show").click();
-	await expect(row.getByText(/Status only/)).toBeVisible();
+	await row.getByRole("link", { name }).click();
+	await expect(page.getByText(/Status only/)).toBeVisible();
 });
 
 test("runs a batch on a node-group target", async ({ adminPage: page, crhs, env }) => {

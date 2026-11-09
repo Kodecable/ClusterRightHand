@@ -205,3 +205,8 @@ export function CheckboxField<T extends FieldValues>({
 		</div>
 	);
 }
+
+/** The action row at the end of a page form (a dialog uses `DialogFooter` instead). */
+export function FormActions({ className, children }: { className?: string; children: ReactNode }) {
+	return <div className={cn("flex flex-wrap items-center justify-end gap-2", className)}>{children}</div>;
+}

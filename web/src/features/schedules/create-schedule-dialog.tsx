@@ -21,7 +21,7 @@ export function CreateScheduleDialog({ models, onClose }: { models: AvailableMod
 				if (!open) onClose();
 			}}
 		>
-			<DialogContent className="sm:max-w-2xl">
+			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>
 						<Trans>New schedule</Trans>
@@ -31,7 +31,7 @@ export function CreateScheduleDialog({ models, onClose }: { models: AvailableMod
 					<ScheduleForm
 						initial={initial}
 						models={models}
-						submitLabel={t`Create schedule`}
+						submitLabel={t`New schedule`}
 						busy={create.isPending}
 						error={create.error}
 						onSubmit={(input) => {

@@ -36,7 +36,7 @@ export function ErrorState({
 					<Trans>Something went wrong</Trans>
 				</p>
 			</div>
-			<p className="max-w-lg text-sm break-words opacity-90">{message}</p>
+			<p className="max-w-lg text-sm break-words opacity-90 [overflow-wrap:anywhere]">{message}</p>
 			{retry !== undefined && (
 				<Button type="button" size="sm" variant="outline" onClick={retry}>
 					<RotateCwIcon />
@@ -51,7 +51,7 @@ export function ErrorState({
 export function ErrorText({ error, className }: { error: unknown; className?: string }) {
 	if (error === null || error === undefined || error === "") return null;
 	return (
-		<p role="alert" className={cn("text-sm text-danger", className)}>
+		<p role="alert" className={cn("text-sm text-danger break-words [overflow-wrap:anywhere]", className)}>
 			{errorMessage(error)}
 		</p>
 	);

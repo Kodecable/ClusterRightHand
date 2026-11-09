@@ -42,7 +42,7 @@ export function CodeText({ text, maxLines = 24, className, preClassName, copy = 
 			)}
 			<pre
 				className={cn(
-					"max-h-96 overflow-auto p-3 pr-9 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words",
+					"max-h-96 overflow-auto p-3 pr-9 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
 					preClassName,
 				)}
 			>
@@ -60,7 +60,7 @@ export function CodeText({ text, maxLines = 24, className, preClassName, copy = 
 						)}
 					</span>
 					<Button type="button" size="xs" variant="ghost" onClick={() => setExpanded((value) => !value)}>
-						{expanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+						{expanded ? <ChevronUpIcon className="size-3.5" /> : <ChevronDownIcon className="size-3.5" />}
 						{expanded ? <Trans>Show less</Trans> : <Trans>Show all</Trans>}
 					</Button>
 				</div>

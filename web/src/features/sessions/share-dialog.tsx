@@ -1,10 +1,11 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Trash2Icon } from "lucide-react";
+import { XIcon } from "lucide-react";
 import { ErrorText } from "@/components/error-state";
 import { ShareEditor } from "@/components/share-editor";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useSessionShares, useShareSession, useUnshareSession } from "@/features/sessions/api";
+import { MONO_CELL } from "@/lib/utils";
 
 /**
  * The share dialog of a session (doc/access-control.md "归属与分享"): the
@@ -34,7 +35,7 @@ export function ShareDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="sm:max-w-md" data-testid="share-dialog">
+			<DialogContent data-testid="share-dialog">
 				<DialogHeader>
 					<DialogTitle>
 						<Trans>Shares</Trans>
@@ -51,10 +52,10 @@ export function ShareDialog({
 				) : shares.data && shares.data.length > 0 ? (
 					<ul className="grid gap-1" data-testid="share-list">
 						{shares.data.map((item) => (
-							<li key={item.id} className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm">
+							<li key={item.id} className="flex min-h-8 items-center gap-2 rounded-md border px-2 text-sm">
 								<span className="min-w-0 flex-1 truncate">
 									{item.granteeType === "user" ? <Trans>User</Trans> : <Trans>User group</Trans>}{" "}
-									<span className="font-mono text-xs">{item.granteeName ?? item.granteeId}</span>
+									<span className={MONO_CELL}>{item.granteeName ?? item.granteeId}</span>
 								</span>
 								<span className="text-xs text-muted-foreground">
 									{item.access === "chat" ? <Trans>Chat</Trans> : <Trans>View</Trans>}
@@ -67,7 +68,7 @@ export function ShareDialog({
 									disabled={unshare.isPending}
 									onClick={() => remove(item.id)}
 								>
-									<Trash2Icon />
+									<XIcon />
 								</Button>
 							</li>
 						))}

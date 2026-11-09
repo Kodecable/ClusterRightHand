@@ -25,9 +25,13 @@ describe("formatTokens", () => {
 });
 
 describe("formatDateTimeSeconds", () => {
-	test("writes the date and the time down to the second", () => {
-		expect(formatDateTimeSeconds(new Date(2026, 10, 3, 9, 0, 5), "en")).toMatch(/2026/);
-		expect(formatDateTimeSeconds(new Date(2026, 10, 3, 9, 0, 5), "en")).toMatch(/09:00:05/);
+	test("writes a compact date and the time down to the second in both locales", () => {
+		expect(formatDateTimeSeconds(new Date(2026, 10, 3, 9, 0, 5), "en")).toBe("11/03/2026, 09:00:05");
+		expect(formatDateTimeSeconds(new Date(2026, 10, 3, 9, 0, 5), "zh-CN")).toBe("2026/11/03 09:00:05");
+	});
+
+	test("uses a 24-hour clock", () => {
+		expect(formatDateTimeSeconds(new Date(2026, 10, 3, 21, 30, 5), "en")).toMatch(/21:30:05$/);
 	});
 
 	test("an invalid date reads as a dash", () => {

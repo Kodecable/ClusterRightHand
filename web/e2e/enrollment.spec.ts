@@ -28,7 +28,7 @@ test("enrolls a node with a token from the UI and approves it after checking the
 	await page.getByTestId("add-node").click();
 	const dialog = page.getByTestId("add-node-dialog");
 	await dialog.getByLabel("Node name").fill("ui-enrolled");
-	await dialog.getByRole("button", { name: "Create token" }).click();
+	await dialog.getByRole("button", { name: "New token" }).click();
 	await expect(dialog.getByText("Run this on the node:")).toBeVisible();
 	const command = ((await dialog.getByRole("region", { name: "Enrollment command" }).textContent()) ?? "").trim();
 	const match = /^crha enroll --config (\S+) --state-dir (\S+) (\S+) (\S+)$/.exec(command);

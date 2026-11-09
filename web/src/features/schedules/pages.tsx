@@ -10,11 +10,13 @@ import { ErrorState } from "@/components/error-state";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { RelativeTime } from "@/components/relative-time";
+import { Panel } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { ScheduleStatusBadge, StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import { WarningBanner } from "@/components/warning-banner";
 import { useModels } from "@/features/settings/api";
-import { linkClass } from "@/lib/utils";
+import { linkClass, MONO_CELL } from "@/lib/utils";
 import { useDeleteSchedule, usePatchSchedule, useSchedule, useSchedules } from "./api";
 import { CreateScheduleDialog } from "./create-schedule-dialog";
 import { RunHistory } from "./run-history";
@@ -40,15 +42,17 @@ export function SchedulesPage() {
 			{
 				id: "name",
 				header: t`Name`,
+				minSize: 140,
 				cell: ({ row }) => <span className="truncate font-medium">{row.original.name}</span>,
+				meta: { title: (schedule: ScheduleView) => schedule.name },
 			},
 			{
 				id: "cron",
 				header: t`Cron`,
-				size: 200,
+				size: 180,
 				cell: ({ row }) => (
 					<div className="min-w-0">
-						<code className="font-mono text-xs">{row.original.cron}</code>
+						<code className={MONO_CELL}>{row.original.cron}</code>
 						<p className="truncate">{row.original.timezone}</p>
 						{/* A row saved before the zone was validated still lists; its preview is empty and
 						    the server says why (doc/scheduling.md#调度). */}
@@ -59,11 +63,12 @@ export function SchedulesPage() {
 						)}
 					</div>
 				),
+				meta: { title: (schedule: ScheduleView) => `${schedule.cron} ${schedule.timezone}` },
 			},
 			{
 				id: "next",
 				header: t`Next run`,
-				size: 180,
+				size: 110,
 				cell: ({ row }) =>
 					!row.original.enabled ? (
 						<span className="text-muted-foreground">–</span>
@@ -74,7 +79,7 @@ export function SchedulesPage() {
 			{
 				id: "last",
 				header: t`Status`,
-				size: 130,
+				size: 90,
 				cell: ({ row }) =>
 					row.original.enabled ? (
 						<ScheduleStatusBadge status={scheduleState(row.original)} />
@@ -87,9 +92,9 @@ export function SchedulesPage() {
 			{
 				id: "enabled",
 				header: t`Enabled`,
-				size: 96,
+				size: 80,
 				cell: ({ row }) => (
-					<span className="relative z-10 inline-flex">
+					<span className="inline-flex">
 						<EnabledSwitch schedule={row.original} />
 					</span>
 				),
@@ -97,9 +102,9 @@ export function SchedulesPage() {
 			{
 				id: "actions",
 				header: actionsHeader,
-				size: 130,
+				size: 110,
 				cell: ({ row }) => (
-					<span className="relative z-10 inline-flex">
+					<span className="inline-flex">
 						<RunNowButton schedule={row.original} size="xs" />
 					</span>
 				),
@@ -131,9 +136,9 @@ export function SchedulesPage() {
 				}
 			/>
 			{noModels && (
-				<p role="status" className="rounded-lg border border-warn/30 bg-warn-bg px-3 py-2 text-sm text-warn">
+				<WarningBanner>
 					<Trans>No models are configured, so schedules cannot run.</Trans>
-				</p>
+				</WarningBanner>
 			)}
 			{models.isError && <ErrorState error={models.error} compact />}
 			<DataTable
@@ -146,7 +151,7 @@ export function SchedulesPage() {
 				onRetry={() => void schedules.refetch()}
 				rowLink={(schedule) => ({ to: "/schedules/$scheduleId", params: { scheduleId: schedule.id } })}
 				rowLabel={(schedule) => schedule.name}
-				empty={<EmptyState title={<Trans>No schedules yet</Trans>} />}
+				empty={<EmptyState bare title={<Trans>No schedules yet</Trans>} />}
 			/>
 			{creating && models.data && <CreateScheduleDialog models={models.data} onClose={() => setCreating(false)} />}
 		</Page>
@@ -167,16 +172,16 @@ export function ScheduleDetailPage() {
 
 	if (schedule.isError) {
 		return (
-			<div className="p-4">
+			<Page width="detail">
 				<ErrorState error={schedule.error} retry={() => void schedule.refetch()} />
-			</div>
+			</Page>
 		);
 	}
 	if (!schedule.data || !models.data) {
 		return (
-			<div className="p-4">
+			<Page width="detail">
 				<PageSkeleton />
-			</div>
+			</Page>
 		);
 	}
 
@@ -214,7 +219,7 @@ export function ScheduleDetailPage() {
 					</>
 				}
 			/>
-			<section className="rounded-lg border p-4" aria-label={t`Schedule form`}>
+			<Panel as="section" aria-label={t`Schedule form`}>
 				<ScheduleForm
 					key={current.id}
 					initial={scheduleFormStateOf(current)}
@@ -226,10 +231,10 @@ export function ScheduleDetailPage() {
 						patch.mutate(input);
 					}}
 				/>
-			</section>
+			</Panel>
 			<RunHistory scheduleId={id} inProgress={current.inProgress} />
 			<section className="grid gap-2" aria-labelledby="schedule-privileges-heading">
-				<h2 id="schedule-privileges-heading" className="text-sm font-semibold">
+				<h2 id="schedule-privileges-heading" className="text-sm font-medium">
 					<Trans>Privileges</Trans>
 				</h2>
 				<p className="max-w-3xl text-sm text-muted-foreground">

@@ -17,7 +17,7 @@ test("add a custom model provider", async ({ page }) => {
 	await page.getByLabel("Name").fill("My LLM");
 	await page.getByLabel("Base URL").fill("https://llm.example/v1");
 	await page.getByLabel("API key").fill("sk-secret");
-	await dialog.getByRole("button", { name: "Add model" }).click();
+	await dialog.getByRole("button", { name: "New model" }).click();
 	const model = page.getByTestId("model-dialog");
 	await model.getByLabel("Model id").fill("model-a");
 	await model.getByRole("button", { name: "Save model" }).click();

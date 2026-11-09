@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { ErrorState } from "@/components/error-state";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton } from "@/components/skeletons";
 import { TaskGone } from "@/components/task-gone";
 import { useNodes } from "@/features/nodes/api";
 import { isNotFound } from "@/lib/api/client";
@@ -21,23 +22,23 @@ export function TaskGroupPage() {
 
 	if (taskGroup.isPending) {
 		return (
-			<p className="p-4 text-sm text-muted-foreground" role="status">
-				<Trans>Loading…</Trans>
-			</p>
+			<Page width="detail">
+				<PageSkeleton />
+			</Page>
 		);
 	}
 	if (taskGroup.error !== null && taskGroup.error !== undefined) {
 		if (isNotFound(taskGroup.error)) {
 			return (
-				<div className="p-4">
+				<Page width="detail">
 					<TaskGone taskGroup />
-				</div>
+				</Page>
 			);
 		}
 		return (
-			<div className="p-4">
+			<Page width="detail">
 				<ErrorState error={taskGroup.error} retry={() => void taskGroup.refetch()} />
-			</div>
+			</Page>
 		);
 	}
 	if (!taskGroup.data) return null;

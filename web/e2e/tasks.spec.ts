@@ -25,7 +25,8 @@ test("lists tasks across nodes, filters them and opens the task page", async ({ 
 	await page.getByLabel("State").click();
 	await page.getByRole("option", { name: "Any state", exact: true }).click();
 	await expect(row).toBeVisible();
-	await row.click();
+	// The summary cell carries the row's real link (Created is the first column).
+	await row.getByRole("link", { name: /tasks-page-marker/ }).click();
 	await expect(page).toHaveURL(new RegExp(`/tasks/${done.id}$`));
 	await expect(page.getByTestId("task-page")).toContainText("tasks-page-marker");
 });

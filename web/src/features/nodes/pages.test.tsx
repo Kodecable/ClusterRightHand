@@ -106,6 +106,18 @@ describe("NodesPage administrator actions", () => {
 		expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
 	});
 
+	test("the node list fits the standard list width without horizontal scrolling", async () => {
+		await renderPage(ADMIN, [node()]);
+		await screen.findByRole("link", { name: "worker-01" });
+		const table = screen.getByTestId("nodes-page").querySelector<HTMLElement>('[data-slot="data-table"]');
+		if (table === null) throw new Error("no nodes table");
+		// The table's computed minimum (fixed + minimum + flexible floors) stays
+		// inside the ~990px a desktop leaves for the table, so it does not scroll.
+		const minWidth = Number.parseInt(table.style.getPropertyValue("--dt-min-width"), 10);
+		expect(minWidth).toBeGreaterThan(0);
+		expect(minWidth).toBeLessThanOrEqual(960);
+	});
+
 	test("a member does not see administrator actions", async () => {
 		await renderPage(MEMBER, [node({ status: "pending" })]);
 		expect(await screen.findByRole("link", { name: "worker-01" })).toBeInTheDocument();
@@ -115,12 +127,13 @@ describe("NodesPage administrator actions", () => {
 		expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
 	});
 
-	test("the node name is plain text and the whole row links to the node page", async () => {
+	test("the node name is the row's link to the node page", async () => {
 		await renderPage(ADMIN, [node()]);
 		const link = await screen.findByRole("link", { name: "worker-01" });
 		expect(link).toHaveAttribute("href", "/nodes/node-1");
-		// The name itself is not a link; the row's stretched link carries the accessible name.
-		expect(screen.getByText("worker-01").closest("a")).toBeNull();
+		// The name itself is the row's single link, inside its first cell.
+		expect(screen.getByText("worker-01").closest("a")).toBe(link);
+		expect(link.closest('[role="cell"]')).toBe(screen.getByText("worker-01").closest('[role="cell"]'));
 		// There is no page-level refresh button: the list polls.
 		expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
 	});
@@ -128,7 +141,7 @@ describe("NodesPage administrator actions", () => {
 	test("a member without grants gets the explanation, not the admin instructions", async () => {
 		await renderPage(MEMBER, []);
 		expect(await screen.findByText("An administrator grants access to nodes.")).toBeInTheDocument();
-		expect(screen.queryByText(/Use "Add node"/)).not.toBeInTheDocument();
+		expect(screen.queryByText(/Use "New node"/)).not.toBeInTheDocument();
 	});
 
 	test("a node with trust warnings is marked with the most severe tone", async () => {

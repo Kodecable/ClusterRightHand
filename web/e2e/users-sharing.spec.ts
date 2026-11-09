@@ -16,7 +16,7 @@ async function openNewGroup(page: Page, name: string): Promise<void> {
 	await page.getByTestId("create-user-group").click();
 	const dialog = page.getByRole("dialog", { name: "New user group" });
 	await dialog.getByLabel("User group name").fill(name);
-	await dialog.getByRole("button", { name: "Create user group" }).click();
+	await dialog.getByRole("button", { name: "New user group" }).click();
 	await page.getByRole("link", { name, exact: true }).click();
 	await expect(page.getByTestId("user-group-detail")).toBeVisible();
 }
@@ -33,7 +33,7 @@ test("admin grants node access; removing it hides the node again", async ({ admi
 	await dialog.getByLabel("Username").fill(MEMBER.username);
 	await dialog.getByLabel("Display name").fill("Mallory M");
 	await dialog.getByLabel("Password", { exact: true }).fill(MEMBER.password);
-	await dialog.getByRole("button", { name: "Create user" }).click();
+	await dialog.getByRole("button", { name: "New user" }).click();
 	const userRow = page.getByRole("row").filter({ hasText: MEMBER.username });
 	await expect(userRow).toBeVisible();
 	// The list has no inline edits; the kind is plain text and the row links to the user page.
@@ -92,7 +92,7 @@ test("admin grants node access; removing it hides the node again", async ({ admi
 		await page.goto(`/nodes/${nodeId}`);
 		await page.getByRole("button", { name: `Remove access for ${MEMBER.username}` }).click();
 		await page.getByRole("dialog").getByRole("button", { name: "Remove access" }).click();
-		await expect(page.getByText("No access grants yet.")).toBeVisible();
+		await expect(page.getByText("No access grants yet")).toBeVisible();
 		const denied = await mp.request.post(`/api/nodes/${nodeId}/tasks`, { data: { kind: "exec", shell: "true" } });
 		expect(denied.status()).toBe(404);
 		// The member is on the node page; their node list no longer has it.

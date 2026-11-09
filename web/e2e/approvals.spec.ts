@@ -95,6 +95,7 @@ test("reject shows the reason on the task and the audit page lists the approval"
 	const row = page.getByRole("row").filter({ hasText: "task.approval" }).first();
 	await expect(row).toBeVisible({ timeout: 15_000 });
 	await expect(row.getByRole("link", { name: `Open task ${task.id}` })).toHaveAttribute("href", `/tasks/${task.id}`);
+	// The action cell's real button opens the detail dialog; it is not covered by a row overlay.
 	await row.getByRole("button", { name: /Detail of event/ }).click();
 	const dialog = page.getByRole("dialog", { name: /Event \d+/ });
 	await expect(dialog).toContainText("rejected");
@@ -105,10 +106,10 @@ test("revoking a token needs confirmation", async ({ adminPage: page }) => {
 	await page.getByTestId("create-token").click();
 	const create = page.getByTestId("create-token-dialog");
 	await create.getByLabel("Name").fill("to-revoke");
-	await create.getByRole("button", { name: "Create token" }).click();
+	await create.getByRole("button", { name: "New token" }).click();
 	const done = page.getByRole("dialog", { name: "Token created" });
 	await expect(done).toContainText("crh_");
-	await done.getByRole("button", { name: "Done" }).click();
+	await done.getByRole("button", { name: "Close" }).first().click();
 
 	await page.getByRole("row").filter({ hasText: "to-revoke" }).getByRole("button", { name: "Revoke" }).click();
 	await page

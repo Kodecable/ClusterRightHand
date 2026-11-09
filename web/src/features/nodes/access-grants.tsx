@@ -5,7 +5,9 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { PlusIcon, XIcon } from "lucide-react";
 import { useMemo, useState } from "react";
+import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog, FormDialog } from "@/components/dialogs";
+import { EmptyHint, EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { FieldShell } from "@/components/form";
 import { RelativeTime } from "@/components/relative-time";
@@ -13,7 +15,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAuth } from "@/features/auth/session";
 import { useUserGroups, useUsers } from "@/features/users/api";
 import { ApiError, errorMessage } from "@/lib/api/client";
@@ -138,7 +139,7 @@ export function GranteeAccessList({
 				return (
 					<span
 						key={grant.id}
-						className="inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs"
+						className="inline-flex min-h-8 max-w-full items-center gap-1 rounded-md border px-2 text-xs"
 						data-testid="grantee-access-grant"
 					>
 						<AccessTargetLink grant={grant} />
@@ -173,7 +174,7 @@ export function GranteeNodeAccessSection({ granteeType, granteeId }: { granteeTy
 	if (!admin) return null;
 	return (
 		<section className="grid gap-2" aria-labelledby="grantee-node-access-heading" data-testid="grantee-node-access">
-			<h2 id="grantee-node-access-heading" className="text-sm font-semibold">
+			<h2 id="grantee-node-access-heading" className="text-sm font-medium">
 				<Trans>Node access</Trans>
 			</h2>
 			<GranteeAccessList grants={grants.data ?? []} />
@@ -295,9 +296,7 @@ function AddAccessDialog({
 				</Select>
 			</FieldShell>
 			{options.length === 0 && !users.isLoading && !userGroups.isLoading && (
-				<p className="text-sm text-muted-foreground">
-					{granteeType === "user" ? <Trans>No users.</Trans> : <Trans>No user groups.</Trans>}
-				</p>
+				<EmptyHint>{granteeType === "user" ? <Trans>No users</Trans> : <Trans>No user groups</Trans>}</EmptyHint>
 			)}
 		</FormDialog>
 	);
@@ -326,10 +325,54 @@ export function NodeAccessSection({
 
 	if (!admin) return null;
 	const rows = grants.data ?? [];
+	const columns: DataTableColumn<NodeAccessGrant>[] = [
+		{
+			id: "grantee",
+			header: t`Grantee`,
+			minSize: 160,
+			cell: ({ row }) => {
+				const name = granteeDisplayName(i18n, row.original);
+				return (
+					<span className="flex min-w-0 items-center gap-1.5">
+						<GranteeTypeBadge type={row.original.granteeType} />
+						<span className={row.original.granteeName === null ? "truncate italic text-muted-foreground" : "truncate"}>
+							{name}
+						</span>
+					</span>
+				);
+			},
+			meta: { title: (grant: NodeAccessGrant) => granteeDisplayName(i18n, grant) },
+		},
+		{
+			id: "created",
+			header: t`Created`,
+			size: 110,
+			cell: ({ row }) => <RelativeTime value={row.original.createdAt} />,
+		},
+		{
+			id: "actions",
+			header: actionsHeader,
+			size: 70,
+			cell: ({ row }) => {
+				const name = granteeDisplayName(i18n, row.original);
+				return (
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-xs"
+						aria-label={t`Remove access for ${name}`}
+						onClick={() => setRemoving(row.original)}
+					>
+						<XIcon />
+					</Button>
+				);
+			},
+		},
+	];
 
 	return (
 		<section className="grid gap-2" aria-labelledby="node-access-heading" data-testid="node-access">
-			<h2 id="node-access-heading" className="text-sm font-semibold">
+			<h2 id="node-access-heading" className="text-sm font-medium">
 				<Trans>Access</Trans>
 			</h2>
 			<p className="max-w-3xl text-sm text-muted-foreground">
@@ -339,56 +382,15 @@ export function NodeAccessSection({
 					<Trans>A granted user or user group can see the nodes in this node group and run tasks on them.</Trans>
 				)}
 			</p>
-			{rows.length === 0 ? (
-				<p className="text-sm text-muted-foreground">
-					<Trans>No access grants yet.</Trans>
-				</p>
-			) : (
-				<div className="overflow-auto rounded-lg border">
-					<Table aria-label={t`Access grants for ${targetName}`}>
-						<TableHeader>
-							<TableRow>
-								<TableHead>{t`Grantee`}</TableHead>
-								<TableHead>{t`Added`}</TableHead>
-								<TableHead className="w-24" />
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{rows.map((grant) => {
-								const name = granteeDisplayName(i18n, grant);
-								return (
-									<TableRow key={grant.id}>
-										<TableCell>
-											<span className="flex flex-wrap items-center gap-1.5">
-												<GranteeTypeBadge type={grant.granteeType} />
-												{grant.granteeName !== null ? (
-													<span>{name}</span>
-												) : (
-													<span className="italic text-muted-foreground">{name}</span>
-												)}
-											</span>
-										</TableCell>
-										<TableCell>
-											<RelativeTime value={grant.createdAt} />
-										</TableCell>
-										<TableCell>
-											<Button
-												type="button"
-												variant="destructive"
-												size="xs"
-												aria-label={t`Remove access for ${name}`}
-												onClick={() => setRemoving(grant)}
-											>
-												<Trans>Remove</Trans>
-											</Button>
-										</TableCell>
-									</TableRow>
-								);
-							})}
-						</TableBody>
-					</Table>
-				</div>
-			)}
+			<DataTable
+				label={t`Access grants for ${targetName}`}
+				columns={columns}
+				data={rows}
+				getRowId={(grant) => grant.id}
+				loading={grants.isLoading}
+				density="compact"
+				empty={<EmptyState bare title={<Trans>No access grants yet</Trans>} />}
+			/>
 			{grants.error !== null && grants.error !== undefined && (
 				<ErrorState error={grants.error} compact retry={() => void grants.refetch()} />
 			)}

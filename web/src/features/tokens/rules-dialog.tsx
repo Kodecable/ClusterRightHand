@@ -1,9 +1,17 @@
 import type { ApiTokenView, Rule, RulePreset } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useId, useState } from "react";
+import { ErrorText } from "@/components/error-state";
 import { RulePresetSelect } from "@/components/rule-preset-select";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { refNames, rulesWithNames } from "@/lib/refs";
@@ -50,7 +58,7 @@ export function RulesDialog({ token, onClose }: { token: ApiTokenView; onClose: 
 				if (!open) onClose();
 			}}
 		>
-			<DialogContent className="sm:max-w-xl" data-testid="token-rules-dialog">
+			<DialogContent className="sm:max-w-2xl" data-testid="token-rules-dialog">
 				<DialogHeader>
 					<DialogTitle>
 						<Trans>Rules of {token.name}</Trans>
@@ -107,14 +115,10 @@ export function RulesDialog({ token, onClose }: { token: ApiTokenView; onClose: 
 							</p>
 						)}
 					</div>
-					{error !== undefined && (
-						<p role="alert" className="text-sm text-danger">
-							{error}
-						</p>
-					)}
-					<div className="flex justify-end gap-2">
+					{error !== undefined && <ErrorText error={error} />}
+					<DialogFooter className="mx-0 mb-0 rounded-none">
 						<Button type="button" variant="outline" onClick={onClose}>
-							<Trans>Close</Trans>
+							<Trans>Cancel</Trans>
 						</Button>
 						<Button
 							type="button"
@@ -134,7 +138,7 @@ export function RulesDialog({ token, onClose }: { token: ApiTokenView; onClose: 
 						>
 							<Trans>Save rules</Trans>
 						</Button>
-					</div>
+					</DialogFooter>
 				</div>
 			</DialogContent>
 		</Dialog>

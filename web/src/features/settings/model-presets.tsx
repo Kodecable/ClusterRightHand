@@ -2,7 +2,10 @@ import type { AvailableModel, ModelPreset, ModelRef, ThinkingLevel } from "@crh/
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ChevronRightIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { ErrorState, ErrorText } from "@/components/error-state";
 import { groupModels, modelKey, parseModelKey } from "@/components/model-select";
+import { Panel } from "@/components/section";
+import { ListSkeleton } from "@/components/skeletons";
 import { ThinkingLevelSelect } from "@/components/thinking-level-select";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -31,33 +34,21 @@ export function ModelPresetsSection() {
 	return (
 		<section className="grid gap-3" aria-labelledby="model-presets-heading" data-testid="model-presets">
 			<div>
-				<h2 id="model-presets-heading" className="text-sm font-semibold">
+				<h2 id="model-presets-heading" className="text-sm font-medium">
 					<Trans>Model presets</Trans>
 				</h2>
 				<p className="text-sm text-muted-foreground">
 					<Trans>Changes take effect on the next model request.</Trans>
 				</p>
 			</div>
-			{presets.isLoading && (
-				<p className="text-sm text-muted-foreground">
-					<Trans>Loading…</Trans>
-				</p>
-			)}
-			{presets.isError && (
-				<p role="alert" className="text-sm text-danger">
-					{presets.error.message}
-				</p>
-			)}
+			{presets.isLoading && <ListSkeleton rows={3} />}
+			{presets.isError && <ErrorState error={presets.error} retry={() => void presets.refetch()} compact />}
 			<div className="grid gap-3 lg:grid-cols-3">
 				{(presets.data ?? []).map((preset) => (
 					<ModelPresetCard key={preset.kind} preset={preset} models={models.data ?? []} />
 				))}
 			</div>
-			{models.isError && (
-				<p role="alert" className="text-sm text-danger">
-					{t`The model list could not be loaded.`}
-				</p>
-			)}
+			{models.isError && <ErrorState error={t`The model list could not be loaded.`} compact />}
 		</section>
 	);
 }
@@ -104,13 +95,14 @@ function ModelPresetCard({ preset, models }: { preset: ModelPreset; models: Avai
 	};
 
 	return (
-		<section
-			className="grid content-start gap-3 rounded-lg border p-4"
+		<Panel
+			as="section"
+			className="grid content-start gap-3"
 			aria-labelledby={`model-preset-${preset.kind}-heading`}
 			data-testid={`model-preset-${preset.kind}`}
 		>
 			<div className="flex items-start justify-between gap-2">
-				<h3 id={`model-preset-${preset.kind}-heading`} className="text-sm font-semibold">
+				<h3 id={`model-preset-${preset.kind}-heading`} className="text-sm font-medium">
 					{title}
 				</h3>
 				<Button
@@ -184,30 +176,26 @@ function ModelPresetCard({ preset, models }: { preset: ModelPreset; models: Avai
 
 			<Collapsible>
 				<CollapsibleTrigger className="flex w-fit items-center gap-1 text-sm font-medium">
-					<ChevronRightIcon className="size-4" />
+					<ChevronRightIcon className="size-3.5" />
 					{t`Default prompt and protocol`}
 				</CollapsibleTrigger>
 				<CollapsibleContent className="grid gap-2 pt-2">
 					<div className="grid gap-1">
 						<p className="text-xs font-medium text-muted-foreground">{t`Default prompt`}</p>
-						<pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 font-mono text-xs">
+						<pre className="max-h-48 overflow-auto rounded-md bg-muted p-2 font-mono text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
 							{preset.defaultPrompt}
 						</pre>
 					</div>
 					<div className="grid gap-1">
 						<p className="text-xs font-medium text-muted-foreground">{t`Always appended`}</p>
-						<pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 font-mono text-xs">
+						<pre className="max-h-48 overflow-auto rounded-md bg-muted p-2 font-mono text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
 							{preset.protocol}
 						</pre>
 					</div>
 				</CollapsibleContent>
 			</Collapsible>
 
-			{save.error !== null && (
-				<p role="alert" className="text-sm text-danger">
-					{save.error.message}
-				</p>
-			)}
-		</section>
+			<ErrorText error={save.error} />
+		</Panel>
 	);
 }

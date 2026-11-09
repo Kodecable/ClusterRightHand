@@ -11,11 +11,11 @@ test("walks the Add SSH node wizard through credential, target and host key conf
 	const [host, port] = (jump as string).split(":") as [string, string];
 	await page.goto("/nodes");
 	await page.getByTestId("add-ssh-node").click();
-	const dialog = page.getByRole("dialog", { name: "Add SSH node" });
+	const dialog = page.getByRole("dialog", { name: "New SSH node" });
 	await expect(dialog.getByTestId("ssh-wizard")).toBeVisible();
 
 	await dialog.getByLabel("New credential name").fill("e2e-key");
-	await dialog.getByRole("button", { name: "Create credential" }).click();
+	await dialog.getByRole("button", { name: "New credential" }).click();
 	await expect(dialog.getByRole("region", { name: "Public key" })).toContainText(/^ssh-ed25519 /);
 	await dialog.getByTestId("ssh-next").click();
 

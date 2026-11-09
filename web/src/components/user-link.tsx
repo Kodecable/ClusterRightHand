@@ -4,8 +4,7 @@ import { cn, linkClass } from "@/lib/utils";
 /**
  * A link to a user's page (doc/webui.md "列表导航", "链接"): actors and owners are
  * linked whether or not the viewer may open the page; the destination answers
- * with its no-access message. `relative z-10` keeps the link clickable above a
- * list row's stretched link.
+ * with its no-access message.
  */
 export function UserLink({
 	id,
@@ -20,12 +19,7 @@ export function UserLink({
 	title?: string;
 }) {
 	return (
-		<Link
-			to="/users/$userId"
-			params={{ userId: id }}
-			title={title}
-			className={cn("relative z-10", linkClass, className)}
-		>
+		<Link to="/users/$userId" params={{ userId: id }} title={title} className={cn(linkClass, className)}>
 			{name === undefined || name === null || name === "" ? id : name}
 		</Link>
 	);

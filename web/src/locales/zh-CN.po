@@ -383,10 +383,6 @@ msgstr "活跃 · 已连接"
 msgid "Active · not connected"
 msgstr "活跃 · 未连接"
 
-#: src/features/audit/pages.tsx
-msgid "Actor"
-msgstr "操作者"
-
 #: src/features/tasks/pages.tsx
 msgid "Actor type"
 msgstr "操作者类型"
@@ -436,24 +432,6 @@ msgstr "添加跳板机"
 msgid "Add member"
 msgstr "添加成员"
 
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Add model"
-msgstr "添加模型"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Add model provider"
-msgstr "添加模型提供方"
-
-#: src/features/nodes/add-node-dialog.tsx
-#: src/features/nodes/pages.tsx
-msgid "Add node"
-msgstr "添加节点"
-
-#: src/features/settings/pages.tsx
-msgid "Add provider"
-msgstr "添加提供方"
-
 #: src/components/share-editor.tsx
 msgid "Add share"
 msgstr "添加共享"
@@ -462,19 +440,9 @@ msgstr "添加共享"
 msgid "Add SSH key"
 msgstr "添加 SSH 密钥"
 
-#: src/features/nodes/add-ssh-node-dialog.tsx
-#: src/features/nodes/pages.tsx
-msgid "Add SSH node"
-msgstr "添加 SSH 节点"
-
 #: src/features/approvals/pages.tsx
 msgid "Add tokens to the paused run or stop it."
 msgstr "给暂停的运行增加 token，或停止它。"
-
-#: src/features/credentials/pages.tsx
-#: src/features/nodes/access-grants.tsx
-msgid "Added"
-msgstr "添加时间"
 
 #: src/features/tokens/rules-dialog.tsx
 msgid "Added rules (JSON)"
@@ -574,11 +542,11 @@ msgstr "已尝试：{0}。"
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Also revoke all of my API tokens"
-msgstr "同时吊销我的全部 API token"
+msgstr "同时吊销我的全部 API 令牌"
 
 #: src/features/users/reset-password-dialog.tsx
 msgid "Also revoke all of this user's API tokens"
-msgstr "同时吊销该用户的全部 API token"
+msgstr "同时吊销该用户的全部 API 令牌"
 
 #: src/components/approval-card.tsx
 msgid "Always allow rule"
@@ -799,10 +767,6 @@ msgstr "等待审批"
 msgid "Awaiting authorization"
 msgstr "等待授权"
 
-#: src/components/status-badge.tsx
-msgid "Awaiting signature"
-msgstr "等待签名"
-
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Back"
 msgstr "上一步"
@@ -846,6 +810,7 @@ msgstr "预算已用尽（超出 {0}）· 已花 {usedText}"
 msgid "Build the `[[trust]]` block for this node's privileged.toml. The node enforces it; this page only exports it."
 msgstr "为这个节点的 privileged.toml 生成 `[[trust]]` 块。节点负责执行，此页面只负责导出。"
 
+#: src/features/audit/pages.tsx
 #: src/features/tasks/task-columns.tsx
 msgid "By"
 msgstr "操作者"
@@ -855,6 +820,7 @@ msgstr "操作者"
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/schedules/create-schedule-dialog.tsx
 #: src/features/settings/model-dialog.tsx
+#: src/features/tokens/rules-dialog.tsx
 msgid "Cancel"
 msgstr "取消"
 
@@ -902,15 +868,15 @@ msgstr "改动从下一次模型请求起生效。"
 #: src/features/settings/provider-dialog.tsx
 #: src/features/settings/providers.ts
 msgid "Changing the base URL requires re-entering the API key."
-msgstr "修改 Base URL 需要重新输入 API key。"
+msgstr "修改 Base URL 需要重新输入 API 密钥。"
 
 #: src/features/users/reset-password-dialog.tsx
 msgid "Changing the password signs out the user's web sessions but does not revoke their existing API tokens. Tick this to revoke all of them too."
-msgstr "修改密码会登出该用户的 Web 会话，但不会吊销已有的 API token。勾选后同时吊销全部 API token。"
+msgstr "修改密码会登出该用户的 Web 会话，但不会吊销已有的 API 令牌。勾选后同时吊销全部 API 令牌。"
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Changing the password signs out your other web sessions but does not revoke existing API tokens. Tick this to revoke all of them too."
-msgstr "修改密码会登出你的其他 Web 会话，但不会吊销已有的 API token。勾选后同时吊销全部 API token。"
+msgstr "修改密码会登出你的其他 Web 会话，但不会吊销已有的 API 令牌。勾选后同时吊销全部 API 令牌。"
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Chat"
@@ -999,8 +965,10 @@ msgstr "时钟"
 msgid "Clock skew"
 msgstr "时钟偏差"
 
+#: src/features/credentials/pages.tsx
 #: src/features/nodes/add-node-dialog.tsx
-#: src/features/tokens/rules-dialog.tsx
+#: src/features/ssh-credentials/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Close"
 msgstr "关闭"
 
@@ -1185,7 +1153,6 @@ msgid "cosignature unavailable"
 msgstr "无法共同签名"
 
 #: src/features/nodes/ssh-wizard.tsx
-#: src/features/ssh-credentials/pages.tsx
 msgid "Create"
 msgstr "创建"
 
@@ -1201,52 +1168,14 @@ msgstr "创建令牌以连接 MCP 客户端。"
 msgid "Create an enrollment token, then run the printed command on the node as the user crha should run tasks as."
 msgstr "创建注册令牌，然后在节点上以 crha 运行任务应使用的用户执行打印出的命令。"
 
-#: src/features/tokens/create-token-dialog.tsx
-msgid "Create API token"
-msgstr "创建 API 令牌"
-
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Create credential"
-msgstr "创建凭据"
-
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Create node"
-msgstr "创建节点"
-
-#: src/features/node-groups/dialogs.tsx
-#: src/features/node-groups/pages.tsx
-msgid "Create node group"
-msgstr "创建节点组"
-
 #: src/features/ssh-credentials/pages.tsx
 msgid "Create one to give crhs a key for SSH nodes and jump hosts."
 msgstr "创建一个，为 crhs 提供用于 SSH 节点和跳板机的密钥。"
 
-#: src/features/schedules/create-schedule-dialog.tsx
-msgid "Create schedule"
-msgstr "创建计划任务"
-
-#: src/features/ssh-credentials/pages.tsx
-msgid "Create SSH credential"
-msgstr "创建 SSH 凭据"
-
-#: src/features/nodes/add-node-dialog.tsx
-#: src/features/tokens/create-token-dialog.tsx
-#: src/features/tokens/pages.tsx
-msgid "Create token"
-msgstr "创建令牌"
-
-#: src/features/users/new-user-dialog.tsx
-msgid "Create user"
-msgstr "创建用户"
-
-#: src/features/users/user-group-dialogs.tsx
-#: src/features/users/user-groups-section.tsx
-msgid "Create user group"
-msgstr "创建用户组"
-
 #: src/components/task-result.tsx
 #: src/features/authorizations/pages.tsx
+#: src/features/credentials/pages.tsx
+#: src/features/nodes/access-grants.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tokens/pages.tsx
@@ -1467,6 +1396,10 @@ msgstr "事件 {0} 的详情"
 msgid "Digest"
 msgstr "摘要"
 
+#: src/components/task-result.tsx
+msgid "Directory listing"
+msgstr "目录列表"
+
 #: src/features/users/pages.tsx
 msgid "Disable"
 msgstr "禁用"
@@ -1502,8 +1435,6 @@ msgid "Display name"
 msgstr "显示名"
 
 #: src/features/sessions/tool-card.tsx
-#: src/features/ssh-credentials/pages.tsx
-#: src/features/tokens/create-token-dialog.tsx
 msgid "Done"
 msgstr "完成"
 
@@ -1545,8 +1476,8 @@ msgstr "编辑 {0}"
 msgid "Edit members"
 msgstr "编辑成员"
 
-#. placeholder {0}: index + 1
 #. placeholder {0}: initial.id
+#. placeholder {0}: row.original.index + 1
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Edit model {0}"
@@ -1600,7 +1531,7 @@ msgstr "注册命令"
 #: src/components/quota-card.tsx
 #: src/features/sessions/budget-dialog.tsx
 msgid "Enter a positive number of tokens to add."
-msgstr "请输入要添加的 token 数量（正整数）。"
+msgstr "请输入要添加的 token 数（正整数）。"
 
 #: src/components/quota-card.tsx
 #: src/features/schedules/scheduleForm.ts
@@ -1819,7 +1750,7 @@ msgstr "请求头"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Headers are stored and shown in plaintext, not as secrets. Do not put API keys or Authorization tokens here; use the API key field."
-msgstr "请求头以明文存储和显示，不当作机密；不要在这里填写 API key 或 Authorization token，请使用 API key 字段。"
+msgstr "请求头以明文存储和显示，不当作机密；不要在这里填写 API 密钥或 Authorization 令牌，请使用 API 密钥字段。"
 
 #: src/features/nodes/crhs-key-panel.tsx
 msgid "Hide trust snippet"
@@ -1885,7 +1816,6 @@ msgid "Invalid username or password."
 msgstr "用户名或密码错误。"
 
 #: src/components/authorization-card.tsx
-#: src/components/status-badge.tsx
 #: src/features/authorizations/pages.tsx
 msgid "Issued"
 msgstr "已签发"
@@ -1919,6 +1849,7 @@ msgid "Its models disappear from the model lists, and its stored key is deleted.
 msgstr "它的模型会从模型列表中消失，保存的密钥也会删除。正在使用这些模型的现有会话会停止工作，直到你更换模型。"
 
 #. placeholder {0}: index + 1
+#. placeholder {0}: row.index + 1
 #: src/features/nodes/ssh-node-section.tsx
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Jump host {0}"
@@ -2060,14 +1991,6 @@ msgstr "正在加载任务…"
 msgid "Loading the waiting decisions…"
 msgstr "正在加载等待处理的决定…"
 
-#: src/features/approvals/pages.tsx
-#: src/features/sessions/children-bar.tsx
-#: src/features/settings/model-presets.tsx
-#: src/features/tasks/task-group-page.tsx
-#: src/features/tasks/task-page.tsx
-msgid "Loading…"
-msgstr "加载中…"
-
 #: src/app/shell/user-menu.tsx
 msgid "Log out"
 msgstr "退出登录"
@@ -2102,7 +2025,7 @@ msgstr "最大输出"
 
 #: src/features/settings/model-dialog.tsx
 msgid "Max output tokens"
-msgstr "最大输出 token"
+msgstr "最大输出 token 数"
 
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
@@ -2218,14 +2141,30 @@ msgid "Never run"
 msgstr "从未运行"
 
 #: src/features/nodes/ssh-wizard.tsx
+msgid "New credential"
+msgstr "新建凭据"
+
+#: src/features/nodes/ssh-wizard.tsx
 msgid "New credential name"
 msgstr "新凭据名称"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "New model"
+msgstr "新建模型"
 
 #: src/features/nodes/rename-node-button.tsx
 msgid "New name"
 msgstr "新名称"
 
+#: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/pages.tsx
+#: src/features/nodes/ssh-wizard.tsx
+msgid "New node"
+msgstr "新建节点"
+
 #: src/features/node-groups/dialogs.tsx
+#: src/features/node-groups/pages.tsx
 msgid "New node group"
 msgstr "新建节点组"
 
@@ -2233,6 +2172,11 @@ msgstr "新建节点组"
 #: src/features/users/reset-password-dialog.tsx
 msgid "New password"
 msgstr "新密码"
+
+#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "New provider"
+msgstr "新建提供方"
 
 #: src/features/approvals/pages.tsx
 msgid "New requests appear here and in the sidebar badge."
@@ -2255,9 +2199,24 @@ msgstr "新会话"
 msgid "New Session"
 msgstr "新会话"
 
+#: src/features/ssh-credentials/pages.tsx
+msgid "New SSH credential"
+msgstr "新建 SSH 凭据"
+
+#: src/features/nodes/add-ssh-node-dialog.tsx
+#: src/features/nodes/pages.tsx
+msgid "New SSH node"
+msgstr "新建 SSH 节点"
+
 #: src/components/task-form-fields.tsx
 msgid "New text"
 msgstr "新文本"
+
+#: src/features/nodes/add-node-dialog.tsx
+#: src/features/tokens/create-token-dialog.tsx
+#: src/features/tokens/pages.tsx
+msgid "New token"
+msgstr "新建令牌"
 
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
@@ -2265,6 +2224,7 @@ msgid "New user"
 msgstr "新建用户"
 
 #: src/features/users/user-group-dialogs.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "New user group"
 msgstr "新建用户组"
 
@@ -2286,12 +2246,12 @@ msgid "No"
 msgstr "否"
 
 #: src/features/nodes/access-grants.tsx
-msgid "No access grants yet."
-msgstr "还没有访问权限记录。"
+msgid "No access grants yet"
+msgstr "还没有访问授权"
 
 #: src/features/batch/pages.tsx
-msgid "No active nodes you can access."
-msgstr "没有你可以访问的活跃节点。"
+msgid "No active nodes you can access"
+msgstr "没有你可访问的活跃节点"
 
 #: src/features/tokens/pages.tsx
 msgid "No API tokens yet"
@@ -2319,8 +2279,8 @@ msgstr "没有事件"
 
 #: src/features/node-groups/pages.tsx
 #: src/features/users/user-group-page.tsx
-msgid "No members."
-msgstr "没有成员。"
+msgid "No members"
+msgstr "没有成员"
 
 #: src/features/sessions/pages.tsx
 msgid "No messages yet. Start the conversation below."
@@ -2347,6 +2307,10 @@ msgstr "尚未配置模型，计划任务无法运行。"
 msgid "No models are configured, so sessions cannot start."
 msgstr "尚未配置模型，会话无法启动。"
 
+#: src/features/settings/provider-dialog.tsx
+msgid "No models yet"
+msgstr "还没有模型"
+
 #: src/features/nodes/access-grants.tsx
 msgid "No node access"
 msgstr "没有节点访问权限"
@@ -2354,10 +2318,6 @@ msgstr "没有节点访问权限"
 #: src/features/node-groups/pages.tsx
 msgid "No node groups yet"
 msgstr "还没有节点组"
-
-#: src/components/node-group-picker.tsx
-msgid "No node groups."
-msgstr "没有节点组。"
 
 #: src/features/nodes/pages.tsx
 msgid "No nodes yet"
@@ -2376,8 +2336,8 @@ msgid "No output was kept."
 msgstr "未保留任何输出。"
 
 #: src/features/sessions/tool-dialog.tsx
-msgid "No output yet."
-msgstr "还没有输出。"
+msgid "No output yet"
+msgstr "还没有输出"
 
 #: src/components/authorization-card.tsx
 msgid "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
@@ -2413,8 +2373,8 @@ msgid "No SSH credentials yet"
 msgstr "还没有 SSH 凭据"
 
 #: src/features/sessions/children-bar.tsx
-msgid "No subagents."
-msgstr "没有子会话。"
+msgid "No subagents"
+msgstr "没有子代理"
 
 #: src/features/node-groups/pages.tsx
 msgid "No such node group"
@@ -2427,25 +2387,25 @@ msgid "No tasks yet"
 msgstr "还没有任务"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "No upcoming runs."
-msgstr "没有即将运行的任务。"
+msgid "No upcoming runs"
+msgstr "没有即将触发的运行"
+
+#: src/features/nodes/access-grants.tsx
+#: src/features/users/pages.tsx
+msgid "No user groups"
+msgstr "没有用户组"
 
 #: src/features/users/user-groups-section.tsx
 msgid "No user groups yet"
 msgstr "还没有用户组"
 
 #: src/features/nodes/access-grants.tsx
-#: src/features/users/pages.tsx
-msgid "No user groups."
-msgstr "没有用户组。"
+msgid "No users"
+msgstr "没有用户"
 
 #: src/features/users/pages.tsx
 msgid "No users yet"
 msgstr "还没有用户"
-
-#: src/features/nodes/access-grants.tsx
-msgid "No users."
-msgstr "没有用户。"
 
 #: src/components/authorization-card.tsx
 #: src/components/node-picker.tsx
@@ -2572,7 +2532,7 @@ msgstr "没有符合这些过滤条件的内容。"
 
 #: src/features/sessions/composer.tsx
 msgid "Nothing to compact yet: the most recent ~20k tokens of the conversation are always kept as they are."
-msgstr "暂无可压缩的内容：对话中最近约 2 万 token 始终原样保留。"
+msgstr "暂无可压缩的内容：对话中最近约 2 万个 token 始终原样保留。"
 
 #: src/components/data-table.tsx
 msgid "Nothing to show."
@@ -2714,7 +2674,6 @@ msgid "output"
 msgstr "输出"
 
 #: src/features/batch/pages.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "Output"
 msgstr "输出"
 
@@ -2796,10 +2755,6 @@ msgstr "路径"
 #: src/features/authorizations/pages.tsx
 msgid "Payload"
 msgstr "载荷"
-
-#: src/components/status-badge.tsx
-msgid "Pending"
-msgstr "待处理"
 
 #: src/components/status-badge.tsx
 msgid "Pending approval"
@@ -2948,7 +2903,6 @@ msgstr "已拒绝"
 msgid "Remaining budget tokens (empty = unlimited)"
 msgstr "剩余预算 token（留空 = 不限）"
 
-#: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Remove"
 msgstr "移除"
@@ -2985,7 +2939,7 @@ msgstr "删除请求头 {0}"
 msgid "Remove jump host {0}"
 msgstr "移除跳板机 {0}"
 
-#. placeholder {0}: index + 1
+#. placeholder {0}: row.original.index + 1
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove model {0}"
 msgstr "移除模型 {0}"
@@ -3074,7 +3028,7 @@ msgstr "要求用户验证"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Required for the new base URL"
-msgstr "新的 Base URL 需要填写 API key"
+msgstr "新的 Base URL 需要填写 API 密钥"
 
 #: src/features/users/pages.tsx
 msgid "Reset password"
@@ -3391,10 +3345,6 @@ msgstr "授予这个用户组的分享将被删除，组内成员也会失去它
 msgid "Shell command"
 msgstr "Shell 命令"
 
-#: src/features/tasks/task-group-result.tsx
-msgid "Show"
-msgstr "显示"
-
 #: src/components/code-text.tsx
 msgid "Show all"
 msgstr "显示全部"
@@ -3440,10 +3390,6 @@ msgstr "信号"
 #: src/components/task-result.tsx
 msgid "Signal {0}"
 msgstr "信号 {0}"
-
-#: src/components/status-badge.tsx
-msgid "Signed"
-msgstr "已签名"
 
 #: src/app/shell/user-menu.tsx
 msgid "Signed in as {name}"
@@ -3681,10 +3627,18 @@ msgstr "任务组审批"
 msgid "Tasks"
 msgstr "任务"
 
+#: src/features/tasks/task-group-result.tsx
+msgid "Tasks in this task group"
+msgstr "此任务组中的任务"
+
 #. placeholder {0}: user.username
 #: src/features/users/pages.tsx
 msgid "Tasks of {0}"
 msgstr "{0} 的任务"
+
+#: src/components/authorization-card.tsx
+msgid "Tasks waiting for authorization"
+msgstr "等待授权的任务"
 
 #: src/components/test-connection.tsx
 msgid "Test connection"
@@ -3771,8 +3725,8 @@ msgid "The node has no alias for this task's node group. Add the node group UUID
 msgstr "节点没有此任务所在节点组的别名。请把节点组的 UUID 加入节点上 privileged.toml 的 aliases，然后重新运行任务。"
 
 #: src/features/nodes/node-trust.tsx
-msgid "The node has not reported its trust configuration."
-msgstr "节点尚未上报其信任配置。"
+msgid "The node has not reported its trust configuration"
+msgstr "节点尚未上报信任配置"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "The node is active as soon as it is created; the pinned host keys are enforced on every connection. Test first to check that the key is installed on every hop and the account can run commands."
@@ -3783,8 +3737,8 @@ msgid "The node is in this node group but does not trust it as an alias. Add the
 msgstr "节点在这个节点组中，但没有把它作为别名信任。请把这个节点组的 UUID 加入节点上 privileged.toml 的 aliases："
 
 #: src/features/nodes/node-trust.tsx
-msgid "The node trusts nobody."
-msgstr "该节点不信任任何密钥。"
+msgid "The node trusts nobody"
+msgstr "节点不信任任何对象"
 
 #: src/components/task-result.tsx
 msgid "The offset is past the end of the file."
@@ -3867,8 +3821,8 @@ msgid "Theme"
 msgstr "主题"
 
 #: src/features/node-groups/dialogs.tsx
-msgid "There are no nodes to add yet."
-msgstr "还没有可添加的节点。"
+msgid "There are no nodes to add yet"
+msgstr "还没有可添加的节点"
 
 #: src/features/approvals/pages.tsx
 msgid "These passed their rules; they run once you sign them."
@@ -3986,7 +3940,7 @@ msgstr "切换侧边栏"
 #: src/features/schedules/schedule-form.tsx
 #: src/features/sessions/budget-dialog.tsx
 msgid "Token budget"
-msgstr "Token 预算"
+msgstr "token 预算"
 
 #: src/components/quota-card.tsx
 msgid "Token budget used up"
@@ -3998,7 +3952,7 @@ msgstr "令牌已创建"
 
 #: src/features/approvals/pages.tsx
 msgid "Token quota used up"
-msgstr "Token 配额已用尽"
+msgstr "token 配额已用尽"
 
 #: src/components/quota-card.tsx
 msgid "Tokens to add"
@@ -4099,8 +4053,8 @@ msgid "Updated"
 msgstr "更新时间"
 
 #: src/features/nodes/pages.tsx
-msgid "Use \"Add node\" to enrol a crha client, or \"Add SSH node\" for an SSH target."
-msgstr "使用“添加节点”注册 crha 客户端，或使用“添加 SSH 节点”添加 SSH 目标。"
+msgid "Use \"New node\" to enrol a crha client, or \"New SSH node\" for an SSH target."
+msgstr "使用“新建节点”注册 crha 客户端，或使用“新建 SSH 节点”添加 SSH 目标。"
 
 #: src/features/users/new-user-dialog.tsx
 msgid "Use at least 8 characters, or leave it empty."

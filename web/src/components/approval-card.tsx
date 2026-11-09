@@ -3,10 +3,12 @@ import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useState } from "react";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorText } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
 import { NodeTargetList } from "@/components/node-targets";
 import { DateTime } from "@/components/relative-time";
+import { Panel } from "@/components/section";
 import { StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +17,7 @@ import { UserLink } from "@/components/user-link";
 import { actorLabel, alwaysRule } from "@/features/approvals/rules";
 import { ruleWithNames } from "@/lib/refs";
 import { ruleResultTone } from "@/lib/status";
-import { cn } from "@/lib/utils";
+import { cn, MONO_CELL } from "@/lib/utils";
 
 export type ApprovalItem = { kind: "task"; task: TaskView } | { kind: "task_group"; taskGroup: TaskGroupView };
 
@@ -63,54 +65,68 @@ export function EvaluationTable({
 	refNames?: Map<string, string>;
 }) {
 	const { t, i18n } = useLingui();
+	const columns: DataTableColumn<Evaluation["levels"][number]>[] = [
+		{
+			id: "level",
+			header: t`Level`,
+			size: 220,
+			cell: ({ row }) => (
+				<>
+					{row.original.scope.type === "api_token" ? <Trans>API token</Trans> : row.original.scope.type}{" "}
+					<span className={MONO_CELL}>{tokenNames?.get(row.original.scope.id) ?? row.original.scope.id}</span>
+				</>
+			),
+			meta: {
+				title: (level: Evaluation["levels"][number]) =>
+					`${level.scope.type} ${tokenNames?.get(level.scope.id) ?? level.scope.id}`,
+			},
+		},
+		{
+			id: "own",
+			header: t`Own result`,
+			size: 110,
+			cell: ({ row }) => (
+				<StatusText tone={ruleResultTone(row.original.own)}>{ruleResultLabel(i18n, row.original.own)}</StatusText>
+			),
+		},
+		{
+			id: "matched",
+			header: t`Matched rule`,
+			minSize: 180,
+			cell: ({ row }) =>
+				row.original.matched ? (
+					<code className={cn("block truncate", MONO_CELL)}>
+						{JSON.stringify(ruleWithNames(row.original.matched, refNames ?? new Map()))}
+					</code>
+				) : (
+					<span className="text-muted-foreground">
+						<Trans>default</Trans>
+					</span>
+				),
+			meta: {
+				title: (level: Evaluation["levels"][number]) =>
+					level.matched ? JSON.stringify(ruleWithNames(level.matched, refNames ?? new Map())) : i18n._(msg`default`),
+			},
+		},
+		{
+			id: "effective",
+			header: t`Effective`,
+			size: 110,
+			cell: ({ row }) => (
+				<StatusText tone={ruleResultTone(row.original.effective)}>
+					{ruleResultLabel(i18n, row.original.effective)}
+				</StatusText>
+			),
+		},
+	];
 	return (
-		<div className="overflow-x-auto rounded-md border">
-			<table aria-label={t`Rule chain evaluation`} className="w-full text-xs">
-				<thead className="bg-muted/60 text-muted-foreground">
-					<tr>
-						<th className="px-2 py-1.5 text-left font-medium">
-							<Trans>Level</Trans>
-						</th>
-						<th className="px-2 py-1.5 text-left font-medium">
-							<Trans>Own result</Trans>
-						</th>
-						<th className="px-2 py-1.5 text-left font-medium">
-							<Trans>Matched rule</Trans>
-						</th>
-						<th className="px-2 py-1.5 text-left font-medium">
-							<Trans>Effective</Trans>
-						</th>
-					</tr>
-				</thead>
-				<tbody>
-					{evaluation.levels.map((level) => (
-						<tr key={`${level.scope.type}:${level.scope.id}`} className="border-t">
-							<td className="px-2 py-1.5">
-								{level.scope.type === "api_token" ? <Trans>API token</Trans> : level.scope.type}{" "}
-								<span className="font-mono">{tokenNames?.get(level.scope.id) ?? level.scope.id}</span>
-							</td>
-							<td className="px-2 py-1.5">
-								<StatusText tone={ruleResultTone(level.own)}>{ruleResultLabel(i18n, level.own)}</StatusText>
-							</td>
-							<td className="max-w-64 px-2 py-1.5">
-								{level.matched ? (
-									<code className="block truncate font-mono">
-										{JSON.stringify(ruleWithNames(level.matched, refNames ?? new Map()))}
-									</code>
-								) : (
-									<span className="text-muted-foreground">
-										<Trans>default</Trans>
-									</span>
-								)}
-							</td>
-							<td className="px-2 py-1.5">
-								<StatusText tone={ruleResultTone(level.effective)}>{ruleResultLabel(i18n, level.effective)}</StatusText>
-							</td>
-						</tr>
-					))}
-				</tbody>
-			</table>
-		</div>
+		<DataTable
+			label={t`Rule chain evaluation`}
+			columns={columns}
+			data={evaluation.levels}
+			getRowId={(level) => `${level.scope.type}:${level.scope.id}`}
+			density="compact"
+		/>
 	);
 }
 
@@ -322,16 +338,17 @@ export function ApprovalCard({
 	};
 
 	return (
-		<section
+		<Panel
+			as="section"
 			data-slot="approval-card"
 			aria-label={`${item.kind === "task" ? t`Task` : t`Task group`} ${id}`}
-			className={cn("grid gap-3 rounded-lg border bg-card p-4 text-card-foreground", className)}
+			className={cn("grid gap-3 bg-card text-card-foreground", className)}
 		>
 			{showHeading && (
 				<div className="flex flex-wrap items-center gap-2">
-					<h2 className="text-sm font-semibold">
+					<h2 className="text-sm font-medium">
 						{item.kind === "task" ? <Trans>Task</Trans> : <Trans>Task group</Trans>}{" "}
-						<span className="font-mono text-xs font-normal text-muted-foreground">{id}</span>
+						<span className={cn(MONO_CELL, "font-normal text-muted-foreground")}>{id}</span>
 					</h2>
 					<StatusText tone="warn">
 						<Trans>Awaiting approval</Trans>
@@ -349,7 +366,8 @@ export function ApprovalCard({
 						},
 						{
 							label: <Trans>Command / path</Trans>,
-							value: <span className="font-mono text-xs">{subject.summary ?? ""}</span>,
+							value: subject.summary ?? "",
+							mono: true,
 						},
 						{
 							label: <Trans>Asked by</Trans>,
@@ -423,6 +441,6 @@ export function ApprovalCard({
 			)}
 
 			{error !== undefined && <ErrorText error={error} />}
-		</section>
+		</Panel>
 	);
 }

@@ -12,3 +12,11 @@ export function cn(...inputs: ClassValue[]): string {
  * button; the underline thickens on hover as the only hover affordance.
  */
 export const linkClass = "text-foreground underline underline-offset-2 hover:decoration-2";
+
+/**
+ * A monospace table cell or detail value (doc/webui.md "表格"): `text-xs` keeps
+ * ids, commands and hashes compact, and `leading-5` gives them the same 20px
+ * line box as `text-sm`, so a row's mono value centers on the same line as its
+ * text neighbours instead of sitting higher.
+ */
+export const MONO_CELL = "font-mono text-xs leading-5";

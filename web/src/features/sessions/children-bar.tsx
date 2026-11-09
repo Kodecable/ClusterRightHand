@@ -3,6 +3,9 @@ import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { ChevronDownIcon, ChevronRightIcon, UsersIcon } from "lucide-react";
 import { useState } from "react";
+import { EmptyHint } from "@/components/empty-state";
+import { ErrorText } from "@/components/error-state";
+import { Spinner } from "@/components/spinner";
 import { SessionStatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -127,7 +130,7 @@ function ChildNode({ item, depth, onNavigate }: { item: SessionListItem; depth: 
 					data-testid="children-expand"
 					onClick={() => setExpanded((value) => !value)}
 				>
-					{expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
+					{expanded ? <ChevronDownIcon className="size-3.5" /> : <ChevronRightIcon className="size-3.5" />}
 				</Button>
 				<SessionStatusBadge state={item.state} className="shrink-0" />
 				<Link
@@ -154,17 +157,24 @@ function ChildNode({ item, depth, onNavigate }: { item: SessionListItem; depth: 
 
 /** A node's own children, fetched only when the node is expanded. */
 function NestedChildren({ parentId, depth, onNavigate }: { parentId: string; depth: number; onNavigate: () => void }) {
-	const { t } = useLingui();
 	const query = useSessionTreeChildren(parentId, true);
 	const items = flattenCursorPages(query.data);
 	if (query.isPending) {
-		return <p className="py-1 pl-6 text-xs text-muted-foreground">{t`Loading…`}</p>;
+		return (
+			<div className="py-1 pl-6">
+				<Spinner className="size-4" />
+			</div>
+		);
 	}
 	if (query.isError) {
-		return <p className="py-1 pl-6 text-xs text-danger">{query.error.message}</p>;
+		return <ErrorText error={query.error} className="py-1 pl-6 text-xs" />;
 	}
 	if (items.length === 0) {
-		return <p className="py-1 pl-6 text-xs text-muted-foreground">{t`No subagents.`}</p>;
+		return (
+			<EmptyHint className="py-1 pl-6 text-xs">
+				<Trans>No subagents</Trans>
+			</EmptyHint>
+		);
 	}
 	return (
 		<ul className="grid gap-0.5">
@@ -185,12 +195,13 @@ function LoadMore({ pending, onClick, className }: { pending: boolean; onClick: 
 			type="button"
 			variant="ghost"
 			size="xs"
-			className={`justify-start text-xs text-muted-foreground ${className ?? ""}`.trim()}
+			className={cn("justify-start text-xs text-muted-foreground", className)}
 			disabled={pending}
 			data-testid="children-load-more"
 			onClick={onClick}
 		>
-			{pending ? <Trans>Loading…</Trans> : <Trans>Load more</Trans>}
+			{pending && <Spinner className="size-3.5" decorative />}
+			<Trans>Load more</Trans>
 		</Button>
 	);
 }

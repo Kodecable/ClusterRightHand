@@ -48,13 +48,13 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-test("a run with a session links to the session from the whole row", async () => {
+test("a run with a session links to the session from the session cell and the row", async () => {
 	await renderHistory([run({ id: "run-1", sessionId: "sess1234-aaaa" }), run({ id: "run-2", sessionId: null })]);
 	const link = await screen.findByRole("link", { name: "Open session sess1234" });
 	expect(link).toHaveAttribute("href", "/sessions/sess1234-aaaa");
-	// Only the run with a session has a row link; the short id stays plain mono text.
+	// Only the run with a session has a row link, and it wraps the short session id.
 	expect(screen.getAllByRole("link")).toHaveLength(1);
-	expect(screen.getByText("sess1234").closest("a")).toBeNull();
+	expect(screen.getByText("sess1234").closest("a")).toBe(link);
 	// No section-level refresh button: the section polls or is invalidated.
 	expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
 });

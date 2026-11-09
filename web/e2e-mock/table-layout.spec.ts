@@ -61,6 +61,32 @@ for (const [name, path] of TABLE_PAGES) {
 	});
 }
 
+test("a very long task title wraps instead of widening the page", async ({ page }) => {
+	const summary = `rm -f /tmp/${"a".repeat(180)}; ls -la /var/log/${"b".repeat(180)}`;
+	await mockApi(page, {
+		state: { ...state, tasks: [taskView({ id: "task-long", state: "exited", exitCode: 0, summary })] },
+	});
+	await login(page);
+	await page.goto("/tasks/task-long");
+
+	const title = page.locator('[data-slot="page-header"] h1');
+	await expect(title).toBeVisible();
+	await expect(title).toHaveAttribute("title", summary);
+	const clamp = await title.evaluate((element) => {
+		const style = getComputedStyle(element);
+		return { lines: style.webkitLineClamp, overflow: style.overflow };
+	});
+	expect(clamp.lines).toBe("2");
+	expect(clamp.overflow).toBe("hidden");
+
+	// The long command cannot widen the shell: the page stays within the viewport.
+	const metrics = await page.evaluate(() => ({
+		scrollWidth: document.documentElement.scrollWidth,
+		clientWidth: document.documentElement.clientWidth,
+	}));
+	expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
+});
+
 test("a narrow screen keeps the table's columns and scrolls sideways", async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await mockApi(page, { state });

@@ -3,6 +3,13 @@ import { type DateInput, formatDateTimeSeconds, formatRelativeTime } from "@/lib
 import { useLocale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
+/**
+ * The typography of an absolute timestamp: tabular digits, so a column of
+ * timestamps lines up. The font size comes from the surrounding cell, which is
+ * why `time-column.ts` measures with the cell's size class plus this one.
+ */
+export const DATE_TIME_CLASS = "tabular-nums";
+
 function toIso(value: DateInput): string | undefined {
 	if (value === null || value === undefined || value === "") return undefined;
 	const date = value instanceof Date ? value : new Date(value);
@@ -36,7 +43,7 @@ export function RelativeTime({
 	// A missing time keeps the placeholder muted, like every other empty value.
 	if (iso === undefined) return <span className={cn("text-muted-foreground", className)}>–</span>;
 	return (
-		<time dateTime={iso} title={formatDateTimeSeconds(iso, locale)} className={cn("tabular-nums", className)}>
+		<time dateTime={iso} title={formatDateTimeSeconds(iso, locale)} className={cn(DATE_TIME_CLASS, className)}>
 			{formatRelativeTime(value, locale)}
 		</time>
 	);
@@ -48,7 +55,7 @@ export function DateTime({ value, className }: { value: DateInput; className?: s
 	const iso = toIso(value);
 	if (iso === undefined) return <span className={cn("text-muted-foreground", className)}>–</span>;
 	return (
-		<time dateTime={iso} className={cn("tabular-nums", className)}>
+		<time dateTime={iso} className={cn(DATE_TIME_CLASS, className)}>
 			{formatDateTimeSeconds(value, locale)}
 		</time>
 	);

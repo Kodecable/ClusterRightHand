@@ -201,12 +201,22 @@ html[data-theme="dark"] {
 /*
  * One template for the header row and every body row (DataTable sets the
  * custom properties on its container), so header labels sit above their
- * values. Below `md` the columns keep their minimum widths and the table
- * scrolls sideways instead of shrinking to a few characters per cell.
+ * values. The table is never narrower than the columns' computed minimum: if
+ * they do not fit, the scroll frame scrolls the header and the rows together
+ * instead of the frame clipping the trailing columns. Below `md` the columns
+ * keep their minimum widths and the table scrolls sideways instead of
+ * shrinking to a few characters per cell.
  */
 [data-slot="data-table-row"] {
 	display: grid;
 	grid-template-columns: var(--dt-columns);
+	/* Cells keep their own line box and are centered in the row's fixed min height. */
+	align-items: center;
+}
+
+[data-slot="data-table-scroll"] > [role="table"],
+[data-slot="data-table-virtual"] {
+	min-width: var(--dt-min-width);
 }
 
 @media (width < 48rem) {

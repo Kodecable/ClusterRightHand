@@ -83,7 +83,7 @@ test("create a schedule and run it now", async ({ page }) => {
 	await page.getByLabel("Prompt").fill("Check the nodes");
 	await page.getByLabel("Model").click();
 	await page.getByRole("option", { name: "Faux One" }).click();
-	await page.getByRole("button", { name: "Create schedule" }).click();
+	await dialog.getByRole("button", { name: "New schedule" }).click();
 
 	await expect(page).toHaveURL(/\/schedules\/schedule-1$/);
 	await expect(page.getByRole("heading", { name: "Nightly check" })).toBeVisible();

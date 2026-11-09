@@ -133,14 +133,14 @@ test("admin model settings: add a custom provider and see its model in the new-s
 	await page.goto("/settings/models");
 	await expect(page.getByTestId("page-title")).toHaveText("Models");
 	await page.getByTestId("add-provider").click();
-	const dialog = page.getByRole("dialog", { name: "Add model provider" });
+	const dialog = page.getByRole("dialog", { name: "New provider" });
 	await dialog.getByLabel("Kind").click();
 	await page.getByRole("option", { name: "Custom" }).click();
 	await dialog.getByLabel("Provider id").fill("local-llm");
 	await dialog.getByLabel("Name").fill("Local LLM");
 	await dialog.getByLabel("Base URL").fill("http://127.0.0.1:9/v1");
 	await dialog.getByLabel("API key").fill("sk-secret");
-	await dialog.getByRole("button", { name: "Add model" }).click();
+	await dialog.getByRole("button", { name: "New model" }).click();
 	const model = page.getByTestId("model-dialog");
 	await model.getByLabel("Model id").fill("tiny-1");
 	await model.getByRole("button", { name: "Save model" }).click();

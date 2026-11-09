@@ -11,9 +11,17 @@ import { FormDialog } from "@/components/dialogs";
 import { TextField } from "@/components/form";
 import { RulePresetSelect } from "@/components/rule-preset-select";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { WarningBanner } from "@/components/warning-banner";
 import { API_TOKEN_RULE_PRESETS } from "@/lib/rule-preset";
 import { useCreateApiToken } from "./api";
 import { RulePresetHelp } from "./rule-preset-help";
@@ -80,7 +88,7 @@ export function CreateTokenDialog({ onClose, onCreated }: { onClose: () => void;
 					if (!open) onClose();
 				}}
 			>
-				<DialogContent className="sm:max-w-lg" data-testid="create-token-dialog">
+				<DialogContent className="sm:max-w-2xl" data-testid="create-token-dialog">
 					<DialogHeader>
 						<DialogTitle>
 							<Trans>Token created</Trans>
@@ -102,13 +110,13 @@ export function CreateTokenDialog({ onClose, onCreated }: { onClose: () => void;
 						<section aria-label={t`Claude Code command`}>
 							<CodeText text={command} maxLines={3} label={t`Claude Code command`} copy={false} />
 						</section>
-						<div className="flex flex-wrap items-center justify-between gap-2">
-							<CopyButton text={command} label={t`Copy command`} showLabel variant="outline" />
-							<Button type="button" onClick={onClose}>
-								<Trans>Done</Trans>
-							</Button>
-						</div>
 					</div>
+					<DialogFooter className="justify-between sm:justify-between">
+						<CopyButton text={command} label={t`Copy command`} showLabel variant="outline" />
+						<Button type="button" onClick={onClose}>
+							<Trans>Close</Trans>
+						</Button>
+					</DialogFooter>
 				</DialogContent>
 			</Dialog>
 		);
@@ -120,13 +128,12 @@ export function CreateTokenDialog({ onClose, onCreated }: { onClose: () => void;
 			onOpenChange={(open) => {
 				if (!open) onClose();
 			}}
-			title={<Trans>Create API token</Trans>}
+			title={<Trans>New token</Trans>}
 			description={<Trans>Each token has its own rules; what they do not allow waits for your approval.</Trans>}
-			submitLabel={<Trans>Create token</Trans>}
+			submitLabel={<Trans>New token</Trans>}
 			busy={create.isPending}
 			error={create.error !== null ? create.error.message : undefined}
 			testId="create-token-dialog"
-			className="sm:max-w-lg"
 			onSubmit={() => void submit()}
 		>
 			<TextField control={form.control} name="name" label={t`Name`} placeholder={t`Claude Code on the laptop`} />
@@ -166,14 +173,14 @@ export function CreateTokenDialog({ onClose, onCreated }: { onClose: () => void;
 				</Select>
 			</div>
 			{days === "never" && (
-				<p className="text-sm text-warn">
+				<WarningBanner>
 					<Trans>A token that never expires stays valid until you revoke it.</Trans>
-				</p>
+				</WarningBanner>
 			)}
 			{rulePreset === "yolo" && (
-				<p className="text-sm text-warn">
+				<WarningBanner>
 					<Trans>Yolo lets this token run anything on your nodes without asking.</Trans>
-				</p>
+				</WarningBanner>
 			)}
 		</FormDialog>
 	);

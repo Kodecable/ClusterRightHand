@@ -140,8 +140,8 @@ describe("UsersPage", () => {
 
 		const link = await screen.findByRole("link", { name: "alice" });
 		expect(link).toHaveAttribute("href", "/users/u2");
-		// The username itself is plain text; the row link is the stretched overlay.
-		expect(screen.getByText("alice").closest("a")).toBeNull();
+		// The username itself is the row's single link, inside its first cell.
+		expect(screen.getByText("alice").closest("a")).toBe(link);
 		const row = screen.getByText("alice").closest('[role="row"]');
 		if (!(row instanceof HTMLElement)) throw new Error("no user row");
 		expect(within(row).getByText("Member")).toBeInTheDocument();
@@ -163,7 +163,7 @@ describe("UsersPage", () => {
 		await fireEvent.click(screen.getByTestId("create-user-group"));
 		const dialog = screen.getByTestId("user-group-name-dialog");
 		await fireEvent.change(within(dialog).getByLabelText("User group name"), { target: { value: "db" } });
-		await fireEvent.click(within(dialog).getByRole("button", { name: "Create user group" }));
+		await fireEvent.click(within(dialog).getByRole("button", { name: "New user group" }));
 		await waitFor(() =>
 			expect(calls.find((call) => call.url === "/api/user-groups" && call.method === "POST")?.body).toEqual({
 				name: "db",

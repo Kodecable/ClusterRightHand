@@ -108,25 +108,6 @@ export function sessionStatusTone(rawState: string): StatusTone {
 	}
 }
 
-/** Authorization states shown on the authorizations page and in the waiting card. */
-export function authorizationStatusTone(status: string): StatusTone {
-	switch (status) {
-		case "active":
-		case "issued":
-		case "signed":
-			return "ok";
-		case "pending":
-		case "awaiting":
-			return "warn";
-		case "expired":
-		case "rejected":
-		case "dead":
-			return "danger";
-		default:
-			return "muted";
-	}
-}
-
 /** A schedule's last run / current run. */
 export function scheduleStatusTone(status: string): StatusTone {
 	switch (status) {

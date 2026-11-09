@@ -14,7 +14,7 @@ async function newSchedule(page: Page, crhs: InProcessCrhs, name: string, prompt
 	await dialog.getByLabel("Prompt").fill(prompt);
 	await dialog.getByLabel("Model").click();
 	await page.getByRole("option", { name: modelName(crhs) }).click();
-	await dialog.getByRole("button", { name: "Create schedule" }).click();
+	await dialog.getByRole("button", { name: "New schedule" }).click();
 	await expect(page.getByTestId("page-title")).toHaveText("Schedules");
 	await expect(page.getByRole("heading", { name })).toBeVisible();
 }

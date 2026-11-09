@@ -1,6 +1,7 @@
 import type { NodeGroup } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { ChevronsUpDownIcon } from "lucide-react";
+import { EmptyHint } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -61,11 +62,7 @@ export function NodeGroupPicker({
 				</div>
 				<ScrollArea className="h-64">
 					<div className="grid gap-1 p-2">
-						{groups.length === 0 && (
-							<p className="px-2 py-1.5 text-sm text-muted-foreground">
-								<Trans>No node groups.</Trans>
-							</p>
-						)}
+						{groups.length === 0 && <EmptyHint className="px-2 py-1.5">No node groups</EmptyHint>}
 						{groups.map((group) => (
 							<label
 								key={group.id}

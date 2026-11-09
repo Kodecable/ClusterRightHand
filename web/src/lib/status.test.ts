@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-	authorizationStatusTone,
 	nodeStatusTone,
 	ruleResultTone,
 	scheduleStatusTone,
@@ -77,14 +76,7 @@ describe("sessionUiState", () => {
 	});
 });
 
-describe("authorization / schedule / token tones", () => {
-	test("authorization", () => {
-		expect(authorizationStatusTone("active")).toBe("ok");
-		expect(authorizationStatusTone("pending")).toBe("warn");
-		expect(authorizationStatusTone("expired")).toBe("danger");
-		expect(authorizationStatusTone("weird")).toBe("muted");
-	});
-
+describe("schedule / token tones", () => {
 	test("schedule runs", () => {
 		expect(scheduleStatusTone("succeeded")).toBe("ok");
 		expect(scheduleStatusTone("running")).toBe("info");

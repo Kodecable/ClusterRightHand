@@ -6,7 +6,7 @@ import { Fragment, useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
-import { EmptyState } from "@/components/empty-state";
+import { EmptyHint, EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
 import { NodeLink } from "@/components/node-targets";
@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/session";
 import { NodeAccessSection } from "@/features/nodes/access-grants";
 import { useNodes } from "@/features/nodes/api";
-import { cn, linkClass } from "@/lib/utils";
+import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { useDeleteNodeGroup, useNodeGroups } from "./api";
 import { NodeGroupMembersDialog, NodeGroupNameDialog } from "./dialogs";
 
@@ -90,28 +90,30 @@ export function NodeGroupsPage() {
 			{
 				id: "name",
 				header: t`Name`,
+				minSize: 140,
 				cell: ({ row }) => <span className="truncate font-medium">{row.original.name}</span>,
+				meta: { title: (group: NodeGroup) => group.name },
 			},
 			{
 				id: "members",
 				header: t`Members`,
-				size: 320,
+				size: 280,
 				cell: ({ row }) => (
 					<span className="grid gap-0.5">
 						<span className="text-muted-foreground">
 							<Plural value={row.original.memberIds.length} one="# member" other="# members" />
 						</span>
-						<MemberLinks memberIds={row.original.memberIds} nodeNames={nodeNames} className="relative z-10" />
+						<MemberLinks memberIds={row.original.memberIds} nodeNames={nodeNames} />
 					</span>
 				),
 			},
 			{
 				id: "id",
 				header: t`Node group id`,
-				size: 380,
+				size: 300,
 				cell: ({ row }) => (
-					<span className="relative z-10 flex min-w-0 items-center gap-1">
-						<code className="truncate font-mono text-xs text-muted-foreground">{row.original.id}</code>
+					<span className="flex min-w-0 items-center gap-1">
+						<code className={cn("truncate text-muted-foreground", MONO_CELL)}>{row.original.id}</code>
 						<CopyButton
 							text={row.original.id}
 							label={t`Copy node group id of ${row.original.name}`}
@@ -139,7 +141,7 @@ export function NodeGroupsPage() {
 					admin ? (
 						<Button type="button" onClick={() => setCreating(true)} data-testid="create-node-group">
 							<PlusIcon />
-							<Trans>Create node group</Trans>
+							<Trans>New node group</Trans>
 						</Button>
 					) : undefined
 				}
@@ -156,6 +158,7 @@ export function NodeGroupsPage() {
 				rowLabel={(group) => group.name}
 				empty={
 					<EmptyState
+						bare
 						title={<Trans>No node groups yet</Trans>}
 						description={
 							admin ? (
@@ -190,16 +193,16 @@ export function NodeGroupDetailPage() {
 
 	if (groups.isError) {
 		return (
-			<div className="p-4">
+			<Page width="detail">
 				<ErrorState error={groups.error} retry={() => void groups.refetch()} />
-			</div>
+			</Page>
 		);
 	}
 	if (!groups.data) {
 		return (
-			<div className="p-4">
+			<Page width="detail">
 				<PageSkeleton />
-			</div>
+			</Page>
 		);
 	}
 	if (!group) {
@@ -253,26 +256,27 @@ export function NodeGroupDetailPage() {
 						label: t`Node group id`,
 						value: (
 							<span className="flex min-w-0 items-center gap-1">
-								<code className="font-mono text-xs">{group.id}</code>
+								<code className={MONO_CELL}>{group.id}</code>
 								<CopyButton text={group.id} label={t`Copy node group id`} variant="ghost" size="icon-xs" />
 							</span>
 						),
+						control: true,
 					},
 				]}
 			/>
 
 			<section className="grid gap-2" aria-labelledby="node-group-members-heading">
-				<h2 id="node-group-members-heading" className="text-sm font-semibold">
+				<h2 id="node-group-members-heading" className="text-sm font-medium">
 					<Trans>Members</Trans>
 				</h2>
 				{group.memberIds.length === 0 ? (
-					<p className="text-sm text-muted-foreground">
-						<Trans>No members.</Trans>
-					</p>
+					<EmptyHint>
+						<Trans>No members</Trans>
+					</EmptyHint>
 				) : (
 					<ul className="flex flex-wrap gap-2" aria-label={t`Members of ${group.name}`}>
 						{group.memberIds.map((nodeId) => (
-							<li key={nodeId} className="rounded-md border px-2 py-1 text-sm">
+							<li key={nodeId} className="inline-flex min-h-8 items-center rounded-md border px-2 text-sm">
 								<NodeLink id={nodeId} name={nodeNames.get(nodeId) ?? nodeId} />
 							</li>
 						))}

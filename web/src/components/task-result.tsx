@@ -2,13 +2,15 @@ import type { TaskAuthorizationView, TaskResultView, TaskView } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { CopyButton } from "@/components/copy-button";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { type KeyValueItem, KeyValueList } from "@/components/key-value";
 import { DateTime, RelativeTime } from "@/components/relative-time";
 import { TaskStatusBadge } from "@/components/status-badge";
+import { useTimeColumnWidth } from "@/components/time-column";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/session";
 import { batchOutput, joinOutput, statusOutputNoteKey, taskErrorText, taskOutcome } from "@/features/tasks/output";
-import { cn, linkClass } from "@/lib/utils";
+import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { DecisionView, EvaluationTable } from "./approval-card";
 
 /** The authorization plan of a task that waits for a signature (doc/privilege.md#授权路径). */
@@ -18,7 +20,7 @@ function AuthorizationPlan({ record }: { record: TaskAuthorizationView }) {
 			{record.plan.paths.length > 0 && (
 				<ul className="list-disc pl-4">
 					{record.plan.paths.map((path) => (
-						<li key={path.path}>
+						<li key={path.path} className="break-words [overflow-wrap:anywhere]">
 							<span className="font-medium">{path.path}</span>
 							{path.entries.length > 0 && (
 								<>
@@ -41,10 +43,10 @@ function AuthorizationPlan({ record }: { record: TaskAuthorizationView }) {
 				</ul>
 			)}
 			{record.plan.reason !== undefined && record.plan.reason !== "" && (
-				<p className="text-muted-foreground">{record.plan.reason}</p>
+				<p className="text-muted-foreground break-words [overflow-wrap:anywhere]">{record.plan.reason}</p>
 			)}
 			{record.lastRejection !== null && (
-				<p className="text-danger">
+				<p className="text-danger break-words [overflow-wrap:anywhere]">
 					<Trans>
 						Last rejection {record.lastRejection.code} (attempt {record.lastRejection.attempt}):{" "}
 						{record.lastRejection.message}
@@ -81,7 +83,7 @@ export function OutputBlock({
 				</h4>
 				<CopyButton text={before + after} label={`${label}: copy`} />
 			</div>
-			<pre className="max-h-72 overflow-auto rounded-md border bg-[var(--code)] p-2 font-mono text-xs whitespace-pre-wrap break-words">
+			<pre className="max-h-72 overflow-auto rounded-md border bg-[var(--code)] p-2 font-mono text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
 				{before}
 				{omitted > 0 && (
 					<span className="text-warn">
@@ -167,16 +169,17 @@ export function TaskFacts({
 			label: <Trans>Task</Trans>,
 			value: (
 				<span className="flex items-center gap-1">
-					<span className="font-mono text-xs">{task.id}</span>
-					<CopyButton text={task.id} label={t`Copy task id`} />
+					<span className={MONO_CELL}>{task.id}</span>
+					<CopyButton text={task.id} label={t`Copy task id`} size="icon-xs" />
 				</span>
 			),
+			control: true,
 		},
 		{
 			label: <Trans>Kind</Trans>,
 			value: (
 				<span className="flex items-center gap-1.5">
-					<span className="font-mono text-xs">{task.kind}</span>
+					<span className={MONO_CELL}>{task.kind}</span>
 					{task.privileged && (
 						<Badge variant="secondary">
 							<Trans>Privileged</Trans>
@@ -184,10 +187,9 @@ export function TaskFacts({
 					)}
 				</span>
 			),
+			control: true,
 		},
-		...(showSummary && task.summary !== ""
-			? [{ label: <Trans>Summary</Trans>, value: <span className="font-mono text-xs">{task.summary}</span> }]
-			: []),
+		...(showSummary && task.summary !== "" ? [{ label: <Trans>Summary</Trans>, value: task.summary, mono: true }] : []),
 		...(node !== undefined ? [{ label: <Trans>Node</Trans>, value: node }] : []),
 		...(askedBy !== undefined ? [{ label: <Trans>Asked by</Trans>, value: askedBy }] : []),
 		...(showState
@@ -242,9 +244,7 @@ export function TaskFacts({
 		...extra,
 		{ label: <Trans>Created</Trans>, value: <DateTime value={task.createdAt} /> },
 		{ label: <Trans>Finished at</Trans>, value: <DateTime value={task.finishedAt} /> },
-		...(task.outputFile !== null
-			? [{ label: <Trans>Output file</Trans>, value: <span className="font-mono text-xs">{task.outputFile}</span> }]
-			: []),
+		...(task.outputFile !== null ? [{ label: <Trans>Output file</Trans>, value: task.outputFile, mono: true }] : []),
 	];
 
 	return <KeyValueList items={items} className={cn("text-sm", className)} />;
@@ -326,40 +326,40 @@ function StatResultView({ result }: { result: Extract<TaskResultView, { kind: "f
 
 /** The entries a file.list task listed. */
 function ListResultView({ result }: { result: Extract<TaskResultView, { kind: "file.list" }> }) {
+	const { t } = useLingui();
+	const timeWidth = useTimeColumnWidth("compact");
+	const columns: DataTableColumn<(typeof result.entries)[number]>[] = [
+		{
+			id: "name",
+			header: t`Name`,
+			minSize: 160,
+			cell: ({ row }) => <span className={MONO_CELL}>{row.original.name}</span>,
+			meta: { title: (entry: (typeof result.entries)[number]) => entry.name },
+		},
+		{ id: "type", header: t`Type`, size: 90, cell: ({ row }) => row.original.type },
+		{
+			id: "size",
+			header: t`Size`,
+			size: 100,
+			cell: ({ row }) => <span className={MONO_CELL}>{row.original.size}</span>,
+		},
+		{
+			id: "modified",
+			header: t`Modified`,
+			size: timeWidth,
+			cell: ({ row }) => <DateTime value={row.original.mtime} />,
+		},
+	];
 	return (
 		<div className="grid gap-1" data-testid="task-result-file-list">
-			<div className="max-h-72 overflow-auto rounded-md border">
-				<table className="w-full text-xs">
-					<thead className="bg-muted/60 text-muted-foreground">
-						<tr>
-							<th className="px-2 py-1 text-left font-medium">
-								<Trans>Name</Trans>
-							</th>
-							<th className="px-2 py-1 text-left font-medium">
-								<Trans>Type</Trans>
-							</th>
-							<th className="px-2 py-1 text-right font-medium">
-								<Trans>Size</Trans>
-							</th>
-							<th className="px-2 py-1 text-left font-medium">
-								<Trans>Modified</Trans>
-							</th>
-						</tr>
-					</thead>
-					<tbody>
-						{result.entries.map((entry) => (
-							<tr key={entry.name} className="border-t">
-								<td className="px-2 py-1 font-mono">{entry.name}</td>
-								<td className="px-2 py-1">{entry.type}</td>
-								<td className="px-2 py-1 text-right font-mono">{entry.size}</td>
-								<td className="px-2 py-1">
-									<DateTime value={entry.mtime} />
-								</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
-			</div>
+			<DataTable
+				label={t`Directory listing`}
+				columns={columns}
+				data={[...result.entries]}
+				getRowId={(entry) => entry.name}
+				density="compact"
+				className="max-h-72 overflow-auto"
+			/>
 			{result.truncated && (
 				<p className="text-xs text-muted-foreground">
 					<Trans>The listing is truncated: the directory has more entries than are shown.</Trans>
@@ -404,7 +404,10 @@ export function TaskResultData({ result, className }: { result: TaskResultView; 
 function TaskNotice({ text }: { text: string | null }) {
 	if (text === null || text.trim() === "") return null;
 	return (
-		<p data-testid="task-notice" className="rounded-md border px-2 py-1 font-mono text-xs whitespace-pre-wrap">
+		<p
+			data-testid="task-notice"
+			className="rounded-md border px-2 py-1 font-mono text-xs break-words whitespace-pre-wrap [overflow-wrap:anywhere]"
+		>
 			{text.trim()}
 		</p>
 	);
@@ -471,7 +474,7 @@ export function TaskSummary({ task, nodeName, className }: { task: TaskView; nod
 			className={cn("flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent", className)}
 		>
 			<TaskStatusBadge state={task.state} />
-			<span className="min-w-0 flex-1 truncate font-mono text-xs">{task.summary || task.kind}</span>
+			<span className={cn("min-w-0 flex-1 truncate", MONO_CELL)}>{task.summary || task.kind}</span>
 			{nodeName !== undefined && <span className="shrink-0">{nodeName}</span>}
 			<span className="shrink-0">
 				<TaskOutcomeText task={task} />

@@ -21,8 +21,11 @@ export function Page({
 	...rest
 }: HTMLAttributes<HTMLDivElement> & { width?: "full" | "detail" }) {
 	return (
-		<div className={cn("flex h-full min-h-0 flex-col overflow-auto p-4", className)} {...rest}>
-			<div className={cn("grid w-full content-start gap-3", width === "detail" && DETAIL_WIDTH)}>{children}</div>
+		<div className={cn("flex h-full min-h-0 min-w-0 flex-col overflow-auto p-4", className)} {...rest}>
+			{/* One bounded column: a long child can overflow itself, but never widens the page. */}
+			<div className={cn("grid w-full min-w-0 grid-cols-1 content-start gap-3", width === "detail" && DETAIL_WIDTH)}>
+				{children}
+			</div>
 		</div>
 	);
 }

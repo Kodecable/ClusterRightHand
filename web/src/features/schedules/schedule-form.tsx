@@ -1,12 +1,12 @@
 import type { AvailableModel, ModelRef, RulePreset } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { I18n } from "@lingui/core";
-import { Trans, useLingui } from "@lingui/react/macro";
+import { useLingui } from "@lingui/react/macro";
 import { type ReactNode, useId, useMemo } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { ErrorText } from "@/components/error-state";
-import { CheckboxField, FieldShell, TextareaField, TextField } from "@/components/form";
+import { CheckboxField, FieldShell, FormActions, TextareaField, TextField } from "@/components/form";
 import { ModelSelect } from "@/components/model-select";
 import { RulePresetSelect } from "@/components/rule-preset-select";
 import { ThinkingLevelSelect } from "@/components/thinking-level-select";
@@ -237,7 +237,7 @@ export function ScheduleForm({
 					<ErrorText error={preview.error} />
 				) : preview.data ? (
 					preview.data.length === 0 ? (
-						<span className="text-muted-foreground">{t`No upcoming runs.`}</span>
+						<span className="text-muted-foreground">{t`No upcoming runs`}</span>
 					) : (
 						<div className="grid gap-1 text-muted-foreground">
 							<p>{t`Expected to fire at:`}</p>
@@ -262,17 +262,13 @@ export function ScheduleForm({
 			</div>
 
 			<ErrorText error={error} />
-			{Object.keys(form.formState.errors).length > 0 && (
-				<p role="alert" className="text-sm text-danger">
-					<Trans>Check the highlighted fields.</Trans>
-				</p>
-			)}
-			<div className="flex flex-wrap items-center justify-end gap-2">
+			{Object.keys(form.formState.errors).length > 0 && <ErrorText error={t`Check the highlighted fields.`} />}
+			<FormActions>
 				{children}
 				<Button type="submit" disabled={busy}>
 					{submitLabel}
 				</Button>
-			</div>
+			</FormActions>
 		</form>
 	);
 }

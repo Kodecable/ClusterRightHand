@@ -8,6 +8,8 @@ import { ErrorState } from "@/components/error-state";
 import type { KeyValueItem } from "@/components/key-value";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
+import { Panel } from "@/components/section";
+import { PageSkeleton } from "@/components/skeletons";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskGone } from "@/components/task-gone";
 import { TaskEvaluation, TaskFacts, TaskOutput } from "@/components/task-result";
@@ -19,7 +21,7 @@ import { AuthorizationWait } from "@/features/authorizations/authorization-wait"
 import { useNodes } from "@/features/nodes/api";
 import { useDirectory } from "@/features/users/api";
 import { isNotFound } from "@/lib/api/client";
-import { cn, linkClass } from "@/lib/utils";
+import { linkClass } from "@/lib/utils";
 import { taskActor } from "./actor";
 import { useCancelTask, useTask } from "./api";
 import { isTerminal } from "./output";
@@ -53,23 +55,23 @@ export function TaskPage() {
 
 	if (task.isPending) {
 		return (
-			<p className="p-4 text-sm text-muted-foreground" role="status">
-				<Trans>Loading…</Trans>
-			</p>
+			<Page width="detail">
+				<PageSkeleton />
+			</Page>
 		);
 	}
 	if (task.error !== null && task.error !== undefined) {
 		if (isNotFound(task.error)) {
 			return (
-				<div className="p-4">
+				<Page width="detail">
 					<TaskGone />
-				</div>
+				</Page>
 			);
 		}
 		return (
-			<div className="p-4">
+			<Page width="detail">
 				<ErrorState error={task.error} retry={() => void task.refetch()} />
-			</div>
+			</Page>
 		);
 	}
 	if (!task.data) return null;
@@ -87,14 +89,11 @@ export function TaskPage() {
 					{
 						label: <Trans>Session</Trans>,
 						value: (
-							<Link
-								to="/sessions/$sessionId"
-								params={{ sessionId: view.rootSessionId }}
-								className={cn("font-mono text-xs", linkClass)}
-							>
+							<Link to="/sessions/$sessionId" params={{ sessionId: view.rootSessionId }} className={linkClass}>
 								{view.rootSessionId}
 							</Link>
 						),
+						mono: true,
 					},
 				]
 			: []),
@@ -103,14 +102,11 @@ export function TaskPage() {
 					{
 						label: <Trans>Task group</Trans>,
 						value: (
-							<Link
-								to="/task-groups/$taskGroupId"
-								params={{ taskGroupId: view.taskGroupId }}
-								className={cn("font-mono text-xs", linkClass)}
-							>
+							<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: view.taskGroupId }} className={linkClass}>
 								{view.taskGroupId}
 							</Link>
 						),
+						mono: true,
 					},
 				]
 			: []),
@@ -128,11 +124,8 @@ export function TaskPage() {
 				</Link>
 			</div>
 			<PageHeader
-				title={
-					<span className="font-mono" title={view.summary || view.kind}>
-						{view.summary || view.kind}
-					</span>
-				}
+				title={<span className="font-mono">{view.summary || view.kind}</span>}
+				titleText={view.summary || view.kind}
 				description={
 					<span className="flex flex-wrap items-center gap-2">
 						<TaskStatusBadge state={view.state} />
@@ -154,7 +147,7 @@ export function TaskPage() {
 				}
 			/>
 
-			<section className="rounded-lg border p-3" aria-label={t`Task details`}>
+			<Panel as="section" aria-label={t`Task details`}>
 				<TaskFacts
 					task={view}
 					showSummary={false}
@@ -162,16 +155,11 @@ export function TaskPage() {
 					showWaiting={false}
 					showDecision={false}
 					node={<NodeLink nodeId={view.nodeId} names={names} />}
-					askedBy={
-						<span className="flex flex-wrap items-center gap-1.5">
-							<UserLink id={actor.id} name={actor.name} title={actor.id} />
-							<span className="font-mono text-xs text-muted-foreground">{actor.id}</span>
-						</span>
-					}
+					askedBy={<UserLink id={actor.id} name={actor.name} />}
 					userNames={userNames}
 					extra={links}
 				/>
-			</section>
+			</Panel>
 
 			{view.state === "awaiting_approval" && canAct && (
 				<ApprovalCard
@@ -210,18 +198,18 @@ export function TaskPage() {
 			)}
 
 			{view.approval?.decision && (
-				<section className="rounded-lg border p-3" aria-label={t`Approval`}>
+				<Panel as="section" aria-label={t`Approval`}>
 					<DecisionView decision={view.approval.decision} tokenNames={looks.tokenNames} userNames={userNames} />
-				</section>
+				</Panel>
 			)}
 
 			{view.state !== "awaiting_approval" && (
-				<TaskEvaluation task={view} tokenNames={looks.tokenNames} className="rounded-lg border p-3" />
+				<TaskEvaluation task={view} tokenNames={looks.tokenNames} className="rounded-lg border p-4" />
 			)}
 
-			<section className="rounded-lg border p-3" aria-label={t`Result`}>
+			<Panel as="section" aria-label={t`Result`}>
 				<TaskOutput task={view} />
-			</section>
+			</Panel>
 		</Page>
 	);
 }

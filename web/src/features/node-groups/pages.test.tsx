@@ -105,9 +105,9 @@ describe("NodeGroupsPage", () => {
 		const { calls } = await renderPage(ADMIN);
 		const link = await screen.findByRole("link", { name: "web" });
 		expect(link).toHaveAttribute("href", "/node-groups/group-1");
-		// The name is plain text; the row link is the stretched overlay.
-		expect(screen.getByText("web").closest("a")).toBeNull();
-		// Members are linked to their node pages, above the row overlay.
+		// The name is the row's link, inside its first cell.
+		expect(screen.getByText("web").closest("a")).toBe(link);
+		// Members keep their own links to their node pages.
 		expect(screen.getByRole("link", { name: "worker-02" })).toHaveAttribute("href", "/nodes/node-2");
 		// The UUID is shown with a copy button for trust aliases.
 		expect(screen.getByText("group-1")).toBeInTheDocument();
@@ -121,12 +121,12 @@ describe("NodeGroupsPage", () => {
 		const create = screen.getByTestId("node-group-name-dialog");
 		const name = within(create).getByLabelText("Node group name");
 		await fireEvent.change(name, { target: { value: "_system" } });
-		await fireEvent.click(within(create).getByRole("button", { name: "Create node group" }));
+		await fireEvent.click(within(create).getByRole("button", { name: "New node group" }));
 		expect(within(create).getByRole("alert")).toHaveTextContent(/must not start with "_"/);
 		expect(calls.some((call) => call.url === "/api/node-groups" && call.method === "POST")).toBe(false);
 
 		await fireEvent.change(name, { target: { value: "db" } });
-		await fireEvent.click(within(create).getByRole("button", { name: "Create node group" }));
+		await fireEvent.click(within(create).getByRole("button", { name: "New node group" }));
 		await waitFor(() =>
 			expect(calls.find((call) => call.url === "/api/node-groups" && call.method === "POST")?.body).toEqual({
 				name: "db",

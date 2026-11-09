@@ -16,11 +16,13 @@ import { TextareaField, TextField } from "@/components/form";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
+import { Panel, SectionTitle } from "@/components/section";
+import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn, MONO_CELL } from "@/lib/utils";
 import { useAddSshCredential, useCredentials, useDeleteCredential, usePasskeyOptions, useRegisterPasskey } from "./api";
 import { credentialTrustSnippet } from "./trust";
 
@@ -47,50 +49,46 @@ function AddSshKeyForm() {
 	);
 	const form = useForm<SshFormValues>({ resolver: zodResolver(schema), defaultValues: { name: "", publicKey: "" } });
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle className="text-sm">
-					<Trans>Add an SSH key</Trans>
-				</CardTitle>
-			</CardHeader>
-			<CardContent>
-				<form
-					className="grid gap-3"
-					onSubmit={form.handleSubmit((values) => {
-						add.mutate(
-							{ publicKey: values.publicKey.trim(), name: values.name.trim() || undefined },
-							{
-								onSuccess: () => {
-									form.reset();
-								},
+		<Panel className="grid gap-3">
+			<SectionTitle>
+				<Trans>Add an SSH key</Trans>
+			</SectionTitle>
+			<form
+				className="grid gap-3"
+				onSubmit={form.handleSubmit((values) => {
+					add.mutate(
+						{ publicKey: values.publicKey.trim(), name: values.name.trim() || undefined },
+						{
+							onSuccess: () => {
+								form.reset();
 							},
-						);
-					})}
-				>
-					<TextField
-						control={form.control}
-						name="name"
-						label={t`Name`}
-						description={t`Optional; it names the trust entry.`}
-					/>
-					<TextareaField
-						control={form.control}
-						name="publicKey"
-						label={t`Public key`}
-						rows={3}
-						placeholder="ssh-ed25519 AAAAC3Nza… you@laptop"
-						description={t`One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com.`}
-					/>
-					<div>
-						<Button type="submit" disabled={add.isPending}>
-							<KeyRoundIcon />
-							<Trans>Add SSH key</Trans>
-						</Button>
-					</div>
-					<ErrorText error={add.error} />
-				</form>
-			</CardContent>
-		</Card>
+						},
+					);
+				})}
+			>
+				<TextField
+					control={form.control}
+					name="name"
+					label={t`Name`}
+					description={t`Optional; it names the trust entry.`}
+				/>
+				<TextareaField
+					control={form.control}
+					name="publicKey"
+					label={t`Public key`}
+					rows={3}
+					placeholder="ssh-ed25519 AAAAC3Nza… you@laptop"
+					description={t`One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com.`}
+				/>
+				<div>
+					<Button type="submit" disabled={add.isPending}>
+						<KeyRoundIcon />
+						<Trans>Add SSH key</Trans>
+					</Button>
+				</div>
+				<ErrorText error={add.error} />
+			</form>
+		</Panel>
 	);
 }
 
@@ -119,42 +117,34 @@ function AddPasskeyCard() {
 	};
 
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle className="text-sm">
-					<Trans>Add a Passkey</Trans>
-				</CardTitle>
-			</CardHeader>
-			<CardContent className="grid gap-3">
-				<div className="grid gap-1.5">
-					<Label htmlFor="passkey-name">{t`Name`}</Label>
-					<Input
-						id="passkey-name"
-						value={name}
-						maxLength={100}
-						placeholder={t`Optional`}
-						onChange={(event) => setName(event.target.value)}
-					/>
-				</div>
-				<p className="text-sm text-muted-foreground">
-					<Trans>
-						The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA
-						and RS256 are requested, so a registered Passkey is one the node's privileged mode can verify.
-					</Trans>
-				</p>
-				<div>
-					<Button type="button" disabled={busy} onClick={() => void add()}>
-						<FingerprintIcon />
-						<Trans>Register Passkey</Trans>
-					</Button>
-				</div>
-				{message !== undefined && (
-					<p role="alert" className="text-sm text-danger">
-						{message}
-					</p>
-				)}
-			</CardContent>
-		</Card>
+		<Panel className="grid gap-3">
+			<SectionTitle>
+				<Trans>Add a Passkey</Trans>
+			</SectionTitle>
+			<div className="grid gap-1.5">
+				<Label htmlFor="passkey-name">{t`Name`}</Label>
+				<Input
+					id="passkey-name"
+					value={name}
+					maxLength={100}
+					placeholder={t`Optional`}
+					onChange={(event) => setName(event.target.value)}
+				/>
+			</div>
+			<p className="text-sm text-muted-foreground">
+				<Trans>
+					The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA and
+					RS256 are requested, so a registered Passkey is one the node's privileged mode can verify.
+				</Trans>
+			</p>
+			<div>
+				<Button type="button" disabled={busy} onClick={() => void add()}>
+					<FingerprintIcon />
+					<Trans>Register Passkey</Trans>
+				</Button>
+			</div>
+			<ErrorText error={message} />
+		</Panel>
 	);
 }
 
@@ -175,9 +165,12 @@ function TrustSnippetDialog({ credential, onClose }: { credential: CredentialVie
 				<div className="max-h-[70vh] overflow-auto">
 					<CodeText text={snippet} maxLines={60} label={t`Trust snippet`} copy={false} />
 				</div>
-				<div className="flex justify-end">
+				<DialogFooter className="justify-between sm:justify-between">
 					<CopyButton text={snippet} label={t`Copy trust snippet`} showLabel variant="outline" />
-				</div>
+					<Button type="button" variant="outline" onClick={onClose}>
+						<Trans>Close</Trans>
+					</Button>
+				</DialogFooter>
 			</DialogContent>
 		</Dialog>
 	);
@@ -190,6 +183,7 @@ function TrustSnippetDialog({ credential, onClose }: { credential: CredentialVie
  */
 export function CredentialsPage() {
 	const { t } = useLingui();
+	const timeWidth = useTimeColumnWidth();
 	const credentials = useCredentials();
 	const remove = useDeleteCredential();
 	const [snippet, setSnippet] = useState<CredentialView>();
@@ -200,7 +194,9 @@ export function CredentialsPage() {
 			{
 				id: "name",
 				header: t`Name`,
+				minSize: 140,
 				cell: ({ row }) => <span className="truncate font-medium">{row.original.name}</span>,
+				meta: { title: (credential: CredentialView) => credential.name },
 			},
 			{
 				id: "kind",
@@ -214,22 +210,23 @@ export function CredentialsPage() {
 				cell: ({ row }) => {
 					const key = credentialKeyId(row.original);
 					return (
-						<span className="block truncate font-mono text-xs leading-5">
+						<span className={cn("block truncate", MONO_CELL)}>
 							{key === "" ? <span className="text-muted-foreground">–</span> : key}
 						</span>
 					);
 				},
+				meta: { title: (credential: CredentialView) => credentialKeyId(credential) || undefined },
 			},
 			{
-				id: "added",
-				header: t`Added`,
-				size: 200,
+				id: "created",
+				header: t`Created`,
+				size: timeWidth,
 				cell: ({ row }) => <DateTime value={row.original.createdAt} />,
 			},
 			{
 				id: "actions",
 				header: actionsHeader,
-				size: 210,
+				size: 200,
 				cell: ({ row }) => (
 					<span className="flex flex-nowrap items-center gap-1">
 						<Button type="button" size="xs" variant="outline" onClick={() => setSnippet(row.original)}>
@@ -249,7 +246,7 @@ export function CredentialsPage() {
 				),
 			},
 		],
-		[t],
+		[t, timeWidth],
 	);
 
 	return (
@@ -269,6 +266,7 @@ export function CredentialsPage() {
 				onRetry={() => void credentials.refetch()}
 				empty={
 					<EmptyState
+						bare
 						title={<Trans>No credentials yet</Trans>}
 						description={
 							<Trans>Add an SSH key or register a Passkey to sign authorizations for privileged tasks.</Trans>

@@ -57,6 +57,7 @@ export function NodesPage() {
 			{
 				id: "name",
 				header: t`Name`,
+				minSize: 140,
 				cell: ({ row }) => (
 					<span className="flex min-w-0 items-center gap-2">
 						<span className="truncate font-medium">{row.original.name}</span>
@@ -67,11 +68,12 @@ export function NodesPage() {
 						)}
 					</span>
 				),
+				meta: { title: (node: PublicNode) => node.name },
 			},
 			{
 				id: "status",
 				header: t`Status`,
-				size: 180,
+				size: 100,
 				cell: ({ row }) => (
 					<span className="flex items-center gap-1.5">
 						<NodeStatusBadge status={row.original.status} connected={row.original.connected} />
@@ -83,30 +85,31 @@ export function NodesPage() {
 			{
 				id: "hostname",
 				header: t`Hostname`,
-				size: 160,
+				minSize: 140,
 				cell: ({ row }) =>
 					row.original.hostname === null ? (
 						<span className="text-muted-foreground">–</span>
 					) : (
 						<span className="truncate">{row.original.hostname}</span>
 					),
+				meta: { title: (node: PublicNode) => node.hostname ?? undefined },
 			},
 			{
 				id: "os",
 				header: t`OS`,
-				size: 160,
+				size: 140,
 				cell: ({ row }) => <span className="truncate">{osName(row.original.facts)}</span>,
 			},
 			{
 				id: "nodeGroups",
 				header: t`Node groups`,
-				size: 180,
-				cell: ({ row }) => <NodeGroupLinks nodeGroups={row.original.nodeGroups} className="relative z-10" />,
+				size: 150,
+				cell: ({ row }) => <NodeGroupLinks nodeGroups={row.original.nodeGroups} />,
 			},
 			{
 				id: "lastSeen",
 				header: t`Last seen`,
-				size: 120,
+				size: 110,
 				cell: ({ row }) => <RelativeTime value={row.original.lastSeenAt} />,
 			},
 		];
@@ -117,10 +120,10 @@ export function NodesPage() {
 			{
 				id: "actions",
 				header: actionsHeader,
-				size: 130,
+				size: 140,
 				cell: ({ row }) =>
 					canDecide(row.original) ? (
-						<span className="relative z-10 flex flex-nowrap items-center gap-1">
+						<span className="flex flex-nowrap items-center gap-1">
 							<Button type="button" size="xs" onClick={() => setPending({ node: row.original, action: "approve" })}>
 								<Trans>Approve</Trans>
 							</Button>
@@ -146,11 +149,12 @@ export function NodesPage() {
 					user?.kind === "admin" ? (
 						<>
 							<Button type="button" variant="outline" onClick={() => setAddingSsh(true)} data-testid="add-ssh-node">
-								<Trans>Add SSH node</Trans>
+								<PlusIcon />
+								<Trans>New SSH node</Trans>
 							</Button>
 							<Button type="button" onClick={() => setAdding(true)} data-testid="add-node">
 								<PlusIcon />
-								<Trans>Add node</Trans>
+								<Trans>New node</Trans>
 							</Button>
 						</>
 					) : undefined
@@ -168,10 +172,11 @@ export function NodesPage() {
 				rowLabel={(node) => node.name}
 				empty={
 					<EmptyState
+						bare
 						title={<Trans>No nodes yet</Trans>}
 						description={
 							user?.kind === "admin" ? (
-								<Trans>Use "Add node" to enrol a crha client, or "Add SSH node" for an SSH target.</Trans>
+								<Trans>Use "New node" to enrol a crha client, or "New SSH node" for an SSH target.</Trans>
 							) : (
 								<Trans>An administrator grants access to nodes.</Trans>
 							)
@@ -217,16 +222,16 @@ export function NodeDetailPage() {
 
 	if (node.isError) {
 		return (
-			<div className="p-4">
+			<Page width="detail">
 				<ErrorState error={node.error} retry={() => void node.refetch()} />
-			</div>
+			</Page>
 		);
 	}
 	if (!details) {
 		return (
-			<div className="p-4">
+			<Page width="detail">
 				<PageSkeleton />
-			</div>
+			</Page>
 		);
 	}
 
@@ -318,7 +323,7 @@ export function NodeDetailPage() {
 					<NodeTrustPanel nodeId={details.id} />
 					{admin && details.privilegedMode === "forward" && details.nodeGroups.length > 0 && (
 						<section className="grid gap-2" aria-labelledby="trust-aliases-heading" data-testid="trust-aliases">
-							<h2 id="trust-aliases-heading" className="text-sm font-semibold">
+							<h2 id="trust-aliases-heading" className="text-sm font-medium">
 								<Trans>Aliases for privileged.toml</Trans>
 							</h2>
 							<div className="flex flex-wrap items-center gap-2">
@@ -333,7 +338,7 @@ export function NodeDetailPage() {
 						</section>
 					)}
 					<section className="grid gap-2" aria-labelledby="trust-editor-heading">
-						<h2 id="trust-editor-heading" className="text-sm font-semibold">
+						<h2 id="trust-editor-heading" className="text-sm font-medium">
 							<Trans>Trust configuration</Trans>
 						</h2>
 						<p className="max-w-3xl text-sm text-muted-foreground">

@@ -76,7 +76,7 @@ export function NodeGroupNameDialog({
 			description={
 				group ? undefined : <Trans>A node group selects several nodes for rules, batch runs and schedules.</Trans>
 			}
-			submitLabel={group ? <Trans>Rename</Trans> : <Trans>Create node group</Trans>}
+			submitLabel={group ? <Trans>Rename</Trans> : <Trans>New node group</Trans>}
 			busy={mutation.isPending}
 			submitDisabled={name.trim() === ""}
 			error={localError ?? serverError}
@@ -135,7 +135,7 @@ export function NodeGroupMembersDialog({
 			testId="node-group-members-dialog"
 		>
 			{nodes.length === 0 ? (
-				<EmptyHint>{t`There are no nodes to add yet.`}</EmptyHint>
+				<EmptyHint>{t`There are no nodes to add yet`}</EmptyHint>
 			) : (
 				<NodePicker multiple nodes={nodes} value={selected} onChange={setSelected} label={t`Nodes`} />
 			)}

@@ -2,10 +2,10 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { useMemo, useState } from "react";
 import { DataTable } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
+import { FieldShell } from "@/components/form";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { taskStateLabel } from "@/components/status-badge";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useNodes } from "@/features/nodes/api";
 import { useDirectory } from "@/features/users/api";
@@ -39,8 +39,7 @@ function FilterSelect({
 	options: { value: string; label: string }[];
 }) {
 	return (
-		<div className="grid gap-1.5">
-			<Label htmlFor={id}>{label}</Label>
+		<FieldShell id={id} label={label} className="w-44">
 			<Select value={value} onValueChange={(next) => onChange(String(next ?? "any"))}>
 				<SelectTrigger id={id} size="sm" className="w-44">
 					<SelectValue>
@@ -55,7 +54,7 @@ function FilterSelect({
 					))}
 				</SelectContent>
 			</Select>
-		</div>
+		</FieldShell>
 	);
 }
 
@@ -141,8 +140,10 @@ export function TasksPage() {
 				onLoadMore={() => void tasks.fetchNextPage()}
 				rowLink={(task) => ({ to: "/tasks/$taskId", params: { taskId: task.id } })}
 				rowLabel={(task) => task.summary || task.kind}
+				rowLinkColumn="task"
 				empty={
 					<EmptyState
+						bare
 						className="border-0 py-10"
 						title={<Trans>No tasks yet</Trans>}
 						description={<Trans>Run something on a node, or use the batch page.</Trans>}

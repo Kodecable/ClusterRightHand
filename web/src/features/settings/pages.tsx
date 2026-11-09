@@ -9,6 +9,7 @@ import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import { cn, MONO_CELL } from "@/lib/utils";
 import { useDeleteModelProvider, useModelProviders } from "./api";
 import { ModelPresetsSection } from "./model-presets";
 import { ProviderDialog } from "./provider-dialog";
@@ -30,41 +31,49 @@ export function ModelSettingsPage() {
 			{
 				id: "id",
 				header: t`Id`,
-				size: 150,
-				cell: ({ row }) => <code className="font-mono text-xs">{row.original.providerId}</code>,
+				size: 130,
+				cell: ({ row }) => <code className={MONO_CELL}>{row.original.providerId}</code>,
+				meta: { title: (provider: ModelProviderView) => provider.providerId },
 			},
 			{
 				id: "kind",
 				header: t`Kind`,
-				size: 160,
+				size: 110,
 				cell: ({ row }) => <span>{row.original.kind === "builtin" ? t`Pi built-in` : t`Custom`}</span>,
 			},
 			{
 				id: "name",
 				header: t`Name`,
-				cell: ({ row }) => <span className="truncate">{row.original.name}</span>,
+				minSize: 140,
+				cell: ({ row }) =>
+					row.original.name === "" ? (
+						<span className="text-muted-foreground">–</span>
+					) : (
+						<span className="truncate">{row.original.name}</span>
+					),
+				meta: { title: (provider: ModelProviderView) => provider.name },
 			},
 			{
 				id: "baseUrl",
 				header: t`Base URL`,
-				size: 200,
 				cell: ({ row }) =>
 					row.original.baseUrl === null ? (
 						<span className="text-muted-foreground">–</span>
 					) : (
-						<span className="truncate font-mono text-xs">{row.original.baseUrl}</span>
+						<span className={cn("truncate", MONO_CELL)}>{row.original.baseUrl}</span>
 					),
+				meta: { title: (provider: ModelProviderView) => provider.baseUrl ?? undefined },
 			},
 			{
 				id: "key",
 				header: t`API key`,
-				size: 100,
+				size: 90,
 				cell: ({ row }) => (row.original.hasApiKey ? <Trans>Set</Trans> : <Trans>Not set</Trans>),
 			},
 			{
 				id: "enabled",
 				header: t`Status`,
-				size: 100,
+				size: 90,
 				cell: ({ row }) => (
 					<StatusText tone={row.original.enabled ? "ok" : "muted"}>
 						{row.original.enabled ? <Trans>Enabled</Trans> : <Trans>Disabled</Trans>}
@@ -79,11 +88,15 @@ export function ModelSettingsPage() {
 						{row.original.models ? row.original.models.map((model) => model.id).join(", ") : t`all built-in models`}
 					</span>
 				),
+				meta: {
+					title: (provider: ModelProviderView) =>
+						provider.models ? provider.models.map((model) => model.id).join(", ") : undefined,
+				},
 			},
 			{
 				id: "actions",
 				header: actionsHeader,
-				size: 150,
+				size: 140,
 				cell: ({ row }) => (
 					<span className="flex flex-nowrap items-center gap-1">
 						<Button
@@ -119,7 +132,7 @@ export function ModelSettingsPage() {
 			<section className="grid gap-3" aria-labelledby="model-providers-heading" data-testid="model-providers">
 				<div className="flex flex-wrap items-start justify-between gap-2">
 					<div>
-						<h2 id="model-providers-heading" className="text-sm font-semibold">
+						<h2 id="model-providers-heading" className="text-sm font-medium">
 							<Trans>Model providers</Trans>
 						</h2>
 						<p className="text-sm text-muted-foreground">
@@ -128,7 +141,7 @@ export function ModelSettingsPage() {
 					</div>
 					<Button type="button" onClick={() => setEditing("new")} data-testid="add-provider">
 						<PlusIcon />
-						<Trans>Add provider</Trans>
+						<Trans>New provider</Trans>
 					</Button>
 				</div>
 				<DataTable
@@ -141,6 +154,7 @@ export function ModelSettingsPage() {
 					onRetry={() => void providers.refetch()}
 					empty={
 						<EmptyState
+							bare
 							title={<Trans>No model providers yet</Trans>}
 							description={<Trans>Add a Pi built-in provider or a custom endpoint.</Trans>}
 						/>

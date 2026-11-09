@@ -4,8 +4,10 @@ import { startAuthentication } from "@simplewebauthn/browser";
 import { useState } from "react";
 import { CodeText } from "@/components/code-text";
 import { CopyButton } from "@/components/copy-button";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorText } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
+import { Panel } from "@/components/section";
 import { StatusText, taskStateLabel } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,7 +21,7 @@ import {
 import { errorMessage } from "@/lib/api/client";
 import { useLocale } from "@/lib/i18n";
 import { taskStatusTone } from "@/lib/status";
-import { cn } from "@/lib/utils";
+import { cn, MONO_CELL } from "@/lib/utils";
 
 const LINE_LABELS: Record<PayloadLineKey, React.ReactNode> = {
 	nodes: <Trans>Nodes</Trans>,
@@ -34,46 +36,50 @@ const LINE_LABELS: Record<PayloadLineKey, React.ReactNode> = {
 };
 
 function TaskGroupTaskTable({ tasks }: { tasks: TaskGroupPendingTask[] }) {
-	const { i18n } = useLingui();
+	const { t, i18n } = useLingui();
+	const columns: DataTableColumn<TaskGroupPendingTask>[] = [
+		{ id: "node", header: t`Node`, minSize: 140, cell: ({ row }) => row.original.nodeName },
+		{
+			id: "task",
+			header: t`Task`,
+			size: 100,
+			cell: ({ row }) => <span className={MONO_CELL}>{row.original.id.slice(0, 8)}…</span>,
+			meta: { title: (task: TaskGroupPendingTask) => task.id },
+		},
+		{ id: "attempt", header: t`Attempt`, size: 80, cell: ({ row }) => row.original.attempt },
+		{
+			id: "state",
+			header: t`Status`,
+			size: 120,
+			cell: ({ row }) => (
+				<StatusText tone={taskStatusTone(row.original.state)}>{taskStateLabel(i18n, row.original.state)}</StatusText>
+			),
+		},
+		{
+			id: "rejection",
+			header: t`Last rejection`,
+			minSize: 160,
+			cell: ({ row }) =>
+				row.original.lastRejection ? (
+					`${row.original.lastRejection.code}: ${row.original.lastRejection.message}`
+				) : (
+					<span className="text-muted-foreground">–</span>
+				),
+			meta: {
+				title: (task: TaskGroupPendingTask) =>
+					task.lastRejection ? `${task.lastRejection.code}: ${task.lastRejection.message}` : undefined,
+			},
+		},
+	];
 	return (
-		<div className="overflow-x-auto rounded-md border">
-			<table className="w-full text-xs">
-				<thead className="bg-muted/60 text-muted-foreground">
-					<tr>
-						<th className="px-2 py-1.5 text-left font-medium">
-							<Trans>Node</Trans>
-						</th>
-						<th className="px-2 py-1.5 text-left font-medium">
-							<Trans>Task</Trans>
-						</th>
-						<th className="px-2 py-1.5 text-left font-medium">
-							<Trans>Attempt</Trans>
-						</th>
-						<th className="px-2 py-1.5 text-left font-medium">
-							<Trans>Status</Trans>
-						</th>
-						<th className="px-2 py-1.5 text-left font-medium">
-							<Trans>Last rejection</Trans>
-						</th>
-					</tr>
-				</thead>
-				<tbody>
-					{tasks.map((task) => (
-						<tr key={task.id} className="border-t">
-							<td className="px-2 py-1.5">{task.nodeName}</td>
-							<td className="px-2 py-1.5 font-mono">{task.id.slice(0, 8)}…</td>
-							<td className="px-2 py-1.5">{task.attempt}</td>
-							<td className="px-2 py-1.5">
-								<StatusText tone={taskStatusTone(task.state)}>{taskStateLabel(i18n, task.state)}</StatusText>
-							</td>
-							<td className="px-2 py-1.5">
-								{task.lastRejection ? `${task.lastRejection.code}: ${task.lastRejection.message}` : "–"}
-							</td>
-						</tr>
-					))}
-				</tbody>
-			</table>
-		</div>
+		<DataTable
+			label={t`Tasks waiting for authorization`}
+			columns={columns}
+			data={tasks}
+			getRowId={(task) => task.id}
+			density="compact"
+			frame={false}
+		/>
 	);
 }
 
@@ -155,13 +161,14 @@ export function AuthorizationCard({
 	const disabled = busy || working;
 
 	return (
-		<section
+		<Panel
+			as="section"
 			data-slot="authorization-card"
 			aria-label={t`Waiting for your authorization`}
-			className={cn("grid gap-3 rounded-lg border bg-card p-4 text-card-foreground", className)}
+			className={cn("grid gap-3 bg-card text-card-foreground", className)}
 		>
 			<div className="grid gap-1">
-				<h2 className="text-sm font-semibold">
+				<h2 className="text-sm font-medium">
 					<Trans>Waiting for your authorization</Trans>
 				</h2>
 				<p className="text-sm text-muted-foreground">
@@ -269,6 +276,6 @@ export function AuthorizationCard({
 					{done}
 				</p>
 			)}
-		</section>
+		</Panel>
 	);
 }

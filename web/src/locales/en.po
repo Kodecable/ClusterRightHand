@@ -383,10 +383,6 @@ msgstr "Active · connected"
 msgid "Active · not connected"
 msgstr "Active · not connected"
 
-#: src/features/audit/pages.tsx
-msgid "Actor"
-msgstr "Actor"
-
 #: src/features/tasks/pages.tsx
 msgid "Actor type"
 msgstr "Actor type"
@@ -436,24 +432,6 @@ msgstr "Add jump host"
 msgid "Add member"
 msgstr "Add member"
 
-#: src/features/settings/model-dialog.tsx
-#: src/features/settings/provider-dialog.tsx
-msgid "Add model"
-msgstr "Add model"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Add model provider"
-msgstr "Add model provider"
-
-#: src/features/nodes/add-node-dialog.tsx
-#: src/features/nodes/pages.tsx
-msgid "Add node"
-msgstr "Add node"
-
-#: src/features/settings/pages.tsx
-msgid "Add provider"
-msgstr "Add provider"
-
 #: src/components/share-editor.tsx
 msgid "Add share"
 msgstr "Add share"
@@ -462,19 +440,9 @@ msgstr "Add share"
 msgid "Add SSH key"
 msgstr "Add SSH key"
 
-#: src/features/nodes/add-ssh-node-dialog.tsx
-#: src/features/nodes/pages.tsx
-msgid "Add SSH node"
-msgstr "Add SSH node"
-
 #: src/features/approvals/pages.tsx
 msgid "Add tokens to the paused run or stop it."
 msgstr "Add tokens to the paused run or stop it."
-
-#: src/features/credentials/pages.tsx
-#: src/features/nodes/access-grants.tsx
-msgid "Added"
-msgstr "Added"
 
 #: src/features/tokens/rules-dialog.tsx
 msgid "Added rules (JSON)"
@@ -799,10 +767,6 @@ msgstr "Awaiting approval"
 msgid "Awaiting authorization"
 msgstr "Awaiting authorization"
 
-#: src/components/status-badge.tsx
-msgid "Awaiting signature"
-msgstr "Awaiting signature"
-
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Back"
 msgstr "Back"
@@ -846,6 +810,7 @@ msgstr "Budget used up ({0} over) · {usedText} spent"
 msgid "Build the `[[trust]]` block for this node's privileged.toml. The node enforces it; this page only exports it."
 msgstr "Build the `[[trust]]` block for this node's privileged.toml. The node enforces it; this page only exports it."
 
+#: src/features/audit/pages.tsx
 #: src/features/tasks/task-columns.tsx
 msgid "By"
 msgstr "By"
@@ -855,6 +820,7 @@ msgstr "By"
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/schedules/create-schedule-dialog.tsx
 #: src/features/settings/model-dialog.tsx
+#: src/features/tokens/rules-dialog.tsx
 msgid "Cancel"
 msgstr "Cancel"
 
@@ -999,8 +965,10 @@ msgstr "Clock"
 msgid "Clock skew"
 msgstr "Clock skew"
 
+#: src/features/credentials/pages.tsx
 #: src/features/nodes/add-node-dialog.tsx
-#: src/features/tokens/rules-dialog.tsx
+#: src/features/ssh-credentials/pages.tsx
+#: src/features/tokens/create-token-dialog.tsx
 msgid "Close"
 msgstr "Close"
 
@@ -1185,7 +1153,6 @@ msgid "cosignature unavailable"
 msgstr "cosignature unavailable"
 
 #: src/features/nodes/ssh-wizard.tsx
-#: src/features/ssh-credentials/pages.tsx
 msgid "Create"
 msgstr "Create"
 
@@ -1201,52 +1168,14 @@ msgstr "Create a token to connect an MCP client."
 msgid "Create an enrollment token, then run the printed command on the node as the user crha should run tasks as."
 msgstr "Create an enrollment token, then run the printed command on the node as the user crha should run tasks as."
 
-#: src/features/tokens/create-token-dialog.tsx
-msgid "Create API token"
-msgstr "Create API token"
-
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Create credential"
-msgstr "Create credential"
-
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Create node"
-msgstr "Create node"
-
-#: src/features/node-groups/dialogs.tsx
-#: src/features/node-groups/pages.tsx
-msgid "Create node group"
-msgstr "Create node group"
-
 #: src/features/ssh-credentials/pages.tsx
 msgid "Create one to give crhs a key for SSH nodes and jump hosts."
 msgstr "Create one to give crhs a key for SSH nodes and jump hosts."
 
-#: src/features/schedules/create-schedule-dialog.tsx
-msgid "Create schedule"
-msgstr "Create schedule"
-
-#: src/features/ssh-credentials/pages.tsx
-msgid "Create SSH credential"
-msgstr "Create SSH credential"
-
-#: src/features/nodes/add-node-dialog.tsx
-#: src/features/tokens/create-token-dialog.tsx
-#: src/features/tokens/pages.tsx
-msgid "Create token"
-msgstr "Create token"
-
-#: src/features/users/new-user-dialog.tsx
-msgid "Create user"
-msgstr "Create user"
-
-#: src/features/users/user-group-dialogs.tsx
-#: src/features/users/user-groups-section.tsx
-msgid "Create user group"
-msgstr "Create user group"
-
 #: src/components/task-result.tsx
 #: src/features/authorizations/pages.tsx
+#: src/features/credentials/pages.tsx
+#: src/features/nodes/access-grants.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tokens/pages.tsx
@@ -1467,6 +1396,10 @@ msgstr "Detail of event {0}"
 msgid "Digest"
 msgstr "Digest"
 
+#: src/components/task-result.tsx
+msgid "Directory listing"
+msgstr "Directory listing"
+
 #: src/features/users/pages.tsx
 msgid "Disable"
 msgstr "Disable"
@@ -1502,8 +1435,6 @@ msgid "Display name"
 msgstr "Display name"
 
 #: src/features/sessions/tool-card.tsx
-#: src/features/ssh-credentials/pages.tsx
-#: src/features/tokens/create-token-dialog.tsx
 msgid "Done"
 msgstr "Done"
 
@@ -1545,8 +1476,8 @@ msgstr "Edit {0}"
 msgid "Edit members"
 msgstr "Edit members"
 
-#. placeholder {0}: index + 1
 #. placeholder {0}: initial.id
+#. placeholder {0}: row.original.index + 1
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Edit model {0}"
@@ -1885,7 +1816,6 @@ msgid "Invalid username or password."
 msgstr "Invalid username or password."
 
 #: src/components/authorization-card.tsx
-#: src/components/status-badge.tsx
 #: src/features/authorizations/pages.tsx
 msgid "Issued"
 msgstr "Issued"
@@ -1919,6 +1849,7 @@ msgid "Its models disappear from the model lists, and its stored key is deleted.
 msgstr "Its models disappear from the model lists, and its stored key is deleted. Existing sessions that use them stop working until you change their model."
 
 #. placeholder {0}: index + 1
+#. placeholder {0}: row.index + 1
 #: src/features/nodes/ssh-node-section.tsx
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Jump host {0}"
@@ -2059,14 +1990,6 @@ msgstr "Loading task…"
 #: src/features/sessions/session-waits.tsx
 msgid "Loading the waiting decisions…"
 msgstr "Loading the waiting decisions…"
-
-#: src/features/approvals/pages.tsx
-#: src/features/sessions/children-bar.tsx
-#: src/features/settings/model-presets.tsx
-#: src/features/tasks/task-group-page.tsx
-#: src/features/tasks/task-page.tsx
-msgid "Loading…"
-msgstr "Loading…"
 
 #: src/app/shell/user-menu.tsx
 msgid "Log out"
@@ -2218,14 +2141,30 @@ msgid "Never run"
 msgstr "Never run"
 
 #: src/features/nodes/ssh-wizard.tsx
+msgid "New credential"
+msgstr "New credential"
+
+#: src/features/nodes/ssh-wizard.tsx
 msgid "New credential name"
 msgstr "New credential name"
+
+#: src/features/settings/model-dialog.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "New model"
+msgstr "New model"
 
 #: src/features/nodes/rename-node-button.tsx
 msgid "New name"
 msgstr "New name"
 
+#: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/pages.tsx
+#: src/features/nodes/ssh-wizard.tsx
+msgid "New node"
+msgstr "New node"
+
 #: src/features/node-groups/dialogs.tsx
+#: src/features/node-groups/pages.tsx
 msgid "New node group"
 msgstr "New node group"
 
@@ -2233,6 +2172,11 @@ msgstr "New node group"
 #: src/features/users/reset-password-dialog.tsx
 msgid "New password"
 msgstr "New password"
+
+#: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
+msgid "New provider"
+msgstr "New provider"
 
 #: src/features/approvals/pages.tsx
 msgid "New requests appear here and in the sidebar badge."
@@ -2255,9 +2199,24 @@ msgstr "New session"
 msgid "New Session"
 msgstr "New Session"
 
+#: src/features/ssh-credentials/pages.tsx
+msgid "New SSH credential"
+msgstr "New SSH credential"
+
+#: src/features/nodes/add-ssh-node-dialog.tsx
+#: src/features/nodes/pages.tsx
+msgid "New SSH node"
+msgstr "New SSH node"
+
 #: src/components/task-form-fields.tsx
 msgid "New text"
 msgstr "New text"
+
+#: src/features/nodes/add-node-dialog.tsx
+#: src/features/tokens/create-token-dialog.tsx
+#: src/features/tokens/pages.tsx
+msgid "New token"
+msgstr "New token"
 
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
@@ -2265,6 +2224,7 @@ msgid "New user"
 msgstr "New user"
 
 #: src/features/users/user-group-dialogs.tsx
+#: src/features/users/user-groups-section.tsx
 msgid "New user group"
 msgstr "New user group"
 
@@ -2286,12 +2246,12 @@ msgid "No"
 msgstr "No"
 
 #: src/features/nodes/access-grants.tsx
-msgid "No access grants yet."
-msgstr "No access grants yet."
+msgid "No access grants yet"
+msgstr "No access grants yet"
 
 #: src/features/batch/pages.tsx
-msgid "No active nodes you can access."
-msgstr "No active nodes you can access."
+msgid "No active nodes you can access"
+msgstr "No active nodes you can access"
 
 #: src/features/tokens/pages.tsx
 msgid "No API tokens yet"
@@ -2319,8 +2279,8 @@ msgstr "No events"
 
 #: src/features/node-groups/pages.tsx
 #: src/features/users/user-group-page.tsx
-msgid "No members."
-msgstr "No members."
+msgid "No members"
+msgstr "No members"
 
 #: src/features/sessions/pages.tsx
 msgid "No messages yet. Start the conversation below."
@@ -2347,6 +2307,10 @@ msgstr "No models are configured, so schedules cannot run."
 msgid "No models are configured, so sessions cannot start."
 msgstr "No models are configured, so sessions cannot start."
 
+#: src/features/settings/provider-dialog.tsx
+msgid "No models yet"
+msgstr "No models yet"
+
 #: src/features/nodes/access-grants.tsx
 msgid "No node access"
 msgstr "No node access"
@@ -2354,10 +2318,6 @@ msgstr "No node access"
 #: src/features/node-groups/pages.tsx
 msgid "No node groups yet"
 msgstr "No node groups yet"
-
-#: src/components/node-group-picker.tsx
-msgid "No node groups."
-msgstr "No node groups."
 
 #: src/features/nodes/pages.tsx
 msgid "No nodes yet"
@@ -2376,8 +2336,8 @@ msgid "No output was kept."
 msgstr "No output was kept."
 
 #: src/features/sessions/tool-dialog.tsx
-msgid "No output yet."
-msgstr "No output yet."
+msgid "No output yet"
+msgstr "No output yet"
 
 #: src/components/authorization-card.tsx
 msgid "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
@@ -2413,8 +2373,8 @@ msgid "No SSH credentials yet"
 msgstr "No SSH credentials yet"
 
 #: src/features/sessions/children-bar.tsx
-msgid "No subagents."
-msgstr "No subagents."
+msgid "No subagents"
+msgstr "No subagents"
 
 #: src/features/node-groups/pages.tsx
 msgid "No such node group"
@@ -2427,25 +2387,25 @@ msgid "No tasks yet"
 msgstr "No tasks yet"
 
 #: src/features/schedules/schedule-form.tsx
-msgid "No upcoming runs."
-msgstr "No upcoming runs."
+msgid "No upcoming runs"
+msgstr "No upcoming runs"
+
+#: src/features/nodes/access-grants.tsx
+#: src/features/users/pages.tsx
+msgid "No user groups"
+msgstr "No user groups"
 
 #: src/features/users/user-groups-section.tsx
 msgid "No user groups yet"
 msgstr "No user groups yet"
 
 #: src/features/nodes/access-grants.tsx
-#: src/features/users/pages.tsx
-msgid "No user groups."
-msgstr "No user groups."
+msgid "No users"
+msgstr "No users"
 
 #: src/features/users/pages.tsx
 msgid "No users yet"
 msgstr "No users yet"
-
-#: src/features/nodes/access-grants.tsx
-msgid "No users."
-msgstr "No users."
 
 #: src/components/authorization-card.tsx
 #: src/components/node-picker.tsx
@@ -2714,7 +2674,6 @@ msgid "output"
 msgstr "output"
 
 #: src/features/batch/pages.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "Output"
 msgstr "Output"
 
@@ -2796,10 +2755,6 @@ msgstr "Path"
 #: src/features/authorizations/pages.tsx
 msgid "Payload"
 msgstr "Payload"
-
-#: src/components/status-badge.tsx
-msgid "Pending"
-msgstr "Pending"
 
 #: src/components/status-badge.tsx
 msgid "Pending approval"
@@ -2948,7 +2903,6 @@ msgstr "Rejected"
 msgid "Remaining budget tokens (empty = unlimited)"
 msgstr "Remaining budget tokens (empty = unlimited)"
 
-#: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Remove"
 msgstr "Remove"
@@ -2985,7 +2939,7 @@ msgstr "Remove header {0}"
 msgid "Remove jump host {0}"
 msgstr "Remove jump host {0}"
 
-#. placeholder {0}: index + 1
+#. placeholder {0}: row.original.index + 1
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove model {0}"
 msgstr "Remove model {0}"
@@ -3391,10 +3345,6 @@ msgstr "Shares to this user group are removed, and its members lose the node acc
 msgid "Shell command"
 msgstr "Shell command"
 
-#: src/features/tasks/task-group-result.tsx
-msgid "Show"
-msgstr "Show"
-
 #: src/components/code-text.tsx
 msgid "Show all"
 msgstr "Show all"
@@ -3440,10 +3390,6 @@ msgstr "Signal"
 #: src/components/task-result.tsx
 msgid "Signal {0}"
 msgstr "Signal {0}"
-
-#: src/components/status-badge.tsx
-msgid "Signed"
-msgstr "Signed"
 
 #: src/app/shell/user-menu.tsx
 msgid "Signed in as {name}"
@@ -3681,10 +3627,18 @@ msgstr "Task-group approvals"
 msgid "Tasks"
 msgstr "Tasks"
 
+#: src/features/tasks/task-group-result.tsx
+msgid "Tasks in this task group"
+msgstr "Tasks in this task group"
+
 #. placeholder {0}: user.username
 #: src/features/users/pages.tsx
 msgid "Tasks of {0}"
 msgstr "Tasks of {0}"
+
+#: src/components/authorization-card.tsx
+msgid "Tasks waiting for authorization"
+msgstr "Tasks waiting for authorization"
 
 #: src/components/test-connection.tsx
 msgid "Test connection"
@@ -3771,8 +3725,8 @@ msgid "The node has no alias for this task's node group. Add the node group UUID
 msgstr "The node has no alias for this task's node group. Add the node group UUID to aliases in privileged.toml on the node, then run the task again."
 
 #: src/features/nodes/node-trust.tsx
-msgid "The node has not reported its trust configuration."
-msgstr "The node has not reported its trust configuration."
+msgid "The node has not reported its trust configuration"
+msgstr "The node has not reported its trust configuration"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "The node is active as soon as it is created; the pinned host keys are enforced on every connection. Test first to check that the key is installed on every hop and the account can run commands."
@@ -3783,8 +3737,8 @@ msgid "The node is in this node group but does not trust it as an alias. Add the
 msgstr "The node is in this node group but does not trust it as an alias. Add the group UUID to aliases in privileged.toml on the node:"
 
 #: src/features/nodes/node-trust.tsx
-msgid "The node trusts nobody."
-msgstr "The node trusts nobody."
+msgid "The node trusts nobody"
+msgstr "The node trusts nobody"
 
 #: src/components/task-result.tsx
 msgid "The offset is past the end of the file."
@@ -3867,8 +3821,8 @@ msgid "Theme"
 msgstr "Theme"
 
 #: src/features/node-groups/dialogs.tsx
-msgid "There are no nodes to add yet."
-msgstr "There are no nodes to add yet."
+msgid "There are no nodes to add yet"
+msgstr "There are no nodes to add yet"
 
 #: src/features/approvals/pages.tsx
 msgid "These passed their rules; they run once you sign them."
@@ -4099,8 +4053,8 @@ msgid "Updated"
 msgstr "Updated"
 
 #: src/features/nodes/pages.tsx
-msgid "Use \"Add node\" to enrol a crha client, or \"Add SSH node\" for an SSH target."
-msgstr "Use \"Add node\" to enrol a crha client, or \"Add SSH node\" for an SSH target."
+msgid "Use \"New node\" to enrol a crha client, or \"New SSH node\" for an SSH target."
+msgstr "Use \"New node\" to enrol a crha client, or \"New SSH node\" for an SSH target."
 
 #: src/features/users/new-user-dialog.tsx
 msgid "Use at least 8 characters, or leave it empty."

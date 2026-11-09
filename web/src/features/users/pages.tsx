@@ -5,7 +5,7 @@ import { ArrowLeftIcon, PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
-import { EmptyState } from "@/components/empty-state";
+import { EmptyHint, EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
 import { Page } from "@/components/page";
@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/page-header";
 import { DateTime, RelativeTime } from "@/components/relative-time";
 import { PageSkeleton } from "@/components/skeletons";
 import { SessionStatusBadge, StatusText } from "@/components/status-badge";
+import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/session";
 import { GranteeNodeAccessSection } from "@/features/nodes/access-grants";
@@ -36,6 +37,7 @@ import { UserGroupsSection } from "./user-groups-section";
  */
 export function UsersPage() {
 	const { t } = useLingui();
+	const timeWidth = useTimeColumnWidth();
 	const users = useUsers();
 	const [creating, setCreating] = useState(false);
 
@@ -44,17 +46,26 @@ export function UsersPage() {
 			{
 				id: "username",
 				header: t`Username`,
+				minSize: 140,
 				cell: ({ row }) => <span className="truncate font-medium">{row.original.username}</span>,
+				meta: { title: (user: User) => user.username },
 			},
 			{
 				id: "displayName",
 				header: t`Display name`,
-				cell: ({ row }) => <span className="truncate">{row.original.displayName}</span>,
+				minSize: 140,
+				cell: ({ row }) =>
+					row.original.displayName === "" ? (
+						<span className="text-muted-foreground">–</span>
+					) : (
+						<span className="truncate">{row.original.displayName}</span>
+					),
+				meta: { title: (user: User) => user.displayName },
 			},
 			{
 				id: "kind",
 				header: t`Kind`,
-				size: 130,
+				size: 120,
 				cell: ({ row }) => (
 					<span className="truncate">
 						{row.original.kind === "admin" ? <Trans>Administrator</Trans> : <Trans>Member</Trans>}
@@ -64,7 +75,7 @@ export function UsersPage() {
 			{
 				id: "status",
 				header: t`Status`,
-				size: 110,
+				size: 90,
 				cell: ({ row }) => (
 					<StatusText tone={row.original.status === "active" ? "ok" : "muted"}>
 						{row.original.status === "active" ? t`Active` : t`Disabled`}
@@ -74,11 +85,11 @@ export function UsersPage() {
 			{
 				id: "created",
 				header: t`Created`,
-				size: 200,
+				size: timeWidth,
 				cell: ({ row }) => <DateTime value={row.original.createdAt} />,
 			},
 		],
-		[t],
+		[t, timeWidth],
 	);
 
 	return (
@@ -102,7 +113,7 @@ export function UsersPage() {
 				onRetry={() => void users.refetch()}
 				rowLink={(user) => ({ to: "/users/$userId", params: { userId: user.id } })}
 				rowLabel={(user) => user.username}
-				empty={<EmptyState title={<Trans>No users yet</Trans>} />}
+				empty={<EmptyState bare title={<Trans>No users yet</Trans>} />}
 			/>
 			<UserGroupsSection />
 			{creating && <NewUserDialog onClose={() => setCreating(false)} />}
@@ -132,18 +143,20 @@ function UserActivity({ user }: { user: User }) {
 			{
 				id: "title",
 				header: t`Session`,
+				minSize: 160,
 				cell: ({ row }) => <span className="truncate">{sessionTitle(row.original, t`New Session`)}</span>,
+				meta: { title: (session: SessionListItem) => sessionTitle(session, t`New Session`) },
 			},
 			{
 				id: "state",
 				header: t`Status`,
-				size: 120,
+				size: 90,
 				cell: ({ row }) => <SessionStatusBadge state={row.original.state} />,
 			},
 			{
 				id: "updated",
 				header: t`Updated`,
-				size: 130,
+				size: 110,
 				cell: ({ row }) => <RelativeTime value={row.original.updatedAt} />,
 			},
 		],
@@ -153,7 +166,7 @@ function UserActivity({ user }: { user: User }) {
 	return (
 		<>
 			<section className="grid gap-2" aria-labelledby="user-sessions-heading" data-testid="user-sessions">
-				<h2 id="user-sessions-heading" className="text-sm font-semibold">
+				<h2 id="user-sessions-heading" className="text-sm font-medium">
 					<Trans>Recent sessions</Trans>
 				</h2>
 				<DataTable
@@ -166,11 +179,11 @@ function UserActivity({ user }: { user: User }) {
 					onRetry={() => void sessions.refetch()}
 					rowLink={(session) => ({ to: "/sessions/$sessionId", params: { sessionId: session.id } })}
 					rowLabel={(session) => sessionTitle(session, t`New Session`)}
-					empty={<EmptyState title={<Trans>No sessions yet</Trans>} />}
+					empty={<EmptyState bare title={<Trans>No sessions yet</Trans>} />}
 				/>
 			</section>
 			<section className="grid gap-2" aria-labelledby="user-tasks-heading" data-testid="user-tasks">
-				<h2 id="user-tasks-heading" className="text-sm font-semibold">
+				<h2 id="user-tasks-heading" className="text-sm font-medium">
 					<Trans>Recent tasks</Trans>
 				</h2>
 				<DataTable
@@ -183,7 +196,8 @@ function UserActivity({ user }: { user: User }) {
 					onRetry={() => void tasks.refetch()}
 					rowLink={(task) => ({ to: "/tasks/$taskId", params: { taskId: task.id } })}
 					rowLabel={(task) => task.summary || task.kind}
-					empty={<EmptyState title={<Trans>No tasks yet</Trans>} />}
+					rowLinkColumn="task"
+					empty={<EmptyState bare title={<Trans>No tasks yet</Trans>} />}
 				/>
 			</section>
 		</>
@@ -211,23 +225,23 @@ export function UserDetailPage() {
 
 	if (detail.isPending) {
 		return (
-			<div className="p-4">
+			<Page width="detail">
 				<PageSkeleton />
-			</div>
+			</Page>
 		);
 	}
 	if (detail.isError) {
 		if (isNotFound(detail.error)) {
 			return (
-				<div className="p-4">
+				<Page width="detail">
 					<ErrorState error={t`This user doesn't exist or you don't have access.`} />
-				</div>
+				</Page>
 			);
 		}
 		return (
-			<div className="p-4">
+			<Page width="detail">
 				<ErrorState error={detail.error} retry={() => void detail.refetch()} />
-			</div>
+			</Page>
 		);
 	}
 	const user = detail.data.user;
@@ -281,6 +295,7 @@ export function UserDetailPage() {
 						) : (
 							<span>{user.kind === "admin" ? <Trans>Administrator</Trans> : <Trans>Member</Trans>}</span>
 						),
+						control: true,
 					},
 					{
 						label: t`Status`,
@@ -299,17 +314,17 @@ export function UserDetailPage() {
 				aria-labelledby="user-groups-memberships-heading"
 				data-testid="user-detail-groups"
 			>
-				<h2 id="user-groups-memberships-heading" className="text-sm font-semibold">
+				<h2 id="user-groups-memberships-heading" className="text-sm font-medium">
 					<Trans>User groups</Trans>
 				</h2>
 				{groups.length === 0 ? (
-					<p className="text-sm text-muted-foreground">
-						<Trans>No user groups.</Trans>
-					</p>
+					<EmptyHint>
+						<Trans>No user groups</Trans>
+					</EmptyHint>
 				) : (
 					<ul className="flex flex-wrap gap-2" aria-label={t`User groups of ${user.username}`}>
 						{groups.map((group) => (
-							<li key={group.id} className="rounded-md border px-2 py-1 text-sm">
+							<li key={group.id} className="inline-flex min-h-8 items-center rounded-md border px-2 text-sm">
 								<Link to="/user-groups/$userGroupId" params={{ userGroupId: group.id }} className={linkClass}>
 									{group.name}
 								</Link>

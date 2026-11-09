@@ -7,6 +7,7 @@ import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeText } from "@/components/task-result";
 import { Badge } from "@/components/ui/badge";
 import { UserLink } from "@/components/user-link";
+import { cn, MONO_CELL } from "@/lib/utils";
 import { taskActor } from "./actor";
 
 export interface TaskColumnOptions {
@@ -36,9 +37,10 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 			{
 				id: "task",
 				header: t`Task`,
+				minSize: 160,
 				cell: ({ row }) => (
 					<span className="flex min-w-0 items-center gap-1.5">
-						<span className="truncate font-mono text-xs leading-5">{row.original.summary || row.original.kind}</span>
+						<span className={cn("truncate", MONO_CELL)}>{row.original.summary || row.original.kind}</span>
 						{perNode && row.original.summary !== "" && <span>({row.original.kind})</span>}
 						{row.original.privileged && (
 							<Badge variant="secondary">
@@ -47,6 +49,7 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 						)}
 					</span>
 				),
+				meta: { title: (task: TaskView) => task.summary || task.kind },
 			},
 		];
 
@@ -55,10 +58,11 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 			columns.push({
 				id: "node",
 				header: t`Node`,
-				size: 140,
+				minSize: 140,
 				cell: ({ row }) => (
 					<span className="truncate leading-5">{names.get(row.original.nodeId) ?? row.original.nodeId}</span>
 				),
+				meta: { title: (task: TaskView) => names.get(task.nodeId) ?? task.nodeId },
 			});
 		}
 
@@ -66,7 +70,7 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 			{
 				id: "actor",
 				header: t`By`,
-				size: 130,
+				size: 120,
 				cell: ({ row }) => {
 					const actor = taskActor(row.original, (id) => users.get(id));
 					return (
@@ -79,13 +83,13 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 			{
 				id: "state",
 				header: t`Status`,
-				size: 160,
+				size: 90,
 				cell: ({ row }) => <TaskStatusBadge state={row.original.state} />,
 			},
 			{
 				id: "outcome",
 				header: t`Outcome`,
-				size: 130,
+				size: 120,
 				cell: ({ row }) => (
 					<span className="truncate leading-5">
 						<TaskOutcomeText task={row.original} />

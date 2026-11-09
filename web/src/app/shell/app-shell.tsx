@@ -52,7 +52,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 	return (
 		<SidebarProvider open={open} onOpenChange={changeOpen} className="h-svh overflow-hidden">
 			<AppSidebar />
-			<SidebarInset className="h-svh min-h-0 overflow-hidden">
+			<SidebarInset className="h-svh min-h-0 min-w-0 overflow-hidden">
 				<header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
 					<SidebarTrigger data-testid="sidebar-trigger" aria-label={t`Toggle sidebar`} />
 					<Separator orientation="vertical" />
@@ -60,7 +60,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 						{title}
 					</h1>
 				</header>
-				<div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="page-content">
+				<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-testid="page-content">
 					{children}
 				</div>
 			</SidebarInset>

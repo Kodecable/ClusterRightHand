@@ -2,18 +2,17 @@ import type { TaskGroupView } from "@crh/api";
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
-import { ChevronRightIcon } from "lucide-react";
 import { ApprovalCard, DecisionView } from "@/components/approval-card";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { NodeTargetList } from "@/components/node-targets";
 import { StatusText, TaskStatusBadge } from "@/components/status-badge";
-import { TaskOutcomeText, TaskResult } from "@/components/task-result";
+import { TaskOutcomeText } from "@/components/task-result";
 import { Badge } from "@/components/ui/badge";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
 import { useAuth } from "@/features/auth/session";
 import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
 import { taskGroupStatusTone } from "@/lib/status";
-import { linkClass } from "@/lib/utils";
+import { cn, MONO_CELL } from "@/lib/utils";
 
 const GROUP_STATES: Record<string, MessageDescriptor> = {
 	awaiting_approval: msg`Awaiting approval`,
@@ -50,16 +49,38 @@ export function TaskGroupResult({
 	const currentUser = useAuth().user;
 	const lookups = useApprovalLookups();
 	const decide = useDecideApproval();
+	const { t } = useLingui();
 	const nodeName = (id: string) => names.get(id) ?? id;
 	const skipped = taskGroup.skipped.map(nodeName).join(", ");
 	// A shared session's viewers see the task group but may not decide it or sign for its owner.
 	const canAct = currentUser?.kind === "admin" || taskGroup.onBehalfOfUserId === currentUser?.id;
 	const canSign = taskGroup.onBehalfOfUserId === currentUser?.id;
+	const columns: DataTableColumn<TaskGroupView["tasks"][number]>[] = [
+		{
+			id: "node",
+			header: t`Node`,
+			minSize: 140,
+			cell: ({ row }) => nodeName(row.original.nodeId),
+			meta: { title: (task: TaskGroupView["tasks"][number]) => nodeName(task.nodeId) },
+		},
+		{
+			id: "state",
+			header: t`Status`,
+			size: 90,
+			cell: ({ row }) => <TaskStatusBadge state={row.original.state} />,
+		},
+		{
+			id: "outcome",
+			header: t`Outcome`,
+			minSize: 140,
+			cell: ({ row }) => <TaskOutcomeText task={row.original} />,
+		},
+	];
 
 	return (
 		<section className="grid gap-3" data-testid="task-group-result" data-group-id={taskGroup.id}>
 			<div className="flex flex-wrap items-center gap-2">
-				<h2 className="text-sm font-semibold">
+				<h2 className="text-sm font-medium">
 					<Trans>Result</Trans>
 				</h2>
 				<TaskGroupStatus state={taskGroup.state} />
@@ -74,7 +95,9 @@ export function TaskGroupResult({
 			</div>
 
 			{(taskGroup.summary !== undefined || taskGroup.kind !== undefined) && (
-				<p className="font-mono text-xs text-muted-foreground">{taskGroup.summary ?? taskGroup.kind}</p>
+				<p className={cn(MONO_CELL, "text-muted-foreground break-words [overflow-wrap:anywhere]")}>
+					{taskGroup.summary ?? taskGroup.kind}
+				</p>
 			)}
 
 			<p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground" data-testid="task-group-targets">
@@ -116,60 +139,18 @@ export function TaskGroupResult({
 				/>
 			)}
 
-			<div className="overflow-x-auto rounded-lg border">
-				<table className="w-full text-sm">
-					<thead className="bg-muted/60 text-xs text-muted-foreground">
-						<tr>
-							<th className="px-2 py-1.5 text-left font-medium">
-								<Trans>Node</Trans>
-							</th>
-							<th className="px-2 py-1.5 text-left font-medium">
-								<Trans>Status</Trans>
-							</th>
-							<th className="px-2 py-1.5 text-left font-medium">
-								<Trans>Outcome</Trans>
-							</th>
-							<th className="px-2 py-1.5 text-left font-medium">
-								<Trans>Output</Trans>
-							</th>
-						</tr>
-					</thead>
-					<tbody>
-						{taskGroup.tasks.map((task) => (
-							<tr key={task.id} className="border-t align-top" data-testid="task-group-member" data-task-id={task.id}>
-								<td className="px-2 py-2">
-									<Link to="/nodes/$nodeId" params={{ nodeId: task.nodeId }} className={linkClass}>
-										{nodeName(task.nodeId)}
-									</Link>
-								</td>
-								<td className="px-2 py-2">
-									<TaskStatusBadge state={task.state} />
-								</td>
-								<td className="px-2 py-2">
-									<TaskOutcomeText task={task} />
-								</td>
-								<td className="px-2 py-2">
-									<details>
-										<summary className="inline-flex cursor-pointer list-none items-center gap-1 text-xs text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
-											<ChevronRightIcon
-												className="size-3 transition-transform [details[open]_&]:rotate-90"
-												aria-hidden="true"
-											/>
-											<Trans>Show</Trans>
-										</summary>
-										<div className="mt-2 min-w-80">
-											<TaskResult task={task} />
-										</div>
-									</details>
-								</td>
-							</tr>
-						))}
-					</tbody>
-				</table>
-			</div>
+			<DataTable
+				label={t`Tasks in this task group`}
+				columns={columns}
+				data={taskGroup.tasks}
+				getRowId={(task) => task.id}
+				rowLink={(task) => ({ to: "/tasks/$taskId", params: { taskId: task.id } })}
+				rowLabel={(task) => nodeName(task.nodeId)}
+				rowData={(task) => ({ "data-testid": "task-group-member", "data-task-id": task.id })}
+			/>
 
 			{taskGroup.skipped.length > 0 && (
-				<p className="text-xs text-muted-foreground">
+				<p className="text-xs text-muted-foreground break-words [overflow-wrap:anywhere]">
 					<Trans>Skipped: {skipped}</Trans>
 					{taskGroup.state === "interrupted" && <Trans> (the batch was interrupted)</Trans>}
 					{taskGroup.state === "cancelled" && <Trans> (the batch was cancelled)</Trans>}

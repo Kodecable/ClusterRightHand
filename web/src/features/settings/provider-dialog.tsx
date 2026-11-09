@@ -2,15 +2,18 @@ import type { ModelProviderInput, ModelProviderView } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { I18n } from "@lingui/core";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { PlusIcon, Trash2Icon } from "lucide-react";
+import { PlusIcon, XIcon } from "lucide-react";
 import { type ComponentProps, useEffect, useMemo, useState } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { z } from "zod";
+import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { FormDialog } from "@/components/dialogs";
+import { EmptyState } from "@/components/empty-state";
+import { ErrorText } from "@/components/error-state";
 import { CheckboxField, SelectField, TextField } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { MONO_CELL } from "@/lib/utils";
 import { useSaveModelProvider } from "./api";
 import { ModelDialog } from "./model-dialog";
 import {
@@ -149,7 +152,7 @@ function ThinkingSummary({ row }: { row: ModelRow }) {
 		return (
 			<span className="flex items-center gap-1">
 				<span>{t`Standard`}</span>
-				<code className="font-mono text-xs">{row.format || t`auto`}</code>
+				<code className={MONO_CELL}>{row.format || t`auto`}</code>
 			</span>
 		);
 	}
@@ -195,7 +198,7 @@ function HeadersEditor({ form }: { form: ProviderForm }) {
 								aria-label={t`Remove header ${index + 1}`}
 								onClick={() => remove(index)}
 							>
-								<Trash2Icon />
+								<XIcon />
 							</Button>
 						</div>
 					))}
@@ -237,7 +240,7 @@ function SessionIdEditor({ form }: { form: ProviderForm }) {
 								aria-label={t`Remove session id header ${index + 1}`}
 								onClick={() => headers.remove(index)}
 							>
-								<Trash2Icon />
+								<XIcon />
 							</Button>
 						</div>
 					))}
@@ -265,7 +268,7 @@ function SessionIdEditor({ form }: { form: ProviderForm }) {
 								aria-label={t`Remove session id body field ${index + 1}`}
 								onClick={() => body.remove(index)}
 							>
-								<Trash2Icon />
+								<XIcon />
 							</Button>
 						</div>
 					))}
@@ -287,77 +290,96 @@ function ModelRows({ form }: { form: ProviderForm }) {
 	const { fields, append, remove, update } = useFieldArray({ control: form.control, name: "models" });
 	const models = form.watch("models");
 	const [editing, setEditing] = useState<number | "new">();
+	const rows = fields.map((field, index) => ({
+		key: field.id,
+		index,
+		model: models[index] ?? emptyModelRow(),
+	}));
+	const columns: DataTableColumn<(typeof rows)[number]>[] = [
+		{
+			id: "id",
+			header: t`Id`,
+			minSize: 140,
+			cell: ({ row }) =>
+				row.original.model.id === "" ? (
+					<span className="text-muted-foreground">–</span>
+				) : (
+					<code className={MONO_CELL}>{row.original.model.id}</code>
+				),
+			meta: { title: (row: (typeof rows)[number]) => row.model.id },
+		},
+		{
+			id: "protocol",
+			header: t`Protocol`,
+			size: 120,
+			cell: ({ row }) => (row.original.model.api === "openai-completions" ? t`Chat Completions` : t`Responses`),
+		},
+		{
+			id: "context",
+			header: t`Context window`,
+			size: 110,
+			cell: ({ row }) => row.original.model.contextWindow,
+		},
+		{ id: "maxOutput", header: t`Max output`, size: 100, cell: ({ row }) => row.original.model.maxTokens },
+		{
+			id: "image",
+			header: t`Image`,
+			size: 70,
+			cell: ({ row }) => (row.original.model.imageUnderstanding ? t`Yes` : t`No`),
+		},
+		{
+			id: "thinking",
+			header: t`Thinking`,
+			minSize: 120,
+			cell: ({ row }) => <ThinkingSummary row={row.original.model} />,
+		},
+		{
+			id: "actions",
+			header: actionsHeader,
+			size: 130,
+			cell: ({ row }) => (
+				<span className="flex flex-nowrap items-center gap-1">
+					<Button
+						type="button"
+						size="xs"
+						variant="outline"
+						aria-label={t`Edit model ${row.original.index + 1}`}
+						onClick={() => setEditing(row.original.index)}
+					>
+						<Trans>Edit</Trans>
+					</Button>
+					<Button
+						type="button"
+						size="icon-xs"
+						variant="ghost"
+						aria-label={t`Remove model ${row.original.index + 1}`}
+						onClick={() => remove(row.original.index)}
+					>
+						<XIcon />
+					</Button>
+				</span>
+			),
+		},
+	];
 	return (
 		<fieldset className="grid gap-2">
 			<legend className="text-sm font-medium">{t`Models`}</legend>
-			<div className="overflow-auto rounded-lg border">
-				<Table aria-label={t`Models`}>
-					<TableHeader>
-						<TableRow>
-							<TableHead>{t`Id`}</TableHead>
-							<TableHead>{t`Protocol`}</TableHead>
-							<TableHead>{t`Context window`}</TableHead>
-							<TableHead>{t`Max output`}</TableHead>
-							<TableHead>{t`Image`}</TableHead>
-							<TableHead>{t`Thinking`}</TableHead>
-							<TableHead className="w-32" />
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{fields.map((field, index) => {
-							const row = models[index] ?? emptyModelRow();
-							return (
-								<TableRow key={field.id}>
-									<TableCell>
-										<code className="font-mono text-xs">{row.id || "–"}</code>
-									</TableCell>
-									<TableCell className="text-xs">
-										{row.api === "openai-completions" ? t`Chat Completions` : t`Responses`}
-									</TableCell>
-									<TableCell className="text-xs">{row.contextWindow}</TableCell>
-									<TableCell className="text-xs">{row.maxTokens}</TableCell>
-									<TableCell className="text-xs">{row.imageUnderstanding ? t`Yes` : t`No`}</TableCell>
-									<TableCell className="text-xs">
-										<ThinkingSummary row={row} />
-									</TableCell>
-									<TableCell>
-										<span className="flex flex-nowrap items-center gap-1">
-											<Button
-												type="button"
-												size="xs"
-												variant="outline"
-												aria-label={t`Edit model ${index + 1}`}
-												onClick={() => setEditing(index)}
-											>
-												<Trans>Edit</Trans>
-											</Button>
-											<Button
-												type="button"
-												size="icon-xs"
-												variant="ghost"
-												aria-label={t`Remove model ${index + 1}`}
-												onClick={() => remove(index)}
-											>
-												<Trash2Icon />
-											</Button>
-										</span>
-									</TableCell>
-								</TableRow>
-							);
-						})}
-					</TableBody>
-				</Table>
-			</div>
+			<DataTable
+				label={t`Models`}
+				columns={columns}
+				data={rows}
+				getRowId={(row) => row.key}
+				density="compact"
+				empty={<EmptyState bare title={<Trans>No models yet</Trans>} />}
+			/>
 			<div>
 				<Button type="button" size="sm" variant="outline" onClick={() => setEditing("new")}>
 					<PlusIcon />
-					<Trans>Add model</Trans>
+					<Trans>New model</Trans>
 				</Button>
 			</div>
 			{form.formState.errors.models?.message !== undefined && (
-				<p role="alert" className="text-xs text-danger">
-					{form.formState.errors.models.message}
-				</p>
+				<ErrorText error={form.formState.errors.models.message} />
 			)}
 			{editing !== undefined && (
 				<ModelDialog
@@ -446,13 +468,13 @@ export function ProviderDialog({
 			onOpenChange={(open) => {
 				if (!open) onClose();
 			}}
-			title={editing ? t`Edit provider ${existing.providerId}` : t`Add model provider`}
+			title={editing ? t`Edit provider ${existing.providerId}` : t`New provider`}
 			submitLabel={<Trans>Save provider</Trans>}
 			busy={save.isPending}
 			submitDisabled={providerId === ""}
 			error={save.error !== null ? save.error.message : undefined}
 			testId="provider-dialog"
-			className="sm:max-w-3xl"
+			className="sm:max-w-2xl"
 			onSubmit={() => void submit()}
 		>
 			<div className="grid gap-3 sm:grid-cols-2">

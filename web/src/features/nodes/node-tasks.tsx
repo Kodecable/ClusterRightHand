@@ -19,7 +19,7 @@ export function NodeTaskList({ nodeId }: { nodeId: string }) {
 
 	return (
 		<section className="grid gap-2" aria-labelledby="node-tasks-heading" data-testid="node-tasks">
-			<h2 id="node-tasks-heading" className="text-sm font-semibold">
+			<h2 id="node-tasks-heading" className="text-sm font-medium">
 				<Trans>Recent tasks</Trans>
 			</h2>
 			<DataTable
@@ -32,8 +32,13 @@ export function NodeTaskList({ nodeId }: { nodeId: string }) {
 				onRetry={() => void tasks.refetch()}
 				rowLink={(task) => ({ to: "/tasks/$taskId", params: { taskId: task.id } })}
 				rowLabel={(task) => task.summary || task.kind}
+				rowLinkColumn="task"
 				empty={
-					<EmptyState title={<Trans>No tasks yet</Trans>} description={<Trans>Run a task to see it here.</Trans>} />
+					<EmptyState
+						bare
+						title={<Trans>No tasks yet</Trans>}
+						description={<Trans>Run a task to see it here.</Trans>}
+					/>
 				}
 			/>
 		</section>

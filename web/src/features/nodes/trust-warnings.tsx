@@ -25,7 +25,7 @@ function TrustWarningText({ warning }: { warning: TrustWarning }) {
 	const value =
 		warning.uuid !== null ? (
 			<span className="inline-flex flex-wrap items-center gap-1">
-				<code className="font-mono text-xs">{warning.uuid}</code>
+				<code className="font-mono text-xs break-all">{warning.uuid}</code>
 				{warning.nodeGroupName !== null && (
 					<span>
 						(<Trans>Node group</Trans> {warning.nodeGroupName})
@@ -33,7 +33,7 @@ function TrustWarningText({ warning }: { warning: TrustWarning }) {
 				)}
 			</span>
 		) : (
-			<code className="font-mono text-xs">{warning.trustName ?? "–"}</code>
+			<code className="font-mono text-xs break-all">{warning.trustName ?? "–"}</code>
 		);
 	switch (warning.kind) {
 		case "alias_superfluous":
@@ -87,7 +87,7 @@ export function TrustWarningList({ warnings, className }: { warnings: readonly T
 			data-testid="trust-warnings"
 			className={cn("grid gap-2", className)}
 		>
-			<h2 id="trust-warnings-heading" className="text-sm font-semibold">
+			<h2 id="trust-warnings-heading" className="text-sm font-medium">
 				<Trans>Trust warnings</Trans>
 			</h2>
 			<ul className="grid gap-2">
@@ -103,7 +103,7 @@ export function TrustWarningList({ warnings, className }: { warnings: readonly T
 								SEVERITY_STYLES[warning.severity],
 							)}
 						>
-							<Icon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+							<Icon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
 							<p className="min-w-0" role={warning.severity === "danger" ? "alert" : undefined}>
 								<TrustWarningText warning={warning} />
 							</p>
@@ -126,7 +126,7 @@ export function TrustWarningIndicator({ warnings }: { warnings: readonly TrustWa
 			: "info";
 	return (
 		<StatusBadge tone={tone} dot={false} title={i18n._(msg`Trust warnings`)}>
-			<TriangleAlertIcon className="size-3" aria-hidden="true" />
+			<TriangleAlertIcon className="size-3.5" aria-hidden="true" />
 			<Trans>Trust</Trans>
 		</StatusBadge>
 	);

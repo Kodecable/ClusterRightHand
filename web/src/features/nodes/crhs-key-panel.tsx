@@ -23,7 +23,7 @@ export function CrhsKeyPanel() {
 	const block = trustSnippet(key.data.authorizedKey);
 	return (
 		<section className="grid gap-2" aria-labelledby="crhs-key-heading" data-testid="crhs-key-panel">
-			<h2 id="crhs-key-heading" className="text-sm font-semibold">
+			<h2 id="crhs-key-heading" className="text-sm font-medium">
 				<Trans>crhs signing key</Trans>
 			</h2>
 			<p className="max-w-3xl text-sm text-muted-foreground">

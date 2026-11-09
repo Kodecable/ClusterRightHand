@@ -2,7 +2,6 @@ import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import {
-	authorizationStatusTone,
 	nodeStatusTone,
 	type StatusTone,
 	scheduleStatusTone,
@@ -195,26 +194,6 @@ export function SessionStatusDot({ state, className }: { state: string; classNam
 	const { i18n } = useLingui();
 	const label = statusLabel(i18n, SESSION_LABELS, state);
 	return <StatusDot tone={sessionStatusTone(state)} label={label} className={className} />;
-}
-
-const AUTHORIZATION_LABELS: Record<string, MessageDescriptor> = {
-	active: msg`Active`,
-	issued: msg`Issued`,
-	signed: msg`Signed`,
-	pending: msg`Pending`,
-	awaiting: msg`Awaiting signature`,
-	expired: msg`Expired`,
-	rejected: msg`Rejected`,
-	dead: msg`Expired`,
-};
-
-export function AuthorizationStatusBadge({ status, className }: { status: string; className?: string }) {
-	const { i18n } = useLingui();
-	return (
-		<StatusText tone={authorizationStatusTone(status)} className={className}>
-			{statusLabel(i18n, AUTHORIZATION_LABELS, status)}
-		</StatusText>
-	);
 }
 
 const SCHEDULE_LABELS: Record<string, MessageDescriptor> = {

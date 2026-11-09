@@ -136,10 +136,10 @@ describe("SshCredentialsPage", () => {
 		const api = await renderPage(ADMIN, [credential()]);
 		const user = userEvent.setup();
 
-		await user.click(await screen.findByRole("button", { name: "Create SSH credential" }));
-		const dialog = await screen.findByRole("dialog", { name: "Create SSH credential" });
+		await user.click(await screen.findByRole("button", { name: "New SSH credential" }));
+		const dialog = await screen.findByRole("dialog", { name: "New SSH credential" });
 		await user.type(within(dialog).getByLabelText("Name"), "new key");
-		await user.click(within(dialog).getByRole("button", { name: "Create" }));
+		await user.click(within(dialog).getByRole("button", { name: "New SSH credential" }));
 
 		const created = await screen.findByTestId("ssh-credential-created-dialog");
 		expect(within(created).getByText("SSH credential created")).toBeInTheDocument();
@@ -149,7 +149,7 @@ describe("SshCredentialsPage", () => {
 			name: "new key",
 		});
 
-		await user.click(within(created).getByRole("button", { name: "Done" }));
+		await user.click(within(created).getAllByRole("button", { name: "Close" })[0] as HTMLElement);
 		expect(await screen.findByText("new key")).toBeInTheDocument();
 	});
 
@@ -182,7 +182,7 @@ describe("SshCredentialsPage", () => {
 
 		expect(await screen.findByText("Administrators only")).toBeInTheDocument();
 		expect(screen.getByText("Only administrators can manage SSH credentials.")).toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "Create SSH credential" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "New SSH credential" })).not.toBeInTheDocument();
 		expect(api.calls.some((call) => call.url === "/api/ssh-credentials")).toBe(false);
 	});
 });

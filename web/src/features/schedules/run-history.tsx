@@ -5,6 +5,7 @@ import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { RelativeTime } from "@/components/relative-time";
 import { ScheduleStatusBadge } from "@/components/status-badge";
+import { MONO_CELL } from "@/lib/utils";
 import { useScheduleRuns } from "./api";
 import { runNoteParts, runStatusText } from "./scheduleForm";
 
@@ -19,19 +20,19 @@ export function RunHistory({ scheduleId, inProgress }: { scheduleId: string; inP
 			{
 				id: "fireTime",
 				header: t`Triggered for`,
-				size: 170,
+				size: 110,
 				cell: ({ row }) => <RelativeTime value={row.original.fireTime} />,
 			},
 			{
 				id: "status",
 				header: t`Status`,
-				size: 120,
+				size: 90,
 				cell: ({ row }) => <ScheduleStatusBadge status={row.original.status} />,
 			},
 			{
 				id: "when",
 				header: t`When`,
-				size: 170,
+				size: 110,
 				cell: ({ row }) => (
 					<RelativeTime value={row.original.finishedAt ?? row.original.startedAt ?? row.original.createdAt} />
 				),
@@ -39,12 +40,12 @@ export function RunHistory({ scheduleId, inProgress }: { scheduleId: string; inP
 			{
 				id: "session",
 				header: t`Session`,
-				size: 110,
+				size: 100,
 				cell: ({ row }) =>
 					row.original.sessionId === null ? (
 						<span className="text-muted-foreground">–</span>
 					) : (
-						<code className="font-mono text-xs">{row.original.sessionId.slice(0, 8)}</code>
+						<code className={MONO_CELL}>{row.original.sessionId.slice(0, 8)}</code>
 					),
 			},
 			{
@@ -71,7 +72,7 @@ export function RunHistory({ scheduleId, inProgress }: { scheduleId: string; inP
 
 	return (
 		<section className="grid gap-2" aria-labelledby="schedule-runs-heading" data-testid="schedule-runs">
-			<h2 id="schedule-runs-heading" className="text-sm font-semibold">
+			<h2 id="schedule-runs-heading" className="text-sm font-medium">
 				<Trans>Run history</Trans>
 			</h2>
 			<DataTable
@@ -89,8 +90,10 @@ export function RunHistory({ scheduleId, inProgress }: { scheduleId: string; inP
 					run.sessionId === null ? undefined : { to: "/sessions/$sessionId", params: { sessionId: run.sessionId } }
 				}
 				rowLabel={(run) => t`Open session ${(run.sessionId ?? "").slice(0, 8)}`}
+				rowLinkColumn="session"
 				empty={
 					<EmptyState
+						bare
 						title={<Trans>No runs yet</Trans>}
 						description={<Trans>This schedule has not fired yet.</Trans>}
 					/>

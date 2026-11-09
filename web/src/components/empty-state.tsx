@@ -10,18 +10,25 @@ export function EmptyState({
 	action,
 	icon,
 	className,
+	bare = false,
 }: {
 	title: ReactNode;
 	description?: ReactNode;
 	action?: ReactNode;
 	icon?: ReactNode;
 	className?: string;
+	/**
+	 * Drop the dashed frame: the parent already draws one (DataTable's empty
+	 * state renders inside the table's own border).
+	 */
+	bare?: boolean;
 }) {
 	return (
 		<div
 			data-slot="empty-state"
 			className={cn(
-				"flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-12 text-center",
+				"flex flex-col items-center justify-center gap-2 text-center",
+				bare ? "px-4 py-10" : "rounded-lg border border-dashed px-4 py-12",
 				className,
 			)}
 		>
@@ -36,10 +43,10 @@ export function EmptyState({
 }
 
 /** A compact empty hint for a section inside a page. */
-export function EmptyHint({ children }: { children?: ReactNode }) {
+export function EmptyHint({ children, className }: { children?: ReactNode; className?: string }) {
 	const { t } = useLingui();
 	return (
-		<p className="text-sm text-muted-foreground" data-slot="empty-hint">
+		<p className={cn("text-sm text-muted-foreground", className)} data-slot="empty-hint">
 			{children ?? t`Nothing here yet.`}
 		</p>
 	);
