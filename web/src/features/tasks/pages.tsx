@@ -22,6 +22,7 @@ const STATES = [
 	"failed",
 	"rejected",
 	"denied",
+	"cancelled",
 	"unknown",
 ];
 

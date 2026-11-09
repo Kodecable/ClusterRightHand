@@ -15,8 +15,7 @@ import { ErrorText } from "@/components/error-state";
 import { TextareaField, TextField } from "@/components/form";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
-import { RelativeTime } from "@/components/relative-time";
-import { Badge } from "@/components/ui/badge";
+import { DateTime } from "@/components/relative-time";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -207,29 +206,25 @@ export function CredentialsPage() {
 				id: "kind",
 				header: t`Kind`,
 				size: 110,
-				cell: ({ row }) =>
-					row.original.kind === "ssh" ? (
-						<Badge variant="secondary">
-							<Trans>SSH key</Trans>
-						</Badge>
-					) : (
-						<Badge variant="secondary">
-							<Trans>Passkey</Trans>
-						</Badge>
-					),
+				cell: ({ row }) => <span>{row.original.kind === "ssh" ? <Trans>SSH key</Trans> : <Trans>Passkey</Trans>}</span>,
 			},
 			{
 				id: "key",
 				header: t`Key`,
-				cell: ({ row }) => (
-					<span className="block truncate font-mono text-xs leading-5">{credentialKeyId(row.original) || "–"}</span>
-				),
+				cell: ({ row }) => {
+					const key = credentialKeyId(row.original);
+					return (
+						<span className="block truncate font-mono text-xs leading-5">
+							{key === "" ? <span className="text-muted-foreground">–</span> : key}
+						</span>
+					);
+				},
 			},
 			{
 				id: "added",
 				header: t`Added`,
-				size: 110,
-				cell: ({ row }) => <RelativeTime value={row.original.createdAt} className="text-xs" />,
+				size: 200,
+				cell: ({ row }) => <DateTime value={row.original.createdAt} />,
 			},
 			{
 				id: "actions",

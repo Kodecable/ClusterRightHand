@@ -9,6 +9,7 @@ import { ConfirmDialog, FormDialog } from "@/components/dialogs";
 import { ErrorState } from "@/components/error-state";
 import { FieldShell } from "@/components/form";
 import { RelativeTime } from "@/components/relative-time";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -33,11 +34,7 @@ function targetDisplayName(i18n: I18n, grant: Pick<NodeAccessGrant, "targetType"
 
 /** A "User" / "User group" badge, so a name alone never hides which kind of grantee it is. */
 function GranteeTypeBadge({ type }: { type: GranteeType }) {
-	return (
-		<span className="rounded-md border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-			{type === "user" ? <Trans>User</Trans> : <Trans>User group</Trans>}
-		</span>
-	);
+	return <Badge variant="secondary">{type === "user" ? <Trans>User</Trans> : <Trans>User group</Trans>}</Badge>;
 }
 
 /** A link to the target of a grant; a deleted target has no page left to link to. */
@@ -132,7 +129,7 @@ export function GranteeAccessList({
 	const [removing, setRemoving] = useState<NodeAccessGrant>();
 	if (grants.length === 0) {
 		return (
-			<span className={cn("text-xs whitespace-normal text-muted-foreground", className)}>
+			<span className={cn("whitespace-normal text-muted-foreground", className)}>
 				{empty ?? <Trans>No access.</Trans>}
 			</span>
 		);
@@ -353,7 +350,7 @@ export function NodeAccessSection({
 											</span>
 										</TableCell>
 										<TableCell>
-											<RelativeTime value={grant.createdAt} className="text-xs" />
+											<RelativeTime value={grant.createdAt} />
 										</TableCell>
 										<TableCell>
 											<Button

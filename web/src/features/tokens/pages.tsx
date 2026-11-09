@@ -9,7 +9,6 @@ import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
 import { TokenStatusBadge } from "@/components/status-badge";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { rulePresetLabel } from "@/lib/rule-preset";
 import { useApiTokens, useDeleteApiToken, useRevokeApiToken } from "./api";
@@ -44,32 +43,30 @@ export function TokensPage() {
 				size: 110,
 				cell: ({ row }) => {
 					const rulePreset = row.original.rules?.rulePreset;
-					return <span className="text-xs">{rulePreset === undefined ? "–" : rulePresetLabel(rulePreset)}</span>;
+					return (
+						<span className={rulePreset === undefined ? "text-muted-foreground" : undefined}>
+							{rulePreset === undefined ? "–" : rulePresetLabel(rulePreset)}
+						</span>
+					);
 				},
 			},
 			{
 				id: "created",
 				header: t`Created`,
-				size: 150,
+				size: 200,
 				cell: ({ row }) => <DateTime value={row.original.createdAt} />,
 			},
 			{
 				id: "expires",
 				header: t`Expires`,
-				size: 150,
+				size: 200,
 				cell: ({ row }) =>
-					row.original.expiresAt === null ? (
-						<Badge variant="secondary">
-							<Trans>never</Trans>
-						</Badge>
-					) : (
-						<DateTime value={row.original.expiresAt} />
-					),
+					row.original.expiresAt === null ? <Trans>Never</Trans> : <DateTime value={row.original.expiresAt} />,
 			},
 			{
 				id: "lastUsed",
 				header: t`Last used`,
-				size: 150,
+				size: 200,
 				cell: ({ row }) => <DateTime value={row.original.lastUsedAt} />,
 			},
 			{

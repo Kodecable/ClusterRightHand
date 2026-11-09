@@ -114,7 +114,7 @@ describe("TaskGroupResult", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "finish" }));
 		row = screen.getByTestId("task-group-member");
-		expect(within(row).getAllByText("Exited").length).toBeGreaterThan(0);
+		expect(within(row).getAllByText("Finished").length).toBeGreaterThan(0);
 		expect(screen.getAllByText("Finished").length).toBeGreaterThan(0);
 	});
 

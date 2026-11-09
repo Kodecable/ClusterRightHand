@@ -2,7 +2,7 @@ import type { ApprovalBody, Evaluation, TaskGroupView, TaskView } from "@crh/api
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { renderWithI18n } from "@/test/render";
-import { ApprovalCard } from "./approval-card";
+import { ApprovalCard, DecisionView } from "./approval-card";
 
 const evaluation: Evaluation = {
 	result: "require-approval",
@@ -51,7 +51,10 @@ describe("ApprovalCard", () => {
 		expect(screen.getByText(/systemctl restart nginx/)).toBeInTheDocument();
 		expect(screen.getAllByText(/deploy bot/).length).toBeGreaterThan(0);
 		expect(screen.getByRole("table", { name: "Rule chain evaluation" })).toBeInTheDocument();
-		expect(screen.getAllByText("require-approval").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("Require approval").length).toBeGreaterThan(0);
+		// The inherited level says so in words too, not as the raw "inherit".
+		expect(screen.getByText("Inherit")).toBeInTheDocument();
+		expect(screen.getByText("Awaiting approval")).toBeInTheDocument();
 	});
 
 	test("approve decides immediately", () => {
@@ -99,6 +102,18 @@ describe("ApprovalCard", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Approve and always allow" }));
 		expect(onDecide).not.toHaveBeenCalled();
 		expect(screen.getByRole("alert")).toHaveTextContent("expected a rule object");
+	});
+
+	test("a decision shows a coloured status and the asked-by actor label", () => {
+		renderWithI18n(
+			<DecisionView
+				decision={{ decision: "approved", by: { type: "api_token", id: "tok-1" }, at: "2026-01-01T00:00:00.000Z" }}
+				tokenNames={tokenNames}
+			/>,
+		);
+		expect(screen.getByText("Approved")).toBeInTheDocument();
+		expect(screen.getByText("API token deploy bot")).toBeInTheDocument();
+		expect(screen.queryByText(/api_token/)).not.toBeInTheDocument();
 	});
 
 	test("a task group shows one evaluation per node and one entry", () => {

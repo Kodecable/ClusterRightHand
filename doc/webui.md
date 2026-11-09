@@ -46,7 +46,7 @@
 web/src/
   app/            入口、Providers（Query、I18n、Theme、Toaster）、路由表、外壳布局
   components/ui/  shadcn 生成的组件（由项目维护，可以修改）
-  components/     项目通用组件（StatusDot、RelativeTime、CopyButton、EmptyState…）
+  components/     项目通用组件（StatusText、StatusDot、RelativeTime、CopyButton、EmptyState…）
   features/<域>/  sessions、nodes、tasks、approvals、schedules、credentials、authorizations、tokens、audit、settings、users
                   每个域包含 api.ts（query/mutation hooks）、页面组件、域内组件、纯逻辑和测试
   lib/            api 客户端、SSE、theme、i18n、url 安全检查
@@ -106,6 +106,15 @@ web/src/
 - 初始语言取 `navigator.languages`：`zh*` 用 `zh-CN`，其余用 `en`。用户覆盖存 `localStorage`，同时更新 `<html lang>`。
 - 用 `lingui extract` 提取，`i18n:check` 在 CI 里检查中文是否有漏翻。
 - 任务状态、规则预设、模型预设、审计事件这类枚举的显示名放进翻译。界面里不单独说“预设”，一律写“规则预设”或“模型预设”（D116）。服务端错误信息和 agent 输出不翻译。
+
+### 状态、时间与任务结果
+
+- 状态用 `StatusText` 显示为纯文本：标签按 tone 上色（ok 绿、warn 琥珀、danger 红、info 蓝、muted 灰），没有边框、背景和圆点，字号与所在行的正文一致。表格、列表、卡片和详情页头一律用它；状态点只保留在会话侧边列表（`StatusDot`，运行 / 等待 / 未读）。
+- 任务状态 `exited` 显示为“已结束”（`Finished`），tone 固定为 ok，与退出码和信号无关；退出码只在结果（Outcome）列出现。任务组沿用任务的 tone：等待和运行是 info，`finished` 是 ok，`rejected` / `interrupted` 是 danger，`cancelled` 与任务取消一致。
+- 相对时间（`RelativeTime`）用于列表里显示的时间（任务、节点最近连接、计划任务的下次运行和运行历史、节点的最近任务、访问授权的添加时间等）。它继承所在行的字号和颜色，悬停的 `title` 显示带秒的绝对时间。
+- 绝对时间只有一种格式：`DateTime` 用 `formatDateTimeSeconds`，即带秒的日期时间（UI 语言、浏览器时区）。审计、授权、审批、API token、凭据、SSH 凭据和用户的创建时间等安全相关列表用它；详情页里的绝对时间也用同一格式。`Intl` 不传固定 `timeZone`。
+- 任务结果：非 exec 任务（file.read / write / edit / stat / list）以退出码 0 结束、且没有超时、取消或信号时，Outcome 显示“成功”（`Succeeded`）；exec 任务仍显示 `Exit code N`。信号、超时、取消和错误照旧；没有内容时显示 muted 的 en dash “–”。
+- 列表正文统一用表格的 text-sm 和普通前景色；等宽值（id、命令、路径、密钥、cron）保留 `font-mono text-xs`，占位符“–”用 muted。状态列的表头统一为 Status。
 
 ### 会话界面
 
@@ -421,11 +430,11 @@ web/src/
 - **数据展示**：
   - DataTable：基于 TanStack Table，支持游标无限加载、列定义、行操作；
   - KeyValue 列表；
-  - StatusBadge / StatusDot：节点、任务、会话、授权、计划任务运行的状态，配色和翻译统一；
-  - RelativeTime / DateTime：基于 `Intl`；
+  - StatusText / StatusDot：节点、任务、任务组、会话、授权、计划任务运行、API token、用户和模型提供商的状态，配色和翻译统一；StatusText 是彩色纯文本，StatusDot 只用于会话侧边列表；
+  - RelativeTime / DateTime：基于 `Intl`；列表用相对时间，绝对时间统一到秒；
   - CopyButton、CodeText（等宽、可折叠的长输出）。
 - **表单**：基于 react-hook-form + zod 的 Form 字段封装；以及 ModelSelect、RulePresetSelect、NodePicker（单选和多选）、TaskFormFields（exec / file.read / file.write / file.list，同时用于 RunPanel、Batch 和规则测试）。
-- **任务**：TaskResult（输出、退出码、截断提示；输出只有一个流，D114，`notice` 在输出上方单独显示）、TaskSummary 行。这些同时用在任务页、批量、审批和会话的工具卡片里。
+- **任务**：TaskResult（输出、退出码、截断提示；输出只有一个流，D114，`notice` 在输出上方单独显示）、TaskSummary 行。状态 `exited` 统一显示“已结束”，非 exec 任务成功在 Outcome 里显示“成功”，exec 任务显示退出码。这些同时用在任务页、批量、审批和会话的工具卡片里。
 - **决策卡片**：ApprovalCard（批准 / 拒绝，带规则说明）、AuthorizationCard（签名 payload、复制 `crha grant` 命令、Passkey 签名）、QuotaCard（加额度 / 停止）。这些同时用在会话、审批页、任务页和任务组页。
 - **对话框**：ConfirmDialog（危险操作二次确认）、FormDialog，以及 DialogScrollArea（统一的可滚动正文：给焦点环留边距，并用 `scrollbar-gutter` 和右侧内边距避免滚动条压住内容）。
 - **Markdown**：SafeMarkdown、CodeBlock（见上文）。

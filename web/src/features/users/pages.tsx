@@ -7,8 +7,8 @@ import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
-import { RelativeTime } from "@/components/relative-time";
-import { StatusBadge } from "@/components/status-badge";
+import { DateTime } from "@/components/relative-time";
+import { StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/session";
 import { useNodeAccessGrants } from "@/features/nodes/access-api";
@@ -56,7 +56,7 @@ export function UsersPage() {
 			{
 				id: "displayName",
 				header: t`Display name`,
-				cell: ({ row }) => <span className="truncate text-xs">{row.original.displayName}</span>,
+				cell: ({ row }) => <span className="truncate">{row.original.displayName}</span>,
 			},
 			{
 				id: "kind",
@@ -75,16 +75,16 @@ export function UsersPage() {
 				header: t`Status`,
 				size: 110,
 				cell: ({ row }) => (
-					<StatusBadge tone={row.original.status === "active" ? "ok" : "muted"}>
+					<StatusText tone={row.original.status === "active" ? "ok" : "muted"}>
 						{row.original.status === "active" ? t`Active` : t`Disabled`}
-					</StatusBadge>
+					</StatusText>
 				),
 			},
 			{
 				id: "created",
 				header: t`Created`,
-				size: 120,
-				cell: ({ row }) => <RelativeTime value={row.original.createdAt} className="text-xs" />,
+				size: 200,
+				cell: ({ row }) => <DateTime value={row.original.createdAt} />,
 			},
 			{
 				id: "actions",

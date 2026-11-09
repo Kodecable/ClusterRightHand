@@ -1,7 +1,8 @@
 import type { PublicNode } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { ChevronsUpDownIcon } from "lucide-react";
-import { NodeStatusBadge } from "@/components/status-badge";
+import { nodeStatusLabel } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -65,7 +66,7 @@ function SingleNodePicker({ nodes, value, onChange, label, placeholder, disabled
 }
 
 function MultiNodePicker({ nodes, value, onChange, label, placeholder, disabled, id, className }: MultiProps) {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const selected = new Set(value);
 	const toggle = (nodeId: string, checked: boolean) => {
 		const next = new Set(selected);
@@ -111,7 +112,7 @@ function MultiNodePicker({ nodes, value, onChange, label, placeholder, disabled,
 									onCheckedChange={(checked) => toggle(node.id, Boolean(checked))}
 								/>
 								<span className="min-w-0 flex-1 truncate">{node.name}</span>
-								<NodeStatusBadge status={node.status} dot={false} className="px-1 py-0 text-[10px]" />
+								<Badge variant="secondary">{nodeStatusLabel(i18n, node.status, node.connected)}</Badge>
 							</label>
 						))}
 					</div>

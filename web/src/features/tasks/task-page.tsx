@@ -129,7 +129,7 @@ export function TaskPage() {
 				}
 				description={
 					<span className="flex flex-wrap items-center gap-2">
-						<TaskStatusBadge state={view.state} exitCode={view.exitCode} signal={view.signal} />
+						<TaskStatusBadge state={view.state} />
 					</span>
 				}
 				actions={
@@ -204,7 +204,7 @@ export function TaskPage() {
 
 			{view.approval?.decision && (
 				<section className="rounded-lg border p-3" aria-label={t`Approval`}>
-					<DecisionView decision={view.approval.decision} />
+					<DecisionView decision={view.approval.decision} tokenNames={looks.tokenNames} />
 				</section>
 			)}
 

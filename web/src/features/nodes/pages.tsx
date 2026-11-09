@@ -90,25 +90,30 @@ export function NodesPage() {
 				id: "hostname",
 				header: t`Hostname`,
 				size: 160,
-				cell: ({ row }) => <span className="truncate text-xs">{row.original.hostname ?? "–"}</span>,
+				cell: ({ row }) =>
+					row.original.hostname === null ? (
+						<span className="text-muted-foreground">–</span>
+					) : (
+						<span className="truncate">{row.original.hostname}</span>
+					),
 			},
 			{
 				id: "os",
 				header: t`OS`,
 				size: 160,
-				cell: ({ row }) => <span className="truncate text-xs">{osName(row.original.facts)}</span>,
+				cell: ({ row }) => <span className="truncate">{osName(row.original.facts)}</span>,
 			},
 			{
 				id: "nodeGroups",
 				header: t`Node groups`,
 				size: 180,
-				cell: ({ row }) => <NodeGroupLinks nodeGroups={row.original.nodeGroups} className="text-xs" />,
+				cell: ({ row }) => <NodeGroupLinks nodeGroups={row.original.nodeGroups} />,
 			},
 			{
 				id: "lastSeen",
 				header: t`Last seen`,
 				size: 120,
-				cell: ({ row }) => <RelativeTime value={row.original.lastSeenAt} className="text-xs" />,
+				cell: ({ row }) => <RelativeTime value={row.original.lastSeenAt} />,
 			},
 		];
 		// Approve/reject are administrator actions (D108); a non-admin gets no actions column at all.

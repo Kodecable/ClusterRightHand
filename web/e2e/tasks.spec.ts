@@ -16,7 +16,7 @@ test("lists tasks across nodes, filters them and opens the task page", async ({ 
 	await expect(page.getByTestId("page-title")).toHaveText("Tasks");
 	await expect(page.getByTestId("nav-tasks")).toHaveAttribute("aria-current", "page");
 	const row = page.getByRole("row").filter({ hasText: "tasks-page-marker" });
-	await expect(row).toContainText("Exited");
+	await expect(row).toContainText("Finished");
 
 	// A state the task is not in hides it; clearing the filter brings it back.
 	await page.getByLabel("State").click();

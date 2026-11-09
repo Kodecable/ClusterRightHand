@@ -32,7 +32,7 @@ test("a batch run fills the per-node grid as the tasks finish", async ({ page })
 	// The group is polled; the fake finishes it on the second fetch.
 	await expect
 		.poll(async () => (await page.getByTestId("task-group-member").first().textContent()) ?? "", { timeout: 15_000 })
-		.toContain("Exited");
+		.toContain("Finished");
 	await expect(page.getByText("Finished").first()).toBeVisible();
 });
 

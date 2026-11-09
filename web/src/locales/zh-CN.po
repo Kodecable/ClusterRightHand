@@ -546,6 +546,7 @@ msgstr "全部计划任务"
 msgid "All tasks"
 msgstr "全部任务"
 
+#: src/components/approval-card.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Allow"
@@ -1443,6 +1444,7 @@ msgstr "已删除的用户组"
 msgid "Denied"
 msgstr "已拒绝"
 
+#: src/components/approval-card.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Deny"
@@ -1478,12 +1480,9 @@ msgstr "禁用 {0}？"
 msgid "Disable user"
 msgstr "禁用用户"
 
-#: src/features/settings/pages.tsx
-msgid "disabled"
-msgstr "已禁用"
-
 #: src/components/status-badge.tsx
 #: src/features/schedules/pages.tsx
+#: src/features/settings/pages.tsx
 #: src/features/users/pages.tsx
 msgid "Disabled"
 msgstr "已禁用"
@@ -1574,12 +1573,9 @@ msgstr "空文件。"
 msgid "Enable"
 msgstr "启用"
 
-#: src/features/settings/pages.tsx
-msgid "enabled"
-msgstr "已启用"
-
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
+#: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Enabled"
 msgstr "已启用"
@@ -1691,10 +1687,6 @@ msgstr "退出码"
 msgid "Exit code {0}"
 msgstr "退出码 {0}"
 
-#: src/components/status-badge.tsx
-msgid "Exited"
-msgstr "已退出"
-
 #: src/features/sessions/children-bar.tsx
 msgid "Expand subagents"
 msgstr "展开子会话"
@@ -1769,9 +1761,13 @@ msgstr "指纹"
 msgid "finished"
 msgstr "完成"
 
-#: src/components/task-result.tsx
+#: src/components/status-badge.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Finished"
+msgstr "已结束"
+
+#: src/components/task-result.tsx
+msgid "Finished at"
 msgstr "完成时间"
 
 #: src/features/schedules/schedule-form.tsx
@@ -1875,6 +1871,10 @@ msgstr "图像"
 #: src/features/settings/model-dialog.tsx
 msgid "Image understanding"
 msgstr "图像理解"
+
+#: src/components/approval-card.tsx
+msgid "Inherit"
+msgstr "继承"
 
 #: src/features/tasks/task-group-result.tsx
 msgid "Interrupted"
@@ -1982,10 +1982,6 @@ msgstr "上次拒绝 {0}（第 {1} 次尝试）：{2}"
 #: src/features/nodes/node-trust.tsx
 msgid "last report, stale until the node reconnects"
 msgstr "上次报告，节点重新连接前为过期状态"
-
-#: src/features/schedules/pages.tsx
-msgid "Last result"
-msgstr "上次结果"
 
 #: src/features/schedules/pages.tsx
 msgid "Last result:"
@@ -2207,13 +2203,10 @@ msgstr "名称"
 msgid "Narrow the rules before trusting a key: anything not allowed here is refused on the node even when it was authorized."
 msgstr "信任密钥前请收窄规则：这里不允许的操作，即使已获授权，节点也会拒绝。"
 
-#: src/features/tokens/pages.tsx
-msgid "never"
-msgstr "永不"
-
 #: src/features/tokens/create-token-dialog.tsx
+#: src/features/tokens/pages.tsx
 msgid "Never"
-msgstr "永不"
+msgstr "永不过期"
 
 #: src/components/status-badge.tsx
 msgid "Never run"
@@ -2535,16 +2528,12 @@ msgid "not reported"
 msgstr "未报告"
 
 #: src/features/settings/pages.tsx
-msgid "not set"
+msgid "Not set"
 msgstr "未设置"
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Not shared."
 msgstr "未共享。"
-
-#: src/features/ssh-credentials/pages.tsx
-msgid "Not used"
-msgstr "未使用"
 
 #. placeholder {0}: failure instanceof Error ? failure.message : String(failure)
 #: src/features/tokens/rules-dialog.tsx
@@ -3058,6 +3047,10 @@ msgstr "各档请求体"
 msgid "Requested"
 msgstr "请求时间"
 
+#: src/components/approval-card.tsx
+msgid "Require approval"
+msgstr "需要审批"
+
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Require the exact command"
 msgstr "要求精确命令"
@@ -3343,7 +3336,7 @@ msgid "Sessions"
 msgstr "会话"
 
 #: src/features/settings/pages.tsx
-msgid "set"
+msgid "Set"
 msgstr "已设置"
 
 #: src/features/users/reset-password-dialog.tsx
@@ -3520,17 +3513,18 @@ msgstr "起始行"
 msgid "Start one, or wait for a scheduled run."
 msgstr "新建一个，或等待计划任务运行。"
 
-#: src/components/authorization-card.tsx
-#: src/components/task-result.tsx
 #: src/features/tasks/pages.tsx
-#: src/features/tasks/task-columns.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "State"
 msgstr "状态"
 
+#: src/components/authorization-card.tsx
+#: src/components/task-result.tsx
 #: src/features/nodes/pages.tsx
+#: src/features/schedules/pages.tsx
 #: src/features/schedules/run-history.tsx
 #: src/features/settings/pages.tsx
+#: src/features/tasks/task-columns.tsx
+#: src/features/tasks/task-group-result.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/pages.tsx
 msgid "Status"
@@ -3582,6 +3576,7 @@ msgid "Submit authorization"
 msgstr "提交授权"
 
 #: src/components/status-badge.tsx
+#: src/components/task-result.tsx
 msgid "Succeeded"
 msgstr "成功"
 

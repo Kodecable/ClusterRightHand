@@ -92,6 +92,27 @@ describe("CreateTokenDialog", () => {
 });
 
 describe("TokensPage", () => {
+	test("a token without an expiry reads Never, as plain text", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ tokens: [{ ...API_TOKEN, expiresAt: null }] }), {
+						status: 200,
+						headers: { "content-type": "application/json" },
+					}),
+			),
+		);
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		renderWithI18n(
+			<QueryClientProvider client={client}>
+				<TokensPage />
+			</QueryClientProvider>,
+		);
+		expect(await screen.findByText("Never")).toBeInTheDocument();
+		expect(screen.queryByText("never")).not.toBeInTheDocument();
+	});
+
 	test("shows a token's rule preset by its product name", async () => {
 		const token: ApiTokenView = {
 			...API_TOKEN,

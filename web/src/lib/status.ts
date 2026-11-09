@@ -1,7 +1,7 @@
 /**
  * The one mapping from server status values to the five UI tones.
  *
- * StatusBadge and StatusDot render a tone; every page asks this module instead
+ * StatusText and StatusDot render a tone; every page asks this module instead
  * of inventing its own colours, so a status means the same thing everywhere
  * (doc/webui.md "共享部件").
  */
@@ -20,15 +20,14 @@ export function nodeStatusTone(status: string): StatusTone {
 	}
 }
 
-/** Task status; a non-zero exit is the command's own failure (warn), not the platform's (danger). */
-export function taskStatusTone(
-	state: string,
-	exitCode: number | null = null,
-	signal: string | null = null,
-): StatusTone {
+/**
+ * Task status. `exited` is a normal end (Finished) whatever the exit code or
+ * signal; the outcome column carries the exit code, so the state never does.
+ */
+export function taskStatusTone(state: string): StatusTone {
 	switch (state) {
 		case "exited":
-			return exitCode === 0 && signal === null ? "ok" : "warn";
+			return "ok";
 		case "awaiting_approval":
 		case "awaiting_authorization":
 		case "running":
@@ -39,6 +38,46 @@ export function taskStatusTone(
 		case "rejected":
 		case "unknown":
 			return "danger";
+		case "cancelled":
+			return "muted";
+		default:
+			return "muted";
+	}
+}
+
+/**
+ * Task groups use the task tones for the states they share: waiting is
+ * informational like a waiting task, running is informational, cancelled is
+ * muted like a cancelled task, and only rejected/interrupted are dangerous.
+ */
+export function taskGroupStatusTone(state: string): StatusTone {
+	switch (state) {
+		case "finished":
+			return "ok";
+		case "running":
+			return "info";
+		case "rejected":
+		case "interrupted":
+			return "danger";
+		case "awaiting_approval":
+		case "awaiting_authorization":
+			return taskStatusTone(state);
+		case "cancelled":
+			return taskStatusTone("cancelled");
+		default:
+			return "muted";
+	}
+}
+
+/** One level's own or effective rule result, as the approval card shows it. */
+export function ruleResultTone(result: string): StatusTone {
+	switch (result) {
+		case "allow":
+			return "ok";
+		case "deny":
+			return "danger";
+		case "require-approval":
+			return "warn";
 		default:
 			return "muted";
 	}

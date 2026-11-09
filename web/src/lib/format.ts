@@ -54,18 +54,6 @@ function toDate(value: DateInput): Date | null {
 	return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** A short date and time, e.g. "Oct 31, 20:08". */
-export function formatDateTime(value: DateInput, locale: string): string {
-	const date = toDate(value);
-	if (!date) return "–";
-	return dateTimeFormat(locale, {
-		month: "short",
-		day: "numeric",
-		hour: "2-digit",
-		minute: "2-digit",
-	}).format(date);
-}
-
 /** Seconds precision, e.g. "Oct 31, 2026, 20:08:29". */
 export function formatDateTimeSeconds(value: DateInput, locale: string): string {
 	const date = toDate(value);

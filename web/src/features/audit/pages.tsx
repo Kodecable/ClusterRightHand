@@ -38,7 +38,7 @@ function TargetCell({ event }: { event: AuditEvent }) {
 				? ({ to: "/nodes/$nodeId", params: { nodeId: event.targetId } } as const)
 				: null;
 	return (
-		<span className="flex min-w-0 items-center gap-1 text-xs">
+		<span className="flex min-w-0 items-center gap-1">
 			<span className="text-muted-foreground">{event.targetType}:</span>
 			{href === null ? (
 				<span className="truncate font-mono">{event.targetId}</span>
@@ -81,7 +81,7 @@ export function AuditPage() {
 				id: "ts",
 				header: t`Time`,
 				size: 220,
-				cell: ({ row }) => <DateTime value={row.original.ts} seconds />,
+				cell: ({ row }) => <DateTime value={row.original.ts} />,
 			},
 			{
 				id: "action",
@@ -94,7 +94,7 @@ export function AuditPage() {
 				header: t`Actor`,
 				size: 160,
 				cell: ({ row }) => (
-					<span className="block truncate text-xs leading-5" title={actorId(row.original)}>
+					<span className="block truncate leading-5" title={actorId(row.original)}>
 						{actorText(row.original, userName)}
 					</span>
 				),
@@ -107,9 +107,7 @@ export function AuditPage() {
 					row.original.onBehalfOfUserId === null ? (
 						<span className="text-muted-foreground">–</span>
 					) : (
-						<span className="truncate text-xs">
-							{userName(row.original.onBehalfOfUserId) ?? row.original.onBehalfOfUserId}
-						</span>
+						<span className="truncate">{userName(row.original.onBehalfOfUserId) ?? row.original.onBehalfOfUserId}</span>
 					),
 			},
 			{

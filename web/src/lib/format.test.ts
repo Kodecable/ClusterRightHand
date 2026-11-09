@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatDateTimeNumeric, formatTokens } from "./format";
+import { formatDateTimeNumeric, formatDateTimeSeconds, formatTokens } from "./format";
 
 describe("formatTokens", () => {
 	test("keeps small counts exact and adds an auto unit above a thousand", () => {
@@ -21,6 +21,17 @@ describe("formatTokens", () => {
 	test("a value that is not a number reads as zero", () => {
 		expect(formatTokens(Number.NaN, "en")).toBe("0");
 		expect(formatTokens(Number.POSITIVE_INFINITY, "en")).toBe("0");
+	});
+});
+
+describe("formatDateTimeSeconds", () => {
+	test("writes the date and the time down to the second", () => {
+		expect(formatDateTimeSeconds(new Date(2026, 10, 3, 9, 0, 5), "en")).toMatch(/2026/);
+		expect(formatDateTimeSeconds(new Date(2026, 10, 3, 9, 0, 5), "en")).toMatch(/09:00:05/);
+	});
+
+	test("an invalid date reads as a dash", () => {
+		expect(formatDateTimeSeconds("not a date", "en")).toBe("–");
 	});
 });
 

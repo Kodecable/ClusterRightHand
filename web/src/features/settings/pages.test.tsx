@@ -130,6 +130,39 @@ describe("ModelSettingsPage", () => {
 		expect(presets.compareDocumentPosition(providers) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 		const section = screen.getByTestId("model-providers");
 		expect(within(section).getByTestId("add-provider")).toBeVisible();
+		const row = (await screen.findByText("Faux")).closest('[role="row"]');
+		if (!(row instanceof HTMLElement)) throw new Error("no provider row");
+		expect(row).toHaveTextContent("Enabled");
+		expect(row).toHaveTextContent("Set");
+	});
+
+	test("a disabled provider without a key shows plain Disabled and Not set", async () => {
+		const disabled = {
+			...BUILTIN,
+			id: "provider-row-2",
+			providerId: "off",
+			name: "Off",
+			enabled: false,
+			hasApiKey: false,
+		};
+		const json = (body: unknown) =>
+			new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = String(input);
+				if (url === "/api/model-providers") return json({ providers: [disabled], builtin: ["faux"] });
+				if (url === "/api/models") return json({ models: [] });
+				if (url === "/api/model-presets") return json({ presets: [] });
+				return json({});
+			}),
+		);
+		renderWithI18n(<ModelSettingsPage />);
+		const row = (await screen.findByText("Off")).closest('[role="row"]');
+		if (!(row instanceof HTMLElement)) throw new Error("no provider row");
+		expect(row).toHaveTextContent("Disabled");
+		expect(row).toHaveTextContent("Not set");
+		expect(within(row).queryByText("Enabled")).not.toBeInTheDocument();
 	});
 });
 

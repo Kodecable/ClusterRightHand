@@ -59,7 +59,7 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 								<CopyButton text={command} label={t`Copy command`} showLabel variant="outline" />
 								<span className="text-xs text-muted-foreground">
 									<Trans>
-										The token is shown once and expires <DateTime value={created.expiresAt} seconds />.
+										The token is shown once and expires <DateTime value={created.expiresAt} />.
 									</Trans>
 								</span>
 							</div>

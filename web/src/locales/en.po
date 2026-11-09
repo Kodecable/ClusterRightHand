@@ -546,6 +546,7 @@ msgstr "All schedules"
 msgid "All tasks"
 msgstr "All tasks"
 
+#: src/components/approval-card.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Allow"
@@ -1443,6 +1444,7 @@ msgstr "Deleted user group"
 msgid "Denied"
 msgstr "Denied"
 
+#: src/components/approval-card.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Deny"
@@ -1478,12 +1480,9 @@ msgstr "Disable {0}?"
 msgid "Disable user"
 msgstr "Disable user"
 
-#: src/features/settings/pages.tsx
-msgid "disabled"
-msgstr "disabled"
-
 #: src/components/status-badge.tsx
 #: src/features/schedules/pages.tsx
+#: src/features/settings/pages.tsx
 #: src/features/users/pages.tsx
 msgid "Disabled"
 msgstr "Disabled"
@@ -1574,12 +1573,9 @@ msgstr "Empty file."
 msgid "Enable"
 msgstr "Enable"
 
-#: src/features/settings/pages.tsx
-msgid "enabled"
-msgstr "enabled"
-
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
+#: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Enabled"
 msgstr "Enabled"
@@ -1691,10 +1687,6 @@ msgstr "Exit code"
 msgid "Exit code {0}"
 msgstr "Exit code {0}"
 
-#: src/components/status-badge.tsx
-msgid "Exited"
-msgstr "Exited"
-
 #: src/features/sessions/children-bar.tsx
 msgid "Expand subagents"
 msgstr "Expand subagents"
@@ -1769,10 +1761,14 @@ msgstr "Fingerprint"
 msgid "finished"
 msgstr "finished"
 
-#: src/components/task-result.tsx
+#: src/components/status-badge.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Finished"
 msgstr "Finished"
+
+#: src/components/task-result.tsx
+msgid "Finished at"
+msgstr "Finished at"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Five fields: minute hour day-of-month month day-of-week, in the chosen IANA timezone."
@@ -1875,6 +1871,10 @@ msgstr "Image"
 #: src/features/settings/model-dialog.tsx
 msgid "Image understanding"
 msgstr "Image understanding"
+
+#: src/components/approval-card.tsx
+msgid "Inherit"
+msgstr "Inherit"
 
 #: src/features/tasks/task-group-result.tsx
 msgid "Interrupted"
@@ -1982,10 +1982,6 @@ msgstr "Last rejection {0} (attempt {1}): {2}"
 #: src/features/nodes/node-trust.tsx
 msgid "last report, stale until the node reconnects"
 msgstr "last report, stale until the node reconnects"
-
-#: src/features/schedules/pages.tsx
-msgid "Last result"
-msgstr "Last result"
 
 #: src/features/schedules/pages.tsx
 msgid "Last result:"
@@ -2207,11 +2203,8 @@ msgstr "Name"
 msgid "Narrow the rules before trusting a key: anything not allowed here is refused on the node even when it was authorized."
 msgstr "Narrow the rules before trusting a key: anything not allowed here is refused on the node even when it was authorized."
 
-#: src/features/tokens/pages.tsx
-msgid "never"
-msgstr "never"
-
 #: src/features/tokens/create-token-dialog.tsx
+#: src/features/tokens/pages.tsx
 msgid "Never"
 msgstr "Never"
 
@@ -2535,16 +2528,12 @@ msgid "not reported"
 msgstr "not reported"
 
 #: src/features/settings/pages.tsx
-msgid "not set"
-msgstr "not set"
+msgid "Not set"
+msgstr "Not set"
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Not shared."
 msgstr "Not shared."
-
-#: src/features/ssh-credentials/pages.tsx
-msgid "Not used"
-msgstr "Not used"
 
 #. placeholder {0}: failure instanceof Error ? failure.message : String(failure)
 #: src/features/tokens/rules-dialog.tsx
@@ -3058,6 +3047,10 @@ msgstr "Request body per level"
 msgid "Requested"
 msgstr "Requested"
 
+#: src/components/approval-card.tsx
+msgid "Require approval"
+msgstr "Require approval"
+
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Require the exact command"
 msgstr "Require the exact command"
@@ -3343,8 +3336,8 @@ msgid "Sessions"
 msgstr "Sessions"
 
 #: src/features/settings/pages.tsx
-msgid "set"
-msgstr "set"
+msgid "Set"
+msgstr "Set"
 
 #: src/features/users/reset-password-dialog.tsx
 msgid "Set password"
@@ -3520,17 +3513,18 @@ msgstr "Start line"
 msgid "Start one, or wait for a scheduled run."
 msgstr "Start one, or wait for a scheduled run."
 
-#: src/components/authorization-card.tsx
-#: src/components/task-result.tsx
 #: src/features/tasks/pages.tsx
-#: src/features/tasks/task-columns.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "State"
 msgstr "State"
 
+#: src/components/authorization-card.tsx
+#: src/components/task-result.tsx
 #: src/features/nodes/pages.tsx
+#: src/features/schedules/pages.tsx
 #: src/features/schedules/run-history.tsx
 #: src/features/settings/pages.tsx
+#: src/features/tasks/task-columns.tsx
+#: src/features/tasks/task-group-result.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/pages.tsx
 msgid "Status"
@@ -3582,6 +3576,7 @@ msgid "Submit authorization"
 msgstr "Submit authorization"
 
 #: src/components/status-badge.tsx
+#: src/components/task-result.tsx
 msgid "Succeeded"
 msgstr "Succeeded"
 

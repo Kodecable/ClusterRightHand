@@ -47,6 +47,9 @@ describe("TasksPage filters", () => {
 
 		const user = userEvent.setup();
 		await user.click(screen.getByLabelText("State"));
+		// Every state the filter can match is offered, including cancelled.
+		expect(await screen.findByRole("option", { name: "Cancelled" })).toBeInTheDocument();
+		expect(screen.getByRole("option", { name: "Finished" })).toBeInTheDocument();
 		const failed = await screen.findByRole("option", { name: "Failed" });
 		await user.click(failed);
 		await waitFor(() =>

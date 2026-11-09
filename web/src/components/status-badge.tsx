@@ -12,13 +12,41 @@ import {
 } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
-const TONE_CLASSES: Record<StatusTone, { badge: string; dot: string }> = {
-	ok: { badge: "border-ok/30 bg-ok-bg text-ok", dot: "bg-ok" },
-	warn: { badge: "border-warn/30 bg-warn-bg text-warn", dot: "bg-warn" },
-	danger: { badge: "border-danger/30 bg-danger-bg text-danger", dot: "bg-danger" },
-	info: { badge: "border-info/30 bg-info-bg text-info", dot: "bg-info" },
-	muted: { badge: "border-border bg-muted text-muted-foreground", dot: "bg-muted-foreground" },
+const TONE_CLASSES: Record<StatusTone, { badge: string; dot: string; text: string }> = {
+	ok: { badge: "border-ok/30 bg-ok-bg text-ok", dot: "bg-ok", text: "text-ok" },
+	warn: { badge: "border-warn/30 bg-warn-bg text-warn", dot: "bg-warn", text: "text-warn" },
+	danger: { badge: "border-danger/30 bg-danger-bg text-danger", dot: "bg-danger", text: "text-danger" },
+	info: { badge: "border-info/30 bg-info-bg text-info", dot: "bg-info", text: "text-info" },
+	muted: {
+		badge: "border-border bg-muted text-muted-foreground",
+		dot: "bg-muted-foreground",
+		text: "text-muted-foreground",
+	},
 };
+
+/**
+ * A status as plain inline text: the tone colours the label and nothing else
+ * (doc/webui.md "共享部件"). It inherits the surrounding font size and sits in
+ * the normal flow, so a table cell stays a normal value instead of a pill.
+ */
+export function StatusText({
+	tone,
+	children,
+	className,
+	title,
+}: {
+	tone: StatusTone;
+	children: React.ReactNode;
+	className?: string;
+	/** The detail behind a merged status, shown on hover. */
+	title?: string;
+}) {
+	return (
+		<span data-tone={tone} title={title} className={cn("font-medium", TONE_CLASSES[tone].text, className)}>
+			{children}
+		</span>
+	);
+}
 
 /** One dot in a status colour; `label` is required when it is the only status indicator. */
 export function StatusDot({ tone, label, className }: { tone: StatusTone; label?: string; className?: string }) {
@@ -27,7 +55,10 @@ export function StatusDot({ tone, label, className }: { tone: StatusTone; label?
 	return <span data-tone={tone} role="img" aria-label={label} className={classes} />;
 }
 
-/** A tinted status pill. Its label is passed in so the caller controls the translation. */
+/**
+ * A tinted status pill, kept for the few places that deliberately use a chip
+ * (the trust-warning indicator). Ordinary status displays use StatusText.
+ */
 export function StatusBadge({
 	tone,
 	children,
@@ -74,51 +105,49 @@ const NODE_LABELS: Record<string, MessageDescriptor> = {
 	disabled: msg`Disabled`,
 };
 
+/** The node's status label: enrollment plus reachability, when it is known. */
+export function nodeStatusLabel(i18n: I18n, status: string, connected: boolean | null = null): string {
+	if (status === "active" && connected !== null) {
+		return connected ? i18n._(msg`Connected`) : i18n._(msg`Offline`);
+	}
+	return statusLabel(i18n, NODE_LABELS, status);
+}
+
 /**
- * The one node status pill (doc/webui.md "Nodes"): enrollment and reachability
- * folded into a single badge, so a row is one line high. The raw state and the
- * connection detail sit in the tooltip; `connected` is null for transport
- * kinds that connect per task (SSH).
+ * The node status (doc/webui.md "Nodes"): enrollment and reachability folded
+ * into one value, so a row is one line high. The raw state and the connection
+ * detail sit in the tooltip; `connected` is null for transport kinds that
+ * connect per task (SSH).
  */
 export function NodeStatusBadge({
 	status,
 	connected = null,
 	className,
-	dot = true,
 }: {
 	status: string;
 	connected?: boolean | null;
 	className?: string;
-	dot?: boolean;
 }) {
 	const { i18n } = useLingui();
-	if (status === "active" && connected !== null) {
-		return connected ? (
-			<StatusBadge tone="ok" className={className} dot={dot} title={i18n._(msg`Active · connected`)}>
-				{i18n._(msg`Connected`)}
-			</StatusBadge>
-		) : (
-			<StatusBadge tone="muted" className={className} dot={dot} title={i18n._(msg`Active · not connected`)}>
-				{i18n._(msg`Offline`)}
-			</StatusBadge>
-		);
-	}
+	const title =
+		status === "active" && connected !== null
+			? connected
+				? i18n._(msg`Active · connected`)
+				: i18n._(msg`Active · not connected`)
+			: status === "pending"
+				? i18n._(msg`Awaiting approval`)
+				: undefined;
 	return (
-		<StatusBadge
-			tone={nodeStatusTone(status)}
-			className={className}
-			dot={dot}
-			title={status === "pending" ? i18n._(msg`Awaiting approval`) : undefined}
-		>
-			{statusLabel(i18n, NODE_LABELS, status)}
-		</StatusBadge>
+		<StatusText tone={nodeStatusTone(status)} className={className} title={title}>
+			{nodeStatusLabel(i18n, status, connected)}
+		</StatusText>
 	);
 }
 
 const TASK_LABELS: Record<string, MessageDescriptor> = {
 	awaiting_approval: msg`Awaiting approval`,
 	awaiting_authorization: msg`Awaiting authorization`,
-	exited: msg`Exited`,
+	exited: msg`Finished`,
 	failed: msg`Failed`,
 	denied: msg`Denied`,
 	rejected: msg`Rejected`,
@@ -133,23 +162,16 @@ export function taskStateLabel(i18n: I18n, state: string): string {
 	return statusLabel(i18n, TASK_LABELS, state);
 }
 
-export function TaskStatusBadge({
-	state,
-	exitCode = null,
-	signal = null,
-	className,
-}: {
-	state: string;
-	exitCode?: number | null;
-	signal?: string | null;
-	className?: string;
-}) {
+/**
+ * The task's state. `exited` always reads Finished, whatever the exit code or
+ * signal; the outcome column is the one place the command's result appears.
+ */
+export function TaskStatusBadge({ state, className }: { state: string; className?: string }) {
 	const { i18n } = useLingui();
 	return (
-		<StatusBadge tone={taskStatusTone(state, exitCode, signal)} className={className}>
+		<StatusText tone={taskStatusTone(state)} className={className}>
 			{statusLabel(i18n, TASK_LABELS, state)}
-			{state === "exited" && exitCode !== null && exitCode !== 0 ? ` (${exitCode})` : ""}
-		</StatusBadge>
+		</StatusText>
 	);
 }
 
@@ -162,9 +184,9 @@ const SESSION_LABELS: Record<"idle" | "running" | "awaiting", MessageDescriptor>
 export function SessionStatusBadge({ state, className }: { state: string; className?: string }) {
 	const { i18n } = useLingui();
 	return (
-		<StatusBadge tone={sessionStatusTone(state)} className={className}>
+		<StatusText tone={sessionStatusTone(state)} className={className}>
 			{statusLabel(i18n, SESSION_LABELS, state)}
-		</StatusBadge>
+		</StatusText>
 	);
 }
 
@@ -189,9 +211,9 @@ const AUTHORIZATION_LABELS: Record<string, MessageDescriptor> = {
 export function AuthorizationStatusBadge({ status, className }: { status: string; className?: string }) {
 	const { i18n } = useLingui();
 	return (
-		<StatusBadge tone={authorizationStatusTone(status)} className={className}>
+		<StatusText tone={authorizationStatusTone(status)} className={className}>
 			{statusLabel(i18n, AUTHORIZATION_LABELS, status)}
-		</StatusBadge>
+		</StatusText>
 	);
 }
 
@@ -207,9 +229,9 @@ const SCHEDULE_LABELS: Record<string, MessageDescriptor> = {
 export function ScheduleStatusBadge({ status, className }: { status: string; className?: string }) {
 	const { i18n } = useLingui();
 	return (
-		<StatusBadge tone={scheduleStatusTone(status)} className={className}>
+		<StatusText tone={scheduleStatusTone(status)} className={className}>
 			{statusLabel(i18n, SCHEDULE_LABELS, status)}
-		</StatusBadge>
+		</StatusText>
 	);
 }
 
@@ -222,8 +244,8 @@ const TOKEN_LABELS: Record<string, MessageDescriptor> = {
 export function TokenStatusBadge({ status, className }: { status: string; className?: string }) {
 	const { i18n } = useLingui();
 	return (
-		<StatusBadge tone={tokenStatusTone(status)} className={className}>
+		<StatusText tone={tokenStatusTone(status)} className={className}>
 			{statusLabel(i18n, TOKEN_LABELS, status)}
-		</StatusBadge>
+		</StatusText>
 	);
 }

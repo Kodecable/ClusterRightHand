@@ -12,7 +12,7 @@ import { FieldShell } from "@/components/form";
 import { NodeLink } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
-import { RelativeTime } from "@/components/relative-time";
+import { DateTime } from "@/components/relative-time";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -27,14 +27,10 @@ function truncatedKey(publicKey: string): string {
 
 function UsedBy({ credential }: { credential: SshCredential }) {
 	if (credential.usedBy.length === 0) {
-		return (
-			<span className="text-xs text-muted-foreground">
-				<Trans>Not used</Trans>
-			</span>
-		);
+		return <span className="text-muted-foreground">–</span>;
 	}
 	return (
-		<span className="flex flex-wrap items-center gap-x-1 text-xs">
+		<span className="flex flex-wrap items-center gap-x-1">
 			{credential.usedBy.map((node, index) => (
 				<Fragment key={node.id}>
 					{index > 0 && <span className="text-muted-foreground">,</span>}
@@ -164,8 +160,8 @@ function SshCredentialsAdminPage() {
 			{
 				id: "created",
 				header: t`Created`,
-				size: 130,
-				cell: ({ row }) => <RelativeTime value={row.original.createdAt} className="text-xs" />,
+				size: 200,
+				cell: ({ row }) => <DateTime value={row.original.createdAt} />,
 			},
 			{
 				id: "usedBy",

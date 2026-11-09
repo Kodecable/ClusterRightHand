@@ -10,9 +10,9 @@ import { PageHeader } from "@/components/page-header";
 import { QuotaCard } from "@/components/quota-card";
 import { CardSkeleton } from "@/components/skeletons";
 import { TaskStatusBadge } from "@/components/status-badge";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useDecideQuota } from "@/features/sessions/api";
+import { TaskGroupStatus } from "@/features/tasks/task-group-result";
 import { useApprovalLookups, useApprovals, useApprovalTask, useApprovalTaskGroup, useDecideApproval } from "./api";
 import { pendingCount } from "./pending";
 
@@ -140,9 +140,9 @@ function SignatureSection({
 						>
 							{task.summary || task.kind} · {nodeNames.get(task.nodeId) ?? task.nodeId}
 						</Link>
-						<Badge variant="outline">
+						<span>
 							<Trans>Task</Trans>
-						</Badge>
+						</span>
 					</li>
 				))}
 				{taskGroups.map((taskGroup) => (
@@ -158,9 +158,9 @@ function SignatureSection({
 							<span className="text-muted-foreground">·</span>
 							<NodeTargetList ids={taskGroup.targets} refs={taskGroup.refs} nodeNames={nodeNames} />
 						</span>
-						<Badge variant="outline">
+						<span>
 							<Trans>Task group</Trans>
-						</Badge>
+						</span>
 					</li>
 				))}
 			</ul>
@@ -275,12 +275,20 @@ export function ApprovalsPage() {
 	);
 }
 
-function Settled({ state, title, children }: { state: string; title: React.ReactNode; children?: React.ReactNode }) {
+function Settled({
+	status,
+	title,
+	children,
+}: {
+	status: React.ReactNode;
+	title: React.ReactNode;
+	children?: React.ReactNode;
+}) {
 	return (
 		<div className="grid gap-2 rounded-lg border p-4">
 			<h1 className="text-lg font-semibold">{title}</h1>
 			<p className="flex flex-wrap items-center gap-2 text-sm">
-				<Trans>This request is no longer waiting for approval; it is</Trans> <TaskStatusBadge state={state} />
+				<Trans>This request is no longer waiting for approval; it is</Trans> {status}
 			</p>
 			{children}
 		</div>
@@ -332,7 +340,7 @@ export function ApprovalTaskPage() {
 					onDecide={(body) => decide.mutate({ kind: "task", id: task.data?.id ?? "", body })}
 				/>
 			) : (
-				<Settled state={task.data.state} title={<Trans>Already settled</Trans>}>
+				<Settled status={<TaskStatusBadge state={task.data.state} />} title={<Trans>Already settled</Trans>}>
 					<Button
 						render={<Link to="/tasks/$taskId" params={{ taskId: task.data.id }} />}
 						variant="outline"
@@ -383,7 +391,7 @@ export function ApprovalTaskGroupPage() {
 					onDecide={(body) => decide.mutate({ kind: "task_group", id: taskGroup.data?.id ?? "", body })}
 				/>
 			) : (
-				<Settled state={taskGroup.data.state} title={<Trans>Already settled</Trans>}>
+				<Settled status={<TaskGroupStatus state={taskGroup.data.state} />} title={<Trans>Already settled</Trans>}>
 					<Button
 						render={<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: taskGroup.data.id }} />}
 						variant="outline"

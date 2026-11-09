@@ -9,10 +9,9 @@ import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
-import { DateTime } from "@/components/relative-time";
+import { RelativeTime } from "@/components/relative-time";
 import { PageSkeleton } from "@/components/skeletons";
-import { ScheduleStatusBadge } from "@/components/status-badge";
-import { Badge } from "@/components/ui/badge";
+import { ScheduleStatusBadge, StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { useModels } from "@/features/settings/api";
 import { useDeleteSchedule, usePatchSchedule, useSchedule, useSchedules } from "./api";
@@ -57,7 +56,7 @@ export function SchedulesPage() {
 				cell: ({ row }) => (
 					<div className="min-w-0">
 						<code className="font-mono text-xs">{row.original.cron}</code>
-						<p className="truncate text-xs text-muted-foreground">{row.original.timezone}</p>
+						<p className="truncate">{row.original.timezone}</p>
 						{/* A row saved before the zone was validated still lists; its preview is empty and
 						    the server says why (doc/scheduling.md#调度). */}
 						{row.original.previewError !== null && (
@@ -74,18 +73,23 @@ export function SchedulesPage() {
 				size: 180,
 				cell: ({ row }) =>
 					!row.original.enabled ? (
-						<Badge variant="secondary">
-							<Trans>Disabled</Trans>
-						</Badge>
+						<span className="text-muted-foreground">–</span>
 					) : (
-						<DateTime value={row.original.nextRunAt} />
+						<RelativeTime value={row.original.nextRunAt} />
 					),
 			},
 			{
 				id: "last",
-				header: t`Last result`,
+				header: t`Status`,
 				size: 130,
-				cell: ({ row }) => <ScheduleStatusBadge status={scheduleState(row.original)} />,
+				cell: ({ row }) =>
+					row.original.enabled ? (
+						<ScheduleStatusBadge status={scheduleState(row.original)} />
+					) : (
+						<StatusText tone="muted">
+							<Trans>Disabled</Trans>
+						</StatusText>
+					),
 			},
 			{
 				id: "enabled",

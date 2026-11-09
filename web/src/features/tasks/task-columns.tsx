@@ -31,7 +31,7 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 				id: "created",
 				header: t`Created`,
 				size: 110,
-				cell: ({ row }) => <RelativeTime value={row.original.createdAt} className="text-xs" />,
+				cell: ({ row }) => <RelativeTime value={row.original.createdAt} />,
 			},
 			{
 				id: "task",
@@ -39,9 +39,7 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 				cell: ({ row }) => (
 					<span className="flex min-w-0 items-center gap-1.5">
 						<span className="truncate font-mono text-xs leading-5">{row.original.summary || row.original.kind}</span>
-						{perNode && row.original.summary !== "" && (
-							<span className="text-xs text-muted-foreground">({row.original.kind})</span>
-						)}
+						{perNode && row.original.summary !== "" && <span>({row.original.kind})</span>}
 						{row.original.privileged && (
 							<Badge variant="secondary">
 								<Trans>Privileged</Trans>
@@ -59,7 +57,7 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 				header: t`Node`,
 				size: 140,
 				cell: ({ row }) => (
-					<span className="truncate text-xs leading-5">{names.get(row.original.nodeId) ?? row.original.nodeId}</span>
+					<span className="truncate leading-5">{names.get(row.original.nodeId) ?? row.original.nodeId}</span>
 				),
 			});
 		}
@@ -72,7 +70,7 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 				cell: ({ row }) => {
 					const actor = taskActor(row.original, (id) => users.get(id));
 					return (
-						<span className="block truncate text-xs leading-5" title={actor.id}>
+						<span className="block truncate leading-5" title={actor.id}>
 							{actor.name}
 						</span>
 					);
@@ -80,18 +78,16 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 			},
 			{
 				id: "state",
-				header: t`State`,
+				header: t`Status`,
 				size: 160,
-				cell: ({ row }) => (
-					<TaskStatusBadge state={row.original.state} exitCode={row.original.exitCode} signal={row.original.signal} />
-				),
+				cell: ({ row }) => <TaskStatusBadge state={row.original.state} />,
 			},
 			{
 				id: "outcome",
 				header: t`Outcome`,
 				size: 130,
 				cell: ({ row }) => (
-					<span className="truncate text-xs leading-5">
+					<span className="truncate leading-5">
 						<TaskOutcomeText task={row.original} />
 					</span>
 				),

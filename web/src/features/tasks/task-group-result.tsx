@@ -5,12 +5,13 @@ import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { ApprovalCard, DecisionView } from "@/components/approval-card";
 import { NodeTargetList } from "@/components/node-targets";
-import { StatusBadge, TaskStatusBadge } from "@/components/status-badge";
+import { StatusText, TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeText, TaskResult } from "@/components/task-result";
 import { Badge } from "@/components/ui/badge";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
 import { useAuth } from "@/features/auth/session";
 import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
+import { taskGroupStatusTone } from "@/lib/status";
 
 const GROUP_STATES: Record<string, MessageDescriptor> = {
 	awaiting_approval: msg`Awaiting approval`,
@@ -22,29 +23,11 @@ const GROUP_STATES: Record<string, MessageDescriptor> = {
 	cancelled: msg`Cancelled`,
 };
 
-function taskGroupTone(state: string): "ok" | "danger" | "info" | "warn" | "muted" {
-	switch (state) {
-		case "finished":
-			return "ok";
-		case "rejected":
-		case "interrupted":
-		case "cancelled":
-			return "danger";
-		case "running":
-			return "info";
-		case "awaiting_approval":
-		case "awaiting_authorization":
-			return "warn";
-		default:
-			return "muted";
-	}
-}
-
-/** The state pill of a task group; an unknown state keeps its raw name visible. */
-export function TaskGroupStateBadge({ state }: { state: string }) {
+/** The status of a task group; an unknown state keeps its raw name visible. */
+export function TaskGroupStatus({ state }: { state: string }) {
 	const { i18n } = useLingui();
 	const label = GROUP_STATES[state];
-	return <StatusBadge tone={taskGroupTone(state)}>{label === undefined ? state : i18n._(label)}</StatusBadge>;
+	return <StatusText tone={taskGroupStatusTone(state)}>{label === undefined ? state : i18n._(label)}</StatusText>;
 }
 
 /**
@@ -77,7 +60,7 @@ export function TaskGroupResult({
 				<h2 className="text-sm font-semibold">
 					<Trans>Result</Trans>
 				</h2>
-				<TaskGroupStateBadge state={taskGroup.state} />
+				<TaskGroupStatus state={taskGroup.state} />
 				{taskGroup.privileged && (
 					<Badge variant="secondary">
 						<Trans>Privileged</Trans>
@@ -123,7 +106,7 @@ export function TaskGroupResult({
 			)}
 
 			{taskGroup.state === "rejected" && taskGroup.approval?.decision && (
-				<DecisionView decision={taskGroup.approval.decision} />
+				<DecisionView decision={taskGroup.approval.decision} tokenNames={lookups.tokenNames} />
 			)}
 
 			<div className="overflow-x-auto rounded-lg border">
@@ -134,7 +117,7 @@ export function TaskGroupResult({
 								<Trans>Node</Trans>
 							</th>
 							<th className="px-2 py-1.5 text-left font-medium">
-								<Trans>State</Trans>
+								<Trans>Status</Trans>
 							</th>
 							<th className="px-2 py-1.5 text-left font-medium">
 								<Trans>Outcome</Trans>
@@ -157,9 +140,9 @@ export function TaskGroupResult({
 									</Link>
 								</td>
 								<td className="px-2 py-2">
-									<TaskStatusBadge state={task.state} exitCode={task.exitCode} signal={task.signal} />
+									<TaskStatusBadge state={task.state} />
 								</td>
-								<td className="px-2 py-2 text-xs">
+								<td className="px-2 py-2">
 									<TaskOutcomeText task={task} />
 								</td>
 								<td className="px-2 py-2">

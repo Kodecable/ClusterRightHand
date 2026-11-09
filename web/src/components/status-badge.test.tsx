@@ -8,6 +8,7 @@ import {
 	SessionStatusBadge,
 	StatusBadge,
 	StatusDot,
+	StatusText,
 	TaskStatusBadge,
 	TokenStatusBadge,
 } from "./status-badge";
@@ -21,6 +22,15 @@ describe("StatusBadge", () => {
 		);
 		expect(container.querySelector('[data-tone="ok"]')).not.toBeNull();
 		expect(screen.getByText("value")).toBeInTheDocument();
+	});
+
+	test("StatusText is coloured inline text, not a pill", () => {
+		const { container } = render(<StatusText tone="ok">Running</StatusText>);
+		const text = container.querySelector('[data-tone="ok"]');
+		expect(text).not.toBeNull();
+		expect(text).toHaveClass("text-ok");
+		expect(text).not.toHaveClass("border");
+		expect(text?.querySelector('[role="img"]')).toBeNull();
 	});
 
 	test("StatusDot is announced through its label", () => {
@@ -45,9 +55,11 @@ describe("status family mappings", () => {
 		expect(screen.getByText("Offline")).toBeInTheDocument();
 	});
 
-	test("tasks", () => {
-		const { rerender } = renderWithI18n(<TaskStatusBadge state="exited" exitCode={0} />);
-		expect(screen.getByText("Exited")).toBeInTheDocument();
+	test("tasks label exited as Finished, in the ok tone, with no exit code", () => {
+		const { container, rerender } = renderWithI18n(<TaskStatusBadge state="exited" />);
+		expect(screen.getByText("Finished")).toBeInTheDocument();
+		expect(container.querySelector('[data-tone="ok"]')).not.toBeNull();
+		expect(container).not.toHaveTextContent("(1)");
 		rerender(<TaskStatusBadge state="awaiting_approval" />);
 		expect(screen.getByText("Awaiting approval")).toBeInTheDocument();
 		rerender(<TaskStatusBadge state="failed" />);

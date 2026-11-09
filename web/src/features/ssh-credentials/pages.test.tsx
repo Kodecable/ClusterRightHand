@@ -124,7 +124,7 @@ describe("SshCredentialsPage", () => {
 		expect(await screen.findByText("laptop")).toBeInTheDocument();
 		expect(screen.getByText("unused")).toBeInTheDocument();
 		expect(screen.getByTitle(LONG_KEY)).toBeInTheDocument();
-		expect(screen.getByText("Not used")).toBeInTheDocument();
+		expect(screen.getByText("–")).toBeInTheDocument();
 		expect(screen.getByRole("link", { name: "worker-01" })).toHaveAttribute("href", "/nodes/node-1");
 		expect(screen.getAllByRole("button", { name: "Copy public key" })).toHaveLength(2);
 

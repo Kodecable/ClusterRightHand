@@ -43,7 +43,7 @@ test("approve and always allow adds a rule to the token and runs the task", asyn
 	const card = page.getByRole("region", { name: `Task ${task.id}` });
 	await expect(card).toContainText("API token claude-laptop");
 	await expect(card).toContainText("echo hi");
-	await expect(card.getByRole("table", { name: "Rule chain evaluation" })).toContainText("require-approval");
+	await expect(card.getByRole("table", { name: "Rule chain evaluation" })).toContainText("Require approval");
 	await card.getByRole("button", { name: /Approve and always allow/ }).click();
 	const rule = card.getByLabel("Rule to add to the caller's rule set");
 	await expect(rule).toHaveValue(/"exact": "echo hi"/);
@@ -53,7 +53,7 @@ test("approve and always allow adds a rule to the token and runs the task", asyn
 	await expect(page.getByText("Nothing is waiting for you")).toBeVisible();
 
 	await page.goto(`/tasks/${task.id}`);
-	await expect(page.getByText("Exited").first()).toBeVisible({ timeout: 20_000 });
+	await expect(page.getByText("Finished").first()).toBeVisible({ timeout: 20_000 });
 	await expect(page.getByRole("region", { name: "output", exact: true })).toContainText("hi");
 
 	const tokens = await crhs.api("/api/api-tokens");

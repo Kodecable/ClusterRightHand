@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
-import { Badge } from "@/components/ui/badge";
+import { StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { useDeleteModelProvider, useModelProviders } from "./api";
 import { ModelPresetsSection } from "./model-presets";
@@ -37,56 +37,45 @@ export function ModelSettingsPage() {
 				id: "kind",
 				header: t`Kind`,
 				size: 160,
-				cell: ({ row }) => (
-					<span className="text-xs">{row.original.kind === "builtin" ? t`Pi built-in` : t`Custom`}</span>
-				),
+				cell: ({ row }) => <span>{row.original.kind === "builtin" ? t`Pi built-in` : t`Custom`}</span>,
 			},
 			{
 				id: "name",
 				header: t`Name`,
-				cell: ({ row }) => <span className="truncate text-xs">{row.original.name}</span>,
+				cell: ({ row }) => <span className="truncate">{row.original.name}</span>,
 			},
 			{
 				id: "baseUrl",
 				header: t`Base URL`,
 				size: 200,
-				cell: ({ row }) => <span className="truncate font-mono text-xs">{row.original.baseUrl ?? "–"}</span>,
+				cell: ({ row }) =>
+					row.original.baseUrl === null ? (
+						<span className="text-muted-foreground">–</span>
+					) : (
+						<span className="truncate font-mono text-xs">{row.original.baseUrl}</span>
+					),
 			},
 			{
 				id: "key",
 				header: t`API key`,
 				size: 100,
-				cell: ({ row }) =>
-					row.original.hasApiKey ? (
-						<Badge variant="secondary">
-							<Trans>set</Trans>
-						</Badge>
-					) : (
-						<span className="text-xs text-muted-foreground">
-							<Trans>not set</Trans>
-						</span>
-					),
+				cell: ({ row }) => (row.original.hasApiKey ? <Trans>Set</Trans> : <Trans>Not set</Trans>),
 			},
 			{
 				id: "enabled",
 				header: t`Status`,
 				size: 100,
-				cell: ({ row }) =>
-					row.original.enabled ? (
-						<Badge variant="secondary">
-							<Trans>enabled</Trans>
-						</Badge>
-					) : (
-						<span className="text-xs text-muted-foreground">
-							<Trans>disabled</Trans>
-						</span>
-					),
+				cell: ({ row }) => (
+					<StatusText tone={row.original.enabled ? "ok" : "muted"}>
+						{row.original.enabled ? <Trans>Enabled</Trans> : <Trans>Disabled</Trans>}
+					</StatusText>
+				),
 			},
 			{
 				id: "models",
 				header: t`Models`,
 				cell: ({ row }) => (
-					<span className="truncate text-xs">
+					<span className="truncate">
 						{row.original.models ? row.original.models.map((model) => model.id).join(", ") : t`all built-in models`}
 					</span>
 				),

@@ -1,23 +1,34 @@
 import type { ApprovalBody, Evaluation, Operation, Rule, TaskGroupView, TaskView } from "@crh/api";
+import type { I18n, MessageDescriptor } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useState } from "react";
 import { ErrorText } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
 import { NodeTargetList } from "@/components/node-targets";
 import { DateTime } from "@/components/relative-time";
-import { StatusBadge } from "@/components/status-badge";
-import { Badge } from "@/components/ui/badge";
+import { StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { actorLabel, alwaysRule } from "@/features/approvals/rules";
 import { ruleWithNames } from "@/lib/refs";
+import { ruleResultTone } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 export type ApprovalItem = { kind: "task"; task: TaskView } | { kind: "task_group"; taskGroup: TaskGroupView };
 
-function ruleTone(result: string) {
-	return result === "allow" ? "ok" : result === "deny" ? "danger" : "warn";
+const RULE_RESULT_LABELS: Record<string, MessageDescriptor> = {
+	allow: msg`Allow`,
+	deny: msg`Deny`,
+	"require-approval": msg`Require approval`,
+	inherit: msg`Inherit`,
+};
+
+/** A rule result's translated label; an unknown value stays visible raw. */
+function ruleResultLabel(i18n: I18n, result: string): string {
+	const descriptor = RULE_RESULT_LABELS[result];
+	return descriptor === undefined ? result : i18n._(descriptor);
 }
 
 /** The rule chain evaluation: for each level its scope, own result, deciding rule and effective result. */
@@ -31,7 +42,7 @@ export function EvaluationTable({
 	/** Current node and node-group names for the UUIDs a matched rule stores (D109). */
 	refNames?: Map<string, string>;
 }) {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	return (
 		<div className="overflow-x-auto rounded-md border">
 			<table aria-label={t`Rule chain evaluation`} className="w-full text-xs">
@@ -59,9 +70,7 @@ export function EvaluationTable({
 								<span className="font-mono">{tokenNames?.get(level.scope.id) ?? level.scope.id}</span>
 							</td>
 							<td className="px-2 py-1.5">
-								<StatusBadge tone={level.own === "inherit" ? "muted" : ruleTone(level.own)} dot={false}>
-									{level.own}
-								</StatusBadge>
+								<StatusText tone={ruleResultTone(level.own)}>{ruleResultLabel(i18n, level.own)}</StatusText>
 							</td>
 							<td className="max-w-64 px-2 py-1.5">
 								{level.matched ? (
@@ -75,9 +84,7 @@ export function EvaluationTable({
 								)}
 							</td>
 							<td className="px-2 py-1.5">
-								<StatusBadge tone={ruleTone(level.effective)} dot={false}>
-									{level.effective}
-								</StatusBadge>
+								<StatusText tone={ruleResultTone(level.effective)}>{ruleResultLabel(i18n, level.effective)}</StatusText>
 							</td>
 						</tr>
 					))}
@@ -88,7 +95,14 @@ export function EvaluationTable({
 }
 
 /** The decision recorded on an approval. */
-export function DecisionView({ decision }: { decision: NonNullable<TaskView["approval"]>["decision"] }) {
+export function DecisionView({
+	decision,
+	tokenNames = new Map(),
+}: {
+	decision: NonNullable<TaskView["approval"]>["decision"];
+	/** Resolves an API token's id to its name, for the deciding actor. */
+	tokenNames?: Map<string, string>;
+}) {
 	if (!decision) return null;
 	return (
 		<KeyValueList
@@ -96,18 +110,14 @@ export function DecisionView({ decision }: { decision: NonNullable<TaskView["app
 				{
 					label: <Trans>Decision</Trans>,
 					value: (
-						<StatusBadge tone={decision.decision === "approved" ? "ok" : "danger"}>
+						<StatusText tone={decision.decision === "approved" ? "ok" : "danger"}>
 							{decision.decision === "approved" ? <Trans>Approved</Trans> : <Trans>Rejected</Trans>}
-						</StatusBadge>
+						</StatusText>
 					),
 				},
 				{
 					label: <Trans>Decided by</Trans>,
-					value: (
-						<span>
-							{decision.by.type} <span className="font-mono text-xs">{decision.by.id}</span>
-						</span>
-					),
+					value: <span>{actorLabel(decision.by.type, decision.by.id, tokenNames)}</span>,
 				},
 				{ label: <Trans>Decided at</Trans>, value: <DateTime value={decision.at} /> },
 				...(decision.reason ? [{ label: <Trans>Reason</Trans>, value: decision.reason }] : []),
@@ -295,9 +305,9 @@ export function ApprovalCard({
 						{item.kind === "task" ? <Trans>Task</Trans> : <Trans>Task group</Trans>}{" "}
 						<span className="font-mono text-xs font-normal text-muted-foreground">{id}</span>
 					</h2>
-					<Badge variant="outline">
+					<StatusText tone="warn">
 						<Trans>Awaiting approval</Trans>
-					</Badge>
+					</StatusText>
 				</div>
 			)}
 

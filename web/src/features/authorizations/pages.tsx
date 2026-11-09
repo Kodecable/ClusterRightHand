@@ -38,8 +38,8 @@ function PayloadDialog({ entry, onClose }: { entry: AuthorizationSummary; onClos
 					items={[
 						{ label: t`Id`, value: entry.id, mono: true },
 						{ label: t`Issuer`, value: entry.issuerUsername ?? entry.issuerUserId ?? "crhs" },
-						{ label: t`Issued`, value: <DateTime value={entry.issuedAt} seconds /> },
-						{ label: t`Deadline`, value: <DateTime value={entry.deadline} seconds /> },
+						{ label: t`Issued`, value: <DateTime value={entry.issuedAt} /> },
+						{ label: t`Deadline`, value: <DateTime value={entry.deadline} /> },
 						...(entry.attempt !== null ? [{ label: t`Attempt`, value: String(entry.attempt) }] : []),
 						{ label: t`Command`, value: authorizationCommandText(entry.command), mono: true },
 						{ label: t`Nodes`, value: entry.nodes.join(", ") || "–", mono: true },
@@ -68,15 +68,15 @@ export function AuthorizationsPage() {
 			{
 				id: "created",
 				header: t`Created`,
-				size: 150,
-				cell: ({ row }) => <DateTime value={row.original.createdAt} seconds />,
+				size: 200,
+				cell: ({ row }) => <DateTime value={row.original.createdAt} />,
 			},
 			{
 				id: "issuer",
 				header: t`Issuer`,
 				size: 130,
 				cell: ({ row }) => (
-					<span className="truncate text-xs">
+					<span className="truncate">
 						{row.original.issuerUsername ??
 							(row.original.issuerUserId !== null ? row.original.issuerUserId.slice(0, 8) : "crhs")}
 					</span>
@@ -86,7 +86,14 @@ export function AuthorizationsPage() {
 				id: "nodes",
 				header: t`Nodes`,
 				size: 140,
-				cell: ({ row }) => <span className="truncate font-mono text-xs">{row.original.nodes.join(", ") || "–"}</span>,
+				cell: ({ row }) => {
+					const nodes = row.original.nodes.join(", ");
+					return (
+						<span className="truncate font-mono text-xs">
+							{nodes === "" ? <span className="text-muted-foreground">–</span> : nodes}
+						</span>
+					);
+				},
 			},
 			{
 				id: "command",
@@ -98,7 +105,7 @@ export function AuthorizationsPage() {
 			{
 				id: "deadline",
 				header: t`Deadline`,
-				size: 150,
+				size: 200,
 				cell: ({ row }) => <DateTime value={row.original.deadline} />,
 			},
 			{
@@ -107,11 +114,11 @@ export function AuthorizationsPage() {
 				size: 100,
 				cell: ({ row }) =>
 					row.original.taskIds === null ? (
-						<span className="text-xs">
+						<span>
 							<Trans>reusable</Trans>
 						</span>
 					) : (
-						<span className="text-xs">
+						<span>
 							<Plural value={row.original.taskIds.length} one="# task" other="# tasks" />
 						</span>
 					),

@@ -39,15 +39,31 @@ const baseTask = (overrides: Partial<TaskView> = {}): TaskView =>
 describe("TaskResult", () => {
 	test("a clean exit shows the state, exit code and output", async () => {
 		await renderWithRouter(<TaskResult task={baseTask()} />);
-		expect(screen.getByText("Exited")).toBeInTheDocument();
+		expect(screen.getByText("Finished")).toBeInTheDocument();
 		expect(screen.getByText("Exit code")).toBeInTheDocument();
 		expect(screen.getByText("0")).toBeInTheDocument();
 		expect(screen.getByLabelText("output")).toHaveTextContent("hello world");
 	});
 
-	test("a non-zero exit is the command's own failure", async () => {
+	test("the state stays Finished for a non-zero exit, with no code in its text", async () => {
 		await renderWithRouter(<TaskResult task={baseTask({ exitCode: 2 })} />);
-		expect(screen.getByText("Exited (2)")).toBeInTheDocument();
+		expect(screen.getByText("Finished")).toHaveAttribute("data-tone", "ok");
+		expect(screen.queryByText("Exited (2)")).not.toBeInTheDocument();
+		await renderWithRouter(<TaskOutcomeText task={baseTask({ exitCode: 2 })} />);
+		expect(screen.getByText("Exit code 2")).toBeInTheDocument();
+	});
+
+	test("a file operation that exited cleanly shows Succeeded, not an exit code", async () => {
+		await renderWithRouter(<TaskResult task={baseTask({ kind: "file.read", summary: "/etc/hosts" })} />);
+		expect(screen.getByText("Finished")).toBeInTheDocument();
+		await renderWithRouter(<TaskOutcomeText task={baseTask({ kind: "file.read" })} />);
+		expect(screen.getByText("Succeeded")).toBeInTheDocument();
+		expect(screen.queryByText("Exit code 0")).not.toBeInTheDocument();
+	});
+
+	test("an exec task that exited cleanly keeps Exit code 0", async () => {
+		await renderWithRouter(<TaskOutcomeText task={baseTask()} />);
+		expect(screen.getByText("Exit code 0")).toBeInTheDocument();
 	});
 
 	test("a failing task shows the platform error", async () => {
@@ -70,6 +86,12 @@ describe("TaskResult", () => {
 		await renderWithRouter(<TaskResult task={revoked} />);
 		expect(screen.getByText("Access to the node was revoked before the task was dispatched.")).toBeInTheDocument();
 		expect(screen.queryByText(/node_access_revoked/)).not.toBeInTheDocument();
+	});
+
+	test("an outcome with nothing to say is an en dash", async () => {
+		await renderWithRouter(<TaskOutcomeText task={baseTask({ state: "running", exitCode: null })} />);
+		const dash = screen.getByText("–");
+		expect(dash).toHaveClass("text-muted-foreground");
 	});
 
 	test("the outcome line of a revoked access task is readable too", async () => {

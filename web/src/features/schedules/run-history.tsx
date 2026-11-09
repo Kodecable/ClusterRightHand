@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
-import { DateTime } from "@/components/relative-time";
+import { RelativeTime } from "@/components/relative-time";
 import { ScheduleStatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { useScheduleRuns } from "./api";
@@ -22,7 +22,7 @@ export function RunHistory({ scheduleId, inProgress }: { scheduleId: string; inP
 				id: "fireTime",
 				header: t`Triggered for`,
 				size: 170,
-				cell: ({ row }) => <DateTime value={row.original.fireTime} seconds />,
+				cell: ({ row }) => <RelativeTime value={row.original.fireTime} />,
 			},
 			{
 				id: "status",
@@ -35,7 +35,7 @@ export function RunHistory({ scheduleId, inProgress }: { scheduleId: string; inP
 				header: t`When`,
 				size: 170,
 				cell: ({ row }) => (
-					<DateTime value={row.original.finishedAt ?? row.original.startedAt ?? row.original.createdAt} seconds />
+					<RelativeTime value={row.original.finishedAt ?? row.original.startedAt ?? row.original.createdAt} />
 				),
 			},
 			{
@@ -61,7 +61,7 @@ export function RunHistory({ scheduleId, inProgress }: { scheduleId: string; inP
 				cell: ({ row }) => {
 					const { status, reason, manual } = runNoteParts(row.original);
 					return (
-						<span className="text-xs">
+						<span>
 							{reason ?? runStatusText(i18n, status)}
 							{manual && (
 								<span className="text-muted-foreground">

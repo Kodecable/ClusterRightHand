@@ -66,3 +66,34 @@ test("a valid schedule shows no preview error", async () => {
 	expect(await screen.findByText("Nightly check")).toBeInTheDocument();
 	expect(screen.queryByTestId("schedule-preview-error")).not.toBeInTheDocument();
 });
+
+test("a disabled schedule has no next run and says so in its status", async () => {
+	await renderPage([
+		{
+			...SCHEDULE,
+			enabled: false,
+			timezone: "Europe/Berlin",
+			previewError: null,
+			nextRunAt: "2026-02-01T09:00:00.000Z",
+			lastRun: {
+				id: "run-1",
+				scheduleId: SCHEDULE.id,
+				status: "succeeded",
+				reason: null,
+				manual: false,
+				fireTime: "2026-01-01T09:00:00.000Z",
+				startedAt: "2026-01-01T09:00:00.000Z",
+				finishedAt: "2026-01-01T09:00:01.000Z",
+				createdAt: "2026-01-01T09:00:00.000Z",
+				sessionId: null,
+			},
+		},
+	]);
+	const name = await screen.findByText("Nightly check");
+	const row = name.closest('[role="row"]');
+	if (!(row instanceof HTMLElement)) throw new Error("no schedule row");
+	// The next-run cell is the muted placeholder, not a Disabled badge.
+	expect(row).toHaveTextContent("–");
+	expect(row).toHaveTextContent("Disabled");
+	expect(row).not.toHaveTextContent("Succeeded");
+});

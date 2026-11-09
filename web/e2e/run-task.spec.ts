@@ -17,7 +17,7 @@ test("runs a shell command and shows its merged output and the exit code", async
 	await page.getByRole("button", { name: "Run", exact: true }).click();
 	const result = taskResult(page);
 	// A non-zero exit is flagged, not shown like a success.
-	await expect(result.getByText("Exited (3)")).toBeVisible({ timeout: 20_000 });
+	await expect(result.getByText("Finished", { exact: true })).toBeVisible({ timeout: 20_000 });
 	await expect(result.getByText("Exit code")).toBeVisible();
 	await expect(result.locator("dd", { hasText: /^3$/ })).toBeVisible();
 	// The task output is one stream (D114): stdout and stderr arrive together.
@@ -33,7 +33,7 @@ test("cancels a running task from the UI", async ({ adminPage: page }) => {
 	await page.getByRole("button", { name: "Run", exact: true }).click();
 	await page.getByRole("button", { name: "Cancel task" }).click();
 	const result = taskResult(page);
-	await expect(result.getByText("Exited")).toBeVisible({ timeout: 20_000 });
+	await expect(result.getByText("Finished", { exact: true })).toBeVisible({ timeout: 20_000 });
 	await expect(page.getByRole("button", { name: "Cancel task" })).toHaveCount(0);
 	// The node's task list names the outcome the result keeps out of its key/value block.
 	await expect(page.getByTestId("node-tasks").getByRole("row").filter({ hasText: "sleep 30" })).toContainText(
@@ -46,7 +46,7 @@ test("a task with a short timeout shows timed out", async ({ adminPage: page }) 
 	await page.getByLabel("Timeout (s)").fill("1");
 	await page.getByRole("textbox", { name: "Shell command" }).fill("sleep 30");
 	await page.getByRole("button", { name: "Run", exact: true }).click();
-	await expect(taskResult(page).getByText("Exited")).toBeVisible({ timeout: 20_000 });
+	await expect(taskResult(page).getByText("Finished", { exact: true })).toBeVisible({ timeout: 20_000 });
 	await expect(page.getByTestId("node-tasks").getByRole("row").filter({ hasText: "sleep 30" })).toContainText(
 		"Timed out",
 		{ timeout: 20_000 },
@@ -56,7 +56,7 @@ test("a task with a short timeout shows timed out", async ({ adminPage: page }) 
 test("finished tasks are listed on the node page and open on their own page", async ({ adminPage: page, env }) => {
 	await page.getByRole("textbox", { name: "Shell command" }).fill("echo listed-task");
 	await page.getByRole("button", { name: "Run", exact: true }).click();
-	await expect(taskResult(page).getByText("Exited")).toBeVisible({ timeout: 20_000 });
+	await expect(taskResult(page).getByText("Finished", { exact: true })).toBeVisible({ timeout: 20_000 });
 	const row = page.getByRole("row").filter({ hasText: "echo listed-task" });
 	await expect(row).toBeVisible({ timeout: 20_000 });
 	await expect(row.getByText("Exit code 0")).toBeVisible();

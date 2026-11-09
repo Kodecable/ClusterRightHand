@@ -3,7 +3,7 @@ import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { CopyButton } from "@/components/copy-button";
 import { type KeyValueItem, KeyValueList } from "@/components/key-value";
-import { DateTime } from "@/components/relative-time";
+import { DateTime, RelativeTime } from "@/components/relative-time";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/session";
@@ -101,6 +101,8 @@ export function TaskOutcomeText({ task }: { task: TaskView }) {
 	const { i18n } = useLingui();
 	const outcome = taskOutcome(task);
 	switch (outcome.kind) {
+		case "succeeded":
+			return <Trans>Succeeded</Trans>;
 		case "exit":
 			return <Trans>Exit code {outcome.code ?? "?"}</Trans>;
 		case "signal":
@@ -112,9 +114,9 @@ export function TaskOutcomeText({ task }: { task: TaskView }) {
 		case "error":
 			return <span className="text-danger">{taskErrorText(i18n, outcome.code, outcome.message)}</span>;
 		default:
-			// No exit code, signal or error: the state badge next to it says the
-			// rest, so the outcome column stays empty instead of echoing a raw state.
-			return <span className="text-muted-foreground">—</span>;
+			// No exit code, signal or error: the status next to it says the rest,
+			// so the outcome column stays empty instead of echoing a raw state.
+			return <span className="text-muted-foreground">–</span>;
 	}
 }
 
@@ -192,8 +194,8 @@ export function TaskFacts({
 		...(showState
 			? [
 					{
-						label: <Trans>State</Trans>,
-						value: <TaskStatusBadge state={task.state} exitCode={task.exitCode} signal={task.signal} />,
+						label: <Trans>Status</Trans>,
+						value: <TaskStatusBadge state={task.state} />,
 					},
 				]
 			: []),
@@ -235,7 +237,7 @@ export function TaskFacts({
 			: []),
 		...extra,
 		{ label: <Trans>Created</Trans>, value: <DateTime value={task.createdAt} /> },
-		{ label: <Trans>Finished</Trans>, value: <DateTime value={task.finishedAt} /> },
+		{ label: <Trans>Finished at</Trans>, value: <DateTime value={task.finishedAt} /> },
 		...(task.outputFile !== null
 			? [{ label: <Trans>Output file</Trans>, value: <span className="font-mono text-xs">{task.outputFile}</span> }]
 			: []),
@@ -464,13 +466,13 @@ export function TaskSummary({ task, nodeName, className }: { task: TaskView; nod
 			data-testid="task-summary"
 			className={cn("flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent", className)}
 		>
-			<TaskStatusBadge state={task.state} exitCode={task.exitCode} signal={task.signal} />
+			<TaskStatusBadge state={task.state} />
 			<span className="min-w-0 flex-1 truncate font-mono text-xs">{task.summary || task.kind}</span>
-			{nodeName !== undefined && <span className="shrink-0 text-xs text-muted-foreground">{nodeName}</span>}
-			<span className="shrink-0 text-xs text-muted-foreground">
+			{nodeName !== undefined && <span className="shrink-0">{nodeName}</span>}
+			<span className="shrink-0">
 				<TaskOutcomeText task={task} />
 			</span>
-			<DateTime value={task.createdAt} className="shrink-0 text-xs text-muted-foreground" />
+			<RelativeTime value={task.createdAt} className="shrink-0" />
 		</Link>
 	);
 }

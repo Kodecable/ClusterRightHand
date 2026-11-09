@@ -6,6 +6,7 @@ import { CodeText } from "@/components/code-text";
 import { CopyButton } from "@/components/copy-button";
 import { ErrorText } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
+import { StatusText, taskStateLabel } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { SubmitAuthorizationInput } from "@/features/authorizations/api";
@@ -17,6 +18,7 @@ import {
 } from "@/features/authorizations/authorization";
 import { errorMessage } from "@/lib/api/client";
 import { useLocale } from "@/lib/i18n";
+import { taskStatusTone } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 const LINE_LABELS: Record<PayloadLineKey, React.ReactNode> = {
@@ -32,6 +34,7 @@ const LINE_LABELS: Record<PayloadLineKey, React.ReactNode> = {
 };
 
 function TaskGroupTaskTable({ tasks }: { tasks: TaskGroupPendingTask[] }) {
+	const { i18n } = useLingui();
 	return (
 		<div className="overflow-x-auto rounded-md border">
 			<table className="w-full text-xs">
@@ -47,7 +50,7 @@ function TaskGroupTaskTable({ tasks }: { tasks: TaskGroupPendingTask[] }) {
 							<Trans>Attempt</Trans>
 						</th>
 						<th className="px-2 py-1.5 text-left font-medium">
-							<Trans>State</Trans>
+							<Trans>Status</Trans>
 						</th>
 						<th className="px-2 py-1.5 text-left font-medium">
 							<Trans>Last rejection</Trans>
@@ -60,7 +63,9 @@ function TaskGroupTaskTable({ tasks }: { tasks: TaskGroupPendingTask[] }) {
 							<td className="px-2 py-1.5">{task.nodeName}</td>
 							<td className="px-2 py-1.5 font-mono">{task.id.slice(0, 8)}…</td>
 							<td className="px-2 py-1.5">{task.attempt}</td>
-							<td className="px-2 py-1.5">{task.state}</td>
+							<td className="px-2 py-1.5">
+								<StatusText tone={taskStatusTone(task.state)}>{taskStateLabel(i18n, task.state)}</StatusText>
+							</td>
 							<td className="px-2 py-1.5">
 								{task.lastRejection ? `${task.lastRejection.code}: ${task.lastRejection.message}` : "–"}
 							</td>

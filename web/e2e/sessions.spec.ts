@@ -68,7 +68,7 @@ test.describe("with a node", () => {
 		await card.getByTestId("tool-toggle").click();
 		const dialog = page.getByTestId("tool-dialog");
 		await expect(dialog).toContainText("Result");
-		await expect(dialog).toContainText("Exited");
+		await expect(dialog).toContainText("Finished");
 		await expect(dialog.getByRole("region", { name: "output", exact: true })).toContainText("from-agent");
 		await expect(page.getByTestId("transcript-scroller")).toContainText("The command printed from-agent.");
 	});
@@ -148,7 +148,7 @@ test("admin model settings: add a custom provider and see its model in the new-s
 	await dialog.getByRole("button", { name: "Save provider" }).click();
 	const row = page.getByRole("row").filter({ hasText: "local-llm" });
 	await expect(row).toContainText("tiny-1");
-	await expect(row).toContainText("set");
+	await expect(row).toContainText("Set");
 
 	await page.goto("/sessions");
 	await page.getByTestId("new-session-button").click();

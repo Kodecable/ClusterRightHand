@@ -145,7 +145,7 @@ export function NodeTrustPanel({ nodeId }: { nodeId: string }) {
 							},
 							...(data.message !== null ? [{ label: t`Message`, value: data.message }] : []),
 							{ label: t`Digest`, value: data.digest ?? "–", mono: true },
-							{ label: t`Updated`, value: <DateTime value={data.updatedAt} seconds /> },
+							{ label: t`Updated`, value: <DateTime value={data.updatedAt} /> },
 							...(data.summary !== null
 								? [
 										{

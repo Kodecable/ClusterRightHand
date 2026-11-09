@@ -65,6 +65,7 @@ export function statusOutputNoteKey(task: Pick<TaskView, "state" | "exitCode" | 
 
 /** How a task ended, structured so the UI can translate it. */
 export type TaskOutcome =
+	| { kind: "succeeded" }
 	| { kind: "exit"; code: number | null }
 	| { kind: "signal"; signal: string }
 	| { kind: "timed-out" }
@@ -77,6 +78,9 @@ export function taskOutcome(task: TaskView): TaskOutcome {
 		if (task.timedOut) return { kind: "timed-out" };
 		if (task.cancelled) return { kind: "cancelled" };
 		if (task.signal !== null) return { kind: "signal", signal: task.signal };
+		// A file operation has no meaningful exit code: exit 0 is simply success,
+		// while exec tasks keep their code in the outcome line.
+		if (task.kind !== "exec" && task.exitCode === 0) return { kind: "succeeded" };
 		return { kind: "exit", code: task.exitCode };
 	}
 	if (task.errorCode !== null || task.errorMessage !== null) {

@@ -22,9 +22,9 @@ import { NodeGroupMembersDialog, NodeGroupNameDialog } from "./dialogs";
 
 /** The members of a node group, each linked to its node page. */
 function MemberLinks({ memberIds, nodeNames }: { memberIds: string[]; nodeNames: Map<string, string> }) {
-	if (memberIds.length === 0) return <span className="text-xs text-muted-foreground">–</span>;
+	if (memberIds.length === 0) return <span className="text-muted-foreground">–</span>;
 	return (
-		<span className="flex flex-wrap items-center gap-x-1 text-xs">
+		<span className="flex flex-wrap items-center gap-x-1">
 			{memberIds.map((id, index) => (
 				<Fragment key={id}>
 					{index > 0 && <span className="text-muted-foreground">,</span>}
@@ -101,7 +101,7 @@ export function NodeGroupsPage() {
 				size: 320,
 				cell: ({ row }) => (
 					<span className="grid gap-0.5">
-						<span className="text-xs text-muted-foreground">
+						<span className="text-muted-foreground">
 							<Plural value={row.original.memberIds.length} one="# member" other="# members" />
 						</span>
 						<MemberLinks memberIds={row.original.memberIds} nodeNames={nodeNames} />

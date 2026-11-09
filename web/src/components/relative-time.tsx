@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { type DateInput, formatDateTime, formatDateTimeSeconds, formatRelativeTime } from "@/lib/format";
+import { type DateInput, formatDateTimeSeconds, formatRelativeTime } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -10,8 +10,9 @@ function toIso(value: DateInput): string | undefined {
 }
 
 /**
- * "3 minutes ago", refreshed while mounted. The exact timestamp sits in the
- * tooltip and in `title`, so hovering always answers "when exactly?".
+ * "3 minutes ago", refreshed while mounted. The exact timestamp (with seconds)
+ * sits in `title`, so hovering always answers "when exactly?". The text keeps
+ * the surrounding size and colour; only the digits are tabular.
  */
 export function RelativeTime({
 	value,
@@ -32,32 +33,23 @@ export function RelativeTime({
 	}, [refreshMs]);
 
 	const iso = toIso(value);
+	// A missing time keeps the placeholder muted, like every other empty value.
+	if (iso === undefined) return <span className={cn("text-muted-foreground", className)}>–</span>;
 	return (
-		<time
-			dateTime={iso}
-			title={iso ? formatDateTimeSeconds(iso, locale) : undefined}
-			className={cn("text-muted-foreground tabular-nums", className)}
-		>
+		<time dateTime={iso} title={formatDateTimeSeconds(iso, locale)} className={cn("tabular-nums", className)}>
 			{formatRelativeTime(value, locale)}
 		</time>
 	);
 }
 
-/** An absolute date/time, with seconds for logs and audits. */
-export function DateTime({
-	value,
-	seconds = false,
-	className,
-}: {
-	value: DateInput;
-	seconds?: boolean;
-	className?: string;
-}) {
+/** The one absolute date/time format: date and time with seconds, locale-aware. */
+export function DateTime({ value, className }: { value: DateInput; className?: string }) {
 	const { locale } = useLocale();
 	const iso = toIso(value);
+	if (iso === undefined) return <span className={cn("text-muted-foreground", className)}>–</span>;
 	return (
 		<time dateTime={iso} className={cn("tabular-nums", className)}>
-			{seconds ? formatDateTimeSeconds(value, locale) : formatDateTime(value, locale)}
+			{formatDateTimeSeconds(value, locale)}
 		</time>
 	);
 }

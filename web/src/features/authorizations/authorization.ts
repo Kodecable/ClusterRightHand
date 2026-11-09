@@ -5,7 +5,7 @@
  * translates.
  */
 import type { PendingAuthorization } from "@crh/api";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTimeSeconds } from "@/lib/format";
 
 export type PayloadLineKey =
 	| "nodes"
@@ -43,8 +43,8 @@ export function authorizationLines(pending: PendingAuthorization, locale: string
 	const lines: PayloadLine[] = [
 		{ key: "nodes", value: decoded.nodes.join(", "), mono: true },
 		{ key: "command", value: commandText(decoded.command), mono: true },
-		{ key: "issued", value: formatDateTime(decoded.issuedAt, locale) },
-		{ key: "deadline", value: formatDateTime(pending.deadline, locale) },
+		{ key: "issued", value: formatDateTimeSeconds(decoded.issuedAt, locale) },
+		{ key: "deadline", value: formatDateTimeSeconds(pending.deadline, locale) },
 		{ key: "attempt", value: String(pending.attempt) },
 		{ key: "tasks", value: pending.taskIds.join(", "), mono: true },
 	];

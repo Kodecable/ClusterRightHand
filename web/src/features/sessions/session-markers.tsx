@@ -1,6 +1,6 @@
 import { useLingui } from "@lingui/react/macro";
 import { CalendarClockIcon, Share2Icon } from "lucide-react";
-import { StatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 /**
@@ -24,21 +24,16 @@ export function SessionMarkers({
 	return (
 		<span className={cn("flex shrink-0 items-center gap-1", className)} data-testid="session-markers">
 			{scheduled && (
-				<StatusBadge tone="muted" dot={false} title={t`Scheduled session`} className="gap-1 px-1 py-0 text-[11px]">
-					<CalendarClockIcon className="size-3" aria-hidden="true" />
+				<Badge variant="secondary" title={t`Scheduled session`}>
+					<CalendarClockIcon aria-hidden="true" />
 					{t`Scheduled`}
-				</StatusBadge>
+				</Badge>
 			)}
 			{shared && (
-				<StatusBadge
-					tone="muted"
-					dot={false}
-					title={sharedBy ? t`Shared with you by ${sharedBy}` : t`Shared with you`}
-					className="gap-1 px-1 py-0 text-[11px]"
-				>
-					<Share2Icon className="size-3" aria-hidden="true" />
+				<Badge variant="secondary" title={sharedBy ? t`Shared with you by ${sharedBy}` : t`Shared with you`}>
+					<Share2Icon aria-hidden="true" />
 					{t`Shared`}
-				</StatusBadge>
+				</Badge>
 			)}
 		</span>
 	);

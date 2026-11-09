@@ -2,9 +2,11 @@ import { describe, expect, test } from "vitest";
 import {
 	authorizationStatusTone,
 	nodeStatusTone,
+	ruleResultTone,
 	scheduleStatusTone,
 	sessionStatusTone,
 	sessionUiState,
+	taskGroupStatusTone,
 	taskStatusTone,
 	tokenStatusTone,
 } from "./status";
@@ -19,10 +21,8 @@ describe("nodeStatusTone", () => {
 });
 
 describe("taskStatusTone", () => {
-	test("a zero exit is ok, a non-zero exit is the command's own failure", () => {
-		expect(taskStatusTone("exited", 0)).toBe("ok");
-		expect(taskStatusTone("exited", 1)).toBe("warn");
-		expect(taskStatusTone("exited", 0, "SIGTERM")).toBe("warn");
+	test("exited is Finished and ok whatever the command's exit code or signal", () => {
+		expect(taskStatusTone("exited")).toBe("ok");
 	});
 
 	test("waiting and running tasks are informational", () => {
@@ -36,6 +36,29 @@ describe("taskStatusTone", () => {
 			expect(taskStatusTone(state), state).toBe("danger");
 		}
 		expect(taskStatusTone("something_else")).toBe("muted");
+	});
+});
+
+describe("taskGroupStatusTone", () => {
+	test("uses the task tones for the states they share", () => {
+		expect(taskGroupStatusTone("finished")).toBe("ok");
+		expect(taskGroupStatusTone("running")).toBe("info");
+		expect(taskGroupStatusTone("awaiting_approval")).toBe(taskStatusTone("awaiting_approval"));
+		expect(taskGroupStatusTone("awaiting_authorization")).toBe(taskStatusTone("awaiting_authorization"));
+		expect(taskGroupStatusTone("cancelled")).toBe(taskStatusTone("cancelled"));
+		expect(taskGroupStatusTone("rejected")).toBe("danger");
+		expect(taskGroupStatusTone("interrupted")).toBe("danger");
+		expect(taskGroupStatusTone("weird")).toBe("muted");
+	});
+});
+
+describe("ruleResultTone", () => {
+	test("maps a level's rule result", () => {
+		expect(ruleResultTone("allow")).toBe("ok");
+		expect(ruleResultTone("deny")).toBe("danger");
+		expect(ruleResultTone("require-approval")).toBe("warn");
+		expect(ruleResultTone("inherit")).toBe("muted");
+		expect(ruleResultTone("weird")).toBe("muted");
 	});
 });
 

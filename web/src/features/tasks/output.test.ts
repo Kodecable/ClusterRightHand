@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { batchOutput, isTerminal, joinOutput, outputText, statusOutputNoteKey, taskOutcome } from "./output";
 
 const baseTask = {
+	kind: "exec",
 	state: "exited",
 	exitCode: 0,
 	signal: null,
@@ -95,5 +96,16 @@ describe("taskOutcome", () => {
 			message: "gone",
 		});
 		expect(taskOutcome({ ...baseTask, state: "running" })).toEqual({ kind: "state", state: "running" });
+	});
+
+	test("a non-exec task that exited cleanly succeeded, while exec keeps its code", () => {
+		for (const kind of ["file.read", "file.write", "file.edit", "file.stat", "file.list"]) {
+			expect(taskOutcome({ ...baseTask, kind }), kind).toEqual({ kind: "succeeded" });
+		}
+		expect(taskOutcome({ ...baseTask, kind: "exec" })).toEqual({ kind: "exit", code: 0 });
+	});
+
+	test("a non-exec task with a non-zero exit still reports the code", () => {
+		expect(taskOutcome({ ...baseTask, kind: "file.read", exitCode: 2 })).toEqual({ kind: "exit", code: 2 });
 	});
 });
