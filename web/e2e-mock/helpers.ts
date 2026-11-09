@@ -160,6 +160,7 @@ export function sessionListItem(overrides: Partial<SessionListItem> = {}): Sessi
 		shared: false,
 		state: "idle",
 		waitingKind: null,
+		unread: false,
 		updatedAt: "2026-01-01T00:00:00.000Z",
 		...overrides,
 	};

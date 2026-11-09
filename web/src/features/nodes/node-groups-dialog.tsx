@@ -1,7 +1,6 @@
 import type { PublicNode } from "@crh/api";
-import { Trans, useLingui } from "@lingui/react/macro";
+import { Trans } from "@lingui/react/macro";
 import { useState } from "react";
-import { toast } from "sonner";
 import { FormDialog } from "@/components/dialogs";
 import { ErrorText } from "@/components/error-state";
 import { NodeGroupPicker } from "@/components/node-group-picker";
@@ -14,7 +13,6 @@ import { useSetNodeGroups } from "./api";
  * nodes alike: both are managed here now, not by the node's own configuration.
  */
 export function NodeGroupsDialog({ node, onClose }: { node: PublicNode; onClose: () => void }) {
-	const { t } = useLingui();
 	const nodeGroups = useNodeGroups();
 	const save = useSetNodeGroups();
 	const [selected, setSelected] = useState<string[]>(node.nodeGroups.map((group) => group.id));
@@ -35,7 +33,6 @@ export function NodeGroupsDialog({ node, onClose }: { node: PublicNode; onClose:
 					{ id: node.id, nodeGroups: selected },
 					{
 						onSuccess: () => {
-							toast.success(t`Node groups saved.`);
 							onClose();
 						},
 					},

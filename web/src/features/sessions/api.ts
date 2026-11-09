@@ -19,7 +19,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { invalidatePendingDecisions } from "@/features/approvals/api";
 import { enc, http, queryString } from "@/lib/api/client";
 import { flattenCursorPages, prefetchCursorInfiniteQuery, useCursorInfiniteQuery } from "@/lib/api/query";
-import { sessionListFilter, upsertSessionListItem } from "./list-patch";
+import { markSessionListItemRead, sessionListFilter, upsertSessionListItem } from "./list-patch";
 import { subscribeSessionListUpserts } from "./list-stream-bus";
 import type { SessionEntriesPage } from "./session-events";
 
@@ -368,6 +368,7 @@ export function sessionListItemFromView(session: SessionView): SessionListItem {
 		shared: false,
 		state: session.state,
 		waitingKind: session.waitingKind,
+		unread: false,
 		updatedAt: session.updatedAt,
 	};
 }
@@ -392,6 +393,30 @@ export function insertSessionIntoListCaches(
 			return pages === data.pages ? data : { ...data, pages };
 		});
 	}
+}
+
+/**
+ * Marks a tree read for its owner (doc/webui.md "侧边列表"): the page calls it when it opens and when its tree
+ * leaves `running`; `sessionId` may be a child, because the server marks the root. The cached row is cleared
+ * optimistically so the dot goes before the stream's upsert arrives; a failed call leaves the server state
+ * unchanged and the next list fetch corrects the row.
+ */
+export function useMarkSessionRead(rootId: string | undefined) {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (sessionId: string) => http.post<void>(`/sessions/${enc(sessionId)}/read`),
+		meta: { toast: false },
+		onMutate: () => {
+			if (rootId === undefined || rootId === "") return;
+			for (const query of queryClient.getQueryCache().findAll({ queryKey: sessionKeys.list() })) {
+				queryClient.setQueryData<SessionListData>(query.queryKey, (data) => {
+					if (!data) return data;
+					const pages = markSessionListItemRead(data.pages, rootId);
+					return pages === data.pages ? data : { ...data, pages };
+				});
+			}
+		},
+	});
 }
 
 export function usePatchSession(id: string) {

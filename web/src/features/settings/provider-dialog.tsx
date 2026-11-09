@@ -5,7 +5,6 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { type ComponentProps, useEffect, useMemo, useState } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
-import { toast } from "sonner";
 import { z } from "zod";
 import { FormDialog } from "@/components/dialogs";
 import { CheckboxField, SelectField, TextField } from "@/components/form";
@@ -434,7 +433,6 @@ export function ProviderDialog({
 			{ providerId: values.providerId, body },
 			{
 				onSuccess: () => {
-					toast.success(t`Provider saved.`);
 					onSaved();
 					onClose();
 				},

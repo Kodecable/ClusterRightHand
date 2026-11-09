@@ -152,6 +152,8 @@ sessions          (id, org_id, owner_user_id, conversation_id, parent_session_id
                    waiting_level_id nullable,           -- waiting_kind = quota 时：要补的那一级
                    waiting_handler_id nullable,         -- 该等待的直接父会话（处理它的 agent）；根耗尽时为空，由所有者处理
                    state_changed_at,
+                   reply_at nullable,                   -- 根会话：整棵树上次从 running 变为 idle/awaiting 的时间（有新的输出给所有者）
+                   owner_read_at nullable,              -- 根会话：所有者上次打开这棵树的时间；reply_at > owner_read_at 即未读
                    budget_used_tokens,                  -- 预算口径：本会话及其 subagent 的输出 token（D101）
                    usage_tokens,                        -- 统计口径：本会话及其 subagent 的输入 + 输出 token（D101）
                    context_tokens nullable)             -- 本会话最近一次主 agent 调用的输入大小；第一次调用前为 null

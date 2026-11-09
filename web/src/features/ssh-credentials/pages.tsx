@@ -2,7 +2,6 @@ import type { SshCredential } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { LockKeyholeIcon, PlusIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import { Fragment, useId, useMemo, useState } from "react";
-import { toast } from "sonner";
 import { CodeText } from "@/components/code-text";
 import { CopyButton } from "@/components/copy-button";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
@@ -260,7 +259,6 @@ function SshCredentialsAdminPage() {
 					if (!deleting) return;
 					remove.mutate(deleting.id, {
 						onSuccess: () => {
-							toast.success(t`SSH credential deleted.`);
 							setDeleting(undefined);
 						},
 					});

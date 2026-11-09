@@ -211,9 +211,7 @@ function ComposerForm({ session, stoppable }: ComposerProps) {
 	};
 
 	const stop = () => {
-		abort.mutate(undefined, {
-			onSuccess: () => toast.success(t`Stopped the run.`),
-		});
+		abort.mutate();
 	};
 
 	if (!session.capabilities.chat) {

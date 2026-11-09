@@ -232,7 +232,7 @@ async function listFirstRender(browser: Browser, rate: number): Promise<FirstScr
 				if (/\/assets\/index-[^/]+\.js$/.test(name)) return "entry";
 				if (/\/assets\/(en|zh-CN)-[^/]+\.js$/.test(name)) return "catalog";
 				if (name.includes("/assets/sessions-layout-")) return "layout";
-				if (name.includes("/assets/sessions-index-page-")) return "index-page";
+				if (name.includes("/assets/pages-")) return "page";
 				return undefined;
 			};
 			const seen = new Set<string>();

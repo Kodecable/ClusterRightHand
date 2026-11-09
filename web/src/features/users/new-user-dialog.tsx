@@ -3,7 +3,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useLingui } from "@lingui/react/macro";
 import { useMemo } from "react";
 import { useForm } from "react-hook-form";
-import { toast } from "sonner";
 import { z } from "zod";
 import { FormDialog } from "@/components/dialogs";
 import { SelectField, TextField } from "@/components/form";
@@ -57,7 +56,6 @@ export function NewUserDialog({ onClose }: { onClose: () => void }) {
 						},
 						{
 							onSuccess: () => {
-								toast.success(t`User created.`);
 								onClose();
 							},
 						},

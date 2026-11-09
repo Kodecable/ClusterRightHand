@@ -1,8 +1,7 @@
 import type { ApprovalBody, SessionView, TaskGroupView, TaskView } from "@crh/api";
-import { Trans, useLingui } from "@lingui/react/macro";
+import { Trans } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { toast } from "sonner";
 import { ApprovalCard } from "@/components/approval-card";
 import { QuotaCard } from "@/components/quota-card";
 import { useApprovalLookups, useApprovals, useDecideApproval } from "@/features/approvals/api";
@@ -61,7 +60,6 @@ export function SessionWaits({
 	/** The in-flight history refresh after a decision (the session page reloads). */
 	deciding?: boolean;
 }) {
-	const { t } = useLingui();
 	const approvals = useApprovals();
 	const lookups = useApprovalLookups();
 	const queryClient = useQueryClient();
@@ -73,7 +71,6 @@ export function SessionWaits({
 			{ kind, id, body },
 			{
 				onSuccess: () => {
-					toast.success(t`Decision recorded.`);
 					void queryClient.invalidateQueries({ queryKey: sessionKeys.detail(session.id) });
 					void queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
 				},
@@ -121,9 +118,7 @@ export function SessionWaits({
 					wait={quotaWait}
 					busy={quota.isPending || deciding}
 					error={quota.error}
-					onDecide={(decision) =>
-						quota.mutate(decision, { onSuccess: () => toast.success(t`Quota decision recorded.`) })
-					}
+					onDecide={(decision) => quota.mutate(decision)}
 				/>
 			)}
 			{tasks.map((task) => (

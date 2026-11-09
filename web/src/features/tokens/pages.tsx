@@ -2,7 +2,6 @@ import type { ApiTokenView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { KeySquareIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
@@ -149,7 +148,6 @@ export function TokensPage() {
 					if (!revoking) return;
 					revoke.mutate(revoking.id, {
 						onSuccess: () => {
-							toast.success(t`Token revoked.`);
 							setRevoking(undefined);
 						},
 					});
@@ -168,7 +166,6 @@ export function TokensPage() {
 					if (!deleting) return;
 					remove.mutate(deleting.id, {
 						onSuccess: () => {
-							toast.success(t`Token deleted.`);
 							setDeleting(undefined);
 						},
 					});

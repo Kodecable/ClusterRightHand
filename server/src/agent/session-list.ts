@@ -42,6 +42,10 @@ export interface SessionItemRow {
 export interface SessionListRow extends SessionItemRow {
 	parent_session_id: string | null;
 	root_session_id: string | null;
+	/** When the tree last left `running` for `idle`/`awaiting`; roots only (doc/webui.md#侧边列表). */
+	reply_at: string | null;
+	/** When the owner last opened the tree; roots only. */
+	owner_read_at: string | null;
 }
 
 /** A row of `GET /api/sessions/:id/children`: the list's item columns, without the tree aggregate. */
@@ -135,6 +139,8 @@ export async function sessionListQuery(db: Db, user: SessionUser, filter: Sessio
 			TREE_STATE.as("state"),
 			TREE_WAITING_KIND.as("waiting_kind"),
 			"sessions.updated_at",
+			"sessions.reply_at",
+			"sessions.owner_read_at",
 			"users.display_name",
 			"users.username",
 		])
@@ -203,9 +209,16 @@ export function sessionChildrenQuery(db: Db, parentSessionId: string, cursor?: C
 /**
  * The item as one viewer sees it. `shared` comes from the share reach the caller resolved: the list query's
  * `EXISTS` for the caller, or the audience the hub computed for a stream subscriber. An owner never has it set.
+ * `unread` is the owner's alone: a shared viewer never sees another user's read state, so it is always false
+ * there (doc/webui.md#侧边列表). A child row carries no read columns, which also leaves it false.
  */
-export function sessionListItem(row: SessionItemRow, viewerUserId: string, shared: boolean): SessionListItem {
+export function sessionListItem(
+	row: SessionItemRow & Partial<Pick<SessionListRow, "reply_at" | "owner_read_at">>,
+	viewerUserId: string,
+	shared: boolean,
+): SessionListItem {
 	const isOwner = row.owner_user_id === viewerUserId;
+	const unread = isOwner && row.reply_at != null && (row.owner_read_at == null || row.reply_at > row.owner_read_at);
 	return {
 		id: row.id,
 		title: row.title,
@@ -215,6 +228,7 @@ export function sessionListItem(row: SessionItemRow, viewerUserId: string, share
 		shared: shared && !isOwner,
 		state: row.state,
 		waitingKind: row.waiting_kind,
+		unread,
 		updatedAt: row.updated_at,
 	};
 }

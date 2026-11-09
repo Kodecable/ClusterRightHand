@@ -2,7 +2,6 @@ import type { AvailableModel, ModelPreset, ModelRef, ThinkingLevel } from "@crh/
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ChevronRightIcon } from "lucide-react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import { groupModels, modelKey, parseModelKey } from "@/components/model-select";
 import { ThinkingLevelSelect } from "@/components/thinking-level-select";
 import { Button } from "@/components/ui/button";
@@ -97,14 +96,11 @@ function ModelPresetCard({ preset, models }: { preset: ModelPreset; models: Avai
 	const submit = () => {
 		const systemPrompt = prompt.trim() === "" ? null : prompt;
 		if (preset.kind === "session") {
-			save.mutate({ kind: preset.kind, input: { systemPrompt } }, { onSuccess: () => toast.success(t`Preset saved.`) });
+			save.mutate({ kind: preset.kind, input: { systemPrompt } });
 			return;
 		}
 		const inputModel = preset.kind === "review" && model !== null ? withThinkingLevel(model, currentLevel) : model;
-		save.mutate(
-			{ kind: preset.kind, input: { model: inputModel, systemPrompt } },
-			{ onSuccess: () => toast.success(t`Preset saved.`) },
-		);
+		save.mutate({ kind: preset.kind, input: { model: inputModel, systemPrompt } });
 	};
 
 	return (

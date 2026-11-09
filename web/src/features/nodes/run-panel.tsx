@@ -76,7 +76,7 @@ export function RunPanel({ nodeId }: { nodeId: string }) {
 							disabled={cancel.isPending}
 							onClick={() =>
 								cancel.mutate(undefined, {
-									onSuccess: () => toast.success(t`Task cancelled.`),
+									onSuccess: () => toast.success(t`Cancellation requested.`),
 								})
 							}
 						>

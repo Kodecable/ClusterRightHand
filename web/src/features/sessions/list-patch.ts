@@ -90,6 +90,21 @@ export function removeSessionListItem(pages: Pages, id: string): CursorPage<Sess
 }
 
 /**
+ * Clears a root's unread flag in every loaded page, for an optimistic read (doc/webui.md "侧边列表");
+ * returns the same array when no row changed. Only a root is in the list, so the caller passes the root id
+ * even when a child page marked its tree read.
+ */
+export function markSessionListItemRead(pages: Pages, id: string): CursorPage<SessionListItem>[] {
+	let changed = false;
+	const next = pages.map((page) => {
+		if (!page.items.some((item) => item.id === id && item.unread)) return page;
+		changed = true;
+		return { ...page, items: page.items.map((item) => (item.id === id ? { ...item, unread: false } : item)) };
+	});
+	return changed ? next : (pages as CursorPage<SessionListItem>[]);
+}
+
+/**
  * Applies one `upsert`. The new/updated row goes to the top of the first page
  * (the list is sorted by `updated_at desc`); a row that no longer matches the
  * filter is only removed. An empty page cache is left alone: the first page has

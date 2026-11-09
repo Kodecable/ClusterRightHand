@@ -5,5 +5,4 @@
  * router's `lazyRouteComponent` and the startup prefetch share a request.
  */
 export const sessionsLayoutChunk = () => import("@/features/sessions/sessions-layout");
-export const sessionsIndexPageChunk = () => import("@/features/sessions/sessions-index-page");
 export const sessionPageChunk = () => import("@/features/sessions/pages");

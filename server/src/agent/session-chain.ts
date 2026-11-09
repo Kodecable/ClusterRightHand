@@ -32,6 +32,21 @@ export async function sessionChain(db: Db, sessionId: string): Promise<string[]>
 	return chain;
 }
 
+/**
+ * The tree's root id: `root_session_id` when it was backfilled, otherwise the last id of the parent walk (a
+ * row inserted by hand or one predating the backfill). Undefined when the session does not exist.
+ */
+export async function rootSessionIdOf(db: Db, sessionId: string): Promise<string | undefined> {
+	const row = await db
+		.selectFrom("sessions")
+		.select(["id", "root_session_id"])
+		.where("id", "=", sessionId)
+		.executeTakeFirst();
+	if (!row) return undefined;
+	if (row.root_session_id) return row.root_session_id;
+	return (await sessionChain(db, sessionId)).at(-1);
+}
+
 /** The direct parent of a session; null for a root. */
 export async function parentOf(db: Db, sessionId: string): Promise<string | null> {
 	const row = await db

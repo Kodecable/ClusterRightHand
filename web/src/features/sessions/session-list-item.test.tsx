@@ -13,6 +13,7 @@ const item = (overrides: Partial<SessionListItem> = {}): SessionListItem => ({
 	shared: false,
 	state: "idle",
 	waitingKind: null,
+	unread: false,
 	updatedAt: new Date().toISOString(),
 	...overrides,
 });
@@ -23,10 +24,11 @@ describe("SessionListItemRow", () => {
 		expect(screen.getByText("Deploy the cluster")).toBeInTheDocument();
 		expect(document.querySelector("time")).toBeNull();
 		expect(screen.queryByTestId("session-owner")).not.toBeInTheDocument();
-		// The dot's slot is reserved so titles line up, but an idle row has no dot.
+		// The dot's slot is reserved so titles line up, but a read idle row has no dot.
 		const slot = screen.getByTestId("session-status-dot");
 		expect(slot).toBeInTheDocument();
 		expect(slot.querySelector("[role='img']")).toBeNull();
+		expect(screen.getByTestId("session-item")).toHaveAttribute("data-unread", "false");
 	});
 
 	test("a session with no title yet shows the default name", async () => {
@@ -34,9 +36,31 @@ describe("SessionListItemRow", () => {
 		expect(screen.getByText("New Session")).toBeInTheDocument();
 	});
 
-	test("a running row shows the dot", async () => {
+	test("a running row shows a spinning loader labelled Running", async () => {
 		await renderWithRouter(<SessionListItemRow item={item({ state: "running" })} selected={false} tabIndex={-1} />);
+		const spinner = screen.getByRole("img", { name: "Running" });
+		expect(spinner).toBeInTheDocument();
+		expect(spinner).toHaveClass("animate-spin", "size-3");
+	});
+
+	test("an idle unread row shows the blue Unread dot", async () => {
+		await renderWithRouter(<SessionListItemRow item={item({ unread: true })} selected={false} tabIndex={-1} />);
+		expect(screen.getByRole("img", { name: "Unread" })).toBeInTheDocument();
+		expect(screen.getByTestId("session-item")).toHaveAttribute("data-unread", "true");
+	});
+
+	test("running and awaiting win over unread", async () => {
+		await renderWithRouter(
+			<SessionListItemRow item={item({ state: "running", unread: true })} selected={false} tabIndex={-1} />,
+		);
 		expect(screen.getByRole("img", { name: "Running" })).toBeInTheDocument();
+		expect(screen.queryByRole("img", { name: "Unread" })).not.toBeInTheDocument();
+
+		await renderWithRouter(
+			<SessionListItemRow item={item({ state: "awaiting", unread: true })} selected={false} tabIndex={-1} />,
+		);
+		expect(screen.getByRole("img", { name: "Awaiting" })).toBeInTheDocument();
+		expect(screen.queryByRole("img", { name: "Unread" })).not.toBeInTheDocument();
 	});
 
 	test("an awaiting row shows the dot and names the wait in its tooltip and to screen readers", async () => {

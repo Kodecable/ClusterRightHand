@@ -28,7 +28,6 @@ test("create an API token once and revoke it", async ({ page }) => {
 	const confirm = page.getByRole("dialog", { name: "Revoke token laptop?" });
 	await expect(confirm).toBeVisible();
 	await confirm.getByRole("button", { name: "Revoke token" }).click();
-	await expect(page.getByText("Token revoked.")).toBeVisible();
 	await expect
 		.poll(() => api.state.requests.some((request) => request.url === "/api/api-tokens/token-1/revoke"))
 		.toBe(true);

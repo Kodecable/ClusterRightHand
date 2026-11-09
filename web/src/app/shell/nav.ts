@@ -2,9 +2,9 @@ import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import {
 	BadgeCheckIcon,
-	BlocksIcon,
 	BoxesIcon,
 	CalendarClockIcon,
+	GraphHubIcon,
 	KeyRoundIcon,
 	KeySquareIcon,
 	LayersIcon,
@@ -68,7 +68,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 		label: msg`Cluster`,
 		items: [
 			{ to: "/nodes", label: msg`Nodes`, icon: ServerIcon },
-			{ to: "/node-groups", label: msg`Node groups`, icon: BlocksIcon },
+			{ to: "/node-groups", label: msg`Node groups`, icon: GraphHubIcon },
 			{ to: "/ssh-credentials", label: msg`SSH credentials`, icon: LockKeyholeIcon, adminOnly: true },
 			{ to: "/credentials", label: msg`Credentials`, icon: KeyRoundIcon },
 		],

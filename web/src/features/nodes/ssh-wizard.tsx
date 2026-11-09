@@ -4,7 +4,6 @@ import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { PlusIcon } from "lucide-react";
 import { useId, useState } from "react";
-import { toast } from "sonner";
 import { CodeText } from "@/components/code-text";
 import { CopyButton } from "@/components/copy-button";
 import { ErrorText } from "@/components/error-state";
@@ -121,7 +120,6 @@ function CredentialStep({
 					onClick={() => {
 						create.mutate(name.trim(), {
 							onSuccess: (credential) => {
-								toast.success(t`Credential created.`);
 								setName("");
 								onChange(credential.id);
 								onReadyChange(true);
@@ -391,7 +389,6 @@ function WizardCreate({
 	name: string;
 	onCreated: (node: PublicNode) => void;
 }) {
-	const { t } = useLingui();
 	const create = useCreateSshNode();
 	return (
 		<Button
@@ -407,7 +404,6 @@ function WizardCreate({
 					},
 					{
 						onSuccess: (node) => {
-							toast.success(t`Node created.`);
 							onCreated(node);
 						},
 					},

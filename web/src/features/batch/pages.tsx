@@ -1,7 +1,6 @@
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { PlayIcon } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
 import { EmptyHint } from "@/components/empty-state";
 import { ErrorText } from "@/components/error-state";
 import { NodeGroupPicker } from "@/components/node-group-picker";
@@ -78,7 +77,6 @@ export function BatchPage() {
 				...(parsedParallel !== undefined ? { parallel: parsedParallel } : {}),
 			});
 			setTaskGroupId(created.id);
-			toast.success(t`Batch started.`);
 		} catch (caught) {
 			setError(taskFormErrorText(i18n, caught));
 		}

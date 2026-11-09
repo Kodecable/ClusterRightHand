@@ -3,6 +3,7 @@ import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { parseModelRef } from "../agent/models.ts";
 import { parseQuota } from "../agent/quota.ts";
 import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
+import { rootSessionIdOf } from "../agent/session-chain.ts";
 import {
 	type SessionListScope,
 	sessionChildItem,
@@ -220,6 +221,25 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			session: { ...viewed, relationship: v.relationship, capabilities: v.capabilities },
 			...(canShare ? { shares: await listSessionShares(db, session.id) } : {}),
 		});
+	});
+
+	/**
+	 * Marks the tree read for its owner (doc/webui.md#侧边列表): `POST /api/sessions/:id/read` sets the root's
+	 * `owner_read_at` to now and republishes the root, so the owner's other tabs clear the unread dot. `:id` may
+	 * be any session of the tree, so opening a subagent marks its whole tree. Only the owner may mark a tree
+	 * read. `updated_at` is not touched: marking read must not reorder the list. Answers 204.
+	 */
+	app.post("/sessions/:id/read", async (c) => {
+		const v = await requireSession(c, c.req.param("id"), "owner");
+		if (v instanceof Response) return v;
+		const rootId = (await rootSessionIdOf(db, v.session.id)) ?? v.session.id;
+		await db
+			.updateTable("sessions")
+			.set({ owner_read_at: new Date().toISOString() })
+			.where("id", "=", rootId)
+			.execute();
+		runtime.sessionList.publishSession(rootId);
+		return c.body(null, 204);
 	});
 
 	/**

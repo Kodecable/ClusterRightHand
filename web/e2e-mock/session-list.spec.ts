@@ -118,16 +118,31 @@ test("the list shows the caller's own and shared sessions, with no scope selecto
 	await expect(page.getByTestId("scope-all")).toHaveCount(0);
 });
 
+test("a wide screen shows the draft next to the list at /sessions", async ({ page }) => {
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await mockApi(page, { state: manySessions() });
+	await login(page);
+
+	// Visiting `/sessions` stays there; the list and the draft sit side by side, with no row selected.
+	await expect(page).toHaveURL(/\/sessions$/);
+	await expect(page.getByTestId("session-list-slot")).toBeVisible();
+	await expect(page.getByTestId("new-session-page")).toBeVisible();
+	await expect(page.locator('[data-testid="session-item"][data-selected="true"]')).toHaveCount(0);
+	// The draft's back button is only for narrow screens.
+	await expect(page.getByTestId("session-back")).toBeHidden();
+});
+
 test("a narrow screen shows the list as the main view and keeps the session's back button", async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	const fixture = manySessions();
 	const api = await mockApi(page, { state: fixture });
 	await login(page);
 
-	// The list is the page, not an aside next to an empty "pick a session" panel.
+	// `/sessions` shows the list: the draft is rendered but its outlet is hidden below `lg`.
+	await expect(page).toHaveURL(/\/sessions$/);
 	await expect(page.getByTestId("session-list-slot")).toBeVisible();
-	await expect(page.getByText("No session selected")).toBeHidden();
-	await expect(page.getByTestId("session-back")).toHaveCount(0);
+	await expect(page.getByTestId("new-session-page")).toBeHidden();
+	await expect(page.getByText("No session selected")).toHaveCount(0);
 
 	await page.locator('[data-session-id="s-2"]').click();
 	await expect(page).toHaveURL(/\/sessions\/s-2$/);

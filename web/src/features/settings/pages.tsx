@@ -2,7 +2,6 @@ import type { ModelProviderView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
@@ -185,7 +184,6 @@ export function ModelSettingsPage() {
 					if (!deleting) return;
 					remove.mutate(deleting.providerId, {
 						onSuccess: () => {
-							toast.success(t`Provider deleted.`);
 							setDeleting(undefined);
 						},
 					});

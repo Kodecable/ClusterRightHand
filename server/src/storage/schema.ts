@@ -401,6 +401,10 @@ export interface SessionsTable {
 	/** While awaiting a quota: the level's parent agent handles it; null when the level is the root (its owner does). */
 	waiting_handler_id: string | null;
 	state_changed_at: string | null;
+	/** When the tree last left `running` for `idle`/`awaiting`, so its owner has new output; roots only. */
+	reply_at: string | null;
+	/** When the owner last opened the tree; `reply_at > owner_read_at` means unread; roots only. */
+	owner_read_at: string | null;
 	/** Remaining token quota at any level (doc/agent-runtime.md#配额); null: unlimited. Signed: one call may overspend it. */
 	quota_tokens: ColumnType<string | number | null, string | number | null | undefined, string | number | null>;
 	/** The budget measure (D92, D101): output tokens spent by this session and its subagents. */

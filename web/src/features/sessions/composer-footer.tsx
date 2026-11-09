@@ -2,7 +2,6 @@ import type { ModelRef, RulePreset, SessionView, ThinkingLevel } from "@crh/api"
 import { useLingui } from "@lingui/react/macro";
 import { ArrowUpIcon, DropletIcon, LightbulbIcon, ShieldCheckIcon, SquareIcon } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
 import { ModelSelect } from "@/components/model-select";
 import { RulePresetSelect } from "@/components/rule-preset-select";
 import { ThinkingLevelSelect } from "@/components/thinking-level-select";
@@ -128,7 +127,6 @@ export function SessionComposerFooter({
 	onStop: () => void;
 	stopPending: boolean;
 }) {
-	const { t } = useLingui();
 	const patch = usePatchSession(session.id);
 	const state: ComposerFooterState = {
 		model: session.model,
@@ -147,7 +145,6 @@ export function SessionComposerFooter({
 		onRulePresetChange: (rulePreset) => patch.mutate({ rulePreset }),
 		onBudgetChange: async (budgetRemaining) => {
 			await patch.mutateAsync({ budgetRemaining });
-			toast.success(t`Quota saved.`);
 		},
 	};
 	return (

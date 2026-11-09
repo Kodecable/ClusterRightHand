@@ -4,6 +4,7 @@ import type { SessionUser } from "../auth/sessions.ts";
 import { exhaustedLevel, exhaustedLevels } from "./quota.ts";
 import type { RuntimeHost } from "./runtime-core.ts";
 import { parentOf, type SessionRow } from "./session-chain.ts";
+import { recordTreeReply } from "./session-replies.ts";
 import {
 	nonIdleSessions,
 	type SessionState,
@@ -254,7 +255,7 @@ export async function settleInput(
 	if (host.closing()) return;
 	const row = await host.db
 		.selectFrom("sessions")
-		.select(["last_submission_id", "parent_session_id", "title_pending"])
+		.select(["last_submission_id", "parent_session_id", "title_pending", "state"])
 		.where("id", "=", sessionId)
 		.executeTakeFirst();
 	if (!row || row.last_submission_id !== submissionId) return;
@@ -272,6 +273,7 @@ export async function settleInput(
 		.where("id", "=", sessionId)
 		.where("last_submission_id", "=", submissionId)
 		.execute();
+	if (row.state === "running") await recordTreeReply(host.db, sessionId, "running", "idle");
 	host.sessionList.publishSession(sessionId);
 	host.inboxes.forget(sessionId);
 	// A tool call that ended without its task (aborted by durable, abandoned after restarts) left the task
@@ -439,6 +441,8 @@ export async function reconcileSessionStates(host: RuntimeHost): Promise<void> {
 				: update.where("state_changed_at", "=", row.state_changed_at);
 		const res = await update.executeTakeFirst();
 		if (res.numUpdatedRows === 0n) continue;
+		// A run corrected from running to idle/awaiting after a restart is output the owner has not seen.
+		await recordTreeReply(host.db, row.id, row.state, desired.state);
 		const before = row.state === "awaiting" ? `awaiting/${row.waiting_kind ?? "?"}` : row.state;
 		const after = desired.state === "awaiting" ? `awaiting/${kind ?? "?"}` : desired.state;
 		console.log(`session state reconciled: ${row.id} ${before} -> ${after}`);

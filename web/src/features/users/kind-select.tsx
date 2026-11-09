@@ -1,6 +1,5 @@
 import type { User, UserKind } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
-import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUpdateUser } from "./api";
 
@@ -13,12 +12,7 @@ export function KindSelect({ user, self }: { user: User; self: boolean }) {
 			<Select
 				value={user.kind}
 				disabled={update.isPending || self}
-				onValueChange={(next) =>
-					update.mutate(
-						{ id: user.id, patch: { kind: next as UserKind } },
-						{ onSuccess: () => toast.success(t`User updated.`) },
-					)
-				}
+				onValueChange={(next) => update.mutate({ id: user.id, patch: { kind: next as UserKind } })}
 			>
 				<SelectTrigger aria-label={t`Kind of ${user.username}`} className="h-7 w-40">
 					<SelectValue>{(current: string | null) => (current === "admin" ? t`Administrator` : t`Member`)}</SelectValue>

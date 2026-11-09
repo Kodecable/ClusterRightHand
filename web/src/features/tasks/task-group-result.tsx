@@ -3,7 +3,6 @@ import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
-import { toast } from "sonner";
 import { ApprovalCard, DecisionView } from "@/components/approval-card";
 import { NodeTargetList } from "@/components/node-targets";
 import { StatusBadge, TaskStatusBadge } from "@/components/status-badge";
@@ -63,7 +62,6 @@ export function TaskGroupResult({
 	names: Map<string, string>;
 	onChanged?: () => void;
 }) {
-	const { t } = useLingui();
 	const currentUser = useAuth().user;
 	const lookups = useApprovalLookups();
 	const decide = useDecideApproval();
@@ -107,12 +105,7 @@ export function TaskGroupResult({
 					tokenNames={lookups.tokenNames}
 					busy={decide.isPending}
 					error={decide.error}
-					onDecide={(body) =>
-						decide.mutate(
-							{ kind: "task_group", id: taskGroup.id, body },
-							{ onSuccess: () => toast.success(t`Decision recorded.`) },
-						)
-					}
+					onDecide={(body) => decide.mutate({ kind: "task_group", id: taskGroup.id, body })}
 				/>
 			)}
 

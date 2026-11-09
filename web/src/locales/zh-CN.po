@@ -24,12 +24,12 @@ msgid " (replaced)"
 msgstr "（覆盖已有文件）"
 
 #: src/features/tasks/task-group-result.tsx
-msgid " (the batch was interrupted)"
-msgstr "（批量运行被中断）"
-
-#: src/features/tasks/task-group-result.tsx
 msgid " (the batch was cancelled)"
 msgstr "（批量运行已取消）"
+
+#: src/features/tasks/task-group-result.tsx
+msgid " (the batch was interrupted)"
+msgstr "（批量运行被中断）"
 
 #: src/components/task-result.tsx
 msgid ", {total} lines in all"
@@ -59,11 +59,6 @@ msgstr "{0, plural, one {# 字节} other {# 字节}}"
 msgid "{0, plural, one {# member} other {# members}}"
 msgstr "{0, plural, one {# 名成员} other {# 名成员}}"
 
-#. placeholder {0}: queued
-#: src/features/sessions/session-banner.tsx
-#~ msgid "{0, plural, one {# message queued} other {# messages queued}}"
-#~ msgstr "{0, plural, one {已排队 # 条消息} other {已排队 # 条消息}}"
-
 #. placeholder {0}: value.length
 #: src/components/node-group-picker.tsx
 msgid "{0, plural, one {# node group selected} other {# node groups selected}}"
@@ -88,11 +83,6 @@ msgstr "{0, plural, one {# 个目标} other {# 个目标}}"
 #: src/features/authorizations/pages.tsx
 msgid "{0, plural, one {# task} other {# tasks}}"
 msgstr "{0, plural, one {# 个任务} other {# 个任务}}"
-
-#. placeholder {0}: preview.data.length
-#: src/features/schedules/schedule-form.tsx
-#~ msgid "{0, plural, one {Next run:} other {Next runs:}}"
-#~ msgstr "{0, plural, one {下次运行：} other {后续运行：}}"
 
 #. placeholder {0}: result.replacements
 #: src/components/task-result.tsx
@@ -145,15 +135,6 @@ msgstr "{count, plural, one {# 项等待中} other {# 项等待中}}"
 #: src/features/sessions/composer-meta.tsx
 msgid "{exact} tokens in total"
 msgstr "共 {exact} 个 token"
-
-#. placeholder {0}: item.group.nodeIds.length
-#: src/components/approval-card.tsx
-#~ msgid "{groupKind} on {0} node(s): {nodeList}"
-#~ msgstr "{groupKind}，涉及 {0} 个节点：{nodeList}"
-
-#: src/components/approval-card.tsx
-#~ msgid "{groupKind} on {groupTargets}"
-#~ msgstr "{groupKind}，目标：{groupTargets}"
 
 #: src/features/settings/model-dialog.tsx
 msgid "{level} display name"
@@ -240,14 +221,6 @@ msgid "A duration such as 5m or 24h. Empty means no limit."
 msgstr "例如 5m 或 24h 的时长。留空表示不限制。"
 
 #: src/features/nodes/access-grants.tsx
-#~ msgid "A granted user can see the nodes in this node group and run tasks on them."
-#~ msgstr "获得访问权限的用户可以查看此节点组中的节点，并在这些节点上执行任务。"
-
-#: src/features/nodes/access-grants.tsx
-#~ msgid "A granted user can see this node and run tasks on it."
-#~ msgstr "获得访问权限的用户可以查看此节点并在其上执行任务。"
-
-#: src/features/nodes/access-grants.tsx
 msgid "A granted user or user group can see the nodes in this node group and run tasks on them."
 msgstr "获得访问权限的用户或用户组可以查看此节点组中的节点，并在这些节点上执行任务。"
 
@@ -275,18 +248,6 @@ msgstr "填写映射值后才可使用该档。"
 #: src/features/tokens/create-token-dialog.tsx
 msgid "A name is required."
 msgstr "需要填写名称。"
-
-#: src/features/sessions/composer-footer.tsx
-#~ msgid "A new model applies from the next turn."
-#~ msgstr "新模型从下一轮开始生效。"
-
-#: src/features/sessions/composer-footer.tsx
-#~ msgid "A new preset applies to the next tool call; waiting approvals are decided again."
-#~ msgstr "新预设从下一次工具调用开始生效；等待中的审批会重新判定。"
-
-#: src/features/credentials/pages.tsx
-#~ msgid "A node authorizes a privileged task signed by one of these credentials when its privileged.toml trusts the key."
-#~ msgstr "当节点的 privileged.toml 信任相应密钥时，节点会授权由这些凭据之一签名的特权任务。"
 
 #: src/features/nodes/crhs-key-panel.tsx
 msgid "A node authorizes privileged tasks signed by this key when its privileged.toml trusts the key below."
@@ -332,10 +293,6 @@ msgstr "必须填写公钥。"
 msgid "A schedule creates a new session at each trigger and submits a fixed prompt. Every run acts for its owner through the same rules, approvals and limits as any other session."
 msgstr "计划任务在每次触发时创建一个新会话并提交固定的提示词。每次运行都以所有者身份，经过与其他会话相同的规则、审批和限额。"
 
-#: src/features/schedules/create-schedule-dialog.tsx
-#~ msgid "A schedule creates a new session at every trigger and submits a fixed prompt."
-#~ msgstr "计划任务在每次触发时创建一个新会话并提交固定的提示词。"
-
 #: src/features/schedules/pages.tsx
 msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
 msgstr "计划运行走正常的授权路径：特权任务需要所有者签名。若要让固定命令无人值守地运行，请在"
@@ -370,16 +327,8 @@ msgid "Access"
 msgstr "访问权限"
 
 #: src/features/nodes/access-grants.tsx
-msgid "Access granted."
-msgstr "已授予访问权限。"
-
-#: src/features/nodes/access-grants.tsx
 msgid "Access grants for {targetName}"
 msgstr "{targetName} 的访问权限"
-
-#: src/features/nodes/access-grants.tsx
-msgid "Access removed."
-msgstr "访问权限已移除。"
 
 #: src/features/tasks/output.ts
 msgid "Access to the node was revoked before the task was dispatched."
@@ -388,10 +337,6 @@ msgstr "节点访问权限已在任务下发前被撤销。"
 #: src/app/shell/user-menu.tsx
 msgid "Account menu"
 msgstr "账户菜单"
-
-#: src/features/users/pages.tsx
-#~ msgid "Accounts that can sign in to the console; groups carry node access."
-#~ msgstr "可以登录控制台的账号；组决定节点访问权限。"
 
 #: src/features/audit/pages.tsx
 msgid "Action"
@@ -561,11 +506,6 @@ msgstr "全部内置模型"
 msgid "All host keys are confirmed."
 msgstr "所有主机密钥都已确认。"
 
-#: src/components/node-targets.tsx
-#: src/features/batch/pages.tsx
-#~ msgid "All my nodes"
-#~ msgstr "我的全部节点"
-
 #: src/features/node-groups/pages.tsx
 msgid "All node groups"
 msgstr "全部节点组"
@@ -621,10 +561,6 @@ msgstr "节点组由管理员创建。"
 msgid "An administrator grants access to nodes."
 msgstr "节点访问权限由管理员授予。"
 
-#: src/features/authorizations/pages.tsx
-#~ msgid "An authorization is valid on the nodes its payload names until its deadline, until it is used up (one-shot authorizations) or until it is revoked here. Revocations reach a node that is offline after its next connection."
-#~ msgstr "授权在其载荷指定的节点上有效，直到截止时间、被用完（一次性授权）或在这里被吊销。离线的节点会在下次连接后收到吊销信息。"
-
 #: src/features/auth/api.ts
 msgid "Another sign-in from this address is already in progress. Try again."
 msgstr "该地址已有登录请求正在进行，请稍后再试。"
@@ -672,10 +608,6 @@ msgstr "API 令牌"
 #: src/features/tokens/pages.tsx
 msgid "API tokens"
 msgstr "API 令牌"
-
-#: src/features/tokens/pages.tsx
-#~ msgid "API tokens let tools such as Claude Code use your nodes through MCP. Each token has its own rules; what they do not allow waits for your approval."
-#~ msgstr "API 令牌让 Claude Code 等工具通过 MCP 使用你的节点。每个令牌有自己的规则；规则不允许的操作会等待你审批。"
 
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/ssh-credentials/pages.tsx
@@ -738,10 +670,6 @@ msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行，/compact �
 msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
 msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行。"
 
-#: src/features/schedules/scheduleForm.ts
-#~ msgid "Ask: every approval waits for you, while the next trigger still ends the run. Unattended runs will be stopped at the next fire if you are not there."
-#~ msgstr "Ask：每次审批都要等你，而下一次触发仍会结束本次运行。如果你不在，无人值守的运行会在下次触发时被停止。"
-
 #: src/features/tokens/rule-preset-help.tsx
 msgid "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
 msgstr "Ask：普通读取直接执行，其他操作（包括所有特权任务）都等待你审批。"
@@ -790,10 +718,6 @@ msgstr "授权 ID"
 msgid "Authorization payload"
 msgstr "授权载荷"
 
-#: src/features/authorizations/pages.tsx
-#~ msgid "Authorization revoked."
-#~ msgstr "授权已吊销。"
-
 #: src/components/authorization-card.tsx
 msgid "Authorization submitted."
 msgstr "授权已提交。"
@@ -819,14 +743,6 @@ msgstr "自动表示由 pi-ai 根据 Base URL 判断。Responses 固定发送 re
 #: src/features/settings/model-presets.tsx
 msgid "Auto review"
 msgstr "自动复核"
-
-#: src/features/schedules/scheduleForm.ts
-#~ msgid "Auto Review: approvals first go to a review model; anything risky still waits for you, with the same caveat as Ask."
-#~ msgstr "Auto Review：审批先交给复核模型；有风险的操作仍会等你，注意事项与 Ask 相同。"
-
-#: src/features/tokens/rule-preset-help.tsx
-#~ msgid "Auto Review: approvals first go to the review model; anything risky still waits for your approval."
-#~ msgstr "Auto Review：审批先交给复核模型；有风险的操作仍会等待你审批。"
 
 #: src/components/status-badge.tsx
 msgid "Awaiting"
@@ -869,10 +785,6 @@ msgstr "批量"
 msgid "Batch run"
 msgstr "批量运行"
 
-#: src/features/batch/pages.tsx
-msgid "Batch started."
-msgstr "批量运行已开始。"
-
 #: src/features/settings/provider-dialog.tsx
 msgid "Body fields"
 msgstr "请求体字段"
@@ -880,15 +792,6 @@ msgstr "请求体字段"
 #: src/components/quota-card.tsx
 msgid "Budget"
 msgstr "预算"
-
-#. placeholder {0}: formatTokens(remaining, locale)
-#: src/features/sessions/composer-footer.tsx
-#~ msgid "Budget {0}"
-#~ msgstr "预算 {0}"
-
-#: src/features/sessions/composer-footer.tsx
-#~ msgid "Budget 0"
-#~ msgstr "预算 0"
 
 #: src/components/quota-card.tsx
 msgid "Budget used up · {usedText} spent"
@@ -919,15 +822,17 @@ msgstr "取消"
 msgid "Cancel task"
 msgstr "取消任务"
 
+#: src/features/nodes/run-panel.tsx
+#: src/features/tasks/task-page.tsx
+msgid "Cancellation requested."
+msgstr "已请求取消任务"
+
 #: src/components/status-badge.tsx
 #: src/components/task-result.tsx
 #: src/features/sessions/tool-card.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Cancelled"
 msgstr "已取消"
-
-#: src/features/schedules/schedule-form.tsx
-#~ msgid "Catch up a missed trigger after downtime"
-#~ msgstr "停机后补上错过的触发"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Catch up a missed trigger immediately"
@@ -1067,14 +972,6 @@ msgstr "集群"
 msgid "Collapse subagents"
 msgstr "收起子会话"
 
-#: src/features/nodes/ssh-wizard.tsx
-#~ msgid "Comma separated; they decide who may see and operate the node."
-#~ msgstr "用逗号分隔；它们决定谁可以查看和操作该节点。"
-
-#: src/features/nodes/ssh-node-section.tsx
-#~ msgid "Comma separated; they decide who may see and operate this node."
-#~ msgstr "用逗号分隔；它们决定谁可以查看和操作此节点。"
-
 #: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
 msgid "Command"
@@ -1103,10 +1000,6 @@ msgstr "压缩失败。"
 #: src/features/sessions/new-session-page.tsx
 msgid "Compaction is not available before the session exists."
 msgstr "会话创建前不能压缩上下文。"
-
-#: src/features/sessions/composer.tsx
-#~ msgid "Compaction requested: older messages will be summarized in the background. A short conversation has nothing to summarize yet."
-#~ msgstr "已请求压缩：较早的消息会在后台生成摘要。对话较短时暂时没有可压缩的内容。"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Compare it with the output of <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> on that host (the server picks one of its keys, usually ED25519). Only confirm if one of them matches."
@@ -1251,10 +1144,6 @@ msgstr "可共同签名"
 msgid "cosignature unavailable"
 msgstr "无法共同签名"
 
-#: src/features/schedules/schedule-form.tsx
-#~ msgid "Counts model output tokens, not input. Empty means unlimited."
-#~ msgstr "只统计模型输出 token，不统计输入。留空表示不限制。"
-
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/ssh-credentials/pages.tsx
 msgid "Create"
@@ -1263,10 +1152,6 @@ msgstr "创建"
 #: src/features/node-groups/pages.tsx
 msgid "Create a node group to run the same task on several nodes."
 msgstr "创建节点组，即可在多台节点上运行同一任务。"
-
-#: src/features/schedules/pages.tsx
-#~ msgid "Create a schedule to run a fixed prompt on a cron expression."
-#~ msgstr "创建计划任务，按 cron 表达式运行固定提示词。"
 
 #: src/features/tokens/pages.tsx
 msgid "Create a token to connect an MCP client."
@@ -1284,10 +1169,6 @@ msgstr "创建 API 令牌"
 msgid "Create credential"
 msgstr "创建凭据"
 
-#: src/features/users/groups-section.tsx
-#~ msgid "Create group"
-#~ msgstr "创建组"
-
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Create node"
 msgstr "创建节点"
@@ -1304,10 +1185,6 @@ msgstr "创建一个，为 crhs 提供用于 SSH 节点和跳板机的密钥。"
 #: src/features/schedules/create-schedule-dialog.tsx
 msgid "Create schedule"
 msgstr "创建计划任务"
-
-#: src/features/sessions/new-session-dialog.tsx
-#~ msgid "Create session"
-#~ msgstr "创建会话"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Create SSH credential"
@@ -1339,14 +1216,6 @@ msgstr "创建时间"
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Credential"
 msgstr "凭据"
-
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Credential created."
-msgstr "凭据已创建。"
-
-#: src/features/credentials/pages.tsx
-msgid "Credential deleted."
-msgstr "凭据已删除。"
 
 #. placeholder {0}: details.credential.name ?? details.credential.id
 #: src/features/nodes/ssh-node-section.tsx
@@ -1417,13 +1286,6 @@ msgstr "决定者"
 msgid "Decision"
 msgstr "决定"
 
-#: src/features/approvals/pages.tsx
-#: src/features/sessions/session-waits.tsx
-#: src/features/tasks/task-group-result.tsx
-#: src/features/tasks/task-page.tsx
-msgid "Decision recorded."
-msgstr "决定已记录。"
-
 #: src/components/approval-card.tsx
 msgid "default"
 msgstr "默认"
@@ -1439,10 +1301,6 @@ msgstr "默认提示词"
 #: src/features/settings/model-presets.tsx
 msgid "Default prompt and protocol"
 msgstr "默认提示词与协议说明"
-
-#: src/features/schedules/schedule-form.tsx
-#~ msgid "Defaults to this browser's timezone."
-#~ msgstr "默认使用当前浏览器的时区。"
 
 #: src/features/credentials/pages.tsx
 #: src/features/node-groups/pages.tsx
@@ -1471,20 +1329,6 @@ msgstr "删除 {0}？"
 #: src/features/ssh-credentials/pages.tsx
 msgid "Delete credential"
 msgstr "删除凭据"
-
-#: src/features/users/groups-section.tsx
-#~ msgid "Delete group"
-#~ msgstr "删除组"
-
-#. placeholder {0}: group.name
-#: src/features/users/groups-section.tsx
-#~ msgid "Delete group {0}"
-#~ msgstr "删除组 {0}"
-
-#. placeholder {0}: group.name
-#: src/features/users/groups-section.tsx
-#~ msgid "Delete group {0}?"
-#~ msgstr "删除组 {0}？"
 
 #: src/features/node-groups/pages.tsx
 msgid "Delete node group"
@@ -1651,14 +1495,6 @@ msgstr "规则必须以 exec、file.read 或 file.write 开头。"
 msgid "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes (names or ids of nodes and node groups, or _all), and exact or prefix."
 msgstr "每条规则：action（allow、deny、require-approval）、可选 method（exec、file.read、file.write）、nodes（节点和节点组的名称或 ID，或 _all），以及 exact 或 prefix。"
 
-#: src/features/tokens/rules-dialog.tsx
-#~ msgid "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes, and exact or prefix."
-#~ msgstr "每条规则：action（allow、deny、require-approval）、可选 method（exec、file.read、file.write）、nodes，以及 exact 或 prefix。"
-
-#: src/features/settings/review-model-card.tsx
-#~ msgid "Each session's own model"
-#~ msgstr "每个会话自己的模型"
-
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Each token has its own rules; what they do not allow waits for your approval."
 msgstr "每个令牌有自己的规则；规则不允许的操作会等待你审批。"
@@ -1672,10 +1508,6 @@ msgstr "编辑"
 #: src/features/settings/pages.tsx
 msgid "Edit {0}"
 msgstr "编辑 {0}"
-
-#: src/features/nodes/ssh-node-section.tsx
-#~ msgid "Edit groups"
-#~ msgstr "编辑组"
 
 #: src/features/node-groups/pages.tsx
 msgid "Edit members"
@@ -1732,10 +1564,6 @@ msgstr "已完成"
 msgid "Ended in {duration}"
 msgstr "已完成，用时 {duration}"
 
-#: src/features/nodes/pages.tsx
-#~ msgid "Enrolled crha clients and SSH targets. Pending nodes need their key fingerprint checked before they can be used."
-#~ msgstr "已注册的 crha 客户端和 SSH 目标。待批准节点需要先核对密钥指纹才能使用。"
-
 #: src/features/nodes/add-node-dialog.tsx
 msgid "Enrollment command"
 msgstr "注册命令"
@@ -1788,10 +1616,6 @@ msgstr "事件 {0}"
 msgid "Event detail"
 msgstr "事件详情"
 
-#: src/features/audit/pages.tsx
-#~ msgid "Every action that changes the cluster, newest first. The hash chain makes a removed or reordered event detectable."
-#~ msgstr "所有改变集群的操作，最新的在前。哈希链可以发现被删除或重排的事件。"
-
 #: src/features/authorizations/pages.tsx
 msgid "Every authorization carries a deadline. It is valid on the nodes its payload names until that deadline or until it is used up (one-shot authorizations)."
 msgstr "每个授权都带有截止时间。它在载荷指定的节点上有效，直到该截止时间或被用完（一次性授权）。"
@@ -1815,22 +1639,6 @@ msgstr "每个模型都需要 ID。"
 #: src/features/batch/pages.tsx
 msgid "Every node you can access, including nodes added later."
 msgstr "你可以访问的每个节点，包括之后添加的节点。"
-
-#: src/features/batch/pages.tsx
-#~ msgid "Every node you can operate, including nodes added later."
-#~ msgstr "你能操作的所有节点，包括之后添加的节点。"
-
-#: src/features/schedules/schedule-form.tsx
-#~ msgid "Every run starts a fresh session with this prompt."
-#~ msgstr "每次运行都会用此提示词启动一个新会话。"
-
-#: src/features/tasks/pages.tsx
-#~ msgid "Every task on the nodes you can see, newest first. Requests waiting for you are handled on the Approvals page."
-#~ msgstr "你能看到的所有节点上的任务，最新在前。等待你处理的请求在审批页。"
-
-#: src/features/approvals/pages.tsx
-#~ msgid "Everything that waits for your approval, signature or quota decision."
-#~ msgstr "所有等待你审批、签名或配额决定的事项。"
 
 #: src/components/approval-card.tsx
 msgid "exact"
@@ -1961,32 +1769,6 @@ msgstr "被授权方"
 #: src/components/task-result.tsx
 msgid "Group"
 msgstr "用户组"
-
-#: src/features/users/groups-section.tsx
-#~ msgid "Group created."
-#~ msgstr "组已创建。"
-
-#: src/features/users/groups-section.tsx
-#~ msgid "Group deleted."
-#~ msgstr "组已删除。"
-
-#: src/features/users/groups-section.tsx
-#~ msgid "Group name"
-#~ msgstr "组名"
-
-#: src/features/nodes/pages.tsx
-#: src/features/nodes/ssh-node-section.tsx
-#: src/features/nodes/ssh-wizard.tsx
-#~ msgid "Groups"
-#~ msgstr "组"
-
-#: src/features/batch/pages.tsx
-#~ msgid "Groups or raw targets (comma separated, e.g. group:web, node-1)"
-#~ msgstr "分组或原始目标（逗号分隔，例如 group:web, node-1）"
-
-#: src/features/nodes/ssh-node-section.tsx
-#~ msgid "Groups saved."
-#~ msgstr "组已保存。"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Header"
@@ -2307,14 +2089,6 @@ msgstr "中"
 msgid "Member"
 msgstr "成员"
 
-#: src/features/users/user-groups-section.tsx
-msgid "Member added."
-msgstr "成员已添加。"
-
-#: src/features/users/user-groups-section.tsx
-msgid "Member removed."
-msgstr "成员已移除。"
-
 #: src/features/node-groups/pages.tsx
 msgid "Members"
 msgstr "成员"
@@ -2439,7 +2213,6 @@ msgid "New schedule"
 msgstr "新建计划任务"
 
 #: src/features/sessions/session-list.tsx
-#: src/features/sessions/sessions-index-page.tsx
 msgid "New session"
 msgstr "新会话"
 
@@ -2468,14 +2241,6 @@ msgid "Next run"
 msgstr "下次运行"
 
 #: src/features/schedules/schedule-form.tsx
-#~ msgid "Next runs"
-#~ msgstr "后续运行"
-
-#: src/features/schedules/schedule-form.tsx
-#~ msgid "Next runs: –"
-#~ msgstr "后续运行：–"
-
-#: src/features/schedules/schedule-form.tsx
 msgid "Nightly check"
 msgstr "夜间检查"
 
@@ -2495,10 +2260,6 @@ msgstr "无访问权限。"
 #: src/features/batch/pages.tsx
 msgid "No active nodes you can access."
 msgstr "没有你可以访问的活跃节点。"
-
-#: src/features/batch/pages.tsx
-#~ msgid "No active nodes you can operate."
-#~ msgstr "没有你可以操作的活跃节点。"
 
 #: src/features/tokens/pages.tsx
 msgid "No API tokens yet"
@@ -2523,10 +2284,6 @@ msgstr "还没有凭据"
 #: src/features/audit/pages.tsx
 msgid "No events"
 msgstr "没有事件"
-
-#: src/features/users/groups-section.tsx
-#~ msgid "No groups yet."
-#~ msgstr "还没有组。"
 
 #: src/features/node-groups/pages.tsx
 #: src/features/users/user-groups-section.tsx
@@ -2557,10 +2314,6 @@ msgstr "尚未配置模型，计划任务无法运行。"
 #: src/features/sessions/session-list.tsx
 msgid "No models are configured, so sessions cannot start."
 msgstr "尚未配置模型，会话无法启动。"
-
-#: src/features/sessions/new-session-dialog.tsx
-#~ msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
-#~ msgstr "尚未配置模型，会话无法启动。请让管理员配置一个。"
 
 #: src/features/node-groups/pages.tsx
 msgid "No node groups yet"
@@ -2613,10 +2366,6 @@ msgstr "还没有计划任务"
 #: src/features/sessions/session-list.tsx
 msgid "No session matches"
 msgstr "没有匹配的会话"
-
-#: src/features/sessions/sessions-index-page.tsx
-msgid "No session selected"
-msgstr "未选择会话"
 
 #: src/features/sessions/session-list.tsx
 msgid "No sessions yet"
@@ -2673,42 +2422,18 @@ msgstr "节点"
 msgid "Node access"
 msgstr "节点访问权限"
 
-#: src/features/nodes/pending-node-dialog.tsx
-msgid "Node approved."
-msgstr "节点已批准。"
-
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Node created."
-msgstr "节点已创建。"
-
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/trust-warnings.tsx
 msgid "Node group"
 msgstr "节点组"
-
-#: src/features/node-groups/dialogs.tsx
-msgid "Node group created."
-msgstr "节点组已创建。"
-
-#: src/features/node-groups/pages.tsx
-msgid "Node group deleted."
-msgstr "节点组已删除。"
 
 #: src/features/node-groups/pages.tsx
 msgid "Node group id"
 msgstr "节点组 ID"
 
 #: src/features/node-groups/dialogs.tsx
-msgid "Node group members saved."
-msgstr "节点组成员已保存。"
-
-#: src/features/node-groups/dialogs.tsx
 msgid "Node group name"
 msgstr "节点组名称"
-
-#: src/features/node-groups/dialogs.tsx
-msgid "Node group renamed."
-msgstr "节点组已重命名。"
 
 #: src/app/shell/nav.ts
 #: src/components/node-group-picker.tsx
@@ -2722,10 +2447,6 @@ msgstr "节点组"
 #: src/features/nodes/node-groups-dialog.tsx
 msgid "Node groups of {0}"
 msgstr "{0} 的节点组"
-
-#: src/features/nodes/node-groups-dialog.tsx
-msgid "Node groups saved."
-msgstr "节点组已保存。"
 
 #: src/features/node-groups/pages.tsx
 msgid "Node groups select several nodes at once, for rules, batch runs and schedules. A node can be in any number of node groups."
@@ -2745,18 +2466,6 @@ msgstr "节点密钥指纹：<0>{0}</0>"
 msgid "Node name"
 msgstr "节点名称"
 
-#: src/features/nodes/pending-node-dialog.tsx
-msgid "Node rejected."
-msgstr "节点已拒绝。"
-
-#: src/features/nodes/rename-node-button.tsx
-msgid "Node renamed."
-msgstr "节点已重命名。"
-
-#: src/features/nodes/node-shares.tsx
-#~ msgid "Node shares"
-#~ msgstr "节点共享"
-
 #: src/features/nodes/node-tasks.tsx
 msgid "Node tasks"
 msgstr "节点任务"
@@ -2770,10 +2479,6 @@ msgstr "节点任务"
 #: src/features/nodes/pages.tsx
 msgid "Nodes"
 msgstr "节点"
-
-#: src/features/authorizations/pages.tsx
-#~ msgid "Nodes that trust it drop its permissions. This cannot be undone; the authorization stays listed as revoked."
-#~ msgstr "信任该授权的节点会撤销其权限。此操作无法撤销；授权会以已吊销状态保留在列表中。"
 
 #: src/features/credentials/pages.tsx
 msgid "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
@@ -2864,10 +2569,6 @@ msgid "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-
 msgstr "一行 authorized_keys 内容：ssh-ed25519、sk-ssh-ed25519@openssh.com、ecdsa-sha2-nistp256 或 sk-ecdsa-sha2-nistp256@openssh.com。"
 
 #: src/features/approvals/pages.tsx
-#~ msgid "One decision applies to every node in the group."
-#~ msgstr "一个决定会应用到组内所有节点。"
-
-#: src/features/approvals/pages.tsx
 msgid "One decision applies to every node in the task group."
 msgstr "一个决定会应用到任务组内所有节点。"
 
@@ -2921,10 +2622,6 @@ msgstr "打开任务组页"
 #: src/features/sessions/session-waits.tsx
 msgid "Open the task page"
 msgstr "打开任务页"
-
-#: src/features/nodes/node-shares.tsx
-#~ msgid "Operate"
-#~ msgstr "操作"
 
 #: src/app/shell/app-sidebar.tsx
 msgid "Ops console"
@@ -3032,10 +2729,6 @@ msgid "Passkey"
 msgstr "Passkey"
 
 #: src/features/credentials/pages.tsx
-msgid "Passkey registered."
-msgstr "Passkey 已注册。"
-
-#: src/features/credentials/pages.tsx
 msgid "Passkey registration was cancelled."
 msgstr "Passkey 注册已取消。"
 
@@ -3049,8 +2742,8 @@ msgid "Password"
 msgstr "密码"
 
 #: src/features/auth/change-password-dialog.tsx
-msgid "Password changed."
-msgstr "密码已修改。"
+msgid "Password changed. Other sign-ins were signed out."
+msgstr "密码已修改，其他登录已退出。"
 
 #: src/features/users/reset-password-dialog.tsx
 msgid "Password set."
@@ -3094,10 +2787,6 @@ msgstr "Pi 内置"
 msgid "Pi built-in providers and custom endpoints; their keys are never shown back."
 msgstr "Pi 内置提供方和自定义端点；密钥不会回显。"
 
-#: src/features/sessions/sessions-index-page.tsx
-msgid "Pick a session from the list, or start a new one."
-msgstr "从列表中选择一个会话，或新建一个。"
-
 #: src/features/nodes/ssh-node-section.tsx
 msgid "Pinned host key"
 msgstr "已固定的主机密钥"
@@ -3117,10 +2806,6 @@ msgstr "前缀匹配"
 #: src/features/sessions/session-waits.tsx
 msgid "Preparing the payload to sign…"
 msgstr "正在准备待签名的载荷…"
-
-#: src/features/settings/model-presets.tsx
-msgid "Preset saved."
-msgstr "预设已保存。"
 
 #: src/components/approval-card.tsx
 #: src/components/task-form-fields.tsx
@@ -3159,17 +2844,9 @@ msgstr "协议"
 msgid "Provider"
 msgstr "提供方"
 
-#: src/features/settings/pages.tsx
-msgid "Provider deleted."
-msgstr "提供方已删除。"
-
 #: src/features/settings/provider-dialog.tsx
 msgid "Provider id"
 msgstr "提供方 ID"
-
-#: src/features/settings/provider-dialog.tsx
-msgid "Provider saved."
-msgstr "提供方已保存。"
 
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/crhs-key-panel.tsx
@@ -3186,16 +2863,6 @@ msgstr "排队中"
 #: src/components/status-badge.tsx
 msgid "Queued"
 msgstr "排队中"
-
-#: src/features/approvals/pages.tsx
-#: src/features/sessions/session-waits.tsx
-msgid "Quota decision recorded."
-msgstr "配额决定已记录。"
-
-#: src/features/sessions/composer-footer.tsx
-#: src/features/sessions/budget-dialog.tsx
-msgid "Quota saved."
-msgstr "配额已保存。"
 
 #: src/components/approval-card.tsx
 msgid "Reason"
@@ -3266,11 +2933,6 @@ msgstr "从 {1} 中移除 {0}"
 #: src/features/nodes/access-grants.tsx
 msgid "Remove access"
 msgstr "移除访问权限"
-
-#. placeholder {0}: entry.granteeName
-#: src/features/nodes/node-shares.tsx
-#~ msgid "Remove access for {0}"
-#~ msgstr "移除 {0} 的访问权限"
 
 #: src/features/nodes/access-grants.tsx
 msgid "Remove access for {name}"
@@ -3395,11 +3057,6 @@ msgstr "Responses"
 msgid "Result"
 msgstr "结果"
 
-#. placeholder {0}: retry
-#: src/features/sessions/session-banner.tsx
-#~ msgid "Retrying after an error: {0}"
-#~ msgstr "出错后正在重试：{0}"
-
 #: src/features/sessions/session-banner.tsx
 msgid "Retrying after an error: {retry}"
 msgstr "出错后正在重试：{retry}"
@@ -3412,26 +3069,9 @@ msgstr "可复用"
 msgid "Review and approve"
 msgstr "查看并批准"
 
-#: src/features/settings/review-model-card.tsx
-#~ msgid "Review model"
-#~ msgstr "复核模型"
-
-#: src/features/settings/review-model-card.tsx
-#~ msgid "Review model saved."
-#~ msgstr "复核模型已保存。"
-
 #: src/features/tokens/pages.tsx
 msgid "Revoke"
 msgstr "吊销"
-
-#: src/features/authorizations/pages.tsx
-#~ msgid "Revoke authorization"
-#~ msgstr "吊销授权"
-
-#. placeholder {0}: revoking.id.slice(0, 12)
-#: src/features/authorizations/pages.tsx
-#~ msgid "Revoke authorization {0}…?"
-#~ msgstr "吊销授权 {0}…？"
 
 #: src/features/tokens/pages.tsx
 msgid "Revoke token"
@@ -3467,10 +3107,6 @@ msgstr "规则链评估"
 msgid "Rule preset"
 msgstr "规则预设"
 
-#: src/features/tokens/rules-dialog.tsx
-msgid "Rule preset saved."
-msgstr "规则预设已保存。"
-
 #. placeholder {0}: rulePresetLabel(state.rulePreset)
 #: src/features/sessions/composer-footer.tsx
 msgid "Rule preset: {0}"
@@ -3491,18 +3127,10 @@ msgstr "规则"
 msgid "Rules of {0}"
 msgstr "{0} 的规则"
 
-#: src/features/tokens/rules-dialog.tsx
-msgid "Rules saved."
-msgstr "规则已保存。"
-
 #. placeholder {0}: state.ruleCount
 #: src/features/sessions/composer-footer.tsx
 msgid "Rules: {0}"
 msgstr "规则：{0}"
-
-#: src/features/sessions/composer-footer.tsx
-#~ msgid "Rules: {ruleCount}"
-#~ msgstr "规则：{ruleCount}"
 
 #: src/features/nodes/run-panel.tsx
 msgid "Run"
@@ -3537,14 +3165,6 @@ msgstr "立即运行"
 msgid "Run on all accessible nodes"
 msgstr "在所有可访问的节点上运行"
 
-#: src/features/batch/pages.tsx
-#~ msgid "Run on all my nodes"
-#~ msgstr "在我的全部节点上运行"
-
-#: src/features/batch/pages.tsx
-#~ msgid "Run one task on many nodes and follow each node's result."
-#~ msgstr "在多个节点上运行同一个任务，并跟踪每个节点的结果。"
-
 #: src/features/tasks/pages.tsx
 msgid "Run something on a node, or use the batch page."
 msgstr "在节点上运行点什么，或使用批量页。"
@@ -3562,6 +3182,7 @@ msgid "running"
 msgstr "运行中"
 
 #: src/components/status-badge.tsx
+#: src/features/sessions/session-list-item.tsx
 #: src/features/sessions/tool-card.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Running"
@@ -3570,10 +3191,6 @@ msgstr "运行中"
 #: src/features/auth/login-page.tsx
 msgid "Running a security check…"
 msgstr "正在进行安全验证…"
-
-#: src/features/schedules/schedule-form.tsx
-#~ msgid "Runs once when crhs starts again if a trigger was missed while it was down."
-#~ msgstr "如果停机期间错过了触发，crhs 重启后会补运行一次。"
 
 #: src/components/dialogs.tsx
 #: src/features/nodes/rename-node-button.tsx
@@ -3618,14 +3235,6 @@ msgstr "保存计划任务"
 msgid "Schedule"
 msgstr "计划任务"
 
-#: src/features/schedules/create-schedule-dialog.tsx
-msgid "Schedule created."
-msgstr "计划任务已创建。"
-
-#: src/features/schedules/pages.tsx
-msgid "Schedule deleted."
-msgstr "计划任务已删除。"
-
 #: src/features/schedules/pages.tsx
 msgid "Schedule form"
 msgstr "计划任务表单"
@@ -3633,10 +3242,6 @@ msgstr "计划任务表单"
 #: src/features/schedules/run-history.tsx
 msgid "Schedule runs"
 msgstr "计划运行记录"
-
-#: src/features/schedules/pages.tsx
-msgid "Schedule saved."
-msgstr "计划任务已保存。"
 
 #: src/features/sessions/session-markers.tsx
 msgid "Scheduled"
@@ -3654,10 +3259,6 @@ msgstr "计划任务"
 #: src/features/sessions/session-list.tsx
 msgid "Search sessions"
 msgstr "搜索会话"
-
-#: src/features/auth/api.ts
-msgid "Sign-in could not be completed. Check your connection and try again."
-msgstr "无法完成登录，请检查网络后重试。"
 
 #: src/features/auth/api.ts
 msgid "Security verification failed. Try again."
@@ -3679,10 +3280,6 @@ msgstr "发送"
 #: src/features/tasks/task-page.tsx
 msgid "Session"
 msgstr "会话"
-
-#: src/features/sessions/new-session-dialog.tsx
-#~ msgid "Session created."
-#~ msgstr "会话已创建。"
 
 #. placeholder {0}: index + 1
 #: src/features/settings/provider-dialog.tsx
@@ -3713,10 +3310,6 @@ msgid "Sessions"
 msgstr "会话"
 
 #: src/features/settings/pages.tsx
-#~ msgid "Sessions use the models of the enabled providers below."
-#~ msgstr "会话使用下面已启用提供方的模型。"
-
-#: src/features/settings/pages.tsx
 msgid "set"
 msgstr "已设置"
 
@@ -3727,14 +3320,6 @@ msgstr "设置密码"
 #: src/features/sessions/session-header.tsx
 msgid "Share"
 msgstr "共享"
-
-#: src/features/nodes/node-shares.tsx
-#~ msgid "Share added."
-#~ msgstr "共享已添加。"
-
-#: src/features/sessions/share-dialog.tsx
-msgid "Share removed."
-msgstr "共享已移除。"
 
 #: src/features/sessions/session-markers.tsx
 msgid "Shared"
@@ -3749,16 +3334,8 @@ msgid "Shared with you by {sharedBy}"
 msgstr "{sharedBy} 共享给你"
 
 #: src/features/sessions/share-dialog.tsx
-msgid "Shared."
-msgstr "已共享。"
-
-#: src/features/sessions/share-dialog.tsx
 msgid "Shares"
 msgstr "共享"
-
-#: src/features/users/groups-section.tsx
-#~ msgid "Shares to this group are removed."
-#~ msgstr "共享给该组的权限会被移除。"
 
 #: src/features/users/user-groups-section.tsx
 msgid "Shares to this user group are removed."
@@ -3784,10 +3361,6 @@ msgstr "收起"
 msgid "Showing first {maxLines} of {lines} lines"
 msgstr "显示前 {maxLines} 行，共 {lines} 行"
 
-#: src/features/schedules/schedule-form.tsx
-#~ msgid "Shown in the schedule list; at most 200 characters."
-#~ msgstr "显示在计划任务列表中；最多 200 个字符。"
-
 #: src/features/auth/login-page.tsx
 msgid "Sign in"
 msgstr "登录"
@@ -3809,6 +3382,10 @@ msgstr "用 `crha grant`（或你的 Passkey）签署下方的载荷。签名绑
 msgid "Sign with Passkey “{0}”"
 msgstr "使用 Passkey“{0}”签名"
 
+#: src/features/auth/api.ts
+msgid "Sign-in could not be completed. Check your connection and try again."
+msgstr "无法完成登录，请检查网络后重试。"
+
 #: src/components/task-result.tsx
 msgid "Signal"
 msgstr "信号"
@@ -3825,10 +3402,6 @@ msgstr "已签名"
 #: src/app/shell/user-menu.tsx
 msgid "Signed in as {name}"
 msgstr "已登录为 {name}"
-
-#: src/app/shell/user-menu.tsx
-msgid "Signed out."
-msgstr "已退出登录。"
 
 #. placeholder {0}: passkey.name
 #: src/components/authorization-card.tsx
@@ -3884,10 +3457,6 @@ msgstr "SSH 凭据"
 msgid "SSH credential created"
 msgstr "SSH 凭据已创建"
 
-#: src/features/ssh-credentials/pages.tsx
-msgid "SSH credential deleted."
-msgstr "SSH 凭据已删除。"
-
 #: src/app/shell/nav.ts
 #: src/features/ssh-credentials/pages.tsx
 msgid "SSH credentials"
@@ -3896,10 +3465,6 @@ msgstr "SSH 凭据"
 #: src/features/credentials/pages.tsx
 msgid "SSH key"
 msgstr "SSH 密钥"
-
-#: src/features/credentials/pages.tsx
-msgid "SSH key added."
-msgstr "SSH 密钥已添加。"
 
 #: src/features/nodes/ssh-node-section.tsx
 msgid "SSH route"
@@ -3913,10 +3478,6 @@ msgstr "ssh-keygen 命令"
 #: src/features/settings/provider-dialog.tsx
 msgid "Standard"
 msgstr "标准"
-
-#: src/features/sessions/new-session-dialog.tsx
-#~ msgid "Start a conversation with the agent; it acts on your nodes through the same rules."
-#~ msgstr "与 agent 开始对话；它会按照与其它操作相同的规则在你的节点上执行。"
 
 #: src/components/task-form-fields.tsx
 msgid "Start line"
@@ -3974,10 +3535,6 @@ msgstr "停止任务"
 #: src/features/schedules/scheduleForm.ts
 msgid "stopped by the next run"
 msgstr "被下一次运行停止"
-
-#: src/features/sessions/composer.tsx
-msgid "Stopped the run."
-msgstr "已停止运行。"
 
 #: src/features/tasks/pages.tsx
 msgid "Subagent"
@@ -4048,11 +3605,6 @@ msgstr "任务"
 #: src/features/approvals/pages.tsx
 msgid "Task approvals"
 msgstr "任务审批"
-
-#: src/features/nodes/run-panel.tsx
-#: src/features/tasks/task-page.tsx
-msgid "Task cancelled."
-msgstr "任务已取消。"
 
 #: src/features/tasks/task-page.tsx
 msgid "Task details"
@@ -4139,10 +3691,6 @@ msgstr "限制必须是非负整数。"
 #: src/components/task-result.tsx
 msgid "The listing is truncated: the directory has more entries than are shown."
 msgstr "列表已截断：目录中的条目比显示的更多。"
-
-#: src/features/schedules/schedule-form.tsx
-#~ msgid "The model every new session of this schedule uses."
-#~ msgstr "此计划任务的每个新会话使用的模型。"
 
 #: src/features/settings/model-presets.tsx
 msgid "The model list could not be loaded."
@@ -4362,17 +3910,9 @@ msgstr "超时（秒）"
 msgid "Timezone"
 msgstr "时区"
 
-#: src/features/sessions/new-session-dialog.tsx
-#~ msgid "Title"
-#~ msgstr "标题"
-
 #: src/features/settings/model-presets.tsx
 msgid "Title generation"
 msgstr "标题生成"
-
-#: src/features/sessions/session-header.tsx
-msgid "Title saved."
-msgstr "标题已保存。"
 
 #: src/features/sessions/session-list.tsx
 msgid "Today"
@@ -4391,10 +3931,6 @@ msgstr "切换侧边栏"
 msgid "Token budget"
 msgstr "Token 预算"
 
-#: src/features/sessions/new-session-dialog.tsx
-#~ msgid "Token budget (empty = unlimited)"
-#~ msgstr "token 预算（留空 = 不限）"
-
 #: src/components/quota-card.tsx
 msgid "Token budget used up"
 msgstr "token 预算已用尽"
@@ -4403,17 +3939,9 @@ msgstr "token 预算已用尽"
 msgid "Token created"
 msgstr "令牌已创建"
 
-#: src/features/tokens/pages.tsx
-msgid "Token deleted."
-msgstr "令牌已删除。"
-
 #: src/features/approvals/pages.tsx
 msgid "Token quota used up"
 msgstr "Token 配额已用尽"
-
-#: src/features/tokens/pages.tsx
-msgid "Token revoked."
-msgstr "令牌已吊销。"
 
 #: src/components/quota-card.tsx
 msgid "Tokens to add"
@@ -4500,11 +4028,9 @@ msgstr "不限"
 msgid "Unprivileged identity"
 msgstr "非特权身份"
 
-#: src/features/sessions/children-bar.tsx
-#: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list-item.tsx
-#~ msgid "Untitled session"
-#~ msgstr "未命名会话"
+msgid "Unread"
+msgstr "未读"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Up"
@@ -4543,30 +4069,10 @@ msgstr "使用节点"
 msgid "User"
 msgstr "用户"
 
-#: src/features/users/new-user-dialog.tsx
-msgid "User created."
-msgstr "用户已创建。"
-
-#: src/features/users/pages.tsx
-msgid "User disabled."
-msgstr "用户已禁用。"
-
-#: src/features/users/pages.tsx
-msgid "User enabled."
-msgstr "用户已启用。"
-
 #: src/features/nodes/access-grants.tsx
 #: src/features/sessions/share-dialog.tsx
 msgid "User group"
 msgstr "用户组"
-
-#: src/features/users/user-groups-section.tsx
-msgid "User group created."
-msgstr "用户组已创建。"
-
-#: src/features/users/user-groups-section.tsx
-msgid "User group deleted."
-msgstr "用户组已删除。"
 
 #: src/features/users/user-groups-section.tsx
 msgid "User group name"
@@ -4575,10 +4081,6 @@ msgstr "用户组名称"
 #: src/features/users/user-groups-section.tsx
 msgid "User groups"
 msgstr "用户组"
-
-#: src/features/users/kind-select.tsx
-msgid "User updated."
-msgstr "用户已更新。"
 
 #: src/features/auth/login-page.tsx
 #: src/features/users/new-user-dialog.tsx
@@ -4615,10 +4117,6 @@ msgstr "等待审批"
 #: src/components/task-result.tsx
 msgid "Waiting for approval. {approvalLink}"
 msgstr "等待审批。{approvalLink}"
-
-#: src/features/tasks/pages.tsx
-#~ msgid "Waiting for me"
-#~ msgstr "等待我处理"
 
 #: src/features/tasks/task-group-result.tsx
 msgid "Waiting for the owner's authorization; the payload is being prepared."
@@ -4694,17 +4192,9 @@ msgstr "是"
 msgid "Yesterday"
 msgstr "昨天"
 
-#: src/features/sessions/new-session-dialog.tsx
-#~ msgid "Yolo lets the agent run anything on your nodes without asking."
-#~ msgstr "Yolo 允许 agent 不经询问就在你的节点上执行任何操作。"
-
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Yolo lets this token run anything on your nodes without asking."
 msgstr "Yolo 允许此令牌在你的节点上不经询问执行任何操作。"
-
-#: src/features/schedules/scheduleForm.ts
-#~ msgid "Yolo: everything runs without asking, including privileged tasks allowed by the node's own policy."
-#~ msgstr "Yolo：所有操作都不经询问直接运行，包括节点自身策略允许的特权任务。"
 
 #: src/features/tokens/rule-preset-help.tsx
 msgid "Yolo: everything runs without asking."
@@ -4717,10 +4207,6 @@ msgstr "不能修改自己的类型。"
 #: src/features/users/pages.tsx
 msgid "You cannot disable your own account."
 msgstr "不能停用自己的账号。"
-
-#: src/features/authorizations/pages.tsx
-#~ msgid "You have not signed any authorization yet."
-#~ msgstr "你还没有签发过任何授权。"
 
 #: src/features/sessions/composer.tsx
 msgid "You have view access: the owner can let you send messages by sharing it for chat."

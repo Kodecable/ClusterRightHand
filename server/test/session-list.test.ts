@@ -11,7 +11,7 @@ import {
 	sessionChildrenQuery,
 	sessionListQuery,
 } from "../src/agent/session-list.ts";
-import { setSessionState } from "../src/agent/session-state.ts";
+import { markSessionsIdle, setSessionState } from "../src/agent/session-state.ts";
 import { shareSession, unshareSession } from "../src/agent/sharing.ts";
 import { RequestDrain } from "../src/api/drain.ts";
 import { Audit } from "../src/audit/audit.ts";
@@ -303,6 +303,7 @@ describe("GET /api/sessions", () => {
 			shared: false,
 			state: "idle",
 			waitingKind: null,
+			unread: false,
 			updatedAt: expect.any(String) as string,
 		});
 		expect(mine.items[0]).not.toHaveProperty("rules");
@@ -644,6 +645,124 @@ describe("GET /api/sessions", () => {
 	});
 });
 
+describe("unread sessions and the read endpoint", () => {
+	const readRow = (sessionId: string) =>
+		db
+			.selectFrom("sessions")
+			.select(["state", "reply_at", "owner_read_at", "updated_at"])
+			.where("id", "=", sessionId)
+			.executeTakeFirstOrThrow();
+
+	it("sets reply_at when a tree leaves running for idle or awaiting", async () => {
+		const root = await seed(id.alice as string, "reply root", "2026-09-01T00:00:00.000Z");
+		const child = await seed(id.alice as string, "reply child", "2026-09-01T00:00:01.000Z", {
+			parentSessionId: root,
+			rootSessionId: root,
+		});
+		await db.updateTable("sessions").set({ state: "running" }).where("id", "in", [root, child]).execute();
+		// A child ending while the root still runs leaves the tree running: no reply yet.
+		await setSessionState(db, child, "idle", null);
+		expect((await readRow(root)).reply_at).toBeNull();
+		// The root ending is the tree's reply.
+		await setSessionState(db, root, "idle", null);
+		expect((await readRow(root)).reply_at).not.toBeNull();
+		// running -> awaiting is a reply too.
+		await db.updateTable("sessions").set({ state: "running", reply_at: null }).where("id", "=", root).execute();
+		await setSessionState(db, root, "awaiting", { kind: "approval", levelId: null });
+		expect((await readRow(root)).reply_at).not.toBeNull();
+	});
+
+	it("does not set reply_at when the tree was already awaiting", async () => {
+		const root = await seed(id.alice as string, "already awaiting root", "2026-09-01T01:00:00.000Z");
+		const child = await seed(id.alice as string, "already awaiting child", "2026-09-01T01:00:01.000Z", {
+			parentSessionId: root,
+			rootSessionId: root,
+		});
+		await db
+			.updateTable("sessions")
+			.set({ state: "awaiting", waiting_kind: "approval" })
+			.where("id", "=", child)
+			.execute();
+		await db.updateTable("sessions").set({ state: "running" }).where("id", "=", root).execute();
+		await setSessionState(db, root, "idle", null);
+		expect((await readRow(root)).reply_at).toBeNull();
+		// A second awaiting session does not make the running -> awaiting of another one a fresh reply.
+		await db.updateTable("sessions").set({ state: "running" }).where("id", "=", root).execute();
+		await setSessionState(db, root, "awaiting", { kind: "approval", levelId: null });
+		expect((await readRow(root)).reply_at).toBeNull();
+	});
+
+	it("records the reply when markSessionsIdle ends a running tree", async () => {
+		const root = await seed(id.alice as string, "aborted reply", "2026-09-01T02:00:00.000Z");
+		await db.updateTable("sessions").set({ state: "running" }).where("id", "=", root).execute();
+		await markSessionsIdle(db, [root]);
+		expect((await readRow(root)).reply_at).not.toBeNull();
+	});
+
+	it("computes unread for the owner only", async () => {
+		const root = await seed(id.alice as string, "unread root", "2026-09-02T00:00:00.000Z");
+		await db.updateTable("sessions").set({ reply_at: "2026-09-02T00:00:00.000Z" }).where("id", "=", root).execute();
+		expect((await list("alice")).items.find((item) => item.id === root)?.unread).toBe(true);
+
+		const shareId = await share(root, { granteeType: "user", granteeId: id.bob, access: "view" });
+		expect((await list("bob", "?scope=visible")).items.find((item) => item.id === root)).toMatchObject({
+			shared: true,
+			unread: false,
+		});
+		await unshare(root, shareId);
+
+		await db
+			.updateTable("sessions")
+			.set({ owner_read_at: "2026-09-03T00:00:00.000Z" })
+			.where("id", "=", root)
+			.execute();
+		expect((await list("alice")).items.find((item) => item.id === root)?.unread).toBe(false);
+	});
+
+	it("marks a tree read through any of its sessions and does not reorder the list", async () => {
+		const root = await seed(id.alice as string, "read root", "2026-09-04T00:00:00.000Z");
+		const child = await seed(id.alice as string, "read child", "2026-09-04T00:00:01.000Z", {
+			parentSessionId: root,
+			rootSessionId: root,
+		});
+		await db.updateTable("sessions").set({ reply_at: "2026-09-04T00:00:00.000Z" }).where("id", "=", root).execute();
+		const before = await readRow(root);
+		const res = await call(app, `/api/sessions/${child}/read`, { method: "POST", cookie: cookie.alice, body: {} });
+		expect(res.status).toBe(204);
+		const after = await readRow(root);
+		expect(after.owner_read_at).not.toBeNull();
+		expect(after.updated_at).toBe(before.updated_at);
+		expect((await list("alice")).items.find((item) => item.id === root)?.unread).toBe(false);
+
+		// A viewer the session is shared with is not its owner and cannot mark it read.
+		const shareId = await share(root, { granteeType: "user", granteeId: id.bob, access: "view" });
+		const denied = await call(app, `/api/sessions/${root}/read`, { method: "POST", cookie: cookie.bob, body: {} });
+		expect(denied.status).toBe(403);
+		await unshare(root, shareId);
+	});
+
+	it("sends unread in the list stream upsert, false for a shared viewer", async () => {
+		const root = await seed(id.alice as string, "stream unread", "2026-09-05T00:00:00.000Z");
+		await db.updateTable("sessions").set({ reply_at: "2026-09-05T00:00:00.000Z" }).where("id", "=", root).execute();
+		const shareId = await share(root, { granteeType: "user", granteeId: id.bob, access: "view" });
+		await sleep(50);
+		const alice = await openStream("alice");
+		const bob = await openStream("bob");
+		await waitFor("two streams subscribed", () => runtime.sessionList.subscriberCount === 2);
+		try {
+			runtime.sessionList.publishSession(root);
+			const ownerEvent = await alice.next(1_000);
+			expect(JSON.parse(ownerEvent?.data ?? "{}")).toMatchObject({ id: root, unread: true });
+			const sharedEvent = await bob.next(1_000);
+			expect(JSON.parse(sharedEvent?.data ?? "{}")).toMatchObject({ id: root, shared: true, unread: false });
+		} finally {
+			alice.close();
+			bob.close();
+			await unshare(root, shareId);
+		}
+	});
+});
+
 describe("GET /api/sessions/:id/children", () => {
 	it("lists the direct children newest first with their own state and parent", async () => {
 		const rootId = await seed(id.alice as string, "children root", "2026-08-01T00:00:00.000Z");
@@ -680,6 +799,7 @@ describe("GET /api/sessions/:id/children", () => {
 			shared: false,
 			state: "idle",
 			waitingKind: null,
+			unread: false,
 			updatedAt: "2026-08-01T00:00:02.000Z",
 			parentSessionId: rootId,
 		});

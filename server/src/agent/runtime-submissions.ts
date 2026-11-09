@@ -13,6 +13,7 @@ import { exhaustedLevel } from "./quota.ts";
 import type { RuntimeHost } from "./runtime-core.ts";
 import { loadConversation } from "./runtime-core.ts";
 import { settleInput } from "./runtime-state.ts";
+import { recordTreeReply } from "./session-replies.ts";
 
 /**
  * Submitting user input and tracking the run it starts (doc/agent-runtime.md#会话状态). A submission is
@@ -159,7 +160,9 @@ async function trackCompaction(
 			lastSubmissionId === null
 				? update.where("last_submission_id", "is", null)
 				: update.where("last_submission_id", "=", lastSubmissionId);
-		await update.execute();
+		const res = await update.executeTakeFirst();
+		if (res.numUpdatedRows === 0n) return;
+		await recordTreeReply(host.db, sessionId, "running", "idle");
 		host.sessionList.publishSession(sessionId);
 	} catch (err) {
 		if (!host.closing()) console.error("agent runtime: recording a compaction's end failed:", err);

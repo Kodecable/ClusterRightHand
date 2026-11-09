@@ -2,7 +2,6 @@ import type { NodeAccessGrant, User } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { PlusIcon } from "lucide-react";
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
@@ -105,11 +104,7 @@ export function UsersPage() {
 								title={self ? t`You cannot disable your own account.` : undefined}
 								onClick={() => {
 									if (disable) setConfirmDisable(user);
-									else
-										update.mutate(
-											{ id: user.id, patch: { status: "active" } },
-											{ onSuccess: () => toast.success(t`User enabled.`) },
-										);
+									else update.mutate({ id: user.id, patch: { status: "active" } });
 								}}
 							>
 								{disable ? <Trans>Disable</Trans> : <Trans>Enable</Trans>}
@@ -164,7 +159,6 @@ export function UsersPage() {
 						{ id: confirmDisable.id, patch: { status: "disabled" } },
 						{
 							onSuccess: () => {
-								toast.success(t`User disabled.`);
 								setConfirmDisable(undefined);
 							},
 						},

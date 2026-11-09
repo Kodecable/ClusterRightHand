@@ -1,12 +1,13 @@
 import { Trans } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorState } from "@/components/error-state";
 import { PageSkeleton } from "@/components/skeletons";
 import { approvalKeys } from "@/features/approvals/api";
 import { sessionUiState } from "@/lib/status";
 import {
+	useMarkSessionRead,
 	useSession,
 	useSessionChildren,
 	useSessionChildrenSummary,
@@ -81,6 +82,44 @@ export function SessionPage() {
 		events.applyHistory(history.data.entries, history.data.historyCursor);
 		setWantsOlder(false);
 	}, [history.data, events.applyHistory]);
+
+	// Unread (doc/webui.md "侧边列表"): opening a tree marks it read for its owner, and so does new output
+	// arriving while the page is open. A hidden tab defers the mark until it is visible again, because
+	// "read" means the owner can see the output.
+	const markRead = useMarkSessionRead(rootId);
+	const isOwner = session.data?.relationship === "owner";
+	const pendingRead = useRef(false);
+	const openedFor = useRef<string | undefined>(undefined);
+	const previousTreeState = useRef<string | undefined>(undefined);
+	const markReadWhenVisible = useCallback(() => {
+		if (!isOwner || rootId === undefined) return;
+		if (document.visibilityState === "visible") markRead.mutate(sessionId);
+		else pendingRead.current = true;
+	}, [isOwner, rootId, sessionId, markRead]);
+
+	useEffect(() => {
+		if (!isOwner || rootId === undefined || openedFor.current === sessionId) return;
+		openedFor.current = sessionId;
+		markReadWhenVisible();
+	}, [isOwner, rootId, sessionId, markReadWhenVisible]);
+
+	useEffect(() => {
+		const state = tree?.state;
+		if (state === undefined) return;
+		const previous = previousTreeState.current;
+		previousTreeState.current = state;
+		if (previous === "running" && (state === "idle" || state === "awaiting")) markReadWhenVisible();
+	}, [tree, markReadWhenVisible]);
+
+	useEffect(() => {
+		const onVisibility = () => {
+			if (document.visibilityState !== "visible" || !pendingRead.current) return;
+			pendingRead.current = false;
+			markReadWhenVisible();
+		};
+		document.addEventListener("visibilitychange", onVisibility);
+		return () => document.removeEventListener("visibilitychange", onVisibility);
+	}, [markReadWhenVisible]);
 
 	if (session.isPending) {
 		return (

@@ -1,7 +1,6 @@
 import type { ApiTokenView, Rule, RulePreset } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useId, useState } from "react";
-import { toast } from "sonner";
 import { RulePresetSelect } from "@/components/rule-preset-select";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -76,12 +75,7 @@ export function RulesDialog({ token, onClose }: { token: ApiTokenView; onClose: 
 							type="button"
 							variant="outline"
 							disabled={save.isPending || rulePreset === token.rules?.rulePreset}
-							onClick={() =>
-								save.mutate(
-									{ id: token.id, body: { rulePreset } },
-									{ onSuccess: () => toast.success(t`Rule preset saved.`) },
-								)
-							}
+							onClick={() => save.mutate({ id: token.id, body: { rulePreset } })}
 						>
 							<Trans>Save rule preset</Trans>
 						</Button>
@@ -132,7 +126,6 @@ export function RulesDialog({ token, onClose }: { token: ApiTokenView; onClose: 
 									{ id: token.id, body: { rules } },
 									{
 										onSuccess: () => {
-											toast.success(t`Rules saved.`);
 											onClose();
 										},
 									},

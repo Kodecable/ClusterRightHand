@@ -51,6 +51,7 @@ function item(overrides: Partial<SessionListItem> = {}): SessionListItem {
 		shared: false,
 		state: "idle",
 		waitingKind: null,
+		unread: false,
 		updatedAt: "2026-01-01T00:00:00.000Z",
 		...overrides,
 	};

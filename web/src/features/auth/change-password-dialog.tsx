@@ -54,7 +54,7 @@ export function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; on
 			},
 			{
 				onSuccess: () => {
-					toast.success(t`Password changed.`);
+					toast.success(t`Password changed. Other sign-ins were signed out.`);
 					form.reset();
 					onOpenChange(false);
 				},

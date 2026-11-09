@@ -1,7 +1,6 @@
 import type { PublicNode } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useId, useState } from "react";
-import { toast } from "sonner";
 import { FormDialog } from "@/components/dialogs";
 import { FieldShell } from "@/components/form";
 import { Button } from "@/components/ui/button";
@@ -41,7 +40,6 @@ export function RenameNodeButton({ node }: { node: PublicNode }) {
 						{ id: node.id, name: name.trim() },
 						{
 							onSuccess: () => {
-								toast.success(t`Node renamed.`);
 								setOpen(false);
 							},
 						},

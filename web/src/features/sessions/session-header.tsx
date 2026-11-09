@@ -3,7 +3,6 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronLeftIcon, Share2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import {
 	Breadcrumb,
 	BreadcrumbItem,
@@ -79,7 +78,7 @@ function TitleEditor({ session }: { session: SessionView }) {
 			return;
 		}
 		// A blank edit is a real change: it clears the title and stops generation (D116); the default name shows.
-		patch.mutate({ title }, { onSuccess: () => toast.success(t`Title saved.`) });
+		patch.mutate({ title });
 	};
 
 	return (

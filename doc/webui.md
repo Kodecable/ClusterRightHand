@@ -110,10 +110,10 @@ web/src/
 ### 会话界面
 
 **侧边列表：**
-- 进入 Sessions 路由后出现第二栏，用 virtua 虚拟滚动，按游标无限加载。窄于 `lg` 时导航侧边栏、列表和会话放不下三栏，只显示其中一栏：`/sessions` 是列表，会话页用页头的返回按钮回到列表。
+- 进入 Sessions 路由后出现第二栏，用 virtua 虚拟滚动，按游标无限加载。`/sessions` 索引路由渲染新建会话的草稿页，不再有“未选择会话”的空状态：`lg` 及以上时列表和草稿并排显示；窄于 `lg` 时导航侧边栏、列表和会话放不下三栏，只显示其中一栏，`/sessions` 显示列表，草稿页（`/sessions/new`）和会话页占满主区域，两者的返回按钮都回到 `/sessions`（窄屏即列表）。
 - 列的最上面是搜索框，紧接一个与搜索框同宽的“新建会话”按钮，下面直接是分组列表。“新建会话”不弹窗，只跳到草稿页 `/sessions/new`（D117，见下文“新建会话”），不调用后端。列里没有横向分隔线，只有列与会话区之间的竖线。
 - 搜索框带防抖，在服务端搜索。
-- 每一项只有标题，一行，超出省略；标题为空时显示 `New Session` / `新会话`（翻译串，不写进库）；不显示所有者和相对时间。由计划任务创建的会话和别人共享给你的会话，在同一行最右侧显示灰色的"计划" / "共享"徽章（共享徽章的 tooltip 写明所有者）；会话页页头的标题右侧显示同样的徽章。等待类型放在整行的 tooltip 里。状态点只在 `running` 和 `awaiting` 时出现（idle 不画点），但点的位置始终保留，标题因此对齐。
+- 每一项只有标题，一行，超出省略；标题为空时显示 `New Session` / `新会话`（翻译串，不写进库）；不显示所有者和相对时间。由计划任务创建的会话和别人共享给你的会话，在同一行最右侧显示灰色的"计划" / "共享"徽章（共享徽章的 tooltip 写明所有者）；会话页页头的标题右侧显示同样的徽章。等待类型放在整行的 tooltip 里。行首的固定槽位按优先级只显示一个指示：`running` 是 12px 的旋转 `LoaderCircle`（muted 色，无障碍名 "Running"）；`awaiting` 是原来的琥珀色状态点；`idle` 且未读是蓝色状态点（"Unread" / "未读"）；其余为空。槽位始终保留（12px），标题因此对齐。未读只对所有者计算：根会话的 `reply_at` 晚于 `owner_read_at`（或后者为空）即为未读；共享给别人的会话永远不是未读。
 - 按 `updatedAt` 分组（列表本来就按它排序）：`今天`、`昨天`、`7 天内`、`30 天内`，更早的按本地时区的月份分组（`2026-09`）。分组标题是虚拟列表里与条目交错的普通行，所以分页加载和 SSE 打补丁后重新分组即可；键盘上下键只在条目之间移动，跳过标题。
 - 不再显示"共 N 个会话"。
 - 支持键盘上下键和回车。
@@ -264,7 +264,9 @@ web/src/
   - `scope=all` 用 `(parent_session_id, updated_at, id)`。
 - 搜索：标题用 `LIKE` 子串匹配，参数做转义。SQLite 和 PG 都适用；数据量再大时再考虑 FTS 或 trigram。
   - 大小写不敏感是**按数据库实现**的：两边都对 `lower()` 后的标题和模式比较，SQLite 的 `lower()` 只折叠 ASCII 字母（`A`–`Z`），所以带重音或其他字母表的标题在 SQLite 上按原样匹配；PostgreSQL 的 `lower()` 按 Unicode 折叠。需要跨两种后端一致时，搜索词只用 ASCII 字母，或不要在标题里依赖非 ASCII 的大小写。带变音符号的字母（如 `Ä` / `ä`）、希腊字母和西里尔字母在 SQLite 上是不同的字符。
-- 会话的状态、标题或消息变化时，必须更新 `updated_at`。实现时核对所有写入点。
+- 会话的状态、标题或消息变化时，必须更新 `updated_at`（标记已读除外，见下）。实现时核对所有写入点。
+- 未读（`unread`）只对所有者计算：根会话的 `reply_at` 晚于 `owner_read_at`，或 `owner_read_at` 为空时为 true；共享给别人的会话永远为 false。`reply_at` 只在根上、在整棵树的状态从 `running` 变为 `idle` 或 `awaiting` 时写入（有新的输出）；`owner_read_at` 由标记已读写入。
+- `POST /api/sessions/:id/read`（仅所有者，返回 `204`）：把 `:id` 所在树的根的 `owner_read_at` 置为当前时间，并推送该根的 upsert，让所有者的其他标签页清掉未读点；`updated_at` 不变，因此列表不会重排。`:id` 可以是树里的任意会话，打开子会话即标记整棵树已读。会话页在打开时、以及页面可见时该树从 `running` 变为 `idle` / `awaiting` 时调用它；页面不可见时推迟到下一次可见。
 - `GET /api/sessions/stream?scope=`（SSE）：
   - 只推送当前用户可见的根会话的变化：`upsert`（携带 `SessionListItem`）和 `remove`；
   - `scope` 与列表相同；省略时保持原行为（管理员收到全部根会话），WebUI 用 `scope=visible`，管理员也只收到自己拥有和共享的会话；
@@ -308,6 +310,7 @@ web/src/
   shared: boolean;            // 不是当前用户本人拥有，而是共享给他的
   state: "idle" | "running" | "awaiting"; // 整棵会话树的汇总：任何会话 awaiting → awaiting；否则任何 running → running；否则 idle
   waitingKind: "quota" | "approval" | "authorization" | null; // 汇总为 awaiting 时，取树里优先级最高的等待（quota > approval > authorization）
+  unread: boolean;            // 仅所有者：reply_at 晚于 owner_read_at 或 owner_read_at 为空；共享查看者永远 false，子会话列表也永远 false
   updatedAt: string;
 }
 ```

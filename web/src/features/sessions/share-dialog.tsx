@@ -1,6 +1,5 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Trash2Icon } from "lucide-react";
-import { toast } from "sonner";
 import { ErrorText } from "@/components/error-state";
 import { ShareEditor } from "@/components/share-editor";
 import { Button } from "@/components/ui/button";
@@ -30,7 +29,7 @@ export function ShareDialog({
 	const unshare = useUnshareSession(sessionId);
 
 	const remove = (shareId: string) => {
-		unshare.mutate(shareId, { onSuccess: () => toast.success(t`Share removed.`) });
+		unshare.mutate(shareId);
 	};
 
 	return (
@@ -92,7 +91,6 @@ export function ShareDialog({
 						onAdd={async ({ granteeType, granteeId, access }) => {
 							try {
 								await share.mutateAsync({ granteeType, granteeId, access });
-								toast.success(t`Shared.`);
 								return true;
 							} catch {
 								return false;

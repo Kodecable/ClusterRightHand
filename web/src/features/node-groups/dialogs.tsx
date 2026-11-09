@@ -3,7 +3,6 @@ import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useId, useState } from "react";
-import { toast } from "sonner";
 import { FormDialog } from "@/components/dialogs";
 import { EmptyHint } from "@/components/empty-state";
 import { FieldShell } from "@/components/form";
@@ -54,7 +53,6 @@ export function NodeGroupNameDialog({
 				{ id: group.id, name: trimmed },
 				{
 					onSuccess: () => {
-						toast.success(t`Node group renamed.`);
 						onClose();
 					},
 				},
@@ -62,7 +60,6 @@ export function NodeGroupNameDialog({
 		} else {
 			create.mutate(trimmed, {
 				onSuccess: () => {
-					toast.success(t`Node group created.`);
 					onClose();
 				},
 			});
@@ -130,7 +127,6 @@ export function NodeGroupMembersDialog({
 					{ id: group.id, nodeIds: selected },
 					{
 						onSuccess: () => {
-							toast.success(t`Node group members saved.`);
 							onClose();
 						},
 					},

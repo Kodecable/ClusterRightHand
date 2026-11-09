@@ -24,7 +24,6 @@ test("add a custom model provider", async ({ page }) => {
 	await expect(page.getByTestId("model-dialog")).toHaveCount(0);
 	await dialog.getByRole("button", { name: "Save provider" }).click();
 
-	await expect(page.getByText("Provider saved.")).toBeVisible();
 	await expect(page.getByRole("table", { name: "Model providers" })).toContainText("myllm");
 	await expect
 		.poll(() => api.state.requests.some((request) => request.url === "/api/model-providers/myllm"))

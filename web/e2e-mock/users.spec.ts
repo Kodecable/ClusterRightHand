@@ -13,7 +13,6 @@ test("create a user and add them to a group", async ({ page }) => {
 	await page.getByLabel("Username").fill("alice");
 	await page.getByLabel("Display name").fill("Alice");
 	await page.getByRole("button", { name: "Create user" }).click();
-	await expect(page.getByText("User created.")).toBeVisible();
 	await expect(page.getByRole("table", { name: "Users" })).toContainText("alice");
 
 	const group = page.getByTestId("user-group-card").filter({ hasText: "Ops" });
@@ -21,7 +20,6 @@ test("create a user and add them to a group", async ({ page }) => {
 	await group.getByLabel("Add member").click();
 	await page.getByRole("option", { name: "alice" }).click();
 	await group.getByRole("button", { name: "Add" }).click();
-	await expect(page.getByText("Member added.")).toBeVisible();
 	await expect(group.getByRole("list", { name: "Members of Ops" })).toContainText("alice");
 	await expect
 		.poll(() =>

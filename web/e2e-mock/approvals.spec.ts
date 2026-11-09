@@ -17,7 +17,6 @@ test("an approval decision from the Approvals page updates the list and the badg
 	await expect(card).toBeVisible();
 	await card.getByRole("button", { name: "Approve", exact: true }).click();
 
-	await expect(page.getByText("Decision recorded.")).toBeVisible();
 	await expect
 		.poll(() => api.state.requests.some((request) => request.url === "/api/tasks/task-42/approval"))
 		.toBe(true);

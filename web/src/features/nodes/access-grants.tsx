@@ -5,7 +5,6 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { PlusIcon, XIcon } from "lucide-react";
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
 import { ConfirmDialog, FormDialog } from "@/components/dialogs";
 import { ErrorState } from "@/components/error-state";
 import { FieldShell } from "@/components/form";
@@ -106,7 +105,6 @@ function RemoveGrantDialog({
 			onConfirm={() =>
 				remove.mutate(grant.id, {
 					onSuccess: () => {
-						toast.success(t`Access removed.`);
 						onClose();
 					},
 				})
@@ -228,7 +226,6 @@ function AddAccessDialog({
 					{ granteeType, granteeId, targetType, targetId },
 					{
 						onSuccess: () => {
-							toast.success(t`Access granted.`);
 							onClose();
 						},
 					},

@@ -16,6 +16,7 @@ const item = (id: string, updatedAt: string): SessionListItem => ({
 	shared: false,
 	state: "idle",
 	waitingKind: null,
+	unread: false,
 	updatedAt,
 });
 

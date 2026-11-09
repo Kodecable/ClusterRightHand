@@ -7,9 +7,11 @@ import { SessionList } from "./session-list";
  * The sessions section's layout: the virtualised, cursor-paged, SSE-patched
  * session list column on the left and the routed page on the right
  * (doc/webui.md "会话界面"). Below `lg` the navigation sidebar, the list and a
- * session do not fit side by side, so `/sessions` shows the list as the main
- * view and `/sessions/:id` shows the session; the session header's back button
- * returns to the list.
+ * session do not fit side by side, so a session-shaped page (`/sessions/new` or
+ * `/sessions/:id`) takes the main view. The `/sessions` index renders the draft
+ * too, but is not session-shaped: on narrow screens the list is the main view and
+ * the draft is hidden, while `lg` and up show both side by side. The page's back
+ * button returns to `/sessions`, which shows the list on narrow screens.
  */
 export function SessionsLayout() {
 	const { t } = useLingui();

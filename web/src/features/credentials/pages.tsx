@@ -5,7 +5,6 @@ import { startRegistration } from "@simplewebauthn/browser";
 import { FingerprintIcon, KeyRoundIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
-import { toast } from "sonner";
 import { z } from "zod";
 import { CodeText } from "@/components/code-text";
 import { CopyButton } from "@/components/copy-button";
@@ -63,7 +62,6 @@ function AddSshKeyForm() {
 							{ publicKey: values.publicKey.trim(), name: values.name.trim() || undefined },
 							{
 								onSuccess: () => {
-									toast.success(t`SSH key added.`);
 									form.reset();
 								},
 							},
@@ -111,7 +109,6 @@ function AddPasskeyCard() {
 			const { options: registrationOptions } = await options.mutateAsync();
 			const response = await startRegistration({ optionsJSON: registrationOptions as never });
 			await register.mutateAsync({ response, name: name.trim() || undefined });
-			toast.success(t`Passkey registered.`);
 			setName("");
 		} catch (error) {
 			if (error instanceof DOMException && error.name === "NotAllowedError") {
@@ -311,7 +308,6 @@ export function CredentialsPage() {
 					if (!deleting) return;
 					remove.mutate(deleting.id, {
 						onSuccess: () => {
-							toast.success(t`Credential deleted.`);
 							setDeleting(undefined);
 						},
 					});

@@ -52,6 +52,11 @@ export interface SessionListItem {
 	state: SessionRunState;
 	/** The highest-priority wait of the tree while `state` is `awaiting`. */
 	waitingKind: SessionWaitingKind | null;
+	/**
+	 * The tree produced output after the owner last opened it (doc/webui.md "侧边列表"). Computed for the
+	 * owner only, so a shared viewer always sees false; the children list always sees false too.
+	 */
+	unread: boolean;
 	/** The session's parent, on the children list (`GET /api/sessions/:id/children`); absent from the root list. */
 	parentSessionId?: string | null;
 	updatedAt: string;

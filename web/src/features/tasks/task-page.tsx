@@ -139,7 +139,7 @@ export function TaskPage() {
 							variant="destructive"
 							data-testid="cancel-task"
 							disabled={cancel.isPending}
-							onClick={() => cancel.mutate(undefined, { onSuccess: () => toast.success(t`Task cancelled.`) })}
+							onClick={() => cancel.mutate(undefined, { onSuccess: () => toast.success(t`Cancellation requested.`) })}
 						>
 							<SquareIcon />
 							<Trans>Stop task</Trans>
@@ -181,7 +181,6 @@ export function TaskPage() {
 							{ kind: "task", id: view.id, body },
 							{
 								onSuccess: () => {
-									toast.success(t`Decision recorded.`);
 									void task.refetch();
 								},
 							},

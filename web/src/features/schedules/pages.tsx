@@ -3,7 +3,6 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
@@ -217,7 +216,7 @@ export function ScheduleDetailPage() {
 					busy={patch.isPending}
 					error={patch.error}
 					onSubmit={(input) => {
-						patch.mutate(input, { onSuccess: () => toast.success(t`Schedule saved.`) });
+						patch.mutate(input);
 					}}
 				/>
 			</section>
@@ -255,7 +254,6 @@ export function ScheduleDetailPage() {
 				onConfirm={() => {
 					remove.mutate(id, {
 						onSuccess: () => {
-							toast.success(t`Schedule deleted.`);
 							void navigate({ to: "/schedules" });
 						},
 					});

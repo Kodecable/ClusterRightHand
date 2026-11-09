@@ -10,7 +10,7 @@ import {
 } from "@tanstack/react-router";
 import type { AuthStore } from "@/features/auth/session";
 import { authStore } from "@/features/auth/session";
-import { sessionPageChunk, sessionsIndexPageChunk, sessionsLayoutChunk } from "./lazy-chunks";
+import { sessionPageChunk, sessionsLayoutChunk } from "./lazy-chunks";
 import { AppShell } from "./shell/app-shell";
 
 export interface RouterContext {
@@ -96,7 +96,8 @@ const sessionsRoute = createRoute({
 const sessionsIndexRoute = createRoute({
 	getParentRoute: () => sessionsRoute,
 	path: "/",
-	component: lazyRouteComponent(sessionsIndexPageChunk, "SessionsPage"),
+	// `/sessions` renders the draft itself. The layout hides this outlet below `lg`, where the list is the main view.
+	component: lazyRouteComponent(sessionPageChunk, "NewSessionPage"),
 });
 
 const newSessionRoute = createRoute({

@@ -1,4 +1,4 @@
-import { sessionPageChunk, sessionsIndexPageChunk, sessionsLayoutChunk } from "@/app/lazy-chunks";
+import { sessionPageChunk, sessionsLayoutChunk } from "@/app/lazy-chunks";
 import { authStore } from "@/features/auth/session";
 import { type Locale, resolveInitialLocale } from "@/lib/locale";
 
@@ -49,6 +49,6 @@ else void import("@/locales/zh-CN.po");
 
 if (isSessionsRoute(initialPath)) {
 	void sessionsLayoutChunk();
-	if (initialPath.startsWith("/sessions/")) void sessionPageChunk();
-	else void sessionsIndexPageChunk();
+	// The `/sessions` index renders the draft page too, so every sessions path ends on the page chunk.
+	void sessionPageChunk();
 }

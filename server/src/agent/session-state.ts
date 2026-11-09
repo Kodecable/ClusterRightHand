@@ -1,6 +1,7 @@
 import { type SqlBool, sql } from "kysely";
 import type { Db } from "../storage/db.ts";
 import type { SessionState, WaitingKind } from "../storage/schema.ts";
+import { recordTreeReply } from "./session-replies.ts";
 
 /**
  * The stored run state of a session (doc/agent-runtime.md#会话状态): roots and subagents share `idle` /
@@ -83,12 +84,21 @@ export async function setSessionState(
 
 	const res = await update.executeTakeFirst();
 	if (res.numUpdatedRows === 0n) return { since: "", applied: false };
+	await recordTreeReply(db, sessionId, row.state, state);
 	return { since: at, applied: true };
 }
 
 /** Ends the runs of these sessions (abort, or a denied quota wait): they become idle until a new input. */
 export async function markSessionsIdle(db: Db, sessionIds: readonly string[]): Promise<void> {
 	if (sessionIds.length === 0) return;
+	// The running ones may leave their tree without output, which is a reply for the owner; read them before
+	// the write, because it changes them all to idle.
+	const running = await db
+		.selectFrom("sessions")
+		.select(["id"])
+		.where("id", "in", [...sessionIds])
+		.where("state", "=", "running")
+		.execute();
 	const at = new Date().toISOString();
 	await db
 		.updateTable("sessions")
@@ -103,6 +113,7 @@ export async function markSessionsIdle(db: Db, sessionIds: readonly string[]): P
 		.where("id", "in", [...sessionIds])
 		.where("state", "!=", "idle")
 		.execute();
+	for (const row of running) await recordTreeReply(db, row.id, "running", "idle");
 }
 
 /**

@@ -66,6 +66,7 @@ function item(overrides: Partial<SessionListItem> = {}): SessionListItem {
 		shared: false,
 		state: "idle",
 		waitingKind: null,
+		unread: false,
 		updatedAt: "2026-01-01T00:00:00.000Z",
 		...overrides,
 	};
@@ -189,6 +190,41 @@ describe("SessionPage layout", () => {
 		expect(header).not.toHaveTextContent("Idle");
 		expect(header.querySelector("[data-testid='abort-session']")).toBeNull();
 		expect(header.querySelector("[data-testid='session-title']")).not.toBeNull();
+	});
+
+	test("the owner's open session marks its tree read and clears the row optimistically", async () => {
+		const { client } = await renderSessionPage({ session: sessionView(), treeRow: item({ unread: true }) });
+		await screen.findByTestId("session-page");
+		await waitFor(() => {
+			expect(
+				vi
+					.mocked(fetch)
+					.mock.calls.some(
+						([input, init]) =>
+							String(input).endsWith("/api/sessions/s1/read") && (init as RequestInit | undefined)?.method === "POST",
+					),
+			).toBe(true);
+		});
+		const data = client.getQueryData<{ pages: { items: SessionListItem[] }[] }>(sessionKeys.listPage("mine", ""));
+		expect(data?.pages[0]?.items[0]?.unread).toBe(false);
+	});
+
+	test("a shared viewer never marks a session read", async () => {
+		await renderSessionPage({
+			session: sessionView({
+				relationship: "shared",
+				capabilities: { view: true, chat: false, manageShares: false, createShares: false, configure: false },
+			}),
+		});
+		await screen.findByTestId("session-page");
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(
+			vi
+				.mocked(fetch)
+				.mock.calls.some(
+					([input, init]) => String(input).endsWith("/read") && (init as RequestInit | undefined)?.method === "POST",
+				),
+		).toBe(false);
 	});
 
 	test("a session with no title shows the default name", async () => {

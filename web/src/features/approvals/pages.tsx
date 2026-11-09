@@ -1,7 +1,6 @@
 import type { ApprovalBody, QuotaApproval, TaskGroupView, TaskView } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
-import { toast } from "sonner";
 import { ApprovalCard } from "@/components/approval-card";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
@@ -57,15 +56,9 @@ function TaskCards({
 	refNames: Map<string, string>;
 	tokenNames: Map<string, string>;
 }) {
-	const { t } = useLingui();
 	const decide = useDecideApproval();
 	const onDecide = (id: string, body: ApprovalBody) => {
-		decide.mutate(
-			{ kind: "task", id, body },
-			{
-				onSuccess: () => toast.success(t`Decision recorded.`),
-			},
-		);
+		decide.mutate({ kind: "task", id, body });
 	};
 	return (
 		<>
@@ -96,15 +89,9 @@ function TaskGroupCards({
 	refNames: Map<string, string>;
 	tokenNames: Map<string, string>;
 }) {
-	const { t } = useLingui();
 	const decide = useDecideApproval();
 	const onDecide = (id: string, body: ApprovalBody) => {
-		decide.mutate(
-			{ kind: "task_group", id, body },
-			{
-				onSuccess: () => toast.success(t`Decision recorded.`),
-			},
-		);
+		decide.mutate({ kind: "task_group", id, body });
 	};
 	return (
 		<>
@@ -182,18 +169,13 @@ function SignatureSection({
 }
 
 function QuotaRow({ wait }: { wait: QuotaApproval }) {
-	const { t } = useLingui();
 	const decide = useDecideQuota(wait.sessionId);
 	return (
 		<QuotaCard
 			wait={wait}
 			busy={decide.isPending}
 			error={decide.error}
-			onDecide={(decision) =>
-				decide.mutate(decision, {
-					onSuccess: () => toast.success(t`Quota decision recorded.`),
-				})
-			}
+			onDecide={(decision) => decide.mutate(decision)}
 		/>
 	);
 }
@@ -319,7 +301,6 @@ export function ApprovalTaskPage() {
 	const task = useApprovalTask(params.taskId);
 	const lookups = useApprovalLookups();
 	const decide = useDecideApproval();
-	const { t } = useLingui();
 	if (task.isPending) return <DetailPending />;
 	if (task.error !== null && task.error !== undefined) {
 		return (
@@ -348,14 +329,7 @@ export function ApprovalTaskPage() {
 					tokenNames={lookups.tokenNames}
 					busy={decide.isPending}
 					error={decide.error}
-					onDecide={(body) =>
-						decide.mutate(
-							{ kind: "task", id: task.data?.id ?? "", body },
-							{
-								onSuccess: () => toast.success(t`Decision recorded.`),
-							},
-						)
-					}
+					onDecide={(body) => decide.mutate({ kind: "task", id: task.data?.id ?? "", body })}
 				/>
 			) : (
 				<Settled state={task.data.state} title={<Trans>Already settled</Trans>}>
@@ -378,7 +352,6 @@ export function ApprovalTaskGroupPage() {
 	const taskGroup = useApprovalTaskGroup(params.taskGroupId);
 	const lookups = useApprovalLookups();
 	const decide = useDecideApproval();
-	const { t } = useLingui();
 	if (taskGroup.isPending) return <DetailPending />;
 	if (taskGroup.error !== null && taskGroup.error !== undefined) {
 		return (
@@ -407,14 +380,7 @@ export function ApprovalTaskGroupPage() {
 					tokenNames={lookups.tokenNames}
 					busy={decide.isPending}
 					error={decide.error}
-					onDecide={(body) =>
-						decide.mutate(
-							{ kind: "task_group", id: taskGroup.data?.id ?? "", body },
-							{
-								onSuccess: () => toast.success(t`Decision recorded.`),
-							},
-						)
-					}
+					onDecide={(body) => decide.mutate({ kind: "task_group", id: taskGroup.data?.id ?? "", body })}
 				/>
 			) : (
 				<Settled state={taskGroup.data.state} title={<Trans>Already settled</Trans>}>

@@ -1,6 +1,5 @@
 import type { PublicNode } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/dialogs";
 import { ErrorState } from "@/components/error-state";
 import { useApproveNode, useDeleteNode } from "./api";
@@ -44,7 +43,6 @@ export function PendingNodeDialog({
 				const mutation = isApprove ? approve : remove;
 				mutation.mutate(node.id, {
 					onSuccess: () => {
-						toast.success(isApprove ? t`Node approved.` : t`Node rejected.`);
 						onDone();
 					},
 				});

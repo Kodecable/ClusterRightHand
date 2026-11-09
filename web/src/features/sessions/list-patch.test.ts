@@ -2,6 +2,7 @@ import type { CursorPage, SessionListItem } from "@crh/api";
 import { describe, expect, test } from "vitest";
 import {
 	isSessionListItem,
+	markSessionListItemRead,
 	removeSessionListItem,
 	type SessionListFilter,
 	sessionMatchesFilter,
@@ -17,6 +18,7 @@ const item = (overrides: Partial<SessionListItem> = {}): SessionListItem => ({
 	shared: false,
 	state: "idle",
 	waitingKind: null,
+	unread: false,
 	updatedAt: "2026-01-01T00:00:00.000Z",
 	...overrides,
 });
@@ -152,5 +154,22 @@ describe("removeSessionListItem", () => {
 	test("returns the same array when nothing matched", () => {
 		const pages = [page([item({ id: "a" })])];
 		expect(removeSessionListItem(pages, "zzz")).toBe(pages);
+	});
+});
+
+describe("markSessionListItemRead", () => {
+	test("clears the unread flag of the root in every page", () => {
+		const pages = [page([item({ id: "a", unread: true }), item({ id: "b" })]), page([item({ id: "a", unread: true })])];
+		const next = markSessionListItemRead(pages, "a");
+		expect(next[0]?.items.map((row) => [row.id, row.unread])).toEqual([
+			["a", false],
+			["b", false],
+		]);
+		expect(next[1]?.items[0]?.unread).toBe(false);
+	});
+
+	test("returns the same array when the row is already read", () => {
+		const pages = [page([item({ id: "a", unread: false })])];
+		expect(markSessionListItemRead(pages, "a")).toBe(pages);
 	});
 });

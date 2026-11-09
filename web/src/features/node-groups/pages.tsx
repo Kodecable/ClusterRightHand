@@ -3,7 +3,6 @@ import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PencilIcon, PlusIcon, Trash2Icon, UserPenIcon } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
-import { toast } from "sonner";
 import { CopyButton } from "@/components/copy-button";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
@@ -220,7 +219,6 @@ export function NodeGroupsPage() {
 					if (!deleting) return;
 					remove.mutate(deleting.id, {
 						onSuccess: () => {
-							toast.success(t`Node group deleted.`);
 							setDeleting(undefined);
 						},
 					});
@@ -374,7 +372,6 @@ export function NodeGroupDetailPage() {
 				onConfirm={() =>
 					remove.mutate(group.id, {
 						onSuccess: () => {
-							toast.success(t`Node group deleted.`);
 							void navigate({ to: "/node-groups" });
 						},
 					})

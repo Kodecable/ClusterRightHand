@@ -249,6 +249,8 @@ export class SessionListHub {
 				TREE_STATE.as("state"),
 				TREE_WAITING_KIND.as("waiting_kind"),
 				"sessions.updated_at",
+				"sessions.reply_at",
+				"sessions.owner_read_at",
 				"users.display_name",
 				"users.username",
 			])

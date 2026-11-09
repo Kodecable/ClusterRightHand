@@ -2,7 +2,6 @@ import type { AvailableModel } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogScrollArea, DialogTitle } from "@/components/ui/dialog";
 import { useCreateSchedule } from "./api";
@@ -38,7 +37,6 @@ export function CreateScheduleDialog({ models, onClose }: { models: AvailableMod
 						onSubmit={(input) => {
 							create.mutate(input, {
 								onSuccess: (schedule) => {
-									toast.success(t`Schedule created.`);
 									onClose();
 									void navigate({ to: "/schedules/$scheduleId", params: { scheduleId: schedule.id } });
 								},

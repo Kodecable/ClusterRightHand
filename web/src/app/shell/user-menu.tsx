@@ -9,7 +9,6 @@ import {
 	SunIcon,
 } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
-import { toast } from "sonner";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -62,9 +61,7 @@ export function UserMenu() {
 	const name = user?.displayName ?? user?.username ?? "";
 
 	const onLogout = () => {
-		logout.mutate(undefined, {
-			onSuccess: () => toast.success(t`Signed out.`),
-		});
+		logout.mutate();
 	};
 
 	const themeOptions: { value: ThemePreference; label: string; icon: typeof SunIcon }[] = [

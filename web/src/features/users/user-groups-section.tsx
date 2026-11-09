@@ -2,7 +2,6 @@ import type { NodeAccessGrant, User, UserGroup } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { PlusIcon, Trash2Icon, UserPlusIcon, XIcon } from "lucide-react";
 import { useId, useState } from "react";
-import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/dialogs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -70,12 +69,7 @@ function UserGroupCard({
 								variant="ghost"
 								aria-label={t`Remove ${names.get(id) ?? id} from ${group.name}`}
 								disabled={remove.isPending}
-								onClick={() =>
-									remove.mutate(
-										{ groupId: group.id, userId: id },
-										{ onSuccess: () => toast.success(t`Member removed.`) },
-									)
-								}
+								onClick={() => remove.mutate({ groupId: group.id, userId: id })}
 							>
 								<XIcon />
 							</Button>
@@ -115,7 +109,6 @@ function UserGroupCard({
 								{ groupId: group.id, userId: pick },
 								{
 									onSuccess: () => {
-										toast.success(t`Member added.`);
 										setPick("");
 									},
 								},
@@ -137,7 +130,6 @@ function UserGroupCard({
 				onConfirm={() =>
 					removeUserGroup.mutate(group.id, {
 						onSuccess: () => {
-							toast.success(t`User group deleted.`);
 							setConfirmDelete(false);
 						},
 					})
@@ -175,7 +167,6 @@ export function UserGroupsSection({
 					if (name.trim() === "") return;
 					createUserGroup.mutate(name.trim(), {
 						onSuccess: () => {
-							toast.success(t`User group created.`);
 							setName("");
 						},
 					});
