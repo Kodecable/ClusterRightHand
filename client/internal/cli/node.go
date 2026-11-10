@@ -30,7 +30,7 @@ func newEnrollCmd() *cobra.Command {
 		Use:   "enroll <server-url> <token>",
 		Short: "Enroll this node with a crhs server",
 		Long: `Enroll this node: fetch crhs's public key, check it against the fingerprint in the token, create
-this node's identity key and register it. An administrator (or the token's owner) then confirms the node
+this node's identity key and register it. An administrator then confirms the node
 in the WebUI, comparing the fingerprint printed here. The configuration file must already exist and
 set server and state_dir; when it does not exist, --state-dir creates it with that state directory
 instead.`,
