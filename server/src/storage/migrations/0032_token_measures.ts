@@ -1,10 +1,10 @@
 import type { Kysely } from "kysely";
 
 /**
- * Two token measures kept apart by name (D101, doc/agent-runtime.md#配额):
+ * Two token measures kept apart by name (doc/design/agent-runtime.md "Quota and token accounting"):
  *
  * - `budget_used_tokens`: the budget measure, renamed from `used_tokens`. Output tokens of every model call,
- *   compaction and review included; it decides when a quota level stops a run (D92).
+ *   compaction and review included; it decides when a quota level stops a run.
  * - `usage_tokens`: the statistics measure. Input + output tokens of every model call, cache included in the
  *   input, accumulated up the session tree.
  * - `context_tokens`: the input size (input + cache read + cache write) of the session's own last main-agent

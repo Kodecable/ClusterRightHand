@@ -1,5 +1,5 @@
 /**
- * The tasks page's URL filters (doc/webui.md "任务页与任务组页"): `node` opens the
+ * The tasks page's URL filters (doc/design/webui.md "Task and task group pages"): `node` opens the
  * list pre-filtered to one node, `user` to the tasks one user asked for. Both
  * are plain strings; anything else in the search string is ignored.
  */

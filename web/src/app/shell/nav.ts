@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 
 /**
- * The sidebar's groups and items (doc/webui.md "外壳"). Labels are Lingui
+ * The sidebar's groups and items (doc/design/webui.md "Shell"). Labels are Lingui
  * descriptors; items marked `adminOnly` are hidden from non-admins.
  */
 

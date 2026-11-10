@@ -31,7 +31,7 @@ import { toolNames, waitSubmission } from "./helpers/runtime.ts";
 // A loaded machine can push these past the default 5 s timeout.
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
-/** Background subagents and the parent agent's handling of their approvals (doc/agent-runtime.md#subagent). */
+/** Background subagents and the parent agent's handling of their approvals (doc/design/agent-runtime.md "Subagents"). */
 let db: Db;
 let probe: DbProbe;
 let cluster: Cluster;

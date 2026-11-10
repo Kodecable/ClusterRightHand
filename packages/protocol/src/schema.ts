@@ -207,7 +207,7 @@ export interface MapField<T> {
 	readonly wire: string;
 	readonly field: keyof T & string;
 	readonly codec: Codec<unknown>;
-	/** A required key: decoding fails when it is missing (doc/protocol.md Facts). */
+	/** A required key: decoding fails when it is missing (doc/design/protocol.md "Events"). */
 	readonly required?: boolean;
 }
 
@@ -229,7 +229,7 @@ export function keyedMap<T>(name: string, fields: readonly MapField<T>[]): Codec
 	};
 	const decode = (value: unknown): T => {
 		if (!(value instanceof Map)) fail(name, "not a map");
-		// A non-text key fails the whole map; unknown text keys are ignored (doc/protocol.md Facts).
+		// A non-text key fails the whole map; unknown text keys are ignored (doc/design/protocol.md "Events").
 		for (const key of value.keys()) {
 			if (typeof key !== "string") fail(name, "map key is not text");
 		}

@@ -1,5 +1,5 @@
 /**
- * Users, user groups and the directory (doc/access-control.md "用户模型").
+ * Users, user groups and the directory (doc/design/access-control.md "User model").
  * The server's `PublicUser` is this `User`.
  */
 
@@ -57,7 +57,7 @@ export interface Directory {
 	userGroups: { id: string; name: string }[];
 }
 
-/** `GET /api/users`; `more` is present only with `limit` (doc/webui.md "实体搜索"). */
+/** `GET /api/users`; `more` is present only with `limit` (doc/design/webui.md "Entity search"). */
 export interface UserListResponse {
 	users: User[];
 	more?: boolean;
@@ -74,7 +74,7 @@ export interface DirectoryResponse extends Directory {
 	more?: boolean;
 }
 
-/** One of the user's signing credentials (doc/m4.md M4.4). */
+/** One of the user's signing credentials (doc/design/privilege.md "Authorizations"). */
 export interface CredentialView {
 	id: string;
 	kind: "ssh" | "webauthn";

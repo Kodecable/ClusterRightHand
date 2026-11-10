@@ -1,5 +1,5 @@
 /**
- * The node trust cache (doc/privilege.md#信任缓存): crha pushes a TrustReport once after `hello` and
+ * The node trust cache (doc/design/privilege.md "Trust cache"): crha pushes a TrustReport once after `hello` and
  * again whenever the report changes. crhs keeps the report, the digest of an `ok` summary and the time,
  * audits an actual change, and treats the kept report as stale until the next report.
  */
@@ -21,7 +21,7 @@ import type { NodeRow } from "./nodes.ts";
 
 export type { TrustStatus };
 
-/** `digest = SHA-256(CBOR(TrustSummary))`, lowercase hex (doc/protocol.md#trustsummary). */
+/** `digest = SHA-256(CBOR(TrustSummary))`, lowercase hex (doc/design/protocol.md "Trust summary"). */
 export function trustDigest(summary: TrustSummary): string {
 	return createHash("sha256")
 		.update(encodeCbor(trustSummaryCodec.encode(summary)))
@@ -30,7 +30,7 @@ export function trustDigest(summary: TrustSummary): string {
 
 // ---------------------------------------------------------------------------
 // JSON form: bytes are base64 text, exactly like the other stored JSON in crhs
-// (doc/protocol.md#json-形式服务端存储). It is validated by re-encoding the summary.
+// (doc/design/protocol.md "JSON storage forms"). It is validated by re-encoding the summary.
 // ---------------------------------------------------------------------------
 
 const b64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64");
@@ -251,7 +251,7 @@ export interface TrustChange {
 
 /**
  * Stores a report. `node.trust_changed` is written only when the status or the digest actually
- * changed; the audit carries both digests and the new status (doc/access-control.md#记录内容).
+ * changed; the audit carries both digests and the new status (doc/design/access-control.md "Recorded events").
  */
 export async function recordTrustReport(
 	db: Db,
@@ -296,7 +296,7 @@ export function trustUnavailableMessage(report: TrustReport | null): string {
 
 export type NodeTrustView = NodeTrust;
 
-/** The trust panel of a node (doc/privilege.md#信任缓存). */
+/** The trust panel of a node (doc/design/privilege.md "Trust cache"). */
 export function trustView(row: NodeRow, fresh: boolean): NodeTrustView {
 	const report = parseTrustReport(row.trust_report);
 	return {

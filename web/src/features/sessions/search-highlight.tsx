@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-/** The subtle mark used for every matched keyword (doc/webui.md "会话内容搜索"). */
+/** The subtle mark used for every matched keyword (doc/design/webui.md "Session content search"). */
 export const HIGHLIGHT_CLASS = "rounded-sm bg-yellow-200/60 px-0.5 text-inherit dark:bg-yellow-500/30";
 
 interface Range {

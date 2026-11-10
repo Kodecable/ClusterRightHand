@@ -28,7 +28,7 @@ test("a session with more than 100 entries loads older history at the top withou
 	crhs.faux.setResponses(
 		Array.from({ length: MESSAGES }, (_, index) => fauxAssistantMessage([fauxText(`answer ${index + 1}`)])),
 	);
-	// The first message creates the session (D117); the rest are sent into it. Both kinds are answered,
+	// The first message creates the session; the rest are sent into it. Both kinds are answered,
 	// so the session ends with one user and one assistant entry per message.
 	const sessionId = await createSessionViaApi(crhs, {
 		title: "Long history",

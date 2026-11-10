@@ -24,7 +24,7 @@ function isMac(): boolean {
 }
 
 /**
- * The second column of the Sessions route (doc/webui.md "侧边列表"): the
+ * The second column of the Sessions route (doc/design/webui.md "Sidebar list"): the
  * search button, a full-width "New session" button, then a virtua list with
  * cursor pages and the live patch from `GET /api/sessions/stream`. The list
  * shows the roots the caller can see: their own and the ones shared with them.
@@ -44,7 +44,7 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 
 	const models = useModels();
 	const noModels = models.data !== undefined && models.data.length === 0;
-	// "New session" opens the draft page and calls no API (D117); pressing it on the draft does nothing.
+	// "New session" opens the draft page and calls no API; pressing it on the draft does nothing.
 	const draft = location.pathname === "/sessions/new";
 	const openDraft = () => {
 		if (draft) return;

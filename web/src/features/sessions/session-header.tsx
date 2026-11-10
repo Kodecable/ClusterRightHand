@@ -77,7 +77,7 @@ function TitleEditor({ session }: { session: SessionView }) {
 			setValue(session.title ?? "");
 			return;
 		}
-		// A blank edit is a real change: it clears the title and stops generation (D116); the default name shows.
+		// A blank edit is a real change: it clears the title and stops generation; the default name shows.
 		patch.mutate({ title });
 	};
 
@@ -111,7 +111,7 @@ function TitleEditor({ session }: { session: SessionView }) {
 }
 
 /**
- * The session page's header (doc/webui.md#页头): only the title (editable for the owner) with the subagent
+ * The session page's header (doc/design/webui.md "Session header"): only the title (editable for the owner) with the subagent
  * breadcrumb and the grey "Scheduled" / "Shared" badges, and the share button. Model, rules, budget, context, usage and Stop live in the composer footer;
  * a session has no other action, so there is no overflow menu.
  */

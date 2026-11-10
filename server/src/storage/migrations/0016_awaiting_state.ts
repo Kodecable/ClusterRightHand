@@ -1,6 +1,6 @@
 import type { Kysely } from "kysely";
 
-/** One generic waiting state: `active` / `awaiting` / `stopped` (doc/agent-runtime.md#subagent). */
+/** One generic waiting state: `active` / `awaiting` / `stopped` (doc/design/agent-runtime.md "Subagents"). */
 export async function up(db: Kysely<unknown>): Promise<void> {
 	// biome-ignore lint/suspicious/noExplicitAny: data migration on the sessions table
 	const d = db as Kysely<any>;

@@ -53,7 +53,7 @@ export function EmptyHint({ children, className }: { children?: ReactNode; class
 }
 
 /**
- * The one empty state inside a DataTable's own frame (doc/webui.md "小节布局"):
+ * The one empty state inside a DataTable's own frame (doc/design/webui.md "Section layout"):
  * a single small muted line, no icon, title or second border, so every empty
  * section table looks the same. Pass it as the table's `empty`.
  */

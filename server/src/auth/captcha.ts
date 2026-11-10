@@ -3,7 +3,7 @@ import { type ChallengeSpec, generateChallenge, validateChallenge } from "capjs-
 
 /**
  * Stateless proof of work for password login, bound to address + username + password without
- * storing challenges (doc/access-control.md).
+ * storing challenges (doc/design/access-control.md).
  *
  * capjs-core makes a signed JWT out of the challenge parameters and verifies the solutions against
  * it, so the server keeps no state. Its secret is generated once per process: challenges live two

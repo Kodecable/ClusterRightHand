@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * D115: model providers are either Pi built-in (`builtin`) or `custom`. The old
+ * Model providers are either Pi built-in (`builtin`) or `custom`. The old
  * `openai-compatible` kind becomes `custom`; every model of such a provider gets an explicit
  * protocol (`openai-completions`) and input modalities (`["text"]`), and its old `reasoning`
  * flag becomes the thinking configuration (format mode with an empty level map, i.e. pi-ai's

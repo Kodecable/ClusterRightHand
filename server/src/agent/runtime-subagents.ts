@@ -22,7 +22,7 @@ import { MAX_SESSION_TREE_DEPTH, sessionAncestors } from "./session-chain.ts";
 import type { SessionState } from "./session-state.ts";
 
 /**
- * Subagents (doc/agent-runtime.md#subagent): a tool call creates an ownerless child session with its own
+ * Subagents (doc/design/agent-runtime.md "Subagents"): a tool call creates an ownerless child session with its own
  * conversation, rule set and quota below the parent's chain, starts it, and waits for its answer — or returns
  * at once when it runs in the background, so the parent's agent acts on the child's requests instead.
  */
@@ -41,7 +41,7 @@ const SubagentConversationLink = defineDocFamily<{ conversationId: string | null
 	checkpointWhen: () => true,
 });
 
-/** Subagent sessions nest at most this deep below a root session (doc/agent-runtime.md#subagent). */
+/** Subagent sessions nest at most this deep below a root session (doc/design/agent-runtime.md "Subagents"). */
 export const MAX_SUBAGENT_DEPTH = 2;
 
 /** Keeps a conversation at the depth limit from offering the subagent tool to its model. */
@@ -54,7 +54,7 @@ async function hideSubagentTool(host: RuntimeHost, conversation: Conversation): 
 /**
  * Reconciles old conversations with the depth limit; new children are handled in createSubagent. Only a
  * session at the limit can be affected, so `depthLimitedSessions` walks up from the subagent rows and finds
- * exactly those, instead of loading every session's parent at startup (doc/webui.md: 100,000 sessions).
+ * exactly those, instead of loading every session's parent at startup (doc/design/webui.md: 100,000 sessions).
  */
 export async function enforceDepthToolLimits(host: RuntimeHost): Promise<void> {
 	const limited = await depthLimitedSessions().execute(host.db);
@@ -68,7 +68,7 @@ export async function enforceDepthToolLimits(host: RuntimeHost): Promise<void> {
 
 /**
  * Creates (or, on a rerun of the same tool call, finds) a subagent's session: its own conversation, rule set and
- * quota, below the parent's chain (doc/agent-runtime.md#subagent). The child is ownerless so that a parent's
+ * quota, below the parent's chain (doc/design/agent-runtime.md "Subagents"). The child is ownerless so that a parent's
  * earlier return or abort does not kill it; the runtime cancels it explicitly.
  */
 export async function createSubagent(
@@ -100,7 +100,7 @@ export async function createSubagent(
 		return { id: childId, created: false };
 	}
 	// The parent may pick the child's model (like its rules and quota); without one the child inherits the
-	// parent's, keeping its thinking level clamped to the child's model (D115).
+	// parent's, keeping its thinking level clamped to the child's model.
 	const parentModel = JSON.parse(parent.model) as ModelRef;
 	const requested = input.model ?? { provider: parentModel.provider, modelId: parentModel.modelId };
 	const model = host.models.resolveRef(requested, thinkingLevelOf(parentModel));
@@ -139,7 +139,7 @@ export async function createSubagent(
 				parent_session_id: parent.id,
 				root_session_id: parent.root_session_id ?? parent.id,
 				title: input.task.slice(0, 80),
-				// A child's title is the start of its task; it never generates one (D116).
+				// A child's title is the start of its task; it never generates one.
 				title_pending: 0,
 				model: JSON.stringify(model),
 				status: "active",
@@ -268,7 +268,7 @@ export async function subagentSessions(
 		.orderBy("created_at", "desc")
 		.execute();
 	// One batched recompute over all children; only a child whose stored state is stale falls back to the
-	// coalesced single-session refresh that writes it (doc/agent-runtime.md#会话状态).
+	// coalesced single-session refresh that writes it (doc/design/agent-runtime.md "Session state").
 	const states = await refreshStates(host, rows);
 	const pending = await pendingAgentRequests(host, sessionId);
 	return rows.map((r) => ({

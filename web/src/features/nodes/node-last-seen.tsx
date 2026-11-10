@@ -7,7 +7,7 @@ import { useLocale } from "@/lib/i18n";
  * A node's "Last seen" value. `last_seen_at` is only written when crha
  * connects, says hello or disconnects, so a node that stays connected would
  * read "9 hours ago" while it is online right now. A connected client node
- * therefore shows "Now" (doc/webui.md "Nodes"), with the time it connected as
+ * therefore shows "Now" (doc/design/webui.md "Node pages"), with the time it connected as
  * the hover title; a disconnected or SSH node keeps the relative time.
  */
 export function NodeLastSeen({ lastSeenAt, connected }: { lastSeenAt: DateInput; connected: boolean | null }) {

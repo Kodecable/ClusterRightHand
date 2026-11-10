@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * Pending approvals get an indexable handler (doc/access-control.md#审批): `root_session_id` groups them by
+ * Pending approvals get an indexable handler (doc/design/access-control.md "Approvals"): `root_session_id` groups them by
  * session tree; `handler_type`/`handler_session_id` say whether an agent or the user must decide. Quota waits
  * get `sessions.waiting_handler_id`, the exhausted level's direct parent.
  */

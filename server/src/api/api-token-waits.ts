@@ -1,5 +1,5 @@
 /**
- * The waiting work of an API token (doc/access-control.md#审批): the tasks and task groups it started that
+ * The waiting work of an API token (doc/design/access-control.md "Approvals"): the tasks and task groups it started that
  * still wait for approval. Revoking a token and a token's expiry end that work the same way; a sweep is
  * idempotent because a later run only finds rows that are still waiting.
  */

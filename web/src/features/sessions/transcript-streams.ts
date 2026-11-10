@@ -3,7 +3,7 @@ import type { TextBlock, ThinkingBlock } from "./session-events";
 import type { SessionState } from "./session-reducer";
 
 /**
- * The per-row text stores of one session view (doc/webui.md "流式输出").
+ * The per-row text stores of one session view (doc/design/webui.md "Streaming output").
  *
  * The transcript structure (which rows exist) is React state, but the text of
  * the message being generated and of a running tool call is not: it lives here

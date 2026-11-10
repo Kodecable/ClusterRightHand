@@ -10,7 +10,7 @@ import { markSessionsIdle } from "./session-state.ts";
 import { wakeParent } from "./wakes.ts";
 
 /**
- * Requests waiting for one session's agent (doc/agent-runtime.md#处理子会话的请求): a cache over the durable
+ * Requests waiting for one session's agent (doc/design/agent-runtime.md "Handling subagent requests"): a cache over the durable
  * task, task-group and quota waits, invalidated whenever an approval changes. `waitSubagent` waits on it
  * instead of polling, and a routed request wakes the handler through the wake module.
  */
@@ -32,7 +32,7 @@ export function wakeRequestKey(requestId: string): string | undefined {
 	return undefined;
 }
 
-/** Requests waiting for this session's agent (doc/access-control.md#审批). */
+/** Requests waiting for this session's agent (doc/design/access-control.md "Approvals"). */
 export async function pendingAgentRequests(host: RuntimeHost, sessionId: string): Promise<AgentRequestView[]> {
 	const inbox = await ensureInbox(host, sessionId);
 	return [...inbox.requests.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -198,7 +198,7 @@ export async function decideAgentRequest(
 		} else {
 			if (tokens === undefined) throw new UserError("give the quota wait tokens to grant");
 			// No cap: the whole chain is charged for every response, so the parent's own remainder does
-			// not limit what it can add for its child (D77).
+			// not limit what it can add for its child.
 			await grantQuota(host.db, levelId, tokens);
 		}
 		void host.audit?.record({
@@ -246,8 +246,8 @@ export async function decideAgentRequest(
 }
 
 /**
- * Routes a waiting approval up the chain (doc/agent-runtime.md#处理子会话的请求): the first ancestor whose effective
- * result is allow decides through its agent, the root session included (D100); without one, the owner decides.
+ * Routes a waiting approval up the chain (doc/design/agent-runtime.md "Handling subagent requests"): the first ancestor whose effective
+ * result is allow decides through its agent, the root session included; without one, the owner decides.
  */
 export async function routeAwaiting(
 	host: RuntimeHost,

@@ -23,7 +23,7 @@ export interface ThinkingLevelSelectProps {
 }
 
 /**
- * The thinking level picker shown next to a model (doc/webui.md#输入框页脚): only
+ * The thinking level picker shown next to a model (doc/design/webui.md "Composer"): only
  * the levels the current model supports, with the caller hiding it when that is
  * only `off`.
  */

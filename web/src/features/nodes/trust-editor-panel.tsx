@@ -33,7 +33,7 @@ function sourceLabel(source: TrustKeySource, passkeyLabel: string): string {
 }
 
 /**
- * The trust configuration editor of a node (doc/privilege.md#信任配置): pick a
+ * The trust configuration editor of a node (doc/design/privilege.md "Trust configuration"): pick a
  * signing key, narrow the allow/deny rules and export the `[[trust]]` block for
  * the node's privileged.toml. The node enforces it; the console only builds it.
  */

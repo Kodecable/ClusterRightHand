@@ -1,5 +1,5 @@
 /**
- * The owner's authorizations (doc/privilege.md#授权路径, doc/m4.md M4.4): finding a stored one that covers
+ * The owner's authorizations (doc/design/privilege.md "Authorization path"): finding a stored one that covers
  * a task, judging one against a node's trust summary (with crhs's cosignature when the node needs it),
  * claiming the tasks it covers, and the submission of a new one.
  */
@@ -86,7 +86,7 @@ interface PreparedSubmission {
 
 export type ReusableAuthorizationLookup =
 	| { kind: "found"; submitted: SubmittedAuthorization; cosigned: boolean }
-	/** A reusable authorization only this node's missing alias stands in the way of (D110). */
+	/** A reusable authorization only this node's missing alias stands in the way of. */
 	| ({ kind: "alias_missing" } & MissingAlias)
 	| null;
 
@@ -112,7 +112,7 @@ async function nodeGroupNamesForNode(core: ClusterCore, nodeId: string): Promise
 
 /**
  * Whether a group-addressed reusable authorization would be accepted if the node trusted the
- * addressed node group as an alias (doc/privilege.md#信任缓存, D110). Only reusable authorizations
+ * addressed node group as an alias (doc/design/privilege.md "Trust cache"). Only reusable authorizations
  * are expanded by group UUID; a one-shot one names its nodes itself and is never in this case.
  * `groups` lets a caller reuse one membership lookup across candidates.
  */
@@ -141,10 +141,10 @@ async function missingAliasForAuthorization(
 
 /**
  * Finds a stored authorization of the task's owner that covers it and that the node's trust
- * summary would accept (doc/privilege.md#授权路径). Reusable ones (no task ids) and one-shot ones
+ * summary would accept (doc/design/privilege.md "Authorization path"). Reusable ones (no task ids) and one-shot ones
  * for this task with the same attempt qualify; a cosignature is added when the accepting entry
  * needs one and the payload is one-shot. A group-addressed reusable authorization that the node
- * would accept only with a missing alias is reported as `alias_missing` (D110).
+ * would accept only with a missing alias is reported as `alias_missing`.
  */
 export async function findReusableAuthorization(
 	core: ClusterCore,
@@ -199,7 +199,7 @@ export async function findReusableAuthorization(
 		};
 		const judged = await judgeOwnerAuthorization(core, input);
 		if (!judged.accepted) {
-			// A group-addressed reusable authorization is the case D110 warns about: if only the
+			// A group-addressed reusable authorization is the risky case: if only the
 			// node's configured aliases are missing, adding the alias would make the node accept it.
 			if (aliasMissing === null) {
 				memberGroups ??= await nodeGroupNamesForNode(core, node.id);
@@ -219,7 +219,7 @@ export async function findReusableAuthorization(
 /**
  * Judges one owner authorization for one task with the real decision port: which trust entry
  * verifies which signature, whether the node would accept it, and whether a crhs cosignature has
- * to be appended first (doc/privilege.md#联署).
+ * to be appended first (doc/design/privilege.md "Cosigning").
  */
 async function judgeOwnerAuthorization(
 	core: ClusterCore,
@@ -322,7 +322,7 @@ function decideOwnerAuthorization(input: {
  * Claims a task for an owner authorization: the attempt is fixed, the pending payload is cleared
  * and the local approval request withdrawn. Sending is separate, so a whole task group can be
  * claimed before the first task.start is sent and a rejection cannot change a sibling's attempt.
- * This is the turn body (D118): planPrivileged calls it inside its plan turn, and every caller outside
+ * This is the turn body: planPrivileged calls it inside its plan turn, and every caller outside
  * a turn (the stored-authorization sweep, a submission) wraps it in a turn of the task's queue from a
  * fresh read. The task.start is sent after that turn.
  */
@@ -339,7 +339,7 @@ export async function claimOwnerAuthorization(
 	if (!from.includes(row.state)) return null;
 	// A member of a group that already ended (interrupted by a restart) never dispatches again.
 	if (await groupEnded(core, row.task_group_id)) return null;
-	// The signature may arrive long after the task was parked: check access again before claiming it (D108).
+	// The signature may arrive long after the task was parked: check access again before claiming it.
 	if (!(await userCanAccessNode(core.db, row.on_behalf_of_user_id, node.id))) {
 		await finishAuthorization(
 			core,
@@ -395,7 +395,7 @@ export async function claimOwnerAuthorization(
 	if (!claimed) return null;
 	newLive(core, row.id, node.id, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes);
 	core.background("task group state update failed", syncGroupState(core, row.task_group_id));
-	// The task no longer waits for a signature; the session it belongs to runs again (doc/agent-runtime.md#会话状态).
+	// The task no longer waits for a signature; the session it belongs to runs again (doc/design/agent-runtime.md "Session state").
 	core.onChange?.(row.actor_id);
 	if (cosigned) {
 		core.auditLater({
@@ -407,7 +407,7 @@ export async function claimOwnerAuthorization(
 	}
 	const spec = specFromRow(row.spec, "task");
 	// A task that waited has its input in pending_input; a fresh one it only ever had in memory
-	// (doc/execution-plane.md#状态机).
+	// (doc/design/execution.md "State machine").
 	const input = inputBytes ?? pendingInputOf(row);
 	const start = taskStartOf(row.id, row, spec, { privileged: true, attempt, authorizations: [encoded] });
 	return { start, record: updated, input, cosigned };
@@ -419,8 +419,8 @@ export async function claimOwnerAuthorization(
  * POST /api/authorizations: checks a user's authorization and stores it (for display and reuse). Only
  * the failures the caller can fix are synchronous (the signature, the deadline and the issuer's clock);
  * finding the waiting tasks it covers, judging them, claiming them, sending their task.start and
- * storing crhs's cosignatures continue in the background (D118), and the outcome shows up in the task
- * states (doc/m4.md M4.4).
+ * storing crhs's cosignatures continue in the background, and the outcome shows up in the task
+ * states (doc/design/privilege.md "Authorizations").
  */
 export async function submitAuthorization(
 	core: ClusterCore,
@@ -460,7 +460,7 @@ export async function submitAuthorization(
 }
 
 /**
- * The background half of a submission (D118): judges every waiting task of the user the authorization
+ * The background half of a submission: judges every waiting task of the user the authorization
  * covers, claims the accepted ones, then sends their task.start and stores crhs's cosignatures. The
  * order matters: all judgments happen before the first claim, and all claims before the first send, so
  * one node's rejection cannot change the attempt of a sibling that is still about to be sent.
@@ -481,11 +481,11 @@ async function dispatchSubmittedAuthorization(
 	// The tasks are judged concurrently so a whole group on an offline node waits out one grace, not one
 	// grace per member. The judge waits for its node, so it runs outside the task turn; its failure
 	// writes run in a turn on a fresh read, and the claim below re-reads the row in a turn of its own
-	// (D118).
+	//.
 	const judged = (await Promise.all(rows.map(({ id }) => judgeSubmitted(core, id, submitted, material)))).filter(
 		(entry): entry is JudgedSubmission => entry !== null,
 	);
-	// The Authorization is one object for the whole group (D88), so it carries the union of the
+	// The Authorization is one object for the whole group, so it carries the union of the
 	// cosignatures the covered nodes need; a node ignores a signature of a key it does not trust.
 	const cosignatures = newSignatures(
 		submitted.signatures,
@@ -514,7 +514,7 @@ async function dispatchSubmittedAuthorization(
 /**
  * One waiting task of the submitting user, judged against its node's fresh trust summary. The wait for
  * the node and the judgment run outside the task's turn; the failure writes run in a turn on a fresh
- * read (D118), and the claim is a later turn of its own.
+ * read, and the claim is a later turn of its own.
  */
 async function judgeSubmitted(
 	core: ClusterCore,
@@ -528,7 +528,7 @@ async function judgeSubmitted(
 	if (payload.taskIds !== null) {
 		if (!payload.taskIds.includes(id) || payload.attempt !== row.attempt) return null;
 	}
-	// D113: the submission waits for its node within the grace; a node that stays away fails the task
+	// The submission waits for its node within the grace; a node that stays away fails the task
 	// here instead of leaving it waiting for a signature that already arrived.
 	const ready = await core.waitNodeReady(row.node_id, { trust: true });
 	if (!ready?.link) {
@@ -555,7 +555,7 @@ async function judgeSubmitted(
 	const judged = await judgeOwnerAuthorization(core, input);
 	if (!judged.accepted) {
 		// A submitted reusable authorization that only the node's missing alias blocks ends the
-		// task here instead of leaving it waiting forever (D110), unless local approval can still
+		// task here instead of leaving it waiting forever, unless local approval can still
 		// authorize this single task.
 		const missing = await missingAliasForAuthorization(core, input);
 		if (missing !== null) {

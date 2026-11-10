@@ -1,7 +1,7 @@
 // Package daemon implements crha's privileged mode: the unix-socket server that verifies
 // authorizations for privileged tasks, executes them as its own Linux user, records the used
 // list, exposes local approval and pushes the trust summary
-// (doc/privilege.md 特权模式, doc/protocol.md crh-priv).
+// (doc/design/privilege.md "The privileged mode", doc/design/protocol.md "crh-priv").
 package daemon
 
 import (
@@ -48,7 +48,7 @@ type Options struct {
 	// Now returns the current time; nil means time.Now.
 	Now func() time.Time
 	// Env is the task environment resolved when `crha privileged run` started
-	// (doc/execution-plane.md#exec-的执行环境). nil resolves it per task, which only tests and
+	// (doc/design/execution.md "The exec environment"). nil resolves it per task, which only tests and
 	// programmatic callers do.
 	Env *execenv.Environment
 	// NoPersistUsed keeps the used list in memory only, for embedded devices with limited
@@ -411,7 +411,7 @@ func (s *Server) reload() {
 	for _, c := range s.forwardConns() {
 		// Queue the push instead of writing it here: a peer that stopped reading must not keep
 		// the Run loop (and SIGTERM handling) behind its socket buffer. A timed-out write closes
-		// that connection (doc/privilege.md 特权模式).
+		// that connection (doc/design/privilege.md "The privileged mode").
 		c.enqueue(protocol.EventTrustSummary, report)
 	}
 }

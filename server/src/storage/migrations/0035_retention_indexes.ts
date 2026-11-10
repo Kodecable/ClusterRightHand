@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * Indexes for the retention sweep (storage/retention.ts, doc/data-model.md#保留期): it deletes old terminal
+ * Indexes for the retention sweep (storage/retention.ts, doc/design/data-model.md "Retention"): it deletes old terminal
  * tasks and task groups by `finished_at`, and audit events by `ts` behind a sequence floor. Authorizations
  * already have `authorizations_deadline_idx` from 0022.
  */

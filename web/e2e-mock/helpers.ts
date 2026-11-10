@@ -655,7 +655,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 							credential: { id: "cred-1", name: "laptop" },
 						}
 					: null;
-			// The SSH route and credential are administrator data (D108); a non-admin gets only the node.
+			// The SSH route and credential are administrator data; a non-admin gets only the node.
 			return state.user.kind === "admin" ? json({ node, ssh }) : json({ node });
 		}
 		if (path === "/api/ssh-credentials" && method === "GET") return json({ credentials: state.sshCredentials });

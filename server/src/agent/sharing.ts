@@ -10,7 +10,7 @@ import { newId } from "../util/id.ts";
 import { sessionAncestors } from "./session-chain.ts";
 
 /**
- * Session sharing (doc/access-control.md#归属与分享). A session acts for its owner: a user it is shared with
+ * Session sharing (doc/design/access-control.md "Ownership, access grants and sharing"). A session acts for its owner: a user it is shared with
  * drives it within the owner's nodes and the session's own rules, and approvals still go to the owner.
  */
 
@@ -21,7 +21,7 @@ export interface SessionPermissions {
 	capabilities: SessionCapabilities;
 	/**
 	 * A share reaches the caller on this session or one of its ancestors: what the WebUI's list items call
-	 * `shared` (doc/webui.md#SessionListItem). False for the owner, and for an administrator who is not a grantee.
+	 * `shared` (doc/design/webui.md "API conventions"). False for the owner, and for an administrator who is not a grantee.
 	 */
 	shared: boolean;
 }

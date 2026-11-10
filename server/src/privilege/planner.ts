@@ -1,9 +1,9 @@
 /**
- * The authorization plan of a privileged task (doc/privilege.md#授权路径, #预演与 fallback).
+ * The authorization plan of a privileged task (doc/design/privilege.md "Authorization path").
  *
  * crhs computes from its cached TrustSummary which path can authorize a task, in preference order:
  * its own crhs signing key (`crhs`), the owner's user credentials (`user`), or a local approval on
- * the node (`local`, single tasks only, D89). The matching is the same decision crha makes, run with
+ * the node (`local`, single tasks only). The matching is the same decision crha makes, run with
  * a hypothetical valid signature (`decide`), so crhs cannot pick a path the node would reject.
  * A plan is only a prediction: crha re-verifies everything before executing.
  */
@@ -24,7 +24,7 @@ export const USER_AUTHORIZATION_TTL_MS = 24 * 60 * 60 * 1000;
 
 export type { AuthorizationPath };
 
-/** The owner's registered credentials (doc/m4.md crhs 侧数据 `user_credentials`). */
+/** The owner's registered credentials (doc/design/privilege.md "Server-side authorization" `user_credentials`). */
 export interface OwnerCredentials {
 	/** OpenSSH `SHA256:…` fingerprints of the owner's SSH keys. */
 	sshKeyFingerprints: readonly string[];
@@ -41,7 +41,7 @@ export interface PlannerInput {
 	/** The trust aliases the node reported (payload nodes may address one of them). */
 	aliases: readonly string[];
 	task: { id: string; attempt: number; spec: TaskSpec; privileged: boolean };
-	/** Tasks of a task group never use local approval (D89). */
+	/** Tasks of a task group never use local approval. */
 	taskGroup: boolean;
 	owner: OwnerCredentials;
 	/**
@@ -49,7 +49,7 @@ export interface PlannerInput {
 	 * with this key can sign or cosign; a node may trust several crhs keys (e.g. during rotation).
 	 */
 	crhsFingerprint?: string;
-	/** Paths already tried for this task; a crha rejection of the crhs path is not retried (D83). */
+	/** Paths already tried for this task; a crha rejection of the crhs path is not retried. */
 	tried?: readonly AuthorizationPath[];
 	/** `issued_at_ms` of generated payloads; defaults to now. */
 	now?: number;
@@ -80,7 +80,7 @@ export interface PlannedUserPath {
 	path: "user";
 	/** The owner's entries that would accept one-shot exact payloads for this task. */
 	entries: PlannedUserEntry[];
-	/** Whether this task belongs to a task group; local approval does not apply then (D89). */
+	/** Whether this task belongs to a task group; local approval does not apply then. */
 	taskGroup: boolean;
 	/**
 	 * A one-shot exact payload for this task. A task group signs one shared payload for all nodes
@@ -152,7 +152,7 @@ function firstCosignEntry(summary: TrustSummary, crhsFingerprint: string | undef
 }
 
 /**
- * crha maps a signature to the first trust entry with its key (doc/privilege.md#信任配置), so later
+ * crha maps a signature to the first trust entry with its key (doc/design/privilege.md "Trust configuration"), so later
  * entries repeating a key never take part in a decision there; dropping them here keeps the preview
  * from planning a path crha would refuse. Local entries are matched by uid and all take part.
  */
@@ -370,7 +370,7 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 }
 
 export interface TaskGroupAuthorizationInput {
-	/** The nodes of the group, with groups already expanded to node ids (D88). */
+	/** The nodes of the group, with groups already expanded to node ids. */
 	nodeIds: readonly string[];
 	/** The tasks created for those nodes, in the same order. */
 	taskIds: readonly string[];
@@ -385,7 +385,7 @@ export interface TaskGroupAuthorizationInput {
 }
 
 /**
- * One payload that covers every task of a task group (D88): all node ids, all task ids, a shared
+ * One payload that covers every task of a task group: all node ids, all task ids, a shared
  * attempt and one exact command. A user signs it once; crha consumes each (authorization, task) pair
  * separately, so a partial rejection only needs a new payload for the rejected nodes.
  */

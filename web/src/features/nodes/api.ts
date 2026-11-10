@@ -26,7 +26,7 @@ export function useNode(id: string | undefined) {
 		queryKey: nodeKeys.detail(id ?? ""),
 		enabled: id !== undefined && id !== "",
 		queryFn: ({ signal }) =>
-			// `ssh` is admin-only (D108); a non-admin response has no `ssh`.
+			// `ssh` is admin-only; a non-admin response has no `ssh`.
 			http.get<{ node: PublicNode; ssh?: SshNodeDetails | null }>(`/nodes/${enc(id ?? "")}`, {
 				signal,
 			}),
@@ -134,7 +134,7 @@ export function useTestSshNode() {
 	});
 }
 
-/** Replaces a node's node groups; administrators only, for crha and SSH nodes alike (D109). */
+/** Replaces a node's node groups; administrators only, for crha and SSH nodes alike. */
 export function useSetNodeGroups() {
 	const queryClient = useQueryClient();
 	return useMutation({

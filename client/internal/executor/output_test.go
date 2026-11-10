@@ -40,7 +40,7 @@ func TestOutputInMemory(t *testing.T) {
 	}
 }
 
-// TestOutputLines covers the line count of the merged output (doc/protocol.md TaskExit): the
+// TestOutputLines covers the line count of the merged output (doc/design/protocol.md "Events"): the
 // newline count plus a last line without one, and 0 for no output, whether the bytes stayed in
 // memory or were spilled.
 func TestOutputLines(t *testing.T) {
@@ -312,8 +312,7 @@ func TestOutputManySmallWrites(t *testing.T) {
 }
 
 // TestOutputCoalescingKeepsInterleaving covers the spill file: a segment may only grow while it is
-// the newest one, so the file keeps the arrival order of the two streams (doc/execution-plane.md
-// 输出).
+// the newest one, so the file keeps the arrival order of the two streams (doc/design/execution.md "Output").
 func TestOutputCoalescingKeepsInterleaving(t *testing.T) {
 	o := NewOutput("interleaved", t.TempDir(), OutputOptions{SpillBytes: 10})
 	var want strings.Builder

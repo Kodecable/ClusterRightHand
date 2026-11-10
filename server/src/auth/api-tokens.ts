@@ -33,7 +33,7 @@ export function parseApiTokenRulePreset(raw: unknown): RulePreset {
 }
 
 /**
- * Creates a token owned by `user`, the root of its own rule chain (doc/access-control.md#api-token).
+ * Creates a token owned by `user`, the root of its own rule chain (doc/design/access-control.md "API tokens").
  * `days`: lifetime, default 90, at most 365; null never expires. The token is returned only here.
  */
 export async function createApiToken(

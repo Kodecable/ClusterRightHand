@@ -1,7 +1,7 @@
 /**
  * Regression test for the stale-row claim of `submitAuthorization` that used to regress a task's attempt:
  * the claim judged the row read at decision time, so a `refreshGroupPending` in between could roll the
- * attempt back. The race is now prevented by the row version (D118): the claim
+ * attempt back. The race is now prevented by the row version: the claim
  * re-reads the row in its own queue turn, so it judges the refreshed attempt, and its write is guarded by
  * that row's `rev`.
  *
@@ -10,7 +10,7 @@
  * 1. The owner submits a one-shot authorization for task A of a group. A is claimed and its `task.start`
  *    is sent; the fake node withholds the answer.
  * 2. A reusable authorization for task B (same group, other node) is submitted. Its dispatch now runs in
- *    the background (D118): `submitAuthorization` stores the row and returns, then `judgeSubmitted`
+ *    the background: `submitAuthorization` stores the row and returns, then `judgeSubmitted`
  *    reads B's row (attempt 1) and waits for B's node — held open here by a `waitNodeReady` stub, the
  *    same window the real offline grace creates.
  * 3. The withheld answer becomes an authorization rejection. `retryAuthorization` moves A to

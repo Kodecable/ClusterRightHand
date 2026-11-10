@@ -8,7 +8,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
-// MaxPatternBytes bounds a guard rule's regex pattern (doc/privilege.md#防护规则).
+// MaxPatternBytes bounds a guard rule's regex pattern (doc/design/privilege.md "Guard rules").
 const MaxPatternBytes = 1000
 
 // compiledRule is one GuardRule ready to match targets.
@@ -88,7 +88,7 @@ func compileRule(rule protocol.GuardRule) (compiledRule, error) {
 
 // matches applies one rule to an operation. allowFileWriteCoversRead is true only for
 // allow rules: a file.write allow rule also grants reading, while a deny rule stays
-// method-exact (D67).
+// method-exact.
 func (r compiledRule) matches(method, target string, allowFileWriteCoversRead bool) bool {
 	if string(r.method) != method {
 		if !(allowFileWriteCoversRead && r.method == protocol.MethodFileWrite && method == string(protocol.MethodFileRead)) {

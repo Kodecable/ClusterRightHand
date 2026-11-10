@@ -3,7 +3,7 @@ import { XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 /**
- * The remove action of a detail-page list row (doc/webui.md "列表导航、链接与刷新"):
+ * The remove action of a detail-page list row (doc/design/webui.md "List navigation, links and refresh"):
  * an outline xs button with the X icon and the visible "Remove" label. `label`
  * names what is removed for screen readers, since every row says "Remove".
  */

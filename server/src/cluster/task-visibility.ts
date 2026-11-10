@@ -3,7 +3,7 @@ import { isAdmin, type SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
 
 /**
- * Who may see a task or task group (D108, doc/access-control.md#归属访问授权与分享): visibility depends only
+ * Who may see a task or task group (doc/design/access-control.md "Ownership, access grants and sharing"): visibility depends only
  * on the user's relation to the task, never on node access. Administrators see everything, the on_behalf_of
  * user sees their own work even after losing node access, and users who can view the session that issued it
  * (through session sharing) see it too. Node access reveals nothing about other users' tasks.

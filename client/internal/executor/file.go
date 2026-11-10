@@ -42,7 +42,7 @@ func RunFile(ctx context.Context, spec *protocol.TaskSpec, input io.Reader, stdo
 // with openat2(RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS) from an fd for "/", and stat, read, list and
 // write operate on the resulting fds. A symbolic link at any level is refused, and so is a kernel
 // or sandbox that does not provide openat2; there is no fallback to path-based operations
-// (doc/privilege.md "方法与目标"). It returns the task's structured result.
+// (doc/design/privilege.md "Methods and targets"). It returns the task's structured result.
 func RunFilePrivileged(ctx context.Context, spec *protocol.TaskSpec, input io.Reader, stdout io.Writer) (*protocol.TaskResult, error) {
 	root, err := openPrivilegedFileRoot()
 	if err != nil {

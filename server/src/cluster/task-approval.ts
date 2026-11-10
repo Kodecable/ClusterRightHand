@@ -1,8 +1,8 @@
 /**
- * The approval of a single task (doc/access-control.md#审批): a user's or an agent's decision, Auto
+ * The approval of a single task (doc/design/access-control.md "Approvals"): a user's or an agent's decision, Auto
  * Review's verdict, the routing to an ancestor session's agent, and the rules judging waiting tasks again
  * after they changed. The parts a task group's approval shares are in approval.ts; the writes here are
- * guarded by the row version (D118), and decide() dispatches outside its turn instead of holding it.
+ * guarded by the row version, and decide() dispatches outside its turn instead of holding it.
  */
 import { type TaskSpec, taskSpecFromJson } from "@crh/protocol";
 import type { Selectable } from "kysely";
@@ -39,7 +39,7 @@ import type { AgentRequest, ApprovalDecision, ApprovalExpect, ApprovalRecord, De
  *
  * The decision (and, for an approval, the spec and input the dispatch needs) is recorded in the task's
  * turn; the dispatch itself runs after it, so an HTTP approve still waits for the dispatch result without
- * holding the task's queue across the offline grace and the whole send (D118).
+ * holding the task's queue across the offline grace and the whole send.
  */
 export async function decide(
 	core: ClusterCore,
@@ -59,7 +59,7 @@ export async function decide(
 			if (!node) {
 				// The node was deleted while the task waited. There is nothing to dispatch to, so the task
 				// ends as node_deleted with the decision it did get; the caller must not append an "always"
-				// rule for a task that could not be approved (doc/execution-plane.md#状态机).
+				// rule for a task that could not be approved (doc/design/execution.md "State machine").
 				const ended = await failNodeDeleted(core, id, row, { approval: JSON.stringify(record) });
 				if (!ended) return false;
 				core.background("task approval audit failed", auditApproval(core, row, decision));
@@ -104,7 +104,7 @@ export async function decide(
 			audit: false,
 		});
 		if (!rejected) return false;
-		// The rejection is audited as an approval, not as a task.finished (doc/access-control.md#记录内容).
+		// The rejection is audited as an approval, not as a task.finished (doc/design/access-control.md "Recorded events").
 		core.background("task approval audit failed", auditApproval(core, row, decision));
 		return { kind: "rejected" };
 	});
@@ -115,7 +115,7 @@ export async function decide(
 	core.onChange?.(decided.actorId);
 	if (decided.dispatch) {
 		try {
-			// Outside the turn: dispatch waits for the node and sends from its own short turn (D118).
+			// Outside the turn: dispatch waits for the node and sends from its own short turn.
 			await dispatch(
 				core,
 				id,
@@ -126,7 +126,7 @@ export async function decide(
 			);
 		} catch (err) {
 			// The decision is recorded, so the task is no longer waiting for one: it must not keep the
-			// row in awaiting_approval (doc/execution-plane.md#状态机).
+			// row in awaiting_approval (doc/design/execution.md "State machine").
 			await endUndispatched(core, id, err);
 			throw err;
 		}
@@ -230,7 +230,7 @@ function routeAgentDecision(
 }
 
 /**
- * Judges waiting tasks again after rules on their chain changed (doc/access-control.md#审批): allow
+ * Judges waiting tasks again after rules on their chain changed (doc/design/access-control.md "Approvals"): allow
  * dispatches them, deny ends them, require-approval leaves them waiting. (A task group's reevaluate
  * settles the whole group: it approves when no node still requires approval, and rejects when every
  * node is denied; see TaskGroups.reevaluate.)

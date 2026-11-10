@@ -1,14 +1,14 @@
 import type { Kysely } from "kysely";
 
 /**
- * D114: one output stream. `tasks` keeps a single `output_head` / `output_tail` / `output_bytes`
+ * One output stream. `tasks` keeps a single `output_head` / `output_tail` / `output_bytes`
  * instead of separate stdout and stderr columns, and crhs's own line (the SSH privileged notice)
  * moves to `notice`. Rows written before this migration are merged stdout first, stderr second; a
  * `task.exit` from the 0039 era wrote a merged tail already, so that one is kept. The migration also
  * backfills `"createParentDirs": false` into stored `file.write` specs, because the JSON form now
- * requires it (doc/protocol.md#json-形式服务端存储).
+ * requires it (doc/design/protocol.md "JSON storage forms").
  *
- * It is self-contained (doc/data-model.md): the notice text is copied from the SSH runner, not
+ * It is self-contained (doc/design/data-model.md): the notice text is copied from the SSH runner, not
  * imported.
  */
 

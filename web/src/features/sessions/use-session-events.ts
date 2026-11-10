@@ -22,7 +22,7 @@ export interface SessionEvents {
 	/**
 	 * Bumped when the child-session list may have changed: a `snapshot` (the
 	 * stream reconnected or opened) or a `subagent` tool update/end
-	 * (doc/webui.md#api-约定). The children query refetches on every bump.
+	 * (doc/design/webui.md "API conventions"). The children query refetches on every bump.
 	 */
 	childrenRevision: number;
 }
@@ -74,7 +74,7 @@ export function structureKey(state: SessionState): string {
 }
 
 /**
- * Follows `GET /api/sessions/:id/events` (doc/webui.md "会话事件流").
+ * Follows `GET /api/sessions/:id/events` (doc/design/webui.md "Session event stream and history").
  *
  * A reconnect starts with a fresh snapshot, which replaces the state. Event
  * batches are reduced into a ref; only a change of the transcript's structure

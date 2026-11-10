@@ -65,7 +65,7 @@ function fakeModel(steps: ((body: { messages: { role: string; content: unknown }
 	return { server, requests, streaming, steps };
 }
 
-// doc/agent-runtime.md#故障注入: crhs is killed (SIGKILL) while a session's exec runs on a real node; after a restart
+// doc/design/testing/server.md "Fault injection": crhs is killed (SIGKILL) while a session's exec runs on a real node; after a restart
 // the tool call reattaches to the same Cluster task and the session gets its real result.
 describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 	let tmp = "";
@@ -248,7 +248,7 @@ describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 		await up();
 
 		// The second model request carries the tool result: the real output of the one task. The result is
-		// text (D111/D112); the task id is UI-only metadata in its `details`, never sent to the model, so the
+		// text; the task id is UI-only metadata in its `details`, never sent to the model, so the
 		// task-API check below ties the output to the task that was running before the crash.
 		await waitFor("the model asked again", () => model.requests.length === 2, 60_000);
 		const toolResult = model.requests[1]?.messages.find((m) => m.role === "tool");

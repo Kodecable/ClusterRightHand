@@ -20,9 +20,9 @@ import { jsonBodyLimit, MAX_INPUT_BASE64_LENGTH, MAX_INPUT_BODY_BYTES, MAX_INPUT
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
 
 const MAX_WAIT_MS = 10 * 60 * 1000;
-/** Lines a file.read reads when the request names none: pi's read default (doc/agent-runtime.md#默认值). */
+/** Lines a file.read reads when the request names none: pi's read default (doc/design/agent-runtime.md "Defaults"). */
 const DEFAULT_READ_LINES = 2000;
-/** GET /tasks orders by `created_at desc, id desc` (doc/webui.md#api-约定). */
+/** GET /tasks orders by `created_at desc, id desc` (doc/design/webui.md "API conventions"). */
 const TASKS_CURSOR: CursorSpec = { columns: [{ name: "created_at", type: "string" }], idType: "string" };
 
 const TASK_STATES: ReadonlySet<string> = new Set<TaskState>([
@@ -36,7 +36,7 @@ const TASK_STATES: ReadonlySet<string> = new Set<TaskState>([
 	"rejected",
 	"unknown",
 ]);
-/** The stored actor types of doc/access-control.md#操作者. */
+/** The stored actor types of doc/design/access-control.md "Actors" */
 const ACTOR_TYPES: ReadonlySet<string> = new Set(["user", "session", "subagent", "schedule", "api_token", "system"]);
 
 /** Expects requireUser to have run. Policy and approval come with the authorization rules (M2). */
@@ -68,7 +68,7 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		return c.json({ task }, 201);
 	});
 
-	// Batch execution: one task per target node; see doc/agent-runtime.md#批量执行.
+	// Batch execution: one task per target node; see doc/design/agent-runtime.md "Batch execution".
 	app.post("/task-groups", jsonBodyLimit(MAX_INPUT_BODY_BYTES), async (c) => {
 		const user = c.get("user");
 		const body = await readJsonObject(c);
@@ -126,7 +126,7 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		const nodeId = c.req.param("id");
 		const user = c.get("user");
 		if (!(await nodeAccess(db, user, nodeId))) return jsonError(c, 404, "no such node");
-		// The node's recent-tasks section shows the newest 10 (doc/webui.md "任务页与任务组页"); "View
+		// The node's recent-tasks section shows the newest 10 (doc/design/webui.md "Task and task group pages"); "View
 		// all tasks" continues on the tasks page with `?node=`. The node only narrows the list;
 		// visibility still depends on the task's relation to the user.
 		let query = db
@@ -154,9 +154,9 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 
 	/**
 	 * The tasks the user may list (administrators: all; everyone else: their own), newest first, one keyset
-	 * page at a time. Visibility is the task's relation to the user, never node access (D108); session viewers
+	 * page at a time. Visibility is the task's relation to the user, never node access; session viewers
 	 * reach a shared session's task by id instead. The filters are the task page's; there is no "waiting for
-	 * me first" ordering any more (doc/webui.md#api-约定): waiting approvals live on the approvals page.
+	 * me first" ordering any more (doc/design/webui.md "API conventions"): waiting approvals live on the approvals page.
 	 */
 	app.get("/tasks", async (c) => {
 		const user = c.get("user");
@@ -173,7 +173,7 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, TASKS_CURSOR);
 
 		let query = db.selectFrom("tasks").select(["id", "created_at"]);
-		// (a)/(b) of doc/access-control.md: administrators list everything, everyone else their own tasks.
+		// (a)/(b) of doc/design/access-control.md: administrators list everything, everyone else their own tasks.
 		// Session viewers reach a shared session's task by id, not through this list.
 		if (!isAdmin(user)) query = query.where("on_behalf_of_user_id", "=", user.userId);
 		if (filterNode !== undefined) query = query.where("node_id", "=", filterNode);
@@ -333,7 +333,7 @@ function optionalBool(body: Record<string, unknown>, key: string): boolean | und
 
 /**
  * The batch output mode; omitted means the group's default for its kind (`status` for exec, `head`
- * for file operations), see doc/execution-plane.md#输出.
+ * for file operations), see doc/design/execution.md "Output".
  */
 function parseOutputMode(body: Record<string, unknown>): "status" | "text" | "head" | undefined {
 	const value = body.outputMode;

@@ -1,5 +1,5 @@
 /**
- * The local-approval and stored-authorization paths against a task's queue (D118, step 2b): no path
+ * The local-approval and stored-authorization paths against a task's queue: no path
  * holds the task's turn across a wait for the node or across a request that waits for its answer.
  * These tests drive the real paths against fake crha links and assert that a concurrent path on the
  * same task is not blocked meanwhile, that a cancel during the offline grace wins, and that at most one
@@ -49,7 +49,7 @@ const IDENTITIES = {
 
 const HOUR = 3_600_000;
 
-describe("authorization paths and the task queue (D118)", () => {
+describe("authorization paths and the task queue", () => {
 	let db: Db;
 	let cluster: Cluster;
 	let agents: TestAgentServer;
@@ -240,7 +240,7 @@ describe("authorization paths and the task queue (D118)", () => {
 		await waitFor("waiting for a signature", async () => (await rowOf(task.id))?.state === "awaiting_authorization");
 
 		// Hold the dispatch right where it waits for its node: the approval has been decided, the grace
-		// for the node has not run yet. The wait must not hold the task's queue (D118).
+		// for the node has not run yet. The wait must not hold the task's queue.
 		const original = ClusterCore.prototype.readyNode;
 		let release!: () => void;
 		const gate = new Promise<void>((resolve) => {
@@ -338,7 +338,7 @@ describe("authorization paths and the task queue (D118)", () => {
 		await storeOwnerAuthorization(node, task.id);
 
 		// The sweep after the next trust report waits for the node (the offline grace's shape), held open
-		// here instead of actually waiting it out. The task's queue must stay free meanwhile (D118).
+		// here instead of actually waiting it out. The task's queue must stay free meanwhile.
 		const original = ClusterCore.prototype.waitNodeReady;
 		let release!: () => void;
 		const gate = new Promise<void>((resolve) => {
@@ -403,7 +403,7 @@ describe("authorization paths and the task queue (D118)", () => {
 
 		crha.peer.emit("local.decision", { taskId: task.id, attempt: 1, state: { kind: "approved" } });
 		// The rejected task.start goes through retryAuthorization: the task moves to attempt + 1 and the
-		// plan asks for local approval again, none of it inside a task queue turn (D118).
+		// plan asks for local approval again, none of it inside a task queue turn.
 		await waitFor("local.request for the retry", () => crha.localRequests.length === 2);
 		expect(crha.localRequests[1]).toMatchObject({ taskId: task.id, attempt: 2 });
 		expect(await rowOf(task.id)).toMatchObject({ state: "awaiting_authorization", attempt: 2 });

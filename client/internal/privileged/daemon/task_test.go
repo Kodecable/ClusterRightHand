@@ -144,7 +144,7 @@ func TestExpiredRefused(t *testing.T) {
 
 // TestStagingFailureKeepsTaskIDUnused covers a resource refusal before the used record: a task
 // whose declared stdin cannot be staged is refused with input_too_large, writes no used record
-// and can be retried with the same task id (doc/privilege.md 校验流程).
+// and can be retried with the same task id (doc/design/privilege.md "Validation flow").
 func TestStagingFailureKeepsTaskIDUnused(t *testing.T) {
 	keys := newTestKeys(t)
 	env := crhsOnlyEnv(t, keys)

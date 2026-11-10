@@ -5,7 +5,7 @@ import type { Context } from "hono";
  * The client address a login attempt is keyed by: the first non-empty element of the configured
  * real-IP header, or the socket's direct remote address when the header is not configured, absent or
  * empty. There is deliberately no trusted-proxy list and no right-to-left walk: the deployer is
- * responsible for a proxy that sets the header correctly (doc/configuration.md#listen).
+ * responsible for a proxy that sets the header correctly (doc/guide/reference/crhs-config.md "[listen]").
  */
 export function resolveClientAddress(
 	direct: string | undefined,

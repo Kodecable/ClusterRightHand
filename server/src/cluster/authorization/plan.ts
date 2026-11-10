@@ -1,7 +1,7 @@
 /**
- * Planning the authorization of a privileged task (doc/privilege.md#授权路径) and parking it in
+ * Planning the authorization of a privileged task (doc/design/privilege.md "Authorization path") and parking it in
  * `awaiting_authorization` when no path can be taken at once; a task group's waiting tasks share one
- * payload to sign (D88).
+ * payload to sign.
  */
 import type { TaskSpec } from "@crh/protocol";
 import type { Selectable, Updateable } from "kysely";
@@ -36,7 +36,7 @@ import { ALIAS_MISSING, aliasMissingMessage, finishAuthorization, withoutRequest
 import { sendLocalRequest } from "./local-approval.ts";
 import { claimOwnerAuthorization, findReusableAuthorization } from "./owner-authorizations.ts";
 
-/** What a planning turn decided; the send (or the local.request) runs after the turn (D118). */
+/** What a planning turn decided; the send (or the local.request) runs after the turn. */
 type PlanOutcome =
 	| { kind: "send"; claim: AuthorizedStart }
 	| { kind: "local"; link: NodeLink; spec: TaskSpec; input: Uint8Array; record: TaskAuthorizationRecord };
@@ -45,11 +45,11 @@ type PlanOutcome =
 
 /**
  * Computes the authorization plan of a privileged task and acts on it, in this order
- * (doc/privilege.md#授权路径): an authorization the owner already stored that covers the task,
+ * (doc/design/privilege.md "Authorization path"): an authorization the owner already stored that covers the task,
  * crhs's own signature, the owner's signature or a local approval. With no usable path the task
  * ends rejected and says why.
  *
- * D118: the trust wait happens outside any turn; one short turn then re-reads the row, computes the
+ * The trust wait happens outside any turn; one short turn then re-reads the row, computes the
  * plan from it and writes the claim (or the park, or the failure); the task.start / local.request
  * that waits for an answer is sent after that turn. Pre-wait checks that need no trust (a group that
  * already ended, a crha without the forward names) are their own turn from a fresh read, so the failure
@@ -66,14 +66,14 @@ export async function planPrivileged(
 	from: readonly TaskRowState[],
 ): Promise<void> {
 	const usable = await core.taskQueue.run(id, async (): Promise<boolean> => {
-		// The read and the write it decides are this turn (D118).
+		// The read and the write it decides are this turn.
 		const first = await core.row(id);
 		if (!first || !from.includes(first.state)) return false;
 		// A member of a group that already ended (interrupted by a restart) never dispatches again.
 		if (await groupEnded(core, first.task_group_id)) return false;
 		if (!link.conn.supportsForward) {
 			// A crha without the M4 names cannot take part in forward whatever its reported mode says
-			// (doc/protocol.md#握手载荷).
+			// (doc/design/protocol.md "Handshake payloads").
 			await finishAuthorization(
 				core,
 				id,
@@ -88,12 +88,12 @@ export async function planPrivileged(
 		return true;
 	});
 	if (!usable) return;
-	// Waiting for this connection's trust report is outside the task turn (D118).
+	// Waiting for this connection's trust report is outside the task turn.
 	await waitTrust(core, link);
 	const outcome = await core.taskQueue.run(id, () => planTurn(core, id, node, link, spec, inputBytes, opts, from));
 	if (!outcome) return;
 	if (outcome.kind === "send") {
-		// The send waits for the node's answer: outside the turn that claimed the task (D118).
+		// The send waits for the node's answer: outside the turn that claimed the task.
 		await sendAuthorizedStart(
 			core,
 			outcome.claim.nodeId,
@@ -127,7 +127,7 @@ async function planTurn(
 	const fresh = await getNode(core.db, node.id);
 	const report = fresh ? parseTrustReport(fresh.trust_report) : null;
 	// A report kept from a previous connection is stale until this connection reports again: the node's
-	// trust configuration may have changed while it was away (doc/privilege.md#信任缓存).
+	// trust configuration may have changed while it was away (doc/design/privilege.md "Trust cache").
 	if (!fresh || !link.trustFresh || report?.kind !== "ok") {
 		const message = link.trustFresh
 			? trustUnavailableMessage(report)
@@ -181,7 +181,7 @@ async function planTurn(
 		return claim ? { kind: "send", claim } : null;
 	}
 	// The owner may already have signed a reusable authorization that covers this command
-	// (doc/privilege.md#授权路径 step 3): use it instead of asking for a signature again. A payload
+	// (doc/design/privilege.md "Authorization path" step 3): use it instead of asking for a signature again. A payload
 	// crha already rejected is not retried automatically, or the retry would loop.
 	const skip = new Set<string>();
 	if (previous?.lastRejection && previous.payloadId) skip.add(previous.payloadId);
@@ -207,7 +207,7 @@ async function planTurn(
 	const userPath = plan.paths.find((path): path is PlannedUserPath => path.path === "user");
 	const localPath = plan.paths.find((path): path is PlannedLocalPath => path.path === "local");
 	// A reusable authorization addressed to a node group this node is in, which the node does not
-	// trust as an alias, is never sent (D110): the node would refuse it, and the owner's signature
+	// trust as an alias, is never sent: the node would refuse it, and the owner's signature
 	// would not fix the node's configuration. Local approval is the one other path that still works
 	// without the alias (and only for a single task).
 	if (reusable?.kind === "alias_missing" && !(localPath && row.task_group_id === null)) {
@@ -255,7 +255,7 @@ export async function replanWaiting(
 /**
  * Parks the task in `awaiting_authorization`: for a single task it records the exact payload the
  * owner must sign and, when the node offers local approval, returns the request for the caller to
- * send after the turn (D118). A task group's shared payload is built across all of the group's
+ * send after the turn. A task group's shared payload is built across all of the group's
  * waiting tasks (refreshGroupPending, which nests taskQueue → groupQueue and is allowed here).
  */
 async function parkForAuthorization(
@@ -299,15 +299,15 @@ async function parkForAuthorization(
 	core.background("task group state update failed", syncGroupState(core, row.task_group_id));
 	core.onChange?.(row.actor_id);
 	if (row.task_group_id !== null) {
-		// Every waiting task of the group signs one payload covering all of them (D88).
+		// Every waiting task of the group signs one payload covering all of them.
 		await refreshGroupPending(core, row.task_group_id);
 		return null;
 	}
-	// local.request waits for the node's answer: the caller sends it after this turn (D118).
+	// local.request waits for the node's answer: the caller sends it after this turn.
 	return localPath ? { kind: "local", link, spec, input: inputBytes, record: updated } : null;
 }
 
-// ---- task groups: one payload for every waiting task (D88) ----
+// ---- task groups: one payload for every waiting task ----
 
 /** How often a group payload refresh re-reads the members after a write missed a concurrent change. */
 const GROUP_REFRESH_ROUNDS = 5;
@@ -316,7 +316,7 @@ const GROUP_REFRESH_ROUNDS = 5;
  * Rebuilds the shared payload of a group's waiting tasks from their plans, one signature for all.
  *
  * The round reads the member rows, computes the payload and writes every member at the `rev` it read
- * (D118). It stays on the group queue and never enters a member's task queue: the one allowed nesting is
+ *. It stays on the group queue and never enters a member's task queue: the one allowed nesting is
  * taskQueue → groupQueue → trustQueue, and this is often called from inside a task's turn. A member that
  * changed in between makes its write miss; the whole group is then read and recomputed, up to a bound.
  */
@@ -353,7 +353,7 @@ async function refreshGroupPendingRound(core: ClusterCore, groupId: string): Pro
 		return settled;
 	}
 	// The protocol ties a task.start to the payload's attempt, so all covered tasks move to the
-	// highest attempt (doc/protocol.md#授权对象, D88).
+	// highest attempt (doc/design/protocol.md "Authorization object").
 	const attempt = Math.max(...withUser.map((entry) => entry.row.attempt));
 	const ttlMs = Math.min(...withUser.map((entry) => userPathTtl(entry.record)));
 	let spec: TaskSpec;
@@ -389,7 +389,7 @@ async function refreshGroupPendingRound(core: ClusterCore, groupId: string): Pro
 		};
 		const set: Updateable<TasksTable> = { authorization: serializeTaskAuthorization(updated) };
 		if (row.attempt !== attempt) set.attempt = attempt;
-		// A group refresh deliberately writes a member outside that member's task turn (D118): it runs on
+		// A group refresh deliberately writes a member outside that member's task turn: it runs on
 		// the group queue and guards the write with the rev it read, so a changed member just misses.
 		const written = await writeTask(core.db, row.id, { states: ["awaiting_authorization"], rev: row.rev }, set, {
 			outOfTurn: true,
@@ -416,7 +416,7 @@ async function clearGroupPending(
 		row.id,
 		{ states: ["awaiting_authorization"], rev: row.rev },
 		{ authorization: serializeTaskAuthorization(updated) },
-		// Part of the group refresh: a member row written at its rev, outside the member's task turn (D118).
+		// Part of the group refresh: a member row written at its rev, outside the member's task turn.
 		{ outOfTurn: true },
 	);
 }

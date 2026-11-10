@@ -82,7 +82,7 @@ export function useSessions(params: SessionListParams = {}) {
 }
 
 /**
- * `GET /api/sessions/search` pages (doc/webui.md "会话内容搜索"): every keyword
+ * `GET /api/sessions/search` pages (doc/design/webui.md "Session content search"): every keyword
  * matches the title or a message of the root's tree. Disabled for an empty
  * query; the caller debounces the text before passing it here. The page type is
  * kept whole because `contentSearch` (titles-only on SQLite) comes on every page.
@@ -133,7 +133,7 @@ export function useSession(id: string | undefined) {
 /**
  * The id of the tree's root, found by following `parentSessionId` up. The
  * session list stream only publishes roots, so a page needs this id to know
- * which upsert concerns its tree (doc/webui.md#api-约定); a root page resolves
+ * which upsert concerns its tree (doc/design/webui.md "API conventions"); a root page resolves
  * without a request. Undefined while the chain is still loading.
  */
 export function useSessionRootId(session: SessionView | undefined): string | undefined {
@@ -301,9 +301,9 @@ function matchesSessionListKey(queryKey: readonly unknown[]): boolean {
 /**
  * Keeps the session view current from the session list stream. That stream
  * only publishes a tree's root, so its upsert is the one notification that a
- * session inside the tree changed (doc/webui.md#会话列表实时推送). The item
+ * session inside the tree changed (doc/design/webui.md "Session list API"). The item
  * carries the tree's aggregate, not the session's own state
- * (doc/agent-runtime.md "会话状态"), so the detail is refetched instead of
+ * (doc/design/agent-runtime.md "Session state"), so the detail is refetched instead of
  * overwritten; the aggregate is returned for the consumers that really concern
  * the whole tree (the Stop button and the waiting cards of a root).
  *
@@ -375,13 +375,13 @@ export function useSessionShares(id: string | undefined) {
 }
 
 export interface CreateSessionInput {
-	/** The draft's idempotency key: one request id creates one session and submits one message (D117). */
+	/** The draft's idempotency key: one request id creates one session and submits one message. */
 	requestId: string;
 	message: string;
 	title?: string;
 	model: SessionView["model"];
 	rulePreset: string;
-	/** The new session's remaining budget (D101); null or omitted: unlimited. */
+	/** The new session's remaining budget; null or omitted: unlimited. */
 	budgetRemaining?: number | null;
 }
 
@@ -415,7 +415,7 @@ export function sessionListItemFromView(session: SessionView): SessionListItem {
 
 /**
  * Inserts a just-created session into every loaded session list, respecting each list's scope
- * (D117): the draft page runs before the list's SSE upsert arrives, and the reader must already see the
+ *: the draft page runs before the list's SSE upsert arrives, and the reader must already see the
  * session they were sent to. A new session has the newest `updatedAt`, so the upsert's sort placement puts it
  * at the top.
  */
@@ -437,7 +437,7 @@ export function insertSessionIntoListCaches(
 }
 
 /**
- * Marks a tree read for its owner (doc/webui.md "侧边列表"): the page calls it when it opens and when its tree
+ * Marks a tree read for its owner (doc/design/webui.md "Sidebar list"): the page calls it when it opens and when its tree
  * leaves `running`; `sessionId` may be a child, because the server marks the root. The cached row is cleared
  * optimistically so the dot goes before the stream's upsert arrives; a failed call leaves the server state
  * unchanged and the next list fetch corrects the row.

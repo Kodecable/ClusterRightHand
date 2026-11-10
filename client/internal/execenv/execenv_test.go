@@ -318,7 +318,7 @@ func TestLookPathInSkipsEmptyAndRelativeEntries(t *testing.T) {
 	dir := t.TempDir()
 	// The process runs in dir, which itself holds an executable sh; the empty PATH entry (the
 	// current directory) and the relative entry "bin" must not find either one
-	// (doc/execution-plane.md#exec-的执行环境).
+	// (doc/design/execution.md "The exec environment").
 	sh := fakeShell(t, dir, "sh", "exit 0")
 	bin := filepath.Join(dir, "bin")
 	if err := os.Mkdir(bin, 0o755); err != nil {

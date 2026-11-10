@@ -16,7 +16,7 @@ import (
 // maxApprovals bounds the pending and approved local requests a daemon keeps in memory. A
 // compromised crhs can send local.request for arbitrary task ids, so the list must not grow
 // without limit; reaching the cap refuses new requests until the approver withdraws or decides
-// one of them (doc/privilege.md 本地批准).
+// one of them (doc/design/privilege.md "Local approval").
 const maxApprovals = 1024
 
 // decidedTask is a task.start that passed verification, with everything the caller needs to
@@ -35,7 +35,7 @@ type decidedTask struct {
 }
 
 // refusal is a refused task.start: its error code, the verification step of
-// doc/privilege.md 校验流程 it failed (0 for a malformed task.start outside the flow) and the
+// doc/design/privilege.md "Validation flow" it failed (0 for a malformed task.start outside the flow) and the
 // message. The local log records the step and message separately; the error response
 // combines them (remote).
 type refusal struct {
@@ -50,7 +50,7 @@ func stepRefusal(result authz.Result, step int, message string) *refusal {
 }
 
 // remote builds the task.start error response: code plus "step N: message", as
-// doc/protocol.md requires, or the bare message of a refusal outside the flow.
+// doc/design/protocol.md requires, or the bare message of a refusal outside the flow.
 func (r *refusal) remote() *protocol.RemoteError {
 	if r.step == 0 {
 		return &protocol.RemoteError{Code: r.code, Message: r.message}
@@ -130,7 +130,7 @@ func (s *Server) decide(ts *protocol.TaskStart) (*decidedTask, *refusal) {
 // verifying it. A signature whose key no trust entry knows is ignored (the authorization may
 // carry signatures for other nodes); a signature by a trusted key that does not verify stays
 // in the list with Valid=false so Decide rejects the whole authorization
-// (doc/privilege.md 校验流程 step 3).
+// (doc/design/privilege.md "Validation flow" step 3).
 func (s *Server) verifyAuthorization(cfg *config.Config, raw []byte) *authz.Authorization {
 	authorization := &authz.Authorization{}
 	var decoded protocol.Authorization
@@ -233,7 +233,7 @@ type approvalKey struct {
 
 // approval is the in-memory record of one local.request. Approved and denied records stay
 // until the daemon restarts, are withdrawn or (for approved) consumed by task.start
-// (doc/privilege.md 本地批准).
+// (doc/design/privilege.md "Local approval").
 type approval struct {
 	localRequest
 	state protocol.LocalState
@@ -414,7 +414,7 @@ func (s *Server) pendingEntries() []protocol.PendingEntry {
 
 // pushLocalDecision tells every forward connection about a decision. The enqueue is non-blocking:
 // the deciding local command must not wait for a forward peer that stopped reading (its write
-// times out and closes that connection; doc/privilege.md 本地批准).
+// times out and closes that connection; doc/design/privilege.md "Local approval").
 func (s *Server) pushLocalDecision(decision protocol.LocalDecision) {
 	for _, c := range s.forwardConns() {
 		c.enqueue(protocol.EventLocalDecision, decision)

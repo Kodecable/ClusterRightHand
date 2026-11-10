@@ -19,7 +19,7 @@ const GRANTEE_TYPES: ReadonlySet<string> = new Set<GranteeType>(["user", "user_g
 const TARGET_TYPES: ReadonlySet<string> = new Set<AccessTargetType>(["node", "node_group"]);
 
 /**
- * Node access grants (D108, doc/access-control.md#归属访问授权与分享): administrators list, create and delete
+ * Node access grants (doc/design/access-control.md "Ownership, access grants and sharing"): administrators list, create and delete
  * them. A grantee (user or user group) reaches a node or every current member of a node group; there is one
  * access level. A duplicate grant is a 409, so a retry does not claim to have created another one.
  * Expects requireUser to have run.

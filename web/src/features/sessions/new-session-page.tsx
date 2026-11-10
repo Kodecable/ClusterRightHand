@@ -17,7 +17,7 @@ import { ComposerFooter, type ComposerFooterState } from "./composer-footer";
 import { ComposerShell, handleComposerKey, UnknownCommandHint, useTextareaAutosize } from "./composer-input";
 import { isUnknownSlashCommand, parseSlashCommand } from "./slash-commands";
 
-/** Where the draft remembers the model of the last session it created (D117). */
+/** Where the draft remembers the model of the last session it created. */
 export const NEW_SESSION_MODEL_STORAGE_KEY = "crh.newSession.model";
 
 function readStoredModel(): ModelRef | undefined {
@@ -47,7 +47,7 @@ const sameModel = (a: ModelRef | undefined, b: ModelRef): boolean =>
 	a !== undefined && a.provider === b.provider && a.modelId === b.modelId;
 
 /**
- * The blank draft page (D117, doc/webui.md#新建会话): no transcript and no session yet, just the centred
+ * The blank draft page (doc/design/webui.md "New session"): no transcript and no session yet, just the centred
  * prompt and the composer. Its footer is the session footer fed from local state; the first send creates the
  * session and submits the message in one request, then replaces the route with the new session's page.
  */
@@ -65,7 +65,7 @@ export function NewSessionPage() {
 	const [budgetRemaining, setBudgetRemaining] = useState<number | null>(null);
 	const [text, setText] = useState("");
 	const [sendError, setSendError] = useState<string>();
-	// One id for the draft's lifetime (D117): a retry after a lost response returns the session the first
+	// One id for the draft's lifetime: a retry after a lost response returns the session the first
 	// attempt made instead of creating a second one.
 	const [requestId] = useState(() => crypto.randomUUID());
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);

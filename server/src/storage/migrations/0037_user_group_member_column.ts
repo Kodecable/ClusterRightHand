@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * D109: name the column for what it holds. `user_group_members.group_id` points at `user_groups.id`, and
+ * Name the column for what it holds. `user_group_members.group_id` points at `user_groups.id`, and
  * with node groups and task groups in the schema a bare `group_id` reads as any of the three. Renaming the
  * column keeps the primary key and the user-id index valid: both databases carry them through a column
  * rename, and the constraint keeps its name.

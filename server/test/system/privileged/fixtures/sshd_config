@@ -1,4 +1,4 @@
-# sshd of the privileged system test container (doc/testing/privileged.md): loopback only, port 2222, host key and
+# sshd of the privileged system test container (doc/design/testing/privileged.md): loopback only, port 2222, host key and
 # authorized_keys bind-mounted from the harness under /opt/crh/ssh. Root login with a key is what the
 # SSH node tests use; SFTP is enabled for the file tasks.
 Port 2222

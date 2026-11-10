@@ -47,7 +47,7 @@ const CANCELLED_MESSAGE = "the task was cancelled before it was dispatched";
 const SPEC: TaskSpec = { kind: "file.stat", path: "/tmp" };
 
 /**
- * A task cancelled between its claim (`dispatched`) and its task.start (doc/execution-plane.md#任务取消):
+ * A task cancelled between its claim (`dispatched`) and its task.start (doc/design/execution.md "Task cancellation"):
  * the cancel is recorded on the row, the send point re-reads it, and a node that already received the
  * cancel refuses the late start. The dispatch paths are driven directly against a fake node link, so
  * the window is deterministic.

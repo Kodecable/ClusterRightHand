@@ -1,5 +1,5 @@
 /**
- * Token accounting for the two measures (D101, doc/agent-runtime.md#配额):
+ * Token accounting for the two measures (doc/design/agent-runtime.md "Quota and token accounting"):
  *
  * - the **budget** stops a run: the output tokens of every model call, output only;
  * - the **usage** statistic describes a run: input + output tokens, cache included in the input.
@@ -8,7 +8,7 @@
  * measures never disagree about a call the provider left unaccounted.
  */
 
-/** Tokens estimated per UTF-8 byte when the upstream reports no usage (D92, D101). */
+/** Tokens estimated per UTF-8 byte when the upstream reports no usage. */
 export const ESTIMATED_TOKENS_PER_BYTE = 0.3;
 
 /** `ceil(bytes × 0.3)`: the one estimate both measures use. */
@@ -43,11 +43,11 @@ export interface AccountedMessage {
 
 /** What one model call costs under both measures, plus the context size of its input. */
 export interface CallTokens {
-	/** Output tokens, charged to the quota (D92). */
+	/** Output tokens, charged to the quota. */
 	budget: number;
-	/** Input + output tokens, for the statistics measure (D101). */
+	/** Input + output tokens, for the statistics measure. */
 	usage: number;
-	/** Input tokens (input + cache read + cache write) of this call, the context fill (D101). */
+	/** Input tokens (input + cache read + cache write) of this call, the context fill. */
 	context: number;
 	/** Cache-read tokens the upstream reported for this call's input; 0 (or absent) when it reported none. */
 	cacheRead?: number;
@@ -78,7 +78,7 @@ export function outputBytes(content: readonly AccountedContent[]): number {
 }
 
 /**
- * The tokens the budget charges for one call (D92): the output the upstream reported (reasoning included),
+ * The tokens the budget charges for one call: the output the upstream reported (reasoning included),
  * or, when it reported none (`usage` missing, or `output` 0 for a message with content), `ceil(bytes × 0.3)`
  * over the message's text, visible thinking and tool calls. Input and cache tokens are never charged.
  */
@@ -89,7 +89,7 @@ export function accountedOutputTokens(message: AccountedMessage): number {
 }
 
 /**
- * The tokens of one call's input (D101): the upstream's input + cache read + cache write, or, when it
+ * The tokens of one call's input: the upstream's input + cache read + cache write, or, when it
  * reported none, the estimate from the request context the call sent (`estimatedInput`, in tokens).
  */
 export function accountedInputTokens(message: AccountedMessage, estimatedInput: number): number {
@@ -112,7 +112,7 @@ export function callTokens(message: AccountedMessage, estimatedInput: number): C
 }
 
 /**
- * The bytes of a request's context, for estimating its input tokens when the upstream reports no usage (D101):
+ * The bytes of a request's context, for estimating its input tokens when the upstream reports no usage:
  * the JSON of what the call actually sent. A generation passes the serialized `messages` durable's
  * `beforeRequest` exposes; that hook does not see the system prompt or the tool declarations, so neither is
  * measured. A compaction or a review passes the request object it gives `completeSimple`, i.e. the system prompt

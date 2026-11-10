@@ -4,7 +4,7 @@ import type { Db } from "../storage/db.ts";
 import { type CursorSpec, cursorRows, decodeCursor, encodeCursor, parseLimit } from "../util/cursor.ts";
 import type { AppEnv } from "./context.ts";
 
-/** `GET /api/audit` pages over `seq desc` (doc/webui.md#api-约定); the id is carried by the shared format. */
+/** `GET /api/audit` pages over `seq desc` (doc/design/webui.md "API conventions"); the id is carried by the shared format. */
 const AUDIT_CURSOR: CursorSpec = { columns: [{ name: "seq", type: "number" }], idType: "string" };
 
 /** The audit log, as the caller may see it. Expects requireUser. */

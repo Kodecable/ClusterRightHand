@@ -1,5 +1,5 @@
 /**
- * The node trust cache (doc/privilege.md#信任缓存): a node's pushed trust report is stored, the tasks
+ * The node trust cache (doc/design/privilege.md "Trust cache"): a node's pushed trust report is stored, the tasks
  * waiting for a signature are re-planned when its digest changes, and an owner's stored signatures
  * are used once the node reports again.
  */
@@ -12,7 +12,7 @@ import { recordTrustReport } from "./trust.ts";
 
 /**
  * Applies a pushed trust report and re-plans the tasks that wait for an authorization signature
- * (doc/privilege.md#信任缓存).
+ * (doc/design/privilege.md "Trust cache").
  */
 export async function onTrustSummary(core: ClusterCore, link: NodeLink, report: TrustReport): Promise<void> {
 	const nodeId = link.conn.nodeId;
@@ -27,7 +27,7 @@ export async function onTrustSummary(core: ClusterCore, link: NodeLink, report: 
 		return result;
 	});
 	if (report.kind === "ok" && !link.conn.closed) {
-		// A privileged mode that restarted lost its in-memory approval requests (doc/protocol.md#taskstart).
+		// A privileged mode that restarted lost its in-memory approval requests (doc/design/protocol.md "task.start").
 		await resendLocalRequests(core, link);
 		// A signature the owner submitted while the node was away is used now.
 		await useStoredAuthorizations(core, nodeId);

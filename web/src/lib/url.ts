@@ -54,7 +54,7 @@ export function safeUrlTransform(url: string): string {
 
 /**
  * A server-generated WebUI path (the event stream's `approval_url` /
- * `authorization_url`, doc/webui.md "链接"). Only same-origin absolute paths
+ * `authorization_url`, doc/design/webui.md "Links"). Only same-origin absolute paths
  * are accepted: no scheme, no protocol-relative form, no backslash, no
  * whitespace or control characters, and no dot segments that would climb out
  * of the route. Anything else is not turned into a clickable link.

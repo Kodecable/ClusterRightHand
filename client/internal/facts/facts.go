@@ -50,7 +50,7 @@ func collect(root string, lookPath func(string) (string, error)) protocol.Facts 
 }
 
 // optionalText is an optional text fact. The node reports a value it did not find as absent, which
-// the protocol omits instead of sending an empty string (doc/protocol.md Facts).
+// the protocol omits instead of sending an empty string (doc/design/protocol.md "Events").
 func optionalText(s string) *string {
 	if s == "" {
 		return nil

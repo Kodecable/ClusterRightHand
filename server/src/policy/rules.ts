@@ -13,7 +13,7 @@ import { ALL_TARGET, isUuid, NAME_RE } from "../util/names.ts";
 import { shellQuote } from "../util/shell-quote.ts";
 
 /**
- * Authorization rules along a rule chain; see doc/access-control.md#授权规则. Pure functions: loading
+ * Authorization rules along a rule chain; see doc/design/access-control.md "Authorization rules". Pure functions: loading
  * rule sets and acting on the result belong to the callers.
  */
 
@@ -58,7 +58,7 @@ export type Evaluation = ApiEvaluation;
 export function rulePresetRuleSet(rulePreset: RulePreset): RuleSet {
 	if (rulePreset === "yolo") return { default: "allow", rules: [] };
 	// ask and auto_review differ in who answers the approval, not in the rules. Reads may pass, but a
-	// privileged read still waits: native and ignore nodes have no other gate than these rules (D86).
+	// privileged read still waits: native and ignore nodes have no other gate than these rules.
 	return {
 		default: "require-approval",
 		rules: [{ action: "allow", method: "file.read", privileged: false }],
@@ -141,7 +141,7 @@ const KIND_METHOD: Record<string, Method> = {
 	"file.edit": "file.write",
 };
 
-/** The method and target of a task spec (doc/privilege.md#方法与目标). */
+/** The method and target of a task spec (doc/design/privilege.md "Methods and targets"). */
 export function operationOf(spec: TaskSpec): { method: Method; target: string } {
 	const method = KIND_METHOD[spec.kind];
 	if (!method) throw new Error("task spec has no kind");
@@ -150,7 +150,7 @@ export function operationOf(spec: TaskSpec): { method: Method; target: string } 
 		return { method, target: argv.map(shellQuote).join(" ") };
 	}
 	// Normalized, so that "/etc/nginx/../shadow" is matched as "/etc/shadow". Symbolic links are not
-	// resolved here; for privileged tasks crha refuses them (doc/privilege.md).
+	// resolved here; for privileged tasks crha refuses them (doc/design/privilege.md).
 	return { method, target: posix.normalize(spec.path) };
 }
 

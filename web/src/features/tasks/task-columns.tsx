@@ -20,7 +20,7 @@ export interface TaskColumnOptions {
 
 /**
  * The task table columns shared by the tasks page and a node's recent tasks
- * (doc/webui.md "Tasks"): the same cells in the same order, plus the node
+ * (doc/design/webui.md "Task and task group pages"): the same cells in the same order, plus the node
  * column on the global list. The row itself links to the task on both.
  */
 export function useTaskColumns({ users, nodeNames }: TaskColumnOptions): DataTableColumn<TaskView>[] {

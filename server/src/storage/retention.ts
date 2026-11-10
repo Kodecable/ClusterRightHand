@@ -9,7 +9,7 @@ export const RETENTION_BATCH_SIZE = 1000;
 /**
  * Audit events keep the newest 16384 sequence numbers (a key distance, not a row count; gaps are fine). This
  * keeps the row holding max(seq), so SQLite's rowid-based seq (no AUTOINCREMENT) does not restart numbering if
- * every older row is deleted, and a large forward clock jump cannot wipe the whole log (doc/data-model.md#保留期).
+ * every older row is deleted, and a large forward clock jump cannot wipe the whole log (doc/design/data-model.md "Retention").
  */
 export const AUDIT_SEQ_FLOOR = 16_384;
 
@@ -39,7 +39,7 @@ export interface RetentionSweep {
 }
 
 /**
- * Deletes rows past their configured retention (doc/data-model.md#保留期). Each table is swept on its own: a
+ * Deletes rows past their configured retention (doc/design/data-model.md "Retention"). Each table is swept on its own: a
  * failure is logged and leaves that table's count at 0, so the other tables still run. Errors are never thrown:
  * a failed sweep must not take the server down or reject shutdown.
  */

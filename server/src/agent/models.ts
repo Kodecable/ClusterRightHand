@@ -69,7 +69,7 @@ export class ModelConfig {
 	readonly #extra: Provider[] = [];
 	/** Custom models by `provider/modelId`, for their per-level display names (`available`). */
 	readonly #customModels = new Map<string, CustomModel>();
-	/** Installed by the runtime: provider session id -> crh session id (doc/agent-runtime.md#自定义提供方). */
+	/** Installed by the runtime: provider session id -> crh session id (doc/design/agent-runtime.md "Custom providers"). */
 	#providerSessionId: ProviderSessionResolver = () => undefined;
 	#providerSessionFor: (sessionId: string) => string | undefined = () => undefined;
 	/** Tail of the reload queue: a reload starts only after the one before it has finished. */
@@ -117,8 +117,8 @@ export class ModelConfig {
 	}
 
 	/**
-	 * The registry the Harness gets, wrapped so its compaction calls are metered (doc/agent-runtime.md#配额)
-	 * and its generation streams are timed (doc/agent-runtime.md#会话统计). `timing` is resolved per call: the
+	 * The registry the Harness gets, wrapped so its compaction calls are metered (doc/design/agent-runtime.md "Quota and token accounting")
+	 * and its generation streams are timed (doc/design/agent-runtime.md "Session statistics"). `timing` is resolved per call: the
 	 * runtime is built after the Harness, and a reopen must share the same map.
 	 */
 	metered(onComplete: CompleteMeter, timing: () => TimingSink | undefined): Models {
@@ -206,7 +206,7 @@ export class ModelConfig {
 	}
 
 	/**
-	 * Resolves a model reference to the level it runs at (doc/agent-runtime.md#思考档位): an explicit level must be
+	 * Resolves a model reference to the level it runs at (doc/design/agent-runtime.md "Thinking levels"): an explicit level must be
 	 * supported by the model, otherwise a model change keeps the previous level, clamped to the nearest supported
 	 * one. The returned ref omits `off`, the stored convention; callers use `thinkingLevelOf` for the durable config.
 	 */

@@ -28,7 +28,7 @@ import { toEntryRecord, toSessionEvent, toSnapshotEvent } from "./session-events
 import { markSessionsIdle } from "./session-state.ts";
 
 /**
- * Session lifecycle (doc/agent-runtime.md): creating a root (a user's session or a schedule run's), reading
+ * Session lifecycle (doc/design/agent-runtime.md): creating a root (a user's session or a schedule run's), reading
  * and configuring it, stopping it, and reading its transcript. The session's run state lives in
  * runtime-state.ts; this module owns the row and the conversation around it.
  */
@@ -69,7 +69,7 @@ function isShownEvent(event: AgentEvent): boolean {
 }
 
 /**
- * Drops each session's in-flight generation timing (doc/agent-runtime.md#会话统计). The timings are keyed by
+ * Drops each session's in-flight generation timing (doc/design/agent-runtime.md "Session statistics"). The timings are keyed by
  * provider session id, so each crh session id is resolved through the session cache first.
  */
 function clearTimings(host: RuntimeHost, sessionIds: readonly string[]): void {
@@ -88,7 +88,7 @@ export async function createSession(
 		rulePreset: RulePreset;
 		instructions?: string;
 		budgetRemaining?: number | null;
-		/** The client request id that created this session and its first message (D117). */
+		/** The client request id that created this session and its first message. */
 		createRequestId?: string;
 	},
 ): Promise<SessionView> {
@@ -120,7 +120,7 @@ export async function createSession(
 					parent_session_id: null,
 					root_session_id: id,
 					title,
-					// A user-created root without a title wants one generated at its first run end (D116).
+					// A user-created root without a title wants one generated at its first run end.
 					title_pending: title === null ? 1 : 0,
 					create_request_id: input.createRequestId ?? null,
 					model: JSON.stringify(model),
@@ -128,7 +128,7 @@ export async function createSession(
 					created_at: now,
 					updated_at: now,
 					archived_at: null,
-					// A root without a remaining budget is unlimited and never charged; any level may have one (D92).
+					// A root without a remaining budget is unlimited and never charged; any level may have one.
 					quota_tokens: input.budgetRemaining ?? null,
 					state: "idle",
 					waiting_kind: null,
@@ -157,7 +157,7 @@ export async function createSession(
 	return (await getSession(host, id)) as SessionView;
 }
 
-/** What the client sent to create a session and submit its first message in one request (D117). */
+/** What the client sent to create a session and submit its first message in one request. */
 export interface CreateSessionWithMessageInput {
 	/** The client-generated idempotency key: one request id creates one session and one submission. */
 	requestId: string;
@@ -169,7 +169,7 @@ export interface CreateSessionWithMessageInput {
 }
 
 /**
- * Creates a session and submits its first message (D117, doc/agent-runtime.md#会话). The create request id is
+ * Creates a session and submits its first message (doc/design/agent-runtime.md "Sessions"). The create request id is
  * stored on the session and makes a retry return the session the first attempt made, without a second
  * submission. The submission's own request id is derived from it, so retrying the submit is idempotent too.
  *
@@ -212,7 +212,7 @@ export async function createSessionWithMessage(
 	return { session: (await getSession(host, session.id)) ?? session, created: true };
 }
 
-/** The session a user created with this request id, if one exists (D117). */
+/** The session a user created with this request id, if one exists. */
 export async function findSessionByCreateRequestId(
 	host: RuntimeHost,
 	ownerUserId: string,
@@ -280,7 +280,7 @@ async function removeCreatedSession(host: RuntimeHost, sessionId: string): Promi
 }
 
 /**
- * Creates the session a schedule run submits to (doc/scheduling.md): a root session with a fixed id derived
+ * Creates the session a schedule run submits to (doc/design/scheduling.md): a root session with a fixed id derived
  * from the run, `schedule_id` set and `token_budget` as its root quota. Its rule set is a lower level (no
  * rule preset, `default: inherit`) under the schedule's root, so the chain is [schedule, session]. A retried
  * call finds the session its first attempt created; when two concurrent calls build the same derived id, the
@@ -319,14 +319,14 @@ export async function createScheduledSession(
 					root_session_id: input.id,
 					schedule_id: input.scheduleId,
 					title: input.title.trim() || "Scheduled run",
-					// A scheduled run's title is its schedule's name; it never generates one (D116).
+					// A scheduled run's title is its schedule's name; it never generates one.
 					title_pending: 0,
 					model: JSON.stringify(model),
 					status: "active",
 					created_at: now,
 					updated_at: now,
 					archived_at: null,
-					// The budget is the new session's root remaining; null means unlimited (D92).
+					// The budget is the new session's root remaining; null means unlimited.
 					quota_tokens: input.budgetRemaining,
 					state: "idle",
 					waiting_kind: null,
@@ -387,7 +387,7 @@ async function sessionView(host: RuntimeHost, row: SessionRow): Promise<SessionV
 		budgetUsedTokens: Number(row.budget_used_tokens),
 		usageTokens: Number(row.usage_tokens),
 		contextTokens: row.context_tokens === null ? null : Number(row.context_tokens),
-		// The session's own generation statistics (doc/agent-runtime.md#会话统计); prompt/cache are tree totals.
+		// The session's own generation statistics (doc/design/agent-runtime.md "Session statistics"); prompt/cache are tree totals.
 		stats: {
 			turns: Number(row.stat_turns),
 			steps: Number(row.stat_steps),
@@ -407,12 +407,12 @@ export async function configure(
 	change: { title?: string; model?: ModelRef; rulePreset?: RulePreset; budgetRemaining?: number | null },
 ): Promise<SessionView> {
 	const { row, conversation } = await loadConversation(host, sessionId);
-	// Only a chain root has a rule preset; a subagent's rules come from its parent (doc/access-control.md#授权规则).
+	// Only a chain root has a rule preset; a subagent's rules come from its parent (doc/design/access-control.md "Authorization rules").
 	if (change.rulePreset !== undefined && row.parent_session_id !== null)
 		throw new UserError("a subagent's rule preset is set by its parent");
 	let model: ModelRef | undefined;
 	if (change.model) {
-		// A model change without a level keeps the session's level, clamped to the new model (D115).
+		// A model change without a level keeps the session's level, clamped to the new model.
 		const stored = JSON.parse(row.model) as ModelRef;
 		model = host.models.resolveRef(change.model, thinkingLevelOf(stored));
 	}
@@ -429,15 +429,15 @@ export async function configure(
 	};
 	// All SQL writes go in one transaction. The session's conversation lives in pi-durable's storage on another
 	// connection to the same SQLite file: that connection would wait for this transaction's write lock, which
-	// cannot commit until the conversation call returns (doc/data-model.md), so the conversation is configured
+	// cannot commit until the conversation call returns (doc/design/data-model.md), so the conversation is configured
 	// after the commit and a failure there restores the SQL side with a compensating write.
 	await host.db.transaction().execute(async (trx) => {
-		// Setting the remaining budget replaces it at any level, the root included; null removes the limit (D92).
+		// Setting the remaining budget replaces it at any level, the root included; null removes the limit.
 		if (change.budgetRemaining !== undefined) await setQuota(trx, sessionId, change.budgetRemaining);
 		await trx
 			.updateTable("sessions")
 			.set({
-				// Any manual title ends generation, a blank one included: null shows the default name and stays (D116).
+				// Any manual title ends generation, a blank one included: null shows the default name and stays.
 				...(change.title === undefined ? {} : { title: change.title.trim() || null, title_pending: 0 }),
 				...(model ? { model: JSON.stringify(model) } : {}),
 				updated_at: new Date().toISOString(),
@@ -490,7 +490,7 @@ export async function abort(host: RuntimeHost, sessionId: string, by?: SessionUs
 		await conversation.abort(host.context);
 		// Subagents are ownerless conversations: their abort is explicit, and it must come before the work is
 		// ended. A subagent that is still running can otherwise dispatch a task after the select below, which
-		// nothing would cancel (doc/agent-runtime.md#abort).
+		// nothing would cancel (doc/design/agent-runtime.md "Subagents").
 		for (const id of sessions.slice(1)) {
 			const row = await host.db
 				.selectFrom("sessions")
@@ -553,7 +553,7 @@ export async function watch(
 /**
  * The first event of a watch, cut down to what the WebUI renders: the newest `SNAPSHOT_ENTRIES` shown entries
  * (system messages are not shown) and a `historyCursor` for `GET /sessions/:id/entries` when older records
- * exist (doc/webui.md#会话事件流和历史). The cursor points just before the oldest returned entry, so the
+ * exist (doc/design/webui.md "Session event stream and history"). The cursor points just before the oldest returned entry, so the
  * snapshot and the pages that follow it never overlap or skip.
  */
 async function snapshotEvent(

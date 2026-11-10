@@ -9,7 +9,7 @@ import { conversationOf } from "./runtime-core.ts";
 import { callTokens, estimateRequestTokens } from "./tokens.ts";
 
 /**
- * Session title generation (D116, doc/agent-runtime.md#标题生成). When a root session's run ends and its title is
+ * Session title generation (doc/design/agent-runtime.md "Title generation"). When a root session's run ends and its title is
  * still pending, one background model call turns the latest user input and that run's final answer into a title.
  * The call is charged like Auto Review, never moves the context fill, and a failure only leaves the session
  * pending for the next run. At most one generation runs per session; the in-flight set is memory-only, so a
@@ -208,7 +208,7 @@ async function generateTitle(host: RuntimeHost, sessionId: string, submissionId:
 		resolved,
 		{ systemPrompt, messages },
 		{
-			// A custom provider's session fields resolve from the crh session, as Auto Review passes it (D115).
+			// A custom provider's session fields resolve from the crh session, as Auto Review passes it.
 			sessionId: providerSessionId ?? sessionId,
 			maxTokens,
 			...(level === "off" ? {} : { reasoning: level }),

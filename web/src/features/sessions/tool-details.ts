@@ -10,7 +10,7 @@ export function approvalWait(details: Json | undefined): { url: string } | undef
 
 /**
  * `details.state === "awaiting_authorization"` with the link to the signing page, as cluster tools
- * publish while a privileged task waits for the user's signature (doc/privilege.md).
+ * publish while a privileged task waits for the user's signature (doc/design/privilege.md).
  */
 export function authorizationWait(details: Json | undefined): { url: string } | undefined {
 	if (!details || typeof details !== "object" || Array.isArray(details)) return undefined;

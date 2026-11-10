@@ -34,7 +34,7 @@ type TranscriptItemRow =
 			status: "pending" | "running" | "done";
 			output: string;
 			details: Json | undefined;
-			/** The result's content blocks, one per block: a text result has a raw and a note block (D112). */
+			/** The result's content blocks, one per block: a text result has a raw and a note block. */
 			result: { text: string; isError: boolean; details: Json | undefined; blocks?: string[] } | undefined;
 	  }
 	| { kind: "error"; key: string; reason: "aborted" | "failed"; message: string | null }
@@ -65,7 +65,7 @@ function textBlocks(content: { type: string; text?: string }[]): string[] {
  * The numeric commit order of an entry id; `undefined` for ids that are not
  * finite numbers. A snapshot lists entries in the model's view order (a
  * compaction comes before the messages it kept), so the transcript re-sorts by
- * id to match the order the entries committed in (doc/webui.md "消息渲染").
+ * id to match the order the entries committed in (doc/design/webui.md "Message rendering").
  */
 function entryOrder(id: string): number | undefined {
 	if (id.trim() === "") return undefined;
@@ -177,7 +177,7 @@ export function transcript(state: SessionState): TranscriptItem[] {
 		}
 	}
 	if (state.streaming) addAssistant(undefined, state.liveKey ?? "streaming", state.streaming, true, true);
-	// One live row per running compaction, always after everything already shown (doc/webui.md "消息渲染").
+	// One live row per running compaction, always after everything already shown (doc/design/webui.md "Message rendering").
 	for (const { taskId } of state.compactions) items.push({ kind: "compacting", key: `compacting/${taskId}` });
 	return items;
 }

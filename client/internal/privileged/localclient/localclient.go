@@ -1,5 +1,5 @@
 // Package localclient is the crha CLI's client of the privileged mode's unix socket, in the
-// crh-priv `local` role (doc/protocol.md crh-priv, doc/privilege.md 本地批准). The privileged
+// crh-priv `local` role (doc/design/protocol.md "crh-priv", doc/design/privilege.md "Local approval"). The privileged
 // mode identifies the caller by SO_PEERCRED; the caller must be in a local trust entry.
 package localclient
 
@@ -87,7 +87,7 @@ func (c *Client) Pending(ctx context.Context) ([]protocol.PendingEntry, error) {
 
 // Approve approves one pending task. specSHA256 is the hash of the spec the approver saw: the
 // privileged mode refuses the verdict when the pending record has another hash
-// (doc/privilege.md 本地批准).
+// (doc/design/privilege.md "Local approval").
 func (c *Client) Approve(ctx context.Context, taskID string, attempt uint64, specSHA256 [32]byte, message string) error {
 	return c.verdict(ctx, wire.CmdLocalApprove, taskID, attempt, specSHA256, message)
 }

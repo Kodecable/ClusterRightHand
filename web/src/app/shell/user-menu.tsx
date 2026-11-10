@@ -44,7 +44,7 @@ function initials(name: string): string {
 
 /**
  * The user menu at the bottom of the sidebar: theme, language, change password
- * and log out (doc/webui.md "外壳"). The trigger is a native button composed via
+ * and log out (doc/design/webui.md "Shell"). The trigger is a native button composed via
  * Base UI's `render` prop; the generated `SidebarMenuButton` is not forwarded as
  * a menu trigger because Base UI merges the trigger's props and ref into the
  * rendered element, which the wrapper would lose.

@@ -19,7 +19,7 @@ const SEVERITY_ICONS = {
 
 /**
  * What an out-of-sync alias or unknown trust entry means and which UUID to add or remove
- * (doc/privilege.md#信任缓存, D110). The server's message stays in the title for diagnosis.
+ * (doc/design/privilege.md "Trust cache"). The server's message stays in the title for diagnosis.
  */
 function TrustWarningText({ warning }: { warning: TrustWarning }) {
 	const value =

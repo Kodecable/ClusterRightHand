@@ -11,7 +11,7 @@ import { openNodeSqlite } from "../src/storage/node-sqlite.ts";
 
 /**
  * crhs opens one SQLite file twice: Kysely for its own tables and pi-durable's storage for the agent
- * runtime (doc/data-model.md). node:sqlite is synchronous, so the two connections cannot contend
+ * runtime (doc/design/data-model.md). node:sqlite is synchronous, so the two connections cannot contend
  * for the write lock without stalling each other: a deferred transaction that read and then writes
  * fails at once with SQLITE_BUSY_SNAPSHOT, and SQLite's busy handler blocks the very thread that has to
  * commit the other transaction. Both must be serialized in process.

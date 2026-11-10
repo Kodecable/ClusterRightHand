@@ -4,7 +4,7 @@ import { toBase64url, tomlString } from "@/features/credentials/trust";
 export { tomlString };
 
 /**
- * The node side of trust (doc/privilege.md#信任配置): the WebUI cannot change a
+ * The node side of trust (doc/design/privilege.md "Trust configuration"): the WebUI cannot change a
  * node's privileged.toml, so it exports the `[[trust]]` block the operator
  * pastes there. This module builds that block from a small editable draft; the
  * rendering component lives in `trust-editor.tsx`.

@@ -1,6 +1,6 @@
 /**
  * SSH nodes: there is no crha and no resume, so a task runs over a pooled SSH connection and its
- * outcome is recorded when the remote command ends (doc/execution-plane.md#ssh-传输).
+ * outcome is recorded when the remote command ends (doc/design/execution.md "SSH transport").
  */
 import { type TaskSpec, taskResultToJson } from "@crh/protocol";
 import type { Updateable } from "kysely";
@@ -24,7 +24,7 @@ import { writeTask } from "./task-rows.ts";
 import { outputColumns } from "./task-view.ts";
 import type { ClusterOptions } from "./types.ts";
 
-/** One pooled SSH connection and the shell its probe found (doc/execution-plane.md#执行). */
+/** One pooled SSH connection and the shell its probe found (doc/design/execution.md "SSH execution"). */
 export interface SshConnection {
 	session: SshSession;
 	sh: string;
@@ -33,7 +33,7 @@ export interface SshConnection {
 /**
  * The pooled connection of an SSH node, after its first-time shell probe. Every new connection probes
  * before its first task: its tasks run on the sh it found, and the node's facts carry the result
- * (doc/execution-plane.md#执行). A probe that fails keeps the previous facts and falls back to /bin/sh;
+ * (doc/design/execution.md "SSH execution"). A probe that fails keeps the previous facts and falls back to /bin/sh;
  * it never fails a task.
  */
 function sshSession(core: ClusterCore, node: NodeRow): Promise<SshConnection> {
@@ -90,11 +90,11 @@ export async function runSsh(
 	const lines = new LineCounter();
 	let isStarted = false;
 	// Registered before the first await so a cancel that arrives while the notice or the connection is
-	// written still aborts this run (doc/execution-plane.md#ssh-传输).
+	// written still aborts this run (doc/design/execution.md "SSH transport").
 	const ac = new AbortController();
 	core.sshCancels.set(id, ac);
 	const sink = {
-		// The remote wrapper merged stderr into stdout after printing the pid (D114), so this is the
+		// The remote wrapper merged stderr into stdout after printing the pid, so this is the
 		// single output stream. Anything the wrapper still writes on stderr is appended defensively.
 		stdout: (d: Uint8Array) => {
 			lines.add(d);
@@ -113,7 +113,7 @@ export async function runSsh(
 		},
 	};
 	// Cancelled before the remote command started: nothing ran, so the task ends as a cancellation
-	// rather than running on (doc/execution-plane.md#ssh-传输). The connect and the shell probe can
+	// rather than running on (doc/design/execution.md "SSH transport"). The connect and the shell probe can
 	// take a long time, so the check is repeated around them, not left to the exec alone. The row's
 	// flag also covers a cancel that came between the dispatch claim and this run.
 	const cancelled = async (): Promise<boolean> => ac.signal.aborted || (await core.row(id))?.cancelled === 1;
@@ -124,7 +124,7 @@ export async function runSsh(
 	const outputFields = () => ({ ...outputColumns(live.output.snapshot()), output_lines: lines.lines });
 	try {
 		// SSH has no privileged mode: the task runs as the SSH user. The notice is crhs's own, so it lives
-		// in tasks.notice and never in the output (D114); every output mode keeps it, status included.
+		// in tasks.notice and never in the output; every output mode keeps it, status included.
 		if (privileged) {
 			await writeTask(
 				core.db,

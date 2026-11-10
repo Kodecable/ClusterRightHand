@@ -18,7 +18,7 @@ import { openTestDb } from "./helpers/db.ts";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
-/** Configuring a session (doc/agent-runtime.md#会话): rule preset, quota, model and title. */
+/** Configuring a session (doc/design/agent-runtime.md "Sessions"): rule preset, quota, model and title. */
 let db: Db;
 let cluster: Cluster;
 let groups: TaskGroups;

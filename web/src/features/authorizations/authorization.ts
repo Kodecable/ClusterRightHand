@@ -1,5 +1,5 @@
 /**
- * Rendering data of a waiting authorization (doc/m4.md M4.4): the decoded
+ * Rendering data of a waiting authorization (doc/design/privilege.md "Authorizations"): the decoded
  * payload as label/value lines and the two signing recipes. Kept out of the
  * React component so it can be tested directly; labels are keys that the card
  * translates.

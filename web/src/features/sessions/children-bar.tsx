@@ -17,7 +17,7 @@ import { type SessionChildrenQuery, useSessionTreeChildren } from "./api";
 import { sessionTitle } from "./session-item";
 
 /**
- * The subagent strip directly above the composer (doc/webui.md#子会话栏): one compact line with the direct
+ * The subagent strip directly above the composer (doc/design/webui.md "Subagent bar"): one compact line with the direct
  * child counts, which opens the subagent tree. A level is paged by `GET /sessions/:id/children`; a nested level
  * is fetched only when it is expanded, and every level has its own "load more". The line is hidden when the
  * session has no children, and the counts come from `GET /sessions/:id/children/summary`, so the line never

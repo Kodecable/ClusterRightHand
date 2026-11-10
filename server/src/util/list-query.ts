@@ -2,7 +2,7 @@ import { type RawBuilder, sql } from "kysely";
 import { UserError } from "./errors.ts";
 
 /**
- * The search parameters of the entity list endpoints (doc/webui.md "实体搜索"):
+ * The search parameters of the entity list endpoints (doc/design/webui.md "Entity search"):
  * `q`, `limit` and `ids`. Validation lives here instead of in the routes, so every
  * service answers the same 400 and the routes only pass the raw query through.
  *

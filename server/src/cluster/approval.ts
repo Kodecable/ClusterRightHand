@@ -1,5 +1,5 @@
 /**
- * What the approval of a single task and of a task group share (doc/access-control.md#审批): a change
+ * What the approval of a single task and of a task group share (doc/design/access-control.md "Approvals"): a change
  * merged into the stored approval JSON, the handler columns of an agent routing, the decision of the
  * rules after they changed, and the audit events of a decision, an Auto Review verdict and an agent
  * routing. Each side keeps its own row writes and its own serialization: a task's approval runs on
@@ -21,7 +21,7 @@ export function mergeApproval<T extends object>(json: string | null, change: Par
 }
 
 /**
- * An agent routing of a waiting request (doc/agent-runtime.md#处理子会话的请求): what the record's `agent`
+ * An agent routing of a waiting request (doc/design/agent-runtime.md "Handling subagent requests"): what the record's `agent`
  * becomes and who handles the request afterwards. A pending request is the ancestor agent's; an escalated
  * one is the user's again.
  */

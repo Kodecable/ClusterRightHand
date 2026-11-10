@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * A task's structured result (doc/protocol.md TaskResult): the typed result a `file.read`,
+ * A task's structured result (doc/design/protocol.md "Task results"): the typed result a `file.read`,
  * `file.stat`, `file.list`, `file.write` or `file.edit` task reports in `task.exit`, stored in its
  * JSON form. It is nullable because a task may report none, and it is text like the spec: both
  * dialects store JSON as text.

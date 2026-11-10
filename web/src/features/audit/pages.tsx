@@ -58,7 +58,7 @@ function TargetCell({ event }: { event: AuditEvent }) {
 }
 
 /**
- * The audit log (doc/access-control.md#审计): a cursor-paged table with action
+ * The audit log (doc/design/access-control.md "Audit"): a cursor-paged table with action
  * and target filters and per-event detail.
  */
 export function AuditPage() {

@@ -35,8 +35,8 @@ import { waitSubmission } from "./helpers/runtime.ts";
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * Unified quotas (D92): any level may have one, every model call charges every level that has one (the root
- * included), and an exhausted level asks its direct parent only; a root asks its owner (D77).
+ * Unified quotas: any level may have one, every model call charges every level that has one (the root
+ * included), and an exhausted level asks its direct parent only; a root asks its owner.
  */
 let db: Db;
 let runtime: AgentRuntime;

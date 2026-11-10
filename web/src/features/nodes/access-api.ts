@@ -16,7 +16,7 @@ export const accessGrantKeys = {
 };
 
 /**
- * Node access grants (D108, doc/access-control.md#归属访问授权与分享). The endpoints are administrator-only, so
+ * Node access grants (doc/design/access-control.md "Ownership, access grants and sharing"). The endpoints are administrator-only, so
  * every caller passes `enabled` from the signed-in user's kind. There is one access level; a grantee reaches a
  * node directly or every current member of a node group.
  */

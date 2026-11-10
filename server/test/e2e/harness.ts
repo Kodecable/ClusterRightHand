@@ -39,7 +39,7 @@ export const CLIENT_DIR = resolve(import.meta.dirname, "../../../client");
 export const CRHS_MAIN = resolve(import.meta.dirname, "../../src/main.ts");
 /**
  * The node group `bringUp` creates and puts the node in. It must differ from the node's name (the enrollment
- * token's nameHint "e2e"): nodes and node groups share one name namespace (D109).
+ * token's nameHint "e2e"): nodes and node groups share one name namespace.
  */
 export const E2E_GROUP_NAME = "e2e-group";
 
@@ -116,7 +116,7 @@ export async function waitFor<T>(
 	}
 }
 
-/** The authorization bookkeeping of a privileged task (doc/m4.md#crhs-侧数据). */
+/** The authorization bookkeeping of a privileged task (doc/design/privilege.md "Server-side authorization"). */
 export interface TaskAuthorizationJson {
 	plan: { paths: { path: "crhs" | "user" | "local"; entries?: unknown[] }[]; reason?: string };
 	tried: string[];
@@ -147,7 +147,7 @@ export interface TaskJson {
 	notice: string | null;
 	outputFile: string | null;
 	privileged: boolean;
-	/** The task's structured result, as the API serves it (doc/protocol.md TaskResult). */
+	/** The task's structured result, as the API serves it (doc/design/protocol.md "Task results"). */
 	result: ({ kind: string } & Record<string, unknown>) | null;
 	/** Null for ordinary tasks (the API's view; the harness's own task types leave it unset). */
 	authorization?: TaskAuthorizationJson | null;
@@ -160,7 +160,7 @@ export class InProcessCrhs {
 	readonly clusterOptions: ClusterOptions;
 	readonly appOptions: Partial<AppOptions>;
 	identity!: ServerIdentity;
-	/** As in `main.ts`: every server signs authorizations with this key (doc/privilege.md#授权签名密钥). */
+	/** As in `main.ts`: every server signs authorizations with this key (doc/design/privilege.md "Authorization signing key"). */
 	authorizationKey!: AuthorizationSigningKey;
 	cluster!: Cluster;
 	audit!: Audit;
@@ -175,7 +175,7 @@ export class InProcessCrhs {
 	readonly faux: FauxProviderHandle;
 	runtime: AgentRuntime | undefined;
 	models: ModelConfig | undefined;
-	/** With the agent runtime: the scheduler, started once the server listens (doc/scheduling.md). */
+	/** With the agent runtime: the scheduler, started once the server listens (doc/design/scheduling.md). */
 	scheduler: Scheduler | undefined;
 
 	private constructor(
@@ -405,9 +405,10 @@ export class Env {
 		const approved = await this.crhs.api(`/api/nodes/${node.id}/approve`, { body: {} });
 		if (approved.status !== 200) throw new Error(`approve: ${approved.status}`);
 		await this.waitConnected();
-		// crhs manages node groups (D109); one named E2E_GROUP_NAME lets an MCP tool address this node as a
-		// task group by its bare name (D110 removed crha-side groups). The name must not collide with the
-		// node's own name "e2e": D109 puts both in one namespace.
+		// crhs manages node groups; one named E2E_GROUP_NAME lets an MCP tool address this node as a
+		// task group by its bare name (crha-side groups were removed; doc/design/privilege.md "Trust
+		// aliases"). The name must not collide with the node's own name "e2e": both share one namespace
+		// (doc/design/access-control.md "Node groups and names").
 		const created = await this.crhs.api("/api/node-groups", { body: { name: E2E_GROUP_NAME } });
 		if (created.status !== 201) {
 			throw new Error(`create node group: ${created.status} ${JSON.stringify(created.json)}`);

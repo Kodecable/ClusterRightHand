@@ -1,5 +1,5 @@
 /**
- * Authorization payloads (doc/protocol.md#授权对象): building the CBOR bytes that get signed and
+ * Authorization payloads (doc/design/protocol.md "Authorization object"): building the CBOR bytes that get signed and
  * the SHA-256 identifiers used by the database.
  */
 import { createHash } from "node:crypto";
@@ -73,7 +73,7 @@ export function buildAuthorization(input: BuildAuthorizationInput): BuiltAuthori
 	}
 	if (taskIds !== null) {
 		// A one-shot authorization binds every task id to one node id, by position
-		// (doc/protocol.md#授权对象). Building a payload that violates the binding would only be
+		// (doc/design/protocol.md "Authorization object"). Building a payload that violates the binding would only be
 		// refused by the node, so fail here instead.
 		if (taskIds.length !== input.nodes.length) {
 			throw new Error("a one-shot authorization needs exactly one node per task id");

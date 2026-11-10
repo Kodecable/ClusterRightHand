@@ -574,7 +574,7 @@ describeBackends("0029 session state and tree", (backend) => {
 			),
 		);
 		// A root's old `active` and a subagent's old `active`/`stopped` are all `idle`; reconciliation corrects
-		// the live ones at the next start (D97).
+		// the live ones at the next start.
 		expect(byId.get("root-active")).toMatchObject({ state: "idle", root_session_id: "root-active" });
 		expect(byId.get("child-stopped")).toMatchObject({
 			state: "idle",
@@ -678,7 +678,7 @@ describeBackends("0031 task result", (backend) => {
 		await applyMigration(backend, db, up0031);
 		const existing = await sql<{ id: string; result: string | null }>`select id, result from tasks`.execute(db);
 		expect(existing.rows).toEqual([{ id: "t1", result: null }]);
-		// The column stores the JSON form of a task's structured result (doc/protocol.md TaskResult).
+		// The column stores the JSON form of a task's structured result (doc/design/protocol.md "Task results").
 		const result = JSON.stringify({ kind: "file.stat", path: "/tmp/x", type: "file", size: 3, mode: "0644" });
 		await sql`insert into tasks (id, result) values (${"t2"}, ${result})`.execute(db);
 		await sql`update tasks set result = ${result} where id = ${"t1"}`.execute(db);

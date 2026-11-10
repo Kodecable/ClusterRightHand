@@ -31,8 +31,8 @@ import {
 
 /**
  * The cluster tools, defined once and adapted to MCP and to agent sessions; see
- * doc/agent-runtime.md#cluster-工具. Handlers return a ToolResult (text or compact JSON plus UI details);
- * the task tools share the component in task-tool.ts (D111) and its renderers in task-render.ts.
+ * doc/design/agent-runtime.md "Cluster tools". Handlers return a ToolResult (text or compact JSON plus UI details);
+ * the task tools share the component in task-tool.ts and its renderers in task-render.ts.
  */
 
 export interface ToolContext {
@@ -66,7 +66,7 @@ export interface ClusterTool<S extends z.ZodType = z.ZodType> {
 	description: string;
 	input: S;
 	readOnly: boolean;
-	/** Text (raw + note blocks) or compact JSON; also picks the expected-error shape (D112). */
+	/** Text (raw + note blocks) or compact JSON; also picks the expected-error shape. */
 	output: ToolOutput;
 	handler: (args: z.infer<S>, ctx: ToolContext) => Promise<ToolResult>;
 }
@@ -93,7 +93,7 @@ const privilegedField = z
 		"Run with elevated privileges according to the node's privileged mode (forward, native, ignore or " +
 			"reject); SSH nodes ignore it and run as the SSH user",
 	);
-/** The batch parameters; a single task ignores them (doc/agent-runtime.md#批量执行). */
+/** The batch parameters; a single task ignores them (doc/design/agent-runtime.md "Batch execution"). */
 const batchFields = {
 	parallel: z.number().int().min(1).max(100).optional().describe("Batch only: nodes run at once (default 10)"),
 	fail_fast: z.boolean().optional().describe("Batch only: start no more nodes after one fails"),
@@ -113,7 +113,7 @@ const maxLinesField = z
 	.max(MAX_OUTPUT_LINES)
 	.optional()
 	.describe(
-		"Per-node line budget, at most 2000 (D112): for a single task it caps the tail given to you; for a batch " +
+		"Per-node line budget, at most 2000: for a single task it caps the tail given to you; for a batch " +
 			"each node keeps at most this many lines. Not allowed with with_output: false",
 	);
 const maxBytesField = z
@@ -123,11 +123,11 @@ const maxBytesField = z
 	.max(MAX_OUTPUT_BYTES)
 	.optional()
 	.describe(
-		"Per-node byte budget, at most 51200 (D112): for a single task it caps the tail given to you; for a batch " +
+		"Per-node byte budget, at most 51200: for a single task it caps the tail given to you; for a batch " +
 			"each node keeps at most this many bytes. Not allowed with with_output: false",
 	);
 
-/** The batch parameters of the file tools; they never take a `wait` (D111). */
+/** The batch parameters of the file tools; they never take a `wait`. */
 const fileBatchFields = { ...batchFields };
 
 function define<S extends z.ZodType>(tool: ClusterTool<S>): ClusterTool<S> {
@@ -316,7 +316,7 @@ const readFile = define({
 	},
 });
 
-/** `mode` is an octal permission string such as "0644" (D114); a leading 0 is optional. */
+/** `mode` is an octal permission string such as "0644"; a leading 0 is optional. */
 const MODE_PATTERN = /^0?[0-7]{3,4}$/;
 
 /** The permission bits of a write_file mode; invalid_argument when it is not an octal string. */
@@ -555,8 +555,8 @@ const taskCancel = define({
 });
 
 /**
- * Whether the caller may act on work started for `actorType` / `actorId` (doc/agent-runtime.md#cluster-工具,
- * doc/access-control.md#操作者): its own session or token, or a session in its subtree. Anything else, even
+ * Whether the caller may act on work started for `actorType` / `actorId` (doc/design/agent-runtime.md "Cluster tools",
+ * doc/design/access-control.md "Actors"): its own session or token, or a session in its subtree. Anything else, even
  * another session of the same user, is out of reach; the conservative reading, because the docs scope a tool
  * to the caller's own work.
  */
@@ -571,7 +571,7 @@ async function mayActFor(ctx: ToolContext, actorType: string, actorId: string): 
 
 /**
  * A task the caller may act on: started for the same user **and** for its own session or token (or a session
- * below it). Another session of the same user keeps its tasks (doc/agent-runtime.md#cluster-工具).
+ * below it). Another session of the same user keeps its tasks (doc/design/agent-runtime.md "Cluster tools").
  */
 async function ownTask(ctx: ToolContext, id: string): Promise<TaskView> {
 	const t = await ctx.cluster.getTask(id);

@@ -10,7 +10,7 @@ export function tokenStatus(
 	return "active";
 }
 
-/** The command that registers this console with an MCP client (doc/mcp.md). */
+/** The command that registers this console with an MCP client (doc/guide/mcp.md). */
 export function mcpCommand(origin: string, token: string): string {
 	return `claude mcp add --transport http crh ${origin}/mcp --header "Authorization: Bearer ${token}"`;
 }

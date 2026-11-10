@@ -375,7 +375,7 @@ func TestFileReadCancelled(t *testing.T) {
 }
 
 // TestRunTaskCarriesFileResult covers what a task.exit reports for a file task: the result is in the
-// task's Result, and the output streams keep no metadata (doc/protocol.md TaskResult).
+// task's Result, and the output streams keep no metadata (doc/design/protocol.md "Task results").
 func TestRunTaskCarriesFileResult(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f")
@@ -446,7 +446,7 @@ func TestRunTaskCarriesFileResult(t *testing.T) {
 
 // TestFileSpecialFilesDoNotBlock covers FIFOs and sockets: opening one for reading blocks in
 // open(2) (a FIFO waits for a writer) and a cancellation cannot interrupt it, so read, edit and
-// list refuse them with not_regular_file like the privileged executor (doc/privilege.md 方法与目标).
+// list refuse them with not_regular_file like the privileged executor (doc/design/privilege.md "Methods and targets").
 func TestFileSpecialFilesDoNotBlock(t *testing.T) {
 	dir := t.TempDir()
 	fifo := filepath.Join(dir, "fifo")
@@ -1226,7 +1226,7 @@ func TestFileList(t *testing.T) {
 
 // TestFileListResultFitsAFrame covers the entry budget of a listing: its result travels in one
 // task.exit frame, so a huge directory is listed up to the budget and reported truncated
-// (doc/protocol.md TaskResult).
+// (doc/design/protocol.md "Task results").
 func TestFileListResultFitsAFrame(t *testing.T) {
 	dir := t.TempDir()
 	for i := range 2000 {

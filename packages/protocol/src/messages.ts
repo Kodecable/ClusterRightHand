@@ -1,5 +1,5 @@
 /**
- * Wire types from doc/protocol.md. All field names are camelCase; the encoded
+ * Wire types from doc/design/protocol.md. All field names are camelCase; the encoded
  * form is a fixed-length array in the order declared here, except Facts, the
  * protocol's one text-keyed map.
  */
@@ -25,9 +25,9 @@ import {
 export const PROTOCOL_MAJOR = 3;
 /**
  * An incompatible change bumps the major version and the Noise prologue, so a peer with another
- * major is refused at the handshake (doc/protocol.md#握手载荷). The minor version is additive:
+ * major is refused at the handshake (doc/design/protocol.md "Handshake payloads"). The minor version is additive:
  * new commands and events are negotiated through the handshake's `commands` field. Protocol 3.0
- * removes the `groups` fact and renames `TrustSummary.groups` to `aliases` (D110); 2.0 reads files
+ * removes the `groups` fact and renames `TrustSummary.groups` to `aliases`; 2.0 reads files
  * by line range and gives `task.exit` an eighth element; 1.1 was the M4 command set and 1.0 the
  * M3.5 one.
  */
@@ -35,7 +35,7 @@ export const PROTOCOL_MINOR = 0;
 
 /**
  * The Noise prologue's version prefix, `"crh/"` followed by the major version
- * (doc/protocol.md#握手载荷). The full prologue is this prefix followed by the server's
+ * (doc/design/protocol.md "Handshake payloads"). The full prologue is this prefix followed by the server's
  * challenge, so a peer with another major fails the Noise handshake itself.
  */
 export const NOISE_PROLOGUE_PREFIX = `crh/${PROTOCOL_MAJOR}`;
@@ -46,7 +46,7 @@ export const NOISE_PROLOGUE_PREFIX = `crh/${PROTOCOL_MAJOR}`;
 
 /**
  * The `shells` fact: the sh and bash a node discovered when crha started. `bash` is text, null or
- * absent when the node has none; the encoder omits it (doc/protocol.md Facts).
+ * absent when the node has none; the encoder omits it (doc/design/protocol.md "Events").
  */
 export interface Shells {
 	sh: string;
@@ -61,7 +61,7 @@ const shellsMap = keyedMap<Shells>("shells", [
 export const shellsCodec: Codec<Shells> = {
 	name: shellsMap.name,
 	encode(value) {
-		// No bash is encoded as an absent key, not as null (doc/protocol.md Facts).
+		// No bash is encoded as an absent key, not as null (doc/design/protocol.md "Events").
 		return shellsMap.encode(value.bash === null ? { ...value, bash: undefined } : value);
 	},
 	decode(value) {
@@ -70,7 +70,7 @@ export const shellsCodec: Codec<Shells> = {
 };
 
 /**
- * Facts is the protocol's one map body (doc/protocol.md Facts). hostname is required; every other
+ * Facts is the protocol's one map body (doc/design/protocol.md "Events"). hostname is required; every other
  * field is optional and absent when the node did not report it — absent means unknown, not empty.
  * Text keys a peer does not know are ignored; a non-text key is a decode error.
  */
@@ -192,14 +192,14 @@ export type Edit = Infer<typeof editCodec>;
 
 /**
  * The page of a `file.read` is at most this many bytes, whole lines only
- * (doc/protocol.md#任务): the node stops at the first line that would not fit.
+ * (doc/design/protocol.md "task.start"): the node stops at the first line that would not fit.
  */
 export const FILE_READ_MAX_BYTES = 50 * 1024;
 
 /**
  * The entries of a `file.list` result must fit the `task.exit` frame, so the node stops listing
  * once their fields reach this many bytes and reports the result as truncated
- * (doc/protocol.md TaskResult).
+ * (doc/design/protocol.md "Task results").
  */
 export const FILE_LIST_MAX_BYTES = 32 * 1024;
 
@@ -266,7 +266,7 @@ export type Outcome = Infer<typeof outcomeCodec>;
 
 /**
  * The page a `file.read` task kept: the lines it holds and whether the scan reached the end of the
- * file (doc/protocol.md#任务). `total` is the file's line count and is present only at the end.
+ * file (doc/design/protocol.md "task.start"). `total` is the file's line count and is present only at the end.
  */
 export const fileReadResultCodec = tuple([
 	["from", uint],
@@ -277,7 +277,7 @@ export const fileReadResultCodec = tuple([
 ]);
 export type FileReadResult = Infer<typeof fileReadResultCodec>;
 
-/** The metadata a `file.stat` task reports (doc/protocol.md TaskResult). */
+/** The metadata a `file.stat` task reports (doc/design/protocol.md "Task results"). */
 export const fileStatResultCodec = tuple([
 	["path", text],
 	["type", text],
@@ -321,7 +321,7 @@ export const fileEditResultCodec = tuple([["replacements", uint]]);
 export type FileEditResult = Infer<typeof fileEditResultCodec>;
 
 /**
- * The structured result of a task, carried in `task.exit.result` (doc/protocol.md TaskResult). Its
+ * The structured result of a task, carried in `task.exit.result` (doc/design/protocol.md "Task results"). Its
  * tag is the task kind; a kind that reports nothing structured has no branch. The result never
  * travels in the output stream, which keeps the task's text output alone.
  */
@@ -339,10 +339,10 @@ export const taskExitCodec = tuple([
 	["outcome", outcomeCodec],
 	["timedOut", bool],
 	["cancelled", bool],
-	// The end offset of the task's one output stream (doc/protocol.md TaskExit).
+	// The end offset of the task's one output stream (doc/design/protocol.md "Events").
 	["outputEnd", uint],
 	["outputFile", text],
-	// The line count of the output: the same bytes the output file holds (doc/protocol.md TaskExit).
+	// The line count of the output: the same bytes the output file holds (doc/design/protocol.md "Events").
 	["outputLines", uint],
 	["result", nullable(taskResultCodec)],
 ]);

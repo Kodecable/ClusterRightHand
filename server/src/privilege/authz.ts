@@ -1,6 +1,6 @@
 /**
  * The authorization decision crha makes before accepting a privileged task: steps 2–8 of
- * doc/privilege.md#校验流程 (step 1 is the peer uid check, step 10 persistence and execution).
+ * doc/design/privilege.md "Validation flow" (step 1 is the peer uid check, step 9 persistence and execution).
  *
  * This is a side-effect-free port of crha's Go implementation (client/internal/privileged/authz).
  * crhs runs it to predict whether crha would accept an authorization; it reproduces every case of
@@ -29,7 +29,7 @@ export type AuthzResult =
 	| "authorization_rejected"
 	| "already_accepted";
 
-/** Steps of doc/privilege.md#校验流程 (step 1 belongs to the socket, step 10 to the caller). */
+/** Steps of doc/design/privilege.md "Validation flow" (step 1 belongs to the socket, step 9 to the caller). */
 export const STEP = {
 	task: 2,
 	signatures: 3,
@@ -38,8 +38,6 @@ export const STEP = {
 	command: 6,
 	trust: 7,
 	cosign: 8,
-	// Step 9 was the revocation check. Revocation was removed; the number stays unused so the
-	// remaining steps keep their values in error messages.
 } as const;
 
 export type TrustRole = "crhs" | "user" | "local";
@@ -129,7 +127,7 @@ export interface AuthzInput {
 
 export interface AuthzDecision {
 	result: AuthzResult;
-	/** null for an accepted task; otherwise the failing step of doc/privilege.md#校验流程. */
+	/** null for an accepted task; otherwise the failing step of doc/design/privilege.md "Validation flow" */
 	step: number | null;
 	/** The accepting trust entry's name; null unless accepted. */
 	entry: string | null;
@@ -153,7 +151,7 @@ export function decide(input: AuthzInput): AuthzDecision {
 
 /**
  * task.start after `crha approve`: the local approval replaces the authorization object, so steps 3,
- * 4 and the command part of step 6 do not apply (doc/privilege.md#本地批准).
+ * 4 and the command part of step 6 do not apply (doc/design/privilege.md "Local approval").
  */
 function decideLocal(input: AuthzInput, method: Method, target: string, specHash: Uint8Array): AuthzDecision {
 	const approval = input.localApproval;
@@ -370,7 +368,7 @@ function verifiedEntries(authorization: AuthzAuthorization): AuthzEntry[] {
 }
 
 /**
- * The per-position node binding of a one-shot authorization (doc/protocol.md#授权对象): nodes lists
+ * The per-position node binding of a one-shot authorization (doc/design/protocol.md "Authorization object"): nodes lists
  * only node ids, has one entry per task id, and the task's id sits at this node's position. Returns
  * the failure reason, or null when the binding holds.
  */

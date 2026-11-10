@@ -16,7 +16,7 @@ import { openTestDb } from "./helpers/db.ts";
 vi.setConfig({ testTimeout: 600_000, hookTimeout: 600_000 });
 
 /**
- * The session list at the size the WebUI is designed for (doc/webui.md#性能与质量目标): 100,000 root
+ * The session list at the size the WebUI is designed for (doc/design/webui.md "Performance targets"): 100,000 root
  * sessions, bulk inserted. The test checks mine/all/search correctness and prints the timings; it does not
  * assert them, since a slow CI machine says nothing about the query.
  */

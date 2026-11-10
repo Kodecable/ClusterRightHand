@@ -10,7 +10,7 @@ import { likeContains } from "../util/list-query.ts";
 import { type SessionListScope, sessionListCursor, sessionListItem, sessionListQuery } from "./session-list.ts";
 
 /**
- * Session search (doc/webui.md#会话内容搜索): root sessions whose title or message text matches every keyword
+ * Session search (doc/design/webui.md "Session content search"): root sessions whose title or message text matches every keyword
  * of `q`, with the matching transcript entries as hits. PostgreSQL searches the generated `search_text` column
  * the pg-durable adapter adds to `pi_entries`; SQLite has no such column and matches titles only.
  */

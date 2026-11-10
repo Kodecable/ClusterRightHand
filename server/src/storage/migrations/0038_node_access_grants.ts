@@ -3,13 +3,13 @@ import { type Kysely, sql } from "kysely";
 import { isPostgres } from "../dialect.ts";
 
 /**
- * D108: nodes belong to the organization. This creates `node_access_grants`, turns ownership into access for
+ * Nodes belong to the organization. This creates `node_access_grants`, turns ownership into access for
  * non-administrator owners, converts `operate` node shares into grants and drops `view` ones, then drops
  * `nodes.owner_user_id` and `ssh_credentials.owner_user_id`.
  *
  * SQLite cannot drop a column that is part of a foreign key, so both tables are rebuilt there (the node
  * rebuild keeps `node_group_members`, whose FK would otherwise be cascaded away with the old table). The
- * migration is self-contained (doc/data-model.md): the UUID helper is copied, not imported.
+ * migration is self-contained (doc/design/data-model.md): the UUID helper is copied, not imported.
  */
 
 const MAX_COUNTER = 0xfff;
@@ -168,10 +168,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			.values(grants.slice(i, i + 500))
 			.execute();
 	}
-	// Nodes are no longer shared (D108); sessions keep their shares.
+	// Nodes are no longer shared; sessions keep their shares.
 	await d.deleteFrom("shares").where("resource_type", "=", "node").execute();
 
-	// One audit event for the conversion, with the counts the design asks for (doc/access-control.md#迁移).
+	// One audit event for the conversion, with the counts the design asks for (doc/design/access-control.md "Ownership, access grants and sharing").
 	const org = await d.selectFrom("orgs").select("id").orderBy("created_at").executeTakeFirst();
 	if (org) {
 		await d

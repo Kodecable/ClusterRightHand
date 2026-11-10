@@ -13,7 +13,7 @@ import { openTestDb } from "./helpers/db.ts";
 /**
  * The SSH task path through the cluster with a fake session instead of a real sshd: cancelling a task
  * whose connection is still being made, and the privileged notice of a status task
- * (doc/execution-plane.md#ssh-传输). The session is faked by replacing the module's `connect`.
+ * (doc/design/execution.md "SSH transport"). The session is faked by replacing the module's `connect`.
  */
 const fake = vi.hoisted(() => ({
 	/** Opens the session of the next task; tests replace it. */
@@ -227,7 +227,7 @@ describe("SSH tasks", () => {
 			const current = await view(task.id);
 			return current.state === "exited" ? current : undefined;
 		});
-		// A status task keeps no output, but the notice is stored on the task (D114).
+		// A status task keeps no output, but the notice is stored on the task.
 		expect(done).toMatchObject({ outputMode: "status", exitCode: 0, privileged: true });
 		expect(done.notice).toBe(SSH_PRIVILEGED_NOTICE);
 		expect(done.outputBytes).toBe(OUTPUT.length);

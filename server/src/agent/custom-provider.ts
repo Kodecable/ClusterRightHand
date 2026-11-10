@@ -1,5 +1,5 @@
 // pi-ai providers built from stored configuration: built-in providers with a crhs-held key, and custom
-// OpenAI-compatible providers with their thinking and session id handling (doc/agent-runtime.md#自定义提供方).
+// OpenAI-compatible providers with their thinking and session id handling (doc/design/agent-runtime.md "Custom providers").
 
 import type { Api, Model, ModelThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
@@ -69,7 +69,7 @@ function customPiModel(
 		thinkingLevelMap = map;
 		if (model.api === "openai-completions") {
 			// pi-ai must not add its own thinking parameters: the selected level's object is merged
-			// into the payload instead (doc/agent-runtime.md#自定义提供方). Forcing `openai` avoids
+			// into the payload instead (doc/design/agent-runtime.md "Custom providers"). Forcing `openai` avoids
 			// URL-detected formats such as deepseek that add `thinking`/`enable_thinking` even when
 			// `supportsReasoningEffort` is false.
 			compat.thinkingFormat = "openai";
@@ -211,7 +211,7 @@ export function customProvider(
 		const bodyConfig = config?.thinking?.mode === "custom" ? config.thinking : undefined;
 		const body = bodyConfig?.levels[level];
 		// Body mode always owns the payload's thinking parameters: even a level with no body entry must drop
-		// pi-ai's own parameters (doc/agent-runtime.md#自定义提供方).
+		// pi-ai's own parameters (doc/design/agent-runtime.md "Custom providers").
 		const needsPayload = bodyConfig !== undefined || (session !== undefined && sessionBody.length > 0);
 		const nextHeaders =
 			session !== undefined && sessionHeaders.length > 0

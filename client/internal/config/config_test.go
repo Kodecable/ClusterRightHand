@@ -137,7 +137,7 @@ func TestAgentURL(t *testing.T) {
 }
 
 // TestClockWarn covers the clock offset warning threshold: 60 s by default, a duration string
-// when set, and "0s" to disable the warning (doc/privilege.md 时钟).
+// when set, and "0s" to disable the warning (doc/design/privilege.md "Clock").
 func TestClockWarn(t *testing.T) {
 	min := minimalConfig(t)
 	for _, tc := range []struct {

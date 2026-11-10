@@ -65,7 +65,7 @@ function FilterSelect({
 }
 
 /**
- * The caller's tasks (doc/webui.md "Tasks", doc/access-control.md): a cursor-paged
+ * The caller's tasks (doc/design/webui.md "Task and task group pages", doc/design/access-control.md): a cursor-paged
  * table with state / actor-type / node filters. Non-admins see only their own tasks;
  * administrators see every task. `?node=` and `?user=` open the page pre-filtered:
  * the node select reflects and writes the first, the second shows a removable

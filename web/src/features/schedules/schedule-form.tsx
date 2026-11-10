@@ -99,8 +99,8 @@ function buildSchema(i18n: I18n) {
 }
 
 /**
- * The form shared by "New schedule" and the detail page (doc/scheduling.md
- * "形态"): name, prompt, model, rule preset, budget, the cron and timezone with a
+ * The form shared by "New schedule" and the detail page (doc/design/scheduling.md "Schedule model"):
+ * name, prompt, model, rule preset, budget, the cron and timezone with a
  * live preview, catch-up and enabled.
  */
 export function ScheduleForm({

@@ -1,7 +1,7 @@
 import { type Kysely, sql } from "kysely";
 
 /**
- * API tokens support only Ask and Yolo (doc/access-control.md#api-token), so a token root that still carries
+ * API tokens support only Ask and Yolo (doc/design/access-control.md "API tokens"), so a token root that still carries
  * auto_review moves to ask. Session and schedule roots keep their preset.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {

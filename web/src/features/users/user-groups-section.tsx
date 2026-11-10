@@ -11,7 +11,7 @@ import { useUserGroups } from "./api";
 import { UserGroupNameDialog } from "./user-group-dialogs";
 
 /**
- * The user groups and their size (doc/webui.md "Users"): the list only
+ * The user groups and their size (doc/design/webui.md "User and user group pages"): the list only
  * navigates. Creating, renaming and membership editing live on the group's
  * page; "Create user group" stays here as the section's primary action.
  */

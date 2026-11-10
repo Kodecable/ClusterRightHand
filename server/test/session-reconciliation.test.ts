@@ -21,7 +21,7 @@ import { waitSubmission } from "./helpers/runtime.ts";
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * Startup reconciliation (doc/agent-runtime.md#会话状态): after durable resumed the runs, crhs corrects every
+ * Startup reconciliation (doc/design/agent-runtime.md "Session state"): after durable resumed the runs, crhs corrects every
  * cached session state before accepting requests — a settled run is idle, an unsettled one is running or
  * awaiting on a surviving wait — and logs each correction.
  */

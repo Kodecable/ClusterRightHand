@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * D116: model presets are per organization and per kind — session, auto review and title generation.
+ * Model presets are per organization and per kind — session, auto review and title generation.
  * Each row optionally names a model (JSON `ModelRef`) and a custom system prompt; the protocol text
  * is fixed in code. The old global `server_meta.review_model` key becomes the review preset of the
  * default organization (the first one created), and the key is removed.

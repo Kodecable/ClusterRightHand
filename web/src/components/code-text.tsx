@@ -20,7 +20,7 @@ export interface CodeTextProps {
 
 /**
  * Long monospace output: a scrollable `<pre>` that collapses after `maxLines`,
- * with a copy button (doc/webui.md "CodeText").
+ * with a copy button (doc/design/webui.md "Shared components").
  */
 export function CodeText({ text, maxLines = 24, className, preClassName, copy = true, label }: CodeTextProps) {
 	const { t } = useLingui();

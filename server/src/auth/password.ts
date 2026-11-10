@@ -20,7 +20,7 @@ export interface Argon2Parameters {
 	parallelism: number;
 }
 
-/** m = 64 MiB, t = 3, p = 1, 16-byte salt, 32-byte tag (doc/configuration.md). */
+/** m = 64 MiB, t = 3, p = 1, 16-byte salt, 32-byte tag (doc/guide/reference/crhs-config.md). */
 export const DEFAULT_ARGON2_PARAMETERS: Argon2Parameters = { memory: 65536, passes: 3, parallelism: 1 };
 
 let current: Argon2Parameters = DEFAULT_ARGON2_PARAMETERS;

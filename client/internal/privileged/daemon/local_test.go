@@ -212,7 +212,7 @@ func TestLocalRequestWithoutLocalEntry(t *testing.T) {
 
 // TestLocalApprovalSwappedSpecRefused covers the binding between a local verdict and the spec
 // the approver saw: after crhs withdraws the request and asks again with a different spec, the
-// approval that carries the old hash is refused (doc/privilege.md 本地批准).
+// approval that carries the old hash is refused (doc/design/privilege.md "Local approval").
 func TestLocalApprovalSwappedSpecRefused(t *testing.T) {
 	keys := newTestKeys(t)
 	env := localEnv(t, keys)

@@ -3,7 +3,7 @@
  *
  * StatusText and StatusDot render a tone; every page asks this module instead
  * of inventing its own colours, so a status means the same thing everywhere
- * (doc/webui.md "共享部件").
+ * (doc/design/webui.md "Shared components").
  */
 
 export type StatusTone = "ok" | "warn" | "danger" | "info" | "muted";

@@ -7,7 +7,7 @@ import type { Locale } from "@/lib/i18n";
 import { LocaleProvider } from "@/lib/i18n";
 import { ThemeProvider } from "@/lib/theme";
 
-/** The provider stack around the router (doc/webui.md "前端架构"). */
+/** The provider stack around the router (doc/design/webui.md "Frontend architecture"). */
 export function AppProviders({
 	queryClient,
 	initialLocale,

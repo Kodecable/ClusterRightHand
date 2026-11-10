@@ -1,5 +1,5 @@
 /**
- * Tasks and task groups (doc/execution-plane.md, doc/access-control.md "审批").
+ * Tasks and task groups (doc/design/execution.md, doc/design/access-control.md "Approvals").
  * `TaskResultView` is the protocol's JSON task result, not a copy of it.
  */
 
@@ -19,7 +19,7 @@ export type TaskState =
 	| "rejected"
 	| "unknown";
 
-/** How much output crhs keeps for a task (doc/execution-plane.md "输出"). */
+/** How much output crhs keeps for a task (doc/design/execution.md "Output"). */
 export type OutputMode = "full" | "text" | "status" | "head";
 /** A task group is a batch, so it chooses between the two batch modes only. */
 export type BatchOutputMode = "status" | "text" | "head";
@@ -33,16 +33,16 @@ export type TaskGroupState =
 	| "rejected"
 	| "cancelled";
 
-/** One entry of a `file.list` result (doc/protocol.md TaskResult). */
+/** One entry of a `file.list` result (doc/design/protocol.md "Task results"). */
 export type FileListEntryView = JsonFileListEntry;
 
 /**
  * A task's structured result, in the JSON form the API serves. Its `kind` is the task kind; the
- * fields are the wire fields in camelCase (doc/protocol.md TaskResult).
+ * fields are the wire fields in camelCase (doc/design/protocol.md "Task results").
  */
 export type TaskResultView = JsonTaskResult;
 
-/** The task page's list filters (doc/webui.md#api-约定). */
+/** The task page's list filters (doc/design/webui.md "API conventions"). */
 export interface TaskListQuery extends CursorQuery {
 	state?: TaskState;
 	actorType?: string;
@@ -71,7 +71,7 @@ export interface TaskView {
 	timeoutMs: number | null;
 	errorCode: string | null;
 	errorMessage: string | null;
-	/** Bytes of the single output stream (D114). */
+	/** Bytes of the single output stream. */
 	outputBytes: number;
 	/** The kept head of the output stream; text mode keeps only a tail, so this is "". */
 	outputHead: string;
@@ -81,15 +81,15 @@ export interface TaskView {
 	outputTailLines: number;
 	/** Total lines of the output; null until the node reports it in task.exit. */
 	outputLines: number | null;
-	/** crhs's own note about the task (the SSH privileged notice); not part of the output (D114). */
+	/** crhs's own note about the task (the SSH privileged notice); not part of the output. */
 	notice: string | null;
-	/** The task's output budget; null is the default for its mode (D112). */
+	/** The task's output budget; null is the default for its mode. */
 	maxLines: number | null;
 	maxBytes: number | null;
 	outputFile: string | null;
-	/** full for a single task; text, status or head for a batch node (doc/execution-plane.md#输出). */
+	/** full for a single task; text, status or head for a batch node (doc/design/execution.md "Output"). */
 	outputMode: OutputMode;
-	/** Whether this is a privileged task (doc/privilege.md). */
+	/** Whether this is a privileged task (doc/design/privilege.md). */
 	privileged: boolean;
 	/** The authorization plan and its history for a privileged task; null for the others. */
 	authorization: TaskAuthorizationView | null;
@@ -117,12 +117,12 @@ export interface TaskGroupView {
 	nodeIds: string[];
 	parallel: number;
 	failFast: boolean;
-	/** status or text for an exec group; head for a file operation (doc/execution-plane.md#输出). */
+	/** status or text for an exec group; head for a file operation (doc/design/execution.md "Output"). */
 	outputMode: BatchOutputMode;
-	/** Per-node output caps (D112); null means the defaults, 8KB / 128 lines. */
+	/** Per-node output caps; null means the defaults, 8KB / 128 lines. */
 	nodeMaxLines: number | null;
 	nodeMaxBytes: number | null;
-	/** Whether the group's tasks are privileged tasks (doc/privilege.md). */
+	/** Whether the group's tasks are privileged tasks (doc/design/privilege.md). */
 	privileged: boolean;
 	skipped: string[];
 	tasks: TaskView[];
@@ -150,7 +150,7 @@ export type TaskRequest = {
 	kind: string;
 	timeoutMs?: number;
 	waitMs?: number;
-	/** Run as a privileged task (doc/privilege.md). */
+	/** Run as a privileged task (doc/design/privilege.md). */
 	privileged?: boolean;
 	maxLines?: number;
 	maxBytes?: number;

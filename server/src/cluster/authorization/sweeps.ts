@@ -1,9 +1,9 @@
 /**
  * The sweeps over the tasks that wait for a signature: using an authorization the owner already stored
  * once the node is back, re-planning after the node's trust changed, and ending the waits that ran out
- * (doc/privilege.md#等待签名的期限).
+ * (doc/design/privilege.md "Waiting for signatures").
  *
- * D118: every sweep waits for the node outside any turn; the decision and the writes that follow a
+ * Every sweep waits for the node outside any turn; the decision and the writes that follow a
  * fresh read are one short turn per task.
  */
 import type { Selectable } from "kysely";
@@ -42,12 +42,12 @@ export async function useStoredAuthorizations(core: ClusterCore, nodeId: string)
 /**
  * Uses a stored authorization for one waiting task. The wait for the node and the reuse lookup run
  * outside any turn; the alias failure and the claim are one turn on a fresh read, and the task.start
- * follows outside it (D118). A node that stays away through the grace ends the task in a turn of its own.
+ * follows outside it. A node that stays away through the grace ends the task in a turn of its own.
  */
 async function dispatchStored(core: ClusterCore, id: string): Promise<void> {
 	const row = await core.row(id);
 	if (row?.state !== "awaiting_authorization") return;
-	// D113: a stored signature is used once the node is back; a node still away after the grace fails
+	// A stored signature is used once the node is back; a node still away after the grace fails
 	// the task instead of leaving it waiting forever.
 	const ready = await core.waitNodeReady(row.node_id, { trust: true });
 	if (!ready?.link) {
@@ -61,7 +61,7 @@ async function dispatchStored(core: ClusterCore, id: string): Promise<void> {
 	const nodeId = ready.node.id;
 	const link = ready.link;
 	const claim = await core.taskQueue.run(id, async (): Promise<ClaimedAuthorization | null> => {
-		// The caller's row predates the wait for the node; re-read it in this turn (D118).
+		// The caller's row predates the wait for the node; re-read it in this turn.
 		const current = await core.row(id);
 		if (current?.state !== "awaiting_authorization") return null;
 		// The reuse lookup is judged against this connection's trust report; re-read the node so a report
@@ -83,14 +83,14 @@ async function dispatchStored(core: ClusterCore, id: string): Promise<void> {
 		);
 		if (!reusable) return null;
 		if (reusable.kind === "alias_missing") {
-			// Only a missing node group alias stands in the way (D110): the failure ends the task here.
+			// Only a missing node group alias stands in the way: the failure ends the task here.
 			await failAliasMissing(core, current, previous, reusable);
 			return null;
 		}
 		return claimOwnerAuthorization(core, current, fresh, link, reusable.submitted, reusable.cosigned);
 	});
 	if (!claim) return;
-	// The task.start waits for the node's answer: outside the turn that claimed the task (D118).
+	// The task.start waits for the node's answer: outside the turn that claimed the task.
 	await sendAuthorizedStart(core, nodeId, claim.start, claim.input, claim.record);
 }
 
@@ -102,7 +102,7 @@ export async function replanAwaiting(core: ClusterCore, nodeId: string): Promise
 		.where("node_id", "=", nodeId)
 		.where("state", "=", "awaiting_authorization")
 		.execute();
-	// replanWaiting waits for the node's trust report outside a turn and plans in one (D118); the read
+	// replanWaiting waits for the node's trust report outside a turn and plans in one; the read
 	// below is only a pre-check, the planning turn re-checks the row.
 	for (const { id } of rows) await replan(core, id);
 }
@@ -115,7 +115,7 @@ async function replan(core: ClusterCore, id: string): Promise<void> {
 
 /**
  * Ends the tasks whose signature has not arrived within AUTHORIZATION_WAIT_MS since they began to wait
- * (doc/privilege.md#等待签名的期限): from the approval decision when there was one, else from creation.
+ * (doc/design/privilege.md "Waiting for signatures"): from the approval decision when there was one, else from creation.
  * Run at startup and by the periodic sweep; returns how many tasks it ended.
  */
 export async function expireAuthorizationWaits(core: ClusterCore, nowMs: number = Date.now()): Promise<number> {
@@ -123,7 +123,7 @@ export async function expireAuthorizationWaits(core: ClusterCore, nowMs: number 
 	let ended = 0;
 	for (const row of rows) {
 		if (nowMs - authorizationWaitStart(row) < AUTHORIZATION_WAIT_MS) continue;
-		// The ending is a read-decide-write on the task's row: one turn, from a fresh read (D118).
+		// The ending is a read-decide-write on the task's row: one turn, from a fresh read.
 		const finished = await core.taskQueue.run(row.id, async () => {
 			const current = await core.row(row.id);
 			if (current?.state !== "awaiting_authorization") return false;

@@ -14,7 +14,7 @@ import type { TranscriptStreams } from "./transcript-streams";
 const FOLLOW_INTERVAL_MS = 5000;
 
 /**
- * The card's status, as its leading icon only (doc/webui.md "消息渲染"): a spinner while the call may still
+ * The card's status, as its leading icon only (doc/design/webui.md "Message rendering"): a spinner while the call may still
  * return, then the wrench — in the danger colour when the call or the task it ran failed. The accessible name
  * and the tooltip carry the state a badge used to show.
  */

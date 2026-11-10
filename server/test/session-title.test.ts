@@ -23,7 +23,7 @@ import { waitSubmission } from "./helpers/runtime.ts";
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * Title generation (doc/agent-runtime.md#标题生成): a root without a title gets one in the background after its
+ * Title generation (doc/design/agent-runtime.md "Title generation"): a root without a title gets one in the background after its
  * run ends; a manual rename wins, failures stay pending for the next run, and the call is charged like a review.
  */
 const faux = fauxProvider();

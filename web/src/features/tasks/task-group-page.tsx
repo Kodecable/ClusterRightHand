@@ -16,7 +16,7 @@ import { taskTitle } from "./title";
 
 /**
  * One task group from a link, e.g. a group that waits for the owner's signature
- * (doc/webui.md "Task group"). Its command is the page title, its state sits
+ * (doc/design/webui.md "Task and task group pages"). Its command is the page title, its state sits
  * under it, then the per-node results.
  */
 export function TaskGroupPage() {

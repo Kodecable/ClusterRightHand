@@ -4,7 +4,7 @@ import type { SessionState, WaitingKind } from "../storage/schema.ts";
 import { recordTreeReply } from "./session-replies.ts";
 
 /**
- * The stored run state of a session (doc/agent-runtime.md#会话状态): roots and subagents share `idle` /
+ * The stored run state of a session (doc/design/agent-runtime.md "Session state"): roots and subagents share `idle` /
  * `running` / `awaiting`, and `waiting_kind` says what an awaiting session is blocked on. Only a new input
  * revives an idle session; every other state write either keeps it idle or corrects a live run.
  */
@@ -35,7 +35,7 @@ export async function sessionStateOf(db: Db, sessionId: string): Promise<Session
  * exhausted level's direct parent); a root's quota wait has none, so its owner handles it.
  *
  * With `onlyIfLive`, a session that is `idle` is left alone and `applied` is false: a recompute must never turn
- * idle back into `running` or `awaiting`, only a new input does that (doc/agent-runtime.md#会话状态).
+ * idle back into `running` or `awaiting`, only a new input does that (doc/design/agent-runtime.md "Session state").
  */
 export async function setSessionState(
 	db: Db,

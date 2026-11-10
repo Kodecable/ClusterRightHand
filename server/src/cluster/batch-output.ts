@@ -3,14 +3,14 @@ import { countOutputLines, StreamAccumulator } from "./output.ts";
 
 /**
  * Caps for one batch node, and for the whole group: exec `text` nodes keep a tail, file operations
- * (`head`) keep the head of each node's page (doc/execution-plane.md#输出).
+ * (`head`) keep the head of each node's page (doc/design/execution.md "Output").
  */
 export const BATCH_NODE_BYTES = 8 * 1024;
 export const BATCH_NODE_LINES = 128;
 export const BATCH_GROUP_BYTES = 50 * 1024;
 export const BATCH_GROUP_LINES = 2_000;
 
-/** The caps of one budget window, and of a single task's merged tail (D112). */
+/** The caps of one budget window, and of a single task's merged tail. */
 export interface OutputLimits {
 	maxLines: number;
 	maxBytes: number;
@@ -23,7 +23,7 @@ export type OutputModeKind = "full" | "text" | "status" | "head";
 
 /** What crhs keeps of a task when it ends or is viewed while running. Null means "this mode keeps none". */
 export interface OutputSnapshot {
-	/** Bytes of the single output stream (D114). */
+	/** Bytes of the single output stream. */
 	outputBytes: number;
 	/** The kept head of the stream, for the modes that keep one. */
 	outputHead: Buffer | null;
@@ -32,7 +32,7 @@ export interface OutputSnapshot {
 }
 
 /**
- * Validates a caller's per-node output budget (doc/agent-runtime.md#批量执行): 1..2000 lines and
+ * Validates a caller's per-node output budget (doc/design/agent-runtime.md "Batch execution"): 1..2000 lines and
  * 1..50KiB, which is also the whole group's budget. Undefined keeps the default for the mode.
  */
 export function checkedOutputLimits(
@@ -51,7 +51,7 @@ export function checkedOutputLimits(
 /**
  * The output budget of one batch group and of one single task's merged tail: every node draws grants
  * from it in arrival order, and crhs keeps no more than the sum of the grants
- * (doc/execution-plane.md#输出). `text` (exec) and `head` (file operations) measure the same budget;
+ * (doc/design/execution.md "Output"). `text` (exec) and `head` (file operations) measure the same budget;
  * only what each node keeps of its output differs.
  */
 export class GroupBudget {
@@ -75,7 +75,7 @@ export class GroupBudget {
 	}
 }
 
-/** The output side of a running task, uniform over the modes (D114: one stream). */
+/** The output side of a running task, uniform over the modes (one stream). */
 export interface LiveTask {
 	readonly mode: OutputModeKind;
 	/** Returns false when the chunk leaves a gap; overlapping resends are skipped. */
@@ -104,7 +104,7 @@ export function createLiveTask(mode: OutputModeKind, budget?: GroupBudget, limit
 
 /**
  * One node's share of its group's budget. A grant only grows: bytes that leave a kept window are
- * never returned to the group, so the memory held is the sum of the grants (doc/execution-plane.md#输出).
+ * never returned to the group, so the memory held is the sum of the grants (doc/design/execution.md "Output").
  */
 class NodeGrant {
 	readonly #budget: GroupBudget;
@@ -223,7 +223,7 @@ class BudgetedWindow {
  * A batch node: an exec node (`text`) keeps the tail of the single output stream; a file operation
  * (`head`) keeps the head of it, so every node's page can be continued from its own next line. Grants
  * grow with the bytes that arrive, up to the per-node caps; output past a grant is dropped.
- * crhs's own notice is not output any more (D114): it is stored in `tasks.notice`.
+ * crhs's own notice is not output any more: it is stored in `tasks.notice`.
  */
 export class BatchAccumulator implements LiveTask {
 	readonly mode: "text" | "head";
@@ -295,8 +295,8 @@ class StatusOutput implements LiveTask {
 }
 
 /**
- * A single task: the head and the tail of the single output stream (D114). The tail is the one the
- * model sees, capped by the task's own budget (D112); the head is the WebUI's.
+ * A single task: the head and the tail of the single output stream. The tail is the one the
+ * model sees, capped by the task's own budget; the head is the WebUI's.
  */
 class FullOutput implements LiveTask {
 	readonly mode = "full";

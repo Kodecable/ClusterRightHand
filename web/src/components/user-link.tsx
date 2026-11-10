@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { cn, linkClass } from "@/lib/utils";
 
 /**
- * A link to a user's page (doc/webui.md "列表导航", "链接"): actors and owners are
+ * A link to a user's page (doc/design/webui.md "List navigation, links and refresh", "Links"): actors and owners are
  * linked whether or not the viewer may open the page; the destination answers
  * with its no-access message.
  */

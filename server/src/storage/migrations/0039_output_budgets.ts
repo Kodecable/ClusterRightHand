@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * D112: the output budgets and the merged tail. A task group may cap each of its nodes' kept output
+ * The output budgets and the merged tail. A task group may cap each of its nodes' kept output
  * with `node_max_lines` / `node_max_bytes`; every member task copies those caps into its own
  * `max_lines` / `max_bytes`, which also cap a single task's merged tail. `tasks.output_tail` stores
  * the merged stdout+stderr tail of a single task, and `tasks.output_lines` the total line count

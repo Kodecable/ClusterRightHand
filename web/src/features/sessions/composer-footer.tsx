@@ -18,7 +18,7 @@ import { BudgetDialog } from "./budget-dialog";
 
 /**
  * Everything the footer controls show and change; a session page feeds it from
- * the session and PATCHes, the draft page from local state (D117). The footer
+ * the session and PATCHes, the draft page from local state. The footer
  * itself is shared, so the two pages cannot drift apart.
  */
 export interface ComposerFooterState {
@@ -42,13 +42,13 @@ export interface ComposerFooterState {
 }
 
 /**
- * The footer inside the composer box (doc/webui.md#输入框页脚): model, rules and
+ * The footer inside the composer box (doc/design/webui.md "Composer"): model, rules and
  * budget on the left, the stop and send buttons on the right. The context ring
  * and the tree's total usage sit on their own centered line under the box, in
  * ComposerMeta, so the footer keeps room for the model and the rule preset at every
  * width. The budget and the total usage accumulate up the chain, so a session's
  * numbers include its subagents'; the context fill is the session's own last
- * main call (doc/agent-runtime.md#会话状态).
+ * main call (doc/design/agent-runtime.md "Session state").
  */
 export function ComposerFooter({
 	state,

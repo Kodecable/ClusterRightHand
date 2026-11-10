@@ -15,7 +15,7 @@ const GRACE_MS = 300;
 const HELLO = { tasks: [], taskKinds: [], privilegedMode: "" };
 const EXEC: TaskSpec = { kind: "exec", command: { argv: ["true"] }, env: {}, cwd: "", stdin: null };
 
-describe("node offline grace (D113)", () => {
+describe("node offline grace", () => {
 	let db: Db;
 	let cluster: Cluster;
 	let agents: TestAgentServer;

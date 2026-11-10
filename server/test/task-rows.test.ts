@@ -92,7 +92,7 @@ function authorizationRecord(attempt: number, pending: boolean): TaskAuthorizati
 	};
 }
 
-describe("task row versions (D118)", () => {
+describe("task row versions", () => {
 	let db: Db;
 	let orgId: string;
 
@@ -152,14 +152,12 @@ describe("task row versions (D118)", () => {
 		const core = new ClusterCore(db);
 		const guard = { states: ["awaiting_approval"] as const, rev: 0 };
 
-		// Outside a turn the stale-row decision must not be written (D118).
-		await expect(writeTask(db, "t1", guard, { notice: "outside" })).rejects.toThrow(
-			"outside the task queue turn (D118)",
-		);
+		// Outside a turn the stale-row decision must not be written.
+		await expect(writeTask(db, "t1", guard, { notice: "outside" })).rejects.toThrow("outside the task queue turn");
 		expect(await row("t1")).toMatchObject({ rev: 0, notice: null });
 		// A turn of another task's queue is not this task's turn either.
 		await expect(core.taskQueue.run("t2", () => writeTask(db, "t1", guard, { notice: "other" }))).rejects.toThrow(
-			"outside the task queue turn (D118)",
+			"outside the task queue turn",
 		);
 		// The task's own turn is where the guarded write belongs.
 		expect(await core.taskQueue.run("t1", () => writeTask(db, "t1", guard, { notice: "inside" }))).toBe(true);
@@ -170,7 +168,7 @@ describe("task row versions (D118)", () => {
 	});
 });
 
-describe("group payload refresh under concurrent member changes (D118)", () => {
+describe("group payload refresh under concurrent member changes", () => {
 	let db: Db;
 	let orgId: string;
 	let core: ClusterCore;

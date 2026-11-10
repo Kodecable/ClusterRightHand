@@ -2,7 +2,7 @@ import type { AvailableModel, ModelRef, ThinkingLevel } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 
-/** pi-ai's levels, lowest to highest (doc/agent-runtime.md#思考档位). */
+/** pi-ai's levels, lowest to highest (doc/design/agent-runtime.md "Thinking levels"). */
 export const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 const LABELS: Record<ThinkingLevel, MessageDescriptor> = {

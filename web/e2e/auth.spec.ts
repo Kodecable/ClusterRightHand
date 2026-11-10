@@ -54,7 +54,7 @@ test("mismatching new passwords are rejected in the dialog", async ({ adminPage:
 });
 
 test("a deep link to an approval survives the sign-in form", async ({ page }) => {
-	// An MCP approval URL is a path now (doc/webui.md "路由"); the login page keeps it in `redirect`.
+	// An MCP approval URL is a path now (doc/design/webui.md "Routing"); the login page keeps it in `redirect`.
 	await page.goto("/approvals/tasks/task-from-mcp");
 	await expect(page).toHaveURL(/\/login\?redirect=/);
 	await page.getByLabel("Username").fill(ADMIN.username);

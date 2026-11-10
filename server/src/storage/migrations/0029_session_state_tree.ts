@@ -1,10 +1,10 @@
 import { type Kysely, sql } from "kysely";
 
 /**
- * Session state for roots and subagents alike (D97, doc/agent-runtime.md#会话状态): `idle` / `running` /
+ * Session state for roots and subagents alike (doc/design/agent-runtime.md "Session state"): `idle` / `running` /
  * `awaiting`, with `waiting_kind` saying what an awaiting session waits for (`quota` / `approval` /
  * `authorization`). `root_session_id` makes a session tree addressable, so the WebUI's session list can
- * aggregate a whole tree's state in one query (doc/webui.md#会话列表).
+ * aggregate a whole tree's state in one query (doc/design/webui.md "Session list API").
  *
  * Existing rows map as follows: a root's `active` and a subagent's `stopped` are both `idle`; a subagent's
  * `active` is `idle` too, because the startup reconciliation corrects the ones that are really live. An

@@ -35,7 +35,7 @@ import { AddUserToGroupDialog } from "./user-group-dialogs";
 import { UserGroupsSection } from "./user-groups-section";
 
 /**
- * Users (administrators only, doc/webui.md "Users"): every account with its
+ * Users (administrators only, doc/design/webui.md "User and user group pages"): every account with its
  * role and status. Editing lives on the user's page; the list only navigates,
  * and user groups are a read-only section under it.
  */
@@ -221,7 +221,7 @@ function UserActivity({ user }: { user: User }) {
 }
 
 /**
- * One user (doc/webui.md "Users"): identity and status, the groups it belongs
+ * One user (doc/design/webui.md "User and user group pages"): identity and status, the groups it belongs
  * to, its node access, its recent sessions and tasks, and — for administrators
  * — the account edits that used to sit in the users list. A member may open
  * only their own page; every other id renders the same no-access message as a

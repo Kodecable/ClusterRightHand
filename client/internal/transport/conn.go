@@ -1,6 +1,6 @@
 // Package transport carries crh frames between crha and crhs: a WebSocket connection, the server's
 // challenge, a Noise IK handshake bound to that challenge, then one encrypted frame per binary message.
-// See doc/execution-plane.md#通信安全 and doc/protocol.md#帧.
+// See doc/design/protocol.md "Transport security" and doc/design/protocol.md "Frames".
 package transport
 
 import (

@@ -1,5 +1,5 @@
 /**
- * M4 wire types (doc/protocol.md#m4提权): the authorization object, TrustSummary,
+ * M4 wire types (doc/design/protocol.md "Privilege messages"): the authorization object, TrustSummary,
  * local approval and the crh-priv handshake. Only the shapes and the structural
  * invariants of protocol.md live here; signature checks and hashing are left to
  * the callers, which run under Node.
@@ -31,8 +31,8 @@ export const PRIV_MAJOR = 3;
 /**
  * Incompatible changes bump the major version, so a peer with another major is refused; the minor
  * stays additive and never refuses a handshake. PrivMajor 3 merges the two output streams into one
- * and adds `file.write.create_parent_dirs` (D114) and `input_preview` to local approval, and renames
- * `TrustSummary.groups` to `aliases` (D110); 2 carried the `task.exit.result` element and the
+ * and adds `file.write.create_parent_dirs` and `input_preview` to local approval, and renames
+ * `TrustSummary.groups` to `aliases`; 2 carried the `task.exit.result` element and the
  * line-range `file.read` spec.
  */
 export const PRIV_MINOR = 0;

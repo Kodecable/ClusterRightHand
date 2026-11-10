@@ -24,7 +24,7 @@ const coalesceBytes = 4 << 10
 // spill thresholds; then all of it, from the start, goes to <dir>/<task id>.log, with the bytes in
 // write order (as `2>&1` would show them), and only an index of the segments stays in memory. With
 // OutputOptions.AlwaysSpill the file is opened before the first byte, so even empty or small output
-// gets one. See doc/execution-plane.md#输出.
+// gets one. See doc/design/execution.md "Output".
 type Output struct {
 	mu         sync.Mutex
 	taskID     string
@@ -93,7 +93,7 @@ func NewOutput(taskID, dir string, opts OutputOptions) *Output {
 func (o *Output) Notify() <-chan struct{} { return o.notify }
 
 // Writer returns the one writer both the process's stdout and stderr connect to, so their bytes
-// interleave in write order (doc/execution-plane.md#输出).
+// interleave in write order (doc/design/execution.md "Output").
 func (o *Output) Writer() io.Writer { return outputWriter{o} }
 
 type outputWriter struct{ o *Output }
@@ -160,7 +160,7 @@ func (o *Output) append(p []byte) {
 
 // coalescible returns the newest segment if a write of n bytes can be appended to it. Only the last
 // segment may grow: extending an earlier one would move bytes written after other output, which
-// would change the order of the spill file (doc/execution-plane.md#输出).
+// would change the order of the spill file (doc/design/execution.md "Output").
 func (o *Output) coalescible(place place, n uint64) *segment {
 	if len(o.segments) == 0 {
 		return nil
@@ -272,7 +272,7 @@ func (o *Output) End() uint64 {
 
 // Lines returns the number of lines of the output, the same bytes the spill file holds: the
 // newline count, plus one when the output does not end with a newline, and 0 when nothing was
-// written (doc/protocol.md TaskExit).
+// written (doc/design/protocol.md "Events").
 func (o *Output) Lines() uint64 {
 	o.mu.Lock()
 	defer o.mu.Unlock()

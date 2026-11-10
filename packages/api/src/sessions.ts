@@ -1,6 +1,6 @@
 /**
- * Sessions, shares and quota waits (doc/webui.md "会话列表",
- * doc/access-control.md "归属与分享", doc/agent-runtime.md "配额").
+ * Sessions, shares and quota waits (doc/design/webui.md "Session list API",
+ * doc/design/access-control.md "Ownership, access grants and sharing", doc/design/agent-runtime.md "Quota and token accounting").
  */
 
 import type { CursorQuery, RefMap } from "./common.ts";
@@ -32,16 +32,16 @@ export interface SessionShare {
 	createdAt: string;
 }
 
-/** The three states of a session tree (doc/agent-runtime.md "会话状态"). */
+/** The three states of a session tree (doc/design/agent-runtime.md "Session state"). */
 export type SessionRunState = "idle" | "running" | "awaiting";
 
 /** Why an `awaiting` session is blocked; the tree reports its highest-priority wait. */
 export type SessionWaitingKind = "quota" | "approval" | "authorization";
 
-/** The lightweight row of `GET /api/sessions` (doc/webui.md "SessionListItem"). */
+/** The lightweight row of `GET /api/sessions` (doc/design/webui.md "API conventions"). */
 export interface SessionListItem {
 	id: string;
-	/** Null until generated or set; the UI shows its localized default name (D116). */
+	/** Null until generated or set; the UI shows its localized default name. */
 	title: string | null;
 	ownerUserId: string;
 	ownerName: string;
@@ -53,7 +53,7 @@ export interface SessionListItem {
 	/** The highest-priority wait of the tree while `state` is `awaiting`. */
 	waitingKind: SessionWaitingKind | null;
 	/**
-	 * The tree produced output after the owner last opened it (doc/webui.md "侧边列表"). Computed for the
+	 * The tree produced output after the owner last opened it (doc/design/webui.md "Sidebar list"). Computed for the
 	 * owner only, so a shared viewer always sees false; the children list always sees false too.
 	 */
 	unread: boolean;
@@ -125,7 +125,7 @@ export interface SessionListQuery extends CursorQuery {
 	ownerId?: string;
 }
 
-/** A session's own generation counters, plus the tree's input and cache-read totals (doc/agent-runtime.md "会话统计"). */
+/** A session's own generation counters, plus the tree's input and cache-read totals (doc/design/agent-runtime.md "Session statistics"). */
 export interface SessionStats {
 	/** User inputs of this session that led to at least one step. */
 	turns: number;
@@ -152,7 +152,7 @@ export interface SessionStats {
  */
 export interface SessionView {
 	id: string;
-	/** Null until generated or set; the UI shows its localized default name (D116). */
+	/** Null until generated or set; the UI shows its localized default name. */
 	title: string | null;
 	ownerUserId: string;
 	parentSessionId: string | null;
@@ -170,7 +170,7 @@ export interface SessionView {
 	/** Effective capabilities of the caller on this session. */
 	capabilities: SessionCapabilities;
 	ownerUsername: string | null;
-	/** The persisted session state (doc/agent-runtime.md "会话状态"). */
+	/** The persisted session state (doc/design/agent-runtime.md "Session state"). */
 	state: SessionRunState;
 	/** Why the session waits while `state` is `awaiting`. */
 	waitingKind: SessionWaitingKind | null;
@@ -178,11 +178,11 @@ export interface SessionView {
 	waitingLevelId: string | null;
 	/** Remaining budget tokens (null: unlimited; negative after an overspending response). */
 	budgetRemaining: number | null;
-	/** The budget measure: output tokens spent by the session and its subagents (D101). */
+	/** The budget measure: output tokens spent by the session and its subagents. */
 	budgetUsedTokens: number;
-	/** The statistics measure: input + output tokens of the session and its subagents (D101). */
+	/** The statistics measure: input + output tokens of the session and its subagents. */
 	usageTokens: number;
-	/** The input size of the session's own last main-agent call; null before the first (D101). */
+	/** The input size of the session's own last main-agent call; null before the first. */
 	contextTokens: number | null;
 	/** The session's own generation statistics; the token totals cover its whole tree. */
 	stats: SessionStats;
@@ -198,7 +198,7 @@ export interface SessionPatch {
 	budgetRemaining?: number | null;
 }
 
-/** A root whose token quota is used up and waits for the owner's decision (doc/agent-runtime.md "配额"). */
+/** A root whose token quota is used up and waits for the owner's decision (doc/design/agent-runtime.md "Quota and token accounting"). */
 export interface QuotaApproval {
 	/** The root session to act on (and to link to). */
 	sessionId: string;
@@ -207,8 +207,8 @@ export interface QuotaApproval {
 	/** Null when the session has no title yet; show the localized default name. */
 	title: string | null;
 	since: string;
-	/** Remaining budget tokens at the level; zero or negative (D101). */
+	/** Remaining budget tokens at the level; zero or negative. */
 	budgetRemaining: number;
-	/** The budget measure spent by the tree (D101). */
+	/** The budget measure spent by the tree. */
 	budgetUsedTokens: number;
 }

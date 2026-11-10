@@ -14,7 +14,7 @@ import { buildCrha, Env, goAvailable, waitFor } from "./harness.ts";
 const hasGo = await goAvailable();
 
 // The M3 core: a session drives a real node through the cluster tools, waits through approvals, and survives a
-// crhs restart in the middle of a tool call (doc/agent-runtime.md#测试策略, fault injection).
+// crhs restart in the middle of a tool call (doc/design/testing/server.md "Agent runtime tests", fault injection).
 describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 	let tmp = "";
 	let env: Env;
@@ -246,7 +246,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 				]);
 				const sub = await runtime.submit(session.id, owner, "delegate", "r1");
 				expect(await waitSubmission(runtime, session.id, sub)).toEqual({ status: "done", answer: "parent done" });
-				// The exec result the model sees is text (D111/D112); a task denied by the rules renders as a note.
+				// The exec result the model sees is text; a task denied by the rules renders as a note.
 				expect(childSaw).toContain(`[${nodeName}, error policy_denied: denied by the authorization rules]`);
 				expect(parentSaw).toBe("child: denied");
 				const child = await env.crhs.db

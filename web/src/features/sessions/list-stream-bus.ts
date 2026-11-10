@@ -7,7 +7,7 @@ import type { SessionListItem } from "@crh/api";
  * The list stream is opened once by the sessions layout; a session page still
  * needs to know when its tree's root was republished, because the child list
  * (`GET /api/sessions/:id/children`) has no stream of its own and the docs say
- * to refetch it on the root's `upsert` (doc/webui.md#api-约定). Broadcasting the
+ * to refetch it on the root's `upsert` (doc/design/webui.md "API conventions"). Broadcasting the
  * parsed item is cheaper than opening a second `EventSource` per page.
  */
 export type SessionListUpsertListener = (item: SessionListItem) => void;

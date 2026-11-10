@@ -2,7 +2,7 @@ import type { Db } from "../storage/db.ts";
 import { UserError } from "./errors.ts";
 
 /**
- * Node and node-group names (D109, doc/access-control.md#用户模型). Names are display values: uniqueness and
+ * Node and node-group names (doc/design/access-control.md "User model"). Names are display values: uniqueness and
  * lookup compare `nameKey`, while the stored name keeps its case. Nodes and node groups share one namespace
  * per organization, so a node may not take a group's name and vice versa.
  */

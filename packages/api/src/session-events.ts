@@ -1,6 +1,6 @@
 /**
  * The wire format of a session's event stream (`GET /api/sessions/:id/events`) and of its history pages
- * (`GET /api/sessions/:id/entries`), shared by the server and the WebUI (doc/webui.md "会话事件流和历史").
+ * (`GET /api/sessions/:id/entries`), shared by the server and the WebUI (doc/design/webui.md "Session event stream and history").
  *
  * The server converts pi-durable's agent events to these types at one boundary
  * (`server/src/agent/session-events.ts`): no pi type reaches the wire, and a pi upgrade that changes an event
@@ -121,7 +121,7 @@ export interface SnapshotCompaction {
 
 /** The state a `snapshot` event carries. */
 export interface SnapshotState {
-	/** The newest page of displayable entries (doc/webui.md "会话事件流和历史"). */
+	/** The newest page of displayable entries (doc/design/webui.md "Session event stream and history"). */
 	entries: EntryRecord[];
 	/** Cursor before the oldest entry above; null when no older entry exists. */
 	historyCursor?: string | null;

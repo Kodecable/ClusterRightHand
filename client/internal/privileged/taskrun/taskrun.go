@@ -2,7 +2,7 @@
 // (`crha privileged stdio`, one task over stdio) and the privileged daemon (many tasks per
 // connection after authorization). It owns the task's input accounting, the output stream and
 // the privileged executor call; the callers own the wire, the authorization and the local
-// log. See doc/privilege.md 执行环境 and doc/protocol.md crh-priv.
+// log. See doc/design/privilege.md "Validation flow" and doc/design/protocol.md "crh-priv".
 package taskrun
 
 import (
@@ -61,7 +61,7 @@ type Task struct {
 	// spool is the private temporary file that collects the stdin of a privileged exec task.
 	// The process only starts with it as stdin once the input matched its declared size and
 	// SHA-256, so a compromised crhs cannot have a different chunk read by the process
-	// (doc/privilege.md 执行环境).
+	// (doc/design/privilege.md "Validation flow").
 	spool     *os.File
 	spoolPath string
 	// inputReady is closed once the declared input was received completely and verified.
@@ -394,7 +394,7 @@ func (t *Task) reader() io.Reader {
 }
 
 // Input applies one task.input chunk and returns the command's response body. The error codes
-// are the crh-priv ones of doc/protocol.md task.input.
+// are the crh-priv ones of doc/design/protocol.md "Commands".
 func (t *Task) Input(in protocol.TaskInput) (any, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

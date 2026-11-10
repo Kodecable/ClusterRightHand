@@ -54,7 +54,7 @@ function checkAborted(signal: AbortSignal): void {
  * Runs a file.* task over SFTP with the same semantics, output and error codes as crha's
  * client/internal/executor/file*.go. `stdout` receives the task's text output (the page of a
  * file.read); the task's structured result is returned, never written to a stream
- * (doc/protocol.md TaskResult).
+ * (doc/design/protocol.md "Task results").
  */
 export async function runSftpFileTask(
 	sftp: SFTPWrapper,
@@ -106,7 +106,7 @@ async function fileRead(ctx: Ctx, s: FileReadSpec, stdout: Out): Promise<TaskRes
 		let done = false;
 		// TODO: detect changes by mtime and cache a line index per open handle, so a deep page does not re-read the file from the start.
 		// Stream from the first byte and stop as soon as the page is complete: only a page that reaches
-		// the end reads the whole file (doc/execution-plane.md#sftp-文件操作与-crha-的差异).
+		// the end reads the whole file (doc/design/execution.md "SFTP file operations").
 		while (!done) {
 			checkAborted(signal);
 			const chunk = Buffer.allocUnsafe(CHUNK);
@@ -286,7 +286,7 @@ async function fileWrite(ctx: Ctx, s: FileWriteSpec, input: Uint8Array | undefin
 		throw new FileTaskError("input_mismatch", `content does not match declared size/sha256 (got ${data.length} bytes)`);
 	}
 	if (s.createParentDirs) {
-		// mkdir -p, with the new directories 0755 before the remote umask (D114). SFTP cannot set an
+		// mkdir -p, with the new directories 0755 before the remote umask. SFTP cannot set an
 		// owner/group by name, so like the file itself they belong to the SSH user.
 		await makeParentDirs(sftp, path, ctx.signal);
 	}
@@ -428,7 +428,7 @@ async function fileList(ctx: Ctx, s: FileListSpec): Promise<TaskResult> {
 			mtime: mtimeString(e.attrs.mtime),
 		};
 		// The result travels in one task.exit frame: stop before it could outgrow it
-		// (doc/protocol.md TaskResult).
+		// (doc/design/protocol.md "Task results").
 		const size = listEntrySize(entry);
 		if (used + size > FILE_LIST_MAX_BYTES) {
 			truncated = true;

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Boot sequence of the privileged system test container (doc/testing/privileged.md).
+# Boot sequence of the privileged system test container (doc/design/testing/privileged.md).
 #
 # sshd starts immediately so the SSH node tests always have a target. The crha processes wait for
 # /etc/crha/.ready, which the test writes after `crha enroll` has created the node identity and after
@@ -13,7 +13,7 @@ READY=/etc/crha/.ready
 mkdir -p /run/priv /run/sshd /run/crha /var/log/crha
 
 # The state directory belongs to the non-privileged account; the privileged mode's used list
-# stay root-only (doc/privilege.md#特权模式).
+# stay root-only (doc/design/privilege.md "The privileged mode").
 chown crha:crha /var/lib/crha /var/log/crha 2>/dev/null || true
 chown root:root /var/lib/crha/privileged 2>/dev/null || true
 chmod 0755 /run/crha

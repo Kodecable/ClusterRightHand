@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * The store a streaming message's text lives in (doc/webui.md "流式输出").
+ * The store a streaming message's text lives in (doc/design/webui.md "Streaming output").
  *
  * The SSE/agent writer calls `setText` as often as it likes; React is only
  * notified once per animation frame, so a fast stream does not turn into one

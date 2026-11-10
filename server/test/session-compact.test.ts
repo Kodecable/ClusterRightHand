@@ -19,7 +19,7 @@ import { waitSubmission } from "./helpers/runtime.ts";
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * Manual compaction (doc/agent-runtime.md#会话): the user asks for a summary through durable's `compact()`, which
+ * Manual compaction (doc/design/agent-runtime.md "Sessions"): the user asks for a summary through durable's `compact()`, which
  * makes it in the background and places it when idle; it is charged like any other output and audited.
  */
 let db: Db;
@@ -114,7 +114,7 @@ it("compacts on request, places a manual summary and audits session.compacted", 
 
 it("refuses an archived session", async () => {
 	const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "archived" });
-	// There is no archive endpoint yet; the row's status is what the runtime refuses (doc/agent-runtime.md#会话).
+	// There is no archive endpoint yet; the row's status is what the runtime refuses (doc/design/agent-runtime.md "Sessions").
 	await db
 		.updateTable("sessions")
 		.set({ status: "archived", archived_at: new Date().toISOString() })

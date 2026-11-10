@@ -11,7 +11,7 @@ export class KeyError extends Error {}
 
 /**
  * The master key encrypts the `secrets` table. It lives in a file named by `master_key_file`, never in the
- * database; see doc/execution-plane.md#密钥.
+ * database; see doc/design/protocol.md "Keys".
  */
 export class MasterKey {
 	readonly #key: Buffer;

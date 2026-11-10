@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * Authorization revocation is gone (doc/privilege.md): an authorization is bounded by its deadline,
+ * Authorization revocation is gone (doc/design/privilege.md): an authorization is bounded by its deadline,
  * its one-shot task ids and the node's used list, and an emergency response deletes the trust entry or
  * rotates the key on the node instead of revoking the authorization. The `revoked_at` column is
  * therefore dead and dropped.

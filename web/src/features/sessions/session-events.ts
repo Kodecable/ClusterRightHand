@@ -2,7 +2,7 @@
  * The session event stream's wire types (`GET /api/sessions/:id/events`, `GET /api/sessions/:id/entries`).
  *
  * The definitions live in `@crh/api`, where the server's boundary module converts pi-durable's events to them;
- * this module only keeps the session feature's imports in one place (doc/webui.md "会话事件流和历史").
+ * this module only keeps the session feature's imports in one place (doc/design/webui.md "Session event stream and history").
  */
 
 export type {

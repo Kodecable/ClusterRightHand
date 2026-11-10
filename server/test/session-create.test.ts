@@ -15,7 +15,7 @@ import { openTestDb } from "./helpers/db.ts";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
-/** D117: POST /api/sessions creates the session and submits its first message in one idempotent request. */
+/** POST /api/sessions creates the session and submits its first message in one idempotent request. */
 let db: Db;
 let app: App;
 let runtime: AgentRuntime;
@@ -166,7 +166,7 @@ it("deletes the session and its rule set when submitting the first message fails
 	expect(await db.selectFrom("sessions").select("id").execute()).toHaveLength(before.length);
 });
 
-it("keeps the title rules from D116: no title is null and pending; a title is stored and not pending", async () => {
+it("keeps the title rules: no title is null and pending; a title is stored and not pending", async () => {
 	const untitled = "untitled-create";
 	const titled = "titled-create";
 	expect((await create({ requestId: untitled, model: model(), rulePreset: "ask", message: "hi" })).status).toBe(201);

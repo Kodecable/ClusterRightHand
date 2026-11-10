@@ -10,7 +10,7 @@ import { trustSnippet } from "@/features/credentials/trust";
 import { useCrhsKey } from "@/features/nodes/api";
 
 /**
- * crhs's authorization signing key (doc/privilege.md#授权签名密钥): the
+ * crhs's authorization signing key (doc/design/privilege.md "Authorization signing key"): the
  * authorized_keys line and the fingerprint to trust on a node, plus the
  * ready-made `[[trust]]` block for privileged.toml.
  */

@@ -16,7 +16,7 @@ const EXTENSION_TOOLS = ["subagent", "subagent_wait", "subagent_list", "subagent
 
 /**
  * Waits for the submission and returns the answer's text. The run's answer is its last assistant entry: the
- * generation task appends it before it settles the submission (doc/agent-runtime.md).
+ * generation task appends it before it settles the submission (doc/design/agent-runtime.md).
  */
 export async function waitSubmission(
 	runtime: AgentRuntime,

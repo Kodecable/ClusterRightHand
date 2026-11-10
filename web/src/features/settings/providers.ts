@@ -4,7 +4,7 @@ import { msg } from "@lingui/core/macro";
 
 /**
  * Pure conversion and validation between the model provider form and the API
- * shape (doc/agent-runtime.md "模型配置" / "自定义提供方"). The form keeps
+ * shape (doc/design/agent-runtime.md "Model configuration" / "Custom providers"). The form keeps
  * numbers and JSON as text because every field is user input; the API wants
  * typed values.
  */
@@ -55,7 +55,7 @@ export const THINKING_FORMATS = [
 
 export const CUSTOM_APIS = ["openai-completions", "openai-responses"] as const satisfies readonly CustomApi[];
 
-/** The selected protocol names (doc/agent-runtime.md#自定义提供方). */
+/** The selected protocol names (doc/design/agent-runtime.md "Custom providers"). */
 export type CustomApiValue = (typeof CUSTOM_APIS)[number];
 
 export type ThinkingMode = "none" | "standard" | "custom";

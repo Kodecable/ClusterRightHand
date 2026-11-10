@@ -68,7 +68,7 @@ function AdminActions({ onRename, onDelete }: { onRename: () => void; onDelete: 
 }
 
 /**
- * Every node group (doc/access-control.md#用户模型, D109): members links and the
+ * Every node group (doc/design/access-control.md "User model"): members links and the
  * UUID to copy for a crha trust alias. Editing lives on the detail page; the
  * list only navigates. Everyone else sees the list read-only.
  */

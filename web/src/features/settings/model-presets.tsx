@@ -25,7 +25,7 @@ import { useModelPresets, useModels, useSaveModelPreset } from "./api";
 
 const NONE = "__session__";
 
-/** The model page's three model presets (D116, doc/webui.md "模型页"). */
+/** The model page's three model presets (doc/design/webui.md "Models page"). */
 export function ModelPresetsSection() {
 	const { t } = useLingui();
 	const presets = useModelPresets();

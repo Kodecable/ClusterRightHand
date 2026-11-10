@@ -73,7 +73,7 @@ export function useSubmitAuthorization() {
 			void queryClient.invalidateQueries({ queryKey: authorizationKeys.all });
 			// The approvals list carries the pending signatures; signing settles a task.
 			invalidatePendingDecisions(queryClient);
-			// The dispatch continues after this response (D118) and no SSE carries a task's state, so
+			// The dispatch continues after this response and no SSE carries a task's state, so
 			// refresh the pending card and the task views once more after the claim has landed. The
 			// existing polls cover anything slower, such as an offline node's grace.
 			setTimeout(() => {

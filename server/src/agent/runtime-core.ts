@@ -27,7 +27,7 @@ import type { SessionListHub } from "./session-list-hub.ts";
 
 /**
  * The pieces every runtime module shares: the services, the open Harness and the runtime's caches. One
- * instance per `AgentRuntime`, which delegates its public API to the modules that take it (doc/agent-runtime.md).
+ * instance per `AgentRuntime`, which delegates its public API to the modules that take it (doc/design/agent-runtime.md).
  * pi packages stay inside this directory and the storage adapters in server/src/storage/ (in server/src); the
  * facade's public API has none (test/pi-boundary.test.ts).
  */
@@ -35,7 +35,7 @@ import type { SessionListHub } from "./session-list-hub.ts";
 /** The session row without the per-caller decorations the API adds (relationship, capabilities, owner name). */
 export type SessionView = Omit<ApiSessionView, "relationship" | "capabilities" | "ownerUsername" | "shares">;
 
-/** An approval handed to an ancestor session's agent (doc/agent-runtime.md#处理子会话的请求). */
+/** An approval handed to an ancestor session's agent (doc/design/agent-runtime.md "Handling subagent requests"). */
 export interface AgentRequestView {
 	kind: "task" | "task_group" | "quota";
 	id: string;
@@ -61,7 +61,7 @@ export interface AgentRuntimeOptions {
 	db: Db;
 	/**
 	 * The durable storage, or a function that opens it. With a function, a Harness that fails (a storage error
-	 * closes it, doc/agent-runtime.md#测试策略) is reopened on fresh storage, with backoff.
+	 * closes it, doc/design/testing/server.md "Agent runtime tests") is reopened on fresh storage, with backoff.
 	 */
 	storage: Storage | (() => Promise<Storage>);
 	models: ModelConfig;
@@ -70,19 +70,19 @@ export interface AgentRuntimeOptions {
 	audit?: Audit;
 	/**
 	 * How long idle conversations keep their context and documents in memory (durable's default: 10 minutes).
-	 * Memory grows with what was active within this window (doc/agent-runtime.md#2-性能和内存回归).
+	 * Memory grows with what was active within this window (doc/design/testing/server.md "Server performance").
 	 */
 	retentionMs?: number;
 	/** Set by clusterExtension; removed from a conversation that has reached the subagent depth limit. */
 	subagentTool?: ToolRegistration;
 	/**
 	 * In-flight generation timings keyed by provider session id, filled in by `AgentRuntime`
-	 * (doc/agent-runtime.md#会话统计). `meteredModels` records an attempt as it streams; the extension takes
+	 * (doc/design/agent-runtime.md "Session statistics"). `meteredModels` records an attempt as it streams; the extension takes
 	 * it when the message ends.
 	 */
 	generationTimings?: GenerationTimings;
 	/**
-	 * Compaction policy override; the pi defaults when omitted (doc/agent-runtime.md#默认值). Tests use it to
+	 * Compaction policy override; the pi defaults when omitted (doc/design/agent-runtime.md "Defaults"). Tests use it to
 	 * make a compaction happen with a few messages.
 	 */
 	compaction?: CompactionSettings;
@@ -100,7 +100,7 @@ export interface RuntimeHost {
 	readonly taskGroups: TaskGroups;
 	readonly context: Context;
 	readonly sessionList: SessionListHub;
-	/** The cached model presets (D116): prompt sections, Auto Review and title generation read them. */
+	/** The cached model presets: prompt sections, Auto Review and title generation read them. */
 	readonly modelPresets: ModelPresets;
 	/** The open Harness; a failed one is replaced on reopen, so always read it through here. */
 	harness(): Harness;
@@ -108,7 +108,7 @@ export interface RuntimeHost {
 	closing(): boolean;
 	/** What the runtime remembers about sessions: conversation, subagent and provider-session lookups. */
 	readonly sessionCaches: SessionCaches;
-	/** Recomputations of session state in flight, coalesced per session (D118). */
+	/** Recomputations of session state in flight, coalesced per session. */
 	readonly refreshes: StateRefreshes;
 	/** Pending requests by handler, a cache over tasks/task_groups/quota waits. */
 	readonly inboxes: Inboxes;
@@ -118,7 +118,7 @@ export interface RuntimeHost {
 	readonly wakes: HandlerWakes;
 	/** Stops and title generations in flight (memory only). */
 	readonly sessionFlags: SessionFlags;
-	/** The in-flight generation attempts, by provider session id (doc/agent-runtime.md#会话统计). */
+	/** The in-flight generation attempts, by provider session id (doc/design/agent-runtime.md "Session statistics"). */
 	readonly generationTimings: GenerationTimings;
 }
 

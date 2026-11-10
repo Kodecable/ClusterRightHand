@@ -1,9 +1,9 @@
 /**
- * Models, model providers and model presets (doc/agent-runtime.md "模型配置",
- * "自定义提供方" and "模型预设").
+ * Models, model providers and model presets (doc/design/agent-runtime.md "Model configuration",
+ * "Custom providers" and "Model presets").
  */
 
-/** pi-ai's thinking levels (doc/agent-runtime.md "思考档位"). */
+/** pi-ai's thinking levels (doc/design/agent-runtime.md "Thinking levels"). */
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /** A model choice; an absent thinking level means `off`. */
@@ -44,7 +44,7 @@ export type ThinkingFormat =
 
 /**
  * Per-level display names of a custom model. A missing key uses the level id
- * itself; an empty string hides the level (doc/agent-runtime.md "思考档位").
+ * itself; an empty string hides the level (doc/design/agent-runtime.md "Thinking levels").
  */
 export type ThinkingLevelLabels = Partial<Record<ThinkingLevel, string>>;
 
@@ -67,7 +67,7 @@ export interface ThinkingBodyConfig {
 
 export type ThinkingConfig = ThinkingFormatConfig | ThinkingBodyConfig;
 
-/** One model of a custom provider (doc/agent-runtime.md "自定义提供方"). */
+/** One model of a custom provider (doc/design/agent-runtime.md "Custom providers"). */
 export interface CustomModel {
 	id: string;
 	name?: string;
@@ -117,7 +117,7 @@ export interface ModelProviderInput {
 	enabled?: boolean;
 }
 
-/** One model preset kind (D116, doc/agent-runtime.md "模型预设"). */
+/** One model preset kind (doc/design/agent-runtime.md "Model presets"). */
 export type ModelPresetKind = "session" | "review" | "title";
 
 export interface ModelPreset {

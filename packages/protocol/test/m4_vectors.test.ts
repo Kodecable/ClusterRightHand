@@ -108,7 +108,7 @@ function mpintsToP1363(blob: Uint8Array): Uint8Array {
 	return Uint8Array.from([...r, ...s]);
 }
 
-/** Returns null when valid, otherwise the reason. Follows doc/protocol.md#授权对象. */
+/** Returns null when valid, otherwise the reason. Follows doc/design/protocol.md "Authorization object" */
 function verifySshsig(publicKey: string, payload: Uint8Array, blob: Uint8Array): string | null {
 	try {
 		const sig = new Reader(blob);

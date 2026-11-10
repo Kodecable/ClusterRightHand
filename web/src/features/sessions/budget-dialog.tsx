@@ -7,7 +7,7 @@ import { parseQuotaInput, type QuotaError } from "@/lib/quota";
 
 /**
  * The budget field, shared by the session footer (patches the session) and the draft page (local state):
- * empty means unlimited, a number is the remaining budget (D101). The caller closes the dialog when its
+ * empty means unlimited, a number is the remaining budget. The caller closes the dialog when its
  * save succeeds.
  */
 export function BudgetDialog({

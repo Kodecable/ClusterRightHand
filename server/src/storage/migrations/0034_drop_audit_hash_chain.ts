@@ -2,7 +2,7 @@ import { type Kysely, sql } from "kysely";
 import { isPostgres } from "../dialect.ts";
 
 /**
- * The audit hash chain is gone (doc/access-control.md#防篡改): its hash is unkeyed SHA-256, so anyone who can
+ * The audit hash chain is gone (doc/design/access-control.md "Tamper resistance"): its hash is unkeyed SHA-256, so anyone who can
  * edit the database can recompute the chain from the edit onward. It only catches naive edits or corruption,
  * while costing a read of the last row on every append, two 64-char hashes per row and a full-table walk on
  * verify. Tamper evidence will come from forwarding audit events to a trust domain outside crhs instead. The

@@ -195,7 +195,7 @@ export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 		const me = c.get("user");
 		const address = options.clientAddress?.(c);
 		// The same limiter as login, keyed by account and address: guessing the current password is an
-		// online guess too, and a wrong one counts exactly like a failed login (doc/webui.md#登录).
+		// online guess too, and a wrong one counts exactly like a failed login (doc/design/webui.md "Login captcha").
 		const keys = passwordAttemptKeys(address, me.userId);
 		const verifyKey = `password-user:${me.userId}`;
 		// One in-flight hash per account; two concurrent changes would both verify and race the write.

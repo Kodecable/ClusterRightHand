@@ -44,7 +44,7 @@ function NodeLink({ nodeId, names }: { nodeId: string; names: Map<string, string
 	);
 }
 
-/** One task: header, one facts block, the approval or signature card, then the result (doc/webui.md "Task page"). */
+/** One task: header, one facts block, the approval or signature card, then the result (doc/design/webui.md "Task and task group pages"). */
 export function TaskPage() {
 	const { t } = useLingui();
 	const params = useParams({ strict: false }) as { taskId?: string };
@@ -89,7 +89,7 @@ export function TaskPage() {
 	const view = task.data;
 	const actor = taskActor(view, (uid) => (directory.data?.users ?? []).find((user) => user.id === uid)?.displayName);
 	const running = !isTerminal(view.state);
-	// Only an administrator and the task's on_behalf_of user may cancel or decide (doc/access-control.md).
+	// Only an administrator and the task's on_behalf_of user may cancel or decide (doc/design/access-control.md).
 	const canAct = currentUser?.kind === "admin" || view.onBehalfOfUserId === currentUser?.id;
 	// Signing is the on_behalf_of user's own act, administrators included only when it is their task.
 	const canSign = view.onBehalfOfUserId === currentUser?.id;

@@ -185,7 +185,7 @@ export class TestAgentServer {
 }
 
 /**
- * A fake crha that speaks the M4 command set (doc/protocol.md#m4提权). It records everything crhs sends to a
+ * A fake crha that speaks the M4 command set (doc/design/protocol.md "Privilege messages"). It records everything crhs sends to a
  * node and answers the optional commands like a node would; tests override `answerStart` (or register
  * their own handler) to script a rejection, and push trust summaries with `trust`.
  */
@@ -266,7 +266,7 @@ export class FakeCrha {
 		peer.onEvent("local.decision", () => {});
 	}
 
-	/** Pushes a trust.summary event (doc/protocol.md#trustsummary). */
+	/** Pushes a trust.summary event (doc/design/protocol.md "Trust summary"). */
 	trust(report: TrustReport): void {
 		this.peer.emit("trust.summary", report);
 	}
@@ -292,7 +292,7 @@ export class FakeCrha {
 	}
 }
 
-/** What a node answers task.query with (doc/protocol.md#命令与事件). */
+/** What a node answers task.query with (doc/design/protocol.md "Commands"). */
 export interface TaskQueryAnswer {
 	taskId: string;
 	state: "running" | "exited" | "unknown";

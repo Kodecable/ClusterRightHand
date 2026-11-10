@@ -14,7 +14,7 @@ import { assertNameAvailable, isUuid, nameKey, validateName } from "../util/name
 import { deleteGrantsForNodeGroup } from "./node-access.ts";
 
 /**
- * Node groups as crhs manages them (D108, D109): an organization-owned name and a membership list. A node group
+ * Node groups as crhs manages them: an organization-owned name and a membership list. A node group
  * and a node share one case-insensitive namespace, so every create and rename checks both tables inside its
  * transaction. References elsewhere store the group's UUID; names are only input and display.
  */
@@ -65,7 +65,7 @@ export interface NodeGroupListPage {
 }
 
 /**
- * `GET /api/node-groups` with the optional search parameters (doc/webui.md "实体搜索").
+ * `GET /api/node-groups` with the optional search parameters (doc/design/webui.md "Entity search").
  * Members are loaded only for the groups in the page; without parameters this is the old list.
  */
 export async function queryNodeGroups(db: Db, params: RawEntityListQuery): Promise<NodeGroupListPage> {

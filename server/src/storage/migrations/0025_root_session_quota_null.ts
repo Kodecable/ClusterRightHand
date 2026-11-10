@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * Any level may have a quota and a root without one is unlimited (D92): before this, a root session's quota was
+ * Any level may have a quota and a root without one is unlimited: before this, a root session's quota was
  * pinned to 0 and never charged. A 0 made every root look exhausted, so every such root becomes null (unlimited
  * and not charged). Subagent quotas are unchanged: 0 there still means "used up".
  */

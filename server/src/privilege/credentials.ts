@@ -1,5 +1,5 @@
 /**
- * The owner's registered signing credentials (doc/m4.md#crhs-侧数据 `user_credentials`): the SSH keys
+ * The owner's registered signing credentials (doc/design/privilege.md "Server-side authorization" `user_credentials`): the SSH keys
  * and Passkeys a user signs privileged tasks with. The planner only considers the user trust entries
  * that match a credential of the task's owner, and submissions are only accepted from them.
  */
@@ -75,7 +75,7 @@ export interface AddSshCredentialInput {
 }
 
 /**
- * Registers an SSH public key. Only the four key types of doc/privilege.md#签名方式 are accepted, the
+ * Registers an SSH public key. Only the four key types of doc/design/privilege.md "Signing methods" are accepted, the
  * blob must really be of the named type, and the `SHA256:` fingerprint is what a node's TrustSummary
  * reports, so the owner can be matched to its trust entries.
  */

@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * Root sessions have no quota (0) and are never charged (D76). Sessions that predate the token-quota migration
+ * Root sessions have no quota (0) and are never charged. Sessions that predate the token-quota migration
  * could still carry null or a budget-derived remainder; normalize them so the data matches the rule.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {

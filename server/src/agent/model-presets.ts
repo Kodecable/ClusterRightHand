@@ -7,7 +7,7 @@ import type { ModelRef } from "./models.ts";
 import { DEFAULT_REVIEW_PROMPT, REVIEW_PROTOCOL } from "./review.ts";
 
 /**
- * The model presets (D116, doc/agent-runtime.md#模型预设): one row per organization and kind, holding the
+ * The model presets (doc/design/agent-runtime.md "Model presets"): one row per organization and kind, holding the
  * optional model and the optional custom system prompt. The protocol text is fixed in code and always
  * appended. `AgentRuntime` loads the cache at startup; a write reloads it, and the prompt sections read
  * the cached values synchronously, so a change takes effect on the next model request.
@@ -17,7 +17,7 @@ import { DEFAULT_REVIEW_PROMPT, REVIEW_PROTOCOL } from "./review.ts";
 
 export const MODEL_PRESET_KINDS: readonly ModelPresetKind[] = ["session", "review", "title"];
 
-/** The title preset's default prompt; the next stage generates titles with it (doc/agent-runtime.md#标题生成). */
+/** The title preset's default prompt; the next stage generates titles with it (doc/design/agent-runtime.md "Title generation"). */
 export const DEFAULT_TITLE_PROMPT = "Write a short title for this conversation that captures what it is about.";
 
 /** The title protocol: fixed and appended to the title system prompt. */

@@ -557,7 +557,7 @@ func TestForwardTrustReports(t *testing.T) {
 
 // TestForwardDaemonVersionMismatch covers a crha binary upgraded without restarting its privileged
 // mode: the daemon runs the old binary and reports its crha_version in PrivWelcome. The forward
-// connection is refused like an unreachable daemon (doc/protocol.md, crh-priv): privileged tasks
+// connection is refused like an unreachable daemon (doc/design/protocol.md "crh-priv"): privileged tasks
 // fail with privileged_unavailable, and the warning names both versions.
 func TestForwardDaemonVersionMismatch(t *testing.T) {
 	keys := newPrivKeys(t)
@@ -705,7 +705,7 @@ func TestForwardFileWrite(t *testing.T) {
 	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
 		t.Fatalf("task.exit = %+v", exit)
 	}
-	// The daemon's result reaches crhs through the relay unchanged (doc/protocol.md TaskResult).
+	// The daemon's result reaches crhs through the relay unchanged (doc/design/protocol.md "Task results").
 	if exit.Result == nil || exit.Result.FileWrite == nil {
 		t.Fatalf("task.exit result = %+v", exit.Result)
 	}
@@ -782,7 +782,7 @@ func TestForwardAuthorizationLacksExecute(t *testing.T) {
 	expectRemoteCode(t, waitCh(t, replies, "task.start response"), "authorization_rejected")
 }
 
-// TestForwardRefreshBeforeRefusal covers the ordering rule of doc/protocol.md task.start: before an
+// TestForwardRefreshBeforeRefusal covers the ordering rule of doc/design/protocol.md "task.start": before an
 // authorization_* refusal is relayed, a changed trust summary goes out first.
 func TestForwardRefreshBeforeRefusal(t *testing.T) {
 	keys := newPrivKeys(t)
@@ -1185,7 +1185,7 @@ func newWedgedDaemon(t *testing.T, socket string) *wedgedDaemon {
 // TestForwardWedgedStartDoesNotDelayOtherTasks covers the per-task order of the request worker: a
 // forwarded task.start waits up to the forward deadline for a wedged daemon, and an ordinary
 // non-privileged task on the same crhs connection must still start, take its input and be cancelled
-// while it waits (doc/protocol.md task.start, forward).
+// while it waits (doc/design/protocol.md "task.start", forward).
 func TestForwardWedgedStartDoesNotDelayOtherTasks(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "priv.sock")
 	daemon := newWedgedDaemon(t, socket)
@@ -1246,8 +1246,8 @@ func TestForwardWedgedStartDoesNotDelayOtherTasks(t *testing.T) {
 // staying free while it waits: a privileged mode that does not answer must not stop the session
 // from processing crhs's frames (a blocked receive loop never reads the pong of the keepalive, and
 // the connection drops after its ping timeout). The task is reported accepted, because the daemon
-// may still run it, ends as helper_lost, and the daemon is asked to cancel it (doc/protocol.md
-// task.start, forward).
+// may still run it, ends as helper_lost, and the daemon is asked to cancel it (doc/design/protocol.md
+// "task.start", forward).
 func TestForwardRequestTimeout(t *testing.T) {
 	const timeout = 2 * time.Second
 	socket := filepath.Join(t.TempDir(), "priv.sock")

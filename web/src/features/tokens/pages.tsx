@@ -18,7 +18,7 @@ import { RulesDialog } from "./rules-dialog";
 import { tokenStatus } from "./tokenStatus";
 
 /**
- * API tokens (doc/mcp.md): create once-shown secrets, edit the rule preset and the
+ * API tokens (doc/guide/mcp.md): create once-shown secrets, edit the rule preset and the
  * extra rules, revoke an active token or delete an inactive one.
  */
 export function TokensPage() {

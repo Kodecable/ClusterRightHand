@@ -293,7 +293,7 @@ describe("rulePresetRuleSet", () => {
 		}
 	});
 
-	it("ask and auto review let ordinary reads pass but never a privileged task (D86)", () => {
+	it("ask and auto review let ordinary reads pass but never a privileged task", () => {
 		for (const p of ["ask", "auto_review"] as const) {
 			const chain = [{ scope: { type: "session", id: "r" }, set: rulePresetRuleSet(p) }];
 			expect(result(chain, op("file.read", "/etc/hosts", NODE, true))).toBe("require-approval");
@@ -513,7 +513,7 @@ describe("parseRuleSet", () => {
 		bad({ default: "allow", rules: [{ action: "allow", nodes: "web-1" }] }, true);
 		bad({ default: "allow", rules: [{ action: "allow", nodes: [""] }] }, true);
 		bad({ default: "allow", rules: [{ action: "allow", nodes: [1] }] }, true);
-		// Removed in D109: the group syntax must not slip into a stored rule.
+		// The group syntax was removed: it must not slip into a stored rule.
 		bad({ default: "allow", rules: [{ action: "allow", nodes: ["group:prod"] }] }, true);
 		bad({ default: "allow", rules: [{ action: "allow", nodes: ["_other"] }] }, true);
 		expect(

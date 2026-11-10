@@ -40,7 +40,7 @@ func (c *Config) Entries() []authz.Entry {
 
 // Summary builds the TrustSummary this node reports to crhs. The identities are the
 // unprivileged mode's uid (from the configuration) and the uid the privileged mode itself
-// runs as (doc/protocol.md TrustSummary).
+// runs as (doc/design/protocol.md "Trust summary").
 func (c *Config) Summary() *protocol.TrustSummary {
 	trust := make([]protocol.TrustEntry, 0, len(c.Trust))
 	for i := range c.Trust {

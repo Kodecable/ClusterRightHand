@@ -2,7 +2,7 @@ import { type Kysely, type SqlBool, sql } from "kysely";
 import { isPostgres } from "../dialect.ts";
 
 /**
- * Title generation (D116, doc/agent-runtime.md#标题生成): a session's title may be empty, in which case the WebUI
+ * Title generation (doc/design/agent-runtime.md "Title generation"): a session's title may be empty, in which case the WebUI
  * shows its localized default name; `title_pending` says a generated title is still wanted. User-created roots
  * start pending and scheduled-run sessions and subagents do not; a manual rename clears it.
  *

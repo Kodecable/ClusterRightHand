@@ -4,7 +4,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { ApiError } from "@/lib/api/client";
 
 /**
- * The WebUI side of the login proof of work (doc/access-control.md "Cap 工作量证明").
+ * The WebUI side of the login proof of work (doc/design/access-control.md "Cap proof of work").
  *
  * The tag binds the challenge to the exact submitted credentials, so it is computed here with
  * @noble/hashes: `crypto.subtle` does not exist on a plain-HTTP LAN origin, and crhs may be opened

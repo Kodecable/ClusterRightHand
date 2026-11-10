@@ -1,5 +1,5 @@
 /**
- * The user's signing credentials (doc/m4.md M4.4, doc/privilege.md#签名方式): SSH public keys and
+ * The user's signing credentials (doc/design/privilege.md "Signing methods"): SSH public keys and
  * Passkeys, each ownable only by the user who registered it. A registered credential is what lets the
  * authorization planner match this user to a node's `user` trust entries.
  */

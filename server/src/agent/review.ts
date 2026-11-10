@@ -11,14 +11,14 @@ import { chargeCall } from "./quota.ts";
 import { type CallTokens, callTokens, estimateRequestTokens } from "./tokens.ts";
 
 /**
- * Auto Review (doc/access-control.md#规则链): for a root whose rule preset is auto_review (a session, or the
+ * Auto Review (doc/design/access-control.md "Rule chain"): for a root whose rule preset is auto_review (a session, or the
  * schedule a scheduled run's chain starts with), a task that needs approval is first judged by a model. API
  * tokens never use it: no session or user instruction stands behind a token's request, so an operation-only
  * review is not enough to replace the user's approval. It approves what is clearly safe and leaves the rest for
  * the user. The reviewer sees only the operation itself, never the conversation or node output, so one injected
- * text cannot steer both the agent and its reviewer (doc/agent-runtime.md#提示注入).
+ * text cannot steer both the agent and its reviewer (doc/design/agent-runtime.md "Prompt injection").
  *
- * D116: the reviewer answers through the tool `submit_review`; a model that ignores `toolChoice` and answers
+ * The reviewer answers through the tool `submit_review`; a model that ignores `toolChoice` and answers
  * in text has not answered at all, so the operation escalates. Only a schema-valid tool call can approve.
  */
 
@@ -46,7 +46,7 @@ export function reviewSystemPrompt(custom: string | null | undefined): string {
 
 export const REVIEW_TOOL_NAME = "submit_review";
 
-/** The forced decision tool; its arguments carry the outcome (doc/agent-runtime.md#模型预设). */
+/** The forced decision tool; its arguments carry the outcome (doc/design/agent-runtime.md "Model presets"). */
 export const REVIEW_TOOL: Tool = {
 	name: REVIEW_TOOL_NAME,
 	description: "Submit the review decision for the operation.",
@@ -140,9 +140,9 @@ export class Reviewer {
 	}
 
 	/**
-	 * Asks the reviewer, and reports what the answer costs so the owning session can be charged (D92, D101).
+	 * Asks the reviewer, and reports what the answer costs so the owning session can be charged.
 	 * `sessionId` is the crh session whose task is judged: a custom provider's session id fields carry it
-	 * (D115). Durability passes provider session ids in its own requests, so resolve the reverse mapping here.
+	 *. Durability passes provider session ids in its own requests, so resolve the reverse mapping here.
 	 */
 	async #ask(
 		model: ModelRef,
@@ -199,7 +199,7 @@ export class Reviewer {
 
 	/**
 	 * Charges a review's tokens to the session whose task it judged, walking up the chain as any other model call
-	 * (doc/agent-runtime.md#配额, D101). A task without a session (an API token) is not charged. A review never
+	 * (doc/design/agent-runtime.md "Quota and token accounting"). A task without a session (an API token) is not charged. A review never
 	 * moves the context fill: that is the session's own last main-agent call.
 	 */
 	async #charge(actorType: string, actorId: string, tokens: CallTokens): Promise<void> {
@@ -211,7 +211,7 @@ export class Reviewer {
 	async #wanted(chain: RuleRef[] | null): Promise<ModelRef | null> {
 		const root = chain?.[0];
 		if (!root) return null;
-		// API tokens do not support Auto Review (doc/access-control.md#api-token); 0049 moved old ones to ask.
+		// API tokens do not support Auto Review (doc/design/access-control.md "API tokens"); 0049 moved old ones to ask.
 		if (root.type === "api_token") return null;
 		if ((await getRuleSet(this.#db, root))?.rulePreset !== "auto_review") return null;
 		return (await this.#modelFor(root)) ?? null;

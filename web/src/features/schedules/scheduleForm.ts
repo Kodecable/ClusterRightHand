@@ -4,7 +4,7 @@ import { msg } from "@lingui/core/macro";
 import { parseQuotaInput } from "@/lib/quota";
 import { withThinkingLevel } from "@/lib/thinking-level";
 
-/** Pure form and display helpers for schedules (doc/scheduling.md); the pages only render them. */
+/** Pure form and display helpers for schedules (doc/design/scheduling.md); the pages only render them. */
 
 export interface ScheduleFormState {
 	name: string;
@@ -83,7 +83,7 @@ export function defaultTimezone(): string {
 	}
 }
 
-/** The schedule's budget: empty for unlimited, or at least one token (doc/scheduling.md#授权规则与配额). */
+/** The schedule's budget: empty for unlimited, or at least one token (doc/design/scheduling.md "Rules and quotas"). */
 function parseBudgetInput(text: string): { quota: number | null } | { error: ScheduleFormErrorCode } {
 	const parsed = parseQuotaInput(text);
 	if ("error" in parsed) {

@@ -4,7 +4,7 @@ type UserItem = Extract<TranscriptItem, { kind: "user" }>;
 type TextItem = Extract<TranscriptItem, { kind: "text" }>;
 
 /**
- * One user turn of the transcript (doc/webui.md "消息视图"): the user input,
+ * One user turn of the transcript (doc/design/webui.md "Message view"): the user input,
  * everything the agent did afterwards, and the final text. A turn is foldable
  * while its final answer is streaming, or once it has ended with the timing
  * needed for the "completed in" line.
@@ -51,7 +51,7 @@ export function buildTranscriptTurns(items: readonly TranscriptItem[], sessionAc
 		// A compaction note can trail the body, but it never decides the turn:
 		// the final answer is the last non-compaction item if that item is a
 		// text. The notes committed after it stay in `after` so the view can show
-		// them after the final answer, in commit order (doc/webui.md "消息渲染").
+		// them after the final answer, in commit order (doc/design/webui.md "Message rendering").
 		const finalIndex = group.body.findLastIndex((item) => item.kind !== "compaction");
 		const last = finalIndex === -1 ? undefined : group.body[finalIndex];
 		const final = last?.kind === "text" ? last : undefined;

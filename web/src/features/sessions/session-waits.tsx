@@ -44,7 +44,7 @@ function SessionAuthorization({ kind, id, sessionId }: { kind: "task" | "task_gr
 }
 
 /**
- * The waiting cards shown inside the session (doc/webui.md "会话界面"): an
+ * The waiting cards shown inside the session (doc/design/webui.md "Session interface"): an
  * approval, a signature or an exhausted quota, with the same cards as the
  * Approvals page. Decisions go through the same mutations, so the header badge
  * and the Approvals page see them at once.

@@ -36,7 +36,7 @@ describe("frames", () => {
 
 	it("decodes a TrustReport whose entries all have empty lists", () => {
 		// A real report: 24 trust entries, each with empty allow, deny and env_allow lists
-		// (doc/privilege.md). Every empty list used to leak a nesting level, and at this size
+		// (doc/design/privilege.md). Every empty list used to leak a nesting level, and at this size
 		// the decoder rejected the frame as more than 64 levels deep.
 		const trust = Array.from({ length: 24 }, (_, index) => ({
 			name: `entry-${index}`,

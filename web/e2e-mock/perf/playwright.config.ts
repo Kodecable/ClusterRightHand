@@ -4,7 +4,7 @@ import { defineConfig, devices } from "@playwright/test";
 const root = fileURLToPath(new URL("../..", import.meta.url));
 
 /**
- * The performance runs (doc/webui.md "性能与质量目标"). A separate config because
+ * The performance runs (doc/design/webui.md "Performance targets"). A separate config because
  * the measurement takes minutes, runs one worker at a time, and owns its own
  * preview port so it can never talk to a stray `test:ui:mock` server.
  */

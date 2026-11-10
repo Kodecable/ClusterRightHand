@@ -14,7 +14,7 @@ import { useCreateTask, useCreateTaskGroup } from "./api";
 import { buildTaskRequest, emptyForm, type TaskForm, taskFormErrorText } from "./taskForm";
 
 /**
- * The "Run task" dialog of the tasks page (doc/webui.md "任务页与任务组页"): pick nodes or node
+ * The "Run task" dialog of the tasks page (doc/design/webui.md "Task and task group pages"): pick nodes or node
  * groups, fill the shared task fields and create either one task (exactly one node) or a task
  * group (anything else). It only submits: success closes it and opens the new task or group.
  */

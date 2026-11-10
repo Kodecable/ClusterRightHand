@@ -15,7 +15,7 @@ vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 
 const LIMIT_MESSAGE = "task group targets 513 nodes (max 512); split it into smaller batches";
 
-/** 513 active nodes: group `first` has the first 512, group `all` has every node (D85's boundary). */
+/** 513 active nodes: group `first` has the first 512, group `all` has every node (the 512-node boundary). */
 async function addNodes(
 	db: Db,
 	ownerUserId: string,

@@ -2,7 +2,7 @@
  * The width of an absolute-time column (`DateTime` cells).
  *
  * A column's width is one px track shared by the header and every body row
- * (doc/webui.md "DataTable"). Absolute timestamps outgrow the 165px the table
+ * (doc/design/webui.md "DataTable"). Absolute timestamps outgrow the 165px the table
  * used to reserve: Chromium lays out "2026/12/28 23:58:58" at ~147px, so with
  * the cell's 24px of padding the column needs ~171px and the seconds were
  * truncated. A `max-content` track cannot fix it — the header

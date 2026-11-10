@@ -211,7 +211,7 @@ export class SessionListHub {
 	async #publishCurrent(sessionId: string): Promise<void> {
 		const row = await this.#row(sessionId);
 		if (!row) return;
-		// A subagent's state is part of its tree's item: every change publishes the root (doc/webui.md#会话列表).
+		// A subagent's state is part of its tree's item: every change publishes the root (doc/design/webui.md "Session list API").
 		const root = row.parent_session_id === null ? row : await this.#row(await this.#rootOf(row));
 		if (!root || root.parent_session_id !== null) return;
 		this.#sendUpsert(root, await this.#visibleUserIds(root.id));

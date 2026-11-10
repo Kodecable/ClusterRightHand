@@ -19,7 +19,7 @@ import { waitSubmission } from "./helpers/runtime.ts";
 
 const PASSWORD = "member-password-123";
 
-/** Session sharing (doc/access-control.md#归属与分享): a session acts for its owner. */
+/** Session sharing (doc/design/access-control.md "Ownership, access grants and sharing"): a session acts for its owner. */
 let db: Db;
 let app: App;
 let audit: Audit;
@@ -93,7 +93,7 @@ afterAll(async () => {
 });
 
 async function newSession(cookie: string, title: string, rulePreset: RulePreset = "ask") {
-	// Setup only: the HTTP create route now always submits a first message (D117), and these tests need a
+	// Setup only: the HTTP create route now always submits a first message, and these tests need a
 	// session without a run, so the runtime creates it and the API renders the viewer's view of it.
 	const owner = owners.get(cookie);
 	if (!owner) throw new Error("unknown cookie");
@@ -282,7 +282,7 @@ it("administrators look and may list and revoke shares, but cannot create one", 
 	expect((await messages(s.id, admin)).status).toBe(403);
 	// The administrator sees it in `all`, but no share reaches them, so it is not `shared` (no share icon).
 	expect((await list(admin, "?scope=all")).find((x) => x.id === s.id)?.shared).toBe(false);
-	// Creating a share is the owner's alone (doc/access-control.md#归属与分享).
+	// Creating a share is the owner's alone (doc/design/access-control.md "Ownership, access grants and sharing").
 	const created = await share(s.id, admin, { granteeType: "user", granteeId: carolId, access: "view" });
 	expect(created.status).toBe(403);
 	expect(((await created.json()) as { error: string }).error).toBe("only the owner can share this session");

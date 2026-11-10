@@ -1,5 +1,5 @@
 /**
- * The component every crh task tool shares (D111, doc/agent-runtime.md#工具层的分类与复用组件d111):
+ * The component every crh task tool shares (doc/design/agent-runtime.md "Tool categories and shared components"):
  * resolve `targets`, decide one task or a task group, derive the task id from the call, wait, and hand
  * the result to a renderer. Two waiting ways:
  *
@@ -20,7 +20,7 @@ import type { ToolResult } from "./render.ts";
 
 // setTimeout cannot wait longer than ~24.8 days, so long waits loop.
 const HOUR = 3_600_000;
-/** Output budgets are the single-task total as well; no tool may ask for more (D112). */
+/** Output budgets are the single-task total as well; no tool may ask for more. */
 export const MAX_OUTPUT_LINES = 2_000;
 export const MAX_OUTPUT_BYTES = 50 * 1024;
 /** `read_file` reads this many lines per page unless `limit` says otherwise. */
@@ -43,7 +43,7 @@ export interface StartOptions {
 	spec: TaskSpec;
 	/** stdin for exec, content for file.write. */
 	input?: Uint8Array;
-	/** Per-node output budget, passed to task or task-group creation (D112). */
+	/** Per-node output budget, passed to task or task-group creation. */
 	maxLines?: number;
 	maxBytes?: number;
 	/**
@@ -224,7 +224,7 @@ async function cancelBlockingGroup(ctx: ToolContext, group: TaskGroupView): Prom
 		latest = (await ctx.taskGroups.get(latest.id)) ?? latest;
 	}
 	// Cancel the group itself, so its workers stop creating the remaining nodes; the per-member loop this
-	// replaces only stopped the members that already existed (doc/execution-plane.md#状态机).
+	// replaces only stopped the members that already existed (doc/design/execution.md "State machine").
 	if (!GROUP_TERMINAL.has(latest.state)) await ctx.taskGroups.cancel(latest.id, abortReason(), ctx.actor);
 }
 

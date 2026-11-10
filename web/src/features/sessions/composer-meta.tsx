@@ -10,7 +10,7 @@ import { cacheHitPercent, formatLatency, formatTokenRate } from "./generation-st
 /**
  * The session's generation line under the composer box: its own turns, steps
  * and speed, then its tree's usage and cache hit, then the context fill of the
- * last main call (doc/agent-runtime.md "会话统计", doc/webui.md "输入框"). The
+ * last main call (doc/design/agent-runtime.md "Session statistics", doc/design/webui.md "Composer"). The
  * line wraps on a narrow screen and every number keeps its exact value in a
  * tooltip.
  */

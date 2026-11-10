@@ -25,7 +25,7 @@ import { ScheduleForm, scheduleFormStateOf } from "./schedule-form";
 import { scheduleState } from "./scheduleForm";
 
 /**
- * Every schedule the user owns (doc/scheduling.md "调度"): next run, last
+ * Every schedule the user owns (doc/design/scheduling.md "Triggering and submission"): next run, last
  * result and the two inline actions. Editing happens on the detail page; the
  * list refreshes so runs started elsewhere show up.
  */
@@ -55,7 +55,7 @@ export function SchedulesPage() {
 						<code className={MONO_CELL}>{row.original.cron}</code>
 						<p className="truncate">{row.original.timezone}</p>
 						{/* A row saved before the zone was validated still lists; its preview is empty and
-						    the server says why (doc/scheduling.md#调度). */}
+						    the server says why (doc/design/scheduling.md "Triggering and submission"). */}
 						{row.original.previewError !== null && (
 							<p data-testid="schedule-preview-error" className="text-xs text-danger">
 								{row.original.previewError}
@@ -158,7 +158,7 @@ export function SchedulesPage() {
 	);
 }
 
-/** The schedule's form plus its history and the privilege note (doc/scheduling.md "提权"). */
+/** The schedule's form plus its history and the privilege note (doc/design/scheduling.md "Privilege"). */
 export function ScheduleDetailPage() {
 	const { t } = useLingui();
 	const params = useParams({ strict: false }) as { scheduleId?: string };

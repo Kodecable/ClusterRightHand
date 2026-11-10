@@ -53,7 +53,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.execute();
 	await db.schema.createIndex("audit_events_user_idx").on("audit_events").column("on_behalf_of_user_id").execute();
 
-	// Approval state lives on the tool call itself (doc/access-control.md#审批).
+	// Approval state lives on the tool call itself (doc/design/access-control.md "Approvals").
 	for (const table of ["tasks", "task_groups"]) {
 		// JSON [{ type, id }]: the rule chain from the root down; null for a user acting in person.
 		await db.schema.alterTable(table).addColumn("rule_chain", "text").execute();

@@ -1,11 +1,11 @@
 /**
- * The task-group case of the privileged system suite (doc/testing/privileged.md): a task group on two
+ * The task-group case of the privileged system suite (doc/design/testing/privileged.md): a task group on two
  * nodes.
  *
- * One user signature covers the tasks of both nodes (one shared payload, D88); a node whose
+ * One user signature covers the tasks of both nodes (one shared payload); a node whose
  * authorization is refused independently retries alone (attempt + 1) and is re-signed alone while
  * the node that already ran is not touched; a group whose only remaining path is local approval
- * fails directly (D89).
+ * fails directly.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -95,7 +95,7 @@ describePodman("privileged system: task groups", () => {
 	async function signAndSubmit(payload: string): Promise<{ status: number }> {
 		const authorization = await signPayload(bin, join(tmp, "owner-key"), payload);
 		const res = await submitAuthorization(crhs, authorization);
-		// The dispatch continues in the background (D118); the caller waits for the task states.
+		// The dispatch continues in the background; the caller waits for the task states.
 		await crhs.cluster.drain();
 		return { status: res.status };
 	}

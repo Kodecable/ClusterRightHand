@@ -56,7 +56,7 @@ const FACTS_TEXT =
 
 /**
  * The fixture Facts as the wire map. A Map, unlike the typed object, can carry keys the codec does
- * not know, which Facts must ignore (doc/protocol.md Facts); the encoder sorts the keys.
+ * not know, which Facts must ignore (doc/design/protocol.md "Events"); the encoder sorts the keys.
  */
 function factsMap(overrides: readonly (readonly [string, unknown])[] = []): Map<string, unknown> {
 	return new Map<string, unknown>([
@@ -625,8 +625,8 @@ export function buildFixture(): CrhFramesFixture {
 			},
 		},
 	);
-	// A task's structured result travels in task.exit, never in the output streams (doc/protocol.md
-	// TaskResult). One frame per kind; the tag is the task kind.
+	// A task's structured result travels in task.exit, never in the output streams (doc/design/protocol.md
+	// "Task results"). One frame per kind; the tag is the task kind.
 	addFrame(
 		"event.task.exit.result.file.read",
 		'event task.exit body=[task_id="t-read", outcome=["code", 0], timed_out=false, cancelled=false, output_end=8, output_file="", output_lines=0, result=["file.read", [from=1, to=2, eof=true, total=3, too_long=false]]]',
@@ -653,7 +653,7 @@ export function buildFixture(): CrhFramesFixture {
 		exitFrame("t-edit-result", EDIT_RESULT),
 	);
 	addFrame("event.facts", `event facts body=${FACTS_TEXT}`, { kind: "event", name: "facts", body: FACTS });
-	// Facts is the protocol's one map (doc/protocol.md Facts): unknown keys are ignored, absent
+	// Facts is the protocol's one map (doc/design/protocol.md "Events"): unknown keys are ignored, absent
 	// optionals are accepted, and shells is itself a map with an optional bash.
 	addPositive(
 		"event.facts.unknown_key",

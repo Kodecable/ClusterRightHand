@@ -21,9 +21,9 @@ import { toolNames } from "./helpers/runtime.ts";
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
 /**
- * The startup depth-limit scan (`AgentRuntime#enforceDepthToolLimits`, doc/agent-runtime.md#subagent): a
+ * The startup depth-limit scan (`AgentRuntime#enforceDepthToolLimits`, doc/design/agent-runtime.md "Subagents"): a
  * session that reached the subagent limit before conversations carried a tool filter must lose the subagent
- * tool when crhs starts, and no idle session may be read. The scan is sized for doc/webui.md's 100,000
+ * tool when crhs starts, and no idle session may be read. The scan is sized for doc/design/webui.md's 100,000
  * sessions, so it walks up from the subagent rows instead of loading every session's id and parent.
  */
 

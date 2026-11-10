@@ -125,7 +125,7 @@ function execResultStatus(g: TaskGroupView, names: Map<string, string>): ToolRes
 	return execResult(ctx, { kind: "task_group", taskGroup: { ...g, outputMode: "status" }, names });
 }
 
-/** A direct node grant for the tool tests: nodes belong to the organization (D108). */
+/** A direct node grant for the tool tests: nodes belong to the organization. */
 async function grantNode(db: Db, userId: string, nodeId: string): Promise<void> {
 	await db
 		.insertInto("node_access_grants")
@@ -311,7 +311,7 @@ describe("the tool catalog", () => {
 			tool("write_file").input.safeParse({ targets: ["web-1"], path: "/x", content: "a", mode: 644 }).success,
 		).toBe(false);
 		expect(tool("read_file").input.safeParse({ targets: ["web-1"], path: "/x", max_bytes: 10 }).success).toBe(true);
-		// A blocking file tool has no wait parameter: the schema drops it (D111).
+		// A blocking file tool has no wait parameter: the schema drops it.
 		const parsedRead = tool("read_file").input.parse({ targets: ["web-1"], path: "/x", wait: 1 }) as Record<
 			string,
 			unknown

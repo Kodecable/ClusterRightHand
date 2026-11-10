@@ -13,7 +13,7 @@ import {
 } from "../helpers";
 
 /**
- * The performance runs of doc/webui.md "性能与质量目标", measured against the
+ * The performance runs of doc/design/webui.md "Performance targets", measured against the
  * mocked API (50 ms per response) on Chromium. Each metric is the median of
  * three runs, at 1× and 4× CPU throttling (CDP `Emulation.setCPUThrottlingRate`).
  * The numbers are written to `perf/results.json` and `perf/RESULTS.md`.

@@ -34,7 +34,7 @@ function Logo() {
 
 /**
  * The navigation sidebar: three groups, the approvals badge, the user menu and
- * the collapsed-icon mode with tooltips (doc/webui.md "外壳").
+ * the collapsed-icon mode with tooltips (doc/design/webui.md "Shell").
  */
 export function AppSidebar() {
 	const { i18n, t } = useLingui();

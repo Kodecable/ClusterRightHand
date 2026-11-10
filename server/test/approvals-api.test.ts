@@ -379,7 +379,7 @@ describe("approvals api (sqlite)", () => {
 		expect(t.approval?.decision).toBeUndefined();
 	});
 
-	it("a privileged file.read under ask still waits (D86)", async () => {
+	it("a privileged file.read under ask still waits", async () => {
 		const tok = await newToken();
 		const spec: TaskSpec = { kind: "file.read", path: "/etc/hostname", startLine: 1, lineCount: 100 };
 		const t = await cluster.createTask({
@@ -453,7 +453,7 @@ describe("approvals api (sqlite)", () => {
 			expect((await decide("alice", `/api/task-groups/${id}/approval`, { decision: "approve" })).status).toBe(409);
 		});
 
-		it("an approved privileged group keeps the flag on its tasks (D86)", async () => {
+		it("an approved privileged group keeps the flag on its tasks", async () => {
 			const tok = await newToken();
 			const spec: TaskSpec = { kind: "file.read", path: "/etc/hostname", startLine: 1, lineCount: 100 };
 			const id = await groups.create({

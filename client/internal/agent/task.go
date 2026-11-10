@@ -266,7 +266,7 @@ func checkTaskKind(spec protocol.TaskSpec) *protocol.RemoteError {
 // outputOptions returns the executor output configuration for a TaskStart. "full" carries its spill
 // thresholds on the wire; batch "text" and "status" tasks always write the full output to the node
 // file, so task.exit carries its path even when the output is empty. See
-// doc/execution-plane.md#输出.
+// doc/design/execution.md "Output".
 func outputOptions(mode protocol.OutputMode) executor.OutputOptions {
 	switch mode.Kind {
 	case protocol.OutputFull:

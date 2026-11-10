@@ -25,7 +25,7 @@ export type { PublicNode };
 
 /**
  * The measured clock offset when a node's clock differs from crhs's by more than
- * `warnMs` (doc/privilege.md#时钟); 0 turns the warning off. `facts` is the JSON form of the
+ * `warnMs` (doc/design/privilege.md "Clock"); 0 turns the warning off. `facts` is the JSON form of the
  * node's Facts. The offset is signed (local clock minus crhs); the web UI localizes the text.
  */
 export function nodeClockWarning(facts: unknown, warnMs: number): { offsetMs: number; thresholdMs: number } | null {
@@ -57,7 +57,7 @@ export function toPublicNode(
 	if (row.facts !== null) {
 		try {
 			// A stored row may be partial: an SSH node keeps only the shells its connection probe found,
-			// and a row written before a fact existed lacks it (doc/protocol.md Facts).
+			// and a row written before a fact existed lacks it (doc/design/protocol.md "Events").
 			facts = factsFromJson(JSON.parse(row.facts));
 		} catch {}
 	}
@@ -82,7 +82,7 @@ export function toPublicNode(
 	};
 }
 
-/** The ids of every node the user can see: all of them as admin, otherwise the granted set (D108). */
+/** The ids of every node the user can see: all of them as admin, otherwise the granted set. */
 export async function visibleNodeIds(db: Db, user: SessionUser): Promise<string[]> {
 	return accessibleNodeIds(db, user);
 }
@@ -94,7 +94,7 @@ export interface NodeListPage {
 }
 
 /**
- * `GET /api/nodes` with the optional search parameters (doc/webui.md "实体搜索").
+ * `GET /api/nodes` with the optional search parameters (doc/design/webui.md "Entity search").
  * Visibility is unchanged: the query is restricted to the ids `visibleNodeIds` returns,
  * so a search or an `ids` lookup can never name a node the caller cannot see.
  */
@@ -206,7 +206,7 @@ export async function updateNodeFacts(
 }
 
 /**
- * Records the shells an SSH connection probe found (doc/execution-plane.md#执行). SSH nodes have no
+ * Records the shells an SSH connection probe found (doc/design/execution.md "SSH execution"). SSH nodes have no
  * other facts; their node groups are maintained by crhs and are left alone.
  */
 export async function setSshNodeFacts(
@@ -214,7 +214,7 @@ export async function setSshNodeFacts(
 	nodeId: string,
 	shells: { sh: string; bash: string | null },
 ): Promise<void> {
-	// No bash is an absent fact, not a null one (doc/protocol.md Facts).
+	// No bash is an absent fact, not a null one (doc/design/protocol.md "Events").
 	const { bash } = shells;
 	await db
 		.updateTable("nodes")

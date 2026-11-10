@@ -69,7 +69,7 @@ func runWithDebug(ctx context.Context, configPath string, startDebug func(contex
 		}
 	}
 	// The task environment is resolved once for the process: a node that cannot give its tasks a
-	// shell and an identity must not run tasks at all (doc/execution-plane.md#exec-的执行环境).
+	// shell and an identity must not run tasks at all (doc/design/execution.md "The exec environment").
 	env, err := resolveEnv(execenv.Options{})
 	if err != nil {
 		return err
@@ -173,7 +173,7 @@ func dialOptions(cfg *config.Config, key identity.Keypair, serverKey []byte, ini
 }
 
 // nodeFacts collects this node's facts; the shells are the ones the process discovered, since that
-// is what `shell` commands run on (doc/protocol.md Facts).
+// is what `shell` commands run on (doc/design/protocol.md "Events").
 func nodeFacts(cfg *config.Config, env *execenv.Environment) protocol.Facts {
 	f := facts.Collect()
 	if cfg.Notes != "" {
@@ -190,7 +190,7 @@ func nodeFacts(cfg *config.Config, env *execenv.Environment) protocol.Facts {
 
 // nativeEscalation returns the argv prefix that runs the native helper as the target identity. The
 // helper's executable and "privileged stdio" are appended to it; sudo and doas run non-interactively
-// with -n, and run0 is the experimental systemd backend (doc/privilege.md, native).
+// with -n, and run0 is the experimental systemd backend (doc/design/privilege.md "Native mode").
 func nativeEscalation(tool string) []string {
 	switch tool {
 	case config.NativeDoas:

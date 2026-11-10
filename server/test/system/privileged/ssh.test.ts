@@ -1,5 +1,5 @@
 /**
- * The SSH-node case of the privileged system suite (doc/testing/privileged.md): an SSH node ignores
+ * The SSH-node case of the privileged system suite (doc/design/testing/privileged.md): an SSH node ignores
  * `privileged`, runs the task as the SSH user, and says so in the task notice; SFTP `file.*` tasks
  * keep working.
  *
@@ -123,7 +123,7 @@ describePodman("privileged system: SSH nodes", () => {
 		expect(node.facts.shells.sh).toMatch(/^\//);
 		expect(node.facts.shells.bash).toMatch(/^\//);
 		// The inner shell's $0 is the shell the connection probed; the authorization target still
-		// renders /bin/sh -c, whatever sh the node discovered (doc/execution-plane.md#执行).
+		// renders /bin/sh -c, whatever sh the node discovered (doc/design/execution.md "SSH execution").
 		const t = await crhs.runTask(sshNodeId, { kind: "exec", shell: 'printf %s "$0"' });
 		expect(t).toMatchObject({ state: "exited", exitCode: 0 });
 		expect(t.outputHead.trim()).toBe(node.facts.shells.sh);

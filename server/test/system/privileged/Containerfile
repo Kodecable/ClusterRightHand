@@ -1,4 +1,4 @@
-# Test image of the privileged system suite (doc/testing/privileged.md).
+# Test image of the privileged system suite (doc/design/testing/privileged.md).
 #
 # It has the two escalation tools crha's native mode can use, a user crha (uid 998) for the
 # non-privileged mode, and an sshd that listens on 127.0.0.1:2222 for the SSH node tests. crha itself
@@ -21,7 +21,7 @@ RUN apt-get update \
 RUN groupadd -g 998 crha \
  && useradd -u 998 -g 998 -m -d /home/crha -s /bin/sh crha
 
-# native mode: allow exactly the helper, nothing else (doc/privilege.md#非特权模式如何处理特权任务).
+# native mode: allow exactly the helper, nothing else (doc/design/privilege.md "Privilege modes").
 # Do not touch sudo's use_pty: with no controlling terminal the helper still gets three pipes
 # (verified during the prototype).
 RUN printf '%s\n' 'crha ALL=(root) NOPASSWD: /usr/local/bin/crha privileged stdio' > /etc/sudoers.d/crha \

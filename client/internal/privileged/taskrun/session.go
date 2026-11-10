@@ -128,7 +128,7 @@ func (s *Session) Launch(t *Task) {
 
 // forget drops a task whose execution ended from the session. Afterwards task.input for the id
 // is unknown_task and task.cancel is the same no-op success as for any unknown task
-// (doc/protocol.md task.cancel).
+// (doc/design/protocol.md "Commands").
 func (s *Session) forget(t *Task) {
 	s.mu.Lock()
 	if s.tasks[t.ID()] == t {

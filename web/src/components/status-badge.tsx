@@ -25,7 +25,7 @@ const TONE_CLASSES: Record<StatusTone, { badge: string; dot: string; text: strin
 
 /**
  * A status as plain inline text: the tone colours the label and nothing else
- * (doc/webui.md "共享部件"). It inherits the surrounding font size and sits in
+ * (doc/design/webui.md "Shared components"). It inherits the surrounding font size and sits in
  * the normal flow, so a table cell stays a normal value instead of a pill.
  */
 export function StatusText({
@@ -113,7 +113,7 @@ export function nodeStatusLabel(i18n: I18n, status: string, connected: boolean |
 }
 
 /**
- * The node status (doc/webui.md "Nodes"): enrollment and reachability folded
+ * The node status (doc/design/webui.md "Node pages"): enrollment and reachability folded
  * into one value, so a row is one line high. The raw state and the connection
  * detail sit in the tooltip; `connected` is null for transport kinds that
  * connect per task (SSH).

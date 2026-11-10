@@ -6,7 +6,7 @@ import { SessionList } from "./session-list";
 /**
  * The sessions section's layout: the virtualised, cursor-paged, SSE-patched
  * session list column on the left and the routed page on the right
- * (doc/webui.md "会话界面"). Below `lg` the navigation sidebar, the list and a
+ * (doc/design/webui.md "Session interface"). Below `lg` the navigation sidebar, the list and a
  * session do not fit side by side, so a session-shaped page (`/sessions/new` or
  * `/sessions/:id`) takes the main view. The `/sessions` index renders the draft
  * too, but is not session-shaped: on narrow screens the list is the main view and
@@ -17,7 +17,7 @@ export function SessionsLayout() {
 	const { t } = useLingui();
 	const params = useParams({ strict: false }) as { sessionId?: string };
 	const location = useLocation();
-	// The draft page is a session-shaped page too (D117): it takes the second column instead of the list.
+	// The draft page is a session-shaped page too: it takes the second column instead of the list.
 	const draft = location.pathname === "/sessions/new";
 	const openSession = draft || (params.sessionId !== undefined && params.sessionId !== "");
 	return (

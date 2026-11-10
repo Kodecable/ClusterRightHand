@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * The session a schedule run created (doc/data-model.md#计划任务): null for every other session, and nulled
+ * The session a schedule run created (doc/design/data-model.md "Scheduled tasks"): null for every other session, and nulled
  * again when the schedule is deleted while the session stays. Indexed so the sessions list can filter by it.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {

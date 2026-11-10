@@ -7,7 +7,7 @@ import (
 )
 
 // M4 wire types: the authorization object, TrustSummary and local approval
-// (doc/protocol.md#m4提权). The crh-priv handshake types live with the crh-priv framing.
+// (doc/design/protocol.md "Privilege messages"). The crh-priv handshake types live with the crh-priv framing.
 //
 // Every type mirrors the corresponding codec in packages/protocol/src/privileged.ts:
 // fixed-length tuples in declaration order, [tag, body] unions, text enums, and CBOR null
@@ -265,7 +265,7 @@ func (r *TrustReport) UnmarshalCBOR(data []byte) error {
 
 // LocalRequest is the local.request command body. InputPreview is the first bytes of the task's
 // stdin or file content, so an approver can see what will be executed; nil means the sender did not
-// provide one (doc/privilege.md 本地批准).
+// provide one (doc/design/privilege.md "Local approval").
 type LocalRequest struct {
 	_            struct{} `cbor:",toarray"`
 	TaskID       string
@@ -467,7 +467,7 @@ type PendingEntry struct {
 
 // LocalVerdict is the crh-priv local.approve / local.deny request body. SpecSHA256 binds the
 // verdict to the exact spec the approver saw: the privileged mode refuses it when the pending
-// record's hash differs (doc/protocol.md crh-priv table, doc/privilege.md 本地批准).
+// record's hash differs (doc/design/protocol.md "crh-priv", doc/design/privilege.md "Local approval").
 type LocalVerdict struct {
 	_          struct{} `cbor:",toarray"`
 	TaskID     string
@@ -477,7 +477,7 @@ type LocalVerdict struct {
 }
 
 // DecodeAuthorizationPayload strictly decodes payload bytes and enforces the structural
-// rules of doc/protocol.md#授权对象 that are not visible in the schema.
+// rules of doc/design/protocol.md "Authorization object" that are not visible in the schema.
 func DecodeAuthorizationPayload(payloadBytes []byte) (*AuthorizationPayload, error) {
 	var payload AuthorizationPayload
 	if err := Unmarshal(payloadBytes, &payload); err != nil {

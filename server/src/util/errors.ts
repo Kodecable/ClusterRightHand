@@ -14,7 +14,7 @@ export function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
- * An expected refusal, shown to the caller as a tool error (doc/agent-runtime.md#错误结果). `code` is the
+ * An expected refusal, shown to the caller as a tool error (doc/design/agent-runtime.md "Tool output"). `code` is the
  * stable snake_case error code tools use; without one the adapter falls back to `invalid_argument`.
  *
  * It lives in `util/` so policy, cluster and agent code can throw it without importing the user service; the API

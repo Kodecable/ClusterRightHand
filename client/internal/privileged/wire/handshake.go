@@ -46,7 +46,7 @@ type ServerOptions struct {
 	// Roles is the accepted role set used when Role is empty.
 	Roles []Role
 	// CRHAVersion is this build's version. For the native role the peer's version must equal it
-	// (doc/protocol.md: native 只在 stdio 上出现，此时要求 crha_version 完全相等).
+	// (doc/design/protocol.md "crh-priv": native appears only over stdio, where crha_version must match exactly).
 	CRHAVersion string
 	// BeforeWelcome runs after the hello is accepted and before the welcome is written. An
 	// error refuses the handshake without a welcome, so the peer sees a closed connection and a
@@ -113,7 +113,7 @@ func ClientHandshake(r io.Reader, w io.Writer, opts ClientOptions) (*PrivWelcome
 	}
 	// The privileged mode may be a process started from an older binary after an upgrade. Its
 	// welcome names its version, and a different one is refused the way an unreachable daemon is
-	// (doc/protocol.md, crha and its privileged mode upgrade together).
+	// (doc/design/protocol.md, crha and its privileged mode upgrade together).
 	if welcome.CRHAVersion != opts.CRHAVersion {
 		return nil, nil, fmt.Errorf("crh-priv: peer crha version %q, want %q", welcome.CRHAVersion, opts.CRHAVersion)
 	}

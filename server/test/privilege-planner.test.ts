@@ -228,7 +228,7 @@ describe("authorization planner", () => {
 		expect(exhausted.reason).toMatch(/crhs authorization path was already rejected/);
 	});
 
-	it("offers user and local together, and neither for a task group (D89)", () => {
+	it("offers user and local together, and neither for a task group", () => {
 		const both = plan({ tried: ["crhs"] });
 		expect(both.paths.map((path) => path.path)).toEqual(["user", "local"]);
 		const group = plan({ tried: ["crhs"], taskGroup: true });
@@ -330,7 +330,7 @@ describe("task group authorization", () => {
 	});
 
 	it("refuses a payload whose nodes and task ids do not line up", () => {
-		// One node per task id, by position (doc/protocol.md#授权对象): a payload that violates the
+		// One node per task id, by position (doc/design/protocol.md "Authorization object"): a payload that violates the
 		// binding would only be refused by the node later, so the builder fails closed.
 		expect(() =>
 			buildTaskGroupAuthorization({

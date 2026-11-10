@@ -218,7 +218,7 @@ func chooseEntry(entries []protocol.PendingEntry, taskID string, attempt uint64)
 
 // approvalView is the complete specification an approver decides on. `crha pending` and
 // `crha approve` / `crha deny` print it, together with the spec_sha256 the verdict is bound to
-// (doc/privilege.md 本地批准): method, target, argv, env, cwd, stdin or content size and hash,
+// (doc/design/privilege.md "Local approval"): method, target, argv, env, cwd, stdin or content size and hash,
 // the line range of a file.read, mode, owner, overwrite and edits.
 type approvalView struct {
 	TaskID     string            `json:"task_id"`
@@ -250,7 +250,7 @@ type approvalInput struct {
 	SHA256 string `json:"sha256"`
 	// Preview is the first bytes of the content, escaped for a terminal, or a binary description.
 	// printApproval shows it as text below the JSON view. It is empty when the privileged mode did
-	// not send a preview (doc/privilege.md 本地批准).
+	// not send a preview (doc/design/privilege.md "Local approval").
 	Preview string `json:"-"`
 }
 

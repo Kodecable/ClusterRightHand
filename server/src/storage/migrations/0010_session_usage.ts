@@ -1,6 +1,6 @@
 import type { Kysely } from "kysely";
 
-// What each session has spent, including its subagents (doc/agent-runtime.md#配额).
+// What each session has spent, including its subagents (doc/design/agent-runtime.md "Quota and token accounting").
 const COLUMNS = ["used_tokens", "used_cost_microusd"];
 
 export async function up(db: Kysely<unknown>): Promise<void> {

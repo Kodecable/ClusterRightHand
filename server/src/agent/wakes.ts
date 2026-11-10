@@ -5,7 +5,7 @@ import { recordInput } from "./runtime-submissions.ts";
 import { parentOf, type SessionRow } from "./session-chain.ts";
 
 /**
- * Waking the agent that has to act on a subagent request (doc/agent-runtime.md#处理子会话的请求): a follow-up
+ * Waking the agent that has to act on a subagent request (doc/design/agent-runtime.md "Handling subagent requests"): a follow-up
  * input to an idle handler at once, or one held until a running handler goes idle. One path for every request
  * kind, so a request can never wake its handler twice, and a request settled in the meantime is dropped.
  */

@@ -15,7 +15,7 @@ import type { ColumnType, Generated } from "kysely";
  */
 export type { BatchOutputMode, ModelPresetKind, OutputMode, ScheduleRunStatus, TaskGroupState, TaskState };
 
-/** Timestamps are stored as ISO 8601 UTC strings on both dialects; see doc/data-model.md. */
+/** Timestamps are stored as ISO 8601 UTC strings on both dialects; see doc/design/data-model.md. */
 type CreatedAt = ColumnType<string, string, never>;
 
 export interface OrgsTable {
@@ -65,7 +65,7 @@ export interface WebSessionsTable {
 export interface SharesTable {
 	id: string;
 	org_id: string;
-	/** Sessions only (D108): nodes are shared through node_access_grants. */
+	/** Sessions only: nodes are shared through node_access_grants. */
 	resource_type: "session";
 	/** No foreign key: resources live in different tables. */
 	resource_id: string;
@@ -79,7 +79,7 @@ export interface SharesTable {
 }
 
 /**
- * Node access grants (D108): an administrator grants a user or user group access to a node or node group,
+ * Node access grants: an administrator grants a user or user group access to a node or node group,
  * one level (view and run tasks). Grantee and target ids are polymorphic, so there are no foreign keys;
  * deleting a grantee or target deletes its grants explicitly (node-access.ts).
  */
@@ -112,7 +112,7 @@ export interface NodesTable {
 	id: string;
 	org_id: string;
 	name: string;
-	/** Lowercase form of `name`; the shared node/node-group namespace compares this (D109). */
+	/** Lowercase form of `name`; the shared node/node-group namespace compares this. */
 	/** Required on insert: the column is nullable only because SQLite cannot add a NOT NULL column without a default. */
 	name_key: string;
 	transport: "client" | "ssh";
@@ -147,7 +147,7 @@ export interface NodeGroupsTable {
 	id: string;
 	org_id: string;
 	name: string;
-	/** Lowercase form of `name`; unique per organization and shared with node names (D109). */
+	/** Lowercase form of `name`; unique per organization and shared with node names. */
 	name_key: string;
 	created_at: CreatedAt;
 	updated_at: string;
@@ -174,7 +174,7 @@ export interface EnrollmentTokensTable {
 /** Who must handle a waiting approval: an agent session, or the user (the task's on_behalf user). */
 export type ApprovalHandlerType = "agent" | "user";
 
-/** Columns shared by tasks and task groups for the rule chain and approval (doc/access-control.md#审批). */
+/** Columns shared by tasks and task groups for the rule chain and approval (doc/design/access-control.md "Approvals"). */
 interface ApprovalColumns {
 	/** JSON [{ type, id }], root first; null for a user acting in person. */
 	rule_chain: string | null;
@@ -196,24 +196,24 @@ export interface TasksTable extends ApprovalColumns {
 	node_id: string;
 	task_group_id: string | null;
 	kind: string;
-	/** TaskSpec in the JSON form of doc/protocol.md#json-形式服务端存储, without the input bytes. */
+	/** TaskSpec in the JSON form of doc/design/protocol.md "JSON storage forms", without the input bytes. */
 	spec: string;
 	input_size: number | null;
 	input_sha256: string | null;
-	/** Dispatch attempt, from 1; only an authorization retry increments it (doc/protocol.md#task.start). */
+	/** Dispatch attempt, from 1; only an authorization retry increments it (doc/design/protocol.md "task.start"). */
 	attempt: number;
 	/**
-	 * Row version (D118): every write to the row bumps it, and a write derived from an earlier read
+	 * Row version: every write to the row bumps it, and a write derived from an earlier read
 	 * names the `rev` it read so a row changed in between is not overwritten with a stale decision.
 	 */
 	rev: ColumnType<number, number | undefined, number>;
 	privileged: number;
-	/** JSON authorization plan/state (doc/m4.md#crhs-侧数据): plan, payload id, attempt, trust digest, tried paths, last rejection. */
+	/** JSON authorization plan/state (doc/design/privilege.md "Server-side authorization"): plan, payload id, attempt, trust digest, tried paths, last rejection. */
 	authorization: ColumnType<string | null, string | null | undefined, string | null>;
 	timeout_ms: number | null;
 	/** `full` for a single task; the task group's mode for its tasks. */
 	output_mode: OutputMode;
-	/** The capped output this task keeps (D112); null takes the default for its mode. */
+	/** The capped output this task keeps; null takes the default for its mode. */
 	max_lines: number | null;
 	max_bytes: number | null;
 	state: TaskState;
@@ -231,17 +231,17 @@ export interface TasksTable extends ApprovalColumns {
 	dispatched_at: string | null;
 	accepted_at: string | null;
 	finished_at: string | null;
-	/** The single output stream's byte total (D114). */
+	/** The single output stream's byte total. */
 	output_bytes: ColumnType<string | number, string | number, string | number>;
-	/** The kept head and tail of the single output stream, base64 (D114). */
+	/** The kept head and tail of the single output stream, base64. */
 	output_head: string | null;
 	output_tail: string | null;
-	/** crhs's own line about the task (the SSH privileged notice); it is not part of the output (D114). */
+	/** crhs's own line about the task (the SSH privileged notice); it is not part of the output. */
 	notice: string | null;
-	/** Total lines of the merged output, reported by crha in task.exit (D112). */
+	/** Total lines of the merged output, reported by crha in task.exit. */
 	output_lines: number | null;
 	output_file: string | null;
-	/** The task's structured result in the JSON form of doc/protocol.md TaskResult; null when it has none. */
+	/** The task's structured result in the JSON form of doc/design/protocol.md "Task results"; null when it has none. */
 	result: string | null;
 	late_result: string | null;
 }
@@ -256,10 +256,10 @@ export interface TaskGroupsTable extends ApprovalColumns {
 	fail_fast: number;
 	/** The batch output mode, fixed when the task group is created. */
 	output_mode: BatchOutputMode;
-	/** Per-node caps for the kept output (D112); null takes the defaults, 8KB / 128 lines. */
+	/** Per-node caps for the kept output; null takes the defaults, 8KB / 128 lines. */
 	node_max_lines: number | null;
 	node_max_bytes: number | null;
-	/** 1 when the task group's tasks are privileged tasks (doc/privilege.md). */
+	/** 1 when the task group's tasks are privileged tasks (doc/design/privilege.md). */
 	privileged: number;
 	skipped: string;
 	state: TaskGroupState;
@@ -268,7 +268,7 @@ export interface TaskGroupsTable extends ApprovalColumns {
 	on_behalf_of_user_id: string;
 	created_at: CreatedAt;
 	finished_at: string | null;
-	/** TaskSpec JSON (doc/protocol.md#json-形式服务端存储), kept while waiting for approval. */
+	/** TaskSpec JSON (doc/design/protocol.md "JSON storage forms"), kept while waiting for approval. */
 	spec: string | null;
 	timeout_ms: number | null;
 }
@@ -279,7 +279,7 @@ export interface AuthorizationsTable {
 	org_id: string;
 	/** Base64 of the CBOR payload bytes, kept verbatim so the id stays verifiable. */
 	payload: string;
-	/** JSON Signature[] (doc/protocol.md#授权对象). */
+	/** JSON Signature[] (doc/design/protocol.md "Authorization object"). */
 	signatures: string;
 	/** The user who signed it; null for a crhs-only authorization. */
 	issuer_user_id: string | null;
@@ -363,7 +363,7 @@ export interface ModelPresetsTable {
 	updated_at: string;
 }
 
-/** A session's run state (doc/agent-runtime.md#会话状态): roots and subagents share it. */
+/** A session's run state (doc/design/agent-runtime.md "Session state"): roots and subagents share it. */
 export type SessionState = "idle" | "running" | "awaiting";
 /** What an awaiting session waits for; quota outranks approval, approval outranks authorization. */
 export type WaitingKind = "quota" | "approval" | "authorization";
@@ -374,15 +374,15 @@ export interface SessionsTable {
 	owner_user_id: string;
 	conversation_id: string;
 	parent_session_id: string | null;
-	/** The root of this session's tree; the session itself for a root (doc/webui.md#会话列表). */
+	/** The root of this session's tree; the session itself for a root (doc/design/webui.md "Session list API"). */
 	root_session_id: string;
 	/** The schedule whose run created this root session; nulled when the schedule is deleted. */
 	schedule_id: string | null;
-	/** Generated or user-given title; null shows the WebUI's localized default (doc/agent-runtime.md#标题生成). */
+	/** Generated or user-given title; null shows the WebUI's localized default (doc/design/agent-runtime.md "Title generation"). */
 	title: string | null;
 	/** Whether a title still wants generating; cleared by a success or a manual rename (SQLite/PostgreSQL 0/1). */
 	title_pending: ColumnType<number, number | undefined, number | undefined>;
-	/** The client request id that created the session and its first message (D117); unique per owner. */
+	/** The client request id that created the session and its first message; unique per owner. */
 	create_request_id: ColumnType<string | null, string | null | undefined, string | null>;
 	/** JSON ModelRef. */
 	model: string;
@@ -392,7 +392,7 @@ export interface SessionsTable {
 	archived_at: string | null;
 	/** Durable submission of the last input, for a parent waiting on this session's answer. */
 	last_submission_id: string | null;
-	/** The session's own run state (doc/agent-runtime.md#会话状态); the session list aggregates it over the tree. */
+	/** The session's own run state (doc/design/agent-runtime.md "Session state"); the session list aggregates it over the tree. */
 	state: SessionState;
 	/** Why the session waits; null unless `state` is `awaiting`. */
 	waiting_kind: WaitingKind | null;
@@ -405,15 +405,15 @@ export interface SessionsTable {
 	reply_at: string | null;
 	/** When the owner last opened the tree; `reply_at > owner_read_at` means unread; roots only. */
 	owner_read_at: string | null;
-	/** Remaining token quota at any level (doc/agent-runtime.md#配额); null: unlimited. Signed: one call may overspend it. */
+	/** Remaining token quota at any level (doc/design/agent-runtime.md "Quota and token accounting"); null: unlimited. Signed: one call may overspend it. */
 	quota_tokens: ColumnType<string | number | null, string | number | null | undefined, string | number | null>;
-	/** The budget measure (D92, D101): output tokens spent by this session and its subagents. */
+	/** The budget measure: output tokens spent by this session and its subagents. */
 	budget_used_tokens: ColumnType<string | number, string | number | undefined, string | number>;
-	/** The statistics measure (D101): input + output tokens of this session and its subagents. */
+	/** The statistics measure: input + output tokens of this session and its subagents. */
 	usage_tokens: ColumnType<string | number, string | number | undefined, string | number>;
-	/** The input size of this session's own last main-agent call (D101); null before the first. */
+	/** The input size of this session's own last main-agent call; null before the first. */
 	context_tokens: ColumnType<string | number | null, string | number | null | undefined, string | number | null>;
-	/** Own main-agent steps that ended in this session (doc/agent-runtime.md#会话统计). */
+	/** Own main-agent steps that ended in this session (doc/design/agent-runtime.md "Session statistics"). */
 	stat_steps: ColumnType<string | number, string | number | undefined, string | number>;
 	/** Own user inputs that led to at least one step. */
 	stat_turns: ColumnType<string | number, string | number | undefined, string | number>;
@@ -470,7 +470,7 @@ export interface SchedulesTable {
 	prompt: string;
 	/** JSON ModelRef. */
 	model: string;
-	/** The new session's root quota; null means unlimited (D92). */
+	/** The new session's root quota; null means unlimited. */
 	token_budget: ColumnType<string | number | null, string | number | null | undefined, string | number | null>;
 	cron: string;
 	timezone: string;

@@ -2,7 +2,7 @@ import type { Kysely } from "kysely";
 
 /**
  * Rules created before M4 have no `privileged` value, which matches privileged and ordinary tasks
- * alike (doc/access-control.md#授权规则). Upgrading must not turn them into an implicit allowance
+ * alike (doc/design/access-control.md "Authorization rules"). Upgrading must not turn them into an implicit allowance
  * for privileged execution, so every rule that does not say `privileged` is pinned to `false`.
  * The rules of a root preset live in code (they already carry the flag) and "always allow" appends
  * into the same `rule_sets.rules` JSON, so this one pass covers both.

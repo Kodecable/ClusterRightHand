@@ -98,7 +98,7 @@ export interface AuthorizationCardProps {
 
 /**
  * The waiting card of a task or task group whose owner has to sign the
- * payload (doc/m4.md M4.4): the decoded payload, a Passkey button per matching
+ * payload (doc/design/privilege.md "Authorizations"): the decoded payload, a Passkey button per matching
  * credential, the `crha grant` command, the `ssh-keygen` recipe and a paste box.
  */
 export function AuthorizationCard({

@@ -30,7 +30,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("finished_at", "text")
 		.addColumn("stdout_bytes", "bigint", (c) => c.notNull())
 		.addColumn("stderr_bytes", "bigint", (c) => c.notNull())
-		// Base64; see doc/execution-plane.md#输出 (crhs keeps only head and tail).
+		// Base64; see doc/design/execution.md "Output" (crhs keeps only head and tail).
 		.addColumn("stdout_head", "text")
 		.addColumn("stdout_tail", "text")
 		.addColumn("stderr_head", "text")

@@ -49,7 +49,7 @@ export function useDeleteModelProvider() {
 	});
 }
 
-/** The three model presets (D116): the model page's session, auto review and title cards. */
+/** The three model presets: the model page's session, auto review and title cards. */
 export function useModelPresets() {
 	return useQuery({
 		queryKey: settingsKeys.presets(),

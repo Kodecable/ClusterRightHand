@@ -8,7 +8,7 @@ import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 
 /**
- * Node access (D108, doc/access-control.md#归属访问授权与分享): nodes belong to the organization. Only
+ * Node access (doc/design/access-control.md "Ownership, access grants and sharing"): nodes belong to the organization. Only
  * administrators manage them; every other user reaches a node through a grant to the user or one of their user
  * groups, directly to the node or to a node group it is a member of. There is one level: see it and run tasks.
  */

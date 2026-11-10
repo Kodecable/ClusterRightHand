@@ -333,7 +333,7 @@ func execTaskMode(id, shell string, mode protocol.OutputMode) protocol.TaskStart
 	return t
 }
 
-// TestBatchOutputModes covers the batch output rules from doc/execution-plane.md#输出: "text" and
+// TestBatchOutputModes covers the batch output rules from doc/design/execution.md "Output": "text" and
 // "status" always create the node output file, "status" never sends task.output, and single-task
 // "full" keeps small output in memory.
 func TestBatchOutputModes(t *testing.T) {
@@ -403,7 +403,7 @@ func TestBatchOutputModes(t *testing.T) {
 				t.Fatalf("output_end = %d, want 7", exit.OutputEnd)
 			}
 			// "out" and "oops" have no newline: one merged line, in every mode and whether or not
-			// the output was spilled (doc/protocol.md TaskExit).
+			// the output was spilled (doc/design/protocol.md "Events").
 			if exit.OutputLines != 1 {
 				t.Fatalf("output_lines = %d, want 1", exit.OutputLines)
 			}
@@ -465,7 +465,7 @@ func TestBatchOutputModes(t *testing.T) {
 }
 
 // TestTaskExitCarriesFileResult covers a file task that runs on the crha itself: its structured
-// result travels in task.exit, and its output stays empty (doc/protocol.md TaskResult).
+// result travels in task.exit, and its output stays empty (doc/design/protocol.md "Task results").
 func TestTaskExitCarriesFileResult(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "f.txt")
 	if err := os.WriteFile(path, []byte("abc"), 0o644); err != nil {
@@ -599,7 +599,7 @@ func TestTaskStartResponsePrecedesEvents(t *testing.T) {
 	}
 }
 
-// TestTaskStartWithLostResponseIsExecuted covers the task.start rule in doc/protocol.md: a task
+// TestTaskStartWithLostResponseIsExecuted covers the task.start rule in doc/design/protocol.md: a task
 // recorded in the accepted set whose success response could not be sent (the connection dropped at
 // that instant) is still executed. crhs does not resend it; it sees the task in the next hello and
 // receives its output and task.exit there.
@@ -745,7 +745,7 @@ func TestTaskStartWithLostResponseIsExecuted(t *testing.T) {
 		t.Fatalf("task.exit outcome = %+v, want code 0", exit.Outcome)
 	}
 	// "hello\n" was counted when the executor wrote it; resending it on the new connection does not
-	// count it again (doc/protocol.md TaskExit).
+	// count it again (doc/design/protocol.md "Events").
 	if exit.OutputLines != 1 {
 		t.Fatalf("output_lines = %d, want 1", exit.OutputLines)
 	}
@@ -1746,7 +1746,7 @@ func (h *recordHandler) all() []slog.Record {
 	return append([]slog.Record(nil), h.records...)
 }
 
-// TestClockWarn covers the clock offset warning of doc/privilege.md 时钟: an offset beyond
+// TestClockWarn covers the clock offset warning of doc/design/privilege.md "Clock": an offset beyond
 // clock_warn is logged with the offset and the threshold, and 0 disables the warning.
 func TestClockWarn(t *testing.T) {
 	handler := &recordHandler{}

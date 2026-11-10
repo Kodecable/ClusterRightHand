@@ -21,7 +21,7 @@ import { waitSubmission } from "./helpers/runtime.ts";
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * Waits nobody can act on (doc/agent-runtime.md#会话状态, doc/privilege.md#等待签名的期限): a stopped session
+ * Waits nobody can act on (doc/design/agent-runtime.md "Session state", doc/design/privilege.md "Waiting for signatures"): a stopped session
  * ends its approval and signature waits, so does a run that ended without its task, the startup reconciliation
  * ends the waits of sessions whose run is over, and a signature wait expires after AUTHORIZATION_WAIT_MS.
  */

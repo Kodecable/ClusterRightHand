@@ -24,7 +24,7 @@ const (
 	ModeReject  = "reject"
 )
 
-// Escalation tools of privileged.mode = "native" (doc/privilege.md, native).
+// Escalation tools of privileged.mode = "native" (doc/design/privilege.md "Native mode").
 const (
 	NativeSudo = "sudo"
 	NativeDoas = "doas"
@@ -43,7 +43,7 @@ const (
 )
 
 // DefaultClockWarn is the threshold of the clock offset warning: the offset a crhs handshake
-// measures is compared against it (doc/privilege.md 时钟).
+// measures is compared against it (doc/design/privilege.md "Clock").
 const DefaultClockWarn = 60 * time.Second
 
 // Config is the validated crha configuration.

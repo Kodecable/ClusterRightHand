@@ -8,7 +8,7 @@ import { sessionTitle, waitingKindLabel } from "./session-item";
 import { SessionMarkers } from "./session-markers";
 
 /**
- * One row of the session list (doc/webui.md#侧边列表): only the title, on one line, and a leading indicator for
+ * One row of the session list (doc/design/webui.md "Sidebar list"): only the title, on one line, and a leading indicator for
  * the states that need attention. Running spins a small loader, awaiting keeps the amber dot, and an idle row
  * with unread output shows the blue dot. A read idle row has no indicator, but its title keeps the slot so every
  * title starts at the same place. Grey "Scheduled" / "Shared" badges sit at the right end of the line, and the

@@ -11,14 +11,14 @@ import { type AccountedMessage, callTokens, estimateRequestTokens } from "./toke
 import { wakeQuota } from "./wakes.ts";
 
 /**
- * Quota waits (doc/agent-runtime.md#配额): a tool call whose chain has an exhausted level pauses, asks the
+ * Quota waits (doc/design/agent-runtime.md "Quota and token accounting"): a tool call whose chain has an exhausted level pauses, asks the
  * level's direct parent (its agent) or, for a root level, the owner, and resumes when the whole chain is above
  * zero again. The runtime's list of waiters is in memory; the wait itself is the durable session state, so it
- * survives a restart. Compaction's summarization is metered to its conversation here as well (D92).
+ * survives a restart. Compaction's summarization is metered to its conversation here as well.
  */
 
 /**
- * Pauses a tool call whose chain quota is used up (doc/agent-runtime.md#配额): asks the exhausted level's direct
+ * Pauses a tool call whose chain quota is used up (doc/design/agent-runtime.md "Quota and token accounting"): asks the exhausted level's direct
  * parent (its agent), or, when that level is the root, the owner; waits until the whole chain is above zero or the
  * request is denied. A rerun after a restart finds the same request.
  */
@@ -45,7 +45,7 @@ export async function waitForQuota(host: RuntimeHost, sessionId: string, context
 			const { since } = await setSessionState(host.db, sessionId, "awaiting", quotaWait);
 			host.sessionList.publishSession(sessionId);
 			// A root level has no parent to handle its wait: the owner sees it in the approvals API, and the
-			// session paused on that level already carries the wait (doc/agent-runtime.md#配额).
+			// session paused on that level already carries the wait (doc/design/agent-runtime.md "Quota and token accounting").
 			// A deny/abort could have landed between the check and the write; do not wake for an ended wait.
 			if (host.quotaWaits.takeDenied(sessionId)) return "denied";
 			// The handler's inbox cache must see the new quota request.
@@ -86,7 +86,7 @@ function quotaWaiter(
 }
 
 /**
- * The owner's answer to a root whose quota is used up (doc/agent-runtime.md#配额): add N tokens (additive, no
+ * The owner's answer to a root whose quota is used up (doc/design/agent-runtime.md "Quota and token accounting"): add N tokens (additive, no
  * cap) or deny and stop the paused runs. The wait may belong to the root's own run or to a subagent paused on
  * the root level, so the paused sessions carry it (not the root row alone). Returns them, for the audit.
  */
@@ -130,7 +130,7 @@ export async function decideRootQuota(
 	return paused.map((row) => row.id);
 }
 
-/** Remembers which session owns a conversation's provider session id, for metering its compaction (D92). */
+/** Remembers which session owns a conversation's provider session id, for metering its compaction. */
 export async function rememberProviderSession(host: RuntimeHost, conversationId: string): Promise<void> {
 	if (host.sessionCaches.hasLearnedProvider(conversationId)) return;
 	const provider = await host
@@ -148,9 +148,9 @@ export async function rememberProviderSession(host: RuntimeHost, conversationId:
 }
 
 /**
- * Charges a compaction's summarization to the session it compacted (D92, D101); the next tool call pauses if it
+ * Charges a compaction's summarization to the session it compacted; the next tool call pauses if it
  * emptied the quota. The input estimate is measured on `context`, the request given to `completeSimple`: system
- * prompt plus messages (D101). A compaction never moves the context fill: that is the last main-agent call's input.
+ * prompt plus messages. A compaction never moves the context fill: that is the last main-agent call's input.
  */
 export async function chargeCompaction(
 	host: RuntimeHost,

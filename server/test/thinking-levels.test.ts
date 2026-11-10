@@ -70,7 +70,7 @@ function startStub(): Promise<{ server: Server; url: string; requests: Record<st
 	});
 }
 
-/** One model with thinking levels off..high, one with only off (D115). */
+/** One model with thinking levels off..high, one with only off. */
 describe("thinking levels end to end", () => {
 	let db: Db;
 	let app: App;

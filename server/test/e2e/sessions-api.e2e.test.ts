@@ -53,7 +53,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 	};
 	/**
 	 * Setup only: creates a session without a run through the runtime, because the HTTP route now always
-	 * submits a first message (D117) and most tests here then drive `/messages` themselves.
+	 * submits a first message and most tests here then drive `/messages` themselves.
 	 */
 	const newSession = async (rulePreset?: string, cookie = crhs().cookie) => {
 		const owner = owners.get(cookie);
@@ -230,7 +230,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			});
 			expect(res.status).toBe(201);
 			expect(res.json.session.rules.rulePreset).toBe("ask");
-			// A root without a title stores null; the WebUI shows its default name and generation is pending (D116).
+			// A root without a title stores null; the WebUI shows its default name and generation is pending.
 			expect(res.json.session.title).toBeNull();
 		});
 
@@ -430,7 +430,7 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 			const got = await crhs().api(`/api/sessions/${s.id}`);
 			expect(got.status).toBe(200);
 			expect((await crhs().api("/api/sessions?scope=all")).json.items.map((x: { id: string }) => x.id)).toContain(s.id);
-			// Visible, but looking in does not drive it (doc/access-control.md#归属与分享).
+			// Visible, but looking in does not drive it (doc/design/access-control.md "Ownership, access grants and sharing").
 			expect((await send(s.id, "hi", "r-a")).status).toBe(403);
 			expect(
 				(await crhs().api(`/api/sessions/${s.id}`, { method: "PATCH", body: { rulePreset: "yolo" } })).status,

@@ -19,7 +19,7 @@ import { useAuthorizations } from "./api";
 
 /** The command a payload authorizes, as one line. */
 
-/** The issuer: a user links to their page (doc/webui.md "用户链接"); crhs itself signs the rest. */
+/** The issuer: a user links to their page (doc/design/webui.md "User links"); crhs itself signs the rest. */
 function AuthorizationIssuer({ entry }: { entry: Pick<AuthorizationSummary, "issuerUserId" | "issuerUsername"> }) {
 	if (entry.issuerUserId === null) return <span className="truncate">crhs</span>;
 	return <UserLink id={entry.issuerUserId} name={entry.issuerUsername} className="truncate" />;
@@ -130,7 +130,7 @@ function PayloadDialog({
 }
 
 /**
- * Authorizations (doc/m4.md M4.4): every authorization of the organization, for administrators.
+ * Authorizations (doc/design/privilege.md "Authorizations"): every authorization of the organization, for administrators.
  * An authorization is valid until its deadline or until it is used up; it is withdrawn by deleting
  * the node's trust entry or rotating its key, not from here.
  */

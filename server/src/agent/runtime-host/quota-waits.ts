@@ -1,5 +1,5 @@
 /**
- * The in-memory side of quota waits (runtime-quota.ts, doc/agent-runtime.md#配额): the calls paused on each
+ * The in-memory side of quota waits (runtime-quota.ts, doc/design/agent-runtime.md "Quota and token accounting"): the calls paused on each
  * session's quota, and the sessions whose wait was denied while their call was setting up or between waits.
  */
 export class QuotaWaits {

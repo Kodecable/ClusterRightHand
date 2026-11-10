@@ -64,7 +64,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		return c.json({ node, ssh: (await sshNodeDetails(db, row)) ?? null });
 	});
 
-	/** The node's trust panel (doc/privilege.md#信任缓存): the last TrustReport, its digest and its entries. */
+	/** The node's trust panel (doc/design/privilege.md "Trust cache"): the last TrustReport, its digest and its entries. */
 	app.get("/nodes/:id/trust", async (c) => {
 		const id = c.req.param("id");
 		const level = await access(c, id);
@@ -135,7 +135,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		return c.json({ node: live(toPublicNode(node, m.level, (await nodeGroupsForNodes(db, [id])).get(id) ?? [])) });
 	});
 
-	/** Replaces a node's node groups; administrators only, for crha and SSH nodes alike (D108, D109). */
+	/** Replaces a node's node groups; administrators only, for crha and SSH nodes alike. */
 	app.put("/nodes/:id/node-groups", async (c) => {
 		const id = c.req.param("id");
 		const m = await manageable(c, id);

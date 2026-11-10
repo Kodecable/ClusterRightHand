@@ -207,7 +207,7 @@ func (o *grantOptions) validate() error {
 }
 
 // checkOneShotNodes enforces the per-position node binding of a one-shot authorization
-// (doc/protocol.md 授权对象): every task id needs exactly one node id, in the same order, and
+// (doc/design/protocol.md "Authorization object"): every task id needs exactly one node id, in the same order, and
 // neither a group nor "*" can stand for a node.
 func checkOneShotNodes(nodes, tasks []string) error {
 	if len(nodes) != len(tasks) {
@@ -222,7 +222,7 @@ func checkOneShotNodes(nodes, tasks []string) error {
 }
 
 // decodeGrantPayload decodes the base64 payload of a WebUI authorization request. The protocol
-// decoder applies the structural rules of doc/protocol.md 授权对象.
+// decoder applies the structural rules of doc/design/protocol.md "Authorization object".
 func decodeGrantPayload(text string) (*protocol.AuthorizationPayload, []byte, error) {
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(text))
 	if err != nil {

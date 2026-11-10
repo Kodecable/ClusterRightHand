@@ -1,7 +1,7 @@
 /**
  * The node links: one authenticated connection per node, its handshake (`hello`), its status, the
- * reconnect grace and the inbound commands an active node may send (doc/execution-plane.md#注册,
- * doc/protocol.md#hello). A link is `ready` only once its hello was reconciled, which is when tasks
+ * reconnect grace and the inbound commands an active node may send (doc/design/protocol.md "Node registration",
+ * doc/design/protocol.md "Commands"). A link is `ready` only once its hello was reconciled, which is when tasks
  * may be dispatched over it.
  */
 import {
@@ -58,7 +58,7 @@ export function trustFresh(core: ClusterCore, nodeId: string): boolean {
 }
 
 /**
- * Settles the tasks a previous process left unfinished (doc/execution-plane.md#断线恢复). A task it
+ * Settles the tasks a previous process left unfinished (doc/design/execution.md "Reconnect"). A task it
  * left between its claim and its task.start is ended as failed(dispatch_interrupted): nobody waits to
  * approve it, and its input is gone. A client node's dispatched or running tasks are treated as
  * detached now, so the reconnect grace they get is the same as after a disconnect: a node that comes
@@ -89,7 +89,7 @@ export async function recover(core: ClusterCore): Promise<void> {
  * Ends the tasks a previous process left between their claim and their task.start. A task allowed to
  * dispatch is written as `awaiting_approval` with no handler for that instant, so nobody could decide
  * it and its input is gone; leaving it there would also make a reattached tool call wait forever
- * (doc/execution-plane.md#断线恢复).
+ * (doc/design/execution.md "Reconnect").
  */
 async function endInterruptedDispatches(core: ClusterCore): Promise<void> {
 	const rows = await core.db
@@ -174,7 +174,7 @@ export function disconnect(core: ClusterCore, nodeId: string, reason: string): v
 
 /**
  * Tells a connected node about a status change, then closes the connection: crha reconnects as an
- * active node after approval, or stops (rejected) after deletion. See doc/execution-plane.md#注册.
+ * active node after approval, or stops (rejected) after deletion. See doc/design/protocol.md "Node registration".
  */
 export function notifyNodeStatus(core: ClusterCore, nodeId: string, state: NodeStatus["state"], message: string): void {
 	const link = core.links.get(nodeId);
@@ -230,7 +230,7 @@ async function expireNode(core: ClusterCore, nodeId: string): Promise<void> {
 
 // ---- incoming commands and events ----
 
-/** An active node: the full command and event set of doc/protocol.md. */
+/** An active node: the full command and event set of doc/design/protocol.md. */
 function registerActive(core: ClusterCore, conn: NodeConnection, link: NodeLink): void {
 	const peer = conn.peer;
 	peer.onRequest("hello", (hello: Hello) => core.trackHandler(onHello(core, link, hello)));
@@ -245,14 +245,14 @@ function registerActive(core: ClusterCore, conn: NodeConnection, link: NodeLink)
 		core.trackHandler(core.taskQueue.run(exit.taskId, () => onExit(core, conn, exit))),
 	);
 	peer.onEvent("facts", (facts) => core.trackHandler(onFacts(core, conn.nodeId, facts)));
-	// Pushed once after hello and again on every change (doc/protocol.md#新增命令和事件11可选).
+	// Pushed once after hello and again on every change (doc/design/protocol.md "Privilege messages").
 	peer.onEvent("trust.summary", (report) => core.trackHandler(onTrustSummary(core, link, report)));
 	peer.onEvent("local.decision", (decision) => core.trackHandler(onLocalDecision(core, link, decision)));
 }
 
 /**
  * A pending node may only report facts and ping; hello is answered with an empty welcome. Everything
- * else is `node_pending` (doc/protocol.md#受限连接).
+ * else is `node_pending` (doc/design/protocol.md "Restricted connections").
  */
 function registerRestricted(core: ClusterCore, conn: NodeConnection): void {
 	const peer = conn.peer;
@@ -271,7 +271,7 @@ function registerRestricted(core: ClusterCore, conn: NodeConnection): void {
 async function onFacts(core: ClusterCore, nodeId: string, facts: Facts): Promise<void> {
 	await updateNodeFacts(core.db, nodeId, { facts: factsToJson(facts) });
 	// A clock far from crhs only makes authorization deadlines unreliable; warn, do nothing else
-	// (doc/privilege.md#时钟). The offset is an optional fact: an absent one says nothing.
+	// (doc/design/privilege.md "Clock"). The offset is an optional fact: an absent one says nothing.
 	const offset = facts.clockOffsetMs;
 	if (core.clockWarnMs > 0 && offset !== undefined && Math.abs(offset) > core.clockWarnMs) {
 		const ms = Math.abs(offset);
@@ -288,7 +288,7 @@ export function waitTrust(core: ClusterCore, link: NodeLink, timeoutMs?: number)
 /** Reconciles the client's task list with ours, answers with Welcome, then queries the rest. */
 async function onHello(core: ClusterCore, link: NodeLink, hello: Hello): Promise<AfterResponse<Welcome>> {
 	const nodeId = link.conn.nodeId;
-	// How the node handles privileged tasks is reported here and nowhere else (doc/protocol.md#hello).
+	// How the node handles privileged tasks is reported here and nowhere else (doc/design/protocol.md "Commands").
 	if (hello.privilegedMode) {
 		await core.db
 			.updateTable("nodes")
@@ -317,7 +317,7 @@ async function onHello(core: ClusterCore, link: NodeLink, hello: Hello): Promise
 		if (row.state === "dispatched") await core.taskQueue.run(t.taskId, () => onAccepted(core, nodeId, t.taskId));
 		// A recorded result needs no output: ack the stored totals, so crha drops its buffer instead of
 		// resending it and charging the group budget a second time. An `unknown` task still accepts a late
-		// result, so it keeps the old behaviour and may resend (doc/execution-plane.md#输出).
+		// result, so it keeps the old behaviour and may resend (doc/design/execution.md "Output").
 		if (recorded(row.state)) {
 			acks.push({ taskId: t.taskId, offset: Number(row.output_bytes) });
 			continue;
@@ -380,7 +380,7 @@ async function onStatus(core: ClusterCore, link: NodeLink, status: TaskStatus): 
 	if (!row || row.node_id !== link.conn.nodeId) return;
 	if (row.state === "unknown") {
 		// Already reported unknown, and the client does not know it either: no exit can arrive, so the
-		// output kept for a late result goes now (doc/execution-plane.md#输出).
+		// output kept for a late result goes now (doc/design/execution.md "Output").
 		dropLive(core, row.id);
 		return;
 	}

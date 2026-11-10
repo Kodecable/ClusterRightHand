@@ -8,7 +8,7 @@ import { useSessionShares, useShareSession, useUnshareSession } from "@/features
 import { MONO_CELL } from "@/lib/utils";
 
 /**
- * The share dialog of a session (doc/access-control.md "归属与分享"): the
+ * The share dialog of a session (doc/design/access-control.md "Ownership, access grants and sharing"): the
  * current shares, adding a user or user group with view/chat access, and removing
  * one. The dialog opens while the caller has `manageShares`; only the owner
  * (`createShares`) gets the add control, while an administrator can still revoke.

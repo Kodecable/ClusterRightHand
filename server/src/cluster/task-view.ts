@@ -1,5 +1,5 @@
 /**
- * A task row as the API and the tools see it (doc/protocol.md TaskResult): the stored columns, with
+ * A task row as the API and the tools see it (doc/design/protocol.md "Task results"): the stored columns, with
  * the output of a running task taken from its live record when there is one.
  */
 import { type JsonTaskResult, taskResultFromJson, taskResultToJson } from "@crh/protocol";

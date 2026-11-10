@@ -73,7 +73,7 @@ type webAuthnClientData struct {
 }
 
 // VerifyWebAuthn verifies one WebAuthn assertion over payload
-// (doc/privilege.md#签名方式):
+// (doc/design/privilege.md "Signing methods"):
 //
 //   - the assertion's credential id equals the trust key's;
 //   - clientDataJSON.type is webauthn.get and its base64url challenge (no padding) is
@@ -169,7 +169,7 @@ type cosePublicKey struct {
 }
 
 // parseCOSEKey parses and validates a COSE public key. Only the algorithms of
-// doc/protocol.md are accepted; a mismatched kty, alg or curve is rejected rather than
+// doc/design/protocol.md are accepted; a mismatched kty, alg or curve is rejected rather than
 // reinterpreted.
 func parseCOSEKey(coseKey []byte) (cosePublicKey, error) {
 	var fields map[int64]cbor.RawMessage

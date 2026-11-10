@@ -1,4 +1,4 @@
-// Package state persists the privileged mode's used list (doc/privilege.md 授权, 时钟).
+// Package state persists the privileged mode's used list (doc/design/privilege.md "Authorizations", doc/design/privilege.md "Clock").
 //
 // The list is an append-only JSON-lines file. A record is written and fsync'd before the
 // task it describes starts, so a crash cannot lose the fact that an authorization was used.
@@ -14,7 +14,7 @@
 // memory only, and compaction writes only the live records: after a restart the watermark is
 // rebuilt from those records, so a record that was both evicted and compacted away leaves no
 // trace and its authorization can be used again until its deadline. That is the documented
-// trade-off of the used list (doc/privilege.md 已用列表), not a guarantee across restarts.
+// trade-off of the used list (doc/design/privilege.md "Used list"), not a guarantee across restarts.
 package state
 
 import (
@@ -40,7 +40,7 @@ const (
 	localRetention = 24 * time.Hour
 	// minRetentionMargin is the least time a record with an authorization is kept past its
 	// deadline. A larger clock_skew extends it, so a one-shot authorization cannot be used
-	// again after the clock stepped back by up to the configured skew (doc/privilege.md 时钟).
+	// again after the clock stepped back by up to the configured skew (doc/design/privilege.md "Clock").
 	minRetentionMargin = time.Hour
 )
 
@@ -282,7 +282,7 @@ func (s *Store) Watermarked(issuedAtMS int64) bool {
 
 // AddUsed records an accepted task and fsyncs the record before returning (unless the store
 // is in memory only). The caller must not start the task before AddUsed succeeds
-// (doc/privilege.md 校验流程, step 10).
+// (doc/design/privilege.md "Validation flow", step 9).
 func (s *Store) AddUsed(rec Record) error {
 	if rec.TaskID == "" {
 		return errors.New("state: used record has no task id")

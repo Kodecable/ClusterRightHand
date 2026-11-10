@@ -16,7 +16,7 @@ import { parseGrantInput, type QuotaError, quotaStatus } from "@/lib/quota";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 
 /**
- * The remaining-budget line (doc/agent-runtime.md#配额, D101): no limit, remaining, or used up. The numbers are
+ * The remaining-budget line (doc/design/agent-runtime.md "Quota and token accounting"): no limit, remaining, or used up. The numbers are
  * the budget measure — output tokens — never the usage statistic.
  */
 export function BudgetSummaryLine({

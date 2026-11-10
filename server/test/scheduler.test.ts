@@ -29,7 +29,7 @@ import { openTestDb } from "./helpers/db.ts";
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * Schedules (doc/scheduling.md): a cron fires a pending run in one transaction, a submitter preempts the previous
+ * Schedules (doc/design/scheduling.md): a cron fires a pending run in one transaction, a submitter preempts the previous
  * instance and creates + submits a session, and the run follows its submission to an end. The clock and timer are
  * injected, so firing is driven by the test instead of by wall time.
  */
@@ -1053,7 +1053,7 @@ it("stops the session a crash left running after marking its run preempted, befo
 	const firstSubmission = (await sessionRow(firstSession)).last_submission_id as string;
 
 	// The next trigger fired; then the crash came after the previous run was marked preempted and before its
-	// session was stopped (doc/scheduling.md#调度).
+	// session was stopped (doc/design/scheduling.md "Triggering and submission").
 	const fireTime = "2026-01-05T09:02:00.000Z";
 	const nextRunId = newId();
 	await db
@@ -1275,7 +1275,7 @@ it("validates the API input and keeps schedules owner-only", async () => {
 		const res = await call(app, "/api/schedules", { method: "POST", cookie: ownerCookie, body: bad });
 		expect(res.status, JSON.stringify(bad)).toBe(400);
 	}
-	// A budget is unlimited (null) or at least one token; every other number is a clear 400 (doc/scheduling.md#授权规则与配额).
+	// A budget is unlimited (null) or at least one token; every other number is a clear 400 (doc/design/scheduling.md "Rules and quotas").
 	for (const tokenBudget of [0, -1, 1.5, "100"]) {
 		const res = await call(app, "/api/schedules", {
 			method: "POST",

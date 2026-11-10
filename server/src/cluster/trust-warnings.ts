@@ -1,5 +1,5 @@
 /**
- * The out-of-sync warnings of a node's trust aliases (doc/privilege.md#信任缓存, D110): crhs shows
+ * The out-of-sync warnings of a node's trust aliases (doc/design/privilege.md "Trust cache"): crhs shows
  * where a node trusts a node group it is not in, trusts something that is not a node group or its own
  * id, misses a group it is in (only `forward` nodes act on aliases), or trusts a key crhs does not
  * know. Warnings are computed from the cached TrustReport and crhs-managed node group membership;
@@ -68,7 +68,7 @@ export interface NodeTrustWarningInput {
 	context: TrustWarningContext;
 }
 
-/** The out-of-sync warnings of one node (doc/privilege.md#信任缓存). */
+/** The out-of-sync warnings of one node (doc/design/privilege.md "Trust cache"). */
 export function trustWarningsForNode(input: NodeTrustWarningInput): TrustWarning[] {
 	const { summary } = input;
 	if (summary === null) return [];

@@ -44,7 +44,7 @@ export type BatchOutput =
 	| { kind: "output"; head: string; tail: string; bytes: number }
 	| { kind: "status"; file: string | null };
 
-/** The kept output is one stream (D114): the head and tail the server kept, or a status-only task. */
+/** The kept output is one stream: the head and tail the server kept, or a status-only task. */
 export function batchOutput(
 	task: Pick<TaskView, "outputMode" | "outputHead" | "outputTail" | "outputBytes" | "outputFile">,
 ): BatchOutput {
@@ -99,7 +99,7 @@ const TASK_ERROR_LABELS: Record<string, MessageDescriptor> = {
 	node_access_revoked: msg`Access to the node was revoked before the task was dispatched.`,
 };
 
-/** One readable line for a task's platform error (doc/access-control.md#归属访问授权与分享). */
+/** One readable line for a task's platform error (doc/design/access-control.md "Ownership, access grants and sharing"). */
 export function taskErrorText(i18n: I18n, code: string | null, message: string | null): string {
 	const label = code === null ? undefined : TASK_ERROR_LABELS[code];
 	if (label !== undefined) return i18n._(label);

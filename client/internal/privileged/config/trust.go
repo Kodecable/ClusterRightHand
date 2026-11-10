@@ -15,7 +15,7 @@ import (
 )
 
 // buildTrust validates one [[trust]] entry against the role/format/kinds table of
-// doc/privilege.md 信任配置 and the field table below it.
+// doc/design/privilege.md "Trust configuration" and the field table below it.
 func buildTrust(raw *rawTrust) (*Trust, error) {
 	if raw.Name == "" {
 		return nil, errors.New("name: required")
@@ -54,7 +54,7 @@ func buildTrust(raw *rawTrust) (*Trust, error) {
 	t.RequireUV = raw.RequireUV
 	switch role {
 	case protocol.TrustRoleCRHS:
-		// crhs authorizations always carry task_ids (doc/privilege.md 授权); the field may
+		// crhs authorizations always carry task_ids (doc/design/privilege.md "Authorizations"); the field may
 		// repeat that but must not claim otherwise.
 		if raw.RequireTask != nil && !*raw.RequireTask {
 			return nil, errors.New("require_task: crhs authorizations always require task_ids")
@@ -100,7 +100,7 @@ func buildTrust(raw *rawTrust) (*Trust, error) {
 		return nil, err
 	}
 	// require_uv is a user-only requirement, and a plain SSH key cannot assert user
-	// verification (doc/privilege.md 字段, require_uv).
+	// verification (doc/design/privilege.md "Trust entry fields", require_uv).
 	if raw.RequireUV && role != protocol.TrustRoleUser {
 		return nil, errors.New("require_uv: only user entries can require user verification")
 	}

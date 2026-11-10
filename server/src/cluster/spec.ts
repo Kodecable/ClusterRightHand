@@ -1,5 +1,5 @@
 /**
- * Task specs as crhs stores them (doc/protocol.md#json-形式服务端存储): the JSON form on a row, the
+ * Task specs as crhs stores them (doc/design/protocol.md "JSON storage forms"): the JSON form on a row, the
  * short description the UI and the audits show, and the input ref filled in from the bytes sent.
  */
 import { createHash } from "node:crypto";
@@ -10,11 +10,11 @@ import { shellQuote } from "../util/shell-quote.ts";
 
 /**
  * The ref of an empty input. file.write always carries one; callers set it and createTask overwrites it
- * from the input actually sent (doc/protocol.md#json-形式服务端存储).
+ * from the input actually sent (doc/design/protocol.md "JSON storage forms").
  */
 export const EMPTY_INPUT_REF: InputRef = { size: 0, sha256: createHash("sha256").update(new Uint8Array(0)).digest() };
 
-/** Returns a copy with the input ref filled in from the bytes actually sent (doc/protocol.md#json-形式服务端存储). */
+/** Returns a copy with the input ref filled in from the bytes actually sent (doc/design/protocol.md "JSON storage forms"). */
 export function withInputRef(spec: TaskSpec, ref: { size: number; sha256: Uint8Array } | undefined): TaskSpec {
 	const inputRef: InputRef | undefined = ref ? { size: ref.size, sha256: ref.sha256 } : undefined;
 	switch (spec.kind) {
@@ -47,7 +47,7 @@ export function operationOfJson(specJson: string): { method: Method; target: str
 	}
 }
 
-/** Spec JSON (doc/protocol.md#json-形式服务端存储) to a short description. */
+/** Spec JSON (doc/design/protocol.md "JSON storage forms") to a short description. */
 export function summarize(specJson: string): string {
 	try {
 		const spec = JSON.parse(specJson) as {

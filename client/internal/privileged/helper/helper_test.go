@@ -381,7 +381,7 @@ func inputExecTask(id, script, arg string, size int, data string) protocol.TaskS
 
 // TestRunInputMismatchNeverStarts covers the spooled stdin of a privileged exec task: a chunk
 // that differs from the declared hash must not reach a process, so the argv never runs
-// (doc/privilege.md 执行环境). The process would create the marker file immediately.
+// (doc/design/privilege.md "Validation flow"). The process would create the marker file immediately.
 func TestRunInputMismatchNeverStarts(t *testing.T) {
 	dir := privateDir(t)
 	marker := filepath.Join(dir, "started")

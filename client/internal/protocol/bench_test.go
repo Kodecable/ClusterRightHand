@@ -7,7 +7,7 @@ import (
 )
 
 // benchOutput is the body of one 32 KiB task.output event: the chunk size crha sends
-// (doc/execution-plane.md#输出).
+// (doc/design/execution.md "Output").
 func benchOutput() *TaskOutput {
 	return &TaskOutput{TaskID: "bench", Offset: 0, Data: make([]byte, 32<<10)}
 }

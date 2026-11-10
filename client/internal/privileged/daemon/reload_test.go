@@ -124,7 +124,7 @@ func TestForcedCwdUnlessExact(t *testing.T) {
 	ctx := requestContext(t)
 
 	// A prefix authorization leaves cwd free in the spec, but privileged execution fixes it
-	// to "/" (doc/privilege.md 执行环境).
+	// to "/" (doc/design/privilege.md "Validation flow").
 	ts := execTask("cwd-1", 1, "/bin/pwd")
 	ts.Spec.Exec.Cwd = env.paths.Dir
 	payload := payloadFor("cwd-1", 1, prefixCommand(protocol.MethodExec, "/bin/pwd"), nil)

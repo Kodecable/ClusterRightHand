@@ -1,5 +1,5 @@
 /**
- * The cosignature rules of doc/privilege.md#联署, shared by the planner (which predicts whether a path
+ * The cosignature rules of doc/design/privilege.md "Cosigning", shared by the planner (which predicts whether a path
  * would be accepted) and the decision port (which applies the node's answer). Both read a trust
  * entry's role and kinds, whatever shape the caller holds it in: protocol's TrustEntry or the
  * decision's own AuthzEntry.
@@ -20,7 +20,7 @@ export function cosignRequired(entry: CosignTrust): boolean {
 /**
  * Whether one of the entries offers the cosign kind. The planner passes the summary's own crhs
  * entries; the decision port passes the entries whose signatures verified on the payload. The cosign
- * entry's own require_exact, max_ttl and allow/deny rules do not apply (doc/privilege.md#联署).
+ * entry's own require_exact, max_ttl and allow/deny rules do not apply (doc/design/privilege.md "Cosigning").
  */
 export function hasCosign(entries: Iterable<CosignTrust | null | undefined>): boolean {
 	for (const entry of entries) {

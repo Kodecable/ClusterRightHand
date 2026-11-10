@@ -1,7 +1,7 @@
 /**
  * Nodes, node groups, node access, SSH routes and the trust panel
- * (doc/webui.md "Nodes", doc/access-control.md "归属访问授权与分享",
- * doc/privilege.md "信任缓存"). The trust shapes are the protocol's own types.
+ * (doc/design/webui.md "Node pages", doc/design/access-control.md "Ownership, access grants and sharing",
+ * doc/design/privilege.md "Trust cache"). The trust shapes are the protocol's own types.
  */
 
 import type {
@@ -13,14 +13,14 @@ import type {
 	TrustReport,
 } from "@crh/protocol";
 
-/** How the caller reaches a node (D108): administrators, or a granted user (one level). */
+/** How the caller reaches a node: administrators, or a granted user (one level). */
 export type NodeAccess = "admin" | "granted";
 
 export type GranteeType = "user" | "user_group";
-/** What an access grant points at (D108, doc/access-control.md#归属访问授权与分享). */
+/** What an access grant points at (doc/design/access-control.md "Ownership, access grants and sharing"). */
 export type AccessTargetType = "node" | "node_group";
 
-/** A node group as a node response names it (D109). */
+/** A node group as a node response names it. */
 export interface NodeGroupRef {
 	id: string;
 	name: string;
@@ -31,7 +31,7 @@ export interface NodeGroup extends NodeGroupRef {
 	memberIds: string[];
 }
 
-/** `GET /api/node-groups`; `more` is present only with `limit` (doc/webui.md "实体搜索"). */
+/** `GET /api/node-groups`; `more` is present only with `limit` (doc/design/webui.md "Entity search"). */
 export interface NodeGroupListResponse {
 	groups: NodeGroup[];
 	more?: boolean;
@@ -61,7 +61,7 @@ export interface NodeAccessGrantFilter {
 	granteeId?: string;
 }
 
-/** A trust alias or trust entry that is out of sync with crhs-managed node groups (D110). */
+/** A trust alias or trust entry that is out of sync with crhs-managed node groups. */
 export type TrustWarningKind = "alias_superfluous" | "alias_unknown" | "alias_missing" | "trust_unknown";
 export type TrustWarningSeverity = "danger" | "warning" | "info";
 
@@ -83,7 +83,7 @@ export type TrustEntry = ProtocolTrustEntry;
 export type TrustSummary = ProtocolTrustSummary;
 export type GuardRule = ProtocolGuardRule;
 
-/** The trust panel of a node (doc/privilege.md "信任缓存"). */
+/** The trust panel of a node (doc/design/privilege.md "Trust cache"). */
 export interface NodeTrust {
 	status: TrustStatus | null;
 	message: string | null;
@@ -114,11 +114,11 @@ export interface PublicNode {
 	connected: boolean | null;
 	/**
 	 * The node's measured clock offset from crhs, when it exceeds the warning threshold
-	 * (doc/privilege.md#时钟). `offsetMs` is local clock minus crhs (positive: the node is ahead);
+	 * (doc/design/privilege.md "Clock"). `offsetMs` is local clock minus crhs (positive: the node is ahead);
 	 * null when the offset is within the threshold, the warning is off, or there is no measurement.
 	 */
 	clockWarning: { offsetMs: number; thresholdMs: number } | null;
-	/** Out-of-sync trust aliases and unknown trust entries (doc/privilege.md#信任缓存, D110). */
+	/** Out-of-sync trust aliases and unknown trust entries (doc/design/privilege.md "Trust cache"). */
 	trustWarnings: TrustWarning[];
 }
 
@@ -167,7 +167,7 @@ export interface SshTargetInput extends SshHopInput {
 	jumps?: SshHopInput[];
 }
 
-/** How crhs reaches an SSH node (administrators only, D108). */
+/** How crhs reaches an SSH node (administrators only). */
 export interface SshNodeDetails {
 	/** Jump hosts in order, then the node itself. */
 	hops: SshHop[];

@@ -24,7 +24,7 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 	describe("with a connected node", () => {
 		let env: Env;
 		beforeAll(async () => {
-			// Shorten the offline grace (D113; the default is 30 s) so the offline-node test reaches the failure.
+			// Shorten the offline grace (the default is 30 s) so the offline-node test reaches the failure.
 			env = await Env.create(bin, tmp, { nodeOfflineGraceMs: 500 });
 			await env.bringUp();
 		}, 60_000);
@@ -88,7 +88,7 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 			withLog(async () => {
 				const t = await run({ kind: "exec", shell: "echo hello; echo oops >&2; exit 3" });
 				expect(t).toMatchObject({ state: "exited", exitCode: 3, signal: null });
-				// One stream: stdout and stderr arrive in write order (D114).
+				// One stream: stdout and stderr arrive in write order.
 				expect(t.outputTail).toBe("hello\noops\n");
 
 				const stdin = await run({ kind: "exec", argv: ["cat"], stdin: "from stdin" });
@@ -225,7 +225,7 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 				expect(part.outputTail).toBe("Y!\n");
 
 				// A file operation reports its structured result in task.exit, and nothing on stdout
-				// (doc/protocol.md TaskResult).
+				// (doc/design/protocol.md "Task results").
 				const stat = await run({ kind: "file.stat", path });
 				expect(stat.state).toBe("exited");
 				expect(stat.result).toMatchObject({ kind: "file.stat", path, type: "file", size: 7 });

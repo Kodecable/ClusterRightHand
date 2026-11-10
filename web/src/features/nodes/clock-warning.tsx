@@ -17,7 +17,7 @@ function secondsText(offsetMs: number): string {
 }
 
 /**
- * The localized warning for a measured clock offset (doc/privilege.md#时钟). The measurement
+ * The localized warning for a measured clock offset (doc/design/privilege.md "Clock"). The measurement
  * happens once, when crha connects, so the text names it; the threshold is not part of the text.
  */
 export function clockWarningText(i18n: I18n, warning: NodeClockWarning): string {

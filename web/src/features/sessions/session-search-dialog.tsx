@@ -27,7 +27,7 @@ import { SESSION_LIST_SCOPE, useSessionSearch } from "./api";
 import { HighlightedText } from "./search-highlight";
 import { sessionTitle } from "./session-item";
 
-/** How long the typed text settles before the request (doc/webui.md "会话内容搜索"). */
+/** How long the typed text settles before the request (doc/design/webui.md "Session content search"). */
 const DEBOUNCE_MS = 250;
 /** The server caps a query at eight keywords; highlighting follows the same split. */
 const KEYWORDS_MAX = 8;
@@ -91,11 +91,11 @@ function sessionStateLabel(state: SessionSearchItem["state"], i18n: I18n): strin
 }
 
 /**
- * The session search dialog (doc/webui.md "会话内容搜索"): one debounced
+ * The session search dialog (doc/design/webui.md "Session content search"): one debounced
  * `GET /api/sessions/search` query per keyword set, grouped result rows and a
  * flat listbox for Up/Down/Enter navigation. A session header opens the root
  * session; a hit opens the entry's session with `?entry=<id>`, which the
- * session page scrolls to and highlights (doc/webui.md "跳到消息").
+ * session page scrolls to and highlights (doc/design/webui.md "Jumping to a message").
  *
  * Mounted once in the authenticated shell. The list's search button and
  * Ctrl/⌘+K open it through the module store, so any page can reach it.

@@ -16,7 +16,7 @@ interface ChangePasswordValues {
 }
 
 /**
- * The account's password dialog (react-hook-form + zod, doc/webui.md "表单").
+ * The account's password dialog (react-hook-form + zod, doc/design/webui.md "Forms").
  * The three fields are validated locally; the server still checks the current
  * password and its own policy.
  */

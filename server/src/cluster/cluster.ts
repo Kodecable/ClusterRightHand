@@ -1,6 +1,6 @@
 /**
  * The Cluster: crhs's execution plane, the node connections and the task state machine
- * (doc/execution-plane.md, doc/privilege.md). This class is the facade the rest of crhs programs
+ * (doc/design/execution.md, doc/design/privilege.md). This class is the facade the rest of crhs programs
  * against; the work is done by the modules next to it:
  *
  * - `core.ts`: the state and helpers every module shares;
@@ -60,7 +60,7 @@ export {
 
 /**
  * The Cluster core's execution side: node connections, task dispatch, the task state machine and its
- * failure semantics. See doc/execution-plane.md.
+ * failure semantics. See doc/design/execution.md.
  */
 export class Cluster {
 	readonly #core: ClusterCore;
@@ -97,7 +97,7 @@ export class Cluster {
 	}
 
 	/**
-	 * Settles the tasks a previous process left unfinished (doc/execution-plane.md#断线恢复). A client
+	 * Settles the tasks a previous process left unfinished (doc/design/execution.md "Reconnect"). A client
 	 * node's dispatched or running tasks are treated as detached now, so the reconnect grace they get is
 	 * the same as after a disconnect: a node that comes back within it resolves them through hello, and
 	 * one that does not leaves them `unknown`. An SSH node has no connection to resume: its tasks are
@@ -139,7 +139,7 @@ export class Cluster {
 
 	/**
 	 * Tells a connected node about a status change, then closes the connection: crha reconnects as an
-	 * active node after approval, or stops (rejected) after deletion. See doc/execution-plane.md#注册.
+	 * active node after approval, or stops (rejected) after deletion. See doc/design/protocol.md "Node registration".
 	 */
 	notifyNodeStatus(nodeId: string, state: NodeStatus["state"], message: string): void {
 		links.notifyNodeStatus(this.#core, nodeId, state, message);
@@ -168,7 +168,7 @@ export class Cluster {
 	/**
 	 * Waits until the background work and the keyed queues have settled. close() does this before the
 	 * database is destroyed; a caller that must know a fire-and-forget dispatch is done (a submitted
-	 * authorization's dispatch runs in the background, D118) can await it as well.
+	 * authorization's dispatch runs in the background) can await it as well.
 	 */
 	drain(): Promise<void> {
 		return this.#core.drain();
@@ -191,7 +191,7 @@ export class Cluster {
 
 	/**
 	 * Creates a task. With a rule chain it is first judged: denied, left waiting for approval, or
-	 * dispatched. A node that is not connected at dispatch gets the offline grace (D113) and then
+	 * dispatched. A node that is not connected at dispatch gets the offline grace and then
 	 * fails with node_offline.
 	 */
 	createTask(input: CreateTaskInput): Promise<TaskView> {
@@ -200,8 +200,8 @@ export class Cluster {
 
 	/**
 	 * POST /api/authorizations: checks a user's authorization and stores it (for display and reuse). The
-	 * waiting tasks it covers are judged, claimed and sent in the background (D118), so this returns
-	 * once the authorization is stored; their outcome shows up in the task states (doc/m4.md M4.4).
+	 * waiting tasks it covers are judged, claimed and sent in the background, so this returns
+	 * once the authorization is stored; their outcome shows up in the task states (doc/design/privilege.md "Authorizations").
 	 */
 	submitAuthorization(user: SessionUser, submitted: SubmittedAuthorization): Promise<{ id: string }> {
 		return authorizations.submitAuthorization(this.#core, user, submitted);
@@ -211,14 +211,14 @@ export class Cluster {
 	 * Settles a task waiting for approval. Returns false if it is not waiting with the handler `expect`
 	 * names (already settled, or the handler changed since the caller's read); `node_deleted` when the
 	 * approval was recorded but the node was gone, so the task ended without dispatching. The expectation
-	 * is checked again in the task's turn (D118); omitted, any handler will do, but the row must have one.
+	 * is checked again in the task's turn; omitted, any handler will do, but the row must have one.
 	 */
 	decide(id: string, decision: ApprovalDecision, expect?: ApprovalExpect): Promise<DecisionResult> {
 		return tasks.decide(this.#core, id, decision, expect);
 	}
 
 	/**
-	 * Ends the waiting tasks of a node that was just deleted (doc/execution-plane.md#状态机): they can
+	 * Ends the waiting tasks of a node that was just deleted (doc/design/execution.md "State machine"): they can
 	 * never dispatch, and nothing else would ever settle them. Returns how many tasks ended.
 	 */
 	endNodeTasks(nodeId: string): Promise<number> {
@@ -244,7 +244,7 @@ export class Cluster {
 	}
 
 	/**
-	 * Judges waiting tasks again after rules on their chain changed (doc/access-control.md#审批): allow
+	 * Judges waiting tasks again after rules on their chain changed (doc/design/access-control.md "Approvals"): allow
 	 * dispatches them, deny ends them, require-approval leaves them waiting.
 	 */
 	reevaluate(ref: RuleRef): Promise<void> {
@@ -285,7 +285,7 @@ export class Cluster {
 	 * authorization signature was never dispatched, so it ends here instead (there is no node-side task).
 	 * A task claimed for dispatch records the request on its row and returns true even while the node is
 	 * offline, so the dispatch path ends it instead of sending its task.start
-	 * (doc/execution-plane.md#任务取消). Returns false if the task already ended, or when it already runs
+	 * (doc/design/execution.md "Task cancellation"). Returns false if the task already ended, or when it already runs
 	 * and the node is offline. `message` replaces the default reason of a task that ends before dispatch
 	 * (e.g. its session was stopped). `by` is the actor who asked for the cancellation: the task.finished
 	 * audit event names it, or the system when it is absent.
@@ -296,7 +296,7 @@ export class Cluster {
 
 	/**
 	 * Ends the tasks whose signature has not arrived within AUTHORIZATION_WAIT_MS since they began to wait
-	 * (doc/privilege.md#等待签名的期限): from the approval decision when there was one, else from creation.
+	 * (doc/design/privilege.md "Waiting for signatures"): from the approval decision when there was one, else from creation.
 	 * Run at startup and by the periodic sweep; returns how many tasks it ended.
 	 */
 	expireAuthorizationWaits(nowMs?: number): Promise<number> {

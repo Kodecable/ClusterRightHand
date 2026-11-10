@@ -1,5 +1,5 @@
 /**
- * Schedules (doc/scheduling.md): a schedule, its runs and the create/update
+ * Schedules (doc/design/scheduling.md): a schedule, its runs and the create/update
  * body.
  */
 
@@ -9,7 +9,7 @@ import type { Rule, RulePreset } from "./policy.ts";
 
 export type ScheduleRunStatus = "pending" | "running" | "succeeded" | "failed" | "preempted";
 
-/** One firing of a schedule (doc/scheduling.md "调度"). */
+/** One firing of a schedule (doc/design/scheduling.md "Triggering and submission"). */
 export interface ScheduleRunView {
 	id: string;
 	scheduleId: string;
@@ -24,7 +24,7 @@ export interface ScheduleRunView {
 	finishedAt: string | null;
 }
 
-/** A schedule and what the list shows about it (doc/scheduling.md "形态"). */
+/** A schedule and what the list shows about it (doc/design/scheduling.md "Schedule model"). */
 export interface ScheduleView {
 	id: string;
 	ownerUserId: string;

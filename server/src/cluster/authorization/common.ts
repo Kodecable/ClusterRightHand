@@ -11,10 +11,10 @@ import type { ClusterCore } from "../core.ts";
 import type { NodeLink } from "../links.ts";
 import { endTask, failNodeOffline } from "../task-end.ts";
 
-/** The error code of a task a forward node cannot take because its aliases lack a node group the authorization addresses (D110). */
+/** The error code of a task a forward node cannot take because its aliases lack a node group the authorization addresses. */
 export const ALIAS_MISSING = "alias_missing";
 
-/** A node group a reusable authorization addresses that the node does not trust as an alias (D110). */
+/** A node group a reusable authorization addresses that the node does not trust as an alias. */
 export interface MissingAlias {
 	groupId: string;
 	groupName: string;
@@ -47,7 +47,7 @@ export function withdrawLocal(
 	});
 }
 
-/** Ends a task that could not be authorized, with the plan and the reason on its record. Callers run this in a turn of the task's queue (D118); returns whether the row matched. */
+/** Ends a task that could not be authorized, with the plan and the reason on its record. Callers run this in a turn of the task's queue; returns whether the row matched. */
 export async function finishAuthorization(
 	core: ClusterCore,
 	id: string,
@@ -58,7 +58,7 @@ export async function finishAuthorization(
 	record: TaskAuthorizationRecord | null,
 ): Promise<boolean> {
 	// Withdraw first, even when the row turns out settled: another path may have claimed the task
-	// while its request was still outstanding on the node (doc/privilege.md#本地批准).
+	// while its request was still outstanding on the node (doc/design/privilege.md "Local approval").
 	withdrawLocal(core.links.get(row.node_id), id, record);
 	return endTask(core, id, {
 		write: {
@@ -82,9 +82,9 @@ export async function finishAuthorization(
 }
 
 /**
- * Ends a waiting task whose node did not become ready within the offline grace (D113), keeping the
+ * Ends a waiting task whose node did not become ready within the offline grace, keeping the
  * record it was waiting on. The outstanding local request is withdrawn first, even when the write
- * loses the race (doc/privilege.md#本地批准).
+ * loses the race (doc/design/privilege.md "Local approval").
  */
 export async function finishNodeOffline(
 	core: ClusterCore,
@@ -103,7 +103,7 @@ export async function finishNodeOffline(
 
 /**
  * Ends a waiting task that only a node group alias the node lacks stands between it and a reusable
- * authorization (D110), unless local approval can still authorize it (a single task only).
+ * authorization, unless local approval can still authorize it (a single task only).
  */
 export async function failAliasMissing(
 	core: ClusterCore,
@@ -124,7 +124,7 @@ export async function failAliasMissing(
 	);
 }
 
-/** The failure line of a group-addressed reusable authorization the node has no alias for (D110). */
+/** The failure line of a group-addressed reusable authorization the node has no alias for. */
 export function aliasMissingMessage(group: MissingAlias): string {
 	return `this node does not trust node group ${group.groupName} (${group.groupId}) as an alias; add "${group.groupId}" to aliases in privileged.toml on the node, then run the task again`;
 }

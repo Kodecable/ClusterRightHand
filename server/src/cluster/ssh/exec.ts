@@ -23,7 +23,7 @@ export interface SshExecSink {
 
 /**
  * The first stderr line of a privileged task on an SSH node: SSH has no privileged mode, so the task
- * runs as the SSH user and says so (doc/execution-plane.md#ssh-传输). Ordinary tasks get nothing.
+ * runs as the SSH user and says so (doc/design/execution.md "SSH transport"). Ordinary tasks get nothing.
  */
 export const SSH_PRIVILEGED_NOTICE = "crh: privileged was ignored: SSH nodes run tasks as the SSH user\n";
 
@@ -42,7 +42,7 @@ export interface SshShells {
  * The probe every new SSH connection runs before its first task. It follows crha's order: the first
  * absolute path in /etc/shells whose base name is sh (or bash) that exists and is executable, then
  * `command -v`. One line per shell, so the caller does not depend on the remote's shell syntax beyond
- * POSIX sh (doc/execution-plane.md#执行).
+ * POSIX sh (doc/design/execution.md "SSH execution").
  */
 export const SHELL_PROBE_COMMAND =
 	"for n in sh bash; do f=; " +
@@ -57,7 +57,7 @@ export const SHELL_PROBE_COMMAND =
 
 /**
  * Parses the probe's output; a missing line means the shell was not found. Only absolute paths are
- * accepted: a relative one is no shell this node reported (doc/execution-plane.md#执行).
+ * accepted: a relative one is no shell this node reported (doc/design/execution.md "SSH execution").
  */
 export function parseShellProbe(output: string): SshShells {
 	const shells: SshShells = { sh: null, bash: null };
@@ -105,11 +105,11 @@ export function probeShells(session: SshSession, timeoutMs = 10_000): Promise<Ss
  * The remote command line. sshd starts every command as a session leader, so the shell's pid is also its
  * process group id; `exec` keeps that pid through env and the wrapper, which reports it on stderr's first
  * line so that cancel and timeout can signal the whole group, then merges stderr into stdout so the task
- * has one output stream (D114). (setsid(1) would fork here, because the caller already leads its group,
+ * has one output stream. (setsid(1) would fork here, because the caller already leads its group,
  * and the exit status would be lost.)
  *
  * sh is the shell the connection's probe found: `shell` commands run on it, while authorization and
- * display keep rendering them as /bin/sh -c (doc/execution-plane.md#执行). LANG and LC_ALL are always
+ * display keep rendering them as /bin/sh -c (doc/design/execution.md "SSH execution"). LANG and LC_ALL are always
  * set; a task's own variables follow and win, because env(1) applies them in order.
  */
 export function buildCommand(spec: ExecSpec, sh = "/bin/sh"): string {
@@ -131,7 +131,7 @@ export function buildCommand(spec: ExecSpec, sh = "/bin/sh"): string {
 			return shellQuote(`${k}=${v}`);
 		});
 	// The pid goes to stderr first; `exec 2>&1` then merges the rest into stdout, so the task has one
-	// output stream and crhs never merges two (D114, doc/execution-plane.md#执行).
+	// output stream and crhs never merges two (doc/design/execution.md "SSH execution").
 	const wrapper = `printf 'crh-pgid:%s\\n' "$$" >&2; exec 2>&1; exec "$@"`;
 	return [
 		`cd ${shellQuote(cwd)} || exit 127;`,

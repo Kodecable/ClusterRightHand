@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * Schedules (doc/scheduling.md): one kind only, a cron that creates a new session owned by the schedule's
+ * Schedules (doc/design/scheduling.md): one kind only, a cron that creates a new session owned by the schedule's
  * owner and submits a fixed prompt. The rule set lives in `rule_sets` (scope_type = "schedule"); the runs are
  * in `schedule_runs` so a crash between firing and submitting neither loses nor duplicates one.
  */
@@ -16,7 +16,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("prompt", "text", (c) => c.notNull())
 		// JSON { provider, modelId, thinkingLevel? }
 		.addColumn("model", "text", (c) => c.notNull())
-		// The new session's root quota; null means unlimited (D92, doc/scheduling.md#授权规则与配额).
+		// The new session's root quota; null means unlimited (doc/design/scheduling.md "Rules and quotas").
 		.addColumn("token_budget", "bigint")
 		.addColumn("cron", "text", (c) => c.notNull())
 		.addColumn("timezone", "text", (c) => c.notNull())
@@ -38,14 +38,14 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("manual", "integer", (c) => c.notNull())
 		// pending | running | succeeded | failed | preempted
 		.addColumn("status", "text", (c) => c.notNull())
-		// Derived from the run id; null until the run started (doc/scheduling.md#调度).
+		// Derived from the run id; null until the run started (doc/design/scheduling.md "Triggering and submission").
 		.addColumn("session_id", "text")
 		.addColumn("reason", "text")
 		.addColumn("created_at", "text", (c) => c.notNull())
 		.addColumn("started_at", "text")
 		.addColumn("finished_at", "text")
 		.execute();
-	// Firing twice for the same time is impossible, even across a restart (doc/scheduling.md#调度).
+	// Firing twice for the same time is impossible, even across a restart (doc/design/scheduling.md "Triggering and submission").
 	await db.schema
 		.createIndex("schedule_runs_fire_idx")
 		.on("schedule_runs")

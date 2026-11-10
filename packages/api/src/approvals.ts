@@ -1,6 +1,6 @@
 /**
  * The approvals page: waiting approvals, tasks and groups waiting for the
- * caller's signature, and exhausted quotas (doc/webui.md "Approvals").
+ * caller's signature, and exhausted quotas (doc/design/webui.md "Approvals page").
  */
 
 import type { QuotaApproval } from "./sessions.ts";

@@ -2,7 +2,7 @@ import { Lexer, type Token } from "marked";
 
 /**
  * Incremental block splitting for streaming Markdown
- * (doc/webui.md "SafeMarkdown" items 1, 2 and 5).
+ * (doc/design/webui.md "SafeMarkdown" items 1, 2 and 5).
  *
  * Markdown renders block by block — `react-markdown` is mounted once per
  * top-level block — so only the last (growing) block is re-parsed. This module

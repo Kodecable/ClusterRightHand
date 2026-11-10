@@ -19,7 +19,7 @@ async function pickTarget(page: Page, name: string | RegExp): Promise<void> {
 	await page.keyboard.press("Escape");
 }
 
-/** Creates the "web" node group with the enrolled node as its only member (D109). */
+/** Creates the "web" node group with the enrolled node as its only member. */
 async function createWebGroup(crhs: InProcessCrhs, env: Env): Promise<void> {
 	const created = await crhs.api("/api/node-groups", { body: { name: "web" } });
 	expect(created.status).toBe(201);

@@ -1,5 +1,5 @@
 /**
- * Creating and dispatching a task (doc/execution-plane.md#状态机): judging it with the rule chain, writing
+ * Creating and dispatching a task (doc/design/execution.md "State machine"): judging it with the rule chain, writing
  * its row, and moving it out of awaiting_approval to the node, to the authorization of a privileged task,
  * or to an SSH run.
  */
@@ -49,7 +49,7 @@ export async function evaluateFor(
 /**
  * How the rule chain judges `spec` on each node. A task group judges every node before its members start,
  * and the chain and the spec are the same for all of them: the chain is loaded once and the nodes' groups
- * in one query, instead of two queries per node (doc/execution-plane.md#状态机).
+ * in one query, instead of two queries per node (doc/design/execution.md "State machine").
  */
 export async function evaluateForNodes(
 	core: ClusterCore,
@@ -80,7 +80,7 @@ export async function evaluateForNodes(
 
 /**
  * Creates a task. With a rule chain it is first judged: denied, left waiting for approval, or
- * dispatched. A node that is not connected at dispatch gets the offline grace (D113) and then
+ * dispatched. A node that is not connected at dispatch gets the offline grace and then
  * fails with node_offline.
  */
 export async function createTask(core: ClusterCore, input: CreateTaskInput): Promise<TaskView> {
@@ -103,7 +103,7 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 	const privileged = input.privileged === true;
 	if (input.chain) {
 		// Every task is judged at creation, including a task group member: the group's own judgment is
-		// only about whether the whole group waits, and rules may have changed since (doc/access-control.md#审批).
+		// only about whether the whole group waits, and rules may have changed since (doc/design/access-control.md "Approvals").
 		const evaluation = await evaluateFor(core, node, input.spec, input.chain, privileged);
 		approval = { evaluation };
 		verdict = evaluation.result;
@@ -114,7 +114,7 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 	}
 	const waiting = verdict === "require-approval" && input.noWait !== true;
 	// A group member that cannot wait ends here instead of parking inside a group that already started:
-	// nobody would ever decide it, and the group would wait for it forever (doc/execution-plane.md#状态机).
+	// nobody would ever decide it, and the group would wait for it forever (doc/design/execution.md "State machine").
 	const rejected = verdict === "require-approval" && input.noWait === true;
 	const denied = verdict === "deny";
 	const endedAtCreation = denied || rejected;
@@ -195,11 +195,11 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 	});
 	if (!waiting && !denied && !rejected) {
 		try {
-			// dispatch() manages its own turns: the wait for the node happens outside them (D118).
+			// dispatch() manages its own turns: the wait for the node happens outside them.
 			await dispatch(core, id, node, spec, inputBytes, input);
 		} catch (err) {
 			// The row was written to be dispatched at once: it must not stay in awaiting_approval, where it
-			// would look like an approval nobody can decide (doc/execution-plane.md#状态机).
+			// would look like an approval nobody can decide (doc/design/execution.md "State machine").
 			await endUndispatched(core, id, err);
 			throw err;
 		}
@@ -224,7 +224,7 @@ type DispatchTurn =
 
 /**
  * Moves a task out of awaiting_approval: sends it, parks it for authorization, or fails it. Called
- * outside any queue turn (D118): the wait for the node is outside, the claim and the access checks are
+ * outside any queue turn: the wait for the node is outside, the claim and the access checks are
  * one short turn, and the send (or the planning of a privileged task) follows outside it.
  */
 export async function dispatch(
@@ -235,7 +235,7 @@ export async function dispatch(
 	inputBytes: Uint8Array,
 	opts: { privileged?: boolean; timeoutMs?: number },
 ): Promise<void> {
-	// Access may have been revoked while the task waited for approval or a signature (D108). The check
+	// Access may have been revoked while the task waited for approval or a signature. The check
 	// and the failure it writes are one turn on a fresh read, before anything waits for the node.
 	const before = await core.taskQueue.run(id, async (): Promise<Selectable<TasksTable> | null> => {
 		const current = await core.row(id);
@@ -249,10 +249,10 @@ export async function dispatch(
 	if (!before) return;
 	const nodeNow = await getNode(core.db, node.id);
 	const ssh = node.transport === "ssh";
-	// A forward privileged task also waits for its new connection's trust report (D113).
+	// A forward privileged task also waits for its new connection's trust report.
 	const trust = !ssh && before.privileged === 1 && nodeNow?.privileged_mode === "forward";
 	// A connected node dispatches at once; planPrivileged then waits for the trust report as before.
-	// D113: a node that is off when crhs wants to send gets the grace to reconnect, not an instant failure.
+	// A node that is off when crhs wants to send gets the grace to reconnect, not an instant failure.
 	const ready = await core.readyNode(node.id, { trust });
 	if (!ready) {
 		// The row may have been cancelled or settled while the grace ran: only a still-waiting task fails.
@@ -272,7 +272,7 @@ export async function dispatch(
 			await failNodeAccessRevoked(core, id, current, ["awaiting_approval"]);
 			return { kind: "done" };
 		}
-		// A privileged task on a forward node needs an authorization before task.start (doc/privilege.md#授权路径).
+		// A privileged task on a forward node needs an authorization before task.start (doc/design/privilege.md "Authorization path").
 		// native/ignore/reject nodes, SSH nodes and ordinary tasks keep the plain claim below.
 		if (!ssh && link && current.privileged === 1 && fresh.privileged_mode === "forward") {
 			return { kind: "plan", link };

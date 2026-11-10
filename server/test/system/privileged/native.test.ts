@@ -1,6 +1,6 @@
 /**
  * The native, ignore and reject cases of the privileged system suite
- * (doc/testing/privileged.md):
+ * (doc/design/testing/privileged.md):
  *
  * - native (sudo / doas): exec / file, cancel and timeout, and privileged_unsupported when the
  *   escalation tool cannot start the helper.

@@ -34,7 +34,7 @@ type SSHSIGResult struct {
 }
 
 // VerifySSHSIG verifies an OpenSSH SSHSIG blob over message and returns the signer's
-// public key. It implements doc/protocol.md#授权对象 literally:
+// public key. It implements doc/design/protocol.md "Authorization object" literally:
 //
 //   - magic "SSHSIG", version 1, no trailing bytes;
 //   - namespace crh-auth-v1, empty reserved field;
@@ -134,7 +134,7 @@ func VerifySSHSIG(blob, message []byte) (*SSHSIGResult, error) {
 // SignerKey returns the public key embedded in an SSHSIG blob without verifying the
 // signature. A verifier uses it to tell a failed signature by a trusted key, which
 // invalidates the whole authorization, from a signature by a key no trust entry knows,
-// which is ignored (doc/privilege.md 校验流程, step 3).
+// which is ignored (doc/design/privilege.md "Validation flow", step 3).
 func SignerKey(blob []byte) (ssh.PublicKey, error) {
 	key, _, err := parseSSHSIGKey(blob)
 	return key, err

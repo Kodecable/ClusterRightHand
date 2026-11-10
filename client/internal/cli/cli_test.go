@@ -146,7 +146,7 @@ func TestNotImplemented(t *testing.T) {
 	}
 }
 
-// TestNoMCPCommand covers D65 (doc/README.md): crha does not provide an stdio MCP bridge, so the
+// TestNoMCPCommand covers the no-stdio-bridge limitation (doc/design/architecture.md "Known limitations"): crha does not provide an stdio MCP bridge, so the
 // command must not be registered at all.
 func TestNoMCPCommand(t *testing.T) {
 	root := NewRootCmd()
@@ -205,7 +205,7 @@ func TestChooseEntry(t *testing.T) {
 }
 
 // TestApprovalView covers the specification `crha pending`, `crha approve` and `crha deny` show:
-// every field of the spec and the spec_sha256 the verdict is bound to (doc/privilege.md 本地批准).
+// every field of the spec and the spec_sha256 the verdict is bound to (doc/design/privilege.md "Local approval").
 func TestApprovalView(t *testing.T) {
 	data := []byte("hello")
 	sum := sha256.Sum256(data)

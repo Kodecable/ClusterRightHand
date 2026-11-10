@@ -1,7 +1,7 @@
 import type { SessionListItem } from "@crh/api";
 
 /**
- * The session list's date groups (doc/webui.md#侧边列表): Today, Yesterday, Within 7 days, Within 30 days, then
+ * The session list's date groups (doc/design/webui.md "Sidebar list"): Today, Yesterday, Within 7 days, Within 30 days, then
  * one group per calendar month, all read from `updatedAt` — the field the list is sorted by — in the browser's
  * local time zone. Days are calendar days, so a DST change (a 23- or 25-hour local day) cannot shift a group. The
  * grouping is a pure function of the items, so a paged append or a live patch that moves an item regroups the

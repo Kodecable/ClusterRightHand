@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * Token quotas replace budgets (doc/agent-runtime.md#配额): one signed integer of remaining tokens per session.
+ * Token quotas replace budgets (doc/design/agent-runtime.md "Quota and token accounting"): one signed integer of remaining tokens per session.
  * Usage is charged after each response; a level whose quota is not above zero stops its run. No monetary cost.
  *
  * Existing token budgets become remaining quotas (`tokens - used`), so an overspent session starts negative.

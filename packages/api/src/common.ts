@@ -1,12 +1,12 @@
 /**
- * Shapes that every crhs HTTP API module shares (doc/webui.md "API 约定").
+ * Shapes that every crhs HTTP API module shares (doc/design/webui.md "API conventions").
  *
  * The types in this package are the Web API's wire types: the JSON the server
  * sends and accepts. They live here so that crhs and the WebUI use one
  * definition instead of two copies that drift.
  */
 
-/** One page of a keyset-cursor list (doc/webui.md "游标列表"). */
+/** One page of a keyset-cursor list (doc/design/webui.md "Cursor pagination"). */
 export interface CursorPage<T> {
 	items: T[];
 	nextCursor: string | null;
@@ -43,5 +43,5 @@ export interface RefTarget {
 	name: string;
 }
 
-/** Display names for stored UUID references, keyed by id (D109). */
+/** Display names for stored UUID references, keyed by id. */
 export type RefMap = Record<string, RefTarget | null>;

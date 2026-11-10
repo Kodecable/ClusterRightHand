@@ -16,7 +16,7 @@ import { settleInput } from "./runtime-state.ts";
 import { recordTreeReply } from "./session-replies.ts";
 
 /**
- * Submitting user input and tracking the run it starts (doc/agent-runtime.md#会话状态). A submission is
+ * Submitting user input and tracking the run it starts (doc/design/agent-runtime.md "Session state"). A submission is
  * durable's unit of work: the session row points at the latest one, an input that queues behind a running one
  * changes nothing, and the run ends when that latest input settles.
  */
@@ -32,7 +32,7 @@ export async function submit(
 	text: string,
 	requestId: string,
 ): Promise<string> {
-	// A user driving a session shared with them still acts on behalf of its owner (doc/access-control.md).
+	// A user driving a session shared with them still acts on behalf of its owner (doc/design/access-control.md).
 	return submitInput(host, sessionId, text, requestId, { type: "user", id: by.userId });
 }
 
@@ -48,8 +48,8 @@ export interface CompactTask {
 }
 
 /**
- * Manually compacts the session (doc/agent-runtime.md#会话): the summary is made in the background and placed at
- * once when the conversation is idle, otherwise at its next boundary. Compaction spends output tokens (D92).
+ * Manually compacts the session (doc/design/agent-runtime.md "Sessions"): the summary is made in the background and placed at
+ * once when the conversation is idle, otherwise at its next boundary. Compaction spends output tokens.
  * The outcome tells the caller whether durable found anything to summarize; a summary that is still being made
  * counts as `started`.
  */
@@ -70,7 +70,7 @@ export async function compact(
 		);
 	}
 	const taskId = await conversation.compact(instructions, host.context);
-	// A manual compaction is a run of its own (doc/agent-runtime.md#会话状态): an idle session shows it while the
+	// A manual compaction is a run of its own (doc/design/agent-runtime.md "Session state"): an idle session shows it while the
 	// summary is made. The conditional update revives only the idle row that was read, never a run that started since.
 	if (row.state === "idle") {
 		const at = new Date().toISOString();
@@ -106,7 +106,7 @@ export async function compact(
 }
 
 /**
- * Says whether a manual compaction found an old history to summarize (doc/agent-runtime.md#会话): durable's
+ * Says whether a manual compaction found an old history to summarize (doc/design/agent-runtime.md "Sessions"): durable's
  * `select` phase completes at once with an empty result when the recent window already holds everything, and
  * otherwise moves on to the summarization model call. A summary still being made counts as `started`.
  */
@@ -127,7 +127,7 @@ async function compactionOutcome(host: RuntimeHost, taskId: TaskId<CompactionRes
 }
 
 /**
- * Ends the run a manual compaction revived (doc/agent-runtime.md#会话状态): the session is idle again once the summary
+ * Ends the run a manual compaction revived (doc/design/agent-runtime.md "Session state"): the session is idle again once the summary
  * is placed or the task ends, but only while it is still that run — a newer input or a stop wins.
  */
 async function trackCompaction(
@@ -170,7 +170,7 @@ async function trackCompaction(
 }
 
 /**
- * Submits a schedule run's fixed prompt (doc/scheduling.md#调度). The request id is derived from the
+ * Submits a schedule run's fixed prompt (doc/design/scheduling.md "Triggering and submission"). The request id is derived from the
  * schedule and the fire time, so a resubmitted run returns its first submission instead of sending twice;
  * `checkQuota: false` is for that recovery path, where the run may have exhausted the quota by finishing.
  */
@@ -256,7 +256,7 @@ export async function recordInput(host: RuntimeHost, sessionId: string, submissi
 		if (res.numUpdatedRows === 0n) continue;
 		host.sessionList.publishSession(sessionId);
 		// The list shows "last activity": a user message at submission, the assistant's at run end. Streaming
-		// commits in between do not touch the row (doc/webui.md#会话列表).
+		// commits in between do not touch the row (doc/design/webui.md "Session list API").
 		void submission
 			.wait(host.context)
 			.then(async () => {
@@ -297,7 +297,7 @@ export async function waitForSubmission(
 }
 
 /**
- * Request ids of the submissions still queued or placed (doc/scheduling.md#调度): a scheduled run whose
+ * Request ids of the submissions still queued or placed (doc/design/scheduling.md "Triggering and submission"): a scheduled run whose
  * submission has not settled is still active after a restart, even when its run row already says `preempted`.
  */
 export async function unsettledSubmissionRequests(host: RuntimeHost): Promise<Set<string>> {

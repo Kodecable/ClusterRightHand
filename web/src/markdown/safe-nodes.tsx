@@ -12,7 +12,7 @@ interface AnchorProps {
 /**
  * Every rendered link goes through here. An unsafe URL never reaches the DOM:
  * the anchor is downgraded to a span, so `a[href]` in the output can only ever
- * be http(s)/mailto (doc/webui.md "SafeMarkdown" — security rules).
+ * be http(s)/mailto (doc/design/webui.md "SafeMarkdown" — security rules).
  */
 export function SafeLink({ href, title, className, children }: AnchorProps) {
 	const verdict = inspectUrl(href);
@@ -47,7 +47,7 @@ interface ImageProps {
 /**
  * Images are never loaded: a remote `<img>` in an agent answer is both a
  * privacy leak (the URL is a beacon) and a tracking vector. Render a text link
- * instead (doc/webui.md "不渲染 <img>").
+ * instead (doc/design/webui.md "SafeMarkdown").
  */
 export function TextImage({ src, alt }: ImageProps) {
 	const verdict = inspectUrl(src);

@@ -62,7 +62,7 @@ func TestPrivilegedFilePlainPaths(t *testing.T) {
 	writeFile(t, p, "one\ntwo\nthree\n", 0o640)
 
 	// The privileged executor pages by lines exactly like the unprivileged one, with the protections
-	// around the open (doc/privilege.md 方法与目标).
+	// around the open (doc/design/privilege.md "Methods and targets").
 	read := func(start, count uint64) (string, *protocol.FileReadResult) {
 		t.Helper()
 		var out strings.Builder
@@ -401,7 +401,7 @@ func fileModeBits(t *testing.T, path string) string {
 
 // TestFileWriteSpecialModes covers the mode of a file.write: setuid, setgid and sticky are kept,
 // both when the request names them and when an existing file's mode is reused
-// (doc/privilege.md 方法与目标).
+// (doc/design/privilege.md "Methods and targets").
 func TestPrivilegedFileWriteCreateParentDirs(t *testing.T) {
 	dir := privateDir(t)
 	p := filepath.Join(dir, "a", "b", "f")
@@ -498,7 +498,7 @@ func TestFileWriteSpecialModes(t *testing.T) {
 
 // TestPrivilegedFileSpecialFiles covers FIFOs and sockets: opening one for reading must not block
 // a privileged file task forever, so both are refused with not_regular_file
-// (doc/privilege.md 方法与目标).
+// (doc/design/privilege.md "Methods and targets").
 func TestPrivilegedFileSpecialFiles(t *testing.T) {
 	dir := privateDir(t)
 	fifo := filepath.Join(dir, "fifo")

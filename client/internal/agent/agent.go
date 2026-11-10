@@ -1,6 +1,6 @@
 // Package agent is crha's non-privileged mode: it keeps a connection to crhs, runs tasks, streams their
 // output and resumes after reconnects. It never replays a task: a task id it does not hold is unknown.
-// See doc/execution-plane.md.
+// See doc/design/execution.md.
 package agent
 
 import (
@@ -34,7 +34,7 @@ const (
 	maxBackoff      = time.Minute
 
 	// defaultSpillBytes and defaultSpillLines are the single-task output thresholds from
-	// doc/execution-plane.md#输出. Batch "text"/"status" tasks always spill; they use these only
+	// doc/design/execution.md "Output". Batch "text"/"status" tasks always spill; they use these only
 	// as the memory thresholds when the output file cannot be created.
 	defaultSpillBytes = 50 << 10
 	defaultSpillLines = 2000
@@ -111,7 +111,7 @@ type Options struct {
 	OutputDir string
 	Logger    *slog.Logger
 	// PrivilegedMode is the [privileged] mode from the configuration and is reported in Hello:
-	// reject, ignore, forward or native (doc/privilege.md). An empty mode behaves like reject.
+	// reject, ignore, forward or native (doc/design/privilege.md). An empty mode behaves like reject.
 	PrivilegedMode string
 	// NativePrefix is the argv prefix that runs the native helper as the target identity, for
 	// example ["sudo", "-n"]; the helper's executable and "privileged stdio" are appended. It is
@@ -271,8 +271,7 @@ func (a *Agent) session(ctx context.Context, conn *transport.Conn) error {
 	a.mu.Lock()
 	a.conn, a.peer = conn, peer
 	a.mu.Unlock()
-	// The trust report follows the hello response, once per connection (doc/protocol.md
-	// trust.summary).
+	// The trust report follows the hello response, once per connection (doc/design/protocol.md "Trust summary").
 	a.announceTrust()
 	defer func() {
 		a.mu.Lock()
@@ -344,7 +343,7 @@ func (a *Agent) pendingSession(ctx context.Context, conn *transport.Conn) error 
 func (a *Agent) newPeer(ctx context.Context, conn *transport.Conn, ns *nodeStatus, tasks bool) *protocol.Peer {
 	// The request worker keeps the receive loop reading while a handler waits: a forwarded
 	// request can block on the privileged mode, and crhs's pong must still be processed
-	// (doc/protocol.md task.start). Handlers still run one at a time, in arrival order.
+	// (doc/design/protocol.md "task.start"). Handlers still run one at a time, in arrival order.
 	peer := protocol.NewPeer(func(frame []byte) error { return conn.Send(ctx, frame) }, conn.Negotiated,
 		protocol.WithRequestWorker())
 	peer.HandleEvent(protocol.EventNodeStatus, ns.handle)
@@ -540,7 +539,7 @@ func nextPing() time.Duration {
 }
 
 // mode returns the configured privileged mode. An empty mode behaves like reject, which is also
-// the configuration default (doc/privilege.md 非特权模式如何处理特权任务).
+// the configuration default (doc/design/privilege.md "Privilege modes").
 func (a *Agent) mode() string {
 	if a.opts.PrivilegedMode == "" {
 		return config.ModeReject
@@ -549,7 +548,7 @@ func (a *Agent) mode() string {
 }
 
 // checkClock logs a warning when the clock offset measured in the crhs handshake exceeds
-// [clock_warn] (doc/privilege.md 时钟). Nothing else depends on the offset.
+// [clock_warn] (doc/design/privilege.md "Clock"). Nothing else depends on the offset.
 func (a *Agent) checkClock(conn *transport.Conn) {
 	threshold := a.opts.ClockWarn
 	if threshold <= 0 {

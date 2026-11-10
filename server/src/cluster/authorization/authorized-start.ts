@@ -1,5 +1,5 @@
 /**
- * Sending an authorized task.start (doc/execution-plane.md#不重复执行与授权重试): crhs's own signature,
+ * Sending an authorized task.start (doc/design/execution.md "No duplicate execution and authorization retry"): crhs's own signature,
  * the last checks before the frame leaves, and the retry with a higher attempt after the node rejected
  * the authorization.
  */
@@ -39,7 +39,7 @@ import { pendingInputColumn, sendTaskStart, taskStartOf } from "../task-start.ts
 import { finishAuthorization, withdrawLocal, withoutRequests } from "./common.ts";
 import { replanWaiting } from "./plan.ts";
 
-/** A claimed privileged task whose task.start may now be sent, outside the turn that claimed it (D118). */
+/** A claimed privileged task whose task.start may now be sent, outside the turn that claimed it. */
 export interface AuthorizedStart {
 	nodeId: string;
 	start: TaskStart;
@@ -50,7 +50,7 @@ export interface AuthorizedStart {
 /**
  * Claims the task for crhs's own signature: signs and encodes the payload, stores it, withdraws a local
  * request, and writes the rev-guarded claim. The task.start is NOT sent here: it waits for the node's
- * answer, so its caller sends it outside the turn (D118). Returns what to send, or null when the claim
+ * answer, so its caller sends it outside the turn. Returns what to send, or null when the claim
  * lost (the task then dispatches from no path).
  */
 export async function claimCrhs(
@@ -97,7 +97,7 @@ export async function claimCrhs(
 		);
 		return null;
 	}
-	// An authorization may take at most half a frame so the rest of task.start still fits (doc/protocol.md#授权对象).
+	// An authorization may take at most half a frame so the rest of task.start still fits (doc/design/protocol.md "Authorization object").
 	if (encoded.length > MAX_FRAME_BYTES / 2) {
 		await finishAuthorization(
 			core,
@@ -137,7 +137,7 @@ export async function claimCrhs(
 	if (!claimed) return null;
 	// crhs-signed authorizations are audited like user ones, but only once their task.start will be sent: a
 	// cancelled task must not leave an authorization.issued event for a payload the node never received
-	// (doc/access-control.md#记录内容).
+	// (doc/design/access-control.md "Recorded events").
 	if (stored) {
 		core.auditLater({
 			actor: { type: "system", id: "cluster", onBehalfOfUserId: row.on_behalf_of_user_id },
@@ -192,9 +192,9 @@ export async function dispatchCrhs(
 
 /**
  * Sends an authorized task.start and follows up: accepted, terminal failure, or a retryable
- * authorization rejection that re-plans with `attempt + 1` (doc/execution-plane.md#不重复执行与授权重试).
+ * authorization rejection that re-plans with `attempt + 1` (doc/design/execution.md "No duplicate execution and authorization retry").
  * The task is already claimed (`dispatched`); the node's current link is looked up here. Always called
- * outside a task turn (D118): the readiness wait is outside, the writes that settle the task are one
+ * outside a task turn: the readiness wait is outside, the writes that settle the task are one
  * turn each, in the task's queue.
  */
 export async function sendAuthorizedStart(
@@ -205,7 +205,7 @@ export async function sendAuthorizedStart(
 	record: TaskAuthorizationRecord,
 ): Promise<void> {
 	const id = start.taskId;
-	// Last check before the frame leaves: never send for a user who has lost access in the meantime (D108).
+	// Last check before the frame leaves: never send for a user who has lost access in the meantime.
 	const revoked = await core.taskQueue.run(id, async () => {
 		const current = await core.row(id);
 		if (current && !(await userCanAccessNode(core.db, current.on_behalf_of_user_id, nodeId))) {
@@ -222,7 +222,7 @@ export async function sendAuthorizedStart(
 		return false;
 	});
 	if (revoked) return;
-	// D113: the task is claimed for dispatch but the frame has not left yet; if the link dropped in
+	// The task is claimed for dispatch but the frame has not left yet; if the link dropped in
 	// between, the node still gets the grace to come back before the send fails.
 	const node = await getNode(core.db, nodeId);
 	const ready = await core.readyNode(nodeId, { trust: node?.privileged_mode === "forward" });
@@ -270,7 +270,7 @@ async function retryAuthorization(
 	message: string,
 ): Promise<void> {
 	// crha refreshes its trust summary before sending an authorization_* error on the same connection, and the
-	// summaries that arrived before this call must be stored before the plan is recomputed (doc/protocol.md#taskstart).
+	// summaries that arrived before this call must be stored before the plan is recomputed (doc/design/protocol.md "task.start").
 	// The tail is awaited outside the task turn: the trust work it waits for may need a task turn of its own.
 	await core.trustQueue.tail(link.conn.nodeId);
 	const row = await core.taskQueue.run(id, async (): Promise<Selectable<TasksTable> | null> => {
@@ -282,7 +282,7 @@ async function retryAuthorization(
 			return null;
 		}
 		const attempt = current.attempt + 1;
-		// Only crhs's own signature path is ruled out for good (D83): the owner may sign again for the
+		// Only crhs's own signature path is ruled out for good: the owner may sign again for the
 		// new attempt, and so may a local approver.
 		const tried =
 			record.dispatchedPath === "crhs" ? [...new Set<AuthorizationPath>([...record.tried, "crhs"])] : record.tried;
@@ -311,7 +311,7 @@ async function retryAuthorization(
 		dropLive(core, id);
 		core.notify(id);
 		core.background("task group state update failed", syncGroupState(core, current.task_group_id));
-		// The task waits for a signature again; the session is awaiting it (doc/agent-runtime.md#会话状态).
+		// The task waits for a signature again; the session is awaiting it (doc/design/agent-runtime.md "Session state").
 		core.onChange?.(current.actor_id);
 		return current;
 	});
@@ -319,7 +319,7 @@ async function retryAuthorization(
 }
 
 /**
- * Stores the signed payload, verbatim, for display and lookup (doc/m4.md#crhs-侧数据).
+ * Stores the signed payload, verbatim, for display and lookup (doc/design/privilege.md "Server-side authorization").
  * Returns whether this call inserted it (an id already present is left alone).
  */
 async function storeAuthorization(

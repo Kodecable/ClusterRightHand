@@ -241,7 +241,7 @@ function BodyLevelRows({
 const AUTO_FORMAT = "__auto";
 
 /**
- * The model editor of a custom provider (doc/agent-runtime.md#自定义提供方): all pi-ai fields,
+ * The model editor of a custom provider (doc/design/agent-runtime.md "Custom providers"): all pi-ai fields,
  * including both thinking modes and the advanced compat JSON. It is a dialog nested in the
  * provider dialog (Base UI nested dialogs); the header and footer stay fixed while the body
  * scrolls inside the popup's rounded frame.

@@ -112,7 +112,7 @@ export function modelName(crhs: InProcessCrhs): string {
 }
 
 /**
- * Creates a session through `POST /api/sessions` (D117): the first message is part of creation, so the
+ * Creates a session through `POST /api/sessions`: the first message is part of creation, so the
  * request carries a `message` and a `requestId`. Returns the new session's id.
  */
 export async function createSessionViaApi(
@@ -146,7 +146,7 @@ export async function createSessionViaApi(
 }
 
 /**
- * Creates a session through the draft page (D117), leaving its page open. The first message creates the
+ * Creates a session through the draft page, leaving its page open. The first message creates the
  * session; callers that script the faux model must queue their responses after this helper, because the
  * bootstrap message spends one model request. The title is set through the header afterwards.
  */

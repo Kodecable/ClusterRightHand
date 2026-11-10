@@ -1,7 +1,7 @@
 // Package taskinput is the input accounting of one task, shared by the agent (the unprivileged
 // mode, which receives task.input from crhs) and by the privileged task runner (which receives it
 // over crh-priv). It owns which tasks declare input, the offset, size and SHA-256 checks of every
-// chunk, and whether the declared input is complete (doc/protocol.md task.input).
+// chunk, and whether the declared input is complete (doc/design/protocol.md "Commands").
 package taskinput
 
 import (
@@ -93,7 +93,7 @@ type ChunkResult struct {
 }
 
 // Accept applies the offset, size and SHA-256 accounting of one task.input chunk. The error codes
-// are the ones of doc/protocol.md task.input; taskID appears in their messages.
+// are the ones of doc/design/protocol.md "Commands"; taskID appears in their messages.
 func (in *Input) Accept(taskID string, chunk *protocol.TaskInput) ChunkResult {
 	tooLarge := func() *protocol.RemoteError {
 		return &protocol.RemoteError{

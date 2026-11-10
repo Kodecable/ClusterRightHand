@@ -159,7 +159,7 @@ export async function createSshNode(
 			hostname: target.host,
 			facts: null,
 			client_version: null,
-			// SSH has no crha and no privileged mode; tasks run as the SSH user (D81).
+			// SSH has no crha and no privileged mode; tasks run as the SSH user.
 			privileged_mode: null,
 			last_seen_at: null,
 			created_at: now,

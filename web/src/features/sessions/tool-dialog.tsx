@@ -14,7 +14,7 @@ import { resultId, type ToolItem } from "./tool-call";
 import { approvalWait, authorizationWait, prettyJson } from "./tool-details";
 import type { TranscriptStreams } from "./transcript-streams";
 
-/** A cluster task result shows the same `TaskResult` as the task page (doc/webui.md "共享部件"). */
+/** A cluster task result shows the same `TaskResult` as the task page (doc/design/webui.md "Shared components"). */
 function ToolTask({ taskId }: { taskId: string }) {
 	const task = useTask(taskId);
 	const { t } = useLingui();
@@ -153,7 +153,7 @@ function ToolLiveOutput({ store }: { store: ReturnType<TranscriptStreams["tool"]
 }
 
 /**
- * A returned tool result (doc/agent-runtime.md#交给模型的输出d112): one JSON block keeps the pretty JSON
+ * A returned tool result (doc/design/agent-runtime.md "Tool output"): one JSON block keeps the pretty JSON
  * view, while a text result shows each raw or note block in its own monospace block.
  */
 function ToolResultContent({ result }: { result: NonNullable<ToolItem["result"]> }) {

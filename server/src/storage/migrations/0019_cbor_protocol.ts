@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Kysely } from "kysely";
 
 /**
- * M3.5 replaces protobuf JSON in the database with the CBOR wire JSON forms (doc/protocol.md#json-形式服务端存储):
+ * M3.5 replaces protobuf JSON in the database with the CBOR wire JSON forms (doc/design/protocol.md "JSON storage forms"):
  * `tasks.spec`, `task_groups.spec` and `nodes.facts` are converted, `task_groups.kind` gets the wire tag, and
  * `tasks.attempt` carries the dispatch attempt. Rows that cannot be converted are left as they are.
  */

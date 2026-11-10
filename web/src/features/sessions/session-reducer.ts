@@ -49,7 +49,7 @@ export interface SessionState {
 	 * The render key of the message being generated. Its rows keep this key
 	 * after `message_end`, so the committed message is the same React element
 	 * (and the same `TranscriptStreams` store) instead of a one-shot rerender of
-	 * the whole Markdown tree (doc/webui.md "SafeMarkdown" has the block cache).
+	 * the whole Markdown tree (doc/design/webui.md "SafeMarkdown" has the block cache).
 	 */
 	liveKey: string | undefined;
 	/** Counter that keeps `liveKey` unique per streamed message in this view, across reconnect snapshots. */
@@ -110,7 +110,7 @@ function entrySequence(id: string): number | undefined {
 }
 
 /**
- * A snapshot only carries the newest page of entries (doc/webui.md "会话事件流和历史").
+ * A snapshot only carries the newest page of entries (doc/design/webui.md "Session event stream and history").
  * Older pages the reader already loaded are not repeated in it, so they stay in
  * front on a reconnect, provided the two ranges overlap: at least one entry of
  * the previous state also appears in the snapshot. That overlap proves the
@@ -147,7 +147,7 @@ function mergeSnapshotEntries(
 
 /**
  * Prepends one page of older entries and moves `historyCursor` back
- * (doc/webui.md "会话事件流和历史"). Purely a prepend: the live streaming
+ * (doc/design/webui.md "Session event stream and history"). Purely a prepend: the live streaming
  * message, the running flag, the tool slots and the usage are left untouched,
  * and an entry that raced into the live stream is not duplicated. A tool
  * result on the newly loaded page whose call sits on a page not loaded yet is

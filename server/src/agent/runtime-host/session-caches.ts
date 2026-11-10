@@ -2,7 +2,7 @@ import type { SessionInfo } from "../runtime-core.ts";
 
 /**
  * What the runtime remembers about a session outside the database: its conversation, whether it has subagents,
- * and the provider session ids learned from its conversation (doc/agent-runtime.md#自定义提供方, D92).
+ * and the provider session ids learned from its conversation (doc/design/agent-runtime.md "Custom providers").
  */
 export class SessionCaches {
 	readonly #sessionsByConversation = new Map<string, SessionInfo>();
@@ -31,12 +31,12 @@ export class SessionCaches {
 		this.#subagentParents.add(sessionId);
 	}
 
-	/** The crh session id a provider session id maps to, for metering its compaction (D92). */
+	/** The crh session id a provider session id maps to, for metering its compaction. */
 	providerSessionOf(providerSessionId: string): string | undefined {
 		return this.#providerSessions.get(providerSessionId);
 	}
 
-	/** The provider session id of a crh session, for a custom provider's session id fields (D115). */
+	/** The provider session id of a crh session, for a custom provider's session id fields. */
 	providerSessionIdFor(sessionId: string): string | undefined {
 		return this.#providerSessionIds.get(sessionId);
 	}

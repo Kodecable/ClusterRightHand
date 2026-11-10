@@ -177,7 +177,7 @@ function TrustSnippetDialog({ credential, onClose }: { credential: CredentialVie
 }
 
 /**
- * Signing credentials (doc/m4.md M4.4): the SSH keys and Passkeys that let this
+ * Signing credentials (doc/design/privilege.md "Authorizations"): the SSH keys and Passkeys that let this
  * user authorize privileged tasks on a node. Each row exports the `[[trust]]`
  * block to paste into that node's privileged.toml.
  */

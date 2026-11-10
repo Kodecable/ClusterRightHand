@@ -24,7 +24,7 @@ import {
 } from "./store.ts";
 
 /**
- * The scheduler (doc/scheduling.md): a loop that wakes at the earliest `next_run_at` (at most every 60 s, and
+ * The scheduler (doc/design/scheduling.md): a loop that wakes at the earliest `next_run_at` (at most every 60 s, and
  * at once when a schedule changes), writes a pending run per due trigger in one transaction, then a submitter
  * that preempts the previous instance and creates + submits a new session. Firing and submitting are separate
  * so a crash between them loses nothing (pending runs are submitted on start, and the derived session id and
@@ -33,10 +33,10 @@ import {
  * The clock and the timer are injectable so tests drive time instead of sleeping.
  */
 
-/** Longest the loop sleeps; wakes sooner when the next run is closer (doc/scheduling.md#调度). */
+/** Longest the loop sleeps; wakes sooner when the next run is closer (doc/design/scheduling.md "Triggering and submission"). */
 export const MAX_SLEEP_MS = 60_000;
 
-/** Backoff after a failed trigger; doubles per consecutive failure of the same schedule (doc/scheduling.md#调度). */
+/** Backoff after a failed trigger; doubles per consecutive failure of the same schedule (doc/design/scheduling.md "Triggering and submission"). */
 export const FAILURE_BACKOFF_MS = 60_000;
 
 /** The backoff never grows past this. */
@@ -63,7 +63,7 @@ function defaultTimer(fn: () => void, ms: number): () => void {
 	return () => clearTimeout(timer);
 }
 
-/** Why a submission that did not finish normally counts as failed (doc/scheduling.md#调度). */
+/** Why a submission that did not finish normally counts as failed (doc/design/scheduling.md "Triggering and submission"). */
 function failureReason(reason: string): string {
 	switch (reason) {
 		case "aborted":
@@ -110,7 +110,7 @@ export class Scheduler {
 	#lifecycle = new AbortController();
 	/** The owner's deny while a scheduled run waits for its root quota; the next finish reads and clears it. */
 	#quotaDenied = new Map<string, string>();
-	/** Consecutive failed triggers per schedule id; a successful pass resets the count (doc/scheduling.md#调度). */
+	/** Consecutive failed triggers per schedule id; a successful pass resets the count (doc/design/scheduling.md "Triggering and submission"). */
 	#failures = new Map<string, number>();
 
 	constructor(options: SchedulerOptions) {
@@ -130,7 +130,7 @@ export class Scheduler {
 		return this.#now();
 	}
 
-	/** Submits leftover pending runs, reconciles finished ones, then starts the loop (doc/scheduling.md#调度). */
+	/** Submits leftover pending runs, reconciles finished ones, then starts the loop (doc/design/scheduling.md "Triggering and submission"). */
 	async start(): Promise<void> {
 		if (this.#started) return;
 		this.#started = true;
@@ -182,7 +182,7 @@ export class Scheduler {
 				fire_time: fired.run.fireTime,
 				manual: true,
 			});
-			// The same line as the loop: a manual run never submits alongside a timed pass (doc/scheduling.md).
+			// The same line as the loop: a manual run never submits alongside a timed pass (doc/design/scheduling.md).
 			// After a stop it is left pending for the next start's recovery instead of failing on a closed runtime.
 			if (!this.#stopping) {
 				await this.#enqueuePass();
@@ -201,7 +201,7 @@ export class Scheduler {
 	}
 
 	/**
-	 * Deletes a schedule (doc/scheduling.md#生命周期): stop the running instance with the session's normal stop
+	 * Deletes a schedule (doc/design/scheduling.md "Lifecycle"): stop the running instance with the session's normal stop
 	 * path, then remove the schedule, its runs and the sessions' link (`DELETE /api/schedules/:id`).
 	 *
 	 * The removal runs in the schedule's queue turn, so a submit that already claimed a run finishes first: its
@@ -281,7 +281,7 @@ export class Scheduler {
 
 	/**
 	 * Queues one pass behind any in-flight one. The timer, `start` and a manual run all go through here, so two
-	 * passes never claim and submit runs at the same time (doc/scheduling.md#同时只有一个实例). The returned
+	 * passes never claim and submit runs at the same time (doc/design/scheduling.md "One instance at a time"). The returned
 	 * promise is what `stop()` awaits, so a pass started by runNow is not cut off by the runtime closing.
 	 */
 	#enqueuePass(): Promise<void> {
@@ -333,7 +333,7 @@ export class Scheduler {
 		return Math.max(0, Math.min(MAX_SLEEP_MS, delay));
 	}
 
-	/** Writes a pending run for every enabled schedule that is due (doc/scheduling.md#调度). */
+	/** Writes a pending run for every enabled schedule that is due (doc/design/scheduling.md "Triggering and submission"). */
 	async #fireDue(): Promise<void> {
 		const now = this.#now();
 		const rows = await this.#db
@@ -348,7 +348,7 @@ export class Scheduler {
 			const schedule = (await getSchedule(this.#db, row.id)) ?? null;
 			if (!schedule) continue;
 			if (!schedule.enabled) {
-				// Disabled between the query and this read: the trigger did not fire (doc/scheduling.md#审计).
+				// Disabled between the query and this read: the trigger did not fire (doc/design/scheduling.md "Audit").
 				await this.#skip(schedule, { fire_time: row.next_run_at, reason: "disabled" });
 				this.#failures.delete(schedule.id);
 				continue;
@@ -367,7 +367,7 @@ export class Scheduler {
 	}
 
 	/**
-	 * Ends a trigger that could not fire (doc/scheduling.md#调度). A cron with no further fire time never runs
+	 * Ends a trigger that could not fire (doc/design/scheduling.md "Triggering and submission"). A cron with no further fire time never runs
 	 * again, so its schedule is disabled; any other failure moves `next_run_at` out by a doubling backoff
 	 * (1 minute, then 2, 4, …, capped at an hour), so the loop does not spin on a trigger that keeps failing.
 	 */
@@ -419,7 +419,7 @@ export class Scheduler {
 		const due = new Date(schedule.nextRunAt as string);
 		const late = now.getTime() - due.getTime();
 		if (late > MISSED_TOLERANCE_MS) {
-			// Downtime or a clock jump: skip, or run only the most recent missed time (doc/scheduling.md#调度).
+			// Downtime or a clock jump: skip, or run only the most recent missed time (doc/design/scheduling.md "Triggering and submission").
 			if (!schedule.catchUp) {
 				await this.#skip(schedule, { fire_time: due.toISOString(), reason: "missed" });
 				await this.#advance(
@@ -551,7 +551,7 @@ export class Scheduler {
 		await this.#record(scheduleActor(schedule), "schedule.skipped", schedule, detail);
 	}
 
-	/** Claims and submits every pending run, oldest trigger first (doc/scheduling.md#调度). */
+	/** Claims and submits every pending run, oldest trigger first (doc/design/scheduling.md "Triggering and submission"). */
 	async #submitPending(): Promise<void> {
 		const rows = await this.#db
 			.selectFrom("schedule_runs")
@@ -583,7 +583,7 @@ export class Scheduler {
 			const current = await getRun(this.#db, runId);
 			if (current?.status !== "pending") return;
 			// The claim is `started_at`, not the status: the run stays `pending` until its session is submitted, and
-			// preemption must still count it as an instance (doc/scheduling.md#同时只有一个实例). A claimed run left by
+			// preemption must still count it as an instance (doc/design/scheduling.md "One instance at a time"). A claimed run left by
 			// a crash is claimed again here; the derived session id and request id make the resubmit harmless.
 			const claimed = await this.#db
 				.updateTable("schedule_runs")
@@ -601,7 +601,7 @@ export class Scheduler {
 				await this.#fail(schedule, current.id, "the schedule's owner is disabled");
 				return;
 			}
-			// One instance at a time: the previous run is stopped before the new session exists (doc/scheduling.md).
+			// One instance at a time: the previous run is stopped before the new session exists (doc/design/scheduling.md).
 			await this.#preemptPrevious(schedule, current.id);
 			const sessionId = derivedId(`schedule-run:${current.id}`);
 			let submissionId: string;
@@ -638,7 +638,7 @@ export class Scheduler {
 		});
 	}
 
-	/** Stops the schedule's other running runs and marks them `preempted` (doc/scheduling.md#同时只有一个实例). */
+	/** Stops the schedule's other running runs and marks them `preempted` (doc/design/scheduling.md "One instance at a time"). */
 	async #preemptPrevious(schedule: Schedule, currentRunId: string): Promise<void> {
 		// A run being submitted is claimed (`started_at`) but still `pending`; it is an instance already, so it
 		// is stopped too or two instances run side by side.
@@ -668,7 +668,7 @@ export class Scheduler {
 				session_id: row.session_id,
 			});
 			if (!row.session_id) continue;
-			// The session's normal stop path: cancel its tasks and subagent tree (doc/scheduling.md).
+			// The session's normal stop path: cancel its tasks and subagent tree (doc/design/scheduling.md).
 			try {
 				await this.#runtime.abort(row.session_id);
 			} catch (err) {
@@ -677,7 +677,7 @@ export class Scheduler {
 		}
 		// A run is `succeeded` when its root submission ends, but a background subagent it started can keep
 		// running. That work belongs to the previous instance, so the next trigger stops it too; the run's
-		// status stays as it was (doc/scheduling.md#同时只有一个实例). One query joins the schedule's finished
+		// status stays as it was (doc/design/scheduling.md "One instance at a time"). One query joins the schedule's finished
 		// runs with their session trees and keeps only a tree that still has a `running` / `awaiting` session
 		// (`schedule_runs` is never pruned, so per-run queries would grow without bound); an idle leftover
 		// costs no abort, and an already stopped one is not aborted again. The second join branch covers a
@@ -813,7 +813,7 @@ export class Scheduler {
 	// ---- recovery ----
 
 	/**
-	 * Stops the sessions of `preempted` runs that are still active (doc/scheduling.md#调度): preemption marks the
+	 * Stops the sessions of `preempted` runs that are still active (doc/design/scheduling.md "Triggering and submission"): preemption marks the
 	 * run first and stops its session second, so a crash in between leaves a run marked but its session running.
 	 * Done before leftover pending runs are submitted, so the two instances never overlap.
 	 */
@@ -905,7 +905,7 @@ export class Scheduler {
 	}
 
 	/**
-	 * Disables every schedule of a user about to be disabled (doc/scheduling.md#生命周期); the caller passes the
+	 * Disables every schedule of a user about to be disabled (doc/design/scheduling.md "Lifecycle"); the caller passes the
 	 * audit record so the chain order matches the user update.
 	 */
 	static async disableForOwner(db: Db, ownerUserId: string, audit: Audit, actor: AuditActor): Promise<Schedule[]> {

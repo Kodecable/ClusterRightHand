@@ -1,5 +1,5 @@
 /**
- * Token quotas (doc/agent-runtime.md#配额, D92).
+ * Token quotas (doc/design/agent-runtime.md "Quota and token accounting").
  *
  * The parsing helpers are pure so the quota card and the session page share
  * exactly one validation rule. Display text lives in the components (Lingui).

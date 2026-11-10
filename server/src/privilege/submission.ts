@@ -1,7 +1,7 @@
 /**
  * Turning an `Authorization` a user submits (pasted `crha grant` output, or a Passkey assertion built
- * by the waiting page) into something crhs can check and hand to crha (doc/privilege.md#签名方式,
- * doc/protocol.md#授权对象).
+ * by the waiting page) into something crhs can check and hand to crha (doc/design/privilege.md "Signing methods",
+ * doc/design/protocol.md "Authorization object").
  *
  * Two separate questions are answered here:
  *

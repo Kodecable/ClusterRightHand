@@ -1,5 +1,5 @@
 // Package config loads and validates privileged.toml, the trust configuration of crha's
-// privileged mode (doc/privilege.md 信任配置). It turns the file into the trust entries the
+// privileged mode (doc/design/privilege.md "Trust configuration"). It turns the file into the trust entries the
 // authorization decision uses and into the TrustSummary the node reports to crhs.
 package config
 
@@ -76,7 +76,7 @@ type Trust struct {
 
 // Load reads, checks and parses the configuration file at path. The file must be owned by
 // the user running the privileged mode and must not be writable by anyone else
-// (doc/privilege.md 特权模式: 属主为特权模式的运行用户，其他用户不可写).
+// (doc/design/privilege.md "The privileged mode").
 func Load(path string) (*Config, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -123,7 +123,7 @@ func checkOwner(fi os.FileInfo, euid uint32) error {
 type rawConfig struct {
 	NodeID  string   `toml:"node_id"`
 	Aliases []string `toml:"aliases"`
-	// Groups is not a setting any more (D110). It stays declared so a config written for the old
+	// Groups is not a setting any more. It stays declared so a config written for the old
 	// version fails with the migration hint below instead of a generic "unknown key".
 	Groups          *[]string  `toml:"groups"`
 	UnprivilegedUID *uint64    `toml:"unprivileged_uid"`
@@ -265,7 +265,7 @@ func orDefault(v, def string) string {
 }
 
 // buildAliases validates the node's trust aliases. An alias is an authorization address, so it must
-// be a canonical lowercase UUID and may appear only once (doc/privilege.md 信任配置).
+// be a canonical lowercase UUID and may appear only once (doc/design/privilege.md "Trust configuration").
 func buildAliases(in []string) ([]string, error) {
 	out := make([]string, 0, len(in))
 	seen := make(map[string]struct{}, len(in))
@@ -283,7 +283,7 @@ func buildAliases(in []string) ([]string, error) {
 }
 
 // SSHEntry returns the sshsig trust entry whose key is exactly key, or nil. Matching is by
-// the public key bytes, as doc/privilege.md requires.
+// the public key bytes, as doc/design/privilege.md requires.
 func (c *Config) SSHEntry(key ssh.PublicKey) *Trust {
 	if key == nil {
 		return nil

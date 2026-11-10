@@ -21,7 +21,7 @@ const WARN = `${LINE} bg-warn-bg/60 text-warn`;
 const DANGER = `${LINE} bg-danger-bg text-danger`;
 
 /**
- * The one single-line banner of the session page (doc/webui.md "会话界面"): the
+ * The one single-line banner of the session page (doc/design/webui.md "Session interface"): the
  * highest-priority state wins, so several states never stack above the
  * transcript. Connection > failure > retry > waiting reason > queued messages.
  */

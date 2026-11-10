@@ -12,7 +12,7 @@ export interface ModelPresetRoutesOptions {
 	models: ModelConfig;
 }
 
-/** Model presets (D116, doc/agent-runtime.md#模型预设); administrators only. Expects requireUser. */
+/** Model presets (doc/design/agent-runtime.md "Model presets"); administrators only. Expects requireUser. */
 export function modelPresetRoutes(options: ModelPresetRoutesOptions) {
 	const { runtime, models } = options;
 	const app = new Hono<AppEnv>();

@@ -1,8 +1,8 @@
 /**
- * Local approval of a privileged task on its node (doc/privilege.md#本地批准): the `local.request` crhs
+ * Local approval of a privileged task on its node (doc/design/privilege.md "Local approval"): the `local.request` crhs
  * sends, the node's answer, and sending the request again after the node's privileged mode lost it.
  *
- * D118: `local.request` waits for the node's answer, and the dispatch after an approval waits for the
+ * `local.request` waits for the node's answer, and the dispatch after an approval waits for the
  * node; both run outside any turn. The row is read, decided and written in short turns: one for the
  * decision (a denial ends the task there), one for the claim after the node is ready, each from a fresh
  * read at the row's rev.
@@ -44,7 +44,7 @@ const LOCAL_REQUEST_NOTE = "crhs asks for this task to be approved on the node";
 
 /**
  * How much of a task's stdin or file content `local.request` carries, so the approver can see what
- * will be executed without moving the whole input before approval (doc/privilege.md 本地批准).
+ * will be executed without moving the whole input before approval (doc/design/privilege.md "Local approval").
  */
 const INPUT_PREVIEW_BYTES = 4 * 1024;
 
@@ -58,7 +58,7 @@ export async function sendLocalRequest(
 	record: TaskAuthorizationRecord,
 ): Promise<void> {
 	const attempt = record.attempt;
-	// local.request waits for the node's answer: never from a task queue turn (D118). Outside the try, so
+	// local.request waits for the node's answer: never from a task queue turn. Outside the try, so
 	// the violation is not mistaken for a failed request and logged away.
 	core.assertOutsideTaskTurn("local.request");
 	let state: LocalState;
@@ -95,7 +95,7 @@ type LocalOutcome = { kind: "settled" } | { kind: "dispatch" };
 /**
  * The node's local answer for one attempt (a `local.decision` event or the `local.request` response).
  * The decision is one turn; an approval then waits for the node outside the turn and claims in a turn
- * of its own (D118).
+ * of its own.
  */
 async function onLocalState(
 	core: ClusterCore,
@@ -145,7 +145,7 @@ async function localDecisionTurn(
 }
 
 /**
- * Dispatches an approved local task: the offline grace (D113) and a forward task's trust report are
+ * Dispatches an approved local task: the offline grace and a forward task's trust report are
  * waited for outside any turn; the claim is one turn on a fresh read, and the task.start follows outside
  * it. A node that stays offline through the grace ends the task in a turn of its own, on a fresh read.
  */
@@ -153,7 +153,7 @@ async function dispatchLocalApproval(core: ClusterCore, id: string, attempt: num
 	const before = await core.row(id);
 	if (before?.state !== "awaiting_authorization" || before.attempt !== attempt) return;
 	const node = await getNode(core.db, before.node_id);
-	// A connected node dispatches at once. D113: a node that dropped waits for the grace, and a
+	// A connected node dispatches at once. A node that dropped waits for the grace, and a
 	// forward privileged task also for the new connection's trust report.
 	const ready = await core.readyNode(before.node_id, { trust: node?.privileged_mode === "forward" });
 	if (!ready?.link) {
@@ -167,7 +167,7 @@ async function dispatchLocalApproval(core: ClusterCore, id: string, attempt: num
 	}
 	const readyNode = ready.node;
 	const claim = await core.taskQueue.run(id, async (): Promise<AuthorizedStart | null> => {
-		// The approval may have arrived long ago: re-read and validate the row in this turn (D118).
+		// The approval may have arrived long ago: re-read and validate the row in this turn.
 		const row = await core.row(id);
 		if (row?.state !== "awaiting_authorization" || row.attempt !== attempt) return null;
 		// A member of a group that already ended (interrupted by a restart) never dispatches again.
@@ -175,7 +175,7 @@ async function dispatchLocalApproval(core: ClusterCore, id: string, attempt: num
 		const record = parseTaskAuthorization(row.authorization);
 		if (record?.attempt !== attempt) return null;
 		// The local approval may arrive long after the task was parked: access can have been revoked
-		// since (D108). The failure is written in this turn.
+		// since. The failure is written in this turn.
 		if (!(await userCanAccessNode(core.db, row.on_behalf_of_user_id, readyNode.id))) {
 			await finishAuthorization(core, id, row, "failed", NODE_ACCESS_REVOKED, NODE_ACCESS_REVOKED_MESSAGE, record);
 			return null;
@@ -204,7 +204,7 @@ async function dispatchLocalApproval(core: ClusterCore, id: string, attempt: num
 		return { nodeId: readyNode.id, start, input, record: updated };
 	});
 	if (!claim) return;
-	// The task.start waits for the node's answer: outside the turn that claimed the task (D118).
+	// The task.start waits for the node's answer: outside the turn that claimed the task.
 	await sendAuthorizedStart(core, claim.nodeId, claim.start, claim.input, claim.record);
 }
 
@@ -229,14 +229,14 @@ async function dropLocalPath(core: ClusterCore, id: string): Promise<void> {
 		);
 		return written ? row : null;
 	});
-	// The re-plan waits for trust and plans in turns of its own: after this one (D118).
+	// The re-plan waits for trust and plans in turns of its own: after this one.
 	if (dropped) await replanWaiting(core, id, dropped);
 }
 
 /**
  * Sends local.request again for the node's tasks whose approval request the privileged mode lost. The
  * row check is one turn per task; local.request itself waits for the answer, so each request is sent
- * outside the turn, and its answer is handled in turns again (D118).
+ * outside the turn, and its answer is handled in turns again.
  */
 export async function resendLocalRequests(core: ClusterCore, link: NodeLink): Promise<void> {
 	const rows = await core.db

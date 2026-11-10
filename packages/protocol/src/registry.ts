@@ -1,7 +1,7 @@
 /**
  * The command and event registries: every name this implementation knows, with
  * its request/response or body codec. The M3.5 names are required in the
- * handshake; the M4 names of doc/protocol.md#m4提权 are optional, so a peer
+ * handshake; the M4 names of doc/design/protocol.md "Privilege messages" are optional, so a peer
  * without them still connects (its commands are the intersection of the two lists).
  */
 import {
@@ -82,7 +82,7 @@ export const REQUIRED_NAMES: readonly string[] = Object.freeze([
 ]);
 
 /**
- * Names added in M4 (doc/protocol.md#m4提权). Optional in the handshake; a node
+ * Names added in M4 (doc/design/protocol.md "Privilege messages"). Optional in the handshake; a node
  * that does not offer them is treated as not supporting `forward`.
  */
 export const OPTIONAL_NAMES: readonly string[] = Object.freeze([

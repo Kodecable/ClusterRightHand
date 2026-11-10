@@ -160,7 +160,7 @@ export class Sftp {
 		}
 	}
 
-	/** Creates one directory; the mode is subject to the remote umask, like mkdir(2) (D114). */
+	/** Creates one directory; the mode is subject to the remote umask, like mkdir(2). */
 	async mkdir(path: string, mode: number): Promise<void> {
 		await this.call<void>((cb) => this.raw.mkdir(path, { mode }, cb as (e?: Error | null) => void));
 	}

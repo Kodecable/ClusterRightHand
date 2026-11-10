@@ -51,7 +51,7 @@ test("a snapshot builds the transcript and the in-flight message", () => {
 		["text", "par"],
 	]);
 	// The durable usage state is still what the stream publishes; the session's own counters come from the
-	// server's two measures (D101), so the page no longer sums it.
+	// server's two measures, so the page no longer sums it.
 	expect(s.usage?.models["faux/x"]?.totalTokens).toBe(1500);
 });
 

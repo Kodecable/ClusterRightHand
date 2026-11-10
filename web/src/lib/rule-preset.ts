@@ -4,8 +4,8 @@ import { type LucideIcon, ShieldAlertIcon, ShieldEllipsisIcon, ShieldQuestionMar
 /**
  * The rule presets in menu order, under the product names the UI shows: the
  * raw server values (`ask`, `auto_review`, `yolo`) never reach a label, so a
- * session header, a token row and a picker always agree (doc/webui.md
- * "输入框页脚"). Each rule preset carries its icon, so the composer footer's
+ * session header, a token row and a picker always agree (doc/design/webui.md "Composer"). Each rule
+ * preset carries its icon, so the composer footer's
  * rules control shows the same symbol as the picker. The explanation of each
  * rule preset belongs next to the form, not here.
  */
@@ -17,7 +17,7 @@ export const RULE_PRESETS: readonly { value: RulePreset; label: string; icon: Lu
 
 /**
  * API tokens support only Ask and Yolo: Auto Review needs the user's instructions, and a token has none
- * (doc/access-control.md#api-token). Sessions and schedules keep all three.
+ * (doc/design/access-control.md "API tokens"). Sessions and schedules keep all three.
  */
 export const API_TOKEN_RULE_PRESETS = ["ask", "yolo"] as const satisfies readonly RulePreset[];
 

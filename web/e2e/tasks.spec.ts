@@ -2,7 +2,7 @@ import { expect, test } from "./fixtures.ts";
 
 /**
  * The task page in the navigation and the signature section of the approvals page
- * (doc/privilege.md: the WebUI entry points of a task awaiting authorization).
+ * (doc/design/privilege.md: the WebUI entry points of a task awaiting authorization).
  */
 
 test.use({ withNode: true });

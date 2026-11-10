@@ -10,7 +10,7 @@ import { taskTitle } from "@/features/tasks/title";
 import { useDirectory } from "@/features/users/api";
 import { linkClass } from "@/lib/utils";
 
-/** The node's recent tasks (doc/webui.md "TaskSummary"): newest first; a row opens its task. */
+/** The node's recent tasks (doc/design/webui.md "Shared components"): newest first; a row opens its task. */
 export function NodeTaskList({ nodeId }: { nodeId: string }) {
 	const { t } = useLingui();
 	const tasks = useNodeTasks(nodeId);

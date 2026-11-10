@@ -4,7 +4,7 @@ import { TREE_STATE } from "./session-list.ts";
 import type { SessionState } from "./session-state.ts";
 
 /**
- * Unread sessions (doc/webui.md#侧边列表): when a session that was `running` becomes `idle` or `awaiting` and
+ * Unread sessions (doc/design/webui.md "Sidebar list"): when a session that was `running` becomes `idle` or `awaiting` and
  * that leaves its tree's aggregate state not `running`, the tree has new output for its owner, so its root
  * gets `reply_at = now`. The owner's list then shows the row unread until `POST /api/sessions/:id/read` sets
  * `owner_read_at`.

@@ -1,7 +1,7 @@
 import type { CursorPage, SessionListItem, SessionListScope } from "@crh/api";
 
 /**
- * The session-list SSE patch, as pure functions (doc/webui.md "会话列表实时推送"):
+ * The session-list SSE patch, as pure functions (doc/design/webui.md "Session list API"):
  * `upsert` inserts, moves or replaces at the row's sort position while respecting
  * the active `scope`; `remove` drops the row. The hook only supplies the
  * filter and writes the result into the Query cache.
@@ -89,7 +89,7 @@ export function removeSessionListItem(pages: Pages, id: string): CursorPage<Sess
 }
 
 /**
- * Clears a root's unread flag in every loaded page, for an optimistic read (doc/webui.md "侧边列表");
+ * Clears a root's unread flag in every loaded page, for an optimistic read (doc/design/webui.md "Sidebar list");
  * returns the same array when no row changed. Only a root is in the list, so the caller passes the root id
  * even when a child page marked its tree read.
  */

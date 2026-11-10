@@ -12,7 +12,7 @@ export function toBase64url(base64: string): string {
 
 /**
  * The `[[trust]]` block for a node's privileged.toml that trusts crhs's signing
- * key (doc/privilege.md#信任配置). The allow/deny lists are examples: the
+ * key (doc/design/privilege.md "Trust configuration"). The allow/deny lists are examples: the
  * operator narrows them to what crhs may do on that node, and denying
  * `/etc/crha/` keeps crhs out of the trust configuration.
  */
@@ -43,7 +43,7 @@ export function trustSnippet(authorizedKey: string): string {
 
 /**
  * The `[[trust]]` block for an SSH key or Passkey the user registered
- * (doc/privilege.md#信任配置, doc/m4.md M4.4). The allow and deny lists are
+ * (doc/design/privilege.md "Trust configuration"). The allow and deny lists are
  * examples to narrow: the owner edits them on the node before the credential
  * can authorize anything. `require_uv` and `max_ttl` are commented out because
  * they are policy choices, not defaults.

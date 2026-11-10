@@ -2,7 +2,7 @@
 // non-privileged mode and a privileged peer: the native helper over stdio and the privileged
 // daemon over a unix socket. It reuses protocol's frames, command bodies and Peer; only the
 // transport (a 4-byte length prefix instead of Noise) and the handshake differ. See
-// doc/protocol.md "crh-priv：非特权模式 ↔ 特权模式".
+// doc/design/protocol.md "crh-priv".
 package wire
 
 import (
@@ -18,10 +18,10 @@ import (
 const (
 	// PrivMajor and PrivMinor are the crh-priv versions carried by PrivHello and PrivWelcome. They
 	// version the crh-priv protocol itself, not the crhs <-> crha protocol. Major 3 renames
-	// TrustSummary.groups to aliases (D110) and adds input_preview to local.request and pending.list;
+	// TrustSummary.groups to aliases and adds input_preview to local.request and pending.list;
 	// major 2 carried the task.exit.result element and the line-range file.read spec. A peer with a
 	// different major is refused, because crha and its
-	// privileged mode always upgrade together (doc/protocol.md, crh-priv：非特权模式 ↔ 特权模式).
+	// privileged mode always upgrade together (doc/design/protocol.md "crh-priv").
 	// The minor stays additive and never refuses a handshake.
 	PrivMajor = 3
 	PrivMinor = 0

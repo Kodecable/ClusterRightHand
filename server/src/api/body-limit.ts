@@ -5,7 +5,7 @@ import { type AppEnv, jsonError } from "./context.ts";
 /** The body limit of ordinary JSON routes: enough for a page of text or a provider's configuration. */
 export const DEFAULT_BODY_LIMIT = 1 * 1024 * 1024;
 
-/** The largest input a task may carry: exec stdin or file.write content (doc/execution-plane.md#断线恢复). */
+/** The largest input a task may carry: exec stdin or file.write content (doc/design/execution.md "Reconnect"). */
 export const MAX_INPUT_BYTES = 64 * 1024 * 1024;
 
 /** The longest base64 string that can decode to MAX_INPUT_BYTES. */

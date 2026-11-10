@@ -21,7 +21,7 @@ export type DataTableColumn<T extends RowData> = ColumnDef<StockFeatures, T>;
 
 /**
  * Where a row links to: the router props of one of the detail routes a list row
- * can point at (doc/webui.md "列表导航"). The union keeps `to` and `params`
+ * can point at (doc/design/webui.md "List navigation, links and refresh"). The union keeps `to` and `params`
  * checked at the call site instead of trusting a cast inside the table.
  */
 export type DataTableRowLink =
@@ -76,14 +76,14 @@ export interface DataTableProps<T extends RowData> {
 	/**
 	 * The id of the column whose content carries the row's real link (the first
 	 * column by default). Set it when the first column is a timestamp or an
-	 * action and the item's name lives further right (doc/webui.md "列表导航").
+	 * action and the item's name lives further right (doc/design/webui.md "List navigation, links and refresh").
 	 */
 	rowLinkColumn?: string;
 	/** A whole-row action that is not a navigation (the audit detail dialog). */
 	onRowActivate?: (row: T) => void;
 	/** The id of the column whose content carries `onRowActivate`'s button (the first column by default). */
 	rowActivateColumn?: string;
-	/** Rows above this count are virtualised (doc/webui.md "DataTable"). */
+	/** Rows above this count are virtualised (doc/design/webui.md "DataTable"). */
 	virtualizeAfter?: number;
 	/** Height of the virtualised viewport. */
 	height?: number;
@@ -121,7 +121,7 @@ const WIDE_COLUMN_FLOOR_PX = 48;
 
 /**
  * Elements that own a click: a row click that starts inside one of them never
- * navigates or activates the row (doc/webui.md "列表导航").
+ * navigates or activates the row (doc/design/webui.md "List navigation, links and refresh").
  */
 const ROW_INTERACTIVE_SELECTOR =
 	"a, button, input, select, textarea, label, summary, [role='button'], [role='menuitem'], [contenteditable]";
@@ -130,7 +130,7 @@ const ROW_INTERACTIVE_SELECTOR =
  * The row's real link/button looks like the cell text: inherited colour, no
  * underline, and a focus ring for keyboard users. It sits inside the chosen
  * cell instead of covering the row, so tooltips and text selection work
- * (doc/webui.md "列表导航").
+ * (doc/design/webui.md "List navigation, links and refresh").
  */
 const ROW_LINK_CLASS =
 	"block min-w-0 rounded-sm text-left text-inherit no-underline outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset";
@@ -250,7 +250,7 @@ function columnMinSize<T extends RowData>(column: DataTableColumn<T>): number {
  * keeps that width; a column with a minimum width gets at least that and grows;
  * the rest share what is left, never below a small floor. The table keeps the
  * grid's computed minimum and lets its scroll frame scroll instead of crushing
- * a name or a timestamp (doc/webui.md "DataTable").
+ * a name or a timestamp (doc/design/webui.md "DataTable").
  */
 function columnTemplate<T extends RowData>(columns: DataTableColumn<T>[], narrow: boolean): string {
 	return columns
@@ -266,8 +266,8 @@ function columnTemplate<T extends RowData>(columns: DataTableColumn<T>[], narrow
 
 /**
  * Below `md` the table keeps its minimum column widths and scrolls sideways
- * instead of crushing every column to a few characters (doc/webui.md
- * "DataTable"). The computed minimum also sets the table's width at every
+ * instead of crushing every column to a few characters (doc/design/webui.md "DataTable").
+ * The computed minimum also sets the table's width at every
  * breakpoint, so the header and the rows scroll together instead of the last
  * columns being clipped by the frame.
  */
@@ -309,14 +309,14 @@ function columnTitle<T extends RowData>(column: DataTableColumn<T>, cellValue: u
  * `onRowActivate`. The affordance is the pointer cursor and the accent hover;
  * the row's keyboard/“open in new tab” target is a real link (or button for
  * `onRowActivate`) inside one chosen cell, styled as plain text, so it never
- * covers the other cells and their `title` tooltips (doc/webui.md "列表导航").
+ * covers the other cells and their `title` tooltips (doc/design/webui.md "List navigation, links and refresh").
  *
  * Columns use `size` for a fixed width and `minSize` for a minimum that still
  * grows; an absolute-time column's `size` comes from `useTimeColumnWidth`
  * (`time-column.ts`), which measures a full timestamp in the cell font. A cell
  * whose rendered text may truncate gets a `title` from its value or from
  * `meta.title`. Nested tables pass `density="compact"` and
- * `frame={false}` (doc/webui.md "表格、状态与对话框").
+ * `frame={false}` (doc/design/webui.md "Tables, status and dialogs").
  */
 export function DataTable<T extends RowData>({
 	columns,

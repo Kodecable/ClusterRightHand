@@ -2,7 +2,7 @@
  * Locale-aware formatting, bound to the currently active Lingui locale.
  *
  * All formatting goes through the native `Intl` API — the project does not ship
- * a date library (doc/webui.md "技术栈"). The helpers are pure so they can be
+ * a date library (doc/design/webui.md "Technology stack"). The helpers are pure so they can be
  * unit-tested with an explicit locale.
  */
 
@@ -110,7 +110,7 @@ export function formatNumber(value: number, locale: string, options?: Intl.Numbe
 }
 
 /**
- * A token count with an auto unit: `1234 → "1.2K"`, `1500000 → "1.5M"` (doc/webui.md#技术栈: the one
+ * A token count with an auto unit: `1234 → "1.2K"`, `1500000 → "1.5M"` (doc/design/webui.md "Technology stack": the one
  * formatter every session counter uses). The number keeps the active locale; the unit is the same in both.
  */
 export function formatTokens(value: number, locale: string): string {

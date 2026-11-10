@@ -9,11 +9,11 @@ import { sessionAncestors, sessionChain } from "./session-chain.ts";
 import type { CallTokens } from "./tokens.ts";
 
 /**
- * Token quotas (doc/agent-runtime.md#配额): every level of a session's chain may have a signed remaining-token
+ * Token quotas (doc/design/agent-runtime.md "Quota and token accounting"): every level of a session's chain may have a signed remaining-token
  * balance; null means unlimited and is never charged. The budget measure is charged to every level after a model
  * call (durable 1.4.0 cannot refuse a request), so a quota can go negative; a run continues only while every level
- * is above zero. The state of a session says when it is paused on an exhausted level. D101 keeps that budget
- * measure apart from the statistics usage measure by name.
+ * is above zero. The state of a session says when it is paused on an exhausted level. That budget measure
+ * stays apart from the statistics usage measure by name.
  */
 
 export function parseQuota(raw: unknown): number | null {
@@ -28,13 +28,13 @@ export async function setQuota(db: Db, sessionId: string, quota: number | null):
 	await db.updateTable("sessions").set({ quota_tokens: quota }).where("id", "=", sessionId).execute();
 }
 
-/** A session's token counters (D101); a missing session reads as zero usage and no context. */
+/** A session's token counters; a missing session reads as zero usage and no context. */
 export interface SessionTokens {
-	/** The budget measure: output tokens spent by the session and its subagents (doc/agent-runtime.md#配额). */
+	/** The budget measure: output tokens spent by the session and its subagents (doc/design/agent-runtime.md "Quota and token accounting"). */
 	budgetUsedTokens: number;
-	/** The statistics measure: input + output tokens of the session and its subagents (D101). */
+	/** The statistics measure: input + output tokens of the session and its subagents. */
 	usageTokens: number;
-	/** The context fill of the session's own last main-agent call; null before the first one (D101). */
+	/** The context fill of the session's own last main-agent call; null before the first one. */
 	contextTokens: number | null;
 }
 
@@ -53,22 +53,22 @@ export async function sessionTokens(db: Db, sessionId: string): Promise<SessionT
 	};
 }
 
-/** The budget measure: output tokens spent by the session and its subagents (doc/agent-runtime.md#配额). */
+/** The budget measure: output tokens spent by the session and its subagents (doc/design/agent-runtime.md "Quota and token accounting"). */
 export async function budgetUsedTokens(db: Db, sessionId: string): Promise<number> {
 	return (await sessionTokens(db, sessionId)).budgetUsedTokens;
 }
 
-/** The statistics measure: input + output tokens of the session and its subagents (D101). */
+/** The statistics measure: input + output tokens of the session and its subagents. */
 export async function usageTokens(db: Db, sessionId: string): Promise<number> {
 	return (await sessionTokens(db, sessionId)).usageTokens;
 }
 
-/** The context fill of the session's own last main-agent call; null before the first one (D101). */
+/** The context fill of the session's own last main-agent call; null before the first one. */
 export async function contextTokens(db: Db, sessionId: string): Promise<number | null> {
 	return (await sessionTokens(db, sessionId)).contextTokens;
 }
 
-/** A session's own generation statistics and its tree's token buckets (doc/agent-runtime.md#会话统计). */
+/** A session's own generation statistics and its tree's token buckets (doc/design/agent-runtime.md "Session statistics"). */
 export async function sessionStats(db: Db, sessionId: string): Promise<SessionStats> {
 	const row = await db
 		.selectFrom("sessions")
@@ -96,7 +96,7 @@ export async function sessionStats(db: Db, sessionId: string): Promise<SessionSt
 	};
 }
 
-/** Stores the input size of the session's own last main-agent call (D101). */
+/** Stores the input size of the session's own last main-agent call. */
 export async function setContextTokens(db: Db, sessionId: string, tokens: number): Promise<void> {
 	await db
 		.updateTable("sessions")
@@ -108,11 +108,11 @@ export async function setContextTokens(db: Db, sessionId: string, tokens: number
 /**
  * Charges one model call to every level of the chain, the root included: the budget (output only, reducing each
  * quota; quotas may go negative) and the statistics usage (input + output). Both display counters grow at every
- * level, for `GET /sessions/:id`. `prompt_tokens` and `cache_read_tokens` (doc/agent-runtime.md#会话统计) grow
+ * level, for `GET /sessions/:id`. `prompt_tokens` and `cache_read_tokens` (doc/design/agent-runtime.md "Session statistics") grow
  * with them: the input and cache read of the same calls, so a tree's cache hit is the same set of calls.
  *
  * `step` marks a main-agent call of this session: `stat_steps` grows, a new submission grows `stat_turns`, and
- * `timing` (the provider stream's start, first content and end, doc/agent-runtime.md#会话统计) grows the TTFT
+ * `timing` (the provider stream's start, first content and end, doc/design/agent-runtime.md "Session statistics") grows the TTFT
  * and decode counters. These are the session's own counters, so the single statement's CASE keeps ancestors
  * unchanged; the counters and the usage measures therefore commit together.
  */
@@ -138,7 +138,7 @@ export async function chargeCall(
 			...(step
 				? {
 						stat_steps: sql`case when id = ${sessionId} then stat_steps + 1 else stat_steps end`,
-						// One turn per submission that produced a step (doc/agent-runtime.md#会话统计): a retry or
+						// One turn per submission that produced a step (doc/design/agent-runtime.md "Session statistics"): a retry or
 						// another step of the same submission leaves `counted_submission_id` equal to it.
 						stat_turns: sql`case when id = ${sessionId} and coalesce(counted_submission_id, '') <> coalesce(last_submission_id, '') then stat_turns + 1 else stat_turns end`,
 						counted_submission_id: sql`case when id = ${sessionId} then last_submission_id else counted_submission_id end`,

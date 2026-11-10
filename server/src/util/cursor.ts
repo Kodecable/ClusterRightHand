@@ -2,7 +2,7 @@ import { type RawBuilder, type SqlBool, sql } from "kysely";
 import { UserError } from "./errors.ts";
 
 /**
- * Keyset cursors for the WebUI's list APIs (doc/webui.md#api-约定): an opaque base64url string holding the
+ * Keyset cursors for the WebUI's list APIs (doc/design/webui.md "API conventions"): an opaque base64url string holding the
  * descending sort key(s) and the row id, plus the shared `limit` rule. A cursor is never trusted: anything
  * that is not the exact shape this module wrote is a 400, and cursor columns come from code, never the request.
  */

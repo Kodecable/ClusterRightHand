@@ -16,7 +16,7 @@ import { type Locale, resolveInitialLocale } from "@/lib/locale";
 
 /**
  * Old links are `#/sessions/:id` (agent transcripts still contain them,
- * doc/webui.md "路由"). Convert one to a real path before the router sees it.
+ * doc/design/webui.md "Routing"). Convert one to a real path before the router sees it.
  */
 function normaliseLegacyHash(): void {
 	const hash = window.location.hash;

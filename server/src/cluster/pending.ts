@@ -1,6 +1,6 @@
 /**
  * The pending authorization of a task or task group, as the owner's waiting page shows it
- * (doc/m4.md M4.4, doc/privilege.md#授权路径). Only the owner may read the payload: it is the exact
+ * (doc/design/privilege.md "Authorization path"). Only the owner may read the payload: it is the exact
  * bytes to sign, and nothing about it is secret, but another user has nothing to do with it.
  */
 import type {
@@ -132,7 +132,7 @@ export type { TaskGroupPendingTask };
 export type TaskGroupPendingView = TaskGroupPending;
 
 /**
- * The shared payload of a group's waiting tasks (all of them hold the same one, D88) and the state
+ * The shared payload of a group's waiting tasks (all of them hold the same one) and the state
  * of each task, including those whose plan has no user path.
  */
 export async function pendingForTaskGroup(

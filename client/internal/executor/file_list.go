@@ -67,7 +67,7 @@ func fileList(ctx context.Context, acc fileAccess, s *protocol.FileListSpec) (*p
 		}
 		size := listEntrySize(entry)
 		// The result travels in one task.exit frame: stop before it could outgrow it
-		// (doc/protocol.md TaskResult).
+		// (doc/design/protocol.md "Task results").
 		if used+size > protocol.FileListMaxBytes {
 			truncated = true
 			break

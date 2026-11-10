@@ -1,5 +1,5 @@
 /**
- * The two result renderers every cluster tool goes through (doc/agent-runtime.md#交给模型的输出d112):
+ * The two result renderers every cluster tool goes through (doc/design/agent-runtime.md "Tool output"):
  * text tools return an optional raw block followed by a fixed-format note block per node (a task group
  * leads with its own note); JSON tools return one compact JSON block. Both carry `details` for the UI,
  * which the MCP adapter drops.
@@ -15,7 +15,7 @@ export interface ToolTextContent {
 export interface ToolResult {
 	content: ToolTextContent[];
 	isError: boolean;
-	/** Agent only: data for the WebUI's tool cards, never shown to the model (doc/agent-runtime.md#给-ui-的-details). */
+	/** Agent only: data for the WebUI's tool cards, never shown to the model (doc/design/agent-runtime.md "Tool output"). */
 	details?: Record<string, unknown>;
 }
 
@@ -54,14 +54,14 @@ export function textResult(blocks: readonly TextBlock[], options: ResultOptions 
 	return result(content, options);
 }
 
-/** A JSON result: one compact block, no indentation (doc/agent-runtime.md#交给模型的输出d112). */
+/** A JSON result: one compact block, no indentation (doc/design/agent-runtime.md "Tool output"). */
 export function jsonResult(value: unknown, options: ResultOptions = {}): ToolResult {
 	return result([{ type: "text", text: JSON.stringify(value) }], options);
 }
 
 /**
  * An expected tool error in the shape of the tool's renderer: a text tool writes `[error <code>: <message>]`
- * in its note block (D114), a JSON tool returns `{"error": {"code", "message"}}`.
+ * in its note block, a JSON tool returns `{"error": {"code", "message"}}`.
  */
 export function errorResult(
 	output: ToolOutput,

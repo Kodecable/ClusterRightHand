@@ -1,5 +1,5 @@
 /**
- * The main dispatch chain no longer holds a task's queue across a wait (D118, rule 2): the offline
+ * The main dispatch chain no longer holds a task's queue across a wait (doc/design/execution.md "Task row concurrency"): the offline
  * grace, the authorized task.start answer and the approval dispatch all run outside the task's turn.
  * These tests drive the real chain against fake crha links and assert that another path on the same
  * task is not blocked meanwhile.
@@ -39,7 +39,7 @@ const IDENTITIES = {
 	privileged: { uid: 0, gid: 0, user: "root" },
 };
 
-describe("main chain dispatch and the task queue (D118)", () => {
+describe("main chain dispatch and the task queue", () => {
 	let db: Db;
 	let cluster: Cluster;
 	let agents: TestAgentServer;
@@ -160,7 +160,7 @@ describe("main chain dispatch and the task queue (D118)", () => {
 		const node = await addNode("cancel-during-grace", key.publicKey);
 		const id = newId();
 		const created = cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor(), id });
-		// The row is written before dispatch starts waiting for the node (D113).
+		// The row is written before dispatch starts waiting for the node.
 		await waitFor("the task waits for its node", async () => (await rowOf(id))?.state === "awaiting_approval");
 
 		const started = Date.now();
@@ -195,7 +195,7 @@ describe("main chain dispatch and the task queue (D118)", () => {
 		await waitFor("task claimed", async () => (await rowOf(id))?.state === "dispatched");
 
 		// The send waits for the node's answer. Another turn on the same task, the node's task.exit, must
-		// not wait for it: the authorized send no longer holds the task's queue (D118).
+		// not wait for it: the authorized send no longer holds the task's queue.
 		const started = Date.now();
 		crha.exit(id, { kind: "code", value: 0 });
 		await waitFor("task.exit handled", async () => (await rowOf(id))?.state === "exited");

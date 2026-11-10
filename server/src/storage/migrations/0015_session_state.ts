@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * A subagent's state belongs on the session, not in a separate request table (doc/agent-runtime.md#subagent):
+ * A subagent's state belongs on the session, not in a separate request table (doc/design/agent-runtime.md "Subagents"):
  * `active`, `awaiting_quota` (paused on an exhausted quota level), or `stopped`.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {

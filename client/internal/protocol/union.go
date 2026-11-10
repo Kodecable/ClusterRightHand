@@ -8,7 +8,7 @@ import (
 )
 
 // This file holds the two table-driven conventions of the wire schema: text enums and [tag, body]
-// unions (doc/protocol.md). A type declares its values or branches once, in a table, and its
+// unions (doc/design/protocol.md). A type declares its values or branches once, in a table, and its
 // MarshalCBOR and UnmarshalCBOR are one line each that calls the table. The tables are data, so a
 // new branch or value is a row, not another copy of the decode and re-encode logic.
 

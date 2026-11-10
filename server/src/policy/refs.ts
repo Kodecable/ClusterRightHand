@@ -7,7 +7,7 @@ import { parseRuleSet, parseRules, type Rule, type RuleSet } from "./rules.ts";
 export type { RefMap, RefTarget };
 
 /**
- * Rule and task-group references (D109): inputs accept names (case-insensitive), UUIDs or `_all`, and the
+ * Rule and task-group references: inputs accept names (case-insensitive), UUIDs or `_all`, and the
  * database stores UUIDs. These helpers do the write-time resolution and the reverse lookup used by API
  * responses to display names. A reference whose object was deleted has no name: it is reported as null.
  */

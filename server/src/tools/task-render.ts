@@ -1,5 +1,5 @@
 /**
- * How a crh task tool's result reaches the model and the UI (D112, doc/agent-runtime.md#交给模型的输出d112):
+ * How a crh task tool's result reaches the model and the UI (doc/design/agent-runtime.md "Tool output"):
  * `exec` and `read_file` are text (raw block plus note block per node, a task group leading with a group
  * note), every other tool is one compact JSON block. UI details keep the shape the WebUI reads today
  * (task_id / task_group_id, state, per-node states, error codes).
@@ -14,7 +14,7 @@ import { MAX_OUTPUT_BYTES, type NodeTransport, type Started } from "./task-tool.
 
 // ---- details for the UI ----
 
-/** One task's details, the shape the WebUI's tool cards read today (doc/agent-runtime.md#给-ui-的-details). */
+/** One task's details, the shape the WebUI's tool cards read today (doc/design/agent-runtime.md "Tool output"). */
 export function taskDetails(task: TaskView, nodeName: string): Record<string, unknown> {
 	const out: Record<string, unknown> = { task_id: task.id, node: nodeName, state: task.state };
 	if (task.privileged) out.privileged = true;
@@ -40,7 +40,7 @@ export function groupDetails(group: TaskGroupView, names: Map<string, string>): 
 
 // ---- failure classification ----
 
-/** Whether a task result counts as failed (doc/agent-runtime.md#错误结果): denied/rejected/unknown, a nonzero exit, a signal, a timeout or a cancel. */
+/** Whether a task result counts as failed (doc/design/agent-runtime.md "Tool output"): denied/rejected/unknown, a nonzero exit, a signal, a timeout or a cancel. */
 export function taskFailed(task: TaskView): boolean {
 	if (task.state === "failed" || task.state === "denied" || task.state === "rejected" || task.state === "unknown")
 		return true;
@@ -86,7 +86,7 @@ function seconds(ms: number): string {
 
 // ---- text rendering (exec and read_file) ----
 
-/** One synthesized note line: fields inside square brackets, separated by ", " (D114). */
+/** One synthesized note line: fields inside square brackets, separated by ", ". */
 function noteLine(fields: readonly string[]): string {
 	return `[${fields.join(", ")}]`;
 }
@@ -147,7 +147,7 @@ function waitingLine(task: TaskView, label: string, ctx: ToolContext, exposeId: 
 	return undefined;
 }
 
-/** The "Showing lines X-Y of N …" hint that follows truncated exec output (D112), as its own bracketed line. */
+/** The "Showing lines X-Y of N …" hint that follows truncated exec output, as its own bracketed line. */
 function truncationHint(
 	keptLines: number,
 	totalLines: number | null,
@@ -172,7 +172,7 @@ function bytesTruncated(task: TaskView, text: string): boolean {
 	return task.outputBytes > Buffer.byteLength(text);
 }
 
-/** crhs's own note about the task (the SSH privileged notice), bracketed on its own line (D114). */
+/** crhs's own note about the task (the SSH privileged notice), bracketed on its own line. */
 function noticeLine(task: TaskView): string | undefined {
 	if (task.notice === null || task.notice.trim() === "") return undefined;
 	return task.notice
@@ -201,13 +201,13 @@ export function execTaskResult(
 	transport: NodeTransport = "client",
 ): ToolResult {
 	const details = taskDetails(task, nodeName);
-	// with_output: false keeps only the status; the model gets JSON, like a status batch (D114).
+	// with_output: false keeps only the status; the model gets JSON, like a status batch.
 	if (task.outputMode === "status") {
 		return jsonResult(statusNode(ctx, task, nodeName), { isError: taskFailed(task), details });
 	}
 	const waiting = waitingLine(task, nodeName, ctx, true);
 	if (waiting !== undefined) {
-		// A long-running task still returns the output it has produced so far (doc/agent-runtime.md#exec-工具的语义).
+		// A long-running task still returns the output it has produced so far (doc/design/agent-runtime.md "exec tool semantics").
 		const { text } = taskSourceText(task);
 		const note = [waiting, noticeLine(task)].filter((line): line is string => line !== undefined).join("\n");
 		return textResult([{ output: text, note }], { details });
@@ -347,7 +347,7 @@ export function execResult(ctx: ToolContext, started: Started): ToolResult {
 
 // ---- file results (JSON for everything but read_file) ----
 
-/** The fields of a task's structured result in their snake_case JSON form (doc/protocol.md TaskResult). */
+/** The fields of a task's structured result in their snake_case JSON form (doc/design/protocol.md "Task results"). */
 function resultFields(result: JsonTaskResult): Record<string, unknown> {
 	switch (result.kind) {
 		case "file.read":
@@ -387,14 +387,14 @@ function fileNode(task: TaskView, nodeName: string): Record<string, unknown> {
 	if (task.timedOut) out.timed_out = true;
 	if (task.cancelled) out.cancelled = true;
 	if (task.result !== null) Object.assign(out, resultFields(task.result));
-	// crhs's own line (the SSH privileged notice) is not part of the output (D114).
+	// crhs's own line (the SSH privileged notice) is not part of the output.
 	if (task.notice !== null) out.notice = task.notice;
 	const error = taskError(task);
 	if (error !== undefined) out.error = error;
 	return out;
 }
 
-/** A single blocking file task as JSON; a failure is the bare `{"error": …}` (D112). */
+/** A single blocking file task as JSON; a failure is the bare `{"error": …}`. */
 export function fileJsonResult(ctx: ToolContext, task: TaskView, nodeName: string): ToolResult {
 	const details = taskDetails(task, nodeName);
 	const error = taskError(task);
@@ -419,7 +419,7 @@ export function fileJsonGroupResult(ctx: ToolContext, group: TaskGroupView, name
 
 // ---- read_file ----
 
-/** The page one file.read task reports as its result (doc/protocol.md TaskResult). */
+/** The page one file.read task reports as its result (doc/design/protocol.md "Task results"). */
 type PageResult = Extract<JsonTaskResult, { kind: "file.read" }>;
 
 const PAGE_TOO_LONG = "line_too_long";
@@ -491,7 +491,7 @@ interface PageRead {
 /**
  * Reads one node's page: the page bytes exactly as the file has them, the line range, and — when the page
  * reached the end of the file — the file's line count. A budget cut continues at its last whole line; the
- * total is never reported for a page that did not reach the end (doc/agent-runtime.md#交给模型的输出d112).
+ * total is never reported for a page that did not reach the end (doc/design/agent-runtime.md "Tool output").
  */
 function readPage(
 	ctx: ToolContext,

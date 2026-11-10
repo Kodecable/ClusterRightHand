@@ -65,7 +65,7 @@ export function openDb(config: DatabaseConfig): Db {
 }
 
 /**
- * The agent runtime's durable storage in the same database (doc/agent-runtime.md#存储): the official SQLite
+ * The agent runtime's durable storage in the same database (doc/design/agent-runtime.md "Storage"): the official SQLite
  * storage on its own connection (sharing the file's lock with Kysely's), or PgStorage on its own pool. Tables
  * carry the pi_ prefix.
  */

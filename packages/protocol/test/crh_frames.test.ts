@@ -24,7 +24,7 @@ function checkPositive(vector: FixtureCase): void {
 		if (frame.kind === "event" && frame.name === "facts") {
 			// Facts is the protocol's one map: the schema decode ignores unknown fact keys, so the
 			// byte-for-byte comparison is the profile's re-encode of the generic value, which keeps
-			// them (doc/protocol.md Facts).
+			// them (doc/design/protocol.md "Events").
 			expect(hexOf(encodeCbor(decodeCbor(bytes)))).toBe(vector.hex);
 			return;
 		}

@@ -1,5 +1,5 @@
 // Package authz implements the authorization decision of crha's privileged mode
-// (doc/privilege.md#校验流程): method and target rendering, guard rules, SSHSIG and
+// (doc/design/privilege.md "Validation flow"): method and target rendering, guard rules, SSHSIG and
 // WebAuthn verification, and the pure decision function steps 2–8 of the verification
 // flow. It performs no I/O and knows nothing about the socket, the crh-priv protocol or
 // the used store; callers supply that state.
@@ -15,7 +15,7 @@ import (
 )
 
 // Target renders a task spec as the (method, target) pair that authorization commands and
-// guard rules match (doc/privilege.md#方法与目标).
+// guard rules match (doc/design/privilege.md "Methods and targets").
 //
 // exec tasks render their argv with POSIX single quoting and one space between arguments;
 // shell tasks render ["/bin/sh", "-c", script]. File tasks use their absolute path and
@@ -103,7 +103,7 @@ func isSafeArg(arg string) bool {
 	return true
 }
 
-// CheckPath validates a privileged file path (doc/privilege.md#方法与目标): it must be
+// CheckPath validates a privileged file path (doc/design/privilege.md "Methods and targets"): it must be
 // absolute and already clean, so that no "." or ".." component and no repeated separator
 // can hide the real target from path-based rules. Symlinks are rejected later, when the
 // executor opens the path.

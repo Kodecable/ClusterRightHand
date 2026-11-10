@@ -27,7 +27,7 @@ import { waitSubmission } from "./helpers/runtime.ts";
 /**
  * Shutdown closes the agent runtime before it ends the catalog waits (main.ts): a tool call waiting on a
  * cluster task is a durable task, so the Harness aborts it without recording a result, and a restart reruns
- * it, reattaching to the same cluster task (doc/README.md D71).
+ * it, reattaching to the same cluster task (doc/design/agent-runtime.md "exec tool semantics").
  */
 describe("agent runtime shutdown", () => {
 	let dir: string;

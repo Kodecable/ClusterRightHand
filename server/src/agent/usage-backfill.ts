@@ -3,8 +3,8 @@ import { sql } from "kysely";
 import type { Db } from "../storage/db.ts";
 
 /**
- * Backfills the statistics measures for sessions that predate them (D101, doc/agent-runtime.md#配额 and
- * #会话统计). The migration can only add the columns: the calls to sum live in durable's store, and the runtime
+ * Backfills the statistics measures for sessions that predate them (doc/design/agent-runtime.md "Quota and token accounting" and
+ * "Session statistics"). The migration can only add the columns: the calls to sum live in durable's store, and the runtime
  * reads them through the Harness's snapshot API, so this runs at startup, before requests are accepted, and once
  * per database.
  *
@@ -37,7 +37,7 @@ export function usageTokensOf(state: UsageState | undefined): number {
 	return total;
 }
 
-/** The input half of a conversation's persisted usage: input + cache read + cache write (doc/agent-runtime.md#会话统计). */
+/** The input half of a conversation's persisted usage: input + cache read + cache write (doc/design/agent-runtime.md "Session statistics"). */
 export function promptTokensOf(state: UsageState | undefined): number {
 	if (!state) return 0;
 	let total = 0;
@@ -49,7 +49,7 @@ export function promptTokensOf(state: UsageState | undefined): number {
 	return total;
 }
 
-/** The cache-read tokens of a conversation's persisted usage (doc/agent-runtime.md#会话统计). */
+/** The cache-read tokens of a conversation's persisted usage (doc/design/agent-runtime.md "Session statistics"). */
 export function cacheReadTokensOf(state: UsageState | undefined): number {
 	if (!state) return 0;
 	let total = 0;
@@ -69,7 +69,7 @@ export interface HistoryCounts {
 
 /**
  * Counts a conversation's assistant entries as steps and its user entries that led to one as turns
- * (doc/agent-runtime.md#会话统计). Entries must be in ascending order. Compaction summaries and resets are
+ * (doc/design/agent-runtime.md "Session statistics"). Entries must be in ascending order. Compaction summaries and resets are
  * their own entry kinds, so they are not mistaken for user input.
  */
 export function historyCounts(entries: readonly { readonly kind: string }[]): HistoryCounts {

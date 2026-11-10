@@ -1,5 +1,5 @@
 /**
- * The only writers of the `tasks` table (D118): every task-row write goes through here, and every one of
+ * The only writers of the `tasks` table: every task-row write goes through here, and every one of
  * them bumps `rev`.
  *
  * A write whose content or decision came from a row the caller read earlier names the `rev` it read. If
@@ -18,7 +18,7 @@ import { currentTurns } from "../util/keyed-queue.ts";
  */
 export const TASK_QUEUE_LABEL = "task queue";
 
-/** Where a write may say why it is allowed outside the task's turn (D118). */
+/** Where a write may say why it is allowed outside the task's turn. */
 export interface TaskRowWriteOptions {
 	/**
 	 * Allows a rev-guarded write outside a turn of the task's queue. Only the documented exceptions use
@@ -32,13 +32,13 @@ export interface TaskRowWriteOptions {
 let reportedOutOfTurn = false;
 
 /**
- * D118: a write derived from a read row names the `rev` it read, so it must run in a turn of that
+ * A write derived from a read row names the `rev` it read, so it must run in a turn of that
  * task's queue, where the read and the write cannot be split by another path. Under tests a violation
  * throws (a regression fails the suite); in production it is logged once and the write continues.
  */
 function assertTaskRowTurn(id: string): void {
 	if (currentTurns().some((turn) => turn.queue === TASK_QUEUE_LABEL && turn.key === id)) return;
-	const message = `task ${id}: a rev-guarded task write outside the task queue turn (D118)`;
+	const message = `task ${id}: a rev-guarded task write outside the task queue turn`;
 	if (process.env.VITEST) throw new Error(message);
 	if (reportedOutOfTurn) return;
 	reportedOutOfTurn = true;

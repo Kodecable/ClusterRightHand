@@ -1,5 +1,5 @@
 /**
- * Passkey (WebAuthn) registration and assertion checks (doc/privilege.md#签名方式, D91).
+ * Passkey (WebAuthn) registration and assertion checks (doc/design/privilege.md "Signing methods").
  *
  * crhs only verifies that a credential belongs to a user and that an assertion over an authorization
  * payload is genuine; crha verifies the same assertion again against its own trust entry, including
@@ -20,7 +20,7 @@ import {
 import type { WebauthnConfig } from "../config.ts";
 import { errorText } from "../util/errors.ts";
 
-/** The COSE algorithms crhs registers (doc/privilege.md#签名方式): ES256, EdDSA/Ed25519, RS256. */
+/** The COSE algorithms crhs registers (doc/design/privilege.md "Signing methods"): ES256, EdDSA/Ed25519, RS256. */
 export const SUPPORTED_ALGORITHM_IDS: readonly number[] = [-7, -8, -257];
 
 /** How long a registration challenge stays valid. */
@@ -72,7 +72,7 @@ export function rpForRequest(config: WebauthnConfig, originHeader: string | unde
 	return { rpId: url.hostname, rpName: config.rpName, origins: [url.origin] };
 }
 
-/** challenge = SHA-256("crh-auth-v1\0" ‖ payload) (doc/protocol.md#授权对象). */
+/** challenge = SHA-256("crh-auth-v1\0" ‖ payload) (doc/design/protocol.md "Authorization object"). */
 export function webauthnChallenge(payload: Uint8Array): Uint8Array {
 	return Uint8Array.from(createHash("sha256").update(`${AUTH_NAMESPACE}\0`).update(payload).digest());
 }
@@ -251,7 +251,7 @@ export async function verifyAssertion(input: {
 			expectedChallenge: () => true,
 			expectedOrigin: clientData.origin,
 			expectedRPID: input.credential.rpId,
-			// The counter is ignored on purpose (doc/privilege.md#签名方式): synced passkeys keep it at 0
+			// The counter is ignored on purpose (doc/design/privilege.md "Signing methods"): synced passkeys keep it at 0
 			// and replay is prevented by the used list on the node. Passing 0 skips the library's counter
 			// comparison, matching crha's verifier.
 			credential: {

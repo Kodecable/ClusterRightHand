@@ -5,7 +5,7 @@ Podman fixture for real privileged execution: one container is one node, with a 
 in-process server from `../e2e/harness.ts`.
 
 The guide — environment, image, mounts, process control, capability matrix and failure injection — is
-[doc/testing/privileged.md](../../../../doc/testing/privileged.md). It is the single source; this file only
+[doc/design/testing/privileged.md](../../../../doc/design/testing/privileged.md). It is the single source; this file only
 points at the files:
 
 - `harness.ts` — image build, containers, enrollment, trust configuration.

@@ -1,6 +1,6 @@
 /**
  * SSHSIG (OpenSSH PROTOCOL.sshsig) for authorizations, in binary form: the bytes of an
- * `-----BEGIN SSH SIGNATURE-----` block after base64 decoding. See doc/protocol.md#授权对象.
+ * `-----BEGIN SSH SIGNATURE-----` block after base64 decoding. See doc/design/protocol.md "Authorization object".
  *
  * Only `crh-auth-v1` signatures are accepted, always with the strict rules of the reference
  * verifier in packages/protocol/test/m4_vectors.test.ts: version 1, empty reserved field,
@@ -16,7 +16,7 @@ export type SshKeyType =
 	| "sk-ssh-ed25519@openssh.com"
 	| "sk-ecdsa-sha2-nistp256@openssh.com";
 
-/** The key types the verifier supports (doc/privilege.md#签名方式). */
+/** The key types the verifier supports (doc/design/privilege.md "Signing methods"). */
 export const SSH_KEY_TYPES: readonly SshKeyType[] = [
 	"ssh-ed25519",
 	"ecdsa-sha2-nistp256",
@@ -132,7 +132,7 @@ export function authorizedKeyLine(keyType: string, publicKeyBlob: Uint8Array, co
 
 /**
  * Parses an `authorized_keys` line: `type base64 [comment]`. Options in front of the type are not
- * part of the trust configuration's format (doc/protocol.md#trustsummary), so they are rejected. The
+ * part of the trust configuration's format (doc/design/protocol.md "Trust summary"), so they are rejected. The
  * blob must really be of the named type: a mistyped line would otherwise be stored as a credential
  * that can never verify anything, and a wrong key type in a trust entry is easier to spot here.
  */
@@ -188,7 +188,7 @@ export interface SignOptions {
 	reserved?: Uint8Array;
 }
 
-/** Signs bytes with an ed25519 key and wraps them as a binary SSHSIG blob (doc/protocol.md#授权对象). */
+/** Signs bytes with an ed25519 key and wraps them as a binary SSHSIG blob (doc/design/protocol.md "Authorization object"). */
 export function signSshsig(
 	privateKey: KeyObject,
 	publicKeyBlob: Uint8Array,
@@ -241,7 +241,7 @@ function mpintsToP1363(blob: Uint8Array): Uint8Array {
 
 /**
  * Verifies an SSHSIG over `message` against an `authorized_keys` line. Returns the reason instead
- * of throwing, so callers can log a rejection. Follows doc/protocol.md#授权对象 and is as strict as
+ * of throwing, so callers can log a rejection. Follows doc/design/protocol.md "Authorization object" and is as strict as
  * `ssh-keygen -Y verify` plus the UP requirement for `sk-*` signatures.
  */
 export function verifySshsig(publicKeyLine: string, message: Uint8Array, blob: Uint8Array): SshsigVerification {

@@ -1,5 +1,5 @@
 /**
- * API tokens and their rules (doc/access-control.md "api-token").
+ * API tokens and their rules (doc/design/access-control.md "API tokens").
  */
 
 import type { RefMap } from "./common.ts";

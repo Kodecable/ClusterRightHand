@@ -53,7 +53,7 @@ import { backfillUsageTokens } from "./usage-backfill.ts";
 import { wakePendingAgents } from "./wakes.ts";
 
 /**
- * The agent runtime behind our own interface (doc/agent-runtime.md#agentruntime-抽象). In server/src, pi packages
+ * The agent runtime behind our own interface (doc/design/agent-runtime.md "The AgentRuntime interface"). In server/src, pi packages
  * are used only inside this directory and the storage adapters in server/src/storage/; the WebUI receives crh's
  * own types from `@crh/api`, converted in session-events.ts, and test/pi-boundary.test.ts keeps every other src
  * import out. One Harness over one Storage holds every session as a conversation.
@@ -78,7 +78,7 @@ export class AgentRuntime {
 	#runtimeRef: { current?: AgentRuntime } = {};
 	/** Open WebUI session-list streams; writes publish here, coalesced per session. */
 	readonly #sessionList: SessionListHub;
-	/** The cached model presets (D116): the prompt sections and Auto Review read them synchronously. */
+	/** The cached model presets: the prompt sections and Auto Review read them synchronously. */
 	readonly modelPresets: ModelPresets;
 
 	private constructor(harness: Harness, options: AgentRuntimeOptions, presets: ModelPresets) {
@@ -108,10 +108,10 @@ export class AgentRuntime {
 		};
 		// The extension is built before the runtime and the Harness's metered Models resolve the map per request;
 		// both read it through the options, so every Harness (a reopen included) shares this instance
-		// (doc/agent-runtime.md#会话统计).
+		// (doc/design/agent-runtime.md "Session statistics").
 		options.generationTimings = this.#host.generationTimings;
 		// Custom providers fill their session id fields from the crh session id, not durable's provider id
-		// (doc/agent-runtime.md#自定义提供方). Auto Review asks for the reverse: the provider session id of
+		// (doc/design/agent-runtime.md "Custom providers"). Auto Review asks for the reverse: the provider session id of
 		// the session whose task it judges.
 		options.models.setSessionResolver(
 			(providerSessionId) => this.#host.sessionCaches.providerSessionOf(providerSessionId),
@@ -130,9 +130,9 @@ export class AgentRuntime {
 		const harness = await Harness.open(
 			storage,
 			{
-				// Compaction's summarization is metered here; Auto Review charges itself (doc/agent-runtime.md#配额).
+				// Compaction's summarization is metered here; Auto Review charges itself (doc/design/agent-runtime.md "Quota and token accounting").
 				// Generation streams are timed as they run, independently of any viewer
-				// (doc/agent-runtime.md#会话统计).
+				// (doc/design/agent-runtime.md "Session statistics").
 				models: options.models.metered(
 					async (providerSessionId, message, context) => {
 						await ref.current?.chargeCompaction(providerSessionId, message, context);
@@ -142,7 +142,7 @@ export class AgentRuntime {
 				registry,
 				identity: { attribution: { name: "ClusterRightHand", url: "https://github.com/Kodecable/ClusterRightHand" } },
 				settings: {
-					// pi's coding-agent defaults (doc/agent-runtime.md#默认值).
+					// pi's coding-agent defaults (doc/design/agent-runtime.md "Defaults").
 					compaction: { reserveTokens: 16384, keepRecentTokens: 20000, ...options.compaction },
 					retry: { maxRetries: 3 },
 					...(options.retentionMs !== undefined
@@ -158,7 +158,7 @@ export class AgentRuntime {
 	static async open(options: AgentRuntimeOptions): Promise<AgentRuntime> {
 		const ref: { current?: AgentRuntime } = {};
 		// The preset cache is loaded once, before any request: the system prompt section reads it synchronously
-		// and a write refreshes it (D116).
+		// and a write refreshes it.
 		const presets = new ModelPresets(options.db);
 		await presets.load();
 		const runtime = new AgentRuntime(await AgentRuntime.#openHarness(options, ref, presets), options, presets);
@@ -196,7 +196,7 @@ export class AgentRuntime {
 		// Sessions created before the per-conversation tool filter existed may still offer subagent at the limit.
 		await enforceDepthToolLimits(runtime.#host);
 		// A session that predates the statistics measures gets them from durable's persisted usage and history
-		// (D101, doc/agent-runtime.md#会话统计).
+		// (doc/design/agent-runtime.md "Session statistics").
 		await backfillUsageTokens(
 			options.db,
 			async (conversationId) =>
@@ -294,7 +294,7 @@ export class AgentRuntime {
 	async getSession(id: string): Promise<SessionView | undefined> {
 		return getSession(this.#host, id);
 	}
-	/** Creates a session and submits its first message in one idempotent request (D117). */
+	/** Creates a session and submits its first message in one idempotent request. */
 	async createSessionWithMessage(
 		owner: SessionUser,
 		input: CreateSessionWithMessageInput,
@@ -302,7 +302,7 @@ export class AgentRuntime {
 		return createSessionWithMessage(this.#host, owner, input);
 	}
 
-	/** The session a user already created with this request id (D117). */
+	/** The session a user already created with this request id. */
 	async findSessionByCreateRequestId(ownerUserId: string, requestId: string): Promise<SessionView | undefined> {
 		return findSessionByCreateRequestId(this.#host, ownerUserId, requestId);
 	}
@@ -359,12 +359,12 @@ export class AgentRuntime {
 		return submit(this.#host, sessionId, by, text, requestId);
 	}
 
-	/** Manually compacts the session; the summary is made in the background (doc/agent-runtime.md#会话). */
+	/** Manually compacts the session; the summary is made in the background (doc/design/agent-runtime.md "Sessions"). */
 	async compact(sessionId: string, by: SessionUser, instructions?: string): Promise<CompactTask> {
 		return compact(this.#host, sessionId, by, instructions);
 	}
 
-	/** Submits a schedule run's fixed prompt (doc/scheduling.md#调度). */
+	/** Submits a schedule run's fixed prompt (doc/design/scheduling.md "Triggering and submission"). */
 	async submitAsSchedule(
 		sessionId: string,
 		scheduleId: string,
@@ -375,7 +375,7 @@ export class AgentRuntime {
 		return submitAsSchedule(this.#host, sessionId, scheduleId, text, requestId, options);
 	}
 
-	/** Recomputes a session's state from durable and its wait sources (doc/agent-runtime.md#会话状态). */
+	/** Recomputes a session's state from durable and its wait sources (doc/design/agent-runtime.md "Session state"). */
 	async refreshState(sessionId: string): Promise<SessionState> {
 		return refreshState(this.#host, sessionId);
 	}
@@ -388,14 +388,14 @@ export class AgentRuntime {
 		return waitForSubmission(this.#host, submissionId, signal);
 	}
 
-	/** Request ids of the submissions still queued or placed after a restart (doc/scheduling.md#调度). */
+	/** Request ids of the submissions still queued or placed after a restart (doc/design/scheduling.md "Triggering and submission"). */
 	async unsettledSubmissionRequests(): Promise<Set<string>> {
 		return unsettledSubmissionRequests(this.#host);
 	}
 
 	// ---- subagents (runtime-subagents, runtime-requests) ----
 
-	/** Creates (or, on a rerun of the same tool call, finds) a subagent's session (doc/agent-runtime.md#subagent). */
+	/** Creates (or, on a rerun of the same tool call, finds) a subagent's session (doc/design/agent-runtime.md "Subagents"). */
 	async createSubagent(
 		parentId: string,
 		input: {
@@ -414,7 +414,7 @@ export class AgentRuntime {
 		return startSubagent(this.#host, childId, text, requestId);
 	}
 
-	/** Waits for the child's answer, or returns when a request needs this session's agent (doc/agent-runtime.md#subagent). */
+	/** Waits for the child's answer, or returns when a request needs this session's agent (doc/design/agent-runtime.md "Subagents"). */
 	async waitSubagent(
 		childId: string,
 		options: { attention?: boolean; signal?: AbortSignal; handler?: string } = {},
@@ -432,7 +432,7 @@ export class AgentRuntime {
 		return isDescendant(this.#host, sessionId, childId);
 	}
 
-	/** Requests waiting for this session's agent (doc/access-control.md#审批). */
+	/** Requests waiting for this session's agent (doc/design/access-control.md "Approvals"). */
 	async pendingAgentRequests(sessionId: string) {
 		return pendingAgentRequests(this.#host, sessionId);
 	}
@@ -450,22 +450,22 @@ export class AgentRuntime {
 
 	// ---- quota waits and metering (runtime-quota) ----
 
-	/** The owner's answer to a root whose quota is used up (doc/agent-runtime.md#配额). */
+	/** The owner's answer to a root whose quota is used up (doc/design/agent-runtime.md "Quota and token accounting"). */
 	async decideRootQuota(rootId: string, decision: "approve" | "deny", tokens?: number): Promise<string[]> {
 		return decideRootQuota(this.#host, rootId, decision, tokens);
 	}
 
-	/** Pauses a tool call whose chain quota is used up (doc/agent-runtime.md#配额). */
+	/** Pauses a tool call whose chain quota is used up (doc/design/agent-runtime.md "Quota and token accounting"). */
 	async waitForQuota(sessionId: string, context: Context): Promise<"ok" | "denied"> {
 		return waitForQuota(this.#host, sessionId, context);
 	}
 
-	/** Remembers which session owns a conversation's provider session id, for metering its compaction (D92). */
+	/** Remembers which session owns a conversation's provider session id, for metering its compaction. */
 	async rememberProviderSession(conversationId: string): Promise<void> {
 		return rememberProviderSession(this.#host, conversationId);
 	}
 
-	/** Charges a compaction's summarization to the session it compacted (D92, D101). */
+	/** Charges a compaction's summarization to the session it compacted. */
 	async chargeCompaction(
 		providerSessionId: string,
 		message: Parameters<typeof chargeCompaction>[2],

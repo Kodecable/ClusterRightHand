@@ -4,7 +4,7 @@ import { SSH_PRIVILEGED_NOTICE, sshPrivilegedNotice } from "../src/cluster/ssh/e
 
 /**
  * Unit-level checks of the SSH notice, which the cluster stores in `tasks.notice` for a privileged
- * task (D114). It is crhs's own line and never part of the task's output stream. The SSH exec/SFTP
+ * task. It is crhs's own line and never part of the task's output stream. The SSH exec/SFTP
  * tests need a real sshd (CRH_TEST_SSH) and skip here.
  */
 describe("SSH privileged notice", () => {

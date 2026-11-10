@@ -4,7 +4,7 @@ import type { SessionsTable } from "../storage/schema.ts";
 
 /**
  * Walking the session tree: a session's chain is its own row, then its parent's, up to the root
- * (doc/agent-runtime.md#会话状态), and its subtree is every row below it. Subagents nest at most
+ * (doc/design/agent-runtime.md "Session state"), and its subtree is every row below it. Subagents nest at most
  * `MAX_SUBAGENT_DEPTH` levels, so a chain is short and one indexed read per level is cheap; the downward walk is
  * one recursive query, guarded against a corrupt parent cycle. Every caller shares these walks.
  */

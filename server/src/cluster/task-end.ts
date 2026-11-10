@@ -1,5 +1,5 @@
 /**
- * The ends of a task (doc/execution-plane.md#状态机): the node's reports of acceptance and exit, the
+ * The ends of a task (doc/design/execution.md "State machine"): the node's reports of acceptance and exit, the
  * guarded write of a terminal row and the side effects every ending shares (the live output, the
  * waiters, the group's state, the session inbox and the task.finished audit).
  */
@@ -78,7 +78,7 @@ export const NODE_DELETED = "node_deleted";
 export const NODE_DELETED_MESSAGE = "the node was deleted before the task was dispatched";
 /** The reason of a task cancelled after it was claimed but before it reached the node. */
 export const CANCELLED_BEFORE_START_MESSAGE = "the task was cancelled before it was dispatched";
-/** The error code of a task whose node never became ready within the offline grace (D113). */
+/** The error code of a task whose node never became ready within the offline grace. */
 export const NODE_OFFLINE = "node_offline";
 /** The error message that goes with NODE_OFFLINE. */
 export const NODE_OFFLINE_MESSAGE = "the node is not connected";
@@ -101,7 +101,7 @@ export function cancelledTaskFields(message = CANCELLED_BEFORE_START_MESSAGE): U
 	};
 }
 
-/** Ends a waiting task whose on_behalf_of user no longer has access to the node (D108). */
+/** Ends a waiting task whose on_behalf_of user no longer has access to the node. */
 export async function failNodeAccessRevoked(
 	core: ClusterCore,
 	id: string,
@@ -149,7 +149,7 @@ interface NodeOfflineEnd {
 }
 
 /**
- * Ends a task whose node never became ready within the offline grace (D113), from whichever states it
+ * Ends a task whose node never became ready within the offline grace, from whichever states it
  * still waits in: the plain dispatch's awaiting_approval, a signature wait's state, or the dispatch
  * side's dispatched/running. Every ending writes the same failure columns; `end` keeps the side effects
  * each site had (the live output, the group sync, the actor refresh).
@@ -180,7 +180,7 @@ export async function failNodeOffline(core: ClusterCore, id: string, end: NodeOf
 
 /**
  * The failure branch of a dispatch that waited for its node: the wait itself ran outside any turn
- * (D118); `ready` without a link means the ending runs in the task's own turn, on a fresh read, so a
+ *; `ready` without a link means the ending runs in the task's own turn, on a fresh read, so a
  * cancellation or another ending that settled the row meanwhile is not overwritten. `end` decides from
  * that row whether it still needs ending.
  */
@@ -199,7 +199,7 @@ export async function endIfNodeUnready(
 
 /**
  * Ends a task that was written as `awaiting_approval` only to be dispatched at once, when the dispatch
- * threw before touching the row (doc/execution-plane.md#状态机): leaving it waiting would show an approval
+ * threw before touching the row (doc/design/execution.md "State machine"): leaving it waiting would show an approval
  * nobody can decide. The error is logged, not raised, so the caller sees the failure that caused it.
  */
 export async function endUndispatched(core: ClusterCore, id: string, error: unknown): Promise<void> {
@@ -255,7 +255,7 @@ export async function failNodeDeleted(
 }
 
 /**
- * Ends the waiting tasks of a node that was just deleted (doc/execution-plane.md#状态机): `tasks.node_id`
+ * Ends the waiting tasks of a node that was just deleted (doc/design/execution.md "State machine"): `tasks.node_id`
  * has no foreign key, so the rows stay behind and nothing would ever dispatch them. Each ending runs in
  * that task's own turn, on the row read there, so it cannot overwrite an approval or a cancellation that
  * settled the task meanwhile. Returns how many rows ended.
@@ -286,7 +286,7 @@ export async function onAccepted(core: ClusterCore, nodeId: string, taskId: stri
 	await writeTask(core.db, taskId, { states: ["dispatched"], nodeId }, { state: "running", accepted_at: now() });
 	core.notify(taskId);
 	// The cancel may have reached the node before its task.start, or the start may have overtaken the
-	// cancel: the node now knows the task, so the cancel has to follow it (doc/execution-plane.md#任务取消).
+	// cancel: the node now knows the task, so the cancel has to follow it (doc/design/execution.md "Task cancellation").
 	const row = await core.row(taskId);
 	if (row?.cancelled === 1) requestTaskCancel(core, nodeId, taskId);
 }
@@ -323,7 +323,7 @@ export async function onExit(core: ClusterCore, conn: NodeConnection, exit: Task
 		});
 	// TaskExit follows all output on the wire; if bytes are missing, the client will resend after a
 	// reconnect and send TaskExit again. Record what we have only when complete. A `status` task gets
-	// no task.output at all, so there is nothing to wait for (doc/execution-plane.md#输出).
+	// no task.output at all, so there is nothing to wait for (doc/design/execution.md "Output").
 	const complete = row.output_mode === "status" || live.output.end >= exit.outputEnd;
 	if (!complete) return conn.close("output incomplete at exit");
 
@@ -451,7 +451,7 @@ export async function updateTask(
 
 /**
  * A task group shows awaiting_authorization while every unfinished task of it waits for a signature,
- * and running otherwise (doc/execution-plane.md#状态机). The group's own end states are left alone.
+ * and running otherwise (doc/design/execution.md "State machine"). The group's own end states are left alone.
  */
 export async function syncGroupState(core: ClusterCore, groupId: string | null): Promise<void> {
 	if (!groupId) return;

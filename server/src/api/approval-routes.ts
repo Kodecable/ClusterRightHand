@@ -19,7 +19,7 @@ export async function reevaluateAfterRuleChange(cluster: Cluster, taskGroups: Ta
 	await taskGroups.reevaluate(ref);
 }
 
-/** Approvals: only the root's owner decides (doc/access-control.md#审批). Expects requireUser. */
+/** Approvals: only the root's owner decides (doc/design/access-control.md "Approvals"). Expects requireUser. */
 export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups, audit: Audit) {
 	const app = new Hono<AppEnv>();
 
@@ -153,7 +153,7 @@ async function approvalRequestRows(db: Db, userId: string) {
 /**
  * Tasks and task groups that passed their rules but still wait for this user's signature. Both entry
  * points share this one list: the approvals page shows them in their own section and the header
- * count adds them up (doc/privilege.md). A task that belongs to a task group is signed through the
+ * count adds them up (doc/design/privilege.md). A task that belongs to a task group is signed through the
  * task group, so only the task group is listed: one signature, one entry.
  */
 async function signatureRequestRows(db: Db, userId: string) {
@@ -187,7 +187,7 @@ async function taskGroupViews(taskGroups: TaskGroups, rows: { id: string }[]): P
 
 /**
  * Roots whose quota is used up wait for this user: their own paused run and any subagent paused on the
- * same root are one request (doc/agent-runtime.md#配额). Shared users cannot decide, so only the owner
+ * same root are one request (doc/design/agent-runtime.md "Quota and token accounting"). Shared users cannot decide, so only the owner
  * sees them; admins see only their own, like the approvals above.
  */
 async function quotaRequests(db: Db, userId: string): Promise<QuotaRequest[]> {

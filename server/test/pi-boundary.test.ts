@@ -3,7 +3,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * The pi boundary (doc/agent-runtime.md#agentruntime-抽象): pi packages are implementation details of the agent
+ * The pi boundary (doc/design/agent-runtime.md "The AgentRuntime interface"): pi packages are implementation details of the agent
  * runtime and of the storage adapters that implement pi-durable's `Storage`. `@crh/api` is the only wire type the
  * WebUI sees (`server/src/agent/session-events.ts` converts it), and this test keeps every other part of the
  * server from importing pi directly, so a pi upgrade cannot ripple past those two directories.

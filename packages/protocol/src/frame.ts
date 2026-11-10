@@ -1,6 +1,6 @@
 /**
  * Frame layer: [0, id, cmd, body] requests, [1, id, cmd, ok, body] responses
- * and [2, name, body] events. See doc/protocol.md.
+ * and [2, name, body] events. See doc/design/protocol.md.
  */
 import { CborError, decode as decodeCbor, encode as encodeCbor } from "./cbor.ts";
 import { errorCodec, type WireError } from "./messages.ts";

@@ -1,5 +1,5 @@
 /**
- * Follow-up inputs held for a running handler (wakes.ts, doc/agent-runtime.md#处理子会话的请求), and the handlers
+ * Follow-up inputs held for a running handler (wakes.ts, doc/design/agent-runtime.md "Handling subagent requests"), and the handlers
  * with an idle observer attached, so a held wake is flushed once when the handler goes idle.
  */
 export class HandlerWakes {

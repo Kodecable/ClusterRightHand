@@ -12,8 +12,8 @@ import { nodeStatusLabel } from "@/components/status-badge";
 import { http, queryString } from "@/lib/api/client";
 
 /**
- * The data half of EntityPicker: one search hook per entity kind (doc/webui.md
- * "实体搜索"). Every request goes through the existing list endpoints' `q` /
+ * The data half of EntityPicker: one search hook per entity kind (doc/design/webui.md "Entity search").
+ * Every request goes through the existing list endpoints' `q` /
  * `limit` / `ids` parameters, so no picker ever downloads the whole directory.
  */
 

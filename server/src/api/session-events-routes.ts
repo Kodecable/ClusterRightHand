@@ -110,7 +110,7 @@ function sleepFor(ms: number, signal: AbortSignal): Promise<void> {
 
 /**
  * The server-sent event streams of sessions: the session list's changes and one session's events
- * (doc/webui.md#会话列表, doc/webui.md#会话事件流和历史). Expects requireUser. Registered before the session
+ * (doc/design/webui.md "Session list API", doc/design/webui.md "Session event stream and history"). Expects requireUser. Registered before the session
  * routes, so that `/sessions/stream` is not taken for a session id.
  */
 export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
@@ -118,7 +118,7 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 	const app = new Hono<AppEnv>();
 
 	/**
-	 * Session list changes as server-sent events (doc/webui.md#会话列表): `upsert` carries the item as this
+	 * Session list changes as server-sent events (doc/design/webui.md "Session list API"): `upsert` carries the item as this
 	 * subscriber sees it, `remove` says the session is gone (deleted, no longer shared, archived), and `ping`
 	 * keeps the connection alive. No initial snapshot: the client fetches page one and reconnects after errors.
 	 */

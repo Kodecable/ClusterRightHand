@@ -14,7 +14,7 @@ export const auditKeys = {
 };
 
 /**
- * `GET /api/audit` is cursor-paged, ordered by `seq desc` (doc/webui.md "游标列表").
+ * `GET /api/audit` is cursor-paged, ordered by `seq desc` (doc/design/webui.md "Cursor pagination").
  * The log is append-only and each page keeps its own cursor, so polling every
  * 10 s shows new events on the first page without moving the pages already
  * loaded (no "Refresh" button needed).

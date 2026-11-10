@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 export async function up(db: Kysely<unknown>): Promise<void> {
-	// Agent sessions; each is one durable conversation (doc/agent-runtime.md#会话).
+	// Agent sessions; each is one durable conversation (doc/design/agent-runtime.md "Sessions").
 	await db.schema
 		.createTable("sessions")
 		.addColumn("id", "text", (c) => c.primaryKey())

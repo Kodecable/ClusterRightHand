@@ -506,7 +506,7 @@ func TestUnionEncodingRejectsIncomplete(t *testing.T) {
 }
 
 // TestFactsMapKeys pins the wire form of Facts: the protocol's one text-keyed map, in canonical
-// key order, with an absent optional value omitted rather than encoded as null (doc/protocol.md).
+// key order, with an absent optional value omitted rather than encoded as null (doc/design/protocol.md).
 func TestFactsMapKeys(t *testing.T) {
 	f := sampleFacts()
 	data, err := Marshal(f)
@@ -553,7 +553,7 @@ func TestFactsMapKeys(t *testing.T) {
 }
 
 // TestFactsUnknownKeys pins that a fact this implementation does not know is accepted: the strict
-// comparison is on the generic CBOR value, which keeps the unknown key (doc/protocol.md Facts).
+// comparison is on the generic CBOR value, which keeps the unknown key (doc/design/protocol.md "Events").
 func TestFactsUnknownKeys(t *testing.T) {
 	// {"groups": ["wheel"], "hostname": "node-1", "future_fact": "x"}: groups is an old fact that
 	// protocol 3.0 dropped, so it is just another unknown text key now.
@@ -577,7 +577,7 @@ func TestFactsUnknownKeys(t *testing.T) {
 }
 
 // TestFactsNonTextKey pins that a non-text key fails the whole Facts, also inside shells, while an
-// unknown text key is ignored (doc/protocol.md Facts).
+// unknown text key is ignored (doc/design/protocol.md "Events").
 func TestFactsNonTextKey(t *testing.T) {
 	for name, data := range map[string]string{
 		// {1: "x", "groups": ["sudo"], "hostname": "node-1"}

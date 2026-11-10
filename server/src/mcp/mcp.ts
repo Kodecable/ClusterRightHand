@@ -18,7 +18,7 @@ export interface McpOptions {
 }
 
 /**
- * The MCP facade at /mcp (Streamable HTTP, stateless; doc/mcp.md). Each request carries an API token,
+ * The MCP facade at /mcp (Streamable HTTP, stateless; doc/guide/mcp.md). Each request carries an API token,
  * which is both the caller's identity and the root of its rule chain.
  */
 export function mcpRoutes(db: Db, options: McpOptions): Hono {
@@ -80,7 +80,7 @@ function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { origin: 
 				annotations: { readOnlyHint: tool.readOnly, openWorldHint: true },
 			},
 			// The request's abort signal ends a wait; the file tools also cancel their task when it fires
-			// (D111: a closed MCP request must not leave a write to run after an approval).
+			// (a closed MCP request must not leave a write to run after an approval).
 			async (args, extra) => {
 				const call = await callTool(
 					tool,

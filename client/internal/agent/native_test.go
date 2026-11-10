@@ -22,7 +22,7 @@ import (
 
 // TestMain lets the test binary act as `crha privileged stdio`. The native tests start the helper
 // the way production does, only without an escalation tool: the helper is this very binary, re-run
-// with the helper's arguments, so no sudo or doas is needed (doc/privilege.md, native). The
+// with the helper's arguments, so no sudo or doas is needed (doc/design/privilege.md "Native mode"). The
 // fake-helper mode is a stand-in helper for the lost task.start response tests.
 func TestMain(m *testing.M) {
 	// The helper stages task stdin below a privileged state directory. The test process is not

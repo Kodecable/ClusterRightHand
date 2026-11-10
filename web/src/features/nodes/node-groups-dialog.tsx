@@ -6,7 +6,7 @@ import { EntityPicker } from "@/components/entity-picker";
 import { useSetNodeGroups } from "./api";
 
 /**
- * Replaces a node's node groups (D109). Administrator-only, for crha and SSH
+ * Replaces a node's node groups. Administrator-only, for crha and SSH
  * nodes alike: both are managed here now, not by the node's own configuration.
  */
 export function NodeGroupsDialog({ node, onClose }: { node: PublicNode; onClose: () => void }) {

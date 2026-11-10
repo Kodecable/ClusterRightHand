@@ -12,7 +12,7 @@ import { errorText, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 
 /**
- * Scheduled runs (doc/scheduling.md): a cron that creates a new session and submits a fixed prompt. This module
+ * Scheduled runs (doc/design/scheduling.md): a cron that creates a new session and submits a fixed prompt. This module
  * holds the stored shape and the cron arithmetic; the loop that fires and submits is scheduler.ts.
  */
 
@@ -37,7 +37,7 @@ export interface Schedule {
 
 export type ScheduleRun = ScheduleRunView;
 
-/** How late a due trigger may be and still count as that trigger (doc/scheduling.md#调度). */
+/** How late a due trigger may be and still count as that trigger (doc/design/scheduling.md "Triggering and submission"). */
 export const MISSED_TOLERANCE_MS = 60_000;
 
 function parseRun(row: Selectable<ScheduleRunsTable>): ScheduleRun {
@@ -145,7 +145,7 @@ function validPrompt(prompt: string): string {
 	return prompt;
 }
 
-/** A schedule's token budget: null for unlimited, or at least one token (doc/scheduling.md#授权规则与配额). */
+/** A schedule's token budget: null for unlimited, or at least one token (doc/design/scheduling.md "Rules and quotas"). */
 export function parseTokenBudget(raw: unknown): number | null {
 	if (raw === null || raw === undefined) return null;
 	if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1) {
@@ -226,7 +226,7 @@ export interface SchedulePatch {
 
 /**
  * Applies a partial change and recomputes `next_run_at` when the cron, the timezone or `enabled` changed
- * (doc/scheduling.md#生命周期). Changing the prompt, model, rule preset or budget only affects later runs.
+ * (doc/design/scheduling.md "Lifecycle"). Changing the prompt, model, rule preset or budget only affects later runs.
  */
 export async function updateSchedule(
 	db: Db,
@@ -309,7 +309,7 @@ export async function getRun(db: Db, id: string): Promise<ScheduleRun | undefine
 	return row ? parseRun(row) : undefined;
 }
 
-/** Newest first; `before` continues `fire_time desc, id desc` (doc/webui.md#api-约定) for GET /schedules/:id/runs. */
+/** Newest first; `before` continues `fire_time desc, id desc` (doc/design/webui.md "API conventions") for GET /schedules/:id/runs. */
 export async function listRuns(
 	db: Db,
 	scheduleId: string,
@@ -353,13 +353,13 @@ export async function runInProgress(db: Db, scheduleId: string): Promise<Schedul
 	return row ? parseRun(row) : undefined;
 }
 
-/** The actor a scheduler decision is recorded with (doc/access-control.md#操作者). */
+/** The actor a scheduler decision is recorded with (doc/design/access-control.md "Actors"). */
 export function scheduleActor(schedule: Schedule): AuditActor {
 	return { type: "system", id: "scheduler", onBehalfOfUserId: schedule.ownerUserId };
 }
 
 /**
- * Disables every enabled schedule of a user who was just disabled (doc/scheduling.md#生命周期) and audits each.
+ * Disables every enabled schedule of a user who was just disabled (doc/design/scheduling.md "Lifecycle") and audits each.
  * Audits are written by the caller's Audit instance so the chain order stays with the user update.
  */
 export async function disableSchedulesOfOwner(

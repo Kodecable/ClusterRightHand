@@ -5,7 +5,7 @@ import { enc, http } from "@/lib/api/client";
 import { nodeGroupKeys } from "./keys";
 
 /**
- * Node groups (D108, D109): every signed-in user may list them; creating,
+ * Node groups: every signed-in user may list them; creating,
  * renaming, deleting and changing members are administrator actions. The
  * server filters `memberIds` to the nodes a non-admin can see.
  */

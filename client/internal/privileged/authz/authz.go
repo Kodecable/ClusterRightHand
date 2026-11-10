@@ -11,7 +11,7 @@ import (
 )
 
 // Result is a task.start authorization result: "accepted" or one of the retryable /
-// terminal error codes of doc/protocol.md#taskstart.
+// terminal error codes of doc/design/protocol.md "task.start".
 type Result string
 
 const (
@@ -23,8 +23,8 @@ const (
 	ResultAlreadyAccepted Result = "already_accepted"
 )
 
-// Steps of doc/privilege.md#校验流程. Step 1 (the peer uid check) belongs to the socket;
-// step 10 (persisting the used list and executing) belongs to the caller.
+// Steps of doc/design/privilege.md "Validation flow". Step 1 (the peer uid check) belongs to the socket;
+// step 9 (persisting the used list and executing) belongs to the caller.
 const (
 	StepTaskCheck     = 2
 	StepSignatures    = 3
@@ -33,8 +33,6 @@ const (
 	StepCommand       = 6
 	StepTrust         = 7
 	StepCosign        = 8
-	// Step 9 was the revocation check. Revocation was removed; the number stays unused so the
-	// remaining steps keep their values in error messages.
 )
 
 // Entry is one trust entry in the form the decision needs. The signature keys live in the
@@ -72,7 +70,7 @@ type Task struct {
 
 // Signature is one authorization signature after the caller's crypto check. Entry is the
 // trust entry whose key (or credential) verified it, or nil when no trust entry matches;
-// untrusted signatures are ignored, as doc/privilege.md requires.
+// untrusted signatures are ignored, as doc/design/privilege.md requires.
 type Signature struct {
 	Entry        *Entry
 	Valid        bool
@@ -327,7 +325,7 @@ func checkCandidate(in Input, auth *Authorization, signature *Signature, authori
 			return failure(ResultRejected, StepOneShot, "trust entry requires task_ids"), false
 		}
 		// A cosignature is a single confirmation, so an authorization that needs one
-		// must be one-shot (doc/privilege.md: all cosignatures require task_ids).
+		// must be one-shot (doc/design/privilege.md: all cosignatures require task_ids).
 		if cosignRequired(entry) {
 			return failure(ResultRejected, StepOneShot, "an authorization that requires cosign must carry task_ids"), false
 		}
@@ -392,7 +390,7 @@ func hasCosign(auth *Authorization) bool {
 }
 
 // oneShotNodeCheck verifies that a one-shot authorization binds every task id to one node id
-// (doc/protocol.md#授权对象): nodes lists only node ids, has exactly one entry per task id, and
+// (doc/design/protocol.md "Authorization object"): nodes lists only node ids, has exactly one entry per task id, and
 // the task's id sits at the position of this node. A compromised crhs cannot send all task ids
 // of a group authorization to one node and run the command there several times.
 func oneShotNodeCheck(nodes, taskIDs []string, taskID, nodeID string) error {
@@ -417,7 +415,7 @@ func oneShotNodeCheck(nodes, taskIDs []string, taskID, nodeID string) error {
 }
 
 // addressedTo reports whether the payload's nodes cover this node: its id, one of its configured
-// trust aliases, or "*" (doc/privilege.md 校验流程 step 4).
+// trust aliases, or "*" (doc/design/privilege.md "Validation flow" step 4).
 func addressedTo(nodes []string, nodeID string, aliases []string) bool {
 	for _, node := range nodes {
 		if node == "*" || node == nodeID || slices.Contains(aliases, node) {

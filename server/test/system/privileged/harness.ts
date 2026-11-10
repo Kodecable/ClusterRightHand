@@ -1,5 +1,5 @@
 /**
- * The podman fixture of the privileged system suite (doc/testing/privileged.md).
+ * The podman fixture of the privileged system suite (doc/design/testing/privileged.md).
  *
  * One container is one node: a real `crha privileged run` as root on /run/crha/privileged.sock, a real
  * `crha run` as uid 998 crha, and an sshd on 127.0.0.1:2222. The crhs side is the in-process server of
@@ -154,7 +154,7 @@ export interface ContainerOptions {
 	/** Non-privileged mode. */
 	mode?: "forward" | "native" | "ignore" | "reject";
 	native?: "sudo" | "doas" | "run0";
-	/** Trust aliases of privileged.toml: the node group UUIDs the node accepts authorizations for (D110). */
+	/** Trust aliases of privileged.toml: the node group UUIDs the node accepts authorizations for. */
 	aliases?: string[];
 	/** privileged.toml clock_skew; the fallback test uses 0 to let a 1 ms authorization expire. */
 	clockSkew?: string;
@@ -184,7 +184,7 @@ export interface MountSpec {
 	readOnly?: boolean;
 }
 
-/** One [[trust]] entry, in the field names of privileged.toml (doc/privilege.md 信任配置). */
+/** One [[trust]] entry, in the field names of privileged.toml (doc/design/privilege.md "Trust configuration"). */
 export interface TrustSpec {
 	name: string;
 	role: "crhs" | "user" | "local";
@@ -428,7 +428,7 @@ export class PrivilegedNode {
 		}
 	}
 
-	/** Rewrites crha.toml (privileged mode changes need a restart, doc/privilege.md#reload). */
+	/** Rewrites crha.toml (privileged mode changes need a restart, doc/design/privilege.md "The privileged mode"). */
 	async setMode(mode: ContainerOptions["mode"], native: ContainerOptions["native"] = "sudo"): Promise<void> {
 		this.#mode = mode;
 		await this.#writeCrhaConfig({ mode, native });

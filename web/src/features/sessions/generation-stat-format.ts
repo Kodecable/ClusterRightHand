@@ -1,5 +1,5 @@
 /**
- * Formatting for the composer's generation line (doc/webui.md "输入框"):
+ * Formatting for the composer's generation line (doc/design/webui.md "Composer"):
  * the decode rate, the average TTFT and the tree's cache hit. Kept pure so
  * the rounding rules are unit-testable with an explicit locale.
  */

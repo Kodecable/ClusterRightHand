@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * The session list's keyset pages (doc/webui.md#会话列表): `scope=mine` filters the owner, `scope=all`
+ * The session list's keyset pages (doc/design/webui.md "Session list API"): `scope=mine` filters the owner, `scope=all`
  * filters only the missing parent, and both order by `updated_at DESC, id DESC`. Each index carries the
  * filter columns first so SQLite and PostgreSQL can walk it in order instead of sorting every root session.
  */

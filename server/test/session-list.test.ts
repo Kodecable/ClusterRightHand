@@ -98,7 +98,7 @@ async function seed(
 }
 
 const newSession = async (who: string, title: string): Promise<string> => {
-	// Setup only: the HTTP create route now always submits a first message (D117), while most list tests just
+	// Setup only: the HTTP create route now always submits a first message, while most list tests just
 	// need a session; the runtime creates it without a run.
 	const owner = user[who];
 	if (!owner) throw new Error("unknown user");

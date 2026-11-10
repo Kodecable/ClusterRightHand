@@ -40,13 +40,13 @@ export interface AppOptions extends AuthRoutesOptions {
 	serverFingerprint?: string;
 	/** crhs's Noise static public key, served to `crha enroll`. */
 	serverPublicKey?: Uint8Array;
-	/** crhs's authorization signing key, for the crhs trust entry and its snippet (doc/privilege.md#crhs-侧). */
+	/** crhs's authorization signing key, for the crhs trust entry and its snippet (doc/design/privilege.md "Server-side authorization"). */
 	authorizationKey?: AuthorizationSigningKey;
 	/** Needed for SSH credentials and nodes. */
 	masterKey?: MasterKey;
 	/** `[webauthn]` from crhs.toml; unset means Passkey registration follows the request's Origin. */
 	webauthn?: WebauthnConfig;
-	/** Warn when a node's clock differs by more than this; 0 disables (doc/privilege.md#时钟). */
+	/** Warn when a node's clock differs by more than this; 0 disables (doc/design/privilege.md "Clock"). */
 	clockWarnMs?: number;
 	/** Directory of the built WebUI; served for every path outside /api, /agent and /mcp. */
 	webRoot?: string;
@@ -54,7 +54,7 @@ export interface AppOptions extends AuthRoutesOptions {
 	audit?: Audit;
 	/** The agent runtime and its models; without them there are no sessions. */
 	agent?: { runtime: AgentRuntime; models: ModelConfig };
-	/** The scheduler that fires and submits scheduled runs (doc/scheduling.md); with it come the schedule routes. */
+	/** The scheduler that fires and submits scheduled runs (doc/design/scheduling.md); with it come the schedule routes. */
 	scheduler?: Scheduler;
 	/** Request tracking for shutdown; `main.ts` begins it when a signal arrives (a private one is made when omitted). */
 	drain?: RequestDrain;

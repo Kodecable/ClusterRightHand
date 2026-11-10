@@ -1,5 +1,5 @@
 /**
- * The task state machine (doc/execution-plane.md#状态机), as the Cluster facade uses it. The work is
+ * The task state machine (doc/design/execution.md "State machine"), as the Cluster facade uses it. The work is
  * done by the modules this re-exports from; the cluster modules import those directly:
  *
  * - `task-dispatch.ts`: judging a task with the rule chain, creating it and dispatching it;

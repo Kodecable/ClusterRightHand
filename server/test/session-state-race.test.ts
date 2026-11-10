@@ -17,7 +17,7 @@ import { type DbProbe, probeDb, tableOf } from "./helpers/db-probe.ts";
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * A recompute must not revive a session that settled while it ran (doc/agent-runtime.md#会话状态): the state
+ * A recompute must not revive a session that settled while it ran (doc/design/agent-runtime.md "Session state"): the state
  * it computed from its stale row is written only while the row is still live. The runtime gets a database with a
  * one-shot probe, so the settle lands deterministically inside the read-then-write gap.
  */

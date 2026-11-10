@@ -41,7 +41,7 @@ export interface SessionRoutesOptions {
 	taskGroups: TaskGroups;
 	/** The open event streams: removing a share may end some of them. */
 	streams: SessionStreams;
-	/** Tells the scheduler when a scheduled run's root quota was denied, so the run ends failed (doc/scheduling.md). */
+	/** Tells the scheduler when a scheduled run's root quota was denied, so the run ends failed (doc/design/scheduling.md). */
 	scheduler?: Scheduler;
 }
 
@@ -56,7 +56,7 @@ const SESSION_CURSOR: CursorSpec = {
 };
 /** A history cursor is just the entry id to stop before, so it needs no sort column. */
 const HISTORY_CURSOR: CursorSpec = { columns: [], idType: "number" };
-/** History pages default to 100 entries (doc/webui.md#会话事件流和历史). */
+/** History pages default to 100 entries (doc/design/webui.md "Session event stream and history"). */
 const DEFAULT_HISTORY = 100;
 /** The scopes of the session list and of its stream. */
 export const SESSION_SCOPES: ReadonlySet<string> = new Set(["mine", "shared", "visible", "all"]);
@@ -90,7 +90,7 @@ export function refuseWhenClosing(runtime: AgentRuntime): MiddlewareHandler<AppE
 }
 
 /**
- * Sessions (chat with the agent); doc/agent-runtime.md. Expects requireUser and refuseWhenClosing; the
+ * Sessions (chat with the agent); doc/design/agent-runtime.md. Expects requireUser and refuseWhenClosing; the
  * event streams are in session-events-routes.ts, registered first.
  */
 export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
@@ -146,7 +146,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 
 	/**
 	 * Root sessions as `SessionListItem`, newest activity first, one keyset page at a time
-	 * (doc/webui.md#会话列表). `scope=all` is administrators only; `shared` means a share reaches the caller,
+	 * (doc/design/webui.md "Session list API"). `scope=all` is administrators only; `shared` means a share reaches the caller,
 	 * not ownership; `visible` is the owner-and-shared union the WebUI lists. Default `mine`. `GET /sessions/:id`
 	 * stays the full SessionView.
 	 */
@@ -186,7 +186,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 
 	/**
 	 * Root sessions matching every whitespace-separated keyword of `q` in their title or message text, newest
-	 * activity first, one keyset page at a time (doc/webui.md#会话内容搜索). Titles are searched on both backends;
+	 * activity first, one keyset page at a time (doc/design/webui.md "Session content search"). Titles are searched on both backends;
 	 * message content only on PostgreSQL, where the pg-durable adapter's generated `search_text` column exists.
 	 * So SQLite answers `contentSearch: false` and never fills `hits` or `hitCount`. The scope, visibility and
 	 * cursor are the session list's. Registered before `/sessions/:id`, which would otherwise read "search" as an id.
@@ -210,7 +210,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	});
 
 	/**
-	 * Creates a session and submits its first message in one request (D117): `{ requestId, model, rulePreset,
+	 * Creates a session and submits its first message in one request: `{ requestId, model, rulePreset,
 	 * budgetRemaining?, title?, message }`. A retry with the same request id returns the session the first
 	 * attempt made (200) instead of creating another; a new session is 201. A failure to submit removes the
 	 * new session again.
@@ -223,7 +223,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		}
 		const message = typeof body.message === "string" ? body.message.trim() : "";
 		if (message === "") return jsonError(c, 400, "message is required");
-		// Any level may have a remaining budget; null (or no field) is unlimited and never charged (D92, D101).
+		// Any level may have a remaining budget; null (or no field) is unlimited and never charged.
 		const budgetRemaining = body.budgetRemaining === undefined ? undefined : parseQuota(body.budgetRemaining);
 		const { session, created } = await runtime.createSessionWithMessage(c.get("user"), {
 			requestId,
@@ -252,7 +252,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	});
 
 	/**
-	 * Marks the tree read for its owner (doc/webui.md#侧边列表): `POST /api/sessions/:id/read` sets the root's
+	 * Marks the tree read for its owner (doc/design/webui.md "Sidebar list"): `POST /api/sessions/:id/read` sets the root's
 	 * `owner_read_at` to now and republishes the root, so the owner's other tabs clear the unread dot. `:id` may
 	 * be any session of the tree, so opening a subagent marks its whole tree. Only the owner may mark a tree
 	 * read. `updated_at` is not touched: marking read must not reorder the list. Answers 204.
@@ -272,7 +272,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 
 	/**
 	 * The session's direct child sessions (subagents), newest activity first, one keyset page at a time
-	 * (doc/webui.md#api-约定). Visibility is `GET /sessions/:id`'s: a share on a session reaches its subagents,
+	 * (doc/design/webui.md "API conventions"). Visibility is `GET /sessions/:id`'s: a share on a session reaches its subagents,
 	 * so every child of a visible session is visible and the items need no per-child check. Unlike the root
 	 * list, an item carries the child's own state and its `parentSessionId`. The session list stream carries
 	 * roots only; a page refetches its children on its session's `snapshot`, on a `tool_execution_update` /
@@ -298,7 +298,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 
 	/**
 	 * How many direct child sessions this session has, by their own state, for the compact children bar
-	 * (doc/webui.md#子会话栏). The count must not require every page of the children list, so it is its own
+	 * (doc/design/webui.md "Subagent bar"). The count must not require every page of the children list, so it is its own
 	 * endpoint; visibility is `GET /sessions/:id`'s.
 	 */
 	app.get("/sessions/:id/children/summary", async (c) => {
@@ -412,7 +412,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 				target: { type: "session", id: s.id },
 				detail: { rule_preset: rulePreset },
 			});
-			// Waiting tool calls may not need approval any more (doc/access-control.md#审批).
+			// Waiting tool calls may not need approval any more (doc/design/access-control.md "Approvals").
 			const ref = { type: "session" as const, id: s.id };
 			await options.cluster.reevaluate(ref);
 			await options.taskGroups.reevaluate(ref);
@@ -433,7 +433,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		return c.json({ submissionId }, 202);
 	});
 
-	/** `{ instructions? }`: a manual compaction; the summary is made in the background (doc/agent-runtime.md#会话). */
+	/** `{ instructions? }`: a manual compaction; the summary is made in the background (doc/design/agent-runtime.md "Sessions"). */
 	app.post("/sessions/:id/compact", async (c) => {
 		const v = await requireSession(c, c.req.param("id"), "chat");
 		if (v instanceof Response) return v;
@@ -447,7 +447,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 
 	/**
 	 * `{ decision: "approve" | "deny", tokens?, reason? }`: the owner's answer when a root's quota is used up
-	 * (doc/agent-runtime.md#配额). Only the owner decides, like the approvals on the approvals page.
+	 * (doc/design/agent-runtime.md "Quota and token accounting"). Only the owner decides, like the approvals on the approvals page.
 	 */
 	app.post("/sessions/:id/quota", async (c) => {
 		const v = await requireSession(c, c.req.param("id"), "owner");
@@ -466,7 +466,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			}
 			tokens = body.tokens;
 		}
-		// A scheduled run ends failed when its owner denies the root quota (doc/scheduling.md#调度).
+		// A scheduled run ends failed when its owner denies the root quota (doc/design/scheduling.md "Triggering and submission").
 		const quotaReason = reason ?? (body.decision === "deny" ? "the owner stopped the run" : undefined);
 		const noteQuotaDenied = body.decision === "deny" && quotaReason !== undefined;
 		// The note goes first: deciding wakes the wait, and a run that settles before the note is read would be
@@ -499,7 +499,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	});
 
 	/**
-	 * Older history for a session, one page at a time (doc/webui.md#会话事件流和历史): the shown entries
+	 * Older history for a session, one page at a time (doc/design/webui.md "Session event stream and history"): the shown entries
 	 * immediately before `before`, oldest first, plus the cursor for the page after this one. The snapshot's
 	 * `historyCursor` is the first `before`; a later page's `historyCursor` is the next. Visibility is the
 	 * same as for `/events`.

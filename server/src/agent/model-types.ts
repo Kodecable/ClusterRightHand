@@ -31,7 +31,7 @@ export interface ModelRef {
 	thinkingLevel?: ModelThinkingLevel;
 }
 
-/** pi-ai's thinking levels, from "off" to "max" (doc/agent-runtime.md#思考档位). */
+/** pi-ai's thinking levels, from "off" to "max" (doc/design/agent-runtime.md "Thinking levels"). */
 export const THINKING_LEVELS: readonly ModelThinkingLevel[] = [
 	"off",
 	"minimal",
@@ -53,7 +53,7 @@ export function levelDisplayName(labels: ThinkingLevelLabels | undefined, level:
 	return label === undefined ? level : label;
 }
 
-/** The level a ref runs at: an absent level is `off` (doc/agent-runtime.md#思考档位). */
+/** The level a ref runs at: an absent level is `off` (doc/design/agent-runtime.md "Thinking levels"). */
 export function thinkingLevelOf(ref: ModelRef): ModelThinkingLevel {
 	return ref.thinkingLevel ?? "off";
 }

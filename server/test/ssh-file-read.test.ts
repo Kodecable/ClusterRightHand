@@ -6,7 +6,7 @@ import { FileTaskError, runSftpFileTask } from "../src/cluster/ssh/file-task.ts"
 /**
  * file.read over SFTP without a server: a fake wrapper over one in-memory file, which also records
  * how much it was asked to read. The page streams from the start and stops when it is complete, so a
- * short page of a long file reads far less than the file (doc/execution-plane.md#sftp-文件操作与-crha-的差异).
+ * short page of a long file reads far less than the file (doc/design/execution.md "SFTP file operations").
  */
 interface FakeSftp {
 	wrapper: SFTPWrapper;

@@ -74,7 +74,7 @@ export function EvaluationTable({
 }: {
 	evaluation: Evaluation;
 	tokenNames?: Map<string, string>;
-	/** Current node and node-group names for the UUIDs a matched rule stores (D109). */
+	/** Current node and node-group names for the UUIDs a matched rule stores. */
 	refNames?: Map<string, string>;
 }) {
 	const { t, i18n } = useLingui();

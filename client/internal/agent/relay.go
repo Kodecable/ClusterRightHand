@@ -76,7 +76,7 @@ func (r *relayRouter) route(taskID string, event relayEvent) error {
 	defer r.mu.Unlock()
 	if _, done := r.finished[taskID]; done {
 		// The task ended and crhs acknowledged its exit, so the daemon's remaining buffered events
-		// of it are stale (doc/protocol.md crh-priv 断开): drop them instead of keeping them for
+		// of it are stale (doc/design/protocol.md "crh-priv"): drop them instead of keeping them for
 		// handlers that will never be attached.
 		return nil
 	}
@@ -213,8 +213,8 @@ func (a *Agent) finishRelayed(t *task, exit *protocol.TaskExit) {
 }
 
 // helperLostExit is the task.exit of a task whose privileged peer disappeared before it reported
-// an outcome. The task may still be running there, so it is never retried (doc/protocol.md
-// crh-priv 断开).
+// an outcome. The task may still be running there, so it is never retried (doc/design/protocol.md
+// "crh-priv").
 func helperLostExit(taskID, message string) *protocol.TaskExit {
 	return &protocol.TaskExit{
 		TaskID: taskID,

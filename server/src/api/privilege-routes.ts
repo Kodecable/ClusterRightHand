@@ -7,7 +7,7 @@ export interface PrivilegeRoutesOptions {
 	authorizationKey?: AuthorizationSigningKey;
 }
 
-/** Expects requireUser to have run. crhs's own signing key (doc/privilege.md#crhs-侧). */
+/** Expects requireUser to have run. crhs's own signing key (doc/design/privilege.md "Server-side authorization"). */
 export function privilegeRoutes(options: PrivilegeRoutesOptions) {
 	const app = new Hono<AppEnv>();
 

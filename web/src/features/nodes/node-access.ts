@@ -1,7 +1,7 @@
 import type { PublicNode } from "@crh/api";
 
 /**
- * Whether the caller may run tasks on this node (doc/access-control.md#归属访问授权与分享): one access level,
+ * Whether the caller may run tasks on this node (doc/design/access-control.md "Ownership, access grants and sharing"): one access level,
  * and every node a non-administrator sees is already granted to them. Administrators manage nodes; the caller's
  * kind decides that, so no node action is offered from the node's own `access` value.
  */

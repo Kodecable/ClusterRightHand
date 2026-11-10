@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * D116: the authorization preset (Ask / Auto Review / Yolo) is a *rule preset*, and the model preset
+ * The authorization preset (Ask / Auto Review / Yolo) is a *rule preset*, and the model preset
  * added in the same decision is a different thing. Rename `rule_sets.preset` to `rule_preset` so the
  * column says which one it holds. The values, the default action and the added rules stay as they are;
  * both databases carry a column rename through in place, and no index or constraint names the column.

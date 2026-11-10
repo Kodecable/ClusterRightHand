@@ -20,7 +20,7 @@ type Sink interface {
 // TaskOptions is the execution environment of one task. Privileged execution (the native helper and
 // the privileged daemon) fixes PATH and resolves file paths with openat2; unprivileged execution
 // keeps the path-based file operations. Env is the environment the crha process resolved when it
-// started (doc/execution-plane.md#exec-的执行环境).
+// started (doc/design/execution.md "The exec environment").
 type TaskOptions struct {
 	Timeout    time.Duration // exec timeout; 0 = none
 	KillGrace  time.Duration // SIGTERM-to-SIGKILL grace of exec; 0 = DefaultKillGrace

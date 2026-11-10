@@ -4,7 +4,7 @@ import { parse } from "smol-toml";
 
 export type DatabaseConfig = { driver: "sqlite"; path: string } | { driver: "postgres"; url: string };
 
-/** How long rows are kept before the retention sweep deletes them; null keeps them forever (doc/data-model.md#保留期). */
+/** How long rows are kept before the retention sweep deletes them; null keeps them forever (doc/design/data-model.md "Retention"). */
 export interface RetentionConfig {
 	/** Terminal tasks, terminal task groups and expired authorizations. */
 	tasksMs: number | null;
@@ -14,7 +14,7 @@ export interface RetentionConfig {
 	piTasksMs: number | null;
 }
 
-/** WebAuthn relying-party settings (doc/privilege.md#签名方式); empty values mean "derive per request". */
+/** WebAuthn relying-party settings (doc/design/privilege.md "Signing methods"); empty values mean "derive per request". */
 export interface WebauthnConfig {
 	/** The RP ID a Passkey is registered for; null derives it from the request's Origin hostname. */
 	rpId: string | null;
@@ -23,7 +23,7 @@ export interface WebauthnConfig {
 	origins: string[];
 }
 
-/** Login security settings (doc/configuration.md and doc/access-control.md). */
+/** Login security settings (doc/guide/reference/crhs-config.md and doc/design/access-control.md). */
 export interface AuthConfig {
 	/** Argon2id computations allowed to run at once; peak memory is roughly this times 64 MiB. */
 	argon2Concurrency: number;
@@ -46,7 +46,7 @@ export interface Config {
 	masterKeyFile: string;
 	/** Built WebUI (web/dist); served at /. */
 	webRoot: string;
-	/** Warn when a node's clock differs from crhs by more than this; 0 disables (doc/privilege.md#时钟). */
+	/** Warn when a node's clock differs from crhs by more than this; 0 disables (doc/design/privilege.md "Clock"). */
 	clockWarnMs: number;
 	/** Passkey registration settings. */
 	webauthn: WebauthnConfig;
@@ -57,10 +57,10 @@ export interface Config {
 }
 
 export const DEFAULT_CONFIG_PATH = "/etc/crhs/crhs.toml";
-/** crhs warns when a node's clock differs by more than 60 s (doc/privilege.md#时钟). */
+/** crhs warns when a node's clock differs by more than 60 s (doc/design/privilege.md "Clock"). */
 export const DEFAULT_CLOCK_WARN_MS = 60_000;
 export const DEFAULT_RP_NAME = "ClusterRightHand";
-/** Two Argon2id hashes at once fit the default libuv threadpool (doc/configuration.md). */
+/** Two Argon2id hashes at once fit the default libuv threadpool (doc/guide/reference/crhs-config.md). */
 export const DEFAULT_ARGON2_CONCURRENCY = 2;
 export const DEFAULT_ARGON2_QUEUE = 32;
 export const DEFAULT_CAPTCHA = "cap";
@@ -71,7 +71,7 @@ export const DEFAULT_RETENTION_AUDIT_MS = 180 * 24 * 60 * 60 * 1000;
 /** Terminal durable agent tasks are kept for 7 days by default: after that they are only bookkeeping. */
 export const DEFAULT_RETENTION_PI_TASKS_MS = 7 * 24 * 60 * 60 * 1000;
 /**
- * The shortest retention (doc/data-model.md#保留期): a durable tool call that reruns after a crash reattaches
+ * The shortest retention (doc/design/data-model.md "Retention"): a durable tool call that reruns after a crash reattaches
  * to its cluster task by id (cluster/task-dispatch.ts createTask), so deleting the row too soon could dispatch
  * the command a second time.
  */

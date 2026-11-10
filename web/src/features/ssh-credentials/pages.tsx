@@ -288,7 +288,7 @@ function NotAllowed() {
 	);
 }
 
-/** Organization-owned SSH credentials and their users (D108); administrators only. */
+/** Organization-owned SSH credentials and their users; administrators only. */
 export function SshCredentialsPage() {
 	const user = useAuth().user;
 	if (user?.kind !== "admin") return <NotAllowed />;

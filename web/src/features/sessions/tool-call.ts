@@ -68,7 +68,7 @@ function toolSubject(name: string, args: JsonObject): string | undefined {
 }
 
 /**
- * One line for a tool call (doc/webui.md "消息渲染"): `name · node · subject`.
+ * One line for a tool call (doc/design/webui.md "Message rendering"): `name · node · subject`.
  * The node is the raw target input; there is no node segment when the tool has
  * none. The subject is the one argument that identifies the work (command,
  * path, prompt, task id); everything else stays in the dialog.
@@ -101,7 +101,7 @@ export function detailId(details: Json | undefined, key: "task_id" | "task_group
 }
 
 /**
- * Whether an unreturned call may still produce a result (doc/webui.md "工具卡片"): the session is running or
+ * Whether an unreturned call may still produce a result (doc/design/webui.md "Message rendering"): the session is running or
  * awaiting, and the call's task or task group, when the card knows one, has not ended.
  */
 export function callStillOpen({

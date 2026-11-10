@@ -1,5 +1,5 @@
 // Package audit writes the privileged mode's local log, one JSON object per line
-// (doc/privilege.md 特权模式: 本地日志). Every line is appended to the log file, which
+// (doc/design/privilege.md "The privileged mode"). Every line is appended to the log file, which
 // systemd's journald collects from stderr as well, and mirrored to a second writer
 // (normally stderr) so the same records appear in journald.
 package audit
@@ -43,7 +43,7 @@ type Record struct {
 	Spec *protocol.TaskSpec `json:"spec,omitempty"`
 
 	// Code, Step and Message describe a refusal: the task.start error code, the
-	// verification step of doc/privilege.md 校验流程 and its message.
+	// verification step of doc/design/privilege.md "Validation flow" and its message.
 	Code    string `json:"code,omitempty"`
 	Step    int    `json:"step,omitempty"`
 	Message string `json:"message,omitempty"`

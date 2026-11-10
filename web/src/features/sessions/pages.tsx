@@ -26,7 +26,7 @@ import { Transcript } from "./transcript";
 import { transcript } from "./transcript-items";
 import { useSessionEvents } from "./use-session-events";
 
-/** How many older history pages a jump-to-message may load before giving up (doc/webui.md "跳到消息"). */
+/** How many older history pages a jump-to-message may load before giving up (doc/design/webui.md "Jumping to a message"). */
 const MAX_JUMP_PAGES = 20;
 
 /** The live tool calls whose details say they wait for an approval or a signature. */
@@ -57,7 +57,7 @@ export function SessionPage() {
 	const [wantsOlder, setWantsOlder] = useState(false);
 	const history = useSessionHistoryPage(sessionId, events.state.historyCursor, wantsOlder);
 	const items = useMemo(() => transcript(events.state), [events.state]);
-	// Jump-to-message (doc/webui.md "跳到消息"): `entry` is the id a search hit pointed at.
+	// Jump-to-message (doc/design/webui.md "Jumping to a message"): `entry` is the id a search hit pointed at.
 	const [jumpEntry, setJumpEntry] = useState<number | undefined>(undefined);
 	const [jumpPages, setJumpPages] = useState(0);
 	const [focusEntry, setFocusEntry] = useState<string | undefined>(undefined);
@@ -141,7 +141,7 @@ export function SessionPage() {
 		setWantsOlder(false);
 	}, [history.data, events.applyHistory]);
 
-	// Unread (doc/webui.md "侧边列表"): opening a tree marks it read for its owner, and so does new output
+	// Unread (doc/design/webui.md "Sidebar list"): opening a tree marks it read for its owner, and so does new output
 	// arriving while the page is open. A hidden tab defers the mark until it is visible again, because
 	// "read" means the owner can see the output.
 	const markRead = useMarkSessionRead(rootId);

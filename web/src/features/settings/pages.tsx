@@ -15,7 +15,7 @@ import { ModelPresetsSection } from "./model-presets";
 import { ProviderDialog } from "./provider-dialog";
 
 /**
- * Model settings (administrators only, doc/webui.md "Models"): the three model
+ * Model settings (administrators only, doc/design/webui.md "Models page"): the three model
  * presets first, then the Pi built-in providers and custom endpoints and their
  * keys (never displayed back).
  */

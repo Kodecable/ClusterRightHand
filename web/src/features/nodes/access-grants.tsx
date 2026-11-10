@@ -117,7 +117,7 @@ function RemoveGrantDialog({
 
 /**
  * The admin-only "Node access" section of a user or user group page
- * (doc/webui.md "Users"): one table row per grant the grantee holds, with the
+ * (doc/design/webui.md "User and user group pages"): one table row per grant the grantee holds, with the
  * target link, the creation time and a confirmed remove. The section action
  * grants another node or node group to the same grantee. The grant list
  * endpoint is administrator-only, so non-administrators do not see the section.
@@ -363,8 +363,8 @@ function AddGranteeAccessDialog({
 }
 
 /**
- * The admin-only "Access" section of a node or node group page (D108,
- * doc/access-control.md#归属访问授权与分享): who may see and run tasks on the
+ * The admin-only "Access" section of a node or node group page
+ * (doc/design/access-control.md "Ownership, access grants and sharing"): who may see and run tasks on the
  * target, in a table whose section action opens the Add access dialog. Everyone
  * else does not see the section at all.
  */

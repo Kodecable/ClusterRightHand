@@ -5,7 +5,7 @@ export const OUTPUT_KEEP_LINES = 2000;
 /**
  * Accumulates the single output stream as it arrives in offset order (resends after a reconnect may
  * overlap what was already received). The kept tail is the budget component's job (batch-output.ts);
- * this class keeps only the head (D114).
+ * this class keeps only the head.
  */
 export class StreamAccumulator {
 	#head = Buffer.alloc(0);
@@ -42,7 +42,7 @@ export class StreamAccumulator {
 }
 
 /**
- * Lines in output, by the protocol's rule (doc/protocol.md TaskExit.output_lines): newline characters,
+ * Lines in output, by the protocol's rule (doc/design/protocol.md "Events".output_lines): newline characters,
  * plus one for a non-empty last line that has no newline. Zero for no output.
  */
 export function countOutputLines(data: string | Uint8Array): number {

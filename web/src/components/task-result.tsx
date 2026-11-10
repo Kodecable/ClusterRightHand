@@ -14,7 +14,7 @@ import { taskTitle } from "@/features/tasks/title";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { DecisionView, EvaluationTable } from "./approval-card";
 
-/** The authorization plan of a task that waits for a signature (doc/privilege.md#授权路径). */
+/** The authorization plan of a task that waits for a signature (doc/design/privilege.md "Authorization path"). */
 function AuthorizationPlan({ record }: { record: TaskAuthorizationView }) {
 	return (
 		<div className="mt-1 grid gap-1 text-xs">
@@ -287,7 +287,7 @@ export function TaskEvaluation({
 	);
 }
 
-/** A page's line range and whether the scan reached the end of the file (doc/protocol.md TaskResult). */
+/** A page's line range and whether the scan reached the end of the file (doc/design/protocol.md "Task results"). */
 function ReadResultView({ result }: { result: Extract<TaskResultView, { kind: "file.read" }> }) {
 	const { from, to, eof, total, tooLong } = result;
 	return (
@@ -384,7 +384,7 @@ function ListResultView({ result }: { result: Extract<TaskResultView, { kind: "f
 }
 
 /**
- * The structured result of a file task (doc/protocol.md TaskResult): what the output streams do not
+ * The structured result of a file task (doc/design/protocol.md "Task results"): what the output streams do not
  * say. A page's lines and end of file, a file's metadata, a directory listing, and what a write or
  * an edit changed.
  */
@@ -413,7 +413,7 @@ export function TaskResultData({ result, className }: { result: TaskResultView; 
 
 /**
  * crhs's own line about a task (the SSH privileged notice). It is stored on the task's `notice`
- * and is not part of the output (D114); it is shown separately above the output.
+ * and is not part of the output; it is shown separately above the output.
  */
 function TaskNotice({ text }: { text: string | null }) {
 	if (text === null || text.trim() === "") return null;
@@ -475,7 +475,7 @@ export function hasTaskOutput(task: TaskView): boolean {
 
 /**
  * The full task result used by the approval pages, batch runs, the run panel
- * and the session's tool cards (doc/webui.md "TaskResult"). The task page
+ * and the session's tool cards (doc/design/webui.md "Shared components"). The task page
  * composes the same parts itself so nothing is shown twice.
  */
 export function TaskResult({ task, className }: { task: TaskView; className?: string }) {

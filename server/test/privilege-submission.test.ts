@@ -423,7 +423,7 @@ describe("user authorizations", () => {
 		await waitState(task.id, "awaiting_authorization");
 		const pending = (await pendingFor(task.id)).authorization as { id: string; payload: string };
 
-		// The node goes away before the owner signs; the submission waits for the offline grace (D113).
+		// The node goes away before the owner signs; the submission waits for the offline grace.
 		crha.ws.close();
 		await crha.closed;
 		await waitFor("link detached", () => !cluster.isConnected(node.id));
@@ -458,7 +458,7 @@ describe("user authorizations", () => {
 		const elapsed = Date.now() - started;
 		expect(res.status).toBe(200);
 		expect((await res.json()) as Record<string, unknown>).toEqual({ authorization: { id: pending.id } });
-		// The dispatch waits for the node in the background (D118): it did not hold the response for the
+		// The dispatch waits for the node in the background: it did not hold the response for the
 		// one-second grace, and the task still waits for it right after the response.
 		expect(elapsed).toBeLessThan(500);
 		expect((await taskView(task.id)).state).toBe("awaiting_authorization");
@@ -1049,7 +1049,7 @@ describe("user authorizations", () => {
 		expect(shared.taskGroup.authorization.taskIds.sort()).toEqual(tasks.map((task) => task.id).sort());
 		expect(shared.taskGroup.tasks).toHaveLength(2);
 
-		// Only the owner sees the group payload; a user with no relation to it gets a 404 (D108).
+		// Only the owner sees the group payload; a user with no relation to it gets a 404.
 		expect((await call(app, `/api/task-groups/${groupId}/authorization`, { cookie: other.cookie })).status).toBe(404);
 
 		const submitted = await submit(

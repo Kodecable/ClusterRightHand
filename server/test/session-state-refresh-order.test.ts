@@ -19,7 +19,7 @@ import { type DbProbe, probeDb, tableOf } from "./helpers/db-probe.ts";
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * Recomputations of one session run in order (doc/agent-runtime.md#会话状态): a request while one runs shares its
+ * Recomputations of one session run in order (doc/design/agent-runtime.md "Session state"): a request while one runs shares its
  * promise and asks for one more pass, and that pass reads the data again. Without the coalescing, a refresh
  * that read the task while it still waited for its signature can write its stale `awaiting` after a fresher
  * refresh already wrote `running`, leaving the session waiting for a decision that already happened.

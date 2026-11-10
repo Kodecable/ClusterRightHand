@@ -1,6 +1,6 @@
 /**
  * Noise_IK_25519_ChaChaPoly_BLAKE2s (Noise Protocol Framework, revision 34) on node:crypto.
- * Only what crhs needs: the IK pattern, no PSK, no rekey. See doc/execution-plane.md#通信安全.
+ * Only what crhs needs: the IK pattern, no PSK, no rekey. See doc/design/protocol.md "Transport security".
  */
 import {
 	createCipheriv,

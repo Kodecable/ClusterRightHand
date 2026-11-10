@@ -1,6 +1,6 @@
 /**
- * What node_info returns for one node (doc/agent-runtime.md#cluster-工具): its facts and its notes, a
- * Markdown file on the node read through an ordinary file.read task, with one shared budget for a batch (D114).
+ * What node_info returns for one node (doc/design/agent-runtime.md "Cluster tools"): its facts and its notes, a
+ * Markdown file on the node read through an ordinary file.read task, with one shared budget for a batch.
  */
 import type { JsonFacts, TaskSpec } from "@crh/protocol";
 import { BATCH_GROUP_BYTES, BATCH_GROUP_LINES, BATCH_NODE_BYTES, BATCH_NODE_LINES } from "../cluster/batch-output.ts";
@@ -10,14 +10,14 @@ import { derivedId } from "../util/id.ts";
 import type { ToolContext } from "./catalog.ts";
 import { READ_PAGE_LINES } from "./task-tool.ts";
 
-/** Node notes shown by node_info are cut here; read_file gives the rest (doc/agent-runtime.md#默认值). */
+/** Node notes shown by node_info are cut here; read_file gives the rest (doc/design/agent-runtime.md "Defaults"). */
 const NOTES_BYTES = 8 * 1024;
-/** A batch keeps this many lines of each node's notes; the whole batch shares one budget (D114). */
+/** A batch keeps this many lines of each node's notes; the whole batch shares one budget. */
 const NOTES_LINES = BATCH_NODE_LINES;
 /** How long node_info waits for one node's notes read. */
 const NOTES_WAIT_MS = 15_000;
 
-/** Facts in their snake_case JSON form (the protocol's wire keys, doc/protocol.md#事件). */
+/** Facts in their snake_case JSON form (the protocol's wire keys, doc/design/protocol.md "Events"). */
 function factsWire(facts: JsonFacts | null): Record<string, unknown> | null {
 	if (!facts) return null;
 	const out: Record<string, unknown> = {};
@@ -84,7 +84,7 @@ function singleNotes(path: string, task: TaskView): Record<string, unknown> {
 	);
 }
 
-/** The shared notes budget of one node_info batch (D114): 8 KB / 128 lines per node, 50 KB / 2000 lines total. */
+/** The shared notes budget of one node_info batch: 8 KB / 128 lines per node, 50 KB / 2000 lines total. */
 interface NotesBudget {
 	bytes: number;
 	lines: number;
@@ -171,7 +171,7 @@ export async function readNotes(ctx: ToolContext, nodeId: string, path: string):
 }
 
 /**
- * The notes of a batch's nodes, read only where the rules allow it outright (D114). Each node gets its own
+ * The notes of a batch's nodes, read only where the rules allow it outright. Each node gets its own
  * head-mode task, so its notes path can differ; the batch shares one 50 KB / 2000 line budget.
  */
 export async function readNotesBatch(
@@ -217,7 +217,7 @@ export async function readNotesBatch(
 	return out;
 }
 
-/** The JSON fields of one node in node_info (doc/agent-runtime.md#cluster-工具). */
+/** The JSON fields of one node in node_info (doc/design/agent-runtime.md "Cluster tools"). */
 export async function nodeInfoFields(
 	ctx: ToolContext,
 	node: PublicNode,

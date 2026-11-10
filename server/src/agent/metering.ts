@@ -7,7 +7,7 @@ import {
 import type { Models } from "@earendil-works/pi-ai/models";
 import type { TimingSink } from "./latency.ts";
 
-/** Reports a metered `completeSimple` call so the runtime can charge it to the owning session (D92, D101). */
+/** Reports a metered `completeSimple` call so the runtime can charge it to the owning session. */
 export type CompleteMeter = (
 	providerSessionId: string,
 	message: AssistantMessage,
@@ -44,7 +44,7 @@ function carriesContent(event: AssistantMessageEvent): boolean {
 	}
 }
 
-/** Records the stream's timing on the sink as its events pass (doc/agent-runtime.md#会话统计). */
+/** Records the stream's timing on the sink as its events pass (doc/design/agent-runtime.md "Session statistics"). */
 function observe(event: AssistantMessageEvent, providerSessionId: string, timing: TimingSink): void {
 	if (event.type === "done" || event.type === "error") {
 		timing.finish(providerSessionId);
@@ -95,12 +95,12 @@ function tapStream(
 /**
  * Wraps the Harness's `Models` so that its model requests are metered. In durable 1.4.0 generation streams
  * (`streamSimple`) while context compaction summarizes with `completeSimple`, and the compaction task is the only
- * caller of `completeSimple` inside a Harness (doc/agent-runtime.md#配额, D92). The request carries the
+ * caller of `completeSimple` inside a Harness (doc/design/agent-runtime.md "Quota and token accounting"). The request carries the
  * conversation's provider session id, which identifies the session to charge; Auto Review calls its own `Models`
  * and is charged where it runs. The request (system prompt plus messages) goes along, so the call's input tokens
- * can be estimated from exactly what was sent when the upstream reports no usage (D101).
+ * can be estimated from exactly what was sent when the upstream reports no usage.
  *
- * Generation streams are also timed here (doc/agent-runtime.md#会话统计): `begin` at the call, `noteFirst` on
+ * Generation streams are also timed here (doc/design/agent-runtime.md "Session statistics"): `begin` at the call, `noteFirst` on
  * the first event carrying content and `finish` at done/error. Timing therefore needs no viewer and records
  * exactly the generation calls the extension's `afterResponse` sees. `completeSimple` (compaction, and title
  * generation and Auto Review through their own registry) starts no entry, so it can never be read as a step's

@@ -22,7 +22,7 @@ export class NodeConnection {
 	readonly peer: Peer;
 	/**
 	 * The optional M4 names the peer negotiated. Empty for a node that offers only the M3.5
-	 * names, which cannot take part in `forward` (doc/protocol.md#握手载荷).
+	 * names, which cannot take part in `forward` (doc/design/protocol.md "Handshake payloads").
 	 */
 	readonly optional: ReadonlySet<string>;
 	readonly #ws: WebSocket;

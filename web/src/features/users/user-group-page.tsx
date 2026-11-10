@@ -26,7 +26,7 @@ function memberUser(users: Map<string, User>, member: UserGroupMember): User | u
 }
 
 /**
- * One user group (doc/webui.md "Users"): its creation time, a members table
+ * One user group (doc/design/webui.md "User and user group pages"): its creation time, a members table
  * whose section action adds a member, its node access and, for administrators,
  * rename and delete in the page header.
  */

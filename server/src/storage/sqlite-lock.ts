@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 
 /**
- * One SQLite file is opened twice (doc/data-model.md): Kysely for crhs's own tables and pi-durable's
+ * One SQLite file is opened twice (doc/design/data-model.md): Kysely for crhs's own tables and pi-durable's
  * storage for the agent runtime. node:sqlite is synchronous, so the two connections cannot contend for the
  * file's write lock without breaking: a deferred transaction that reads and then writes fails at once with
  * SQLITE_BUSY_SNAPSHOT (the busy handler is never consulted), and while one connection holds the write lock

@@ -142,7 +142,7 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 			options.sessions?.endUserStreams(id);
 			// Including the per-session event streams, which outlive this request.
 			await options.sessions?.publishVisibilityChanged();
-			// A disabled owner's schedules stop firing (doc/scheduling.md#生命周期).
+			// A disabled owner's schedules stop firing (doc/design/scheduling.md "Lifecycle").
 			await Scheduler.disableForOwner(db, id, c.get("audit"), userActor(c.get("user")));
 		}
 		// Administrator and member see different sessions; a reconnect refetches under the new role.

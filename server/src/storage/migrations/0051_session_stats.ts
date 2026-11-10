@@ -1,13 +1,13 @@
 import type { Kysely } from "kysely";
 
 /**
- * Per-session generation statistics (doc/agent-runtime.md#会话统计, doc/webui.md#输入框):
+ * Per-session generation statistics (doc/design/agent-runtime.md "Session statistics", doc/design/webui.md "Composer"):
  *
  * - `stat_turns`, `stat_steps`: user inputs that led to at least one model call, and main-agent model calls
  *   of this session (title generation, compaction and subagents do not count).
  * - `stat_ttft_ms`, `stat_ttft_steps`: total time to first streamed delta and the number of steps it was
  *   observed for; `stat_decode_ms`, `stat_decode_tokens`: time after the first delta and the output tokens
- *   decoded in it. Timing is measured at the provider stream (doc/agent-runtime.md#会话统计), so it stays 0 for
+ *   decoded in it. Timing is measured at the provider stream (doc/design/agent-runtime.md "Session statistics"), so it stays 0 for
  *   steps recorded before this migration (and for old ones at backfill time), which cannot be recovered.
  * - `counted_submission_id`: the newest submission already counted as a turn.
  * - `prompt_tokens`, `cache_read_tokens`: input (input + cache read + cache write) and cache read tokens of

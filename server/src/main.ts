@@ -164,7 +164,7 @@ async function importKeys(config: Config, db: Db, file: string): Promise<void> {
 
 async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<void> {
 	const identity = await loadServerIdentity(db, masterKey);
-	// Created on first start; its public key is what nodes put in a crhs trust entry (doc/privilege.md).
+	// Created on first start; its public key is what nodes put in a crhs trust entry (doc/design/privilege.md).
 	const authorizationKey = await loadAuthorizationSigningKey(db, masterKey);
 	const audit = new Audit(db);
 	const cluster = new Cluster(db, {
@@ -177,7 +177,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	const taskGroups = new TaskGroups(db, cluster, { audit });
 	await taskGroups.recover();
 	// Tasks a previous process left dispatched or running end as the nodes' connections did not survive it
-	// (doc/execution-plane.md#断线恢复): a client node gets the reconnect grace, an SSH node does not. Tasks
+	// (doc/design/execution.md "Reconnect"): a client node gets the reconnect grace, an SSH node does not. Tasks
 	// still between their claim and their dispatch end here too, after the task groups that own them.
 	await cluster.recover();
 	const models = new ModelConfig(db, masterKey);
@@ -192,7 +192,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		taskGroups,
 		audit,
 	});
-	// Signature waits that outlived their deadline while crhs was down end before requests are served (D98).
+	// Signature waits that outlived their deadline while crhs was down end before requests are served.
 	await cluster.expireAuthorizationWaits();
 	// A token that expired while crhs was down must not leave its waiting work behind either.
 	await rejectExpiredTokenWaits(db, cluster, taskGroups);
@@ -228,7 +228,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	});
 	// The last sweeps are awaited at shutdown, so they cannot write after the database is destroyed.
 	let sweepRun: Promise<void> = Promise.resolve();
-	// Every five minutes: expired login sessions, signature waits past their deadline (D98), and the waiting
+	// Every five minutes: expired login sessions, signature waits past their deadline, and the waiting
 	// work of expired API tokens.
 	const sweep = setInterval(
 		() => {
@@ -258,7 +258,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		await sweepRun;
 		await retention.stop();
 		// 2. Stop the scheduler before the agent runtime closes: it must not start another submit, and an
-		// in-flight one is awaited here (doc/scheduling.md). Then close the agent runtime before ending any wait.
+		// in-flight one is awaited here (doc/design/scheduling.md). Then close the agent runtime before ending any wait.
 		// An agent tool call is a durable task, not a request: the Harness aborts and joins it without recording
 		// a result, so after a restart it reruns and reattaches to the same cluster task. Ending the waits first
 		// would let the call return a non-final state, which durable records as its outcome.

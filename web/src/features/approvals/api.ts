@@ -23,7 +23,7 @@ export function invalidatePendingDecisions(queryClient: QueryClient): void {
 const POLL_MS = 10_000;
 
 /**
- * The approvals the badge and the approvals page count (doc/webui.md "外壳").
+ * The approvals the badge and the approvals page count (doc/design/webui.md "Shell").
  * Refetched every 10 s; every decision mutation invalidates it immediately.
  */
 export function useApprovals() {

@@ -1,6 +1,6 @@
 // Package noise wraps github.com/flynn/noise for the crh channel:
 // Noise_IK_25519_ChaChaPoly_BLAKE2s with the prologue "crh/<protocol major>" || server challenge.
-// See doc/execution-plane.md#通信安全.
+// See doc/design/protocol.md "Transport security".
 package noise
 
 import (
@@ -45,7 +45,7 @@ func KeypairFromPrivate(private []byte) (Keypair, error) {
 
 // Prologue binds a handshake to the connection that carried the server's challenge and to the
 // protocol major version: a peer that speaks another major fails the handshake itself
-// (doc/protocol.md, 握手载荷).
+// (doc/design/protocol.md "Handshake payloads").
 func Prologue(challenge []byte) []byte {
 	prefix := fmt.Sprintf("crh/%d", protocol.ProtocolMajor)
 	return append([]byte(prefix), challenge...)

@@ -33,7 +33,7 @@ const (
 
 // nativeRun executes one task through the privileged helper: the helper runs as the target identity,
 // owns the process and the input accounting, and reports the task's events over its own crh-priv
-// connection (doc/privilege.md "native").
+// connection (doc/design/privilege.md "Native mode").
 type nativeRun struct {
 	// conn is the helper connection, set by prepare.
 	conn *nativeConn
@@ -42,7 +42,7 @@ type nativeRun struct {
 // prepare spawns the helper and forwards the task.start. The helper must accept the task before this
 // agent does: a tool that cannot run (a password is required, no sudoers rule, a version mismatch)
 // makes the task privileged_unsupported, never a fall back to unprivileged execution
-// (doc/privilege.md "native").
+// (doc/design/privilege.md "Native mode").
 func (r *nativeRun) prepare(a *Agent, _ context.Context, t *task) error {
 	n, err := a.startNative(t.spec)
 	if err != nil {
@@ -82,7 +82,7 @@ func (r *nativeRun) inputComplete(t *task) bool { return t.input.Complete() }
 // failInput fails the task's input through the helper, which owns the process.
 func (r *nativeRun) failInput(*Agent, *task, string) { r.conn.inputs.pushCancel() }
 
-// cancel asks the helper to cancel the task: the agent never signals it (doc/privilege.md, native).
+// cancel asks the helper to cancel the task: the agent never signals it (doc/design/privilege.md "Native mode").
 // The request is queued so it follows the input chunks already forwarded.
 func (r *nativeRun) cancel(*Agent, context.Context, *task) { r.conn.inputs.pushCancel() }
 
@@ -124,7 +124,7 @@ type nativeConn struct {
 // startNative spawns the helper through the escalation tool, completes the crh-priv handshake and
 // sends it the task.start, all within the native timeout. The agent accepts the task unless the
 // helper refused it: a response lost after acceptance must not make crhs retry a task that may
-// have run (doc/protocol.md crh-priv 断开).
+// have run (doc/design/protocol.md "crh-priv").
 func (a *Agent) startNative(ts *protocol.TaskStart) (*nativeConn, error) {
 	argv, err := a.nativeArgv()
 	if err != nil {
@@ -195,8 +195,8 @@ func (a *Agent) startNative(ts *protocol.TaskStart) (*nativeConn, error) {
 			return nil, nativeFailure(argv, stderr, err)
 		}
 		// The helper may have accepted the task before the response was lost (a timeout, a broken
-		// stream), and it runs an accepted task even when its stdin closes (doc/protocol.md
-		// crh-priv 断开). Refusing it here would let crhs retry a task that may have run, so keep
+		// stream), and it runs an accepted task even when its stdin closes (doc/design/protocol.md
+		// "crh-priv"). Refusing it here would let crhs retry a task that may have run, so keep
 		// the helper and report the task accepted; nativeRun delivers its events or ends it with
 		// helper_lost.
 		n.log.Warn("the native helper did not answer task.start; treating the task as accepted",
@@ -238,7 +238,7 @@ func (a *Agent) nativeTimeout() time.Duration {
 
 // nativeArgv is the command that runs the helper: the escalation tool followed by this binary's
 // `privileged stdio`. The executable is absolute with symlinks resolved, so the sudoers or doas rule
-// and the command match one path (doc/privilege.md, native).
+// and the command match one path (doc/design/privilege.md "Native mode").
 func (a *Agent) nativeArgv() ([]string, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -292,7 +292,7 @@ func (r *nativeRun) run(a *Agent, t *task) {
 		return
 	}
 	// The stream broke while the helper may still be running the task: it finishes the task on its
-	// own and writes the outcome to its local log (doc/privilege.md), so only reap it in the
+	// own and writes the outcome to its local log (doc/design/privilege.md), so only reap it in the
 	// background instead of waiting for a process that may run for minutes. Closing its stdin makes
 	// it stop reading, and the broken pipe ends whatever output it still tries to send.
 	_ = n.stdin.Close()
@@ -339,7 +339,7 @@ func (r *nativeRun) forward(a *Agent, t *task) {
 }
 
 // nativeStderr keeps the tail of the helper's stderr and logs its complete lines: the parent
-// relays the helper's local JSON log into its own log (doc/protocol.md, native helper), and a
+// relays the helper's local JSON log into its own log (doc/design/protocol.md "crh-priv"), and a
 // failed start quotes the tail in its error message.
 type nativeStderr struct {
 	log *slog.Logger

@@ -15,7 +15,7 @@ import {
 import { maybeGenerateTitle } from "./title.ts";
 
 /**
- * A session's run state (doc/agent-runtime.md#会话状态): recomputed from durable and the session's wait
+ * A session's run state (doc/design/agent-runtime.md "Session state"): recomputed from durable and the session's wait
  * sources while it is live, corrected at startup after a restart, and ended when its latest input settles.
  * Only a new input revives an idle session; every other write keeps it idle or corrects a live run.
  */
@@ -33,7 +33,7 @@ type StateRow = Pick<
 type DesiredState = { state: SessionState; wait: SessionWait | null };
 
 /**
- * Recomputes a session's state from durable and its wait sources (doc/agent-runtime.md#会话状态): a quota wait
+ * Recomputes a session's state from durable and its wait sources (doc/design/agent-runtime.md "Session state"): a quota wait
  * first, then a task waiting for approval or a signature, otherwise running while its latest input is
  * unsettled. An idle session is never revived here — only a new input does that — so a late correction
  * cannot restart a run that already ended.
@@ -54,7 +54,7 @@ async function refreshStateOnce(host: RuntimeHost, sessionId: string): Promise<S
 	const settled = await inputSettled(host, row);
 	const desired = await desiredState(host, row, settled);
 	// The write is conditional on the row still being live: the run may have settled while the reads above
-	// ran, and a recompute must not revive it (doc/agent-runtime.md#会话状态).
+	// ran, and a recompute must not revive it (doc/design/agent-runtime.md "Session state").
 	const write = await setSessionState(host.db, sessionId, desired.state, desired.wait, { onlyIfLive: true });
 	if (!write.applied) return "idle";
 	host.sessionList.publishSession(sessionId);
@@ -182,9 +182,9 @@ async function quotaWaitLevel(
 }
 
 /**
- * What the session's own tool calls wait for: an approval outranks a signature (doc/agent-runtime.md#会话状态).
+ * What the session's own tool calls wait for: an approval outranks a signature (doc/design/agent-runtime.md "Session state").
  * An approval counts only when a handler is assigned: a task that passed its rules passes through
- * `awaiting_approval` for the instant before dispatch without one (doc/execution-plane.md#状态机), and that
+ * `awaiting_approval` for the instant before dispatch without one (doc/design/execution.md "State machine"), and that
  * transient row is nothing anyone could approve.
  */
 async function taskWaitKind(host: RuntimeHost, sessionId: string): Promise<"approval" | "authorization" | undefined> {
@@ -240,10 +240,10 @@ async function taskWaitKinds(
 /**
  * Ends the session's run when its latest input settles (done, rejected or aborted alike): the session is
  * idle until a new input. Only the latest input's settlement writes idle, so an older run cannot stop a
- * newer one (doc/agent-runtime.md#会话状态).
+ * newer one (doc/design/agent-runtime.md "Session state").
  *
  * The run end is also where title generation is triggered for a root that still wants a title
- * (doc/agent-runtime.md#标题生成); `generateTitle: false` is for a run that already ended before a restart —
+ * (doc/design/agent-runtime.md "Title generation"); `generateTitle: false` is for a run that already ended before a restart —
  * generation is not persisted, so the next run end triggers it instead.
  */
 export async function settleInput(
@@ -344,7 +344,7 @@ export async function endSessionWork(
 		}
 		if (includeRunning) {
 			// Stop the group itself, not only its current members: its workers would otherwise create the
-			// remaining nodes (doc/execution-plane.md#状态机).
+			// remaining nodes (doc/design/execution.md "State machine").
 			await host.taskGroups.cancel(
 				group.id,
 				reason,
@@ -369,7 +369,7 @@ export async function endSessionWork(
 }
 
 /**
- * Startup reconciliation (doc/agent-runtime.md#会话状态), run after durable resumed the runs and before
+ * Startup reconciliation (doc/design/agent-runtime.md "Session state"), run after durable resumed the runs and before
  * crhs accepts requests: the cached state of every stale candidate is corrected against durable and the
  * wait sources. A session is a candidate only when its row is not `idle` (it claims a live run or a wait),
  * or when its latest durable input is still unsettled:
@@ -381,7 +381,7 @@ export async function endSessionWork(
  * session starts idle with no input at all), so "idle and settled" holds by construction. The `0029`
  * migration maps old `active`/`stopped` rows to `idle` without knowing which runs survived; those are
  * exactly the rows candidate 2 finds through their unsettled submission. The system is sized for far more
- * idle sessions than active ones (doc/webui.md: 100,000 sessions), so only candidates may cost a durable
+ * idle sessions than active ones (doc/design/webui.md: 100,000 sessions), so only candidates may cost a durable
  * read. Each correction is logged, not audited. The write is conditional on the row read, so a state write
  * by a resumed run wins the race instead of being clobbered.
  */
@@ -462,7 +462,7 @@ function watchSubmission(host: RuntimeHost, sessionId: string, submissionId: str
 }
 
 /**
- * Startup reconciliation of approval and signature waits (doc/agent-runtime.md#会话状态): a task or group
+ * Startup reconciliation of approval and signature waits (doc/design/agent-runtime.md "Session state"): a task or group
  * acting for a session that is idle after reconcileSessionStates belongs to a run that is over, so its wait
  * is ended. Only waiting rows are read, never every session.
  */

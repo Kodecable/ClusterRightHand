@@ -11,7 +11,7 @@ import {
 
 /**
  * The remote command line of an SSH task and the per-connection shell probe
- * (doc/execution-plane.md#执行). The SSH integration tests need a real sshd (the M4 container);
+ * (doc/design/execution.md "SSH execution"). The SSH integration tests need a real sshd (the M4 container);
  * these checks are unit level.
  */
 

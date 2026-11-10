@@ -108,7 +108,7 @@ const newSessionRoute = createRoute({
 	component: lazyRouteComponent(sessionPageChunk, "NewSessionPage"),
 });
 
-/** The session page's search: `entry` is the transcript entry a search hit opened (doc/webui.md "跳到消息"). */
+/** The session page's search: `entry` is the transcript entry a search hit opened (doc/design/webui.md "Jumping to a message"). */
 export interface SessionSearch {
 	entry?: number;
 }

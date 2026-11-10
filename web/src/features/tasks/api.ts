@@ -94,7 +94,7 @@ export function useCreateTask(nodeId: string) {
 }
 
 export interface CreateTaskGroupInput extends TaskRequest {
-	/** Node or node-group names, or `_all` alone; the server resolves them (doc/agent-runtime.md#批量执行). */
+	/** Node or node-group names, or `_all` alone; the server resolves them (doc/design/agent-runtime.md "Batch execution"). */
 	targets: string[];
 	parallel?: number;
 	failFast?: boolean;
@@ -102,7 +102,7 @@ export interface CreateTaskGroupInput extends TaskRequest {
 	outputMode?: BatchOutputMode;
 }
 
-/** A multi-target run: one POST, then `GET /task-groups/:id/wait` (doc/webui.md "任务页与任务组页"). */
+/** A multi-target run: one POST, then `GET /task-groups/:id/wait` (doc/design/webui.md "Task and task group pages"). */
 export function useCreateTaskGroup() {
 	const queryClient = useQueryClient();
 	return useMutation({
@@ -129,7 +129,7 @@ const GROUP_ENDED = new Set(["finished", "interrupted", "rejected", "cancelled"]
 
 /**
  * A task group that will not change any more. A tool card whose task group ended stops following it, and its wait
- * returns the current view instead of long-polling (doc/webui.md "工具卡片").
+ * returns the current view instead of long-polling (doc/design/webui.md "Message rendering").
  */
 export function taskGroupEnded(state: string): boolean {
 	return GROUP_ENDED.has(state);

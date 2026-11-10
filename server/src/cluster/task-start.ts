@@ -1,5 +1,5 @@
 /**
- * A task's start on a client node (doc/protocol.md#taskstart): the task.start frame built from the row,
+ * A task's start on a client node (doc/design/protocol.md "task.start"): the task.start frame built from the row,
  * the input a waiting task keeps on its row, and the one send of task.start with its input chunks that
  * the plain and the authorized dispatch share.
  */
@@ -31,7 +31,7 @@ interface TaskStartOptions {
 }
 
 /**
- * The task.start frame of a task (doc/protocol.md#taskstart), built from the task's row. The row
+ * The task.start frame of a task (doc/design/protocol.md "task.start"), built from the task's row. The row
  * carries the attempt, the timeout and the output mode; the caller says which authorizations ride
  * along, whether the task is privileged and, when it is not the row's, which attempt and timeout.
  */
@@ -53,16 +53,16 @@ export function taskStartOf(
 	};
 }
 
-/** The wire output mode of a task row (doc/protocol.md#taskstart). */
+/** The wire output mode of a task row (doc/design/protocol.md "task.start"). */
 function outputModeOf(row: Selectable<TasksTable> | undefined): TaskStart["output"] {
 	const mode = row?.output_mode ?? "full";
 	// A `head` task keeps the head of what the node pushes: that is the node's full mode, which streams
-	// both streams separately, with crhs doing the budgeted keeping (doc/execution-plane.md#输出).
+	// both streams separately, with crhs doing the budgeted keeping (doc/design/execution.md "Output").
 	if (mode === "head") {
 		return { kind: "full", spillBytes: OUTPUT_KEEP_BYTES, spillLines: OUTPUT_KEEP_LINES };
 	}
 	if (mode !== "full") return { kind: mode };
-	// A single task's full-mode spill thresholds follow its own budget (D112): when the tail given to the
+	// A single task's full-mode spill thresholds follow its own budget: when the tail given to the
 	// model is truncated, the node keeps the whole output. The wire values may not exceed the defaults.
 	return {
 		kind: "full",
@@ -102,7 +102,7 @@ interface StartFollowUp {
 
 /**
  * Sends `task.start` exactly once, then, once accepted, the input as pipelined `task.input` requests.
- * See doc/execution-plane.md#不重复执行与授权重试.
+ * See doc/design/execution.md "No duplicate execution and authorization retry".
  */
 export async function sendTaskStart(
 	core: ClusterCore,
@@ -114,14 +114,14 @@ export async function sendTaskStart(
 ): Promise<void> {
 	const id = start.taskId;
 	// The task was claimed for dispatch, but it may have been cancelled or given up on since then: the
-	// last check comes immediately before the frame leaves (doc/execution-plane.md#任务取消).
+	// last check comes immediately before the frame leaves (doc/design/execution.md "Task cancellation").
 	const row = await core.row(id);
 	if (row?.state !== "dispatched") return;
 	if (row.cancelled === 1) {
 		await followUp.settle(() => finish(core, nodeId, id, cancelledTaskFields()));
 		return;
 	}
-	// task.start waits for the node's answer: it must not be sent from a task queue turn (D118).
+	// task.start waits for the node's answer: it must not be sent from a task queue turn.
 	core.assertOutsideTaskTurn("task.start");
 	try {
 		await link.conn.peer.request("task.start", start);

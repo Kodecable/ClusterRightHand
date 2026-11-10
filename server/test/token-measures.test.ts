@@ -34,7 +34,7 @@ import { waitSubmission } from "./helpers/runtime.ts";
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * The two token measures (D101, doc/agent-runtime.md#配额): the budget counts output only and stops a run, the
+ * The two token measures (doc/design/agent-runtime.md "Quota and token accounting"): the budget counts output only and stops a run, the
  * usage statistic counts input + output and never stops anything. The context fill is the last main-agent call's
  * input, never a compaction's or a review's.
  */
@@ -206,7 +206,7 @@ it("usage accumulates up the tree, so a root shows its whole tree", async () => 
 	expect(await contextTokens(db, child.id)).toBe(childUsage - childBudget);
 });
 
-it("backfills a pre-D101 session from durable's persisted usage at the next start", async () => {
+it("backfills a session that predates token measures from durable's persisted usage at the next start", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "crh-usage-backfill-"));
 	const localDb = openDb({ driver: "sqlite", path: join(dir, "crhs.db") });
 	await migrateToLatest(localDb);

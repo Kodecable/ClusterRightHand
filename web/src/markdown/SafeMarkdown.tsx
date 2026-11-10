@@ -117,7 +117,7 @@ const MarkdownBlockView = memo(function MarkdownBlockView({
 }) {
 	const repaired = streaming ? safeRemend(source) : source;
 	// Definitions are prepended so references resolve even when the definition
-	// itself arrives later in the message (doc/webui.md item 5).
+	// itself arrives later in the message (doc/design/webui.md "SafeMarkdown").
 	const text = definitions === "" ? repaired : `${definitions}\n\n${repaired}`;
 	return markdownBlockElement(text, !streaming);
 });
@@ -152,7 +152,7 @@ function MarkdownView({ text, streaming, className }: { text: string; streaming:
 
 /**
  * Safe Markdown rendering for assistant text and thinking
- * (doc/webui.md "SafeMarkdown"): no raw HTML, links limited to
+ * (doc/design/webui.md "SafeMarkdown"): no raw HTML, links limited to
  * http(s)/mailto, images rendered as text, and code highlighted incrementally.
  */
 export function SafeMarkdown({

@@ -1,5 +1,5 @@
 /**
- * The forward cases of the privileged system suite (doc/testing/privileged.md) on a `forward` node:
+ * The forward cases of the privileged system suite (doc/design/testing/privileged.md) on a `forward` node:
  *
  * - crhs-signed authorizations for exec and file tasks.
  * - a node that only trusts the user: crhs alone cannot escalate, the owner's signature makes it run.
@@ -110,7 +110,7 @@ describePodman("privileged system: forward", () => {
 		crhs = await InProcessCrhs.create();
 		await crhs.loginAdmin();
 		// clock_skew 0: both processes share the host clock, and the fallback case needs a 1 ms
-		// authorization to really expire (doc/privilege.md 时钟).
+		// authorization to really expire (doc/design/privilege.md "Clock").
 		node = await PrivilegedNode.create({ bin, crhs, mode: "forward", trust: [], clockSkew: "0s" });
 		userKey = await publicKeyOf(node.userKeyPath);
 		crhsKey = (await crhs.api("/api/privilege/crhs-key")).json.key.authorizedKey as string;
@@ -268,7 +268,7 @@ describePodman("privileged system: forward", () => {
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
 			expect(done.outputHead).toBe("0\n");
 			expect(done.authorization?.dispatchedPath).toBe("user");
-			// Both signatures are stored on the same payload (doc/privilege.md 联署).
+			// Both signatures are stored on the same payload (doc/design/privilege.md "Cosigning").
 			const row = await crhs.db
 				.selectFrom("authorizations")
 				.select("signatures")
@@ -282,7 +282,7 @@ describePodman("privileged system: forward", () => {
 			const t = await task({ kind: "exec", argv: ["id", "-u"] });
 			await waitAwaiting(t.id);
 			// A reusable authorization has no task ids, and crhs only cosigns one-shot payloads
-			// (doc/privilege.md 联署), so this signature can never satisfy require-cosign.
+			// (doc/design/privilege.md "Cosigning"), so this signature can never satisfy require-cosign.
 			const spec = taskSpecFromJson({ kind: "exec", command: { argv: ["id", "-u"] }, env: {}, cwd: "", stdin: null });
 			const sha = Buffer.from(specSha256(spec)).toString("hex");
 			const signed = await runFile(bin, [
@@ -303,7 +303,7 @@ describePodman("privileged system: forward", () => {
 			]);
 			const submitted = await submitAuthorization(crhs, signed.stdout.trim());
 			expect(submitted.status).toBe(200);
-			// The dispatch runs in the background (D118); drain before reading the task it left alone.
+			// The dispatch runs in the background; drain before reading the task it left alone.
 			await crhs.cluster.drain();
 			// Still waiting, nothing ran. The one-shot payload crhs offers is cosigned and works.
 			expect((await crhs.getTask(t.id)).state).toBe("awaiting_authorization");
@@ -383,7 +383,7 @@ describePodman("privileged system: forward", () => {
 				45_000,
 			);
 			// The task is still awaiting, not unknown, and crhs re-sends local.request after the
-			// new trust report (doc/protocol.md 本地批准).
+			// new trust report (doc/design/privilege.md "Local approval").
 			const during = await crhs.getTask(t.id);
 			expect(during.state).toBe("awaiting_authorization");
 			await waitFor(
@@ -547,7 +547,7 @@ describePodman("privileged system: forward", () => {
 			expect(done.state).toBe("rejected");
 			expect(done.errorCode).toBe("authorization_required");
 			// The rendered argv is compared as one target: a semicolon smuggled into an option
-			// changes the target instead of extending a matching one (doc/privilege.md 方法与目标).
+			// changes the target instead of extending a matching one (doc/design/privilege.md "Methods and targets").
 			const argv = await task({ kind: "exec", argv: ["id", "-u;cat /etc/shadow"] });
 			const argvDone = await waitTerminal(argv.id);
 			expect(argvDone.state).toBe("rejected");

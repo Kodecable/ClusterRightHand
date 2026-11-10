@@ -27,13 +27,13 @@ import { sessionAncestors } from "./session-chain.ts";
 import { callTokens, estimateRequestTokens, RequestEstimates } from "./tokens.ts";
 
 /**
- * The Harness extension (doc/agent-runtime.md#cluster-工具): the cluster tools as durable tools, the subagent
+ * The Harness extension (doc/design/agent-runtime.md "Cluster tools"): the cluster tools as durable tools, the subagent
  * tools, the follow-up that reminds a parent of its subagent requests, output-token metering, and the system
  * prompt. A tool call runs through runtime-requests/state/quota, so a quota-paused call and a subagent request
  * behave exactly as the runtime documents.
  */
 
-/** The default session prompt: the identity and the tone. A custom prompt replaces it (D116). */
+/** The default session prompt: the identity and the tone. A custom prompt replaces it. */
 export const DEFAULT_SESSION_PROMPT = `You are ClusterRightHand, an assistant that operates the user's servers ("nodes") through the cluster tools.
 
 Be concise.`;
@@ -101,7 +101,7 @@ async function toolContextFor(
 		chain.unshift({ type: "session", id: row.id });
 		top = row;
 	}
-	// A scheduled run's root session sits below its schedule (doc/scheduling.md#授权规则与配额).
+	// A scheduled run's root session sits below its schedule (doc/design/scheduling.md "Rules and quotas").
 	if (top.schedule_id) chain.unshift({ type: "schedule", id: top.schedule_id });
 	const actor: Actor = {
 		type: session.parent_session_id ? "subagent" : "session",
@@ -129,8 +129,9 @@ export function clusterExtension(
 	presets: ModelPresets,
 ): Extension {
 	// The input estimate of each conversation's current request, from `beforeRequest` for its `afterResponse`
-	// (D101: the request's serialized messages are the generation basis for input tokens the upstream does not
-	// report; durable's hook sees no system prompt or tool declarations).
+	// (doc/design/agent-runtime.md "Token measures": the request's serialized messages are the generation
+	// basis for input tokens the upstream does not report; durable's hook sees no system prompt or tool
+	// declarations).
 	const requestInput = new RequestEstimates();
 	const requestJson = (r: AgentRequestView) => ({
 		kind: r.kind,
@@ -151,7 +152,7 @@ export function clusterExtension(
 	};
 	const hooks = [
 		hook(ToolTask, {
-			// Every tool result reminds the parent of subagent requests it must settle (doc/agent-runtime.md#处理子会话的请求).
+			// Every tool result reminds the parent of subagent requests it must settle (doc/design/agent-runtime.md "Handling subagent requests").
 			afterTool: async (call, result, api) => {
 				if (call.parent) return undefined;
 				const runtime = runtimeRef.current;
@@ -167,18 +168,19 @@ export function clusterExtension(
 			},
 		}),
 		hook(GenerationTask, {
-			// The serialized messages are the input basis when the upstream reports no usage (D101). durable's
+			// The serialized messages are the input basis when the upstream reports no usage. durable's
 			// `beforeRequest` exposes only those; the system prompt and tool declarations are not part of it.
 			beforeRequest: async (request, api) => {
 				const conversationId = String(api.conversationId);
 				requestInput.set(conversationId, estimateRequestTokens(request.messages));
 				// Custom providers may put the crh session id into request headers/body; the mapping must be
-				// known before the first generation request, not only after its response (D115).
+				// known before the first generation request, not only after its response.
 				await runtimeRef.current?.rememberProviderSession(conversationId);
 				return undefined;
 			},
 			// The budget measure counts the output at every level; a level whose quota is not above zero stops its
-			// whole subtree (doc/agent-runtime.md#配额). The usage measure and the context fill are D101.
+			// whole subtree (doc/design/agent-runtime.md "Quota and token accounting"). The usage measure and the
+			// context fill are separate token measures.
 			afterResponse: async (message, api) => {
 				const conversationId = String(api.conversationId);
 				// Take the estimate now: it belongs to this one request, whether or not the response can be charged.
@@ -190,13 +192,13 @@ export function clusterExtension(
 				if (runtime) await runtime.rememberProviderSession(conversationId);
 				const tokens = callTokens(message, estimatedInput);
 				// The provider stream timed this attempt at meter request / first content / stream end, with no
-				// viewer involved (doc/agent-runtime.md#会话统计). The provider session id is durable's identity
+				// viewer involved (doc/design/agent-runtime.md "Session statistics"). The provider session id is durable's identity
 				// for this conversation's stream; taking the attempt also forgets it, so a retry starts afresh.
 				const providerSessionId = options.models.providerSessionIdFor(sessionId);
 				const attempt = providerSessionId ? options.generationTimings?.take(providerSessionId) : undefined;
 				const timing = stepTiming(attempt, message.usage?.output ?? 0);
 				await chargeCall(options.db, sessionId, tokens, { ...(timing ? { timing } : {}) });
-				// The context fill is the session's own last main-agent call, never a compaction or review (D101).
+				// The context fill is the session's own last main-agent call, never a compaction or review.
 				await setContextTokens(options.db, sessionId, tokens.context);
 				const over = await exhaustedLevel(options.db, sessionId);
 				// The WebUI reads the counters from GET /sessions/:id; the tree's list row makes it refetch.
@@ -225,15 +227,15 @@ export function clusterExtension(
 			description: tool.description,
 			parameters: Type.Unsafe(z.toJSONSchema(tool.input, { target: "draft-7" }) as Record<string, unknown>),
 			// Every call is idempotent: tasks get ids derived from the durable task id, so a rerun after a restart
-			// reattaches to the Cluster task its first run started (doc/agent-runtime.md#exec-工具的语义).
+			// reattaches to the Cluster task its first run started (doc/design/agent-runtime.md "exec tool semantics").
 			replay: "safe",
-			// The cluster layers already bound the output itself (D112). The harness bound is only a safety net
+			// The cluster layers already bound the output itself. The harness bound is only a safety net
 			// and must not cut a note block — or a 512-node status group, whose per-node status is not budgeted.
 			outputLimits: { maxBytes: 256 * 1024, maxLines: 10_000 },
 			execute: async (args, api, context) => {
 				const base = await toolContextFor(options, String(api.conversationId));
 				// Quota at or below zero: pause this call and ask an ancestor's agent, or the owner, for more
-				// (doc/agent-runtime.md#配额). A denial ends the run without another model request.
+				// (doc/design/agent-runtime.md "Quota and token accounting"). A denial ends the run without another model request.
 				if (await exhaustedLevel(options.db, base.actor.id)) {
 					const outcome = runtimeRef.current ? await runtimeRef.current.waitForQuota(base.actor.id, context) : "denied";
 					if (outcome === "denied") {

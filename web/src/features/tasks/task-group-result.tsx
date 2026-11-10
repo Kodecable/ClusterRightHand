@@ -46,7 +46,7 @@ export function TaskGroupSkippedNotice({ taskGroup, names }: { taskGroup: TaskGr
 }
 
 /**
- * The result of one task group (doc/webui.md "Task group"): its approval,
+ * The result of one task group (doc/design/webui.md "Task and task group pages"): its approval,
  * signature or decision, then one row per node with the task's status and
  * outcome. The page title and status live above; the summary, target list and
  * counts would repeat what the title and rows already say.

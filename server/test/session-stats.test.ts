@@ -32,7 +32,7 @@ import { waitSubmission } from "./helpers/runtime.ts";
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * Per-session generation statistics (doc/agent-runtime.md#会话统计): turns are submissions that produced a step,
+ * Per-session generation statistics (doc/design/agent-runtime.md "Session statistics"): turns are submissions that produced a step,
  * steps are main-agent assistant messages, and TTFT/decode come from the provider stream itself (a
  * `meteredModels` tap on `streamSimple`), so no viewer has to watch the session. The prompt/cache buckets are
  * the tree's.

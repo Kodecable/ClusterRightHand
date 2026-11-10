@@ -15,7 +15,7 @@ import (
 // fileAccess opens the paths of a file task. The unprivileged access opens a path directly and
 // follows a symbolic link at the end of a write or edit path; the privileged access resolves every
 // path below "/" with openat2(RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS) and refuses a symbolic link at
-// any level (doc/privilege.md 方法与目标). Once a file or directory is open, both modes run the same
+// any level (doc/design/privilege.md "Methods and targets"). Once a file or directory is open, both modes run the same
 // operation on its fd.
 type fileAccess interface {
 	// openReading opens a regular file for reading. The type is checked before the file is opened:
@@ -70,7 +70,7 @@ type fileAttr struct {
 
 // checkRegular refuses a path that is not a regular file: reading a character or block device can
 // have side effects, a FIFO or socket cannot be read to its end, and a directory is not a file
-// (doc/privilege.md 方法与目标).
+// (doc/design/privilege.md "Methods and targets").
 func checkRegular(fi fs.FileInfo, path string) error {
 	if !fi.Mode().IsRegular() {
 		return errf(protocol.CodeNotRegularFile, "%s is not a regular file", path)
@@ -107,7 +107,7 @@ func statForOpen(path string) (fs.FileInfo, error) {
 }
 
 // checkNotSpecial refuses a FIFO or socket: neither can be read to its end, and reading a FIFO
-// may block forever even when the task is cancelled (doc/privilege.md 方法与目标).
+// may block forever even when the task is cancelled (doc/design/privilege.md "Methods and targets").
 func checkNotSpecial(fi fs.FileInfo, path string) error {
 	if fi.Mode()&fs.ModeNamedPipe != 0 || fi.Mode()&fs.ModeSocket != 0 {
 		return errf(protocol.CodeNotRegularFile, "%s is not a regular file", path)
@@ -429,7 +429,7 @@ func openat2Error(p string, err error) error {
 }
 
 // privilegedAccess resolves every path with openat2 from the root fd and refuses a symbolic link at
-// any level (doc/privilege.md 方法与目标).
+// any level (doc/design/privilege.md "Methods and targets").
 type privilegedAccess struct{ root *privilegedFileRoot }
 
 // openReading opens the path as O_PATH first, stats that descriptor, and opens the regular file only
@@ -596,7 +596,7 @@ func (a privilegedAccess) makeParentDirs(path string, uid, gid int) error {
 // for reading. O_NOFOLLOW covers the race between the stat check in openWrite and this open: the
 // final component is never followed, and the parent comes from the already resolved directory fd.
 // O_NONBLOCK keeps the open from waiting for a FIFO writer that a cancellation cannot wake
-// (doc/privilege.md 方法与目标).
+// (doc/design/privilege.md "Methods and targets").
 func (a privilegedAccess) openExisting(t *writeTarget) (*os.File, error) {
 	probe, err := openAt(t.dir, t.name, unix.O_PATH|unix.O_NOFOLLOW, t.path)
 	if err != nil {

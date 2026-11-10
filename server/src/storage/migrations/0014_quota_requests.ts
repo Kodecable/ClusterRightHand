@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * A paused tool call asking for more token quota (doc/agent-runtime.md#配额). `level_id` is the exhausted level
+ * A paused tool call asking for more token quota (doc/design/agent-runtime.md "Quota and token accounting"). `level_id` is the exhausted level
  * to top up; `handler_session_id` is its direct parent session, whose agent decides.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {

@@ -19,7 +19,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
-// Node UUIDs for --nodes; grants address nodes by UUID only (D110).
+// Node UUIDs for --nodes; grants address nodes by UUID only.
 const (
 	testNodeA = "0192f000-0000-7000-8000-000000000001"
 	testNodeB = "0192f000-0000-7000-8000-000000000002"
@@ -217,7 +217,7 @@ func TestGrantPayloadMode(t *testing.T) {
 }
 
 // TestGrantPayloadOneShotNodes covers the per-position node binding of a one-shot payload given
-// as base64: a group, "*" or a length mismatch is refused (doc/protocol.md 授权对象).
+// as base64: a group, "*" or a length mismatch is refused (doc/design/protocol.md "Authorization object").
 func TestGrantPayloadOneShotNodes(t *testing.T) {
 	attempt := protocol.Uint(1)
 	for _, tc := range []struct {

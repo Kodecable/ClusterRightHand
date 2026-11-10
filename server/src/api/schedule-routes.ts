@@ -39,7 +39,7 @@ export interface ScheduleRoutesOptions {
 	taskGroups: TaskGroups;
 }
 
-/** Schedules (doc/scheduling.md); a schedule belongs to its creator, so administrators see only theirs too. */
+/** Schedules (doc/design/scheduling.md); a schedule belongs to its creator, so administrators see only theirs too. */
 export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 	const app = new Hono<AppEnv>();
 
@@ -48,7 +48,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 		const rules = await scheduleRuleSet(db, schedule.id);
 		const [last, running] = await Promise.all([latestRun(db, schedule.id), runInProgress(db, schedule.id)]);
 		// A row saved before cron/timezone were validated must not fail the list: an invalid stored
-		// pair leaves the preview empty and says why (doc/scheduling.md#调度).
+		// pair leaves the preview empty and says why (doc/design/scheduling.md "Triggering and submission").
 		let preview: string[] = [];
 		let previewError: string | null = null;
 		try {
@@ -75,7 +75,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 			updatedAt: schedule.updatedAt,
 			lastRun: last ?? null,
 			inProgress: running !== undefined,
-			// The next few fire times, so the form can be checked before saving (doc/scheduling.md#调度).
+			// The next few fire times, so the form can be checked before saving (doc/design/scheduling.md "Triggering and submission").
 			preview,
 			// Why the preview is empty, when the stored cron or timezone is invalid.
 			previewError,
@@ -133,7 +133,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 			target: { type: "schedule", id: schedule.id },
 			detail: scheduleDetail(schedule, { rule_preset: parseRulePreset(body.rulePreset ?? "ask") }),
 		});
-		// The loop picks the new trigger up at once (doc/scheduling.md#调度).
+		// The loop picks the new trigger up at once (doc/design/scheduling.md "Triggering and submission").
 		options.scheduler.wake();
 		return c.json({ schedule: await view(schedule) }, 201);
 	});
@@ -146,7 +146,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 		const schedule = await own(c);
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
-		// A model change without a level keeps the schedule's level, clamped to the new model (D115).
+		// A model change without a level keeps the schedule's level, clamped to the new model.
 		const model: ModelRef | undefined =
 			body.model === undefined
 				? undefined
@@ -199,7 +199,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 	app.delete("/schedules/:id", async (c) => {
 		const user = c.get("user");
 		const schedule = await own(c);
-		// Deleting stops the running instance and removes the runs; the sessions stay, unlinked (doc/scheduling.md).
+		// Deleting stops the running instance and removes the runs; the sessions stay, unlinked (doc/design/scheduling.md).
 		await options.scheduler.remove(schedule.id);
 		void c.get("audit").record({
 			actor: userActor(user),
@@ -219,7 +219,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 		return c.json({ run }, 202);
 	});
 
-	/** Run history, newest first, one keyset page at a time (doc/webui.md#api-约定). */
+	/** Run history, newest first, one keyset page at a time (doc/design/webui.md "API conventions"). */
 	app.get("/schedules/:id/runs", async (c) => {
 		const schedule = await own(c);
 		const limit = parseLimit(c.req.query("limit"));

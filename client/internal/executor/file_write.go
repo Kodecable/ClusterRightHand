@@ -23,7 +23,7 @@ import (
 
 // fileWrite executes a file.write task: it verifies the input against the declared size and SHA-256,
 // writes it to a temporary file next to the destination, and publishes it with the requested or the
-// existing mode and owner (doc/protocol.md#任务).
+// existing mode and owner (doc/design/protocol.md "task.start").
 func fileWrite(ctx context.Context, acc fileAccess, s *protocol.FileWriteSpec, input io.Reader) (*protocol.TaskResult, error) {
 	path := s.Path
 	if err := checkPath(path); err != nil {
@@ -38,7 +38,7 @@ func fileWrite(ctx context.Context, acc fileAccess, s *protocol.FileWriteSpec, i
 	}
 	if s.CreateParentDirs {
 		// mkdir -p semantics: the new directories are 0755 before the umask and, when an owner or
-		// group is requested, belong to the same identity as the file (doc/protocol.md#任务).
+		// group is requested, belong to the same identity as the file (doc/design/protocol.md "task.start").
 		if err := acc.makeParentDirs(path, uid, gid); err != nil {
 			return nil, err
 		}

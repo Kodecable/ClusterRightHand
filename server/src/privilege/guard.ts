@@ -1,5 +1,5 @@
 /**
- * Guard rules and targets of a trust entry (doc/privilege.md#防护规则, #方法与目标).
+ * Guard rules and targets of a trust entry (doc/design/privilege.md "Guard rules", doc/design/privilege.md "Methods and targets").
  *
  * Rules are compiled with RE2 only: the Node package `re2`, never a JS RegExp fallback. A pattern
  * RE2 cannot compile is treated conservatively (U6): an `allow` rule never matches and a `deny`
@@ -11,7 +11,7 @@ import type { GuardRule, TaskSpec } from "@crh/protocol";
 import RE2 from "re2";
 import { type Method, operationOf } from "../policy/rules.ts";
 
-/** A guard rule's regex may be at most this many UTF-8 bytes (doc/privilege.md#防护规则). */
+/** A guard rule's regex may be at most this many UTF-8 bytes (doc/design/privilege.md "Guard rules"). */
 export const MAX_GUARD_PATTERN_BYTES = 1000;
 
 export class GuardRuleError extends Error {
@@ -89,7 +89,7 @@ export function validateGuardRules(rules: readonly GuardRule[]): void {
 
 function matches(rule: CompiledRule, method: Method, target: string, allowFileWriteCoversRead: boolean): boolean {
 	if (rule.method !== method) {
-		// A file.write allow rule also grants reading; deny rules stay method-exact (D67).
+		// A file.write allow rule also grants reading; deny rules stay method-exact.
 		if (!(allowFileWriteCoversRead && rule.method === "file.write" && method === "file.read")) return false;
 	}
 	return rule.any || (rule.re?.test(target) ?? false);
@@ -142,7 +142,7 @@ export function checkPrivilegedPath(path: string): void {
 }
 
 /**
- * The (method, target) pair a task is authorized for, as doc/privilege.md#方法与目标 renders it. The
+ * The (method, target) pair a task is authorized for, as doc/design/privilege.md "Methods and targets" renders it. The
  * rendering is shared with crhs's own rules (`operationOf`); privileged file tasks additionally
  * require an absolute, clean path before any rule sees it.
  */

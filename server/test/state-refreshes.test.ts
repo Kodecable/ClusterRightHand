@@ -3,7 +3,7 @@ import { StateRefreshes } from "../src/agent/runtime-host/state-refreshes.ts";
 import type { SessionState } from "../src/agent/session-state.ts";
 
 /**
- * The D118 coalescing rule (doc/agent-runtime.md#会话状态): refreshes of one session are serialized, a request
+ * The coalescing rule (doc/design/agent-runtime.md "Session state"): refreshes of one session are serialized, a request
  * while one runs shares its promise and asks for one more pass, and the entry disappears after the pass even
  * when it throws.
  */

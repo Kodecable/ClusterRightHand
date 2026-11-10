@@ -1,6 +1,6 @@
 /**
  * Privileged-task authorization: plans, the payload to sign, pending views
- * and the administrator's list (doc/privilege.md "授权路径", doc/m4.md M4.4).
+ * and the administrator's list (doc/design/privilege.md "Authorization path").
  */
 
 import type { RuleMethod } from "./policy.ts";
@@ -9,7 +9,7 @@ import type { TaskState } from "./tasks.ts";
 /** The three ways a node can accept a privileged task. */
 export type AuthorizationPath = "crhs" | "user" | "local";
 
-/** One path of a task's authorization plan (doc/privilege.md "授权路径"). */
+/** One path of a task's authorization plan (doc/design/privilege.md "Authorization path"). */
 export interface PlannedPathView {
 	path: AuthorizationPath;
 	entries: {
@@ -50,7 +50,7 @@ export interface TaskAuthorizationRejection {
 	at: string;
 }
 
-/** The authorization state of a privileged task (doc/m4.md "crhs 侧数据"). */
+/** The authorization state of a privileged task (doc/design/privilege.md "Server-side authorization"). */
 export interface TaskAuthorizationView {
 	/** The plan computed from the trust summary of the last attempt. */
 	plan: TaskAuthorizationPlanView;
@@ -128,7 +128,7 @@ export interface TaskGroupPending {
 	tasks: TaskGroupPendingTask[];
 }
 
-/** One stored authorization (doc/m4.md M4.4). */
+/** One stored authorization (doc/design/privilege.md "Authorizations"). */
 export interface AuthorizationSummary {
 	id: string;
 	issuerUserId: string | null;

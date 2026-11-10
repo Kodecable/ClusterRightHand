@@ -3,8 +3,8 @@ import type { Json, JsonObject } from "./session-events";
 import { prettyJson } from "./tool-details";
 
 /**
- * The failure a tool result reports (doc/webui.md#工具卡片): the one badge a tool card shows beyond its call
- * status. It is read from the result `details` (D112) or, for a transcript recorded before they existed,
+ * The failure a tool result reports (doc/design/webui.md "Message rendering"): the one badge a tool card shows beyond its call
+ * status. It is read from the result `details` or, for a transcript recorded before they existed,
  * from the result JSON, never from a live lookup, so a card keeps the verdict its call had at the time. A
  * result marked `isError` without a task verdict is a failure too.
  *
@@ -43,13 +43,13 @@ export function taskFailure(value: JsonObject): ToolFailure | undefined {
 	return undefined;
 }
 
-/** The failure a returned tool result reports (doc/webui.md "工具卡片"), or undefined when it did not fail. */
+/** The failure a returned tool result reports (doc/design/webui.md "Message rendering"), or undefined when it did not fail. */
 export function toolResultFailure(result: {
 	text: string;
 	isError: boolean;
 	details: Json | undefined;
 }): ToolFailure | undefined {
-	// The details carry the same fields as the JSON the old results put in the text (D112). Only a call
+	// The details carry the same fields as the JSON the old results put in the text. Only a call
 	// recorded before that change has no details, so its text is parsed as the fallback.
 	const failure =
 		result.details === undefined || result.details === null ? toolFailure(result.text) : detailsFailure(result.details);
@@ -79,7 +79,7 @@ export function toolFailure(text: string): ToolFailure | undefined {
 }
 
 /**
- * The failure of a task view the card followed instead of a result (doc/webui.md "工具卡片"): the same
+ * The failure of a task view the card followed instead of a result (doc/design/webui.md "Message rendering"): the same
  * meaning as `taskFailure`, read from the stored fields. Only the states that are final can fail.
  */
 export function taskViewFailure(task: TaskView): ToolFailure | undefined {

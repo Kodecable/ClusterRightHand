@@ -6,7 +6,7 @@ import { runSftpFileTask } from "../src/cluster/ssh/file-task.ts";
 /**
  * file.list over SFTP without a server: a fake directory whose entries the node lists. The entries
  * and the truncation flag are the task's result, never JSON on a stream, and a listing of a huge
- * directory stays inside one task.exit frame (doc/protocol.md TaskResult).
+ * directory stays inside one task.exit frame (doc/design/protocol.md "Task results").
  */
 
 interface DirEntry {

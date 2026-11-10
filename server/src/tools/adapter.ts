@@ -4,7 +4,7 @@ import type { ClusterTool, ToolContext } from "./catalog.ts";
 import { errorResult, type ToolResult } from "./render.ts";
 
 /**
- * One cluster tool call, as both surfaces run it (doc/mcp.md and doc/agent-runtime.md#cluster-工具): the
+ * One cluster tool call, as both surfaces run it (doc/guide/mcp.md and doc/design/agent-runtime.md "Cluster tools"): the
  * `tool.call` audit entry, the handler, and the mapping of an expected refusal to an error result with a
  * stable code. Every call is audited before it runs, and an unexpected failure stays a server bug rather
  * than a tool error.

@@ -38,7 +38,7 @@ export type JsonTaskSpec =
 	| { kind: "file.stat"; path: string }
 	| { kind: "file.list"; path: string; limit: number };
 
-/** The JSON form of one `file.list` entry (doc/protocol.md TaskResult). */
+/** The JSON form of one `file.list` entry (doc/design/protocol.md "Task results"). */
 export interface JsonFileListEntry {
 	name: string;
 	type: string;
@@ -71,7 +71,7 @@ export type JsonTaskResult =
 	| { kind: "file.edit"; replacements: number };
 
 /**
- * The JSON form of Facts: the camelCase fields that are present (doc/protocol.md Facts). Every key
+ * The JSON form of Facts: the camelCase fields that are present (doc/design/protocol.md "Events"). Every key
  * is optional because a stored row may be partial: an SSH node keeps only its shells, and a row
  * written before a fact existed lacks it.
  */
@@ -465,7 +465,7 @@ export function factsToJson(value: Facts): JsonFacts {
 /**
  * Parse the JSON form of Facts as stored on a node row. Every key is optional (see JsonFacts), so a
  * partial row reads as the facts it has instead of failing the record; a key that is present is type
- * checked. Unknown keys are ignored, as on the wire: facts grow by adding keys (doc/protocol.md).
+ * checked. Unknown keys are ignored, as on the wire: facts grow by adding keys (doc/design/protocol.md).
  */
 export function factsFromJson(value: unknown): JsonFacts {
 	if (!isRecord(value)) bad("facts", "not an object");

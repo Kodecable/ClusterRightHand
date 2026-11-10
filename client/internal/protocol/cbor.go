@@ -237,7 +237,7 @@ func validateEncodedValue(m cbor.Marshaler) error {
 }
 
 // Marshal encodes v with the protocol's deterministic encoder. It rejects any text value
-// that is not valid UTF-8 before encoding, as doc/protocol.md requires of the sender.
+// that is not valid UTF-8 before encoding, as doc/design/protocol.md requires of the sender.
 func Marshal(v any) ([]byte, error) {
 	if err := validateTextValue(v); err != nil {
 		return nil, encodeErrorf("protocol: encode: %w", err)
@@ -273,7 +273,7 @@ func UnmarshalBody(data []byte, v any) error {
 	if _, ok := v.(profileValue); ok {
 		// The callers above checked the bytes against the profile byte for byte. Facts keeps keys
 		// this implementation does not know in the generic value but not in the struct, so
-		// re-encoding the struct would differ from data (doc/protocol.md, Facts).
+		// re-encoding the struct would differ from data (doc/design/protocol.md, Facts).
 		return nil
 	}
 	encoded, err := Marshal(v)

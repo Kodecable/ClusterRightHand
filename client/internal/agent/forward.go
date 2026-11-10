@@ -19,7 +19,7 @@ import (
 const (
 	// forwardRetryMin and forwardRetryMax bound the backoff of the forward mode connection while
 	// the privileged mode's socket is down: the delay doubles from the first to the second value
-	// (doc/privilege.md 非特权模式如何处理特权任务).
+	// (doc/design/privilege.md "Privilege modes").
 	forwardRetryMin = time.Second
 	forwardRetryMax = 30 * time.Second
 	// forwardDialTimeout bounds connecting to the privileged mode's socket.
@@ -33,13 +33,13 @@ const (
 	// forwardNotConnected is the trust report message before the first connection attempt
 	// finished.
 	forwardNotConnected = "the privileged mode is not connected yet"
-	// forwardLostMessage ends a task whose daemon connection broke (doc/protocol.md crh-priv 断开).
+	// forwardLostMessage ends a task whose daemon connection broke (doc/design/protocol.md "crh-priv").
 	forwardLostMessage = "lost the connection to the privileged mode; the task may still be running"
 )
 
 // forwardRun executes one task in the privileged mode over the forward-mode connection. The daemon
 // owns the process, the input accounting and the task's state; this side relays the task's requests
-// and events and keeps what the crhs protocol needs (doc/protocol.md crh-priv).
+// and events and keeps what the crhs protocol needs (doc/design/protocol.md "crh-priv").
 type forwardRun struct {
 	// conn is the daemon connection the task.start was accepted on, set by prepare.
 	conn *forwardConn
@@ -50,7 +50,7 @@ type forwardRun struct {
 }
 
 // prepare relays the task.start. The daemon must refuse an unauthorized task before this agent
-// accepts it: an accepted task is never retried (doc/protocol.md task.start).
+// accepts it: an accepted task is never retried (doc/design/protocol.md "task.start").
 func (r *forwardRun) prepare(a *Agent, ctx context.Context, t *task) error {
 	fc, unknown, err := a.startForwardTask(ctx, t.spec)
 	if err != nil {
@@ -111,13 +111,13 @@ func (r *forwardRun) query(a *Agent, ctx context.Context, q protocol.TaskQuery) 
 func (r *forwardRun) finished(*task) {}
 
 // forwardConn is the crh-priv connection of forward mode to the privileged mode: one connection
-// serves every task, and its events are routed by task id (doc/protocol.md crh-priv).
+// serves every task, and its events are routed by task id (doc/design/protocol.md "crh-priv").
 type forwardConn struct {
 	conn   net.Conn
 	stream *wire.Stream
 	peer   *protocol.Peer
 	// negotiated is what both sides implement; the daemon's crh-priv 1.0 subset has no
-	// local.* commands (doc/protocol.md crh-priv).
+	// local.* commands (doc/design/protocol.md "crh-priv").
 	negotiated protocol.Set
 	done       chan struct{}
 	runErr     error
@@ -191,7 +191,7 @@ func (a *Agent) dialForward(ctx context.Context) (*forwardConn, error) {
 }
 
 // startForward starts the connection to the privileged mode once. forward mode connects at start
-// and reconnects with backoff while the socket is down (doc/privilege.md 非特权模式如何处理特权任务).
+// and reconnects with backoff while the socket is down (doc/design/privilege.md "Privilege modes").
 func (a *Agent) startForward(ctx context.Context) {
 	if !a.forwardStarted.CompareAndSwap(false, true) {
 		return
@@ -268,7 +268,7 @@ func (a *Agent) queryTrust(ctx context.Context, fc *forwardConn) error {
 
 // refreshTrust queries the daemon again after an authorization_* refusal and reports a changed
 // summary before the refusal goes out, so crhs plans its retry against the current trust
-// (doc/privilege.md 信任缓存).
+// (doc/design/privilege.md "Trust cache").
 func (a *Agent) refreshTrust(ctx context.Context) {
 	fc, _ := a.forwardConnection()
 	if fc == nil {
@@ -291,7 +291,7 @@ func (t *task) forwarded() bool {
 }
 
 // forwardLost ends the tasks of the connection that just ended. The daemon keeps running an
-// accepted task until it finishes (doc/protocol.md crh-priv 断开), so their outcome is unknowable
+// accepted task until it finishes (doc/design/protocol.md "crh-priv"), so their outcome is unknowable
 // here.
 func (a *Agent) forwardLost() {
 	a.mu.Lock()
@@ -337,7 +337,7 @@ func (a *Agent) startForwardTask(ctx context.Context, ts *protocol.TaskStart) (*
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 			// The daemon did not answer within the deadline, but it may still accept and run the
 			// task: the request is queued there, so refusing it would let crhs re-issue a task
-			// that may execute (doc/protocol.md task.start, forward). Report it accepted like a
+			// that may execute (doc/design/protocol.md "task.start", forward). Report it accepted like a
 			// lost connection, ask the daemon to cancel it best-effort, and let launch end it as
 			// helper_lost: its outcome is unknowable here.
 			a.log.Warn("the privileged mode did not answer task.start", "task", ts.TaskID, "err", err)
@@ -345,7 +345,7 @@ func (a *Agent) startForwardTask(ctx context.Context, ts *protocol.TaskStart) (*
 			return fc, true, nil
 		}
 		// The request may have reached the daemon before the connection broke, and an accepted
-		// task runs to completion there (doc/protocol.md crh-priv 断开). Refusing it here would
+		// task runs to completion there (doc/design/protocol.md "crh-priv"). Refusing it here would
 		// let crhs retry a task that may have run, so report it accepted: launch then ends it as
 		// helper_lost.
 		a.log.Warn("the privileged mode connection broke during task.start", "task", ts.TaskID, "err", err)
@@ -353,7 +353,7 @@ func (a *Agent) startForwardTask(ctx context.Context, ts *protocol.TaskStart) (*
 	}
 	if authorizationCode(remote.Code) {
 		// The daemon refused the authorization: report a changed trust summary first, then the
-		// refusal (doc/protocol.md task.start, forward).
+		// refusal (doc/design/protocol.md "task.start", forward).
 		a.refreshTrust(ctx)
 	}
 	return nil, false, remote
@@ -411,7 +411,7 @@ func (a *Agent) relayOn(ctx context.Context, fc *forwardConn, cmd string, req, r
 }
 
 // forwardUnavailable is the terminal error of a privileged operation while the privileged mode
-// cannot be reached (doc/protocol.md task.start error codes).
+// cannot be reached (doc/design/protocol.md "task.start" error codes).
 func forwardUnavailable(err error) *protocol.RemoteError {
 	message := "the privileged mode is not reachable"
 	if err != nil {
@@ -463,7 +463,7 @@ func (a *Agent) emitLocalDecision(decision protocol.LocalDecision) {
 }
 
 // trustReporter tracks the trust report crha knows and the one crhs was last told on the current
-// connection, so trust.summary is only sent when it changed (doc/protocol.md trust.summary).
+// connection, so trust.summary is only sent when it changed (doc/design/protocol.md "Trust summary").
 type trustReporter struct {
 	mu       sync.Mutex
 	report   protocol.TrustReport
@@ -519,7 +519,7 @@ func (a *Agent) sendTrustLocked(force bool) {
 }
 
 // trustKey identifies a report by its kind, message and (for ok) the summary digest, which is
-// what "the report changed" means in doc/privilege.md 信任缓存.
+// what "the report changed" means in doc/design/privilege.md "Trust cache".
 func trustKey(report protocol.TrustReport) (string, error) {
 	switch report.Kind {
 	case protocol.TrustReportOK:
@@ -610,7 +610,7 @@ func (a *Agent) cancelForwardTask(taskID string) {
 	}
 }
 
-// handleLocalRequest relays a local approval request and its state (doc/privilege.md 本地批准).
+// handleLocalRequest relays a local approval request and its state (doc/design/privilege.md "Local approval").
 func (a *Agent) handleLocalRequest(ctx context.Context, body cbor.RawMessage) (any, error) {
 	if a.mode() != config.ModeForward {
 		return nil, notForwardError(a.mode())

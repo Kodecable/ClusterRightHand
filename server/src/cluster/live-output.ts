@@ -1,5 +1,5 @@
 /**
- * The live output of a task between dispatch and its recorded end (doc/execution-plane.md#输出): it
+ * The live output of a task between dispatch and its recorded end (doc/design/execution.md "Output"): it
  * accumulates in memory, drawing on its group's shared budget, and is written to the row only when the
  * task ends.
  */
@@ -72,7 +72,7 @@ function ownBudget(maxLines: number | null, maxBytes: number | null): GroupBudge
 }
 
 /**
- * The group's budget, created from the per-node caps the task group stored (D112). Every member stored
+ * The group's budget, created from the per-node caps the task group stored. Every member stored
  * the same caps; a later reconnect re-creates the budget from the first member's row.
  */
 function budgetFor(core: ClusterCore, key: string, maxLines: number | null, maxBytes: number | null): GroupBudget {

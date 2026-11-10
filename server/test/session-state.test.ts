@@ -21,7 +21,7 @@ import { waitSubmission } from "./helpers/runtime.ts";
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * Session state (D97, doc/agent-runtime.md#会话状态): idle / running / awaiting for roots and subagents
+ * Session state (doc/design/agent-runtime.md "Session state"): idle / running / awaiting for roots and subagents
  * alike, the waiting kind and its priority, no revival after idle, and the startup reconciliation.
  */
 
@@ -328,7 +328,7 @@ it("a task waiting for a signature makes the session awaiting/authorization", as
 		chain: [{ type: "session", id: session.id }],
 		actor: { type: "session", id: session.id, onBehalfOfUserId: owner.userId },
 	});
-	// The cluster reports the state change; the runtime recomputes the session from it (doc/agent-runtime.md#会话状态).
+	// The cluster reports the state change; the runtime recomputes the session from it (doc/design/agent-runtime.md "Session state").
 	await db.updateTable("tasks").set({ state: "awaiting_authorization" }).where("id", "=", task.id).execute();
 	cluster.onChange?.(session.id);
 	await waitFor("awaiting/authorization", async () => {

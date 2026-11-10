@@ -2,7 +2,7 @@ import { type Kysely, type SqlBool, sql } from "kysely";
 import { isPostgres } from "../dialect.ts";
 
 /**
- * A session is `idle` unless a run or a wait is live (doc/agent-runtime.md#会话状态). The column's default used
+ * A session is `idle` unless a run or a wait is live (doc/design/agent-runtime.md "Session state"). The column's default used
  * to be `active`, which is not a valid `SessionState`; a row inserted without an explicit state therefore looked
  * live to the `state <> 'idle'` partial index. The default becomes `idle` and rows that carry the old default are
  * moved to `idle`. SQLite cannot change a column default in place, so it rebuilds the table; PostgreSQL alters

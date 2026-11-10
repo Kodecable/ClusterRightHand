@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { type Kysely, sql } from "kysely";
 
 /**
- * D109: nodes and node groups share one case-insensitive namespace per organization, references are stored
+ * Nodes and node groups share one case-insensitive namespace per organization, references are stored
  * as UUIDs, and the old `node_groups` cache (node_id, group_name, refreshed_at) becomes crhs-managed node
  * groups with members. Existing names that do not satisfy the name rule are normalized; node groups that
  * collide with a node (or with each other) get a `-2`, `-3`, … suffix. Rule `nodes` entries are rewritten to
@@ -11,7 +11,7 @@ import { type Kysely, sql } from "kysely";
  * deleted). Task-group targets are historical and are left unchanged.
  *
  * The name rule and normalizeName are copied here rather than imported: a migration must stay self-contained
- * (doc/data-model.md), and future edits to the application's normalizer must not silently change this one.
+ * (doc/design/data-model.md), and future edits to the application's normalizer must not silently change this one.
  */
 
 const NAME_MIN = 2;

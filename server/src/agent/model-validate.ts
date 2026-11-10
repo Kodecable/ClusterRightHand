@@ -1,4 +1,4 @@
-// Validation of administrator input for model providers (doc/agent-runtime.md#自定义提供方).
+// Validation of administrator input for model providers (doc/design/agent-runtime.md "Custom providers").
 
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
@@ -94,7 +94,7 @@ function validateRequestBodyKeys(value: unknown, prefix: string): void {
 
 /**
  * Headers go on the wire: no CR/LF, and nothing that would break the request
- * (doc/agent-runtime.md#自定义提供方).
+ * (doc/design/agent-runtime.md "Custom providers").
  */
 function validateHeaders(headers: Record<string, string>): void {
 	const names = Object.keys(headers);

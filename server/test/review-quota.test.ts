@@ -19,7 +19,7 @@ import { openTestDb } from "./helpers/db.ts";
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
- * Auto Review is a model call: its output is charged to the session that owns the reviewed task (D92). API
+ * Auto Review is a model call: its output is charged to the session that owns the reviewed task. API
  * tokens never use Auto Review, so a token root cannot spend a session's quota.
  */
 let db: Db;
@@ -108,7 +108,7 @@ it("charges an Auto Review answer to the reviewed session and its chain", async 
 	const tokens = Math.ceil(ANSWER.length / 4);
 	expect(charged).toBe(tokens);
 	expect((await runtime.getSession(session.id))?.budgetRemaining).toBe(1_000_000 - tokens);
-	// D101: the review's request counts in the usage measure too, and a review never sets the context fill.
+	// The review's request counts in the usage measure too, and a review never sets the context fill.
 	expect(await usageTokens(db, session.id)).toBeGreaterThan(tokens);
 	expect(await contextTokens(db, session.id)).toBeNull();
 	const reviewed = await cluster.getTask(task.id);

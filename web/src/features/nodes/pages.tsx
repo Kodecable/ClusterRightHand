@@ -37,7 +37,7 @@ import { useTrustSources } from "./trust-sources";
 import { TrustWarningIndicator, TrustWarningList } from "./trust-warnings";
 
 /**
- * Every node the user can see (doc/webui.md "Nodes"): status, connection,
+ * Every node the user can see (doc/design/webui.md "Node pages"): status, connection,
  * clock warning, node groups and access, plus approve/reject for pending nodes.
  * Enrollment and the SSH wizard are the two "Add" flows.
  */
@@ -112,7 +112,7 @@ export function NodesPage() {
 				cell: ({ row }) => <NodeLastSeen lastSeenAt={row.original.lastSeenAt} connected={row.original.connected} />,
 			},
 		];
-		// Approve/reject are administrator actions (D108); a non-admin gets no actions column at all.
+		// Approve/reject are administrator actions; a non-admin gets no actions column at all.
 		if (!admin) return base;
 		return [
 			...base,
@@ -205,7 +205,7 @@ function factValue(value: unknown): string {
 }
 
 /**
- * One node (doc/webui.md "Nodes"): identity, facts, the transport-specific
+ * One node (doc/design/webui.md "Node pages"): identity, facts, the transport-specific
  * configuration, trust and signing keys, access grants (administrators) and
  * recent tasks. Tasks run from the tasks page's "Run task" dialog.
  */
@@ -318,7 +318,7 @@ export function NodeDetailPage() {
 			)}
 
 			{editingGroups && <NodeGroupsDialog node={details} onClose={() => setEditingGroups(false)} />}
-			{/* The SSH route and its credential are administrator data (D108); the server omits `ssh` otherwise. */}
+			{/* The SSH route and its credential are administrator data; the server omits `ssh` otherwise. */}
 			{details.transport === "ssh" && node.data?.ssh && (
 				<SshNodeSection node={details} details={node.data.ssh} canRun={canRun} />
 			)}

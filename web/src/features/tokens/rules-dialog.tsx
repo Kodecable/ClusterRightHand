@@ -25,7 +25,7 @@ export function RulesDialog({ token, onClose }: { token: ApiTokenView; onClose: 
 	const prefix = useId();
 	const save = useSetTokenRules();
 	const [rulePreset, setRulePreset] = useState<RulePreset>(token.rules?.rulePreset ?? "ask");
-	// Show names rather than the stored UUIDs; the server accepts names on write (D109).
+	// Show names rather than the stored UUIDs; the server accepts names on write.
 	const [text, setText] = useState(() =>
 		JSON.stringify({ rules: rulesWithNames(token.rules?.rules ?? [], refNames(token.refs)) }, null, 2),
 	);

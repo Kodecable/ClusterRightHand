@@ -1,4 +1,4 @@
-/** Reading a task, waiting for its end and cancelling it (doc/execution-plane.md#状态机). */
+/** Reading a task, waiting for its end and cancelling it (doc/design/execution.md "State machine"). */
 import { withdrawLocal } from "./authorization/common.ts";
 import { parseTaskAuthorization } from "./authorization.ts";
 import type { ClusterCore } from "./core.ts";
@@ -110,7 +110,7 @@ const CANCEL_ROUNDS = 5;
  * Asks the node to cancel a running task. A task that still waits for its approval or its
  * authorization signature was never dispatched, so it ends here instead (there is no node-side task).
  * A task that was claimed for dispatch records the request on its row first, so the dispatch path
- * that has not sent task.start yet ends it instead of running it (doc/execution-plane.md#任务取消).
+ * that has not sent task.start yet ends it instead of running it (doc/design/execution.md "Task cancellation").
  * Returns false if the task already ended, or when it runs and the node is offline. `message` replaces
  * the default reason of a task that ends before dispatch (e.g. its session was stopped). `by` is the
  * actor who asked for the cancellation: the task.finished audit event names it, or the system when it

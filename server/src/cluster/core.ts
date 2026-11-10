@@ -38,9 +38,9 @@ export function now(): string {
 /** One Cluster's shared state; the modules take it as their first argument. */
 export class ClusterCore {
 	readonly db: Db;
-	/** How long a node may stay disconnected before its tasks are reported unknown (doc/execution-plane.md#断线恢复). */
+	/** How long a node may stay disconnected before its tasks are reported unknown (doc/design/execution.md "Reconnect"). */
 	readonly graceMs: number;
-	/** How long a task waits for its offline node before failing node_offline (D113). */
+	/** How long a task waits for its offline node before failing node_offline. */
 	readonly nodeOfflineGraceMs: number;
 	readonly unknownKeepMs: number;
 	/** TaskInput chunk size; one frame stays under MAX_FRAME_BYTES. */
@@ -65,7 +65,7 @@ export class ClusterCore {
 	readonly sshCancels = new Map<string, AbortController>();
 	/** A task between dispatch and its recorded end: output accumulates here, not in the database. */
 	readonly live = new Map<string, Live>();
-	/** One output budget per running `text` group, created lazily (doc/execution-plane.md#输出). */
+	/** One output budget per running `text` group, created lazily (doc/design/execution.md "Output"). */
 	readonly budgets = new Map<string, GroupBudget>();
 	/** The grace timer of a node that has no connection. */
 	readonly graceTimers = new Map<string, NodeJS.Timeout>();
@@ -75,7 +75,7 @@ export class ClusterCore {
 	readonly cancelledBy = new Map<string, Actor>();
 	/** The waiters of waitTask, woken on every state change. */
 	readonly waiters = new Map<string, Set<() => void>>();
-	/** Tasks waiting for a node's link to change (the offline grace, D113). */
+	/** Tasks waiting for a node's link to change (the offline grace). */
 	readonly linkWaiters = new Map<string, Set<() => void>>();
 	/** Serializes database updates per task, since frames are handled asynchronously. */
 	readonly taskQueue = new KeyedQueue(TASK_QUEUE_LABEL);
@@ -89,7 +89,7 @@ export class ClusterCore {
 	waitsEnded = false;
 	/** Fire-and-forget writes started by the connection and close paths; close() waits for them. */
 	readonly pending = new Set<Promise<void>>();
-	/** The D118 turn violations already logged; production logs each call site once, never crashes. */
+	/** The turn violations already logged; production logs each call site once, never crashes. */
 	readonly #turnWarnings = new Set<string>();
 
 	constructor(db: Db, options: ClusterOptions = {}) {
@@ -142,7 +142,7 @@ export class ClusterCore {
 	}
 
 	/**
-	 * D118: a task queue turn only reads the row, decides and writes it. A path that would wait for a
+	 * A task queue turn only reads the row, decides and writes it. A path that would wait for a
 	 * node (`waitNodeReady`, `waitTrust`) or send a request that waits for an answer (`task.start`,
 	 * `local.request`) calls this first. Under tests it throws, so a regression fails the suite; in
 	 * production it is logged once with a stack and the work continues (a violation must never crash
@@ -150,7 +150,7 @@ export class ClusterCore {
 	 */
 	assertOutsideTaskTurn(what: string): void {
 		if (!this.taskQueue.inTurn()) return;
-		const message = `${what} inside a task queue turn (D118)`;
+		const message = `${what} inside a task queue turn`;
 		if (process.env.VITEST) throw new Error(message);
 		if (this.#turnWarnings.has(what)) return;
 		this.#turnWarnings.add(what);
@@ -213,7 +213,7 @@ export class ClusterCore {
 	}
 
 	/**
-	 * A node ready to take a task.start: at once when it is connected, else after waitNodeReady (D113).
+	 * A node ready to take a task.start: at once when it is connected, else after waitNodeReady.
 	 * `trust` applies only to the wait: a connected node is ready even before its new trust report.
 	 */
 	async readyNode(nodeId: string, options: { trust?: boolean } = {}): Promise<ReadyNode | undefined> {
@@ -221,7 +221,7 @@ export class ClusterCore {
 	}
 
 	/**
-	 * Waits up to NODE_OFFLINE_GRACE_MS for a node to be ready to take a task.start (D113): an active,
+	 * Waits up to NODE_OFFLINE_GRACE_MS for a node to be ready to take a task.start: an active,
 	 * ready link, and for a forward privileged task also a fresh trust report. SSH nodes have no
 	 * connection to wait for: they are ready while a route exists. Returns undefined when the grace
 	 * ran out, the server is closing or waits were ended.
@@ -229,7 +229,7 @@ export class ClusterCore {
 	async waitNodeReady(nodeId: string, options: { trust?: boolean } = {}): Promise<ReadyNode | undefined> {
 		this.assertOutsideTaskTurn("waitNodeReady");
 		// An SSH node has no standing connection to wait for: without a route it can never become ready, so
-		// fail at once instead of polling for the whole grace (doc/execution-plane.md#节点不在线).
+		// fail at once instead of polling for the whole grace (doc/design/execution.md "Node offline").
 		const node = await getNode(this.db, nodeId);
 		if (node?.transport === "ssh" && this.sshRoute === undefined) return undefined;
 		const deadline = Date.now() + this.nodeOfflineGraceMs;

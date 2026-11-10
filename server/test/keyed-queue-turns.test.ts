@@ -1,5 +1,5 @@
 /**
- * The turn tracking of KeyedQueue and the D118 in-turn assertion (doc/execution-plane.md#任务行的并发控制（D118）).
+ * The turn tracking of KeyedQueue and the in-turn assertion (doc/design/execution.md "Task row concurrency").
  * Under vitest a wait that would run inside a task queue turn throws; outside one the same wait is fine.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -43,7 +43,7 @@ describe("queue turns", () => {
 	});
 });
 
-describe("the in-turn assertion (D118)", () => {
+describe("the in-turn assertion", () => {
 	let db: Db;
 	let core: ClusterCore;
 
@@ -60,7 +60,7 @@ describe("the in-turn assertion (D118)", () => {
 
 	it("throws when waitNodeReady is called inside a task queue turn", async () => {
 		await expect(core.taskQueue.run("task-1", () => core.waitNodeReady("node"))).rejects.toThrow(
-			"waitNodeReady inside a task queue turn (D118)",
+			"waitNodeReady inside a task queue turn",
 		);
 	});
 
@@ -74,7 +74,7 @@ describe("the in-turn assertion (D118)", () => {
 			trustWaiters: new Set<() => void>(),
 		} as unknown as NodeLink;
 		await expect(core.taskQueue.run("task-1", () => core.waitTrust(link))).rejects.toThrow(
-			"waitTrust inside a task queue turn (D118)",
+			"waitTrust inside a task queue turn",
 		);
 	});
 

@@ -3,7 +3,7 @@ import { ALL_TARGET } from "@/lib/names";
 
 /**
  * Helpers for the name lookups the server sends with task groups and rule sets
- * (D109): references are stored as UUIDs, and `refs` maps each one to its
+ *: references are stored as UUIDs, and `refs` maps each one to its
  * current name (null once the object was deleted). `_all` has no entry.
  */
 

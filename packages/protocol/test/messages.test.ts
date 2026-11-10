@@ -275,7 +275,7 @@ describe("message codecs", () => {
 			expect(decodedShells.has("bash")).toBe(false);
 			expect(factsCodec.decode(decodeCbor(wire))).toEqual({ ...facts, shells: { sh: "/bin/sh" } });
 		}
-		// bash: null is accepted on decode too (doc/protocol.md Facts).
+		// bash: null is accepted on decode too (doc/design/protocol.md "Events").
 		const nullBash = new Map<string, unknown>([
 			["hostname", "node-1"],
 			[

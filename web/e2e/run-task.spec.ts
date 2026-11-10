@@ -31,7 +31,7 @@ test("runs a shell command and shows its merged output and the exit code", async
 	await expect(page.getByTestId("task-page")).toBeVisible();
 	// The header carries the outcome: Finished alone would hide a non-zero exit.
 	await expect(page.getByTestId("task-outcome")).toHaveText("Exit code 3", { timeout: 20_000 });
-	// The task output is one stream (D114): stdout and stderr arrive together.
+	// The task output is one stream: stdout and stderr arrive together.
 	const output = page.getByTestId("task-page").getByRole("region", { name: "output", exact: true });
 	await expect(output).toHaveCount(1);
 	await expect(output).toContainText("hello");

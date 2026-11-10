@@ -4,7 +4,7 @@ import type { Operation, Rule } from "@crh/api";
  * The allow rule offered by "Approve and always allow", built from the
  * operation the server reports. It carries the task's `privileged` value so
  * that allowing a privileged call does not also allow ordinary ones
- * (doc/access-control.md#规则).
+ * (doc/design/access-control.md "Rules").
  */
 export function alwaysRule(
 	operation: Operation | null | undefined,

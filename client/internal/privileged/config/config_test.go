@@ -80,7 +80,7 @@ type fullTestConfig struct {
 	LogPath  string
 }
 
-// fullConfig is the example of doc/privilege.md 信任配置 with test keys and temporary paths.
+// fullConfig is the example of doc/design/privilege.md "Trust configuration" with test keys and temporary paths.
 func fullConfig(t *testing.T) fullTestConfig {
 	t.Helper()
 	_, crhsLine := testSigner(t)

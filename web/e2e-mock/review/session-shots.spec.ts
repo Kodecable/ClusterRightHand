@@ -11,7 +11,7 @@ import {
 } from "../helpers.ts";
 
 /**
- * The session page's review screenshots (doc/webui.md "会话界面"): light and dark, desktop and phone.
+ * The session page's review screenshots (doc/design/webui.md "Session interface"): light and dark, desktop and phone.
  * `CRH_SHOT_DIR` puts them outside the repository (the UI4 task's report lists them there); the default is a
  * folder next to this spec.
  */

@@ -14,7 +14,7 @@ import (
 )
 
 // TestForwardConnectionCap covers maxForwardConns: a ninth forward handshake is refused, and
-// closing one connection frees its slot (doc/privilege.md 特权模式).
+// closing one connection frees its slot (doc/design/privilege.md "The privileged mode").
 func TestForwardConnectionCap(t *testing.T) {
 	keys := newTestKeys(t)
 	env := crhsOnlyEnv(t, keys)

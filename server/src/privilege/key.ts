@@ -1,5 +1,5 @@
 /**
- * crhs's authorization signing key (doc/privilege.md#授权签名密钥): an ed25519 key generated on the
+ * crhs's authorization signing key (doc/design/privilege.md "Authorization signing key"): an ed25519 key generated on the
  * first start, encrypted in `secrets` with the master key exactly like the Noise identity, and the
  * SSHSIG signer built on node:crypto.
  */

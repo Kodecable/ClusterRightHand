@@ -1,6 +1,6 @@
 /**
- * Authorization rules and approvals (doc/access-control.md "授权规则" and
- * "审批"). The server stores the same shapes; its `Action` / `Method` names are
+ * Authorization rules and approvals (doc/design/access-control.md "Authorization rules" and
+ * "Approvals"). The server stores the same shapes; its `Action` / `Method` names are
  * aliases of `RuleAction` / `RuleMethod`.
  */
 
@@ -13,7 +13,7 @@ export type DefaultAction = RuleAction | "inherit";
 export interface Rule {
 	action: RuleAction;
 	method?: RuleMethod;
-	/** Node/node-group names or ids on input; the server stores UUIDs or `_all` (D109). */
+	/** Node/node-group names or ids on input; the server stores UUIDs or `_all`. */
 	nodes?: string[];
 	/** true matches only privileged tasks, false only ordinary ones; omitted matches both. */
 	privileged?: boolean;
@@ -68,7 +68,7 @@ export interface ApprovalDecision {
 
 /**
  * A request handed to the agent of an ancestor session instead of going
- * straight to the user (doc/agent-runtime.md "处理子会话的请求").
+ * straight to the user (doc/design/agent-runtime.md "Handling subagent requests").
  */
 export interface AgentRequest {
 	/** The session whose agent decides; its agent calls subagent_decide. */

@@ -82,7 +82,7 @@ type TaskStart struct {
 }
 
 // TaskExit is the task.exit event body. Result carries the task's structured result; it is nil for
-// a kind that reports none (doc/protocol.md TaskResult). OutputEnd is the end offset of the task's
+// a kind that reports none (doc/design/protocol.md "Task results"). OutputEnd is the end offset of the task's
 // one output stream and OutputLines the line count of the same bytes the output file holds.
 type TaskExit struct {
 	_           struct{} `cbor:",toarray"`
@@ -98,7 +98,7 @@ type TaskExit struct {
 
 // Facts is the facts event body. It is the protocol's one map-structured body: hostname is required,
 // every other key is optional and its Go field is nil when the node did not report it
-// (doc/protocol.md Facts). A peer may send text keys this implementation does not know; they are
+// (doc/design/protocol.md "Events"). A peer may send text keys this implementation does not know; they are
 // ignored, while a non-text key fails the whole Facts.
 type Facts struct {
 	Hostname string
@@ -116,15 +116,15 @@ type Facts struct {
 	Shells          *Shells
 }
 
-// Shells is the shells a node discovered when crha started (doc/execution-plane.md#exec-的执行环境).
+// Shells is the shells a node discovered when crha started (doc/design/execution.md "The exec environment").
 // Sh is always present. Bash is nil when the node has none and is then omitted from the map: an
-// absent optional value is omitted, not encoded as null (doc/protocol.md Facts).
+// absent optional value is omitted, not encoded as null (doc/design/protocol.md "Events").
 type Shells struct {
 	Sh   string
 	Bash *string
 }
 
-// MarshalCBOR encodes Facts as the protocol's text-keyed map (doc/protocol.md Facts). Only keys
+// MarshalCBOR encodes Facts as the protocol's text-keyed map (doc/design/protocol.md "Events"). Only keys
 // with a known value are emitted: an absent optional value is omitted rather than encoded as null,
 // and so is shells.bash when the node has no bash.
 func (f Facts) MarshalCBOR() ([]byte, error) {
@@ -160,7 +160,7 @@ func (f Facts) MarshalCBOR() ([]byte, error) {
 
 // UnmarshalCBOR decodes the facts map strictly: a non-text key, a missing required key or a known
 // key of the wrong type fails the whole Facts, while unknown text keys are ignored
-// (doc/protocol.md Facts).
+// (doc/design/protocol.md "Events").
 func (f *Facts) UnmarshalCBOR(data []byte) error {
 	value, err := decodeAny(data)
 	if err != nil {
@@ -228,7 +228,7 @@ func (s Shells) MarshalCBOR() ([]byte, error) {
 }
 
 // UnmarshalCBOR decodes a Shells fact: sh is required, bash is text, null or absent, unknown inner
-// text keys are ignored, and a non-text inner key fails the whole Facts (doc/protocol.md Facts).
+// text keys are ignored, and a non-text inner key fails the whole Facts (doc/design/protocol.md "Events").
 func (s *Shells) UnmarshalCBOR(data []byte) error {
 	value, err := decodeAny(data)
 	if err != nil {
@@ -418,12 +418,12 @@ type InputRef struct {
 }
 
 // FileReadMaxBytes is the page cap of one file.read task: whole lines only, the node stops at the
-// first line that would not fit (doc/protocol.md#任务).
+// first line that would not fit (doc/design/protocol.md "task.start").
 const FileReadMaxBytes = 50 << 10
 
 // FileListMaxBytes bounds the entries of one file.list result so that it fits the task.exit frame:
 // the node stops listing at this many bytes of entry fields and reports the result as truncated
-// (doc/protocol.md TaskResult).
+// (doc/design/protocol.md "Task results").
 const FileListMaxBytes = 32 << 10
 
 // FileReadSpec is the TaskSpec body for the "file.read" kind: lineCount lines from startLine
@@ -436,7 +436,7 @@ type FileReadSpec struct {
 }
 
 // FileWriteSpec is the TaskSpec body for the "file.write" kind. CreateParentDirs makes the node
-// create missing parent directories like mkdir -p before writing (doc/protocol.md#任务).
+// create missing parent directories like mkdir -p before writing (doc/design/protocol.md "task.start").
 type FileWriteSpec struct {
 	_                struct{} `cbor:",toarray"`
 	Path             string
@@ -476,7 +476,7 @@ type FileListSpec struct {
 }
 
 // FileReadResult is the TaskResult body for the "file.read" kind: the lines of the page the task
-// kept and what it learned about the file (doc/protocol.md TaskResult). Total is the file's line
+// kept and what it learned about the file (doc/design/protocol.md "Task results"). Total is the file's line
 // count and is set only when the scan reached the end of the file.
 type FileReadResult struct {
 	_       struct{} `cbor:",toarray"`
@@ -536,7 +536,7 @@ type FileEditResult struct {
 
 // TaskResult is the union of the structured results a task may report. Its tag is the task kind; a
 // kind that reports nothing structured has no branch. A result travels in task.exit, never in the
-// output streams (doc/protocol.md TaskResult).
+// output streams (doc/design/protocol.md "Task results").
 type TaskResult struct {
 	Kind TaskResultKind
 

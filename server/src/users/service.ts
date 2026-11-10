@@ -130,7 +130,7 @@ export interface UserListPage {
 }
 
 /**
- * `GET /api/users` with the optional search parameters (doc/webui.md "实体搜索").
+ * `GET /api/users` with the optional search parameters (doc/design/webui.md "Entity search").
  * Without `q`/`limit`/`ids` the result is the old list: every user, ordered by username.
  */
 export async function queryUsers(db: Db, params: RawEntityListQuery): Promise<UserListPage> {

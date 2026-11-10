@@ -1,5 +1,5 @@
 /**
- * User authorizations (doc/m4.md M4.4, doc/privilege.md#授权路径): submitting a signed authorization
+ * User authorizations (doc/design/privilege.md "Authorization path"): submitting a signed authorization
  * (pasted `crha grant` output or a Passkey assertion), the administrators' list, and the pending
  * payload the waiting page shows its owner.
  */
@@ -27,7 +27,7 @@ import {
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { requireAdmin } from "./middleware.ts";
 
-/** `GET /authorizations` pages over `created_at desc, id desc` (doc/webui.md#api-约定). */
+/** `GET /authorizations` pages over `created_at desc, id desc` (doc/design/webui.md "API conventions"). */
 const AUTHORIZATIONS_CURSOR: CursorSpec = { columns: [{ name: "created_at", type: "string" }], idType: "string" };
 
 export interface AuthorizationRoutesOptions {
@@ -58,13 +58,13 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 			return jsonError(c, 400, "give authorization (base64) or payloadId and webauthn");
 		}
 		const result = await options.cluster.submitAuthorization(user, submitted);
-		// The submission's dispatch continues in the background (D118); its outcome shows up in the task states.
+		// The submission's dispatch continues in the background; its outcome shows up in the task states.
 		return c.json({ authorization: { id: result.id } });
 	});
 
 	/**
-	 * The organization's authorizations; administrators only (doc/access-control.md#审计).
-	 * Keyset paginated: the old hard cap of 200 rows is gone (doc/webui.md#api-约定).
+	 * The organization's authorizations; administrators only (doc/design/access-control.md "Audit").
+	 * Keyset paginated: the old hard cap of 200 rows is gone (doc/design/webui.md "API conventions").
 	 */
 	app.get("/authorizations", requireAdmin, async (c) => {
 		const user = c.get("user");
@@ -109,7 +109,7 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 		return c.json({ items, nextCursor: page.nextCursor });
 	});
 
-	/** The pending payload of a task, for its owner (doc/m4.md M4.4); other users get a 403. */
+	/** The pending payload of a task, for its owner (doc/design/privilege.md "Authorizations"); other users get a 403. */
 	app.get("/tasks/:id/authorization", async (c) => {
 		const user = c.get("user");
 		const row = await db

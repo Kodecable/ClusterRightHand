@@ -34,7 +34,7 @@ const HANDSHAKE_TIMEOUT_MS = 20_000;
 const MAX_NOISE_MESSAGE = 65535;
 
 /**
- * The commands and events both sides implement (doc/protocol.md#握手载荷). The M3.5 names are
+ * The commands and events both sides implement (doc/design/protocol.md "Handshake payloads"). The M3.5 names are
  * required; the M4 names are optional, so an older peer without them still connects. `missing` is
  * the first required name the peer does not offer.
  */
@@ -52,7 +52,7 @@ export function negotiateCommands(offered: Iterable<string>): {
 
 /**
  * The crha endpoint: WebSocket, server challenge, Noise IK handshake bound to the challenge.
- * See doc/execution-plane.md#握手 and doc/protocol.md#握手载荷.
+ * See doc/design/protocol.md "Handshake and replay protection" and doc/design/protocol.md "Handshake payloads".
  */
 export class AgentServer {
 	readonly #db: Db;

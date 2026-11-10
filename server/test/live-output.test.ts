@@ -17,7 +17,7 @@ import { openTestDb } from "./helpers/db.ts";
 const EXEC: TaskSpec = { kind: "exec", command: { argv: ["true"] }, env: {}, cwd: "", stdin: null };
 
 /**
- * The live output the cluster keeps between dispatch and the recorded end (doc/execution-plane.md#输出):
+ * The live output the cluster keeps between dispatch and the recorded end (doc/design/execution.md "Output"):
  * a group's budget is created once, released when the group ends, and never re-created by a late result.
  */
 describe("live output budgets", () => {

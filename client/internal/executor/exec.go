@@ -36,7 +36,7 @@ type ExecOptions struct {
 	Privileged bool
 	// Env is the environment resolved when the crha process started (execenv.Resolve). nil resolves
 	// it for this task, which only tests and programmatic callers do: the modes themselves resolve at
-	// start and let a failure end the process (doc/execution-plane.md#exec-的执行环境).
+	// start and let a failure end the process (doc/design/execution.md "The exec environment").
 	Env *execenv.Environment
 	// noPidFD forces the pgid fallback of process reaping, for tests: no pidfd is requested and
 	// group signals use kill(-pgid).
@@ -51,7 +51,7 @@ type Result struct {
 	TimedOut  bool
 	Cancelled bool
 	// TaskResult is the task's structured result, nil for a kind that reports none and for a task
-	// that failed (doc/protocol.md TaskResult).
+	// that failed (doc/design/protocol.md "Task results").
 	TaskResult *protocol.TaskResult
 }
 
@@ -99,7 +99,7 @@ func RunExec(ctx context.Context, spec *protocol.ExecSpec, stdin io.Reader, out 
 	cmd.Env = env
 	cmd.Stdin = stdin
 	// One writer for both descriptors: os/exec gives them a single pipe when Stdout and Stderr are
-	// the same value, so the bytes interleave in write order (doc/execution-plane.md#输出).
+	// the same value, so the bytes interleave in write order (doc/design/execution.md "Output").
 	output := out.Writer()
 	cmd.Stdout = output
 	cmd.Stderr = output
@@ -124,7 +124,7 @@ func RunExec(ctx context.Context, spec *protocol.ExecSpec, stdin io.Reader, out 
 }
 
 // taskEnv builds the environment of one task from the resolved environment and the task's own
-// variables (doc/execution-plane.md#exec-的执行环境). A privileged task keeps the fixed PATH and never
+// variables (doc/design/execution.md "The exec environment"). A privileged task keeps the fixed PATH and never
 // receives crha's own CRHA_TASK_* variables; a non-privileged task may override everything, PATH
 // included. Variables are sorted so the environment does not depend on map iteration order.
 func taskEnv(environment *execenv.Environment, extra map[string]string, privileged bool) ([]string, *Error) {
@@ -181,7 +181,7 @@ func resolvePrivileged(name string) (string, *Error) {
 }
 
 // execArgv returns the argv of the task. A `shell` command runs on the shell this node discovered
-// (doc/execution-plane.md#exec-的执行环境); authorization, rule matching and display keep rendering it
+// (doc/design/execution.md "The exec environment"); authorization, rule matching and display keep rendering it
 // as /bin/sh -c, which is done by those layers, not here.
 func execArgv(spec *protocol.ExecSpec, sh string) ([]string, *Error) {
 	cmd := spec.Command

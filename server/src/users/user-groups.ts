@@ -24,7 +24,7 @@ export interface UserGroupListPage {
 }
 
 /**
- * `GET /api/user-groups` with the optional search parameters (doc/webui.md "实体搜索").
+ * `GET /api/user-groups` with the optional search parameters (doc/design/webui.md "Entity search").
  * Members are loaded only for the groups in the page; without parameters this is the old list.
  */
 export async function queryUserGroups(db: Db, params: RawEntityListQuery): Promise<UserGroupListPage> {

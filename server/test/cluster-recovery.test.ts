@@ -24,7 +24,7 @@ const EXEC: TaskSpec = {
 };
 
 /**
- * Startup recovery and the output kept for unknown tasks (doc/execution-plane.md#断线恢复, #输出):
+ * Startup recovery and the output kept for unknown tasks (doc/design/execution.md "Reconnect", doc/design/execution.md "Output"):
  * a task a previous process left dispatched or running must end instead of staying `running` forever,
  * and the buffer kept for a late result must not outlive the node that could still send one.
  */

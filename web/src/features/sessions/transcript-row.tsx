@@ -21,7 +21,7 @@ function useLiveElapsed(startedAt: number | undefined, live: boolean): number | 
 	return startedAt === undefined ? undefined : Math.max(0, now - startedAt);
 }
 
-/** The completed turn's fold line, above its final answer (doc/webui.md "消息视图"). */
+/** The completed turn's fold line, above its final answer (doc/design/webui.md "Message view"). */
 export function TurnSummaryRow({
 	startedAt,
 	live,
@@ -69,7 +69,7 @@ function notePreview(text: string, running: boolean): string {
 }
 
 /**
- * The borderless, collapsible note row shared by thinking and compaction (doc/webui.md "消息渲染"):
+ * The borderless, collapsible note row shared by thinking and compaction (doc/design/webui.md "Message rendering"):
  * a leading chevron, the label, and a one-line preview while collapsed.
  */
 function CollapsibleNoteRow({
@@ -115,7 +115,7 @@ function CollapsibleNoteRow({
 	);
 }
 
-/** A thinking row, with the same chevron as a tool call (doc/webui.md "消息渲染"). */
+/** A thinking row, with the same chevron as a tool call (doc/design/webui.md "Message rendering"). */
 function ThinkingRow({
 	item,
 	streams,
@@ -164,7 +164,7 @@ function CompactingRow() {
 }
 
 /**
- * One transcript row (doc/webui.md "消息渲染"): a plain user message, assistant
+ * One transcript row (doc/design/webui.md "Message rendering"): a plain user message, assistant
  * text and thinking through SafeMarkdown, tool rows whose details open in a
  * dialog, errors, a finished compaction and the live compacting row. A message
  * that arrived through the live stream keeps its row and store after
@@ -182,7 +182,7 @@ export function TranscriptRow({
 	streams: TranscriptStreams;
 	/** Whether the session is running or awaiting: an unreturned call stops waiting once it is idle. */
 	sessionActive: boolean;
-	/** Briefly marked after a search hit jumped to this entry (doc/webui.md "跳到消息"). */
+	/** Briefly marked after a search hit jumped to this entry (doc/design/webui.md "Jumping to a message"). */
 	highlighted?: boolean;
 }) {
 	const { t } = useLingui();

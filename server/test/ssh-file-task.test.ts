@@ -195,7 +195,7 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 		const out = await write(file, "hello", { createParentDirs: true });
 		expect(out).toEqual({ kind: "file.write", bytes: 5, created: true });
 		expect(await cat("a/b/c/f")).toBe("hello");
-		// New directories are 0755 before the remote umask, like mkdir -p (D114).
+		// New directories are 0755 before the remote umask, like mkdir -p.
 		expect(await modeOf("a")).toBe("755");
 		expect(await modeOf("a/b")).toBe("755");
 		expect(await modeOf("a/b/c")).toBe("755");

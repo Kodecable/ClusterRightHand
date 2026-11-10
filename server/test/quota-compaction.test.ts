@@ -19,7 +19,7 @@ vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
  * Context compaction is a model call too: durable's CompactionTask summarizes through `completeSimple`, and its
- * output is charged to the session like a response (D92). The tiny context window forces a blocking compaction
+ * output is charged to the session like a response. The tiny context window forces a blocking compaction
  * before the second request.
  */
 let db: Db;
@@ -91,7 +91,7 @@ it("charges compaction's summary and pauses the next tool call when it empties t
 		expect(seen).toContain("compaction_end");
 		expect(await budgetUsedTokens(db, session.id)).toBe(8);
 		expect(await exhaustedLevel(db, session.id)).toBe(session.id);
-		// D101: the compaction's own call counts in the usage measure (input + output), while the context fill is
+		// The compaction's own call counts in the usage measure (input + output), while the context fill is
 		// written by main-agent calls only (`chargeCompaction` never sets it).
 		expect(await usageTokens(db, session.id)).toBeGreaterThan(8);
 

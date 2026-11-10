@@ -31,7 +31,7 @@ export function useSchedule(id: string | undefined) {
 	});
 }
 
-/** `GET /api/schedules/:id/runs` is cursor-paged (doc/webui.md "游标列表"). */
+/** `GET /api/schedules/:id/runs` is cursor-paged (doc/design/webui.md "Cursor pagination"). */
 export function useScheduleRuns(id: string | undefined, limit?: number, refetchInterval: number | false = false) {
 	return useCursorInfiniteQuery<ScheduleRunView>({
 		queryKey: scheduleKeys.runs(id ?? ""),

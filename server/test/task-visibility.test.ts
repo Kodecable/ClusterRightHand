@@ -12,7 +12,7 @@ import { openTestDb } from "./helpers/db.ts";
 vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 
 /**
- * Task visibility (D108, doc/access-control.md): only the user's relation to the task matters. Administrators
+ * Task visibility (doc/design/access-control.md): only the user's relation to the task matters. Administrators
  * see all, the on_behalf_of user keeps seeing their task after losing node access, session-sharing viewers see
  * the session's tasks, and node access never reveals another user's task.
  */

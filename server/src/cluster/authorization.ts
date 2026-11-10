@@ -1,12 +1,12 @@
 /**
  * The authorization state of one task, stored as JSON in `tasks.authorization` and shown by the task
- * views (doc/m4.md#crhs-侧数据): the last plan, the paths already tried, the signature that was sent,
+ * views (doc/design/privilege.md "Server-side authorization"): the last plan, the paths already tried, the signature that was sent,
  * the attempt and the last rejection from crha. The state outlives a re-plan, so a retry never sends
- * the same crhs signature path twice (D83).
+ * the same crhs signature path twice.
  *
  * While a task waits for its owner, `pending` holds the exact payload bytes the owner must sign. They
  * are stored, not recomputed, so the same payload survives a crhs restart and only changes on a
- * re-plan (a new attempt or a changed trust digest, doc/m4.md#阶段).
+ * re-plan (a new attempt or a changed trust digest, doc/design/privilege.md "Authorization path").
  */
 import type {
 	PendingPayloadView,
@@ -104,7 +104,7 @@ function parseLocal(value: unknown): { attempt: number } | null {
 
 /**
  * The record as a task view shows it: the pending payload itself is only served to the owner by its
- * own endpoint (doc/m4.md M4.4), so every other view drops it.
+ * own endpoint (doc/design/privilege.md "Authorizations"), so every other view drops it.
  */
 export function authorizationView(json: string | null): TaskAuthorizationRecord | null {
 	const record = parseTaskAuthorization(json);

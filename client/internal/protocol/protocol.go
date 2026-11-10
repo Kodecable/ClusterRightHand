@@ -1,8 +1,8 @@
 // Package protocol implements the CBOR-CORE-INT-v1 wire format shared by crhs and crha
 // (M3.5): handshake payloads, request/response/event frames, command and event bodies,
 // and a Peer that multiplexes requests, responses and events over one ordered message
-// stream. See doc/protocol.md for the authoritative schema and doc/execution-plane.md
-// for the CBOR profile.
+// stream. See doc/design/protocol.md for the authoritative schema and its "Encoding rules" for the
+// CBOR profile.
 package protocol
 
 import (
@@ -18,9 +18,9 @@ var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
 const (
 	// ProtocolMajor and ProtocolMinor are the versions advertised in the handshake. An
 	// incompatible change bumps the major version and the Noise prologue, so a peer with another
-	// major fails the handshake itself (doc/protocol.md, 握手载荷). The minor version is
+	// major fails the handshake itself (doc/design/protocol.md "Handshake payloads"). The minor version is
 	// additive: new commands and events are negotiated through the handshake's commands field.
-	// Protocol 3.0 removes the groups fact and renames TrustSummary.groups to aliases (D110);
+	// Protocol 3.0 removes the groups fact and renames TrustSummary.groups to aliases;
 	// 2.0 reads files by line range and adds task.exit.result; 1.1 was the M4 command set and 1.0
 	// the M3.5 one.
 	ProtocolMajor = 3
@@ -38,7 +38,7 @@ const (
 )
 
 // IsUUID reports whether s is a canonical lowercase UUID, the textual form of node ids and node
-// group ids (doc/protocol.md 授权对象).
+// group ids (doc/design/protocol.md "Authorization object").
 func IsUUID(s string) bool {
 	return uuidRe.MatchString(s)
 }
@@ -63,7 +63,7 @@ const (
 	EventTaskExitAck = "task.exit.ack"
 )
 
-// Command and event names added in M4 (doc/protocol.md#m4提权). They are optional in the
+// Command and event names added in M4 (doc/design/protocol.md "Privilege messages"). They are optional in the
 // handshake: a peer that does not offer them still connects.
 const (
 	CmdLocalRequest    = "local.request"
@@ -96,7 +96,7 @@ var (
 // optionalCommandNames and optionalEventNames are the M4 names this package
 // knows the bodies of. crha advertises them in every privileged mode: non-forward modes
 // answer the commands with privileged_unsupported and report not_forward instead of a
-// trust summary (doc/protocol.md M4：提权).
+// trust summary (doc/design/protocol.md "Privilege messages").
 var (
 	optionalCommandNames = []string{
 		CmdLocalRequest,
@@ -110,7 +110,7 @@ var (
 
 // commandSchema names the request and response body types of one command. The Peer uses
 // commandSchemas to decode and validate a body independent of whether the command was
-// negotiated or has a handler, as doc/protocol.md requires.
+// negotiated or has a handler, as doc/design/protocol.md requires.
 type commandSchema struct {
 	request  func() any
 	response func() any
@@ -214,7 +214,7 @@ func SupportedNames() []string {
 func SupportedSet() Set { return NewSet(SupportedNames()...) }
 
 // RequiredNames returns the M3.5 command and event names, sorted. A handshake
-// whose negotiated intersection lacks one of them is rejected (doc/protocol.md, 握手载荷).
+// whose negotiated intersection lacks one of them is rejected (doc/design/protocol.md "Handshake payloads").
 func RequiredNames() []string {
 	names := append(slices.Clone(commandNames), eventNames...)
 	slices.Sort(names)

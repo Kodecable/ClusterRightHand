@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 /**
- * The grey "Scheduled" and "Shared" badges (doc/webui.md#侧边列表, #页头): a session a schedule started, and a
+ * The grey "Scheduled" and "Shared" badges (doc/design/webui.md "Sidebar list", doc/design/webui.md "Session header"): a session a schedule started, and a
  * session someone else shared with the viewer. The list row and the page header show the same badges.
  */
 export function SessionMarkers({

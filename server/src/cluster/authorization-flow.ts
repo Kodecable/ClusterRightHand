@@ -1,5 +1,5 @@
 /**
- * The authorization of a privileged task (doc/privilege.md#授权路径, doc/m4.md M4.4): planning which
+ * The authorization of a privileged task (doc/design/privilege.md "Authorization path"): planning which
  * path the node would accept, reusing an authorization the owner already stored, asking for the
  * owner's signature or a local approval, sending the signed `task.start`, retrying with a higher
  * attempt after a rejection, and storing what was issued.

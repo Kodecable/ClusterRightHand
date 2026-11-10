@@ -95,7 +95,7 @@ function TrustRules({ entry }: { entry: TrustEntry }) {
 }
 
 /**
- * Who a node trusts (doc/privilege.md#信任缓存): the last TrustReport it pushed,
+ * Who a node trusts (doc/design/privilege.md "Trust cache"): the last TrustReport it pushed,
  * its digest, the run identities, and every trust entry with its flags, rules
  * and allowed environment.
  */

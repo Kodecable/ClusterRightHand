@@ -62,7 +62,7 @@ func TestGuardDeny(t *testing.T) {
 	}{
 		{"deny read", "file.read", "/etc/shadow", false},
 		{"deny write", "file.write", "/etc/crha/privileged.toml", false},
-		// A file.write deny rule does not hide reads (D67).
+		// A file.write deny rule does not hide reads.
 		{"write deny does not read", "file.read", "/etc/crha/privileged.toml", true},
 		{"write allow covers read", "file.read", "/etc/hosts", true},
 	}
@@ -138,7 +138,7 @@ func TestValidateRules(t *testing.T) {
 
 // TestGuardRejectsParenthesisInjection covers a pattern that escapes the implicit full match:
 // compiled as "(?s)^(?:a)|(b)$" it matches "a", so the allow rule must not match and the deny
-// rule must deny (doc/privilege.md 防护规则).
+// rule must deny (doc/design/privilege.md "Guard rules").
 func TestGuardRejectsParenthesisInjection(t *testing.T) {
 	broken := rule(protocol.MethodExec, protocol.GuardMatchRegex, "a)|(b")
 	if guardAllows(&Entry{Allow: []protocol.GuardRule{broken}}, "exec", "a") {

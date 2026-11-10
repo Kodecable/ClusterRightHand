@@ -2,7 +2,7 @@
 // identity, PATH and the shells discovered from /etc/shells or PATH. crha no longer passes its own
 // environment through, so this is resolved once when the process starts (`crha run`,
 // `crha privileged run`, the native helper) and used for every task.
-// See doc/execution-plane.md#exec-的执行环境.
+// See doc/design/execution.md "The exec environment".
 package execenv
 
 import (
@@ -16,7 +16,7 @@ import (
 
 // PrivilegedPath is the fixed PATH of privileged execution. It is not inherited from crha's
 // environment, so a bare command name always resolves the same way and a task cannot point PATH at
-// a binary of its own (doc/privilege.md "方法与目标").
+// a binary of its own (doc/design/privilege.md "Methods and targets").
 const PrivilegedPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 // DefaultShellsFile lists the login shells of the node.
@@ -46,7 +46,7 @@ func IsOverride(name string) bool {
 // node has no bash; the other fields come from the account and PATH above.
 type Environment struct {
 	// Shell is the discovered sh: it is SHELL and runs `shell` commands. Authorization, rule
-	// matching and display still render those as /bin/sh -c (doc/execution-plane.md#exec-的执行环境).
+	// matching and display still render those as /bin/sh -c (doc/design/execution.md "The exec environment").
 	Shell string
 	// Bash is the discovered bash path, "" when the node has none.
 	Bash string
@@ -102,7 +102,7 @@ func Resolve(opts Options) (*Environment, error) {
 	sh := getenv(EnvShell)
 	if sh != "" {
 		// A bad override would only fail on the first `shell` task, or make facts report a shell
-		// that cannot run; refuse to start instead (doc/execution-plane.md#exec-的执行环境).
+		// that cannot run; refuse to start instead (doc/design/execution.md "The exec environment").
 		if err := checkShellOverride(sh); err != nil {
 			return nil, fmt.Errorf("%s=%q: %w", EnvShell, sh, err)
 		}
@@ -163,7 +163,7 @@ func Resolve(opts Options) (*Environment, error) {
 }
 
 // checkShellOverride rejects a CRHA_TASK_SHELL that cannot run `shell` commands: the override must
-// be an absolute path to an existing executable regular file (doc/execution-plane.md).
+// be an absolute path to an existing executable regular file (doc/design/execution.md).
 func checkShellOverride(path string) error {
 	if !filepath.IsAbs(path) {
 		return errors.New("must be an absolute path")
@@ -184,7 +184,7 @@ func checkShellOverride(path string) error {
 // LookPathIn resolves a bare command name against path, like exec.LookPath but with an explicit
 // PATH: the privileged mode must not consult crha's own environment. Empty and relative PATH
 // entries are skipped (an empty entry would mean the current directory), and the result is always
-// an absolute path (doc/execution-plane.md#exec-的执行环境).
+// an absolute path (doc/design/execution.md "The exec environment").
 func LookPathIn(path, name string) (string, error) {
 	if strings.ContainsRune(name, '/') {
 		if !filepath.IsAbs(name) {

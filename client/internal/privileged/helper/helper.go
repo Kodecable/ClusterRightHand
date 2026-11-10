@@ -1,8 +1,8 @@
-// Package helper implements `crha privileged stdio`, the native helper of doc/privilege.md: crha's
+// Package helper implements `crha privileged stdio`, the native helper of doc/design/privilege.md: crha's
 // non-privileged mode starts it through sudo/doas (or run0) and it executes exactly one privileged
 // task over crh-priv on its stdin and stdout. It is not a security boundary: whoever may run the
-// helper non-interactively may submit any task. See doc/protocol.md "crh-priv" and
-// doc/privilege.md "非特权模式如何处理特权任务".
+// helper non-interactively may submit any task. See doc/design/protocol.md "crh-priv" and
+// doc/design/privilege.md "Privilege modes".
 package helper
 
 import (
@@ -27,12 +27,12 @@ import (
 // Options configures Run.
 type Options struct {
 	// Version is this build's crha version. The native handshake accepts only a peer whose
-	// crha_version equals it (doc/protocol.md, crh-priv role).
+	// crha_version equals it (doc/design/protocol.md "crh-priv" role).
 	Version string
 	// Log receives one JSON line per task start and finish. nil discards them.
 	Log io.Writer
 	// Env is the task environment the helper resolved when it started. nil resolves it per task,
-	// which only tests do (doc/execution-plane.md#exec-的执行环境).
+	// which only tests do (doc/design/execution.md "The exec environment").
 	Env *execenv.Environment
 	// SpoolRoot is the privileged state directory whose stdin subdirectory stages a task's stdin
 	// while its size and SHA-256 are verified. Empty refuses a task that declares input.
@@ -87,7 +87,7 @@ func IsTerminal(f *os.File) bool {
 // Run serves one native helper session on in/out: the crh-priv handshake, exactly one task.start,
 // its input, output and exit. It returns when the task ended and task.exit was emitted, or when the
 // stream failed. EOF on stdin before the task ends does not abort the task: it runs to its end and
-// the outcome goes to the local log (doc/privilege.md, native). Once the task ended, Run closes in
+// the outcome goes to the local log (doc/design/privilege.md "Native mode"). Once the task ended, Run closes in
 // when it is an io.Closer, so the receive loop can stop and a response it is still sending is not
 // cut off by closing the output.
 func Run(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
@@ -224,7 +224,7 @@ func (h *helper) handleStart(_ context.Context, body cbor.RawMessage) (any, erro
 // logRecord is one line of the helper's local audit log on stderr. The native helper is the only
 // place that sees the full task specification: sudoers only knows "crha privileged stdio", and the
 // non-privileged mode relays the helper's stderr into its own log and journald
-// (doc/privilege.md, native).
+// (doc/design/privilege.md "Native mode").
 type logRecord struct {
 	Event      string             `json:"event"`
 	Time       string             `json:"time"`

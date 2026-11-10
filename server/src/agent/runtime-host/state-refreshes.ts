@@ -1,9 +1,9 @@
 import type { SessionState } from "../session-state.ts";
 
 /**
- * The per-session state recomputations in flight (doc/agent-runtime.md#会话状态).
+ * The per-session state recomputations in flight (doc/design/agent-runtime.md "Session state").
  *
- * Refreshes of one session are serialized and coalesced (D118): a request while one runs marks it dirty and
+ * Refreshes of one session are serialized and coalesced: a request while one runs marks it dirty and
  * shares its promise, and the running one recomputes once more after it finishes, so the last write is always
  * computed from data read after the latest request. A throwing recompute still removes its entry.
  */

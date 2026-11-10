@@ -1,5 +1,5 @@
 /**
- * Per-step latency (doc/agent-runtime.md#会话统计): the time to the first streamed delta and the decode time
+ * Per-step latency (doc/design/agent-runtime.md "Session statistics"): the time to the first streamed delta and the decode time
  * after it. Timing is measured at the provider stream, in `meteredModels` (metering.ts): every generation call
  * the Harness makes carries its conversation's provider session id, so a step is timed whether or not a browser
  * or any other client watches the session, and the timing cannot be lost to an event-stream boundary. The map is
@@ -34,7 +34,7 @@ export interface TimingSink {
  */
 export const MAX_PENDING_TIMINGS = 1_000;
 
-/** The attempts currently streaming, one per provider session (doc/agent-runtime.md#会话统计). */
+/** The attempts currently streaming, one per provider session (doc/design/agent-runtime.md "Session statistics"). */
 export class GenerationTimings implements TimingSink {
 	readonly #attempts = new Map<string, AttemptTiming>();
 

@@ -32,7 +32,7 @@ const (
 	writeFrameTimeout = 10 * time.Second
 	// maxForwardConns caps the forward connections that receive trust.summary and local.decision.
 	// Forward connections are the unprivileged peer's; refusing beyond the cap keeps one process
-	// from adding connections without limit (doc/privilege.md 特权模式).
+	// from adding connections without limit (doc/design/privilege.md "The privileged mode").
 	maxForwardConns = 8
 	// forwardOutboxSize buffers the events queued for one forward connection. Enqueuing never
 	// waits for the peer; the writer drains the queue on its own goroutine.
@@ -91,7 +91,7 @@ func (s *Server) serveConn(nc net.Conn) {
 	c.uid = uid
 
 	// The privileged mode's own user is not implicitly a local approver: a local role needs
-	// a matching local trust entry, exactly like every other uid (doc/privilege.md 校验流程).
+	// a matching local trust entry, exactly like every other uid (doc/design/privilege.md "Validation flow").
 	cfg := s.Config()
 	roles := make([]wire.Role, 0, 2)
 	if uid == cfg.UnprivilegedUID {
@@ -161,8 +161,8 @@ func (s *Server) serveConn(nc net.Conn) {
 	}
 	c.close()
 	// A task whose task.start success response could not be sent is still accepted: run it,
-	// with its output dropped and its outcome in the local log (doc/protocol.md crh-priv
-	// 断开). Task.Start runs at most once, so a Deferred.After that already ran is a no-op.
+	// with its output dropped and its outcome in the local log (doc/design/protocol.md "crh-priv").
+	// Task.Start runs at most once, so a Deferred.After that already ran is a no-op.
 	c.launchAccepted()
 }
 
@@ -351,9 +351,9 @@ func (c *conn) launchAccepted() {
 }
 
 // handleTaskStart verifies an authorization, prepares the task's staging, persists the used
-// records, logs the acceptance and starts the task after the success response (doc/privilege.md
-// 校验流程 steps 2–10). Staging is prepared before AddUsed: a refusal with input_too_large must
-// not burn the task id, so the same id can be retried (doc/privilege.md 校验流程).
+// records, logs the acceptance and starts the task after the success response (doc/design/privilege.md
+// "Validation flow" steps 2–9). Staging is prepared before AddUsed: a refusal with input_too_large must
+// not burn the task id, so the same id can be retried (doc/design/privilege.md "Validation flow").
 func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, error) {
 	var ts protocol.TaskStart
 	if err := protocol.UnmarshalBody(raw, &ts); err != nil {
@@ -445,7 +445,7 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 
 // executionStart prepares the task.start the executor receives. The cwd of a task that was
 // not authorized with an exact command (or by a local approval) is fixed to "/"
-// (doc/privilege.md 执行环境).
+// (doc/design/privilege.md "Validation flow").
 func executionStart(ts *protocol.TaskStart, decided *decidedTask) protocol.TaskStart {
 	out := *ts
 	if decided.exact || ts.Spec.Kind != protocol.TaskSpecExec || ts.Spec.Exec == nil {
@@ -556,6 +556,6 @@ func (c *conn) decideLocal(raw cbor.RawMessage, approve bool) (any, error) {
 		return nil, refusal
 	}
 	// The decision itself reaches crhs as the local.decision event; the command's success
-	// response is empty (doc/protocol.md crh-priv table).
+	// response is empty (doc/design/protocol.md "crh-priv").
 	return protocol.Empty{}, nil
 }

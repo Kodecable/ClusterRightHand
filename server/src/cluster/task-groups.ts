@@ -40,7 +40,7 @@ import {
 } from "./types.ts";
 
 export const DEFAULT_PARALLEL = 10;
-/** One task group targets at most this many nodes, after target expansion and de-duplication (D85). */
+/** One task group targets at most this many nodes, after target expansion and de-duplication. */
 export const MAX_GROUP_NODES = 512;
 const MAX_PARALLEL = 100;
 const MAX_TARGETS = 1000;
@@ -48,7 +48,7 @@ const MAX_TARGETS = 1000;
 /**
  * A group's output mode. An exec group chooses `status` (default) or `text`; a file operation always
  * keeps each node's head, since a status has nothing to show for a page and exec's tail cannot be
- * continued line by line (doc/execution-plane.md#输出).
+ * continued line by line (doc/design/execution.md "Output").
  */
 export function outputModeFor(kind: string, requested?: BatchOutputMode): BatchOutputMode {
 	if (kind === "exec") {
@@ -63,11 +63,11 @@ export function outputModeFor(kind: string, requested?: BatchOutputMode): BatchO
 }
 // setTimeout cannot wait longer than ~24.8 days, so long waits loop.
 const HOUR = 3_600_000;
-/** Why a member that never started ends when a restart interrupts its group (doc/execution-plane.md#状态机). */
+/** Why a member that never started ends when a restart interrupts its group (doc/design/execution.md "State machine"). */
 export const GROUP_INTERRUPTED_REASON = "the task group was interrupted by a restart";
-/** Why a member that never started ends when its group's run threw (doc/execution-plane.md#状态机). */
+/** Why a member that never started ends when its group's run threw (doc/design/execution.md "State machine"). */
 export const GROUP_FAILED_REASON = "the task group failed";
-/** Why a member that never started ends when the group is cancelled (doc/execution-plane.md#状态机). */
+/** Why a member that never started ends when the group is cancelled (doc/design/execution.md "State machine"). */
 export const GROUP_CANCELLED_REASON = "the task group was cancelled";
 
 /** Targets resolved at task-group creation: stored references and the expanded, operable nodes. */
@@ -82,7 +82,7 @@ export interface ResolvedTargets {
 
 /**
  * Resolves node and node-group names (case-insensitive), UUIDs or `_all` to a task group's targets and nodes
- * (D109, doc/agent-runtime.md#批量执行). An explicit node the user cannot access is an error; a node group or
+ * (doc/design/agent-runtime.md "Batch execution"). An explicit node the user cannot access is an error; a node group or
  * `_all` simply expands to the current members the user can access.
  */
 export async function resolveTargets(db: Db, user: SessionUser, targets: string[]): Promise<ResolvedTargets> {
@@ -142,7 +142,7 @@ interface Deferred {
 }
 
 /**
- * Runs one task per node with bounded parallelism; see doc/agent-runtime.md#批量执行. With a rule chain
+ * Runs one task per node with bounded parallelism; see doc/design/agent-runtime.md "Batch execution". With a rule chain
  * the nodes are judged first; if any needs approval the whole group waits for one decision.
  */
 export class TaskGroups {
@@ -153,7 +153,7 @@ export class TaskGroups {
 	/**
 	 * In-memory stop flag per group, set by cancel() or by a worker that threw. A flag is enough even when
 	 * persist fails: the workers check it before every node, so no further member is created. The reason is
-	 * kept for the members cancelled here; the group row has no reason column (doc/execution-plane.md#状态机).
+	 * kept for the members cancelled here; the group row has no reason column (doc/design/execution.md "State machine").
 	 */
 	readonly #cancelled = new Map<string, string>();
 	/** Called once for every group that starts waiting for approval (Auto Review hooks in here). */
@@ -241,7 +241,7 @@ export class TaskGroups {
 	}
 
 	/**
-	 * Cancels a group and every member that has not ended (doc/execution-plane.md#状态机). The flag is
+	 * Cancels a group and every member that has not ended (doc/design/execution.md "State machine"). The flag is
 	 * checked by the group's workers before they take the next node and after every wait, so a large batch
 	 * stops creating members even though only the members that exist can be cancelled. A group with no run
 	 * in this process (still waiting for approval, or left over by a caller) moves to `cancelled` here; a
@@ -323,7 +323,7 @@ export class TaskGroups {
 		if (input.id && (await this.#row(input.id))) return input.id;
 		// The per-node caps are copied to every member task; reject a bad budget before writing anything.
 		const limits = checkedOutputLimits(input.maxLines, input.maxBytes);
-		// Reject before writing anything: truncating would make the caller think every node ran (D85).
+		// Reject before writing anything: truncating would make the caller think every node ran.
 		const nodeIds = [...new Set(input.nodeIds)];
 		if (nodeIds.length > MAX_GROUP_NODES) {
 			throw new UserError(
@@ -422,7 +422,7 @@ export class TaskGroups {
 			...(id ? { id } : {}),
 			...(approvedBy ? { approvedBy } : {}),
 			// A member cannot stop to wait for an approval: only an approved group covers require-approval,
-			// and a direct-run group has already started (doc/access-control.md#审批).
+			// and a direct-run group has already started (doc/design/access-control.md "Approvals").
 			noWait: !approvedBy,
 		};
 	}
@@ -443,7 +443,7 @@ export class TaskGroups {
 	): Promise<void> {
 		const queue = [...nodeIds];
 		// Tasks that wait for an authorization signature do not hold a worker slot: another node may still
-		// start, and the group waits for them only at the end (doc/execution-plane.md#状态机).
+		// start, and the group waits for them only at the end (doc/design/execution.md "State machine").
 		const parked: TaskView[] = [];
 		let failed = false;
 		// Waits ended before every task finished: the group is left for recover(), which marks it interrupted.
@@ -548,7 +548,7 @@ export class TaskGroups {
 	}
 
 	/**
-	 * Ends a cancelled run (doc/execution-plane.md#状态机): no member may start any more, so the nodes still in
+	 * Ends a cancelled run (doc/design/execution.md "State machine"): no member may start any more, so the nodes still in
 	 * the queue are recorded as skipped. The members already created were cancelled by cancel(); this is also
 	 * the last chance to catch one created in the dispatch window after that.
 	 */
@@ -591,7 +591,7 @@ export class TaskGroups {
 	}
 
 	/**
-	 * Ends a group whose run threw (doc/execution-plane.md#状态机): no member that never reached the node may be
+	 * Ends a group whose run threw (doc/design/execution.md "State machine"): no member that never reached the node may be
 	 * left waiting, and nodes without a task are recorded as skipped. The group ends `interrupted`, the closest
 	 * state to a failure: a group is never retried, and `finished` would claim a complete run.
 	 */
@@ -684,7 +684,7 @@ export class TaskGroups {
 		});
 	}
 
-	/** Hands a waiting group's approval to an ancestor session's agent (doc/agent-runtime.md#处理子会话的请求). */
+	/** Hands a waiting group's approval to an ancestor session's agent (doc/design/agent-runtime.md "Handling subagent requests"). */
 	requestAgentDecision(id: string, session: string): Promise<boolean> {
 		return this.#routeAgentDecision(id, session, "pending");
 	}
@@ -932,6 +932,6 @@ function matchesHandler(row: Selectable<TaskGroupsTable>, expect?: ApprovalExpec
 /** Whether a settled task makes fail_fast stop the remaining nodes. */
 function countsAsFailure(task: TaskView): boolean {
 	// A retryable authorization rejection never settles a task (it goes back to awaiting_authorization), so a
-	// settled task with an authorization code was finally rejected and counts (doc/execution-plane.md#状态机).
+	// settled task with an authorization code was finally rejected and counts (doc/design/execution.md "State machine").
 	return task.state !== "exited" || task.exitCode !== 0;
 }

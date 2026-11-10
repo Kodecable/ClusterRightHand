@@ -177,7 +177,7 @@ export const PREWARM_LANGS: LangKey[] = ["bash", "shellsession", "json", "yaml",
 let prewarmStarted = false;
 
 /**
- * Load the common grammars in idle time (doc/webui.md "SafeMarkdown" item 4).
+ * Load the common grammars in idle time (doc/design/webui.md "SafeMarkdown").
  * Other languages load on first use and render as plain text until then.
  */
 export function scheduleLanguagePrewarm(): void {

@@ -11,7 +11,7 @@ import type { SessionState, WaitingKind } from "./session-state.ts";
 export { SessionListHub, type SessionListHubOptions, type SessionListSubscriber } from "./session-list-hub.ts";
 
 /**
- * The session list of the WebUI rewrite (doc/webui.md#会话列表): root sessions only, newest activity first,
+ * The session list of the WebUI rewrite (doc/design/webui.md "Session list API"): root sessions only, newest activity first,
  * with a keyset cursor, a scope, a title search and one owner name. The same item shape feeds the SSE stream,
  * always computed for the subscriber it is sent to, because `shared` depends on who asks.
  */
@@ -47,7 +47,7 @@ export interface SessionItemRow {
 export interface SessionListRow extends SessionItemRow {
 	parent_session_id: string | null;
 	root_session_id: string | null;
-	/** When the tree last left `running` for `idle`/`awaiting`; roots only (doc/webui.md#侧边列表). */
+	/** When the tree last left `running` for `idle`/`awaiting`; roots only (doc/design/webui.md "Sidebar list"). */
 	reply_at: string | null;
 	/** When the owner last opened the tree; roots only. */
 	owner_read_at: string | null;
@@ -77,7 +77,7 @@ function treeHas(condition: RawBuilder<unknown>): RawBuilder<SqlBool> {
 }
 
 /**
- * The tree's aggregate state, computed in SQL over `root_session_id` (doc/webui.md#SessionListItem): any
+ * The tree's aggregate state, computed in SQL over `root_session_id` (doc/design/webui.md "API conventions"): any
  * awaiting session makes the tree awaiting, else any running one makes it running. The second branch of each
  * condition also counts a root whose own `root_session_id` was never backfilled, so such a row cannot vanish
  * from its own aggregate. One index lookup per branch (`sessions_root_state_idx`), no per-row query.
@@ -188,8 +188,8 @@ export async function sessionListQuery(db: Db, user: SessionUser, filter: Sessio
 
 /**
  * A page of a session's direct child sessions (subagents), `updated_at desc, id desc`: the route adds `limit`
- * (doc/webui.md#api-约定). The item shows the child's own state, not the tree's, and its parent; the items are
- * never filtered per child, because a share on a session reaches its subagents (doc/access-control.md#归属与分享).
+ * (doc/design/webui.md "API conventions"). The item shows the child's own state, not the tree's, and its parent; the items are
+ * never filtered per child, because a share on a session reaches its subagents (doc/design/access-control.md "Ownership, access grants and sharing").
  * `sessions_parent_updated_idx` serves both the `parent_session_id` filter and the order, so a page costs one
  * index range scan and no per-row query.
  */
@@ -218,7 +218,7 @@ export function sessionChildrenQuery(db: Db, parentSessionId: string, cursor?: C
  * The item as one viewer sees it. `shared` comes from the share reach the caller resolved: the list query's
  * `EXISTS` for the caller, or the audience the hub computed for a stream subscriber. An owner never has it set.
  * `unread` is the owner's alone: a shared viewer never sees another user's read state, so it is always false
- * there (doc/webui.md#侧边列表). A child row carries no read columns, which also leaves it false.
+ * there (doc/design/webui.md "Sidebar list"). A child row carries no read columns, which also leaves it false.
  */
 export function sessionListItem(
 	row: SessionItemRow & Partial<Pick<SessionListRow, "reply_at" | "owner_read_at">>,

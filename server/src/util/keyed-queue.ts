@@ -3,7 +3,7 @@
  * different keys runs concurrently. A failing piece does not stop the key's later pieces; the key is
  * forgotten once its last piece has settled.
  *
- * A piece is a *turn* (D118): every run() is tracked with AsyncLocalStorage, so code running inside it
+ * A piece is a *turn*: every run() is tracked with AsyncLocalStorage, so code running inside it
  * can ask whether it is in a turn (and which), and the task queue can refuse work that waits for a node
  * while it holds a task's slot. Turns nest (taskQueue → groupQueue → trustQueue), so a stack is kept.
  */

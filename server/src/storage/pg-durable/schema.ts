@@ -175,7 +175,7 @@ export function createMigrations(schema: PgSchema): readonly Migration[] {
 		`CREATE INDEX ${indexes.documentRevisionsByKind} ON ${tables.documentRevisions} (document_id, kind, seq DESC)`,
 	];
 	/**
-	 * The searchable text of one entry record (doc/data-model.md#会话内容搜索), or NULL when it carries none: the
+	 * The searchable text of one entry record (doc/design/data-model.md "Conversation content search"), or NULL when it carries none: the
 	 * user messages' text (`content` as a string, or the `text` items of an array) and the assistant messages'
 	 * `text` blocks. Thinking, tool calls, tool results, system prompts and compactions never contribute.
 	 * `jsonb_typeof` guards every step, so an unexpected shape yields NULL instead of an error; the result is

@@ -1,7 +1,7 @@
 import type { Kysely } from "kysely";
 
 /**
- * D117: creating a session and submitting its first message is one request, deduplicated by a client-generated
+ * Creating a session and submitting its first message is one request, deduplicated by a client-generated
  * request id. `create_request_id` is null for every session not created by such a request (subagents, scheduled
  * runs, sessions created through the runtime). The unique index is per owner; SQLite and PostgreSQL both allow
  * any number of nulls in a unique index, so only a real request id is deduplicated.

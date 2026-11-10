@@ -12,7 +12,7 @@ const END_THRESHOLD = 80;
 const SETTLE_MS = 2_000;
 const ANCHOR_MS = 400;
 const LOAD_DEBOUNCE_MS = 120;
-/** How long a jumped-to entry keeps its highlight before it fades (doc/webui.md "跳到消息"). */
+/** How long a jumped-to entry keeps its highlight before it fades (doc/design/webui.md "Jumping to a message"). */
 const HIGHLIGHT_MS = 2_000;
 
 interface Anchor {
@@ -38,7 +38,7 @@ type TranscriptDisplayRow =
 	  };
 
 /**
- * The session transcript (doc/webui.md "消息视图"): a virtua list with `shift`
+ * The session transcript (doc/design/webui.md "Message view"): a virtua list with `shift`
  * for prepends, bottom following that stops the moment the reader scrolls up,
  * a jump-to-latest button, and explicit anchor corrections.
  *
@@ -300,7 +300,7 @@ export function Transcript({
 	};
 
 	const [openTurns, setOpenTurns] = useState<ReadonlySet<string>>(() => new Set());
-	// A live compacting row is always rendered after the last turn (doc/webui.md "消息渲染"); keeping it out
+	// A live compacting row is always rendered after the last turn (doc/design/webui.md "Message rendering"); keeping it out
 	// of the turn builder means it can neither decide a turn's final answer nor hide a folded turn's rows.
 	const turns = useMemo(
 		() =>
@@ -331,7 +331,7 @@ export function Transcript({
 			if (open) {
 				for (const item of turn.process) display.push({ kind: "item", key: item.key, item });
 			} else {
-				// A closed turn still lists its compaction notes (doc/webui.md "消息渲染"):
+				// A closed turn still lists its compaction notes (doc/design/webui.md "Message rendering"):
 				// they are never hidden by the fold and stay in commit order before the final answer.
 				for (const item of turn.process) {
 					if (item.kind === "compaction") display.push({ kind: "item", key: item.key, item });
@@ -339,7 +339,7 @@ export function Transcript({
 			}
 			if (turn.final !== undefined) display.push({ kind: "item", key: turn.final.key, item: turn.final });
 			// Compaction notes committed after the final answer always follow it, whether
-			// the turn is open or closed, so the transcript keeps commit order (doc/webui.md "消息渲染").
+			// the turn is open or closed, so the transcript keeps commit order (doc/design/webui.md "Message rendering").
 			for (const item of turn.after) display.push({ kind: "item", key: item.key, item });
 		}
 		for (const item of items) if (item.kind === "compacting") display.push({ kind: "item", key: item.key, item });
@@ -357,7 +357,7 @@ export function Transcript({
 	const previousFirst = prevFirstId.current;
 	const shift = previousFirst !== null && firstId !== "" && firstId !== previousFirst;
 
-	// Jump-to-message (doc/webui.md "跳到消息"): the target rows exist once the entry is
+	// Jump-to-message (doc/design/webui.md "Jumping to a message"): the target rows exist once the entry is
 	// loaded. Center the first of them, stop following the end, then fade the highlight.
 	const focusToken = useRef(0);
 	useLayoutEffect(() => {

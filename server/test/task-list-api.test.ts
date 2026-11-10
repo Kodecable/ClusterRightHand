@@ -14,8 +14,8 @@ import { openTestDb } from "./helpers/db.ts";
 vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 
 /**
- * GET /api/tasks: the tasks the user may see (administrators all, everyone else their own; D108), with the
- * filters and ordering the task page needs (doc/privilege.md, the WebUI's task page and the signature
+ * GET /api/tasks: the tasks the user may see (administrators all, everyone else their own), with the
+ * filters and ordering the task page needs (doc/design/privilege.md, the WebUI's task page and the signature
  * section of the approvals page).
  */
 describe("task list api (sqlite)", () => {

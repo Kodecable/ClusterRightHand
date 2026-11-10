@@ -2,10 +2,10 @@ import { type Kysely, type SqlBool, sql } from "kysely";
 
 /**
  * Indexes for the startup reconciliation's two candidate queries (agent/runtime-state.ts `reconcileSessionStates`,
- * doc/agent-runtime.md#会话状态):
+ * doc/design/agent-runtime.md "Session state"):
  * - candidate 1 selects every session whose row is not `idle`: a partial index on the non-idle rows keeps
  *   that lookup proportional to the sessions that claim a live run or a wait, not to the whole (mostly idle)
- *   table of doc/webui.md's 100,000 sessions;
+ *   table of doc/design/webui.md's 100,000 sessions;
  * - candidate 2 maps durable's unsettled submission ids back to their sessions through `last_submission_id`.
  *
  * Both SQLite and PostgreSQL support partial indexes; the predicate is the literal `state <> 'idle'` the

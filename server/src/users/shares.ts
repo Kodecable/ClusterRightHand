@@ -1,9 +1,9 @@
 import type { Db } from "../storage/db.ts";
 
 /**
- * Session share helpers (doc/access-control.md#归属访问授权与分享): sessions grant an access level to a user or
+ * Session share helpers (doc/design/access-control.md "Ownership, access grants and sharing"): sessions grant an access level to a user or
  * a user group, and a user reaches a session through the strongest share that covers them. Nodes are not shared
- * any more (D108); their access grants live in cluster/node-access.ts.
+ * any more; their access grants live in cluster/node-access.ts.
  */
 
 /** The user groups the user belongs to; a share to any of them reaches the user. */

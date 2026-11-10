@@ -19,7 +19,7 @@ export interface ModelProviderRoutesOptions {
 
 /**
  * The models sessions may choose and the model providers behind them (administrators only);
- * doc/agent-runtime.md. Expects requireUser.
+ * doc/design/agent-runtime.md. Expects requireUser.
  */
 export function modelProviderRoutes(db: Db, options: ModelProviderRoutesOptions) {
 	const { models } = options;

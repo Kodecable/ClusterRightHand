@@ -21,7 +21,7 @@ import { createUser } from "../../src/users/service.ts";
 import { openTestDb } from "../helpers/db.ts";
 import { waitSubmission } from "../helpers/runtime.ts";
 
-// doc/agent-runtime.md#2-性能和内存回归: faux model, real SQLite storage. Run with `pnpm test:perf` (not in the
+// doc/design/testing/server.md "Server performance": faux model, real SQLite storage. Run with `pnpm test:perf` (not in the
 // regular suites: timings depend on the machine). Bounds are loose multiples of the research baseline.
 
 const gc = (globalThis as { gc?: () => void }).gc;
