@@ -28,7 +28,7 @@ function Field({
 }
 
 /**
- * The task fields shared by the node Run panel, the batch page and the rule
+ * The task fields shared by the tasks page's "Run task" dialog and the rule
  * test panel: kind, mode, the kind's fields, timeout and the privileged flag.
  */
 export function TaskFormFields({

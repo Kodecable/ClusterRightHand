@@ -69,11 +69,6 @@ msgstr "{0, plural, one {# more match} other {# more matches}}"
 msgid "{0, plural, one {# selected} other {# selected}}"
 msgstr "{0, plural, one {# selected} other {# selected}}"
 
-#. placeholder {0}: targets.length
-#: src/features/batch/pages.tsx
-msgid "{0, plural, one {# target} other {# targets}}"
-msgstr "{0, plural, one {# target} other {# targets}}"
-
 #. placeholder {0}: row.original.taskIds.length
 #: src/features/authorizations/pages.tsx
 msgid "{0, plural, one {# task} other {# tasks}}"
@@ -83,11 +78,6 @@ msgstr "{0, plural, one {# task} other {# tasks}}"
 #: src/components/task-result.tsx
 msgid "{0, plural, one {Replaced # occurrence} other {Replaced # occurrences}}"
 msgstr "{0, plural, one {Replaced # occurrence} other {Replaced # occurrences}}"
-
-#. placeholder {0}: targets.length
-#: src/features/batch/pages.tsx
-msgid "{0, plural, one {Run on # target} other {Run on # targets}}"
-msgstr "{0, plural, one {Run on # target} other {Run on # targets}}"
 
 #. placeholder {0}: result.bytes
 #: src/components/task-result.tsx
@@ -503,7 +493,6 @@ msgid "Aliases for privileged.toml"
 msgstr "Aliases for privileged.toml"
 
 #: src/components/node-targets.tsx
-#: src/features/batch/pages.tsx
 msgid "All accessible nodes"
 msgstr "All accessible nodes"
 
@@ -526,6 +515,10 @@ msgstr "All node groups"
 #: src/features/nodes/pages.tsx
 msgid "All nodes"
 msgstr "All nodes"
+
+#: src/features/tasks/run-task-dialog.tsx
+msgid "All nodes I can access"
+msgstr "All nodes I can access"
 
 #: src/features/schedules/pages.tsx
 msgid "All schedules"
@@ -729,6 +722,10 @@ msgstr "Audit filters"
 msgid "Authorization"
 msgstr "Authorization"
 
+#: src/features/nodes/node-trust.tsx
+msgid "Authorization clock tolerance"
+msgstr "Authorization clock tolerance"
+
 #: src/components/authorization-card.tsx
 msgid "Authorization from `crha grant`"
 msgstr "Authorization from `crha grant`"
@@ -802,14 +799,6 @@ msgstr "Back to the session list"
 msgid "Base URL"
 msgstr "Base URL"
 
-#: src/app/shell/nav.ts
-msgid "Batch"
-msgstr "Batch"
-
-#: src/features/batch/pages.tsx
-msgid "Batch run"
-msgstr "Batch run"
-
 #: src/features/settings/provider-dialog.tsx
 msgid "Body fields"
 msgstr "Body fields"
@@ -845,11 +834,6 @@ msgstr "By"
 msgid "Cancel"
 msgstr "Cancel"
 
-#: src/features/nodes/run-panel.tsx
-msgid "Cancel task"
-msgstr "Cancel task"
-
-#: src/features/nodes/run-panel.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Cancellation requested."
 msgstr "Cancellation requested."
@@ -956,7 +940,7 @@ msgstr "Choose a user group"
 msgid "Choose a user or user group"
 msgstr "Choose a user or user group"
 
-#: src/features/batch/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Choose at least one target."
 msgstr "Choose at least one target."
 
@@ -975,10 +959,6 @@ msgstr "Choose nodes or node groups"
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Choose or create a credential."
 msgstr "Choose or create a credential."
-
-#: src/features/batch/pages.tsx
-msgid "Choose targets"
-msgstr "Choose targets"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose user groups"
@@ -1011,10 +991,6 @@ msgstr "clock"
 #: src/features/nodes/pages.tsx
 msgid "Clock"
 msgstr "Clock"
-
-#: src/features/nodes/node-trust.tsx
-msgid "Clock skew"
-msgstr "Clock skew"
 
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/add-node-dialog.tsx
@@ -1099,6 +1075,11 @@ msgstr "Connect Claude Code with:"
 #: src/components/status-badge.tsx
 msgid "Connected"
 msgstr "Connected"
+
+#. placeholder {0}: formatDateTimeSeconds(iso, locale)
+#: src/features/nodes/node-last-seen.tsx
+msgid "Connected since {0}"
+msgstr "Connected since {0}"
 
 #: src/features/sessions/session-banner.tsx
 msgid "Connecting…"
@@ -1648,10 +1629,6 @@ msgstr "Every model needs a max output of at least 1 token."
 msgid "Every model needs an id."
 msgstr "Every model needs an id."
 
-#: src/features/batch/pages.tsx
-msgid "Every node you can access, including nodes added later."
-msgstr "Every node you can access, including nodes added later."
-
 #: src/components/approval-card.tsx
 msgid "exact"
 msgstr "exact"
@@ -1719,7 +1696,7 @@ msgstr "Extra high"
 msgid "Facts ({0})"
 msgstr "Facts ({0})"
 
-#: src/features/batch/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Fail fast"
 msgstr "Fail fast"
 
@@ -2165,6 +2142,10 @@ msgstr "Models"
 msgid "Modified"
 msgstr "Modified"
 
+#: src/features/tasks/run-task-dialog.tsx
+msgid "More options"
+msgstr "More options"
+
 #: src/components/entity-picker/entity-picker.tsx
 msgid "More results — keep typing to narrow down"
 msgstr "More results — keep typing to narrow down"
@@ -2502,7 +2483,6 @@ msgid "Node group name"
 msgstr "Node group name"
 
 #: src/app/shell/nav.ts
-#: src/features/batch/pages.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/node-groups-dialog.tsx
 #: src/features/nodes/pages.tsx
@@ -2543,11 +2523,14 @@ msgstr "Node tasks"
 #: src/app/shell/nav.ts
 #: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
-#: src/features/batch/pages.tsx
 #: src/features/node-groups/dialogs.tsx
 #: src/features/nodes/pages.tsx
 msgid "Nodes"
 msgstr "Nodes"
+
+#: src/features/tasks/run-task-dialog.tsx
+msgid "Nodes or node groups"
+msgstr "Nodes or node groups"
 
 #: src/features/credentials/pages.tsx
 msgid "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
@@ -2561,6 +2544,10 @@ msgstr "None"
 #: src/components/approval-card.tsx
 msgid "Not a valid rule: {error}"
 msgstr "Not a valid rule: {error}"
+
+#: src/features/nodes/node-trust.tsx
+msgid "Not applicable"
+msgstr "Not applicable"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "not checked"
@@ -2609,6 +2596,10 @@ msgstr "Nothing to compact yet: the most recent ~20k tokens of the conversation 
 msgid "Nothing to show."
 msgstr "Nothing to show."
 
+#: src/features/nodes/node-last-seen.tsx
+msgid "Now"
+msgstr "Now"
+
 #: src/lib/thinking-level.ts
 msgid "Off"
 msgstr "Off"
@@ -2620,6 +2611,10 @@ msgstr "Off cannot be hidden; give it a display name."
 #: src/components/status-badge.tsx
 msgid "Offline"
 msgstr "Offline"
+
+#: src/features/nodes/node-trust.tsx
+msgid "OK"
+msgstr "OK"
 
 #: src/components/task-form-fields.tsx
 msgid "Old text"
@@ -2735,10 +2730,6 @@ msgstr "Organization-owned SSH keys that crhs uses to reach nodes. Only administ
 msgid "OS"
 msgstr "OS"
 
-#: src/features/batch/pages.tsx
-msgid "Other targets (comma separated node or node-group names)"
-msgstr "Other targets (comma separated node or node-group names)"
-
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Outcome"
@@ -2748,7 +2739,7 @@ msgstr "Outcome"
 msgid "output"
 msgstr "output"
 
-#: src/features/batch/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Output"
 msgstr "Output"
 
@@ -2780,11 +2771,11 @@ msgstr "Page not found"
 msgid "page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
 msgstr "page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
 
-#: src/features/batch/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Parallel"
 msgstr "Parallel"
 
-#: src/features/batch/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Parallel must be a positive whole number."
 msgstr "Parallel must be a positive whole number."
 
@@ -3139,7 +3130,6 @@ msgstr "Reset the password of {0}"
 msgid "Responses"
 msgstr "Responses"
 
-#: src/features/batch/pages.tsx
 #: src/features/sessions/tool-dialog.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Result"
@@ -3222,7 +3212,7 @@ msgstr "Rules of {0}"
 msgid "Rules: {0}"
 msgstr "Rules: {0}"
 
-#: src/features/nodes/run-panel.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Run"
 msgstr "Run"
 
@@ -3230,10 +3220,6 @@ msgstr "Run"
 #: src/features/schedules/schedule-actions.tsx
 msgid "Run {0} now?"
 msgstr "Run {0} now?"
-
-#: src/features/nodes/run-panel.tsx
-msgid "Run a task"
-msgstr "Run a task"
 
 #: src/features/schedules/run-history.tsx
 msgid "run by hand"
@@ -3247,17 +3233,18 @@ msgstr "Run history"
 msgid "Run now"
 msgstr "Run now"
 
-#: src/features/batch/pages.tsx
-msgid "Run on all accessible nodes"
-msgstr "Run on all accessible nodes"
-
 #: src/features/tasks/pages.tsx
-msgid "Run something on a node, or use the batch page."
-msgstr "Run something on a node, or use the batch page."
+msgid "Run something on a node."
+msgstr "Run something on a node."
 
 #: src/features/schedules/schedule-actions.tsx
 msgid "Run started."
 msgstr "Run started."
+
+#: src/features/tasks/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
+msgid "Run task"
+msgstr "Run task"
 
 #: src/features/nodes/add-node-dialog.tsx
 msgid "Run this on the node:"
@@ -3630,7 +3617,7 @@ msgstr "State"
 msgid "Status"
 msgstr "Status"
 
-#: src/features/batch/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Status only"
 msgstr "Status only"
 
@@ -3702,7 +3689,7 @@ msgstr "System"
 msgid "System prompt"
 msgstr "System prompt"
 
-#: src/features/batch/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Tail of output"
 msgstr "Tail of output"
 
@@ -3720,10 +3707,6 @@ msgstr "Target id"
 #: src/features/audit/pages.tsx
 msgid "Target type"
 msgstr "Target type"
-
-#: src/features/batch/pages.tsx
-msgid "Targets"
-msgstr "Targets"
 
 #: src/components/approval-card.tsx
 #: src/components/authorization-card.tsx
@@ -3881,6 +3864,14 @@ msgstr "The node is in this node group but does not trust it as an alias. Add th
 msgid "The node trusts nobody"
 msgstr "The node trusts nobody"
 
+#: src/features/nodes/clock-warning.tsx
+msgid "The node's clock is {seconds} s ahead of crhs (measured once when crha connects)"
+msgstr "The node's clock is {seconds} s ahead of crhs (measured once when crha connects)"
+
+#: src/features/nodes/clock-warning.tsx
+msgid "The node's clock is {seconds} s behind crhs (measured once when crha connects)"
+msgstr "The node's clock is {seconds} s behind crhs (measured once when crha connects)"
+
 #: src/components/task-result.tsx
 msgid "The offset is past the end of the file."
 msgstr "The offset is past the end of the file."
@@ -3896,6 +3887,14 @@ msgstr "The pending payload is being prepared…"
 #: src/features/nodes/ssh-wizard.tsx
 msgid "The port must be between 1 and 65535."
 msgstr "The port must be between 1 and 65535."
+
+#: src/features/nodes/node-trust.tsx
+msgid "The privileged mode is not forward, so this node uses no trust configuration"
+msgstr "The privileged mode is not forward, so this node uses no trust configuration"
+
+#: src/features/nodes/node-trust.tsx
+msgid "The privileged mode is unreachable, so the trust configuration is unknown"
+msgstr "The privileged mode is unreachable, so the trust configuration is unknown"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "The run failed"
@@ -4153,6 +4152,10 @@ msgstr "Type"
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Type keywords separated by spaces"
 msgstr "Type keywords separated by spaces"
+
+#: src/features/nodes/node-trust.tsx
+msgid "Unavailable"
+msgstr "Unavailable"
 
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "unknown"

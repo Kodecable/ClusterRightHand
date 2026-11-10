@@ -128,7 +128,7 @@
   - 协议：`CBOR-CORE-INT-v1` 严格编解码（重编码比对），TS（`packages/protocol`）和 Go（`client/internal/protocol`）各自按 [protocol.md](protocol.md) 手写，TS 生成的帧 fixture 由 Go 独立解码校验；握手先读大版本，命令集合取交集；双向命令/事件，`task.start` 成功响应即 accepted，响应先于任务事件。
   - 语义：crha 记录已接受的 task id（最近 16 384 个），响应丢失时任务仍执行，crhs 从下次 `hello` 得知；`authorization_*` 在 M3.5 按最终拒绝处理（M4 改为重试）；pending 节点的受限连接与 `node.status` 推送，被拒绝时 `crha run` 非零退出；外部文本发送前清洗为合法 UTF-8。
   - 存储：迁移 0019（protobuf JSON → 新 JSON 形式，`tasks.attempt`）、0020（`output_mode`）。
-  - 批量输出：任务组默认 `status`（不推送输出，完整输出在节点文件），`text` 为每节点合并尾部 8KB/128 行、全组共享 50KB/2000 行额度预算；SSH 遵守同样规则但不保存完整输出；MCP `output` 参数、Web API `outputMode`、WebUI 批量页选择。
+  - 批量输出：任务组默认 `status`（不推送输出，完整输出在节点文件），`text` 为每节点合并尾部 8KB/128 行、全组共享 50KB/2000 行额度预算；SSH 遵守同样规则但不保存完整输出；MCP `output` 参数、Web API `outputMode`、WebUI “运行任务”对话框的更多选项。
   - 已删除 `proto/`、buf、`@bufbuild/*`、Go protobuf 模块和生成代码。
   - 测试：单元测试（SQLite + PostgreSQL + 真实 sshd）、真实 crha 二进制 e2e（含 SIGSTOP / 杀进程 / 重启）、WebUI 浏览器测试、性能回归全部通过。
   - 未完成：CI 中仍未跑 SSH 测试（需要 sshd 服务容器，同 M1）；迁移 0019 没有在真实生产数据上演练过（fixture 已与旧 protobuf-es 的实际输出核对）。

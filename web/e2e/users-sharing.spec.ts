@@ -86,12 +86,20 @@ test("admin grants node access; removing it hides the node again", async ({ admi
 		await mp.getByRole("link", { name: nodeName, exact: true }).click();
 		await expect(mp.getByRole("heading", { name: nodeName, exact: true })).toBeVisible();
 		await expect(mp.getByTestId("node-access")).toHaveCount(0);
-		await expect(mp.getByRole("heading", { name: "Run a task" })).toBeVisible();
-		await mp.getByRole("textbox", { name: "Shell command" }).fill("echo member-ran");
-		await mp.getByRole("button", { name: "Run", exact: true }).click();
-		await expect(
-			mp.locator('[data-slot="task-result"]').getByRole("region", { name: "output", exact: true }),
-		).toContainText("member-ran", { timeout: 20_000 });
+		// The node page no longer has a run panel; tasks run from the tasks page.
+		await expect(mp.getByRole("heading", { name: "Run a task" })).toHaveCount(0);
+		await mp.getByTestId("nav-tasks").click();
+		await mp.getByTestId("run-task").click();
+		const run = mp.getByRole("dialog", { name: "Run task" });
+		await run.getByRole("combobox", { name: "Nodes or node groups" }).click();
+		await mp.getByRole("option", { name: new RegExp(`^${nodeName} .*Node$`) }).click();
+		await mp.keyboard.press("Escape");
+		await run.getByRole("textbox", { name: "Shell command" }).fill("echo member-ran");
+		await run.getByRole("button", { name: "Run", exact: true }).click();
+		await expect(mp.getByTestId("task-page")).toBeVisible();
+		await expect(mp.getByRole("region", { name: "output", exact: true })).toContainText("member-ran", {
+			timeout: 20_000,
+		});
 
 		// Removing the grant hides the node again (404 when accessed by id).
 		await page.goto(`/nodes/${nodeId}`);

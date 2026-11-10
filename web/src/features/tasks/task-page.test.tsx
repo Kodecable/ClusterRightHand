@@ -149,6 +149,34 @@ function mockGroup(group: TaskGroupView = GROUP): void {
 	);
 }
 
+const TASK = { ...GROUP_TASK, id: "t1", taskGroupId: null } as TaskView;
+
+/** Answers a successful task read plus the page's auxiliary lookups. */
+function mockTask(task: TaskView = TASK): void {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			const url = new URL(String(input), "http://localhost");
+			const json = (payload: unknown) =>
+				new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
+			if (url.pathname === "/api/tasks/t1" || url.pathname === "/api/tasks/t1/wait") return json({ task });
+			if (url.pathname === "/api/nodes") return json({ nodes: [] });
+			if (url.pathname === "/api/node-groups") return json({ groups: [] });
+			if (url.pathname === "/api/api-tokens") return json({ tokens: [] });
+			if (url.pathname === "/api/directory") return json({ users: [], userGroups: [] });
+			return json({});
+		}),
+	);
+}
+
+/** The page header around the level-one heading. */
+async function pageHeader(): Promise<HTMLElement> {
+	const heading = await screen.findByRole("heading", { level: 1 });
+	const header = heading.closest('[data-slot="page-header"]');
+	if (!(header instanceof HTMLElement)) throw new Error("no page header");
+	return header;
+}
+
 describe("TaskPage and TaskGroupPage", () => {
 	test("a task the API answers 404 for shows a neutral message and no retry", async () => {
 		route.params = { taskId: "t1" };
@@ -224,5 +252,47 @@ describe("TaskPage and TaskGroupPage", () => {
 		expect(screen.getByText("no such task")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
 		expect(screen.queryByTestId("task-gone")).not.toBeInTheDocument();
+	});
+
+	test("the header adds a non-zero exit code after the status", async () => {
+		route.params = { taskId: "t1" };
+		mockTask({ ...TASK, exitCode: 3 });
+		await renderPage(<TaskPage />);
+
+		const header = await pageHeader();
+		expect(header).toHaveTextContent("Finished · Exit code 3");
+		const outcome = within(header).getByTestId("task-outcome");
+		expect(outcome).toHaveTextContent("Exit code 3");
+		expect(outcome).toHaveClass("text-foreground");
+	});
+
+	test("the header says a task timed out", async () => {
+		route.params = { taskId: "t1" };
+		mockTask({ ...TASK, timedOut: true });
+		await renderPage(<TaskPage />);
+
+		const header = await pageHeader();
+		expect(header).toHaveTextContent("Finished · Timed out");
+		expect(within(header).getByTestId("task-outcome")).toHaveTextContent("Timed out");
+	});
+
+	test("the header says a task was cancelled", async () => {
+		route.params = { taskId: "t1" };
+		mockTask({ ...TASK, cancelled: true });
+		await renderPage(<TaskPage />);
+
+		const header = await pageHeader();
+		expect(header).toHaveTextContent("Finished · Cancelled");
+		expect(within(header).getByTestId("task-outcome")).toHaveTextContent("Cancelled");
+	});
+
+	test("a running task's header shows only its status, no outcome", async () => {
+		route.params = { taskId: "t1" };
+		mockTask({ ...TASK, state: "running", exitCode: null, finishedAt: null });
+		await renderPage(<TaskPage />);
+
+		const header = await pageHeader();
+		expect(within(header).getByText("Running")).toBeInTheDocument();
+		expect(within(header).queryByTestId("task-outcome")).not.toBeInTheDocument();
 	});
 });

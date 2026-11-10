@@ -69,11 +69,6 @@ msgstr "{0, plural, one {# 个更多匹配} other {# 个更多匹配}}"
 msgid "{0, plural, one {# selected} other {# selected}}"
 msgstr "{0, plural, one {已选 # 项} other {已选 # 项}}"
 
-#. placeholder {0}: targets.length
-#: src/features/batch/pages.tsx
-msgid "{0, plural, one {# target} other {# targets}}"
-msgstr "{0, plural, one {# 个目标} other {# 个目标}}"
-
 #. placeholder {0}: row.original.taskIds.length
 #: src/features/authorizations/pages.tsx
 msgid "{0, plural, one {# task} other {# tasks}}"
@@ -83,11 +78,6 @@ msgstr "{0, plural, one {# 个任务} other {# 个任务}}"
 #: src/components/task-result.tsx
 msgid "{0, plural, one {Replaced # occurrence} other {Replaced # occurrences}}"
 msgstr "{0, plural, one {替换了 # 处} other {替换了 # 处}}"
-
-#. placeholder {0}: targets.length
-#: src/features/batch/pages.tsx
-msgid "{0, plural, one {Run on # target} other {Run on # targets}}"
-msgstr "{0, plural, one {在 # 个目标上运行} other {在 # 个目标上运行}}"
 
 #. placeholder {0}: result.bytes
 #: src/components/task-result.tsx
@@ -503,7 +493,6 @@ msgid "Aliases for privileged.toml"
 msgstr "privileged.toml 的 aliases"
 
 #: src/components/node-targets.tsx
-#: src/features/batch/pages.tsx
 msgid "All accessible nodes"
 msgstr "所有可访问的节点"
 
@@ -526,6 +515,10 @@ msgstr "全部节点组"
 #: src/features/nodes/pages.tsx
 msgid "All nodes"
 msgstr "全部节点"
+
+#: src/features/tasks/run-task-dialog.tsx
+msgid "All nodes I can access"
+msgstr "我能访问的所有节点"
 
 #: src/features/schedules/pages.tsx
 msgid "All schedules"
@@ -729,6 +722,10 @@ msgstr "审计过滤条件"
 msgid "Authorization"
 msgstr "授权"
 
+#: src/features/nodes/node-trust.tsx
+msgid "Authorization clock tolerance"
+msgstr "授权时钟容差"
+
 #: src/components/authorization-card.tsx
 msgid "Authorization from `crha grant`"
 msgstr "`crha grant` 生成的授权"
@@ -802,14 +799,6 @@ msgstr "返回会话列表"
 msgid "Base URL"
 msgstr "Base URL"
 
-#: src/app/shell/nav.ts
-msgid "Batch"
-msgstr "批量"
-
-#: src/features/batch/pages.tsx
-msgid "Batch run"
-msgstr "批量运行"
-
 #: src/features/settings/provider-dialog.tsx
 msgid "Body fields"
 msgstr "请求体字段"
@@ -845,11 +834,6 @@ msgstr "操作者"
 msgid "Cancel"
 msgstr "取消"
 
-#: src/features/nodes/run-panel.tsx
-msgid "Cancel task"
-msgstr "取消任务"
-
-#: src/features/nodes/run-panel.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Cancellation requested."
 msgstr "已请求取消任务"
@@ -956,7 +940,7 @@ msgstr "选择一个用户组"
 msgid "Choose a user or user group"
 msgstr "选择一个用户或用户组"
 
-#: src/features/batch/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Choose at least one target."
 msgstr "请至少选择一个目标。"
 
@@ -975,10 +959,6 @@ msgstr "选择节点或节点组"
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Choose or create a credential."
 msgstr "请选择或创建凭据。"
-
-#: src/features/batch/pages.tsx
-msgid "Choose targets"
-msgstr "选择目标"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose user groups"
@@ -1011,10 +991,6 @@ msgstr "时钟"
 #: src/features/nodes/pages.tsx
 msgid "Clock"
 msgstr "时钟"
-
-#: src/features/nodes/node-trust.tsx
-msgid "Clock skew"
-msgstr "时钟偏差"
 
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/add-node-dialog.tsx
@@ -1099,6 +1075,11 @@ msgstr "用以下命令连接 Claude Code："
 #: src/components/status-badge.tsx
 msgid "Connected"
 msgstr "已连接"
+
+#. placeholder {0}: formatDateTimeSeconds(iso, locale)
+#: src/features/nodes/node-last-seen.tsx
+msgid "Connected since {0}"
+msgstr "自 {0} 起连接"
 
 #: src/features/sessions/session-banner.tsx
 msgid "Connecting…"
@@ -1648,10 +1629,6 @@ msgstr "每个模型的最大输出至少为 1 个 token。"
 msgid "Every model needs an id."
 msgstr "每个模型都需要 ID。"
 
-#: src/features/batch/pages.tsx
-msgid "Every node you can access, including nodes added later."
-msgstr "你可以访问的每个节点，包括之后添加的节点。"
-
 #: src/components/approval-card.tsx
 msgid "exact"
 msgstr "精确匹配"
@@ -1719,7 +1696,7 @@ msgstr "很高"
 msgid "Facts ({0})"
 msgstr "信息（{0}）"
 
-#: src/features/batch/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Fail fast"
 msgstr "快速失败"
 
@@ -2165,6 +2142,10 @@ msgstr "模型"
 msgid "Modified"
 msgstr "修改时间"
 
+#: src/features/tasks/run-task-dialog.tsx
+msgid "More options"
+msgstr "更多选项"
+
 #: src/components/entity-picker/entity-picker.tsx
 msgid "More results — keep typing to narrow down"
 msgstr "更多结果——请继续输入以缩小范围"
@@ -2502,7 +2483,6 @@ msgid "Node group name"
 msgstr "节点组名称"
 
 #: src/app/shell/nav.ts
-#: src/features/batch/pages.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/node-groups-dialog.tsx
 #: src/features/nodes/pages.tsx
@@ -2543,11 +2523,14 @@ msgstr "节点任务"
 #: src/app/shell/nav.ts
 #: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
-#: src/features/batch/pages.tsx
 #: src/features/node-groups/dialogs.tsx
 #: src/features/nodes/pages.tsx
 msgid "Nodes"
 msgstr "节点"
+
+#: src/features/tasks/run-task-dialog.tsx
+msgid "Nodes or node groups"
+msgstr "节点或节点组"
 
 #: src/features/credentials/pages.tsx
 msgid "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
@@ -2561,6 +2544,10 @@ msgstr "不支持"
 #: src/components/approval-card.tsx
 msgid "Not a valid rule: {error}"
 msgstr "规则无效：{error}"
+
+#: src/features/nodes/node-trust.tsx
+msgid "Not applicable"
+msgstr "不适用"
 
 #: src/features/nodes/ssh-wizard.tsx
 msgid "not checked"
@@ -2609,6 +2596,10 @@ msgstr "暂无可压缩的内容：对话中最近约 2 万个 token 始终原�
 msgid "Nothing to show."
 msgstr "没有可显示的内容。"
 
+#: src/features/nodes/node-last-seen.tsx
+msgid "Now"
+msgstr "现在"
+
 #: src/lib/thinking-level.ts
 msgid "Off"
 msgstr "关闭"
@@ -2620,6 +2611,10 @@ msgstr "off 档不能隐藏；请给它一个显示名。"
 #: src/components/status-badge.tsx
 msgid "Offline"
 msgstr "离线"
+
+#: src/features/nodes/node-trust.tsx
+msgid "OK"
+msgstr "正常"
 
 #: src/components/task-form-fields.tsx
 msgid "Old text"
@@ -2735,10 +2730,6 @@ msgstr "归组织所有的 SSH 密钥，crhs 用它们连接节点。只有管�
 msgid "OS"
 msgstr "操作系统"
 
-#: src/features/batch/pages.tsx
-msgid "Other targets (comma separated node or node-group names)"
-msgstr "其他目标（用逗号分隔节点或节点组名称）"
-
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Outcome"
@@ -2748,7 +2739,7 @@ msgstr "结果"
 msgid "output"
 msgstr "输出"
 
-#: src/features/batch/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Output"
 msgstr "输出"
 
@@ -2780,11 +2771,11 @@ msgstr "页面不存在"
 msgid "page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
 msgstr "页面为它签发可复用授权（不带任务 ID），并让提示词运行该命令。其他操作仍会在审批页等待，而下一次触发会结束本次运行。"
 
-#: src/features/batch/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Parallel"
 msgstr "并发数"
 
-#: src/features/batch/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Parallel must be a positive whole number."
 msgstr "并发数必须是正整数。"
 
@@ -3139,7 +3130,6 @@ msgstr "重置 {0} 的密码"
 msgid "Responses"
 msgstr "Responses"
 
-#: src/features/batch/pages.tsx
 #: src/features/sessions/tool-dialog.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Result"
@@ -3222,7 +3212,7 @@ msgstr "{0} 的规则"
 msgid "Rules: {0}"
 msgstr "规则：{0}"
 
-#: src/features/nodes/run-panel.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Run"
 msgstr "运行"
 
@@ -3230,10 +3220,6 @@ msgstr "运行"
 #: src/features/schedules/schedule-actions.tsx
 msgid "Run {0} now?"
 msgstr "现在运行 {0}？"
-
-#: src/features/nodes/run-panel.tsx
-msgid "Run a task"
-msgstr "运行任务"
 
 #: src/features/schedules/run-history.tsx
 msgid "run by hand"
@@ -3247,17 +3233,18 @@ msgstr "运行历史"
 msgid "Run now"
 msgstr "立即运行"
 
-#: src/features/batch/pages.tsx
-msgid "Run on all accessible nodes"
-msgstr "在所有可访问的节点上运行"
-
 #: src/features/tasks/pages.tsx
-msgid "Run something on a node, or use the batch page."
-msgstr "在节点上运行点什么，或使用批量页。"
+msgid "Run something on a node."
+msgstr "在节点上运行任务。"
 
 #: src/features/schedules/schedule-actions.tsx
 msgid "Run started."
 msgstr "运行已开始。"
+
+#: src/features/tasks/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
+msgid "Run task"
+msgstr "运行任务"
 
 #: src/features/nodes/add-node-dialog.tsx
 msgid "Run this on the node:"
@@ -3630,7 +3617,7 @@ msgstr "状态"
 msgid "Status"
 msgstr "状态"
 
-#: src/features/batch/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Status only"
 msgstr "仅状态"
 
@@ -3702,7 +3689,7 @@ msgstr "跟随系统"
 msgid "System prompt"
 msgstr "系统提示词"
 
-#: src/features/batch/pages.tsx
+#: src/features/tasks/run-task-dialog.tsx
 msgid "Tail of output"
 msgstr "输出末尾"
 
@@ -3720,10 +3707,6 @@ msgstr "目标 ID"
 #: src/features/audit/pages.tsx
 msgid "Target type"
 msgstr "目标类型"
-
-#: src/features/batch/pages.tsx
-msgid "Targets"
-msgstr "目标"
 
 #: src/components/approval-card.tsx
 #: src/components/authorization-card.tsx
@@ -3881,6 +3864,14 @@ msgstr "节点在这个节点组中，但没有把它作为别名信任。请把
 msgid "The node trusts nobody"
 msgstr "节点不信任任何对象"
 
+#: src/features/nodes/clock-warning.tsx
+msgid "The node's clock is {seconds} s ahead of crhs (measured once when crha connects)"
+msgstr "节点时钟比 crhs 快 {seconds} 秒（仅在 crha 连接时测量一次）"
+
+#: src/features/nodes/clock-warning.tsx
+msgid "The node's clock is {seconds} s behind crhs (measured once when crha connects)"
+msgstr "节点时钟比 crhs 慢 {seconds} 秒（仅在 crha 连接时测量一次）"
+
 #: src/components/task-result.tsx
 msgid "The offset is past the end of the file."
 msgstr "起始行超出文件末尾。"
@@ -3896,6 +3887,14 @@ msgstr "待签名的载荷正在准备中…"
 #: src/features/nodes/ssh-wizard.tsx
 msgid "The port must be between 1 and 65535."
 msgstr "端口必须在 1 到 65535 之间。"
+
+#: src/features/nodes/node-trust.tsx
+msgid "The privileged mode is not forward, so this node uses no trust configuration"
+msgstr "特权模式不是 forward，此节点不使用信任配置"
+
+#: src/features/nodes/node-trust.tsx
+msgid "The privileged mode is unreachable, so the trust configuration is unknown"
+msgstr "无法连接特权模式，信任配置未知"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "The run failed"
@@ -4153,6 +4152,10 @@ msgstr "类型"
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Type keywords separated by spaces"
 msgstr "输入用空格分隔的关键词"
+
+#: src/features/nodes/node-trust.tsx
+msgid "Unavailable"
+msgstr "不可用"
 
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "unknown"

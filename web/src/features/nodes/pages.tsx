@@ -11,7 +11,6 @@ import { KeyValueList } from "@/components/key-value";
 import { NodeGroupLinks } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
-import { RelativeTime } from "@/components/relative-time";
 import { PageSkeleton } from "@/components/skeletons";
 import { NodeStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -21,16 +20,16 @@ import { NodeAccessSection } from "./access-grants";
 import { AddNodeDialog } from "./add-node-dialog";
 import { AddSshNodeDialog } from "./add-ssh-node-dialog";
 import { useNode, useNodes } from "./api";
-import { ClockWarning } from "./clock-warning";
+import { ClockWarning, clockWarningText } from "./clock-warning";
 import { osName } from "./commands";
 import { CrhsKeyPanel } from "./crhs-key-panel";
 import { canRunOn } from "./node-access";
 import { NodeGroupsDialog } from "./node-groups-dialog";
+import { NodeLastSeen } from "./node-last-seen";
 import { NodeTaskList } from "./node-tasks";
 import { NodeTrustPanel } from "./node-trust";
 import { PendingNodeDialog } from "./pending-node-dialog";
 import { RenameNodeButton } from "./rename-node-button";
-import { RunPanel } from "./run-panel";
 import { SshNodeSection } from "./ssh-node-section";
 import { tomlString } from "./trust-editor";
 import { TrustEditor } from "./trust-editor-panel";
@@ -110,7 +109,7 @@ export function NodesPage() {
 				id: "lastSeen",
 				header: t`Last seen`,
 				size: 110,
-				cell: ({ row }) => <RelativeTime value={row.original.lastSeenAt} />,
+				cell: ({ row }) => <NodeLastSeen lastSeenAt={row.original.lastSeenAt} connected={row.original.connected} />,
 			},
 		];
 		// Approve/reject are administrator actions (D108); a non-admin gets no actions column at all.
@@ -207,11 +206,11 @@ function factValue(value: unknown): string {
 
 /**
  * One node (doc/webui.md "Nodes"): identity, facts, the transport-specific
- * configuration, trust and signing keys, run panel, access grants (administrators)
- * and recent tasks.
+ * configuration, trust and signing keys, access grants (administrators) and
+ * recent tasks. Tasks run from the tasks page's "Run task" dialog.
  */
 export function NodeDetailPage() {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const params = useParams({ strict: false }) as { nodeId?: string };
 	const id = params.nodeId ?? "";
 	const node = useNode(id);
@@ -293,11 +292,16 @@ export function NodeDetailPage() {
 					...(details.transport === "client"
 						? [
 								{ label: t`Client`, value: details.clientVersion ?? "–" },
-								{ label: t`Last seen`, value: <RelativeTime value={details.lastSeenAt} /> },
+								{
+									label: t`Last seen`,
+									value: <NodeLastSeen lastSeenAt={details.lastSeenAt} connected={details.connected} />,
+								},
 								{ label: t`Key fingerprint`, value: details.keyFingerprint ?? "–", mono: true },
 							]
 						: []),
-					...(details.clockWarning !== null ? [{ label: t`Clock`, value: details.clockWarning }] : []),
+					...(details.clockWarning !== null
+						? [{ label: t`Clock`, value: clockWarningText(i18n, details.clockWarning) }]
+						: []),
 					{ label: t`Node id`, value: details.id, mono: true },
 				]}
 			/>
@@ -359,7 +363,6 @@ export function NodeDetailPage() {
 				</>
 			)}
 
-			{canRun && <RunPanel nodeId={details.id} />}
 			<NodeAccessSection targetType="node" targetId={details.id} targetName={details.name} />
 			<NodeTaskList nodeId={details.id} />
 		</Page>

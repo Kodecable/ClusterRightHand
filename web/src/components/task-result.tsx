@@ -98,6 +98,14 @@ export function OutputBlock({
 	);
 }
 
+/**
+ * Whether `TaskOutcomeText` has a real result to show (an exit code, a signal,
+ * a timeout, a cancellation or an error) rather than only the raw state.
+ */
+export function hasTaskOutcome(task: TaskView): boolean {
+	return taskOutcome(task).kind !== "state";
+}
+
 /** The outcome of a task as one translated line (exit code, signal, timeout, error). */
 export function TaskOutcomeText({ task }: { task: TaskView }) {
 	const { i18n } = useLingui();

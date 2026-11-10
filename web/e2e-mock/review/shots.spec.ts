@@ -81,7 +81,6 @@ const routes = [
 	["tasks", "/tasks"],
 	["task", "/tasks/task-1"],
 	["approvals", "/approvals"],
-	["batch", "/batch"],
 	["credentials", "/credentials"],
 	["authorizations", "/authorizations"],
 	["tokens", "/tokens"],

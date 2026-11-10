@@ -1,6 +1,13 @@
 import { expect, test } from "@playwright/test";
 import { login, mockApi, nodeView } from "./helpers";
 
+/** Opens the tasks page's "Run task" dialog. */
+async function openRunTask(page: import("@playwright/test").Page): Promise<void> {
+	await page.goto("/tasks");
+	await page.getByTestId("run-task").click();
+	await expect(page.getByRole("dialog", { name: "Run task" })).toBeVisible();
+}
+
 test("a batch run fills the per-node grid as the tasks finish", async ({ page }) => {
 	const api = await mockApi(page, {
 		state: {
@@ -11,18 +18,17 @@ test("a batch run fills the per-node grid as the tasks finish", async ({ page })
 		},
 	});
 	await login(page);
-	await page.goto("/batch");
-	await expect(page.getByTestId("batch-page")).toBeVisible();
+	await openRunTask(page);
 
-	await page.getByRole("combobox", { name: "Nodes" }).click();
+	await page.getByRole("combobox", { name: "Nodes or node groups" }).click();
 	await page.getByRole("option", { name: /worker-01/ }).click();
 	await page.getByRole("option", { name: /worker-02/ }).click();
 	await page.keyboard.press("Escape");
 
 	await page.locator('input[id$="-command"]').fill("uname -a");
-	await page.getByTestId("batch-run").click();
+	await page.getByRole("button", { name: "Run", exact: true }).click();
 
-	await expect(page.getByTestId("batch-result")).toBeVisible();
+	await expect(page.getByTestId("task-group-page")).toBeVisible();
 	await expect(page.getByTestId("task-group-member")).toHaveCount(2);
 	await expect(page.locator('[data-testid="task-group-member"]').first()).toContainText("worker-01");
 
@@ -46,14 +52,13 @@ test("all accessible nodes sends _all", async ({ page }) => {
 		},
 	});
 	await login(page);
-	await page.goto("/batch");
-	await expect(page.getByTestId("batch-page")).toBeVisible();
+	await openRunTask(page);
 
-	await page.getByRole("checkbox", { name: "All accessible nodes" }).check();
+	await page.getByRole("checkbox", { name: "All nodes I can access" }).check();
 	await page.locator('input[id$="-command"]').fill("uptime");
-	await page.getByTestId("batch-run").click();
+	await page.getByRole("button", { name: "Run", exact: true }).click();
 
-	await expect(page.getByTestId("batch-result")).toBeVisible();
+	await expect(page.getByTestId("task-group-page")).toBeVisible();
 	const created = api.state.requests.find((request) => request.method === "POST" && request.url === "/api/task-groups");
 	expect(created?.body).toMatchObject({ targets: ["_all"] });
 });

@@ -113,3 +113,13 @@ describe("TasksPage filters", () => {
 		expect(screen.queryByTestId("waiting-for-me")).not.toBeInTheDocument();
 	});
 });
+
+describe("TasksPage run task", () => {
+	test("the page header opens the Run task dialog", async () => {
+		mockApi();
+		await renderPage();
+		const user = userEvent.setup();
+		await user.click(await screen.findByRole("button", { name: "Run task" }));
+		expect(await screen.findByRole("dialog", { name: "Run task" })).toBeInTheDocument();
+	});
+});

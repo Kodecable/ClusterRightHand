@@ -7,7 +7,6 @@ import {
 	GraphHubIcon,
 	KeyRoundIcon,
 	KeySquareIcon,
-	LayersIcon,
 	ListChecksIcon,
 	LockKeyholeIcon,
 	type LucideIcon,
@@ -27,7 +26,6 @@ export type NavPath =
 	| "/sessions"
 	| "/schedules"
 	| "/tasks"
-	| "/batch"
 	| "/approvals"
 	| "/nodes"
 	| "/node-groups"
@@ -62,7 +60,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 			{ to: "/sessions", label: msg`Sessions`, icon: MessageSquareIcon },
 			{ to: "/schedules", label: msg`Schedules`, icon: CalendarClockIcon },
 			{ to: "/tasks", label: msg`Tasks`, icon: ListChecksIcon, activeFor: ["/task-groups"] },
-			{ to: "/batch", label: msg`Batch`, icon: LayersIcon },
 			{ to: "/approvals", label: msg`Approvals`, icon: ShieldCheckIcon, badge: "approvals" },
 		],
 	},

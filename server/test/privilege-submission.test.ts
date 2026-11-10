@@ -1329,15 +1329,19 @@ describe("user authorizations", () => {
 		crha.peer.emit("facts", facts(120_000));
 		const warned = await waitFor("clock warning", async () => {
 			const res = await call(app, `/api/nodes/${node.id}`, { cookie: owner.cookie });
-			const body = (await res.json()) as { node: { clockWarning: string | null } };
+			const body = (await res.json()) as {
+				node: { clockWarning: { offsetMs: number; thresholdMs: number } | null };
+			};
 			return body.node.clockWarning ?? undefined;
 		});
-		expect(warned).toContain("120 s");
+		expect(warned).toEqual({ offsetMs: 120_000, thresholdMs: 60_000 });
 
 		crha.peer.emit("facts", facts(30_000));
 		await waitFor("no clock warning", async () => {
 			const res = await call(app, `/api/nodes/${node.id}`, { cookie: owner.cookie });
-			const body = (await res.json()) as { node: { clockWarning: string | null } };
+			const body = (await res.json()) as {
+				node: { clockWarning: { offsetMs: number; thresholdMs: number } | null };
+			};
 			return body.node.clockWarning === null;
 		});
 
@@ -1349,7 +1353,7 @@ describe("user authorizations", () => {
 			return row?.facts?.includes("600000");
 		});
 		const body = (await (await call(quiet, `/api/nodes/${node.id}`, { cookie: owner.cookie })).json()) as {
-			node: { clockWarning: string | null };
+			node: { clockWarning: { offsetMs: number; thresholdMs: number } | null };
 		};
 		expect(body.node.clockWarning).toBeNull();
 	});

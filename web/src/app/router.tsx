@@ -163,10 +163,13 @@ const taskGroupRoute = createRoute({
 
 // --- batch ----------------------------------------------------------------
 
+/** The old Batch page is gone: its run form lives in the tasks page's "Run task" dialog. */
 const batchRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/batch",
-	component: lazyRouteComponent(() => import("@/features/batch/pages"), "BatchPage"),
+	beforeLoad: () => {
+		throw redirect({ to: "/tasks", replace: true });
+	},
 });
 
 // --- approvals ------------------------------------------------------------

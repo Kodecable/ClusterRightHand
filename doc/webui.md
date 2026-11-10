@@ -84,7 +84,7 @@ web/src/
   - `collapsible="icon"`；收起状态存 `localStorage`；收起时显示 tooltip；
   - 窄于 768 px 时变成抽屉。
 - 导航分组：
-  - 工作：Sessions、Schedules、Tasks、Batch、Approvals（带待办数）
+  - 工作：Sessions、Schedules、Tasks、Approvals（带待办数）
   - 集群：Nodes、Node groups、Credentials\*
   - 管理：Authorizations\*、API tokens、Audit、Models\*、Users\*（\* 仅管理员可见）
   - 侧边栏只有 Users 一项；`/users/*` 和 `/user-groups/*` 都高亮它。
@@ -112,7 +112,7 @@ web/src/
 
 - 状态用 `StatusText` 显示为纯文本：标签按 tone 上色（ok 绿、warn 琥珀、danger 红、info 蓝、muted 灰），没有边框、背景和圆点，字号与所在行的正文一致。表格、列表、卡片和详情页头一律用它；状态点只保留在会话侧边列表（`StatusDot`，运行 / 等待 / 未读）。
 - 任务状态 `exited` 显示为“已结束”（`Finished`），tone 固定为 ok，与退出码和信号无关；退出码只在结果（Outcome）列出现。任务组沿用任务的 tone：等待和运行是 info，`finished` 是 ok，`rejected` / `interrupted` 是 danger，`cancelled` 与任务取消一致。
-- 相对时间（`RelativeTime`）用于列表里显示的时间（任务、节点最近连接、计划任务的下次运行和运行历史、节点的最近任务、访问授权的添加时间等）。它继承所在行的字号和颜色，悬停的 `title` 显示带秒的绝对时间。
+- 相对时间（`RelativeTime`）用于列表里显示的时间（任务、节点最近连接、计划任务的下次运行和运行历史、节点的最近任务、访问授权的添加时间等）。它继承所在行的字号和颜色，悬停的 `title` 显示带秒的绝对时间。节点已连接时，“Last seen”改由 `NodeLastSeen` 显示“现在”，悬停的 `title` 是“自 <绝对时间> 起连接”；未连接和 SSH 节点仍用 `RelativeTime`。
 - 绝对时间只有一种格式：`DateTime` 用 `formatDateTimeSeconds`，即带秒的日期时间（UI 语言、浏览器时区）。审计、授权、审批、API token、凭据、SSH 凭据和用户的创建时间等安全相关列表用它；详情页里的绝对时间也用同一格式。`Intl` 不传固定 `timeZone`。
 - 任务结果：非 exec 任务（file.read / write / edit / stat / list）以退出码 0 结束、且没有超时、取消或信号时，Outcome 显示“成功”（`Succeeded`）；exec 任务仍显示 `Exit code N`。信号、超时、取消和错误照旧；没有内容时显示 muted 的 en dash “–”。
 - 列表正文统一用表格的 text-sm 和普通前景色；等宽值（id、命令、路径、密钥、cron）保留 `font-mono text-xs leading-5`，占位符“–”用 muted。状态列的表头统一为 Status。
@@ -143,7 +143,7 @@ web/src/
 - 加载状态：整页用 `PageSkeleton`（放在 `Page` 里，不用裸 `div p-4`），表体用 `DataTable` 的 spinner，行内或浮层用 `Spinner`；不再出现 “Loading…” 文本。
 - 错误状态：查询失败用 `ErrorState`，表单和卡片内的错误用 `ErrorText`；不再手写 `<p role="alert" className="text-danger">`。列表页和详情页的加载、错误都渲染在 `Page` 里，保持与正常页面相同的宽度和留白。
 - 警告横幅统一为 `WarningBanner`：`rounded-lg border border-warn/30 bg-warn-bg px-3 py-2 text-sm text-warn`（计划任务无模型、会话列表无模型、token 永不过期 / Yolo）。
-- 带边框的区块统一用 `Panel`（`rounded-lg border p-4`），区块标题统一为 `h2 text-sm font-medium`。任务页、批量页、审批 / 授权 / 配额卡片、模型预设卡片、计划任务表单和凭据表单都用同一边框、圆角和内边距，不再混用 `Card` 和 `rounded-xl`。
+- 带边框的区块统一用 `Panel`（`rounded-lg border p-4`），区块标题统一为 `h2 text-sm font-medium`。任务页、审批 / 授权 / 配额卡片、模型预设卡片、计划任务表单和凭据表单都用同一边框、圆角和内边距，不再混用 `Card` 和 `rounded-xl`。
 - 对话框只有两种宽度：表单和确认用默认宽度，展示代码、payload 或表格的用 `sm:max-w-2xl`（授权 payload、审计详情、规则 JSON、信任片段、提供方、模型和 SSH 向导）。所有页脚都走 `DialogFooter`（或 `FormDialog` / `ConfirmDialog`），不再手写 `flex justify-end gap-2`。
 - 对话框按钮：有未保存操作时关闭按钮写 “Cancel”，仅展示信息时写 “Close”（不再用 “Done”）。创建入口统一写 “New X”（New user、New schedule、New token、New node group、New SSH credential、New user group、New provider、New node、New SSH node、New model）；中文为 “新建 X”。它们都是默认尺寸，次要的创建入口用 outline 并带 `PlusIcon`。
 - 列标题：时间列写 “Created”（不再用 “Added”）；操作者列一律写 “By”（中文 “操作者”），审计也一样。
@@ -151,7 +151,11 @@ web/src/
 
 ### 任务页与任务组页
 
-- 任务页的页头标题是任务摘要（等宽、最多两行截断，tooltip 显示全文），下面只留状态；外壳的标题栏和浏览器标签页用同一个摘要（单行、按长度截断），不再显示 “Tasks” 或 `ClusterRightHand`。
+- 任务页页头右侧是 `Run task` 按钮（中文“运行任务”），打开同名对话框。目标是唯一的多选 `nodeTarget` 选择器（标签 `Nodes or node groups`，中文“节点或节点组”，节点和节点组混排并带类型徽标），另有 `All nodes I can access` 复选框（中文“我能访问的所有节点”）；勾选后选择器禁用并忽略其值。对话框没有自由文本目标输入。
+- `Run task` 只负责提交：选中正好一个节点时创建单个任务并跳到 `/tasks/$taskId`；选中节点组、两个及以上目标或勾选“所有节点”时创建任务组（`POST /task-groups`，目标用名称，全部用 `_all`）并跳到 `/task-groups/$taskGroupId`。没有目标时在对话框内提示“Choose at least one target.”（中文“至少选择一个目标。”），任务字段的校验错误同样内联显示；成功不显示结果，直接关闭并打开新任务或任务组。
+- 并行数、失败即停和 exec 的输出模式（仅状态 / 输出尾部）收在默认收起的 “More options”（中文“更多选项”）里，只对任务组生效；单个任务不发送这些字段。
+- 节点详情页不再有运行面板；旧 `/batch` 路由只重定向到 `/tasks`，侧边栏不再有 Batch 项。
+- 任务页的页头标题是任务摘要（等宽、最多两行截断，tooltip 显示全文），下面显示状态，有结果时再用 “ · ” 追加结果（如“已结束 · 退出码 3”“已结束 · 已超时”“已结束 · 已取消”“已结束 · 成功”），运行中或无结果时不追加；外壳的标题栏和浏览器标签页用同一个摘要（单行、按长度截断），不再显示 “Tasks” 或 `ClusterRightHand`。
 - `/task-groups/$taskGroupId` 用任务组的命令/摘要作为页头标题（等宽，和任务页一致），状态下移一行。成员结果表（节点、状态、Outcome，行链接到成员任务）上方不再有 “Result” 标题、Privileged 徽标、节点数、重复的命令行和 “Targets:” 行。跳过或中断的说明作为标题下的一行短提示保留；审批、签名和拒绝卡片仍在标题与成员表之间。
 - 任务组页的标题、外壳标题栏和浏览器标题都由 `usePageTitle` 设置；没有导航项匹配的详情页因此不会退回应用名。
 
@@ -485,11 +489,11 @@ web/src/
 
 与设计有出入或需要知道的地方：
 
-- **节点信任**：服务端只提供读取，页面是只读报告加 `privileged.toml` 片段编辑器，由用户复制到节点。
+- **节点信任**：服务端只提供读取，页面是只读报告加 `privileged.toml` 片段编辑器，由用户复制到节点。Report 行把 `ok` / `unavailable` / `not_forward` 显示为“正常”/“不可用”/“不适用”，没有报告时显示“未报告”；`not_forward` 和 `unavailable` 分别说明没有信任配置和信任配置未知，不再显示“节点尚未上报信任配置”。`Authorization clock tolerance` 行（中文“授权时钟容差”）显示的是 `clock_skew`，即授权 `issued_at` / `deadline` 检查的容差，不是测量到的时钟偏差；测量值只由节点列表和节点页的时钟警告显示。
 - **授权页**：在管理区，只对管理员可见；只能查看 payload，没有吊销操作（D103）。
 - **会话等待卡片**：审批、签名、配额卡片显示在页头下方的等待区（单行提示之下、消息上方）；工具卡片里给出指向审批页的链接。
 - **管理员的会话列表**：列表只显示自己拥有和共享的会话，管理员没有“全部”视图。
-- **任务结果**：单节点执行、任务页、任务组页、批量都用 `/wait` 长轮询，超时 5 秒后重新发起。
+- **任务结果**：单节点执行、任务页、任务组页都用 `/wait` 长轮询，超时 5 秒后重新发起。
 - **窄屏表格**：表格保持最小列宽并横向滚动，不转成卡片。
 - **已完成消息的缓存**：为了在消息重新挂载时复用渲染结果，在 JSX 之外调用并缓存 `react-markdown` 10.1.0 的 `Markdown()`。这依赖它不使用 hooks，升级大版本时要重新确认。
 - **测试**：
@@ -505,7 +509,7 @@ web/src/
 ## 分期
 
 前端整体重写，不逐页迁移。现有页面之间耦合很多：
-- `TaskResult` 同时用在会话的工具卡片、审批、批量和任务页；
+- `TaskResult` 同时用在会话的工具卡片、审批和任务页；
 - `Approval` / `AuthorizationWait` 卡片同时出现在会话、审批页和任务页；
 - `ModelSelect`、任务表单字段、规则和预设编辑分散在多个页面。
 
@@ -528,9 +532,9 @@ web/src/
   - StatusText / StatusDot：节点、任务、任务组、会话、授权、计划任务运行、API token、用户和模型提供商的状态，配色和翻译统一；StatusText 是彩色纯文本，StatusDot 只用于会话侧边列表；
   - RelativeTime / DateTime：基于 `Intl`；列表用相对时间，绝对时间统一到秒；
   - CopyButton、CodeText（等宽、可折叠的长输出）。
-- **表单**：基于 react-hook-form + zod 的 Form 字段封装；以及 ModelSelect、RulePresetSelect、EntityPicker、TaskFormFields（exec / file.read / file.write / file.list，同时用于 RunPanel、Batch 和规则测试）。
-- **实体选择器（EntityPicker）**：`web/src/components/entity-picker/` 里唯一的用户 / 用户组 / 节点 / 节点组选择控件，触发器外观与 Select 一致，弹出层带自动聚焦的搜索框。`kind` 取 `user`、`userGroup`、`node`、`nodeGroup`、`directory`（用户和用户组混排）或 `nodeTarget`（节点和节点组混排）；两个混排 kind 的每一行都带类型徽标，`nodeTarget` 同时请求 `/api/nodes` 和 `/api/node-groups` 并合并结果，已选值也分别用两边的 `ids=` 解析。支持单选（`value: string | null`）和多选（`value: string[]`，选中项以 `Badge variant="secondary"` + X 图标显示在触发器下方，列表保持打开）。搜索输入去抖 200 ms，固定请求 `limit=50`，用响应里的 `more` 显示“继续输入以缩小范围”。已选值通过 `ids=` 单独取名称并按 id 列表缓存，所以不在当前搜索结果里的已选值仍显示名称；`exclude` 用于隐藏已有成员或已有授权的目标，`includeDisabled={false}` 让需要保持旧规则的调用方（批量目标）只列出 active 的用户或节点。键盘支持 Up/Down/Home/End/Enter/Escape，combobox/listbox 的 ARIA 角色由 Base UI 的 Combobox 提供。因为它服务于权限、用户组、节点组、批量和分享等所有选择场景，页面不再为选择器下载完整列表；50 条的结果上限也意味着不需要虚拟列表。
-- **任务**：TaskResult（输出、退出码、截断提示；输出只有一个流，D114，`notice` 在输出上方单独显示）、TaskSummary 行。状态 `exited` 统一显示“已结束”，非 exec 任务成功在 Outcome 里显示“成功”，exec 任务显示退出码。这些同时用在任务页、批量、审批和会话的工具卡片里。
+- **表单**：基于 react-hook-form + zod 的 Form 字段封装；以及 ModelSelect、RulePresetSelect、EntityPicker、TaskFormFields（exec / file.read / file.write / file.list，同时用于“运行任务”对话框和规则测试）。
+- **实体选择器（EntityPicker）**：`web/src/components/entity-picker/` 里唯一的用户 / 用户组 / 节点 / 节点组选择控件，触发器外观与 Select 一致，弹出层带自动聚焦的搜索框。`kind` 取 `user`、`userGroup`、`node`、`nodeGroup`、`directory`（用户和用户组混排）或 `nodeTarget`（节点和节点组混排）；两个混排 kind 的每一行都带类型徽标，`nodeTarget` 同时请求 `/api/nodes` 和 `/api/node-groups` 并合并结果，已选值也分别用两边的 `ids=` 解析。支持单选（`value: string | null`）和多选（`value: string[]`，选中项以 `Badge variant="secondary"` + X 图标显示在触发器下方，列表保持打开）。搜索输入去抖 200 ms，固定请求 `limit=50`，用响应里的 `more` 显示“继续输入以缩小范围”。已选值通过 `ids=` 单独取名称并按 id 列表缓存，所以不在当前搜索结果里的已选值仍显示名称；`exclude` 用于隐藏已有成员或已有授权的目标，`includeDisabled={false}` 让需要保持旧规则的调用方（节点目标）只列出 active 的用户或节点。键盘支持 Up/Down/Home/End/Enter/Escape，combobox/listbox 的 ARIA 角色由 Base UI 的 Combobox 提供。因为它服务于权限、用户组、节点组、运行任务和分享等所有选择场景，页面不再为选择器下载完整列表；50 条的结果上限也意味着不需要虚拟列表。
+- **任务**：TaskResult（输出、退出码、截断提示；输出只有一个流，D114，`notice` 在输出上方单独显示）、TaskSummary 行。状态 `exited` 统一显示“已结束”，非 exec 任务成功在 Outcome 里显示“成功”，exec 任务显示退出码。这些同时用在任务页、审批和会话的工具卡片里。
 - **决策卡片**：ApprovalCard（批准 / 拒绝，带规则说明）、AuthorizationCard（签名 payload、复制 `crha grant` 命令、Passkey 签名）、QuotaCard（加额度 / 停止）。这些同时用在会话、审批页、任务页和任务组页。
 - **对话框**：ConfirmDialog（危险操作二次确认）、FormDialog，以及 DialogScrollArea（统一的可滚动正文：给焦点环留边距，并用 `scrollbar-gutter` 和右侧内边距避免滚动条压住内容）。
 - **Markdown**：SafeMarkdown、CodeBlock（见上文）。

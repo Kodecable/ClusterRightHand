@@ -52,12 +52,7 @@ export function renderWithI18n(
 	});
 }
 
-/**
- * Render a component that uses `<Link>`: a minimal in-memory router registers
- * the paths the components link to and shows the component at the root.
- */
-export async function renderWithRouter(ui: React.ReactElement, locale: TestLocale = "en"): Promise<RenderResult> {
-	activateLocale(locale);
+function buildRouter(ui: React.ReactElement) {
 	const rootRoute = createRootRoute();
 	const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => ui });
 	const paths = [
@@ -66,7 +61,6 @@ export async function renderWithRouter(ui: React.ReactElement, locale: TestLocal
 		"/schedules/$scheduleId",
 		"/tasks",
 		"/tasks/$taskId",
-		"/batch",
 		"/approvals",
 		"/approvals/tasks/$taskId",
 		"/approvals/task-groups/$taskGroupId",
@@ -91,12 +85,25 @@ export async function renderWithRouter(ui: React.ReactElement, locale: TestLocal
 	const children = paths.map((path) =>
 		createRoute({ getParentRoute: () => rootRoute, path, component: () => <div /> }),
 	);
-	const router = createRouter({
+	return createRouter({
 		routeTree: rootRoute.addChildren([indexRoute, ...children]),
 		history: createMemoryHistory({ initialEntries: ["/"] }),
 	});
+}
+
+/**
+ * Render a component that uses `<Link>`: a minimal in-memory router registers
+ * the paths the components link to and shows the component at the root. The
+ * router comes back too, so a test can assert where a submit navigated.
+ */
+export async function renderWithRouter(
+	ui: React.ReactElement,
+	locale: TestLocale = "en",
+): Promise<RenderResult & { router: ReturnType<typeof buildRouter> }> {
+	activateLocale(locale);
+	const router = buildRouter(ui);
 	await router.load();
-	return render(
+	const result = render(
 		<QueryClientProvider client={testQueryClient()}>
 			<ThemeProvider>
 				<LocaleProvider initialLocale={locale}>
@@ -105,4 +112,5 @@ export async function renderWithRouter(ui: React.ReactElement, locale: TestLocal
 			</ThemeProvider>
 		</QueryClientProvider>,
 	);
+	return Object.assign(result, { router });
 }

@@ -1,4 +1,4 @@
-import type { CursorPage, CursorQuery, TaskGroupView, TaskRequest, TaskView } from "@crh/api";
+import type { BatchOutputMode, CursorPage, CursorQuery, TaskGroupView, TaskRequest, TaskView } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http, queryString } from "@/lib/api/client";
 import { useCursorInfiniteQuery } from "@/lib/api/query";
@@ -83,7 +83,28 @@ export function useCreateTask(nodeId: string) {
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: taskKeys.all });
 		},
-		// The run panel shows the failure above its Run button.
+		// The run-task dialog shows the failure inline, where the mistyped field is.
+		meta: { toast: false },
+	});
+}
+
+export interface CreateTaskGroupInput extends TaskRequest {
+	/** Node or node-group names, or `_all` alone; the server resolves them (doc/agent-runtime.md#批量执行). */
+	targets: string[];
+	parallel?: number;
+	failFast?: boolean;
+	/** `status` or `text` for an exec group; omitted for file operations, which keep each node's head. */
+	outputMode?: BatchOutputMode;
+}
+
+/** A multi-target run: one POST, then `GET /task-groups/:id/wait` (doc/webui.md "任务页与任务组页"). */
+export function useCreateTaskGroup() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (input: CreateTaskGroupInput) =>
+			http.post<{ taskGroup: TaskGroupView }>("/task-groups", input).then((r) => r.taskGroup),
+		onSuccess: () => void queryClient.invalidateQueries({ queryKey: taskKeys.all }),
+		// The run-task dialog shows the failure inline, where the mistyped field is.
 		meta: { toast: false },
 	});
 }

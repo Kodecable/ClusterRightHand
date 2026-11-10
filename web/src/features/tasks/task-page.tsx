@@ -13,7 +13,7 @@ import { Panel } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskGone } from "@/components/task-gone";
-import { TaskEvaluation, TaskFacts, TaskOutput } from "@/components/task-result";
+import { hasTaskOutcome, TaskEvaluation, TaskFacts, TaskOutcomeText, TaskOutput } from "@/components/task-result";
 import { Button } from "@/components/ui/button";
 import { UserLink } from "@/components/user-link";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
@@ -130,8 +130,16 @@ export function TaskPage() {
 				title={<span className="font-mono">{view.summary || view.kind}</span>}
 				titleText={view.summary || view.kind}
 				description={
-					<span className="flex flex-wrap items-center gap-2">
+					<span>
 						<TaskStatusBadge state={view.state} />
+						{hasTaskOutcome(view) && (
+							<>
+								{" · "}
+								<span data-testid="task-outcome" className="text-foreground">
+									<TaskOutcomeText task={view} />
+								</span>
+							</>
+						)}
 					</span>
 				}
 				actions={

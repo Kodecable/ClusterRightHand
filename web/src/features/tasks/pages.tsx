@@ -1,4 +1,5 @@
 import { Trans, useLingui } from "@lingui/react/macro";
+import { PlayIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { DataTable } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
@@ -6,10 +7,12 @@ import { FieldShell } from "@/components/form";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { taskStateLabel } from "@/components/status-badge";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useNodes } from "@/features/nodes/api";
 import { useDirectory } from "@/features/users/api";
 import { useTasks } from "./api";
+import { RunTaskDialog } from "./run-task-dialog";
 import { useTaskColumns } from "./task-columns";
 
 const STATES = [
@@ -70,6 +73,7 @@ export function TasksPage() {
 	const [state, setState] = useState("any");
 	const [actorType, setActorType] = useState("any");
 	const [nodeId, setNodeId] = useState("any");
+	const [running, setRunning] = useState(false);
 
 	const tasks = useTasks({
 		state: state === "any" ? undefined : state,
@@ -95,7 +99,15 @@ export function TasksPage() {
 
 	return (
 		<Page data-testid="tasks-page">
-			<PageHeader title={<Trans>Tasks</Trans>} />
+			<PageHeader
+				title={<Trans>Tasks</Trans>}
+				actions={
+					<Button type="button" onClick={() => setRunning(true)} data-testid="run-task">
+						<PlayIcon />
+						<Trans>Run task</Trans>
+					</Button>
+				}
+			/>
 
 			<div className="flex flex-wrap items-end gap-3">
 				<FilterSelect
@@ -146,10 +158,11 @@ export function TasksPage() {
 						bare
 						className="border-0 py-10"
 						title={<Trans>No tasks yet</Trans>}
-						description={<Trans>Run something on a node, or use the batch page.</Trans>}
+						description={<Trans>Run something on a node.</Trans>}
 					/>
 				}
 			/>
+			{running && <RunTaskDialog onClose={() => setRunning(false)} />}
 		</Page>
 	);
 }

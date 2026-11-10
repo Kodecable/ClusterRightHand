@@ -5,10 +5,10 @@ import { createEnrollmentToken } from "../cluster/enrollment.ts";
 import { nodeGroupsForNodes, resolveNodeGroupIds, setNodeGroupsForNode } from "../cluster/node-groups.ts";
 import {
 	approveNode,
-	clockWarning,
 	deleteNode,
 	getNode,
 	nodeAccess,
+	nodeClockWarning,
 	type PublicNode,
 	queryNodesForUser,
 	renameNode,
@@ -35,7 +35,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	const live = (n: PublicNode): PublicNode => ({
 		...n,
 		connected: n.connected === null ? null : (options.cluster?.isConnected(n.id) ?? false),
-		clockWarning: clockWarning(n.facts, clockWarnMs),
+		clockWarning: nodeClockWarning(n.facts, clockWarnMs),
 	});
 
 	app.get("/nodes", async (c) => {

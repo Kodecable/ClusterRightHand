@@ -112,8 +112,12 @@ export interface PublicNode {
 	keyFingerprint: string | null;
 	/** Whether crha is connected now; null for SSH nodes (they connect per task). */
 	connected: boolean | null;
-	/** A clock warning when the node's clock is too far from crhs's; null when it is fine. */
-	clockWarning: string | null;
+	/**
+	 * The node's measured clock offset from crhs, when it exceeds the warning threshold
+	 * (doc/privilege.md#时钟). `offsetMs` is local clock minus crhs (positive: the node is ahead);
+	 * null when the offset is within the threshold, the warning is off, or there is no measurement.
+	 */
+	clockWarning: { offsetMs: number; thresholdMs: number } | null;
 	/** Out-of-sync trust aliases and unknown trust entries (doc/privilege.md#信任缓存, D110). */
 	trustWarnings: TrustWarning[];
 }

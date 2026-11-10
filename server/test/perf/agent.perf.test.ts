@@ -108,7 +108,8 @@ describe("agent runtime performance", () => {
 	it("one long session: turn latency does not grow with its length", async () => {
 		const runtime = await open();
 		try {
-			const s = await runtime.createSession(owner, { model, rulePreset: "yolo" });
+			// A titled session: title generation would otherwise take answers from the shared faux queue.
+			const s = await runtime.createSession(owner, { model, rulePreset: "yolo", title: "long" });
 			faux.setResponses(Array.from({ length: 120 }, (_, i) => turn(i)).flat());
 			const times: number[] = [];
 			for (let i = 0; i < 120; i++) {

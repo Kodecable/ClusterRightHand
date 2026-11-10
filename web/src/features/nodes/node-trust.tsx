@@ -1,4 +1,4 @@
-import type { GuardRule, NodeTrust, TrustEntry, TrustEntryKey } from "@crh/api";
+import type { GuardRule, NodeTrust, TrustEntry, TrustEntryKey, TrustStatus } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useMemo } from "react";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -104,6 +104,18 @@ export function NodeTrustPanel({ nodeId }: { nodeId: string }) {
 	const { locale } = useLocale();
 	const trust = useNodeTrust(nodeId);
 	const data: NodeTrust | undefined = trust.data;
+	const reportLabel = (status: TrustStatus | null): string => {
+		switch (status) {
+			case "ok":
+				return t`OK`;
+			case "unavailable":
+				return t`Unavailable`;
+			case "not_forward":
+				return t`Not applicable`;
+			default:
+				return t`not reported`;
+		}
+	};
 	const columns: DataTableColumn<TrustEntry>[] = [
 		{
 			id: "name",
@@ -164,7 +176,7 @@ export function NodeTrustPanel({ nodeId }: { nodeId: string }) {
 								label: t`Report`,
 								value: (
 									<span>
-										{data.status ?? t`not reported`}
+										{reportLabel(data.status)}
 										{data.stale && (
 											<span className="text-muted-foreground">
 												{" "}
@@ -184,7 +196,7 @@ export function NodeTrustPanel({ nodeId }: { nodeId: string }) {
 											value: <TrustAliases aliases={data.summary.aliases} />,
 										},
 										{
-											label: t`Clock skew`,
+											label: t`Authorization clock tolerance`,
 											value: formatDuration(Math.abs(data.summary.clockSkewMs), locale),
 										},
 										{
@@ -203,7 +215,13 @@ export function NodeTrustPanel({ nodeId }: { nodeId: string }) {
 					/>
 					{data.summary === null ? (
 						<EmptyHint>
-							<Trans>The node has not reported its trust configuration</Trans>
+							{data.status === "not_forward" ? (
+								<Trans>The privileged mode is not forward, so this node uses no trust configuration</Trans>
+							) : data.status === "unavailable" ? (
+								<Trans>The privileged mode is unreachable, so the trust configuration is unknown</Trans>
+							) : (
+								<Trans>The node has not reported its trust configuration</Trans>
+							)}
 						</EmptyHint>
 					) : data.summary.trust.length === 0 ? (
 						<EmptyHint>

@@ -18,7 +18,6 @@ test("only authorizations and schedules keep a page header description", async (
 	for (const path of [
 		"/approvals",
 		"/tasks",
-		"/batch",
 		"/nodes",
 		"/credentials",
 		"/audit",
@@ -35,6 +34,13 @@ test("only authorizations and schedules keep a page header description", async (
 		await page.goto(path);
 		await expect(page.locator('[data-slot="page-header"] p').first()).toBeVisible();
 	}
+});
+
+test("the old batch route redirects to the tasks page", async ({ page }) => {
+	await login(page);
+	await page.goto("/batch");
+	await expect(page).toHaveURL(/\/tasks$/);
+	await expect(page.getByTestId("tasks-page")).toBeVisible();
 });
 
 test("a deep link survives login", async ({ page }) => {

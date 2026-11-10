@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { authStore } from "@/features/auth/session";
+import { formatDateTimeSeconds } from "@/lib/format";
 import { renderWithRouter } from "@/test/render";
 import { NodeDetailPage, NodesPage } from "./pages";
 
@@ -138,6 +139,19 @@ describe("NodesPage administrator actions", () => {
 		expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
 	});
 
+	test("a connected node's Last seen is Now, with the connection time on hover", async () => {
+		const lastSeenAt = "2026-01-01T00:00:05.000Z";
+		await renderPage(ADMIN, [node({ lastSeenAt, connected: true })]);
+		const now = await screen.findByText("Now");
+		expect(now).toHaveAttribute("title", `Connected since ${formatDateTimeSeconds(lastSeenAt, "en")}`);
+	});
+
+	test("a disconnected node's Last seen is the relative time", async () => {
+		await renderPage(ADMIN, [node({ lastSeenAt: "2026-01-01T00:00:05.000Z", connected: false })]);
+		await screen.findByRole("link", { name: "worker-01" });
+		expect(screen.queryByText("Now")).not.toBeInTheDocument();
+	});
+
 	test("a member without grants gets the explanation, not the admin instructions", async () => {
 		await renderPage(MEMBER, []);
 		expect(await screen.findByText("An administrator grants access to nodes.")).toBeInTheDocument();
@@ -173,7 +187,7 @@ describe("NodesPage administrator actions", () => {
 	});
 });
 
-describe("NodeDetailPage privileged.toml aliases", () => {
+describe("NodeDetailPage", () => {
 	test("an administrator sees the aliases line for a forward node with node groups", async () => {
 		route.params = { nodeId: "node-1" };
 		mockFetch(ADMIN, [
@@ -196,5 +210,21 @@ describe("NodeDetailPage privileged.toml aliases", () => {
 		expect(await screen.findByText('aliases = ["group-1", "group-2"]')).toBeInTheDocument();
 		expect(screen.getByRole("heading", { name: "Aliases for privileged.toml" })).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Copy aliases" })).toBeInTheDocument();
+	});
+
+	test("a connected node's Last seen is Now, with the connection time on hover", async () => {
+		const lastSeenAt = "2026-01-01T00:00:05.000Z";
+		route.params = { nodeId: "node-1" };
+		mockFetch(MEMBER, [node({ lastSeenAt, connected: true, access: "granted" })]);
+		await authStore.load();
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		await renderWithRouter(
+			<QueryClientProvider client={client}>
+				<NodeDetailPage />
+			</QueryClientProvider>,
+		);
+
+		const now = await screen.findByText("Now");
+		expect(now).toHaveAttribute("title", `Connected since ${formatDateTimeSeconds(lastSeenAt, "en")}`);
 	});
 });
