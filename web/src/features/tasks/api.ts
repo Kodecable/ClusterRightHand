@@ -20,7 +20,12 @@ export const taskKeys = {
 		[
 			"tasks",
 			"list",
-			{ state: filters.state ?? "", actorType: filters.actorType ?? "", nodeId: filters.nodeId ?? "" },
+			{
+				state: filters.state ?? "",
+				actorType: filters.actorType ?? "",
+				nodeId: filters.nodeId ?? "",
+				userId: filters.userId ?? "",
+			},
 		] as const,
 	detail: (id: string) => ["tasks", "detail", id] as const,
 	taskGroup: (id: string) => ["tasks", "task-group", id] as const,

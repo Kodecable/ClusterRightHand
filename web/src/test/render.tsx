@@ -52,7 +52,14 @@ export function renderWithI18n(
 	});
 }
 
-function buildRouter(ui: React.ReactElement) {
+export interface RenderRouterOptions {
+	/** Render the component on this route instead of the index route, e.g. "/tasks". */
+	path?: string;
+	/** Initial history entries; defaults to the path (or "/"), so query strings can be tested. */
+	initialEntries?: string[];
+}
+
+function buildRouter(ui: React.ReactElement, options: RenderRouterOptions = {}) {
 	const rootRoute = createRootRoute();
 	const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => ui });
 	const paths = [
@@ -83,25 +90,32 @@ function buildRouter(ui: React.ReactElement) {
 		"/login",
 	];
 	const children = paths.map((path) =>
-		createRoute({ getParentRoute: () => rootRoute, path, component: () => <div /> }),
+		createRoute({
+			getParentRoute: () => rootRoute,
+			path,
+			component: path === options.path ? () => ui : () => <div />,
+		}),
 	);
 	return createRouter({
 		routeTree: rootRoute.addChildren([indexRoute, ...children]),
-		history: createMemoryHistory({ initialEntries: ["/"] }),
+		history: createMemoryHistory({ initialEntries: options.initialEntries ?? [options.path ?? "/"] }),
 	});
 }
 
 /**
  * Render a component that uses `<Link>`: a minimal in-memory router registers
- * the paths the components link to and shows the component at the root. The
- * router comes back too, so a test can assert where a submit navigated.
+ * the paths the components link to and shows the component at the root. A page
+ * that reads its own search params is rendered on its real path instead
+ * (`options.path`, with `options.initialEntries` for `?…`). The router comes
+ * back too, so a test can assert where a submit navigated.
  */
 export async function renderWithRouter(
 	ui: React.ReactElement,
 	locale: TestLocale = "en",
+	options: RenderRouterOptions = {},
 ): Promise<RenderResult & { router: ReturnType<typeof buildRouter> }> {
 	activateLocale(locale);
-	const router = buildRouter(ui);
+	const router = buildRouter(ui, options);
 	await router.load();
 	const result = render(
 		<QueryClientProvider client={testQueryClient()}>

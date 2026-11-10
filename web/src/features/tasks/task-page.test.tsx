@@ -1,4 +1,4 @@
-import type { TaskGroupView, TaskView } from "@crh/api";
+import type { Evaluation, TaskGroupView, TaskView } from "@crh/api";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -294,5 +294,57 @@ describe("TaskPage and TaskGroupPage", () => {
 		const header = await pageHeader();
 		expect(within(header).getByText("Running")).toBeInTheDocument();
 		expect(within(header).queryByTestId("task-outcome")).not.toBeInTheDocument();
+	});
+
+	test("a failed task with nothing to show has no empty Result box", async () => {
+		route.params = { taskId: "t1" };
+		mockTask({
+			...TASK,
+			state: "failed",
+			exitCode: null,
+			errorCode: "permission_denied",
+			errorMessage: "permission denied",
+			outputMode: "full",
+			outputBytes: 0,
+			outputHead: "",
+			outputTail: "",
+			notice: null,
+			result: null,
+		});
+		await renderPage(<TaskPage />);
+
+		await screen.findByTestId("task-page");
+		expect(screen.queryByRole("region", { name: "Result" })).not.toBeInTheDocument();
+	});
+
+	test("an exited task with output keeps its Result box", async () => {
+		route.params = { taskId: "t1" };
+		mockTask({ ...TASK, outputMode: "full", outputBytes: 12, outputHead: "hello\n", outputTail: "" });
+		await renderPage(<TaskPage />);
+
+		const result = await screen.findByRole("region", { name: "Result" });
+		expect(within(result).getByLabelText("output")).toHaveTextContent("hello");
+	});
+
+	test("an exited task with an approval still shows the rule chain evaluation", async () => {
+		route.params = { taskId: "t1" };
+		const evaluation: Evaluation = {
+			result: "allow",
+			levels: [
+				{
+					scope: { type: "session", id: "s1" },
+					own: "allow",
+					rule: 0,
+					matched: { action: "allow", method: "exec", exact: "rm -f /tmp/worker-01.pid" },
+					effective: "allow",
+				},
+			],
+		};
+		mockTask({ ...TASK, approval: { evaluation } });
+		await renderPage(<TaskPage />);
+
+		await screen.findByTestId("task-page");
+		expect(screen.getByText("Rule chain evaluation")).toBeInTheDocument();
+		expect(screen.getByRole("table", { name: "Rule chain evaluation" })).toBeInTheDocument();
 	});
 });

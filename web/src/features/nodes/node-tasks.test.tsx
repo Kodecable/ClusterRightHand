@@ -1,6 +1,6 @@
 import type { TaskView } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { screen, within } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { renderWithRouter } from "@/test/render";
 import { NodeTaskList } from "./node-tasks";
@@ -72,8 +72,8 @@ test("a recent task's row links to the task page; there is no Details column", a
 	const first = await screen.findByRole("link", { name: "uptime" });
 	expect(first).toHaveAttribute("href", "/tasks/task-1");
 	expect(screen.getByRole("link", { name: "whoami" })).toHaveAttribute("href", "/tasks/task-2");
-	// One row link per task, one actor link per row, and no separate "Details" link.
-	expect(screen.getAllByRole("link")).toHaveLength(4);
+	// One row link per task, one actor link per row, one "View all tasks" link, and no separate "Details" link.
+	expect(screen.getAllByRole("link")).toHaveLength(5);
 	for (const link of screen.getAllByRole("link", { name: "Ada" })) {
 		expect(link).toHaveAttribute("href", "/users/u1");
 	}
@@ -83,11 +83,13 @@ test("a recent task's row links to the task page; there is no Details column", a
 	expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
 });
 
-test("the summary and the kind are shown together per node", async () => {
+test("the recent list links to the node-filtered tasks page", async () => {
 	await renderList([task({ summary: "uptime", kind: "exec" })]);
-	const row = (await screen.findByText("uptime")).closest('[role="row"]');
-	if (!(row instanceof HTMLElement)) throw new Error("no task row");
-	expect(within(row).getByText("(exec)")).toBeInTheDocument();
+	const viewAll = await screen.findByRole("link", { name: "View all tasks" });
+	expect(viewAll).toHaveAttribute("href", "/tasks?node=node-1");
+	// The row shows the same title everywhere: no "(kind)" suffix on a node's own list.
+	expect(await screen.findByText("uptime")).toBeInTheDocument();
+	expect(screen.queryByText("(exec)")).not.toBeInTheDocument();
 });
 
 test("an empty list uses the table's compact empty line", async () => {

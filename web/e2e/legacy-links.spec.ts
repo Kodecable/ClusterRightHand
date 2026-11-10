@@ -52,6 +52,7 @@ test("an old #/tasks/:id link becomes the path", async ({ adminPage: page, crhs,
 
 	await page.goto(`/#/tasks/${done.id}`);
 	await expect(page).toHaveURL(new RegExp(`/tasks/${done.id}$`));
-	await expect(page.getByTestId("page-title")).toHaveText("Tasks");
 	await expect(page.getByTestId("task-page")).toContainText("legacy-task");
+	// Once the task has loaded, the shell is titled with its command (usePageTitle), not "Tasks".
+	await expect(page.getByTestId("page-title")).toHaveText("echo legacy-task");
 });

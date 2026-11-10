@@ -429,6 +429,11 @@ describe("UserDetailPage", () => {
 		expect(await within(sessions).findByText("No sessions yet")).toHaveAttribute("data-slot", "table-empty");
 		const tasks = screen.getByTestId("user-tasks");
 		expect(await within(tasks).findByText("No tasks yet")).toHaveAttribute("data-slot", "table-empty");
+		// The recent tasks link to the tasks page filtered to this user.
+		expect(within(tasks).getByRole("link", { name: "View all tasks" })).toHaveAttribute("href", "/tasks?user=u2");
+		// Both recent lists ask for only their first ten rows.
+		expect(calls.some((call) => call.url === "/api/sessions?scope=visible&ownerId=u2&limit=10")).toBe(true);
+		expect(calls.some((call) => call.url === "/api/tasks?userId=u2&limit=10")).toBe(true);
 	});
 
 	test("a missing user and a user you may not read show one no-access message", async () => {

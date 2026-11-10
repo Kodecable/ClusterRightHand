@@ -24,7 +24,9 @@ import { useSessions } from "@/features/sessions/api";
 import { sessionTitle } from "@/features/sessions/session-item";
 import { useTasks } from "@/features/tasks/api";
 import { useTaskColumns } from "@/features/tasks/task-columns";
+import { taskTitle } from "@/features/tasks/title";
 import { isNotFound } from "@/lib/api/client";
+import { linkClass } from "@/lib/utils";
 import { useRemoveUserGroupMember, useUpdateUser, useUser, useUserGroups, useUsers } from "./api";
 import { KindSelect } from "./kind-select";
 import { NewUserDialog } from "./new-user-dialog";
@@ -127,7 +129,7 @@ export function UsersPage() {
 function UserActivity({ user }: { user: User }) {
 	const { t } = useLingui();
 	const admin = useAuth().user?.kind === "admin";
-	const sessions = useSessions({ scope: admin ? "all" : "visible", ownerId: user.id });
+	const sessions = useSessions({ scope: admin ? "all" : "visible", ownerId: user.id, limit: 10 });
 	const tasks = useTasks({ userId: user.id, limit: 10 });
 	const nodes = useNodes();
 	const names = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
@@ -168,9 +170,7 @@ function UserActivity({ user }: { user: User }) {
 	return (
 		<>
 			<section className="grid gap-2" aria-labelledby="user-sessions-heading" data-testid="user-sessions">
-				<h2 id="user-sessions-heading" className="text-sm font-medium">
-					<Trans>Recent sessions</Trans>
-				</h2>
+				<SectionHeader id="user-sessions-heading" title={<Trans>Recent sessions</Trans>} />
 				<DataTable
 					label={t`Sessions of ${user.username}`}
 					columns={sessionColumns}
@@ -189,9 +189,15 @@ function UserActivity({ user }: { user: User }) {
 				/>
 			</section>
 			<section className="grid gap-2" aria-labelledby="user-tasks-heading" data-testid="user-tasks">
-				<h2 id="user-tasks-heading" className="text-sm font-medium">
-					<Trans>Recent tasks</Trans>
-				</h2>
+				<SectionHeader
+					id="user-tasks-heading"
+					title={<Trans>Recent tasks</Trans>}
+					actions={
+						<Link to="/tasks" search={{ user: user.id }} className={linkClass}>
+							<Trans>View all tasks</Trans>
+						</Link>
+					}
+				/>
 				<DataTable
 					label={t`Tasks of ${user.username}`}
 					columns={taskColumns}
@@ -201,7 +207,7 @@ function UserActivity({ user }: { user: User }) {
 					error={tasks.isError ? tasks.error : undefined}
 					onRetry={() => void tasks.refetch()}
 					rowLink={(task) => ({ to: "/tasks/$taskId", params: { taskId: task.id } })}
-					rowLabel={(task) => task.summary || task.kind}
+					rowLabel={(task) => taskTitle(task)}
 					rowLinkColumn="task"
 					empty={
 						<TableEmpty>

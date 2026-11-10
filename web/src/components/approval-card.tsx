@@ -34,6 +34,19 @@ function ruleResultLabel(i18n: I18n, result: string): string {
 	return descriptor === undefined ? result : i18n._(descriptor);
 }
 
+/** The kinds of rule chain level the approval UI names in words; anything else stays raw. */
+const SCOPE_TYPE_LABELS: Record<string, MessageDescriptor> = {
+	api_token: msg`API token`,
+	session: msg`Session`,
+	schedule: msg`Schedule`,
+};
+
+/** A level's scope type in words, instead of the raw wire value. */
+function scopeTypeLabel(i18n: I18n, type: string): string {
+	const descriptor = SCOPE_TYPE_LABELS[type];
+	return descriptor === undefined ? type : i18n._(descriptor);
+}
+
 /**
  * An actor of a task: a user is a link to its page (the destination handles no
  * access); a token, system, agent or schedule actor stays plain text.
@@ -53,7 +66,7 @@ function ActorValue({
 	return <span>{actorLabel(type, id, tokenNames ?? new Map())}</span>;
 }
 
-/** The rule chain evaluation: for each level its scope, own result, deciding rule and effective result. */
+/** The rule chain evaluation: each level's scope, the rule it matched, its own result and the cumulative result. */
 export function EvaluationTable({
 	evaluation,
 	tokenNames,
@@ -72,22 +85,14 @@ export function EvaluationTable({
 			size: 220,
 			cell: ({ row }) => (
 				<>
-					{row.original.scope.type === "api_token" ? <Trans>API token</Trans> : row.original.scope.type}{" "}
+					{scopeTypeLabel(i18n, row.original.scope.type)}{" "}
 					<span className={MONO_CELL}>{tokenNames?.get(row.original.scope.id) ?? row.original.scope.id}</span>
 				</>
 			),
 			meta: {
 				title: (level: Evaluation["levels"][number]) =>
-					`${level.scope.type} ${tokenNames?.get(level.scope.id) ?? level.scope.id}`,
+					`${scopeTypeLabel(i18n, level.scope.type)} ${tokenNames?.get(level.scope.id) ?? level.scope.id}`,
 			},
-		},
-		{
-			id: "own",
-			header: t`Own result`,
-			size: 110,
-			cell: ({ row }) => (
-				<StatusText tone={ruleResultTone(row.original.own)}>{ruleResultLabel(i18n, row.original.own)}</StatusText>
-			),
 		},
 		{
 			id: "matched",
@@ -100,17 +105,25 @@ export function EvaluationTable({
 					</code>
 				) : (
 					<span className="text-muted-foreground">
-						<Trans>default</Trans>
+						<Trans>Default</Trans>
 					</span>
 				),
 			meta: {
 				title: (level: Evaluation["levels"][number]) =>
-					level.matched ? JSON.stringify(ruleWithNames(level.matched, refNames ?? new Map())) : i18n._(msg`default`),
+					level.matched ? JSON.stringify(ruleWithNames(level.matched, refNames ?? new Map())) : i18n._(msg`Default`),
 			},
 		},
 		{
+			id: "own",
+			header: t`Rule result`,
+			size: 110,
+			cell: ({ row }) => (
+				<StatusText tone={ruleResultTone(row.original.own)}>{ruleResultLabel(i18n, row.original.own)}</StatusText>
+			),
+		},
+		{
 			id: "effective",
-			header: t`Effective`,
+			header: t`Cumulative result`,
 			size: 110,
 			cell: ({ row }) => (
 				<StatusText tone={ruleResultTone(row.original.effective)}>

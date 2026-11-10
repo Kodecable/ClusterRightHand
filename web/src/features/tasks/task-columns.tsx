@@ -9,14 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { UserLink } from "@/components/user-link";
 import { cn, MONO_CELL } from "@/lib/utils";
 import { taskActor } from "./actor";
+import { taskTitle } from "./title";
 
 export interface TaskColumnOptions {
 	/** Display names by user id, for the "By" column. */
 	users: Map<string, string>;
 	/** Node names by node id; when given, the table gets a node column. */
 	nodeNames?: Map<string, string>;
-	/** A node's own list: the summary carries the task's kind, and every row links to the task. */
-	perNode?: boolean;
 }
 
 /**
@@ -24,7 +23,7 @@ export interface TaskColumnOptions {
  * (doc/webui.md "Tasks"): the same cells in the same order, plus the node
  * column on the global list. The row itself links to the task on both.
  */
-export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumnOptions): DataTableColumn<TaskView>[] {
+export function useTaskColumns({ users, nodeNames }: TaskColumnOptions): DataTableColumn<TaskView>[] {
 	const { t } = useLingui();
 	return useMemo(() => {
 		const columns: DataTableColumn<TaskView>[] = [
@@ -40,8 +39,7 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 				minSize: 160,
 				cell: ({ row }) => (
 					<span className="flex min-w-0 items-center gap-1.5">
-						<span className={cn("truncate", MONO_CELL)}>{row.original.summary || row.original.kind}</span>
-						{perNode && row.original.summary !== "" && <span>({row.original.kind})</span>}
+						<span className={cn("truncate", MONO_CELL)}>{taskTitle(row.original)}</span>
 						{row.original.privileged && (
 							<Badge variant="secondary">
 								<Trans>Privileged</Trans>
@@ -49,7 +47,7 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 						)}
 					</span>
 				),
-				meta: { title: (task: TaskView) => task.summary || task.kind },
+				meta: { title: (task: TaskView) => taskTitle(task) },
 			},
 		];
 
@@ -99,5 +97,5 @@ export function useTaskColumns({ users, nodeNames, perNode = false }: TaskColumn
 		);
 
 		return columns;
-	}, [nodeNames, perNode, t, users]);
+	}, [nodeNames, t, users]);
 }

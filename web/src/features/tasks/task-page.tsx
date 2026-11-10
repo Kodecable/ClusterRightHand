@@ -13,7 +13,14 @@ import { Panel } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskGone } from "@/components/task-gone";
-import { hasTaskOutcome, TaskEvaluation, TaskFacts, TaskOutcomeText, TaskOutput } from "@/components/task-result";
+import {
+	hasTaskOutcome,
+	hasTaskOutput,
+	TaskEvaluation,
+	TaskFacts,
+	TaskOutcomeText,
+	TaskOutput,
+} from "@/components/task-result";
 import { Button } from "@/components/ui/button";
 import { UserLink } from "@/components/user-link";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
@@ -26,6 +33,7 @@ import { linkClass } from "@/lib/utils";
 import { taskActor } from "./actor";
 import { useCancelTask, useTask } from "./api";
 import { isTerminal } from "./output";
+import { taskTitle } from "./title";
 
 /** A node link that shows the node's name, falling back to its id while the list loads. */
 function NodeLink({ nodeId, names }: { nodeId: string; names: Map<string, string> }) {
@@ -54,7 +62,7 @@ export function TaskPage() {
 		[directory.data],
 	);
 	// The shell title names the task by its command, like the page heading does.
-	usePageTitle(task.data === undefined ? undefined : task.data.summary || task.data.kind);
+	usePageTitle(task.data === undefined ? undefined : taskTitle(task.data));
 
 	if (task.isPending) {
 		return (
@@ -127,8 +135,8 @@ export function TaskPage() {
 				</Link>
 			</div>
 			<PageHeader
-				title={<span className="font-mono">{view.summary || view.kind}</span>}
-				titleText={view.summary || view.kind}
+				title={<span className="font-mono">{taskTitle(view)}</span>}
+				titleText={taskTitle(view)}
 				description={
 					<span>
 						<TaskStatusBadge state={view.state} />
@@ -218,9 +226,11 @@ export function TaskPage() {
 				<TaskEvaluation task={view} tokenNames={looks.tokenNames} className="rounded-lg border p-4" />
 			)}
 
-			<Panel as="section" aria-label={t`Result`}>
-				<TaskOutput task={view} />
-			</Panel>
+			{hasTaskOutput(view) && (
+				<Panel as="section" aria-label={t`Result`}>
+					<TaskOutput task={view} />
+				</Panel>
+			)}
 		</Page>
 	);
 }

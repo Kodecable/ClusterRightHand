@@ -10,6 +10,7 @@ import { useTimeColumnWidth } from "@/components/time-column";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/session";
 import { batchOutput, joinOutput, statusOutputNoteKey, taskErrorText, taskOutcome } from "@/features/tasks/output";
+import { taskTitle } from "@/features/tasks/title";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { DecisionView, EvaluationTable } from "./approval-card";
 
@@ -258,7 +259,12 @@ export function TaskFacts({
 	return <KeyValueList items={items} className={cn("text-sm", className)} />;
 }
 
-/** The rule chain that produced an approval decision, folded away. */
+/**
+ * The rule chain that produced an approval decision, folded away. Shown for any
+ * task with an approval record, whatever its state: a finished task keeps the
+ * chain that was evaluated. The task page hides it while awaiting approval,
+ * where the approval card shows the same chain.
+ */
 export function TaskEvaluation({
 	task,
 	tokenNames,
@@ -268,7 +274,7 @@ export function TaskEvaluation({
 	tokenNames?: Map<string, string>;
 	className?: string;
 }) {
-	if (!task.approval || task.state === "exited") return null;
+	if (!task.approval) return null;
 	return (
 		<details className={cn("rounded-md border p-2", className)}>
 			<summary className="cursor-pointer text-xs font-medium text-muted-foreground">
@@ -454,6 +460,20 @@ export function TaskOutput({ task, className }: { task: TaskView; className?: st
 }
 
 /**
+ * Whether `TaskOutput` renders anything: a notice, kept output, the status-only
+ * note (it always explains itself), or a structured result. The task page uses
+ * it to skip the Result box of a task with nothing to show (a failed task with
+ * no output).
+ */
+export function hasTaskOutput(task: TaskView): boolean {
+	if (task.notice !== null && task.notice.trim() !== "") return true;
+	const output = batchOutput(task);
+	if (output.kind === "status") return true;
+	if (output.bytes !== 0 || output.head !== "" || output.tail !== "") return true;
+	return task.result != null;
+}
+
+/**
  * The full task result used by the approval pages, batch runs, the run panel
  * and the session's tool cards (doc/webui.md "TaskResult"). The task page
  * composes the same parts itself so nothing is shown twice.
@@ -482,7 +502,7 @@ export function TaskSummary({ task, nodeName, className }: { task: TaskView; nod
 			className={cn("flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent", className)}
 		>
 			<TaskStatusBadge state={task.state} />
-			<span className={cn("min-w-0 flex-1 truncate", MONO_CELL)}>{task.summary || task.kind}</span>
+			<span className={cn("min-w-0 flex-1 truncate", MONO_CELL)}>{taskTitle(task)}</span>
 			{nodeName !== undefined && <span className="shrink-0">{nodeName}</span>}
 			<span className="shrink-0">
 				<TaskOutcomeText task={task} />

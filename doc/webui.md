@@ -158,6 +158,9 @@ web/src/
 - 任务页的页头标题是任务摘要（等宽、最多两行截断，tooltip 显示全文），下面显示状态，有结果时再用 “ · ” 追加结果（如“已结束 · 退出码 3”“已结束 · 已超时”“已结束 · 已取消”“已结束 · 成功”），运行中或无结果时不追加；外壳的标题栏和浏览器标签页用同一个摘要（单行、按长度截断），不再显示 “Tasks” 或 `ClusterRightHand`。
 - `/task-groups/$taskGroupId` 用任务组的命令/摘要作为页头标题（等宽，和任务页一致），状态下移一行。成员结果表（节点、状态、Outcome，行链接到成员任务）上方不再有 “Result” 标题、Privileged 徽标、节点数、重复的命令行和 “Targets:” 行。跳过或中断的说明作为标题下的一行短提示保留；审批、签名和拒绝卡片仍在标题与成员表之间。
 - 任务组页的标题、外壳标题栏和浏览器标题都由 `usePageTitle` 设置；没有导航项匹配的详情页因此不会退回应用名。
+- 任务和任务组的标题只有一个来源：`taskTitle(task)`（`web/src/features/tasks/title.ts`，返回摘要，摘要为空时用 kind）。任务页、任务组页、外壳标题、任务表、审批 / 授权列表和节点最近任务都用它。
+- 节点详情的 Recent tasks 只列最新 10 条（`GET /nodes/:id/tasks` 上限 10）；标题右侧的“查看全部任务”链接到 `/tasks?node=<nodeId>`。
+- 任务页的 URL 支持 `?node=` 和 `?user=`（字符串）：节点下拉初始化自 `node`，改动时用 replace 写回 URL；`user` 没有独立控件，在筛选行显示“用户：<名字>”和清除按钮。两者都直接作为 `GET /tasks` 的 `nodeId` / `userId`。
 
 ### 用户与用户组
 
@@ -167,7 +170,7 @@ web/src/
   - 管理员在这里改角色、启用/禁用（禁用仍需确认；不能停用自己）和重置密码。普通用户只能打开自己的页面，页面上没有任何编辑控件。
   - 用户组是 `DataTable`（名称、成员数），行可点、链接到 `/user-groups/$userGroupId`；成员数只在管理员可读用户组列表时显示，否则留空。没有用户组时表格内显示 `TableEmpty` “No user groups”。管理员的标题右侧有 `Add to user group`（outline 小按钮 + `PlusIcon`）：对话框用 `userGroup` 选择器并排除用户已加入的组，提交走加入成员接口；每行还有一个 `Remove`（`xs` outline + `XIcon`，可见文字 “Remove”），确认后移除该成员关系并刷新本页。
   - 管理员看到 `Node access` 表格：只列出 `user:<id>` 的授权，目标名字前有 `Node` / `Node group` 徽标（`Badge variant="secondary"`），目标是节点时链接到 `/nodes/$nodeId`、是节点组时链接到 `/node-groups/$nodeGroupId`，创建时间用 `DateTime`；每行还有 outline `xs` + `XIcon` 的 “Remove”，确认后删除授权。标题右侧的 `Add access` 打开对话框，用一个 `nodeTarget` 选择器同时列出节点和节点组（`Node` / `Node group` 徽标，排除已有授权的目标），grantee 固定为当前用户。没有授权时表格内显示 `TableEmpty` “No node access”。普通用户看不到这个区块（授权列表接口仅管理员可读）。
-  - `Recent sessions` 和 `Recent tasks` 两个 `DataTable` 只取第一页：会话用 `scope=all&ownerId=`（管理员）或 `scope=visible&ownerId=`（本人），任务用 `userId=`；行分别链接到会话和任务页。时间用 `RelativeTime`。没有行时用 `TableEmpty`（“No sessions yet”“No tasks yet”），不用整块的 `EmptyState`。
+  - `Recent sessions` 和 `Recent tasks` 两个 `DataTable` 只取第一页（各 10 行）：会话用 `scope=all&ownerId=`（管理员）或 `scope=visible&ownerId=`（本人）并带 `limit=10`，任务用 `userId=` 和 `limit=10`；行分别链接到会话和任务页。任务小节的“查看全部任务”链接到 `/tasks?user=<userId>`；会话列表没有所有者筛选，因此没有对应链接。时间用 `RelativeTime`。没有行时用 `TableEmpty`（“No sessions yet”“No tasks yet”），不用整块的 `EmptyState`。
   - 用户不存在和“没有权限看这个用户”是同一条 `ErrorState`：“This user doesn't exist or you don't have access.”。
 - `/user-groups/$userGroupId`（`UserGroupDetailPage`）：返回 “All users”；显示名称、创建时间，然后是一个 `Members` 小节：标题右侧的 `Add member`（outline 小按钮，打开选择用户的对话框），下面的 `DataTable` 列出用户（整行链接到 `/users/$userId`）、角色、状态和 `Remove`（outline `xs` + `XIcon`，确认后移除成员）；没有成员时表格内显示 `TableEmpty` “No members”。管理员还能看到同样的 `Node access` 表格，列出 `user_group:<id>` 的授权，目标名字前有 `Node` / `Node group` 徽标，行内 `Remove` 同样先确认；标题右侧的 `Add access` 用同一个 `nodeTarget` 选择器给该用户组新增节点或节点组授权。页头只保留重命名和删除（确认后回用户页）。改名与创建用同一套名称规则，服务端校验并记审计。
 - `/node-groups/$nodeGroupId`：页头只保留改名和删除；`Members` 小节的标题右侧是 `Edit members`（打开现有的成员对话框），表格列出节点（整行链接到 `/nodes/$nodeId`）、状态和 hostname；没有成员时表格内显示 `TableEmpty` “No members”。`Access` 小节列出被授权者（名字旁有 User / User group 徽标）、创建时间（`DateTime`）和 outline `xs` + `XIcon` 的 `Remove`（确认后移除），`Add access` 是标题右侧的 outline 小按钮；它的对话框没有 Type 下拉，而是一个 `directory` 选择器同时列出用户和用户组（带类型徽标），选中项的 kind 决定 grantee 类型。没有授权时表格内显示 `TableEmpty` “No access grants”。

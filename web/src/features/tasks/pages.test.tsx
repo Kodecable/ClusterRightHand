@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { renderWithRouter } from "@/test/render";
 import { TasksPage } from "./pages";
+import type { TasksSearch } from "./search";
 
 const TASK: TaskView = {
 	id: "task-1",
@@ -46,7 +47,13 @@ const TASK: TaskView = {
 	handlerSessionId: null,
 };
 
-function mockApi(items: TaskView[] = []): { urls: string[] } {
+interface MockOptions {
+	items?: TaskView[];
+	nodes?: { id: string; name: string }[];
+	users?: { id: string; username: string; displayName: string }[];
+}
+
+function mockApi({ items = [], nodes = [], users = [] }: MockOptions = {}): { urls: string[] } {
 	const urls: string[] = [];
 	vi.stubGlobal(
 		"fetch",
@@ -56,9 +63,9 @@ function mockApi(items: TaskView[] = []): { urls: string[] } {
 			const body = url.startsWith("/api/tasks")
 				? { items, nextCursor: null }
 				: url.startsWith("/api/nodes")
-					? { nodes: [] }
+					? { nodes }
 					: url.startsWith("/api/directory")
-						? { users: [], userGroups: [] }
+						? { users, userGroups: [] }
 						: { ok: true };
 			return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
 		}),
@@ -66,12 +73,14 @@ function mockApi(items: TaskView[] = []): { urls: string[] } {
 	return { urls };
 }
 
-async function renderPage() {
+async function renderPage(initialEntries: string[] = ["/tasks"]) {
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 	return renderWithRouter(
 		<QueryClientProvider client={client}>
 			<TasksPage />
 		</QueryClientProvider>,
+		"en",
+		{ path: "/tasks", initialEntries },
 	);
 }
 
@@ -99,7 +108,7 @@ describe("TasksPage filters", () => {
 	});
 
 	test("a task row links to the task page from its summary cell", async () => {
-		mockApi([TASK]);
+		mockApi({ items: [TASK] });
 		await renderPage();
 		const link = await screen.findByRole("link", { name: "echo hi" });
 		expect(link).toHaveAttribute("href", "/tasks/task-1");
@@ -111,6 +120,44 @@ describe("TasksPage filters", () => {
 		mockApi();
 		await renderPage();
 		expect(screen.queryByTestId("waiting-for-me")).not.toBeInTheDocument();
+	});
+});
+
+describe("TasksPage URL filters", () => {
+	test("?node= preselects the node and filters the request; clearing writes the filter back", async () => {
+		const { urls } = mockApi({ nodes: [{ id: "node-1", name: "worker-01" }] });
+		const { router } = await renderPage(["/tasks?node=node-1"]);
+		await waitFor(() =>
+			expect(urls.some((url) => url.startsWith("/api/tasks") && url.includes("nodeId=node-1"))).toBe(true),
+		);
+		await waitFor(() => expect(screen.getByLabelText("Node")).toHaveTextContent("worker-01"));
+
+		const user = userEvent.setup();
+		await user.click(screen.getByLabelText("Node"));
+		await user.click(await screen.findByRole("option", { name: "Any node" }));
+		const search = router.state.location.search as TasksSearch;
+		await waitFor(() => expect(search.node).toBeUndefined());
+		await waitFor(() =>
+			expect(urls.some((url) => url.startsWith("/api/tasks") && !url.includes("nodeId="))).toBe(true),
+		);
+	});
+
+	test("?user= shows the user beside the filters, sends userId, and can be cleared", async () => {
+		const { urls } = mockApi({ users: [{ id: "u2", username: "alice", displayName: "Alice" }] });
+		const { router } = await renderPage(["/tasks?user=u2"]);
+		await waitFor(() =>
+			expect(urls.some((url) => url.startsWith("/api/tasks") && url.includes("userId=u2"))).toBe(true),
+		);
+		const indicator = await screen.findByTestId("user-filter");
+		expect(indicator).toHaveTextContent("User: Alice");
+
+		await userEvent.setup().click(screen.getByRole("button", { name: "Clear user filter" }));
+		const search = router.state.location.search as TasksSearch;
+		await waitFor(() => expect(search.user).toBeUndefined());
+		await waitFor(() => expect(screen.queryByTestId("user-filter")).not.toBeInTheDocument());
+		await waitFor(() =>
+			expect(urls.some((url) => url.startsWith("/api/tasks") && !url.includes("userId="))).toBe(true),
+		);
 	});
 });
 

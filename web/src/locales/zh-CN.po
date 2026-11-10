@@ -980,6 +980,10 @@ msgstr "Claude Code 命令"
 msgid "Claude Code on the laptop"
 msgstr "笔记本上的 Claude Code"
 
+#: src/features/tasks/pages.tsx
+msgid "Clear user filter"
+msgstr "清除用户筛选"
+
 #: src/features/nodes/pages.tsx
 msgid "Client"
 msgstr "客户端"
@@ -1263,6 +1267,10 @@ msgstr "crhs 信任片段"
 msgid "Cron"
 msgstr "Cron"
 
+#: src/components/approval-card.tsx
+msgid "Cumulative result"
+msgstr "累计结果"
+
 #: src/features/auth/change-password-dialog.tsx
 msgid "Current password"
 msgstr "当前密码"
@@ -1300,7 +1308,7 @@ msgid "Decode speed: {0} tok/s"
 msgstr "解码速度：{0} tok/s"
 
 #: src/components/approval-card.tsx
-msgid "default"
+msgid "Default"
 msgstr "默认"
 
 #: src/features/settings/model-dialog.tsx
@@ -1528,10 +1536,6 @@ msgstr "编辑节点组"
 #: src/features/settings/provider-dialog.tsx
 msgid "Edit provider {0}"
 msgstr "编辑提供方 {0}"
-
-#: src/components/approval-card.tsx
-msgid "Effective"
-msgstr "生效结果"
 
 #: src/components/task-result.tsx
 msgid "Empty file."
@@ -1967,7 +1971,7 @@ msgstr "留空表示使用默认提示词。"
 
 #: src/components/approval-card.tsx
 msgid "Level"
-msgstr "层级"
+msgstr "层"
 
 #: src/features/settings/model-dialog.tsx
 msgid "Level mapping"
@@ -2755,10 +2759,6 @@ msgstr "目前的输出"
 msgid "Overwrite if it exists"
 msgstr "如果已存在则覆盖"
 
-#: src/components/approval-card.tsx
-msgid "Own result"
-msgstr "自身结果"
-
 #: src/components/task-result.tsx
 msgid "Owner"
 msgstr "属主"
@@ -3193,6 +3193,10 @@ msgid "Rule preset: {0}"
 msgstr "规则预设：{0}"
 
 #: src/components/approval-card.tsx
+msgid "Rule result"
+msgstr "规则结果"
+
+#: src/components/approval-card.tsx
 msgid "Rule to add to the caller's rule set"
 msgstr "添加到调用方规则集的规则"
 
@@ -3305,6 +3309,7 @@ msgstr "保存规则"
 msgid "Save schedule"
 msgstr "保存计划任务"
 
+#: src/components/approval-card.tsx
 #: src/features/tasks/pages.tsx
 msgid "Schedule"
 msgstr "计划任务"
@@ -3388,6 +3393,7 @@ msgstr "请选择…"
 msgid "Send"
 msgstr "发送"
 
+#: src/components/approval-card.tsx
 #: src/features/schedules/run-history.tsx
 #: src/features/settings/model-presets.tsx
 #: src/features/tasks/task-page.tsx
@@ -4252,6 +4258,10 @@ msgstr "{0} 所属的用户组"
 msgid "User or user group"
 msgstr "用户或用户组"
 
+#: src/features/tasks/pages.tsx
+msgid "User: {userName}"
+msgstr "用户：{userName}"
+
 #: src/features/auth/login-page.tsx
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
@@ -4271,6 +4281,11 @@ msgstr "值"
 #: src/features/sessions/share-dialog.tsx
 msgid "View"
 msgstr "查看"
+
+#: src/features/nodes/node-tasks.tsx
+#: src/features/users/pages.tsx
+msgid "View all tasks"
+msgstr "查看全部任务"
 
 #: src/features/sessions/session-item.ts
 msgid "Waiting for a quota decision"

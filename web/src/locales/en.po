@@ -980,6 +980,10 @@ msgstr "Claude Code command"
 msgid "Claude Code on the laptop"
 msgstr "Claude Code on the laptop"
 
+#: src/features/tasks/pages.tsx
+msgid "Clear user filter"
+msgstr "Clear user filter"
+
 #: src/features/nodes/pages.tsx
 msgid "Client"
 msgstr "Client"
@@ -1263,6 +1267,10 @@ msgstr "crhs trust snippet"
 msgid "Cron"
 msgstr "Cron"
 
+#: src/components/approval-card.tsx
+msgid "Cumulative result"
+msgstr "Cumulative result"
+
 #: src/features/auth/change-password-dialog.tsx
 msgid "Current password"
 msgstr "Current password"
@@ -1300,8 +1308,8 @@ msgid "Decode speed: {0} tok/s"
 msgstr "Decode speed: {0} tok/s"
 
 #: src/components/approval-card.tsx
-msgid "default"
-msgstr "default"
+msgid "Default"
+msgstr "Default"
 
 #: src/features/settings/model-dialog.tsx
 msgid "Default (omitted)"
@@ -1528,10 +1536,6 @@ msgstr "Edit node groups"
 #: src/features/settings/provider-dialog.tsx
 msgid "Edit provider {0}"
 msgstr "Edit provider {0}"
-
-#: src/components/approval-card.tsx
-msgid "Effective"
-msgstr "Effective"
 
 #: src/components/task-result.tsx
 msgid "Empty file."
@@ -2755,10 +2759,6 @@ msgstr "Output so far"
 msgid "Overwrite if it exists"
 msgstr "Overwrite if it exists"
 
-#: src/components/approval-card.tsx
-msgid "Own result"
-msgstr "Own result"
-
 #: src/components/task-result.tsx
 msgid "Owner"
 msgstr "Owner"
@@ -3193,6 +3193,10 @@ msgid "Rule preset: {0}"
 msgstr "Rule preset: {0}"
 
 #: src/components/approval-card.tsx
+msgid "Rule result"
+msgstr "Rule result"
+
+#: src/components/approval-card.tsx
 msgid "Rule to add to the caller's rule set"
 msgstr "Rule to add to the caller's rule set"
 
@@ -3305,6 +3309,7 @@ msgstr "Save rules"
 msgid "Save schedule"
 msgstr "Save schedule"
 
+#: src/components/approval-card.tsx
 #: src/features/tasks/pages.tsx
 msgid "Schedule"
 msgstr "Schedule"
@@ -3388,6 +3393,7 @@ msgstr "Select…"
 msgid "Send"
 msgstr "Send"
 
+#: src/components/approval-card.tsx
 #: src/features/schedules/run-history.tsx
 #: src/features/settings/model-presets.tsx
 #: src/features/tasks/task-page.tsx
@@ -4252,6 +4258,10 @@ msgstr "User groups of {0}"
 msgid "User or user group"
 msgstr "User or user group"
 
+#: src/features/tasks/pages.tsx
+msgid "User: {userName}"
+msgstr "User: {userName}"
+
 #: src/features/auth/login-page.tsx
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
@@ -4271,6 +4281,11 @@ msgstr "Value"
 #: src/features/sessions/share-dialog.tsx
 msgid "View"
 msgstr "View"
+
+#: src/features/nodes/node-tasks.tsx
+#: src/features/users/pages.tsx
+msgid "View all tasks"
+msgstr "View all tasks"
 
 #: src/features/sessions/session-item.ts
 msgid "Waiting for a quota decision"

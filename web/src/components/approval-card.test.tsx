@@ -2,7 +2,7 @@ import type { ApprovalBody, Evaluation, TaskGroupView, TaskView } from "@crh/api
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { renderWithI18n, renderWithRouter } from "@/test/render";
-import { ApprovalCard, DecisionView } from "./approval-card";
+import { ApprovalCard, DecisionView, EvaluationTable } from "./approval-card";
 
 const evaluation: Evaluation = {
 	result: "require-approval",
@@ -37,6 +37,44 @@ const task = (overrides: Partial<TaskView> = {}): TaskView =>
 
 const nodeNames = new Map([["node-1", "worker-01"]]);
 const tokenNames = new Map([["tok-1", "deploy bot"]]);
+
+describe("EvaluationTable", () => {
+	const headers = (table: HTMLElement) =>
+		within(table)
+			.getAllByRole("columnheader")
+			.map((cell) => cell.textContent);
+
+	test("orders the level, matched rule, its own result and the cumulative result", () => {
+		renderWithI18n(<EvaluationTable evaluation={evaluation} tokenNames={tokenNames} />);
+		const table = screen.getByRole("table", { name: "Rule chain evaluation" });
+		expect(headers(table)).toEqual(["Level", "Matched rule", "Rule result", "Cumulative result"]);
+		// The scope type is named in words, next to the token's own name.
+		expect(within(table).getByText(/API token/)).toBeInTheDocument();
+		expect(within(table).getByText("Default")).toBeInTheDocument();
+	});
+
+	test("zh-CN names the columns and the session and schedule scope types", () => {
+		const localized: Evaluation = {
+			result: "require-approval",
+			levels: [
+				{ scope: { type: "session", id: "s1" }, own: "inherit", effective: "require-approval" },
+				{
+					scope: { type: "schedule", id: "sched-1" },
+					own: "require-approval",
+					rule: 0,
+					matched: { action: "require-approval", method: "exec", prefix: "systemctl " },
+					effective: "require-approval",
+				},
+			],
+		};
+		renderWithI18n(<EvaluationTable evaluation={localized} />, "zh-CN");
+		const table = screen.getByRole("table", { name: "规则链评估" });
+		expect(headers(table)).toEqual(["层", "匹配规则", "规则结果", "累计结果"]);
+		expect(within(table).getByText(/会话/)).toBeInTheDocument();
+		expect(within(table).getByText(/计划任务/)).toBeInTheDocument();
+		expect(within(table).getByText("默认")).toBeInTheDocument();
+	});
+});
 
 describe("ApprovalCard", () => {
 	test("shows what is asked and the rule chain", () => {

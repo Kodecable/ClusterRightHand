@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-router";
 import type { AuthStore } from "@/features/auth/session";
 import { authStore } from "@/features/auth/session";
+import { parseTasksSearch } from "@/features/tasks/search";
 import { linkClass } from "@/lib/utils";
 import { sessionPageChunk, sessionsLayoutChunk } from "./lazy-chunks";
 import { AppShell } from "./shell/app-shell";
@@ -146,6 +147,7 @@ const scheduleDetailRoute = createRoute({
 const tasksRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/tasks",
+	validateSearch: parseTasksSearch,
 	component: lazyRouteComponent(() => import("@/features/tasks/pages"), "TasksPage"),
 });
 

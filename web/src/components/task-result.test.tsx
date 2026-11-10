@@ -1,8 +1,8 @@
-import type { TaskView } from "@crh/api";
+import type { Evaluation, TaskView } from "@crh/api";
 import { screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
-import { renderWithRouter } from "@/test/render";
-import { TaskOutcomeText, TaskResult, TaskSummary } from "./task-result";
+import { renderWithI18n, renderWithRouter } from "@/test/render";
+import { hasTaskOutput, TaskEvaluation, TaskOutcomeText, TaskResult, TaskSummary } from "./task-result";
 
 const baseTask = (overrides: Partial<TaskView> = {}): TaskView =>
 	({
@@ -365,6 +365,73 @@ describe("TaskResult", () => {
 	test("status output mode shows no notice when crhs kept none", async () => {
 		await renderWithRouter(<TaskResult task={baseTask({ outputMode: "status", outputFile: null })} />);
 		expect(screen.queryByTestId("task-notice")).not.toBeInTheDocument();
+	});
+});
+
+describe("hasTaskOutput", () => {
+	test("a failed task with no output, notice or result has nothing to show", () => {
+		expect(
+			hasTaskOutput(
+				baseTask({
+					state: "failed",
+					exitCode: null,
+					outputMode: "full",
+					outputBytes: 0,
+					outputHead: "",
+					outputTail: "",
+					notice: null,
+					result: null,
+				}),
+			),
+		).toBe(false);
+	});
+
+	test("kept output, a status note, a notice and a structured result each count", () => {
+		expect(hasTaskOutput(baseTask())).toBe(true);
+		expect(hasTaskOutput(baseTask({ outputMode: "status", outputBytes: 0, outputHead: "", outputTail: "" }))).toBe(
+			true,
+		);
+		expect(hasTaskOutput(baseTask({ outputBytes: 0, outputHead: "", outputTail: "", notice: "crh: note" }))).toBe(true);
+		expect(
+			hasTaskOutput(
+				baseTask({
+					outputBytes: 0,
+					outputHead: "",
+					outputTail: "",
+					result: { kind: "file.write", bytes: 1, created: true },
+				}),
+			),
+		).toBe(true);
+	});
+
+	test("a whitespace-only notice does not count", () => {
+		expect(hasTaskOutput(baseTask({ outputBytes: 0, outputHead: "", outputTail: "", notice: "  \n" }))).toBe(false);
+	});
+});
+
+describe("TaskEvaluation", () => {
+	const evaluation: Evaluation = {
+		result: "allow",
+		levels: [
+			{
+				scope: { type: "session", id: "s1" },
+				own: "allow",
+				rule: 0,
+				matched: { action: "allow", method: "exec", exact: "echo hi" },
+				effective: "allow",
+			},
+		],
+	};
+
+	test("an exited task keeps the rule chain it was evaluated with", () => {
+		renderWithI18n(<TaskEvaluation task={baseTask({ state: "exited", approval: { evaluation } })} />);
+		expect(screen.getByText("Rule chain evaluation")).toBeInTheDocument();
+		expect(screen.getByRole("table", { name: "Rule chain evaluation" })).toBeInTheDocument();
+	});
+
+	test("a task without an approval has no evaluation", () => {
+		const { container } = renderWithI18n(<TaskEvaluation task={baseTask()} />);
+		expect(container).toBeEmptyDOMElement();
 	});
 });
 

@@ -13,6 +13,7 @@ import { CardSkeleton, PageSkeleton } from "@/components/skeletons";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { useDecideQuota } from "@/features/sessions/api";
 import { TaskGroupStatus } from "@/features/tasks/task-group-result";
+import { taskTitle } from "@/features/tasks/title";
 import { cn, linkClass } from "@/lib/utils";
 import { useApprovalLookups, useApprovals, useApprovalTask, useApprovalTaskGroup, useDecideApproval } from "./api";
 import { pendingCount } from "./pending";
@@ -141,7 +142,7 @@ function SignatureSection({
 				{tasks.map((task) => (
 					<li key={task.id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
 						<Link to="/tasks/$taskId" params={{ taskId: task.id }} className={cn("min-w-0 flex-1 truncate", linkClass)}>
-							{task.summary || task.kind} · {nodeNames.get(task.nodeId) ?? task.nodeId}
+							{taskTitle(task)} · {nodeNames.get(task.nodeId) ?? task.nodeId}
 						</Link>
 						<span>
 							<Trans>Task</Trans>
@@ -156,7 +157,7 @@ function SignatureSection({
 								params={{ taskGroupId: taskGroup.id }}
 								className={cn("min-w-0 truncate", linkClass)}
 							>
-								{taskGroup.summary || taskGroup.kind || t`task group`}
+								{taskTitle(taskGroup) || t`task group`}
 							</Link>
 							<span className="text-muted-foreground">·</span>
 							<NodeTargetList ids={taskGroup.targets} refs={taskGroup.refs} nodeNames={nodeNames} />

@@ -126,13 +126,15 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		const nodeId = c.req.param("id");
 		const user = c.get("user");
 		if (!(await nodeAccess(db, user, nodeId))) return jsonError(c, 404, "no such node");
-		// The node only narrows the list; visibility still depends on the task's relation to the user.
+		// The node's recent-tasks section shows the newest 10 (doc/webui.md "任务页与任务组页"); "View
+		// all tasks" continues on the tasks page with `?node=`. The node only narrows the list;
+		// visibility still depends on the task's relation to the user.
 		let query = db
 			.selectFrom("tasks")
 			.select("id")
 			.where("node_id", "=", nodeId)
 			.orderBy("created_at", "desc")
-			.limit(50);
+			.limit(10);
 		if (!isAdmin(user)) query = query.where("on_behalf_of_user_id", "=", user.userId);
 		const rows = await query.execute();
 		const tasks = await Promise.all(rows.map((r) => cluster.getTask(r.id)));

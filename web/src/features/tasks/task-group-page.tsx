@@ -12,6 +12,7 @@ import { useNodes } from "@/features/nodes/api";
 import { isNotFound } from "@/lib/api/client";
 import { useTaskGroup } from "./api";
 import { TaskGroupResult, TaskGroupSkippedNotice, TaskGroupStatus } from "./task-group-result";
+import { taskTitle } from "./title";
 
 /**
  * One task group from a link, e.g. a group that waits for the owner's signature
@@ -24,7 +25,7 @@ export function TaskGroupPage() {
 	const taskGroup = useTaskGroup(id, true);
 	const nodes = useNodes();
 	const names = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
-	const summary = taskGroup.data === undefined ? undefined : taskGroup.data.summary || taskGroup.data.kind;
+	const summary = taskGroup.data === undefined ? undefined : taskTitle(taskGroup.data);
 	// The shell header and the browser tab name the group by its command too.
 	usePageTitle(summary);
 
