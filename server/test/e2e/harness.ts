@@ -24,7 +24,7 @@ import { loadServerIdentity, type ServerIdentity } from "../../src/cluster/ident
 import { nodeRoute } from "../../src/cluster/ssh/nodes.ts";
 import { TaskGroups } from "../../src/cluster/task-groups.ts";
 import { MasterKey } from "../../src/keys/master-key.ts";
-import { type AuthorizationSigningKey, loadAuthorizationSigningKey } from "../../src/privilege/key.ts";
+import { type AuthorizationSigningKeyStore, loadAuthorizationSigningKeys } from "../../src/privilege/key.ts";
 import { Scheduler } from "../../src/scheduler/scheduler.ts";
 import type { Db } from "../../src/storage/db.ts";
 import { createUser } from "../../src/users/service.ts";
@@ -160,8 +160,8 @@ export class InProcessCrhs {
 	readonly clusterOptions: ClusterOptions;
 	readonly appOptions: Partial<AppOptions>;
 	identity!: ServerIdentity;
-	/** As in `main.ts`: every server signs authorizations with this key (doc/design/privilege.md "Authorization signing key"). */
-	authorizationKey!: AuthorizationSigningKey;
+	/** As in `main.ts`: the live key set, which the WebUI's System settings can add to and delete from. */
+	signingKeys!: AuthorizationSigningKeyStore;
 	cluster!: Cluster;
 	audit!: Audit;
 	taskGroups!: TaskGroups;
@@ -206,7 +206,7 @@ export class InProcessCrhs {
 	): Promise<InProcessCrhs> {
 		const crhs = new InProcessCrhs(await openTestDb("sqlite"), opts, appOptions, agentDir, fauxProvider(fauxOptions));
 		crhs.identity = await loadServerIdentity(crhs.db, crhs.masterKey);
-		crhs.authorizationKey = await loadAuthorizationSigningKey(crhs.db, crhs.masterKey);
+		crhs.signingKeys = await loadAuthorizationSigningKeys(crhs.db, crhs.masterKey);
 		await crhs.#listen(0);
 		return crhs;
 	}
@@ -221,7 +221,7 @@ export class InProcessCrhs {
 			...this.clusterOptions,
 			// As in `main.ts`: SSH nodes are reachable through a route built from their stored key.
 			sshRoute: this.clusterOptions.sshRoute ?? ((node) => nodeRoute(this.db, this.masterKey, node)),
-			authorizationKey: this.authorizationKey,
+			signingKeys: this.signingKeys,
 			audit: this.audit,
 		});
 		this.#agents = new AgentServer(this.db, this.identity, this.cluster, this.audit);
@@ -249,7 +249,7 @@ export class InProcessCrhs {
 			...(this.scheduler ? { scheduler: this.scheduler } : {}),
 			serverFingerprint: this.identity.fingerprint,
 			serverPublicKey: this.identity.keyPair.publicKey,
-			authorizationKey: this.authorizationKey,
+			signingKeys: this.signingKeys,
 			cluster: this.cluster,
 			masterKey: this.masterKey,
 			audit: this.audit,

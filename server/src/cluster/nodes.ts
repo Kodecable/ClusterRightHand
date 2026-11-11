@@ -102,7 +102,7 @@ export async function queryNodesForUser(
 	db: Db,
 	user: SessionUser,
 	params: RawEntityListQuery,
-	options: { crhsFingerprint?: string } = {},
+	options: { crhsFingerprints?: readonly string[] } = {},
 ): Promise<NodeListPage> {
 	const query = parseListQuery(params);
 	const visible = await visibleNodeIds(db, user);
@@ -139,7 +139,7 @@ export async function queryNodesForUser(
 export async function listNodesForUser(
 	db: Db,
 	user: SessionUser,
-	options: { crhsFingerprint?: string } = {},
+	options: { crhsFingerprints?: readonly string[] } = {},
 ): Promise<PublicNode[]> {
 	return (await queryNodesForUser(db, user, {}, options)).items;
 }

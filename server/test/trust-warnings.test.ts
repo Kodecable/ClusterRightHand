@@ -73,7 +73,7 @@ const PASSKEY_UNKNOWN = entry("other-passkey", "user", {
 const LOCAL = entry("local-admins", "local", { kind: "local", uids: [0] });
 
 const CONTEXT: TrustWarningContext = {
-	crhsFingerprint: "SHA256:crhs",
+	crhsFingerprints: ["SHA256:crhs"],
 	nodeGroups: new Map([
 		[WEB, "web"],
 		[PROD, "prod"],
@@ -168,6 +168,11 @@ describe("node trust warnings", () => {
 			expect(warning).toMatchObject({ kind: "trust_unknown", severity: "warning", uuid: null, nodeGroupName: null });
 			expect(warning.message).toContain(`"${warning.trustName}"`);
 		}
+	});
+
+	it("knows every one of crhs's signing keys, not only the newest", () => {
+		const context = { ...CONTEXT, crhsFingerprints: ["SHA256:crhs", "SHA256:old"] };
+		expect(warnings({ trust: [CRHS, CRHS_OLD], context })).toEqual([]);
 	});
 
 	it("reports every kind at once in a stable order", () => {

@@ -45,10 +45,12 @@ export interface PlannerInput {
 	taskGroup: boolean;
 	owner: OwnerCredentials;
 	/**
-	 * The fingerprint of crhs's own authorization signing key. When given, only crhs trust entries
-	 * with this key can sign or cosign; a node may trust several crhs keys (e.g. during rotation).
+	 * The fingerprints of crhs's own authorization signing keys, newest first. When given, only crhs
+	 * trust entries with one of these keys can sign or cosign, and the newest key the node trusts with
+	 * the needed kind is used; a node may trust several crhs keys (e.g. during rotation). Undefined
+	 * means the caller did not resolve the keys, so any crhs entry is considered.
 	 */
-	crhsFingerprint?: string;
+	crhsFingerprints?: readonly string[];
 	/** Paths already tried for this task; a crha rejection of the crhs path is not retried. */
 	tried?: readonly AuthorizationPath[];
 	/** `issued_at_ms` of generated payloads; defaults to now. */
@@ -60,6 +62,8 @@ export interface PlannerInput {
 export interface PlannedCrhsPath {
 	path: "crhs";
 	entry: TrustEntry;
+	/** The fingerprint of the newest key this node trusts with `execute`; claimCrhs signs with it. */
+	keyFingerprint: string;
 	authorization: BuiltAuthorization;
 }
 
@@ -134,21 +138,41 @@ function canAssertUv(entry: TrustEntry): boolean {
 	return entry.key.kind === "sshsig" && entry.key.publicKey.startsWith("sk-");
 }
 
-/** Whether a crhs trust entry is crhs's own key (when the fingerprint is known). */
-export function isOwnCrhsEntry(entry: TrustEntry, crhsFingerprint: string | undefined): boolean {
+/** Whether a crhs trust entry is one of crhs's own keys (when the fingerprints are known). */
+export function isOwnCrhsEntry(entry: TrustEntry, crhsFingerprints: readonly string[] | undefined): boolean {
 	if (entry.role !== "crhs") return false;
-	if (crhsFingerprint === undefined) return true;
-	return entry.key.kind === "sshsig" && entry.key.fingerprint === crhsFingerprint;
+	if (crhsFingerprints === undefined) return true;
+	return entry.key.kind === "sshsig" && crhsFingerprints.includes(entry.key.fingerprint);
 }
 
 /** The summary's own crhs entries: the only ones whose cosignature this crhs can attach. */
-function ownCrhsEntries(summary: TrustSummary, crhsFingerprint: string | undefined): TrustEntry[] {
-	return summary.trust.filter((entry) => isOwnCrhsEntry(entry, crhsFingerprint));
+function ownCrhsEntries(summary: TrustSummary, crhsFingerprints: readonly string[] | undefined): TrustEntry[] {
+	return summary.trust.filter((entry) => isOwnCrhsEntry(entry, crhsFingerprints));
 }
 
-function firstCosignEntry(summary: TrustSummary, crhsFingerprint: string | undefined): AuthzEntry | undefined {
-	const entry = ownCrhsEntries(summary, crhsFingerprint).find((candidate) => candidate.kinds.includes("cosign"));
-	return entry ? authzEntryFromTrust(entry) : undefined;
+/**
+ * The trust entry of the newest own key that can cosign. The fingerprints are newest first, so the
+ * planner previews the same key `cosignature()` signs with (doc/design/privilege.md "Authorization signing key").
+ */
+function firstCosignEntry(
+	summary: TrustSummary,
+	crhsFingerprints: readonly string[] | undefined,
+): AuthzEntry | undefined {
+	if (crhsFingerprints === undefined) {
+		const entry = ownCrhsEntries(summary, undefined).find((candidate) => candidate.kinds.includes("cosign"));
+		return entry ? authzEntryFromTrust(entry) : undefined;
+	}
+	for (const fingerprint of crhsFingerprints) {
+		const entry = summary.trust.find(
+			(candidate) =>
+				candidate.role === "crhs" &&
+				candidate.key.kind === "sshsig" &&
+				candidate.key.fingerprint === fingerprint &&
+				candidate.kinds.includes("cosign"),
+		);
+		if (entry) return authzEntryFromTrust(entry);
+	}
+	return undefined;
 }
 
 /**
@@ -223,8 +247,25 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 	if (tried.has("crhs")) notes.push("the crhs authorization path was already rejected");
 
 	if (!tried.has("crhs")) {
-		for (const entry of summary.trust) {
-			if (!isOwnCrhsEntry(entry, input.crhsFingerprint) || !entry.kinds.includes("execute")) continue;
+		// Newest key first: the node's trust report decides which of crhs's keys it accepts
+		// (doc/design/privilege.md "Authorization signing key"). Without a resolved key set, keep the summary's order.
+		const candidates: { entry: TrustEntry; keyFingerprint: string }[] = [];
+		if (input.crhsFingerprints === undefined) {
+			for (const entry of summary.trust) {
+				if (isOwnCrhsEntry(entry, undefined) && entry.key.kind === "sshsig") {
+					candidates.push({ entry, keyFingerprint: entry.key.fingerprint });
+				}
+			}
+		} else {
+			for (const fingerprint of input.crhsFingerprints) {
+				const entry = summary.trust.find(
+					(candidate) => candidate.key.kind === "sshsig" && candidate.key.fingerprint === fingerprint,
+				);
+				if (entry?.role === "crhs") candidates.push({ entry, keyFingerprint: fingerprint });
+			}
+		}
+		for (const { entry, keyFingerprint } of candidates) {
+			if (!entry.kinds.includes("execute")) continue;
 			const ttl = payloadTtl(entry, CRHS_AUTHORIZATION_TTL_MS);
 			const authorization = buildAuthorization({
 				nodes: [input.nodeId],
@@ -244,7 +285,7 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 				userVerified: false,
 			};
 			if (entryAccepts(summary, authzEntries, input, input.task, authorization, entry.name, [signature], now)) {
-				paths.push({ path: "crhs", entry, authorization });
+				paths.push({ path: "crhs", entry, keyFingerprint, authorization });
 				break;
 			}
 		}
@@ -271,12 +312,12 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 			});
 			const canUv = canAssertUv(entry);
 			const needsCosign = cosignRequired(entry);
-			const available = needsCosign && hasCosign(ownCrhsEntries(summary, input.crhsFingerprint));
+			const available = needsCosign && hasCosign(ownCrhsEntries(summary, input.crhsFingerprints));
 			const signatures: AuthzSignature[] = [
 				{ entry: entryKey, valid: true, userVerified: entry.requireUv ? canUv : false },
 			];
 			if (available) {
-				const cosign = firstCosignEntry(summary, input.crhsFingerprint);
+				const cosign = firstCosignEntry(summary, input.crhsFingerprints);
 				if (cosign) signatures.push({ entry: cosign, valid: true, userVerified: false });
 			}
 			if (!entryAccepts(summary, authzEntries, input, input.task, authorization, entry.name, signatures, now)) {
@@ -287,7 +328,7 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 					entry,
 					credential,
 					cosignRequired: needsCosign,
-					cosignAvailable: hasCosign(ownCrhsEntries(summary, input.crhsFingerprint)),
+					cosignAvailable: hasCosign(ownCrhsEntries(summary, input.crhsFingerprints)),
 					requireUv: entry.requireUv,
 					canAssertUv: canUv,
 				},
@@ -321,7 +362,7 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 				notes.push("the node trusts none of the owner's credentials");
 			} else if (
 				ownerEntries.some(
-					(entry) => cosignRequired(entry) && !hasCosign(ownCrhsEntries(summary, input.crhsFingerprint)),
+					(entry) => cosignRequired(entry) && !hasCosign(ownCrhsEntries(summary, input.crhsFingerprints)),
 				)
 			) {
 				notes.push("the owner's authorization needs a crhs cosignature and the node trusts no crhs cosign key");

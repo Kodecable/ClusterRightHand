@@ -419,9 +419,17 @@ msgstr "Add jump host"
 msgid "Add member"
 msgstr "Add member"
 
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Add origin"
+msgstr "Add origin"
+
 #: src/components/share-editor.tsx
 msgid "Add share"
 msgstr "Add share"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Add signing key"
+msgstr "Add signing key"
 
 #: src/features/credentials/pages.tsx
 msgid "Add SSH key"
@@ -470,6 +478,10 @@ msgstr "After the node connects it appears as pending; compare its key fingerpri
 #: src/features/tasks/pages.tsx
 msgid "Agent"
 msgstr "Agent"
+
+#: src/features/system-settings/retention-section.tsx
+msgid "Agent tool records"
+msgstr "Agent tool records"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Aliases"
@@ -526,6 +538,15 @@ msgstr "All users"
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Allow"
 msgstr "Allow"
+
+#. placeholder {0}: index + 1
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Allowed origin {0}"
+msgstr "Allowed origin {0}"
+
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Allowed origins"
+msgstr "Allowed origins"
 
 #: src/features/approvals/pages.tsx
 msgid "Already settled"
@@ -641,6 +662,14 @@ msgstr "Approve node"
 msgid "Approved"
 msgstr "Approved"
 
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Argon2 concurrency"
+msgstr "Argon2 concurrency"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Argon2 queue"
+msgstr "Argon2 queue"
+
 #: src/features/sessions/tool-dialog.tsx
 msgid "Arguments"
 msgstr "Arguments"
@@ -689,6 +718,7 @@ msgid "Audit"
 msgstr "Audit"
 
 #: src/features/audit/pages.tsx
+#: src/features/system-settings/retention-section.tsx
 msgid "Audit events"
 msgstr "Audit events"
 
@@ -810,6 +840,14 @@ msgstr "Cancellation requested."
 msgid "Cancelled"
 msgstr "Cancelled"
 
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Cap proof of work"
+msgstr "Cap proof of work"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Captcha"
+msgstr "Captcha"
+
 #: src/features/schedules/schedule-form.tsx
 msgid "Catch up a missed trigger immediately"
 msgstr "Catch up a missed trigger immediately"
@@ -847,6 +885,10 @@ msgstr "Changing the password signs out the user's web sessions but does not rev
 #: src/features/auth/change-password-dialog.tsx
 msgid "Changing the password signs out your other web sessions but does not revoke existing API tokens. Tick this to revoke all of them too."
 msgstr "Changing the password signs out your other web sessions but does not revoke existing API tokens. Tick this to revoke all of them too."
+
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Changing the RP ID invalidates the Passkeys registered for the old one."
+msgstr "Changing the RP ID invalidates the Passkeys registered for the old one."
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Chat"
@@ -961,9 +1003,14 @@ msgstr "clock"
 msgid "Clock"
 msgstr "Clock"
 
+#: src/features/system-settings/general-section.tsx
+msgid "Clock warning threshold"
+msgstr "Clock warning threshold"
+
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/add-node-dialog.tsx
 #: src/features/ssh-credentials/pages.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Close"
 msgstr "Close"
@@ -1101,6 +1148,10 @@ msgstr "Copy code"
 msgid "Copy command"
 msgstr "Copy command"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Copy fingerprint"
+msgstr "Copy fingerprint"
+
 #: src/features/node-groups/pages.tsx
 msgid "Copy node group id"
 msgstr "Copy node group id"
@@ -1112,6 +1163,7 @@ msgstr "Copy node group id of {0}"
 
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/ssh-credentials/pages.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 msgid "Copy public key"
 msgstr "Copy public key"
 
@@ -1170,6 +1222,7 @@ msgstr "Create one to give crhs a key for SSH nodes and jump hosts."
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/ssh-credentials/pages.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/pages.tsx
@@ -1202,6 +1255,10 @@ msgstr "crha on the node is told it was removed, disconnects and stops. Tasks wa
 #: src/features/nodes/trust-warnings.tsx
 msgid "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential:"
 msgstr "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential:"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "crhs generates a new ed25519 key. It becomes the newest key, but nodes use it only after their privileged.toml trusts it."
+msgstr "crhs generates a new ed25519 key. It becomes the newest key, but nodes use it only after their privileged.toml trusts it."
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "crhs generates an ed25519 key pair and keeps the private half. Only its public key leaves the server."
@@ -1237,6 +1294,10 @@ msgstr "Custom"
 #: src/app/shell/user-menu.tsx
 msgid "Dark"
 msgstr "Dark"
+
+#: src/features/system-settings/retention-section.tsx
+msgid "Data retention"
+msgstr "Data retention"
 
 #: src/features/authorizations/pages.tsx
 msgid "Deadline"
@@ -1275,11 +1336,16 @@ msgstr "Default prompt"
 msgid "Default prompt and protocol"
 msgstr "Default prompt and protocol"
 
+#: src/features/system-settings/retention-section.tsx
+msgid "Default: {defaultValue}."
+msgstr "Default: {defaultValue}."
+
 #: src/features/credentials/pages.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/settings/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/user-group-page.tsx
 msgid "Delete"
@@ -1297,6 +1363,10 @@ msgstr "Delete {0}"
 #: src/features/schedules/pages.tsx
 msgid "Delete {0}?"
 msgstr "Delete {0}?"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Delete anyway"
+msgstr "Delete anyway"
 
 #: src/features/credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
@@ -1335,10 +1405,23 @@ msgstr "Delete provider {0}?"
 msgid "Delete schedule"
 msgstr "Delete schedule"
 
+#. placeholder {0}: row.original.name ?? row.original.fingerprint
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Delete signing key {0}"
+msgstr "Delete signing key {0}"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Delete signing key?"
+msgstr "Delete signing key?"
+
 #. placeholder {0}: deleting.name
 #: src/features/credentials/pages.tsx
 msgid "Delete the credential \"{0}\"?"
 msgstr "Delete the credential \"{0}\"?"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Delete the signing key {deleteName}?"
+msgstr "Delete the signing key {deleteName}?"
 
 #. placeholder {0}: deleting.name
 #: src/features/ssh-credentials/pages.tsx
@@ -1435,6 +1518,7 @@ msgid "Dispatched"
 msgstr "Dispatched"
 
 #: src/features/settings/model-dialog.tsx
+#: src/features/system-settings/passkeys-section.tsx
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
 msgid "Display name"
@@ -1530,16 +1614,48 @@ msgstr "Ended in {duration}"
 msgid "Enrollment command"
 msgstr "Enrollment command"
 
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Enter a display name."
+msgstr "Enter a display name."
+
+#: src/features/system-settings/retention-section.tsx
+msgid "Enter a duration of at least 1 day, or choose Keep forever."
+msgstr "Enter a duration of at least 1 day, or choose Keep forever."
+
+#: src/features/system-settings/general-section.tsx
+msgid "Enter a duration such as 60s or 5m."
+msgstr "Enter a duration such as 60s or 5m."
+
 #: src/components/decision/quota-decision.tsx
 #: src/features/sessions/budget-dialog.tsx
 msgid "Enter a positive number of tokens to add."
 msgstr "Enter a positive number of tokens to add."
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Enter a whole number of 0 or more."
+msgstr "Enter a whole number of 0 or more."
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Enter a whole number of at least 1."
+msgstr "Enter a whole number of at least 1."
 
 #: src/components/decision/quota-decision.tsx
 #: src/features/schedules/scheduleForm.ts
 #: src/features/sessions/budget-dialog.tsx
 msgid "Enter a whole number of tokens, or leave it empty for unlimited."
 msgstr "Enter a whole number of tokens, or leave it empty for unlimited."
+
+#: src/features/system-settings/general-section.tsx
+msgid "Enter an absolute http or https URL."
+msgstr "Enter an absolute http or https URL."
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Enter an HTTP header name such as X-Forwarded-For."
+msgstr "Enter an HTTP header name such as X-Forwarded-For."
+
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Enter an origin such as https://crh.example.com."
+msgstr "Enter an origin such as https://crh.example.com."
 
 #: src/features/schedules/scheduleForm.ts
 msgid "Enter at least 1 token, or leave it empty for unlimited."
@@ -1679,6 +1795,7 @@ msgid "Filter"
 msgstr "Filter"
 
 #: src/features/nodes/crhs-key-panel.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 msgid "Fingerprint"
 msgstr "Fingerprint"
 
@@ -1706,6 +1823,10 @@ msgstr "Flags"
 #: src/features/nodes/node-trust.tsx
 msgid "Format"
 msgstr "Format"
+
+#: src/features/system-settings/general-section.tsx
+msgid "General"
+msgstr "General"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "Generating…"
@@ -1775,6 +1896,10 @@ msgstr "Host keys"
 #: src/features/nodes/pages.tsx
 msgid "Hostname"
 msgstr "Hostname"
+
+#: src/features/system-settings/retention-section.tsx
+msgid "How long crhs keeps records after they finish. A duration of at least one day, or Keep forever."
+msgstr "How long crhs keeps records after they finish. A duration of at least one day, or Keep forever."
 
 #: src/components/decision/approval-decision.tsx
 #: src/components/decision/quota-decision.tsx
@@ -1867,6 +1992,10 @@ msgstr "Jump host {index}"
 msgid "Jump to latest"
 msgstr "Jump to latest"
 
+#: src/features/system-settings/retention-section.tsx
+msgid "Keep forever"
+msgstr "Keep forever"
+
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/node-trust.tsx
 msgid "Key"
@@ -1875,6 +2004,14 @@ msgstr "Key"
 #: src/features/nodes/pages.tsx
 msgid "Key fingerprint"
 msgstr "Key fingerprint"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Key still trusted"
+msgstr "Key still trusted"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Keys crhs signs authorizations with. The newest is used by default; a node trusts a key only when its privileged.toml lists it."
+msgstr "Keys crhs signs authorizations with. The newest is used by default; a node trusts a key only when its privileged.toml lists it."
 
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
@@ -2135,12 +2272,17 @@ msgstr "Move jump host {0} up"
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 #: src/features/ssh-credentials/pages.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/pages.tsx
 #: src/features/users/user-groups-section.tsx
 msgid "Name"
 msgstr "Name"
+
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Name shown by the authenticator. Default: {defaultRpName}."
+msgstr "Name shown by the authenticator. Default: {defaultRpName}."
 
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Narrow the rules before trusting a key: anything not allowed here is refused on the node even when it was authorized."
@@ -2245,6 +2387,10 @@ msgstr "New user"
 msgid "New user group"
 msgstr "New user group"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Newest"
+msgstr "Newest"
+
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Next"
 msgstr "Next"
@@ -2280,6 +2426,10 @@ msgstr "No budget limit"
 #: src/components/decision/quota-decision.tsx
 msgid "No budget limit · {usedText} spent"
 msgstr "No budget limit · {usedText} spent"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "No captcha"
+msgstr "No captcha"
 
 #: src/features/credentials/pages.tsx
 msgid "No credentials yet"
@@ -2343,6 +2493,10 @@ msgstr "No node access"
 msgid "No node groups yet"
 msgstr "No node groups yet"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "No node trusts it"
+msgstr "No node trusts it"
+
 #: src/features/nodes/pages.tsx
 msgid "No nodes yet"
 msgstr "No nodes yet"
@@ -2383,6 +2537,10 @@ msgstr "No schedules yet"
 #: src/features/users/pages.tsx
 msgid "No sessions yet"
 msgstr "No sessions yet"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "No signing keys yet. crhs cannot sign authorizations until one is added."
+msgstr "No signing keys yet. crhs cannot sign authorizations until one is added."
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "No SSH credentials yet"
@@ -2652,12 +2810,17 @@ msgstr "Ops console"
 
 #: src/features/credentials/pages.tsx
 #: src/features/settings/provider-dialog.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 msgid "Optional"
 msgstr "Optional"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Optional, overrides the provider's default endpoint."
 msgstr "Optional, overrides the provider's default endpoint."
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Optional, to tell keys apart in this list."
+msgstr "Optional, to tell keys apart in this list."
 
 #: src/features/users/new-user-dialog.tsx
 msgid "Optional; at least 8 characters."
@@ -2678,6 +2841,10 @@ msgstr "Optional; it names the trust entry."
 #: src/features/ssh-credentials/pages.tsx
 msgid "Organization-owned SSH keys that crhs uses to reach nodes. Only administrators can manage them."
 msgstr "Organization-owned SSH keys that crhs uses to reach nodes. Only administrators can manage them."
+
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Origins allowed to use Passkeys, such as https://crh.example.com. Empty derives them from each request."
+msgstr "Origins allowed to use Passkeys, such as https://crh.example.com. Empty derives them from each request."
 
 #: src/features/nodes/pages.tsx
 msgid "OS"
@@ -2746,6 +2913,10 @@ msgstr "Passkey registration was cancelled."
 msgid "Passkey signing was cancelled."
 msgstr "Passkey signing was cancelled."
 
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Passkeys"
+msgstr "Passkeys"
+
 #: src/features/auth/login-page.tsx
 #: src/features/users/new-user-dialog.tsx
 msgid "Password"
@@ -2755,6 +2926,14 @@ msgstr "Password"
 msgid "Password changed. Other sign-ins were signed out."
 msgstr "Password changed. Other sign-ins were signed out."
 
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Password hashes allowed to wait; beyond that, requests fail with hash_busy. Default: {defaultQueue}."
+msgstr "Password hashes allowed to wait; beyond that, requests fail with hash_busy. Default: {defaultQueue}."
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Password hashes computed at once; each uses 64 MiB. Default: {defaultConcurrency}."
+msgstr "Password hashes computed at once; each uses 64 MiB. Default: {defaultConcurrency}."
+
 #: src/features/users/reset-password-dialog.tsx
 msgid "Password set."
 msgstr "Password set."
@@ -2762,6 +2941,10 @@ msgstr "Password set."
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Paste this block into the node's privileged.toml. The node must be restarted to pick up the change, and `crha status` shows the trust digest it reports."
 msgstr "Paste this block into the node's privileged.toml. The node must be restarted to pick up the change, and `crha status` shows the trust digest it reports."
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Paste this line into the trust entry in a node's privileged.toml. The key is the newest, but a node uses it only after that node trusts it."
+msgstr "Paste this line into the trust entry in a node's privileged.toml. The key is the newest, but a node uses it only after that node trusts it."
 
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
@@ -2858,8 +3041,13 @@ msgstr "Provider id"
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/ssh-credentials/pages.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 msgid "Public key"
 msgstr "Public key"
+
+#: src/features/system-settings/general-section.tsx
+msgid "Public URL"
+msgstr "Public URL"
 
 #: src/features/schedules/scheduleForm.ts
 msgid "queued"
@@ -2872,6 +3060,10 @@ msgstr "Queued"
 #: src/features/approvals/pages.tsx
 msgid "Quota"
 msgstr "Quota"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Real client IP header"
+msgstr "Real client IP header"
 
 #: src/components/decision/evaluation.tsx
 msgid "Reason"
@@ -2919,6 +3111,10 @@ msgstr "Reject node"
 #: src/features/tasks/task-group-result.tsx
 msgid "Rejected"
 msgstr "Rejected"
+
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Relying party ID"
+msgstr "Relying party ID"
 
 #: src/features/sessions/budget-dialog.tsx
 msgid "Remaining budget tokens (empty = unlimited)"
@@ -2985,6 +3181,11 @@ msgstr "Remove jump host {0}"
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove model {0}"
 msgstr "Remove model {0}"
+
+#. placeholder {0}: index + 1
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Remove origin {0}"
+msgstr "Remove origin {0}"
 
 #. placeholder {0}: index + 1
 #: src/features/settings/provider-dialog.tsx
@@ -3231,10 +3432,15 @@ msgstr "Running"
 msgid "Running a security check…"
 msgstr "Running a security check…"
 
+#: src/features/system-settings/pages.tsx
+msgid "Runtime settings for this crhs. A save applies without a restart and is recorded in the audit log."
+msgstr "Runtime settings for this crhs. A save applies without a restart and is recorded in the audit log."
+
 #: src/components/dialogs.tsx
 #: src/features/nodes/rename-node-button.tsx
 #: src/features/sessions/budget-dialog.tsx
 #: src/features/settings/model-presets.tsx
+#: src/features/system-settings/section-form.tsx
 msgid "Save"
 msgstr "Save"
 
@@ -3403,6 +3609,10 @@ msgstr "Set"
 msgid "Set password"
 msgstr "Set password"
 
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Set the RP ID and at least one allowed origin together, or leave both empty."
+msgstr "Set the RP ID and at least one allowed origin together, or leave both empty."
+
 #: src/features/sessions/session-header.tsx
 msgid "Share"
 msgstr "Share"
@@ -3464,6 +3674,10 @@ msgstr "Sign with a Passkey this node trusts for this command."
 msgid "Sign with Passkey “{0}”"
 msgstr "Sign with Passkey “{0}”"
 
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Sign-in"
+msgstr "Sign-in"
+
 #: src/features/auth/api.ts
 msgid "Sign-in could not be completed. Check your connection and try again."
 msgstr "Sign-in could not be completed. Check your connection and try again."
@@ -3498,6 +3712,14 @@ msgstr "Signing credentials"
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Signing key"
 msgstr "Signing key"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Signing key added"
+msgstr "Signing key added"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Signing keys"
+msgstr "Signing keys"
 
 #: src/components/task-result.tsx
 msgid "Size"
@@ -3652,9 +3874,18 @@ msgstr "System"
 msgid "System prompt"
 msgstr "System prompt"
 
+#: src/app/shell/nav.ts
+#: src/features/system-settings/pages.tsx
+msgid "System settings"
+msgstr "System settings"
+
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Tail of output"
 msgstr "Tail of output"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Take the client address from this header's first value. Empty uses the connection's address (the default)."
+msgstr "Take the client address from this header's first value. Empty uses the connection's address (the default)."
 
 #: src/features/audit/pages.tsx
 #: src/features/nodes/access-grants.tsx
@@ -3692,6 +3923,7 @@ msgstr "Task group"
 
 #: src/app/shell/nav.ts
 #: src/features/authorizations/pages.tsx
+#: src/features/system-settings/retention-section.tsx
 #: src/features/tasks/pages.tsx
 msgid "Tasks"
 msgstr "Tasks"
@@ -3760,6 +3992,10 @@ msgstr "The full output stays on the node until the task exits."
 msgid "The grantee can see the node or every node in the node group and run tasks on them."
 msgstr "The grantee can see the node or every node in the node group and run tasks on them."
 
+#: src/features/system-settings/passkeys-section.tsx
+msgid "The hostname Passkeys are registered for, such as crh.example.com. Empty derives it from each request; set it together with the allowed origins. Default: unset."
+msgstr "The hostname Passkeys are registered for, such as crh.example.com. Empty derives it from each request; set it together with the allowed origins. Default: unset."
+
 #: src/features/tasks/taskForm.ts
 msgid "The limit must be a non-negative whole number."
 msgstr "The limit must be a non-negative whole number."
@@ -3773,6 +4009,7 @@ msgid "The model list could not be loaded."
 msgstr "The model list could not be loaded."
 
 #: src/features/credentials/pages.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "The name must be at most 100 characters."
 msgstr "The name must be at most 100 characters."
@@ -3901,6 +4138,10 @@ msgstr "The Yolo rule preset runs every action without asking or checking."
 msgid "Theme"
 msgstr "Theme"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "These nodes still trust the key. Remove the entry from their privileged.toml and reload them, or delete it anyway."
+msgstr "These nodes still trust the key. Remove the entry from their privileged.toml and reload them, or delete it anyway."
+
 #: src/features/users/pages.tsx
 msgid "They are signed out and cannot sign in again until you enable them."
 msgstr "They are signed out and cannot sign in again until you enable them."
@@ -3953,6 +4194,10 @@ msgstr "This credential is used by a node and cannot be deleted."
 #: src/features/nodes/pages.tsx
 msgid "This is a top-level key of privileged.toml. Paste it before the first `[[trust]]` table."
 msgstr "This is a top-level key of privileged.toml. Paste it before the first `[[trust]]` table."
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "This is the last signing key: crhs will no longer sign for any node."
+msgstr "This is the last signing key: crhs will no longer sign for any node."
 
 #: src/features/approvals/pages.tsx
 msgid "This request is no longer waiting for approval; it is"
@@ -4066,6 +4311,10 @@ msgstr "Trust snippet"
 msgid "Trust warnings"
 msgstr "Trust warnings"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Trusted by"
+msgstr "Trusted by"
+
 #: src/components/error-state.tsx
 msgid "Try again"
 msgstr "Try again"
@@ -4104,6 +4353,10 @@ msgstr "unlimited"
 msgid "Unlimited"
 msgstr "Unlimited"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Unnamed"
+msgstr "Unnamed"
+
 #: src/features/nodes/node-trust.tsx
 msgid "Unprivileged identity"
 msgstr "Unprivileged identity"
@@ -4141,6 +4394,10 @@ msgstr "Use the session's model"
 #: src/features/ssh-credentials/pages.tsx
 msgid "Used by"
 msgstr "Used by"
+
+#: src/features/system-settings/general-section.tsx
+msgid "Used for links crhs returns, e.g. in MCP results. Empty uses the address of the request (the default)."
+msgstr "Used for links crhs returns, e.g. in MCP results. Empty uses the address of the request (the default)."
 
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
@@ -4240,6 +4497,10 @@ msgstr "Waiting for your approval."
 msgid "Waiting for your signature."
 msgstr "Waiting for your signature."
 
+#: src/features/system-settings/general-section.tsx
+msgid "Warn when a node's clock differs from crhs's by more than this; 0s disables the warning. Default: {defaultClockWarn}."
+msgstr "Warn when a node's clock differs from crhs's by more than this; 0s disables the warning. Default: {defaultClockWarn}."
+
 #: src/features/schedules/schedule-form.tsx
 msgid "What the new session should do"
 msgstr "What the new session should do"
@@ -4256,6 +4517,10 @@ msgstr "What's on your plan today?"
 msgid "When"
 msgstr "When"
 
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Whether sign-in requires a proof of work. Default: {defaultCaptcha}."
+msgstr "Whether sign-in requires a proof of work. Default: {defaultCaptcha}."
+
 #: src/features/sessions/session-list.tsx
 msgid "Within 30 days"
 msgstr "Within 30 days"
@@ -4263,6 +4528,10 @@ msgstr "Within 30 days"
 #: src/features/sessions/session-list.tsx
 msgid "Within 7 days"
 msgstr "Within 7 days"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Without a captcha, sign-in has no proof of work; use it only where no browser is involved."
+msgstr "Without a captcha, sign-in has no proof of work; use it only where no browser is involved."
 
 #: src/app/shell/nav.ts
 msgid "Work"
@@ -4307,3 +4576,7 @@ msgstr "You have view access: the owner can let you send messages by sharing it 
 #: src/components/decision/approval-decision.tsx
 msgid "Your approval is needed"
 msgstr "Your approval is needed"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Your reverse proxy must overwrite this header, and crhs must not be reachable directly; otherwise clients can choose their own address."
+msgstr "Your reverse proxy must overwrite this header, and crhs must not be reachable directly; otherwise clients can choose their own address."

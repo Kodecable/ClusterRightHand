@@ -30,8 +30,17 @@ export function directClientAddress(c: Context): string | undefined {
 	}
 }
 
-/** Builds the `clientAddress` function for `createApp` from `listen.real_ip_header`. */
-export function createClientAddress(headerName: string | null | undefined): (c: Context) => string | undefined {
-	if (!headerName) return directClientAddress;
-	return (c) => resolveClientAddress(directClientAddress(c), headerName, c.req.header(headerName));
+/**
+ * Builds the `clientAddress` function for `createApp` from `listen.real_ip_header`. The header name
+ * may be a function, so System settings is read per request and a change applies without a restart.
+ */
+export function createClientAddress(
+	headerName: string | null | undefined | (() => string | null | undefined),
+): (c: Context) => string | undefined {
+	const configured = typeof headerName === "function" ? headerName : () => headerName;
+	return (c) => {
+		const header = configured();
+		if (!header) return directClientAddress(c);
+		return resolveClientAddress(directClientAddress(c), header, c.req.header(header));
+	};
 }

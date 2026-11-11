@@ -16,6 +16,7 @@ import type { Selectable } from "kysely";
 import type { SessionUser } from "../../auth/sessions.ts";
 import type { AuthzDecision, AuthzSignature } from "../../privilege/authz.ts";
 import { authzEntryFromTrust, decide, STEP } from "../../privilege/authz.ts";
+import { trustedSigningKey } from "../../privilege/key.ts";
 import {
 	assertSubmittingUser,
 	encodeAuthorization,
@@ -279,18 +280,13 @@ async function judgeOwnerAuthorization(
 	return { accepted: true, signatures, entry: decision.entry, cosigned, reason: "" };
 }
 
-/** crhs's cosignature for a payload, when the node trusts its signing key with the cosign kind. */
+/**
+ * crhs's cosignature for a payload, signed with the newest key the node trusts with the cosign kind
+ * (doc/design/privilege.md "Authorization signing key"). A task group's shared payload can collect one per node's key.
+ */
 function cosignature(core: ClusterCore, payloadBytes: Uint8Array, summary: TrustSummary): Signature | null {
-	const key = core.authorizationKey;
+	const key = trustedSigningKey(core.signingKeys.keys, summary.trust, "cosign");
 	if (!key) return null;
-	const entry = summary.trust.find(
-		(trustee) =>
-			trustee.role === "crhs" &&
-			trustee.kinds.includes("cosign") &&
-			trustee.key.kind === "sshsig" &&
-			trustee.key.fingerprint === key.fingerprint,
-	);
-	if (!entry) return null;
 	return { kind: "sshsig", blob: key.sign(payloadBytes) };
 }
 

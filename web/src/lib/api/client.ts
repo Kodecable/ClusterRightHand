@@ -11,12 +11,23 @@
 export class ApiError extends Error {
 	readonly status: number;
 	readonly code: string | null;
+	/**
+	 * The parsed JSON error body, when there was one: per-field validation errors
+	 * (`fields`) and the nodes that block a delete, for example.
+	 */
+	readonly details: Record<string, unknown> | null;
 
-	constructor(status: number, message: string, code: string | null = null) {
+	constructor(
+		status: number,
+		message: string,
+		code: string | null = null,
+		details: Record<string, unknown> | null = null,
+	) {
 		super(message);
 		this.name = "ApiError";
 		this.status = status;
 		this.code = code;
+		this.details = details;
 	}
 }
 
@@ -52,19 +63,21 @@ export interface RequestOptions {
 	skipUnauthorized?: boolean;
 }
 
-async function errorDetails(response: Response): Promise<{ message: string; code: string | null }> {
+async function errorDetails(
+	response: Response,
+): Promise<{ message: string; code: string | null; details: Record<string, unknown> | null }> {
 	try {
 		const data: unknown = await response.json();
-		if (data !== null && typeof data === "object") {
+		if (data !== null && typeof data === "object" && !Array.isArray(data)) {
 			const record = data as Record<string, unknown>;
 			const message = typeof record.error === "string" ? record.error : null;
 			const code = typeof record.code === "string" ? record.code : null;
-			if (message !== null) return { message, code };
+			if (message !== null) return { message, code, details: record };
 		}
 	} catch {
 		// A non-JSON error body: fall back to the status line below.
 	}
-	return { message: `HTTP ${response.status}`, code: null };
+	return { message: `HTTP ${response.status}`, code: null, details: null };
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -78,9 +91,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 	}
 	const response = await fetch(`/api${path}`, init);
 	if (!response.ok) {
-		const { message, code } = await errorDetails(response);
+		const { message, code, details } = await errorDetails(response);
 		if (response.status === 401 && !options.skipUnauthorized) notifyUnauthorized();
-		throw new ApiError(response.status, message, code);
+		throw new ApiError(response.status, message, code, details);
 	}
 	if (response.status === 204) return undefined as T;
 	const text = await response.text();

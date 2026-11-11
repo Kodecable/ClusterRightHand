@@ -29,7 +29,7 @@ your other browsers. Your API tokens keep working unless you tick **Also revoke 
 |---|---|
 | **Work** | Sessions, Schedules, Tasks, Approvals |
 | **Cluster** | Nodes, Node groups, SSH credentials (administrators), Credentials |
-| **Admin** | Authorizations (administrators), API tokens, Audit, Models (administrators), Users (administrators) |
+| **Admin** | Authorizations (administrators), API tokens, Audit, Models (administrators), System settings (administrators), Users (administrators) |
 
 The **Approvals** badge counts everything waiting for you. The user menu also sets the theme and the
 language (English or Chinese); these are stored in your browser.
@@ -269,6 +269,29 @@ authorization for exactly that command ([Privilege](../design/scheduling.md#priv
 - **Model presets.** **Session** sets the system prompt for every session. **Auto review** and **Title
   generation** set the model and prompt used for reviews and session titles. An empty prompt uses the
   built-in default, which the card shows.
+
+## System settings
+
+**System settings** (administrators only) edits crhs's runtime settings; a save applies without a
+restart and is recorded in the audit log. The [configuration reference](reference/crhs-config.md#system-settings)
+lists every value and its default. Each of the four settings sections has its own **Save**.
+
+- **General.** **Public URL** is the address crhs uses in links it returns, such as MCP results; empty
+  uses the request's address. **Clock warning threshold** is how far a node's clock may drift before
+  the node page warns; `0s` disables the warning.
+- **Sign-in.** **Captcha** requires the Cap proof of work at sign-in; `none` is for environments without
+  a browser. **Real client IP header** is the header the client address is read from; the reverse proxy
+  must overwrite it. **Argon2 concurrency** and **queue** limit password hashing; each concurrent hash
+  uses 64 MiB.
+- **Passkeys.** **Relying party ID**, **Display name** and **Allowed origins** configure Passkeys. Set
+  the RP ID and origins together, or leave both empty to derive them from each request. Changing the RP
+  ID invalidates Passkeys registered for the old one.
+- **Data retention.** How long **Tasks**, **Audit events** and **Agent tool records** are kept: a
+  duration of at least one day, or **Keep forever**.
+- **Signing keys.** The keys crhs signs authorizations with; the newest is marked and used by default.
+  **Add signing key** creates one and shows the public key line to paste into a node's `privileged.toml`.
+  A key that nodes still trust needs **Delete anyway**, and deleting the last key stops crhs from
+  signing for every node.
 
 ## API tokens
 

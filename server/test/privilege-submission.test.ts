@@ -24,7 +24,11 @@ import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
 import { trustDigest } from "../src/cluster/trust.ts";
 import { bindMasterKey, MasterKey } from "../src/keys/master-key.ts";
 import { authzEntryFromTrust, decide } from "../src/privilege/authz.ts";
-import { type AuthorizationSigningKey, loadAuthorizationSigningKey } from "../src/privilege/key.ts";
+import {
+	type AuthorizationSigningKey,
+	type AuthorizationSigningKeyStore,
+	loadAuthorizationSigningKeys,
+} from "../src/privilege/key.ts";
 import { type AuthorizationCommand, buildAuthorization, specSha256 } from "../src/privilege/payload.ts";
 import { signSshsig, verifySshsig } from "../src/privilege/sshsig.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -59,6 +63,7 @@ describe("user authorizations", () => {
 	let cluster: Cluster;
 	let agents: TestAgentServer;
 	let signing: AuthorizationSigningKey;
+	let signingKeys: AuthorizationSigningKeyStore;
 	let app: App;
 	let owner: { userId: string; cookie: string };
 	let other: { userId: string; cookie: string };
@@ -70,10 +75,13 @@ describe("user authorizations", () => {
 		db = await openTestDb("sqlite");
 		const masterKey = MasterKey.generate();
 		await bindMasterKey(db, masterKey);
-		signing = await loadAuthorizationSigningKey(db, masterKey);
+		signingKeys = await loadAuthorizationSigningKeys(db, masterKey);
+		const newest = signingKeys.newest;
+		if (!newest) throw new Error("missing signing key");
+		signing = newest;
 		audit = new Audit(db);
 		cluster = new Cluster(db, {
-			authorizationKey: signing,
+			signingKeys,
 			trustWaitMs: 100,
 			audit,
 			clockWarnMs: 60_000,
@@ -88,7 +96,7 @@ describe("user authorizations", () => {
 		app = makeApp(db, undefined, {
 			cluster,
 			audit,
-			authorizationKey: signing,
+			signingKeys,
 			webauthn: WEBAUTHN,
 			clockWarnMs: 60_000,
 		});
@@ -218,16 +226,24 @@ describe("user authorizations", () => {
 			...overrides,
 		});
 
-	/** crhs's own key, allowed to restart nginx (and to cosign). */
-	const crhsTrustEntry = (overrides: Partial<TrustEntry> = {}): TrustEntry =>
-		sshEntry("crhs", "crhs", {
-			key: { kind: "sshsig", publicKey: signing.authorizedKey, fingerprint: signing.fingerprint },
+	/** One of crhs's keys, allowed to restart nginx (and to cosign). */
+	const crhsTrustEntryFor = (
+		key: AuthorizationSigningKey,
+		name: string,
+		overrides: Partial<TrustEntry> = {},
+	): TrustEntry =>
+		sshEntry(name, "crhs", {
+			key: { kind: "sshsig", publicKey: key.authorizedKey, fingerprint: key.fingerprint },
 			kinds: ["execute", "cosign"],
 			requireExact: true,
 			maxTtlMs: 5 * 60 * 1000,
 			allow: [{ method: "exec", match: "prefix", pattern: "systemctl restart " }],
 			...overrides,
 		});
+
+	/** crhs's first key, allowed to restart nginx (and to cosign). */
+	const crhsTrustEntry = (overrides: Partial<TrustEntry> = {}): TrustEntry =>
+		crhsTrustEntryFor(signing, "crhs", overrides);
 
 	const localTrustEntry = (overrides: Partial<TrustEntry> = {}): TrustEntry =>
 		sshEntry("local-admins", "local", {
@@ -1107,6 +1123,96 @@ describe("user authorizations", () => {
 			const group = await view();
 			return group.tasks.every((task) => task.state === "running");
 		});
+	});
+
+	it("adds one cosignature per key a group's nodes trust to the same shared payload", async () => {
+		const newer = await signingKeys.add("rotation");
+		const groups = new TaskGroups(db, cluster, { audit });
+		const a = await connect("group-keys-a", (id) =>
+			summaryOf(id, [
+				ownerEntry({ kinds: ["execute", "require-cosign"] }),
+				crhsTrustEntryFor(signing, "crhs-old", { kinds: ["cosign"], allow: [] }),
+			]),
+		);
+		const b = await connect("group-keys-b", (id) =>
+			summaryOf(id, [
+				ownerEntry({ kinds: ["execute", "require-cosign"] }),
+				crhsTrustEntryFor(newer, "crhs-new", { kinds: ["cosign"], allow: [] }),
+			]),
+		);
+		const groupId = await groups.create({
+			targets: [a.node.name, b.node.name],
+			nodeIds: [a.node.id, b.node.id],
+			spec: EXEC,
+			privileged: true,
+			actor: actor(),
+			parallel: 2,
+			outputMode: "status",
+		});
+		const view = async () => (await groups.get(groupId)) as TaskGroupView;
+		await waitFor("both tasks waiting", async () => {
+			const group = await view();
+			return group.tasks.length === 2 && group.tasks.every((task) => task.state === "awaiting_authorization");
+		});
+		const shared = (await (
+			await call(app, `/api/task-groups/${groupId}/authorization`, { cookie: owner.cookie })
+		).json()) as { taskGroup: { authorization: { payload: string } } };
+		expect(
+			(await submit(signedAuthorization(new Uint8Array(Buffer.from(shared.taskGroup.authorization.payload, "base64")))))
+				.status,
+		).toBe(200);
+		await waitFor("both starts", () => a.crha.starts.length === 1 && b.crha.starts.length === 1);
+
+		// Both nodes get the same payload with both cosignatures; each node ignores the key it does not trust.
+		const first = a.crha.starts[0]?.authorizations[0] as Uint8Array;
+		const second = b.crha.starts[0]?.authorizations[0] as Uint8Array;
+		expect(Buffer.from(first)).toEqual(Buffer.from(second));
+		const wire = authorizationCodec.decode(decodeCbor(first));
+		expect(wire.signatures).toHaveLength(3);
+		const cosignatures = wire.signatures
+			.slice(1)
+			.flatMap((signature) => (signature.kind === "sshsig" ? [new Uint8Array(signature.blob)] : []));
+		expect(cosignatures).toHaveLength(2);
+		expect(cosignatures.some((blob) => verifySshsig(signing.authorizedKey, wire.payload, blob).valid)).toBe(true);
+		expect(cosignatures.some((blob) => verifySshsig(newer.authorizedKey, wire.payload, blob).valid)).toBe(true);
+		await waitFor("both running", async () => {
+			const group = await view();
+			return group.tasks.every((task) => task.state === "running");
+		});
+	});
+
+	it("cosigns with the newest key the node trusts for cosign, not one that only executes", async () => {
+		const newer = await signingKeys.add("execute-only");
+		const { node, crha } = await connect("cosign-capable", (id) =>
+			summaryOf(id, [
+				ownerEntry({ kinds: ["execute", "require-cosign"] }),
+				// The newest key may execute, but its rules refuse this command; it cannot cosign.
+				crhsTrustEntryFor(newer, "crhs-new", {
+					kinds: ["execute"],
+					allow: [{ method: "exec", match: "prefix", pattern: "systemctl stop " }],
+				}),
+				// Only the older key is trusted to cosign.
+				crhsTrustEntryFor(signing, "crhs-old", { kinds: ["cosign"], allow: [] }),
+			]),
+		);
+		const task = await createPrivileged(node.id);
+		const waiting = await waitState(task.id, "awaiting_authorization");
+		expect(waiting.authorization?.plan.paths[0]).toMatchObject({
+			path: "user",
+			entries: [{ name: "alice", cosign: "available" }],
+		});
+		const pending = (await pendingFor(task.id)).authorization as { id: string; payload: string };
+		expect((await submit(signedAuthorization(new Uint8Array(Buffer.from(pending.payload, "base64"))))).status).toBe(
+			200,
+		);
+		await waitFor("task.start", () => crha.starts.length === 1);
+		const wire = authorizationCodec.decode(decodeCbor(crha.starts[0]?.authorizations[0] as Uint8Array));
+		expect(wire.signatures).toHaveLength(2);
+		const cosign = wire.signatures[1];
+		if (cosign?.kind !== "sshsig") throw new Error("expected a crhs SSH signature");
+		expect(verifySshsig(signing.authorizedKey, wire.payload, cosign.blob).valid).toBe(true);
+		expect(verifySshsig(newer.authorizedKey, wire.payload, cosign.blob).valid).toBe(false);
+		await waitState(task.id, "running");
 	});
 
 	it("re-plans only the node a group's signature was rejected on, with attempt + 1", async () => {

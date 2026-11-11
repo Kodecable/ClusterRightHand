@@ -138,8 +138,10 @@ async function planTurn(
 	const summary = report.summary;
 	const previous = parseTaskAuthorization(row.authorization);
 	const tried = previous ? [...previous.tried] : [];
-	// Without a signing key crhs cannot take its own path; treating it as tried keeps the plan honest.
-	if (!core.authorizationKey && !tried.includes("crhs")) tried.push("crhs");
+	// Without a signing key crhs cannot take its own path; treating it as tried keeps the plan honest
+	// (doc/design/privilege.md "Authorization signing key").
+	const crhsFingerprints = core.signingKeys.fingerprints;
+	if (crhsFingerprints.length === 0 && !tried.includes("crhs")) tried.push("crhs");
 	const plan = planAuthorization({
 		summary,
 		nodeId: node.id,
@@ -147,7 +149,7 @@ async function planTurn(
 		task: { id, attempt: row.attempt, spec, privileged: true },
 		taskGroup: row.task_group_id !== null,
 		owner: await ownerCredentials(core.db, row.on_behalf_of_user_id),
-		...(core.authorizationKey ? { crhsFingerprint: core.authorizationKey.fingerprint } : {}),
+		crhsFingerprints,
 		tried,
 		now: Date.now(),
 	});
@@ -176,6 +178,7 @@ async function planTurn(
 			opts,
 			record,
 			crhsPath.authorization,
+			crhsPath.keyFingerprint,
 			from,
 		);
 		return claim ? { kind: "send", claim } : null;

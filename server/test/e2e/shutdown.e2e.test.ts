@@ -70,11 +70,12 @@ describe.skipIf(!hasGo)("crhs SIGTERM shutdown with a connected node", () => {
 		await new Promise((r) => probe.close(r));
 
 		const config = join(tmp, "crhs.toml");
-		await writeFile(
-			config,
-			`master_key_file = "${join(tmp, "master.key")}"\n[listen]\nhost = "127.0.0.1"\nport = ${port}\n[database]\ndriver = "sqlite"\npath = "${join(tmp, "crhs.db")}"\n[auth]\ncaptcha = "none"\n`,
-		);
+		// The first command imports the old [auth] table into System settings; later starts use the
+		// rewritten file, as an administrator following the import warning would.
+		const minimalConfig = `master_key_file = "${join(tmp, "master.key")}"\n[listen]\nhost = "127.0.0.1"\nport = ${port}\n[database]\ndriver = "sqlite"\npath = "${join(tmp, "crhs.db")}"\n`;
+		await writeFile(config, `${minimalConfig}[auth]\ncaptcha = "none"\n`);
 		await execFileAsync(process.execPath, [CRHS_MAIN, "-c", config, "keys", "init"]);
+		await writeFile(config, minimalConfig);
 		const add = execFile(process.execPath, [CRHS_MAIN, "-c", config, "user", "add", "root", "--admin"]);
 		add.stdin?.end("admin-password\n");
 		await new Promise((r) => add.once("exit", r));

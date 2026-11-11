@@ -4,7 +4,7 @@
  * audits an actual change, and treats the kept report as stale until the next report.
  */
 import { createHash } from "node:crypto";
-import type { NodeTrust, TrustStatus } from "@crh/api";
+import type { NodeTrust, SigningKeyKind, SigningKeyTrust, TrustStatus } from "@crh/api";
 import {
 	encode as encodeCbor,
 	type GuardRule,
@@ -20,6 +20,42 @@ import type { Db } from "../storage/db.ts";
 import type { NodeRow } from "./nodes.ts";
 
 export type { TrustStatus };
+
+/**
+ * The nodes whose cached trust report trusts each signing key, with the kinds they trust it for
+ * (doc/design/privilege.md "Trust cache" and "Authorization signing key"). Only the first trust entry per
+ * key counts, because crha maps a signature to the first entry with its key.
+ */
+export async function signingKeyTrust(
+	db: Db,
+	fingerprints: readonly string[],
+): Promise<Map<string, SigningKeyTrust[]>> {
+	const wanted = new Set(fingerprints);
+	const out = new Map<string, SigningKeyTrust[]>(fingerprints.map((fingerprint) => [fingerprint, []]));
+	if (wanted.size === 0) return out;
+	const rows = await db
+		.selectFrom("nodes")
+		.select(["id", "name", "trust_report"])
+		.where("trust_report", "is not", null)
+		.orderBy("name")
+		.orderBy("id")
+		.execute();
+	for (const row of rows) {
+		const report = parseTrustReport(row.trust_report);
+		if (report?.kind !== "ok") continue;
+		const entries = new Map<string, TrustEntry>();
+		for (const entry of report.summary.trust) {
+			if (entry.key.kind !== "sshsig" || entries.has(entry.key.fingerprint)) continue;
+			entries.set(entry.key.fingerprint, entry);
+		}
+		for (const [fingerprint, entry] of entries) {
+			if (!wanted.has(fingerprint) || entry.role !== "crhs") continue;
+			const kinds = entry.kinds.filter((kind): kind is SigningKeyKind => kind === "execute" || kind === "cosign");
+			if (kinds.length > 0) out.get(fingerprint)?.push({ nodeId: row.id, nodeName: row.name, kinds });
+		}
+	}
+	return out;
+}
 
 /** `digest = SHA-256(CBOR(TrustSummary))`, lowercase hex (doc/design/protocol.md "Trust summary"). */
 export function trustDigest(summary: TrustSummary): string {

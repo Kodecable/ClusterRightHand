@@ -273,10 +273,11 @@ async function onFacts(core: ClusterCore, nodeId: string, facts: Facts): Promise
 	// A clock far from crhs only makes authorization deadlines unreliable; warn, do nothing else
 	// (doc/design/privilege.md "Clock"). The offset is an optional fact: an absent one says nothing.
 	const offset = facts.clockOffsetMs;
-	if (core.clockWarnMs > 0 && offset !== undefined && Math.abs(offset) > core.clockWarnMs) {
+	const clockWarnMs = core.clockWarnMs;
+	if (clockWarnMs > 0 && offset !== undefined && Math.abs(offset) > clockWarnMs) {
 		const ms = Math.abs(offset);
 		const seconds = ms % 1000 === 0 ? String(ms / 1000) : (ms / 1000).toFixed(1);
-		console.warn(`node ${nodeId}: clock differs from crhs by ${seconds} s (more than ${core.clockWarnMs / 1000} s)`);
+		console.warn(`node ${nodeId}: clock differs from crhs by ${seconds} s (more than ${clockWarnMs / 1000} s)`);
 	}
 }
 

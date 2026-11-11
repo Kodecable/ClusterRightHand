@@ -28,14 +28,15 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 
 	/** The caller's access to the node, or undefined when the node is hidden from them. */
 	const access = (c: { get(k: "user"): AppEnv["Variables"]["user"] }, id: string) => nodeAccess(db, c.get("user"), id);
-	const clockWarnMs = options.clockWarnMs ?? 60_000;
-	const crhsFingerprint = options.authorizationKey?.fingerprint;
+	const clockWarnMs = () => options.settings?.current().clockWarnMs ?? options.clockWarnMs ?? 60_000;
+	const crhsFingerprints =
+		options.signingKeys?.fingerprints ?? (options.authorizationKey ? [options.authorizationKey.fingerprint] : []);
 
 	/** Fills in what only the live server knows: the connection state and the clock warning. */
 	const live = (n: PublicNode): PublicNode => ({
 		...n,
 		connected: n.connected === null ? null : (options.cluster?.isConnected(n.id) ?? false),
-		clockWarning: nodeClockWarning(n.facts, clockWarnMs),
+		clockWarning: nodeClockWarning(n.facts, clockWarnMs()),
 	});
 
 	app.get("/nodes", async (c) => {
@@ -44,7 +45,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			limit: c.req.query("limit"),
 			ids: c.req.query("ids"),
 		};
-		const page = await queryNodesForUser(db, c.get("user"), params, { crhsFingerprint });
+		const page = await queryNodesForUser(db, c.get("user"), params, { crhsFingerprints });
 		return c.json({
 			nodes: page.items.map(live),
 			...(params.limit === undefined ? {} : { more: page.more }),
@@ -58,7 +59,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		if (!level || !row) return jsonError(c, 404, "no such node");
 		const nodeGroups = (await nodeGroupsForNodes(db, [id])).get(id) ?? [];
 		const trustWarnings =
-			(await trustWarningsForRows(db, [row], new Map([[id, nodeGroups]]), { crhsFingerprint })).get(id) ?? [];
+			(await trustWarningsForRows(db, [row], new Map([[id, nodeGroups]]), { crhsFingerprints })).get(id) ?? [];
 		const node = live(toPublicNode(row, level, nodeGroups, trustWarnings));
 		if (!isAdmin(c.get("user"))) return c.json({ node });
 		return c.json({ node, ssh: (await sshNodeDetails(db, row)) ?? null });

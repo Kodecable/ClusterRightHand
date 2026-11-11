@@ -85,6 +85,12 @@ only account lifecycle operation. API tokens and WebUI session tokens are stored
 are polymorphic (the resource is a session, the grantee a user or user group), so they have no foreign
 keys. See [Ownership, access grants and sharing](access-control.md#ownership-access-grants-and-sharing).
 
+## System settings
+
+The `settings` table holds one validated JSON value per org-scoped key (the low-frequency runtime
+settings); a missing row means the default. crhs loads it at startup and replaces the in-memory object
+on each write, so changes apply without a restart.
+
 ## Nodes
 
 A node row holds the node's registration state (pending or active), its Noise public key for crha nodes,
@@ -153,9 +159,10 @@ audit write is logged but never fails the action, which has already happened.
 
 ## Retention
 
-`[retention]` in `crhs.toml` sets how long finished tasks and authorizations, audit events and finished
-durable tool tasks are kept ([crhs configuration](../guide/reference/crhs-config.md)). The sweep runs
-shortly after startup and then hourly, in small batches, and each table is swept independently.
+The retention settings in **System settings** set how long finished tasks and authorizations, audit
+events and finished durable tool tasks are kept
+([crhs configuration](../guide/reference/crhs-config.md#system-settings)). The sweep runs shortly after
+startup and then hourly, in small batches, and each table is swept independently.
 
 - Only finished tasks and task groups are deleted; anything still in progress is kept however old.
 - Authorizations are deleted after their deadline has passed by the retention period.

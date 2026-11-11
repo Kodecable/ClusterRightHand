@@ -43,11 +43,11 @@ export interface WebauthnRp {
 }
 
 /**
- * The RP settings for a browser request. With `[webauthn]` configured in crhs.toml they are fixed;
- * otherwise the RP ID is the hostname of the request's Origin header and exactly that origin is
- * accepted. The derived form is what the code documents as the "unset" case: it keeps a single-host
- * deployment working without configuration, and never trusts an origin other than the one the
- * browser reported.
+ * The RP settings for a browser request. With the WebAuthn settings configured in System settings
+ * they are fixed; otherwise the RP ID is the hostname of the request's Origin header and exactly that
+ * origin is accepted. The derived form is what the code documents as the "unset" case: it keeps a
+ * single-host deployment working without configuration, and never trusts an origin other than the one
+ * the browser reported.
  */
 export function rpForRequest(config: WebauthnConfig, originHeader: string | undefined): WebauthnRp {
 	if (config.rpId !== null) {

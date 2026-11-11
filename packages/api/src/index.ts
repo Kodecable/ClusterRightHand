@@ -13,6 +13,8 @@ export * from "./policy.ts";
 export * from "./schedules.ts";
 export * from "./session-events.ts";
 export * from "./sessions.ts";
+export * from "./settings.ts";
+export * from "./signing-keys.ts";
 export * from "./tasks.ts";
 export * from "./tokens.ts";
 export * from "./users.ts";

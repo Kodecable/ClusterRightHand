@@ -5,6 +5,7 @@ import type { Audit } from "../audit/audit.ts";
 import { resolveApiToken, type TokenIdentity } from "../auth/api-tokens.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
+import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { callTool } from "../tools/adapter.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
@@ -15,6 +16,8 @@ export interface McpOptions {
 	audit?: Audit;
 	/** Absolute base URL for links; unset builds them from the request URL (`public_url`). */
 	publicUrl?: string | null;
+	/** Runtime settings; when given `public_url` is read per request and takes precedence. */
+	settings?: SettingsStore;
 	/** Version reported to clients. */
 	version?: string;
 }
@@ -51,8 +54,8 @@ export function mcpRoutes(db: Db, options: McpOptions): Hono {
 		}
 		const key = `${identity.tokenId}#${++requests}`;
 		// public_url is the console's public base behind a TLS-terminating proxy; without it, the request's
-		// origin is the best crhs can know.
-		const baseUrl = options.publicUrl ?? new URL(c.req.url).origin;
+		// origin is the best crhs can know. System settings is read per request, so a change applies at once.
+		const baseUrl = options.settings?.current().publicUrl ?? options.publicUrl ?? new URL(c.req.url).origin;
 		identities.set(key, { ...identity, baseUrl });
 		try {
 			return await handler.fetch(c.req.raw, { authInfo: { token, clientId: key, scopes: [] } });

@@ -6,7 +6,7 @@
 import type { RegistrationResponseJSON } from "@simplewebauthn/server";
 import { Hono } from "hono";
 import { userActor } from "../audit/audit.ts";
-import type { WebauthnConfig } from "../config.ts";
+import { DEFAULT_RP_NAME, type WebauthnConfig } from "../config.ts";
 import {
 	addSshCredential,
 	addWebauthnCredential,
@@ -15,13 +15,16 @@ import {
 	webauthnCredentials,
 } from "../privilege/credentials.ts";
 import { RegistrationChallenges, rpForRequest, verifyRegistration } from "../privilege/webauthn.ts";
+import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { errorText } from "../util/errors.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
 
 export interface CredentialRoutesOptions {
-	/** `[webauthn]` from crhs.toml; unset means the RP follows the request's Origin. */
+	/** `[webauthn]` fallback for tests; production passes `settings`. */
 	webauthn?: WebauthnConfig;
+	/** Runtime settings; when given they are read per request and take precedence. */
+	settings?: SettingsStore;
 	/** Shared by the routes and their tests to control challenge expiry. */
 	challenges?: RegistrationChallenges;
 }
@@ -29,7 +32,13 @@ export interface CredentialRoutesOptions {
 /** Expects requireUser to have run. Every route works on the caller's own credentials only. */
 export function credentialRoutes(db: Db, options: CredentialRoutesOptions = {}) {
 	const app = new Hono<AppEnv>();
-	const webauthn = options.webauthn ?? { rpId: null, rpName: "ClusterRightHand", origins: [] };
+	const webauthn = (): WebauthnConfig =>
+		options.settings?.current().webauthn ??
+		options.webauthn ?? {
+			rpId: null,
+			rpName: DEFAULT_RP_NAME,
+			origins: [],
+		};
 	const challenges = options.challenges ?? new RegistrationChallenges();
 
 	app.get("/me/credentials", async (c) => c.json({ credentials: await listCredentials(db, c.get("user").userId) }));
@@ -55,7 +64,7 @@ export function credentialRoutes(db: Db, options: CredentialRoutesOptions = {}) 
 	/** Registration options for a new Passkey; the challenge is kept server-side and used once. */
 	app.post("/me/credentials/webauthn/options", async (c) => {
 		const user = c.get("user");
-		const rp = rpForRequest(webauthn, c.req.header("origin"));
+		const rp = rpForRequest(webauthn(), c.req.header("origin"));
 		const existing = await webauthnCredentials(db, user.userId);
 		const issued = await challenges.issue({
 			rp,

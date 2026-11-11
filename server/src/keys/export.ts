@@ -11,8 +11,11 @@ export interface KeyExport {
 	created_at: string;
 	master_key: string;
 	master_key_id: string;
-	/** Decrypted server keys, so the export is usable even without the database. */
-	keys: { id: string; kind: string; created_at: string; value: string }[];
+	/**
+	 * Decrypted server keys, so the export is usable even without the database. `name` is optional because
+	 * exports written before signing keys had names lack it (doc/design/privilege.md "Authorization signing key").
+	 */
+	keys: { id: string; kind: string; created_at: string; value: string; name?: string | null }[];
 }
 
 export async function buildKeyExport(db: Db, masterKey: MasterKey, now = new Date()): Promise<KeyExport> {
@@ -33,6 +36,7 @@ export async function buildKeyExport(db: Db, masterKey: MasterKey, now = new Dat
 			kind: r.kind,
 			created_at: r.created_at,
 			value: masterKey.decrypt(r.ciphertext, secretAad(r.id, r.kind)).toString("base64"),
+			name: r.name,
 		})),
 	};
 }

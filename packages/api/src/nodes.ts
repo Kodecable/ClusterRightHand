@@ -128,10 +128,19 @@ export interface NodeListResponse {
 	more?: boolean;
 }
 
-/** What to paste into ~/privileged.toml as the crhs trust entry. */
+/** What to paste into ~/privileged.toml as a crhs trust entry. */
 export interface CrhsKey {
 	authorizedKey: string;
 	fingerprint: string;
+}
+
+/**
+ * `GET /api/privilege/crhs-key`: the newest key and every key, newest first
+ * (doc/design/privilege.md "Authorization signing key").
+ */
+export interface CrhsKeyResponse {
+	key: CrhsKey;
+	keys: CrhsKey[];
 }
 
 export interface SshCredential {

@@ -419,9 +419,17 @@ msgstr "添加跳板机"
 msgid "Add member"
 msgstr "添加成员"
 
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Add origin"
+msgstr "添加源"
+
 #: src/components/share-editor.tsx
 msgid "Add share"
 msgstr "添加共享"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Add signing key"
+msgstr "添加签名密钥"
 
 #: src/features/credentials/pages.tsx
 msgid "Add SSH key"
@@ -470,6 +478,10 @@ msgstr "节点连接后会显示为待批准；批准前请把它的密钥指纹
 #: src/features/tasks/pages.tsx
 msgid "Agent"
 msgstr "Agent"
+
+#: src/features/system-settings/retention-section.tsx
+msgid "Agent tool records"
+msgstr "智能体工具记录"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Aliases"
@@ -526,6 +538,15 @@ msgstr "全部用户"
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Allow"
 msgstr "允许"
+
+#. placeholder {0}: index + 1
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Allowed origin {0}"
+msgstr "允许的源 {0}"
+
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Allowed origins"
+msgstr "允许的源"
 
 #: src/features/approvals/pages.tsx
 msgid "Already settled"
@@ -641,6 +662,14 @@ msgstr "批准节点"
 msgid "Approved"
 msgstr "已批准"
 
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Argon2 concurrency"
+msgstr "Argon2 并发数"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Argon2 queue"
+msgstr "Argon2 队列长度"
+
 #: src/features/sessions/tool-dialog.tsx
 msgid "Arguments"
 msgstr "参数"
@@ -689,6 +718,7 @@ msgid "Audit"
 msgstr "审计"
 
 #: src/features/audit/pages.tsx
+#: src/features/system-settings/retention-section.tsx
 msgid "Audit events"
 msgstr "审计事件"
 
@@ -810,6 +840,14 @@ msgstr "已请求取消任务"
 msgid "Cancelled"
 msgstr "已取消"
 
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Cap proof of work"
+msgstr "Cap 工作量证明"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Captcha"
+msgstr "验证码"
+
 #: src/features/schedules/schedule-form.tsx
 msgid "Catch up a missed trigger immediately"
 msgstr "错过时立刻补触发一次"
@@ -847,6 +885,10 @@ msgstr "修改密码会登出该用户的 Web 会话，但不会吊销已有的 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Changing the password signs out your other web sessions but does not revoke existing API tokens. Tick this to revoke all of them too."
 msgstr "修改密码会登出你的其他 Web 会话，但不会吊销已有的 API 令牌。勾选后同时吊销全部 API 令牌。"
+
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Changing the RP ID invalidates the Passkeys registered for the old one."
+msgstr "更改 RP ID 会使为旧 ID 注册的 Passkey 失效。"
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Chat"
@@ -961,9 +1003,14 @@ msgstr "时钟"
 msgid "Clock"
 msgstr "时钟"
 
+#: src/features/system-settings/general-section.tsx
+msgid "Clock warning threshold"
+msgstr "时钟警告阈值"
+
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/add-node-dialog.tsx
 #: src/features/ssh-credentials/pages.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Close"
 msgstr "关闭"
@@ -1101,6 +1148,10 @@ msgstr "复制代码"
 msgid "Copy command"
 msgstr "复制命令"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Copy fingerprint"
+msgstr "复制指纹"
+
 #: src/features/node-groups/pages.tsx
 msgid "Copy node group id"
 msgstr "复制节点组 ID"
@@ -1112,6 +1163,7 @@ msgstr "复制节点组 {0} 的 ID"
 
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/ssh-credentials/pages.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 msgid "Copy public key"
 msgstr "复制公钥"
 
@@ -1170,6 +1222,7 @@ msgstr "创建一个，为 crhs 提供用于 SSH 节点和跳板机的密钥。"
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/ssh-credentials/pages.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/pages.tsx
@@ -1202,6 +1255,10 @@ msgstr "节点上的 crha 会被告知已被移除，随后断开连接并停止
 #: src/features/nodes/trust-warnings.tsx
 msgid "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential:"
 msgstr "crhs 不认识这个信任项的密钥；它既不是 crhs 的签名密钥，也不是任何已登记的用户凭据："
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "crhs generates a new ed25519 key. It becomes the newest key, but nodes use it only after their privileged.toml trusts it."
+msgstr "crhs 会生成新的 ed25519 密钥。它将成为最新密钥，但节点仅在其 privileged.toml 信任该密钥后才会使用它。"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "crhs generates an ed25519 key pair and keeps the private half. Only its public key leaves the server."
@@ -1237,6 +1294,10 @@ msgstr "自定义"
 #: src/app/shell/user-menu.tsx
 msgid "Dark"
 msgstr "深色"
+
+#: src/features/system-settings/retention-section.tsx
+msgid "Data retention"
+msgstr "数据保留"
 
 #: src/features/authorizations/pages.tsx
 msgid "Deadline"
@@ -1275,11 +1336,16 @@ msgstr "默认提示词"
 msgid "Default prompt and protocol"
 msgstr "默认提示词与协议说明"
 
+#: src/features/system-settings/retention-section.tsx
+msgid "Default: {defaultValue}."
+msgstr "默认：{defaultValue}。"
+
 #: src/features/credentials/pages.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/settings/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/user-group-page.tsx
 msgid "Delete"
@@ -1297,6 +1363,10 @@ msgstr "删除 {0}"
 #: src/features/schedules/pages.tsx
 msgid "Delete {0}?"
 msgstr "删除 {0}？"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Delete anyway"
+msgstr "仍然删除"
 
 #: src/features/credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
@@ -1335,10 +1405,23 @@ msgstr "删除提供方 {0}？"
 msgid "Delete schedule"
 msgstr "删除计划任务"
 
+#. placeholder {0}: row.original.name ?? row.original.fingerprint
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Delete signing key {0}"
+msgstr "删除签名密钥 {0}"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Delete signing key?"
+msgstr "删除签名密钥？"
+
 #. placeholder {0}: deleting.name
 #: src/features/credentials/pages.tsx
 msgid "Delete the credential \"{0}\"?"
 msgstr "删除凭据“{0}”？"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Delete the signing key {deleteName}?"
+msgstr "删除签名密钥 {deleteName}？"
 
 #. placeholder {0}: deleting.name
 #: src/features/ssh-credentials/pages.tsx
@@ -1435,6 +1518,7 @@ msgid "Dispatched"
 msgstr "已派发"
 
 #: src/features/settings/model-dialog.tsx
+#: src/features/system-settings/passkeys-section.tsx
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
 msgid "Display name"
@@ -1530,16 +1614,48 @@ msgstr "已完成，用时 {duration}"
 msgid "Enrollment command"
 msgstr "注册命令"
 
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Enter a display name."
+msgstr "请输入显示名称。"
+
+#: src/features/system-settings/retention-section.tsx
+msgid "Enter a duration of at least 1 day, or choose Keep forever."
+msgstr "请输入至少 1 天的时长，或选择“永久保留”。"
+
+#: src/features/system-settings/general-section.tsx
+msgid "Enter a duration such as 60s or 5m."
+msgstr "请输入时长，例如 60s 或 5m。"
+
 #: src/components/decision/quota-decision.tsx
 #: src/features/sessions/budget-dialog.tsx
 msgid "Enter a positive number of tokens to add."
 msgstr "请输入要添加的 token 数（正整数）。"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Enter a whole number of 0 or more."
+msgstr "请输入大于等于 0 的整数。"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Enter a whole number of at least 1."
+msgstr "请输入大于等于 1 的整数。"
 
 #: src/components/decision/quota-decision.tsx
 #: src/features/schedules/scheduleForm.ts
 #: src/features/sessions/budget-dialog.tsx
 msgid "Enter a whole number of tokens, or leave it empty for unlimited."
 msgstr "请输入整数 token 数，留空表示不限。"
+
+#: src/features/system-settings/general-section.tsx
+msgid "Enter an absolute http or https URL."
+msgstr "请输入绝对的 http 或 https URL。"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Enter an HTTP header name such as X-Forwarded-For."
+msgstr "请输入 HTTP 头名称，例如 X-Forwarded-For。"
+
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Enter an origin such as https://crh.example.com."
+msgstr "请输入源，例如 https://crh.example.com。"
 
 #: src/features/schedules/scheduleForm.ts
 msgid "Enter at least 1 token, or leave it empty for unlimited."
@@ -1679,6 +1795,7 @@ msgid "Filter"
 msgstr "过滤"
 
 #: src/features/nodes/crhs-key-panel.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 msgid "Fingerprint"
 msgstr "指纹"
 
@@ -1706,6 +1823,10 @@ msgstr "标志"
 #: src/features/nodes/node-trust.tsx
 msgid "Format"
 msgstr "格式"
+
+#: src/features/system-settings/general-section.tsx
+msgid "General"
+msgstr "常规"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "Generating…"
@@ -1775,6 +1896,10 @@ msgstr "主机密钥"
 #: src/features/nodes/pages.tsx
 msgid "Hostname"
 msgstr "主机名"
+
+#: src/features/system-settings/retention-section.tsx
+msgid "How long crhs keeps records after they finish. A duration of at least one day, or Keep forever."
+msgstr "crhs 在记录结束后保留它们多久。时长至少一天，或选择“永久保留”。"
 
 #: src/components/decision/approval-decision.tsx
 #: src/components/decision/quota-decision.tsx
@@ -1867,6 +1992,10 @@ msgstr "跳板机 {index}"
 msgid "Jump to latest"
 msgstr "跳到最新"
 
+#: src/features/system-settings/retention-section.tsx
+msgid "Keep forever"
+msgstr "永久保留"
+
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/node-trust.tsx
 msgid "Key"
@@ -1875,6 +2004,14 @@ msgstr "密钥"
 #: src/features/nodes/pages.tsx
 msgid "Key fingerprint"
 msgstr "密钥指纹"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Key still trusted"
+msgstr "密钥仍受信任"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Keys crhs signs authorizations with. The newest is used by default; a node trusts a key only when its privileged.toml lists it."
+msgstr "crhs 用于为授权签名的密钥。默认使用最新的密钥；节点仅当其 privileged.toml 列出该密钥时才会信任它。"
 
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
@@ -2135,12 +2272,17 @@ msgstr "上移跳板机 {0}"
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 #: src/features/ssh-credentials/pages.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/pages.tsx
 #: src/features/users/user-groups-section.tsx
 msgid "Name"
 msgstr "名称"
+
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Name shown by the authenticator. Default: {defaultRpName}."
+msgstr "认证器显示的名称。默认：{defaultRpName}。"
 
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Narrow the rules before trusting a key: anything not allowed here is refused on the node even when it was authorized."
@@ -2245,6 +2387,10 @@ msgstr "新建用户"
 msgid "New user group"
 msgstr "新建用户组"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Newest"
+msgstr "最新"
+
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Next"
 msgstr "下一步"
@@ -2280,6 +2426,10 @@ msgstr "没有预算限制"
 #: src/components/decision/quota-decision.tsx
 msgid "No budget limit · {usedText} spent"
 msgstr "没有预算限制 · 已花 {usedText}"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "No captcha"
+msgstr "无验证码"
 
 #: src/features/credentials/pages.tsx
 msgid "No credentials yet"
@@ -2343,6 +2493,10 @@ msgstr "没有节点访问权限"
 msgid "No node groups yet"
 msgstr "还没有节点组"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "No node trusts it"
+msgstr "没有节点信任它"
+
 #: src/features/nodes/pages.tsx
 msgid "No nodes yet"
 msgstr "还没有节点"
@@ -2383,6 +2537,10 @@ msgstr "还没有计划任务"
 #: src/features/users/pages.tsx
 msgid "No sessions yet"
 msgstr "还没有会话"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "No signing keys yet. crhs cannot sign authorizations until one is added."
+msgstr "尚无签名密钥。在添加一个之前，crhs 无法为授权签名。"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "No SSH credentials yet"
@@ -2652,12 +2810,17 @@ msgstr "运维控制台"
 
 #: src/features/credentials/pages.tsx
 #: src/features/settings/provider-dialog.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 msgid "Optional"
 msgstr "可选"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Optional, overrides the provider's default endpoint."
 msgstr "可选，覆盖默认提供方的端点。"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Optional, to tell keys apart in this list."
+msgstr "可选，用于在此列表中区分密钥。"
 
 #: src/features/users/new-user-dialog.tsx
 msgid "Optional; at least 8 characters."
@@ -2678,6 +2841,10 @@ msgstr "可选；用于命名信任条目。"
 #: src/features/ssh-credentials/pages.tsx
 msgid "Organization-owned SSH keys that crhs uses to reach nodes. Only administrators can manage them."
 msgstr "归组织所有的 SSH 密钥，crhs 用它们连接节点。只有管理员可以管理。"
+
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Origins allowed to use Passkeys, such as https://crh.example.com. Empty derives them from each request."
+msgstr "允许使用 Passkey 的源，例如 https://crh.example.com。留空则从每个请求中推导。"
 
 #: src/features/nodes/pages.tsx
 msgid "OS"
@@ -2746,6 +2913,10 @@ msgstr "Passkey 注册已取消。"
 msgid "Passkey signing was cancelled."
 msgstr "Passkey 签名已取消。"
 
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Passkeys"
+msgstr "Passkey"
+
 #: src/features/auth/login-page.tsx
 #: src/features/users/new-user-dialog.tsx
 msgid "Password"
@@ -2755,6 +2926,14 @@ msgstr "密码"
 msgid "Password changed. Other sign-ins were signed out."
 msgstr "密码已修改，其他登录已退出。"
 
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Password hashes allowed to wait; beyond that, requests fail with hash_busy. Default: {defaultQueue}."
+msgstr "允许等待的密码哈希数；超出后请求会以 hash_busy 失败。默认：{defaultQueue}。"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Password hashes computed at once; each uses 64 MiB. Default: {defaultConcurrency}."
+msgstr "同时计算的密码哈希数；每个使用 64 MiB 内存。默认：{defaultConcurrency}。"
+
 #: src/features/users/reset-password-dialog.tsx
 msgid "Password set."
 msgstr "密码已设置。"
@@ -2762,6 +2941,10 @@ msgstr "密码已设置。"
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Paste this block into the node's privileged.toml. The node must be restarted to pick up the change, and `crha status` shows the trust digest it reports."
 msgstr "把这个块粘贴到节点的 privileged.toml。节点需要重启才能生效，`crha status` 会显示它上报的信任摘要。"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Paste this line into the trust entry in a node's privileged.toml. The key is the newest, but a node uses it only after that node trusts it."
+msgstr "将此行粘贴到节点 privileged.toml 的信任条目中。该密钥是最新的，但节点仅在自身信任该密钥后才会使用它。"
 
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
@@ -2858,8 +3041,13 @@ msgstr "提供方 ID"
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/ssh-credentials/pages.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 msgid "Public key"
 msgstr "公钥"
+
+#: src/features/system-settings/general-section.tsx
+msgid "Public URL"
+msgstr "公开 URL"
 
 #: src/features/schedules/scheduleForm.ts
 msgid "queued"
@@ -2872,6 +3060,10 @@ msgstr "排队中"
 #: src/features/approvals/pages.tsx
 msgid "Quota"
 msgstr "配额"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Real client IP header"
+msgstr "真实客户端 IP 头"
 
 #: src/components/decision/evaluation.tsx
 msgid "Reason"
@@ -2919,6 +3111,10 @@ msgstr "拒绝节点"
 #: src/features/tasks/task-group-result.tsx
 msgid "Rejected"
 msgstr "已拒绝"
+
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Relying party ID"
+msgstr "依赖方 ID"
 
 #: src/features/sessions/budget-dialog.tsx
 msgid "Remaining budget tokens (empty = unlimited)"
@@ -2985,6 +3181,11 @@ msgstr "移除跳板机 {0}"
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove model {0}"
 msgstr "移除模型 {0}"
+
+#. placeholder {0}: index + 1
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Remove origin {0}"
+msgstr "移除源 {0}"
 
 #. placeholder {0}: index + 1
 #: src/features/settings/provider-dialog.tsx
@@ -3231,10 +3432,15 @@ msgstr "运行中"
 msgid "Running a security check…"
 msgstr "正在进行安全验证…"
 
+#: src/features/system-settings/pages.tsx
+msgid "Runtime settings for this crhs. A save applies without a restart and is recorded in the audit log."
+msgstr "此 crhs 的运行时设置。保存后无需重启即可生效，并会记入审计日志。"
+
 #: src/components/dialogs.tsx
 #: src/features/nodes/rename-node-button.tsx
 #: src/features/sessions/budget-dialog.tsx
 #: src/features/settings/model-presets.tsx
+#: src/features/system-settings/section-form.tsx
 msgid "Save"
 msgstr "保存"
 
@@ -3403,6 +3609,10 @@ msgstr "已设置"
 msgid "Set password"
 msgstr "设置密码"
 
+#: src/features/system-settings/passkeys-section.tsx
+msgid "Set the RP ID and at least one allowed origin together, or leave both empty."
+msgstr "RP ID 和至少一个允许的源必须一起设置，或都留空。"
+
 #: src/features/sessions/session-header.tsx
 msgid "Share"
 msgstr "共享"
@@ -3464,6 +3674,10 @@ msgstr "使用此节点为该命令信任的 Passkey 签名。"
 msgid "Sign with Passkey “{0}”"
 msgstr "使用 Passkey“{0}”签名"
 
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Sign-in"
+msgstr "登录"
+
 #: src/features/auth/api.ts
 msgid "Sign-in could not be completed. Check your connection and try again."
 msgstr "无法完成登录，请检查网络后重试。"
@@ -3497,6 +3711,14 @@ msgstr "签名凭据"
 
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Signing key"
+msgstr "签名密钥"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Signing key added"
+msgstr "签名密钥已添加"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Signing keys"
 msgstr "签名密钥"
 
 #: src/components/task-result.tsx
@@ -3652,9 +3874,18 @@ msgstr "跟随系统"
 msgid "System prompt"
 msgstr "系统提示词"
 
+#: src/app/shell/nav.ts
+#: src/features/system-settings/pages.tsx
+msgid "System settings"
+msgstr "系统设置"
+
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Tail of output"
 msgstr "输出末尾"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Take the client address from this header's first value. Empty uses the connection's address (the default)."
+msgstr "从该头的第一个值获取客户端地址。留空则使用连接的地址（默认）。"
 
 #: src/features/audit/pages.tsx
 #: src/features/nodes/access-grants.tsx
@@ -3692,6 +3923,7 @@ msgstr "任务组"
 
 #: src/app/shell/nav.ts
 #: src/features/authorizations/pages.tsx
+#: src/features/system-settings/retention-section.tsx
 #: src/features/tasks/pages.tsx
 msgid "Tasks"
 msgstr "任务"
@@ -3760,6 +3992,10 @@ msgstr "完整输出会保留在节点上，直到任务退出。"
 msgid "The grantee can see the node or every node in the node group and run tasks on them."
 msgstr "被授权者可以看到该节点或节点组中的每个节点，并在这些节点上运行任务。"
 
+#: src/features/system-settings/passkeys-section.tsx
+msgid "The hostname Passkeys are registered for, such as crh.example.com. Empty derives it from each request; set it together with the allowed origins. Default: unset."
+msgstr "Passkey 注册所用的主机名，例如 crh.example.com。留空则从每个请求中推导；请与允许的源一起设置。默认：未设置。"
+
 #: src/features/tasks/taskForm.ts
 msgid "The limit must be a non-negative whole number."
 msgstr "限制必须是非负整数。"
@@ -3773,6 +4009,7 @@ msgid "The model list could not be loaded."
 msgstr "无法加载模型列表。"
 
 #: src/features/credentials/pages.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "The name must be at most 100 characters."
 msgstr "名称最多 100 个字符。"
@@ -3901,6 +4138,10 @@ msgstr "Yolo 规则预设所有操作都不经询问或检查直接运行。"
 msgid "Theme"
 msgstr "主题"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "These nodes still trust the key. Remove the entry from their privileged.toml and reload them, or delete it anyway."
+msgstr "这些节点仍信任该密钥。请从其 privileged.toml 中移除该条目并重新加载节点，或仍然删除。"
+
 #: src/features/users/pages.tsx
 msgid "They are signed out and cannot sign in again until you enable them."
 msgstr "该用户会被退出登录，在你重新启用之前无法再次登录。"
@@ -3953,6 +4194,10 @@ msgstr "此凭据正被节点使用，无法删除。"
 #: src/features/nodes/pages.tsx
 msgid "This is a top-level key of privileged.toml. Paste it before the first `[[trust]]` table."
 msgstr "这是 privileged.toml 的顶层键。请将它粘贴在第一个 `[[trust]]` 表之前。"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "This is the last signing key: crhs will no longer sign for any node."
+msgstr "这是最后一个签名密钥：crhs 将不再为任何节点签名。"
 
 #: src/features/approvals/pages.tsx
 msgid "This request is no longer waiting for approval; it is"
@@ -4066,6 +4311,10 @@ msgstr "信任片段"
 msgid "Trust warnings"
 msgstr "信任警告"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Trusted by"
+msgstr "信任节点"
+
 #: src/components/error-state.tsx
 msgid "Try again"
 msgstr "重试"
@@ -4104,6 +4353,10 @@ msgstr "不限制"
 msgid "Unlimited"
 msgstr "不限"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Unnamed"
+msgstr "未命名"
+
 #: src/features/nodes/node-trust.tsx
 msgid "Unprivileged identity"
 msgstr "非特权身份"
@@ -4141,6 +4394,10 @@ msgstr "使用会话的模型"
 #: src/features/ssh-credentials/pages.tsx
 msgid "Used by"
 msgstr "使用节点"
+
+#: src/features/system-settings/general-section.tsx
+msgid "Used for links crhs returns, e.g. in MCP results. Empty uses the address of the request (the default)."
+msgstr "用于 crhs 返回的链接，例如在 MCP 结果中。留空则使用请求的地址（默认）。"
 
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
@@ -4240,6 +4497,10 @@ msgstr "正在等待你的批准。"
 msgid "Waiting for your signature."
 msgstr "等待你的签名。"
 
+#: src/features/system-settings/general-section.tsx
+msgid "Warn when a node's clock differs from crhs's by more than this; 0s disables the warning. Default: {defaultClockWarn}."
+msgstr "当节点时钟与 crhs 的偏差超过此值时发出警告；0s 禁用警告。默认：{defaultClockWarn}。"
+
 #: src/features/schedules/schedule-form.tsx
 msgid "What the new session should do"
 msgstr "新会话应该做什么"
@@ -4256,6 +4517,10 @@ msgstr "今天有什么安排？"
 msgid "When"
 msgstr "时间"
 
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Whether sign-in requires a proof of work. Default: {defaultCaptcha}."
+msgstr "登录是否需要工作量证明。默认：{defaultCaptcha}。"
+
 #: src/features/sessions/session-list.tsx
 msgid "Within 30 days"
 msgstr "30 天内"
@@ -4263,6 +4528,10 @@ msgstr "30 天内"
 #: src/features/sessions/session-list.tsx
 msgid "Within 7 days"
 msgstr "7 天内"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Without a captcha, sign-in has no proof of work; use it only where no browser is involved."
+msgstr "没有验证码时，登录不具备工作量证明；仅在无浏览器的环境中使用。"
 
 #: src/app/shell/nav.ts
 msgid "Work"
@@ -4307,3 +4576,7 @@ msgstr "你拥有查看权限：所有者可以通过聊天共享让你发送消
 #: src/components/decision/approval-decision.tsx
 msgid "Your approval is needed"
 msgstr "需要你的批准"
+
+#: src/features/system-settings/sign-in-section.tsx
+msgid "Your reverse proxy must overwrite this header, and crhs must not be reachable directly; otherwise clients can choose their own address."
+msgstr "反向代理必须覆盖此头，且 crhs 必须无法被直接访问；否则客户端可以自行选择地址。"

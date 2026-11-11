@@ -1,4 +1,12 @@
-import type { CrhsKey, NodeGroupRef, NodeTrust, PublicNode, SshNodeDetails, SshTargetInput, TaskView } from "@crh/api";
+import type {
+	CrhsKeyResponse,
+	NodeGroupRef,
+	NodeTrust,
+	PublicNode,
+	SshNodeDetails,
+	SshTargetInput,
+	TaskView,
+} from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { nodeGroupKeys } from "@/features/node-groups/keys";
 import { enc, http } from "@/lib/api/client";
@@ -61,7 +69,9 @@ export function useNodeTasks(id: string | undefined) {
 export function useCrhsKey() {
 	return useQuery({
 		queryKey: nodeKeys.crhsKey(),
-		queryFn: ({ signal }) => http.get<{ key: CrhsKey }>("/privilege/crhs-key", { signal }).then((r) => r.key),
+		// The response carries the newest key first (`key`) and every key (`keys`); the trust
+		// panels build their snippets from the newest one.
+		queryFn: ({ signal }) => http.get<CrhsKeyResponse>("/privilege/crhs-key", { signal }).then((r) => r.key),
 	});
 }
 

@@ -81,7 +81,14 @@ function mockFetch(
 			if (path === "/api/node-groups") return json({ groups: [] });
 			if (path === "/api/me/credentials") return json({ credentials: [] });
 			if (path === "/api/privilege/crhs-key") {
-				return json({ key: { authorizedKey: "ssh-ed25519 AAAA test", fingerprint: "SHA256:test" } });
+				// The server answers with the newest key (`key`) and every key, newest first.
+				return json({
+					key: { authorizedKey: "ssh-ed25519 AAAANEWEST crhs-signing", fingerprint: "SHA256:newest" },
+					keys: [
+						{ authorizedKey: "ssh-ed25519 AAAANEWEST crhs-signing", fingerprint: "SHA256:newest" },
+						{ authorizedKey: "ssh-ed25519 AAAAOLDER crhs-signing", fingerprint: "SHA256:older" },
+					],
+				});
 			}
 			if (path === "/api/directory") return json({ users: [], userGroups: [] });
 			if (path.startsWith("/api/node-access-grants")) return json({ grants: [] });
@@ -234,6 +241,22 @@ describe("NodeDetailPage", () => {
 		expect(await screen.findByText('aliases = ["group-1", "group-2"]')).toBeInTheDocument();
 		expect(screen.getByRole("heading", { name: "Aliases for privileged.toml" })).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Copy aliases" })).toBeInTheDocument();
+	});
+
+	test("shows the newest crhs signing key, not an older one", async () => {
+		route.params = { nodeId: "node-1" };
+		mockFetch(ADMIN, [node()]);
+		await authStore.load();
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		await renderWithRouter(
+			<QueryClientProvider client={client}>
+				<NodeDetailPage />
+			</QueryClientProvider>,
+		);
+
+		expect(await screen.findByText("ssh-ed25519 AAAANEWEST crhs-signing")).toBeInTheDocument();
+		expect(screen.getByText("SHA256:newest")).toBeInTheDocument();
+		expect(screen.queryByText("ssh-ed25519 AAAAOLDER crhs-signing")).not.toBeInTheDocument();
 	});
 
 	test("a connected node's Last seen is Now, with the connection time on hover", async () => {

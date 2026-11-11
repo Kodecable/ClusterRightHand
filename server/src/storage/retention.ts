@@ -85,22 +85,25 @@ export async function runRetention(
 }
 
 /**
- * Runs retention once shortly after startup and then hourly, never overlapping itself. Shutdown calls stop(),
- * which clears the timers, aborts the run between batches and waits for it before the database is destroyed.
+ * Runs retention once shortly after startup and then hourly, never overlapping itself. The retention
+ * values may be a getter, so the sweep reads System settings at each run and a change applies without
+ * a restart. Shutdown calls stop(), which clears the timers, aborts the run between batches and waits
+ * for it before the database is destroyed.
  */
 export function startRetentionSweep(
 	db: Db,
-	retention: RetentionConfig,
+	retention: RetentionConfig | (() => RetentionConfig),
 	/** `run` exists for tests, which replace it so the scheduler runs without a database. */
 	options: { startupDelayMs?: number; intervalMs?: number; run?: typeof runRetention } = {},
 ): RetentionSweep {
 	const abort = new AbortController();
 	const run = options.run ?? runRetention;
+	const current = () => (typeof retention === "function" ? retention() : retention);
 	let running: Promise<void> | null = null;
 	const tick = (): void => {
 		// Skip a tick while the previous run is still going, or when stop() already aborted (a queued tick).
 		if (running !== null || abort.signal.aborted) return;
-		running = run(db, retention, new Date(), { signal: abort.signal })
+		running = run(db, current(), new Date(), { signal: abort.signal })
 			.then(() => {})
 			.catch((err: unknown) => console.error("retention sweep failed:", err))
 			.finally(() => {

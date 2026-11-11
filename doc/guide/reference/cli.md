@@ -121,5 +121,5 @@ socket.
 | `CRHA_TASK_HOME`, `CRHA_TASK_USER`, `CRHA_TASK_LOGNAME`, `CRHA_TASK_SHELL` | crha | Override the account and shell given to tasks ([crha configuration](crha-config.md#environment-overrides)). |
 | `CRHA_PRIVILEGED_SOCKET` | `crha pending`, `approve`, `deny` | The privileged mode's socket. |
 | `CRHA_PRIVILEGED_STDIN_DIR` | `crha privileged stdio` | Where the `native` helper stages task input. |
-| `UV_THREADPOOL_SIZE` | crhs | Node.js worker threads; raise it together with `[auth].argon2_concurrency`. |
+| `UV_THREADPOOL_SIZE` | crhs | Node.js worker threads; raise it together with `auth.argon2_concurrency` in **System settings**. |
 | `RE2_DOWNLOAD_MIRROR` | `pnpm install` | Mirror for the prebuilt RE2 module. |

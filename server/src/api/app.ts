@@ -8,7 +8,7 @@ import { TaskGroups } from "../cluster/task-groups.ts";
 import type { WebauthnConfig } from "../config.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import { mcpRoutes } from "../mcp/mcp.ts";
-import type { AuthorizationSigningKey } from "../privilege/key.ts";
+import { type AuthorizationSigningKey, AuthorizationSigningKeyStore } from "../privilege/key.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
 import { apiTokenRoutes } from "./api-token-routes.ts";
@@ -31,6 +31,7 @@ import { privilegeRoutes } from "./privilege-routes.ts";
 import { scheduleRoutes } from "./schedule-routes.ts";
 import { SessionStreams, sessionEventRoutes } from "./session-events-routes.ts";
 import { refuseWhenClosing, sessionRoutes } from "./session-routes.ts";
+import { settingsRoutes } from "./settings-routes.ts";
 import { sshRoutes } from "./ssh-routes.ts";
 import { taskRoutes } from "./task-routes.ts";
 import { userRoutes } from "./user-routes.ts";
@@ -40,17 +41,19 @@ export interface AppOptions extends AuthRoutesOptions {
 	serverFingerprint?: string;
 	/** crhs's Noise static public key, served to `crha enroll`. */
 	serverPublicKey?: Uint8Array;
-	/** crhs's authorization signing key, for the crhs trust entry and its snippet (doc/design/privilege.md "Server-side authorization"). */
+	/** crhs's authorization signing keys, for the crhs trust entries and their snippet (doc/design/privilege.md "Authorization signing key"). */
+	signingKeys?: AuthorizationSigningKeyStore;
+	/** A single signing key for callers that do not manage a set; ignored when `signingKeys` is given. */
 	authorizationKey?: AuthorizationSigningKey;
 	/** Needed for SSH credentials and nodes. */
 	masterKey?: MasterKey;
-	/** `[webauthn]` from crhs.toml; unset means Passkey registration follows the request's Origin. */
+	/** `[webauthn]` fallback for tests; production passes `settings`. */
 	webauthn?: WebauthnConfig;
-	/** Warn when a node's clock differs by more than this; 0 disables (doc/design/privilege.md "Clock"). */
+	/** Clock-warning fallback for tests; production passes `settings` (doc/design/privilege.md "Clock"). */
 	clockWarnMs?: number;
 	/** Directory of the built WebUI; served for every path outside /api, /agent and /mcp. */
 	webRoot?: string;
-	/** Absolute public base URL for links crhs generates; unset uses the request URL. */
+	/** `public_url` fallback for tests; production passes `settings`. */
 	publicUrl?: string | null;
 	/** The audit log; one is created when omitted. */
 	audit?: Audit;
@@ -66,6 +69,10 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	const app = new Hono<AppEnv>();
 	const audit = options.audit ?? new Audit(db);
 	const drain = options.drain ?? new RequestDrain();
+	// The live key set: a caller may supply a single key, and an empty set has no crhs trust entry to show.
+	const signingKeys =
+		options.signingKeys ??
+		(options.authorizationKey ? AuthorizationSigningKeyStore.fromKey(options.authorizationKey) : undefined);
 	// Built once so the password routes reject the waiting work of revoked tokens through the same task groups.
 	const cluster = options.cluster;
 	const taskGroups = cluster ? (options.taskGroups ?? new TaskGroups(db, cluster, { audit })) : undefined;
@@ -127,11 +134,18 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 			revalidateWebSessions: onWebSessionsRevoked,
 		}),
 	);
-	app.route("/api", nodeRoutes(db, options));
+	app.route("/api", settingsRoutes(db, options.settings ? { settings: options.settings } : {}));
+	app.route("/api", nodeRoutes(db, { ...options, signingKeys }));
 	app.route("/api", nodeGroupRoutes(db));
 	app.route("/api", nodeAccessRoutes(db));
-	app.route("/api", privilegeRoutes({ authorizationKey: options.authorizationKey }));
-	app.route("/api", credentialRoutes(db, { webauthn: options.webauthn }));
+	app.route("/api", privilegeRoutes({ db, ...(signingKeys ? { signingKeys } : {}) }));
+	app.route(
+		"/api",
+		credentialRoutes(db, {
+			...(options.webauthn ? { webauthn: options.webauthn } : {}),
+			...(options.settings ? { settings: options.settings } : {}),
+		}),
+	);
 	app.route("/api", authorizationRoutes(db, { cluster, ...(taskGroups ? { taskGroups } : {}) }));
 	if (options.masterKey) app.route("/api", sshRoutes(db, options.masterKey));
 	if (cluster && taskGroups) {
@@ -180,7 +194,16 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 			);
 		}
 		// Bearer-token authenticated, outside /api's cookie sessions and CSRF guard.
-		app.route("/", mcpRoutes(db, { cluster, taskGroups, audit, publicUrl: options.publicUrl }));
+		app.route(
+			"/",
+			mcpRoutes(db, {
+				cluster,
+				taskGroups,
+				audit,
+				...(options.settings ? { settings: options.settings } : {}),
+				...(options.publicUrl !== undefined ? { publicUrl: options.publicUrl } : {}),
+			}),
+		);
 	}
 
 	if (options.webRoot) {

@@ -81,6 +81,7 @@ function buildRouter(ui: React.ReactElement, options: RenderRouterOptions = {}) 
 		"/tokens",
 		"/audit",
 		"/settings/models",
+		"/settings/system",
 		"/users",
 		"/users/$userId",
 		"/user-groups/$userGroupId",

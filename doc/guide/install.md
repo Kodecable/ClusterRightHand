@@ -55,24 +55,22 @@ A minimal configuration behind a reverse proxy on the same host:
 # /etc/crhs/crhs.toml
 master_key_file = "/etc/crhs/master.key"
 web_root = "/opt/crh/web/dist"
-public_url = "https://crh.example.com"
 
 [listen]
 host = "127.0.0.1"
 port = 8080
-real_ip_header = "X-Forwarded-For"
 
 [database]
 driver = "sqlite"
 path = "/var/lib/crhs/crhs.db"
-
-[webauthn]
-rp_id = "crh.example.com"
-origins = ["https://crh.example.com"]
 ```
 
 All settings are in the [crhs configuration reference](reference/crhs-config.md). Unknown keys are
 errors.
+
+After the first start, sign in as an administrator and set `public_url`, `real_ip_header` and the
+WebAuthn relying party in the WebUI's **System settings** page; those settings apply without a restart.
+crhs imports them from an older `crhs.toml` once and asks you to remove them from the file.
 
 ## Prepare the database
 
@@ -164,12 +162,12 @@ server {
 }
 ```
 
-- The proxy must **overwrite** the header named in `real_ip_header`, as above. crhs trusts its first
-  value for rate limiting.
-- Passkeys need HTTPS and a hostname, not an IP address. `[webauthn]` `rp_id` and `origins` must match
-  the public hostname.
+- The proxy must **overwrite** the header named by `real_ip_header` in **System settings** (here
+  `X-Forwarded-For`); crhs trusts its first value for rate limiting.
+- Passkeys need HTTPS and a hostname, not an IP address. The `rp_id` and `origins` in **System
+  settings** must match the public hostname.
 - The session cookie requires HTTPS on any host other than localhost.
-- `public_url` makes links in MCP results use the public address.
+- `public_url` in **System settings** makes links in MCP results use the public address.
 
 ## Build crha
 

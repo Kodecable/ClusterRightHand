@@ -152,11 +152,12 @@ describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 		await new Promise((r) => probe.close(r));
 
 		const config = join(tmp, "crhs.toml");
-		await writeFile(
-			config,
-			`master_key_file = "${join(tmp, "master.key")}"\n[listen]\nhost = "127.0.0.1"\nport = ${port}\n[database]\ndriver = "sqlite"\npath = "${join(tmp, "crhs.db")}"\n[auth]\ncaptcha = "none"\n`,
-		);
+		// An old-style crhs.toml still names [auth] captcha: the first command imports it into the
+		// database, so the file is rewritten without it before the next start (as an administrator would).
+		const minimalConfig = `master_key_file = "${join(tmp, "master.key")}"\n[listen]\nhost = "127.0.0.1"\nport = ${port}\n[database]\ndriver = "sqlite"\npath = "${join(tmp, "crhs.db")}"\n`;
+		await writeFile(config, `${minimalConfig}[auth]\ncaptcha = "none"\n`);
 		await execFileAsync(process.execPath, [MAIN, "-c", config, "keys", "init"]);
+		await writeFile(config, minimalConfig);
 		const add = execFile(process.execPath, [MAIN, "-c", config, "user", "add", "root", "--admin"]);
 		add.stdin?.end("admin-password\n");
 		await new Promise((r) => add.once("exit", r));

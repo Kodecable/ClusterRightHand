@@ -6,7 +6,8 @@ import type { AgentRequest, ApprovalDecision, ApprovalRecord, TaskView } from "@
 import type { TaskSpec } from "@crh/protocol";
 import type { Audit } from "../audit/audit.ts";
 import type { RuleRef } from "../policy/store.ts";
-import type { AuthorizationSigningKey } from "../privilege/key.ts";
+import type { AuthorizationSigningKey, AuthorizationSigningKeyStore } from "../privilege/key.ts";
+import type { SettingsStore } from "../settings/settings.ts";
 import type { OutputMode, TaskGroupState, TaskState as TaskRowState } from "../storage/schema.ts";
 import type { NodeRow } from "./nodes.ts";
 import type { SshRoute } from "./ssh/connection.ts";
@@ -87,13 +88,18 @@ export interface ClusterOptions {
 	/** Resolves an SSH node's route (hosts, pinned keys, private key). Without it SSH nodes are offline. */
 	sshRoute?: (node: NodeRow) => Promise<SshRoute>;
 	/**
-	 * crhs's authorization signing key (doc/design/privilege.md "Authorization signing key"). Without it no crhs-signed
-	 * authorization can be issued, so only the owner's user/local paths remain available.
+	 * crhs's authorization signing keys (doc/design/privilege.md "Authorization signing key"). For each node crhs signs
+	 * with the newest key that node's trust report trusts. Without any, no crhs-signed authorization can be
+	 * issued, so only the owner's user/local paths remain available.
 	 */
+	signingKeys?: AuthorizationSigningKeyStore;
+	/** A single key for callers that do not manage a set; ignored when `signingKeys` is given. */
 	authorizationKey?: AuthorizationSigningKey;
 	/** How long a forward dispatch waits for the first trust.summary of its connection. */
 	trustWaitMs?: number;
-	/** Warn when a node's clock differs by more than this; 0 disables (doc/design/privilege.md "Clock"). */
+	/** Runtime settings; when given, clock warnings read the current value per event. */
+	settings?: SettingsStore;
+	/** Static fallback for callers (mostly tests) that do not pass `settings`. */
 	clockWarnMs?: number;
 	audit?: Audit;
 }

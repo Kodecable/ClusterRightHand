@@ -31,7 +31,7 @@ const ACCENT_FOREGROUND = [
 	"peer-data-active/menu-button:text-sidebar-accent-foreground",
 ] as const;
 
-async function renderSidebar(pendingApprovals: number): Promise<void> {
+async function renderSidebar(pendingApprovals: number, user: User = ADMIN): Promise<void> {
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL) => {
@@ -41,7 +41,7 @@ async function renderSidebar(pendingApprovals: number): Promise<void> {
 					status: 200,
 					headers: { "content-type": "application/json" },
 				});
-			if (url === "/api/me") return json({ user: ADMIN });
+			if (url === "/api/me") return json({ user });
 			if (url === "/api/approvals") {
 				return json({
 					tasks: Array.from({ length: pendingApprovals }, () => ({})),
@@ -81,5 +81,24 @@ describe("AppSidebar approvals badge", () => {
 
 		expect(badge).toHaveClass(...PRIMARY_FOREGROUND);
 		expect(badge).not.toHaveClass(...ACCENT_FOREGROUND);
+	});
+});
+
+describe("AppSidebar administrator items", () => {
+	test("an administrator sees System settings next to Models", async () => {
+		await renderSidebar(0);
+		const models = await screen.findByTestId("nav-settings-models");
+		const system = await screen.findByTestId("nav-settings-system");
+
+		expect(system).toHaveTextContent("System settings");
+		expect(models.compareDocumentPosition(system) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
+	test("a member does not see System settings", async () => {
+		await renderSidebar(0, { ...ADMIN, id: "u2", username: "ada", kind: "member" });
+
+		expect(screen.queryByTestId("nav-settings-system")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("nav-settings-models")).not.toBeInTheDocument();
+		expect(screen.getByTestId("nav-sessions")).toBeInTheDocument();
 	});
 });

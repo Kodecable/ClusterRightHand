@@ -13,6 +13,7 @@ import {
 	MessageSquareIcon,
 	ScrollTextIcon,
 	ServerIcon,
+	SettingsIcon,
 	ShieldCheckIcon,
 	UsersIcon,
 } from "lucide-react";
@@ -35,6 +36,7 @@ export type NavPath =
 	| "/tokens"
 	| "/audit"
 	| "/settings/models"
+	| "/settings/system"
 	| "/users";
 
 export interface NavItem {
@@ -79,6 +81,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 			{ to: "/tokens", label: msg`API tokens`, icon: KeySquareIcon },
 			{ to: "/audit", label: msg`Audit`, icon: ScrollTextIcon },
 			{ to: "/settings/models", label: msg`Models`, icon: BoxesIcon, adminOnly: true },
+			{ to: "/settings/system", label: msg`System settings`, icon: SettingsIcon, adminOnly: true },
 			{ to: "/users", label: msg`Users`, icon: UsersIcon, adminOnly: true, activeFor: ["/user-groups"] },
 		],
 	},

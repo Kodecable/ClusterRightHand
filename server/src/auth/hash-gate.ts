@@ -34,7 +34,12 @@ const running = { login: 0, other: 0 };
 type Waiter = { kind: HashKind; resolve: () => void };
 const waiting: Waiter[] = [];
 
-/** Configures the gate once at startup from `[auth]`; tests keep the defaults. */
+/**
+ * Configures the gate: once at startup from System settings, and again on every settings write.
+ * Re-applying is safe while work is in flight: running hashes always finish, waiters already queued
+ * stay queued (a shrunken queue only turns away new ones), and a lowered concurrency only stops new
+ * slots from being handed out until enough running hashes finish.
+ */
 export function configureHashGate(options: { concurrency: number; queue: number }): void {
 	if (!Number.isSafeInteger(options.concurrency) || options.concurrency < 1) {
 		throw new RangeError("concurrency must be an integer >= 1");

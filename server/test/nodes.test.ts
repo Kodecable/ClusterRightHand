@@ -317,7 +317,7 @@ describeBackends("nodes", (backend) => {
 				trust: [],
 			};
 			await recordTrustReport(db, n.id, { kind: "ok", summary });
-			const [node] = await listNodesForUser(db, u, { crhsFingerprint: "SHA256:crhs" });
+			const [node] = await listNodesForUser(db, u, { crhsFingerprints: ["SHA256:crhs"] });
 			expect(node?.trustWarnings.map((warning) => warning.kind)).toEqual(["alias_unknown", "alias_missing"]);
 			expect(node?.trustWarnings.find((warning) => warning.kind === "alias_missing")).toMatchObject({
 				uuid: prod.id,

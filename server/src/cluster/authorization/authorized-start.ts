@@ -64,9 +64,11 @@ export async function claimCrhs(
 	opts: { timeoutMs?: number },
 	record: TaskAuthorizationRecord,
 	authorization: BuiltAuthorization,
+	keyFingerprint: string,
 	from: readonly TaskRowState[],
 ): Promise<AuthorizedStart | null> {
-	const key = core.authorizationKey;
+	// The plan chose the newest key this node trusts with `execute`; it may have been deleted since.
+	const key = core.signingKeys.byFingerprint(keyFingerprint);
 	if (!key) {
 		await finishAuthorization(
 			core,
@@ -74,7 +76,7 @@ export async function claimCrhs(
 			row,
 			"rejected",
 			"authorization_required",
-			"crhs has no authorization signing key",
+			"crhs has no authorization signing key for this node",
 			record,
 		);
 		return null;
@@ -180,12 +182,13 @@ export async function dispatchCrhs(
 	opts: { timeoutMs?: number },
 	record: TaskAuthorizationRecord,
 	authorization: BuiltAuthorization,
+	keyFingerprint: string,
 	from: readonly TaskRowState[],
 ): Promise<void> {
 	const claim = await core.taskQueue.run(id, async () => {
 		const fresh = await core.row(id);
 		if (!fresh) return null;
-		return claimCrhs(core, id, fresh, node, link, spec, inputBytes, opts, record, authorization, from);
+		return claimCrhs(core, id, fresh, node, link, spec, inputBytes, opts, record, authorization, keyFingerprint, from);
 	});
 	if (claim) await sendAuthorizedStart(core, claim.nodeId, claim.start, claim.input, claim.record);
 }

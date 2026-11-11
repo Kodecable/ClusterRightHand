@@ -163,7 +163,7 @@ A node's privileged mode trusts the signers listed in `privileged.toml`
 
 | Role | Signer | Capabilities |
 |---|---|---|
-| `crhs` | crhs's signing key | `execute`, `cosign` |
+| `crhs` | crhs's signing keys | `execute`, `cosign` |
 | `user` | A user's SSH key, FIDO key or Passkey | `execute`, `require-cosign` |
 | `local` | Local uids, approving with `crha approve` | `execute` |
 
@@ -351,10 +351,18 @@ each signature releases only the nodes that accept it.
 
 ### Authorization signing key
 
-crhs creates an Ed25519 signing key on first start and stores it encrypted with the master key. To
-rotate it, add the new public key to every node's trust configuration, switch crhs to the new key,
-then remove the old one. A node may trust several crhs keys during the rotation; crhs uses only its
-current key when planning.
+crhs keeps a list of Ed25519 signing keys, stored encrypted with the master key. It creates one on first
+start; administrators can add and delete them while crhs runs. A node trusts the keys it lists as `crhs`
+entries, with `execute`, `cosign` or both. For each node crhs uses the newest key that node's cached trust
+report trusts with the needed capability, so during a rotation a node that has not reloaded yet keeps
+working with the key it knows. A task group's shared payload carries one cosignature per key its nodes
+need; each node ignores signatures that match no trust entry.
+
+To rotate, add a key, add its public key to the nodes' trust configuration and reload them at their own
+pace, then delete the old key once no node trusts it. A node switches as soon as it trusts the new key,
+because crhs prefers the newest usable one. Deleting a compromised key stops crhs using it at once, but
+the nodes still trust it until they remove the entry, so remove it there too. Deleting the last key
+leaves crhs unable to sign anything, and planning treats crhs entries as unusable.
 
 ## Extension points
 

@@ -6,7 +6,7 @@
  */
 import type { Selectable } from "kysely";
 import type { Audit, AuditInput } from "../audit/audit.ts";
-import type { AuthorizationSigningKey } from "../privilege/key.ts";
+import { AuthorizationSigningKeyStore } from "../privilege/key.ts";
 import type { Db } from "../storage/db.ts";
 import type { TasksTable } from "../storage/schema.ts";
 import { KeyedQueue } from "../util/keyed-queue.ts";
@@ -48,9 +48,12 @@ export class ClusterCore {
 	readonly idleMs: number;
 	readonly sshRoute: ClusterOptions["sshRoute"];
 	readonly audit: Audit | undefined;
-	readonly authorizationKey: AuthorizationSigningKey | undefined;
+	/** The signing keys crhs may use; `add`/`delete` update it live (doc/design/privilege.md "Authorization signing key"). */
+	readonly signingKeys: AuthorizationSigningKeyStore;
 	readonly trustWaitMs: number;
-	readonly clockWarnMs: number;
+	/** System settings, read per event so a clock_warn change applies without a restart. */
+	readonly settings: ClusterOptions["settings"];
+	readonly #clockWarnMs: number;
 
 	/** Called once for every task that starts waiting for approval (Auto Review hooks in here). */
 	onAwaitingApproval: ((task: TaskView) => Promise<void>) | undefined;
@@ -101,9 +104,15 @@ export class ClusterCore {
 		this.idleMs = options.idleTimeoutMs ?? 90_000;
 		this.sshRoute = options.sshRoute;
 		this.audit = options.audit;
-		this.authorizationKey = options.authorizationKey;
+		this.signingKeys = options.signingKeys ?? AuthorizationSigningKeyStore.fromKey(options.authorizationKey);
 		this.trustWaitMs = options.trustWaitMs ?? 5_000;
-		this.clockWarnMs = options.clockWarnMs ?? 60_000;
+		this.settings = options.settings;
+		this.#clockWarnMs = options.clockWarnMs ?? 60_000;
+	}
+
+	/** The current clock warning threshold: System settings when present, the static fallback otherwise. */
+	get clockWarnMs(): number {
+		return this.settings?.current().clockWarnMs ?? this.#clockWarnMs;
 	}
 
 	/**

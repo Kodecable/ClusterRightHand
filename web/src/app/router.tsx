@@ -260,6 +260,13 @@ const modelSettingsRoute = createRoute({
 	component: lazyRouteComponent(() => import("@/features/settings/pages"), "ModelSettingsPage"),
 });
 
+const systemSettingsRoute = createRoute({
+	getParentRoute: () => authenticatedRoute,
+	path: "/settings/system",
+	beforeLoad: ({ context }) => requireAdmin(context),
+	component: lazyRouteComponent(() => import("@/features/system-settings/pages"), "SystemSettingsPage"),
+});
+
 const usersRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/users",
@@ -309,6 +316,7 @@ const routeTree = rootRoute.addChildren([
 		tokensRoute,
 		auditRoute,
 		modelSettingsRoute,
+		systemSettingsRoute,
 		usersRoute,
 		userDetailRoute,
 		userGroupDetailRoute,

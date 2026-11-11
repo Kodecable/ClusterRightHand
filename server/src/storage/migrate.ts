@@ -51,6 +51,8 @@ import * as m0048 from "./migrations/0048_task_rev.ts";
 import * as m0049 from "./migrations/0049_api_token_rule_preset.ts";
 import * as m0050 from "./migrations/0050_session_reply_read.ts";
 import * as m0051 from "./migrations/0051_session_stats.ts";
+import * as m0052 from "./migrations/0052_secret_name.ts";
+import * as m0053 from "./migrations/0053_settings.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -105,6 +107,8 @@ const migrations: Record<string, Migration> = {
 	"0049_api_token_rule_preset": m0049,
 	"0050_session_reply_read": m0050,
 	"0051_session_stats": m0051,
+	"0052_secret_name": m0052,
+	"0053_settings": m0053,
 };
 
 /** Options shared by the migration entry points. */

@@ -187,6 +187,16 @@ Administrators configure model providers and the three model presets here. API k
 back to the browser; changing a custom provider's base URL requires entering its key again, so a key
 cannot be redirected to another host without the person who knows it.
 
+### System settings page
+
+Administrators edit the low-frequency runtime settings here (public URL, clock warning, retention,
+WebAuthn, login hashing and captcha, and the real-IP header), plus crhs's authorization signing keys.
+Each of the four settings sections is its own form with its own **Save**, which patches only that
+section's values and stays disabled until something changed: an unrelated edit elsewhere in the page
+cannot be overwritten or submitted along with it. A save applies without a restart and is audited. The
+signing keys table marks the newest key, because that is the one crhs signs with by default; a key that
+nodes still trust can only be deleted after a second confirmation that names them.
+
 ## Session interface
 
 The sessions area shows the session list beside the open session on wide screens. On narrow screens

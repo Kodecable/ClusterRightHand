@@ -99,12 +99,28 @@ export interface ServerMetaTable {
 	value: string;
 }
 
+/**
+ * One low-frequency runtime setting, in its API form (doc/guide/reference/crhs-config.md "System
+ * settings"). A missing row means the default applies; the WebAuthn values are stored separately.
+ */
+export interface SettingsTable {
+	org_id: string;
+	/** The setting's key, e.g. `public_url`, `retention.tasks` or `auth.captcha`. */
+	key: string;
+	/** JSON-encoded value; `"null"` is an explicit unset (public_url, real_ip_header, webauthn.rp_id). */
+	value: string;
+	updated_at: string;
+	updated_by_user_id: string | null;
+}
+
 export interface SecretsTable {
 	id: string;
 	org_id: string;
 	/** What the secret is; also bound into the ciphertext as associated data. */
 	kind: string;
 	ciphertext: string;
+	/** Optional non-secret label; crhs's signing keys use it (doc/design/privilege.md "Authorization signing key"). */
+	name: string | null;
 	created_at: CreatedAt;
 }
 
@@ -506,6 +522,7 @@ export interface Database {
 	web_sessions: WebSessionsTable;
 	shares: SharesTable;
 	server_meta: ServerMetaTable;
+	settings: SettingsTable;
 	secrets: SecretsTable;
 	nodes: NodesTable;
 	node_groups: NodeGroupsTable;

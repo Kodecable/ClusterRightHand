@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { SigningKey } from "@crh/api";
 import { generateKeyPair } from "@crh/noise";
 import {
 	authorizationCodec,
@@ -25,7 +26,11 @@ import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
 import { trustDigest } from "../src/cluster/trust.ts";
 import { bindMasterKey, MasterKey } from "../src/keys/master-key.ts";
 import { authzEntryFromTrust, decide } from "../src/privilege/authz.ts";
-import { type AuthorizationSigningKey, loadAuthorizationSigningKey } from "../src/privilege/key.ts";
+import {
+	type AuthorizationSigningKey,
+	type AuthorizationSigningKeyStore,
+	loadAuthorizationSigningKeys,
+} from "../src/privilege/key.ts";
 import { buildAuthorization, specSha256 } from "../src/privilege/payload.ts";
 import { verifySshsig } from "../src/privilege/sshsig.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -59,6 +64,7 @@ describe("privileged forward dispatch", () => {
 	let cluster: Cluster;
 	let agents: TestAgentServer;
 	let signing: AuthorizationSigningKey;
+	let signingKeys: AuthorizationSigningKeyStore;
 	let owner: { sessionId: string; userId: string; username: string; kind: "member" };
 	let app: App;
 	let cookie: string;
@@ -67,15 +73,18 @@ describe("privileged forward dispatch", () => {
 		db = await openTestDb("sqlite");
 		const masterKey = MasterKey.generate();
 		await bindMasterKey(db, masterKey);
-		signing = await loadAuthorizationSigningKey(db, masterKey);
+		signingKeys = await loadAuthorizationSigningKeys(db, masterKey);
+		const newest = signingKeys.newest;
+		if (!newest) throw new Error("missing signing key");
+		signing = newest;
 		audit = new Audit(db);
 		// A short trust wait keeps the "no report" case fast; every other test reports before dispatching.
-		cluster = new Cluster(db, { authorizationKey: signing, trustWaitMs: 100, audit, nodeOfflineGraceMs: 10 });
+		cluster = new Cluster(db, { signingKeys, trustWaitMs: 100, audit, nodeOfflineGraceMs: 10 });
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
 		owner = { sessionId: "s", userId: user.id, username: user.username, kind: "member" };
-		app = makeApp(db, undefined, { cluster, audit, authorizationKey: signing });
+		app = makeApp(db, undefined, { cluster, audit, signingKeys });
 		cookie = await login(app, "owner", "password-123");
 	});
 
@@ -170,16 +179,33 @@ describe("privileged forward dispatch", () => {
 		...overrides,
 	});
 
-	/** crhs's own key, allowed to restart nginx. */
-	const crhsEntry = (overrides: Partial<TrustEntry> = {}): TrustEntry =>
-		sshEntry("crhs", "crhs", {
-			key: { kind: "sshsig", publicKey: signing.authorizedKey, fingerprint: signing.fingerprint },
+	/** One of crhs's keys, allowed to restart nginx. */
+	const crhsEntryFor = (key: AuthorizationSigningKey, name: string, overrides: Partial<TrustEntry> = {}): TrustEntry =>
+		sshEntry(name, "crhs", {
+			key: { kind: "sshsig", publicKey: key.authorizedKey, fingerprint: key.fingerprint },
 			kinds: ["execute", "cosign"],
 			requireExact: true,
 			maxTtlMs: 5 * 60 * 1000,
 			allow: [{ method: "exec", match: "prefix", pattern: "systemctl restart " }],
 			...overrides,
 		});
+
+	/** crhs's first key, allowed to restart nginx. */
+	const crhsEntry = (overrides: Partial<TrustEntry> = {}): TrustEntry => crhsEntryFor(signing, "crhs", overrides);
+
+	/** The decoded authorization of a task.start, for key checks. */
+	const authorizationOf = (start: FakeCrha["starts"][number] | undefined) => {
+		const encoded = start?.authorizations?.[0];
+		if (!encoded) throw new Error("missing authorization");
+		return authorizationCodec.decode(decodeCbor(encoded));
+	};
+
+	/** The first SSHSIG of a task.start's authorization. */
+	const authorizationSignature = (start: FakeCrha["starts"][number] | undefined): Uint8Array => {
+		const signature = authorizationOf(start).signatures[0];
+		if (signature?.kind !== "sshsig") throw new Error("expected an sshsig signature");
+		return new Uint8Array(signature.blob);
+	};
 
 	/** The owner's own SSH key. */
 	const aliceEntry = (): TrustEntry => sshEntry("alice", "user", { maxTtlMs: 24 * 60 * 60 * 1000 });
@@ -393,6 +419,58 @@ describe("privileged forward dispatch", () => {
 				trustDigest: trustDigest(summary),
 			});
 			expect(running.authorization?.plan.paths.map((path) => path.path)).toEqual(["crhs"]);
+		});
+
+		it("signs with the newest key each node trusts and the older key for a node that has not caught up", async () => {
+			const older = signing;
+			const newer = await signingKeys.add("rotation");
+			const behind = await connect("forward-keys-behind");
+			const caughtUp = await connect("forward-keys-caught-up");
+			const behindSummary = summaryOf(behind.node.id, [crhsEntryFor(older, "crhs-old")]);
+			const caughtUpSummary = summaryOf(caughtUp.node.id, [
+				crhsEntryFor(older, "crhs-old"),
+				crhsEntryFor(newer, "crhs-new"),
+			]);
+			behind.crha.trust({ kind: "ok", summary: behindSummary });
+			caughtUp.crha.trust({ kind: "ok", summary: caughtUpSummary });
+			await waitTrust(behind.node.id, behindSummary);
+			await waitTrust(caughtUp.node.id, caughtUpSummary);
+
+			const first = await createPrivileged(behind.node.id);
+			await waitFor("task.start behind", () => behind.crha.starts.length === 1);
+			expect(
+				verifySshsig(
+					older.authorizedKey,
+					authorizationOf(behind.crha.starts[0]).payload,
+					authorizationSignature(behind.crha.starts[0]),
+				).valid,
+			).toBe(true);
+			expect(
+				verifySshsig(
+					newer.authorizedKey,
+					authorizationOf(behind.crha.starts[0]).payload,
+					authorizationSignature(behind.crha.starts[0]),
+				).valid,
+			).toBe(false);
+
+			const second = await createPrivileged(caughtUp.node.id);
+			await waitFor("task.start caught up", () => caughtUp.crha.starts.length === 1);
+			expect(
+				verifySshsig(
+					newer.authorizedKey,
+					authorizationOf(caughtUp.crha.starts[0]).payload,
+					authorizationSignature(caughtUp.crha.starts[0]),
+				).valid,
+			).toBe(true);
+			expect(
+				verifySshsig(
+					older.authorizedKey,
+					authorizationOf(caughtUp.crha.starts[0]).payload,
+					authorizationSignature(caughtUp.crha.starts[0]),
+				).valid,
+			).toBe(false);
+			expect(first.nodeId).toBe(behind.node.id);
+			expect(second.nodeId).toBe(caughtUp.node.id);
 		});
 
 		it("retries with attempt + 1 on authorization_rejected and falls back to the owner's user path", async () => {
@@ -818,11 +896,111 @@ describe("privileged forward dispatch", () => {
 			expect(after.trust).toMatchObject({ status: "ok", digest: trustDigest(summary), stale: true });
 		});
 
-		it("serves crhs's authorized key and fingerprint", async () => {
+		it("lists, adds and deletes signing keys with their trust, refusing to drop a trusted key without force", async () => {
+			await createUser(db, { username: "admin", kind: "admin", password: "password-123" });
+			const admin = await login(app, "admin", "password-123");
+			// The key routes are administrator-only and session-authenticated; a bearer token gets no session.
+			expect((await call(app, "/api/privilege/signing-keys", { cookie })).status).toBe(403);
+			expect(
+				(await call(app, "/api/privilege/signing-keys", { headers: { authorization: "Bearer crh_token" } })).status,
+			).toBe(401);
+
+			const { node, crha } = await connect("keys-api");
+			const newer = await signingKeys.add("api rotation");
+			const summary = summaryOf(node.id, [
+				crhsEntryFor(signing, "crhs-old", { kinds: ["execute"] }),
+				crhsEntryFor(newer, "crhs-new", { kinds: ["execute", "cosign"] }),
+			]);
+			crha.trust({ kind: "ok", summary });
+			await waitTrust(node.id, summary);
+
+			const listed = await call(app, "/api/privilege/signing-keys", { cookie: admin });
+			expect(listed.status).toBe(200);
+			const body = (await listed.json()) as { keys: SigningKey[] };
+			expect(body.keys.map((key) => key.id)).toEqual([newer.id, signing.id]);
+			expect(body.keys[0]).toMatchObject({
+				name: "api rotation",
+				publicKey: newer.authorizedKey,
+				fingerprint: newer.fingerprint,
+				createdAt: expect.any(String),
+				trustedBy: [{ nodeId: node.id, nodeName: node.name, kinds: ["execute", "cosign"] }],
+			});
+			expect(body.keys[1]).toMatchObject({
+				name: null,
+				publicKey: signing.authorizedKey,
+				trustedBy: [{ nodeId: node.id, nodeName: node.name, kinds: ["execute"] }],
+			});
+
+			const added = await call(app, "/api/privilege/signing-keys", {
+				method: "POST",
+				cookie: admin,
+				body: { name: "third" },
+			});
+			expect(added.status).toBe(201);
+			const addedKey = ((await added.json()) as { key: SigningKey }).key;
+			expect(addedKey).toMatchObject({ name: "third", trustedBy: [] });
+			expect(signingKeys.newest?.id).toBe(addedKey.id);
+			await audit.flush();
+			const addedEvents = await auditRows("signing_key.added");
+			expect(addedEvents).toHaveLength(1);
+			expect(JSON.parse(addedEvents[0]?.detail as string)).toMatchObject({
+				fingerprint: addedKey.fingerprint,
+				name: "third",
+			});
+
+			// A node still trusts the rotation key: deleting it needs an explicit force.
+			const refused = await call(app, `/api/privilege/signing-keys/${newer.id}`, {
+				method: "DELETE",
+				cookie: admin,
+				body: {},
+			});
+			expect(refused.status).toBe(409);
+			expect(await refused.json()).toMatchObject({
+				nodes: [{ nodeId: node.id, nodeName: node.name, kinds: ["execute", "cosign"] }],
+			});
+			expect(signingKeys.get(newer.id)).toBeDefined();
+
+			const forced = await call(app, `/api/privilege/signing-keys/${newer.id}`, {
+				method: "DELETE",
+				cookie: admin,
+				body: { force: true },
+			});
+			expect(forced.status).toBe(200);
+			expect(signingKeys.get(newer.id)).toBeUndefined();
+			await audit.flush();
+			const deleted = await auditRows("signing_key.deleted");
+			expect(JSON.parse(deleted.at(-1)?.detail as string)).toMatchObject({
+				fingerprint: newer.fingerprint,
+				name: "api rotation",
+				force: true,
+			});
+
+			// Deleting down to zero is allowed: crhs then never signs, and planning treats crhs entries as unusable.
+			for (const key of [...signingKeys.keys]) {
+				const res = await call(app, `/api/privilege/signing-keys/${key.id}?force=true`, {
+					method: "DELETE",
+					cookie: admin,
+					body: {},
+				});
+				expect(res.status).toBe(200);
+			}
+			expect(signingKeys.keys).toEqual([]);
+			expect((await call(app, "/api/privilege/crhs-key", { cookie })).status).toBe(503);
+			const created = await createPrivileged(node.id);
+			const rejected = await waitFor("rejected without keys", async () => {
+				const view = await taskView(created.id);
+				return view.state === "rejected" ? view : undefined;
+			});
+			expect(rejected.errorCode).toBe("authorization_required");
+			expect(crha.starts).toHaveLength(0);
+		});
+
+		it("serves crhs's newest authorized key, every key and its fingerprint", async () => {
 			const res = await call(app, "/api/privilege/crhs-key", { cookie });
 			expect(res.status).toBe(200);
 			expect(await res.json()).toEqual({
 				key: { authorizedKey: signing.authorizedKey, fingerprint: signing.fingerprint },
+				keys: [{ authorizedKey: signing.authorizedKey, fingerprint: signing.fingerprint }],
 			});
 
 			// Without a signing key there is nothing to export.
@@ -907,7 +1085,7 @@ describe("privileged forward dispatch", () => {
 				lastRejection: null,
 				updatedAt: now,
 			};
-			const core = new ClusterCore(db, { authorizationKey: signing, audit });
+			const core = new ClusterCore(db, { signingKeys, audit });
 			await dispatchCrhs(
 				core,
 				id,
@@ -919,6 +1097,7 @@ describe("privileged forward dispatch", () => {
 				{},
 				record,
 				authorization,
+				signing.fingerprint,
 				["awaiting_approval"],
 			);
 

@@ -33,29 +33,41 @@ export interface AuthConfig {
 	captcha: "cap" | "none";
 }
 
+/** The listen address, which must be known before the database is open. */
 export interface ListenConfig {
 	host: string;
 	port: number;
-	/** A header such as X-Forwarded-For whose first non-empty element is the client address; null = direct. */
-	realIpHeader: string | null;
 }
 
+/**
+ * The settings crhs.toml still holds: what is needed before the database or HTTP is up. The
+ * low-frequency settings moved to the database (doc/guide/reference/crhs-config.md) are returned
+ * separately as {@link FileSettings}, so an old file can be imported once.
+ */
 export interface Config {
 	listen: ListenConfig;
 	database: DatabaseConfig;
 	masterKeyFile: string;
 	/** Built WebUI (web/dist); served at /. */
 	webRoot: string;
-	/** Absolute public base URL for links crhs generates; null uses the request URL (doc/guide/reference/crhs-config.md). */
-	publicUrl: string | null;
-	/** Warn when a node's clock differs from crhs by more than this; 0 disables (doc/design/privilege.md "Clock"). */
-	clockWarnMs: number;
-	/** Passkey registration settings. */
-	webauthn: WebauthnConfig;
-	/** When the retention sweep deletes old rows. */
-	retention: RetentionConfig;
-	/** Login hashing and proof-of-work settings. */
-	auth: AuthConfig;
+}
+
+/**
+ * A moved setting still present in crhs.toml, in its API form. crhs imports these into the database
+ * only when the database has no value for them; see settings/settings.ts importSettingsFromFile.
+ */
+export interface FileSettings {
+	publicUrl?: string;
+	clockWarn?: string;
+	retention?: { tasks?: string; audit?: string; piTasks?: string };
+	webauthn?: { rpId?: string; rpName?: string; origins?: string[] };
+	auth?: { captcha?: "cap" | "none"; argon2Concurrency?: number; argon2Queue?: number };
+	realIpHeader?: string;
+}
+
+export interface ConfigFile {
+	config: Config;
+	moved: FileSettings;
 }
 
 export const DEFAULT_CONFIG_PATH = "/etc/crhs/crhs.toml";
@@ -78,6 +90,19 @@ export const DEFAULT_RETENTION_PI_TASKS_MS = 7 * 24 * 60 * 60 * 1000;
  * the command a second time.
  */
 export const MIN_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+/** The top-level keys crhs.toml may carry; the moved ones are extracted into {@link ConfigFile.moved}. */
+const TOP_LEVEL_KEYS = [
+	"listen",
+	"database",
+	"master_key_file",
+	"web_root",
+	"public_url",
+	"clock_warn",
+	"webauthn",
+	"retention",
+	"auth",
+] as const;
 
 const DURATION_UNITS: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
 
@@ -103,22 +128,22 @@ export function parseDurationMs(value: unknown, name: string): number {
 }
 
 export async function loadConfig(path: string): Promise<Config> {
-	return parseConfig(await readFile(path, "utf8"));
+	return (await loadConfigFile(path)).config;
 }
 
+/** Reads and validates the file, keeping the moved settings it still holds. */
+export async function loadConfigFile(path: string): Promise<ConfigFile> {
+	return parseConfigFile(await readFile(path, "utf8"));
+}
+
+/** The configuration file's database/listen/master-key part; moved settings are dropped (see {@link parseConfigFile}). */
 export function parseConfig(text: string): Config {
+	return parseConfigFile(text).config;
+}
+
+export function parseConfigFile(text: string): ConfigFile {
 	const raw = parse(text);
-	rejectUnknown(raw, "", [
-		"listen",
-		"database",
-		"master_key_file",
-		"web_root",
-		"public_url",
-		"clock_warn",
-		"webauthn",
-		"retention",
-		"auth",
-	]);
+	rejectUnknown(raw, "", [...TOP_LEVEL_KEYS]);
 	const listen = table(raw, "listen");
 	const database = table(raw, "database");
 	rejectUnknown(listen, "listen.", ["host", "port", "real_ip_header"]);
@@ -139,52 +164,86 @@ export function parseConfig(text: string): Config {
 		throw new Error("listen.port must be an integer between 0 and 65535");
 	}
 
-	const clockWarn =
-		raw.clock_warn === undefined ? DEFAULT_CLOCK_WARN_MS : parseDurationMs(raw.clock_warn, "clock_warn");
-
 	return {
-		listen: {
-			host: str(listen, "host", "listen.host", "127.0.0.1"),
-			port,
-			realIpHeader: headerName(listen.real_ip_header, "listen.real_ip_header"),
+		config: {
+			listen: {
+				host: str(listen, "host", "listen.host", "127.0.0.1"),
+				port,
+			},
+			database: db,
+			masterKeyFile: str(raw, "master_key_file", "master_key_file", "/etc/crhs/master.key"),
+			webRoot: str(raw, "web_root", "web_root", fileURLToPath(new URL("../../web/dist", import.meta.url))),
 		},
-		database: db,
-		masterKeyFile: str(raw, "master_key_file", "master_key_file", "/etc/crhs/master.key"),
-		webRoot: str(raw, "web_root", "web_root", fileURLToPath(new URL("../../web/dist", import.meta.url))),
-		publicUrl: parsePublicUrl(raw.public_url),
-		clockWarnMs: clockWarn,
-		webauthn: webauthnConfig(raw),
-		retention: retentionConfig(raw),
-		auth: authConfig(raw),
+		moved: fileSettings(raw, listen),
 	};
 }
 
-/** `[auth]`: the Argon2id concurrency gate and whether password login needs a Cap proof of work. */
-function authConfig(raw: Record<string, unknown>): AuthConfig {
-	const table_ = table(raw, "auth");
-	rejectUnknown(table_, "auth.", ["argon2_concurrency", "argon2_queue", "captcha"]);
-	const captcha = table_.captcha ?? DEFAULT_CAPTCHA;
-	if (captcha !== "cap" && captcha !== "none") {
-		throw new Error('auth.captcha must be "cap" or "none"');
+/** Extracts and validates the moved settings an old crhs.toml may still carry. */
+function fileSettings(raw: Record<string, unknown>, listen: Record<string, unknown>): FileSettings {
+	const moved: FileSettings = {};
+
+	if (raw.public_url !== undefined) {
+		const url = parsePublicUrl(raw.public_url);
+		if (url !== null) moved.publicUrl = url;
 	}
-	return {
-		argon2Concurrency: integer(table_.argon2_concurrency, "auth.argon2_concurrency", DEFAULT_ARGON2_CONCURRENCY, 1),
-		argon2Queue: integer(table_.argon2_queue, "auth.argon2_queue", DEFAULT_ARGON2_QUEUE, 0),
-		captcha,
-	};
+	if (raw.clock_warn !== undefined) {
+		parseDurationMs(raw.clock_warn, "clock_warn");
+		moved.clockWarn = (raw.clock_warn as string).trim();
+	}
+
+	const retention = table(raw, "retention");
+	rejectUnknown(retention, "retention.", ["tasks", "audit", "pi_tasks"]);
+	for (const [key, setting] of [
+		["tasks", "tasks"],
+		["audit", "audit"],
+		["pi_tasks", "piTasks"],
+	] as const) {
+		if (retention[key] === undefined) continue;
+		parseRetentionDuration(retention[key], `retention.${key}`);
+		moved.retention ??= {};
+		moved.retention[setting] = (retention[key] as string).trim();
+	}
+
+	const webauthn = table(raw, "webauthn");
+	rejectUnknown(webauthn, "webauthn.", ["rp_id", "rp_name", "origins"]);
+	// rp_id and origins go together; the old file semantics are kept here.
+	if ((webauthn.rp_id === undefined) !== (webauthn.origins === undefined)) {
+		throw new Error("webauthn.rp_id and webauthn.origins must be set together");
+	}
+	if (webauthn.rp_id !== undefined || webauthn.rp_name !== undefined) {
+		const parsed = validateWebauthn(webauthn.rp_id, webauthn.rp_name, webauthn.origins);
+		moved.webauthn = {};
+		if (webauthn.rp_id !== undefined) {
+			moved.webauthn.rpId = parsed.rpId as string;
+			moved.webauthn.origins = [...parsed.origins];
+		}
+		if (webauthn.rp_name !== undefined) moved.webauthn.rpName = parsed.rpName;
+	}
+
+	const auth = table(raw, "auth");
+	rejectUnknown(auth, "auth.", ["argon2_concurrency", "argon2_queue", "captcha"]);
+	if (auth.argon2_concurrency !== undefined || auth.argon2_queue !== undefined || auth.captcha !== undefined) {
+		const parsed = validateAuth(auth.captcha, auth.argon2_concurrency, auth.argon2_queue);
+		moved.auth = {};
+		if (auth.captcha !== undefined) moved.auth.captcha = parsed.captcha;
+		if (auth.argon2_concurrency !== undefined) moved.auth.argon2Concurrency = parsed.argon2Concurrency;
+		if (auth.argon2_queue !== undefined) moved.auth.argon2Queue = parsed.argon2Queue;
+	}
+
+	if (listen.real_ip_header !== undefined) {
+		const header = parseHeaderName(listen.real_ip_header, "listen.real_ip_header");
+		if (header !== null) moved.realIpHeader = header;
+	}
+
+	return moved;
 }
 
-function integer(value: unknown, name: string, fallback: number, minimum: number): number {
-	const number = value ?? fallback;
-	if (typeof number !== "number" || !Number.isSafeInteger(number) || number < minimum) {
-		throw new Error(`${name} must be an integer >= ${minimum}`);
-	}
-	return number;
-}
-
-/** An HTTP header name (RFC 9110 token); null when the key is absent. */
-function headerName(value: unknown, name: string): string | null {
-	if (value === undefined) return null;
+/**
+ * An HTTP header name (RFC 9110 token); null when the setting is unset. Throws when the value is
+ * present but not a header name.
+ */
+export function parseHeaderName(value: unknown, name: string): string | null {
+	if (value === undefined || value === null) return null;
 	if (typeof value !== "string" || !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(value)) {
 		throw new Error(`${name} must be an HTTP header name such as "X-Forwarded-For"`);
 	}
@@ -192,11 +251,11 @@ function headerName(value: unknown, name: string): string | null {
 }
 
 /**
- * The public base URL for links crhs generates (`public_url`), without a trailing slash; null when absent.
- * It must be an absolute http(s) URL without a query or fragment; a path prefix is allowed.
+ * The public base URL for links crhs generates (`public_url`), without a trailing slash; null when
+ * unset. It must be an absolute http(s) URL without a query or fragment; a path prefix is allowed.
  */
-function parsePublicUrl(value: unknown): string | null {
-	if (value === undefined) return null;
+export function parsePublicUrl(value: unknown): string | null {
+	if (value === undefined || value === null) return null;
 	if (typeof value !== "string" || value === "") {
 		throw new Error('public_url must be an absolute http(s) URL such as "https://crh.example.com"');
 	}
@@ -215,19 +274,8 @@ function parsePublicUrl(value: unknown): string | null {
 	return url.toString().replace(/\/+$/, "");
 }
 
-/** `[retention]`: a duration or "off" (null, keep forever); the default applies when the key is absent. */
-function retentionConfig(raw: Record<string, unknown>): RetentionConfig {
-	const table_ = table(raw, "retention");
-	rejectUnknown(table_, "retention.", ["tasks", "audit", "pi_tasks"]);
-	return {
-		tasksMs: retentionDuration(table_.tasks, "retention.tasks", DEFAULT_RETENTION_TASKS_MS),
-		auditMs: retentionDuration(table_.audit, "retention.audit", DEFAULT_RETENTION_AUDIT_MS),
-		piTasksMs: retentionDuration(table_.pi_tasks, "retention.pi_tasks", DEFAULT_RETENTION_PI_TASKS_MS),
-	};
-}
-
-function retentionDuration(value: unknown, name: string, fallback: number): number | null {
-	if (value === undefined) return fallback;
+/** A retention duration ("1d12h") or "off" (null, keep forever); at least one day. */
+export function parseRetentionDuration(value: unknown, name: string): number | null {
 	if (value === "off") return null;
 	const ms = parseDurationMs(value, name);
 	if (ms < MIN_RETENTION_MS) {
@@ -238,25 +286,42 @@ function retentionDuration(value: unknown, name: string, fallback: number): numb
 	return ms;
 }
 
-/** `[webauthn]`: rp_id and origins go together; both absent means "derive from the request's Origin". */
-function webauthnConfig(raw: Record<string, unknown>): WebauthnConfig {
-	const table_ = table(raw, "webauthn");
-	rejectUnknown(table_, "webauthn.", ["rp_id", "rp_name", "origins"]);
-	const rpName = table_.rp_name ?? DEFAULT_RP_NAME;
-	if (typeof rpName !== "string" || rpName === "") throw new Error("webauthn.rp_name must be a non-empty string");
-	const rpId = table_.rp_id;
-	const origins = table_.origins;
-	if ((rpId === undefined) !== (origins === undefined)) {
-		throw new Error("webauthn.rp_id and webauthn.origins must be set together");
+/** An Argon2id concurrency or queue limit: an integer at least `minimum`. */
+export function parseInteger(value: unknown, name: string, minimum: number): number {
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < minimum) {
+		throw new Error(`${name} must be an integer >= ${minimum}`);
 	}
-	if (rpId === undefined) return { rpId: null, rpName, origins: [] };
-	if (typeof rpId !== "string" || rpId === "" || rpId.includes("/")) {
+	return value;
+}
+
+export function parseCaptcha(value: unknown): "cap" | "none" {
+	if (value !== "cap" && value !== "none") throw new Error('auth.captcha must be "cap" or "none"');
+	return value;
+}
+
+/** A WebAuthn relying-party id: a non-empty hostname such as crh.example.com (no scheme or path). */
+export function parseRpId(value: unknown): string {
+	if (typeof value !== "string" || value === "" || value.includes("/")) {
 		throw new Error("webauthn.rp_id must be a non-empty hostname such as crh.example.com");
 	}
-	if (!Array.isArray(origins) || origins.length === 0 || origins.some((o) => typeof o !== "string" || o === "")) {
+	return value;
+}
+
+export function parseRpName(value: unknown): string {
+	if (typeof value !== "string" || value === "") throw new Error("webauthn.rp_name must be a non-empty string");
+	return value;
+}
+
+/** The accepted origins, each exactly `scheme://host[:port]` without a path or default port. */
+export function parseOrigins(value: unknown): string[] {
+	if (
+		!Array.isArray(value) ||
+		value.length === 0 ||
+		value.some((origin) => typeof origin !== "string" || origin === "")
+	) {
 		throw new Error("webauthn.origins must be a non-empty array of origin URLs");
 	}
-	for (const origin of origins as string[]) {
+	for (const origin of value as string[]) {
 		let parsed: URL;
 		try {
 			parsed = new URL(origin);
@@ -267,7 +332,34 @@ function webauthnConfig(raw: Record<string, unknown>): WebauthnConfig {
 			throw new Error(`webauthn.origins: ${JSON.stringify(origin)} must be an origin (scheme://host[:port])`);
 		}
 	}
-	return { rpId, rpName, origins: [...(origins as string[])] };
+	return [...(value as string[])];
+}
+
+/**
+ * `[webauthn]`/`System settings` values. rpId null/absent and origins empty/absent mean "derive from
+ * the request's Origin"; one without the other is an error.
+ */
+export function validateWebauthn(rpId: unknown, rpName: unknown, origins: unknown): WebauthnConfig {
+	const rpUnset = rpId === undefined || rpId === null;
+	const originsUnset = origins === undefined || (Array.isArray(origins) && origins.length === 0);
+	if (rpUnset !== originsUnset) {
+		throw new Error("webauthn.rp_id and webauthn.origins must be set together");
+	}
+	const name = rpName === undefined ? DEFAULT_RP_NAME : parseRpName(rpName);
+	if (rpUnset) return { rpId: null, rpName: name, origins: [] };
+	return { rpId: parseRpId(rpId), rpName: name, origins: parseOrigins(origins) };
+}
+
+/** `[auth]`/`System settings` values; absent fields take their defaults. */
+export function validateAuth(captcha: unknown, argon2Concurrency: unknown, argon2Queue: unknown): AuthConfig {
+	return {
+		captcha: captcha === undefined ? DEFAULT_CAPTCHA : parseCaptcha(captcha),
+		argon2Concurrency:
+			argon2Concurrency === undefined
+				? DEFAULT_ARGON2_CONCURRENCY
+				: parseInteger(argon2Concurrency, "auth.argon2_concurrency", 1),
+		argon2Queue: argon2Queue === undefined ? DEFAULT_ARGON2_QUEUE : parseInteger(argon2Queue, "auth.argon2_queue", 0),
+	};
 }
 
 /** Unknown keys are errors: a misplaced key (e.g. a top-level key written after a [table]) must not be ignored. */

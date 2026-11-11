@@ -142,7 +142,7 @@ describe("authorization planner", () => {
 		});
 	});
 
-	it("only uses a crhs trust entry for crhs's own signing key", () => {
+	it("only uses a crhs trust entry for crhs's own signing keys", () => {
 		const foreign = sshEntry("other-crhs", "crhs", {
 			kinds: ["execute", "cosign"],
 			requireExact: true,
@@ -151,18 +151,82 @@ describe("authorization planner", () => {
 			key: { kind: "sshsig", publicKey: KEY_LINE, fingerprint: "SHA256:other" },
 		});
 		const own = sshEntry("crhs", "crhs", { requireExact: true, maxTtlMs: 300_000, allow: [anyRule()] });
+		// Without resolved fingerprints the planner cannot rule anything out, so the summary's first entry wins.
 		const unprefixed = plan({ summary: summary([foreign, own]) });
 		const unprefixedCrhs = unprefixed.paths[0];
 		if (unprefixedCrhs?.path !== "crhs") throw new Error("missing crhs path");
 		expect(unprefixedCrhs.entry.name).toBe("other-crhs");
+		expect(unprefixedCrhs.keyFingerprint).toBe("SHA256:other");
 
-		const ownKey = plan({ summary: summary([foreign, own]), crhsFingerprint: "SHA256:crhs" });
+		const ownKey = plan({ summary: summary([foreign, own]), crhsFingerprints: ["SHA256:crhs"] });
 		const ownCrhs = ownKey.paths[0];
 		if (ownCrhs?.path !== "crhs") throw new Error("missing crhs path");
 		expect(ownCrhs.entry.name).toBe("crhs");
+		expect(ownCrhs.keyFingerprint).toBe("SHA256:crhs");
 
-		const foreignOnly = plan({ summary: summary([foreign]), crhsFingerprint: "SHA256:crhs" });
+		const foreignOnly = plan({ summary: summary([foreign]), crhsFingerprints: ["SHA256:crhs"] });
 		expect(foreignOnly.paths).toEqual([]);
+	});
+
+	it("uses the newest key the node trusts and skips a node that trusts none", () => {
+		const older = sshEntry("crhs-old", "crhs", {
+			requireExact: true,
+			maxTtlMs: 300_000,
+			allow: [anyRule()],
+			key: { kind: "sshsig", publicKey: KEY_LINE, fingerprint: "SHA256:old" },
+		});
+		const newest = sshEntry("crhs-new", "crhs", {
+			requireExact: true,
+			maxTtlMs: 300_000,
+			allow: [anyRule()],
+			key: { kind: "sshsig", publicKey: KEY_LINE, fingerprint: "SHA256:new" },
+		});
+		const fingerprints = ["SHA256:new", "SHA256:old"];
+
+		const both = plan({ summary: summary([older, newest]), crhsFingerprints: fingerprints });
+		const bothCrhs = both.paths[0];
+		if (bothCrhs?.path !== "crhs") throw new Error("missing crhs path");
+		expect(bothCrhs.entry.name).toBe("crhs-new");
+		expect(bothCrhs.keyFingerprint).toBe("SHA256:new");
+
+		// A node that still trusts only the older key gets that key, not the newest one.
+		const onlyOlder = plan({ summary: summary([older]), crhsFingerprints: fingerprints });
+		const olderPath = onlyOlder.paths[0];
+		if (olderPath?.path !== "crhs") throw new Error("missing crhs path");
+		expect(olderPath.entry.name).toBe("crhs-old");
+		expect(olderPath.keyFingerprint).toBe("SHA256:old");
+
+		// A node that trusts none of crhs's keys falls back to the owner's user path.
+		const none = plan({ summary: summary([ALICE, LOCAL]), crhsFingerprints: fingerprints });
+		expect(none.paths.map((path) => path.path)).toEqual(["user", "local"]);
+	});
+
+	it("cosigns with the newest key the node trusts for cosign, not one that only executes", () => {
+		const newestExecuteOnly = sshEntry("crhs-new", "crhs", {
+			kinds: ["execute"],
+			key: { kind: "sshsig", publicKey: KEY_LINE, fingerprint: "SHA256:new" },
+		});
+		const olderCosign = sshEntry("crhs-old", "crhs", {
+			kinds: ["cosign"],
+			key: { kind: "sshsig", publicKey: KEY_LINE, fingerprint: "SHA256:old" },
+		});
+		const requiring = { ...ALICE, kinds: ["execute", "require-cosign"] as TrustEntry["kinds"] };
+		const withCosign = plan({
+			summary: summary([newestExecuteOnly, requiring, olderCosign]),
+			crhsFingerprints: ["SHA256:new", "SHA256:old"],
+			tried: ["crhs"],
+		});
+		const user = withCosign.paths[0];
+		if (user?.path !== "user") throw new Error("missing user path");
+		expect(user.entries[0]).toMatchObject({ cosignRequired: true, cosignAvailable: true });
+
+		const withoutCosign = plan({
+			summary: summary([newestExecuteOnly, requiring]),
+			crhsFingerprints: ["SHA256:new", "SHA256:old"],
+			tried: ["crhs"],
+		});
+		expect(withoutCosign.paths).toEqual([]);
+		expect(withoutCosign.reason).toMatch(/cosignature/);
 	});
 
 	it("notes a required crhs cosignature and whether the node can provide one", () => {

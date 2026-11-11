@@ -9,6 +9,7 @@ import { hashPassword, needsRehash, verifyPassword } from "../auth/password.ts";
 import { createWebSession, revokeUserWebSessions, revokeWebSession, SESSION_COOKIE } from "../auth/sessions.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
+import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { findUserByUsername, setPassword, storePasswordHash, toPublicUser } from "../users/service.ts";
 import { UserError } from "../util/errors.ts";
@@ -30,8 +31,10 @@ export interface AuthRoutesOptions {
 	/** With taskGroups, rejects the waiting work of tokens a password change revokes; tests may omit them. */
 	cluster?: Cluster;
 	taskGroups?: TaskGroups;
-	/** `[auth] captcha`; "cap" by default, tests pass "none". */
+	/** Captcha fallback for tests; production passes `settings`. */
 	captcha?: "cap" | "none";
+	/** Runtime settings; when given their captcha mode is read per request and takes precedence. */
+	settings?: SettingsStore;
 	/** Lowers the proof-of-work cost for the "cap" tests; production keeps capjs-core's defaults. */
 	captchaChallenge?: CaptchaChallengeParameters;
 	/**
@@ -43,13 +46,14 @@ export interface AuthRoutesOptions {
 
 export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 	const limiter = options.limiter ?? new LoginLimiter();
-	const captcha = options.captcha ?? "cap";
+	// Read at use time: System settings takes effect without a restart.
+	const captchaMode = () => options.settings?.current().auth.captcha ?? options.captcha ?? "cap";
 	const app = new Hono<AppEnv>();
 
-	app.get("/login-options", (c) => c.json({ captcha }));
+	app.get("/login-options", (c) => c.json({ captcha: captchaMode() }));
 
 	app.post("/login/challenge", async (c) => {
-		if (captcha === "none") return jsonError(c, 404, "captcha is disabled");
+		if (captchaMode() === "none") return jsonError(c, 404, "captcha is disabled");
 		const body = await readJsonObject(c);
 		const username = body?.username;
 		const tag = body?.tag;
@@ -82,7 +86,7 @@ export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 		const address = options.clientAddress?.(c);
 
 		// The PoW is checked before the limiter and before Argon2id: a failure here is not a login attempt.
-		if (captcha === "cap") {
+		if (captchaMode() === "cap") {
 			const cap = body?.cap;
 			if (cap === undefined || cap === null) {
 				return jsonError(c, 400, "captcha is required", { code: "captcha_required" });

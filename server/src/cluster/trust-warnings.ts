@@ -17,8 +17,8 @@ export type { TrustWarning, TrustWarningKind, TrustWarningSeverity };
 
 /** What the warnings need beyond the node's cached report: the node groups and the keys crhs knows. */
 export interface TrustWarningContext {
-	/** Fingerprint of crhs's current authorization signing key; undefined means it has none. */
-	crhsFingerprint?: string;
+	/** Fingerprints of crhs's authorization signing keys; empty means it has none. */
+	crhsFingerprints: readonly string[];
 	/** Every node group, id → name. */
 	nodeGroups: ReadonlyMap<string, string>;
 	/** The OpenSSH fingerprints of every registered user credential. */
@@ -28,13 +28,16 @@ export interface TrustWarningContext {
 }
 
 /** Loads the context shared by all warnings of one listing; once per listing, never per node. */
-export async function trustWarningContext(db: Db, crhsFingerprint?: string): Promise<TrustWarningContext> {
+export async function trustWarningContext(
+	db: Db,
+	crhsFingerprints: readonly string[] = [],
+): Promise<TrustWarningContext> {
 	const [groups, credentials] = await Promise.all([
 		db.selectFrom("node_groups").select(["id", "name"]).execute(),
 		db.selectFrom("user_credentials").select(["kind", "fingerprint", "credential_id"]).execute(),
 	]);
 	return {
-		crhsFingerprint,
+		crhsFingerprints,
 		nodeGroups: new Map(groups.map((group) => [group.id, group.name])),
 		sshFingerprints: new Set(
 			credentials.flatMap((row) => (row.kind === "ssh" && row.fingerprint ? [row.fingerprint] : [])),
@@ -52,9 +55,7 @@ function trustEntryKnown(entry: TrustEntry, context: TrustWarningContext): boole
 		sshKeyFingerprints: [...context.sshFingerprints],
 		webauthnCredentialIds: [...context.webauthnCredentialIds],
 	};
-	if (entry.role === "crhs") {
-		return context.crhsFingerprint !== undefined && isOwnCrhsEntry(entry, context.crhsFingerprint);
-	}
+	if (entry.role === "crhs") return isOwnCrhsEntry(entry, context.crhsFingerprints);
 	return ownerCredentialOf(entry, credentials) !== null;
 }
 
@@ -122,7 +123,7 @@ export function trustWarningsForNode(input: NodeTrustWarningInput): TrustWarning
 			uuid: null,
 			nodeGroupName: null,
 			trustName: entry.name,
-			message: `trust entry "${entry.name}" is neither crhs's current signing key nor a registered user credential`,
+			message: `trust entry "${entry.name}" is not one of crhs's signing keys or a registered user credential`,
 		});
 	}
 	return warnings;
@@ -133,9 +134,9 @@ export async function trustWarningsForRows(
 	db: Db,
 	rows: readonly NodeRow[],
 	memberships: ReadonlyMap<string, readonly NodeGroupRef[]>,
-	options: { crhsFingerprint?: string } = {},
+	options: { crhsFingerprints?: readonly string[] } = {},
 ): Promise<Map<string, TrustWarning[]>> {
-	const context = await trustWarningContext(db, options.crhsFingerprint);
+	const context = await trustWarningContext(db, options.crhsFingerprints);
 	const out = new Map<string, TrustWarning[]>();
 	for (const row of rows) {
 		const report = parseTrustReport(row.trust_report);

@@ -134,10 +134,11 @@ crhs and crha log to standard output; under systemd, read them with `journalctl 
 
 ## Retention and cleanup
 
-`[retention]` in `crhs.toml` sets how long finished tasks, audit events and finished agent tool records
-are kept (90, 180 and 7 days by default; `"off"` keeps them forever; the minimum is one day). See the
-[crhs configuration reference](reference/crhs-config.md#retention). Tasks still in progress are never
-deleted, and the most recent audit events are always kept.
+The retention windows in the WebUI's **System settings** (administrators) set how long finished tasks,
+audit events and finished agent tool records are kept (90, 180 and 7 days by default; `"off"` keeps
+them forever; the minimum is one day). A change applies to the next sweep; see the
+[crhs configuration reference](reference/crhs-config.md#system-settings). Tasks still in progress are
+never deleted, and the most recent audit events are always kept.
 
 Session conversations are never deleted by retention. They grow with use, so size the database for
 them.
@@ -166,16 +167,23 @@ If the key was compromised, delete the old node first.
 **crhs's identity key** cannot be rotated: every node pins it at enrollment, so replacing it means
 re-enrolling every node. Back it up with a key export.
 
+**crhs's authorization signing key** can be rotated while crhs runs. Add a key, add its public key to
+each node's `privileged.toml` and reload the node when convenient, then delete the old key once no node
+trusts it. crhs uses the newest key each node trusts, so nodes may be updated one at a time. Deleting a
+compromised key stops crhs signing with it at once, but a node that still lists it continues to trust it;
+remove the entry there as well. With no keys left crhs signs nothing and falls back to the owner's
+signature or a local approval.
+
 ## Clock synchronization
 
 Run time synchronization (chrony, systemd-timesyncd) on the crhs host and every node. Nodes check
 authorization deadlines with their own clock, so a wrong clock causes refusals or lets authorizations
 last longer than intended.
 
-A **clock** warning next to a node means its clock differed from crhs's by more than `clock_warn` when
-it connected. Fix the clock, then restart `crha` so the offset is measured again. The warning never
-blocks work. It is unrelated to `clock_skew` in `privileged.toml`, which is the tolerance for checking
-authorizations; do not raise `clock_skew` instead of fixing the clock.
+A **clock** warning next to a node means its clock differed from crhs's by more than `clock_warn` in
+**System settings** when it connected. Fix the clock, then restart `crha` so the offset is measured
+again. The warning never blocks work. It is unrelated to `clock_skew` in `privileged.toml`, which is
+the tolerance for checking authorizations; do not raise `clock_skew` instead of fixing the clock.
 
 ## SQLite and PostgreSQL
 
@@ -212,8 +220,10 @@ reach every hop.
   when crhs restarts.
 - `login_in_progress`: another login from the same address is in progress; retry.
 - `captcha_failed`: the challenge expired (after two minutes) or the client address changed between
-  challenge and login. Behind a proxy, set `real_ip_header` and make the proxy overwrite that header.
-- `hash_busy`: too many password checks at once; retry, or raise `[auth].argon2_concurrency`.
+  challenge and login. Behind a proxy, set `real_ip_header` in **System settings** and make the proxy
+  overwrite that header.
+- `hash_busy`: too many password checks at once; retry, or raise `auth.argon2_concurrency` in
+  **System settings**.
 - If you are returned to the sign-in page right after signing in, the browser did not keep the session
   cookie: on any host other than localhost the WebUI must be served over HTTPS.
 

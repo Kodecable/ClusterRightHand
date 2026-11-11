@@ -50,7 +50,7 @@ Not protected against:
 
 - **Passwords** are the only way to sign in. Passwords are hashed with Argon2id, and the number of
   concurrent hash computations is limited so that logins cannot exhaust memory
-  ([`[auth]`](reference/crhs-config.md#auth)).
+  ([System settings](reference/crhs-config.md#system-settings)).
 - **Login protection.** Failed logins are limited per client address and per address and username
   (10 failures in 15 minutes). By default each login also solves an invisible proof-of-work captcha
   bound to the address, username and password. Set `captcha = "none"` only where no browser is used.
@@ -76,8 +76,11 @@ pending node receives no tasks.
 **Revoking a node** means deleting it in the WebUI, which closes its connection and refuses its key.
 To replace a node's key, delete its key files and enroll it again.
 
-crhs's own keys cannot be rotated online. If they are compromised, treat the deployment as compromised:
-rebuild it and re-enroll the nodes.
+crhs's identity key cannot be rotated online. If it is compromised, treat the deployment as compromised:
+rebuild it and re-enroll the nodes. The authorization signing key is different: it can be rotated by
+adding a key, adding its public key to the nodes at their own pace, then deleting the old one. Deleting a
+compromised signing key stops crhs using it at once, but nodes still trust it until their
+`privileged.toml` no longer lists it.
 
 ## Privilege
 
@@ -95,7 +98,7 @@ A failed escalation fails the task; it never falls back to running unprivileged.
 
 ### Trust configuration
 
-On a `forward` node, `privileged.toml` lists who may authorize privileged tasks: crhs's signing key,
+On a `forward` node, `privileged.toml` lists who may authorize privileged tasks: crhs's signing keys,
 users' SSH keys or Passkeys, and local users who approve with `crha approve`. Only the node's root can
 change it. Changing it through CRH is itself a privileged task that needs an existing trusted signer, so
 crhs cannot add itself.
@@ -121,7 +124,7 @@ exactly that task; crhs cannot change it afterwards.
 
 | Setting | Where | Meaning |
 |---|---|---|
-| `clock_warn` | `crhs.toml`, `crha.toml` | Warn when a node's clock differs from crhs's by more than this, measured once per connection. Warning only. |
+| `clock_warn` | System settings (crhs), `crha.toml` | Warn when a node's clock differs from crhs's by more than this, measured once per connection. Warning only. |
 | `clock_skew` | `privileged.toml` | Tolerance when a node checks an authorization's issue time and deadline. Shown in the WebUI as **Authorization clock tolerance**. |
 
 Authorization deadlines are written by the signer's clock and checked by the node's, so run time
@@ -170,8 +173,8 @@ the database backup: it contains crhs's private keys. See [Backups and restore](
 **Network**
 
 - [ ] Keep crhs listening on loopback and expose it through a reverse proxy with TLS.
-- [ ] If you set `real_ip_header`, make the proxy overwrite that header; otherwise clients choose the
-  address used for rate limiting.
+- [ ] If you set `real_ip_header` in **System settings**, make the proxy overwrite that header;
+  otherwise clients choose the address used for rate limiting.
 - [ ] Treat the proxy as trusted: it sees WebUI and MCP traffic in plain text.
 
 **Accounts and tokens**

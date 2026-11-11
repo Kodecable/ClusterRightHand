@@ -18,12 +18,13 @@ import { Cluster } from "./cluster/cluster.ts";
 import { loadServerIdentity } from "./cluster/identity.ts";
 import { nodeRoute } from "./cluster/ssh/nodes.ts";
 import { TaskGroups } from "./cluster/task-groups.ts";
-import { type Config, DEFAULT_CONFIG_PATH, loadConfig } from "./config.ts";
+import { type Config, type ConfigFile, DEFAULT_CONFIG_PATH, loadConfigFile } from "./config.ts";
 import { buildKeyExport, decryptKeyExport, encryptKeyExport } from "./keys/export.ts";
 import { bindMasterKey, KeyError, type MasterKey, readMasterKeyFile } from "./keys/master-key.ts";
 import { initMasterKey, restoreMasterKey } from "./keys/setup.ts";
-import { loadAuthorizationSigningKey } from "./privilege/key.ts";
+import { loadAuthorizationSigningKeys } from "./privilege/key.ts";
 import { Scheduler } from "./scheduler/scheduler.ts";
+import { importSettingsFromFile, SettingsStore } from "./settings/settings.ts";
 import { createStorageOpener, type Db, openAgentStorage, openDb } from "./storage/db.ts";
 import { migrateToLatest } from "./storage/migrate.ts";
 import { startRetentionSweep } from "./storage/retention.ts";
@@ -60,24 +61,40 @@ if (values.help) {
 	process.exit(0);
 }
 
-let config: Config;
+let configFile: ConfigFile;
 try {
-	config = await loadConfig(values.config);
+	configFile = await loadConfigFile(values.config);
+} catch (err) {
+	console.error(`crhs: ${values.config}: ${(err as Error).message}`);
+	process.exit(2);
+}
+const config: Config = configFile.config;
+const db = openDb(config.database);
+await migrateToLatest(db);
+
+// Settings an old crhs.toml still holds are imported into the database only when it has no value for
+// them; a key that is already stored is a startup error (two sources would silently disagree).
+let settings: SettingsStore;
+try {
+	await importSettingsFromFile(db, configFile.moved, (message) => console.warn(`crhs: ${message}`));
+	settings = await SettingsStore.load(db);
 } catch (err) {
 	console.error(`crhs: ${values.config}: ${(err as Error).message}`);
 	process.exit(2);
 }
 // Every Argon2id computation, including `user add` and `user passwd`, goes through this one gate.
-configureHashGate({ concurrency: config.auth.argon2Concurrency, queue: config.auth.argon2Queue });
-const db = openDb(config.database);
-await migrateToLatest(db);
+// It reads System settings from the database, which is why this happens after the database is open.
+configureHashGate({
+	concurrency: settings.current().auth.argon2Concurrency,
+	queue: settings.current().auth.argon2Queue,
+});
 
 const [command = "serve", ...args] = positionals;
 try {
 	if (command === "serve") {
 		const masterKey = await readMasterKeyFile(config.masterKeyFile);
 		await bindMasterKey(db, masterKey);
-		await runServer(config, db, masterKey);
+		await runServer(config, db, masterKey, settings);
 	} else if (command === "keys" && args[0] === "init") {
 		await initKeys(config, db);
 	} else if (command === "keys" && args[0] === "export" && values.out) {
@@ -159,15 +176,16 @@ async function importKeys(config: Config, db: Db, file: string): Promise<void> {
 	await db.destroy();
 }
 
-async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<void> {
+async function runServer(config: Config, db: Db, masterKey: MasterKey, settings: SettingsStore): Promise<void> {
 	const identity = await loadServerIdentity(db, masterKey);
-	// Created on first start; its public key is what nodes put in a crhs trust entry (doc/design/privilege.md).
-	const authorizationKey = await loadAuthorizationSigningKey(db, masterKey);
+	// The first key is created on first start; its public key is what nodes put in a crhs trust entry.
+	// Administrators can add and delete keys while crhs runs (doc/design/privilege.md "Authorization signing key").
+	const signingKeys = await loadAuthorizationSigningKeys(db, masterKey);
 	const audit = new Audit(db);
 	const cluster = new Cluster(db, {
 		sshRoute: (node) => nodeRoute(db, masterKey, node),
-		authorizationKey,
-		clockWarnMs: config.clockWarnMs,
+		signingKeys,
+		settings,
 		audit,
 	});
 	const agents = new AgentServer(db, identity, cluster, audit);
@@ -197,18 +215,15 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	const scheduler = new Scheduler({ db, runtime, audit });
 	const drain = new RequestDrain();
 	const app = createApp(db, {
-		clientAddress: createClientAddress(config.listen.realIpHeader),
-		captcha: config.auth.captcha,
+		clientAddress: createClientAddress(() => settings.current().realIpHeader),
+		settings,
 		serverFingerprint: identity.fingerprint,
 		serverPublicKey: identity.keyPair.publicKey,
 		cluster,
 		taskGroups,
-		authorizationKey,
+		signingKeys,
 		masterKey,
-		webauthn: config.webauthn,
-		clockWarnMs: config.clockWarnMs,
 		webRoot: config.webRoot,
-		publicUrl: config.publicUrl,
 		audit,
 		agent: { runtime, models },
 		scheduler,
@@ -218,7 +233,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 	// serve() is typed for HTTP/2 too; crhs listens over HTTP/1, whose connections can be drained.
 	const server = serve({ fetch: app.fetch, hostname: config.listen.host, port: config.listen.port }, (info) => {
 		console.log(
-			`crhs listening on http://${info.address}:${info.port} (identity ${identity.fingerprint}, signing key ${authorizationKey.fingerprint})`,
+			`crhs listening on http://${info.address}:${info.port} (identity ${identity.fingerprint}, ${signingKeys.describe()})`,
 		);
 	}) as Server;
 	server.on("upgrade", (req, socket, head) => {
@@ -242,8 +257,9 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		},
 		5 * 60 * 1000,
 	);
-	// Retention deletes rows past their configured age: once shortly after startup, then hourly.
-	const retention = startRetentionSweep(db, config.retention);
+	// Retention deletes rows past their configured age: once shortly after startup, then hourly. The
+	// getter reads System settings at each run, so a changed window applies without a restart.
+	const retention = startRetentionSweep(db, () => settings.current().retention);
 	let shuttingDown = false;
 	// Awaited end to end, so nothing writes to the database after db.destroy().
 	const shutdown = async () => {

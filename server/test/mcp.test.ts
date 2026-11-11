@@ -5,6 +5,7 @@ import { createApiToken } from "../src/auth/api-tokens.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import type { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { DEFAULT_SYSTEM_SETTINGS, SettingsStore } from "../src/settings/settings.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
@@ -73,7 +74,7 @@ describe("MCP links", () => {
 	});
 
 	/** Builds an app whose task tools return one task waiting for approval. */
-	function appWith(publicUrl?: string): App {
+	function appWith(publicUrl?: string, settings?: SettingsStore): App {
 		const task: TaskView = {
 			id: APPROVAL_TASK_ID,
 			nodeId,
@@ -121,6 +122,7 @@ describe("MCP links", () => {
 			cluster,
 			taskGroups: new TaskGroups(db, cluster),
 			...(publicUrl === undefined ? {} : { publicUrl }),
+			...(settings === undefined ? {} : { settings }),
 		});
 	}
 
@@ -151,5 +153,16 @@ describe("MCP links", () => {
 	it("falls back to the request origin when public_url is unset", async () => {
 		const text = await execText(appWith());
 		expect(text).toContain(`waiting for approval: http://crh.test/approvals/tasks/${APPROVAL_TASK_ID}`);
+	});
+
+	it("applies a public_url change without a restart", async () => {
+		const settings = SettingsStore.fromSystemSettings(DEFAULT_SYSTEM_SETTINGS);
+		const app = appWith(undefined, settings);
+		expect(await execText(app)).toContain(`waiting for approval: http://crh.test/approvals/tasks/${APPROVAL_TASK_ID}`);
+
+		await settings.patch(db, { publicUrl: "https://crh.example.com" }, null);
+		expect(await execText(app)).toContain(
+			`waiting for approval: https://crh.example.com/approvals/tasks/${APPROVAL_TASK_ID}`,
+		);
 	});
 });
