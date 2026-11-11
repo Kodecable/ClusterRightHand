@@ -71,6 +71,17 @@ describeBackends("key export", (backend) => {
 			await other.destroy();
 		}
 	});
+
+	it("ignores key names in an older export", async () => {
+		const data = await buildKeyExport(db, key);
+		// Exports written while signing keys had names carry one per key; restoring ignores it.
+		const legacy = { ...data, keys: data.keys.map((entry) => ({ ...entry, name: "old label" })) };
+		const file = await encryptKeyExport(legacy, "pass phrase", WORK_FACTOR);
+		const restored = await decryptKeyExport(file, "pass phrase");
+		expect(restored.keys).toEqual(data.keys);
+		expect(restored.keys.some((entry) => "name" in entry)).toBe(false);
+		expect((await verifyKeyExportAgainstDb(db, restored)).id).toBe(key.id);
+	});
 });
 
 describeBackends("master key setup", (backend) => {

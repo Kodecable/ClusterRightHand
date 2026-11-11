@@ -30,8 +30,6 @@ export type SigningKeyKind = "execute" | "cosign";
 export interface AuthorizationSigningKey {
 	/** The `secrets` row id; the signing keys API addresses a key by it. */
 	readonly id: string;
-	/** The optional administrator label (non-secret). */
-	readonly name: string | null;
 	readonly createdAt: string;
 	readonly publicKey: KeyObject;
 	/** SSH wire-format ed25519 public key blob (what the fingerprint hashes). */
@@ -54,10 +52,7 @@ function publicParts(publicKey: KeyObject): { publicKeyBlob: Uint8Array; authori
 }
 
 /** Builds the public surface of one key; the private key is never stored beyond the signer closure. */
-function signingKey(
-	parts: { id: string; name: string | null; createdAt: string },
-	privateKey: KeyObject,
-): AuthorizationSigningKey {
+function signingKey(parts: { id: string; createdAt: string }, privateKey: KeyObject): AuthorizationSigningKey {
 	const publicKey = createPublicKey(privateKey);
 	const publicPart = publicParts(publicKey);
 	return {
@@ -66,13 +61,6 @@ function signingKey(
 		...publicPart,
 		sign: (payload) => signSshsig(privateKey, publicPart.publicKeyBlob, payload),
 	};
-}
-
-function normalizeName(name: string | undefined): string | null {
-	const trimmed = name?.trim() ?? "";
-	if (trimmed.length === 0) return null;
-	if (trimmed.length > 100) throw new UserError("a signing key name is at most 100 characters");
-	return trimmed;
 }
 
 async function initialized(db: Db): Promise<boolean> {
@@ -144,12 +132,11 @@ export class AuthorizationSigningKeyStore {
 	}
 
 	/** Adds a newly generated key; it becomes the newest and the one planning prefers. */
-	async add(name?: string): Promise<AuthorizationSigningKey> {
+	async add(): Promise<AuthorizationSigningKey> {
 		if (!this.#db || !this.#masterKey) throw new UserError("signing keys are not configured");
 		const privateKey = generateKeyPairSync("ed25519").privateKey;
 		const id = newId();
 		const createdAt = new Date().toISOString();
-		const label = normalizeName(name);
 		await this.#db
 			.insertInto("secrets")
 			.values({
@@ -160,11 +147,10 @@ export class AuthorizationSigningKeyStore {
 					privateKey.export({ format: "der", type: "pkcs8" }),
 					secretAad(id, AUTHORIZATION_SIGNING_KEY_KIND),
 				),
-				name: label,
 				created_at: createdAt,
 			})
 			.execute();
-		const key = signingKey({ id, name: label, createdAt }, privateKey);
+		const key = signingKey({ id, createdAt }, privateKey);
 		// The row is stored: use the key at once, even if recording the first-key flag fails.
 		this.#keys = [key, ...this.#keys];
 		await markInitialized(this.#db);
@@ -204,14 +190,14 @@ export async function loadAuthorizationSigningKeys(
 ): Promise<AuthorizationSigningKeyStore> {
 	const rows = await db
 		.selectFrom("secrets")
-		.select(["id", "name", "ciphertext", "created_at"])
+		.select(["id", "ciphertext", "created_at"])
 		.where("kind", "=", AUTHORIZATION_SIGNING_KEY_KIND)
 		.orderBy("created_at", "desc")
 		.orderBy("id", "desc")
 		.execute();
 	const keys = rows.map((row) =>
 		signingKey(
-			{ id: row.id, name: row.name, createdAt: row.created_at },
+			{ id: row.id, createdAt: row.created_at },
 			createPrivateKey({
 				key: masterKey.decrypt(row.ciphertext, secretAad(row.id, AUTHORIZATION_SIGNING_KEY_KIND)),
 				format: "der",

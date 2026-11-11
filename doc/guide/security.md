@@ -74,13 +74,14 @@ compare the hostname and the key fingerprint shown in the WebUI with `crha statu
 pending node receives no tasks.
 
 **Revoking a node** means deleting it in the WebUI, which closes its connection and refuses its key.
-To replace a node's key, delete its key files and enroll it again.
+To replace a node's key, re-enroll it from its page (`crha enroll --replace`): the node keeps its
+record and its access, and the old key stops authenticating at once.
 
 crhs's identity key cannot be rotated online. If it is compromised, treat the deployment as compromised:
-rebuild it and re-enroll the nodes. The authorization signing key is different: it can be rotated by
-adding a key, adding its public key to the nodes at their own pace, then deleting the old one. Deleting a
-compromised signing key stops crhs using it at once, but nodes still trust it until their
-`privileged.toml` no longer lists it.
+rebuild it and re-enroll the nodes with Re-enroll tokens, which keeps their records. The authorization
+signing key is different: it can be rotated by adding a key, adding its public key to the nodes at
+their own pace, then deleting the old one. Deleting a compromised signing key stops crhs using it at
+once, but nodes still trust it until their `privileged.toml` no longer lists it.
 
 ## Privilege
 

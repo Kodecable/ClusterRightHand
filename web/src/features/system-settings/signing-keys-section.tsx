@@ -1,20 +1,17 @@
-import type { SigningKey, SigningKeyDeleteConflict } from "@crh/api";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Trans, useLingui } from "@lingui/react/macro";
+import type { SigningKey, SigningKeyDeleteConflict, SigningKeyTrust } from "@crh/api";
+import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
 import { CopyButton } from "@/components/copy-button";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
-import { ConfirmDialog, FormDialog } from "@/components/dialogs";
+import { ConfirmDialog } from "@/components/dialogs";
 import { TableEmpty } from "@/components/empty-state";
 import { ErrorText } from "@/components/error-state";
-import { TextField } from "@/components/form";
 import { KeyValueList } from "@/components/key-value";
 import { DateTime } from "@/components/relative-time";
 import { SectionHeader } from "@/components/section";
+import { useTimeColumnWidth } from "@/components/time-column";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,9 +23,43 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { WarningBanner } from "@/components/warning-banner";
-import { errorMessage } from "@/lib/api/client";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { signingKeyDeleteConflict, useCreateSigningKey, useDeleteSigningKey, useSigningKeys } from "./api";
+
+/** How many trusting nodes a delete dialog links before it summarises the rest. */
+const MAX_TRUSTED_NODE_LINKS = 3;
+
+/**
+ * The nodes behind a key's "Trusted by" count, for the delete dialog only: at most three links, then
+ * an ellipsis and the remaining count. Each link truncates inside the dialog and keeps its full name in
+ * the title.
+ */
+function TrustedNodeList({ nodes }: { nodes: readonly SigningKeyTrust[] }) {
+	const shown = nodes.slice(0, MAX_TRUSTED_NODE_LINKS);
+	return (
+		<ul className="grid min-w-0 gap-1 text-sm" data-testid="signing-key-trusted-nodes">
+			{shown.map((node) => (
+				<li key={node.nodeId} className="flex min-w-0 items-baseline gap-1">
+					<Link
+						to="/nodes/$nodeId"
+						params={{ nodeId: node.nodeId }}
+						className={cn(linkClass, "min-w-0 truncate")}
+						title={node.nodeName}
+					>
+						{node.nodeName}
+					</Link>
+					<span className="shrink-0 text-muted-foreground">({node.kinds.join(", ")})</span>
+				</li>
+			))}
+			{nodes.length > shown.length && (
+				<li className="flex min-w-0 items-center gap-1 text-muted-foreground">
+					<span aria-hidden="true">…</span>
+					<Plural value={nodes.length - shown.length} one="and # more" other="and # more" />
+				</li>
+			)}
+		</ul>
+	);
+}
 
 /** The dialog that shows a new key's authorized_keys line, for pasting into privileged.toml. */
 function CreatedSigningKeyDialog({ signingKey, onClose }: { signingKey: SigningKey; onClose: () => void }) {
@@ -43,7 +74,7 @@ function CreatedSigningKeyDialog({ signingKey, onClose }: { signingKey: SigningK
 			<DialogContent className="sm:max-w-2xl" data-testid="signing-key-created">
 				<DialogHeader>
 					<DialogTitle>
-						<Trans>Signing key added</Trans>
+						<Trans>Authorization signing key added</Trans>
 					</DialogTitle>
 					<DialogDescription>
 						<Trans>
@@ -52,16 +83,11 @@ function CreatedSigningKeyDialog({ signingKey, onClose }: { signingKey: SigningK
 						</Trans>
 					</DialogDescription>
 				</DialogHeader>
-				<div className="grid gap-3">
-					<KeyValueList
-						items={[
-							...(signingKey.name === null ? [] : [{ label: t`Name`, value: signingKey.name }]),
-							{ label: t`Fingerprint`, value: signingKey.fingerprint, mono: true },
-						]}
-					/>
-					<div className="grid gap-1.5">
+				<div className="grid min-w-0 gap-3">
+					<KeyValueList items={[{ label: t`Fingerprint`, value: signingKey.fingerprint, mono: true }]} />
+					<div className="grid min-w-0 gap-1.5">
 						<p className="text-xs text-muted-foreground">{t`Public key`}</p>
-						<code className={cn(MONO_CELL, "block rounded-lg border p-3 break-all [overflow-wrap:anywhere]")}>
+						<code className={cn(MONO_CELL, "block min-w-0 rounded-lg border p-3 break-all [overflow-wrap:anywhere]")}>
 							{signingKey.publicKey}
 						</code>
 					</div>
@@ -77,6 +103,10 @@ function CreatedSigningKeyDialog({ signingKey, onClose }: { signingKey: SigningK
 	);
 }
 
+/**
+ * Confirms adding a key: there is nothing to fill in, because a key is identified by its fingerprint.
+ * The creation request itself happens on confirm, and the caller opens the created-key dialog.
+ */
 function AddSigningKeyDialog({
 	onClose,
 	onCreated,
@@ -84,56 +114,45 @@ function AddSigningKeyDialog({
 	onClose: () => void;
 	onCreated: (signingKey: SigningKey) => void;
 }) {
-	const { t } = useLingui();
 	const create = useCreateSigningKey();
-	const schema = useMemo(
-		() => z.object({ name: z.string().max(100, t`The name must be at most 100 characters.`) }),
-		[t],
-	);
-	type Values = z.infer<typeof schema>;
-	const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { name: "" } });
-	const submit = form.handleSubmit(async (values) => {
-		const name = values.name.trim();
+	const [error, setError] = useState<unknown>();
+	const add = async () => {
+		setError(undefined);
 		try {
-			onCreated(await create.mutateAsync(name === "" ? {} : { name }));
-		} catch {
+			onCreated(await create.mutateAsync());
+		} catch (failure) {
 			// The dialog's error line shows the server's message.
+			setError(failure);
 		}
-	});
+	};
 	return (
-		<FormDialog
+		<ConfirmDialog
 			open
 			onOpenChange={(open) => {
 				if (!open) onClose();
 			}}
-			title={<Trans>Add signing key</Trans>}
+			title={<Trans>Add authorization signing key</Trans>}
 			description={
 				<Trans>
 					crhs generates a new ed25519 key. It becomes the newest key, but nodes use it only after their privileged.toml
 					trusts it.
 				</Trans>
 			}
-			onSubmit={() => void submit()}
-			submitLabel={<Trans>Add signing key</Trans>}
+			confirmLabel={<Trans>Add authorization signing key</Trans>}
+			destructive={false}
 			busy={create.isPending}
-			error={create.error === null ? undefined : errorMessage(create.error)}
-			testId="add-signing-key-dialog"
+			onConfirm={() => void add()}
 		>
-			<TextField
-				control={form.control}
-				name="name"
-				label={<Trans>Name</Trans>}
-				placeholder={t`Optional`}
-				description={t`Optional, to tell keys apart in this list.`}
-			/>
-		</FormDialog>
+			<ErrorText error={error} />
+		</ConfirmDialog>
 	);
 }
 
 /**
  * crhs's authorization signing keys (doc/design/privilege.md "Authorization signing key"):
  * every key, the nodes whose trust report trusts it and the actions that add or
- * delete one. The newest key is marked; crhs signs new authorizations with it.
+ * delete one. Keys are identified by fingerprint. The newest key is marked; crhs
+ * signs new authorizations with it.
  */
 export function SigningKeysSection() {
 	const { t } = useLingui();
@@ -144,6 +163,7 @@ export function SigningKeysSection() {
 	const [deleting, setDeleting] = useState<SigningKey>();
 	const [conflict, setConflict] = useState<SigningKeyDeleteConflict>();
 	const [deleteError, setDeleteError] = useState<unknown>();
+	const timeWidth = useTimeColumnWidth();
 
 	const deleteKey = async (force: boolean) => {
 		if (deleting === undefined) return;
@@ -160,36 +180,23 @@ export function SigningKeysSection() {
 	};
 
 	const isLastKey = keys.data?.length === 1;
-	const deleteName = deleting?.name ?? deleting?.fingerprint ?? "";
+	const trustedNodes = conflict?.nodes ?? deleting?.trustedBy ?? [];
 
 	const columns = useMemo<DataTableColumn<SigningKey>[]>(
 		() => [
 			{
-				id: "name",
-				header: t`Name`,
-				minSize: 140,
+				id: "fingerprint",
+				header: t`Fingerprint`,
+				minSize: 260,
 				cell: ({ row }) => (
 					<span className="flex min-w-0 items-center gap-2">
-						<span className="truncate">
-							{row.original.name ?? <span className="text-muted-foreground">{t`Unnamed`}</span>}
-						</span>
+						<code className={cn(MONO_CELL, "min-w-0 truncate")}>{row.original.fingerprint}</code>
 						{row.index === 0 && (
-							<Badge variant="secondary">
+							<Badge variant="secondary" className="shrink-0">
 								<Trans>Newest</Trans>
 							</Badge>
 						)}
-					</span>
-				),
-				meta: { title: (key: SigningKey) => key.name ?? t`Unnamed` },
-			},
-			{
-				id: "fingerprint",
-				header: t`Fingerprint`,
-				minSize: 220,
-				cell: ({ row }) => (
-					<span className="flex min-w-0 items-center gap-1">
-						<code className={cn(MONO_CELL, "truncate")}>{row.original.fingerprint}</code>
-						<CopyButton text={row.original.fingerprint} label={t`Copy fingerprint`} />
+						<CopyButton text={row.original.fingerprint} label={t`Copy fingerprint`} className="shrink-0" />
 					</span>
 				),
 				meta: { title: (key: SigningKey) => key.fingerprint },
@@ -197,39 +204,21 @@ export function SigningKeysSection() {
 			{
 				id: "created",
 				header: t`Created`,
-				size: 170,
+				size: timeWidth,
 				cell: ({ row }) => <DateTime value={row.original.createdAt} />,
 			},
 			{
 				id: "trustedBy",
 				header: t`Trusted by`,
-				minSize: 180,
+				minSize: 100,
 				cell: ({ row }) =>
 					row.original.trustedBy.length === 0 ? (
 						<span className="text-muted-foreground">
-							<Trans>No node trusts it</Trans>
+							<Trans>None</Trans>
 						</span>
 					) : (
-						<span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-							{row.original.trustedBy.map((trust, index) => (
-								<span key={trust.nodeId} className="inline-flex items-center gap-1">
-									{index > 0 && <span className="text-muted-foreground">,</span>}
-									<Link
-										to="/nodes/$nodeId"
-										params={{ nodeId: trust.nodeId }}
-										className={linkClass}
-										title={trust.kinds.join(", ")}
-									>
-										{trust.nodeName}
-									</Link>
-								</span>
-							))}
-						</span>
+						<Plural value={row.original.trustedBy.length} one="# node" other="# nodes" />
 					),
-				meta: {
-					title: (key: SigningKey) =>
-						key.trustedBy.length === 0 ? undefined : key.trustedBy.map((trust) => trust.nodeName).join(", "),
-				},
 			},
 			{
 				id: "actions",
@@ -240,7 +229,7 @@ export function SigningKeysSection() {
 						type="button"
 						variant="destructive"
 						size="xs"
-						aria-label={t`Delete signing key ${row.original.name ?? row.original.fingerprint}`}
+						aria-label={t`Delete authorization signing key ${row.original.fingerprint}`}
 						onClick={() => {
 							setDeleting(row.original);
 							setConflict(undefined);
@@ -253,18 +242,18 @@ export function SigningKeysSection() {
 				),
 			},
 		],
-		[t],
+		[t, timeWidth],
 	);
 
 	return (
 		<section className="grid gap-3" aria-labelledby="signing-keys-heading" data-testid="signing-keys-section">
 			<SectionHeader
 				id="signing-keys-heading"
-				title={<Trans>Signing keys</Trans>}
+				title={<Trans>Authorization signing keys</Trans>}
 				actions={
 					<Button type="button" onClick={() => setAdding(true)} data-testid="add-signing-key">
 						<PlusIcon />
-						<Trans>Add signing key</Trans>
+						<Trans>Add authorization signing key</Trans>
 					</Button>
 				}
 			/>
@@ -275,7 +264,7 @@ export function SigningKeysSection() {
 				</Trans>
 			</p>
 			<DataTable
-				label={t`Signing keys`}
+				label={t`Authorization signing keys`}
 				columns={columns}
 				data={keys.data ?? []}
 				getRowId={(key) => key.id}
@@ -284,7 +273,7 @@ export function SigningKeysSection() {
 				onRetry={() => void keys.refetch()}
 				empty={
 					<TableEmpty>
-						<Trans>No signing keys yet. crhs cannot sign authorizations until one is added.</Trans>
+						<Trans>No authorization signing keys yet. crhs cannot sign authorizations until one is added.</Trans>
 					</TableEmpty>
 				}
 			/>
@@ -307,11 +296,15 @@ export function SigningKeysSection() {
 						setConflict(undefined);
 						setDeleteError(undefined);
 					}}
-					title={conflict === undefined ? <Trans>Delete signing key?</Trans> : <Trans>Key still trusted</Trans>}
-					description={
+					title={
 						conflict === undefined ? (
-							<Trans>Delete the signing key {deleteName}?</Trans>
+							<Trans>Delete authorization signing key?</Trans>
 						) : (
+							<Trans>Authorization signing key still trusted</Trans>
+						)
+					}
+					description={
+						conflict === undefined ? undefined : (
 							<Trans>
 								These nodes still trust the key. Remove the entry from their privileged.toml and reload them, or delete
 								it anyway.
@@ -322,24 +315,30 @@ export function SigningKeysSection() {
 					busy={remove.isPending}
 					onConfirm={() => void deleteKey(conflict !== undefined)}
 				>
-					{conflict !== undefined && (
-						<ul className="grid gap-1 text-sm" data-testid="signing-key-trusted-nodes">
-							{conflict.nodes.map((node) => (
-								<li key={node.nodeId}>
-									<Link to="/nodes/$nodeId" params={{ nodeId: node.nodeId }} className={linkClass}>
-										{node.nodeName}
-									</Link>
-									<span className="text-muted-foreground"> ({node.kinds.join(", ")})</span>
-								</li>
-							))}
-						</ul>
-					)}
-					{isLastKey && (
-						<WarningBanner icon>
-							<Trans>This is the last signing key: crhs will no longer sign for any node.</Trans>
-						</WarningBanner>
-					)}
-					<ErrorText error={deleteError} />
+					<div className="grid min-w-0 gap-3">
+						<div className="grid min-w-0 gap-1">
+							<p className="text-xs text-muted-foreground">
+								<Trans>Fingerprint</Trans>
+							</p>
+							<code className={cn(MONO_CELL, "block min-w-0 rounded-lg border p-2 break-all [overflow-wrap:anywhere]")}>
+								{deleting.fingerprint}
+							</code>
+						</div>
+						{trustedNodes.length > 0 && (
+							<div className="grid min-w-0 gap-1">
+								<p className="text-xs text-muted-foreground">
+									<Trans>Trusted by</Trans>
+								</p>
+								<TrustedNodeList nodes={trustedNodes} />
+							</div>
+						)}
+						{isLastKey && (
+							<WarningBanner icon>
+								<Trans>This is the last authorization signing key: crhs will no longer sign for any node.</Trans>
+							</WarningBanner>
+						)}
+						<ErrorText error={deleteError} />
+					</div>
 				</ConfirmDialog>
 			)}
 		</section>

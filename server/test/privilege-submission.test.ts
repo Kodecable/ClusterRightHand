@@ -1126,7 +1126,7 @@ describe("user authorizations", () => {
 	});
 
 	it("adds one cosignature per key a group's nodes trust to the same shared payload", async () => {
-		const newer = await signingKeys.add("rotation");
+		const newer = await signingKeys.add();
 		const groups = new TaskGroups(db, cluster, { audit });
 		const a = await connect("group-keys-a", (id) =>
 			summaryOf(id, [
@@ -1182,7 +1182,7 @@ describe("user authorizations", () => {
 	});
 
 	it("cosigns with the newest key the node trusts for cosign, not one that only executes", async () => {
-		const newer = await signingKeys.add("execute-only");
+		const newer = await signingKeys.add();
 		const { node, crha } = await connect("cosign-capable", (id) =>
 			summaryOf(id, [
 				ownerEntry({ kinds: ["execute", "require-cosign"] }),

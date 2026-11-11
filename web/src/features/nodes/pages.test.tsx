@@ -334,3 +334,23 @@ describe("NodeDetailPage deletion", () => {
 		expect(within(dialog).queryByText(/identity\.key/)).not.toBeInTheDocument();
 	});
 });
+
+describe("NodeDetailPage re-enrollment", () => {
+	test("an administrator sees Re-enroll for a crha node", async () => {
+		await renderDetail(ADMIN, [node()]);
+		await screen.findByRole("heading", { name: "worker-01" });
+		expect(screen.getByRole("button", { name: "Re-enroll" })).toBeInTheDocument();
+	});
+
+	test("a member does not see Re-enroll", async () => {
+		await renderDetail(MEMBER, [node()]);
+		await screen.findByRole("heading", { name: "worker-01" });
+		expect(screen.queryByRole("button", { name: "Re-enroll" })).not.toBeInTheDocument();
+	});
+
+	test("an SSH node has no Re-enroll action", async () => {
+		await renderDetail(ADMIN, [node({ transport: "ssh", hostname: null, connected: false })]);
+		await screen.findByRole("heading", { name: "worker-01" });
+		expect(screen.queryByRole("button", { name: "Re-enroll" })).not.toBeInTheDocument();
+	});
+});

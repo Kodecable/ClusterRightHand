@@ -218,6 +218,10 @@ Ordinary tasks run as the `crha` user.
    prints the node id and key fingerprint. If `crha.toml` does not exist yet, add
    `--state-dir /var/lib/crha` and enroll writes a minimal file.
 
+If the node was enrolled before, use **Re-enroll** on its page instead of **New node**:
+`crha enroll --replace` keeps the node record (id, name, node groups and access grants) while replacing
+its key ([Rotating and revoking node keys](operations.md#rotating-and-revoking-node-keys)).
+
 Without a `[privileged]` table the node refuses privileged tasks. To enable them, see
 [Privileged tasks](#privileged-tasks).
 

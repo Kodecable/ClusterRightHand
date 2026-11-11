@@ -6,6 +6,7 @@ import type { NodesTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 import { availableGeneratedName, nameKey } from "../util/names.ts";
+import { keyFingerprint } from "./identity.ts";
 
 export class EnrollmentError extends UserError {}
 
@@ -25,11 +26,28 @@ export interface CreatedEnrollmentToken {
 
 export async function createEnrollmentToken(
 	db: Db,
-	input: { userId: string; nameHint?: string; ttlMs?: number; serverFingerprint: string; now?: Date },
+	input: {
+		userId: string;
+		nameHint?: string;
+		ttlMs?: number;
+		serverFingerprint: string;
+		now?: Date;
+		/** Binds the token to an existing crha node: enrolling replaces its key (doc/design/protocol.md "Rotation and revocation"). */
+		boundNodeId?: string;
+	},
 ): Promise<CreatedEnrollmentToken> {
 	const now = input.now ?? new Date();
 	const user = await db.selectFrom("users").select("org_id").where("id", "=", input.userId).executeTakeFirst();
 	if (!user) throw new NotFoundError("no such user");
+	if (input.boundNodeId !== undefined) {
+		const node = await db
+			.selectFrom("nodes")
+			.select(["id", "org_id", "transport"])
+			.where("id", "=", input.boundNodeId)
+			.executeTakeFirst();
+		if (!node || node.org_id !== user.org_id) throw new NotFoundError("no such node");
+		if (node.transport !== "client") throw new UserError("SSH nodes cannot be re-enrolled");
+	}
 	const secret = randomBytes(32).toString("base64url");
 	const id = newId();
 	const expiresAt = new Date(now.getTime() + (input.ttlMs ?? 3_600_000)).toISOString();
@@ -40,6 +58,7 @@ export async function createEnrollmentToken(
 			org_id: user.org_id,
 			created_by_user_id: input.userId,
 			token_hash: hashSecret(secret),
+			bound_node_id: input.boundNodeId ?? null,
 			name_hint: input.nameHint?.trim() || null,
 			expires_at: expiresAt,
 			used_at: null,
@@ -59,6 +78,19 @@ export function parseEnrollmentToken(token: string): { fingerprint: string; secr
 	return { fingerprint, secret };
 }
 
+/** The keys a re-enrollment replaced; present only when the token was bound to an existing node. */
+export interface Reenrollment {
+	oldFingerprint: string | null;
+	newFingerprint: string;
+}
+
+export interface EnrollmentResult {
+	node: Selectable<NodesTable>;
+	/** Set when a re-enrollment token replaced the bound node's key instead of creating a node. */
+	reenrolled?: Reenrollment;
+}
+
+/** Enrolls a node and returns it; most callers only need the row. */
 export async function enrollNode(
 	db: Db,
 	input: {
@@ -71,10 +103,27 @@ export async function enrollNode(
 		audit?: Audit;
 	},
 ): Promise<Selectable<NodesTable>> {
+	return (await enrollNodeWithResult(db, input)).node;
+}
+
+/** Like {@link enrollNode}, but also reports whether the token replaced an existing node's key. */
+export async function enrollNodeWithResult(
+	db: Db,
+	input: {
+		secret: string;
+		publicKey: Uint8Array;
+		hostname: string;
+		facts: unknown;
+		clientVersion: string;
+		now?: Date;
+		audit?: Audit;
+	},
+): Promise<EnrollmentResult> {
 	const now = (input.now ?? new Date()).toISOString();
 	const publicKey = Buffer.from(input.publicKey).toString("base64");
 	let createdByUserId = "";
-	const enrolled = await db.transaction().execute(async (trx) => {
+	let reenrolled: Reenrollment | undefined;
+	const node = await db.transaction().execute(async (trx) => {
 		if (await trx.selectFrom("nodes").select("id").where("public_key", "=", publicKey).executeTakeFirst()) {
 			throw new EnrollmentError("public key is already registered");
 		}
@@ -94,8 +143,44 @@ export async function enrollNode(
 			.executeTakeFirstOrThrow();
 		createdByUserId = token.created_by_user_id;
 
+		if (token.bound_node_id !== null) {
+			const bound = await trx.selectFrom("nodes").selectAll().where("id", "=", token.bound_node_id).executeTakeFirst();
+			// The node was deleted after the token was issued: the token is no longer usable.
+			if (!bound || bound.org_id !== token.org_id || bound.transport !== "client") {
+				throw new EnrollmentError(INVALID_TOKEN);
+			}
+			const oldFingerprint = bound.public_key ? keyFingerprint(Buffer.from(bound.public_key, "base64")) : null;
+			// Keep the id, name, node groups, grants and task history; only the identity and what it
+			// reported change. The administrator approves the new key like a new enrollment.
+			await trx
+				.updateTable("nodes")
+				.set({
+					status: "pending",
+					public_key: publicKey,
+					hostname: input.hostname,
+					facts: JSON.stringify(input.facts ?? null),
+					client_version: input.clientVersion,
+					privileged_mode: null,
+					last_seen_at: null,
+					approved_at: null,
+					approved_by_user_id: null,
+					trust_report: null,
+					trust_digest: null,
+					trust_updated_at: null,
+				})
+				.where("id", "=", bound.id)
+				.execute();
+			await trx
+				.updateTable("enrollment_tokens")
+				.set({ used_by_node_id: bound.id })
+				.where("id", "=", token.id)
+				.execute();
+			reenrolled = { oldFingerprint, newFingerprint: keyFingerprint(input.publicKey) };
+			return trx.selectFrom("nodes").selectAll().where("id", "=", bound.id).executeTakeFirstOrThrow();
+		}
+
 		const name = await availableGeneratedName(trx, token.org_id, token.name_hint ?? input.hostname);
-		const node: Selectable<NodesTable> = {
+		const created: Selectable<NodesTable> = {
 			id: newId(),
 			org_id: token.org_id,
 			name,
@@ -121,18 +206,41 @@ export async function enrollNode(
 			trust_digest: null,
 			trust_updated_at: null,
 		};
-		await trx.insertInto("nodes").values(node).execute();
-		await trx.updateTable("enrollment_tokens").set({ used_by_node_id: node.id }).where("id", "=", token.id).execute();
-		return node;
+		await trx.insertInto("nodes").values(created).execute();
+		await trx
+			.updateTable("enrollment_tokens")
+			.set({ used_by_node_id: created.id })
+			.where("id", "=", token.id)
+			.execute();
+		return created;
 	});
-	if (input.audit)
-		void input.audit
-			.record({
-				actor: { type: "system", id: "enrollment", onBehalfOfUserId: createdByUserId },
-				action: "node.enrollment_requested",
-				target: { type: "node", id: enrolled.id },
-				detail: { name: enrolled.name, hostname: input.hostname, client_version: input.clientVersion },
-			})
-			.catch((err: unknown) => console.error("audit: failed to record node.enrollment_requested:", err));
-	return enrolled;
+	const replaced = reenrolled;
+	if (input.audit) {
+		if (replaced) {
+			void input.audit
+				.record({
+					actor: { type: "system", id: "enrollment", onBehalfOfUserId: createdByUserId },
+					action: "node.reenrolled",
+					target: { type: "node", id: node.id },
+					detail: {
+						name: node.name,
+						hostname: input.hostname,
+						client_version: input.clientVersion,
+						old_fingerprint: replaced.oldFingerprint,
+						new_fingerprint: replaced.newFingerprint,
+					},
+				})
+				.catch((err: unknown) => console.error("audit: failed to record node.reenrolled:", err));
+		} else {
+			void input.audit
+				.record({
+					actor: { type: "system", id: "enrollment", onBehalfOfUserId: createdByUserId },
+					action: "node.enrollment_requested",
+					target: { type: "node", id: node.id },
+					detail: { name: node.name, hostname: input.hostname, client_version: input.clientVersion },
+				})
+				.catch((err: unknown) => console.error("audit: failed to record node.enrollment_requested:", err));
+		}
+	}
+	return replaced ? { node, reenrolled: replaced } : { node };
 }

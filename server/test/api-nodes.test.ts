@@ -18,6 +18,7 @@ describeBackends("api nodes", (backend) => {
 	const ids: Record<string, string> = {};
 	const cookies: Record<string, string> = {};
 	let groupId: string;
+	let sshNodeId: string;
 
 	const newToken = async (who = "root", body: unknown = {}) => {
 		const res = await call(app, "/api/enrollment-tokens", { cookie: cookies[who], body });
@@ -57,6 +58,8 @@ describeBackends("api nodes", (backend) => {
 		}
 		groupId = (await createUserGroup(db, "viewers")).id;
 		await addUserGroupMember(db, groupId, ids.viewer as string);
+		sshNodeId = (await enrollFor("ssh-reenroll")).id;
+		await db.updateTable("nodes").set({ transport: "ssh" }).where("id", "=", sshNodeId).execute();
 	});
 	afterAll(async () => {
 		await db.destroy();
@@ -78,6 +81,27 @@ describeBackends("api nodes", (backend) => {
 		const body = (await res.json()) as { token: string; expiresAt: string };
 		expect(parseEnrollmentToken(body.token).fingerprint).toBe("fp-test");
 		expect(Date.parse(body.expiresAt)).toBeGreaterThan(Date.now());
+	});
+
+	it("issues re-enrollment tokens bound to a crha node", async () => {
+		const n = await enrollFor("reenroll-token");
+		const res = await call(app, `/api/nodes/${n.id}/reenroll`, { cookie: cookies.root, body: {} });
+		expect(res.status).toBe(201);
+		const body = (await res.json()) as { token: string; expiresAt: string };
+		expect(parseEnrollmentToken(body.token).fingerprint).toBe("fp-test");
+		expect(Date.parse(body.expiresAt)).toBeGreaterThan(Date.now());
+		const row = await db
+			.selectFrom("enrollment_tokens")
+			.selectAll()
+			.where("bound_node_id", "=", n.id)
+			.executeTakeFirst();
+		expect(row).toMatchObject({ bound_node_id: n.id, used_at: null });
+	});
+
+	it("refuses to re-enroll an SSH node", async () => {
+		const res = await call(app, `/api/nodes/${sshNodeId}/reenroll`, { cookie: cookies.root, body: {} });
+		expect(res.status).toBe(400);
+		expect(((await res.json()) as { error: string }).error).toMatch(/SSH nodes/);
 	});
 
 	describe("access and permissions", () => {
@@ -134,6 +158,7 @@ describeBackends("api nodes", (backend) => {
 				["DELETE", `/api/nodes/${nodeId}`, undefined],
 				["PUT", `/api/nodes/${nodeId}/node-groups`, { nodeGroups: [] }],
 				["POST", "/api/enrollment-tokens", {}],
+				["POST", `/api/nodes/${nodeId}/reenroll`, {}],
 				["POST", "/api/ssh-credentials", { name: "x" }],
 				["DELETE", "/api/ssh-credentials/x", {}],
 				["POST", "/api/ssh-nodes", {}],

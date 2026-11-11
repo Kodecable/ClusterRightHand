@@ -48,15 +48,15 @@ describeBackends("authorization signing key", (backend) => {
 		const first = store.newest;
 		if (!first) throw new Error("missing key");
 
-		const added = await store.add("rotation");
-		expect(added.name).toBe("rotation");
+		const added = await store.add();
+		expect(added.fingerprint).toMatch(/^SHA256:/);
 		expect(store.keys.map((candidate) => candidate.id)).toEqual([added.id, first.id]);
 		expect(store.fingerprints).toEqual([added.fingerprint, first.fingerprint]);
 
 		// A second load sees the same set in the same order.
 		const reloaded = await loadAuthorizationSigningKeys(db, key);
 		expect(reloaded.fingerprints).toEqual(store.fingerprints);
-		expect(reloaded.newest?.name).toBe("rotation");
+		expect(reloaded.newest?.fingerprint).toBe(added.fingerprint);
 
 		await store.delete(added.id);
 		expect(store.fingerprints).toEqual([first.fingerprint]);
@@ -165,12 +165,12 @@ describeBackends("authorization signing key", (backend) => {
 		const store = await loadAuthorizationSigningKeys(db, key);
 		const older = store.newest;
 		if (!older) throw new Error("missing key");
-		const newer = await store.add("second");
+		const newer = await store.add();
 
 		const data = await buildKeyExport(db, key);
 		const exported = data.keys.filter((entry) => entry.kind === AUTHORIZATION_SIGNING_KEY_KIND);
 		expect(exported).toHaveLength(2);
-		expect(exported.map((entry) => entry.name)).toEqual([null, "second"]);
+		expect(exported.every((entry) => !("name" in entry))).toBe(true);
 
 		const restored = await openTestDb(backend);
 		try {
@@ -184,14 +184,12 @@ describeBackends("authorization signing key", (backend) => {
 						org_id: orgId,
 						kind: AUTHORIZATION_SIGNING_KEY_KIND,
 						ciphertext: key.encrypt(Buffer.from(entry.value, "base64"), secretAad(entry.id, entry.kind)),
-						name: entry.name ?? null,
 						created_at: new Date().toISOString(),
 					})
 					.execute();
 			}
 			const loaded = await loadAuthorizationSigningKeys(restored, key);
 			expect([...loaded.fingerprints].sort()).toEqual([older.fingerprint, newer.fingerprint].sort());
-			expect(loaded.keys.map((candidate) => candidate.name).sort()).toEqual([null, "second"].sort());
 		} finally {
 			await restored.destroy();
 		}

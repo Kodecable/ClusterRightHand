@@ -43,22 +43,25 @@ file), 2 when the command line or the configuration file is invalid.
 
 | Command | Purpose |
 |---|---|
-| `enroll <server-url> <token>` | Enroll the node with a one-time token from the WebUI. |
+| `enroll <server-url> <token>` | Enroll the node with a one-time token from the WebUI; `--replace` re-enrolls an existing node. |
 | `run` | Run the unprivileged mode, which connects to crhs and runs tasks. |
 | `status` | Show the server URL, the node's key fingerprint and the privilege mode. |
 | `version` | Show the version. |
-| `rotate-key`, `upgrade` | Not implemented yet. |
+| `upgrade` | Not implemented yet. |
 
 ```sh
 crha enroll --config /etc/crha/crha.toml https://crh.example.com 'crh1.…'
+crha enroll --replace --config /etc/crha/crha.toml https://crh.example.com 'crh1.…'
 crha run --config /etc/crha/crha.toml
 crha status --config /etc/crha/crha.toml
 ```
 
 `crha enroll` checks crhs's identity against the fingerprint in the token, creates the node's key and
-prints the node id and fingerprint. It refuses to run if the node already has a key: to enroll again,
-remove `identity.key` and `server.pub` from the state directory. If the configuration file does not
-exist, add `--state-dir <dir>` to create a minimal one.
+prints the node id and fingerprint. It refuses to run if the node already has a key; pass `--replace`
+with a Re-enroll token to replace it. `--replace` moves `identity.key` and `server.pub` aside as
+`identity.key.old` and `server.pub.old` (overwriting older backups) and restores them if enrollment
+fails, leaving the rest of the state directory untouched. There is no online rotation. If the
+configuration file does not exist, add `--state-dir <dir>` to create a minimal one.
 
 Errors are printed as `crha: <message>` with exit code 1.
 

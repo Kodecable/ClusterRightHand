@@ -19,10 +19,8 @@ export interface SigningKey {
 	id: string;
 	/** The authorized_keys line (`ssh-ed25519 … crhs-signing`) to paste into a node's trust entry. */
 	publicKey: string;
-	/** OpenSSH `SHA256:…` fingerprint. */
+	/** OpenSSH `SHA256:…` fingerprint; it identifies the key everywhere. */
 	fingerprint: string;
-	/** The administrator's optional label; null when unnamed. */
-	name: string | null;
 	/** The key's creation time; newer keys are preferred when a node trusts several. */
 	createdAt: string;
 	/** The nodes whose cached trust report trusts this key, with the kinds they trust it for. */
@@ -34,10 +32,8 @@ export interface SigningKeyListResponse {
 	keys: SigningKey[];
 }
 
-/** `POST /api/privilege/signing-keys` with an optional name. */
-export interface SigningKeyCreateInput {
-	name?: string;
-}
+/** `POST /api/privilege/signing-keys` takes no body: a key is identified by its fingerprint. */
+export type SigningKeyCreateInput = Record<string, never>;
 
 /** The response of adding a key: its public parts, with an empty `trustedBy` until a node reloads. */
 export interface SigningKeyCreateResponse {

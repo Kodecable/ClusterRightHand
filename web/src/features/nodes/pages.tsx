@@ -30,6 +30,7 @@ import { NodeLastSeen } from "./node-last-seen";
 import { NodeTaskList } from "./node-tasks";
 import { NodeTrustPanel } from "./node-trust";
 import { PendingNodeDialog } from "./pending-node-dialog";
+import { ReenrollNodeDialog } from "./reenroll-node-dialog";
 import { RenameNodeButton } from "./rename-node-button";
 import { SshNodeSection } from "./ssh-node-section";
 import { tomlString } from "./trust-editor";
@@ -218,6 +219,7 @@ export function NodeDetailPage() {
 	const trustSources = useTrustSources();
 	const admin = useAuth().user?.kind === "admin";
 	const [editingGroups, setEditingGroups] = useState(false);
+	const [reenrolling, setReenrolling] = useState(false);
 	const [deleting, setDeleting] = useState(false);
 	const details = node.data?.node;
 
@@ -271,6 +273,17 @@ export function NodeDetailPage() {
 								<Trans>Edit node groups</Trans>
 							</Button>
 							<RenameNodeButton node={details} />
+							{details.transport === "client" && (
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={() => setReenrolling(true)}
+									data-testid="reenroll-node"
+								>
+									<Trans>Re-enroll</Trans>
+								</Button>
+							)}
 							<Button type="button" variant="destructive" size="sm" onClick={() => setDeleting(true)}>
 								<Trash2Icon />
 								<Trans>Delete node</Trans>
@@ -324,6 +337,7 @@ export function NodeDetailPage() {
 			)}
 
 			{editingGroups && <NodeGroupsDialog node={details} onClose={() => setEditingGroups(false)} />}
+			{reenrolling && <ReenrollNodeDialog node={details} onClose={() => setReenrolling(false)} />}
 			{deleting && <DeleteNodeDialog node={details} onClose={() => setDeleting(false)} />}
 			{/* The SSH route and its credential are administrator data; the server omits `ssh` otherwise. */}
 			{details.transport === "ssh" && node.data?.ssh && (

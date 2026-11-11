@@ -24,7 +24,7 @@ import type { Db } from "../storage/db.ts";
 import { newId } from "../util/id.ts";
 import type { Cluster } from "./cluster.ts";
 import { closeReason, NodeConnection, toBytes } from "./connection.ts";
-import { EnrollmentError, enrollNode } from "./enrollment.ts";
+import { EnrollmentError, type EnrollmentResult, enrollNodeWithResult } from "./enrollment.ts";
 import type { ServerIdentity } from "./identity.ts";
 import { findNodeByPublicKey, type NodeRow } from "./nodes.ts";
 
@@ -158,9 +158,10 @@ export class AgentServer {
 		if (missing !== undefined) return reject(ws, `missing required command: ${missing}`);
 
 		let node = await findNodeByPublicKey(this.#db, clientKey);
+		let enrolled: EnrollmentResult | undefined;
 		if (!node && init.enroll) {
 			try {
-				node = await enrollNode(this.#db, {
+				enrolled = await enrollNodeWithResult(this.#db, {
 					secret: init.enroll.tokenSecret,
 					publicKey: clientKey,
 					hostname: init.enroll.hostname,
@@ -168,12 +169,17 @@ export class AgentServer {
 					clientVersion: init.crhaVersion,
 					audit: this.#audit,
 				});
+				node = enrolled.node;
 			} catch (err) {
 				if (err instanceof EnrollmentError) return reject(ws, err.message);
 				throw err;
 			}
 		}
 		if (!node) return reject(ws, "unknown node");
+
+		// A re-enrolled node's old key no longer authenticates. Close the connection that authenticated
+		// with it now, even if this new handshake dies before attaching; attach() would otherwise wait.
+		if (enrolled?.reenrolled) this.#cluster.disconnect(node.id, "node re-enrolled");
 
 		// The lookups above are async, so the client may have closed meanwhile. Attaching now would
 		// replace the same node's newer live connection with this already-dead one.

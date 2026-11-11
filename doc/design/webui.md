@@ -194,8 +194,10 @@ WebAuthn, login hashing and captcha, and the real-IP header), plus crhs's author
 Each of the four settings sections is its own form with its own **Save**, which patches only that
 section's values and stays disabled until something changed: an unrelated edit elsewhere in the page
 cannot be overwritten or submitted along with it. A save applies without a restart and is audited. The
-signing keys table marks the newest key, because that is the one crhs signs with by default; a key that
-nodes still trust can only be deleted after a second confirmation that names them.
+authorization signing keys table marks the newest key, because that is the one crhs signs with by
+default; it shows only how many nodes trust each key, and the delete dialog names at most three of them
+before summarising the rest. A key that nodes still trust can only be deleted after a second
+confirmation.
 
 ## Session interface
 

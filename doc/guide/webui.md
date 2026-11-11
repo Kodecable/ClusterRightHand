@@ -165,7 +165,7 @@ connection and create the node. See [Add an SSH node](install.md#add-an-ssh-node
 ### The node page
 
 The node page shows the node's facts, its access grants and its ten most recent tasks. Administrators
-can rename it, change its node groups, and delete it.
+can rename it, change its node groups, re-enroll it (crha nodes), and delete it.
 
 **Last seen** reads **Now** while a crha node is connected.
 
@@ -174,6 +174,15 @@ and its aliases. **Not applicable** means the node is not in `forward` mode; **U
 privileged mode is not running. The page can also build `[[trust]]` entries and the `aliases` line for
 the node's `privileged.toml`, and administrators see crhs's signing key there. crhs cannot apply these
 itself; copy them to the node.
+
+#### Re-enrolling a node
+
+Administrators can re-enroll a crha node with **Re-enroll**. The dialog explains that the node keeps
+its id, name, node groups and access grants, and shows a one-time token and the command
+`crha enroll --replace --config /etc/crha/crha.toml <url> '<token>'`. Run it on the node and start
+`crha` again; the node returns to **Pending approval** and must be approved with its new fingerprint
+([Rotating and revoking node keys](operations.md#rotating-and-revoking-node-keys)). SSH nodes have no
+key, so they have no **Re-enroll** action.
 
 #### Deleting a node
 
@@ -288,10 +297,11 @@ lists every value and its default. Each of the four settings sections has its ow
   ID invalidates Passkeys registered for the old one.
 - **Data retention.** How long **Tasks**, **Audit events** and **Agent tool records** are kept: a
   duration of at least one day, or **Keep forever**.
-- **Signing keys.** The keys crhs signs authorizations with; the newest is marked and used by default.
-  **Add signing key** creates one and shows the public key line to paste into a node's `privileged.toml`.
-  A key that nodes still trust needs **Delete anyway**, and deleting the last key stops crhs from
-  signing for every node.
+- **Authorization signing keys.** The keys crhs signs authorizations with; the newest is marked and
+  used by default. **Add authorization signing key** creates one and shows the public key line to paste
+  into a node's `privileged.toml`. The table counts the nodes that trust each key; the delete dialog
+  names at most three of them. A key that nodes still trust needs **Delete anyway**, and deleting the
+  last key stops crhs from signing for every node.
 
 ## API tokens
 

@@ -31,6 +31,15 @@ export interface NodeGroup extends NodeGroupRef {
 	memberIds: string[];
 }
 
+/**
+ * `POST /api/enrollment-tokens` and `POST /api/nodes/:id/reenroll`: a one-time token, shown once.
+ * A re-enrollment token also replaces an existing crha node's key.
+ */
+export interface EnrollmentTokenResponse {
+	token: string;
+	expiresAt: string;
+}
+
 /** `GET /api/node-groups`; `more` is present only with `limit` (doc/design/webui.md "Entity search"). */
 export interface NodeGroupListResponse {
 	groups: NodeGroup[];

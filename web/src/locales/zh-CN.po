@@ -64,6 +64,11 @@ msgstr "{0, plural, one {# 名成员} other {# 名成员}}"
 msgid "{0, plural, one {# more match} other {# more matches}}"
 msgstr "{0, plural, one {# 个更多匹配} other {# 个更多匹配}}"
 
+#. placeholder {0}: row.original.trustedBy.length
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "{0, plural, one {# node} other {# nodes}}"
+msgstr "{0, plural, one {# 个节点} other {# 个节点}}"
+
 #. placeholder {0}: selectedOptions.length
 #: src/components/entity-picker/entity-picker.tsx
 msgid "{0, plural, one {# selected} other {# selected}}"
@@ -73,6 +78,11 @@ msgstr "{0, plural, one {已选 # 项} other {已选 # 项}}"
 #: src/features/authorizations/pages.tsx
 msgid "{0, plural, one {# task} other {# tasks}}"
 msgstr "{0, plural, one {# 个任务} other {# 个任务}}"
+
+#. placeholder {0}: nodes.length - shown.length
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "{0, plural, one {and # more} other {and # more}}"
+msgstr "{0, plural, one {还有 # 个} other {还有 # 个}}"
 
 #. placeholder {0}: result.replacements
 #: src/components/task-result.tsx
@@ -402,6 +412,10 @@ msgstr "添加 SSH 密钥"
 msgid "Add an SSH key or register a Passkey to sign authorizations for privileged tasks."
 msgstr "添加 SSH 密钥或注册 Passkey，以便为特权任务签名授权。"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Add authorization signing key"
+msgstr "添加授权签名密钥"
+
 #: src/features/settings/provider-dialog.tsx
 msgid "Add field"
 msgstr "添加字段"
@@ -426,10 +440,6 @@ msgstr "添加源"
 #: src/components/share-editor.tsx
 msgid "Add share"
 msgstr "添加共享"
-
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Add signing key"
-msgstr "添加签名密钥"
 
 #: src/features/credentials/pages.tsx
 msgid "Add SSH key"
@@ -470,6 +480,10 @@ msgstr "仅管理员"
 #: src/features/settings/model-dialog.tsx
 msgid "Advanced pi-ai options, validated against the protocol's schema. Leave empty for auto-detection."
 msgstr "高级 pi-ai 选项，按所选协议校验；留空表示自动判断。"
+
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "After it connects, the node shows Pending approval. Compare its new key fingerprint with <0>crha status</0> before approving."
+msgstr "节点连接后会显示为待批准。批准前请把新的密钥指纹与 <0>crha status</0> 的输出进行比对。"
 
 #: src/features/nodes/add-node-dialog.tsx
 msgid "After the node connects it appears as pending; compare its key fingerprint with <0>crha status</0> on the node before approving."
@@ -738,6 +752,18 @@ msgstr "授权时钟容差"
 msgid "Authorization payload"
 msgstr "授权载荷"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Authorization signing key added"
+msgstr "已添加授权签名密钥"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Authorization signing key still trusted"
+msgstr "授权签名密钥仍受信任"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Authorization signing keys"
+msgstr "授权签名密钥"
+
 #: src/components/decision/signature-decision.tsx
 msgid "Authorization submitted."
 msgstr "授权已提交。"
@@ -822,6 +848,7 @@ msgstr "操作者"
 
 #: src/components/dialogs.tsx
 #: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/reenroll-node-dialog.tsx
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/schedules/create-schedule-dialog.tsx
 #: src/features/settings/model-dialog.tsx
@@ -1009,6 +1036,7 @@ msgstr "时钟警告阈值"
 
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/reenroll-node-dialog.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/create-token-dialog.tsx
@@ -1144,6 +1172,7 @@ msgstr "复制代码"
 
 #: src/components/decision/signature-decision.tsx
 #: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/reenroll-node-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Copy command"
 msgstr "复制命令"
@@ -1175,6 +1204,7 @@ msgstr "复制任务 ID"
 msgid "Copy this token now. It will not be shown again."
 msgstr "请立即复制此令牌，它不会再显示。"
 
+#: src/features/nodes/reenroll-node-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Copy token"
 msgstr "复制令牌"
@@ -1216,6 +1246,10 @@ msgstr "创建注册令牌，然后在节点上以 crha 运行任务应使用的
 #: src/features/ssh-credentials/pages.tsx
 msgid "Create one to give crhs a key for SSH nodes and jump hosts."
 msgstr "创建一个，为 crhs 提供用于 SSH 节点和跳板机的密钥。"
+
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "Create token"
+msgstr "创建令牌"
 
 #: src/components/task-result.tsx
 #: src/features/authorizations/pages.tsx
@@ -1368,6 +1402,15 @@ msgstr "删除 {0}？"
 msgid "Delete anyway"
 msgstr "仍然删除"
 
+#. placeholder {0}: row.original.fingerprint
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Delete authorization signing key {0}"
+msgstr "删除授权签名密钥 {0}"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Delete authorization signing key?"
+msgstr "删除授权签名密钥？"
+
 #: src/features/credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
 msgid "Delete credential"
@@ -1405,23 +1448,10 @@ msgstr "删除提供方 {0}？"
 msgid "Delete schedule"
 msgstr "删除计划任务"
 
-#. placeholder {0}: row.original.name ?? row.original.fingerprint
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Delete signing key {0}"
-msgstr "删除签名密钥 {0}"
-
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Delete signing key?"
-msgstr "删除签名密钥？"
-
 #. placeholder {0}: deleting.name
 #: src/features/credentials/pages.tsx
 msgid "Delete the credential \"{0}\"?"
 msgstr "删除凭据“{0}”？"
-
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Delete the signing key {deleteName}?"
-msgstr "删除签名密钥 {deleteName}？"
 
 #. placeholder {0}: deleting.name
 #: src/features/ssh-credentials/pages.tsx
@@ -2006,10 +2036,6 @@ msgid "Key fingerprint"
 msgstr "密钥指纹"
 
 #: src/features/system-settings/signing-keys-section.tsx
-msgid "Key still trusted"
-msgstr "密钥仍受信任"
-
-#: src/features/system-settings/signing-keys-section.tsx
 msgid "Keys crhs signs authorizations with. The newest is used by default; a node trusts a key only when its privileged.toml lists it."
 msgstr "crhs 用于为授权签名的密钥。默认使用最新的密钥；节点仅当其 privileged.toml 列出该密钥时才会信任它。"
 
@@ -2272,7 +2298,6 @@ msgstr "上移跳板机 {0}"
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 #: src/features/ssh-credentials/pages.tsx
-#: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/pages.tsx
@@ -2415,6 +2440,10 @@ msgstr "暂无访问授权"
 msgid "No API tokens yet"
 msgstr "还没有 API 令牌"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "No authorization signing keys yet. crhs cannot sign authorizations until one is added."
+msgstr "尚无授权签名密钥。添加一个之前，crhs 无法签署授权。"
+
 #: src/features/authorizations/pages.tsx
 msgid "No authorizations yet"
 msgstr "还没有授权"
@@ -2493,10 +2522,6 @@ msgstr "没有节点访问权限"
 msgid "No node groups yet"
 msgstr "还没有节点组"
 
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "No node trusts it"
-msgstr "没有节点信任它"
-
 #: src/features/nodes/pages.tsx
 msgid "No nodes yet"
 msgstr "还没有节点"
@@ -2537,10 +2562,6 @@ msgstr "还没有计划任务"
 #: src/features/users/pages.tsx
 msgid "No sessions yet"
 msgstr "还没有会话"
-
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "No signing keys yet. crhs cannot sign authorizations until one is added."
-msgstr "尚无签名密钥。在添加一个之前，crhs 无法为授权签名。"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "No SSH credentials yet"
@@ -2660,8 +2681,9 @@ msgstr "信任该凭据的节点会停止接受其签名。它已签发的授权
 
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 msgid "None"
-msgstr "不支持"
+msgstr "无"
 
 #: src/components/decision/approval-decision.tsx
 msgid "Not a valid rule: {error}"
@@ -2810,17 +2832,12 @@ msgstr "运维控制台"
 
 #: src/features/credentials/pages.tsx
 #: src/features/settings/provider-dialog.tsx
-#: src/features/system-settings/signing-keys-section.tsx
 msgid "Optional"
 msgstr "可选"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Optional, overrides the provider's default endpoint."
 msgstr "可选，覆盖默认提供方的端点。"
-
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Optional, to tell keys apart in this list."
-msgstr "可选，用于在此列表中区分密钥。"
 
 #: src/features/users/new-user-dialog.tsx
 msgid "Optional; at least 8 characters."
@@ -3061,6 +3078,18 @@ msgstr "排队中"
 msgid "Quota"
 msgstr "配额"
 
+#: src/features/nodes/pages.tsx
+msgid "Re-enroll"
+msgstr "重新注册"
+
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "Re-enroll node"
+msgstr "重新注册节点"
+
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "Re-enrollment command"
+msgstr "重新注册命令"
+
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Real client IP header"
 msgstr "真实客户端 IP 头"
@@ -3232,6 +3261,11 @@ msgstr "重复新密码"
 #: src/features/auth/change-password-dialog.tsx
 msgid "Repeat the new password."
 msgstr "请再次输入新密码。"
+
+#. placeholder {0}: node.name
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "Replace the identity key of {0}. The node keeps its id, name, node groups and access grants. It must be approved again before it runs tasks."
+msgstr "替换 {0} 的身份密钥。节点会保留其 id、名称、节点组和访问授权。必须重新批准后它才能运行任务。"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Report"
@@ -3713,14 +3747,6 @@ msgstr "签名凭据"
 msgid "Signing key"
 msgstr "签名密钥"
 
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Signing key added"
-msgstr "签名密钥已添加"
-
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Signing keys"
-msgstr "签名密钥"
-
 #: src/components/task-result.tsx
 msgid "Size"
 msgstr "大小"
@@ -3818,6 +3844,10 @@ msgstr "步骤"
 #: src/features/sessions/composer-footer.tsx
 msgid "Stop"
 msgstr "停止"
+
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "Stop crha, run this on the node, then start it again:"
+msgstr "停止 crha，在节点上运行此命令，然后重新启动："
 
 #: src/features/schedules/schedule-actions.tsx
 msgid "Stop it and run now"
@@ -4009,7 +4039,6 @@ msgid "The model list could not be loaded."
 msgstr "无法加载模型列表。"
 
 #: src/features/credentials/pages.tsx
-#: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "The name must be at most 100 characters."
 msgstr "名称最多 100 个字符。"
@@ -4057,6 +4086,10 @@ msgstr "节点时钟比 crhs 慢 {seconds} 秒（仅在 crha 连接时测量一�
 #: src/components/task-result.tsx
 msgid "The offset is past the end of the file."
 msgstr "起始行超出文件末尾。"
+
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "The old key stops working as soon as the node enrolls with the new token. If its key was lost or compromised, re-enroll rather than deleting the node."
+msgstr "节点用新令牌注册后，旧密钥立即失效。如果密钥丢失或泄露，请重新注册，不要删除节点。"
 
 #: src/app/router.tsx
 msgid "The page you asked for does not exist."
@@ -4123,6 +4156,7 @@ msgid "The timeout must be a non-negative whole number of seconds."
 msgstr "超时时间必须是非负整数秒。"
 
 #: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/reenroll-node-dialog.tsx
 msgid "The token is shown once and expires <0/>."
 msgstr "令牌只显示一次，并将在 <0/> 过期。"
 
@@ -4196,8 +4230,8 @@ msgid "This is a top-level key of privileged.toml. Paste it before the first `[[
 msgstr "这是 privileged.toml 的顶层键。请将它粘贴在第一个 `[[trust]]` 表之前。"
 
 #: src/features/system-settings/signing-keys-section.tsx
-msgid "This is the last signing key: crhs will no longer sign for any node."
-msgstr "这是最后一个签名密钥：crhs 将不再为任何节点签名。"
+msgid "This is the last authorization signing key: crhs will no longer sign for any node."
+msgstr "这是最后一个授权签名密钥：crhs 将不再为任何节点签名。"
 
 #: src/features/approvals/pages.tsx
 msgid "This request is no longer waiting for approval; it is"
@@ -4251,6 +4285,10 @@ msgstr "切换侧边栏"
 #: src/components/ui/sidebar.tsx
 msgid "Toggle Sidebar"
 msgstr "切换侧边栏"
+
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "Token"
+msgstr "令牌"
 
 #: src/features/schedules/schedule-form.tsx
 #: src/features/sessions/budget-dialog.tsx
@@ -4352,10 +4390,6 @@ msgstr "不限制"
 #: src/features/sessions/budget-dialog.tsx
 msgid "Unlimited"
 msgstr "不限"
-
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Unnamed"
-msgstr "未命名"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Unprivileged identity"

@@ -64,6 +64,11 @@ msgstr "{0, plural, one {# member} other {# members}}"
 msgid "{0, plural, one {# more match} other {# more matches}}"
 msgstr "{0, plural, one {# more match} other {# more matches}}"
 
+#. placeholder {0}: row.original.trustedBy.length
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "{0, plural, one {# node} other {# nodes}}"
+msgstr "{0, plural, one {# node} other {# nodes}}"
+
 #. placeholder {0}: selectedOptions.length
 #: src/components/entity-picker/entity-picker.tsx
 msgid "{0, plural, one {# selected} other {# selected}}"
@@ -73,6 +78,11 @@ msgstr "{0, plural, one {# selected} other {# selected}}"
 #: src/features/authorizations/pages.tsx
 msgid "{0, plural, one {# task} other {# tasks}}"
 msgstr "{0, plural, one {# task} other {# tasks}}"
+
+#. placeholder {0}: nodes.length - shown.length
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "{0, plural, one {and # more} other {and # more}}"
+msgstr "{0, plural, one {and # more} other {and # more}}"
 
 #. placeholder {0}: result.replacements
 #: src/components/task-result.tsx
@@ -402,6 +412,10 @@ msgstr "Add an SSH key"
 msgid "Add an SSH key or register a Passkey to sign authorizations for privileged tasks."
 msgstr "Add an SSH key or register a Passkey to sign authorizations for privileged tasks."
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Add authorization signing key"
+msgstr "Add authorization signing key"
+
 #: src/features/settings/provider-dialog.tsx
 msgid "Add field"
 msgstr "Add field"
@@ -426,10 +440,6 @@ msgstr "Add origin"
 #: src/components/share-editor.tsx
 msgid "Add share"
 msgstr "Add share"
-
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Add signing key"
-msgstr "Add signing key"
 
 #: src/features/credentials/pages.tsx
 msgid "Add SSH key"
@@ -470,6 +480,10 @@ msgstr "Administrators only"
 #: src/features/settings/model-dialog.tsx
 msgid "Advanced pi-ai options, validated against the protocol's schema. Leave empty for auto-detection."
 msgstr "Advanced pi-ai options, validated against the protocol's schema. Leave empty for auto-detection."
+
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "After it connects, the node shows Pending approval. Compare its new key fingerprint with <0>crha status</0> before approving."
+msgstr "After it connects, the node shows Pending approval. Compare its new key fingerprint with <0>crha status</0> before approving."
 
 #: src/features/nodes/add-node-dialog.tsx
 msgid "After the node connects it appears as pending; compare its key fingerprint with <0>crha status</0> on the node before approving."
@@ -738,6 +752,18 @@ msgstr "Authorization clock tolerance"
 msgid "Authorization payload"
 msgstr "Authorization payload"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Authorization signing key added"
+msgstr "Authorization signing key added"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Authorization signing key still trusted"
+msgstr "Authorization signing key still trusted"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Authorization signing keys"
+msgstr "Authorization signing keys"
+
 #: src/components/decision/signature-decision.tsx
 msgid "Authorization submitted."
 msgstr "Authorization submitted."
@@ -822,6 +848,7 @@ msgstr "By"
 
 #: src/components/dialogs.tsx
 #: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/reenroll-node-dialog.tsx
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/schedules/create-schedule-dialog.tsx
 #: src/features/settings/model-dialog.tsx
@@ -1009,6 +1036,7 @@ msgstr "Clock warning threshold"
 
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/reenroll-node-dialog.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/create-token-dialog.tsx
@@ -1144,6 +1172,7 @@ msgstr "Copy code"
 
 #: src/components/decision/signature-decision.tsx
 #: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/reenroll-node-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Copy command"
 msgstr "Copy command"
@@ -1175,6 +1204,7 @@ msgstr "Copy task id"
 msgid "Copy this token now. It will not be shown again."
 msgstr "Copy this token now. It will not be shown again."
 
+#: src/features/nodes/reenroll-node-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Copy token"
 msgstr "Copy token"
@@ -1216,6 +1246,10 @@ msgstr "Create an enrollment token, then run the printed command on the node as 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Create one to give crhs a key for SSH nodes and jump hosts."
 msgstr "Create one to give crhs a key for SSH nodes and jump hosts."
+
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "Create token"
+msgstr "Create token"
 
 #: src/components/task-result.tsx
 #: src/features/authorizations/pages.tsx
@@ -1368,6 +1402,15 @@ msgstr "Delete {0}?"
 msgid "Delete anyway"
 msgstr "Delete anyway"
 
+#. placeholder {0}: row.original.fingerprint
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Delete authorization signing key {0}"
+msgstr "Delete authorization signing key {0}"
+
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "Delete authorization signing key?"
+msgstr "Delete authorization signing key?"
+
 #: src/features/credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
 msgid "Delete credential"
@@ -1405,23 +1448,10 @@ msgstr "Delete provider {0}?"
 msgid "Delete schedule"
 msgstr "Delete schedule"
 
-#. placeholder {0}: row.original.name ?? row.original.fingerprint
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Delete signing key {0}"
-msgstr "Delete signing key {0}"
-
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Delete signing key?"
-msgstr "Delete signing key?"
-
 #. placeholder {0}: deleting.name
 #: src/features/credentials/pages.tsx
 msgid "Delete the credential \"{0}\"?"
 msgstr "Delete the credential \"{0}\"?"
-
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Delete the signing key {deleteName}?"
-msgstr "Delete the signing key {deleteName}?"
 
 #. placeholder {0}: deleting.name
 #: src/features/ssh-credentials/pages.tsx
@@ -2006,10 +2036,6 @@ msgid "Key fingerprint"
 msgstr "Key fingerprint"
 
 #: src/features/system-settings/signing-keys-section.tsx
-msgid "Key still trusted"
-msgstr "Key still trusted"
-
-#: src/features/system-settings/signing-keys-section.tsx
 msgid "Keys crhs signs authorizations with. The newest is used by default; a node trusts a key only when its privileged.toml lists it."
 msgstr "Keys crhs signs authorizations with. The newest is used by default; a node trusts a key only when its privileged.toml lists it."
 
@@ -2272,7 +2298,6 @@ msgstr "Move jump host {0} up"
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 #: src/features/ssh-credentials/pages.tsx
-#: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/users/pages.tsx
@@ -2415,6 +2440,10 @@ msgstr "No access grants"
 msgid "No API tokens yet"
 msgstr "No API tokens yet"
 
+#: src/features/system-settings/signing-keys-section.tsx
+msgid "No authorization signing keys yet. crhs cannot sign authorizations until one is added."
+msgstr "No authorization signing keys yet. crhs cannot sign authorizations until one is added."
+
 #: src/features/authorizations/pages.tsx
 msgid "No authorizations yet"
 msgstr "No authorizations yet"
@@ -2493,10 +2522,6 @@ msgstr "No node access"
 msgid "No node groups yet"
 msgstr "No node groups yet"
 
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "No node trusts it"
-msgstr "No node trusts it"
-
 #: src/features/nodes/pages.tsx
 msgid "No nodes yet"
 msgstr "No nodes yet"
@@ -2537,10 +2562,6 @@ msgstr "No schedules yet"
 #: src/features/users/pages.tsx
 msgid "No sessions yet"
 msgstr "No sessions yet"
-
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "No signing keys yet. crhs cannot sign authorizations until one is added."
-msgstr "No signing keys yet. crhs cannot sign authorizations until one is added."
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "No SSH credentials yet"
@@ -2660,6 +2681,7 @@ msgstr "Nodes that trust it stop accepting its signatures. Authorizations it alr
 
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
+#: src/features/system-settings/signing-keys-section.tsx
 msgid "None"
 msgstr "None"
 
@@ -2810,17 +2832,12 @@ msgstr "Ops console"
 
 #: src/features/credentials/pages.tsx
 #: src/features/settings/provider-dialog.tsx
-#: src/features/system-settings/signing-keys-section.tsx
 msgid "Optional"
 msgstr "Optional"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Optional, overrides the provider's default endpoint."
 msgstr "Optional, overrides the provider's default endpoint."
-
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Optional, to tell keys apart in this list."
-msgstr "Optional, to tell keys apart in this list."
 
 #: src/features/users/new-user-dialog.tsx
 msgid "Optional; at least 8 characters."
@@ -3061,6 +3078,18 @@ msgstr "Queued"
 msgid "Quota"
 msgstr "Quota"
 
+#: src/features/nodes/pages.tsx
+msgid "Re-enroll"
+msgstr "Re-enroll"
+
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "Re-enroll node"
+msgstr "Re-enroll node"
+
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "Re-enrollment command"
+msgstr "Re-enrollment command"
+
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Real client IP header"
 msgstr "Real client IP header"
@@ -3232,6 +3261,11 @@ msgstr "Repeat new password"
 #: src/features/auth/change-password-dialog.tsx
 msgid "Repeat the new password."
 msgstr "Repeat the new password."
+
+#. placeholder {0}: node.name
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "Replace the identity key of {0}. The node keeps its id, name, node groups and access grants. It must be approved again before it runs tasks."
+msgstr "Replace the identity key of {0}. The node keeps its id, name, node groups and access grants. It must be approved again before it runs tasks."
 
 #: src/features/nodes/node-trust.tsx
 msgid "Report"
@@ -3713,14 +3747,6 @@ msgstr "Signing credentials"
 msgid "Signing key"
 msgstr "Signing key"
 
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Signing key added"
-msgstr "Signing key added"
-
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Signing keys"
-msgstr "Signing keys"
-
 #: src/components/task-result.tsx
 msgid "Size"
 msgstr "Size"
@@ -3818,6 +3844,10 @@ msgstr "Steps"
 #: src/features/sessions/composer-footer.tsx
 msgid "Stop"
 msgstr "Stop"
+
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "Stop crha, run this on the node, then start it again:"
+msgstr "Stop crha, run this on the node, then start it again:"
 
 #: src/features/schedules/schedule-actions.tsx
 msgid "Stop it and run now"
@@ -4009,7 +4039,6 @@ msgid "The model list could not be loaded."
 msgstr "The model list could not be loaded."
 
 #: src/features/credentials/pages.tsx
-#: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "The name must be at most 100 characters."
 msgstr "The name must be at most 100 characters."
@@ -4057,6 +4086,10 @@ msgstr "The node's clock is {seconds} s behind crhs (measured once when crha con
 #: src/components/task-result.tsx
 msgid "The offset is past the end of the file."
 msgstr "The offset is past the end of the file."
+
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "The old key stops working as soon as the node enrolls with the new token. If its key was lost or compromised, re-enroll rather than deleting the node."
+msgstr "The old key stops working as soon as the node enrolls with the new token. If its key was lost or compromised, re-enroll rather than deleting the node."
 
 #: src/app/router.tsx
 msgid "The page you asked for does not exist."
@@ -4123,6 +4156,7 @@ msgid "The timeout must be a non-negative whole number of seconds."
 msgstr "The timeout must be a non-negative whole number of seconds."
 
 #: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/reenroll-node-dialog.tsx
 msgid "The token is shown once and expires <0/>."
 msgstr "The token is shown once and expires <0/>."
 
@@ -4196,8 +4230,8 @@ msgid "This is a top-level key of privileged.toml. Paste it before the first `[[
 msgstr "This is a top-level key of privileged.toml. Paste it before the first `[[trust]]` table."
 
 #: src/features/system-settings/signing-keys-section.tsx
-msgid "This is the last signing key: crhs will no longer sign for any node."
-msgstr "This is the last signing key: crhs will no longer sign for any node."
+msgid "This is the last authorization signing key: crhs will no longer sign for any node."
+msgstr "This is the last authorization signing key: crhs will no longer sign for any node."
 
 #: src/features/approvals/pages.tsx
 msgid "This request is no longer waiting for approval; it is"
@@ -4251,6 +4285,10 @@ msgstr "Toggle sidebar"
 #: src/components/ui/sidebar.tsx
 msgid "Toggle Sidebar"
 msgstr "Toggle Sidebar"
+
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "Token"
+msgstr "Token"
 
 #: src/features/schedules/schedule-form.tsx
 #: src/features/sessions/budget-dialog.tsx
@@ -4352,10 +4390,6 @@ msgstr "unlimited"
 #: src/features/sessions/budget-dialog.tsx
 msgid "Unlimited"
 msgstr "Unlimited"
-
-#: src/features/system-settings/signing-keys-section.tsx
-msgid "Unnamed"
-msgstr "Unnamed"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Unprivileged identity"

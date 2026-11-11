@@ -423,7 +423,7 @@ describe("privileged forward dispatch", () => {
 
 		it("signs with the newest key each node trusts and the older key for a node that has not caught up", async () => {
 			const older = signing;
-			const newer = await signingKeys.add("rotation");
+			const newer = await signingKeys.add();
 			const behind = await connect("forward-keys-behind");
 			const caughtUp = await connect("forward-keys-caught-up");
 			const behindSummary = summaryOf(behind.node.id, [crhsEntryFor(older, "crhs-old")]);
@@ -906,7 +906,7 @@ describe("privileged forward dispatch", () => {
 			).toBe(401);
 
 			const { node, crha } = await connect("keys-api");
-			const newer = await signingKeys.add("api rotation");
+			const newer = await signingKeys.add();
 			const summary = summaryOf(node.id, [
 				crhsEntryFor(signing, "crhs-old", { kinds: ["execute"] }),
 				crhsEntryFor(newer, "crhs-new", { kinds: ["execute", "cosign"] }),
@@ -919,33 +919,40 @@ describe("privileged forward dispatch", () => {
 			const body = (await listed.json()) as { keys: SigningKey[] };
 			expect(body.keys.map((key) => key.id)).toEqual([newer.id, signing.id]);
 			expect(body.keys[0]).toMatchObject({
-				name: "api rotation",
 				publicKey: newer.authorizedKey,
 				fingerprint: newer.fingerprint,
 				createdAt: expect.any(String),
 				trustedBy: [{ nodeId: node.id, nodeName: node.name, kinds: ["execute", "cosign"] }],
 			});
 			expect(body.keys[1]).toMatchObject({
-				name: null,
 				publicKey: signing.authorizedKey,
 				trustedBy: [{ nodeId: node.id, nodeName: node.name, kinds: ["execute"] }],
 			});
+			// Keys are identified by fingerprint; a client still sending a name is refused.
+			expect(body.keys[0]).not.toHaveProperty("name");
 
-			const added = await call(app, "/api/privilege/signing-keys", {
+			const named = await call(app, "/api/privilege/signing-keys", {
 				method: "POST",
 				cookie: admin,
 				body: { name: "third" },
 			});
+			expect(named.status).toBe(400);
+
+			const added = await call(app, "/api/privilege/signing-keys", {
+				method: "POST",
+				cookie: admin,
+				body: {},
+			});
 			expect(added.status).toBe(201);
 			const addedKey = ((await added.json()) as { key: SigningKey }).key;
-			expect(addedKey).toMatchObject({ name: "third", trustedBy: [] });
+			expect(addedKey).toMatchObject({ trustedBy: [] });
+			expect(addedKey).not.toHaveProperty("name");
 			expect(signingKeys.newest?.id).toBe(addedKey.id);
 			await audit.flush();
 			const addedEvents = await auditRows("signing_key.added");
 			expect(addedEvents).toHaveLength(1);
-			expect(JSON.parse(addedEvents[0]?.detail as string)).toMatchObject({
+			expect(JSON.parse(addedEvents[0]?.detail as string)).toEqual({
 				fingerprint: addedKey.fingerprint,
-				name: "third",
 			});
 
 			// A node still trusts the rotation key: deleting it needs an explicit force.
@@ -969,9 +976,8 @@ describe("privileged forward dispatch", () => {
 			expect(signingKeys.get(newer.id)).toBeUndefined();
 			await audit.flush();
 			const deleted = await auditRows("signing_key.deleted");
-			expect(JSON.parse(deleted.at(-1)?.detail as string)).toMatchObject({
+			expect(JSON.parse(deleted.at(-1)?.detail as string)).toEqual({
 				fingerprint: newer.fingerprint,
-				name: "api rotation",
 				force: true,
 			});
 

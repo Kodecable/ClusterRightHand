@@ -1,5 +1,6 @@
 import type {
 	CrhsKeyResponse,
+	EnrollmentTokenResponse,
 	NodeGroupRef,
 	NodeTrust,
 	PublicNode,
@@ -110,7 +111,20 @@ export function useEnrollmentToken() {
 	// The add-node dialog renders the failure in the dialog.
 	return useMutation({
 		mutationFn: (nameHint?: string) =>
-			http.post<{ token: string; expiresAt: string }>("/enrollment-tokens", nameHint ? { nameHint } : {}),
+			http.post<EnrollmentTokenResponse>("/enrollment-tokens", nameHint ? { nameHint } : {}),
+		meta: { toast: false },
+	});
+}
+
+/**
+ * Creates a one-time token that replaces a crha node's key. The node becomes pending again, so the
+ * detail query is invalidated once the token is created.
+ */
+export function useReenrollNode() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (id: string) => http.post<EnrollmentTokenResponse>(`/nodes/${enc(id)}/reenroll`),
+		onSuccess: () => void queryClient.invalidateQueries({ queryKey: nodeKeys.all }),
 		meta: { toast: false },
 	});
 }

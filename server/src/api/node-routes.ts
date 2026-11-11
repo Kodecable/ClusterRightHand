@@ -100,6 +100,33 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		return { level };
 	};
 
+	/**
+	 * A one-time token that replaces this crha node's key instead of creating a node
+	 * (doc/design/protocol.md "Rotation and revocation"). The node keeps its id, name, node groups,
+	 * access grants and task history; it becomes pending again until the new key is approved.
+	 */
+	app.post("/nodes/:id/reenroll", async (c) => {
+		const id = c.req.param("id");
+		const m = await manageable(c, id);
+		if (m.error) return jsonError(c, m.error.status, m.error.message);
+		const row = await getNode(db, id);
+		if (!row) return jsonError(c, 404, "no such node");
+		if (row.transport === "ssh") return jsonError(c, 400, "SSH nodes cannot be re-enrolled");
+		if (!options.serverFingerprint) return c.json({ error: "server fingerprint is not configured" }, 500);
+		const created = await createEnrollmentToken(db, {
+			userId: c.get("user").userId,
+			boundNodeId: id,
+			serverFingerprint: options.serverFingerprint,
+		});
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "enrollment_token.created",
+			target: { type: "enrollment_token", id: created.id },
+			detail: { node_id: id, node_name: row.name, expires_at: created.expiresAt },
+		});
+		return c.json({ token: created.token, expiresAt: created.expiresAt }, 201);
+	});
+
 	app.post("/nodes/:id/approve", async (c) => {
 		const id = c.req.param("id");
 		const m = await manageable(c, id);

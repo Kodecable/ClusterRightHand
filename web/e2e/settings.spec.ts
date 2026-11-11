@@ -1,6 +1,6 @@
 import { expect, test } from "./fixtures.ts";
 
-test("an administrator changes the public URL and adds and deletes a signing key", async ({
+test("an administrator changes the public URL and adds and deletes an authorization signing key", async ({
 	adminPage: page,
 	crhs,
 }) => {
@@ -22,31 +22,33 @@ test("an administrator changes the public URL and adds and deletes a signing key
 		.poll(async () => (await crhs.api("/api/settings")).json.settings.publicUrl)
 		.toBe("https://crh.example.test");
 
-	// Add a signing key; the dialog shows its public key line for privileged.toml.
+	// Add a signing key; the confirmation has nothing to fill in, and the created dialog shows the
+	// public key line for privileged.toml and the fingerprint that identifies the key.
 	await page.getByTestId("add-signing-key").click();
-	const add = page.getByRole("dialog", { name: "Add signing key" });
-	await add.getByLabel("Name").fill("e2e key");
-	await add.getByRole("button", { name: "Add signing key" }).click();
+	const add = page.getByRole("dialog", { name: "Add authorization signing key" });
+	await add.getByRole("button", { name: "Add authorization signing key" }).click();
 	const created = page.getByTestId("signing-key-created");
 	await expect(created).toBeVisible();
 	await expect(created.locator("code")).toContainText("ssh-ed25519");
 	await expect(created.getByRole("button", { name: "Copy public key" })).toBeVisible();
+	const fingerprint = (await created.getByText(/^SHA256:/).textContent())?.trim() ?? "";
+	expect(fingerprint).toMatch(/^SHA256:/);
 	await created.getByRole("button", { name: "Close", exact: true }).last().click();
 	await expect(created).toHaveCount(0);
 
-	const row = page.getByRole("row").filter({ hasText: "e2e key" });
+	const row = page.getByRole("row").filter({ hasText: fingerprint });
 	await expect(row).toBeVisible();
-	await expect(row).toContainText("No node trusts it");
+	await expect(row).toContainText("None");
 
 	// Delete it again: no node trusts the key, so the first confirmation is enough.
-	await row.getByRole("button", { name: "Delete signing key e2e key" }).click();
-	const confirm = page.getByRole("dialog", { name: "Delete signing key?" });
+	await row.getByRole("button", { name: `Delete authorization signing key ${fingerprint}` }).click();
+	const confirm = page.getByRole("dialog", { name: "Delete authorization signing key?" });
 	await confirm.getByRole("button", { name: "Delete" }).click();
-	await expect(page.getByRole("row").filter({ hasText: "e2e key" })).toHaveCount(0);
+	await expect(page.getByRole("row").filter({ hasText: fingerprint })).toHaveCount(0);
 	await expect
 		.poll(async () =>
 			(await crhs.api("/api/privilege/signing-keys")).json.keys.some(
-				(key: { name: string | null }) => key.name === "e2e key",
+				(key: { fingerprint: string }) => key.fingerprint === fingerprint,
 			),
 		)
 		.toBe(false);

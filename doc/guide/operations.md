@@ -99,7 +99,8 @@ sudo -u crhs node /opt/crh/server/src/main.ts keys export \
 
 It asks for a passphrase and writes an [age](https://age-encryption.org/) file, which the standard `age`
 tool can also decrypt. The file contains crhs's private keys: store it offline, apart from the database
-backups. Node keys are not included; a node that loses its key enrolls again.
+backups. Node keys are not included; a node that loses its key re-enrolls with a Re-enroll token, which
+keeps its record.
 
 **Restore:**
 
@@ -149,23 +150,34 @@ On nodes, crha deletes complete task output files after `[output].max_age` (7 da
 ## Rotating and revoking node keys
 
 **Revoke a node:** delete it on its page in the WebUI. Its key stops working at once. Tasks waiting for
-it fail; tasks running on it become `unknown`.
+it fail; tasks running on it become `unknown`. Deleting a node also invalidates any re-enrollment token
+issued for it.
 
-**Replace a node's key:** there is no online rotation (`crha rotate-key` is not implemented). Enroll the
-node again:
+**Replace a node's key** by re-enrolling it. The node keeps its id, name, node groups, access grants and
+task history; there is no online rotation.
 
-1. Create an enrollment token in the WebUI.
+1. On the node's page, choose **Re-enroll** and copy the token and command.
 2. Stop `crha` (and `crha-privileged`).
-3. Remove both `identity.key` and `server.pub` from the node's state directory.
-4. Run `crha enroll` with the new token, start the services, and approve the node in the WebUI after
-   comparing its fingerprint with `crha status`.
-5. Delete the old node record (before enrolling, if you want to keep the name), add the new node to the
-   same node groups and access grants, and update `node_id` and `aliases` in `privileged.toml`.
+3. Run the printed command:
 
-If the key was compromised, delete the old node first.
+   ```sh
+   sudo -u crha crha enroll --replace --config /etc/crha/crha.toml https://crh.example.com 'crh1.…'
+   ```
 
-**crhs's identity key** cannot be rotated: every node pins it at enrollment, so replacing it means
-re-enrolling every node. Back it up with a key export.
+   `--replace` moves the old `identity.key` and `server.pub` aside as `.old` files, overwriting older
+   backups, and restores them if enrollment fails. The rest of the state directory and the
+   configuration are untouched.
+
+4. Start the services and approve the new key fingerprint in the WebUI after comparing it with
+   `crha status`.
+
+The old key stops authenticating as soon as the node enrolls, and its existing connection is closed.
+`node_id` and `aliases` in `privileged.toml` still refer to the same node. If the host itself is no
+longer trustworthy, revoke it by deleting the node instead.
+
+**crhs's identity key** cannot be rotated online: every node pins it at enrollment, so replacing it
+means re-enrolling every node with a Re-enroll token, which keeps their records. Back the key up with a
+key export.
 
 **crhs's authorization signing key** can be rotated while crhs runs. Add a key, add its public key to
 each node's `privileged.toml` and reload the node when convenient, then delete the old key once no node

@@ -351,12 +351,13 @@ each signature releases only the nodes that accept it.
 
 ### Authorization signing key
 
-crhs keeps a list of Ed25519 signing keys, stored encrypted with the master key. It creates one on first
-start; administrators can add and delete them while crhs runs. A node trusts the keys it lists as `crhs`
-entries, with `execute`, `cosign` or both. For each node crhs uses the newest key that node's cached trust
-report trusts with the needed capability, so during a rotation a node that has not reloaded yet keeps
-working with the key it knows. A task group's shared payload carries one cosignature per key its nodes
-need; each node ignores signatures that match no trust entry.
+crhs keeps a list of Ed25519 signing keys, each identified by its SSH fingerprint, stored encrypted
+with the master key. It creates one on first start; administrators can add and delete them while crhs
+runs. A node trusts the keys it lists as `crhs` entries, with `execute`, `cosign` or both. For each
+node crhs uses the newest key that node's cached trust report trusts with the needed capability, so
+during a rotation a node that has not reloaded yet keeps working with the key it knows. A task group's
+shared payload carries one cosignature per key its nodes need; each node ignores signatures that match
+no trust entry.
 
 To rotate, add a key, add its public key to the nodes' trust configuration and reload them at their own
 pace, then delete the old key once no node trusts it. A node switches as soon as it trusts the new key,

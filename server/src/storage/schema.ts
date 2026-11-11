@@ -119,8 +119,6 @@ export interface SecretsTable {
 	/** What the secret is; also bound into the ciphertext as associated data. */
 	kind: string;
 	ciphertext: string;
-	/** Optional non-secret label; crhs's signing keys use it (doc/design/privilege.md "Authorization signing key"). */
-	name: string | null;
 	created_at: CreatedAt;
 }
 
@@ -180,6 +178,8 @@ export interface EnrollmentTokensTable {
 	created_by_user_id: string;
 	/** Hex SHA-256 of the token secret. */
 	token_hash: string;
+	/** Set for a re-enrollment token: enrolling replaces this node's key instead of creating a node. */
+	bound_node_id: string | null;
 	name_hint: string | null;
 	expires_at: string;
 	used_at: string | null;

@@ -1,8 +1,16 @@
 import { randomBytes } from "node:crypto";
 import type { Facts, TrustSummary } from "@crh/protocol";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
-import { createEnrollmentToken, EnrollmentError, enrollNode, parseEnrollmentToken } from "../src/cluster/enrollment.ts";
+import {
+	createEnrollmentToken,
+	EnrollmentError,
+	enrollNode,
+	enrollNodeWithResult,
+	parseEnrollmentToken,
+} from "../src/cluster/enrollment.ts";
+import { keyFingerprint } from "../src/cluster/identity.ts";
 import { createNodeAccessGrant, deleteNodeAccessGrant, listNodeAccessGrants } from "../src/cluster/node-access.ts";
 import { createNodeGroup, setNodeGroupsForNode } from "../src/cluster/node-groups.ts";
 import {
@@ -130,7 +138,11 @@ describeBackends("nodes", (backend) => {
 				enrollNode(db, { ...base, secret: secretOf(token), now: new Date(now.getTime() + 2000) }),
 			).rejects.toThrow(INVALID);
 			await expect(enrollNode(db, { ...base, secret: "unknown" })).rejects.toThrow(INVALID);
-			const ok = await enrollNode(db, { ...base, secret: secretOf(token), now: new Date(now.getTime() + 500) });
+			const ok = await enrollNode(db, {
+				...base,
+				secret: secretOf(token),
+				now: new Date(now.getTime() + 500),
+			});
 			expect(ok.status).toBe("pending");
 		});
 
@@ -419,6 +431,203 @@ describeBackends("nodes", (backend) => {
 				await db.selectFrom("node_group_members").select("node_id").where("node_id", "=", n.id).execute(),
 			).toHaveLength(0);
 			await expect(deleteNode(db, n.id)).rejects.toThrow(/no such node/);
+		});
+	});
+
+	describe("re-enrollment", () => {
+		it("replaces a node's key but keeps its id, name, node groups and access grants", async () => {
+			const oldKey = key();
+			const org = await defaultOrgId(db);
+			const { token: enrollToken } = await createEnrollmentToken(db, {
+				userId: alice.userId,
+				serverFingerprint: FP,
+			});
+			const n = await enrollNode(db, {
+				secret: secretOf(enrollToken),
+				publicKey: oldKey,
+				hostname: "old-host",
+				facts: FACTS,
+				clientVersion: "1",
+			});
+			await approveNode(db, n.id, admin.userId);
+			const group = await createNodeGroup(db, org, "reenroll-group");
+			await setNodeGroupsForNode(db, n.id, [group.id]);
+			await createNodeAccessGrant(db, {
+				orgId: org,
+				granteeType: "user",
+				granteeId: bob.userId,
+				targetType: "node",
+				targetId: n.id,
+				createdByUserId: alice.userId,
+			});
+			const before = await getNode(db, n.id);
+			expect(before?.public_key).toBe(Buffer.from(oldKey).toString("base64"));
+			const oldFingerprint = keyFingerprint(oldKey);
+			const trustAt = new Date("2032-01-01T00:00:00Z").toISOString();
+			await db
+				.updateTable("nodes")
+				.set({
+					privileged_mode: "forward",
+					last_seen_at: trustAt,
+					trust_report: JSON.stringify({ kind: "not_forward" }),
+					trust_digest: "old-digest",
+					trust_updated_at: trustAt,
+				})
+				.where("id", "=", n.id)
+				.execute();
+
+			const audit = new Audit(db);
+			const { token, id: tokenId } = await createEnrollmentToken(db, {
+				userId: admin.userId,
+				serverFingerprint: FP,
+				boundNodeId: n.id,
+			});
+			const newKey = key();
+			const newFacts = { ...FACTS, hostname: "new-host" };
+			const result = await enrollNodeWithResult(db, {
+				secret: secretOf(token),
+				publicKey: newKey,
+				hostname: "new-host",
+				facts: newFacts,
+				clientVersion: "2",
+				audit,
+			});
+
+			expect(result.node.id).toBe(n.id);
+			expect(result.reenrolled).toEqual({
+				oldFingerprint,
+				newFingerprint: keyFingerprint(newKey),
+			});
+			const row = await getNode(db, n.id);
+			expect(row).toMatchObject({
+				id: n.id,
+				name: n.name,
+				status: "pending",
+				hostname: "new-host",
+				client_version: "2",
+				privileged_mode: null,
+				last_seen_at: null,
+				approved_at: null,
+				approved_by_user_id: null,
+				trust_report: null,
+				trust_digest: null,
+				trust_updated_at: null,
+			});
+			expect(row?.public_key).toBe(Buffer.from(newKey).toString("base64"));
+			expect(JSON.parse(row?.facts ?? "null")).toEqual(newFacts);
+			expect(await findNodeByPublicKey(db, oldKey)).toBeUndefined();
+			expect((await findNodeByPublicKey(db, newKey))?.id).toBe(n.id);
+			expect(
+				(await db.selectFrom("node_group_members").select("node_group_id").where("node_id", "=", n.id).execute()).map(
+					(member) => member.node_group_id,
+				),
+			).toEqual([group.id]);
+			expect(await listNodeAccessGrants(db, { targetType: "node", targetId: n.id })).toMatchObject([
+				{ granteeId: bob.userId },
+			]);
+			// The token is single use, and it belongs to the node it replaced.
+			const tokenRow = await db
+				.selectFrom("enrollment_tokens")
+				.selectAll()
+				.where("id", "=", tokenId)
+				.executeTakeFirst();
+			expect(tokenRow).toMatchObject({ bound_node_id: n.id, used_by_node_id: n.id });
+			await expect(
+				enrollNode(db, {
+					secret: secretOf(token),
+					publicKey: key(),
+					hostname: "again",
+					facts: {},
+					clientVersion: "3",
+				}),
+			).rejects.toThrow(INVALID);
+			// Approval works as for any pending node.
+			expect((await approveNode(db, n.id, admin.userId)).status).toBe("active");
+
+			await audit.flush();
+			const events = await db
+				.selectFrom("audit_events")
+				.selectAll()
+				.where("action", "=", "node.reenrolled")
+				.where("target_id", "=", n.id)
+				.execute();
+			expect(events).toHaveLength(1);
+			expect(JSON.parse(events[0]?.detail ?? "{}")).toMatchObject({
+				old_fingerprint: oldFingerprint,
+				new_fingerprint: keyFingerprint(newKey),
+			});
+		});
+
+		it("refuses an expired re-enrollment token and leaves the node unchanged", async () => {
+			const n = await enroll({ hostname: "expired-reenroll" });
+			const before = await getNode(db, n.id);
+			const now = new Date("2032-01-01T00:00:00Z");
+			const { token } = await createEnrollmentToken(db, {
+				userId: alice.userId,
+				serverFingerprint: FP,
+				boundNodeId: n.id,
+				ttlMs: 1000,
+				now,
+			});
+			await expect(
+				enrollNode(db, {
+					secret: secretOf(token),
+					publicKey: key(),
+					hostname: "late",
+					facts: {},
+					clientVersion: "1",
+					now: new Date(now.getTime() + 2000),
+				}),
+			).rejects.toThrow(INVALID);
+			expect(await getNode(db, n.id)).toMatchObject({
+				status: before?.status,
+				public_key: before?.public_key,
+				hostname: before?.hostname,
+			});
+		});
+
+		it("invalidates the token when the bound node was deleted meanwhile", async () => {
+			const n = await enroll({ hostname: "deleted-reenroll" });
+			const { token } = await createEnrollmentToken(db, {
+				userId: alice.userId,
+				serverFingerprint: FP,
+				boundNodeId: n.id,
+			});
+			const tokenRow = await db
+				.selectFrom("enrollment_tokens")
+				.select("id")
+				.where("bound_node_id", "=", n.id)
+				.execute();
+			expect(tokenRow).toHaveLength(1);
+			await deleteNode(db, n.id);
+			expect(
+				await db
+					.selectFrom("enrollment_tokens")
+					.select("id")
+					.where("id", "=", tokenRow[0]?.id ?? "")
+					.execute(),
+			).toHaveLength(0);
+			await expect(
+				enrollNode(db, {
+					secret: secretOf(token),
+					publicKey: key(),
+					hostname: "too-late",
+					facts: {},
+					clientVersion: "1",
+				}),
+			).rejects.toThrow(INVALID);
+		});
+
+		it("refuses to bind a token to an SSH node", async () => {
+			const n = await enroll({ hostname: "ssh-reenroll" });
+			await db.updateTable("nodes").set({ transport: "ssh" }).where("id", "=", n.id).execute();
+			await expect(
+				createEnrollmentToken(db, {
+					userId: admin.userId,
+					serverFingerprint: FP,
+					boundNodeId: n.id,
+				}),
+			).rejects.toThrow(/SSH nodes cannot be re-enrolled/);
 		});
 	});
 });

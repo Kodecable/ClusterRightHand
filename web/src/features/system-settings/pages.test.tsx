@@ -27,7 +27,6 @@ const NEWEST_KEY: SigningKey = {
 	id: "key-new",
 	publicKey: "ssh-ed25519 AAAANEWKEY crhs-signing",
 	fingerprint: "SHA256:newest-key",
-	name: "rotated 2026",
 	createdAt: "2026-02-01T10:00:00.000Z",
 	trustedBy: [{ nodeId: "node-1", nodeName: "web-1", kinds: ["execute", "cosign"] }],
 };
@@ -36,7 +35,6 @@ const OLDER_KEY: SigningKey = {
 	id: "key-old",
 	publicKey: "ssh-ed25519 AAAAOLDKEY crhs-signing",
 	fingerprint: "SHA256:older-key",
-	name: null,
 	createdAt: "2026-01-01T10:00:00.000Z",
 	trustedBy: [],
 };
@@ -93,11 +91,9 @@ function mockApi({
 				return json({ keys: state.keys });
 			}
 			if (url === "/api/privilege/signing-keys" && method === "POST") {
-				const name = typeof body?.name === "string" ? body.name : null;
 				const key: SigningKey = {
 					...NEWEST_KEY,
 					id: "key-created",
-					name,
 					trustedBy: [],
 					createdAt: "2026-03-01T10:00:00.000Z",
 				};
@@ -145,7 +141,7 @@ describe("SystemSettingsPage", () => {
 		mockApi();
 		await renderPage();
 
-		for (const name of ["General", "Sign-in", "Passkeys", "Data retention", "Signing keys"]) {
+		for (const name of ["General", "Sign-in", "Passkeys", "Data retention", "Authorization signing keys"]) {
 			expect(screen.getByRole("heading", { name })).toBeVisible();
 		}
 		expect(within(section("general-section")).getByLabelText("Public URL")).toHaveValue("");
@@ -156,20 +152,21 @@ describe("SystemSettingsPage", () => {
 		expect(within(section("sign-in-section")).getByLabelText("Argon2 concurrency")).toHaveValue(2);
 		expect(within(section("sign-in-section")).getByLabelText("Argon2 queue")).toHaveValue(32);
 
-		// The newest key comes first and is marked; it is the one crhs signs with.
-		await screen.findByRole("table", { name: "Signing keys" });
-		const rows = within(screen.getByRole("table", { name: "Signing keys" })).getAllByRole("row");
+		// The newest key comes first and is marked; it is the one crhs signs with. The table shows
+		// only how many nodes trust a key; their names are in the delete dialog.
+		await screen.findByRole("table", { name: "Authorization signing keys" });
+		const rows = within(screen.getByRole("table", { name: "Authorization signing keys" })).getAllByRole("row");
 		const newest = rows[1];
 		if (newest === undefined) throw new Error("no newest key row");
-		expect(newest).toHaveTextContent("rotated 2026");
-		expect(newest).toHaveTextContent("Newest");
 		expect(newest).toHaveTextContent("SHA256:newest-key");
-		expect(within(newest).getByRole("link", { name: "web-1" })).toHaveAttribute("href", "/nodes/node-1");
+		expect(newest).toHaveTextContent("Newest");
+		expect(newest).toHaveTextContent("1 node");
+		expect(within(newest).queryByRole("link")).not.toBeInTheDocument();
 
 		const older = rows[2];
 		if (older === undefined) throw new Error("no older key row");
-		expect(older).toHaveTextContent("Unnamed");
-		expect(older).toHaveTextContent("No node trusts it");
+		expect(older).toHaveTextContent("None");
+		expect(older).not.toHaveTextContent("Newest");
 	});
 
 	test("shows the Chinese section names", async () => {
@@ -177,7 +174,7 @@ describe("SystemSettingsPage", () => {
 		await renderWithRouter(<SystemSettingsPage />, "zh-CN");
 
 		expect(await screen.findByRole("heading", { name: "系统设置" })).toBeVisible();
-		for (const name of ["常规", "登录", "Passkey", "数据保留", "签名密钥"]) {
+		for (const name of ["常规", "登录", "Passkey", "数据保留", "授权签名密钥"]) {
 			expect(screen.getByRole("heading", { name })).toBeVisible();
 		}
 	});
@@ -285,15 +282,18 @@ describe("SystemSettingsPage", () => {
 		await renderPage();
 
 		await userEvent.click(screen.getByTestId("add-signing-key"));
-		const dialog = await screen.findByRole("dialog", { name: "Add signing key" });
-		await userEvent.type(within(dialog).getByLabelText("Name"), "rotated");
-		await userEvent.click(within(dialog).getByRole("button", { name: "Add signing key" }));
+		const dialog = await screen.findByRole("dialog", { name: "Add authorization signing key" });
+		// There is nothing to fill in: a key is identified by its fingerprint.
+		expect(within(dialog).queryByLabelText("Name")).not.toBeInTheDocument();
+		await userEvent.click(within(dialog).getByRole("button", { name: "Add authorization signing key" }));
 
 		const created = await screen.findByTestId("signing-key-created");
+		expect(screen.getByRole("dialog", { name: "Authorization signing key added" })).toBeVisible();
 		expect(within(created).getByText("ssh-ed25519 AAAANEWKEY crhs-signing")).toBeVisible();
+		expect(within(created).getByText("SHA256:newest-key")).toBeVisible();
 		expect(within(created).getByRole("button", { name: "Copy public key" })).toBeVisible();
-		expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({ name: "rotated" });
-		expect(api.state.keys[0]?.name).toBe("rotated");
+		expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({});
+		expect(api.state.keys[0]).not.toHaveProperty("name");
 	});
 
 	test("a delete blocked by a trusting node offers Delete anyway after a 409", async () => {
@@ -311,28 +311,61 @@ describe("SystemSettingsPage", () => {
 		);
 		await renderPage();
 
-		await userEvent.click(await screen.findByRole("button", { name: "Delete signing key rotated 2026" }));
-		const dialog = await screen.findByRole("dialog", { name: "Delete signing key?" });
+		await userEvent.click(
+			await screen.findByRole("button", { name: "Delete authorization signing key SHA256:newest-key" }),
+		);
+		const dialog = await screen.findByRole("dialog", { name: "Delete authorization signing key?" });
+		// The fingerprint wraps instead of widening the dialog, and a trusting node's link truncates.
+		expect(within(dialog).getByText("SHA256:newest-key")).toHaveClass("break-all");
+		expect(within(dialog).getByTestId("signing-key-trusted-nodes")).toHaveTextContent("web-1");
 		await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
 
-		expect(await screen.findByRole("dialog", { name: "Key still trusted" })).toBeVisible();
+		expect(await screen.findByRole("dialog", { name: "Authorization signing key still trusted" })).toBeVisible();
 		expect(screen.getByTestId("signing-key-trusted-nodes")).toHaveTextContent("web-1");
 		await userEvent.click(screen.getByRole("button", { name: "Delete anyway" }));
 
 		await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 		const deletes = api.calls.filter((call) => call.method === "DELETE");
 		expect(deletes.map((call) => call.body)).toEqual([{}, { force: true }]);
-		expect(screen.queryByText("rotated 2026")).not.toBeInTheDocument();
+		await waitFor(() => expect(screen.queryByText("SHA256:newest-key")).not.toBeInTheDocument());
+	});
+
+	test("a delete dialog lists at most three trusting nodes and summarises the rest", async () => {
+		const many = {
+			...NEWEST_KEY,
+			id: "key-many",
+			fingerprint: "SHA256:many-key",
+			trustedBy: Array.from({ length: 5 }, (_, index) => ({
+				nodeId: `node-${index + 1}`,
+				nodeName: `node-${index + 1}`,
+				kinds: ["execute" as const],
+			})),
+		};
+		mockApi({ keys: [many] });
+		await renderPage();
+
+		await userEvent.click(
+			await screen.findByRole("button", { name: "Delete authorization signing key SHA256:many-key" }),
+		);
+		const dialog = await screen.findByRole("dialog", { name: "Delete authorization signing key?" });
+		const list = within(dialog).getByTestId("signing-key-trusted-nodes");
+		expect(within(list).getAllByRole("link")).toHaveLength(3);
+		expect(within(list).getByRole("link", { name: "node-1" })).toHaveClass("truncate");
+		expect(within(list).getByRole("link", { name: "node-1" })).toHaveAttribute("title", "node-1");
+		expect(within(list).queryByRole("link", { name: "node-4" })).not.toBeInTheDocument();
+		expect(list).toHaveTextContent("and 2 more");
 	});
 
 	test("deleting the last key warns that crhs can no longer sign for any node", async () => {
 		mockApi({ keys: [NEWEST_KEY] });
 		await renderPage();
 
-		await userEvent.click(await screen.findByRole("button", { name: "Delete signing key rotated 2026" }));
-		const dialog = await screen.findByRole("dialog", { name: "Delete signing key?" });
+		await userEvent.click(
+			await screen.findByRole("button", { name: "Delete authorization signing key SHA256:newest-key" }),
+		);
+		const dialog = await screen.findByRole("dialog", { name: "Delete authorization signing key?" });
 		expect(
-			within(dialog).getByText("This is the last signing key: crhs will no longer sign for any node."),
+			within(dialog).getByText("This is the last authorization signing key: crhs will no longer sign for any node."),
 		).toBeVisible();
 	});
 });

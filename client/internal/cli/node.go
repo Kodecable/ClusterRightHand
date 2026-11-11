@@ -26,6 +26,7 @@ import (
 
 func newEnrollCmd() *cobra.Command {
 	var configPath, stateDir string
+	var replace bool
 	cmd := &cobra.Command{
 		Use:   "enroll <server-url> <token>",
 		Short: "Enroll this node with a crhs server",
@@ -33,19 +34,21 @@ func newEnrollCmd() *cobra.Command {
 this node's identity key and register it. An administrator then confirms the node
 in the WebUI, comparing the fingerprint printed here. The configuration file must already exist and
 set server and state_dir; when it does not exist, --state-dir creates it with that state directory
-instead.`,
+instead. --replace re-enrolls a node that already has keys: the old identity.key and server.pub are
+moved aside as identity.key.old and server.pub.old, and restored if enrollment fails.`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return enroll(cmd.Context(), cmd.OutOrStdout(), configPath, stateDir, args[0], args[1])
+			return enroll(cmd.Context(), cmd.OutOrStdout(), configPath, stateDir, args[0], args[1], replace)
 		},
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "path to the config file (required)")
 	_ = cmd.MarkFlagRequired("config")
 	cmd.Flags().StringVar(&stateDir, "state-dir", "", "state directory of a created config (only when --config does not exist; absolute)")
+	cmd.Flags().BoolVar(&replace, "replace", false, "replace an existing identity key and server key (re-enrollment)")
 	return cmd
 }
 
-func enroll(ctx context.Context, out io.Writer, configPath, stateDir, serverURL, token string) error {
+func enroll(ctx context.Context, out io.Writer, configPath, stateDir, serverURL, token string, replace bool) (err error) {
 	fingerprint, secret, err := parseToken(token)
 	if err != nil {
 		return err
@@ -69,14 +72,28 @@ func enroll(ctx context.Context, out io.Writer, configPath, stateDir, serverURL,
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(cfg.IdentityKeyPath()); err == nil {
-		return fmt.Errorf("%s exists: this node is already enrolled (remove it to enroll again)", cfg.IdentityKeyPath())
+	if _, err := os.Stat(cfg.IdentityKeyPath()); err == nil && !replace {
+		return fmt.Errorf("%s exists: this node is already enrolled (pass --replace to re-enroll it with a new key)", cfg.IdentityKeyPath())
 	}
 	// The enrollment facts carry the shells the node discovered; a node without sh cannot run tasks.
 	env, err := resolveEnv(execenv.Options{})
 	if err != nil {
 		return err
 	}
+	// Everything that does not touch the state directory has been checked. A failed enrollment puts the
+	// previous keys back, so the node is unchanged.
+	restore, err := backupEnrollmentKeys(cfg, replace)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err == nil {
+			return
+		}
+		if restoreErr := restore(); restoreErr != nil {
+			err = fmt.Errorf("%w (restoring the previous keys also failed: %v)", err, restoreErr)
+		}
+	}()
 
 	serverKey, err := fetchServerKey(ctx, cfg, fingerprint)
 	if err != nil {
@@ -110,6 +127,62 @@ func enroll(ctx context.Context, out io.Writer, configPath, stateDir, serverURL,
 	fmt.Fprintf(out, "enrolled as node %s, waiting for approval\nnode key fingerprint: %s\n",
 		conn.Response.NodeID, identity.Fingerprint(key.Public))
 	return nil
+}
+
+// movedKey is one key file backupEnrollmentKeys moved aside. backup is empty when the file did not exist.
+type movedKey struct {
+	path   string
+	backup string
+}
+
+// backupEnrollmentKeys moves identity.key and server.pub aside as *.old so enrollment can write new keys,
+// replacing older backups. With replace false it changes nothing. The returned restore removes any key
+// enrollment wrote and puts the moved files back, so a failed enrollment leaves the node unchanged.
+func backupEnrollmentKeys(cfg *config.Config, replace bool) (func() error, error) {
+	if !replace {
+		return func() error { return nil }, nil
+	}
+	moved := make([]movedKey, 0, 2)
+	restore := func() error {
+		var firstErr error
+		keep := func(err error) {
+			if err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		for i := len(moved) - 1; i >= 0; i-- {
+			item := moved[i]
+			if err := os.Remove(item.path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				keep(err)
+			}
+			if item.backup == "" {
+				continue
+			}
+			keep(os.Rename(item.backup, item.path))
+		}
+		return firstErr
+	}
+	for _, path := range []string{cfg.IdentityKeyPath(), cfg.ServerKeyPath()} {
+		if _, err := os.Stat(path); err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				_ = restore()
+				return nil, err
+			}
+			moved = append(moved, movedKey{path: path})
+			continue
+		}
+		backup := path + ".old"
+		if err := os.Remove(backup); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			_ = restore()
+			return nil, err
+		}
+		if err := os.Rename(path, backup); err != nil {
+			_ = restore()
+			return nil, err
+		}
+		moved = append(moved, movedKey{path: path, backup: backup})
+	}
+	return restore, nil
 }
 
 func parseToken(token string) (fingerprint, secret string, err error) {
@@ -196,15 +269,6 @@ func newStatusCmd() *cobra.Command {
 	cmd.Flags().StringVar(&configPath, "config", "", "path to the config file (required)")
 	_ = cmd.MarkFlagRequired("config")
 	return cmd
-}
-
-func newRotateKeyCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "rotate-key",
-		Short: "Rotate the node key",
-		Args:  cobra.NoArgs,
-		RunE:  notImplemented,
-	}
 }
 
 func newUpgradeCmd() *cobra.Command {

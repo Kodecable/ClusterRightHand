@@ -4,7 +4,7 @@ import { userActor } from "../audit/audit.ts";
 import { signingKeyTrust } from "../cluster/trust.ts";
 import type { AuthorizationSigningKey, AuthorizationSigningKeyStore } from "../privilege/key.ts";
 import type { Db } from "../storage/db.ts";
-import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
+import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { requireAdmin } from "./middleware.ts";
 
 export interface PrivilegeRoutesOptions {
@@ -18,7 +18,6 @@ function keyView(key: AuthorizationSigningKey, trustedBy: SigningKey["trustedBy"
 		id: key.id,
 		publicKey: key.authorizedKey,
 		fingerprint: key.fingerprint,
-		name: key.name,
 		createdAt: key.createdAt,
 		trustedBy,
 	};
@@ -55,13 +54,18 @@ export function privilegeRoutes(options: PrivilegeRoutesOptions) {
 	/** Adds a key; it becomes the newest, so the next task on each node prefers it once the node trusts it. */
 	app.post("/privilege/signing-keys", requireAdmin, async (c) => {
 		if (!keys) return jsonError(c, 503, "signing keys are not configured");
-		const body = (await readJsonObject(c)) ?? {};
-		const key = await keys.add(optionalString(body, "name"));
+		const body = await readJsonObject(c);
+		// Keys are identified by fingerprint; an export or client that still sends a name is refused
+		// rather than silently accepted as if the label had meaning.
+		if (body !== undefined && "name" in body) {
+			return jsonError(c, 400, "signing keys have no name; omit the name field");
+		}
+		const key = await keys.add();
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "signing_key.added",
 			target: { type: "signing_key", id: key.id },
-			detail: { fingerprint: key.fingerprint, name: key.name },
+			detail: { fingerprint: key.fingerprint },
 		});
 		return c.json({ key: keyView(key, []) }, 201);
 	});
@@ -91,7 +95,7 @@ export function privilegeRoutes(options: PrivilegeRoutesOptions) {
 			actor: userActor(c.get("user")),
 			action: "signing_key.deleted",
 			target: { type: "signing_key", id: key.id },
-			detail: { fingerprint: key.fingerprint, name: key.name, force },
+			detail: { fingerprint: key.fingerprint, force },
 		});
 		return c.json({ ok: true });
 	});

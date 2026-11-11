@@ -103,8 +103,8 @@ These are not implemented, but the design leaves room for them:
 - **Linux only.**
 - **No interactive terminal.** Tasks run commands and file operations; there are no PTY tasks.
 - **SSH nodes must be reachable from crhs**, and crha nodes must be able to reach crhs.
-- **No packages, service units or self-upgrade.** `crha upgrade --apply` and `crha rotate-key` are not
-  implemented ([Upgrades](../guide/operations.md#upgrades)).
+- **No packages, service units or self-upgrade.** `crha upgrade --apply` is not implemented
+  ([Upgrades](../guide/operations.md#upgrades)).
 - **No MCP stdio bridge.** MCP clients connect to crhs over HTTP.
 - **No redaction** of command output or file contents sent to model providers
   ([Prompt injection](agent-runtime.md#prompt-injection)).

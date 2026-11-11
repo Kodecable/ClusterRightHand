@@ -31,6 +31,7 @@ import { down as down0046, up as up0046 } from "../src/storage/migrations/0046_t
 import { down as down0047, up as up0047 } from "../src/storage/migrations/0047_session_state_default.ts";
 import { down as down0048, up as up0048 } from "../src/storage/migrations/0048_task_rev.ts";
 import { up as up0049 } from "../src/storage/migrations/0049_api_token_rule_preset.ts";
+import { down as down0055, up as up0055 } from "../src/storage/migrations/0055_drop_secret_name.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
@@ -2307,6 +2308,38 @@ describeBackends("0049 api token rule preset", (backend) => {
 			"session-auto": "auto_review",
 			"schedule-auto": "auto_review",
 		});
+	});
+});
+
+describeBackends("0055 drop secret name", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend);
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("drops the name column in place and restores it on rollback", async () => {
+		expect(await tableColumns(backend, db, "secrets")).not.toContain("name");
+
+		// The test database already ran 0055; roll it back to have the column to drop.
+		await applyMigration(backend, db, down0055);
+		expect(await tableColumns(backend, db, "secrets")).toContain("name");
+		await sql`
+			insert into secrets (id, org_id, kind, ciphertext, created_at, name)
+			values ('secret-1', ${await defaultOrgId(db)}, 'server_identity_key', 'ciphertext', '2026-01-01T00:00:00.000Z', 'label')
+		`.execute(db);
+
+		await applyMigration(backend, db, up0055);
+		expect(await tableColumns(backend, db, "secrets")).not.toContain("name");
+		// The rebuild-free drop keeps the row and its other values.
+		const rows = await sql<{ id: string; ciphertext: string }>`
+			select id, ciphertext from secrets where id = 'secret-1'
+		`.execute(db);
+		expect(rows.rows).toEqual([{ id: "secret-1", ciphertext: "ciphertext" }]);
 	});
 });
 

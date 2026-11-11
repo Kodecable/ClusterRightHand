@@ -49,8 +49,7 @@ export function useCreateSigningKey() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		meta: { toast: false },
-		mutationFn: (input: { name?: string }) =>
-			http.post<SigningKeyCreateResponse>("/privilege/signing-keys", input).then((r) => r.key),
+		mutationFn: () => http.post<SigningKeyCreateResponse>("/privilege/signing-keys").then((r) => r.key),
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: systemSettingsKeys.all });
 			// The node page shows the newest key; a rotation must update that panel too.

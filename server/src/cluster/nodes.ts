@@ -177,6 +177,8 @@ export async function deleteNode(db: Db, nodeId: string): Promise<void> {
 	await db.transaction().execute(async (trx) => {
 		await deleteGrantsForNode(trx, nodeId);
 		await trx.deleteFrom("node_group_members").where("node_id", "=", nodeId).execute();
+		// A re-enrollment token dies with its node; a used ordinary token keeps its row but loses the reference.
+		await trx.deleteFrom("enrollment_tokens").where("bound_node_id", "=", nodeId).execute();
 		await trx
 			.updateTable("enrollment_tokens")
 			.set({ used_by_node_id: null })

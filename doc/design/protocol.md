@@ -352,33 +352,40 @@ so crhs can export the keys:
 - `crhs keys import` restores them on a new deployment with a database backup, after checking that the
   export belongs to the database and that every key matches its row.
 - Export and import are local command-line operations only, never available through the WebUI or the
-  API. A node needs no export: if its key is lost, it enrolls again.
+  API. A node needs no export: if its key is lost, it re-enrolls and keeps its record.
 
 ### Node registration
 
 1. An administrator creates an enrollment token in the WebUI. It has the form
    `crh1.<server identity fingerprint>.<random secret>`, is valid for one hour, can be used once, and
-   can carry a name hint.
+   can carry a name hint. A token bound to an existing crha node re-enrolls that node instead.
 2. On the node, `crha enroll` takes the server URL and the token plus its configuration file. If the
    file does not exist, `--state-dir` makes `crha enroll` write a minimal one. crha fetches the
    server's identity key over HTTPS, **checks it against the fingerprint in the token** and pins it,
    so the token alone bootstraps trust. It generates its node key and puts the enrollment record in
    the first Noise message; the token travels inside the channel, so a TLS terminator never sees it,
-   and a replay finds the token consumed.
+   and a replay finds the token consumed. `--replace` moves an existing `identity.key` and
+   `server.pub` aside as `.old` files before this step.
 3. crhs validates the token and the node becomes `pending`. An administrator compares the hostname
    and the key fingerprint (`crha status` prints it) and approves the node; a rejection deletes the
    key. Until approval, reconnecting with the same key yields a restricted connection.
+
+A token bound to an existing crha node replaces that node's public key instead of creating a node: the
+record keeps its id, name, node groups, access grants and task history, its status returns to
+`pending`, and the old key stops authenticating. crhs closes a connection authenticated with the old
+key and clears the cached facts and trust report, so the node reports them again after approval. A
+token whose node was deleted is invalid.
 
 ### Rotation and revocation
 
 - **Revoke a node.** Deleting the node removes its public key; the next handshake fails, and an
   established connection is closed after `node.status{rejected}`.
-- **Rotate a node key.** There is no online rotation; `crha rotate-key` does not change the key.
-  Replacing a node key means removing `identity.key`, enrolling again with a new token, approving the
-  new node and deleting the old record.
+- **Replace a node key.** Re-enroll the node: its page's **Re-enroll** action issues a token bound to
+  the node, and `crha enroll --replace` replaces the identity key. The node keeps its record, and an
+  administrator approves the new fingerprint. There is no online rotation.
 - **Rotate the server identity key.** crhs keeps one server identity key. A node pins the key it saw
   at enrollment and a different key fails the handshake, so replacing the key requires every node to
-  enroll again.
+  re-enroll; each one uses a Re-enroll token, so the node records stay.
 
 ## JSON storage forms
 
