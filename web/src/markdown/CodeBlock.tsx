@@ -16,7 +16,7 @@ import {
 } from "./shiki/highlighter";
 import { IncrementalTokenizer, type TokenSnapshot } from "./shiki/tokenizer";
 
-/** Finished lines are memoised in groups of this size (doc/design/webui.md "SafeMarkdown"). */
+/** Finished lines are memoised in groups of this size (doc/design/webui.md "Code highlighting"). */
 export const LINE_GROUP_SIZE = 100;
 
 const TokenSpan = memo(function TokenSpan({ tokens }: { tokens: ThemedToken[] }) {
@@ -109,7 +109,7 @@ function cachedSnapshot(key: string, snapshot: TokenSnapshot): TokenSnapshot {
 }
 
 /**
- * The shared incremental Shiki code block (doc/design/webui.md "SafeMarkdown").
+ * The shared incremental Shiki code block (doc/design/webui.md "Code highlighting").
  * Renders plain text until the language grammar chunk is loaded, and forever
  * for languages outside the supported set. Copy always copies the source.
  */

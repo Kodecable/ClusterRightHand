@@ -112,7 +112,7 @@ async function nodeGroupNamesForNode(core: ClusterCore, nodeId: string): Promise
 
 /**
  * Whether a group-addressed reusable authorization would be accepted if the node trusted the
- * addressed node group as an alias (doc/design/privilege.md "Trust cache"). Only reusable authorizations
+ * addressed node group as an alias (doc/design/privilege.md "Trust aliases"). Only reusable authorizations
  * are expanded by group UUID; a one-shot one names its nodes itself and is never in this case.
  * `groups` lets a caller reuse one membership lookup across candidates.
  */
@@ -420,7 +420,7 @@ export async function claimOwnerAuthorization(
  * the failures the caller can fix are synchronous (the signature, the deadline and the issuer's clock);
  * finding the waiting tasks it covers, judging them, claiming them, sending their task.start and
  * storing crhs's cosignatures continue in the background, and the outcome shows up in the task
- * states (doc/design/privilege.md "Authorizations").
+ * states (doc/design/privilege.md "Server-side authorization").
  */
 export async function submitAuthorization(
 	core: ClusterCore,

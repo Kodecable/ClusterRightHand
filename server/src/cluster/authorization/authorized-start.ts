@@ -270,7 +270,7 @@ async function retryAuthorization(
 	message: string,
 ): Promise<void> {
 	// crha refreshes its trust summary before sending an authorization_* error on the same connection, and the
-	// summaries that arrived before this call must be stored before the plan is recomputed (doc/design/protocol.md "task.start").
+	// summaries that arrived before this call must be stored before the plan is recomputed (doc/design/privilege.md "Trust cache").
 	// The tail is awaited outside the task turn: the trust work it waits for may need a task turn of its own.
 	await core.trustQueue.tail(link.conn.nodeId);
 	const row = await core.taskQueue.run(id, async (): Promise<Selectable<TasksTable> | null> => {

@@ -192,7 +192,7 @@ export type Edit = Infer<typeof editCodec>;
 
 /**
  * The page of a `file.read` is at most this many bytes, whole lines only
- * (doc/design/protocol.md "task.start"): the node stops at the first line that would not fit.
+ * (doc/design/execution.md "Task types"): the node stops at the first line that would not fit.
  */
 export const FILE_READ_MAX_BYTES = 50 * 1024;
 
@@ -266,7 +266,7 @@ export type Outcome = Infer<typeof outcomeCodec>;
 
 /**
  * The page a `file.read` task kept: the lines it holds and whether the scan reached the end of the
- * file (doc/design/protocol.md "task.start"). `total` is the file's line count and is present only at the end.
+ * file (doc/design/execution.md "Task types"). `total` is the file's line count and is present only at the end.
  */
 export const fileReadResultCodec = tuple([
 	["from", uint],

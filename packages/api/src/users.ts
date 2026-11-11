@@ -74,7 +74,7 @@ export interface DirectoryResponse extends Directory {
 	more?: boolean;
 }
 
-/** One of the user's signing credentials (doc/design/privilege.md "Authorizations"). */
+/** One of the user's signing credentials (doc/design/privilege.md "Signing methods"). */
 export interface CredentialView {
 	id: string;
 	kind: "ssh" | "webauthn";

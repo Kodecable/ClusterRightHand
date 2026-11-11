@@ -49,8 +49,8 @@ func stepRefusal(result authz.Result, step int, message string) *refusal {
 	return &refusal{code: string(result), step: step, message: message}
 }
 
-// remote builds the task.start error response: code plus "step N: message", as
-// doc/design/protocol.md requires, or the bare message of a refusal outside the flow.
+// remote builds the task.start error response: code plus "step N: message" from the failed
+// verification step, or the bare message of a refusal outside the flow.
 func (r *refusal) remote() *protocol.RemoteError {
 	if r.step == 0 {
 		return &protocol.RemoteError{Code: r.code, Message: r.message}
@@ -414,7 +414,7 @@ func (s *Server) pendingEntries() []protocol.PendingEntry {
 
 // pushLocalDecision tells every forward connection about a decision. The enqueue is non-blocking:
 // the deciding local command must not wait for a forward peer that stopped reading (its write
-// times out and closes that connection; doc/design/privilege.md "Local approval").
+// times out and closes that connection).
 func (s *Server) pushLocalDecision(decision protocol.LocalDecision) {
 	for _, c := range s.forwardConns() {
 		c.enqueue(protocol.EventLocalDecision, decision)

@@ -83,7 +83,7 @@ export interface DataTableProps<T extends RowData> {
 	onRowActivate?: (row: T) => void;
 	/** The id of the column whose content carries `onRowActivate`'s button (the first column by default). */
 	rowActivateColumn?: string;
-	/** Rows above this count are virtualised (doc/design/webui.md "DataTable"). */
+	/** Rows above this count are virtualised (doc/design/webui.md "Shared components"). */
 	virtualizeAfter?: number;
 	/** Height of the virtualised viewport. */
 	height?: number;
@@ -250,7 +250,7 @@ function columnMinSize<T extends RowData>(column: DataTableColumn<T>): number {
  * keeps that width; a column with a minimum width gets at least that and grows;
  * the rest share what is left, never below a small floor. The table keeps the
  * grid's computed minimum and lets its scroll frame scroll instead of crushing
- * a name or a timestamp (doc/design/webui.md "DataTable").
+ * a name or a timestamp (doc/design/webui.md "Shared components").
  */
 function columnTemplate<T extends RowData>(columns: DataTableColumn<T>[], narrow: boolean): string {
 	return columns
@@ -266,7 +266,7 @@ function columnTemplate<T extends RowData>(columns: DataTableColumn<T>[], narrow
 
 /**
  * Below `md` the table keeps its minimum column widths and scrolls sideways
- * instead of crushing every column to a few characters (doc/design/webui.md "DataTable").
+ * instead of crushing every column to a few characters (doc/design/webui.md "Shared components").
  * The computed minimum also sets the table's width at every
  * breakpoint, so the header and the rows scroll together instead of the last
  * columns being clipped by the frame.
@@ -316,7 +316,7 @@ function columnTitle<T extends RowData>(column: DataTableColumn<T>, cellValue: u
  * (`time-column.ts`), which measures a full timestamp in the cell font. A cell
  * whose rendered text may truncate gets a `title` from its value or from
  * `meta.title`. Nested tables pass `density="compact"` and
- * `frame={false}` (doc/design/webui.md "Tables, status and dialogs").
+ * `frame={false}` (doc/design/webui.md "Shared components").
  */
 export function DataTable<T extends RowData>({
 	columns,

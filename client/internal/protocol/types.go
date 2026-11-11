@@ -418,7 +418,7 @@ type InputRef struct {
 }
 
 // FileReadMaxBytes is the page cap of one file.read task: whole lines only, the node stops at the
-// first line that would not fit (doc/design/protocol.md "task.start").
+// first line that would not fit (doc/design/execution.md "Task types").
 const FileReadMaxBytes = 50 << 10
 
 // FileListMaxBytes bounds the entries of one file.list result so that it fits the task.exit frame:
@@ -436,7 +436,7 @@ type FileReadSpec struct {
 }
 
 // FileWriteSpec is the TaskSpec body for the "file.write" kind. CreateParentDirs makes the node
-// create missing parent directories like mkdir -p before writing (doc/design/protocol.md "task.start").
+// create missing parent directories like mkdir -p before writing.
 type FileWriteSpec struct {
 	_                struct{} `cbor:",toarray"`
 	Path             string

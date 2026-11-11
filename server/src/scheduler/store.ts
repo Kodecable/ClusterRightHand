@@ -226,7 +226,8 @@ export interface SchedulePatch {
 
 /**
  * Applies a partial change and recomputes `next_run_at` when the cron, the timezone or `enabled` changed
- * (doc/design/scheduling.md "Lifecycle"). Changing the prompt, model, rule preset or budget only affects later runs.
+ * (doc/design/scheduling.md "Lifecycle"). Changing the prompt, model or budget only affects later runs;
+ * a rule change applies at once.
  */
 export async function updateSchedule(
 	db: Db,

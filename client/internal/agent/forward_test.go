@@ -782,7 +782,7 @@ func TestForwardAuthorizationLacksExecute(t *testing.T) {
 	expectRemoteCode(t, waitCh(t, replies, "task.start response"), "authorization_rejected")
 }
 
-// TestForwardRefreshBeforeRefusal covers the ordering rule of doc/design/protocol.md "task.start": before an
+// TestForwardRefreshBeforeRefusal covers the ordering rule of doc/design/protocol.md "crh-priv": before an
 // authorization_* refusal is relayed, a changed trust summary goes out first.
 func TestForwardRefreshBeforeRefusal(t *testing.T) {
 	keys := newPrivKeys(t)

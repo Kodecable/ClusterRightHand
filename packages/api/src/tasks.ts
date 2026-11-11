@@ -42,7 +42,7 @@ export type FileListEntryView = JsonFileListEntry;
  */
 export type TaskResultView = JsonTaskResult;
 
-/** The task page's list filters (doc/design/webui.md "API conventions"). */
+/** The task page's list filters (doc/design/webui.md "Task and task group pages"). */
 export interface TaskListQuery extends CursorQuery {
 	state?: TaskState;
 	actorType?: string;

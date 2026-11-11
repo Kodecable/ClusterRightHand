@@ -18,8 +18,7 @@ import (
 
 const (
 	// forwardRetryMin and forwardRetryMax bound the backoff of the forward mode connection while
-	// the privileged mode's socket is down: the delay doubles from the first to the second value
-	// (doc/design/privilege.md "Privilege modes").
+	// the privileged mode's socket is down: the delay doubles from the first to the second value.
 	forwardRetryMin = time.Second
 	forwardRetryMax = 30 * time.Second
 	// forwardDialTimeout bounds connecting to the privileged mode's socket.
@@ -191,7 +190,7 @@ func (a *Agent) dialForward(ctx context.Context) (*forwardConn, error) {
 }
 
 // startForward starts the connection to the privileged mode once. forward mode connects at start
-// and reconnects with backoff while the socket is down (doc/design/privilege.md "Privilege modes").
+// and reconnects with backoff while the socket is down.
 func (a *Agent) startForward(ctx context.Context) {
 	if !a.forwardStarted.CompareAndSwap(false, true) {
 		return

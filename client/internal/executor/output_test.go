@@ -40,9 +40,9 @@ func TestOutputInMemory(t *testing.T) {
 	}
 }
 
-// TestOutputLines covers the line count of the merged output (doc/design/protocol.md "Events"): the
-// newline count plus a last line without one, and 0 for no output, whether the bytes stayed in
-// memory or were spilled.
+// TestOutputLines covers the line count of the merged output that task.exit reports
+// (doc/design/protocol.md "Events"): the newline count plus a last line without one, and 0 for no
+// output, whether the bytes stayed in memory or were spilled.
 func TestOutputLines(t *testing.T) {
 	type write struct{ text string }
 	for _, tc := range []struct {

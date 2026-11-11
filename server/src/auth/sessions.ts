@@ -63,7 +63,7 @@ export async function resolveWebSession(db: Db, token: string, now = new Date())
 }
 
 /**
- * Whether a WebUI session is still usable (doc/design/webui.md "Session event stream and history"): the row exists, has not expired,
+ * Whether a WebUI session is still usable (doc/guide/security.md "Authentication"): the row exists, has not expired,
  * and its user is still active. Open server-sent event streams keep their cookie for the life of the
  * connection, so they re-check this instead of trusting the authentication they started with; logout and a
  * password change delete the row, which is what ends the stream.

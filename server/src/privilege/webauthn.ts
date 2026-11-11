@@ -20,7 +20,7 @@ import {
 import type { WebauthnConfig } from "../config.ts";
 import { errorText } from "../util/errors.ts";
 
-/** The COSE algorithms crhs registers (doc/design/privilege.md "Signing methods"): ES256, EdDSA/Ed25519, RS256. */
+/** The COSE algorithms crhs registers (doc/design/protocol.md "Authorization object"): ES256, EdDSA/Ed25519, RS256. */
 export const SUPPORTED_ALGORITHM_IDS: readonly number[] = [-7, -8, -257];
 
 /** How long a registration challenge stays valid. */

@@ -27,7 +27,7 @@ export async function onTrustSummary(core: ClusterCore, link: NodeLink, report: 
 		return result;
 	});
 	if (report.kind === "ok" && !link.conn.closed) {
-		// A privileged mode that restarted lost its in-memory approval requests (doc/design/protocol.md "task.start").
+		// A privileged mode that restarted lost its in-memory approval requests (doc/design/protocol.md "Privilege messages").
 		await resendLocalRequests(core, link);
 		// A signature the owner submitted while the node was away is used now.
 		await useStoredAuthorizations(core, nodeId);

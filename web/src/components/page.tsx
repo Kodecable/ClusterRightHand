@@ -10,7 +10,7 @@ export const DETAIL_WIDTH = "max-w-5xl";
 
 /**
  * The frame of a routed page: one scrolling area and one content column
- * (doc/design/webui.md "Shell"). The page's own header and body both live in the
+ * (doc/design/webui.md "Shell, theme and language"). The page's own header and body both live in the
  * column, so a detail page does not have its title on the far left and its
  * form somewhere else.
  */

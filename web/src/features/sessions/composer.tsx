@@ -21,7 +21,7 @@ export interface ComposerProps {
 }
 
 /**
- * The message composer (doc/design/webui.md "Session interface"): multiline, Enter sends and
+ * The message composer (doc/design/webui.md "Composer"): multiline, Enter sends and
  * Shift+Enter adds a line, the send is disabled while there is nothing to send
  * or no chat capability, and a running session can be aborted here.
  *

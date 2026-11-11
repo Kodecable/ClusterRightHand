@@ -2,7 +2,7 @@ import type { ComponentProps, ElementType, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * A bordered block of a detail page or form (doc/design/webui.md "Cards"): one radius,
+ * A bordered block of a detail page or form (doc/design/webui.md "Shared components"): one radius,
  * one padding and one border everywhere, instead of a page-specific mix of
  * `p-3`, rings and the larger ui `Card`.
  */
@@ -24,7 +24,7 @@ export function SectionTitle({ className, children, ...props }: ComponentProps<"
 }
 
 /**
- * The header row of a table section (doc/design/webui.md "Section layout"): the section
+ * The header row of a table section (doc/design/webui.md "Shared components"): the section
  * title on the left and that section's actions on the right, above the table.
  * Actions never float below the table or below an empty state.
  */

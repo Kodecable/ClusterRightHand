@@ -76,7 +76,7 @@ type Trust struct {
 
 // Load reads, checks and parses the configuration file at path. The file must be owned by
 // the user running the privileged mode and must not be writable by anyone else
-// (doc/design/privilege.md "The privileged mode").
+// (doc/design/privilege.md "Trust configuration").
 func Load(path string) (*Config, error) {
 	f, err := os.Open(path)
 	if err != nil {

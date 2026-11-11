@@ -16,7 +16,7 @@ import (
 
 // PrivilegedPath is the fixed PATH of privileged execution. It is not inherited from crha's
 // environment, so a bare command name always resolves the same way and a task cannot point PATH at
-// a binary of its own (doc/design/privilege.md "Methods and targets").
+// a binary of its own (doc/design/execution.md "The exec environment").
 const PrivilegedPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 // DefaultShellsFile lists the login shells of the node.

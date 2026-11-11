@@ -1,141 +1,40 @@
 # Privileged system tests
 
-`server/test/system/privileged` is the only layer that runs privileged execution against a real
-operating system: a real `crha privileged run` as root, a real `crha run` as a non-privileged user,
-real `sudo` and `doas`, and a real `sshd`. The crhs side is the in-process server from the
-[e2e harness](server.md#harness-pieces).
+`server/test/system/privileged` is the only layer that exercises privileged execution against a real
+operating system. Each node is one podman container running a real `crha privileged run` as root, a real
+`crha run` as an unprivileged user, real `sudo` and `doas`, and an sshd for the SSH tests. crhs is the
+in-process server from the end-to-end harness. The suite runs only with `CRH_TEST_PODMAN=1` and is not
+in CI; run it before releases that touch privilege, the Go client or the protocol.
 
-The suite is gated by `CRH_TEST_PODMAN=1` and skips cleanly when podman is unavailable. It is not
-part of CI.
-
-## What one container is
-
-One container is one node:
-
-- a real `crha privileged run --config /etc/crha/privileged.toml` as root, listening on the socket
-  that config names (`/run/crha/privileged.sock` in the fixture);
-- a real `crha run --config /etc/crha/crha.toml` as uid and gid 998 (`crha`), connecting out to the
-  in-process crhs;
-- an `sshd` on loopback for the SSH-node tests, enabled per test.
-
-Both configuration files name every path explicitly, because crha has no built-in paths except the
-local approval socket. The fixture's `privileged.toml` sets
-`socket = "/run/crha/privileged.sock"`, `state_dir = "/var/lib/crha/privileged"` for the `used` list and
-`log = "/var/log/crha/privileged.jsonl"`; `crha.toml` sets `state_dir = "/var/lib/crha"` and
-`[privileged] socket`, which is required only in `forward` mode.
-
-The image is `ubuntu:24.04` plus `openssh-server`, `sudo`, `opendoas`, `ca-certificates` and
-`util-linux`. It contains no Go toolchain: the host builds a static `crha` with `CGO_ENABLED=0` and
-the harness bind-mounts it at `/usr/local/bin/crha`, so the sudoers and doas rules can name the final
-path:
-
-```text
-crha ALL=(root) NOPASSWD: /usr/local/bin/crha privileged stdio
-permit nopass crha as root cmd /usr/local/bin/crha args privileged stdio
-```
-
-The image tag is the first 12 hex characters of the SHA-256 hash of the four files baked into the
-image (`Containerfile`, `entrypoint.sh`, `privctl.sh`, `fixtures/sshd_config`), so editing any of
-them rebuilds the image once. The image is left in the local store afterwards; containers are
-removed by each test file.
-
-### Mounts
-
-| Host | Container | Purpose |
-|---|---|---|
-| `<temp>/config` | `/etc/crha` (rw) | `crha.toml`, `privileged.toml`, `.ready`; written by the test |
-| `<temp>/ssh` | `/opt/crh/ssh` (ro) | sshd host key, `authorized_keys`, client key |
-| the built `crha` | `/usr/local/bin/crha` (ro) | one binary for both modes |
-
-Node state (identity key, `used` list, output files, logs) stays inside the container. That is why
-restarting the privileged mode does not lose the authorization state.
-
-### Network and boot
-
-The container runs with `--network=host` and `--init`. The container's crha connects to
-`127.0.0.1:<crhs port>`; the in-process crhs connects to the container's sshd. The sshd port
-defaults to 2222 and the SSH-node test picks a free port on the host, passing it as
-`PRIV_SSH_PORT`; tests that do not need sshd start the container with `PRIV_NO_SSHD=1`.
-
-`entrypoint.sh` starts sshd, then waits for `/etc/crha/.ready` (written by the test after
-`crha enroll --config /etc/crha/crha.toml` and after `privileged.toml` exists), then starts the
-privileged mode and the non-privileged crha. On SIGTERM it stops them in reverse order. There is no
-systemd.
-
-Tests control the processes through `podman exec /usr/local/bin/privctl.sh`:
-
-```text
-start-priv | stop-priv | restart-priv | hup-priv
-start-crha | stop-crha | restart-crha
-start-sshd | stop-sshd | start-all | stop-all
-reset-priv-state     # delete the used list, back to a clean authorization state
-wait-priv-socket | status
-```
-
-`privctl.sh` appends the optional environment variables `CRHA_RUN_ARGS` and `CRHA_PRIV_ARGS` to every
-`crha run` and `crha privileged run` it starts (all six start sites). The fixture exposes them
-through `ContainerOptions.env` (`podman run -e`); the soak harness uses them to pass a debug build's
-`--pprof-listen`. When both are unset, the start sites use the plain command lines. Extra bind mounts
-use `ContainerOptions.mounts`.
-
-## Running
-
-```bash
-# the whole matrix (rootless podman and Go required)
-CRH_TEST_PODMAN=1 GOCACHE=/tmp/crh-go-cache pnpm test:system
-
-# one file
-CRH_TEST_PODMAN=1 pnpm --filter @crh/server exec vitest run test/system/privileged/forward.test.ts
-```
-
-Without `CRH_TEST_PODMAN=1`, or when `podman version` fails, every file in the suite is skipped. The
-four files run serially (`--no-file-parallelism`), because each one creates containers and enrolls
-nodes. A full run takes about a minute once the image exists; the first run also builds the image.
-
-Each file creates its own containers, enrolls the node, approves it, writes the trust configuration
-and removes the containers in `afterAll`. The image is kept for the next run.
+The container image contains no Go toolchain. The host builds a static `crha` and mounts it into the
+container. The image is rebuilt automatically when its files change. Node state stays inside the
+container, so restarting the privileged mode keeps its used list as on a real node. Tests start, stop,
+restart and reload the processes inside the container through a control script.
 
 ## Coverage
 
-The suite is the system-level counterpart of the unit tests in `server/test/privilege-*.test.ts`.
-The capability matrix is:
+- `native` with sudo and doas, including cancellation, timeouts and a helper that the tool refuses;
+- `ignore` and `reject`;
+- the task environment: identity, fixed `PATH`, discovered shell;
+- `forward` with crhs-signed authorizations, with user-only trust and `crha grant`, and with required
+  cosignatures;
+- local approval, including recovery after the privileged mode restarts and fallback after a refused
+  crhs signature;
+- one-shot replay protection and the persistent used list;
+- guard rules against symlinks, unnormalized paths, shell commands hiding behind a prefix rule, and
+  environment variables;
+- trust digest changes, re-planning, and an unavailable privileged mode;
+- SSH nodes ignoring the privileged flag;
+- task groups signed once, a refusing node retrying alone, and groups that only local approval could
+  authorize.
 
-| Capability | Where |
-|---|---|
-| `native` with sudo: exec and file as root, cancel and timeout | `native.test.ts` "native with sudo" |
-| `native` with doas: exec as root, `privileged_unsupported` when doas does not allow the helper | `native.test.ts` "native with doas" |
-| `ignore` and `reject`: privileged tasks run as the caller or are refused before acceptance; ordinary tasks unaffected | `native.test.ts` "ignore", "reject" |
-| exec environment: the account's identity, fixed `PATH`, discovered shell, `HOME` override | `native.test.ts`, `forward.test.ts` |
-| `forward` with a crhs-signed authorization: exec and file as root; ordinary tasks stay on the non-privileged path | `forward.test.ts` "crhs-signed authorizations" |
-| A node that only trusts the user: nothing runs without the owner's signature; `crha grant` makes it run; an unregistered key is refused | `forward.test.ts` "a node that only trusts the user" |
-| `require-cosign`: a user signature must carry crhs's cosignature | `forward.test.ts` "require-cosign" |
-| Local approval: `crha pending`, `approve` and `deny`; re-registration after a privileged-mode restart; survival across a non-privileged disconnect; fallback from a refused crhs signature with `attempt + 1` | `forward.test.ts` "local approval" |
-| One-shot replay and the persistent `used` list | `forward.test.ts` "one-shot replay and the used list" |
-| Guard rules: symlink read refused, unnormalized path refused, a shell command cannot hide behind a prefix rule, `env_allow` honoured | `forward.test.ts` "path, env and prefix attempts" |
-| Trust digest: changes on reload, a waiting task is re-planned, `privileged_unavailable` while the daemon is away | `forward.test.ts` "trust digest, re-planning and privileged_unavailable" |
-| SSH nodes: `privileged` is ignored, a notice goes to stderr, SFTP file tasks still work, the SSH user's identity is kept | `ssh.test.ts` |
-| Task groups: one user signature covers several nodes; a refused node retries alone; a group whose only path is local approval fails | `groups.test.ts` |
-
-## Failure injection
-
-Two paths need a deliberately broken state:
-
-- **crhs signature refused by crha**: the crhs trust entry uses `max_ttl = "1ms"` and
-  `clock_skew = "0s"`; the test SIGSTOPs the privileged mode for 300 ms, so the authorization has
-  expired when it arrives (`authorization_expired`), and crhs falls back to local approval with
-  `attempt + 1`.
-- **One node of a task group refuses**: node B's `privileged.toml` names a `node_id` that is not its
-  real id. The shared payload is built from crhs's real ids, so A accepts and B is refused at the
-  validation step. B then waits alone with `attempt + 1`; after the id is fixed, only B is re-signed.
+Two cases are provoked deliberately: a crhs authorization that expires before it arrives (to test the
+fallback), and one node of a group configured with the wrong node id (to test a partial refusal).
 
 ## Limits
 
-- Linux and rootless podman only; `--network=host`, uid 998 and a free sshd port are assumed.
-- Not in CI. Run it before a release that touches privilege, the Go client or the protocol.
-- WebAuthn is covered at the API and unit level with a software authenticator. No real device is used
-  here, so the COSE algorithms used by platform authenticators (iCloud Keychain, Google Password
-  Manager, 1Password, Windows Hello) and hardware FIDO keys are unverified.
-- `crha grant` is exercised with plain ed25519 keys, not encrypted keys, ssh-agent or a FIDO key.
-- `run0` is experimental and not part of the matrix; its `--pipe`, exit codes, cancellation and a
-  minimal polkit configuration are untested.
-- Containers are per test file and removed afterwards; the image is not.
+- Linux and rootless podman only.
+- WebAuthn is tested with a software authenticator only; real platform authenticators and hardware keys
+  are not.
+- `crha grant` is tested with plain Ed25519 keys, not encrypted keys, an agent or a FIDO key.
+- `run0` is not tested.

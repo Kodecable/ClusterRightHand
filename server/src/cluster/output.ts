@@ -42,8 +42,8 @@ export class StreamAccumulator {
 }
 
 /**
- * Lines in output, by the protocol's rule (doc/design/protocol.md "Events".output_lines): newline characters,
- * plus one for a non-empty last line that has no newline. Zero for no output.
+ * Lines in output: newline characters, plus one for a non-empty last line that has no newline.
+ * Zero for no output.
  */
 export function countOutputLines(data: string | Uint8Array): number {
 	const length = data.length;

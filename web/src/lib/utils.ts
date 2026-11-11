@@ -14,7 +14,7 @@ export function cn(...inputs: ClassValue[]): string {
 export const linkClass = "text-foreground underline underline-offset-2 hover:decoration-2";
 
 /**
- * A monospace table cell or detail value (doc/design/webui.md "Tables"): `text-xs` keeps
+ * A monospace table cell or detail value (doc/design/webui.md "Shared components"): `text-xs` keeps
  * ids, commands and hashes compact, and `leading-5` gives them the same 20px
  * line box as `text-sm`, so a row's mono value centers on the same line as its
  * text neighbours instead of sitting higher.

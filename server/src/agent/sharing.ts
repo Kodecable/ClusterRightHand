@@ -21,7 +21,7 @@ export interface SessionPermissions {
 	capabilities: SessionCapabilities;
 	/**
 	 * A share reaches the caller on this session or one of its ancestors: what the WebUI's list items call
-	 * `shared` (doc/design/webui.md "API conventions"). False for the owner, and for an administrator who is not a grantee.
+	 * `shared` (doc/design/access-control.md "Ownership, access grants and sharing"). False for the owner, and for an administrator who is not a grantee.
 	 */
 	shared: boolean;
 }

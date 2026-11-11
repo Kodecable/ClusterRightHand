@@ -31,7 +31,7 @@ import {
 	validateHops,
 } from "./sshHops";
 
-/** The wizard's four steps, in order (doc/design/webui.md "Node pages" / the SSH wizard). */
+/** The wizard's four steps, in order (doc/guide/webui.md "Adding an SSH node"). */
 export const SSH_STEP_LABELS: readonly MessageDescriptor[] = [
 	msg`Credential`,
 	msg`Target`,

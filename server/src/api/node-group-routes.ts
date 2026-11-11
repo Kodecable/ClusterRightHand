@@ -16,7 +16,7 @@ import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { requireAdmin } from "./middleware.ts";
 
 /**
- * Node groups: administrators manage them, every signed-in user may list them (doc/design/access-control.md "User model").
+ * Node groups: administrators manage them, every signed-in user may list them (doc/design/access-control.md "User types").
  * A non-admin's list only shows the member nodes they can see. Expects requireUser to have run.
  */
 export function nodeGroupRoutes(db: Db) {

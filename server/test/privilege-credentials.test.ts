@@ -136,7 +136,7 @@ describe("signing credentials API", () => {
 				rpId: "crh.example.com",
 				origins: ["https://crh.example.com"],
 			});
-			// Only the three algorithms crha can verify are offered (doc/design/privilege.md "Signing methods").
+			// Only the three algorithms crha can verify are offered (doc/design/protocol.md "Authorization object").
 			expect(options.pubKeyCredParams.map((param) => param.alg)).toEqual([-7, -8, -257]);
 		}
 		const listed = (await (await call(app, "/api/me/credentials", { cookie })).json()) as {

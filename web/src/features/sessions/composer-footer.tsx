@@ -48,7 +48,7 @@ export interface ComposerFooterState {
  * ComposerMeta, so the footer keeps room for the model and the rule preset at every
  * width. The budget and the total usage accumulate up the chain, so a session's
  * numbers include its subagents'; the context fill is the session's own last
- * main call (doc/design/agent-runtime.md "Session state").
+ * main call (doc/design/agent-runtime.md "Token measures").
  */
 export function ComposerFooter({
 	state,

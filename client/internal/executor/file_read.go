@@ -33,7 +33,7 @@ func fileRead(ctx context.Context, acc fileAccess, s *protocol.FileReadSpec, std
 // readPage writes lineCount lines from startLine (1-based) to stdout and returns what the page holds:
 // which lines they are, whether the file ended, its line count when it did, and whether the requested
 // line alone is too long. It scans from the start of the file and stops at the line count or at the
-// byte cap, whole lines only; it does not read the rest of the file (doc/design/protocol.md "task.start").
+// byte cap, whole lines only; it does not read the rest of the file (doc/design/execution.md "Task types").
 func readPage(ctx context.Context, r io.Reader, s *protocol.FileReadSpec, stdout io.Writer) (*protocol.FileReadResult, error) {
 	if s.StartLine < 1 || s.LineCount < 1 {
 		return nil, errf(protocol.CodeInvalidSpec, "startLine and lineCount must be at least 1")
@@ -126,7 +126,7 @@ type lineRead struct {
 
 // lineReader reads a file line by line, keeping one line in memory at most: a line over the limit is
 // reported as too long instead of being read to its end. Lines end at "\n", so a CRLF line keeps its
-// "\r" (doc/design/protocol.md "task.start").
+// "\r".
 type lineReader struct {
 	br  *bufio.Reader
 	buf []byte

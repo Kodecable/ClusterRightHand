@@ -3,7 +3,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * The one warning banner (doc/design/webui.md "Warnings"): schedules, the session list and
+ * The one warning banner (doc/design/webui.md "Shared components"): schedules, the session list and
  * the token dialog all use this bordered warn block instead of their own
  * coloured text line.
  */

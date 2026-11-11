@@ -1,5 +1,5 @@
 /**
- * Node and node-group names (doc/design/access-control.md "User model"). Both share
+ * Node and node-group names (doc/design/access-control.md "Node groups and names"). Both share
  * one case-insensitive namespace; these are the client-side checks the forms
  * apply before asking the server, which enforces the same rule again.
  */

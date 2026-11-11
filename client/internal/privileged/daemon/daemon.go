@@ -411,7 +411,7 @@ func (s *Server) reload() {
 	for _, c := range s.forwardConns() {
 		// Queue the push instead of writing it here: a peer that stopped reading must not keep
 		// the Run loop (and SIGTERM handling) behind its socket buffer. A timed-out write closes
-		// that connection (doc/design/privilege.md "The privileged mode").
+		// that connection.
 		c.enqueue(protocol.EventTrustSummary, report)
 	}
 }

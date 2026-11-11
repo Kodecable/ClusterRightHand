@@ -185,7 +185,7 @@ function QuotaRow({ wait }: { wait: QuotaApproval }) {
 }
 
 /**
- * The Approvals page (doc/design/webui.md "Shared components"): everything that waits for this
+ * The Approvals page (doc/design/webui.md "Approvals page"): everything that waits for this
  * user — task approvals, task-group approvals, privileged tasks waiting for a
  * signature and roots whose token quota is used up. Decisions go through the
  * shared cards and invalidate the queries, so the header badge updates too.

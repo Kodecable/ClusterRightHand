@@ -32,7 +32,7 @@ const (
 	writeFrameTimeout = 10 * time.Second
 	// maxForwardConns caps the forward connections that receive trust.summary and local.decision.
 	// Forward connections are the unprivileged peer's; refusing beyond the cap keeps one process
-	// from adding connections without limit (doc/design/privilege.md "The privileged mode").
+	// from adding connections without limit.
 	maxForwardConns = 8
 	// forwardOutboxSize buffers the events queued for one forward connection. Enqueuing never
 	// waits for the peer; the writer drains the queue on its own goroutine.
@@ -444,8 +444,7 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 }
 
 // executionStart prepares the task.start the executor receives. The cwd of a task that was
-// not authorized with an exact command (or by a local approval) is fixed to "/"
-// (doc/design/privilege.md "Validation flow").
+// not authorized with an exact command (or by a local approval) is fixed to "/".
 func executionStart(ts *protocol.TaskStart, decided *decidedTask) protocol.TaskStart {
 	out := *ts
 	if decided.exact || ts.Spec.Kind != protocol.TaskSpecExec || ts.Spec.Exec == nil {
@@ -556,6 +555,6 @@ func (c *conn) decideLocal(raw cbor.RawMessage, approve bool) (any, error) {
 		return nil, refusal
 	}
 	// The decision itself reaches crhs as the local.decision event; the command's success
-	// response is empty (doc/design/protocol.md "crh-priv").
+	// response is empty.
 	return protocol.Empty{}, nil
 }

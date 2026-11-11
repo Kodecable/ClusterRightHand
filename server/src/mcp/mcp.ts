@@ -51,7 +51,7 @@ export function mcpRoutes(db: Db, options: McpOptions): Hono {
 		}
 		const key = `${identity.tokenId}#${++requests}`;
 		// public_url is the console's public base behind a TLS-terminating proxy; without it, the request's
-		// origin is the best crhs can know (doc/guide/mcp.md "Limitations").
+		// origin is the best crhs can know.
 		const baseUrl = options.publicUrl ?? new URL(c.req.url).origin;
 		identities.set(key, { ...identity, baseUrl });
 		try {

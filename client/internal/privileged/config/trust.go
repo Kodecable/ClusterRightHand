@@ -100,7 +100,7 @@ func buildTrust(raw *rawTrust) (*Trust, error) {
 		return nil, err
 	}
 	// require_uv is a user-only requirement, and a plain SSH key cannot assert user
-	// verification (doc/design/privilege.md "Trust entry fields", require_uv).
+	// verification (doc/design/privilege.md "Trust configuration", require_uv).
 	if raw.RequireUV && role != protocol.TrustRoleUser {
 		return nil, errors.New("require_uv: only user entries can require user verification")
 	}

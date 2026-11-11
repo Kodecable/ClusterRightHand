@@ -19,7 +19,7 @@ import { useAuthorizations } from "./api";
 
 /** The command a payload authorizes, as one line. */
 
-/** The issuer: a user links to their page (doc/design/webui.md "User links"); crhs itself signs the rest. */
+/** The issuer: a user links to their page (doc/design/webui.md "List navigation, links and refresh"); crhs itself signs the rest. */
 function AuthorizationIssuer({ entry }: { entry: Pick<AuthorizationSummary, "issuerUserId" | "issuerUsername"> }) {
 	if (entry.issuerUserId === null) return <span className="truncate">crhs</span>;
 	return <UserLink id={entry.issuerUserId} name={entry.issuerUsername} className="truncate" />;
